@@ -1,117 +1,30 @@
-import type { Drawing, Entity } from "./drawing.ts";
-import { fmt } from "./format.ts";
+import type { Drawing } from "./drawing.ts";
+import { toDXFR12 } from "./dxf-r12.ts";
+import { toDXFR2018 } from "./dxf-r2018.ts";
 
 /**
- * Writes an ASCII DXF (AC1009, R12). R12 is the most widely readable DXF:
- * AutoCAD, BricsCAD, LibreCAD, QCAD and most converters open it.
+ * DXF versions tsdraft writes.
  *
- * R12 has no header variable for drawing units, so coordinates are written as
- * plain numbers in the drawing's units and `drawing.units` is not written.
+ * - `"R12"` (AC1009) opens in nearly every CAD program, but has no units or handles.
+ * - `"R2018"` (AC1032) is the newest published version and the native format of
+ *   AutoCAD 2018 through 2027. It records the drawing's units.
  */
-export function toDXF(drawing: Drawing): string {
-  const out: string[] = [];
-  const g = (code: number, value: string | number) => {
-    out.push(String(code), typeof value === "number" ? fmt(value) : value);
-  };
+export type DxfVersion = "R12" | "R2018";
 
-  g(0, "SECTION");
-  g(2, "HEADER");
-  g(9, "$ACADVER");
-  g(1, "AC1009");
-  g(0, "ENDSEC");
-
-  g(0, "SECTION");
-  g(2, "TABLES");
-  g(0, "TABLE");
-  g(2, "LTYPE");
-  g(70, "1");
-  g(0, "LTYPE");
-  g(2, "CONTINUOUS");
-  g(70, "0");
-  g(3, "Solid line");
-  g(72, "65");
-  g(73, "0");
-  g(40, "0.0");
-  g(0, "ENDTAB");
-  g(0, "TABLE");
-  g(2, "LAYER");
-  g(70, String(drawing.layers.length));
-  for (const layer of drawing.layers) {
-    g(0, "LAYER");
-    g(2, layer.name);
-    g(70, "0");
-    g(62, String(layer.color));
-    g(6, "CONTINUOUS");
-  }
-  g(0, "ENDTAB");
-  g(0, "ENDSEC");
-
-  g(0, "SECTION");
-  g(2, "ENTITIES");
-  for (const entity of drawing.entities) writeEntity(entity, g);
-  g(0, "ENDSEC");
-  g(0, "EOF");
-
-  return out.join("\r\n") + "\r\n";
+export interface DxfOptions {
+  /** Defaults to `"R12"`. */
+  readonly version?: DxfVersion;
 }
 
-function writeEntity(e: Entity, g: (code: number, value: string | number) => void): void {
-  switch (e.kind) {
-    case "line":
-      g(0, "LINE");
-      g(8, e.layer);
-      g(10, e.from[0]);
-      g(20, e.from[1]);
-      g(30, 0);
-      g(11, e.to[0]);
-      g(21, e.to[1]);
-      g(31, 0);
-      return;
-    case "polyline":
-      g(0, "POLYLINE");
-      g(8, e.layer);
-      g(66, "1");
-      g(10, 0);
-      g(20, 0);
-      g(30, 0);
-      g(70, e.closed ? "1" : "0");
-      for (const [x, y] of e.points) {
-        g(0, "VERTEX");
-        g(8, e.layer);
-        g(10, x);
-        g(20, y);
-        g(30, 0);
-      }
-      g(0, "SEQEND");
-      g(8, e.layer);
-      return;
-    case "circle":
-      g(0, "CIRCLE");
-      g(8, e.layer);
-      g(10, e.center[0]);
-      g(20, e.center[1]);
-      g(30, 0);
-      g(40, e.radius);
-      return;
-    case "arc":
-      g(0, "ARC");
-      g(8, e.layer);
-      g(10, e.center[0]);
-      g(20, e.center[1]);
-      g(30, 0);
-      g(40, e.radius);
-      g(50, e.startAngle);
-      g(51, e.endAngle);
-      return;
-    case "text":
-      g(0, "TEXT");
-      g(8, e.layer);
-      g(10, e.at[0]);
-      g(20, e.at[1]);
-      g(30, 0);
-      g(40, e.height);
-      g(1, e.value);
-      if (e.rotation !== 0) g(50, e.rotation);
-      return;
+/** Writes the drawing as ASCII DXF. */
+export function toDXF(drawing: Drawing, options: DxfOptions = {}): string {
+  const version = options.version ?? "R12";
+  switch (version) {
+    case "R12":
+      return toDXFR12(drawing);
+    case "R2018":
+      return toDXFR2018(drawing);
+    default:
+      throw new Error(`Unsupported DXF version: ${JSON.stringify(version satisfies never)}`);
   }
 }

@@ -42,10 +42,15 @@ Coordinates are in drawing units with Y pointing up, as in CAD. Angles are in
 degrees, counterclockwise from +X. Layer colors are AutoCAD Color Index numbers.
 Entities go on layer `0` unless they are drawn inside a `layer()` callback.
 
-`toDXF` writes ASCII DXF R12, because nearly every CAD program can open that
-version. R12 has no field for drawing units, so the file holds plain numbers.
-Set the units in CAD after opening it, for example with `UNITS` in AutoCAD or
-BricsCAD.
+`toDXF` writes ASCII DXF R12 by default, because nearly every CAD program can
+open that version. R12 has no field for drawing units, so the file holds plain
+numbers. Set the units in CAD after opening it, for example with `UNITS` in
+AutoCAD or BricsCAD.
+
+`toDXF(drawing, { version: "R2018" })` writes AC1032 instead, the newest DXF
+version Autodesk has published and the native format of AutoCAD 2018 through 2027. It records the drawing's units in `$INSUNITS`, so blocks and xrefs insert
+at the right scale, and it writes polylines as `LWPOLYLINE` and text as UTF-8.
+This writer is a first draft.
 
 ## Development
 

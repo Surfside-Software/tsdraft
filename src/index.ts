@@ -16,5 +16,5 @@ export {
   type TextOptions,
   type Units,
 } from "./drawing.ts";
-export { toDXF } from "./dxf.ts";
+export { toDXF, type DxfOptions, type DxfVersion } from "./dxf.ts";
 export { toSVG, type SvgOptions } from "./svg.ts";

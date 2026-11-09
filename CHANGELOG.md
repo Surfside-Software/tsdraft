@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `toDXF(drawing, { version: "R2018" })` writes AC1032 DXF with handles, owner
+  links, the standard tables, model and paper space blocks, a root dictionary
+  and `$INSUNITS`. R12 stays the default.
+- `DxfOptions` and `DxfVersion` are exported.
+
 ## 0.1.1
 
 - Published from GitHub Actions through npm trusted publishing, with a
