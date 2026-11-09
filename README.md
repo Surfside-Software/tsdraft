@@ -50,7 +50,8 @@ AutoCAD or BricsCAD.
 `toDXF(drawing, { version: "R2018" })` writes AC1032 instead, the newest DXF
 version Autodesk has published and the native format of AutoCAD 2018 through 2027. It records the drawing's units in `$INSUNITS`, so blocks and xrefs insert
 at the right scale, and it writes polylines as `LWPOLYLINE` and text as UTF-8.
-This writer is a first draft.
+AutoCAD 2025 opens its output and AUDIT finds no errors. This writer is a
+first draft.
 
 ## Development
 

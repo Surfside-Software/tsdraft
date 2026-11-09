@@ -14,8 +14,9 @@
 - DXF has one writer per version: `src/dxf-r12.ts` (AC1009, the default) and
   `src/dxf-r2018.ts` (AC1032). Check that an entity or header variable exists in
   the target version before writing it. `src/dxf.ts` picks the writer.
-- AC1032 needs every handle unique, every owner (330) and pointer (340, 350) to
-  resolve, and `$HANDSEED` above the highest handle. The tests check this.
+- AC1032 needs every handle unique, every owner (330) and pointer (340, 350, 390) to resolve, and `$HANDSEED` above the highest handle. AutoCAD also
+  discards the whole file if a LAYER has no 390 plot style pointer. The tests
+  check all of this.
 - The published package must run on Node 22. Only development tooling may need
   Node 24; on Node 22, development needs 22.18 or later for type stripping.
 - Release by bumping `version` and the CHANGELOG in a PR, merging it, then

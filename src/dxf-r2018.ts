@@ -32,6 +32,8 @@ export function toDXFR2018(drawing: Drawing): string {
 
   const rootDictionary = handle();
   const groupDictionary = handle();
+  const plotStyleDictionary = handle();
+  const normalPlotStyle = handle();
   const modelSpace = handle();
   const paperSpace = handle();
   const [minX, minY, maxX, maxY] = extents(drawing.entities);
@@ -85,6 +87,7 @@ export function toDXFR2018(drawing: Drawing): string {
         g(62, layer.color);
         g(6, "Continuous");
         g(370, -3); // lineweight: default
+        g(390, normalPlotStyle); // AutoCAD rejects a layer without a plot style
       },
     })),
   );
@@ -155,14 +158,23 @@ export function toDXFR2018(drawing: Drawing): string {
   g(281, 1); // duplicate records: keep existing
   g(3, "ACAD_GROUP");
   g(350, groupDictionary);
+  g(3, "ACAD_PLOTSTYLENAME");
+  g(350, plotStyleDictionary);
   g(0, "DICTIONARY");
-  g(5, groupDictionary);
-  g(102, "{ACAD_REACTORS");
-  g(330, rootDictionary);
-  g(102, "}");
-  g(330, rootDictionary);
+  ownedBy(g, groupDictionary, rootDictionary);
   g(100, "AcDbDictionary");
   g(281, 1);
+  // Plot style names: a dictionary with a default, holding the "Normal" placeholder.
+  g(0, "ACDBDICTIONARYWDFLT");
+  ownedBy(g, plotStyleDictionary, rootDictionary);
+  g(100, "AcDbDictionary");
+  g(281, 1);
+  g(3, "Normal");
+  g(350, normalPlotStyle);
+  g(100, "AcDbDictionaryWithDefault");
+  g(340, normalPlotStyle);
+  g(0, "ACDBPLACEHOLDER");
+  ownedBy(g, normalPlotStyle, plotStyleDictionary);
   g(0, "ENDSEC");
   g(0, "EOF");
 
@@ -198,6 +210,15 @@ function groupWriter(out: string[]): Group {
   return (code, value) => {
     out.push(String(code), typeof value === "number" ? fmt(value) : value);
   };
+}
+
+/** Handle, reactor and owner fields for an object owned by a dictionary. */
+function ownedBy(g: Group, handle: string, owner: string): void {
+  g(5, handle);
+  g(102, "{ACAD_REACTORS");
+  g(330, owner);
+  g(102, "}");
+  g(330, owner);
 }
 
 function point(g: Group, code: number, x: number, y: number): void {

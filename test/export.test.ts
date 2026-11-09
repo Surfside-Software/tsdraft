@@ -73,7 +73,7 @@ test("R2018 DXF has AC1032 sections, units and valid handles", () => {
     .map(([, v]) => v);
   assert.equal(new Set(handles).size, handles.length, "handles are unique");
   for (const [code, value] of p.slice(headerEnd)) {
-    if (code === 330 || code === 340 || code === 350) {
+    if (code === 330 || code === 340 || code === 350 || code === 390) {
       assert.ok(value === "0" || handles.includes(value), `${code} ${value} resolves`);
     }
   }
@@ -90,6 +90,10 @@ test("R2018 DXF has AC1032 sections, units and valid handles", () => {
     assert.ok(has(2, name), name);
   }
   assert.ok(has(3, "ACAD_GROUP"), "root dictionary");
+  // AutoCAD discards the file ("Did not receive PlotStyleName") if a layer has no 390 pointer.
+  const layers = p.filter(([c, v]) => c === 0 && v === "LAYER").length;
+  assert.equal(p.filter(([c]) => c === 390).length, layers, "every layer has a plot style");
+  assert.ok(has(0, "ACDBDICTIONARYWDFLT") && has(3, "ACAD_PLOTSTYLENAME"), "plot styles");
   assert.ok(has(0, "LWPOLYLINE") && has(90, "4") && has(70, "1"), "closed 4-point polyline");
   assert.ok(has(100, "AcDbArc") && has(51, "180"), "arc");
   assert.ok(has(1, "LOT 1 <A&B>") && has(50, "90"), "text");
