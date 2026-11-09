@@ -1,0 +1,35 @@
+name: Release
+
+# Publishes to npm when a GitHub release is published. npm trusts this exact
+# workflow file (trusted publishing over OIDC), so no npm token is stored, and
+# npm attaches provenance automatically.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Check the tag matches package.json
+        run: |
+          expected="v$(node -p 'require("./package.json").version')"
+          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
+            echo "Release tag $GITHUB_REF_NAME does not match package.json version $expected"
+            exit 1
+          fi
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify
+      - run: npm --version
+      - run: npm publish

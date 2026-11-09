@@ -14,6 +14,10 @@
 - DXF output targets R12 (AC1009). Check that an entity or header variable exists
   in R12 before writing it, or add a newer DXF version as a separate writer.
 - The published package must run on Node 22. Only development tooling may need
-  Node 24.
+  Node 24; on Node 22, development needs 22.18 or later for type stripping.
+- Release by bumping `version` and the CHANGELOG in a PR, merging it, then
+  publishing a GitHub release tagged `v<version>` on the merge commit. The
+  Release workflow publishes to npm through trusted publishing. Never publish
+  from a laptop with a token.
 - Test a DXF change by opening the example output in BricsCAD or AutoCAD when you
   can. Follow the `cad-automation-notes` skill before any live CAD call.
