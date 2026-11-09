@@ -1,3 +1,12 @@
+import {
+  layerColorProblem,
+  layerNameProblem,
+  textProblem,
+  type LayerColor,
+  type LayerName,
+  type Positive,
+} from "./rules.ts";
+
 /** A model-space point, in drawing units. Y points up, as in CAD. */
 export type Point = readonly [x: number, y: number];
 
@@ -6,6 +15,20 @@ export type Point = readonly [x: number, y: number];
  * the DXF R12 writer has no field for it, so set units in CAD after opening.
  */
 export type Units = "in" | "ft" | "mm" | "cm" | "m";
+
+const UNITS: readonly string[] = ["in", "ft", "mm", "cm", "m"] satisfies readonly Units[];
+
+/**
+ * DXF versions tsdraft writes.
+ *
+ * - `"R12"` (AC1009) opens in nearly every CAD program, but stores no units and
+ *   limits layer names to 31 letters, digits, `$`, `-` and `_`.
+ * - `"R2018"` (AC1032) is the newest published version and the one AutoCAD has
+ *   used since 2018. It records the drawing's units.
+ */
+export type DxfVersion = "R12" | "R2018";
+
+const DXF_VERSIONS: readonly string[] = ["R12", "R2018"] satisfies readonly DxfVersion[];
 
 export interface Layer {
   readonly name: string;
@@ -35,7 +58,7 @@ export interface Circle extends EntityBase {
   readonly radius: number;
 }
 
-/** Angles are in degrees, counterclockwise from +X, as in DXF. */
+/** Angles are in degrees from 0 up to 360, counterclockwise from +X, as in DXF. */
 export interface Arc extends EntityBase {
   readonly kind: "arc";
   readonly center: Point;
@@ -58,50 +81,80 @@ export type Entity = Line | Polyline | Circle | Arc | Text;
 
 export interface Drawing {
   readonly units: Units;
+  /** The DXF version the drawing is written for. `toDXF` uses it unless told otherwise. */
+  readonly dxf: DxfVersion;
   readonly layers: readonly Layer[];
   readonly entities: readonly Entity[];
 }
 
-export interface DrawingOptions {
+export interface DrawingOptions<V extends DxfVersion = DxfVersion> {
+  /** Defaults to `"in"`. */
   readonly units?: Units;
+  /** The DXF version to check the drawing against and export. Defaults to `"R12"`. */
+  readonly dxf?: V;
 }
 
-export interface LayerOptions {
-  readonly color?: number;
+export interface LayerOptions<C extends number = number> {
+  /** AutoCAD Color Index, 1 to 255. */
+  readonly color?: LayerColor<C>;
 }
 
-export interface TextOptions {
-  readonly height?: number;
+export interface TextOptions<H extends number = number> {
+  readonly height?: Positive<H>;
+  /** Degrees counterclockwise. */
   readonly rotation?: number;
 }
 
 /**
  * Builds a drawing. Entities go on the current layer, which starts as "0".
  * `layer(name, opts, draw)` scopes everything drawn inside `draw` to that layer.
+ *
+ * Mistakes written as literals, such as a layer name the DXF version does not
+ * allow or a negative radius, are compile errors. The same checks run again
+ * when the code runs, for values the compiler cannot see.
  */
-export class DrawingBuilder {
+export class DrawingBuilder<V extends DxfVersion = "R12"> {
   readonly units: Units;
+  readonly dxf: V;
+  /** Keyed by lower-cased name, because CAD ignores case in layer names. */
   readonly #layers = new Map<string, Layer>([["0", { name: "0", color: 7 }]]);
   readonly #entities: Entity[] = [];
   #current = "0";
 
-  constructor(options: DrawingOptions = {}) {
-    this.units = options.units ?? "in";
+  constructor(options: DrawingOptions<V> = {}) {
+    const units = options.units ?? "in";
+    if (!UNITS.includes(units)) throw new Error(`Unknown units: ${JSON.stringify(units)}`);
+    const dxf = options.dxf ?? "R12";
+    if (!DXF_VERSIONS.includes(dxf)) {
+      throw new Error(`Unsupported DXF version: ${JSON.stringify(dxf)}`);
+    }
+    this.units = units;
+    this.dxf = dxf as V;
   }
 
-  /** Defines or updates a layer. With `draw`, entities drawn inside it go on this layer. */
-  layer(name: string, options: LayerOptions = {}, draw?: () => void): this {
-    if (!/^[^<>/\\":;?*|=`]{1,255}$/.test(name)) {
-      throw new Error(`Invalid layer name: ${JSON.stringify(name)}`);
-    }
-    const color = options.color ?? this.#layers.get(name)?.color ?? 7;
-    if (!Number.isInteger(color) || color < 1 || color > 255) {
-      throw new Error(`Layer ${name}: color must be an ACI integer from 1 to 255`);
-    }
-    this.#layers.set(name, { name, color });
+  /**
+   * Defines or updates a layer. With `draw`, entities drawn inside it go on this layer.
+   * `wall` and `WALL` are the same layer, as in CAD, and keep the first spelling.
+   */
+  layer<N extends string, C extends number = number>(
+    name: LayerName<N, V>,
+    options: LayerOptions<C> = {},
+    draw?: () => void,
+  ): this {
+    // The parameter type is the error message when a literal name is wrong, so read it as a string.
+    const requested = name as string;
+    const nameProblem = layerNameProblem(requested, this.dxf);
+    if (nameProblem) throw new Error(`Layer ${JSON.stringify(requested)}: ${nameProblem}`);
+    const key = requested.toLowerCase();
+    const existing = this.#layers.get(key);
+    const color = (options.color as number | undefined) ?? existing?.color ?? 7;
+    const colorProblem = layerColorProblem(color);
+    if (colorProblem) throw new Error(`Layer ${JSON.stringify(requested)}: ${colorProblem}`);
+    const layer = { name: existing?.name ?? requested, color };
+    this.#layers.set(key, layer);
     if (draw) {
       const previous = this.#current;
-      this.#current = name;
+      this.#current = layer.name;
       try {
         draw();
       } finally {
@@ -121,22 +174,26 @@ export class DrawingBuilder {
   }
 
   /** Closed rectangle from its lower-left corner. */
-  rect(corner: Point, width: number, height: number): this {
+  rect<W extends number, H extends number>(
+    corner: Point,
+    width: Positive<W>,
+    height: Positive<H>,
+  ): this {
     const [x, y] = pt(corner);
-    num(width, "width");
-    num(height, "height");
+    const w = positive(width, "width");
+    const h = positive(height, "height");
     return this.polyline(
       [
         [x, y],
-        [x + width, y],
-        [x + width, y + height],
-        [x, y + height],
+        [x + w, y],
+        [x + w, y + h],
+        [x, y + h],
       ],
       true,
     );
   }
 
-  circle(center: Point, radius: number): this {
+  circle<R extends number>(center: Point, radius: Positive<R>): this {
     return this.#add({
       kind: "circle",
       layer: this.#current,
@@ -145,23 +202,33 @@ export class DrawingBuilder {
     });
   }
 
-  arc(center: Point, radius: number, startAngle: number, endAngle: number): this {
-    num(startAngle, "startAngle");
-    num(endAngle, "endAngle");
-    if (sweep(startAngle, endAngle) === 0)
-      throw new Error("An arc's start and end angles must differ");
+  /**
+   * Arc from `startAngle` counterclockwise to `endAngle`. Angles are stored
+   * from 0 up to 360, so -90 becomes 270, because AutoCAD's AUDIT rejects
+   * angles outside that range.
+   */
+  arc<R extends number>(
+    center: Point,
+    radius: Positive<R>,
+    startAngle: number,
+    endAngle: number,
+  ): this {
+    const start = turn(num(startAngle, "startAngle"));
+    const end = turn(num(endAngle, "endAngle"));
+    if (start === end) throw new Error("An arc's start and end angles must differ");
     return this.#add({
       kind: "arc",
       layer: this.#current,
       center: pt(center),
       radius: positive(radius, "radius"),
-      startAngle,
-      endAngle,
+      startAngle: start,
+      endAngle: end,
     });
   }
 
-  text(at: Point, value: string, options: TextOptions = {}): this {
-    if (/[\r\n]/.test(value)) throw new Error("Text must be a single line");
+  text<H extends number = number>(at: Point, value: string, options: TextOptions<H> = {}): this {
+    const problem = textProblem(value);
+    if (problem) throw new Error(problem);
     return this.#add({
       kind: "text",
       layer: this.#current,
@@ -173,7 +240,12 @@ export class DrawingBuilder {
   }
 
   build(): Drawing {
-    return { units: this.units, layers: [...this.#layers.values()], entities: [...this.#entities] };
+    return {
+      units: this.units,
+      dxf: this.dxf,
+      layers: [...this.#layers.values()],
+      entities: [...this.#entities],
+    };
   }
 
   #add(entity: Entity): this {
@@ -182,13 +254,22 @@ export class DrawingBuilder {
   }
 }
 
-export function createDrawing(options?: DrawingOptions): DrawingBuilder {
+export function createDrawing<V extends DxfVersion = "R12">(
+  options?: DrawingOptions<V>,
+): DrawingBuilder<V> {
   return new DrawingBuilder(options);
 }
 
 /** Counterclockwise sweep from start to end, in degrees, within [0, 360). */
 export function sweep(startAngle: number, endAngle: number): number {
-  return (((endAngle - startAngle) % 360) + 360) % 360;
+  return turn(endAngle - startAngle);
+}
+
+/** Brings an angle in degrees into [0, 360). */
+function turn(degrees: number): number {
+  const wrapped = ((degrees % 360) + 360) % 360;
+  // A tiny negative angle rounds up to exactly 360.
+  return wrapped === 360 ? 0 : wrapped;
 }
 
 function num(value: number, label: string): number {
@@ -196,8 +277,12 @@ function num(value: number, label: string): number {
   return value;
 }
 
-function positive(value: number, label: string): number {
-  if (num(value, label) <= 0) throw new Error(`${label} must be greater than 0`);
+/** Takes `unknown` because a `Positive<N>` parameter is a message string when the literal is wrong. */
+function positive(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`${label} must be a finite number`);
+  }
+  if (value <= 0) throw new Error(`${label} must be greater than 0`);
   return value;
 }
 

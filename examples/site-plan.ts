@@ -1,4 +1,5 @@
-// A small parametric site plan. Run with `pnpm example`; it writes examples/out/site-plan.{dxf,svg}.
+// A small parametric site plan. Run with `pnpm example`. It writes examples/out/site-plan.dxf (R12),
+// site-plan-r2018.dxf (AC1032) and site-plan.svg.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createDrawing, toDXF, toSVG } from "../src/index.ts";
 
@@ -42,6 +43,7 @@ const drawing = d.build();
 const outDir = new URL("./out/", import.meta.url);
 mkdirSync(outDir, { recursive: true });
 writeFileSync(new URL("site-plan.dxf", outDir), toDXF(drawing));
+writeFileSync(new URL("site-plan-r2018.dxf", outDir), toDXF(drawing, { version: "R2018" }));
 writeFileSync(new URL("site-plan.svg", outDir), toSVG(drawing));
 console.log(
   `Wrote ${drawing.entities.length} entities on ${drawing.layers.length} layers to examples/out/`,

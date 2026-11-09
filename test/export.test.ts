@@ -52,3 +52,78 @@ test("empty drawing still exports", () => {
   assert.deepEqual(pairs(toDXF(d)).at(-1), [0, "EOF"]);
   assert.match(toSVG(d), /^<svg /);
 });
+
+test("R2018 DXF has AC1032 sections, units and valid handles", () => {
+  const p = pairs(toDXF(sample(), { version: "R2018" }));
+  const has = (code: number, value: string) => p.some(([c, v]) => c === code && v === value);
+  const after = (name: string) => p[p.findIndex(([c, v]) => c === 9 && v === name) + 1]?.[1];
+
+  assert.deepEqual(p.at(-1), [0, "EOF"]);
+  assert.equal(after("$ACADVER"), "AC1032");
+  assert.equal(after("$INSUNITS"), "2", "feet");
+  assert.equal(after("$MEASUREMENT"), "0", "imperial");
+  const sections = p.flatMap(([c, v], i) => (c === 0 && v === "SECTION" ? [p[i + 1]?.[1]] : []));
+  assert.deepEqual(sections, ["HEADER", "CLASSES", "TABLES", "BLOCKS", "ENTITIES", "OBJECTS"]);
+
+  // Handles: unique, every owner and pointer resolves, and $HANDSEED is above all of them.
+  const headerEnd = p.findIndex(([c, v]) => c === 0 && v === "ENDSEC");
+  const handles = p
+    .slice(headerEnd)
+    .filter(([c]) => c === 5 || c === 105)
+    .map(([, v]) => v);
+  assert.equal(new Set(handles).size, handles.length, "handles are unique");
+  for (const [code, value] of p.slice(headerEnd)) {
+    if (code === 330 || code === 340 || code === 350 || code === 390) {
+      assert.ok(value === "0" || handles.includes(value), `${code} ${value} resolves`);
+    }
+  }
+  const seed = parseInt(after("$HANDSEED") ?? "", 16);
+  assert.ok(
+    handles.every((h) => parseInt(h, 16) < seed),
+    "$HANDSEED is above every handle",
+  );
+
+  for (const table of ["VPORT", "LTYPE", "LAYER", "STYLE", "APPID", "DIMSTYLE", "BLOCK_RECORD"]) {
+    assert.ok(has(2, table), `${table} table`);
+  }
+  for (const name of ["*Model_Space", "*Paper_Space", "Continuous", "Standard", "ACAD"]) {
+    assert.ok(has(2, name), name);
+  }
+  assert.ok(has(3, "ACAD_GROUP"), "root dictionary");
+  // AutoCAD discards the file ("Did not receive PlotStyleName") if a layer has no 390 pointer.
+  const layers = p.filter(([c, v]) => c === 0 && v === "LAYER").length;
+  assert.equal(p.filter(([c]) => c === 390).length, layers, "every layer has a plot style");
+  assert.ok(has(0, "ACDBDICTIONARYWDFLT") && has(3, "ACAD_PLOTSTYLENAME"), "plot styles");
+  assert.ok(has(0, "LWPOLYLINE") && has(90, "4") && has(70, "1"), "closed 4-point polyline");
+  assert.ok(has(100, "AcDbArc") && has(51, "180"), "arc");
+  assert.ok(has(1, "LOT 1 <A&B>") && has(50, "90"), "text");
+  assert.ok(!has(0, "POLYLINE") && !has(0, "VERTEX"), "no R12 polylines");
+});
+
+test("R2018 DXF records metric units and keeps UTF-8 text", () => {
+  const d = createDrawing({ units: "mm" }).text([0, 0], "Ø 25 – café").build();
+  const dxf = toDXF(d, { version: "R2018" });
+  assert.match(dxf, /\$INSUNITS\r\n70\r\n4\r\n/);
+  assert.match(dxf, /\$MEASUREMENT\r\n70\r\n1\r\n/);
+  assert.match(dxf, /\r\nØ 25 – café\r\n/);
+  assert.deepEqual(pairs(toDXF(createDrawing().build(), { version: "R2018" })).at(-1), [0, "EOF"]);
+});
+
+test("toDXF rejects unknown versions", () => {
+  // @ts-expect-error: checks the runtime guard for JavaScript callers.
+  assert.throws(() => toDXF(sample(), { version: "R14" }), /Unsupported DXF version/);
+});
+
+test("text is escaped for each DXF version", () => {
+  const b = createDrawing().text([0, 0], "Ø 25 – café x^2");
+  // R12 predates Unicode DXF. AutoCAD discards a drawing with a bare caret in either version.
+  assert.match(toDXF(b.build()), /\r\n\\U\+00D8 25 \\U\+2013 caf\\U\+00E9 x\^ 2\r\n/);
+  assert.match(toDXF(b.build(), { version: "R2018" }), /\r\nØ 25 – café x\^ 2\r\n/);
+});
+
+test("toDXF writes the version the drawing was created for", () => {
+  const d = createDrawing({ dxf: "R2018" }).build();
+  assert.match(toDXF(d), /AC1032/);
+  assert.match(toDXF(d, { version: "R12" }), /AC1009/);
+  assert.match(toDXF(createDrawing().build()), /AC1009/);
+});
