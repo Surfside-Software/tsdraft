@@ -17,11 +17,20 @@
 - AC1032 needs every handle unique, every owner (330) and pointer (340, 350, 390) to resolve, and `$HANDSEED` above the highest handle. AutoCAD also
   discards the whole file if a LAYER has no 390 plot style pointer. The tests
   check all of this.
+- A rule AutoCAD enforces lives in `src/rules.ts` twice: as a type, so a wrong
+  literal is a compile error, and as a runtime check with the same message. The
+  builder calls the runtime check, and `lint()` in `src/lint.ts` repeats it for
+  drawings built another way. `toDXF` refuses to write a drawing with lint
+  errors. Test a new rule with `@ts-expect-error` inside `assert.throws`, as
+  `test/rules.test.ts` does, so both halves are proven.
+- Passing ezdxf or another parser proves little: AutoCAD discards files they
+  accept. After changing a DXF writer or a rule, run `pnpm test:cad` with
+  `TSDRAFT_CAD_SSH` set. It runs AutoCAD's headless console on another machine,
+  never an open CAD window. Add a case there for anything new the writer emits.
 - The published package must run on Node 22. Only development tooling may need
   Node 24; on Node 22, development needs 22.18 or later for type stripping.
 - Release by bumping `version` and the CHANGELOG in a PR, merging it, then
   publishing a GitHub release tagged `v<version>` on the merge commit. The
   Release workflow publishes to npm through trusted publishing. Never publish
   from a laptop with a token.
-- Test a DXF change by opening the example output in BricsCAD or AutoCAD when you
-  can. Follow the `cad-automation-notes` skill before any live CAD call.
+- Follow the `cad-automation-notes` skill before any live CAD call.

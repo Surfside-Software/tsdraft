@@ -113,3 +113,17 @@ test("toDXF rejects unknown versions", () => {
   // @ts-expect-error: checks the runtime guard for JavaScript callers.
   assert.throws(() => toDXF(sample(), { version: "R14" }), /Unsupported DXF version/);
 });
+
+test("text is escaped for each DXF version", () => {
+  const b = createDrawing().text([0, 0], "Ø 25 – café x^2");
+  // R12 predates Unicode DXF. AutoCAD discards a drawing with a bare caret in either version.
+  assert.match(toDXF(b.build()), /\r\n\\U\+00D8 25 \\U\+2013 caf\\U\+00E9 x\^ 2\r\n/);
+  assert.match(toDXF(b.build(), { version: "R2018" }), /\r\nØ 25 – café x\^ 2\r\n/);
+});
+
+test("toDXF writes the version the drawing was created for", () => {
+  const d = createDrawing({ dxf: "R2018" }).build();
+  assert.match(toDXF(d), /AC1032/);
+  assert.match(toDXF(d, { version: "R12" }), /AC1009/);
+  assert.match(toDXF(createDrawing().build()), /AC1009/);
+});

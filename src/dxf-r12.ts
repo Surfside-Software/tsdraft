@@ -1,5 +1,5 @@
 import type { Drawing, Entity } from "./drawing.ts";
-import { fmt } from "./format.ts";
+import { dxfText, fmt } from "./format.ts";
 
 /**
  * Writes an ASCII DXF (AC1009, R12). R12 is the most widely readable DXF:
@@ -7,6 +7,7 @@ import { fmt } from "./format.ts";
  *
  * R12 has no header variable for drawing units, so coordinates are written as
  * plain numbers in the drawing's units and `drawing.units` is not written.
+ * R12 predates Unicode DXF, so text outside ASCII is written as `\U+XXXX`.
  */
 export function toDXFR12(drawing: Drawing): string {
   const out: string[] = [];
@@ -110,7 +111,7 @@ function writeEntity(e: Entity, g: (code: number, value: string | number) => voi
       g(20, e.at[1]);
       g(30, 0);
       g(40, e.height);
-      g(1, e.value);
+      g(1, dxfText(e.value, true));
       if (e.rotation !== 0) g(50, e.rotation);
       return;
   }

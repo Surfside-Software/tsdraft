@@ -1,6 +1,6 @@
 import type { Drawing, Entity, Units } from "./drawing.ts";
 import { extents } from "./extents.ts";
-import { fmt } from "./format.ts";
+import { dxfText, fmt } from "./format.ts";
 
 /** `$INSUNITS` codes from the DXF Reference. */
 const INSUNITS: Record<Units, number> = { in: 1, ft: 2, mm: 4, cm: 5, m: 6 };
@@ -374,7 +374,7 @@ function writeEntity(g: Group, e: Entity, handle: string, owner: string): void {
       begin("TEXT", "AcDbText");
       point(g, 10, ...e.at);
       g(40, e.height);
-      g(1, e.value);
+      g(1, dxfText(e.value));
       if (e.rotation !== 0) g(50, e.rotation);
       g(7, "Standard");
       // TEXT repeats its subclass marker before the vertical alignment fields.
