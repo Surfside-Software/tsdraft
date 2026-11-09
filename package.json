@@ -3,7 +3,16 @@
   "version": "0.0.0",
   "description": "2D CAD drawings as TypeScript: write the drawing in code, export DXF and SVG.",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
+  "author": "Stephen Frederick",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sc-frederick/tsdraft.git"
+  },
+  "homepage": "https://github.com/sc-frederick/tsdraft#readme",
+  "bugs": {
+    "url": "https://github.com/sc-frederick/tsdraft/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=24"

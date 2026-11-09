@@ -52,6 +52,9 @@ pnpm example   # writes examples/out/site-plan.dxf and .svg
 
 ## Status
 
-The package is marked `private` with no license chosen yet, so `npm publish`
-refuses to run. Pick a license and remove `"private": true` before publishing
-the first version.
+The package is still marked `private`, so `npm publish` refuses to run.
+Remove `"private": true` when the first version is ready to publish.
+
+## License
+
+[MIT](LICENSE)
