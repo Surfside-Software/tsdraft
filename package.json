@@ -1,49 +1,60 @@
 {
   "name": "tsdraft",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "2D CAD drawings as TypeScript: write the drawing in code, export DXF and SVG.",
-  "private": true,
+  "keywords": [
+    "2d",
+    "autocad",
+    "bricscad",
+    "cad",
+    "drafting",
+    "drawing",
+    "dxf"
+  ],
+  "homepage": "https://github.com/Surfside-Software/tsdraft#readme",
+  "bugs": {
+    "url": "https://github.com/Surfside-Software/tsdraft/issues"
+  },
   "license": "MIT",
   "author": "Stephen Frederick",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sc-frederick/tsdraft.git"
+    "url": "git+https://github.com/Surfside-Software/tsdraft.git"
   },
-  "homepage": "https://github.com/sc-frederick/tsdraft#readme",
-  "bugs": {
-    "url": "https://github.com/sc-frederick/tsdraft/issues"
-  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
-  "engines": {
-    "node": ">=24"
-  },
+  "sideEffects": false,
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
   },
-  "files": [
-    "dist"
-  ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "pnpm clean && tsc -p tsconfig.build.json",
+    "prepack": "pnpm build",
     "check": "tsc --noEmit",
+    "check:tsrs": "tsrs --noEmit",
+    "lint": "oxlint",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
     "test": "node --test test/*.test.ts",
+    "test:package": "node scripts/package-smoke.ts",
     "example": "node examples/site-plan.ts",
-    "verify": "pnpm check && pnpm test && pnpm build"
+    "verify": "pnpm fmt:check && pnpm lint && pnpm check && pnpm test && pnpm test:package"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "typescript": "^7.0.2"
+    "oxfmt": "0.77.0",
+    "oxlint": "1.92.0",
+    "tsrs": "0.23.0-ts7.1.0-beta",
+    "typescript": "7.0.2"
   },
-  "keywords": [
-    "cad",
-    "dxf",
-    "drafting",
-    "2d",
-    "drawing",
-    "autocad",
-    "bricscad"
-  ]
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@12.11.2"
 }

@@ -43,4 +43,6 @@ const outDir = new URL("./out/", import.meta.url);
 mkdirSync(outDir, { recursive: true });
 writeFileSync(new URL("site-plan.dxf", outDir), toDXF(drawing));
 writeFileSync(new URL("site-plan.svg", outDir), toSVG(drawing));
-console.log(`Wrote ${drawing.entities.length} entities on ${drawing.layers.length} layers to examples/out/`);
+console.log(
+  `Wrote ${drawing.entities.length} entities on ${drawing.layers.length} layers to examples/out/`,
+);

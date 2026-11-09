@@ -4,7 +4,10 @@ import { createDrawing, sweep } from "../src/index.ts";
 
 test("layer() scopes entities and restores the previous layer", () => {
   const d = createDrawing().layer("A-WALL", { color: 1 }).build();
-  assert.deepEqual(d.layers.map((l) => l.name), ["0", "A-WALL"]);
+  assert.deepEqual(
+    d.layers.map((l) => l.name),
+    ["0", "A-WALL"],
+  );
 
   const b = createDrawing();
   b.layer("A-WALL", { color: 1 }, () => {

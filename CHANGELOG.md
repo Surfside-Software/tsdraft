@@ -1,0 +1,10 @@
+# Changelog
+
+## 0.1.0
+
+First release.
+
+- `createDrawing()` builds a drawing with layers (AutoCAD Color Index colors),
+  lines, polylines, rectangles, circles, arcs and single-line text.
+- `toDXF()` writes ASCII DXF R12 (AC1009) with layer and linetype tables.
+- `toSVG()` writes an SVG preview with model Y pointing up.
