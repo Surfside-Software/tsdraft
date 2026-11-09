@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+- Published from GitHub Actions through npm trusted publishing, with a
+  provenance attestation linking the package to its source commit.
+- `tsdraft/package.json` can be imported or resolved.
+- The package now includes this changelog.
+
 ## 0.1.0
 
 First release.

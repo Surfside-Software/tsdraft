@@ -22,6 +22,7 @@ try {
   assert.ok(pack, "npm pack produced a tarball");
   const files = pack.files.map((f) => f.path).sort();
   for (const required of [
+    "CHANGELOG.md",
     "LICENSE",
     "README.md",
     "package.json",
@@ -76,6 +77,14 @@ try {
 
   // Run it. The consumer's own .ts is type-stripped; tsdraft itself is plain dist/ JavaScript.
   assert.equal(run(process.execPath, ["main.ts"], consumer).trim(), "consumer ok");
+
+  // Tools read "tsdraft/package.json"; the exports map must allow it.
+  const resolved = run(
+    process.execPath,
+    ["--input-type=module", "-e", `console.log(import.meta.resolve("tsdraft/package.json"))`],
+    consumer,
+  );
+  assert.match(resolved.trim(), /node_modules\/tsdraft\/package\.json$/);
   console.log(`package smoke test passed: ${pack.filename}, ${files.length} files`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });
