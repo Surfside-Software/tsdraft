@@ -28,8 +28,8 @@ test("DXF is well-formed R12 with layers and entities", () => {
 
   assert.deepEqual(p.at(-1), [0, "EOF"]);
   assert.ok(has(1, "AC1009"));
-  const units = p.findIndex(([c, v]) => c === 9 && v === "$INSUNITS");
-  assert.deepEqual(p[units + 1], [70, "2"], "$INSUNITS is feet");
+  const headerVars = p.filter(([c]) => c === 9).map(([, v]) => v);
+  assert.deepEqual(headerVars, ["$ACADVER"], "only R12 header variables");
   assert.ok(has(2, "C-PROP") && has(62, "3"), "layer table entry");
   for (const kind of ["POLYLINE", "VERTEX", "SEQEND", "ARC", "TEXT"]) assert.ok(has(0, kind), kind);
   assert.equal(p.filter(([c, v]) => c === 0 && v === "VERTEX").length, 4);

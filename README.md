@@ -6,9 +6,17 @@ can come from variables, sheets can share code, and changes show up as diffs.
 [tscircuit](https://github.com/tscircuit/tscircuit) takes the same approach to
 circuit boards.
 
-This is an early start. It has layers, lines, polylines, rectangles, circles,
+This is an early release. It has layers, lines, polylines, rectangles, circles,
 arcs and single-line text. It does not yet have dimensions, hatches, blocks,
 paper space or a JSX syntax.
+
+## Install
+
+```sh
+npm install tsdraft
+```
+
+tsdraft is an ES module and needs Node 22 or later.
 
 ## Example
 
@@ -35,25 +43,30 @@ degrees, counterclockwise from +X. Layer colors are AutoCAD Color Index numbers.
 Entities go on layer `0` unless they are drawn inside a `layer()` callback.
 
 `toDXF` writes ASCII DXF R12, because nearly every CAD program can open that
-version. It also sets `$INSUNITS` from the drawing's units.
+version. R12 has no field for drawing units, so the file holds plain numbers.
+Set the units in CAD after opening it, for example with `UNITS` in AutoCAD or
+BricsCAD.
 
 ## Development
 
-Requires Node 24 or later and pnpm. Node runs the TypeScript source directly, so
-tests and examples need no build step.
+Contributors need Node 24 or later and pnpm. Node runs the TypeScript source
+directly, so tests and examples need no build step.
 
 ```sh
 pnpm install
-pnpm verify    # type check, tests, build
+pnpm verify    # format check, lint, type check, tests, package smoke test
 pnpm example   # writes examples/out/site-plan.dxf and .svg
 ```
 
-`pnpm build` compiles `src/` to `dist/` for publishing.
+`pnpm test:package` packs the package, installs the tarball into a throwaway
+project and checks that it type-checks and runs there. `pnpm build` compiles
+`src/` to `dist/`, and `npm pack` and `npm publish` run it automatically.
 
-## Status
-
-The package is still marked `private`, so `npm publish` refuses to run.
-Remove `"private": true` when the first version is ready to publish.
+The official TypeScript 7 compiler checks and builds the package.
+[tsrs](https://github.com/oxc-project/tsrs), the Rust port of TypeScript, runs
+as `pnpm check:tsrs` and as an informational CI step. It tracks TypeScript 7.1
+beta, so it does not gate releases yet. Its WebAssembly build is the planned
+route for type-checking drawings in a browser playground.
 
 ## License
 

@@ -30,7 +30,9 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
   const colors = new Map(drawing.layers.map((l) => [l.name, ACI[l.color] ?? "currentColor"]));
   const stroke = options.strokeWidth ?? 1;
 
-  const body = drawing.entities.map((e) => entityToSvg(e, colors.get(e.layer) ?? "currentColor")).join("\n    ");
+  const body = drawing.entities
+    .map((e) => entityToSvg(e, colors.get(e.layer) ?? "currentColor"))
+    .join("\n    ");
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${fmt(x)} ${fmt(y)} ${fmt(w)} ${fmt(h)}">`,
     `  <g transform="scale(1 -1)" fill="none" stroke-width="${fmt(stroke)}" vector-effect="non-scaling-stroke">`,
@@ -115,5 +117,8 @@ function rad(degrees: number): number {
 }
 
 function esc(value: string): string {
-  return value.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
+  return value.replace(
+    /[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c,
+  );
 }

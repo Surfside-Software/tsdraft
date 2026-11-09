@@ -1,12 +1,12 @@
-import type { Drawing, Entity, Units } from "./drawing.ts";
+import type { Drawing, Entity } from "./drawing.ts";
 import { fmt } from "./format.ts";
-
-/** $INSUNITS codes. */
-const INSUNITS: Record<Units, number> = { in: 1, ft: 2, mm: 4, cm: 5, m: 6 };
 
 /**
  * Writes an ASCII DXF (AC1009, R12). R12 is the most widely readable DXF:
  * AutoCAD, BricsCAD, LibreCAD, QCAD and most converters open it.
+ *
+ * R12 has no header variable for drawing units, so coordinates are written as
+ * plain numbers in the drawing's units and `drawing.units` is not written.
  */
 export function toDXF(drawing: Drawing): string {
   const out: string[] = [];
@@ -18,8 +18,6 @@ export function toDXF(drawing: Drawing): string {
   g(2, "HEADER");
   g(9, "$ACADVER");
   g(1, "AC1009");
-  g(9, "$INSUNITS");
-  g(70, String(INSUNITS[drawing.units]));
   g(0, "ENDSEC");
 
   g(0, "SECTION");

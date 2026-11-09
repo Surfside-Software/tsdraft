@@ -1,6 +1,10 @@
 /** A model-space point, in drawing units. Y points up, as in CAD. */
 export type Point = readonly [x: number, y: number];
 
+/**
+ * The unit one drawing unit stands for. It is kept on the drawing for callers;
+ * the DXF R12 writer has no field for it, so set units in CAD after opening.
+ */
 export type Units = "in" | "ft" | "mm" | "cm" | "m";
 
 export interface Layer {
@@ -133,13 +137,19 @@ export class DrawingBuilder {
   }
 
   circle(center: Point, radius: number): this {
-    return this.#add({ kind: "circle", layer: this.#current, center: pt(center), radius: positive(radius, "radius") });
+    return this.#add({
+      kind: "circle",
+      layer: this.#current,
+      center: pt(center),
+      radius: positive(radius, "radius"),
+    });
   }
 
   arc(center: Point, radius: number, startAngle: number, endAngle: number): this {
     num(startAngle, "startAngle");
     num(endAngle, "endAngle");
-    if (sweep(startAngle, endAngle) === 0) throw new Error("An arc's start and end angles must differ");
+    if (sweep(startAngle, endAngle) === 0)
+      throw new Error("An arc's start and end angles must differ");
     return this.#add({
       kind: "arc",
       layer: this.#current,
