@@ -1,0 +1,40 @@
+{
+  "name": "tsdraft",
+  "version": "0.0.0",
+  "description": "2D CAD drawings as TypeScript: write the drawing in code, export DXF and SVG.",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc --noEmit",
+    "test": "node --test test/*.test.ts",
+    "example": "node examples/site-plan.ts",
+    "verify": "pnpm check && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^7.0.2"
+  },
+  "keywords": [
+    "cad",
+    "dxf",
+    "drafting",
+    "2d",
+    "drawing",
+    "autocad",
+    "bricscad"
+  ]
+}
