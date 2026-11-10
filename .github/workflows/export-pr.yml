@@ -1,0 +1,45 @@
+name: Export PR
+
+# The development repository pushes each change to the `export` branch. This
+# opens the pull request from it to main, or retitles the one that is open.
+# CI runs on the push itself.
+on:
+  push:
+    branches: [export]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: export-pr
+  cancel-in-progress: false
+
+jobs:
+  pull-request:
+    name: Open the pull request
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          count=$(git rev-list --count origin/main..HEAD)
+          if [ "$count" -eq 0 ]; then
+            echo "The branch has nothing that main lacks."
+            exit 0
+          fi
+          if [ "$count" -eq 1 ]; then
+            title=$(git log -1 --format=%s)
+          else
+            title="Export $count changes"
+          fi
+          pr=$(gh pr list --head export --base main --state open --json number --jq '.[0].number // empty')
+          if [ -n "$pr" ]; then
+            gh pr edit "$pr" --title "$title"
+          elif ! gh pr create --base main --head export --title "$title" \
+            --body-file .github/export-pull-request.md; then
+            echo "::warning::Could not open the pull request. Open it by hand, or allow GitHub Actions to create pull requests."
+          fi
