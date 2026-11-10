@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
+
+0.1.1 was never published, so its changes ship here too.
 
 Every fix below comes from opening tsdraft's output in AutoCAD 2025.
 
@@ -30,11 +32,9 @@ Every fix below comes from opening tsdraft's output in AutoCAD 2025.
 - Text with control characters, or with emoji and other characters above
   U+FFFF, is rejected, because AutoCAD cannot read it.
 - Unknown units, and rectangle sizes of 0 or less, are rejected.
-- Breaking: a `Drawing` now has a required `dxf` field.
+- Breaking: a `Drawing` now has a required `dxf` field, and R12 layer names
+  AutoCAD rejects now throw (see above).
 - `pnpm test:cad` runs the output through AutoCAD over ssh.
-
-## 0.1.1
-
 - Published from GitHub Actions through npm trusted publishing, with a
   provenance attestation linking the package to its source commit.
 - `tsdraft/package.json` can be imported or resolved.
