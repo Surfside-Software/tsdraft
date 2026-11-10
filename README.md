@@ -166,9 +166,14 @@ Declaring both spellings as layers is an error too for some of these pairs,
 among them `ΟΔΟΣ` and `οδος`, `Ÿ` and `ÿ`, and `ß` and `ẞ`. AutoCAD keeps two
 layers, and its `AUDIT` then reports a duplicate name.
 
-`AUDIT` compares names more loosely than `lint` can follow in full. It also
-reports `straße` and `strasse`, `æ` and `ae`, and a composed `é` and its
-decomposed form as duplicates, and `lint` does not catch those.
+`AUDIT` compares names more loosely than `lint` can follow in full. It reports
+each of these pairs as a duplicate name while AutoCAD keeps both layers, and
+`lint` does not catch them:
+
+- A letter and the two letters it stands for: `ß` and `ss`, `æ` and `ae`, `œ`
+  and `oe`, `ĳ` and `ij`, `ﬁ` and `fi`, `ǆ` and `dž`, `þ` and `th`.
+- A composed letter such as `é` and its decomposed form.
+- Names that differ only by a soft hyphen.
 
 ### Layer name characters
 
