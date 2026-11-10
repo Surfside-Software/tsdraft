@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <title>tsdraft</title>
+  <desc>A square-cut lowercase t whose crossbar ends in a detached CAD grip.</desc>
+  <path fill="#1AAFC8" d="M16 8h12v12h12v12H28v12h12v12H16V32H4V20h12Z"/>
+  <rect x="48" y="20" width="12" height="12" fill="#1AAFC8"/>
+</svg>

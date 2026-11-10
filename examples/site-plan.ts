@@ -3,9 +3,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createDrawing, toDXF, toSVG } from "../src/index.ts";
 
-const lot = { width: 75, depth: 120 }; // ft
-const setbacks = { front: 25, side: 7.5, rear: 20 };
-const house = { width: 40, depth: 50 };
+const lot = { width: 120, depth: 80 }; // ft
+const setbacks = { front: 20, side: 10, rear: 15 };
+const house = { width: 56, depth: 32 };
+const x = (lot.width - house.width) / 2;
+const y = setbacks.front + 5;
 
 const d = createDrawing({ units: "ft" });
 
@@ -13,30 +15,24 @@ d.layer("C-PROP", { color: 3 }, () => {
   d.rect([0, 0], lot.width, lot.depth);
   d.text([2, -6], `LOT ${lot.width}' x ${lot.depth}'`, { height: 3 });
 });
-
 d.layer("C-SETB", { color: 4 }, () => {
-  d.rect(
-    [setbacks.side, setbacks.front],
-    lot.width - setbacks.side * 2,
-    lot.depth - setbacks.front - setbacks.rear,
-  );
+  const { front, side, rear } = setbacks;
+  d.rect([side, front], lot.width - side * 2, lot.depth - front - rear);
 });
-
 d.layer("A-BLDG", { color: 1 }, () => {
-  const x = (lot.width - house.width) / 2;
-  const y = setbacks.front + 5;
   d.rect([x, y], house.width, house.depth);
-  d.text([x + 2, y + house.depth / 2], "PROPOSED RESIDENCE", { height: 2 });
+  d.text([x + 2, y + house.depth / 2], "PROPOSED RESIDENCE", { height: 3 });
 });
-
+d.layer("C-PAVE", { color: 8 }, () => {
+  d.line([x + 40, y], [x + 40, -12]);
+  d.line([x + 52, y], [x + 52, -12]);
+});
 d.layer("C-ROAD", { color: 2 }, () => {
   d.line([-10, -12], [lot.width + 10, -12]);
   d.text([lot.width / 2 - 10, -18], "MAIN STREET", { height: 3 });
 });
-
 d.layer("V-TREE", { color: 3 }, () => {
-  d.circle([12, 100], 6);
-  d.arc([62, 100], 6, 200, 340);
+  for (let i = 0; i < 6; i++) d.circle([15 + i * 18, 72], 5);
 });
 
 const drawing = d.build();
