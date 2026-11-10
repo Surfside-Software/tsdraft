@@ -9,7 +9,9 @@
     "cad",
     "drafting",
     "drawing",
-    "dxf"
+    "dxf",
+    "svg",
+    "typescript"
   ],
   "homepage": "https://github.com/Surfside-Software/tsdraft#readme",
   "bugs": {
@@ -47,6 +49,7 @@
     "test:package": "node scripts/package-smoke.ts",
     "test:cad": "node scripts/cad-check.ts",
     "example": "node examples/site-plan.ts",
+    "readme:drawing": "node scripts/readme-drawing.ts",
     "verify": "pnpm fmt:check && pnpm lint && pnpm check && pnpm test && pnpm test:package"
   },
   "devDependencies": {

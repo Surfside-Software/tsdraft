@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-18.8 -88.8 157.6 115.6" width="760" height="557">
+  <rect x="-18.8" y="-88.8" width="157.6" height="115.6" rx="2" fill="#f6f8fa"/>
+  <g transform="scale(1 -1)" fill="none" stroke-width="1.5" stroke-linejoin="round" vector-effect="non-scaling-stroke">
+    <polygon points="0,0 120,0 120,80 0,80" stroke="#1f2328" vector-effect="non-scaling-stroke" data-layer="C-PROP"/>
+    <text transform="translate(2 -6) scale(1 -1)" font-size="3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" data-layer="C-PROP">LOT 120' x 80'</text>
+    <polygon points="10,20 110,20 110,65 10,65" stroke="#818b98" vector-effect="non-scaling-stroke" data-layer="C-SETB"/>
+    <polygon points="32,25 88,25 88,57 32,57" stroke="#0d7a8c" vector-effect="non-scaling-stroke" data-layer="A-BLDG"/>
+    <text transform="translate(34 41) scale(1 -1)" font-size="3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#0d7a8c" stroke="none" data-layer="A-BLDG">PROPOSED RESIDENCE</text>
+    <line x1="72" y1="25" x2="72" y2="-12" stroke="#818b98" vector-effect="non-scaling-stroke" data-layer="C-PAVE"/>
+    <line x1="84" y1="25" x2="84" y2="-12" stroke="#818b98" vector-effect="non-scaling-stroke" data-layer="C-PAVE"/>
+    <line x1="-10" y1="-12" x2="130" y2="-12" stroke="#1f2328" vector-effect="non-scaling-stroke" data-layer="C-ROAD"/>
+    <text transform="translate(50 -18) scale(1 -1)" font-size="3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" data-layer="C-ROAD">MAIN STREET</text>
+    <circle cx="15" cy="72" r="5" stroke="#818b98" vector-effect="non-scaling-stroke" data-layer="V-TREE"/>
+    <circle cx="33" cy="72" r="5" stroke="#818b98" vector-effect="non-scaling-stroke" data-layer="V-TREE"/>
+    <circle cx="51" cy="72" r="5" stroke="#818b98" vector-effect="non-scaling-stroke" data-layer="V-TREE"/>
+    <circle cx="69" cy="72" r="5" stroke="#818b98" vector-effect="non-scaling-stroke" data-layer="V-TREE"/>
+    <circle cx="87" cy="72" r="5" stroke="#818b98" vector-effect="non-scaling-stroke" data-layer="V-TREE"/>
+    <circle cx="105" cy="72" r="5" stroke="#818b98" vector-effect="non-scaling-stroke" data-layer="V-TREE"/>
+  </g>
+</svg>

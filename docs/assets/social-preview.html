@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>tsdraft social preview</title>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500&family=Inter:wght@400&family=JetBrains+Mono:wght@400&display=block"
+    />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1280px;
+        height: 640px;
+        overflow: hidden;
+      }
+      body {
+        background: #0b0b0c;
+        color: #f2f2f3;
+        font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      main {
+        display: grid;
+        grid-template-columns: 1fr 560px;
+        grid-template-rows: 1fr auto;
+        column-gap: 64px;
+        height: 100%;
+        padding: 64px 72px 48px;
+      }
+      .text {
+        display: flex;
+        flex-direction: column;
+      }
+      .logo {
+        width: 219px;
+        height: 48px;
+      }
+      h1 {
+        margin: 64px 0 0;
+        font-family: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+        font-size: 64px;
+        font-weight: 500;
+        line-height: 1.08;
+        letter-spacing: -0.035em;
+      }
+      h1 span {
+        color: #1aafc8;
+      }
+      p {
+        margin: 28px 0 0;
+        max-width: 26ch;
+        color: #c8c8cc;
+        font-size: 24px;
+        line-height: 1.5;
+      }
+      .drawing {
+        align-self: center;
+        width: 560px;
+        border: 1px solid #26262a;
+        border-radius: 4px;
+      }
+      footer {
+        grid-column: 1 / -1;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 40px;
+        padding-top: 24px;
+        border-top: 1px solid #26262a;
+        color: #8b8b92;
+        font-size: 20px;
+      }
+      code {
+        color: #f2f2f3;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Render at 1280 x 640, device scale 1, to social-preview.png beside this file. Render it again after `pnpm readme:drawing` changes the drawing. -->
+    <main>
+      <div class="text">
+        <img class="logo" src="tsdraft-logo-dark.svg" alt="tsdraft" />
+        <h1>2D CAD drawings<br /><span>as TypeScript.</span></h1>
+        <p>Write the drawing in code. Export DXF for CAD programs and SVG for a quick preview.</p>
+      </div>
+      <img class="drawing" src="site-plan-dark.svg" alt="A site plan drawn by tsdraft" />
+      <footer>
+        <code>npm install tsdraft</code>
+        <span>MIT · surfside-software.com</span>
+      </footer>
+    </main>
+  </body>
+</html>
