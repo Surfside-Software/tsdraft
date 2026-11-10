@@ -4,7 +4,7 @@ import { toDXFR2018 } from "./dxf-r2018.ts";
 import { DrawingError, lint } from "./lint.ts";
 
 export interface DxfOptions {
-  /** Defaults to the version the drawing was created for, which is `"R12"` unless set. */
+  /** Defaults to the version the drawing was created for, which is `"R2018"` unless set. */
   readonly version?: DxfVersion;
 }
 

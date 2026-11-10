@@ -1,7 +1,8 @@
-import type { Drawing, Entity, Units } from "./drawing.ts";
+import type { Drawing, Entity, Linetype, Units } from "./drawing.ts";
 import { extents } from "./extents.ts";
-import { dxfText, fmt, readable, writtenAngle } from "./format.ts";
+import { dxfOnce, dxfText, fmt, readable, written, writtenAngle } from "./format.ts";
 import { layerZeroFirst } from "./layers.ts";
+import { entityLinetype, layerLinetype, lineweightCode, patternLength } from "./linetypes.ts";
 
 /** `$INSUNITS` codes from the DXF Reference. */
 const INSUNITS: Record<Units, number> = { in: 1, ft: 2, mm: 4, cm: 5, m: 6 };
@@ -14,6 +15,8 @@ interface TableRecord {
   readonly subclass: string;
   readonly name: string;
   readonly handle: string;
+  /** Group 70. */
+  readonly flags?: number;
   readonly fields?: (g: Group) => void;
 }
 
@@ -61,24 +64,30 @@ export function toDXFR2018(drawing: Drawing): string {
       fields: (g) => writeActiveViewport(g, minX, minY, maxX, maxY),
     },
   ]);
+  const linetypes: Linetype[] = [
+    { name: "ByBlock", description: "", pattern: [] },
+    { name: "ByLayer", description: "", pattern: [] },
+    { name: "Continuous", description: "Solid line", pattern: [] },
+    ...(drawing.linetypes ?? []),
+  ];
   writeTable(
     g,
     handle,
     "LTYPE",
-    [
-      ["ByBlock", ""],
-      ["ByLayer", ""],
-      ["Continuous", "Solid line"],
-    ].map(([name = "", description = ""]) => ({
+    linetypes.map((linetype) => ({
       type: "LTYPE",
       subclass: "AcDbLinetypeTableRecord",
-      name,
+      name: linetype.name,
       handle: handle(),
       fields: (g) => {
-        g(3, description);
-        g(72, 65);
-        g(73, 0);
-        g(40, 0);
+        g(3, dxfOnce(linetype.description));
+        g(72, 65); // alignment: "A"
+        g(73, linetype.pattern.length);
+        g(40, patternLength(linetype.pattern.map(written)));
+        for (const length of linetype.pattern) {
+          g(49, length);
+          g(74, 0); // a plain dash, gap or dot
+        }
       },
     })),
   );
@@ -92,10 +101,13 @@ export function toDXFR2018(drawing: Drawing): string {
       subclass: "AcDbLayerTableRecord",
       name: layer.name,
       handle: handle(),
+      flags: (layer.frozen ? 1 : 0) | (layer.locked ? 4 : 0),
       fields: (g) => {
-        g(62, layer.color);
-        g(6, "Continuous");
-        g(370, -3); // lineweight: default
+        // A layer that is off has its color negated.
+        g(62, layer.off ? -layer.color : layer.color);
+        g(6, layerLinetype(layer));
+        if (layer.plot === false) g(290, 0);
+        g(370, lineweightCode(layer.lineweight ?? "Default"));
         g(390, normalPlotStyle); // AutoCAD rejects a layer without a plot style
       },
     })),
@@ -206,6 +218,10 @@ export function toDXFR2018(drawing: Drawing): string {
   h(70, INSUNITS[drawing.units]);
   h(9, "$MEASUREMENT");
   h(70, drawing.units === "in" || drawing.units === "ft" ? 0 : 1);
+  if (drawing.linetypeScale !== undefined && drawing.linetypeScale !== 1) {
+    h(9, "$LTSCALE");
+    h(40, drawing.linetypeScale);
+  }
   h(9, "$CLAYER");
   h(8, "0");
   h(9, "$HANDSEED");
@@ -262,7 +278,7 @@ function writeTable(
     g(100, "AcDbSymbolTableRecord");
     g(100, r.subclass);
     g(2, r.name);
-    g(70, 0);
+    g(70, r.flags ?? 0);
     r.fields?.(g);
   }
   g(0, "ENDTAB");
@@ -349,6 +365,11 @@ function writeEntity(g: Group, e: Entity, handle: string, owner: string): void {
     g(330, owner);
     g(100, "AcDbEntity");
     g(8, e.layer);
+    const linetype = entityLinetype(e);
+    if (linetype !== undefined) g(6, linetype);
+    if (e.lineweight !== undefined && e.lineweight !== "ByLayer") {
+      g(370, lineweightCode(e.lineweight));
+    }
     g(100, subclass);
   };
   switch (e.kind) {

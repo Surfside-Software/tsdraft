@@ -1,16 +1,26 @@
 import type { Drawing, DxfVersion, Entity, Point } from "./drawing.ts";
 import { written } from "./format.ts";
 import { layerAuditKey, layerKey } from "./layers.ts";
+import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import {
   arcIsWrittenAsPoint,
   arcProblem,
   layerColorProblem,
+  layerFlagProblem,
+  layerLinetypeProblem,
   layerNameProblem,
+  layerStateProblem,
   layerTwinProblem,
+  lineweightProblem,
+  linetypeNameProblem,
+  linetypeProblem,
+  linetypeScaleProblem,
+  R12_ONLY,
   magnitudeProblem,
   sizeProblem,
   textProblem,
   textWarning,
+  undefinedLinetypeProblem,
 } from "./rules.ts";
 
 export type LintRule =
@@ -19,6 +29,11 @@ export type LintRule =
   | "duplicate-layer"
   | "layer-color"
   | "undefined-layer"
+  | "linetype"
+  | "duplicate-linetype"
+  | "undefined-linetype"
+  | "lineweight"
+  | "layer-state"
   | "geometry"
   | "text"
   | "zero-length";
@@ -30,6 +45,8 @@ export interface Diagnostic {
   readonly message: string;
   /** The layer the problem is in, when it is a layer problem. */
   readonly layer?: string;
+  /** The linetype the problem is in, when it is a problem with a linetype's definition. */
+  readonly linetype?: string;
   /** Index into `drawing.entities`, when it is an entity problem. */
   readonly entity?: number;
 }
@@ -59,6 +76,58 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     });
   }
 
+  const r12 = version === "R12";
+  const scale = drawing.linetypeScale;
+  if (scale !== undefined && (r12 ? scale !== 1 : linetypeScaleProblem(scale))) {
+    const problem = r12 ? R12_ONLY.linetypes : linetypeScaleProblem(scale);
+    out.push({ rule: "linetype", severity: "error", message: `linetypeScale: ${problem}` });
+  }
+
+  // AutoCAD compares linetype names as it compares layer names, and AUDIT reports a twin of a
+  // built-in linetype as it reports any other.
+  const linetypes = new Set<string>();
+  const linetypesAudited = new Map<string, string>(
+    BUILT_IN_LINETYPES.map((name) => [layerAuditKey(name), name]),
+  );
+  for (const linetype of drawing.linetypes ?? []) {
+    const error = (rule: LintRule, message: string) =>
+      out.push({ rule, severity: "error", message, linetype: linetype.name });
+    const label = `Linetype ${JSON.stringify(linetype.name)}`;
+    if (r12) {
+      error("linetype", `${label}: ${R12_ONLY.linetypes}`);
+      continue;
+    }
+    const problem = linetypeProblem(linetype.name, linetype.description, linetype.pattern);
+    if (problem) error("linetype", `${label}: ${problem}`);
+    if (typeof linetype.name !== "string") continue;
+    const key = layerKey(linetype.name);
+    const auditKey = layerAuditKey(linetype.name);
+    const twin = layerTwinProblem(
+      linetype.name,
+      linetypesAudited.get(auditKey) ?? linetype.name,
+      "linetype",
+    );
+    if (linetypes.has(key)) {
+      error(
+        "duplicate-linetype",
+        `${label} is defined twice. CAD ignores case in linetype names and keeps the first`,
+      );
+    } else if (twin) {
+      error("duplicate-linetype", `${label}: ${twin}`);
+    }
+    linetypes.add(key);
+    if (!linetypesAudited.has(auditKey)) linetypesAudited.set(auditKey, linetype.name);
+  }
+  /** What is wrong with a reference to a linetype, which AutoCAD discards a drawing over. */
+  const missing = (name: unknown): string | undefined => {
+    if (typeof name !== "string") return "a linetype is named by a string";
+    const problem = linetypeNameProblem(name);
+    if (problem) return `Linetype ${JSON.stringify(name)}: ${problem}`;
+    return builtInLinetype(name) || linetypes.has(layerKey(name))
+      ? undefined
+      : undefinedLinetypeProblem(name);
+  };
+
   // AutoCAD looks layers up by one form of their names, and AUDIT compares another.
   const seen = new Set<string>();
   const audited = new Map<string, string>();
@@ -69,6 +138,34 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     if (nameProblem) error("layer-name", `Layer ${JSON.stringify(layer.name)}: ${nameProblem}`);
     const colorProblem = layerColorProblem(layer.color);
     if (colorProblem) error("layer-color", `Layer ${JSON.stringify(layer.name)}: ${colorProblem}`);
+    const label = `Layer ${JSON.stringify(layer.name)}`;
+    if (layer.linetype !== undefined) {
+      const name: unknown = layer.linetype;
+      if (r12) {
+        if (typeof name !== "string" || builtInLinetype(name) !== "Continuous") {
+          error("linetype", `${label}: ${R12_ONLY.linetypes}`);
+        }
+      } else {
+        const absent = missing(name);
+        if (absent) error("undefined-linetype", `${label}: ${absent}`);
+        const problem = typeof name === "string" ? layerLinetypeProblem(name) : undefined;
+        if (problem) error("linetype", `${label}: ${problem}`);
+      }
+    }
+    if (layer.lineweight !== undefined) {
+      const problem =
+        lineweightProblem(layer.lineweight, "layer") ??
+        (r12 && layer.lineweight !== "Default" ? R12_ONLY.lineweights : undefined);
+      if (problem) error("lineweight", `${label}: ${problem}`);
+    }
+    for (const state of ["off", "frozen", "locked", "plot"] as const) {
+      const flagProblem = layerFlagProblem(state, layer[state]);
+      if (flagProblem) error("layer-state", `${label}: ${flagProblem}`);
+    }
+    const states = layer.off || layer.frozen || layer.locked || layer.plot === false;
+    const stateProblem =
+      r12 && states ? R12_ONLY.layerStates : layerStateProblem(layer.name, layer.frozen);
+    if (stateProblem) error("layer-state", `${label}: ${stateProblem}`);
     const key = layerKey(layer.name);
     const auditKey = layerAuditKey(layer.name);
     const twinProblem = layerTwinProblem(layer.name, audited.get(auditKey) ?? layer.name);
@@ -102,6 +199,21 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
         "error",
         `layer ${JSON.stringify(entity.layer)} is not defined${hint}`,
       );
+    }
+    if (entity.linetype !== undefined) {
+      const name: unknown = entity.linetype;
+      const problem = r12
+        ? typeof name === "string" && builtInLinetype(name) === "ByLayer"
+          ? undefined
+          : R12_ONLY.entityStyle
+        : missing(name);
+      if (problem) add(r12 ? "linetype" : "undefined-linetype", "error", problem);
+    }
+    if (entity.lineweight !== undefined) {
+      const problem =
+        lineweightProblem(entity.lineweight, "entity") ??
+        (r12 && entity.lineweight !== "ByLayer" ? R12_ONLY.entityStyle : undefined);
+      if (problem) add("lineweight", "error", problem);
     }
     const problems = geometryProblems(entity);
     for (const problem of problems) add("geometry", "error", problem);

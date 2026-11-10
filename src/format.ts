@@ -84,3 +84,13 @@ export function dxfText(value: string, ascii = false): string {
   }
   return out;
 }
+
+/**
+ * Escapes a string that AutoCAD decodes once when it reads DXF, as it does a linetype's
+ * description, so that AutoCAD holds the string as given. `dxfText` explains the escapes; a
+ * text is decoded twice, and a description once, so here a backslash that would start an
+ * escape is written as `\U+005C`.
+ */
+export function dxfOnce(value: string): string {
+  return value.replace(ESCAPE_START, "\\U+005C").replaceAll("^", "^ ");
+}

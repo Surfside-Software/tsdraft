@@ -1,5 +1,55 @@
 # Changelog
 
+## Unreleased
+
+Every rule below was found by opening tsdraft's output in AutoCAD 2025.
+
+- Breaking: `createDrawing()` now targets DXF R2018. Pass `{ dxf: "R12" }` for
+  R12, which gets no new features.
+- Linetypes. `d.linetype({ name, description, pattern })` defines one, with
+  dashes as positive lengths, gaps as negative ones and dots as 0. `DASHED`,
+  `HIDDEN`, `CENTER`, `PHANTOM`, `DASHDOT` and `DOT` are exported with the
+  patterns AutoCAD loads from its `acad.lin`. `Continuous`, `ByLayer` and
+  `ByBlock` are in every drawing. `createDrawing({ linetypeScale })` sets
+  `$LTSCALE`.
+- Lineweights in millimetres, from AutoCAD's 24.
+- Layers take a `linetype`, a `lineweight`, and `off`, `frozen`, `locked` and
+  `plot`. Entities take a `linetype` and a `lineweight` of their own, and draw
+  ByLayer otherwise, as before.
+- `toSVG` draws dashes and pen weights, and leaves out layers that are off or
+  frozen. Its `strokeWidth` is now the width of a 0.25 mm line.
+- `toSVG` marks each entity's element with `data-entity`, its index in
+  `drawing.entities`, beside `data-layer`.
+- New rules, each a builder error and a `lint` error, and a compile error where
+  the literal shows it:
+  - a lineweight outside AutoCAD's list, which makes AutoCAD discard the drawing
+    when an entity has it;
+  - a linetype the drawing does not define, which makes AutoCAD discard it;
+  - a pattern of one length, which `AUDIT` reports, or more than 12, which makes
+    AutoCAD discard the drawing;
+  - a pattern length that is not 0 but is written as 0, which would turn a dash
+    or a gap into a dot, and a pattern whose lengths add up to 1e100 or more,
+    because the total is written too;
+  - defining `Continuous`, `ByLayer` or `ByBlock`, a layer whose linetype is
+    `ByLayer` or `ByBlock`, and freezing layer `0`, which is the current layer;
+  - a linetype scale of 0 or less, or one written as 0, which AutoCAD reads as
+    1, and a description over 249 characters, where AutoCAD cuts it;
+  - linetype names follow the rules of layer names, which AutoCAD holds them to,
+    and a name that `AUDIT` would report as a duplicate of `Continuous`,
+    `ByLayer` or `ByBlock`, such as one with a soft hyphen in it;
+  - a description with a control character, an emoji or a private-use
+    character from U+E800 to U+E8FF, as for text;
+  - an R12 drawing that defines a linetype, sets a linetype scale, or gives a
+    layer a linetype other than `Continuous`, a lineweight or a state, and an R12
+    entity with a linetype or lineweight of its own. Each message says to use
+    R2018.
+- A layer or an entity can be given a definition in place of a linetype name.
+  It is checked as `linetype()` checks one, and is defined if the drawing does
+  not have the name. If the drawing has the name with another pattern or
+  description, the builder throws: change a linetype with `linetype()`.
+- `lint` has the rules `linetype`, `duplicate-linetype`, `undefined-linetype`,
+  `lineweight` and `layer-state`, and a diagnostic names its `linetype`.
+
 ## 0.2.2
 
 Found by opening tsdraft's output in AutoCAD 2025.

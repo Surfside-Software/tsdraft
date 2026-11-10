@@ -16,7 +16,7 @@ as SVG for a quick preview.
 </picture>
 
 ```ts
-import { createDrawing, toDXF, toSVG } from "tsdraft";
+import { createDrawing, DASHED, PHANTOM, toDXF, toSVG } from "tsdraft";
 
 const lot = { width: 120, depth: 80 }; // ft
 const setbacks = { front: 20, side: 10, rear: 15 };
@@ -24,29 +24,31 @@ const house = { width: 56, depth: 32 };
 const x = (lot.width - house.width) / 2;
 const y = setbacks.front + 5;
 
-const d = createDrawing({ units: "ft" });
+// Linetype patterns are in drawing units. At a scale of 4, DASHED draws dashes of 2 ft and
+// PHANTOM long dashes of 5 ft.
+const d = createDrawing({ units: "ft", linetypeScale: 4 });
 
-d.layer("C-PROP", { color: 3 }, () => {
+d.layer("C-PROP", { color: 3, linetype: PHANTOM, lineweight: 0.5 }, () => {
   d.rect([0, 0], lot.width, lot.depth);
   d.text([2, -6], `LOT ${lot.width}' x ${lot.depth}'`, { height: 3 });
 });
-d.layer("C-SETB", { color: 4 }, () => {
+d.layer("C-SETB", { color: 4, linetype: DASHED, lineweight: 0.25 }, () => {
   const { front, side, rear } = setbacks;
   d.rect([side, front], lot.width - side * 2, lot.depth - front - rear);
 });
-d.layer("A-BLDG", { color: 1 }, () => {
+d.layer("A-BLDG", { color: 1, lineweight: 0.7 }, () => {
   d.rect([x, y], house.width, house.depth);
-  d.text([x + 2, y + house.depth / 2], "PROPOSED RESIDENCE", { height: 3 });
+  d.text([x + 2, y + house.depth / 2], "PROPOSED RESIDENCE", { height: 3, lineweight: 0.35 });
 });
-d.layer("C-PAVE", { color: 8 }, () => {
+d.layer("C-PAVE", { color: 8, lineweight: 0.25 }, () => {
   d.line([x + 40, y], [x + 40, -12]);
   d.line([x + 52, y], [x + 52, -12]);
 });
-d.layer("C-ROAD", { color: 2 }, () => {
+d.layer("C-ROAD", { color: 2, lineweight: 0.35 }, () => {
   d.line([-10, -12], [lot.width + 10, -12]);
   d.text([lot.width / 2 - 10, -18], "MAIN STREET", { height: 3 });
 });
-d.layer("V-TREE", { color: 3 }, () => {
+d.layer("V-TREE", { color: 3, lineweight: 0.18 }, () => {
   for (let i = 0; i < 6; i++) d.circle([15 + i * 18, 72], 5);
 });
 
@@ -62,12 +64,18 @@ can share code, and changes show up as diffs.
 Coordinates are in drawing units with Y pointing up, as in CAD. Angles are in
 degrees, counterclockwise from +X. Layer colors are AutoCAD Color Index numbers.
 Entities go on layer `0` unless they are drawn inside a `layer()` callback.
+Linetypes and lineweights are set on a layer, and an entity draws ByLayer unless
+it is given its own. `DASHED`, `HIDDEN`, `CENTER`, `PHANTOM`, `DASHDOT` and `DOT`
+are AutoCAD's own definitions; `d.linetype({ name, pattern })` defines another,
+with dashes as positive lengths, gaps as negative ones and dots as 0. A
+lineweight is in millimetres.
 
 ## Status
 
 tsdraft is at an early stage. It draws layers, lines, polylines, rectangles,
-circles, arcs and single-line text. It does not yet have dimensions, hatches,
-blocks, linetypes, lineweights or paper space layouts. It writes DXF, not DWG.
+circles, arcs and single-line text, with linetypes and lineweights, and layers
+that are off, frozen, locked or not plotted. It does not yet have dimensions,
+hatches, blocks or paper space layouts. It writes DXF, not DWG.
 
 The DXF output is tested by opening it in AutoCAD 2025 and running `AUDIT`. It
 has not been tested in BricsCAD or any other CAD program yet.
@@ -82,23 +90,25 @@ tsdraft is an ES module and needs Node 22 or later.
 
 ## DXF versions
 
-A drawing is written for one DXF version. `createDrawing()` targets R12, the
-oldest version still in common use, which nearly every CAD program can open.
-`createDrawing({ dxf: "R2018" })` targets the version AutoCAD has used since
-2018, which is the newest one Autodesk has published. `toDXF(drawing)` writes
+A drawing is written for one DXF version. `createDrawing()` targets R2018, the
+version AutoCAD has used since 2018, which is the newest one Autodesk has
+published. `createDrawing({ dxf: "R12" })` targets R12, the oldest version still
+in common use, which nearly every CAD program can open. `toDXF(drawing)` writes
 the drawing's version, and `toDXF(drawing, { version })` writes another one.
 
-|               | `"R12"`, the default                               | `"R2018"`                                                               |
-| ------------- | -------------------------------------------------- | ----------------------------------------------------------------------- |
-| Format code   | AC1009                                             | AC1032                                                                  |
-| Drawing units | Not stored. Set them in CAD with `UNITS`.          | Stored in `$INSUNITS`.                                                  |
-| Polylines     | `POLYLINE` with `VERTEX` records                   | `LWPOLYLINE`                                                            |
-| Text          | ASCII, with `\U+XXXX` escapes for other characters | UTF-8                                                                   |
-| Layer names   | Up to 31 letters, digits, `$`, `-` and `_`         | Up to 255 characters, except those in [the rules](docs/rules.md#errors) |
+|                           | `"R2018"`, the default                                                  | `"R12"`                                            |
+| ------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------- |
+| Format code               | AC1032                                                                  | AC1009                                             |
+| Drawing units             | Stored in `$INSUNITS`.                                                  | Not stored. Set them in CAD with `UNITS`.          |
+| Polylines                 | `LWPOLYLINE`                                                            | `POLYLINE` with `VERTEX` records                   |
+| Text                      | UTF-8                                                                   | ASCII, with `\U+XXXX` escapes for other characters |
+| Layer names               | Up to 255 characters, except those in [the rules](docs/rules.md#errors) | Up to 31 letters, digits, `$`, `-` and `_`         |
+| Linetypes, lineweights    | Yes                                                                     | No: only `Continuous`, and no lineweights          |
+| Layer off, frozen, locked | Yes, and not plotted                                                    | No                                                 |
 
-Choose R2018 when the drawing will be inserted into another drawing, because CAD
-needs the stored units to scale it correctly. AutoCAD shows layer names from an
-R12 file in upper case.
+R12 gets no new features. Choose it only for a program that cannot read R2018.
+CAD needs the stored units to scale a drawing inserted into another, and AutoCAD
+shows layer names from an R12 file in upper case.
 
 ## Checks
 
@@ -115,14 +125,14 @@ three points, so the mistake shows up where you made it.
    AutoCAD would reject.
 
 ```ts
-const d = createDrawing({ units: "ft" });
+const d = createDrawing({ units: "ft", dxf: "R12" });
 
 d.layer("A WALL");
 // error TS2345: Argument of type '"A WALL"' is not assignable to parameter of
 // type '"R12 layer names can only use letters, digits, $, - and _. Use DXF
 // version \"R2018\" for other characters"'.
 
-createDrawing({ dxf: "R2018" }).layer("A WALL"); // fine
+createDrawing().layer("A WALL"); // fine
 
 lint(drawing, { version: "R12" }); // check a drawing against another version
 ```
@@ -130,8 +140,9 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
 ## Reference
 
 - [Rules](docs/rules.md) lists what `lint` refuses and what it warns about.
-- [Layer names](docs/layer-names.md) explains how AutoCAD compares layer names,
-  and lists the pairs `AUDIT` calls duplicates and the characters it refuses.
+- [Layer names](docs/layer-names.md) explains how AutoCAD compares layer and
+  linetype names, and lists the pairs `AUDIT` calls duplicates and the
+  characters it refuses.
 - [Text](docs/text.md) explains what tsdraft escapes in text, and what AutoCAD
   does with it after a save.
 
