@@ -46,6 +46,12 @@ Coordinates are in drawing units with Y pointing up, as in CAD. Angles are in
 degrees, counterclockwise from +X. Layer colors are AutoCAD Color Index numbers.
 Entities go on layer `0` unless they are drawn inside a `layer()` callback.
 
+Numbers are written with 6 decimals, in DXF and in SVG. The checks below judge
+a drawing as it will be written, so a size too small to survive the rounding is
+an error and a line that rounds down to a point is a warning. Every number must
+also be under 1e100 in size. AutoCAD reads only two exponent digits from DXF, so
+it would take `1e+100` for `1e+10` and report nothing.
+
 ## DXF versions
 
 A drawing is written for one DXF version. `createDrawing()` targets R12, the
@@ -98,15 +104,101 @@ The rules:
 - Layer names cannot be empty, start or end with a space, or contain a line
   break or any of ``< > / \ " : ; ? * | = ` ^ ,``. R12 names have the tighter
   limits in the table above.
+- Layer names cannot contain the other characters AutoCAD refuses in a name. It
+  discards the drawing over any of them, and they are listed under
+  [Layer name characters](#layer-name-characters).
 - `wall` and `WALL` are the same layer, as in CAD. The first spelling is kept.
+  tsdraft compares names the way AutoCAD does, which is not the way JavaScript
+  does: see [Layer names and case](#layer-names-and-case).
 - Layer colors are whole numbers from 1 to 255.
-- Radii, text heights and rectangle sizes are greater than 0.
+- Radii, text heights and rectangle sizes are greater than 0, and large enough
+  not to be written as 0. Anything from 0.000001 up is safe. AutoCAD gives text
+  of height 0 its default height.
 - Text is a single line. It cannot contain emoji or other characters above
-  U+FFFF, because AutoCAD cannot read them from DXF.
-- Arc angles are stored from 0 up to 360, so -90 becomes 270.
+  U+FFFF, because AutoCAD cannot read them from DXF, or the private-use
+  characters U+E800 to U+E8FF, which AutoCAD replaces.
+- Coordinates, sizes and text rotations are under 1e100 in size, because
+  AutoCAD reads only two exponent digits from DXF.
+- Arc angles are stored from 0 up to 360, so -90 becomes 270. An arc cannot come
+  within 0.000001 degrees of a full turn, because its two angles would be
+  written the same and AutoCAD holds such an arc as having no length. Draw a
+  circle instead.
 
-`lint` also returns warnings, such as a line with no length. Warnings do not
-stop an export.
+`lint` also returns warnings. Warnings do not stop an export. They are:
+
+- A line, a polyline or an arc that has no length, or has none once its numbers
+  are rounded.
+- Text that contains `%%`. AutoCAD stores the text as written but reads `%%` as
+  the start of a control code when it draws it: `%%d` is drawn as a degree sign
+  and `%%%` as one percent sign.
+
+`toDXF` throws a `DrawingError` for errors only. Its `diagnostics` property holds
+them, and other code may throw one to refuse a drawing for its own reasons.
+
+### Text
+
+When AutoCAD opens tsdraft's DXF, it holds each text exactly as the drawing has
+it. tsdraft escapes what DXF would otherwise read as something else: a caret,
+and a backslash that starts `\U+XXXX` or `\M+NXXXX`, which AutoCAD decodes into
+a character. A text `\U+00B0` reaches AutoCAD as those seven characters and not
+as a degree sign. Write the character itself, `°`, to get the character.
+
+That lasts until AutoCAD saves the drawing, because AutoCAD does not escape these
+sequences in what it writes. After it saves as DWG and opens the file again, a
+text `\M+18140` holds the character U+3000. After it saves as DXF and opens
+that, `\U+00B0` holds a degree sign as well. tsdraft cannot change this.
+
+### Layer names and case
+
+AutoCAD lower-cases a layer name one character at a time, from a table of its
+own that is older and smaller than Unicode's. An entity on `mixedcase`, `café`,
+`αβγ` or `СЛОЙ` goes on a layer declared as `MixedCase`, `CAFÉ`, `ΑΒΓ` or `Слой`,
+and `lint` accepts it. AutoCAD does not pair these, and `lint` reports the
+entity's layer as undefined:
+
+- `ΟΔΟΣ` and `οδος`, because of the final sigma `ς`. `οδοσ` does match.
+- `STRASSE` and `straße`, and `TITLE` and `tıtle` with a dotless `ı`.
+- `Ÿ` and `ÿ`, `İ` and `i`, and the title-case digraphs such as `ǅ`.
+- Georgian, Cherokee and most other letters that gained a case after Unicode
+  5.1.
+
+Declaring both spellings as layers is an error too for some of these pairs,
+among them `ΟΔΟΣ` and `οδος`, `Ÿ` and `ÿ`, and `ß` and `ẞ`. AutoCAD keeps two
+layers, and its `AUDIT` then reports a duplicate name.
+
+`AUDIT` compares names more loosely than `lint` can follow in full. It reports
+each of these pairs as a duplicate name while AutoCAD keeps both layers, and
+`lint` does not catch them:
+
+- A letter and the two letters it stands for: `ß` and `ss`, `æ` and `ae`, `œ`
+  and `oe`, `ĳ` and `ij`, `ﬁ` and `fi`, `ǆ` and `dž`, `þ` and `th`.
+- A composed letter such as `é` and its decomposed form.
+- Names that differ only by a soft hyphen.
+
+### Layer name characters
+
+AutoCAD refuses these characters in a layer name, so `lint` does too. Over any
+of them but the last row's, AutoCAD discards the whole drawing. All are outside
+ASCII, so they only concern R2018 drawings.
+
+| Characters                                                                 | What they are                                              |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| U+0080 to U+009F                                                           | C1 control characters                                      |
+| U+0600 to U+0603, U+06DD, U+070F, U+17B4, U+17B5                           | Arabic, Syriac and Khmer formatting characters             |
+| U+200B to U+200F, U+202A to U+202E, U+2060 to U+2064, U+206A to U+206F     | Zero-width spaces and joiners, and text direction controls |
+| U+FEFF, U+FFF9 to U+FFFB                                                   | The byte order mark and annotation characters              |
+| U+2071, U+207F, U+2090 to U+2094                                           | Superscript and subscript letters                          |
+| Letters in U+2102 to U+214E, such as `ℓ`, `ℕ`, the ohm sign and the kelvin | Letterlike symbols. Use the Greek `Ω`, U+03A9, for ohms.   |
+| U+2180 to U+2188                                                           | Roman numeral characters                                   |
+| U+2C00 to U+2C5E, except U+2C2F                                            | Glagolitic                                                 |
+| U+2C60 to U+2C7D, except U+2C70                                            | Latin Extended-C                                           |
+| U+2C80 to U+2CE4                                                           | Coptic                                                     |
+| U+2D00 to U+2D25                                                           | Georgian Supplement                                        |
+| U+2D30 to U+2D65, U+2D6F                                                   | Tifinagh                                                   |
+| Letters in U+2D80 to U+2DDE                                                | Ethiopic Extended                                          |
+| U+E800 to U+E8FF                                                           | Private use. AutoCAD replaces these and keeps the drawing. |
+
+`src/layers.ts` has the exact list.
 
 ## Development
 
@@ -124,7 +216,8 @@ pnpm example   # writes a site plan to examples/out/ as DXF and SVG
 that has AutoCAD. Each test drawing runs in AutoCAD's headless console, which
 runs `AUDIT` and saves the drawing back as DXF. The script then compares that
 file with what was drawn. Run it after any change to a DXF writer, because
-AutoCAD rejects files that DXF parsing libraries accept.
+AutoCAD rejects files that DXF parsing libraries accept. Some of its cases write
+a file `toDXF` would refuse, to show that AutoCAD does what the rule says.
 
 `pnpm test:package` packs the package, installs the tarball into a throwaway
 project and checks that it type-checks and runs there. `pnpm build` compiles

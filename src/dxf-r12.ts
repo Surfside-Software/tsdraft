@@ -1,5 +1,6 @@
 import type { Drawing, Entity } from "./drawing.ts";
-import { dxfText, fmt } from "./format.ts";
+import { dxfText, fmt, writtenAngle } from "./format.ts";
+import { layerZeroFirst } from "./layers.ts";
 
 /**
  * Writes an ASCII DXF (AC1009, R12). R12 is the most widely readable DXF:
@@ -8,6 +9,7 @@ import { dxfText, fmt } from "./format.ts";
  * R12 has no header variable for drawing units, so coordinates are written as
  * plain numbers in the drawing's units and `drawing.units` is not written.
  * R12 predates Unicode DXF, so text outside ASCII is written as `\U+XXXX`.
+ * Layer `0` is written first, wherever it is in `drawing.layers`.
  */
 export function toDXFR12(drawing: Drawing): string {
   const out: string[] = [];
@@ -37,7 +39,7 @@ export function toDXFR12(drawing: Drawing): string {
   g(0, "TABLE");
   g(2, "LAYER");
   g(70, String(drawing.layers.length));
-  for (const layer of drawing.layers) {
+  for (const layer of layerZeroFirst(drawing.layers)) {
     g(0, "LAYER");
     g(2, layer.name);
     g(70, "0");
@@ -101,8 +103,8 @@ function writeEntity(e: Entity, g: (code: number, value: string | number) => voi
       g(20, e.center[1]);
       g(30, 0);
       g(40, e.radius);
-      g(50, e.startAngle);
-      g(51, e.endAngle);
+      g(50, writtenAngle(e.startAngle));
+      g(51, writtenAngle(e.endAngle));
       return;
     case "text":
       g(0, "TEXT");

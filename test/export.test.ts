@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createDrawing, toDXF, toSVG } from "../src/index.ts";
+import { createDrawing, toDXF, toSVG, type Drawing } from "../src/index.ts";
 
 /** Parses DXF text into [code, value] pairs. */
 function pairs(dxf: string): [number, string][] {
@@ -126,4 +126,139 @@ test("toDXF writes the version the drawing was created for", () => {
   assert.match(toDXF(d), /AC1032/);
   assert.match(toDXF(d, { version: "R12" }), /AC1009/);
   assert.match(toDXF(createDrawing().build()), /AC1009/);
+});
+
+test("text that looks like a DXF escape is written so AutoCAD keeps it", () => {
+  /** The value AutoCAD is given for a text, which is group 1 of the TEXT record. */
+  const value = (text: string, version: "R12" | "R2018") => {
+    const p = pairs(toDXF(createDrawing().text([0, 0], text).build(), { version }));
+    const record = p.slice(p.findIndex(([code, v]) => code === 0 && v === "TEXT"));
+    return record.find(([code]) => code === 1)?.[1];
+  };
+  for (const version of ["R12", "R2018"] as const) {
+    // AutoCAD decodes these twice, so the backslash is escaped twice.
+    assert.equal(value("\\U+00B0 literal", version), "\\U+005CU+005CU+00B0 literal");
+    assert.equal(value("\\u+00b0", version), "\\U+005CU+005Cu+00b0");
+    assert.equal(value("\\M+18140", version), "\\U+005CU+005CM+18140");
+    assert.equal(value("\\m+5abcd", version), "\\U+005CU+005Cm+5abcd");
+    assert.equal(value("\\U+00\\U+00420", version), "\\U+00\\U+005CU+005CU+00420");
+    // A backslash that starts nothing AutoCAD decodes stays as it is.
+    for (const plain of [
+      "C:\\Users\\file",
+      "\\U+00B",
+      "\\U+00G0",
+      "\\M+08140",
+      "\\M+1814",
+      "\\",
+      "U+00B0",
+    ]) {
+      assert.equal(value(plain, version), plain);
+    }
+    assert.equal(value("x^2 \\U+005E", version), "x^ 2 \\U+005CU+005CU+005E");
+  }
+  assert.equal(value("\\U+00E9 é", "R12"), "\\U+005CU+005CU+00E9 \\U+00E9");
+  assert.equal(value("\\U+00E9 é", "R2018"), "\\U+005CU+005CU+00E9 é");
+});
+
+test("layer 0 is written first, wherever the drawing has it", () => {
+  const d: Drawing = {
+    units: "in",
+    dxf: "R2018",
+    layers: [
+      { name: "FIRST", color: 1 },
+      { name: "0", color: 5 },
+      { name: "LAST", color: 3 },
+    ],
+    entities: [{ kind: "line", layer: "LAST", from: [0, 0], to: [1, 1] }],
+  };
+  for (const version of ["R12", "R2018"] as const) {
+    const p = pairs(toDXF(d, { version }));
+    const names = p.flatMap(([code, value], i) => {
+      if (code !== 0 || value !== "LAYER") return [];
+      const record = p.slice(i + 1, i + 8);
+      return [`${record.find(([c]) => c === 2)?.[1]} ${record.find(([c]) => c === 62)?.[1]}`];
+    });
+    assert.deepEqual(names, ["0 5", "FIRST 1", "LAST 3"], version);
+  }
+  assert.deepEqual(
+    d.layers.map((l) => l.name),
+    ["FIRST", "0", "LAST"],
+    "the drawing is not changed",
+  );
+});
+
+test("arc angles are written from 0 up to 360", () => {
+  const d = createDrawing().arc([0, 0], 1, 359.9999996, 90).arc([0, 0], 1, 90, 359.9999996).build();
+  for (const version of ["R12", "R2018"] as const) {
+    const p = pairs(toDXF(d, { version }));
+    const angles = p
+      .slice(p.findIndex(([code, value]) => code === 2 && value === "ENTITIES"))
+      .filter(([code]) => code === 50 || code === 51)
+      .map(([, value]) => value);
+    assert.deepEqual(angles, ["0", "90", "90", "0"], version);
+  }
+});
+
+test("SVG draws an arc of nearly a full turn, and colors by layer whatever the case", () => {
+  const d: Drawing = {
+    units: "in",
+    dxf: "R2018",
+    layers: [
+      { name: "0", color: 7 },
+      { name: "WALL", color: 1 },
+    ],
+    entities: [
+      // The two ends round to the same point, where an SVG arc draws nothing.
+      { kind: "arc", layer: "wall", center: [5, 5], radius: 1, startAngle: 0, endAngle: 359.99999 },
+      { kind: "arc", layer: "wall", center: [5, 5], radius: 1, startAngle: 0, endAngle: 0.00001 },
+    ],
+  };
+  const [, , full, short] = toSVG(d).split("\n");
+  assert.match(full ?? "", /<circle cx="5" cy="5" r="1" stroke="#ff0000"/);
+  assert.match(short ?? "", /<path d="M 6 5 A 1 1 0 0 1 6 5" stroke="#ff0000"/);
+});
+
+test("numbers are written in the forms AutoCAD reads", () => {
+  // What AutoCAD 2025 reads back from each form is checked by `pnpm test:cad`.
+  const printed = (value: number) => {
+    const p = pairs(toDXF(createDrawing().line([0, 0], [value, 0]).build()));
+    return p
+      .slice(p.findIndex(([code, v]) => code === 0 && v === "LINE"))
+      .find(([c]) => c === 11)?.[1];
+  };
+  const forms: [number, string][] = [
+    [-0, "0"],
+    [-0.0000004, "0"],
+    [0.0000004, "0"],
+    [0.0000006, "0.000001"],
+    [-0.000001, "-0.000001"],
+    [0.1 + 0.2, "0.3"],
+    [1234.5678915, "1234.567892"],
+    // Digits up to 1e21, which AutoCAD reads at their full length.
+    [123456789012345680000, "123456789012345680000"],
+    // An exponent from 1e21 up, and never more than two digits of it.
+    [1e21, "1e+21"],
+    [-1.2345678901234568e21, "-1.2345678901234568e+21"],
+    [9.999999999999998e99, "9.999999999999998e+99"],
+  ];
+  for (const [value, text] of forms) assert.equal(printed(value), text);
+  assert.throws(() => printed(1e100), /under 1e100/);
+});
+
+test("the numbers a writer works out stay in the range AutoCAD reads", () => {
+  const b = createDrawing({ dxf: "R2018" });
+  // The ends are 1.8e100 apart, and the text is guessed to be 5.9e102 wide.
+  b.line([0, 9e99], [3, -9e99]);
+  b.circle([9e99, -9e99], 9.9e99);
+  b.text([9e99, 0], "x".repeat(100), { height: 9.9e99 });
+  const d = b.build();
+  for (const version of ["R12", "R2018"] as const) {
+    const dxf = toDXF(d, { version });
+    assert.doesNotMatch(dxf, /e[+-]\d{3}|Infinity|NaN/, version);
+  }
+  const p = pairs(toDXF(d));
+  const after = (name: string) => p[p.findIndex(([c, v]) => c === 9 && v === name) + 1]?.[1];
+  assert.equal(after("$EXTMAX"), "9.999999999999998e+99");
+  const view = p.slice(p.findIndex(([c, v]) => c === 0 && v === "VPORT"));
+  assert.equal(view.find(([c]) => c === 40)?.[1], "9.999999999999998e+99", "view height");
 });

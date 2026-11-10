@@ -1,6 +1,7 @@
 import type { Drawing, Entity, Units } from "./drawing.ts";
 import { extents } from "./extents.ts";
-import { dxfText, fmt } from "./format.ts";
+import { dxfText, fmt, readable, writtenAngle } from "./format.ts";
+import { layerZeroFirst } from "./layers.ts";
 
 /** `$INSUNITS` codes from the DXF Reference. */
 const INSUNITS: Record<Units, number> = { in: 1, ft: 2, mm: 4, cm: 5, m: 6 };
@@ -36,7 +37,14 @@ export function toDXFR2018(drawing: Drawing): string {
   const normalPlotStyle = handle();
   const modelSpace = handle();
   const paperSpace = handle();
-  const [minX, minY, maxX, maxY] = extents(drawing.entities);
+  // The extents are worked out here, so they are brought into the range AutoCAD reads.
+  const [left, bottom, right, top] = extents(drawing.entities);
+  const [minX, minY, maxX, maxY] = [
+    readable(left),
+    readable(bottom),
+    readable(right),
+    readable(top),
+  ];
 
   g(0, "SECTION");
   g(2, "CLASSES");
@@ -78,7 +86,8 @@ export function toDXFR2018(drawing: Drawing): string {
     g,
     handle,
     "LAYER",
-    drawing.layers.map((layer) => ({
+    // AUDIT reports "Layer zero name found at incorrect index" unless layer 0 comes first.
+    layerZeroFirst(drawing.layers).map((layer) => ({
       type: "LAYER",
       subclass: "AcDbLayerTableRecord",
       name: layer.name,
@@ -268,7 +277,8 @@ function writeActiveViewport(
   maxY: number,
 ): void {
   const aspect = 1.6;
-  const height = Math.max(maxY - minY, (maxX - minX) / aspect, 1) * 1.1;
+  // A drawing can span more than AutoCAD can read as one number, so the height is capped.
+  const height = readable(Math.max(maxY - minY, (maxX - minX) / aspect, 1) * 1.1);
   g(10, 0); // lower-left corner of the viewport on screen
   g(20, 0);
   g(11, 1); // upper-right corner
@@ -367,8 +377,8 @@ function writeEntity(g: Group, e: Entity, handle: string, owner: string): void {
       point(g, 10, ...e.center);
       g(40, e.radius);
       g(100, "AcDbArc");
-      g(50, e.startAngle);
-      g(51, e.endAngle);
+      g(50, writtenAngle(e.startAngle));
+      g(51, writtenAngle(e.endAngle));
       return;
     case "text":
       begin("TEXT", "AcDbText");
