@@ -144,8 +144,7 @@ const FOLDED: ReadonlySet<number> = new Set(
 /**
  * Pairs of letters that AutoCAD keeps as two layers but its AUDIT reports as a
  * duplicate name, written `from>to` in hexadecimal after `layerKey` has
- * lower-cased the name. They include ÿ and Ÿ, the two lower-case sigmas σ and
- * ς, and ß and ẞ.
+ * lower-cased the name. They include the two lower-case sigmas σ and ς.
  */
 const AUDIT_SAME_PAIRS =
   "178>ff 1c6>1c5 1c9>1c8 1cc>1cb 1f3>1f2 3c3>3c2 3f5>3b5 527>526 1e9e>df 1fbe>3b9 " +
@@ -158,6 +157,67 @@ const AUDIT_SAME: ReadonlyMap<string, string> = new Map(
     return [String.fromCharCode(parseInt(from, 16)), String.fromCharCode(parseInt(to, 16))];
   }),
 );
+
+/**
+ * Letters that AUDIT takes for the two or three letters they stand for, in
+ * either letter case: it reports `straße` and `STRASSE` as a duplicate name,
+ * and `Þórr` and `Thórr`. Each is listed in lower case, as `layerKey` leaves
+ * it, with a title-case digraph beside its lower-case form.
+ */
+const AUDIT_SPELLED_OUT: ReadonlyMap<string, string> = new Map(
+  Object.entries({
+    ß: "ss",
+    ẞ: "ss",
+    æ: "ae",
+    ᴂ: "ae",
+    œ: "oe",
+    ĳ: "ij",
+    þ: "th",
+    ǆ: "dž",
+    ǅ: "dž",
+    ǉ: "lj",
+    ǈ: "lj",
+    ǌ: "nj",
+    ǋ: "nj",
+    ǳ: "dz",
+    ǲ: "dz",
+    ﬀ: "ff",
+    ﬁ: "fi",
+    ﬂ: "fl",
+    ﬃ: "ffi",
+    ﬄ: "ffl",
+    ﬆ: "st",
+    ȸ: "db",
+    ȹ: "qp",
+    ʪ: "ls",
+    ʫ: "lz",
+    ꜳ: "aa",
+    ꜵ: "ao",
+    ꜷ: "au",
+    ꜹ: "av",
+    ꜽ: "ay",
+    ꝏ: "oo",
+    // The key is compared in decomposed form, so `ž` is spelled as it decomposes.
+  }).map(([letter, spelling]) => [letter, spelling.normalize("NFD")]),
+);
+
+/**
+ * Composed characters that AUDIT does not take for their decomposed forms,
+ * though Unicode calls the two equivalent: Hangul syllables, and some Arabic,
+ * Indic, Myanmar, kana, Hebrew and CJK compatibility characters. AUDIT takes
+ * every other composed character below U+10000 for its decomposed form.
+ */
+const KEPT_COMPOSED =
+  /([\u0622-\u0624\u0626\u06c0\u06c2\u06d3\u09cb\u09cc\u09df\u0b48\u0b4b\u0b4c\u0b94\u0bca-\u0bcc\u0c48\u0cc0\u0cc7\u0cc8\u0cca\u0ccb\u0d4a-\u0d4c\u0dda\u0ddc-\u0dde\u1026\u309e\u30fe\ufa2e\ufa2f\ufa6b\ufa6d\ufb1f\ufb2c\ufb2d\uac00-\ud7a3])/;
+
+const SOFT_HYPHEN = "\u00ad";
+
+/**
+ * Soft hyphens that AUDIT ignores. It does not ignore one in front of a
+ * combining mark or a Hangul jamo: `E`, a soft hyphen and a combining acute
+ * accent are not É to it.
+ */
+const IGNORED_SOFT_HYPHENS = /\u00ad+(?![\u00ad\p{M}\u1100-\u11ff\ua960-\ua97f\ud7b0-\ud7ff])/gu;
 
 /**
  * The form of a layer name that AutoCAD looks layers up by. Two names with the
@@ -181,21 +241,47 @@ export function layerKey(name: string): string {
 
 /**
  * The form of a layer name that AutoCAD's AUDIT compares when it looks for
- * duplicate names. AUDIT takes a few more letters for the same than the layer
- * table does, so two layers can have different `layerKey`s and still be an
- * AUDIT error.
+ * duplicate names. AUDIT takes more names for the same than the layer table
+ * does, so two layers can have different `layerKey`s and still be an AUDIT
+ * error. Two names with the same key here are such a pair, unless they have
+ * the same `layerKey` too.
  *
- * This covers the single letters AUDIT adds, and not everything it reports:
- * it also calls `straße` and `strasse`, `æ` and `ae`, and a composed é and its
- * decomposed form duplicates, which this key keeps apart.
+ * The key follows the kinds of pair measured in AutoCAD 2025:
+ *
+ * - A few single letters, such as σ and ς.
+ * - A letter and the letters it stands for, such as ß and `ss`.
+ * - A composed character and its decomposed form, such as é and `e` with a
+ *   combining acute accent, with its marks in any order Unicode counts as the
+ *   same, such as a dot below before or after a circumflex.
+ * - A name with a soft hyphen inside it or in front of it and the same name
+ *   without.
+ *
+ * It is not AUDIT's whole comparison. AUDIT also takes some compatibility
+ * characters for their plain forms, and cannot tell two characters apart when
+ * it knows neither.
  *
  * @param name - The layer name.
  * @returns The key to find AUDIT's duplicate names by.
  */
 export function layerAuditKey(name: string): string {
   let key = "";
-  for (const character of layerKey(name)) key += AUDIT_SAME.get(character) ?? character;
-  return key;
+  for (const character of layerKey(decomposed(name.replace(IGNORED_SOFT_HYPHENS, "")))) {
+    key += AUDIT_SPELLED_OUT.get(character) ?? AUDIT_SAME.get(character) ?? character;
+  }
+  // AUDIT does not report `coop` and `coop` with a soft hyphen after it as duplicates, though it
+  // does report some other pairs that differ by a soft hyphen at the end. A mark for one at the
+  // end keeps a name that ends with a soft hyphen apart from every name that does not. Two names
+  // that both end with one are compared like any others, as the pairs in `auditPairs` in
+  // `scripts/cad-check.ts` check.
+  return name.endsWith(SOFT_HYPHEN) ? key + SOFT_HYPHEN : key;
+}
+
+/** Decomposes every composed character that AUDIT takes for its decomposed form. */
+function decomposed(name: string): string {
+  return name
+    .split(KEPT_COMPOSED)
+    .map((part, i) => (i % 2 === 1 ? part : part.normalize("NFD")))
+    .join("");
 }
 
 /**

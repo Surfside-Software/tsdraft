@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+Found by opening tsdraft's output in AutoCAD 2025.
+
+- Fixed: AutoCAD keeps two layers such as `straße` and `STRASSE` apart, but its
+  `AUDIT` reports them as a duplicate name. `lint` now reports the second layer
+  as a duplicate, and the builder throws at the `layer()` call. It does so for
+  the kinds of pair measured in AutoCAD, in either letter case and inside longer
+  names:
+  - a letter and the letters it stands for, such as `ß` and `ss`, `æ` and `ae`,
+    `œ` and `oe`, `ĳ` and `ij`, `ﬁ` and `fi`, `ǆ` and `dž`, and `þ` and `th`;
+  - a composed character and its decomposed form, such as `é`;
+  - a name with a soft hyphen inside it or in front of it and the same name
+    without.
+
+  This is not all that `AUDIT` reports. The README lists what is covered and
+  what is left out.
+
+- When an entity names its layer by the other spelling of such a pair, the
+  undefined-layer error now says which declared layer AutoCAD does not take it
+  for. AutoCAD adds a layer for the entity, and `AUDIT` reports a duplicate name.
+- `pnpm test:cad` checks each kind of pair against AutoCAD, and 600 longer names
+  beside respellings of themselves.
+
 ## 0.2.1
 
 Every fix below was found by opening tsdraft's output in AutoCAD 2025.

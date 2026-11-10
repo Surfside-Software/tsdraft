@@ -441,3 +441,88 @@ test("lint refuses a number AutoCAD would misread", () => {
   assert.throws(() => toDXF(d), DrawingError);
   assert.throws(() => toDXF(d, { version: "R12" }), DrawingError);
 });
+
+test("lint refuses layer names that AUDIT would report as duplicates", () => {
+  const drawing = (layers: string[], used: string[] = []): Drawing => ({
+    units: "in",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }, ...layers.map((name) => ({ name, color: 1 }))],
+    entities: used.map((layer) => ({ kind: "line", layer, from: [0, 0], to: [1, 1] })),
+  });
+  const duplicates = (layers: string[]) =>
+    lint(drawing(layers)).map((p) => `${p.severity} ${p.rule} ${p.layer}`);
+  const softHyphen = "\u00ad";
+
+  // A letter and the letters it stands for, in either letter case and inside longer names.
+  for (const [name, other] of [
+    ["straße", "strasse"],
+    ["Hauptstraße 12", "HAUPTSTRASSE 12"],
+    ["Maßstab", "Massstab"],
+    ["æ", "ae"],
+    ["Cæsar", "CAESAR"],
+    ["Œuvre", "oeuvre"],
+    ["Ĳssel", "ijssel"],
+    ["ﬁre wall", "FIRE WALL"],
+    ["ǆ", "DŽ"],
+    ["ǅ", "dž"],
+    ["Þórr", "thórr"],
+    // A composed character and its decomposed form, whatever the order of the marks.
+    ["café", "cafe\u0301"],
+    ["CAFÉ", "cafe\u0301"],
+    ["\u1ead", "a\u0302\u0323"],
+    ["a\u0323\u0302", "a\u0302\u0323"],
+    // A soft hyphen inside a name or in front of it.
+    [`co${softHyphen}op`, "coop"],
+    [`${softHyphen}Co${softHyphen}${softHyphen}op`, "coop"],
+    // Two names that both end with one are compared like any others.
+    [`co${softHyphen}op${softHyphen}`, `coop${softHyphen}`],
+    [`Straße${softHyphen}`, `STRASSE${softHyphen}`],
+    // The kinds together.
+    [`Haupt${softHyphen}straße`, "HAUPTSTRASSE"],
+    ["ǽ", "ae\u0301"],
+  ] as const) {
+    assert.deepEqual(duplicates([name, other]), [`error duplicate-layer ${other}`], name);
+    assert.deepEqual(duplicates([other, name]), [`error duplicate-layer ${name}`], other);
+  }
+  const [problem] = lint(drawing(["straße", "STRASSE"]));
+  assert.equal(
+    problem?.message,
+    'Layer "STRASSE": AutoCAD keeps this layer and "straße" as two layers, but its AUDIT reports them as one duplicate name',
+  );
+
+  // AUDIT reports none of these, so they are no error.
+  for (const [name, other] of [
+    ["Maßstab", "Masstab"],
+    ["ß", "sz"],
+    ["ǆ", "dz"],
+    ["ö", "oe"],
+    ["ø", "oe"],
+    ["cafe", "café"],
+    ["한", "\u1112\u1161\u11ab"],
+    ["\u09cb", "\u09c7\u09be"],
+    // A soft hyphen between a letter and its accent is not ignored, and neither is one at the end.
+    ["É", `E${softHyphen}\u0301`],
+    [`coop${softHyphen}`, "coop"],
+    ["co-op", "coop"],
+  ] as const) {
+    assert.deepEqual(duplicates([name, other]), [], name);
+  }
+
+  // An entity on the other spelling is on no declared layer: AutoCAD would add one for it.
+  const strays = lint(drawing(["straße", "café"], ["STRASSE", "cafe\u0301", "strase"]));
+  assert.deepEqual(
+    strays.map((p) => `${p.severity} ${p.rule} ${p.entity}`),
+    ["error undefined-layer 0", "error undefined-layer 1", "error undefined-layer 2"],
+  );
+  assert.equal(
+    strays[0]?.message,
+    'line #0: layer "STRASSE" is not defined. AutoCAD does not take it for layer "straße": it would add a layer, and its AUDIT would report a duplicate name',
+  );
+  assert.equal(strays[2]?.message, 'line #2: layer "strase" is not defined');
+
+  const b = createDrawing({ dxf: "R2018" });
+  b.layer("Hauptstraße");
+  assert.throws(() => b.layer("HAUPTSTRASSE"), /AUDIT reports them as one duplicate name/);
+  assert.throws(() => b.layer(`Haupt${softHyphen}straße`), /AUDIT reports them as one duplicate/);
+  b.layer("Hauptstrase");
+});

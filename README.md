@@ -162,18 +162,48 @@ entity's layer as undefined:
 - Georgian, Cherokee and most other letters that gained a case after Unicode
   5.1.
 
-Declaring both spellings as layers is an error too for some of these pairs,
-among them `ΟΔΟΣ` and `οδος`, `Ÿ` and `ÿ`, and `ß` and `ẞ`. AutoCAD keeps two
-layers, and its `AUDIT` then reports a duplicate name.
+Where `AUDIT` would take the entity's spelling for the declared layer's, as it
+does for `STRASSE` and `straße`, the message says so. AutoCAD adds a layer for
+the entity, and `AUDIT` then reports a duplicate name.
 
-`AUDIT` compares names more loosely than `lint` can follow in full. It reports
-each of these pairs as a duplicate name while AutoCAD keeps both layers, and
-`lint` does not catch them:
+### Layer names that AUDIT calls duplicates
 
-- A letter and the two letters it stands for: `ß` and `ss`, `æ` and `ae`, `œ`
-  and `oe`, `ĳ` and `ij`, `ﬁ` and `fi`, `ǆ` and `dž`, `þ` and `th`.
-- A composed letter such as `é` and its decomposed form.
-- Names that differ only by a soft hyphen.
+AutoCAD's `AUDIT` compares layer names another way than AutoCAD looks them up.
+It reports "Duplicate name" for some pairs of layers that AutoCAD keeps as two.
+`lint` reports the second layer of such a pair as a duplicate, which is an
+error, for these kinds of pair. Each kind holds in either letter case and
+inside a longer name, so `Hauptstraße 12` and `HAUPTSTRASSE 12` are a pair.
+
+- Single letters: `σ` and `ς`, `Ÿ` and `ÿ`, `ß` and `ẞ`, a title-case digraph
+  such as `ǅ` and `ǆ`, and a few others.
+- A letter and the letters it stands for: `ß` and `ss`, `æ` and `ae`, `œ` and
+  `oe`, `ĳ` and `ij`, `þ` and `th`, `ǆ` and `dž`, `ǉ` and `lj`, `ǌ` and `nj`,
+  `ǳ` and `dz`, the ligatures `ﬀ`, `ﬁ`, `ﬂ`, `ﬃ`, `ﬄ` and `ﬆ`, and `ȸ`, `ȹ`,
+  `ʪ`, `ʫ`, `ꜳ`, `ꜵ`, `ꜷ`, `ꜹ`, `ꜽ`, `ꝏ` and `ᴂ`.
+- A composed character and its decomposed form, such as `é` and an `e` with a
+  combining acute accent, with its marks in any order Unicode counts as the
+  same, such as a dot below before or after a circumflex. Hangul syllables are
+  an exception, and so are 40 Arabic, Indic, Myanmar, kana, Hebrew and CJK
+  compatibility characters: `AUDIT` keeps those apart from their decomposed
+  forms.
+- A name with a soft hyphen, U+00AD, inside it or in front of it, and the same
+  name without.
+
+This is what was measured in AutoCAD 2025. It is not AutoCAD's whole comparison,
+so a drawing that passes `lint` can still get a "Duplicate name" from `AUDIT`.
+The rule is kept narrow so that it does not go the other way: in over 20,000
+pairs tried, `lint` reported none that `AUDIT` accepts. What it leaves out:
+
+- A name that ends with a soft hyphen and the same name without it, and a soft
+  hyphen in front of a combining mark or a Hangul jamo. `AUDIT` reports some of
+  those pairs and not others. It does not report `coop` and `coop` followed by a
+  soft hyphen. Two names that both end with a soft hyphen are compared like any
+  others.
+- Compatibility characters that `AUDIT` takes for their plain forms, such as a
+  modifier letter `ʰ` and `h`, `㎏` and `kg`, and Arabic presentation forms.
+- Characters that `AUDIT` cannot tell from an unassigned one, such as `Ԥ`,
+  U+0524, and `Ꙡ`, U+A660. Two names that differ only in such characters are
+  duplicates to it.
 
 ### Layer name characters
 
