@@ -10,10 +10,21 @@ as SVG for a quick preview.
 [![CI](https://img.shields.io/github/actions/workflow/status/Surfside-Software/tsdraft/ci.yml?branch=main&label=CI)](https://github.com/Surfside-Software/tsdraft/actions/workflows/ci.yml)
 [![License](https://img.shields.io/npm/l/tsdraft?color=1aafc8)](LICENSE)
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Surfside-Software/tsdraft/main/docs/assets/site-plan-dark.svg">
-  <img src="https://raw.githubusercontent.com/Surfside-Software/tsdraft/main/docs/assets/site-plan-light.svg" alt="A site plan drawn by tsdraft: a lot with its setbacks, a house, a driveway, six trees and the street" width="640">
-</picture>
+<a href="https://github.com/Surfside-Software/tsdraft/tree/main/examples">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Surfside-Software/tsdraft/main/docs/assets/outdoor-kitchen-dark.svg">
+    <img src="https://raw.githubusercontent.com/Surfside-Software/tsdraft/main/docs/assets/outdoor-kitchen-light.svg" alt="An outdoor kitchen drawn by tsdraft at 3/8 inch to the foot. On the left, an elevation of a stucco wall with an undercounter refrigerator, a built-in gas grill under a vent hood, a sink below a window and two shelves, with dimension strings and notes. On the right, a wall section through the grill from the footing to the attic: the reinforced masonry wall on its footing, the patio slab, the cabinet, the grill, the hood and its duct, and the ceilings with insulation." width="100%">
+  </picture>
+</a>
+
+The picture is what `toSVG` writes for
+[`examples/outdoor-kitchen.ts`](examples/outdoor-kitchen.ts), restyled for this
+page with a color for each layer. Its dimensions, leaders and stipple
+are small functions in the example that draw lines and text, and every size
+comes from a few parameters at the top of the file.
+[`examples`](examples) has both drawings and how to run them.
+
+A smaller drawing, start to finish:
 
 ```ts
 import { createDrawing, DASHED, PHANTOM, toDXF, toSVG } from "tsdraft";
@@ -57,9 +68,8 @@ const dxf = toDXF(drawing);
 const svg = toSVG(drawing);
 ```
 
-The picture is the SVG that `toSVG` writes for this code, restyled for this
-page. A drawing is a program, so dimensions can come from variables, drawings
-can share code, and changes show up as diffs.
+A drawing is a program, so dimensions can come from variables, drawings can
+share code, and changes show up as diffs.
 
 Coordinates are in drawing units with Y pointing up, as in CAD. Angles are in
 degrees, counterclockwise from +X. Layer colors are AutoCAD Color Index numbers.
@@ -75,7 +85,9 @@ lineweight is in millimetres.
 tsdraft is at an early stage. It draws layers, lines, polylines, rectangles,
 circles, arcs and single-line text, with linetypes and lineweights, and layers
 that are off, frozen, locked or not plotted. It does not yet have dimensions,
-hatches, blocks or paper space layouts. It writes DXF, not DWG.
+hatches, blocks or paper space layouts. It writes DXF, not DWG. The drawing at
+the top builds its dimensions, leaders and stipple from lines and text, so in
+CAD they are plain lines and text, not dimension or hatch objects.
 
 The DXF output is tested by opening it in AutoCAD 2025 and running `AUDIT`. It
 has not been tested in BricsCAD or any other CAD program yet.
@@ -154,8 +166,8 @@ directly, so tests and examples need no build step.
 ```sh
 pnpm install
 pnpm verify          # format check, lint, type check, tests, package smoke test
-pnpm example         # writes a site plan to examples/out/ as DXF and SVG
-pnpm readme:drawing  # redraws the picture at the top of this page from the example
+pnpm example         # writes both examples to examples/out/ as DXF and SVG
+pnpm readme:drawing  # redraws the pictures in docs/assets/ from the examples
 ```
 
 [docs/development.md](docs/development.md) covers `pnpm test:cad` (which opens

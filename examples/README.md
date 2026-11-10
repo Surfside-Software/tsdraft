@@ -1,0 +1,46 @@
+# Examples
+
+Each example builds a drawing and writes it to `examples/out/` as an AutoCAD
+2018 DXF and an SVG. `pnpm example` runs both. The pictures here are the SVGs
+restyled by `pnpm readme:drawing`, which gives each layer a color and keeps the
+lineweights the drawing sets.
+
+## Outdoor kitchen
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../docs/assets/outdoor-kitchen-dark.svg">
+  <img src="../docs/assets/outdoor-kitchen-light.svg" alt="An elevation of an outdoor kitchen wall with a refrigerator, a gas grill under a vent hood and a sink below a window, beside a wall section through the grill from the footing to the attic" width="100%">
+</picture>
+
+An elevation of an outdoor kitchen wall and a wall section through its grill,
+at 3/8" = 1'-0". The section runs from the footing and its reinforcing, through
+the masonry wall and the cabinet, to the hood's duct, the ceilings and the
+insulation above them. The wall, the counter and the run of cabinets are
+parameters at the top of [`outdoor-kitchen.ts`](outdoor-kitchen.ts), and every
+position, dimension and size in a note is worked out from them. Change the
+grill from 36 to 42 inches and the cabinets move, the dimensions change and the
+note says 42".
+
+```sh
+node examples/outdoor-kitchen.ts
+```
+
+The dimensions, leaders, stucco stipple, hatching, earth, insulation, dashed
+lines, break lines and view titles come from [`lib/drafting.ts`](lib/drafting.ts).
+Each function takes the drawing builder and draws lines, polylines, circles,
+arcs and text, so a CAD program opens the result as plain geometry.
+
+## Site plan
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../docs/assets/site-plan-dark.svg">
+  <img src="../docs/assets/site-plan-light.svg" alt="A site plan: a lot with its setbacks, a house, a driveway, six trees and the street" width="640">
+</picture>
+
+A lot with its setbacks, a house, a driveway, trees and the street, in about 30
+lines. It is the code shown in the main README. Read
+[`site-plan.ts`](site-plan.ts).
+
+```sh
+node examples/site-plan.ts
+```
