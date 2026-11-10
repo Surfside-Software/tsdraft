@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.2
 
 Found by opening tsdraft's output in AutoCAD 2025.
 
