@@ -12,7 +12,8 @@ Found by opening tsdraft's output in AutoCAD 2025.
   - a letter and the letters it stands for, such as `ß` and `ss`, `æ` and `ae`,
     `œ` and `oe`, `ĳ` and `ij`, `ﬁ` and `fi`, `ǆ` and `dž`, and `þ` and `th`;
   - a composed character and its decomposed form, such as `é`;
-  - a name with a soft hyphen in it and the same name without.
+  - a name with a soft hyphen inside it or in front of it and the same name
+    without.
 
   This is not all that `AUDIT` reports. The README lists what is covered and
   what is left out.

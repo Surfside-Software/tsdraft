@@ -474,6 +474,9 @@ test("lint refuses layer names that AUDIT would report as duplicates", () => {
     // A soft hyphen inside a name or in front of it.
     [`co${softHyphen}op`, "coop"],
     [`${softHyphen}Co${softHyphen}${softHyphen}op`, "coop"],
+    // Two names that both end with one are compared like any others.
+    [`co${softHyphen}op${softHyphen}`, `coop${softHyphen}`],
+    [`Straße${softHyphen}`, `STRASSE${softHyphen}`],
     // The kinds together.
     [`Haupt${softHyphen}straße`, "HAUPTSTRASSE"],
     ["ǽ", "ae\u0301"],

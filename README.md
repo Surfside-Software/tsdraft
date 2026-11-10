@@ -181,21 +181,24 @@ inside a longer name, so `Hauptstraße 12` and `HAUPTSTRASSE 12` are a pair.
   `ǳ` and `dz`, the ligatures `ﬀ`, `ﬁ`, `ﬂ`, `ﬃ`, `ﬄ` and `ﬆ`, and `ȸ`, `ȹ`,
   `ʪ`, `ʫ`, `ꜳ`, `ꜵ`, `ꜷ`, `ꜹ`, `ꜽ`, `ꝏ` and `ᴂ`.
 - A composed character and its decomposed form, such as `é` and an `e` with a
-  combining acute accent, with the combining marks in any order. Hangul
-  syllables are an exception, and so are 40 Arabic, Indic, Myanmar, kana, Hebrew
-  and CJK compatibility characters: `AUDIT` keeps those apart from their
-  decomposed forms.
-- A name with a soft hyphen, U+00AD, in it or in front of it, and the same name
-  without.
+  combining acute accent, with its marks in any order Unicode counts as the
+  same, such as a dot below before or after a circumflex. Hangul syllables are
+  an exception, and so are 40 Arabic, Indic, Myanmar, kana, Hebrew and CJK
+  compatibility characters: `AUDIT` keeps those apart from their decomposed
+  forms.
+- A name with a soft hyphen, U+00AD, inside it or in front of it, and the same
+  name without.
 
 This is what was measured in AutoCAD 2025. It is not AutoCAD's whole comparison,
 so a drawing that passes `lint` can still get a "Duplicate name" from `AUDIT`.
 The rule is kept narrow so that it does not go the other way: in over 20,000
 pairs tried, `lint` reported none that `AUDIT` accepts. What it leaves out:
 
-- A soft hyphen at the end of a name, or between a letter and a combining mark.
-  `AUDIT` reports some of those pairs and not others. It does not report `coop`
-  and `coop` followed by a soft hyphen.
+- A name that ends with a soft hyphen and the same name without it, and a soft
+  hyphen in front of a combining mark or a Hangul jamo. `AUDIT` reports some of
+  those pairs and not others. It does not report `coop` and `coop` followed by a
+  soft hyphen. Two names that both end with a soft hyphen are compared like any
+  others.
 - Compatibility characters that `AUDIT` takes for their plain forms, such as a
   modifier letter `ʰ` and `h`, `㎏` and `kg`, and Arabic presentation forms.
 - Characters that `AUDIT` cannot tell from an unassigned one, such as `Ԥ`,

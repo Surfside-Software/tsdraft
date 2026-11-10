@@ -213,9 +213,9 @@ const KEPT_COMPOSED =
 const SOFT_HYPHEN = "\u00ad";
 
 /**
- * Soft hyphens that AUDIT ignores. It does not ignore one that parts a letter
- * from a combining mark, or one Hangul jamo from the next: `e`, a soft hyphen
- * and a combining acute accent are not é to it.
+ * Soft hyphens that AUDIT ignores. It does not ignore one in front of a
+ * combining mark or a Hangul jamo: `E`, a soft hyphen and a combining acute
+ * accent are not É to it.
  */
 const IGNORED_SOFT_HYPHENS = /\u00ad+(?![\u00ad\p{M}\u1100-\u11ff\ua960-\ua97f\ud7b0-\ud7ff])/gu;
 
@@ -251,8 +251,10 @@ export function layerKey(name: string): string {
  * - A few single letters, such as σ and ς.
  * - A letter and the letters it stands for, such as ß and `ss`.
  * - A composed character and its decomposed form, such as é and `e` with a
- *   combining acute accent, whatever order the combining marks come in.
- * - A name with a soft hyphen in it and the same name without.
+ *   combining acute accent, with its marks in any order Unicode counts as the
+ *   same, such as a dot below before or after a circumflex.
+ * - A name with a soft hyphen inside it or in front of it and the same name
+ *   without.
  *
  * It is not AUDIT's whole comparison. AUDIT also takes some compatibility
  * characters for their plain forms, and cannot tell two characters apart when
@@ -268,8 +270,9 @@ export function layerAuditKey(name: string): string {
   }
   // AUDIT does not report `coop` and `coop` with a soft hyphen after it as duplicates, though it
   // does report some other pairs that differ by a soft hyphen at the end. A mark for one at the
-  // end keeps every such pair apart, so this key never calls two names duplicates when AUDIT
-  // does not.
+  // end keeps a name that ends with a soft hyphen apart from every name that does not. Two names
+  // that both end with one are compared like any others, as the pairs in `auditPairs` in
+  // `scripts/cad-check.ts` check.
   return name.endsWith(SOFT_HYPHEN) ? key + SOFT_HYPHEN : key;
 }
 

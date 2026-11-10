@@ -369,6 +369,12 @@ function auditPairs(): [string, string][] {
     [`co${softHyphen}op`, "coop"],
     [`${softHyphen}CO${softHyphen}${softHyphen}OP 2`, "coop 2"],
     [`Haupt${softHyphen}straße`, "HAUPTSTRASSE"],
+    // Two names that both end with a soft hyphen, which lint compares like any others.
+    [`co${softHyphen}op${softHyphen}`, `coop${softHyphen}`],
+    [`coop${softHyphen}${softHyphen}`, `coop${softHyphen}`],
+    [`Straße${softHyphen}`, `STRASSE${softHyphen}`],
+    [`CAFÉ${softHyphen}`, `cafe\u0301${softHyphen}`],
+    [`ΟΔΟΣ${softHyphen}`, `οδος${softHyphen}`],
     // The kinds together.
     [`Ĳssel${softHyphen}ﬂöße`, "IJSSELFLO\u0308SSE"],
     // From here on, AUDIT reports no duplicate and lint refuses nothing.
