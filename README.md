@@ -259,11 +259,17 @@ as `pnpm check:tsrs` and as an informational CI step. It tracks TypeScript 7.1
 beta, so it does not gate releases yet. Its WebAssembly build is the planned
 route for type-checking drawings in a browser playground.
 
+## Contributing
+
+tsdraft is developed in a private repository and published here through pull
+requests from the `export` branch. Issues are welcome.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) says how changes arrive.
+
 ## Releasing
 
-Bump `version` in `package.json` and add a CHANGELOG entry in a pull request.
-After it merges, publish a GitHub release tagged `v<version>` on the merge
-commit. The Release workflow checks that the tag matches the version, runs
+Bump `version` in `package.json` and add a CHANGELOG entry. After the export
+pull request that carries them merges, publish a GitHub release tagged
+`v<version>` on the commit it made. The Release workflow checks that the tag matches the version, runs
 `pnpm verify` and publishes to npm through
 [trusted publishing](https://docs.npmjs.com/trusted-publishers), so no npm token
 is stored anywhere. npm adds a provenance attestation that links each version to

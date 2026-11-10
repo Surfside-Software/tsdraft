@@ -42,8 +42,10 @@
   never an open CAD window. Add a case there for anything new the writer emits.
 - The published package must run on Node 22. Only development tooling may need
   Node 24; on Node 22, development needs 22.18 or later for type stripping.
-- Release by bumping `version` and the CHANGELOG in a PR, merging it, then
-  publishing a GitHub release tagged `v<version>` on the merge commit. The
-  Release workflow publishes to npm through trusted publishing. Never publish
-  from a laptop with a token.
+- Changes reach this repo only through export pull requests, as
+  `CONTRIBUTING.md` says. Release by bumping `version` and the CHANGELOG,
+  merging the export pull request that carries them, then publishing a GitHub
+  release tagged `v<version>` on the commit that merge made. The Release
+  workflow publishes to npm through trusted publishing. Never publish from a
+  laptop with a token.
 - Follow the `cad-automation-notes` skill before any live CAD call.
