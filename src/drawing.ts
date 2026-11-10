@@ -1,6 +1,11 @@
+import { fmt, written } from "./format.ts";
+import { layerAuditKey, layerKey } from "./layers.ts";
 import {
+  arcProblem,
   layerColorProblem,
   layerNameProblem,
+  layerTwinProblem,
+  sizeProblem,
   textProblem,
   type LayerColor,
   type LayerName,
@@ -116,8 +121,10 @@ export interface TextOptions<H extends number = number> {
 export class DrawingBuilder<V extends DxfVersion = "R12"> {
   readonly units: Units;
   readonly dxf: V;
-  /** Keyed by lower-cased name, because CAD ignores case in layer names. */
+  /** Keyed by `layerKey`, because AutoCAD ignores case in layer names. */
   readonly #layers = new Map<string, Layer>([["0", { name: "0", color: 7 }]]);
+  /** The first layer name for each `layerAuditKey`, to find names AUDIT would call duplicates. */
+  readonly #audited = new Map<string, string>([["0", "0"]]);
   readonly #entities: Entity[] = [];
   #current = "0";
 
@@ -145,13 +152,17 @@ export class DrawingBuilder<V extends DxfVersion = "R12"> {
     const requested = name as string;
     const nameProblem = layerNameProblem(requested, this.dxf);
     if (nameProblem) throw new Error(`Layer ${JSON.stringify(requested)}: ${nameProblem}`);
-    const key = requested.toLowerCase();
+    const key = layerKey(requested);
     const existing = this.#layers.get(key);
+    const auditKey = layerAuditKey(requested);
+    const twinProblem = layerTwinProblem(requested, this.#audited.get(auditKey) ?? requested);
+    if (twinProblem) throw new Error(`Layer ${JSON.stringify(requested)}: ${twinProblem}`);
     const color = (options.color as number | undefined) ?? existing?.color ?? 7;
     const colorProblem = layerColorProblem(color);
     if (colorProblem) throw new Error(`Layer ${JSON.stringify(requested)}: ${colorProblem}`);
     const layer = { name: existing?.name ?? requested, color };
     this.#layers.set(key, layer);
+    if (!this.#audited.has(auditKey)) this.#audited.set(auditKey, layer.name);
     if (draw) {
       const previous = this.#current;
       this.#current = layer.name;
@@ -182,6 +193,9 @@ export class DrawingBuilder<V extends DxfVersion = "R12"> {
     const [x, y] = pt(corner);
     const w = positive(width, "width");
     const h = positive(height, "height");
+    // A side can still vanish in the file: a corner and the one across from it may round together.
+    if (written(x + w) === written(x)) throw new Error(lostSide("width", "x", x));
+    if (written(y + h) === written(y)) throw new Error(lostSide("height", "y", y));
     return this.polyline(
       [
         [x, y],
@@ -206,6 +220,10 @@ export class DrawingBuilder<V extends DxfVersion = "R12"> {
    * Arc from `startAngle` counterclockwise to `endAngle`. Angles are stored
    * from 0 up to 360, so -90 becomes 270, because AutoCAD's AUDIT rejects
    * angles outside that range.
+   *
+   * Angles are written with 6 decimals. An arc within 0.000001 degrees of a
+   * full turn would be written with equal angles, which AutoCAD holds as an
+   * arc of no length, so it throws: draw a circle instead.
    */
   arc<R extends number>(
     center: Point,
@@ -216,6 +234,8 @@ export class DrawingBuilder<V extends DxfVersion = "R12"> {
     const start = turn(num(startAngle, "startAngle"));
     const end = turn(num(endAngle, "endAngle"));
     if (start === end) throw new Error("An arc's start and end angles must differ");
+    const problem = arcProblem(start, end);
+    if (problem) throw new Error(problem);
     return this.#add({
       kind: "arc",
       layer: this.#current,
@@ -282,8 +302,13 @@ function positive(value: unknown, label: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new Error(`${label} must be a finite number`);
   }
-  if (value <= 0) throw new Error(`${label} must be greater than 0`);
+  const problem = sizeProblem(value);
+  if (problem) throw new Error(`${label}: ${problem}`);
   return value;
+}
+
+function lostSide(size: string, axis: string, at: number): string {
+  return `${size}: This value is too small at ${axis} = ${at}. Both sides of the rectangle are written as ${axis} = ${fmt(at)}, because tsdraft writes 6 decimals`;
 }
 
 function pt(point: Point): Point {

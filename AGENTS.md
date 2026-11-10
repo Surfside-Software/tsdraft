@@ -23,6 +23,13 @@
   drawings built another way. `toDXF` refuses to write a drawing with lint
   errors. Test a new rule with `@ts-expect-error` inside `assert.throws`, as
   `test/rules.test.ts` does, so both halves are proven.
+- The writers print numbers with 6 decimals. `written` in `src/format.ts` is that
+  rounding, and `lint` judges sizes, points and arc angles as written. A new
+  check on a number must do the same.
+- `src/layers.ts` holds what AutoCAD does with layer-name characters: the ones
+  it refuses, the capitals it lower-cases to compare names, and the pairs only
+  `AUDIT` calls duplicates. Never compare layer names with `toLowerCase()`.
+  The tables came from AutoCAD, and `pnpm test:cad` checks them against it.
 - Passing ezdxf or another parser proves little: AutoCAD discards files they
   accept. After changing a DXF writer or a rule, run `pnpm test:cad` with
   `TSDRAFT_CAD_SSH` set. It runs AutoCAD's headless console on another machine,

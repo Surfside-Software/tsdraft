@@ -1,6 +1,7 @@
 import { sweep, type Drawing, type Entity } from "./drawing.ts";
 import { extents } from "./extents.ts";
 import { fmt } from "./format.ts";
+import { layerKey } from "./layers.ts";
 
 /** Screen colors for the standard ACI colors 1 to 7. Other indexes draw in currentColor. */
 const ACI: Record<number, string> = {
@@ -28,11 +29,14 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
   const y = -(maxY + margin);
   const w = maxX - minX + margin * 2;
   const h = maxY - minY + margin * 2;
-  const colors = new Map(drawing.layers.map((l) => [l.name, ACI[l.color] ?? "currentColor"]));
+  // Keyed as AutoCAD looks layers up, so an entity on `wall` takes the color of layer `WALL`.
+  const colors = new Map(
+    drawing.layers.map((l) => [layerKey(l.name), ACI[l.color] ?? "currentColor"]),
+  );
   const stroke = options.strokeWidth ?? 1;
 
   const body = drawing.entities
-    .map((e) => entityToSvg(e, colors.get(e.layer) ?? "currentColor"))
+    .map((e) => entityToSvg(e, colors.get(layerKey(e.layer)) ?? "currentColor"))
     .join("\n    ");
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${fmt(x)} ${fmt(y)} ${fmt(w)} ${fmt(h)}">`,
@@ -63,6 +67,11 @@ function entityToSvg(e: Entity, color: string): string {
       const large = sweep(e.startAngle, e.endAngle) > 180 ? 1 : 0;
       const start = `${fmt(cx + e.radius * Math.cos(a0))} ${fmt(cy + e.radius * Math.sin(a0))}`;
       const end = `${fmt(cx + e.radius * Math.cos(a1))} ${fmt(cy + e.radius * Math.sin(a1))}`;
+      // SVG draws nothing for an arc that ends where it starts, which is where rounding can
+      // put the ends of an arc that is all but a full turn.
+      if (start === end && large === 1) {
+        return `<circle cx="${fmt(cx)}" cy="${fmt(cy)}" r="${fmt(e.radius)}" ${s}/>`;
+      }
       // sweep-flag 1 is the positive-angle direction in local (Y-up) coordinates: counterclockwise.
       return `<path d="M ${start} A ${fmt(e.radius)} ${fmt(e.radius)} 0 ${large} 1 ${end}" ${s}/>`;
     }

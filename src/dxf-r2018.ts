@@ -1,6 +1,7 @@
 import type { Drawing, Entity, Units } from "./drawing.ts";
 import { extents } from "./extents.ts";
-import { dxfText, fmt } from "./format.ts";
+import { dxfText, fmt, writtenAngle } from "./format.ts";
+import { layerZeroFirst } from "./layers.ts";
 
 /** `$INSUNITS` codes from the DXF Reference. */
 const INSUNITS: Record<Units, number> = { in: 1, ft: 2, mm: 4, cm: 5, m: 6 };
@@ -78,7 +79,8 @@ export function toDXFR2018(drawing: Drawing): string {
     g,
     handle,
     "LAYER",
-    drawing.layers.map((layer) => ({
+    // AUDIT reports "Layer zero name found at incorrect index" unless layer 0 comes first.
+    layerZeroFirst(drawing.layers).map((layer) => ({
       type: "LAYER",
       subclass: "AcDbLayerTableRecord",
       name: layer.name,
@@ -367,8 +369,8 @@ function writeEntity(g: Group, e: Entity, handle: string, owner: string): void {
       point(g, 10, ...e.center);
       g(40, e.radius);
       g(100, "AcDbArc");
-      g(50, e.startAngle);
-      g(51, e.endAngle);
+      g(50, writtenAngle(e.startAngle));
+      g(51, writtenAngle(e.endAngle));
       return;
     case "text":
       begin("TEXT", "AcDbText");
