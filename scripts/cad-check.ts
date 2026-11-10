@@ -26,16 +26,25 @@ import { toDXFR12 } from "../src/dxf-r12.ts";
 import { toDXFR2018 } from "../src/dxf-r2018.ts";
 import { written, writtenAngle } from "../src/format.ts";
 import {
+  CENTER,
   createDrawing,
+  DASHDOT,
+  DASHED,
+  DOT,
+  HIDDEN,
+  LINEWEIGHTS,
   lint,
+  PHANTOM,
   toDXF,
   type Drawing,
   type DrawingBuilder,
   type DxfVersion,
   type Entity,
   type Layer,
+  type Linetype,
 } from "../src/index.ts";
 import { layerKey } from "../src/layers.ts";
+import { lineweightCode } from "../src/linetypes.ts";
 import { layerNameProblem, layerTwinProblem, textProblem } from "../src/rules.ts";
 
 const host = process.env.TSDRAFT_CAD_SSH;
@@ -74,6 +83,104 @@ function everything<V extends DxfVersion>(d: DrawingBuilder<V>, layers: [string,
     d.line([0, 0], [5, 5]);
   });
   return d.build();
+}
+
+/**
+ * AutoCAD's six plan linetypes and patterns at the edges of what it takes, a layer in each
+ * state and in each lineweight, and each kind of entity with a linetype and a lineweight of
+ * its own.
+ */
+function styled(): Drawing {
+  const d = createDrawing({ units: "ft", linetypeScale: 2.5 });
+  for (const t of [DASHED, HIDDEN, CENTER, PHANTOM, DASHDOT, DOT]) d.linetype(t);
+  d.linetype({
+    name: "Fence ö 日本 (v2)",
+    description: "Ø 25 – café x^2 \\U+00B0 \\M+18140 \\U+005CU+00B0 %%d",
+    pattern: [1, -0.5, 0, -0.5],
+  });
+  d.linetype({ name: "GAP FIRST", pattern: [-0.25, 0.5] });
+  d.linetype({
+    name: "TWELVE",
+    description: "y".repeat(249),
+    pattern: [0.5, -0.1, 0.4, -0.1, 0.3, -0.1, 0.2, -0.1, 0.1, -0.1, 0, -0.1],
+  });
+  d.linetype({ name: "NO LENGTH", pattern: [0, 0] });
+  d.linetype({ name: "SOLID", pattern: [] });
+  d.linetype({ name: "ROUNDED", pattern: [0.1234567, -0.0000006, 0, -12345.6789] });
+  d.layer("0", { linetype: "HIDDEN", lineweight: 0.3, off: true, locked: true, plot: false });
+  let y = 0;
+  const row = (options: Parameters<DrawingBuilder["line"]>[2] = {}) => {
+    d.line([0, y], [20, y], options);
+    y += 1;
+  };
+  d.layer("OFF", { color: 1, off: true }, () => row());
+  d.layer("FROZEN", { color: 2, frozen: true }, () => row());
+  d.layer("LOCKED", { color: 3, locked: true }, () => row());
+  d.layer("NO PLOT", { color: 4, plot: false }, () => row());
+  d.layer("ALL", { color: 5, off: true, frozen: true, locked: true, plot: false }, () => row());
+  for (const name of ["DASHED", "HIDDEN", "CENTER", "PHANTOM", "DASHDOT", "DOT", "TWELVE"])
+    d.layer(`LT ${name}`, { color: 6, linetype: name }, () => row());
+  for (const weight of LINEWEIGHTS)
+    d.layer(`LW ${weight}`, { color: 7, lineweight: weight }, () => row({ lineweight: weight }));
+  d.layer("ENTITIES", { color: 1, linetype: "CENTER", lineweight: 0.5 }, () => {
+    for (const weight of ["ByLayer", "ByBlock", "Default"] as const) row({ lineweight: weight });
+    for (const name of ["ByBlock", "Continuous", "dashed", "Fence ö 日本 (v2)", "GAP FIRST"])
+      row({ linetype: name });
+    for (const name of ["NO LENGTH", "SOLID", "ROUNDED"]) row({ linetype: name });
+    d.circle([5, 60], 2, { linetype: "DASHDOT", lineweight: 0.7 });
+    d.arc([15, 60], 2, 30, 300, { linetype: "PHANTOM", lineweight: 1.06 });
+    d.rect([12, 65], 5, 5, { linetype: "DOT", lineweight: 2.11 });
+    d.text([0, 72], "LINETYPES", { height: 1, linetype: "DASHED", lineweight: 0 });
+  });
+  return d.build();
+}
+
+/** A drawing made without the builder, with these linetypes, layers and entities. */
+function withLinetypes(
+  linetypes: readonly Linetype[],
+  layers: readonly Layer[],
+  entities: readonly Entity[],
+  more: Partial<Drawing> = {},
+): Drawing {
+  return { ...plain("R2018", layers, entities), linetypes, ...more };
+}
+
+const dashes = (name: string, pattern: number[] = [0.5, -0.25]): Linetype => ({
+  name,
+  description: "",
+  pattern,
+});
+
+/** A line on layer `0` in the linetype or lineweight given. */
+const styledLine = (i: number, style: Pick<Entity, "linetype" | "lineweight">): Entity => ({
+  kind: "line",
+  layer: "0",
+  from: [0, i],
+  to: [1, i],
+  ...style,
+});
+
+/** A drawing that AutoCAD discards whole, with the line of its log that says why. */
+function discardedFor(drawing: Drawing, why: RegExp): Case {
+  return {
+    dxf: refused(drawing),
+    check: ({ log }) => {
+      assert.match(log, why);
+      assert.match(log, /drawing discarded/);
+    },
+  };
+}
+
+/** A drawing AutoCAD opens, whose AUDIT reports what the rule refuses. */
+function auditedFor(drawing: Drawing, why: RegExp): Case {
+  return {
+    dxf: refused(drawing),
+    check: (result) => {
+      opened(result);
+      assert.match(result.log, why);
+      assert.doesNotMatch(result.log, /Total errors found 0 /);
+    },
+  };
 }
 
 /** What AutoCAD did with one file. */
@@ -513,6 +620,13 @@ function oneText(value: string, height: number): Drawing {
 }
 
 const allCasePairs = casePairs();
+const sameCasePairs = allCasePairs.filter(
+  ([declared, used]) => layerKey(declared) === layerKey(used),
+);
+const linetypeNames = chunks(
+  characters((c) => layerNameProblem(`A${c}A`, "R2018") === undefined),
+  200,
+).map((part, i) => `N${i}_${part}_`);
 const allAuditPairs = auditPairs();
 const allAuditRespellings = auditRespellings();
 
@@ -564,7 +678,133 @@ const cases: Record<string, Case> = {
     ),
   ),
 
+  "r2018-linetypes": drawn(styled()),
+  // Linetypes named with every character lint accepts in a name, 200 to a name.
+  "r2018-linetype-name-characters": drawn(
+    withLinetypes(
+      linetypeNames.map((name) => dashes(name)),
+      [],
+      linetypeNames.map((name, i) => styledLine(i, { linetype: name })),
+    ),
+  ),
+  // AutoCAD must take each entity's spelling for the linetype of the same `layerKey`.
+  "r2018-linetype-case": drawn(
+    withLinetypes(
+      sameCasePairs.map(([declared]) => dashes(declared)),
+      [],
+      sameCasePairs.map(([, used], i) => styledLine(i, { linetype: used })),
+    ),
+  ),
+
   // From here on, each case writes what `toDXF` refuses or warns about, to show why.
+  "r2018-linetype-undefined": discardedFor(
+    withLinetypes([], [], [styledLine(0, { linetype: "NOPE" })]),
+    /Invalid or incomplete DXF input/,
+  ),
+  "r2018-layer-linetype-undefined": discardedFor(
+    withLinetypes([], [{ name: "A", color: 1, linetype: "NOPE" }], []),
+    /Invalid or incomplete DXF input/,
+  ),
+  // A final sigma is no capital sigma to AutoCAD, so this entity names a linetype it does not have.
+  "r2018-linetype-other-spelling": discardedFor(
+    withLinetypes([dashes("ΟΔΟΣ")], [], [styledLine(0, { linetype: "οδος" })]),
+    /Invalid or incomplete DXF input/,
+  ),
+  "r2018-linetype-name-ohm-sign": discardedFor(
+    withLinetypes([dashes("A\u2126B")], [], []),
+    /Invalid symbol table record name/,
+  ),
+  "r2018-linetype-pattern-13": discardedFor(
+    withLinetypes([dashes("P", [1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1])], [], []),
+    /Error in LTYPE Table/,
+  ),
+  "r2018-lineweight-entity": discardedFor(
+    withLinetypes([], [], [styledLine(0, { lineweight: 0.33 })]),
+    /Invalid or incomplete DXF input/,
+  ),
+  "r2018-linetype-pattern-1": auditedFor(
+    withLinetypes([dashes("ONE", [1])], [], []),
+    /"ONE"\s+Dash Count Less than 2/,
+  ),
+  "r2018-layer-linetype-bylayer": auditedFor(
+    withLinetypes([], [{ name: "A", color: 1, linetype: "ByLayer" }], []),
+    /Linetype ByLayer/,
+  ),
+  // tsdraft writes layer "0" as the current layer.
+  "r2018-layer-zero-frozen": auditedFor(
+    withLinetypes([], [], [], { layers: [{ name: "0", color: 7, frozen: true }] }),
+    /CLAYER\s+Value eNullObjectId\s+\$AUDIT-BAD-LAYER/,
+  ),
+  "r2018-linetype-audit-pairs": {
+    dxf: refused(
+      withLinetypes(
+        allAuditPairs.flat().map((name) => dashes(name)),
+        [],
+        [],
+      ),
+    ),
+    check: (result) => {
+      opened(result);
+      const reported = new Set(
+        [...result.log.matchAll(/^Duplicate name "(.*)" in Linetype symbol table/gm)].map(
+          (m) => m[1],
+        ),
+      );
+      for (const [name, other] of allAuditPairs) {
+        assert.equal(
+          reported.has(name) || reported.has(other),
+          layerTwinProblem(other, name, "linetype") !== undefined,
+          `AUDIT reports linetypes ${name} and ${other} as a duplicate name`,
+        );
+      }
+    },
+  },
+  "r2018-linetype-defined-twice": {
+    dxf: refused(withLinetypes([dashes("DASHED"), dashes("dashed", [1, -1])], [], [])),
+    check: (result) => {
+      const [, , , kept, ...more] = loaded(result).linetypes;
+      assert.deepEqual(more, [], "AutoCAD keeps one of the two");
+      assert.equal(kept && first(kept, 2), "DASHED", "the first");
+      assert.deepEqual(kept?.groups.get(49), ["0.5", "-0.25"], "with the first pattern");
+    },
+  },
+  "r2018-linetype-built-in": {
+    dxf: refused(withLinetypes([dashes("CONTINUOUS", [1, -1])], [], [])),
+    check: (result) => {
+      const linetypes = loaded(result).linetypes;
+      assert.equal(linetypes.length, 3, "AutoCAD drops the definition");
+      assert.equal(first(linetypes[2]!, 73).trim(), "0", "and keeps its own Continuous");
+    },
+  },
+  // A soft hyphen makes a name AutoCAD keeps apart from Continuous, and AUDIT compares without it.
+  "r2018-linetype-built-in-twin": auditedFor(
+    withLinetypes([dashes("Conti\u00adnuous")], [], []),
+    /Duplicate name "Conti\u00ad?nuous" in Linetype symbol table/i,
+  ),
+  "r2018-lineweight-layer": {
+    dxf: refused(withLinetypes([], [{ name: "A", color: 1, lineweight: 0.33 }], [])),
+    check: (result) => {
+      const layer = loaded(result).layerRecords.get("a");
+      assert.equal(layer && Number(first(layer, 370)), -3, "AutoCAD gives the layer the default");
+    },
+  },
+  "r2018-linetype-scale-zero": {
+    dxf: refused(withLinetypes([], [], [], { linetypeScale: 0 })),
+    check: (result) => assert.equal(loaded(result).linetypeScale, 1, "AutoCAD reads 0 as 1"),
+  },
+  "r2018-linetype-scale-written-as-zero": {
+    dxf: refused(withLinetypes([], [], [], { linetypeScale: 0.0000004 })),
+    check: (result) => assert.equal(loaded(result).linetypeScale, 1, "AutoCAD reads it as 1"),
+  },
+  "r2018-linetype-description-250": {
+    dxf: refused(
+      withLinetypes([{ name: "D", description: "é".repeat(250), pattern: [1, -1] }], [], []),
+    ),
+    check: (result) => {
+      const [, , , linetype] = loaded(result).linetypes;
+      assert.equal(linetype && first(linetype, 3), "é".repeat(249), "AutoCAD keeps 249");
+    },
+  },
   "r2018-layer-case-pairs": {
     dxf: refused(casePairDrawing(allCasePairs)),
     check: (result) => checkCasePairs(allCasePairs, result),
@@ -767,6 +1007,12 @@ interface CadDrawing {
   readonly viewHeight: number | undefined;
   /** Color by `layerKey`. AutoCAD ignores case, and upper-cases names from an R12 file. */
   readonly layers: Map<string, number>;
+  /** Each layer's record, by `layerKey`. */
+  readonly layerRecords: Map<string, DxfRecord>;
+  /** The LTYPE records, in table order. */
+  readonly linetypes: DxfRecord[];
+  /** `$LTSCALE`. */
+  readonly linetypeScale: number | undefined;
   readonly entities: DxfRecord[];
 }
 
@@ -794,6 +1040,7 @@ function readDxf(text: string): CadDrawing {
   let section = "";
   let table = "";
   let insunits: number | undefined;
+  let linetypeScale: number | undefined;
   let viewHeight: number | undefined;
   const corner = (name: string): [number, number] | undefined => {
     const at = pairs.findIndex(([code, value]) => code === 9 && value === name);
@@ -804,6 +1051,8 @@ function readDxf(text: string): CadDrawing {
   // AutoCAD writes extents of 1e20 and -1e20 for a drawing with nothing to draw.
   const extents = min && max && min[0] <= max[0] ? { min, max } : undefined;
   const layers = new Map<string, number>();
+  const layerRecords = new Map<string, DxfRecord>();
+  const linetypes: DxfRecord[] = [];
   const entities: DxfRecord[] = [];
   let current: DxfRecord | undefined;
   const close = () => {
@@ -811,8 +1060,12 @@ function readDxf(text: string): CadDrawing {
     if (section === "ENTITIES") entities.push(current);
     if (section === "TABLES" && current.type === "VPORT") viewHeight = Number(first(current, 40));
     if (section === "TABLES" && table === "LAYER" && current.type === "LAYER") {
-      layers.set(layerKey(plainCaret(first(current, 2))), Number(first(current, 62)));
+      const key = layerKey(plainCaret(first(current, 2)));
+      layers.set(key, Math.abs(Number(first(current, 62))));
+      layerRecords.set(key, current);
     }
+    if (section === "TABLES" && table === "LTYPE" && current.type === "LTYPE")
+      linetypes.push(current);
     current = undefined;
   };
   pairs.forEach(([code, value], i) => {
@@ -827,9 +1080,21 @@ function readDxf(text: string): CadDrawing {
     if (section === "HEADER" && code === 9 && value === "$INSUNITS") {
       insunits = Number(pairs[i + 1]?.[1]);
     }
+    if (section === "HEADER" && code === 9 && value === "$LTSCALE") {
+      linetypeScale = Number(pairs[i + 1]?.[1]);
+    }
     if (current) current.groups.set(code, [...(current.groups.get(code) ?? []), value]);
   });
-  return { insunits, extents, viewHeight, layers, entities };
+  return {
+    insunits,
+    extents,
+    viewHeight,
+    layers,
+    layerRecords,
+    linetypes,
+    linetypeScale,
+    entities,
+  };
 }
 
 function first(record: DxfRecord, code: number): string {
@@ -845,10 +1110,66 @@ function compare(drawing: Drawing, cad: CadDrawing): void {
   if (drawing.dxf === "R2018") {
     assert.equal(cad.insunits, INSUNITS[drawing.units], "$INSUNITS");
   }
+  if (drawing.dxf === "R2018") {
+    const scale = written(drawing.linetypeScale ?? 1);
+    assert.ok(
+      Math.abs((cad.linetypeScale ?? Number.NaN) - scale) <= 1e-9 * Math.max(1, scale),
+      `$LTSCALE: expected ${scale}, AutoCAD has ${cad.linetypeScale}`,
+    );
+  }
+  const linetypes = [
+    dashes("ByBlock", []),
+    dashes("ByLayer", []),
+    { name: "Continuous", description: "Solid line", pattern: [] },
+    ...(drawing.linetypes ?? []),
+  ];
+  assert.deepEqual(
+    cad.linetypes.map((r) => layerKey(plainCaret(first(r, 2)))),
+    linetypes.map((t) => layerKey(t.name)),
+    "linetypes",
+  );
+  linetypes.forEach((linetype, i) => {
+    const record = cad.linetypes[i]!;
+    const label = `linetype ${linetype.name}`;
+    assert.equal(plainCaret(first(record, 3)), linetype.description, `${label} description`);
+    assert.equal(Number(first(record, 73)), linetype.pattern.length, `${label} length count`);
+    const lengths = (record.groups.get(49) ?? []).map(Number);
+    linetype.pattern.forEach((length, n) => {
+      assert.ok(
+        Math.abs((lengths[n] ?? Number.NaN) - written(length)) <=
+          1e-9 * Math.max(1, Math.abs(length)),
+        `${label} length ${n}: expected ${written(length)}, AutoCAD has ${lengths[n]}`,
+      );
+    });
+  });
   // An entity on a name AutoCAD does not take for a declared layer would add a layer here.
   assert.equal(cad.layers.size, drawing.layers.length, "layer count");
   for (const layer of drawing.layers) {
-    assert.equal(cad.layers.get(layerKey(layer.name)), layer.color, `color of layer ${layer.name}`);
+    const record = cad.layerRecords.get(layerKey(layer.name));
+    const label = `layer ${layer.name}`;
+    assert.ok(record, label);
+    // AutoCAD negates the color of a layer that is off.
+    assert.equal(
+      Number(first(record, 62)),
+      layer.off ? -layer.color : layer.color,
+      `${label} color`,
+    );
+    assert.equal(
+      Number(first(record, 70)) & 5,
+      (layer.frozen ? 1 : 0) | (layer.locked ? 4 : 0),
+      `${label} flags`,
+    );
+    assert.equal(
+      layerKey(first(record, 6)),
+      layerKey(layer.linetype ?? "Continuous"),
+      `${label} linetype`,
+    );
+    assert.equal(Number(first(record, 290) || 1), layer.plot === false ? 0 : 1, `${label} plot`);
+    assert.equal(
+      Number(first(record, 370)),
+      lineweightCode(layer.lineweight ?? "Default"),
+      `${label} lineweight`,
+    );
   }
   assert.equal(cad.entities.length, drawing.entities.length, "entity count");
   drawing.entities.forEach((entity, i) => {
@@ -858,6 +1179,11 @@ function compare(drawing: Drawing, cad: CadDrawing): void {
     assert.equal(layerKey(plainCaret(first(record, 8))), layerKey(entity.layer), `${label} layer`);
     const [type, expected] = expectedGroups(entity);
     assert.equal(record.type, type, `${label} type`);
+    // AutoCAD writes a linetype and a lineweight only when they are not ByLayer.
+    const linetype = record.groups.get(6)?.[0] ?? "ByLayer";
+    assert.equal(layerKey(linetype), layerKey(entity.linetype ?? "ByLayer"), `${label} linetype`);
+    const weight = Number(record.groups.get(370)?.[0] ?? -1);
+    assert.equal(weight, lineweightCode(entity.lineweight ?? "ByLayer"), `${label} lineweight`);
     if (entity.kind === "text") {
       // AutoCAD leaves out a rotation of 0, and brings one from an R12 file into 0 to 360.
       const turned = Number(first(record, 50) || "0") - written(entity.rotation);

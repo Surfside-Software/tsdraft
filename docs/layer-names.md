@@ -3,6 +3,13 @@
 This page covers what AutoCAD does with the characters in a layer name, and
 what `lint` checks because of it. [Rules](rules.md) lists the other rules for layer names.
 
+## Linetype names
+
+AutoCAD holds linetype names to the rules of layer names and compares them the
+same way, so this page applies to linetype names too. `DASHED` and `dashed` are
+one linetype. Linetype names follow the R2018 layer-name rules, because an R12
+drawing cannot define a linetype.
+
 ## Layer names and case
 
 AutoCAD lower-cases a layer name one character at a time, from a table of its

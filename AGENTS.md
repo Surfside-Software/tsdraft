@@ -11,9 +11,11 @@
   informational until it tracks the same TypeScript version.
 - Model coordinates have Y pointing up and angles in degrees counterclockwise,
   matching DXF. Only `toSVG` flips Y.
-- DXF has one writer per version: `src/dxf-r12.ts` (AC1009, the default) and
-  `src/dxf-r2018.ts` (AC1032). Check that an entity or header variable exists in
-  the target version before writing it. `src/dxf.ts` picks the writer.
+- DXF has one writer per version: `src/dxf-r12.ts` (AC1009) and
+  `src/dxf-r2018.ts` (AC1032, the default). R12 is frozen: a new feature is
+  R2018 only, and `lint` refuses an R12 drawing that uses it. Check that an
+  entity or header variable exists in the target version before writing it.
+  `src/dxf.ts` picks the writer.
 - AC1032 needs every handle unique, every owner (330) and pointer (340, 350, 390) to resolve, and `$HANDSEED` above the highest handle. AutoCAD also
   discards the whole file if a LAYER has no 390 plot style pointer. The tests
   check all of this.
@@ -33,6 +35,9 @@
   it refuses, the capitals it lower-cases to compare names, and the pairs only
   `AUDIT` calls duplicates. Never compare layer names with `toLowerCase()`.
   The tables came from AutoCAD, and `pnpm test:cad` checks them against it.
+- AutoCAD holds linetype names to the layer-name rules and compares them the
+  same way, so linetypes use `layerKey`, `layerAuditKey` and the name checks of
+  layers. `pnpm test:cad` checks that against AutoCAD too.
 - `layerAuditKey` follows only the kinds of pair measured in AutoCAD, and must
   never call two names duplicates when `AUDIT` does not. Add a kind only with an
   AutoCAD result behind it and a pair in `auditPairs` in `scripts/cad-check.ts`.

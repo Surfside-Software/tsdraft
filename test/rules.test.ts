@@ -1,12 +1,22 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createDrawing, DrawingError, lint, toDXF, toSVG, type Drawing } from "../src/index.ts";
+import {
+  createDrawing,
+  DASHED,
+  DrawingBuilder,
+  DrawingError,
+  HIDDEN,
+  lint,
+  toDXF,
+  toSVG,
+  type Drawing,
+} from "../src/index.ts";
 
 // Each `@ts-expect-error` below proves the compiler rejects the literal. The
 // `assert.throws` around it proves the same mistake is caught when the code runs.
 test("literal mistakes are compile errors and runtime errors", () => {
-  const r12 = createDrawing();
-  const r2018 = createDrawing({ dxf: "R2018" });
+  const r12 = createDrawing({ dxf: "R12" });
+  const r2018 = createDrawing();
 
   // @ts-expect-error: R12 layer names cannot contain spaces.
   assert.throws(() => r12.layer("A WALL"), /R12 layer names can only use/);
@@ -96,8 +106,8 @@ test("literal mistakes are compile errors and runtime errors", () => {
 test("values the compiler cannot see are checked when the code runs", () => {
   const name: string = ["A", "WALL"].join(" ");
   const color: number = 300;
-  assert.throws(() => createDrawing().layer(name), /R12 layer names can only use/);
-  createDrawing({ dxf: "R2018" }).layer(name);
+  assert.throws(() => createDrawing({ dxf: "R12" }).layer(name), /R12 layer names can only use/);
+  createDrawing().layer(name);
   assert.throws(() => createDrawing().layer("X", { color }), /Color Index/);
   assert.throws(() => createDrawing().text([0, 0], "two\nlines"), /single line/);
   assert.throws(() => createDrawing().text([0, 0], "a\u0000b"), /control characters/);
@@ -525,4 +535,222 @@ test("lint refuses layer names that AUDIT would report as duplicates", () => {
   assert.throws(() => b.layer("HAUPTSTRASSE"), /AUDIT reports them as one duplicate name/);
   assert.throws(() => b.layer(`Haupt${softHyphen}straße`), /AUDIT reports them as one duplicate/);
   b.layer("Hauptstrase");
+});
+
+test("linetype, lineweight and layer state mistakes are compile errors and runtime errors", () => {
+  const r12 = createDrawing({ dxf: "R12" });
+  const d = createDrawing();
+
+  // @ts-expect-error: R12 drawings have no linetypes.
+  assert.throws(() => r12.linetype(DASHED), /R12 drawings have no linetypes/);
+  // @ts-expect-error: nor a linetype on a layer or an entity.
+  assert.throws(() => r12.layer("A", { linetype: "DASHED" }), /R12 drawings have no linetypes/);
+  // @ts-expect-error: nor an entity linetype other than ByLayer.
+  assert.throws(() => r12.line([0, 0], [1, 1], { linetype: "Continuous" }), /R12 entities take no/);
+  // @ts-expect-error: nor an entity lineweight.
+  assert.throws(() => r12.circle([0, 0], 1, { lineweight: 0.5 }), /R12 entities take no/);
+  // @ts-expect-error: nor layer states.
+  assert.throws(() => r12.layer("A", { frozen: true }), /no layer states to R12/);
+  // @ts-expect-error: nor a linetype scale.
+  assert.throws(() => createDrawing({ dxf: "R12", linetypeScale: 2 }), /linetype scale/);
+  r12.layer("A", { linetype: "CONTINUOUS", lineweight: "Default", off: false, plot: true });
+  r12.line([0, 0], [1, 1], { linetype: "ByLayer", lineweight: "ByLayer" });
+
+  // @ts-expect-error: AutoCAD discards a drawing with an entity of another lineweight.
+  assert.throws(() => d.line([0, 0], [1, 1], { lineweight: 0.33 }), /one of AutoCAD's/);
+  // @ts-expect-error: and gives a layer of another lineweight the default.
+  assert.throws(() => d.layer("A", { lineweight: 2.5 }), /one of AutoCAD's/);
+  // @ts-expect-error: a layer's lineweight cannot be ByLayer.
+  assert.throws(() => d.layer("A", { lineweight: "ByLayer" }), /or "Default"$/);
+  // @ts-expect-error: AutoCAD does not freeze the current layer.
+  assert.throws(() => d.layer("0", { frozen: true }), /current layer/);
+  // @ts-expect-error: AUDIT reports a layer whose linetype is ByLayer.
+  assert.throws(() => d.layer("A", { linetype: "ByLayer" }), /cannot be ByLayer or ByBlock/);
+  // @ts-expect-error: a linetype name follows the rules of layer names.
+  assert.throws(() => d.line([0, 0], [1, 1], { linetype: "A,B" }), /Linetype names cannot/);
+  // @ts-expect-error: Continuous, ByLayer and ByBlock cannot be defined.
+  assert.throws(() => d.linetype({ name: "CONTINUOUS", pattern: [1, -1] }), /in every drawing/);
+  // @ts-expect-error: AUDIT reports a pattern of one length.
+  assert.throws(() => d.linetype({ name: "ONE", pattern: [1] }), /2 to 12 lengths/);
+  const thirteen = [1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1] as const;
+  // @ts-expect-error: AutoCAD discards a drawing with a pattern of 13.
+  assert.throws(() => d.linetype({ name: "LONG", pattern: thirteen }), /2 to 12/);
+  // @ts-expect-error: the linetype scale is a size.
+  assert.throws(() => createDrawing({ linetypeScale: 0 }), /linetypeScale: .*greater than 0/);
+  // @ts-expect-error: and AutoCAD reads one written as 0 as 1.
+  assert.throws(() => createDrawing({ linetypeScale: 1e-7 }), /linetypeScale: .*written as 0/);
+  // @ts-expect-error: the constructor checks it the same way.
+  assert.throws(() => new DrawingBuilder({ linetypeScale: 0 }), /linetypeScale: .*greater than 0/);
+  // @ts-expect-error: a dash written as 0 would draw as a dot.
+  assert.throws(() => d.linetype({ name: "T", pattern: [4e-7, -1] }), /pattern: .*written as 0/);
+  // @ts-expect-error: and so would a gap.
+  assert.throws(() => d.linetype({ name: "T", pattern: [1, -0.0000004] }), /written as 0/);
+  // @ts-expect-error: AutoCAD reads two exponent digits from DXF.
+  assert.throws(() => d.linetype({ name: "T", pattern: [1e100, -1] }), /pattern: .*under 1e100/);
+  // @ts-expect-error: with two problems, the first length's is the one reported.
+  assert.throws(() => d.linetype({ name: "T", pattern: [1e-7, 1e100] }), /pattern: .*written as 0/);
+  // @ts-expect-error: a description is a single line.
+  assert.throws(() => d.linetype({ name: "T", pattern: [], description: "a\nb" }), /single line/);
+  // @ts-expect-error: with none of the private-use characters AutoCAD replaces.
+  assert.throws(() => d.linetype({ name: "T", pattern: [], description: "\ue800" }), /private-use/);
+  // @ts-expect-error: a definition given to a layer is checked as linetype() checks one.
+  assert.throws(() => d.layer("A", { linetype: { name: "Continuous", pattern: [] } }), /in every/);
+  // @ts-expect-error: and so is one given to an entity.
+  assert.throws(() => d.line([0, 0], [1, 1], { linetype: { name: "T", pattern: [1] } }), /2 to 12/);
+  const dashed: boolean = false;
+  assert.throws(
+    // @ts-expect-error: and so is one in a conditional with a name.
+    () => d.line([0, 0], [1, 1], { linetype: dashed ? "DASHED" : { name: "T", pattern: [1] } }),
+    /2 to 12/,
+  );
+
+  d.linetype({ name: "Fence", pattern: [1, -0.5, 0, -0.5] });
+  d.linetype({ name: "SOLID2", pattern: [] });
+  d.layer("0", { off: true, locked: true, plot: false, linetype: "fence", lineweight: 0.3 });
+  d.layer("B", { linetype: HIDDEN, lineweight: 2.11 }, () => {
+    d.line([0, 0], [1, 1], { linetype: "ByBlock", lineweight: "Default" });
+    d.text([0, 0], "x", { linetype: DASHED, lineweight: 0 });
+  });
+  const built = d.build();
+  assert.deepEqual(
+    built.linetypes?.map((t) => t.name),
+    ["Fence", "SOLID2", "HIDDEN", "DASHED"],
+  );
+  assert.deepEqual(built.layers[0], {
+    name: "0",
+    color: 7,
+    off: true,
+    locked: true,
+    plot: false,
+    linetype: "Fence",
+    lineweight: 0.3,
+  });
+  assert.deepEqual(lint(built), []);
+});
+
+test("linetype mistakes the compiler cannot see are checked when the code runs", () => {
+  const d = createDrawing();
+  const weight: number = 0.33;
+  const name: string = "NOPE";
+  const pattern: number[] = [1];
+  assert.throws(() => d.line([0, 0], [1, 1], { lineweight: weight }), /one of AutoCAD's/);
+  assert.throws(() => d.line([0, 0], [1, 1], { linetype: name }), /"NOPE" is not defined/);
+  assert.throws(() => d.linetype({ name: "P", pattern }), /2 to 12 lengths/);
+  assert.throws(
+    () => d.linetype({ name: "D", pattern: [1, -1], description: "x".repeat(250) }),
+    /249/,
+  );
+  d.linetype({ name: "ΟΔΟΣ", pattern: [1, -1] });
+  // A final sigma is no capital sigma to AutoCAD, but its AUDIT calls the two one name.
+  assert.throws(() => d.linetype({ name: "οδος", pattern: [1, -1] }), /AUDIT reports them as one/);
+  assert.throws(() => d.line([0, 0], [1, 1], { linetype: "οδος" }), /not defined/);
+  // The total of the lengths is written too, and the compiler cannot add.
+  assert.throws(() => d.linetype({ name: "T", pattern: [9e99, -9e99] }), /added up/);
+  // AUDIT reports a twin of a built-in linetype as a duplicate.
+  assert.throws(
+    () => d.linetype({ name: "Conti\u00adnuous", pattern: [1, -1] }),
+    /and "Continuous" as two linetypes/,
+  );
+  // A definition given to a layer or an entity must match the drawing's of that name.
+  const fence = { name: "fence", pattern: [1, -1] };
+  d.linetype({ name: "FENCE", pattern: [1, -1] }).line([0, 0], [1, 1], { linetype: fence });
+  assert.throws(
+    () => d.line([0, 0], [1, 1], { linetype: { ...fence, pattern: [2, -1] } }),
+    /another pattern or description/,
+  );
+  assert.throws(
+    () => d.layer("A", { linetype: { ...fence, description: "x" } }),
+    /another pattern or description/,
+  );
+});
+
+test("lint checks the linetypes, lineweights and layer states of a drawing", () => {
+  const drawing: Drawing = {
+    units: "in",
+    dxf: "R2018",
+    linetypeScale: -1,
+    linetypes: [
+      { name: "DASHED", description: "", pattern: [0.5, -0.25] },
+      { name: "dashed", description: "", pattern: [1, -1] },
+      { name: "ByLayer", description: "", pattern: [1, -1] },
+      { name: "ONE", description: "", pattern: [1] },
+    ],
+    layers: [
+      { name: "0", color: 7, frozen: true },
+      { name: "A", color: 1, linetype: "NOPE", lineweight: 0.33 },
+      { name: "B", color: 1, linetype: "ByBlock" },
+    ],
+    entities: [
+      { kind: "line", layer: "A", from: [0, 0], to: [1, 1], linetype: "MISSING" },
+      { kind: "line", layer: "A", from: [0, 0], to: [1, 1], lineweight: 2.12 },
+      { kind: "line", layer: "A", from: [0, 0], to: [1, 1], linetype: "dashed", lineweight: 2.11 },
+    ],
+  };
+  assert.deepEqual(
+    lint(drawing).map((p) => `${p.rule} ${p.linetype ?? p.layer ?? p.entity ?? ""}`),
+    [
+      "linetype ",
+      "duplicate-linetype dashed",
+      "linetype ByLayer",
+      "linetype ONE",
+      "layer-state 0",
+      "undefined-linetype A",
+      "lineweight A",
+      "linetype B",
+      "undefined-linetype 0",
+      "lineweight 1",
+    ],
+  );
+  assert.match(lint(drawing)[8]?.message ?? "", /AutoCAD discards a drawing that uses a linetype/);
+
+  const r12: Drawing = {
+    ...drawing,
+    dxf: "R12",
+    linetypeScale: 1,
+    linetypes: [{ name: "DASHED", description: "", pattern: [0.5, -0.25] }],
+    layers: [{ name: "0", color: 7, off: true, lineweight: "Default", linetype: "Continuous" }],
+    entities: [{ kind: "line", layer: "0", from: [0, 0], to: [1, 1], lineweight: 0.5 }],
+  };
+  assert.deepEqual(
+    lint(r12).map((p) => `${p.rule} ${p.message.replace(/\. Use.*/, "")}`),
+    [
+      'linetype Linetype "DASHED": R12 drawings have no linetypes but Continuous, and no linetype scale',
+      'layer-state Layer "0": tsdraft writes no layer states to R12 drawings',
+      "lineweight line #0: R12 entities take no linetype or lineweight of their own",
+    ],
+  );
+
+  // lint reports the new rules, and fields of the wrong type in a drawing built by hand.
+  const odd = {
+    units: "in",
+    dxf: "R2018",
+    linetypes: [
+      { name: "TOTAL", description: "", pattern: [9e99, -9e99] },
+      { name: "TINY", description: "", pattern: [1, -4e-7] },
+      { name: "Conti\u00adnuous", description: "", pattern: [1, -1] },
+      { name: "NO DESCRIPTION", pattern: [1, -1] },
+      { name: "NOT AN ARRAY", description: "", pattern: "1,-1" },
+      { name: 7, description: "", pattern: [] },
+    ],
+    layers: [{ name: "0", color: 7, off: "yes", linetype: 5, lineweight: "thick" }],
+    entities: [
+      { kind: "line", layer: "0", from: [0, 0], to: [1, 1], linetype: 3, lineweight: null },
+    ],
+  } as unknown as Drawing;
+  assert.deepEqual(
+    lint(odd).map((p) => p.message),
+    [
+      `Linetype "TOTAL": its pattern: A linetype pattern's lengths, added up without their signs, must be under 1e100. The total is written too, and AutoCAD reads only two exponent digits from DXF`,
+      'Linetype "TINY": its pattern: A dash or gap of this length is written as 0, because tsdraft writes 6 decimals, and would draw as a dot. Use 0 for a dot, or a length of 0.000001 or more',
+      'Linetype "Conti\u00adnuous": AutoCAD keeps this linetype and "Continuous" as two linetypes, but its AUDIT reports them as one duplicate name',
+      `Linetype "NO DESCRIPTION": A linetype's description must be a string`,
+      `Linetype "NOT AN ARRAY": A linetype's pattern must be an array of finite numbers`,
+      "Linetype 7: A linetype's name must be a string",
+      'Layer "0": a linetype is named by a string',
+      'Layer "0": A lineweight must be one of AutoCAD\'s, in millimetres: 0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8, 0.9, 1, 1.06, 1.2, 1.4, 1.58, 2 or 2.11, or "Default"',
+      'Layer "0": off must be true or false',
+      "line #0: a linetype is named by a string",
+      'line #0: A lineweight must be one of AutoCAD\'s, in millimetres: 0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8, 0.9, 1, 1.06, 1.2, 1.4, 1.58, 2 or 2.11, or "ByLayer", "ByBlock" or "Default"',
+    ],
+  );
 });

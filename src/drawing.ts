@@ -1,13 +1,35 @@
 import { fmt, written } from "./format.ts";
 import { layerAuditKey, layerKey } from "./layers.ts";
+import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import {
   arcProblem,
   layerColorProblem,
+  layerFlagProblem,
+  layerLinetypeProblem,
+  layerStateProblem,
+  lineweightProblem,
+  linetypeNameProblem,
+  linetypeProblem,
+  linetypeScaleProblem,
   magnitudeProblem,
   layerNameProblem,
   layerTwinProblem,
+  R12_ONLY,
   sizeProblem,
   textProblem,
+  undefinedLinetypeProblem,
+  type Description,
+  type FrozenCurrent,
+  type LayerLinetypeName,
+  type LineweightMm,
+  type LineweightOf,
+  type LinetypeName,
+  type NewLinetypeName,
+  type Pattern,
+  type R12EntityStyle,
+  type R12LayerStates,
+  type R12Lineweights,
+  type R12Linetypes,
   type LayerColor,
   type LayerName,
   type Positive,
@@ -36,14 +58,50 @@ export type DxfVersion = "R12" | "R2018";
 
 const DXF_VERSIONS: readonly string[] = ["R12", "R2018"] satisfies readonly DxfVersion[];
 
+/**
+ * A simple linetype: a repeating pattern of dashes, gaps and dots. The lengths are in drawing
+ * units, and CAD multiplies them by the drawing's `linetypeScale`.
+ */
+export interface Linetype {
+  readonly name: string;
+  readonly description: string;
+  /** A dash is a positive length, a gap a negative one, and a dot 0. Empty for a solid line. */
+  readonly pattern: readonly number[];
+}
+
+/**
+ * The lineweights AutoCAD offers, in millimetres. A lineweight is how wide a line plots, and
+ * how wide AutoCAD shows it when LWDISPLAY is on.
+ */
+export type Lineweight = LineweightMm;
+
 export interface Layer {
   readonly name: string;
   /** AutoCAD Color Index, 1 to 255. 7 is white on dark backgrounds, black on light. */
   readonly color: number;
+  /** The linetype of the layer's entities that draw ByLayer. Defaults to `"Continuous"`. */
+  readonly linetype?: string;
+  /**
+   * In millimetres, one of `Lineweight`, or `"Default"`, which AutoCAD draws at its LWDEFAULT
+   * of 0.25 mm. Defaults to `"Default"`.
+   */
+  readonly lineweight?: number | "Default";
+  /** An off layer is not shown or plotted, but CAD still regenerates it. */
+  readonly off?: boolean;
+  /** A frozen layer is not shown, plotted or regenerated. */
+  readonly frozen?: boolean;
+  /** A locked layer is shown and plotted, and CAD does not let its entities be edited. */
+  readonly locked?: boolean;
+  /** Whether the layer plots. Defaults to `true`. */
+  readonly plot?: boolean;
 }
 
 interface EntityBase {
   readonly layer: string;
+  /** A linetype of the drawing, `"Continuous"`, `"ByBlock"` or `"ByLayer"`, the default. */
+  readonly linetype?: string;
+  /** In millimetres, one of `Lineweight`, or `"ByLayer"`, the default, `"ByBlock"` or `"Default"`. */
+  readonly lineweight?: number | "ByLayer" | "ByBlock" | "Default";
 }
 
 export interface Line extends EntityBase {
@@ -91,25 +149,166 @@ export interface Drawing {
   readonly dxf: DxfVersion;
   readonly layers: readonly Layer[];
   readonly entities: readonly Entity[];
+  /** Linetypes beyond `Continuous`, `ByLayer` and `ByBlock`, which every drawing has. */
+  readonly linetypes?: readonly Linetype[];
+  /** The global linetype scale, `$LTSCALE`, which multiplies every pattern. Defaults to 1. */
+  readonly linetypeScale?: number;
 }
 
-export interface DrawingOptions<V extends DxfVersion = DxfVersion> {
+export interface DrawingOptions<V extends DxfVersion = DxfVersion, S extends number = number> {
   /** Defaults to `"in"`. */
   readonly units?: Units;
-  /** The DXF version to check the drawing against and export. Defaults to `"R12"`. */
+  /** The DXF version to check the drawing against and export. Defaults to `"R2018"`. */
   readonly dxf?: V;
+  /** The global linetype scale, which multiplies every linetype's pattern. Defaults to 1. */
+  readonly linetypeScale?: V extends "R12" ? 1 | R12Linetypes : Positive<S>;
 }
 
-export interface LayerOptions<C extends number = number> {
+/** A linetype to define: a `Linetype`, whose description may be left out. */
+export interface LinetypeDefinition<
+  N extends string = string,
+  P extends readonly number[] = readonly number[],
+  D extends string = string,
+> {
+  readonly name: NewLinetypeName<N>;
+  /** Shown beside the name in CAD's linetype lists. Defaults to `""`. */
+  readonly description?: Description<D>;
+  /** A dash is a positive length, a gap a negative one, and a dot 0. Empty for a solid line. */
+  readonly pattern: Pattern<P>;
+}
+
+/** What a layer or an entity may be given as its linetype: a name, or a definition. */
+type LinetypeValue = string | LinetypeDefinition;
+
+/** Each definition in `L`, checked as `linetype()` checks one. A name in `L` adds nothing. */
+type CheckedDefinition<L> = L extends LinetypeDefinition
+  ? LinetypeDefinition<L["name"], L["pattern"], DescriptionOf<L>>
+  : never;
+
+type DescriptionOf<L> = L extends { readonly description: infer D extends string } ? D : string;
+
+/**
+ * A linetype for a layer or an entity: the name `T` of one the drawing has, or a
+ * `LinetypeDefinition`, which is checked as `linetype()` checks one and defined first if the
+ * drawing does not have it yet.
+ *
+ * `L` is the whole value given, a name or a definition, so the compiler infers it in one piece
+ * even from a conditional that mixes the two. That is why this is one conditional type and not a
+ * union: the compiler infers a union's members apart. The false branch is never taken: it is
+ * there so the compiler infers `L`, and the tuple keeps `const L` from widening it.
+ */
+export type LinetypeChoice<T extends string, L extends LinetypeValue = LinetypeDefinition> = [
+  L,
+] extends [LinetypeValue]
+  ? LinetypeName<T> | CheckedDefinition<L>
+  : L;
+
+/**
+ * A linetype on an R12 drawing, which can only be the built-in `Allowed`. Any other literal name,
+ * and any definition, resolves to `Message`. `L` holds a definition when it has an object in it
+ * and is not left at its default, `LinetypeDefinition`. The last branch, never taken, lets `L` be
+ * inferred, as in `LinetypeChoice`.
+ */
+type R12LinetypeChoice<
+  T extends string,
+  L extends LinetypeValue,
+  Allowed extends string,
+  Message,
+> = [L] extends [LinetypeValue]
+  ? LinetypeDefinition extends L
+    ? R12LinetypeName<T, Allowed, Message>
+    : [Extract<L, object>] extends [never]
+      ? R12LinetypeName<T, Allowed, Message>
+      : Message
+  : L;
+
+type R12LinetypeName<T extends string, Allowed extends string, Message> = string extends T
+  ? T
+  : Lowercase<T> extends Allowed
+    ? T
+    : Message;
+
+/**
+ * What `layer()` sets on a layer.
+ *
+ * @typeParam L - The linetype as written, a name or a definition. A definition's literal mistakes
+ *   are compile errors.
+ */
+export interface LayerOptions<
+  C extends number = number,
+  W extends number = number,
+  T extends string = string,
+  V extends DxfVersion = "R2018",
+  N extends string = string,
+  L extends LinetypeValue = LinetypeDefinition,
+> {
   /** AutoCAD Color Index, 1 to 255. */
   readonly color?: LayerColor<C>;
+  /** Defaults to `"Continuous"`. It cannot be ByLayer or ByBlock. R2018 only. */
+  readonly linetype?: V extends "R12"
+    ? R12LinetypeChoice<T, L, "continuous", R12Linetypes>
+    : // One conditional type, for the reason `LinetypeChoice` gives.
+      [L] extends [LinetypeValue]
+      ? LayerLinetypeName<T> | CheckedDefinition<L>
+      : L;
+  /** In millimetres, or `"Default"`, which is 0.25 mm. Defaults to `"Default"`. R2018 only. */
+  readonly lineweight?: V extends "R12" ? "Default" | R12Lineweights : LineweightOf<W> | "Default";
+  /** Hides the layer. R2018 only. */
+  readonly off?: V extends "R12" ? false | R12LayerStates : boolean;
+  /** Hides the layer and leaves it out of regeneration. Layer "0" cannot be frozen. R2018 only. */
+  readonly frozen?: V extends "R12"
+    ? false | R12LayerStates
+    : N extends "0"
+      ? false | FrozenCurrent
+      : boolean;
+  /** Keeps the layer's entities from being edited in CAD. R2018 only. */
+  readonly locked?: V extends "R12" ? false | R12LayerStates : boolean;
+  /** Whether the layer plots. Defaults to `true`. R2018 only. */
+  readonly plot?: V extends "R12" ? true | R12LayerStates : boolean;
 }
 
-export interface TextOptions<H extends number = number> {
+/**
+ * The linetype and lineweight an entity may have of its own. Both default to ByLayer.
+ *
+ * @typeParam L - The linetype as written, a name or a definition. A definition's literal mistakes
+ *   are compile errors.
+ */
+export interface EntityOptions<
+  V extends DxfVersion = "R2018",
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+> {
+  /** A linetype of the drawing, `"Continuous"`, `"ByBlock"` or `"ByLayer"`. R2018 only. */
+  readonly linetype?: V extends "R12"
+    ? R12LinetypeChoice<T, L, "bylayer", R12EntityStyle>
+    : LinetypeChoice<T, L>;
+  /** In millimetres, or `"ByLayer"`, `"ByBlock"` or `"Default"`. R2018 only. */
+  readonly lineweight?: V extends "R12"
+    ? "ByLayer" | R12EntityStyle
+    : LineweightOf<W> | "ByLayer" | "ByBlock" | "Default";
+}
+
+/**
+ * The options of `text()`: its height and rotation, and the options of every entity.
+ *
+ * @typeParam L - The linetype as written, a name or a definition. A definition's literal mistakes
+ *   are compile errors.
+ */
+export interface TextOptions<
+  H extends number = number,
+  V extends DxfVersion = "R2018",
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+> extends EntityOptions<V, T, W, L> {
   readonly height?: Positive<H>;
   /** Degrees counterclockwise. */
   readonly rotation?: number;
 }
+
+/** The linetype and lineweight an entity is stored with: only what differs from ByLayer. */
+type EntityStyle = Pick<Line, "linetype" | "lineweight">;
 
 /**
  * Builds a drawing. Entities go on the current layer, which starts as "0".
@@ -119,49 +318,116 @@ export interface TextOptions<H extends number = number> {
  * allow or a negative radius, are compile errors. The same checks run again
  * when the code runs, for values the compiler cannot see.
  */
-export class DrawingBuilder<V extends DxfVersion = "R12"> {
+export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = number> {
   readonly units: Units;
   readonly dxf: V;
+  readonly linetypeScale: number;
   /** Keyed by `layerKey`, because AutoCAD ignores case in layer names. */
   readonly #layers = new Map<string, Layer>([["0", { name: "0", color: 7 }]]);
   /** The first layer name for each `layerAuditKey`, to find names AUDIT would call duplicates. */
   readonly #audited = new Map<string, string>([["0", "0"]]);
+  /** Keyed by `layerKey`: AutoCAD compares linetype names as it compares layer names. */
+  readonly #linetypes = new Map<string, Linetype>();
+  /** Seeded with the built-in linetypes, whose twins AUDIT reports as it reports any other. */
+  readonly #linetypesAudited = new Map<string, string>(
+    BUILT_IN_LINETYPES.map((name) => [layerAuditKey(name), name]),
+  );
   readonly #entities: Entity[] = [];
   #current = "0";
 
-  constructor(options: DrawingOptions<V> = {}) {
+  constructor(options: DrawingOptions<V, S> = {}) {
     const units = options.units ?? "in";
     if (!UNITS.includes(units)) throw new Error(`Unknown units: ${JSON.stringify(units)}`);
-    const dxf = options.dxf ?? "R12";
+    const dxf = options.dxf ?? "R2018";
     if (!DXF_VERSIONS.includes(dxf)) {
       throw new Error(`Unsupported DXF version: ${JSON.stringify(dxf)}`);
     }
+    const scale = options.linetypeScale as unknown;
+    if (scale !== undefined) {
+      if (typeof scale !== "number") throw new Error("linetypeScale must be a finite number");
+      if (dxf === "R12" && scale !== 1) throw new Error(`linetypeScale: ${R12_ONLY.linetypes}`);
+      const problem = linetypeScaleProblem(scale);
+      if (problem) throw new Error(`linetypeScale: ${problem}`);
+    }
     this.units = units;
     this.dxf = dxf as V;
+    this.linetypeScale = (scale as number | undefined) ?? 1;
+  }
+
+  /**
+   * Defines a linetype, or updates the one of the same name. `dashed` and
+   * `DASHED` are the same linetype, as in CAD, and keep the first spelling.
+   * tsdraft exports the linetypes plans use, such as `DASHED` and `HIDDEN`.
+   */
+  linetype<N extends string, const P extends readonly number[], D extends string = string>(
+    linetype: V extends "R12" ? R12Linetypes : LinetypeDefinition<N, P, D>,
+  ): this {
+    if (this.dxf === "R12") throw new Error(R12_ONLY.linetypes);
+    this.#define(linetype as unknown as LinetypeDefinition);
+    return this;
   }
 
   /**
    * Defines or updates a layer. With `draw`, entities drawn inside it go on this layer.
    * `wall` and `WALL` are the same layer, as in CAD, and keep the first spelling.
+   * Options left out keep the values the layer has.
    */
-  layer<N extends string, C extends number = number>(
-    name: LayerName<N, V>,
-    options: LayerOptions<C> = {},
-    draw?: () => void,
-  ): this {
+  layer<
+    N extends string,
+    C extends number = number,
+    W extends number = number,
+    T extends string = string,
+    const L extends LinetypeValue = LinetypeDefinition,
+  >(name: LayerName<N, V>, options: LayerOptions<C, W, T, V, N, L> = {}, draw?: () => void): this {
     // The parameter type is the error message when a literal name is wrong, so read it as a string.
     const requested = name as string;
+    const fail = (problem: string): never => {
+      throw new Error(`Layer ${JSON.stringify(requested)}: ${problem}`);
+    };
     const nameProblem = layerNameProblem(requested, this.dxf);
-    if (nameProblem) throw new Error(`Layer ${JSON.stringify(requested)}: ${nameProblem}`);
+    if (nameProblem) fail(nameProblem);
     const key = layerKey(requested);
     const existing = this.#layers.get(key);
     const auditKey = layerAuditKey(requested);
     const twinProblem = layerTwinProblem(requested, this.#audited.get(auditKey) ?? requested);
-    if (twinProblem) throw new Error(`Layer ${JSON.stringify(requested)}: ${twinProblem}`);
+    if (twinProblem) fail(twinProblem);
     const color = (options.color as number | undefined) ?? existing?.color ?? 7;
     const colorProblem = layerColorProblem(color);
-    if (colorProblem) throw new Error(`Layer ${JSON.stringify(requested)}: ${colorProblem}`);
-    const layer = { name: existing?.name ?? requested, color };
+    if (colorProblem) fail(colorProblem);
+    const o = options as unknown as LayerOptions<number, number, string, "R2018">;
+    const layer: Layer = { name: existing?.name ?? requested, color };
+    const set = <K extends keyof Layer>(field: K, value: Layer[K] | undefined, plain: Layer[K]) => {
+      const kept = value === undefined ? existing?.[field] : value;
+      if (kept !== undefined && kept !== plain) (layer as { [F in K]?: Layer[K] })[field] = kept;
+    };
+    const r12 = this.dxf === "R12";
+    let linetype: string | undefined;
+    if (o.linetype !== undefined) {
+      if (r12 && !isBuiltIn(o.linetype, "Continuous")) fail(R12_ONLY.linetypes);
+      linetype = this.#linetypeName(o.linetype, fail);
+      const problem = layerLinetypeProblem(linetype);
+      if (problem) fail(problem);
+    }
+    set(
+      "linetype",
+      linetype === undefined ? undefined : (builtInLinetype(linetype) ?? linetype),
+      "Continuous",
+    );
+    if (o.lineweight !== undefined) {
+      const problem = lineweightProblem(o.lineweight, "layer");
+      if (problem) fail(problem);
+      if (r12 && o.lineweight !== "Default") fail(R12_ONLY.lineweights);
+    }
+    set("lineweight", o.lineweight, "Default");
+    for (const state of ["off", "frozen", "locked", "plot"] as const) {
+      const value: unknown = o[state];
+      const flagProblem = layerFlagProblem(state, value);
+      if (flagProblem) fail(flagProblem);
+      if (r12 && value !== undefined && value !== (state === "plot")) fail(R12_ONLY.layerStates);
+      set(state, value as boolean | undefined, state === "plot");
+    }
+    const stateProblem = layerStateProblem(layer.name, layer.frozen);
+    if (stateProblem) fail(stateProblem);
     this.#layers.set(key, layer);
     if (!this.#audited.has(auditKey)) this.#audited.set(auditKey, layer.name);
     if (draw) {
@@ -176,20 +442,38 @@ export class DrawingBuilder<V extends DxfVersion = "R12"> {
     return this;
   }
 
-  line(from: Point, to: Point): this {
-    return this.#add({ kind: "line", layer: this.#current, from: pt(from), to: pt(to) });
+  line<
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+  >(from: Point, to: Point, options: EntityOptions<V, T, W, L> = {}): this {
+    return this.#add({ kind: "line", layer: this.#current, from: pt(from), to: pt(to) }, options);
   }
 
-  polyline(points: readonly Point[], closed = false): this {
+  polyline<
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+  >(points: readonly Point[], closed = false, options: EntityOptions<V, T, W, L> = {}): this {
     if (points.length < 2) throw new Error("A polyline needs at least 2 points");
-    return this.#add({ kind: "polyline", layer: this.#current, points: points.map(pt), closed });
+    return this.#add(
+      { kind: "polyline", layer: this.#current, points: points.map(pt), closed },
+      options,
+    );
   }
 
   /** Closed rectangle from its lower-left corner. */
-  rect<W extends number, H extends number>(
+  rect<
+    W extends number,
+    H extends number,
+    T extends string = string,
+    LW extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+  >(
     corner: Point,
     width: Positive<W>,
     height: Positive<H>,
+    options: EntityOptions<V, T, LW, L> = {},
   ): this {
     const [x, y] = pt(corner);
     const w = positive(width, "width");
@@ -205,16 +489,25 @@ export class DrawingBuilder<V extends DxfVersion = "R12"> {
         [x, y + h],
       ],
       true,
+      options as unknown as EntityOptions<V>,
     );
   }
 
-  circle<R extends number>(center: Point, radius: Positive<R>): this {
-    return this.#add({
-      kind: "circle",
-      layer: this.#current,
-      center: pt(center),
-      radius: positive(radius, "radius"),
-    });
+  circle<
+    R extends number,
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+  >(center: Point, radius: Positive<R>, options: EntityOptions<V, T, W, L> = {}): this {
+    return this.#add(
+      {
+        kind: "circle",
+        layer: this.#current,
+        center: pt(center),
+        radius: positive(radius, "radius"),
+      },
+      options,
+    );
   }
 
   /**
@@ -226,38 +519,55 @@ export class DrawingBuilder<V extends DxfVersion = "R12"> {
    * full turn would be written with equal angles, which AutoCAD holds as an
    * arc of no length, so it throws: draw a circle instead.
    */
-  arc<R extends number>(
+  arc<
+    R extends number,
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+  >(
     center: Point,
     radius: Positive<R>,
     startAngle: number,
     endAngle: number,
+    options: EntityOptions<V, T, W, L> = {},
   ): this {
     const start = turn(num(startAngle, "startAngle"));
     const end = turn(num(endAngle, "endAngle"));
     if (start === end) throw new Error("An arc's start and end angles must differ");
     const problem = arcProblem(start, end);
     if (problem) throw new Error(problem);
-    return this.#add({
-      kind: "arc",
-      layer: this.#current,
-      center: pt(center),
-      radius: positive(radius, "radius"),
-      startAngle: start,
-      endAngle: end,
-    });
+    return this.#add(
+      {
+        kind: "arc",
+        layer: this.#current,
+        center: pt(center),
+        radius: positive(radius, "radius"),
+        startAngle: start,
+        endAngle: end,
+      },
+      options,
+    );
   }
 
-  text<H extends number = number>(at: Point, value: string, options: TextOptions<H> = {}): this {
+  text<
+    H extends number = number,
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+  >(at: Point, value: string, options: TextOptions<H, V, T, W, L> = {}): this {
     const problem = textProblem(value);
     if (problem) throw new Error(problem);
-    return this.#add({
-      kind: "text",
-      layer: this.#current,
-      at: pt(at),
-      value,
-      height: positive(options.height ?? 0.125, "height"),
-      rotation: kept(options.rotation ?? 0, "rotation"),
-    });
+    return this.#add(
+      {
+        kind: "text",
+        layer: this.#current,
+        at: pt(at),
+        value,
+        height: positive(options.height ?? 0.125, "height"),
+        rotation: kept(options.rotation ?? 0, "rotation"),
+      },
+      options,
+    );
   }
 
   build(): Drawing {
@@ -266,19 +576,112 @@ export class DrawingBuilder<V extends DxfVersion = "R12"> {
       dxf: this.dxf,
       layers: [...this.#layers.values()],
       entities: [...this.#entities],
+      linetypes: [...this.#linetypes.values()],
+      linetypeScale: this.linetypeScale,
     };
   }
 
-  #add(entity: Entity): this {
-    this.#entities.push(entity);
+  /** `options` is an `EntityOptions`, whose type parameters differ from method to method. */
+  #add(entity: Entity, options: object): this {
+    this.#entities.push({ ...entity, ...this.#style(options as EntityOptions) });
     return this;
+  }
+
+  /** The linetype and lineweight an entity is stored with. */
+  #style(options: EntityOptions): EntityStyle {
+    const fail = (problem: string): never => {
+      throw new Error(problem);
+    };
+    const style: { -readonly [K in keyof EntityStyle]: EntityStyle[K] } = {};
+    if (options.linetype !== undefined) {
+      if (this.dxf === "R12" && !isBuiltIn(options.linetype, "ByLayer")) {
+        fail(R12_ONLY.entityStyle);
+      }
+      const name = this.#linetypeName(options.linetype, fail);
+      const builtIn = builtInLinetype(name);
+      if (builtIn !== "ByLayer") style.linetype = builtIn ?? name;
+    }
+    const weight: unknown = options.lineweight;
+    if (weight !== undefined) {
+      const problem = lineweightProblem(weight, "entity");
+      if (problem) fail(problem);
+      if (this.dxf === "R12" && weight !== "ByLayer") fail(R12_ONLY.entityStyle);
+      if (weight !== "ByLayer") style.lineweight = weight as NonNullable<EntityStyle["lineweight"]>;
+    }
+    return style;
+  }
+
+  /**
+   * The name of the linetype a layer or entity asks for, in the spelling the
+   * drawing has it. A definition is defined first if the drawing does not have it.
+   */
+  #linetypeName(choice: unknown, fail: (problem: string) => never): string {
+    if (typeof choice === "object" && choice !== null) {
+      return this.#define(choice as LinetypeDefinition, true);
+    }
+    if (typeof choice !== "string") return fail("A linetype is a name or a LinetypeDefinition");
+    const problem = linetypeNameProblem(choice);
+    if (problem) fail(`Linetype ${JSON.stringify(choice)}: ${problem}`);
+    const known = builtInLinetype(choice) ?? this.#linetypes.get(layerKey(choice))?.name;
+    if (known === undefined)
+      fail(`${undefinedLinetypeProblem(choice)}. Define it with linetype() first`);
+    return known as string;
+  }
+
+  /**
+   * Checks a definition and stores it, and returns the name the drawing has it by. A
+   * definition given to a layer or an entity must match the one the drawing has of its name,
+   * where `linetype()` replaces it.
+   */
+  #define(definition: LinetypeDefinition, inline = false): string {
+    const label = `Linetype ${JSON.stringify(definition.name)}`;
+    const problem = linetypeProblem(
+      definition.name,
+      definition.description ?? "",
+      definition.pattern,
+    );
+    if (problem) throw new Error(`${label}: ${problem}`);
+    // linetypeProblem has checked the types.
+    const name = definition.name as string;
+    const description = (definition.description ?? "") as string;
+    const lengths = definition.pattern as readonly number[];
+    const key = layerKey(name);
+    const auditKey = layerAuditKey(name);
+    const twin = layerTwinProblem(name, this.#linetypesAudited.get(auditKey) ?? name, "linetype");
+    if (twin) throw new Error(`${label}: ${twin}`);
+    const existing = this.#linetypes.get(key);
+    if (inline && existing) {
+      const same =
+        existing.description === description &&
+        existing.pattern.length === lengths.length &&
+        existing.pattern.every((length, i) => length === lengths[i]);
+      if (!same) {
+        throw new Error(
+          `${label}: the drawing has a linetype of this name with another pattern or description. Pass its name, or change it with linetype()`,
+        );
+      }
+      return existing.name;
+    }
+    const stored = existing?.name ?? name;
+    this.#linetypes.set(key, {
+      name: stored,
+      description,
+      pattern: [...lengths],
+    });
+    if (!this.#linetypesAudited.has(auditKey)) this.#linetypesAudited.set(auditKey, name);
+    return stored;
   }
 }
 
-export function createDrawing<V extends DxfVersion = "R12">(
-  options?: DrawingOptions<V>,
+export function createDrawing<V extends DxfVersion = "R2018", S extends number = number>(
+  options?: DrawingOptions<V, S>,
 ): DrawingBuilder<V> {
-  return new DrawingBuilder(options);
+  return new DrawingBuilder(options as DrawingOptions<V>);
+}
+
+/** True when `choice` names the built-in linetype `name`, in any case. */
+function isBuiltIn(choice: unknown, name: "ByLayer" | "Continuous"): boolean {
+  return typeof choice === "string" && builtInLinetype(choice) === name;
 }
 
 /** Counterclockwise sweep from start to end, in degrees, within [0, 360). */

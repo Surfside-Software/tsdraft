@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createDrawing, toDXF, toSVG, type Drawing } from "../src/index.ts";
+import { createDrawing, DASHED, toDXF, toSVG, type Drawing } from "../src/index.ts";
 
 /** Parses DXF text into [code, value] pairs. */
 function pairs(dxf: string): [number, string][] {
@@ -13,7 +13,7 @@ function pairs(dxf: string): [number, string][] {
 }
 
 function sample() {
-  const b = createDrawing({ units: "ft" });
+  const b = createDrawing({ units: "ft", dxf: "R12" });
   b.layer("C-PROP", { color: 3 }, () => {
     b.rect([0, 0], 100, 0.1 + 0.2);
     b.arc([50, 0], 5, 0, 180);
@@ -115,17 +115,17 @@ test("toDXF rejects unknown versions", () => {
 });
 
 test("text is escaped for each DXF version", () => {
-  const b = createDrawing().text([0, 0], "Ø 25 – café x^2");
+  const b = createDrawing({ dxf: "R12" }).text([0, 0], "Ø 25 – café x^2");
   // R12 predates Unicode DXF. AutoCAD discards a drawing with a bare caret in either version.
   assert.match(toDXF(b.build()), /\r\n\\U\+00D8 25 \\U\+2013 caf\\U\+00E9 x\^ 2\r\n/);
   assert.match(toDXF(b.build(), { version: "R2018" }), /\r\nØ 25 – café x\^ 2\r\n/);
 });
 
-test("toDXF writes the version the drawing was created for", () => {
-  const d = createDrawing({ dxf: "R2018" }).build();
-  assert.match(toDXF(d), /AC1032/);
-  assert.match(toDXF(d, { version: "R12" }), /AC1009/);
-  assert.match(toDXF(createDrawing().build()), /AC1009/);
+test("toDXF writes the version the drawing was created for, R2018 unless it names R12", () => {
+  const d = createDrawing({ dxf: "R12" }).build();
+  assert.match(toDXF(d), /AC1009/);
+  assert.match(toDXF(d, { version: "R2018" }), /AC1032/);
+  assert.match(toDXF(createDrawing().build()), /AC1032/);
 });
 
 test("text that looks like a DXF escape is written so AutoCAD keeps it", () => {
@@ -261,4 +261,22 @@ test("the numbers a writer works out stay in the range AutoCAD reads", () => {
   assert.equal(after("$EXTMAX"), "9.999999999999998e+99");
   const view = p.slice(p.findIndex(([c, v]) => c === 0 && v === "VPORT"));
   assert.equal(view.find(([c]) => c === 40)?.[1], "9.999999999999998e+99", "view height");
+});
+
+test("SVG draws dashes and pen weights, and leaves out layers that are off or frozen", () => {
+  const d = createDrawing({ linetypeScale: 2 });
+  d.layer("DASHED", { linetype: DASHED, lineweight: 0.5 }, () => d.line([0, 0], [3, 0]));
+  d.layer("OFF", { off: true }, () => d.line([0, 1], [3, 1]));
+  d.layer("FROZEN", { frozen: true }, () => d.line([0, 2], [3, 2]));
+  d.text([0, 3], "x");
+  const svg = toSVG(d.build());
+  // DASHED is 0.5 on and 0.25 off, at a scale of 2, and 0.5 mm is twice the default width.
+  assert.match(svg, /<path d="M 0 0 L 1 0 M 1.5 0 L 2.5 0" stroke="currentColor" stroke-width="2"/);
+  assert.doesNotMatch(svg, /data-layer="OFF"|data-layer="FROZEN"/);
+  // The index is the entity's in drawing.entities, counting the ones left out.
+  assert.match(svg, /data-layer="0" data-entity="3">x<\/text>/);
+  // A dash longer than a circle is drawn as the two halves of a full turn.
+  const long = { name: "LONG", pattern: [100, -1] };
+  const circle = toSVG(createDrawing().circle([0, 0], 1, { linetype: long }).build());
+  assert.match(circle, /<path d="M 1 0 A 1 1 0 0 1 -1 0 A 1 1 0 0 1 1 0"/);
 });

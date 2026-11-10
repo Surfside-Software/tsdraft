@@ -19,6 +19,7 @@ const role: Record<string, "muted" | "accent"> = {
 };
 const pad = 6;
 const width = 760;
+const weight = 1.5; // widens every line by the same factor, so the pen weights keep their ratios
 
 for (const [name, colors] of Object.entries(themes)) {
   const out = svg
@@ -32,7 +33,10 @@ for (const [name, colors] of Object.entries(themes)) {
         `  <rect x="${vx}" y="${vy}" width="${vw}" height="${vh}" rx="2" fill="${colors.bg}"/>`,
       ].join("\n");
     })
-    .replace('stroke-width="1"', 'stroke-width="1.5" stroke-linejoin="round"')
+    .replace(/ stroke-width="([\d.]+)"/g, (_, w: string) => {
+      return ` stroke-width="${Number((Number(w) * weight).toFixed(6))}"`;
+    })
+    .replace(/^(\s*<g [^>]*stroke-width="[\d.]+")/m, '$1 stroke-linejoin="round"')
     .replace(/^.*data-layer="([^"]+)".*$/gm, (line, layer: string) => {
       const color = colors[role[layer] ?? "line"];
       return line
@@ -44,7 +48,7 @@ for (const [name, colors] of Object.entries(themes)) {
     });
   if (
     !out.includes(colors.bg) ||
-    !out.includes('stroke-width="1.5"') ||
+    !out.includes('stroke-linejoin="round"') ||
     !out.includes(colors.accent)
   ) {
     throw new Error("toSVG's output changed shape, so the restyling no longer applies");
