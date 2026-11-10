@@ -48,4 +48,3 @@
   release tagged `v<version>` on the commit that merge made. The Release
   workflow publishes to npm through trusted publishing. Never publish from a
   laptop with a token.
-- Follow the `cad-automation-notes` skill before any live CAD call.
