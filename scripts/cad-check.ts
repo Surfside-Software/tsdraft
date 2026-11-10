@@ -157,6 +157,19 @@ function rounding<V extends DxfVersion>(d: DrawingBuilder<V>): Drawing {
 }
 
 /**
+ * Numbers as large as AutoCAD reads from DXF, which is anything under 1e100,
+ * and in each form the writers print: digits up to 1e21 and an exponent from there.
+ */
+function largeNumbers<V extends DxfVersion>(d: DrawingBuilder<V>): Drawing {
+  // The two ends are 1.8e100 apart, which is more than the view height can be written as.
+  d.line([0, 9e99], [3, -9e99]);
+  d.circle([1e21, -1e99], 9.999999e99);
+  d.line([-9.999999999999998e99, 1.2345678901234568e21], [123456789012345680000, 1e20]);
+  d.text([-1e50, 1e50], "tall", { height: 9e99 });
+  return d.build();
+}
+
+/**
  * Text that looks like the escapes AutoCAD decodes in a DXF string. AutoCAD
  * must hold every one of these character for character.
  */
@@ -323,6 +336,28 @@ function discarded(character: string): Case {
   };
 }
 
+/** AutoCAD reads two exponent digits, so it takes each 1e+100 here for 1e+10 and reports no error. */
+function tenThousandMillion(dxf: DxfVersion): Case {
+  const drawing = plain(
+    dxf,
+    [],
+    [
+      { kind: "line", layer: "0", from: [0, 0], to: [1e100, 1] },
+      { kind: "circle", layer: "0", center: [0, 0], radius: 1e100 },
+      { kind: "text", layer: "0", at: [0, 0], height: 1e100, rotation: 0, value: "tall" },
+    ],
+  );
+  return {
+    dxf: refused(drawing),
+    check: (result) => {
+      const [line, circle, text] = loaded(result).entities;
+      assert.equal(line && Number(first(line, 11)), 1e10, "the end of the line");
+      assert.equal(circle && Number(first(circle, 40)), 1e10, "the radius");
+      assert.equal(text && Number(first(text, 40)), 1e10, "the text height");
+    },
+  };
+}
+
 function oneText(value: string, height: number): Drawing {
   return plain("R2018", [], [{ kind: "text", layer: "0", at: [0, 0], height, rotation: 0, value }]);
 }
@@ -343,6 +378,19 @@ const cases: Record<string, Case> = {
   "r2018-empty": drawn(createDrawing({ units: "m", dxf: "R2018" }).build()),
   "r12-rounding": drawn(rounding(createDrawing())),
   "r2018-rounding": drawn(rounding(createDrawing({ dxf: "R2018" }))),
+  "r12-large-numbers": drawn(largeNumbers(createDrawing())),
+  "r2018-large-numbers": {
+    dxf: toDXF(largeNumbers(createDrawing({ dxf: "R2018" }))),
+    check: (result) => {
+      const cad = loaded(result);
+      compare(largeNumbers(createDrawing({ dxf: "R2018" })), cad);
+      // tsdraft caps the view height it works out, and AutoCAD must read the cap as written.
+      assert.ok(
+        cad.viewHeight !== undefined && Math.abs(cad.viewHeight / 9.999999999999998e99 - 1) < 1e-9,
+        `view height: AutoCAD has ${cad.viewHeight}`,
+      );
+    },
+  },
   "r12-text-escapes": drawn(escapes(createDrawing())),
   "r2018-text-escapes": drawn(escapes(createDrawing({ dxf: "R2018" }))),
   "r12-text-characters": drawn(textCharacters(createDrawing())),
@@ -398,6 +446,8 @@ const cases: Record<string, Case> = {
       );
     },
   },
+  "r12-number-of-1e100": tenThousandMillion("R12"),
+  "r2018-number-of-1e100": tenThousandMillion("R2018"),
   "r2018-arc-rounded-shut": {
     dxf: refused(
       plain(
@@ -509,6 +559,8 @@ interface CadDrawing {
   readonly insunits: number | undefined;
   /** `$EXTMIN` and `$EXTMAX`, which AutoCAD works out from what it draws. Undefined when it drew nothing. */
   readonly extents: { readonly min: [number, number]; readonly max: [number, number] } | undefined;
+  /** The height of the `*Active` viewport, which is the view the drawing opens on. */
+  readonly viewHeight: number | undefined;
   /** Color by `layerKey`. AutoCAD ignores case, and upper-cases names from an R12 file. */
   readonly layers: Map<string, number>;
   readonly entities: DxfRecord[];
@@ -538,6 +590,7 @@ function readDxf(text: string): CadDrawing {
   let section = "";
   let table = "";
   let insunits: number | undefined;
+  let viewHeight: number | undefined;
   const corner = (name: string): [number, number] | undefined => {
     const at = pairs.findIndex(([code, value]) => code === 9 && value === name);
     return at < 0 ? undefined : [Number(pairs[at + 1]?.[1]), Number(pairs[at + 2]?.[1])];
@@ -552,6 +605,7 @@ function readDxf(text: string): CadDrawing {
   const close = () => {
     if (!current) return;
     if (section === "ENTITIES") entities.push(current);
+    if (section === "TABLES" && current.type === "VPORT") viewHeight = Number(first(current, 40));
     if (section === "TABLES" && table === "LAYER" && current.type === "LAYER") {
       layers.set(layerKey(plainCaret(first(current, 2))), Number(first(current, 62)));
     }
@@ -571,7 +625,7 @@ function readDxf(text: string): CadDrawing {
     }
     if (current) current.groups.set(code, [...(current.groups.get(code) ?? []), value]);
   });
-  return { insunits, extents, layers, entities };
+  return { insunits, extents, viewHeight, layers, entities };
 }
 
 function first(record: DxfRecord, code: number): string {

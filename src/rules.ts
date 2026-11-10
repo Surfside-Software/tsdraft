@@ -5,7 +5,7 @@
 // The layer name and text rules come from opening test files in AutoCAD 2025,
 // which discards the whole drawing when a name breaks them.
 import type { DxfVersion } from "./drawing.ts";
-import { written, writtenAngle } from "./format.ts";
+import { isTooLarge, written, writtenAngle } from "./format.ts";
 import {
   layerAuditKey,
   layerKey,
@@ -32,6 +32,8 @@ const COLOR = "A layer color must be an AutoCAD Color Index integer from 1 to 25
 const POSITIVE = "This value must be greater than 0";
 const WRITTEN_AS_ZERO =
   "This value is written as 0, because tsdraft writes 6 decimals. Use 0.000001 or more";
+const TOO_LARGE =
+  "This value must be under 1e100, because AutoCAD reads only two exponent digits from DXF and would take 1e+100 for 1e+10";
 const ARC_LOST =
   "An arc of nearly a full turn cannot be written: its angles are the same once rounded to 6 decimals, so AutoCAD would hold an arc of no length. Draw a circle instead";
 const TEXT_PRIVATE_USE =
@@ -128,10 +130,13 @@ type WrittenAsZero<S extends string> = S extends `${infer Mantissa}e-${infer Exp
     : true
   : false;
 
+type Digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
+
 /**
  * Resolves to `N` when it is a size the writers can keep, and to the error
- * message otherwise: `N` must be greater than 0 and must not round to 0 at the
- * 6 decimals tsdraft writes.
+ * message otherwise: `N` must be greater than 0, must not round to 0 at the
+ * 6 decimals tsdraft writes, and must be under 1e100, where the compiler
+ * prints a third exponent digit as the writers do.
  */
 export type Positive<N extends number> = number extends N
   ? N
@@ -139,7 +144,9 @@ export type Positive<N extends number> = number extends N
     ? typeof POSITIVE
     : WrittenAsZero<`${N}`> extends true
       ? typeof WRITTEN_AS_ZERO
-      : N;
+      : `${N}` extends `${string}e+${Digit}${Digit}${Digit}`
+        ? typeof TOO_LARGE
+        : N;
 
 /** Returns what is wrong with a layer name for a DXF version, or undefined when it is valid. */
 export function layerNameProblem(name: string, version: DxfVersion): string | undefined {
@@ -185,14 +192,29 @@ export function layerColorProblem(color: number): string | undefined {
  * Returns what is wrong with a radius, a text height or a rectangle size, or
  * undefined when it is valid. A size that is written as 0 is refused like 0
  * itself: AutoCAD gives text of height 0 the drawing's default text height,
- * and a circle of radius 0 is a point.
+ * and a circle of radius 0 is a point. A size of 1e100 or more is refused
+ * too, as `magnitudeProblem` explains.
  *
  * @param value - The size, which must be a finite number.
  * @returns The problem, or undefined.
  */
 export function sizeProblem(value: number): string | undefined {
   if (!(value > 0)) return POSITIVE;
-  return written(value) === 0 ? WRITTEN_AS_ZERO : undefined;
+  return written(value) === 0 ? WRITTEN_AS_ZERO : magnitudeProblem(value);
+}
+
+/**
+ * Returns what is wrong with the size of a number a drawing holds, or
+ * undefined when AutoCAD can read it. This goes for every number that is
+ * written: coordinates, sizes and text rotation. Only sizes can be checked as
+ * literals, through `Positive`, because points and rotations have no literal
+ * types.
+ *
+ * @param value - The number, which must be finite.
+ * @returns The problem, or undefined.
+ */
+export function magnitudeProblem(value: number): string | undefined {
+  return isTooLarge(value) ? TOO_LARGE : undefined;
 }
 
 /**

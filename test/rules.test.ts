@@ -66,6 +66,17 @@ test("literal mistakes are compile errors and runtime errors", () => {
   r2018.text([0, 0], "x", { height: 0.000001 });
   r2018.rect([0, 0], 1e21, 9.5e-7);
 
+  // AutoCAD reads two exponent digits from DXF, so it would take 1e+100 for 1e+10.
+  // @ts-expect-error: a radius of 1e100 would be read as 10000000000.
+  assert.throws(() => r2018.circle([0, 0], 1e100), /radius: .*under 1e100/);
+  // @ts-expect-error: the same for any number that prints with three exponent digits.
+  assert.throws(() => r2018.text([0, 0], "x", { height: 1.5e300 }), /height: .*under 1e100/);
+  // @ts-expect-error: and for a rectangle's sides.
+  assert.throws(() => r2018.rect([0, 0], 5, 2.5e101), /height: .*under 1e100/);
+  r2018.circle([0, 0], 9.999999e99);
+  r2018.circle([0, 0], 1e99);
+  r2018.text([0, 0], "x", { height: 1e21 });
+
   // @ts-expect-error: AutoCAD discards a drawing over an ohm sign in a layer name.
   assert.throws(() => r2018.layer("10 k\u2126"), /AutoCAD rejects.*This name has U\+2126/);
   // @ts-expect-error: and over a zero-width space, which no one can see.
@@ -92,6 +103,22 @@ test("values the compiler cannot see are checked when the code runs", () => {
   assert.throws(() => createDrawing().text([0, 0], "a\u0000b"), /control characters/);
   assert.throws(() => createDrawing().text([0, 0], "smile 😀"), /emoji/);
   assert.throws(() => createDrawing().text([0, 0], "a\ue800b"), /private-use/);
+  const huge: number = 1e100;
+  assert.throws(() => createDrawing().circle([0, 0], huge), /radius: .*under 1e100/);
+  assert.throws(() => createDrawing().line([0, 0], [huge, 0]), /x: .*under 1e100/);
+  assert.throws(
+    () =>
+      createDrawing().polyline([
+        [0, 0],
+        [0, -huge],
+      ]),
+    /y: .*under 1e100/,
+  );
+  assert.throws(() => createDrawing().text([0, 0], "x", { rotation: huge }), /rotation: .*under/);
+  assert.throws(() => createDrawing().rect([9e99, 0], 9e99, 1), /x: .*under 1e100/);
+  // An arc's angles are brought into 0 to 360 before they are stored, so their size is no matter.
+  const [arc] = createDrawing().arc([0, 0], 1, huge, 90).build().entities;
+  assert.ok(arc?.kind === "arc" && arc.startAngle >= 0 && arc.startAngle < 360);
   const tiny: number = 4e-7;
   assert.throws(() => createDrawing().circle([0, 0], tiny), /radius: .*written as 0/);
   assert.throws(
@@ -370,4 +397,47 @@ test("a DrawingError names no file format", () => {
   assert.match(many.message, /\n- and 2 more$/);
   assert.equal(many.diagnostics.length, 12);
   assert.doesNotMatch(many.message, /DXF/);
+});
+
+test("lint refuses a number AutoCAD would misread", () => {
+  const d: Drawing = {
+    units: "in",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    entities: [
+      { kind: "line", layer: "0", from: [0, 0], to: [1e100, 1] },
+      {
+        kind: "polyline",
+        layer: "0",
+        points: [
+          [0, 0],
+          [1, -1e100],
+        ],
+        closed: false,
+      },
+      { kind: "circle", layer: "0", center: [0, 1.5e300], radius: 1 },
+      { kind: "circle", layer: "0", center: [0, 0], radius: 1e100 },
+      { kind: "arc", layer: "0", center: [-1e100, 0], radius: 1e101, startAngle: 0, endAngle: 90 },
+      { kind: "text", layer: "0", at: [0, 0], height: 1e100, rotation: 0, value: "x" },
+      { kind: "text", layer: "0", at: [0, 0], height: 1, rotation: 1e100, value: "x" },
+      // Under 1e100 everything is written as AutoCAD reads it.
+      { kind: "line", layer: "0", from: [0, 9e99], to: [3, -9e99] },
+      { kind: "circle", layer: "0", center: [9.999999e99, 0], radius: 9.999999999999998e99 },
+    ],
+  };
+  assert.deepEqual(
+    lint(d).map((p) => `${p.severity} ${p.entity} ${p.message.replace(/, because.*/, "")}`),
+    [
+      "error 0 line #0: its points: This value must be under 1e100",
+      "error 1 polyline #1: its points: This value must be under 1e100",
+      "error 2 circle #2: its center: This value must be under 1e100",
+      "error 3 circle #3: radius: This value must be under 1e100",
+      "error 4 arc #4: its center: This value must be under 1e100",
+      "error 4 arc #4: radius: This value must be under 1e100",
+      "error 5 text #5: height: This value must be under 1e100",
+      "error 6 text #6: its position and rotation: This value must be under 1e100",
+    ],
+  );
+  assert.throws(() => toDXF(d), DrawingError);
+  assert.throws(() => toDXF(d, { version: "R12" }), DrawingError);
 });

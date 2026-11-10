@@ -19,6 +19,34 @@ export function writtenAngle(degrees: number): number {
   return rounded >= 360 ? rounded - 360 : rounded;
 }
 
+/**
+ * The size from which a number prints with three exponent digits, as `1e+100`.
+ * AutoCAD reads only two from DXF: it takes `1e+100` for `1e+10` and
+ * `1e+308` for `1e+30`, with no AUDIT error. Writing the digits out does not
+ * help, because AutoCAD takes a number of 101 digits for 0.
+ */
+const TOO_LARGE = 1e100;
+
+/** The largest number under `TOO_LARGE`. */
+const LARGEST = 9.999999999999998e99;
+
+/**
+ * True for a number AutoCAD would misread from DXF, because it is 1e100 or
+ * more in size. `lint` refuses these wherever a drawing holds one.
+ */
+export function isTooLarge(value: number): boolean {
+  return Math.abs(value) >= TOO_LARGE;
+}
+
+/**
+ * Brings a number a writer works out for itself, such as an extent or the
+ * height of the view, into the range AutoCAD reads. `lint` cannot vouch for
+ * those: two coordinates under 1e100 can be more than 1e100 apart.
+ */
+export function readable(value: number): number {
+  return Math.max(-LARGEST, Math.min(LARGEST, value));
+}
+
 /** Formats a coordinate with at most 6 decimals, no float noise, and no "-0". */
 export function fmt(value: number): string {
   return String(written(value));
@@ -40,7 +68,8 @@ const ESCAPE_START = /\\(?=[Uu]\+[0-9A-Fa-f]{4}|[Mm]\+[1-5][0-9A-Fa-f]{4})/g;
  * AutoCAD decodes `\U+XXXX` and `\M+NXXXX` in a string, and it does so twice.
  * A backslash that would start one is written as `\U+005CU+005C`: the first
  * pass leaves `\U+005C` and the second leaves the backslash, with nothing left
- * to decode what follows it.
+ * to decode what follows it. This lasts until AutoCAD saves the drawing:
+ * AutoCAD writes the text unescaped, so it decodes it on a later open.
  *
  * With `ascii`, characters outside ASCII become `\U+XXXX`, which is how DXF
  * versions before 2007 carry them. Later versions are UTF-8 and need no escape.

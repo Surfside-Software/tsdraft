@@ -7,6 +7,7 @@ import {
   layerColorProblem,
   layerNameProblem,
   layerTwinProblem,
+  magnitudeProblem,
   sizeProblem,
   textProblem,
   textWarning,
@@ -134,7 +135,12 @@ export class DrawingError extends Error {
 function geometryProblems(e: Entity): string[] {
   const out: string[] = [];
   const finite = (label: string, ...values: number[]) => {
-    if (!values.every(Number.isFinite)) out.push(`${label} must be finite numbers`);
+    if (!values.every(Number.isFinite)) {
+      out.push(`${label} must be finite numbers`);
+      return;
+    }
+    const problem = values.map(magnitudeProblem).find((p) => p !== undefined);
+    if (problem) out.push(`${label}: ${problem}`);
   };
   const size = (label: string, value: number) => {
     const problem = Number.isFinite(value) ? sizeProblem(value) : "This value must be finite";
@@ -149,6 +155,13 @@ function geometryProblems(e: Entity): string[] {
       // A loop, because a polyline can have more points than a call can take arguments.
       if (!e.points.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]))) {
         out.push("its points must be finite numbers");
+      } else {
+        for (const [x, y] of e.points) {
+          const problem = magnitudeProblem(x) ?? magnitudeProblem(y);
+          if (!problem) continue;
+          out.push(`its points: ${problem}`);
+          break;
+        }
       }
       break;
     case "circle":

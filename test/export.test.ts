@@ -217,3 +217,48 @@ test("SVG draws an arc of nearly a full turn, and colors by layer whatever the c
   assert.match(full ?? "", /<circle cx="5" cy="5" r="1" stroke="#ff0000"/);
   assert.match(short ?? "", /<path d="M 6 5 A 1 1 0 0 1 6 5" stroke="#ff0000"/);
 });
+
+test("numbers are written in the forms AutoCAD reads", () => {
+  // What AutoCAD 2025 reads back from each form is checked by `pnpm test:cad`.
+  const printed = (value: number) => {
+    const p = pairs(toDXF(createDrawing().line([0, 0], [value, 0]).build()));
+    return p
+      .slice(p.findIndex(([code, v]) => code === 0 && v === "LINE"))
+      .find(([c]) => c === 11)?.[1];
+  };
+  const forms: [number, string][] = [
+    [-0, "0"],
+    [-0.0000004, "0"],
+    [0.0000004, "0"],
+    [0.0000006, "0.000001"],
+    [-0.000001, "-0.000001"],
+    [0.1 + 0.2, "0.3"],
+    [1234.5678915, "1234.567892"],
+    // Digits up to 1e21, which AutoCAD reads at their full length.
+    [123456789012345680000, "123456789012345680000"],
+    // An exponent from 1e21 up, and never more than two digits of it.
+    [1e21, "1e+21"],
+    [-1.2345678901234568e21, "-1.2345678901234568e+21"],
+    [9.999999999999998e99, "9.999999999999998e+99"],
+  ];
+  for (const [value, text] of forms) assert.equal(printed(value), text);
+  assert.throws(() => printed(1e100), /under 1e100/);
+});
+
+test("the numbers a writer works out stay in the range AutoCAD reads", () => {
+  const b = createDrawing({ dxf: "R2018" });
+  // The ends are 1.8e100 apart, and the text is guessed to be 5.9e102 wide.
+  b.line([0, 9e99], [3, -9e99]);
+  b.circle([9e99, -9e99], 9.9e99);
+  b.text([9e99, 0], "x".repeat(100), { height: 9.9e99 });
+  const d = b.build();
+  for (const version of ["R12", "R2018"] as const) {
+    const dxf = toDXF(d, { version });
+    assert.doesNotMatch(dxf, /e[+-]\d{3}|Infinity|NaN/, version);
+  }
+  const p = pairs(toDXF(d));
+  const after = (name: string) => p[p.findIndex(([c, v]) => c === 9 && v === name) + 1]?.[1];
+  assert.equal(after("$EXTMAX"), "9.999999999999998e+99");
+  const view = p.slice(p.findIndex(([c, v]) => c === 0 && v === "VPORT"));
+  assert.equal(view.find(([c]) => c === 40)?.[1], "9.999999999999998e+99", "view height");
+});

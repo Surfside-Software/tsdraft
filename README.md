@@ -48,7 +48,9 @@ Entities go on layer `0` unless they are drawn inside a `layer()` callback.
 
 Numbers are written with 6 decimals, in DXF and in SVG. The checks below judge
 a drawing as it will be written, so a size too small to survive the rounding is
-an error and a line that rounds down to a point is a warning.
+an error and a line that rounds down to a point is a warning. Every number must
+also be under 1e100 in size. AutoCAD reads only two exponent digits from DXF, so
+it would take `1e+100` for `1e+10` and report nothing.
 
 ## DXF versions
 
@@ -115,6 +117,8 @@ The rules:
 - Text is a single line. It cannot contain emoji or other characters above
   U+FFFF, because AutoCAD cannot read them from DXF, or the private-use
   characters U+E800 to U+E8FF, which AutoCAD replaces.
+- Coordinates, sizes and text rotations are under 1e100 in size, because
+  AutoCAD reads only two exponent digits from DXF.
 - Arc angles are stored from 0 up to 360, so -90 becomes 270. An arc cannot come
   within 0.000001 degrees of a full turn, because its two angles would be
   written the same and AutoCAD holds such an arc as having no length. Draw a
@@ -133,11 +137,16 @@ them, and other code may throw one to refuse a drawing for its own reasons.
 
 ### Text
 
-AutoCAD holds a text exactly as the drawing has it. tsdraft escapes what DXF
-would otherwise read as something else: a caret, and a backslash that starts
-`\U+XXXX` or `\M+NXXXX`, which AutoCAD decodes into a character. A text
-`\U+00B0` reaches AutoCAD as those seven characters and not as a degree sign.
-Write the character itself, `°`, to get the character.
+When AutoCAD opens tsdraft's DXF, it holds each text exactly as the drawing has
+it. tsdraft escapes what DXF would otherwise read as something else: a caret,
+and a backslash that starts `\U+XXXX` or `\M+NXXXX`, which AutoCAD decodes into
+a character. A text `\U+00B0` reaches AutoCAD as those seven characters and not
+as a degree sign. Write the character itself, `°`, to get the character.
+
+That lasts until AutoCAD saves the drawing, because AutoCAD does not escape these
+sequences in what it writes. After it saves as DWG and opens the file again, a
+text `\M+18140` holds the character U+3000. After it saves as DXF and opens
+that, `\U+00B0` holds a degree sign as well. tsdraft cannot change this.
 
 ### Layer names and case
 

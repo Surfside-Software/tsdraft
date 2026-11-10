@@ -1,6 +1,6 @@
 import type { Drawing, Entity, Units } from "./drawing.ts";
 import { extents } from "./extents.ts";
-import { dxfText, fmt, writtenAngle } from "./format.ts";
+import { dxfText, fmt, readable, writtenAngle } from "./format.ts";
 import { layerZeroFirst } from "./layers.ts";
 
 /** `$INSUNITS` codes from the DXF Reference. */
@@ -37,7 +37,14 @@ export function toDXFR2018(drawing: Drawing): string {
   const normalPlotStyle = handle();
   const modelSpace = handle();
   const paperSpace = handle();
-  const [minX, minY, maxX, maxY] = extents(drawing.entities);
+  // The extents are worked out here, so they are brought into the range AutoCAD reads.
+  const [left, bottom, right, top] = extents(drawing.entities);
+  const [minX, minY, maxX, maxY] = [
+    readable(left),
+    readable(bottom),
+    readable(right),
+    readable(top),
+  ];
 
   g(0, "SECTION");
   g(2, "CLASSES");
@@ -270,7 +277,8 @@ function writeActiveViewport(
   maxY: number,
 ): void {
   const aspect = 1.6;
-  const height = Math.max(maxY - minY, (maxX - minX) / aspect, 1) * 1.1;
+  // A drawing can span more than AutoCAD can read as one number, so the height is capped.
+  const height = readable(Math.max(maxY - minY, (maxX - minX) / aspect, 1) * 1.1);
   g(10, 0); // lower-left corner of the viewport on screen
   g(20, 0);
   g(11, 1); // upper-right corner

@@ -26,6 +26,9 @@
 - The writers print numbers with 6 decimals. `written` in `src/format.ts` is that
   rounding, and `lint` judges sizes, points and arc angles as written. A new
   check on a number must do the same.
+- AutoCAD reads two exponent digits from DXF, so no number may be written as
+  1e100 or more. `lint` refuses those in a drawing. A number a writer works out
+  for itself, such as an extent, must go through `readable` in `src/format.ts`.
 - `src/layers.ts` holds what AutoCAD does with layer-name characters: the ones
   it refuses, the capitals it lower-cases to compare names, and the pairs only
   `AUDIT` calls duplicates. Never compare layer names with `toLowerCase()`.

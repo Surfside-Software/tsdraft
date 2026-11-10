@@ -7,12 +7,21 @@ Every fix below was found by opening tsdraft's output in AutoCAD 2025.
 - Fixed: text holding `\U+XXXX` or `\M+NXXXX` came out in AutoCAD as the
   character those escapes stand for, so `\U+00B0` became a degree sign and
   `\U+000A` put a line feed inside a single-line text. Both DXF versions now
-  write such a backslash so that AutoCAD holds the text as the drawing has it.
+  write such a backslash so that AutoCAD holds the text as the drawing has it
+  when it opens the file. AutoCAD decodes the text after all once it has saved
+  the drawing itself and opened it again: `\M+NXXXX` after a save as DWG, and
+  `\U+XXXX` too after a save as DXF.
 - Fixed: a size too small for the 6 decimals tsdraft writes was written as 0.
   AutoCAD gave such a text its default height, and held such a circle or arc
   with radius 0. A radius, text height or rectangle size that would be written
   as 0 is now an error, in the compiler for a literal and when the code runs.
   `rect()` also throws when a side is lost because two corners round together.
+- Fixed: AutoCAD reads only two exponent digits from DXF, so it took a number
+  written as `1e+100` for `1e+10`, with no `AUDIT` error. A coordinate, size or
+  text rotation of 1e100 or more is now an error, in the compiler for a size
+  written as a literal and when the code runs. The R2018 writer also caps the
+  extents and the view height it works out, which could pass 1e100 for a
+  drawing whose own numbers are all smaller.
 - Fixed: an arc within 0.000001 degrees of a full turn was written with equal
   angles, which AutoCAD holds as an arc of no length. It is now an error. An arc
   angle that rounds up to 360 is written as 0.
@@ -49,7 +58,8 @@ Every fix below was found by opening tsdraft's output in AutoCAD 2025.
 - `lint` warns about text that contains `%%`, which AutoCAD stores as written
   but draws as a control code: `%%d` is drawn as a degree sign.
 - `pnpm test:cad` covers each fix above, and checks every character `lint`
-  accepts in text and in layer names against AutoCAD.
+  accepts in text and in layer names, and each form of number the writers
+  print, against AutoCAD.
 
 ## 0.2.0
 

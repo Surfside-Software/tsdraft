@@ -3,6 +3,7 @@ import { layerAuditKey, layerKey } from "./layers.ts";
 import {
   arcProblem,
   layerColorProblem,
+  magnitudeProblem,
   layerNameProblem,
   layerTwinProblem,
   sizeProblem,
@@ -255,7 +256,7 @@ export class DrawingBuilder<V extends DxfVersion = "R12"> {
       at: pt(at),
       value,
       height: positive(options.height ?? 0.125, "height"),
-      rotation: num(options.rotation ?? 0, "rotation"),
+      rotation: kept(options.rotation ?? 0, "rotation"),
     });
   }
 
@@ -311,6 +312,13 @@ function lostSide(size: string, axis: string, at: number): string {
   return `${size}: This value is too small at ${axis} = ${at}. Both sides of the rectangle are written as ${axis} = ${fmt(at)}, because tsdraft writes 6 decimals`;
 }
 
+/** A number the drawing keeps and the writers print, which AutoCAD must be able to read. */
+function kept(value: number, label: string): number {
+  const problem = magnitudeProblem(num(value, label));
+  if (problem) throw new Error(`${label}: ${problem}`);
+  return value;
+}
+
 function pt(point: Point): Point {
-  return [num(point[0], "x"), num(point[1], "y")];
+  return [kept(point[0], "x"), kept(point[1], "y")];
 }
