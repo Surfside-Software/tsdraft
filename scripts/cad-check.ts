@@ -307,6 +307,150 @@ function checkCasePairs(pairs: readonly [string, string][], result: CadResult): 
   });
 }
 
+/**
+ * Pairs of layer names for AUDIT's duplicate check: [name, other name]. The
+ * names of pair `i` start with `A<i>_`. AutoCAD keeps both layers of every
+ * pair. Its AUDIT must report a duplicate name for exactly the pairs `lint`
+ * refuses, which are all but the last group.
+ */
+function auditPairs(): [string, string][] {
+  const softHyphen = "\u00ad";
+  // A letter and the letters AUDIT takes it for.
+  const spelledOut: [string, string][] = [
+    ["ß", "ss"],
+    ["ẞ", "ss"],
+    ["æ", "ae"],
+    ["ᴂ", "ae"],
+    ["œ", "oe"],
+    ["ĳ", "ij"],
+    ["þ", "th"],
+    ["ǆ", "dž"],
+    ["ǅ", "dž"],
+    ["ǉ", "lj"],
+    ["ǈ", "lj"],
+    ["ǌ", "nj"],
+    ["ǋ", "nj"],
+    ["ǳ", "dz"],
+    ["ǲ", "dz"],
+    ["ﬀ", "ff"],
+    ["ﬁ", "fi"],
+    ["ﬂ", "fl"],
+    ["ﬃ", "ffi"],
+    ["ﬄ", "ffl"],
+    ["ﬆ", "st"],
+    ["ȸ", "db"],
+    ["ȹ", "qp"],
+    ["ʪ", "ls"],
+    ["ʫ", "lz"],
+    ["ꜳ", "aa"],
+    ["ꜵ", "ao"],
+    ["ꜷ", "au"],
+    ["ꜹ", "av"],
+    ["ꜽ", "ay"],
+    ["ꝏ", "oo"],
+  ];
+  const pairs: [string, string][] = [];
+  for (const [letter, spelling] of spelledOut) {
+    // Alone, in the other letter case, and inside a longer name.
+    pairs.push([letter, spelling], [letter.toUpperCase(), spelling.toUpperCase()]);
+    pairs.push([`Wall ${letter} 2`, `WALL ${spelling.toUpperCase()} 2`]);
+  }
+  pairs.push(
+    // A composed character and its decomposed form, whatever the order of its marks.
+    ["é", "e\u0301"],
+    ["CAFÉ au lait", "cafe\u0301 au lait"],
+    ["Ångström", "A\u030angstro\u0308m"],
+    ["\u1ead", "a\u0302\u0323"],
+    ["a\u0323\u0302", "a\u0302\u0323"],
+    ["Ÿ", "y\u0308"],
+    ["Þórr", "tho\u0301rr"],
+    ["ǽ", "ae\u0301"],
+    // A soft hyphen inside a name or in front of it.
+    [`co${softHyphen}op`, "coop"],
+    [`${softHyphen}CO${softHyphen}${softHyphen}OP 2`, "coop 2"],
+    [`Haupt${softHyphen}straße`, "HAUPTSTRASSE"],
+    // The kinds together.
+    [`Ĳssel${softHyphen}ﬂöße`, "IJSSELFLO\u0308SSE"],
+    // From here on, AUDIT reports no duplicate and lint refuses nothing.
+    ["ß", "sz"],
+    ["ǆ", "dz"],
+    ["ø", "oe"],
+    ["ü", "ue"],
+    ["ð", "dh"],
+    ["cafe", "café"],
+    ["µm", "μm"],
+    ["한", "\u1112\u1161\u11ab"],
+    ["\u09cb", "\u09c7\u09be"],
+    ["É", `E${softHyphen}\u0301`],
+    [`coop${softHyphen}`, "coop"],
+  );
+  // JavaScript has no capital for some of the letters and gives their spelling, which is no pair.
+  return pairs
+    .filter(([name, other]) => layerKey(name) !== layerKey(other))
+    .map(([name, other], i) => [`A${i}_${name}`, `A${i}_${other}`]);
+}
+
+/**
+ * Longer names, each beside a respelling of itself. `lint` must never refuse
+ * a pair that AUDIT does not report, wherever the respelled letters fall.
+ */
+function auditRespellings(): [string, string][] {
+  const softHyphen = "\u00ad";
+  // Each row holds spellings AUDIT may take for one another.
+  const spellings = [
+    ["ss", "ß", "ẞ", "SS"],
+    ["ae", "æ", "Æ", "AE"],
+    ["oe", "œ", "Œ"],
+    ["ij", "ĳ", "Ĳ", "IJ"],
+    ["th", "þ", "Þ", "Th"],
+    ["dž", "ǆ", "Ǆ", "ǅ", "dz\u030c"],
+    ["dz", "ǳ", "ǲ"],
+    ["fi", "ﬁ", "FI"],
+    ["ffi", "ﬃ", "ﬀi"],
+    ["é", "e\u0301", "É", "E\u0301"],
+    ["\u1ead", "a\u0323\u0302", "a\u0302\u0323", "â\u0323"],
+    ["σ", "ς", "Σ"],
+    ["한"],
+    ["\u1112\u1161\u11ab"],
+    ["x", "X"],
+    ["s"],
+    ["e"],
+    [" "],
+    ["-"],
+    ["", softHyphen],
+  ];
+  const next = sequence(1855);
+  const spell = (rows: readonly number[]) =>
+    rows.map((row) => spellings[row]?.[next(spellings[row]?.length ?? 1)] ?? "").join("");
+  return Array.from({ length: 600 }, (_, i): [string, string] => {
+    const rows = Array.from({ length: 1 + next(5) }, () => next(spellings.length));
+    // One pair in four differs in a whole letter, so not every pair is a respelling.
+    const other = rows.map((row) => (next(4 * rows.length) === 0 ? next(spellings.length) : row));
+    return [`R${i}_${spell(rows)}_`, `R${i}_${spell(other)}_`];
+  });
+}
+
+/** One layer for each name of each pair. `lint` refuses the drawing for the pairs it calls duplicates. */
+function pairedLayers(pairs: readonly [string, string][]): Drawing {
+  return plain(
+    "R2018",
+    pairs.flat().map((name) => ({ name, color: 1 })),
+    [],
+  );
+}
+
+/** The first names of the pairs that AUDIT reported a duplicate name in. */
+function auditDuplicates(pairs: readonly [string, string][], result: CadResult): Set<string> {
+  const reported = new Set(
+    [...result.log.matchAll(/^Duplicate name "(.*)" in Layer symbol table/gm)].map((m) => m[1]),
+  );
+  return new Set(
+    pairs
+      .filter(([name, other]) => reported.has(name) || reported.has(other))
+      .map(([name]) => name),
+  );
+}
+
 /** Layers that differ only by case, with every entity on the spelling that was not declared. */
 function layerCase(): Drawing {
   const pairs = casePairs().filter(([declared, used]) => layerKey(declared) === layerKey(used));
@@ -363,6 +507,8 @@ function oneText(value: string, height: number): Drawing {
 }
 
 const allCasePairs = casePairs();
+const allAuditPairs = auditPairs();
+const allAuditRespellings = auditRespellings();
 
 const cases: Record<string, Case> = {
   "r12-everything": drawn(
@@ -416,6 +562,58 @@ const cases: Record<string, Case> = {
   "r2018-layer-case-pairs": {
     dxf: refused(casePairDrawing(allCasePairs)),
     check: (result) => checkCasePairs(allCasePairs, result),
+  },
+  "r2018-layer-audit-pairs": {
+    dxf: refused(pairedLayers(allAuditPairs)),
+    check: (result) => {
+      const cad = opened(result);
+      const duplicates = auditDuplicates(allAuditPairs, result);
+      for (const [name, other] of allAuditPairs) {
+        assert.ok(cad.layers.has(layerKey(name)) && cad.layers.has(layerKey(other)), `two layers`);
+        assert.equal(
+          duplicates.has(name),
+          layerTwinProblem(other, name) !== undefined,
+          `AUDIT reports ${name} and ${other} as a duplicate name`,
+        );
+      }
+    },
+  },
+  "r2018-layer-audit-respellings": {
+    dxf: refused(pairedLayers(allAuditRespellings)),
+    check: (result) => {
+      opened(result);
+      const duplicates = auditDuplicates(allAuditRespellings, result);
+      const refusedPairs = allAuditRespellings.filter(([name, other]) =>
+        layerTwinProblem(other, name),
+      );
+      assert.ok(refusedPairs.length > 200, "lint refuses a good share of the pairs");
+      for (const [name, other] of refusedPairs) {
+        assert.ok(duplicates.has(name), `AUDIT reports ${name} and ${other} as a duplicate name`);
+      }
+    },
+  },
+  "r2018-layer-other-spelling": {
+    // An entity that names its layer by the other spelling of a pair gets a layer of its own.
+    dxf: refused(
+      plain(
+        "R2018",
+        [
+          { name: "straße", color: 1 },
+          { name: "café", color: 2 },
+        ],
+        [
+          { kind: "line", layer: "STRASSE", from: [0, 0], to: [1, 1] },
+          { kind: "line", layer: "cafe\u0301", from: [0, 0], to: [1, 2] },
+        ],
+      ),
+    ),
+    check: (result) => {
+      const cad = opened(result);
+      assert.deepEqual([...cad.layers.keys()], ["0", "straße", "café", "strasse", "cafe\u0301"]);
+      assert.match(result.log, /Duplicate name "STRASSE" in Layer symbol table/);
+      assert.match(result.log, /Duplicate name "cafe\u0301" in Layer symbol table/);
+      assert.match(result.log, /Total errors found 2 fixed 0/);
+    },
   },
   "r2018-layer-name-zero-width-space": discarded("\u200b"),
   "r2018-layer-name-c1-control": discarded("\u0085"),

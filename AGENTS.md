@@ -33,6 +33,9 @@
   it refuses, the capitals it lower-cases to compare names, and the pairs only
   `AUDIT` calls duplicates. Never compare layer names with `toLowerCase()`.
   The tables came from AutoCAD, and `pnpm test:cad` checks them against it.
+- `layerAuditKey` follows only the kinds of pair measured in AutoCAD, and must
+  never call two names duplicates when `AUDIT` does not. Add a kind only with an
+  AutoCAD result behind it and a pair in `auditPairs` in `scripts/cad-check.ts`.
 - Passing ezdxf or another parser proves little: AutoCAD discards files they
   accept. After changing a DXF writer or a rule, run `pnpm test:cad` with
   `TSDRAFT_CAD_SSH` set. It runs AutoCAD's headless console on another machine,

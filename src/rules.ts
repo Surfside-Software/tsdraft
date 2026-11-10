@@ -167,10 +167,13 @@ export function layerNameProblem(name: string, version: DxfVersion): string | un
 /**
  * Returns what is wrong with a drawing that has both names as layers, or
  * undefined when the two can stand together. AutoCAD looks layers up one way
- * and its AUDIT compares their names another, so a few pairs of names, such
- * as `ΟΔΟΣ` and `οδος`, are two layers to AutoCAD and one duplicate name to
- * AUDIT. Names that are one layer to AutoCAD are not this function's concern.
- * The rule compares two names, so it has no type.
+ * and its AUDIT compares their names another, so some pairs of names are two
+ * layers to AutoCAD and one duplicate name to AUDIT: `ΟΔΟΣ` and `οδος`,
+ * `straße` and `strasse`, a composed é and a decomposed one, and a name with
+ * and without a soft hyphen. `layerAuditKey` lists the kinds this covers,
+ * which are those measured in AutoCAD and not all that AUDIT reports. Names
+ * that are one layer to AutoCAD are not this function's concern. The rule
+ * compares two names, so it has no type.
  *
  * @param name - The name of the layer being checked.
  * @param other - The name of another layer in the drawing.

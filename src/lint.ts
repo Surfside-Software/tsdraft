@@ -91,7 +91,17 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     const add = (rule: LintRule, severity: Diagnostic["severity"], problem: string) =>
       out.push({ rule, severity, message: `${entity.kind} #${index}: ${problem}`, entity: index });
     if (!seen.has(layerKey(entity.layer))) {
-      add("undefined-layer", "error", `layer ${JSON.stringify(entity.layer)} is not defined`);
+      // AutoCAD adds a layer for a name it does not know. When AUDIT takes that name for a
+      // declared layer's, it then reports the new layer as a duplicate of it.
+      const twin = audited.get(layerAuditKey(entity.layer));
+      const hint = twin
+        ? `. AutoCAD does not take it for layer ${JSON.stringify(twin)}: it would add a layer, and its AUDIT would report a duplicate name`
+        : "";
+      add(
+        "undefined-layer",
+        "error",
+        `layer ${JSON.stringify(entity.layer)} is not defined${hint}`,
+      );
     }
     const problems = geometryProblems(entity);
     for (const problem of problems) add("geometry", "error", problem);
