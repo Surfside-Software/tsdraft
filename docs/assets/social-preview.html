@@ -26,9 +26,9 @@
       }
       main {
         display: grid;
-        grid-template-columns: 1fr 560px;
+        grid-template-columns: 1fr 680px;
         grid-template-rows: 1fr auto;
-        column-gap: 64px;
+        column-gap: 48px;
         height: 100%;
         padding: 64px 72px 48px;
       }
@@ -43,8 +43,9 @@
       h1 {
         margin: 64px 0 0;
         font-family: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
-        font-size: 64px;
+        font-size: 48px;
         font-weight: 500;
+        white-space: nowrap;
         line-height: 1.08;
         letter-spacing: -0.035em;
       }
@@ -52,15 +53,15 @@
         color: #1aafc8;
       }
       p {
-        margin: 28px 0 0;
-        max-width: 26ch;
+        margin: 24px 0 0;
+        max-width: 24ch;
         color: #c8c8cc;
-        font-size: 24px;
+        font-size: 22px;
         line-height: 1.5;
       }
       .drawing {
         align-self: center;
-        width: 560px;
+        width: 680px;
         border: 1px solid #26262a;
         border-radius: 4px;
       }
@@ -89,7 +90,11 @@
         <h1>2D CAD drawings<br /><span>as TypeScript.</span></h1>
         <p>Write the drawing in code. Export DXF for CAD programs and SVG for a quick preview.</p>
       </div>
-      <img class="drawing" src="site-plan-dark.svg" alt="A site plan drawn by tsdraft" />
+      <img
+        class="drawing"
+        src="outdoor-kitchen-dark.svg"
+        alt="An outdoor kitchen elevation and wall section drawn by tsdraft"
+      />
       <footer>
         <code>npm install tsdraft</code>
         <span>MIT · surfside-software.com</span>
