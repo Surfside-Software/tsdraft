@@ -1037,3 +1037,29 @@ test("entity ids are checked as literals, when the code runs, and by lint", () =
     );
   }
 });
+
+test("two ids that give one handle are refused by the builder and by lint", () => {
+  const d = createDrawing();
+  d.line([0, 0], [1, 0], { id: "wall-18709862" });
+  // Which ids share a handle is known only when the code runs.
+  assert.throws(
+    () => d.line([0, 1], [1, 1], { id: "Wall-121406389" }),
+    (thrown: unknown) =>
+      thrown instanceof DrawingError &&
+      thrown.diagnostics[0]?.rule === "id-handle" &&
+      thrown.diagnostics[0].id === "Wall-121406389" &&
+      /"wall-18709862" and "Wall-121406389" give the same handle, 1152F0C91847EA/.test(
+        thrown.message,
+      ),
+  );
+  const [first] = d.build().entities;
+  const byHand: Drawing = {
+    ...d.build(),
+    entities: [first!, { ...first!, id: "wall-121406389" }, { ...first!, id: "wall-1" }],
+  };
+  assert.deepEqual(
+    lint(byHand).map((x) => [x.rule, x.entity, x.id]),
+    [["id-handle", 1, "wall-121406389"]],
+  );
+  assert.throws(() => toDXF(byHand), DrawingError);
+});

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createDrawing, DASHED, toDXF, toSVG, type Drawing } from "../src/index.ts";
+import { createDrawing, DASHED, idHandle, toDXF, toSVG, type Drawing } from "../src/index.ts";
 
 /** Parses DXF text into [code, value] pairs. */
 function pairs(dxf: string): [number, string][] {
@@ -372,4 +372,78 @@ test("SVG leaves out a layer that does not plot, unless asked for it", () => {
   const box = (svg: string) => /viewBox="([^"]*)"/.exec(svg)![1]!.split(" ").map(Number);
   assert.ok(box(plotted)[2]! < 2 && box(all)[2]! > 50 && box(all)[3]! < 10);
   assert.doesNotMatch(all, /data-layer="HIDDEN"/);
+});
+
+test("an entity's id gives its handle, whatever else the drawing holds", () => {
+  // 2^52 plus the FNV-1a hash of "a", af63dc4c8601ec8c, folded to 52 bits.
+  assert.equal(idHandle("a"), "13DC4C8601E67A");
+  assert.equal(idHandle("Door-1"), idHandle("door-1"));
+
+  // A string that is not an id has no handle.
+  assert.throws(() => idHandle("door 1"), /can only use/);
+
+  /** The handle of each entity by its id, of those with no id in order, and `$HANDSEED`. */
+  const handles = (drawing: Drawing) => {
+    const p = pairs(toDXF(drawing));
+    const start = p.findIndex(([c, v]) => c === 2 && v === "ENTITIES");
+    const end = p.findIndex(([c, v], i) => i > start && c === 0 && v === "ENDSEC");
+    const all = p.filter(([c]) => c === 5 || c === 105).map(([, v]) => v);
+    const entities = p.slice(start, end).flatMap(([c, v]) => (c === 5 ? [v] : []));
+    assert.equal(new Set(all).size, all.length, "handles are unique");
+    return {
+      byId: Object.fromEntries(
+        drawing.entities.flatMap((e, i) => (e.id === undefined ? [] : [[e.id, entities[i]!]])),
+      ),
+      counted: entities.filter((_, i) => drawing.entities[i]!.id === undefined),
+      seed: all[0],
+    };
+  };
+  const dotted = { name: "DOTTED", pattern: [0, -1] };
+  const before = createDrawing({ units: "ft" });
+  before.linetype(dotted).linetype(DASHED);
+  before.textStyle({ name: "NOTES", font: "Arial" }).textStyle({ name: "TITLE", font: "txt.shx" });
+  before.layer("A-WALL", { color: 1, linetype: "DOTTED" }, () => {
+    before.line([0, 0], [10, 0], { id: "wall-south" }).line([0, 9], [10, 9]);
+  });
+  before.layer("A-COLS", { color: 2, linetype: DASHED }, () => {
+    before.circle([20, 0], 2, { id: "column-A1" });
+    before.text([0, 0], "old", { height: 1, style: "TITLE", id: "title" });
+  });
+  // The same tables in another order with one more of each, and the entities moved, reordered
+  // and joined by others.
+  const after = createDrawing({ units: "ft" });
+  after
+    .linetype({ name: "GRID", pattern: [2, -1] })
+    .linetype(DASHED)
+    .linetype(dotted);
+  after.textStyle({ name: "TITLE", font: "txt.shx" }).textStyle({ name: "SMALL", font: "Arial" });
+  after.textStyle({ name: "NOTES", font: "Arial" });
+  after.layer("A-GRID", { color: 5, linetype: "GRID" }, () => {
+    after.line([-5, -5], [30, -5]).text([0, 0], "new", { height: 1, id: "note" });
+  });
+  after.layer("A-COLS", { color: 2, linetype: DASHED }, () => {
+    after.text([3, 3], "old", { height: 1, style: "TITLE", id: "title" });
+    after.circle([25, 1], 3, { id: "column-A1" });
+  });
+  after.layer("A-WALL", { color: 1, linetype: "DOTTED" }, () => {
+    after.line([0, 9], [10, 9]).line([2, 1], [16, 1], { id: "Wall-South" });
+  });
+
+  const [a, b] = [handles(before.build()), handles(after.build())];
+  assert.deepEqual(a.byId, {
+    "wall-south": idHandle("wall-south"),
+    "column-A1": idHandle("column-A1"),
+    title: idHandle("title"),
+  });
+  // The entities that are in both keep their handles, the respelled id too.
+  assert.deepEqual(b.byId, {
+    "Wall-South": a.byId["wall-south"],
+    "column-A1": a.byId["column-A1"],
+    title: a.byId.title,
+    note: idHandle("note"),
+  });
+  // An entity with no id is counted on from the tables, so one more of those moves it.
+  assert.deepEqual([a.counted, b.counted], [["22"], ["25", "26"]]);
+  // The seed is 2^53, above every handle an id can give.
+  assert.deepEqual([a.seed, b.seed], ["20000000000000", "20000000000000"]);
 });

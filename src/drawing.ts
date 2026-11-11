@@ -1,12 +1,14 @@
 import { holdCall, readCall, recordCalls, type HeldCall } from "./callsite.ts";
 import { STANDARD_TEXT_STYLE } from "./fonts.ts";
 import { fmt, written } from "./format.ts";
+import { validIdHandle } from "./handles.ts";
 import { layerAuditKey, layerKey } from "./layers.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import { DrawingError, type Diagnostic, type LintRule } from "./lint.ts";
 import {
   arcProblem,
   duplicateIdProblem,
+  idHandleProblem,
   idKey,
   idProblem,
   isStandardTextStyle,
@@ -517,6 +519,8 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
   readonly #entities: Entity[] = [];
   /** The first spelling of each entity id, by `idKey`. */
   readonly #ids = new Map<string, string>();
+  /** The first id that gave each handle. */
+  readonly #idHandles = new Map<string, string>();
   /** The call that drew each entity, when calls are recorded. */
   readonly #calls: (HeldCall | undefined)[] | undefined;
   #current = "0";
@@ -857,9 +861,11 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     const id: unknown = o.id;
     try {
       const key = id === undefined ? undefined : this.#idKey(id);
+      const handle = key === undefined ? undefined : this.#idHandle(id as string);
       const named = id === undefined ? {} : { id: id as string };
       this.#entities.push({ ...make(), ...named, ...this.#style(o) });
       if (key !== undefined) this.#ids.set(key, id as string);
+      if (handle !== undefined) this.#idHandles.set(handle, id as string);
     } catch (thrown) {
       throw located(thrown, method, typeof id === "string" ? { id } : {});
     }
@@ -875,6 +881,14 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     const first = this.#ids.get(key);
     if (first !== undefined) refuse("duplicate-id", duplicateIdProblem(id as string, first));
     return key;
+  }
+
+  /** Checks that no other id gave the handle this id gives, and returns the handle. */
+  #idHandle(id: string): string {
+    const handle = validIdHandle(id);
+    const first = this.#idHandles.get(handle);
+    if (first !== undefined) refuse("id-handle", idHandleProblem(id, first, handle));
+    return handle;
   }
 
   /** The linetype and lineweight an entity is stored with. */

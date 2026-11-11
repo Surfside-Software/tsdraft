@@ -19,6 +19,18 @@
 - AC1032 needs every handle unique, every owner (330) and pointer (340, 350, 390) to resolve, and `$HANDSEED` above the highest handle. AutoCAD also
   discards the whole file if a LAYER has no 390 plot style pointer. The tests
   check all of this.
+- An entity with an id takes the handle `idHandle` in `src/handles.ts` gives the id, from
+  2^52 up to 2^53, and a drawing that has ids has a `$HANDSEED` of 2^53. Every other object
+  is counted up from 1. Another drawing that dimensions the entity through an xref holds that
+  handle, so never change what `idHandle` returns for an id, nor `idKey`, which it hashes:
+  every such dimension would come loose, and AutoCAD would report nothing.
+- The range from 2^52 to 2^53 is for every handle that comes from a name, not only an
+  entity's id. Another kind of object, such as a block, hashes its key with a prefix that no
+  id can contain, such as `block:NAME`, since an id cannot hold `:` or `/`. It hashes into
+  the same range, and two keys that give one handle are refused as two ids are. A key that can
+  hold characters outside ASCII, as a block's name can, is hashed as its UTF-8 bytes. A
+  counted handle cannot reach 2^52, because a drawing cannot hold that many objects. Nothing
+  uses the handles from 2^32 up to 2^52. Keep them for a later scheme.
 - A rule AutoCAD enforces lives in `src/rules.ts` twice: as a type, so a wrong
   literal is a compile error, and as a runtime check with the same message. The
   builder calls the runtime check, and `lint()` in `src/lint.ts` repeats it for

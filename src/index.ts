@@ -30,6 +30,7 @@ export {
 } from "./drawing.ts";
 export { toDXF, type DxfOptions } from "./dxf.ts";
 export { FONTS, type Font, type FontInfo } from "./fonts.ts";
+export { idHandle } from "./handles.ts";
 export { fromJSON, toJSON } from "./json.ts";
 export { DrawingError, lint, type Diagnostic, type LintOptions, type LintRule } from "./lint.ts";
 export { CENTER, DASHDOT, DASHED, DOT, HIDDEN, LINEWEIGHTS, PHANTOM } from "./linetypes.ts";
