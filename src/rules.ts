@@ -45,7 +45,21 @@ const TEXT_STYLE_NAMES = {
   edge: "Text style names cannot start or end with a space",
   length: "Text style names cannot be longer than 255 characters",
 } as const;
-type NameMessages = typeof LAYER_NAMES | typeof LINETYPE_NAMES | typeof TEXT_STYLE_NAMES;
+const BLOCK_NAMES = {
+  empty: "Block names cannot be empty",
+  chars:
+    'Block names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks. AutoCAD keeps names that start with * for the blocks it makes itself, and its AUDIT reports any other block of such a name',
+  rejected:
+    "Block names cannot contain a character AutoCAD rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
+  edge: "Block names cannot start or end with a space",
+  length:
+    "Block names cannot be longer than 255 characters. AutoCAD's BLOCK command refuses a longer name",
+} as const;
+type NameMessages =
+  | typeof LAYER_NAMES
+  | typeof LINETYPE_NAMES
+  | typeof TEXT_STYLE_NAMES
+  | typeof BLOCK_NAMES;
 const NAME_R12_CHARS =
   'R12 layer names can only use letters, digits, $, - and _. Use DXF version "R2018" for other characters';
 const NAME_R12_LENGTH =
@@ -70,6 +84,14 @@ const R12_ENTITY_STYLE =
   'R12 entities take no linetype or lineweight of their own. Use DXF version "R2018" for an entity linetype or lineweight';
 const R12_LAYER_STATES =
   'tsdraft writes no layer states to R12 drawings. Use DXF version "R2018" for layers that are off, frozen, locked or not plotted';
+const R12_BLOCKS =
+  'tsdraft writes no blocks to R12 drawings. Use DXF version "R2018" for blocks, inserts and attributes';
+const SCALE_ZERO =
+  "A scale cannot be 0, or be written as 0, as tsdraft's 6 decimals write a scale under 0.0000005. AutoCAD reads a scale of 0 as 1";
+const TAG_EMPTY =
+  "An attribute's tag cannot be empty. AutoCAD's AUDIT reports an attribute with an empty tag";
+const TAG_LOWER =
+  "An attribute's tag cannot hold a lower-case letter a to z. AutoCAD's ATTDEF command holds a tag in capitals, and its -ATTEDIT command finds no attribute whose tag has a lower-case letter";
 const R12_TEXT =
   'tsdraft writes no text styles and no text justification to R12 drawings. Use DXF version "R2018" for a text style or a justified text';
 const STANDARD_STYLE =
@@ -304,6 +326,66 @@ export type NewTextStyleName<N extends string> = string extends N
     ? typeof STANDARD_STYLE
     : TextStyleName<N>;
 
+/**
+ * Resolves to `N` when it is a valid block name, and to the error message otherwise. AutoCAD
+ * holds block names to the rules of layer names. Whether the drawing has the block, and
+ * whether it has another that AutoCAD takes for the same, is checked when the code runs.
+ */
+export type BlockName<N extends string> = string extends N
+  ? N
+  : NameCheck<N, typeof BLOCK_NAMES, N>;
+
+/**
+ * Resolves to `T` when it is a valid attribute tag, and to the error message otherwise: a
+ * tag has at least one character, no lower-case letter a to z, and no character that a text
+ * cannot hold.
+ */
+export type AttributeTag<T extends string> = string extends T
+  ? T
+  : T extends ""
+    ? typeof TAG_EMPTY
+    : T extends `${string}${LowerLetter}${string}`
+      ? typeof TAG_LOWER
+      : Description<T>;
+
+type LowerLetter = Chars<"abcdefghijklmnopqrstuvwxyz">;
+
+/**
+ * Resolves to `N` when it is a scale an insert can have, and to the error message otherwise:
+ * `N` must not be 0, must not round to 0 at the 6 decimals tsdraft writes, and must be under
+ * 1e100 in size.
+ */
+type ScaleFactor<N extends number> = number extends N
+  ? N
+  : Unsigned<`${N}`> extends "0"
+    ? typeof SCALE_ZERO
+    : WrittenAsZero<Unsigned<`${N}`>> extends true
+      ? typeof SCALE_ZERO
+      : `${N}` extends `${string}e+${Digit}${Digit}${Digit}`
+        ? typeof TOO_LARGE
+        : N;
+
+/**
+ * Resolves to `S` when it is a scale for an insert, one number for both axes or `[x, y]`, and
+ * to the error message otherwise. The false branch is never taken: it is there so that the
+ * compiler infers `S` from a tuple as it does from a number.
+ */
+export type InsertScale<S extends number | readonly [number, number]> = [S] extends [
+  number | readonly [number, number],
+]
+  ? CheckedScale<S>
+  : S;
+
+type CheckedScale<S> = S extends number
+  ? ScaleFactor<S>
+  : S extends readonly [infer X extends number, infer Y extends number]
+    ? [ScaleFactor<X>] extends [X]
+      ? [ScaleFactor<Y>] extends [Y]
+        ? S
+        : ScaleFactor<Y>
+      : ScaleFactor<X>
+    : S;
+
 /** Resolves to `F` when it is one of `FONTS`, and to the error message otherwise. */
 export type FontOf<F extends string> = string extends F ? F : F extends Font ? F : typeof FONT;
 
@@ -445,6 +527,7 @@ export type R12EntityStyle = typeof R12_ENTITY_STYLE;
 export type R12LayerStates = typeof R12_LAYER_STATES;
 export type FrozenCurrent = typeof FROZEN_CURRENT;
 export type R12Text = typeof R12_TEXT;
+export type R12Blocks = typeof R12_BLOCKS;
 
 /** Returns what is wrong with a layer name for a DXF version, or undefined when it is valid. */
 export function layerNameProblem(name: string, version: DxfVersion): string | undefined {
@@ -602,6 +685,7 @@ export const R12_ONLY = {
   layerStates: R12_LAYER_STATES,
   entityStyle: R12_ENTITY_STYLE,
   text: R12_TEXT,
+  blocks: R12_BLOCKS,
 } as const;
 
 /** How a text is justified across its line, and up and down it. The first of each is the default. */
@@ -809,6 +893,156 @@ export function duplicateIdProblem(id: string, first: string): string {
  */
 export function idHandleProblem(id: string, first: string, handle: string): string {
   return `The ids ${JSON.stringify(first)} and ${JSON.stringify(id)} give the same handle, ${handle}. An entity's handle comes from its id, and AutoCAD discards a drawing in which two objects have one handle. Change this id`;
+}
+
+/**
+ * Returns what is wrong with an object whose key gives the handle another key already gave.
+ * A block's own objects take their handles from its name, an attribute definition from its
+ * block and tag, and the attributes of an insert that has an id from the id and the tag, as
+ * an entity takes its handle from its id. AutoCAD discards a drawing in which two objects have
+ * one handle. The rule depends on the drawing, so it has no type.
+ *
+ * @param what - What the second object is, such as `the block "TREE"`.
+ * @param first - What the first object is.
+ * @param handle - The handle both give.
+ */
+export function handleProblem(what: string, first: string, handle: string): string {
+  return `${what} and ${first} give the same handle, ${handle}. AutoCAD discards a drawing in which two objects have one handle. Rename one of them`;
+}
+
+/**
+ * Returns what is wrong with a block name, or undefined when it is valid. AutoCAD discards a
+ * drawing over a block name that breaks the rules of layer names.
+ */
+export function blockNameProblem(name: unknown): string | undefined {
+  if (typeof name !== "string") return "A block's name must be a string";
+  return nameProblem(name, BLOCK_NAMES);
+}
+
+/**
+ * Returns what is wrong with a drawing that has both names as blocks, or undefined when the two
+ * can stand together. AutoCAD takes two block names for one where it would call two layer
+ * names duplicates: `TREE` and `tree`, `straße` and `strasse`, a composed é and a decomposed
+ * one. It then keeps one block, puts the entities of both in it, and reports nothing.
+ * `layerAuditKey` lists the kinds of pair this covers. The rule compares two names, so it has
+ * no type.
+ *
+ * @param name - The name of the block being checked.
+ * @param other - The name of another block in the drawing.
+ */
+export function blockTwinProblem(name: string, other: string): string | undefined {
+  if (layerAuditKey(name) !== layerAuditKey(other)) return undefined;
+  const spelled = name === other ? "" : `, as ${JSON.stringify(other)}`;
+  return `The drawing already has a block of this name${spelled}. AutoCAD takes the two for one block, puts the entities of both in it and reports nothing`;
+}
+
+/**
+ * Returns what is wrong with an insert that names a block the drawing does not have. The rule
+ * depends on the drawing, so it has no type.
+ */
+export function undefinedBlockProblem(name: string): string {
+  return `Block ${JSON.stringify(name)} is not defined. AutoCAD's AUDIT reports an insert of a block the drawing does not have, and AutoCAD cannot save the drawing as DXF`;
+}
+
+/**
+ * Returns what is wrong with a block that holds an insert of itself, directly or through the
+ * blocks it inserts. The rule depends on the drawing, so it has no type.
+ *
+ * @param path - The blocks from the one that holds the insert round to itself.
+ */
+export function blockCycleProblem(path: readonly string[]): string {
+  const through =
+    path.length > 2
+      ? `, through ${path
+          .slice(1, -1)
+          .map((name) => JSON.stringify(name))
+          .join(" and ")}`
+      : "";
+  return `Block ${JSON.stringify(path[0])} holds an insert of itself${through}. AutoCAD's AUDIT reports such blocks as self referencing`;
+}
+
+/**
+ * Returns what is wrong with one of an insert's scales, or undefined when it is valid.
+ *
+ * @param value - The scale along X or along Y.
+ */
+export function scaleProblem(value: unknown): string | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "A scale must be a finite number";
+  }
+  return written(value) === 0 ? SCALE_ZERO : magnitudeProblem(value);
+}
+
+/**
+ * Returns what is wrong with an attribute's tag, or undefined when it is valid. It takes
+ * `unknown` so that `lint` can report a drawing built by hand with a tag of the wrong type.
+ */
+export function attributeTagProblem(tag: unknown): string | undefined {
+  if (typeof tag !== "string") return "An attribute's tag must be a string";
+  if (tag.length === 0) return TAG_EMPTY;
+  if (/[a-z]/.test(tag)) return TAG_LOWER;
+  return textProblem(tag);
+}
+
+/**
+ * Returns what is wrong with the text an insert makes of an attribute definition, or
+ * undefined when AutoCAD takes it. An insert that scales its block unevenly widens or narrows
+ * each attribute and slants it, and AutoCAD's AUDIT reports an attribute slanted by more than
+ * 85 degrees as it reports a text, and one whose width factor is 750000. The width factor is
+ * held to the range of a text style's, and the attribute's point to the size of any point. The rule depends on the insert and its
+ * block, so it has no type.
+ *
+ * @param tag - The attribute's tag.
+ * @param placed - The attribute as `placeAttribute` gives it.
+ */
+export function placedAttributeProblem(
+  tag: string,
+  placed: {
+    readonly at: readonly [number, number];
+    readonly height: number;
+    readonly widthFactor: number;
+    readonly obliqueAngle: number;
+  },
+): string | undefined {
+  const about = `its scale makes the attribute ${JSON.stringify(tag)}`;
+  if (!placed.at.every(Number.isFinite))
+    return `it puts the attribute ${JSON.stringify(tag)} at no point`;
+  const far = magnitudeProblem(placed.at[0]) ?? magnitudeProblem(placed.at[1]);
+  if (far) return `it puts the attribute ${JSON.stringify(tag)} at ${placed.at.join(", ")}. ${far}`;
+  if (![placed.height, placed.widthFactor, placed.obliqueAngle].every(Number.isFinite)) {
+    return `${about} a text of no size`;
+  }
+  const height = sizeProblem(placed.height);
+  if (height) return `${about} ${placed.height} high. ${height}`;
+  if (Math.abs(written(placed.obliqueAngle)) > 85) {
+    return `${about} slant by ${written(placed.obliqueAngle)} degrees. ${OBLIQUE}. Scale the insert more evenly`;
+  }
+  if (written(placed.widthFactor) < 0.01 || written(placed.widthFactor) > 100) {
+    return `${about} ${written(placed.widthFactor)} times as wide as its font draws it. ${WIDTH_FACTOR}, and an attribute with one of 750000. Scale the insert more evenly`;
+  }
+  return undefined;
+}
+
+/**
+ * Returns what is wrong with a second attribute definition of a block that has the tag of an
+ * earlier one. An insert sets an attribute by its tag, and the tag gives the definition its
+ * handle, so two definitions of one tag would have one handle, and AutoCAD discards a drawing
+ * in which two objects have one handle. The rule depends on the block, so it has no type.
+ */
+export function duplicateAttributeProblem(tag: string): string {
+  return `The block already has an attribute with the tag ${JSON.stringify(tag)}. An insert sets an attribute by its tag, and the tag gives the definition its handle: AutoCAD discards a drawing in which two objects have one handle`;
+}
+
+/** What an insert's `attributes` must be. */
+export const ATTRIBUTES_SHAPE = "attributes must be an object of values by tag";
+
+/**
+ * Returns what is wrong with an insert that sets an attribute its block does not define. An
+ * attribute's place, height and style come from its definition, so there is nothing to write
+ * the value with. The rule depends on the drawing, so it has no type.
+ */
+export function undefinedAttributeProblem(tag: string, block: string): string {
+  return `Block ${JSON.stringify(block)} has no attribute with the tag ${JSON.stringify(tag)}. An attribute's place, height and style come from its definition, so this value would not be written`;
 }
 
 /** Returns what is wrong with a drawing's format version, or undefined when tsdraft reads it. */

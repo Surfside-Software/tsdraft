@@ -169,15 +169,20 @@
       #drawing.stale {
         opacity: 0.55;
       }
-      #drawing.focus g > * {
+      #drawing.focus svg > g > * {
         opacity: 0.35;
       }
-      #drawing.focus g > .hl {
+      /* An insert is a group, and the selection shows on what it holds. */
+      #drawing.focus svg > g > .hl {
         opacity: 1;
+      }
+      #drawing.focus svg > g > .hl:not(g),
+      #drawing.focus svg > g > g.hl > * {
         /* The width is left alone, so the selection still shows the entity's pen weight. */
         stroke: var(--accent);
       }
-      #drawing.focus g > text.hl {
+      #drawing.focus svg > g > text.hl,
+      #drawing.focus svg > g > g.hl > text {
         fill: var(--accent);
       }
       #ring {
@@ -656,6 +661,7 @@
           ["units", d.units],
           ["format", d.dxf],
           ["entities", d.counts.entities],
+          ...(d.counts.blocks ? [["blocks", d.counts.blocks]] : []),
           [
             "extents",
             `${fmt(d.extents.max[0] - d.extents.min[0])} × ${fmt(d.extents.max[1] - d.extents.min[1])}`,
@@ -732,8 +738,9 @@
             .querySelector(`.layer[data-name="${CSS.escape(d.layer)}"]`)
             ?.classList.add("flash");
         }
+        // An entity inside a block has no element of its own: each insert draws it again.
         const el =
-          d.entity === undefined
+          d.entity === undefined || d.block !== undefined
             ? undefined
             : indexed
               ? svg?.querySelector(`[data-entity="${d.entity}"]`)

@@ -1,15 +1,30 @@
+export {
+  attributeDefinitionHandle,
+  attributeHandle,
+  attributesEndHandle,
+  blockHandle,
+  findBlock,
+  placeAttribute,
+  type PlacedAttribute,
+} from "./blocks.ts";
 export type { CallSite } from "./callsite.ts";
 export {
   createDrawing,
   DrawingBuilder,
   sweep,
   type Arc,
+  type AttributeDefinition,
+  type AttributeOptions,
+  type Block,
+  type BlockOptions,
   type Circle,
   type Drawing,
   type DrawingOptions,
   type DxfVersion,
   type Entity,
   type EntityOptions,
+  type Insert,
+  type InsertOptions,
   type Layer,
   type LayerOptions,
   type Line,
@@ -37,9 +52,12 @@ export { CENTER, DASHDOT, DASHED, DOT, HIDDEN, LINEWEIGHTS, PHANTOM } from "./li
 export { fromPaper, type PaperScale, type PaperUnit } from "./paper.ts";
 export type {
   Aci,
+  AttributeTag,
+  BlockName,
   Description,
   EntityId,
   FontOf,
+  InsertScale,
   LayerColor,
   LayerLinetypeName,
   LayerName,

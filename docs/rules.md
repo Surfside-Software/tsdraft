@@ -85,12 +85,42 @@ it would take `1e+100` for `1e+10` and report nothing.
   lineweights and no layer states. Its entities take no linetype or lineweight
   of their own, and draw ByLayer. Its texts are in `Standard`, left on the
   baseline, and it defines no text style.
+- Block names follow the rules of layer names. AutoCAD discards a drawing over a block name
+  it refuses. It keeps names that start with `*` for the blocks it makes itself, and its
+  `AUDIT` reports any other block of such a name. A name is at most 255 characters:
+  AutoCAD's `BLOCK` command refuses a longer one.
+- A block is defined once, and no two blocks have names AutoCAD takes for one: `TREE` and
+  `tree`, `straße` and `strasse`. AutoCAD keeps one block of the two, puts the entities of
+  both in it, and reports nothing. See [Names](blocks.md#names).
+- An insert names a block the drawing defines. AutoCAD's `AUDIT` reports an insert of a
+  block the drawing does not have, and AutoCAD cannot save the drawing as DXF.
+- A block holds no insert of itself, directly or through the blocks it inserts. AutoCAD's
+  `AUDIT` reports such blocks as self referencing.
+- Neither scale of an insert is 0, or small enough to be written as 0. AutoCAD reads a scale
+  of 0 as 1.
+- An attribute's tag is not empty, which AutoCAD's `AUDIT` reports, and holds no lower-case
+  letter a to z. AutoCAD's `ATTDEF` command holds a tag in capitals, and its `-ATTEDIT`
+  command finds no attribute whose tag has a lower-case letter. A tag, a prompt and a value
+  are single lines of what text can hold.
+- No two attribute definitions of a block have one tag. An insert sets an attribute by its
+  tag, and the tag gives the definition its handle, so two of one tag would have one handle:
+  AutoCAD discards a drawing in which two objects have one handle.
+- An insert sets only attributes its block defines. An attribute's place, height and style
+  come from its definition, so a value for any other tag would not be written. AutoCAD
+  itself keeps an attribute whose tag its block does not define.
+- An insert's scale leaves each attribute of its block slanted by no more than 85 degrees,
+  and with a width factor from 0.01 to 100. AutoCAD's `AUDIT` reports an attribute slanted
+  further, and one with a width factor of 750000. The point the insert puts each attribute
+  at is under 1e100 in size, as any coordinate is. An attribute definition is held to the
+  rules of a text: its height, its style and its justification.
+- An R12 drawing has no blocks, inserts or attributes.
 - An entity's id has 1 to 64 letters A to Z or a to z, digits, `.`, `-` and
-  `_`, and no two entities share one, whatever its case. See
+  `_`, and no two entities share one, whatever its case, in a block or out of one. See
   [Ids](format.md#ids).
 - No two ids give one handle. An entity's handle comes from its id, and AutoCAD discards a
   drawing in which two objects have one handle. It is rare: see
-  [An id gives a handle](format.md#an-id-gives-a-handle).
+  [An id gives a handle](format.md#an-id-gives-a-handle). The same goes for the handles a
+  block's name and an attribute's tag give: see [Handles](blocks.md#handles).
 - A drawing has `format: 0`. See [Format 0](format.md#format-0).
 
 ## Warnings

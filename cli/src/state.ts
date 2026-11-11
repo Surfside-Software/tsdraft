@@ -73,6 +73,9 @@ export interface BuildState {
  * `bounds` say what and where it is, `id` is the entity's id when it has one, and `call` is the
  * call in the drawing's code that drew it. For a problem the builder threw, `call` is the call
  * that threw. The `file` of a `call` is an absolute path, as `error.file` is.
+ *
+ * With `block`, the problem is in that block: `entity` then counts the block's entities, and
+ * `bounds` is in the block's own coordinates.
  */
 export interface BuildDiagnostic extends Diagnostic {
   readonly kind?: Entity["kind"];
@@ -108,12 +111,48 @@ export interface DrawingSummary {
   readonly extents: Box;
   readonly counts: {
     readonly layers: number;
+    /** The entities of model space. An insert is one entity, whatever its block holds. */
     readonly entities: number;
+    readonly blocks: number;
     readonly errors: number;
     readonly warnings: number;
   };
   /** Each layer in the drawing's order, with the number of entities that name it exactly. */
   readonly layers: readonly LayerSummary[];
+  /** Each block in the drawing's order. Empty for a drawing with none. */
+  readonly blocks: readonly BlockSummary[];
+  /** Each insert in model space, in the drawing's order. Empty for a drawing with none. */
+  readonly inserts: readonly InsertSummary[];
+}
+
+export interface BlockSummary {
+  readonly name: string;
+  /** How many entities the block holds. An insert of another block is one of them. */
+  readonly entities: number;
+  /** The tag of each attribute definition, in order. */
+  readonly attributes: readonly string[];
+  /** How many inserts place the block, in model space and in other blocks. */
+  readonly inserts: number;
+}
+
+export interface InsertSummary {
+  /** The insert's index in the drawing's entities, which its group in the SVG has in `data-entity`. */
+  readonly entity: number;
+  /** The block as the insert names it. */
+  readonly block: string;
+  readonly layer: string;
+  /** The insert's id, or `null`. */
+  readonly id: string | null;
+  /** Where the block's base point is. */
+  readonly at: readonly [x: number, y: number];
+  readonly scale: readonly [x: number, y: number];
+  /** Degrees counterclockwise. */
+  readonly rotation: number;
+  /**
+   * The value the insert shows for each attribute of its block, by tag: its own, or the
+   * definition's default. Empty when the block has no attributes or is not defined.
+   */
+  readonly attributes: Readonly<Record<string, string>>;
 }
 
 export interface LayerSummary {

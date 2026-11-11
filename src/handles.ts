@@ -10,12 +10,12 @@
 // - The writers count the handles of every object without an id up from 1. A counted handle
 //   cannot reach 2^52, because a drawing cannot hold that many objects. Nothing uses the
 //   handles from 2^32 up to 2^52. Keep them for a later scheme.
-// - 2^52 up to 2^53 holds the handles that names give. Today those are entity ids only. Any
-//   other kind of object that gets a handle from a name hashes its key with a prefix that no id
-//   can contain, such as `block:NAME`, since an id cannot hold `:` or `/`. It hashes into this
-//   same range, and two keys that give one handle are refused as two ids are. An id is ASCII,
-//   so the hash below takes one byte for each character. A key that can hold other characters,
-//   as a block's name can, is hashed as its UTF-8 bytes.
+// - 2^52 up to 2^53 holds the handles that names give: an entity's id, and the keys of
+//   `blocks.ts` for a block's own objects and for attributes. Any kind of object but an entity
+//   hashes its key with a prefix that no id can contain, such as `block:NAME`, since an id
+//   cannot hold `:` or `/`. It hashes into this same range, and two keys that give one handle
+//   are refused as two ids are. A key is hashed as its UTF-8 bytes, which for an id are its
+//   characters.
 // - AutoCAD numbers the objects it adds from `$HANDSEED` up, which is 2^53 when a drawing has
 //   ids.
 import { idKey, idProblem } from "./rules.ts";
@@ -49,18 +49,38 @@ export function idHandle(id: string): string {
 
 /** `idHandle` for an id that `idProblem` has already passed. */
 export function validIdHandle(id: string): string {
-  const key = idKey(id);
+  return keyHandle(idKey(id));
+}
+
+/**
+ * The handle a key gives: 2^52 plus the 64-bit FNV-1a hash of the key's UTF-8 bytes, folded to
+ * 52 bits. An id is its own key, in lower case. Every other key starts with a prefix that
+ * holds `:`, which no id can.
+ */
+export function keyHandle(key: string): string {
   // The FNV offset basis, as its high and low 32 bits. The arithmetic stays in 32-bit halves
   // of plain numbers, which every JavaScript engine works out alike.
   let high = 0xcbf29ce4;
   let low = 0x84222325;
-  for (let i = 0; i < key.length; i++) {
-    // An id holds ASCII only, so each character is one byte.
-    low = (low ^ key.charCodeAt(i)) >>> 0;
+  const byte = (value: number): void => {
+    low = (low ^ value) >>> 0;
     // Times the FNV prime, 2^40 + 0x1b3, keeping 64 bits.
     const product = low * 0x1b3;
     high = (Math.imul(high, 0x1b3) + Math.floor(product / 2 ** 32) + (low << 8)) >>> 0;
     low = product >>> 0;
+  };
+  for (let i = 0; i < key.length; i++) {
+    // A name holds no character above U+FFFF, so UTF-8 takes one to three bytes for each.
+    const code = key.charCodeAt(i);
+    if (code < 0x80) byte(code);
+    else if (code < 0x800) {
+      byte(0xc0 | (code >> 6));
+      byte(0x80 | (code & 0x3f));
+    } else {
+      byte(0xe0 | (code >> 12));
+      byte(0x80 | ((code >> 6) & 0x3f));
+      byte(0x80 | (code & 0x3f));
+    }
   }
   // The top 12 bits are folded into the low 52, and 2^52 is bit 20 of the high half.
   low ^= high >>> 20;

@@ -33,6 +33,15 @@ A drawing lists its text styles in `textStyles`, and leaves the field out when i
 `"left"` and `"baseline"`, so a drawing that uses none of them has the JSON it had before they
 existed.
 
+A drawing lists its blocks in `blocks`, and leaves the field out when it has none. A block has
+a `name`, its `entities`, and where they differ from their defaults a `base` point and its
+`attributes`: each a `tag`, a `value`, a `layer` and the fields of a text, with a `prompt`
+where it is not the tag. An insert is an entity of kind `"insert"`, in `drawing.entities` or in
+a block's `entities`, with its `layer`, `block` and `at`, and `scale` as `[x, y]`, `rotation`
+and `attributes`, an object of values by tag, only where they are set. It has no linetype or
+lineweight. A drawing with no block has the JSON it had before blocks existed.
+[Blocks](blocks.md) describes them.
+
 A drawing written by hand needs `format: 0` too. `lint` reports a drawing without it, or with
 another version, under the rule `format`, and `toDXF` refuses to write it.
 
@@ -100,6 +109,9 @@ For `column-A1`, `h` is the hash of `column-a1` and the handle is `1C53484D4C9BA
 `idHandle` returns for an id will not change in any later version of tsdraft, because another
 drawing may hold the handle. `idHandle` throws on a string that is not a valid id.
 
+A block's own objects, its attribute definitions and the attributes of an insert that has an
+id take handles from their names in the same way: see [Handles](blocks.md#handles).
+
 Handles from ids lie from `10000000000000` to `1FFFFFFFFFFFFF`, far above the counted ones,
 and a drawing that has ids has a `$HANDSEED` of `20000000000000`. AutoCAD numbers the objects
 it adds from the seed up, so they stay clear of every handle an id can give.
@@ -152,7 +164,8 @@ When a key is repeated in JSON text, the last value is kept, as `JSON.parse` doe
 A `Diagnostic` from `lint` has a `rule`, a `severity` and a `message`. One about an entity also
 has:
 
-- `entity`, the entity's index in `drawing.entities`;
+- `entity`, the entity's index in `drawing.entities`, or in the entities of `block`;
+- `block`, the name of the block the entity is in, when it is in one;
 - `id`, the entity's id, when it has one;
 - `call`, the line that called the builder method that drew the entity, as
   `{ file, line, column }`, when the
@@ -171,7 +184,10 @@ unless `createDrawing({ recordCalls: true })` asks for it. A tool that runs draw
 ask for it in every drawing by setting `globalThis.TSDRAFT_RECORD_CALLS = true` before the
 files run. The option, when given, wins.
 
-The builder's `layer`, `linetype`, `textStyle` and entity methods throw a `DrawingError` when a call breaks a
+A diagnostic about a block's definition has `block`, and one about an attribute definition has
+`block` and `attribute`, its tag.
+
+The builder's `layer`, `linetype`, `textStyle`, `block`, `attribute` and entity methods throw a `DrawingError` when a call breaks a
 rule. Its message is the problem, and its one diagnostic has the `rule`, the `id` or the `layer`
 the call named, and the `call` that threw. That location costs nothing until a call fails, so it
 is always there.

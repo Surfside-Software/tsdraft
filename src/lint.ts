@@ -1,5 +1,20 @@
+import {
+  definitionHandle,
+  insertAttributeHandle,
+  insertEndHandle,
+  blockHandles,
+  placeAttribute,
+} from "./blocks.ts";
 import { callOf, type CallSite } from "./callsite.ts";
-import type { Drawing, DxfVersion, Entity, Point } from "./drawing.ts";
+import type {
+  AttributeDefinition,
+  Block,
+  Drawing,
+  DxfVersion,
+  Entity,
+  Point,
+  TextStyle,
+} from "./drawing.ts";
 import { written } from "./format.ts";
 import { validIdHandle } from "./handles.ts";
 import { layerAuditKey, layerKey } from "./layers.ts";
@@ -8,8 +23,15 @@ import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import {
   arcIsWrittenAsPoint,
   arcProblem,
+  ATTRIBUTES_SHAPE,
+  attributeTagProblem,
+  blockCycleProblem,
+  blockNameProblem,
+  blockTwinProblem,
+  duplicateAttributeProblem,
   duplicateIdProblem,
   formatProblem,
+  handleProblem,
   idHandleProblem,
   idKey,
   idProblem,
@@ -26,12 +48,16 @@ import {
   linetypeScaleProblem,
   R12_ONLY,
   magnitudeProblem,
+  placedAttributeProblem,
+  scaleProblem,
   sizeProblem,
   textAlignProblem,
   textProblem,
   textStyleNameProblem,
   textStyleProblem,
   textWarning,
+  undefinedAttributeProblem,
+  undefinedBlockProblem,
   undefinedLinetypeProblem,
   undefinedTextStyleProblem,
 } from "./rules.ts";
@@ -57,6 +83,13 @@ export type LintRule =
   | "id"
   | "duplicate-id"
   | "id-handle"
+  | "block"
+  | "duplicate-block"
+  | "undefined-block"
+  | "block-cycle"
+  | "attribute"
+  | "duplicate-attribute"
+  | "undefined-attribute"
   | "zero-length";
 
 export interface Diagnostic {
@@ -70,7 +103,17 @@ export interface Diagnostic {
   readonly linetype?: string;
   /** The text style the problem is in, when it is a problem with a text style's definition. */
   readonly textStyle?: string;
-  /** Index into `drawing.entities`, when it is an entity problem. */
+  /**
+   * The block the problem is in: a problem with the block's definition, with one of its
+   * attribute definitions, or with one of its entities.
+   */
+  readonly block?: string;
+  /** The tag of the attribute definition the problem is in. */
+  readonly attribute?: string;
+  /**
+   * When it is an entity problem, the entity's index: into the entities of `block` when there
+   * is one, and into `drawing.entities` otherwise.
+   */
   readonly entity?: number;
   /** The `id` of the entity the problem is in, when it has one. */
   readonly id?: string;
@@ -164,6 +207,7 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
 
   // AutoCAD compares text style names as it compares layer names.
   const textStyles = new Set<string>();
+  const stylesByKey = new Map<string, TextStyle>();
   const textStylesAudited = new Map<string, string>([
     [layerAuditKey(STANDARD_TEXT_STYLE), STANDARD_TEXT_STYLE],
   ]);
@@ -193,11 +237,14 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     } else if (twin) {
       error("duplicate-text-style", `${label}: ${twin}`);
     }
+    if (!textStyles.has(key)) stylesByKey.set(key, style);
     textStyles.add(key);
     if (!textStylesAudited.has(auditKey)) textStylesAudited.set(auditKey, style.name);
   }
   /** What is wrong with a text's style, justification or both, each with its rule. */
-  const textProblems = (text: Extract<Entity, { kind: "text" }>): [LintRule, string][] => {
+  const textProblems = (
+    text: Pick<AttributeDefinition, "style" | "align" | "valign">,
+  ): [LintRule, string][] => {
     const found: [LintRule, string][] = [];
     const name: unknown = text.style;
     if (name !== undefined) {
@@ -284,77 +331,261 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
 
   /** The first spelling of each id, by `idKey`. */
   const ids = new Map<string, string>();
-  /** The first id that gave each handle. */
-  const handles = new Map<string, string>();
-  drawing.entities.forEach((entity, index) => {
-    const id: unknown = entity.id;
-    const add = (rule: LintRule, severity: Diagnostic["severity"], problem: string) => {
-      const call = callOf(drawing.entities, index);
-      out.push({
-        rule,
-        severity,
-        message: `${entity.kind} #${index}: ${problem}`,
-        entity: index,
-        ...(typeof id === "string" ? { id } : {}),
-        ...(call ? { call } : {}),
-      });
-    };
-    if (id !== undefined) {
-      const problem = idProblem(id);
-      const first = problem ? undefined : ids.get(idKey(id as string));
-      if (problem) add("id", "error", problem);
-      else if (first !== undefined)
-        add("duplicate-id", "error", duplicateIdProblem(id as string, first));
-      else {
-        ids.set(idKey(id as string), id as string);
-        const handle = validIdHandle(id as string);
-        const other = handles.get(handle);
-        if (other !== undefined)
-          add("id-handle", "error", idHandleProblem(id as string, other, handle));
-        else handles.set(handle, id as string);
+  /** What took each handle that comes from a name: an id, or a description of anything else. */
+  const handles = new Map<string, { readonly id?: string; readonly what: string }>();
+  /** What is wrong with a second taker of a handle, or undefined when the handle is free. */
+  const claim = (handle: string, what: string, id?: string): string | undefined => {
+    const other = handles.get(handle);
+    if (other === undefined) {
+      handles.set(handle, id === undefined ? { what } : { id, what });
+      return undefined;
+    }
+    return id !== undefined && other.id !== undefined
+      ? idHandleProblem(id, other.id, handle)
+      : handleProblem(what, other.what, handle);
+  };
+  const undefinedLayer = (layer: string): string | undefined => {
+    if (seen.has(layerKey(layer))) return undefined;
+    // AutoCAD adds a layer for a name it does not know. When AUDIT takes that name for a
+    // declared layer's, it then reports the new layer as a duplicate of it.
+    const twin = audited.get(layerAuditKey(layer));
+    const hint = twin
+      ? `. AutoCAD does not take it for layer ${JSON.stringify(twin)}: it would add a layer, and its AUDIT would report a duplicate name`
+      : "";
+    return `layer ${JSON.stringify(layer)} is not defined${hint}`;
+  };
+
+  // AutoCAD takes two block names for one where its AUDIT would call two layer names
+  // duplicates, and an insert finds its block as an entity finds its layer.
+  const blocks = new Map<string, Block>();
+  const blocksAudited = new Map<string, string>();
+  const allBlocks = drawing.blocks ?? [];
+  for (const block of allBlocks) {
+    const label = `Block ${JSON.stringify(block.name)}`;
+    const error = (rule: LintRule, message: string) =>
+      out.push({ rule, severity: "error", message: `${label}: ${message}`, block: block.name });
+    if (r12) {
+      error("block", R12_ONLY.blocks);
+      continue;
+    }
+    const nameProblem = blockNameProblem(block.name);
+    if (nameProblem) {
+      error("block", nameProblem);
+      continue;
+    }
+    const auditKey = layerAuditKey(block.name);
+    const first = blocksAudited.get(auditKey);
+    if (first !== undefined) {
+      error("duplicate-block", blockTwinProblem(block.name, first)!);
+      continue;
+    }
+    blocksAudited.set(auditKey, block.name);
+    blocks.set(layerKey(block.name), block);
+    const base: unknown = block.base;
+    if (base !== undefined) {
+      const [x, y] = base as Point;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        error("block", "its base point must be finite numbers");
+      } else {
+        const problem = magnitudeProblem(x) ?? magnitudeProblem(y);
+        if (problem) error("block", `its base point: ${problem}`);
       }
     }
-    if (!seen.has(layerKey(entity.layer))) {
-      // AutoCAD adds a layer for a name it does not know. When AUDIT takes that name for a
-      // declared layer's, it then reports the new layer as a duplicate of it.
-      const twin = audited.get(layerAuditKey(entity.layer));
-      const hint = twin
-        ? `. AutoCAD does not take it for layer ${JSON.stringify(twin)}: it would add a layer, and its AUDIT would report a duplicate name`
-        : "";
-      add(
-        "undefined-layer",
-        "error",
-        `layer ${JSON.stringify(entity.layer)} is not defined${hint}`,
-      );
+    const named = blockHandles(block.name);
+    for (const handle of [named.record, named.begin, named.end]) {
+      const clash = claim(handle, `the block ${JSON.stringify(block.name)}`);
+      if (clash) error("id-handle", clash);
     }
-    if (entity.linetype !== undefined) {
-      const name: unknown = entity.linetype;
-      const problem = r12
-        ? typeof name === "string" && builtInLinetype(name) === "ByLayer"
-          ? undefined
-          : R12_ONLY.entityStyle
-        : missing(name);
-      if (problem) add(r12 ? "linetype" : "undefined-linetype", "error", problem);
+  }
+
+  /** Checks the attribute definitions of a block that passed the checks above. */
+  const lintAttributes = (block: Block): void => {
+    const tags = new Set<string>();
+    (block.attributes ?? []).forEach((definition, index) => {
+      const tag: unknown = definition.tag;
+      const add = (rule: LintRule, severity: Diagnostic["severity"], problem: string) => {
+        const call = block.attributes ? callOf(block.attributes, index) : undefined;
+        out.push({
+          rule,
+          severity,
+          message: `Block ${JSON.stringify(block.name)}, attribute ${shownTag(tag)}: ${problem}`,
+          block: block.name,
+          ...(typeof tag === "string" ? { attribute: tag } : {}),
+          ...(call ? { call } : {}),
+        });
+      };
+      const tagProblem = attributeTagProblem(tag);
+      if (tagProblem) add("attribute", "error", tagProblem);
+      else if (tags.has(tag as string)) {
+        add("duplicate-attribute", "error", duplicateAttributeProblem(tag as string));
+      } else {
+        tags.add(tag as string);
+        const what = `the attribute ${JSON.stringify(tag)} of the block ${JSON.stringify(block.name)}`;
+        const clash = claim(definitionHandle(block.name, tag as string), what);
+        if (clash) add("id-handle", "error", clash);
+      }
+      for (const [field, value] of [
+        ["its value", definition.value],
+        ["its prompt", definition.prompt ?? ""],
+      ] as const) {
+        const problem = typeof value === "string" ? textProblem(value) : "must be a string";
+        if (problem) add("text", "error", `${field}: ${problem}`);
+        const warning = typeof value === "string" ? textWarning(value) : undefined;
+        if (warning) add("text", "warning", `${field}: ${warning}`);
+      }
+      const layer = undefinedLayer(definition.layer);
+      if (layer) add("undefined-layer", "error", layer);
+      for (const problem of geometryProblems({ ...definition, kind: "text" })) {
+        add("geometry", "error", problem);
+      }
+      for (const [rule, found] of textProblems(definition)) add(rule, "error", found);
+    });
+  };
+
+  const lintEntities = (entities: readonly Entity[], block: Block | undefined): void => {
+    const where = block ? ` of block ${JSON.stringify(block.name)}` : "";
+    entities.forEach((entity, index) => {
+      const id: unknown = entity.id;
+      const add = (rule: LintRule, severity: Diagnostic["severity"], problem: string) => {
+        const call = callOf(entities, index);
+        out.push({
+          rule,
+          severity,
+          message: `${entity.kind} #${index}${where}: ${problem}`,
+          ...(block ? { block: block.name } : {}),
+          entity: index,
+          ...(typeof id === "string" ? { id } : {}),
+          ...(call ? { call } : {}),
+        });
+      };
+      let named = false;
+      if (id !== undefined) {
+        const problem = idProblem(id);
+        const first = problem ? undefined : ids.get(idKey(id as string));
+        if (problem) add("id", "error", problem);
+        else if (first !== undefined)
+          add("duplicate-id", "error", duplicateIdProblem(id as string, first));
+        else {
+          ids.set(idKey(id as string), id as string);
+          const what = `the id ${JSON.stringify(id)}`;
+          const clash = claim(validIdHandle(id as string), what, id as string);
+          if (clash) add("id-handle", "error", clash);
+          named = true;
+        }
+      }
+      const layer = undefinedLayer(entity.layer);
+      if (layer) add("undefined-layer", "error", layer);
+      const problems = geometryProblems(entity);
+      for (const problem of problems) add("geometry", "error", problem);
+      if (entity.kind === "insert") {
+        if (r12) {
+          add("block", "error", R12_ONLY.blocks);
+          return;
+        }
+        const name: unknown = entity.block;
+        const placed = typeof name === "string" ? blocks.get(layerKey(name)) : undefined;
+        if (typeof name !== "string")
+          add("undefined-block", "error", "a block is named by a string");
+        else if (!placed) {
+          const twin = blocksAudited.get(layerAuditKey(name));
+          const hint = twin ? `. Name it as the drawing does, ${JSON.stringify(twin)}` : "";
+          add("undefined-block", "error", `${undefinedBlockProblem(name)}${hint}`);
+        }
+        const set: unknown = entity.attributes === undefined ? {} : entity.attributes;
+        if (typeof set !== "object" || set === null || Array.isArray(set)) {
+          add("undefined-attribute", "error", ATTRIBUTES_SHAPE);
+          return;
+        }
+        const tags = new Set((placed?.attributes ?? []).map((definition) => definition.tag));
+        // What the insert makes of each attribute, once the insert itself is sound.
+        if (placed && problems.length === 0) {
+          for (const definition of placed.attributes ?? []) {
+            if (
+              typeof definition.tag !== "string" ||
+              geometryProblems({ ...definition, kind: "text" }).length > 0
+            )
+              continue;
+            const style =
+              typeof definition.style === "string"
+                ? stylesByKey.get(layerKey(definition.style))
+                : undefined;
+            const problem = placedAttributeProblem(
+              definition.tag,
+              placeAttribute(definition, style, entity, placed.base),
+            );
+            if (problem) add("geometry", "error", problem);
+          }
+        }
+        for (const [tag, value] of Object.entries(set as Record<string, unknown>)) {
+          if (placed && !tags.has(tag)) {
+            add("undefined-attribute", "error", undefinedAttributeProblem(tag, placed.name));
+          }
+          const problem = typeof value === "string" ? textProblem(value) : "must be a string";
+          if (problem) add("text", "error", `attribute ${JSON.stringify(tag)}: ${problem}`);
+          const warning = typeof value === "string" ? textWarning(value) : undefined;
+          if (warning) add("text", "warning", `attribute ${JSON.stringify(tag)}: ${warning}`);
+        }
+        if (named && tags.size > 0) {
+          const insert = `the insert ${JSON.stringify(id)}`;
+          const taken = [...tags].map((tag): [string, string] => [
+            insertAttributeHandle(id as string, tag),
+            `the attribute ${JSON.stringify(tag)} of ${insert}`,
+          ]);
+          taken.push([insertEndHandle(id as string), `the end of the attributes of ${insert}`]);
+          for (const [handle, what] of taken) {
+            const clash = claim(handle, what);
+            if (clash) add("id-handle", "error", clash);
+          }
+        }
+        return;
+      }
+      if (entity.linetype !== undefined) {
+        const name: unknown = entity.linetype;
+        const problem = r12
+          ? typeof name === "string" && builtInLinetype(name) === "ByLayer"
+            ? undefined
+            : R12_ONLY.entityStyle
+          : missing(name);
+        if (problem) add(r12 ? "linetype" : "undefined-linetype", "error", problem);
+      }
+      if (entity.lineweight !== undefined) {
+        const problem =
+          lineweightProblem(entity.lineweight, "entity") ??
+          (r12 && entity.lineweight !== "ByLayer" ? R12_ONLY.entityStyle : undefined);
+        if (problem) add("lineweight", "error", problem);
+      }
+      if (entity.kind === "text") {
+        const problem = textProblem(entity.value);
+        if (problem) add("text", "error", problem);
+        for (const [rule, found] of textProblems(entity)) add(rule, "error", found);
+        const warning = textWarning(entity.value);
+        if (warning) add("text", "warning", warning);
+      }
+      // A shape with a geometry error has no length worth a second message.
+      const collapsed = problems.length === 0 ? zeroLength(entity) : undefined;
+      if (collapsed) add("zero-length", "warning", collapsed);
+    });
+  };
+  for (const block of blocks.values()) {
+    lintAttributes(block);
+    lintEntities(block.entities, block);
+  }
+  lintEntities(drawing.entities, undefined);
+
+  // A block that holds an insert of itself, directly or through the blocks it inserts.
+  const inserted = (block: Block): Block[] =>
+    block.entities.flatMap((entity) => {
+      const name: unknown = entity.kind === "insert" ? entity.block : undefined;
+      const found = typeof name === "string" ? blocks.get(layerKey(name)) : undefined;
+      return found ? [found] : [];
+    });
+  for (const block of blocks.values()) {
+    const path = pathBack(block, inserted);
+    if (path) {
+      const message = blockCycleProblem(path.map((b) => b.name));
+      out.push({ rule: "block-cycle", severity: "error", message, block: block.name });
     }
-    if (entity.lineweight !== undefined) {
-      const problem =
-        lineweightProblem(entity.lineweight, "entity") ??
-        (r12 && entity.lineweight !== "ByLayer" ? R12_ONLY.entityStyle : undefined);
-      if (problem) add("lineweight", "error", problem);
-    }
-    const problems = geometryProblems(entity);
-    for (const problem of problems) add("geometry", "error", problem);
-    if (entity.kind === "text") {
-      const problem = textProblem(entity.value);
-      if (problem) add("text", "error", problem);
-      for (const [rule, found] of textProblems(entity)) add(rule, "error", found);
-      const warning = textWarning(entity.value);
-      if (warning) add("text", "warning", warning);
-    }
-    // A shape with a geometry error has no length worth a second message.
-    const collapsed = problems.length === 0 ? zeroLength(entity) : undefined;
-    if (collapsed) add("zero-length", "warning", collapsed);
-  });
+  }
 
   return out;
 }
@@ -363,7 +594,7 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
  * An error that refuses a drawing because of what `lint` found in it. `toDXF`
  * throws it when a drawing has lint errors for the version being written, `fromJSON`
  * when the JSON is not a drawing it can read, and the builder's `layer`, `linetype`,
- * `textStyle` and entity methods at a call that breaks a rule, with that one problem as the
+ * `textStyle`, `block`, `attribute` and entity methods at a call that breaks a rule, with that one problem as the
  * message. Other code can throw it to refuse a drawing for its own purpose. Its
  * message lists the first 10 problems and names no file format.
  */
@@ -383,6 +614,35 @@ export class DrawingError extends Error {
     this.name = "DrawingError";
     this.diagnostics = diagnostics;
   }
+}
+
+/** A tag for a message, whatever its type. */
+function shownTag(tag: unknown): string {
+  return typeof tag === "string" ? JSON.stringify(tag) : String(tag);
+}
+
+/**
+ * The shortest way from a block through the blocks it inserts back to itself, the block first
+ * and last, or undefined when it holds no insert of itself.
+ */
+function pathBack<T>(start: T, next: (from: T) => readonly T[]): T[] | undefined {
+  const cameFrom = new Map<T, T>();
+  const queue = [start];
+  for (let i = 0; i < queue.length; i++) {
+    const from = queue[i]!;
+    for (const to of next(from)) {
+      if (to === start) {
+        const path = [start];
+        for (let at = from; at !== start; at = cameFrom.get(at)!) path.unshift(at);
+        return [start, ...path];
+      }
+      if (!cameFrom.has(to)) {
+        cameFrom.set(to, from);
+        queue.push(to);
+      }
+    }
+  }
+  return undefined;
 }
 
 function geometryProblems(e: Entity): string[] {
@@ -437,6 +697,18 @@ function geometryProblems(e: Entity): string[] {
       finite("its position and rotation", ...e.at, e.rotation);
       size("height", e.height);
       break;
+    case "insert": {
+      finite("its position and rotation", ...e.at, e.rotation ?? 0);
+      const scale: unknown = e.scale;
+      if (scale === undefined) break;
+      if (!Array.isArray(scale) || scale.length !== 2) {
+        out.push("its scale must be [x, y]");
+        break;
+      }
+      const problem = scaleProblem(scale[0]) ?? scaleProblem(scale[1]);
+      if (problem) out.push(`its scale: ${problem}`);
+      break;
+    }
   }
   return out;
 }
@@ -462,6 +734,7 @@ function zeroLength(e: Entity): string | undefined {
         : undefined;
     case "circle":
     case "text":
+    case "insert":
       return undefined;
   }
 }

@@ -31,6 +31,23 @@
   hold characters outside ASCII, as a block's name can, is hashed as its UTF-8 bytes. A
   counted handle cannot reach 2^52, because a drawing cannot hold that many objects. Nothing
   uses the handles from 2^32 up to 2^52. Keep them for a later scheme.
+- `src/blocks.ts` holds the keys of the handles blocks need: a block's record and the two
+  objects of its definition from its name, an attribute definition from its block and tag, and
+  the attributes of an insert that has an id from the id and each tag. Never change a key, or
+  `keyHandle`, which hashes it. A key holds a name with A to Z in lower case and a tag as
+  written. Neither `layerKey` nor any table that can grow may be part of a key, because a
+  change to the table would move every handle it touches. An insert without an id and its
+  attributes are counted.
+- AutoCAD takes two block names for one wherever its `AUDIT` would call two layer names
+  duplicates, and merges the two blocks without a word. So a second block is refused by
+  `layerAuditKey`, and an insert finds its block by `layerKey`.
+- An entity on layer `0` of a block draws as its insert's layer does. `eachDrawn` in
+  `src/blocks.ts` walks what an insert draws, with the layer and the matrix of each entity,
+  for `toSVG` and the extents. An insert's attributes are written as texts in the insert's
+  own coordinates, which `placeAttribute` works out from the numbers as they are written. An
+  attribute is stored on its definition's layer, and one on layer `0` draws as its insert's
+  layer does. An insert on a frozen layer, or in a plot on a layer that does not plot, draws
+  nothing of its block.
 - A rule AutoCAD enforces lives in `src/rules.ts` twice: as a type, so a wrong
   literal is a compile error, and as a runtime check with the same message. The
   builder calls the runtime check, and `lint()` in `src/lint.ts` repeats it for

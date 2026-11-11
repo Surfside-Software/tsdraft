@@ -15,6 +15,7 @@ import {
 } from "../src/index.ts";
 import sheet, { sitePlan, type Box } from "../examples/site-plan.ts";
 import { textWidth } from "../examples/lib/drafting.ts";
+import { blocksByKey, eachDrawn, mapPoint } from "../src/blocks.ts";
 import { extents } from "../src/extents.ts";
 
 // Each `@ts-expect-error` below proves the compiler rejects the literal. The
@@ -1020,7 +1021,8 @@ for (const ratio of [120, 240]) {
     assert.equal(titleBlockSpace.bottom, drawingArea.bottom);
 
     const slack = 1e-9;
-    const [left, bottom, right, top] = extents(drawing.entities, drawing.textStyles);
+    const { blocks } = drawing;
+    const [left, bottom, right, top] = extents(drawing.entities, drawing.textStyles, blocks);
     assert.ok(left >= drawingArea.left - slack && right <= drawingArea.right + slack);
     assert.ok(bottom >= drawingArea.bottom - slack && top <= drawingArea.top + slack);
 
@@ -1036,14 +1038,33 @@ for (const ratio of [120, 240]) {
       titleBlockSpace.top,
     ];
     for (const entity of drawing.entities) {
-      const box = extents([entity], drawing.textStyles);
+      const box = extents([entity], drawing.textStyles, blocks);
       assert.ok(
         !overlap(box, space),
         `${entity.kind} on ${entity.layer} is in the title block's space`,
       );
     }
 
-    const texts = drawing.entities.filter((e) => e.kind === "text");
+    // Every text the sheet draws, the ones its inserts draw among them. The sheet's inserts
+    // scale both ways alike and are not turned.
+    const texts: Text[] = [];
+    for (const entity of drawing.entities) {
+      eachDrawn(
+        entity,
+        blocksByKey(blocks),
+        () => false,
+        (drawn, { matrix }) => {
+          if (drawn.kind !== "text") return;
+          const scale = matrix ? matrix[0] : 1;
+          const at = matrix ? mapPoint(matrix, drawn.at) : drawn.at;
+          texts.push({ ...drawn, at, height: drawn.height * scale });
+        },
+      );
+    }
+    assert.deepEqual(
+      texts.filter((t) => ["N", "SITE PLAN"].includes(t.value)).map((t) => inches(t.height)),
+      [0.25, 0.1875],
+    );
     texts.forEach((a, i) => {
       for (const b of texts.slice(i + 1)) {
         assert.ok(!overlap(textBox(a), textBox(b)), `"${a.value}" overlaps "${b.value}"`);

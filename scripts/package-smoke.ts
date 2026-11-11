@@ -186,7 +186,13 @@ try {
     assert.equal(done.status, 0, done.stderr);
     const state = JSON.parse(done.stdout) as BuildState;
     assert.equal(state.ok, true);
-    assert.deepEqual(state.drawing?.counts, { layers: 2, entities: 2, errors: 0, warnings: 1 });
+    assert.deepEqual(state.drawing?.counts, {
+      layers: 2,
+      entities: 2,
+      blocks: 0,
+      errors: 0,
+      warnings: 1,
+    });
     const [warning] = state.diagnostics;
     assert.equal(warning?.id, "walk");
     assert.deepEqual(warning?.call, { file: join(at.dir, "plan.ts"), line: 4, column: 3 });

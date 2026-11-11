@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+- Blocks, inserts and attributes, in R2018 drawings. `d.block(name, options, draw)` defines a
+  block from what `draw` draws, with a base point. `d.insert(block, at, options)` places one,
+  with a scale along X and along Y, a rotation, an id and a value for each attribute it sets.
+  `d.attribute(tag, at, options)` adds an attribute definition to the block being drawn: a
+  tag, a prompt, a default value, and the height, rotation, style and justification of a
+  text. A block may hold inserts of blocks defined before it. AutoCAD holds an insert's
+  attributes as attributes, which a drafter edits there. [docs/blocks.md](docs/blocks.md)
+  describes all of it.
+- An entity on layer `0` of a block draws as the layer of each insert does, and an entity on
+  any other layer as its own, as in AutoCAD. An insert on a frozen layer draws nothing, and
+  neither does one on a layer that does not plot.
+- New rules, each a compile error for a literal, an error at the builder's call, and a `lint`
+  error: block names follow the rules of layer names; no two blocks have names AutoCAD takes
+  for one, since it would put the entities of both in one block and report nothing; an insert
+  names a defined block; a block holds no insert of itself; a scale is not 0, which AutoCAD
+  reads as 1; a tag is not empty and is in capitals; a block has one definition for a tag; an
+  insert sets only tags its block defines; and an uneven scale may not slant or widen an
+  attribute past what AutoCAD's `AUDIT` takes. The rules are `block`, `duplicate-block`,
+  `undefined-block`, `block-cycle`, `attribute`, `duplicate-attribute` and
+  `undefined-attribute`. An R12 drawing with a block is refused.
+- A block's own objects, its attribute definitions, and the attributes of an insert that has
+  an id take handles from their names, so they keep them when the drawing around them
+  changes. `blockHandle`, `attributeDefinitionHandle`, `attributeHandle` and
+  `attributesEndHandle` give them, and `findBlock` gives the block an insert places. Ids are unique across the whole drawing, in blocks and out.
+- `toSVG` draws an insert as a group with its block's entities where the insert puts them, and
+  its attributes as text, and the extents take inserts in. `placeAttribute` gives the text an
+  insert makes of an attribute definition.
+- `Drawing` gains `blocks`, and the entity kind `"insert"`. `toJSON` and `fromJSON` carry
+  them. A drawing with no block has the DXF and the JSON it had before. `Diagnostic` gains
+  `block` and `attribute`.
+- `tsdraft render` and `tsdraft dev` report `drawing.blocks`, `drawing.inserts` and
+  `drawing.counts.blocks`.
+- The example sheet draws its trees, property corners, north arrow and view title as blocks,
+  with the view title's text and scale as attributes.
+
 - The example sheet, `examples/site-plan.ts`, is laid out as a landscape ARCH D
   sheet. The sheet, 24 by 36 inches and landscape, with a 1/2 inch margin, is a
   parameter, and its rectangle and drawing area are worked out in drawing units
