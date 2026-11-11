@@ -80,6 +80,9 @@ const PATTERN_TOTAL =
 const PATTERN_TYPE = "A linetype's pattern must be an array of finite numbers";
 const DESCRIPTION_LENGTH =
   "A linetype description cannot be longer than 249 characters, because AutoCAD cuts it there when it reads DXF";
+const ID_EMPTY = "An id cannot be empty";
+const ID_CHARS = "An id can only use the letters A to Z and a to z, digits, ., - and _";
+const ID_LENGTH = "An id cannot be longer than 64 characters";
 const TEXT_PERCENT =
   'AutoCAD reads "%%" in text as the start of a control code: it draws "%%d" as a degree sign and "%%%" as one percent sign. The text is stored as written';
 
@@ -155,6 +158,31 @@ export type LayerName<N extends string, V extends DxfVersion> = string extends N
 export type LinetypeName<N extends string> = string extends N
   ? N
   : NameCheck<N, typeof LINETYPE_NAMES, N>;
+
+type IdChar = Exclude<R12Char, "$"> | ".";
+
+/** Walks the id one character at a time, counting, as `R12Name` walks a layer name. */
+type IdCheck<
+  I extends string,
+  Rest extends string = I,
+  Count extends 0[] = [],
+> = Count["length"] extends 65
+  ? typeof ID_LENGTH
+  : Rest extends `${infer C}${infer Tail}`
+    ? C extends IdChar
+      ? IdCheck<I, Tail, [...Count, 0]>
+      : typeof ID_CHARS
+    : I;
+
+/**
+ * Resolves to `I` when it is a valid entity id, and to the error message otherwise: 1 to 64
+ * characters, each a letter A to Z or a to z, a digit, `.`, `-` or `_`. An id that is not a
+ * literal, such as `` `door-${n}` ``, passes the compiler: the first branch takes every type
+ * that is not a union of literals. It is checked when the code runs, as is whether the drawing
+ * already has the id.
+ */
+export type EntityId<I extends string> =
+  {} extends Record<I, never> ? I : I extends "" ? typeof ID_EMPTY : IdCheck<I>;
 
 type Enumerate<N extends number, A extends number[] = []> = A["length"] extends N
   ? A[number]
@@ -579,6 +607,53 @@ export function arcProblem(startAngle: number, endAngle: number): string | undef
  */
 export function arcIsWrittenAsPoint(startAngle: number, endAngle: number): boolean {
   return roundsToOneAngle(startAngle, endAngle) && isShortArc(startAngle, endAngle);
+}
+
+/**
+ * Returns what is wrong with an entity id, or undefined when it is valid. It takes `unknown` so
+ * that `lint` can report a drawing built by hand with an id of the wrong type.
+ */
+export function idProblem(id: unknown): string | undefined {
+  if (typeof id !== "string") return "An id must be a string";
+  if (id.length === 0) return ID_EMPTY;
+  if (!/^[A-Za-z0-9._-]+$/.test(id)) return ID_CHARS;
+  return id.length > 64 ? ID_LENGTH : undefined;
+}
+
+/** The form two ids are compared in: `Door-1` and `door-1` are one id. */
+export function idKey(id: string): string {
+  return id.toLowerCase();
+}
+
+/**
+ * Returns what is wrong with a second entity that has an id the drawing already has. The rule
+ * depends on the drawing, so it has no type.
+ *
+ * @param id - The id of the second entity.
+ * @param first - The id as the first entity spells it.
+ */
+export function duplicateIdProblem(id: string, first: string): string {
+  const spelled = first === id ? "" : `, as ${JSON.stringify(first)}`;
+  return `The id ${JSON.stringify(id)} is already used${spelled}. An id names one entity, and ids are compared without regard to case`;
+}
+
+/** Returns what is wrong with a drawing's format version, or undefined when tsdraft reads it. */
+export function formatProblem(format: unknown): string | undefined {
+  // Negative zero is refused: it would be written as -0, and so change the drawing's JSON.
+  if (Object.is(format, 0)) return undefined;
+  return format === undefined
+    ? "The drawing has no format version. A Drawing has format: 0"
+    : `Unknown Drawing format ${shown(format)}. This version of tsdraft reads format 0`;
+}
+
+/** A value of any type for a message: a string quoted, a number as it is, anything else by kind. */
+export function shown(value: unknown): string {
+  if (typeof value === "string") return JSON.stringify(value);
+  if (Object.is(value, -0)) return "-0";
+  if (typeof value === "number" || typeof value === "boolean" || value == null) {
+    return String(value);
+  }
+  return Array.isArray(value) ? "an array" : `a value of type ${typeof value}`;
 }
 
 /** Returns what is wrong with a single-line text value, or undefined when it is valid. */

@@ -1,3 +1,4 @@
+export type { CallSite } from "./callsite.ts";
 export {
   createDrawing,
   DrawingBuilder,
@@ -23,12 +24,14 @@ export {
   type Units,
 } from "./drawing.ts";
 export { toDXF, type DxfOptions } from "./dxf.ts";
+export { fromJSON, toJSON } from "./json.ts";
 export { DrawingError, lint, type Diagnostic, type LintOptions, type LintRule } from "./lint.ts";
 export { CENTER, DASHDOT, DASHED, DOT, HIDDEN, LINEWEIGHTS, PHANTOM } from "./linetypes.ts";
 export { fromPaper, type PaperScale, type PaperUnit } from "./paper.ts";
 export type {
   Aci,
   Description,
+  EntityId,
   LayerColor,
   LayerLinetypeName,
   LayerName,

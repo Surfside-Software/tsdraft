@@ -62,6 +62,10 @@ it would take `1e+100` for `1e+10` and report nothing.
 - An R12 drawing has no linetypes but `Continuous`, no linetype scale, no
   lineweights and no layer states. Its entities take no linetype or lineweight
   of their own, and draw ByLayer.
+- An entity's id has 1 to 64 letters A to Z or a to z, digits, `.`, `-` and
+  `_`, and no two entities share one, whatever its case. See
+  [Ids](format.md#ids).
+- A drawing has `format: 0`. See [Format 0](format.md#format-0).
 
 ## Warnings
 

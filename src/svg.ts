@@ -47,7 +47,8 @@ interface Pen {
  * Renders a preview SVG. Model Y points up, so the drawing group flips Y. Entities on layers
  * that are off or frozen are left out. Dashed lines are cut into their dashes, scaled by the
  * drawing's linetype scale, and each line is as wide as its lineweight. Each entity's element
- * has its layer in `data-layer` and its index in `drawing.entities` in `data-entity`.
+ * has its layer in `data-layer`, its index in `drawing.entities` in `data-entity`, and its `id`,
+ * when it has one, in `data-id`.
  */
 export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
   // Keyed as AutoCAD looks layers up, so an entity on `wall` takes the color of layer `WALL`.
@@ -103,7 +104,8 @@ function entityToSvg(e: Entity, index: number, pen: Pen, stroke: number): string
     pen.lineweight === DEFAULT_LINEWEIGHT
       ? ""
       : ` stroke-width="${fmt((stroke * Math.max(pen.lineweight, 5)) / DEFAULT_LINEWEIGHT)}"`;
-  const s = `stroke="${pen.color}"${width} vector-effect="non-scaling-stroke" data-layer="${esc(e.layer)}" data-entity="${index}"`;
+  const mark = `data-layer="${esc(e.layer)}" data-entity="${index}"${e.id === undefined ? "" : ` data-id="${esc(e.id)}"`}`;
+  const s = `stroke="${pen.color}"${width} vector-effect="non-scaling-stroke" ${mark}`;
   if (e.kind !== "text" && pen.dashes) {
     const d = dashedPath(e, pen.dashes);
     // A pattern with a dot draws it as a round cap on a path of no length.
@@ -138,7 +140,7 @@ function entityToSvg(e: Entity, index: number, pen: Pen, stroke: number): string
     case "text": {
       // Undo the group's Y flip so the text reads upright, then apply CAD rotation.
       const t = `translate(${fmt(e.at[0])} ${fmt(e.at[1])}) scale(1 -1)${e.rotation ? ` rotate(${fmt(-e.rotation)})` : ""}`;
-      return `<text transform="${t}" font-size="${fmt(e.height)}" font-family="monospace" fill="${pen.color}" stroke="none" data-layer="${esc(e.layer)}" data-entity="${index}">${esc(e.value)}</text>`;
+      return `<text transform="${t}" font-size="${fmt(e.height)}" font-family="monospace" fill="${pen.color}" stroke="none" ${mark}>${esc(e.value)}</text>`;
     }
   }
 }

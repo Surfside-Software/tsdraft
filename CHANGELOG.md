@@ -12,6 +12,31 @@
   an ARCH D sheet at 1" = 10', with property lines, setbacks, a building
   footprint, dimensions, labels, site data, notes and a legend. Every text
   height and annotation offset comes from `fromPaper`. Its default export is the drawing.
+- Breaking: a `Drawing` has `format: 0`, its format version, which is separate
+  from `dxf`. The builder sets it. A drawing written by hand needs it, and
+  `lint` reports one without it under the new rule `format`. Format 0 carries
+  no promise of stability.
+- Breaking: `LintRule` gained `format`, `id` and `duplicate-id`. Code that
+  switches over every rule, or uses `Record<LintRule, …>`, needs the three.
+- `toJSON(drawing)` writes a drawing as canonical JSON: the same drawing gives
+  the same string, whatever order its keys were set in.
+- `fromJSON(json)` reads a drawing from a JSON string or a parsed value. It
+  refuses a format version, a field or an entity kind it does not know, naming
+  each, then runs `lint`, and throws a `DrawingError`.
+- Entities take an `id` in their options: 1 to 64 letters, digits, `.`, `-` and
+  `_`. A malformed id and a second entity with the same id are builder errors
+  and `lint` errors, under the new rules `id` and `duplicate-id`. `toSVG` writes
+  the id as `data-id`.
+- A `Diagnostic` about an entity carries its `id`, and `call`, the file, line
+  and column of the call that drew it, when the drawing was built with
+  `createDrawing({ recordCalls: true })`. Setting
+  `globalThis.TSDRAFT_RECORD_CALLS = true` before a drawing's code runs turns
+  recording on for every builder that does not set the option, which is how a
+  tool that runs drawing files asks for it.
+- The builder's `layer`, `linetype` and entity methods now throw a
+  `DrawingError` with the same message as before. Its diagnostic has the rule,
+  the `id` and the `call` that broke it.
+- [docs/format.md](docs/format.md) describes all of the above.
 
 ## 0.3.0
 

@@ -1,3 +1,4 @@
+import { callOf, type CallSite } from "./callsite.ts";
 import type { Drawing, DxfVersion, Entity, Point } from "./drawing.ts";
 import { written } from "./format.ts";
 import { layerAuditKey, layerKey } from "./layers.ts";
@@ -5,6 +6,10 @@ import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import {
   arcIsWrittenAsPoint,
   arcProblem,
+  duplicateIdProblem,
+  formatProblem,
+  idKey,
+  idProblem,
   layerColorProblem,
   layerFlagProblem,
   layerLinetypeProblem,
@@ -24,6 +29,7 @@ import {
 } from "./rules.ts";
 
 export type LintRule =
+  | "format"
   | "units"
   | "layer-name"
   | "duplicate-layer"
@@ -36,6 +42,8 @@ export type LintRule =
   | "layer-state"
   | "geometry"
   | "text"
+  | "id"
+  | "duplicate-id"
   | "zero-length";
 
 export interface Diagnostic {
@@ -49,6 +57,14 @@ export interface Diagnostic {
   readonly linetype?: string;
   /** Index into `drawing.entities`, when it is an entity problem. */
   readonly entity?: number;
+  /** The `id` of the entity the problem is in, when it has one. */
+  readonly id?: string;
+  /**
+   * The call in the drawing's code that the problem comes from. `lint` gives the call that drew
+   * the entity when the drawing's builder recorded calls, and an error the builder throws gives
+   * the call that threw. Missing where the JavaScript engine has no stack to read.
+   */
+  readonly call?: CallSite;
 }
 
 export interface LintOptions {
@@ -67,6 +83,9 @@ export interface LintOptions {
 export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] {
   const version = options.version ?? drawing.dxf;
   const out: Diagnostic[] = [];
+
+  const format = formatProblem(drawing.format);
+  if (format) out.push({ rule: "format", severity: "error", message: format });
 
   if (!["in", "ft", "mm", "cm", "m"].includes(drawing.units)) {
     out.push({
@@ -184,9 +203,29 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     out.push({ rule: "undefined-layer", severity: "error", message: 'Layer "0" is missing' });
   }
 
+  /** The first spelling of each id, by `idKey`. */
+  const ids = new Map<string, string>();
   drawing.entities.forEach((entity, index) => {
-    const add = (rule: LintRule, severity: Diagnostic["severity"], problem: string) =>
-      out.push({ rule, severity, message: `${entity.kind} #${index}: ${problem}`, entity: index });
+    const id: unknown = entity.id;
+    const add = (rule: LintRule, severity: Diagnostic["severity"], problem: string) => {
+      const call = callOf(drawing.entities, index);
+      out.push({
+        rule,
+        severity,
+        message: `${entity.kind} #${index}: ${problem}`,
+        entity: index,
+        ...(typeof id === "string" ? { id } : {}),
+        ...(call ? { call } : {}),
+      });
+    };
+    if (id !== undefined) {
+      const problem = idProblem(id);
+      const first = problem ? undefined : ids.get(idKey(id as string));
+      if (problem) add("id", "error", problem);
+      else if (first !== undefined)
+        add("duplicate-id", "error", duplicateIdProblem(id as string, first));
+      else ids.set(idKey(id as string), id as string);
+    }
     if (!seen.has(layerKey(entity.layer))) {
       // AutoCAD adds a layer for a name it does not know. When AUDIT takes that name for a
       // declared layer's, it then reports the new layer as a duplicate of it.
@@ -233,9 +272,11 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
 
 /**
  * An error that refuses a drawing because of what `lint` found in it. `toDXF`
- * throws it when a drawing has lint errors for the version being written, and
- * other code can throw it to refuse a drawing for its own purpose. Its message
- * lists the first 10 problems and names no file format.
+ * throws it when a drawing has lint errors for the version being written, `fromJSON`
+ * when the JSON is not a drawing it can read, and the builder's `layer`, `linetype`
+ * and entity methods at a call that breaks a rule, with that one problem as the
+ * message. Other code can throw it to refuse a drawing for its own purpose. Its
+ * message lists the first 10 problems and names no file format.
  */
 export class DrawingError extends Error {
   /** Every problem the drawing was refused for, including those the message leaves out. */
@@ -243,12 +284,13 @@ export class DrawingError extends Error {
 
   /**
    * @param diagnostics - The problems to refuse the drawing for, as `lint` returns them.
+   * @param message - Defaults to a list of the first 10 problems.
    */
-  constructor(diagnostics: readonly Diagnostic[]) {
+  constructor(diagnostics: readonly Diagnostic[], message?: string) {
     const count = diagnostics.length === 1 ? "1 problem" : `${diagnostics.length} problems`;
     const shown = diagnostics.slice(0, 10).map((d) => `- ${d.message}`);
     const more = diagnostics.length > 10 ? [`- and ${diagnostics.length - 10} more`] : [];
-    super([`The drawing has ${count}:`, ...shown, ...more].join("\n"));
+    super(message ?? [`The drawing has ${count}:`, ...shown, ...more].join("\n"));
     this.name = "DrawingError";
     this.diagnostics = diagnostics;
   }
