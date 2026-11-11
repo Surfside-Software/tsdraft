@@ -44,8 +44,42 @@
   versions, is thrown away and run again, `pending` is set from the save until the
   replacement is published, and `?build=` on a picture is refused once that build is gone.
 - `src/worker.ts` runs in the child process, one per build. It must not write to stdout, which
-  is the drawing file's own log. It loads tsdraft only after the drawing, and uses the copy the
-  drawing loaded, so a waiting spare never holds stale code.
+  is the drawing file's own log. The drawing file's own import decides which copy of tsdraft
+  checks and draws it, by the rule in `findLibrary`, whatever a waiting process holds.
+- A waiting process may load ahead, and run, only the library of the command's own package.
+  That is the folder two above `src/worker.ts` or `dist/worker.js`, by its real path: its
+  `dist/index.js`, or `src/index.ts` in a checkout, and files in that one folder. No name in
+  a package.json decides it. `src/warmup.ts` runs that library on a sheet of its own and
+  reads nothing. Any other copy of tsdraft, such as a second one in a project's
+  `node_modules`, is never loaded or run ahead: it may print, count its calls or loop, and a
+  build must answer the same whether its process waited or not. Nor is the drawing, a module
+  of the user's or a kit that passes the library on. For those the build runs in a process
+  that has started, has stripped a sample file's types and formatted a number, and holds
+  nothing else.
+- Two processes wait. The first is warmed up, the second holds nothing, so that a build the
+  first must not run has a process that has started. A warmed process builds only when every
+  file it loaded ahead, every path an import named on the way to one, which covers a link
+  pointed elsewhere, and every package.json above one is on disk as it was read. The parent
+  compares them before it picks the process, and the process again before it builds and
+  answers `stale` if not. While a process loads the library ahead, an import that leads
+  outside the library's folder, by its real path, or to a part of Node, is refused in the
+  resolve hook, before anything of it runs, and the library is not kept. A warm-up must end
+  within `WARM_DEADLINE` of its request, or the parent ends the process. The process also
+  ends itself, from a thread of its own that a step that never returns cannot hold, at twice
+  the deadline or when its parent is gone. A library that cannot be kept is not loaded ahead
+  again until its folder changes: a file or a folder in it, or the folder itself, so that one
+  taken away and put back counts. One that missed the deadline once is tried once more after
+  the next build, and after a second miss waits for a change too. What a warm-up writes is
+  dropped, since a build's `log` is what the drawing file wrote. A module loaded ahead that
+  the build reaches is reported to the parent with the version it was read at, as if the
+  build had read it, so it is watched as before.
+- Never keep a process for a second build: what a drawing leaves in a global or in the
+  library would reach the next one. A process ends itself only after its output has left
+  it, through the streams' own `write`, kept when the worker loads, since a drawing may replace
+  `process.stdout.write`. The parent never ends one that has answered, or the end of a long log
+  is lost.
+  `test/warm.test.ts` holds all of this by counting what a build reads and by comparing a
+  warm answer with a cold one, never by timing.
 - The page in `assets/page.html` has no framework and no build step. It finds an entity's element
   by `data-entity="<index>"`, which `toSVG` writes on each element. Position is no guide, since
   `toSVG` leaves out entities on layers that are off or frozen. The fallback to position among
@@ -54,8 +88,12 @@
 - `toSVG` draws dashes as geometry and writes a `stroke-width` in screen pixels on elements whose
   pen is not the default. resvg ignores `non-scaling-stroke`, so `src/png.ts` turns every
   `stroke-width` into drawing units in proportion to the group's. Change both together.
-- Speed is the feature. Run `pnpm bench` after a change to the build path and keep the time from
-  save to pushed SVG for the example well under 100 ms. Never rasterize a PNG nobody asked for.
+- Speed is the feature. Run `pnpm bench` after a change to the build path. On a machine that
+  is not busy, which is a load average of at most half its cores, both of which the bench
+  prints, keep the time from save to pushed SVG for the example sheet well under 100 ms with
+  the saves some time apart, and under 150 ms back to back, when each save follows the last
+  build at once. A busy machine is slower: give its load beside any number. Never rasterize a
+  PNG nobody asked for.
 - The command imports the library by its package name, `tsdraft`, which resolves to `../dist`
   in a checkout and in an install, so `check` and `test` build the library first. The worker
   never loads it for itself when the drawing loaded a copy: the drawing file's own import

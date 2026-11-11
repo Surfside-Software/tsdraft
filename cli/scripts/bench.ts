@@ -2,9 +2,14 @@
 // saving a drawing file to this script receiving the server's build event with the new SVG, not
 // to the page painting it. Saves come once with a pause that lets the spare child finish
 // starting, and once back to back, the next save as soon as the last build arrives. Runs on
-// examples/lot.ts, on a generated drawing of 3,000 entities and on the example sheet. Run with `pnpm bench`.
+// examples/lot.ts, on a generated drawing of 3,000 entities and on the example sheet. Each
+// time is a median, and each line of `dev` says where a build's time went: its steps, `rest`
+// for what the steps leave of the build, and `around` for the time outside it, which is the
+// watch, the wait for the save to settle and the push. The machine's load average and its
+// number of cores are beside each drawing, since a busy machine is slower. Run with `pnpm bench`.
 import { execFileSync, spawn } from "node:child_process";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { availableParallelism, loadavg } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -69,7 +74,9 @@ async function benchDev(file: string, edits: number, pause: number) {
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  const nextBuild = async (): Promise<{ state: { build: number; ms: number; ok: boolean } }> => {
+  const nextBuild = async (): Promise<{
+    state: { build: number; ms: number; ok: boolean; timings: Record<string, number> };
+  }> => {
     for (;;) {
       const end = buffer.indexOf("\n\n");
       if (end >= 0) {
@@ -83,22 +90,31 @@ async function benchDev(file: string, edits: number, pause: number) {
     }
   };
   await nextBuild();
-  // Let the spare child finish starting, as it would between saves.
+  // Let the waiting children start and warm up, as they would between saves.
   await new Promise((r) => setTimeout(r, 300));
   const source = readFileSync(file, "utf8");
   const served: number[] = [];
   const builds: number[] = [];
+  const steps: Record<string, number[]> = { start: [], load: [], lint: [], svg: [], rest: [] };
   for (let i = 0; i < edits; i++) {
     const t = performance.now();
     writeFileSync(file, `${source}\n// edit ${i}\n`);
     const event = await nextBuild();
     served.push(performance.now() - t);
     builds.push(event.state.ms);
+    let rest = event.state.ms;
+    for (const step of ["start", "load", "lint", "svg"]) {
+      steps[step]!.push(event.state.timings[step] ?? 0);
+      rest -= event.state.timings[step] ?? 0;
+    }
+    steps.rest!.push(rest);
     await new Promise((r) => setTimeout(r, pause));
   }
   server.kill();
   writeFileSync(file, source);
-  return { served: median(served), build: median(builds) };
+  const [total, build] = [median(served), median(builds)];
+  const parts = Object.entries(steps).map(([step, ms]) => `${step} ${median(ms).toFixed(1)}`);
+  return `${total.toFixed(0)} ms (build ${build} ms: ${parts.join(", ")}; around ${(total - build).toFixed(0)} ms)`;
 }
 
 for (const [name, file] of [
@@ -110,12 +126,10 @@ for (const [name, file] of [
   const paused = await benchDev(file, 10, 300);
   const backToBack = await benchDev(file, 10, 0);
   console.log(
-    `${name}: ${JSON.stringify(render.last.drawing.counts)}\n` +
+    `${name}: ${JSON.stringify(render.last.drawing.counts)}, load average ${loadavg()[0]!.toFixed(1)} on ${availableParallelism()} cores\n` +
       `  render, start to exit: ${render.wall.toFixed(0)} ms (build ${render.last.ms} ms, ` +
       `${JSON.stringify(render.last.timings)})\n` +
-      `  dev, save to SVG pushed, 300 ms between saves: ${paused.served.toFixed(0)} ms ` +
-      `(build ${paused.build} ms)\n` +
-      `  dev, save to SVG pushed, back to back: ${backToBack.served.toFixed(0)} ms ` +
-      `(build ${backToBack.build} ms)`,
+      `  dev, save to SVG pushed, 300 ms between saves: ${paused}\n` +
+      `  dev, save to SVG pushed, back to back: ${backToBack}`,
   );
 }

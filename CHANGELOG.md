@@ -92,6 +92,14 @@
   monospaced typeface, wider than it plots. `outputs.pngFonts`, and the `pngFonts` of each
   entry of `outputs.layouts`, say which typeface the PNG sets each font of the picture in,
   and whether a text in it is as wide as it plots. An SHX font never is. `schema` stays 2.
+- `tsdraft dev` redraws sooner after a save, in about half the time for the example sheet
+  and less for a small drawing, when the drawing imports the tsdraft the command is part of.
+  A process that waits for a save now loads that library ahead, and a build uses it only
+  after the library's files are checked against the disk. A drawing that imports another
+  copy of tsdraft builds as before. Each build still runs in a process of its own and reads
+  the drawing file and its imports as saved. The JSON, the pictures, the diagnostics and
+  the exit codes are unchanged, and so is `tsdraft render`.
+  [docs/command.md](docs/command.md#speed) has the details and the memory this takes.
 
 ## 0.5.0
 
