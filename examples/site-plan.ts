@@ -1,9 +1,9 @@
 // A permit-style site plan: a lot from its plat dimensions, with setbacks, a building footprint,
 // the street, labels, dimensions, site data and notes. Copy this file to start a drawing.
 //
-// Sheet: ARCH D, 36 x 24 in, landscape. Scale: 1" = 10', a ratio of 120. The plan and its notes
-// take about 20 x 21 in of the sheet. Units are feet, in model space. There is no border and no
-// title block.
+// Sheet: ARCH D, 24 x 36 in, landscape: 36 wide and 24 tall. Scale: 1" = 10', a ratio of 120.
+// The plan and its notes take about 20 x 21 in of the sheet. Units are feet, in model space.
+// There is no border and no title block.
 //
 // Run with `pnpm example`. It writes examples/out/site-plan.dxf (AutoCAD 2018 DXF) and
 // site-plan.svg. The drawing is also the default export, for a tool that takes a drawing file.
