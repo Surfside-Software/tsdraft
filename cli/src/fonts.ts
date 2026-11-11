@@ -1,7 +1,8 @@
 // The typeface the PNG renderer sets each of tsdraft's fonts in. The command ships one font,
 // which answers for every font it finds no file for. A TrueType font is set in its own file
-// when the machine has it, or in a font made to its widths, so that a text is as wide in the
-// PNG as it plots.
+// when the machine has it, or in a font made to its widths, so that its letters have their own
+// shapes. `toSVG` holds every text to the length it plots, whatever the typeface, and the
+// renderer sizes each by the cap height of the typeface it draws, which is read here.
 import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +15,13 @@ export const SHIPPED = {
   face: "JetBrains Mono",
   file: fileURLToPath(new URL("../assets/fonts/JetBrainsMono-Regular.ttf", import.meta.url)),
 } as const;
+
+let shippedCapHeight: number | undefined;
+
+/** The height of a capital of the shipped font, as a share of its size, read from its file. */
+export function shippedCap(): number {
+  return (shippedCapHeight ??= capHeight(readFileSync(SHIPPED.file)) ?? 0.73);
+}
 
 /**
  * Fonts made to the widths of another: each has, letter for letter, the advance widths of the
@@ -32,6 +40,8 @@ export interface Face {
   /** The family name the file gives itself, which the renderer finds it by. */
   readonly face: string;
   readonly file: string;
+  /** The height of a capital in the file, as a share of the font's size. */
+  readonly capHeight: number;
 }
 
 /** The folders an operating system keeps its fonts in. */
@@ -112,6 +122,35 @@ export function familyName(bytes: Uint8Array): string | undefined {
   return undefined;
 }
 
+/** Where each table of a TrueType file starts, by its tag. */
+function tablesOf(bytes: Uint8Array, view: DataView): Map<string, number> {
+  const tables = new Map<string, number>();
+  for (let i = 0; i < view.getUint16(4); i++) {
+    const entry = 12 + i * 16;
+    tables.set(String.fromCharCode(...bytes.subarray(entry, entry + 4)), view.getUint32(entry + 8));
+  }
+  return tables;
+}
+
+/**
+ * The height of a capital that a TrueType file states, as a share of the font's size: the cap
+ * height of its `OS/2` table over the units of its em. Undefined for a file that states none.
+ */
+export function capHeight(bytes: Uint8Array): number | undefined {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  try {
+    const tables = tablesOf(bytes, view);
+    const [head, os2] = [tables.get("head"), tables.get("OS/2")];
+    // The table has a cap height from its version 2 on.
+    if (head === undefined || os2 === undefined || view.getUint16(os2) < 2) return undefined;
+    const share = view.getInt16(os2 + 88) / view.getUint16(head + 18);
+    return share > 0 && Number.isFinite(share) ? share : undefined;
+  } catch {
+    // The file is shorter than its tables say.
+    return undefined;
+  }
+}
+
 /**
  * The face of each TrueType font of `FONTS` that the machine has a file for, by the font's
  * name: the font's own file, or one made to its widths. A file counts only when the family
@@ -132,12 +171,18 @@ export function findFaces(folders: readonly string[] = fontFolders()): Map<strin
   for (const { font, face, file } of wanted) {
     const path = files.get(file.toLowerCase());
     if (faces.has(font) || path === undefined) continue;
+    let bytes;
     try {
-      if (familyName(readFileSync(path)) !== face) continue;
+      bytes = readFileSync(path);
     } catch {
       continue;
     }
-    faces.set(font, { family: FONTS[font as keyof typeof FONTS].family, face, file: path });
+    if (familyName(bytes) !== face) continue;
+    const info: { family: string; capHeight?: number } = FONTS[font as keyof typeof FONTS];
+    // The font's own file is sized as `FONTS` says AutoCAD sizes the font. A font that stands
+    // in for it is sized by its own capitals, and one that states no cap height as the font.
+    const cap = (face === font ? undefined : capHeight(bytes)) ?? info.capHeight ?? shippedCap();
+    faces.set(font, { family: info.family, face, file: path, capHeight: cap });
   }
   return faces;
 }
@@ -178,8 +223,6 @@ export function pngFonts(
   return fonts.map((font) => {
     const family = (FONTS as Readonly<Record<string, { family: string }>>)[font]?.family;
     const face = used.find((one) => one.family === family);
-    return face
-      ? { font, face: face.face, sameWidths: true }
-      : { font, face: SHIPPED.face, sameWidths: false };
+    return { font, face: face?.face ?? SHIPPED.face };
   });
 }

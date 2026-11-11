@@ -52,7 +52,8 @@ test("render writes the example's SVG and PNG and prints its state", () => {
   assert.equal(state.error, null);
   assert.deepEqual(state.diagnostics, []);
   assert.equal(state.drawing?.units, "ft");
-  assert.deepEqual(state.drawing?.extents, { min: [-10, -18], max: [110, 140] });
+  // The street's name hangs below the lot, with what its font draws below the baseline.
+  assert.deepEqual(state.drawing?.extents, { min: [-10, -18.833333], max: [110, 140] });
   assert.equal(state.drawing?.counts.entities, 9);
   assert.deepEqual(
     state.drawing?.layers.find((l) => l.name === "C-PROP"),
@@ -89,6 +90,7 @@ test("a file that throws gives the error, its file and line, and a non-zero exit
     pngError: null,
     pngFonts: [],
     layouts: [],
+    view: null,
   });
   assert.match(thrown.state.error!.message, /^radius: /);
   assert.equal(thrown.state.error!.file, thrower);
@@ -149,6 +151,7 @@ test("a build that fails leaves no picture from an earlier run in the default fo
     pngError: null,
     pngFonts: [],
     layouts: [],
+    view: null,
   });
   assert.deepEqual([existsSync(outputs.svg!), existsSync(outputs.png!)], [false, false]);
 });
@@ -743,11 +746,11 @@ test("a drawing with a layout gets a picture of its sheet, and the state says wh
   assert.deepEqual(state.drawing?.xrefs, [
     { name: "BORDER", path: "border.dwg", inserts: 1, shown: false, units: null },
   ]);
-  // Model space has no text. The sheet has text in both fonts, and the PNG has no face with
-  // the widths of an SHX font.
+  // Model space has no text. The sheet has text in both fonts, and the PNG sets an SHX font
+  // in the renderer's own face.
   assert.deepEqual(state.outputs.pngFonts, []);
   const fonts = state.outputs.layouts[1]!.pngFonts;
-  assert.deepEqual(fonts[1], { font: "txt.shx", face: "JetBrains Mono", sameWidths: false });
+  assert.deepEqual(fonts[1], { font: "txt.shx", face: "JetBrains Mono" });
   assert.deepEqual([fonts.length, fonts[0]?.font], [2, "Arial"]);
   // A diagnostic on a layout is boxed on the sheet: the entity, and the viewport's rectangle.
   assert.deepEqual(
@@ -823,6 +826,124 @@ test("a malformed layout is reported and left out, and the rest of the drawing i
   const svg = readFileSync(sheet!.svg, "utf8");
   assert.match(svg, /data-viewport="0"/);
   assert.match(svg, /<line x1="0" y1="0" x2="10" y2="0" [^>]*data-entity="1"\/>/);
+});
+
+test("render warns of text that plots badly, after lint's diagnostics and with exit 0", () => {
+  const out = mkdtempSync(join(tmpdir(), "tsdraft-render-"));
+  const crowded = join(root, "test/fixtures/crowded.ts");
+  const { state, status } = render(crowded, "--out", out);
+  assert.equal(status, 0);
+  assert.equal(state.schema, 3);
+  assert.deepEqual(state.drawing?.counts.errors, 0);
+  assert.deepEqual(state.drawing?.counts.warnings, 3);
+  assert.equal(typeof state.timings.inspect, "number");
+  const [past, over, off] = state.diagnostics;
+  // Each names the entity of its space that draws the text, and brings its own box.
+  assert.deepEqual(
+    { ...past, message: undefined },
+    {
+      rule: "text-leaves-boundary",
+      severity: "warning",
+      message: undefined,
+      entity: 1,
+      id: "note",
+      layer: "0",
+      kind: "text",
+      bounds: { min: [1, 6], max: [17.833333, 6.5] },
+      other: { entity: 0, id: "border" },
+      call: { file: crowded, line: 8, column: 3 },
+    },
+  );
+  assert.match(past!.message, /^Text "THIS NOTE IS TOO LONG FOR ITS SHEET" starts inside/);
+  assert.deepEqual(
+    [over!.rule, over!.entity, over!.id, over!.kind, over!.other, over!.bounds],
+    ["text-overlaps-text", 3, "over", "text", { entity: 2 }, { min: [1, 2], max: [3.5, 2.7] }],
+  );
+  // On the sheet, the attribute of an insert: the insert's index, with the attribute's tag.
+  assert.deepEqual(
+    [off!.rule, off!.layout, off!.entity, off!.attribute, off!.id, off!.kind, off!.block],
+    ["text-off-paper", "S-1", 0, "MARK", "tag", "insert", undefined],
+  );
+  assert.deepEqual(off!.bounds, { min: [10.8, 8], max: [11.133333, 8.25] });
+});
+
+test("render --view draws one rectangle of model space or of a layout, and nothing else", () => {
+  const out = mkdtempSync(join(tmpdir(), "tsdraft-render-"));
+  const crowded = join(root, "test/fixtures/crowded.ts");
+  // The end of the note, where it passes the border: the box of its warning, cut down.
+  const model = render(crowded, "--out", out, "--view", "8,5.5,18.5,7", "--width", "700");
+  assert.equal(model.status, 0);
+  assert.equal(model.state.diagnostics.length, 3);
+  const { view, ...others } = model.state.outputs;
+  assert.deepEqual(others, { svg: null, png: null, pngError: null, pngFonts: [], layouts: [] });
+  assert.deepEqual(view, {
+    layout: null,
+    box: { min: [8, 5.5], max: [18.5, 7] },
+    svg: join(out, "crowded.view.svg"),
+    png: join(out, "crowded.view.png"),
+    pngError: null,
+    pngFonts: [{ font: "txt.shx", face: "JetBrains Mono" }],
+  });
+  // The picture is the rectangle itself, with no margin around it.
+  assert.match(readFileSync(view!.svg, "utf8"), /^<svg [^>]*viewBox="8 -7 10.5 1.5">/);
+  const png = readFileSync(view!.png!);
+  assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [700, 100]);
+  assert.ok(!existsSync(join(out, "crowded.svg")) && !existsSync(join(out, "crowded.png")));
+
+  // A rectangle that starts with a negative number, given as the next argument.
+  const negative = render(crowded, "--out", out, "--view", "-1,-1,18.5,7", "--width", "700");
+  assert.equal(negative.status, 0);
+  assert.deepEqual(negative.state.outputs.view?.box, { min: [-1, -1], max: [18.5, 7] });
+
+  // A corner of the sheet that misses its viewport: the tag is drawn, and no view.
+  const sheet = render(crowded, "--out", out, "--layout", "S-1", "--view=10,7.5,11,8.5");
+  assert.equal(sheet.status, 0);
+  assert.equal(sheet.state.outputs.view?.layout, "S-1");
+  const svg = readFileSync(sheet.state.outputs.view!.svg, "utf8");
+  assert.match(svg, /viewBox="10 -8.5 1 1" data-layout="S-1"/);
+  assert.match(svg, /<g data-viewport="0" data-id="plan"\/>/);
+  assert.doesNotMatch(svg, /clip/);
+  assert.match(svg, /data-id="tag"/);
+  assert.equal(readFileSync(sheet.state.outputs.view!.png!).readUInt32BE(16), 1600);
+
+  // A layout the drawing does not have fails the build, and the flags are checked first.
+  const missing = render(crowded, "--out", out, "--view", "0,0,1,1", "--layout", "S-9");
+  assert.equal(missing.status, 1);
+  assert.match(missing.state.error!.message, /no layout named "S-9"/);
+  assert.equal(missing.state.outputs.view, null);
+  for (const args of [
+    ["render", crowded, "--view", "0,0,1"],
+    ["render", crowded, "--view", "0,0,0,1"],
+    ["render", crowded, "--view", "a,0,1,1"],
+    ["render", crowded, "--layout", "S-1"],
+    ["dev", crowded, "--view", "0,0,1,1"],
+  ]) {
+    const run = spawnSync(process.execPath, [join(root, "src/cli.ts"), ...args], {
+      encoding: "utf8",
+    });
+    assert.deepEqual([run.status, run.stdout], [64, ""], args.join(" "));
+    assert.match(run.stderr, /^--(view|layout) /);
+  }
+});
+
+test("in the default folder a view replaces the whole pictures, and they replace it", () => {
+  mkdirSync(join(root, "examples/out"), { recursive: true });
+  const scratch = mkdtempSync(join(root, "examples/out/test-"));
+  const file = join(scratch, "crowded.ts");
+  writeFileSync(file, readFileSync(join(root, "test/fixtures/crowded.ts")));
+  const names = ["crowded.svg", "crowded.png", "crowded.layout-S-1.svg", "crowded.layout-S-1.png"];
+  const views = ["crowded.view.svg", "crowded.view.png"];
+  const there = (list: readonly string[]) => list.map((n) => existsSync(join(scratch, "out", n)));
+  try {
+    assert.equal(render(file).status, 0);
+    assert.deepEqual([...there(names), ...there(views)], [true, true, true, true, false, false]);
+    assert.equal(render(file, "--view", "0,0,5,5").status, 0);
+    assert.deepEqual([...there(names), ...there(views)], [false, false, false, false, true, true]);
+    assert.equal(render(file).status, 0);
+    assert.deepEqual([...there(names), ...there(views)], [true, true, true, true, false, false]);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 });
 
 const prlimit = spawnSync("prlimit", ["--version"]).status === 0;

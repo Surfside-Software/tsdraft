@@ -86,11 +86,31 @@
 - Leaving out of a view what cannot show in it must never leave out what shows. The cull
   keeps an entity whose box, from `boxer` in `src/extents.ts`, reaches the
   rectangle when the box is made larger by the widest lineweight and, for a text or an
-  insert, by the larger side of the box, since letters may be wider than the box takes them
-  to be. The box holds the lean of a text whose style has an oblique angle: AutoCAD slants a
+  insert, by the larger side of the box, since a letter may reach past the box of its text.
+  A `view` of model space is culled the same way, but its pens are as wide in pixels at any
+  size, so a pen is taken to reach the picture's larger side, times `strokeWidth` above 1.
+  The box holds the lean of a text whose style has an oblique angle: AutoCAD slants a
   text after it widens it, so the lean is the height times the tangent of the angle and the
   width factor has no part in it. `toSVG` writes `skewX` before `scale` for that reason.
   Build `boxer` once for a drawing: it reads every block and text style when it is made.
+- `measureText` in `src/measure.ts` is the one measure of a text: its length from the widths
+  in `src/font-metrics.ts`, where its justification puts it, and the one rule for its
+  baseline. The extents, `toSVG` and `inspectText` all take a text's box from it, so a
+  warning's box is the box the picture draws. Never work a text's length or place out
+  anywhere else. `src/font-metrics.ts` holds, for each font of `FONTS` and each character
+  from U+0020 to U+007E and U+00A0 to U+00FF, the numbers of a text of height 1. It is data:
+  never edit a number by hand, and keep its header to what the numbers are.
+- `toSVG` draws a text from where `measureText` starts it, with no `text-anchor`, and holds
+  it to its length with `textLength` and `lengthAdjust="spacingAndGlyphs"`, so every renderer
+  draws it as long as it plots in whatever typeface it has. `xml:space="preserve"` keeps its
+  spaces. `data-height` follows `font-family` directly, and `font-size` comes before both:
+  the command finds the three together to size a text for the typeface it draws.
+- `inspectText` in `src/inspect.ts` warns about text as it plots. It is not `lint`: its rules
+  and its type are its own, `LintRule` stays closed, and `toDXF` never asks it. It shares
+  `visibility` in `src/svg.ts` with `toSVG`, so the two leave out the same layers, and walks
+  inserts with `eachDrawn`. It must stay bounded: boxes are worked out once and found through
+  a grid, and every box the grid looks at and every point a check reads count against one
+  limit, which ends the checks with `text-check-capped` when it is reached.
 - AutoCAD sizes dashes on the paper in a viewport, so `toSVG` scales a pattern by the
   linetype scale over the viewport's scale there. `toSVG` draws a layout with `elements`, the
   walk it draws model space with, under a `Look` that says how wide and what color a pen is.
@@ -125,7 +145,7 @@
 - `src/fonts.ts` is the one list of fonts a text style may have, with the file
   AutoCAD stores for each and, for a TrueType font, its pitch and family.
   `lint`, both writers and `toSVG` read the list. A TrueType font also has its `capHeight`,
-  which only `toSVG` reads: the top of the font's capital `A` over its units per em, since
+  which `toSVG` and the command read: the top of the font's capital `A` over its units per em, since
   AutoCAD makes that `A` as tall as the text's height. It is not the cap height the font
   states. Add a font only when AutoCAD 2025
   or Windows installs it.

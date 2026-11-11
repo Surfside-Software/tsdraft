@@ -1,20 +1,12 @@
 import { blocksByKey, eachDrawn, mapPoint, type LayerRef, type Referenced } from "./blocks.ts";
 import type { Block, Entity, TextStyle } from "./drawing.ts";
 import { layerKey } from "./layers.ts";
+import { measureText } from "./measure.ts";
 
 /**
- * How far a font draws below a text's baseline, as a share of the text's height, which is how
- * far a text on its bottom starts above its point. Fonts differ, and this box is an estimate.
- */
-const DESCENT = 0.3;
-
-/**
- * Approximate extents. Arcs use their full circle. A text assumes 0.6 × height per character,
- * times its style's width factor, and is moved for its justification: back along its line for
- * `align`, and down or up it for `valign`. A text whose style has an oblique angle leans as
- * AutoCAD draws it: its top lies further along it by its height times the tangent of the angle,
- * and what it draws below its baseline lies as far back in proportion. The width factor does
- * not widen the lean. An insert counts for what its block draws where the
+ * Approximate extents. Arcs use their full circle. A text counts for the box `measureText`
+ * gives it, its capitals as long as the text plots, justified, turned and leaned as it is,
+ * and for what its font draws below the baseline. An insert counts for what its block draws where the
  * insert puts it, with a circle or an arc under an uneven scale as the box around its circle.
  * An insert of an xref counts for the drawing given for it in `xrefs`, and for nothing without
  * one.
@@ -47,18 +39,12 @@ export function boxer(
   isFrozen: (layer: LayerRef) => boolean = () => false,
   xrefs?: ReadonlyMap<string, Referenced>,
 ): (entities: readonly Entity[]) => [number, number, number, number] | undefined {
-  /** A style's width factor, and how far one height of it leans. */
-  const factorsOf = (styles: readonly TextStyle[]): Map<string, readonly [number, number]> =>
-    new Map(
-      styles.map((t) => [
-        layerKey(t.name),
-        [t.widthFactor ?? 1, Math.tan(rad(t.obliqueAngle ?? 0))],
-      ]),
-    );
-  const own = factorsOf(textStyles);
+  const stylesOf = (styles: readonly TextStyle[]): Map<string, TextStyle> =>
+    new Map(styles.map((t) => [layerKey(t.name), t]));
+  const own = stylesOf(textStyles);
   // The text styles of each referenced drawing, worked out when a text of it is first met.
-  const referenced = new Map<Referenced, Map<string, readonly [number, number]>>();
-  let widthFactors = own;
+  const referenced = new Map<Referenced, Map<string, TextStyle>>();
+  let styles = own;
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -91,42 +77,14 @@ export function boxer(
         }
         break;
       case "text": {
-        const [widthFactor, lean] =
-          e.style === undefined ? [1, 0] : (widthFactors.get(layerKey(e.style)) ?? [1, 0]);
-        const len = e.value.length * e.height * 0.6 * widthFactor;
-        const r = rad(e.rotation);
-        // The share of the text's length that lies before its justification point.
-        const before = e.align === "center" ? 0.5 : e.align === "right" ? 1 : 0;
-        // How far the baseline is above the point, as a share of the height.
-        const lift =
-          e.valign === "top"
-            ? -1
-            : e.valign === "middle"
-              ? -0.5
-              : e.valign === "bottom"
-                ? DESCENT
-                : 0;
-        const start: [number, number] = [
-          e.at[0] - before * len * Math.cos(r) - lift * e.height * Math.sin(r),
-          e.at[1] - before * len * Math.sin(r) + lift * e.height * Math.cos(r),
-        ];
-        add(...start);
-        add(start[0] + len * Math.cos(r), start[1] + len * Math.sin(r));
-        const up: [number, number] = [-e.height * Math.sin(r), e.height * Math.cos(r)];
-        add(start[0] + up[0], start[1] + up[1]);
-        // The fourth corner, which is the far one of a text that is turned.
-        add(start[0] + len * Math.cos(r) + up[0], start[1] + len * Math.sin(r) + up[1]);
-        if (Number.isFinite(lean) && lean !== 0) {
-          // The top of a slanted text lies further along it, and its descenders further back.
-          // AutoCAD boxes a TrueType font down to its descent, 0.296 of the height in Arial
-          // and 0.319 in Times New Roman.
-          for (const along of [0, len]) {
-            const top = along + e.height * lean;
-            add(start[0] + top * Math.cos(r) + up[0], start[1] + top * Math.sin(r) + up[1]);
-            const foot = along - DESCENT * e.height * lean;
-            add(start[0] + foot * Math.cos(r), start[1] + foot * Math.sin(r));
-          }
-        }
+        const style = e.style === undefined ? undefined : styles.get(layerKey(e.style));
+        const { corners, descent } = measureText(style ? { ...e, ...style } : e);
+        const [c0, c1, c2, c3] = corners;
+        for (const [x, y] of corners) add(x, y);
+        // What a font draws below the baseline follows the lean of the box's ends.
+        const below = descent / e.height || 0;
+        add(c0[0] - (c3[0] - c0[0]) * below, c0[1] - (c3[1] - c0[1]) * below);
+        add(c1[0] - (c2[0] - c1[0]) * below, c1[1] - (c2[1] - c1[1]) * below);
         break;
       }
     }
@@ -147,20 +105,16 @@ export function boxer(
           if (frozen || isHidden(layer) || !matrix) return;
           add = (x, y) => plain(...mapPoint(matrix, [x, y]));
           if (from && !referenced.has(from)) {
-            referenced.set(from, factorsOf(from.drawing.textStyles ?? []));
+            referenced.set(from, stylesOf(from.drawing.textStyles ?? []));
           }
-          widthFactors = from ? referenced.get(from)! : own;
+          styles = from ? referenced.get(from)! : own;
           one(drawn);
         },
         xrefs,
       );
       add = plain;
-      widthFactors = own;
+      styles = own;
     }
     return minX === Infinity ? undefined : [minX, minY, maxX, maxY];
   };
-}
-
-function rad(degrees: number): number {
-  return (degrees * Math.PI) / 180;
 }

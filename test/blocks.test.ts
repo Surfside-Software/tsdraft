@@ -357,7 +357,8 @@ test("SVG draws an insert's block where the insert puts it, on the layers AutoCA
     /<line x1="6" y1="10" x2="14" y2="10" stroke="#00ff00"[^>]* data-layer="PLNT"\/>/,
   );
   assert.match(first!, /fill="#00ff00"[^>]*>T-1<\/text>/);
-  assert.match(first!, /text-anchor="middle"[^>]*>OAK<\/text>/);
+  // A centered attribute starts half its length before its point.
+  assert.match(first!, /rotate\(-15\) translate\(-0.590041 0.25\) skewX\(-10\)[^>]*>OAK<\/text>/);
   // An uneven scale makes an ellipse of the circle, turned with the insert.
   assert.match(second!, /<ellipse cx="30" cy="10" rx="6" ry="1.5" transform="rotate\(30 30 10\)"/);
   assert.match(second!, /<text transform="matrix\(1.732051 1 -0.25 0.433013 30 10\) /);

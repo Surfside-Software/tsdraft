@@ -2,7 +2,7 @@
 // saving a drawing file to this script receiving the server's build event with the new SVG, not
 // to the page painting it. Saves come once with a pause that lets the spare child finish
 // starting, and once back to back, the next save as soon as the last build arrives. Runs on
-// examples/lot.ts, on a generated drawing of 3,000 entities and on the example sheet. Each
+// examples/lot.ts, on a generated drawing of 5,000 entities, a fifth of them texts, and on the example sheet. Each
 // time is a median, and each line of `dev` says where a build's time went: its steps, `rest`
 // for what the steps leave of the build, and `around` for the time outside it, which is the
 // watch, the wait for the save to settle and the push. The machine's load average and its
@@ -24,16 +24,16 @@ writeFileSync(
   large,
   `import { createDrawing } from "tsdraft";
 const d = createDrawing({ units: "ft", dxf: "R2018" });
-// 600 lots of 5 entities each.
-for (let row = 0; row < 20; row++) {
-  for (let col = 0; col < 30; col++) {
+// 1,000 lots of 5 entities each.
+for (let row = 0; row < 25; row++) {
+  for (let col = 0; col < 40; col++) {
     const x = col * 60;
     const y = row * 120;
     d.layer("C-PROP", { color: 7 }, () => d.rect([x, y], 50, 110));
     d.layer("A-BLDG", { color: 4 }, () => d.rect([x + 10, y + 30], 30, 40));
     d.layer("C-PAVE", { color: 8 }, () => d.line([x + 25, y], [x + 25, y + 30]));
     d.layer("V-TREE", { color: 3 }, () => d.circle([x + 25, y + 95], 6));
-    d.layer("C-ANNO", { color: 7 }, () => d.text([x + 2, y + 2], \`LOT \${row * 30 + col + 1}\`, { height: 3 }));
+    d.layer("C-ANNO", { color: 7 }, () => d.text([x + 2, y + 2], \`LOT \${row * 40 + col + 1}\`, { height: 3 }));
   }
 }
 export default d.build();
@@ -119,7 +119,7 @@ async function benchDev(file: string, edits: number, pause: number) {
 
 for (const [name, file] of [
   ["examples/lot.ts", small],
-  ["3,000 entities", large],
+  ["5,000 entities", large],
   ["examples/site-plan.ts", sheet],
 ] as const) {
   const render = benchRender(file, 5);

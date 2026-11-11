@@ -171,7 +171,7 @@ export async function dev(
     const sheets = outcome.ok ? outcome.layouts : (shown?.layouts ?? []);
     const outputs: BuildState["outputs"] =
       shownBuild === null
-        ? { svg: null, png: null, pngError: null, pngFonts: [], layouts: [] }
+        ? { svg: null, png: null, pngError: null, pngFonts: [], layouts: [], view: null }
         : {
             svg: picture("svg"),
             png: noPng ? null : picture("png"),
@@ -186,6 +186,7 @@ export async function dev(
               pngError: noPng,
               pngFonts: pngFonts(fonts, svg),
             })),
+            view: null,
           };
     state = toState(outcome, session, number, file, shownBuild, outputs);
     if (pending === number) pending = null;

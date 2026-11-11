@@ -21,7 +21,7 @@ if (major < 22 || (major === 22 && minor < 18) || (major === 23 && minor < 6)) {
 
 const HELP = `Usage:
   tsdraft render <file> [--out <dir>] [--width <px>] [--timeout <ms>]
-                        [--draw-no-plot]
+                        [--draw-no-plot] [--view <x0,y0,x1,y1> [--layout <name>]]
   tsdraft dev <file> [--port <n>] [--timeout <ms>] [--draw-no-plot]
 
 A drawing file is a TypeScript module whose default export is a Drawing, or a
@@ -43,6 +43,11 @@ dev     Serves a live preview on localhost that rebuilds on every save of the
         and /events. Add layout=<name> to a picture's URL for a layout's sheet.
 
 --width    PNG width in pixels. Default 1600.
+--view     With render, draws one rectangle and nothing else, as <name>.view.svg
+           and .png, listed in outputs.view: from its lower-left corner x0,y0
+           to its upper-right x1,y1, in drawing units of model space. Use it to
+           read small text, and give it the bounds of a diagnostic.
+--layout   With --view, the rectangle is on this layout's sheet, in paper units.
 --draw-no-plot  Draws the layers that do not plot too. The pictures leave them
            out by default, as a plot does.
 --port     Default 4610. When it is taken and no port was given, a free one.
@@ -62,9 +67,22 @@ function usage(problem: string): never {
   process.exit(USAGE);
 }
 
+// A rectangle often starts with a negative number, which parseArgs takes for an option unless it
+// is written --view=-1,...: join --view and a value that starts with a number into one argument.
+const args = process.argv
+  .slice(2)
+  .flatMap((arg, i, all) =>
+    arg === "--view" && /^-?[\d.]/.test(all[i + 1] ?? "")
+      ? []
+      : all[i - 1] === "--view" && /^-?[\d.]/.test(arg)
+        ? [`--view=${arg}`]
+        : [arg],
+  );
+
 let parsed;
 try {
   parsed = parseArgs({
+    args,
     allowPositionals: true,
     options: {
       out: { type: "string" },
@@ -72,6 +90,8 @@ try {
       port: { type: "string" },
       timeout: { type: "string" },
       "draw-no-plot": { type: "boolean" },
+      view: { type: "string" },
+      layout: { type: "string" },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -92,6 +112,8 @@ if (!target) usage("Give a drawing file.");
 // path of the file, and so of its project, to place errors and watch imports through a symlink.
 const file = realpath(resolve(target));
 const timeout = number(values.timeout, "--timeout") ?? 10_000;
+if (values.view !== undefined && command !== "render") usage("--view goes with render.");
+if (values.layout !== undefined && values.view === undefined) usage("--layout goes with --view.");
 
 if (command === "dev") {
   const { dev } = await import("./dev.ts");
@@ -102,10 +124,12 @@ if (command === "dev") {
   });
 } else {
   const width = number(values.width, "--width") ?? 1600;
+  const view = values.view === undefined ? undefined : rectangle(values.view);
   const builder = new Builder({
     timeout,
     warm: false,
     drawNoPlot: values["draw-no-plot"] === true,
+    view: view && { box: view, ...(values.layout === undefined ? {} : { layout: values.layout }) },
   });
   // The renderer's process starts while the drawing is built.
   startRenderer();
@@ -139,13 +163,36 @@ if (command === "dev") {
     pngError: null,
     pngFonts: [],
     layouts,
+    view: null,
   };
   let failed: BuildError | null = null;
   const dir = resolve(values.out ?? join(file, "..", "out"));
   const name = basename(file, extname(file));
   let path = dir;
   try {
-    if (outcome.ok && outcome.svg) {
+    if (outcome.ok && outcome.view && view) {
+      // A view is the one picture of its run.
+      mkdirSync(dir, { recursive: true });
+      path = join(dir, `${name}.view.svg`);
+      writeFileSync(path, outcome.view.svg);
+      const unavailable = pngUnavailable();
+      const made = {
+        layout: outcome.view.layout,
+        box: { min: [view[0], view[1]], max: [view[2], view[3]] },
+        svg: path,
+        png: null as string | null,
+        pngError: unavailable,
+        pngFonts: pngFonts(outcome.view.fonts, outcome.view.svg),
+      } as const;
+      outputs.view = made;
+      if (unavailable === null) {
+        path = join(dir, `${name}.view.png`);
+        const pngError = await drawPng(outcome.view.svg, path);
+        outputs.view = { ...made, pngError, png: pngError === null ? path : null };
+      } else {
+        process.stderr.write(`tsdraft: ${unavailable}.\n`);
+      }
+    } else if (outcome.ok && outcome.svg) {
       mkdirSync(dir, { recursive: true });
       path = join(dir, `${name}.svg`);
       writeFileSync(path, outcome.svg);
@@ -188,7 +235,12 @@ if (command === "dev") {
   // A picture this run did not write is not left behind from an earlier run, where it would
   // pass for the drawing as it is now. Only in the default folder, which is this command's: a
   // file in a folder the user named may be theirs.
-  for (const [kind, written] of Object.entries({ svg: outputs.svg, png: outputs.png })) {
+  for (const [kind, written] of Object.entries({
+    svg: outputs.svg,
+    png: outputs.png,
+    "view.svg": outputs.view?.svg ?? null,
+    "view.png": outputs.view?.png ?? null,
+  })) {
     if (written !== null || values.out !== undefined) continue;
     const old = join(dir, `${name}.${kind}`);
     try {
@@ -255,6 +307,18 @@ function realpath(path: string): string {
     // Missing: the build reports it.
     return path;
   }
+}
+
+/** The rectangle `--view` names: four numbers with commas between, the second corner above the first. */
+function rectangle(value: string): [number, number, number, number] {
+  const parts = value.split(",").map((part) => (part.trim() === "" ? NaN : Number(part)));
+  const [x0 = NaN, y0 = NaN, x1 = NaN, y1 = NaN] = parts;
+  if (parts.length !== 4 || !parts.every(Number.isFinite) || !(x1 > x0 && y1 > y0)) {
+    usage(
+      `--view must be x0,y0,x1,y1, the lower-left and the upper-right corner of a rectangle, not ${JSON.stringify(value)}`,
+    );
+  }
+  return [x0, y0, x1, y1];
 }
 
 function number(value: string | undefined, flag: string): number | undefined {

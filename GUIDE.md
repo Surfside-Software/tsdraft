@@ -73,11 +73,20 @@ and `_`, each used once in a drawing. A diagnostic about the entity carries the 
    `null` for it. That run also clears the old picture from `out`, but not from a folder you
    named with `--out`.
 3. Read the JSON. If `ok` is false, fix `error.file` at `error.line`. If `diagnostics` is not
-   empty, fix each one, errors first.
-4. Look at the PNG at `outputs.png`. The JSON says whether the drawing breaks a rule. Only the
-   picture shows whether it is the drawing you meant. When `outputs.png` is `null`,
-   `outputs.pngError` says why, and `outputs.svg` is the same picture.
-5. Repeat from step 1.
+   empty, fix each one, errors first. A warning whose rule starts with `text-` is about a
+   text as it plots: it lies over another text, it runs past the border, cell or room it
+   starts in, or it runs off the paper. See [Fitting text](#fitting-text-with-measuretext).
+4. Look at the PNG at `outputs.png`, and at each sheet's in `outputs.layouts`. The JSON says
+   whether the drawing breaks a rule. Only the picture shows whether it is the drawing you
+   meant. When `outputs.png` is `null`, `outputs.pngError` says why, and `outputs.svg` is the
+   same picture.
+5. Look closer. A whole ARCH D sheet at 1600 pixels draws 3/32 inch text 4 pixels high, too
+   small to read. `npx tsdraft render plan.ts --view 29,0.5,35.5,3.5 --layout C-101` draws
+   that rectangle of the sheet alone, from its lower-left corner to its upper-right in paper
+   units, and without `--layout` a rectangle of model space in drawing units. The picture is
+   at `outputs.view.png`. Read the title block and the notes this way, and give `--view` the
+   `bounds` of each warning, a little larger, to see what it is about.
+6. Repeat from step 1.
 
 `render` exits 0 when the drawing built with no lint errors, 2 when `lint` reported errors,
 and 1 when the build failed before `lint` could report or a file could not be written. Stdout holds only the JSON. `--out <dir>` changes the folder and
@@ -93,8 +102,11 @@ reason in `pngError`. `npm i -D @resvg/resvg-js` adds it. Each entry of `outputs
 a `pngError` of its own. When the renderer stops on one picture, that picture alone has no
 PNG, its `pngError` says so, and its SVG is there to use.
 
-A text is as wide in the PNG as it plots only where `sameWidths` is true for its font in
-`outputs.pngFonts`: elsewhere, do not judge from the PNG whether it fits its space.
+A text is as long in the pictures as it plots, in every font, and in the PNG its capitals are
+as tall. So a text that fits its space in the PNG fits it on the plot, and one that runs past
+a line there runs past it on paper. Only the shapes of the letters may differ: the PNG sets an
+SHX font, such as the `txt.shx` of the `Standard` style, in a typeface of its own, and
+`outputs.pngFonts` names the typeface of each font.
 
 When a person is watching, run `npx tsdraft dev plan.ts` and give them the address it prints,
 `http://127.0.0.1:4610` unless that port is taken. The page redraws each time the file, or a
@@ -111,11 +123,11 @@ the details.
 
 ```json
 {
-  "schema": 2,
+  "schema": 3,
   "ok": true,
   "drawing": {
     "units": "ft",
-    "extents": { "min": [0, -3], "max": [100, 140] },
+    "extents": { "min": [0, -3.3125], "max": [100, 140] },
     "counts": { "layers": 4, "entities": 5, "layouts": 0, "errors": 0, "warnings": 1 }
   },
   "diagnostics": [
@@ -147,8 +159,12 @@ the details.
   where to read the fields of a title block.
 - `outputs.svg` and `outputs.png` are model space. `outputs.layouts` has a picture of each
   sheet as it plots.
-- `diagnostics` is what `lint` found. An error stops `toDXF` from writing the file. A warning
-  does not. An error about the shape of a value gives `item`, such as `entities[3]`.
+- `diagnostics` is what `lint` found, and after it the warnings about text as it plots. An
+  error stops `toDXF` from writing the file. A warning does not. A `text-` warning has
+  `bounds`, the box of the text on its picture, and `other`, the text it lies over or the
+  closed polyline it runs past. For a text inside a block, `entity` is the insert, and
+  `attribute` the tag when the text is one of its attributes. An error about the shape of a
+  value gives `item`, such as `entities[3]`.
   `drawing.omitted`, when it is there, lists what the pictures leave out because the drawing
   could not be drawn with it.
 - `error` is why a build failed: its `message`, and the `file`, `line` and `column` of your
@@ -184,6 +200,42 @@ number of drawing units. Then the annotation keeps its plotted size when the sca
 This is for model space. What you draw on a layout is in paper units already: see
 [Layouts](#layouts).
 
+## Fitting text with `measureText`
+
+Never guess how long a text is. `measureText` gives the length it plots at, from the widths of
+its font's characters:
+
+```ts
+import { measureText } from "tsdraft";
+
+measureText({ value: "GENERAL NOTES", height: 0.125 }).length; // 1.583 in txt.shx
+measureText({ value: "GENERAL NOTES", height: 0.125, font: "Arial" }).length; // 1.485
+```
+
+`font` is the font of the text's style, and `txt.shx`, the font of `Standard`, when left out.
+A capital of `txt.shx` takes a whole text height of the line, far more than most screen fonts
+do, so a note sized by eye runs long. Pass the style's `widthFactor` too when it has one.
+Break a note into lines with it, and check that a value fits its cell before you draw it:
+
+```ts
+/** Breaks a sentence into lines that plot no longer than `width`. */
+function wrap(sentence: string, height: number, width: number): string[] {
+  const lines: string[] = [];
+  for (const word of sentence.split(" ")) {
+    const longer = lines.length > 0 ? `${lines.at(-1)} ${word}` : word;
+    const fits = measureText({ value: longer, height }).length <= width;
+    if (lines.length > 0 && fits) lines[lines.length - 1] = longer;
+    else lines.push(word);
+  }
+  return lines;
+}
+```
+
+Space lines one and a half text heights apart or more. Given `at`, `align`, `valign` and
+`rotation` as well, `measureText` returns `corners`, the box the text's capitals fill, which
+is the box the `text-` warnings and their `bounds` use. A character outside Latin-1 is measured
+as a `?`, and the result then has `approximate: true`.
+
 ## The file to copy
 
 [`examples/site-plan.ts`](https://github.com/Surfside-Software/tsdraft/blob/main/examples/site-plan.ts)
@@ -196,8 +248,8 @@ keeping `drafting.ts` in a `lib` folder beside it. Change two import strings to 
 `"../src/index.ts"` in `site-plan.ts`, and `"../../src/index.ts"` in `lib/drafting.ts`.
 
 Its parameters come first and every position is worked out from them. Its dimension strings and
-arrowheads are functions in `drafting.ts` that draw lines and text. Its symbols are blocks,
-and so is its title block.
+arrowheads are functions in `drafting.ts` that draw lines and text. Its columns and line breaks
+are laid out with `measureText`. Its symbols are blocks, and so is its title block.
 
 ## Blocks
 
@@ -280,7 +332,8 @@ d.layout("C-101", { paper: "ARCH D" }, (sheet) => {
   Keep a border inside the paper: on its left, bottom or right edge AutoCAD plots a line
   with half its width off the page, and on its top edge not at all.
 
-Look at the sheet's picture, in `outputs.layouts`, and not only at model space. Read
+Look at the sheet's picture, in `outputs.layouts`, and not only at model space, and read its
+title block and notes with `--view` and `--layout`. Read
 `drawing.layouts` to check that each viewport `shows` the part of the model you meant.
 `lint` warns of a viewport that reaches past the paper and of one that shows nothing.
 [docs/layouts.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/layouts.md) has
@@ -390,8 +443,9 @@ writeFileSync("plan.dxf", toDXF(drawing));
   viewport is a locked rectangle that shows every layer at one scale.
 - A paper outside the list in the section on layouts, a paper in portrait, and a page setup
   for another plotter.
-- Multiline text. A text is a single line. It takes a text style with a font, and `align` and
-  `valign` to justify it to its point, as the example sheet does.
+- Multiline text. A text is a single line: break a note into lines with `measureText`. A text
+  takes a text style with a font, and `align` and `valign` to justify it to its point, as the
+  example sheet does.
 - Ellipses, splines, and curved segments in a polyline.
 - A color on a single entity. Color comes from the layer.
 - DWG files. tsdraft writes DXF.

@@ -37,9 +37,10 @@ every build sees the code as it is now. A build that runs longer than `--timeout
 
 ## Commands
 
-`tsdraft render <file> [--out <dir>] [--width <px>] [--draw-no-plot]` builds once, runs `lint`,
-writes `<name>.svg` and a `<name>.png` 1600 px wide to `out/` beside the file, and prints one
-JSON object. It exits 0 when the drawing built with no lint errors, 2 when `lint` reported
+`tsdraft render <file> [--out <dir>] [--width <px>] [--draw-no-plot]` builds once, runs `lint`
+and `inspectText`, writes `<name>.svg` and a `<name>.png` 1600 px wide to `out/` beside the
+file, and prints one JSON object. With `--view`, it writes one rectangle of the drawing and
+no other picture: see [A closer look](#a-closer-look). It exits 0 when the drawing built with no lint errors, 2 when `lint` reported
 errors, and 1 when the build failed before `lint` could report or a picture could not be
 written. Wrong usage prints help to stderr
 and exits 64, so stdout only ever holds the JSON. Read the pictures at the paths in `outputs`. A
@@ -57,7 +58,7 @@ inside the project or not, including one it tried to import before you created i
 package linked into `node_modules`, and where a symlink it imported through points,
 including a package's link in `node_modules`.
 Packages installed under `node_modules` are not watched, and neither are files the drawing reads
-with `fs`. The page draws linetypes, pen weights and text styles as `toSVG` does, with each text justified to its point and in its style's font where the browser has it. A PNG draws every font in the one font it carries, JetBrains Mono. The page has pan and zoom, layer
+with `fs`. The page draws linetypes, pen weights and text styles as `toSVG` does, with each text as long as it plots and in its style's font where the browser has it. The browser picks the typeface there, so the height of a text's letters is approximate on the page, and exact in a PNG: see [Fonts in a PNG](#fonts-in-a-png). The page has pan and zoom, layer
 toggles and the diagnostics, and marks a layer the drawing has off, frozen or set not to plot, whose
 entities are not drawn. Each diagnostic shows the call that drew its entity. Click a diagnostic to find its entity. While a build runs, the status reads
 "building N…". When a build fails, the page dims the last good drawing and shows the error. For an agent without a browser it serves:
@@ -75,9 +76,36 @@ Each response has an `x-tsdraft-session` header, and each state or picture an `x
 header that gives the build it came from. A PNG is at most
 16 million pixels; a wider request is narrowed, and `x-tsdraft-width` gives the width used.
 
+## A closer look
+
+A whole sheet in one picture leaves its text too small to read: on an ARCH D sheet 1600 px
+wide, a note 3/32 inch high is 4 px high. `--view` draws one rectangle of the drawing at the
+full width:
+
+```sh
+tsdraft render plan.ts --view 20,30,80,70                  # model space, in drawing units
+tsdraft render plan.ts --layout C-101 --view 29,0.5,35.5,3.5   # a sheet, in paper units
+```
+
+The four numbers are the rectangle's lower-left corner and its upper-right, `x0,y0,x1,y1`.
+Without `--layout` it is a rectangle of model space, and with it one of that layout's sheet.
+Write `--view=-5,0,10,10` when the first number is negative. The run writes
+`<name>.view.svg` and `<name>.view.png`, with no margin around the rectangle, and its JSON has
+them in `outputs.view`, with the `layout` and the `box`. It draws no other picture:
+`outputs.svg` and `outputs.png` are `null` and `outputs.layouts` is empty, and in the default
+`out/` folder the whole pictures of an earlier run are removed, as a later run without
+`--view` removes the view's. The rest of the JSON is as in any run. A viewport is drawn where
+the rectangle shows it, and a rectangle that misses every viewport shows the sheet's own
+entities alone. A layout the drawing does not have fails the build, with exit code 1.
+
+Give `--view` the `bounds` of a diagnostic, a little larger, to see what the diagnostic is
+about, and read a sheet's title block and notes with it. `tsdraft dev` has no such flag: its
+page pans and zooms.
+
 ## The JSON
 
-`BuildState` in [`cli/src/state.ts`](../cli/src/state.ts) documents each field. A failed build, trimmed:
+`BuildState` in [`cli/src/state.ts`](../cli/src/state.ts) documents each field, and `schema`,
+now 3, goes up when one changes its meaning or goes away. A failed build, trimmed:
 
 ```json
 {
@@ -137,6 +165,19 @@ the entity's `id` when it has one, and `call`, the call in the drawing's code th
 entity: an absolute path, a line and a column, which is where to fix it. The command turns on
 the builder's `recordCalls` for every drawing it runs.
 
+After what `lint` returned come the warnings of `inspectText`, about text as it plots: a rule
+of `text-overlaps-text`, `text-leaves-boundary` or `text-off-paper`, which
+[Text](text.md#text-as-it-plots) describes. They never change the exit code, and
+`drawing.counts.warnings` counts them. Each has `bounds`, the box of the text as it plots,
+turned and justified, or of both texts of an overlap, in the coordinates of its picture: model
+space's, or the sheet's when it names a `layout`. `entity` is the index of the entity of that
+space that draws the text. For a text inside a block it is the insert, with the tag in
+`attribute` when the text is one of the insert's attributes, and `block` is never set, so two
+inserts of one block give two warnings that can be told apart. `kind` and `layer` are that
+entity's. `other` names, the same way, the other text of an overlap or the closed polyline
+the text runs past. A drawing loaded with a copy of tsdraft from before `inspectText` has no
+such warnings.
+
 A problem with the shape of a value, such as an entity of an unknown kind or a field of the
 wrong type, gives `item`, the path of the item that holds the value: `entities[3]`,
 `blocks[0]`, `blocks[0].attributes[1]`, `layouts[0]`, `layouts[0].viewports[1]`,
@@ -192,7 +233,8 @@ the build that is queued or running, or `null` when the state is the latest.
    the server saw no change to any file it watches, which can mean the save was to a file the
    drawing reads with `fs` or from `node_modules`. Without `tsdraft dev`, run `tsdraft render`.
 4. If `ok` is false, fix `error.file` at `error.line`. If `diagnostics` is not empty, fix each
-   one, starting with the errors.
+   one, starting with the errors. For a `text-` warning, run `tsdraft render` with `--view` on
+   its `bounds` to see the text.
 5. Look at `outputs.png` to check that the drawing looks right, and go back to step 1. Its URL
    names the session and the build, so a picture from another build, or from before a restart,
    is refused rather than mixed up with this state.
@@ -202,38 +244,40 @@ plain `/state.json` right after a save may still show the old build, with `pendi
 
 ## Fonts in a PNG
 
-`toSVG` sets each text in a font family for its style's font. A browser that shows the SVG
-draws it in that font when the machine has it. The PNG renderer reads no font the system
-knows by name. It has one typeface of its own, JetBrains Mono, which is monospaced, and it
-looks in the machine's font folders for a file to set each TrueType font in:
+`toSVG` holds each text to the length it plots at, whatever typeface draws it, and sets it in
+a font family for its style's font. A browser that shows the SVG draws it in that font when
+the machine has it. The PNG renderer reads no font the system knows by name. It has one
+typeface of its own, JetBrains Mono, and it looks in the machine's font folders for a file to
+set each TrueType font in:
 
 - the font's own file, such as `arial.ttf`, or
 - a font made to its widths, whose letters each take the room of the font's own: Liberation
   Sans for Arial, Liberation Serif for Times New Roman and Liberation Mono for Courier New.
 
 A file counts only when the family name inside it is the one expected. An SHX font, and a
-TrueType font the machine has neither file for, is set in JetBrains Mono, and a text in it is
-wider or narrower in the PNG than it plots.
+TrueType font the machine has neither file for, is set in JetBrains Mono.
 
-`outputs.pngFonts` says what the PNG of model space does with each font of its text, and each
-entry of `outputs.layouts` has a `pngFonts` for its sheet:
+In every case the text is as long in the PNG as it plots, from the same start to the same end,
+with its spaces, and its capitals are as tall as the text's height: the renderer sizes each
+text by the cap height of the typeface it draws it in, which the command reads from the font's
+file. So what fits in the PNG fits on the plot, and what runs past a line there runs past it
+on paper. What differs is the shape of the letters, and with it how far a single letter sits
+from the ends of its text, by a fraction of a character.
+
+`outputs.pngFonts` says which typeface the PNG of model space sets each font of its text in,
+and each entry of `outputs.layouts`, and `outputs.view`, has a `pngFonts` of its own:
 
 ```json
 "pngFonts": [
-  { "font": "Arial", "face": "Liberation Sans", "sameWidths": true },
-  { "font": "romans.shx", "face": "JetBrains Mono", "sameWidths": false }
+  { "font": "Arial", "face": "Liberation Sans" },
+  { "font": "romans.shx", "face": "JetBrains Mono" }
 ]
 ```
 
 `font` is a font of the drawing, as a text style names it, or of a drawing given for an xref.
 `face` is the family name of the typeface the PNG sets it in, taken from the font files the
-renderer is given for that picture. Where `sameWidths` is false, do
-not judge from the PNG whether a text fits its space, such as a field in its box. Two SHX
-fonts that `toSVG` sets in one font family are both listed when either is drawn. The command
-looks for the files once, when it starts.
-
-A font made to another's widths has its own letter shapes, and its capitals are not quite as
-high: Liberation Sans draws a capital 4% lower than Arial does at one size.
+renderer is given for that picture. Two SHX fonts that `toSVG` sets in one font family are
+both listed when either is drawn. The command looks for the files once, when it starts.
 
 ## Without the PNG renderer
 
@@ -346,3 +390,7 @@ another copy of tsdraft are the second number.
 
 `render` builds once, in a new process, and takes about 330 ms from start to exit on
 `examples/lot.ts`, PNG included.
+
+The bench's generated drawing has 5,000 entities, a fifth of them texts, so it takes longer than
+the 3,000 above. `timings` in the JSON says where a build's time went: `inspect`, the look at the
+text as it plots, takes about as long as `lint` does.

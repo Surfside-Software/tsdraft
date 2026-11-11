@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createDrawing, DASHED, idHandle, toDXF, toSVG, type Drawing } from "../src/index.ts";
+import {
+  createDrawing,
+  DASHED,
+  idHandle,
+  measureText,
+  toDXF,
+  toSVG,
+  type Drawing,
+} from "../src/index.ts";
 
 /** Parses DXF text into [code, value] pairs. */
 function pairs(dxf: string): [number, string][] {
@@ -322,21 +330,58 @@ test("R2018 DXF and SVG carry text styles and justification", () => {
   assert.equal(new Set(handles).size, handles.length, "handles are unique");
 
   const svg = toSVG(drawing);
+  // An SHX text is sized for a screen font whose capitals are 0.7 of its size, and every text
+  // is held to the length it plots, with its spaces kept and its height beside it.
   assert.match(
     svg,
-    /<text transform="translate\(1 2\) scale\(1 -1\)" font-size="0.125" font-family="monospace" fill/,
+    /<text transform="translate\(1 2\) scale\(1 -1\)" font-size="0.178571" font-family="monospace" data-height="0.125" textLength="0.4375" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill/,
   );
-  // Arial is drawn larger, so that its capitals are the text's height, and moved down half of it.
+  // Arial is drawn larger, so that its capitals are the text's height. A centered text starts
+  // half its length before its point, and one justified to its middle half its height below.
   // It is widened first and slanted after, so skewX comes before scale.
   assert.match(
     svg,
-    /translate\(3 4\) scale\(1 -1\) translate\(0 1\) skewX\(-15\) scale\(0.9 1\)" font-size="2.793296" font-family="Arial, Helvetica, sans-serif" text-anchor="middle"/,
+    /translate\(3 4\) scale\(1 -1\) translate\(-3.284447 1\) skewX\(-15\) scale\(0.9 1\)" font-size="2.793296" font-family="Arial, Helvetica, sans-serif" data-height="2" textLength="7.298772"/,
   );
+  // A right-justified text starts its whole length before its point, along its own line.
   assert.match(
     svg,
-    /translate\(5 6\) scale\(1 -1\) rotate\(-30\)" font-size="0.125" font-family="monospace" text-anchor="end"/,
+    /translate\(5 6\) scale\(1 -1\) rotate\(-30\) translate\(-0.333333 0\)" font-size="0.178571" font-family="monospace"/,
   );
-  assert.match(svg, /translate\(7 8\) scale\(1 -1\) translate\(0 0.0875\)"/);
+  assert.match(svg, /translate\(7 8\) scale\(1 -1\) translate\(0 0.125\)"/);
+  assert.ok(!svg.includes("text-anchor"));
+});
+
+test("SVG draws a text's spaces and the characters AutoCAD draws for its codes", () => {
+  const d = createDrawing();
+  d.text([0, 0], "A   B  45%%d %%P1 %%c2", { height: 1 });
+  d.text([0, 2], "", { height: 1 });
+  const svg = toSVG(d.build());
+  assert.match(svg, / xml:space="preserve" [^>]*>A {3}B {2}45° ±1 Ø2<\/text>/);
+  // A text with nothing in it has no length to be held to.
+  assert.match(svg, /data-height="1" xml:space="preserve" [^>]*><\/text>/);
+});
+
+test("SVG draws a view in place of the whole of model space", () => {
+  const d = createDrawing().line([0, 0], [100, 50]);
+  d.text([10, 10], "NOTE", { height: 2 });
+  const drawing = d.build();
+  assert.match(toSVG(drawing, { view: [5, 8, 25, 14] }), /viewBox="5 -14 20 6"/);
+  assert.match(toSVG(drawing, { view: [5, 8, 25, 14], margin: 1 }), /viewBox="4 -15 22 8"/);
+  // What lies far from the view is left out, and what crosses it is kept.
+  const far = toSVG(d.line([1e8, 0], [1e8 + 1, 0]).build(), { view: [0, 0, 10, 10] });
+  assert.deepEqual(
+    [...far.matchAll(/data-entity="(\d+)"/g)].map((m) => m[1]),
+    ["0", "1"],
+  );
+  for (const view of [
+    [0, 0, 0, 1],
+    [0, 0, 1, Infinity],
+    [1, 1, 0, 0],
+    [0, 0, 1],
+  ] as const) {
+    assert.throws(() => toSVG(drawing, { view: view as never }), RangeError, `${view}`);
+  }
 });
 
 test("SVG sizes a TrueType font by its capital A, which AutoCAD makes the text's height", () => {
@@ -364,16 +409,18 @@ test("SVG sizes a TrueType font by its capital A, which AutoCAD makes the text's
 test("the extents follow a text's vertical alignment and its style's width factor", () => {
   const below = createDrawing().line([0, 0], [10, 0]);
   below.text([5, 0], "BELOW", { height: 2, valign: "top" });
-  // The text hangs 2 below the line, so the picture and $EXTMIN reach y = -2. Its five
-  // characters run from x = 5 to 11.
-  assert.match(toSVG(below.build(), { margin: 0 }), /viewBox="0 0 11 2"/);
-  assert.match(toDXF(below.build()), /\$EXTMIN\r\n10\r\n0\r\n20\r\n-2\r\n/);
+  // The text hangs 2 below the line, and its font draws a third of its height below that, so
+  // the picture and $EXTMIN reach y = -2.666667. Its five characters are 10 long in txt.shx.
+  assert.match(toSVG(below.build(), { margin: 0 }), /viewBox="0 0 15 2.666667"/);
+  assert.match(toDXF(below.build()), /\$EXTMIN\r\n10\r\n0\r\n20\r\n-2.666667\r\n/);
   const wide = createDrawing().text([0, 0], "WIDE", {
     height: 1,
     style: { name: "W", font: "Arial", widthFactor: 100 },
   });
-  // Four characters of 0.6 each, a hundred times as wide.
-  assert.match(toSVG(wide.build(), { margin: 0 }), /viewBox="0 -1 240 1"/);
+  // Arial's four characters a hundred times as wide, and what Arial draws below the baseline.
+  const { length, descent } = measureText({ value: "WIDE", height: 1, font: "Arial" });
+  const box = `0 -1 ${Number((length * 100).toFixed(6))} ${Number((1 + descent).toFixed(6))}`;
+  assert.ok(toSVG(wide.build(), { margin: 0 }).includes(`viewBox="${box}"`));
 });
 
 test("SVG colors every ACI index, and index 7 is the foreground", () => {

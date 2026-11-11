@@ -274,8 +274,10 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   their scale, names, and how the preview draws a sheet as it plots.
 - [Title blocks](docs/title-blocks.md) covers a title block whose fields are
   attributes, and a firm's own border placed under a sheet as an xref.
-- [Text](docs/text.md) covers text styles, fonts and justification, what
-  tsdraft escapes in text, and what AutoCAD does with it after a save.
+- [Text](docs/text.md) covers text styles, fonts and justification, how long a
+  text plots with `measureText`, the warnings of `inspectText` about text that
+  overlaps or leaves its border, what tsdraft escapes in text, and what AutoCAD
+  does with it after a save.
 - [The `tsdraft` command](docs/command.md) covers `render`, `dev`, the JSON they
   give, and what happens without the PNG renderer.
 

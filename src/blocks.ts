@@ -324,6 +324,8 @@ export interface Placement {
    * names. Undefined for an entity of the drawing itself.
    */
   readonly from: Referenced | undefined;
+  /** For the text of an insert's attribute, the attribute's tag. */
+  readonly attribute?: string;
 }
 
 /**
@@ -400,6 +402,7 @@ export function eachDrawn(
         frozen: hidden,
         insertLayer: layer,
         from: inside,
+        attribute: definition.tag,
       });
     }
     open.delete(held);

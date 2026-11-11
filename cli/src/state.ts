@@ -1,11 +1,11 @@
 // The JSON that `tsdraft render` prints and `tsdraft dev` serves as /state.json. Agents program
 // against it, so a change here is a change to the interface.
-import type { Diagnostic, DxfVersion, Entity, PaperUnit, Units } from "tsdraft";
+import type { Diagnostic, DxfVersion, Entity, PaperUnit, TextWarning, Units } from "tsdraft";
 
 /** The result of one build of a drawing file. */
 export interface BuildState {
   /** The shape of this object. It goes up when a field changes meaning or goes away. */
-  readonly schema: 2;
+  readonly schema: 3;
   /**
    * Whether the file ran and its default export gave a drawing. Lint errors do not make it false.
    * `render` also reports false when it could not write the SVG or PNG, with `error.name`
@@ -45,10 +45,12 @@ export interface BuildState {
   /** What the drawing holds. `null` when the build failed. */
   readonly drawing: DrawingSummary | null;
   /**
-   * What `lint` reports for the drawing, errors first. When the file threw a `DrawingError`, as
-   * `toDXF` and the builder do, its diagnostics, without `kind` and `bounds`. When the build
-   * failed because the drawing could not be drawn even without what `lint` reported, what
-   * `lint` reported, without `kind` and `bounds`. Otherwise empty when the build failed.
+   * What `lint` reports for the drawing, errors first, and after it what `inspectText` warns of
+   * in the text as it plots: a rule that starts with `text-`. When the file threw a
+   * `DrawingError`, as `toDXF` and the builder do, its diagnostics, without `kind` and
+   * `bounds`. When the build failed because the drawing could not be drawn even without what
+   * `lint` reported, what `lint` reported, without `kind` and `bounds`. Otherwise empty when
+   * the build failed.
    */
   readonly diagnostics: readonly BuildDiagnostic[];
   /** Why the build failed. `null` when `ok`. */
@@ -64,8 +66,11 @@ export interface BuildState {
    * `svg` and `png` are model space. `layouts` has a picture of each layout as it plots, in the
    * order of `drawing.layouts`, and is empty for a drawing with none.
    *
-   * `pngFonts` says which typeface the PNG sets each font of the picture in. Where
-   * `sameWidths` is false, a text is wider or narrower in the PNG than it plots.
+   * `pngFonts` says which typeface the PNG sets each font of the picture in. In any typeface a
+   * text is as long in the pictures as it plots, and in the PNG its capitals are as tall.
+   *
+   * `view` is the one picture of a `render --view` run, which writes no other: `svg`, `png`
+   * and `layouts` are then `null` and empty. It is `null` in every other run.
    */
   readonly outputs: {
     readonly svg: string | null;
@@ -73,6 +78,7 @@ export interface BuildState {
     readonly pngError: string | null;
     readonly pngFonts: readonly PngFont[];
     readonly layouts: readonly LayoutOutput[];
+    readonly view: ViewOutput | null;
   };
   /** What the drawing file printed to stdout and stderr, cut to its last 8,000 characters. */
   readonly log: string;
@@ -94,12 +100,26 @@ export interface LayoutOutput {
   readonly pngFonts: readonly PngFont[];
 }
 
+/** The picture of one rectangle of model space or of a layout, which `render --view` asks for. */
+export interface ViewOutput {
+  /** The layout the rectangle is on, or `null` for one of model space. */
+  readonly layout: string | null;
+  /** The rectangle: in drawing units in model space, in paper units on a layout. */
+  readonly box: Box;
+  readonly svg: string;
+  /** `null` when there is no PNG, for the reason `pngError` gives. */
+  readonly png: string | null;
+  readonly pngError: string | null;
+  readonly pngFonts: readonly PngFont[];
+}
+
 /**
  * The typeface a PNG sets a font in. The PNG renderer has one typeface of its own, a
  * monospaced one, and reads the machine's font folders for more: a TrueType font is set in
  * its own file when the machine has it, or in a font made to its widths, such as Liberation
  * Sans for Arial. An SHX font, and a TrueType font the machine has neither for, is set in the
- * renderer's own.
+ * renderer's own. Whatever the typeface, a text is as long in the PNG as it plots and its
+ * capitals are as tall: only the shapes of its letters differ.
  */
 export interface PngFont {
   /**
@@ -109,12 +129,6 @@ export interface PngFont {
   readonly font: string;
   /** The family name of the typeface the PNG sets it in. */
   readonly face: string;
-  /**
-   * True when a text in the font is as wide in the PNG as it plots: the typeface has the
-   * font's letter widths.
-   * When false, do not judge from the PNG whether a text fits its space.
-   */
-  readonly sameWidths: boolean;
 }
 
 /**
@@ -137,11 +151,21 @@ export interface PngFont {
  * With `layout`, the problem is on that layout: `entity` then counts the layout's entities,
  * `viewport` its viewports, and `bounds` is on the sheet, in paper units. A viewport has no
  * `kind`.
+ *
+ * A warning of `inspectText` has a rule that starts with `text-`. Its `entity` is the entity of
+ * model space, or of `layout`, that draws the text: the text itself, or the insert whose block
+ * holds it, with the tag in `attribute` when it is one of the insert's attributes. `kind` and
+ * `layer` are that entity's, and `block` is never set. `bounds` is the box of the text as it
+ * plots, turned and justified, and of both texts when two overlap, in the coordinates of its
+ * picture: pass it to `render --view`. `other` names the other text of an overlap, or the
+ * closed polyline the text runs past, the same way.
  */
-export interface BuildDiagnostic extends Diagnostic {
+export interface BuildDiagnostic extends Omit<Diagnostic, "rule"> {
+  readonly rule: Diagnostic["rule"] | TextWarning["rule"];
   readonly kind?: Entity["kind"];
   /** The box around the entity, in drawing units, worked out as `extents` is. */
   readonly bounds?: Box;
+  readonly other?: TextWarning["other"];
 }
 
 export interface Box {
@@ -155,6 +179,8 @@ export interface Timings {
   /** Importing the drawing file and calling its default export. */
   readonly load?: number;
   readonly lint?: number;
+  /** Looking at the text as it plots, for the warnings whose rule starts with `text-`. */
+  readonly inspect?: number;
   readonly svg?: number;
   /** Rasterizing the PNG, when one was asked for. Not counted in `ms`. */
   readonly png?: number;
@@ -166,8 +192,8 @@ export interface DrawingSummary {
   /**
    * The smallest box around the entities on layers that are on, thawed and set to plot, in
    * drawing units, as `toSVG` works it out. A build that draws the layers that do not plot
-   * counts their entities too. It is
-   * approximate: an arc counts as its whole circle, and text as 0.6 of its height per letter.
+   * counts their entities too. It is approximate: an arc counts as its whole circle. A text
+   * counts for the box `measureText` gives it, and for what its font draws below the baseline.
    */
   readonly extents: Box;
   /** Counted in the drawing as it is, whatever `omitted` leaves out of the lists and pictures. */

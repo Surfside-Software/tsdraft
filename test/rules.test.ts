@@ -7,7 +7,9 @@ import {
   DrawingError,
   fromPaper,
   HIDDEN,
+  inspectText,
   lint,
+  measureText,
   toDXF,
   toSVG,
   viewportView,
@@ -17,7 +19,6 @@ import {
   type Text,
 } from "../src/index.ts";
 import sheet, { sitePlan, type Box } from "../examples/site-plan.ts";
-import { textWidth } from "../examples/lib/drafting.ts";
 import { blocksByKey, eachDrawn, mapPoint } from "../src/blocks.ts";
 import { extents } from "../src/extents.ts";
 
@@ -994,20 +995,16 @@ test("fromPaper turns a plotted length into drawing units", () => {
   assert.throws(() => fromPaper(1e60, "mm", { ratio: 1e60, units: "mm" }), /1e100 drawing units/);
 });
 
-test("the example sheet builds with no lint diagnostics", () => {
+test("the example sheet builds with no lint diagnostics and no warning about its text", () => {
   assert.deepEqual(lint(sheet), []);
+  assert.deepEqual(inspectText(sheet), []);
 });
 
-// A text's box as the example lays text out: capitals 0.9 of the text height wide, turned by
-// 0 or 90 degrees about the point the text is justified to.
+// A text's box as it plots in the example's font.
 function textBox(e: Text): [left: number, bottom: number, right: number, top: number] {
-  const length = textWidth(e.value, e.height, 0.9);
-  const start = e.align === "center" ? -length / 2 : e.align === "right" ? -length : 0;
-  const low = e.valign === "top" ? -e.height : e.valign === "middle" ? -e.height / 2 : 0;
-  const [x, y] = e.at;
-  return e.rotation === 90
-    ? [x - low - e.height, y + start, x - low, y + start + length]
-    : [x + start, y + low, x + start + length, y + low + e.height];
+  const corners = measureText({ ...e, font: "Arial" }).corners;
+  const [xs, ys] = [corners.map((c) => c[0]), corners.map((c) => c[1])];
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 }
 
 for (const ratio of [120, 240]) {
@@ -1186,17 +1183,18 @@ test("the extents hold a slanted text's lean, which its width factor does not wi
     const drawing = d.build();
     return extents(drawing.entities, drawing.textStyles).map((n) => Number(n.toFixed(9)));
   };
-  // The text is 1.2 long. What it draws below its baseline, 0.3 of its height, leans back.
-  assert.deepEqual(box(45), [9.7, 20, 12.2, 21]);
-  assert.deepEqual(box(-45), [9, 20, 11.5, 21]);
+  // The text is two thirds of its height long, twice over. What it draws below its baseline,
+  // a third of its height, leans back.
+  assert.deepEqual(box(45), [9.666666667, 19.666666667, 12.333333333, 21]);
+  assert.deepEqual(box(-45), [9, 19.666666667, 11.666666667, 21]);
 });
 
 test("the extents of a turned text reach its far corner", () => {
   const d = createDrawing();
   d.text([0, 0], "AB", { height: 2, rotation: 45 });
   const drawing = d.build();
-  const [left, , right, top] = extents(drawing.entities, drawing.textStyles);
-  const along = right * Math.SQRT2;
+  const [left, , , top] = extents(drawing.entities, drawing.textStyles);
+  const along = measureText({ value: "AB", height: 2 }).length;
   // The box holds the corner above the text's end, one height up from the end of its line.
   assert.ok(Math.abs(top - (along + 2) / Math.SQRT2) < 1e-9);
   assert.ok(Math.abs(left + 2 / Math.SQRT2) < 1e-9);
