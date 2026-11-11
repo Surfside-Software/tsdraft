@@ -65,6 +65,11 @@
   in `*Paper_Space`, with its entities among model space's and marked with group 67, and
   every other in a block `*Paper_Space0` and on. A viewport holds the height of its view and
   no scale: `validViewportView` works it out from the numbers as they are written.
+- `examples/site-plan.ts` is the sheet an agent copies, so it must read as a model: the site
+  in model space at its true size, with the annotation that is read in the plan sized by
+  `fromPaper`, and everything that belongs to the paper inside `d.layout`, in paper units.
+  Its border and title block are one block whose fields are attributes. Never draw a sheet
+  in model space there.
 - A view is drawn only where it can be seen. The clip of a view, the hidden rectangle and
   the cull all use one rectangle: the viewport, cut to the paper, cut to the picture `toSVG`
   is drawing (its `viewBox`), with every number as it will be written. If that rectangle has

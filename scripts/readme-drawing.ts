@@ -64,6 +64,7 @@ const pictures: Picture[] = [
       "C-ANNO-TEXT": "line",
       "C-ANNO-SYMB": "line",
       "C-ANNO-TITL": "line",
+      "G-ANNO-TTLB": "line",
     },
   },
   {
@@ -147,6 +148,10 @@ function sheetPicture(
         return `stroke-width="${Number((Number(value) * wider).toPrecision(5))}"`;
       })
       .replace('fill="none" stroke-width', 'fill="none" stroke-linejoin="round" stroke-width');
+    // The hidden rectangle of a clipped view draws nothing, and has no layer.
+    if (line.includes('visibility="hidden"')) {
+      return styled.replace('stroke="#000000"', `stroke="${colors.muted}"`);
+    }
     if (!role) return styled;
     return styled
       .replace(/ data-layer="[^"]*"/, "")

@@ -698,3 +698,26 @@ test("a slanted text that leans into a view is drawn in it", () => {
   assert.match(svg, /data-id="lean"/);
   assert.match(svg, /data-id="tag"/);
 });
+
+test("a border is an xref placed on a layout alone, with the sheet's fields over it", () => {
+  const b = createDrawing({ units: "in" });
+  b.rect([0.5, 0.5], 35, 23).text([29, 3], "FIRM", { height: 0.25 });
+  const d = createDrawing({ units: "ft" });
+  d.xref("BORDER", "border.dwg");
+  d.block("FIELDS", {}, () => d.attribute("SHEET", [34, 1], { value: "-", height: 0.5 }));
+  d.layout("C-101", { paper: "ARCH D" }, () => {
+    d.insert("BORDER", [0, 0]);
+    d.insert("FIELDS", [0, 0], { attributes: { SHEET: "C-101" } });
+  });
+  const sheet = d.build();
+  // An xref that only a layout places is placed: nothing warns that AutoCAD will purge it.
+  assert.deepEqual(lint(sheet), []);
+  // The preview draws the border on the paper at the insert's scale, under the field, and
+  // none of it in the picture of model space.
+  const svg = toSVG(sheet, { layout: "C-101", xrefs: { BORDER: b.build() } });
+  assert.match(
+    svg.replaceAll(/\n\s*/g, ""),
+    /data-block="BORDER" data-xref="border.dwg"><polygon points="0.5,0.5 35.5,0.5 35.5,23.5 0.5,23.5"[^>]*\/><text [^>]*>FIRM<\/text><\/g><g [^>]*data-block="FIELDS"><text [^>]*>C-101</,
+  );
+  assert.doesNotMatch(toSVG(sheet, { xrefs: { BORDER: b.build() } }), /FIRM|C-101/);
+});

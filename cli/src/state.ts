@@ -63,11 +63,15 @@ export interface BuildState {
    *
    * `svg` and `png` are model space. `layouts` has a picture of each layout as it plots, in the
    * order of `drawing.layouts`, and is empty for a drawing with none.
+   *
+   * `pngFonts` says which typeface the PNG sets each font of the picture in. Where
+   * `sameWidths` is false, a text is wider or narrower in the PNG than it plots.
    */
   readonly outputs: {
     readonly svg: string | null;
     readonly png: string | null;
     readonly pngError: string | null;
+    readonly pngFonts: readonly PngFont[];
     readonly layouts: readonly LayoutOutput[];
   };
   /** What the drawing file printed to stdout and stderr, cut to its last 8,000 characters. */
@@ -86,6 +90,32 @@ export interface LayoutOutput {
    * the renderer stopped on this one. `null` when it has a PNG.
    */
   readonly pngError: string | null;
+  /** The typeface this sheet's PNG sets each of its fonts in. */
+  readonly pngFonts: readonly PngFont[];
+}
+
+/**
+ * The typeface a PNG sets a font in. The PNG renderer has one typeface of its own, a
+ * monospaced one, and reads the machine's font folders for more: a TrueType font is set in
+ * its own file when the machine has it, or in a font made to its widths, such as Liberation
+ * Sans for Arial. An SHX font, and a TrueType font the machine has neither for, is set in the
+ * renderer's own.
+ */
+export interface PngFont {
+  /**
+   * A font of the drawing, as a text style names it, that text in the picture is set in. Two
+   * SHX fonts that `toSVG` sets in one font family are both listed when either is drawn.
+   */
+  readonly font: string;
+  /** The family name of the typeface the PNG sets it in. */
+  readonly face: string;
+  /**
+   * True when a text in the font is as wide in the PNG as it plots: the typeface has the
+   * font's letter widths, and the picture sets the font at the size AutoCAD lays it out at.
+   * It is false for Times New Roman in any typeface, which the pictures set about 2% wide.
+   * When false, do not judge from the PNG whether a text fits its space.
+   */
+  readonly sameWidths: boolean;
 }
 
 /**
@@ -188,6 +218,12 @@ export interface LayoutSummary {
   /** How many entities are drawn on the sheet. An insert is one entity. */
   readonly entities: number;
   readonly viewports: readonly ViewportSummary[];
+  /**
+   * Each insert on the sheet, in order, with the value of each attribute: a title block's
+   * fields are here. `entity` is the insert's index in the layout's entities, and `at` is on
+   * the sheet, in paper units.
+   */
+  readonly inserts: readonly InsertSummary[];
 }
 
 /** A viewport: a rectangle on a sheet that shows model space at a scale. */
@@ -216,7 +252,7 @@ export interface XrefSummary {
   readonly name: string;
   /** The path of the DWG file, from the folder of the file this drawing is written to. */
   readonly path: string;
-  /** How many inserts place the xref, in model space and in blocks. */
+  /** How many inserts place the xref, in model space, in blocks and on layouts. */
   readonly inserts: number;
   /**
    * Whether the pictures draw a drawing for the xref. The command opens no DWG file: it draws
@@ -240,12 +276,15 @@ export interface BlockSummary {
   readonly entities: number;
   /** The tag of each attribute definition, in order. */
   readonly attributes: readonly string[];
-  /** How many inserts place the block, in model space and in other blocks. */
+  /** How many inserts place the block, in model space, in other blocks and on layouts. */
   readonly inserts: number;
 }
 
 export interface InsertSummary {
-  /** The insert's index in the drawing's entities, which its group in the SVG has in `data-entity`. */
+  /**
+   * The insert's index among the entities of its space, model space's or its layout's, which
+   * its group in that picture's SVG has in `data-entity`.
+   */
   readonly entity: number;
   /** The block or the xref as the insert names it. */
   readonly block: string;

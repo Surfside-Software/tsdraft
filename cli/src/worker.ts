@@ -9,6 +9,7 @@ import type {
   Block,
   Diagnostic,
   Drawing,
+  Entity,
   Layout,
   PaperInfo,
   PaperUnit,
@@ -62,8 +63,14 @@ export interface WorkerResult {
   readonly drawing: DrawingSummary | null;
   readonly diagnostics: readonly BuildDiagnostic[];
   readonly svg: string | null;
-  /** The picture of each layout, in the order of `drawing.layouts`. */
-  readonly layouts: readonly { readonly name: string; readonly svg: string }[];
+  /** The fonts of the drawing that text in the picture of model space is set in. */
+  readonly fonts: readonly string[];
+  /** The picture of each layout, in the order of `drawing.layouts`, with its fonts. */
+  readonly layouts: readonly {
+    readonly name: string;
+    readonly svg: string;
+    readonly fonts: readonly string[];
+  }[];
   /** The color `toSVG` draws each layer in, by layer name. */
   readonly swatches: Readonly<Record<string, string>>;
   readonly error: BuildError | null;
@@ -85,6 +92,8 @@ interface Library {
   /** What a viewport shows, and the papers. A copy of tsdraft from before layouts has neither. */
   readonly viewportView?: (viewport: Viewport, paperUnits: PaperUnit, units: Units) => ViewportView;
   readonly PAPERS?: Readonly<Record<string, PaperInfo>>;
+  /** The fonts a text style may have. A copy of tsdraft from before text styles has none. */
+  readonly FONTS?: Readonly<Record<string, { readonly family: string }>>;
   /** The block an insert of a name places. A copy of tsdraft from before blocks has none. */
   readonly findBlock?: (drawing: Drawing, name: string) => Block | undefined;
   /** The xref an insert of a name places. A copy of tsdraft from before xrefs has none. */
@@ -182,6 +191,7 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
     drawing: null,
     diagnostics: drawingErrorDiagnostics(thrown),
     svg: null,
+    fonts: [],
     layouts: [],
     swatches: {},
     error,
@@ -228,6 +238,7 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
         .map((d) => aboutEntity(library, shown, drawn, d));
       timings.lint ??= now() - t;
       t = now();
+      const fontsOf = fontsIn(library, [shown, ...Object.values(drawn)]);
       const { svg, min, max } = framed(
         library.toSVG(shown, { margin: 0, drawNoPlot: drawNoPlot === true, xrefs: drawn }),
       );
@@ -245,7 +256,8 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
                 drawNoPlot: drawNoPlot === true,
                 xrefs: drawn,
               };
-              return [{ name: layout.name, svg: library.toSVG(shown, options) }];
+              const sheet = library.toSVG(shown, options);
+              return [{ name: layout.name, svg: sheet, fonts: fontsOf(sheet) }];
             });
       timings.svg = now() - t;
       const errors = diagnostics.filter((d) => d.severity === "error").length;
@@ -275,6 +287,7 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
         },
         diagnostics,
         svg,
+        fonts: fontsOf(svg),
         layouts: sheets,
         swatches: swatches(library, shown),
         error: null,
@@ -510,6 +523,30 @@ function viewportBox(
   }
 }
 
+/**
+ * Gives, for a picture, the fonts of the drawings that its text is set in: each font of a text
+ * style, or of the `Standard` style, whose font family the picture has.
+ */
+function fontsIn(library: Library, drawings: readonly Drawing[]): (svg: string) => string[] {
+  const fonts = new Set(["txt.shx"]);
+  for (const drawing of drawings) {
+    for (const style of Array.isArray(drawing.textStyles) ? drawing.textStyles : []) {
+      if (typeof style?.font === "string") fonts.add(style.font);
+    }
+  }
+  const families = [...fonts].flatMap((font) => {
+    const family = library.FONTS?.[font]?.family;
+    return family === undefined ? [] : [[font, family] as const];
+  });
+  return (svg) => {
+    const drawn = new Set<string>();
+    for (const [, family] of svg.matchAll(/ font-family="([^"]*)"/g)) {
+      drawn.add(family!.replaceAll("&quot;", '"').replaceAll("&amp;", "&"));
+    }
+    return families.flatMap(([font, family]) => (drawn.has(family) ? [font] : [])).sort();
+  };
+}
+
 /** Each layout whose paper tsdraft knows, with each of its viewports that can be worked out. */
 function layoutSummaries(library: Library, drawing: Drawing): LayoutSummary[] {
   return (drawing.layouts ?? []).flatMap((layout) => {
@@ -534,6 +571,7 @@ function layoutSummaries(library: Library, drawing: Drawing): LayoutSummary[] {
         height: paper.height,
         plotStyle: layout.plotStyle ?? "monochrome.ctb",
         entities: layout.entities.length,
+        inserts: insertSummaries(library, drawing, layout.entities),
         viewports: layout.viewports.flatMap((viewport, index) => {
           const box = viewportBox(library, drawing, layout, index);
           if (!box) return [];
@@ -569,6 +607,13 @@ function layerSummaries(drawing: Drawing): LayerSummary[] {
   }));
 }
 
+/** The entities of each layout whose list of them can be read. */
+function sheetEntities(drawing: Drawing): (readonly Entity[])[] {
+  return (drawing.layouts ?? []).flatMap((layout) =>
+    Array.isArray(layout?.entities) ? [layout.entities as readonly Entity[]] : [],
+  );
+}
+
 /** The block an insert places, found as the library that checks the drawing finds it. */
 function blockNamed(library: Library, drawing: Drawing, name: unknown): Block | undefined {
   return typeof name === "string" ? library.findBlock?.(drawing, name) : undefined;
@@ -577,7 +622,11 @@ function blockNamed(library: Library, drawing: Drawing, name: unknown): Block | 
 function blockSummaries(library: Library, drawing: Drawing): BlockSummary[] {
   const blocks = drawing.blocks ?? [];
   const placed = new Map<unknown, number>();
-  for (const entities of [drawing.entities, ...blocks.map((b) => b.entities)]) {
+  for (const entities of [
+    drawing.entities,
+    ...blocks.map((b) => b.entities),
+    ...sheetEntities(drawing),
+  ]) {
     for (const e of entities) {
       if (e.kind !== "insert") continue;
       const block = blockNamed(library, drawing, e.block);
@@ -643,7 +692,11 @@ function xrefSummaries(
   given: ReadonlyMap<Xref, Given>,
 ): XrefSummary[] {
   const placed = new Map<unknown, number>();
-  for (const entities of [drawing.entities, ...(drawing.blocks ?? []).map((b) => b.entities)]) {
+  for (const entities of [
+    drawing.entities,
+    ...(drawing.blocks ?? []).map((b) => b.entities),
+    ...sheetEntities(drawing),
+  ]) {
     for (const e of entities) {
       if (e.kind !== "insert") continue;
       const xref = xrefNamed(library, drawing, e.block);
@@ -659,8 +712,12 @@ function xrefSummaries(
   }));
 }
 
-function insertSummaries(library: Library, drawing: Drawing): InsertSummary[] {
-  return drawing.entities.flatMap((e, entity): InsertSummary[] => {
+function insertSummaries(
+  library: Library,
+  drawing: Drawing,
+  entities: readonly Entity[] = drawing.entities,
+): InsertSummary[] {
+  return entities.flatMap((e, entity): InsertSummary[] => {
     if (e.kind !== "insert") return [];
     const definitions = blockNamed(library, drawing, e.block)?.attributes ?? [];
     return [

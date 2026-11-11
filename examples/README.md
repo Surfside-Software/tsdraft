@@ -34,57 +34,76 @@ arcs and text, so a CAD program opens the result as plain geometry.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="../docs/assets/site-plan-dark.svg">
-  <img src="../docs/assets/site-plan-light.svg" alt="A landscape sheet, 3 wide to 2 tall. At the left, a permit-style site plan at 1 inch to 10 feet: a lot with its bearings, setback lines, a building footprint with dimension strings, a driveway, a sidewalk, trees and the street, with a north arrow, the view title and a graphic scale under it. At the right, a column of site data, general notes, a legend and abbreviations" width="100%">
+  <img src="../docs/assets/site-plan-light.svg" alt="A landscape sheet, 3 wide to 2 tall, inside a border. At the left, a permit-style site plan at 1 inch to 10 feet: a lot with its bearings, setback lines, a building footprint with dimension strings, a driveway, a sidewalk, trees and the street, with a north arrow, the view title and a graphic scale under it. At the right, a column of site data, general notes, a legend and abbreviations, and in the lower right corner a title block with the project, the sheet title, the date, the scale and the sheet number C-101" width="100%">
 </picture>
 
-The example sheet: a permit-style site plan on an ARCH D sheet, 24 by 36 inches
-and landscape, at 1" = 10'. It is the file to copy to start a drawing.
+The example sheet: a permit-style site plan on an ARCH D sheet, 36 by 24 inches,
+at 1" = 10'. It is the file to copy to start a drawing.
 
-The sheet is a parameter at the top of [`site-plan.ts`](site-plan.ts), 36 wide
-by 24 tall in inches on paper, with a 1/2 inch margin. The file works out the
-sheet's rectangle and its drawing area in drawing units, and places every block
-from them:
+[`site-plan.ts`](site-plan.ts) keeps two spaces, as a drafter does:
 
-- The plan is centered in the left 27 inches of the drawing area: the lot from
-  its plat dimensions, with the setbacks, the building footprint, the driveway
-  and the street, then the labels and dimension strings. The street and the
-  adjoining lot lines run to the sides of that part.
-- The north arrow, the view title and the graphic scale are under the plan, at
-  the lower left of the drawing area.
-- A column 7 inches wide at the right holds the site data, the general notes,
-  the legend and the abbreviations, from the top down.
-- The lower right corner of the drawing area, 6 1/2 inches wide and 3 inches
-  tall, is kept clear. The title block will go there, at the foot of the
-  column.
+- **Model space** holds the site at its true size, in feet: the lot from its
+  plat dimensions, the setbacks, the building footprint, the driveway, the
+  street and the trees. The annotation that is read in the plan is there too:
+  bearings and distances, dimension strings and labels. Each is sized by how
+  large it plots, with `fromPaper` for the viewport's ratio.
+- **The layout `C-101`** holds the sheet, in inches of paper: the border, the
+  title block, a column of site data, general notes, a legend and
+  abbreviations, and under the plan the north arrow, the view's title and a
+  graphic scale. A text there has the height it plots at.
 
-The trees, the property corners, the north arrow and the view title are blocks,
-each drawn once and inserted where it is needed. The tree is drawn one foot in
-radius and inserted at each tree's radius. The others are drawn in inches at
-the size they plot. The view title's text and its scale are attributes.
+One viewport shows the plan on the layout at the ratio. It is on a layer that
+does not plot, so its border stays off the page. AutoCAD opens the file on the
+sheet and plots it at 1" = 10' on a page 36 by 24 inches.
 
-Each layer sets a linetype and a pen weight. The site is in feet, and the
-sheet, every text height, annotation offset and column come from `fromPaper`,
-as a size on paper at the one ratio the file names. The linetype scale is a
-length of paper as it is, 1/2, because AutoCAD sizes dashes on the paper in a
-viewport.
-Change the ratio from 120 to 240 and the notes keep their plotted size and
-their place on the sheet, around a plan half as large. The sheet holds the plan
-at 1" = 10' and at 1" = 20'. At a larger scale, such as 1" = 8', the plan is
-taller than the sheet.
+Where a thing could go either way, the example puts it with what it belongs
+to. The north arrow and the graphic scale describe a view, not the site, so
+they are on the sheet beside the view's title, and the scale is numbered from
+the viewport's ratio. The legend is part of the sheet. Its lines are drawn on
+the plan's own layers, and its dashes are as long as the plan's, because
+AutoCAD sizes dashes on the paper in a viewport and on the sheet alike. The
+street and the adjoining lot lines are part of the site: they run to the sides
+of what the viewport shows, where it cuts them off.
 
-The drawing has one layout, `C-101`, on ARCH D paper, with one viewport over
-the whole sheet that shows the sheet's part of model space at the ratio. So
-AutoCAD opens the file on the sheet and plots it at 1" = 10' on a page 36 by 24
-inches. The viewport is on a layer that does not plot. There is no border or
-title block yet, and the notes are still in model space with the plan. The
-picture is the layout, as `toSVG(drawing, { layout: "C-101" })` draws the sheet,
-in the page's colors. Model space draws the same dashes a quarter of a foot long,
-so judge the linetypes on the sheet.
-`sitePlan(ratio)` builds the sheet at a ratio and returns the drawing with its
-three rectangles in drawing units: `sheetEdge`, `drawingArea` and
-`titleBlockSpace`. A test builds it at 120 and at 240, and holds the drawing
-inside the drawing area, out of the title block's space, and its texts off one
-another.
+The sheet is laid out from its parameters, in inches: the border half an inch
+inside the paper, the viewport in the left 27 inches of the drawing area above
+a strip for the view's title, a column 7 inches wide for the notes, and the
+title block at its foot, 6 1/2 by 3 inches in the lower right corner. The
+paper is full bleed, and the border is still inside it: AutoCAD plots a line
+on the left, bottom or right edge of the paper with half its width off the
+page, and does not plot a line on the top edge.
+
+The border and the title block are one block, `TITLE BLOCK`, which the
+function `titleBlock` draws for the sheet's size. Its fields are attributes:
+the project, the sheet's title and number, the date, the scale, and who drew
+and checked it. It also has a table for revisions and an area for a seal. The
+insert on the layout gives each field its value, and in CAD each stays an
+attribute. `titleBlock` reads its arguments and the constant `TITLE_BLOCK`
+beside it, so the two can be copied by themselves. The view title's
+attributes have tags of their own, `VIEW_TITLE` and `VIEW_SCALE`, so no tag
+names two fields. [Title blocks](../docs/title-blocks.md)
+has more, and the way to use a firm's own border.
+
+The trees, the property corners, the north arrow and the view title are blocks
+too. The tree and the property corner are in the plan and in the legend, so
+each is inserted in model space and on the layout: the tree at each tree's
+radius in the plan and at 3/16 inch in the legend.
+
+Each layer sets a linetype and a pen weight. The linetype scale is a length of
+paper, 1/2. Change the ratio from 120 to 240 and nothing on the sheet moves:
+the plan is half as large in its viewport, and its text keeps its plotted
+height. The sheet holds the plan at 1" = 10' and at 1" = 20'. At a larger
+scale, such as 1" = 8', the plan is taller than its viewport.
+
+The picture is the layout, as `toSVG(drawing, { layout: "C-101" })` draws the
+sheet, in the page's colors. `sitePlan(ratio)` builds the sheet at a ratio and
+returns the drawing with where its parts lie: `drawingArea`, `titleBlock`, the
+box of each of its `fields` and the `viewport` on the paper, in inches, and
+`view`, the part of model space the viewport shows. A test builds it at 120
+and at 240. It holds model space inside the view, the sheet inside the border,
+everything but the title block out of the title block's space and off the
+viewport, the texts of each space off one another, and each field inside its
+box.
 
 The file's default export is the drawing, and it writes its DXF, the SVG of
 model space and the SVG of the sheet only when it is run:

@@ -10,7 +10,10 @@ import {
   lint,
   toDXF,
   toSVG,
+  viewportView,
   type Drawing,
+  type Entity,
+  type Insert,
   type Text,
 } from "../src/index.ts";
 import sheet, { sitePlan, type Box } from "../examples/site-plan.ts";
@@ -1008,68 +1011,96 @@ function textBox(e: Text): [left: number, bottom: number, right: number, top: nu
 }
 
 for (const ratio of [120, 240]) {
-  test(`the example sheet at ratio ${ratio} is laid out on its ARCH D sheet`, () => {
-    const { drawing, sheetEdge, drawingArea, titleBlockSpace } = sitePlan(ratio);
-    const inches = (feet: number) => Number(((feet * 12) / ratio).toFixed(6));
-    const size = (box: Box) => [inches(box.right - box.left), inches(box.top - box.bottom)];
-    assert.deepEqual(size(sheetEdge), [36, 24]);
-    assert.deepEqual(size(drawingArea), [35, 23]);
-    assert.equal(inches(drawingArea.left - sheetEdge.left), 0.5);
-    assert.equal(inches(drawingArea.bottom - sheetEdge.bottom), 0.5);
-    assert.deepEqual(size(titleBlockSpace), [6.5, 3]);
-    assert.equal(titleBlockSpace.right, drawingArea.right);
-    assert.equal(titleBlockSpace.bottom, drawingArea.bottom);
+  test(`the example sheet at ratio ${ratio} is laid out in its two spaces`, () => {
+    const { drawing, layout, drawingArea, titleBlock, fields, viewport, view } = sitePlan(ratio);
+    const [page] = drawing.layouts!;
+    assert.equal(page!.name, layout);
+    const sides = (box: Box) => [box.left, box.bottom, box.right, box.top];
+    assert.deepEqual(sides(drawingArea), [0.5, 0.5, 35.5, 23.5]);
+    assert.deepEqual(sides(titleBlock), [29, 0.5, 35.5, 3.5]);
+    assert.deepEqual(sides(viewport), [0.5, 2, 27.5, 23.5]);
+    // The viewport shows `view` of model space, which is its rectangle at the ratio.
+    const [shown] = page!.viewports;
+    const seen = viewportView(shown!, "in", drawing.units);
+    assert.deepEqual(
+      seen.box,
+      sides(view).map((n) => Number(n.toFixed(6))),
+    );
+    assert.equal(seen.width / (view.right - view.left), 12 / ratio);
 
     const slack = 1e-9;
-    const { blocks } = drawing;
-    const [left, bottom, right, top] = extents(drawing.entities, drawing.textStyles, blocks);
-    assert.ok(left >= drawingArea.left - slack && right <= drawingArea.right + slack);
-    assert.ok(bottom >= drawingArea.bottom - slack && top <= drawingArea.top + slack);
-
+    const { blocks, textStyles } = drawing;
+    const inside = (box: readonly number[], outer: Box) =>
+      box[0]! >= outer.left - slack &&
+      box[2]! <= outer.right + slack &&
+      box[1]! >= outer.bottom - slack &&
+      box[3]! <= outer.top + slack;
     const overlap = (a: readonly number[], b: readonly number[]) =>
       a[2]! > b[0]! + slack &&
       a[0]! < b[2]! - slack &&
       a[3]! > b[1]! + slack &&
       a[1]! < b[3]! - slack;
-    const space = [
-      titleBlockSpace.left,
-      titleBlockSpace.bottom,
-      titleBlockSpace.right,
-      titleBlockSpace.top,
-    ];
-    for (const entity of drawing.entities) {
-      const box = extents([entity], drawing.textStyles, blocks);
-      assert.ok(
-        !overlap(box, space),
-        `${entity.kind} on ${entity.layer} is in the title block's space`,
-      );
+
+    // Model space is the site at its true size, and all of it shows in the viewport.
+    const lot = drawing.entities.find((e) => e.layer === "C-PROP");
+    assert.deepEqual(lot?.kind === "polyline" && lot.points[2], [100, 140]);
+    assert.ok(inside(extents(drawing.entities, textStyles, blocks), view));
+
+    // The sheet is in inches, inside the border. Only the title block is in its own space, and
+    // nothing but the viewport is over the plan.
+    assert.ok(inside(extents(page!.entities, textStyles, blocks), drawingArea));
+    const [border, ...rest] = page!.entities;
+    assert.ok(border?.kind === "insert" && border.block === "TITLE BLOCK");
+    for (const entity of rest) {
+      const box = extents([entity], textStyles, blocks);
+      const what = `${entity.kind} on ${entity.layer}`;
+      assert.ok(!overlap(box, sides(titleBlock)), `${what} is in the title block's space`);
+      assert.ok(!overlap(box, sides(viewport)), `${what} is over the viewport`);
     }
 
-    // Every text the sheet draws, the ones its inserts draw among them. The sheet's inserts
-    // scale both ways alike and are not turned.
-    const texts: Text[] = [];
-    for (const entity of drawing.entities) {
-      eachDrawn(
-        entity,
-        blocksByKey(blocks),
-        () => false,
-        (drawn, { matrix }) => {
-          if (drawn.kind !== "text") return;
-          const scale = matrix ? matrix[0] : 1;
-          const at = matrix ? mapPoint(matrix, drawn.at) : drawn.at;
-          texts.push({ ...drawn, at, height: drawn.height * scale });
-        },
-      );
-    }
-    assert.deepEqual(
-      texts.filter((t) => ["N", "SITE PLAN"].includes(t.value)).map((t) => inches(t.height)),
-      [0.25, 0.1875],
-    );
-    texts.forEach((a, i) => {
-      for (const b of texts.slice(i + 1)) {
-        assert.ok(!overlap(textBox(a), textBox(b)), `"${a.value}" overlaps "${b.value}"`);
+    // Every text of a space, the ones its inserts draw among them, attributes too. The
+    // example's inserts scale both ways alike and are not turned.
+    const textsOf = (entities: readonly Entity[]): Text[] => {
+      const texts: Text[] = [];
+      for (const entity of entities) {
+        eachDrawn(
+          entity,
+          blocksByKey(blocks),
+          () => false,
+          (drawn, { matrix }) => {
+            if (drawn.kind !== "text") return;
+            const scale = matrix ? matrix[0] : 1;
+            const at = matrix ? mapPoint(matrix, drawn.at) : drawn.at;
+            texts.push({ ...drawn, at, height: drawn.height * scale });
+          },
+        );
       }
-    });
+      return texts;
+    };
+    const onPaper = textsOf(page!.entities);
+    // A text is the size it plots at in both spaces: 3/32 inch for a note of the plan, which
+    // is `ratio` times that in model space, and for a number of the graphic scale.
+    const height = (texts: readonly Text[], value: string) =>
+      texts.find((t) => t.value === value)!.height;
+    assert.equal(height(textsOf(drawing.entities), "EDGE OF PAVEMENT"), (3 / 32) * (ratio / 12));
+    assert.equal(height(onPaper, "FEET"), 3 / 32);
+    for (const texts of [textsOf(drawing.entities), onPaper]) {
+      texts.forEach((a, i) => {
+        for (const b of texts.slice(i + 1)) {
+          assert.ok(!overlap(textBox(a), textBox(b)), `"${a.value}" overlaps "${b.value}"`);
+        }
+      });
+    }
+
+    // Each field of the title block has a value of its own, inside its box.
+    const values = (border as Insert).attributes!;
+    assert.deepEqual(Object.keys(values).sort(), Object.keys(fields).sort());
+    assert.equal(values.SHEET, layout);
+    assert.equal(values.SCALE, `1" = ${ratio / 12}'`);
+    for (const [tag, box] of Object.entries(fields)) {
+      const text = onPaper.find((t) => t.value === values[tag]);
+      assert.ok(text && inside(textBox(text), box), `the field ${tag} is outside its box`);
+    }
   });
 }
 

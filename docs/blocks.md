@@ -21,7 +21,10 @@ d.layer("L-PLNT", {}, () => {
 });
 ```
 
-An insert also places an xref, a DWG file the drawing references: see [Xrefs](xrefs.md).
+An insert also places an xref, a DWG file the drawing references: see [Xrefs](xrefs.md). A
+block is inserted in model space, in another block and on a [layout](layouts.md) alike, and a
+sheet's title block is a block with an attribute for each field: see
+[Title blocks](title-blocks.md).
 
 ## Defining a block
 
@@ -63,6 +66,9 @@ block by hand.
 
 An insert sets values by tag in `attributes`. An attribute it does not set has its definition's
 default. Each insert carries one attribute for every definition of its block.
+
+An attribute stays a field in CAD, in model space and on a layout: AutoCAD's `-ATTEDIT`
+command changes its value, and the drawing keeps the new value when it is saved.
 
 ## Inserting a block
 

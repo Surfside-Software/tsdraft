@@ -87,6 +87,7 @@ test("a file that throws gives the error, its file and line, and a non-zero exit
     svg: null,
     png: null,
     pngError: null,
+    pngFonts: [],
     layouts: [],
   });
   assert.match(thrown.state.error!.message, /^radius: /);
@@ -146,6 +147,7 @@ test("a build that fails leaves no picture from an earlier run in the default fo
     svg: null,
     png: null,
     pngError: null,
+    pngFonts: [],
     layouts: [],
   });
   assert.deepEqual([existsSync(outputs.svg!), existsSync(outputs.png!)], [false, false]);
@@ -606,6 +608,26 @@ test("a drawing with a layout gets a picture of its sheet, and the state says wh
       { name: "VIEW", color: 4, plot: false },
     ],
     entities: [{ kind: "line", layer: "0", from: [100, 100], to: [200, 100] }],
+    textStyles: [{ name: "TITLE", font: "Arial" }],
+    xrefs: [{ name: "BORDER", path: "border.dwg" }],
+    blocks: [
+      {
+        name: "TITLE BLOCK",
+        entities: [],
+        attributes: [
+          { tag: "SHEET", value: "-", layer: "0", at: [1, 1], height: 0.25, rotation: 0 },
+          {
+            tag: "DATE",
+            value: "-",
+            layer: "0",
+            at: [1, 2],
+            height: 0.25,
+            rotation: 0,
+            style: "TITLE",
+          },
+        ],
+      },
+    ],
     layouts: [
       {
         name: "A-101 plan",
@@ -626,7 +648,22 @@ test("a drawing with a layout gets a picture of its sheet, and the state says wh
         ],
         entities: [{ kind: "line", layer: "NOPE", from: [0, 0], to: [36, 24] }],
       },
-      { name: "Empty", paper: "ANSI B", viewports: [], entities: [] },
+      {
+        name: "Fields",
+        paper: "ANSI B",
+        viewports: [],
+        // The title block, found whatever the case of its name, with one field set.
+        entities: [
+          {
+            kind: "insert",
+            layer: "0",
+            block: "title block",
+            at: [2, 3],
+            attributes: { SHEET: "A-102" },
+          },
+          { kind: "insert", layer: "0", block: "BORDER", at: [0, 0] },
+        ],
+      },
     ],
   };
   writeFileSync(plan, `export default ${JSON.stringify(drawing)};\n`);
@@ -642,6 +679,7 @@ test("a drawing with a layout gets a picture of its sheet, and the state says wh
       height: 24,
       plotStyle: "monochrome.ctb",
       entities: 1,
+      inserts: [],
       viewports: [
         {
           id: "plan",
@@ -664,16 +702,53 @@ test("a drawing with a layout gets a picture of its sheet, and the state says wh
       ],
     },
     {
-      name: "Empty",
+      name: "Fields",
       paper: "ANSI B",
       paperUnits: "in",
       width: 17,
       height: 11,
       plotStyle: "monochrome.ctb",
-      entities: 0,
+      entities: 2,
       viewports: [],
+      inserts: [
+        {
+          entity: 0,
+          block: "title block",
+          xref: false,
+          layer: "0",
+          id: null,
+          at: [2, 3],
+          scale: [1, 1],
+          rotation: 0,
+          attributes: { SHEET: "A-102", DATE: "-" },
+        },
+        {
+          entity: 1,
+          block: "BORDER",
+          xref: true,
+          layer: "0",
+          id: null,
+          at: [0, 0],
+          scale: [1, 1],
+          rotation: 0,
+          attributes: {},
+        },
+      ],
     },
   ]);
+  // The block and the xref are each placed once, on a layout.
+  assert.deepEqual(state.drawing?.blocks, [
+    { name: "TITLE BLOCK", entities: 0, attributes: ["SHEET", "DATE"], inserts: 1 },
+  ]);
+  assert.deepEqual(state.drawing?.xrefs, [
+    { name: "BORDER", path: "border.dwg", inserts: 1, shown: false, units: null },
+  ]);
+  // Model space has no text. The sheet has text in both fonts, and the PNG has no face with
+  // the widths of an SHX font.
+  assert.deepEqual(state.outputs.pngFonts, []);
+  const fonts = state.outputs.layouts[1]!.pngFonts;
+  assert.deepEqual(fonts[1], { font: "txt.shx", face: "JetBrains Mono", sameWidths: false });
+  assert.deepEqual([fonts.length, fonts[0]?.font], [2, "Arial"]);
   // A diagnostic on a layout is boxed on the sheet: the entity, and the viewport's rectangle.
   assert.deepEqual(
     state.diagnostics.map((d) => [d.rule, d.severity, d.layout, d.entity ?? d.viewport, d.bounds]),
@@ -686,11 +761,11 @@ test("a drawing with a layout gets a picture of its sheet, and the state says wh
   // Each layout is drawn as a sheet of its paper, the one with a lint error too.
   assert.deepEqual(
     state.outputs.layouts.map((made) => made.name),
-    ["A-101 plan", "Empty"],
+    ["A-101 plan", "Fields"],
   );
   const [, sheet] = state.outputs.layouts;
-  assert.equal(sheet?.svg, join(dir, "out", "plan.layout-Empty.svg"));
-  assert.match(readFileSync(sheet!.svg, "utf8"), /viewBox="0 -11 17 11" data-layout="Empty"/);
+  assert.equal(sheet?.svg, join(dir, "out", "plan.layout-Fields.svg"));
+  assert.match(readFileSync(sheet!.svg, "utf8"), /viewBox="0 -11 17 11" data-layout="Fields"/);
   assert.ok(sheet?.png && existsSync(sheet.png));
   // A layout the drawing no longer has leaves no picture behind.
   writeFileSync(plan, `export default ${JSON.stringify({ ...drawing, layouts: [] })};\n`);

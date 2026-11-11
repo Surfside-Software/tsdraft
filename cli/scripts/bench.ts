@@ -2,7 +2,7 @@
 // saving a drawing file to this script receiving the server's build event with the new SVG, not
 // to the page painting it. Saves come once with a pause that lets the spare child finish
 // starting, and once back to back, the next save as soon as the last build arrives. Runs on
-// examples/lot.ts and on a generated drawing of 3,000 entities. Run with `pnpm bench`.
+// examples/lot.ts, on a generated drawing of 3,000 entities and on the example sheet. Run with `pnpm bench`.
 import { execFileSync, spawn } from "node:child_process";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -34,6 +34,15 @@ for (let row = 0; row < 20; row++) {
 export default d.build();
 `,
 );
+
+// The example sheet: model space and a layout, so two pictures a build.
+// It is copied with its helpers, importing the library by name as the other two do.
+const sheet = `${dir}/site-plan.ts`;
+mkdirSync(`${dir}/lib`, { recursive: true });
+for (const file of ["site-plan.ts", "lib/drafting.ts"]) {
+  const source = readFileSync(`${root}../examples/${file}`, "utf8");
+  writeFileSync(`${dir}/${file}`, source.replace(/"(\.\.\/)+src\/index\.ts"/, '"tsdraft"'));
+}
 
 const median = (xs: number[]) => xs.sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
 
@@ -95,6 +104,7 @@ async function benchDev(file: string, edits: number, pause: number) {
 for (const [name, file] of [
   ["examples/lot.ts", small],
   ["3,000 entities", large],
+  ["examples/site-plan.ts", sheet],
 ] as const) {
   const render = benchRender(file, 5);
   const paused = await benchDev(file, 10, 300);

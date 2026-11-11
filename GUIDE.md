@@ -93,6 +93,9 @@ reason in `pngError`. `npm i -D @resvg/resvg-js` adds it. Each entry of `outputs
 a `pngError` of its own. When the renderer stops on one picture, that picture alone has no
 PNG, its `pngError` says so, and its SVG is there to use.
 
+A text is as wide in the PNG as it plots only where `sameWidths` is true for its font in
+`outputs.pngFonts`: elsewhere, do not judge from the PNG whether it fits its space.
+
 When a person is watching, run `npx tsdraft dev plan.ts` and give them the address it prints,
 `http://127.0.0.1:4610` unless that port is taken. The page redraws each time the file, or a
 file it imports, is saved. The same server answers you without a browser:
@@ -104,43 +107,16 @@ the details.
 
 ## What the JSON holds
 
-`render` printed this for the file above, shortened here:
+`render` printed this for the file above, shortened here to what you read first:
 
 ```json
 {
   "schema": 2,
   "ok": true,
-  "build": 1,
-  "file": "/work/plan.ts",
   "drawing": {
     "units": "ft",
-    "dxf": "R2018",
     "extents": { "min": [0, -3], "max": [100, 140] },
-    "counts": {
-      "layers": 4,
-      "entities": 5,
-      "blocks": 0,
-      "xrefs": 0,
-      "layouts": 0,
-      "errors": 0,
-      "warnings": 1
-    },
-    "layers": [
-      {
-        "name": "C-SETB",
-        "color": 8,
-        "linetype": "DASHED",
-        "lineweight": "Default",
-        "off": false,
-        "frozen": false,
-        "plot": true,
-        "entities": 1
-      }
-    ],
-    "blocks": [],
-    "inserts": [],
-    "xrefs": [],
-    "layouts": []
+    "counts": { "layers": 4, "entities": 5, "layouts": 0, "errors": 0, "warnings": 1 }
   },
   "diagnostics": [
     {
@@ -156,42 +132,30 @@ the details.
     }
   ],
   "error": null,
-  "outputs": { "svg": "/work/out/plan.svg", "png": "/work/out/plan.png", "pngError": null }
+  "outputs": { "svg": "/work/out/plan.svg", "png": "/work/out/plan.png", "layouts": [] }
 }
 ```
 
 - `ok` says whether the file ran and gave a drawing. Lint errors do not make it false, so read
   `drawing.counts.errors` or the exit code as well.
-- `drawing.extents` is the box around everything drawn, in drawing units. Use it to check the
-  drawing's size against what you meant.
-- `drawing.layers` lists every layer with its color, linetype, lineweight, state and the
-  number of entities on it. Layer `0` is in every drawing.
-- `drawing.blocks` lists every block with the number of entities it holds, the tags of its
-  attributes and how many inserts place it. `drawing.inserts` lists every insert in model
-  space: its `entity` index, `block`, `layer`, `id`, `at`, `scale`, `rotation`, and the value
-  it shows for each attribute. An insert is one entity, whatever its block holds.
-- `drawing.xrefs` lists every xref with its `name`, its `path`, how many `inserts` place it,
-  `shown` and `units`. `shown` says whether the pictures drew the drawing your file exports
-  under that name. The command cannot tell whether that drawing is what the file at `path`
-  holds, and the two can differ. When `shown` is false you are not seeing the xref at all, and
-  neither are the extents. `units` is the units of the drawing you gave, or `null`: where it
-  differs from `drawing.units`, each insert needs a scale.
-- `drawing.layouts` lists every layout with its `paper`, its `width` and `height` in
-  `paperUnits`, and each viewport: its `rectangle` on the sheet, its `ratio`, the `center` of
-  its view and `shows`, the box of model space it frames. Compare `shows` with
-  `drawing.extents` to see what a view cuts off. `outputs.layouts` has a picture of each
-  sheet as it plots. `outputs.svg` and `outputs.png` stay model space.
+- `drawing.extents` is the box around everything drawn, in drawing units. Check the drawing's
+  size against what you meant.
+- `drawing.layers`, `blocks`, `inserts`, `xrefs` and `layouts` list what the drawing holds.
+  An insert has the value of each attribute. An xref has `shown`: when it is false, the
+  pictures do not draw the xref at all. A layout has each viewport with `shows`, the box of
+  model space it frames, to compare with `drawing.extents`, and its own `inserts`, which is
+  where to read the fields of a title block.
+- `outputs.svg` and `outputs.png` are model space. `outputs.layouts` has a picture of each
+  sheet as it plots.
 - `diagnostics` is what `lint` found. An error stops `toDXF` from writing the file. A warning
-  does not. An error about the shape of a value, such as a field of the wrong type, gives
-  `item`, the path of the item that holds it, such as `entities[3]` or
-  `layouts[0].viewports[1]`.
-- `drawing.omitted` lists the `item` of everything the pictures, the extents and the lists
-  leave out, because the drawing could not be drawn with it: an entity, a block, a whole
-  layout, or one viewport of a layout, whose other viewports are still drawn. A problem of an entity left out,
-  by itself or with its block or list, has no `kind`, `layer` or `bounds`. `drawing.counts` still counts the whole drawing.
-  Without `omitted`, you are seeing all of it.
+  does not. An error about the shape of a value gives `item`, such as `entities[3]`.
+  `drawing.omitted`, when it is there, lists what the pictures leave out because the drawing
+  could not be drawn with it.
 - `error` is why a build failed: its `message`, and the `file`, `line` and `column` of your
   code.
+
+[docs/command.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/command.md)
+describes every field.
 
 To act on a diagnostic, open `call.file` at `call.line`. That is the builder call that drew the
 entity, so it is the line to change. `id` is the id you gave the entity, and `entity` is its
@@ -217,19 +181,23 @@ plain ratio and `units` is the drawing's units. Size every text height, symbol, 
 line and its label, and the linetype scale this way, from one `view`, and never as a bare
 number of drawing units. Then the annotation keeps its plotted size when the scale changes.
 
+This is for model space. What you draw on a layout is in paper units already: see
+[Layouts](#layouts).
+
 ## The file to copy
 
 [`examples/site-plan.ts`](https://github.com/Surfside-Software/tsdraft/blob/main/examples/site-plan.ts)
 in the tsdraft repository is a whole sheet: a permit-style site plan at 1" = 10' with property
-lines, setbacks, a building, dimension strings, labels, notes and a legend, laid out for a
-landscape ARCH D sheet, 24 by 36 inches. The sheet is a parameter, and every block is placed
-from it. Start a new drawing from it. It is not in the npm package. Copy it and
+lines, setbacks, a building, dimension strings and labels in model space, and on a landscape
+ARCH D layout, 36 by 24 inches, its border, a title block whose fields are attributes, notes,
+a legend, the view's title and a graphic scale. Start a new drawing from it. It is not in the npm package. Copy it and
 [`examples/lib/drafting.ts`](https://github.com/Surfside-Software/tsdraft/blob/main/examples/lib/drafting.ts),
 keeping `drafting.ts` in a `lib` folder beside it. Change two import strings to `"tsdraft"`:
 `"../src/index.ts"` in `site-plan.ts`, and `"../../src/index.ts"` in `lib/drafting.ts`.
 
 Its parameters come first and every position is worked out from them. Its dimension strings and
-arrowheads are functions in `drafting.ts` that draw lines and text. Its symbols are blocks.
+arrowheads are functions in `drafting.ts` that draw lines and text. Its symbols are blocks,
+and so is its title block.
 
 ## Blocks
 
@@ -263,8 +231,19 @@ attributes.
 
 ## Layouts
 
-A layout is a sheet of paper: CAD shows it as a tab and plots it as one page. Draw the model
-in model space at its real size, and put it on a sheet through a viewport.
+A layout is a sheet of paper: CAD shows it as a tab and plots it as one page. A drawing has
+two spaces, and each thing goes in one of them:
+
+- **Model space** holds what is real, at its real size: the site, the building, and the
+  annotation that is read in the plan, such as dimensions and labels. Size that annotation
+  with `fromPaper` for the ratio of the viewport that shows it.
+- **The layout** holds what belongs to the paper, in inches: the border, the title block, the
+  notes, the legend, each view's title, the north arrow and the graphic scale. A text there
+  has the height it plots at.
+
+A viewport on the layout shows model space at a scale. Never draw the sheet in model space,
+scaled up around the plan: a drafter who opens the file finds the notes many times their
+size, and no sheet to plot.
 
 ```ts
 d.layer("G-ANNO-NPLT", { color: 8, plot: false });
@@ -295,6 +274,11 @@ d.layout("C-101", { paper: "ARCH D" }, (sheet) => {
   layer in its color.
 - Define blocks outside `layout`, and insert them inside it. An `id` is unique across model
   space, blocks and every layout.
+- A title block is a block with an attribute for each field, and a firm's own border is an
+  xref on the layout:
+  [docs/title-blocks.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/title-blocks.md).
+  Keep a border inside the paper: on its left, bottom or right edge AutoCAD plots a line
+  with half its width off the page, and on its top edge not at all.
 
 Look at the sheet's picture, in `outputs.layouts`, and not only at model space. Read
 `drawing.layouts` to check that each viewport `shows` the part of the model you meant.

@@ -53,9 +53,31 @@
   such a text, or an insert that turns one, now has an `$EXTMIN` and `$EXTMAX` that reach
   that corner, opens zoomed to a slightly larger view, and has a slightly larger `viewBox`
   in `toSVG`. Nothing else in its files changes.
-- The example sheet has a layout, `C-101`, on `ARCH D`, with one viewport over the whole
-  sheet at its ratio. Its linetype scale is now a length of paper, 1/2, because AutoCAD sizes
-  dashes on the paper in a viewport: its model tab shows the same dashes a tenth as long.
+- The example sheet is laid out in two spaces. Model space holds the site at its true size,
+  with the bearings, dimensions and labels that are read in the plan. The layout `C-101`, on
+  `ARCH D`, holds the sheet in inches: the border, a title block, the column of notes, the
+  legend, the view's title, the north arrow and the graphic scale, and one viewport that
+  shows the plan at 1" = 10'. Its linetype scale is a length of paper, 1/2, because AutoCAD
+  sizes dashes on the paper in a viewport. `sitePlan(ratio)` now returns where the parts of
+  the sheet lie on the paper and what its viewport shows, in place of the three rectangles
+  in drawing units.
+- The example's title block is a block, `TITLE BLOCK`, with an attribute for each field: the
+  project, the sheet's title and number, the date, the scale, and who drew and checked it,
+  beside a table for revisions and an area for a seal. The insert on the layout gives each
+  field its value, and AutoCAD's `-ATTEDIT` changes one. The view title's attributes are now
+  tagged `VIEW_TITLE` and `VIEW_SCALE`, so no tag names two fields of the sheet. [docs/title-blocks.md](docs/title-blocks.md)
+  shows how to draw one, and how to put a firm's own border under a sheet as an xref on its
+  layout, with the sheet's fields over it and what the border's file may hold.
+- `tsdraft render` and `tsdraft dev`: each layout of `drawing.layouts` gains `inserts`, the
+  inserts on its sheet with the value of each attribute, so the fields of a title block are
+  in the JSON. The `inserts` count of a block and of an xref now counts inserts on layouts.
+- A PNG from the command sets a TrueType font in its own letters where the machine has the
+  font, or one made to its widths: Liberation Sans for Arial, Liberation Serif for Times New
+  Roman, Liberation Mono for Courier New. Before, every text was in the renderer's own
+  monospaced typeface, wider than it plots. `outputs.pngFonts`, and the `pngFonts` of each
+  entry of `outputs.layouts`, say which typeface the PNG sets each font of the picture in,
+  and whether a text in it is as wide as it plots. An SHX font never is, and neither is
+  Times New Roman, which the pictures set about 2% wide. `schema` stays 2.
 
 ## 0.5.0
 
