@@ -306,7 +306,7 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     // Each entity of model space with the box around what it draws, worked out once, a slanted
     // text with its lean, and how far past that box its ink may reach beyond its pen: a
     // text's letters may be wider than the estimate of its box, and so may the texts of a block.
-    const boxOf = boxer(drawing.textStyles, drawing.blocks, hidden, frozen, xrefs, true);
+    const boxOf = boxer(drawing.textStyles, drawing.blocks, hidden, frozen, xrefs);
     const model = shownOf(drawing.entities).flatMap((shown) => {
       const box = boxOf([shown[1]]);
       if (!box) return [];
@@ -608,10 +608,12 @@ function entityToSvg(
               ? -DESCENT * size
               : 0;
       if (drop !== 0) t += ` translate(0 ${fmt(drop)})`;
-      const width = style?.widthFactor ?? 1;
-      if (width !== 1) t += ` scale(${fmt(width)} 1)`;
+      // AutoCAD slants a text after it widens it, so the width factor does not widen the lean.
+      // The transform applied last comes first.
       const oblique = style?.obliqueAngle ?? 0;
       if (oblique !== 0) t += ` skewX(${fmt(-oblique)})`;
+      const width = style?.widthFactor ?? 1;
+      if (width !== 1) t += ` scale(${fmt(width)} 1)`;
       const anchor =
         e.align === "center"
           ? ` text-anchor="middle"`

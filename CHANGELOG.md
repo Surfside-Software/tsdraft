@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- A drawing's extents take in the lean of a slanted text. AutoCAD draws the top of a text
+  whose style has an oblique angle further along the text by its height times the tangent
+  of the angle, and what it draws below the baseline further back. The extents left that
+  out, so the `viewBox` of `toSVG`, `$EXTMIN` and `$EXTMAX` and the view a DXF opens on cut
+  the lean off, and `lint` warned that a viewport shows none of the drawing when a slanted
+  text leaned into it. Those numbers move for a drawing with a slanted text, and for no
+  other.
+- `toSVG` slants a text after it widens it, as AutoCAD does. It widened the lean by the
+  style's width factor, so a text with both an oblique angle and a width factor other than
+  1 leaned too far or not far enough. Its `transform` now has `skewX` before `scale`.
+- `toSVG` draws Times New Roman, Georgia, Trebuchet MS and Calibri at the size AutoCAD does.
+  AutoCAD makes a font's capital `A` as tall as the text's height, and tsdraft sized these
+  four by a lower capital, so their text was 2.3%, 1.4%, 1.4% and 0.4% too large. The
+  `font-size` of a text in one of them moves, and so does `FONTS[font].capHeight`. The other
+  six TrueType fonts were within 0.05%, and stay as they were.
 - Layouts, in R2018 drawings. `d.layout(name, { paper, plotStyle }, draw)` adds a sheet of
   paper that AutoCAD shows as a tab and plots as one page, and what `draw` draws goes on it,
   in paper units: lines, circles, arcs, polylines, texts and inserts of blocks and of xrefs.
@@ -76,8 +91,7 @@
   Roman, Liberation Mono for Courier New. Before, every text was in the renderer's own
   monospaced typeface, wider than it plots. `outputs.pngFonts`, and the `pngFonts` of each
   entry of `outputs.layouts`, say which typeface the PNG sets each font of the picture in,
-  and whether a text in it is as wide as it plots. An SHX font never is, and neither is
-  Times New Roman, which the pictures set about 2% wide. `schema` stays 2.
+  and whether a text in it is as wide as it plots. An SHX font never is. `schema` stays 2.
 
 ## 0.5.0
 

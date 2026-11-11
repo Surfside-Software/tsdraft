@@ -235,10 +235,6 @@ looks for the files once, when it starts.
 A font made to another's widths has its own letter shapes, and its capitals are not quite as
 high: Liberation Sans draws a capital 4% lower than Arial does at one size.
 
-`sameWidths` is also false for a font the pictures set at another size than AutoCAD lays it
-out at. Times New Roman is one: `toSVG` sets it about 2% wide, in its own file and in
-Liberation Serif alike.
-
 ## Without the PNG renderer
 
 The PNG is drawn by `@resvg/resvg-js`, an optional dependency of tsdraft that npm installs by

@@ -76,9 +76,8 @@ test("a font file is a face of the font only when it names itself so", () => {
   assert.deepEqual(pngFonts(["Arial"], arialText, both), [
     { font: "Arial", face: "Liberation Sans", sameWidths: true },
   ]);
-  // The pictures set Times New Roman wider than it plots, in its own letters too.
   assert.deepEqual(pngFonts(["Times New Roman"], timesText, both), [
-    { font: "Times New Roman", face: "Times New Roman", sameWidths: false },
+    { font: "Times New Roman", face: "Times New Roman", sameWidths: true },
   ]);
 });
 

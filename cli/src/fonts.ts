@@ -149,13 +149,6 @@ export function faces(): ReadonlyMap<string, Face> {
   return (found ??= findFaces());
 }
 
-/**
- * The fonts `toSVG` sets larger or smaller than AutoCAD lays them out, so that a text in one
- * is not as wide in a picture as it plots, in any face. `FONTS` gives Times New Roman a cap
- * height of 0.662, and AutoCAD lays it out as 0.677 would.
- */
-const SIZE_OFF: ReadonlySet<string> = new Set(["Times New Roman"]);
-
 /** A value as `toSVG` writes it in an attribute. */
 const attribute = (value: string): string =>
   value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;");
@@ -186,7 +179,7 @@ export function pngFonts(
     const family = (FONTS as Readonly<Record<string, { family: string }>>)[font]?.family;
     const face = used.find((one) => one.family === family);
     return face
-      ? { font, face: face.face, sameWidths: !SIZE_OFF.has(font) }
+      ? { font, face: face.face, sameWidths: true }
       : { font, face: SHIPPED.face, sameWidths: false };
   });
 }

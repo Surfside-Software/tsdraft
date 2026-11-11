@@ -84,12 +84,13 @@
   picture, whatever else the group holds. A viewport `lint` refuses is drawn as its border
   alone.
 - Leaving out of a view what cannot show in it must never leave out what shows. The cull
-  keeps an entity whose box, from `boxer` in `src/extents.ts` with `slanted`, reaches the
+  keeps an entity whose box, from `boxer` in `src/extents.ts`, reaches the
   rectangle when the box is made larger by the widest lineweight and, for a text or an
   insert, by the larger side of the box, since letters may be wider than the box takes them
-  to be. `slanted` adds the lean of a text whose style has an oblique angle, which `extents`
-  leaves out. Build `boxer` once for a drawing: it reads every block and text style when it
-  is made.
+  to be. The box holds the lean of a text whose style has an oblique angle: AutoCAD slants a
+  text after it widens it, so the lean is the height times the tangent of the angle and the
+  width factor has no part in it. `toSVG` writes `skewX` before `scale` for that reason.
+  Build `boxer` once for a drawing: it reads every block and text style when it is made.
 - AutoCAD sizes dashes on the paper in a viewport, so `toSVG` scales a pattern by the
   linetype scale over the viewport's scale there. `toSVG` draws a layout with `elements`, the
   walk it draws model space with, under a `Look` that says how wide and what color a pen is.
@@ -123,7 +124,10 @@
   layers.
 - `src/fonts.ts` is the one list of fonts a text style may have, with the file
   AutoCAD stores for each and, for a TrueType font, its pitch and family.
-  `lint`, both writers and `toSVG` read it. Add a font only when AutoCAD 2025
+  `lint`, both writers and `toSVG` read the list. A TrueType font also has its `capHeight`,
+  which only `toSVG` reads: the top of the font's capital `A` over its units per em, since
+  AutoCAD makes that `A` as tall as the text's height. It is not the cap height the font
+  states. Add a font only when AutoCAD 2025
   or Windows installs it.
 - Text style names use `layerKey`, `layerAuditKey` and the name checks of
   layers, as linetype names do. A text holds its own width factor and oblique

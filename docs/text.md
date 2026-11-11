@@ -38,6 +38,14 @@ A width factor is from 0.01 to 100, the range AutoCAD's `STYLE` command takes. A
 angle is from -85 to 85 degrees, and `AUDIT` reports a style or a text slanted further. Both
 limits are judged as the number is written, with 6 decimals.
 
+AutoCAD slants a text after it widens it: the top of a text of height 1 lies the tangent of
+the oblique angle further along the text, whatever the width factor, and a negative angle
+leans it back. `toSVG` draws it so, and the drawing's extents take the lean in.
+
+AutoCAD sizes a TrueType font so that its capital `A` is as tall as the text's height. In
+Times New Roman, Georgia and Trebuchet MS that `A` is taller than a flat capital such as
+`H`, so an `H` of a text of height 1 is a little under 1 tall.
+
 A text holds its style's width factor and oblique angle from the moment it is written. Change
 a style with `textStyle()` and the files tsdraft writes change with it.
 
