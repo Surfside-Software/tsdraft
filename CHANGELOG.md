@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- `toSVG` draws a layer in the color AutoCAD plots its index in, for every index
+  from 1 to 255. It knew 1 to 6 and drew the rest in `currentColor`. Index 7
+  stays `currentColor`: it is black on paper and white on a dark screen.
+- Breaking: `toSVG` leaves out a layer whose `plot` is false, as it leaves out
+  one that is off or frozen, so the picture is the drawing as it plots.
+  `toSVG(drawing, { drawNoPlot: true })` draws those layers too.
+
 ## 0.4.0
 
 - `fromPaper(length, "in" | "mm", { ratio, units })` turns a length on paper

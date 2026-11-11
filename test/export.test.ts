@@ -281,3 +281,31 @@ test("SVG draws dashes and pen weights, and leaves out layers that are off or fr
   const circle = toSVG(createDrawing().circle([0, 0], 1, { linetype: long }).build());
   assert.match(circle, /<path d="M 1 0 A 1 1 0 0 1 -1 0 A 1 1 0 0 1 1 0"/);
 });
+
+test("SVG colors every ACI index, and index 7 is the foreground", () => {
+  const d = createDrawing();
+  d.layer("ORANGE", { color: 30 }, () => d.line([0, 0], [1, 0]));
+  d.layer("LAST", { color: 255 }, () => d.line([0, 2], [1, 2]));
+  d.line([0, 1], [1, 1]);
+  const svg = toSVG(d.build());
+  assert.match(svg, /stroke="#ff7f00"[^>]*data-layer="ORANGE"/);
+  // The last index holds the table's length and order.
+  assert.match(svg, /stroke="#fafafa"[^>]*data-layer="LAST"/);
+  assert.match(svg, /stroke="currentColor"[^>]*data-layer="0"/);
+});
+
+test("SVG leaves out a layer that does not plot, unless asked for it", () => {
+  const d = createDrawing();
+  d.layer("GUIDE", { color: 8, plot: false }, () => d.line([0, 0], [50, 0]));
+  d.layer("HIDDEN", { plot: false, off: true }, () => d.line([0, 0], [0, 90]));
+  d.line([0, 1], [1, 1]);
+  const drawing = d.build();
+  const plotted = toSVG(drawing);
+  const all = toSVG(drawing, { drawNoPlot: true });
+  assert.doesNotMatch(plotted, /data-layer="GUIDE"/);
+  assert.match(all, /stroke="#808080"[^>]*data-layer="GUIDE"/);
+  // The picture's box follows what is drawn, and a layer that is off stays out either way.
+  const box = (svg: string) => /viewBox="([^"]*)"/.exec(svg)![1]!.split(" ").map(Number);
+  assert.ok(box(plotted)[2]! < 2 && box(all)[2]! > 50 && box(all)[3]! < 10);
+  assert.doesNotMatch(all, /data-layer="HIDDEN"/);
+});

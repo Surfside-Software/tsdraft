@@ -4,16 +4,46 @@ import { fmt } from "./format.ts";
 import { layerKey } from "./layers.ts";
 import { builtInLinetype, lineweightCode } from "./linetypes.ts";
 
-/** Screen colors for the standard ACI colors 1 to 7. Other indexes draw in currentColor. */
-const ACI: Record<number, string> = {
-  1: "#ff0000",
-  2: "#ffff00",
-  3: "#00ff00",
-  4: "#00ffff",
-  5: "#0000ff",
-  6: "#ff00ff",
-  7: "currentColor",
-};
+/**
+ * The color AutoCAD plots each ACI index in, from 1 to 255, ten to a row. The entry for index
+ * 7 is not used: 7 is black on paper and white on a dark screen, so it draws in currentColor.
+ */
+const ACI: readonly string[] = [
+  "ff0000 ffff00 00ff00 00ffff 0000ff ff00ff 000000 808080 dcdcdc ff0000",
+  "ff7f7f dd0000 dd6e6e b80000 b85c5c 950000 954a4a 720000 723939 ff3f00",
+  "ff9f7f dd3700 dd8a6e b82e00 b8735c 952500 955d4a 721c00 724739 ff7f00",
+  "ffbf7f dd6e00 dda56e b85c00 b88a5c 954a00 95704a 723900 725639 ffbf00",
+  "ffdf7f dda500 ddc16e b88a00 b8a15c 957000 95834a 725600 726439 ffff00",
+  "ffff7f dddd00 dddd6e b8b800 b8b85c 959500 95954a 727200 727239 bfff00",
+  "dfff7f a5dd00 c1dd6e 8ab800 a1b85c 709500 83954a 567200 647239 7fff00",
+  "bfff7f 6edd00 a5dd6e 5cb800 8ab85c 4a9500 70954a 397200 567239 3fff00",
+  "9fff7f 37dd00 8add6e 2eb800 73b85c 259500 5d954a 1c7200 477239 00ff00",
+  "7fff7f 00dd00 6edd6e 00b800 5cb85c 009500 4a954a 007200 397239 00ff3f",
+  "7fff9f 00dd37 6edd8a 00b82e 5cb873 009525 4a955d 00721c 397247 00ff7f",
+  "7fffbf 00dd6e 6edda5 00b85c 5cb88a 00954a 4a9570 007239 397256 00ffbf",
+  "7fffdf 00dda5 6eddc1 00b88a 5cb8a1 009570 4a9583 007256 397264 00ffff",
+  "7fffff 00dddd 6edddd 00b8b8 5cb8b8 009595 4a9595 007272 397272 00bfff",
+  "7fdfff 00a5dd 6ec1dd 008ab8 5ca1b8 007095 4a8395 005672 396472 007fff",
+  "7fbfff 006edd 6ea5dd 005cb8 5c8ab8 004a95 4a7095 003972 395672 003fff",
+  "7f9fff 0037dd 6e8add 002eb8 5c73b8 002595 4a5d95 001c72 394772 0000ff",
+  "7f7fff 0000dd 6e6edd 0000b8 5c5cb8 000095 4a4a95 000072 393972 3f00ff",
+  "9f7fff 3700dd 8a6edd 2e00b8 735cb8 250095 5d4a95 1c0072 473972 7f00ff",
+  "bf7fff 6e00dd a56edd 5c00b8 8a5cb8 4a0095 704a95 390072 563972 bf00ff",
+  "df7fff a500dd c16edd 8a00b8 a15cb8 700095 834a95 560072 643972 ff00ff",
+  "ff7fff dd00dd dd6edd b800b8 b85cb8 950095 954a95 720072 723972 ff00bf",
+  "ff7fdf dd00a5 dd6ec1 b8008a b85ca1 950070 954a83 720056 723964 ff007f",
+  "ff7fbf dd006e dd6ea5 b8005c b85c8a 95004a 954a70 720039 723956 ff003f",
+  "ff7f9f dd0037 dd6e8a b8002e b85c73 950025 954a5d 72001c 723947 545454",
+  "767676 989898 bababa dbdbdb fafafa",
+]
+  .join(" ")
+  .split(" ");
+
+/** The color of an ACI index. An index outside 1 to 255 draws like 7, in currentColor. */
+function aciColor(index: number): string {
+  const rgb = index === 7 ? undefined : ACI[index - 1];
+  return rgb === undefined ? "currentColor" : `#${rgb}`;
+}
 
 /** AutoCAD draws a lineweight of "Default" at its LWDEFAULT, 0.25 mm. */
 const DEFAULT_LINEWEIGHT = 25;
@@ -32,6 +62,8 @@ export interface SvgOptions {
    * lineweights are drawn in proportion. It stays constant when the SVG scales.
    */
   readonly strokeWidth?: number;
+  /** Draws the layers whose `plot` is false too. They are left out by default. */
+  readonly drawNoPlot?: boolean;
 }
 
 /** How an entity is drawn. */
@@ -44,11 +76,12 @@ interface Pen {
 }
 
 /**
- * Renders a preview SVG. Model Y points up, so the drawing group flips Y. Entities on layers
- * that are off or frozen are left out. Dashed lines are cut into their dashes, scaled by the
- * drawing's linetype scale, and each line is as wide as its lineweight. Each entity's element
- * has its layer in `data-layer`, its index in `drawing.entities` in `data-entity`, and its `id`,
- * when it has one, in `data-id`.
+ * Renders a preview SVG of the drawing as it plots. Model Y points up, so the drawing group
+ * flips Y. Entities on layers that are off, frozen or set not to plot are left out, and each
+ * layer draws in the color AutoCAD plots its index in. Dashed lines are cut into their dashes,
+ * scaled by the drawing's linetype scale, and each line is as wide as its lineweight. Each
+ * entity's element has its layer in `data-layer`, its index in `drawing.entities` in
+ * `data-entity`, and its `id`, when it has one, in `data-id`.
  */
 export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
   // Keyed as AutoCAD looks layers up, so an entity on `wall` takes the color of layer `WALL`.
@@ -56,7 +89,8 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
   // Each entity keeps its index in `drawing.entities`, for its element's data-entity.
   const shown = [...drawing.entities.entries()].filter(([, e]) => {
     const layer = layers.get(layerKey(e.layer));
-    return !layer?.off && !layer?.frozen;
+    if (layer?.off || layer?.frozen) return false;
+    return options.drawNoPlot === true || layer?.plot !== false;
   });
   const [minX, minY, maxX, maxY] = extents(shown.map(([, e]) => e));
   const margin = options.margin ?? Math.max(maxX - minX, maxY - minY, 1) * 0.02;
@@ -81,7 +115,7 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
         : e.lineweight;
     const code = lineweightCode(weight);
     return {
-      color: ACI[layer?.color ?? 7] ?? "currentColor",
+      color: aciColor(layer?.color ?? 7),
       dashes: pattern?.map((length) => length * scale),
       lineweight: code < 0 ? DEFAULT_LINEWEIGHT : code,
     };
