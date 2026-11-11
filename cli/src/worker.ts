@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createRequire, isBuiltin, registerHooks } from "node:module";
 import { dirname, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { Block, Diagnostic, Drawing } from "tsdraft";
+import type { Block, Diagnostic, Drawing, Xref } from "tsdraft";
 import type {
   BlockSummary,
   Box,
@@ -14,6 +14,7 @@ import type {
   DrawingSummary,
   InsertSummary,
   LayerSummary,
+  XrefSummary,
 } from "./state.ts";
 import { fileVersion } from "./version.ts";
 
@@ -55,9 +56,14 @@ export interface WorkerResult {
 
 interface Library {
   readonly lint: (drawing: Drawing) => Diagnostic[];
-  readonly toSVG: (drawing: Drawing, options?: { margin?: number; drawNoPlot?: boolean }) => string;
+  readonly toSVG: (
+    drawing: Drawing,
+    options?: { margin?: number; drawNoPlot?: boolean; xrefs?: Readonly<Record<string, Drawing>> },
+  ) => string;
   /** The block an insert of a name places. A copy of tsdraft from before blocks has none. */
   readonly findBlock?: (drawing: Drawing, name: string) => Block | undefined;
+  /** The xref an insert of a name places. A copy of tsdraft from before xrefs has none. */
+  readonly findXref?: (drawing: Drawing, name: string) => Xref | undefined;
 }
 
 // Deep enough that a drawing calling helpers several levels down still has its own frame.
@@ -157,13 +163,18 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
 
   let t = now();
   let drawing: Drawing;
+  let referenced: Readonly<Record<string, Drawing>>;
   try {
-    const module = (await import(pathToFileURL(file).href)) as { default?: unknown };
+    const module = (await import(pathToFileURL(file).href)) as {
+      default?: unknown;
+      xrefs?: unknown;
+    };
     let value = module.default;
     if (typeof value === "function") value = await (value as () => unknown)();
-    const problem = notADrawing(value, "default" in module);
+    const problem = notADrawing(value, "default" in module) ?? notXrefs(module.xrefs);
     if (problem) return fail(atExport(file, problem));
     drawing = value as Drawing;
+    referenced = (module.xrefs ?? {}) as Readonly<Record<string, Drawing>>;
   } catch (thrown) {
     timings.load = now() - t;
     return fail(describe(thrown, root), thrown);
@@ -173,14 +184,32 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
   try {
     const library = await findLibrary(file);
     t = now();
-    const diagnostics = library
-      .lint(drawing)
+    const found = library.lint(drawing);
+    // `lint` has reported a list of blocks or xrefs that is not one. What follows reads the
+    // drawing without it, so the report is what the build gives and not a thrown error.
+    const { blocks, xrefs, ...rest } = drawing;
+    const isList = (value: unknown): boolean => value === undefined || Array.isArray(value);
+    if (!isList(blocks) || !isList(xrefs)) {
+      drawing = {
+        ...rest,
+        ...(Array.isArray(blocks) ? { blocks } : {}),
+        ...(Array.isArray(xrefs) ? { xrefs } : {}),
+      };
+    }
+    const given = givenDrawings(library, drawing, referenced);
+    const drawn = Object.fromEntries(
+      [...given.values()].filter((g) => g.errors.length === 0).map((g) => [g.name, g.drawing]),
+    );
+    const diagnostics = [
+      ...found,
+      ...[...given].flatMap(([xref, g]) => g.errors.map((d) => inGiven(xref, d))),
+    ]
       .sort((a, b) => Number(a.severity === "warning") - Number(b.severity === "warning"))
-      .map((d) => aboutEntity(library, drawing, d));
+      .map((d) => aboutEntity(library, drawing, drawn, d));
     timings.lint = now() - t;
     t = now();
     const { svg, min, max } = framed(
-      library.toSVG(drawing, { margin: 0, drawNoPlot: drawNoPlot === true }),
+      library.toSVG(drawing, { margin: 0, drawNoPlot: drawNoPlot === true, xrefs: drawn }),
     );
     timings.svg = now() - t;
     const errors = diagnostics.filter((d) => d.severity === "error").length;
@@ -196,12 +225,14 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
           layers: drawing.layers.length,
           entities: drawing.entities.length,
           blocks: drawing.blocks?.length ?? 0,
+          xrefs: drawing.xrefs?.length ?? 0,
           errors,
           warnings: diagnostics.length - errors,
         },
         layers: layerSummaries(drawing),
         blocks: blockSummaries(library, drawing),
         inserts: insertSummaries(library, drawing),
+        xrefs: xrefSummaries(library, drawing, given),
       },
       diagnostics,
       svg,
@@ -215,7 +246,12 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
 }
 
 /** Adds the kind, layer and box of the entity a diagnostic is about. */
-function aboutEntity(library: Library, drawing: Drawing, found: Diagnostic): BuildDiagnostic {
+function aboutEntity(
+  library: Library,
+  drawing: Drawing,
+  referenced: Readonly<Record<string, Drawing>>,
+  found: Diagnostic,
+): BuildDiagnostic {
   const d = withPath(found);
   // An entity of a block is counted in its block, and its box is in the block's coordinates.
   const entities =
@@ -227,7 +263,7 @@ function aboutEntity(library: Library, drawing: Drawing, found: Diagnostic): Bui
   // toSVG works out the box, so it agrees with the drawing's extents and the picture. An entity
   // on a layer that is off, frozen or not plotted still has a box.
   const one = { ...drawing, layers: shownLayers(drawing), entities: [entity] };
-  const { min, max } = framed(library.toSVG(one, { margin: 0 }));
+  const { min, max } = framed(library.toSVG(one, { margin: 0, xrefs: referenced }));
   const bounds: Box = { min, max };
   return { ...d, kind: entity.kind, layer: entity.layer, bounds };
 }
@@ -263,6 +299,21 @@ function missingFile(thrown: unknown): FileVersion[] {
       ? fileURLToPath(url)
       : named && toPath(named);
   return path && isAbsolute(path) && tracked(path) ? [[path, null]] : [];
+}
+
+/**
+ * Says what is wrong with an `xrefs` export, or returns undefined: it is an object that gives
+ * a drawing for each xref the pictures are to draw, by the xref's name.
+ */
+function notXrefs(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  const shape =
+    "The export `xrefs` must be an object that gives a Drawing for an xref's name, such as `export const xrefs = { BASE: base }`";
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return shape;
+  for (const [name, drawing] of Object.entries(value)) {
+    if (notADrawing(drawing, true)) return `${shape}. Its ${JSON.stringify(name)} is not a Drawing`;
+  }
+  return undefined;
 }
 
 /** Says what is wrong with a default export that is not a `Drawing`, or returns undefined. */
@@ -403,6 +454,73 @@ function blockSummaries(library: Library, drawing: Drawing): BlockSummary[] {
   }));
 }
 
+/** The xref an insert places, found as the library that checks the drawing finds it. */
+function xrefNamed(library: Library, drawing: Drawing, name: unknown): Xref | undefined {
+  if (typeof name !== "string" || blockNamed(library, drawing, name)) return undefined;
+  return library.findXref?.(drawing, name);
+}
+
+/** A drawing the file gives for an xref, under the name it gives it by. */
+interface Given {
+  readonly name: string;
+  readonly drawing: Drawing;
+  /** The errors `lint` finds in it. A drawing with any is not drawn. */
+  readonly errors: readonly Diagnostic[];
+}
+
+/** The drawing given for each xref of the drawing, checked by the library that checks the drawing. */
+function givenDrawings(
+  library: Library,
+  drawing: Drawing,
+  referenced: Readonly<Record<string, Drawing>>,
+): Map<Xref, Given> {
+  const given = new Map<Xref, Given>();
+  for (const [name, other] of Object.entries(referenced)) {
+    const xref = xrefNamed(library, drawing, name);
+    if (!xref || given.has(xref)) continue;
+    const errors = library.lint(other).filter((d) => d.severity === "error");
+    given.set(xref, { name, drawing: other, errors });
+  }
+  return given;
+}
+
+/**
+ * A problem in the drawing given for an xref, as a problem of the xref. It keeps the rule, the
+ * id and the call, and leaves out the entity's index, which counts another drawing's entities.
+ */
+function inGiven(xref: Xref, found: Diagnostic): Diagnostic {
+  return {
+    rule: found.rule,
+    severity: found.severity,
+    message: `Xref ${JSON.stringify(xref.name)}: the drawing given for it has an error, so it is not drawn. ${found.message}`,
+    xref: xref.name,
+    ...(found.id === undefined ? {} : { id: found.id }),
+    ...(found.call === undefined ? {} : { call: found.call }),
+  };
+}
+
+function xrefSummaries(
+  library: Library,
+  drawing: Drawing,
+  given: ReadonlyMap<Xref, Given>,
+): XrefSummary[] {
+  const placed = new Map<unknown, number>();
+  for (const entities of [drawing.entities, ...(drawing.blocks ?? []).map((b) => b.entities)]) {
+    for (const e of entities) {
+      if (e.kind !== "insert") continue;
+      const xref = xrefNamed(library, drawing, e.block);
+      placed.set(xref, (placed.get(xref) ?? 0) + 1);
+    }
+  }
+  return (drawing.xrefs ?? []).map((x) => ({
+    name: x.name,
+    path: x.path,
+    inserts: placed.get(x) ?? 0,
+    shown: given.get(x)?.errors.length === 0,
+    units: given.get(x)?.drawing.units ?? null,
+  }));
+}
+
 function insertSummaries(library: Library, drawing: Drawing): InsertSummary[] {
   return drawing.entities.flatMap((e, entity): InsertSummary[] => {
     if (e.kind !== "insert") return [];
@@ -411,6 +529,7 @@ function insertSummaries(library: Library, drawing: Drawing): InsertSummary[] {
       {
         entity,
         block: e.block,
+        xref: xrefNamed(library, drawing, e.block) !== undefined,
         layer: e.layer,
         id: e.id ?? null,
         at: e.at,

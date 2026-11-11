@@ -14,6 +14,7 @@ import type {
   Entity,
   Point,
   TextStyle,
+  Xref,
 } from "./drawing.ts";
 import { written } from "./format.ts";
 import { validIdHandle } from "./handles.ts";
@@ -60,6 +61,12 @@ import {
   undefinedBlockProblem,
   undefinedLinetypeProblem,
   undefinedTextStyleProblem,
+  XREF_ATTRIBUTES,
+  XREF_REFUSED_FIELDS,
+  XREF_UNPLACED,
+  xrefFieldProblem,
+  xrefPathProblem,
+  xrefTwinProblem,
 } from "./rules.ts";
 
 export type LintRule =
@@ -90,6 +97,7 @@ export type LintRule =
   | "attribute"
   | "duplicate-attribute"
   | "undefined-attribute"
+  | "xref"
   | "zero-length";
 
 export interface Diagnostic {
@@ -110,6 +118,8 @@ export interface Diagnostic {
   readonly block?: string;
   /** The tag of the attribute definition the problem is in. */
   readonly attribute?: string;
+  /** The xref the problem is in, when it is a problem with an xref's name or path. */
+  readonly xref?: string;
   /**
    * When it is an entity problem, the entity's index: into the entities of `block` when there
    * is one, and into `drawing.entities` otherwise.
@@ -359,8 +369,13 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
   // duplicates, and an insert finds its block as an entity finds its layer.
   const blocks = new Map<string, Block>();
   const blocksAudited = new Map<string, string>();
-  const allBlocks = drawing.blocks ?? [];
-  for (const block of allBlocks) {
+  const listed = <T>(field: "blocks" | "xrefs", rule: LintRule): readonly T[] => {
+    const value: unknown = drawing[field];
+    if (value === undefined || Array.isArray(value)) return (value ?? []) as readonly T[];
+    out.push({ rule, severity: "error", message: `${field} must be an array` });
+    return [];
+  };
+  for (const block of listed<Block>("blocks", "block")) {
     const label = `Block ${JSON.stringify(block.name)}`;
     const error = (rule: LintRule, message: string) =>
       out.push({ rule, severity: "error", message: `${label}: ${message}`, block: block.name });
@@ -394,6 +409,57 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     const named = blockHandles(block.name);
     for (const handle of [named.record, named.begin, named.end]) {
       const clash = claim(handle, `the block ${JSON.stringify(block.name)}`);
+      if (clash) error("id-handle", clash);
+    }
+  }
+
+  // An xref is a block to AutoCAD, so it shares the blocks' names, and an insert finds it as
+  // it finds a block.
+  const xrefs = new Map<string, Xref>();
+  const xrefsAudited = new Set<string>();
+  const placedXrefs = new Set<Xref>();
+  for (const xref of listed<Xref>("xrefs", "xref")) {
+    const name: unknown = (xref as Xref | null)?.name;
+    const error = (rule: LintRule, message: string) =>
+      out.push({
+        rule,
+        severity: "error",
+        message: `Xref ${typeof name === "string" ? JSON.stringify(name) : String(name)}: ${message}`,
+        ...(typeof name === "string" ? { xref: name } : {}),
+      });
+    if (typeof xref !== "object" || xref === null) {
+      error("xref", "an xref must be an object with a name and a path");
+      continue;
+    }
+    if (r12) {
+      error("xref", R12_ONLY.xrefs);
+      continue;
+    }
+    const nameProblem = blockNameProblem(name);
+    if (nameProblem) {
+      error("xref", nameProblem);
+      continue;
+    }
+    const auditKey = layerAuditKey(xref.name);
+    const first = blocksAudited.get(auditKey);
+    if (first !== undefined) {
+      const kind = xrefsAudited.has(auditKey) ? "xref" : "block";
+      error("duplicate-block", xrefTwinProblem(xref.name, first, kind));
+      continue;
+    }
+    blocksAudited.set(auditKey, xref.name);
+    xrefsAudited.add(auditKey);
+    xrefs.set(layerKey(xref.name), xref);
+    const pathProblem = xrefPathProblem(xref.path);
+    if (pathProblem) error("xref", pathProblem);
+    for (const field of XREF_REFUSED_FIELDS) {
+      if ((xref as unknown as Record<string, unknown>)[field] !== undefined) {
+        error("xref", xrefFieldProblem(field));
+      }
+    }
+    const named = blockHandles(xref.name);
+    for (const handle of [named.record, named.begin, named.end]) {
+      const clash = claim(handle, `the xref ${JSON.stringify(xref.name)}`);
       if (clash) error("id-handle", clash);
     }
   }
@@ -484,9 +550,11 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
         }
         const name: unknown = entity.block;
         const placed = typeof name === "string" ? blocks.get(layerKey(name)) : undefined;
+        const xref = typeof name === "string" && !placed ? xrefs.get(layerKey(name)) : undefined;
+        if (xref) placedXrefs.add(xref);
         if (typeof name !== "string")
           add("undefined-block", "error", "a block is named by a string");
-        else if (!placed) {
+        else if (!placed && !xref) {
           const twin = blocksAudited.get(layerAuditKey(name));
           const hint = twin ? `. Name it as the drawing does, ${JSON.stringify(twin)}` : "";
           add("undefined-block", "error", `${undefinedBlockProblem(name)}${hint}`);
@@ -494,6 +562,10 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
         const set: unknown = entity.attributes === undefined ? {} : entity.attributes;
         if (typeof set !== "object" || set === null || Array.isArray(set)) {
           add("undefined-attribute", "error", ATTRIBUTES_SHAPE);
+          return;
+        }
+        if (xref) {
+          if (Object.keys(set).length > 0) add("undefined-attribute", "error", XREF_ATTRIBUTES);
           return;
         }
         const tags = new Set((placed?.attributes ?? []).map((definition) => definition.tag));
@@ -572,6 +644,16 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
   }
   lintEntities(drawing.entities, undefined);
 
+  for (const xref of xrefs.values()) {
+    if (placedXrefs.has(xref)) continue;
+    out.push({
+      rule: "xref",
+      severity: "warning",
+      message: `Xref ${JSON.stringify(xref.name)}: ${XREF_UNPLACED}`,
+      xref: xref.name,
+    });
+  }
+
   // A block that holds an insert of itself, directly or through the blocks it inserts.
   const inserted = (block: Block): Block[] =>
     block.entities.flatMap((entity) => {
@@ -594,7 +676,7 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
  * An error that refuses a drawing because of what `lint` found in it. `toDXF`
  * throws it when a drawing has lint errors for the version being written, `fromJSON`
  * when the JSON is not a drawing it can read, and the builder's `layer`, `linetype`,
- * `textStyle`, `block`, `attribute` and entity methods at a call that breaks a rule, with that one problem as the
+ * `textStyle`, `block`, `attribute`, `xref` and entity methods at a call that breaks a rule, with that one problem as the
  * message. Other code can throw it to refuse a drawing for its own purpose. Its
  * message lists the first 10 problems and names no file format.
  */

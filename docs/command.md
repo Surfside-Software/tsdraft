@@ -93,10 +93,21 @@ header that gives the build it came from. A PNG is at most
 ```
 
 When it builds, `drawing` gives the units, the extents, counts of layers, entities, blocks,
-errors and warnings, and each layer. `drawing.blocks` gives each block's name, how many entities
+xrefs, errors and warnings, and each layer. `drawing.blocks` gives each block's name, how many entities
 it holds, the tags of its attributes and how many inserts place it. `drawing.inserts` gives each
 insert in model space: its `entity` index, `block`, `layer`, `id`, `at`, `scale`, `rotation` and
-the value it shows for each attribute. A diagnostic about an entity inside a block names the
+the value it shows for each attribute, and `xref`, which is true for an insert of an xref.
+`drawing.xrefs` gives each xref's `name`, its `path`, how many `inserts` place it, in model
+space and in blocks, `shown` and `units`. The command opens no DWG file. It draws an xref when
+the drawing file has a named export `xrefs`, an object that gives a `Drawing` under the xref's
+name, such as `export const xrefs = { BASE: base }`. `shown` says that the pictures drew that
+drawing. The command cannot tell whether it is what the file at `path` holds, so `shown` is
+about the pictures and not about what CAD will load. `units` is the units of that drawing, or
+`null` when none is given: where they differ from the drawing's own, each insert needs the
+scale between the two. The command runs `lint` on each drawing it is given. One with an error
+is not drawn, its `shown` is false, and each error is in `diagnostics` with the `xref` it
+belongs to, counted in `counts.errors`. An xref that is not shown is left out of the pictures
+and of `drawing.extents`. A diagnostic about an entity inside a block names the
 `block`, counts `entity` in it, and gives `bounds` in the block's coordinates. `diagnostics` holds what `lint` returned, errors first, each with its
 `rule`, `severity` and `message`. A layer problem names its `layer`. An entity problem gives the
 `entity` index, its `kind`, its `layer`, and `bounds`, its box in drawing units. It also gives

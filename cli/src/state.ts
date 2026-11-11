@@ -76,6 +76,9 @@ export interface BuildState {
  *
  * With `block`, the problem is in that block: `entity` then counts the block's entities, and
  * `bounds` is in the block's own coordinates.
+ *
+ * With `xref`, the problem is in that xref, or in the drawing the file gives for it: an error
+ * `lint` finds there is reported once for each, with its rule, and that xref is not drawn.
  */
 export interface BuildDiagnostic extends Diagnostic {
   readonly kind?: Entity["kind"];
@@ -114,6 +117,7 @@ export interface DrawingSummary {
     /** The entities of model space. An insert is one entity, whatever its block holds. */
     readonly entities: number;
     readonly blocks: number;
+    readonly xrefs: number;
     readonly errors: number;
     readonly warnings: number;
   };
@@ -123,6 +127,31 @@ export interface DrawingSummary {
   readonly blocks: readonly BlockSummary[];
   /** Each insert in model space, in the drawing's order. Empty for a drawing with none. */
   readonly inserts: readonly InsertSummary[];
+  /** Each xref in the drawing's order. Empty for a drawing with none. */
+  readonly xrefs: readonly XrefSummary[];
+}
+
+/** An xref: another drawing's DWG file, which CAD loads and draws where each insert puts it. */
+export interface XrefSummary {
+  readonly name: string;
+  /** The path of the DWG file, from the folder of the file this drawing is written to. */
+  readonly path: string;
+  /** How many inserts place the xref, in model space and in blocks. */
+  readonly inserts: number;
+  /**
+   * Whether the pictures draw a drawing for the xref. The command opens no DWG file: it draws
+   * the drawing that the drawing file's `xrefs` export gives under the xref's name, when that
+   * drawing has no lint error. It cannot tell whether that drawing is what the file at `path`
+   * holds, so `true` says what the pictures drew and not what CAD will load. When this is
+   * false, the pictures and the extents have nothing of the xref, and CAD will still draw it.
+   */
+  readonly shown: boolean;
+  /**
+   * The units of the drawing given for the xref, or `null` when none is given. CAD draws an
+   * insert at the scale it has, whatever the units, so where these differ from
+   * `drawing.units` each insert needs the scale between the two.
+   */
+  readonly units: Units | null;
 }
 
 export interface BlockSummary {
@@ -138,8 +167,10 @@ export interface BlockSummary {
 export interface InsertSummary {
   /** The insert's index in the drawing's entities, which its group in the SVG has in `data-entity`. */
   readonly entity: number;
-  /** The block as the insert names it. */
+  /** The block or the xref as the insert names it. */
   readonly block: string;
+  /** True when the insert places an xref, which `drawing.xrefs` lists, and not a block. */
+  readonly xref: boolean;
   readonly layer: string;
   /** The insert's id, or `null`. */
   readonly id: string | null;

@@ -114,7 +114,7 @@ the details.
     "units": "ft",
     "dxf": "R2018",
     "extents": { "min": [0, -3], "max": [100, 140] },
-    "counts": { "layers": 4, "entities": 5, "blocks": 0, "errors": 0, "warnings": 1 },
+    "counts": { "layers": 4, "entities": 5, "blocks": 0, "xrefs": 0, "errors": 0, "warnings": 1 },
     "layers": [
       {
         "name": "C-SETB",
@@ -128,7 +128,8 @@ the details.
       }
     ],
     "blocks": [],
-    "inserts": []
+    "inserts": [],
+    "xrefs": []
   },
   "diagnostics": [
     {
@@ -158,6 +159,12 @@ the details.
   attributes and how many inserts place it. `drawing.inserts` lists every insert in model
   space: its `entity` index, `block`, `layer`, `id`, `at`, `scale`, `rotation`, and the value
   it shows for each attribute. An insert is one entity, whatever its block holds.
+- `drawing.xrefs` lists every xref with its `name`, its `path`, how many `inserts` place it,
+  `shown` and `units`. `shown` says whether the pictures drew the drawing your file exports
+  under that name. The command cannot tell whether that drawing is what the file at `path`
+  holds, and the two can differ. When `shown` is false you are not seeing the xref at all, and
+  neither are the extents. `units` is the units of the drawing you gave, or `null`: where it
+  differs from `drawing.units`, each insert needs a scale.
 - `diagnostics` is what `lint` found. An error stops `toDXF` from writing the file. A warning
   does not.
 - `error` is why a build failed: its `message`, and the `file`, `line` and `column` of your
@@ -231,6 +238,48 @@ The pictures draw each insert as what its block draws. The example sheet draws i
 property corners, north arrow and view title this way, with the view title's text and scale as
 attributes.
 
+## Xrefs
+
+Reference another drawing's DWG file and place it as you place a block. CAD loads the file
+each time it opens the drawing:
+
+```ts
+d.xref("BASE", "base.dwg");
+d.layer("X-BASE", { color: 8 }, () => d.insert("BASE", [0, 0]));
+```
+
+- The path leads from the folder the drawing's file is written to: `"base.dwg"`,
+  `"../civil/base.dwg"`. An absolute path, an empty one, a `.dxf`, a path that ends in a dot,
+  and a path with any of `* ? < > | : "` are errors.
+- The file must be a DWG. tsdraft cannot check that it is there. When it is not, CAD opens
+  the drawing and draws the path as a small text at each insert, unless a file of the same
+  name is in the drawing's own folder: it loads that one, and says nothing of the change.
+- CAD draws the insert at the scale you give, whatever units the two drawings are in. A base
+  in feet under a drawing in inches needs `{ scale: 12 }`.
+- Layer `0` of the referenced file draws as the insert's layer does, and its other layers as
+  themselves.
+- Place every xref at least once. `lint` warns of one that no insert places, which CAD drops.
+
+The command opens no DWG, so the pictures leave an xref out unless the drawing file gives the
+drawing it stands for. When that drawing is a tsdraft file too, import it and export it under
+the xref's name:
+
+```ts
+import base from "./base.ts";
+
+export const xrefs = { BASE: base };
+export default d.build();
+```
+
+The command checks each drawing you give as it checks yours. One with a `lint` error is not
+drawn: `shown` is false, and each error is a diagnostic that names the `xref`.
+
+Read `drawing.xrefs` in the JSON before you trust a picture of a drawing with xrefs. A picture
+with `shown: true` shows the drawing you exported, which is only as current as the DWG file CAD
+will load is: write that file again from the same drawing when it changes.
+[docs/xrefs.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/xrefs.md) has the
+rest.
+
 ## Rules as compile errors
 
 tsdraft holds a drawing to the rules AutoCAD enforces. AutoCAD discards a whole file over one
@@ -285,8 +334,9 @@ writeFileSync("plan.dxf", toDXF(drawing));
 
 - Dimension objects, leaders, hatches and fills. The example sheet draws its dimensions from
   lines and text, so in CAD they are plain lines and text.
-- External references, and a block read from another file. A block is drawn in the drawing
-  that inserts it.
+- A block read from another file. A block is drawn in the drawing that inserts it. An xref
+  references a whole DWG file, as an overlay, and the pictures draw it only from a drawing you
+  give.
 - Attributes of more than one line, and attributes that are hidden or constant.
 - Paper space: layouts, viewports, a border or a title block. Everything is in model space, and
   a drawing has one scale, which is the `view` you pass to `fromPaper`.

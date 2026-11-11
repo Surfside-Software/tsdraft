@@ -48,6 +48,13 @@
   attribute is stored on its definition's layer, and one on layer `0` draws as its insert's
   layer does. An insert on a frozen layer, or in a plot on a layer that does not plot, draws
   nothing of its block.
+- An xref is a block record with a path: `Drawing.xrefs` holds a name and a path, and an
+  insert places one by its name. It shares the blocks' names and the keys of their handles,
+  `block:KEY` and the two beside it, and is written as an overlay, which cannot make a cycle
+  AutoCAD has to break. AutoCAD reads the path of a BLOCK once, so the DXF writes it with
+  `dxfOnce`. `eachDrawn` walks the drawing a caller gives for an xref as it walks a block,
+  with each layer as a `LayerRef` that says which drawing's layer it is. `src/` opens no
+  file: `toSVG` draws only the drawings it is given.
 - A rule AutoCAD enforces lives in `src/rules.ts` twice: as a type, so a wrong
   literal is a compile error, and as a runtime check with the same message. The
   builder calls the runtime check, and `lint()` in `src/lint.ts` repeats it for

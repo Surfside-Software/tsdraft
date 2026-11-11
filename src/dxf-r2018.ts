@@ -194,6 +194,7 @@ export function toDXFR2018(
     { type: "DIMSTYLE", subclass: "AcDbDimStyleTableRecord", name: "Standard", handle: handle() },
   ]);
   const blocks = drawing.blocks ?? [];
+  const xrefs = drawing.xrefs ?? [];
   const blockRecordFields = (g: Group) => {
     g(280, 1); // explodable
     g(281, 0); // scale uniformly: no
@@ -220,6 +221,14 @@ export function toDXFR2018(
       handle: blockHandles(block.name).record,
       // A block is in the drawing's units, so that CAD inserts it at its own size.
       flags: INSUNITS[drawing.units],
+      fields: blockRecordFields,
+    })),
+    // An xref's record states no units: AutoCAD keeps the scale each insert of it has.
+    ...xrefs.map((xref) => ({
+      type: "BLOCK_RECORD",
+      subclass: "AcDbBlockTableRecord",
+      name: xref.name,
+      handle: blockHandles(xref.name).record,
       fields: blockRecordFields,
     })),
   ]);
@@ -293,6 +302,13 @@ export function toDXFR2018(
       },
     });
   }
+  for (const xref of xrefs) {
+    const handles = blockHandles(xref.name);
+    writeBlock(g, handles.begin, handles.end, xref.name, handles.record, {
+      paper: false,
+      xrefPath: xref.path,
+    });
+  }
   g(0, "ENDSEC");
 
   g(0, "SECTION");
@@ -356,7 +372,10 @@ export function toDXFR2018(
   h(8, "0");
   h(9, "$HANDSEED");
   // AutoCAD numbers the objects it adds from the seed up, so it is above every handle here.
-  const named = blocks.length > 0 || drawing.entities.some((entity) => entity.id !== undefined);
+  const named =
+    blocks.length > 0 ||
+    xrefs.length > 0 ||
+    drawing.entities.some((entity) => entity.id !== undefined);
   h(5, named ? ID_HANDLE_SEED : handle());
   h(0, "ENDSEC");
 
@@ -477,6 +496,8 @@ function writeBlock(
     readonly paper: boolean;
     readonly base?: Block["base"];
     readonly hasAttributes?: boolean;
+    /** The path of the file an xref's block stands for. */
+    readonly xrefPath?: string;
     readonly contents?: () => void;
   },
 ): void {
@@ -488,10 +509,12 @@ function writeBlock(
   g(8, "0");
   g(100, "AcDbBlockBegin");
   g(2, name);
-  g(70, block.hasAttributes ? 2 : 0); // 2: the block has attribute definitions
+  // 2: the block has attribute definitions. 4 and 8: it is an xref, and an overlay.
+  g(70, block.xrefPath !== undefined ? 12 : block.hasAttributes ? 2 : 0);
   point(g, 10, ...(block.base ?? [0, 0]));
   g(3, name);
-  g(1, "");
+  // AutoCAD decodes a block's path once, where it decodes a text twice.
+  g(1, block.xrefPath === undefined ? "" : dxfOnce(block.xrefPath));
   block.contents?.();
   g(0, "ENDBLK");
   g(5, end);

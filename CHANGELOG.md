@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- Xrefs, in R2018 drawings. `d.xref(name, path)` references another drawing's DWG file, and
+  `d.insert(name, at, options)` places it as it places a block, with a scale, a rotation and
+  an id, any number of times. AutoCAD loads the file each time it opens the drawing. The path
+  leads from the folder of the drawing's file, and the xref is written as an overlay.
+  [docs/xrefs.md](docs/xrefs.md) describes all of it.
+- New rules, each a compile error for a literal, an error at the builder's call, and a `lint`
+  error under `xref`: an xref's name is a block name that no block and no other xref has,
+  since AutoCAD discards a drawing with two such names or makes one xref of them; its path is
+  not empty, does not end in `.dxf` or in a dot, is not absolute, holds none of
+  `* ? < > | : "`, no `\M+` escape and no character a text cannot hold, and is at most 32,000
+  characters; an xref has no entities, base point
+  or attribute definitions; and an insert of one sets no attributes. `lint` warns of an xref
+  that no insert places, which AutoCAD purges. An R12 drawing with an xref is refused.
+- `toSVG` takes the drawings that xrefs stand for, as `toSVG(drawing, { xrefs: { BASE: base } })`,
+  and draws each where its inserts put it, on its own layers. An xref with no drawing given
+  draws nothing. `findXref` gives the xref an insert places.
+- `Drawing` gains `xrefs`, each a `name` and a `path`. `toJSON` and `fromJSON` carry them. A
+  drawing with no xref has the DXF, the JSON and the SVG it had before. `Diagnostic` gains
+  `xref`.
+- `tsdraft render` and `tsdraft dev` report `drawing.xrefs`, with whether the pictures show
+  each one and the units of the drawing given for it, and `drawing.counts.xrefs`. A drawing
+  file's named export `xrefs` gives the drawings to draw. Each is checked by `lint`, and one
+  with an error is reported and not drawn.
+- `lint` reports a drawing whose `blocks` or `xrefs` is not an array.
+
 - Blocks, inserts and attributes, in R2018 drawings. `d.block(name, options, draw)` defines a
   block from what `draw` draws, with a base point. `d.insert(block, at, options)` places one,
   with a scale along X and along Y, a rotation, an id and a value for each attribute it sets.

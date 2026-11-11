@@ -190,6 +190,7 @@ try {
       layers: 2,
       entities: 2,
       blocks: 0,
+      xrefs: 0,
       errors: 0,
       warnings: 1,
     });

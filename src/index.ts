@@ -4,6 +4,7 @@ export {
   attributesEndHandle,
   blockHandle,
   findBlock,
+  findXref,
   placeAttribute,
   type PlacedAttribute,
 } from "./blocks.ts";
@@ -42,6 +43,7 @@ export {
   type TextStyleDefinition,
   type TextVerticalAlign,
   type Units,
+  type Xref,
 } from "./drawing.ts";
 export { toDXF, type DxfOptions } from "./dxf.ts";
 export { FONTS, type Font, type FontInfo } from "./fonts.ts";
@@ -72,5 +74,6 @@ export type {
   Ratio,
   TextStyleName,
   WidthFactor,
+  XrefPath,
 } from "./rules.ts";
 export { toSVG, type SvgOptions } from "./svg.ts";

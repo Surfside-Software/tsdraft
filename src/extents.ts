@@ -1,4 +1,4 @@
-import { blocksByKey, eachDrawn, mapPoint } from "./blocks.ts";
+import { blocksByKey, eachDrawn, mapPoint, type LayerRef, type Referenced } from "./blocks.ts";
 import type { Block, Entity, TextStyle } from "./drawing.ts";
 import { layerKey } from "./layers.ts";
 
@@ -13,19 +13,28 @@ const DESCENT = 0.3;
  * times its style's width factor, and is moved for its justification: back along its line for
  * `align`, and down or up it for `valign`. An insert counts for what its block draws where the
  * insert puts it, with a circle or an arc under an uneven scale as the box around its circle.
+ * An insert of an xref counts for the drawing given for it in `xrefs`, and for nothing without
+ * one.
  *
  * @param isHidden - True for a layer whose entities are left out, wherever they are drawn.
  * @param isFrozen - True for a layer that hides the whole of an insert on it: a frozen layer,
  *   and in a plot a layer that does not plot.
+ * @param xrefs - The drawing of each xref, as `referencedByKey` gives them.
  */
 export function extents(
   entities: readonly Entity[],
   textStyles: readonly TextStyle[] = [],
   blocks: readonly Block[] = [],
-  isHidden: (layer: string) => boolean = () => false,
-  isFrozen: (layer: string) => boolean = () => false,
+  isHidden: (layer: LayerRef) => boolean = () => false,
+  isFrozen: (layer: LayerRef) => boolean = () => false,
+  xrefs?: ReadonlyMap<string, Referenced>,
 ): [number, number, number, number] {
-  const widthFactors = new Map(textStyles.map((t) => [layerKey(t.name), t.widthFactor ?? 1]));
+  const factorsOf = (styles: readonly TextStyle[]): Map<string, number> =>
+    new Map(styles.map((t) => [layerKey(t.name), t.widthFactor ?? 1]));
+  const own = factorsOf(textStyles);
+  // The text styles of each referenced drawing, worked out when a text of it is first met.
+  const referenced = new Map<Referenced, Map<string, number>>();
+  let widthFactors = own;
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -37,7 +46,7 @@ export function extents(
     maxY = Math.max(maxY, y);
   };
   const plain = add;
-  const byKey = blocks.length > 0 ? blocksByKey(blocks) : undefined;
+  const byKey = blocks.length > 0 || xrefs?.size ? blocksByKey(blocks) : undefined;
   const one = (e: Exclude<Entity, { kind: "insert" }>) => {
     switch (e.kind) {
       case "line":
@@ -89,12 +98,23 @@ export function extents(
       continue;
     }
     if (!byKey) continue;
-    eachDrawn(e, byKey, isFrozen, (drawn, { matrix, layer, frozen }) => {
-      if (frozen || isHidden(layer) || !matrix) return;
-      add = (x, y) => plain(...mapPoint(matrix, [x, y]));
-      one(drawn);
-    });
+    eachDrawn(
+      e,
+      byKey,
+      isFrozen,
+      (drawn, { matrix, layer, frozen, from }) => {
+        if (frozen || isHidden(layer) || !matrix) return;
+        add = (x, y) => plain(...mapPoint(matrix, [x, y]));
+        if (from && !referenced.has(from)) {
+          referenced.set(from, factorsOf(from.drawing.textStyles ?? []));
+        }
+        widthFactors = from ? referenced.get(from)! : own;
+        one(drawn);
+      },
+      xrefs,
+    );
     add = plain;
+    widthFactors = own;
   }
   return minX === Infinity ? [0, 0, 1, 1] : [minX, minY, maxX, maxY];
 }

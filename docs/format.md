@@ -42,6 +42,11 @@ and `attributes`, an object of values by tag, only where they are set. It has no
 lineweight. A drawing with no block has the JSON it had before blocks existed.
 [Blocks](blocks.md) describes them.
 
+A drawing lists the files it references in `xrefs`, and leaves the field out when it has none.
+An xref has a `name` and a `path`, and nothing else. An insert places one by naming it in
+`block`, as it names a block. A drawing with no xref has the JSON it had before xrefs existed.
+[Xrefs](xrefs.md) describes them.
+
 A drawing written by hand needs `format: 0` too. `lint` reports a drawing without it, or with
 another version, under the rule `format`, and `toDXF` refuses to write it.
 

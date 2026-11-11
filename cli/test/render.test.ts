@@ -191,6 +191,7 @@ test("the state says which blocks a drawing has and where each is inserted", () 
     layers: 2,
     entities: 4,
     blocks: 3,
+    xrefs: 0,
     errors: 2,
     warnings: 0,
   });
@@ -203,6 +204,7 @@ test("the state says which blocks a drawing has and where each is inserted", () 
     {
       entity: 1,
       block: "tree",
+      xref: false,
       layer: "L-PLNT",
       id: "tree-1",
       at: [10, 20],
@@ -213,6 +215,7 @@ test("the state says which blocks a drawing has and where each is inserted", () 
     {
       entity: 2,
       block: "GROVE",
+      xref: false,
       layer: "0",
       id: null,
       at: [40, 0],
@@ -223,6 +226,7 @@ test("the state says which blocks a drawing has and where each is inserted", () 
     {
       entity: 3,
       block: "ÿ",
+      xref: false,
       layer: "0",
       id: null,
       at: [0, 0],
@@ -239,6 +243,97 @@ test("the state says which blocks a drawing has and where each is inserted", () 
     [inside?.rule, inside?.block, inside?.entity, inside?.kind, inside?.bounds],
     ["undefined-layer", "TREE", 1, "circle", { min: [0, -1], max: [2, 1] }],
   );
+});
+
+test("the state lists each xref, and the pictures draw the ones the file gives a drawing for", () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "tsdraft-render-")));
+  const base = {
+    format: 0,
+    units: "ft",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    entities: [{ kind: "line", layer: "0", from: [0, 0], to: [10, 4] }],
+  };
+  const insert = { kind: "insert", layer: "0", at: [100, 0] };
+  const sheet = {
+    ...base,
+    entities: [
+      { ...insert, block: "base" },
+      { ...insert, block: "SURVEY", id: "survey" },
+    ],
+    blocks: [{ name: "HOLDER", entities: [{ ...insert, block: "BASE" }] }],
+    xrefs: [
+      { name: "BASE", path: "../civil/base.dwg" },
+      { name: "SURVEY", path: "survey.dwg" },
+      { name: "SPARE", path: "spare.dwg" },
+    ],
+  };
+  const plan = join(dir, "plan.ts");
+  const file = (xrefs: string): void =>
+    writeFileSync(plan, `${xrefs}\nexport default ${JSON.stringify(sheet)};\n`);
+
+  file(`export const xrefs = { base: ${JSON.stringify(base)} };`);
+  const { state } = render(plan);
+  assert.equal(state.drawing?.counts.xrefs, 3);
+  assert.deepEqual(state.drawing?.xrefs, [
+    { name: "BASE", path: "../civil/base.dwg", inserts: 2, shown: true, units: "ft" },
+    { name: "SURVEY", path: "survey.dwg", inserts: 1, shown: false, units: null },
+    { name: "SPARE", path: "spare.dwg", inserts: 0, shown: false, units: null },
+  ]);
+  assert.deepEqual(
+    state.drawing?.inserts.map((i) => [i.block, i.xref]),
+    [
+      ["base", true],
+      ["SURVEY", true],
+    ],
+  );
+  // The extents are those of the one xref that is drawn, and lint warns of the one not placed.
+  assert.deepEqual(state.drawing?.extents, { min: [100, 0], max: [110, 4] });
+  assert.deepEqual(
+    state.diagnostics.map((d) => [d.rule, d.severity, d.xref]),
+    [["xref", "warning", "SPARE"]],
+  );
+
+  // A drawing given for an xref is checked too. One with an error is reported and not drawn.
+  const circle = { kind: "circle", layer: "0", center: [0, 0], radius: -5, id: "bad" };
+  file(
+    `export const xrefs = { BASE: ${JSON.stringify({ ...base, units: "in", entities: [circle] })} };`,
+  );
+  const broken = render(plan);
+  assert.equal(broken.status, 2);
+  assert.deepEqual(broken.state.drawing?.xrefs[0], {
+    ...state.drawing?.xrefs[0],
+    shown: false,
+    units: "in",
+  });
+  const [error] = broken.state.diagnostics;
+  assert.deepEqual(
+    [error?.rule, error?.severity, error?.xref, error?.id],
+    ["geometry", "error", "BASE", "bad"],
+  );
+  assert.match(
+    error!.message,
+    /^Xref "BASE": the drawing given for it has an error, so it is not drawn\. circle #0/,
+  );
+  assert.deepEqual(broken.state.drawing?.extents, { min: [0, 0], max: [1, 1] });
+
+  file("");
+  assert.deepEqual(
+    render(plan).state.drawing?.xrefs.map((x) => x.shown),
+    [false, false, false],
+  );
+  // A list that is not one is lint's to report, and the rest of the drawing is still drawn.
+  writeFileSync(plan, `export default ${JSON.stringify({ ...base, blocks: null, xrefs: 5 })};\n`);
+  const malformed = render(plan);
+  assert.equal(malformed.status, 2);
+  assert.deepEqual(
+    malformed.state.diagnostics.map((d) => d.message),
+    ["blocks must be an array", "xrefs must be an array"],
+  );
+  assert.deepEqual(malformed.state.drawing?.extents, { min: [0, 0], max: [10, 4] });
+
+  file("export const xrefs = { BASE: 5 };");
+  assert.match(render(plan).state.error!.message, /The export `xrefs` must be an object/);
 });
 
 test("a drawing file Node reads as CommonJS says how to make it a module", () => {

@@ -86,6 +86,21 @@ const R12_LAYER_STATES =
   'tsdraft writes no layer states to R12 drawings. Use DXF version "R2018" for layers that are off, frozen, locked or not plotted';
 const R12_BLOCKS =
   'tsdraft writes no blocks to R12 drawings. Use DXF version "R2018" for blocks, inserts and attributes';
+const R12_XREFS = 'tsdraft writes no xrefs to R12 drawings. Use DXF version "R2018" for an xref';
+const XREF_PATH_EMPTY =
+  "An xref's path cannot be empty. AutoCAD then looks for a DWG file named as the xref is";
+const XREF_PATH_DXF =
+  "An xref's path cannot end in .dxf. AutoCAD loads only a DWG file as an xref: it reports that it is unable to load a DXF, and draws nothing for it";
+const XREF_PATH_ABSOLUTE =
+  'An xref\'s path must start from the folder of the drawing\'s file, as "base.dwg" and "../survey/base.dwg" do, and cannot start with /, \\ or a drive such as C:. AutoCAD takes an absolute path, and where that folder is missing, as on another machine, it loads a file of the same name from the drawing\'s folder when there is one and reports the xref as loaded';
+const XREF_PATH_LENGTH =
+  "An xref's path cannot be longer than 32,000 characters. AutoCAD finds no file by a path that comes to more than 32,767 characters with the folder of the drawing";
+const XREF_PATH_CHARS =
+  "An xref's path cannot hold * ? < > | : or \". AutoCAD finds no file whose name holds one of them. It does read a path wrapped in a pair of quotes as the path inside, and tsdraft wants that path written without them";
+const XREF_PATH_DOT =
+  "An xref's path cannot end in a dot. AutoCAD adds .dwg after the dot, so for base. it looks for base..dwg and finds no file";
+const XREF_PATH_MULTIBYTE =
+  "An xref's path cannot hold a backslash before M+, a digit from 1 to 5 and four hex digits, such as \\M+10041. Once AutoCAD has saved the drawing it reads those as one character, and looks for another file. Write / there";
 const SCALE_ZERO =
   "A scale cannot be 0, or be written as 0, as tsdraft's 6 decimals write a scale under 0.0000005. AutoCAD reads a scale of 0 as 1";
 const TAG_EMPTY =
@@ -351,6 +366,49 @@ export type AttributeTag<T extends string> = string extends T
 type LowerLetter = Chars<"abcdefghijklmnopqrstuvwxyz">;
 
 /**
+ * Resolves to `P` when it is a path an xref can have, and to the error message otherwise: a
+ * path is not empty, starts from the folder of the drawing's file, does not end in `.dxf` or
+ * in a dot, and holds no `* ? < > | :`, no multibyte escape, no character a text cannot
+ * hold, and no `"`: AutoCAD reads a path wrapped in a pair of quotes, and tsdraft wants it
+ * written without them. Its length is checked when the code runs.
+ */
+export type XrefPath<P extends string> = string extends P
+  ? P
+  : P extends ""
+    ? typeof XREF_PATH_EMPTY
+    : P extends `/${string}` | `\\${string}`
+      ? typeof XREF_PATH_ABSOLUTE
+      : Lowercase<P> extends `${LowerLetter}:${string}`
+        ? typeof XREF_PATH_ABSOLUTE
+        : P extends `${string}${Chars<'*?<>|:"'>}${string}`
+          ? typeof XREF_PATH_CHARS
+          : Lowercase<P> extends `${string}.dxf`
+            ? typeof XREF_PATH_DXF
+            : TrailingDot<Lowercase<P>> extends true
+              ? typeof XREF_PATH_DOT
+              : HasMultibyteEscape<Lowercase<P>> extends true
+                ? typeof XREF_PATH_MULTIBYTE
+                : Description<P>;
+
+/** True for a path in lower case that ends in a dot other than the one after `.dwg`. */
+type TrailingDot<I extends string> = I extends `${string}.`
+  ? I extends `${string}.dwg.`
+    ? false
+    : true
+  : false;
+
+type Hex = Chars<"0123456789abcdef">;
+
+/** True when a string in lower case holds a backslash, `m+`, a digit from 1 to 5 and four hex digits. */
+type HasMultibyteEscape<P extends string> = P extends `${string}\\m+${infer After}`
+  ? After extends `${"1" | "2" | "3" | "4" | "5"}${infer A}${infer B}${infer C}${infer D}${string}`
+    ? [A, B, C, D] extends [Hex, Hex, Hex, Hex]
+      ? true
+      : HasMultibyteEscape<After>
+    : HasMultibyteEscape<After>
+  : false;
+
+/**
  * Resolves to `N` when it is a scale an insert can have, and to the error message otherwise:
  * `N` must not be 0, must not round to 0 at the 6 decimals tsdraft writes, and must be under
  * 1e100 in size.
@@ -528,6 +586,7 @@ export type R12LayerStates = typeof R12_LAYER_STATES;
 export type FrozenCurrent = typeof FROZEN_CURRENT;
 export type R12Text = typeof R12_TEXT;
 export type R12Blocks = typeof R12_BLOCKS;
+export type R12Xrefs = typeof R12_XREFS;
 
 /** Returns what is wrong with a layer name for a DXF version, or undefined when it is valid. */
 export function layerNameProblem(name: string, version: DxfVersion): string | undefined {
@@ -686,6 +745,7 @@ export const R12_ONLY = {
   entityStyle: R12_ENTITY_STYLE,
   text: R12_TEXT,
   blocks: R12_BLOCKS,
+  xrefs: R12_XREFS,
 } as const;
 
 /** How a text is justified across its line, and up and down it. The first of each is the default. */
@@ -935,6 +995,61 @@ export function blockTwinProblem(name: string, other: string): string | undefine
   const spelled = name === other ? "" : `, as ${JSON.stringify(other)}`;
   return `The drawing already has a block of this name${spelled}. AutoCAD takes the two for one block, puts the entities of both in it and reports nothing`;
 }
+
+/**
+ * Returns what is wrong with an xref whose name AutoCAD takes for the name of a block or of
+ * another xref of the drawing, as `blockTwinProblem` says of two blocks. An xref is a block to
+ * AutoCAD, and the two share their names.
+ *
+ * @param name - The name being checked: an xref's, or a block's when `kind` is `"xref"`.
+ * @param other - The name the drawing already has.
+ * @param kind - What has that name already.
+ */
+export function xrefTwinProblem(name: string, other: string, kind: "block" | "xref"): string {
+  const spelled = name === other ? "" : `, as ${JSON.stringify(other)}`;
+  return `The drawing already has ${kind === "xref" ? "an xref" : "a block"} of this name${spelled}. An xref is a block to AutoCAD, which takes the two names for one: it discards a drawing with two such names that differ in case, and makes one xref of any other two and reports nothing`;
+}
+
+/**
+ * Returns what is wrong with an xref's path, or undefined when it is valid. It takes `unknown`
+ * so that `lint` can report a drawing built by hand with a path of the wrong type.
+ */
+export function xrefPathProblem(path: unknown): string | undefined {
+  if (typeof path !== "string") return "An xref's path must be a string";
+  if (path.length === 0) return XREF_PATH_EMPTY;
+  if (/^(?:[/\\]|[A-Za-z]:)/.test(path)) return XREF_PATH_ABSOLUTE;
+  if (/[*?<>|:"]/.test(path)) return XREF_PATH_CHARS;
+  if (/\.dxf$/i.test(path)) return XREF_PATH_DXF;
+  if (/\.$/.test(path) && !/\.dwg\.$/i.test(path)) return XREF_PATH_DOT;
+  if (path.length > 32000) return XREF_PATH_LENGTH;
+  if (/\\[Mm]\+[1-5][0-9A-Fa-f]{4}/.test(path)) return XREF_PATH_MULTIBYTE;
+  return textProblem(path);
+}
+
+/** The fields of a block that an xref cannot have, since its file holds what it draws. */
+export const XREF_REFUSED_FIELDS = ["entities", "base", "attributes"] as const;
+
+/**
+ * Returns what is wrong with an xref that has a field of a block. An xref draws what its file
+ * holds: the entities, the base point and the attribute definitions are the file's.
+ */
+export function xrefFieldProblem(field: (typeof XREF_REFUSED_FIELDS)[number]): string {
+  const what = {
+    entities: "entities of its own. It draws what its file holds",
+    base: "a base point. Its base point is the one its file has",
+    attributes:
+      "attribute definitions. A block of the drawing has them, and an xref draws what its file holds",
+  }[field];
+  return `An xref cannot have ${what}`;
+}
+
+/** What is wrong with an insert of an xref that sets attributes. */
+export const XREF_ATTRIBUTES =
+  "An insert of an xref cannot set attributes. An insert gives a value to an attribute its block defines, and an xref defines none in this drawing";
+
+/** The warning for an xref that no insert places. */
+export const XREF_UNPLACED =
+  "No insert places this xref. AutoCAD purges an xref that nothing references when it opens the drawing";
 
 /**
  * Returns what is wrong with an insert that names a block the drawing does not have. The rule
