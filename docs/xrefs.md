@@ -115,6 +115,16 @@ A DXF cannot be referenced, so the file an xref names has to be a DWG. `toDXF` w
 a drawing built with tsdraft has to be saved as a DWG, in CAD for one, before another drawing
 can reference it.
 
+`toDXF` writes `$XEDIT` 0 in an R2018 drawing, and AutoCAD keeps the setting in the DWG it
+saves. A drawing that references that DWG then cannot edit it in place: AutoCAD's `-REFEDIT`
+answers that the xref is not editable. A script that writes the file again would overwrite
+such an edit. The setting stops only editing in place: an edit saved by opening the DWG itself
+is overwritten just the same. To allow editing in place in a file you no longer write from a
+script, set `XEDIT` to 1 in that file and save it.
+
+An R12 DXF does not state `$XEDIT`, so AutoCAD opens it with `XEDIT` 1, and a DWG saved from it
+can be edited in place. Write a drawing that another drawing references as R2018.
+
 ## Names
 
 An xref's name follows the [rules of block names](blocks.md#names), and shares the blocks'

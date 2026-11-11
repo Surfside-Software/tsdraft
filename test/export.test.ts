@@ -128,6 +128,13 @@ test("toDXF writes the version the drawing was created for, R2018 unless it name
   assert.match(toDXF(createDrawing().build()), /AC1032/);
 });
 
+test("an R2018 drawing has $XEDIT 0, and an R12 drawing does not state it", () => {
+  const dxf = (version: "R12" | "R2018"): string =>
+    toDXF(createDrawing({ units: "ft", dxf: version }).build());
+  assert.match(dxf("R2018"), /\r\n9\r\n\$XEDIT\r\n290\r\n0\r\n/);
+  assert.doesNotMatch(dxf("R12"), /XEDIT/);
+});
+
 test("text that looks like a DXF escape is written so AutoCAD keeps it", () => {
   /** The value AutoCAD is given for a text, which is group 1 of the TEXT record. */
   const value = (text: string, version: "R12" | "R2018") => {

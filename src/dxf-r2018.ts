@@ -368,6 +368,9 @@ export function toDXFR2018(
     h(9, "$LTSCALE");
     h(40, drawing.linetypeScale);
   }
+  // A drawing saved from this file then refuses in-place editing through a reference to it.
+  h(9, "$XEDIT");
+  h(290, 0);
   h(9, "$CLAYER");
   h(8, "0");
   h(9, "$HANDSEED");

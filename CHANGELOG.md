@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- An R2018 DXF has `$XEDIT` 0 in its header. A DWG that AutoCAD saves from the file keeps the
+  setting, so a drawing that references that DWG cannot edit it in place and lose the edit
+  when the file is written again. Setting `XEDIT` to 1 and saving allows the edit, in a file
+  you no longer write from a script. Every R2018 DXF changes by this one variable. An R12 DXF
+  does not state it, so AutoCAD opens one with `XEDIT` 1, and a DWG saved from it can still be
+  edited in place.
 - Xrefs, in R2018 drawings. `d.xref(name, path)` references another drawing's DWG file, and
   `d.insert(name, at, options)` places it as it places a block, with a scale, a rotation and
   an id, any number of times. AutoCAD loads the file each time it opens the drawing. The path
