@@ -140,9 +140,25 @@ it would take `1e+100` for `1e+10` and report nothing.
 - An xref has no entities, no base point and no attribute definitions, and an insert of one
   sets no attributes: its file holds what it draws.
 - An R12 drawing has no xrefs.
-- `blocks` and `xrefs`, where a drawing has them, are arrays.
+- A layout's name is not empty, has at most 255 characters, holds none of
+  `< > / \ " : ; ? * | , =` and the backtick, no control character and no space at either
+  end, and is not `Model` in any case. AutoCAD's `LAYOUT` command refuses such names, its
+  `-PLOT` finds no layout by a name with a space at an end, and it keeps `Model` for the model
+  tab. See [Names](layouts.md#names).
+- No two layouts have names AutoCAD takes for one, as `Sheet` and `SHEET` are. AutoCAD keeps
+  one of the two, and its `AUDIT` reports the other as missing from the dictionary of layouts.
+- A layout's paper is one of `PAPERS`, and its plot style table `monochrome.ctb` or
+  `acad.ctb`. AutoCAD plots nothing for a layout whose paper the plotter knows neither by
+  name nor by size, and plots one whose plot style table it does not have with no table.
+- A viewport's corner and center are points, its width and height are sizes, and its ratio is
+  greater than 0. The height of model space it shows, which a file holds in place of a
+  scale, is not written as 0 and is under 1e100.
+- A layout is not defined inside a block or another layout, and a block is not defined inside
+  a layout.
+- An R12 drawing has no layouts.
 - An entity's id has 1 to 64 letters A to Z or a to z, digits, `.`, `-` and
-  `_`, and no two entities share one, whatever its case, in a block or out of one. See
+  `_`, and no two entities share one, whatever its case, in model space, in a block or on a
+  layout. A viewport's id is one of them. See
   [Ids](format.md#ids).
 - No two ids give one handle. An entity's handle comes from its id, and AutoCAD discards a
   drawing in which two objects have one handle. It is rare: see
@@ -154,9 +170,12 @@ it would take `1e+100` for `1e+10` and report nothing.
   whose `kind` is not one of `line`, `polyline`, `circle`, `arc`, `text` and `insert`, a missing
   field and a field of the wrong type, it gives an error with the path to the value, such as
   `entities[3].from must be a point, [x, y]`. The rule is `linetype`, `text-style`, `block` or
-  `attribute` for a value in that list, `xref` for one in `xrefs`, and `format` for the rest.
+  `attribute` for a value in that list, `xref` for one in `xrefs`, `layout` for a layout,
+  `viewport` for a viewport, and `format` for the rest, which an entity of a sheet is.
   No other rule is checked on an object of the wrong shape, and what names it gets no error
-  for that. The error's `item` is the path of the item to leave out, such as `entities[3]`.
+  for that. The error's `item` is the path of the item to leave out, such as `entities[3]`
+  or `layouts[0].viewports[1]`. An error about a layout's paper or about a viewport with no
+  view has an `item` as well, since neither can be drawn.
 - An object has only the fields of its type. `colour` on a layer or `thickness` on an entity
   would not be written, so each is an error under the same rules, and the message names the
   field it is closest to: `layers[1]: unknown field "colour". Did you mean "color"?` A field
@@ -173,6 +192,9 @@ it would take `1e+100` for `1e+10` and report nothing.
   and `%%%` as one percent sign.
 - An xref that no insert places. AutoCAD purges an xref that nothing references
   when it opens the drawing.
+- A viewport that reaches past its layout's paper. AutoCAD plots a layout as far as its paper
+  goes.
+- A viewport that shows none of the drawing: nothing in model space lies in the box it shows.
 
 `toDXF` throws a `DrawingError` for errors only. Its `diagnostics` property holds
 them, and other code may throw one to refuse a drawing for its own reasons.

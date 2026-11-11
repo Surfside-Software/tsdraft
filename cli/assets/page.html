@@ -218,6 +218,16 @@
       .controls button:hover {
         color: var(--text);
       }
+      #tabs {
+        right: auto;
+        bottom: auto;
+        left: 16px;
+        top: 16px;
+        z-index: 1;
+      }
+      #tabs button.on {
+        color: var(--text);
+      }
       #cursor {
         position: absolute;
         left: 20px;
@@ -406,6 +416,7 @@
       </div>
     </header>
     <main id="canvas">
+      <div id="tabs" class="controls mono" hidden></div>
       <div id="drawing"></div>
       <div id="empty">Waiting for the first build</div>
       <div id="error" hidden>
@@ -446,6 +457,10 @@
       const SVGNS = "http://www.w3.org/2000/svg";
 
       let svg = null;
+      // The pictures of the build on screen: model space, and each layout's sheet. `tab` is
+      // the layout shown, or null for model space, and stays undefined until one is chosen.
+      let pictures = { model: null, layouts: [] };
+      let tab;
       let entities = [];
       let indexed = false;
       let fitBox = null;
@@ -563,6 +578,34 @@
         else if (event.key === "-") zoom(1.5);
         else if (event.key === "Escape") select(null);
       });
+
+      /** Shows the picture of the chosen tab: a layout's sheet, or model space. */
+      function showTab() {
+        const names = pictures.layouts.map((sheet) => sheet.name);
+        // A drawing with a layout opens on its first, as CAD does.
+        if (tab === undefined || (tab !== null && !names.includes(tab))) tab = names[0] ?? null;
+        const bar = $("tabs");
+        bar.hidden = names.length === 0;
+        bar.replaceChildren(
+          ...[null, ...names].map((name) => {
+            const button = document.createElement("button");
+            button.textContent = name ?? "Model";
+            button.classList.toggle("on", name === tab);
+            button.addEventListener("click", () => {
+              if (name === tab) return;
+              tab = name;
+              moved = false;
+              view = null;
+              select(null);
+              showTab();
+            });
+            return button;
+          }),
+        );
+        const source =
+          tab === null ? pictures.model : pictures.layouts.find((s) => s.name === tab)?.svg;
+        if (source) showDrawing(source);
+      }
 
       function showDrawing(source) {
         holder.innerHTML = source;
@@ -745,13 +788,26 @@
             .querySelector(`.layer[data-name="${CSS.escape(d.layer)}"]`)
             ?.classList.add("flash");
         }
-        // An entity inside a block has no element of its own: each insert draws it again.
+        // An entity inside a block has no element of its own: each insert draws it again. On a
+        // layout's sheet, the sheet's own entities are in the picture's group, and those of
+        // model space are inside each viewport's.
+        const onSheet = tab !== null;
         const el =
-          d.entity === undefined || d.block !== undefined
-            ? undefined
-            : indexed
-              ? svg?.querySelector(`[data-entity="${d.entity}"]`)
-              : entities[d.entity];
+          d.viewport !== undefined
+            ? d.layout === tab
+              ? svg?.querySelector(`[data-viewport="${d.viewport}"]`)
+              : undefined
+            : d.entity === undefined || d.block !== undefined
+              ? undefined
+              : d.layout !== undefined
+                ? d.layout === tab
+                  ? svg?.querySelector(`:scope > g > [data-entity="${d.entity}"]`)
+                  : undefined
+                : onSheet
+                  ? svg?.querySelector(`[data-viewport] [data-entity="${d.entity}"]`)
+                  : indexed
+                    ? svg?.querySelector(`[data-entity="${d.entity}"]`)
+                    : entities[d.entity];
         if (!el || !svg) return;
         el.classList.add("hl");
         holder.classList.add("focus");
@@ -797,11 +853,12 @@
         $("status-text").prepend(note);
       }
 
-      function onBuild({ state, shownState, svg: source, swatches: colors }) {
+      function onBuild({ state, shownState, svg: source, layouts, swatches: colors }) {
         if (shownState) lastGood = shownState;
         if (source) {
           swatches = colors;
-          showDrawing(source);
+          pictures = { model: source, layouts: layouts ?? [] };
+          showTab();
           paintHidden();
         }
         const error = $("error");
@@ -853,6 +910,9 @@
         holder.replaceChildren();
         holder.classList.remove("stale");
         svg = null;
+        pictures = { model: null, layouts: [] };
+        tab = undefined;
+        $("tabs").hidden = true;
         entities = [];
         indexed = false;
         fitBox = null;

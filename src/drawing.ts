@@ -9,7 +9,10 @@ import { holdCall, readCall, recordCalls, type HeldCall } from "./callsite.ts";
 import { STANDARD_TEXT_STYLE } from "./fonts.ts";
 import { fmt, written } from "./format.ts";
 import { validIdHandle } from "./handles.ts";
-import { layerAuditKey, layerKey } from "./layers.ts";
+import { layerAuditKey, layerKey, layoutNameKey } from "./layers.ts";
+import { validLayoutHandles } from "./layouts.ts";
+import type { PaperUnit } from "./paper.ts";
+import { paperInfo, type Paper, type PaperInfo, type PlotStyleTable } from "./papers.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import { DrawingError, type Diagnostic, type LintRule } from "./lint.ts";
 import {
@@ -38,6 +41,10 @@ import {
   magnitudeProblem,
   layerNameProblem,
   layerTwinProblem,
+  layoutNameProblem,
+  layoutTwinProblem,
+  paperProblem,
+  plotStyleProblem,
   R12_ONLY,
   scaleProblem,
   sizeProblem,
@@ -49,6 +56,7 @@ import {
   undefinedBlockProblem,
   undefinedLinetypeProblem,
   undefinedTextStyleProblem,
+  viewportProblem,
   XREF_ATTRIBUTES,
   xrefPathProblem,
   xrefTwinProblem,
@@ -79,7 +87,11 @@ import {
   type XrefPath,
   type LayerColor,
   type LayerName,
+  type LayoutName,
+  type PaperOf,
   type Positive,
+  type R12Layouts,
+  type Ratio,
   type TEXT_ALIGNS,
   type TEXT_VERTICAL_ALIGNS,
 } from "./rules.ts";
@@ -314,6 +326,53 @@ export interface Xref {
   readonly path: string;
 }
 
+/**
+ * A viewport: a rectangle on a layout's paper that shows model space at a scale. Its view is
+ * locked, so that zooming inside it in CAD does not change the scale.
+ */
+export interface Viewport {
+  /**
+   * A name for the viewport that no entity and no other viewport of the drawing has, as an
+   * entity's `id` is.
+   */
+  readonly id?: string;
+  /**
+   * The layer of the viewport's border. A viewport shows model space whether its layer plots
+   * or not, and its border plots when its layer does.
+   */
+  readonly layer: string;
+  /** The lower-left corner of the rectangle, in paper units. */
+  readonly corner: Point;
+  /** In paper units. */
+  readonly width: number;
+  /** In paper units. */
+  readonly height: number;
+  /** The point of model space shown at the middle of the rectangle, in drawing units. */
+  readonly center: Point;
+  /**
+   * How many times larger the model is than its plot, as `fromPaper` takes it: 120 for
+   * 1" = 10', 96 for 1/8" = 1'-0", 50 for 1:50.
+   */
+  readonly ratio: number;
+}
+
+/**
+ * A layout: a sheet of paper with its page setup, what is drawn on it in paper units, and the
+ * viewports that show model space on it. AutoCAD shows each layout as a tab and plots it as
+ * one page: on `DWG To PDF.pc3`, at 1:1, with the lineweights its entities have.
+ */
+export interface Layout {
+  /** The name on the layout's tab. */
+  readonly name: string;
+  /** One of `PAPERS`. Its units are the layout's paper units. */
+  readonly paper: string;
+  /** One of `PLOT_STYLE_TABLES`. Defaults to `"monochrome.ctb"`, which plots in black. */
+  readonly plotStyle?: string;
+  readonly viewports: readonly Viewport[];
+  /** What is drawn on the paper, in paper units from its lower-left corner. */
+  readonly entities: readonly Entity[];
+}
+
 export interface Drawing {
   /**
    * The version of the `Drawing` format, which is separate from the DXF version in `dxf`.
@@ -335,6 +394,8 @@ export interface Drawing {
   readonly blocks?: readonly Block[];
   /** The DWG files the drawing references, which inserts place as they place blocks. */
   readonly xrefs?: readonly Xref[];
+  /** The drawing's sheets. AutoCAD opens a drawing that has one on the first. */
+  readonly layouts?: readonly Layout[];
 }
 
 export interface DrawingOptions<V extends DxfVersion = DxfVersion, S extends number = number> {
@@ -609,6 +670,54 @@ export interface InsertOptions<
   readonly attributes?: Readonly<Record<string, string>>;
 }
 
+/** What `layout()` sets on a layout. */
+export interface LayoutOptions<P extends string = string> {
+  /** One of `PAPERS`, such as `"ARCH D"`. */
+  readonly paper: PaperOf<P>;
+  /** Defaults to `"monochrome.ctb"`, which plots every color in black. */
+  readonly plotStyle?: PlotStyleTable;
+}
+
+/** The view of a viewport: what `viewport()` takes after the rectangle. */
+export interface ViewportOptions<R extends number = number, I extends string = string> {
+  /** The point of model space shown at the middle of the viewport, in drawing units. */
+  readonly center: Point;
+  /**
+   * How many times larger the model is than its plot, as `fromPaper` takes it: 120 for
+   * 1" = 10', 96 for 1/8" = 1'-0", 50 for 1:50.
+   */
+  readonly ratio: Ratio<R>;
+  /** A name for the viewport that no entity and no other viewport of the drawing has. */
+  readonly id?: EntityId<I>;
+}
+
+/**
+ * The layout being drawn, which `layout()` gives its `draw`: the sheet's size, and the one
+ * thing only a layout can hold, a viewport. Everything else is drawn with the builder's own
+ * methods, which put it on the sheet while `draw` runs.
+ */
+export interface Sheet {
+  /** The layout's name. */
+  readonly name: string;
+  readonly paper: Paper;
+  /** The units of the paper, which are the units of everything drawn on the sheet. */
+  readonly units: PaperUnit;
+  /** The paper's size, in its units. The sheet's lower-left corner is `[0, 0]`. */
+  readonly width: number;
+  readonly height: number;
+  /**
+   * Adds a viewport: a rectangle from its lower-left `corner`, in paper units, that shows
+   * model space about `view.center` at `view.ratio`. Its border is on the current layer, and
+   * its view is locked against zooming.
+   */
+  viewport<W extends number, H extends number, R extends number, I extends string = string>(
+    corner: Point,
+    width: Positive<W>,
+    height: Positive<H>,
+    view: ViewportOptions<R, I>,
+  ): this;
+}
+
 /** The linetype and lineweight an entity is stored with: only what differs from ByLayer. */
 type EntityStyle = Pick<Line, "linetype" | "lineweight">;
 
@@ -626,6 +735,24 @@ interface OpenBlock {
   /** The handles and the id keys taken for the block and what is drawn in it. */
   readonly handles: string[];
   readonly ids: string[];
+}
+
+/** A layout while its `draw` runs. */
+interface OpenLayout {
+  readonly name: string;
+  readonly paper: Paper;
+  readonly info: PaperInfo;
+  readonly plotStyle: PlotStyleTable | undefined;
+  readonly viewports: Viewport[];
+  readonly entities: Entity[];
+  /** The call that drew each entity and each viewport, when calls are recorded. */
+  readonly calls: (HeldCall | undefined)[] | undefined;
+  readonly viewportCalls: (HeldCall | undefined)[];
+  /** The handles and the id keys taken for the layout and what is drawn on it. */
+  readonly handles: string[];
+  readonly ids: string[];
+  /** True once `draw` has returned or thrown. */
+  closed: boolean;
 }
 
 /** A broken rule, thrown inside a builder method and turned into a `DrawingError` on its way out. */
@@ -652,7 +779,7 @@ function located(
   method: Method,
   about: Pick<
     Diagnostic,
-    "id" | "layer" | "linetype" | "textStyle" | "block" | "attribute" | "xref"
+    "id" | "layer" | "linetype" | "textStyle" | "block" | "attribute" | "xref" | "layout"
   >,
 ): unknown {
   if (!(thrown instanceof Problem)) return thrown;
@@ -678,11 +805,13 @@ function recordsCalls(): boolean {
  *
  * `block(name, opts, draw)` puts everything drawn inside `draw` in a block, `xref(name, path)`
  * references another drawing's DWG file, and `insert` places a block or an xref.
+ * `layout(name, opts, draw)` puts everything drawn inside `draw` on a sheet of paper, in paper
+ * units, and gives `draw` the sheet, whose `viewport()` shows model space on it at a scale.
  *
  * Mistakes written as literals, such as a layer name the DXF version does not
  * allow or a negative radius, are compile errors. The same checks run again
  * when the code runs, for values the compiler cannot see: `layer`, `linetype`,
- * `textStyle`, `block`, `attribute`, `xref` and the entity methods then throw a `DrawingError` whose
+ * `textStyle`, `block`, `attribute`, `xref`, `layout`, `viewport` and the entity methods then throw a `DrawingError` whose
  * diagnostic has the rule, the entity's `id` and the `call` that broke it.
  */
 export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = number> {
@@ -722,6 +851,10 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
   readonly #blocksAudited = new Map<string, { readonly name: string; readonly xref: boolean }>();
   /** The block being drawn, which takes what is drawn until its `draw` returns. */
   #open: OpenBlock | undefined;
+  /** Keyed by `layoutNameKey`, as AutoCAD compares layout names. In the order of the tabs. */
+  readonly #layouts = new Map<string, Layout | undefined>();
+  /** The layout being drawn, which takes what is drawn until its `draw` returns. */
+  #sheet: OpenLayout | undefined;
   #current = "0";
 
   constructor(options: DrawingOptions<V, S> = {}) {
@@ -1026,6 +1159,12 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
           `a block cannot be defined inside another, and block ${JSON.stringify(this.#open.name)} is being drawn. Define this one first, and insert it`,
         );
       }
+      if (this.#sheet) {
+        fail(
+          "block",
+          `a block belongs to the drawing and cannot be defined on a layout, and layout ${JSON.stringify(this.#sheet.name)} is being drawn. Define this one first, and insert it`,
+        );
+      }
       const first = this.#blocksAudited.get(layerAuditKey(requested));
       if (first !== undefined) {
         fail(
@@ -1284,6 +1423,164 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     });
   }
 
+  /**
+   * Adds a layout: a sheet of `options.paper` that AutoCAD shows as a tab and plots as one
+   * page, at 1:1 on `DWG To PDF.pc3`. What `draw` draws goes on the sheet and not in model
+   * space, in the paper's units from the sheet's lower-left corner, and `sheet.viewport()`
+   * shows model space on it at a scale. Inside `draw` the current layer starts as `"0"`. A
+   * layout is defined once, and not inside a block or another layout. AutoCAD opens a drawing
+   * on its first layout.
+   */
+  layout<N extends string, P extends string>(
+    name: V extends "R12" ? R12Layouts : LayoutName<N>,
+    options: LayoutOptions<P>,
+    draw: (sheet: Sheet) => void,
+  ): this {
+    // The parameter type is the error message when a literal name is wrong, so read it as a string.
+    const requested = name as string;
+    let open: OpenLayout;
+    const taken: string[] = [];
+    try {
+      const fail = (rule: LintRule, problem: string): never =>
+        refuse(rule, `Layout ${JSON.stringify(requested)}: ${problem}`);
+      if (this.dxf === "R12") fail("layout", R12_ONLY.layouts);
+      const nameProblem = layoutNameProblem(requested);
+      if (nameProblem) fail("layout", nameProblem);
+      const within = this.#open
+        ? `block ${JSON.stringify(this.#open.name)}`
+        : this.#sheet
+          ? `layout ${JSON.stringify(this.#sheet.name)}`
+          : undefined;
+      if (within !== undefined) {
+        fail(
+          "layout",
+          `a layout belongs to the drawing and cannot be defined inside a block or another layout, and ${within} is being drawn`,
+        );
+      }
+      for (const [key, other] of this.#layouts) {
+        // A layout that is being drawn holds its name too.
+        if (key === layoutNameKey(requested)) {
+          fail("duplicate-layout", layoutTwinProblem(requested, other?.name ?? requested)!);
+        }
+      }
+      const paper: unknown = options?.paper;
+      const problem = paperProblem(paper);
+      if (problem) fail("layout", problem);
+      const plotStyle: unknown = options.plotStyle;
+      if (plotStyle !== undefined) {
+        const styleProblem = plotStyleProblem(plotStyle);
+        if (styleProblem) fail("layout", styleProblem);
+      }
+      const handles = validLayoutHandles(requested);
+      const what = `the layout ${JSON.stringify(requested)}`;
+      for (const handle of Object.values(handles)) this.#claim(handle, what, undefined, taken);
+      open = {
+        name: requested,
+        paper: paper as Paper,
+        info: paperInfo(paper as Paper)!,
+        plotStyle: plotStyle as PlotStyleTable | undefined,
+        viewports: [],
+        entities: [],
+        calls: this.#calls ? [] : undefined,
+        viewportCalls: [],
+        handles: taken,
+        ids: [],
+        closed: false,
+      };
+    } catch (thrown) {
+      // A handle taken before another was refused is given back.
+      for (const handle of taken) this.#handles.delete(handle);
+      throw located(thrown, DrawingBuilder.prototype.layout, { layout: requested });
+    }
+    // The name is taken while the layout is drawn, and its place among the tabs is kept.
+    const key = layoutNameKey(requested);
+    this.#layouts.set(key, undefined);
+    const previous = this.#current;
+    this.#current = "0";
+    this.#sheet = open;
+    const sheet: Sheet = {
+      name: open.name,
+      paper: open.paper,
+      units: open.info.units,
+      width: open.info.width,
+      height: open.info.height,
+      viewport: (corner, width, height, view) => {
+        this.#viewport(sheet.viewport, open, corner, width, height, view as ViewportOptions);
+        return sheet as never;
+      },
+    };
+    try {
+      draw(sheet);
+    } catch (thrown) {
+      // Nothing of a layout that was not finished stays, so the call can be made again.
+      this.#layouts.delete(key);
+      for (const handle of open.handles) this.#handles.delete(handle);
+      for (const id of open.ids) this.#ids.delete(id);
+      throw thrown;
+    } finally {
+      this.#current = previous;
+      this.#sheet = undefined;
+      open.closed = true;
+    }
+    if (open.calls) {
+      recordCalls(open.entities, open.calls);
+      recordCalls(open.viewports, open.viewportCalls);
+    }
+    this.#layouts.set(key, {
+      name: open.name,
+      paper: open.paper,
+      ...(open.plotStyle === undefined ? {} : { plotStyle: open.plotStyle }),
+      viewports: open.viewports,
+      entities: open.entities,
+    });
+    return this;
+  }
+
+  /** Checks a viewport and adds it to the layout being drawn. `method` is the sheet's own. */
+  #viewport(
+    method: Method,
+    open: OpenLayout,
+    corner: Point,
+    width: unknown,
+    height: unknown,
+    view: ViewportOptions,
+  ): void {
+    const id: unknown = (view as ViewportOptions | undefined)?.id;
+    try {
+      if (open.closed) {
+        refuse(
+          "viewport",
+          "A viewport is added while its layout is drawn. Call viewport() inside the draw of layout()",
+        );
+      }
+      const key = id === undefined ? undefined : this.#idKey(id);
+      if (key !== undefined) this.#freeIdHandle(id as string);
+      const made = {
+        ...(id === undefined ? {} : { id: id as string }),
+        layer: this.#current,
+        corner,
+        width,
+        height,
+        center: view?.center,
+        ratio: view?.ratio,
+      };
+      const problem = viewportProblem(made, open.info.units, this.units);
+      if (problem) refuse("viewport", problem);
+      open.viewports.push({ ...(made as Viewport), corner: pt(corner), center: pt(view.center) });
+      if (key !== undefined) {
+        this.#ids.set(key, id as string);
+        open.ids.push(key);
+        this.#claim(validIdHandle(id as string), `the id ${JSON.stringify(id)}`, id as string);
+      }
+    } catch (thrown) {
+      throw located(thrown, method, {
+        layout: open.name,
+        ...(typeof id === "string" ? { id } : {}),
+      });
+    }
+    if (open.calls) open.viewportCalls.push(holdCall(method));
+  }
+
   build(): Drawing {
     const entities = [...this.#entities];
     if (this.#calls) recordCalls(entities, [...this.#calls]);
@@ -1298,6 +1595,9 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
       ...(this.#textStyles.size > 0 ? { textStyles: [...this.#textStyles.values()] } : {}),
       ...(this.#blocks.size > 0 ? { blocks: [...this.#blocks.values()] } : {}),
       ...(this.#xrefs.size > 0 ? { xrefs: [...this.#xrefs.values()] } : {}),
+      ...(this.#layouts.size > 0
+        ? { layouts: [...this.#layouts.values()].filter((layout) => layout !== undefined) }
+        : {}),
     };
   }
 
@@ -1364,17 +1664,21 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
       if (key !== undefined) this.#freeIdHandle(id as string);
       const named = id === undefined ? {} : { id: id as string };
       const made = { ...make(), ...named, ...this.#style(o) } as Entity;
-      (this.#open?.entities ?? this.#entities).push(made);
+      (this.#open ?? this.#sheet ?? { entities: this.#entities }).entities.push(made);
       if (key !== undefined) {
         this.#ids.set(key, id as string);
-        this.#open?.ids.push(key);
+        (this.#open ?? this.#sheet)?.ids.push(key);
         this.#claim(validIdHandle(id as string), `the id ${JSON.stringify(id)}`, id as string);
       }
     } catch (thrown) {
-      const block = this.#open ? { block: this.#open.name } : {};
-      throw located(thrown, method, { ...block, ...(typeof id === "string" ? { id } : {}) });
+      const within = this.#open
+        ? { block: this.#open.name }
+        : this.#sheet
+          ? { layout: this.#sheet.name }
+          : {};
+      throw located(thrown, method, { ...within, ...(typeof id === "string" ? { id } : {}) });
     }
-    (this.#open ? this.#open.calls : this.#calls)?.push(holdCall(method));
+    (this.#open ?? this.#sheet ?? { calls: this.#calls }).calls?.push(holdCall(method));
     return this;
   }
 
@@ -1402,7 +1706,12 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
   }
 
   /** Takes a handle that comes from a name, and refuses one that something else has. */
-  #claim(handle: string, what: string, id?: string, held = this.#open?.handles): void {
+  #claim(
+    handle: string,
+    what: string,
+    id?: string,
+    held = (this.#open ?? this.#sheet)?.handles,
+  ): void {
     const other = this.#handles.get(handle);
     if (other !== undefined) {
       refuse(

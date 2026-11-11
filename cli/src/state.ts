@@ -1,6 +1,6 @@
 // The JSON that `tsdraft render` prints and `tsdraft dev` serves as /state.json. Agents program
 // against it, so a change here is a change to the interface.
-import type { Diagnostic, DxfVersion, Entity, Units } from "tsdraft";
+import type { Diagnostic, DxfVersion, Entity, PaperUnit, Units } from "tsdraft";
 
 /** The result of one build of a drawing file. */
 export interface BuildState {
@@ -58,15 +58,34 @@ export interface BuildState {
    * after a failed build is the last good one, naming its session and build so that a picture
    * from another is refused. `null` when there is none. `pngError` says why there is no PNG
    * beside an SVG: the PNG renderer is an optional dependency, and it is not installed or has no
-   * build for this machine. The build is still `ok`. Otherwise `pngError` is `null`.
+   * build for this machine, or the renderer stopped on this picture or could not draw it. The build is
+   * still `ok`, and the other pictures are made. Otherwise `pngError` is `null`.
+   *
+   * `svg` and `png` are model space. `layouts` has a picture of each layout as it plots, in the
+   * order of `drawing.layouts`, and is empty for a drawing with none.
    */
   readonly outputs: {
     readonly svg: string | null;
     readonly png: string | null;
     readonly pngError: string | null;
+    readonly layouts: readonly LayoutOutput[];
   };
   /** What the drawing file printed to stdout and stderr, cut to its last 8,000 characters. */
   readonly log: string;
+}
+
+/** The pictures of one layout: its sheet as it plots, in paper units. */
+export interface LayoutOutput {
+  /** The layout's name, as `drawing.layouts` has it. */
+  readonly name: string;
+  readonly svg: string;
+  /** `null` when there is no PNG, for the reason `pngError` gives. */
+  readonly png: string | null;
+  /**
+   * Why this sheet has no PNG: the reason `outputs.pngError` gives for every picture, or that
+   * the renderer stopped on this one. `null` when it has a PNG.
+   */
+  readonly pngError: string | null;
 }
 
 /**
@@ -85,6 +104,10 @@ export interface BuildState {
  *
  * With `xref`, the problem is in that xref, or in the drawing the file gives for it: an error
  * `lint` finds there is reported once for each, with its rule, and that xref is not drawn.
+ *
+ * With `layout`, the problem is on that layout: `entity` then counts the layout's entities,
+ * `viewport` its viewports, and `bounds` is on the sheet, in paper units. A viewport has no
+ * `kind`.
  */
 export interface BuildDiagnostic extends Diagnostic {
   readonly kind?: Entity["kind"];
@@ -125,6 +148,7 @@ export interface DrawingSummary {
     readonly entities: number;
     readonly blocks: number;
     readonly xrefs: number;
+    readonly layouts: number;
     readonly errors: number;
     readonly warnings: number;
   };
@@ -132,8 +156,9 @@ export interface DrawingSummary {
    * The paths of what the pictures, the extents and the lists below leave out, because `lint`
    * reported that it cannot be read and `toSVG` could not draw the drawing with it: an entity,
    * such as `entities[3]` or `blocks[0].entities[1]`, an entry of another list, such as
-   * `blocks[0]`, or a whole list, such as `xrefs`. Each is the `item` of a diagnostic. Missing
-   * when nothing is left out.
+   * `blocks[0]` or `layouts[0]`, a viewport or an entity of a layout, such as
+   * `layouts[0].viewports[1]`, or a whole list, such as `xrefs`. Each is the `item` of a
+   * diagnostic. Missing when nothing is left out.
    */
   readonly omitted?: readonly string[];
   /** Each layer in the drawing's order, with the number of entities that name it exactly. */
@@ -144,6 +169,46 @@ export interface DrawingSummary {
   readonly inserts: readonly InsertSummary[];
   /** Each xref in the drawing's order. Empty for a drawing with none. */
   readonly xrefs: readonly XrefSummary[];
+  /** Each layout in the order of its tab. Empty for a drawing with none. */
+  readonly layouts: readonly LayoutSummary[];
+}
+
+/** A layout: a sheet of paper, with what is drawn on it and the viewports that show the model. */
+export interface LayoutSummary {
+  readonly name: string;
+  /** The paper's name, such as `ARCH D`. */
+  readonly paper: string;
+  /** The units of the paper and of everything on the sheet. */
+  readonly paperUnits: PaperUnit;
+  /** The sheet's size in paper units. Its lower-left corner is 0, 0. */
+  readonly width: number;
+  readonly height: number;
+  /** The plot style table the layout plots with. */
+  readonly plotStyle: string;
+  /** How many entities are drawn on the sheet. An insert is one entity. */
+  readonly entities: number;
+  readonly viewports: readonly ViewportSummary[];
+}
+
+/** A viewport: a rectangle on a sheet that shows model space at a scale. */
+export interface ViewportSummary {
+  /** The viewport's id, or `null`. */
+  readonly id: string | null;
+  /** The layer of its border. */
+  readonly layer: string;
+  /** Whether the border plots: its layer is on, thawed and set to plot. The view plots either way. */
+  readonly border: boolean;
+  /** The rectangle on the sheet, in paper units. */
+  readonly rectangle: Box;
+  /** How many times larger the model is than its plot: 120 is 1" = 10'. */
+  readonly ratio: number;
+  /** The point of model space at the middle of the rectangle, in drawing units. */
+  readonly center: readonly [x: number, y: number];
+  /**
+   * The box of model space the viewport shows, in drawing units. What lies outside it is cut
+   * off: compare it with `drawing.extents`.
+   */
+  readonly shows: Box;
 }
 
 /** An xref: another drawing's DWG file, which CAD loads and draws where each insert puts it. */

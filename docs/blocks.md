@@ -31,6 +31,9 @@ insert puts at its own point, `[0, 0]` unless given.
 
 - A block holds every kind of entity, and inserts of blocks defined before it.
 - A block is defined once. It cannot be defined inside another block.
+- When `draw` throws, the block is not defined, and its name, its ids and what it drew are
+  free again. A layer, a linetype, a text style or an xref that `draw` defined stays, as it
+  belongs to the drawing.
 - Inside `draw` the current layer starts as `0`, and `layer()` puts entities on a layer of
   their own, as it does anywhere.
 

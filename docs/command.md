@@ -68,6 +68,7 @@ entities are not drawn. Each diagnostic shows the call that drew its entity. Cli
 | `/state.json?after=<n>`              | The same, once a build newer than `n` has finished and none is due        |
 | `/drawing.svg?session=<s>&build=<n>` | The drawing on screen; 409 when build `n` of session `s` is not on screen |
 | `/drawing.png?width=<px>`            | The same, as a PNG, rasterized only when asked for                        |
+| `/drawing.svg?layout=<name>`         | The sheet of a layout as it plots. The PNG takes `layout` too             |
 | `/events`                            | Server-Sent Events: `hello`, then `start` and `build` per build           |
 
 Each response has an `x-tsdraft-session` header, and each state or picture an `x-tsdraft-build`
@@ -94,7 +95,7 @@ header that gives the build it came from. A PNG is at most
 ```
 
 When it builds, `drawing` gives the units, the extents, counts of layers, entities, blocks,
-xrefs, errors and warnings, and each layer. `drawing.blocks` gives each block's name, how many entities
+xrefs, layouts, errors and warnings, and each layer. `drawing.blocks` gives each block's name, how many entities
 it holds, the tags of its attributes and how many inserts place it. `drawing.inserts` gives each
 insert in model space: its `entity` index, `block`, `layer`, `id`, `at`, `scale`, `rotation` and
 the value it shows for each attribute, and `xref`, which is true for an insert of an xref.
@@ -108,7 +109,23 @@ about the pictures and not about what CAD will load. `units` is the units of tha
 scale between the two. The command runs `lint` on each drawing it is given. One with an error
 is not drawn, its `shown` is false, and each error is in `diagnostics` with the `xref` it
 belongs to, counted in `counts.errors`. An xref that is not shown is left out of the pictures
-and of `drawing.extents`. A diagnostic about an entity inside a block names the
+and of `drawing.extents`. `drawing.layouts` gives each layout: its `name`, its `paper`, its `paperUnits`, `width` and
+`height`, its `plotStyle`, how many `entities` are on its sheet, and each viewport, with its
+`id`, its `layer`, whether its `border` plots, its `rectangle` on the sheet, its `ratio`, the
+`center` of its view and `shows`, the box of model space it frames. What lies outside `shows`
+is cut off, so compare it with `drawing.extents`. `outputs.layouts` gives a picture of each
+sheet as it plots, an SVG and a PNG, under the layout's `name`, with a `pngError` that is
+`null` or says why that sheet has no PNG. `render` writes them beside
+the others as `<name>.layout-<layout>.svg` and `.png`, with every character of the layout's
+name that a file name may not hold as `_`. `outputs.svg` and `outputs.png` are model space,
+whether the drawing has a layout or not. A layout with a lint error is drawn as model space
+is, unless it cannot be read: see `item` and `drawing.omitted` below. The page of
+`tsdraft dev` has a tab for model space and one for each layout, and opens on the first
+layout, as CAD does. A diagnostic on a layout names the `layout`, counts `entity` on its sheet
+or gives the `viewport`'s index, and gives `bounds` on the sheet, in paper units. A sheet's
+picture is in paper units, with every line as wide as its lineweight. A PNG of it keeps those
+widths, and widens them all alike only where the default pen would be under a pixel.
+A diagnostic about an entity inside a block names the
 `block`, counts `entity` in it, and gives `bounds` in the block's coordinates. `diagnostics` holds what `lint` returned, errors first, each with its
 `rule`, `severity` and `message`. A layer problem names its `layer`. An entity problem gives the
 `entity` index, its `kind`, its `layer`, and `bounds`, its box in drawing units. It also gives
@@ -118,13 +135,18 @@ the builder's `recordCalls` for every drawing it runs.
 
 A problem with the shape of a value, such as an entity of an unknown kind or a field of the
 wrong type, gives `item`, the path of the item that holds the value: `entities[3]`,
-`blocks[0]`, `blocks[0].attributes[1]`, or a whole list, such as `xrefs`. A list with an empty
-slot is such an item, whole.
+`blocks[0]`, `blocks[0].attributes[1]`, `layouts[0]`, `layouts[0].viewports[1]`,
+`layouts[0].entities[2]`, or a whole list, such as `xrefs`. A list with an empty slot is such
+an item, whole. A layout whose paper is none of `PAPERS` is such an item too, and so is a
+viewport whose size or ratio gives it no view, since neither can be drawn.
 
 When the drawing cannot be drawn with such an item in it, the command draws the rest.
 `drawing.omitted` then lists the `item` of everything the pictures, `drawing.extents` and the
-lists of layers, blocks, inserts and xrefs leave out, and `drawing.counts` still counts the
-drawing as it is. A problem of an entity that was left out, by itself or with its block or
+lists of layers, blocks, inserts, xrefs and layouts leave out, and `drawing.counts` still
+counts the drawing as it is. A layout that cannot be read is left out whole, with its picture
+in `outputs.layouts`. A viewport that cannot be read is left out of its layout, which keeps
+the rest, and an entity of a sheet is left out as one of model space is, so the others keep
+their indexes. A problem of an entity that was left out, by itself or with its block or
 its list, has no `kind`, `layer` or `bounds`, since the entity was not drawn; any other entity
 problem has all three, with an `item` or without. Without `omitted`, nothing is left out. If the rest cannot be drawn either,
 the build fails: `ok` is false, `drawing` is `null`, `diagnostics` holds what `lint` reported,
@@ -193,6 +215,23 @@ or it is installed and has no build that loads on this platform.
 is `null`. A PNG that could not be written for another reason, such as a folder that cannot be
 written to, is a failure as before: `ok` is false, `error.name` is `Output`, and the exit code
 is 1.
+
+## When the renderer stops on a picture
+
+The renderer draws in a process of its own, which the command starts and `tsdraft dev` keeps.
+A fault in the renderer ends that process and not the command:
+
+- `tsdraft render` gives the picture it stopped on `"png": null` and a `pngError` that says the
+  renderer stopped while it drew this picture. A picture the renderer answers it cannot draw
+  gets the same, with that answer. For model space that is `outputs.pngError`, and
+  for a layout the `pngError` of its entry in `outputs.layouts`. The SVG of that picture, every
+  other picture, the diagnostics and the exit code are as they would have been. It also prints
+  the reason to stderr.
+- `tsdraft dev` answers `/drawing.png` for that picture with 500 and the reason, and draws the
+  next picture in a new process.
+
+When the renderer's process cannot start at all, each picture has a `pngError` that says so,
+and the rest is the same.
 
 ## Which copy of the library builds a drawing
 

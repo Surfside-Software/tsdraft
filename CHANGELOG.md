@@ -1,5 +1,62 @@
 # Changelog
 
+## Unreleased
+
+- Layouts, in R2018 drawings. `d.layout(name, { paper, plotStyle }, draw)` adds a sheet of
+  paper that AutoCAD shows as a tab and plots as one page, and what `draw` draws goes on it,
+  in paper units: lines, circles, arcs, polylines, texts and inserts of blocks and of xrefs.
+  `draw` is given the sheet, and `sheet.viewport(corner, width, height, { center, ratio, id })`
+  shows model space on it in a locked rectangle, at the ratio `fromPaper` takes. A drawing
+  has any number of layouts and opens on the first. Each has a page setup: `DWG To PDF.pc3`,
+  its paper, the layout at 1:1, lineweights plotted, and `monochrome.ctb` or `acad.ctb`.
+  [docs/layouts.md](docs/layouts.md) describes all of it.
+- `PAPERS` lists the papers a layout may have, with the name AutoCAD stores for each, its
+  size and the part of it that prints: `ARCH A` to `ARCH D` and `ANSI A` to `ANSI D`, full
+  bleed and landscape.
+- New rules, each a compile error for a literal, an error at the builder's call, and a `lint`
+  error under `layout`, `duplicate-layout` or `viewport`: a layout's name is not empty, not
+  `Model`, at most 255 characters, with none of `< > / \ " : ; ? * | , =` and the backtick
+  and no space at either end, as AutoCAD's `LAYOUT` command holds one; no two layouts have
+  names AutoCAD takes for one, since its `AUDIT` then reports a layout as missing; a paper is
+  one of `PAPERS` and a plot style table one of the two; a viewport has a size and a ratio
+  greater than 0; a layout is not defined inside a block or a layout, nor a block inside a
+  layout. `lint` warns of a viewport that reaches past the paper and of one that shows none
+  of the drawing. An R12 drawing with a layout is refused.
+- `toSVG(drawing, { layout: name })` draws a sheet as it plots: the paper, each viewport's
+  view of model space at its scale and clipped to its rectangle, and what is on the sheet,
+  with every line as wide as its lineweight and the colors its plot style table plots.
+  Without `layout`, `toSVG` draws model space as before.
+- `viewportView` gives the box of model space a viewport shows and its scale, and
+  `layoutHandles` the handles of a layout's own objects, which come from its name. A viewport or an entity of a sheet with an id has the handle `idHandle`
+  gives.
+- `Drawing` gains `layouts`, each a `name`, a `paper`, `viewports` and `entities`. `toJSON`
+  and `fromJSON` carry them. A drawing with no layout has the DXF, the JSON and the SVG it
+  had before. `Diagnostic` gains `layout` and `viewport`.
+- `lint` reports a layout, a viewport or an entity of a sheet that does not have its shape, as
+  it reports any other value: under `layout`, `viewport` or `format`, with the path to the
+  value, a hint for a field nobody knows, and `item`, such as `layouts[0].viewports[1]`. The
+  command leaves such an item out of the pictures and lists it in `drawing.omitted`: a layout
+  whole, or one viewport or one entity of it.
+- `tsdraft render` and `tsdraft dev` draw each layout as well as model space. The JSON gains
+  `drawing.layouts`, with each layout's paper and size and each viewport's rectangle, ratio,
+  center and the box of model space it shows, `drawing.counts.layouts`, and
+  `outputs.layouts`, a picture of each sheet. `render` writes `<name>.layout-<layout>.svg`
+  and `.png`. The page of `dev` has a tab for each layout and opens on the first. `schema`
+  stays 2: no field changed its meaning.
+- The command draws PNGs in a process of its own, so a fault in the renderer no longer ends
+  the command. The picture the renderer stopped on has `"png": null` and a `pngError` that
+  says so, `outputs.pngError` for model space and the `pngError` of its entry in
+  `outputs.layouts` for a sheet. Every other picture, the diagnostics and the exit code are
+  as they would have been. The same holds when the renderer's process cannot start.
+- Fixed: the extents of a text turned by an angle that is not a multiple of 90 degrees left
+  out its far corner, the one above the end of its line. A drawing whose outermost entity is
+  such a text, or an insert that turns one, now has an `$EXTMIN` and `$EXTMAX` that reach
+  that corner, opens zoomed to a slightly larger view, and has a slightly larger `viewBox`
+  in `toSVG`. Nothing else in its files changes.
+- The example sheet has a layout, `C-101`, on `ARCH D`, with one viewport over the whole
+  sheet at its ratio. Its linetype scale is now a length of paper, 1/2, because AutoCAD sizes
+  dashes on the paper in a viewport: its model tab shows the same dashes a tenth as long.
+
 ## 0.5.0
 
 - `lint` takes any plain data and never throws. It threw a `TypeError` for a drawing written

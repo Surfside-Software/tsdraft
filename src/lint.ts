@@ -12,6 +12,8 @@ import type {
   Drawing,
   DxfVersion,
   Entity,
+  Layout,
+  Viewport,
   Insert,
   Layer,
   Linetype,
@@ -19,8 +21,12 @@ import type {
   TextStyle,
   Xref,
 } from "./drawing.ts";
+import { extents } from "./extents.ts";
 import { written } from "./format.ts";
 import { validIdHandle } from "./handles.ts";
+import { validLayoutHandles, validViewportView } from "./layouts.ts";
+import { paperInfo } from "./papers.ts";
+import { isUnits } from "./units.ts";
 import {
   arrayProblem,
   isObject,
@@ -31,7 +37,7 @@ import {
   WALKABLE,
   type Check,
 } from "./shape.ts";
-import { layerAuditKey, layerKey } from "./layers.ts";
+import { layerAuditKey, layerKey, layoutNameKey } from "./layers.ts";
 import { STANDARD_TEXT_STYLE } from "./fonts.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import {
@@ -56,13 +62,17 @@ import {
   layerNameProblem,
   layerStateProblem,
   layerTwinProblem,
+  layoutNameProblem,
+  layoutTwinProblem,
   lineweightProblem,
   linetypeNameProblem,
   linetypeProblem,
   linetypeScaleProblem,
   R12_ONLY,
   magnitudeProblem,
+  paperProblem,
   placedAttributeProblem,
+  plotStyleProblem,
   scaleProblem,
   shown,
   sizeProblem,
@@ -75,6 +85,9 @@ import {
   undefinedBlockProblem,
   undefinedLinetypeProblem,
   undefinedTextStyleProblem,
+  viewportEmptyWarning,
+  viewportOffPaperWarning,
+  viewportProblem,
   XREF_ATTRIBUTES,
   XREF_REFUSED_FIELDS,
   XREF_UNPLACED,
@@ -108,6 +121,9 @@ export type LintRule =
   | "duplicate-block"
   | "undefined-block"
   | "block-cycle"
+  | "layout"
+  | "duplicate-layout"
+  | "viewport"
   | "attribute"
   | "duplicate-attribute"
   | "undefined-attribute"
@@ -135,16 +151,23 @@ export interface Diagnostic {
   /** The xref the problem is in, when it is a problem with an xref's name or path. */
   readonly xref?: string;
   /**
-   * When it is an entity problem, the entity's index: into the entities of `block` when there
-   * is one, and into `drawing.entities` otherwise.
+   * The layout the problem is in: a problem with the layout itself, with one of its viewports,
+   * or with one of its entities.
+   */
+  readonly layout?: string;
+  /** When it is a viewport problem, the viewport's index in the viewports of `layout`. */
+  readonly viewport?: number;
+  /**
+   * When it is an entity problem, the entity's index: into the entities of `block` or of
+   * `layout` when there is one, and into `drawing.entities` otherwise.
    */
   readonly entity?: number;
-  /** The `id` of the entity the problem is in, when it has one. */
+  /** The `id` of the entity or the viewport the problem is in, when it has one. */
   readonly id?: string;
   /**
    * For a problem with the shape of a value, the path of the item that holds it, such as
-   * `entities[3]`, `blocks[0]` or `blocks[0].attributes[1]`, or of a list that is not one, such
-   * as `blocks`. Code that walks or draws the drawing has to leave the item out.
+   * `entities[3]`, `blocks[0]`, `blocks[0].attributes[1]` or `layouts[0].viewports[1]`, or of a
+   * list that is not one, such as `blocks`. Code that walks or draws the drawing has to leave the item out.
    */
   readonly item?: string;
   /**
@@ -238,7 +261,7 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
   };
   /** The items of one of the drawing's lists, or none, with an error, when it is not a list. */
   const listed = <T>(
-    field: "layers" | "entities" | "linetypes" | "textStyles" | "blocks" | "xrefs",
+    field: "layers" | "entities" | "linetypes" | "textStyles" | "blocks" | "xrefs" | "layouts",
     rule: LintRule,
   ): readonly T[] => {
     const value: unknown = drawing[field];
@@ -665,10 +688,45 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     });
   };
 
-  const lintEntities = (entities: readonly Entity[], block: Block | undefined): void => {
-    const where = block ? ` of block ${shown(block.name)}` : "";
-    const at = block ? `${walked.get(block)!.at}.entities` : "entities";
-    const inBlock = block ? { block: block.name } : {};
+  type Add = (rule: LintRule, severity: Diagnostic["severity"], problem: string) => void;
+  /** Checks the id of an entity or a viewport and takes its handle. True for an id that is new. */
+  const lintId = (id: unknown, add: Add): boolean => {
+    if (id === undefined) return false;
+    const problem = idProblem(id);
+    const first = problem ? undefined : ids.get(idKey(id as string));
+    if (problem) add("id", "error", problem);
+    else if (first !== undefined) {
+      add("duplicate-id", "error", duplicateIdProblem(id as string, first));
+    } else {
+      ids.set(idKey(id as string), id as string);
+      const what = `the id ${shown(id)}`;
+      const clash = claim(validIdHandle(id as string), what, id as string);
+      if (clash) add("id-handle", "error", clash);
+      return true;
+    }
+    return false;
+  };
+
+  /**
+   * Checks the entities of model space, of a block, or of the layout `sheet`, whose path in the
+   * drawing is `sheet.at`.
+   */
+  const lintEntities = (
+    entities: readonly Entity[],
+    block: Block | undefined,
+    sheet?: { readonly name: string; readonly at: string },
+  ): void => {
+    const where = block
+      ? ` of block ${shown(block.name)}`
+      : sheet
+        ? ` of layout ${shown(sheet.name)}`
+        : "";
+    const at = block
+      ? `${walked.get(block)!.at}.entities`
+      : sheet
+        ? `${sheet.at}.entities`
+        : "entities";
+    const inBlock = block ? { block: block.name } : sheet ? { layout: sheet.name } : {};
     const lintEntity = (entity: Entity, index: number): void => {
       if (!isSound(WALKABLE.entity, entity)) {
         const call = callOf(entities, index);
@@ -688,27 +746,13 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
           rule,
           severity,
           message: `${entity.kind} #${index}${where}: ${problem}`,
-          ...(block ? { block: block.name } : {}),
+          ...inBlock,
           entity: index,
           ...(typeof id === "string" ? { id } : {}),
           ...(call ? { call } : {}),
         });
       };
-      let named = false;
-      if (id !== undefined) {
-        const problem = idProblem(id);
-        const first = problem ? undefined : ids.get(idKey(id as string));
-        if (problem) add("id", "error", problem);
-        else if (first !== undefined)
-          add("duplicate-id", "error", duplicateIdProblem(id as string, first));
-        else {
-          ids.set(idKey(id as string), id as string);
-          const what = `the id ${shown(id)}`;
-          const clash = claim(validIdHandle(id as string), what, id as string);
-          if (clash) add("id-handle", "error", clash);
-          named = true;
-        }
-      }
+      const named = lintId(id, add);
       const layer = undefinedLayer(entity.layer);
       if (layer) add("undefined-layer", "error", layer);
       const problems = geometryProblems(entity);
@@ -819,6 +863,123 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     lintEntities(walked.get(block)!.entities, block);
   }
   lintEntities(listed<Entity>("entities", "format"), undefined);
+
+  // AutoCAD compares layout names by a table of its own, which `layoutNameKey` holds.
+  const layoutNames = new Map<string, string>();
+  /** The box of what model space holds, worked out when a viewport first asks. */
+  let modelBox: readonly [number, number, number, number] | null | undefined;
+  const boxOfModel = (): readonly [number, number, number, number] | null => {
+    if (modelBox === undefined) {
+      try {
+        const model: unknown = drawing.entities;
+        modelBox =
+          !Array.isArray(model) || model.length === 0
+            ? null
+            : extents(drawing.entities, drawing.textStyles, drawing.blocks);
+      } catch {
+        // A drawing whose entities cannot be measured has errors of its own above.
+        modelBox = null;
+      }
+    }
+    return modelBox;
+  };
+  each(listed<Layout>("layouts", "layout"), "layouts", "layout", TYPED.layout, (layout, i) => {
+    const at = `layouts[${i}]`;
+    // A layout with a name keeps it, whatever else is wrong with it.
+    const unread = malformed(WALKABLE.layout, layout, at, "layout");
+    if (!isObject(layout)) return;
+    const { name } = layout;
+    const inLayout = typeof name === "string" ? { layout: name } : {};
+    const error = (rule: LintRule, message: string) =>
+      out.push({
+        rule,
+        severity: "error",
+        message: `Layout ${shown(name)}: ${message}`,
+        ...inLayout,
+      });
+    if (r12) {
+      error("layout", R12_ONLY.layouts);
+      return;
+    }
+    const nameProblem = layoutNameProblem(name);
+    if (nameProblem) {
+      error("layout", nameProblem);
+      return;
+    }
+    const first = layoutNames.get(layoutNameKey(name));
+    if (first !== undefined) {
+      error("duplicate-layout", layoutTwinProblem(name, first)!);
+      return;
+    }
+    layoutNames.set(layoutNameKey(name), name);
+    // A layout on no paper cannot be drawn, so the error names it as the item to leave out.
+    const problem = paperProblem(layout.paper);
+    if (problem) {
+      const message = `Layout ${shown(name)}: ${problem}`;
+      out.push({ rule: "layout", severity: "error", message, ...inLayout, item: at });
+    }
+    if (layout.plotStyle !== undefined) {
+      const styleProblem = plotStyleProblem(layout.plotStyle);
+      if (styleProblem) error("layout", styleProblem);
+    }
+    for (const handle of Object.values(validLayoutHandles(name))) {
+      const clash = claim(handle, `the layout ${shown(name)}`);
+      if (clash) error("id-handle", clash);
+    }
+    const paper = problem ? undefined : paperInfo(layout.paper);
+    const isList = (value: unknown) => !unread || arrayProblem(value, "") === undefined;
+    const viewports = isList(layout.viewports) ? layout.viewports : [];
+    const lintViewport = (viewport: Viewport, index: number): void => {
+      const call = callOf(viewports, index);
+      const about = { layout: name, viewport: index, ...(call ? { call } : {}) };
+      const path = `${at}.viewports[${index}]`;
+      if (malformed(WALKABLE.viewport, viewport, path, "viewport", about)) return;
+      const id: unknown = viewport.id;
+      const add: Add = (rule, severity, found) => {
+        out.push({
+          rule,
+          severity,
+          message: `viewport #${index} of layout ${shown(name)}: ${found}`,
+          ...about,
+          ...(typeof id === "string" ? { id } : {}),
+        });
+      };
+      lintId(id, add);
+      const layer: unknown = viewport.layer;
+      const absent =
+        typeof layer === "string" ? undefinedLayer(layer) : "a layer is named by a string";
+      if (absent) add("undefined-layer", "error", absent);
+      // Without its paper a viewport is judged as one on a paper in inches.
+      const units = isUnits(drawing.units) ? drawing.units : "in";
+      const found = viewportProblem(viewport, paper?.units ?? "in", units);
+      if (found) {
+        // A viewport with no view cannot be drawn, so the error names it.
+        add("viewport", "error", found);
+        out[out.length - 1] = { ...out.at(-1)!, item: path };
+        return;
+      }
+      if (!paper) return;
+      const view = validViewportView(viewport, paper.units, units);
+      const half = [view.width / 2, view.height / 2] as const;
+      const offPaper = viewportOffPaperWarning(
+        [
+          view.paperCenter[0] - half[0],
+          view.paperCenter[1] - half[1],
+          view.paperCenter[0] + half[0],
+          view.paperCenter[1] + half[1],
+        ],
+        paper,
+      );
+      if (offPaper) add("viewport", "warning", offPaper);
+      const model = boxOfModel();
+      const [minX, minY, maxX, maxY] = view.box;
+      if (!model || model[0] > maxX || model[2] < minX || model[1] > maxY || model[3] < minY) {
+        add("viewport", "warning", viewportEmptyWarning(view.box));
+      }
+    };
+    each(viewports, `${at}.viewports`, "viewport", TYPED.viewport, lintViewport, inLayout);
+    lintEntities(isList(layout.entities) ? layout.entities : [], undefined, { name, at });
+  });
 
   for (const xref of xrefs.values()) {
     if (placedXrefs.has(xref)) continue;

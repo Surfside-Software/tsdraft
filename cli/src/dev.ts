@@ -6,7 +6,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import { dirname, join, relative, sep } from "node:path";
 import { Builder, projectRoot, toState } from "./build.ts";
-import { pngUnavailable, toPNG } from "./png.ts";
+import { pngUnavailable, startRenderer, toPNG } from "./png.ts";
 import type { BuildState } from "./state.ts";
 import { fileVersion } from "./version.ts";
 import type { FileVersion } from "./worker.ts";
@@ -29,6 +29,8 @@ interface BuildEvent {
   /** The state of the build on screen, which differs from `state` after a failure. */
   readonly shownState: BuildState | null;
   readonly svg: string | null;
+  /** The picture of each layout, in the order of its tab. Null when `svg` is. */
+  readonly layouts: readonly { readonly name: string; readonly svg: string }[] | null;
   readonly swatches: Readonly<Record<string, string>>;
 }
 
@@ -45,10 +47,17 @@ export async function dev(
   });
   /** Why this server makes no PNG, when the optional renderer is absent. */
   const noPng = pngUnavailable();
+  // The renderer's process is kept for the session, and started again if it dies on a picture.
+  startRenderer();
   const clients = new Set<ServerResponse>();
   /** Calls each waiting `?after=` request when a build is published. */
   const waiters = new Set<() => void>();
-  let pngs: { width: number; png: Promise<{ png: Buffer; width: number }> }[] = [];
+  /** Each PNG made of the build on screen, by its width and its layout, `null` for model space. */
+  let pngs: {
+    width: number;
+    layout: string | null;
+    png: Promise<{ png: Buffer; width: number }>;
+  }[] = [];
   let base = "";
   /** The number of the latest build started. */
   let build = 0;
@@ -56,7 +65,13 @@ export async function dev(
   let pending: number | null = 1;
   let state: BuildState | undefined;
   let shown:
-    | { build: number; svg: string; swatches: Readonly<Record<string, string>>; state: BuildState }
+    | {
+        build: number;
+        svg: string;
+        layouts: readonly { readonly name: string; readonly svg: string }[];
+        swatches: Readonly<Record<string, string>>;
+        state: BuildState;
+      }
     | undefined;
 
   const snapshot = (): BuildState => ({ ...state!, pending });
@@ -64,6 +79,7 @@ export async function dev(
     state: snapshot(),
     shownState: shown?.state ?? null,
     svg: withSvg ? (shown?.svg ?? null) : null,
+    layouts: withSvg ? (shown?.layouts ?? null) : null,
     swatches: shown?.swatches ?? {},
   });
   const send = (res: ServerResponse, event: string, data: unknown) =>
@@ -145,18 +161,36 @@ export async function dev(
     }
     if (outcome.ok && outcome.svg) pngs = [];
     const shownBuild = outcome.ok ? number : (shown?.build ?? null);
-    const outputs =
+    const picture = (kind: "svg" | "png", layout?: string): string =>
+      `${base}/drawing.${kind}?session=${session}&build=${shownBuild}${
+        layout === undefined ? "" : `&layout=${encodeURIComponent(layout)}`
+      }`;
+    // After a failed build the pictures are still those of the build on screen.
+    const sheets = outcome.ok ? outcome.layouts : (shown?.layouts ?? []);
+    const outputs: BuildState["outputs"] =
       shownBuild === null
-        ? { svg: null, png: null, pngError: null }
+        ? { svg: null, png: null, pngError: null, layouts: [] }
         : {
-            svg: `${base}/drawing.svg?session=${session}&build=${shownBuild}`,
-            png: noPng ? null : `${base}/drawing.png?session=${session}&build=${shownBuild}`,
+            svg: picture("svg"),
+            png: noPng ? null : picture("png"),
             pngError: noPng,
+            layouts: sheets.map(({ name }) => ({
+              name,
+              svg: picture("svg", name),
+              png: noPng ? null : picture("png", name),
+              pngError: noPng,
+            })),
           };
     state = toState(outcome, session, number, file, shownBuild, outputs);
     if (pending === number) pending = null;
     if (outcome.ok && outcome.svg) {
-      shown = { build: number, svg: outcome.svg, swatches: outcome.swatches, state };
+      shown = {
+        build: number,
+        svg: outcome.svg,
+        layouts: outcome.layouts,
+        swatches: outcome.swatches,
+        state,
+      };
     }
     broadcast("build", event(outcome.ok));
     report(state, root);
@@ -272,8 +306,18 @@ export async function dev(
             .end(`Build ${asked} is not on screen; build ${shown.build} is. Fetch /state.json.\n`);
           return;
         }
+        // Model space, or with `layout` the sheet of that layout.
+        const layout = url.searchParams.get("layout");
+        const source =
+          layout === null ? shown.svg : shown.layouts.find((sheet) => sheet.name === layout)?.svg;
+        if (source === undefined) {
+          res
+            .writeHead(404, { ...stamp, "content-type": "text/plain" })
+            .end(`Build ${shown.build} has no picture of a layout named ${layout}.\n`);
+          return;
+        }
         if (url.pathname === "/drawing.svg") {
-          res.writeHead(200, { ...stamp, "content-type": "image/svg+xml" }).end(shown.svg);
+          res.writeHead(200, { ...stamp, "content-type": "image/svg+xml" }).end(source);
           return;
         }
         if (noPng) {
@@ -281,9 +325,9 @@ export async function dev(
           return;
         }
         const width = Math.min(Math.max(Number(url.searchParams.get("width")) || 1600, 16), 8000);
-        let entry = pngs.find((p) => p.width === width);
+        let entry = pngs.find((p) => p.width === width && p.layout === layout);
         if (!entry) {
-          const made = { width, png: toPNG(shown.svg, width) };
+          const made = { width, layout, png: toPNG(source, width) };
           made.png.catch(() => (pngs = pngs.filter((p) => p !== made)));
           entry = made;
         }

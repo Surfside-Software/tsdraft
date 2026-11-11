@@ -10,11 +10,13 @@ import type {
   Entity,
   Insert,
   Layer,
+  Layout,
   Line,
   Linetype,
   Polyline,
   Text,
   TextStyle,
+  Viewport,
   Xref,
 } from "./drawing.ts";
 import { shown, XREF_REFUSED_FIELDS, xrefFieldProblem } from "./rules.ts";
@@ -217,6 +219,8 @@ export interface Shapes {
   readonly block: Check;
   readonly attribute: Check;
   readonly xref: Check;
+  readonly layout: Check;
+  readonly viewport: Check;
   readonly entity: Check;
 }
 
@@ -469,6 +473,31 @@ function shapes(all: boolean, typed = all): Shapes {
       { base: point, attributes: table(attribute) },
     ),
   );
+  // A rule of `lint` reports every field of a viewport, whatever its type.
+  const viewport = record(
+    fields<Viewport>(
+      {
+        layer: ruled(string),
+        corner: ruled(point),
+        width: ruled(number),
+        height: ruled(number),
+        center: ruled(point),
+        ratio: ruled(number),
+      },
+      { id: ruled(string) },
+    ),
+  );
+  const layout = record(
+    fields<Layout>(
+      {
+        name: ruled(string),
+        paper: ruled(string),
+        viewports: table(viewport),
+        entities: table(entity),
+      },
+      { plotStyle: ruled(string) },
+    ),
+  );
   const drawing = fields<Drawing>(
     {
       format: LEFT,
@@ -483,6 +512,7 @@ function shapes(all: boolean, typed = all): Shapes {
       textStyles: ruled(table(textStyle)),
       blocks: ruled(table(block)),
       xrefs: ruled(table(record(xref))),
+      layouts: ruled(table(layout)),
     },
   );
   return {
@@ -494,6 +524,8 @@ function shapes(all: boolean, typed = all): Shapes {
     block,
     attribute,
     xref: record(xref),
+    layout,
+    viewport,
     entity,
   };
 }

@@ -3,13 +3,17 @@
 // runtime check, for values the compiler can't see. The messages are shared.
 //
 // AutoCAD discards the whole drawing over most names that break the name rules.
-import type { DxfVersion } from "./drawing.ts";
+import type { DxfVersion, Units } from "./drawing.ts";
+import type { PaperUnit } from "./paper.ts";
+import { paperInfo, PLOT_STYLE_TABLES, type Paper, type PlotStyleTable } from "./papers.ts";
+import { isPaperUnit, isUnits, modelLength } from "./units.ts";
 import { isTooLarge, written, writtenAngle } from "./format.ts";
 import { fontInfo, STANDARD_TEXT_STYLE, type Font } from "./fonts.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype, LINEWEIGHTS, patternLength } from "./linetypes.ts";
 import {
   layerAuditKey,
   layerKey,
+  layoutNameKey,
   rejectedNameCharacter,
   type REJECTED_COPTIC,
   type REJECTED_FORMAT,
@@ -87,6 +91,22 @@ const R12_LAYER_STATES =
 const R12_BLOCKS =
   'tsdraft writes no blocks to R12 drawings. Use DXF version "R2018" for blocks, inserts and attributes';
 const R12_XREFS = 'tsdraft writes no xrefs to R12 drawings. Use DXF version "R2018" for an xref';
+const R12_LAYOUTS =
+  'tsdraft writes no layouts to R12 drawings. Use DXF version "R2018" for a layout';
+const LAYOUT_NAME_EMPTY =
+  "A layout's name cannot be empty. AutoCAD's commands take an empty answer for the current layout, so none of them can name such a layout";
+const LAYOUT_NAME_CHARS =
+  "A layout's name cannot contain < > / \\ \" : ; ? * | , = or `. AutoCAD's LAYOUT command refuses a name with one of them, and AutoCAD opens a file that holds such a layout without a word";
+const LAYOUT_NAME_EDGE =
+  "A layout's name cannot start or end with a space. AutoCAD's -PLOT command finds no layout by such a name";
+const LAYOUT_NAME_LENGTH =
+  "A layout's name cannot be longer than 255 characters. AutoCAD's LAYOUT command refuses a longer name";
+const LAYOUT_NAME_MODEL =
+  "A layout cannot be named Model, in any case of its letters. AutoCAD keeps that name for the model tab: it discards a drawing whose layout is named MODEL, takes a layout named model for the model tab's own and loses its sheet, and never finishes opening a drawing with a second layout named Model";
+const PAPER =
+  'A paper must be one of PAPERS, the full-bleed landscape sizes of AutoCAD\'s DWG To PDF.pc3, such as "ARCH D". A page setup names its paper as the plotter does, and AutoCAD plots nothing for a layout whose paper the plotter knows neither by its name nor by its size';
+const PLOT_STYLE =
+  'A plot style table must be "monochrome.ctb" or "acad.ctb", which AutoCAD installs. AutoCAD plots a layout whose plot style table it does not have with no table, each pen in its own color';
 const XREF_PATH_EMPTY =
   "An xref's path cannot be empty. AutoCAD then looks for a DWG file named as the xref is";
 const XREF_PATH_DXF =
@@ -390,6 +410,28 @@ export type XrefPath<P extends string> = string extends P
                 ? typeof XREF_PATH_MULTIBYTE
                 : Description<P>;
 
+/**
+ * Resolves to `N` when it is a name a layout can have, and to the error message otherwise: a
+ * name is not empty, is not `Model` in any case, holds none of `< > / \ " : ; ? * | , =` and
+ * the backtick, no character a text cannot hold, and no space at either end. Its length, and
+ * whether the drawing has another layout AutoCAD takes for the same, are checked when the code
+ * runs.
+ */
+export type LayoutName<N extends string> = string extends N
+  ? N
+  : N extends ""
+    ? typeof LAYOUT_NAME_EMPTY
+    : Lowercase<N> extends "model"
+      ? typeof LAYOUT_NAME_MODEL
+      : N extends `${string}${Chars<'<>/\\":;?*|,=`'>}${string}`
+        ? typeof LAYOUT_NAME_CHARS
+        : N extends ` ${string}` | `${string} `
+          ? typeof LAYOUT_NAME_EDGE
+          : Description<N>;
+
+/** Resolves to `P` when it is one of `PAPERS`, and to the error message otherwise. */
+export type PaperOf<P extends string> = string extends P ? P : P extends Paper ? P : typeof PAPER;
+
 /** True for a path in lower case that ends in a dot other than the one after `.dwg`. */
 type TrailingDot<I extends string> = I extends `${string}.`
   ? I extends `${string}.dwg.`
@@ -587,6 +629,7 @@ export type FrozenCurrent = typeof FROZEN_CURRENT;
 export type R12Text = typeof R12_TEXT;
 export type R12Blocks = typeof R12_BLOCKS;
 export type R12Xrefs = typeof R12_XREFS;
+export type R12Layouts = typeof R12_LAYOUTS;
 
 /** Returns what is wrong with a layer name for a DXF version, or undefined when it is valid. */
 export function layerNameProblem(name: string, version: DxfVersion): string | undefined {
@@ -746,6 +789,7 @@ export const R12_ONLY = {
   text: R12_TEXT,
   blocks: R12_BLOCKS,
   xrefs: R12_XREFS,
+  layouts: R12_LAYOUTS,
 } as const;
 
 /** How a text is justified across its line, and up and down it. The first of each is the default. */
@@ -1228,4 +1272,141 @@ function hasAstral(value: string): boolean {
     if (code >= 0xd800 && code <= 0xdfff) return true;
   }
   return false;
+}
+
+/**
+ * Returns what is wrong with a layout's name, or undefined when it is valid. It takes `unknown`
+ * so that `lint` can report a drawing built by hand with a name of the wrong type.
+ */
+export function layoutNameProblem(name: unknown): string | undefined {
+  if (typeof name !== "string") return "A layout's name must be a string";
+  if (name.length === 0) return LAYOUT_NAME_EMPTY;
+  if (layoutNameKey(name) === "model") return LAYOUT_NAME_MODEL;
+  if (/[<>/\\":;?*|,=`]/.test(name)) return LAYOUT_NAME_CHARS;
+  if (name.startsWith(" ") || name.endsWith(" ")) return LAYOUT_NAME_EDGE;
+  if (name.length > 255) return LAYOUT_NAME_LENGTH;
+  return textProblem(name);
+}
+
+/**
+ * Returns what is wrong with a drawing that has two layouts of these names, or undefined when
+ * the two can stand together. AutoCAD takes two layout names for one when they differ only in
+ * the case of letters it folds, which `layoutNameKey` holds: `Sheet` and `SHEET`, `É1` and
+ * `é1`. It then keeps one of the two layouts under the name, and its AUDIT reports the other as
+ * missing from the dictionary of layouts. The rule compares two names, so it has no type.
+ *
+ * @param name - The name of the layout being checked.
+ * @param other - The name of another layout of the drawing.
+ */
+export function layoutTwinProblem(name: string, other: string): string | undefined {
+  if (layoutNameKey(name) !== layoutNameKey(other)) return undefined;
+  const spelled = name === other ? "" : `, as ${JSON.stringify(other)}`;
+  return `The drawing already has a layout of this name${spelled}. AutoCAD takes the two for one layout, keeps one, and its AUDIT reports the other as missing from the dictionary of layouts`;
+}
+
+/**
+ * Returns what is wrong with a layout's paper, or undefined when it is one of `PAPERS`. It
+ * takes `unknown` so that `lint` can report a drawing built by hand.
+ */
+export function paperProblem(paper: unknown): string | undefined {
+  return typeof paper === "string" && paperInfo(paper) !== undefined ? undefined : PAPER;
+}
+
+/**
+ * Returns what is wrong with a layout's plot style table, or undefined when it is one of
+ * `PLOT_STYLE_TABLES`. It takes `unknown` so that `lint` can report a drawing built by hand.
+ * The type of the option is the list itself, so the rule needs no type of its own.
+ */
+export function plotStyleProblem(table: unknown): string | undefined {
+  return PLOT_STYLE_TABLES.includes(table as PlotStyleTable) ? undefined : PLOT_STYLE;
+}
+
+/** What a viewport must be, for a drawing built without the builder. */
+export const VIEWPORT_SHAPE =
+  "a viewport must be an object with a layer, a corner, a width, a height, a center and a ratio";
+
+/**
+ * Returns what is wrong with a viewport, or undefined when it can be written: its corner and
+ * its center are points, its width and its height are sizes, and its ratio is greater than 0
+ * and gives a view AutoCAD can hold. A file holds the height of model space the viewport
+ * shows, in drawing units, where a scale would be, so that height is held to the rules of any
+ * size: it is not written as 0 and is under 1e100. It takes `unknown` so that `lint` can
+ * report a drawing built by hand. The ratio has the type `Ratio`.
+ *
+ * @param viewport - The viewport, with or without its layer and id, which are not judged.
+ * @param paperUnits - The units of the paper of the viewport's layout.
+ * @param units - The drawing's units.
+ */
+export function viewportProblem(
+  viewport: unknown,
+  paperUnits: PaperUnit,
+  units: Units,
+): string | undefined {
+  if (typeof viewport !== "object" || viewport === null || Array.isArray(viewport)) {
+    return VIEWPORT_SHAPE;
+  }
+  if (!isPaperUnit(paperUnits)) return `The paper unit must be "in" or "mm"`;
+  if (!isUnits(units)) return `Unknown units: ${JSON.stringify(units)}`;
+  const { corner, width, height, center, ratio } = viewport as Record<string, unknown>;
+  for (const [label, point] of [
+    ["corner", corner],
+    ["center", center],
+  ] as const) {
+    // Each of the two is read by its index: `every` passes over an empty slot.
+    if (
+      !Array.isArray(point) ||
+      point.length !== 2 ||
+      !Number.isFinite(point[0]) ||
+      !Number.isFinite(point[1])
+    ) {
+      return `its ${label} must be a point of finite numbers, [x, y]`;
+    }
+    const far = magnitudeProblem(point[0] as number) ?? magnitudeProblem(point[1] as number);
+    if (far) return `its ${label}: ${far}`;
+  }
+  for (const [label, size] of [
+    ["width", width],
+    ["height", height],
+  ] as const) {
+    if (typeof size !== "number" || !Number.isFinite(size)) {
+      return `${label} must be a finite number`;
+    }
+    const problem = sizeProblem(size);
+    if (problem) return `${label}: ${problem}`;
+  }
+  if (typeof ratio !== "number" || !Number.isFinite(ratio)) {
+    return "The ratio must be a finite number";
+  }
+  if (!(ratio > 0)) return RATIO;
+  const viewHeight = modelLength(written(height as number), paperUnits, ratio, units);
+  if (!Number.isFinite(viewHeight) || isTooLarge(viewHeight)) {
+    return `At the ratio ${ratio} the viewport shows 1e100 drawing units or more, and AutoCAD reads only two exponent digits from DXF. Use a smaller ratio`;
+  }
+  if (written(viewHeight) === 0) {
+    return `At the ratio ${ratio} the viewport shows ${viewHeight} drawing units up and down, which is written as 0, because tsdraft writes 6 decimals. Use a larger ratio`;
+  }
+  return undefined;
+}
+
+/**
+ * The warning for a viewport whose rectangle reaches past its layout's paper. AutoCAD plots a
+ * layout as far as its paper goes.
+ *
+ * @returns The warning, or undefined when the rectangle is on the paper.
+ */
+export function viewportOffPaperWarning(
+  rectangle: readonly [minX: number, minY: number, maxX: number, maxY: number],
+  paper: { readonly width: number; readonly height: number },
+): string | undefined {
+  const [minX, minY, maxX, maxY] = rectangle;
+  return minX < 0 || minY < 0 || maxX > paper.width || maxY > paper.height
+    ? `the viewport reaches from ${minX}, ${minY} to ${maxX}, ${maxY}, past the paper, which is ${paper.width} by ${paper.height}. AutoCAD plots a layout as far as its paper goes`
+    : undefined;
+}
+
+/** The warning for a viewport that frames a part of model space where nothing is drawn. */
+export function viewportEmptyWarning(
+  box: readonly [minX: number, minY: number, maxX: number, maxY: number],
+): string {
+  return `the viewport shows none of the drawing: nothing in model space lies in the box it shows, from ${written(box[0])}, ${written(box[1])} to ${written(box[2])}, ${written(box[3])}`;
 }

@@ -4,6 +4,7 @@ import { inspect } from "node:util";
 import { Script } from "node:vm";
 import { without } from "../cli/src/omit.ts";
 import {
+  DrawingError,
   fromJSON,
   lint,
   toDXF,
@@ -15,8 +16,10 @@ import {
   type Drawing,
   type Entity,
   type Layer,
+  type Layout,
   type Linetype,
   type TextStyle,
+  type Viewport,
   type Xref,
 } from "../src/index.ts";
 
@@ -82,6 +85,10 @@ const full: Required<Drawing> & {
     Required<Block> & { readonly attributes: readonly [Required<AttributeDefinition>] },
   ];
   readonly xrefs: readonly [Required<Xref>];
+  readonly layouts: readonly [
+    Required<Layout> & { readonly viewports: readonly [Required<Viewport>] },
+    Layout,
+  ];
 } = {
   format: 0,
   units: "ft",
@@ -127,6 +134,27 @@ const full: Required<Drawing> & {
   ],
   xrefs: [{ name: "BASE", path: "base.dwg" }],
   entities: [...Object.values(kinds), { kind: "insert", layer: "0", block: "BASE", at: [0, 0] }],
+  layouts: [
+    {
+      name: "C-101",
+      paper: "ARCH D",
+      plotStyle: "acad.ctb",
+      viewports: [
+        {
+          id: "view",
+          layer: "WALL",
+          corner: [1, 1],
+          width: 20,
+          height: 10,
+          center: [5, 2],
+          ratio: 12,
+        },
+      ],
+      // One of each kind of entity on the sheet, each with an id of its own.
+      entities: Object.values(kinds).map((entity) => ({ ...entity, id: `sheet-${entity.id}` })),
+    },
+    { name: "Blank", paper: "ANSI B", viewports: [], entities: [] },
+  ],
 };
 
 /** What an R12 drawing can hold. */
@@ -192,8 +220,13 @@ function replacements(drawing: unknown, path: Path): unknown[] {
 const errors = (drawing: Drawing, version?: "R12" | "R2018") =>
   lint(drawing, version ? { version } : {}).filter((d) => d.severity === "error");
 
-/** Runs `toSVG` and stops it after a second, so a drawing that never finishes fails the test. */
-const draw = new Script("drawn = toSVG(drawing)");
+/**
+ * Runs `toSVG` for model space and for each layout, as the command does, and stops it after a
+ * second, so a drawing that never finishes fails the test.
+ */
+const draw = new Script(
+  "toSVG(drawing); if (Array.isArray(drawing?.layouts)) for (const layout of drawing.layouts) toSVG(drawing, { layout: layout.name });",
+);
 Object.assign(globalThis, { toSVG });
 
 /** What `toSVG` does with a drawing: the error it throws, or undefined when it draws it. */
@@ -228,6 +261,15 @@ function failure(value: unknown): string | undefined {
   const refused = drawn(drawing);
   if (hung(refused)) return "toSVG does not finish";
   if (found.length > 0) {
+    // A writer refuses what `lint` reports before it reads the drawing.
+    try {
+      toDXF(drawing);
+      return "lint reports an error, and toDXF writes the drawing";
+    } catch (thrown) {
+      if (!(thrown instanceof DrawingError)) {
+        return `lint reports an error, and toDXF throws ${String(thrown).split("\n", 1)[0]}`;
+      }
+    }
     // The command asks for a drawing with a list of layers and one of entities before it lints.
     if (!Array.isArray(drawing?.layers) || !Array.isArray(drawing.entities)) return undefined;
     if (refused === undefined) return undefined;
@@ -335,6 +377,42 @@ test("a value of the wrong shape is reported in these words, once", () => {
         'format: entities[0]: unknown field "weight". Did you mean "lineweight"?',
         'format: entities[0]: unknown field "layers". Did you mean "layer"?',
         'format: entities[0]: unknown field "thickness"',
+      ],
+    ],
+    [
+      ["layouts", 0],
+      HOLE,
+      ["layout: layouts has no item at index 0. An array cannot have empty slots"],
+    ],
+    [
+      ["layouts", 0, "viewports", 0, "ratio"],
+      "x",
+      ['viewport: viewport #0 of layout "C-101": The ratio must be a finite number'],
+    ],
+    [
+      ["layouts", 0, "entities", 0, "from"],
+      5,
+      ["format: layouts[0].entities[0].from must be a point, [x, y]"],
+    ],
+    // A viewport has no scale and no point named `at`, which other objects have: no hint.
+    [
+      ["layouts", 0, "viewports", 0],
+      { ...full.layouts[0].viewports[0], scale: 2, at: [0, 0], centre: [0, 0], widht: 2 },
+      [
+        'viewport: layouts[0].viewports[0]: unknown field "scale"',
+        'viewport: layouts[0].viewports[0]: unknown field "at"',
+        'viewport: layouts[0].viewports[0]: unknown field "centre". Did you mean "center"?',
+        'viewport: layouts[0].viewports[0]: unknown field "widht". Did you mean "width"?',
+      ],
+    ],
+    [
+      ["layouts", 1],
+      { ...full.layouts[1], papr: "ANSI B", plotstyle: "acad.ctb", viewport: [], units: "in" },
+      [
+        'layout: layouts[1]: unknown field "papr". Did you mean "paper"?',
+        'layout: layouts[1]: unknown field "plotstyle". Did you mean "plotStyle"?',
+        'layout: layouts[1]: unknown field "viewport". Did you mean "viewports"?',
+        'layout: layouts[1]: unknown field "units"',
       ],
     ],
   ];

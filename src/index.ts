@@ -28,6 +28,8 @@ export {
   type InsertOptions,
   type Layer,
   type LayerOptions,
+  type Layout,
+  type LayoutOptions,
   type Line,
   type Linetype,
   type LinetypeChoice,
@@ -35,6 +37,7 @@ export {
   type Lineweight,
   type Point,
   type Polyline,
+  type Sheet,
   type Text,
   type TextAlign,
   type TextOptions,
@@ -43,15 +46,19 @@ export {
   type TextStyleDefinition,
   type TextVerticalAlign,
   type Units,
+  type Viewport,
+  type ViewportOptions,
   type Xref,
 } from "./drawing.ts";
 export { toDXF, type DxfOptions } from "./dxf.ts";
 export { FONTS, type Font, type FontInfo } from "./fonts.ts";
 export { idHandle } from "./handles.ts";
 export { fromJSON, toJSON } from "./json.ts";
+export { layoutHandles, viewportView, type LayoutHandles, type ViewportView } from "./layouts.ts";
 export { DrawingError, lint, type Diagnostic, type LintOptions, type LintRule } from "./lint.ts";
 export { CENTER, DASHDOT, DASHED, DOT, HIDDEN, LINEWEIGHTS, PHANTOM } from "./linetypes.ts";
 export { fromPaper, type PaperScale, type PaperUnit } from "./paper.ts";
+export { PAPERS, type Paper, type PaperInfo, type PlotStyleTable } from "./papers.ts";
 export type {
   Aci,
   AttributeTag,
@@ -63,12 +70,14 @@ export type {
   LayerColor,
   LayerLinetypeName,
   LayerName,
+  LayoutName,
   LineweightOf,
   LinetypeName,
   NewLinetypeName,
   NewTextStyleName,
   ObliqueAngle,
   PaperLength,
+  PaperOf,
   Pattern,
   Positive,
   Ratio,

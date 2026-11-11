@@ -16,12 +16,17 @@ import {
   type Layer,
   type Point,
   type TextStyle,
+  type Viewport,
 } from "./drawing.ts";
-import { extents } from "./extents.ts";
+import { boxer, extents } from "./extents.ts";
 import { fontInfo, STANDARD_FONT } from "./fonts.ts";
-import { fmt } from "./format.ts";
+import { fmt, written } from "./format.ts";
 import { layerKey } from "./layers.ts";
-import { builtInLinetype, lineweightCode } from "./linetypes.ts";
+import { findLayout, validViewportView } from "./layouts.ts";
+import { builtInLinetype, LINEWEIGHTS, lineweightCode } from "./linetypes.ts";
+import { DEFAULT_PLOT_STYLE_TABLE, paperInfo } from "./papers.ts";
+import { viewportProblem } from "./rules.ts";
+import { isUnits } from "./units.ts";
 
 /**
  * The color AutoCAD plots each ACI index in, from 1 to 255, ten to a row. The entry for index
@@ -96,6 +101,12 @@ export interface SvgOptions {
    * space of the drawing given here, and nothing when none is given.
    */
   readonly xrefs?: Readonly<Record<string, Drawing>>;
+  /**
+   * The name of a layout to draw in place of model space: the sheet as it plots. `margin` then
+   * defaults to 0, and `strokeWidth` is not used, because a sheet's lines are as wide as their
+   * lineweights.
+   */
+  readonly layout?: string;
 }
 
 /** How an entity is drawn. */
@@ -129,6 +140,18 @@ interface Pen {
  * its own layer of the referenced drawing does, in that layer's color, linetype, lineweight
  * and state, with `data-layer` naming it as AutoCAD does, `XREF|LAYER`. Dashes are scaled by
  * this drawing's linetype scale. The group is empty for an xref with no drawing given.
+ *
+ * With `options.layout`, the picture is that layout as AutoCAD plots it, in paper units: a
+ * white sheet the size of its paper, each viewport as a group with its index in
+ * `data-viewport` that shows model space at the viewport's scale, clipped to its rectangle,
+ * and then what is drawn on the sheet. Every line is as wide as its lineweight on the paper,
+ * a dash is as long on the paper as its pattern times the linetype scale, in a viewport too,
+ * and colors are the ones the layout's plot style table plots: black for `monochrome.ctb`. A
+ * viewport's border is drawn as the thinnest line when its layer is on, thawed and set to
+ * plot, and its view is drawn whatever its layer's state. `data-entity` counts the layout's
+ * entities, and inside a viewport's group the entities of model space.
+ *
+ * @throws RangeError when the drawing has no layout of the name `options.layout`.
  */
 export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
   const xrefs = referencedByKey(drawing, options.xrefs);
@@ -153,42 +176,24 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     const layer = layerOf(ref);
     return layer?.frozen === true || (options.drawNoPlot !== true && layer?.plot === false);
   };
-  // Each entity keeps its index in `drawing.entities`, for its element's data-entity. What an
-  // insert holds is judged entity by entity, unless the insert's own layer is frozen.
-  const shown = [...drawing.entities.entries()].filter(([, e]) =>
-    e.kind === "insert" ? !frozen({ name: e.layer }) : !hidden({ name: e.layer }),
-  );
   const blocks = blocksByKey(drawing.blocks);
-  const [minX, minY, maxX, maxY] = extents(
-    shown.map(([, e]) => e),
-    drawing.textStyles,
-    drawing.blocks,
-    hidden,
-    frozen,
-    xrefs,
-  );
-  const margin = options.margin ?? Math.max(maxX - minX, maxY - minY, 1) * 0.02;
-  const x = minX - margin;
-  const y = -(maxY + margin);
-  const w = maxX - minX + margin * 2;
-  const h = maxY - minY + margin * 2;
-  // AutoCAD scales the dashes of a referenced drawing by the linetype scale of the drawing
-  // that references it.
-  // AutoCAD reads a scale of 0 or less as 1, and so is one that is not a finite number here.
-  const stated = drawing.linetypeScale ?? 1;
-  const scale = stated > 0 && Number.isFinite(stated) ? stated : 1;
   const styleOf = (e: Entity, from?: Referenced): TextStyle | undefined =>
     e.kind === "text" && e.style !== undefined
       ? tablesOf(from).textStyles.get(layerKey(e.style))
       : undefined;
-  const stroke = options.strokeWidth ?? 1;
 
   /**
    * The pen of an entity that draws on `on`. `insertLayer` is the layer of the insert that
    * holds it, whose linetype and lineweight an entity set to ByBlock takes. `from` is the
    * referenced drawing the entity is in, whose linetypes it names.
    */
-  const pen = (e: Drawn, on: LayerRef, insertLayer?: LayerRef, from?: Referenced): Pen => {
+  const pen = (
+    look: Look,
+    e: Drawn,
+    on: LayerRef,
+    insertLayer?: LayerRef,
+    from?: Referenced,
+  ): Pen => {
     const layer: Layer | undefined = layerOf(on);
     /**
      * The layer a linetype or a lineweight comes from, with the drawing whose layer it is, or
@@ -218,18 +223,30 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
         : (weightFrom.layer?.lineweight ?? "Default");
     const code = lineweightCode(weight);
     return {
-      color: aciColor(layer?.color ?? 7),
-      dashes: Number.isFinite(scale) ? pattern?.map((length) => length * scale) : undefined,
+      color: look.color(layer?.color ?? 7),
+      dashes: Number.isFinite(look.dashScale)
+        ? pattern?.map((length) => length * look.dashScale)
+        : undefined,
       lineweight: code < 0 ? DEFAULT_LINEWEIGHT : code,
     };
   };
 
-  const marks = (e: Entity, index: number): string =>
-    `data-layer="${esc(e.layer)}" data-entity="${index}"${e.id === undefined ? "" : ` data-id="${esc(e.id)}"`}`;
-  const body = shown
-    .map(([i, e]) => {
+  /**
+   * The entities of a space that are drawn, each with its index among them. What an insert
+   * holds is judged entity by entity, unless the insert's own layer is frozen.
+   */
+  const shownOf = (entities: readonly Entity[]): [number, Entity][] =>
+    [...entities.entries()].filter(([, e]) =>
+      e.kind === "insert" ? !frozen({ name: e.layer }) : !hidden({ name: e.layer }),
+    );
+
+  /** An element for each entity that is drawn, as `look` draws it. */
+  const elements = (shown: readonly [number, Entity][], look: Look): string[] => {
+    const marks = (e: Entity, index: number): string =>
+      `data-layer="${esc(e.layer)}" data-entity="${index}"${e.id === undefined ? "" : ` data-id="${esc(e.id)}"`}`;
+    return shown.map(([i, e]) => {
       if (e.kind !== "insert")
-        return entityToSvg(e, marks(e, i), pen(e, { name: e.layer }), stroke, styleOf(e));
+        return entityToSvg(e, marks(e, i), pen(look, e, { name: e.layer }), look, styleOf(e));
       const parts: string[] = [];
       eachDrawn(
         e,
@@ -240,18 +257,216 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
           // AutoCAD names a layer of an xref by the xref's name, a bar and the layer's.
           const { name, of } = at.layer;
           const mark = `data-layer="${esc(of ? `${of.name}|${name}` : name)}"`;
-          const drawnPen = pen(drawn, at.layer, at.insertLayer, at.from);
+          const drawnPen = pen(look, drawn, at.layer, at.insertLayer, at.from);
           const style = styleOf(drawn, at.from);
-          parts.push(entityToSvg(drawn, mark, drawnPen, stroke, style, at.matrix));
+          parts.push(entityToSvg(drawn, mark, drawnPen, look, style, at.matrix));
         },
         xrefs,
       );
-      const inside = parts.length > 0 ? `\n      ${parts.join("\n      ")}\n    ` : "";
+      const inside =
+        parts.length > 0
+          ? `\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}`
+          : "";
       const xref = blocks.has(layerKey(e.block)) ? undefined : findXref(drawing, e.block);
       const path = xref === undefined ? "" : ` data-xref="${esc(xref.path)}"`;
       return `<g ${marks(e, i)} data-block="${esc(e.block)}"${path}>${inside}</g>`;
-    })
-    .join("\n    ");
+    });
+  };
+
+  // AutoCAD scales the dashes of a referenced drawing by the linetype scale of the drawing
+  // that references it.
+  // AutoCAD reads a scale of 0 or less as 1, and so is one that is not a finite number here.
+  const stated = drawing.linetypeScale ?? 1;
+  const linetypeScale = stated > 0 && Number.isFinite(stated) ? stated : 1;
+  if (options.layout !== undefined) {
+    const layout = findLayout(drawing, options.layout);
+    const paper = layout && paperInfo(layout.paper);
+    if (!layout || !paper) {
+      throw new RangeError(`The drawing has no layout named ${JSON.stringify(options.layout)}`);
+    }
+    // A sheet is paper: a pen plots black unless the plot style table keeps its color, and
+    // index 7 is black on paper.
+    const monochrome = (layout.plotStyle ?? DEFAULT_PLOT_STYLE_TABLE) === "monochrome.ctb";
+    const color = (index: number): string =>
+      monochrome || index === 7 ? "#000000" : aciColor(index);
+    // Hundredths of a millimetre in paper units.
+    const perHundredth = paper.units === "in" ? 1 / 2540 : 1 / 100;
+    /** A look whose lines are as wide as they plot, in a space `scale` paper units to one. */
+    const plotted = (scale: number, indent: string): Look => ({
+      color,
+      dashScale: linetypeScale / scale,
+      indent,
+      stroke: (lineweight) =>
+        lineweight === DEFAULT_LINEWEIGHT
+          ? ""
+          : ` stroke-width="${precise((Math.max(lineweight, 5) * perHundredth) / scale)}"`,
+    });
+    const onPaper = plotted(1, "    ");
+    const thin = fmt(5 * perHundredth);
+    // Each entity of model space with the box around what it draws, worked out once, a slanted
+    // text with its lean, and how far past that box its ink may reach beyond its pen: a
+    // text's letters may be wider than the estimate of its box, and so may the texts of a block.
+    const boxOf = boxer(drawing.textStyles, drawing.blocks, hidden, frozen, xrefs, true);
+    const model = shownOf(drawing.entities).flatMap((shown) => {
+      const box = boxOf([shown[1]]);
+      if (!box) return [];
+      const lettered = shown[1].kind === "text" || shown[1].kind === "insert";
+      const slack = lettered ? Math.max(box[2] - box[0], box[3] - box[1]) : 0;
+      return [{ shown, box, slack }];
+    });
+    // A drawing in units tsdraft does not know is drawn as one in inches, as `lint` judges it.
+    const units = isUnits(drawing.units) ? drawing.units : "in";
+    // The picture: the paper and the margin around it, in paper units and as written.
+    const margin = options.margin ?? 0;
+    const frame = [
+      written(-margin),
+      written(-paper.height - margin),
+      written(paper.width + margin * 2),
+      written(paper.height + margin * 2),
+    ] as const;
+    const picture = [frame[0], -(frame[1] + frame[3]), frame[0] + frame[2], -frame[1]] as const;
+    const parts: string[] = [];
+    layout.viewports.forEach((viewport, index) => {
+      const id = viewport.id === undefined ? "" : ` data-id="${esc(viewport.id)}"`;
+      // A viewport `lint` refuses has no view to draw: a ratio of 0 or less, or no size.
+      const sound = viewportProblem(viewport, paper.units, units) === undefined;
+      if (!sound) {
+        parts.push(`<g data-viewport="${index}"${id}/>`);
+        // Its border is still drawn where its rectangle can be read.
+        const { corner, width, height, layer } = viewport as Partial<Viewport>;
+        const sizes = [corner?.[0], corner?.[1], width, height];
+        if (
+          typeof layer === "string" &&
+          sizes.every((size) => typeof size === "number" && Number.isFinite(size)) &&
+          width! > 0 &&
+          height! > 0 &&
+          !hidden({ name: layer })
+        ) {
+          const stroke = color(layerOf({ name: layer })?.color ?? 7);
+          parts.push(
+            `<rect x="${fmt(corner![0])}" y="${fmt(corner![1])}" width="${fmt(width!)}" height="${fmt(height!)}" stroke="${stroke}" stroke-width="${thin}" data-layer="${esc(layer)}" data-viewport-border="${index}"${id}/>`,
+          );
+        }
+        return;
+      }
+      const view = validViewportView(viewport, paper.units, units);
+      const [x, y] = [view.paperCenter[0] - view.width / 2, view.paperCenter[1] - view.height / 2];
+      const box = `x="${fmt(x)}" y="${fmt(y)}" width="${fmt(view.width)}" height="${fmt(view.height)}"`;
+      // Model space is placed so that the view's center lies at the middle of the rectangle.
+      // The scale is written in full: six decimals leave a drawing in millimetres at 1:1000,
+      // whose scale is 0.0000393701, two digits.
+      const place = `translate(${fmt(view.paperCenter[0])} ${fmt(view.paperCenter[1])}) scale(${precise(view.scale)}) translate(${fmt(-view.center[0])} ${fmt(-view.center[1])})`;
+      // A view is drawn only where it can be seen: the viewport, cut to the paper, cut to
+      // the picture, with every number as it is written. The clip, the hidden rectangle and
+      // the choice of what to draw all use this one rectangle.
+      const seen = [
+        written(Math.max(x, 0, picture[0])),
+        written(Math.max(y, 0, picture[1])),
+        written(Math.min(x + view.width, paper.width, picture[2])),
+        written(Math.min(y + view.height, paper.height, picture[3])),
+      ] as const;
+      const [seenWidth, seenHeight] = [written(seen[2] - seen[0]), written(seen[3] - seen[1])];
+      // It has a width and a height as written, and as a renderer that keeps numbers in
+      // single precision reads its corners.
+      const visible =
+        seenWidth > 0 &&
+        seenHeight > 0 &&
+        Math.fround(seen[0]) < Math.fround(seen[2]) &&
+        Math.fround(seen[1]) < Math.fround(seen[3]);
+      // The same rectangle in model space.
+      const shows = seen.map(
+        (at, i) => view.center[i % 2]! + (at - view.paperCenter[i % 2]!) / view.scale,
+      );
+      // Only what may reach into it is drawn. The test errs on the side of drawing: an
+      // entity's box, which for an arc is its circle's, with the widest pen there is and
+      // the slack of its letters around it.
+      const widest = (LINEWEIGHTS.at(-1)! * 100 * perHundredth) / view.scale;
+      const near = !visible
+        ? []
+        : model
+            .filter(({ box: b, slack }) => {
+              const by = widest + slack;
+              return (
+                b[0] - by <= shows[2]! &&
+                b[2] + by >= shows[0]! &&
+                b[1] - by <= shows[3]! &&
+                b[3] + by >= shows[1]!
+              );
+            })
+            .map(({ shown }) => shown);
+      const inside = elements(near, plotted(view.scale, "        "));
+      if (inside.length === 0) {
+        // Nothing of the view can be seen, so there is nothing to clip.
+        parts.push(`<g data-viewport="${index}"${id}/>`);
+      } else {
+        // The first element is hidden and is the rectangle itself. It draws nothing, and it
+        // keeps the group's box on the picture whatever else the group holds: resvg, which
+        // the command draws PNGs with, takes the box of a clipped group's elements before it
+        // clips them, and stops the program that runs it when that box lies wholly more than
+        // two widths of the picture to its left or right, or two heights above or below it.
+        const rect = `x="${seen[0]}" y="${seen[1]}" width="${seenWidth}" height="${seenHeight}"`;
+        parts.push(
+          `<clipPath id="tsdraft-viewport-${index}"><rect ${rect}/></clipPath>`,
+          [
+            `<g data-viewport="${index}"${id} clip-path="url(#tsdraft-viewport-${index})">`,
+            `      <rect ${rect} visibility="hidden" stroke="#000000"/>`,
+            `      <g transform="${place}" stroke-width="${precise((DEFAULT_LINEWEIGHT * perHundredth) / view.scale)}">`,
+            ...inside.map((element) => `        ${element}`),
+            `      </g>`,
+            `    </g>`,
+          ].join("\n"),
+        );
+      }
+      // AutoCAD plots a viewport's border as its thinnest line, and only when its layer plots.
+      if (!hidden({ name: viewport.layer })) {
+        const stroke = color(layerOf({ name: viewport.layer })?.color ?? 7);
+        parts.push(
+          `<rect ${box} stroke="${stroke}" stroke-width="${thin}" data-layer="${esc(viewport.layer)}" data-viewport-border="${index}"${id}/>`,
+        );
+      }
+    });
+    parts.push(...elements(shownOf(layout.entities), onPaper));
+    return [
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${frame.join(" ")}" data-layout="${esc(layout.name)}" data-paper="${esc(layout.paper)}">`,
+      `  <rect x="0" y="${fmt(-paper.height)}" width="${fmt(paper.width)}" height="${fmt(paper.height)}" fill="#ffffff"/>`,
+      `  <g transform="scale(1 -1)" fill="none" stroke-width="${fmt(DEFAULT_LINEWEIGHT * perHundredth)}">`,
+      ...parts.map((part) => `    ${part}`),
+      `  </g>`,
+      `</svg>`,
+      ``,
+    ].join("\n");
+  }
+
+  // Each entity keeps its index in `drawing.entities`, for its element's data-entity.
+  const shown = shownOf(drawing.entities);
+  const [minX, minY, maxX, maxY] = extents(
+    shown.map(([, e]) => e),
+    drawing.textStyles,
+    drawing.blocks,
+    hidden,
+    frozen,
+    xrefs,
+  );
+  const margin = options.margin ?? Math.max(maxX - minX, maxY - minY, 1) * 0.02;
+  const x = minX - margin;
+  const y = -(maxY + margin);
+  const w = maxX - minX + margin * 2;
+  const h = maxY - minY + margin * 2;
+  const stroke = options.strokeWidth ?? 1;
+  // On a screen each layer draws in its own color, and every line keeps its width in pixels
+  // however far the picture is zoomed.
+  const onScreen: Look = {
+    color: aciColor,
+    dashScale: linetypeScale,
+    indent: "    ",
+    stroke: (lineweight) =>
+      `${
+        lineweight === DEFAULT_LINEWEIGHT
+          ? ""
+          : ` stroke-width="${fmt((stroke * Math.max(lineweight, 5)) / DEFAULT_LINEWEIGHT)}"`
+      } vector-effect="non-scaling-stroke"`,
+  };
+  const body = elements(shown, onScreen).join("\n    ");
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${fmt(x)} ${fmt(y)} ${fmt(w)} ${fmt(h)}">`,
     `  <g transform="scale(1 -1)" fill="none" stroke-width="${fmt(stroke)}" vector-effect="non-scaling-stroke">`,
@@ -260,6 +475,26 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     `</svg>`,
     ``,
   ].join("\n");
+}
+
+/**
+ * A number with 12 significant digits, for a scale or a width that six decimals would cut
+ * short. SVG reads the exponent a very small one is printed with.
+ */
+function precise(value: number): string {
+  return String(Number(value.toPrecision(12)));
+}
+
+/** How a space is drawn: on a screen, or as it plots on paper. */
+interface Look {
+  /** The color of an ACI index. */
+  readonly color: (index: number) => string;
+  /** What a linetype's pattern is multiplied by, to give dashes in the space's own units. */
+  readonly dashScale: number;
+  /** The attributes that set an element's stroke width, for a lineweight in hundredths of a millimetre. */
+  readonly stroke: (lineweight: number) => string;
+  /** The white space before an element, which what an insert holds is set in from. */
+  readonly indent: string;
 }
 
 /** What a drawing's entities name: its layers, its dash patterns and its text styles. */
@@ -310,16 +545,12 @@ function entityToSvg(
   e: Drawn,
   mark: string,
   pen: Pen,
-  stroke: number,
+  look: Look,
   style: TextStyle | undefined,
   matrix?: Matrix,
 ): string {
   // A lineweight of 0 draws as the thinnest line, as in AutoCAD.
-  const width =
-    pen.lineweight === DEFAULT_LINEWEIGHT
-      ? ""
-      : ` stroke-width="${fmt((stroke * Math.max(pen.lineweight, 5)) / DEFAULT_LINEWEIGHT)}"`;
-  const s = `stroke="${pen.color}"${width} vector-effect="non-scaling-stroke" ${mark}`;
+  const s = `stroke="${pen.color}"${look.stroke(pen.lineweight)} ${mark}`;
   const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
   if (e.kind !== "text" && pen.dashes) {
     const d = dashedPath(e, pen.dashes, matrix);

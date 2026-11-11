@@ -130,6 +130,24 @@ The path leads from the folder of the drawing's file. `toSVG` draws the referenc
 when it is given one, as `toSVG(drawing, { xrefs: { BASE: base } })`. [Xrefs](docs/xrefs.md)
 has the rest.
 
+A layout is a sheet of paper that AutoCAD shows as a tab and plots as one page. What is drawn
+inside `layout` is on the sheet, in inches of paper, and a viewport shows the model on it at a
+scale:
+
+```ts
+d.layer("G-ANNO-NPLT", { color: 8, plot: false });
+d.layout("C-101", { paper: "ARCH D" }, (sheet) => {
+  d.rect([0.5, 0.5], sheet.width - 1, sheet.height - 1);
+  d.layer("G-ANNO-NPLT", {}, () =>
+    sheet.viewport([1, 1], 34, 22, { center: [50, 70], ratio: 120 }),
+  );
+});
+```
+
+The file opens on the sheet with its page setup: `DWG To PDF.pc3`, the paper, 1:1 and
+`monochrome.ctb`. `toSVG(drawing, { layout: "C-101" })` draws the sheet as it plots.
+[Layouts](docs/layouts.md) has the rest.
+
 Text, symbols and dashes are sized by how large they plot. `fromPaper` turns a
 length on paper into drawing units for one scale, given as a plain ratio:
 
@@ -152,8 +170,8 @@ way, and the file to copy to start a drawing.
 tsdraft is at an early stage. It draws layers, lines, polylines, rectangles,
 circles, arcs and single-line text, with linetypes and lineweights, text styles
 and justification, blocks with attributes and inserts of them, references to DWG files as
-xrefs, and layers that are off, frozen, locked or not plotted. It does not yet have
-dimensions, hatches or paper space layouts. It writes DXF, not DWG. The drawing at
+xrefs, layouts with a page setup and viewports, and layers that are off, frozen, locked or
+not plotted. It does not yet have dimensions or hatches. It writes DXF, not DWG. The drawing at
 the top builds its dimensions, leaders and stipple from lines and text, so in
 CAD they are plain lines and text, not dimension or hatch objects.
 
@@ -250,6 +268,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   block, names, handles and what the preview draws.
 - [Xrefs](docs/xrefs.md) covers references to DWG files: the path, units, a
   missing file, and how the preview draws a referenced drawing.
+- [Layouts](docs/layouts.md) covers sheets: the papers, the page setup, viewports and
+  their scale, names, and how the preview draws a sheet as it plots.
 - [Text](docs/text.md) covers text styles, fonts and justification, what
   tsdraft escapes in text, and what AutoCAD does with it after a save.
 - [The `tsdraft` command](docs/command.md) covers `render`, `dev`, the JSON they
