@@ -14,9 +14,10 @@ import type {
   Polyline,
   Text,
   TextStyle,
+  Xref,
 } from "./drawing.ts";
 import { DrawingError, lint } from "./lint.ts";
-import { formatProblem, shown } from "./rules.ts";
+import { formatProblem, shown, XREF_REFUSED_FIELDS, xrefFieldProblem } from "./rules.ts";
 
 /**
  * Writes the drawing as canonical JSON: no white space, the keys of every object in code-unit
@@ -287,6 +288,19 @@ const entity: Check = (value, at, problems) => {
   }
 };
 
+const xrefFields = fields<Xref>({ name: string, path: string }, {});
+
+/** An xref, which is told why it cannot have a field of a block. */
+const xref: FieldsCheck = (value, at, problems) => {
+  const known: Record<string, unknown> = { ...value };
+  for (const field of XREF_REFUSED_FIELDS) {
+    if (!Object.hasOwn(value, field)) continue;
+    problems.push(`${at}: ${xrefFieldProblem(field)}`);
+    delete known[field];
+  }
+  xrefFields(known, at, problems);
+};
+
 const drawing = fields<Drawing>(
   {
     format: () => {},
@@ -347,5 +361,6 @@ const drawing = fields<Drawing>(
         ),
       ),
     ),
+    xrefs: list(record(xref)),
   },
 );

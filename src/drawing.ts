@@ -49,6 +49,9 @@ import {
   undefinedBlockProblem,
   undefinedLinetypeProblem,
   undefinedTextStyleProblem,
+  XREF_ATTRIBUTES,
+  xrefPathProblem,
+  xrefTwinProblem,
   type AttributeTag,
   type BlockName,
   type Description,
@@ -70,8 +73,10 @@ import {
   type R12Lineweights,
   type R12Linetypes,
   type R12Text,
+  type R12Xrefs,
   type TextStyleName,
   type WidthFactor,
+  type XrefPath,
   type LayerColor,
   type LayerName,
   type Positive,
@@ -232,11 +237,12 @@ export interface Text extends EntityBase {
 
 /**
  * A block placed at a point. It draws the block's entities there, scaled and turned about the
- * block's base point, and carries a value for each of the block's attribute definitions.
+ * block's base point, and carries a value for each of the block's attribute definitions. An
+ * insert of an xref places the file the xref names the same way, and sets no attributes.
  */
 export interface Insert extends Placed {
   readonly kind: "insert";
-  /** A block of the drawing. */
+  /** A block or an xref of the drawing. */
   readonly block: string;
   /** Where the block's base point goes. */
   readonly at: Point;
@@ -293,6 +299,21 @@ export interface Block {
   readonly attributes?: readonly AttributeDefinition[];
 }
 
+/**
+ * An external reference, or xref: another drawing's DWG file, which AutoCAD loads each time it
+ * opens this drawing and draws wherever an insert of `name` places it. The drawing holds the
+ * file's path and nothing of what the file draws.
+ */
+export interface Xref {
+  /** A block name, which no block and no other xref of the drawing has. An insert names it. */
+  readonly name: string;
+  /**
+   * The path of the DWG file from the folder of this drawing's file, with `\` or `/` between
+   * folders, such as `"base.dwg"` or `"..\\survey\\base.dwg"`.
+   */
+  readonly path: string;
+}
+
 export interface Drawing {
   /**
    * The version of the `Drawing` format, which is separate from the DXF version in `dxf`.
@@ -312,6 +333,8 @@ export interface Drawing {
   readonly textStyles?: readonly TextStyle[];
   /** The blocks that inserts place. */
   readonly blocks?: readonly Block[];
+  /** The DWG files the drawing references, which inserts place as they place blocks. */
+  readonly xrefs?: readonly Xref[];
 }
 
 export interface DrawingOptions<V extends DxfVersion = DxfVersion, S extends number = number> {
@@ -600,6 +623,9 @@ interface OpenBlock {
   /** The call that drew each entity, when calls are recorded. */
   readonly calls: (HeldCall | undefined)[] | undefined;
   readonly attributeCalls: (HeldCall | undefined)[];
+  /** The handles and the id keys taken for the block and what is drawn in it. */
+  readonly handles: string[];
+  readonly ids: string[];
 }
 
 /** A broken rule, thrown inside a builder method and turned into a `DrawingError` on its way out. */
@@ -624,7 +650,10 @@ function refuse(rule: LintRule, message: string): never {
 function located(
   thrown: unknown,
   method: Method,
-  about: Pick<Diagnostic, "id" | "layer" | "linetype" | "textStyle" | "block" | "attribute">,
+  about: Pick<
+    Diagnostic,
+    "id" | "layer" | "linetype" | "textStyle" | "block" | "attribute" | "xref"
+  >,
 ): unknown {
   if (!(thrown instanceof Problem)) return thrown;
   const call = readCall(holdCall(method));
@@ -647,13 +676,13 @@ function recordsCalls(): boolean {
  * Builds a drawing. Entities go on the current layer, which starts as "0".
  * `layer(name, opts, draw)` scopes everything drawn inside `draw` to that layer.
  *
- * `block(name, opts, draw)` puts everything drawn inside `draw` in a block, and `insert`
- * places a block.
+ * `block(name, opts, draw)` puts everything drawn inside `draw` in a block, `xref(name, path)`
+ * references another drawing's DWG file, and `insert` places a block or an xref.
  *
  * Mistakes written as literals, such as a layer name the DXF version does not
  * allow or a negative radius, are compile errors. The same checks run again
  * when the code runs, for values the compiler cannot see: `layer`, `linetype`,
- * `textStyle`, `block`, `attribute` and the entity methods then throw a `DrawingError` whose
+ * `textStyle`, `block`, `attribute`, `xref` and the entity methods then throw a `DrawingError` whose
  * diagnostic has the rule, the entity's `id` and the `call` that broke it.
  */
 export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = number> {
@@ -684,8 +713,13 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
   readonly #calls: (HeldCall | undefined)[] | undefined;
   /** Keyed by `layerKey`: an insert finds its block as an entity finds its layer. */
   readonly #blocks = new Map<string, Block>();
-  /** The first block name for each `layerAuditKey`: AutoCAD takes two such names for one block. */
-  readonly #blocksAudited = new Map<string, string>();
+  /** Keyed by `layerKey`, as blocks are: an insert finds an xref as it finds a block. */
+  readonly #xrefs = new Map<string, Xref>();
+  /**
+   * The first block or xref name for each `layerAuditKey`: AutoCAD takes two such names for
+   * one block.
+   */
+  readonly #blocksAudited = new Map<string, { readonly name: string; readonly xref: boolean }>();
   /** The block being drawn, which takes what is drawn until its `draw` returns. */
   #open: OpenBlock | undefined;
   #current = "0";
@@ -993,11 +1027,21 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
         );
       }
       const first = this.#blocksAudited.get(layerAuditKey(requested));
-      if (first !== undefined) fail("duplicate-block", blockTwinProblem(requested, first)!);
+      if (first !== undefined) {
+        fail(
+          "duplicate-block",
+          first.xref
+            ? xrefTwinProblem(requested, first.name, "xref")
+            : blockTwinProblem(requested, first.name)!,
+        );
+      }
       const base = options?.base === undefined ? undefined : pt(options.base);
       const handles = blockHandles(requested);
       const what = `the block ${JSON.stringify(requested)}`;
-      for (const handle of [handles.record, handles.begin, handles.end]) this.#claim(handle, what);
+      const taken: string[] = [];
+      for (const handle of [handles.record, handles.begin, handles.end]) {
+        this.#claim(handle, what, undefined, taken);
+      }
       open = {
         name: requested,
         ...(base && (base[0] !== 0 || base[1] !== 0) ? { base } : {}),
@@ -1005,15 +1049,26 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
         attributes: [],
         calls: this.#calls ? [] : undefined,
         attributeCalls: [],
+        handles: taken,
+        ids: [],
       };
     } catch (thrown) {
       throw located(thrown, DrawingBuilder.prototype.block, { block: requested });
     }
+    // The name is taken while the block is drawn, so nothing inside can take it too.
+    const auditKey = layerAuditKey(requested);
+    this.#blocksAudited.set(auditKey, { name: requested, xref: false });
     const previous = this.#current;
     this.#current = "0";
     this.#open = open;
     try {
       draw();
+    } catch (thrown) {
+      // Nothing of a block that was not finished stays, so the call can be made again.
+      this.#blocksAudited.delete(auditKey);
+      for (const handle of open.handles) this.#handles.delete(handle);
+      for (const key of open.ids) this.#ids.delete(key);
+      throw thrown;
     } finally {
       this.#current = previous;
       this.#open = undefined;
@@ -1028,7 +1083,47 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
       entities: open.entities,
       ...(open.attributes.length > 0 ? { attributes: open.attributes } : {}),
     });
-    this.#blocksAudited.set(layerAuditKey(requested), requested);
+    return this;
+  }
+
+  /**
+   * References another drawing's DWG file as an xref, under a name that no block and no other
+   * xref has. `insert(name, at)` then places it, as it places a block, and AutoCAD loads the
+   * file and draws it there each time it opens this drawing. `path` leads from the folder of
+   * this drawing's file to the DWG file, such as `"base.dwg"` or `"../survey/base.dwg"`.
+   */
+  xref<N extends string, P extends string>(
+    name: V extends "R12" ? R12Xrefs : BlockName<N>,
+    path: V extends "R12" ? R12Xrefs : XrefPath<P>,
+  ): this {
+    // The parameter type is the error message when a literal is wrong, so read it as a string.
+    const requested = name as string;
+    try {
+      const fail = (rule: LintRule, problem: string): never =>
+        refuse(rule, `Xref ${JSON.stringify(requested)}: ${problem}`);
+      if (this.dxf === "R12") fail("xref", R12_ONLY.xrefs);
+      const nameProblem = blockNameProblem(requested);
+      if (nameProblem) fail("xref", nameProblem);
+      const first = this.#blocksAudited.get(layerAuditKey(requested));
+      if (first !== undefined) {
+        fail(
+          "duplicate-block",
+          xrefTwinProblem(requested, first.name, first.xref ? "xref" : "block"),
+        );
+      }
+      const pathProblem = xrefPathProblem(path);
+      if (pathProblem) fail("xref", pathProblem);
+      const handles = blockHandles(requested);
+      const what = `the xref ${JSON.stringify(requested)}`;
+      // An xref belongs to the drawing, also when it is referenced while a block is drawn.
+      for (const handle of [handles.record, handles.begin, handles.end]) {
+        this.#claim(handle, what, undefined, []);
+      }
+      this.#xrefs.set(layerKey(requested), { name: requested, path: path as string });
+      this.#blocksAudited.set(layerAuditKey(requested), { name: requested, xref: true });
+    } catch (thrown) {
+      throw located(thrown, DrawingBuilder.prototype.xref, { xref: requested });
+    }
     return this;
   }
 
@@ -1091,8 +1186,8 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
   }
 
   /**
-   * Places a block of the drawing with its base point at `at`, on the current layer. Inside
-   * `block()`, it places the block in the one being drawn.
+   * Places a block or an xref of the drawing with its base point at `at`, on the current
+   * layer. Inside `block()`, it places it in the block being drawn.
    */
   insert<
     N extends string,
@@ -1114,17 +1209,18 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
       if (this.#open && layerAuditKey(this.#open.name) === layerAuditKey(requested)) {
         refuse("block-cycle", blockCycleProblem([this.#open.name, this.#open.name]));
       }
+      const xref = this.#xrefs.get(layerKey(requested));
       const placed = this.#blocks.get(layerKey(requested));
-      if (!placed) {
+      if (!placed && !xref) {
         refuse(
           "undefined-block",
-          `${undefinedBlockProblem(requested)}. Define it with block() first`,
+          `${undefinedBlockProblem(requested)}. Define it with block() or xref() first`,
         );
       }
       const insert: { -readonly [K in keyof Insert]: Insert[K] } = {
         kind: "insert",
         layer: this.#current,
-        block: placed.name,
+        block: (placed ?? xref)!.name,
         at: pt(at),
       };
       const scale: unknown = options.scale;
@@ -1139,12 +1235,18 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
       }
       const rotation = kept(options.rotation ?? 0, "rotation");
       if (rotation !== 0) insert.rotation = rotation;
-      const definitions = placed.attributes ?? [];
       const set: unknown = options.attributes;
-      if (set !== undefined) {
-        if (typeof set !== "object" || set === null || Array.isArray(set)) {
-          return refuse("undefined-attribute", ATTRIBUTES_SHAPE);
+      if (set !== undefined && (typeof set !== "object" || set === null || Array.isArray(set))) {
+        return refuse("undefined-attribute", ATTRIBUTES_SHAPE);
+      }
+      if (!placed) {
+        if (set !== undefined && Object.keys(set).length > 0) {
+          refuse("undefined-attribute", XREF_ATTRIBUTES);
         }
+        return insert;
+      }
+      const definitions = placed.attributes ?? [];
+      if (set !== undefined) {
         const values: Record<string, string> = {};
         for (const [tag, value] of Object.entries(set as Record<string, unknown>)) {
           if (!definitions.some((definition) => definition.tag === tag)) {
@@ -1195,6 +1297,7 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
       linetypeScale: this.linetypeScale,
       ...(this.#textStyles.size > 0 ? { textStyles: [...this.#textStyles.values()] } : {}),
       ...(this.#blocks.size > 0 ? { blocks: [...this.#blocks.values()] } : {}),
+      ...(this.#xrefs.size > 0 ? { xrefs: [...this.#xrefs.values()] } : {}),
     };
   }
 
@@ -1264,6 +1367,7 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
       (this.#open?.entities ?? this.#entities).push(made);
       if (key !== undefined) {
         this.#ids.set(key, id as string);
+        this.#open?.ids.push(key);
         this.#claim(validIdHandle(id as string), `the id ${JSON.stringify(id)}`, id as string);
       }
     } catch (thrown) {
@@ -1298,7 +1402,7 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
   }
 
   /** Takes a handle that comes from a name, and refuses one that something else has. */
-  #claim(handle: string, what: string, id?: string): void {
+  #claim(handle: string, what: string, id?: string, held = this.#open?.handles): void {
     const other = this.#handles.get(handle);
     if (other !== undefined) {
       refuse(
@@ -1309,6 +1413,7 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
       );
     }
     this.#handles.set(handle, id === undefined ? { what } : { id, what });
+    held?.push(handle);
   }
 
   /** The linetype and lineweight an entity is stored with. */

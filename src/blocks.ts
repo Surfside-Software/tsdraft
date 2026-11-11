@@ -9,6 +9,7 @@ import type {
   Point,
   Text,
   TextStyle,
+  Xref,
 } from "./drawing.ts";
 import { keyHandle } from "./handles.ts";
 import { layerKey } from "./layers.ts";
@@ -112,6 +113,15 @@ export function attributesEndHandle(insertId: string): string {
 export function findBlock(drawing: Pick<Drawing, "blocks">, name: string): Block | undefined {
   const key = layerKey(name);
   return drawing.blocks?.find((block) => layerKey(block.name) === key);
+}
+
+/**
+ * The xref an insert of this name places, found as `findBlock` finds a block. A drawing has no
+ * block and xref of one name, so at most one of the two finds something.
+ */
+export function findXref(drawing: Pick<Drawing, "xrefs">, name: string): Xref | undefined {
+  const key = layerKey(name);
+  return drawing.xrefs?.find((xref) => layerKey(xref.name) === key);
 }
 
 /** The matrix that takes a block's coordinates to where an insert puts them. */
@@ -260,19 +270,60 @@ function attributeText(insert: Insert, definition: AttributeDefinition): Text {
   return { kind: "text", ...text, value: attributeValue(insert, definition) };
 }
 
+/** A drawing that an xref stands for, under the xref's name in the drawing that references it. */
+export interface Referenced {
+  readonly name: string;
+  readonly drawing: Drawing;
+  /** The drawing's blocks, as `blocksByKey` gives them. */
+  readonly blocks: ReadonlyMap<string, Block>;
+}
+
+/** A layer by its name: one of the drawing's own, or one of a drawing it references. */
+export interface LayerRef {
+  readonly name: string;
+  /** The referenced drawing whose layer it is. Undefined for a layer of the drawing itself. */
+  readonly of?: Referenced;
+}
+
+/**
+ * The drawings to draw for the xrefs of `drawing`, by `layerKey` of each xref's name, from
+ * drawings given by name. A name that matches no xref of the drawing is left out.
+ */
+export function referencedByKey(
+  drawing: Pick<Drawing, "xrefs">,
+  given: Readonly<Record<string, Drawing>> | undefined,
+): Map<string, Referenced> {
+  const out = new Map<string, Referenced>();
+  if (given === undefined) return out;
+  const byKey = new Map(Object.keys(given).map((name) => [layerKey(name), given[name]!]));
+  for (const xref of drawing.xrefs ?? []) {
+    const key = layerKey(xref.name);
+    const found = byKey.get(key);
+    if (found !== undefined && !out.has(key)) {
+      out.set(key, { name: xref.name, drawing: found, blocks: blocksByKey(found.blocks) });
+    }
+  }
+  return out;
+}
+
 /** Where one entity is drawn. */
 export interface Placement {
   /** The matrix from the entity's coordinates to the drawing's, or undefined in model space. */
   readonly matrix: Matrix | undefined;
   /** The layer the entity draws on: its own, or its insert's for an entity on layer `"0"`. */
-  readonly layer: string;
+  readonly layer: LayerRef;
   /** True when an insert above the entity is on a layer that hides all an insert draws. */
   readonly frozen: boolean;
   /**
    * The layer that the insert holding the entity draws on, which gives an entity its
    * `"ByBlock"` linetype and lineweight. Undefined in model space.
    */
-  readonly insertLayer: string | undefined;
+  readonly insertLayer: LayerRef | undefined;
+  /**
+   * The referenced drawing the entity is in, whose linetypes and text styles are the ones it
+   * names. Undefined for an entity of the drawing itself.
+   */
+  readonly from: Referenced | undefined;
 }
 
 /**
@@ -280,53 +331,78 @@ export interface Placement {
  * of its block and each of its attributes as a text, through every insert inside. An insert of
  * a block the drawing does not have, or of a block that holds itself, draws nothing.
  *
+ * An insert of an xref draws the model space of the drawing given for it, as AutoCAD draws a
+ * loaded xref: an entity on layer `"0"` there draws as the insert's layer does, as in a block,
+ * and any other on its own layer of the referenced drawing. The xrefs of a referenced drawing
+ * are not drawn, as AutoCAD loads no overlay of an overlay. An xref with no drawing given
+ * draws nothing.
+ *
  * @param isFrozen - True for a layer that hides everything an insert on it draws: a frozen
  *   layer, and in a plot a layer that does not plot.
+ * @param xrefs - The drawing of each xref, as `referencedByKey` gives them.
  */
 export function eachDrawn(
   entity: Entity,
   blocks: ReadonlyMap<string, Block>,
-  isFrozen: (layer: string) => boolean,
+  isFrozen: (layer: LayerRef) => boolean,
   draw: (entity: Exclude<Entity, Insert>, placement: Placement) => void,
+  xrefs?: ReadonlyMap<string, Referenced>,
 ): void {
   if (entity.kind !== "insert") {
     draw(entity, {
       matrix: undefined,
-      layer: entity.layer,
+      layer: { name: entity.layer },
       frozen: false,
       insertLayer: undefined,
+      from: undefined,
     });
     return;
   }
-  const open = new Set<Block>();
-  const walk = (insert: Insert, outer: Matrix | undefined, layer: string, frozen: boolean) => {
-    const block = blocks.get(layerKey(insert.block));
-    if (!block || open.has(block)) return;
-    open.add(block);
-    const own = insertMatrix(insert, block.base);
+  const open = new Set<Block | Referenced>();
+  const walk = (
+    insert: Insert,
+    within: ReadonlyMap<string, Block>,
+    from: Referenced | undefined,
+    outer: Matrix | undefined,
+    layer: LayerRef,
+    frozen: boolean,
+  ) => {
+    const key = layerKey(insert.block);
+    const block = within.get(key);
+    const referenced = block || from ? undefined : xrefs?.get(key);
+    const held = block ?? referenced;
+    if (!held || open.has(held)) return;
+    open.add(held);
+    const own = insertMatrix(insert, block?.base);
     const matrix = outer ? compose(outer, own) : own;
     const hidden = frozen || isFrozen(layer);
-    const layerOf = (name: string) => (name === "0" ? layer : name);
-    for (const inner of block.entities) {
-      if (inner.kind === "insert") walk(inner, matrix, layerOf(inner.layer), hidden);
+    // What the insert holds names the layers, linetypes and text styles of this drawing.
+    const inside = referenced ?? from;
+    const layerOf = (name: string): LayerRef =>
+      name === "0" ? layer : inside ? { name, of: inside } : { name };
+    const inner = referenced ? referenced.blocks : within;
+    for (const item of block ? block.entities : referenced!.drawing.entities) {
+      if (item.kind === "insert") walk(item, inner, inside, matrix, layerOf(item.layer), hidden);
       else {
-        draw(inner, {
+        draw(item, {
           matrix,
-          layer: layerOf(inner.layer),
+          layer: layerOf(item.layer),
           frozen: hidden,
           insertLayer: layer,
+          from: inside,
         });
       }
     }
-    for (const definition of block.attributes ?? []) {
+    for (const definition of block?.attributes ?? []) {
       draw(attributeText(insert, definition), {
         matrix,
         layer: layerOf(definition.layer),
         frozen: hidden,
         insertLayer: layer,
+        from: inside,
       });
     }
-    open.delete(block);
+    open.delete(held);
   };
-  walk(entity, undefined, entity.layer, false);
+  walk(entity, blocks, undefined, undefined, { name: entity.layer }, false);
 }

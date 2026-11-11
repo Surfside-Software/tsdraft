@@ -1,4 +1,13 @@
-import { blocksByKey, eachDrawn, mapPoint, type Matrix } from "./blocks.ts";
+import {
+  blocksByKey,
+  eachDrawn,
+  findXref,
+  mapPoint,
+  referencedByKey,
+  type LayerRef,
+  type Matrix,
+  type Referenced,
+} from "./blocks.ts";
 import {
   sweep,
   type Drawing,
@@ -82,6 +91,11 @@ export interface SvgOptions {
   readonly strokeWidth?: number;
   /** Draws the layers whose `plot` is false too. They are left out by default. */
   readonly drawNoPlot?: boolean;
+  /**
+   * The drawing each xref stands for, by the xref's name. An insert of an xref draws the model
+   * space of the drawing given here, and nothing when none is given.
+   */
+  readonly xrefs?: Readonly<Record<string, Drawing>>;
 }
 
 /** How an entity is drawn. */
@@ -108,25 +122,41 @@ interface Pen {
  * text for each attribute with the insert's value. An entity on layer `0` of a block draws as
  * its insert's layer does, and any other as its own layer does, which `data-layer` names. An
  * insert on a frozen layer, or on a layer that does not plot, draws nothing.
+ *
+ * An insert of an xref is such a group too, with the xref's path in `data-xref`. `toSVG` opens
+ * no file, so it draws the drawing given for the xref in `options.xrefs`, as AutoCAD draws a
+ * loaded xref: an entity on layer `0` there draws as the insert's layer does, and any other as
+ * its own layer of the referenced drawing does, in that layer's color, linetype, lineweight
+ * and state, with `data-layer` naming it as AutoCAD does, `XREF|LAYER`. Dashes are scaled by
+ * this drawing's linetype scale. The group is empty for an xref with no drawing given.
  */
 export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
-  // Keyed as AutoCAD looks layers up, so an entity on `wall` takes the color of layer `WALL`.
-  const layers = new Map(drawing.layers.map((l) => [layerKey(l.name), l]));
-  const hidden = (name: string): boolean => {
-    const layer = layers.get(layerKey(name));
+  const xrefs = referencedByKey(drawing, options.xrefs);
+  // The tables of the drawing and of each drawing it references, made when first asked for.
+  const tables = new Map<Drawing, Tables>();
+  const tablesOf = (from: Referenced | undefined): Tables => {
+    const source = from?.drawing ?? drawing;
+    let found = tables.get(source);
+    if (!found) tables.set(source, (found = tablesFor(source)));
+    return found;
+  };
+  const layerOf = (ref: LayerRef): Layer | undefined =>
+    tablesOf(ref.of).layers.get(layerKey(ref.name));
+  const hidden = (ref: LayerRef): boolean => {
+    const layer = layerOf(ref);
     if (layer?.off || layer?.frozen) return true;
     return options.drawNoPlot !== true && layer?.plot === false;
   };
   // An insert on a frozen layer draws nothing, and in a plot neither does one on a layer that
   // does not plot, whatever layers its block's entities are on.
-  const frozen = (name: string): boolean => {
-    const layer = layers.get(layerKey(name));
+  const frozen = (ref: LayerRef): boolean => {
+    const layer = layerOf(ref);
     return layer?.frozen === true || (options.drawNoPlot !== true && layer?.plot === false);
   };
   // Each entity keeps its index in `drawing.entities`, for its element's data-entity. What an
   // insert holds is judged entity by entity, unless the insert's own layer is frozen.
   const shown = [...drawing.entities.entries()].filter(([, e]) =>
-    e.kind === "insert" ? !frozen(e.layer) : !hidden(e.layer),
+    e.kind === "insert" ? !frozen({ name: e.layer }) : !hidden({ name: e.layer }),
   );
   const blocks = blocksByKey(drawing.blocks);
   const [minX, minY, maxX, maxY] = extents(
@@ -135,41 +165,55 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     drawing.blocks,
     hidden,
     frozen,
+    xrefs,
   );
   const margin = options.margin ?? Math.max(maxX - minX, maxY - minY, 1) * 0.02;
   const x = minX - margin;
   const y = -(maxY + margin);
   const w = maxX - minX + margin * 2;
   const h = maxY - minY + margin * 2;
-  const patterns = new Map(
-    (drawing.linetypes ?? []).map((t) => [layerKey(t.name), alternating(t.pattern)]),
-  );
+  // AutoCAD scales the dashes of a referenced drawing by the linetype scale of the drawing
+  // that references it.
   const scale = drawing.linetypeScale ?? 1;
-  const textStyles = new Map((drawing.textStyles ?? []).map((t) => [layerKey(t.name), t]));
-  const styleOf = (e: Entity): TextStyle | undefined =>
-    e.kind === "text" && e.style !== undefined ? textStyles.get(layerKey(e.style)) : undefined;
+  const styleOf = (e: Entity, from?: Referenced): TextStyle | undefined =>
+    e.kind === "text" && e.style !== undefined
+      ? tablesOf(from).textStyles.get(layerKey(e.style))
+      : undefined;
   const stroke = options.strokeWidth ?? 1;
 
   /**
    * The pen of an entity that draws on `on`. `insertLayer` is the layer of the insert that
-   * holds it, whose linetype and lineweight an entity set to ByBlock takes.
+   * holds it, whose linetype and lineweight an entity set to ByBlock takes. `from` is the
+   * referenced drawing the entity is in, whose linetypes it names.
    */
-  const pen = (e: Drawn, on: string, insertLayer?: string): Pen => {
-    const layer: Layer | undefined = layers.get(layerKey(on));
-    /** The layer a linetype or a lineweight comes from, or undefined for the entity's own. */
-    const source = (value: string | number | undefined): Layer | undefined | "own" => {
+  const pen = (e: Drawn, on: LayerRef, insertLayer?: LayerRef, from?: Referenced): Pen => {
+    const layer: Layer | undefined = layerOf(on);
+    /**
+     * The layer a linetype or a lineweight comes from, with the drawing whose layer it is, or
+     * `"own"` for the entity's own.
+     */
+    const source = (
+      value: string | number | undefined,
+    ): { readonly layer: Layer | undefined; readonly of: Referenced | undefined } | "own" => {
       const name = typeof value === "string" ? builtInLinetype(value) : undefined;
-      if (value === undefined || name === "ByLayer") return layer;
+      if (value === undefined || name === "ByLayer") return { layer, of: on.of };
       // An insert draws ByLayer, so ByBlock is the insert's layer.
-      if (name === "ByBlock" && insertLayer !== undefined) return layers.get(layerKey(insertLayer));
+      if (name === "ByBlock" && insertLayer !== undefined) {
+        return { layer: layerOf(insertLayer), of: insertLayer.of };
+      }
       return "own";
     };
     const linetypeFrom = source(e.linetype);
-    const linetype = linetypeFrom === "own" ? e.linetype : linetypeFrom?.linetype;
-    const pattern = linetype === undefined ? undefined : patterns.get(layerKey(linetype));
+    const linetype = linetypeFrom === "own" ? e.linetype : linetypeFrom.layer?.linetype;
+    // A layer's linetype is one of the layer's drawing, and an entity's one of the entity's.
+    const named = linetypeFrom === "own" ? from : linetypeFrom.of;
+    const pattern =
+      linetype === undefined ? undefined : tablesOf(named).patterns.get(layerKey(linetype));
     const weightFrom = source(e.lineweight);
     const weight =
-      weightFrom === "own" ? (e.lineweight ?? "Default") : (weightFrom?.lineweight ?? "Default");
+      weightFrom === "own"
+        ? (e.lineweight ?? "Default")
+        : (weightFrom.layer?.lineweight ?? "Default");
     const code = lineweightCode(weight);
     return {
       color: aciColor(layer?.color ?? 7),
@@ -183,16 +227,27 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
   const body = shown
     .map(([i, e]) => {
       if (e.kind !== "insert")
-        return entityToSvg(e, marks(e, i), pen(e, e.layer), stroke, styleOf(e));
+        return entityToSvg(e, marks(e, i), pen(e, { name: e.layer }), stroke, styleOf(e));
       const parts: string[] = [];
-      eachDrawn(e, blocks, frozen, (drawn, at) => {
-        if (at.frozen || hidden(at.layer)) return;
-        const mark = `data-layer="${esc(at.layer)}"`;
-        const drawnPen = pen(drawn, at.layer, at.insertLayer);
-        parts.push(entityToSvg(drawn, mark, drawnPen, stroke, styleOf(drawn), at.matrix));
-      });
+      eachDrawn(
+        e,
+        blocks,
+        frozen,
+        (drawn, at) => {
+          if (at.frozen || hidden(at.layer)) return;
+          // AutoCAD names a layer of an xref by the xref's name, a bar and the layer's.
+          const { name, of } = at.layer;
+          const mark = `data-layer="${esc(of ? `${of.name}|${name}` : name)}"`;
+          const drawnPen = pen(drawn, at.layer, at.insertLayer, at.from);
+          const style = styleOf(drawn, at.from);
+          parts.push(entityToSvg(drawn, mark, drawnPen, stroke, style, at.matrix));
+        },
+        xrefs,
+      );
       const inside = parts.length > 0 ? `\n      ${parts.join("\n      ")}\n    ` : "";
-      return `<g ${marks(e, i)} data-block="${esc(e.block)}">${inside}</g>`;
+      const xref = blocks.has(layerKey(e.block)) ? undefined : findXref(drawing, e.block);
+      const path = xref === undefined ? "" : ` data-xref="${esc(xref.path)}"`;
+      return `<g ${marks(e, i)} data-block="${esc(e.block)}"${path}>${inside}</g>`;
     })
     .join("\n    ");
   return [
@@ -203,6 +258,24 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     `</svg>`,
     ``,
   ].join("\n");
+}
+
+/** What a drawing's entities name: its layers, its dash patterns and its text styles. */
+interface Tables {
+  /** Keyed as AutoCAD looks layers up, so an entity on `wall` takes the color of layer `WALL`. */
+  readonly layers: ReadonlyMap<string, Layer>;
+  readonly patterns: ReadonlyMap<string, number[] | undefined>;
+  readonly textStyles: ReadonlyMap<string, TextStyle>;
+}
+
+function tablesFor(drawing: Drawing): Tables {
+  return {
+    layers: new Map(drawing.layers.map((l) => [layerKey(l.name), l])),
+    patterns: new Map(
+      (drawing.linetypes ?? []).map((t) => [layerKey(t.name), alternating(t.pattern)]),
+    ),
+    textStyles: new Map((drawing.textStyles ?? []).map((t) => [layerKey(t.name), t])),
+  };
 }
 
 /** An entity that draws something of its own, which an insert does not. */

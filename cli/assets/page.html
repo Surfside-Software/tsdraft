@@ -654,6 +654,12 @@
         }
       }
 
+      // The page draws an xref only when the drawing file gave its drawing.
+      function xrefsFact(xrefs) {
+        const missing = xrefs.filter((x) => !x.shown).length;
+        return missing ? `${xrefs.length}, ${missing} not drawn` : `${xrefs.length}`;
+      }
+
       function renderFacts(state) {
         const d = state.drawing;
         const fmt = (n) => (Math.round(n * 100) / 100).toString();
@@ -662,6 +668,7 @@
           ["format", d.dxf],
           ["entities", d.counts.entities],
           ...(d.counts.blocks ? [["blocks", d.counts.blocks]] : []),
+          ...(d.counts.xrefs ? [["xrefs", xrefsFact(d.xrefs)]] : []),
           [
             "extents",
             `${fmt(d.extents.max[0] - d.extents.min[0])} × ${fmt(d.extents.max[1] - d.extents.min[1])}`,

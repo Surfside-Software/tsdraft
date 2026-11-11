@@ -118,6 +118,18 @@ d.layer("V-TREE", {}, () => {
 An entity on layer `0` of a block draws as the layer of each insert does.
 [Blocks](docs/blocks.md) has the rest.
 
+A drawing can reference another drawing's DWG file as an xref, and place it as it places a
+block. AutoCAD loads the file each time it opens the drawing:
+
+```ts
+d.xref("BASE", "../civil/base.dwg");
+d.layer("X-BASE", { color: 8 }, () => d.insert("BASE", [0, 0]));
+```
+
+The path leads from the folder of the drawing's file. `toSVG` draws the referenced drawing
+when it is given one, as `toSVG(drawing, { xrefs: { BASE: base } })`. [Xrefs](docs/xrefs.md)
+has the rest.
+
 Text, symbols and dashes are sized by how large they plot. `fromPaper` turns a
 length on paper into drawing units for one scale, given as a plain ratio:
 
@@ -139,9 +151,9 @@ way, and the file to copy to start a drawing.
 
 tsdraft is at an early stage. It draws layers, lines, polylines, rectangles,
 circles, arcs and single-line text, with linetypes and lineweights, text styles
-and justification, blocks with attributes and inserts of them, and layers that are off,
-frozen, locked or not plotted. It does not yet have dimensions, hatches, external references
-or paper space layouts. It writes DXF, not DWG. The drawing at
+and justification, blocks with attributes and inserts of them, references to DWG files as
+xrefs, and layers that are off, frozen, locked or not plotted. It does not yet have
+dimensions, hatches or paper space layouts. It writes DXF, not DWG. The drawing at
 the top builds its dimensions, leaders and stipple from lines and text, so in
 CAD they are plain lines and text, not dimension or hatch objects.
 
@@ -236,6 +248,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   characters it refuses.
 - [Blocks](docs/blocks.md) covers blocks, inserts and attributes: layers in a
   block, names, handles and what the preview draws.
+- [Xrefs](docs/xrefs.md) covers references to DWG files: the path, units, a
+  missing file, and how the preview draws a referenced drawing.
 - [Text](docs/text.md) covers text styles, fonts and justification, what
   tsdraft escapes in text, and what AutoCAD does with it after a save.
 - [The `tsdraft` command](docs/command.md) covers `render`, `dev`, the JSON they

@@ -21,6 +21,8 @@ d.layer("L-PLNT", {}, () => {
 });
 ```
 
+An insert also places an xref, a DWG file the drawing references: see [Xrefs](xrefs.md).
+
 ## Defining a block
 
 `d.block(name, options, draw)` defines a block. What `draw` draws goes in the block and not in

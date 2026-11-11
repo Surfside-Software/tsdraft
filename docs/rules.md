@@ -114,6 +114,33 @@ it would take `1e+100` for `1e+10` and report nothing.
   at is under 1e100 in size, as any coordinate is. An attribute definition is held to the
   rules of a text: its height, its style and its justification.
 - An R12 drawing has no blocks, inserts or attributes.
+- An xref's name follows the rules of block names, and no block and no other xref has a name
+  AutoCAD takes for the same. An xref is a block to AutoCAD: it discards a drawing with two
+  such names that differ only in case, and makes one xref of any other two, such as `straße`
+  and `strasse`, and reports nothing.
+- An xref's path is not empty, since AutoCAD then looks for a DWG file named as the xref is.
+  It does not end in `.dxf`: AutoCAD loads only a DWG file as an xref, reports that it is
+  unable to load a DXF, and draws nothing for it.
+- An xref's path starts from the folder of the drawing's file: it does not start with `/` or
+  `\`, or with a drive such as `C:`. AutoCAD takes an absolute path. Where that folder is
+  missing, as on another machine, it loads a file of the same name from the drawing's folder
+  when there is one, and reports the xref as loaded.
+- An xref's path holds none of `* ? < > | :` or `"`. AutoCAD finds no file whose name holds
+  one of them. It does read a path wrapped in a pair of quotes as the path inside, and tsdraft
+  wants that path written without them.
+- An xref's path does not end in a dot, unless the dot follows `.dwg`. AutoCAD adds `.dwg`
+  after the dot, so for `base.` it looks for `base..dwg` and finds no file.
+- An xref's path holds no backslash before `M+`, a digit from 1 to 5 and four hex digits.
+  Once AutoCAD has saved the drawing it reads those as one character, and looks for another
+  file. A `/` there does the same work.
+- An xref's path is a single line of what text can hold, and at most 32,000 characters.
+  AutoCAD finds no file by a path with a tab, replaces the private-use characters when it
+  saves the drawing, and finds no file by a path that comes to more than 32,767 characters
+  with the folder of the drawing.
+- An xref has no entities, no base point and no attribute definitions, and an insert of one
+  sets no attributes: its file holds what it draws.
+- An R12 drawing has no xrefs.
+- `blocks` and `xrefs`, where a drawing has them, are arrays.
 - An entity's id has 1 to 64 letters A to Z or a to z, digits, `.`, `-` and
   `_`, and no two entities share one, whatever its case, in a block or out of one. See
   [Ids](format.md#ids).
@@ -132,6 +159,8 @@ it would take `1e+100` for `1e+10` and report nothing.
 - Text that contains `%%`. AutoCAD stores the text as written but reads `%%` as
   the start of a control code when it draws it: `%%d` is drawn as a degree sign
   and `%%%` as one percent sign.
+- An xref that no insert places. AutoCAD purges an xref that nothing references
+  when it opens the drawing.
 
 `toDXF` throws a `DrawingError` for errors only. Its `diagnostics` property holds
 them, and other code may throw one to refuse a drawing for its own reasons.
