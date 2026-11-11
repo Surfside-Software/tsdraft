@@ -5,12 +5,14 @@ import {
   DASHED,
   DrawingBuilder,
   DrawingError,
+  fromPaper,
   HIDDEN,
   lint,
   toDXF,
   toSVG,
   type Drawing,
 } from "../src/index.ts";
+import sitePlan from "../examples/site-plan.ts";
 
 // Each `@ts-expect-error` below proves the compiler rejects the literal. The
 // `assert.throws` around it proves the same mistake is caught when the code runs.
@@ -753,4 +755,36 @@ test("lint checks the linetypes, lineweights and layer states of a drawing", () 
       'line #0: A lineweight must be one of AutoCAD\'s, in millimetres: 0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8, 0.9, 1, 1.06, 1.2, 1.4, 1.58, 2 or 2.11, or "ByLayer", "ByBlock" or "Default"',
     ],
   );
+});
+
+test("fromPaper turns a plotted length into drawing units", () => {
+  assert.equal(fromPaper(3 / 32, "in", { ratio: 96, units: "ft" }), 0.75);
+  assert.equal(fromPaper(3 / 32, "in", { ratio: 96, units: "in" }), 9);
+  assert.equal(fromPaper(2.5, "mm", { ratio: 50, units: "m" }), 0.125);
+  assert.equal(fromPaper(2.5, "mm", { ratio: 100, units: "cm" }), 25);
+  assert.equal(fromPaper(0.1, "in", { ratio: 100, units: "mm" }), 254);
+  assert.equal(fromPaper(25.4, "mm", { ratio: 240, units: "ft" }), 20);
+
+  const feet = { ratio: 96, units: "ft" } as const;
+  // @ts-expect-error: a paper length is "in" or "mm".
+  assert.throws(() => fromPaper(1, "ft", feet), /^Error: The paper unit must be "in" or "mm"/);
+  // @ts-expect-error: the drawing's units are one of tsdraft's.
+  assert.throws(() => fromPaper(1, "in", { ratio: 96, units: "yd" }), /Unknown units/);
+  // @ts-expect-error: a ratio of 0 plots nothing.
+  assert.throws(() => fromPaper(1, "in", { ratio: 0, units: "ft" }), /^Error: The ratio must/);
+  // @ts-expect-error: a paper length must be positive.
+  assert.throws(() => fromPaper(-1, "in", feet), /^Error: The paper length must be greater/);
+
+  const nan: number = Number.NaN;
+  assert.throws(() => fromPaper(nan, "in", feet), /paper length must be a finite/);
+  assert.throws(() => fromPaper(1, "in", { ratio: nan, units: "ft" }), /ratio must be a finite/);
+  assert.throws(
+    () => fromPaper(1e-7, "in", { ratio: 1, units: "ft" }),
+    /written as 0.*Use a longer paper length or a larger ratio$/,
+  );
+  assert.throws(() => fromPaper(1e60, "mm", { ratio: 1e60, units: "mm" }), /1e100 drawing units/);
+});
+
+test("the example sheet builds with no lint diagnostics", () => {
+  assert.deepEqual(lint(sitePlan), []);
 });

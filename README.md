@@ -80,6 +80,23 @@ are AutoCAD's own definitions; `d.linetype({ name, pattern })` defines another,
 with dashes as positive lengths, gaps as negative ones and dots as 0. A
 lineweight is in millimetres.
 
+Text, symbols and dashes are sized by how large they plot. `fromPaper` turns a
+length on paper into drawing units for one scale, given as a plain ratio:
+
+```ts
+import { fromPaper } from "tsdraft";
+
+const view = { ratio: 120, units: "ft" } as const; // 1" = 10'
+const note = fromPaper(3 / 32, "in", view); // 0.9375 ft
+d.text([0, 0], "PROPERTY LINE", { height: note });
+```
+
+A paper unit other than `"in"` or `"mm"`, and a length or a ratio of 0 or less,
+are compile errors as literals and thrown errors otherwise. `fromPaper` also
+throws when the result would be written as 0 or is 1e100 or more.
+[`examples/site-plan.ts`](examples/site-plan.ts) is a whole sheet sized this
+way, and the file to copy to start a drawing.
+
 ## Status
 
 tsdraft is at an early stage. It draws layers, lines, polylines, rectangles,

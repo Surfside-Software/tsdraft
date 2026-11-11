@@ -1,38 +1,233 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-18.8 -88.8 157.6 115.6" width="760" height="557">
-  <rect x="-18.8" y="-88.8" width="157.6" height="115.6" rx="2" fill="#f6f8fa"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-30.225 -156.475 220.45 231.7" width="1100" height="1156">
+  <rect x="-30.225" y="-156.475" width="220.45" height="231.7" rx="2" fill="#f6f8fa"/>
   <g transform="scale(1 -1)" fill="none" stroke-linejoin="round">
-    <g stroke="#1f2328" stroke-width="0.622">
-    <path d="M 0 0 L 5 0 M 6 0 L 7 0 M 8 0 L 9 0 M 10 0 L 15 0 M 16 0 L 17 0 M 18 0 L 19 0 M 20 0 L 25 0 M 26 0 L 27 0 M 28 0 L 29 0 M 30 0 L 35 0 M 36 0 L 37 0 M 38 0 L 39 0 M 40 0 L 45 0 M 46 0 L 47 0 M 48 0 L 49 0 M 50 0 L 55 0 M 56 0 L 57 0 M 58 0 L 59 0 M 60 0 L 65 0 M 66 0 L 67 0 M 68 0 L 69 0 M 70 0 L 75 0 M 76 0 L 77 0 M 78 0 L 79 0 M 80 0 L 85 0 M 86 0 L 87 0 M 88 0 L 89 0 M 90 0 L 95 0 M 96 0 L 97 0 M 98 0 L 99 0 M 100 0 L 105 0 M 106 0 L 107 0 M 108 0 L 109 0 M 110 0 L 115 0 M 116 0 L 117 0 M 118 0 L 119 0 M 120 0 L 120 5 M 120 6 L 120 7 M 120 8 L 120 9 M 120 10 L 120 15 M 120 16 L 120 17 M 120 18 L 120 19 M 120 20 L 120 25 M 120 26 L 120 27 M 120 28 L 120 29 M 120 30 L 120 35 M 120 36 L 120 37 M 120 38 L 120 39 M 120 40 L 120 45 M 120 46 L 120 47 M 120 48 L 120 49 M 120 50 L 120 55 M 120 56 L 120 57 M 120 58 L 120 59 M 120 60 L 120 65 M 120 66 L 120 67 M 120 68 L 120 69 M 120 70 L 120 75 M 120 76 L 120 77 M 120 78 L 120 79 M 120 80 L 115 80 M 114 80 L 113 80 M 112 80 L 111 80 M 110 80 L 105 80 M 104 80 L 103 80 M 102 80 L 101 80 M 100 80 L 95 80 M 94 80 L 93 80 M 92 80 L 91 80 M 90 80 L 85 80 M 84 80 L 83 80 M 82 80 L 81 80 M 80 80 L 75 80 M 74 80 L 73 80 M 72 80 L 71 80 M 70 80 L 65 80 M 64 80 L 63 80 M 62 80 L 61 80 M 60 80 L 55 80 M 54 80 L 53 80 M 52 80 L 51 80 M 50 80 L 45 80 M 44 80 L 43 80 M 42 80 L 41 80 M 40 80 L 35 80 M 34 80 L 33 80 M 32 80 L 31 80 M 30 80 L 25 80 M 24 80 L 23 80 M 22 80 L 21 80 M 20 80 L 15 80 M 14 80 L 13 80 M 12 80 L 11 80 M 10 80 L 5 80 M 4 80 L 3 80 M 2 80 L 1 80 M 0 80 L 0 75 M 0 74 L 0 73 M 0 72 L 0 71 M 0 70 L 0 65 M 0 64 L 0 63 M 0 62 L 0 61 M 0 60 L 0 55 M 0 54 L 0 53 M 0 52 L 0 51 M 0 50 L 0 45 M 0 44 L 0 43 M 0 42 L 0 41 M 0 40 L 0 35 M 0 34 L 0 33 M 0 32 L 0 31 M 0 30 L 0 25 M 0 24 L 0 23 M 0 22 L 0 21 M 0 20 L 0 15 M 0 14 L 0 13 M 0 12 L 0 11 M 0 10 L 0 5 M 0 4 L 0 3 M 0 2 L 0 1"/>
+    <g stroke="#1f2328" stroke-width="0.561">
+    <path d="M 0 0 L 6.25 0 M 7.5 0 L 8.75 0 M 10 0 L 11.25 0 M 12.5 0 L 18.75 0 M 20 0 L 21.25 0 M 22.5 0 L 23.75 0 M 25 0 L 31.25 0 M 32.5 0 L 33.75 0 M 35 0 L 36.25 0 M 37.5 0 L 43.75 0 M 45 0 L 46.25 0 M 47.5 0 L 48.75 0 M 50 0 L 56.25 0 M 57.5 0 L 58.75 0 M 60 0 L 61.25 0 M 62.5 0 L 68.75 0 M 70 0 L 71.25 0 M 72.5 0 L 73.75 0 M 75 0 L 81.25 0 M 82.5 0 L 83.75 0 M 85 0 L 86.25 0 M 87.5 0 L 93.75 0 M 95 0 L 96.25 0 M 97.5 0 L 98.75 0 M 100 0 L 100 6.25 M 100 7.5 L 100 8.75 M 100 10 L 100 11.25 M 100 12.5 L 100 18.75 M 100 20 L 100 21.25 M 100 22.5 L 100 23.75 M 100 25 L 100 31.25 M 100 32.5 L 100 33.75 M 100 35 L 100 36.25 M 100 37.5 L 100 43.75 M 100 45 L 100 46.25 M 100 47.5 L 100 48.75 M 100 50 L 100 56.25 M 100 57.5 L 100 58.75 M 100 60 L 100 61.25 M 100 62.5 L 100 68.75 M 100 70 L 100 71.25 M 100 72.5 L 100 73.75 M 100 75 L 100 81.25 M 100 82.5 L 100 83.75 M 100 85 L 100 86.25 M 100 87.5 L 100 93.75 M 100 95 L 100 96.25 M 100 97.5 L 100 98.75 M 100 100 L 100 106.25 M 100 107.5 L 100 108.75 M 100 110 L 100 111.25 M 100 112.5 L 100 118.75 M 100 120 L 100 121.25 M 100 122.5 L 100 123.75 M 100 125 L 100 131.25 M 100 132.5 L 100 133.75 M 100 135 L 100 136.25 M 100 137.5 L 100 140 M 100 140 L 93.75 140 M 92.5 140 L 91.25 140 M 90 140 L 88.75 140 M 87.5 140 L 81.25 140 M 80 140 L 78.75 140 M 77.5 140 L 76.25 140 M 75 140 L 68.75 140 M 67.5 140 L 66.25 140 M 65 140 L 63.75 140 M 62.5 140 L 56.25 140 M 55 140 L 53.75 140 M 52.5 140 L 51.25 140 M 50 140 L 43.75 140 M 42.5 140 L 41.25 140 M 40 140 L 38.75 140 M 37.5 140 L 31.25 140 M 30 140 L 28.75 140 M 27.5 140 L 26.25 140 M 25 140 L 18.75 140 M 17.5 140 L 16.25 140 M 15 140 L 13.75 140 M 12.5 140 L 6.25 140 M 5 140 L 3.75 140 M 2.5 140 L 1.25 140 M 0 140 L 0 133.75 M 0 132.5 L 0 131.25 M 0 130 L 0 128.75 M 0 127.5 L 0 121.25 M 0 120 L 0 118.75 M 0 117.5 L 0 116.25 M 0 115 L 0 108.75 M 0 107.5 L 0 106.25 M 0 105 L 0 103.75 M 0 102.5 L 0 96.25 M 0 95 L 0 93.75 M 0 92.5 L 0 91.25 M 0 90 L 0 83.75 M 0 82.5 L 0 81.25 M 0 80 L 0 78.75 M 0 77.5 L 0 71.25 M 0 70 L 0 68.75 M 0 67.5 L 0 66.25 M 0 65 L 0 58.75 M 0 57.5 L 0 56.25 M 0 55 L 0 53.75 M 0 52.5 L 0 46.25 M 0 45 L 0 43.75 M 0 42.5 L 0 41.25 M 0 40 L 0 33.75 M 0 32.5 L 0 31.25 M 0 30 L 0 28.75 M 0 27.5 L 0 21.25 M 0 20 L 0 18.75 M 0 17.5 L 0 16.25 M 0 15 L 0 8.75 M 0 7.5 L 0 6.25 M 0 5 L 0 3.75 M 0 2.5 L 0 0"/>
     </g>
-    <g stroke="#1f2328" stroke-width="0.311">
-    <text transform="translate(2 -6) scale(1 -1)" font-size="3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="25.2">LOT 120' x 80'</text>
+    <g stroke="#818b98" stroke-width="0.144">
+    <path d="M -20 0 L -13.75 0 M -12.5 0 L -11.25 0 M -10 0 L -8.75 0 M -7.5 0 L -1.25 0"/>
+    <path d="M 100 0 L 106.25 0 M 107.5 0 L 108.75 0 M 110 0 L 111.25 0 M 112.5 0 L 118.75 0"/>
+    <path d="M -20 140 L -13.75 140 M -12.5 140 L -11.25 140 M -10 140 L -8.75 140 M -7.5 140 L -1.25 140"/>
+    <path d="M 100 140 L 106.25 140 M 107.5 140 L 108.75 140 M 110 140 L 111.25 140 M 112.5 140 L 118.75 140"/>
+    <path d="M -20 -50 L -13.75 -50 M -12.5 -50 L -11.25 -50 M -10 -50 L -8.75 -50 M -7.5 -50 L -1.25 -50 M 0 -50 L 1.25 -50 M 2.5 -50 L 3.75 -50 M 5 -50 L 11.25 -50 M 12.5 -50 L 13.75 -50 M 15 -50 L 16.25 -50 M 17.5 -50 L 23.75 -50 M 25 -50 L 26.25 -50 M 27.5 -50 L 28.75 -50 M 30 -50 L 36.25 -50 M 37.5 -50 L 38.75 -50 M 40 -50 L 41.25 -50 M 42.5 -50 L 48.75 -50 M 50 -50 L 51.25 -50 M 52.5 -50 L 53.75 -50 M 55 -50 L 61.25 -50 M 62.5 -50 L 63.75 -50 M 65 -50 L 66.25 -50 M 67.5 -50 L 73.75 -50 M 75 -50 L 76.25 -50 M 77.5 -50 L 78.75 -50 M 80 -50 L 86.25 -50 M 87.5 -50 L 88.75 -50 M 90 -50 L 91.25 -50 M 92.5 -50 L 98.75 -50 M 100 -50 L 101.25 -50 M 102.5 -50 L 103.75 -50 M 105 -50 L 111.25 -50 M 112.5 -50 L 113.75 -50 M 115 -50 L 116.25 -50 M 117.5 -50 L 120 -50"/>
     </g>
-    <g stroke="#818b98" stroke-width="0.311">
-    <path d="M 10 20 L 12 20 M 13 20 L 15 20 M 16 20 L 18 20 M 19 20 L 21 20 M 22 20 L 24 20 M 25 20 L 27 20 M 28 20 L 30 20 M 31 20 L 33 20 M 34 20 L 36 20 M 37 20 L 39 20 M 40 20 L 42 20 M 43 20 L 45 20 M 46 20 L 48 20 M 49 20 L 51 20 M 52 20 L 54 20 M 55 20 L 57 20 M 58 20 L 60 20 M 61 20 L 63 20 M 64 20 L 66 20 M 67 20 L 69 20 M 70 20 L 72 20 M 73 20 L 75 20 M 76 20 L 78 20 M 79 20 L 81 20 M 82 20 L 84 20 M 85 20 L 87 20 M 88 20 L 90 20 M 91 20 L 93 20 M 94 20 L 96 20 M 97 20 L 99 20 M 100 20 L 102 20 M 103 20 L 105 20 M 106 20 L 108 20 M 109 20 L 110 20 M 110 20 L 110 22 M 110 23 L 110 25 M 110 26 L 110 28 M 110 29 L 110 31 M 110 32 L 110 34 M 110 35 L 110 37 M 110 38 L 110 40 M 110 41 L 110 43 M 110 44 L 110 46 M 110 47 L 110 49 M 110 50 L 110 52 M 110 53 L 110 55 M 110 56 L 110 58 M 110 59 L 110 61 M 110 62 L 110 64 M 110 65 L 108 65 M 107 65 L 105 65 M 104 65 L 102 65 M 101 65 L 99 65 M 98 65 L 96 65 M 95 65 L 93 65 M 92 65 L 90 65 M 89 65 L 87 65 M 86 65 L 84 65 M 83 65 L 81 65 M 80 65 L 78 65 M 77 65 L 75 65 M 74 65 L 72 65 M 71 65 L 69 65 M 68 65 L 66 65 M 65 65 L 63 65 M 62 65 L 60 65 M 59 65 L 57 65 M 56 65 L 54 65 M 53 65 L 51 65 M 50 65 L 48 65 M 47 65 L 45 65 M 44 65 L 42 65 M 41 65 L 39 65 M 38 65 L 36 65 M 35 65 L 33 65 M 32 65 L 30 65 M 29 65 L 27 65 M 26 65 L 24 65 M 23 65 L 21 65 M 20 65 L 18 65 M 17 65 L 15 65 M 14 65 L 12 65 M 11 65 L 10 65 M 10 65 L 10 63 M 10 62 L 10 60 M 10 59 L 10 57 M 10 56 L 10 54 M 10 53 L 10 51 M 10 50 L 10 48 M 10 47 L 10 45 M 10 44 L 10 42 M 10 41 L 10 39 M 10 38 L 10 36 M 10 35 L 10 33 M 10 32 L 10 30 M 10 29 L 10 27 M 10 26 L 10 24 M 10 23 L 10 21"/>
+    <g stroke="#1f2328" stroke-width="0.2">
+    <circle cx="0" cy="0" r="0.625"/>
+    <circle cx="0" cy="140" r="0.625"/>
+    <circle cx="100" cy="0" r="0.625"/>
+    <circle cx="100" cy="140" r="0.625"/>
     </g>
-    <g stroke="#0d7a8c" stroke-width="0.871">
-    <polygon points="32,25 88,25 88,57 32,57"/>
+    <g stroke="#818b98" stroke-width="0.2">
+    <path d="M 7.5 25 L 10 25 M 11.25 25 L 13.75 25 M 15 25 L 17.5 25 M 18.75 25 L 21.25 25 M 22.5 25 L 25 25 M 26.25 25 L 28.75 25 M 30 25 L 32.5 25 M 33.75 25 L 36.25 25 M 37.5 25 L 40 25 M 41.25 25 L 43.75 25 M 45 25 L 47.5 25 M 48.75 25 L 51.25 25 M 52.5 25 L 55 25 M 56.25 25 L 58.75 25 M 60 25 L 62.5 25 M 63.75 25 L 66.25 25 M 67.5 25 L 70 25 M 71.25 25 L 73.75 25 M 75 25 L 77.5 25 M 78.75 25 L 81.25 25 M 82.5 25 L 85 25 M 86.25 25 L 88.75 25 M 90 25 L 92.5 25 M 92.5 25 L 92.5 27.5 M 92.5 28.75 L 92.5 31.25 M 92.5 32.5 L 92.5 35 M 92.5 36.25 L 92.5 38.75 M 92.5 40 L 92.5 42.5 M 92.5 43.75 L 92.5 46.25 M 92.5 47.5 L 92.5 50 M 92.5 51.25 L 92.5 53.75 M 92.5 55 L 92.5 57.5 M 92.5 58.75 L 92.5 61.25 M 92.5 62.5 L 92.5 65 M 92.5 66.25 L 92.5 68.75 M 92.5 70 L 92.5 72.5 M 92.5 73.75 L 92.5 76.25 M 92.5 77.5 L 92.5 80 M 92.5 81.25 L 92.5 83.75 M 92.5 85 L 92.5 87.5 M 92.5 88.75 L 92.5 91.25 M 92.5 92.5 L 92.5 95 M 92.5 96.25 L 92.5 98.75 M 92.5 100 L 92.5 102.5 M 92.5 103.75 L 92.5 106.25 M 92.5 107.5 L 92.5 110 M 92.5 111.25 L 92.5 113.75 M 92.5 115 L 92.5 117.5 M 92.5 118.75 L 92.5 120 M 92.5 120 L 90 120 M 88.75 120 L 86.25 120 M 85 120 L 82.5 120 M 81.25 120 L 78.75 120 M 77.5 120 L 75 120 M 73.75 120 L 71.25 120 M 70 120 L 67.5 120 M 66.25 120 L 63.75 120 M 62.5 120 L 60 120 M 58.75 120 L 56.25 120 M 55 120 L 52.5 120 M 51.25 120 L 48.75 120 M 47.5 120 L 45 120 M 43.75 120 L 41.25 120 M 40 120 L 37.5 120 M 36.25 120 L 33.75 120 M 32.5 120 L 30 120 M 28.75 120 L 26.25 120 M 25 120 L 22.5 120 M 21.25 120 L 18.75 120 M 17.5 120 L 15 120 M 13.75 120 L 11.25 120 M 10 120 L 7.5 120 M 7.5 120 L 7.5 117.5 M 7.5 116.25 L 7.5 113.75 M 7.5 112.5 L 7.5 110 M 7.5 108.75 L 7.5 106.25 M 7.5 105 L 7.5 102.5 M 7.5 101.25 L 7.5 98.75 M 7.5 97.5 L 7.5 95 M 7.5 93.75 L 7.5 91.25 M 7.5 90 L 7.5 87.5 M 7.5 86.25 L 7.5 83.75 M 7.5 82.5 L 7.5 80 M 7.5 78.75 L 7.5 76.25 M 7.5 75 L 7.5 72.5 M 7.5 71.25 L 7.5 68.75 M 7.5 67.5 L 7.5 65 M 7.5 63.75 L 7.5 61.25 M 7.5 60 L 7.5 57.5 M 7.5 56.25 L 7.5 53.75 M 7.5 52.5 L 7.5 50 M 7.5 48.75 L 7.5 46.25 M 7.5 45 L 7.5 42.5 M 7.5 41.25 L 7.5 38.75 M 7.5 37.5 L 7.5 35 M 7.5 33.75 L 7.5 31.25 M 7.5 30 L 7.5 27.5 M 7.5 26.25 L 7.5 25"/>
     </g>
-    <g stroke="#0d7a8c" stroke-width="0.311">
-    <text transform="translate(34 41) scale(1 -1)" font-size="3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#0d7a8c" stroke="none" textLength="32.4">PROPOSED RESIDENCE</text>
+    <g stroke="#0d7a8c" stroke-width="0.561">
+    <polygon points="24,35 54,35 54,30 76,30 76,79 24,79"/>
     </g>
-    <g stroke="#818b98" stroke-width="0.311">
-    <line x1="72" y1="25" x2="72" y2="-12"/>
-    <line x1="84" y1="25" x2="84" y2="-12"/>
+    <g stroke="#818b98" stroke-width="0.281">
+    <line x1="56" y1="30" x2="56" y2="-8"/>
+    <path d="M 51 -13 A 5 5 0 0 1 56 -8"/>
+    <line x1="74" y1="30" x2="74" y2="-8"/>
+    <path d="M 74 -8 A 5 5 0 0 1 79 -13"/>
+    <line x1="-20" y1="-13" x2="51" y2="-13"/>
+    <line x1="79" y1="-13" x2="120" y2="-13"/>
+    <line x1="-20" y1="-37" x2="120" y2="-37"/>
+    <line x1="-20" y1="-2" x2="56" y2="-2"/>
+    <line x1="74" y1="-2" x2="120" y2="-2"/>
+    <line x1="-20" y1="-7" x2="56" y2="-7"/>
+    <line x1="74" y1="-7" x2="120" y2="-7"/>
     </g>
-    <g stroke="#1f2328" stroke-width="0.435">
-    <line x1="-10" y1="-12" x2="130" y2="-12"/>
+    <g stroke="#818b98" stroke-width="0.144">
+    <path d="M -20 -25 L -13.75 -25 M -12.5 -25 L -11.25 -25 M -10 -25 L -3.75 -25 M -2.5 -25 L -1.25 -25 M 0 -25 L 6.25 -25 M 7.5 -25 L 8.75 -25 M 10 -25 L 16.25 -25 M 17.5 -25 L 18.75 -25 M 20 -25 L 26.25 -25 M 27.5 -25 L 28.75 -25 M 30 -25 L 36.25 -25 M 37.5 -25 L 38.75 -25 M 40 -25 L 46.25 -25 M 47.5 -25 L 48.75 -25 M 50 -25 L 56.25 -25 M 57.5 -25 L 58.75 -25 M 60 -25 L 66.25 -25 M 67.5 -25 L 68.75 -25 M 70 -25 L 76.25 -25 M 77.5 -25 L 78.75 -25 M 80 -25 L 86.25 -25 M 87.5 -25 L 88.75 -25 M 90 -25 L 96.25 -25 M 97.5 -25 L 98.75 -25 M 100 -25 L 106.25 -25 M 107.5 -25 L 108.75 -25 M 110 -25 L 116.25 -25 M 117.5 -25 L 118.75 -25"/>
+    <circle cx="20" cy="106" r="6"/>
+    <line x1="19.375" y1="106" x2="20.625" y2="106"/>
+    <line x1="20" y1="105.375" x2="20" y2="106.625"/>
+    <circle cx="50" cy="130" r="6"/>
+    <line x1="49.375" y1="130" x2="50.625" y2="130"/>
+    <line x1="50" y1="129.375" x2="50" y2="130.625"/>
+    <circle cx="80" cy="104" r="6"/>
+    <line x1="79.375" y1="104" x2="80.625" y2="104"/>
+    <line x1="80" y1="103.375" x2="80" y2="104.625"/>
+    <circle cx="28" cy="12" r="5"/>
+    <line x1="27.375" y1="12" x2="28.625" y2="12"/>
+    <line x1="28" y1="11.375" x2="28" y2="12.625"/>
     </g>
-    <g stroke="#1f2328" stroke-width="0.311">
-    <text transform="translate(50 -18) scale(1 -1)" font-size="3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="19.8">MAIN STREET</text>
+    <g stroke="#0d7a8c" stroke-width="0.144">
+    <line x1="-0.625" y1="82.125" x2="0.625" y2="83.375"/>
+    <line x1="24" y1="79.625" x2="24" y2="83.375"/>
+    <line x1="23.375" y1="82.125" x2="24.625" y2="83.375"/>
+    <line x1="76" y1="79.625" x2="76" y2="83.375"/>
+    <line x1="75.375" y1="82.125" x2="76.625" y2="83.375"/>
+    <line x1="99.375" y1="82.125" x2="100.625" y2="83.375"/>
+    <line x1="0" y1="82.75" x2="100" y2="82.75"/>
     </g>
-    <g stroke="#818b98" stroke-width="0.224">
-    <circle cx="15" cy="72" r="5"/>
-    <circle cx="33" cy="72" r="5"/>
-    <circle cx="51" cy="72" r="5"/>
-    <circle cx="69" cy="72" r="5"/>
-    <circle cx="87" cy="72" r="5"/>
-    <circle cx="105" cy="72" r="5"/>
+    <g stroke="#0d7a8c" stroke-width="0.2">
+    <text transform="translate(10.59375 83.21875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#0d7a8c" stroke="none" textLength="2.813">24.0'</text>
+    <text transform="translate(48.59375 83.21875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#0d7a8c" stroke="none" textLength="2.813">52.0'</text>
+    <text transform="translate(86.59375 83.21875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#0d7a8c" stroke="none" textLength="2.813">24.0'</text>
+    </g>
+    <g stroke="#0d7a8c" stroke-width="0.144">
+    <line x1="100.625" y1="0" x2="106.875" y2="0"/>
+    <line x1="105.625" y1="-0.625" x2="106.875" y2="0.625"/>
+    <line x1="76.625" y1="30" x2="106.875" y2="30"/>
+    <line x1="105.625" y1="29.375" x2="106.875" y2="30.625"/>
+    <line x1="76.625" y1="79" x2="106.875" y2="79"/>
+    <line x1="105.625" y1="78.375" x2="106.875" y2="79.625"/>
+    <line x1="100.625" y1="140" x2="106.875" y2="140"/>
+    <line x1="105.625" y1="139.375" x2="106.875" y2="140.625"/>
+    <line x1="106.25" y1="0" x2="106.25" y2="140"/>
+    </g>
+    <g stroke="#0d7a8c" stroke-width="0.2">
+    <text transform="translate(105.78125 13.59375) scale(1 -1) rotate(-90)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#0d7a8c" stroke="none" textLength="2.813">30.0'</text>
+    <text transform="translate(105.78125 53.09375) scale(1 -1) rotate(-90)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#0d7a8c" stroke="none" textLength="2.813">49.0'</text>
+    <text transform="translate(105.78125 108.09375) scale(1 -1) rotate(-90)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#0d7a8c" stroke="none" textLength="2.813">61.0'</text>
+    </g>
+    <g stroke="#1f2328" stroke-width="0.2">
+    <text transform="translate(43.8125 141.25) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="12.375">N 90°00'00&quot; E  100.00'</text>
+    <text transform="translate(102.1875 105.1875) scale(1 -1) rotate(-90)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="12.375">S 00°00'00&quot; E  140.00'</text>
+    <text transform="translate(21.8125 1.25) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="12.375">S 90°00'00&quot; W  100.00'</text>
+    <text transform="translate(-1.25 105.1875) scale(1 -1) rotate(-90)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="12.375">N 00°00'00&quot; W  140.00'</text>
+    <text transform="translate(10 25.625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="9.563">25' FRONT SETBACK</text>
+    <text transform="translate(10 120.625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="9">20' REAR SETBACK</text>
+    <text transform="translate(6.875 96.59375) scale(1 -1) rotate(-90)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="9.563">7.5' SIDE SETBACK</text>
+    <text transform="translate(91.875 96.59375) scale(1 -1) rotate(-90)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="9.563">7.5' SIDE SETBACK</text>
+    <text transform="translate(41.5625 101.53125) scale(1 -1)" font-size="1.875" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="16.875">LOT 12, BLOCK 3</text>
+    <text transform="translate(42.875 99.34375) scale(1 -1)" font-size="1.25" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="14.25">14,000 SF (0.32 AC)</text>
+    <text transform="translate(39.875 58.25) scale(1 -1)" font-size="1.875" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="20.25">PROPOSED RESIDENCE</text>
+    <text transform="translate(43.25 56.0625) scale(1 -1)" font-size="1.25" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="13.5">2,398 SF FOOTPRINT</text>
+    <text transform="translate(45.125 53.875) scale(1 -1)" font-size="1.25" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="9.75">F.F.E. 12.50'</text>
+    <text transform="translate(65.46875 11.0625) scale(1 -1) rotate(-90)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="7.875">CONC. DRIVEWAY</text>
+    <text transform="translate(0 -4.96875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="9.563">5' CONC. SIDEWALK</text>
+    <text transform="translate(0 -14.5625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="9">EDGE OF PAVEMENT</text>
+    <text transform="translate(43.53125 -23.75) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="12.937">50' PUBLIC RIGHT-OF-WAY</text>
+    <text transform="translate(44.375 -21.875) scale(1 -1)" font-size="1.875" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="11.25">OAK STREET</text>
+    <text transform="translate(114.375 -24.375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="5.625">CENTERLINE</text>
+    <text transform="translate(-10 67.75) scale(1 -1) rotate(-90)" font-size="1.25" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="4.5">LOT 11</text>
+    <text transform="translate(112.5 67.75) scale(1 -1) rotate(-90)" font-size="1.25" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="4.5">LOT 13</text>
+    <text transform="translate(47.75 145) scale(1 -1)" font-size="1.25" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="4.5">LOT 27</text>
+    <text transform="translate(130 138.125) scale(1 -1)" font-size="1.875" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="10.125">SITE DATA</text>
+    </g>
+    <g stroke="#1f2328" stroke-width="0.401">
+    <line x1="130" y1="137.5" x2="180" y2="137.5"/>
+    </g>
+    <g stroke="#1f2328" stroke-width="0.2">
+    <text transform="translate(130 135.475) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="3.375">PARCEL</text>
+    <text transform="translate(145.125 135.475) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="8.438">LOT 12, BLOCK 3</text>
+    <text transform="translate(130 133.7875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="3.375">ZONING</text>
+    <text transform="translate(145.125 133.7875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="9.563">R-1 SINGLE-FAMILY</text>
+    <text transform="translate(130 132.1) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="4.5">LOT AREA</text>
+    <text transform="translate(145.125 132.1) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="10.688">14,000 SF (0.32 AC)</text>
+    <text transform="translate(130 130.4125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="10.125">BUILDING FOOTPRINT</text>
+    <text transform="translate(145.125 130.4125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="4.5">2,398 SF</text>
+    <text transform="translate(130 128.725) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="6.75">LOT COVERAGE</text>
+    <text transform="translate(145.125 128.725) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="9">17.1% (40% MAX.)</text>
+    <text transform="translate(130 127.0375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="7.875">FINISHED FLOOR</text>
+    <text transform="translate(145.125 127.0375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="6.75">ELEV. 12.50'</text>
+    <text transform="translate(130 124.50625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="3.938">SETBACK</text>
+    <text transform="translate(145.125 124.50625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="4.5">REQUIRED</text>
+    <text transform="translate(154.625 124.50625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="4.5">PROVIDED</text>
+    <text transform="translate(130 122.81875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="2.813">FRONT</text>
+    <text transform="translate(145.125 122.81875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="2.813">25.0'</text>
+    <text transform="translate(154.625 122.81875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="2.813">30.0'</text>
+    <text transform="translate(130 121.13125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="2.25">SIDE</text>
+    <text transform="translate(145.125 121.13125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="2.25">7.5'</text>
+    <text transform="translate(154.625 121.13125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="2.813">24.0'</text>
+    <text transform="translate(130 119.44375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="2.25">REAR</text>
+    <text transform="translate(145.125 119.44375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="2.813">20.0'</text>
+    <text transform="translate(154.625 119.44375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="2.813">61.0'</text>
+    <text transform="translate(130 113.35) scale(1 -1)" font-size="1.875" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="14.625">GENERAL NOTES</text>
+    </g>
+    <g stroke="#1f2328" stroke-width="0.401">
+    <line x1="130" y1="112.725" x2="180" y2="112.725"/>
+    </g>
+    <g stroke="#1f2328" stroke-width="0.2">
+    <text transform="translate(130 110.7) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="1.125">1.</text>
+    <text transform="translate(132.25 110.7) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="46.125">PROPERTY LINES ARE DRAWN FROM THE RECORDED PLAT. NO FIELD SURVEY WAS MADE FOR THIS</text>
+    <text transform="translate(132.25 109.0125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="2.813">PLAN.</text>
+    <text transform="translate(130 106.7625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="1.125">2.</text>
+    <text transform="translate(132.25 106.7625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="42.75">DIMENSIONS ARE IN FEET, MEASURED TO THE OUTSIDE FACE OF THE FOUNDATION WALL.</text>
+    <text transform="translate(130 104.5125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="1.125">3.</text>
+    <text transform="translate(132.25 104.5125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="45.563">SETBACKS ARE MEASURED AT RIGHT ANGLES FROM THE PROPERTY LINE TO THE NEAREST WALL.</text>
+    <text transform="translate(130 102.2625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="1.125">4.</text>
+    <text transform="translate(132.25 102.2625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="27">LOCATE ALL UNDERGROUND UTILITIES BEFORE DIGGING.</text>
+    <text transform="translate(130 100.0125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="1.125">5.</text>
+    <text transform="translate(132.25 100.0125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="47.25">GRADE THE LOT TO DRAIN AWAY FROM THE BUILDING AND TOWARD THE STREET. KEEP RUNOFF OFF</text>
+    <text transform="translate(132.25 98.325) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="10.688">THE ADJOINING LOTS.</text>
+    <text transform="translate(130 96.075) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="1.125">6.</text>
+    <text transform="translate(132.25 96.075) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="33.188">PROTECT THE EXISTING TREES SHOWN. NO TREE IS TO BE REMOVED.</text>
+    <text transform="translate(130 89.41875) scale(1 -1)" font-size="1.875" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="6.75">LEGEND</text>
+    </g>
+    <g stroke="#1f2328" stroke-width="0.401">
+    <line x1="130" y1="88.79375" x2="180" y2="88.79375"/>
+    </g>
+    <g stroke="#1f2328" stroke-width="0.561">
+    <path d="M 130 87.2375 L 136.25 87.2375 M 137.5 87.2375 L 138.75 87.2375 M 140 87.2375 L 141.25 87.2375 M 142.5 87.2375 L 148.75 87.2375"/>
+    </g>
+    <g stroke="#1f2328" stroke-width="0.2">
+    <text transform="translate(153.75 86.76875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="7.313">PROPERTY LINE</text>
+    </g>
+    <g stroke="#818b98" stroke-width="0.144">
+    <path d="M 130 84.70625 L 136.25 84.70625 M 137.5 84.70625 L 138.75 84.70625 M 140 84.70625 L 141.25 84.70625 M 142.5 84.70625 L 148.75 84.70625"/>
+    </g>
+    <g stroke="#1f2328" stroke-width="0.2">
+    <text transform="translate(153.75 84.2375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="10.125">ADJOINING LOT LINE</text>
+    </g>
+    <g stroke="#818b98" stroke-width="0.2">
+    <path d="M 130 82.175 L 132.5 82.175 M 133.75 82.175 L 136.25 82.175 M 137.5 82.175 L 140 82.175 M 141.25 82.175 L 143.75 82.175 M 145 82.175 L 147.5 82.175 M 148.75 82.175 L 150 82.175"/>
+    </g>
+    <g stroke="#1f2328" stroke-width="0.2">
+    <text transform="translate(153.75 81.70625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="11.813">BUILDING SETBACK LINE</text>
+    </g>
+    <g stroke="#0d7a8c" stroke-width="0.561">
+    <line x1="130" y1="79.64375" x2="150" y2="79.64375"/>
+    </g>
+    <g stroke="#1f2328" stroke-width="0.2">
+    <text transform="translate(153.75 79.175) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="10.125">BUILDING FOOTPRINT</text>
+    </g>
+    <g stroke="#818b98" stroke-width="0.281">
+    <line x1="130" y1="77.1125" x2="150" y2="77.1125"/>
+    </g>
+    <g stroke="#1f2328" stroke-width="0.2">
+    <text transform="translate(153.75 76.64375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="15.75">EDGE OF PAVEMENT OR CONCRETE</text>
+    </g>
+    <g stroke="#818b98" stroke-width="0.144">
+    <path d="M 130 74.58125 L 136.25 74.58125 M 137.5 74.58125 L 138.75 74.58125 M 140 74.58125 L 146.25 74.58125 M 147.5 74.58125 L 148.75 74.58125"/>
+    </g>
+    <g stroke="#1f2328" stroke-width="0.2">
+    <text transform="translate(153.75 74.1125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="9.563">STREET CENTERLINE</text>
+    <circle cx="140" cy="72.05" r="0.625"/>
+    <text transform="translate(153.75 71.58125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="8.438">PROPERTY CORNER</text>
+    </g>
+    <g stroke="#818b98" stroke-width="0.144">
+    <circle cx="140" cy="67.83125" r="1.875"/>
+    <line x1="139.375" y1="67.83125" x2="140.625" y2="67.83125"/>
+    <line x1="140" y1="67.20625" x2="140" y2="68.45625"/>
+    </g>
+    <g stroke="#1f2328" stroke-width="0.2">
+    <text transform="translate(153.75 67.3625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="12.937">EXISTING TREE TO REMAIN</text>
+    <text transform="translate(3.1875 -56.875) scale(1 -1)" font-size="1.875" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="1.125">N</text>
+    </g>
+    <g stroke="#1f2328" stroke-width="0.281">
+    <circle cx="3.75" cy="-61.25" r="3.75"/>
+    <line x1="3.75" y1="-65" x2="3.75" y2="-59.75"/>
+    <polygon points="3.75,-57.5 3.1875,-60.875 4.3125,-60.875"/>
+    <polygon points="36,-57.8125 56,-57.8125 56,-56.5625 36,-56.5625"/>
+    <line x1="41" y1="-57.8125" x2="41" y2="-56.5625"/>
+    <line x1="46" y1="-57.8125" x2="46" y2="-56.5625"/>
+    <line x1="36" y1="-57.1875" x2="41" y2="-57.1875"/>
+    </g>
+    <g stroke="#1f2328" stroke-width="0.2">
+    <text transform="translate(35.71875 -55.9375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="0.563">0</text>
+    <text transform="translate(40.71875 -55.9375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="0.563">5</text>
+    <text transform="translate(45.4375 -55.9375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="1.125">10</text>
+    <text transform="translate(55.4375 -55.9375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="1.125">20</text>
+    <text transform="translate(57.25 -57.8125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="2.25">FEET</text>
+    <text transform="translate(12.5 -57.5) scale(1 -1)" font-size="2.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="13.5">SITE PLAN</text>
+    </g>
+    <g stroke="#1f2328" stroke-width="0.401">
+    <line x1="12.5" y1="-58.125" x2="28.5" y2="-58.125"/>
+    </g>
+    <g stroke="#1f2328" stroke-width="0.2">
+    <text transform="translate(12.5 -60) scale(1 -1)" font-size="1.25" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="11.25">SCALE: 1&quot; = 10'</text>
     </g>
   </g>
 </svg>
