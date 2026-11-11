@@ -37,8 +37,8 @@ arcs and text, so a CAD program opens the result as plain geometry.
   <img src="../docs/assets/site-plan-light.svg" alt="A permit-style site plan at 1 inch to 10 feet: a lot with its bearings, setback lines, a building footprint with dimension strings, a driveway, a sidewalk, trees and the street, beside site data, general notes and a legend, above a view title, a graphic scale and a north arrow" width="100%">
 </picture>
 
-The example sheet: a permit-style site plan for an ARCH D sheet, 36 by 24
-inches, at 1" = 10'. It draws the lot from its plat dimensions, with the
+The example sheet: a permit-style site plan for an ARCH D sheet, 24 by 36
+inches and landscape, at 1" = 10'. It draws the lot from its plat dimensions, with the
 setbacks, the building footprint, the driveway and the street, then the labels,
 dimension strings, site data, notes and legend. It is the file to copy to start
 a drawing. The parameters are at the top of [`site-plan.ts`](site-plan.ts),
