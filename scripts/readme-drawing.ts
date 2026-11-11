@@ -5,6 +5,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { sitePlan } from "../examples/site-plan.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -16,6 +17,11 @@ interface Picture {
   readonly width: number;
   /** The margin added around the drawing, in drawing units. */
   readonly pad: number;
+  /**
+   * The edge of the sheet the drawing plots on, in drawing units. The picture is then framed on
+   * the sheet, not on the drawing, and outlines the sheet's edge, which the drawing leaves out.
+   */
+  readonly sheet?: { left: number; bottom: number; right: number; top: number };
   /** The width in pixels, at `width`, of a line of the default lineweight, 0.25 mm. */
   readonly pen: number;
   /** Round line ends, which draw very short lines as dots but close up fine dash patterns. */
@@ -33,8 +39,9 @@ const pictures: Picture[] = [
   {
     name: "site-plan",
     width: 1100,
-    pad: 6,
-    pen: 1,
+    pad: 0,
+    pen: 0.8,
+    sheet: sitePlan().sheetEdge,
     roundCaps: false,
     roles: {
       "C-PROP": "line",
@@ -79,8 +86,14 @@ const pictures: Picture[] = [
 const group =
   '<g transform="scale(1 -1)" fill="none" stroke-width="1" vector-effect="non-scaling-stroke">';
 
+/** A line one pixel wide just inside the edge of the picture, which is the sheet's edge. */
+function sheetOutline(x: number, y: number, w: number, h: number, pixel: number, color: string) {
+  const at = [x + pixel / 2, y + pixel / 2, w - pixel, h - pixel].map((n) => Number(n.toFixed(3)));
+  return `  <rect x="${at[0]}" y="${at[1]}" width="${at[2]}" height="${at[3]}" rx="2" fill="none" stroke="${color}" stroke-width="${Number(pixel.toFixed(3))}"/>`;
+}
+
 for (const picture of pictures) {
-  const { name, width, pad, pen, roundCaps, roles } = picture;
+  const { name, width, pad, pen, roundCaps, roles, sheet } = picture;
   execFileSync(process.execPath, [`examples/${name}.ts`], { cwd: root, stdio: "inherit" });
   const svg = readFileSync(`${root}/examples/out/${name}.svg`, "utf8");
   if (!svg.includes(group)) {
@@ -91,7 +104,10 @@ for (const picture of pictures) {
     let unitsPerPixel = 0;
     const lines = svg
       .replace(/viewBox="([^"]+)">/, (_, box: string) => {
-        const [x = 0, y = 0, w = 0, h = 0] = box.split(" ").map(Number);
+        // The view box has Y pointing down, so the sheet's top edge is its least Y.
+        const [x = 0, y = 0, w = 0, h = 0] = sheet
+          ? [sheet.left, -sheet.top, sheet.right - sheet.left, sheet.top - sheet.bottom]
+          : box.split(" ").map(Number);
         const [vx, vy, vw, vh] = [x - pad, y - pad, w + pad * 2, h + pad * 2].map((n) =>
           Number(n.toFixed(6)),
         ) as [number, number, number, number];
@@ -99,6 +115,7 @@ for (const picture of pictures) {
         return [
           `viewBox="${vx} ${vy} ${vw} ${vh}" width="${width}" height="${Math.round((width * vh) / vw)}">`,
           `  <rect x="${vx}" y="${vy}" width="${vw}" height="${vh}" rx="2" fill="${colors.bg}"/>`,
+          ...(sheet ? [sheetOutline(vx, vy, vw, vh, unitsPerPixel, colors.muted)] : []),
         ].join("\n");
       })
       .replace(

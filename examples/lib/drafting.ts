@@ -57,6 +57,11 @@ export interface DimensionStyle {
   readonly textStyle?: string;
   /** The width of a character as a share of the text height, as `textWidth` takes it. */
   readonly perCharacter?: number;
+  /**
+   * Where the text of the segment from `from` to `to` is centered along the dimension line.
+   * Defaults to the middle of the segment.
+   */
+  readonly textAt?: (from: number, to: number) => number;
 }
 
 /**
@@ -95,7 +100,7 @@ export function dimensionChain(
     const a0 = sorted[i - 1]?.[along] ?? 0;
     const a1 = sorted[i]?.[along] ?? 0;
     const value = (style.format ?? feetInches)(a1 - a0);
-    const middle = (a0 + a1) / 2;
+    const middle = style.textAt?.(a0, a1) ?? (a0 + a1) / 2;
     // Text that does not fit between the extension lines goes on the other side of the line.
     const fits = textWidth(value, style.text, style.perCharacter) + style.text < a1 - a0;
     const lift = fits ? style.text * 0.5 : -style.text * 1.5;

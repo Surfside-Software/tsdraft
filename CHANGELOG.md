@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- The example sheet, `examples/site-plan.ts`, is laid out as a landscape ARCH D
+  sheet. The sheet, 24 by 36 inches and landscape, with a 1/2 inch margin, is a
+  parameter, and its rectangle and drawing area are worked out in drawing units
+  through `fromPaper`. The plan is centered in the left 27 inches of the
+  drawing area, with the north arrow, view title and graphic scale under it at
+  the lower left. A column 7 inches wide at the right holds the site data,
+  general notes, legend and abbreviations. The lower right corner, 6 1/2 by 3
+  inches, is kept clear for a title block. The sheet holds the plan at 1" = 10'
+  and at 1" = 20'. At a larger scale the plan is taller than the sheet.
+  `sitePlan(ratio)` builds the sheet at a ratio, and the picture in
+  `examples/README.md` is framed on the sheet.
 - The package now has a command, `tsdraft`. `npx tsdraft render <file>` builds a drawing
   file once, writes its SVG and PNG, and prints the build as JSON with what `lint` found.
   `npx tsdraft dev <file>` serves a live preview that redraws on every save, and the same JSON

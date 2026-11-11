@@ -185,8 +185,9 @@ number of drawing units. Then the annotation keeps its plotted size when the sca
 
 [`examples/site-plan.ts`](https://github.com/Surfside-Software/tsdraft/blob/main/examples/site-plan.ts)
 in the tsdraft repository is a whole sheet: a permit-style site plan at 1" = 10' with property
-lines, setbacks, a building, dimension strings, labels, notes and a legend. Start a new drawing
-from it. It is not in the npm package. Copy it and
+lines, setbacks, a building, dimension strings, labels, notes and a legend, laid out for a
+landscape ARCH D sheet, 24 by 36 inches. The sheet is a parameter, and every block is placed
+from it. Start a new drawing from it. It is not in the npm package. Copy it and
 [`examples/lib/drafting.ts`](https://github.com/Surfside-Software/tsdraft/blob/main/examples/lib/drafting.ts),
 keeping `drafting.ts` in a `lib` folder beside it. Change two import strings to `"tsdraft"`:
 `"../src/index.ts"` in `site-plan.ts`, and `"../../src/index.ts"` in `lib/drafting.ts`.
