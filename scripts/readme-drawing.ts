@@ -32,17 +32,23 @@ const themes = {
 const pictures: Picture[] = [
   {
     name: "site-plan",
-    width: 760,
+    width: 1100,
     pad: 6,
-    pen: 1.5,
+    pen: 1,
     roundCaps: false,
     roles: {
       "C-PROP": "line",
+      "C-PROP-ADJC": "muted",
+      "C-PROP-MONU": "line",
       "C-SETB": "muted",
-      "A-BLDG": "accent",
+      "C-BLDG": "accent",
       "C-PAVE": "muted",
-      "C-ROAD": "line",
+      "C-ROAD-CNTR": "muted",
       "V-TREE": "muted",
+      "C-ANNO-DIMS": "accent",
+      "C-ANNO-TEXT": "line",
+      "C-ANNO-SYMB": "line",
+      "C-ANNO-TITL": "line",
     },
   },
   {

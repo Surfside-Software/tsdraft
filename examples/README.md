@@ -34,12 +34,23 @@ arcs and text, so a CAD program opens the result as plain geometry.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="../docs/assets/site-plan-dark.svg">
-  <img src="../docs/assets/site-plan-light.svg" alt="A site plan: a lot with its setbacks, a house, a driveway, six trees and the street" width="640">
+  <img src="../docs/assets/site-plan-light.svg" alt="A permit-style site plan at 1 inch to 10 feet: a lot with its bearings, setback lines, a building footprint with dimension strings, a driveway, a sidewalk, trees and the street, beside site data, general notes and a legend, above a view title, a graphic scale and a north arrow" width="100%">
 </picture>
 
-A lot with its setbacks, a house, a driveway, trees and the street, in about 30
-lines. It is the code shown in the main README. Read
-[`site-plan.ts`](site-plan.ts).
+The example sheet: a permit-style site plan for an ARCH D sheet, 36 by 24
+inches, at 1" = 10'. It draws the lot from its plat dimensions, with the
+setbacks, the building footprint, the driveway and the street, then the labels,
+dimension strings, site data, notes and legend. It is the file to copy to start
+a drawing. The parameters are at the top of [`site-plan.ts`](site-plan.ts),
+each layer sets a linetype and a pen weight. The site is in feet, and every
+text height, annotation offset and panel size, and the linetype scale, come
+from `fromPaper`, as a plotted size at the one ratio the file names. Change the
+ratio from 120 to 240 and the annotation keeps its plotted size around a plan
+half as large. There is no
+border or title block yet, because tsdraft has no paper space.
+
+The file's default export is the drawing, and it writes its DXF and SVG only
+when it is run:
 
 ```sh
 node examples/site-plan.ts

@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- `fromPaper(length, "in" | "mm", { ratio, units })` turns a length on paper
+  into drawing units, to size text, symbols and dashes by how large they plot:
+  `fromPaper(3 / 32, "in", { ratio: 96, units: "ft" })` is 0.75. A wrong unit,
+  and a length or ratio of 0 or less, are compile errors as literals and thrown
+  errors otherwise. A result that would be written as 0, or is 1e100 or more,
+  throws.
+- `examples/site-plan.ts` is now the example sheet: a permit-style site plan for
+  an ARCH D sheet at 1" = 10', with property lines, setbacks, a building
+  footprint, dimensions, labels, site data, notes and a legend. Every text
+  height and annotation offset comes from `fromPaper`. Its default export is the drawing.
+
 ## 0.3.0
 
 - Breaking: `createDrawing()` now targets DXF R2018. Pass `{ dxf: "R12" }` for

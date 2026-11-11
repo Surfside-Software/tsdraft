@@ -67,6 +67,8 @@ export interface DimensionStyle {
   readonly gap: number;
   /** How far an extension line runs past the dimension line. */
   readonly extend: number;
+  /** Writes a measured distance. Defaults to `feetInches`, for a drawing in inches. */
+  readonly format?: (distance: number) => string;
 }
 
 /**
@@ -104,7 +106,7 @@ export function dimensionChain(
   for (let i = 1; i < sorted.length; i++) {
     const a0 = sorted[i - 1]?.[along] ?? 0;
     const a1 = sorted[i]?.[along] ?? 0;
-    const value = feetInches(a1 - a0);
+    const value = (style.format ?? feetInches)(a1 - a0);
     const middle = (a0 + a1) / 2;
     // Text that does not fit between the extension lines goes on the other side of the line.
     const fits = textWidth(value, style.text) + style.text < a1 - a0;

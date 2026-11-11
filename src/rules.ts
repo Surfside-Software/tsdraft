@@ -47,6 +47,8 @@ const WRITTEN_AS_ZERO =
   "This value is written as 0, because tsdraft writes 6 decimals. Use 0.000001 or more";
 const TOO_LARGE =
   "This value must be under 1e100, because AutoCAD reads only two exponent digits from DXF and would take 1e+100 for 1e+10";
+const PAPER_LENGTH = "The paper length must be greater than 0";
+const RATIO = "The ratio must be greater than 0";
 const ARC_LOST =
   "An arc of nearly a full turn cannot be written: its angles are the same once rounded to 6 decimals, so AutoCAD would hold an arc of no length. Draw a circle instead";
 const TEXT_CONTROL = "Text must be a single line with no control characters";
@@ -197,6 +199,23 @@ export type Positive<N extends number> = number extends N
       : `${N}` extends `${string}e+${Digit}${Digit}${Digit}`
         ? typeof TOO_LARGE
         : N;
+
+/**
+ * Resolves to `N` when it is greater than 0, and to `Message` otherwise. For a
+ * number that is worked with before anything is written, where `Positive`
+ * would refuse a small value for the 6 decimals.
+ */
+type AboveZero<N extends number, Message extends string> = number extends N
+  ? N
+  : `${N}` extends `-${string}` | "0"
+    ? Message
+    : N;
+
+/** Resolves to `N` when it is a length on paper, and to the error message otherwise. */
+export type PaperLength<N extends number> = AboveZero<N, typeof PAPER_LENGTH>;
+
+/** Resolves to `N` when it is a scale ratio, and to the error message otherwise. */
+export type Ratio<N extends number> = AboveZero<N, typeof RATIO>;
 
 type BuiltInName = Lowercase<(typeof BUILT_IN_LINETYPES)[number]>;
 
@@ -490,6 +509,32 @@ export function layerColorProblem(color: number): string | undefined {
 export function sizeProblem(value: number): string | undefined {
   if (!(value > 0)) return POSITIVE;
   return written(value) === 0 ? WRITTEN_AS_ZERO : magnitudeProblem(value);
+}
+
+/**
+ * Returns what is wrong with a paper length, the ratio it plots at, or the
+ * length in drawing units they give, or undefined when the result can be
+ * written. The result is a size, so it is held to the limits of `sizeProblem`.
+ *
+ * @param length - The length on paper, which must be a finite number.
+ * @param ratio - The scale ratio, which must be a finite number.
+ * @param result - The length in drawing units.
+ * @returns The problem, or undefined.
+ */
+export function paperLengthProblem(
+  length: number,
+  ratio: number,
+  result: number,
+): string | undefined {
+  if (!(length > 0)) return PAPER_LENGTH;
+  if (!(ratio > 0)) return RATIO;
+  if (written(result) === 0) {
+    return `The result, ${result} drawing units, is written as 0, because tsdraft writes 6 decimals. Use a longer paper length or a larger ratio`;
+  }
+  if (isTooLarge(result)) {
+    return "The result is 1e100 drawing units or more, and AutoCAD reads only two exponent digits from DXF. Use a shorter paper length or a smaller ratio";
+  }
+  return undefined;
 }
 
 /**
