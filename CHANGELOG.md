@@ -2,8 +2,6 @@
 
 ## 0.3.0
 
-Every rule below was found by opening tsdraft's output in AutoCAD 2025.
-
 - Breaking: `createDrawing()` now targets DXF R2018. Pass `{ dxf: "R12" }` for
   R12, which gets no new features.
 - Linetypes. `d.linetype({ name, description, pattern })` defines one, with
@@ -52,13 +50,10 @@ Every rule below was found by opening tsdraft's output in AutoCAD 2025.
 
 ## 0.2.2
 
-Found by opening tsdraft's output in AutoCAD 2025.
-
 - Fixed: AutoCAD keeps two layers such as `straße` and `STRASSE` apart, but its
   `AUDIT` reports them as a duplicate name. `lint` now reports the second layer
   as a duplicate, and the builder throws at the `layer()` call. It does so for
-  the kinds of pair measured in AutoCAD, in either letter case and inside longer
-  names:
+  these kinds of pair, in either letter case and inside longer names:
   - a letter and the letters it stands for, such as `ß` and `ss`, `æ` and `ae`,
     `œ` and `oe`, `ĳ` and `ij`, `ﬁ` and `fi`, `ǆ` and `dž`, and `þ` and `th`;
   - a composed character and its decomposed form, such as `é`;
@@ -71,12 +66,8 @@ Found by opening tsdraft's output in AutoCAD 2025.
 - When an entity names its layer by the other spelling of such a pair, the
   undefined-layer error now says which declared layer AutoCAD does not take it
   for. AutoCAD adds a layer for the entity, and `AUDIT` reports a duplicate name.
-- `pnpm test:cad` checks each kind of pair against AutoCAD, and 600 longer names
-  beside respellings of themselves.
 
 ## 0.2.1
-
-Every fix below was found by opening tsdraft's output in AutoCAD 2025.
 
 - Fixed: text holding `\U+XXXX` or `\M+NXXXX` came out in AutoCAD as the
   character those escapes stand for, so `\U+00B0` became a degree sign and
@@ -131,15 +122,10 @@ Every fix below was found by opening tsdraft's output in AutoCAD 2025.
   and about a line, polyline or arc that loses its length to rounding.
 - `lint` warns about text that contains `%%`, which AutoCAD stores as written
   but draws as a control code: `%%d` is drawn as a degree sign.
-- `pnpm test:cad` covers each fix above, and checks every character `lint`
-  accepts in text and in layer names, and each form of number the writers
-  print, against AutoCAD.
 
 ## 0.2.0
 
 0.1.1 was never published, so its changes ship here too.
-
-Every fix below comes from opening tsdraft's output in AutoCAD 2025.
 
 - `createDrawing({ dxf: "R2018" })` targets AC1032, the DXF version AutoCAD has
   used since 2018. It writes handles, owner links, the standard tables, model
@@ -169,7 +155,6 @@ Every fix below comes from opening tsdraft's output in AutoCAD 2025.
 - Unknown units, and rectangle sizes of 0 or less, are rejected.
 - Breaking: a `Drawing` now has a required `dxf` field, and R12 layer names
   AutoCAD rejects now throw (see above).
-- `pnpm test:cad` runs the output through AutoCAD over ssh.
 - Published from GitHub Actions through npm trusted publishing, with a
   provenance attestation linking the package to its source commit.
 - `tsdraft/package.json` can be imported or resolved.

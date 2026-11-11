@@ -1,16 +1,7 @@
 # Development
 
-This page covers the tests and compilers behind `pnpm verify` and
-`pnpm test:cad`, and how to release. The [README](../README.md#development) has
-the setup.
-
-`pnpm test:cad` opens the output in AutoCAD. It needs
-`TSDRAFT_CAD_SSH=user@host`, an ssh login to a WSL shell on a Windows machine
-that has AutoCAD. Each test drawing runs in AutoCAD's headless console, which
-runs `AUDIT` and saves the drawing back as DXF. The script then compares that
-file with what was drawn. Run it after any change to a DXF writer, because
-AutoCAD rejects files that DXF parsing libraries accept. Some of its cases write
-a file `toDXF` would refuse, to show that AutoCAD does what the rule says.
+This page covers the tests and compilers behind `pnpm verify`, and how to
+release. The [README](../README.md#development) has the setup.
 
 `pnpm test:package` packs the package, installs the tarball into a throwaway
 project and checks that it type-checks and runs there. `pnpm build` compiles

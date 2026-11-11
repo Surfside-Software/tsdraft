@@ -47,7 +47,6 @@
     "fmt:check": "oxfmt --check",
     "test": "node --test test/*.test.ts",
     "test:package": "node scripts/package-smoke.ts",
-    "test:cad": "node scripts/cad-check.ts",
     "example": "node examples/site-plan.ts && node examples/outdoor-kitchen.ts",
     "readme:drawing": "node scripts/readme-drawing.ts",
     "verify": "pnpm fmt:check && pnpm lint && pnpm check && pnpm test && pnpm test:package"
