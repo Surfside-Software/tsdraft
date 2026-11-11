@@ -6,6 +6,8 @@
 Write 2D CAD drawings in TypeScript and export them as DXF for CAD programs, or
 as SVG for a quick preview.
 
+Working as an agent? Read [the guide for agents](GUIDE.md) first.
+
 [![npm](https://img.shields.io/npm/v/tsdraft?color=1aafc8)](https://www.npmjs.com/package/tsdraft)
 [![CI](https://img.shields.io/github/actions/workflow/status/Surfside-Software/tsdraft/ci.yml?branch=main&label=CI)](https://github.com/Surfside-Software/tsdraft/actions/workflows/ci.yml)
 [![License](https://img.shields.io/npm/l/tsdraft?color=1aafc8)](LICENSE)
@@ -132,7 +134,28 @@ other rules.
 npm install tsdraft
 ```
 
-tsdraft is an ES module and needs Node 22 or later.
+tsdraft is an ES module and needs Node 22 or later. The library imports nothing at run
+time, from npm or from Node.
+
+## The `tsdraft` command
+
+The package comes with a command that runs a drawing file and shows the drawing, with no CAD
+program:
+
+```sh
+npx tsdraft render plan.ts   # writes an SVG and a PNG, and prints JSON with what lint found
+npx tsdraft dev plan.ts      # a live preview that redraws on every save
+```
+
+A drawing file is a TypeScript module whose default export is a drawing. The command needs
+Node 22.18 or later, and the project's `package.json` must say `"type": "module"`.
+[docs/command.md](docs/command.md) describes the commands and the JSON, and
+[the guide for agents](GUIDE.md) describes the loop to work in.
+
+The PNG is drawn by `@resvg/resvg-js`, the package's one dependency. npm installs it, with a
+native build for the platform, unless optional packages are left out. Only the command loads
+it. Installed with `--omit=optional`, the command still writes the SVG and the JSON, and the
+JSON says why there is no PNG.
 
 ## DXF versions
 
@@ -193,6 +216,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   characters it refuses.
 - [Text](docs/text.md) covers text styles, fonts and justification, what
   tsdraft escapes in text, and what AutoCAD does with it after a save.
+- [The `tsdraft` command](docs/command.md) covers `render`, `dev`, the JSON they
+  give, and what happens without the PNG renderer.
 
 ## Development
 
@@ -204,6 +229,7 @@ pnpm install
 pnpm verify          # format check, lint, type check, tests, package smoke test
 pnpm example         # writes both examples to examples/out/ as DXF and SVG
 pnpm readme:drawing  # redraws the pictures in docs/assets/ from the examples
+pnpm bench           # times the command from a save to the redrawn picture
 ```
 
 [docs/development.md](docs/development.md) covers the package smoke test, the
