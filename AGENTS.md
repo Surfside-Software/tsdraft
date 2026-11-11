@@ -61,8 +61,17 @@
   only when `AUDIT` reports every pair of that kind as a duplicate.
 - Passing ezdxf or another parser proves little: AutoCAD discards files they
   accept.
-- The published package must run on Node 22. Only development tooling may need
+- The published library must run on Node 22. The command needs 22.18, checks it at start and
+  says so. Only development tooling may need
   Node 24; on Node 22, development needs 22.18 or later for type stripping.
+- `src/` is the library and must run in a browser: no `node:` import, no package, and nothing
+  from `cli/`. `cli/` is the `tsdraft` command, with notes of its own in `cli/AGENTS.md`. The
+  package smoke test runs `scripts/library-alone.ts`, which fails on any of the three, on any
+  dynamic import, and on the words `process`, `require` and `Buffer` anywhere in a built file.
+  A change to what `toSVG` writes or to a diagnostic can break the command, and `pnpm test`
+  runs its tests too.
+- The one dependency is `@resvg/resvg-js`, the command's PNG renderer, and it is optional. The
+  command must keep working without it. Add no other dependency.
 - Changes reach this repo only through export pull requests, as
   `CONTRIBUTING.md` says. Release by bumping `version` and the CHANGELOG,
   merging the export pull request that carries them, then publishing a GitHub

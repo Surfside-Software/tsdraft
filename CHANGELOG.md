@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- The package now has a command, `tsdraft`. `npx tsdraft render <file>` builds a drawing
+  file once, writes its SVG and PNG, and prints the build as JSON with what `lint` found.
+  `npx tsdraft dev <file>` serves a live preview that redraws on every save, and the same JSON
+  and pictures over HTTP. The command needs Node 22.18 or later, which runs the drawing file by
+  stripping its types, and says so on an older Node. The library still needs Node 22.
+  [docs/command.md](docs/command.md) describes it.
+- [GUIDE.md](GUIDE.md), which ships in the package, tells an agent how to work with tsdraft.
+- The package has one dependency, `@resvg/resvg-js`, which draws the command's PNG. It is
+  optional and the library never loads it. Without it the command still writes the SVG and the
+  JSON, and `outputs.pngError` in the JSON says why there is no PNG.
+- The library is unchanged: `import "tsdraft"` loads no Node module and nothing of the command.
 - An entity's id gives its handle in an R2018 DXF. AutoCAD names an object by
   its handle, and a dimension that another drawing puts on an entity through
   an xref holds that handle and nothing else. An entity with an id now keeps

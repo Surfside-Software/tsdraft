@@ -1,7 +1,7 @@
 {
   "name": "tsdraft",
   "version": "0.4.0",
-  "description": "2D CAD drawings as TypeScript: write the drawing in code, export DXF and SVG.",
+  "description": "2D CAD drawings as TypeScript: write the drawing in code, export DXF and SVG, and preview it with the tsdraft command.",
   "keywords": [
     "2d",
     "autocad",
@@ -23,8 +23,14 @@
     "type": "git",
     "url": "git+https://github.com/Surfside-Software/tsdraft.git"
   },
+  "bin": {
+    "tsdraft": "cli/dist/cli.js"
+  },
   "files": [
     "dist",
+    "cli/dist",
+    "cli/assets",
+    "GUIDE.md",
     "CHANGELOG.md"
   ],
   "type": "module",
@@ -37,18 +43,20 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
-    "build": "pnpm clean && tsc -p tsconfig.build.json",
+    "clean": "node -e \"for (const dir of ['dist', 'cli/dist']) require('node:fs').rmSync(dir, { recursive: true, force: true })\"",
+    "build:lib": "tsc -p tsconfig.build.json",
+    "build": "pnpm clean && pnpm build:lib && tsc -p cli/tsconfig.build.json",
     "prepack": "pnpm build",
-    "check": "tsc --noEmit",
+    "check": "pnpm build:lib && tsc --noEmit",
     "check:tsrs": "tsrs --noEmit",
     "lint": "oxlint",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
-    "test": "node --test test/*.test.ts",
+    "test": "pnpm build:lib && node --test test/*.test.ts cli/test/*.test.ts",
     "test:package": "node scripts/package-smoke.ts",
     "example": "node examples/site-plan.ts && node examples/outdoor-kitchen.ts",
     "readme:drawing": "node scripts/readme-drawing.ts",
+    "bench": "pnpm build:lib && node cli/scripts/bench.ts",
     "verify": "pnpm fmt:check && pnpm lint && pnpm check && pnpm test && pnpm test:package"
   },
   "devDependencies": {
@@ -57,6 +65,9 @@
     "oxlint": "1.92.0",
     "tsrs": "0.23.0-ts7.1.0-beta",
     "typescript": "7.0.2"
+  },
+  "optionalDependencies": {
+    "@resvg/resvg-js": "2.6.2"
   },
   "engines": {
     "node": ">=22"

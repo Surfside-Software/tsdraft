@@ -1,0 +1,876 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>tsdraft dev</title>
+    <link rel="icon" href="/mark.svg" type="image/svg+xml" />
+    <style>
+      :root {
+        --bg: #0b0b0c;
+        --surface: #131315;
+        --border: #26262a;
+        --text: #f2f2f3;
+        --muted: #8b8b92;
+        --accent: #1aafc8;
+        --error: #e2403a;
+        --sans: "Inter", ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
+        --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #fbfbfb;
+          --surface: #f2f2f3;
+          --border: #dededf;
+          --text: #0b0b0c;
+          --muted: #66666d;
+          --accent: #0d7a8c;
+          --error: #c4302b;
+        }
+        /* CAD's bright colors are made for a dark screen. On a light one, the yellow, green and
+           cyan that toSVG writes for colors 2, 3 and 4 are drawn darker so they stay readable. */
+        #drawing [stroke="#ffff00"] {
+          stroke: #a08600;
+        }
+        #drawing text[fill="#ffff00"] {
+          fill: #a08600;
+        }
+        .swatch[data-color="#ffff00"] {
+          background: #a08600 !important;
+        }
+        #drawing [stroke="#00ff00"] {
+          stroke: #1c9a38;
+        }
+        #drawing text[fill="#00ff00"] {
+          fill: #1c9a38;
+        }
+        .swatch[data-color="#00ff00"] {
+          background: #1c9a38 !important;
+        }
+        #drawing [stroke="#00ffff"] {
+          stroke: #0a8ea6;
+        }
+        #drawing text[fill="#00ffff"] {
+          fill: #0a8ea6;
+        }
+        .swatch[data-color="#00ffff"] {
+          background: #0a8ea6 !important;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        display: grid;
+        grid-template: "top top" auto "canvas side" 1fr / 1fr 288px;
+        background: var(--bg);
+        color: var(--text);
+        font: 13px/1.5 var(--sans);
+        -webkit-font-smoothing: antialiased;
+      }
+      button {
+        font: inherit;
+        color: inherit;
+        background: none;
+        border: 0;
+        padding: 0;
+        cursor: pointer;
+      }
+      .mono {
+        font-family: var(--mono);
+        font-size: 12px;
+      }
+      header {
+        grid-area: top;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 20px;
+        border-bottom: 1px solid var(--border);
+      }
+      header img {
+        width: 20px;
+        height: 20px;
+      }
+      header .name {
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      header .file {
+        color: var(--muted);
+      }
+      #status {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--muted);
+      }
+      #status-text {
+        display: flex;
+        gap: 14px;
+      }
+      #status b {
+        color: var(--text);
+        font-weight: 400;
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--muted);
+      }
+      .dot.ok {
+        background: var(--accent);
+      }
+      .dot.failed {
+        background: var(--error);
+      }
+      .dot.building {
+        animation: pulse 0.8s ease-in-out infinite alternate;
+      }
+      @keyframes pulse {
+        to {
+          opacity: 0.25;
+        }
+      }
+
+      main {
+        grid-area: canvas;
+        position: relative;
+        overflow: hidden;
+        cursor: grab;
+        touch-action: none;
+      }
+      main.dragging {
+        cursor: grabbing;
+      }
+      #drawing {
+        position: absolute;
+        inset: 40px;
+        color: var(--text);
+        transition:
+          opacity 0.15s,
+          filter 0.15s;
+      }
+      #drawing svg {
+        display: block;
+        overflow: visible;
+        width: 100%;
+        height: 100%;
+      }
+      /* Dim enough to read as stale, light enough to compare with the error. */
+      #drawing.stale {
+        opacity: 0.55;
+      }
+      #drawing.focus g > * {
+        opacity: 0.35;
+      }
+      #drawing.focus g > .hl {
+        opacity: 1;
+        /* The width is left alone, so the selection still shows the entity's pen weight. */
+        stroke: var(--accent);
+      }
+      #drawing.focus g > text.hl {
+        fill: var(--accent);
+      }
+      #ring {
+        fill: none;
+        stroke: var(--accent);
+        stroke-dasharray: 4 3;
+      }
+      #empty {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        color: var(--muted);
+      }
+      .controls {
+        position: absolute;
+        right: 16px;
+        bottom: 16px;
+        display: flex;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: var(--surface);
+      }
+      .controls button {
+        min-width: 32px;
+        height: 28px;
+        padding: 0 10px;
+        color: var(--muted);
+      }
+      .controls button + button {
+        border-left: 1px solid var(--border);
+      }
+      .controls button:hover {
+        color: var(--text);
+      }
+      #cursor {
+        position: absolute;
+        left: 20px;
+        bottom: 18px;
+        color: var(--muted);
+        pointer-events: none;
+      }
+      #error {
+        position: absolute;
+        left: 20px;
+        right: 20px;
+        top: 20px;
+        max-width: 720px;
+        padding: 16px 20px;
+        border: 1px solid var(--border);
+        border-left: 2px solid var(--error);
+        border-radius: 4px;
+        background: var(--surface);
+        cursor: auto;
+      }
+      #error h2 {
+        margin: 0 0 6px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--error);
+      }
+      #error .message {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      #error .where {
+        margin-top: 10px;
+        color: var(--muted);
+      }
+      #error details {
+        margin-top: 10px;
+        color: var(--muted);
+      }
+      #error details pre {
+        margin: 6px 0 0;
+        max-height: 240px;
+        overflow: auto;
+        white-space: pre-wrap;
+      }
+
+      aside {
+        grid-area: side;
+        overflow-y: auto;
+        border-left: 1px solid var(--border);
+        padding: 20px 0;
+      }
+      aside h3 {
+        margin: 0;
+        padding: 0 20px 8px;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      aside section + section {
+        margin-top: 28px;
+      }
+      aside ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .layer {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 5px 20px;
+        text-align: left;
+      }
+      .layer:hover,
+      .diag:hover {
+        background: var(--surface);
+      }
+      .layer .swatch {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        flex: none;
+      }
+      .layer .count {
+        margin-left: auto;
+        color: var(--muted);
+      }
+      .layer .state + .count {
+        margin-left: 0;
+      }
+      .layer.off,
+      .layer.unseen {
+        color: var(--muted);
+      }
+      .layer.unseen {
+        cursor: default;
+      }
+      .layer.unseen:hover {
+        background: none;
+      }
+      .layer .state {
+        margin-left: auto;
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .layer.off .swatch,
+      .layer.unseen .swatch {
+        background: transparent !important;
+        outline: 1px solid var(--muted);
+        outline-offset: -1px;
+      }
+      .layer.flash {
+        background: var(--surface);
+        box-shadow: inset 2px 0 var(--accent);
+      }
+      .diag {
+        display: block;
+        width: 100%;
+        padding: 8px 20px;
+        text-align: left;
+      }
+      .diag.selected {
+        background: var(--surface);
+        box-shadow: inset 2px 0 var(--accent);
+      }
+      .diag .rule {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+      }
+      .diag .rule::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--muted);
+      }
+      .diag.error .rule::before {
+        background: var(--error);
+      }
+      .diag .msg {
+        margin-top: 2px;
+        word-break: break-word;
+      }
+      .diag .at {
+        margin-top: 2px;
+        color: var(--muted);
+        word-break: break-all;
+      }
+      .none {
+        padding: 0 20px;
+        color: var(--muted);
+      }
+      .facts {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 4px 16px;
+        margin: 0;
+        padding: 0 20px;
+      }
+      .facts dt {
+        color: var(--muted);
+      }
+      .facts dd {
+        margin: 0;
+        text-align: right;
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <img src="/mark.svg" alt="" />
+      <span class="name">tsdraft</span>
+      <span class="file mono" id="file"></span>
+      <div id="status" class="mono" aria-live="polite">
+        <span class="dot" id="dot"></span><span id="status-text">connecting</span>
+      </div>
+    </header>
+    <main id="canvas">
+      <div id="drawing"></div>
+      <div id="empty">Waiting for the first build</div>
+      <div id="error" hidden>
+        <h2 id="error-title"></h2>
+        <p class="message mono" id="error-message"></p>
+        <div class="where mono" id="error-where"></div>
+        <details id="error-more" hidden>
+          <summary>Stack and output</summary>
+          <pre class="mono" id="error-stack"></pre>
+        </details>
+      </div>
+      <div id="cursor" class="mono"></div>
+      <div class="controls mono">
+        <button id="zoom-out" title="Zoom out (-)">−</button>
+        <button id="zoom-in" title="Zoom in (+)">+</button>
+        <button id="fit" title="Fit the drawing (F)">Fit</button>
+      </div>
+    </main>
+    <aside>
+      <section>
+        <h3>Drawing</h3>
+        <dl class="facts mono" id="facts"></dl>
+      </section>
+      <section>
+        <h3>Layers</h3>
+        <ul id="layers"></ul>
+      </section>
+      <section>
+        <h3>Diagnostics</h3>
+        <ul id="diagnostics"></ul>
+      </section>
+    </aside>
+    <style id="hidden-layers"></style>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const canvas = $("canvas");
+      const holder = $("drawing");
+      const SVGNS = "http://www.w3.org/2000/svg";
+
+      let svg = null;
+      let entities = [];
+      let indexed = false;
+      let fitBox = null;
+      let view = null;
+      let moved = false;
+      let hidden = new Set();
+      let swatches = {};
+      let lastGood = null;
+      let root = "";
+      let file = "";
+      let selected = null;
+
+      // The view and layer toggles survive a reload of the page, per drawing file.
+      const saved = () => {
+        try {
+          return JSON.parse(sessionStorage.getItem(`tsdraft:${file}`) ?? "null");
+        } catch {
+          return null;
+        }
+      };
+      const save = () =>
+        sessionStorage.setItem(
+          `tsdraft:${file}`,
+          JSON.stringify({ view, moved, hidden: [...hidden] }),
+        );
+
+      function setView(box) {
+        view = box;
+        if (svg) svg.setAttribute("viewBox", box.join(" "));
+      }
+
+      function fit() {
+        moved = false;
+        if (fitBox) setView(fitBox);
+        save();
+      }
+
+      function toUser(clientX, clientY) {
+        const point = new DOMPoint(clientX, clientY).matrixTransform(svg.getScreenCTM().inverse());
+        return [point.x, point.y];
+      }
+
+      function zoom(factor, clientX, clientY) {
+        if (!svg || !view) return;
+        const rect = canvas.getBoundingClientRect();
+        const [px, py] = toUser(
+          clientX ?? rect.left + rect.width / 2,
+          clientY ?? rect.top + rect.height / 2,
+        );
+        const [x, y, w, h] = view;
+        setView([px - (px - x) * factor, py - (py - y) * factor, w * factor, h * factor]);
+        moved = true;
+        save();
+      }
+
+      canvas.addEventListener(
+        "wheel",
+        (event) => {
+          event.preventDefault();
+          zoom(
+            Math.exp(event.deltaY * (event.deltaMode === 1 ? 0.05 : 0.0015)),
+            event.clientX,
+            event.clientY,
+          );
+        },
+        { passive: false },
+      );
+
+      let drag = null;
+      canvas.addEventListener("pointerdown", (event) => {
+        if (!svg || event.button !== 0 || event.target.closest(".controls, #error")) return;
+        drag = {
+          x: event.clientX,
+          y: event.clientY,
+          view,
+          scale: svg.getScreenCTM().a,
+          still: true,
+        };
+        canvas.setPointerCapture(event.pointerId);
+        canvas.classList.add("dragging");
+      });
+      canvas.addEventListener("pointermove", (event) => {
+        if (svg) {
+          const [x, y] = toUser(event.clientX, event.clientY);
+          $("cursor").textContent = `${x.toFixed(2)}, ${(-y).toFixed(2)}`;
+        }
+        if (!drag) return;
+        const dx = (event.clientX - drag.x) / drag.scale;
+        const dy = (event.clientY - drag.y) / drag.scale;
+        if (Math.abs(dx) + Math.abs(dy) > 0) drag.still = false;
+        const [x, y, w, h] = drag.view;
+        setView([x - dx, y - dy, w, h]);
+      });
+      const endDrag = () => {
+        if (!drag) return;
+        if (drag.still) select(null);
+        else {
+          moved = true;
+          save();
+        }
+        drag = null;
+        canvas.classList.remove("dragging");
+      };
+      canvas.addEventListener("pointerup", endDrag);
+      canvas.addEventListener("pointercancel", endDrag);
+      canvas.addEventListener("pointerleave", () => ($("cursor").textContent = ""));
+
+      $("fit").onclick = fit;
+      $("zoom-in").onclick = () => zoom(1 / 1.5);
+      $("zoom-out").onclick = () => zoom(1.5);
+      addEventListener("keydown", (event) => {
+        if (event.target.closest?.("input, textarea")) return;
+        if (event.key === "f") fit();
+        else if (event.key === "+" || event.key === "=") zoom(1 / 1.5);
+        else if (event.key === "-") zoom(1.5);
+        else if (event.key === "Escape") select(null);
+      });
+
+      function showDrawing(source) {
+        holder.innerHTML = source;
+        svg = holder.querySelector("svg");
+        $("empty").hidden = true;
+        svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+        fitBox = svg.getAttribute("viewBox").split(" ").map(Number);
+        // toSVG marks each element with its entity's index, or, before it did, writes one element
+        // per entity, in order, inside its one group.
+        entities = [...(svg.querySelector("g")?.children ?? [])];
+        indexed = Boolean(svg.querySelector("[data-entity]"));
+        if (!view || !moved) view = fitBox;
+        setView(view);
+      }
+
+      function paintHidden() {
+        $("hidden-layers").textContent = [...hidden]
+          .map((name) => `#drawing [data-layer="${CSS.escape(name)}"] { display: none; }`)
+          .join("\n");
+      }
+
+      function renderLayers(state) {
+        const list = $("layers");
+        list.replaceChildren();
+        const layers = [...state.drawing.layers];
+        const named = new Set(layers.map((l) => l.name));
+        // Entities can name a layer by another spelling; they get a row of their own.
+        for (const el of entities) {
+          const name = el.dataset.layer;
+          if (name !== undefined && !named.has(name)) {
+            named.add(name);
+            layers.push({
+              name,
+              entities: entities.filter((e) => e.dataset.layer === name).length,
+            });
+          }
+        }
+        for (const layer of layers) {
+          const item = document.createElement("li");
+          const row = document.createElement("button");
+          // The drawing turned it off, froze it or set it not to plot, so toSVG drew none of it
+          // to toggle.
+          const unseen = layer.frozen
+            ? "frozen"
+            : layer.off
+              ? "off"
+              : layer.plot === false
+                ? "set not to plot"
+                : null;
+          row.className = `layer${unseen ? " unseen" : hidden.has(layer.name) ? " off" : ""}`;
+          row.dataset.name = layer.name;
+          row.title = unseen
+            ? `The drawing has this layer ${unseen}, so it is not drawn`
+            : hidden.has(layer.name)
+              ? "Show this layer"
+              : "Hide this layer";
+          const swatch = document.createElement("span");
+          swatch.className = "swatch";
+          const color =
+            swatches[layer.name] ??
+            entities.find((e) => e.dataset.layer === layer.name)?.getAttribute("stroke");
+          swatch.dataset.color = color ?? "";
+          swatch.style.background = !color || color === "currentColor" ? "var(--text)" : color;
+          const name = document.createElement("span");
+          name.className = "mono";
+          name.textContent = layer.name;
+          const count = document.createElement("span");
+          count.className = "count mono";
+          count.textContent = layer.entities;
+          if (unseen) {
+            const tag = document.createElement("span");
+            tag.className = "state";
+            tag.textContent = unseen;
+            row.append(swatch, name, tag, count);
+            item.append(row);
+            list.append(item);
+            continue;
+          }
+          row.append(swatch, name, count);
+          row.onclick = () => {
+            if (hidden.has(layer.name)) hidden.delete(layer.name);
+            else hidden.add(layer.name);
+            paintHidden();
+            renderLayers(lastGood);
+            save();
+          };
+          item.append(row);
+          list.append(item);
+        }
+      }
+
+      function renderFacts(state) {
+        const d = state.drawing;
+        const fmt = (n) => (Math.round(n * 100) / 100).toString();
+        const rows = [
+          ["units", d.units],
+          ["format", d.dxf],
+          ["entities", d.counts.entities],
+          [
+            "extents",
+            `${fmt(d.extents.max[0] - d.extents.min[0])} × ${fmt(d.extents.max[1] - d.extents.min[1])}`,
+          ],
+        ];
+        $("facts").replaceChildren(
+          ...rows.flatMap(([k, v]) => {
+            const dt = document.createElement("dt");
+            const dd = document.createElement("dd");
+            dt.textContent = k;
+            dd.textContent = v;
+            return [dt, dd];
+          }),
+        );
+      }
+
+      function renderDiagnostics(state) {
+        const list = $("diagnostics");
+        list.replaceChildren();
+        if (!state.ok && state.diagnostics.length === 0) {
+          list.innerHTML = `<li class="none">The build failed, so lint did not run.</li>`;
+          return;
+        }
+        if (state.diagnostics.length === 0) {
+          list.innerHTML = `<li class="none">No problems.</li>`;
+          return;
+        }
+        state.diagnostics.forEach((d, index) => {
+          const item = document.createElement("li");
+          const row = document.createElement("button");
+          row.className = `diag ${d.severity}`;
+          const rule = document.createElement("div");
+          rule.className = "rule mono";
+          let where =
+            d.entity !== undefined
+              ? `entity ${d.entity}${d.kind ? `, ${d.kind} on ${d.layer}` : ""}`
+              : d.layer !== undefined
+                ? `layer ${d.layer}`
+                : "";
+          if (d.id !== undefined) where += `, id ${d.id}`;
+          rule.textContent = [d.severity, d.rule, where].filter(Boolean).join(" · ");
+          const msg = document.createElement("div");
+          msg.className = "msg";
+          msg.textContent = d.message;
+          row.append(rule, msg);
+          if (d.call) {
+            const at = document.createElement("div");
+            at.className = "at mono";
+            at.textContent = `${relativePath(d.call.file)}:${d.call.line}:${d.call.column}`;
+            row.append(at);
+          }
+          // A failed build's entities are not the ones on screen, so they are not found there.
+          if (state.ok) {
+            row.onclick = () =>
+              select(selected?.index === index ? null : { index, diagnostic: d, row });
+          }
+          item.append(row);
+          list.append(item);
+        });
+      }
+
+      function select(choice) {
+        selected?.row.classList.remove("selected");
+        for (const el of holder.querySelectorAll(".hl")) el.classList.remove("hl");
+        $("ring")?.remove();
+        holder.classList.remove("focus");
+        for (const el of document.querySelectorAll(".layer.flash")) el.classList.remove("flash");
+        selected = choice;
+        if (!choice) return;
+        choice.row.classList.add("selected");
+        const d = choice.diagnostic;
+        if (d.layer !== undefined) {
+          document
+            .querySelector(`.layer[data-name="${CSS.escape(d.layer)}"]`)
+            ?.classList.add("flash");
+        }
+        const el =
+          d.entity === undefined
+            ? undefined
+            : indexed
+              ? svg?.querySelector(`[data-entity="${d.entity}"]`)
+              : entities[d.entity];
+        if (!el || !svg) return;
+        el.classList.add("hl");
+        holder.classList.add("focus");
+        // A box around the entity in the SVG's own units, so even one with no length shows.
+        const r = el.getBoundingClientRect();
+        const [x0, y0] = toUser(r.left, r.top);
+        const [x1, y1] = toUser(r.right, r.bottom);
+        const pad = 10 / svg.getScreenCTM().a;
+        const ring = document.createElementNS(SVGNS, "rect");
+        ring.id = "ring";
+        ring.setAttribute("vector-effect", "non-scaling-stroke");
+        ring.setAttribute("x", x0 - pad);
+        ring.setAttribute("y", y0 - pad);
+        ring.setAttribute("width", x1 - x0 + pad * 2);
+        ring.setAttribute("height", y1 - y0 + pad * 2);
+        svg.append(ring);
+        // Bring it into view when it is outside.
+        const [vx, vy, vw, vh] = view;
+        if (x0 < vx || y0 < vy || x1 > vx + vw || y1 > vy + vh) {
+          const w = Math.max(vw, (x1 - x0) * 1.5);
+          const h = Math.max(vh, (y1 - y0) * 1.5);
+          setView([(x0 + x1) / 2 - w / 2, (y0 + y1) / 2 - h / 2, w, h]);
+          moved = true;
+          save();
+        }
+      }
+
+      function relativePath(path) {
+        return path && root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+      }
+
+      function setStatus(kind, text) {
+        $("dot").className = `dot ${kind}`;
+        $("status-text").innerHTML = text;
+      }
+
+      function showBuilding(build) {
+        $("dot").classList.add("building");
+        $("building")?.remove();
+        const note = document.createElement("b");
+        note.id = "building";
+        note.textContent = `building ${build}…`;
+        $("status-text").prepend(note);
+      }
+
+      function onBuild({ state, shownState, svg: source, swatches: colors }) {
+        if (shownState) lastGood = shownState;
+        if (source) {
+          swatches = colors;
+          showDrawing(source);
+          paintHidden();
+        }
+        const error = $("error");
+        if (state.ok) {
+          lastGood = state;
+          error.hidden = true;
+          holder.classList.remove("stale");
+          select(null);
+          renderLayers(state);
+          renderFacts(state);
+        } else {
+          const e = state.error;
+          holder.classList.toggle("stale", Boolean(svg));
+          error.hidden = false;
+          $("error-title").textContent = `Build ${state.build} failed${
+            state.shownBuild ? `, showing build ${state.shownBuild}` : ""
+          }`;
+          $("error-message").textContent = e.message;
+          const where = e.file
+            ? `${relativePath(e.file)}${e.line ? `:${e.line}` : ""}${e.column ? `:${e.column}` : ""}`
+            : "";
+          $("error-where").textContent = [where, e.code].filter(Boolean).join(" · ");
+          const more = [e.stack, state.log].filter(Boolean).join("\n\n");
+          $("error-more").hidden = !more;
+          $("error-stack").textContent = more;
+          if (lastGood) {
+            renderLayers(lastGood);
+            renderFacts(lastGood);
+          } else $("empty").textContent = "No drawing yet";
+        }
+        renderDiagnostics(state);
+        const time = new Date(state.finishedAt).toLocaleTimeString();
+        const counts = state.ok ? state.drawing.counts : null;
+        const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+        const issues = counts
+          ? `<span>${plural(counts.errors, "error")} · ${plural(counts.warnings, "warning")}</span>`
+          : "";
+        setStatus(
+          state.ok ? "ok" : "failed",
+          `<b>build ${state.build}</b><span>${state.ms} ms</span>${issues}<span>${time}</span>`,
+        );
+        document.title = `${state.ok ? "" : "✕ "}${file} · tsdraft`;
+        if (state.pending !== null) showBuilding(state.pending);
+      }
+
+      /** Forgets the drawing on screen and what was said about it, for a new session. */
+      function clearAll() {
+        select(null);
+        holder.replaceChildren();
+        holder.classList.remove("stale");
+        svg = null;
+        entities = [];
+        indexed = false;
+        fitBox = null;
+        view = null;
+        moved = false;
+        lastGood = null;
+        swatches = {};
+        for (const id of ["facts", "layers", "diagnostics"]) $(id).replaceChildren();
+        $("error").hidden = true;
+        $("empty").hidden = false;
+        $("empty").textContent = "Waiting for the first build";
+      }
+
+      let session = null;
+      const events = new EventSource("/events");
+      events.addEventListener("hello", (event) => {
+        const hello = JSON.parse(event.data);
+        // The server restarted: what is on screen came from a drawing that may no longer exist.
+        if (session !== null && hello.session !== session) clearAll();
+        session = hello.session;
+        ({ file, root } = hello);
+        $("file").textContent = file;
+        if (hello.pending !== null) showBuilding(hello.pending);
+        const memory = saved();
+        if (memory) {
+          ({ view, moved } = memory);
+          hidden = new Set(memory.hidden);
+        }
+      });
+      events.addEventListener("start", (event) => showBuilding(JSON.parse(event.data).build));
+      events.addEventListener("build", (event) => onBuild(JSON.parse(event.data)));
+      events.onerror = () => setStatus("", "disconnected, retrying");
+    </script>
+  </body>
+</html>
