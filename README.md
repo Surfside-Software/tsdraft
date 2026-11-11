@@ -73,6 +73,13 @@ share code, and changes show up as diffs.
 
 Coordinates are in drawing units with Y pointing up, as in CAD. Angles are in
 degrees, counterclockwise from +X. Layer colors are AutoCAD Color Index numbers.
+
+`toSVG` draws the drawing as it plots. Each layer is drawn in the color AutoCAD plots its
+index in, from 1 to 255. Index 7 is black on paper and white on a dark screen, so it is drawn
+in `currentColor`. A layer that is off or frozen, or whose `plot` is false, is left out.
+`toSVG(drawing, { drawNoPlot: true })` draws the layers that do not plot too, to see
+construction lines. The other options are `margin`, in drawing units, and `strokeWidth`, the
+width in screen pixels of a line of the default lineweight.
 Entities go on layer `0` unless they are drawn inside a `layer()` callback.
 Linetypes and lineweights are set on a layer, and an entity draws ByLayer unless
 it is given its own. `DASHED`, `HIDDEN`, `CENTER`, `PHANTOM`, `DASHDOT` and `DOT`
