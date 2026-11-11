@@ -8,10 +8,21 @@ on:
 permissions:
   contents: read
 
+# A new push cancels the run it replaces, except on main.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   verify:
     name: Verify (Node ${{ matrix.node }})
+    # The push to `export` runs CI on the export pull request's commit, so the pull request's own
+    # run would repeat it. Pull requests from any other branch or a fork run here.
+    if: >-
+      github.event_name != 'pull_request' || github.head_ref != 'export' ||
+      github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
