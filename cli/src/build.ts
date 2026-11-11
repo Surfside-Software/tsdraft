@@ -65,6 +65,7 @@ export class Builder {
    * nothing, so that a build the first must not run has a child that has started.
    */
   readonly #spares: Child[] = [];
+  readonly #view: BuildRequest["view"];
   #running: Child | undefined;
   /** The library the last good build used, when a spare may load it ahead. */
   #library: string | null = null;
@@ -85,8 +86,11 @@ export class Builder {
     drawNoPlot?: boolean;
     /** How long a spare may take to warm up. */
     warmDeadline?: number;
+    /** The one picture to draw, in place of the pictures of every space. */
+    view?: BuildRequest["view"];
   }) {
     this.#drawNoPlot = options.drawNoPlot === true;
+    this.#view = options.view;
     this.#timeout = options.timeout;
     this.#warm = options.warm;
     this.#warmDeadline = options.warmDeadline ?? WARM_DEADLINE;
@@ -111,7 +115,7 @@ export class Builder {
       try {
         const running = run(
           child,
-          { type: "build", file, root, drawNoPlot: this.#drawNoPlot },
+          { type: "build", file, root, drawNoPlot: this.#drawNoPlot, view: this.#view },
           started,
           this.#timeout,
         );
@@ -399,6 +403,7 @@ function failure(
     svg: null,
     fonts: [],
     layouts: [],
+    view: null,
     swatches: {},
     library: null,
     modules: { read: 0, ahead: 0 },
@@ -430,7 +435,7 @@ export function toState(
   outputs: BuildState["outputs"],
 ): BuildState {
   return {
-    schema: 2,
+    schema: 3,
     ok: outcome.ok,
     build,
     session,

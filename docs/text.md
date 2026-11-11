@@ -75,9 +75,94 @@ tsdraft writes the point as the text's alignment point, so no width has to be es
 center a text or to end it at a point. AutoCAD's "aligned" and "fit" modes, which stretch a
 text between two points, are not written.
 
-`toSVG` anchors a text at its point and draws it in a CSS font family for its font, ending in
-a generic family for a screen that lacks the font. It does not read the fonts, so a text may be
-a little wider or narrower on screen than in CAD.
+## How long a text is
+
+`measureText` gives the length a text plots at, and the box its capitals fill:
+
+```ts
+import { measureText } from "tsdraft";
+
+measureText({ value: "GENERAL NOTES", height: 0.125 }).length; // 1.583 in txt.shx
+const { length, corners, descent, approximate } = measureText({
+  value: "LOT 12",
+  height: 2,
+  font: "Arial",
+  widthFactor: 0.9,
+  obliqueAngle: 15,
+  at: [50, 20],
+  rotation: 30,
+  align: "center",
+  valign: "middle",
+});
+```
+
+It takes a text's `value` and `height`, the `font`, `widthFactor` and `obliqueAngle` of its
+style, and its `at`, `rotation`, `align` and `valign`. All but the first two may be left out:
+the font is then `txt.shx`, the font of `Standard`. A `Text` and its `TextStyle` spread into
+one object are such a text.
+
+- `length` is how long the text is along its baseline, from where its first character starts
+  to draw to where its last one ends. It is the sum of the characters' advances, less the
+  blank a last character leaves after it, times the height and the width factor. Kerning is
+  not counted.
+- `corners` is the box of the text's capitals, turned as the text is: the start and the end of
+  the baseline, then the end and the start of the line along the top of a capital. A centered
+  text has its point half way along it, and a right-justified one at its end. The point of a
+  text justified to its `top` is one height above the baseline, to its `middle` half a height,
+  and to its `bottom` as far below the baseline as its font draws. An oblique angle leans the
+  box as it leans the letters: the top lies further along by the height times the tangent of
+  the angle, whatever the width factor.
+- `descent` is how far below the baseline the font's letters reach, as the tail of a `g` does.
+  The box leaves that out.
+- `approximate` is true for an estimate. `FONT_METRICS` holds the widths of each font's
+  characters from U+0020 to U+007E and from U+00A0 to U+00FF. Any other character is taken
+  to be as wide as `?`. `%%d`, `%%p` and `%%c`, which AutoCAD draws as a degree sign, a
+  plus-or-minus sign and a diameter sign, each count as one character. A text with any of
+  these, or with another `%%`, is measured approximately, and so is a centered or
+  right-justified text that starts or ends with a space.
+
+A capital of `txt.shx` moves the text on by its whole height, and one of Arial by about 0.9
+of it, so lay out columns and break lines by `measureText`, never by a guess per character. The
+drawing's extents, `toSVG` and `inspectText` all take a text's box from it.
+
+## Text as it plots
+
+`toSVG` starts each text where `measureText` says it plots, sets its `textLength` to the length
+it plots at, and keeps its spaces, so a text is as long in the picture as on paper, in any
+font. It draws the text in a CSS font family for its font, ending in a generic family for a
+screen that lacks the font, at a size that makes that font's capitals the text's height: the
+height itself is in the element's `data-height`. An SHX font is drawn in a generic family, as
+a font whose capitals are 0.7 of its size, so on a screen an SHX text's letters have other
+shapes and may be a little taller or shorter than they plot. The
+[command's PNG](command.md#fonts-in-a-png) sizes each text by the typeface it draws it in.
+`toSVG` draws `%%d`, `%%p` and `%%c` as the characters AutoCAD draws for them.
+
+`inspectText(drawing)` returns warnings about text that plots badly, which no rule of the file
+forbids, so `lint` does not report them and `toDXF` writes the file all the same:
+
+| Rule                   | The text                                                                     |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| `text-overlaps-text`   | Lies over another text, by more than a tenth of the smaller one's height     |
+| `text-leaves-boundary` | Has its point inside a closed polyline, or on it, and runs past the polyline |
+| `text-off-paper`       | Is on a layout and runs off its paper                                        |
+
+The boundary of a text is the smallest closed polyline around its point: the border of a
+sheet, the outline of a room, the cell of a table drawn as a rectangle. Four separate lines
+bound nothing. A text may pass its boundary, or the paper, by a tenth of its height. Each
+warning has `bounds`, the box of the text as it plots, or of both texts of an overlap, in the
+coordinates of its space, and `other`, which names the other text or the polyline. `entity` is
+the index of the entity in model space, or in the layout that `layout` names. For a text an
+insert draws it is the insert's index, with the tag in `attribute` when the text is one of the
+insert's attributes.
+
+Only what plots is looked at: nothing on a layer that is off, frozen or set not to plot,
+unless `drawNoPlot` is given, as for `toSVG`. Model space and each layout are looked at apart.
+A text with nothing but spaces in it is left out, so a blank attribute warns of nothing. A
+text gets one warning of each rule at most. Its work is bounded: a drawing with more text and
+closed polylines near each other than it checks, such as thousands of texts on one spot, gets
+one `text-check-capped` warning, and what is left is not held against other texts or
+polylines. `inspectText` takes the `xrefs` that `toSVG` takes, and like it may throw on a
+drawing `lint` reports an error for.
 
 ## Escapes
 

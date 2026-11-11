@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+- `measureText` gives the length a text plots at and the box its capitals fill, from its
+  value, height, font, width factor, oblique angle, point, rotation and justification:
+  `measureText({ value: "GENERAL NOTES", height: 0.125 }).length`. It reads `FONT_METRICS`,
+  also exported, which holds the widths of each font's characters from U+0020 to U+007E and
+  U+00A0 to U+00FF. Any other character is taken to be as wide as `?`, `%%d`, `%%p` and
+  `%%c` count as the one character each draws, and the result then has `approximate: true`.
+  Lay out columns and break lines with it: a capital of `txt.shx` moves a text on by its whole
+  height, not by the 0.6 of it a screen's monospaced font takes.
+  [docs/text.md](docs/text.md#how-long-a-text-is) has the rest.
+- `toSVG` draws every text as long as it plots. A `<text>` starts where `measureText` starts
+  it and has a `textLength` with `lengthAdjust="spacingAndGlyphs"`, so a renderer draws it to
+  that length in whatever typeface it has, and `xml:space="preserve"`, so its spaces are
+  kept. It has no `text-anchor` any more: a centered or right-justified text is moved back
+  along its line in its `transform`. An SHX text was drawn at a font size equal to its height,
+  which made its capitals about 0.7 of that: it is now sized as a TrueType text is, so that
+  its capitals are the text's height in a font whose capitals are 0.7 of its size. Each
+  `<text>` has that height in `data-height`. `%%d`, `%%p` and `%%c` are drawn as the degree,
+  plus-or-minus and diameter signs AutoCAD draws for them.
+- A drawing's extents take a text's box from `measureText`, in place of 0.6 of its height for
+  each character, and count what its font draws below the baseline. The `viewBox` of `toSVG`,
+  `$EXTMIN` and `$EXTMAX` and the view a DXF opens on move for every drawing with a text.
+  Nothing else in a DXF changes.
+- `inspectText(drawing)` warns about text that plots badly, which no rule of the file forbids:
+  `text-overlaps-text` for two texts that lie over each other, `text-leaves-boundary` for a
+  text that starts inside a closed polyline and runs past it, such as a note past the sheet's
+  border or a value out of its cell, and `text-off-paper` for a text that runs off a layout's
+  paper. Each warning has the box of the text as it plots and names the other text or the
+  polyline. A text inside a block is named by its insert, and by its tag when it is an
+  attribute. `lint` and `toDXF` are as they were.
+  [docs/text.md](docs/text.md#text-as-it-plots) has the rest.
+- `toSVG(drawing, { view: [x0, y0, x1, y1] })` draws one rectangle of model space, or of a
+  layout with `layout`, in place of the whole. A layout's viewports are cut to it.
+- `tsdraft render <file> --view x0,y0,x1,y1 [--layout <name>]` writes that one rectangle as
+  `<name>.view.svg` and `<name>.view.png`, listed in `outputs.view`, and no other picture. Use
+  it to read small text: a whole ARCH D sheet at 1600 px draws a 3/32 inch note 4 px high.
+- The `tsdraft` command's JSON has `schema` 3. `diagnostics` holds the warnings of
+  `inspectText` after what `lint` reported, each with its `bounds` and with `other`, and they
+  do not change the exit code. `outputs` has `view`, which is `null` without `--view`. An entry
+  of `pngFonts` has `font` and `face` and no `sameWidths`: a text is now as long in a PNG as it
+  plots in every typeface, and its capitals are as tall, because the renderer sizes each text
+  by the cap height of the typeface it draws it in, read from the font's file. `timings` has
+  `inspect`.
+- The example sheet lays out its columns and line breaks with `measureText`, and `textWidth`
+  in `examples/lib/drafting.ts` takes a font in place of a width per character.
 - A drawing's extents take in the lean of a slanted text. AutoCAD draws the top of a text
   whose style has an oblique angle further along the text by its height times the tangent
   of the angle, and what it draws below the baseline further back. The extents left that

@@ -28,10 +28,25 @@
   or of a font made to its widths, and takes a file only when the family name inside it is
   the one expected. `src/png.ts` sends the renderer's process the files a picture needs, and
   the process sets the SVG's font family to the file's own. Every other font is drawn in the
-  shipped JetBrains Mono. `outputs.pngFonts` and each layout's `pngFonts` say which, with
-  `sameWidths`, from `pictureFaces`, the one function that picks the files `toPNG` sends. Add a font to `SAME_WIDTHS` only when every advance width of the Latin-1
-  letters is the same share of the size as the font's own. Ship no font file that is not
-  under a licence that allows it.
+  shipped JetBrains Mono. `outputs.pngFonts` and each layout's `pngFonts` say which, from
+  `pictureFaces`, the one function that picks the files `toPNG` sends. Add a font to
+  `SAME_WIDTHS` only when every advance width of the Latin-1 letters is the same share of the
+  size as the font's own. Ship no font file that is not under a licence that allows it.
+- A text is as long in a PNG as it plots because `toSVG` writes its `textLength`, and as tall
+  because `src/png-child.ts` sets its `font-size` to its `data-height` over the cap height of
+  the face that draws it. `src/fonts.ts` reads that cap height from the face's file, the
+  shipped font's too, and takes `FONTS`' own number for a font's own file, which is how
+  AutoCAD sizes the font. Never write a cap height as a constant. The pictures are what an
+  agent judges fit by, so `test/png.test.ts` measures a PNG's ink against `measureText`.
+- The worker runs the library's `inspectText` after `lint`, when the copy of tsdraft the
+  drawing loaded has it, and puts its warnings after `lint`'s diagnostics. It must never fail
+  a build or change the exit code, so a throw there gives no warnings. Each warning brings
+  its own `bounds`, in its picture's coordinates: do not box it again with `aboutEntity`,
+  which would give the box of a whole insert.
+- `render --view` draws one rectangle with `toSVG`'s `view`, with no margin, as
+  `outputs.view`, and writes no other picture. `tsdraft dev` has no view: its server keeps
+  only SVG strings and a worker ends after one build. A `Builder` passes the view to the
+  worker in each request.
 - `toSVG` may throw on a drawing `lint` reports an error for. The worker then draws the drawing
   `without` in `src/omit.ts` gives: the one without the `item` of each error, with a stand-in
   for an entity so the others keep their indexes. `drawing.omitted` lists what was left out,
@@ -107,4 +122,6 @@
   with the reason in `outputs.pngError`.
 - [GUIDE.md](../GUIDE.md) is what an agent that uses tsdraft reads, and
   [docs/command.md](../docs/command.md) is the full page. Keep both true when the JSON, a flag
-  or the setup changes, and run the guide's commands and snippets again.
+  or the setup changes, and run the guide's commands and snippets again. Both tell an agent
+  to fit text with `measureText`, to act on the `text-` warnings, and to read small text with
+  `--view`: the pictures show what the plot shows, and no page may say otherwise.

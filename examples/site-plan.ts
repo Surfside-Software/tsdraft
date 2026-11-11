@@ -41,7 +41,8 @@
 //   height.
 // - Each layer sets a linetype and a pen weight, and its entities draw ByLayer.
 // - Every text is in the sheet's text style, `NOTES`, through `put`, and is justified to its
-//   point with `align` and `valign`. Only columns and line breaks use an estimated width.
+//   point with `align` and `valign`. Columns and line breaks are laid out by the length
+//   `measureText` gives a text in the style's font.
 // - A symbol is a block, drawn once and inserted where it is needed. The tree and the property
 //   corner are in the plan and in the legend, so each is inserted in model space and on the
 //   layout. A block's entities are on layer 0, so each insert draws on its own layer.
@@ -83,9 +84,9 @@ const project = {
 const layout = { column: 7, gutter: 1, titleStrip: 1 + 1 / 2, clear: 1 / 4 };
 // Text heights on paper, in inches.
 const size = { note: 3 / 32, label: 1 / 8, heading: 3 / 16, title: 1 / 4 };
-// The sheet's text style. Arial's capitals are about 0.9 of the text height wide.
+// The sheet's text style and its font, which every length of a text is measured in.
 const NOTES = "NOTES";
-const perCharacter = 0.9;
+const FONT = "Arial";
 
 // The scale the viewport shows the plan at, as a ratio, and the drawing's units. A foot is 12
 // inches, so an inch on paper is `ratio / 12` feet.
@@ -359,8 +360,8 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
   // paper length and no drawing length: at 1/2 the dashes plot at half their pattern, a 1/4 in
   // dash, at every ratio.
   const d = createDrawing({ units: scale.units, linetypeScale: 1 / 2 });
-  d.textStyle({ name: NOTES, font: "Arial" });
-  const widthOf = (value: string, height: number) => textWidth(value, height, perCharacter);
+  d.textStyle({ name: NOTES, font: FONT });
+  const widthOf = (value: string, height: number) => textWidth(value, height, FONT);
 
   /**
    * A text in the sheet's style. `height` is in the units of the space it is drawn in: inches
@@ -500,7 +501,7 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
       extend: near,
       format: feet,
       textStyle: NOTES,
-      perCharacter,
+      font: FONT,
     };
     dimensionChain(
       d,
@@ -710,7 +711,7 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
       }
     }
 
-    /** Breaks a sentence into lines no wider than `width`, by the estimated width of its text. */
+    /** Breaks a sentence into lines no longer than `width`, by the length each plots at. */
     function wrap(sentence: string, height: number, width: number): string[] {
       const lines: string[] = [];
       let line = "";

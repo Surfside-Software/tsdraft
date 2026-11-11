@@ -24,6 +24,7 @@ import { fmt, written } from "./format.ts";
 import { layerKey } from "./layers.ts";
 import { findLayout, validViewportView } from "./layouts.ts";
 import { builtInLinetype, LINEWEIGHTS, lineweightCode } from "./linetypes.ts";
+import { drawnValue, layoutText } from "./measure.ts";
 import { DEFAULT_PLOT_STYLE_TABLE, paperInfo } from "./papers.ts";
 import { viewportProblem } from "./rules.ts";
 import { isUnits } from "./units.ts";
@@ -73,12 +74,10 @@ function aciColor(index: number): string {
 const DEFAULT_LINEWEIGHT = 25;
 
 /**
- * The height of a capital in the screen font that stands in for an SHX font, and how far a
- * letter such as "g" reaches below the baseline, as shares of the font size. They place a text
- * that is not justified to its baseline. The fonts themselves are not read.
+ * The height of a capital, as a share of the font size, in the screen font that stands in for
+ * an SHX font. The fonts themselves are not read, and a screen's own font may differ a little.
  */
-const CAP_HEIGHT = 0.7;
-const DESCENT = 0.2;
+const SCREEN_CAP_HEIGHT = 0.7;
 
 /**
  * The most dashes one entity is cut into. AutoCAD draws a line solid when its pattern is too
@@ -107,6 +106,12 @@ export interface SvgOptions {
    * lineweights.
    */
   readonly layout?: string;
+  /**
+   * The part to draw, in place of the whole: the rectangle `[x0, y0, x1, y1]` from its
+   * lower-left corner to its upper-right, in drawing units, or in paper units with `layout`.
+   * `margin` then defaults to 0.
+   */
+  readonly view?: readonly [x0: number, y0: number, x1: number, y1: number];
 }
 
 /** How an entity is drawn. */
@@ -122,11 +127,13 @@ interface Pen {
  * Renders a preview SVG of the drawing as it plots. Model Y points up, so the drawing group
  * flips Y. Entities on layers that are off, frozen or set not to plot are left out, and each
  * layer draws in the color AutoCAD plots its index in. Dashed lines are cut into their dashes,
- * scaled by the drawing's linetype scale, and each line is as wide as its lineweight. A text is
- * anchored at its justification point, and is drawn with its style's width factor and oblique
- * angle in the CSS font family tsdraft gives its style's font, which ends in a generic family
- * for a screen that lacks the font. Each entity's element has its layer in `data-layer`, its
- * index in `drawing.entities` in `data-entity`, and its `id`, when it has one, in `data-id`.
+ * scaled by the drawing's linetype scale, and each line is as wide as its lineweight. A text
+ * starts where `measureText` says it plots and is held to the length it plots with
+ * `textLength`, with its style's width factor and oblique angle, in the CSS font family
+ * tsdraft gives its style's font, which ends in a generic family for a screen that lacks the
+ * font. Its element has the height of its capitals in `data-height`, and its font size is that
+ * height over the cap height of its font. Each entity's element has its layer in `data-layer`,
+ * its index in `drawing.entities` in `data-entity`, and its `id`, when it has one, in `data-id`.
  *
  * An insert is a group with its block's name in `data-block`. It holds an element for each
  * entity of the block, and of the blocks inserted in it, drawn where the insert puts it, and a
@@ -151,36 +158,17 @@ interface Pen {
  * plot, and its view is drawn whatever its layer's state. `data-entity` counts the layout's
  * entities, and inside a viewport's group the entities of model space.
  *
- * @throws RangeError when the drawing has no layout of the name `options.layout`.
+ * With `options.view`, the picture is that rectangle of the space: what lies well outside it is
+ * left out, and a layout's viewports are cut to it.
+ *
+ * @throws RangeError when the drawing has no layout of the name `options.layout`, and when
+ *   `options.view` is not four finite numbers with a width and a height.
  */
 export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
   const xrefs = referencedByKey(drawing, options.xrefs);
-  // The tables of the drawing and of each drawing it references, made when first asked for.
-  const tables = new Map<Drawing, Tables>();
-  const tablesOf = (from: Referenced | undefined): Tables => {
-    const source = from?.drawing ?? drawing;
-    let found = tables.get(source);
-    if (!found) tables.set(source, (found = tablesFor(source)));
-    return found;
-  };
-  const layerOf = (ref: LayerRef): Layer | undefined =>
-    tablesOf(ref.of).layers.get(layerKey(ref.name));
-  const hidden = (ref: LayerRef): boolean => {
-    const layer = layerOf(ref);
-    if (layer?.off || layer?.frozen) return true;
-    return options.drawNoPlot !== true && layer?.plot === false;
-  };
-  // An insert on a frozen layer draws nothing, and in a plot neither does one on a layer that
-  // does not plot, whatever layers its block's entities are on.
-  const frozen = (ref: LayerRef): boolean => {
-    const layer = layerOf(ref);
-    return layer?.frozen === true || (options.drawNoPlot !== true && layer?.plot === false);
-  };
+  const { tablesOf, layerOf, hidden, frozen, styleOf } = visibility(drawing, options.drawNoPlot);
   const blocks = blocksByKey(drawing.blocks);
-  const styleOf = (e: Entity, from?: Referenced): TextStyle | undefined =>
-    e.kind === "text" && e.style !== undefined
-      ? tablesOf(from).textStyles.get(layerKey(e.style))
-      : undefined;
+  const view = viewOf(options.view);
 
   /**
    * The pen of an entity that draws on `on`. `insertLayer` is the layer of the insert that
@@ -273,6 +261,43 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     });
   };
 
+  /**
+   * Each entity of model space that is drawn, with the box around what it draws, worked out
+   * once, and how far past that box its ink may reach beyond its pen: a text's letters may
+   * reach past its box, as one that hangs below the baseline does, and so may the texts of a
+   * block.
+   */
+  let boxed:
+    | { shown: [number, Entity]; box: readonly [number, number, number, number]; slack: number }[]
+    | undefined;
+  /**
+   * The entities of model space that may reach into a rectangle of it, `[x0, y0, x1, y1]`, with
+   * a pen that reaches `pen` past an entity's box. The test errs on the side of drawing.
+   */
+  const reaching = (rect: readonly number[], pen: number): [number, Entity][] => {
+    if (!boxed) {
+      const boxOf = boxer(drawing.textStyles, drawing.blocks, hidden, frozen, xrefs);
+      boxed = shownOf(drawing.entities).flatMap((shown) => {
+        const box = boxOf([shown[1]]);
+        if (!box) return [];
+        const lettered = shown[1].kind === "text" || shown[1].kind === "insert";
+        const slack = lettered ? Math.max(box[2] - box[0], box[3] - box[1]) : 0;
+        return [{ shown, box, slack }];
+      });
+    }
+    return boxed
+      .filter(({ box: b, slack }) => {
+        const by = pen + slack;
+        return (
+          b[0] - by <= rect[2]! &&
+          b[2] + by >= rect[0]! &&
+          b[1] - by <= rect[3]! &&
+          b[3] + by >= rect[1]!
+        );
+      })
+      .map(({ shown }) => shown);
+  };
+
   // AutoCAD scales the dashes of a referenced drawing by the linetype scale of the drawing
   // that references it.
   // AutoCAD reads a scale of 0 or less as 1, and so is one that is not a finite number here.
@@ -303,26 +328,17 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     });
     const onPaper = plotted(1, "    ");
     const thin = fmt(5 * perHundredth);
-    // Each entity of model space with the box around what it draws, worked out once, a slanted
-    // text with its lean, and how far past that box its ink may reach beyond its pen: a
-    // text's letters may be wider than the estimate of its box, and so may the texts of a block.
-    const boxOf = boxer(drawing.textStyles, drawing.blocks, hidden, frozen, xrefs);
-    const model = shownOf(drawing.entities).flatMap((shown) => {
-      const box = boxOf([shown[1]]);
-      if (!box) return [];
-      const lettered = shown[1].kind === "text" || shown[1].kind === "insert";
-      const slack = lettered ? Math.max(box[2] - box[0], box[3] - box[1]) : 0;
-      return [{ shown, box, slack }];
-    });
     // A drawing in units tsdraft does not know is drawn as one in inches, as `lint` judges it.
     const units = isUnits(drawing.units) ? drawing.units : "in";
-    // The picture: the paper and the margin around it, in paper units and as written.
+    // The picture: the paper, or the view asked for, and the margin around it, in paper units
+    // and as written.
     const margin = options.margin ?? 0;
+    const [left, bottom, right, top] = view ?? [0, 0, paper.width, paper.height];
     const frame = [
-      written(-margin),
-      written(-paper.height - margin),
-      written(paper.width + margin * 2),
-      written(paper.height + margin * 2),
+      written(left - margin),
+      written(-top - margin),
+      written(right - left + margin * 2),
+      written(top - bottom + margin * 2),
     ] as const;
     const picture = [frame[0], -(frame[1] + frame[3]), frame[0] + frame[2], -frame[1]] as const;
     const parts: string[] = [];
@@ -377,23 +393,10 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
       const shows = seen.map(
         (at, i) => view.center[i % 2]! + (at - view.paperCenter[i % 2]!) / view.scale,
       );
-      // Only what may reach into it is drawn. The test errs on the side of drawing: an
-      // entity's box, which for an arc is its circle's, with the widest pen there is and
-      // the slack of its letters around it.
+      // Only what may reach into it is drawn: an entity's box, which for an arc is its
+      // circle's, with the widest pen there is and the slack of its letters around it.
       const widest = (LINEWEIGHTS.at(-1)! * 100 * perHundredth) / view.scale;
-      const near = !visible
-        ? []
-        : model
-            .filter(({ box: b, slack }) => {
-              const by = widest + slack;
-              return (
-                b[0] - by <= shows[2]! &&
-                b[2] + by >= shows[0]! &&
-                b[1] - by <= shows[3]! &&
-                b[3] + by >= shows[1]!
-              );
-            })
-            .map(({ shown }) => shown);
+      const near = visible ? reaching(shows, widest) : [];
       const inside = elements(near, plotted(view.scale, "        "));
       if (inside.length === 0) {
         // Nothing of the view can be seen, so there is nothing to clip.
@@ -438,21 +441,29 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
   }
 
   // Each entity keeps its index in `drawing.entities`, for its element's data-entity.
-  const shown = shownOf(drawing.entities);
-  const [minX, minY, maxX, maxY] = extents(
-    shown.map(([, e]) => e),
-    drawing.textStyles,
-    drawing.blocks,
-    hidden,
-    frozen,
-    xrefs,
-  );
-  const margin = options.margin ?? Math.max(maxX - minX, maxY - minY, 1) * 0.02;
+  const all = shownOf(drawing.entities);
+  const [minX, minY, maxX, maxY] =
+    view ??
+    extents(
+      all.map(([, e]) => e),
+      drawing.textStyles,
+      drawing.blocks,
+      hidden,
+      frozen,
+      xrefs,
+    );
+  const margin = options.margin ?? (view ? 0 : Math.max(maxX - minX, maxY - minY, 1) * 0.02);
   const x = minX - margin;
   const y = -(maxY + margin);
   const w = maxX - minX + margin * 2;
   const h = maxY - minY + margin * 2;
   const stroke = options.strokeWidth ?? 1;
+  // A view draws only what may reach into the picture. A pen is as wide in pixels at any size,
+  // so it is taken to reach the picture's larger side past an entity's box, times the stroke
+  // width when that is over 1: in a picture at least 5 pixels across no pen reaches further.
+  const shown = view
+    ? reaching([x, -(y + h), x + w, -y], Math.max(w, h) * Math.max(1, stroke))
+    : all;
   // On a screen each layer draws in its own color, and every line keeps its width in pixels
   // however far the picture is zoomed.
   const onScreen: Look = {
@@ -513,6 +524,56 @@ function tablesFor(drawing: Drawing): Tables {
     ),
     textStyles: new Map((drawing.textStyles ?? []).map((t) => [layerKey(t.name), t])),
   };
+}
+
+/**
+ * Which layers of a drawing, and of the drawings it references, are drawn, and the tables that
+ * say so. `toSVG` and `inspectText` share it, so they leave out the same entities.
+ *
+ * @param drawNoPlot - Draws the layers that do not plot too.
+ */
+export function visibility(drawing: Drawing, drawNoPlot: boolean | undefined) {
+  // The tables of the drawing and of each drawing it references, made when first asked for.
+  const tables = new Map<Drawing, Tables>();
+  const tablesOf = (from: Referenced | undefined): Tables => {
+    const source = from?.drawing ?? drawing;
+    let found = tables.get(source);
+    if (!found) tables.set(source, (found = tablesFor(source)));
+    return found;
+  };
+  const layerOf = (ref: LayerRef): Layer | undefined =>
+    tablesOf(ref.of).layers.get(layerKey(ref.name));
+  const hidden = (ref: LayerRef): boolean => {
+    const layer = layerOf(ref);
+    if (layer?.off || layer?.frozen) return true;
+    return drawNoPlot !== true && layer?.plot === false;
+  };
+  // An insert on a frozen layer draws nothing, and in a plot neither does one on a layer that
+  // does not plot, whatever layers its block's entities are on.
+  const frozen = (ref: LayerRef): boolean => {
+    const layer = layerOf(ref);
+    return layer?.frozen === true || (drawNoPlot !== true && layer?.plot === false);
+  };
+  const styleOf = (e: Entity, from?: Referenced): TextStyle | undefined =>
+    e.kind === "text" && e.style !== undefined
+      ? tablesOf(from).textStyles.get(layerKey(e.style))
+      : undefined;
+  return { tablesOf, layerOf, hidden, frozen, styleOf };
+}
+
+/** A view as given, checked: its corners as written, with a width and a height. */
+function viewOf(view: SvgOptions["view"]): [number, number, number, number] | undefined {
+  if (view === undefined) return undefined;
+  const box = Array.isArray(view) && view.length === 4 ? view.map(Number) : [];
+  const [x0 = NaN, y0 = NaN, x1 = NaN, y1 = NaN] = box.every(Number.isFinite)
+    ? box.map(written)
+    : [];
+  if (!(x1 > x0 && y1 > y0)) {
+    throw new RangeError(
+      "A view is [x0, y0, x1, y1], four finite numbers from its lower-left corner to its upper-right, with x1 above x0 and y1 above y0",
+    );
+  }
+  return [x0, y0, x1, y1];
 }
 
 /** An entity that draws something of its own, which an insert does not. */
@@ -594,34 +655,25 @@ function entityToSvg(
       let t = `translate(${fmt(e.at[0])} ${fmt(e.at[1])}) scale(1 -1)${e.rotation ? ` rotate(${fmt(-e.rotation)})` : ""}`;
       // An insert's matrix is applied last, so it comes first.
       if (matrix) t = `matrix(${matrix.map(fmt).join(" ")}) ${t}`;
-      // The baseline is moved along the text's own up, before the style widens or slants it.
       const font = fontInfo(style?.font ?? STANDARD_FONT);
-      // A text's height is the height of its capitals, which a font draws smaller than its size.
-      const size = e.height / (font?.capHeight ?? 1);
-      const capital = font?.capHeight === undefined ? CAP_HEIGHT * e.height : e.height;
-      const drop =
-        e.valign === "top"
-          ? capital
-          : e.valign === "middle"
-            ? capital / 2
-            : e.valign === "bottom"
-              ? -DESCENT * size
-              : 0;
-      if (drop !== 0) t += ` translate(0 ${fmt(drop)})`;
+      const width = style?.widthFactor ?? 1;
+      const oblique = style?.obliqueAngle ?? 0;
+      // The text is drawn from where it starts to plot, on its baseline, before the style
+      // widens or slants it, and held to the length it plots.
+      const { start, end, baseline } = layoutText(style ? { ...e, ...style } : e);
+      if (written(start) !== 0 || written(baseline) !== 0) {
+        t += ` translate(${fmt(start)} ${fmt(-baseline)})`;
+      }
       // AutoCAD slants a text after it widens it, so the width factor does not widen the lean.
       // The transform applied last comes first.
-      const oblique = style?.obliqueAngle ?? 0;
       if (oblique !== 0) t += ` skewX(${fmt(-oblique)})`;
-      const width = style?.widthFactor ?? 1;
       if (width !== 1) t += ` scale(${fmt(width)} 1)`;
-      const anchor =
-        e.align === "center"
-          ? ` text-anchor="middle"`
-          : e.align === "right"
-            ? ` text-anchor="end"`
-            : "";
+      // A text's height is the height of its capitals, which a font draws smaller than its size.
+      const size = e.height / (font?.capHeight ?? SCREEN_CAP_HEIGHT);
+      const length = written((end - start) / width);
+      const held = length > 0 ? ` textLength="${length}" lengthAdjust="spacingAndGlyphs"` : "";
       const family = font?.family ?? "monospace";
-      return `<text transform="${t}" font-size="${fmt(size)}" font-family="${esc(family)}"${anchor} fill="${pen.color}" stroke="none" ${mark}>${esc(e.value)}</text>`;
+      return `<text transform="${t}" font-size="${fmt(size)}" font-family="${esc(family)}" data-height="${fmt(e.height)}"${held} xml:space="preserve" fill="${pen.color}" stroke="none" ${mark}>${esc(drawnValue(e.value))}</text>`;
     }
   }
 }

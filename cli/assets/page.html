@@ -751,6 +751,7 @@
               : d.layer !== undefined
                 ? `layer ${d.layer}`
                 : "";
+          if (d.attribute !== undefined) where += `, attribute ${d.attribute}`;
           if (d.id !== undefined) where += `, id ${d.id}`;
           rule.textContent = [d.severity, d.rule, where].filter(Boolean).join(" · ");
           const msg = document.createElement("div");

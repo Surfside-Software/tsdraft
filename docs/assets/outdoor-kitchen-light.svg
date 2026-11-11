@@ -1,12 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-76.4 -139.4 379.4 192.8" width="830" height="422">
-  <rect x="-76.4" y="-139.4" width="379.4" height="192.8" rx="2" fill="#f6f8fa"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-100.666667 -139.4 426.333333 193.8" width="830" height="377">
+  <rect x="-100.666667" y="-139.4" width="426.333333" height="193.8" rx="2" fill="#f6f8fa"/>
   <g transform="scale(1 -1)" fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <g stroke="#1f2328" stroke-width="0.704">
+    <g stroke="#1f2328" stroke-width="0.791">
     <polygon points="0,0 132,0 132,108 0,108"/>
     <line x1="-8" y1="0" x2="140" y2="0"/>
     <line x1="-8" y1="108" x2="140" y2="108"/>
     </g>
-    <g stroke="#1f2328" stroke-width="0.352">
+    <g stroke="#1f2328" stroke-width="0.396">
     <polygon points="18,0 114,0 114,4 18,4"/>
     <polygon points="18,4 42,4 42,34.5 18,34.5"/>
     <polygon points="42,4 45,4 45,34.5 42,34.5"/>
@@ -30,7 +30,7 @@
     <polygon points="64.9,12.5 65.5,12.5 65.5,18.5 64.9,18.5"/>
     <polygon points="86.5,17.25 87.1,17.25 87.1,23.25 86.5,23.25"/>
     </g>
-    <g stroke="#818b98" stroke-width="0.181">
+    <g stroke="#818b98" stroke-width="0.203">
     <line x1="20.5" y1="36" x2="20.5" y2="48"/>
     <line x1="24.5" y1="36" x2="24.5" y2="48"/>
     <line x1="28.5" y1="36" x2="28.5" y2="48"/>
@@ -63,7 +63,7 @@
     <line x1="97" y1="44" x2="101.5" y2="44"/>
     <line x1="103.5" y1="44" x2="115.5" y2="44"/>
     </g>
-    <g stroke="#818b98" stroke-width="0.251">
+    <g stroke="#818b98" stroke-width="0.283">
     <line x1="62.75" y1="26.5" x2="61.49" y2="25.69"/>
     <line x1="60.75" y1="25.23" x2="59.49" y2="24.42"/>
     <line x1="58.75" y1="23.95" x2="57.49" y2="23.15"/>
@@ -144,7 +144,7 @@
     <line x1="110" y1="30.83" x2="110" y2="32.33"/>
     <line x1="110" y1="33" x2="110" y2="34.5"/>
     </g>
-    <g stroke="#1f2328" stroke-width="0.352">
+    <g stroke="#1f2328" stroke-width="0.396">
     <polygon points="18.5,4.5 41.5,4.5 41.5,34 18.5,34"/>
     <polygon points="20,6 40,6 40,29.5 20,29.5"/>
     <polygon points="21,31.25 39,31.25 39,32.15 21,32.15"/>
@@ -187,7 +187,7 @@
     <circle cx="78" cy="73.5" r="0.6"/>
     <circle cx="76" cy="73.5" r="0.6"/>
     </g>
-    <g stroke="#1f2328" stroke-width="0.251">
+    <g stroke="#1f2328" stroke-width="0.283">
     <polygon points="17,63.75 20.5,63.75 20.5,69.75 17,69.75"/>
     <polygon points="16.75,69.75 20.75,69.75 20.75,70.75 16.75,70.75"/>
     <polygon points="21.5,63.75 25,63.75 25,68.25 21.5,68.25"/>
@@ -204,7 +204,7 @@
     <line x1="89.5" y1="72.5" x2="108.5" y2="72.5"/>
     <polygon points="86.5,53 111.5,53 111.5,54.5 86.5,54.5"/>
     </g>
-    <g stroke="#818b98" stroke-width="0.181">
+    <g stroke="#818b98" stroke-width="0.203">
     <line x1="4.46" y1="1.39" x2="4.49" y2="1.53"/>
     <line x1="6.71" y1="1.2" x2="6.72" y2="1.35"/>
     <line x1="7.38" y1="0.96" x2="7.9" y2="1.29"/>
@@ -3170,7 +3170,7 @@
     <line x1="120.23" y1="106.76" x2="120.64" y2="106.79"/>
     <line x1="131" y1="106.84" x2="130.16" y2="106.84"/>
     </g>
-    <g stroke="#0d7a8c" stroke-width="0.251">
+    <g stroke="#0d7a8c" stroke-width="0.283">
     <line x1="18" y1="-1.5" x2="18" y2="-10.5"/>
     <line x1="17" y1="-10" x2="19" y2="-8"/>
     <line x1="42" y1="-1.5" x2="42" y2="-10.5"/>
@@ -3184,17 +3184,17 @@
     <line x1="114" y1="-1.5" x2="114" y2="-10.5"/>
     <line x1="113" y1="-10" x2="115" y2="-8"/>
     <line x1="18" y1="-9" x2="114" y2="-9"/>
-    <text transform="translate(30 -7) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#0d7a8c" stroke="none" textLength="12">2'-0&quot;</text>
-    <text transform="translate(43.5 -15) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#0d7a8c" stroke="none" textLength="4.8">3&quot;</text>
-    <text transform="translate(63 -7) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#0d7a8c" stroke="none" textLength="12">3'-0&quot;</text>
-    <text transform="translate(82.5 -15) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#0d7a8c" stroke="none" textLength="4.8">3&quot;</text>
-    <text transform="translate(99 -7) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#0d7a8c" stroke="none" textLength="12">2'-6&quot;</text>
+    <text transform="translate(30 -7) scale(1 -1) translate(-7.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none">2'-0&quot;</text>
+    <text transform="translate(43.5 -15) scale(1 -1) translate(-2.666667 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="5.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none">3&quot;</text>
+    <text transform="translate(63 -7) scale(1 -1) translate(-7.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none">3'-0&quot;</text>
+    <text transform="translate(82.5 -15) scale(1 -1) translate(-2.666667 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="5.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none">3&quot;</text>
+    <text transform="translate(99 -7) scale(1 -1) translate(-7.666667 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="15.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none">2'-6&quot;</text>
     <line x1="18" y1="-1.5" x2="18" y2="-24.5"/>
     <line x1="17" y1="-24" x2="19" y2="-22"/>
     <line x1="114" y1="-1.5" x2="114" y2="-24.5"/>
     <line x1="113" y1="-24" x2="115" y2="-22"/>
     <line x1="18" y1="-23" x2="114" y2="-23"/>
-    <text transform="translate(66 -21) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#0d7a8c" stroke="none" textLength="12">8'-0&quot;</text>
+    <text transform="translate(66 -21) scale(1 -1) translate(-7.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none">8'-0&quot;</text>
     <line x1="-1.5" y1="0" x2="-9.5" y2="0"/>
     <line x1="-9" y1="-1" x2="-7" y2="1"/>
     <line x1="-1.5" y1="36" x2="-9.5" y2="36"/>
@@ -3202,70 +3202,70 @@
     <line x1="-1.5" y1="72" x2="-9.5" y2="72"/>
     <line x1="-9" y1="71" x2="-7" y2="73"/>
     <line x1="-8" y1="0" x2="-8" y2="72"/>
-    <text transform="translate(-10 18) scale(1 -1) rotate(-90)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#0d7a8c" stroke="none" textLength="12">3'-0&quot;</text>
-    <text transform="translate(-10 54) scale(1 -1) rotate(-90)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#0d7a8c" stroke="none" textLength="12">3'-0&quot;</text>
+    <text transform="translate(-10 18) scale(1 -1) rotate(-90) translate(-7.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none">3'-0&quot;</text>
+    <text transform="translate(-10 54) scale(1 -1) rotate(-90) translate(-7.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none">3'-0&quot;</text>
     <line x1="-1.5" y1="0" x2="-17.5" y2="0"/>
     <line x1="-17" y1="-1" x2="-15" y2="1"/>
     <line x1="-1.5" y1="108" x2="-17.5" y2="108"/>
     <line x1="-17" y1="107" x2="-15" y2="109"/>
     <line x1="-16" y1="0" x2="-16" y2="108"/>
-    <text transform="translate(-18 54) scale(1 -1) rotate(-90)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#0d7a8c" stroke="none" textLength="12">9'-0&quot;</text>
+    <text transform="translate(-18 54) scale(1 -1) rotate(-90) translate(-7.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none">9'-0&quot;</text>
     </g>
-    <g stroke="#1f2328" stroke-width="0.251">
+    <g stroke="#1f2328" stroke-width="0.283">
     <polyline points="7,98 -26,102 -30,102"/>
     <polygon points="7,98 3.887429,98.914518 3.759075,97.855602"/>
-    <text transform="translate(-32 100.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#1f2328" stroke="none" textLength="33.6">STUCCO FINISH,</text>
-    <text transform="translate(-32 94.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#1f2328" stroke="none" textLength="16.8">PAINTED</text>
+    <text transform="translate(-32 100.4) scale(1 -1) translate(-50 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="50" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">STUCCO FINISH,</text>
+    <text transform="translate(-32 94.4) scale(1 -1) translate(-25.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="25.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">PAINTED</text>
     <polyline points="15,76.875 -26,84 -30,84"/>
     <polygon points="15,76.875 11.938566,77.948344 11.755938,76.897428"/>
-    <text transform="translate(-32 82.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#1f2328" stroke="none" textLength="19.2">FLOATING</text>
-    <text transform="translate(-32 76.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#1f2328" stroke="none" textLength="16.8">SHELVES</text>
+    <text transform="translate(-32 82.4) scale(1 -1) translate(-29.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="29.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">FLOATING</text>
+    <text transform="translate(-32 76.4) scale(1 -1) translate(-28 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="28" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">SHELVES</text>
     <polyline points="50,50 -26,66 -30,66"/>
     <polygon points="50,50 46.978513,51.181127 46.758768,50.13734"/>
-    <text transform="translate(-32 64.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#1f2328" stroke="none" textLength="28.8">36&quot; BUILT-IN</text>
-    <text transform="translate(-32 58.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#1f2328" stroke="none" textLength="21.6">GAS GRILL</text>
+    <text transform="translate(-32 64.4) scale(1 -1) translate(-42.666667 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="42.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">36&quot; BUILT-IN</text>
+    <text transform="translate(-32 58.4) scale(1 -1) translate(-33.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="33.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">GAS GRILL</text>
     <polyline points="18.5,42 -26,44 -30,44"/>
     <polygon points="18.5,42 15.327173,42.676471 15.279281,41.61088"/>
-    <text transform="translate(-32 42.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#1f2328" stroke="none" textLength="36">TILE BACKSPLASH</text>
+    <text transform="translate(-32 42.4) scale(1 -1) translate(-57.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="57.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">TILE BACKSPLASH</text>
     <polyline points="16.5,35.25 -26,32 -30,32"/>
     <polygon points="16.5,35.25 13.26865,35.537787 13.349981,34.474226"/>
-    <text transform="translate(-32 30.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#1f2328" stroke="none" textLength="38.4">STONE COUNTERTOP</text>
+    <text transform="translate(-32 30.4) scale(1 -1) translate(-62.666667 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="62.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">STONE COUNTERTOP</text>
     <polyline points="23,16 -26,9 -30,9"/>
     <polygon points="23,16 19.756737,16.075425 19.907586,15.019479"/>
-    <text transform="translate(-32 7.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#1f2328" stroke="none" textLength="38.4">24&quot; UNDERCOUNTER</text>
-    <text transform="translate(-32 1.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#1f2328" stroke="none" textLength="28.8">REFRIGERATOR</text>
+    <text transform="translate(-32 7.4) scale(1 -1) translate(-61.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="61.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">24&quot; UNDERCOUNTER</text>
+    <text transform="translate(-32 1.4) scale(1 -1) translate(-45.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="45.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">REFRIGERATOR</text>
     <polyline points="69,98 140,100 144,100"/>
     <polygon points="69,98 72.213749,97.556983 72.183714,98.623227"/>
-    <text transform="translate(146 98.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="21.6">STAINLESS</text>
-    <text transform="translate(146 92.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="21.6">VENT HOOD</text>
+    <text transform="translate(146 98.4) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="33.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">STAINLESS</text>
+    <text transform="translate(146 92.4) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="36" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">VENT HOOD</text>
     <polyline points="110,80.5 140,76 144,76"/>
     <polygon points="110,80.5 113.085481,79.497878 113.243711,80.552743"/>
-    <text transform="translate(146 74.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="19.2">ALUMINUM</text>
-    <text transform="translate(146 68.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="14.4">WINDOW</text>
+    <text transform="translate(146 74.4) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="29.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">ALUMINUM</text>
+    <text transform="translate(146 68.4) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="24" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">WINDOW</text>
     <polyline points="110,30.5 140,30 144,30"/>
     <polygon points="110,30.5 113.190668,29.913415 113.208443,30.979933"/>
-    <text transform="translate(146 28.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="24">UNDERMOUNT</text>
-    <text transform="translate(146 22.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="9.6">SINK</text>
+    <text transform="translate(146 28.4) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="38.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">UNDERMOUNT</text>
+    <text transform="translate(146 22.4) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="13.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">SINK</text>
     <circle cx="53" cy="120" r="3.6"/>
-    <text transform="translate(53 120) scale(1 -1) translate(0 1.4)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#1f2328" stroke="none" textLength="2.4">2</text>
+    <text transform="translate(53 120) scale(1 -1) translate(-1.333333 2)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="2.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">2</text>
     <line x1="53" y1="116.4" x2="53" y2="110"/>
     <line x1="60.92" y1="120" x2="54.636364" y2="123.206605"/>
     <line x1="60.92" y1="120" x2="54.636364" y2="116.793395"/>
     </g>
-    <g stroke="#1f2328" stroke-width="0.352">
+    <g stroke="#1f2328" stroke-width="0.396">
     <circle cx="-4.6" cy="-42" r="5.4"/>
     </g>
-    <g stroke="#1f2328" stroke-width="0.251">
-    <text transform="translate(-4.6 -42) scale(1 -1) translate(0 2.1)" font-size="6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#1f2328" stroke="none" textLength="3.6">1</text>
+    <g stroke="#1f2328" stroke-width="0.283">
+    <text transform="translate(-4.6 -42) scale(1 -1) translate(-1 3)" font-size="8.571429" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="6" textLength="2" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">1</text>
     </g>
-    <g stroke="#1f2328" stroke-width="0.352">
+    <g stroke="#1f2328" stroke-width="0.396">
     <line x1="0.8" y1="-42" x2="140" y2="-42"/>
     </g>
-    <g stroke="#1f2328" stroke-width="0.251">
-    <text transform="translate(3.8 -39.9) scale(1 -1)" font-size="6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="90">OUTDOOR KITCHEN ELEVATION</text>
-    <text transform="translate(3.8 -47.4) scale(1 -1)" font-size="3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="21.6">3/8&quot; = 1'-0&quot;</text>
+    <g stroke="#1f2328" stroke-width="0.283">
+    <text transform="translate(3.8 -39.9) scale(1 -1)" font-size="8.571429" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="6" textLength="146" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">OUTDOOR KITCHEN ELEVATION</text>
+    <text transform="translate(3.8 -47.4) scale(1 -1)" font-size="4.285714" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="3" textLength="30" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">3/8&quot; = 1'-0&quot;</text>
     </g>
-    <g stroke="#1f2328" stroke-width="0.704">
+    <g stroke="#1f2328" stroke-width="0.791">
     <polygon points="200.25,4 208.25,4 208.25,107 200.25,107"/>
     <line x1="209" y1="0" x2="209" y2="108"/>
     <line x1="178.25" y1="4" x2="200.25" y2="4"/>
@@ -3273,14 +3273,14 @@
     <line x1="208.75" y1="0" x2="253" y2="0"/>
     <line x1="208.75" y1="-4" x2="253" y2="-4"/>
     </g>
-    <g stroke="#1f2328" stroke-width="0.251">
+    <g stroke="#1f2328" stroke-width="0.283">
     <polyline points="178.25,6 178.25,3 180.25,2.4 176.25,1.6 178.25,1 178.25,-2"/>
     <polyline points="253,2 253,-1 255,-1.6 251,-2.4 253,-3 253,-6"/>
     <polyline points="178.25,106 178.25,113 176.25,113.6 180.25,114.4 178.25,115 178.25,122"/>
     <polyline points="253,106 253,109.25 251.5,109.7 254.5,110.3 253,110.75 253,114"/>
     <polyline points="209.5,124 213.25,124 213.7,125.5 214.3,122.5 214.75,124 218.5,124"/>
     </g>
-    <g stroke="#818b98" stroke-width="0.181">
+    <g stroke="#818b98" stroke-width="0.203">
     <line x1="207.65" y1="4" x2="208.25" y2="4.6"/>
     <line x1="203.4" y1="4" x2="208.25" y2="8.85"/>
     <line x1="200.25" y1="5.09" x2="208.25" y2="13.09"/>
@@ -3961,7 +3961,7 @@
     <line x1="209" y1="46.62" x2="209.5" y2="46.12"/>
     <line x1="209" y1="47.68" x2="209.5" y2="47.18"/>
     </g>
-    <g stroke="#1f2328" stroke-width="0.251">
+    <g stroke="#1f2328" stroke-width="0.283">
     <polygon points="200.25,107 208.25,107 208.25,108.5 200.25,108.5"/>
     <line x1="200.25" y1="107" x2="208.25" y2="108.5"/>
     <line x1="200.25" y1="108.5" x2="208.25" y2="107"/>
@@ -3984,7 +3984,7 @@
     <line x1="218" y1="112" x2="253" y2="112"/>
     <polyline points="181.63,112 181.22,112.14 180.86,112.54 180.56,113.17 180.36,114 180.28,114.96 180.33,116 180.51,117.04 180.83,118 181.26,118.83 181.79,119.46 182.39,119.86 183.03,120 183.66,119.86 184.26,119.46 184.79,118.83 185.22,118 185.54,117.04 185.73,116 185.77,114.96 185.69,114 185.49,113.17 185.19,112.54 184.83,112.14 184.43,112 184.02,112.14 183.66,112.54 183.36,113.17 183.16,114 183.08,114.96 183.13,116 183.31,117.04 183.63,118 184.06,118.83 184.59,119.46 185.19,119.86 185.83,120 186.46,119.86 187.06,119.46 187.59,118.83 188.02,118 188.34,117.04 188.53,116 188.57,114.96 188.49,114 188.29,113.17 187.99,112.54 187.63,112.14 187.23,112 186.82,112.14 186.46,112.54 186.16,113.17 185.96,114 185.88,114.96 185.93,116 186.11,117.04 186.43,118 186.86,118.83 187.39,119.46 187.99,119.86 188.63,120 189.26,119.86 189.86,119.46 190.39,118.83 190.82,118 191.14,117.04 191.33,116 191.37,114.96 191.29,114 191.09,113.17 190.79,112.54 190.43,112.14 190.03,112 189.62,112.14 189.26,112.54 188.96,113.17 188.76,114 188.68,114.96 188.73,116 188.91,117.04 189.23,118 189.66,118.83 190.19,119.46 190.79,119.86 191.43,120 192.06,119.86 192.66,119.46 193.19,118.83 193.62,118 193.94,117.04 194.13,116 194.17,114.96 194.09,114 193.89,113.17 193.59,112.54 193.23,112.14 192.83,112 192.42,112.14 192.06,112.54 191.76,113.17 191.56,114 191.48,114.96 191.53,116 191.71,117.04 192.03,118 192.46,118.83 192.99,119.46 193.59,119.86 194.23,120 194.86,119.86 195.46,119.46 195.99,118.83 196.42,118 196.74,117.04 196.93,116 196.97,114.96 196.89,114 196.69,113.17 196.39,112.54 196.03,112.14 195.63,112"/>
     </g>
-    <g stroke="#818b98" stroke-width="0.251">
+    <g stroke="#818b98" stroke-width="0.283">
     <line x1="178.25" y1="-0.4" x2="179.75" y2="-0.4"/>
     <line x1="181.08" y1="-0.4" x2="182.58" y2="-0.4"/>
     <line x1="183.92" y1="-0.4" x2="185.42" y2="-0.4"/>
@@ -4013,7 +4013,7 @@
     <line x1="218" y1="103.89" x2="218" y2="105.39"/>
     <line x1="218" y1="106.5" x2="218" y2="108"/>
     </g>
-    <g stroke="#1f2328" stroke-width="0.352">
+    <g stroke="#1f2328" stroke-width="0.396">
     <polygon points="209,34.5 213,34.5 213,36 209,36"/>
     <polygon points="209,36 209.5,36 209.5,48 209,48"/>
     <line x1="234.5" y1="0" x2="234.5" y2="4"/>
@@ -4029,65 +4029,65 @@
     <line x1="210" y1="108" x2="210" y2="124"/>
     <line x1="218" y1="108" x2="218" y2="124"/>
     </g>
-    <g stroke="#0d7a8c" stroke-width="0.251">
+    <g stroke="#0d7a8c" stroke-width="0.283">
     <line x1="209" y1="53.5" x2="209" y2="57.5"/>
     <line x1="208" y1="55" x2="210" y2="57"/>
     <line x1="239" y1="53.5" x2="239" y2="57.5"/>
     <line x1="238" y1="55" x2="240" y2="57"/>
     <line x1="209" y1="56" x2="239" y2="56"/>
-    <text transform="translate(224 58) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#0d7a8c" stroke="none" textLength="12">2'-6&quot;</text>
+    <text transform="translate(224 58) scale(1 -1) translate(-7.666667 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="15.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none">2'-6&quot;</text>
     <line x1="248" y1="-1" x2="250" y2="1"/>
     <line x1="240.5" y1="36" x2="250.5" y2="36"/>
     <line x1="248" y1="35" x2="250" y2="37"/>
     <line x1="234.5" y1="72" x2="250.5" y2="72"/>
     <line x1="248" y1="71" x2="250" y2="73"/>
     <line x1="249" y1="0" x2="249" y2="72"/>
-    <text transform="translate(247 18) scale(1 -1) rotate(-90)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#0d7a8c" stroke="none" textLength="12">3'-0&quot;</text>
-    <text transform="translate(247 54) scale(1 -1) rotate(-90)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#0d7a8c" stroke="none" textLength="12">3'-0&quot;</text>
+    <text transform="translate(247 18) scale(1 -1) rotate(-90) translate(-7.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none">3'-0&quot;</text>
+    <text transform="translate(247 54) scale(1 -1) rotate(-90) translate(-7.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none">3'-0&quot;</text>
     </g>
-    <g stroke="#1f2328" stroke-width="0.251">
+    <g stroke="#1f2328" stroke-width="0.283">
     <polyline points="194,119 255,131 259,131"/>
     <polygon points="194,119 197.242767,119.094366 197.036877,120.140974"/>
-    <text transform="translate(261 129.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="21.6">R-30 BATT</text>
-    <text transform="translate(261 123.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="24">INSULATION</text>
+    <text transform="translate(261 129.4) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="34" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">R-30 BATT</text>
+    <text transform="translate(261 123.4) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="36" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">INSULATION</text>
     <polyline points="218,116 255,114 259,114"/>
     <polygon points="218,116 221.166548,115.294723 221.224122,116.359835"/>
-    <text transform="translate(261 112.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="24">8&quot; DUCT TO</text>
-    <text transform="translate(261 106.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="19.2">ROOF CAP</text>
+    <text transform="translate(261 112.4) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="37.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">8&quot; DUCT TO</text>
+    <text transform="translate(261 106.4) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="30.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">ROOF CAP</text>
     <polyline points="226,80.5 255,96 259,96"/>
     <polygon points="226,80.5 229.073583,81.538044 228.57078,82.478771"/>
-    <text transform="translate(261 94.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="21.6">STAINLESS</text>
-    <text transform="translate(261 88.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="21.6">VENT HOOD</text>
+    <text transform="translate(261 94.4) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="33.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">STAINLESS</text>
+    <text transform="translate(261 88.4) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="36" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">VENT HOOD</text>
     <polyline points="204.95,70 255,70 259,70"/>
     <polygon points="204.95,70 208.15,69.466667 208.15,70.533333"/>
-    <text transform="translate(261 68.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="28.8">STUCCO ON 8&quot;</text>
-    <text transform="translate(261 62.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="36">CMU W/ #5 VERT.</text>
-    <text transform="translate(261 56.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="24">@ 48&quot; O.C.</text>
+    <text transform="translate(261 68.4) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="45.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">STUCCO ON 8&quot;</text>
+    <text transform="translate(261 62.4) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="58.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">CMU W/ #5 VERT.</text>
+    <text transform="translate(261 56.4) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="32" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">@ 48&quot; O.C.</text>
     <polyline points="237.5,12 255,8 259,8"/>
     <polygon points="237.5,12 240.500707,10.767036 240.738387,11.806885"/>
-    <text transform="translate(261 6.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="21.6">STAINLESS</text>
-    <text transform="translate(261 0.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="26.4">ACCESS DOOR</text>
+    <text transform="translate(261 6.4) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="33.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">STAINLESS</text>
+    <text transform="translate(261 0.4) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="42.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">ACCESS DOOR</text>
     <polyline points="247,-2 255,-7 259,-7"/>
     <polygon points="247,-2 249.430928,-4.148262 249.996261,-3.243731"/>
-    <text transform="translate(261 -8.6) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="26.4">4&quot; CONCRETE</text>
-    <text transform="translate(261 -14.6) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="24">PATIO SLAB</text>
+    <text transform="translate(261 -8.6) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="41.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">4&quot; CONCRETE</text>
+    <text transform="translate(261 -14.6) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="37.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">PATIO SLAB</text>
     <polyline points="204.75,-12.5 255,-22 259,-22"/>
     <polygon points="204.75,-12.5 207.795228,-13.618495 207.993376,-12.570395"/>
-    <text transform="translate(261 -23.6) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="36">20&quot;x20&quot; FOOTING</text>
-    <text transform="translate(261 -29.6) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="36">W/ (2) #5 CONT.</text>
+    <text transform="translate(261 -23.6) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="53.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">20&quot;x20&quot; FOOTING</text>
+    <text transform="translate(261 -29.6) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="54.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">W/ (2) #5 CONT.</text>
     </g>
-    <g stroke="#1f2328" stroke-width="0.352">
+    <g stroke="#1f2328" stroke-width="0.396">
     <circle cx="183.65" cy="-42" r="5.4"/>
     </g>
-    <g stroke="#1f2328" stroke-width="0.251">
-    <text transform="translate(183.65 -42) scale(1 -1) translate(0 2.1)" font-size="6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#1f2328" stroke="none" textLength="3.6">2</text>
+    <g stroke="#1f2328" stroke-width="0.283">
+    <text transform="translate(183.65 -42) scale(1 -1) translate(-2 3)" font-size="8.571429" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="6" textLength="4" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">2</text>
     </g>
-    <g stroke="#1f2328" stroke-width="0.352">
+    <g stroke="#1f2328" stroke-width="0.396">
     <line x1="189.05" y1="-42" x2="278.25" y2="-42"/>
     </g>
-    <g stroke="#1f2328" stroke-width="0.251">
-    <text transform="translate(192.05 -39.9) scale(1 -1)" font-size="6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="57.6">SECTION AT GRILL</text>
-    <text transform="translate(192.05 -47.4) scale(1 -1)" font-size="3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1f2328" stroke="none" textLength="21.6">3/8&quot; = 1'-0&quot;</text>
+    <g stroke="#1f2328" stroke-width="0.283">
+    <text transform="translate(192.05 -39.9) scale(1 -1)" font-size="8.571429" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="6" textLength="90" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">SECTION AT GRILL</text>
+    <text transform="translate(192.05 -47.4) scale(1 -1)" font-size="4.285714" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="3" textLength="30" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none">3/8&quot; = 1'-0&quot;</text>
     </g>
   </g>
 </svg>

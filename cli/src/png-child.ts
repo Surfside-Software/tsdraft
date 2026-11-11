@@ -9,9 +9,9 @@ const require = createRequire(import.meta.url);
 
 // `toSVG` sets each text in a font family for its style's font, ending in a generic family.
 // This font, JetBrains Mono under the OFL in assets/fonts/OFL.txt, answers for every family
-// that a request names no face for. A text is then justified, widened and slanted as drawn,
-// but in this font's letters, which are wider or narrower than its own. The system's fonts are not
-// consulted: a request brings the file of each face it wants.
+// that a request names no face for. A text is then as long and as tall as it plots, in this
+// font's letters. The system's fonts are not consulted: a request brings the file of each face
+// it wants.
 const FONT = fileURLToPath(new URL("../assets/fonts/JetBrainsMono-Regular.ttf", import.meta.url));
 
 /** The page's dark theme: color 7, drawn as currentColor, is bone on ink as in CAD. */
@@ -24,12 +24,18 @@ export interface PngRequest {
   readonly svg: string;
   /** The width in pixels, already narrowed to what one PNG may have. */
   readonly width: number;
-  /** The font file to set a font family of the SVG in, with the family name the file has. */
+  /**
+   * The font file to set a font family of the SVG in, with the family name the file has and
+   * the height of its capitals as a share of its size.
+   */
   readonly faces: readonly {
     readonly family: string;
     readonly face: string;
     readonly file: string;
+    readonly capHeight: number;
   }[];
+  /** The height of a capital of this process's own font, as a share of its size. */
+  readonly capHeight: number;
 }
 export type PngAnswer =
   | { readonly id: number; readonly png: Uint8Array }
@@ -40,7 +46,7 @@ let render: typeof RenderAsync | undefined;
 const attribute = (value: string): string =>
   value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;");
 
-async function draw({ svg, width: fitted, faces }: PngRequest): Promise<Uint8Array> {
+async function draw({ svg, width: fitted, faces, capHeight }: PngRequest): Promise<Uint8Array> {
   render ??= (require("@resvg/resvg-js") as { renderAsync: typeof RenderAsync }).renderAsync;
   const [, , w = 1] = (/viewBox="([^"]+)"/.exec(svg)?.[1] ?? "").split(" ").map(Number);
   // resvg ignores non-scaling-stroke, so each stroke width, which toSVG gives in screen pixels
@@ -52,7 +58,18 @@ async function draw({ svg, width: fitted, faces }: PngRequest): Promise<Uint8Arr
   const toUnits = / data-layout="/.test(svg)
     ? Math.max(1, 1 / (base * (fitted / w)))
     : Math.max(1, fitted / 1200) / (fitted / w) / base;
-  let set = svg;
+  // `toSVG` gives each text the height of its capitals, and sizes it for the font it names.
+  // Here it is sized for the face it is drawn in, so that its capitals are that tall.
+  const byFamily = new Map(faces.map((face) => [attribute(face.family), face]));
+  let set = svg.replace(
+    / font-size="[^"]*" font-family="([^"]*)" data-height="([^"]*)"/g,
+    (_, family: string, height: string) => {
+      const face = byFamily.get(family);
+      const size = Number(height) / (face?.capHeight ?? capHeight);
+      return ` font-size="${size}" font-family="${face ? attribute(face.face) : family}"`;
+    },
+  );
+  // A picture from a copy of tsdraft that gives no height keeps its sizes.
   for (const { family, face } of faces) {
     set = set.replaceAll(
       ` font-family="${attribute(family)}"`,

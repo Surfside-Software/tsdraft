@@ -22,6 +22,7 @@ import type {
   Layout,
   PaperInfo,
   PaperUnit,
+  TextWarning,
   Units,
   Viewport,
   ViewportView,
@@ -49,6 +50,13 @@ export interface BuildRequest {
   readonly root: string;
   /** Draws the layers that do not plot too. */
   readonly drawNoPlot?: boolean;
+  /**
+   * Draws this one rectangle, of model space or of the layout named, in place of the pictures
+   * of every space.
+   */
+  readonly view?:
+    | { readonly box: readonly [number, number, number, number]; readonly layout?: string }
+    | undefined;
 }
 
 /**
@@ -88,7 +96,12 @@ export interface WorkerResult {
    * folder in node_modules that a bare import went through.
    */
   readonly files: readonly FileVersion[];
-  readonly timings: { readonly load?: number; readonly lint?: number; readonly svg?: number };
+  readonly timings: {
+    readonly load?: number;
+    readonly lint?: number;
+    readonly inspect?: number;
+    readonly svg?: number;
+  };
   readonly drawing: DrawingSummary | null;
   readonly diagnostics: readonly BuildDiagnostic[];
   readonly svg: string | null;
@@ -100,6 +113,12 @@ export interface WorkerResult {
     readonly svg: string;
     readonly fonts: readonly string[];
   }[];
+  /** The picture of the rectangle the request asked for, with its fonts, or `null`. */
+  readonly view: {
+    readonly layout: string | null;
+    readonly svg: string;
+    readonly fonts: readonly string[];
+  } | null;
   /** The color `toSVG` draws each layer in, by layer name. */
   readonly swatches: Readonly<Record<string, string>>;
   readonly error: BuildError | null;
@@ -123,8 +142,14 @@ interface Library {
       drawNoPlot?: boolean;
       xrefs?: Readonly<Record<string, Drawing>>;
       layout?: string;
+      view?: readonly [number, number, number, number];
     },
   ) => string;
+  /** What is wrong with the text as it plots. A copy of tsdraft from before it has none. */
+  readonly inspectText?: (
+    drawing: Drawing,
+    options?: { drawNoPlot?: boolean; xrefs?: Readonly<Record<string, Drawing>> },
+  ) => TextWarning[];
   /** What a viewport shows, and the papers. A copy of tsdraft from before layouts has neither. */
   readonly viewportView?: (viewport: Viewport, paperUnits: PaperUnit, units: Units) => ViewportView;
   readonly PAPERS?: Readonly<Record<string, PaperInfo>>;
@@ -452,8 +477,8 @@ async function warm(library: string | null, deadline: number): Promise<void> {
   process.send!({ type: "warmed", kept: closed, held } satisfies WorkerMessage);
 }
 
-async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerResult> {
-  const timings: { load?: number; lint?: number; svg?: number } = {};
+async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<WorkerResult> {
+  const timings: { load?: number; lint?: number; inspect?: number; svg?: number } = {};
   const fail = (error: BuildError, thrown?: unknown): WorkerResult => ({
     ok: false,
     files: [...readFiles(file), ...missingFile(thrown)],
@@ -463,6 +488,7 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
     svg: null,
     fonts: [],
     layouts: [],
+    view: null,
     swatches: {},
     error,
     library: null,
@@ -502,13 +528,16 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
       const drawn = Object.fromEntries(
         [...given.values()].filter((g) => g.errors.length === 0).map((g) => [g.name, g.drawing]),
       );
-      const diagnostics = [
+      const linted = [
         ...found,
         ...[...given].flatMap(([xref, g]) => g.errors.map((d) => inGiven(xref, d))),
       ]
         .sort(errorsFirst)
         .map((d) => aboutEntity(library, shown, drawn, d));
       timings.lint ??= now() - t;
+      t = now();
+      const diagnostics = [...linted, ...textWarnings(library, shown, drawn, drawNoPlot === true)];
+      timings.inspect = now() - t;
       t = now();
       const fontsOf = fontsIn(library, [shown, ...Object.values(drawn)]);
       const { svg, min, max } = framed(
@@ -518,7 +547,7 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
       // each, so it draws none. Two layouts of one name are one picture, the first's.
       const drawnNames = new Set<string>();
       const sheets =
-        library.viewportView === undefined
+        library.viewportView === undefined || view
           ? []
           : (shown.layouts ?? []).flatMap((layout) => {
               if (drawnNames.has(layout.name)) return [];
@@ -531,6 +560,22 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
               const sheet = library.toSVG(shown, options);
               return [{ name: layout.name, svg: sheet, fonts: fontsOf(sheet) }];
             });
+      // The one rectangle asked for, drawn with no margin around it.
+      let viewed: WorkerResult["view"] = null;
+      if (view) {
+        if (library.inspectText === undefined) {
+          throw new Error(
+            "The copy of tsdraft this drawing imports is older than --view and draws no view. Update it",
+          );
+        }
+        const one = library.toSVG(shown, {
+          view: view.box,
+          ...(view.layout === undefined ? {} : { layout: view.layout }),
+          drawNoPlot: drawNoPlot === true,
+          xrefs: drawn,
+        });
+        viewed = { layout: view.layout ?? null, svg: one, fonts: fontsOf(one) };
+      }
       timings.svg = now() - t;
       const errors = diagnostics.filter((d) => d.severity === "error").length;
       return {
@@ -561,6 +606,7 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
         svg,
         fonts: fontsOf(svg),
         layouts: sheets,
+        view: viewed,
         swatches: swatches(library, shown),
         error: null,
         library: entry,
@@ -623,8 +669,34 @@ function aboutEntity(
   return { ...d, kind: entity.kind, layer: entity.layer, bounds };
 }
 
+/**
+ * What `inspectText` warns of in the drawing's text as it plots, each with the kind of the
+ * entity that draws the text. A warning brings its own box. It is never the reason a build
+ * fails: a drawing made by hand that it cannot read has no such warnings.
+ */
+function textWarnings(
+  library: Library,
+  drawing: Drawing,
+  referenced: Readonly<Record<string, Drawing>>,
+  drawNoPlot: boolean,
+): BuildDiagnostic[] {
+  try {
+    const found = library.inspectText?.(drawing, { drawNoPlot, xrefs: referenced }) ?? [];
+    return found.map((warning) => {
+      const entities =
+        warning.layout === undefined
+          ? drawing.entities
+          : drawing.layouts?.find((l) => l.name === warning.layout)?.entities;
+      const kind = warning.entity === undefined ? undefined : entities?.[warning.entity]?.kind;
+      return withPath(kind === undefined ? warning : { ...warning, kind });
+    });
+  } catch {
+    return [];
+  }
+}
+
 /** Gives the file of a diagnostic's `call` as a path, as `error.file` is: Node's stack has a URL. */
-function withPath(d: Diagnostic): Diagnostic {
+function withPath<D extends Pick<Diagnostic, "call">>(d: D): D {
   return d.call ? { ...d, call: { ...d.call, file: toPath(d.call.file) } } : d;
 }
 

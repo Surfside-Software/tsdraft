@@ -200,6 +200,10 @@ export const xrefs = { BORDER: border };
 export default drawing;
 ```
 
-Whether a field fits its box is a matter of the width of its letters. A PNG from the command
-has a text as wide as it plots only where `sameWidths` is true for its font in `pngFonts`: see
-[The tsdraft command](command.md#fonts-in-a-png).
+Whether a field fits its box is a matter of how long its value plots. `measureText` gives
+that length before the value is drawn: see [Text](text.md#how-long-a-text-is). The pictures
+draw every text as long as it plots, in any font, so a value that fits its box in the PNG
+fits it on paper. Draw a field's box as a closed polyline, as `rect` does, and the command
+warns with `text-leaves-boundary` when a value runs past it, naming the insert and the
+attribute's tag. `tsdraft render <file> --layout <name> --view x0,y0,x1,y1` draws the title
+block alone, large enough to read: see [The tsdraft command](command.md#a-closer-look).

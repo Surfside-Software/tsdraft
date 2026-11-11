@@ -1,7 +1,7 @@
 // Drafting helpers for the examples. tsdraft draws lines, polylines, circles, arcs and text, and
 // these functions compose them into dimensions, leaders, patterns and symbols. In CAD they arrive
 // as the plain lines and text they are made of.
-import type { DrawingBuilder, Point } from "../../src/index.ts";
+import { measureText, type DrawingBuilder, type Font, type Point } from "../../src/index.ts";
 
 /** The builder methods the helpers draw with. */
 export type Pen = Pick<DrawingBuilder, "line" | "polyline" | "circle" | "arc" | "text">;
@@ -33,13 +33,12 @@ function reduce(numerator: number, denominator: number): string {
 }
 
 /**
- * The estimated width of a line of text, for laying out columns and breaking lines. A text is
- * justified to its point by `align`, which needs no estimate. `perCharacter` is the width of a
- * character as a share of the text height: about 0.6 in the monospace font the preview draws
- * the `Standard` style in, and about 0.9 for capitals in Arial.
+ * How long a line of text plots in `font`, for laying out columns and breaking lines. A text is
+ * justified to its point by `align`, which needs no length. `font` is the font of the text's
+ * style, and `txt.shx` is the font of `Standard`.
  */
-export function textWidth(value: string, height: number, perCharacter = 0.6): number {
-  return value.length * perCharacter * height;
+export function textWidth(value: string, height: number, font: Font = "txt.shx"): number {
+  return measureText({ value, height, font }).length;
 }
 
 export interface DimensionStyle {
@@ -55,8 +54,8 @@ export interface DimensionStyle {
   readonly format?: (distance: number) => string;
   /** The text style of the dimension texts. Defaults to `"Standard"`. */
   readonly textStyle?: string;
-  /** The width of a character as a share of the text height, as `textWidth` takes it. */
-  readonly perCharacter?: number;
+  /** The font of `textStyle`, which `textWidth` measures the texts in. Defaults to `"txt.shx"`. */
+  readonly font?: Font;
   /**
    * Where the text of the segment from `from` to `to` is centered along the dimension line.
    * Defaults to the middle of the segment.
@@ -102,7 +101,7 @@ export function dimensionChain(
     const value = (style.format ?? feetInches)(a1 - a0);
     const middle = style.textAt?.(a0, a1) ?? (a0 + a1) / 2;
     // Text that does not fit between the extension lines goes on the other side of the line.
-    const fits = textWidth(value, style.text, style.perCharacter) + style.text < a1 - a0;
+    const fits = textWidth(value, style.text, style.font) + style.text < a1 - a0;
     const lift = fits ? style.text * 0.5 : -style.text * 1.5;
     const textStyle = style.textStyle ?? "Standard";
     if (axis === "x") {

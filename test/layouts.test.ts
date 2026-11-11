@@ -679,6 +679,36 @@ test("a view is drawn only where it can be seen: on the paper and in the picture
   );
 });
 
+test("a view of a layout is the picture: a viewport is cut to it, or left out when it misses", () => {
+  const d = createDrawing();
+  d.line([0, 0], [10, 10], { id: "line" });
+  d.layout("S", { paper: "ARCH D" }, (page) => {
+    page.viewport([2, 2], 10, 10, { center: [5, 5], ratio: 1, id: "plan" });
+    page.viewport([20, 2], 4, 4, { center: [5, 5], ratio: 1, id: "key" });
+    d.text([30, 20], "NOTE", { height: 0.25, id: "note" });
+  });
+  const drawing = d.build();
+  // Over a corner of the first viewport: the clip and its hidden rectangle are the part seen.
+  const corner = toSVG(drawing, { layout: "S", view: [8, 9, 16, 15] });
+  assert.match(corner, /viewBox="8 -15 8 6" data-layout="S"/);
+  assert.match(
+    corner,
+    /<clipPath id="tsdraft-viewport-0"><rect x="8" y="9" width="4" height="3"\/>/,
+  );
+  assert.match(corner, /<rect x="8" y="9" width="4" height="3" visibility="hidden"/);
+  assert.match(corner, /<g data-viewport="1" data-id="key"\/>/);
+  // Over the note alone, it misses every viewport: no view is drawn and nothing is clipped.
+  const note = toSVG(drawing, { layout: "S", view: [29, 19, 35, 21] });
+  assert.match(note, /viewBox="29 -21 6 2"/);
+  assert.match(note, /<g data-viewport="0" data-id="plan"\/>\s*<rect[^>]*data-viewport-border="0"/);
+  assert.match(note, /<g data-viewport="1" data-id="key"\/>/);
+  assert.doesNotMatch(note, /clip|data-id="line"/);
+  assert.match(note, /data-id="note"/);
+  // A view may lie off the paper.
+  assert.match(toSVG(drawing, { layout: "S", view: [-10, -10, -5, -5] }), /viewBox="-10 5 5 5"/);
+  assert.throws(() => toSVG(drawing, { layout: "S", view: [0, 0, 0, 0] }), RangeError);
+});
+
 test("a slanted text that leans into a view is drawn in it, and counts as shown", () => {
   const d = createDrawing();
   d.textStyle({ name: "LEAN", font: "Arial", obliqueAngle: 85 });
