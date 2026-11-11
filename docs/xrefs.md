@@ -42,14 +42,18 @@ tsdraft writes every xref as an overlay. AutoCAD loads an overlay for the drawin
 references it and not for a third drawing that references that one, so two drawings can
 overlay each other.
 
+AutoCAD draws the model space of the file and nothing of its layouts.
+
 ## Placing an xref
 
 `d.insert(name, at, options)` places an xref as it places a block: on the current layer, with
-a `scale`, a `rotation` and an `id`. An xref can be placed any number of times, in model space
-and inside a block. An insert of an xref cannot set `attributes`.
+a `scale`, a `rotation` and an `id`. An xref can be placed any number of times, in model
+space, inside a block and on a layout. An insert of an xref cannot set `attributes`.
 
 Place each xref at least once. AutoCAD purges an xref that nothing references when it opens
-the drawing, and `lint` warns of one.
+the drawing, and `lint` warns of one. An insert on a layout counts: a border that only a
+sheet places is loaded. [Title blocks](title-blocks.md) shows a firm's border placed that
+way, and what its file may hold.
 
 ### Units
 

@@ -1,7 +1,9 @@
 # Agent notes
 
 - `BuildState` in `src/state.ts` is what agents program against. Change a field's meaning or
-  remove one only with a bump of `schema`, and keep `test/render.test.ts` in step.
+  remove one only with a bump of `schema`, and keep `test/render.test.ts` in step. A field of
+  something no release has shipped may change without a bump: the count of a block's inserts
+  gained the inserts on layouts while layouts were unreleased.
 - The command opens no file an xref names. The worker draws an xref from the drawing file's
   named export `xrefs` alone, and `drawing.xrefs` says with `shown` which ones the pictures
   have, so an agent knows what it is not seeing.
@@ -21,6 +23,15 @@
   is built. A test that makes the renderer abort runs the command under
   `prlimit --core=1:1 --`, which keeps the kernel from writing a core, and is skipped where
   there is no `prlimit`.
+- The renderer consults no system font by name. `src/fonts.ts` looks in the machine's font
+  folders, once for the life of the command, for the file of each TrueType font of `FONTS`,
+  or of a font made to its widths, and takes a file only when the family name inside it is
+  the one expected. `src/png.ts` sends the renderer's process the files a picture needs, and
+  the process sets the SVG's font family to the file's own. Every other font is drawn in the
+  shipped JetBrains Mono. `outputs.pngFonts` and each layout's `pngFonts` say which, with
+  `sameWidths`, from `pictureFaces`, the one function that picks the files `toPNG` sends. Add a font to `SAME_WIDTHS` only when every advance width of the Latin-1
+  letters is the same share of the size as the font's own. Ship no font file that is not
+  under a licence that allows it.
 - `toSVG` may throw on a drawing `lint` reports an error for. The worker then draws the drawing
   `without` in `src/omit.ts` gives: the one without the `item` of each error, with a stand-in
   for an entity so the others keep their indexes. `drawing.omitted` lists what was left out,

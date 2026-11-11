@@ -100,7 +100,7 @@ it holds, the tags of its attributes and how many inserts place it. `drawing.ins
 insert in model space: its `entity` index, `block`, `layer`, `id`, `at`, `scale`, `rotation` and
 the value it shows for each attribute, and `xref`, which is true for an insert of an xref.
 `drawing.xrefs` gives each xref's `name`, its `path`, how many `inserts` place it, in model
-space and in blocks, `shown` and `units`. The command opens no DWG file. It draws an xref when
+space, in blocks and on layouts, `shown` and `units`. The command opens no DWG file. It draws an xref when
 the drawing file has a named export `xrefs`, an object that gives a `Drawing` under the xref's
 name, such as `export const xrefs = { BASE: base }`. `shown` says that the pictures drew that
 drawing. The command cannot tell whether it is what the file at `path` holds, so `shown` is
@@ -113,7 +113,11 @@ and of `drawing.extents`. `drawing.layouts` gives each layout: its `name`, its `
 `height`, its `plotStyle`, how many `entities` are on its sheet, and each viewport, with its
 `id`, its `layer`, whether its `border` plots, its `rectangle` on the sheet, its `ratio`, the
 `center` of its view and `shows`, the box of model space it frames. What lies outside `shows`
-is cut off, so compare it with `drawing.extents`. `outputs.layouts` gives a picture of each
+is cut off, so compare it with `drawing.extents`. A layout's `inserts` lists each insert on
+its sheet as `drawing.inserts` lists those of model space, with `entity` as its index among
+the sheet's entities, `at` on the sheet in paper units, and the value it shows for each
+attribute. The fields of a title block are read there: the insert of the title block, and
+under `attributes` the value of each field by its tag. `outputs.layouts` gives a picture of each
 sheet as it plots, an SVG and a PNG, under the layout's `name`, with a `pngError` that is
 `null` or says why that sheet has no PNG. `render` writes them beside
 the others as `<name>.layout-<layout>.svg` and `.png`, with every character of the layout's
@@ -195,6 +199,45 @@ the build that is queued or running, or `null` when the state is the latest.
 
 `?after=` waits up to the build timeout plus 5 s; `&timeout=<ms>` changes that, up to 120 s. A
 plain `/state.json` right after a save may still show the old build, with `pending` set.
+
+## Fonts in a PNG
+
+`toSVG` sets each text in a font family for its style's font. A browser that shows the SVG
+draws it in that font when the machine has it. The PNG renderer reads no font the system
+knows by name. It has one typeface of its own, JetBrains Mono, which is monospaced, and it
+looks in the machine's font folders for a file to set each TrueType font in:
+
+- the font's own file, such as `arial.ttf`, or
+- a font made to its widths, whose letters each take the room of the font's own: Liberation
+  Sans for Arial, Liberation Serif for Times New Roman and Liberation Mono for Courier New.
+
+A file counts only when the family name inside it is the one expected. An SHX font, and a
+TrueType font the machine has neither file for, is set in JetBrains Mono, and a text in it is
+wider or narrower in the PNG than it plots.
+
+`outputs.pngFonts` says what the PNG of model space does with each font of its text, and each
+entry of `outputs.layouts` has a `pngFonts` for its sheet:
+
+```json
+"pngFonts": [
+  { "font": "Arial", "face": "Liberation Sans", "sameWidths": true },
+  { "font": "romans.shx", "face": "JetBrains Mono", "sameWidths": false }
+]
+```
+
+`font` is a font of the drawing, as a text style names it, or of a drawing given for an xref.
+`face` is the family name of the typeface the PNG sets it in, taken from the font files the
+renderer is given for that picture. Where `sameWidths` is false, do
+not judge from the PNG whether a text fits its space, such as a field in its box. Two SHX
+fonts that `toSVG` sets in one font family are both listed when either is drawn. The command
+looks for the files once, when it starts.
+
+A font made to another's widths has its own letter shapes, and its capitals are not quite as
+high: Liberation Sans draws a capital 4% lower than Arial does at one size.
+
+`sameWidths` is also false for a font the pictures set at another size than AutoCAD lays it
+out at. Times New Roman is one: `toSVG` sets it about 2% wide, in its own file and in
+Liberation Serif alike.
 
 ## Without the PNG renderer
 

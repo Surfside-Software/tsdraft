@@ -4,6 +4,7 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { pictureFaces } from "./fonts.ts";
 import type { PngAnswer, PngRequest } from "./png-child.ts";
 
 const require = createRequire(import.meta.url);
@@ -138,7 +139,8 @@ function next(): void {
 
 /**
  * Renders the SVG `width` pixels wide, its height following the drawing's proportions, in the
- * renderer's process. A width that would make more than `MAX_PIXELS` is narrowed to fit; the
+ * renderer's process, with each TrueType font in the face `pictureFaces` of `fonts.ts` has
+ * for it. A width that would make more than `MAX_PIXELS` is narrowed to fit; the
  * result gives the width used. Rejects with the reason when `pngUnavailable()` gives one, and
  * with a `RendererCrashed` when the renderer's process died on this picture.
  */
@@ -148,8 +150,10 @@ export async function toPNG(svg: string, width: number): Promise<{ png: Buffer; 
   const [, , w = 1, h = 1] = (/viewBox="([^"]+)"/.exec(svg)?.[1] ?? "").split(" ").map(Number);
   const aspect = Math.max(h, 1e-9) / Math.max(w, 1e-9);
   const fitted = Math.max(1, Math.min(width, Math.floor(Math.sqrt(MAX_PIXELS / aspect))));
+  // The font files this picture's text is set in, beside the renderer's own.
+  const used = pictureFaces(svg);
   const png = await new Promise<Uint8Array>((done, failed) => {
-    queue.push({ request: { id: ++lastId, svg, width: fitted }, done, failed });
+    queue.push({ request: { id: ++lastId, svg, width: fitted, faces: used }, done, failed });
     if (queue.length === 1) next();
   });
   return { png: Buffer.from(png.buffer, png.byteOffset, png.byteLength), width: fitted };

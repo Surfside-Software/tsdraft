@@ -156,9 +156,20 @@ a plan 100 feet wide, which reads as a solid line. The picture of model space, `
 ## What is drawn on a sheet
 
 Lines, circles, arcs, polylines, texts and inserts of blocks and of xrefs are drawn on a sheet
-as they are in model space, with the same options and the same rules. An insert on a sheet
-carries its attributes, so a title block is a block with attribute definitions, inserted on
-the sheet.
+as they are in model space, with the same options and the same rules.
+
+- An insert on a sheet carries its attributes, so a title block is a block with attribute
+  definitions, inserted on the sheet. [Title blocks](title-blocks.md) has one, and a firm's
+  own border placed under a sheet as an xref.
+- A block is defined once and inserted wherever it is needed: a symbol of the plan is inserted
+  in model space at the plan's scale, and on the sheet, in its legend, at the size it plots.
+- What belongs to the paper is drawn on the sheet: the border, the title block, notes,
+  legends, each view's title and its graphic scale. What is read in the plan, such as a
+  dimension or a label, is drawn in model space and sized with `fromPaper` for the viewport's
+  ratio.
+- AutoCAD plots a layout as far as its paper goes. It plots a line that lies on the left, the
+  bottom or the right edge of the paper with half its width off the page, and no line that
+  lies on the top edge. Keep a border inside the paper.
 
 An `id` is unique in the whole drawing: model space, every block and every layout share one
 set of ids.

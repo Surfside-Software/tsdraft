@@ -2,9 +2,10 @@
   <rect x="0" y="-24" width="36" height="24" rx="0.0655" fill="#131315"/>
   <rect x="0.016" y="-23.984" width="35.967" height="23.967" rx="0.0655" fill="none" stroke="#8b8b92" stroke-width="0.033"/>
   <g transform="scale(1 -1)" fill="none" stroke-linejoin="round" stroke-width="0.026182">
-    <clipPath id="tsdraft-viewport-0"><rect x="0" y="0" width="36" height="24"/></clipPath>
+    <clipPath id="tsdraft-viewport-0"><rect x="0.5" y="2" width="27" height="21.5"/></clipPath>
     <g data-viewport="0" data-id="plan" clip-path="url(#tsdraft-viewport-0)">
-      <g transform="translate(18 12) scale(0.1) translate(-90 -45)" stroke-width="0.26181">
+      <rect x="0.5" y="2" width="27" height="21.5" visibility="hidden" stroke="#8b8b92"/>
+      <g transform="translate(14 12.75) scale(0.1) translate(-50 -45)" stroke-width="0.26181">
         <path d="M 0 0 L 6.25 0 M 7.5 0 L 8.75 0 M 10 0 L 11.25 0 M 12.5 0 L 18.75 0 M 20 0 L 21.25 0 M 22.5 0 L 23.75 0 M 25 0 L 31.25 0 M 32.5 0 L 33.75 0 M 35 0 L 36.25 0 M 37.5 0 L 43.75 0 M 45 0 L 46.25 0 M 47.5 0 L 48.75 0 M 50 0 L 56.25 0 M 57.5 0 L 58.75 0 M 60 0 L 61.25 0 M 62.5 0 L 68.75 0 M 70 0 L 71.25 0 M 72.5 0 L 73.75 0 M 75 0 L 81.25 0 M 82.5 0 L 83.75 0 M 85 0 L 86.25 0 M 87.5 0 L 93.75 0 M 95 0 L 96.25 0 M 97.5 0 L 98.75 0 M 100 0 L 100 6.25 M 100 7.5 L 100 8.75 M 100 10 L 100 11.25 M 100 12.5 L 100 18.75 M 100 20 L 100 21.25 M 100 22.5 L 100 23.75 M 100 25 L 100 31.25 M 100 32.5 L 100 33.75 M 100 35 L 100 36.25 M 100 37.5 L 100 43.75 M 100 45 L 100 46.25 M 100 47.5 L 100 48.75 M 100 50 L 100 56.25 M 100 57.5 L 100 58.75 M 100 60 L 100 61.25 M 100 62.5 L 100 68.75 M 100 70 L 100 71.25 M 100 72.5 L 100 73.75 M 100 75 L 100 81.25 M 100 82.5 L 100 83.75 M 100 85 L 100 86.25 M 100 87.5 L 100 93.75 M 100 95 L 100 96.25 M 100 97.5 L 100 98.75 M 100 100 L 100 106.25 M 100 107.5 L 100 108.75 M 100 110 L 100 111.25 M 100 112.5 L 100 118.75 M 100 120 L 100 121.25 M 100 122.5 L 100 123.75 M 100 125 L 100 131.25 M 100 132.5 L 100 133.75 M 100 135 L 100 136.25 M 100 137.5 L 100 140 M 100 140 L 93.75 140 M 92.5 140 L 91.25 140 M 90 140 L 88.75 140 M 87.5 140 L 81.25 140 M 80 140 L 78.75 140 M 77.5 140 L 76.25 140 M 75 140 L 68.75 140 M 67.5 140 L 66.25 140 M 65 140 L 63.75 140 M 62.5 140 L 56.25 140 M 55 140 L 53.75 140 M 52.5 140 L 51.25 140 M 50 140 L 43.75 140 M 42.5 140 L 41.25 140 M 40 140 L 38.75 140 M 37.5 140 L 31.25 140 M 30 140 L 28.75 140 M 27.5 140 L 26.25 140 M 25 140 L 18.75 140 M 17.5 140 L 16.25 140 M 15 140 L 13.75 140 M 12.5 140 L 6.25 140 M 5 140 L 3.75 140 M 2.5 140 L 1.25 140 M 0 140 L 0 133.75 M 0 132.5 L 0 131.25 M 0 130 L 0 128.75 M 0 127.5 L 0 121.25 M 0 120 L 0 118.75 M 0 117.5 L 0 116.25 M 0 115 L 0 108.75 M 0 107.5 L 0 106.25 M 0 105 L 0 103.75 M 0 102.5 L 0 96.25 M 0 95 L 0 93.75 M 0 92.5 L 0 91.25 M 0 90 L 0 83.75 M 0 82.5 L 0 81.25 M 0 80 L 0 78.75 M 0 77.5 L 0 71.25 M 0 70 L 0 68.75 M 0 67.5 L 0 66.25 M 0 65 L 0 58.75 M 0 57.5 L 0 56.25 M 0 55 L 0 53.75 M 0 52.5 L 0 46.25 M 0 45 L 0 43.75 M 0 42.5 L 0 41.25 M 0 40 L 0 33.75 M 0 32.5 L 0 31.25 M 0 30 L 0 28.75 M 0 27.5 L 0 21.25 M 0 20 L 0 18.75 M 0 17.5 L 0 16.25 M 0 15 L 0 8.75 M 0 7.5 L 0 6.25 M 0 5 L 0 3.75 M 0 2.5 L 0 0" stroke="#f2f2f3" stroke-width="0.73306"/>
         <path d="M -85 0 L -78.75 0 M -77.5 0 L -76.25 0 M -75 0 L -73.75 0 M -72.5 0 L -66.25 0 M -65 0 L -63.75 0 M -62.5 0 L -61.25 0 M -60 0 L -53.75 0 M -52.5 0 L -51.25 0 M -50 0 L -48.75 0 M -47.5 0 L -41.25 0 M -40 0 L -38.75 0 M -37.5 0 L -36.25 0 M -35 0 L -28.75 0 M -27.5 0 L -26.25 0 M -25 0 L -23.75 0 M -22.5 0 L -16.25 0 M -15 0 L -13.75 0 M -12.5 0 L -11.25 0 M -10 0 L -3.75 0 M -2.5 0 L -1.25 0" stroke="#8b8b92" stroke-width="0.1885"/>
         <path d="M 100 0 L 106.25 0 M 107.5 0 L 108.75 0 M 110 0 L 111.25 0 M 112.5 0 L 118.75 0 M 120 0 L 121.25 0 M 122.5 0 L 123.75 0 M 125 0 L 131.25 0 M 132.5 0 L 133.75 0 M 135 0 L 136.25 0 M 137.5 0 L 143.75 0 M 145 0 L 146.25 0 M 147.5 0 L 148.75 0 M 150 0 L 156.25 0 M 157.5 0 L 158.75 0 M 160 0 L 161.25 0 M 162.5 0 L 168.75 0 M 170 0 L 171.25 0 M 172.5 0 L 173.75 0 M 175 0 L 181.25 0 M 182.5 0 L 183.75 0" stroke="#8b8b92" stroke-width="0.1885"/>
@@ -98,124 +99,160 @@
         <text transform="translate(0 -13.625) scale(1 -1) translate(0 0.9375)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">EDGE OF PAVEMENT</text>
         <text transform="translate(50 -23.75) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">50' PUBLIC RIGHT-OF-WAY</text>
         <text transform="translate(50 -21.875) scale(1 -1)" font-size="2.618715" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">OAK STREET</text>
-        <text transform="translate(185 -24.375) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="end" fill="#f2f2f3" stroke="none">CENTERLINE</text>
+        <text transform="translate(183.75 -24.375) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="end" fill="#f2f2f3" stroke="none">CENTERLINE</text>
         <text transform="translate(-10 70) scale(1 -1) rotate(-90)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">LOT 11</text>
         <text transform="translate(111.25 70) scale(1 -1) rotate(-90)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">LOT 13</text>
         <text transform="translate(50 150) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">LOT 27</text>
-        <text transform="translate(195 158.125) scale(1 -1)" font-size="2.618715" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SITE DATA</text>
-        <line x1="195" y1="157.5" x2="265" y2="157.5" stroke="#f2f2f3" stroke-width="0.52361"/>
-        <text transform="translate(195 154.8) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PARCEL</text>
-        <text transform="translate(220.25 154.8) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">LOT 12, BLOCK 3</text>
-        <text transform="translate(195 152.55) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">ZONING</text>
-        <text transform="translate(220.25 152.55) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">R-1 SINGLE-FAMILY</text>
-        <text transform="translate(195 150.3) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">LOT AREA</text>
-        <text transform="translate(220.25 150.3) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">14,000 SF (0.32 AC)</text>
-        <text transform="translate(195 148.05) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">BUILDING FOOTPRINT</text>
-        <text transform="translate(220.25 148.05) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">2,398 SF</text>
-        <text transform="translate(195 145.8) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">LOT COVERAGE</text>
-        <text transform="translate(220.25 145.8) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">17.1% (40% MAX.)</text>
-        <text transform="translate(195 143.55) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">FINISHED FLOOR</text>
-        <text transform="translate(220.25 143.55) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">ELEV. 12.50'</text>
-        <text transform="translate(195 140.175) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SETBACK</text>
-        <text transform="translate(220.25 140.175) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">REQUIRED</text>
-        <text transform="translate(234.25 140.175) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PROVIDED</text>
-        <text transform="translate(195 137.925) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">FRONT</text>
-        <text transform="translate(220.25 137.925) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">25.0'</text>
-        <text transform="translate(234.25 137.925) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">30.0'</text>
-        <text transform="translate(195 135.675) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SIDE</text>
-        <text transform="translate(220.25 135.675) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">7.5'</text>
-        <text transform="translate(234.25 135.675) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">24.0'</text>
-        <text transform="translate(195 133.425) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">REAR</text>
-        <text transform="translate(220.25 133.425) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">20.0'</text>
-        <text transform="translate(234.25 133.425) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">61.0'</text>
-        <text transform="translate(195 121.8) scale(1 -1)" font-size="2.618715" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">GENERAL NOTES</text>
-        <line x1="195" y1="121.175" x2="265" y2="121.175" stroke="#f2f2f3" stroke-width="0.52361"/>
-        <text transform="translate(195 118.475) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">1.</text>
-        <text transform="translate(199.5 118.475) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PROPERTY LINES ARE DRAWN FROM THE RECORDED PLAT. NO FIELD</text>
-        <text transform="translate(199.5 116.225) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SURVEY WAS MADE FOR THIS PLAN.</text>
-        <text transform="translate(195 113.225) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">2.</text>
-        <text transform="translate(199.5 113.225) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">DIMENSIONS ARE IN FEET, MEASURED TO THE OUTSIDE FACE OF</text>
-        <text transform="translate(199.5 110.975) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">THE FOUNDATION WALL.</text>
-        <text transform="translate(195 107.975) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">3.</text>
-        <text transform="translate(199.5 107.975) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SETBACKS ARE MEASURED AT RIGHT ANGLES FROM THE PROPERTY</text>
-        <text transform="translate(199.5 105.725) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">LINE TO THE NEAREST WALL.</text>
-        <text transform="translate(195 102.725) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">4.</text>
-        <text transform="translate(199.5 102.725) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">THE FINISHED FLOOR ELEVATION IS ON AN ASSUMED DATUM.</text>
-        <text transform="translate(195 99.725) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">5.</text>
-        <text transform="translate(199.5 99.725) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">LOCATE ALL UNDERGROUND UTILITIES BEFORE DIGGING.</text>
-        <text transform="translate(195 96.725) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">6.</text>
-        <text transform="translate(199.5 96.725) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">GRADE THE LOT TO DRAIN AWAY FROM THE BUILDING AND TOWARD</text>
-        <text transform="translate(199.5 94.475) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">THE STREET. KEEP RUNOFF OFF THE ADJOINING LOTS.</text>
-        <text transform="translate(195 91.475) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">7.</text>
-        <text transform="translate(199.5 91.475) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PUT EROSION CONTROL IN PLACE BEFORE CLEARING, AND KEEP IT</text>
-        <text transform="translate(199.5 89.225) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">UNTIL THE LOT IS STABILIZED.</text>
-        <text transform="translate(195 86.225) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">8.</text>
-        <text transform="translate(199.5 86.225) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PROTECT THE EXISTING TREES SHOWN. NO TREE IS TO BE</text>
-        <text transform="translate(199.5 83.975) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">REMOVED.</text>
-        <text transform="translate(195 80.975) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">9.</text>
-        <text transform="translate(199.5 80.975) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">WORK IN THE PUBLIC RIGHT-OF-WAY NEEDS ITS OWN PERMIT.</text>
-        <text transform="translate(195 77.975) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">10.</text>
-        <text transform="translate(199.5 77.975) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">REPLACE ANY SIDEWALK OR PAVEMENT DAMAGED DURING</text>
-        <text transform="translate(199.5 75.725) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">CONSTRUCTION.</text>
-        <text transform="translate(195 63.35) scale(1 -1)" font-size="2.618715" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">LEGEND</text>
-        <line x1="195" y1="62.725" x2="265" y2="62.725" stroke="#f2f2f3" stroke-width="0.52361"/>
-        <path d="M 195 60.65 L 201.25 60.65 M 202.5 60.65 L 203.75 60.65 M 205 60.65 L 206.25 60.65 M 207.5 60.65 L 213.75 60.65" stroke="#f2f2f3" stroke-width="0.73306"/>
-        <text transform="translate(218.75 60.025) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PROPERTY LINE</text>
-        <path d="M 195 57.275 L 201.25 57.275 M 202.5 57.275 L 203.75 57.275 M 205 57.275 L 206.25 57.275 M 207.5 57.275 L 213.75 57.275" stroke="#8b8b92" stroke-width="0.1885"/>
-        <text transform="translate(218.75 56.65) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">ADJOINING LOT LINE</text>
-        <path d="M 195 53.9 L 197.5 53.9 M 198.75 53.9 L 201.25 53.9 M 202.5 53.9 L 205 53.9 M 206.25 53.9 L 208.75 53.9 M 210 53.9 L 212.5 53.9 M 213.75 53.9 L 215 53.9" stroke="#8b8b92"/>
-        <text transform="translate(218.75 53.275) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">BUILDING SETBACK LINE</text>
-        <line x1="195" y1="50.525" x2="215" y2="50.525" stroke="#1aafc8" stroke-width="0.73306"/>
-        <text transform="translate(218.75 49.9) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">BUILDING FOOTPRINT</text>
-        <line x1="195" y1="47.15" x2="215" y2="47.15" stroke="#8b8b92" stroke-width="0.36653"/>
-        <text transform="translate(218.75 46.525) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">EDGE OF PAVEMENT OR CONCRETE</text>
-        <path d="M 195 43.775 L 201.25 43.775 M 202.5 43.775 L 203.75 43.775 M 205 43.775 L 211.25 43.775 M 212.5 43.775 L 213.75 43.775" stroke="#8b8b92" stroke-width="0.1885"/>
-        <text transform="translate(218.75 43.15) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">STREET CENTERLINE</text>
-        <g data-block="PROPERTY CORNER">
-          <circle cx="205" cy="40.4" r="0.625" stroke="#f2f2f3"/>
-        </g>
-        <text transform="translate(218.75 39.775) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PROPERTY CORNER</text>
-        <g data-block="TREE">
-          <circle cx="205" cy="35.9" r="1.875" stroke="#8b8b92" stroke-width="0.1885"/>
-          <line x1="204.71875" y1="35.9" x2="205.28125" y2="35.9" stroke="#8b8b92" stroke-width="0.1885"/>
-          <line x1="205" y1="35.61875" x2="205" y2="36.18125" stroke="#8b8b92" stroke-width="0.1885"/>
-        </g>
-        <text transform="translate(218.75 35.275) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">EXISTING TREE TO REMAIN</text>
-        <text transform="translate(195 22.525) scale(1 -1)" font-size="2.618715" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">ABBREVIATIONS</text>
-        <line x1="195" y1="21.9" x2="265" y2="21.9" stroke="#f2f2f3" stroke-width="0.52361"/>
-        <text transform="translate(195 19.2) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">AC</text>
-        <text transform="translate(206.75 19.2) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">ACRES</text>
-        <text transform="translate(195 16.95) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">CONC.</text>
-        <text transform="translate(206.75 16.95) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">CONCRETE</text>
-        <text transform="translate(195 14.7) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">ELEV.</text>
-        <text transform="translate(206.75 14.7) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">ELEVATION</text>
-        <text transform="translate(195 12.45) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">F.F.E.</text>
-        <text transform="translate(206.75 12.45) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">FINISHED FLOOR ELEVATION</text>
-        <text transform="translate(195 10.2) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">MAX.</text>
-        <text transform="translate(206.75 10.2) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">MAXIMUM</text>
-        <text transform="translate(195 7.95) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SF</text>
-        <text transform="translate(206.75 7.95) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SQUARE FEET</text>
-        <g data-block="VIEW TITLE">
-          <line x1="-73.75" y1="-66.25" x2="-51" y2="-66.25" stroke="#f2f2f3" stroke-width="0.52361"/>
-          <text transform="matrix(10 0 0 10 -73.75 -66.25) translate(0 0.0625) scale(1 -1)" font-size="0.349162" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SITE PLAN</text>
-          <text transform="matrix(10 0 0 10 -73.75 -66.25) translate(0 -0.0625) scale(1 -1) translate(0 0.125)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SCALE: 1&quot; = 10'</text>
-        </g>
-        <g data-block="NORTH ARROW">
-          <text transform="matrix(10 0 0 10 -81.25 -66.25) translate(0 0.4375) scale(1 -1)" font-size="0.261872" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">N</text>
-          <circle cx="-81.25" cy="-66.25" r="3.75" stroke="#f2f2f3" stroke-width="0.36653"/>
-          <line x1="-81.25" y1="-70" x2="-81.25" y2="-64.75" stroke="#f2f2f3" stroke-width="0.36653"/>
-          <polygon points="-81.25,-62.5 -81.8125,-65.875 -80.6875,-65.875" stroke="#f2f2f3" stroke-width="0.36653"/>
-        </g>
-        <polygon points="-43.5,-67.5 -23.5,-67.5 -23.5,-66.25 -43.5,-66.25" stroke="#f2f2f3" stroke-width="0.36653"/>
-        <line x1="-38.5" y1="-67.5" x2="-38.5" y2="-66.25" stroke="#f2f2f3" stroke-width="0.36653"/>
-        <line x1="-33.5" y1="-67.5" x2="-33.5" y2="-66.25" stroke="#f2f2f3" stroke-width="0.36653"/>
-        <line x1="-43.5" y1="-66.875" x2="-38.5" y2="-66.875" stroke="#f2f2f3" stroke-width="0.36653"/>
-        <text transform="translate(-43.5 -65.625) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">0</text>
-        <text transform="translate(-38.5 -65.625) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">5</text>
-        <text transform="translate(-33.5 -65.625) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">10</text>
-        <text transform="translate(-23.5 -65.625) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">20</text>
-        <text transform="translate(-22.25 -67.5) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">FEET</text>
       </g>
     </g>
+    <g data-id="title-block" data-block="TITLE BLOCK">
+      <polygon points="0.5,0.5 35.5,0.5 35.5,23.5 0.5,23.5" stroke="#f2f2f3" stroke-width="0.073306"/>
+      <polyline points="29,0.5 29,3.5 35.5,3.5" stroke="#f2f2f3" stroke-width="0.073306"/>
+      <line x1="31" y1="0.5" x2="31" y2="3.5" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <line x1="29" y1="1.5" x2="31" y2="1.5" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <line x1="31" y1="2.9" x2="35.5" y2="2.9" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <line x1="31" y1="2.1" x2="35.5" y2="2.1" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <line x1="31" y1="1.3" x2="33.75" y2="1.3" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <line x1="32.375" y1="0.5" x2="32.375" y2="2.1" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <line x1="33.75" y1="0.5" x2="33.75" y2="2.1" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <text transform="matrix(1 0 0 1 0 0) translate(29.0625 3.4375) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SEAL</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(29.0625 1.4375) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">REVISIONS</text>
+      <line x1="29" y1="1.3" x2="31" y2="1.3" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <line x1="29" y1="1.1" x2="31" y2="1.1" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <line x1="29" y1="0.9" x2="31" y2="0.9" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <line x1="29" y1="0.7" x2="31" y2="0.7" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <text transform="matrix(1 0 0 1 0 0) translate(29.0625 1.2375) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">NO.</text>
+      <line x1="29.3" y1="0.5" x2="29.3" y2="1.3" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <text transform="matrix(1 0 0 1 0 0) translate(29.3625 1.2375) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">DATE</text>
+      <line x1="29.9" y1="0.5" x2="29.9" y2="1.3" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <text transform="matrix(1 0 0 1 0 0) translate(29.9625 1.2375) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">DESCRIPTION</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(31.0625 3.4375) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PROJECT</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(31.0625 2.8375) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SHEET TITLE</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(31.0625 2.0375) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">DATE</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(32.4375 2.0375) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SCALE</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(31.0625 1.2375) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">DRAWN BY</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(32.4375 1.2375) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">CHECKED BY</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.8125 2.0375) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SHEET</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(31.0625 2.99375) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">RESIDENCE AT LOT 12, BLOCK 3</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(31.0625 2.19375) scale(1 -1)" font-size="0.261872" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SITE PLAN</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(31.0625 1.39375) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">2026-11-11</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(32.4375 1.39375) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">1&quot; = 10'</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(31.0625 0.59375) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">AB</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(32.4375 0.59375) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">CD</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(34.625 1.2375) scale(1 -1) translate(0 0.15625)" font-size="0.436453" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">C-101</text>
+    </g>
+    <g data-block="VIEW TITLE">
+      <line x1="1.875" y1="1.125" x2="4.15" y2="1.125" stroke="#f2f2f3" stroke-width="0.052361"/>
+      <text transform="matrix(1 0 0 1 1.875 1.125) translate(0 0.0625) scale(1 -1)" font-size="0.349162" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SITE PLAN</text>
+      <text transform="matrix(1 0 0 1 1.875 1.125) translate(0 -0.0625) scale(1 -1) translate(0 0.125)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SCALE: 1&quot; = 10'</text>
+    </g>
+    <g data-block="NORTH ARROW">
+      <text transform="matrix(1 0 0 1 1.125 1.125) translate(0 0.4375) scale(1 -1)" font-size="0.261872" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">N</text>
+      <circle cx="1.125" cy="1.125" r="0.375" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <line x1="1.125" y1="0.75" x2="1.125" y2="1.275" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <polygon points="1.125,1.5 1.06875,1.1625 1.18125,1.1625" stroke="#f2f2f3" stroke-width="0.036653"/>
+    </g>
+    <polygon points="4.9,1 6.9,1 6.9,1.125 4.9,1.125" stroke="#f2f2f3" stroke-width="0.036653"/>
+    <line x1="5.4" y1="1" x2="5.4" y2="1.125" stroke="#f2f2f3" stroke-width="0.036653"/>
+    <line x1="5.9" y1="1" x2="5.9" y2="1.125" stroke="#f2f2f3" stroke-width="0.036653"/>
+    <line x1="4.9" y1="1.0625" x2="5.4" y2="1.0625" stroke="#f2f2f3" stroke-width="0.036653"/>
+    <text transform="translate(4.9 1.1875) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">0</text>
+    <text transform="translate(5.4 1.1875) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">5</text>
+    <text transform="translate(5.9 1.1875) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">10</text>
+    <text transform="translate(6.9 1.1875) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">20</text>
+    <text transform="translate(7.025 1) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">FEET</text>
+    <text transform="translate(28.5 23.0625) scale(1 -1)" font-size="0.261872" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SITE DATA</text>
+    <line x1="28.5" y1="23" x2="35.25" y2="23" stroke="#f2f2f3" stroke-width="0.052361"/>
+    <text transform="translate(28.5 22.73) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PARCEL</text>
+    <text transform="translate(31.025 22.73) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">LOT 12, BLOCK 3</text>
+    <text transform="translate(28.5 22.505) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">ZONING</text>
+    <text transform="translate(31.025 22.505) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">R-1 SINGLE-FAMILY</text>
+    <text transform="translate(28.5 22.28) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">LOT AREA</text>
+    <text transform="translate(31.025 22.28) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">14,000 SF (0.32 AC)</text>
+    <text transform="translate(28.5 22.055) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">BUILDING FOOTPRINT</text>
+    <text transform="translate(31.025 22.055) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">2,398 SF</text>
+    <text transform="translate(28.5 21.83) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">LOT COVERAGE</text>
+    <text transform="translate(31.025 21.83) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">17.1% (40% MAX.)</text>
+    <text transform="translate(28.5 21.605) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">FINISHED FLOOR</text>
+    <text transform="translate(31.025 21.605) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">ELEV. 12.50'</text>
+    <text transform="translate(28.5 21.2675) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SETBACK</text>
+    <text transform="translate(31.025 21.2675) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">REQUIRED</text>
+    <text transform="translate(32.425 21.2675) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PROVIDED</text>
+    <text transform="translate(28.5 21.0425) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">FRONT</text>
+    <text transform="translate(31.025 21.0425) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">25.0'</text>
+    <text transform="translate(32.425 21.0425) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">30.0'</text>
+    <text transform="translate(28.5 20.8175) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SIDE</text>
+    <text transform="translate(31.025 20.8175) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">7.5'</text>
+    <text transform="translate(32.425 20.8175) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">24.0'</text>
+    <text transform="translate(28.5 20.5925) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">REAR</text>
+    <text transform="translate(31.025 20.5925) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">20.0'</text>
+    <text transform="translate(32.425 20.5925) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">61.0'</text>
+    <text transform="translate(28.5 19.43) scale(1 -1)" font-size="0.261872" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">GENERAL NOTES</text>
+    <line x1="28.5" y1="19.3675" x2="35.25" y2="19.3675" stroke="#f2f2f3" stroke-width="0.052361"/>
+    <text transform="translate(28.5 19.0975) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">1.</text>
+    <text transform="translate(28.95 19.0975) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PROPERTY LINES ARE DRAWN FROM THE RECORDED PLAT. NO</text>
+    <text transform="translate(28.95 18.8725) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">FIELD SURVEY WAS MADE FOR THIS PLAN.</text>
+    <text transform="translate(28.5 18.5725) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">2.</text>
+    <text transform="translate(28.95 18.5725) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">DIMENSIONS ARE IN FEET, MEASURED TO THE OUTSIDE FACE OF</text>
+    <text transform="translate(28.95 18.3475) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">THE FOUNDATION WALL.</text>
+    <text transform="translate(28.5 18.0475) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">3.</text>
+    <text transform="translate(28.95 18.0475) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SETBACKS ARE MEASURED AT RIGHT ANGLES FROM THE PROPERTY</text>
+    <text transform="translate(28.95 17.8225) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">LINE TO THE NEAREST WALL.</text>
+    <text transform="translate(28.5 17.5225) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">4.</text>
+    <text transform="translate(28.95 17.5225) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">THE FINISHED FLOOR ELEVATION IS ON AN ASSUMED DATUM.</text>
+    <text transform="translate(28.5 17.2225) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">5.</text>
+    <text transform="translate(28.95 17.2225) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">LOCATE ALL UNDERGROUND UTILITIES BEFORE DIGGING.</text>
+    <text transform="translate(28.5 16.9225) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">6.</text>
+    <text transform="translate(28.95 16.9225) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">GRADE THE LOT TO DRAIN AWAY FROM THE BUILDING AND TOWARD</text>
+    <text transform="translate(28.95 16.6975) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">THE STREET. KEEP RUNOFF OFF THE ADJOINING LOTS.</text>
+    <text transform="translate(28.5 16.3975) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">7.</text>
+    <text transform="translate(28.95 16.3975) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PUT EROSION CONTROL IN PLACE BEFORE CLEARING, AND KEEP</text>
+    <text transform="translate(28.95 16.1725) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">IT UNTIL THE LOT IS STABILIZED.</text>
+    <text transform="translate(28.5 15.8725) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">8.</text>
+    <text transform="translate(28.95 15.8725) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PROTECT THE EXISTING TREES SHOWN. NO TREE IS TO BE</text>
+    <text transform="translate(28.95 15.6475) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">REMOVED.</text>
+    <text transform="translate(28.5 15.3475) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">9.</text>
+    <text transform="translate(28.95 15.3475) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">WORK IN THE PUBLIC RIGHT-OF-WAY NEEDS ITS OWN PERMIT.</text>
+    <text transform="translate(28.5 15.0475) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">10.</text>
+    <text transform="translate(28.95 15.0475) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">REPLACE ANY SIDEWALK OR PAVEMENT DAMAGED DURING</text>
+    <text transform="translate(28.95 14.8225) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">CONSTRUCTION.</text>
+    <text transform="translate(28.5 13.585) scale(1 -1)" font-size="0.261872" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">LEGEND</text>
+    <line x1="28.5" y1="13.5225" x2="35.25" y2="13.5225" stroke="#f2f2f3" stroke-width="0.052361"/>
+    <path d="M 28.5 13.315 L 29.125 13.315 M 29.25 13.315 L 29.375 13.315 M 29.5 13.315 L 29.625 13.315 M 29.75 13.315 L 30.375 13.315" stroke="#f2f2f3" stroke-width="0.073306"/>
+    <text transform="translate(30.875 13.2525) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PROPERTY LINE</text>
+    <path d="M 28.5 12.9775 L 29.125 12.9775 M 29.25 12.9775 L 29.375 12.9775 M 29.5 12.9775 L 29.625 12.9775 M 29.75 12.9775 L 30.375 12.9775" stroke="#8b8b92" stroke-width="0.01885"/>
+    <text transform="translate(30.875 12.915) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">ADJOINING LOT LINE</text>
+    <path d="M 28.5 12.64 L 28.75 12.64 M 28.875 12.64 L 29.125 12.64 M 29.25 12.64 L 29.5 12.64 M 29.625 12.64 L 29.875 12.64 M 30 12.64 L 30.25 12.64 M 30.375 12.64 L 30.5 12.64" stroke="#8b8b92"/>
+    <text transform="translate(30.875 12.5775) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">BUILDING SETBACK LINE</text>
+    <line x1="28.5" y1="12.3025" x2="30.5" y2="12.3025" stroke="#1aafc8" stroke-width="0.073306"/>
+    <text transform="translate(30.875 12.24) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">BUILDING FOOTPRINT</text>
+    <line x1="28.5" y1="11.965" x2="30.5" y2="11.965" stroke="#8b8b92" stroke-width="0.036653"/>
+    <text transform="translate(30.875 11.9025) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">EDGE OF PAVEMENT OR CONCRETE</text>
+    <path d="M 28.5 11.6275 L 29.125 11.6275 M 29.25 11.6275 L 29.375 11.6275 M 29.5 11.6275 L 30.125 11.6275 M 30.25 11.6275 L 30.375 11.6275" stroke="#8b8b92" stroke-width="0.01885"/>
+    <text transform="translate(30.875 11.565) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">STREET CENTERLINE</text>
+    <g data-block="PROPERTY CORNER">
+      <circle cx="29.5" cy="11.29" r="0.0625" stroke="#f2f2f3"/>
+    </g>
+    <text transform="translate(30.875 11.2275) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PROPERTY CORNER</text>
+    <g data-block="TREE">
+      <circle cx="29.5" cy="10.84" r="0.1875" stroke="#8b8b92" stroke-width="0.01885"/>
+      <line x1="29.471875" y1="10.84" x2="29.528125" y2="10.84" stroke="#8b8b92" stroke-width="0.01885"/>
+      <line x1="29.5" y1="10.811875" x2="29.5" y2="10.868125" stroke="#8b8b92" stroke-width="0.01885"/>
+    </g>
+    <text transform="translate(30.875 10.7775) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">EXISTING TREE TO REMAIN</text>
+    <text transform="translate(28.5 9.5025) scale(1 -1)" font-size="0.261872" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">ABBREVIATIONS</text>
+    <line x1="28.5" y1="9.44" x2="35.25" y2="9.44" stroke="#f2f2f3" stroke-width="0.052361"/>
+    <text transform="translate(28.5 9.17) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">AC</text>
+    <text transform="translate(29.675 9.17) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">ACRES</text>
+    <text transform="translate(28.5 8.945) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">CONC.</text>
+    <text transform="translate(29.675 8.945) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">CONCRETE</text>
+    <text transform="translate(28.5 8.72) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">ELEV.</text>
+    <text transform="translate(29.675 8.72) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">ELEVATION</text>
+    <text transform="translate(28.5 8.495) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">F.F.E.</text>
+    <text transform="translate(29.675 8.495) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">FINISHED FLOOR ELEVATION</text>
+    <text transform="translate(28.5 8.27) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">MAX.</text>
+    <text transform="translate(29.675 8.27) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">MAXIMUM</text>
+    <text transform="translate(28.5 8.045) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SF</text>
+    <text transform="translate(29.675 8.045) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SQUARE FEET</text>
   </g>
 </svg>

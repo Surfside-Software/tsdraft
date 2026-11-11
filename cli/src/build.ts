@@ -217,6 +217,7 @@ function failure(
     drawing: null,
     diagnostics: [],
     svg: null,
+    fonts: [],
     layouts: [],
     swatches: {},
     error: { name, message, code: null, file, line: null, column: null, stack: "" },

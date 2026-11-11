@@ -5,7 +5,8 @@ import { existsSync, lstatSync, readFileSync, realpathSync, watch, type FSWatche
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { dirname, join, relative, sep } from "node:path";
-import { Builder, projectRoot, toState } from "./build.ts";
+import { Builder, projectRoot, toState, type Outcome } from "./build.ts";
+import { pngFonts } from "./fonts.ts";
 import { pngUnavailable, startRenderer, toPNG } from "./png.ts";
 import type { BuildState } from "./state.ts";
 import { fileVersion } from "./version.ts";
@@ -68,7 +69,8 @@ export async function dev(
     | {
         build: number;
         svg: string;
-        layouts: readonly { readonly name: string; readonly svg: string }[];
+        fonts: readonly string[];
+        layouts: Outcome["layouts"];
         swatches: Readonly<Record<string, string>>;
         state: BuildState;
       }
@@ -169,16 +171,20 @@ export async function dev(
     const sheets = outcome.ok ? outcome.layouts : (shown?.layouts ?? []);
     const outputs: BuildState["outputs"] =
       shownBuild === null
-        ? { svg: null, png: null, pngError: null, layouts: [] }
+        ? { svg: null, png: null, pngError: null, pngFonts: [], layouts: [] }
         : {
             svg: picture("svg"),
             png: noPng ? null : picture("png"),
             pngError: noPng,
-            layouts: sheets.map(({ name }) => ({
+            pngFonts: outcome.ok
+              ? pngFonts(outcome.fonts, outcome.svg ?? "")
+              : pngFonts(shown?.fonts ?? [], shown?.svg ?? ""),
+            layouts: sheets.map(({ name, fonts, svg }) => ({
               name,
               svg: picture("svg", name),
               png: noPng ? null : picture("png", name),
               pngError: noPng,
+              pngFonts: pngFonts(fonts, svg),
             })),
           };
     state = toState(outcome, session, number, file, shownBuild, outputs);
@@ -187,6 +193,7 @@ export async function dev(
       shown = {
         build: number,
         svg: outcome.svg,
+        fonts: outcome.fonts,
         layouts: outcome.layouts,
         swatches: outcome.swatches,
         state,

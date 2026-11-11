@@ -8,9 +8,10 @@ import type { renderAsync as RenderAsync } from "@resvg/resvg-js";
 const require = createRequire(import.meta.url);
 
 // `toSVG` sets each text in a font family for its style's font, ending in a generic family.
-// This font, JetBrains Mono under the OFL in assets/fonts/OFL.txt, answers for every family, so text
-// reads the same on every machine, and no system font is consulted. A text in Arial is
-// therefore justified, widened and slanted as drawn, but in this font's letters.
+// This font, JetBrains Mono under the OFL in assets/fonts/OFL.txt, answers for every family
+// that a request names no face for. A text is then justified, widened and slanted as drawn,
+// but in this font's letters, which are wider or narrower than its own. The system's fonts are not
+// consulted: a request brings the file of each face it wants.
 const FONT = fileURLToPath(new URL("../assets/fonts/JetBrainsMono-Regular.ttf", import.meta.url));
 
 /** The page's dark theme: color 7, drawn as currentColor, is bone on ink as in CAD. */
@@ -23,6 +24,12 @@ export interface PngRequest {
   readonly svg: string;
   /** The width in pixels, already narrowed to what one PNG may have. */
   readonly width: number;
+  /** The font file to set a font family of the SVG in, with the family name the file has. */
+  readonly faces: readonly {
+    readonly family: string;
+    readonly face: string;
+    readonly file: string;
+  }[];
 }
 export type PngAnswer =
   | { readonly id: number; readonly png: Uint8Array }
@@ -30,7 +37,10 @@ export type PngAnswer =
 
 let render: typeof RenderAsync | undefined;
 
-async function draw(svg: string, fitted: number): Promise<Uint8Array> {
+const attribute = (value: string): string =>
+  value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll('"', "&quot;");
+
+async function draw({ svg, width: fitted, faces }: PngRequest): Promise<Uint8Array> {
   render ??= (require("@resvg/resvg-js") as { renderAsync: typeof RenderAsync }).renderAsync;
   const [, , w = 1] = (/viewBox="([^"]+)"/.exec(svg)?.[1] ?? "").split(" ").map(Number);
   // resvg ignores non-scaling-stroke, so each stroke width, which toSVG gives in screen pixels
@@ -42,7 +52,14 @@ async function draw(svg: string, fitted: number): Promise<Uint8Array> {
   const toUnits = / data-layout="/.test(svg)
     ? Math.max(1, 1 / (base * (fitted / w)))
     : Math.max(1, fitted / 1200) / (fitted / w) / base;
-  const source = svg
+  let set = svg;
+  for (const { family, face } of faces) {
+    set = set.replaceAll(
+      ` font-family="${attribute(family)}"`,
+      ` font-family="${attribute(face)}"`,
+    );
+  }
+  const source = set
     .replace("<svg ", `<svg color="${FOREGROUND}" `)
     .replace(
       /stroke-width="([^"]*)"/g,
@@ -52,7 +69,7 @@ async function draw(svg: string, fitted: number): Promise<Uint8Array> {
     fitTo: { mode: "width", value: fitted },
     background: BACKGROUND,
     font: {
-      fontFiles: [FONT],
+      fontFiles: [FONT, ...faces.map((face) => face.file)],
       loadSystemFonts: false,
       defaultFontFamily: "JetBrains Mono",
       monospaceFamily: "JetBrains Mono",
@@ -64,7 +81,7 @@ async function draw(svg: string, fitted: number): Promise<Uint8Array> {
 }
 
 process.on("message", (request: PngRequest) => {
-  draw(request.svg, request.width).then(
+  draw(request).then(
     (png) => process.send!({ id: request.id, png } satisfies PngAnswer),
     (error: unknown) => process.send!({ id: request.id, error: String(error) } satisfies PngAnswer),
   );

@@ -146,7 +146,8 @@ d.layout("C-101", { paper: "ARCH D" }, (sheet) => {
 
 The file opens on the sheet with its page setup: `DWG To PDF.pc3`, the paper, 1:1 and
 `monochrome.ctb`. `toSVG(drawing, { layout: "C-101" })` draws the sheet as it plots.
-[Layouts](docs/layouts.md) has the rest.
+[Layouts](docs/layouts.md) has the rest, and [Title blocks](docs/title-blocks.md) shows a
+title block whose fields are attributes.
 
 Text, symbols and dashes are sized by how large they plot. `fromPaper` turns a
 length on paper into drawing units for one scale, given as a plain ratio:
@@ -162,8 +163,9 @@ d.text([0, 0], "PROPERTY LINE", { height: note });
 A paper unit other than `"in"` or `"mm"`, and a length or a ratio of 0 or less,
 are compile errors as literals and thrown errors otherwise. `fromPaper` also
 throws when the result would be written as 0 or is 1e100 or more.
-[`examples/site-plan.ts`](examples/site-plan.ts) is a whole sheet sized this
-way, and the file to copy to start a drawing.
+[`examples/site-plan.ts`](examples/site-plan.ts) is a whole sheet, and the file
+to copy to start a drawing: its plan is in model space, with its annotation
+sized this way, and its border, title block and notes are on a layout.
 
 ## Status
 
@@ -270,6 +272,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   missing file, and how the preview draws a referenced drawing.
 - [Layouts](docs/layouts.md) covers sheets: the papers, the page setup, viewports and
   their scale, names, and how the preview draws a sheet as it plots.
+- [Title blocks](docs/title-blocks.md) covers a title block whose fields are
+  attributes, and a firm's own border placed under a sheet as an xref.
 - [Text](docs/text.md) covers text styles, fonts and justification, what
   tsdraft escapes in text, and what AutoCAD does with it after a save.
 - [The `tsdraft` command](docs/command.md) covers `render`, `dev`, the JSON they

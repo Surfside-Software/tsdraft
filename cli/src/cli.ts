@@ -6,8 +6,9 @@ import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync
 import { basename, extname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { Builder, projectRoot, round, toState } from "./build.ts";
+import { faces, pngFonts } from "./fonts.ts";
 import { pngUnavailable, RendererCrashed, startRenderer, toPNG } from "./png.ts";
-import type { BuildError, BuildState } from "./state.ts";
+import type { BuildError, BuildState, LayoutOutput } from "./state.ts";
 
 // A drawing file is TypeScript, which Node runs by stripping its types: from 22.18, or 23.6.
 const [major = 0, minor = 0] = process.versions.node.split(".").map(Number);
@@ -109,8 +110,11 @@ if (command === "dev") {
   // The renderer's process starts while the drawing is built.
   startRenderer();
   let pngMs: number | undefined;
-  const outcome = (await builder.build(file, projectRoot(file)))!;
-  const layouts: { name: string; svg: string; png: string | null; pngError: string | null }[] = [];
+  const building = builder.build(file, projectRoot(file));
+  // The machine's fonts are looked for while the drawing is built.
+  faces();
+  const outcome = (await building)!;
+  const layouts: { -readonly [K in keyof LayoutOutput]: LayoutOutput[K] }[] = [];
   /**
    * Draws a picture's PNG and writes it. When the renderer dies on the picture, gives the
    * reason, and the rest of the run goes on: the SVG is written, and so is every other picture.
@@ -133,6 +137,7 @@ if (command === "dev") {
     svg: null,
     png: null,
     pngError: null,
+    pngFonts: [],
     layouts,
   };
   let failed: BuildError | null = null;
@@ -145,6 +150,7 @@ if (command === "dev") {
       path = join(dir, `${name}.svg`);
       writeFileSync(path, outcome.svg);
       outputs.svg = path;
+      outputs.pngFonts = pngFonts(outcome.fonts, outcome.svg);
       // Without the optional renderer the drawing still built: the JSON says why no PNG.
       const unavailable = pngUnavailable();
       outputs.pngError = unavailable;
@@ -166,6 +172,7 @@ if (command === "dev") {
           svg: path,
           png: null as string | null,
           pngError: unavailable,
+          pngFonts: pngFonts(sheet.fonts, sheet.svg),
         };
         if (unavailable === null) {
           path = join(dir, `${stem}.png`);
