@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
 
 - `lint` takes any plain data and never throws. It threw a `TypeError` for a drawing written
   by hand with a list that is not an array, a `null` layer or entity, or a field of the wrong
