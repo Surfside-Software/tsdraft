@@ -174,7 +174,9 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
   const h = maxY - minY + margin * 2;
   // AutoCAD scales the dashes of a referenced drawing by the linetype scale of the drawing
   // that references it.
-  const scale = drawing.linetypeScale ?? 1;
+  // AutoCAD reads a scale of 0 or less as 1, and so is one that is not a finite number here.
+  const stated = drawing.linetypeScale ?? 1;
+  const scale = stated > 0 && Number.isFinite(stated) ? stated : 1;
   const styleOf = (e: Entity, from?: Referenced): TextStyle | undefined =>
     e.kind === "text" && e.style !== undefined
       ? tablesOf(from).textStyles.get(layerKey(e.style))
@@ -217,7 +219,7 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     const code = lineweightCode(weight);
     return {
       color: aciColor(layer?.color ?? 7),
-      dashes: pattern?.map((length) => length * scale),
+      dashes: Number.isFinite(scale) ? pattern?.map((length) => length * scale) : undefined,
       lineweight: code < 0 ? DEFAULT_LINEWEIGHT : code,
     };
   };
@@ -439,7 +441,8 @@ function dashedPath(
   const out: string[] = [];
   /** Cuts a stretch of the given length, and draws each dash from `from` to `to` along it. */
   const cut = (length: number, draw: (from: number, to: number) => string): boolean => {
-    if (length / total > MAX_DASHES) return false;
+    // Dashes that add up to no length would never reach the end of the stretch.
+    if (!(total > 0) || length / total > MAX_DASHES) return false;
     let at = 0;
     for (let i = 0; at < length; i = (i + 1) % dashes.length) {
       const end = Math.min(at + dashes[i]!, length);

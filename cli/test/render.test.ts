@@ -331,6 +331,34 @@ test("the state lists each xref, and the pictures draw the ones the file gives a
     ["blocks must be an array", "xrefs must be an array"],
   );
   assert.deepEqual(malformed.state.drawing?.extents, { min: [0, 0], max: [10, 4] });
+  // An item lint reports that cannot be drawn is left out. The rest is drawn, and all is counted.
+  const dot = { kind: "line", layer: "0", from: [2, 2], to: [2, 2] };
+  const entities = [{ kind: "wedge" }, ...base.entities, dot];
+  writeFileSync(
+    plan,
+    `export default ${JSON.stringify({ ...base, entities, blocks: [{}], xrefs: [null] })};\n`,
+  );
+  const partly = render(plan);
+  assert.equal(partly.status, 2);
+  assert.deepEqual(partly.state.drawing?.omitted, ["blocks[0]", "entities[0]", "xrefs[0]"]);
+  assert.deepEqual(
+    [partly.state.ok, partly.state.drawing?.counts, partly.state.drawing?.extents],
+    [
+      true,
+      { layers: 1, entities: 3, blocks: 1, xrefs: 1, errors: 4, warnings: 1 },
+      { min: [0, 0], max: [10, 4] },
+    ],
+  );
+  assert.deepEqual(
+    partly.state.diagnostics.map((d) => [d.item ?? d.entity, d.kind]),
+    [
+      ["blocks[0]", undefined],
+      ["blocks[0]", undefined],
+      ["xrefs[0]", undefined],
+      ["entities[0]", undefined],
+      [2, "line"],
+    ],
+  );
 
   file("export const xrefs = { BASE: 5 };");
   assert.match(render(plan).state.error!.message, /The export `xrefs` must be an object/);

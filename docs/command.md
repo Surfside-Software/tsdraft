@@ -39,8 +39,9 @@ every build sees the code as it is now. A build that runs longer than `--timeout
 
 `tsdraft render <file> [--out <dir>] [--width <px>] [--draw-no-plot]` builds once, runs `lint`,
 writes `<name>.svg` and a `<name>.png` 1600 px wide to `out/` beside the file, and prints one
-JSON object. It exits 0 when the drawing built with no lint errors, 2 when it has lint errors,
-and 1 when the build failed or a picture could not be written. Wrong usage prints help to stderr
+JSON object. It exits 0 when the drawing built with no lint errors, 2 when `lint` reported
+errors, and 1 when the build failed before `lint` could report or a picture could not be
+written. Wrong usage prints help to stderr
 and exits 64, so stdout only ever holds the JSON. Read the pictures at the paths in `outputs`. A
 picture this run does not write, because the build failed or there is no PNG renderer, is
 removed from the default `out/` folder, so a file there is never from an earlier run. In a
@@ -114,6 +115,20 @@ and of `drawing.extents`. A diagnostic about an entity inside a block names the
 the entity's `id` when it has one, and `call`, the call in the drawing's code that drew the
 entity: an absolute path, a line and a column, which is where to fix it. The command turns on
 the builder's `recordCalls` for every drawing it runs.
+
+A problem with the shape of a value, such as an entity of an unknown kind or a field of the
+wrong type, gives `item`, the path of the item that holds the value: `entities[3]`,
+`blocks[0]`, `blocks[0].attributes[1]`, or a whole list, such as `xrefs`. A list with an empty
+slot is such an item, whole.
+
+When the drawing cannot be drawn with such an item in it, the command draws the rest.
+`drawing.omitted` then lists the `item` of everything the pictures, `drawing.extents` and the
+lists of layers, blocks, inserts and xrefs leave out, and `drawing.counts` still counts the
+drawing as it is. A problem of an entity that was left out, by itself or with its block or
+its list, has no `kind`, `layer` or `bounds`, since the entity was not drawn; any other entity
+problem has all three, with an `item` or without. Without `omitted`, nothing is left out. If the rest cannot be drawn either,
+the build fails: `ok` is false, `drawing` is `null`, `diagnostics` holds what `lint` reported,
+and the exit code is 2.
 
 ```json
 {

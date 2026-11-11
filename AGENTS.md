@@ -61,6 +61,16 @@
   drawings built another way. `toDXF` refuses to write a drawing with lint
   errors. Test a new rule with `@ts-expect-error` inside `assert.throws`, as
   `test/rules.test.ts` does, so both halves are proven.
+- `lint` takes any plain data and never throws, since a `Drawing` can be written by hand.
+  `src/shape.ts` holds the fields of each object and their types, once, for `fromJSON` and for
+  `lint`. `lint` checks an object's shape there before a rule reads it, and skips the rules for
+  an object that fails, but still records its name, so that nothing that names it gets a
+  second error. A field under `ruled` is left to the rule that reports its type with a message
+  of its own. A message shows a value from the drawing only through `shown` in `src/rules.ts`,
+  and a diagnostic's field holds a name only when it is a string. An error about a value of
+  the wrong type carries `item`, the path of what a reader has to leave out.
+  `test/shape.test.ts` replaces every field of a full drawing with values of other types, and
+  its drawing is typed so that a new field or entity kind is a compile error there.
 - The writers print numbers with 6 decimals. `written` in `src/format.ts` is that
   rounding, and `lint` judges sizes, points and arc angles as written. A new
   check on a number must do the same.

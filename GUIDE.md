@@ -79,8 +79,8 @@ and `_`, each used once in a drawing. A diagnostic about the entity carries the 
    `outputs.pngError` says why, and `outputs.svg` is the same picture.
 5. Repeat from step 1.
 
-`render` exits 0 when the drawing built with no lint errors, 2 when it has lint errors, and 1
-when the build failed or a file could not be written. Stdout holds only the JSON. `--out <dir>` changes the folder and
+`render` exits 0 when the drawing built with no lint errors, 2 when `lint` reported errors,
+and 1 when the build failed before `lint` could report or a file could not be written. Stdout holds only the JSON. `--out <dir>` changes the folder and
 `--width <px>` the PNG's width, which is 1600 by default.
 
 The picture is the drawing as it plots, on a dark background. A layer that is off, frozen or
@@ -166,7 +166,12 @@ the details.
   neither are the extents. `units` is the units of the drawing you gave, or `null`: where it
   differs from `drawing.units`, each insert needs a scale.
 - `diagnostics` is what `lint` found. An error stops `toDXF` from writing the file. A warning
-  does not.
+  does not. An error about the shape of a value, such as a field of the wrong type, gives
+  `item`, the path of the item that holds it, such as `entities[3]`.
+- `drawing.omitted` lists the `item` of everything the pictures, the extents and the lists
+  leave out, because the drawing could not be drawn with it. A problem of an entity left out,
+  by itself or with its block or list, has no `kind`, `layer` or `bounds`. `drawing.counts` still counts the whole drawing.
+  Without `omitted`, you are seeing all of it.
 - `error` is why a build failed: its `message`, and the `file`, `line` and `column` of your
   code.
 

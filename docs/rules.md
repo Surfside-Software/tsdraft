@@ -149,6 +149,18 @@ it would take `1e+100` for `1e+10` and report nothing.
   [An id gives a handle](format.md#an-id-gives-a-handle). The same goes for the handles a
   block's name and an attribute's tag give: see [Handles](blocks.md#handles).
 - A drawing has `format: 0`. See [Format 0](format.md#format-0).
+- A drawing has the shape of a `Drawing`. `lint` takes any plain data and never throws: for a
+  list that is not an array or has an empty slot, an item that is not an object, an entity
+  whose `kind` is not one of `line`, `polyline`, `circle`, `arc`, `text` and `insert`, a missing
+  field and a field of the wrong type, it gives an error with the path to the value, such as
+  `entities[3].from must be a point, [x, y]`. The rule is `linetype`, `text-style`, `block` or
+  `attribute` for a value in that list, `xref` for one in `xrefs`, and `format` for the rest.
+  No other rule is checked on an object of the wrong shape, and what names it gets no error
+  for that. The error's `item` is the path of the item to leave out, such as `entities[3]`.
+- An object has only the fields of its type. `colour` on a layer or `thickness` on an entity
+  would not be written, so each is an error under the same rules, and the message names the
+  field it is closest to: `layers[1]: unknown field "colour". Did you mean "color"?` A field
+  of another kind of object, such as `scale` on a text, gets no hint.
 
 ## Warnings
 

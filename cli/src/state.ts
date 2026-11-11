@@ -46,8 +46,9 @@ export interface BuildState {
   readonly drawing: DrawingSummary | null;
   /**
    * What `lint` reports for the drawing, errors first. When the file threw a `DrawingError`, as
-   * `toDXF` and the builder do, its diagnostics, without `kind` and `bounds`. Otherwise empty
-   * when the build failed.
+   * `toDXF` and the builder do, its diagnostics, without `kind` and `bounds`. When the build
+   * failed because the drawing could not be drawn even without what `lint` reported, what
+   * `lint` reported, without `kind` and `bounds`. Otherwise empty when the build failed.
    */
   readonly diagnostics: readonly BuildDiagnostic[];
   /** Why the build failed. `null` when `ok`. */
@@ -76,6 +77,11 @@ export interface BuildState {
  *
  * With `block`, the problem is in that block: `entity` then counts the block's entities, and
  * `bounds` is in the block's own coordinates.
+ *
+ * With `item`, the problem is the shape of a value, such as a field of the wrong type, and
+ * `item` is the path of the item that holds it. A problem of an entity that `drawing.omitted`
+ * leaves out, by itself or with its block or list, has no `kind`, `layer` or `bounds`, since
+ * the entity was not drawn.
  *
  * With `xref`, the problem is in that xref, or in the drawing the file gives for it: an error
  * `lint` finds there is reported once for each, with its rule, and that xref is not drawn.
@@ -112,6 +118,7 @@ export interface DrawingSummary {
    * approximate: an arc counts as its whole circle, and text as 0.6 of its height per letter.
    */
   readonly extents: Box;
+  /** Counted in the drawing as it is, whatever `omitted` leaves out of the lists and pictures. */
   readonly counts: {
     readonly layers: number;
     /** The entities of model space. An insert is one entity, whatever its block holds. */
@@ -121,6 +128,14 @@ export interface DrawingSummary {
     readonly errors: number;
     readonly warnings: number;
   };
+  /**
+   * The paths of what the pictures, the extents and the lists below leave out, because `lint`
+   * reported that it cannot be read and `toSVG` could not draw the drawing with it: an entity,
+   * such as `entities[3]` or `blocks[0].entities[1]`, an entry of another list, such as
+   * `blocks[0]`, or a whole list, such as `xrefs`. Each is the `item` of a diagnostic. Missing
+   * when nothing is left out.
+   */
+  readonly omitted?: readonly string[];
   /** Each layer in the drawing's order, with the number of entities that name it exactly. */
   readonly layers: readonly LayerSummary[];
   /** Each block in the drawing's order. Empty for a drawing with none. */

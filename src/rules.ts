@@ -664,7 +664,7 @@ export function linetypeProblem(
   const descriptionError = textProblem(description);
   if (descriptionError) return `its description: ${descriptionError}`;
   if (description.length > 249) return DESCRIPTION_LENGTH;
-  if (!Array.isArray(pattern)) return PATTERN_TYPE;
+  if (!Array.isArray(pattern) || !(pattern instanceof Array)) return PATTERN_TYPE;
   if (pattern.length === 1 || pattern.length > 12) return PATTERN_COUNT;
   for (const length of pattern as unknown[]) {
     if (typeof length !== "number" || !Number.isFinite(length)) return PATTERN_TYPE;
