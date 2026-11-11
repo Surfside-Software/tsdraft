@@ -1,10 +1,19 @@
 // Runs one drawing file in a child process of its own, so that a crash, a hang or a changed
 // import cannot reach the command, and every build imports fresh code. The parent starts this
 // process ahead of time and sends it a file to build; it answers once and exits.
-import { existsSync, readFileSync } from "node:fs";
+//
+// While it waits, the parent may ask it to warm up. It then loads the library ahead and runs
+// it once on a drawing of its own, but only the library of the command's own package: the
+// one in the folder this file's package is in, by real path. Another copy may print, count
+// or loop when it is run, and a build must not differ for having waited. A build takes a
+// module loaded ahead only when every file loaded ahead, every link on the way to one and
+// every package.json above one is on disk as it was read. Otherwise the process answers
+// `stale` and the parent builds in one that loaded nothing.
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire, isBuiltin, registerHooks } from "node:module";
 import { dirname, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 import type {
   Block,
   Diagnostic,
@@ -31,6 +40,7 @@ import type {
 } from "./state.ts";
 import { LEFT_OUT, without } from "./omit.ts";
 import { fileVersion } from "./version.ts";
+import { formatSteps, librarySteps, stripSteps } from "./warmup.ts";
 
 export interface BuildRequest {
   readonly type: "build";
@@ -41,9 +51,28 @@ export interface BuildRequest {
   readonly drawNoPlot?: boolean;
 }
 
-/** `file` is sent as each tracked file is loaded, so a build that never answers still names them. */
+/**
+ * Asks a waiting process to warm up, with the entry of the library to load ahead, if any, and
+ * the milliseconds after which the process ends itself if the warm-up has not finished.
+ */
+export interface WarmRequest {
+  readonly type: "warm";
+  readonly library: string | null;
+  readonly deadline: number;
+}
+
+/**
+ * `file` is sent as each tracked file is loaded, so a build that never answers still names them.
+ * `warmed` says the warming is over, also when a build cut it short, and `kept` whether this
+ * process can still build: it cannot once it has loaded more than the library's own files.
+ * `held` is every path it will compare with the disk before it builds, with the version it
+ * holds, so the parent can tell a build it would refuse without asking it.
+ * `stale` answers a build this process must not run.
+ */
 export type WorkerMessage =
   | { readonly type: "ready"; readonly at: number }
+  | { readonly type: "warmed"; readonly kept: boolean; readonly held: readonly FileVersion[] }
+  | { readonly type: "stale" }
   | { readonly type: "file"; readonly file: FileVersion }
   | { readonly type: "done"; readonly result: WorkerResult };
 
@@ -76,6 +105,13 @@ export interface WorkerResult {
   readonly error: BuildError | null;
   /** True for a build that failed after `lint` reported errors, which `diagnostics` holds. */
   readonly linted?: boolean;
+  /**
+   * The entry of the copy of tsdraft that checked and drew the drawing, when it is the library
+   * of the command's own package: what the next process may load ahead. `null` otherwise.
+   */
+  readonly library: string | null;
+  /** The modules the build read from disk, and those it took from the ones loaded ahead. */
+  readonly modules: { readonly read: number; readonly ahead: number };
 }
 
 interface Library {
@@ -100,6 +136,12 @@ interface Library {
   readonly findXref?: (drawing: Drawing, name: string) => Xref | undefined;
 }
 
+// The streams' own `write`, which a drawing file may replace on `process.stdout` and
+// `process.stderr`: the process writes through these to know its output has left it.
+const [writeOut, writeErr] = [process.stdout.write, process.stderr.write];
+/** The streams themselves, which a drawing may replace, end or cork. */
+const [stdout, stderr] = [process.stdout, process.stderr];
+
 // Deep enough that a drawing calling helpers several levels down still has its own frame.
 Error.stackTraceLimit = 100;
 // Every builder the drawing file makes records the call that draws each entity, for `call`.
@@ -112,12 +154,52 @@ const ownCode = ["./", "../../dist/", "../../src/"].map((folder) =>
   fileURLToPath(new URL(folder, import.meta.url)),
 );
 
+/**
+ * The entries of the library of the command's own package, built and as source: the package
+ * is the folder two above this file, by its real path, whatever its package.json says.
+ */
+const ownEntries = ["dist/index.js", "src/index.ts"].map((entry) =>
+  join(realpathSync.native(fileURLToPath(new URL("../..", import.meta.url))), entry),
+);
+
 /** Each module URL the build loaded. */
 const loaded = new Set<string>();
 /** The files each file imported, by the importer's path. */
 const imported = new Map<string, string[]>();
 /** Each tracked path the build read, with every version it was read at. */
 const read = new Map<string, Set<string | null>>();
+
+/** An import of a module loaded ahead: where it led, and the link it went through, if any. */
+interface AheadImport {
+  readonly url: string;
+  readonly path: string;
+  readonly link: FileVersion | undefined;
+}
+/** Each module loaded ahead of the build, by its URL, with its version from before it was read. */
+const ahead = new Map<
+  string,
+  { readonly path: string; readonly version: string | null; readonly imports: AheadImport[] }
+>();
+/**
+ * Each path an import of a module loaded ahead named, with its version from before it was
+ * followed. A version names the file the path leads to, so it covers every link on the way.
+ */
+const links = new Map<string, string | null>();
+/** Each package.json Node may have read for a module loaded ahead, with its version before. */
+const scopes = new Map<string, string | null>();
+/**
+ * False once something loaded ahead was reached other than by a path, such as a package or a
+ * part of Node, or failed to load. What this process holds can then not be told from its files.
+ */
+let closed = true;
+/** True from the moment a build is asked for. Before it, every load is one ahead. */
+let building = false;
+/**
+ * The folder of the library being loaded ahead, with a separator at its end. An import that
+ * leads outside it, or to a part of Node, is refused before anything of it runs.
+ */
+let aheadFolder: string | undefined;
+const modules = { read: 0, ahead: 0 };
 
 /** Notes a version of a path the build depends on, and tells the parent at once. */
 function track(path: string, version: string | null): void {
@@ -128,38 +210,124 @@ function track(path: string, version: string | null): void {
   process.send!({ type: "file", file: [path, version] } satisfies WorkerMessage);
 }
 
+/** Notes every package.json above a path, and above the file it leads to, before Node reads one. */
+function scope(path: string): void {
+  let real = path;
+  try {
+    real = realpathSync.native(path);
+  } catch {
+    // Missing: Node will say so.
+  }
+  for (const start of new Set([path, real])) {
+    for (let dir = dirname(start); ; dir = dirname(dir)) {
+      const manifest = join(dir, "package.json");
+      if (!scopes.has(manifest)) scopes.set(manifest, fileVersion(manifest));
+      if (dir === dirname(dir)) break;
+    }
+  }
+}
+// This file's own, which Node has just read.
+scope(fileURLToPath(import.meta.url));
+
+/**
+ * Counts a module loaded ahead, and all it imports, as loaded by the build, with the versions
+ * they were read at: the build runs them as if it had read them now.
+ */
+function claim(url: string): void {
+  const module = ahead.get(url);
+  if (!module || loaded.has(url)) return;
+  loaded.add(url);
+  modules.ahead++;
+  if (tracked(module.path)) track(module.path, module.version);
+  for (const { url: to, path, link } of module.imports) {
+    if (link) track(...link);
+    const list = imported.get(module.path);
+    if (list) list.push(path);
+    else imported.set(module.path, [path]);
+    claim(to);
+  }
+}
+
+/**
+ * Whether a file loaded ahead, a path that led to one or a package.json above one is no
+ * longer as it was read.
+ */
+function stale(): boolean {
+  if (!closed) return true;
+  for (const { path, version } of ahead.values()) if (fileVersion(path) !== version) return true;
+  for (const [path, version] of links) if (fileVersion(path) !== version) return true;
+  if (ahead.size === 0) return false;
+  for (const [path, version] of scopes) if (fileVersion(path) !== version) return true;
+  return false;
+}
+
 registerHooks({
   resolve(specifier, context, nextResolve) {
     // A path through a symlink: its version names the target, so pointing it elsewhere counts.
     // A bare import goes through the package's folder in node_modules, often a workspace link.
     const parent = context.parentURL?.startsWith("file:") ? context.parentURL : undefined;
+    const byPath = /^(\.{0,2}\/|file:)/.test(specifier);
     const asked = !parent
       ? undefined
-      : /^(\.{0,2}\/|file:)/.test(specifier)
+      : byPath
         ? fileURLToPath(new URL(specifier, parent))
         : packageFolder(specifier, fileURLToPath(parent));
     const version = asked === undefined ? null : fileVersion(asked);
+    if (!building) {
+      if (parent && byPath) {
+        scope(asked!);
+        if (!links.has(asked!)) links.set(asked!, version);
+      } else closed = false;
+    }
     const result = nextResolve(specifier, context);
+    if (!building && aheadFolder !== undefined && !inside(result.url, aheadFolder)) {
+      closed = false;
+      throw new Error(`The library imports ${specifier}, which is not one of its own files`);
+    }
     if (parent && result.url.startsWith("file:")) {
       const path = fileURLToPath(result.url);
-      if (asked !== undefined && path !== asked && tracked(path)) track(asked, version);
+      const link: FileVersion | undefined =
+        asked !== undefined && path !== asked && tracked(path) ? [asked, version] : undefined;
+      if (!building) {
+        ahead.get(parent)?.imports.push({ url: result.url, path, link });
+        return result;
+      }
+      if (link) track(...link);
       // Every file a file imports, also through an alias that names no folder to watch.
       const importer = fileURLToPath(parent);
       const list = imported.get(importer);
       if (list) list.push(path);
       else imported.set(importer, [path]);
+      claim(result.url);
     }
     return result;
   },
   load(url, context, nextLoad) {
-    if (url.startsWith("file:") && !loaded.has(url)) {
+    if (!building) {
+      if (url.startsWith("file:")) {
+        const path = fileURLToPath(url);
+        scope(path);
+        ahead.set(url, { path, version: fileVersion(path), imports: [] });
+      } else closed = false;
+    } else if (url.startsWith("file:") && !loaded.has(url)) {
       loaded.add(url);
+      modules.read++;
       const path = fileURLToPath(url);
       if (tracked(path)) track(path, fileVersion(path));
     }
     return nextLoad(url, context);
   },
 });
+
+/** Whether a module's URL is a file in a folder, by its real path. */
+function inside(url: string, folder: string): boolean {
+  if (!url.startsWith("file:")) return false;
+  try {
+    return realpathSync.native(fileURLToPath(url)).startsWith(folder);
+  } catch {
+    return false;
+  }
+}
 
 /** Where Node looks for a bare import's package: the nearest `node_modules/<name>` that exists. */
 function packageFolder(specifier: string, parent: string): string | undefined {
@@ -174,13 +342,115 @@ function packageFolder(specifier: string, parent: string): string | undefined {
 
 const now = () => performance.timeOrigin + performance.now();
 
-process.once("message", (message: BuildRequest) => {
-  void build(message).then((result) => {
-    process.send!({ type: "done", result } satisfies WorkerMessage, () => process.exit(0));
+let request: BuildRequest | undefined;
+let warming: Promise<void> | undefined;
+process.on("message", (message: BuildRequest | WarmRequest) => {
+  if (request) return;
+  if (message.type === "warm") {
+    warming ??= warm(message.library, message.deadline);
+    return;
+  }
+  request = message;
+  void (warming ?? Promise.resolve()).then(() => {
+    building = true;
+    if (stale()) {
+      process.send!({ type: "stale" } satisfies WorkerMessage, leave);
+      return;
+    }
+    void build(message).then((result) => {
+      process.send!({ type: "done", result } satisfies WorkerMessage, leave);
+    });
   });
 });
 process.once("disconnect", () => process.exit(0));
 process.send!({ type: "ready", at: now() } satisfies WorkerMessage);
+
+/**
+ * Ends this process once all it wrote has left it: a build's log is whole. It then ends at
+ * once, with nothing left to save. A stream the drawing ended, destroyed or corked is not
+ * waited for, and the process ends within a second whatever the drawing did to its streams.
+ */
+function leave(): void {
+  const end = () => process.kill(process.pid, "SIGKILL");
+  setTimeout(end, 1_000);
+  const flush = (stream: NodeJS.WriteStream, write: typeof writeOut, then: () => void): void => {
+    if (stream.writableEnded || stream.destroyed || stream.writableCorked > 0) return then();
+    try {
+      write.call(stream, "", "utf8", () => then());
+    } catch {
+      then();
+    }
+  };
+  flush(stdout, writeOut, () => flush(stderr, writeErr, end));
+}
+
+/**
+ * A thread that ends this process when the warm-up has not said it is done by the deadline,
+ * or when the parent is gone. It runs apart from the process's own thread, which a step that
+ * never returns would hold.
+ */
+const WATCHDOG = `const { workerData: { flag, deadline, ppid } } = require("node:worker_threads");
+const end = performance.now() + deadline;
+while (Atomics.load(flag, 0) === 0) {
+  if (performance.now() > end || process.ppid !== ppid) process.kill(process.pid, "SIGKILL");
+  Atomics.wait(flag, 0, 0, 50);
+}`;
+
+/** Starts the watchdog, and gives the function that tells it the warm-up is done. */
+function watch(deadline: number): () => void {
+  const flag = new Int32Array(new SharedArrayBuffer(4));
+  const workerData = { flag, deadline, ppid: process.ppid };
+  new Worker(WATCHDOG, { eval: true, workerData, stdout: true, stderr: true }).unref();
+  return () => {
+    Atomics.store(flag, 0, 1);
+    Atomics.notify(flag, 0);
+  };
+}
+
+/**
+ * Warms this process for the build to come. It stops between two steps once a build is asked
+ * for, and no failure of a step matters: the build then finds less of the code compiled.
+ * Nothing a step writes is kept, since a build's log is what the drawing file wrote.
+ */
+async function warm(library: string | null, deadline: number): Promise<void> {
+  const done = watch(deadline);
+  const unwritten = (...given: unknown[]): boolean => {
+    const written = given.at(-1);
+    if (typeof written === "function") written();
+    return true;
+  };
+  process.stdout.write = process.stderr.write = unwritten as typeof writeOut;
+  const steps = [...stripSteps];
+  try {
+    if (library !== null && ownEntries.includes(library)) {
+      // The library is its folder: a file from elsewhere is one this process cannot answer for.
+      aheadFolder = dirname(library) + sep;
+      const loadedAhead = (await import(pathToFileURL(library).href)) as Record<string, unknown>;
+      steps.push(...librarySteps(loadedAhead));
+    }
+  } catch {
+    closed = false;
+  }
+  aheadFolder = undefined;
+  for (const step of [...steps, ...formatSteps]) {
+    if (request) break;
+    try {
+      step();
+    } catch {
+      // A step that fails leaves the build less warm.
+    }
+    // Lets a request that has come be seen.
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  [process.stdout.write, process.stderr.write] = [writeOut, writeErr];
+  done();
+  const held: FileVersion[] = [
+    ...[...ahead.values()].map(({ path, version }): FileVersion => [path, version]),
+    ...links,
+    ...(ahead.size === 0 ? [] : scopes),
+  ];
+  process.send!({ type: "warmed", kept: closed, held } satisfies WorkerMessage);
+}
 
 async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerResult> {
   const timings: { load?: number; lint?: number; svg?: number } = {};
@@ -195,6 +465,8 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
     layouts: [],
     swatches: {},
     error,
+    library: null,
+    modules,
   });
 
   let t = now();
@@ -218,7 +490,7 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
   timings.load = now() - t;
 
   try {
-    const library = await findLibrary(file);
+    const { library, entry } = await findLibrary(file);
     t = now();
     const found = library.lint(drawing);
     const size = (list: unknown): number => (Array.isArray(list) ? list.length : 0);
@@ -291,6 +563,8 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
         layouts: sheets,
         swatches: swatches(library, shown),
         error: null,
+        library: entry,
+        modules,
       };
     };
     try {
@@ -429,24 +703,26 @@ function notADrawing(value: unknown, hasDefault: boolean): string | undefined {
  * 5. the first copy the build loaded, when it loaded several and the project has none;
  * 6. the library this command was installed with.
  */
-async function findLibrary(file: string): Promise<Library> {
+async function findLibrary(file: string): Promise<{ library: Library; entry: string | null }> {
   const isLibrary = (path: string) =>
     /[\\/]index\.[jt]s$/.test(path) && packageName(path) === "tsdraft";
   const load = async (path: string) =>
     (await import(pathToFileURL(path).href)) as Record<string, unknown>;
   const has = (module: Record<string, unknown>, ...names: string[]) =>
     names.every((name) => typeof module[name] === "function");
+  const found = (module: unknown, path: string) => ({
+    library: module as Library,
+    entry: ownEntries.includes(path) ? path : null,
+  });
 
   const own = imported.get(file) ?? [];
   for (const path of own.filter(isLibrary)) {
     const library = await load(path);
-    if (has(library, "lint", "toSVG")) return library as unknown as Library;
+    if (has(library, "lint", "toSVG")) return found(library, path);
   }
   for (const path of own.filter((path) => /\.m?[jt]s$/.test(path))) {
     const library = await load(path);
-    if (has(library, "createDrawing", "lint", "toSVG", "toDXF")) {
-      return library as unknown as Library;
-    }
+    if (has(library, "createDrawing", "lint", "toSVG", "toDXF")) return found(library, path);
   }
 
   const all = [...loaded].map((url) => fileURLToPath(url)).filter(isLibrary);
@@ -458,9 +734,9 @@ async function findLibrary(file: string): Promise<Library> {
   }
   for (const path of [...(all.length === 1 ? all : []), ...named, ...all]) {
     const library = await load(path);
-    if (has(library, "lint", "toSVG")) return library as unknown as Library;
+    if (has(library, "lint", "toSVG")) return found(library, path);
   }
-  return (await import("tsdraft")) as Library;
+  return found(await import("tsdraft"), fileURLToPath(import.meta.resolve("tsdraft")));
 }
 
 const packageNames = new Map<string, string | undefined>();

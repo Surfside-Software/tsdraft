@@ -306,7 +306,43 @@ takes, in order:
 
 In a checkout of the repository, `pnpm bench` measures the loop: from writing the file
 to the benchmark receiving the server's `build` event with the new SVG, not to the page
-painting it. On the example that takes about 40 ms when the saves are some time apart, as an
-agent's are, and about 50 ms when each save follows the last build at once, because the next
-build then waits for a new process to finish starting. For 3,000 entities both are about 90 ms.
-`render` takes about 190 ms from start to exit on the example, PNG included.
+painting it. It prints where the time of a build went, and the machine's load average.
+
+Each build runs in a process of its own, so that no build can change the next. While it waits
+for a save, `tsdraft dev` keeps two such processes ready. When your drawing imports the
+tsdraft that the command itself is part of, which is the usual case, the first has loaded that
+library and run it once on a small drawing of its own. It has read nothing of your drawing.
+When you save, the command checks that every file of the library is on disk as that process
+loaded it. If so the process builds, and only your drawing file and what it imports are read
+and run. If not, the build runs in the second process, which has started and loaded nothing,
+so a build never uses a library that has changed since. A drawing that imports another copy
+of tsdraft, such as a second one in its project, always builds in a process that loaded
+nothing of it.
+
+The two waiting processes hold about 180 MB between them, as `ps` counts it, for as long as
+`tsdraft dev` runs.
+
+How fast a build is depends on how busy the machine is, so `pnpm bench` prints the load
+average and the number of cores beside each drawing. The aim for the example sheet,
+`examples/site-plan.ts`, is that its two pictures arrive well under 100 ms after the save when
+the saves are some time apart, as an agent's are, and under 150 ms when each save follows the
+last build at once, on a machine that is not busy: one whose load average is at most half its
+cores.
+
+On a machine of 16 cores that was busy, the sheet missed the first half of that aim, taking
+85 to 90 ms with the saves apart, and met the second, staying under 150 ms back to back. In
+each pair below, the first number is with a waiting process that has loaded the library, and
+the second is a build in a process that has loaded nothing, as the first build is, at the same
+load:
+
+| Load average | Sheet, saves apart | Sheet, back to back | `examples/lot.ts`, saves apart |
+| ------------ | ------------------ | ------------------- | ------------------------------ |
+| 13 to 15     | 90 and 181 ms      | 126 and 167 ms      | 38 and 87 ms                   |
+| about 9      | 85 and 181 ms      | 104 and 165 ms      | 36 and 83 ms                   |
+
+For 3,000 entities, where drawing takes most of the time, the two are about 165 and 190 ms at
+a load of 9. The first build, the first after the library changed, and every build with
+another copy of tsdraft are the second number.
+
+`render` builds once, in a new process, and takes about 330 ms from start to exit on
+`examples/lot.ts`, PNG included.
