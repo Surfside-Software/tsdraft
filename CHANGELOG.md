@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - `fromPaper(length, "in" | "mm", { ratio, units })` turns a length on paper
   into drawing units, to size text, symbols and dashes by how large they plot:
