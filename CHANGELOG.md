@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 Every rule below was found by opening tsdraft's output in AutoCAD 2025.
 
