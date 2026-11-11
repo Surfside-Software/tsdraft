@@ -5,6 +5,12 @@
 - The command opens no file an xref names. The worker draws an xref from the drawing file's
   named export `xrefs` alone, and `drawing.xrefs` says with `shown` which ones the pictures
   have, so an agent knows what it is not seeing.
+- `toSVG` may throw on a drawing `lint` reports an error for. The worker then draws the drawing
+  `without` in `src/omit.ts` gives: the one without the `item` of each error, with a stand-in
+  for an entity so the others keep their indexes. `drawing.omitted` lists what was left out,
+  and the counts are the real drawing's. If that throws too, the build fails with `lint`'s
+  diagnostics kept and exit code 2. A throw with no lint error is a failed build as before.
+  `test/shape.test.ts` in the package proves `without` gives a drawing `toSVG` draws.
 - `tsdraft dev` must never present a stale or mismatched answer as current. Every file a build
   loads whose real path has no `node_modules` folder is watched and version-checked, wherever it
   is; `inProject` only places errors. A build that read a file changed since, or one file at two

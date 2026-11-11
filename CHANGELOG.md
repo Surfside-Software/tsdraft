@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- `lint` takes any plain data and never throws. It threw a `TypeError` for a drawing written
+  by hand with a list that is not an array, a `null` layer or entity, or a field of the wrong
+  type, such as a line with `from: 5`, and reported nothing for an entity of an unknown `kind`,
+  a `dxf` that is not a version, or a list with an empty slot. Each is now an error with the
+  path to the value, such as `entities[3].from must be a point, [x, y]`, in the words
+  `fromJSON` uses, and the message for an unknown `kind` lists the kinds. So `toDXF` refuses
+  such a drawing with a `DrawingError`. The rule is `format`, or `linetype`, `text-style`,
+  `block` or `attribute` for a value in that list.
+- A wrong type in a geometry field now reports under `format` with its path, where it reported
+  under `geometry`: a `radius`, `height`, `rotation` or angle that is not a number, and a point
+  such as `[1, "x"]`. A missing one says the field is missing. A number that is `NaN` or too
+  large still reports under `geometry`.
+- `lint` reports a field no object of its type has, such as `colour` on a layer or `thickness`
+  on an entity, which the writers would drop. The message names the field it is closest to:
+  `layers[1]: unknown field "colour". Did you mean "color"?` A field of another kind of
+  object, such as `scale` on a text, gets no hint. `fromJSON` gives the same hint.
+- A diagnostic about the shape of a value has `item`, the path of the item that holds it, such
+  as `entities[3]` or `blocks[0]`. A diagnostic's `linetype`, `textStyle` and `block` are set
+  only when the name is a string, and a message shows a value that is not a string by its
+  type.
+- `toSVG` draws dashes at a scale of 1 when the drawing's `linetypeScale` is not a positive
+  finite number, as AutoCAD reads a scale of 0 or less as 1. With a negative scale and a dashed
+  linetype it never finished, and ran out of memory.
+- `tsdraft render` and `tsdraft dev` give these diagnostics where the build failed with none.
+  When the drawing cannot be drawn with an item `lint` reports, the pictures show the rest,
+  and `drawing.omitted` in the JSON lists what they leave out.
 - An R2018 DXF has `$XEDIT` 0 in its header. A DWG that AutoCAD saves from the file keeps the
   setting, so a drawing that references that DWG cannot edit it in place and lose the edit
   when the file is written again. Setting `XEDIT` to 1 and saving allows the edit, in a file

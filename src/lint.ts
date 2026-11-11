@@ -12,12 +12,25 @@ import type {
   Drawing,
   DxfVersion,
   Entity,
+  Insert,
+  Layer,
+  Linetype,
   Point,
   TextStyle,
   Xref,
 } from "./drawing.ts";
 import { written } from "./format.ts";
 import { validIdHandle } from "./handles.ts";
+import {
+  arrayProblem,
+  isObject,
+  isSound,
+  PLAIN_OBJECT,
+  slotProblem,
+  TYPED,
+  WALKABLE,
+  type Check,
+} from "./shape.ts";
 import { layerAuditKey, layerKey } from "./layers.ts";
 import { STANDARD_TEXT_STYLE } from "./fonts.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
@@ -51,6 +64,7 @@ import {
   magnitudeProblem,
   placedAttributeProblem,
   scaleProblem,
+  shown,
   sizeProblem,
   textAlignProblem,
   textProblem,
@@ -128,6 +142,12 @@ export interface Diagnostic {
   /** The `id` of the entity the problem is in, when it has one. */
   readonly id?: string;
   /**
+   * For a problem with the shape of a value, the path of the item that holds it, such as
+   * `entities[3]`, `blocks[0]` or `blocks[0].attributes[1]`, or of a list that is not one, such
+   * as `blocks`. Code that walks or draws the drawing has to leave the item out.
+   */
+  readonly item?: string;
+  /**
    * The call in the drawing's code that the problem comes from. `lint` gives the call that drew
    * the entity when the drawing's builder recorded calls, and an error the builder throws gives
    * the call that threw. Missing where the JavaScript engine has no stack to read.
@@ -147,19 +167,99 @@ export interface LintOptions {
  * own DXF version, because the builder throws at the offending call. `lint`
  * matters when a `Drawing` was built by hand or by other code, when it is
  * exported as a different version than it was built for, and for warnings.
+ *
+ * It takes any plain data and never throws. A value that does not have the shape of a
+ * `Drawing`, such as a list that is not an array, an entity of an unknown kind or a field of
+ * the wrong type, is an error that gives the path to it, and no other rule is checked on that
+ * object. A field no object of its type has is an error too.
  */
 export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] {
-  const version = options.version ?? drawing.dxf;
+  if (typeof drawing !== "object" || drawing === null || Array.isArray(drawing)) {
+    return [{ rule: "format", severity: "error", message: `The drawing ${PLAIN_OBJECT}` }];
+  }
+  const version = options?.version ?? drawing.dxf;
   const out: Diagnostic[] = [];
+
+  // A rule reads an object only once its shape is sound. A value of the wrong shape is reported
+  // with the path to it and the item it is in, and no rule reads it.
+  /**
+   * Reports what is wrong with the shape of the value at `at`, and says whether a rule can read
+   * it. A field nobody knows is reported, and the value is read all the same.
+   */
+  const malformed = (
+    check: Check,
+    value: unknown,
+    at: string,
+    rule: LintRule,
+    about: Partial<Diagnostic> = {},
+  ): boolean => {
+    if (isSound(check, value)) return false;
+    const problems: string[] = [];
+    const extra: string[] = [];
+    check(value, at, problems, extra);
+    for (const message of extra) out.push({ rule, severity: "error", message, ...about });
+    for (const message of problems) {
+      out.push({ rule, severity: "error", message, ...about, ...(at ? { item: at } : {}) });
+    }
+    return problems.length > 0;
+  };
+  /**
+   * Names the item at `at` in the errors added since `from`, when a field of it has the wrong
+   * type. A rule has then reported the field, and what draws the drawing cannot read the item.
+   */
+  const mark = (typed: Check, value: unknown, at: string, from: number): void => {
+    if (out.length === from || isSound(typed, value, false)) return;
+    for (let i = from; i < out.length; i++) {
+      const found = out[i]!;
+      if (found.severity === "error" && found.item === undefined) out[i] = { ...found, item: at };
+    }
+  };
+  /**
+   * Gives `visit` each item of the list at `at`, up to its first empty slot, which is an error,
+   * and marks what it reports for an item that fails `typed`.
+   */
+  const each = <T>(
+    list: readonly T[],
+    at: string,
+    rule: LintRule,
+    typed: Check,
+    visit: (item: T, index: number) => void,
+    about: Partial<Diagnostic> = {},
+  ): void => {
+    for (let i = 0; i < list.length; i++) {
+      if (list[i] === undefined && !(i in list)) {
+        out.push({ rule, severity: "error", message: slotProblem(at, i), ...about, item: at });
+        return;
+      }
+      const from = out.length;
+      visit(list[i]!, i);
+      mark(typed, list[i], `${at}[${i}]`, from);
+    }
+  };
+  /** The items of one of the drawing's lists, or none, with an error, when it is not a list. */
+  const listed = <T>(
+    field: "layers" | "entities" | "linetypes" | "textStyles" | "blocks" | "xrefs",
+    rule: LintRule,
+  ): readonly T[] => {
+    const value: unknown = drawing[field];
+    if (value === undefined && field !== "layers" && field !== "entities") return [];
+    const problem = arrayProblem(value, field);
+    if (problem) out.push({ rule, severity: "error", message: problem, item: field });
+    return problem ? [] : (value as readonly T[]);
+  };
+  /** Names an entry of a list in a diagnostic, when its name is one. */
+  const named = (field: "linetype" | "textStyle" | "block" | "xref", name: unknown) =>
+    typeof name === "string" ? { [field]: name } : {};
 
   const format = formatProblem(drawing.format);
   if (format) out.push({ rule: "format", severity: "error", message: format });
+  malformed(WALKABLE.drawing as Check, drawing, "", "format");
 
   if (!["in", "ft", "mm", "cm", "m"].includes(drawing.units)) {
     out.push({
       rule: "units",
       severity: "error",
-      message: `Unknown units: ${JSON.stringify(drawing.units)}`,
+      message: `Unknown units: ${shown(drawing.units)}`,
     });
   }
 
@@ -167,7 +267,12 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
   const scale = drawing.linetypeScale;
   if (scale !== undefined && (r12 ? scale !== 1 : linetypeScaleProblem(scale))) {
     const problem = r12 ? R12_ONLY.linetypes : linetypeScaleProblem(scale);
-    out.push({ rule: "linetype", severity: "error", message: `linetypeScale: ${problem}` });
+    out.push({
+      rule: "linetype",
+      severity: "error",
+      message: `linetypeScale: ${problem}`,
+      ...(typeof scale === "number" ? {} : { item: "linetypeScale" }),
+    });
   }
 
   // AutoCAD compares linetype names as it compares layer names, and AUDIT reports a twin of a
@@ -176,17 +281,19 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
   const linetypesAudited = new Map<string, string>(
     BUILT_IN_LINETYPES.map((name) => [layerAuditKey(name), name]),
   );
-  for (const linetype of drawing.linetypes ?? []) {
+  const linetypeList = listed<Linetype>("linetypes", "linetype");
+  each(linetypeList, "linetypes", "linetype", TYPED.linetype, (linetype, i) => {
+    if (malformed(WALKABLE.linetype, linetype, `linetypes[${i}]`, "linetype")) return;
     const error = (rule: LintRule, message: string) =>
-      out.push({ rule, severity: "error", message, linetype: linetype.name });
-    const label = `Linetype ${JSON.stringify(linetype.name)}`;
+      out.push({ rule, severity: "error", message, ...named("linetype", linetype.name) });
+    const label = `Linetype ${shown(linetype.name)}`;
     if (r12) {
       error("linetype", `${label}: ${R12_ONLY.linetypes}`);
-      continue;
+      return;
     }
     const problem = linetypeProblem(linetype.name, linetype.description, linetype.pattern);
     if (problem) error("linetype", `${label}: ${problem}`);
-    if (typeof linetype.name !== "string") continue;
+    if (typeof linetype.name !== "string") return;
     const key = layerKey(linetype.name);
     const auditKey = layerAuditKey(linetype.name);
     const twin = layerTwinProblem(
@@ -204,12 +311,12 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     }
     linetypes.add(key);
     if (!linetypesAudited.has(auditKey)) linetypesAudited.set(auditKey, linetype.name);
-  }
+  });
   /** What is wrong with a reference to a linetype, which AutoCAD discards a drawing over. */
   const missing = (name: unknown): string | undefined => {
     if (typeof name !== "string") return "a linetype is named by a string";
     const problem = linetypeNameProblem(name);
-    if (problem) return `Linetype ${JSON.stringify(name)}: ${problem}`;
+    if (problem) return `Linetype ${shown(name)}: ${problem}`;
     return builtInLinetype(name) || linetypes.has(layerKey(name))
       ? undefined
       : undefinedLinetypeProblem(name);
@@ -218,20 +325,23 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
   // AutoCAD compares text style names as it compares layer names.
   const textStyles = new Set<string>();
   const stylesByKey = new Map<string, TextStyle>();
+  const unreadStyles = new Set<string>();
   const textStylesAudited = new Map<string, string>([
     [layerAuditKey(STANDARD_TEXT_STYLE), STANDARD_TEXT_STYLE],
   ]);
-  for (const style of drawing.textStyles ?? []) {
+  const styleList = listed<TextStyle>("textStyles", "text-style");
+  each(styleList, "textStyles", "text-style", TYPED.textStyle, (style, i) => {
+    if (malformed(WALKABLE.textStyle, style, `textStyles[${i}]`, "text-style")) return;
     const error = (rule: LintRule, message: string) =>
-      out.push({ rule, severity: "error", message, textStyle: style.name });
-    const label = `Text style ${JSON.stringify(style.name)}`;
+      out.push({ rule, severity: "error", message, ...named("textStyle", style.name) });
+    const label = `Text style ${shown(style.name)}`;
     if (r12) {
       error("text-style", `${label}: ${R12_ONLY.text}`);
-      continue;
+      return;
     }
     const problem = textStyleProblem(style.name, style.font, style.widthFactor, style.obliqueAngle);
     if (problem) error("text-style", `${label}: ${problem}`);
-    if (typeof style.name !== "string") continue;
+    if (typeof style.name !== "string") return;
     const key = layerKey(style.name);
     const auditKey = layerAuditKey(style.name);
     const twin = layerTwinProblem(
@@ -247,10 +357,15 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     } else if (twin) {
       error("duplicate-text-style", `${label}: ${twin}`);
     }
-    if (!textStyles.has(key)) stylesByKey.set(key, style);
+    if (!textStyles.has(key)) {
+      // A style whose numbers are not numbers is known by its name, and places no attribute.
+      const numbers = [style.widthFactor ?? 1, style.obliqueAngle ?? 0];
+      if (numbers.every((n) => typeof n === "number")) stylesByKey.set(key, style);
+      else unreadStyles.add(key);
+    }
     textStyles.add(key);
     if (!textStylesAudited.has(auditKey)) textStylesAudited.set(auditKey, style.name);
-  }
+  });
   /** What is wrong with a text's style, justification or both, each with its rule. */
   const textProblems = (
     text: Pick<AttributeDefinition, "style" | "align" | "valign">,
@@ -261,7 +376,7 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
       if (typeof name !== "string") {
         found.push(["undefined-text-style", "a text style is named by a string"]);
       } else if (textStyleNameProblem(name)) {
-        const problem = `Text style ${JSON.stringify(name)}: ${textStyleNameProblem(name)}`;
+        const problem = `Text style ${shown(name)}: ${textStyleNameProblem(name)}`;
         found.push(["undefined-text-style", problem]);
       } else if (!isStandardTextStyle(name)) {
         if (r12) found.push(["text-style", R12_ONLY.text]);
@@ -286,14 +401,15 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
   // AutoCAD looks layers up by one form of their names, and AUDIT compares another.
   const seen = new Set<string>();
   const audited = new Map<string, string>();
-  for (const layer of drawing.layers) {
+  each(listed<Layer>("layers", "format"), "layers", "format", TYPED.layer, (layer, i) => {
+    if (malformed(WALKABLE.layer, layer, `layers[${i}]`, "format")) return;
     const error = (rule: LintRule, message: string) =>
       out.push({ rule, severity: "error", message, layer: layer.name });
     const nameProblem = layerNameProblem(layer.name, version);
-    if (nameProblem) error("layer-name", `Layer ${JSON.stringify(layer.name)}: ${nameProblem}`);
+    if (nameProblem) error("layer-name", `Layer ${shown(layer.name)}: ${nameProblem}`);
     const colorProblem = layerColorProblem(layer.color);
-    if (colorProblem) error("layer-color", `Layer ${JSON.stringify(layer.name)}: ${colorProblem}`);
-    const label = `Layer ${JSON.stringify(layer.name)}`;
+    if (colorProblem) error("layer-color", `Layer ${shown(layer.name)}: ${colorProblem}`);
+    const label = `Layer ${shown(layer.name)}`;
     if (layer.linetype !== undefined) {
       const name: unknown = layer.linetype;
       if (r12) {
@@ -327,14 +443,14 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     if (seen.has(key)) {
       error(
         "duplicate-layer",
-        `Layer ${JSON.stringify(layer.name)} is defined twice. CAD ignores case in layer names`,
+        `Layer ${shown(layer.name)} is defined twice. CAD ignores case in layer names`,
       );
     } else if (twinProblem) {
-      error("duplicate-layer", `Layer ${JSON.stringify(layer.name)}: ${twinProblem}`);
+      error("duplicate-layer", `Layer ${shown(layer.name)}: ${twinProblem}`);
     }
     seen.add(key);
     if (!audited.has(auditKey)) audited.set(auditKey, layer.name);
-  }
+  });
   if (!seen.has("0")) {
     out.push({ rule: "undefined-layer", severity: "error", message: 'Layer "0" is missing' });
   }
@@ -360,44 +476,82 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     // declared layer's, it then reports the new layer as a duplicate of it.
     const twin = audited.get(layerAuditKey(layer));
     const hint = twin
-      ? `. AutoCAD does not take it for layer ${JSON.stringify(twin)}: it would add a layer, and its AUDIT would report a duplicate name`
+      ? `. AutoCAD does not take it for layer ${shown(twin)}: it would add a layer, and its AUDIT would report a duplicate name`
       : "";
-    return `layer ${JSON.stringify(layer)} is not defined${hint}`;
+    return `layer ${shown(layer)} is not defined${hint}`;
   };
 
   // AutoCAD takes two block names for one where its AUDIT would call two layer names
   // duplicates, and an insert finds its block as an entity finds its layer.
   const blocks = new Map<string, Block>();
   const blocksAudited = new Map<string, string>();
-  const listed = <T>(field: "blocks" | "xrefs", rule: LintRule): readonly T[] => {
-    const value: unknown = drawing[field];
-    if (value === undefined || Array.isArray(value)) return (value ?? []) as readonly T[];
-    out.push({ rule, severity: "error", message: `${field} must be an array` });
-    return [];
-  };
-  for (const block of listed<Block>("blocks", "block")) {
-    const label = `Block ${JSON.stringify(block.name)}`;
+  /** What the rules can read of each block that has a name, and where it is in the drawing. */
+  const walked = new Map<
+    Block,
+    {
+      readonly at: string;
+      readonly entities: readonly Entity[];
+      /** Each attribute definition by its index, or undefined for one no rule can read. */
+      readonly definitions: readonly (AttributeDefinition | undefined)[];
+      /** The tag of each definition that has one, read or not, so an insert can name it. */
+      readonly tags: readonly (string | undefined)[];
+      /** False for a base point no rule can read. */
+      readonly based: boolean;
+    }
+  >();
+  each(listed<Block>("blocks", "block"), "blocks", "block", TYPED.block, (block, i) => {
+    const at = `blocks[${i}]`;
+    // A block with a name stays one an insert can place, whatever else is wrong with it.
+    const unread = malformed(WALKABLE.block, block, at, "block");
+    if (!isObject(block)) return;
+    const label = `Block ${shown(block.name)}`;
     const error = (rule: LintRule, message: string) =>
-      out.push({ rule, severity: "error", message: `${label}: ${message}`, block: block.name });
+      out.push({
+        rule,
+        severity: "error",
+        message: `${label}: ${message}`,
+        ...named("block", block.name),
+      });
     if (r12) {
       error("block", R12_ONLY.blocks);
-      continue;
+      return;
     }
     const nameProblem = blockNameProblem(block.name);
     if (nameProblem) {
       error("block", nameProblem);
-      continue;
+      return;
     }
     const auditKey = layerAuditKey(block.name);
     const first = blocksAudited.get(auditKey);
     if (first !== undefined) {
       error("duplicate-block", blockTwinProblem(block.name, first)!);
-      continue;
+      return;
     }
     blocksAudited.set(auditKey, block.name);
     blocks.set(layerKey(block.name), block);
+    const isList = (value: unknown) => !unread || arrayProblem(value, "") === undefined;
+    const definitions: (AttributeDefinition | undefined)[] = [];
+    const tags: (string | undefined)[] = [];
+    each(
+      block.attributes !== undefined && isList(block.attributes) ? block.attributes : [],
+      `${at}.attributes`,
+      "attribute",
+      TYPED.attribute,
+      (definition, index) => {
+        const about = { block: block.name };
+        const path = `${at}.attributes[${index}]`;
+        const sound = !malformed(WALKABLE.attribute, definition, path, "attribute", about);
+        definitions[index] = sound ? definition : undefined;
+        const tag: unknown = isObject(definition) ? definition.tag : undefined;
+        tags[index] = typeof tag === "string" ? tag : undefined;
+      },
+      { block: block.name },
+    );
     const base: unknown = block.base;
-    if (base !== undefined) {
+    const based = !unread || base === undefined || isSound(WALKABLE.point, base);
+    const entities = isList(block.entities) ? block.entities : [];
+    walked.set(block, { at, entities, definitions, tags, based });
+    if (based && base !== undefined) {
       const [x, y] = base as Point;
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
         error("block", "its base point must be finite numbers");
@@ -406,46 +560,43 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
         if (problem) error("block", `its base point: ${problem}`);
       }
     }
-    const named = blockHandles(block.name);
-    for (const handle of [named.record, named.begin, named.end]) {
-      const clash = claim(handle, `the block ${JSON.stringify(block.name)}`);
+    const handles = blockHandles(block.name);
+    for (const handle of [handles.record, handles.begin, handles.end]) {
+      const clash = claim(handle, `the block ${shown(block.name)}`);
       if (clash) error("id-handle", clash);
     }
-  }
+  });
 
   // An xref is a block to AutoCAD, so it shares the blocks' names, and an insert finds it as
   // it finds a block.
   const xrefs = new Map<string, Xref>();
   const xrefsAudited = new Set<string>();
   const placedXrefs = new Set<Xref>();
-  for (const xref of listed<Xref>("xrefs", "xref")) {
+  each(listed<Xref>("xrefs", "xref"), "xrefs", "xref", TYPED.xref, (xref, i) => {
     const name: unknown = (xref as Xref | null)?.name;
+    const about = named("xref", name);
     const error = (rule: LintRule, message: string) =>
-      out.push({
-        rule,
-        severity: "error",
-        message: `Xref ${typeof name === "string" ? JSON.stringify(name) : String(name)}: ${message}`,
-        ...(typeof name === "string" ? { xref: name } : {}),
-      });
-    if (typeof xref !== "object" || xref === null) {
+      out.push({ rule, severity: "error", message: `Xref ${shown(name)}: ${message}`, ...about });
+    if (!isObject(xref)) {
       error("xref", "an xref must be an object with a name and a path");
-      continue;
+      return;
     }
+    malformed(WALKABLE.xref, xref, `xrefs[${i}]`, "xref", about);
     if (r12) {
       error("xref", R12_ONLY.xrefs);
-      continue;
+      return;
     }
     const nameProblem = blockNameProblem(name);
     if (nameProblem) {
       error("xref", nameProblem);
-      continue;
+      return;
     }
     const auditKey = layerAuditKey(xref.name);
     const first = blocksAudited.get(auditKey);
     if (first !== undefined) {
       const kind = xrefsAudited.has(auditKey) ? "xref" : "block";
       error("duplicate-block", xrefTwinProblem(xref.name, first, kind));
-      continue;
+      return;
     }
     blocksAudited.set(auditKey, xref.name);
     xrefsAudited.add(auditKey);
@@ -457,24 +608,28 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
         error("xref", xrefFieldProblem(field));
       }
     }
-    const named = blockHandles(xref.name);
-    for (const handle of [named.record, named.begin, named.end]) {
-      const clash = claim(handle, `the xref ${JSON.stringify(xref.name)}`);
+    const handles = blockHandles(xref.name);
+    for (const handle of [handles.record, handles.begin, handles.end]) {
+      const clash = claim(handle, `the xref ${shown(xref.name)}`);
       if (clash) error("id-handle", clash);
     }
-  }
+  });
 
   /** Checks the attribute definitions of a block that passed the checks above. */
   const lintAttributes = (block: Block): void => {
     const tags = new Set<string>();
-    (block.attributes ?? []).forEach((definition, index) => {
-      const tag: unknown = definition.tag;
+    const { at, definitions, tags: kept } = walked.get(block)!;
+    definitions.forEach((definition, index) => {
+      // A definition no rule can read keeps its tag, which still counts against a second one.
+      if (!definition && kept[index] === undefined) return;
+      const from = out.length;
+      const tag: unknown = definition ? definition.tag : kept[index];
       const add = (rule: LintRule, severity: Diagnostic["severity"], problem: string) => {
         const call = block.attributes ? callOf(block.attributes, index) : undefined;
         out.push({
           rule,
           severity,
-          message: `Block ${JSON.stringify(block.name)}, attribute ${shownTag(tag)}: ${problem}`,
+          message: `Block ${shown(block.name)}, attribute ${shown(tag)}: ${problem}`,
           block: block.name,
           ...(typeof tag === "string" ? { attribute: tag } : {}),
           ...(call ? { call } : {}),
@@ -486,10 +641,11 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
         add("duplicate-attribute", "error", duplicateAttributeProblem(tag as string));
       } else {
         tags.add(tag as string);
-        const what = `the attribute ${JSON.stringify(tag)} of the block ${JSON.stringify(block.name)}`;
+        const what = `the attribute ${shown(tag)} of the block ${shown(block.name)}`;
         const clash = claim(definitionHandle(block.name, tag as string), what);
         if (clash) add("id-handle", "error", clash);
       }
+      if (!definition) return;
       for (const [field, value] of [
         ["its value", definition.value],
         ["its prompt", definition.prompt ?? ""],
@@ -505,12 +661,26 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
         add("geometry", "error", problem);
       }
       for (const [rule, found] of textProblems(definition)) add(rule, "error", found);
+      mark(TYPED.attribute, definition, `${at}.attributes[${index}]`, from);
     });
   };
 
   const lintEntities = (entities: readonly Entity[], block: Block | undefined): void => {
-    const where = block ? ` of block ${JSON.stringify(block.name)}` : "";
-    entities.forEach((entity, index) => {
+    const where = block ? ` of block ${shown(block.name)}` : "";
+    const at = block ? `${walked.get(block)!.at}.entities` : "entities";
+    const inBlock = block ? { block: block.name } : {};
+    const lintEntity = (entity: Entity, index: number): void => {
+      if (!isSound(WALKABLE.entity, entity)) {
+        const call = callOf(entities, index);
+        const about = { ...inBlock, entity: index, ...(call ? { call } : {}) };
+        if (malformed(WALKABLE.entity, entity, `${at}[${index}]`, "format", about)) {
+          // An insert no rule can read still places the xref it names.
+          const name: unknown = isObject(entity) && entity.kind === "insert" && entity.block;
+          const xref = typeof name === "string" ? xrefs.get(layerKey(name)) : undefined;
+          if (xref && !blocks.has(layerKey(name as string))) placedXrefs.add(xref);
+          return;
+        }
+      }
       const id: unknown = entity.id;
       const add = (rule: LintRule, severity: Diagnostic["severity"], problem: string) => {
         const call = callOf(entities, index);
@@ -533,7 +703,7 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
           add("duplicate-id", "error", duplicateIdProblem(id as string, first));
         else {
           ids.set(idKey(id as string), id as string);
-          const what = `the id ${JSON.stringify(id)}`;
+          const what = `the id ${shown(id)}`;
           const clash = claim(validIdHandle(id as string), what, id as string);
           if (clash) add("id-handle", "error", clash);
           named = true;
@@ -556,7 +726,7 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
           add("undefined-block", "error", "a block is named by a string");
         else if (!placed && !xref) {
           const twin = blocksAudited.get(layerAuditKey(name));
-          const hint = twin ? `. Name it as the drawing does, ${JSON.stringify(twin)}` : "";
+          const hint = twin ? `. Name it as the drawing does, ${shown(twin)}` : "";
           add("undefined-block", "error", `${undefinedBlockProblem(name)}${hint}`);
         }
         const set: unknown = entity.attributes === undefined ? {} : entity.attributes;
@@ -568,12 +738,17 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
           if (Object.keys(set).length > 0) add("undefined-attribute", "error", XREF_ATTRIBUTES);
           return;
         }
-        const tags = new Set((placed?.attributes ?? []).map((definition) => definition.tag));
+        const read = placed ? walked.get(placed)! : undefined;
+        const tags = new Set<string>();
+        for (const tag of read?.tags ?? []) if (tag !== undefined) tags.add(tag);
         // What the insert makes of each attribute, once the insert itself is sound.
-        if (placed && problems.length === 0) {
-          for (const definition of placed.attributes ?? []) {
+        if (placed && read?.based && problems.length === 0) {
+          for (const definition of read.definitions) {
             if (
+              !definition ||
               typeof definition.tag !== "string" ||
+              (typeof definition.style === "string" &&
+                unreadStyles.has(layerKey(definition.style))) ||
               geometryProblems({ ...definition, kind: "text" }).length > 0
             )
               continue;
@@ -593,15 +768,15 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
             add("undefined-attribute", "error", undefinedAttributeProblem(tag, placed.name));
           }
           const problem = typeof value === "string" ? textProblem(value) : "must be a string";
-          if (problem) add("text", "error", `attribute ${JSON.stringify(tag)}: ${problem}`);
+          if (problem) add("text", "error", `attribute ${shown(tag)}: ${problem}`);
           const warning = typeof value === "string" ? textWarning(value) : undefined;
-          if (warning) add("text", "warning", `attribute ${JSON.stringify(tag)}: ${warning}`);
+          if (warning) add("text", "warning", `attribute ${shown(tag)}: ${warning}`);
         }
         if (named && tags.size > 0) {
-          const insert = `the insert ${JSON.stringify(id)}`;
+          const insert = `the insert ${shown(id)}`;
           const taken = [...tags].map((tag): [string, string] => [
             insertAttributeHandle(id as string, tag),
-            `the attribute ${JSON.stringify(tag)} of ${insert}`,
+            `the attribute ${shown(tag)} of ${insert}`,
           ]);
           taken.push([insertEndHandle(id as string), `the end of the attributes of ${insert}`]);
           for (const [handle, what] of taken) {
@@ -636,28 +811,30 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
       // A shape with a geometry error has no length worth a second message.
       const collapsed = problems.length === 0 ? zeroLength(entity) : undefined;
       if (collapsed) add("zero-length", "warning", collapsed);
-    });
+    };
+    each(entities, at, "format", TYPED.entity, lintEntity, inBlock);
   };
   for (const block of blocks.values()) {
     lintAttributes(block);
-    lintEntities(block.entities, block);
+    lintEntities(walked.get(block)!.entities, block);
   }
-  lintEntities(drawing.entities, undefined);
+  lintEntities(listed<Entity>("entities", "format"), undefined);
 
   for (const xref of xrefs.values()) {
     if (placedXrefs.has(xref)) continue;
     out.push({
       rule: "xref",
       severity: "warning",
-      message: `Xref ${JSON.stringify(xref.name)}: ${XREF_UNPLACED}`,
+      message: `Xref ${shown(xref.name)}: ${XREF_UNPLACED}`,
       xref: xref.name,
     });
   }
 
   // A block that holds an insert of itself, directly or through the blocks it inserts.
   const inserted = (block: Block): Block[] =>
-    block.entities.flatMap((entity) => {
-      const name: unknown = entity.kind === "insert" ? entity.block : undefined;
+    walked.get(block)!.entities.flatMap((entity) => {
+      const name: unknown =
+        (entity as Entity | null)?.kind === "insert" ? (entity as Insert).block : undefined;
       const found = typeof name === "string" ? blocks.get(layerKey(name)) : undefined;
       return found ? [found] : [];
     });
@@ -696,11 +873,6 @@ export class DrawingError extends Error {
     this.name = "DrawingError";
     this.diagnostics = diagnostics;
   }
-}
-
-/** A tag for a message, whatever its type. */
-function shownTag(tag: unknown): string {
-  return typeof tag === "string" ? JSON.stringify(tag) : String(tag);
 }
 
 /**

@@ -39,6 +39,8 @@ function refusal(value: unknown): readonly Diagnostic[] {
   return assert.fail("fromJSON took the value");
 }
 
+const kinds = ` An entity's kind is "line", "polyline", "circle", "arc", "text" or "insert"`;
+
 test("a drawing goes to JSON and back unchanged", () => {
   const drawing = sample();
   const read = fromJSON(toJSON(drawing));
@@ -98,10 +100,10 @@ test("fromJSON names what it does not know, and runs lint", () => {
     }),
     [
       'format: entities[0]: unknown field "thickness"',
-      'format: entities[1]: unknown entity kind "ellipse"',
+      `format: entities[1]: unknown entity kind "ellipse".${kinds}`,
       'format: entities[2]: the field "radius" is missing',
       "format: entities[2].center must be a point, [x, y]",
-      'format: layers[0]: unknown field "colour"',
+      'format: layers[0]: unknown field "colour". Did you mean "color"?',
       'format: The drawing: unknown field "title"',
     ],
   );
@@ -159,7 +161,7 @@ test("fromJSON names what it does not know, and runs lint", () => {
     [{ ...base, format: 1n }, unknownFormat("a value of type bigint")],
     [
       withEntity({ ...line, kind: 1n }),
-      "format: entities[0]: unknown entity kind a value of type bigint",
+      `format: entities[0]: unknown entity kind a value of type bigint.${kinds}`,
     ],
     [{ ...base, format: -0 }, unknownFormat("-0")],
   ];

@@ -28,8 +28,9 @@ function that returns one.
 
 render  Builds the file once, writes <name>.svg and <name>.png to --out (default:
         an out folder beside the file), and prints the result as JSON. Exits 0
-        when it built with no lint errors, 2 with lint errors, 1 when it failed
-        or could not write the pictures. Without the optional PNG renderer it
+        when it built with no lint errors, 2 when lint reported errors, and 1
+        when the build failed before lint could report or a picture could not be
+        written. Without the optional PNG renderer it
         writes the SVG, gives the reason as outputs.pngError and exits as above.
         Read the pictures at the paths in outputs. A picture this run did not
         write is removed from the default out folder, and left alone in --out.
@@ -154,7 +155,8 @@ if (command === "dev") {
     ? { ...state, ok: false, error: failed, timings }
     : { ...state, timings };
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-  process.exitCode = !result.ok ? 1 : (state.drawing?.counts.errors ?? 0) > 0 ? 2 : 0;
+  const errors = state.drawing?.counts.errors ?? 0;
+  process.exitCode = outcome.linted || (result.ok && errors > 0) ? 2 : result.ok ? 0 : 1;
 }
 
 function outputError(what: string, error: unknown): BuildError {

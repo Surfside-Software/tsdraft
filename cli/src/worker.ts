@@ -16,6 +16,7 @@ import type {
   LayerSummary,
   XrefSummary,
 } from "./state.ts";
+import { LEFT_OUT, without } from "./omit.ts";
 import { fileVersion } from "./version.ts";
 
 export interface BuildRequest {
@@ -52,6 +53,8 @@ export interface WorkerResult {
   /** The color `toSVG` draws each layer in, by layer name. */
   readonly swatches: Readonly<Record<string, string>>;
   readonly error: BuildError | null;
+  /** True for a build that failed after `lint` reported errors, which `diagnostics` holds. */
+  readonly linted?: boolean;
 }
 
 interface Library {
@@ -185,62 +188,75 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
     const library = await findLibrary(file);
     t = now();
     const found = library.lint(drawing);
-    // `lint` has reported a list of blocks or xrefs that is not one. What follows reads the
-    // drawing without it, so the report is what the build gives and not a thrown error.
-    const { blocks, xrefs, ...rest } = drawing;
-    const isList = (value: unknown): boolean => value === undefined || Array.isArray(value);
-    if (!isList(blocks) || !isList(xrefs)) {
-      drawing = {
-        ...rest,
-        ...(Array.isArray(blocks) ? { blocks } : {}),
-        ...(Array.isArray(xrefs) ? { xrefs } : {}),
-      };
-    }
-    const given = givenDrawings(library, drawing, referenced);
-    const drawn = Object.fromEntries(
-      [...given.values()].filter((g) => g.errors.length === 0).map((g) => [g.name, g.drawing]),
-    );
-    const diagnostics = [
-      ...found,
-      ...[...given].flatMap(([xref, g]) => g.errors.map((d) => inGiven(xref, d))),
-    ]
-      .sort((a, b) => Number(a.severity === "warning") - Number(b.severity === "warning"))
-      .map((d) => aboutEntity(library, drawing, drawn, d));
-    timings.lint = now() - t;
-    t = now();
-    const { svg, min, max } = framed(
-      library.toSVG(drawing, { margin: 0, drawNoPlot: drawNoPlot === true, xrefs: drawn }),
-    );
-    timings.svg = now() - t;
-    const errors = diagnostics.filter((d) => d.severity === "error").length;
-    return {
-      ok: true,
-      files: readFiles(file),
-      timings,
-      drawing: {
-        units: drawing.units,
-        dxf: drawing.dxf,
-        extents: { min, max },
-        counts: {
-          layers: drawing.layers.length,
-          entities: drawing.entities.length,
-          blocks: drawing.blocks?.length ?? 0,
-          xrefs: drawing.xrefs?.length ?? 0,
-          errors,
-          warnings: diagnostics.length - errors,
+    const size = (list: unknown): number => (Array.isArray(list) ? list.length : 0);
+    const errorsFirst = (a: Diagnostic, b: Diagnostic) =>
+      Number(a.severity === "warning") - Number(b.severity === "warning");
+    /** The build's answer, with `shown` drawn in place of the drawing when items are left out. */
+    const report = (shown: Drawing, omitted: readonly string[]): WorkerResult => {
+      const given = givenDrawings(library, shown, referenced);
+      const drawn = Object.fromEntries(
+        [...given.values()].filter((g) => g.errors.length === 0).map((g) => [g.name, g.drawing]),
+      );
+      const diagnostics = [
+        ...found,
+        ...[...given].flatMap(([xref, g]) => g.errors.map((d) => inGiven(xref, d))),
+      ]
+        .sort(errorsFirst)
+        .map((d) => aboutEntity(library, shown, drawn, d));
+      timings.lint ??= now() - t;
+      t = now();
+      const { svg, min, max } = framed(
+        library.toSVG(shown, { margin: 0, drawNoPlot: drawNoPlot === true, xrefs: drawn }),
+      );
+      timings.svg = now() - t;
+      const errors = diagnostics.filter((d) => d.severity === "error").length;
+      return {
+        ok: true,
+        files: readFiles(file),
+        timings,
+        drawing: {
+          units: drawing.units,
+          dxf: drawing.dxf,
+          extents: { min, max },
+          counts: {
+            layers: size(drawing.layers),
+            entities: size(drawing.entities),
+            blocks: size(drawing.blocks),
+            xrefs: size(drawing.xrefs),
+            errors,
+            warnings: diagnostics.length - errors,
+          },
+          ...(omitted.length > 0 ? { omitted } : {}),
+          layers: layerSummaries(shown),
+          blocks: blockSummaries(library, shown),
+          inserts: insertSummaries(library, shown),
+          xrefs: xrefSummaries(library, shown, given),
         },
-        layers: layerSummaries(drawing),
-        blocks: blockSummaries(library, drawing),
-        inserts: insertSummaries(library, drawing),
-        xrefs: xrefSummaries(library, drawing, given),
-      },
-      diagnostics,
-      svg,
-      swatches: swatches(library, drawing),
-      error: null,
+        diagnostics,
+        svg,
+        swatches: swatches(library, shown),
+        error: null,
+      };
     };
+    try {
+      return report(drawing, []);
+    } catch (thrown) {
+      // `toSVG` cannot get past something in the drawing. When `lint` has said what, the rest
+      // is drawn without it. Failing that, the build fails and `lint`'s report is kept.
+      const items = new Set(
+        found.flatMap((d) => (d.severity === "error" && d.item ? [d.item] : [])),
+      );
+      if (!found.some((d) => d.severity === "error")) throw thrown;
+      try {
+        if (items.size === 0) throw thrown;
+        return report(without(drawing, items), [...items].sort());
+      } catch {
+        const diagnostics = [...found].sort(errorsFirst).map(withPath);
+        return { ...fail(describe(thrown, root)), diagnostics, linted: true };
+      }
+    }
   } catch (thrown) {
-    // The drawing is malformed in a way `lint` or `toSVG` cannot get past.
+    // The drawing is malformed in a way `lint` cannot get past.
     return fail(describe(thrown, root), thrown);
   }
 }
@@ -259,7 +275,7 @@ function aboutEntity(
       ? drawing.entities
       : (drawing.blocks?.find((b) => b.name === d.block)?.entities ?? []);
   const entity = d.entity === undefined ? undefined : entities[d.entity];
-  if (!entity) return d;
+  if (!entity || entity === LEFT_OUT) return d;
   // toSVG works out the box, so it agrees with the drawing's extents and the picture. An entity
   // on a layer that is off, frozen or not plotted still has a box.
   const one = { ...drawing, layers: shownLayers(drawing), entities: [entity] };

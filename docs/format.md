@@ -48,7 +48,10 @@ An xref has a `name` and a `path`, and nothing else. An insert places one by nam
 [Xrefs](xrefs.md) describes them.
 
 A drawing written by hand needs `format: 0` too. `lint` reports a drawing without it, or with
-another version, under the rule `format`, and `toDXF` refuses to write it.
+another version, under the rule `format`, and `toDXF` refuses to write it. `lint` takes any
+plain data and never throws: a list that is not an array, an entity of an unknown `kind`, a
+missing field, a field of the wrong type and a field it does not know are each an error, with
+the path to the value as `fromJSON` gives it.
 
 ## Ids
 
