@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { sitePlan } from "../examples/site-plan.ts";
+import { toSVG } from "../src/index.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -28,7 +29,14 @@ interface Picture {
   readonly roundCaps: boolean;
   /** The color role of each layer that has entities. */
   readonly roles: Record<string, Role>;
+  /** The SVG of a layout to restyle, in place of the model space the example writes. */
+  readonly sheetSvg?: string;
 }
+
+// The site plan's picture is its layout, as toSVG draws the sheet: paper units, each line as
+// wide as its lineweight, and dashes as long as they plot.
+const site = sitePlan();
+const sitePicture = toSVG(site.drawing, { layout: site.drawing.layouts![0]!.name });
 
 const themes = {
   light: { bg: "#f6f8fa", line: "#1f2328", muted: "#818b98", accent: "#0d7a8c" },
@@ -41,7 +49,7 @@ const pictures: Picture[] = [
     width: 1100,
     pad: 0,
     pen: 0.8,
-    sheet: sitePlan().sheetEdge,
+    sheetSvg: sitePicture,
     roundCaps: false,
     roles: {
       "C-PROP": "line",
@@ -92,9 +100,82 @@ function sheetOutline(x: number, y: number, w: number, h: number, pixel: number,
   return `  <rect x="${at[0]}" y="${at[1]}" width="${at[2]}" height="${at[3]}" rx="2" fill="none" stroke="${color}" stroke-width="${Number(pixel.toFixed(3))}"/>`;
 }
 
+/**
+ * A layout's picture in a theme's colors. Its lines keep the widths toSVG gave them, each in
+ * proportion to its lineweight, and all are widened alike so that the default pen is `pen`
+ * pixels wide at the picture's size. The white sheet becomes the theme's ground, outlined.
+ */
+function sheetPicture(
+  svg: string,
+  { width, pen, roles, name }: Picture,
+  colors: (typeof themes)[keyof typeof themes],
+): string {
+  const [x = 0, y = 0, w = 0, h = 0] = (/viewBox="([^"]+)"/.exec(svg)?.[1] ?? "")
+    .split(" ")
+    .map(Number);
+  const base = Number(
+    /<g transform="scale\(1 -1\)" fill="none" stroke-width="([^"]+)"/.exec(svg)?.[1],
+  );
+  if (!(w > 0) || !(base > 0) || !svg.includes('fill="#ffffff"/>')) {
+    throw new Error(
+      "toSVG's picture of a layout changed shape, so the restyling no longer applies",
+    );
+  }
+  const unitsPerPixel = w / width;
+  const wider = (pen * unitsPerPixel) / base;
+  const out = svg.split("\n").map((line) => {
+    if (line.startsWith("<svg ")) {
+      return line.replace(
+        /viewBox="[^"]+"[^>]*>/,
+        `viewBox="${x} ${y} ${w} ${h}" width="${width}" height="${Math.round((width * h) / w)}">`,
+      );
+    }
+    if (line.includes('fill="#ffffff"/>')) {
+      return [
+        `  <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${Number((2 * unitsPerPixel).toFixed(4))}" fill="${colors.bg}"/>`,
+        sheetOutline(x, y, w, h, unitsPerPixel, colors.muted).replace(
+          'rx="2"',
+          `rx="${Number((2 * unitsPerPixel).toFixed(4))}"`,
+        ),
+      ].join("\n");
+    }
+    const layer = /data-layer="([^"]+)"/.exec(line)?.[1];
+    const role = layer === undefined ? undefined : roles[layer];
+    if (layer !== undefined && !role) throw new Error(`Layer ${layer} of ${name} has no role`);
+    const styled = line
+      .replace(/stroke-width="([^"]+)"/, (_, value: string) => {
+        return `stroke-width="${Number((Number(value) * wider).toPrecision(5))}"`;
+      })
+      .replace('fill="none" stroke-width', 'fill="none" stroke-linejoin="round" stroke-width');
+    if (!role) return styled;
+    return styled
+      .replace(/ data-layer="[^"]*"/, "")
+      .replace(/ data-entity="[^"]*"/, "")
+      .replace(/stroke="#000000"/, `stroke="${colors[role]}"`)
+      .replace(/fill="#000000"/, `fill="${colors[role]}"`);
+  });
+  const text = out.join("\n");
+  if (!text.includes(colors.accent) || text.includes("data-layer") || text.includes("#000000")) {
+    throw new Error(
+      "toSVG's picture of a layout changed shape, so the restyling no longer applies",
+    );
+  }
+  return text;
+}
+
 for (const picture of pictures) {
   const { name, width, pad, pen, roundCaps, roles, sheet } = picture;
   execFileSync(process.execPath, [`examples/${name}.ts`], { cwd: root, stdio: "inherit" });
+  if (picture.sheetSvg !== undefined) {
+    for (const [theme, colors] of Object.entries(themes)) {
+      writeFileSync(
+        `${root}/docs/assets/${name}-${theme}.svg`,
+        sheetPicture(picture.sheetSvg, picture, colors),
+      );
+    }
+    console.log(`Wrote docs/assets/${name}-light.svg and ${name}-dark.svg`);
+    continue;
+  }
   const svg = readFileSync(`${root}/examples/out/${name}.svg`, "utf8");
   if (!svg.includes(group)) {
     throw new Error("toSVG's output changed shape, so the restyling no longer applies");

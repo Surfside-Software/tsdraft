@@ -5,6 +5,22 @@
 - The command opens no file an xref names. The worker draws an xref from the drawing file's
   named export `xrefs` alone, and `drawing.xrefs` says with `shown` which ones the pictures
   have, so an agent knows what it is not seeing.
+- `outputs.svg` and `outputs.png` are model space, with or without layouts, and
+  `outputs.layouts` has each sheet. The worker draws a layout only with a copy of tsdraft that
+  has `viewportView`, since an older one would draw model space for it. `without` leaves a
+  layout out whole, or one viewport or one entity of it, by the `item` of a diagnostic.
+  A sheet's SVG has its stroke widths in paper units, which `src/png.ts` keeps and the page
+  does not touch.
+- The renderer draws in a process of its own, `src/png-child.ts`, which `src/png.ts` starts,
+  keeps while the command runs, and starts again when it dies. resvg stops its process on
+  some pictures, and the command must outlive that: the picture it died on gets a `pngError`,
+  its own in `outputs.layouts`, and every other output and the exit code are as they would
+  have been. The same holds when the process cannot start. Each request is settled once: an
+  `error` listener stays on the process for its whole life, and a send that fails counts as
+  the process gone. `render` starts the process before the build, so that it loads while the drawing
+  is built. A test that makes the renderer abort runs the command under
+  `prlimit --core=1:1 --`, which keeps the kernel from writing a core, and is skipped where
+  there is no `prlimit`.
 - `toSVG` may throw on a drawing `lint` reports an error for. The worker then draws the drawing
   `without` in `src/omit.ts` gives: the one without the `item` of each error, with a stand-in
   for an entity so the others keep their indexes. `drawing.omitted` lists what was left out,
@@ -37,8 +53,8 @@
 - `../src` never imports from this folder. The command is compiled to `dist/` here, and
   `assets/` holds every file it reads at run time, found with a path from `import.meta.url`
   that is the same from `src/` and from `dist/`.
-- `@resvg/resvg-js` is an optional dependency. Only `src/png.ts` loads it, and only when a PNG
-  is asked for or `tsdraft dev` starts. Without it the command still gives the SVG and the JSON,
+- `@resvg/resvg-js` is an optional dependency. Only `src/png.ts` and `src/png-child.ts` load
+  it, and only when a PNG is asked for or `tsdraft dev` starts. Without it the command still gives the SVG and the JSON,
   with the reason in `outputs.pngError`.
 - [GUIDE.md](../GUIDE.md) is what an agent that uses tsdraft reads, and
   [docs/command.md](../docs/command.md) is the full page. Keep both true when the JSON, a flag

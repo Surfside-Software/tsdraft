@@ -127,17 +127,57 @@ const FOLDED_RANGES =
   "1fb8-1fbc 1fc8-1fcc 1fd8-1fdb 1fe8-1fec 1ff8-1ffc 2160-216f 24b6-24cf a640-a65e/2 " +
   "a662-a66c/2 a680-a696/2 a722-a72e/2 a732-a76e/2 a779-a77d/2 a77e-a786/2 a78b ff21-ff3a";
 
-const FOLDED: ReadonlySet<number> = new Set(
-  FOLDED_RANGES.split(" ").flatMap((range) => {
-    const [span = "", step = "1"] = range.split("/");
-    const [first = "", last = first] = span.split("-");
-    const codes: number[] = [];
-    for (let code = parseInt(first, 16); code <= parseInt(last, 16); code += Number(step)) {
-      codes.push(code);
-    }
-    return codes;
-  }),
-);
+/** The code points a list of hexadecimal ranges names, where `/2` takes every second one. */
+function codeSet(ranges: string): ReadonlySet<number> {
+  return new Set(
+    ranges.split(" ").flatMap((range) => {
+      const [span = "", step = "1"] = range.split("/");
+      const [first = "", last = first] = span.split("-");
+      const codes: number[] = [];
+      for (let code = parseInt(first, 16); code <= parseInt(last, 16); code += Number(step)) {
+        codes.push(code);
+      }
+      return codes;
+    }),
+  );
+}
+
+const FOLDED = codeSet(FOLDED_RANGES);
+
+/**
+ * The capital letters AutoCAD lower-cases when it looks a layout up by its name, in the
+ * notation of `FOLDED_RANGES`. A layout is an entry of a dictionary and no record of a symbol
+ * table, and the table is another: it has Ÿ (U+0178), and the Georgian, Glagolitic and Coptic
+ * capitals that a layer name cannot hold.
+ */
+const LAYOUT_FOLDED_RANGES =
+  "41-5a " +
+  "c0-d6 d8-de 100-12e/2 132-136/2 139-147/2 14a-178/2 179-17d/2 181-182 184-186/2 " +
+  "187-189/2 18a-18b 18e-191 193-194 196-198 19c-19d 19f-1a0 1a2-1a6/2 1a7-1a9/2 " +
+  "1ac-1ae/2 1af-1b1/2 1b2-1b3 1b5-1b7/2 1b8 1bc 1c4 1c7 1ca 1cd-1db/2 1de-1ee/2 1f1 " +
+  "1f4-1f6/2 1f7-1f8 1fa-232/2 23a-23b 23d-23e 241-243/2 244-246 248-24e/2 370-372/2 " +
+  "376 386-388/2 389-38a 38c-38e/2 38f-391/2 392-3a1 3a3-3ab 3cf 3d8-3ee/2 3f7-3f9/2 " +
+  "3fa 3fd-42f 460-480/2 48a-4c0/2 4c1-4cd/2 4d0-522/2 531-556 10a0-10c5 1e00-1e94/2 " +
+  "1ea0-1efe/2 1f08-1f0f 1f18-1f1d 1f28-1f2f 1f38-1f3f 1f48-1f4d 1f59-1f5f/2 1f68-1f6f " +
+  "1f88-1f8f 1f98-1f9f 1fa8-1faf 1fb8-1fbc 1fc8-1fcc 1fd8-1fdb 1fe8-1fec 1ff8-1ffc 2132 " +
+  "2160-216f 2183 24b6-24cf 2c00-2c2e 2c60-2c62/2 2c63-2c64 2c67-2c6d/2 2c6e-2c6f 2c72 " +
+  "2c75 2c80-2ce2/2 a640-a65e/2 a662-a66c/2 a680-a696/2 a722-a72e/2 a732-a76e/2 " +
+  "a779-a77d/2 a77e-a786/2 a78b ff21-ff3a";
+
+const LAYOUT_FOLDED = codeSet(LAYOUT_FOLDED_RANGES);
+
+/**
+ * The form AutoCAD compares two layout names in: each capital of its table in lower case, one
+ * character at a time. Two names with one key are one layout to AutoCAD.
+ */
+export function layoutNameKey(name: string): string {
+  let key = "";
+  for (let i = 0; i < name.length; i++) {
+    const character = name.charAt(i);
+    key += LAYOUT_FOLDED.has(name.charCodeAt(i)) ? character.toLowerCase() : character;
+  }
+  return key;
+}
 
 /**
  * Pairs of letters that AutoCAD keeps as two layers but its AUDIT reports as a

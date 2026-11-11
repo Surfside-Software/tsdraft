@@ -47,6 +47,13 @@ An xref has a `name` and a `path`, and nothing else. An insert places one by nam
 `block`, as it names a block. A drawing with no xref has the JSON it had before xrefs existed.
 [Xrefs](xrefs.md) describes them.
 
+A drawing lists its sheets in `layouts`, and leaves the field out when it has none. A layout
+has a `name`, a `paper`, its `viewports` and its `entities`, which are the same kinds as model
+space's, and a `plotStyle` where it is not `"monochrome.ctb"`. A viewport has a `layer`, a
+`corner`, a `width` and a `height` on the paper, the `center` of its view in model space and
+its `ratio`, and an `id` where it has one. A drawing with no layout has the JSON it had before
+layouts existed. [Layouts](layouts.md) describes them.
+
 A drawing written by hand needs `format: 0` too. `lint` reports a drawing without it, or with
 another version, under the rule `format`, and `toDXF` refuses to write it. `lint` takes any
 plain data and never throws: a list that is not an array, an entity of an unknown `kind`, a
@@ -172,8 +179,10 @@ When a key is repeated in JSON text, the last value is kept, as `JSON.parse` doe
 A `Diagnostic` from `lint` has a `rule`, a `severity` and a `message`. One about an entity also
 has:
 
-- `entity`, the entity's index in `drawing.entities`, or in the entities of `block`;
+- `entity`, the entity's index in `drawing.entities`, or in the entities of `block` or of
+  `layout`;
 - `block`, the name of the block the entity is in, when it is in one;
+- `layout`, the name of the layout the entity is on, when it is on one;
 - `id`, the entity's id, when it has one;
 - `call`, the line that called the builder method that drew the entity, as
   `{ file, line, column }`, when the
@@ -193,9 +202,10 @@ ask for it in every drawing by setting `globalThis.TSDRAFT_RECORD_CALLS = true` 
 files run. The option, when given, wins.
 
 A diagnostic about a block's definition has `block`, and one about an attribute definition has
-`block` and `attribute`, its tag.
+`block` and `attribute`, its tag. One about a layout has `layout`, and one about a viewport has
+`layout`, `viewport`, its index in the layout's viewports, and its `id` when it has one.
 
-The builder's `layer`, `linetype`, `textStyle`, `block`, `attribute` and entity methods throw a `DrawingError` when a call breaks a
+The builder's `layer`, `linetype`, `textStyle`, `block`, `attribute`, `layout`, `viewport` and entity methods throw a `DrawingError` when a call breaks a
 rule. Its message is the problem, and its one diagnostic has the `rule`, the `id` or the `layer`
 the call named, and the `call` that threw. That location costs nothing until a call fails, so it
 is always there.

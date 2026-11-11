@@ -63,24 +63,31 @@ radius and inserted at each tree's radius. The others are drawn in inches at
 the size they plot. The view title's text and its scale are attributes.
 
 Each layer sets a linetype and a pen weight. The site is in feet, and the
-sheet, every text height, annotation offset and column, and the linetype scale,
-come from `fromPaper`, as a size on paper at the one ratio the file names.
+sheet, every text height, annotation offset and column come from `fromPaper`,
+as a size on paper at the one ratio the file names. The linetype scale is a
+length of paper as it is, 1/2, because AutoCAD sizes dashes on the paper in a
+viewport.
 Change the ratio from 120 to 240 and the notes keep their plotted size and
 their place on the sheet, around a plan half as large. The sheet holds the plan
 at 1" = 10' and at 1" = 20'. At a larger scale, such as 1" = 8', the plan is
 taller than the sheet.
 
-There is no border or title block yet, because tsdraft has no paper space, and
-the drawing does not hold the sheet's edge. The picture is framed on the sheet
-and outlines its edge, so it shows the drawing as it sits on the paper.
+The drawing has one layout, `C-101`, on ARCH D paper, with one viewport over
+the whole sheet that shows the sheet's part of model space at the ratio. So
+AutoCAD opens the file on the sheet and plots it at 1" = 10' on a page 36 by 24
+inches. The viewport is on a layer that does not plot. There is no border or
+title block yet, and the notes are still in model space with the plan. The
+picture is the layout, as `toSVG(drawing, { layout: "C-101" })` draws the sheet,
+in the page's colors. Model space draws the same dashes a quarter of a foot long,
+so judge the linetypes on the sheet.
 `sitePlan(ratio)` builds the sheet at a ratio and returns the drawing with its
 three rectangles in drawing units: `sheetEdge`, `drawingArea` and
 `titleBlockSpace`. A test builds it at 120 and at 240, and holds the drawing
 inside the drawing area, out of the title block's space, and its texts off one
 another.
 
-The file's default export is the drawing, and it writes its DXF and SVG only
-when it is run:
+The file's default export is the drawing, and it writes its DXF, the SVG of
+model space and the SVG of the sheet only when it is run:
 
 ```sh
 node examples/site-plan.ts

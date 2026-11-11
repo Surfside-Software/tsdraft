@@ -191,6 +191,7 @@ try {
       entities: 2,
       blocks: 0,
       xrefs: 0,
+      layouts: 0,
       errors: 0,
       warnings: 1,
     });

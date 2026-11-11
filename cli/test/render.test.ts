@@ -83,7 +83,12 @@ test("a file that throws gives the error, its file and line, and a non-zero exit
   assert.equal(thrown.status, 1);
   assert.equal(thrown.state.ok, false);
   assert.equal(thrown.state.drawing, null);
-  assert.deepEqual(thrown.state.outputs, { svg: null, png: null, pngError: null });
+  assert.deepEqual(thrown.state.outputs, {
+    svg: null,
+    png: null,
+    pngError: null,
+    layouts: [],
+  });
   assert.match(thrown.state.error!.message, /^radius: /);
   assert.equal(thrown.state.error!.file, thrower);
   assert.equal(thrown.state.error!.line, 7);
@@ -137,7 +142,12 @@ test("a build that fails leaves no picture from an earlier run in the default fo
   writeFileSync(plan, "export default 1;\n");
   assert.deepEqual(render(plan, "--out", theirs).state.outputs.svg, null);
   assert.equal(readFileSync(join(theirs, "plan.svg"), "utf8"), "theirs");
-  assert.deepEqual(render(plan).state.outputs, { svg: null, png: null, pngError: null });
+  assert.deepEqual(render(plan).state.outputs, {
+    svg: null,
+    png: null,
+    pngError: null,
+    layouts: [],
+  });
   assert.deepEqual([existsSync(outputs.svg!), existsSync(outputs.png!)], [false, false]);
 });
 
@@ -192,6 +202,7 @@ test("the state says which blocks a drawing has and where each is inserted", () 
     entities: 4,
     blocks: 3,
     xrefs: 0,
+    layouts: 0,
     errors: 2,
     warnings: 0,
   });
@@ -345,7 +356,7 @@ test("the state lists each xref, and the pictures draw the ones the file gives a
     [partly.state.ok, partly.state.drawing?.counts, partly.state.drawing?.extents],
     [
       true,
-      { layers: 1, entities: 3, blocks: 1, xrefs: 1, errors: 4, warnings: 1 },
+      { layers: 1, entities: 3, blocks: 1, xrefs: 1, layouts: 0, errors: 4, warnings: 1 },
       { min: [0, 0], max: [10, 4] },
     ],
   );
@@ -582,3 +593,210 @@ test("dev rebuilds when a package link in node_modules is pointed at another fol
       );
     });
   }));
+
+test("a drawing with a layout gets a picture of its sheet, and the state says what each viewport shows", () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "tsdraft-render-")));
+  const plan = join(dir, "plan.ts");
+  const drawing = {
+    format: 0,
+    units: "ft",
+    dxf: "R2018",
+    layers: [
+      { name: "0", color: 7 },
+      { name: "VIEW", color: 4, plot: false },
+    ],
+    entities: [{ kind: "line", layer: "0", from: [100, 100], to: [200, 100] }],
+    layouts: [
+      {
+        name: "A-101 plan",
+        paper: "ARCH D",
+        viewports: [
+          // On the layer VIEW, named in another case: its border does not plot.
+          {
+            id: "plan",
+            layer: "view",
+            corner: [1, 1],
+            width: 34,
+            height: 22,
+            center: [170, 110],
+            ratio: 120,
+          },
+          // Past the paper, and over a part of model space with nothing in it.
+          { layer: "0", corner: [30, 20], width: 10, height: 2, center: [900, 900], ratio: 12 },
+        ],
+        entities: [{ kind: "line", layer: "NOPE", from: [0, 0], to: [36, 24] }],
+      },
+      { name: "Empty", paper: "ANSI B", viewports: [], entities: [] },
+    ],
+  };
+  writeFileSync(plan, `export default ${JSON.stringify(drawing)};\n`);
+  const { state, status } = render(plan, "--width", "400");
+  assert.equal(status, 2);
+  assert.equal(state.drawing?.counts.layouts, 2);
+  assert.deepEqual(state.drawing?.layouts, [
+    {
+      name: "A-101 plan",
+      paper: "ARCH D",
+      paperUnits: "in",
+      width: 36,
+      height: 24,
+      plotStyle: "monochrome.ctb",
+      entities: 1,
+      viewports: [
+        {
+          id: "plan",
+          layer: "view",
+          border: false,
+          rectangle: { min: [1, 1], max: [35, 23] },
+          ratio: 120,
+          center: [170, 110],
+          shows: { min: [0, 0], max: [340, 220] },
+        },
+        {
+          id: null,
+          layer: "0",
+          border: true,
+          rectangle: { min: [30, 20], max: [40, 22] },
+          ratio: 12,
+          center: [900, 900],
+          shows: { min: [895, 899], max: [905, 901] },
+        },
+      ],
+    },
+    {
+      name: "Empty",
+      paper: "ANSI B",
+      paperUnits: "in",
+      width: 17,
+      height: 11,
+      plotStyle: "monochrome.ctb",
+      entities: 0,
+      viewports: [],
+    },
+  ]);
+  // A diagnostic on a layout is boxed on the sheet: the entity, and the viewport's rectangle.
+  assert.deepEqual(
+    state.diagnostics.map((d) => [d.rule, d.severity, d.layout, d.entity ?? d.viewport, d.bounds]),
+    [
+      ["undefined-layer", "error", "A-101 plan", 0, { min: [0, 0], max: [36, 24] }],
+      ["viewport", "warning", "A-101 plan", 1, { min: [30, 20], max: [40, 22] }],
+      ["viewport", "warning", "A-101 plan", 1, { min: [30, 20], max: [40, 22] }],
+    ],
+  );
+  // Each layout is drawn as a sheet of its paper, the one with a lint error too.
+  assert.deepEqual(
+    state.outputs.layouts.map((made) => made.name),
+    ["A-101 plan", "Empty"],
+  );
+  const [, sheet] = state.outputs.layouts;
+  assert.equal(sheet?.svg, join(dir, "out", "plan.layout-Empty.svg"));
+  assert.match(readFileSync(sheet!.svg, "utf8"), /viewBox="0 -11 17 11" data-layout="Empty"/);
+  assert.ok(sheet?.png && existsSync(sheet.png));
+  // A layout the drawing no longer has leaves no picture behind.
+  writeFileSync(plan, `export default ${JSON.stringify({ ...drawing, layouts: [] })};\n`);
+  assert.deepEqual(render(plan).state.outputs.layouts, []);
+  assert.equal(existsSync(sheet!.svg), false);
+});
+
+test("a malformed layout is reported and left out, and the rest of the drawing is drawn", () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "tsdraft-render-")));
+  const plan = join(dir, "plan.ts");
+  const view = { layer: "0", corner: [1, 1], width: 10, height: 8, center: [5, 0], ratio: 12 };
+  const line = { kind: "line", layer: "0", from: [0, 0], to: [10, 0] };
+  const drawing = {
+    format: 0,
+    units: "ft",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    entities: [line],
+    layouts: [
+      null,
+      {
+        name: "Kept",
+        paper: "ANSI B",
+        viewports: [{ ...view, ratio: "x" }, view],
+        entities: [null, line],
+      },
+      { name: "No paper", paper: 5, viewports: [], entities: [] },
+    ],
+  };
+  writeFileSync(plan, `export default ${JSON.stringify(drawing)};\n`);
+  const { state, status } = render(plan, "--width", "300");
+  assert.deepEqual([status, state.ok, state.drawing?.counts.layouts], [2, true, 3]);
+  assert.deepEqual(
+    state.diagnostics.map((d) => [d.rule, d.item]),
+    [
+      ["layout", "layouts[0]"],
+      ["viewport", "layouts[1].viewports[0]"],
+      ["format", "layouts[1].entities[0]"],
+      ["layout", "layouts[2]"],
+    ],
+  );
+  assert.deepEqual(state.drawing?.omitted, [
+    "layouts[0]",
+    "layouts[1].entities[0]",
+    "layouts[1].viewports[0]",
+    "layouts[2]",
+  ]);
+  // The layout that can be read keeps its sound viewport, and its line keeps its index.
+  assert.deepEqual(
+    state.drawing?.layouts.map((l) => [l.name, l.viewports.length, l.entities]),
+    [["Kept", 1, 2]],
+  );
+  const [sheet] = state.outputs.layouts;
+  assert.deepEqual([state.outputs.layouts.length, sheet?.name], [1, "Kept"]);
+  const svg = readFileSync(sheet!.svg, "utf8");
+  assert.match(svg, /data-viewport="0"/);
+  assert.match(svg, /<line x1="0" y1="0" x2="10" y2="0" [^>]*data-entity="1"\/>/);
+});
+
+const prlimit = spawnSync("prlimit", ["--version"]).status === 0;
+
+// A core limit of one byte keeps the kernel from writing a dump of the renderer's process.
+test(
+  "render says which picture the renderer died on, and gives the rest",
+  { skip: prlimit ? false : "needs prlimit, to keep the renderer's abort from leaving a core" },
+  () => {
+    const dir = mkdtempSync(join(tmpdir(), "tsdraft-render-"));
+    const library = pathToFileURL(join(root, "../dist/index.js")).href;
+    // A clipped group whose only element is far outside the picture, which resvg aborts on.
+    const aborts =
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><clipPath id="c">` +
+      `<rect width="5" height="5"/></clipPath><g clip-path="url(#c)">` +
+      `<line x1="1000" y1="1000" x2="1001" y2="1001" stroke="#000000"/></g></svg>`;
+    writeFileSync(
+      join(dir, "kit.ts"),
+      `export * from ${JSON.stringify(library)};
+import { toSVG as draw } from ${JSON.stringify(library)};
+export const toSVG: typeof draw = (drawing, options) =>
+  options?.layout === "BAD" ? ${JSON.stringify(aborts)} : draw(drawing, options);
+`,
+    );
+    const file = join(dir, "sheets.ts");
+    writeFileSync(
+      file,
+      `import { createDrawing } from "./kit.ts";
+const d = createDrawing();
+d.line([0, 0], [10, 10]);
+for (const name of ["BAD", "GOOD"]) d.layout(name, { paper: "ANSI A" }, () => d.line([1, 1], [5, 5]));
+export default d.build();
+`,
+    );
+    const run = spawnSync(
+      "prlimit",
+      ["--core=1:1", "--", process.execPath, join(root, "src/cli.ts"), "render", file],
+      { encoding: "utf8", timeout: 60_000 },
+    );
+    const state = JSON.parse(run.stdout) as BuildState;
+    assert.equal(run.status, 0);
+    assert.equal(state.ok, true);
+    assert.equal(state.outputs.pngError, null);
+    assert.ok(existsSync(state.outputs.png!));
+    const [bad, good] = state.outputs.layouts;
+    assert.match(bad!.pngError!, /^No PNG: the renderer @resvg\/resvg-js stopped while it drew/);
+    assert.equal(bad!.png, null);
+    assert.ok(existsSync(bad!.svg));
+    assert.equal(good!.pngError, null);
+    assert.ok(existsSync(good!.png!));
+  },
+);

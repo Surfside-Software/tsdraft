@@ -20,11 +20,12 @@
 // The sheet holds the plan at 1" = 10' and at 1" = 20'. At a larger scale the plan is taller
 // than the sheet.
 //
-// There is no border and no title block, and the sheet's edge is not drawn: they belong to
-// paper space, which tsdraft does not have yet.
+// The sheet itself is the layout `C-101`: ARCH D paper with one viewport over the whole of it,
+// which shows this part of model space at the ratio. AutoCAD opens the file on it and plots it.
+// The border and the title block are not drawn yet, and the notes are still in model space.
 //
-// Run with `pnpm example`. It writes examples/out/site-plan.dxf (AutoCAD 2018 DXF) and
-// site-plan.svg. The drawing is also the default export, for a tool that takes a drawing file,
+// Run with `pnpm example`. It writes examples/out/site-plan.dxf (AutoCAD 2018 DXF),
+// site-plan.svg, which is model space, and site-plan-sheet.svg, which is the layout. The drawing is also the default export, for a tool that takes a drawing file,
 // and `sitePlan(ratio)` builds the sheet at another ratio.
 //
 // How it is put together:
@@ -60,7 +61,7 @@ import { arrowhead, dimensionChain, textWidth, type DimensionStyle } from "./lib
 
 // The sheet, in inches on paper. It is full bleed: the border will sit `margin` inside its edge,
 // and nothing is drawn outside the border.
-const sheet = { name: "ARCH D", width: 36, height: 24, margin: 1 / 2 };
+const sheet = { name: "ARCH D", layout: "C-101", width: 36, height: 24, margin: 1 / 2 };
 // The layout, in inches on paper: the width of the column of notes at the right of the drawing
 // area, the space between it and the plan, and the space kept clear for a title block in the
 // lower right corner of the drawing area. The column is the wider of the two, so the title
@@ -195,9 +196,11 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
   // The street and the adjoining lot lines run to the sides of the plan's part of the sheet.
   const ends = { left: drawingArea.left, right: drawingArea.left + planWidth };
 
-  // AutoCAD's linetype patterns are sized for paper: DASHED is a 0.5 dash and a 0.25 gap. At this
-  // linetype scale they plot at half that, a 1/4 in dash.
-  const d = createDrawing({ units: scale.units, linetypeScale: paper(1 / 2) });
+  // AutoCAD's linetype patterns are sized for paper: DASHED is a 0.5 dash and a 0.25 gap. On a
+  // layout AutoCAD sizes dashes on the paper, in every viewport, so the linetype scale is a
+  // paper length and no drawing length: at 1/2 the dashes plot at half their pattern, a 1/4 in
+  // dash, at every ratio.
+  const d = createDrawing({ units: scale.units, linetypeScale: 1 / 2 });
 
   // The sheet's text style. Arial's capitals are about 0.9 of the text height wide.
   const NOTES = "NOTES";
@@ -619,6 +622,20 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
     return [...lines, line];
   }
 
+  // The sheet as AutoCAD plots it: a layout of the sheet's paper, with one viewport over the
+  // whole of it that shows the sheet's part of model space at the ratio. The viewport's border
+  // is on a layer that does not plot.
+  d.layer("G-ANNO-NPLT", { color: 8, plot: false });
+  d.layout(sheet.layout, { paper: sheet.name }, (page) => {
+    d.layer("G-ANNO-NPLT", {}, () =>
+      page.viewport([0, 0], page.width, page.height, {
+        center: [(sheetEdge.left + sheetEdge.right) / 2, (sheetEdge.bottom + sheetEdge.top) / 2],
+        ratio,
+        id: "plan",
+      }),
+    );
+  });
+
   return { drawing: d.build(), sheetEdge, drawingArea, titleBlockSpace };
 }
 
@@ -631,6 +648,7 @@ if (import.meta.main) {
   mkdirSync(outDir, { recursive: true });
   writeFileSync(new URL("site-plan.dxf", outDir), toDXF(drawing));
   writeFileSync(new URL("site-plan.svg", outDir), toSVG(drawing));
+  writeFileSync(new URL("site-plan-sheet.svg", outDir), toSVG(drawing, { layout: sheet.layout }));
   console.log(
     `Wrote ${drawing.entities.length} entities on ${drawing.layers.length} layers to examples/out/`,
   );

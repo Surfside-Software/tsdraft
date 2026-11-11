@@ -55,6 +55,39 @@
   `dxfOnce`. `eachDrawn` walks the drawing a caller gives for an xref as it walks a block,
   with each layer as a `LayerRef` that says which drawing's layer it is. `src/` opens no
   file: `toSVG` draws only the drawings it is given.
+- A layout is a sheet: `Drawing.layouts` holds each with its paper, its viewports and the
+  entities drawn on it in paper units. `src/papers.ts` is the one list of papers and of plot
+  style tables, with the name AutoCAD stores for each paper. Add a paper only when
+  `DWG To PDF.pc3` has it, and with the name the plotter gives it. `src/layouts.ts` holds the
+  keys of a layout's handles, `layout:KEY` and the four beside it, from its name with A to Z
+  in lower case: never change one. AutoCAD compares layout names by a table of its own,
+  `layoutNameKey` in `src/layers.ts`, which is not `layerKey`. The DXF holds the first layout
+  in `*Paper_Space`, with its entities among model space's and marked with group 67, and
+  every other in a block `*Paper_Space0` and on. A viewport holds the height of its view and
+  no scale: `validViewportView` works it out from the numbers as they are written.
+- A view is drawn only where it can be seen. The clip of a view, the hidden rectangle and
+  the cull all use one rectangle: the viewport, cut to the paper, cut to the picture `toSVG`
+  is drawing (its `viewBox`), with every number as it will be written. If that rectangle has
+  no width or no height as written, the view is the empty group with no clip. `toSVG` also
+  takes it to have none when its two sides are one number in single precision, which is how
+  a renderer may read them.
+- The first element of every clipped group is that rectangle, hidden. Never write a clipped
+  group without it. resvg, the command's PNG renderer, takes the box of a clipped group's
+  elements before it clips them, and stops the whole process when that box lies wholly more
+  than two widths of the picture left or right of it, or two heights above or below. The
+  hidden rectangle is in the picture and counts in that box, so the box always meets the
+  picture, whatever else the group holds. A viewport `lint` refuses is drawn as its border
+  alone.
+- Leaving out of a view what cannot show in it must never leave out what shows. The cull
+  keeps an entity whose box, from `boxer` in `src/extents.ts` with `slanted`, reaches the
+  rectangle when the box is made larger by the widest lineweight and, for a text or an
+  insert, by the larger side of the box, since letters may be wider than the box takes them
+  to be. `slanted` adds the lean of a text whose style has an oblique angle, which `extents`
+  leaves out. Build `boxer` once for a drawing: it reads every block and text style when it
+  is made.
+- AutoCAD sizes dashes on the paper in a viewport, so `toSVG` scales a pattern by the
+  linetype scale over the viewport's scale there. `toSVG` draws a layout with `elements`, the
+  walk it draws model space with, under a `Look` that says how wide and what color a pen is.
 - A rule AutoCAD enforces lives in `src/rules.ts` twice: as a type, so a wrong
   literal is a compile error, and as a runtime check with the same message. The
   builder calls the runtime check, and `lint()` in `src/lint.ts` repeats it for

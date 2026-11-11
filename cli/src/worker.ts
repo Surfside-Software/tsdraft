@@ -5,7 +5,18 @@ import { existsSync, readFileSync } from "node:fs";
 import { createRequire, isBuiltin, registerHooks } from "node:module";
 import { dirname, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { Block, Diagnostic, Drawing, Xref } from "tsdraft";
+import type {
+  Block,
+  Diagnostic,
+  Drawing,
+  Layout,
+  PaperInfo,
+  PaperUnit,
+  Units,
+  Viewport,
+  ViewportView,
+  Xref,
+} from "tsdraft";
 import type {
   BlockSummary,
   Box,
@@ -14,6 +25,7 @@ import type {
   DrawingSummary,
   InsertSummary,
   LayerSummary,
+  LayoutSummary,
   XrefSummary,
 } from "./state.ts";
 import { LEFT_OUT, without } from "./omit.ts";
@@ -50,6 +62,8 @@ export interface WorkerResult {
   readonly drawing: DrawingSummary | null;
   readonly diagnostics: readonly BuildDiagnostic[];
   readonly svg: string | null;
+  /** The picture of each layout, in the order of `drawing.layouts`. */
+  readonly layouts: readonly { readonly name: string; readonly svg: string }[];
   /** The color `toSVG` draws each layer in, by layer name. */
   readonly swatches: Readonly<Record<string, string>>;
   readonly error: BuildError | null;
@@ -61,8 +75,16 @@ interface Library {
   readonly lint: (drawing: Drawing) => Diagnostic[];
   readonly toSVG: (
     drawing: Drawing,
-    options?: { margin?: number; drawNoPlot?: boolean; xrefs?: Readonly<Record<string, Drawing>> },
+    options?: {
+      margin?: number;
+      drawNoPlot?: boolean;
+      xrefs?: Readonly<Record<string, Drawing>>;
+      layout?: string;
+    },
   ) => string;
+  /** What a viewport shows, and the papers. A copy of tsdraft from before layouts has neither. */
+  readonly viewportView?: (viewport: Viewport, paperUnits: PaperUnit, units: Units) => ViewportView;
+  readonly PAPERS?: Readonly<Record<string, PaperInfo>>;
   /** The block an insert of a name places. A copy of tsdraft from before blocks has none. */
   readonly findBlock?: (drawing: Drawing, name: string) => Block | undefined;
   /** The xref an insert of a name places. A copy of tsdraft from before xrefs has none. */
@@ -160,6 +182,7 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
     drawing: null,
     diagnostics: drawingErrorDiagnostics(thrown),
     svg: null,
+    layouts: [],
     swatches: {},
     error,
   });
@@ -208,6 +231,22 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
       const { svg, min, max } = framed(
         library.toSVG(shown, { margin: 0, drawNoPlot: drawNoPlot === true, xrefs: drawn }),
       );
+      // Each layout's sheet. A copy of tsdraft from before layouts would draw model space for
+      // each, so it draws none. Two layouts of one name are one picture, the first's.
+      const drawnNames = new Set<string>();
+      const sheets =
+        library.viewportView === undefined
+          ? []
+          : (shown.layouts ?? []).flatMap((layout) => {
+              if (drawnNames.has(layout.name)) return [];
+              drawnNames.add(layout.name);
+              const options = {
+                layout: layout.name,
+                drawNoPlot: drawNoPlot === true,
+                xrefs: drawn,
+              };
+              return [{ name: layout.name, svg: library.toSVG(shown, options) }];
+            });
       timings.svg = now() - t;
       const errors = diagnostics.filter((d) => d.severity === "error").length;
       return {
@@ -223,6 +262,7 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
             entities: size(drawing.entities),
             blocks: size(drawing.blocks),
             xrefs: size(drawing.xrefs),
+            layouts: size(drawing.layouts),
             errors,
             warnings: diagnostics.length - errors,
           },
@@ -231,9 +271,11 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
           blocks: blockSummaries(library, shown),
           inserts: insertSummaries(library, shown),
           xrefs: xrefSummaries(library, shown, given),
+          layouts: layoutSummaries(library, shown),
         },
         diagnostics,
         svg,
+        layouts: sheets,
         swatches: swatches(library, shown),
         error: null,
       };
@@ -269,11 +311,21 @@ function aboutEntity(
   found: Diagnostic,
 ): BuildDiagnostic {
   const d = withPath(found);
+  const layout =
+    d.layout === undefined ? undefined : drawing.layouts?.find((l) => l.name === d.layout);
+  if (d.viewport !== undefined) {
+    // A viewport's box is its rectangle on the sheet.
+    const rectangle = layout && viewportBox(library, drawing, layout, d.viewport)?.rectangle;
+    return rectangle ? { ...d, bounds: rectangle } : d;
+  }
   // An entity of a block is counted in its block, and its box is in the block's coordinates.
+  // One of a layout is counted on its layout, and its box is on the sheet.
   const entities =
-    d.block === undefined
-      ? drawing.entities
-      : (drawing.blocks?.find((b) => b.name === d.block)?.entities ?? []);
+    d.block !== undefined
+      ? (drawing.blocks?.find((b) => b.name === d.block)?.entities ?? [])
+      : d.layout !== undefined
+        ? (layout?.entities ?? [])
+        : drawing.entities;
   const entity = d.entity === undefined ? undefined : entities[d.entity];
   if (!entity || entity === LEFT_OUT) return d;
   // toSVG works out the box, so it agrees with the drawing's extents and the picture. An entity
@@ -430,6 +482,76 @@ function framed(svg: string): { svg: string; min: [number, number]; max: [number
     min: [round(x), round(-y - h)],
     max: [round(x + w), round(-y)],
   };
+}
+
+/** The rectangle of a viewport on its sheet and the box of model space it shows. */
+function viewportBox(
+  library: Library,
+  drawing: Drawing,
+  layout: Layout,
+  index: number,
+): { rectangle: Box; shows: Box } | undefined {
+  const paper = library.PAPERS?.[layout.paper];
+  const viewport = layout.viewports[index];
+  if (!paper || !viewport || !library.viewportView) return undefined;
+  try {
+    const view = library.viewportView(viewport, paper.units, drawing.units);
+    const [x, y] = view.paperCenter;
+    return {
+      rectangle: {
+        min: [x - view.width / 2, y - view.height / 2],
+        max: [x + view.width / 2, y + view.height / 2],
+      },
+      shows: { min: [view.box[0], view.box[1]], max: [view.box[2], view.box[3]] },
+    };
+  } catch {
+    // The viewport breaks a rule, which the diagnostics say.
+    return undefined;
+  }
+}
+
+/** Each layout whose paper tsdraft knows, with each of its viewports that can be worked out. */
+function layoutSummaries(library: Library, drawing: Drawing): LayoutSummary[] {
+  return (drawing.layouts ?? []).flatMap((layout) => {
+    const paper = library.PAPERS?.[layout.paper];
+    if (!paper || !Array.isArray(layout.viewports) || !Array.isArray(layout.entities)) return [];
+    // toSVG finds a viewport's layer as CAD does, whatever the case of its name, and draws
+    // the border when that layer plots. So the sheet is drawn once more with nothing on it but
+    // its viewports, and each border it has is one that plots.
+    let borders = "";
+    try {
+      const bare = { ...drawing, entities: [], layouts: [{ ...layout, entities: [] }] };
+      borders = library.toSVG(bare, { layout: layout.name });
+    } catch {
+      // A viewport breaks a rule, which the diagnostics say.
+    }
+    return [
+      {
+        name: layout.name,
+        paper: layout.paper,
+        paperUnits: paper.units,
+        width: paper.width,
+        height: paper.height,
+        plotStyle: layout.plotStyle ?? "monochrome.ctb",
+        entities: layout.entities.length,
+        viewports: layout.viewports.flatMap((viewport, index) => {
+          const box = viewportBox(library, drawing, layout, index);
+          if (!box) return [];
+          return [
+            {
+              id: viewport.id ?? null,
+              layer: viewport.layer,
+              border: borders.includes(`data-viewport-border="${index}"`),
+              rectangle: box.rectangle,
+              ratio: viewport.ratio,
+              center: viewport.center,
+              shows: box.shows,
+            },
+          ];
+        }),
+      },
+    ];
+  });
 }
 
 function layerSummaries(drawing: Drawing): LayerSummary[] {

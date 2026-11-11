@@ -89,7 +89,9 @@ set not to plot is left out, and `--draw-no-plot` draws the layers that do not p
 The PNG renderer, `@resvg/resvg-js`, is an optional dependency that npm installs by default.
 Where it is missing, after an install with `--omit=optional` or on a machine it has no build
 for, `render` still writes the SVG and exits as above, and the JSON has `"png": null` with the
-reason in `pngError`. `npm i -D @resvg/resvg-js` adds it.
+reason in `pngError`. `npm i -D @resvg/resvg-js` adds it. Each entry of `outputs.layouts` has
+a `pngError` of its own. When the renderer stops on one picture, that picture alone has no
+PNG, its `pngError` says so, and its SVG is there to use.
 
 When a person is watching, run `npx tsdraft dev plan.ts` and give them the address it prints,
 `http://127.0.0.1:4610` unless that port is taken. The page redraws each time the file, or a
@@ -114,7 +116,15 @@ the details.
     "units": "ft",
     "dxf": "R2018",
     "extents": { "min": [0, -3], "max": [100, 140] },
-    "counts": { "layers": 4, "entities": 5, "blocks": 0, "xrefs": 0, "errors": 0, "warnings": 1 },
+    "counts": {
+      "layers": 4,
+      "entities": 5,
+      "blocks": 0,
+      "xrefs": 0,
+      "layouts": 0,
+      "errors": 0,
+      "warnings": 1
+    },
     "layers": [
       {
         "name": "C-SETB",
@@ -129,7 +139,8 @@ the details.
     ],
     "blocks": [],
     "inserts": [],
-    "xrefs": []
+    "xrefs": [],
+    "layouts": []
   },
   "diagnostics": [
     {
@@ -165,11 +176,18 @@ the details.
   holds, and the two can differ. When `shown` is false you are not seeing the xref at all, and
   neither are the extents. `units` is the units of the drawing you gave, or `null`: where it
   differs from `drawing.units`, each insert needs a scale.
+- `drawing.layouts` lists every layout with its `paper`, its `width` and `height` in
+  `paperUnits`, and each viewport: its `rectangle` on the sheet, its `ratio`, the `center` of
+  its view and `shows`, the box of model space it frames. Compare `shows` with
+  `drawing.extents` to see what a view cuts off. `outputs.layouts` has a picture of each
+  sheet as it plots. `outputs.svg` and `outputs.png` stay model space.
 - `diagnostics` is what `lint` found. An error stops `toDXF` from writing the file. A warning
   does not. An error about the shape of a value, such as a field of the wrong type, gives
-  `item`, the path of the item that holds it, such as `entities[3]`.
+  `item`, the path of the item that holds it, such as `entities[3]` or
+  `layouts[0].viewports[1]`.
 - `drawing.omitted` lists the `item` of everything the pictures, the extents and the lists
-  leave out, because the drawing could not be drawn with it. A problem of an entity left out,
+  leave out, because the drawing could not be drawn with it: an entity, a block, a whole
+  layout, or one viewport of a layout, whose other viewports are still drawn. A problem of an entity left out,
   by itself or with its block or list, has no `kind`, `layer` or `bounds`. `drawing.counts` still counts the whole drawing.
   Without `omitted`, you are seeing all of it.
 - `error` is why a build failed: its `message`, and the `file`, `line` and `column` of your
@@ -242,6 +260,47 @@ d.layer("V-TREE", { color: 3 }, () => {
 The pictures draw each insert as what its block draws. The example sheet draws its trees,
 property corners, north arrow and view title this way, with the view title's text and scale as
 attributes.
+
+## Layouts
+
+A layout is a sheet of paper: CAD shows it as a tab and plots it as one page. Draw the model
+in model space at its real size, and put it on a sheet through a viewport.
+
+```ts
+d.layer("G-ANNO-NPLT", { color: 8, plot: false });
+d.layout("C-101", { paper: "ARCH D" }, (sheet) => {
+  d.rect([0.5, 0.5], sheet.width - 1, sheet.height - 1);
+  d.text([1, 1], "SITE PLAN", { height: 0.25 });
+  d.layer("G-ANNO-NPLT", {}, () =>
+    sheet.viewport([1, 2], 26, 21, { center: [50, 70], ratio: 120, id: "plan" }),
+  );
+});
+```
+
+- Inside `layout`, every length is on the paper, in the paper's units: inches for every paper
+  tsdraft has. A text 1/8 inch high has `height: 0.125`. `sheet.width` and `sheet.height` are
+  the paper's size, and its lower-left corner is `[0, 0]`.
+- The papers are `ARCH A`, `ARCH B`, `ARCH C`, `ARCH D`, `ANSI A`, `ANSI B`, `ANSI C` and
+  `ANSI D`, each landscape and full bleed. `ARCH D` is 36 by 24.
+- `sheet.viewport(corner, width, height, { center, ratio })` shows model space in a rectangle
+  on the paper. `center` is the model point at its middle. `ratio` is the one you give
+  `fromPaper`: 120 is 1" = 10'.
+- Put a viewport on a layer that does not plot, unless you want its border on the sheet. The
+  view plots either way.
+- In a drawing with a layout, `linetypeScale` is a length of paper: dashes plot as long as the
+  pattern times it, in every viewport. The picture of model space draws the same dashes that
+  many drawing units long, often too short to see, so judge linetypes on the sheet's picture.
+  Text and symbols in model space are still sized with `fromPaper` for the viewport's ratio.
+- The sheet plots in black with `monochrome.ctb`. Pass `plotStyle: "acad.ctb"` to plot each
+  layer in its color.
+- Define blocks outside `layout`, and insert them inside it. An `id` is unique across model
+  space, blocks and every layout.
+
+Look at the sheet's picture, in `outputs.layouts`, and not only at model space. Read
+`drawing.layouts` to check that each viewport `shows` the part of the model you meant.
+`lint` warns of a viewport that reaches past the paper and of one that shows nothing.
+[docs/layouts.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/layouts.md) has
+the rest.
 
 ## Xrefs
 
@@ -343,8 +402,10 @@ writeFileSync("plan.dxf", toDXF(drawing));
   references a whole DWG file, as an overlay, and the pictures draw it only from a drawing you
   give.
 - Attributes of more than one line, and attributes that are hidden or constant.
-- Paper space: layouts, viewports, a border or a title block. Everything is in model space, and
-  a drawing has one scale, which is the `view` you pass to `fromPaper`.
+- A viewport that is turned, that is not a rectangle, or that freezes layers of its own. A
+  viewport is a locked rectangle that shows every layer at one scale.
+- A paper outside the list in the section on layouts, a paper in portrait, and a page setup
+  for another plotter.
 - Multiline text. A text is a single line. It takes a text style with a font, and `align` and
   `valign` to justify it to its point, as the example sheet does.
 - Ellipses, splines, and curved segments in a polyline.

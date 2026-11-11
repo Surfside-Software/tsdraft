@@ -11,7 +11,8 @@ export const LEFT_OUT: Entity = { kind: "polyline", layer: "", points: [], close
  * The drawing without the items at `items`, which are the `item` paths of `lint`'s diagnostics:
  * an entry of a list, such as `layers[1]`, `blocks[0]` or `blocks[0].attributes[2]`, an entity,
  * such as `entities[3]` or `blocks[0].entities[1]`, a whole list, such as `xrefs`, or
- * `linetypeScale`.
+ * `linetypeScale`. A layout is left out whole, or keeps what is left of it: `layouts[0]`,
+ * `layouts[0].viewports[1]`, `layouts[0].entities[2]`.
  */
 export function without(drawing: Drawing, items: ReadonlySet<string>): Drawing {
   const kept = <T>(list: readonly T[] | undefined, at: string): T[] | undefined =>
@@ -36,13 +37,35 @@ export function without(drawing: Drawing, items: ReadonlySet<string>): Drawing {
         },
       ];
     });
-  const { linetypes, textStyles, blocks: _, xrefs, linetypeScale, ...rest } = drawing;
+  const layouts =
+    kept(drawing.layouts, "layouts") &&
+    drawing.layouts!.flatMap((layout, i) => {
+      const at = `layouts[${i}]`;
+      if (items.has(at)) return [];
+      return [
+        {
+          ...layout,
+          viewports: kept(layout.viewports, `${at}.viewports`) ?? [],
+          entities: entities(layout.entities, `${at}.entities`),
+        },
+      ];
+    });
+  const {
+    linetypes,
+    textStyles,
+    blocks: _,
+    xrefs,
+    layouts: _layouts,
+    linetypeScale,
+    ...rest
+  } = drawing;
   const lists = { linetypes, textStyles, xrefs };
   return {
     ...rest,
     layers: kept(drawing.layers, "layers") ?? [],
     entities: entities(drawing.entities, "entities"),
     ...(blocks ? { blocks } : {}),
+    ...(layouts ? { layouts } : {}),
     ...(linetypeScale === undefined || items.has("linetypeScale") ? {} : { linetypeScale }),
     ...Object.fromEntries(
       Object.entries(lists).flatMap(([field, list]) => {

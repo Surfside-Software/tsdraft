@@ -1145,3 +1145,14 @@ test("two ids that give one handle are refused by the builder and by lint", () =
   );
   assert.throws(() => toDXF(byHand), DrawingError);
 });
+
+test("the extents of a turned text reach its far corner", () => {
+  const d = createDrawing();
+  d.text([0, 0], "AB", { height: 2, rotation: 45 });
+  const drawing = d.build();
+  const [left, , right, top] = extents(drawing.entities, drawing.textStyles);
+  const along = right * Math.SQRT2;
+  // The box holds the corner above the text's end, one height up from the end of its line.
+  assert.ok(Math.abs(top - (along + 2) / Math.SQRT2) < 1e-9);
+  assert.ok(Math.abs(left + 2 / Math.SQRT2) < 1e-9);
+});
