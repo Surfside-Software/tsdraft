@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+- Text styles. `d.textStyle({ name, font, widthFactor, obliqueAngle })` defines
+  one, and a text names it in `style` or is given the definition in its place.
+  `Standard` is in every drawing, with the font `txt.shx`. A style has no height
+  of its own, so each text keeps its height. R2018 only.
+- Fonts. `FONTS` lists the fonts a style may have, by the name AutoCAD stores:
+  an SHX font by its file name, a TrueType font by its typeface. It holds
+  eleven SHX fonts that AutoCAD 2025 installs, such as `txt.shx`, `romans.shx`
+  and `isocp.shx`, and ten TrueType fonts that Windows installs, such as
+  `Arial`, `Calibri` and `Times New Roman`. [docs/text.md](docs/text.md) lists
+  them. A font outside the list is a compile error as a literal, a builder
+  error and a `lint` error, because AutoCAD draws text in a font it does not
+  have in another font, and its `AUDIT` reports nothing.
+- New rules for text styles, each a builder error and a `lint` error, and a
+  compile error where the literal shows it. A style name follows the rules of
+  a layer name: AutoCAD discards a drawing over a name it refuses, and its
+  `AUDIT` reports two names it takes for one. `Standard` cannot be defined:
+  AutoCAD keeps the first style of a name. A width factor is from 0.01 to 100,
+  the range AutoCAD's `STYLE` command takes: `AUDIT` reports a style with a
+  width factor of 0 or less, of 0.0001 or of 1000000. An oblique angle is from
+  -85 to 85 degrees: `AUDIT` reports a style or a text slanted further. A text
+  names a style the drawing defines: AutoCAD puts a text in a
+  style it does not have in `Standard`, and reports nothing.
+- Justification. A text takes `align`, `"left"`, `"center"` or `"right"`, and
+  `valign`, `"baseline"`, `"bottom"`, `"middle"` or `"top"`, and `at` is then
+  the point it is justified to. R2018 only.
+- `toSVG` anchors a text at its justification point, draws its style's width
+  factor and oblique angle, and sets a CSS font family for its font, ending in
+  a generic family. A TrueType text is drawn at the size that makes its
+  capitals the text's height. The extents `toSVG` frames, and the ones
+  `toDXF` writes, follow a text's justification and its style's width factor.
+- Breaking: `LintRule` gained `text-style`, `duplicate-text-style`,
+  `undefined-text-style` and `text-align`, and a `Diagnostic` about a style's
+  definition names it in `textStyle`.
+- A `Drawing` has `textStyles`, and a text has `style`, `align` and `valign`,
+  each left out at its default. `toJSON` and `fromJSON` carry them. A drawing
+  that uses none of them is written to JSON and DXF as before.
+- `examples/site-plan.ts` draws its text in a text style with the font Arial,
+  and justifies centered and right-aligned text where it used to place it from
+  an estimated width.
+- [docs/text.md](docs/text.md) describes styles, fonts and justification.
 - `toSVG` draws a layer in the color AutoCAD plots its index in, for every index
   from 1 to 255. It knew 1 to 6 and drew the rest in `currentColor`. Index 7
   stays `currentColor`: it is black on paper and white on a dark screen.

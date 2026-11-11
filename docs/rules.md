@@ -53,6 +53,28 @@ it would take `1e+100` for `1e+10` and report nothing.
   is written too.
 - A description is a single line, with no characters text cannot hold, and is at
   most 249 characters, where AutoCAD cuts it.
+- A text style has one of the fonts in `FONTS`: an SHX font by its file name,
+  such as `txt.shx`, or a TrueType font by its typeface, such as `Arial`. They
+  are fonts AutoCAD 2025 or Windows installs. AutoCAD draws text in a font it
+  does not have in another font, and its `AUDIT` reports nothing.
+- Text style names follow the rules of layer names, and are compared the same
+  way: `notes` and `NOTES` are one style. AutoCAD discards a drawing over a
+  style name it refuses, and its `AUDIT` reports the pairs of style names it
+  reports for layers.
+- A text can only name a style the drawing defines, or `Standard`. AutoCAD puts
+  a text that names a style it does not have in `Standard`, and reports nothing.
+- `Standard` is in every drawing and cannot be defined. AutoCAD keeps the first
+  style of a name and skips a second.
+- A text given a style definition, not a name, must give the font, width factor
+  and oblique angle the drawing already has for that name, if it has it.
+  `textStyle()` changes a definition.
+- A style's width factor is from 0.01 to 100, the range AutoCAD's `STYLE`
+  command takes. AutoCAD's `AUDIT` reports a style with a width factor of 0 or
+  less, of 0.0001 or of 1000000.
+- A style's oblique angle is from -85 to 85 degrees. AutoCAD's `AUDIT` reports a
+  style or a text slanted further.
+- A text's `align` is `"left"`, `"center"` or `"right"`, and its `valign` is
+  `"baseline"`, `"bottom"`, `"middle"` or `"top"`.
 - A lineweight is one of AutoCAD's: 0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25,
   0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8, 0.9, 1, 1.06, 1.2, 1.4, 1.58, 2 or
   2.11 millimetres. AutoCAD discards a drawing with an entity of any other.
@@ -61,7 +83,8 @@ it would take `1e+100` for `1e+10` and report nothing.
 - The linetype scale is a size, like a radius. AutoCAD reads 0 or less as 1.
 - An R12 drawing has no linetypes but `Continuous`, no linetype scale, no
   lineweights and no layer states. Its entities take no linetype or lineweight
-  of their own, and draw ByLayer.
+  of their own, and draw ByLayer. Its texts are in `Standard`, left on the
+  baseline, and it defines no text style.
 - An entity's id has 1 to 64 letters A to Z or a to z, digits, `.`, `-` and
   `_`, and no two entities share one, whatever its case. See
   [Ids](format.md#ids).

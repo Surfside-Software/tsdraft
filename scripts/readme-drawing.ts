@@ -138,10 +138,11 @@ for (const picture of pictures) {
             'font-family="monospace"',
             `font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"`,
           )
-          // The examples place centered and right-aligned text for characters 0.6 of the text
-          // height wide. textLength holds each text to that width in a narrower or wider font.
+          // The examples lay out columns and line breaks for characters 0.6 of the text height
+          // wide in the Standard style. textLength holds each of its texts to that width in a
+          // narrower or wider monospace font. A text in another font keeps the font's widths.
           .replace(
-            /font-size="([^"]+)"([^>]*)>([^<]*)<\/text>/,
+            /font-size="([^"]+)"([^>]*monospace"[^>]*)>([^<]*)<\/text>/,
             (_, size: string, rest: string, value: string) => {
               const characters = value.replace(/&[a-z]+;/g, "x").length;
               const length = Number((characters * 0.6 * Number(size)).toFixed(3));

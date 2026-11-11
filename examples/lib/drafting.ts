@@ -33,29 +33,13 @@ function reduce(numerator: number, denominator: number): string {
 }
 
 /**
- * The estimated width of a line of text. tsdraft places text by the left end of its baseline, so
- * centered and right-aligned text is placed from this estimate. The README picture renders text
- * in a monospace font, where each character is about 0.6 of the text height wide.
+ * The estimated width of a line of text, for laying out columns and breaking lines. A text is
+ * justified to its point by `align`, which needs no estimate. `perCharacter` is the width of a
+ * character as a share of the text height: about 0.6 in the monospace font the preview draws
+ * the `Standard` style in, and about 0.9 for capitals in Arial.
  */
-export function textWidth(value: string, height: number): number {
-  return value.length * 0.6 * height;
-}
-
-export type Align = "left" | "center" | "right";
-
-/** Text with its baseline through `at`, aligned on `at` along the baseline. */
-export function label(
-  d: Pen,
-  at: Point,
-  value: string,
-  height: number,
-  align: Align = "left",
-  rotation = 0,
-): void {
-  const shift = { left: 0, center: 0.5, right: 1 }[align] * textWidth(value, height);
-  const angle = (rotation * Math.PI) / 180;
-  const start: Point = [at[0] - shift * Math.cos(angle), at[1] - shift * Math.sin(angle)];
-  d.text(start, value, rotation ? { height, rotation } : { height });
+export function textWidth(value: string, height: number, perCharacter = 0.6): number {
+  return value.length * perCharacter * height;
 }
 
 export interface DimensionStyle {
@@ -69,6 +53,10 @@ export interface DimensionStyle {
   readonly extend: number;
   /** Writes a measured distance. Defaults to `feetInches`, for a drawing in inches. */
   readonly format?: (distance: number) => string;
+  /** The text style of the dimension texts. Defaults to `"Standard"`. */
+  readonly textStyle?: string;
+  /** The width of a character as a share of the text height, as `textWidth` takes it. */
+  readonly perCharacter?: number;
 }
 
 /**
@@ -109,10 +97,19 @@ export function dimensionChain(
     const value = (style.format ?? feetInches)(a1 - a0);
     const middle = (a0 + a1) / 2;
     // Text that does not fit between the extension lines goes on the other side of the line.
-    const fits = textWidth(value, style.text) + style.text < a1 - a0;
+    const fits = textWidth(value, style.text, style.perCharacter) + style.text < a1 - a0;
     const lift = fits ? style.text * 0.5 : -style.text * 1.5;
-    if (axis === "x") label(d, [middle, at + lift], value, style.text, "center");
-    else label(d, [at - lift, middle], value, style.text, "center", 90);
+    const textStyle = style.textStyle ?? "Standard";
+    if (axis === "x") {
+      d.text([middle, at + lift], value, { height: style.text, align: "center", style: textStyle });
+    } else {
+      d.text([at - lift, middle], value, {
+        height: style.text,
+        align: "center",
+        rotation: 90,
+        style: textStyle,
+      });
+    }
   }
 }
 
@@ -147,7 +144,7 @@ export function leader(
   const x = end[0] + side * height * 0.5;
   lines.forEach((line, i) => {
     const baseline = elbow[1] - height * 0.4 - i * height * 1.5;
-    label(d, [x, baseline], line, height, side > 0 ? "left" : "right");
+    d.text([x, baseline], line, { height, align: side > 0 ? "left" : "right" });
   });
 }
 
@@ -369,11 +366,11 @@ export function viewTitle(d: Pen, at: Point, options: ViewTitleOptions): void {
   const radius = height * 0.9;
   const [x, y] = at;
   d.circle([x + radius, y], radius);
-  label(d, [x + radius, y - height * 0.4], number, height, "center");
+  d.text([x + radius, y], number, { height, align: "center", valign: "middle" });
   d.line([x + radius * 2, y], [x + width, y]);
   const textX = x + radius * 2 + height * 0.5;
-  label(d, [textX, y + height * 0.35], title, height);
-  label(d, [textX, y - height * 0.9], scale, height / 2);
+  d.text([textX, y + height * 0.35], title, { height });
+  d.text([textX, y - height * 0.9], scale, { height: height / 2 });
 }
 
 /**
@@ -391,7 +388,7 @@ export function sectionMark(
   const radius = height * 0.9;
   const [x, y] = center;
   d.circle(center, radius);
-  label(d, [x, y - height * 0.4], number, height, "center");
+  d.text(center, number, { height, align: "center", valign: "middle" });
   d.line([x, y - radius], cut);
   // The arrow is two lines from its tip that touch the bubble.
   const reach = 2.2;

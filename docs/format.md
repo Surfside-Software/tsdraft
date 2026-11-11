@@ -1,6 +1,7 @@
 # The Drawing format
 
-A `Drawing` is plain data: its units, layers, linetypes and entities, with no methods. `lint`,
+A `Drawing` is plain data: its units, layers, linetypes, text styles and entities, with no
+methods. `lint`,
 `toDXF` and `toSVG` all read it, and it can be saved as JSON and read back.
 
 ```ts
@@ -26,6 +27,11 @@ fields without reading drawings saved by this one, so save the code that builds 
 treat its JSON as a copy made by one version of tsdraft for the same version to read. A stable
 format with a version above 0 comes once a drawing with blocks and layouts can be saved and
 read back.
+
+A drawing lists its text styles in `textStyles`, and leaves the field out when it has none but
+`Standard`. A text has `style`, `align` and `valign` only where they differ from `"Standard"`,
+`"left"` and `"baseline"`, so a drawing that uses none of them has the JSON it had before they
+existed.
 
 A drawing written by hand needs `format: 0` too. `lint` reports a drawing without it, or with
 another version, under the rule `format`, and `toDXF` refuses to write it.
@@ -110,7 +116,7 @@ unless `createDrawing({ recordCalls: true })` asks for it. A tool that runs draw
 ask for it in every drawing by setting `globalThis.TSDRAFT_RECORD_CALLS = true` before the
 files run. The option, when given, wins.
 
-The builder's `layer`, `linetype` and entity methods throw a `DrawingError` when a call breaks a
+The builder's `layer`, `linetype`, `textStyle` and entity methods throw a `DrawingError` when a call breaks a
 rule. Its message is the problem, and its one diagnostic has the `rule`, the `id` or the `layer`
 the call named, and the `call` that threw. That location costs nothing until a call fails, so it
 is always there.

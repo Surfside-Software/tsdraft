@@ -766,6 +766,199 @@ test("lint checks the linetypes, lineweights and layer states of a drawing", () 
   );
 });
 
+test("text style and justification mistakes are compile errors and runtime errors", () => {
+  const r12 = createDrawing({ dxf: "R12" });
+  const d = createDrawing();
+
+  // @ts-expect-error: R12 drawings get no text styles.
+  assert.throws(() => r12.textStyle({ name: "NOTES", font: "Arial" }), /no text styles/);
+  // @ts-expect-error: nor a text in a style other than Standard.
+  assert.throws(() => r12.text([0, 0], "x", { style: "NOTES" }), /no text styles/);
+  // @ts-expect-error: nor a style given in place.
+  assert.throws(() => r12.text([0, 0], "x", { style: { name: "N", font: "Arial" } }), /R12/);
+  // @ts-expect-error: nor a justified text.
+  assert.throws(() => r12.text([0, 0], "x", { align: "center" }), /no text justification/);
+  // @ts-expect-error: up and down as well.
+  assert.throws(() => r12.text([0, 0], "x", { valign: "top" }), /no text justification/);
+  r12.text([0, 0], "x", { style: "Standard", align: "left", valign: "baseline" });
+
+  // @ts-expect-error: AutoCAD draws a font it does not have in another font.
+  assert.throws(() => d.textStyle({ name: "A", font: "Comic Sans MS" }), /one of FONTS/);
+  // @ts-expect-error: an SHX font goes by its file name.
+  assert.throws(() => d.textStyle({ name: "A", font: "txt" }), /one of FONTS/);
+  // @ts-expect-error: Standard is in every drawing.
+  assert.throws(() => d.textStyle({ name: "STANDARD", font: "Arial" }), /cannot be defined/);
+  // @ts-expect-error: a style name follows the rules of layer names.
+  assert.throws(() => d.textStyle({ name: "A/B", font: "Arial" }), /Text style names cannot/);
+  // @ts-expect-error: AUDIT reports a width factor of 0 or less.
+  assert.throws(() => d.textStyle({ name: "A", font: "Arial", widthFactor: 0 }), /0\.01 to 100/);
+  // @ts-expect-error: or one far from 1.
+  assert.throws(() => d.textStyle({ name: "A", font: "Arial", widthFactor: 0.009 }), /0\.01 to/);
+  // @ts-expect-error: either way.
+  assert.throws(() => d.textStyle({ name: "A", font: "Arial", widthFactor: 100.5 }), /0\.01 to/);
+  // A limit is judged as the number is written, with 6 decimals, by the compiler too.
+  d.textStyle({ name: "EDGES", font: "Arial", widthFactor: 0.0099996, obliqueAngle: 85.0000004 });
+  d.textStyle({ name: "EDGES", font: "Arial", widthFactor: 100.0000004, obliqueAngle: -85 });
+  assert.throws(
+    // @ts-expect-error: written as 0.009999.
+    () => d.textStyle({ name: "A", font: "Arial", widthFactor: 0.0099994 }),
+    /0\.01 to/,
+  );
+  assert.throws(
+    // @ts-expect-error: written as 100.000001.
+    () => d.textStyle({ name: "A", font: "Arial", widthFactor: 100.0000006 }),
+    /to 100/,
+  );
+  assert.throws(
+    // @ts-expect-error: written as 85.000001.
+    () => d.textStyle({ name: "A", font: "Arial", obliqueAngle: 85.0000006 }),
+    /-85 to 85/,
+  );
+  d.textStyle({ name: "EDGES", font: "Arial", widthFactor: 100 });
+  // @ts-expect-error: an oblique angle stays within 85 degrees.
+  assert.throws(() => d.textStyle({ name: "A", font: "Arial", obliqueAngle: 85.5 }), /-85 to 85/);
+  // @ts-expect-error: on either side.
+  assert.throws(() => d.textStyle({ name: "A", font: "Arial", obliqueAngle: -90 }), /-85 to 85/);
+  // @ts-expect-error: a text names a style by a valid name.
+  assert.throws(() => d.text([0, 0], "x", { style: "A,B" }), /Text style names cannot/);
+  // @ts-expect-error: a style given in place is checked as textStyle() checks one.
+  assert.throws(() => d.text([0, 0], "x", { style: { name: "A", font: "Nope" } }), /one of FONTS/);
+  // @ts-expect-error: "middle" is a place up and down the line, not along it.
+  assert.throws(() => d.text([0, 0], "x", { align: "middle" }), /align must be "left", "center"/);
+  // @ts-expect-error: and "center" is along it.
+  assert.throws(() => d.text([0, 0], "x", { valign: "center" }), /valign must be "baseline"/);
+
+  // What the compiler cannot see.
+  const font: string = "Papyrus";
+  assert.throws(() => d.textStyle({ name: "A", font }), /one of FONTS/);
+  const missing: string = "MISSING";
+  assert.throws(
+    () => d.text([0, 0], "x", { style: missing, id: "t" }),
+    (thrown: unknown) => {
+      assert.ok(thrown instanceof DrawingError);
+      const [found] = thrown.diagnostics;
+      assert.equal(found?.rule, "undefined-text-style");
+      assert.equal(found?.id, "t");
+      assert.match(
+        thrown.message,
+        /"MISSING" is not defined\. AutoCAD puts .* in Standard.* Define it with textStyle\(\) first/,
+      );
+      return true;
+    },
+  );
+  assert.throws(
+    () =>
+      d.textStyle({ name: "strasse", font: "Arial" }).textStyle({ name: "straße", font: "Arial" }),
+    /duplicate name/,
+  );
+
+  d.textStyle({ name: "Notes", font: "Arial", widthFactor: 0.9, obliqueAngle: -85 });
+  // A style given in place must be the one the drawing has.
+  assert.throws(
+    () => d.text([0, 0], "x", { style: { name: "NOTES", font: "txt.shx" } }),
+    /another font/,
+  );
+  d.text([1, 2], "x", { style: "NOTES", align: "center", valign: "middle" });
+  d.text([1, 2], "x", { style: "standard", align: "left", valign: "baseline" });
+  d.text([1, 2], "x", {
+    style: { name: "TITLE", font: "txt.shx", widthFactor: 1, obliqueAngle: 0 },
+  });
+  const drawing = d.build();
+  // Defaults are left out, and a style keeps its first spelling.
+  assert.deepEqual(drawing.textStyles?.slice(-2), [
+    { name: "Notes", font: "Arial", widthFactor: 0.9, obliqueAngle: -85 },
+    { name: "TITLE", font: "txt.shx" },
+  ]);
+  assert.deepEqual(drawing.entities, [
+    {
+      kind: "text",
+      layer: "0",
+      at: [1, 2],
+      value: "x",
+      height: 0.125,
+      rotation: 0,
+      style: "Notes",
+      align: "center",
+      valign: "middle",
+    },
+    { kind: "text", layer: "0", at: [1, 2], value: "x", height: 0.125, rotation: 0 },
+    {
+      kind: "text",
+      layer: "0",
+      at: [1, 2],
+      value: "x",
+      height: 0.125,
+      rotation: 0,
+      style: "TITLE",
+    },
+  ]);
+  assert.deepEqual(lint(drawing), []);
+  // A drawing with no text style of its own has no `textStyles`, as before there were any.
+  assert.ok(!("textStyles" in createDrawing().text([0, 0], "x").build()));
+});
+
+test("lint checks the text styles and justification of a drawing", () => {
+  const text = {
+    kind: "text",
+    layer: "0",
+    at: [0, 0],
+    value: "x",
+    height: 1,
+    rotation: 0,
+  } as const;
+  const drawing = {
+    format: 0,
+    units: "in",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    textStyles: [
+      { name: "NOTES", font: "Arial" },
+      { name: "notes", font: "Arial" },
+      { name: "Standard", font: "Arial" },
+      { name: "FONT", font: "Wingdings" },
+      { name: "WIDE", font: "Arial", widthFactor: -1 },
+      { name: "LEAN", font: "Arial", obliqueAngle: 86 },
+      { name: "strasse", font: "Arial" },
+      { name: "straße", font: "Arial" },
+    ],
+    entities: [
+      { ...text, style: "notes", align: "right", valign: "top" },
+      { ...text, style: "MISSING" },
+      { ...text, align: "fit" },
+      { ...text, valign: "center" },
+    ],
+  } as unknown as Drawing;
+  assert.deepEqual(
+    lint(drawing).map((p) => `${p.rule} ${p.textStyle ?? p.entity}`),
+    [
+      "duplicate-text-style notes",
+      "text-style Standard",
+      "text-style FONT",
+      "text-style WIDE",
+      "text-style LEAN",
+      "duplicate-text-style straße",
+      "undefined-text-style 1",
+      "text-align 2",
+      "text-align 3",
+    ],
+  );
+  // An R12 drawing takes none of it but the defaults.
+  const r12 = {
+    ...drawing,
+    textStyles: [{ name: "NOTES", font: "Arial" }],
+    entities: [
+      { ...text, style: "STANDARD", align: "left", valign: "baseline" },
+      { ...text, style: "NOTES" },
+      { ...text, align: "center" },
+    ],
+  } as unknown as Drawing;
+  assert.deepEqual(
+    lint(r12, { version: "R12" }).map((p) => `${p.rule} ${p.textStyle ?? p.entity}`),
+    ["text-style NOTES", "text-style 1", "text-align 2"],
+  );
+  assert.throws(() => toDXF(r12, { version: "R12" }), DrawingError);
+});
+
 test("fromPaper turns a plotted length into drawing units", () => {
   assert.equal(fromPaper(3 / 32, "in", { ratio: 96, units: "ft" }), 0.75);
   assert.equal(fromPaper(3 / 32, "in", { ratio: 96, units: "in" }), 9);

@@ -1,8 +1,10 @@
-import type { Drawing, Entity, Linetype, Units } from "./drawing.ts";
+import type { Drawing, Entity, Linetype, TextStyle, Units } from "./drawing.ts";
 import { extents } from "./extents.ts";
+import { fontInfo, STANDARD_TEXT_STYLE } from "./fonts.ts";
 import { dxfOnce, dxfText, fmt, readable, written, writtenAngle } from "./format.ts";
-import { layerZeroFirst } from "./layers.ts";
+import { layerKey, layerZeroFirst } from "./layers.ts";
 import { entityLinetype, layerLinetype, lineweightCode, patternLength } from "./linetypes.ts";
+import { TEXT_ALIGNS, TEXT_VERTICAL_ALIGNS } from "./rules.ts";
 
 /** `$INSUNITS` codes from the DXF Reference. */
 const INSUNITS: Record<Units, number> = { in: 1, ft: 2, mm: 4, cm: 5, m: 6 };
@@ -41,7 +43,7 @@ export function toDXFR2018(drawing: Drawing): string {
   const modelSpace = handle();
   const paperSpace = handle();
   // The extents are worked out here, so they are brought into the range AutoCAD reads.
-  const [left, bottom, right, top] = extents(drawing.entities);
+  const [left, bottom, right, top] = extents(drawing.entities, drawing.textStyles);
   const [minX, minY, maxX, maxY] = [
     readable(left),
     readable(bottom),
@@ -112,11 +114,12 @@ export function toDXFR2018(drawing: Drawing): string {
       },
     })),
   );
+  const textStyles = drawing.textStyles ?? [];
   writeTable(g, handle, "STYLE", [
     {
       type: "STYLE",
       subclass: "AcDbTextStyleTableRecord",
-      name: "Standard",
+      name: STANDARD_TEXT_STYLE,
       handle: handle(),
       fields: (g) => {
         g(40, 0); // fixed height: none
@@ -128,7 +131,32 @@ export function toDXFR2018(drawing: Drawing): string {
         g(4, "");
       },
     },
+    ...textStyles.map((style) => ({
+      type: "STYLE",
+      subclass: "AcDbTextStyleTableRecord",
+      name: style.name,
+      handle: handle(),
+      fields: (g: Group) => {
+        const font = fontInfo(style.font);
+        g(40, 0); // fixed height: none, so each text keeps its own
+        g(41, style.widthFactor ?? 1);
+        g(50, style.obliqueAngle ?? 0);
+        g(71, 0); // generation flags
+        g(42, 0.2); // last height used
+        g(3, font?.file ?? style.font);
+        g(4, "");
+        // A TrueType font is named by its typeface in the record's extended data, with its
+        // pitch and family.
+        if (font?.pitchAndFamily !== undefined) {
+          g(1001, "ACAD");
+          g(1000, style.font);
+          g(1071, font.pitchAndFamily);
+        }
+      },
+    })),
   ]);
+  // Keyed as style names are compared, so a text that names `notes` takes the style `NOTES`.
+  const stylesByKey = new Map(textStyles.map((style) => [layerKey(style.name), style]));
   writeTable(g, handle, "VIEW", []);
   writeTable(g, handle, "UCS", []);
   writeTable(g, handle, "APPID", [
@@ -167,7 +195,13 @@ export function toDXFR2018(drawing: Drawing): string {
 
   g(0, "SECTION");
   g(2, "ENTITIES");
-  for (const entity of drawing.entities) writeEntity(g, entity, handle(), modelSpace);
+  for (const entity of drawing.entities) {
+    const style =
+      entity.kind === "text" && entity.style !== undefined
+        ? stylesByKey.get(layerKey(entity.style))
+        : undefined;
+    writeEntity(g, entity, handle(), modelSpace, style);
+  }
   g(0, "ENDSEC");
 
   g(0, "SECTION");
@@ -358,7 +392,14 @@ function writeBlock(
   g(100, "AcDbBlockEnd");
 }
 
-function writeEntity(g: Group, e: Entity, handle: string, owner: string): void {
+/** Writes an entity. `style` is the text style of a text that is not in `Standard`. */
+function writeEntity(
+  g: Group,
+  e: Entity,
+  handle: string,
+  owner: string,
+  style: TextStyle | undefined,
+): void {
   const begin = (type: string, subclass: string) => {
     g(0, type);
     g(5, handle);
@@ -407,9 +448,23 @@ function writeEntity(g: Group, e: Entity, handle: string, owner: string): void {
       g(40, e.height);
       g(1, dxfText(e.value));
       if (e.rotation !== 0) g(50, e.rotation);
-      g(7, "Standard");
-      // TEXT repeats its subclass marker before the vertical alignment fields.
-      g(100, "AcDbText");
+      // A text holds its own width factor and oblique angle. It starts with its style's.
+      if (style?.widthFactor !== undefined && style.widthFactor !== 1) g(41, style.widthFactor);
+      if (style?.obliqueAngle !== undefined && style.obliqueAngle !== 0) {
+        g(51, style.obliqueAngle);
+      }
+      g(7, style?.name ?? STANDARD_TEXT_STYLE);
+      {
+        const align = TEXT_ALIGNS.indexOf(e.align ?? "left");
+        const valign = TEXT_VERTICAL_ALIGNS.indexOf(e.valign ?? "baseline");
+        if (align > 0) g(72, align);
+        // A justified text is placed by its alignment point, and its first point is written as
+        // the same point.
+        if (align > 0 || valign > 0) point(g, 11, ...e.at);
+        // TEXT repeats its subclass marker before the vertical alignment.
+        g(100, "AcDbText");
+        if (valign > 0) g(73, valign);
+      }
       return;
   }
 }

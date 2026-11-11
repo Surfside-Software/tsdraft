@@ -20,10 +20,16 @@ export {
   type Point,
   type Polyline,
   type Text,
+  type TextAlign,
   type TextOptions,
+  type TextStyle,
+  type TextStyleChoice,
+  type TextStyleDefinition,
+  type TextVerticalAlign,
   type Units,
 } from "./drawing.ts";
 export { toDXF, type DxfOptions } from "./dxf.ts";
+export { FONTS, type Font, type FontInfo } from "./fonts.ts";
 export { fromJSON, toJSON } from "./json.ts";
 export { DrawingError, lint, type Diagnostic, type LintOptions, type LintRule } from "./lint.ts";
 export { CENTER, DASHDOT, DASHED, DOT, HIDDEN, LINEWEIGHTS, PHANTOM } from "./linetypes.ts";
@@ -32,15 +38,20 @@ export type {
   Aci,
   Description,
   EntityId,
+  FontOf,
   LayerColor,
   LayerLinetypeName,
   LayerName,
   LineweightOf,
   LinetypeName,
   NewLinetypeName,
+  NewTextStyleName,
+  ObliqueAngle,
   PaperLength,
   Pattern,
   Positive,
   Ratio,
+  TextStyleName,
+  WidthFactor,
 } from "./rules.ts";
 export { toSVG, type SvgOptions } from "./svg.ts";

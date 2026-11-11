@@ -10,6 +10,7 @@ import type {
   Linetype,
   Polyline,
   Text,
+  TextStyle,
 } from "./drawing.ts";
 import { DrawingError, lint } from "./lint.ts";
 import { formatProblem, shown } from "./rules.ts";
@@ -230,20 +231,20 @@ const record =
     else problems.push(`${at} ${PLAIN_OBJECT}`);
   };
 
-const style = { id: string, linetype: string, lineweight: numberOrName } as const;
+const shared = { id: string, linetype: string, lineweight: numberOrName } as const;
 const kind: Check = () => {};
 
 const ENTITIES = {
-  line: fields<Line>({ kind, layer: string, from: point, to: point }, style),
-  polyline: fields<Polyline>({ kind, layer: string, points: list(point), closed: boolean }, style),
-  circle: fields<Circle>({ kind, layer: string, center: point, radius: number }, style),
+  line: fields<Line>({ kind, layer: string, from: point, to: point }, shared),
+  polyline: fields<Polyline>({ kind, layer: string, points: list(point), closed: boolean }, shared),
+  circle: fields<Circle>({ kind, layer: string, center: point, radius: number }, shared),
   arc: fields<Arc>(
     { kind, layer: string, center: point, radius: number, startAngle: number, endAngle: number },
-    style,
+    shared,
   ),
   text: fields<Text>(
     { kind, layer: string, at: point, height: number, value: string, rotation: number },
-    style,
+    { ...shared, style: string, align: string, valign: string },
   ),
 } satisfies Record<Entity["kind"], FieldsCheck>;
 
@@ -287,5 +288,13 @@ const drawing = fields<Drawing>(
       record(fields<Linetype>({ name: string, description: string, pattern: list(number) }, {})),
     ),
     linetypeScale: number,
+    textStyles: list(
+      record(
+        fields<TextStyle>(
+          { name: string, font: string },
+          { widthFactor: number, obliqueAngle: number },
+        ),
+      ),
+    ),
   },
 );

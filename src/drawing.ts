@@ -1,4 +1,5 @@
 import { holdCall, readCall, recordCalls, type HeldCall } from "./callsite.ts";
+import { STANDARD_TEXT_STYLE } from "./fonts.ts";
 import { fmt, written } from "./format.ts";
 import { layerAuditKey, layerKey } from "./layers.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
@@ -8,6 +9,7 @@ import {
   duplicateIdProblem,
   idKey,
   idProblem,
+  isStandardTextStyle,
   layerColorProblem,
   layerFlagProblem,
   layerLinetypeProblem,
@@ -21,24 +23,36 @@ import {
   layerTwinProblem,
   R12_ONLY,
   sizeProblem,
+  textAlignProblem,
   textProblem,
+  textStyleNameProblem,
+  textStyleProblem,
   undefinedLinetypeProblem,
+  undefinedTextStyleProblem,
   type Description,
   type EntityId,
+  type FontOf,
   type FrozenCurrent,
   type LayerLinetypeName,
   type LineweightMm,
   type LineweightOf,
   type LinetypeName,
   type NewLinetypeName,
+  type NewTextStyleName,
+  type ObliqueAngle,
   type Pattern,
   type R12EntityStyle,
   type R12LayerStates,
   type R12Lineweights,
   type R12Linetypes,
+  type R12Text,
+  type TextStyleName,
+  type WidthFactor,
   type LayerColor,
   type LayerName,
   type Positive,
+  type TEXT_ALIGNS,
+  type TEXT_VERTICAL_ALIGNS,
 } from "./rules.ts";
 
 /** A model-space point, in drawing units. Y points up, as in CAD. */
@@ -143,14 +157,46 @@ export interface Arc extends EntityBase {
   readonly endAngle: number;
 }
 
+/**
+ * A text style: the font of the texts that name it, and how wide and how slanted its characters
+ * are drawn. It has no height, so each text keeps its own.
+ */
+export interface TextStyle {
+  readonly name: string;
+  /** One of `FONTS`: an SHX font by its file name, a TrueType font by its typeface. */
+  readonly font: string;
+  /** How wide each character is drawn, as a share of the font's own width. Defaults to 1. */
+  readonly widthFactor?: number;
+  /** The slant of each character, in degrees to the right, from -85 to 85. Defaults to 0. */
+  readonly obliqueAngle?: number;
+}
+
+/** Where a text's `at` point is along its line. */
+export type TextAlign = (typeof TEXT_ALIGNS)[number];
+
+/**
+ * Where a text's `at` point is up and down its line: on the baseline, at the bottom of the
+ * letters that reach below it, half way up a capital, or at the top of a capital.
+ */
+export type TextVerticalAlign = (typeof TEXT_VERTICAL_ALIGNS)[number];
+
 export interface Text extends EntityBase {
   readonly kind: "text";
-  /** Left end of the text baseline. */
+  /**
+   * The point `align` and `valign` justify the text to: with their defaults, the left end of
+   * the baseline.
+   */
   readonly at: Point;
   readonly height: number;
   readonly value: string;
   /** Degrees counterclockwise. */
   readonly rotation: number;
+  /** A text style of the drawing. Defaults to `"Standard"`. */
+  readonly style?: string;
+  /** Defaults to `"left"`. */
+  readonly align?: TextAlign;
+  /** Defaults to `"baseline"`. */
+  readonly valign?: TextVerticalAlign;
 }
 
 export type Entity = Line | Polyline | Circle | Arc | Text;
@@ -170,6 +216,8 @@ export interface Drawing {
   readonly linetypes?: readonly Linetype[];
   /** The global linetype scale, `$LTSCALE`, which multiplies every pattern. Defaults to 1. */
   readonly linetypeScale?: number;
+  /** Text styles beyond `Standard`, which every drawing has. */
+  readonly textStyles?: readonly TextStyle[];
 }
 
 export interface DrawingOptions<V extends DxfVersion = DxfVersion, S extends number = number> {
@@ -320,11 +368,55 @@ export interface EntityOptions<
     : LineweightOf<W> | "ByLayer" | "ByBlock" | "Default";
 }
 
+/** A text style to define: a `TextStyle`, checked. */
+export interface TextStyleDefinition<
+  N extends string = string,
+  F extends string = string,
+  W extends number = number,
+  O extends number = number,
+> {
+  readonly name: NewTextStyleName<N>;
+  /** One of `FONTS`: an SHX font by its file name, a TrueType font by its typeface. */
+  readonly font: FontOf<F>;
+  /**
+   * How wide each character is drawn, as a share of the font's own width, from 0.01 to 100.
+   * Defaults to 1.
+   */
+  readonly widthFactor?: WidthFactor<W>;
+  /** The slant of each character, in degrees to the right, from -85 to 85. Defaults to 0. */
+  readonly obliqueAngle?: ObliqueAngle<O>;
+}
+
+/** What a text may be given as its style: a name, or a definition. */
+type TextStyleValue = string | TextStyleDefinition;
+
+/** Each definition in `D`, checked as `textStyle()` checks one. A name in `D` adds nothing. */
+type CheckedTextStyle<D> = D extends TextStyleDefinition
+  ? TextStyleDefinition<D["name"], D["font"], WidthFactorOf<D>, ObliqueAngleOf<D>>
+  : never;
+
+type WidthFactorOf<D> = D extends { readonly widthFactor: infer W extends number } ? W : number;
+type ObliqueAngleOf<D> = D extends { readonly obliqueAngle: infer O extends number } ? O : number;
+
 /**
- * The options of `text()`: its height and rotation, and the options of every entity.
+ * A style for a text: the name `S` of one the drawing has, or a `TextStyleDefinition`, which is
+ * checked as `textStyle()` checks one and defined first if the drawing does not have it yet. `D`
+ * is the whole value given, and this is one conditional type, for the reasons `LinetypeChoice`
+ * gives.
+ */
+export type TextStyleChoice<S extends string, D extends TextStyleValue = TextStyleDefinition> = [
+  D,
+] extends [TextStyleValue]
+  ? TextStyleName<S> | CheckedTextStyle<D>
+  : D;
+
+/**
+ * The options of `text()`: its height, rotation, style and justification, and the options of
+ * every entity.
  *
  * @typeParam L - The linetype as written, a name or a definition. A definition's literal mistakes
  *   are compile errors.
+ * @typeParam D - The text style as written, a name or a definition, checked the same way.
  */
 export interface TextOptions<
   H extends number = number,
@@ -333,10 +425,18 @@ export interface TextOptions<
   W extends number = number,
   L extends LinetypeValue = LinetypeDefinition,
   I extends string = string,
+  S extends string = string,
+  D extends TextStyleValue = TextStyleDefinition,
 > extends EntityOptions<V, T, W, L, I> {
   readonly height?: Positive<H>;
   /** Degrees counterclockwise. */
   readonly rotation?: number;
+  /** A text style of the drawing, or a definition of one. Defaults to `"Standard"`. R2018 only. */
+  readonly style?: V extends "R12" ? typeof STANDARD_TEXT_STYLE | R12Text : TextStyleChoice<S, D>;
+  /** Where `at` is along the text's line. Defaults to `"left"`. R2018 only. */
+  readonly align?: V extends "R12" ? "left" | R12Text : TextAlign;
+  /** Where `at` is up and down the text's line. Defaults to `"baseline"`. R2018 only. */
+  readonly valign?: V extends "R12" ? "baseline" | R12Text : TextVerticalAlign;
 }
 
 /** The linetype and lineweight an entity is stored with: only what differs from ByLayer. */
@@ -366,7 +466,7 @@ function refuse(rule: LintRule, message: string): never {
 function located(
   thrown: unknown,
   method: Method,
-  about: Pick<Diagnostic, "id" | "layer" | "linetype">,
+  about: Pick<Diagnostic, "id" | "layer" | "linetype" | "textStyle">,
 ): unknown {
   if (!(thrown instanceof Problem)) return thrown;
   const call = readCall(holdCall(method));
@@ -391,8 +491,8 @@ function recordsCalls(): boolean {
  *
  * Mistakes written as literals, such as a layer name the DXF version does not
  * allow or a negative radius, are compile errors. The same checks run again
- * when the code runs, for values the compiler cannot see: `layer`, `linetype`
- * and the entity methods then throw a `DrawingError` whose diagnostic has the
+ * when the code runs, for values the compiler cannot see: `layer`, `linetype`,
+ * `textStyle` and the entity methods then throw a `DrawingError` whose diagnostic has the
  * rule, the entity's `id` and the `call` that broke it.
  */
 export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = number> {
@@ -409,6 +509,11 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
   readonly #linetypesAudited = new Map<string, string>(
     BUILT_IN_LINETYPES.map((name) => [layerAuditKey(name), name]),
   );
+  /** Keyed by `layerKey`: AutoCAD compares text style names as it compares layer names. */
+  readonly #textStyles = new Map<string, TextStyle>();
+  readonly #textStylesAudited = new Map<string, string>([
+    [layerAuditKey(STANDARD_TEXT_STYLE), STANDARD_TEXT_STYLE],
+  ]);
   readonly #entities: Entity[] = [];
   /** The first spelling of each entity id, by `idKey`. */
   readonly #ids = new Map<string, string>();
@@ -452,6 +557,29 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
       const name: unknown = definition?.name;
       const about = typeof name === "string" ? { linetype: name } : {};
       throw located(thrown, DrawingBuilder.prototype.linetype, about);
+    }
+    return this;
+  }
+
+  /**
+   * Defines a text style, or updates the one of the same name. `notes` and `NOTES` are the
+   * same style, and keep the first spelling. `Standard` is in every drawing, with the font
+   * `txt.shx`.
+   */
+  textStyle<
+    N extends string,
+    F extends string,
+    W extends number = number,
+    O extends number = number,
+  >(style: V extends "R12" ? R12Text : TextStyleDefinition<N, F, W, O>): this {
+    const definition = style as unknown as TextStyleDefinition;
+    try {
+      if (this.dxf === "R12") refuse("text-style", R12_ONLY.text);
+      this.#defineTextStyle(definition);
+    } catch (thrown) {
+      const name: unknown = definition?.name;
+      const about = typeof name === "string" ? { textStyle: name } : {};
+      throw located(thrown, DrawingBuilder.prototype.textStyle, about);
     }
     return this;
   }
@@ -659,11 +787,13 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     W extends number = number,
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
-  >(at: Point, value: string, options: TextOptions<H, V, T, W, L, I> = {}): this {
+    S extends string = string,
+    const D extends TextStyleValue = TextStyleDefinition,
+  >(at: Point, value: string, options: TextOptions<H, V, T, W, L, I, S, D> = {}): this {
     return this.#add(DrawingBuilder.prototype.text, options, () => {
       const problem = textProblem(value);
       if (problem) refuse("text", problem);
-      return {
+      const text: { -readonly [K in keyof Text]: Text[K] } = {
         kind: "text",
         layer: this.#current,
         at: pt(at),
@@ -671,6 +801,34 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
         height: positive(options.height ?? 0.125, "height"),
         rotation: kept(options.rotation ?? 0, "rotation"),
       };
+      const r12 = this.dxf === "R12";
+      if (options.style !== undefined) {
+        const named: unknown = options.style;
+        // An R12 drawing has no style to look up but Standard.
+        if (r12 && !(typeof named === "string" && isStandardTextStyle(named))) {
+          refuse("text-style", R12_ONLY.text);
+        }
+        const style = this.#textStyleName(options.style);
+        if (style !== STANDARD_TEXT_STYLE) text.style = style;
+      }
+      const { align, valign }: { align?: unknown; valign?: unknown } = options;
+      if (align !== undefined) {
+        const alignProblem = textAlignProblem("align", align);
+        if (alignProblem) refuse("text-align", alignProblem);
+        if (align !== "left") {
+          if (r12) refuse("text-align", R12_ONLY.text);
+          text.align = align as TextAlign;
+        }
+      }
+      if (valign !== undefined) {
+        const alignProblem = textAlignProblem("valign", valign);
+        if (alignProblem) refuse("text-align", alignProblem);
+        if (valign !== "baseline") {
+          if (r12) refuse("text-align", R12_ONLY.text);
+          text.valign = valign as TextVerticalAlign;
+        }
+      }
+      return text;
     });
   }
 
@@ -685,6 +843,7 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
       entities,
       linetypes: [...this.#linetypes.values()],
       linetypeScale: this.linetypeScale,
+      ...(this.#textStyles.size > 0 ? { textStyles: [...this.#textStyles.values()] } : {}),
     };
   }
 
@@ -802,6 +961,79 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
       pattern: [...lengths],
     });
     if (!this.#linetypesAudited.has(auditKey)) this.#linetypesAudited.set(auditKey, name);
+    return stored;
+  }
+
+  /**
+   * The name of the text style a text asks for, in the spelling the drawing has it. A
+   * definition is defined first if the drawing does not have it.
+   */
+  #textStyleName(choice: unknown): string {
+    if (typeof choice === "object" && choice !== null) {
+      return this.#defineTextStyle(choice as TextStyleDefinition, true);
+    }
+    if (typeof choice !== "string") {
+      return refuse("undefined-text-style", "A text style is a name or a TextStyleDefinition");
+    }
+    const problem = textStyleNameProblem(choice);
+    if (problem) {
+      refuse("undefined-text-style", `Text style ${JSON.stringify(choice)}: ${problem}`);
+    }
+    if (isStandardTextStyle(choice)) return STANDARD_TEXT_STYLE;
+    const known = this.#textStyles.get(layerKey(choice))?.name;
+    if (known === undefined) {
+      const absent = `${undefinedTextStyleProblem(choice)}. Define it with textStyle() first`;
+      refuse("undefined-text-style", absent);
+    }
+    return known as string;
+  }
+
+  /**
+   * Checks a text style and stores it, and returns the name the drawing has it by. A definition
+   * given to a text must match the one the drawing has of its name, where `textStyle()`
+   * replaces it.
+   */
+  #defineTextStyle(definition: TextStyleDefinition, inline = false): string {
+    const label = `Text style ${JSON.stringify(definition.name)}`;
+    const problem = textStyleProblem(
+      definition.name,
+      definition.font,
+      definition.widthFactor ?? 1,
+      definition.obliqueAngle ?? 0,
+    );
+    if (problem) refuse("text-style", `${label}: ${problem}`);
+    // textStyleProblem has checked the types.
+    const name = definition.name as string;
+    const font = definition.font as string;
+    const widthFactor = (definition.widthFactor ?? 1) as number;
+    const obliqueAngle = (definition.obliqueAngle ?? 0) as number;
+    const key = layerKey(name);
+    const auditKey = layerAuditKey(name);
+    const first = this.#textStylesAudited.get(auditKey) ?? name;
+    const twin = layerTwinProblem(name, first, "text style");
+    if (twin) refuse("duplicate-text-style", `${label}: ${twin}`);
+    const existing = this.#textStyles.get(key);
+    if (inline && existing) {
+      const same =
+        existing.font === font &&
+        (existing.widthFactor ?? 1) === widthFactor &&
+        (existing.obliqueAngle ?? 0) === obliqueAngle;
+      if (!same) {
+        refuse(
+          "text-style",
+          `${label}: the drawing has a text style of this name with another font, width factor or oblique angle. Pass its name, or change it with textStyle()`,
+        );
+      }
+      return existing.name;
+    }
+    const stored = existing?.name ?? name;
+    this.#textStyles.set(key, {
+      name: stored,
+      font,
+      ...(widthFactor === 1 ? {} : { widthFactor }),
+      ...(obliqueAngle === 0 ? {} : { obliqueAngle }),
+    });
+    if (!this.#textStylesAudited.has(auditKey)) this.#textStylesAudited.set(auditKey, name);
     return stored;
   }
 }

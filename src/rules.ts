@@ -5,6 +5,7 @@
 // AutoCAD discards the whole drawing over most names that break the name rules.
 import type { DxfVersion } from "./drawing.ts";
 import { isTooLarge, written, writtenAngle } from "./format.ts";
+import { fontInfo, STANDARD_TEXT_STYLE, type Font } from "./fonts.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype, LINEWEIGHTS, patternLength } from "./linetypes.ts";
 import {
   layerAuditKey,
@@ -18,8 +19,8 @@ import {
   type REJECTED_PRIVATE,
 } from "./layers.ts";
 
-// AutoCAD holds layer names and linetype names to the same rules, so each rule has a message
-// for each kind of name.
+// AutoCAD holds layer names, linetype names and text style names to the same rules, so each
+// rule has a message for each kind of name.
 const LAYER_NAMES = {
   empty: "Layer names cannot be empty",
   chars: 'Layer names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
@@ -36,7 +37,15 @@ const LINETYPE_NAMES = {
   edge: "Linetype names cannot start or end with a space",
   length: "Linetype names cannot be longer than 255 characters",
 } as const;
-type NameMessages = typeof LAYER_NAMES | typeof LINETYPE_NAMES;
+const TEXT_STYLE_NAMES = {
+  empty: "Text style names cannot be empty",
+  chars: 'Text style names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
+  rejected:
+    "Text style names cannot contain a character AutoCAD rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
+  edge: "Text style names cannot start or end with a space",
+  length: "Text style names cannot be longer than 255 characters",
+} as const;
+type NameMessages = typeof LAYER_NAMES | typeof LINETYPE_NAMES | typeof TEXT_STYLE_NAMES;
 const NAME_R12_CHARS =
   'R12 layer names can only use letters, digits, $, - and _. Use DXF version "R2018" for other characters';
 const NAME_R12_LENGTH =
@@ -61,6 +70,16 @@ const R12_ENTITY_STYLE =
   'R12 entities take no linetype or lineweight of their own. Use DXF version "R2018" for an entity linetype or lineweight';
 const R12_LAYER_STATES =
   'tsdraft writes no layer states to R12 drawings. Use DXF version "R2018" for layers that are off, frozen, locked or not plotted';
+const R12_TEXT =
+  'tsdraft writes no text styles and no text justification to R12 drawings. Use DXF version "R2018" for a text style or a justified text';
+const STANDARD_STYLE =
+  "The text style Standard is in every drawing, with the font txt.shx, and cannot be defined. AutoCAD keeps the first style of a name and skips a second";
+const FONT =
+  'A font must be one of FONTS, the fonts AutoCAD 2025 or Windows installs: an SHX font by its file name, such as "txt.shx", or a TrueType font by its typeface, such as "Arial". AutoCAD draws text in a font it does not have in another font, and its AUDIT reports nothing';
+const OBLIQUE =
+  "An oblique angle must be from -85 to 85 degrees. AutoCAD's AUDIT reports a text style or a text slanted further";
+const WIDTH_FACTOR =
+  "A width factor must be from 0.01 to 100, the range AutoCAD's STYLE command takes. AutoCAD's AUDIT reports a text style with a width factor of 0 or less, of 0.0001 or of 1000000";
 const LINEWEIGHT =
   "A lineweight must be one of AutoCAD's, in millimetres: 0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8, 0.9, 1, 1.06, 1.2, 1.4, 1.58, 2 or 2.11";
 const LAYER_LINEWEIGHT = `${LINEWEIGHT}, or "Default"`;
@@ -268,6 +287,69 @@ export type LayerLinetypeName<N extends string> = string extends N
 type Unsigned<S extends string> = S extends `-${infer A}` ? A : S;
 
 /**
+ * Resolves to `N` when it is a valid name for a text style to be used by, and to the error
+ * message otherwise. AutoCAD holds text style names to the rules of layer names.
+ */
+export type TextStyleName<N extends string> = string extends N
+  ? N
+  : NameCheck<N, typeof TEXT_STYLE_NAMES, N>;
+
+/**
+ * Resolves to `N` when it is a valid name for a new text style, and to the error message
+ * otherwise: a name that is valid to use, and not `Standard`, which every drawing has.
+ */
+export type NewTextStyleName<N extends string> = string extends N
+  ? N
+  : Lowercase<N> extends Lowercase<typeof STANDARD_TEXT_STYLE>
+    ? typeof STANDARD_STYLE
+    : TextStyleName<N>;
+
+/** Resolves to `F` when it is one of `FONTS`, and to the error message otherwise. */
+export type FontOf<F extends string> = string extends F ? F : F extends Font ? F : typeof FONT;
+
+/**
+ * Resolves to `N` when it is a width factor that is written as 0.01 to 100, and to the error
+ * message otherwise. The writers keep 6 decimals, so 0.0099996 is written as 0.01 and
+ * 100.0000004 as 100, and both pass, as they do when the code runs. The compiler prints a
+ * number under 0.000001, or of 1e21 or more, in exponent form.
+ */
+export type WidthFactor<N extends number> = number extends N
+  ? N
+  : `${N}` extends
+        | `${Exclude<Enumerate<100>, 0>}`
+        | `${Exclude<Enumerate<100>, 0>}.${string}`
+        | "100"
+        | `100.000000${RoundsDown}${string}`
+        | "100.0000005"
+        | `0.009999${6 | 7 | 8 | 9}${string}`
+        | `0.0099995${Digit}${string}`
+    ? N
+    : `${N}` extends `0.00${string}`
+      ? typeof WIDTH_FACTOR
+      : `${N}` extends `0.${string}`
+        ? N
+        : typeof WIDTH_FACTOR;
+
+/** A seventh decimal that leaves the six before it as they are. */
+type RoundsDown = 0 | 1 | 2 | 3 | 4;
+
+/**
+ * Resolves to `N` when it is an oblique angle that is written as -85 to 85 degrees, and to the
+ * error message otherwise. An angle such as 85.0000004 is written as 85 and passes, as it does
+ * when the code runs. The compiler prints a number under 0.000001 in size in exponent form.
+ */
+export type ObliqueAngle<N extends number> = number extends N
+  ? N
+  : Unsigned<`${N}`> extends
+        | `${Enumerate<86>}`
+        | `${Enumerate<85>}.${string}`
+        | `85.000000${RoundsDown}${string}`
+        | "85.0000005"
+        | `${string}e-${string}`
+    ? N
+    : typeof OBLIQUE;
+
+/**
  * The message for each literal pattern length the writers cannot keep: one
  * written as 0 that is not 0, or one of 1e100 or more in size.
  */
@@ -362,6 +444,7 @@ export type R12Lineweights = typeof R12_LINEWEIGHTS;
 export type R12EntityStyle = typeof R12_ENTITY_STYLE;
 export type R12LayerStates = typeof R12_LAYER_STATES;
 export type FrozenCurrent = typeof FROZEN_CURRENT;
+export type R12Text = typeof R12_TEXT;
 
 /** Returns what is wrong with a layer name for a DXF version, or undefined when it is valid. */
 export function layerNameProblem(name: string, version: DxfVersion): string | undefined {
@@ -406,13 +489,14 @@ function nameProblem(name: string, messages: NameMessages): string | undefined {
  *
  * @param name - The name of the layer being checked.
  * @param other - The name of another layer in the drawing.
- * @param kind - Whether the names are of layers or of linetypes, which AutoCAD compares alike.
+ * @param kind - Whether the names are of layers, of linetypes or of text styles, which AutoCAD
+ *   compares alike.
  * @returns The problem, or undefined.
  */
 export function layerTwinProblem(
   name: string,
   other: string,
-  kind: "layer" | "linetype" = "layer",
+  kind: "layer" | "linetype" | "text style" = "layer",
 ): string | undefined {
   if (layerKey(name) === layerKey(other) || layerAuditKey(name) !== layerAuditKey(other)) {
     return undefined;
@@ -517,7 +601,81 @@ export const R12_ONLY = {
   lineweights: R12_LINEWEIGHTS,
   layerStates: R12_LAYER_STATES,
   entityStyle: R12_ENTITY_STYLE,
+  text: R12_TEXT,
 } as const;
+
+/** How a text is justified across its line, and up and down it. The first of each is the default. */
+export const TEXT_ALIGNS = ["left", "center", "right"] as const;
+export const TEXT_VERTICAL_ALIGNS = ["baseline", "bottom", "middle", "top"] as const;
+
+/**
+ * Returns what is wrong with a text style name, or undefined when it is valid.
+ * The name may be `Standard`.
+ */
+export function textStyleNameProblem(name: string): string | undefined {
+  return nameProblem(name, TEXT_STYLE_NAMES);
+}
+
+/** True for `Standard`, the text style every drawing has, in any case. */
+export function isStandardTextStyle(name: string): boolean {
+  return layerKey(name) === layerKey(STANDARD_TEXT_STYLE);
+}
+
+/**
+ * Returns what is wrong with a text style definition, or undefined when it is
+ * valid. It takes `unknown`s so that `lint` can report a drawing built by hand
+ * with a field of the wrong type.
+ *
+ * @param name - The style's name.
+ * @param font - One of `FONTS`.
+ * @param widthFactor - How wide each character is drawn, as a share of its own width.
+ * @param obliqueAngle - The slant of each character, in degrees to the right.
+ * @returns The problem, or undefined.
+ */
+export function textStyleProblem(
+  name: unknown,
+  font: unknown,
+  widthFactor: unknown = 1,
+  obliqueAngle: unknown = 0,
+): string | undefined {
+  if (typeof name !== "string") return "A text style's name must be a string";
+  const nameError = textStyleNameProblem(name);
+  if (nameError) return nameError;
+  if (isStandardTextStyle(name)) return STANDARD_STYLE;
+  if (typeof font !== "string" || !fontInfo(font)) return FONT;
+  if (typeof widthFactor !== "number" || !Number.isFinite(widthFactor)) {
+    return "widthFactor must be a finite number";
+  }
+  // Judged as written, as every number is.
+  if (written(widthFactor) < 0.01 || written(widthFactor) > 100) return WIDTH_FACTOR;
+  if (typeof obliqueAngle !== "number" || !Number.isFinite(obliqueAngle)) {
+    return "obliqueAngle must be a finite number";
+  }
+  // Judged as written: 85.0000001 is written as 85.
+  return Math.abs(written(obliqueAngle)) > 85 ? OBLIQUE : undefined;
+}
+
+/**
+ * Returns what is wrong with a text that names a text style the drawing does
+ * not have. The rule depends on the drawing, so it has no type.
+ */
+export function undefinedTextStyleProblem(name: string): string {
+  return `Text style ${JSON.stringify(name)} is not defined. AutoCAD puts a text that names a style it does not have in Standard, and reports nothing`;
+}
+
+/**
+ * Returns what is wrong with a text's `align` or `valign`, or undefined when it
+ * is one of the values of that field.
+ */
+export function textAlignProblem(field: "align" | "valign", value: unknown): string | undefined {
+  const values: readonly string[] = field === "align" ? TEXT_ALIGNS : TEXT_VERTICAL_ALIGNS;
+  return values.includes(value as string)
+    ? undefined
+    : `${field} must be ${values
+        .map((v) => JSON.stringify(v))
+        .join(", ")
+        .replace(/, ([^,]*)$/, " or $1")}`;
+}
 
 /** Returns what is wrong with a layer color, or undefined when it is valid. */
 export function layerColorProblem(color: number): string | undefined {

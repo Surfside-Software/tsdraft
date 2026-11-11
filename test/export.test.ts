@@ -282,6 +282,70 @@ test("SVG draws dashes and pen weights, and leaves out layers that are off or fr
   assert.match(circle, /<path d="M 1 0 A 1 1 0 0 1 -1 0 A 1 1 0 0 1 1 0"/);
 });
 
+test("R2018 DXF and SVG carry text styles and justification", () => {
+  const d = createDrawing();
+  d.textStyle({ name: "NOTES", font: "Arial", widthFactor: 0.9, obliqueAngle: 15 });
+  d.text([1, 2], "plain");
+  d.text([3, 4], "styled", { height: 2, style: "notes", align: "center", valign: "middle" });
+  d.text([5, 6], "shx", { style: { name: "SHX", font: "txt.shx" }, align: "right", rotation: 30 });
+  d.text([7, 8], "top", { valign: "top" });
+  const drawing = d.build();
+  const dxf = toDXF(drawing).replaceAll("\r\n", "|");
+  // A style has no height. A TrueType font is its file, with its typeface in extended data.
+  assert.ok(
+    dxf.includes(
+      "|2|NOTES|70|0|40|0|41|0.9|50|15|71|0|42|0.2|3|arial.ttf|4||1001|ACAD|1000|Arial|1071|34|0|",
+    ),
+  );
+  assert.ok(dxf.includes("|2|SHX|70|0|40|0|41|1|50|0|71|0|42|0.2|3|txt.shx|4||0|ENDTAB"));
+  // A text left on the baseline in Standard is written as before there were styles.
+  assert.ok(
+    dxf.includes("|100|AcDbText|10|1|20|2|30|0|40|0.125|1|plain|7|Standard|100|AcDbText|0|"),
+  );
+  // A justified text gives its point as the alignment point, and holds its style's width and slant.
+  assert.ok(
+    dxf.includes(
+      "|10|3|20|4|30|0|40|2|1|styled|41|0.9|51|15|7|NOTES|72|1|11|3|21|4|31|0|100|AcDbText|73|2|0|",
+    ),
+  );
+  assert.ok(dxf.includes("|1|shx|50|30|7|SHX|72|2|11|5|21|6|31|0|100|AcDbText|0|"));
+  assert.ok(dxf.includes("|1|top|7|Standard|11|7|21|8|31|0|100|AcDbText|73|3|0|"));
+  const p = pairs(toDXF(drawing));
+  const handles = p.filter(([c]) => c === 5 || c === 105).map(([, v]) => v);
+  assert.equal(new Set(handles).size, handles.length, "handles are unique");
+
+  const svg = toSVG(drawing);
+  assert.match(
+    svg,
+    /<text transform="translate\(1 2\) scale\(1 -1\)" font-size="0.125" font-family="monospace" fill/,
+  );
+  // Arial is drawn larger, so that its capitals are the text's height, and moved down half of it.
+  assert.match(
+    svg,
+    /translate\(3 4\) scale\(1 -1\) translate\(0 1\) scale\(0.9 1\) skewX\(-15\)" font-size="2.793296" font-family="Arial, Helvetica, sans-serif" text-anchor="middle"/,
+  );
+  assert.match(
+    svg,
+    /translate\(5 6\) scale\(1 -1\) rotate\(-30\)" font-size="0.125" font-family="monospace" text-anchor="end"/,
+  );
+  assert.match(svg, /translate\(7 8\) scale\(1 -1\) translate\(0 0.0875\)"/);
+});
+
+test("the extents follow a text's vertical alignment and its style's width factor", () => {
+  const below = createDrawing().line([0, 0], [10, 0]);
+  below.text([5, 0], "BELOW", { height: 2, valign: "top" });
+  // The text hangs 2 below the line, so the picture and $EXTMIN reach y = -2. Its five
+  // characters run from x = 5 to 11.
+  assert.match(toSVG(below.build(), { margin: 0 }), /viewBox="0 0 11 2"/);
+  assert.match(toDXF(below.build()), /\$EXTMIN\r\n10\r\n0\r\n20\r\n-2\r\n/);
+  const wide = createDrawing().text([0, 0], "WIDE", {
+    height: 1,
+    style: { name: "W", font: "Arial", widthFactor: 100 },
+  });
+  // Four characters of 0.6 each, a hundred times as wide.
+  assert.match(toSVG(wide.build(), { margin: 0 }), /viewBox="0 -1 240 1"/);
+});
+
 test("SVG colors every ACI index, and index 7 is the foreground", () => {
   const d = createDrawing();
   d.layer("ORANGE", { color: 30 }, () => d.line([0, 0], [1, 0]));

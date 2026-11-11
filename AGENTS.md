@@ -37,6 +37,13 @@
 - AutoCAD holds linetype names to the layer-name rules and compares them the
   same way, so linetypes use `layerKey`, `layerAuditKey` and the name checks of
   layers.
+- `src/fonts.ts` is the one list of fonts a text style may have, with the file
+  AutoCAD stores for each and, for a TrueType font, its pitch and family.
+  `lint`, both writers and `toSVG` read it. Add a font only when AutoCAD 2025
+  or Windows installs it.
+- Text style names use `layerKey`, `layerAuditKey` and the name checks of
+  layers, as linetype names do. A text holds its own width factor and oblique
+  angle in the file, so the writers copy them from its style.
 - `layerAuditKey` follows only the kinds of pair `docs/layer-names.md` lists,
   and must never call two names duplicates when `AUDIT` does not. Add a kind
   only when `AUDIT` reports every pair of that kind as a duplicate.

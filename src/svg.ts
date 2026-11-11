@@ -1,5 +1,13 @@
-import { sweep, type Drawing, type Entity, type Layer, type Point } from "./drawing.ts";
+import {
+  sweep,
+  type Drawing,
+  type Entity,
+  type Layer,
+  type Point,
+  type TextStyle,
+} from "./drawing.ts";
 import { extents } from "./extents.ts";
+import { fontInfo, STANDARD_FONT } from "./fonts.ts";
 import { fmt } from "./format.ts";
 import { layerKey } from "./layers.ts";
 import { builtInLinetype, lineweightCode } from "./linetypes.ts";
@@ -49,6 +57,14 @@ function aciColor(index: number): string {
 const DEFAULT_LINEWEIGHT = 25;
 
 /**
+ * The height of a capital in the screen font that stands in for an SHX font, and how far a
+ * letter such as "g" reaches below the baseline, as shares of the font size. They place a text
+ * that is not justified to its baseline. The fonts themselves are not read.
+ */
+const CAP_HEIGHT = 0.7;
+const DESCENT = 0.2;
+
+/**
  * The most dashes one entity is cut into. AutoCAD draws a line solid when its pattern is too
  * fine to show, and so does the preview.
  */
@@ -79,9 +95,11 @@ interface Pen {
  * Renders a preview SVG of the drawing as it plots. Model Y points up, so the drawing group
  * flips Y. Entities on layers that are off, frozen or set not to plot are left out, and each
  * layer draws in the color AutoCAD plots its index in. Dashed lines are cut into their dashes,
- * scaled by the drawing's linetype scale, and each line is as wide as its lineweight. Each
- * entity's element has its layer in `data-layer`, its index in `drawing.entities` in
- * `data-entity`, and its `id`, when it has one, in `data-id`.
+ * scaled by the drawing's linetype scale, and each line is as wide as its lineweight. A text is
+ * anchored at its justification point, and is drawn with its style's width factor and oblique
+ * angle in the CSS font family tsdraft gives its style's font, which ends in a generic family
+ * for a screen that lacks the font. Each entity's element has its layer in `data-layer`, its
+ * index in `drawing.entities` in `data-entity`, and its `id`, when it has one, in `data-id`.
  */
 export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
   // Keyed as AutoCAD looks layers up, so an entity on `wall` takes the color of layer `WALL`.
@@ -92,7 +110,10 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     if (layer?.off || layer?.frozen) return false;
     return options.drawNoPlot === true || layer?.plot !== false;
   });
-  const [minX, minY, maxX, maxY] = extents(shown.map(([, e]) => e));
+  const [minX, minY, maxX, maxY] = extents(
+    shown.map(([, e]) => e),
+    drawing.textStyles,
+  );
   const margin = options.margin ?? Math.max(maxX - minX, maxY - minY, 1) * 0.02;
   const x = minX - margin;
   const y = -(maxY + margin);
@@ -102,6 +123,9 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     (drawing.linetypes ?? []).map((t) => [layerKey(t.name), alternating(t.pattern)]),
   );
   const scale = drawing.linetypeScale ?? 1;
+  const textStyles = new Map((drawing.textStyles ?? []).map((t) => [layerKey(t.name), t]));
+  const styleOf = (e: Entity): TextStyle | undefined =>
+    e.kind === "text" && e.style !== undefined ? textStyles.get(layerKey(e.style)) : undefined;
   const stroke = options.strokeWidth ?? 1;
 
   const pen = (e: Entity): Pen => {
@@ -121,7 +145,7 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     };
   };
 
-  const body = shown.map(([i, e]) => entityToSvg(e, i, pen(e), stroke)).join("\n    ");
+  const body = shown.map(([i, e]) => entityToSvg(e, i, pen(e), stroke, styleOf(e))).join("\n    ");
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${fmt(x)} ${fmt(y)} ${fmt(w)} ${fmt(h)}">`,
     `  <g transform="scale(1 -1)" fill="none" stroke-width="${fmt(stroke)}" vector-effect="non-scaling-stroke">`,
@@ -132,7 +156,13 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
   ].join("\n");
 }
 
-function entityToSvg(e: Entity, index: number, pen: Pen, stroke: number): string {
+function entityToSvg(
+  e: Entity,
+  index: number,
+  pen: Pen,
+  stroke: number,
+  style: TextStyle | undefined,
+): string {
   // A lineweight of 0 draws as the thinnest line, as in AutoCAD.
   const width =
     pen.lineweight === DEFAULT_LINEWEIGHT
@@ -173,8 +203,33 @@ function entityToSvg(e: Entity, index: number, pen: Pen, stroke: number): string
     }
     case "text": {
       // Undo the group's Y flip so the text reads upright, then apply CAD rotation.
-      const t = `translate(${fmt(e.at[0])} ${fmt(e.at[1])}) scale(1 -1)${e.rotation ? ` rotate(${fmt(-e.rotation)})` : ""}`;
-      return `<text transform="${t}" font-size="${fmt(e.height)}" font-family="monospace" fill="${pen.color}" stroke="none" ${mark}>${esc(e.value)}</text>`;
+      let t = `translate(${fmt(e.at[0])} ${fmt(e.at[1])}) scale(1 -1)${e.rotation ? ` rotate(${fmt(-e.rotation)})` : ""}`;
+      // The baseline is moved along the text's own up, before the style widens or slants it.
+      const font = fontInfo(style?.font ?? STANDARD_FONT);
+      // A text's height is the height of its capitals, which a font draws smaller than its size.
+      const size = e.height / (font?.capHeight ?? 1);
+      const capital = font?.capHeight === undefined ? CAP_HEIGHT * e.height : e.height;
+      const drop =
+        e.valign === "top"
+          ? capital
+          : e.valign === "middle"
+            ? capital / 2
+            : e.valign === "bottom"
+              ? -DESCENT * size
+              : 0;
+      if (drop !== 0) t += ` translate(0 ${fmt(drop)})`;
+      const width = style?.widthFactor ?? 1;
+      if (width !== 1) t += ` scale(${fmt(width)} 1)`;
+      const oblique = style?.obliqueAngle ?? 0;
+      if (oblique !== 0) t += ` skewX(${fmt(-oblique)})`;
+      const anchor =
+        e.align === "center"
+          ? ` text-anchor="middle"`
+          : e.align === "right"
+            ? ` text-anchor="end"`
+            : "";
+      const family = font?.family ?? "monospace";
+      return `<text transform="${t}" font-size="${fmt(size)}" font-family="${esc(family)}"${anchor} fill="${pen.color}" stroke="none" ${mark}>${esc(e.value)}</text>`;
     }
   }
 }
