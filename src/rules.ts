@@ -2,8 +2,7 @@
 // twice: as a type, so a literal mistake is an error in the editor, and as a
 // runtime check, for values the compiler can't see. The messages are shared.
 //
-// The name, text, linetype and lineweight rules come from opening test files in
-// AutoCAD 2025, which discards the whole drawing when a name breaks them.
+// AutoCAD discards the whole drawing over most names that break the name rules.
 import type { DxfVersion } from "./drawing.ts";
 import { isTooLarge, written, writtenAngle } from "./format.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype, LINEWEIGHTS, patternLength } from "./linetypes.ts";
@@ -354,9 +353,9 @@ function nameProblem(name: string, messages: NameMessages): string | undefined {
  * layers to AutoCAD and one duplicate name to AUDIT: `ΟΔΟΣ` and `οδος`,
  * `straße` and `strasse`, a composed é and a decomposed one, and a name with
  * and without a soft hyphen. `layerAuditKey` lists the kinds this covers,
- * which are those measured in AutoCAD and not all that AUDIT reports. Names
- * that are one layer to AutoCAD are not this function's concern. The rule
- * compares two names, so it has no type.
+ * which are not all that AUDIT reports. Names that are one layer to AutoCAD
+ * are not this function's concern. The rule compares two names, so it has no
+ * type.
  *
  * @param name - The name of the layer being checked.
  * @param other - The name of another layer in the drawing.

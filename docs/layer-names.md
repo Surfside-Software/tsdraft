@@ -51,10 +51,9 @@ inside a longer name, so `Hauptstraße 12` and `HAUPTSTRASSE 12` are a pair.
 - A name with a soft hyphen, U+00AD, inside it or in front of it, and the same
   name without.
 
-This is what was measured in AutoCAD 2025. It is not AutoCAD's whole comparison,
-so a drawing that passes `lint` can still get a "Duplicate name" from `AUDIT`.
-The rule is kept narrow so that it does not go the other way: in over 20,000
-pairs tried, `lint` reported none that `AUDIT` accepts. What it leaves out:
+`AUDIT` reports more pairs than these, so a drawing that passes `lint` can still
+get a "Duplicate name" from `AUDIT`. The rule is kept narrow so that `lint` does
+not report a pair that `AUDIT` accepts. What it leaves out:
 
 - A name that ends with a soft hyphen and the same name without it, and a soft
   hyphen in front of a combining mark or a Hangul jamo. `AUDIT` reports some of

@@ -1,7 +1,5 @@
 // What AutoCAD 2025 does with layer names: which characters it refuses, which
-// names it takes for the same layer, and where layer "0" must sit. Every table
-// here was found by opening tsdraft's output in AutoCAD 2025, and
-// `pnpm test:cad` checks each one against AutoCAD again.
+// names it takes for the same layer, and where layer "0" must sit.
 import type { Layer } from "./drawing.ts";
 
 // AutoCAD discards a drawing whose layer table has a name with one of the
@@ -246,7 +244,7 @@ export function layerKey(name: string): string {
  * error. Two names with the same key here are such a pair, unless they have
  * the same `layerKey` too.
  *
- * The key follows the kinds of pair measured in AutoCAD 2025:
+ * The key follows these kinds of pair:
  *
  * - A few single letters, such as σ and ς.
  * - A letter and the letters it stands for, such as ß and `ss`.
@@ -271,8 +269,7 @@ export function layerAuditKey(name: string): string {
   // AUDIT does not report `coop` and `coop` with a soft hyphen after it as duplicates, though it
   // does report some other pairs that differ by a soft hyphen at the end. A mark for one at the
   // end keeps a name that ends with a soft hyphen apart from every name that does not. Two names
-  // that both end with one are compared like any others, as the pairs in `auditPairs` in
-  // `scripts/cad-check.ts` check.
+  // that both end with one are compared like any others.
   return name.endsWith(SOFT_HYPHEN) ? key + SOFT_HYPHEN : key;
 }
 

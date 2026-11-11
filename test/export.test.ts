@@ -219,7 +219,6 @@ test("SVG draws an arc of nearly a full turn, and colors by layer whatever the c
 });
 
 test("numbers are written in the forms AutoCAD reads", () => {
-  // What AutoCAD 2025 reads back from each form is checked by `pnpm test:cad`.
   const printed = (value: number) => {
     const p = pairs(toDXF(createDrawing().line([0, 0], [value, 0]).build()));
     return p

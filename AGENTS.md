@@ -34,17 +34,14 @@
 - `src/layers.ts` holds what AutoCAD does with layer-name characters: the ones
   it refuses, the capitals it lower-cases to compare names, and the pairs only
   `AUDIT` calls duplicates. Never compare layer names with `toLowerCase()`.
-  The tables came from AutoCAD, and `pnpm test:cad` checks them against it.
 - AutoCAD holds linetype names to the layer-name rules and compares them the
   same way, so linetypes use `layerKey`, `layerAuditKey` and the name checks of
-  layers. `pnpm test:cad` checks that against AutoCAD too.
-- `layerAuditKey` follows only the kinds of pair measured in AutoCAD, and must
-  never call two names duplicates when `AUDIT` does not. Add a kind only with an
-  AutoCAD result behind it and a pair in `auditPairs` in `scripts/cad-check.ts`.
+  layers.
+- `layerAuditKey` follows only the kinds of pair `docs/layer-names.md` lists,
+  and must never call two names duplicates when `AUDIT` does not. Add a kind
+  only when `AUDIT` reports every pair of that kind as a duplicate.
 - Passing ezdxf or another parser proves little: AutoCAD discards files they
-  accept. After changing a DXF writer or a rule, run `pnpm test:cad` with
-  `TSDRAFT_CAD_SSH` set. It runs AutoCAD's headless console on another machine,
-  never an open CAD window. Add a case there for anything new the writer emits.
+  accept.
 - The published package must run on Node 22. Only development tooling may need
   Node 24; on Node 22, development needs 22.18 or later for type stripping.
 - Changes reach this repo only through export pull requests, as

@@ -89,8 +89,8 @@ hatches, blocks or paper space layouts. It writes DXF, not DWG. The drawing at
 the top builds its dimensions, leaders and stipple from lines and text, so in
 CAD they are plain lines and text, not dimension or hatch objects.
 
-The DXF output is tested by opening it in AutoCAD 2025 and running `AUDIT`. It
-has not been tested in BricsCAD or any other CAD program yet.
+The rules tsdraft checks are AutoCAD's. Other CAD programs may hold a drawing to
+other rules.
 
 ## Install
 
@@ -170,9 +170,8 @@ pnpm example         # writes both examples to examples/out/ as DXF and SVG
 pnpm readme:drawing  # redraws the pictures in docs/assets/ from the examples
 ```
 
-[docs/development.md](docs/development.md) covers `pnpm test:cad` (which opens
-the output in AutoCAD), the package smoke test, the TypeScript compilers and
-releasing.
+[docs/development.md](docs/development.md) covers the package smoke test, the
+TypeScript compilers and releasing.
 
 ## Contributing
 
