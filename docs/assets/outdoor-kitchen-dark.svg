@@ -3184,17 +3184,17 @@
     <line x1="114" y1="-1.5" x2="114" y2="-10.5"/>
     <line x1="113" y1="-10" x2="115" y2="-8"/>
     <line x1="18" y1="-9" x2="114" y2="-9"/>
-    <text transform="translate(24 -7) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1aafc8" stroke="none" textLength="12">2'-0&quot;</text>
-    <text transform="translate(41.1 -15) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1aafc8" stroke="none" textLength="4.8">3&quot;</text>
-    <text transform="translate(57 -7) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1aafc8" stroke="none" textLength="12">3'-0&quot;</text>
-    <text transform="translate(80.1 -15) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1aafc8" stroke="none" textLength="4.8">3&quot;</text>
-    <text transform="translate(93 -7) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1aafc8" stroke="none" textLength="12">2'-6&quot;</text>
+    <text transform="translate(30 -7) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#1aafc8" stroke="none" textLength="12">2'-0&quot;</text>
+    <text transform="translate(43.5 -15) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#1aafc8" stroke="none" textLength="4.8">3&quot;</text>
+    <text transform="translate(63 -7) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#1aafc8" stroke="none" textLength="12">3'-0&quot;</text>
+    <text transform="translate(82.5 -15) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#1aafc8" stroke="none" textLength="4.8">3&quot;</text>
+    <text transform="translate(99 -7) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#1aafc8" stroke="none" textLength="12">2'-6&quot;</text>
     <line x1="18" y1="-1.5" x2="18" y2="-24.5"/>
     <line x1="17" y1="-24" x2="19" y2="-22"/>
     <line x1="114" y1="-1.5" x2="114" y2="-24.5"/>
     <line x1="113" y1="-24" x2="115" y2="-22"/>
     <line x1="18" y1="-23" x2="114" y2="-23"/>
-    <text transform="translate(60 -21) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1aafc8" stroke="none" textLength="12">8'-0&quot;</text>
+    <text transform="translate(66 -21) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#1aafc8" stroke="none" textLength="12">8'-0&quot;</text>
     <line x1="-1.5" y1="0" x2="-9.5" y2="0"/>
     <line x1="-9" y1="-1" x2="-7" y2="1"/>
     <line x1="-1.5" y1="36" x2="-9.5" y2="36"/>
@@ -3202,38 +3202,38 @@
     <line x1="-1.5" y1="72" x2="-9.5" y2="72"/>
     <line x1="-9" y1="71" x2="-7" y2="73"/>
     <line x1="-8" y1="0" x2="-8" y2="72"/>
-    <text transform="translate(-10 12) scale(1 -1) rotate(-90)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1aafc8" stroke="none" textLength="12">3'-0&quot;</text>
-    <text transform="translate(-10 48) scale(1 -1) rotate(-90)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1aafc8" stroke="none" textLength="12">3'-0&quot;</text>
+    <text transform="translate(-10 18) scale(1 -1) rotate(-90)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#1aafc8" stroke="none" textLength="12">3'-0&quot;</text>
+    <text transform="translate(-10 54) scale(1 -1) rotate(-90)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#1aafc8" stroke="none" textLength="12">3'-0&quot;</text>
     <line x1="-1.5" y1="0" x2="-17.5" y2="0"/>
     <line x1="-17" y1="-1" x2="-15" y2="1"/>
     <line x1="-1.5" y1="108" x2="-17.5" y2="108"/>
     <line x1="-17" y1="107" x2="-15" y2="109"/>
     <line x1="-16" y1="0" x2="-16" y2="108"/>
-    <text transform="translate(-18 48) scale(1 -1) rotate(-90)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1aafc8" stroke="none" textLength="12">9'-0&quot;</text>
+    <text transform="translate(-18 54) scale(1 -1) rotate(-90)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#1aafc8" stroke="none" textLength="12">9'-0&quot;</text>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.251">
     <polyline points="7,98 -26,102 -30,102"/>
     <polygon points="7,98 3.887429,98.914518 3.759075,97.855602"/>
-    <text transform="translate(-65.6 100.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="33.6">STUCCO FINISH,</text>
-    <text transform="translate(-48.8 94.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="16.8">PAINTED</text>
+    <text transform="translate(-32 100.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#f2f2f3" stroke="none" textLength="33.6">STUCCO FINISH,</text>
+    <text transform="translate(-32 94.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#f2f2f3" stroke="none" textLength="16.8">PAINTED</text>
     <polyline points="15,76.875 -26,84 -30,84"/>
     <polygon points="15,76.875 11.938566,77.948344 11.755938,76.897428"/>
-    <text transform="translate(-51.2 82.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="19.2">FLOATING</text>
-    <text transform="translate(-48.8 76.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="16.8">SHELVES</text>
+    <text transform="translate(-32 82.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#f2f2f3" stroke="none" textLength="19.2">FLOATING</text>
+    <text transform="translate(-32 76.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#f2f2f3" stroke="none" textLength="16.8">SHELVES</text>
     <polyline points="50,50 -26,66 -30,66"/>
     <polygon points="50,50 46.978513,51.181127 46.758768,50.13734"/>
-    <text transform="translate(-60.8 64.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="28.8">36&quot; BUILT-IN</text>
-    <text transform="translate(-53.6 58.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="21.6">GAS GRILL</text>
+    <text transform="translate(-32 64.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#f2f2f3" stroke="none" textLength="28.8">36&quot; BUILT-IN</text>
+    <text transform="translate(-32 58.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#f2f2f3" stroke="none" textLength="21.6">GAS GRILL</text>
     <polyline points="18.5,42 -26,44 -30,44"/>
     <polygon points="18.5,42 15.327173,42.676471 15.279281,41.61088"/>
-    <text transform="translate(-68 42.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="36">TILE BACKSPLASH</text>
+    <text transform="translate(-32 42.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#f2f2f3" stroke="none" textLength="36">TILE BACKSPLASH</text>
     <polyline points="16.5,35.25 -26,32 -30,32"/>
     <polygon points="16.5,35.25 13.26865,35.537787 13.349981,34.474226"/>
-    <text transform="translate(-70.4 30.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="38.4">STONE COUNTERTOP</text>
+    <text transform="translate(-32 30.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#f2f2f3" stroke="none" textLength="38.4">STONE COUNTERTOP</text>
     <polyline points="23,16 -26,9 -30,9"/>
     <polygon points="23,16 19.756737,16.075425 19.907586,15.019479"/>
-    <text transform="translate(-70.4 7.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="38.4">24&quot; UNDERCOUNTER</text>
-    <text transform="translate(-60.8 1.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="28.8">REFRIGERATOR</text>
+    <text transform="translate(-32 7.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#f2f2f3" stroke="none" textLength="38.4">24&quot; UNDERCOUNTER</text>
+    <text transform="translate(-32 1.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="end" fill="#f2f2f3" stroke="none" textLength="28.8">REFRIGERATOR</text>
     <polyline points="69,98 140,100 144,100"/>
     <polygon points="69,98 72.213749,97.556983 72.183714,98.623227"/>
     <text transform="translate(146 98.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="21.6">STAINLESS</text>
@@ -3247,7 +3247,7 @@
     <text transform="translate(146 28.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="24">UNDERMOUNT</text>
     <text transform="translate(146 22.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="9.6">SINK</text>
     <circle cx="53" cy="120" r="3.6"/>
-    <text transform="translate(51.8 118.4) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="2.4">2</text>
+    <text transform="translate(53 120) scale(1 -1) translate(0 1.4)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#f2f2f3" stroke="none" textLength="2.4">2</text>
     <line x1="53" y1="116.4" x2="53" y2="110"/>
     <line x1="60.92" y1="120" x2="54.636364" y2="123.206605"/>
     <line x1="60.92" y1="120" x2="54.636364" y2="116.793395"/>
@@ -3256,7 +3256,7 @@
     <circle cx="-4.6" cy="-42" r="5.4"/>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.251">
-    <text transform="translate(-6.4 -44.4) scale(1 -1)" font-size="6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="3.6">1</text>
+    <text transform="translate(-4.6 -42) scale(1 -1) translate(0 2.1)" font-size="6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#f2f2f3" stroke="none" textLength="3.6">1</text>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.352">
     <line x1="0.8" y1="-42" x2="140" y2="-42"/>
@@ -4035,15 +4035,15 @@
     <line x1="239" y1="53.5" x2="239" y2="57.5"/>
     <line x1="238" y1="55" x2="240" y2="57"/>
     <line x1="209" y1="56" x2="239" y2="56"/>
-    <text transform="translate(218 58) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1aafc8" stroke="none" textLength="12">2'-6&quot;</text>
+    <text transform="translate(224 58) scale(1 -1)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#1aafc8" stroke="none" textLength="12">2'-6&quot;</text>
     <line x1="248" y1="-1" x2="250" y2="1"/>
     <line x1="240.5" y1="36" x2="250.5" y2="36"/>
     <line x1="248" y1="35" x2="250" y2="37"/>
     <line x1="234.5" y1="72" x2="250.5" y2="72"/>
     <line x1="248" y1="71" x2="250" y2="73"/>
     <line x1="249" y1="0" x2="249" y2="72"/>
-    <text transform="translate(247 12) scale(1 -1) rotate(-90)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1aafc8" stroke="none" textLength="12">3'-0&quot;</text>
-    <text transform="translate(247 48) scale(1 -1) rotate(-90)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1aafc8" stroke="none" textLength="12">3'-0&quot;</text>
+    <text transform="translate(247 18) scale(1 -1) rotate(-90)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#1aafc8" stroke="none" textLength="12">3'-0&quot;</text>
+    <text transform="translate(247 54) scale(1 -1) rotate(-90)" font-size="4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#1aafc8" stroke="none" textLength="12">3'-0&quot;</text>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.251">
     <polyline points="194,119 255,131 259,131"/>
@@ -4080,7 +4080,7 @@
     <circle cx="183.65" cy="-42" r="5.4"/>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.251">
-    <text transform="translate(181.85 -44.4) scale(1 -1)" font-size="6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="3.6">2</text>
+    <text transform="translate(183.65 -42) scale(1 -1) translate(0 2.1)" font-size="6" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" fill="#f2f2f3" stroke="none" textLength="3.6">2</text>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.352">
     <line x1="189.05" y1="-42" x2="278.25" y2="-42"/>

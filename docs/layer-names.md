@@ -10,6 +10,11 @@ same way, so this page applies to linetype names too. `DASHED` and `dashed` are
 one linetype. Linetype names follow the R2018 layer-name rules, because an R12
 drawing cannot define a linetype.
 
+## Text style names
+
+Text style names follow the rules of layer names and are compared the same way, so this page
+applies to them too. `NOTES` and `notes` are one text style.
+
 ## Layer names and case
 
 AutoCAD lower-cases a layer name one character at a time, from a table of its

@@ -61,9 +61,9 @@
     <line x1="0" y1="82.75" x2="100" y2="82.75"/>
     </g>
     <g stroke="#1aafc8" stroke-width="0.2">
-    <text transform="translate(10.59375 83.21875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1aafc8" stroke="none" textLength="2.813">24.0'</text>
-    <text transform="translate(48.59375 83.21875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1aafc8" stroke="none" textLength="2.813">52.0'</text>
-    <text transform="translate(86.59375 83.21875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1aafc8" stroke="none" textLength="2.813">24.0'</text>
+    <text transform="translate(12 83.21875) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#1aafc8" stroke="none">24.0'</text>
+    <text transform="translate(50 83.21875) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#1aafc8" stroke="none">52.0'</text>
+    <text transform="translate(88 83.21875) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#1aafc8" stroke="none">24.0'</text>
     </g>
     <g stroke="#1aafc8" stroke-width="0.144">
     <line x1="100.625" y1="0" x2="106.875" y2="0"/>
@@ -77,157 +77,160 @@
     <line x1="106.25" y1="0" x2="106.25" y2="140"/>
     </g>
     <g stroke="#1aafc8" stroke-width="0.2">
-    <text transform="translate(105.78125 13.59375) scale(1 -1) rotate(-90)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1aafc8" stroke="none" textLength="2.813">30.0'</text>
-    <text transform="translate(105.78125 53.09375) scale(1 -1) rotate(-90)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1aafc8" stroke="none" textLength="2.813">49.0'</text>
-    <text transform="translate(105.78125 108.09375) scale(1 -1) rotate(-90)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#1aafc8" stroke="none" textLength="2.813">61.0'</text>
+    <text transform="translate(105.78125 15) scale(1 -1) rotate(-90)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#1aafc8" stroke="none">30.0'</text>
+    <text transform="translate(105.78125 54.5) scale(1 -1) rotate(-90)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#1aafc8" stroke="none">49.0'</text>
+    <text transform="translate(105.78125 109.5) scale(1 -1) rotate(-90)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#1aafc8" stroke="none">61.0'</text>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.2">
-    <text transform="translate(43.8125 141.25) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="12.375">N 90°00'00&quot; E  100.00'</text>
-    <text transform="translate(102.1875 105.1875) scale(1 -1) rotate(-90)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="12.375">S 00°00'00&quot; E  140.00'</text>
-    <text transform="translate(21.8125 1.25) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="12.375">S 90°00'00&quot; W  100.00'</text>
-    <text transform="translate(-1.25 105.1875) scale(1 -1) rotate(-90)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="12.375">N 00°00'00&quot; W  140.00'</text>
-    <text transform="translate(10 25.625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="9.563">25' FRONT SETBACK</text>
-    <text transform="translate(10 120.625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="9">20' REAR SETBACK</text>
-    <text transform="translate(6.875 96.59375) scale(1 -1) rotate(-90)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="9.563">7.5' SIDE SETBACK</text>
-    <text transform="translate(91.875 96.59375) scale(1 -1) rotate(-90)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="9.563">7.5' SIDE SETBACK</text>
-    <text transform="translate(41.5625 101.53125) scale(1 -1)" font-size="1.875" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="16.875">LOT 12, BLOCK 3</text>
-    <text transform="translate(42.875 99.34375) scale(1 -1)" font-size="1.25" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="14.25">14,000 SF (0.32 AC)</text>
-    <text transform="translate(39.875 58.25) scale(1 -1)" font-size="1.875" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="20.25">PROPOSED RESIDENCE</text>
-    <text transform="translate(43.25 56.0625) scale(1 -1)" font-size="1.25" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="13.5">2,398 SF FOOTPRINT</text>
-    <text transform="translate(45.125 53.875) scale(1 -1)" font-size="1.25" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="9.75">F.F.E. 12.50'</text>
-    <text transform="translate(65.46875 11.0625) scale(1 -1) rotate(-90)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="7.875">CONC. DRIVEWAY</text>
-    <text transform="translate(0 -4.96875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="9.563">5' CONC. SIDEWALK</text>
-    <text transform="translate(0 -14.5625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="9">EDGE OF PAVEMENT</text>
-    <text transform="translate(43.53125 -23.75) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="12.937">50' PUBLIC RIGHT-OF-WAY</text>
-    <text transform="translate(44.375 -21.875) scale(1 -1)" font-size="1.875" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="11.25">OAK STREET</text>
-    <text transform="translate(114.375 -24.375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="5.625">CENTERLINE</text>
-    <text transform="translate(-10 67.75) scale(1 -1) rotate(-90)" font-size="1.25" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="4.5">LOT 11</text>
-    <text transform="translate(112.5 67.75) scale(1 -1) rotate(-90)" font-size="1.25" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="4.5">LOT 13</text>
-    <text transform="translate(47.75 145) scale(1 -1)" font-size="1.25" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="4.5">LOT 27</text>
-    <text transform="translate(130 138.125) scale(1 -1)" font-size="1.875" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="10.125">SITE DATA</text>
+    <text transform="translate(50 141.25) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">N 90°00'00&quot; E  100.00'</text>
+    <text transform="translate(102.1875 111.375) scale(1 -1) rotate(-90)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">S 00°00'00&quot; E  140.00'</text>
+    <text transform="translate(28 1.25) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">S 90°00'00&quot; W  100.00'</text>
+    <text transform="translate(-1.25 111.375) scale(1 -1) rotate(-90)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">N 00°00'00&quot; W  140.00'</text>
+    <text transform="translate(10 25.625) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">25' FRONT SETBACK</text>
+    <text transform="translate(10 120.625) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">20' REAR SETBACK</text>
+    <text transform="translate(6.875 101.375) scale(1 -1) rotate(-90)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">7.5' SIDE SETBACK</text>
+    <text transform="translate(91.875 101.375) scale(1 -1) rotate(-90)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">7.5' SIDE SETBACK</text>
+    <text transform="translate(50 101.53125) scale(1 -1)" font-size="2.618715" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">LOT 12, BLOCK 3</text>
+    <text transform="translate(50 99.34375) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">14,000 SF (0.32 AC)</text>
+    <text transform="translate(50 58.25) scale(1 -1)" font-size="2.618715" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">PROPOSED RESIDENCE</text>
+    <text transform="translate(50 56.0625) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">2,398 SF FOOTPRINT</text>
+    <text transform="translate(50 53.875) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">F.F.E. 12.50'</text>
+    <text transform="translate(65 15) scale(1 -1) rotate(-90) translate(0 0.46875)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">CONC. DRIVEWAY</text>
+    <text transform="translate(0 -4.5) scale(1 -1) translate(0 0.46875)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">5' CONC. SIDEWALK</text>
+    <text transform="translate(0 -13.625) scale(1 -1) translate(0 0.9375)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">EDGE OF PAVEMENT</text>
+    <text transform="translate(50 -23.75) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">50' PUBLIC RIGHT-OF-WAY</text>
+    <text transform="translate(50 -21.875) scale(1 -1)" font-size="2.618715" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">OAK STREET</text>
+    <text transform="translate(120 -24.375) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="end" fill="#f2f2f3" stroke="none">CENTERLINE</text>
+    <text transform="translate(-10 70) scale(1 -1) rotate(-90)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">LOT 11</text>
+    <text transform="translate(112.5 70) scale(1 -1) rotate(-90)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">LOT 13</text>
+    <text transform="translate(50 145) scale(1 -1)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">LOT 27</text>
+    <text transform="translate(130 138.125) scale(1 -1)" font-size="2.618715" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SITE DATA</text>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.401">
     <line x1="130" y1="137.5" x2="180" y2="137.5"/>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.2">
-    <text transform="translate(130 135.475) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="3.375">PARCEL</text>
-    <text transform="translate(145.125 135.475) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="8.438">LOT 12, BLOCK 3</text>
-    <text transform="translate(130 133.7875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="3.375">ZONING</text>
-    <text transform="translate(145.125 133.7875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="9.563">R-1 SINGLE-FAMILY</text>
-    <text transform="translate(130 132.1) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="4.5">LOT AREA</text>
-    <text transform="translate(145.125 132.1) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="10.688">14,000 SF (0.32 AC)</text>
-    <text transform="translate(130 130.4125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="10.125">BUILDING FOOTPRINT</text>
-    <text transform="translate(145.125 130.4125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="4.5">2,398 SF</text>
-    <text transform="translate(130 128.725) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="6.75">LOT COVERAGE</text>
-    <text transform="translate(145.125 128.725) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="9">17.1% (40% MAX.)</text>
-    <text transform="translate(130 127.0375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="7.875">FINISHED FLOOR</text>
-    <text transform="translate(145.125 127.0375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="6.75">ELEV. 12.50'</text>
-    <text transform="translate(130 124.50625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="3.938">SETBACK</text>
-    <text transform="translate(145.125 124.50625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="4.5">REQUIRED</text>
-    <text transform="translate(154.625 124.50625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="4.5">PROVIDED</text>
-    <text transform="translate(130 122.81875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="2.813">FRONT</text>
-    <text transform="translate(145.125 122.81875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="2.813">25.0'</text>
-    <text transform="translate(154.625 122.81875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="2.813">30.0'</text>
-    <text transform="translate(130 121.13125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="2.25">SIDE</text>
-    <text transform="translate(145.125 121.13125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="2.25">7.5'</text>
-    <text transform="translate(154.625 121.13125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="2.813">24.0'</text>
-    <text transform="translate(130 119.44375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="2.25">REAR</text>
-    <text transform="translate(145.125 119.44375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="2.813">20.0'</text>
-    <text transform="translate(154.625 119.44375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="2.813">61.0'</text>
-    <text transform="translate(130 113.35) scale(1 -1)" font-size="1.875" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="14.625">GENERAL NOTES</text>
+    <text transform="translate(130 135.475) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PARCEL</text>
+    <text transform="translate(150.1875 135.475) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">LOT 12, BLOCK 3</text>
+    <text transform="translate(130 133.7875) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">ZONING</text>
+    <text transform="translate(150.1875 133.7875) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">R-1 SINGLE-FAMILY</text>
+    <text transform="translate(130 132.1) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">LOT AREA</text>
+    <text transform="translate(150.1875 132.1) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">14,000 SF (0.32 AC)</text>
+    <text transform="translate(130 130.4125) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">BUILDING FOOTPRINT</text>
+    <text transform="translate(150.1875 130.4125) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">2,398 SF</text>
+    <text transform="translate(130 128.725) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">LOT COVERAGE</text>
+    <text transform="translate(150.1875 128.725) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">17.1% (40% MAX.)</text>
+    <text transform="translate(130 127.0375) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">FINISHED FLOOR</text>
+    <text transform="translate(150.1875 127.0375) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">ELEV. 12.50'</text>
+    <text transform="translate(130 124.50625) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SETBACK</text>
+    <text transform="translate(150.1875 124.50625) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">REQUIRED</text>
+    <text transform="translate(161.9375 124.50625) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PROVIDED</text>
+    <text transform="translate(130 122.81875) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">FRONT</text>
+    <text transform="translate(150.1875 122.81875) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">25.0'</text>
+    <text transform="translate(161.9375 122.81875) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">30.0'</text>
+    <text transform="translate(130 121.13125) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SIDE</text>
+    <text transform="translate(150.1875 121.13125) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">7.5'</text>
+    <text transform="translate(161.9375 121.13125) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">24.0'</text>
+    <text transform="translate(130 119.44375) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">REAR</text>
+    <text transform="translate(150.1875 119.44375) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">20.0'</text>
+    <text transform="translate(161.9375 119.44375) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">61.0'</text>
+    <text transform="translate(130 113.35) scale(1 -1)" font-size="2.618715" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">GENERAL NOTES</text>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.401">
     <line x1="130" y1="112.725" x2="180" y2="112.725"/>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.2">
-    <text transform="translate(130 110.7) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="1.125">1.</text>
-    <text transform="translate(132.25 110.7) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="46.125">PROPERTY LINES ARE DRAWN FROM THE RECORDED PLAT. NO FIELD SURVEY WAS MADE FOR THIS</text>
-    <text transform="translate(132.25 109.0125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="2.813">PLAN.</text>
-    <text transform="translate(130 106.7625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="1.125">2.</text>
-    <text transform="translate(132.25 106.7625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="42.75">DIMENSIONS ARE IN FEET, MEASURED TO THE OUTSIDE FACE OF THE FOUNDATION WALL.</text>
-    <text transform="translate(130 104.5125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="1.125">3.</text>
-    <text transform="translate(132.25 104.5125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="45.563">SETBACKS ARE MEASURED AT RIGHT ANGLES FROM THE PROPERTY LINE TO THE NEAREST WALL.</text>
-    <text transform="translate(130 102.2625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="1.125">4.</text>
-    <text transform="translate(132.25 102.2625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="27">LOCATE ALL UNDERGROUND UTILITIES BEFORE DIGGING.</text>
-    <text transform="translate(130 100.0125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="1.125">5.</text>
-    <text transform="translate(132.25 100.0125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="47.25">GRADE THE LOT TO DRAIN AWAY FROM THE BUILDING AND TOWARD THE STREET. KEEP RUNOFF OFF</text>
-    <text transform="translate(132.25 98.325) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="10.688">THE ADJOINING LOTS.</text>
-    <text transform="translate(130 96.075) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="1.125">6.</text>
-    <text transform="translate(132.25 96.075) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="33.188">PROTECT THE EXISTING TREES SHOWN. NO TREE IS TO BE REMOVED.</text>
-    <text transform="translate(130 89.41875) scale(1 -1)" font-size="1.875" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="6.75">LEGEND</text>
+    <text transform="translate(130 110.7) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">1.</text>
+    <text transform="translate(133.375 110.7) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PROPERTY LINES ARE DRAWN FROM THE RECORDED PLAT. NO</text>
+    <text transform="translate(133.375 109.0125) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">FIELD SURVEY WAS MADE FOR THIS PLAN.</text>
+    <text transform="translate(130 106.7625) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">2.</text>
+    <text transform="translate(133.375 106.7625) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">DIMENSIONS ARE IN FEET, MEASURED TO THE OUTSIDE FACE OF</text>
+    <text transform="translate(133.375 105.075) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">THE FOUNDATION WALL.</text>
+    <text transform="translate(130 102.825) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">3.</text>
+    <text transform="translate(133.375 102.825) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SETBACKS ARE MEASURED AT RIGHT ANGLES FROM THE PROPERTY</text>
+    <text transform="translate(133.375 101.1375) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">LINE TO THE NEAREST WALL.</text>
+    <text transform="translate(130 98.8875) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">4.</text>
+    <text transform="translate(133.375 98.8875) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">LOCATE ALL UNDERGROUND UTILITIES BEFORE DIGGING.</text>
+    <text transform="translate(130 96.6375) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">5.</text>
+    <text transform="translate(133.375 96.6375) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">GRADE THE LOT TO DRAIN AWAY FROM THE BUILDING AND</text>
+    <text transform="translate(133.375 94.95) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">TOWARD THE STREET. KEEP RUNOFF OFF THE ADJOINING LOTS.</text>
+    <text transform="translate(130 92.7) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">6.</text>
+    <text transform="translate(133.375 92.7) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PROTECT THE EXISTING TREES SHOWN. NO TREE IS TO BE</text>
+    <text transform="translate(133.375 91.0125) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">REMOVED.</text>
+    <text transform="translate(130 84.35625) scale(1 -1)" font-size="2.618715" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">LEGEND</text>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.401">
-    <line x1="130" y1="88.79375" x2="180" y2="88.79375"/>
+    <line x1="130" y1="83.73125" x2="180" y2="83.73125"/>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.561">
-    <path d="M 130 87.2375 L 136.25 87.2375 M 137.5 87.2375 L 138.75 87.2375 M 140 87.2375 L 141.25 87.2375 M 142.5 87.2375 L 148.75 87.2375"/>
+    <path d="M 130 82.175 L 136.25 82.175 M 137.5 82.175 L 138.75 82.175 M 140 82.175 L 141.25 82.175 M 142.5 82.175 L 148.75 82.175"/>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.2">
-    <text transform="translate(153.75 86.76875) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="7.313">PROPERTY LINE</text>
+    <text transform="translate(153.75 81.70625) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PROPERTY LINE</text>
     </g>
     <g stroke="#8b8b92" stroke-width="0.144">
-    <path d="M 130 84.70625 L 136.25 84.70625 M 137.5 84.70625 L 138.75 84.70625 M 140 84.70625 L 141.25 84.70625 M 142.5 84.70625 L 148.75 84.70625"/>
+    <path d="M 130 79.64375 L 136.25 79.64375 M 137.5 79.64375 L 138.75 79.64375 M 140 79.64375 L 141.25 79.64375 M 142.5 79.64375 L 148.75 79.64375"/>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.2">
-    <text transform="translate(153.75 84.2375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="10.125">ADJOINING LOT LINE</text>
+    <text transform="translate(153.75 79.175) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">ADJOINING LOT LINE</text>
     </g>
     <g stroke="#8b8b92" stroke-width="0.2">
-    <path d="M 130 82.175 L 132.5 82.175 M 133.75 82.175 L 136.25 82.175 M 137.5 82.175 L 140 82.175 M 141.25 82.175 L 143.75 82.175 M 145 82.175 L 147.5 82.175 M 148.75 82.175 L 150 82.175"/>
+    <path d="M 130 77.1125 L 132.5 77.1125 M 133.75 77.1125 L 136.25 77.1125 M 137.5 77.1125 L 140 77.1125 M 141.25 77.1125 L 143.75 77.1125 M 145 77.1125 L 147.5 77.1125 M 148.75 77.1125 L 150 77.1125"/>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.2">
-    <text transform="translate(153.75 81.70625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="11.813">BUILDING SETBACK LINE</text>
+    <text transform="translate(153.75 76.64375) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">BUILDING SETBACK LINE</text>
     </g>
     <g stroke="#1aafc8" stroke-width="0.561">
-    <line x1="130" y1="79.64375" x2="150" y2="79.64375"/>
+    <line x1="130" y1="74.58125" x2="150" y2="74.58125"/>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.2">
-    <text transform="translate(153.75 79.175) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="10.125">BUILDING FOOTPRINT</text>
+    <text transform="translate(153.75 74.1125) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">BUILDING FOOTPRINT</text>
     </g>
     <g stroke="#8b8b92" stroke-width="0.281">
-    <line x1="130" y1="77.1125" x2="150" y2="77.1125"/>
+    <line x1="130" y1="72.05" x2="150" y2="72.05"/>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.2">
-    <text transform="translate(153.75 76.64375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="15.75">EDGE OF PAVEMENT OR CONCRETE</text>
+    <text transform="translate(153.75 71.58125) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">EDGE OF PAVEMENT OR CONCRETE</text>
     </g>
     <g stroke="#8b8b92" stroke-width="0.144">
-    <path d="M 130 74.58125 L 136.25 74.58125 M 137.5 74.58125 L 138.75 74.58125 M 140 74.58125 L 146.25 74.58125 M 147.5 74.58125 L 148.75 74.58125"/>
+    <path d="M 130 69.51875 L 136.25 69.51875 M 137.5 69.51875 L 138.75 69.51875 M 140 69.51875 L 146.25 69.51875 M 147.5 69.51875 L 148.75 69.51875"/>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.2">
-    <text transform="translate(153.75 74.1125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="9.563">STREET CENTERLINE</text>
-    <circle cx="140" cy="72.05" r="0.625"/>
-    <text transform="translate(153.75 71.58125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="8.438">PROPERTY CORNER</text>
+    <text transform="translate(153.75 69.05) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">STREET CENTERLINE</text>
+    <circle cx="140" cy="66.9875" r="0.625"/>
+    <text transform="translate(153.75 66.51875) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">PROPERTY CORNER</text>
     </g>
     <g stroke="#8b8b92" stroke-width="0.144">
-    <circle cx="140" cy="67.83125" r="1.875"/>
-    <line x1="139.375" y1="67.83125" x2="140.625" y2="67.83125"/>
-    <line x1="140" y1="67.20625" x2="140" y2="68.45625"/>
+    <circle cx="140" cy="62.76875" r="1.875"/>
+    <line x1="139.375" y1="62.76875" x2="140.625" y2="62.76875"/>
+    <line x1="140" y1="62.14375" x2="140" y2="63.39375"/>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.2">
-    <text transform="translate(153.75 67.3625) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="12.937">EXISTING TREE TO REMAIN</text>
-    <text transform="translate(3.1875 -56.875) scale(1 -1)" font-size="1.875" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="1.125">N</text>
+    <text transform="translate(153.75 62.3) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">EXISTING TREE TO REMAIN</text>
+    <text transform="translate(3.75 -56.875) scale(1 -1)" font-size="2.618715" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">N</text>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.281">
     <circle cx="3.75" cy="-61.25" r="3.75"/>
     <line x1="3.75" y1="-65" x2="3.75" y2="-59.75"/>
     <polygon points="3.75,-57.5 3.1875,-60.875 4.3125,-60.875"/>
-    <polygon points="36,-57.8125 56,-57.8125 56,-56.5625 36,-56.5625"/>
-    <line x1="41" y1="-57.8125" x2="41" y2="-56.5625"/>
-    <line x1="46" y1="-57.8125" x2="46" y2="-56.5625"/>
-    <line x1="36" y1="-57.1875" x2="41" y2="-57.1875"/>
+    <polygon points="42.75,-57.8125 62.75,-57.8125 62.75,-56.5625 42.75,-56.5625"/>
+    <line x1="47.75" y1="-57.8125" x2="47.75" y2="-56.5625"/>
+    <line x1="52.75" y1="-57.8125" x2="52.75" y2="-56.5625"/>
+    <line x1="42.75" y1="-57.1875" x2="47.75" y2="-57.1875"/>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.2">
-    <text transform="translate(35.71875 -55.9375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="0.563">0</text>
-    <text transform="translate(40.71875 -55.9375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="0.563">5</text>
-    <text transform="translate(45.4375 -55.9375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="1.125">10</text>
-    <text transform="translate(55.4375 -55.9375) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="1.125">20</text>
-    <text transform="translate(57.25 -57.8125) scale(1 -1)" font-size="0.9375" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="2.25">FEET</text>
-    <text transform="translate(12.5 -57.5) scale(1 -1)" font-size="2.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="13.5">SITE PLAN</text>
+    <text transform="translate(42.75 -55.9375) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">0</text>
+    <text transform="translate(47.75 -55.9375) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">5</text>
+    <text transform="translate(52.75 -55.9375) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">10</text>
+    <text transform="translate(62.75 -55.9375) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#f2f2f3" stroke="none">20</text>
+    <text transform="translate(64 -57.8125) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">FEET</text>
+    <text transform="translate(12.5 -57.5) scale(1 -1)" font-size="3.49162" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SITE PLAN</text>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.401">
-    <line x1="12.5" y1="-58.125" x2="28.5" y2="-58.125"/>
+    <line x1="12.5" y1="-58.125" x2="35.25" y2="-58.125"/>
     </g>
     <g stroke="#f2f2f3" stroke-width="0.2">
-    <text transform="translate(12.5 -60) scale(1 -1)" font-size="1.25" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f2f2f3" stroke="none" textLength="11.25">SCALE: 1&quot; = 10'</text>
+    <text transform="translate(12.5 -58.75) scale(1 -1) translate(0 1.25)" font-size="1.74581" font-family="Arial, Helvetica, sans-serif" fill="#f2f2f3" stroke="none">SCALE: 1&quot; = 10'</text>
     </g>
   </g>
 </svg>

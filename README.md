@@ -87,6 +87,16 @@ are AutoCAD's own definitions; `d.linetype({ name, pattern })` defines another,
 with dashes as positive lengths, gaps as negative ones and dots as 0. A
 lineweight is in millimetres.
 
+A text is in the style `Standard` unless it names another. `d.textStyle({ name,
+font })` defines one, with a font from `FONTS`: SHX fonts AutoCAD installs and
+TrueType fonts Windows installs. `align` and `valign` justify a text to its
+point:
+
+```ts
+d.textStyle({ name: "NOTES", font: "Arial" });
+d.text([60, 40], "PROPOSED RESIDENCE", { height: 3, style: "NOTES", align: "center" });
+```
+
 Text, symbols and dashes are sized by how large they plot. `fromPaper` turns a
 length on paper into drawing units for one scale, given as a plain ratio:
 
@@ -107,8 +117,8 @@ way, and the file to copy to start a drawing.
 ## Status
 
 tsdraft is at an early stage. It draws layers, lines, polylines, rectangles,
-circles, arcs and single-line text, with linetypes and lineweights, and layers
-that are off, frozen, locked or not plotted. It does not yet have dimensions,
+circles, arcs and single-line text, with linetypes and lineweights, text styles
+and justification, and layers that are off, frozen, locked or not plotted. It does not yet have dimensions,
 hatches, blocks or paper space layouts. It writes DXF, not DWG. The drawing at
 the top builds its dimensions, leaders and stipple from lines and text, so in
 CAD they are plain lines and text, not dimension or hatch objects.
@@ -152,7 +162,7 @@ AutoCAD discards a whole drawing over one bad layer name, and it reports no
 line of your code when it does. tsdraft checks the rules AutoCAD enforces at
 three points, so the mistake shows up where you made it.
 
-1. **In the editor.** Layer names, colors and sizes written as literals are
+1. **In the editor.** Layer names, colors, sizes and fonts written as literals are
    checked by the TypeScript compiler, and the error message says what is wrong.
 2. **When the code runs.** The builder throws at the call that breaks a rule.
    This covers values the compiler cannot see, such as a name read from a file.
@@ -181,8 +191,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
 - [Layer names](docs/layer-names.md) explains how AutoCAD compares layer and
   linetype names, and lists the pairs `AUDIT` calls duplicates and the
   characters it refuses.
-- [Text](docs/text.md) explains what tsdraft escapes in text, and what AutoCAD
-  does with it after a save.
+- [Text](docs/text.md) covers text styles, fonts and justification, what
+  tsdraft escapes in text, and what AutoCAD does with it after a save.
 
 ## Development
 

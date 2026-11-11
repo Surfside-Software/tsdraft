@@ -14,7 +14,8 @@
 // - The site is in feet. Text, symbols, dashes and every annotation offset are sized by how
 //   large they plot: `paper` turns inches on paper into drawing units for the ratio in `view`,
 //   so the sheet still reads when the ratio changes.
-// - Text is placed by the left end of its baseline, so `label` centers it from an estimated width.
+// - Every text is in the sheet's text style, `NOTES`, through `put`, and is justified to its
+//   point with `align` and `valign`. Only columns and line breaks use an estimated width.
 import { mkdirSync, writeFileSync } from "node:fs";
 import {
   CENTER,
@@ -25,14 +26,10 @@ import {
   toDXF,
   toSVG,
   type Point,
+  type TextAlign,
+  type TextVerticalAlign,
 } from "../src/index.ts";
-import {
-  arrowhead,
-  dimensionChain,
-  label,
-  textWidth,
-  type DimensionStyle,
-} from "./lib/drafting.ts";
+import { arrowhead, dimensionChain, textWidth, type DimensionStyle } from "./lib/drafting.ts";
 
 // The scale the sheet plots at, as a ratio, and the drawing's units. A foot is 12 inches, so an
 // inch on paper is `ratio / 12` feet.
@@ -111,6 +108,22 @@ const acres = (n: number) => `${(n / 43560).toFixed(2)} AC`;
 // linetype scale they plot at half that, a 1/4 in dash.
 const d = createDrawing({ units: view.units, linetypeScale: paper(1 / 2) });
 
+// The sheet's text style. Arial's capitals are about 0.9 of the text height wide.
+const NOTES = "NOTES";
+d.textStyle({ name: NOTES, font: "Arial" });
+const perCharacter = 0.9;
+const widthOf = (value: string, height: number) => textWidth(value, height, perCharacter);
+
+/** A text in the sheet's style. `options` justify it to `at` and turn it. */
+function put(
+  at: Point,
+  value: string,
+  height: number,
+  options: { align?: TextAlign; valign?: TextVerticalAlign; rotation?: number } = {},
+): void {
+  d.text(at, value, { height, style: NOTES, ...options });
+}
+
 d.layer("C-PROP", { color: 7, linetype: PHANTOM, lineweight: 0.7 });
 d.layer("C-PROP-ADJC", { color: 8, linetype: PHANTOM, lineweight: 0.18 });
 d.layer("C-PROP-MONU", { color: 7, lineweight: 0.25 });
@@ -169,7 +182,15 @@ d.layer("V-TREE", {}, () => {
 const across = bounds.rear + paper(3 / 8);
 const up = lot.width + paper(5 / 8);
 d.layer("C-ANNO-DIMS", {}, () => {
-  const style: DimensionStyle = { text: text.note, tick, gap, extend: gap, format: feet };
+  const style: DimensionStyle = {
+    text: text.note,
+    tick,
+    gap,
+    extend: gap,
+    format: feet,
+    textStyle: NOTES,
+    perCharacter,
+  };
   dimensionChain(
     d,
     [
@@ -204,32 +225,27 @@ d.layer("C-ANNO-TEXT", {}, () => {
   // but for the front one, which is inside the lot, clear of the sidewalk and the driveway.
   const course = (bearing: string, length: number) => `${bearing}  ${length.toFixed(2)}'`;
   const sideMiddle = (across + lot.depth) / 2;
-  label(d, [middle, lot.depth + clear], course(`N 90°00'00" E`, lot.width), note, "center");
-  label(
-    d,
-    [lot.width + clear + note, sideMiddle],
-    course(`S 00°00'00" E`, lot.depth),
-    note,
-    "center",
-    90,
-  );
-  label(d, [driveX / 2, clear], course(`S 90°00'00" W`, lot.width), note, "center");
-  label(d, [-clear, sideMiddle], course(`N 00°00'00" W`, lot.depth), note, "center", 90);
+  put([middle, lot.depth + clear], course(`N 90°00'00" E`, lot.width), note, { align: "center" });
+  put([lot.width + clear + note, sideMiddle], course(`S 00°00'00" E`, lot.depth), note, {
+    align: "center",
+    rotation: 90,
+  });
+  put([driveX / 2, clear], course(`S 90°00'00" W`, lot.width), note, { align: "center" });
+  put([-clear, sideMiddle], course(`N 00°00'00" W`, lot.depth), note, {
+    align: "center",
+    rotation: 90,
+  });
 
   // Setbacks, each along its line.
   const { front, side, rear } = setbacks;
   const inset = side + paper(1 / 4);
-  d.text([inset, front + gap], `${front}' FRONT SETBACK`, { height: note });
-  d.text([inset, lot.depth - rear + gap], `${rear}' REAR SETBACK`, { height: note });
+  put([inset, front + gap], `${front}' FRONT SETBACK`, note);
+  put([inset, lot.depth - rear + gap], `${rear}' REAR SETBACK`, note);
   for (const x of [side, lot.width - side]) {
-    label(
-      d,
-      [x - gap, (across + lot.depth - rear) / 2],
-      `${side}' SIDE SETBACK`,
-      note,
-      "center",
-      90,
-    );
+    put([x - gap, (across + lot.depth - rear) / 2], `${side}' SIDE SETBACK`, note, {
+      align: "center",
+      rotation: 90,
+    });
   }
 
   // The lot, the building and the pavement.
@@ -248,29 +264,24 @@ d.layer("C-ANNO-TEXT", {}, () => {
       [`F.F.E. ${house.floor.toFixed(2)}'`, size],
     ],
   );
-  label(
-    d,
-    [driveX + driveway.width / 2 + note / 2, bounds.front / 2],
-    "CONC. DRIVEWAY",
-    note,
-    "center",
-    90,
-  );
-  d.text(
-    [0, -sidewalk.fromLot - sidewalk.width / 2 - note / 2],
-    `${sidewalk.width}' CONC. SIDEWALK`,
-    { height: note },
-  );
-  d.text([0, pavement.near - gap - note], "EDGE OF PAVEMENT", { height: note });
+  put([driveX + driveway.width / 2, bounds.front / 2], "CONC. DRIVEWAY", note, {
+    align: "center",
+    valign: "middle",
+    rotation: 90,
+  });
+  put([0, -sidewalk.fromLot - sidewalk.width / 2], `${sidewalk.width}' CONC. SIDEWALK`, note, {
+    valign: "middle",
+  });
+  put([0, pavement.near - gap], "EDGE OF PAVEMENT", note, { valign: "top" });
   const rightOfWay = `${street.rightOfWay}' PUBLIC RIGHT-OF-WAY`;
-  label(d, [middle, centerline + clear], rightOfWay, note, "center");
-  label(d, [middle, centerline + clear + note + gap * 1.5], street.name, heading, "center");
-  label(d, [ends.right, centerline + gap], "CENTERLINE", note, "right");
+  put([middle, centerline + clear], rightOfWay, note, { align: "center" });
+  put([middle, centerline + clear + note + gap * 1.5], street.name, heading, { align: "center" });
+  put([ends.right, centerline + gap], "CENTERLINE", note, { align: "right" });
 
   // The adjoining lots.
-  label(d, [-paper(1), lot.depth / 2], "LOT 11", size, "center", 90);
-  label(d, [up + paper(5 / 8), lot.depth / 2], "LOT 13", size, "center", 90);
-  label(d, [middle, lot.depth + paper(1 / 2)], "LOT 27", size, "center");
+  put([-paper(1), lot.depth / 2], "LOT 11", size, { align: "center", rotation: 90 });
+  put([up + paper(5 / 8), lot.depth / 2], "LOT 13", size, { align: "center", rotation: 90 });
+  put([middle, lot.depth + paper(1 / 2)], "LOT 27", size, { align: "center" });
 });
 
 // The panel of site data, notes and legend, to the right of the plan.
@@ -280,7 +291,7 @@ let row = panel.top;
 function panelHeading(title: string): void {
   row -= text.heading;
   d.layer("C-ANNO-TITL", {}, () => {
-    d.text([panel.x, row], title, { height: text.heading });
+    put([panel.x, row], title, text.heading);
     d.line([panel.x, row - gap], [panel.x + panel.width, row - gap]);
   });
   row -= gap + leading * 1.2;
@@ -299,14 +310,14 @@ d.layer("C-ANNO-TEXT", {}, () => {
   ];
   // Each column starts a gap past the widest text of the one before it.
   const column = paper(1 / 2);
-  const values = Math.max(...data.map(([name]) => textWidth(name, text.note))) + column;
+  const values = Math.max(...data.map(([name]) => widthOf(name, text.note))) + column;
   for (const [name, value] of data) {
-    d.text([panel.x, row], name, { height: text.note });
-    d.text([panel.x + values, row], value, { height: text.note });
+    put([panel.x, row], name, text.note);
+    put([panel.x + values, row], value, text.note);
     row -= leading;
   }
   row -= leading / 2;
-  const columns = [0, values, values + textWidth("REQUIRED", text.note) + column];
+  const columns = [0, values, values + widthOf("REQUIRED", text.note) + column];
   const table: string[][] = [
     ["SETBACK", "REQUIRED", "PROVIDED"],
     ["FRONT", feet(setbacks.front), feet(provided.front)],
@@ -314,9 +325,7 @@ d.layer("C-ANNO-TEXT", {}, () => {
     ["REAR", feet(setbacks.rear), feet(provided.rear)],
   ];
   for (const cells of table) {
-    cells.forEach((cell, i) =>
-      d.text([panel.x + (columns[i] ?? 0), row], cell, { height: text.note }),
-    );
+    cells.forEach((cell, i) => put([panel.x + (columns[i] ?? 0), row], cell, text.note));
     row -= leading;
   }
 });
@@ -332,11 +341,11 @@ d.layer("C-ANNO-TEXT", {}, () => {
     "GRADE THE LOT TO DRAIN AWAY FROM THE BUILDING AND TOWARD THE STREET. KEEP RUNOFF OFF THE ADJOINING LOTS.",
     "PROTECT THE EXISTING TREES SHOWN. NO TREE IS TO BE REMOVED.",
   ];
-  const indent = textWidth("00. ", text.note);
+  const indent = widthOf("00. ", text.note);
   notes.forEach((note, i) => {
-    d.text([panel.x, row], `${i + 1}.`, { height: text.note });
+    put([panel.x, row], `${i + 1}.`, text.note);
     for (const line of wrap(note, panel.width - indent)) {
-      d.text([panel.x + indent, row], line, { height: text.note });
+      put([panel.x + indent, row], line, text.note);
       row -= leading;
     }
     row -= leading / 3;
@@ -348,9 +357,7 @@ panelHeading("LEGEND");
 const sample = paper(2); // the length of a legend line
 function legendRow(layer: Parameters<typeof d.layer>[0], name: string, draw: () => void): void {
   d.layer(layer, {}, draw);
-  d.layer("C-ANNO-TEXT", {}, () =>
-    d.text([panel.x + sample + paper(3 / 8), row], name, { height: text.note }),
-  );
+  d.layer("C-ANNO-TEXT", {}, () => put([panel.x + sample + paper(3 / 8), row], name, text.note));
   row -= leading * 1.5;
 }
 const sampleLine = () =>
@@ -371,12 +378,12 @@ legendRow("V-TREE", "EXISTING TREE TO REMAIN", () => drawTree(sampleCenter(), pa
 const rowTop = -street.rightOfWay - paper(1 / 2);
 const arrow = { radius: paper(3 / 8) };
 const titleX = arrow.radius * 2 + paper(1 / 2);
-const titleWidth = textWidth("SITE PLAN", text.title) + paper(1 / 4);
+const titleWidth = widthOf("SITE PLAN", text.title) + paper(1 / 4);
 d.layer("C-ANNO-SYMB", {}, () => {
   // North is up the sheet.
   const { radius } = arrow;
   const center: Point = [radius, rowTop - text.heading - gap - radius];
-  label(d, [center[0], rowTop - text.heading], "N", text.heading, "center");
+  put([center[0], rowTop - text.heading], "N", text.heading, { align: "center" });
   d.circle(center, radius);
   d.line([center[0], center[1] - radius], [center[0], center[1] + radius * 0.4]);
   arrowhead(d, [center[0], center[1] + radius], center, radius * 0.9);
@@ -392,17 +399,15 @@ d.layer("C-ANNO-SYMB", {}, () => {
   d.line([bar.x, y + bar.height / 2], [bar.x + paper(1 / 2), y + bar.height / 2]);
   for (const stop of stops) {
     const at: Point = [bar.x + (stop ? paper(stop) : 0), y + bar.height + gap];
-    label(d, at, String(stop * feetPerInch), text.note, "center");
+    put(at, String(stop * feetPerInch), text.note, { align: "center" });
   }
-  d.text([bar.x + paper(2) + clear, y], "FEET", { height: text.note });
+  put([bar.x + paper(2) + clear, y], "FEET", text.note);
 });
 d.layer("C-ANNO-TITL", {}, () => {
   const baseline = rowTop - text.title;
-  d.text([titleX, baseline], "SITE PLAN", { height: text.title });
+  put([titleX, baseline], "SITE PLAN", text.title);
   d.line([titleX, baseline - gap], [titleX + titleWidth, baseline - gap]);
-  d.text([titleX, baseline - gap * 2 - text.label], `SCALE: ${scaleLabel}`, {
-    height: text.label,
-  });
+  put([titleX, baseline - gap * 2], `SCALE: ${scaleLabel}`, text.label, { valign: "top" });
 });
 
 /** A tree as its canopy and a cross at the trunk. */
@@ -418,7 +423,7 @@ function stack(center: Point, lines: readonly (readonly [value: string, height: 
   const height = lines.reduce((sum, line) => sum + line[1], 0) + gap * 1.5 * (lines.length - 1);
   let top = center[1] + height / 2;
   for (const [value, size] of lines) {
-    label(d, [center[0], top - size], value, size, "center");
+    put([center[0], top - size], value, size, { align: "center" });
     top -= size + gap * 1.5;
   }
 }
@@ -429,7 +434,7 @@ function wrap(sentence: string, width: number): string[] {
   let line = "";
   for (const word of sentence.split(" ")) {
     const longer = line ? `${line} ${word}` : word;
-    if (line && textWidth(longer, text.note) > width) {
+    if (line && widthOf(longer, text.note) > width) {
       lines.push(line);
       line = word;
     } else {

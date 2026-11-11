@@ -23,6 +23,8 @@ function sample(): Drawing {
     d.arc([5, 2.5], 2, 350, 10);
     d.text([1, 1], 'ROOM "A" é', { height: 0.5, rotation: 30, id: "room-A_1" });
   });
+  d.textStyle({ name: "NOTES", font: "Arial", widthFactor: 0.9, obliqueAngle: 10 });
+  d.text([2, 2], "NOTE", { style: "NOTES", align: "right", valign: "top" });
   return d.build();
 }
 

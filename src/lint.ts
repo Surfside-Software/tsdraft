@@ -2,6 +2,7 @@ import { callOf, type CallSite } from "./callsite.ts";
 import type { Drawing, DxfVersion, Entity, Point } from "./drawing.ts";
 import { written } from "./format.ts";
 import { layerAuditKey, layerKey } from "./layers.ts";
+import { STANDARD_TEXT_STYLE } from "./fonts.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import {
   arcIsWrittenAsPoint,
@@ -10,6 +11,7 @@ import {
   formatProblem,
   idKey,
   idProblem,
+  isStandardTextStyle,
   layerColorProblem,
   layerFlagProblem,
   layerLinetypeProblem,
@@ -23,9 +25,13 @@ import {
   R12_ONLY,
   magnitudeProblem,
   sizeProblem,
+  textAlignProblem,
   textProblem,
+  textStyleNameProblem,
+  textStyleProblem,
   textWarning,
   undefinedLinetypeProblem,
+  undefinedTextStyleProblem,
 } from "./rules.ts";
 
 export type LintRule =
@@ -42,6 +48,10 @@ export type LintRule =
   | "layer-state"
   | "geometry"
   | "text"
+  | "text-style"
+  | "duplicate-text-style"
+  | "undefined-text-style"
+  | "text-align"
   | "id"
   | "duplicate-id"
   | "zero-length";
@@ -55,6 +65,8 @@ export interface Diagnostic {
   readonly layer?: string;
   /** The linetype the problem is in, when it is a problem with a linetype's definition. */
   readonly linetype?: string;
+  /** The text style the problem is in, when it is a problem with a text style's definition. */
+  readonly textStyle?: string;
   /** Index into `drawing.entities`, when it is an entity problem. */
   readonly entity?: number;
   /** The `id` of the entity the problem is in, when it has one. */
@@ -145,6 +157,70 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     return builtInLinetype(name) || linetypes.has(layerKey(name))
       ? undefined
       : undefinedLinetypeProblem(name);
+  };
+
+  // AutoCAD compares text style names as it compares layer names.
+  const textStyles = new Set<string>();
+  const textStylesAudited = new Map<string, string>([
+    [layerAuditKey(STANDARD_TEXT_STYLE), STANDARD_TEXT_STYLE],
+  ]);
+  for (const style of drawing.textStyles ?? []) {
+    const error = (rule: LintRule, message: string) =>
+      out.push({ rule, severity: "error", message, textStyle: style.name });
+    const label = `Text style ${JSON.stringify(style.name)}`;
+    if (r12) {
+      error("text-style", `${label}: ${R12_ONLY.text}`);
+      continue;
+    }
+    const problem = textStyleProblem(style.name, style.font, style.widthFactor, style.obliqueAngle);
+    if (problem) error("text-style", `${label}: ${problem}`);
+    if (typeof style.name !== "string") continue;
+    const key = layerKey(style.name);
+    const auditKey = layerAuditKey(style.name);
+    const twin = layerTwinProblem(
+      style.name,
+      textStylesAudited.get(auditKey) ?? style.name,
+      "text style",
+    );
+    if (textStyles.has(key)) {
+      error(
+        "duplicate-text-style",
+        `${label} is defined twice. CAD ignores case in text style names and keeps the first`,
+      );
+    } else if (twin) {
+      error("duplicate-text-style", `${label}: ${twin}`);
+    }
+    textStyles.add(key);
+    if (!textStylesAudited.has(auditKey)) textStylesAudited.set(auditKey, style.name);
+  }
+  /** What is wrong with a text's style, justification or both, each with its rule. */
+  const textProblems = (text: Extract<Entity, { kind: "text" }>): [LintRule, string][] => {
+    const found: [LintRule, string][] = [];
+    const name: unknown = text.style;
+    if (name !== undefined) {
+      if (typeof name !== "string") {
+        found.push(["undefined-text-style", "a text style is named by a string"]);
+      } else if (textStyleNameProblem(name)) {
+        const problem = `Text style ${JSON.stringify(name)}: ${textStyleNameProblem(name)}`;
+        found.push(["undefined-text-style", problem]);
+      } else if (!isStandardTextStyle(name)) {
+        if (r12) found.push(["text-style", R12_ONLY.text]);
+        else if (!textStyles.has(layerKey(name))) {
+          found.push(["undefined-text-style", undefinedTextStyleProblem(name)]);
+        }
+      }
+    }
+    for (const [field, plain] of [
+      ["align", "left"],
+      ["valign", "baseline"],
+    ] as const) {
+      const value: unknown = text[field];
+      if (value === undefined) continue;
+      const problem =
+        textAlignProblem(field, value) ?? (r12 && value !== plain ? R12_ONLY.text : undefined);
+      if (problem) found.push(["text-align", problem]);
+    }
+    return found;
   };
 
   // AutoCAD looks layers up by one form of their names, and AUDIT compares another.
@@ -259,6 +335,7 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     if (entity.kind === "text") {
       const problem = textProblem(entity.value);
       if (problem) add("text", "error", problem);
+      for (const [rule, found] of textProblems(entity)) add(rule, "error", found);
       const warning = textWarning(entity.value);
       if (warning) add("text", "warning", warning);
     }
@@ -273,8 +350,8 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
 /**
  * An error that refuses a drawing because of what `lint` found in it. `toDXF`
  * throws it when a drawing has lint errors for the version being written, `fromJSON`
- * when the JSON is not a drawing it can read, and the builder's `layer`, `linetype`
- * and entity methods at a call that breaks a rule, with that one problem as the
+ * when the JSON is not a drawing it can read, and the builder's `layer`, `linetype`,
+ * `textStyle` and entity methods at a call that breaks a rule, with that one problem as the
  * message. Other code can throw it to refuse a drawing for its own purpose. Its
  * message lists the first 10 problems and names no file format.
  */
