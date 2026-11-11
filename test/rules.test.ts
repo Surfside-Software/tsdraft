@@ -11,8 +11,11 @@ import {
   toDXF,
   toSVG,
   type Drawing,
+  type Text,
 } from "../src/index.ts";
-import sitePlan from "../examples/site-plan.ts";
+import sheet, { sitePlan, type Box } from "../examples/site-plan.ts";
+import { textWidth } from "../examples/lib/drafting.ts";
+import { extents } from "../src/extents.ts";
 
 // Each `@ts-expect-error` below proves the compiler rejects the literal. The
 // `assert.throws` around it proves the same mistake is caught when the code runs.
@@ -988,8 +991,66 @@ test("fromPaper turns a plotted length into drawing units", () => {
 });
 
 test("the example sheet builds with no lint diagnostics", () => {
-  assert.deepEqual(lint(sitePlan), []);
+  assert.deepEqual(lint(sheet), []);
 });
+
+// A text's box as the example lays text out: capitals 0.9 of the text height wide, turned by
+// 0 or 90 degrees about the point the text is justified to.
+function textBox(e: Text): [left: number, bottom: number, right: number, top: number] {
+  const length = textWidth(e.value, e.height, 0.9);
+  const start = e.align === "center" ? -length / 2 : e.align === "right" ? -length : 0;
+  const low = e.valign === "top" ? -e.height : e.valign === "middle" ? -e.height / 2 : 0;
+  const [x, y] = e.at;
+  return e.rotation === 90
+    ? [x - low - e.height, y + start, x - low, y + start + length]
+    : [x + start, y + low, x + start + length, y + low + e.height];
+}
+
+for (const ratio of [120, 240]) {
+  test(`the example sheet at ratio ${ratio} is laid out on its ARCH D sheet`, () => {
+    const { drawing, sheetEdge, drawingArea, titleBlockSpace } = sitePlan(ratio);
+    const inches = (feet: number) => Number(((feet * 12) / ratio).toFixed(6));
+    const size = (box: Box) => [inches(box.right - box.left), inches(box.top - box.bottom)];
+    assert.deepEqual(size(sheetEdge), [36, 24]);
+    assert.deepEqual(size(drawingArea), [35, 23]);
+    assert.equal(inches(drawingArea.left - sheetEdge.left), 0.5);
+    assert.equal(inches(drawingArea.bottom - sheetEdge.bottom), 0.5);
+    assert.deepEqual(size(titleBlockSpace), [6.5, 3]);
+    assert.equal(titleBlockSpace.right, drawingArea.right);
+    assert.equal(titleBlockSpace.bottom, drawingArea.bottom);
+
+    const slack = 1e-9;
+    const [left, bottom, right, top] = extents(drawing.entities, drawing.textStyles);
+    assert.ok(left >= drawingArea.left - slack && right <= drawingArea.right + slack);
+    assert.ok(bottom >= drawingArea.bottom - slack && top <= drawingArea.top + slack);
+
+    const overlap = (a: readonly number[], b: readonly number[]) =>
+      a[2]! > b[0]! + slack &&
+      a[0]! < b[2]! - slack &&
+      a[3]! > b[1]! + slack &&
+      a[1]! < b[3]! - slack;
+    const space = [
+      titleBlockSpace.left,
+      titleBlockSpace.bottom,
+      titleBlockSpace.right,
+      titleBlockSpace.top,
+    ];
+    for (const entity of drawing.entities) {
+      const box = extents([entity], drawing.textStyles);
+      assert.ok(
+        !overlap(box, space),
+        `${entity.kind} on ${entity.layer} is in the title block's space`,
+      );
+    }
+
+    const texts = drawing.entities.filter((e) => e.kind === "text");
+    texts.forEach((a, i) => {
+      for (const b of texts.slice(i + 1)) {
+        assert.ok(!overlap(textBox(a), textBox(b)), `"${a.value}" overlaps "${b.value}"`);
+      }
+    });
+  });
+}
 
 test("entity ids are checked as literals, when the code runs, and by lint", () => {
   const d = createDrawing();
