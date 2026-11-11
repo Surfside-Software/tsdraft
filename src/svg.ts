@@ -1,7 +1,9 @@
+import { blocksByKey, eachDrawn, mapPoint, type Matrix } from "./blocks.ts";
 import {
   sweep,
   type Drawing,
   type Entity,
+  type Insert,
   type Layer,
   type Point,
   type TextStyle,
@@ -100,19 +102,39 @@ interface Pen {
  * angle in the CSS font family tsdraft gives its style's font, which ends in a generic family
  * for a screen that lacks the font. Each entity's element has its layer in `data-layer`, its
  * index in `drawing.entities` in `data-entity`, and its `id`, when it has one, in `data-id`.
+ *
+ * An insert is a group with its block's name in `data-block`. It holds an element for each
+ * entity of the block, and of the blocks inserted in it, drawn where the insert puts it, and a
+ * text for each attribute with the insert's value. An entity on layer `0` of a block draws as
+ * its insert's layer does, and any other as its own layer does, which `data-layer` names. An
+ * insert on a frozen layer, or on a layer that does not plot, draws nothing.
  */
 export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
   // Keyed as AutoCAD looks layers up, so an entity on `wall` takes the color of layer `WALL`.
   const layers = new Map(drawing.layers.map((l) => [layerKey(l.name), l]));
-  // Each entity keeps its index in `drawing.entities`, for its element's data-entity.
-  const shown = [...drawing.entities.entries()].filter(([, e]) => {
-    const layer = layers.get(layerKey(e.layer));
-    if (layer?.off || layer?.frozen) return false;
-    return options.drawNoPlot === true || layer?.plot !== false;
-  });
+  const hidden = (name: string): boolean => {
+    const layer = layers.get(layerKey(name));
+    if (layer?.off || layer?.frozen) return true;
+    return options.drawNoPlot !== true && layer?.plot === false;
+  };
+  // An insert on a frozen layer draws nothing, and in a plot neither does one on a layer that
+  // does not plot, whatever layers its block's entities are on.
+  const frozen = (name: string): boolean => {
+    const layer = layers.get(layerKey(name));
+    return layer?.frozen === true || (options.drawNoPlot !== true && layer?.plot === false);
+  };
+  // Each entity keeps its index in `drawing.entities`, for its element's data-entity. What an
+  // insert holds is judged entity by entity, unless the insert's own layer is frozen.
+  const shown = [...drawing.entities.entries()].filter(([, e]) =>
+    e.kind === "insert" ? !frozen(e.layer) : !hidden(e.layer),
+  );
+  const blocks = blocksByKey(drawing.blocks);
   const [minX, minY, maxX, maxY] = extents(
     shown.map(([, e]) => e),
     drawing.textStyles,
+    drawing.blocks,
+    hidden,
+    frozen,
   );
   const margin = options.margin ?? Math.max(maxX - minX, maxY - minY, 1) * 0.02;
   const x = minX - margin;
@@ -128,15 +150,26 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     e.kind === "text" && e.style !== undefined ? textStyles.get(layerKey(e.style)) : undefined;
   const stroke = options.strokeWidth ?? 1;
 
-  const pen = (e: Entity): Pen => {
-    const layer: Layer | undefined = layers.get(layerKey(e.layer));
-    const byLayer = e.linetype === undefined || builtInLinetype(e.linetype) === "ByLayer";
-    const linetype = byLayer ? layer?.linetype : e.linetype;
+  /**
+   * The pen of an entity that draws on `on`. `insertLayer` is the layer of the insert that
+   * holds it, whose linetype and lineweight an entity set to ByBlock takes.
+   */
+  const pen = (e: Drawn, on: string, insertLayer?: string): Pen => {
+    const layer: Layer | undefined = layers.get(layerKey(on));
+    /** The layer a linetype or a lineweight comes from, or undefined for the entity's own. */
+    const source = (value: string | number | undefined): Layer | undefined | "own" => {
+      const name = typeof value === "string" ? builtInLinetype(value) : undefined;
+      if (value === undefined || name === "ByLayer") return layer;
+      // An insert draws ByLayer, so ByBlock is the insert's layer.
+      if (name === "ByBlock" && insertLayer !== undefined) return layers.get(layerKey(insertLayer));
+      return "own";
+    };
+    const linetypeFrom = source(e.linetype);
+    const linetype = linetypeFrom === "own" ? e.linetype : linetypeFrom?.linetype;
     const pattern = linetype === undefined ? undefined : patterns.get(layerKey(linetype));
+    const weightFrom = source(e.lineweight);
     const weight =
-      e.lineweight === undefined || e.lineweight === "ByLayer"
-        ? (layer?.lineweight ?? "Default")
-        : e.lineweight;
+      weightFrom === "own" ? (e.lineweight ?? "Default") : (weightFrom?.lineweight ?? "Default");
     const code = lineweightCode(weight);
     return {
       color: aciColor(layer?.color ?? 7),
@@ -145,7 +178,23 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     };
   };
 
-  const body = shown.map(([i, e]) => entityToSvg(e, i, pen(e), stroke, styleOf(e))).join("\n    ");
+  const marks = (e: Entity, index: number): string =>
+    `data-layer="${esc(e.layer)}" data-entity="${index}"${e.id === undefined ? "" : ` data-id="${esc(e.id)}"`}`;
+  const body = shown
+    .map(([i, e]) => {
+      if (e.kind !== "insert")
+        return entityToSvg(e, marks(e, i), pen(e, e.layer), stroke, styleOf(e));
+      const parts: string[] = [];
+      eachDrawn(e, blocks, frozen, (drawn, at) => {
+        if (at.frozen || hidden(at.layer)) return;
+        const mark = `data-layer="${esc(at.layer)}"`;
+        const drawnPen = pen(drawn, at.layer, at.insertLayer);
+        parts.push(entityToSvg(drawn, mark, drawnPen, stroke, styleOf(drawn), at.matrix));
+      });
+      const inside = parts.length > 0 ? `\n      ${parts.join("\n      ")}\n    ` : "";
+      return `<g ${marks(e, i)} data-block="${esc(e.block)}">${inside}</g>`;
+    })
+    .join("\n    ");
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${fmt(x)} ${fmt(y)} ${fmt(w)} ${fmt(h)}">`,
     `  <g transform="scale(1 -1)" fill="none" stroke-width="${fmt(stroke)}" vector-effect="non-scaling-stroke">`,
@@ -156,54 +205,89 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
   ].join("\n");
 }
 
+/** An entity that draws something of its own, which an insert does not. */
+type Drawn = Exclude<Entity, Insert>;
+
+/**
+ * What a matrix makes of a circle: an ellipse with these two radii, the first turned by `turn`
+ * degrees, drawn counterclockwise when `sweep` is 1. With no matrix it is the circle.
+ */
+function rounded(
+  radius: number,
+  m: Matrix | undefined,
+): { rx: number; ry: number; turn: number; sweep: 0 | 1 } {
+  if (!m) return { rx: radius, ry: radius, turn: 0, sweep: 1 };
+  // The two stretches of the matrix, and the turn it gives the first.
+  const [e, f, g, h] = [(m[0] + m[3]) / 2, (m[0] - m[3]) / 2, (m[1] + m[2]) / 2, (m[1] - m[2]) / 2];
+  const [q, r] = [Math.hypot(e, h), Math.hypot(f, g)];
+  const sweep = m[0] * m[3] - m[1] * m[2] < 0 ? 0 : 1;
+  const [rx, ry] = [radius * (q + r), radius * Math.abs(q - r)];
+  // A matrix that scales both ways alike leaves a circle, which has no turn to give.
+  if (fmt(rx) === fmt(ry)) return { rx, ry, turn: 0, sweep };
+  return { rx, ry, turn: ((Math.atan2(g, f) + Math.atan2(h, e)) * 90) / Math.PI, sweep };
+}
+
+/**
+ * @param mark - The data attributes of the element.
+ * @param matrix - Where an insert puts the entity, for one that a block holds.
+ */
 function entityToSvg(
-  e: Entity,
-  index: number,
+  e: Drawn,
+  mark: string,
   pen: Pen,
   stroke: number,
   style: TextStyle | undefined,
+  matrix?: Matrix,
 ): string {
   // A lineweight of 0 draws as the thinnest line, as in AutoCAD.
   const width =
     pen.lineweight === DEFAULT_LINEWEIGHT
       ? ""
       : ` stroke-width="${fmt((stroke * Math.max(pen.lineweight, 5)) / DEFAULT_LINEWEIGHT)}"`;
-  const mark = `data-layer="${esc(e.layer)}" data-entity="${index}"${e.id === undefined ? "" : ` data-id="${esc(e.id)}"`}`;
   const s = `stroke="${pen.color}"${width} vector-effect="non-scaling-stroke" ${mark}`;
+  const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
   if (e.kind !== "text" && pen.dashes) {
-    const d = dashedPath(e, pen.dashes);
+    const d = dashedPath(e, pen.dashes, matrix);
     // A pattern with a dot draws it as a round cap on a path of no length.
     const cap = pen.dashes.includes(0) ? ` stroke-linecap="round"` : "";
     if (d !== undefined) return `<path d="${d}"${cap} ${s}/>`;
   }
   switch (e.kind) {
-    case "line":
-      return `<line x1="${fmt(e.from[0])}" y1="${fmt(e.from[1])}" x2="${fmt(e.to[0])}" y2="${fmt(e.to[1])}" ${s}/>`;
+    case "line": {
+      const [from, to] = [at(e.from), at(e.to)];
+      return `<line x1="${fmt(from[0])}" y1="${fmt(from[1])}" x2="${fmt(to[0])}" y2="${fmt(to[1])}" ${s}/>`;
+    }
     case "polyline": {
       const tag = e.closed ? "polygon" : "polyline";
-      const points = e.points.map(([px, py]) => `${fmt(px)},${fmt(py)}`).join(" ");
+      const points = e.points
+        .map(at)
+        .map(([px, py]) => `${fmt(px)},${fmt(py)}`)
+        .join(" ");
       return `<${tag} points="${points}" ${s}/>`;
     }
     case "circle":
-      return `<circle cx="${fmt(e.center[0])}" cy="${fmt(e.center[1])}" r="${fmt(e.radius)}" ${s}/>`;
+      return roundToSvg(at(e.center), rounded(e.radius, matrix), s);
     case "arc": {
       const [cx, cy] = e.center;
       const a0 = rad(e.startAngle);
       const a1 = rad(e.endAngle);
       const large = sweep(e.startAngle, e.endAngle) > 180 ? 1 : 0;
-      const start = `${fmt(cx + e.radius * Math.cos(a0))} ${fmt(cy + e.radius * Math.sin(a0))}`;
-      const end = `${fmt(cx + e.radius * Math.cos(a1))} ${fmt(cy + e.radius * Math.sin(a1))}`;
+      const ends = [a0, a1].map((a) =>
+        at([cx + e.radius * Math.cos(a), cy + e.radius * Math.sin(a)]),
+      );
+      const [start, end] = ends.map(([px, py]) => `${fmt(px)} ${fmt(py)}`);
+      const round = rounded(e.radius, matrix);
       // SVG draws nothing for an arc that ends where it starts, which is where rounding can
       // put the ends of an arc that is all but a full turn.
-      if (start === end && large === 1) {
-        return `<circle cx="${fmt(cx)}" cy="${fmt(cy)}" r="${fmt(e.radius)}" ${s}/>`;
-      }
+      if (start === end && large === 1) return roundToSvg(at(e.center), round, s);
       // sweep-flag 1 is the positive-angle direction in local (Y-up) coordinates: counterclockwise.
-      return `<path d="M ${start} A ${fmt(e.radius)} ${fmt(e.radius)} 0 ${large} 1 ${end}" ${s}/>`;
+      return `<path d="M ${start} A ${fmt(round.rx)} ${fmt(round.ry)} ${fmt(round.turn)} ${large} ${round.sweep} ${end}" ${s}/>`;
     }
     case "text": {
       // Undo the group's Y flip so the text reads upright, then apply CAD rotation.
       let t = `translate(${fmt(e.at[0])} ${fmt(e.at[1])}) scale(1 -1)${e.rotation ? ` rotate(${fmt(-e.rotation)})` : ""}`;
+      // An insert's matrix is applied last, so it comes first.
+      if (matrix) t = `matrix(${matrix.map(fmt).join(" ")}) ${t}`;
       // The baseline is moved along the text's own up, before the style widens or slants it.
       const font = fontInfo(style?.font ?? STANDARD_FONT);
       // A text's height is the height of its capitals, which a font draws smaller than its size.
@@ -234,6 +318,15 @@ function entityToSvg(
   }
 }
 
+/** A circle, or the ellipse an insert that scales unevenly makes of one. */
+function roundToSvg(center: Point, round: ReturnType<typeof rounded>, s: string): string {
+  const [cx, cy] = [fmt(center[0]), fmt(center[1])];
+  if (fmt(round.rx) === fmt(round.ry))
+    return `<circle cx="${cx}" cy="${cy}" r="${fmt(round.rx)}" ${s}/>`;
+  const turn = round.turn === 0 ? "" : ` transform="rotate(${fmt(round.turn)} ${cx} ${cy})"`;
+  return `<ellipse cx="${cx}" cy="${cy}" rx="${fmt(round.rx)}" ry="${fmt(round.ry)}"${turn} ${s}/>`;
+}
+
 /**
  * A linetype pattern as SVG thinks of dashes: dash, gap, dash, gap, starting with a dash and
  * of even length. Dashes or gaps side by side are joined, and a pattern that starts with a gap
@@ -257,12 +350,18 @@ function alternating(pattern: readonly number[]): number[] | undefined {
 /**
  * An entity cut into the dashes of its pattern, as path data, or undefined when the pattern
  * is too fine for the entity and it draws solid. A polyline starts the pattern again at each
- * vertex, as AutoCAD does unless told otherwise.
+ * vertex, as AutoCAD does unless told otherwise. The cuts are made in the entity's own
+ * coordinates and then placed by `matrix`, so a pattern scales with the insert that draws it.
  */
 function dashedPath(
-  e: Exclude<Entity, { kind: "text" }>,
+  e: Exclude<Drawn, { kind: "text" }>,
   dashes: readonly number[],
+  matrix: Matrix | undefined,
 ): string | undefined {
+  const place = (px: number, py: number): string => {
+    const [mx, my] = matrix ? mapPoint(matrix, [px, py]) : [px, py];
+    return `${fmt(mx)} ${fmt(my)}`;
+  };
   const total = dashes.reduce((a, b) => a + b, 0);
   const out: string[] = [];
   /** Cuts a stretch of the given length, and draws each dash from `from` to `to` along it. */
@@ -279,24 +378,25 @@ function dashedPath(
   const straight = (a: Point, b: Point): boolean => {
     const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
     const along = (t: number) =>
-      `${fmt(a[0] + ((b[0] - a[0]) * t) / length)} ${fmt(a[1] + ((b[1] - a[1]) * t) / length)}`;
+      place(a[0] + ((b[0] - a[0]) * t) / length, a[1] + ((b[1] - a[1]) * t) / length);
     return length === 0 || cut(length, (from, to) => `M ${along(from)} L ${along(to)}`);
   };
   const round = (center: Point, radius: number, start: number, turn: number): boolean => {
     const along = (t: number) => {
       const angle = rad(start) + t / radius;
-      return `${fmt(center[0] + radius * Math.cos(angle))} ${fmt(center[1] + radius * Math.sin(angle))}`;
+      return place(center[0] + radius * Math.cos(angle), center[1] + radius * Math.sin(angle));
     };
+    const shape = rounded(radius, matrix);
     return cut(radius * rad(turn), (from, to) => {
       // SVG draws no arc between two equal points, so a dot is a line of no length.
       if (to === from) return `M ${along(from)} L ${along(to)}`;
-      const arc = `A ${fmt(radius)} ${fmt(radius)} 0`;
+      const arc = `A ${fmt(shape.rx)} ${fmt(shape.ry)} ${fmt(shape.turn)}`;
       // A dash of a full turn ends where it starts, so it is drawn as two halves.
       if ((to - from) / radius > Math.PI && along(from) === along(to)) {
-        return `M ${along(from)} ${arc} 0 1 ${along((from + to) / 2)} ${arc} 0 1 ${along(to)}`;
+        return `M ${along(from)} ${arc} 0 ${shape.sweep} ${along((from + to) / 2)} ${arc} 0 ${shape.sweep} ${along(to)}`;
       }
       const large = (to - from) / radius > Math.PI ? 1 : 0;
-      return `M ${along(from)} ${arc} ${large} 1 ${along(to)}`;
+      return `M ${along(from)} ${arc} ${large} ${shape.sweep} ${along(to)}`;
     });
   };
   let ok: boolean;

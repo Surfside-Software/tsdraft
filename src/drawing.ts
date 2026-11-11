@@ -1,3 +1,10 @@
+import {
+  definitionHandle,
+  insertAttributeHandle,
+  insertEndHandle,
+  blockHandles,
+  placeAttribute,
+} from "./blocks.ts";
 import { holdCall, readCall, recordCalls, type HeldCall } from "./callsite.ts";
 import { STANDARD_TEXT_STYLE } from "./fonts.ts";
 import { fmt, written } from "./format.ts";
@@ -7,11 +14,19 @@ import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import { DrawingError, type Diagnostic, type LintRule } from "./lint.ts";
 import {
   arcProblem,
+  ATTRIBUTES_SHAPE,
+  attributeTagProblem,
+  blockCycleProblem,
+  blockNameProblem,
+  blockTwinProblem,
+  duplicateAttributeProblem,
   duplicateIdProblem,
+  handleProblem,
   idHandleProblem,
   idKey,
   idProblem,
   isStandardTextStyle,
+  placedAttributeProblem,
   layerColorProblem,
   layerFlagProblem,
   layerLinetypeProblem,
@@ -24,17 +39,23 @@ import {
   layerNameProblem,
   layerTwinProblem,
   R12_ONLY,
+  scaleProblem,
   sizeProblem,
   textAlignProblem,
   textProblem,
   textStyleNameProblem,
   textStyleProblem,
+  undefinedAttributeProblem,
+  undefinedBlockProblem,
   undefinedLinetypeProblem,
   undefinedTextStyleProblem,
+  type AttributeTag,
+  type BlockName,
   type Description,
   type EntityId,
   type FontOf,
   type FrozenCurrent,
+  type InsertScale,
   type LayerLinetypeName,
   type LineweightMm,
   type LineweightOf,
@@ -43,6 +64,7 @@ import {
   type NewTextStyleName,
   type ObliqueAngle,
   type Pattern,
+  type R12Blocks,
   type R12EntityStyle,
   type R12LayerStates,
   type R12Lineweights,
@@ -118,14 +140,21 @@ export interface Layer {
   readonly plot?: boolean;
 }
 
-interface EntityBase {
+interface Placed {
   /**
    * A name for this entity that stays the same when the drawing's code changes around it: 1 to
    * 64 letters A to Z or a to z, digits, `.`, `-` and `_`. No two entities of a drawing share
-   * one, whatever its case.
+   * one, whatever its case, in model space or in a block.
    */
   readonly id?: string;
+  /**
+   * The entity's layer. In a block, layer `"0"` stands for the layer of the insert that
+   * places the block.
+   */
   readonly layer: string;
+}
+
+interface EntityBase extends Placed {
   /** A linetype of the drawing, `"Continuous"`, `"ByBlock"` or `"ByLayer"`, the default. */
   readonly linetype?: string;
   /** In millimetres, one of `Lineweight`, or `"ByLayer"`, the default, `"ByBlock"` or `"Default"`. */
@@ -201,7 +230,68 @@ export interface Text extends EntityBase {
   readonly valign?: TextVerticalAlign;
 }
 
-export type Entity = Line | Polyline | Circle | Arc | Text;
+/**
+ * A block placed at a point. It draws the block's entities there, scaled and turned about the
+ * block's base point, and carries a value for each of the block's attribute definitions.
+ */
+export interface Insert extends Placed {
+  readonly kind: "insert";
+  /** A block of the drawing. */
+  readonly block: string;
+  /** Where the block's base point goes. */
+  readonly at: Point;
+  /** The scale along the block's X and Y. Defaults to `[1, 1]`. A negative scale mirrors. */
+  readonly scale?: readonly [x: number, y: number];
+  /** Degrees counterclockwise. Defaults to 0. */
+  readonly rotation?: number;
+  /**
+   * The value of each attribute this insert sets, by its tag. An attribute it does not set has
+   * its definition's default value.
+   */
+  readonly attributes?: Readonly<Record<string, string>>;
+}
+
+export type Entity = Line | Polyline | Circle | Arc | Text | Insert;
+
+/**
+ * An attribute definition of a block: a text that each insert of the block carries with a
+ * value of its own, under a tag. It is placed and justified as a `Text` is, in the block's
+ * coordinates.
+ */
+export interface AttributeDefinition {
+  /** The name of the attribute in its block, with no lower-case letter a to z. */
+  readonly tag: string;
+  /** What CAD asks for when the block is inserted by hand. Defaults to the tag. */
+  readonly prompt?: string;
+  /** The value of an insert that does not set this attribute. */
+  readonly value: string;
+  /** The layer of the attribute on each insert. `"0"` stands for the insert's layer. */
+  readonly layer: string;
+  readonly at: Point;
+  readonly height: number;
+  /** Degrees counterclockwise. */
+  readonly rotation: number;
+  /** A text style of the drawing. Defaults to `"Standard"`. */
+  readonly style?: string;
+  /** Defaults to `"left"`. */
+  readonly align?: TextAlign;
+  /** Defaults to `"baseline"`. */
+  readonly valign?: TextVerticalAlign;
+}
+
+/**
+ * A block: entities drawn once, under a name, and placed any number of times by inserts. Its
+ * coordinates are its own, and `base` is the point of them that an insert puts at its `at`.
+ */
+export interface Block {
+  readonly name: string;
+  /** Defaults to `[0, 0]`. */
+  readonly base?: Point;
+  /** What every insert draws. An insert here places another block inside this one. */
+  readonly entities: readonly Entity[];
+  /** The attribute definitions, in the order CAD asks for their values. */
+  readonly attributes?: readonly AttributeDefinition[];
+}
 
 export interface Drawing {
   /**
@@ -220,6 +310,8 @@ export interface Drawing {
   readonly linetypeScale?: number;
   /** Text styles beyond `Standard`, which every drawing has. */
   readonly textStyles?: readonly TextStyle[];
+  /** The blocks that inserts place. */
+  readonly blocks?: readonly Block[];
 }
 
 export interface DrawingOptions<V extends DxfVersion = DxfVersion, S extends number = number> {
@@ -441,10 +533,74 @@ export interface TextOptions<
   readonly valign?: V extends "R12" ? "baseline" | R12Text : TextVerticalAlign;
 }
 
+/** What `block()` sets on a block. */
+export interface BlockOptions {
+  /** The point of the block that an insert puts at its `at`. Defaults to `[0, 0]`. */
+  readonly base?: Point;
+}
+
+/**
+ * The options of `attribute()`: the definition's default value and prompt, and its height,
+ * rotation, style and justification, which are a text's.
+ *
+ * @typeParam D - The text style as written, a name or a definition, checked as a text's is.
+ */
+export interface AttributeOptions<
+  H extends number = number,
+  S extends string = string,
+  D extends TextStyleValue = TextStyleDefinition,
+> {
+  /** The value of an insert that does not set the attribute. Defaults to `""`. */
+  readonly value?: string;
+  /** What CAD asks for when the block is inserted by hand. Defaults to the tag. */
+  readonly prompt?: string;
+  readonly height?: Positive<H>;
+  /** Degrees counterclockwise. */
+  readonly rotation?: number;
+  /** A text style of the drawing, or a definition of one. Defaults to `"Standard"`. */
+  readonly style?: TextStyleChoice<S, D>;
+  /** Where `at` is along the text's line. Defaults to `"left"`. */
+  readonly align?: TextAlign;
+  /** Where `at` is up and down the text's line. Defaults to `"baseline"`. */
+  readonly valign?: TextVerticalAlign;
+}
+
+/** The options of `insert()`. */
+export interface InsertOptions<
+  S extends number | readonly [number, number] = number,
+  I extends string = string,
+> {
+  /**
+   * A name for the insert that no other entity of the drawing has. The insert's attributes
+   * keep their handles with it.
+   */
+  readonly id?: EntityId<I>;
+  /**
+   * One number for both axes, or `[x, y]`. Defaults to 1. A negative scale mirrors the block,
+   * and no scale may be 0.
+   */
+  readonly scale?: InsertScale<S>;
+  /** Degrees counterclockwise, about the insert's point. Defaults to 0. */
+  readonly rotation?: number;
+  /** A value for each attribute to set, by its tag. The others have their default values. */
+  readonly attributes?: Readonly<Record<string, string>>;
+}
+
 /** The linetype and lineweight an entity is stored with: only what differs from ByLayer. */
 type EntityStyle = Pick<Line, "linetype" | "lineweight">;
 
 type Method = (...args: never[]) => unknown;
+
+/** A block while its `draw` runs. */
+interface OpenBlock {
+  readonly name: string;
+  readonly base?: Point;
+  readonly entities: Entity[];
+  readonly attributes: AttributeDefinition[];
+  /** The call that drew each entity, when calls are recorded. */
+  readonly calls: (HeldCall | undefined)[] | undefined;
+  readonly attributeCalls: (HeldCall | undefined)[];
+}
 
 /** A broken rule, thrown inside a builder method and turned into a `DrawingError` on its way out. */
 class Problem {
@@ -468,7 +624,7 @@ function refuse(rule: LintRule, message: string): never {
 function located(
   thrown: unknown,
   method: Method,
-  about: Pick<Diagnostic, "id" | "layer" | "linetype" | "textStyle">,
+  about: Pick<Diagnostic, "id" | "layer" | "linetype" | "textStyle" | "block" | "attribute">,
 ): unknown {
   if (!(thrown instanceof Problem)) return thrown;
   const call = readCall(holdCall(method));
@@ -491,11 +647,14 @@ function recordsCalls(): boolean {
  * Builds a drawing. Entities go on the current layer, which starts as "0".
  * `layer(name, opts, draw)` scopes everything drawn inside `draw` to that layer.
  *
+ * `block(name, opts, draw)` puts everything drawn inside `draw` in a block, and `insert`
+ * places a block.
+ *
  * Mistakes written as literals, such as a layer name the DXF version does not
  * allow or a negative radius, are compile errors. The same checks run again
  * when the code runs, for values the compiler cannot see: `layer`, `linetype`,
- * `textStyle` and the entity methods then throw a `DrawingError` whose diagnostic has the
- * rule, the entity's `id` and the `call` that broke it.
+ * `textStyle`, `block`, `attribute` and the entity methods then throw a `DrawingError` whose
+ * diagnostic has the rule, the entity's `id` and the `call` that broke it.
  */
 export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = number> {
   readonly units: Units;
@@ -519,10 +678,16 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
   readonly #entities: Entity[] = [];
   /** The first spelling of each entity id, by `idKey`. */
   readonly #ids = new Map<string, string>();
-  /** The first id that gave each handle. */
-  readonly #idHandles = new Map<string, string>();
+  /** What took each handle that comes from a name: an id, or a description of anything else. */
+  readonly #handles = new Map<string, { readonly id?: string; readonly what: string }>();
   /** The call that drew each entity, when calls are recorded. */
   readonly #calls: (HeldCall | undefined)[] | undefined;
+  /** Keyed by `layerKey`: an insert finds its block as an entity finds its layer. */
+  readonly #blocks = new Map<string, Block>();
+  /** The first block name for each `layerAuditKey`: AutoCAD takes two such names for one block. */
+  readonly #blocksAudited = new Map<string, string>();
+  /** The block being drawn, which takes what is drawn until its `draw` returns. */
+  #open: OpenBlock | undefined;
   #current = "0";
 
   constructor(options: DrawingOptions<V, S> = {}) {
@@ -794,45 +959,226 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     S extends string = string,
     const D extends TextStyleValue = TextStyleDefinition,
   >(at: Point, value: string, options: TextOptions<H, V, T, W, L, I, S, D> = {}): this {
-    return this.#add(DrawingBuilder.prototype.text, options, () => {
-      const problem = textProblem(value);
-      if (problem) refuse("text", problem);
-      const text: { -readonly [K in keyof Text]: Text[K] } = {
-        kind: "text",
-        layer: this.#current,
-        at: pt(at),
-        value,
-        height: positive(options.height ?? 0.125, "height"),
-        rotation: kept(options.rotation ?? 0, "rotation"),
+    return this.#add(DrawingBuilder.prototype.text, options, () => ({
+      kind: "text",
+      layer: this.#current,
+      ...this.#textFields(at, value, options as TextOptions),
+    }));
+  }
+
+  /**
+   * Defines a block: what `draw` draws goes in the block and not in the drawing, in the
+   * block's own coordinates, and `insert` then places it. Inside `draw` the current layer
+   * starts as `"0"`, which in a block stands for the layer of each insert, and `layer()` puts
+   * entities on a layer of their own. A block is defined once, and not inside another.
+   */
+  block<N extends string>(
+    name: V extends "R12" ? R12Blocks : BlockName<N>,
+    options: BlockOptions,
+    draw: () => void,
+  ): this {
+    // The parameter type is the error message when a literal name is wrong, so read it as a string.
+    const requested = name as string;
+    let open: OpenBlock;
+    try {
+      const fail = (rule: LintRule, problem: string): never =>
+        refuse(rule, `Block ${JSON.stringify(requested)}: ${problem}`);
+      if (this.dxf === "R12") fail("block", R12_ONLY.blocks);
+      const nameProblem = blockNameProblem(requested);
+      if (nameProblem) fail("block", nameProblem);
+      if (this.#open) {
+        fail(
+          "block",
+          `a block cannot be defined inside another, and block ${JSON.stringify(this.#open.name)} is being drawn. Define this one first, and insert it`,
+        );
+      }
+      const first = this.#blocksAudited.get(layerAuditKey(requested));
+      if (first !== undefined) fail("duplicate-block", blockTwinProblem(requested, first)!);
+      const base = options?.base === undefined ? undefined : pt(options.base);
+      const handles = blockHandles(requested);
+      const what = `the block ${JSON.stringify(requested)}`;
+      for (const handle of [handles.record, handles.begin, handles.end]) this.#claim(handle, what);
+      open = {
+        name: requested,
+        ...(base && (base[0] !== 0 || base[1] !== 0) ? { base } : {}),
+        entities: [],
+        attributes: [],
+        calls: this.#calls ? [] : undefined,
+        attributeCalls: [],
       };
-      const r12 = this.dxf === "R12";
-      if (options.style !== undefined) {
-        const named: unknown = options.style;
-        // An R12 drawing has no style to look up but Standard.
-        if (r12 && !(typeof named === "string" && isStandardTextStyle(named))) {
-          refuse("text-style", R12_ONLY.text);
-        }
-        const style = this.#textStyleName(options.style);
-        if (style !== STANDARD_TEXT_STYLE) text.style = style;
+    } catch (thrown) {
+      throw located(thrown, DrawingBuilder.prototype.block, { block: requested });
+    }
+    const previous = this.#current;
+    this.#current = "0";
+    this.#open = open;
+    try {
+      draw();
+    } finally {
+      this.#current = previous;
+      this.#open = undefined;
+    }
+    if (open.calls) {
+      recordCalls(open.entities, open.calls);
+      recordCalls(open.attributes, open.attributeCalls);
+    }
+    this.#blocks.set(layerKey(requested), {
+      name: open.name,
+      ...(open.base ? { base: open.base } : {}),
+      entities: open.entities,
+      ...(open.attributes.length > 0 ? { attributes: open.attributes } : {}),
+    });
+    this.#blocksAudited.set(layerAuditKey(requested), requested);
+    return this;
+  }
+
+  /**
+   * Adds an attribute definition to the block being drawn: a text that each insert of the
+   * block carries with a value of its own, under `tag`. It is placed and justified as `text()`
+   * places a text, and goes on the current layer.
+   */
+  attribute<
+    T extends string,
+    H extends number = number,
+    S extends string = string,
+    const D extends TextStyleValue = TextStyleDefinition,
+  >(
+    tag: V extends "R12" ? R12Blocks : AttributeTag<T>,
+    at: Point,
+    options: AttributeOptions<H, S, D> = {},
+  ): this {
+    const requested: unknown = tag;
+    const open = this.#open;
+    try {
+      if (this.dxf === "R12") refuse("attribute", R12_ONLY.blocks);
+      if (!open) {
+        return refuse(
+          "attribute",
+          "An attribute definition belongs to a block. Call attribute() inside the draw of block()",
+        );
       }
-      const { align, valign }: { align?: unknown; valign?: unknown } = options;
-      if (align !== undefined) {
-        const alignProblem = textAlignProblem("align", align);
-        if (alignProblem) refuse("text-align", alignProblem);
-        if (align !== "left") {
-          if (r12) refuse("text-align", R12_ONLY.text);
-          text.align = align as TextAlign;
-        }
+      const tagProblem = attributeTagProblem(requested);
+      if (tagProblem) refuse("attribute", tagProblem);
+      const named = requested as string;
+      if (open.attributes.some((definition) => definition.tag === named)) {
+        refuse("duplicate-attribute", duplicateAttributeProblem(named));
       }
-      if (valign !== undefined) {
-        const alignProblem = textAlignProblem("valign", valign);
-        if (alignProblem) refuse("text-align", alignProblem);
-        if (valign !== "baseline") {
-          if (r12) refuse("text-align", R12_ONLY.text);
-          text.valign = valign as TextVerticalAlign;
-        }
+      const prompt: unknown = options.prompt;
+      if (prompt !== undefined) {
+        const problem = typeof prompt === "string" ? textProblem(prompt) : "must be a string";
+        if (problem) refuse("text", `prompt: ${problem}`);
       }
-      return text;
+      const fields = this.#textFields(at, options.value ?? "", options as TextOptions);
+      this.#claim(
+        definitionHandle(open.name, named),
+        `the attribute ${JSON.stringify(named)} of the block ${JSON.stringify(open.name)}`,
+      );
+      open.attributes.push({
+        tag: named,
+        ...(prompt === undefined ? {} : { prompt: prompt as string }),
+        layer: this.#current,
+        ...fields,
+      });
+    } catch (thrown) {
+      const about = typeof requested === "string" ? { attribute: requested } : {};
+      throw located(thrown, DrawingBuilder.prototype.attribute, {
+        ...(open ? { block: open.name } : {}),
+        ...about,
+      });
+    }
+    if (open.calls) open.attributeCalls.push(holdCall(DrawingBuilder.prototype.attribute));
+    return this;
+  }
+
+  /**
+   * Places a block of the drawing with its base point at `at`, on the current layer. Inside
+   * `block()`, it places the block in the one being drawn.
+   */
+  insert<
+    N extends string,
+    const S extends number | readonly [number, number] = number,
+    I extends string = string,
+  >(
+    block: V extends "R12" ? R12Blocks : BlockName<N>,
+    at: Point,
+    options: InsertOptions<S, I> = {},
+  ): this {
+    return this.#add(DrawingBuilder.prototype.insert, options, () => {
+      if (this.dxf === "R12") refuse("block", R12_ONLY.blocks);
+      const requested: unknown = block;
+      if (typeof requested !== "string")
+        return refuse("undefined-block", "A block is named by a string");
+      const nameProblem = blockNameProblem(requested);
+      if (nameProblem)
+        refuse("undefined-block", `Block ${JSON.stringify(requested)}: ${nameProblem}`);
+      if (this.#open && layerAuditKey(this.#open.name) === layerAuditKey(requested)) {
+        refuse("block-cycle", blockCycleProblem([this.#open.name, this.#open.name]));
+      }
+      const placed = this.#blocks.get(layerKey(requested));
+      if (!placed) {
+        refuse(
+          "undefined-block",
+          `${undefinedBlockProblem(requested)}. Define it with block() first`,
+        );
+      }
+      const insert: { -readonly [K in keyof Insert]: Insert[K] } = {
+        kind: "insert",
+        layer: this.#current,
+        block: placed.name,
+        at: pt(at),
+      };
+      const scale: unknown = options.scale;
+      if (scale !== undefined) {
+        const pair = (typeof scale === "number" ? [scale, scale] : scale) as readonly unknown[];
+        if (!Array.isArray(pair) || pair.length !== 2) {
+          refuse("geometry", "scale must be a number or [x, y]");
+        }
+        const problem = scaleProblem(pair[0]) ?? scaleProblem(pair[1]);
+        if (problem) refuse("geometry", `scale: ${problem}`);
+        if (pair[0] !== 1 || pair[1] !== 1) insert.scale = [pair[0] as number, pair[1] as number];
+      }
+      const rotation = kept(options.rotation ?? 0, "rotation");
+      if (rotation !== 0) insert.rotation = rotation;
+      const definitions = placed.attributes ?? [];
+      const set: unknown = options.attributes;
+      if (set !== undefined) {
+        if (typeof set !== "object" || set === null || Array.isArray(set)) {
+          return refuse("undefined-attribute", ATTRIBUTES_SHAPE);
+        }
+        const values: Record<string, string> = {};
+        for (const [tag, value] of Object.entries(set as Record<string, unknown>)) {
+          if (!definitions.some((definition) => definition.tag === tag)) {
+            refuse("undefined-attribute", undefinedAttributeProblem(tag, placed.name));
+          }
+          const problem = typeof value === "string" ? textProblem(value) : "must be a string";
+          if (problem) refuse("text", `attribute ${JSON.stringify(tag)}: ${problem}`);
+          values[tag] = value as string;
+        }
+        if (Object.keys(values).length > 0) insert.attributes = values;
+      }
+      for (const definition of definitions) {
+        const style =
+          definition.style === undefined
+            ? undefined
+            : this.#textStyles.get(layerKey(definition.style));
+        const problem = placedAttributeProblem(
+          definition.tag,
+          placeAttribute(definition, style, insert, placed.base),
+        );
+        if (problem) refuse("geometry", problem);
+      }
+      const id: unknown = options.id;
+      if (typeof id === "string" && definitions.length > 0) {
+        const what = `the insert ${JSON.stringify(id)}`;
+        for (const { tag } of definitions) {
+          this.#claim(
+            insertAttributeHandle(id, tag),
+            `the attribute ${JSON.stringify(tag)} of ${what}`,
+          );
+        }
+        this.#claim(insertEndHandle(id), `the end of the attributes of ${what}`);
+      }
+      return insert;
     });
   }
 
@@ -848,7 +1194,58 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
       linetypes: [...this.#linetypes.values()],
       linetypeScale: this.linetypeScale,
       ...(this.#textStyles.size > 0 ? { textStyles: [...this.#textStyles.values()] } : {}),
+      ...(this.#blocks.size > 0 ? { blocks: [...this.#blocks.values()] } : {}),
     };
+  }
+
+  /**
+   * The fields of a text that `text()` and `attribute()` share: its point and value, and the
+   * height, rotation, style and justification its options give.
+   */
+  #textFields(
+    at: Point,
+    value: string,
+    options: TextOptions,
+  ): Pick<Text, "at" | "value" | "height" | "rotation" | "style" | "align" | "valign"> {
+    const problem = typeof value === "string" ? textProblem(value) : "Text must be a string";
+    if (problem) refuse("text", problem);
+    const text: { -readonly [K in keyof Text]?: Text[K] } & Pick<
+      Text,
+      "at" | "value" | "height" | "rotation"
+    > = {
+      at: pt(at),
+      value,
+      height: positive(options.height ?? 0.125, "height"),
+      rotation: kept(options.rotation ?? 0, "rotation"),
+    };
+    const r12 = this.dxf === "R12";
+    if (options.style !== undefined) {
+      const named: unknown = options.style;
+      // An R12 drawing has no style to look up but Standard.
+      if (r12 && !(typeof named === "string" && isStandardTextStyle(named))) {
+        refuse("text-style", R12_ONLY.text);
+      }
+      const style = this.#textStyleName(options.style);
+      if (style !== STANDARD_TEXT_STYLE) text.style = style;
+    }
+    const { align, valign }: { align?: unknown; valign?: unknown } = options;
+    if (align !== undefined) {
+      const alignProblem = textAlignProblem("align", align);
+      if (alignProblem) refuse("text-align", alignProblem);
+      if (align !== "left") {
+        if (r12) refuse("text-align", R12_ONLY.text);
+        text.align = align as TextAlign;
+      }
+    }
+    if (valign !== undefined) {
+      const alignProblem = textAlignProblem("valign", valign);
+      if (alignProblem) refuse("text-align", alignProblem);
+      if (valign !== "baseline") {
+        if (r12) refuse("text-align", R12_ONLY.text);
+        text.valign = valign as TextVerticalAlign;
+      }
+    }
+    return text;
   }
 
   /**
@@ -861,15 +1258,19 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     const id: unknown = o.id;
     try {
       const key = id === undefined ? undefined : this.#idKey(id);
-      const handle = key === undefined ? undefined : this.#idHandle(id as string);
+      if (key !== undefined) this.#freeIdHandle(id as string);
       const named = id === undefined ? {} : { id: id as string };
-      this.#entities.push({ ...make(), ...named, ...this.#style(o) });
-      if (key !== undefined) this.#ids.set(key, id as string);
-      if (handle !== undefined) this.#idHandles.set(handle, id as string);
+      const made = { ...make(), ...named, ...this.#style(o) } as Entity;
+      (this.#open?.entities ?? this.#entities).push(made);
+      if (key !== undefined) {
+        this.#ids.set(key, id as string);
+        this.#claim(validIdHandle(id as string), `the id ${JSON.stringify(id)}`, id as string);
+      }
     } catch (thrown) {
-      throw located(thrown, method, typeof id === "string" ? { id } : {});
+      const block = this.#open ? { block: this.#open.name } : {};
+      throw located(thrown, method, { ...block, ...(typeof id === "string" ? { id } : {}) });
     }
-    this.#calls?.push(holdCall(method));
+    (this.#open ? this.#open.calls : this.#calls)?.push(holdCall(method));
     return this;
   }
 
@@ -883,12 +1284,31 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     return key;
   }
 
-  /** Checks that no other id gave the handle this id gives, and returns the handle. */
-  #idHandle(id: string): string {
+  /** Refuses an id whose handle something else has. */
+  #freeIdHandle(id: string): void {
     const handle = validIdHandle(id);
-    const first = this.#idHandles.get(handle);
-    if (first !== undefined) refuse("id-handle", idHandleProblem(id, first, handle));
-    return handle;
+    const other = this.#handles.get(handle);
+    if (other === undefined) return;
+    refuse(
+      "id-handle",
+      other.id !== undefined
+        ? idHandleProblem(id, other.id, handle)
+        : handleProblem(`the id ${JSON.stringify(id)}`, other.what, handle),
+    );
+  }
+
+  /** Takes a handle that comes from a name, and refuses one that something else has. */
+  #claim(handle: string, what: string, id?: string): void {
+    const other = this.#handles.get(handle);
+    if (other !== undefined) {
+      refuse(
+        "id-handle",
+        id !== undefined && other.id !== undefined
+          ? idHandleProblem(id, other.id, handle)
+          : handleProblem(what, other.what, handle),
+      );
+    }
+    this.#handles.set(handle, id === undefined ? { what } : { id, what });
   }
 
   /** The linetype and lineweight an entity is stored with. */

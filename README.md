@@ -76,7 +76,8 @@ share code, and changes show up as diffs.
 Coordinates are in drawing units with Y pointing up, as in CAD. Angles are in
 degrees, counterclockwise from +X. Layer colors are AutoCAD Color Index numbers.
 
-`toSVG` draws the drawing as it plots. Each layer is drawn in the color AutoCAD plots its
+`toSVG` draws the drawing as it plots, an insert as what its block draws where the insert
+puts it. Each layer is drawn in the color AutoCAD plots its
 index in, from 1 to 255. Index 7 is black on paper and white on a dark screen, so it is drawn
 in `currentColor`. A layer that is off or frozen, or whose `plot` is false, is left out.
 `toSVG(drawing, { drawNoPlot: true })` draws the layers that do not plot too, to see
@@ -99,6 +100,24 @@ d.textStyle({ name: "NOTES", font: "Arial" });
 d.text([60, 40], "PROPOSED RESIDENCE", { height: 3, style: "NOTES", align: "center" });
 ```
 
+A symbol that repeats is a block: drawn once, and placed by inserts that scale and turn it.
+A block's attributes are texts that each insert sets a value for, and that a drafter can edit
+in CAD:
+
+```ts
+d.block("TREE", {}, () => {
+  d.circle([0, 0], 1);
+  d.attribute("TAG", [0, 1.2], { value: "T-0", height: 0.3, align: "center" });
+});
+d.layer("V-TREE", {}, () => {
+  d.insert("TREE", [15, 72], { scale: 5, attributes: { TAG: "T-1" } });
+  d.insert("TREE", [33, 72], { scale: [6, 5], rotation: 30 });
+});
+```
+
+An entity on layer `0` of a block draws as the layer of each insert does.
+[Blocks](docs/blocks.md) has the rest.
+
 Text, symbols and dashes are sized by how large they plot. `fromPaper` turns a
 length on paper into drawing units for one scale, given as a plain ratio:
 
@@ -120,8 +139,9 @@ way, and the file to copy to start a drawing.
 
 tsdraft is at an early stage. It draws layers, lines, polylines, rectangles,
 circles, arcs and single-line text, with linetypes and lineweights, text styles
-and justification, and layers that are off, frozen, locked or not plotted. It does not yet have dimensions,
-hatches, blocks or paper space layouts. It writes DXF, not DWG. The drawing at
+and justification, blocks with attributes and inserts of them, and layers that are off,
+frozen, locked or not plotted. It does not yet have dimensions, hatches, external references
+or paper space layouts. It writes DXF, not DWG. The drawing at
 the top builds its dimensions, leaders and stipple from lines and text, so in
 CAD they are plain lines and text, not dimension or hatch objects.
 
@@ -214,6 +234,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
 - [Layer names](docs/layer-names.md) explains how AutoCAD compares layer and
   linetype names, and lists the pairs `AUDIT` calls duplicates and the
   characters it refuses.
+- [Blocks](docs/blocks.md) covers blocks, inserts and attributes: layers in a
+  block, names, handles and what the preview draws.
 - [Text](docs/text.md) covers text styles, fonts and justification, what
   tsdraft escapes in text, and what AutoCAD does with it after a save.
 - [The `tsdraft` command](docs/command.md) covers `render`, `dev`, the JSON they

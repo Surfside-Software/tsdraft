@@ -37,6 +37,11 @@
 //   so the sheet still reads when the ratio changes.
 // - Every text is in the sheet's text style, `NOTES`, through `put`, and is justified to its
 //   point with `align` and `valign`. Only columns and line breaks use an estimated width.
+// - A symbol is a block, drawn once and inserted where it is needed: the tree, the property
+//   corner, the north arrow and the view title. The tree is drawn one foot in radius and
+//   inserted at each tree's radius. The others are drawn in inches at the size they plot, and
+//   inserted at `paper(1)`. Their entities are on layer 0, so each insert draws on its own
+//   layer. The view title's text and scale are attributes, which each insert sets.
 import { mkdirSync, writeFileSync } from "node:fs";
 import {
   CENTER,
@@ -153,7 +158,6 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
   const gap = paper(1 / 16); // between a line and its text
   const clear = paper(1 / 8); // between a heavy line and its text
   const tick = paper(1 / 16); // half a dimension tick
-  const monument = paper(1 / 16); // radius of a property corner
   const leading = text.label * 1.8; // from one line of the column of notes to the next
   const blockGap = paper(3 / 4); // between two blocks of the column
 
@@ -224,6 +228,50 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
   d.layer("C-ANNO-SYMB", { color: 7, lineweight: 0.35 });
   d.layer("C-ANNO-TITL", { color: 7, lineweight: 0.5 });
 
+  // The symbols. A block's coordinates are its own, and its base point is its origin.
+  d.block("TREE", {}, () => {
+    // The canopy, one foot in radius, and a cross at the trunk.
+    d.circle([0, 0], 1);
+    d.line([-0.15, 0], [0.15, 0]);
+    d.line([0, -0.15], [0, 0.15]);
+  });
+  // The other symbols are in inches on paper, and `symbolScale` plots them at that size.
+  const symbolScale = paper(1);
+  const inch = { gap: 1 / 16, note: 3 / 32, label: 1 / 8, heading: 3 / 16, title: 1 / 4 };
+  d.block("PROPERTY CORNER", {}, () => d.circle([0, 0], 1 / 16));
+  const arrowRadius = 3 / 8;
+  d.block("NORTH ARROW", {}, () => {
+    // North is up the block. Its base point is the middle of the circle.
+    d.text([0, arrowRadius + inch.gap], "N", {
+      height: inch.heading,
+      style: NOTES,
+      align: "center",
+    });
+    d.circle([0, 0], arrowRadius);
+    d.line([0, -arrowRadius], [0, arrowRadius * 0.4]);
+    arrowhead(d, [0, arrowRadius], [0, 0], arrowRadius * 0.9);
+  });
+  // The view title: the title over a line and the scale under it. Its base point is the left
+  // end of the line. The line has one fixed length, long enough for the sheet's longest view
+  // title, and does not follow the title an insert sets.
+  const titleLine = textWidth("SITE PLAN", inch.title, perCharacter) + 1 / 4;
+  d.block("VIEW TITLE", {}, () => {
+    d.attribute("TITLE", [0, inch.gap], {
+      value: "VIEW TITLE",
+      prompt: "View title",
+      height: inch.title,
+      style: NOTES,
+    });
+    d.line([0, 0], [titleLine, 0]);
+    d.attribute("SCALE", [0, -inch.gap], {
+      value: "SCALE: 1\" = 10'",
+      prompt: "Scale",
+      height: inch.label,
+      style: NOTES,
+      valign: "top",
+    });
+  });
+
   d.layer("C-PROP", {}, () => d.rect([0, 0], lot.width, lot.depth));
   d.layer("C-PROP-ADJC", {}, () => {
     for (const y of [0, lot.depth]) {
@@ -234,7 +282,9 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
     d.line([ends.left, -street.rightOfWay], [ends.right, -street.rightOfWay]);
   });
   d.layer("C-PROP-MONU", {}, () => {
-    for (const x of [0, lot.width]) for (const y of [0, lot.depth]) d.circle([x, y], monument);
+    for (const x of [0, lot.width]) {
+      for (const y of [0, lot.depth]) d.insert("PROPERTY CORNER", [x, y], { scale: symbolScale });
+    }
   });
   d.layer("C-SETB", {}, () => {
     const { front, side, rear } = setbacks;
@@ -261,7 +311,7 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
   });
   d.layer("C-ROAD-CNTR", {}, () => d.line([ends.left, centerline], [ends.right, centerline]));
   d.layer("V-TREE", {}, () => {
-    for (const tree of trees) drawTree(tree.at, tree.radius);
+    for (const tree of trees) d.insert("TREE", tree.at, { scale: tree.radius });
   });
 
   // One string of dimensions across the lot, behind the building, and one up it, outside the east
@@ -483,9 +533,13 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
   legendRow("C-BLDG", "BUILDING FOOTPRINT", sampleLine);
   legendRow("C-PAVE", "EDGE OF PAVEMENT OR CONCRETE", sampleLine);
   legendRow("C-ROAD-CNTR", "STREET CENTERLINE", sampleLine);
-  legendRow("C-PROP-MONU", "PROPERTY CORNER", () => d.circle(sampleCenter(), monument));
+  legendRow("C-PROP-MONU", "PROPERTY CORNER", () =>
+    d.insert("PROPERTY CORNER", sampleCenter(), { scale: symbolScale }),
+  );
   row -= leading / 2;
-  legendRow("V-TREE", "EXISTING TREE TO REMAIN", () => drawTree(sampleCenter(), paper(3 / 16)));
+  legendRow("V-TREE", "EXISTING TREE TO REMAIN", () =>
+    d.insert("TREE", sampleCenter(), { scale: paper(3 / 16) }),
+  );
 
   row -= blockGap;
   columnHeading("ABBREVIATIONS");
@@ -505,24 +559,20 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
 
   // The view title, under the plan at the lower left of the drawing area: the north arrow, the
   // title and the graphic scale in a row.
-  const arrow = { radius: paper(3 / 8) };
+  const arrow = { radius: paper(arrowRadius) };
   // The underline of the title, level with the middle of the north arrow.
   const underline = drawingArea.bottom + arrow.radius;
   const titleX = drawingArea.left + arrow.radius * 2 + paper(3 / 8);
-  const titleWidth = widthOf("SITE PLAN", text.title) + paper(1 / 4);
+  const titleWidth = paper(titleLine);
   d.layer("C-ANNO-TITL", {}, () => {
-    put([titleX, underline + gap], "SITE PLAN", text.title);
-    d.line([titleX, underline], [titleX + titleWidth, underline]);
-    put([titleX, underline - gap], `SCALE: ${scaleLabel}`, text.label, { valign: "top" });
+    d.insert("VIEW TITLE", [titleX, underline], {
+      scale: symbolScale,
+      attributes: { TITLE: "SITE PLAN", SCALE: `SCALE: ${scaleLabel}` },
+    });
   });
   d.layer("C-ANNO-SYMB", {}, () => {
     // North is up the sheet.
-    const { radius } = arrow;
-    const center: Point = [drawingArea.left + radius, underline];
-    put([center[0], center[1] + radius + gap], "N", text.heading, { align: "center" });
-    d.circle(center, radius);
-    d.line([center[0], center[1] - radius], [center[0], center[1] + radius * 0.4]);
-    arrowhead(d, [center[0], center[1] + radius], center, radius * 0.9);
+    d.insert("NORTH ARROW", [drawingArea.left + arrow.radius, underline], { scale: symbolScale });
 
     // A graphic scale 2 in long on paper, divided at 1/2 in and 1 in, and numbered in feet.
     const bar = { x: titleX + titleWidth + paper(3 / 4), length: paper(2), height: paper(1 / 8) };
@@ -539,14 +589,6 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
     }
     put([bar.x + bar.length + clear, y], "FEET", text.note);
   });
-
-  /** A tree as its canopy and a cross at the trunk. */
-  function drawTree(at: Point, radius: number): void {
-    const [x, y] = at;
-    d.circle(at, radius);
-    d.line([x - tick, y], [x + tick, y]);
-    d.line([x, y - tick], [x, y + tick]);
-  }
 
   /** Lines of text, each with its height, centered on `center` as one block. */
   function stack(

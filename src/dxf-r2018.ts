@@ -1,4 +1,22 @@
-import type { Drawing, Entity, Linetype, TextStyle, Units } from "./drawing.ts";
+import {
+  definitionHandle,
+  insertAttributeHandle,
+  insertEndHandle,
+  blockHandles,
+  blocksByKey,
+  placeAttribute,
+} from "./blocks.ts";
+import type {
+  AttributeDefinition,
+  Block,
+  Drawing,
+  Entity,
+  Insert,
+  Linetype,
+  Text,
+  TextStyle,
+  Units,
+} from "./drawing.ts";
 import { extents } from "./extents.ts";
 import { fontInfo, STANDARD_TEXT_STYLE } from "./fonts.ts";
 import { ID_HANDLE_SEED, validIdHandle } from "./handles.ts";
@@ -32,7 +50,8 @@ interface TableRecord {
  * insertion scale correctly. Text is UTF-8.
  *
  * An entity with an id takes the handle its id gives, so it keeps that handle when the drawing
- * around it changes. Every other object takes the next handle counted up from 1.
+ * around it changes. So do a block's own objects, from its name, and the attributes of an insert
+ * that has an id. Every other object takes the next handle counted up from 1.
  *
  * @param handleOf - The handle an id gives. Only a test of the ends of the range passes one.
  */
@@ -52,7 +71,7 @@ export function toDXFR2018(
   const modelSpace = handle();
   const paperSpace = handle();
   // The extents are worked out here, so they are brought into the range AutoCAD reads.
-  const [left, bottom, right, top] = extents(drawing.entities, drawing.textStyles);
+  const [left, bottom, right, top] = extents(drawing.entities, drawing.textStyles, drawing.blocks);
   const [minX, minY, maxX, maxY] = [
     readable(left),
     readable(bottom),
@@ -174,6 +193,7 @@ export function toDXFR2018(
   writeTable(g, handle, "DIMSTYLE", [
     { type: "DIMSTYLE", subclass: "AcDbDimStyleTableRecord", name: "Standard", handle: handle() },
   ]);
+  const blocks = drawing.blocks ?? [];
   const blockRecordFields = (g: Group) => {
     g(280, 1); // explodable
     g(281, 0); // scale uniformly: no
@@ -193,25 +213,91 @@ export function toDXFR2018(
       handle: paperSpace,
       fields: blockRecordFields,
     },
+    ...blocks.map((block) => ({
+      type: "BLOCK_RECORD",
+      subclass: "AcDbBlockTableRecord",
+      name: block.name,
+      handle: blockHandles(block.name).record,
+      // A block is in the drawing's units, so that CAD inserts it at its own size.
+      flags: INSUNITS[drawing.units],
+      fields: blockRecordFields,
+    })),
   ]);
   g(0, "ENDSEC");
 
+  const blocksByName = blocksByKey(blocks);
+  const styleOf = (name: string | undefined): TextStyle | undefined =>
+    name === undefined ? undefined : stylesByKey.get(layerKey(name));
+  /** Writes the entities of model space or of a block, each owned by `owner`. */
+  const writeEntities = (entities: readonly Entity[], owner: string): void => {
+    for (const entity of entities) {
+      const own = entity.id === undefined ? handle() : handleOf(entity.id);
+      if (entity.kind !== "insert") {
+        writeEntity(
+          g,
+          entity,
+          own,
+          owner,
+          entity.kind === "text" ? styleOf(entity.style) : undefined,
+        );
+        continue;
+      }
+      const block = blocksByName.get(layerKey(entity.block));
+      const definitions = block?.attributes ?? [];
+      writeInsert(g, entity, own, owner, definitions.length > 0);
+      if (definitions.length === 0) continue;
+      const { id } = entity;
+      for (const definition of definitions) {
+        const placed = placeAttribute(definition, styleOf(definition.style), entity, block?.base);
+        g(0, "ATTRIB");
+        g(5, id === undefined ? handle() : insertAttributeHandle(id, definition.tag));
+        g(330, own);
+        g(100, "AcDbEntity");
+        g(8, definition.layer);
+        g(100, "AcDbText");
+        writeTextFields(g, { ...definition, ...placed }, styleOf(definition.style), placed);
+        g(100, "AcDbAttribute");
+        writeAttributeFields(g, definition, undefined);
+      }
+      g(0, "SEQEND");
+      g(5, id === undefined ? handle() : insertEndHandle(id));
+      g(330, own);
+      g(100, "AcDbEntity");
+      g(8, entity.layer);
+    }
+  };
+
   g(0, "SECTION");
   g(2, "BLOCKS");
-  writeBlock(g, handle, "*Model_Space", modelSpace, false);
-  writeBlock(g, handle, "*Paper_Space", paperSpace, true);
+  writeBlock(g, handle(), handle(), "*Model_Space", modelSpace, { paper: false });
+  writeBlock(g, handle(), handle(), "*Paper_Space", paperSpace, { paper: true });
+  for (const block of blocks) {
+    const handles = blockHandles(block.name);
+    writeBlock(g, handles.begin, handles.end, block.name, handles.record, {
+      paper: false,
+      base: block.base,
+      hasAttributes: (block.attributes ?? []).length > 0,
+      contents: () => {
+        writeEntities(block.entities, handles.record);
+        for (const definition of block.attributes ?? []) {
+          g(0, "ATTDEF");
+          g(5, definitionHandle(block.name, definition.tag));
+          g(330, handles.record);
+          g(100, "AcDbEntity");
+          g(8, definition.layer);
+          g(100, "AcDbText");
+          writeTextFields(g, definition, styleOf(definition.style), undefined);
+          g(100, "AcDbAttributeDefinition");
+          writeAttributeFields(g, definition, definition.prompt ?? definition.tag);
+        }
+      },
+    });
+  }
   g(0, "ENDSEC");
 
   g(0, "SECTION");
   g(2, "ENTITIES");
-  for (const entity of drawing.entities) {
-    const style =
-      entity.kind === "text" && entity.style !== undefined
-        ? stylesByKey.get(layerKey(entity.style))
-        : undefined;
-    const own = entity.id === undefined ? handle() : handleOf(entity.id);
-    writeEntity(g, entity, own, modelSpace, style);
-  }
+  writeEntities(drawing.entities, modelSpace);
   g(0, "ENDSEC");
 
   g(0, "SECTION");
@@ -270,7 +356,8 @@ export function toDXFR2018(
   h(8, "0");
   h(9, "$HANDSEED");
   // AutoCAD numbers the objects it adds from the seed up, so it is above every handle here.
-  h(5, drawing.entities.some((entity) => entity.id !== undefined) ? ID_HANDLE_SEED : handle());
+  const named = blocks.length > 0 || drawing.entities.some((entity) => entity.id !== undefined);
+  h(5, named ? ID_HANDLE_SEED : handle());
   h(0, "ENDSEC");
 
   return [...header, ...body].join("\r\n") + "\r\n";
@@ -292,9 +379,13 @@ function ownedBy(g: Group, handle: string, owner: string): void {
 }
 
 function point(g: Group, code: number, x: number, y: number): void {
+  point3(g, code, x, y, 0);
+}
+
+function point3(g: Group, code: number, x: number, y: number, z: number): void {
   g(code, x);
   g(code + 10, y);
-  g(code + 20, 0);
+  g(code + 20, z);
 }
 
 function writeTable(
@@ -375,38 +466,114 @@ function writeActiveViewport(
   g(78, 0); // snap isopair
 }
 
+/** Writes a block's definition: the object that opens it, what it holds, and the one that closes it. */
 function writeBlock(
   g: Group,
-  handle: () => string,
+  begin: string,
+  end: string,
   name: string,
   owner: string,
-  paper: boolean,
+  block: {
+    readonly paper: boolean;
+    readonly base?: Block["base"];
+    readonly hasAttributes?: boolean;
+    readonly contents?: () => void;
+  },
 ): void {
   g(0, "BLOCK");
-  g(5, handle());
+  g(5, begin);
   g(330, owner);
   g(100, "AcDbEntity");
-  if (paper) g(67, 1);
+  if (block.paper) g(67, 1);
   g(8, "0");
   g(100, "AcDbBlockBegin");
   g(2, name);
-  g(70, 0);
-  point(g, 10, 0, 0);
+  g(70, block.hasAttributes ? 2 : 0); // 2: the block has attribute definitions
+  point(g, 10, ...(block.base ?? [0, 0]));
   g(3, name);
   g(1, "");
+  block.contents?.();
   g(0, "ENDBLK");
-  g(5, handle());
+  g(5, end);
   g(330, owner);
   g(100, "AcDbEntity");
-  if (paper) g(67, 1);
+  if (block.paper) g(67, 1);
   g(8, "0");
   g(100, "AcDbBlockEnd");
+}
+
+function writeInsert(
+  g: Group,
+  e: Insert,
+  handle: string,
+  owner: string,
+  hasAttributes: boolean,
+): void {
+  g(0, "INSERT");
+  g(5, handle);
+  g(330, owner);
+  g(100, "AcDbEntity");
+  g(8, e.layer);
+  g(100, "AcDbBlockReference");
+  if (hasAttributes) g(66, 1); // attributes follow
+  g(2, e.block);
+  point(g, 10, ...e.at);
+  const [x, y] = e.scale ?? [1, 1];
+  if (x !== 1) g(41, x);
+  if (y !== 1) g(42, y);
+  if (e.rotation !== undefined && e.rotation !== 0) g(50, e.rotation);
+}
+
+/**
+ * The fields a text, an attribute definition and an attribute share, up to the justification
+ * across the line. `placed` is what an insert makes of an attribute's definition.
+ */
+function writeTextFields(
+  g: Group,
+  e: Pick<Text, "at" | "height" | "value" | "rotation" | "align" | "valign">,
+  style: TextStyle | undefined,
+  placed:
+    | { readonly widthFactor: number; readonly obliqueAngle: number; readonly mirrored: boolean }
+    | undefined,
+): void {
+  point(g, 10, ...e.at);
+  g(40, e.height);
+  g(1, dxfText(e.value));
+  if (e.rotation !== 0) g(50, e.rotation);
+  // A text holds its own width factor and oblique angle. It starts with its style's.
+  const widthFactor = placed?.widthFactor ?? style?.widthFactor ?? 1;
+  const obliqueAngle = placed?.obliqueAngle ?? style?.obliqueAngle ?? 0;
+  if (widthFactor !== 1) g(41, widthFactor);
+  if (obliqueAngle !== 0) g(51, obliqueAngle);
+  g(7, style?.name ?? STANDARD_TEXT_STYLE);
+  const align = TEXT_ALIGNS.indexOf(e.align ?? "left");
+  const valign = TEXT_VERTICAL_ALIGNS.indexOf(e.valign ?? "baseline");
+  if (align > 0) g(72, align);
+  // A justified text is placed by its alignment point, and its first point is written as
+  // the same point.
+  if (align > 0 || valign > 0) point(g, 11, ...e.at);
+  if (placed?.mirrored) point3(g, 210, 0, 0, -1);
+}
+
+/** The fields of an attribute definition, which has a prompt, or of an attribute, after its text's. */
+function writeAttributeFields(
+  g: Group,
+  definition: AttributeDefinition,
+  prompt: string | undefined,
+): void {
+  g(280, 0); // version
+  if (prompt !== undefined) g(3, dxfText(prompt));
+  g(2, dxfText(definition.tag));
+  g(70, 0); // visible, and asked for on insertion
+  const valign = TEXT_VERTICAL_ALIGNS.indexOf(definition.valign ?? "baseline");
+  if (valign > 0) g(74, valign);
+  g(280, 1); // the attribute keeps its place in the block
 }
 
 /** Writes an entity. `style` is the text style of a text that is not in `Standard`. */
 function writeEntity(
   g: Group,
-  e: Entity,
+  e: Exclude<Entity, Insert>,
   handle: string,
   owner: string,
   style: TextStyle | undefined,
@@ -455,25 +622,11 @@ function writeEntity(
       return;
     case "text":
       begin("TEXT", "AcDbText");
-      point(g, 10, ...e.at);
-      g(40, e.height);
-      g(1, dxfText(e.value));
-      if (e.rotation !== 0) g(50, e.rotation);
-      // A text holds its own width factor and oblique angle. It starts with its style's.
-      if (style?.widthFactor !== undefined && style.widthFactor !== 1) g(41, style.widthFactor);
-      if (style?.obliqueAngle !== undefined && style.obliqueAngle !== 0) {
-        g(51, style.obliqueAngle);
-      }
-      g(7, style?.name ?? STANDARD_TEXT_STYLE);
+      writeTextFields(g, e, style, undefined);
+      // TEXT repeats its subclass marker before the vertical alignment.
+      g(100, "AcDbText");
       {
-        const align = TEXT_ALIGNS.indexOf(e.align ?? "left");
         const valign = TEXT_VERTICAL_ALIGNS.indexOf(e.valign ?? "baseline");
-        if (align > 0) g(72, align);
-        // A justified text is placed by its alignment point, and its first point is written as
-        // the same point.
-        if (align > 0 || valign > 0) point(g, 11, ...e.at);
-        // TEXT repeats its subclass marker before the vertical alignment.
-        g(100, "AcDbText");
         if (valign > 0) g(73, valign);
       }
       return;

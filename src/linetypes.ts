@@ -1,6 +1,6 @@
 // Linetypes and lineweights: the ones every drawing has, the ones plans use, and how the
 // writers name and number them.
-import type { Entity, Layer, Lineweight, Linetype } from "./drawing.ts";
+import type { Entity, Insert, Layer, Lineweight, Linetype } from "./drawing.ts";
 import { layerKey } from "./layers.ts";
 
 /** Every lineweight AutoCAD offers, in millimetres, from thinnest to widest. */
@@ -65,7 +65,7 @@ export function builtInLinetype(name: string): (typeof BUILT_IN_LINETYPES)[numbe
 }
 
 /** The linetype name a writer gives an entity, or undefined when it draws ByLayer. */
-export function entityLinetype(e: Entity): string | undefined {
+export function entityLinetype(e: Exclude<Entity, Insert>): string | undefined {
   if (e.linetype === undefined) return undefined;
   return builtInLinetype(e.linetype) === "ByLayer" ? undefined : e.linetype;
 }

@@ -2,9 +2,12 @@
 // JSON back into a drawing and refuses what it does not know.
 import type {
   Arc,
+  AttributeDefinition,
+  Block,
   Circle,
   Drawing,
   Entity,
+  Insert,
   Layer,
   Line,
   Linetype,
@@ -177,6 +180,13 @@ const point: Check = (value, at, problems) => {
   }
 };
 
+const scale: Check = (value, at, problems) => {
+  const pair = value as readonly unknown[];
+  if (arrayProblem(value, at) || pair.length !== 2 || !isNumber(pair[0]) || !isNumber(pair[1])) {
+    problems.push(`${at} must be a scale along each axis, [x, y]`);
+  }
+};
+
 const oneOf =
   (...values: readonly string[]): Check =>
   (value, at, problems) => {
@@ -231,6 +241,18 @@ const record =
     else problems.push(`${at} ${PLAIN_OBJECT}`);
   };
 
+/** A plain object whose every field passes `item`, whatever its keys. */
+const map =
+  (item: Check): Check =>
+  (value, at, problems) => {
+    if (!isRecord(value)) problems.push(`${at} ${PLAIN_OBJECT}`);
+    else {
+      for (const [key, field] of Object.entries(value)) {
+        item(field, `${at}[${JSON.stringify(key)}]`, problems);
+      }
+    }
+  };
+
 const shared = { id: string, linetype: string, lineweight: numberOrName } as const;
 const kind: Check = () => {};
 
@@ -245,6 +267,10 @@ const ENTITIES = {
   text: fields<Text>(
     { kind, layer: string, at: point, height: number, value: string, rotation: number },
     { ...shared, style: string, align: string, valign: string },
+  ),
+  insert: fields<Insert>(
+    { kind, layer: string, block: string, at: point },
+    { id: string, scale, rotation: number, attributes: map(string) },
   ),
 } satisfies Record<Entity["kind"], FieldsCheck>;
 
@@ -293,6 +319,31 @@ const drawing = fields<Drawing>(
         fields<TextStyle>(
           { name: string, font: string },
           { widthFactor: number, obliqueAngle: number },
+        ),
+      ),
+    ),
+    blocks: list(
+      record(
+        fields<Block>(
+          { name: string, entities: list(entity) },
+          {
+            base: point,
+            attributes: list(
+              record(
+                fields<AttributeDefinition>(
+                  {
+                    tag: string,
+                    value: string,
+                    layer: string,
+                    at: point,
+                    height: number,
+                    rotation: number,
+                  },
+                  { prompt: string, style: string, align: string, valign: string },
+                ),
+              ),
+            ),
+          },
         ),
       ),
     ),

@@ -57,6 +57,11 @@ from them:
   tall, is kept clear. The title block will go there, at the foot of the
   column.
 
+The trees, the property corners, the north arrow and the view title are blocks,
+each drawn once and inserted where it is needed. The tree is drawn one foot in
+radius and inserted at each tree's radius. The others are drawn in inches at
+the size they plot. The view title's text and its scale are attributes.
+
 Each layer sets a linetype and a pen weight. The site is in feet, and the
 sheet, every text height, annotation offset and column, and the linetype scale,
 come from `fromPaper`, as a size on paper at the one ratio the file names.

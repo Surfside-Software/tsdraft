@@ -92,8 +92,12 @@ header that gives the build it came from. A PNG is at most
 }
 ```
 
-When it builds, `drawing` gives the units, the extents, counts of layers, entities, errors and
-warnings, and each layer. `diagnostics` holds what `lint` returned, errors first, each with its
+When it builds, `drawing` gives the units, the extents, counts of layers, entities, blocks,
+errors and warnings, and each layer. `drawing.blocks` gives each block's name, how many entities
+it holds, the tags of its attributes and how many inserts place it. `drawing.inserts` gives each
+insert in model space: its `entity` index, `block`, `layer`, `id`, `at`, `scale`, `rotation` and
+the value it shows for each attribute. A diagnostic about an entity inside a block names the
+`block`, counts `entity` in it, and gives `bounds` in the block's coordinates. `diagnostics` holds what `lint` returned, errors first, each with its
 `rule`, `severity` and `message`. A layer problem names its `layer`. An entity problem gives the
 `entity` index, its `kind`, its `layer`, and `bounds`, its box in drawing units. It also gives
 the entity's `id` when it has one, and `call`, the call in the drawing's code that drew the

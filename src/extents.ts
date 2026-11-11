@@ -1,4 +1,5 @@
-import type { Entity, TextStyle } from "./drawing.ts";
+import { blocksByKey, eachDrawn, mapPoint } from "./blocks.ts";
+import type { Block, Entity, TextStyle } from "./drawing.ts";
 import { layerKey } from "./layers.ts";
 
 /**
@@ -10,24 +11,34 @@ const DESCENT = 0.3;
 /**
  * Approximate extents. Arcs use their full circle. A text assumes 0.6 × height per character,
  * times its style's width factor, and is moved for its justification: back along its line for
- * `align`, and down or up it for `valign`.
+ * `align`, and down or up it for `valign`. An insert counts for what its block draws where the
+ * insert puts it, with a circle or an arc under an uneven scale as the box around its circle.
+ *
+ * @param isHidden - True for a layer whose entities are left out, wherever they are drawn.
+ * @param isFrozen - True for a layer that hides the whole of an insert on it: a frozen layer,
+ *   and in a plot a layer that does not plot.
  */
 export function extents(
   entities: readonly Entity[],
   textStyles: readonly TextStyle[] = [],
+  blocks: readonly Block[] = [],
+  isHidden: (layer: string) => boolean = () => false,
+  isFrozen: (layer: string) => boolean = () => false,
 ): [number, number, number, number] {
   const widthFactors = new Map(textStyles.map((t) => [layerKey(t.name), t.widthFactor ?? 1]));
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  const add = (x: number, y: number) => {
+  let add = (x: number, y: number) => {
     minX = Math.min(minX, x);
     minY = Math.min(minY, y);
     maxX = Math.max(maxX, x);
     maxY = Math.max(maxY, y);
   };
-  for (const e of entities) {
+  const plain = add;
+  const byKey = blocks.length > 0 ? blocksByKey(blocks) : undefined;
+  const one = (e: Exclude<Entity, { kind: "insert" }>) => {
     switch (e.kind) {
       case "line":
         add(...e.from);
@@ -40,6 +51,11 @@ export function extents(
       case "arc":
         add(e.center[0] - e.radius, e.center[1] - e.radius);
         add(e.center[0] + e.radius, e.center[1] + e.radius);
+        // The other two corners count too once an insert turns the box.
+        if (add !== plain) {
+          add(e.center[0] - e.radius, e.center[1] + e.radius);
+          add(e.center[0] + e.radius, e.center[1] - e.radius);
+        }
         break;
       case "text": {
         const widthFactor = e.style === undefined ? 1 : (widthFactors.get(layerKey(e.style)) ?? 1);
@@ -66,6 +82,19 @@ export function extents(
         break;
       }
     }
+  };
+  for (const e of entities) {
+    if (e.kind !== "insert") {
+      one(e);
+      continue;
+    }
+    if (!byKey) continue;
+    eachDrawn(e, byKey, isFrozen, (drawn, { matrix, layer, frozen }) => {
+      if (frozen || isHidden(layer) || !matrix) return;
+      add = (x, y) => plain(...mapPoint(matrix, [x, y]));
+      one(drawn);
+    });
+    add = plain;
   }
   return minX === Infinity ? [0, 0, 1, 1] : [minX, minY, maxX, maxY];
 }

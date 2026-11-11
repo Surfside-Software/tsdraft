@@ -141,6 +141,106 @@ test("a build that fails leaves no picture from an earlier run in the default fo
   assert.deepEqual([existsSync(outputs.svg!), existsSync(outputs.png!)], [false, false]);
 });
 
+test("the state says which blocks a drawing has and where each is inserted", () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "tsdraft-render-")));
+  const plan = join(dir, "plan.ts");
+  const text = { layer: "0", at: [0, 2], height: 1, rotation: 0 };
+  const drawing = {
+    format: 0,
+    units: "ft",
+    dxf: "R2018",
+    layers: [
+      { name: "0", color: 7 },
+      { name: "L-PLNT", color: 3 },
+    ],
+    blocks: [
+      {
+        name: "TREE",
+        entities: [
+          { kind: "circle", layer: "0", center: [0, 0], radius: 3 },
+          { kind: "circle", layer: "NOPE", center: [1, 0], radius: 1 },
+        ],
+        attributes: [
+          { ...text, tag: "TAG", value: "T-0" },
+          { ...text, tag: "SPECIES", value: "OAK", at: [0, -2] },
+        ],
+      },
+      { name: "GROVE", entities: [{ kind: "insert", layer: "0", block: "TREE", at: [5, 0] }] },
+      { name: "Ÿ", entities: [], attributes: [{ ...text, tag: "A", value: "v" }] },
+    ],
+    entities: [
+      { kind: "line", layer: "0", from: [0, 0], to: [1, 0] },
+      {
+        kind: "insert",
+        layer: "L-PLNT",
+        block: "tree",
+        at: [10, 20],
+        scale: [2, 2],
+        rotation: 90,
+        id: "tree-1",
+        attributes: { TAG: "T-1" },
+      },
+      { kind: "insert", layer: "0", block: "GROVE", at: [40, 0] },
+      // AutoCAD's layer table keeps these two letters apart, so this insert finds no block.
+      { kind: "insert", layer: "0", block: "ÿ", at: [0, 0] },
+    ],
+  };
+  writeFileSync(plan, `export default ${JSON.stringify(drawing)};\n`);
+  const { state } = render(plan);
+  assert.deepEqual(state.drawing?.counts, {
+    layers: 2,
+    entities: 4,
+    blocks: 3,
+    errors: 2,
+    warnings: 0,
+  });
+  assert.deepEqual(state.drawing?.blocks, [
+    { name: "TREE", entities: 2, attributes: ["TAG", "SPECIES"], inserts: 2 },
+    { name: "GROVE", entities: 1, attributes: [], inserts: 1 },
+    { name: "Ÿ", entities: 0, attributes: ["A"], inserts: 0 },
+  ]);
+  assert.deepEqual(state.drawing?.inserts, [
+    {
+      entity: 1,
+      block: "tree",
+      layer: "L-PLNT",
+      id: "tree-1",
+      at: [10, 20],
+      scale: [2, 2],
+      rotation: 90,
+      attributes: { TAG: "T-1", SPECIES: "OAK" },
+    },
+    {
+      entity: 2,
+      block: "GROVE",
+      layer: "0",
+      id: null,
+      at: [40, 0],
+      scale: [1, 1],
+      rotation: 0,
+      attributes: {},
+    },
+    {
+      entity: 3,
+      block: "ÿ",
+      layer: "0",
+      id: null,
+      at: [0, 0],
+      scale: [1, 1],
+      rotation: 0,
+      attributes: {},
+    },
+  ]);
+  // The extents take in what the inserts draw, and a problem inside a block names the block.
+  assert.deepEqual(state.drawing?.extents, { min: [0, -3], max: [48, 26] });
+  const [inside, unfound] = state.diagnostics;
+  assert.deepEqual([unfound?.rule, unfound?.entity], ["undefined-block", 3]);
+  assert.deepEqual(
+    [inside?.rule, inside?.block, inside?.entity, inside?.kind, inside?.bounds],
+    ["undefined-layer", "TREE", 1, "circle", { min: [0, -1], max: [2, 1] }],
+  );
+});
+
 test("a drawing file Node reads as CommonJS says how to make it a module", () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "tsdraft-render-")));
   writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "commonjs" }));

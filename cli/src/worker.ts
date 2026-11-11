@@ -5,8 +5,16 @@ import { existsSync, readFileSync } from "node:fs";
 import { createRequire, isBuiltin, registerHooks } from "node:module";
 import { dirname, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { Diagnostic, Drawing } from "tsdraft";
-import type { Box, BuildDiagnostic, BuildError, DrawingSummary, LayerSummary } from "./state.ts";
+import type { Block, Diagnostic, Drawing } from "tsdraft";
+import type {
+  BlockSummary,
+  Box,
+  BuildDiagnostic,
+  BuildError,
+  DrawingSummary,
+  InsertSummary,
+  LayerSummary,
+} from "./state.ts";
 import { fileVersion } from "./version.ts";
 
 export interface BuildRequest {
@@ -48,6 +56,8 @@ export interface WorkerResult {
 interface Library {
   readonly lint: (drawing: Drawing) => Diagnostic[];
   readonly toSVG: (drawing: Drawing, options?: { margin?: number; drawNoPlot?: boolean }) => string;
+  /** The block an insert of a name places. A copy of tsdraft from before blocks has none. */
+  readonly findBlock?: (drawing: Drawing, name: string) => Block | undefined;
 }
 
 // Deep enough that a drawing calling helpers several levels down still has its own frame.
@@ -185,10 +195,13 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
         counts: {
           layers: drawing.layers.length,
           entities: drawing.entities.length,
+          blocks: drawing.blocks?.length ?? 0,
           errors,
           warnings: diagnostics.length - errors,
         },
         layers: layerSummaries(drawing),
+        blocks: blockSummaries(library, drawing),
+        inserts: insertSummaries(library, drawing),
       },
       diagnostics,
       svg,
@@ -204,7 +217,12 @@ async function build({ file, root, drawNoPlot }: BuildRequest): Promise<WorkerRe
 /** Adds the kind, layer and box of the entity a diagnostic is about. */
 function aboutEntity(library: Library, drawing: Drawing, found: Diagnostic): BuildDiagnostic {
   const d = withPath(found);
-  const entity = d.entity === undefined ? undefined : drawing.entities[d.entity];
+  // An entity of a block is counted in its block, and its box is in the block's coordinates.
+  const entities =
+    d.block === undefined
+      ? drawing.entities
+      : (drawing.blocks?.find((b) => b.name === d.block)?.entities ?? []);
+  const entity = d.entity === undefined ? undefined : entities[d.entity];
   if (!entity) return d;
   // toSVG works out the box, so it agrees with the drawing's extents and the picture. An entity
   // on a layer that is off, frozen or not plotted still has a box.
@@ -360,6 +378,50 @@ function layerSummaries(drawing: Drawing): LayerSummary[] {
     plot: l.plot !== false,
     entities: counts.get(l.name) ?? 0,
   }));
+}
+
+/** The block an insert places, found as the library that checks the drawing finds it. */
+function blockNamed(library: Library, drawing: Drawing, name: unknown): Block | undefined {
+  return typeof name === "string" ? library.findBlock?.(drawing, name) : undefined;
+}
+
+function blockSummaries(library: Library, drawing: Drawing): BlockSummary[] {
+  const blocks = drawing.blocks ?? [];
+  const placed = new Map<unknown, number>();
+  for (const entities of [drawing.entities, ...blocks.map((b) => b.entities)]) {
+    for (const e of entities) {
+      if (e.kind !== "insert") continue;
+      const block = blockNamed(library, drawing, e.block);
+      placed.set(block, (placed.get(block) ?? 0) + 1);
+    }
+  }
+  return blocks.map((b) => ({
+    name: b.name,
+    entities: b.entities.length,
+    attributes: (b.attributes ?? []).map((a) => a.tag),
+    inserts: placed.get(b) ?? 0,
+  }));
+}
+
+function insertSummaries(library: Library, drawing: Drawing): InsertSummary[] {
+  return drawing.entities.flatMap((e, entity): InsertSummary[] => {
+    if (e.kind !== "insert") return [];
+    const definitions = blockNamed(library, drawing, e.block)?.attributes ?? [];
+    return [
+      {
+        entity,
+        block: e.block,
+        layer: e.layer,
+        id: e.id ?? null,
+        at: e.at,
+        scale: e.scale ?? [1, 1],
+        rotation: e.rotation ?? 0,
+        attributes: Object.fromEntries(
+          definitions.map((a) => [a.tag, e.attributes?.[a.tag] ?? a.value]),
+        ),
+      },
+    ];
+  });
 }
 
 /** The drawing's layers, all on, thawed and plotting, so `toSVG` draws what is on each. */

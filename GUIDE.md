@@ -114,7 +114,7 @@ the details.
     "units": "ft",
     "dxf": "R2018",
     "extents": { "min": [0, -3], "max": [100, 140] },
-    "counts": { "layers": 4, "entities": 5, "errors": 0, "warnings": 1 },
+    "counts": { "layers": 4, "entities": 5, "blocks": 0, "errors": 0, "warnings": 1 },
     "layers": [
       {
         "name": "C-SETB",
@@ -126,7 +126,9 @@ the details.
         "plot": true,
         "entities": 1
       }
-    ]
+    ],
+    "blocks": [],
+    "inserts": []
   },
   "diagnostics": [
     {
@@ -152,6 +154,10 @@ the details.
   drawing's size against what you meant.
 - `drawing.layers` lists every layer with its color, linetype, lineweight, state and the
   number of entities on it. Layer `0` is in every drawing.
+- `drawing.blocks` lists every block with the number of entities it holds, the tags of its
+  attributes and how many inserts place it. `drawing.inserts` lists every insert in model
+  space: its `entity` index, `block`, `layer`, `id`, `at`, `scale`, `rotation`, and the value
+  it shows for each attribute. An insert is one entity, whatever its block holds.
 - `diagnostics` is what `lint` found. An error stops `toDXF` from writing the file. A warning
   does not.
 - `error` is why a build failed: its `message`, and the `file`, `line` and `column` of your
@@ -193,7 +199,37 @@ keeping `drafting.ts` in a `lib` folder beside it. Change two import strings to 
 `"../src/index.ts"` in `site-plan.ts`, and `"../../src/index.ts"` in `lib/drafting.ts`.
 
 Its parameters come first and every position is worked out from them. Its dimension strings and
-arrowheads are functions in `drafting.ts` that draw lines and text.
+arrowheads are functions in `drafting.ts` that draw lines and text. Its symbols are blocks.
+
+## Blocks
+
+Draw a symbol that repeats once, as a block, and place it with inserts:
+
+```ts
+d.block("TREE", {}, () => {
+  d.circle([0, 0], 1);
+  d.attribute("TAG", [0, 1.2], { value: "T-0", height: 0.3, align: "center" });
+});
+d.layer("V-TREE", { color: 3 }, () => {
+  d.insert("TREE", [15, 112], { scale: 5, attributes: { TAG: "T-1" } });
+});
+```
+
+- A block's coordinates are its own. `{ base: [x, y] }` names the point an insert puts at its
+  `at`, `[0, 0]` unless given.
+- Draw a block's entities on layer `0`, which is where they go unless a `layer()` call inside
+  the block says otherwise. They then draw as the layer of each insert does.
+- `scale` is a number, or `[x, y]`. A negative scale mirrors. `rotation` is in degrees.
+- An insert on a layer that is frozen or does not plot draws nothing of its block.
+- An attribute is a text each insert sets by its tag. A tag is in capitals. An insert that
+  sets none shows the default.
+- A block is defined before it is inserted, and once.
+- An insert cannot have a linetype, a lineweight or a color of its own. It draws as its layer
+  does, and so does what its block holds on layer `0`.
+
+The pictures draw each insert as what its block draws. The example sheet draws its trees,
+property corners, north arrow and view title this way, with the view title's text and scale as
+attributes.
 
 ## Rules as compile errors
 
@@ -249,7 +285,9 @@ writeFileSync("plan.dxf", toDXF(drawing));
 
 - Dimension objects, leaders, hatches and fills. The example sheet draws its dimensions from
   lines and text, so in CAD they are plain lines and text.
-- Blocks, inserts, attributes and external references.
+- External references, and a block read from another file. A block is drawn in the drawing
+  that inserts it.
+- Attributes of more than one line, and attributes that are hidden or constant.
 - Paper space: layouts, viewports, a border or a title block. Everything is in model space, and
   a drawing has one scale, which is the `view` you pass to `fromPaper`.
 - Multiline text. A text is a single line. It takes a text style with a font, and `align` and
