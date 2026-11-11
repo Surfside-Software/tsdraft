@@ -778,7 +778,10 @@ export function idProblem(id: unknown): string | undefined {
   return id.length > 64 ? ID_LENGTH : undefined;
 }
 
-/** The form two ids are compared in: `Door-1` and `door-1` are one id. */
+/**
+ * The form two ids are compared in: `Door-1` and `door-1` are one id. `idHandle` hashes what
+ * this returns, so it must never change.
+ */
 export function idKey(id: string): string {
   return id.toLowerCase();
 }
@@ -793,6 +796,19 @@ export function idKey(id: string): string {
 export function duplicateIdProblem(id: string, first: string): string {
   const spelled = first === id ? "" : `, as ${JSON.stringify(first)}`;
   return `The id ${JSON.stringify(id)} is already used${spelled}. An id names one entity, and ids are compared without regard to case`;
+}
+
+/**
+ * Returns what is wrong with an entity whose id gives the handle another id already gave.
+ * `idHandle` in `handles.ts` works a handle out from each id, and AutoCAD discards a drawing in
+ * which two objects have one handle. The rule depends on the drawing, so it has no type.
+ *
+ * @param id - The id of the second entity.
+ * @param first - The id that gave the handle first.
+ * @param handle - The handle both ids give.
+ */
+export function idHandleProblem(id: string, first: string, handle: string): string {
+  return `The ids ${JSON.stringify(first)} and ${JSON.stringify(id)} give the same handle, ${handle}. An entity's handle comes from its id, and AutoCAD discards a drawing in which two objects have one handle. Change this id`;
 }
 
 /** Returns what is wrong with a drawing's format version, or undefined when tsdraft reads it. */

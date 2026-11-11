@@ -1,6 +1,7 @@
 import { callOf, type CallSite } from "./callsite.ts";
 import type { Drawing, DxfVersion, Entity, Point } from "./drawing.ts";
 import { written } from "./format.ts";
+import { validIdHandle } from "./handles.ts";
 import { layerAuditKey, layerKey } from "./layers.ts";
 import { STANDARD_TEXT_STYLE } from "./fonts.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
@@ -9,6 +10,7 @@ import {
   arcProblem,
   duplicateIdProblem,
   formatProblem,
+  idHandleProblem,
   idKey,
   idProblem,
   isStandardTextStyle,
@@ -54,6 +56,7 @@ export type LintRule =
   | "text-align"
   | "id"
   | "duplicate-id"
+  | "id-handle"
   | "zero-length";
 
 export interface Diagnostic {
@@ -281,6 +284,8 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
 
   /** The first spelling of each id, by `idKey`. */
   const ids = new Map<string, string>();
+  /** The first id that gave each handle. */
+  const handles = new Map<string, string>();
   drawing.entities.forEach((entity, index) => {
     const id: unknown = entity.id;
     const add = (rule: LintRule, severity: Diagnostic["severity"], problem: string) => {
@@ -300,7 +305,14 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
       if (problem) add("id", "error", problem);
       else if (first !== undefined)
         add("duplicate-id", "error", duplicateIdProblem(id as string, first));
-      else ids.set(idKey(id as string), id as string);
+      else {
+        ids.set(idKey(id as string), id as string);
+        const handle = validIdHandle(id as string);
+        const other = handles.get(handle);
+        if (other !== undefined)
+          add("id-handle", "error", idHandleProblem(id as string, other, handle));
+        else handles.set(handle, id as string);
+      }
     }
     if (!seen.has(layerKey(entity.layer))) {
       // AutoCAD adds a layer for a name it does not know. When AUDIT takes that name for a

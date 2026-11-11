@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- An entity's id gives its handle in an R2018 DXF. AutoCAD names an object by
+  its handle, and a dimension that another drawing puts on an entity through
+  an xref holds that handle and nothing else. An entity with an id now keeps
+  its handle when entities, layers, linetypes and text styles are added,
+  removed or reordered, and when the entity itself changes. A dimension on
+  the ends of a line or the quadrants of a circle then follows the entity
+  when it moves and the xref is reloaded. An entity with no id is numbered in
+  file order as before, and a drawing in which no entity has an id is written
+  byte for byte as before. Giving an id to an entity that had none moves its
+  handle once. [docs/format.md](docs/format.md#an-id-gives-a-handle) has the
+  formula.
+- `idHandle(id)` returns the handle an id gives, as DXF writes it, and throws
+  on a string that is not a valid id. What it returns for an id will not
+  change in any later version.
+- New rule `id-handle`, a builder error and a `lint` error: two ids that give
+  one handle. AutoCAD discards a drawing in which two objects have one handle.
+  Among a million ids the chance is about 1 in 10,000, and the message names
+  both ids.
 - Text styles. `d.textStyle({ name, font, widthFactor, obliqueAngle })` defines
   one, and a text names it in `style` or is given the definition in its place.
   `Standard` is in every drawing, with the font `txt.shx`. A style has no height

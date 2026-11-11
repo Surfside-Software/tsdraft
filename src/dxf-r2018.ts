@@ -1,6 +1,7 @@
 import type { Drawing, Entity, Linetype, TextStyle, Units } from "./drawing.ts";
 import { extents } from "./extents.ts";
 import { fontInfo, STANDARD_TEXT_STYLE } from "./fonts.ts";
+import { ID_HANDLE_SEED, validIdHandle } from "./handles.ts";
 import { dxfOnce, dxfText, fmt, readable, written, writtenAngle } from "./format.ts";
 import { layerKey, layerZeroFirst } from "./layers.ts";
 import { entityLinetype, layerLinetype, lineweightCode, patternLength } from "./linetypes.ts";
@@ -29,8 +30,16 @@ interface TableRecord {
  * Unlike R12, this version has handles, owner links, an OBJECTS section and the
  * `$INSUNITS` header, so the drawing's units reach CAD and xref and block
  * insertion scale correctly. Text is UTF-8.
+ *
+ * An entity with an id takes the handle its id gives, so it keeps that handle when the drawing
+ * around it changes. Every other object takes the next handle counted up from 1.
+ *
+ * @param handleOf - The handle an id gives. Only a test of the ends of the range passes one.
  */
-export function toDXFR2018(drawing: Drawing): string {
+export function toDXFR2018(
+  drawing: Drawing,
+  handleOf: (id: string) => string = validIdHandle,
+): string {
   let seed = 1;
   const handle = () => (seed++).toString(16).toUpperCase();
   const body: string[] = [];
@@ -200,7 +209,8 @@ export function toDXFR2018(drawing: Drawing): string {
       entity.kind === "text" && entity.style !== undefined
         ? stylesByKey.get(layerKey(entity.style))
         : undefined;
-    writeEntity(g, entity, handle(), modelSpace, style);
+    const own = entity.id === undefined ? handle() : handleOf(entity.id);
+    writeEntity(g, entity, own, modelSpace, style);
   }
   g(0, "ENDSEC");
 
@@ -259,7 +269,8 @@ export function toDXFR2018(drawing: Drawing): string {
   h(9, "$CLAYER");
   h(8, "0");
   h(9, "$HANDSEED");
-  h(5, handle());
+  // AutoCAD numbers the objects it adds from the seed up, so it is above every handle here.
+  h(5, drawing.entities.some((entity) => entity.id !== undefined) ? ID_HANDLE_SEED : handle());
   h(0, "ENDSEC");
 
   return [...header, ...body].join("\r\n") + "\r\n";

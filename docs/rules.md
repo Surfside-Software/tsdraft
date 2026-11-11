@@ -88,6 +88,9 @@ it would take `1e+100` for `1e+10` and report nothing.
 - An entity's id has 1 to 64 letters A to Z or a to z, digits, `.`, `-` and
   `_`, and no two entities share one, whatever its case. See
   [Ids](format.md#ids).
+- No two ids give one handle. An entity's handle comes from its id, and AutoCAD discards a
+  drawing in which two objects have one handle. It is rare: see
+  [An id gives a handle](format.md#an-id-gives-a-handle).
 - A drawing has `format: 0`. See [Format 0](format.md#format-0).
 
 ## Warnings
