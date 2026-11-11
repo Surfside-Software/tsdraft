@@ -1,8 +1,13 @@
+import { holdCall, readCall, recordCalls, type HeldCall } from "./callsite.ts";
 import { fmt, written } from "./format.ts";
 import { layerAuditKey, layerKey } from "./layers.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
+import { DrawingError, type Diagnostic, type LintRule } from "./lint.ts";
 import {
   arcProblem,
+  duplicateIdProblem,
+  idKey,
+  idProblem,
   layerColorProblem,
   layerFlagProblem,
   layerLinetypeProblem,
@@ -19,6 +24,7 @@ import {
   textProblem,
   undefinedLinetypeProblem,
   type Description,
+  type EntityId,
   type FrozenCurrent,
   type LayerLinetypeName,
   type LineweightMm,
@@ -97,6 +103,12 @@ export interface Layer {
 }
 
 interface EntityBase {
+  /**
+   * A name for this entity that stays the same when the drawing's code changes around it: 1 to
+   * 64 letters A to Z or a to z, digits, `.`, `-` and `_`. No two entities of a drawing share
+   * one, whatever its case.
+   */
+  readonly id?: string;
   readonly layer: string;
   /** A linetype of the drawing, `"Continuous"`, `"ByBlock"` or `"ByLayer"`, the default. */
   readonly linetype?: string;
@@ -144,6 +156,11 @@ export interface Text extends EntityBase {
 export type Entity = Line | Polyline | Circle | Arc | Text;
 
 export interface Drawing {
+  /**
+   * The version of the `Drawing` format, which is separate from the DXF version in `dxf`.
+   * Format 0 carries no promise of stability: a later tsdraft may change it without reading it.
+   */
+  readonly format: 0;
   readonly units: Units;
   /** The DXF version the drawing is written for. `toDXF` uses it unless told otherwise. */
   readonly dxf: DxfVersion;
@@ -162,6 +179,13 @@ export interface DrawingOptions<V extends DxfVersion = DxfVersion, S extends num
   readonly dxf?: V;
   /** The global linetype scale, which multiplies every linetype's pattern. Defaults to 1. */
   readonly linetypeScale?: V extends "R12" ? 1 | R12Linetypes : Positive<S>;
+  /**
+   * Whether to record the call that draws each entity, so that a `lint` diagnostic names it in
+   * `call`. It more than doubles the time the builder takes. Defaults to `false`, or to `true` when
+   * `globalThis.TSDRAFT_RECORD_CALLS` is `true`, which a tool that runs drawing files sets
+   * before it runs them.
+   */
+  readonly recordCalls?: boolean;
 }
 
 /** A linetype to define: a `Linetype`, whose description may be left out. */
@@ -268,7 +292,8 @@ export interface LayerOptions<
 }
 
 /**
- * The linetype and lineweight an entity may have of its own. Both default to ByLayer.
+ * The id an entity may have, and the linetype and lineweight it may have of its own. Both
+ * default to ByLayer.
  *
  * @typeParam L - The linetype as written, a name or a definition. A definition's literal mistakes
  *   are compile errors.
@@ -278,7 +303,13 @@ export interface EntityOptions<
   T extends string = string,
   W extends number = number,
   L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
 > {
+  /**
+   * A name for the entity that no other entity of the drawing has: 1 to 64 letters A to Z or a
+   * to z, digits, `.`, `-` and `_`. Diagnostics and `toSVG` carry it.
+   */
+  readonly id?: EntityId<I>;
   /** A linetype of the drawing, `"Continuous"`, `"ByBlock"` or `"ByLayer"`. R2018 only. */
   readonly linetype?: V extends "R12"
     ? R12LinetypeChoice<T, L, "bylayer", R12EntityStyle>
@@ -301,7 +332,8 @@ export interface TextOptions<
   T extends string = string,
   W extends number = number,
   L extends LinetypeValue = LinetypeDefinition,
-> extends EntityOptions<V, T, W, L> {
+  I extends string = string,
+> extends EntityOptions<V, T, W, L, I> {
   readonly height?: Positive<H>;
   /** Degrees counterclockwise. */
   readonly rotation?: number;
@@ -310,13 +342,58 @@ export interface TextOptions<
 /** The linetype and lineweight an entity is stored with: only what differs from ByLayer. */
 type EntityStyle = Pick<Line, "linetype" | "lineweight">;
 
+type Method = (...args: never[]) => unknown;
+
+/** A broken rule, thrown inside a builder method and turned into a `DrawingError` on its way out. */
+class Problem {
+  readonly rule: LintRule;
+  readonly message: string;
+
+  constructor(rule: LintRule, message: string) {
+    this.rule = rule;
+    this.message = message;
+  }
+}
+
+function refuse(rule: LintRule, message: string): never {
+  throw new Problem(rule, message);
+}
+
+/**
+ * What a builder method throws for something thrown inside it: for a `Problem`, a `DrawingError`
+ * whose one diagnostic names the caller's call of `method` and what the call was `about`.
+ */
+function located(
+  thrown: unknown,
+  method: Method,
+  about: Pick<Diagnostic, "id" | "layer" | "linetype">,
+): unknown {
+  if (!(thrown instanceof Problem)) return thrown;
+  const call = readCall(holdCall(method));
+  const diagnostic: Diagnostic = {
+    rule: thrown.rule,
+    severity: "error",
+    message: thrown.message,
+    ...about,
+    ...(call ? { call } : {}),
+  };
+  return new DrawingError([diagnostic], thrown.message);
+}
+
+/** Whether a tool that runs drawing files has asked every builder to record calls. */
+function recordsCalls(): boolean {
+  return (globalThis as { TSDRAFT_RECORD_CALLS?: unknown }).TSDRAFT_RECORD_CALLS === true;
+}
+
 /**
  * Builds a drawing. Entities go on the current layer, which starts as "0".
  * `layer(name, opts, draw)` scopes everything drawn inside `draw` to that layer.
  *
  * Mistakes written as literals, such as a layer name the DXF version does not
  * allow or a negative radius, are compile errors. The same checks run again
- * when the code runs, for values the compiler cannot see.
+ * when the code runs, for values the compiler cannot see: `layer`, `linetype`
+ * and the entity methods then throw a `DrawingError` whose diagnostic has the
+ * rule, the entity's `id` and the `call` that broke it.
  */
 export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = number> {
   readonly units: Units;
@@ -333,6 +410,10 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     BUILT_IN_LINETYPES.map((name) => [layerAuditKey(name), name]),
   );
   readonly #entities: Entity[] = [];
+  /** The first spelling of each entity id, by `idKey`. */
+  readonly #ids = new Map<string, string>();
+  /** The call that drew each entity, when calls are recorded. */
+  readonly #calls: (HeldCall | undefined)[] | undefined;
   #current = "0";
 
   constructor(options: DrawingOptions<V, S> = {}) {
@@ -352,6 +433,7 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     this.units = units;
     this.dxf = dxf as V;
     this.linetypeScale = (scale as number | undefined) ?? 1;
+    this.#calls = (options.recordCalls ?? recordsCalls()) ? [] : undefined;
   }
 
   /**
@@ -362,8 +444,15 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
   linetype<N extends string, const P extends readonly number[], D extends string = string>(
     linetype: V extends "R12" ? R12Linetypes : LinetypeDefinition<N, P, D>,
   ): this {
-    if (this.dxf === "R12") throw new Error(R12_ONLY.linetypes);
-    this.#define(linetype as unknown as LinetypeDefinition);
+    const definition = linetype as unknown as LinetypeDefinition;
+    try {
+      if (this.dxf === "R12") refuse("linetype", R12_ONLY.linetypes);
+      this.#define(definition);
+    } catch (thrown) {
+      const name: unknown = definition?.name;
+      const about = typeof name === "string" ? { linetype: name } : {};
+      throw located(thrown, DrawingBuilder.prototype.linetype, about);
+    }
     return this;
   }
 
@@ -381,55 +470,12 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
   >(name: LayerName<N, V>, options: LayerOptions<C, W, T, V, N, L> = {}, draw?: () => void): this {
     // The parameter type is the error message when a literal name is wrong, so read it as a string.
     const requested = name as string;
-    const fail = (problem: string): never => {
-      throw new Error(`Layer ${JSON.stringify(requested)}: ${problem}`);
-    };
-    const nameProblem = layerNameProblem(requested, this.dxf);
-    if (nameProblem) fail(nameProblem);
-    const key = layerKey(requested);
-    const existing = this.#layers.get(key);
-    const auditKey = layerAuditKey(requested);
-    const twinProblem = layerTwinProblem(requested, this.#audited.get(auditKey) ?? requested);
-    if (twinProblem) fail(twinProblem);
-    const color = (options.color as number | undefined) ?? existing?.color ?? 7;
-    const colorProblem = layerColorProblem(color);
-    if (colorProblem) fail(colorProblem);
-    const o = options as unknown as LayerOptions<number, number, string, "R2018">;
-    const layer: Layer = { name: existing?.name ?? requested, color };
-    const set = <K extends keyof Layer>(field: K, value: Layer[K] | undefined, plain: Layer[K]) => {
-      const kept = value === undefined ? existing?.[field] : value;
-      if (kept !== undefined && kept !== plain) (layer as { [F in K]?: Layer[K] })[field] = kept;
-    };
-    const r12 = this.dxf === "R12";
-    let linetype: string | undefined;
-    if (o.linetype !== undefined) {
-      if (r12 && !isBuiltIn(o.linetype, "Continuous")) fail(R12_ONLY.linetypes);
-      linetype = this.#linetypeName(o.linetype, fail);
-      const problem = layerLinetypeProblem(linetype);
-      if (problem) fail(problem);
+    let layer: Layer;
+    try {
+      layer = this.#layer(requested, options as unknown as LayerOptions);
+    } catch (thrown) {
+      throw located(thrown, DrawingBuilder.prototype.layer, { layer: requested });
     }
-    set(
-      "linetype",
-      linetype === undefined ? undefined : (builtInLinetype(linetype) ?? linetype),
-      "Continuous",
-    );
-    if (o.lineweight !== undefined) {
-      const problem = lineweightProblem(o.lineweight, "layer");
-      if (problem) fail(problem);
-      if (r12 && o.lineweight !== "Default") fail(R12_ONLY.lineweights);
-    }
-    set("lineweight", o.lineweight, "Default");
-    for (const state of ["off", "frozen", "locked", "plot"] as const) {
-      const value: unknown = o[state];
-      const flagProblem = layerFlagProblem(state, value);
-      if (flagProblem) fail(flagProblem);
-      if (r12 && value !== undefined && value !== (state === "plot")) fail(R12_ONLY.layerStates);
-      set(state, value as boolean | undefined, state === "plot");
-    }
-    const stateProblem = layerStateProblem(layer.name, layer.frozen);
-    if (stateProblem) fail(stateProblem);
-    this.#layers.set(key, layer);
-    if (!this.#audited.has(auditKey)) this.#audited.set(auditKey, layer.name);
     if (draw) {
       const previous = this.#current;
       this.#current = layer.name;
@@ -442,24 +488,84 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     return this;
   }
 
+  /** Checks a layer and stores it. */
+  #layer(requested: string, o: LayerOptions): Layer {
+    const fail = (rule: LintRule, problem: string): never =>
+      refuse(rule, `Layer ${JSON.stringify(requested)}: ${problem}`);
+    const nameProblem = layerNameProblem(requested, this.dxf);
+    if (nameProblem) fail("layer-name", nameProblem);
+    const key = layerKey(requested);
+    const existing = this.#layers.get(key);
+    const auditKey = layerAuditKey(requested);
+    const twinProblem = layerTwinProblem(requested, this.#audited.get(auditKey) ?? requested);
+    if (twinProblem) fail("duplicate-layer", twinProblem);
+    const color = (o.color as number | undefined) ?? existing?.color ?? 7;
+    const colorProblem = layerColorProblem(color);
+    if (colorProblem) fail("layer-color", colorProblem);
+    const layer: Layer = { name: existing?.name ?? requested, color };
+    const set = <K extends keyof Layer>(field: K, value: Layer[K] | undefined, plain: Layer[K]) => {
+      const kept = value === undefined ? existing?.[field] : value;
+      if (kept !== undefined && kept !== plain) (layer as { [F in K]?: Layer[K] })[field] = kept;
+    };
+    const r12 = this.dxf === "R12";
+    let linetype: string | undefined;
+    if (o.linetype !== undefined) {
+      if (r12 && !isBuiltIn(o.linetype, "Continuous")) fail("linetype", R12_ONLY.linetypes);
+      linetype = this.#linetypeName(o.linetype, fail);
+      const problem = layerLinetypeProblem(linetype);
+      if (problem) fail("linetype", problem);
+    }
+    set(
+      "linetype",
+      linetype === undefined ? undefined : (builtInLinetype(linetype) ?? linetype),
+      "Continuous",
+    );
+    if (o.lineweight !== undefined) {
+      const problem = lineweightProblem(o.lineweight, "layer");
+      if (problem) fail("lineweight", problem);
+      if (r12 && o.lineweight !== "Default") fail("lineweight", R12_ONLY.lineweights);
+    }
+    set("lineweight", o.lineweight, "Default");
+    for (const state of ["off", "frozen", "locked", "plot"] as const) {
+      const value: unknown = o[state];
+      const flagProblem = layerFlagProblem(state, value);
+      if (flagProblem) fail("layer-state", flagProblem);
+      if (r12 && value !== undefined && value !== (state === "plot")) {
+        fail("layer-state", R12_ONLY.layerStates);
+      }
+      set(state, value as boolean | undefined, state === "plot");
+    }
+    const stateProblem = layerStateProblem(layer.name, layer.frozen);
+    if (stateProblem) fail("layer-state", stateProblem);
+    this.#layers.set(key, layer);
+    if (!this.#audited.has(auditKey)) this.#audited.set(auditKey, layer.name);
+    return layer;
+  }
+
   line<
     T extends string = string,
     W extends number = number,
     const L extends LinetypeValue = LinetypeDefinition,
-  >(from: Point, to: Point, options: EntityOptions<V, T, W, L> = {}): this {
-    return this.#add({ kind: "line", layer: this.#current, from: pt(from), to: pt(to) }, options);
+    I extends string = string,
+  >(from: Point, to: Point, options: EntityOptions<V, T, W, L, I> = {}): this {
+    return this.#add(DrawingBuilder.prototype.line, options, () => ({
+      kind: "line",
+      layer: this.#current,
+      from: pt(from),
+      to: pt(to),
+    }));
   }
 
   polyline<
     T extends string = string,
     W extends number = number,
     const L extends LinetypeValue = LinetypeDefinition,
-  >(points: readonly Point[], closed = false, options: EntityOptions<V, T, W, L> = {}): this {
-    if (points.length < 2) throw new Error("A polyline needs at least 2 points");
-    return this.#add(
-      { kind: "polyline", layer: this.#current, points: points.map(pt), closed },
-      options,
-    );
+    I extends string = string,
+  >(points: readonly Point[], closed = false, options: EntityOptions<V, T, W, L, I> = {}): this {
+    return this.#add(DrawingBuilder.prototype.polyline, options, () => {
+      if (points.length < 2) refuse("geometry", "A polyline needs at least 2 points");
+      return { kind: "polyline", layer: this.#current, points: points.map(pt), closed };
+    });
   }
 
   /** Closed rectangle from its lower-left corner. */
@@ -469,28 +575,28 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     T extends string = string,
     LW extends number = number,
     const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
   >(
     corner: Point,
     width: Positive<W>,
     height: Positive<H>,
-    options: EntityOptions<V, T, LW, L> = {},
+    options: EntityOptions<V, T, LW, L, I> = {},
   ): this {
-    const [x, y] = pt(corner);
-    const w = positive(width, "width");
-    const h = positive(height, "height");
-    // A side can still vanish in the file: a corner and the one across from it may round together.
-    if (written(x + w) === written(x)) throw new Error(lostSide("width", "x", x));
-    if (written(y + h) === written(y)) throw new Error(lostSide("height", "y", y));
-    return this.polyline(
-      [
+    return this.#add(DrawingBuilder.prototype.rect, options, () => {
+      const [x, y] = pt(corner);
+      const w = positive(width, "width");
+      const h = positive(height, "height");
+      // A side can still vanish in the file: a corner and the one across from it may round together.
+      if (written(x + w) === written(x)) refuse("geometry", lostSide("width", "x", x));
+      if (written(y + h) === written(y)) refuse("geometry", lostSide("height", "y", y));
+      const corners: Point[] = [
         [x, y],
         [x + w, y],
         [x + w, y + h],
         [x, y + h],
-      ],
-      true,
-      options as unknown as EntityOptions<V>,
-    );
+      ];
+      return { kind: "polyline", layer: this.#current, points: corners.map(pt), closed: true };
+    });
   }
 
   circle<
@@ -498,16 +604,14 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     T extends string = string,
     W extends number = number,
     const L extends LinetypeValue = LinetypeDefinition,
-  >(center: Point, radius: Positive<R>, options: EntityOptions<V, T, W, L> = {}): this {
-    return this.#add(
-      {
-        kind: "circle",
-        layer: this.#current,
-        center: pt(center),
-        radius: positive(radius, "radius"),
-      },
-      options,
-    );
+    I extends string = string,
+  >(center: Point, radius: Positive<R>, options: EntityOptions<V, T, W, L, I> = {}): this {
+    return this.#add(DrawingBuilder.prototype.circle, options, () => ({
+      kind: "circle",
+      layer: this.#current,
+      center: pt(center),
+      radius: positive(radius, "radius"),
+    }));
   }
 
   /**
@@ -524,29 +628,29 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     T extends string = string,
     W extends number = number,
     const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
   >(
     center: Point,
     radius: Positive<R>,
     startAngle: number,
     endAngle: number,
-    options: EntityOptions<V, T, W, L> = {},
+    options: EntityOptions<V, T, W, L, I> = {},
   ): this {
-    const start = turn(num(startAngle, "startAngle"));
-    const end = turn(num(endAngle, "endAngle"));
-    if (start === end) throw new Error("An arc's start and end angles must differ");
-    const problem = arcProblem(start, end);
-    if (problem) throw new Error(problem);
-    return this.#add(
-      {
+    return this.#add(DrawingBuilder.prototype.arc, options, () => {
+      const start = turn(num(startAngle, "startAngle"));
+      const end = turn(num(endAngle, "endAngle"));
+      if (start === end) refuse("geometry", "An arc's start and end angles must differ");
+      const problem = arcProblem(start, end);
+      if (problem) refuse("geometry", problem);
+      return {
         kind: "arc",
         layer: this.#current,
         center: pt(center),
         radius: positive(radius, "radius"),
         startAngle: start,
         endAngle: end,
-      },
-      options,
-    );
+      };
+    });
   }
 
   text<
@@ -554,58 +658,82 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     T extends string = string,
     W extends number = number,
     const L extends LinetypeValue = LinetypeDefinition,
-  >(at: Point, value: string, options: TextOptions<H, V, T, W, L> = {}): this {
-    const problem = textProblem(value);
-    if (problem) throw new Error(problem);
-    return this.#add(
-      {
+    I extends string = string,
+  >(at: Point, value: string, options: TextOptions<H, V, T, W, L, I> = {}): this {
+    return this.#add(DrawingBuilder.prototype.text, options, () => {
+      const problem = textProblem(value);
+      if (problem) refuse("text", problem);
+      return {
         kind: "text",
         layer: this.#current,
         at: pt(at),
         value,
         height: positive(options.height ?? 0.125, "height"),
         rotation: kept(options.rotation ?? 0, "rotation"),
-      },
-      options,
-    );
+      };
+    });
   }
 
   build(): Drawing {
+    const entities = [...this.#entities];
+    if (this.#calls) recordCalls(entities, [...this.#calls]);
     return {
+      format: 0,
       units: this.units,
       dxf: this.dxf,
       layers: [...this.#layers.values()],
-      entities: [...this.#entities],
+      entities,
       linetypes: [...this.#linetypes.values()],
       linetypeScale: this.linetypeScale,
     };
   }
 
-  /** `options` is an `EntityOptions`, whose type parameters differ from method to method. */
-  #add(entity: Entity, options: object): this {
-    this.#entities.push({ ...entity, ...this.#style(options as EntityOptions) });
+  /**
+   * Checks the entity that `make` gives and the `EntityOptions` it was drawn with, whose type
+   * parameters differ from method to method, and stores it. `method` is the builder method the
+   * caller called, which a diagnostic names the call of.
+   */
+  #add(method: Method, options: object, make: () => Entity): this {
+    const o = options as EntityOptions;
+    const id: unknown = o.id;
+    try {
+      const key = id === undefined ? undefined : this.#idKey(id);
+      const named = id === undefined ? {} : { id: id as string };
+      this.#entities.push({ ...make(), ...named, ...this.#style(o) });
+      if (key !== undefined) this.#ids.set(key, id as string);
+    } catch (thrown) {
+      throw located(thrown, method, typeof id === "string" ? { id } : {});
+    }
+    this.#calls?.push(holdCall(method));
     return this;
+  }
+
+  /** Checks an id the drawing does not have yet, and returns the key it is kept by. */
+  #idKey(id: unknown): string {
+    const problem = idProblem(id);
+    if (problem) refuse("id", problem);
+    const key = idKey(id as string);
+    const first = this.#ids.get(key);
+    if (first !== undefined) refuse("duplicate-id", duplicateIdProblem(id as string, first));
+    return key;
   }
 
   /** The linetype and lineweight an entity is stored with. */
   #style(options: EntityOptions): EntityStyle {
-    const fail = (problem: string): never => {
-      throw new Error(problem);
-    };
     const style: { -readonly [K in keyof EntityStyle]: EntityStyle[K] } = {};
     if (options.linetype !== undefined) {
       if (this.dxf === "R12" && !isBuiltIn(options.linetype, "ByLayer")) {
-        fail(R12_ONLY.entityStyle);
+        refuse("linetype", R12_ONLY.entityStyle);
       }
-      const name = this.#linetypeName(options.linetype, fail);
+      const name = this.#linetypeName(options.linetype, refuse);
       const builtIn = builtInLinetype(name);
       if (builtIn !== "ByLayer") style.linetype = builtIn ?? name;
     }
     const weight: unknown = options.lineweight;
     if (weight !== undefined) {
       const problem = lineweightProblem(weight, "entity");
-      if (problem) fail(problem);
-      if (this.dxf === "R12" && weight !== "ByLayer") fail(R12_ONLY.entityStyle);
+      if (problem) refuse("lineweight", problem);
+      if (this.dxf === "R12" && weight !== "ByLayer") refuse("lineweight", R12_ONLY.entityStyle);
       if (weight !== "ByLayer") style.lineweight = weight as NonNullable<EntityStyle["lineweight"]>;
     }
     return style;
@@ -615,16 +743,20 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
    * The name of the linetype a layer or entity asks for, in the spelling the
    * drawing has it. A definition is defined first if the drawing does not have it.
    */
-  #linetypeName(choice: unknown, fail: (problem: string) => never): string {
+  #linetypeName(choice: unknown, fail: (rule: LintRule, problem: string) => never): string {
     if (typeof choice === "object" && choice !== null) {
       return this.#define(choice as LinetypeDefinition, true);
     }
-    if (typeof choice !== "string") return fail("A linetype is a name or a LinetypeDefinition");
+    if (typeof choice !== "string") {
+      return fail("undefined-linetype", "A linetype is a name or a LinetypeDefinition");
+    }
     const problem = linetypeNameProblem(choice);
-    if (problem) fail(`Linetype ${JSON.stringify(choice)}: ${problem}`);
+    if (problem) fail("undefined-linetype", `Linetype ${JSON.stringify(choice)}: ${problem}`);
     const known = builtInLinetype(choice) ?? this.#linetypes.get(layerKey(choice))?.name;
-    if (known === undefined)
-      fail(`${undefinedLinetypeProblem(choice)}. Define it with linetype() first`);
+    if (known === undefined) {
+      const absent = `${undefinedLinetypeProblem(choice)}. Define it with linetype() first`;
+      fail("undefined-linetype", absent);
+    }
     return known as string;
   }
 
@@ -640,7 +772,7 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
       definition.description ?? "",
       definition.pattern,
     );
-    if (problem) throw new Error(`${label}: ${problem}`);
+    if (problem) refuse("linetype", `${label}: ${problem}`);
     // linetypeProblem has checked the types.
     const name = definition.name as string;
     const description = (definition.description ?? "") as string;
@@ -648,7 +780,7 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     const key = layerKey(name);
     const auditKey = layerAuditKey(name);
     const twin = layerTwinProblem(name, this.#linetypesAudited.get(auditKey) ?? name, "linetype");
-    if (twin) throw new Error(`${label}: ${twin}`);
+    if (twin) refuse("duplicate-linetype", `${label}: ${twin}`);
     const existing = this.#linetypes.get(key);
     if (inline && existing) {
       const same =
@@ -656,7 +788,8 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
         existing.pattern.length === lengths.length &&
         existing.pattern.every((length, i) => length === lengths[i]);
       if (!same) {
-        throw new Error(
+        refuse(
+          "linetype",
           `${label}: the drawing has a linetype of this name with another pattern or description. Pass its name, or change it with linetype()`,
         );
       }
@@ -697,17 +830,17 @@ function turn(degrees: number): number {
 }
 
 function num(value: number, label: string): number {
-  if (!Number.isFinite(value)) throw new Error(`${label} must be a finite number`);
+  if (!Number.isFinite(value)) refuse("geometry", `${label} must be a finite number`);
   return value;
 }
 
 /** Takes `unknown` because a `Positive<N>` parameter is a message string when the literal is wrong. */
 function positive(value: unknown, label: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new Error(`${label} must be a finite number`);
+    return refuse("geometry", `${label} must be a finite number`);
   }
   const problem = sizeProblem(value);
-  if (problem) throw new Error(`${label}: ${problem}`);
+  if (problem) refuse("geometry", `${label}: ${problem}`);
   return value;
 }
 
@@ -718,7 +851,7 @@ function lostSide(size: string, axis: string, at: number): string {
 /** A number the drawing keeps and the writers print, which AutoCAD must be able to read. */
 function kept(value: number, label: string): number {
   const problem = magnitudeProblem(num(value, label));
-  if (problem) throw new Error(`${label}: ${problem}`);
+  if (problem) refuse("geometry", `${label}: ${problem}`);
   return value;
 }
 

@@ -169,6 +169,7 @@ test("lint checks a drawing against another DXF version", () => {
 
 test("lint checks a drawing that was not made with the builder", () => {
   const d: Drawing = {
+    format: 0,
     units: "ft",
     dxf: "R2018",
     layers: [
@@ -251,6 +252,7 @@ test("sizes, lines and arcs that rounding would collapse", () => {
   assert.match(toDXF(d), /ARC/);
 
   const byHand: Drawing = {
+    format: 0,
     units: "in",
     dxf: "R2018",
     layers: [{ name: "0", color: 7 }],
@@ -286,6 +288,7 @@ test("sizes, lines and arcs that rounding would collapse", () => {
 
 test("layer names are compared the way AutoCAD compares them", () => {
   const drawing = (layers: string[], used: string[]): Drawing => ({
+    format: 0,
     units: "in",
     dxf: "R2018",
     layers: [{ name: "0", color: 7 }, ...layers.map((name) => ({ name, color: 1 }))],
@@ -353,6 +356,7 @@ test("layer names are compared the way AutoCAD compares them", () => {
 
 test("lint handles text AutoCAD would change or draw differently", () => {
   const d: Drawing = {
+    format: 0,
     units: "in",
     dxf: "R2018",
     layers: [{ name: "0", color: 7 }],
@@ -373,6 +377,7 @@ test("lint handles text AutoCAD would change or draw differently", () => {
 test("lint takes a polyline too long to pass as arguments", () => {
   const points = Array.from({ length: 250_000 }, (_, i): [number, number] => [i, i % 7]);
   const d: Drawing = {
+    format: 0,
     units: "in",
     dxf: "R12",
     layers: [{ name: "0", color: 7 }],
@@ -413,6 +418,7 @@ test("a DrawingError names no file format", () => {
 
 test("lint refuses a number AutoCAD would misread", () => {
   const d: Drawing = {
+    format: 0,
     units: "in",
     dxf: "R2018",
     layers: [{ name: "0", color: 7 }],
@@ -456,6 +462,7 @@ test("lint refuses a number AutoCAD would misread", () => {
 
 test("lint refuses layer names that AUDIT would report as duplicates", () => {
   const drawing = (layers: string[], used: string[] = []): Drawing => ({
+    format: 0,
     units: "in",
     dxf: "R2018",
     layers: [{ name: "0", color: 7 }, ...layers.map((name) => ({ name, color: 1 }))],
@@ -668,6 +675,7 @@ test("linetype mistakes the compiler cannot see are checked when the code runs",
 
 test("lint checks the linetypes, lineweights and layer states of a drawing", () => {
   const drawing: Drawing = {
+    format: 0,
     units: "in",
     dxf: "R2018",
     linetypeScale: -1,
@@ -724,6 +732,7 @@ test("lint checks the linetypes, lineweights and layer states of a drawing", () 
 
   // lint reports the new rules, and fields of the wrong type in a drawing built by hand.
   const odd = {
+    format: 0,
     units: "in",
     dxf: "R2018",
     linetypes: [
@@ -787,4 +796,51 @@ test("fromPaper turns a plotted length into drawing units", () => {
 
 test("the example sheet builds with no lint diagnostics", () => {
   assert.deepEqual(lint(sitePlan), []);
+});
+
+test("entity ids are checked as literals, when the code runs, and by lint", () => {
+  const d = createDrawing();
+  d.line([0, 0], [1, 0], { id: "Door-1" });
+  // An id that is not a literal passes the compiler and is checked when the code runs.
+  for (const n of [1, 2]) d.rect([0, 0], 1, 1, { id: `${"a".repeat(59)}.${n}_9` });
+  // @ts-expect-error: an id cannot be empty.
+  assert.throws(() => d.line([0, 0], [1, 0], { id: "" }), /cannot be empty/);
+  // @ts-expect-error: an id has no spaces.
+  assert.throws(() => d.circle([0, 0], 1, { id: "door 1" }), /can only use/);
+  // @ts-expect-error: an id has no dollar sign, which a layer name may have.
+  assert.throws(() => d.text([0, 0], "x", { id: "door$1" }), /can only use/);
+  const tooLong = "a234567890a234567890a234567890a234567890a234567890a23456789012345";
+  // @ts-expect-error: 65 characters is one too many.
+  assert.throws(() => d.arc([0, 0], 1, 0, 90, { id: tooLong }), /longer than 64/);
+  // Whether the drawing has the id already is known only when the code runs.
+  assert.throws(
+    () => d.line([0, 0], [1, 0], { id: "door-1" }),
+    (thrown: unknown) =>
+      thrown instanceof DrawingError &&
+      thrown.diagnostics[0]?.rule === "duplicate-id" &&
+      /"door-1" is already used, as "Door-1"/.test(thrown.message),
+  );
+  assert.equal(d.build().entities.length, 3);
+
+  const [first, second] = d.build().entities;
+  const byHand: Drawing = {
+    ...d.build(),
+    entities: [first!, second!, { ...first!, id: "DOOR-1" }, { ...first!, id: "é" }],
+  };
+  assert.deepEqual(
+    lint(byHand).map((x) => [x.rule, x.entity, x.id]),
+    [
+      ["duplicate-id", 2, "DOOR-1"],
+      ["id", 3, "é"],
+    ],
+  );
+  assert.throws(() => toDXF(byHand), DrawingError);
+  // A drawing with no format version, or another one, is refused too.
+  const { format: _, ...unversioned } = d.build();
+  for (const other of [unversioned, { ...unversioned, format: 1 }]) {
+    assert.deepEqual(
+      lint(other as Drawing).map((x) => x.rule),
+      ["format"],
+    );
+  }
 });

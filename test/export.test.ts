@@ -162,6 +162,7 @@ test("text that looks like a DXF escape is written so AutoCAD keeps it", () => {
 
 test("layer 0 is written first, wherever the drawing has it", () => {
   const d: Drawing = {
+    format: 0,
     units: "in",
     dxf: "R2018",
     layers: [
@@ -201,6 +202,7 @@ test("arc angles are written from 0 up to 360", () => {
 
 test("SVG draws an arc of nearly a full turn, and colors by layer whatever the case", () => {
   const d: Drawing = {
+    format: 0,
     units: "in",
     dxf: "R2018",
     layers: [

@@ -169,6 +169,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
 ## Reference
 
 - [Rules](docs/rules.md) lists what `lint` refuses and what it warns about.
+- [The Drawing format](docs/format.md) covers format 0, entity ids, `toJSON`
+  and `fromJSON`, and what a diagnostic carries.
 - [Layer names](docs/layer-names.md) explains how AutoCAD compares layer and
   linetype names, and lists the pairs `AUDIT` calls duplicates and the
   characters it refuses.
