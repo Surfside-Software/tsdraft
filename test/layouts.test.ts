@@ -679,21 +679,17 @@ test("a view is drawn only where it can be seen: on the paper and in the picture
   );
 });
 
-test("a slanted text that leans into a view is drawn in it", () => {
+test("a slanted text that leans into a view is drawn in it, and counts as shown", () => {
   const d = createDrawing();
-  // A wide style leans as much further as it is wider.
-  d.textStyle({ name: "LEAN", font: "Arial", obliqueAngle: 85, widthFactor: 10 });
-  d.text([-50, 0], "M", { height: 1, style: "LEAN", id: "lean" });
+  d.textStyle({ name: "LEAN", font: "Arial", obliqueAngle: 85 });
+  d.text([-5, 0], "M", { height: 1, style: "LEAN", id: "lean" });
   d.block("TAG", {}, () => d.text([0, 0], "M", { height: 1, style: "LEAN" }));
-  d.insert("TAG", [-50, 0], { id: "tag" });
+  d.insert("TAG", [-5, 0], { id: "tag" });
   d.layout("S", { paper: "ARCH D" }, (page) =>
     page.viewport([1, 1], 1, 1, { center: [0, 0.5], ratio: 1 }),
   );
   const drawing = d.build();
-  assert.deepEqual(
-    lint(drawing).filter((d) => d.severity === "error"),
-    [],
-  );
+  assert.deepEqual(lint(drawing), []);
   const svg = toSVG(drawing, { layout: "S" });
   assert.match(svg, /data-id="lean"/);
   assert.match(svg, /data-id="tag"/);

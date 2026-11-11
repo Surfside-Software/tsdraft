@@ -327,15 +327,38 @@ test("R2018 DXF and SVG carry text styles and justification", () => {
     /<text transform="translate\(1 2\) scale\(1 -1\)" font-size="0.125" font-family="monospace" fill/,
   );
   // Arial is drawn larger, so that its capitals are the text's height, and moved down half of it.
+  // It is widened first and slanted after, so skewX comes before scale.
   assert.match(
     svg,
-    /translate\(3 4\) scale\(1 -1\) translate\(0 1\) scale\(0.9 1\) skewX\(-15\)" font-size="2.793296" font-family="Arial, Helvetica, sans-serif" text-anchor="middle"/,
+    /translate\(3 4\) scale\(1 -1\) translate\(0 1\) skewX\(-15\) scale\(0.9 1\)" font-size="2.793296" font-family="Arial, Helvetica, sans-serif" text-anchor="middle"/,
   );
   assert.match(
     svg,
     /translate\(5 6\) scale\(1 -1\) rotate\(-30\)" font-size="0.125" font-family="monospace" text-anchor="end"/,
   );
   assert.match(svg, /translate\(7 8\) scale\(1 -1\) translate\(0 0.0875\)"/);
+});
+
+test("SVG sizes a TrueType font by its capital A, which AutoCAD makes the text's height", () => {
+  // The top of each font's `A` in the units of its file, 2048 to the em.
+  const tops = {
+    Arial: 1466,
+    Calibri: 1300,
+    Consolas: 1307,
+    "Courier New": 1170,
+    Georgia: 1439,
+    "Segoe UI": 1434,
+    Tahoma: 1489,
+    "Times New Roman": 1387,
+    "Trebuchet MS": 1485,
+    Verdana: 1489,
+  } as const;
+  for (const [font, top] of Object.entries(tops)) {
+    const d = createDrawing();
+    d.text([0, 0], "A", { height: 1, style: { name: "F", font: font as keyof typeof tops } });
+    const size = Number(/font-size="([\d.]+)"/.exec(toSVG(d.build()))?.[1]);
+    assert.ok(Math.abs(size - 2048 / top) < 0.001, `${font}: ${size}`);
+  }
 });
 
 test("the extents follow a text's vertical alignment and its style's width factor", () => {

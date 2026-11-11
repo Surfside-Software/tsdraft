@@ -1177,6 +1177,20 @@ test("two ids that give one handle are refused by the builder and by lint", () =
   assert.throws(() => toDXF(byHand), DrawingError);
 });
 
+test("the extents hold a slanted text's lean, which its width factor does not widen", () => {
+  // AutoCAD draws the top of this text one height further along it, at a width factor of 2.
+  const box = (obliqueAngle: 45 | -45) => {
+    const d = createDrawing();
+    d.textStyle({ name: "S", font: "txt.shx", widthFactor: 2, obliqueAngle });
+    d.text([10, 20], "H", { height: 1, style: "S" });
+    const drawing = d.build();
+    return extents(drawing.entities, drawing.textStyles).map((n) => Number(n.toFixed(9)));
+  };
+  // The text is 1.2 long. What it draws below its baseline, 0.3 of its height, leans back.
+  assert.deepEqual(box(45), [9.7, 20, 12.2, 21]);
+  assert.deepEqual(box(-45), [9, 20, 11.5, 21]);
+});
+
 test("the extents of a turned text reach its far corner", () => {
   const d = createDrawing();
   d.text([0, 0], "AB", { height: 2, rotation: 45 });

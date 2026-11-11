@@ -111,8 +111,7 @@ export interface PngFont {
   readonly face: string;
   /**
    * True when a text in the font is as wide in the PNG as it plots: the typeface has the
-   * font's letter widths, and the picture sets the font at the size AutoCAD lays it out at.
-   * It is false for Times New Roman in any typeface, which the pictures set about 2% wide.
+   * font's letter widths.
    * When false, do not judge from the PNG whether a text fits its space.
    */
   readonly sameWidths: boolean;

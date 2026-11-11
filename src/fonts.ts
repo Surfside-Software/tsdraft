@@ -13,8 +13,10 @@ export interface FontInfo {
   /** The CSS `font-family` that `toSVG` draws the font with, ending in a generic family. */
   readonly family: string;
   /**
-   * For a TrueType font, the height of a capital as a share of the font's size. A text's height
-   * is the height of its capitals, so `toSVG` draws the font this much larger.
+   * For a TrueType font, the top of its capital `A` as a share of the font's size. AutoCAD
+   * draws a text so that this `A` is as tall as the text's height, so `toSVG` draws the font
+   * this much larger. It is not always the cap height a font states: the `A` of Times New
+   * Roman is taller than its `H`.
    */
   readonly capHeight?: number;
 }
@@ -48,7 +50,7 @@ export const FONTS = {
     file: "calibri.ttf",
     pitchAndFamily: 34,
     family: "Calibri, Carlito, sans-serif",
-    capHeight: 0.632,
+    capHeight: 0.6348,
   },
   Consolas: {
     file: "consola.ttf",
@@ -62,7 +64,7 @@ export const FONTS = {
     family: '"Courier New", Courier, monospace',
     capHeight: 0.571,
   },
-  Georgia: { file: "georgia.ttf", pitchAndFamily: 18, family: "Georgia, serif", capHeight: 0.693 },
+  Georgia: { file: "georgia.ttf", pitchAndFamily: 18, family: "Georgia, serif", capHeight: 0.7026 },
   "Segoe UI": {
     file: "segoeui.ttf",
     pitchAndFamily: 34,
@@ -79,13 +81,13 @@ export const FONTS = {
     file: "times.ttf",
     pitchAndFamily: 18,
     family: '"Times New Roman", Times, serif',
-    capHeight: 0.662,
+    capHeight: 0.6772,
   },
   "Trebuchet MS": {
     file: "trebuc.ttf",
     pitchAndFamily: 34,
     family: '"Trebuchet MS", sans-serif',
-    capHeight: 0.715,
+    capHeight: 0.7251,
   },
   Verdana: {
     file: "verdana.ttf",
