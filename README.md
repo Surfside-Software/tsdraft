@@ -130,6 +130,28 @@ The path leads from the folder of the drawing's file. `toSVG` draws the referenc
 when it is given one, as `toSVG(drawing, { xrefs: { BASE: base } })`. [Xrefs](docs/xrefs.md)
 has the rest.
 
+A dimension measures between two points and writes what it measures. In the file it is a
+dimension, which AutoCAD measures again when its points move, and a dimension style says how
+it is drawn:
+
+```ts
+d.dimensionStyle({
+  name: "PLAN",
+  textHeight: 0.9,
+  arrowhead: "architectural-tick",
+  arrowSize: 0.6,
+  extensionOffset: 0.6,
+  extensionBeyond: 1.2,
+  textGap: 0.6,
+  precision: 1,
+  suffix: "'",
+});
+d.linearDimension([34, 30], [86, 30], [0, 22], { style: "PLAN" }); // 52.0'
+```
+
+`alignedDimension` measures along the two points. [Dimensions](docs/dimensions.md) has the
+rest.
+
 A layout is a sheet of paper that AutoCAD shows as a tab and plots as one page. What is drawn
 inside `layout` is on the sheet, in inches of paper, and a viewport shows the model on it at a
 scale:
@@ -172,10 +194,11 @@ sized this way, and its border, title block and notes are on a layout.
 tsdraft is at an early stage. It draws layers, lines, polylines, rectangles,
 circles, arcs and single-line text, with linetypes and lineweights, text styles
 and justification, blocks with attributes and inserts of them, references to DWG files as
-xrefs, layouts with a page setup and viewports, and layers that are off, frozen, locked or
-not plotted. It does not yet have dimensions or hatches. It writes DXF, not DWG. The drawing at
-the top builds its dimensions, leaders and stipple from lines and text, so in
-CAD they are plain lines and text, not dimension or hatch objects.
+xrefs, linear and aligned dimensions, layouts with a page setup and viewports, and layers
+that are off, frozen, locked or not plotted. It does not yet have leaders, hatches, or the
+other kinds of dimension. It writes DXF, not DWG. The drawing at the top builds its
+dimensions, leaders and stipple from lines and text, so in CAD they are plain lines and text,
+not dimension or hatch objects.
 
 The rules tsdraft checks are AutoCAD's. Other CAD programs may hold a drawing to
 other rules.
@@ -226,6 +249,7 @@ the drawing's version, and `toDXF(drawing, { version })` writes another one.
 | Layer names               | Up to 255 characters, except those in [the rules](docs/rules.md#errors) | Up to 31 letters, digits, `$`, `-` and `_`         |
 | Linetypes, lineweights    | Yes                                                                     | No: only `Continuous`, and no lineweights          |
 | Layer off, frozen, locked | Yes, and not plotted                                                    | No                                                 |
+| Dimensions                | Linear and aligned                                                      | No                                                 |
 
 R12 gets no new features. Choose it only for a program that cannot read R2018.
 CAD needs the stored units to scale a drawing inserted into another, and AutoCAD
@@ -268,6 +292,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   characters it refuses.
 - [Blocks](docs/blocks.md) covers blocks, inserts and attributes: layers in a
   block, names, handles and what the preview draws.
+- [Dimensions](docs/dimensions.md) covers dimension styles, linear and aligned
+  dimensions, how a measurement is written, and what `lint` refuses.
 - [Xrefs](docs/xrefs.md) covers references to DWG files: the path, units, a
   missing file, and how the preview draws a referenced drawing.
 - [Layouts](docs/layouts.md) covers sheets: the papers, the page setup, viewports and

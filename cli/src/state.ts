@@ -153,8 +153,9 @@ export interface PngFont {
  * `kind`.
  *
  * A warning of `inspectText` has a rule that starts with `text-`. Its `entity` is the entity of
- * model space, or of `layout`, that draws the text: the text itself, or the insert whose block
- * holds it, with the tag in `attribute` when it is one of the insert's attributes. `kind` and
+ * model space, or of `layout`, that draws the text: the text itself, the dimension whose text it
+ * is, or the insert whose block holds it, with the tag in `attribute` when it is one of the
+ * insert's attributes. `kind` and
  * `layer` are that entity's, and `block` is never set. `bounds` is the box of the text as it
  * plots, turned and justified, and of both texts when two overlap, in the coordinates of its
  * picture: pass it to `render --view`. `other` names the other text of an overlap, or the
@@ -222,6 +223,11 @@ export interface DrawingSummary {
   readonly blocks: readonly BlockSummary[];
   /** Each insert in model space, in the drawing's order. Empty for a drawing with none. */
   readonly inserts: readonly InsertSummary[];
+  /**
+   * Each dimension in model space, in the drawing's order, with what it measures and the text
+   * it is drawn with. Empty for a drawing with none.
+   */
+  readonly dimensions: readonly DimensionSummary[];
   /** Each xref in the drawing's order. Empty for a drawing with none. */
   readonly xrefs: readonly XrefSummary[];
   /** Each layout in the order of its tab. Empty for a drawing with none. */
@@ -249,6 +255,35 @@ export interface LayoutSummary {
    * the sheet, in paper units.
    */
   readonly inserts: readonly InsertSummary[];
+  /** Each dimension on the sheet, in order. What one measures is in paper units. */
+  readonly dimensions: readonly DimensionSummary[];
+}
+
+/** A dimension: what it measures between its two points, and the text it is drawn with. */
+export interface DimensionSummary {
+  /**
+   * The dimension's index among the entities of its space, model space's or its layout's,
+   * which its group in that picture's SVG has in `data-entity`.
+   */
+  readonly entity: number;
+  /** The dimension's id, or `null`. */
+  readonly id: string | null;
+  readonly layer: string;
+  /** `linear` measures along one direction, and `aligned` from point to point. */
+  readonly kind: "linear" | "aligned";
+  /** The dimension style as the dimension names it. */
+  readonly style: string;
+  /**
+   * The length it measures, in the units of its space, before its style's measurement scale.
+   * `null` when it cannot be worked out: its style is not defined, or the copy of tsdraft
+   * the drawing loaded is from before dimensions.
+   */
+  readonly measurement: number | null;
+  /**
+   * The text CAD draws for it: the measurement as its style writes it, with its prefix and
+   * suffix, or the dimension's own text. `null` where `measurement` is.
+   */
+  readonly text: string | null;
 }
 
 /** A viewport: a rectangle on a sheet that shows model space at a scale. */

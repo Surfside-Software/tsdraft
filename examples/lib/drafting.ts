@@ -64,10 +64,15 @@ export interface DimensionStyle {
 }
 
 /**
- * A chained string of linear dimensions between `points`, measured along `axis`. The dimension
- * line runs at `at` on the other axis: a y for horizontal dimensions, an x for vertical ones. Each
- * text is the measured distance, centered above its line, and reads from below or from the right.
- * A text too wide for its space goes below the line instead.
+ * A chained string of linear dimensions between `points`, measured along `axis`, drawn from
+ * lines and text. The dimension line runs at `at` on the other axis: a y for horizontal
+ * dimensions, an x for vertical ones. Each text is the measured distance, centered above its
+ * line, and reads from below or from the right. A text too wide for its space goes below the
+ * line instead.
+ *
+ * It is here for the feet-and-inches strings a dimension cannot write yet, such as `12'-6"`.
+ * CAD sees what it draws as plain lines and text, which do not follow the geometry. Draw any
+ * other dimension with `linearDimension` or `alignedDimension`.
  */
 export function dimensionChain(
   d: Pen,
@@ -117,7 +122,10 @@ export function dimensionChain(
   }
 }
 
-/** One linear dimension from `from` to `to`. */
+/**
+ * One linear dimension from `from` to `to`, drawn from lines and text as `dimensionChain`
+ * draws one, for a feet-and-inches string. CAD sees it as plain lines and text.
+ */
 export function dimension(
   d: Pen,
   from: Point,

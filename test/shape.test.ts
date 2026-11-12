@@ -13,6 +13,7 @@ import {
   type AttributeDefinition,
   type Block,
   type Diagnostic,
+  type DimensionStyle,
   type Drawing,
   type Entity,
   type Layer,
@@ -73,12 +74,34 @@ const kinds: { readonly [K in Entity["kind"]]: Required<Extract<Entity, { kind: 
     rotation: 30,
     attributes: { TAG: "T-1" },
   },
+  "linear-dimension": {
+    kind: "linear-dimension",
+    layer: "0",
+    style: "DIMS",
+    from: [0, 0],
+    to: [30, 10],
+    line: [0, -6],
+    angle: 15,
+    text: "<> TYP",
+    id: "g",
+  },
+  "aligned-dimension": {
+    kind: "aligned-dimension",
+    layer: "0",
+    style: "DIMS",
+    from: [0, 0],
+    to: [30, 10],
+    offset: 8,
+    text: "VARIES",
+    id: "h",
+  },
 };
 
 /** One of everything an R2018 drawing can hold, with every field of every object. */
 const full: Required<Drawing> & {
   readonly linetypes: readonly [Required<Linetype>];
   readonly textStyles: readonly [Required<TextStyle>];
+  readonly dimensionStyles: readonly [Required<DimensionStyle>];
   readonly layers: readonly [Layer, Required<Layer>];
   readonly blocks: readonly [
     Block,
@@ -96,6 +119,24 @@ const full: Required<Drawing> & {
   linetypeScale: 2,
   linetypes: [{ name: "DD", description: "Dash dot", pattern: [0.5, -0.25, 0, -0.25] }],
   textStyles: [{ name: "NOTES", font: "Arial", widthFactor: 0.9, obliqueAngle: 10 }],
+  dimensionStyles: [
+    {
+      name: "DIMS",
+      textStyle: "NOTES",
+      textHeight: 0.1,
+      arrowhead: "architectural-tick",
+      arrowSize: 0.1,
+      extensionOffset: 0.05,
+      extensionBeyond: 0.1,
+      textGap: 0.05,
+      scale: 10,
+      precision: 2,
+      prefix: "L ",
+      suffix: "'",
+      suppressZeros: "trailing",
+      measurementScale: 2,
+    },
+  ],
   layers: [
     { name: "0", color: 7 },
     {
@@ -312,7 +353,7 @@ test("a value of the wrong shape is reported in these words, once", () => {
       { toString: 0 },
       [
         "xref: Xref a value of type object: A block's name must be a string",
-        `undefined-block: insert #6: Block "BASE" is not defined. AutoCAD's AUDIT reports an insert of a block the drawing does not have, and AutoCAD cannot save the drawing as DXF`,
+        `undefined-block: insert #8: Block "BASE" is not defined. AutoCAD's AUDIT reports an insert of a block the drawing does not have, and AutoCAD cannot save the drawing as DXF`,
       ],
     ],
     [

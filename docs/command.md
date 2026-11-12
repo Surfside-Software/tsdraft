@@ -127,6 +127,11 @@ xrefs, layouts, errors and warnings, and each layer. `drawing.blocks` gives each
 it holds, the tags of its attributes and how many inserts place it. `drawing.inserts` gives each
 insert in model space: its `entity` index, `block`, `layer`, `id`, `at`, `scale`, `rotation` and
 the value it shows for each attribute, and `xref`, which is true for an insert of an xref.
+`drawing.dimensions` gives each
+dimension in model space: its `entity` index, `id`, `layer`, `kind`, which is `linear` or
+`aligned`, `style`, `measurement`, the length it measures in drawing units, and `text`, the
+string AutoCAD draws for it. The last two are `null` for a dimension whose style the drawing does not define. A
+layout's `dimensions` lists those on its sheet in the same way.
 `drawing.xrefs` gives each xref's `name`, its `path`, how many `inserts` place it, in model
 space, in blocks and on layouts, `shown` and `units`. The command opens no DWG file. It draws an xref when
 the drawing file has a named export `xrefs`, an object that gives a `Drawing` under the xref's
@@ -187,7 +192,7 @@ viewport whose size or ratio gives it no view, since neither can be drawn.
 
 When the drawing cannot be drawn with such an item in it, the command draws the rest.
 `drawing.omitted` then lists the `item` of everything the pictures, `drawing.extents` and the
-lists of layers, blocks, inserts, xrefs and layouts leave out, and `drawing.counts` still
+lists of layers, blocks, inserts, dimensions, xrefs and layouts leave out, and `drawing.counts` still
 counts the drawing as it is. A layout that cannot be read is left out whole, with its picture
 in `outputs.layouts`. A viewport that cannot be read is left out of its layout, which keeps
 the rest, and an entity of a sheet is left out as one of model space is, so the others keep

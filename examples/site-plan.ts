@@ -65,7 +65,7 @@ import {
   type TextAlign,
   type TextVerticalAlign,
 } from "../src/index.ts";
-import { arrowhead, dimensionChain, textWidth, type DimensionStyle } from "./lib/drafting.ts";
+import { arrowhead, textWidth } from "./lib/drafting.ts";
 
 // The sheet. Lengths on it are inches of paper, from its lower-left corner. The paper is full
 // bleed, with no margin a plotter keeps clear, so the border sets the edge of the drawing:
@@ -489,50 +489,46 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
   const near = paper(gap); // between a line and its text
   const clear = paper(1 / 8); // between a heavy line and its text
 
-  // One string of dimensions across the lot, behind the building, and one up it, outside the east
-  // line. Each runs through the building's corners.
+  // The dimensions are AutoCAD's own: each measures the two points it is given, and writes
+  // what it measures. Their style has paper sizes in inches and the scale of this view, so a
+  // sheet at another ratio needs the same style at another scale, under another name.
+  const dimensions = `DIMS-${feetPerInch}`;
+  d.dimensionStyle({
+    name: dimensions,
+    textStyle: NOTES,
+    textHeight: size.note,
+    arrowhead: "architectural-tick",
+    arrowSize: 1 / 8,
+    extensionOffset: gap,
+    extensionBeyond: 1 / 8,
+    textGap: gap,
+    scale: paper(1),
+    precision: 1,
+    suffix: "'",
+  });
+  // One string across the lot, behind the building, and one up it, outside the east line.
+  // Each runs through the building's corners, and ends on a lot line.
   const across = bounds.rear + paper(3 / 8);
   const up = lot.width + paper(5 / 8);
   d.layer("C-ANNO-DIMS", {}, () => {
-    const style: DimensionStyle = {
-      text: text.note,
-      tick: paper(1 / 16),
-      gap: near,
-      extend: near,
-      format: feet,
-      textStyle: NOTES,
-      font: FONT,
-    };
-    dimensionChain(
-      d,
-      [
-        [0, across],
-        [bounds.left, bounds.rear],
-        [bounds.right, bounds.rear],
-        [lot.width, across],
-      ],
-      "x",
-      across,
-      // A side setback line crosses each side yard's segment. The segment's text is centered in
-      // the part between that line and the building, so the line cannot run through it.
-      {
-        ...style,
-        textAt: (from, to) =>
-          (Math.max(from, setbacks.side) + Math.min(to, lot.width - setbacks.side)) / 2,
-      },
-    );
-    dimensionChain(
-      d,
-      [
-        [lot.width, 0],
-        [bounds.right, bounds.front],
-        [bounds.right, bounds.rear],
-        [lot.width, lot.depth],
-      ],
-      "y",
-      up,
-      style,
-    );
+    const acrossLot: Point[] = [
+      [0, across],
+      [bounds.left, bounds.rear],
+      [bounds.right, bounds.rear],
+      [lot.width, across],
+    ];
+    const upLot: Point[] = [
+      [lot.width, 0],
+      [bounds.right, bounds.front],
+      [bounds.right, bounds.rear],
+      [lot.width, lot.depth],
+    ];
+    for (let i = 1; i < acrossLot.length; i++) {
+      d.linearDimension(acrossLot[i - 1]!, acrossLot[i]!, [0, across], { style: dimensions });
+    }
+    for (let i = 1; i < upLot.length; i++) {
+      d.linearDimension(upLot[i - 1]!, upLot[i]!, [up, 0], { style: dimensions, along: "y" });
+    }
   });
 
   d.layer("C-ANNO-TEXT", {}, () => {

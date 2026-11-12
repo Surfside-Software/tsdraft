@@ -683,6 +683,7 @@ test("a drawing with a layout gets a picture of its sheet, and the state says wh
       plotStyle: "monochrome.ctb",
       entities: 1,
       inserts: [],
+      dimensions: [],
       viewports: [
         {
           id: "plan",
@@ -713,6 +714,7 @@ test("a drawing with a layout gets a picture of its sheet, and the state says wh
       plotStyle: "monochrome.ctb",
       entities: 2,
       viewports: [],
+      dimensions: [],
       inserts: [
         {
           entity: 0,
@@ -774,6 +776,103 @@ test("a drawing with a layout gets a picture of its sheet, and the state says wh
   writeFileSync(plan, `export default ${JSON.stringify({ ...drawing, layouts: [] })};\n`);
   assert.deepEqual(render(plan).state.outputs.layouts, []);
   assert.equal(existsSync(sheet!.svg), false);
+});
+
+test("the state lists each dimension with the number it measures and the text AutoCAD draws", () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "tsdraft-render-")));
+  const plan = join(dir, "plan.ts");
+  const drawing = {
+    format: 0,
+    units: "ft",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    dimensionStyles: [
+      {
+        name: "TICK",
+        textHeight: 1,
+        arrowhead: "architectural-tick",
+        arrowSize: 1,
+        extensionOffset: 0.5,
+        extensionBeyond: 1,
+        textGap: 0.5,
+        precision: 1,
+        suffix: "'",
+      },
+    ],
+    entities: [
+      { kind: "line", layer: "0", from: [0, 0], to: [30, 40] },
+      {
+        kind: "linear-dimension",
+        layer: "0",
+        id: "span",
+        style: "TICK",
+        from: [0, 0],
+        to: [30, 40],
+        line: [0, -10],
+      },
+      // A style that is not defined: lint refuses it, and it measures nothing here.
+      {
+        kind: "linear-dimension",
+        layer: "0",
+        style: "NONE",
+        from: [0, 0],
+        to: [9, 0],
+        line: [0, 5],
+      },
+    ],
+    layouts: [
+      {
+        name: "A-101",
+        paper: "ANSI B",
+        viewports: [],
+        entities: [
+          {
+            kind: "aligned-dimension",
+            layer: "0",
+            style: "tick",
+            from: [1, 1],
+            to: [4, 5],
+            offset: 2,
+            text: "<> ON PAPER",
+          },
+        ],
+      },
+    ],
+  };
+  writeFileSync(plan, `export default ${JSON.stringify(drawing)};\n`);
+  const { state, status } = render(plan, "--width", "400");
+  assert.equal(status, 2);
+  assert.deepEqual(state.drawing?.dimensions, [
+    {
+      entity: 1,
+      id: "span",
+      layer: "0",
+      kind: "linear",
+      style: "TICK",
+      measurement: 30,
+      text: "30.0'",
+    },
+    {
+      entity: 2,
+      id: null,
+      layer: "0",
+      kind: "linear",
+      style: "NONE",
+      measurement: null,
+      text: null,
+    },
+  ]);
+  assert.deepEqual(state.drawing?.layouts[0]?.dimensions, [
+    {
+      entity: 0,
+      id: null,
+      layer: "0",
+      kind: "aligned",
+      style: "tick",
+      measurement: 5,
+      text: "5.0' ON PAPER",
+    },
+  ]);
 });
 
 test("a malformed layout is reported and left out, and the rest of the drawing is drawn", () => {

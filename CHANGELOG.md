@@ -2,6 +2,67 @@
 
 ## Unreleased
 
+- Linear and aligned dimensions, in R2018 drawings. `d.linearDimension(from, to, line,
+  { style })` measures between two points along X, along Y with `along: "y"`, or along an
+  angle, with its dimension line through `line`. `d.alignedDimension(from, to, offset,
+  { style })` measures along the two points. Each is a dimension in the file, which AutoCAD
+  measures again when its points move, and takes a `text` in which `<>` stands for the
+  measurement, and an `id`. A dimension goes in model space or on a layout. The angle of a
+  linear dimension is from -360 to 360, and is kept as the one from 0 up to 360 that gives the
+  same direction. [docs/dimensions.md](docs/dimensions.md) describes all of it.
+- The file holds each dimension's picture in a block of its own, as AutoCAD draws it: its
+  extension lines, its dimension line, its arrowheads and its text. AutoCAD shows that
+  picture, and so does a drawing that attaches the file as an xref or inserts it as a block,
+  where AutoCAD draws nothing for a dimension that has none. AutoCAD draws a new picture when
+  the dimension changes. `dimensionPictureHandles({ id, layout, index })` gives the handles of
+  the block and of what it holds, which come from the dimension's id, or from its place for one
+  without an id.
+- `d.dimensionStyle({ name, textStyle, textHeight, arrowhead, arrowSize, extensionOffset,
+  extensionBeyond, textGap, scale, precision, prefix, suffix, suppressZeros,
+  measurementScale })` defines the style a dimension names. Its sizes are the sizes that
+  plot, and `scale` multiplies them for the view, as `fromPaper(1, "in", view)` gives it.
+  `ARROWHEADS` lists the two arrowheads, `"closed-filled"` and `"architectural-tick"`. The
+  text is above the dimension line, between the extension lines, and the measurement is a
+  decimal number.
+- `toSVG` draws each dimension as AutoCAD does, in model space, through a viewport and on a
+  sheet, with the string AutoCAD writes, and a drawing's extents take dimensions in.
+  `dimensionPicture(dimension, style)` gives the lines, the arrowheads, the string and its
+  place, `findDimensionStyle(drawing, name)` the style, and `dimensionAngle(dimension)` the
+  angle a linear dimension measures along, from 0 up to 360. A measurement is rounded half up,
+  and a value a little under the half is taken as on it: within a ten-billionth of itself
+  under 1, and from 1 up within a ten-billionth and one and a half units in the 16th
+  significant digit, so 1234567.15 is written `1234567.2`, as AutoCAD writes it. The command's JSON lists each
+  dimension under `drawing.dimensions` and under a layout's `dimensions`, with its `id`, the
+  `measurement` and the `text`. `inspectText` takes a dimension's text for a text where its
+  picture puts it, so it warns of a text over it.
+- New rules, each a compile error for a literal where it can be, an error at the builder's
+  call, and a `lint` error under `dimension-style`, `duplicate-dimension-style`,
+  `undefined-dimension-style` or `dimension`. A style's name follows a layer's rules, and no
+  two styles have names AutoCAD takes for one. `Standard` is neither defined nor named. A
+  style's text style is defined, its text height is greater than 0, its arrow size, extension
+  lengths and gap are 0 or more, its scales are greater than 0 and its precision is a whole
+  number from 0 to 8: AutoCAD's `AUDIT` reports most of the others, and draws a box around
+  the text for a negative gap. A prefix, a suffix and a dimension's text have none of `\`,
+  `{` and `}`, which AutoCAD reads as formatting. A dimension names a style the drawing
+  defines, since AutoCAD discards a drawing with one that does not. It measures something,
+  writes a number under 100,000,000 with no more than 15 digits once rounded, since
+  AutoCAD works the 16th out from its own arithmetic, and with closed filled arrowheads has
+  room for the widest its text can be in any font, and for the lean of a slanted style, since
+  AutoCAD turns the arrowheads outward by the width of the text in its font. Every size of a
+  style times its scale, and every number a dimension draws, is under 1e100, and a text
+  height or an arrow size other than 0 times the scale is not written as 0. A linear
+  dimension measures along an angle from -360 to 360. It is not in a block, where AutoCAD
+  draws nothing for it. An R12 drawing with a dimension is refused.
+- A block cannot be named `_ArchTick`, in any case of its letters. AutoCAD draws a
+  dimension's architectural tick with the block of that name. A drawing that has such a
+  block is now refused.
+- `Drawing` gains `dimensionStyles`, and its entities the kinds `"linear-dimension"` and
+  `"aligned-dimension"`. `toJSON` and `fromJSON` carry them. A drawing with no dimension has
+  the DXF, the JSON and the SVG it had.
+- `dimensionStyleHandle(name)` gives the handle of a dimension style, which comes from its
+  name, and `arrowheadHandles(arrowhead)` those of an arrowhead's block.
+- The example sheet, `examples/site-plan.ts`, draws its dimensions as dimensions, in a style
+  with the scale of its view.
 - `measureText` gives the length a text plots at and the box its capitals fill, from its
   value, height, font, width factor, oblique angle, point, rotation and justification:
   `measureText({ value: "GENERAL NOTES", height: 0.125 }).length`. It reads `FONT_METRICS`,

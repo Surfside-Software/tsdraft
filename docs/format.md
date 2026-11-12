@@ -54,6 +54,17 @@ space's, and a `plotStyle` where it is not `"monochrome.ctb"`. A viewport has a 
 its `ratio`, and an `id` where it has one. A drawing with no layout has the JSON it had before
 layouts existed. [Layouts](layouts.md) describes them.
 
+A drawing lists its dimension styles in `dimensionStyles`, and leaves the field out when it
+has none. A style has a `name`, a `textHeight`, an `arrowSize`, an `extensionOffset`, an
+`extensionBeyond`, a `textGap` and a `precision`, and where they are set a `textStyle`, an
+`arrowhead`, a `scale`, a `prefix`, a `suffix`, `suppressZeros` and a `measurementScale`. A
+dimension is an entity of kind `"linear-dimension"` or `"aligned-dimension"`, in
+`drawing.entities` or in a layout's `entities`, with its `layer`, `style`, `from` and `to`,
+and a `text` where it has one. A linear one has `line`, a point of its dimension line, and an
+`angle` where it does not measure along X, from -360 to 360; the builder keeps it from 0 up to 360. An aligned one has `offset`. Neither has a
+linetype or a lineweight. A drawing with no dimension has the JSON it had before dimensions
+existed. [Dimensions](dimensions.md) describes them.
+
 A drawing written by hand needs `format: 0` too. `lint` reports a drawing without it, or with
 another version, under the rule `format`, and `toDXF` refuses to write it. `lint` takes any
 plain data and never throws: a list that is not an array, an entity of an unknown `kind`, a
@@ -125,7 +136,8 @@ For `column-A1`, `h` is the hash of `column-a1` and the handle is `1C53484D4C9BA
 drawing may hold the handle. `idHandle` throws on a string that is not a valid id.
 
 A block's own objects, its attribute definitions and the attributes of an insert that has an
-id take handles from their names in the same way: see [Handles](blocks.md#handles).
+id take handles from their names in the same way: see [Handles](blocks.md#handles). So do a
+dimension style and the block of a dimension's picture: see [Handles](dimensions.md#handles).
 
 Handles from ids lie from `10000000000000` to `1FFFFFFFFFFFFF`, far above the counted ones,
 and a drawing that has ids has a `$HANDSEED` of `20000000000000`. AutoCAD numbers the objects

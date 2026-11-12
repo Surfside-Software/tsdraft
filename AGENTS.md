@@ -65,6 +65,23 @@
   in `*Paper_Space`, with its entities among model space's and marked with group 67, and
   every other in a block `*Paper_Space0` and on. A viewport holds the height of its view and
   no scale: `validViewportView` works it out from the numbers as they are written.
+- A dimension holds its two points, its style and its text, and both writers add the block of
+  its picture, `*D` and a number, which AutoCAD shows and which an xref or an insert of the
+  file needs: AutoCAD draws nothing for a dimension inside another drawing's block.
+  `src/dimensions.ts` is the one place that says what AutoCAD draws, `dimensionPicture`, and
+  what string it writes, `measurementText`: the writers, `toSVG`, the extents and the command
+  all read it, from the numbers as they are written. What a dimension reads, group 42, and the
+  direction of its text are written with 15 significant digits: near enough to AutoCAD's own,
+  and few enough that the double AutoCAD reads from them can be worked out exactly. Every number of a picture must stay under 1e100,
+  which `dimensionDrawnProblem` checks for the builder and `lint` alike. A style's sizes are paper
+  sizes and its `scale` is AutoCAD's overall scale. The text is always above the line and
+  between the extension lines, so the one case that depends on a font's widths, closed
+  filled arrowheads that may not fit, is refused by `arrowRoom`. The keys of the handles are
+  `dimension-style:NAME`, with A to Z in lower case, `arrowhead:NAME` for the stroke in an
+  arrowhead's block, whose own handles are the block's, and `dimension-picture:WHO/PART` for
+  the block of a picture and what it holds, where WHO is the dimension's id with A to Z in
+  lower case, or `@LAYOUT/INDEX` for one without an id: never change one. A dimension is
+  refused inside a block, where AutoCAD draws nothing for it.
 - `examples/site-plan.ts` is the sheet an agent copies, so it must read as a model: the site
   in model space at its true size, with the annotation that is read in the plan sized by
   `fromPaper`, and everything that belongs to the paper inside `d.layout`, in paper units.

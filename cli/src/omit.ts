@@ -10,7 +10,8 @@ export const LEFT_OUT: Entity = { kind: "polyline", layer: "", points: [], close
 /**
  * The drawing without the items at `items`, which are the `item` paths of `lint`'s diagnostics:
  * an entry of a list, such as `layers[1]`, `blocks[0]` or `blocks[0].attributes[2]`, an entity,
- * such as `entities[3]` or `blocks[0].entities[1]`, a whole list, such as `xrefs`, or
+ * such as `entities[3]` or `blocks[0].entities[1]`, a whole list, such as `xrefs` or
+ * `dimensionStyles`, or
  * `linetypeScale`. A layout is left out whole, or keeps what is left of it: `layouts[0]`,
  * `layouts[0].viewports[1]`, `layouts[0].entities[2]`.
  */
@@ -53,13 +54,14 @@ export function without(drawing: Drawing, items: ReadonlySet<string>): Drawing {
   const {
     linetypes,
     textStyles,
+    dimensionStyles,
     blocks: _,
     xrefs,
     layouts: _layouts,
     linetypeScale,
     ...rest
   } = drawing;
-  const lists = { linetypes, textStyles, xrefs };
+  const lists = { linetypes, textStyles, dimensionStyles, xrefs };
   return {
     ...rest,
     layers: kept(drawing.layers, "layers") ?? [],

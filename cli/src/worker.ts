@@ -15,11 +15,15 @@ import { dirname, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import type {
+  AlignedDimension,
   Block,
   Diagnostic,
+  DimensionPicture,
+  DimensionStyle,
   Drawing,
   Entity,
   Layout,
+  LinearDimension,
   PaperInfo,
   PaperUnit,
   TextWarning,
@@ -33,6 +37,7 @@ import type {
   Box,
   BuildDiagnostic,
   BuildError,
+  DimensionSummary,
   DrawingSummary,
   InsertSummary,
   LayerSummary,
@@ -159,6 +164,12 @@ interface Library {
   readonly findBlock?: (drawing: Drawing, name: string) => Block | undefined;
   /** The xref an insert of a name places. A copy of tsdraft from before xrefs has none. */
   readonly findXref?: (drawing: Drawing, name: string) => Xref | undefined;
+  /** A dimension's style and what it draws. A copy of tsdraft from before dimensions has neither. */
+  readonly findDimensionStyle?: (drawing: Drawing, name: string) => DimensionStyle | undefined;
+  readonly dimensionPicture?: (
+    dimension: LinearDimension | AlignedDimension,
+    style: DimensionStyle,
+  ) => DimensionPicture;
 }
 
 // The streams' own `write`, which a drawing file may replace on `process.stdout` and
@@ -599,6 +610,7 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
           layers: layerSummaries(shown),
           blocks: blockSummaries(library, shown),
           inserts: insertSummaries(library, shown),
+          dimensions: dimensionSummaries(library, shown),
           xrefs: xrefSummaries(library, shown, given),
           layouts: layoutSummaries(library, shown),
         },
@@ -920,6 +932,7 @@ function layoutSummaries(library: Library, drawing: Drawing): LayoutSummary[] {
         plotStyle: layout.plotStyle ?? "monochrome.ctb",
         entities: layout.entities.length,
         inserts: insertSummaries(library, drawing, layout.entities),
+        dimensions: dimensionSummaries(library, drawing, layout.entities),
         viewports: layout.viewports.flatMap((viewport, index) => {
           const box = viewportBox(library, drawing, layout, index);
           if (!box) return [];
@@ -1081,6 +1094,39 @@ function insertSummaries(
         attributes: Object.fromEntries(
           definitions.map((a) => [a.tag, e.attributes?.[a.tag] ?? a.value]),
         ),
+      },
+    ];
+  });
+}
+
+/** Each dimension among some entities, with what the library the drawing loaded says it reads. */
+function dimensionSummaries(
+  library: Library,
+  drawing: Drawing,
+  entities: readonly Entity[] = drawing.entities,
+): DimensionSummary[] {
+  return entities.flatMap((e, entity): DimensionSummary[] => {
+    if (e.kind !== "linear-dimension" && e.kind !== "aligned-dimension") return [];
+    let read: { measurement: number; text: string } | undefined;
+    try {
+      const style =
+        typeof e.style === "string" ? library.findDimensionStyle?.(drawing, e.style) : undefined;
+      const picture = style && library.dimensionPicture?.(e, style);
+      if (picture && Number.isFinite(picture.measurement)) {
+        read = { measurement: picture.measurement, text: picture.label.value };
+      }
+    } catch {
+      // A dimension or a style that breaks a rule, which the diagnostics say.
+    }
+    return [
+      {
+        entity,
+        id: e.id ?? null,
+        layer: e.layer,
+        kind: e.kind === "linear-dimension" ? "linear" : "aligned",
+        style: e.style,
+        measurement: read?.measurement ?? null,
+        text: read?.text ?? null,
       },
     ];
   });

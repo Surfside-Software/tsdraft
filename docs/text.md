@@ -151,9 +151,9 @@ sheet, the outline of a room, the cell of a table drawn as a rectangle. Four sep
 bound nothing. A text may pass its boundary, or the paper, by a tenth of its height. Each
 warning has `bounds`, the box of the text as it plots, or of both texts of an overlap, in the
 coordinates of its space, and `other`, which names the other text or the polyline. `entity` is
-the index of the entity in model space, or in the layout that `layout` names. For a text an
-insert draws it is the insert's index, with the tag in `attribute` when the text is one of the
-insert's attributes.
+the index of the entity in model space, or in the layout that `layout` names. For a
+dimension's text it is the dimension's index. For a text an insert draws it is the insert's
+index, with the tag in `attribute` when the text is one of the insert's attributes.
 
 Only what plots is looked at: nothing on a layer that is off, frozen or set not to plot,
 unless `drawNoPlot` is given, as for `toSVG`. Model space and each layout are looked at apart.

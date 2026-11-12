@@ -124,6 +124,7 @@ function sheetPicture(
   }
   const unitsPerPixel = w / width;
   const wider = (pen * unitsPerPixel) / base;
+  let dimension: string | undefined;
   const out = svg.split("\n").map((line) => {
     if (line.startsWith("<svg ")) {
       return line.replace(
@@ -141,8 +142,12 @@ function sheetPicture(
       ].join("\n");
     }
     const layer = /data-layer="([^"]+)"/.exec(line)?.[1];
-    const role = layer === undefined ? undefined : roles[layer];
-    if (layer !== undefined && !role) throw new Error(`Layer ${layer} of ${name} has no role`);
+    // A dimension is a group that names the layer, and its parts are the lines after it.
+    if (line.includes("data-dimension=")) dimension = layer;
+    else if (line.trim() === "</g>") dimension = undefined;
+    const drawnOn = layer ?? dimension;
+    const role = drawnOn === undefined ? undefined : roles[drawnOn];
+    if (drawnOn !== undefined && !role) throw new Error(`Layer ${drawnOn} of ${name} has no role`);
     const styled = line
       .replace(/stroke-width="([^"]+)"/, (_, value: string) => {
         return `stroke-width="${Number((Number(value) * wider).toPrecision(5))}"`;

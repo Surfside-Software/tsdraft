@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   createDrawing,
+  dimensionPicture,
+  findDimensionStyle,
   DASHED,
   DrawingBuilder,
   DrawingError,
@@ -1041,15 +1043,25 @@ for (const ratio of [120, 240]) {
     // Model space is the site at its true size, and all of it shows in the viewport.
     const lot = drawing.entities.find((e) => e.layer === "C-PROP");
     assert.deepEqual(lot?.kind === "polyline" && lot.points[2], [100, 140]);
-    assert.ok(inside(extents(drawing.entities, textStyles, blocks), view));
+    const boxOf = (entities: readonly Entity[]) =>
+      extents(
+        entities,
+        textStyles,
+        blocks,
+        undefined,
+        undefined,
+        undefined,
+        drawing.dimensionStyles,
+      );
+    assert.ok(inside(boxOf(drawing.entities), view));
 
     // The sheet is in inches, inside the border. Only the title block is in its own space, and
     // nothing but the viewport is over the plan.
-    assert.ok(inside(extents(page!.entities, textStyles, blocks), drawingArea));
+    assert.ok(inside(boxOf(page!.entities), drawingArea));
     const [border, ...rest] = page!.entities;
     assert.ok(border?.kind === "insert" && border.block === "TITLE BLOCK");
     for (const entity of rest) {
-      const box = extents([entity], textStyles, blocks);
+      const box = boxOf([entity]);
       const what = `${entity.kind} on ${entity.layer}`;
       assert.ok(!overlap(box, sides(titleBlock)), `${what} is in the title block's space`);
       assert.ok(!overlap(box, sides(viewport)), `${what} is over the viewport`);
@@ -1065,6 +1077,13 @@ for (const ratio of [120, 240]) {
           blocksByKey(blocks),
           () => false,
           (drawn, { matrix }) => {
+            if (drawn.kind === "linear-dimension" || drawn.kind === "aligned-dimension") {
+              // A dimension's text, as tsdraft draws it: centered on the middle of its baseline.
+              const style = findDimensionStyle(drawing, drawn.style)!;
+              const { label } = dimensionPicture(drawn, style);
+              texts.push({ ...label, kind: "text", layer: drawn.layer, align: "center" });
+              return;
+            }
             if (drawn.kind !== "text") return;
             const scale = matrix ? matrix[0] : 1;
             const at = matrix ? mapPoint(matrix, drawn.at) : drawn.at;
