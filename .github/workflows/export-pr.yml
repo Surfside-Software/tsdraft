@@ -1,15 +1,14 @@
 name: Export PR
 
 # The development repository pushes each change to the `export` branch. This
-# opens the pull request from it to main, or retitles the one that is open.
-# CI runs on the push itself.
+# opens the pull request from it to main, or retitles the one that is open,
+# and CI runs on that pull request.
 on:
   push:
     branches: [export]
 
 permissions:
   contents: read
-  pull-requests: write
 
 concurrency:
   group: export-pr
@@ -23,8 +22,17 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      # The tsdraft-export app opens it. GitHub holds CI on a pull request that the
+      # workflow's own token opens until someone approves it.
+      - id: app
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.EXPORT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.EXPORT_APP_PRIVATE_KEY }}
+          permission-contents: read
+          permission-pull-requests: write
       - env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |
           count=$(git rev-list --count origin/main..HEAD)
           if [ "$count" -eq 0 ]; then
@@ -36,10 +44,12 @@ jobs:
           else
             title="Export $count changes"
           fi
-          pr=$(gh pr list --head export --base main --state open --json number --jq '.[0].number // empty')
+          open_pr() { gh pr list --head export --base main --state open --json number --jq '.[0].number // empty'; }
+          pr=$(open_pr)
           if [ -n "$pr" ]; then
             gh pr edit "$pr" --title "$title"
           elif ! gh pr create --base main --head export --title "$title" \
             --body-file .github/export-pull-request.md; then
-            echo "::warning::Could not open the pull request. Open it by hand, or allow GitHub Actions to create pull requests."
+            # An export run by hand may have opened it first.
+            [ -n "$(open_pr)" ]
           fi

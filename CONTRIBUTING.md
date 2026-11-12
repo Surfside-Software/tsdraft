@@ -2,7 +2,7 @@
 
 tsdraft is developed in a private repository and published here. Each change
 arrives as a commit on the `export` branch, with a pull request from that branch
-to `main`. CI runs on the branch, and the pull request is merged with squash.
+to `main`. CI runs on the pull request, which is merged with squash.
 
 - Issues are welcome here.
 - Pull requests are welcome too, but they are not merged here. An accepted
