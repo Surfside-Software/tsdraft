@@ -31,7 +31,7 @@ async function builds(
   const outcomes: Outcome[] = [];
   try {
     for (let n = 0; n < times; n++) {
-      await builder.warmed();
+      await settled(builder);
       between?.(n);
       outcomes.push((await builder.build(file, root))!);
     }
@@ -41,13 +41,25 @@ async function builds(
   return outcomes;
 }
 
+/**
+ * Waits for the spares to warm up. Each warm-up ends by its deadline, so a wait that does not
+ * end is a broken rule, and fails the test rather than holding it open.
+ */
+function settled(builder: Builder): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  const stuck = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("The spares never finished warming up")), 30_000);
+  });
+  return Promise.race([builder.warmed(), stuck]).finally(() => clearTimeout(timer));
+}
+
 /** A file's answer from a process that waited and warmed up, and from one just started. */
 async function warmAndCold(file: string): Promise<[warm: Outcome, cold: Outcome]> {
   const waiting = new Builder({ timeout: 30_000, warm: true });
   const fresh = new Builder({ timeout: 30_000, warm: false });
   try {
     await waiting.build(join(root, "examples/lot.ts"), root);
-    await waiting.warmed();
+    await settled(waiting);
     return [(await waiting.build(file, root))!, (await fresh.build(file, root))!];
   } finally {
     waiting.close();
@@ -239,7 +251,7 @@ test("a warm-up that does not end costs no build, and its library is not loaded 
       const first = await builder.build(own.file, root);
       // At once: the process it is given may be the one that will not end.
       const second = await builder.build(own.file, root);
-      await builder.warmed();
+      await settled(builder);
       const third = await builder.build(own.file, root);
       assert.deepEqual([first!.ok, second!.ok, third!.ok], [true, true, true]);
       assert.equal(third!.modules.ahead, 0);
@@ -368,23 +380,20 @@ test("a library whose folder was gone when a warm-up tried it is loaded ahead on
 
 test("a library that missed the warm-up's deadline once is tried again after the next build", () =>
   inScratch(async (dir) => {
-    // Its warm-up is slow until a moment a few seconds off, and then fast.
-    const until = Date.now() + 3_000;
+    // Its warm-up does not end until the file `open` exists, outside the library's folder.
+    const open = join(dir, "open");
     const own = await ownCommand(
       dir,
-      `if (given[0].layers.some((layer) => layer.name === "C-SETB")) while (Date.now() < ${until});
+      `const { existsSync } = process.getBuiltinModule("node:fs");
+if (given[0].layers.some((layer) => layer.name === "C-SETB")) while (!existsSync(${JSON.stringify(open)}));
 return draw(...given);`,
     );
-    const builder = new own.Builder({ timeout: 30_000, warm: true, warmDeadline: 300 });
     const outcomes = await builds(
       own.file,
       3,
-      (n) => {
-        if (n !== 1) return;
-        // The first warm-up has missed its deadline by now.
-        while (Date.now() < until + 100);
-      },
-      builder,
+      // The first warm-up has missed its deadline by now.
+      (n) => n === 1 && writeFileSync(open, ""),
+      new own.Builder({ timeout: 30_000, warm: true }),
     );
     assert.deepEqual(
       outcomes.map((o) => [o.ok, o.modules.ahead > 0]),
