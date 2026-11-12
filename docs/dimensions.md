@@ -249,7 +249,10 @@ shown or plotted. It draws nothing for a dimension in the block of another drawi
 or an insert of the file would show none, and a program that only draws a dimension's block
 would show none either.
 
-A drawing with no dimension style is written as it was before dimensions.
+Every R2018 drawing holds the dimension style `Standard`, with AutoCAD's own values and the
+text style `Standard`. AutoCAD draws no text for a dimension in a style that names no text
+style, so without it a dimension a drafter adds in `Standard` would have none. A drawing with
+no dimension style holds nothing else for dimensions.
 
 ## What is not drawn yet
 
