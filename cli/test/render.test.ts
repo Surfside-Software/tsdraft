@@ -15,10 +15,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import type { BuildState } from "../src/state.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
+
+// Each test makes its folders in this one, which is removed when the file's tests end.
+const temp = mkdtempSync(join(tmpdir(), "tsdraft-render-"));
+after(() => rmSync(temp, { recursive: true, force: true }));
+const tempDir = (): string => mkdtempSync(join(temp, "case-"));
 
 function render(file: string, ...args: string[]): { state: BuildState; status: number | null } {
   const run = spawnSync(process.execPath, [join(root, "src/cli.ts"), "render", file, ...args], {
@@ -28,7 +33,7 @@ function render(file: string, ...args: string[]): { state: BuildState; status: n
 }
 
 test("render writes the example's SVG and PNG and prints its state", () => {
-  const out = mkdtempSync(join(tmpdir(), "tsdraft-render-"));
+  const out = tempDir();
   const { state, status } = render(join(root, "examples/lot.ts"), "--out", out, "--width", "800");
   assert.equal(status, 0);
   assert.deepEqual(Object.keys(state).sort(), [
@@ -119,7 +124,7 @@ export default createDrawing().line([0, 0], [1, 1], { lineweight: weight as 0.5 
   rmSync(scratch, { recursive: true, force: true });
   assert.deepEqual([placed.file, placed.line], [source, 3]);
 
-  const broken = join(realpathSync(mkdtempSync(join(tmpdir(), "tsdraft-render-"))), "broken.ts");
+  const broken = join(realpathSync(tempDir()), "broken.ts");
   writeFileSync(broken, "const a = 1;\nconst b = (;\nexport default a;\n");
   const syntax = render(broken).state.error!;
   assert.deepEqual(
@@ -129,7 +134,7 @@ export default createDrawing().line([0, 0], [1, 1], { lineweight: weight as 0.5 
 });
 
 test("a build that fails leaves no picture from an earlier run in the default folder", () => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "tsdraft-render-")));
+  const dir = realpathSync(tempDir());
   const plan = join(dir, "plan.ts");
   writeFileSync(
     plan,
@@ -157,7 +162,7 @@ test("a build that fails leaves no picture from an earlier run in the default fo
 });
 
 test("the state says which blocks a drawing has and where each is inserted", () => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "tsdraft-render-")));
+  const dir = realpathSync(tempDir());
   const plan = join(dir, "plan.ts");
   const text = { layer: "0", at: [0, 2], height: 1, rotation: 0 };
   const drawing = {
@@ -262,7 +267,7 @@ test("the state says which blocks a drawing has and where each is inserted", () 
 });
 
 test("the state lists each xref, and the pictures draw the ones the file gives a drawing for", () => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "tsdraft-render-")));
+  const dir = realpathSync(tempDir());
   const base = {
     format: 0,
     units: "ft",
@@ -381,7 +386,7 @@ test("the state lists each xref, and the pictures draw the ones the file gives a
 });
 
 test("a drawing file Node reads as CommonJS says how to make it a module", () => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "tsdraft-render-")));
+  const dir = realpathSync(tempDir());
   writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "commonjs" }));
   writeFileSync(join(dir, "plan.ts"), readFileSync(join(root, "test/fixtures/warns.ts")));
   const { error } = render(join(dir, "plan.ts")).state;
@@ -390,7 +395,7 @@ test("a drawing file Node reads as CommonJS says how to make it a module", () =>
 });
 
 test("a drawing is checked and drawn by its project's copy of tsdraft", () => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "tsdraft-render-")));
+  const dir = realpathSync(tempDir());
   /** A stand-in for tsdraft that says who it is in its warning and in the size it draws. */
   const stub = (folder: string, who: string, size: number) => {
     mkdirSync(folder, { recursive: true });
@@ -461,7 +466,7 @@ export const toSVG = () => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0
 
 test("a diagnostic gives the entity's id and the call that drew it", () => {
   const file = join(root, "test/fixtures/warns.ts");
-  const out = mkdtempSync(join(tmpdir(), "tsdraft-render-"));
+  const out = tempDir();
   const [warning] = render(file, "--out", out).state.diagnostics;
   assert.equal(warning?.rule, "zero-length");
   assert.equal(warning?.id, "stub");
@@ -469,7 +474,7 @@ test("a diagnostic gives the entity's id and the call that drew it", () => {
 });
 
 test("a throw in an imported helper is placed in the helper", () => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "tsdraft-render-")));
+  const dir = realpathSync(tempDir());
   writeFileSync(
     join(dir, "helper.ts"),
     'export function lot() {\n  throw new Error("no lot");\n}\n',
@@ -522,7 +527,11 @@ test("dev answers /state.json?after=<n> with the first build newer than n", () =
     await withDev(file, async (base) => {
       const first = (await (await fetch(`${base}/state.json?after=0`)).json()) as BuildState;
       assert.deepEqual([first.build, first.ok, first.pending], [1, true, null]);
-      writeFileSync(file, `${source}\n// an edit\n`);
+      // Saved by a rename, as one change: a write in place is a truncate and then a write, which
+      // a busy machine can report far enough apart that each starts a build.
+      const edit = join(dir, "lot.ts.new");
+      writeFileSync(edit, `${source}\n// an edit\n`);
+      renameSync(edit, file);
       const next = await fetch(`${base}/state.json?after=1&session=${first.session}`);
       const state = (await next.json()) as BuildState;
       assert.equal(next.status, 200);
@@ -600,7 +609,7 @@ test("dev rebuilds when a package link in node_modules is pointed at another fol
   }));
 
 test("a drawing with a layout gets a picture of its sheet, and the state says what each viewport shows", () => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "tsdraft-render-")));
+  const dir = realpathSync(tempDir());
   const plan = join(dir, "plan.ts");
   const drawing = {
     format: 0,
@@ -779,7 +788,7 @@ test("a drawing with a layout gets a picture of its sheet, and the state says wh
 });
 
 test("the state lists each dimension with the number it measures and the text AutoCAD draws", () => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "tsdraft-render-")));
+  const dir = realpathSync(tempDir());
   const plan = join(dir, "plan.ts");
   const drawing = {
     format: 0,
@@ -876,7 +885,7 @@ test("the state lists each dimension with the number it measures and the text Au
 });
 
 test("a malformed layout is reported and left out, and the rest of the drawing is drawn", () => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "tsdraft-render-")));
+  const dir = realpathSync(tempDir());
   const plan = join(dir, "plan.ts");
   const view = { layer: "0", corner: [1, 1], width: 10, height: 8, center: [5, 0], ratio: 12 };
   const line = { kind: "line", layer: "0", from: [0, 0], to: [10, 0] };
@@ -928,7 +937,7 @@ test("a malformed layout is reported and left out, and the rest of the drawing i
 });
 
 test("render warns of text that plots badly, after lint's diagnostics and with exit 0", () => {
-  const out = mkdtempSync(join(tmpdir(), "tsdraft-render-"));
+  const out = tempDir();
   const crowded = join(root, "test/fixtures/crowded.ts");
   const { state, status } = render(crowded, "--out", out);
   assert.equal(status, 0);
@@ -967,7 +976,7 @@ test("render warns of text that plots badly, after lint's diagnostics and with e
 });
 
 test("render --view draws one rectangle of model space or of a layout, and nothing else", () => {
-  const out = mkdtempSync(join(tmpdir(), "tsdraft-render-"));
+  const out = tempDir();
   const crowded = join(root, "test/fixtures/crowded.ts");
   // The end of the note, where it passes the border: the box of its warning, cut down.
   const model = render(crowded, "--out", out, "--view", "8,5.5,18.5,7", "--width", "700");
@@ -1052,7 +1061,7 @@ test(
   "render says which picture the renderer died on, and gives the rest",
   { skip: prlimit ? false : "needs prlimit, to keep the renderer's abort from leaving a core" },
   () => {
-    const dir = mkdtempSync(join(tmpdir(), "tsdraft-render-"));
+    const dir = tempDir();
     const library = pathToFileURL(join(root, "../dist/index.js")).href;
     // A clipped group whose only element is far outside the picture, which resvg aborts on.
     const aborts =

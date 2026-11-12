@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDrawing, FONTS, measureText, toSVG, type Font } from "tsdraft";
@@ -58,8 +58,9 @@ test(
   },
 );
 
-test("a font file is a face of the font only when it names itself so", () => {
+test("a font file is a face of the font only when it names itself so", (t) => {
   const dir = mkdtempSync(join(tmpdir(), "tsdraft-fonts-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
   const shipped = readFileSync(SHIPPED.file);
   assert.equal(familyName(shipped), "JetBrains Mono");
   assert.equal(familyName(shipped.subarray(0, 40)), undefined);
