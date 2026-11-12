@@ -1,6 +1,25 @@
 # Changelog
 
-## Unreleased
+## 0.5.1
+
+This release has breaking changes, though its number is a patch's. A project that depends on
+`^0.5.0` gets them on its next install:
+
+- Breaking: `LintRule` gained `layout`, `duplicate-layout`, `viewport`, `dimension-style`,
+  `duplicate-dimension-style`, `undefined-dimension-style` and `dimension`. Code that switches
+  over every rule needs them.
+- Breaking: a drawing with a block named `_ArchTick`, in any case of its letters, is refused.
+- Breaking: the `tsdraft` command's JSON has `schema` 3, and an entry of `pngFonts` has no
+  `sameWidths`.
+- Breaking: `toSVG` writes each `<text>` differently: with a `textLength`, with no
+  `text-anchor`, and with an SHX text sized as a TrueType text is. Times New Roman, Georgia,
+  Trebuchet MS and Calibri are drawn smaller, and `FONTS[font].capHeight` moves for them. A
+  drawing's extents move for every drawing with a text, and with them the `viewBox`,
+  `$EXTMIN`, `$EXTMAX` and the view a DXF opens on.
+- Breaking: `sitePlan(ratio)` in the example returns where the parts of the sheet lie on the
+  paper, and the view title's attributes are tagged `VIEW_TITLE` and `VIEW_SCALE`.
+
+The rest:
 
 - Linear and aligned dimensions, in R2018 drawings. `d.linearDimension(from, to, line,
   { style })` measures between two points along X, along Y with `along: "y"`, or along an
