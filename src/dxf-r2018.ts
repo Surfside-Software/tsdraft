@@ -244,7 +244,14 @@ export function toDXFR2018(
   );
   const arrowheads = arrowheadsWithBlocks(dimensionStyles);
   writeTable(g, handle, "DIMSTYLE", [
-    { type: "DIMSTYLE", subclass: "AcDbDimStyleTableRecord", name: "Standard", handle: handle() },
+    {
+      type: "DIMSTYLE",
+      subclass: "AcDbDimStyleTableRecord",
+      name: "Standard",
+      handle: handle(),
+      // DIMTXSTY. A dimension in a style with no text style has no text.
+      fields: (g) => g(340, standardStyle),
+    },
     ...dimensionStyles.map((style) => ({
       type: "DIMSTYLE",
       subclass: "AcDbDimStyleTableRecord",

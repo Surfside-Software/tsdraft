@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- The dimension style `Standard`, which every R2018 DXF holds, names the text style
+  `Standard`. It named none, and AutoCAD draws no text for a dimension in a style with no
+  text style: once `Standard` was made current, a dimension a drafter drew in it with
+  `DIMLINEAR` had no text. That one value, group 340 of the style, is new in every R2018 DXF.
+
 ## 0.5.1
 
 This release has breaking changes, though its number is a patch's. A project that depends on
