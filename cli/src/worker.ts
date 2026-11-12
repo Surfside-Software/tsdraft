@@ -22,6 +22,8 @@ import type {
   DimensionStyle,
   Drawing,
   Entity,
+  Intent,
+  IntentWarning,
   Layout,
   LinearDimension,
   PaperInfo,
@@ -105,6 +107,7 @@ export interface WorkerResult {
     readonly load?: number;
     readonly lint?: number;
     readonly inspect?: number;
+    readonly intent?: number;
     readonly svg?: number;
   };
   readonly drawing: DrawingSummary | null;
@@ -155,6 +158,8 @@ interface Library {
     drawing: Drawing,
     options?: { drawNoPlot?: boolean; xrefs?: Readonly<Record<string, Drawing>> },
   ) => TextWarning[];
+  /** Where the drawing does not hold to its intent. A copy of tsdraft from before it has none. */
+  readonly checkIntent?: (drawing: Drawing, intent: Intent) => IntentWarning[];
   /** What a viewport shows, and the papers. A copy of tsdraft from before layouts has neither. */
   readonly viewportView?: (viewport: Viewport, paperUnits: PaperUnit, units: Units) => ViewportView;
   readonly PAPERS?: Readonly<Record<string, PaperInfo>>;
@@ -489,7 +494,13 @@ async function warm(library: string | null, deadline: number): Promise<void> {
 }
 
 async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<WorkerResult> {
-  const timings: { load?: number; lint?: number; inspect?: number; svg?: number } = {};
+  const timings: {
+    load?: number;
+    lint?: number;
+    inspect?: number;
+    intent?: number;
+    svg?: number;
+  } = {};
   const fail = (error: BuildError, thrown?: unknown): WorkerResult => ({
     ok: false,
     files: [...readFiles(file), ...missingFile(thrown)],
@@ -509,10 +520,12 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
   let t = now();
   let drawing: Drawing;
   let referenced: Readonly<Record<string, Drawing>>;
+  let intent: unknown;
   try {
     const module = (await import(pathToFileURL(file).href)) as {
       default?: unknown;
       xrefs?: unknown;
+      intent?: unknown;
     };
     let value = module.default;
     if (typeof value === "function") value = await (value as () => unknown)();
@@ -520,6 +533,7 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
     if (problem) return fail(atExport(file, problem));
     drawing = value as Drawing;
     referenced = (module.xrefs ?? {}) as Readonly<Record<string, Drawing>>;
+    intent = module.intent;
   } catch (thrown) {
     timings.load = now() - t;
     return fail(describe(thrown, root), thrown);
@@ -549,6 +563,11 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
       t = now();
       const diagnostics = [...linted, ...textWarnings(library, shown, drawn, drawNoPlot === true)];
       timings.inspect = now() - t;
+      if (intent !== undefined) {
+        t = now();
+        diagnostics.push(...intentWarnings(library, shown, intent));
+        timings.intent = now() - t;
+      }
       t = now();
       const fontsOf = fontsIn(library, [shown, ...Object.values(drawn)]);
       const { svg, min, max } = framed(
@@ -704,6 +723,41 @@ function textWarnings(
     });
   } catch {
     return [];
+  }
+}
+
+/**
+ * What `checkIntent` warns of where the drawing does not hold to the file's export `intent`,
+ * each with the kind of the entity it names. A warning brings its own box. It is never the
+ * reason a build fails. A copy of tsdraft from before `checkIntent`, or a throw from it, gives
+ * one warning that the intent was not checked.
+ */
+function intentWarnings(library: Library, drawing: Drawing, intent: unknown): BuildDiagnostic[] {
+  if (library.checkIntent === undefined) {
+    return [
+      {
+        rule: "intent-unchecked",
+        severity: "warning",
+        message:
+          "The copy of tsdraft this drawing imports has no checkIntent, so the export `intent` was not checked. Update it",
+      },
+    ];
+  }
+  try {
+    return library.checkIntent(drawing, intent as Intent).map((warning) => {
+      const kind =
+        warning.entity === undefined ? undefined : drawing.entities?.[warning.entity]?.kind;
+      return withPath(kind === undefined ? warning : { ...warning, kind });
+    });
+  } catch (thrown) {
+    const reason = thrown instanceof Error ? thrown.message : String(thrown);
+    return [
+      {
+        rule: "intent-unchecked",
+        severity: "warning",
+        message: `checkIntent stopped with an error, so the export \`intent\` was not checked: ${reason}`,
+      },
+    ];
   }
 }
 

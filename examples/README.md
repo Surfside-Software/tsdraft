@@ -112,3 +112,12 @@ model space and the SVG of the sheet only when it is run:
 ```sh
 node examples/site-plan.ts
 ```
+
+It also exports `intent`: the residence keeps out of the setbacks, 25 feet at
+the front, 20 at the rear and 7 1/2 at each side, measured from the lot's
+sides in the order `rect` draws them. The lot and the residence have the ids
+`lot` and `residence`, by which the intent names them. `tsdraft render` and
+`tsdraft dev` check it on each build, and a run of the file prints the result.
+Move the residence toward the street and the command warns that it is in the
+front setback, with the distance it keeps. [Checks of intent](../docs/intent.md)
+has more.

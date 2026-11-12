@@ -975,6 +975,82 @@ test("render warns of text that plots badly, after lint's diagnostics and with e
   assert.deepEqual(off!.bounds, { min: [10.8, 8], max: [11.133333, 8.25] });
 });
 
+test("render warns where the drawing breaks the file's export intent, with exit 0", () => {
+  const out = tempDir();
+  const file = join(root, "test/fixtures/setback.ts");
+  const { state, status } = render(file, "--out", out);
+  assert.equal(status, 0);
+  assert.deepEqual(state.drawing?.counts.errors, 0);
+  assert.deepEqual(state.drawing?.counts.warnings, 1);
+  assert.equal(typeof state.timings.intent, "number");
+  const [warning] = state.diagnostics;
+  assert.deepEqual(
+    { ...warning, message: undefined },
+    {
+      rule: "footprint-in-setback",
+      severity: "warning",
+      message: undefined,
+      item: "setbacks[0]",
+      entity: 1,
+      id: "house",
+      layer: "C-BLDG",
+      call: { file, line: 8, column: 41 },
+      side: 0,
+      required: 25,
+      provided: 15,
+      bounds: { min: [0, -25], max: [50, 40] },
+      other: { entity: 0, id: "lot" },
+      kind: "polyline",
+    },
+  );
+  assert.match(warning!.message, /^Footprint "house" is 15 from side 0 of property line "lot"/);
+});
+
+test("an intent that the drawing's copy of tsdraft cannot check is warned of, never passed over", () => {
+  const dir = realpathSync(tempDir());
+  writeFileSync(join(dir, "package.json"), '{ "type": "module" }\n');
+  const library = join(dir, "node_modules/tsdraft");
+  mkdirSync(library, { recursive: true });
+  writeFileSync(
+    join(library, "package.json"),
+    '{ "name": "tsdraft", "type": "module", "exports": "./index.js" }\n',
+  );
+  /** A stand-in for tsdraft, with the `checkIntent` given or none. */
+  const stub = (checkIntent: string) =>
+    writeFileSync(
+      join(library, "index.js"),
+      `export const drawing = { format: 0, units: "ft", dxf: "R2018", layers: [], entities: [] };
+export const createDrawing = () => {};
+export const toDXF = () => "";
+export const lint = () => [];
+export const toSVG = () => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>';
+${checkIntent}`,
+    );
+  writeFileSync(
+    join(dir, "plan.ts"),
+    'import { drawing } from "tsdraft";\nexport default drawing;\nexport const intent = { setbacks: [] };\n',
+  );
+  const warned = () => {
+    const { state, status } = render(join(dir, "plan.ts"));
+    assert.equal(status, 0);
+    return state.diagnostics.map((d) => [d.rule, d.message]);
+  };
+  stub("");
+  assert.deepEqual(warned(), [
+    [
+      "intent-unchecked",
+      "The copy of tsdraft this drawing imports has no checkIntent, so the export `intent` was not checked. Update it",
+    ],
+  ]);
+  stub('export const checkIntent = () => { throw new Error("no room"); };\n');
+  assert.deepEqual(warned(), [
+    [
+      "intent-unchecked",
+      "checkIntent stopped with an error, so the export `intent` was not checked: no room",
+    ],
+  ]);
+});
+
 test("render --view draws one rectangle of model space or of a layout, and nothing else", () => {
   const out = tempDir();
   const crowded = join(root, "test/fixtures/crowded.ts");

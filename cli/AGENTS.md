@@ -43,6 +43,11 @@
   a build or change the exit code, so a throw there gives no warnings. Each warning brings
   its own `bounds`, in its picture's coordinates: do not box it again with `aboutEntity`,
   which would give the box of a whole insert.
+- When the drawing file exports `intent`, the worker runs the library's `checkIntent` after
+  `inspectText`, and puts its warnings last, under the same terms: no failed build, no change
+  to the exit code, and each warning's own `bounds`. When the copy of tsdraft the drawing
+  loaded has no `checkIntent`, or its `checkIntent` throws, the build gets one
+  `intent-unchecked` warning that says so, so an intent is never passed over without a word.
 - `render --view` draws one rectangle with `toSVG`'s `view`, with no margin, as
   `outputs.view`, and writes no other picture. `tsdraft dev` has no view: its server keeps
   only SVG strings and a worker ends after one build. A `Builder` passes the view to the

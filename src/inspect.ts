@@ -73,7 +73,7 @@ const TOLERANCE = 0.1;
  */
 const MAX_WORK = 16_000_000;
 
-type Box = readonly [minX: number, minY: number, maxX: number, maxY: number];
+export type Box = readonly [minX: number, minY: number, maxX: number, maxY: number];
 
 /** What draws a text or an outline, as `TextOccurrence` names it, with the entity's layer. */
 interface Placed {
@@ -442,7 +442,7 @@ function boxed(points: readonly Point[], box: Box): boolean {
 }
 
 /** Which side of the line from `a` to `b` the point `p` is on: positive on its left. */
-function side(a: Point, b: Point, p: Point): number {
+export function side(a: Point, b: Point, p: Point): number {
   return (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
 }
 
@@ -496,7 +496,7 @@ const SPAN = 1024;
  * with the index of each box below `below` that may touch a given box, once each. It spends
  * one for each box it looks at, and stops when `spend` says there is no room left.
  */
-function grid(
+export function grid(
   boxes: readonly Box[],
   spend: (cost: number) => boolean,
 ): (box: Box, found: (index: number) => void, below?: number) => void {
