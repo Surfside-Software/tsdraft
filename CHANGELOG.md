@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- `checkIntent(drawing, intent)` checks a drawing against what it is meant to hold to, given
+  as data beside it, and returns warnings. Its one check is setbacks: `intent.setbacks` names
+  a property line and its footprints by their ids, as closed polylines of model space, with
+  one setback for every side or one for each side in the order of the property line's points.
+  `footprint-in-setback` warns of a footprint nearer a side than its setback, with the `side`,
+  the `required` setback and the distance `provided`, measured in drawing units from the side
+  itself to the footprint's outline, from the points as the drawing holds them and with a
+  tolerance for the arithmetic alone. `footprint-off-property` warns of a footprint not wholly
+  inside its property line, and `intent-unchecked` says what part of the intent could not be
+  checked and why, such as an id that names nothing, a field it does not know or an outline
+  that crosses or touches itself, worked out exactly for the doubles held, so a lot with a
+  hole is not checked. A point that repeats the one before it is the same corner. Each warning
+  about a setback gives `item`, its path in the intent, such as `setbacks[0]`. The work and
+  the number of warnings are bounded. It never changes what `lint` reports or what `toDXF`
+  writes. [docs/intent.md](docs/intent.md) describes it.
+- `tsdraft render` and `tsdraft dev` check a drawing file's export `intent` on each build and
+  put the warnings in `diagnostics` after those of `inspectText`, with `item`, `side`,
+  `required` and `provided` where they apply. They never change the exit code, and
+  `timings.intent` gives the time the check took. `schema` stays 3. The example sheet exports
+  the setbacks of its residence, and its lot and residence have the ids `lot` and
+  `residence`.
 - The dimension style `Standard`, which every R2018 DXF holds, names the text style
   `Standard`. It named none, and AutoCAD draws no text for a dimension in a style with no
   text style: once `Standard` was made current, a dimension a drafter drew in it with

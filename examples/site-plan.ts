@@ -10,6 +10,10 @@
 //   column of notes, the view title, the north arrow and the graphic scale. One viewport shows
 //   the plan on it at the scale.
 //
+// The export `intent` says what the plan must hold to: the residence keeps out of the
+// setbacks. `tsdraft render` and `tsdraft dev` check it on each build, with `checkIntent`, and
+// warn of a footprint that crosses a setback line.
+//
 // Sheet: ARCH D, 36 wide and 24 tall. Scale: 1" = 10', a ratio of 120.
 //
 //   +----------------------------------------------+
@@ -52,6 +56,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import {
   CENTER,
+  checkIntent,
   createDrawing,
   DASHED,
   fromPaper,
@@ -61,6 +66,7 @@ import {
   toSVG,
   type Drawing,
   type DrawingBuilder,
+  type Intent,
   type Point,
   type TextAlign,
   type TextVerticalAlign,
@@ -440,7 +446,7 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
   });
 
   // Model space: the site, at its true size in feet.
-  d.layer("C-PROP", {}, () => d.rect([0, 0], lot.width, lot.depth));
+  d.layer("C-PROP", {}, () => d.rect([0, 0], lot.width, lot.depth, { id: "lot" }));
   d.layer("C-PROP-ADJC", {}, () => {
     // The adjoining lot lines and the street run to the sides of the view.
     for (const y of [0, lot.depth]) {
@@ -459,7 +465,7 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
     const { front, side, rear } = setbacks;
     d.rect([side, front], lot.width - side * 2, lot.depth - front - rear);
   });
-  d.layer("C-BLDG", {}, () => d.polyline(footprint, true));
+  d.layer("C-BLDG", {}, () => d.polyline(footprint, true, { id: "residence" }));
 
   d.layer("C-PAVE", {}, () => {
     // The driveway, flared to the street with a quarter circle on each side.
@@ -838,6 +844,21 @@ const example = sitePlan();
 const drawing = example.drawing;
 export default drawing;
 
+/**
+ * What the plan must hold to: the residence keeps out of the setbacks. The lot's sides run
+ * counterclockwise from its front left corner, as `rect` draws them: the front, the right side,
+ * the rear and the left side.
+ */
+export const intent: Intent = {
+  setbacks: [
+    {
+      property: "lot",
+      footprints: ["residence"],
+      distance: [setbacks.front, setbacks.side, setbacks.rear, setbacks.side],
+    },
+  ],
+};
+
 // Run as a script, the example writes its files. Imported, it only hands over the drawing.
 if (import.meta.main) {
   const outDir = new URL("./out/", import.meta.url);
@@ -849,5 +870,11 @@ if (import.meta.main) {
   console.log(
     `Wrote ${drawing.entities.length} entities in model space and ${onSheet} on the sheet, ` +
       `on ${drawing.layers.length} layers, to examples/out/`,
+  );
+  const warnings = checkIntent(drawing, intent);
+  console.log(
+    warnings.length === 0
+      ? "The residence keeps out of every setback"
+      : warnings.map((w) => w.message).join("\n"),
   );
 }

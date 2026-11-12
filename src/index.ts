@@ -81,6 +81,14 @@ export {
   type TextRule,
   type TextWarning,
 } from "./inspect.ts";
+export {
+  checkIntent,
+  type Intent,
+  type IntentOccurrence,
+  type IntentRule,
+  type IntentWarning,
+  type Setback,
+} from "./intent.ts";
 export { fromJSON, toJSON } from "./json.ts";
 export { layoutHandles, viewportView, type LayoutHandles, type ViewportView } from "./layouts.ts";
 export { DrawingError, lint, type Diagnostic, type LintOptions, type LintRule } from "./lint.ts";

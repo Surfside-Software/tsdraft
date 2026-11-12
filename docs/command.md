@@ -32,13 +32,16 @@ d.layer("C-PROP", { color: 7, linetype: PHANTOM, lineweight: 0.35 }, () =>
 export default d.build();
 ```
 
+A file may also export `intent`, what the drawing is meant to hold to, such as the setbacks a
+footprint keeps out of, which each build checks: see [Checks of intent](intent.md).
+
 Each build runs the file in a new child process, so a crash cannot take the command down and
 every build sees the code as it is now. A build that runs longer than `--timeout`, 10 s by default, fails.
 
 ## Commands
 
-`tsdraft render <file> [--out <dir>] [--width <px>] [--draw-no-plot]` builds once, runs `lint`
-and `inspectText`, writes `<name>.svg` and a `<name>.png` 1600 px wide to `out/` beside the
+`tsdraft render <file> [--out <dir>] [--width <px>] [--draw-no-plot]` builds once, runs `lint`,
+`inspectText` and, for a file that exports `intent`, `checkIntent`, writes `<name>.svg` and a `<name>.png` 1600 px wide to `out/` beside the
 file, and prints one JSON object. With `--view`, it writes one rectangle of the drawing and
 no other picture: see [A closer look](#a-closer-look). It exits 0 when the drawing built with no lint errors, 2 when `lint` reported
 errors, and 1 when the build failed before `lint` could report or a picture could not be
@@ -182,6 +185,17 @@ inserts of one block give two warnings that can be told apart. `kind` and `layer
 entity's. `other` names, the same way, the other text of an overlap or the closed polyline
 the text runs past. A drawing loaded with a copy of tsdraft from before `inspectText` has no
 such warnings.
+
+After them, for a file that exports `intent`, come the warnings of `checkIntent`: a rule of
+`footprint-in-setback`, `footprint-off-property` or `intent-unchecked`, which
+[Checks of intent](intent.md) describes. They never change the exit code either, and
+`drawing.counts.warnings` counts them. `entity` is the footprint's index in model space, or
+that of the entity an id names, with its `kind`, `layer`, `id` and `call`, `other` is the
+property line, and `item` is the path in the intent of what the warning is about, such as
+`setbacks[0]`, where the `item` of a lint error is a path in the drawing. A footprint warning
+has `bounds` in drawing units, and `footprint-in-setback` has `side`, `required` and
+`provided`. A copy of tsdraft that has no `checkIntent`, or whose `checkIntent` throws, gives
+one `intent-unchecked` warning that says so.
 
 A problem with the shape of a value, such as an entity of an unknown kind or a field of the
 wrong type, gives `item`, the path of the item that holds the value: `entities[3]`,
@@ -398,4 +412,5 @@ another copy of tsdraft are the second number.
 
 The bench's generated drawing has 5,000 entities, a fifth of them texts, so it takes longer than
 the 3,000 above. `timings` in the JSON says where a build's time went: `inspect`, the look at the
-text as it plots, takes about as long as `lint` does.
+text as it plots, takes about as long as `lint` does, and `intent`, the check of the file's
+export `intent`, is there when the file has one.

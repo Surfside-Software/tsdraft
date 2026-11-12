@@ -1,6 +1,14 @@
 // The JSON that `tsdraft render` prints and `tsdraft dev` serves as /state.json. Agents program
 // against it, so a change here is a change to the interface.
-import type { Diagnostic, DxfVersion, Entity, PaperUnit, TextWarning, Units } from "tsdraft";
+import type {
+  Diagnostic,
+  DxfVersion,
+  Entity,
+  IntentWarning,
+  PaperUnit,
+  TextWarning,
+  Units,
+} from "tsdraft";
 
 /** The result of one build of a drawing file. */
 export interface BuildState {
@@ -46,8 +54,9 @@ export interface BuildState {
   readonly drawing: DrawingSummary | null;
   /**
    * What `lint` reports for the drawing, errors first, and after it what `inspectText` warns of
-   * in the text as it plots: a rule that starts with `text-`. When the file threw a
-   * `DrawingError`, as `toDXF` and the builder do, its diagnostics, without `kind` and
+   * in the text as it plots: a rule that starts with `text-`. Then, when the file has an export
+   * `intent`, what `checkIntent` warns of where the drawing does not hold to it. When the file
+   * threw a `DrawingError`, as `toDXF` and the builder do, its diagnostics, without `kind` and
    * `bounds`. When the build failed because the drawing could not be drawn even without what
    * `lint` reported, what `lint` reported, without `kind` and `bounds`. Otherwise empty when
    * the build failed.
@@ -160,13 +169,29 @@ export interface PngFont {
  * plots, turned and justified, and of both texts when two overlap, in the coordinates of its
  * picture: pass it to `render --view`. `other` names the other text of an overlap, or the
  * closed polyline the text runs past, the same way.
+ *
+ * A warning of `checkIntent` has the rule `footprint-in-setback`, `footprint-off-property` or
+ * `intent-unchecked`, and `item`, the path in the export `intent` of what it is about, such as
+ * `setbacks[0]`, where lint's `item` is a path in the drawing. Its `entity` is the footprint,
+ * or the entity an id names, in model space, with that entity's `kind`, `layer`, `id` and
+ * `call`, and `other` is the property line. A footprint warning has
+ * `bounds` in drawing units: for `footprint-in-setback`, the box of the two points of the side
+ * and the footprint nearest each other, larger on every side by the setback, and for
+ * `footprint-off-property` the footprint's box. `footprint-in-setback` also gives `side`,
+ * `required` and `provided`.
  */
 export interface BuildDiagnostic extends Omit<Diagnostic, "rule"> {
-  readonly rule: Diagnostic["rule"] | TextWarning["rule"];
+  readonly rule: Diagnostic["rule"] | TextWarning["rule"] | IntentWarning["rule"];
   readonly kind?: Entity["kind"];
   /** The box around the entity, in drawing units, worked out as `extents` is. */
   readonly bounds?: Box;
   readonly other?: TextWarning["other"];
+  /** The side of the property line, counted from 0 in the order of its points. */
+  readonly side?: number;
+  /** The setback of that side, in drawing units. */
+  readonly required?: number;
+  /** The least distance from that side to the footprint, in drawing units, as measured. */
+  readonly provided?: number;
 }
 
 export interface Box {
@@ -182,6 +207,8 @@ export interface Timings {
   readonly lint?: number;
   /** Looking at the text as it plots, for the warnings whose rule starts with `text-`. */
   readonly inspect?: number;
+  /** Checking the drawing against the file's export `intent`, when it has one. */
+  readonly intent?: number;
   readonly svg?: number;
   /** Rasterizing the PNG, when one was asked for. Not counted in `ms`. */
   readonly png?: number;

@@ -76,6 +76,8 @@ and `_`, each used once in a drawing. A diagnostic about the entity carries the 
    empty, fix each one, errors first. A warning whose rule starts with `text-` is about a
    text as it plots: it lies over another text, it runs past the border, cell or room it
    starts in, or it runs off the paper. See [Fitting text](#fitting-text-with-measuretext).
+   A `footprint-` warning says a building crosses a setback: see
+   [Checking intent](#checking-intent).
 4. Look at the PNG at `outputs.png`, and at each sheet's in `outputs.layouts`. The JSON says
    whether the drawing breaks a rule. Only the picture shows whether it is the drawing you
    meant. When `outputs.png` is `null`, `outputs.pngError` says why, and `outputs.svg` is the
@@ -156,7 +158,8 @@ until it is stopped, so start it in the background.
   where to read the fields of a title block.
 - `outputs.svg` and `outputs.png` are model space. `outputs.layouts` has a picture of each
   sheet as it plots.
-- `diagnostics` is what `lint` found, and after it the warnings about text as it plots. An
+- `diagnostics` is what `lint` found, and after it the warnings about text as it plots and
+  about [intent](#checking-intent). An
   error stops `toDXF` from writing the file. A warning does not. A `text-` warning has
   `bounds`, the box of the text on its picture, and `other`, the text it lies over or the
   closed polyline it runs past. For a text inside a block, `entity` is the insert, and
@@ -246,6 +249,25 @@ keeping `drafting.ts` in a `lib` folder beside it. Change two import strings to 
 
 Its parameters come first and every position is worked out from them. Its columns and line
 breaks are laid out with `measureText`. Its symbols are blocks, and so is its title block.
+
+## Checking intent
+
+Export `intent` beside the drawing, and each build checks that every footprint keeps out of
+its setbacks. It names closed polylines of model space by their ids:
+
+```ts
+export const intent: Intent = {
+  setbacks: [{ property: "lot", footprints: ["house"], distance: [25, 7.5, 20, 7.5] }],
+};
+```
+
+`distance` is in drawing units: one setback for every side, or one for each side in the order
+of the property line's points. For a `rect` drawn from the lot's front left corner, that is the
+front, the right side, the rear and the left side. A `footprint-in-setback` warning gives the
+`side`, its `required` setback and the distance `provided`. `intent-unchecked` means part of
+the intent was not checked, and says why, such as an outline that crosses itself.
+[docs/intent.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/intent.md) has
+the rest.
 
 ## Dimensions
 
