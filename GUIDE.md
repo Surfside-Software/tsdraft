@@ -59,7 +59,7 @@ export default d.build();
 Coordinates are in drawing units with Y pointing up. Angles are in degrees, counterclockwise
 from +X. A layer's color is an AutoCAD Color Index number from 1 to 255, and a lineweight is in
 millimetres. Entities drawn inside a `layer()` callback go on that layer. The builder draws
-`line`, `polyline`, `rect`, `circle`, `arc` and `text`.
+`line`, `polyline`, `rect`, `circle`, `arc`, `text` and dimensions.
 
 Give an entity an `id` when you will want to find it again: 1 to 64 letters, digits, `.`, `-`
 and `_`, each used once in a drawing. A diagnostic about the entity carries the id.
@@ -99,8 +99,7 @@ The PNG renderer, `@resvg/resvg-js`, is an optional dependency that npm installs
 Where it is missing, after an install with `--omit=optional` or on a machine it has no build
 for, `render` still writes the SVG and exits as above, and the JSON has `"png": null` with the
 reason in `pngError`. `npm i -D @resvg/resvg-js` adds it. Each entry of `outputs.layouts` has
-a `pngError` of its own. When the renderer stops on one picture, that picture alone has no
-PNG, its `pngError` says so, and its SVG is there to use.
+a `pngError` of its own: a picture the renderer stops on has no PNG, and its SVG is there.
 
 A text is as long in the pictures as it plots, in every font, and in the PNG its capitals are
 as tall. So a text that fits its space in the PNG fits it on the plot, and one that runs past
@@ -114,8 +113,6 @@ file it imports, is saved. The same server answers you without a browser:
 `/state.json?after=<build>&session=<session>` waits for a build newer than the one you last
 read and returns the same JSON, and `/drawing.png?width=<px>` is the picture. The command runs
 until it is stopped, so start it in the background.
-[docs/command.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/command.md) has
-the details.
 
 ## What the JSON holds
 
@@ -152,8 +149,8 @@ the details.
   `drawing.counts.errors` or the exit code as well.
 - `drawing.extents` is the box around everything drawn, in drawing units. Check the drawing's
   size against what you meant.
-- `drawing.layers`, `blocks`, `inserts`, `xrefs` and `layouts` list what the drawing holds.
-  An insert has the value of each attribute. An xref has `shown`: when it is false, the
+- `drawing.layers`, `blocks`, `inserts`, `dimensions`, `xrefs` and `layouts` list what the
+  drawing holds. An insert has the value of each attribute, and a dimension its `text`. An xref has `shown`: when it is false, the
   pictures do not draw the xref at all. A layout has each viewport with `shows`, the box of
   model space it frames, to compare with `drawing.extents`, and its own `inserts`, which is
   where to read the fields of a title block.
@@ -240,16 +237,43 @@ as a `?`, and the result then has `approximate: true`.
 
 [`examples/site-plan.ts`](https://github.com/Surfside-Software/tsdraft/blob/main/examples/site-plan.ts)
 in the tsdraft repository is a whole sheet: a permit-style site plan at 1" = 10' with property
-lines, setbacks, a building, dimension strings and labels in model space, and on a landscape
+lines, setbacks, a building, dimensions and labels in model space, and on a landscape
 ARCH D layout, 36 by 24 inches, its border, a title block whose fields are attributes, notes,
 a legend, the view's title and a graphic scale. Start a new drawing from it. It is not in the npm package. Copy it and
 [`examples/lib/drafting.ts`](https://github.com/Surfside-Software/tsdraft/blob/main/examples/lib/drafting.ts),
 keeping `drafting.ts` in a `lib` folder beside it. Change two import strings to `"tsdraft"`:
 `"../src/index.ts"` in `site-plan.ts`, and `"../../src/index.ts"` in `lib/drafting.ts`.
 
-Its parameters come first and every position is worked out from them. Its dimension strings and
-arrowheads are functions in `drafting.ts` that draw lines and text. Its columns and line breaks
-are laid out with `measureText`. Its symbols are blocks, and so is its title block.
+Its parameters come first and every position is worked out from them. Its columns and line
+breaks are laid out with `measureText`. Its symbols are blocks, and so is its title block.
+
+## Dimensions
+
+Define a dimension style, then dimension between two points:
+
+```ts
+d.dimensionStyle({
+  name: "PLAN",
+  textHeight: 3 / 32,
+  arrowhead: "architectural-tick",
+  arrowSize: 1 / 16,
+  extensionOffset: 1 / 16,
+  extensionBeyond: 1 / 8,
+  textGap: 1 / 16,
+  scale: fromPaper(1, "in", view),
+  precision: 1,
+  suffix: "'",
+});
+d.linearDimension([24, 30], [76, 30], [0, 20], { style: "PLAN" });
+```
+
+- The sizes are the sizes that plot, and `scale` carries the view. On a layout, leave it out.
+- The third point is on the dimension line. `along: "y"` measures up.
+  `alignedDimension(from, to, offset, options)` measures along the two points.
+- CAD writes the measurement. `text: "<> TYP"` adds to it.
+- Never draw a dimension from lines and text.
+  [docs/dimensions.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/dimensions.md)
+  has the rest.
 
 ## Blocks
 
@@ -277,9 +301,7 @@ d.layer("V-TREE", { color: 3 }, () => {
 - An insert cannot have a linetype, a lineweight or a color of its own. It draws as its layer
   does, and so does what its block holds on layer `0`.
 
-The pictures draw each insert as what its block draws. The example sheet draws its trees,
-property corners, north arrow and view title this way, with the view title's text and scale as
-attributes.
+The example sheet draws its trees, property corners, north arrow and view title this way.
 
 ## Layouts
 
@@ -311,8 +333,8 @@ d.layout("C-101", { paper: "ARCH D" }, (sheet) => {
 - Inside `layout`, every length is on the paper, in the paper's units: inches for every paper
   tsdraft has. A text 1/8 inch high has `height: 0.125`. `sheet.width` and `sheet.height` are
   the paper's size, and its lower-left corner is `[0, 0]`.
-- The papers are `ARCH A`, `ARCH B`, `ARCH C`, `ARCH D`, `ANSI A`, `ANSI B`, `ANSI C` and
-  `ANSI D`, each landscape and full bleed. `ARCH D` is 36 by 24.
+- The papers are `ARCH A` to `ARCH D` and `ANSI A` to `ANSI D`, each landscape and full
+  bleed. `ARCH D` is 36 by 24.
 - `sheet.viewport(corner, width, height, { center, ratio })` shows model space in a rectangle
   on the paper. `center` is the model point at its middle. `ratio` is the one you give
   `fromPaper`: 120 is 1" = 10'.
@@ -321,7 +343,6 @@ d.layout("C-101", { paper: "ARCH D" }, (sheet) => {
 - In a drawing with a layout, `linetypeScale` is a length of paper: dashes plot as long as the
   pattern times it, in every viewport. The picture of model space draws the same dashes that
   many drawing units long, often too short to see, so judge linetypes on the sheet's picture.
-  Text and symbols in model space are still sized with `fromPaper` for the viewport's ratio.
 - The sheet plots in black with `monochrome.ctb`. Pass `plotStyle: "acad.ctb"` to plot each
   layer in its color.
 - Define blocks outside `layout`, and insert them inside it. An `id` is unique across model
@@ -433,8 +454,8 @@ writeFileSync("plan.dxf", toDXF(drawing));
 
 ## What tsdraft cannot draw yet
 
-- Dimension objects, leaders, hatches and fills. The example sheet draws its dimensions from
-  lines and text, so in CAD they are plain lines and text.
+- Leaders, hatches, fills, and dimensions that are not linear or aligned. A measurement is a
+  decimal number, not feet and inches.
 - A block read from another file. A block is drawn in the drawing that inserts it. An xref
   references a whole DWG file, as an overlay, and the pictures draw it only from a drawing you
   give.
@@ -452,5 +473,4 @@ writeFileSync("plan.dxf", toDXF(drawing));
 - An existing drawing. tsdraft does not read DXF or DWG.
 
 When a drawing needs one of these, say so. Do not imitate it with something that will mislead
-whoever opens the file, except where the example sheet shows the way, as it does for
-dimensions.
+whoever opens the file.

@@ -1,5 +1,6 @@
 import { blocksByKey, eachDrawn, mapPoint, type LayerRef, type Referenced } from "./blocks.ts";
-import type { Block, Entity, TextStyle } from "./drawing.ts";
+import { dimensionPicture, type Dimension } from "./dimensions.ts";
+import type { Block, DimensionStyle, Entity, Text, TextStyle } from "./drawing.ts";
 import { layerKey } from "./layers.ts";
 import { measureText } from "./measure.ts";
 
@@ -9,7 +10,8 @@ import { measureText } from "./measure.ts";
  * and for what its font draws below the baseline. An insert counts for what its block draws where the
  * insert puts it, with a circle or an arc under an uneven scale as the box around its circle.
  * An insert of an xref counts for the drawing given for it in `xrefs`, and for nothing without
- * one.
+ * one. A dimension counts for its lines, its arrowheads and its text, when `dimensionStyles`
+ * holds its style.
  *
  * @param isHidden - True for a layer whose entities are left out, wherever they are drawn.
  * @param isFrozen - True for a layer that hides the whole of an insert on it: a frozen layer,
@@ -23,8 +25,11 @@ export function extents(
   isHidden: (layer: LayerRef) => boolean = () => false,
   isFrozen: (layer: LayerRef) => boolean = () => false,
   xrefs?: ReadonlyMap<string, Referenced>,
+  dimensionStyles: readonly DimensionStyle[] = [],
 ): [number, number, number, number] {
-  return boxer(textStyles, blocks, isHidden, isFrozen, xrefs)(entities) ?? [0, 0, 1, 1];
+  return (
+    boxer(textStyles, blocks, isHidden, isFrozen, xrefs, dimensionStyles)(entities) ?? [0, 0, 1, 1]
+  );
 }
 
 /**
@@ -38,6 +43,7 @@ export function boxer(
   isHidden: (layer: LayerRef) => boolean = () => false,
   isFrozen: (layer: LayerRef) => boolean = () => false,
   xrefs?: ReadonlyMap<string, Referenced>,
+  dimensionStyles: readonly DimensionStyle[] = [],
 ): (entities: readonly Entity[]) => [number, number, number, number] | undefined {
   const stylesOf = (styles: readonly TextStyle[]): Map<string, TextStyle> =>
     new Map(styles.map((t) => [layerKey(t.name), t]));
@@ -45,6 +51,34 @@ export function boxer(
   // The text styles of each referenced drawing, worked out when a text of it is first met.
   const referenced = new Map<Referenced, Map<string, TextStyle>>();
   let styles = own;
+  const dimensionStylesOf = (list: readonly DimensionStyle[]): Map<string, DimensionStyle> =>
+    new Map(list.map((style) => [layerKey(style.name), style]));
+  const ownDimensionStyles = dimensionStylesOf(dimensionStyles);
+  const referencedDimensionStyles = new Map<Referenced, Map<string, DimensionStyle>>();
+  let stylesOfDimensions = ownDimensionStyles;
+  /** What a dimension draws: its lines, its arrowheads, and its text as any text is boxed. */
+  const dimension = (e: Dimension): void => {
+    const style = stylesOfDimensions.get(layerKey(e.style));
+    if (style === undefined) return;
+    const picture = dimensionPicture(e, style);
+    for (const line of [...picture.extensionLines, picture.dimensionLine]) {
+      add(...line[0]);
+      add(...line[1]);
+    }
+    for (const arrowhead of picture.arrowheads) for (const corner of arrowhead) add(...corner);
+    const { label } = picture;
+    const text: Text = {
+      kind: "text",
+      layer: e.layer,
+      at: label.at,
+      height: label.height,
+      value: label.value,
+      rotation: label.rotation,
+      align: "center",
+      ...(label.style === undefined ? {} : { style: label.style }),
+    };
+    one(text);
+  };
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -87,6 +121,10 @@ export function boxer(
         add(c1[0] - (c2[0] - c1[0]) * below, c1[1] - (c2[1] - c1[1]) * below);
         break;
       }
+      case "linear-dimension":
+      case "aligned-dimension":
+        dimension(e);
+        break;
     }
   };
   return (entities) => {
@@ -108,12 +146,20 @@ export function boxer(
             referenced.set(from, stylesOf(from.drawing.textStyles ?? []));
           }
           styles = from ? referenced.get(from)! : own;
+          if (from && !referencedDimensionStyles.has(from)) {
+            referencedDimensionStyles.set(
+              from,
+              dimensionStylesOf(from.drawing.dimensionStyles ?? []),
+            );
+          }
+          stylesOfDimensions = from ? referencedDimensionStyles.get(from)! : ownDimensionStyles;
           one(drawn);
         },
         xrefs,
       );
       add = plain;
       styles = own;
+      stylesOfDimensions = ownDimensionStyles;
     }
     return minX === Infinity ? undefined : [minX, minY, maxX, maxY];
   };

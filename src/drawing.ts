@@ -5,7 +5,23 @@ import {
   blockHandles,
   placeAttribute,
 } from "./blocks.ts";
+import {
+  arrowheadInfo,
+  DEFAULT_ARROWHEAD,
+  type Arrowhead,
+  type ZERO_SUPPRESSIONS,
+} from "./arrowheads.ts";
 import { holdCall, readCall, recordCalls, type HeldCall } from "./callsite.ts";
+import {
+  arrowheadEntityHandle,
+  dimensionAngle,
+  dimensionDrawnProblem,
+  pictureHandleList,
+  pictureOwner,
+  validDimensionPictureHandles,
+  validDimensionStyleHandle,
+  type DimensionPlace,
+} from "./dimensions.ts";
 import { STANDARD_TEXT_STYLE } from "./fonts.ts";
 import { fmt, written } from "./format.ts";
 import { validIdHandle } from "./handles.ts";
@@ -22,12 +38,19 @@ import {
   blockCycleProblem,
   blockNameProblem,
   blockTwinProblem,
+  DIMENSION_IN_BLOCK,
+  dimensionStyleNameProblem,
+  dimensionStyleProblem,
+  dimensionStyleTwinProblem,
+  dimensionAngleProblem,
+  dimensionTextProblem,
   duplicateAttributeProblem,
   duplicateIdProblem,
   handleProblem,
   idHandleProblem,
   idKey,
   idProblem,
+  isStandardDimensionStyle,
   isStandardTextStyle,
   placedAttributeProblem,
   layerColorProblem,
@@ -54,14 +77,22 @@ import {
   textStyleProblem,
   undefinedAttributeProblem,
   undefinedBlockProblem,
+  undefinedDimensionStyleProblem,
+  undefinedDimensionTextStyleProblem,
   undefinedLinetypeProblem,
   undefinedTextStyleProblem,
   viewportProblem,
   XREF_ATTRIBUTES,
   xrefPathProblem,
   xrefTwinProblem,
+  type ArrowheadOf,
   type AttributeTag,
   type BlockName,
+  type DimensionAffix,
+  type DimensionPrefix,
+  type DimensionScale,
+  type DimensionStyleName,
+  type DimensionText,
   type Description,
   type EntityId,
   type FontOf,
@@ -71,17 +102,23 @@ import {
   type LineweightMm,
   type LineweightOf,
   type LinetypeName,
+  type MeasurementScale,
+  type NewDimensionStyleName,
   type NewLinetypeName,
   type NewTextStyleName,
+  type NotNegative,
   type ObliqueAngle,
   type Pattern,
+  type Precision,
   type R12Blocks,
+  type R12Dimensions,
   type R12EntityStyle,
   type R12LayerStates,
   type R12Lineweights,
   type R12Linetypes,
   type R12Text,
   type R12Xrefs,
+  type TextGap,
   type TextStyleName,
   type WidthFactor,
   type XrefPath,
@@ -269,7 +306,104 @@ export interface Insert extends Placed {
   readonly attributes?: Readonly<Record<string, string>>;
 }
 
-export type Entity = Line | Polyline | Circle | Arc | Text | Insert;
+/** What a linear and an aligned dimension share. */
+interface DimensionBase extends Placed {
+  /** A dimension style of the drawing. */
+  readonly style: string;
+  /** The first point it measures from, which its first extension line starts at. */
+  readonly from: Point;
+  /** The second point, which its second extension line starts at. */
+  readonly to: Point;
+  /**
+   * A text to draw in place of the measurement. `<>` in it stands for the measurement as the
+   * style writes it, so `"<> TYP"` adds to it and `"VARIES"` replaces it.
+   */
+  readonly text?: string;
+}
+
+/**
+ * A linear dimension: the distance between two points along one direction, which is along X
+ * unless `angle` says otherwise. AutoCAD holds it as a dimension, measures it again when its
+ * points move, and writes the measurement as its style says.
+ */
+export interface LinearDimension extends DimensionBase {
+  readonly kind: "linear-dimension";
+  /** A point the dimension line passes through. */
+  readonly line: Point;
+  /**
+   * The direction it measures along, in degrees counterclockwise from +X: 0 along X, 90 along
+   * Y. Defaults to 0.
+   */
+  readonly angle?: number;
+}
+
+/**
+ * An aligned dimension: the distance between two points, with its dimension line parallel to
+ * the line between them.
+ */
+export interface AlignedDimension extends DimensionBase {
+  readonly kind: "aligned-dimension";
+  /**
+   * How far the dimension line stands off the two points: to the left of the way from `from`
+   * to `to` when it is greater than 0, and to the right when it is less.
+   */
+  readonly offset: number;
+}
+
+export type Entity =
+  | Line
+  | Polyline
+  | Circle
+  | Arc
+  | Text
+  | Insert
+  | LinearDimension
+  | AlignedDimension;
+
+/**
+ * A dimension style: how the dimensions that name it are drawn and how they write what they
+ * measure. Its sizes are the sizes its dimensions plot at, each multiplied by `scale`, so a
+ * style for another view is the same style with another scale.
+ *
+ * tsdraft draws every dimension the same way where a style has no choice: the text is above
+ * the dimension line, between the extension lines and along the line, and the measurement is
+ * in decimal units.
+ */
+export interface DimensionStyle {
+  readonly name: string;
+  /** The text style of the dimension's text. Defaults to `"Standard"`. */
+  readonly textStyle?: string;
+  /** The height of the text. */
+  readonly textHeight: number;
+  /** One of `ARROWHEADS`. Defaults to `"closed-filled"`. */
+  readonly arrowhead?: string;
+  /** The length of an arrowhead, or 0 for none. */
+  readonly arrowSize: number;
+  /** How far from its point an extension line starts. */
+  readonly extensionOffset: number;
+  /** How far an extension line runs past the dimension line. */
+  readonly extensionBeyond: number;
+  /** The gap between the dimension line and the text above it. */
+  readonly textGap: number;
+  /**
+   * What every size of the style is multiplied by: how many units of the dimension's space one
+   * unit of the sizes is. Defaults to 1.
+   */
+  readonly scale?: number;
+  /** The decimals a measurement is written with, from 0 to 8. */
+  readonly precision: number;
+  /** Written before each measurement. */
+  readonly prefix?: string;
+  /** Written after each measurement. */
+  readonly suffix?: string;
+  /**
+   * The zeros a measurement leaves out: `"leading"` writes 0.5 as `.5`, `"trailing"` writes
+   * 52.50 as `52.5` and 52.00 as `52`, and `"both"` does both. Defaults to none.
+   */
+  readonly suppressZeros?: (typeof ZERO_SUPPRESSIONS)[number];
+  /** What a length is multiplied by before it is written. Defaults to 1. */
+  readonly measurementScale?: number;
+}
 
 /**
  * An attribute definition of a block: a text that each insert of the block carries with a
@@ -396,6 +530,8 @@ export interface Drawing {
   readonly xrefs?: readonly Xref[];
   /** The drawing's sheets. AutoCAD opens a drawing that has one on the first. */
   readonly layouts?: readonly Layout[];
+  /** The dimension styles that dimensions name. */
+  readonly dimensionStyles?: readonly DimensionStyle[];
 }
 
 export interface DrawingOptions<V extends DxfVersion = DxfVersion, S extends number = number> {
@@ -670,6 +806,93 @@ export interface InsertOptions<
   readonly attributes?: Readonly<Record<string, string>>;
 }
 
+/**
+ * A dimension style to define: a `DimensionStyle`, checked. Its sizes are lengths on paper, in
+ * the unit that suits the sheet, and `scale` turns them into the units of the space its
+ * dimensions are drawn in: `fromPaper(1, "in", view)` for model space seen at a view's ratio,
+ * and 1 on a layout.
+ */
+export interface DimensionStyleDefinition<
+  N extends string = string,
+  S extends string = string,
+  H extends number = number,
+  A extends string = string,
+  AS extends number = number,
+  EO extends number = number,
+  EB extends number = number,
+  G extends number = number,
+  SC extends number = number,
+  P extends number = number,
+  PRE extends string = string,
+  SUF extends string = string,
+  MS extends number = number,
+> {
+  readonly name: NewDimensionStyleName<N>;
+  /** A text style of the drawing. Defaults to `"Standard"`. */
+  readonly textStyle?: TextStyleName<S>;
+  /** The height of the text, greater than 0. */
+  readonly textHeight: Positive<H>;
+  /** One of `ARROWHEADS`. Defaults to `"closed-filled"`. */
+  readonly arrowhead?: ArrowheadOf<A>;
+  /** The length of an arrowhead, or 0 for none. */
+  readonly arrowSize: NotNegative<AS>;
+  /** How far from its point an extension line starts. */
+  readonly extensionOffset: NotNegative<EO>;
+  /** How far an extension line runs past the dimension line. */
+  readonly extensionBeyond: NotNegative<EB>;
+  /** The gap between the dimension line and the text above it. */
+  readonly textGap: TextGap<G>;
+  /** What every size is multiplied by, greater than 0. Defaults to 1. */
+  readonly scale?: DimensionScale<SC>;
+  /** The decimals a measurement is written with, from 0 to 8. */
+  readonly precision: Precision<P>;
+  /** Written before each measurement. */
+  readonly prefix?: DimensionPrefix<PRE>;
+  /** Written after each measurement, such as `"'"` for feet. */
+  readonly suffix?: DimensionAffix<SUF>;
+  /** The zeros a measurement leaves out. Defaults to none. */
+  readonly suppressZeros?: (typeof ZERO_SUPPRESSIONS)[number];
+  /** What a length is multiplied by before it is written, greater than 0. Defaults to 1. */
+  readonly measurementScale?: MeasurementScale<MS>;
+}
+
+/** What every dimension is drawn with. */
+interface DimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+> {
+  /** A dimension style of the drawing. */
+  readonly style: DimensionStyleName<S>;
+  /**
+   * A text to draw in place of the measurement, in which `<>` stands for the measurement:
+   * `"<> TYP"`, or `"VARIES"`.
+   */
+  readonly text?: DimensionText<T>;
+  /** A name for the dimension that no other entity of the drawing has. */
+  readonly id?: EntityId<I>;
+}
+
+/** The options of `linearDimension()`. */
+export interface LinearDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+> extends DimensionOptions<S, T, I> {
+  /**
+   * The direction it measures along: `"x"`, the default, `"y"`, or an angle in degrees
+   * counterclockwise from +X.
+   */
+  readonly along?: "x" | "y" | number;
+}
+
+/** The options of `alignedDimension()`. */
+export type AlignedDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+> = DimensionOptions<S, T, I>;
+
 /** What `layout()` sets on a layout. */
 export interface LayoutOptions<P extends string = string> {
   /** One of `PAPERS`, such as `"ARCH D"`. */
@@ -779,7 +1002,15 @@ function located(
   method: Method,
   about: Pick<
     Diagnostic,
-    "id" | "layer" | "linetype" | "textStyle" | "block" | "attribute" | "xref" | "layout"
+    | "id"
+    | "layer"
+    | "linetype"
+    | "textStyle"
+    | "dimensionStyle"
+    | "block"
+    | "attribute"
+    | "xref"
+    | "layout"
   >,
 ): unknown {
   if (!(thrown instanceof Problem)) return thrown;
@@ -805,6 +1036,8 @@ function recordsCalls(): boolean {
  *
  * `block(name, opts, draw)` puts everything drawn inside `draw` in a block, `xref(name, path)`
  * references another drawing's DWG file, and `insert` places a block or an xref.
+ * `dimensionStyle(style)` defines how dimensions are drawn and written, and `linearDimension`
+ * and `alignedDimension` draw one between two points.
  * `layout(name, opts, draw)` puts everything drawn inside `draw` on a sheet of paper, in paper
  * units, and gives `draw` the sheet, whose `viewport()` shows model space on it at a scale.
  *
@@ -855,6 +1088,11 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
   readonly #layouts = new Map<string, Layout | undefined>();
   /** The layout being drawn, which takes what is drawn until its `draw` returns. */
   #sheet: OpenLayout | undefined;
+  /** Keyed by `layerKey`: AutoCAD compares dimension style names as it compares layer names. */
+  readonly #dimensionStyles = new Map<string, DimensionStyle>();
+  readonly #dimensionStylesAudited = new Map<string, string>();
+  /** The blocks of the arrowheads the dimension styles use, whose handles are taken. */
+  readonly #arrowheadBlocks = new Set<string>();
   #current = "0";
 
   constructor(options: DrawingOptions<V, S> = {}) {
@@ -1424,6 +1662,226 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
   }
 
   /**
+   * Defines a dimension style: the text style and height of its dimensions' text, their
+   * arrowheads, how far the extension lines start from the points and run past the dimension
+   * line, the gap under the text, and how a measurement is written. The sizes are the sizes a
+   * dimension plots at, and `scale` multiplies each: `fromPaper(1, "in", view)` for dimensions
+   * in model space that a viewport shows at the view's ratio, and 1, the default, for
+   * dimensions on a layout. A style is defined once, under a name no other has.
+   */
+  dimensionStyle<
+    N extends string,
+    S extends string = string,
+    H extends number = number,
+    A extends string = string,
+    AS extends number = number,
+    EO extends number = number,
+    EB extends number = number,
+    G extends number = number,
+    SC extends number = number,
+    P extends number = number,
+    PRE extends string = string,
+    SUF extends string = string,
+    MS extends number = number,
+  >(
+    style: V extends "R12"
+      ? R12Dimensions
+      : DimensionStyleDefinition<N, S, H, A, AS, EO, EB, G, SC, P, PRE, SUF, MS>,
+  ): this {
+    const definition = style as unknown as DimensionStyle;
+    try {
+      if (this.dxf === "R12") refuse("dimension-style", R12_ONLY.dimensions);
+      this.#defineDimensionStyle(definition);
+    } catch (thrown) {
+      const name: unknown = (definition as { name?: unknown } | null)?.name;
+      const about = typeof name === "string" ? { dimensionStyle: name } : {};
+      throw located(thrown, DrawingBuilder.prototype.dimensionStyle, about);
+    }
+    return this;
+  }
+
+  /** Checks a dimension style and stores it. */
+  #defineDimensionStyle(definition: DimensionStyle): void {
+    const name: unknown = (definition as { name?: unknown } | null)?.name;
+    const fail = (rule: LintRule, problem: string): never =>
+      refuse(
+        rule,
+        `Dimension style ${typeof name === "string" ? JSON.stringify(name) : "with no name"}: ${problem}`,
+      );
+    const problem = dimensionStyleProblem(definition);
+    if (problem) fail("dimension-style", problem);
+    // dimensionStyleProblem has checked the types.
+    const named = name as string;
+    const first = this.#dimensionStylesAudited.get(layerAuditKey(named));
+    if (first !== undefined) {
+      fail("duplicate-dimension-style", dimensionStyleTwinProblem(named, first)!);
+    }
+    let textStyle: string | undefined;
+    if (definition.textStyle !== undefined && !isStandardTextStyle(definition.textStyle)) {
+      textStyle = this.#textStyles.get(layerKey(definition.textStyle))?.name;
+      if (textStyle === undefined) {
+        fail(
+          "undefined-text-style",
+          `${undefinedDimensionTextStyleProblem(definition.textStyle)}. Define it with textStyle() first`,
+        );
+      }
+    }
+    const arrowhead = (definition.arrowhead ?? DEFAULT_ARROWHEAD) as Arrowhead;
+    const block = arrowheadInfo(arrowhead)?.block;
+    // A handle taken before another was refused is given back.
+    const taken: string[] = [];
+    try {
+      const what = `the dimension style ${JSON.stringify(named)}`;
+      this.#claim(validDimensionStyleHandle(named), what, undefined, taken);
+      if (block !== undefined && !this.#arrowheadBlocks.has(block)) {
+        const handles = blockHandles(block);
+        const head = `the arrowhead ${JSON.stringify(arrowhead)}`;
+        for (const handle of [
+          handles.record,
+          handles.begin,
+          handles.end,
+          arrowheadEntityHandle(block),
+        ]) {
+          this.#claim(handle, head, undefined, taken);
+        }
+      }
+    } catch (thrown) {
+      for (const handle of taken) this.#handles.delete(handle);
+      throw thrown;
+    }
+    if (block !== undefined) this.#arrowheadBlocks.add(block);
+    const { prefix, suffix, suppressZeros } = definition;
+    const scale = definition.scale ?? 1;
+    const measurementScale = definition.measurementScale ?? 1;
+    this.#dimensionStyles.set(layerKey(named), {
+      name: named,
+      ...(textStyle === undefined ? {} : { textStyle }),
+      textHeight: definition.textHeight,
+      ...(arrowhead === DEFAULT_ARROWHEAD ? {} : { arrowhead }),
+      arrowSize: definition.arrowSize,
+      extensionOffset: definition.extensionOffset,
+      extensionBeyond: definition.extensionBeyond,
+      textGap: definition.textGap,
+      ...(scale === 1 ? {} : { scale }),
+      precision: definition.precision,
+      ...(prefix === undefined || prefix === "" ? {} : { prefix }),
+      ...(suffix === undefined || suffix === "" ? {} : { suffix }),
+      ...(suppressZeros === undefined ? {} : { suppressZeros }),
+      ...(measurementScale === 1 ? {} : { measurementScale }),
+    });
+    this.#dimensionStylesAudited.set(layerAuditKey(named), named);
+  }
+
+  /**
+   * Draws a linear dimension on the current layer: the distance from `from` to `to` along X,
+   * or along `options.along`, with its dimension line through `line`. AutoCAD holds it as a
+   * dimension, which reads its length again when its points move.
+   */
+  linearDimension<S extends string, T extends string = string, I extends string = string>(
+    from: Point,
+    to: Point,
+    line: Point,
+    options: V extends "R12" ? R12Dimensions : LinearDimensionOptions<S, T, I>,
+  ): this {
+    return this.#add(DrawingBuilder.prototype.linearDimension, idOf(options), () => {
+      const o = options as LinearDimensionOptions | undefined;
+      const along: unknown = o?.along ?? "x";
+      const angle =
+        along === "x"
+          ? 0
+          : along === "y"
+            ? 90
+            : typeof along === "number"
+              ? turned(along)
+              : refuse("dimension", 'along must be "x", "y" or an angle in degrees');
+      return this.#dimension(o, (style, text) => ({
+        kind: "linear-dimension",
+        layer: this.#current,
+        style,
+        from: pt(from),
+        to: pt(to),
+        line: pt(line),
+        ...(angle === 0 ? {} : { angle }),
+        ...text,
+      }));
+    });
+  }
+
+  /**
+   * Draws an aligned dimension on the current layer: the distance from `from` to `to`, with
+   * its dimension line `offset` to the left of the way from the first to the second, or to the
+   * right for an offset less than 0.
+   */
+  alignedDimension<S extends string, T extends string = string, I extends string = string>(
+    from: Point,
+    to: Point,
+    offset: number,
+    options: V extends "R12" ? R12Dimensions : AlignedDimensionOptions<S, T, I>,
+  ): this {
+    return this.#add(DrawingBuilder.prototype.alignedDimension, idOf(options), () =>
+      this.#dimension(options as AlignedDimensionOptions | undefined, (style, text) => ({
+        kind: "aligned-dimension",
+        layer: this.#current,
+        style,
+        from: pt(from),
+        to: pt(to),
+        offset: kept(offset, "offset"),
+        ...text,
+      })),
+    );
+  }
+
+  /** Checks what a dimension names and what it measures, and returns the dimension `make` gives. */
+  #dimension<D extends LinearDimension | AlignedDimension>(
+    options: { readonly style?: unknown; readonly text?: unknown } | undefined,
+    make: (style: string, text: { readonly text?: string }) => D,
+  ): D {
+    if (this.dxf === "R12") refuse("dimension", R12_ONLY.dimensions);
+    if (this.#open) refuse("dimension", DIMENSION_IN_BLOCK);
+    const named: unknown = options?.style;
+    const nameProblem = dimensionStyleNameProblem(named);
+    if (nameProblem) refuse("undefined-dimension-style", nameProblem);
+    const style = this.#dimensionStyles.get(layerKey(named as string));
+    if (!style) {
+      const absent = undefinedDimensionStyleProblem(named as string);
+      refuse(
+        "undefined-dimension-style",
+        isStandardDimensionStyle(named as string)
+          ? absent
+          : `${absent}. Define it with dimensionStyle() first`,
+      );
+    }
+    const text: unknown = options?.text;
+    if (text !== undefined) {
+      const problem = dimensionTextProblem(text);
+      if (problem) refuse("dimension", problem);
+    }
+    const made = make(style!.name, text === undefined ? {} : { text: text as string });
+    const textStyle =
+      style!.textStyle === undefined ? undefined : this.#textStyles.get(layerKey(style!.textStyle));
+    const problem = dimensionDrawnProblem(made, style!, textStyle);
+    if (problem) refuse("dimension", problem);
+    // The block of the dimension's picture takes handles from its id, or else from its place.
+    const id: unknown = (options as { readonly id?: unknown } | undefined)?.id;
+    const sheet = this.#sheet;
+    const place: DimensionPlace = {
+      index: (sheet ?? { entities: this.#entities }).entities.length,
+      ...(typeof id === "string" ? { id } : {}),
+      ...(sheet ? { layout: sheet.name } : {}),
+    };
+    const what = pictureOwner(place, JSON.stringify);
+    const own = typeof id === "string" ? validIdHandle(id) : undefined;
+    const handles = pictureHandleList(validDimensionPictureHandles(place));
+    for (const handle of handles) {
+      const other =
+        handle === own ? { what: `the id ${JSON.stringify(id)}` } : this.#handles.get(handle);
+      if (other !== undefined) refuse("id-handle", handleProblem(what, other.what, handle));
+    }
+    for (const handle of handles) this.#claim(handle, what);
+    return made;
+  }
+
+  /**
    * Adds a layout: a sheet of `options.paper` that AutoCAD shows as a tab and plots as one
    * page, at 1:1 on `DWG To PDF.pc3`. What `draw` draws goes on the sheet and not in model
    * space, in the paper's units from the sheet's lower-left corner, and `sheet.viewport()`
@@ -1597,6 +2055,9 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
       ...(this.#xrefs.size > 0 ? { xrefs: [...this.#xrefs.values()] } : {}),
       ...(this.#layouts.size > 0
         ? { layouts: [...this.#layouts.values()].filter((layout) => layout !== undefined) }
+        : {}),
+      ...(this.#dimensionStyles.size > 0
+        ? { dimensionStyles: [...this.#dimensionStyles.values()] }
         : {}),
     };
   }
@@ -1892,6 +2353,12 @@ export function createDrawing<V extends DxfVersion = "R2018", S extends number =
   return new DrawingBuilder(options as DrawingOptions<V>);
 }
 
+/** The id among the options of a dimension, which have no linetype or lineweight to take. */
+function idOf(options: unknown): { readonly id?: unknown } {
+  const id: unknown = (options as { id?: unknown } | null | undefined)?.id;
+  return id === undefined ? {} : { id };
+}
+
 /** True when `choice` names the built-in linetype `name`, in any case. */
 function isBuiltIn(choice: unknown, name: "ByLayer" | "Continuous"): boolean {
   return typeof choice === "string" && builtInLinetype(choice) === name;
@@ -1926,6 +2393,13 @@ function positive(value: unknown, label: string): number {
 
 function lostSide(size: string, axis: string, at: number): string {
   return `${size}: This value is too small at ${axis} = ${at}. Both sides of the rectangle are written as ${axis} = ${fmt(at)}, because tsdraft writes 6 decimals`;
+}
+
+/** An angle a dimension measures along, refused beyond a turn, and turned to less than one. */
+function turned(angle: number): number {
+  const problem = dimensionAngleProblem(angle);
+  if (problem) refuse("dimension", problem);
+  return dimensionAngle({ angle });
 }
 
 /** A number the drawing keeps and the writers print, which AutoCAD must be able to read. */

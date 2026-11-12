@@ -58,28 +58,54 @@
           <line x1="27.25" y1="12" x2="28.75" y2="12" stroke="#8b8b92" stroke-width="0.1885"/>
           <line x1="28" y1="11.25" x2="28" y2="12.75" stroke="#8b8b92" stroke-width="0.1885"/>
         </g>
-        <line x1="-0.625" y1="82.125" x2="0.625" y2="83.375" stroke="#1aafc8" stroke-width="0.1885"/>
-        <line x1="24" y1="79.625" x2="24" y2="83.375" stroke="#1aafc8" stroke-width="0.1885"/>
-        <line x1="23.375" y1="82.125" x2="24.625" y2="83.375" stroke="#1aafc8" stroke-width="0.1885"/>
-        <line x1="76" y1="79.625" x2="76" y2="83.375" stroke="#1aafc8" stroke-width="0.1885"/>
-        <line x1="75.375" y1="82.125" x2="76.625" y2="83.375" stroke="#1aafc8" stroke-width="0.1885"/>
-        <line x1="99.375" y1="82.125" x2="100.625" y2="83.375" stroke="#1aafc8" stroke-width="0.1885"/>
-        <line x1="0" y1="82.75" x2="100" y2="82.75" stroke="#1aafc8" stroke-width="0.1885"/>
-        <text transform="translate(15.75 83.21875) scale(1 -1) translate(-1.399535 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none">24.0'</text>
-        <text transform="translate(50 83.21875) scale(1 -1) translate(-1.399535 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none">52.0'</text>
-        <text transform="translate(84.25 83.21875) scale(1 -1) translate(-1.399535 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none">24.0'</text>
-        <line x1="100.625" y1="0" x2="106.875" y2="0" stroke="#1aafc8" stroke-width="0.1885"/>
-        <line x1="105.625" y1="-0.625" x2="106.875" y2="0.625" stroke="#1aafc8" stroke-width="0.1885"/>
-        <line x1="76.625" y1="30" x2="106.875" y2="30" stroke="#1aafc8" stroke-width="0.1885"/>
-        <line x1="105.625" y1="29.375" x2="106.875" y2="30.625" stroke="#1aafc8" stroke-width="0.1885"/>
-        <line x1="76.625" y1="79" x2="106.875" y2="79" stroke="#1aafc8" stroke-width="0.1885"/>
-        <line x1="105.625" y1="78.375" x2="106.875" y2="79.625" stroke="#1aafc8" stroke-width="0.1885"/>
-        <line x1="100.625" y1="140" x2="106.875" y2="140" stroke="#1aafc8" stroke-width="0.1885"/>
-        <line x1="105.625" y1="139.375" x2="106.875" y2="140.625" stroke="#1aafc8" stroke-width="0.1885"/>
-        <line x1="106.25" y1="0" x2="106.25" y2="140" stroke="#1aafc8" stroke-width="0.1885"/>
-        <text transform="translate(105.78125 15) scale(1 -1) rotate(-90) translate(-1.399535 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none">30.0'</text>
-        <text transform="translate(105.78125 54.5) scale(1 -1) rotate(-90) translate(-1.399535 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none">49.0'</text>
-        <text transform="translate(105.78125 109.5) scale(1 -1) rotate(-90) translate(-1.399535 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none">61.0'</text>
+        <g data-dimension="24.0'">
+          <line x1="0" y1="83.375" x2="0" y2="84" stroke="#1aafc8" stroke-width="0.1885" data-part="extension-line"/>
+          <line x1="24" y1="79.625" x2="24" y2="84" stroke="#1aafc8" stroke-width="0.1885" data-part="extension-line"/>
+          <line x1="-1.25" y1="82.75" x2="25.25" y2="82.75" stroke="#1aafc8" stroke-width="0.1885" data-part="dimension-line"/>
+          <polygon points="-0.558709,82.058709 0.691291,83.308709 0.558709,83.441291 -0.691291,82.191291" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="23.441291,82.058709 24.691291,83.308709 24.558709,83.441291 23.308709,82.191291" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(12 83.375) scale(1 -1) translate(-1.399535 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">24.0'</text>
+        </g>
+        <g data-dimension="52.0'">
+          <line x1="24" y1="79.625" x2="24" y2="84" stroke="#1aafc8" stroke-width="0.1885" data-part="extension-line"/>
+          <line x1="76" y1="79.625" x2="76" y2="84" stroke="#1aafc8" stroke-width="0.1885" data-part="extension-line"/>
+          <line x1="22.75" y1="82.75" x2="77.25" y2="82.75" stroke="#1aafc8" stroke-width="0.1885" data-part="dimension-line"/>
+          <polygon points="23.441291,82.058709 24.691291,83.308709 24.558709,83.441291 23.308709,82.191291" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="75.441291,82.058709 76.691291,83.308709 76.558709,83.441291 75.308709,82.191291" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(50 83.375) scale(1 -1) translate(-1.399535 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">52.0'</text>
+        </g>
+        <g data-dimension="24.0'">
+          <line x1="76" y1="79.625" x2="76" y2="84" stroke="#1aafc8" stroke-width="0.1885" data-part="extension-line"/>
+          <line x1="100" y1="83.375" x2="100" y2="84" stroke="#1aafc8" stroke-width="0.1885" data-part="extension-line"/>
+          <line x1="74.75" y1="82.75" x2="101.25" y2="82.75" stroke="#1aafc8" stroke-width="0.1885" data-part="dimension-line"/>
+          <polygon points="75.441291,82.058709 76.691291,83.308709 76.558709,83.441291 75.308709,82.191291" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="99.441291,82.058709 100.691291,83.308709 100.558709,83.441291 99.308709,82.191291" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(88 83.375) scale(1 -1) translate(-1.399535 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">24.0'</text>
+        </g>
+        <g data-dimension="30.0'">
+          <line x1="100.625" y1="0" x2="107.5" y2="0" stroke="#1aafc8" stroke-width="0.1885" data-part="extension-line"/>
+          <line x1="76.625" y1="30" x2="107.5" y2="30" stroke="#1aafc8" stroke-width="0.1885" data-part="extension-line"/>
+          <line x1="106.25" y1="-1.25" x2="106.25" y2="31.25" stroke="#1aafc8" stroke-width="0.1885" data-part="dimension-line"/>
+          <polygon points="106.941291,-0.558709 105.691291,0.691291 105.558709,0.558709 106.808709,-0.691291" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="106.941291,29.441291 105.691291,30.691291 105.558709,30.558709 106.808709,29.308709" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(105.625 15) scale(1 -1) rotate(-90) translate(-1.399535 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">30.0'</text>
+        </g>
+        <g data-dimension="49.0'">
+          <line x1="76.625" y1="30" x2="107.5" y2="30" stroke="#1aafc8" stroke-width="0.1885" data-part="extension-line"/>
+          <line x1="76.625" y1="79" x2="107.5" y2="79" stroke="#1aafc8" stroke-width="0.1885" data-part="extension-line"/>
+          <line x1="106.25" y1="28.75" x2="106.25" y2="80.25" stroke="#1aafc8" stroke-width="0.1885" data-part="dimension-line"/>
+          <polygon points="106.941291,29.441291 105.691291,30.691291 105.558709,30.558709 106.808709,29.308709" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="106.941291,78.441291 105.691291,79.691291 105.558709,79.558709 106.808709,78.308709" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(105.625 54.5) scale(1 -1) rotate(-90) translate(-1.399535 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">49.0'</text>
+        </g>
+        <g data-dimension="61.0'">
+          <line x1="76.625" y1="79" x2="107.5" y2="79" stroke="#1aafc8" stroke-width="0.1885" data-part="extension-line"/>
+          <line x1="100.625" y1="140" x2="107.5" y2="140" stroke="#1aafc8" stroke-width="0.1885" data-part="extension-line"/>
+          <line x1="106.25" y1="77.75" x2="106.25" y2="141.25" stroke="#1aafc8" stroke-width="0.1885" data-part="dimension-line"/>
+          <polygon points="106.941291,78.441291 105.691291,79.691291 105.558709,79.558709 106.808709,78.308709" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="106.941291,139.441291 105.691291,140.691291 105.558709,140.558709 106.808709,139.308709" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(105.625 109.5) scale(1 -1) rotate(-90) translate(-1.399535 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">61.0'</text>
+        </g>
         <text transform="translate(50 141.25) scale(1 -1) translate(-6.569854 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="13.139708" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">N 90°00'00&quot; E  100.00'</text>
         <text transform="translate(102.1875 111.375) scale(1 -1) rotate(-90) translate(-6.533723 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="13.067445" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">S 00°00'00&quot; E  140.00'</text>
         <text transform="translate(28 1.25) scale(1 -1) translate(-6.71502 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="13.430039" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">S 90°00'00&quot; W  100.00'</text>

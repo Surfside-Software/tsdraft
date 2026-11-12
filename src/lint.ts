@@ -5,10 +5,22 @@ import {
   blockHandles,
   placeAttribute,
 } from "./blocks.ts";
+import { arrowheadInfo, DEFAULT_ARROWHEAD } from "./arrowheads.ts";
 import { callOf, type CallSite } from "./callsite.ts";
+import {
+  arrowheadEntityHandle,
+  dimensionDrawnProblem,
+  pictureHandleList,
+  pictureOwner,
+  validDimensionPictureHandles,
+  validDimensionStyleHandle,
+  type Dimension,
+  type DimensionPlace,
+} from "./dimensions.ts";
 import type {
   AttributeDefinition,
   Block,
+  DimensionStyle,
   Drawing,
   DxfVersion,
   Entity,
@@ -48,6 +60,13 @@ import {
   blockCycleProblem,
   blockNameProblem,
   blockTwinProblem,
+  DIMENSION_IN_BLOCK,
+  dimensionStyleNameProblem,
+  dimensionStyleProblem,
+  dimensionStyleTwinProblem,
+  dimensionStyleWarning,
+  dimensionAngleProblem,
+  dimensionTextProblem,
   duplicateAttributeProblem,
   duplicateIdProblem,
   formatProblem,
@@ -55,6 +74,7 @@ import {
   idHandleProblem,
   idKey,
   idProblem,
+  isStandardDimensionStyle,
   isStandardTextStyle,
   layerColorProblem,
   layerFlagProblem,
@@ -83,6 +103,8 @@ import {
   textWarning,
   undefinedAttributeProblem,
   undefinedBlockProblem,
+  undefinedDimensionStyleProblem,
+  undefinedDimensionTextStyleProblem,
   undefinedLinetypeProblem,
   undefinedTextStyleProblem,
   viewportEmptyWarning,
@@ -128,6 +150,10 @@ export type LintRule =
   | "duplicate-attribute"
   | "undefined-attribute"
   | "xref"
+  | "dimension-style"
+  | "duplicate-dimension-style"
+  | "undefined-dimension-style"
+  | "dimension"
   | "zero-length";
 
 export interface Diagnostic {
@@ -141,6 +167,8 @@ export interface Diagnostic {
   readonly linetype?: string;
   /** The text style the problem is in, when it is a problem with a text style's definition. */
   readonly textStyle?: string;
+  /** The dimension style the problem is in, when it is a problem with its definition. */
+  readonly dimensionStyle?: string;
   /**
    * The block the problem is in: a problem with the block's definition, with one of its
    * attribute definitions, or with one of its entities.
@@ -261,7 +289,15 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
   };
   /** The items of one of the drawing's lists, or none, with an error, when it is not a list. */
   const listed = <T>(
-    field: "layers" | "entities" | "linetypes" | "textStyles" | "blocks" | "xrefs" | "layouts",
+    field:
+      | "layers"
+      | "entities"
+      | "linetypes"
+      | "textStyles"
+      | "blocks"
+      | "xrefs"
+      | "layouts"
+      | "dimensionStyles",
     rule: LintRule,
   ): readonly T[] => {
     const value: unknown = drawing[field];
@@ -271,8 +307,10 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     return problem ? [] : (value as readonly T[]);
   };
   /** Names an entry of a list in a diagnostic, when its name is one. */
-  const named = (field: "linetype" | "textStyle" | "block" | "xref", name: unknown) =>
-    typeof name === "string" ? { [field]: name } : {};
+  const named = (
+    field: "linetype" | "textStyle" | "dimensionStyle" | "block" | "xref",
+    name: unknown,
+  ) => (typeof name === "string" ? { [field]: name } : {});
 
   const format = formatProblem(drawing.format);
   if (format) out.push({ rule: "format", severity: "error", message: format });
@@ -502,6 +540,133 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
       ? `. AutoCAD does not take it for layer ${shown(twin)}: it would add a layer, and its AUDIT would report a duplicate name`
       : "";
     return `layer ${shown(layer)} is not defined${hint}`;
+  };
+
+  // AutoCAD compares dimension style names as it compares layer names, and keeps the first of
+  // two it takes for one. A style with a name counts for the dimensions that name it, whatever
+  // else is wrong with it, and only one with nothing wrong is measured with.
+  const dimensionStyleNames = new Set<string>();
+  const dimensionStyles = new Map<string, DimensionStyle>();
+  const dimensionStylesAudited = new Map<string, string>();
+  const arrowheadBlocks = new Set<string>();
+  each(
+    listed<DimensionStyle>("dimensionStyles", "dimension-style"),
+    "dimensionStyles",
+    "dimension-style",
+    TYPED.dimensionStyle,
+    (style, i) => {
+      if (malformed(WALKABLE.dimensionStyle, style, `dimensionStyles[${i}]`, "dimension-style")) {
+        return;
+      }
+      const error = (rule: LintRule, message: string) =>
+        out.push({
+          rule,
+          severity: "error",
+          message: `Dimension style ${shown(style.name)}: ${message}`,
+          ...named("dimensionStyle", style.name),
+        });
+      if (r12) {
+        error("dimension-style", R12_ONLY.dimensions);
+        return;
+      }
+      const problem = dimensionStyleProblem(style);
+      if (problem) error("dimension-style", problem);
+      const name: unknown = style.name;
+      if (dimensionStyleNameProblem(name) || isStandardDimensionStyle(name as string)) return;
+      const auditKey = layerAuditKey(style.name);
+      const first = dimensionStylesAudited.get(auditKey);
+      if (first !== undefined) {
+        error("duplicate-dimension-style", dimensionStyleTwinProblem(style.name, first)!);
+        return;
+      }
+      dimensionStylesAudited.set(auditKey, style.name);
+      const key = layerKey(style.name);
+      dimensionStyleNames.add(key);
+      const textStyle: unknown = style.textStyle;
+      let lettered = true;
+      if (
+        typeof textStyle === "string" &&
+        !textStyleNameProblem(textStyle) &&
+        !isStandardTextStyle(textStyle)
+      ) {
+        if (!textStyles.has(layerKey(textStyle))) {
+          error("undefined-text-style", undefinedDimensionTextStyleProblem(textStyle));
+          lettered = false;
+        } else if (unreadStyles.has(layerKey(textStyle))) lettered = false;
+      }
+      const warning = dimensionStyleWarning(style);
+      if (warning) {
+        out.push({
+          rule: "text",
+          severity: "warning",
+          message: `Dimension style ${shown(style.name)}: ${warning}`,
+          dimensionStyle: style.name,
+        });
+      }
+      const clash = claim(
+        validDimensionStyleHandle(style.name),
+        `the dimension style ${shown(style.name)}`,
+      );
+      if (clash) error("id-handle", clash);
+      const arrowhead: unknown = style.arrowhead ?? DEFAULT_ARROWHEAD;
+      const block = arrowheadInfo(arrowhead)?.block;
+      if (block !== undefined && !arrowheadBlocks.has(block)) {
+        arrowheadBlocks.add(block);
+        const handles = blockHandles(block);
+        for (const handle of [
+          handles.record,
+          handles.begin,
+          handles.end,
+          arrowheadEntityHandle(block),
+        ]) {
+          const taken = claim(handle, `the arrowhead ${shown(arrowhead)}`);
+          if (taken) error("id-handle", taken);
+        }
+      }
+      if (!problem && lettered) dimensionStyles.set(key, style);
+    },
+  );
+  /** Checks what a dimension names and what it measures. `sound` is false for one whose points no rule can measure. */
+  const lintDimension = (
+    dimension: Dimension,
+    add: (rule: LintRule, severity: Diagnostic["severity"], problem: string) => void,
+    sound: boolean,
+    inBlock: boolean,
+  ): void => {
+    if (r12) {
+      add("dimension", "error", R12_ONLY.dimensions);
+      return;
+    }
+    if (inBlock) add("dimension", "error", DIMENSION_IN_BLOCK);
+    const name: unknown = dimension.style;
+    const nameProblem = dimensionStyleNameProblem(name);
+    let style: DimensionStyle | undefined;
+    if (nameProblem) add("undefined-dimension-style", "error", nameProblem);
+    else if (!dimensionStyleNames.has(layerKey(name as string))) {
+      add("undefined-dimension-style", "error", undefinedDimensionStyleProblem(name as string));
+    } else style = dimensionStyles.get(layerKey(name as string));
+    const text: unknown = dimension.text;
+    if (text !== undefined) {
+      const problem = dimensionTextProblem(text);
+      if (problem) {
+        add("dimension", "error", problem);
+        return;
+      }
+      const warning = textWarning(text as string);
+      if (warning) add("text", "warning", warning);
+    }
+    if (sound && dimension.kind === "linear-dimension" && dimension.angle !== undefined) {
+      const problem = dimensionAngleProblem(dimension.angle);
+      if (problem) {
+        add("dimension", "error", problem);
+        return;
+      }
+    }
+    if (!style || !sound) return;
+    const textStyle =
+      style.textStyle === undefined ? undefined : stylesByKey.get(layerKey(style.textStyle));
+    const problem = dimensionDrawnProblem(dimension, style, textStyle);
+    if (problem) add("dimension", "error", problem);
   };
 
   // AutoCAD takes two block names for one where its AUDIT would call two layer names
@@ -830,6 +995,26 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
         }
         return;
       }
+      if (entity.kind === "linear-dimension" || entity.kind === "aligned-dimension") {
+        lintDimension(entity, add, problems.length === 0, block !== undefined);
+        // The block of its picture takes handles from its id, or else from its place.
+        if (!r12 && !block && (id === undefined || named)) {
+          const place: DimensionPlace = {
+            index,
+            ...(id === undefined ? {} : { id: id as string }),
+            ...(sheet ? { layout: sheet.name } : {}),
+          };
+          const what = pictureOwner(place, shown);
+          for (const handle of pictureHandleList(validDimensionPictureHandles(place))) {
+            const clash = claim(handle, what);
+            if (clash) {
+              add("id-handle", "error", clash);
+              break;
+            }
+          }
+        }
+        return;
+      }
       if (entity.linetype !== undefined) {
         const name: unknown = entity.linetype;
         const problem = r12
@@ -875,7 +1060,15 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
         modelBox =
           !Array.isArray(model) || model.length === 0
             ? null
-            : extents(drawing.entities, drawing.textStyles, drawing.blocks);
+            : extents(
+                drawing.entities,
+                drawing.textStyles,
+                drawing.blocks,
+                undefined,
+                undefined,
+                undefined,
+                [...dimensionStyles.values()],
+              );
       } catch {
         // A drawing whose entities cannot be measured has errors of its own above.
         modelBox = null;
@@ -1124,6 +1317,12 @@ function geometryProblems(e: Entity): string[] {
       if (problem) out.push(`its scale: ${problem}`);
       break;
     }
+    case "linear-dimension":
+      finite("its points and its angle", ...e.from, ...e.to, ...e.line, e.angle ?? 0);
+      break;
+    case "aligned-dimension":
+      finite("its points and its offset", ...e.from, ...e.to, e.offset);
+      break;
   }
   return out;
 }
@@ -1150,6 +1349,8 @@ function zeroLength(e: Entity): string | undefined {
     case "circle":
     case "text":
     case "insert":
+    case "linear-dimension":
+    case "aligned-dimension":
       return undefined;
   }
 }

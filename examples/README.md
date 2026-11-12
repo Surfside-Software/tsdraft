@@ -45,8 +45,9 @@ at 1" = 10'. It is the file to copy to start a drawing.
 - **Model space** holds the site at its true size, in feet: the lot from its
   plat dimensions, the setbacks, the building footprint, the driveway, the
   street and the trees. The annotation that is read in the plan is there too:
-  bearings and distances, dimension strings and labels. Each is sized by how
-  large it plots, with `fromPaper` for the viewport's ratio.
+  bearings and distances, dimensions and labels. Each is sized by how
+  large it plots, with `fromPaper` for the viewport's ratio. The dimensions
+  are dimension objects in a style with that scale, so CAD measures them.
 - **The layout `C-101`** holds the sheet, in inches of paper: the border, the
   title block, a column of site data, general notes, a legend and
   abbreviations, and under the plan the north arrow, the view's title and a

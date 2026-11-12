@@ -6,9 +6,23 @@ import {
   blocksByKey,
   placeAttribute,
 } from "./blocks.ts";
+import { arrowheadInfo, DEFAULT_ARROWHEAD } from "./arrowheads.ts";
+import {
+  arrowheadEntityHandle,
+  arrowheadsWithBlocks,
+  dimensionAngle,
+  dimensionMeasure,
+  dimensionPicture,
+  validDimensionPictureHandles,
+  validDimensionStyleHandle,
+  type DimensionPicture,
+  type DimensionPictureHandles,
+  type Dimension,
+} from "./dimensions.ts";
 import type {
   AttributeDefinition,
   Block,
+  DimensionStyle,
   Drawing,
   Entity,
   Insert,
@@ -93,7 +107,7 @@ export function toDXFR2018(
   const layoutDictionary = sheets.length > 0 ? handle() : "";
   const modelLayout = sheets.length > 0 ? handle() : "";
   // The extents are worked out here, so they are brought into the range AutoCAD reads.
-  const [left, bottom, right, top] = extents(drawing.entities, drawing.textStyles, drawing.blocks);
+  const [left, bottom, right, top] = extentsOf(drawing.entities, drawing);
   const [minX, minY, maxX, maxY] = [
     readable(left),
     readable(bottom),
@@ -165,12 +179,21 @@ export function toDXFR2018(
     })),
   );
   const textStyles = drawing.textStyles ?? [];
+  const standardStyle = handle();
+  // Each text style has a handle of its own. A dimension style holds the first of a name.
+  const textStyleHandleList = textStyles.map(() => handle());
+  const textStyleHandles = new Map(
+    textStyles.map((style, i) => [layerKey(style.name), textStyleHandleList[i]!]).reverse() as [
+      string,
+      string,
+    ][],
+  );
   writeTable(g, handle, "STYLE", [
     {
       type: "STYLE",
       subclass: "AcDbTextStyleTableRecord",
       name: STANDARD_TEXT_STYLE,
-      handle: handle(),
+      handle: standardStyle,
       fields: (g) => {
         g(40, 0); // fixed height: none
         g(41, 1); // width factor
@@ -181,11 +204,11 @@ export function toDXFR2018(
         g(4, "");
       },
     },
-    ...textStyles.map((style) => ({
+    ...textStyles.map((style, i) => ({
       type: "STYLE",
       subclass: "AcDbTextStyleTableRecord",
       name: style.name,
-      handle: handle(),
+      handle: textStyleHandleList[i]!,
       fields: (g: Group) => {
         const font = fontInfo(style.font);
         g(40, 0); // fixed height: none, so each text keeps its own
@@ -207,16 +230,58 @@ export function toDXFR2018(
   ]);
   // Keyed as style names are compared, so a text that names `notes` takes the style `NOTES`.
   const stylesByKey = new Map(textStyles.map((style) => [layerKey(style.name), style]));
+  const styleOf = (name: string | undefined): TextStyle | undefined =>
+    name === undefined ? undefined : stylesByKey.get(layerKey(name));
   writeTable(g, handle, "VIEW", []);
   writeTable(g, handle, "UCS", []);
   writeTable(g, handle, "APPID", [
     { type: "APPID", subclass: "AcDbRegAppTableRecord", name: "ACAD", handle: handle() },
   ]);
+  const dimensionStyles = drawing.dimensionStyles ?? [];
+  // Keyed as style names are compared, so a dimension that names `dim` takes the style `DIM`.
+  const dimensionStylesByKey = new Map(
+    dimensionStyles.map((style) => [layerKey(style.name), style]),
+  );
+  const arrowheads = arrowheadsWithBlocks(dimensionStyles);
   writeTable(g, handle, "DIMSTYLE", [
     { type: "DIMSTYLE", subclass: "AcDbDimStyleTableRecord", name: "Standard", handle: handle() },
+    ...dimensionStyles.map((style) => ({
+      type: "DIMSTYLE",
+      subclass: "AcDbDimStyleTableRecord",
+      name: style.name,
+      handle: validDimensionStyleHandle(style.name),
+      fields: (g: Group) =>
+        writeDimensionStyle(
+          g,
+          style,
+          textStyleHandles.get(layerKey(style.textStyle ?? STANDARD_TEXT_STYLE)) ?? standardStyle,
+        ),
+    })),
   ]);
   const blocks = drawing.blocks ?? [];
   const xrefs = drawing.xrefs ?? [];
+  // The block of each dimension's picture, by the dimension's space and place: model space,
+  // then each layout. A dimension in a style the drawing does not have gets none.
+  const pictures = new Map<string, Picture>();
+  [drawing.entities, ...sheets.map((sheet) => sheet.layout.entities)].forEach((entities, space) => {
+    entities.forEach((entity, index) => {
+      if (entity.kind !== "linear-dimension" && entity.kind !== "aligned-dimension") return;
+      const style = dimensionStylesByKey.get(layerKey(entity.style));
+      if (style === undefined) return;
+      const layout = space === 0 ? undefined : sheets[space - 1]!.layout.name;
+      pictures.set(`${space}/${index}`, {
+        name: `*D${pictures.size + 1}`,
+        picture: dimensionPicture(entity, style),
+        handles: validDimensionPictureHandles({
+          index,
+          ...(entity.id === undefined ? {} : { id: entity.id }),
+          ...(layout === undefined ? {} : { layout }),
+        }),
+        layer: entity.layer,
+        textStyle: styleOf(style.textStyle)?.name ?? STANDARD_TEXT_STYLE,
+      });
+    });
+  });
   const blockRecordFields = (g: Group) => {
     g(280, 1); // explodable
     g(281, 0); // scale uniformly: no
@@ -269,19 +334,49 @@ export function toDXFR2018(
       handle: blockHandles(xref.name).record,
       fields: blockRecordFields,
     })),
+    // The block of each arrowhead a dimension style draws with.
+    ...arrowheads.map(({ block }) => ({
+      type: "BLOCK_RECORD",
+      subclass: "AcDbBlockTableRecord",
+      name: block,
+      handle: blockHandles(block).record,
+      fields: blockRecordFields,
+    })),
+    ...[...pictures.values()].map(({ name, handles }) => ({
+      type: "BLOCK_RECORD",
+      subclass: "AcDbBlockTableRecord",
+      name,
+      handle: handles.record,
+      fields: blockRecordFields,
+    })),
   ]);
   g(0, "ENDSEC");
 
   const blocksByName = blocksByKey(blocks);
-  const styleOf = (name: string | undefined): TextStyle | undefined =>
-    name === undefined ? undefined : stylesByKey.get(layerKey(name));
   /**
    * Writes the entities of model space, of a block or of a layout, each owned by `owner`.
    * `paper` marks the entities of a layout as being in paper space.
    */
-  const writeEntities = (entities: readonly Entity[], owner: string, paper = false): void => {
-    for (const entity of entities) {
+  const writeEntities = (
+    entities: readonly Entity[],
+    owner: string,
+    paper = false,
+    space?: number,
+  ): void => {
+    entities.forEach((entity, index) => {
       const own = entity.id === undefined ? handle() : handleOf(entity.id);
+      if (entity.kind === "linear-dimension" || entity.kind === "aligned-dimension") {
+        writeDimension(
+          g,
+          entity,
+          dimensionStylesByKey.get(layerKey(entity.style)),
+          own,
+          owner,
+          paper,
+          space === undefined ? undefined : pictures.get(`${space}/${index}`)?.name,
+        );
+        return;
+      }
       if (entity.kind !== "insert") {
         writeEntity(
           g,
@@ -291,12 +386,12 @@ export function toDXFR2018(
           entity.kind === "text" ? styleOf(entity.style) : undefined,
           paper,
         );
-        continue;
+        return;
       }
       const block = blocksByName.get(layerKey(entity.block));
       const definitions = block?.attributes ?? [];
       writeInsert(g, entity, own, owner, definitions.length > 0, paper);
-      if (definitions.length === 0) continue;
+      if (definitions.length === 0) return;
       const { id } = entity;
       for (const definition of definitions) {
         const placed = placeAttribute(definition, styleOf(definition.style), entity, block?.base);
@@ -317,10 +412,10 @@ export function toDXFR2018(
       g(100, "AcDbEntity");
       if (paper) g(67, 1);
       g(8, entity.layer);
-    }
+    });
   };
   /** Writes what a layout holds: the viewport of the sheet, its viewports, then its entities. */
-  const writeSheet = (sheet: Sheet): void => {
+  const writeSheet = (sheet: Sheet, space: number): void => {
     const owner = sheet.handles.record;
     writeSheetViewport(g, sheet, owner);
     sheet.layout.viewports.forEach((viewport, index) => {
@@ -328,7 +423,7 @@ export function toDXFR2018(
       // The sheet's own viewport has the number 1, so the others count from 2.
       writeViewport(g, viewport, own, owner, index + 2, sheet.paper, drawing.units);
     });
-    writeEntities(sheet.layout.entities, owner, true);
+    writeEntities(sheet.layout.entities, owner, true, space);
   };
 
   g(0, "SECTION");
@@ -343,7 +438,7 @@ export function toDXFR2018(
   sheets.forEach((sheet, index) => {
     writeBlock(g, sheet.handles.begin, sheet.handles.end, sheet.block, sheet.handles.record, {
       paper: true,
-      ...(index === 0 ? {} : { contents: () => writeSheet(sheet) }),
+      ...(index === 0 ? {} : { contents: () => writeSheet(sheet, index + 1) }),
     });
   });
   for (const block of blocks) {
@@ -375,12 +470,39 @@ export function toDXFR2018(
       xrefPath: xref.path,
     });
   }
+  for (const { arrowhead, block } of arrowheads) {
+    const handles = blockHandles(block);
+    const stroke = arrowheadInfo(arrowhead)!.stroke!;
+    writeBlock(g, handles.begin, handles.end, block, handles.record, {
+      paper: false,
+      contents: () => {
+        // One stroke, as wide as the arrowhead's, which takes its color and its linetype
+        // from the dimension that draws it.
+        g(0, "LWPOLYLINE");
+        g(5, arrowheadEntityHandle(block));
+        g(330, handles.record);
+        g(100, "AcDbEntity");
+        g(8, "0");
+        g(6, "ByBlock");
+        g(62, 0);
+        g(100, "AcDbPolyline");
+        g(90, 2);
+        g(70, 0);
+        g(43, stroke.width);
+        for (const [x, y] of [stroke.from, stroke.to]) {
+          g(10, x);
+          g(20, y);
+        }
+      },
+    });
+  }
+  for (const picture of pictures.values()) writePicture(g, picture);
   g(0, "ENDSEC");
 
   g(0, "SECTION");
   g(2, "ENTITIES");
-  writeEntities(drawing.entities, modelSpace);
-  if (sheets[0] !== undefined) writeSheet(sheets[0]);
+  writeEntities(drawing.entities, modelSpace, false, 0);
+  if (sheets[0] !== undefined) writeSheet(sheets[0], 1);
   g(0, "ENDSEC");
 
   g(0, "SECTION");
@@ -485,6 +607,7 @@ export function toDXFR2018(
     blocks.length > 0 ||
     xrefs.length > 0 ||
     sheets.length > 0 ||
+    dimensionStyles.length > 0 ||
     drawing.entities.some((entity) => entity.id !== undefined);
   h(5, named ? ID_HANDLE_SEED : handle());
   h(0, "ENDSEC");
@@ -608,6 +731,8 @@ function writeBlock(
     readonly hasAttributes?: boolean;
     /** The path of the file an xref's block stands for. */
     readonly xrefPath?: string;
+    /** True for a block of no name of its own, such as a dimension's picture. */
+    readonly anonymous?: boolean;
     readonly contents?: () => void;
   },
 ): void {
@@ -619,8 +744,9 @@ function writeBlock(
   g(8, "0");
   g(100, "AcDbBlockBegin");
   g(2, name);
-  // 2: the block has attribute definitions. 4 and 8: it is an xref, and an overlay.
-  g(70, block.xrefPath !== undefined ? 12 : block.hasAttributes ? 2 : 0);
+  // 1: the block is anonymous. 2: it has attribute definitions. 4 and 8: it is an xref, and an
+  // overlay.
+  g(70, block.anonymous ? 1 : block.xrefPath !== undefined ? 12 : block.hasAttributes ? 2 : 0);
   point(g, 10, ...(block.base ?? [0, 0]));
   g(3, name);
   // AutoCAD decodes a block's path once, where it decodes a text twice.
@@ -711,7 +837,7 @@ function writeAttributeFields(
  */
 function writeEntity(
   g: Group,
-  e: Exclude<Entity, Insert>,
+  e: Exclude<Entity, Insert | Dimension>,
   handle: string,
   owner: string,
   style: TextStyle | undefined,
@@ -773,6 +899,206 @@ function writeEntity(
   }
 }
 
+/** What a dimension style's `suppressZeros` is in `DIMZIN`, group 78. */
+const ZERO_SUPPRESSION_CODES = { leading: 4, trailing: 8, both: 12 } as const;
+
+/**
+ * The fields of a dimension style. Every dimension of tsdraft's is drawn one way where a
+ * style has no choice: the text above the dimension line and along it, always between the
+ * extension lines, with a dimension line between them too, and in decimal units.
+ *
+ * @param textStyle - The handle of the style's text style.
+ */
+function writeDimensionStyle(g: Group, style: DimensionStyle, textStyle: string): void {
+  const prefix = style.prefix ?? "";
+  const suffix = style.suffix ?? "";
+  // AutoCAD decodes this string once, as it does a linetype's description.
+  if (prefix !== "" || suffix !== "") g(3, dxfOnce(`${prefix}<>${suffix}`));
+  g(40, style.scale ?? 1); // DIMSCALE
+  g(41, style.arrowSize); // DIMASZ
+  g(42, style.extensionOffset); // DIMEXO
+  g(44, style.extensionBeyond); // DIMEXE
+  const arrowhead = style.arrowhead ?? DEFAULT_ARROWHEAD;
+  const block = arrowheadInfo(arrowhead)?.block;
+  // DIMDLE: with a tick, the dimension line runs one arrow size past each extension line,
+  // as AutoCAD draws it whenever it turns the ticks outward.
+  if (block !== undefined) g(46, style.arrowSize);
+  g(73, 0); // DIMTIH: the text is along the dimension line
+  g(74, 0); // DIMTOH
+  g(77, 1); // DIMTAD: the text is above the dimension line
+  g(78, style.suppressZeros === undefined ? 0 : ZERO_SUPPRESSION_CODES[style.suppressZeros]);
+  g(140, style.textHeight); // DIMTXT
+  g(144, style.measurementScale ?? 1); // DIMLFAC
+  g(147, style.textGap); // DIMGAP
+  g(172, 1); // DIMTOFL: a dimension line between the extension lines, whatever fits
+  g(174, 1); // DIMTIX: the text between the extension lines, whatever fits
+  g(271, style.precision); // DIMDEC
+  g(277, 2); // DIMLUNIT: decimal
+  g(278, 46); // DIMDSEP: a point
+  g(340, textStyle); // DIMTXSTY
+  if (block !== undefined) g(342, blockHandles(block).record); // DIMBLK
+}
+
+/**
+ * Writes a dimension. It names no block of its picture: AutoCAD draws the picture when it
+ * reads the file, from the dimension's points and its style.
+ */
+function writeDimension(
+  g: Group,
+  e: Dimension,
+  style: DimensionStyle | undefined,
+  handle: string,
+  owner: string,
+  paper: boolean,
+  block: string | undefined,
+): void {
+  // `lint` refuses a dimension in a style the drawing does not have, which has no picture.
+  const at = e.kind === "linear-dimension" ? e.line : e.to;
+  const picture = style ? dimensionPicture(e, style) : { definitionPoint: at, textMiddle: at };
+  g(0, "DIMENSION");
+  g(5, handle);
+  g(330, owner);
+  g(100, "AcDbEntity");
+  if (paper) g(67, 1);
+  g(8, e.layer);
+  g(100, "AcDbDimension");
+  if (block !== undefined) g(2, block);
+  point(g, 10, ...picture.definitionPoint);
+  point(g, 11, ...picture.textMiddle);
+  // 32: the dimension has a picture of its own. 1: it is aligned.
+  g(70, e.kind === "aligned-dimension" ? 33 : 32);
+  if (e.text !== undefined) g(1, dxfOnce(e.text));
+  g(71, 5); // the text is placed by its middle
+  // What it reads, with 15 digits: AutoCAD works it out only when it draws the picture
+  // itself, and keeps the picture the file holds.
+  if (style) g(42, measurementValue(e, style));
+  g(3, style?.name ?? e.style);
+  g(100, "AcDbAlignedDimension");
+  point(g, 13, ...e.from);
+  point(g, 14, ...e.to);
+  if (e.kind === "linear-dimension") {
+    const angle = dimensionAngle(e);
+    if (angle !== 0) g(50, angle);
+    g(100, "AcDbRotatedDimension");
+  }
+}
+
+/** The block of a dimension's picture, with what the writer needs for it. */
+interface Picture {
+  /** The block's name, `*D` and a number. */
+  readonly name: string;
+  readonly picture: DimensionPicture;
+  readonly handles: DimensionPictureHandles;
+  /** The dimension's layer, which everything in the block is on. */
+  readonly layer: string;
+  readonly textStyle: string;
+}
+
+/** The most characters of a text DXF holds in one group. */
+const TEXT_CHUNK = 250;
+
+/**
+ * Writes the block of a dimension's picture as AutoCAD writes one: the two extension lines,
+ * the dimension line, the arrowheads and the text, on the dimension's layer, in the color and
+ * lineweight of the dimension. It holds no definition points: they do not plot, and AutoCAD
+ * works them out again when it draws the dimension anew.
+ */
+function writePicture(g: Group, { name, picture, handles, layer, textStyle }: Picture): void {
+  const owner = handles.record;
+  writeBlock(g, handles.begin, handles.end, name, owner, {
+    paper: false,
+    anonymous: true,
+    contents: () => {
+      const begin = (type: string, handle: string, subclass: string, lineweight: boolean) => {
+        g(0, type);
+        g(5, handle);
+        g(330, owner);
+        g(100, "AcDbEntity");
+        g(8, layer);
+        g(62, 0); // by block
+        if (lineweight) g(370, -2); // by block
+        g(100, subclass);
+      };
+      const lines: (readonly [readonly [number, number], readonly [number, number], string])[] = [
+        [...picture.extensionLines[0]!, handles.extensionLines[0]],
+        [...picture.extensionLines[1]!, handles.extensionLines[1]],
+        [...picture.dimensionLine, handles.dimensionLine],
+      ];
+      for (const [from, to, handle] of lines) {
+        begin("LINE", handle, "AcDbLine", true);
+        point(g, 10, ...from);
+        point(g, 11, ...to);
+      }
+      picture.arrowheadEntities.forEach((arrowhead, i) => {
+        const handle = handles.arrowheads[i]!;
+        if (arrowhead.kind === "solid") {
+          begin("SOLID", handle, "AcDbTrace", false);
+          const [left, right, tip] = arrowhead.corners;
+          for (const [code, corner] of [
+            [10, left],
+            [11, right],
+            [12, tip],
+            [13, tip],
+          ] as const) {
+            point(g, code, ...corner);
+          }
+          return;
+        }
+        begin("INSERT", handle, "AcDbBlockReference", true);
+        g(2, arrowhead.block);
+        point(g, 10, ...arrowhead.at);
+        for (const code of [41, 42, 43]) g(code, arrowhead.scale);
+        if (written(arrowhead.rotation) !== 0) g(50, arrowhead.rotation);
+      });
+      const { label } = picture;
+      begin("MTEXT", handles.text, "AcDbMText", false);
+      point(g, 10, ...picture.textMiddle);
+      g(40, label.height);
+      g(41, 0); // no width to wrap at
+      g(46, 0);
+      g(71, 5); // placed by its middle
+      g(72, 1); // left to right
+      // AutoCAD writes the text with a code that centers what is stacked in it.
+      const text = dxfOnce(`\\A1;${label.value}`);
+      let at = 0;
+      while (text.length - at > TEXT_CHUNK) {
+        // A caret and what it escapes stay in one group.
+        const end = text[at + TEXT_CHUNK - 1] === "^" ? at + TEXT_CHUNK - 1 : at + TEXT_CHUNK;
+        g(3, text.slice(at, end));
+        at = end;
+      }
+      g(1, text.slice(at));
+      g(7, textStyle);
+      if (written(label.rotation) !== 0) {
+        // 15 digits of the direction: 6 decimals would turn the text off AutoCAD's own.
+        g(11, fifteenDigits(label.direction[0]));
+        g(21, fifteenDigits(label.direction[1]));
+        g(31, 0);
+      }
+      g(73, 1); // line spacing at least as set
+      g(44, 1);
+    },
+  });
+}
+
+/** What a dimension reads, as the DXF writes it: the length times the style's measurement scale. */
+function measurementValue(dimension: Dimension, style: DimensionStyle): string {
+  return fifteenDigits(
+    dimensionMeasure(dimension).measurement * written(style.measurementScale ?? 1),
+  );
+}
+
+/**
+ * A number with 15 significant digits and no exponent, which JavaScript writes for a number
+ * under a millionth. Summed as a whole number, 15 digits stay under 2^53, so the double
+ * AutoCAD reads from them can be worked out exactly, where a 16th may move it a unit in the
+ * last place.
+ */
+function fifteenDigits(value: number): string {
+  const kept = Number(value.toPrecision(15));
+  return Math.abs(kept) < 1e-6 ? kept.toFixed(20) : String(kept);
+}
+
 /** A layout with what the writer works out for it once. */
 interface Sheet {
   readonly layout: Layout;
@@ -818,7 +1144,7 @@ function sheetExtents(sheet: Sheet, drawing: Drawing): [number, number, number, 
   }
   const box =
     layout.entities.length > 0
-      ? extents(layout.entities, drawing.textStyles, drawing.blocks)
+      ? extentsOf(layout.entities, drawing)
       : [Infinity, Infinity, -Infinity, -Infinity];
   for (const viewport of layout.viewports) {
     const view = validViewportView(viewport, paper.units, drawing.units);
@@ -828,6 +1154,22 @@ function sheetExtents(sheet: Sheet, drawing: Drawing): [number, number, number, 
     box[3] = Math.max(box[3]!, view.paperCenter[1] + view.height / 2);
   }
   return box.map(readable) as [number, number, number, number];
+}
+
+/** The extents of some entities of a drawing, with its styles and its blocks. */
+function extentsOf(
+  entities: readonly Entity[],
+  drawing: Drawing,
+): [number, number, number, number] {
+  return extents(
+    entities,
+    drawing.textStyles,
+    drawing.blocks,
+    undefined,
+    undefined,
+    undefined,
+    drawing.dimensionStyles,
+  );
 }
 
 /** The fields of a viewport that say how its view is drawn, which are the same in every one. */

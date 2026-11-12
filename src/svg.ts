@@ -8,13 +8,17 @@ import {
   type Matrix,
   type Referenced,
 } from "./blocks.ts";
+import { dimensionPicture, type Dimension } from "./dimensions.ts";
 import {
   sweep,
+  type DimensionStyle,
   type Drawing,
   type Entity,
   type Insert,
   type Layer,
+  type Line,
   type Point,
+  type Text,
   type TextStyle,
   type Viewport,
 } from "./drawing.ts";
@@ -169,6 +173,24 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
   const { tablesOf, layerOf, hidden, frozen, styleOf } = visibility(drawing, options.drawNoPlot);
   const blocks = blocksByKey(drawing.blocks);
   const view = viewOf(options.view);
+  /** The element of an entity that draws something of its own, where `matrix` puts it. */
+  const drawn = (
+    e: Drawn,
+    mark: string,
+    drawnPen: Pen,
+    look: Look,
+    from?: Referenced,
+    matrix?: Matrix,
+  ): string => {
+    if (e.kind !== "linear-dimension" && e.kind !== "aligned-dimension") {
+      return entityToSvg(e, mark, drawnPen, look, styleOf(e, from), matrix);
+    }
+    const tables = tablesOf(from);
+    const style = tables.dimensionStyles.get(layerKey(e.style));
+    const textStyle =
+      style?.textStyle === undefined ? undefined : tables.textStyles.get(layerKey(style.textStyle));
+    return dimensionToSvg(e, style, textStyle, mark, drawnPen, look, matrix);
+  };
 
   /**
    * The pen of an entity that draws on `on`. `insertLayer` is the layer of the insert that
@@ -177,7 +199,7 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
    */
   const pen = (
     look: Look,
-    e: Drawn,
+    e: Pick<Line, "linetype" | "lineweight">,
     on: LayerRef,
     insertLayer?: LayerRef,
     from?: Referenced,
@@ -233,21 +255,21 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     const marks = (e: Entity, index: number): string =>
       `data-layer="${esc(e.layer)}" data-entity="${index}"${e.id === undefined ? "" : ` data-id="${esc(e.id)}"`}`;
     return shown.map(([i, e]) => {
-      if (e.kind !== "insert")
-        return entityToSvg(e, marks(e, i), pen(look, e, { name: e.layer }), look, styleOf(e));
+      if (e.kind !== "insert") {
+        return drawn(e, marks(e, i), pen(look, styled(e), { name: e.layer }), look);
+      }
       const parts: string[] = [];
       eachDrawn(
         e,
         blocks,
         frozen,
-        (drawn, at) => {
+        (held, at) => {
           if (at.frozen || hidden(at.layer)) return;
           // AutoCAD names a layer of an xref by the xref's name, a bar and the layer's.
           const { name, of } = at.layer;
           const mark = `data-layer="${esc(of ? `${of.name}|${name}` : name)}"`;
-          const drawnPen = pen(look, drawn, at.layer, at.insertLayer, at.from);
-          const style = styleOf(drawn, at.from);
-          parts.push(entityToSvg(drawn, mark, drawnPen, look, style, at.matrix));
+          const heldPen = pen(look, styled(held), at.layer, at.insertLayer, at.from);
+          parts.push(drawn(held, mark, heldPen, look, at.from, at.matrix));
         },
         xrefs,
       );
@@ -276,11 +298,22 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
    */
   const reaching = (rect: readonly number[], pen: number): [number, Entity][] => {
     if (!boxed) {
-      const boxOf = boxer(drawing.textStyles, drawing.blocks, hidden, frozen, xrefs);
+      const boxOf = boxer(
+        drawing.textStyles,
+        drawing.blocks,
+        hidden,
+        frozen,
+        xrefs,
+        drawing.dimensionStyles,
+      );
       boxed = shownOf(drawing.entities).flatMap((shown) => {
         const box = boxOf([shown[1]]);
         if (!box) return [];
-        const lettered = shown[1].kind === "text" || shown[1].kind === "insert";
+        const lettered =
+          shown[1].kind === "text" ||
+          shown[1].kind === "insert" ||
+          shown[1].kind === "linear-dimension" ||
+          shown[1].kind === "aligned-dimension";
         const slack = lettered ? Math.max(box[2] - box[0], box[3] - box[1]) : 0;
         return [{ shown, box, slack }];
       });
@@ -451,6 +484,7 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
       hidden,
       frozen,
       xrefs,
+      drawing.dimensionStyles,
     );
   const margin = options.margin ?? (view ? 0 : Math.max(maxX - minX, maxY - minY, 1) * 0.02);
   const x = minX - margin;
@@ -514,6 +548,7 @@ interface Tables {
   readonly layers: ReadonlyMap<string, Layer>;
   readonly patterns: ReadonlyMap<string, number[] | undefined>;
   readonly textStyles: ReadonlyMap<string, TextStyle>;
+  readonly dimensionStyles: ReadonlyMap<string, DimensionStyle>;
 }
 
 function tablesFor(drawing: Drawing): Tables {
@@ -523,6 +558,7 @@ function tablesFor(drawing: Drawing): Tables {
       (drawing.linetypes ?? []).map((t) => [layerKey(t.name), alternating(t.pattern)]),
     ),
     textStyles: new Map((drawing.textStyles ?? []).map((t) => [layerKey(t.name), t])),
+    dimensionStyles: new Map((drawing.dimensionStyles ?? []).map((t) => [layerKey(t.name), t])),
   };
 }
 
@@ -579,6 +615,65 @@ function viewOf(view: SvgOptions["view"]): [number, number, number, number] | un
 /** An entity that draws something of its own, which an insert does not. */
 type Drawn = Exclude<Entity, Insert>;
 
+/** An entity that is one shape, with a linetype and a lineweight it may have of its own. */
+type Shape = Exclude<Drawn, Dimension>;
+
+/** The linetype and the lineweight an entity has of its own. A dimension draws ByLayer. */
+function styled(e: Drawn): Pick<Line, "linetype" | "lineweight"> {
+  return e.kind === "linear-dimension" || e.kind === "aligned-dimension" ? {} : e;
+}
+
+/**
+ * A dimension as a group: its extension lines and its dimension line, which take the dashes
+ * of its pen, its arrowheads, filled, and its text. A dimension whose style the drawing does
+ * not have is an empty group.
+ */
+function dimensionToSvg(
+  e: Dimension,
+  style: DimensionStyle | undefined,
+  textStyle: TextStyle | undefined,
+  mark: string,
+  pen: Pen,
+  look: Look,
+  matrix?: Matrix,
+): string {
+  if (style === undefined) return `<g ${mark}/>`;
+  const picture = dimensionPicture(e, style);
+  const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
+  const line = (part: string, [from, to]: readonly [Point, Point]): string =>
+    entityToSvg(
+      { kind: "line", layer: e.layer, from, to },
+      `data-part="${part}"`,
+      pen,
+      look,
+      undefined,
+      matrix,
+    );
+  const { label } = picture;
+  const text: Text = {
+    kind: "text",
+    layer: e.layer,
+    at: label.at,
+    height: label.height,
+    value: label.value,
+    rotation: label.rotation,
+    align: "center",
+  };
+  const parts = [
+    ...picture.extensionLines.map((ends) => line("extension-line", ends)),
+    line("dimension-line", picture.dimensionLine),
+    ...picture.arrowheads.map((corners) => {
+      const points = corners
+        .map(at)
+        .map(([x, y]) => `${fmt(x)},${fmt(y)}`)
+        .join(" ");
+      return `<polygon points="${points}" fill="${pen.color}" stroke="none" data-part="arrowhead"/>`;
+    }),
+    entityToSvg(text, `data-part="text"`, pen, look, textStyle, matrix),
+  ];
+  return `<g ${mark} data-dimension="${esc(label.value)}">\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
+}
+
 /**
  * What a matrix makes of a circle: an ellipse with these two radii, the first turned by `turn`
  * degrees, drawn counterclockwise when `sweep` is 1. With no matrix it is the circle.
@@ -603,7 +698,7 @@ function rounded(
  * @param matrix - Where an insert puts the entity, for one that a block holds.
  */
 function entityToSvg(
-  e: Drawn,
+  e: Shape,
   mark: string,
   pen: Pen,
   look: Look,
@@ -714,7 +809,7 @@ function alternating(pattern: readonly number[]): number[] | undefined {
  * coordinates and then placed by `matrix`, so a pattern scales with the insert that draws it.
  */
 function dashedPath(
-  e: Exclude<Drawn, { kind: "text" }>,
+  e: Exclude<Shape, { kind: "text" }>,
   dashes: readonly number[],
   matrix: Matrix | undefined,
 ): string | undefined {

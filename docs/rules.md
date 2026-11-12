@@ -156,6 +156,33 @@ it would take `1e+100` for `1e+10` and report nothing.
 - A layout is not defined inside a block or another layout, and a block is not defined inside
   a layout.
 - An R12 drawing has no layouts.
+- A dimension names a dimension style the drawing defines, and not `Standard`, which is
+  AutoCAD's own. AutoCAD discards a drawing with a dimension in a style it does not have.
+- A dimension style's name follows the rules of a layer's name, is at most 255 characters,
+  and is not one AutoCAD takes for another style's. Its text style is one the drawing
+  defines. Its text height is greater than 0, its arrow size, extension lengths and gap are
+  0 or more, its two scales are greater than 0, its precision is a whole number from 0 to 8
+  and its arrowhead is one of `ARROWHEADS`. AutoCAD's `AUDIT` reports a style that breaks
+  most of these, and [Dimensions](dimensions.md#what-lint-reports) says what it does with
+  each.
+- A prefix, a suffix and a dimension's own text have none of `\`, `{` and `}`, which AutoCAD
+  reads as formatting. A prefix has no `<>`. A dimension's text is not empty or all spaces,
+  which AutoCAD draws as no text, and has no `[]` beside `<>`, for which AutoCAD writes the
+  measurement again in alternate units.
+- A dimension measures something, writes a number under 100,000,000 with no more than 15
+  digits once it is rounded to its style's precision, and with closed filled arrowheads has room for its text
+  between its extension lines. AutoCAD draws one that measures nothing with the text 0,
+  drops decimals of a larger number, works the 16th digit out from its own arithmetic, and
+  turns the arrowheads of one without room outward.
+- Every number a dimension draws is under 1e100: each size of its style times the scale, and
+  each point of its picture. A text height, and an arrow size other than 0, times the scale is
+  not written as 0.
+- A linear dimension measures along an angle from -360 to 360, by tsdraft's own rule, so that
+  one direction has one angle.
+- A dimension is not in a block. AutoCAD draws nothing for it when it opens the file.
+- A block is not named `_ArchTick`, in any case. AutoCAD draws a dimension's architectural
+  tick with the block of that name.
+- An R12 drawing has no dimensions.
 - An entity's id has 1 to 64 letters A to Z or a to z, digits, `.`, `-` and
   `_`, and no two entities share one, whatever its case, in model space, in a block or on a
   layout. A viewport's id is one of them. See
@@ -167,10 +194,12 @@ it would take `1e+100` for `1e+10` and report nothing.
 - A drawing has `format: 0`. See [Format 0](format.md#format-0).
 - A drawing has the shape of a `Drawing`. `lint` takes any plain data and never throws: for a
   list that is not an array or has an empty slot, an item that is not an object, an entity
-  whose `kind` is not one of `line`, `polyline`, `circle`, `arc`, `text` and `insert`, a missing
+  whose `kind` is not one of `line`, `polyline`, `circle`, `arc`, `text`, `insert`,
+  `linear-dimension` and `aligned-dimension`, a missing
   field and a field of the wrong type, it gives an error with the path to the value, such as
   `entities[3].from must be a point, [x, y]`. The rule is `linetype`, `text-style`, `block` or
-  `attribute` for a value in that list, `xref` for one in `xrefs`, `layout` for a layout,
+  `attribute` for a value in that list, `xref` for one in `xrefs`, `dimension-style` for one
+  in `dimensionStyles`, `layout` for a layout,
   `viewport` for a viewport, and `format` for the rest, which an entity of a sheet is.
   No other rule is checked on an object of the wrong shape, and what names it gets no error
   for that. The error's `item` is the path of the item to leave out, such as `entities[3]`
@@ -190,6 +219,8 @@ it would take `1e+100` for `1e+10` and report nothing.
 - Text that contains `%%`. AutoCAD stores the text as written but reads `%%` as
   the start of a control code when it draws it: `%%d` is drawn as a degree sign
   and `%%%` as one percent sign.
+- A dimension's text, or its style's prefix or suffix, that contains `%%`, for the same
+  reason.
 - An xref that no insert places. AutoCAD purges an xref that nothing references
   when it opens the drawing.
 - A viewport that reaches past its layout's paper. AutoCAD plots a layout as far as its paper

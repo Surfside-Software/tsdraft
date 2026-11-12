@@ -6,6 +6,14 @@
 import type { DxfVersion, Units } from "./drawing.ts";
 import type { PaperUnit } from "./paper.ts";
 import { paperInfo, PLOT_STYLE_TABLES, type Paper, type PlotStyleTable } from "./papers.ts";
+import {
+  arrowheadInfo,
+  ARROWHEADS,
+  MAX_PRECISION,
+  STANDARD_DIMENSION_STYLE,
+  ZERO_SUPPRESSIONS,
+  type Arrowhead,
+} from "./arrowheads.ts";
 import { isPaperUnit, isUnits, modelLength } from "./units.ts";
 import { isTooLarge, written, writtenAngle } from "./format.ts";
 import { fontInfo, STANDARD_TEXT_STYLE, type Font } from "./fonts.ts";
@@ -59,11 +67,21 @@ const BLOCK_NAMES = {
   length:
     "Block names cannot be longer than 255 characters. AutoCAD's BLOCK command refuses a longer name",
 } as const;
+const DIMENSION_STYLE_NAMES = {
+  empty: "Dimension style names cannot be empty",
+  chars: 'Dimension style names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
+  rejected:
+    "Dimension style names cannot contain a character AutoCAD rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
+  edge: "Dimension style names cannot start or end with a space",
+  length:
+    "Dimension style names cannot be longer than 255 characters. AutoCAD's DIMSTYLE command refuses a longer name",
+} as const;
 type NameMessages =
   | typeof LAYER_NAMES
   | typeof LINETYPE_NAMES
   | typeof TEXT_STYLE_NAMES
-  | typeof BLOCK_NAMES;
+  | typeof BLOCK_NAMES
+  | typeof DIMENSION_STYLE_NAMES;
 const NAME_R12_CHARS =
   'R12 layer names can only use letters, digits, $, - and _. Use DXF version "R2018" for other characters';
 const NAME_R12_LENGTH =
@@ -93,6 +111,34 @@ const R12_BLOCKS =
 const R12_XREFS = 'tsdraft writes no xrefs to R12 drawings. Use DXF version "R2018" for an xref';
 const R12_LAYOUTS =
   'tsdraft writes no layouts to R12 drawings. Use DXF version "R2018" for a layout';
+const R12_DIMENSIONS =
+  'tsdraft writes no dimensions to R12 drawings. Use DXF version "R2018" for a dimension';
+const ARROWHEAD_BLOCK =
+  "Block names cannot be _ArchTick, in any case of its letters. AutoCAD draws the architectural tick of a dimension with the block of that name";
+const STANDARD_DIMENSION_STYLE_DEFINED =
+  'The dimension style "Standard" is in every drawing and cannot be defined. AutoCAD keeps the first style of a name and skips a second';
+const STANDARD_DIMENSION_STYLE_USED =
+  'tsdraft draws no dimension in the dimension style "Standard", which is AutoCAD\'s own. Define a style with dimensionStyle() and name it';
+const ARROWHEAD = 'An arrowhead must be one of ARROWHEADS: "closed-filled" or "architectural-tick"';
+const NOT_NEGATIVE =
+  "This value cannot be less than 0. AutoCAD's AUDIT reports a dimension style with a negative size";
+const TEXT_GAP =
+  "The gap cannot be less than 0. AutoCAD draws a box around the text of a dimension whose style has a negative gap";
+const DIMENSION_SCALE =
+  "The scale must be greater than 0. AutoCAD takes a scale of 0 for one it works out from a viewport, and its AUDIT reports a negative one";
+const MEASUREMENT_SCALE =
+  "The measurement scale must be greater than 0. AutoCAD's AUDIT reports a scale of 0, and AutoCAD applies a negative one only to a dimension on a layout";
+const PRECISION =
+  "A precision is a whole number of decimals from 0 to 8. AutoCAD's AUDIT reports a dimension style with any other";
+const ZERO_SUPPRESSION = 'suppressZeros must be "leading", "trailing" or "both"';
+const DIMENSION_FORMATTING =
+  "The prefix, the suffix and the text of a dimension cannot contain \\ { or }. AutoCAD reads them as the formatting of the text";
+const PREFIX_MEASUREMENT =
+  "A prefix cannot contain <>, which AutoCAD takes for the place of the measurement";
+const DIMENSION_TEXT_BLANK =
+  "A dimension's text cannot be empty or all spaces. AutoCAD draws a dimension whose text is a space with no text. Leave the text out to draw the measurement";
+const DIMENSION_TEXT_ALTERNATE =
+  "A dimension's text cannot contain [] beside <>. AutoCAD writes the measurement a second time for it, in alternate units";
 const LAYOUT_NAME_EMPTY =
   "A layout's name cannot be empty. AutoCAD's commands take an empty answer for the current layout, so none of them can name such a layout";
 const LAYOUT_NAME_CHARS =
@@ -368,7 +414,116 @@ export type NewTextStyleName<N extends string> = string extends N
  */
 export type BlockName<N extends string> = string extends N
   ? N
-  : NameCheck<N, typeof BLOCK_NAMES, N>;
+  : Lowercase<N> extends Lowercase<TickBlock>
+    ? typeof ARROWHEAD_BLOCK
+    : NameCheck<N, typeof BLOCK_NAMES, N>;
+
+/** The block of the one arrowhead that has a block. */
+type TickBlock = (typeof ARROWHEADS)["architectural-tick"]["block"];
+
+/**
+ * Resolves to `N` when it is a valid name for a dimension style to be used by, and to the error
+ * message otherwise. AutoCAD holds dimension style names to the rules of layer names. `Standard`
+ * is no style tsdraft draws a dimension in.
+ */
+export type DimensionStyleName<N extends string> = string extends N
+  ? N
+  : Lowercase<N> extends Lowercase<typeof STANDARD_DIMENSION_STYLE>
+    ? typeof STANDARD_DIMENSION_STYLE_USED
+    : NameCheck<N, typeof DIMENSION_STYLE_NAMES, N>;
+
+/**
+ * Resolves to `N` when it is a valid name for a new dimension style, and to the error message
+ * otherwise: a name that is valid to use, and not `Standard`, which every drawing has.
+ */
+export type NewDimensionStyleName<N extends string> = string extends N
+  ? N
+  : Lowercase<N> extends Lowercase<typeof STANDARD_DIMENSION_STYLE>
+    ? typeof STANDARD_DIMENSION_STYLE_DEFINED
+    : NameCheck<N, typeof DIMENSION_STYLE_NAMES, N>;
+
+/** Resolves to `A` when it is one of `ARROWHEADS`, and to the error message otherwise. */
+export type ArrowheadOf<A extends string> = string extends A
+  ? A
+  : A extends Arrowhead
+    ? A
+    : typeof ARROWHEAD;
+
+/**
+ * Resolves to `N` when it is a size of a dimension style that may be 0, and to the error message
+ * otherwise: `N` must not be less than 0, and must be under 1e100.
+ */
+export type NotNegative<
+  N extends number,
+  Message extends string = typeof NOT_NEGATIVE,
+> = number extends N
+  ? N
+  : `${N}` extends `-${string}`
+    ? Message
+    : `${N}` extends `${string}e+${Digit}${Digit}${Digit}`
+      ? typeof TOO_LARGE
+      : N;
+
+/** Resolves to `N` when it is a gap between a dimension's text and its line, and to the error message otherwise. */
+export type TextGap<N extends number> = NotNegative<N, typeof TEXT_GAP>;
+
+/**
+ * Resolves to `N` when it is a scale a dimension style can have, and to `Message` otherwise:
+ * greater than 0, not written as 0, and under 1e100.
+ */
+type StyleScale<N extends number, Message extends string> = number extends N
+  ? N
+  : `${N}` extends `-${string}` | "0"
+    ? Message
+    : Positive<N>;
+
+/** Resolves to `N` when it is the overall scale of a dimension style, and to the error message otherwise. */
+export type DimensionScale<N extends number> = StyleScale<N, typeof DIMENSION_SCALE>;
+
+/** Resolves to `N` when it is the measurement scale of a dimension style, and to the error message otherwise. */
+export type MeasurementScale<N extends number> = StyleScale<N, typeof MEASUREMENT_SCALE>;
+
+/** Resolves to `P` when it is a precision AutoCAD has, and to the error message otherwise. */
+export type Precision<P extends number> = number extends P
+  ? P
+  : P extends Enumerate<9>
+    ? P
+    : typeof PRECISION;
+
+/**
+ * Resolves to `S` when it is a suffix a dimension style can have, and to the error message
+ * otherwise: no `\`, `{` or `}`, and no character a text cannot hold.
+ */
+export type DimensionAffix<S extends string> = string extends S
+  ? S
+  : S extends `${string}${"\\" | "{" | "}"}${string}`
+    ? typeof DIMENSION_FORMATTING
+    : Description<S>;
+
+/** Resolves to `S` when it is a prefix a dimension style can have: a suffix with no `<>`. */
+export type DimensionPrefix<S extends string> = string extends S
+  ? S
+  : S extends `${string}<>${string}`
+    ? typeof PREFIX_MEASUREMENT
+    : DimensionAffix<S>;
+
+/**
+ * Resolves to `T` when it is a text a dimension can have in place of its measurement, and to
+ * the error message otherwise: not empty, not all spaces, and with no `\`, `{` or `}`. A text
+ * with both `<>` and `[]` is refused when the code runs.
+ */
+export type DimensionText<T extends string> = string extends T
+  ? T
+  : Blank<T> extends true
+    ? typeof DIMENSION_TEXT_BLANK
+    : DimensionAffix<T>;
+
+/** True for a string of nothing but spaces. */
+type Blank<T extends string> = T extends ""
+  ? true
+  : T extends ` ${infer Rest}`
+    ? Blank<Rest>
+    : false;
 
 /**
  * Resolves to `T` when it is a valid attribute tag, and to the error message otherwise: a
@@ -630,6 +785,7 @@ export type R12Text = typeof R12_TEXT;
 export type R12Blocks = typeof R12_BLOCKS;
 export type R12Xrefs = typeof R12_XREFS;
 export type R12Layouts = typeof R12_LAYOUTS;
+export type R12Dimensions = typeof R12_DIMENSIONS;
 
 /** Returns what is wrong with a layer name for a DXF version, or undefined when it is valid. */
 export function layerNameProblem(name: string, version: DxfVersion): string | undefined {
@@ -790,6 +946,7 @@ export const R12_ONLY = {
   blocks: R12_BLOCKS,
   xrefs: R12_XREFS,
   layouts: R12_LAYOUTS,
+  dimensions: R12_DIMENSIONS,
 } as const;
 
 /** How a text is justified across its line, and up and down it. The first of each is the default. */
@@ -1020,7 +1177,12 @@ export function handleProblem(what: string, first: string, handle: string): stri
  */
 export function blockNameProblem(name: unknown): string | undefined {
   if (typeof name !== "string") return "A block's name must be a string";
-  return nameProblem(name, BLOCK_NAMES);
+  const problem = nameProblem(name, BLOCK_NAMES);
+  if (problem) return problem;
+  // AutoCAD draws an arrowhead with whatever block has its name.
+  return layerKey(name) === layerKey(ARROWHEADS["architectural-tick"].block)
+    ? ARROWHEAD_BLOCK
+    : undefined;
 }
 
 /**
@@ -1409,4 +1571,295 @@ export function viewportEmptyWarning(
   box: readonly [minX: number, minY: number, maxX: number, maxY: number],
 ): string {
   return `the viewport shows none of the drawing: nothing in model space lies in the box it shows, from ${written(box[0])}, ${written(box[1])} to ${written(box[2])}, ${written(box[3])}`;
+}
+
+/**
+ * Returns what is wrong with the name a dimension names its style by, or undefined when it is
+ * valid. `Standard` is a valid name, of a style tsdraft draws no dimension in.
+ */
+export function dimensionStyleNameProblem(name: unknown): string | undefined {
+  if (typeof name !== "string") return "A dimension style's name must be a string";
+  return nameProblem(name, DIMENSION_STYLE_NAMES);
+}
+
+/** True for `Standard`, the dimension style every drawing has, in any case. */
+export function isStandardDimensionStyle(name: string): boolean {
+  return layerKey(name) === layerKey(STANDARD_DIMENSION_STYLE);
+}
+
+/**
+ * Returns what is wrong with a size of a dimension style that may be 0, or undefined when it is
+ * valid: the arrow size, and how far an extension line starts from its point and runs past the
+ * dimension line.
+ */
+function notNegativeProblem(value: unknown, message: string = NOT_NEGATIVE): string | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "must be a finite number";
+  // Judged as written: a size that is written as 0 is 0.
+  return written(value) < 0 ? message : magnitudeProblem(value);
+}
+
+/** Returns what is wrong with one of a dimension style's two scales, or undefined. */
+function styleScaleProblem(value: unknown, message: string): string | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "must be a finite number";
+  return value > 0 ? sizeProblem(value) : message;
+}
+
+/**
+ * Returns what is wrong with a prefix, a suffix or a dimension's own text as a string AutoCAD
+ * draws as it is, or undefined: it is a text, with none of the characters AutoCAD reads as
+ * formatting.
+ */
+function plainDimensionText(value: unknown): string | undefined {
+  if (typeof value !== "string") return "must be a string";
+  return textProblem(value) ?? (/[\\{}]/.test(value) ? DIMENSION_FORMATTING : undefined);
+}
+
+/**
+ * Returns what is wrong with a dimension style, or undefined when it is valid. It takes a value
+ * of any shape, so that `lint` can report a drawing built by hand. Whether the drawing has the
+ * style's text style is the caller's to check, since it depends on the drawing.
+ *
+ * AutoCAD's AUDIT reports a style whose text height is 0 or less, whose arrow size or either
+ * extension line length is less than 0, whose scale is less than 0, whose measurement scale is
+ * 0, or whose precision is not a whole number from 0 to 8. It draws a box around the text for a
+ * gap less than 0, works a scale of 0 out from a viewport, and applies a measurement scale
+ * less than 0 on a layout alone.
+ */
+export function dimensionStyleProblem(style: unknown): string | undefined {
+  if (typeof style !== "object" || style === null || Array.isArray(style)) {
+    return "A dimension style must be an object with a name and its sizes";
+  }
+  const s = style as Record<string, unknown>;
+  const nameError = dimensionStyleNameProblem(s.name);
+  if (nameError) return nameError;
+  if (isStandardDimensionStyle(s.name as string)) return STANDARD_DIMENSION_STYLE_DEFINED;
+  if (s.textStyle !== undefined) {
+    if (typeof s.textStyle !== "string") return "textStyle: a text style is named by a string";
+    const problem = textStyleNameProblem(s.textStyle);
+    if (problem) return `textStyle: ${problem}`;
+  }
+  if (typeof s.textHeight !== "number" || !Number.isFinite(s.textHeight)) {
+    return "textHeight must be a finite number";
+  }
+  const height = sizeProblem(s.textHeight);
+  if (height) return `textHeight: ${height}`;
+  if (s.arrowhead !== undefined && !arrowheadInfo(s.arrowhead)) return ARROWHEAD;
+  for (const field of ["arrowSize", "extensionOffset", "extensionBeyond"] as const) {
+    const problem = notNegativeProblem(s[field]);
+    if (problem) return `${field}: ${problem}`;
+  }
+  const gap = notNegativeProblem(s.textGap, TEXT_GAP);
+  if (gap) return `textGap: ${gap}`;
+  if (s.scale !== undefined) {
+    const problem = styleScaleProblem(s.scale, DIMENSION_SCALE);
+    if (problem) return `scale: ${problem}`;
+  }
+  // A picture draws each size times the scale.
+  const scale = s.scale === undefined ? 1 : written(s.scale as number);
+  for (const field of [
+    "textHeight",
+    "arrowSize",
+    "extensionOffset",
+    "extensionBeyond",
+    "textGap",
+  ] as const) {
+    const scaled = written(s[field] as number) * scale;
+    if (!(Math.abs(scaled) < 1e100)) {
+      return `${field}: times the scale it is ${scaled}, and AutoCAD reads only two exponent digits from DXF, so every size of a picture must be under 1e100. Use a smaller size or scale`;
+    }
+  }
+  // The picture writes the text's height and an arrowhead's size with 6 decimals.
+  for (const field of ["textHeight", "arrowSize"] as const) {
+    const size = written(s[field] as number);
+    if (size > 0 && written(size * scale) === 0) {
+      return `${field}: times the scale it is ${size * scale}, which is written as 0 with the 6 decimals tsdraft writes, so the picture of a dimension would draw ${field === "textHeight" ? "its text" : "its arrowheads"} with no size. Use a larger size or scale${field === "arrowSize" ? ", or an arrow size of 0" : ""}`;
+    }
+  }
+  const precision = s.precision;
+  if (
+    typeof precision !== "number" ||
+    !Number.isInteger(precision) ||
+    precision < 0 ||
+    precision > MAX_PRECISION
+  ) {
+    return PRECISION;
+  }
+  for (const field of ["prefix", "suffix"] as const) {
+    if (s[field] === undefined) continue;
+    const problem = plainDimensionText(s[field]);
+    if (problem) return `${field}: ${problem}`;
+  }
+  if (typeof s.prefix === "string" && s.prefix.includes("<>")) return PREFIX_MEASUREMENT;
+  if (
+    s.suppressZeros !== undefined &&
+    !(ZERO_SUPPRESSIONS as readonly unknown[]).includes(s.suppressZeros)
+  ) {
+    return ZERO_SUPPRESSION;
+  }
+  if (s.measurementScale !== undefined) {
+    const problem = styleScaleProblem(s.measurementScale, MEASUREMENT_SCALE);
+    if (problem) return `measurementScale: ${problem}`;
+  }
+  return undefined;
+}
+
+/**
+ * Returns the warning for a prefix or a suffix AutoCAD stores as written and draws differently,
+ * as `textWarning` gives one for a text, or undefined.
+ */
+export function dimensionStyleWarning(style: {
+  readonly prefix?: unknown;
+  readonly suffix?: unknown;
+}): string | undefined {
+  for (const field of ["prefix", "suffix"] as const) {
+    const value = style[field];
+    const warning = typeof value === "string" ? textWarning(value) : undefined;
+    if (warning) return `${field}: ${warning}`;
+  }
+  return undefined;
+}
+
+/**
+ * Returns what is wrong with a drawing that has two dimension styles of these names, or
+ * undefined when the two can stand together. AutoCAD keeps the first of two names that differ
+ * only in case and skips the second, and its AUDIT reports two names it takes for one in the
+ * other ways `layerAuditKey` lists, such as `strasse` and `straße`. The rule compares two
+ * names, so it has no type.
+ */
+export function dimensionStyleTwinProblem(name: string, other: string): string | undefined {
+  if (layerAuditKey(name) !== layerAuditKey(other)) return undefined;
+  if (layerKey(name) === layerKey(other)) {
+    return "The drawing already has a dimension style of this name. CAD ignores case in dimension style names and keeps the first";
+  }
+  return `The drawing already has a dimension style of this name, as ${JSON.stringify(other)}. AutoCAD's AUDIT reports a duplicate name in the dimension style table`;
+}
+
+/**
+ * Returns what is wrong with a dimension style whose text style the drawing does not have. The
+ * rule depends on the drawing, so it has no type.
+ */
+export function undefinedDimensionTextStyleProblem(name: string): string {
+  return `Text style ${JSON.stringify(name)} is not defined. A dimension style holds its text style by its handle, and AutoCAD's AUDIT reports one that leads to no style`;
+}
+
+/**
+ * Returns what is wrong with a dimension that names a dimension style the drawing does not
+ * define. The rule depends on the drawing, so it has no type.
+ */
+export function undefinedDimensionStyleProblem(name: string): string {
+  return isStandardDimensionStyle(name)
+    ? STANDARD_DIMENSION_STYLE_USED
+    : `Dimension style ${JSON.stringify(name)} is not defined. AutoCAD discards a drawing with a dimension in a style it does not have`;
+}
+
+/** Returns what is wrong with a dimension's own text, or undefined when AutoCAD draws it as it is. */
+export function dimensionTextProblem(text: unknown): string | undefined {
+  if (typeof text !== "string") return "its text must be a string";
+  if (text.trim() === "" && !/[^ ]/.test(text)) return DIMENSION_TEXT_BLANK;
+  const problem = plainDimensionText(text);
+  if (problem) return problem;
+  return text.includes("<>") && text.includes("[]") ? DIMENSION_TEXT_ALTERNATE : undefined;
+}
+
+/** What is wrong with a dimension in a block. */
+export const DIMENSION_IN_BLOCK =
+  "a dimension cannot be in a block. AutoCAD draws nothing for a dimension inside a block when it opens the file, so an insert of the block would show nothing of it. Draw it in model space or on a layout";
+
+/** The measurement from which AutoCAD has too few digits for every decimal. */
+const MEASUREMENT_LIMIT = 1e8;
+
+/**
+ * The most digits a measurement may be written with, before and after its point. AutoCAD writes
+ * 16, and works the 16th out from its own arithmetic on the points.
+ */
+const MEASUREMENT_DIGITS = 15;
+
+/** How many digits a number from 1 up has before its point, and 0 for a smaller one. */
+export function integerDigits(value: number): number {
+  if (!(value >= 1) || !Number.isFinite(value)) return 0;
+  let digits = Math.floor(Math.log10(value)) + 1;
+  if (10 ** (digits - 1) > value) digits--;
+  if (10 ** digits <= value) digits++;
+  return digits;
+}
+
+/** The most degrees either way a linear dimension may measure along. */
+const DIMENSION_TURN = 360;
+
+/**
+ * Returns what is wrong with the angle a linear dimension measures along, or undefined. It is
+ * tsdraft's own rule: an angle beyond a turn either way is refused, so that every angle tsdraft
+ * takes is turned into the same direction a turn less than it gives, with no loss.
+ */
+export function dimensionAngleProblem(angle: unknown): string | undefined {
+  if (typeof angle !== "number" || !Number.isFinite(angle)) {
+    return "The angle a dimension measures along must be a finite number of degrees";
+  }
+  return Math.abs(written(angle)) > DIMENSION_TURN
+    ? `The angle a dimension measures along must be from -360 to 360 degrees, not ${written(angle)}. tsdraft takes no angle of more than a turn, so that one direction has one angle less than a turn. Give the same direction less a whole number of turns`
+    : undefined;
+}
+
+/**
+ * Returns what is wrong with a number of a dimension's picture, or undefined: every number a
+ * writer works out for what a dimension draws must be under 1e100, as a coordinate must.
+ */
+export function pictureNumberProblem(value: number): string | undefined {
+  return Number.isFinite(value) && Math.abs(value) < 1e100
+    ? undefined
+    : `what it draws reaches ${value}, and AutoCAD reads only two exponent digits from DXF, so every number of a picture must be under 1e100. Use smaller points, sizes or a smaller scale`;
+}
+
+/**
+ * Returns what is wrong with what a dimension measures, or undefined when AutoCAD draws it as
+ * tsdraft does. The rule depends on the dimension's points and its style, so it has no type.
+ *
+ * A dimension must measure something as it is written: AutoCAD draws one that measures nothing
+ * with the text 0 and its arrowheads turned outward. What it writes, the measurement times the
+ * style's measurement scale rounded to the style's precision, must be under 100,000,000:
+ * AutoCAD writes 16 digits of a measurement, so it drops decimals of a larger one at a
+ * precision of 8, and writes 1e16 as `1.0E+16`. It must have no more than 15 digits: AutoCAD
+ * writes the 16th from its own arithmetic on the points, so it wrote 99,999,999.5 at a
+ * precision of 8 as `99999999.50000002`. Both are judged on the number as it is rounded, since
+ * 9,999,999.999999999 at a precision of 8 is written `10000000.00000000`. And one with closed
+ * filled arrowheads must have room for them, as `room` says.
+ *
+ * @param measurement - What the dimension measures, in drawing units, as `dimensionMeasure`
+ *   gives it.
+ * @param scaled - The measurement times the style's measurement scale.
+ * @param rounded - That rounded to the style's precision with every decimal, before any zero
+ *   is left out, as `roundedMeasurement` gives it.
+ * @param aligned - True for an aligned dimension.
+ * @param text - The text AutoCAD draws for it.
+ * @param room - The least it must measure for its arrowheads to stay between its extension
+ *   lines, as `arrowRoom` gives it, or undefined when its picture does not depend on that.
+ */
+export function dimensionMeasureProblem(
+  measurement: number,
+  scaled: number,
+  rounded: string,
+  aligned: boolean,
+  text: string,
+  room: number | undefined,
+): string | undefined {
+  if (!Number.isFinite(measurement) || !Number.isFinite(scaled)) {
+    return "it measures no finite length";
+  }
+  if (written(measurement) === 0) {
+    return aligned
+      ? "it has no length: its two points are one point once they are written with the 6 decimals tsdraft writes. AutoCAD draws such a dimension with the text 0 and its arrowheads turned outward"
+      : "it measures nothing: its two points are as far along the direction it measures, once they are written with the 6 decimals tsdraft writes. AutoCAD draws such a dimension with the text 0 and its arrowheads turned outward";
+  }
+  const [whole = "", decimals = ""] = rounded.split(".");
+  if (!(Number(whole) < MEASUREMENT_LIMIT)) {
+    return `it reads ${rounded}, and AutoCAD writes 16 digits of a measurement: from 100,000,000 up it drops decimals at a precision of 8, and it writes 1e16 as 1.0E+16. Use a smaller measurement scale`;
+  }
+  const digits = whole.replace(/^0+/, "").length + decimals.length;
+  if (digits > MEASUREMENT_DIGITS) {
+    return `it reads ${rounded}, which is ${digits} digits at a precision of ${decimals.length}. AutoCAD works out the 16th digit of a measurement from its own arithmetic on the points, so it may end in another digit: it writes 99,999,999.5 at a precision of 8 as 99999999.50000002. Use a smaller precision or measurement scale`;
+  }
+  if (room !== undefined && measurement <= room) {
+    return `its text may not fit between its extension lines: it measures ${written(measurement)}, and its text, ${JSON.stringify(text)}, and its arrowheads may need ${written(room)}. AutoCAD then turns closed filled arrowheads outward, by the width of the text in its font, which tsdraft does not hold. Give it more room, a smaller text or arrow size, or the arrowhead "architectural-tick", which is drawn the same either way`;
+  }
+  return undefined;
 }

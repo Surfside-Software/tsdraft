@@ -2,16 +2,19 @@
 // `fromJSON` checks all of it. `lint` checks what its rules need to read a drawing, and leaves a
 // field to the rule that reports it.
 import type {
+  AlignedDimension,
   Arc,
   AttributeDefinition,
   Block,
   Circle,
+  DimensionStyle,
   Drawing,
   Entity,
   Insert,
   Layer,
   Layout,
   Line,
+  LinearDimension,
   Linetype,
   Polyline,
   Text,
@@ -48,6 +51,8 @@ const KINDS = [
   "arc",
   "text",
   "insert",
+  "linear-dimension",
+  "aligned-dimension",
 ] as const satisfies readonly Entity["kind"][];
 
 /** What is wrong with an entity whose kind tsdraft does not know. */
@@ -216,6 +221,7 @@ export interface Shapes {
   readonly layer: Check;
   readonly linetype: Check;
   readonly textStyle: Check;
+  readonly dimensionStyle: Check;
   readonly block: Check;
   readonly attribute: Check;
   readonly xref: Check;
@@ -393,6 +399,14 @@ function shapes(all: boolean, typed = all): Shapes {
       { kind, layer: string, block: ruled(string), at: point },
       { id: ruled(string), scale: ruled(scale), rotation: number, attributes: ruled(map(string)) },
     ),
+    "linear-dimension": fields<LinearDimension>(
+      { kind, layer: string, style: ruled(string), from: point, to: point, line: point },
+      { id: ruled(string), angle: number, text: ruled(string) },
+    ),
+    "aligned-dimension": fields<AlignedDimension>(
+      { kind, layer: string, style: ruled(string), from: point, to: point, offset: number },
+      { id: ruled(string), text: ruled(string) },
+    ),
   } satisfies Record<Entity["kind"], FieldsCheck>;
 
   const entity: Check = (value, at, problems, extra) => {
@@ -454,6 +468,29 @@ function shapes(all: boolean, typed = all): Shapes {
       { widthFactor: ruled(number), obliqueAngle: ruled(number) },
     ),
   );
+  // A rule of `lint` reports every field of a dimension style, whatever its type.
+  const dimensionStyle = record(
+    fields<DimensionStyle>(
+      {
+        name: ruled(string),
+        textHeight: ruled(number),
+        arrowSize: ruled(number),
+        extensionOffset: ruled(number),
+        extensionBeyond: ruled(number),
+        textGap: ruled(number),
+        precision: ruled(number),
+      },
+      {
+        textStyle: ruled(string),
+        arrowhead: ruled(string),
+        scale: ruled(number),
+        prefix: ruled(string),
+        suffix: ruled(string),
+        suppressZeros: ruled(string),
+        measurementScale: ruled(number),
+      },
+    ),
+  );
   const attribute = record(
     fields<AttributeDefinition>(
       {
@@ -513,6 +550,7 @@ function shapes(all: boolean, typed = all): Shapes {
       blocks: ruled(table(block)),
       xrefs: ruled(table(record(xref))),
       layouts: ruled(table(layout)),
+      dimensionStyles: ruled(table(dimensionStyle)),
     },
   );
   return {
@@ -521,6 +559,7 @@ function shapes(all: boolean, typed = all): Shapes {
     layer,
     linetype,
     textStyle,
+    dimensionStyle,
     block,
     attribute,
     xref: record(xref),

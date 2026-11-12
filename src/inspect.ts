@@ -10,8 +10,10 @@ import {
   type Referenced,
 } from "./blocks.ts";
 import { callOf, type CallSite } from "./callsite.ts";
-import type { Drawing, Entity, Insert, Point } from "./drawing.ts";
+import { dimensionPicture } from "./dimensions.ts";
+import type { Drawing, Entity, Insert, Point, Text } from "./drawing.ts";
 import { written } from "./format.ts";
+import { layerKey } from "./layers.ts";
 import { measureText } from "./measure.ts";
 import { paperInfo } from "./papers.ts";
 import { shown } from "./rules.ts";
@@ -113,7 +115,7 @@ interface Outline extends Placed {
  * - `text-off-paper`: on a layout, a text whose box reaches that far past the paper.
  *
  * A text's box is the one `measureText` gives: its capitals, turned and leaned as the text
- * is. Only what plots counts, as in `toSVG`: nothing on a layer that is off, frozen or set not
+ * is. A dimension's text counts as a text, where the dimension's picture puts it. Only what plots counts, as in `toSVG`: nothing on a layer that is off, frozen or set not
  * to plot. Model space and each layout are looked at apart, and a layout's text is never held
  * against what a viewport shows. An insert counts for the texts, the attributes and the
  * closed polylines its block draws, where the insert puts them, and a text with no characters
@@ -125,7 +127,7 @@ interface Outline extends Placed {
  * throw on a drawing `lint` reports an error for.
  */
 export function inspectText(drawing: Drawing, options: InspectOptions = {}): TextWarning[] {
-  const { hidden, frozen, styleOf } = visibility(drawing, options.drawNoPlot);
+  const { tablesOf, hidden, frozen, styleOf } = visibility(drawing, options.drawNoPlot);
   const blocks = blocksByKey(drawing.blocks);
   const xrefs = referencedByKey(drawing, options.xrefs);
   const out: TextWarning[] = [];
@@ -152,6 +154,24 @@ export function inspectText(drawing: Drawing, options: InspectOptions = {}): Tex
     ): void => {
       const { id, layer } = entities[index]!;
       const place = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
+      if (drawn.kind === "linear-dimension" || drawn.kind === "aligned-dimension") {
+        // A dimension's text is a text where its picture puts it.
+        const style = tablesOf(from).dimensionStyles.get(layerKey(drawn.style));
+        if (style === undefined) return;
+        const { label } = dimensionPicture(drawn, style);
+        const text: Text = {
+          kind: "text",
+          layer: drawn.layer,
+          at: label.at,
+          height: label.height,
+          value: label.value,
+          rotation: label.rotation,
+          align: "center",
+          ...(label.style === undefined ? {} : { style: label.style }),
+        };
+        if (text.value.trim() !== "") keep(text, index, matrix, from, attribute);
+        return;
+      }
       if (drawn.kind === "text") {
         const style = styleOf(drawn, from);
         const { corners } = measureText(style ? { ...drawn, ...style } : drawn);
@@ -183,7 +203,9 @@ export function inspectText(drawing: Drawing, options: InspectOptions = {}): Tex
     const wanted = (e: Exclude<Entity, Insert>): boolean =>
       e.kind === "text"
         ? e.value.trim() !== ""
-        : e.kind === "polyline" && e.closed && e.points.length > 2;
+        : e.kind === "linear-dimension" ||
+          e.kind === "aligned-dimension" ||
+          (e.kind === "polyline" && e.closed && e.points.length > 2);
     entities.forEach((entity, index) => {
       // Most entities are no insert, and are looked at without the walk an insert needs.
       if (entity.kind !== "insert") {
