@@ -133,4 +133,28 @@ export type {
   WidthFactor,
   XrefPath,
 } from "./rules.ts";
+export { BUILT_IN_STANDARD, defineStandard, type BuiltInStandard } from "./standard/define.ts";
+export type {
+  Box,
+  FieldSource,
+  SheetFiles,
+  Standard,
+  StandardDimensionStyle,
+  StandardDiscipline,
+  StandardDocument,
+  StandardLayer,
+  StandardLinetype,
+  StandardLink,
+  StandardNames,
+  StandardOptions,
+  StandardPen,
+  StandardScale,
+  StandardSheetFormat,
+  StandardTextRole,
+  StandardTitleBlock,
+  StandardTitleBlockField,
+  StandardWriting,
+  StandardXref,
+  TitleBlockFill,
+} from "./standard/document.ts";
 export { toSVG, type SvgOptions } from "./svg.ts";

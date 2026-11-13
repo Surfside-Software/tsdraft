@@ -1,0 +1,665 @@
+{
+  "$schema": "https://cdn.jsdelivr.net/npm/tsdraft@0.5.2/standard.schema.json",
+  "id": "tsdraft",
+  "version": "1",
+  "title": "tsdraft",
+  "paperUnits": "in",
+  "minTextHeight": 0.0625,
+  "linetypeScale": 0.5,
+  "plotStyle": "monochrome.ctb",
+  "sheetFiles": "one-drawing",
+  "defaultSheetFormat": "arch-d",
+  "defaultDimensionStyle": "dims",
+  "disciplines": {
+    "C": {
+      "title": "Civil"
+    },
+    "G": {
+      "title": "General"
+    },
+    "V": {
+      "title": "Survey"
+    }
+  },
+  "pens": {
+    "bold": {
+      "lineweight": 0.5
+    },
+    "fine": {
+      "lineweight": 0.18
+    },
+    "heavy": {
+      "lineweight": 0.7
+    },
+    "light": {
+      "lineweight": 0.25
+    },
+    "medium": {
+      "lineweight": 0.35
+    }
+  },
+  "linetypes": {
+    "CENTER": {
+      "description": "Center ____ _ ____ _ ____ _ ____ _ ____ _ ____",
+      "pattern": [1.25, -0.25, 0.25, -0.25]
+    },
+    "DASHDOT": {
+      "description": "Dash dot __ . __ . __ . __ . __ . __ . __ . __",
+      "pattern": [0.5, -0.25, 0, -0.25]
+    },
+    "DASHED": {
+      "description": "Dashed __ __ __ __ __ __ __ __ __ __ __ __ __ _",
+      "pattern": [0.5, -0.25]
+    },
+    "DOT": {
+      "description": "Dot . . . . . . . . . . . . . . . . . . . . . .",
+      "pattern": [0, -0.25]
+    },
+    "HIDDEN": {
+      "description": "Hidden __ __ __ __ __ __ __ __ __ __ __ __ __ _",
+      "pattern": [0.25, -0.125]
+    },
+    "PHANTOM": {
+      "description": "Phantom ______  __  __  ______  __  __  ______",
+      "pattern": [1.25, -0.25, 0.25, -0.25, 0.25, -0.25]
+    }
+  },
+  "layers": {
+    "C-ANNO-DIMS": {
+      "color": 8,
+      "linetype": "Continuous",
+      "pen": "fine",
+      "plot": true,
+      "discipline": "C"
+    },
+    "C-ANNO-SYMB": {
+      "color": 7,
+      "linetype": "Continuous",
+      "pen": "medium",
+      "plot": true,
+      "discipline": "C"
+    },
+    "C-ANNO-TEXT": {
+      "color": 7,
+      "linetype": "Continuous",
+      "pen": "light",
+      "plot": true,
+      "discipline": "C"
+    },
+    "C-ANNO-TITL": {
+      "color": 7,
+      "linetype": "Continuous",
+      "pen": "bold",
+      "plot": true,
+      "discipline": "C"
+    },
+    "C-BLDG": {
+      "color": 5,
+      "linetype": "Continuous",
+      "pen": "heavy",
+      "plot": true,
+      "discipline": "C"
+    },
+    "C-PAVE": {
+      "color": 8,
+      "linetype": "Continuous",
+      "pen": "medium",
+      "plot": true,
+      "discipline": "C"
+    },
+    "C-PROP": {
+      "color": 7,
+      "linetype": "PHANTOM",
+      "pen": "heavy",
+      "plot": true,
+      "discipline": "C"
+    },
+    "C-PROP-ADJC": {
+      "color": 8,
+      "linetype": "PHANTOM",
+      "pen": "fine",
+      "plot": true,
+      "discipline": "C"
+    },
+    "C-PROP-MONU": {
+      "color": 7,
+      "linetype": "Continuous",
+      "pen": "light",
+      "plot": true,
+      "discipline": "C"
+    },
+    "C-ROAD-CNTR": {
+      "color": 8,
+      "linetype": "CENTER",
+      "pen": "fine",
+      "plot": true,
+      "discipline": "C"
+    },
+    "C-SETB": {
+      "color": 1,
+      "linetype": "DASHED",
+      "pen": "light",
+      "plot": true,
+      "discipline": "C"
+    },
+    "G-ANNO-NPLT": {
+      "color": 8,
+      "linetype": "Continuous",
+      "plot": false,
+      "discipline": "G"
+    },
+    "G-ANNO-TTLB": {
+      "color": 7,
+      "linetype": "Continuous",
+      "pen": "medium",
+      "plot": true,
+      "discipline": "G"
+    }
+  },
+  "textRoles": {
+    "dimension": {
+      "font": "Arial",
+      "height": 0.09375,
+      "widthFactor": 1,
+      "obliqueAngle": 0
+    },
+    "heading": {
+      "font": "Arial",
+      "height": 0.1875,
+      "widthFactor": 1,
+      "obliqueAngle": 0
+    },
+    "label": {
+      "font": "Arial",
+      "height": 0.125,
+      "widthFactor": 1,
+      "obliqueAngle": 0
+    },
+    "note": {
+      "font": "Arial",
+      "height": 0.09375,
+      "widthFactor": 1,
+      "obliqueAngle": 0
+    },
+    "title": {
+      "font": "Arial",
+      "height": 0.25,
+      "widthFactor": 1,
+      "obliqueAngle": 0
+    }
+  },
+  "scales": {
+    "1-1-2in-1ft": {
+      "label": "1 1/2\" = 1'-0\"",
+      "ratio": 8
+    },
+    "1-2in-1ft": {
+      "label": "1/2\" = 1'-0\"",
+      "ratio": 24
+    },
+    "1-4in-1ft": {
+      "label": "1/4\" = 1'-0\"",
+      "ratio": 48
+    },
+    "1-8in-1ft": {
+      "label": "1/8\" = 1'-0\"",
+      "ratio": 96
+    },
+    "1in-100ft": {
+      "label": "1\" = 100'",
+      "ratio": 1200
+    },
+    "1in-10ft": {
+      "label": "1\" = 10'",
+      "ratio": 120
+    },
+    "1in-1ft": {
+      "label": "1\" = 1'-0\"",
+      "ratio": 12
+    },
+    "1in-20ft": {
+      "label": "1\" = 20'",
+      "ratio": 240
+    },
+    "1in-30ft": {
+      "label": "1\" = 30'",
+      "ratio": 360
+    },
+    "1in-40ft": {
+      "label": "1\" = 40'",
+      "ratio": 480
+    },
+    "1in-50ft": {
+      "label": "1\" = 50'",
+      "ratio": 600
+    },
+    "1in-60ft": {
+      "label": "1\" = 60'",
+      "ratio": 720
+    },
+    "3-16in-1ft": {
+      "label": "3/16\" = 1'-0\"",
+      "ratio": 64
+    },
+    "3-4in-1ft": {
+      "label": "3/4\" = 1'-0\"",
+      "ratio": 16
+    },
+    "3-8in-1ft": {
+      "label": "3/8\" = 1'-0\"",
+      "ratio": 32
+    },
+    "3in-1ft": {
+      "label": "3\" = 1'-0\"",
+      "ratio": 4
+    }
+  },
+  "dimensionStyles": {
+    "dims": {
+      "role": "dimension",
+      "arrowhead": "architectural-tick",
+      "arrowSize": 0.125,
+      "extensionOffset": 0.0625,
+      "extensionBeyond": 0.125,
+      "textGap": 0.0625,
+      "writing": {
+        "in": {
+          "units": "decimal",
+          "precision": 0,
+          "suffix": "\"",
+          "measurementScale": 1
+        },
+        "ft": {
+          "units": "decimal",
+          "precision": 1,
+          "suffix": "'",
+          "measurementScale": 1
+        },
+        "mm": {
+          "units": "decimal",
+          "precision": 0,
+          "measurementScale": 1
+        }
+      }
+    }
+  },
+  "titleBlocks": {
+    "plain": {
+      "paper": "ARCH D",
+      "block": {
+        "format": 0,
+        "units": "in",
+        "dxf": "R2018",
+        "layers": [
+          {
+            "name": "0",
+            "color": 7
+          }
+        ],
+        "entities": [],
+        "linetypes": [],
+        "linetypeScale": 1,
+        "textStyles": [
+          {
+            "name": "TITLE BLOCK",
+            "font": "Arial"
+          }
+        ],
+        "blocks": [
+          {
+            "name": "TITLE BLOCK",
+            "entities": [
+              {
+                "kind": "polyline",
+                "layer": "0",
+                "points": [
+                  [0.5, 0.5],
+                  [35.5, 0.5],
+                  [35.5, 23.5],
+                  [0.5, 23.5]
+                ],
+                "closed": true,
+                "lineweight": 0.7
+              },
+              {
+                "kind": "polyline",
+                "layer": "0",
+                "points": [
+                  [29, 0.5],
+                  [29, 3.5],
+                  [35.5, 3.5]
+                ],
+                "closed": false,
+                "lineweight": 0.7
+              },
+              {
+                "kind": "line",
+                "layer": "0",
+                "from": [31, 0.5],
+                "to": [31, 3.5]
+              },
+              {
+                "kind": "line",
+                "layer": "0",
+                "from": [29, 1.5],
+                "to": [31, 1.5]
+              },
+              {
+                "kind": "line",
+                "layer": "0",
+                "from": [31, 2.9],
+                "to": [35.5, 2.9]
+              },
+              {
+                "kind": "line",
+                "layer": "0",
+                "from": [31, 2.1],
+                "to": [35.5, 2.1]
+              },
+              {
+                "kind": "line",
+                "layer": "0",
+                "from": [31, 1.2999999999999998],
+                "to": [33.75, 1.2999999999999998]
+              },
+              {
+                "kind": "line",
+                "layer": "0",
+                "from": [32.375, 0.5],
+                "to": [32.375, 2.1]
+              },
+              {
+                "kind": "line",
+                "layer": "0",
+                "from": [33.75, 0.5],
+                "to": [33.75, 2.1]
+              },
+              {
+                "kind": "text",
+                "layer": "0",
+                "at": [29.0625, 3.4375],
+                "value": "SEAL",
+                "height": 0.0625,
+                "rotation": 0,
+                "style": "TITLE BLOCK",
+                "valign": "top"
+              },
+              {
+                "kind": "text",
+                "layer": "0",
+                "at": [29.0625, 1.4375],
+                "value": "REVISIONS",
+                "height": 0.0625,
+                "rotation": 0,
+                "style": "TITLE BLOCK",
+                "valign": "top"
+              },
+              {
+                "kind": "line",
+                "layer": "0",
+                "from": [29, 1.3],
+                "to": [31, 1.3]
+              },
+              {
+                "kind": "line",
+                "layer": "0",
+                "from": [29, 1.1],
+                "to": [31, 1.1]
+              },
+              {
+                "kind": "line",
+                "layer": "0",
+                "from": [29, 0.8999999999999999],
+                "to": [31, 0.8999999999999999]
+              },
+              {
+                "kind": "line",
+                "layer": "0",
+                "from": [29, 0.7],
+                "to": [31, 0.7]
+              },
+              {
+                "kind": "text",
+                "layer": "0",
+                "at": [29.0625, 1.2375],
+                "value": "NO.",
+                "height": 0.0625,
+                "rotation": 0,
+                "style": "TITLE BLOCK",
+                "valign": "top"
+              },
+              {
+                "kind": "line",
+                "layer": "0",
+                "from": [29.3, 0.5],
+                "to": [29.3, 1.3]
+              },
+              {
+                "kind": "text",
+                "layer": "0",
+                "at": [29.3625, 1.2375],
+                "value": "DATE",
+                "height": 0.0625,
+                "rotation": 0,
+                "style": "TITLE BLOCK",
+                "valign": "top"
+              },
+              {
+                "kind": "line",
+                "layer": "0",
+                "from": [29.9, 0.5],
+                "to": [29.9, 1.3]
+              },
+              {
+                "kind": "text",
+                "layer": "0",
+                "at": [29.9625, 1.2375],
+                "value": "DESCRIPTION",
+                "height": 0.0625,
+                "rotation": 0,
+                "style": "TITLE BLOCK",
+                "valign": "top"
+              },
+              {
+                "kind": "text",
+                "layer": "0",
+                "at": [31.0625, 3.4375],
+                "value": "PROJECT",
+                "height": 0.0625,
+                "rotation": 0,
+                "style": "TITLE BLOCK",
+                "valign": "top"
+              },
+              {
+                "kind": "text",
+                "layer": "0",
+                "at": [31.0625, 2.8375],
+                "value": "SHEET TITLE",
+                "height": 0.0625,
+                "rotation": 0,
+                "style": "TITLE BLOCK",
+                "valign": "top"
+              },
+              {
+                "kind": "text",
+                "layer": "0",
+                "at": [31.0625, 2.0375],
+                "value": "DATE",
+                "height": 0.0625,
+                "rotation": 0,
+                "style": "TITLE BLOCK",
+                "valign": "top"
+              },
+              {
+                "kind": "text",
+                "layer": "0",
+                "at": [32.4375, 2.0375],
+                "value": "SCALE",
+                "height": 0.0625,
+                "rotation": 0,
+                "style": "TITLE BLOCK",
+                "valign": "top"
+              },
+              {
+                "kind": "text",
+                "layer": "0",
+                "at": [31.0625, 1.2374999999999998],
+                "value": "DRAWN BY",
+                "height": 0.0625,
+                "rotation": 0,
+                "style": "TITLE BLOCK",
+                "valign": "top"
+              },
+              {
+                "kind": "text",
+                "layer": "0",
+                "at": [32.4375, 1.2374999999999998],
+                "value": "CHECKED BY",
+                "height": 0.0625,
+                "rotation": 0,
+                "style": "TITLE BLOCK",
+                "valign": "top"
+              },
+              {
+                "kind": "text",
+                "layer": "0",
+                "at": [33.8125, 2.0375],
+                "value": "SHEET",
+                "height": 0.0625,
+                "rotation": 0,
+                "style": "TITLE BLOCK",
+                "valign": "top"
+              }
+            ],
+            "attributes": [
+              {
+                "tag": "PROJECT",
+                "prompt": "Project",
+                "layer": "0",
+                "at": [31.0625, 2.99375],
+                "value": "-",
+                "height": 0.125,
+                "rotation": 0,
+                "style": "TITLE BLOCK"
+              },
+              {
+                "tag": "TITLE",
+                "prompt": "Sheet title",
+                "layer": "0",
+                "at": [31.0625, 2.19375],
+                "value": "-",
+                "height": 0.1875,
+                "rotation": 0,
+                "style": "TITLE BLOCK"
+              },
+              {
+                "tag": "DATE",
+                "prompt": "Date",
+                "layer": "0",
+                "at": [31.0625, 1.3937499999999998],
+                "value": "-",
+                "height": 0.125,
+                "rotation": 0,
+                "style": "TITLE BLOCK"
+              },
+              {
+                "tag": "SCALE",
+                "prompt": "Scale",
+                "layer": "0",
+                "at": [32.4375, 1.3937499999999998],
+                "value": "-",
+                "height": 0.125,
+                "rotation": 0,
+                "style": "TITLE BLOCK"
+              },
+              {
+                "tag": "DRAWN",
+                "prompt": "Drawn by",
+                "layer": "0",
+                "at": [31.0625, 0.59375],
+                "value": "-",
+                "height": 0.125,
+                "rotation": 0,
+                "style": "TITLE BLOCK"
+              },
+              {
+                "tag": "CHECKED",
+                "prompt": "Checked by",
+                "layer": "0",
+                "at": [32.4375, 0.59375],
+                "value": "-",
+                "height": 0.125,
+                "rotation": 0,
+                "style": "TITLE BLOCK"
+              },
+              {
+                "tag": "SHEET",
+                "prompt": "Sheet number",
+                "layer": "0",
+                "at": [34.625, 1.2375],
+                "value": "-",
+                "height": 0.3125,
+                "rotation": 0,
+                "style": "TITLE BLOCK",
+                "align": "center",
+                "valign": "middle"
+              }
+            ]
+          }
+        ]
+      },
+      "blockName": "TITLE BLOCK",
+      "layer": "G-ANNO-TTLB",
+      "drawingArea": [0.5, 0.5, 35.5, 23.5],
+      "box": [29, 0.5, 35.5, 3.5],
+      "fields": {
+        "PROJECT": {
+          "fills": "project",
+          "box": [31, 2.9, 35.5, 3.5],
+          "source": "attribute"
+        },
+        "TITLE": {
+          "fills": "title",
+          "box": [31, 2.1, 35.5, 2.9],
+          "source": "attribute"
+        },
+        "DATE": {
+          "fills": "date",
+          "box": [31, 1.2999999999999998, 32.375, 2.1],
+          "source": "attribute"
+        },
+        "SCALE": {
+          "fills": "scale",
+          "box": [32.375, 1.2999999999999998, 33.75, 2.1],
+          "source": "attribute"
+        },
+        "DRAWN": {
+          "fills": "drawnBy",
+          "box": [31, 0.5, 32.375, 1.2999999999999998],
+          "source": "attribute"
+        },
+        "CHECKED": {
+          "fills": "checkedBy",
+          "box": [32.375, 0.5, 33.75, 1.2999999999999998],
+          "source": "attribute"
+        },
+        "SHEET": {
+          "fills": "number",
+          "box": [33.75, 0.5, 35.5, 2.1],
+          "source": "attribute"
+        }
+      }
+    }
+  },
+  "sheetFormats": {
+    "arch-d": {
+      "paper": "ARCH D",
+      "titleBlock": "plain",
+      "zones": {
+        "views": [0.5, 2, 27.5, 23.5],
+        "viewTitles": [0.5, 0.5, 27.5, 2],
+        "notes": [28.5, 3.5, 35.5, 23.5]
+      }
+    }
+  }
+}

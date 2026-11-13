@@ -31,7 +31,9 @@
     "cli/dist",
     "cli/assets",
     "GUIDE.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "standard.json",
+    "standard.schema.json"
   ],
   "type": "module",
   "sideEffects": false,
@@ -40,7 +42,9 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./standard.json": "./standard.json",
+    "./standard.schema.json": "./standard.schema.json"
   },
   "scripts": {
     "clean": "node -e \"for (const dir of ['dist', 'cli/dist']) require('node:fs').rmSync(dir, { recursive: true, force: true })\"",
@@ -57,6 +61,7 @@
     "example": "node examples/site-plan.ts && node examples/outdoor-kitchen.ts",
     "readme:drawing": "node scripts/readme-drawing.ts",
     "bench": "pnpm build:lib && node cli/scripts/bench.ts",
+    "standard:files": "node scripts/standard-files.ts",
     "verify": "pnpm fmt:check && pnpm lint && pnpm check && pnpm test && pnpm test:package"
   },
   "devDependencies": {

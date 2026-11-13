@@ -1,0 +1,950 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cdn.jsdelivr.net/npm/tsdraft@0.5.2/standard.schema.json",
+  "title": "A tsdraft standard",
+  "type": "object",
+  "description": "A firm's CAD standard: its layers, pens, linetypes, text roles, scales, dimension styles, title blocks and sheet formats. What a schema cannot hold, such as a name that refers to another entry, is checked by defineStandard",
+  "properties": {
+    "$comment": {
+      "type": "string",
+      "description": "For people. No rule reads it"
+    },
+    "$schema": {
+      "type": "string",
+      "description": "The JSON Schema of the document"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._@/-]{1,128}$",
+      "description": "1 to 128 letters, digits, ., -, _, @ and /, so a package name is one"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[\\u0020-\\u007e\\u0080-\\ud7ff\\ue000-\\uffff]{1,64}$",
+      "description": "1 to 64 characters"
+    },
+    "title": {
+      "type": "string",
+      "pattern": "^[\\u0020-\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]*$",
+      "description": "For people. Defaults to the id"
+    },
+    "extends": {
+      "type": "string",
+      "description": "The parent: a path from this file, or a package specifier. \"tsdraft/standard.json\" is the built-in standard"
+    },
+    "paperUnits": {
+      "type": "string",
+      "enum": ["in", "mm"],
+      "description": "The unit of every length on paper. A child keeps its parent's"
+    },
+    "minTextHeight": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "The least height a text may plot at, in paper units"
+    },
+    "linetypeScale": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "A dash plots its pattern's length times this, at every scale",
+      "default": 1
+    },
+    "plotStyle": {
+      "type": "string",
+      "enum": ["monochrome.ctb", "acad.ctb"],
+      "description": "The plot style table of each layout. One of PLOT_STYLE_TABLES",
+      "default": "monochrome.ctb"
+    },
+    "sheetFiles": {
+      "type": "string",
+      "enum": ["one-drawing", "sheet-per-file"],
+      "description": "one-drawing: a set is one drawing with a layout for each sheet. sheet-per-file: each sheet is a file of its own",
+      "default": "one-drawing"
+    },
+    "defaultSheetFormat": {
+      "type": "string",
+      "description": "The sheet format of a layout that names none"
+    },
+    "defaultDimensionStyle": {
+      "type": "string",
+      "description": "The dimension style of a dimension that names none"
+    },
+    "disciplines": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9._-]{1,64}$"
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/discipline"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "description": "The disciplines, by name. null removes the parent's entry of that name",
+      "default": {}
+    },
+    "pens": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9._-]{1,64}$"
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/pen"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "description": "Named lineweights, by name. null removes the parent's entry of that name",
+      "default": {}
+    },
+    "linetypes": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:[Cc][Oo][Nn][Tt][Ii][Nn][Uu][Oo][Uu][Ss]|[Bb][Yy][Ll][Aa][Yy][Ee][Rr]|[Bb][Yy][Bb][Ll][Oo][Cc][Kk])$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$"
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/linetype"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "description": "The linetypes. Continuous is in every standard and is never listed, by name. null removes the parent's entry of that name",
+      "default": {}
+    },
+    "layers": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:0)$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$"
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/layer"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "description": "The layers, by name. null removes the parent's entry of that name",
+      "default": {}
+    },
+    "textRoles": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^(?!(?:[Ss][Tt][Aa][Nn][Dd][Aa][Rr][Dd])$)[A-Za-z0-9._-]{1,64}$"
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/textRole"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "description": "The text roles, by name. null removes the parent's entry of that name",
+      "default": {}
+    },
+    "scales": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9._-]{1,64}$"
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/scale"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "description": "The scales, by name. null removes the parent's entry of that name",
+      "default": {}
+    },
+    "dimensionStyles": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^(?!(?:[Ss][Tt][Aa][Nn][Dd][Aa][Rr][Dd])$)[A-Za-z0-9._-]{1,64}$"
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/dimensionStyle"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "description": "The dimension styles, by name. null removes the parent's entry of that name",
+      "default": {}
+    },
+    "titleBlocks": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9._-]{1,64}$"
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/titleBlock"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "description": "The title blocks, by name. null removes the parent's entry of that name",
+      "default": {}
+    },
+    "sheetFormats": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9._-]{1,64}$"
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/sheetFormat"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "description": "The sheet formats, by name. null removes the parent's entry of that name",
+      "default": {}
+    }
+  },
+  "required": ["id", "version"],
+  "anyOf": [
+    {
+      "required": ["extends"]
+    },
+    {
+      "required": ["paperUnits", "minTextHeight"]
+    }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "dimensionStyle": {
+      "type": "object",
+      "description": "A dimension style",
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "description": "For people. No rule reads it"
+        },
+        "role": {
+          "type": "string",
+          "description": "The text role of the dimension's text, which gives its text style and height"
+        },
+        "arrowhead": {
+          "type": "string",
+          "enum": ["closed-filled", "architectural-tick"],
+          "description": "One of ARROWHEADS",
+          "default": "closed-filled"
+        },
+        "arrowSize": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The size of an arrowhead, on paper"
+        },
+        "extensionOffset": {
+          "type": "number",
+          "minimum": 0,
+          "description": "How far an extension line starts from its point, on paper"
+        },
+        "extensionBeyond": {
+          "type": "number",
+          "minimum": 0,
+          "description": "How far an extension line runs past the dimension line, on paper"
+        },
+        "textGap": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The gap between the text and the dimension line, on paper"
+        },
+        "writing": {
+          "$ref": "#/$defs/writings",
+          "description": "How a length is written in each unit of a drawing. A drawing in a unit it does not list cannot draw a dimension in the style",
+          "default": {}
+        },
+        "description": {
+          "type": "string",
+          "pattern": "^[\\u0020-\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]*$",
+          "description": "For people and the specimen. No rule reads it"
+        },
+        "discipline": {
+          "type": "string",
+          "description": "The discipline the entry belongs to, a discipline of the standard. An entry without one belongs to every discipline"
+        },
+        "byDiscipline": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9._-]{1,64}$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/dimensionStyleFields"
+          },
+          "description": "Fields that replace the entry's own in each discipline's drawings, by discipline. Only under sheetFiles \"sheet-per-file\""
+        }
+      },
+      "required": ["role", "arrowSize", "extensionOffset", "extensionBeyond", "textGap"],
+      "additionalProperties": false
+    },
+    "dimensionStyleFields": {
+      "type": "object",
+      "description": "A dimension style's fields for a discipline",
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "description": "For people. No rule reads it"
+        },
+        "role": {
+          "type": "string",
+          "description": "The text role of the dimension's text, which gives its text style and height"
+        },
+        "arrowhead": {
+          "type": "string",
+          "enum": ["closed-filled", "architectural-tick"],
+          "description": "One of ARROWHEADS"
+        },
+        "arrowSize": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The size of an arrowhead, on paper"
+        },
+        "extensionOffset": {
+          "type": "number",
+          "minimum": 0,
+          "description": "How far an extension line starts from its point, on paper"
+        },
+        "extensionBeyond": {
+          "type": "number",
+          "minimum": 0,
+          "description": "How far an extension line runs past the dimension line, on paper"
+        },
+        "textGap": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The gap between the text and the dimension line, on paper"
+        },
+        "writing": {
+          "$ref": "#/$defs/writings",
+          "description": "How a length is written in each unit of a drawing. A drawing in a unit it does not list cannot draw a dimension in the style"
+        },
+        "description": {
+          "type": "string",
+          "pattern": "^[\\u0020-\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]*$",
+          "description": "For people and the specimen. No rule reads it"
+        }
+      },
+      "additionalProperties": false
+    },
+    "discipline": {
+      "type": "object",
+      "description": "A discipline",
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "description": "For people. No rule reads it"
+        },
+        "title": {
+          "type": "string",
+          "pattern": "^[\\u0020-\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]*$",
+          "description": "For people"
+        }
+      },
+      "required": ["title"],
+      "additionalProperties": false
+    },
+    "layer": {
+      "type": "object",
+      "description": "A layer",
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "description": "For people. No rule reads it"
+        },
+        "color": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 255,
+          "description": "An AutoCAD Color Index from 1 to 255"
+        },
+        "linetype": {
+          "type": "string",
+          "description": "A linetype of the standard, or Continuous",
+          "default": "Continuous"
+        },
+        "pen": {
+          "type": "string",
+          "description": "A pen of the standard. Without one the layer has AutoCAD's lineweight \"Default\""
+        },
+        "plot": {
+          "type": "boolean",
+          "description": "Whether the layer plots",
+          "default": true
+        },
+        "description": {
+          "type": "string",
+          "pattern": "^[\\u0020-\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]*$",
+          "description": "For people and the specimen. No rule reads it"
+        },
+        "discipline": {
+          "type": "string",
+          "description": "The discipline the entry belongs to, a discipline of the standard. An entry without one belongs to every discipline"
+        },
+        "byDiscipline": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9._-]{1,64}$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/layerFields"
+          },
+          "description": "Fields that replace the entry's own in each discipline's drawings, by discipline. Only under sheetFiles \"sheet-per-file\""
+        }
+      },
+      "required": ["color"],
+      "additionalProperties": false
+    },
+    "layerFields": {
+      "type": "object",
+      "description": "A layer's fields for a discipline",
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "description": "For people. No rule reads it"
+        },
+        "color": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 255,
+          "description": "An AutoCAD Color Index from 1 to 255"
+        },
+        "linetype": {
+          "type": "string",
+          "description": "A linetype of the standard, or Continuous"
+        },
+        "pen": {
+          "type": "string",
+          "description": "A pen of the standard. Without one the layer has AutoCAD's lineweight \"Default\""
+        },
+        "plot": {
+          "type": "boolean",
+          "description": "Whether the layer plots"
+        },
+        "description": {
+          "type": "string",
+          "pattern": "^[\\u0020-\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]*$",
+          "description": "For people and the specimen. No rule reads it"
+        }
+      },
+      "additionalProperties": false
+    },
+    "linetype": {
+      "type": "object",
+      "description": "A linetype",
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "description": "For people. No rule reads it"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 249,
+          "pattern": "^[\\u0020-\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]*$",
+          "description": "What AutoCAD's LINETYPE command shows for it",
+          "default": ""
+        },
+        "pattern": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 12,
+          "not": {
+            "minItems": 1,
+            "maxItems": 1
+          },
+          "description": "2 to 12 lengths in paper units, before linetypeScale, or none for a solid line: a dash above 0, a gap below 0 and a dot 0"
+        }
+      },
+      "required": ["pattern"],
+      "additionalProperties": false
+    },
+    "pen": {
+      "type": "object",
+      "description": "A pen",
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "description": "For people. No rule reads it"
+        },
+        "lineweight": {
+          "type": "number",
+          "enum": [
+            0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8,
+            0.9, 1, 1.06, 1.2, 1.4, 1.58, 2, 2.11
+          ],
+          "description": "One of AutoCAD's lineweights, in millimetres"
+        },
+        "description": {
+          "type": "string",
+          "pattern": "^[\\u0020-\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]*$",
+          "description": "For people and the specimen. No rule reads it"
+        }
+      },
+      "required": ["lineweight"],
+      "additionalProperties": false
+    },
+    "scale": {
+      "type": "object",
+      "description": "A scale",
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "description": "For people. No rule reads it"
+        },
+        "label": {
+          "type": "string",
+          "pattern": "^[\\u0020-\\u007e\\u0080-\\ud7ff\\ue000-\\uffff]{1,64}$",
+          "description": "The name AutoCAD's scale list gives the scale, such as 1\" = 10'"
+        },
+        "ratio": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Drawing lengths per length on paper, such as 120 for 1\" = 10'"
+        },
+        "discipline": {
+          "type": "string",
+          "description": "The discipline the entry belongs to, a discipline of the standard. An entry without one belongs to every discipline"
+        }
+      },
+      "required": ["label", "ratio"],
+      "additionalProperties": false
+    },
+    "sheetFormat": {
+      "type": "object",
+      "description": "A sheet format",
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "description": "For people. No rule reads it"
+        },
+        "paper": {
+          "type": "string",
+          "enum": ["ARCH A", "ARCH B", "ARCH C", "ARCH D", "ANSI A", "ANSI B", "ANSI C", "ANSI D"],
+          "description": "One of PAPERS, which is its title block's paper"
+        },
+        "titleBlock": {
+          "type": "string",
+          "description": "A title block of the standard"
+        },
+        "plotStyle": {
+          "type": "string",
+          "enum": ["monochrome.ctb", "acad.ctb"],
+          "description": "The sheet format's own plot style table, in place of the standard's"
+        },
+        "zones": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9._-]{1,64}$"
+          },
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 4,
+            "maxItems": 4,
+            "description": "[left, bottom, right, top] on the paper"
+          },
+          "description": "Named boxes inside the title block's drawing area, which the code lays the sheet out by",
+          "default": {}
+        },
+        "discipline": {
+          "type": "string",
+          "description": "The discipline the entry belongs to, a discipline of the standard. An entry without one belongs to every discipline"
+        }
+      },
+      "required": ["paper", "titleBlock"],
+      "additionalProperties": false
+    },
+    "textRole": {
+      "type": "object",
+      "description": "A text role",
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "description": "For people. No rule reads it"
+        },
+        "font": {
+          "type": "string",
+          "enum": [
+            "txt.shx",
+            "monotxt.shx",
+            "simplex.shx",
+            "romans.shx",
+            "romand.shx",
+            "romanc.shx",
+            "romant.shx",
+            "complex.shx",
+            "italic.shx",
+            "isocp.shx",
+            "isoct.shx",
+            "Arial",
+            "Calibri",
+            "Consolas",
+            "Courier New",
+            "Georgia",
+            "Segoe UI",
+            "Tahoma",
+            "Times New Roman",
+            "Trebuchet MS",
+            "Verdana"
+          ],
+          "description": "One of FONTS, as AutoCAD stores it"
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "The plotted height of a capital, in paper units, at least minTextHeight"
+        },
+        "widthFactor": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 100,
+          "description": "How wide each character is drawn, as a share of its own width",
+          "default": 1
+        },
+        "obliqueAngle": {
+          "type": "number",
+          "minimum": -85,
+          "maximum": 85,
+          "description": "The slant of each character, in degrees to the right",
+          "default": 0
+        },
+        "description": {
+          "type": "string",
+          "pattern": "^[\\u0020-\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]*$",
+          "description": "For people and the specimen. No rule reads it"
+        },
+        "discipline": {
+          "type": "string",
+          "description": "The discipline the entry belongs to, a discipline of the standard. An entry without one belongs to every discipline"
+        },
+        "byDiscipline": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9._-]{1,64}$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/textRoleFields"
+          },
+          "description": "Fields that replace the entry's own in each discipline's drawings, by discipline. Only under sheetFiles \"sheet-per-file\""
+        }
+      },
+      "required": ["font", "height"],
+      "additionalProperties": false
+    },
+    "textRoleFields": {
+      "type": "object",
+      "description": "A text role's fields for a discipline",
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "description": "For people. No rule reads it"
+        },
+        "font": {
+          "type": "string",
+          "enum": [
+            "txt.shx",
+            "monotxt.shx",
+            "simplex.shx",
+            "romans.shx",
+            "romand.shx",
+            "romanc.shx",
+            "romant.shx",
+            "complex.shx",
+            "italic.shx",
+            "isocp.shx",
+            "isoct.shx",
+            "Arial",
+            "Calibri",
+            "Consolas",
+            "Courier New",
+            "Georgia",
+            "Segoe UI",
+            "Tahoma",
+            "Times New Roman",
+            "Trebuchet MS",
+            "Verdana"
+          ],
+          "description": "One of FONTS, as AutoCAD stores it"
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "The plotted height of a capital, in paper units, at least minTextHeight"
+        },
+        "widthFactor": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 100,
+          "description": "How wide each character is drawn, as a share of its own width"
+        },
+        "obliqueAngle": {
+          "type": "number",
+          "minimum": -85,
+          "maximum": 85,
+          "description": "The slant of each character, in degrees to the right"
+        },
+        "description": {
+          "type": "string",
+          "pattern": "^[\\u0020-\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]*$",
+          "description": "For people and the specimen. No rule reads it"
+        }
+      },
+      "additionalProperties": false
+    },
+    "titleBlock": {
+      "type": "object",
+      "description": "A title block",
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "description": "For people. No rule reads it"
+        },
+        "paper": {
+          "type": "string",
+          "enum": ["ARCH A", "ARCH B", "ARCH C", "ARCH D", "ANSI A", "ANSI B", "ANSI C", "ANSI D"],
+          "description": "One of PAPERS"
+        },
+        "block": {
+          "description": "The drawing that holds the block blockName, in paper units: a Drawing as JSON, or a string that names one",
+          "anyOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "blockName": {
+          "type": "string",
+          "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:_[Aa][Rr][Cc][Hh][Tt][Ii][Cc][Kk])$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$",
+          "description": "The block of block that the builder inserts at [0, 0] on each sheet"
+        },
+        "xref": {
+          "$ref": "#/$defs/xref",
+          "description": "The firm's own DWG, referenced by each sheet as an overlay"
+        },
+        "preview": {
+          "description": "What the pictures draw in place of the xref: a Drawing as JSON, or a string that names one",
+          "anyOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "layer": {
+          "type": "string",
+          "description": "A layer of the standard, which the title block is inserted on"
+        },
+        "drawingArea": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "[left, bottom, right, top] on the paper"
+        },
+        "box": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "[left, bottom, right, top] on the paper"
+        },
+        "fields": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[\\u0020-\\u0060\\u007b-\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]+$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/titleBlockField"
+          },
+          "description": "The fields a sheet fills, by tag",
+          "default": {}
+        }
+      },
+      "required": ["paper", "layer", "drawingArea"],
+      "additionalProperties": false
+    },
+    "titleBlockField": {
+      "type": "object",
+      "description": "A title block's field",
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "description": "For people. No rule reads it"
+        },
+        "fills": {
+          "type": "string",
+          "enum": ["number", "title", "project", "date", "scale", "drawnBy", "checkedBy"],
+          "description": "What the sheet fills the field with. A field without one is filled by its tag"
+        },
+        "box": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "[left, bottom, right, top] on the paper"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["attribute", "fileName", "layoutName", "currentDate"],
+          "description": "attribute: an attribute of the block that the builder sets. fileName, layoutName and currentDate: a field of the xref's drawing that AutoCAD fills",
+          "default": "attribute"
+        }
+      },
+      "additionalProperties": false
+    },
+    "writing": {
+      "type": "object",
+      "description": "A dimension style's writing",
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "description": "For people. No rule reads it"
+        },
+        "units": {
+          "type": "string",
+          "enum": ["decimal"],
+          "description": "How a length is written: decimal, the one way tsdraft writes one",
+          "default": "decimal"
+        },
+        "precision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8,
+          "description": "The decimals a measurement is written with, from 0 to 8"
+        },
+        "prefix": {
+          "type": "string",
+          "pattern": "^(?![\\s\\S]*<>)[\\u0020-\\u005b\\u005d-\\u007a\\u007c\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]*$",
+          "description": "Written before each measurement"
+        },
+        "suffix": {
+          "type": "string",
+          "pattern": "^[\\u0020-\\u005b\\u005d-\\u007a\\u007c\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]*$",
+          "description": "Written after each measurement"
+        },
+        "suppressZeros": {
+          "type": "string",
+          "enum": ["leading", "trailing", "both"],
+          "description": "The zeros of a measurement that are left out"
+        },
+        "measurementScale": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Each measurement is written times this",
+          "default": 1
+        }
+      },
+      "required": ["precision"],
+      "additionalProperties": false
+    },
+    "writings": {
+      "type": "object",
+      "description": "A dimension style's writing",
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "description": "For people. No rule reads it"
+        },
+        "in": {
+          "$ref": "#/$defs/writing",
+          "description": "In a drawing in inches"
+        },
+        "ft": {
+          "$ref": "#/$defs/writing",
+          "description": "In a drawing in feet"
+        },
+        "mm": {
+          "$ref": "#/$defs/writing",
+          "description": "In a drawing in millimetres"
+        },
+        "cm": {
+          "$ref": "#/$defs/writing",
+          "description": "In a drawing in centimetres"
+        },
+        "m": {
+          "$ref": "#/$defs/writing",
+          "description": "In a drawing in metres"
+        }
+      },
+      "additionalProperties": false
+    },
+    "xref": {
+      "type": "object",
+      "description": "An xref",
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "description": "For people. No rule reads it"
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:_[Aa][Rr][Cc][Hh][Tt][Ii][Cc][Kk])$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$",
+          "description": "The xref's name"
+        },
+        "path": {
+          "type": "string",
+          "maxLength": 32000,
+          "pattern": "^(?![/\\\\]|[A-Za-z]:)(?![\\s\\S]*\\.[Dd][Xx][Ff]$)(?=(?![\\s\\S]*\\.$)|[\\s\\S]*\\.[Dd][Ww][Gg]\\.$)(?![\\s\\S]*\\\\[Mm]\\+[1-5][0-9A-Fa-f]{4})[\\u0020-\\u0021\\u0023-\\u0029\\u002b-\\u0039\\u003b\\u003d\\u0040-\\u007b\\u007d-\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]+$",
+          "description": "The path of the firm's DWG as each sheet's file sees it"
+        },
+        "at": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "Where the xref is inserted on the paper",
+          "default": [0, 0]
+        }
+      },
+      "required": ["name", "path"],
+      "additionalProperties": false
+    }
+  }
+}
