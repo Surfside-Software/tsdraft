@@ -50,7 +50,7 @@
     },
     "plotStyle": {
       "type": "string",
-      "enum": ["monochrome.ctb", "acad.ctb"],
+      "enum": ["monochrome.ctb", "acad.ctb", "Grayscale.ctb", "DWF Virtual Pens.ctb"],
       "description": "The plot style table of each layout. One of PLOT_STYLE_TABLES",
       "default": "monochrome.ctb"
     },
@@ -551,7 +551,17 @@
         },
         "paper": {
           "type": "string",
-          "enum": ["ARCH A", "ARCH B", "ARCH C", "ARCH D", "ANSI A", "ANSI B", "ANSI C", "ANSI D"],
+          "enum": [
+            "ARCH A",
+            "ARCH B",
+            "ARCH C",
+            "ARCH D",
+            "ARCH E",
+            "ANSI A",
+            "ANSI B",
+            "ANSI C",
+            "ANSI D"
+          ],
           "description": "One of PAPERS, which is its title block's paper"
         },
         "titleBlock": {
@@ -560,7 +570,7 @@
         },
         "plotStyle": {
           "type": "string",
-          "enum": ["monochrome.ctb", "acad.ctb"],
+          "enum": ["monochrome.ctb", "acad.ctb", "Grayscale.ctb", "DWF Virtual Pens.ctb"],
           "description": "The sheet format's own plot style table, in place of the standard's"
         },
         "zones": {
@@ -735,7 +745,17 @@
         },
         "paper": {
           "type": "string",
-          "enum": ["ARCH A", "ARCH B", "ARCH C", "ARCH D", "ANSI A", "ANSI B", "ANSI C", "ANSI D"],
+          "enum": [
+            "ARCH A",
+            "ARCH B",
+            "ARCH C",
+            "ARCH D",
+            "ARCH E",
+            "ANSI A",
+            "ANSI B",
+            "ANSI C",
+            "ANSI D"
+          ],
           "description": "One of PAPERS"
         },
         "block": {

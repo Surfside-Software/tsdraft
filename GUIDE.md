@@ -370,8 +370,8 @@ d.layout("C-101", { paper: "ARCH D" }, (sheet) => {
 - Inside `layout`, every length is on the paper, in the paper's units: inches for every paper
   tsdraft has. A text 1/8 inch high has `height: 0.125`. `sheet.width` and `sheet.height` are
   the paper's size, and its lower-left corner is `[0, 0]`.
-- The papers are `ARCH A` to `ARCH D` and `ANSI A` to `ANSI D`, each landscape and full
-  bleed. `ARCH D` is 36 by 24.
+- The papers are `ARCH A` to `ARCH E` and `ANSI A` to `ANSI D`, each landscape and full
+  bleed. `ARCH D` is 36 by 24, and `ARCH E` 48 by 36.
 - `sheet.viewport(corner, width, height, { center, ratio })` shows model space in a rectangle
   on the paper. `center` is the model point at its middle. `ratio` is the one you give
   `fromPaper`: 120 is 1" = 10'.
@@ -381,7 +381,7 @@ d.layout("C-101", { paper: "ARCH D" }, (sheet) => {
   pattern times it, in every viewport. The picture of model space draws the same dashes that
   many drawing units long, often too short to see, so judge linetypes on the sheet's picture.
 - The sheet plots in black with `monochrome.ctb`. Pass `plotStyle: "acad.ctb"` to plot each
-  layer in its color.
+  layer in its color, or `"Grayscale.ctb"` in grays. `PLOT_STYLE_TABLES` lists them.
 - Define blocks outside `layout`, and insert them inside it. An `id` is unique across model
   space, blocks and every layout.
 - A title block is a block with an attribute for each field, and a firm's own border is an

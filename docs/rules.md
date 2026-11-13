@@ -147,9 +147,9 @@ it would take `1e+100` for `1e+10` and report nothing.
   tab. See [Names](layouts.md#names).
 - No two layouts have names AutoCAD takes for one, as `Sheet` and `SHEET` are. AutoCAD keeps
   one of the two, and its `AUDIT` reports the other as missing from the dictionary of layouts.
-- A layout's paper is one of `PAPERS`, and its plot style table `monochrome.ctb` or
-  `acad.ctb`. AutoCAD plots nothing for a layout whose paper the plotter knows neither by
-  name nor by size, and plots one whose plot style table it does not have with no table.
+- A layout's paper is one of `PAPERS`, and its plot style table one of `PLOT_STYLE_TABLES`.
+  AutoCAD plots nothing for a layout whose paper the plotter knows neither by name nor by
+  size, and plots one whose plot style table it does not have with no table.
 - A viewport's corner and center are points, its width and height are sizes, and its ratio is
   greater than 0. The height of model space it shows, which a file holds in place of a
   scale, is not written as 0 and is under 1e100.
