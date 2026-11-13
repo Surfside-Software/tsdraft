@@ -25,6 +25,7 @@ import {
   type StandardTitleBlock,
 } from "./document.ts";
 import type { CheckDocument, NamesOf, ParentOf } from "./literal.ts";
+import { adopted, MADE, readStandardsWith } from "./made.ts";
 import { capitals, inheritedDefaultProblem, referenceProblem } from "./rules.ts";
 import {
   DOCUMENT,
@@ -58,15 +59,15 @@ import { PLAIN_TITLE_BLOCK_SPECIFIER, plainTitleBlock } from "./title-block.ts";
 export function defineStandard<
   const D extends StandardDocument & CheckDocument<D, ParentOf<D, F>>,
   const F extends Readonly<Record<string, unknown>> = {},
->(document: D, options?: StandardOptions<F>): Standard<NamesOf<D, ParentOf<D, F>>> {
+>(
+  document: D,
+  options?: StandardOptions<F>,
+): Standard<NamesOf<D, ParentOf<D, F>>, D["id"], D["version"]> {
   const problems: Problem[] = [];
   const standard = resolve(document, options?.files ?? {}, problems);
   if (!standard || problems.length > 0) throw standardError(problems);
   return standard as never;
 }
-
-/** The standards this copy of tsdraft made, which need no second check as a parent. */
-const MADE = new WeakSet<object>();
 
 function standardError(problems: readonly Problem[]): DrawingError {
   const diagnostics = problems.map(({ item, message }): Diagnostic => ({
@@ -632,9 +633,21 @@ function parentOf(
     }
     given = files[value];
   }
-  if (typeof given === "object" && given !== null && MADE.has(given)) return given as Standard;
-  // A standard from another copy of tsdraft, as data: it is read again as a document with no
-  // `extends`, and its hash must be its content's.
+  const standard = adopted(given);
+  if (!standard) {
+    add(
+      "extends",
+      "The parent is not a standard: give extends a Standard that defineStandard made, unchanged, or a string that options.files gives one for",
+    );
+  }
+  return standard;
+}
+
+/**
+ * A standard from another copy of tsdraft, as data: read again as a document with no `extends`,
+ * and undefined unless its hash is its content's.
+ */
+function readAgain(given: unknown): Standard | undefined {
   const { hash, chain, ...rest } = isRecord(given) ? given : ({} as Record<string, unknown>);
   const links =
     Array.isArray(chain) &&
@@ -646,13 +659,7 @@ function parentOf(
         typeof link.hash === "string",
     );
   const again = links && typeof hash === "string" ? resolve(rest, {}, []) : undefined;
-  if (!again || again.hash !== hash) {
-    add(
-      "extends",
-      "The parent is not a standard: give extends a Standard that defineStandard made, unchanged, or a string that options.files gives one for",
-    );
-    return undefined;
-  }
+  if (!again || again.hash !== hash) return undefined;
   // Its entries are `again`'s, whose drawings' JSON is known.
   const standard = Object.freeze({
     ...again,
@@ -663,6 +670,7 @@ function parentOf(
   MADE.add(standard);
   return standard;
 }
+readStandardsWith(readAgain);
 
 /** The closure of a title block's block: what a drawing that inserts it has to hold. */
 interface Drawn {
@@ -809,4 +817,8 @@ const ATTRIBUTE_WITHOUT_BLOCK =
 /** The built-in standard: its layers, pens, roles, scales, dimension style and plain title block. */
 export const BUILT_IN_STANDARD: BuiltInStandard = builtInStandard() as BuiltInStandard;
 
-export type BuiltInStandard = Standard<NamesOf<typeof BUILT_IN_DOCUMENT, undefined>>;
+export type BuiltInStandard = Standard<
+  NamesOf<typeof BUILT_IN_DOCUMENT, undefined>,
+  (typeof BUILT_IN_DOCUMENT)["id"],
+  (typeof BUILT_IN_DOCUMENT)["version"]
+>;

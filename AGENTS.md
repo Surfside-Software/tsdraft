@@ -168,6 +168,13 @@
   checks, with `BUILT_IN_HASH` in `src/standard/define.ts`, and a test resolves its document with
   them. A change to what it states raises its version, which the CHANGELOG gives, and sets that
   hash.
+- A rule of a drawing drawn to a standard, which the builder refuses, is a type in
+  `src/standard/drawn.ts` with the runtime check's message, and its message names the standard
+  by the id and version its type carries. The builder finds an entry of the standard in any case,
+  as AutoCAD does, and the type compares the exact spelling. `drawing.ts` reads a standard
+  through `src/standard/made.ts` and never imports `define.ts`, which draws the plain title
+  block with the builder as it loads. A drawing without a standard is built as it was before
+  standards.
 - `lint` takes any plain data and never throws, since a `Drawing` can be written by hand.
   `src/shape.ts` holds the fields of each object and their types, once, for `fromJSON` and for
   `lint`. `lint` checks an object's shape there before a rule reads it, and skips the rules for

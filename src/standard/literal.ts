@@ -67,12 +67,22 @@ type Named<E, F> = E extends string
 type Own<D, S extends Section> = S extends keyof D ? D[S] : {};
 /** True when the names of a section are not known: `D` may leave it out, or its keys are `string`. */
 type Unknown<E> = undefined extends E ? true : string extends keyof E ? true : false;
-/** The names of the entries that are there. An entry that may be `null` or left out may be gone. */
-type Live<E> = {
-  [K in keyof E]-?: null extends E[K] ? never : {} extends Pick<E, K> ? never : K;
-}[keyof E] &
+/**
+ * The names of the entries that are there. An entry that may be `null` or left out may be gone,
+ * and so may one that a member of a union of sections lacks.
+ */
+type Live<E> = Exclude<Keys<E>, Gone<E, Keys<E>>> & string;
+type Keys<E> = E extends unknown ? keyof E : never;
+type Gone<E, All> = E extends unknown
+  ?
+      | Exclude<All, keyof E>
+      | { [K in keyof E]-?: null extends E[K] ? K : {} extends Pick<E, K> ? K : never }[keyof E]
+  : never;
+/** The names an entry may remove: each that is, or may be, `null` in any member of `E`. */
+type Removed<E> = (E extends unknown
+  ? { [K in keyof E]-?: null extends E[K] ? K : never }[keyof E]
+  : never) &
   string;
-type Removed<E> = { [K in keyof E]-?: null extends E[K] ? K : never }[keyof E] & string;
 type Inherited<P, S extends Section> = P extends { readonly [K in S]: infer E }
   ? keyof E & string
   : never;
