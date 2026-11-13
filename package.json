@@ -1,6 +1,6 @@
 {
   "name": "tsdraft",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "2D CAD drawings as TypeScript: write the drawing in code, export DXF and SVG, and preview it with the tsdraft command.",
   "keywords": [
     "2d",
