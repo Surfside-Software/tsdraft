@@ -285,8 +285,9 @@ A title block of the xref form names the firm's drawing by a path from each shee
 `d.xref` takes one. Its file holds to the rules of
 [What the border's file may hold](#what-the-borders-file-may-hold). Its `preview`, a `Drawing`
 that stands for the file, is what the pictures draw in its place: give it to `toSVG` as the
-drawing of the xref, `toSVG(drawing, { layout, xrefs: { BORDER: titleBlock.preview } })`, and to
-the command in the drawing file's `xrefs` export.
+drawing of the xref, `toSVG(drawing, { layout, xrefs: { BORDER: titleBlock.preview } })`. The
+command draws it for a drawing file that exports its standard, when the file's `xrefs` export
+gives no drawing for the xref: see [Standards](standard.md#the-command).
 
 ## The preview
 

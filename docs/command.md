@@ -33,7 +33,9 @@ export default d.build();
 ```
 
 A file may also export `intent`, what the drawing is meant to hold to, such as the setbacks a
-footprint keeps out of, which each build checks: see [Checks of intent](intent.md).
+footprint keeps out of, which each build checks: see [Checks of intent](intent.md). And it may
+export `standard`, the firm's standard the drawing is drawn to, which each build holds it to:
+see [Standards](standard.md#the-command).
 
 Each build runs the file in a new child process, so a crash cannot take the command down and
 every build sees the code as it is now. A build that runs longer than `--timeout`, 10 s by default, fails.
@@ -41,6 +43,7 @@ every build sees the code as it is now. A build that runs longer than `--timeout
 ## Commands
 
 `tsdraft render <file> [--out <dir>] [--width <px>] [--draw-no-plot]` builds once, runs `lint`,
+with the file's export `standard` when it has one,
 `inspectText` and, for a file that exports `intent`, `checkIntent`, writes `<name>.svg` and a `<name>.png` 1600 px wide to `out/` beside the
 file, and prints one JSON object. With `--view`, it writes one rectangle of the drawing and
 no other picture: see [A closer look](#a-closer-look). It exits 0 when the drawing built with no lint errors, 2 when `lint` reported
@@ -126,7 +129,9 @@ now 3, goes up when one changes its meaning or goes away. A failed build, trimme
 ```
 
 When it builds, `drawing` gives the units, the extents, counts of layers, entities, blocks,
-xrefs, layouts, errors and warnings, and each layer. `drawing.blocks` gives each block's name, how many entities
+xrefs, layouts, errors and warnings, and each layer. `drawing.standard` gives the `id`,
+`version` and `hash` of the standard the file exports, and `checked`, which is true when `lint`
+held the drawing to it, or is `null` when the file exports none. `drawing.blocks` gives each block's name, how many entities
 it holds, the tags of its attributes and how many inserts place it. `drawing.inserts` gives each
 insert in model space: its `entity` index, `block`, `layer`, `id`, `at`, `scale`, `rotation` and
 the value it shows for each attribute, and `xref`, which is true for an insert of an xref.
@@ -140,8 +145,10 @@ space, in blocks and on layouts, `shown` and `units`. The command opens no DWG f
 the drawing file has a named export `xrefs`, an object that gives a `Drawing` under the xref's
 name, such as `export const xrefs = { BASE: base }`. `shown` says that the pictures drew that
 drawing. The command cannot tell whether it is what the file at `path` holds, so `shown` is
-about the pictures and not about what CAD will load. `units` is the units of that drawing, or
-`null` when none is given: where they differ from the drawing's own, each insert needs the
+about the pictures and not about what CAD will load. When `xrefs` gives no drawing for an xref
+that is the border of a title block of the file's `standard`, and the command checked the
+standard and found no error, the pictures draw the title block's `preview` in its place, and `shown` is true. `units` is the units of the drawing drawn,
+or `null` when there is none: where they differ from the drawing's own, each insert needs the
 scale between the two. The command runs `lint` on each drawing it is given. One with an error
 is not drawn, its `shown` is false, and each error is in `diagnostics` with the `xref` it
 belongs to, counted in `counts.errors`. An xref that is not shown is left out of the pictures
@@ -172,6 +179,13 @@ A diagnostic about an entity inside a block names the
 the entity's `id` when it has one, and `call`, the call in the drawing's code that drew the
 entity: an absolute path, a line and a column, which is where to fix it. The command turns on
 the builder's `recordCalls` for every drawing it runs.
+
+For a file that exports `standard`, what `lint` returned holds the rules of the standard too,
+which [Rules](rules.md#a-drawings-standard) lists: an error there gives exit code 2 as any
+other. After them comes `standard-unchecked`, a warning of the command's own, when the copy of
+tsdraft the drawing imports is from before standards and has no `defineStandard`: the drawing
+was not held to the export, and `drawing.standard.checked` is false. It never changes the exit
+code.
 
 After what `lint` returned come the warnings of `inspectText`, about text as it plots: a rule
 of `text-overlaps-text`, `text-leaves-boundary` or `text-off-paper`, which
@@ -374,7 +388,9 @@ painting it. It prints where the time of a build went, and the machine's load av
 Each build runs in a process of its own, so that no build can change the next. While it waits
 for a save, `tsdraft dev` keeps two such processes ready. When your drawing imports the
 tsdraft that the command itself is part of, which is the usual case, the first has loaded that
-library and run it once on a small drawing of its own. It has read nothing of your drawing.
+library and run it once on a small drawing of its own, and once on a small drawing to a standard
+of its own, which it made with `defineStandard` from the built-in one. It has read nothing of
+your drawing.
 When you save, the command checks that every file of the library is on disk as that process
 loaded it. If so the process builds, and only your drawing file and what it imports are read
 and run. If not, the build runs in the second process, which has started and loaded nothing,

@@ -53,7 +53,8 @@ export interface BuildState {
   /** What the drawing holds. `null` when the build failed. */
   readonly drawing: DrawingSummary | null;
   /**
-   * What `lint` reports for the drawing, errors first, and after it what `inspectText` warns of
+   * What `lint` reports for the drawing, errors first, held to the file's export `standard` when
+   * it has one, and after it what `inspectText` warns of
    * in the text as it plots: a rule that starts with `text-`. Then, when the file has an export
    * `intent`, what `checkIntent` warns of where the drawing does not hold to it. When the file
    * threw a `DrawingError`, as `toDXF` and the builder do, its diagnostics, without `kind` and
@@ -179,9 +180,17 @@ export interface PngFont {
  * and the footprint nearest each other, larger on every side by the setback, and for
  * `footprint-off-property` the footprint's box. `footprint-in-setback` also gives `side`,
  * `required` and `provided`.
+ *
+ * `standard-unchecked` is a warning of the command's own, among lint's: the file exports a
+ * standard, and the copy of tsdraft the drawing loaded is from before standards, so `lint` held
+ * the drawing to none of it.
  */
 export interface BuildDiagnostic extends Omit<Diagnostic, "rule"> {
-  readonly rule: Diagnostic["rule"] | TextWarning["rule"] | IntentWarning["rule"];
+  readonly rule:
+    | Diagnostic["rule"]
+    | TextWarning["rule"]
+    | IntentWarning["rule"]
+    | "standard-unchecked";
   readonly kind?: Entity["kind"];
   /** The box around the entity, in drawing units, worked out as `extents` is. */
   readonly bounds?: Box;
@@ -217,6 +226,8 @@ export interface Timings {
 export interface DrawingSummary {
   readonly units: Units;
   readonly dxf: DxfVersion;
+  /** The standard the drawing file exports as `standard`, or `null` when it exports none. */
+  readonly standard: StandardSummary | null;
   /**
    * The smallest box around the entities on layers that are on, thawed and set to plot, in
    * drawing units, as `toSVG` works it out. A build that draws the layers that do not plot
@@ -259,6 +270,24 @@ export interface DrawingSummary {
   readonly xrefs: readonly XrefSummary[];
   /** Each layout in the order of its tab. Empty for a drawing with none. */
   readonly layouts: readonly LayoutSummary[];
+}
+
+/**
+ * A firm's standard, as `defineStandard` returns it, that the drawing file exports beside its
+ * drawing with `export { standard }`. An export that does not hold a string `id`, `version` and
+ * `hash` is no standard: `drawing.standard` is then `null`, and when `lint` was given it, its
+ * `standard` error says what is wrong with it.
+ */
+export interface StandardSummary {
+  readonly id: string;
+  readonly version: string;
+  /** The SHA-256 of what the standard states, as the export holds it. */
+  readonly hash: string;
+  /**
+   * Whether `lint` held the drawing to the standard. False when the copy of tsdraft the drawing
+   * loaded is from before standards, which a `standard-unchecked` warning says.
+   */
+  readonly checked: boolean;
 }
 
 /** A layout: a sheet of paper, with what is drawn on it and the viewports that show the model. */
@@ -344,13 +373,16 @@ export interface XrefSummary {
   /**
    * Whether the pictures draw a drawing for the xref. The command opens no DWG file: it draws
    * the drawing that the drawing file's `xrefs` export gives under the xref's name, when that
-   * drawing has no lint error. It cannot tell whether that drawing is what the file at `path`
-   * holds, so `true` says what the pictures drew and not what CAD will load. When this is
-   * false, the pictures and the extents have nothing of the xref, and CAD will still draw it.
+   * drawing has no lint error. When it gives none, and a title block of the file's export
+   * `standard` has the xref as its border and a `preview`, it draws the preview. It cannot tell
+   * whether that drawing is what the file at `path` holds, so `true` says what the pictures
+   * drew and not what CAD will load. When this is false, the pictures and the extents have
+   * nothing of the xref, and CAD will still draw it.
    */
   readonly shown: boolean;
   /**
-   * The units of the drawing given for the xref, or `null` when none is given. CAD draws an
+   * The units of the drawing given for the xref, or of the preview drawn for it, or `null` when
+   * there is neither. CAD draws an
    * insert at the scale it has, whatever the units, so where these differ from
    * `drawing.units` each insert needs the scale between the two.
    */

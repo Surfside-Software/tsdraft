@@ -13,6 +13,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire, isBuiltin, registerHooks } from "node:module";
 import { dirname, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { types } from "node:util";
 import { Worker } from "node:worker_threads";
 import type {
   AlignedDimension,
@@ -44,6 +45,7 @@ import type {
   InsertSummary,
   LayerSummary,
   LayoutSummary,
+  StandardSummary,
   XrefSummary,
 } from "./state.ts";
 import { LEFT_OUT, without } from "./omit.ts";
@@ -142,7 +144,9 @@ export interface WorkerResult {
 }
 
 interface Library {
-  readonly lint: (drawing: Drawing) => Diagnostic[];
+  readonly lint: (drawing: Drawing, options?: { standard: unknown }) => Diagnostic[];
+  /** A copy of tsdraft from before standards has none, and its `lint` takes no standard. */
+  readonly defineStandard?: unknown;
   readonly toSVG: (
     drawing: Drawing,
     options?: {
@@ -521,11 +525,13 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
   let drawing: Drawing;
   let referenced: Readonly<Record<string, Drawing>>;
   let intent: unknown;
+  let standard: unknown;
   try {
     const module = (await import(pathToFileURL(file).href)) as {
       default?: unknown;
       xrefs?: unknown;
       intent?: unknown;
+      standard?: unknown;
     };
     let value = module.default;
     if (typeof value === "function") value = await (value as () => unknown)();
@@ -534,6 +540,7 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
     drawing = value as Drawing;
     referenced = (module.xrefs ?? {}) as Readonly<Record<string, Drawing>>;
     intent = module.intent;
+    standard = module.standard;
   } catch (thrown) {
     timings.load = now() - t;
     return fail(describe(thrown, root), thrown);
@@ -543,25 +550,46 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
   try {
     const { library, entry } = await findLibrary(file);
     t = now();
-    const found = library.lint(drawing);
+    // A copy of tsdraft from before standards would take the export and check nothing of it.
+    const checked = standard !== undefined && typeof library.defineStandard === "function";
+    const found = checked ? library.lint(drawing, { standard }) : library.lint(drawing);
+    const unchecked: BuildDiagnostic[] =
+      standard !== undefined && !checked
+        ? [
+            {
+              rule: "standard-unchecked",
+              severity: "warning",
+              message:
+                "The copy of tsdraft this drawing imports is from before standards and has no defineStandard, so the drawing was not checked against the export `standard`. Update it",
+            },
+          ]
+        : [];
+    // lint's check of a standard refuses a getter anywhere in it, so a preview is taken only
+    // from a standard it checked and accepted.
+    const refused = found.some((d) => d.rule === "standard" && d.severity === "error");
+    const previews = checked && !refused ? titleBlockPreviews(standard) : [];
     const size = (list: unknown): number => (Array.isArray(list) ? list.length : 0);
     const errorsFirst = (a: Diagnostic, b: Diagnostic) =>
       Number(a.severity === "warning") - Number(b.severity === "warning");
     /** The build's answer, with `shown` drawn in place of the drawing when items are left out. */
     const report = (shown: Drawing, omitted: readonly string[]): WorkerResult => {
-      const given = givenDrawings(library, shown, referenced);
+      const given = givenDrawings(library, shown, referenced, previews);
       const drawn = Object.fromEntries(
         [...given.values()].filter((g) => g.errors.length === 0).map((g) => [g.name, g.drawing]),
       );
       const linted = [
         ...found,
-        ...[...given].flatMap(([xref, g]) => g.errors.map((d) => inGiven(xref, d))),
+        ...[...given].flatMap(([xref, g]) => g.errors.map((d) => inGiven(xref, g, d))),
       ]
         .sort(errorsFirst)
         .map((d) => aboutEntity(library, shown, drawn, d));
       timings.lint ??= now() - t;
       t = now();
-      const diagnostics = [...linted, ...textWarnings(library, shown, drawn, drawNoPlot === true)];
+      const diagnostics = [
+        ...linted,
+        ...unchecked,
+        ...textWarnings(library, shown, drawn, drawNoPlot === true),
+      ];
       timings.inspect = now() - t;
       if (intent !== undefined) {
         t = now();
@@ -615,6 +643,7 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
         drawing: {
           units: drawing.units,
           dxf: drawing.dxf,
+          standard: standardSummary(standard, checked),
           extents: { min, max },
           counts: {
             layers: size(drawing.layers),
@@ -657,7 +686,7 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
         if (items.size === 0) throw thrown;
         return report(without(drawing, items), [...items].sort());
       } catch {
-        const diagnostics = [...found].sort(errorsFirst).map(withPath);
+        const diagnostics = [...[...found].sort(errorsFirst).map(withPath), ...unchecked];
         return { ...fail(describe(thrown, root)), diagnostics, linted: true };
       }
     }
@@ -1062,39 +1091,98 @@ function xrefNamed(library: Library, drawing: Drawing, name: unknown): Xref | un
   return library.findXref?.(drawing, name);
 }
 
-/** A drawing the file gives for an xref, under the name it gives it by. */
+/**
+ * A drawing the file gives for an xref, under the name it gives it by, or the preview of a
+ * title block of its standard whose border is the xref.
+ */
 interface Given {
   readonly name: string;
   readonly drawing: Drawing;
+  readonly preview: boolean;
   /** The errors `lint` finds in it. A drawing with any is not drawn. */
   readonly errors: readonly Diagnostic[];
 }
 
-/** The drawing given for each xref of the drawing, checked by the library that checks the drawing. */
+/**
+ * The drawing given for each xref of the drawing, checked by the library that checks the
+ * drawing. A preview stands for an xref the file's `xrefs` gives no drawing for.
+ */
 function givenDrawings(
   library: Library,
   drawing: Drawing,
   referenced: Readonly<Record<string, Drawing>>,
+  previews: readonly (readonly [name: string, preview: Drawing])[],
 ): Map<Xref, Given> {
   const given = new Map<Xref, Given>();
-  for (const [name, other] of Object.entries(referenced)) {
+  const offered = [
+    ...Object.entries(referenced).map(([name, other]) => [name, other, false] as const),
+    ...previews.map(([name, preview]) => [name, preview, true] as const),
+  ];
+  for (const [name, other, preview] of offered) {
     const xref = xrefNamed(library, drawing, name);
     if (!xref || given.has(xref)) continue;
     const errors = library.lint(other).filter((d) => d.severity === "error");
-    given.set(xref, { name, drawing: other, errors });
+    given.set(xref, { name, drawing: other, preview, errors });
   }
   return given;
+}
+
+/**
+ * The field `key` of `value` when it is `value`'s own data. A getter is never run and a proxy
+ * never asked, since the export `standard` may be anything.
+ */
+function ownData(value: unknown, key: string): unknown {
+  if (typeof value !== "object" || value === null || types.isProxy(value)) return undefined;
+  const field = Object.getOwnPropertyDescriptor(value, key);
+  return field !== undefined && "value" in field ? field.value : undefined;
+}
+
+/**
+ * Each title block of a standard whose border is an xref and that has a `preview`, as the
+ * xref's name and the preview. Only own data is read, and anything else gives nothing.
+ */
+function titleBlockPreviews(standard: unknown): [name: string, preview: Drawing][] {
+  try {
+    const blocks = ownData(standard, "titleBlocks");
+    if (typeof blocks !== "object" || blocks === null) return [];
+    return Object.keys(blocks).flatMap((key) => {
+      const block = ownData(blocks, key);
+      const name = ownData(ownData(block, "xref"), "name");
+      const preview = ownData(block, "preview");
+      return typeof name === "string" &&
+        Array.isArray(ownData(preview, "layers")) &&
+        Array.isArray(ownData(preview, "entities")) &&
+        typeof ownData(preview, "units") === "string"
+        ? [[name, preview as Drawing]]
+        : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+/** The id, version and hash of the file's export `standard`, when it holds all three. */
+function standardSummary(standard: unknown, checked: boolean): StandardSummary | null {
+  try {
+    const [id, version, hash] = ["id", "version", "hash"].map((key) => ownData(standard, key));
+    return typeof id === "string" && typeof version === "string" && typeof hash === "string"
+      ? { id, version, hash, checked }
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * A problem in the drawing given for an xref, as a problem of the xref. It keeps the rule, the
  * id and the call, and leaves out the entity's index, which counts another drawing's entities.
  */
-function inGiven(xref: Xref, found: Diagnostic): Diagnostic {
+function inGiven(xref: Xref, given: Given, found: Diagnostic): Diagnostic {
+  const what = given.preview ? "its title block's preview" : "the drawing given for it";
   return {
     rule: found.rule,
     severity: found.severity,
-    message: `Xref ${JSON.stringify(xref.name)}: the drawing given for it has an error, so it is not drawn. ${found.message}`,
+    message: `Xref ${JSON.stringify(xref.name)}: ${what} has an error, so it is not drawn. ${found.message}`,
     xref: xref.name,
     ...(found.id === undefined ? {} : { id: found.id }),
     ...(found.call === undefined ? {} : { call: found.call }),

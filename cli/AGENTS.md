@@ -48,6 +48,16 @@
   to the exit code, and each warning's own `bounds`. When the copy of tsdraft the drawing
   loaded has no `checkIntent`, or its `checkIntent` throws, the build gets one
   `intent-unchecked` warning that says so, so an intent is never passed over without a word.
+- When the drawing file exports `standard`, the worker passes it to the library's `lint`, and
+  `drawing.standard` names it. A copy of tsdraft without `defineStandard` is from before
+  standards and would take the export and check nothing, so the worker does not pass it there,
+  and the build gets one `standard-unchecked` warning after `lint`'s: a standard is never passed
+  over without a word. A title block of the export whose border is an xref gives the pictures its
+  `preview` for that xref, unless the `xrefs` export gives a drawing for it: the file's own
+  drawing comes first. A preview comes only from a standard `lint` checked and accepted, since
+  its check refuses a getter at any depth. For `drawing.standard` the worker reads the
+  export's own data alone, never runs a getter and never asks a proxy at its top: one that
+  loops would end the build.
 - `render --view` draws one rectangle with `toSVG`'s `view`, with no margin, as
   `outputs.view`, and writes no other picture. `tsdraft dev` has no view: its server keeps
   only SVG strings and a worker ends after one build. A `Builder` passes the view to the
@@ -70,7 +80,10 @@
   That is the folder two above `src/worker.ts` or `dist/worker.js`, by its real path: its
   `dist/index.js`, or `src/index.ts` in a checkout, and files in that one folder. No name in
   a package.json decides it. `src/warmup.ts` runs that library on a sheet of its own and
-  reads nothing. Any other copy of tsdraft, such as a second one in a project's
+  reads nothing. It also calls `defineStandard` once, on a standard that extends the built-in
+  one, and draws, lints and pictures a sheet to it, so that a build's own `defineStandard` and
+  its `lint` with a standard find their code compiled. A build waits for the step in progress,
+  so keep each step short. Any other copy of tsdraft, such as a second one in a project's
   `node_modules`, is never loaded or run ahead: it may print, count its calls or loop, and a
   build must answer the same whether its process waited or not. Nor is the drawing, a module
   of the user's or a kit that passes the library on. For those the build runs in a process

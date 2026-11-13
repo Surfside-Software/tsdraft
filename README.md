@@ -304,6 +304,9 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   text plots with `measureText`, the warnings of `inspectText` about text that
   overlaps or leaves its border, what tsdraft escapes in text, and what AutoCAD
   does with it after a save.
+- [Standards](docs/standard.md) covers a firm's standard: the document,
+  `defineStandard`, the built-in standard, drawing to a standard, what `lint`
+  holds a drawing to, and the `standard` a drawing file exports.
 - [Checks of intent](docs/intent.md) covers `checkIntent`, which warns of a
   footprint that crosses a setback, and the `intent` a drawing file exports.
 - [The `tsdraft` command](docs/command.md) covers `render`, `dev`, the JSON they
