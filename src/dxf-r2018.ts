@@ -43,6 +43,7 @@ import {
 import {
   DEFAULT_PLOT_STYLE_TABLE,
   fromMillimetres,
+  mediumMargins,
   paperInfo,
   paperMillimetres,
   PLOTTER,
@@ -1348,9 +1349,8 @@ function writeLayout(
   box: readonly [number, number, number, number],
 ): void {
   const { layout, paper, handles } = sheet;
-  const [left, bottom, right, top] = paper.printable;
   const mm = (length: number): number => paperMillimetres(length, paper.units);
-  const [width, height] = [mm(paper.width), mm(paper.height)];
+  const [left, bottom, right, top] = mediumMargins(paper);
   g(0, "LAYOUT");
   ownedBy(g, handles.layout, dictionary);
   g(100, "AcDbPlotSettings");
@@ -1358,12 +1358,13 @@ function writeLayout(
   g(2, PLOTTER);
   g(4, paper.media);
   g(6, ""); // plot view
-  g(40, mm(left)); // the margins the plotter keeps clear
+  // The margins the plotter keeps clear and the medium's size, as the plotter holds it.
+  g(40, mm(left));
   g(41, mm(bottom));
-  g(42, mm(paper.width - right));
-  g(43, mm(paper.height - top));
-  g(44, width);
-  g(45, height);
+  g(42, mm(right));
+  g(43, mm(top));
+  g(44, mm(paper.medium.width));
+  g(45, mm(paper.medium.height));
   g(46, 0); // plot origin
   g(47, 0);
   g(48, 0); // plot window, lower left
@@ -1374,7 +1375,7 @@ function writeLayout(
   g(143, 1); // custom scale: drawing units
   g(70, PLOT_VIEWPORTS_FIRST | PLOT_LINEWEIGHTS | PLOT_PLOT_STYLES | PLOT_USE_STANDARD_SCALE);
   g(72, paper.units === "in" ? 0 : 1);
-  g(73, 0); // rotation: none, the paper is landscape as it is
+  g(73, paper.medium.rotation); // the plot's rotation onto the medium
   g(74, 5); // plot area: the layout
   g(7, layout.plotStyle ?? DEFAULT_PLOT_STYLE_TABLE);
   g(75, 16); // standard scale: 1:1

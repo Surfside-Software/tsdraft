@@ -14,6 +14,7 @@ import {
   viewportView,
   type Drawing,
   type Layout,
+  type PlotStyleTable,
 } from "../src/index.ts";
 import { layoutNameKey } from "../src/layers.ts";
 import { findLayout } from "../src/layouts.ts";
@@ -241,6 +242,20 @@ test("a second layout is a block of its own, with what it holds inside it", () =
   assert.equal(blocks.split("VIEWPORT").length - 1, 2);
   assert.equal(dxf.slice(dxf.indexOf("ENTITIES")).split("\r\nVIEWPORT\r\n").length - 1, 1);
   assert.ok(dxf.includes("acad.ctb"));
+});
+
+test("an ARCH E layout is 48 by 36, with its plot turned onto the upright medium", () => {
+  const d = createDrawing({ units: "ft" });
+  d.layout("E-101", { paper: "ARCH E" }, () => d.line([0, 0], [1, 1]));
+  const dxf = toDXF(d.build());
+  const setup = dxf.slice(dxf.indexOf("ARCH_full_bleed_E_(36.00_x_48.00_Inches)"));
+  // The medium is 36 wide and 48 tall, in millimetres as AutoCAD holds it, and AutoCAD's own
+  // landscape page setup on it turns the plot with a rotation of 1.
+  assert.match(setup, /\r\n44\r\n914\.400024\r\n45\r\n1219\.199951\r\n/);
+  assert.match(setup, /\r\n72\r\n0\r\n73\r\n1\r\n/);
+  // The layout's limits are 48 by 36.
+  assert.match(setup, /\r\n11\r\n47\.999998\r\n21\r\n36\.000001\r\n/);
+  assert.deepEqual([PAPERS["ARCH E"].width, PAPERS["ARCH E"].height], [48, 36]);
 });
 
 test("a layout's name is held to AutoCAD's rules, at compile time and when the code runs", () => {
@@ -501,6 +516,17 @@ test("toSVG draws a layout as it plots: the sheet, each view clipped at its scal
   );
   assert.match(colored, /stroke="#ff0000" stroke-width="0.196850393701" [^>]*data-id="wall"/);
   assert.match(colored, /stroke="#000000" data-layer="0" data-entity="0" data-id="border"/);
+  // Grayscale.ctb plots red in a gray of its own, and DWF Virtual Pens.ctb plots every pen
+  // 0.254 mm wide.
+  const plotted = (plotStyle: PlotStyleTable): string =>
+    toSVG({ ...drawing, layouts: [{ ...drawing.layouts![0]!, plotStyle }] }, { layout: "A-101" });
+  assert.match(
+    plotted("Grayscale.ctb"),
+    /stroke="#4c4c4c" stroke-width="0.196850393701" [^>]*data-id="wall"/,
+  );
+  const pens = plotted("DWF Virtual Pens.ctb");
+  assert.match(pens, /fill="none" stroke-width="0.01">/);
+  assert.match(pens, /stroke="#ff0000" data-layer="WALL" [^>]*data-id="wall"/);
   assert.throws(() => toSVG(drawing, { layout: "Nope" }), RangeError);
   // Model space is drawn as it was.
   assert.doesNotMatch(toSVG(drawing), /data-layout|border/);

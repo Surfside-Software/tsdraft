@@ -8,9 +8,20 @@ export interface PaperInfo {
   readonly media: string;
   /** The unit of the size, and of everything drawn on a layout of this paper. */
   readonly units: PaperUnit;
-  /** The width of the sheet, which is its longer side. */
+  /** The width of a layout of this paper, which is its longer side. */
   readonly width: number;
   readonly height: number;
+  /**
+   * The medium as the plotter holds it, which the page setup stores: its width and height, and
+   * the plot's rotation on it, as DXF group 73 holds it. 0 plots the layout as it is, on a medium
+   * as wide as the layout. 1 turns it a quarter turn onto a medium held upright, as AutoCAD's own
+   * landscape page setup on that medium does, and the PDF shows the page turned back, landscape.
+   */
+  readonly medium: {
+    readonly width: number;
+    readonly height: number;
+    readonly rotation: 0 | 1;
+  };
   /**
    * The part of the sheet the plotter prints on, as its lower-left and upper-right corners
    * from the sheet's lower-left corner: `[left, bottom, right, top]`. A full-bleed size prints
@@ -21,27 +32,33 @@ export interface PaperInfo {
 
 /**
  * Every paper a layout may have. Each is a size that AutoCAD's `DWG To PDF.pc3` offers as full
- * bleed, with no margin the plotter keeps clear, and landscape, with the longer side across.
- * The list is closed because a page setup names its paper by the name the plotter gives it,
- * and AutoCAD plots a layout whose paper the plotter does not have on another size.
+ * bleed, with no margin the plotter keeps clear, and a layout of each is landscape, with the
+ * longer side across. The plotter holds `ARCH E` upright, so its plot is turned a quarter turn
+ * onto it. The list is closed because a page setup names its paper by the name the plotter
+ * gives it, and AutoCAD plots a layout whose paper the plotter does not have on another size.
  */
 export const PAPERS = {
   "ARCH A": inches("ARCH_full_bleed_A_(12.00_x_9.00_Inches)", 12, 9),
   "ARCH B": inches("ARCH_full_bleed_B_(18.00_x_12.00_Inches)", 18, 12),
   "ARCH C": inches("ARCH_full_bleed_C_(24.00_x_18.00_Inches)", 24, 18),
   "ARCH D": inches("ARCH_full_bleed_D_(36.00_x_24.00_Inches)", 36, 24),
+  "ARCH E": inches("ARCH_full_bleed_E_(36.00_x_48.00_Inches)", 48, 36, 1),
   "ANSI A": inches("ANSI_full_bleed_A_(11.00_x_8.50_Inches)", 11, 8.5),
   "ANSI B": inches("ANSI_full_bleed_B_(17.00_x_11.00_Inches)", 17, 11),
   "ANSI C": inches("ANSI_full_bleed_C_(22.00_x_17.00_Inches)", 22, 17),
   "ANSI D": inches("ANSI_full_bleed_D_(34.00_x_22.00_Inches)", 34, 22),
 } as const satisfies Readonly<Record<string, PaperInfo>>;
 
+/** A paper in inches, `width` across the layout, on a medium the plot turns `rotation` onto. */
 function inches<M extends string, W extends number, H extends number>(
   media: M,
   width: W,
   height: H,
+  rotation: 0 | 1 = 0,
 ) {
-  return { media, units: "in", width, height, printable: [0, 0, width, height] } as const;
+  const medium =
+    rotation === 0 ? { width, height, rotation } : { width: height, height: width, rotation };
+  return { media, units: "in", width, height, medium, printable: [0, 0, width, height] } as const;
 }
 
 /** The name of a paper a layout may have. */
@@ -54,10 +71,17 @@ export function paperInfo(name: string): PaperInfo | undefined {
 
 /**
  * The plot style tables a layout's page setup may name, which are color-dependent tables that
- * AutoCAD installs. `monochrome.ctb` plots every color in black, and `acad.ctb` plots each in
- * its own color. Both plot a line at the lineweight it has.
+ * AutoCAD installs. `monochrome.ctb` plots every color in black, `acad.ctb` each in its own
+ * color, `Grayscale.ctb` each in a gray of its own, and `DWF Virtual Pens.ctb` each in the color
+ * of its pen. Each but `DWF Virtual Pens.ctb` plots a line at the lineweight it has; that one
+ * plots every line 0.254 mm wide.
  */
-export const PLOT_STYLE_TABLES = ["monochrome.ctb", "acad.ctb"] as const;
+export const PLOT_STYLE_TABLES = [
+  "monochrome.ctb",
+  "acad.ctb",
+  "Grayscale.ctb",
+  "DWF Virtual Pens.ctb",
+] as const;
 
 /** The name of a plot style table a layout may have. */
 export type PlotStyleTable = (typeof PLOT_STYLE_TABLES)[number];
@@ -76,6 +100,21 @@ const MM_PER_INCH = 25.4;
  */
 export function paperMillimetres(length: number, units: PaperUnit): number {
   return Math.fround(units === "in" ? length * MM_PER_INCH : length);
+}
+
+/**
+ * The strip the plotter keeps clear at each edge of the medium, `[left, bottom, right, top]` in
+ * the paper's units, as the page setup holds them: in the medium's own orientation. A plot
+ * turned onto a medium held upright puts the layout's bottom edge on the medium's left and the
+ * layout's left edge at the medium's top.
+ */
+export function mediumMargins(
+  paper: PaperInfo,
+): readonly [left: number, bottom: number, right: number, top: number] {
+  const [left, bottom, right, top] = paper.printable;
+  const margins = [left, bottom, paper.width - right, paper.height - top] as const;
+  if (paper.medium.rotation === 0) return margins;
+  return [margins[1], margins[2], margins[3], margins[0]];
 }
 
 /** A length a page setup holds in millimetres, in the paper's units. */

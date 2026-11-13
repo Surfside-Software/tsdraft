@@ -45,7 +45,8 @@ puts entities on a layer as it does anywhere.
 ### Paper
 
 `paper` is one of `PAPERS`. Each is a size that AutoCAD's `DWG To PDF.pc3` offers as full
-bleed, with no margin the plotter keeps clear, and landscape.
+bleed, with no margin the plotter keeps clear, and a layout of each is landscape, with the
+longer side across.
 
 | Paper    | Inches    |
 | -------- | --------- |
@@ -53,10 +54,17 @@ bleed, with no margin the plotter keeps clear, and landscape.
 | `ARCH B` | 18 by 12  |
 | `ARCH C` | 24 by 18  |
 | `ARCH D` | 36 by 24  |
+| `ARCH E` | 48 by 36  |
 | `ANSI A` | 11 by 8.5 |
 | `ANSI B` | 17 by 11  |
 | `ANSI C` | 22 by 17  |
 | `ANSI D` | 34 by 22  |
+
+The plotter holds `ARCH E` upright, as `ARCH_full_bleed_E_(36.00_x_48.00_Inches)`, 36 wide
+and 48 tall. Its page setup stores that size and turns the plot a quarter turn onto it, as
+AutoCAD's own landscape page setup on that paper does, and the PDF shows the page landscape,
+48 by 36, with the drawing upright. `PaperInfo.medium` holds the size as the plotter holds it
+and the turn.
 
 The paper's units are the units of the sheet: on these, an inch. The sheet's lower-left corner
 is `[0, 0]`. Sizes drawn on a sheet are the sizes they plot at, so a text 1/8 inch high has a
@@ -76,13 +84,25 @@ Every layout has the same page setup, apart from its paper and its plot style ta
 | Plotter          | `DWG To PDF.pc3`                             |
 | What to plot     | The layout                                   |
 | Scale            | 1:1                                          |
-| Plot style table | `monochrome.ctb`, or `acad.ctb`              |
+| Plot style table | One of `PLOT_STYLE_TABLES`                   |
 | Lineweights      | Plotted, each line as wide as its lineweight |
-| Orientation      | Landscape, as the paper is                   |
+| Orientation      | Landscape                                    |
 
-`plotStyle` is `"monochrome.ctb"` by default, which plots every color in black. With
-`"acad.ctb"` each layer plots in its own color. AutoCAD plots a layout whose plot style table
-it does not have with no table, each pen in its own color.
+`plotStyle` is one of `PLOT_STYLE_TABLES`, the color-dependent tables AutoCAD installs. Each
+plots a line as wide as its lineweight, apart from `DWF Virtual Pens.ctb`:
+
+| Table                  | Colors                                                           |
+| ---------------------- | ---------------------------------------------------------------- |
+| `monochrome.ctb`       | Every color in black. The default                                |
+| `acad.ctb`             | Each color in its own, and 7 in black                            |
+| `Grayscale.ctb`        | Each color in a gray of its own, and 7 in black                  |
+| `DWF Virtual Pens.ctb` | Each color in the color of its pen, and every line 0.254 mm wide |
+
+A pen of `DWF Virtual Pens.ctb` has a color of its own, which is near its index's but not
+always the same: 9 plots as `#c0c0c0`, and 12 as `#a50000`. The table also gives every pen one
+lineweight, so a line plots 0.254 mm wide whatever its own lineweight, and so does a viewport's
+border. `toSVG` draws a sheet in the colors and widths its table plots. AutoCAD plots a layout
+whose plot style table it does not have with no table, each pen in its own color.
 
 ### Names
 
@@ -186,10 +206,11 @@ set of ids.
   no clip.
 - A viewport `lint` reports an error for is drawn as its border alone.
 - Every line is as wide as its lineweight on the paper, inside a viewport too, and dashes are
-  as long as they plot.
+  as long as they plot. Under `DWF Virtual Pens.ctb` every line is 0.254 mm wide.
 - Colors are the ones the plot style table plots: black for `monochrome.ctb`.
-- A viewport's border is drawn, as the thinnest line, when its layer is on, thawed and set to
-  plot. With `drawNoPlot` it is drawn on a layer that does not plot too.
+- A viewport's border is drawn, as the thinnest line or 0.254 mm wide under
+  `DWF Virtual Pens.ctb`, when its layer is on, thawed and set to plot. With `drawNoPlot` it
+  is drawn on a layer that does not plot too.
 
 Without `layout`, `toSVG` draws model space as it always has.
 

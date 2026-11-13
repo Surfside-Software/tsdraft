@@ -99,7 +99,13 @@ export { DrawingError, lint, type Diagnostic, type LintOptions, type LintRule } 
 export { CENTER, DASHDOT, DASHED, DOT, HIDDEN, LINEWEIGHTS, PHANTOM } from "./linetypes.ts";
 export { measureText, type TextMeasure, type TextToMeasure } from "./measure.ts";
 export { fromPaper, type PaperScale, type PaperUnit } from "./paper.ts";
-export { PAPERS, type Paper, type PaperInfo, type PlotStyleTable } from "./papers.ts";
+export {
+  PAPERS,
+  PLOT_STYLE_TABLES,
+  type Paper,
+  type PaperInfo,
+  type PlotStyleTable,
+} from "./papers.ts";
 export type {
   Aci,
   ArrowheadOf,

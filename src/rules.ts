@@ -150,9 +150,9 @@ const LAYOUT_NAME_LENGTH =
 const LAYOUT_NAME_MODEL =
   "A layout cannot be named Model, in any case of its letters. AutoCAD keeps that name for the model tab: it discards a drawing whose layout is named MODEL, takes a layout named model for the model tab's own and loses its sheet, and never finishes opening a drawing with a second layout named Model";
 const PAPER =
-  'A paper must be one of PAPERS, the full-bleed landscape sizes of AutoCAD\'s DWG To PDF.pc3, such as "ARCH D". A page setup names its paper as the plotter does, and AutoCAD plots nothing for a layout whose paper the plotter knows neither by its name nor by its size';
+  'A paper must be one of PAPERS, the full-bleed sizes of AutoCAD\'s DWG To PDF.pc3, such as "ARCH D", each laid out landscape. A page setup names its paper as the plotter does, and AutoCAD plots nothing for a layout whose paper the plotter knows neither by its name nor by its size';
 const PLOT_STYLE =
-  'A plot style table must be "monochrome.ctb" or "acad.ctb", which AutoCAD installs. AutoCAD plots a layout whose plot style table it does not have with no table, each pen in its own color';
+  'A plot style table must be "monochrome.ctb", "acad.ctb", "Grayscale.ctb" or "DWF Virtual Pens.ctb", which AutoCAD installs. AutoCAD plots a layout whose plot style table it does not have with no table, each pen in its own color';
 const XREF_PATH_EMPTY =
   "An xref's path cannot be empty. AutoCAD then looks for a DWG file named as the xref is";
 const XREF_PATH_DXF =

@@ -74,6 +74,74 @@ function aciColor(index: number): string {
   return rgb === undefined ? "currentColor" : `#${rgb}`;
 }
 
+/** The gray `Grayscale.ctb` plots each ACI index in, from 1 to 255, twenty to a row. */
+const GRAYSCALE: readonly string[] = [
+  "4c e1 95 b2 1d 69 00 7f db 4c a4 42 8e 37 77 2c 5f 22 49 70",
+  "b7 62 9f 52 84 41 6a 32 51 96 ca 82 ae 6d 92 57 75 43 5a bc",
+  "dc a2 bf 88 9f 6d 80 54 62 e1 ef c3 cf a3 ad 83 8b 64 6a ce",
+  "e5 b2 c6 95 a6 78 86 5b 65 ba dc a1 be 87 9f 6d 80 53 61 a7",
+  "d2 91 b6 79 98 62 7a 4a 5d 95 c8 81 ad 6c 91 57 75 42 59 9c",
+  "cc 87 b0 71 94 5b 77 45 5b a3 cf 8d b3 76 96 5f 79 48 5c aa",
+  "d3 93 b7 7b 99 63 7b 4b 5e b2 d7 9a ba 80 9b 67 7d 4e 5f 8d",
+  "c4 79 aa 65 8d 51 72 3e 57 67 b2 59 99 4a 80 3b 67 2d 4f 41",
+  "9f 39 8a 2f 72 25 5c 1c 46 1d 8c 19 79 14 65 10 51 0c 3e 2f",
+  "96 29 82 21 6c 1b 56 14 42 42 a0 39 8a 2f 73 26 5c 1d 46 56",
+  "a9 4a 92 3d 7a 31 62 25 4a 69 b3 5b 9b 4b 81 3c 67 2e 4f 61",
+  "af 54 98 46 7f 38 65 2b 4e 5a ab 4e 94 41 7c 34 63 28 4c 53",
+  "a8 48 91 3c 7a 30 61 25 4b 53 75 97 b9 d9 f8",
+]
+  .join(" ")
+  .split(" ");
+
+/**
+ * The color of each pen of `DWF Virtual Pens.ctb`, which it plots each ACI index in, from 1 to
+ * 255, ten to a row. A pen holds a color of its own, which is not always the index's.
+ */
+const VIRTUAL_PENS: readonly string[] = [
+  "ff0000 ffff00 00ff00 00ffff 0000ff ff00ff 000000 808080 c0c0c0 ff0101",
+  "ff7f7f a50000 a55252 7f0000 7f3f3f 4c0000 4c2626 260000 261313 ff3f00",
+  "ff9f7f a52900 a56752 7f1f00 7f4f3f 4c1300 4c2f26 260900 261713 ff7f00",
+  "ffbf7f a55200 a57c52 7f3f00 7f5f3f 4c2600 4c3926 261300 261c13 ffbf00",
+  "ffdf7f a57c00 a59152 7f5f00 7f6f3f 4c3900 4c4226 261c00 262113 ffff01",
+  "ffff7f a5a500 a5a552 7f7f00 7f7f3f 4c4c00 4c4c26 262600 262613 bfff00",
+  "dfff7f 7ca500 91a552 5f7f00 6f7f3f 394c00 424c26 1c2600 212613 7fff00",
+  "bfff7f 52a500 7ca552 3f7f00 5f7f3f 264c00 394c26 132600 1c2613 3fff00",
+  "9fff7f 29a500 67a552 1f7f00 4f7f3f 134c00 2f4c26 092600 172613 01ff01",
+  "7fff7f 00a500 52a552 007f00 3f7f3f 004c00 264c26 002600 132613 00ff3f",
+  "7fff9f 00a529 52a567 007f1f 3f7f4f 004c13 264c2f 002609 132617 00ff7f",
+  "7fffbf 00a552 52a57c 007f3f 3f7f5f 004c26 264c39 002613 13261c 00ffbf",
+  "7fffdf 00a57c 52a591 007f5f 3f7f6f 004c39 264c42 00261c 132621 01ffff",
+  "7fffff 00a5a5 52a5a5 007f7f 3f7f7f 004c4c 264c4c 002626 132626 00bfff",
+  "7fdfff 007ca5 5291a5 005f7f 3f6f7f 00394c 26424c 001c26 132126 007fff",
+  "7fbfff 0052a5 527ca5 003f7f 3f5f7f 00264c 26394c 001326 131c26 003fff",
+  "7f9fff 0029a5 5267a5 001f7f 3f4f7f 00134c 262f4c 000926 131726 0101ff",
+  "7f7fff 0000a5 5252a5 00007f 3f3f7f 00004c 26264c 000026 131326 3f00ff",
+  "9f7fff 2900a5 6752a5 1f007f 4f3f7f 13004c 2f264c 090026 171326 7f00ff",
+  "bf7fff 5200a5 7c52a5 3f007f 5f3f7f 26004c 39264c 130026 1c1326 bf00ff",
+  "df7fff 7c00a5 9152a5 5f007f 6f3f7f 39004c 42264c 1c0026 211326 ff01ff",
+  "ff7fff a500a5 a552a5 7f007f 7f3f7f 4c004c 4c264c 260026 261326 ff00bf",
+  "ff7fdf a5007c a55291 7f005f 7f3f6f 4c0039 4c2642 26001c 261321 ff007f",
+  "ff7fbf a50052 a5527c 7f003f 7f3f5f 4c0026 4c2639 260013 26131c ff003f",
+  "ff7f9f a50029 a55267 7f001f 7f3f4f 4c0013 4c262f 260009 261317 545454",
+  "767676 989898 bababa dcdcdc fcfcfc",
+]
+  .join(" ")
+  .split(" ");
+
+/**
+ * The color a plot style table plots an ACI index in, on paper, where index 7 is black. Under a
+ * table that gives each pen a color of its own, an index outside 1 to 255 plots as 7 does.
+ */
+function plottedColor(table: string, index: number): string {
+  if (table === "monochrome.ctb" || index === 7) return "#000000";
+  if (table === "Grayscale.ctb") return `#${GRAYSCALE[index - 1]?.repeat(3) ?? "000000"}`;
+  if (table === "DWF Virtual Pens.ctb") return `#${VIRTUAL_PENS[index - 1] ?? "000000"}`;
+  return aciColor(index);
+}
+
+/** The lineweight `DWF Virtual Pens.ctb` plots every pen at, in hundredths of a millimetre. */
+const VIRTUAL_PEN_WIDTH = 25.4;
+
 /** AutoCAD draws a lineweight of "Default" at its LWDEFAULT, 0.25 mm. */
 const DEFAULT_LINEWEIGHT = 25;
 
@@ -157,9 +225,10 @@ interface Pen {
  * `data-viewport` that shows model space at the viewport's scale, clipped to its rectangle,
  * and then what is drawn on the sheet. Every line is as wide as its lineweight on the paper,
  * a dash is as long on the paper as its pattern times the linetype scale, in a viewport too,
- * and colors are the ones the layout's plot style table plots: black for `monochrome.ctb`. A
- * viewport's border is drawn as the thinnest line when its layer is on, thawed and set to
- * plot, and its view is drawn whatever its layer's state. `data-entity` counts the layout's
+ * and colors are the ones the layout's plot style table plots: black for `monochrome.ctb`.
+ * `DWF Virtual Pens.ctb` plots every line 0.254 mm wide, whatever its lineweight. A
+ * viewport's border is drawn as the thinnest line, or 0.254 mm wide under that table, when its
+ * layer is on, thawed and set to plot, and its view is drawn whatever its layer's state. `data-entity` counts the layout's
  * entities, and inside a viewport's group the entities of model space.
  *
  * With `options.view`, the picture is that rectangle of the space: what lies well outside it is
@@ -342,11 +411,12 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     if (!layout || !paper) {
       throw new RangeError(`The drawing has no layout named ${JSON.stringify(options.layout)}`);
     }
-    // A sheet is paper: a pen plots black unless the plot style table keeps its color, and
-    // index 7 is black on paper.
-    const monochrome = (layout.plotStyle ?? DEFAULT_PLOT_STYLE_TABLE) === "monochrome.ctb";
-    const color = (index: number): string =>
-      monochrome || index === 7 ? "#000000" : aciColor(index);
+    // A sheet is paper: a pen plots in the color its plot style table gives it, and in its own
+    // lineweight unless the table gives every pen one.
+    const table = layout.plotStyle ?? DEFAULT_PLOT_STYLE_TABLE;
+    const color = (index: number): string => plottedColor(table, index);
+    const pen = table === "DWF Virtual Pens.ctb" ? VIRTUAL_PEN_WIDTH : undefined;
+    const base = pen ?? DEFAULT_LINEWEIGHT;
     // Hundredths of a millimetre in paper units.
     const perHundredth = paper.units === "in" ? 1 / 2540 : 1 / 100;
     /** A look whose lines are as wide as they plot, in a space `scale` paper units to one. */
@@ -355,12 +425,13 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
       dashScale: linetypeScale / scale,
       indent,
       stroke: (lineweight) =>
-        lineweight === DEFAULT_LINEWEIGHT
+        pen !== undefined || lineweight === DEFAULT_LINEWEIGHT
           ? ""
           : ` stroke-width="${precise((Math.max(lineweight, 5) * perHundredth) / scale)}"`,
     });
     const onPaper = plotted(1, "    ");
-    const thin = fmt(5 * perHundredth);
+    // A viewport's border plots as the thinnest line, or as the one pen a table gives every line.
+    const thin = fmt((pen ?? 5) * perHundredth);
     // A drawing in units tsdraft does not know is drawn as one in inches, as `lint` judges it.
     const units = isUnits(drawing.units) ? drawing.units : "in";
     // The picture: the paper, or the view asked for, and the margin around it, in paper units
@@ -446,7 +517,7 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
           [
             `<g data-viewport="${index}"${id} clip-path="url(#tsdraft-viewport-${index})">`,
             `      <rect ${rect} visibility="hidden" stroke="#000000"/>`,
-            `      <g transform="${place}" stroke-width="${precise((DEFAULT_LINEWEIGHT * perHundredth) / view.scale)}">`,
+            `      <g transform="${place}" stroke-width="${precise((base * perHundredth) / view.scale)}">`,
             ...inside.map((element) => `        ${element}`),
             `      </g>`,
             `    </g>`,
@@ -465,7 +536,7 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     return [
       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${frame.join(" ")}" data-layout="${esc(layout.name)}" data-paper="${esc(layout.paper)}">`,
       `  <rect x="0" y="${fmt(-paper.height)}" width="${fmt(paper.width)}" height="${fmt(paper.height)}" fill="#ffffff"/>`,
-      `  <g transform="scale(1 -1)" fill="none" stroke-width="${fmt(DEFAULT_LINEWEIGHT * perHundredth)}">`,
+      `  <g transform="scale(1 -1)" fill="none" stroke-width="${fmt(base * perHundredth)}">`,
       ...parts.map((part) => `    ${part}`),
       `  </g>`,
       `</svg>`,
