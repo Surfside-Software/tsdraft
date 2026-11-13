@@ -26,7 +26,7 @@ import {
 } from "./document.ts";
 import type { CheckDocument, NamesOf, ParentOf } from "./literal.ts";
 import { adopted, MADE, readStandardsWith } from "./made.ts";
-import { capitals, inheritedDefaultProblem, referenceProblem } from "./rules.ts";
+import { capitals, inheritedDefaultProblem, READS_A_NAME, referenceProblem } from "./rules.ts";
 import {
   DOCUMENT,
   entriesObject,
@@ -809,8 +809,6 @@ const TITLE_BLOCK_FORM =
 const BLOCK_NAME_MISSING = "A title block with a block names it with blockName";
 const BLOCK_NAME_ALONE = "blockName names the block of block, and this title block has no block";
 const PREVIEW_ALONE = "A preview is drawn in place of an xref, and this title block has no xref";
-const READS_A_NAME =
-  "Under sheetFiles \"one-drawing\" no field reads the file's name or the layout's name. One drawing has one file name, and an xref that every layout shares shows one layout's name on every sheet. Make the field an attribute";
 const ATTRIBUTE_WITHOUT_BLOCK =
   'A field whose source is "attribute" is written in an attribute of the title block\'s block, and this title block has no block';
 

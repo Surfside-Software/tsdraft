@@ -108,6 +108,10 @@ export const FILL_KEYS = [
 export type FillOf<V> = OneOf<V, (typeof FILL_KEYS)[number], typeof FILLS>;
 export const fillProblem = oneOf(FILL_KEYS, FILLS);
 
+/** What is wrong with a field that reads a name, under `one-drawing`. */
+export const READS_A_NAME =
+  "Under sheetFiles \"one-drawing\" no field reads the file's name or the layout's name: the builder writes each field a sheet fills as an attribute. One drawing has one file name, and its layouts' names are its sheets' numbers, which the builder writes as attributes, so a field that read the layout's name in the title's place would plot the number there. Make the field an attribute";
+
 export const SOURCES = ["attribute", "fileName", "layoutName", "currentDate"] as const;
 export type SourceOf<V> = OneOf<V, (typeof SOURCES)[number], typeof SOURCE>;
 export const sourceProblem = oneOf(SOURCES, SOURCE);

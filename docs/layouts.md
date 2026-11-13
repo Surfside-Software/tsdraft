@@ -41,6 +41,13 @@ puts entities on a layer as it does anywhere.
   belongs to the drawing.
 - `draw` is given the sheet: `sheet.name`, `sheet.paper`, `sheet.units`, `sheet.width` and
   `sheet.height`, so that what is drawn can be placed from the paper's size.
+- Drawn to a standard, a layout is on a sheet format of the standard, which gives its paper and
+  its plot style table: `d.layout(name, { sheetFormat }, draw)`, or `d.layout(name, draw)` on the
+  standard's `defaultSheetFormat`. The sheet then has `sheet.drawingArea`, `sheet.zone(name)` and
+  `sheet.titleBlock()`, which [Title blocks](title-blocks.md#the-title-block-of-a-standard)
+  describes. A second layout whose name AutoCAD's `AUDIT` takes for another's, such as `STRAßE`
+  beside `STRASSE`, is refused there. AutoCAD keeps both layouts, and a drawing drawn to a
+  standard holds its layouts' names to `AUDIT`'s comparison.
 
 ### Paper
 

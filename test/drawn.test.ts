@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { insertAttributeHandle } from "../src/blocks.ts";
 import {
   BUILT_IN_STANDARD,
   createDrawing,
@@ -7,7 +8,11 @@ import {
   defineStandard,
   DrawingBuilder,
   DrawingError,
+  idHandle,
+  toDXF,
   toJSON,
+  type Drawing,
+  type Insert,
   type LintRule,
   type Standard,
 } from "../src/index.ts";
@@ -250,7 +255,7 @@ test("under a standard the builder refuses a role, a view or a dimension style i
     "role",
     /^An insert with a view is scaled by the view/,
   );
-  d.layout("C-1", { paper: "ARCH D" }, (sheet) => {
+  d.layout("C-1", (sheet) => {
     refused(
       // @ts-expect-error: the view gives the viewport's ratio.
       () => sheet.viewport([1, 1], 10, 10, { view: plan, center: [0, 0], ratio: 120 }),
@@ -309,17 +314,12 @@ test("under a standard the builder refuses a role, a view or a dimension style i
     /^The view "plan" is not a view of this drawing/,
   );
   refused(() => d.view("PLAN", { scale: "1in-20ft" }), "duplicate-id", /already used/);
-  // A role's text style is the standard's, before the role is used and after.
+  // A text's style is its role's, and the drawing defines none of its own.
   refused(
-    () => d.textStyle({ name: "Dimension", font: "romans.shx" }),
-    "text-style",
-    /^Text style "Dimension" is the text style of the role "dimension" of the standard "acme" version 2026.1, which gives its font, width factor and oblique angle. Give the style another name, or change the role in the standard$/,
-  );
-  d.text([0, 0], "A", { role: "note", view: plan });
-  refused(
-    () => d.textStyle({ name: "NOTE", font: "romans.shx" }),
-    "text-style",
-    /^Text style "NOTE" is the text style of the role "note"/,
+    // @ts-expect-error: under a standard a drawing defines no text style.
+    () => d.textStyle({ name: "NOTES", font: "romans.shx" }),
+    "text-style-outside-standard",
+    /^Under a standard a text's style comes from its role, and a drawing defines no text style of its own/,
   );
   refused(
     () => d.linearDimension([0, 0], [10, 0], [0, 5], { style: null as never, view: plan }),
@@ -331,7 +331,7 @@ test("under a standard the builder refuses a role, a view or a dimension style i
     "dimension-style",
     /^A dimension of model space under a standard names the view/,
   );
-  d.layout("C-2", { paper: "ARCH D" }, (sheet) => {
+  d.layout("C-2", (sheet) => {
     sheet.viewport([1, 1], 10, 10, { view: plan, center: [0, 0] });
     refused(
       () => sheet.viewport([12, 1], 10, 10, { view: plan, center: [0, 0] }),
@@ -372,10 +372,11 @@ test("under a standard the builder refuses a role, a view or a dimension style i
     paperUnits: "mm",
     minTextHeight: 2,
   });
+  // Every paper is in inches, so a standard in millimetres has no sheet format yet.
   refused(
-    () => createDrawing({ standard: millimetres }).layout("A", { paper: "ARCH D" }, () => {}),
-    "layout",
-    /is in in, and the standard "mm" version 1 has its paper units in mm/,
+    () => createDrawing({ standard: millimetres }).layout("A", () => {}),
+    "sheet-format-outside-standard",
+    /^Layout "A": The standard "mm" version 1 has no defaultSheetFormat/,
   );
   refused(
     () => createDrawing({ standard: millimetres }).linearDimension([0, 0], [1, 0], [0, 1], {}),
@@ -404,7 +405,7 @@ test("a role and a view size a text, a symbol and a dimension where each is draw
   // The compiler compares the id exactly, and the builder finds it in any case.
   const [upper]: string[] = ["DIMS"];
   d.linearDimension([0, 0], [10, 0], [0, 5], { view: detail, style: upper! });
-  d.layout("C-1", { paper: "ARCH D" }, (sheet) => {
+  d.layout("C-1", (sheet) => {
     sheet.viewport([1, 1], 10, 10, { view: plan, center: [0, 0] });
     d.text([1, 12], "PLAN", { role: "title" });
     d.linearDimension([1, 13], [3, 13], [1, 14], {});
@@ -478,19 +479,27 @@ test("each branch of a conditional is checked as written", () => {
   d.block("CORNER", {}, () => d.circle([0, 0], 1 / 16));
   for (const viewed of [true, false]) {
     d.block(viewed ? "A" : "B", {}, () =>
-      d.attribute("T", [0, 0], viewed ? { role: "label" } : { height: 0.1 }),
+      d.attribute("T", [0, 0], viewed ? { role: "label" } : { role: "note" }),
     );
     d.insert("CORNER", [0, 0], viewed ? { view: plan } : { scale: 2 });
-    d.text([0, 0], "A", viewed ? { role: "label", view: plan } : { height: 1 });
+    d.text([0, 0], "A", viewed ? { role: "label", view: plan } : { role: "note", view: plan });
   }
   const drawing = d.build();
   assert.deepEqual(
     drawing.entities.map((e) => (e.kind === "insert" ? e.scale : e.kind === "text" && e.height)),
-    [[10, 10], 1.25, [2, 2], 1],
+    [[10, 10], 1.25, [2, 2], 0.9375],
   );
   assert.deepEqual(
     drawing.blocks?.map((b) => b.attributes?.[0]?.height),
-    [undefined, 0.125, 0.1],
+    [undefined, 0.125, 0.09375],
+  );
+  // A branch without a role is a compile error with the builder's message.
+  const flag = d.build().layers.length > 0;
+  refused(
+    // @ts-expect-error: under a standard a text names a role.
+    () => d.text([0, 0], "A", flag ? { height: 1 } : { role: "label", view: plan }),
+    "text-style-outside-standard",
+    /^Under a standard a text names a role of the standard/,
   );
 });
 
@@ -537,5 +546,500 @@ test("a role and a dimension style with fields by discipline take the drawing's 
     () => drawn(),
     "standard",
     /^Text role "note" has fields of its own in the discipline C of the standard/,
+  );
+});
+
+/** A title block's block of two fields over an xref, drawn in inches without a standard. */
+function fieldsOverBorder(): Drawing {
+  const d = createDrawing({ units: "in" });
+  d.textStyle({ name: "FIELDS", font: "Arial" });
+  d.block("FIELDS", {}, () => {
+    d.attribute("NUMBER", [33, 1], { value: "-", height: 0.25, style: "FIELDS" });
+    d.attribute("TITLE", [29.5, 2], { value: "-", height: 0.1875, style: "FIELDS" });
+  });
+  return d.build();
+}
+
+/** A standard whose title block is a firm's border as an xref, with its fields over it. */
+const firm = defineStandard({
+  id: "firm",
+  version: "1",
+  extends: BUILT_IN_STANDARD,
+  defaultSheetFormat: "firm",
+  titleBlocks: {
+    firm: {
+      paper: "ARCH D",
+      xref: { name: "BORDER", path: "border.dwg" },
+      block: fieldsOverBorder(),
+      blockName: "FIELDS",
+      layer: "G-ANNO-TTLB",
+      drawingArea: [0.5, 0.5, 35.5, 23.5],
+      fields: { NUMBER: { fills: "number" }, TITLE: { fills: "title" } },
+    },
+  },
+  sheetFormats: { firm: { paper: "ARCH D", titleBlock: "firm", zones: { views: [1, 3, 35, 23] } } },
+});
+
+/** A standard of a file per sheet, whose xref title block AutoCAD fills from the names. */
+const perFile = defineStandard({
+  id: "per-file",
+  version: "1",
+  extends: BUILT_IN_STANDARD,
+  sheetFiles: "sheet-per-file",
+  titleBlocks: {
+    named: {
+      paper: "ARCH D",
+      xref: { name: "TITLE", path: "../setup/title.dwg" },
+      layer: "G-ANNO-TTLB",
+      drawingArea: [0.5, 0.5, 35.5, 23.5],
+      fields: {
+        NUMBER: { fills: "number", source: "fileName" },
+        TITLE: { fills: "title", source: "layoutName" },
+        DATE: { fills: "date", source: "currentDate" },
+      },
+    },
+  },
+  sheetFormats: { named: { paper: "ARCH D", titleBlock: "named" } },
+});
+
+test("a layout is on a sheet format of the standard, laid out by its zones", () => {
+  const d = createDrawing({ units: "ft", standard });
+  d.layout("C-101", (sheet) => {
+    assert.equal(sheet.paper, "ARCH D");
+    assert.deepEqual(sheet.drawingArea, {
+      left: 0.5,
+      bottom: 0.5,
+      right: 35.5,
+      top: 23.5,
+      width: 35,
+      height: 23,
+    });
+    // A zone is found in any case.
+    assert.deepEqual(sheet.zone("VIEWS"), sheet.zone("views"));
+    assert.deepEqual(sheet.zone("notes"), {
+      left: 28.5,
+      bottom: 3.5,
+      right: 35.5,
+      top: 23.5,
+      width: 7,
+      height: 20,
+    });
+    refused(
+      () => sheet.zone("legend"),
+      "layout",
+      /^The sheet format "arch-d" has no zone "legend". Its zones are views, viewTitles and notes$/,
+    );
+  });
+  d.layout("C-102", { sheetFormat: "arch-d" }, () => {});
+  refused(
+    // @ts-expect-error: a sheet format gives the paper.
+    () => d.layout("C-103", { paper: "ARCH D" }, () => {}),
+    "sheet-format-outside-standard",
+    /^Layout "C-103": Under a standard a layout's paper and plot style table come from its sheet format/,
+  );
+  refused(
+    // @ts-expect-error: the standard has no sheet format arch-e.
+    () => d.layout("C-103", { sheetFormat: "arch-e" }, () => {}),
+    "sheet-format-outside-standard",
+    /^Layout "C-103": Sheet format "arch-e" is not a sheet format of the standard "acme" version 2026.1. Add it/,
+  );
+  // Without a standard a layout names its paper, and no sheet format.
+  const plain = createDrawing({ units: "ft" });
+  refused(
+    () => plain.layout("A", (() => {}) as never),
+    "layout",
+    /^Layout "A": A layout of a drawing without a standard names its paper/,
+  );
+  refused(
+    // @ts-expect-error: a sheet format is a standard's.
+    () => plain.layout("A", { paper: "ARCH D", sheetFormat: "arch-d" }, () => {}),
+    "sheet-format-outside-standard",
+    /^Layout "A": sheetFormat names a sheet format of the drawing's standard/,
+  );
+  plain.layout("A", { paper: "ARCH D" }, (sheet) => {
+    assert.equal(sheet.drawingArea, undefined);
+    refused(
+      // @ts-expect-error: a zone is a standard's.
+      () => sheet.zone("views"),
+      "layout",
+      /^A zone is a part of the layout's sheet format/,
+    );
+    for (const place of [
+      // @ts-expect-error: a title block is a standard's.
+      () => sheet.titleBlock({ title: "A" }),
+      // @ts-expect-error: a title block is a standard's.
+      () => sheet.titleBlock(),
+    ]) {
+      refused(
+        place,
+        "layout",
+        /^titleBlock\(\) places the title block of the layout's sheet format/,
+      );
+    }
+  });
+  // draw is the last argument, and a function.
+  const draw = (): void => {};
+  for (const call of [
+    // @ts-expect-error: a layout has its draw.
+    () => plain.layout("B", { paper: "ARCH D" }),
+    // @ts-expect-error: a layout has its draw.
+    () => d.layout("C-104", { sheetFormat: "arch-d" }),
+    // @ts-expect-error: nothing follows draw.
+    () => d.layout("C-104", draw, draw),
+    // @ts-expect-error: draw is a function.
+    () => d.layout("C-104", {}, "draw"),
+  ]) {
+    refused(
+      call,
+      "layout",
+      /^Layout "(B|C-104)": layout\(\) takes the function that draws the sheet last, and nothing after it/,
+    );
+  }
+  // Options of undefined are none.
+  d.layout("C-104", undefined, (sheet) => assert.equal(sheet.paper, "ARCH D"));
+  // A layout whose name only AUDIT takes for another's is refused under a standard.
+  d.layout("STRAßE", () => {});
+  refused(
+    () => d.layout("STRASSE", () => {}),
+    "duplicate-layout",
+    /^Layout "STRASSE": AutoCAD's AUDIT takes this name and that of the layout "STRAßE" for one/,
+  );
+  plain.layout("STRAßE", { paper: "ARCH D" }, () => {});
+  plain.layout("STRASSE", { paper: "ARCH D" }, () => {});
+});
+
+test("the title block is the standard's, filled from the sheet, the drawing and the builder", () => {
+  const d = createDrawing({
+    units: "ft",
+    standard,
+    fields: { project: "LOT 12", date: "2026-11-13", drawnBy: "AB", checkedBy: "CD" },
+  });
+  const plan = d.view("plan", { scale: "1in-10ft" });
+  const detail = d.view("detail", { scale: "1in-20ft" });
+  const lot = d.view("lot", { scale: "1in-10ft" });
+  d.layout("C-101", (sheet) => {
+    // Placed before the viewports, it gets their scale when draw returns.
+    sheet.titleBlock({ title: "SITE PLAN" });
+    refused(() => sheet.titleBlock(), "layout", /^A layout has one title block/);
+    d.layer("G-ANNO-NPLT", () => {
+      sheet.viewport([1, 3], 10, 10, { view: plan, center: [0, 0] });
+      sheet.viewport([12, 3], 10, 10, { view: lot, center: [0, 0] });
+    });
+  });
+  d.layout("C-102", (sheet) => {
+    sheet.titleBlock({ title: "DETAILS", scale: "AS SHOWN" });
+    d.layer("G-ANNO-NPLT", () => sheet.viewport([1, 3], 10, 10, { view: detail, center: [0, 0] }));
+  });
+  d.layout("C-103", (sheet) => {
+    sheet.titleBlock({ number: "C-103", title: "PLANS" });
+    d.layer("G-ANNO-NPLT", () => {
+      sheet.viewport([1, 3], 10, 10, { view: d.view("a", { scale: "1in-10ft" }), center: [0, 0] });
+      sheet.viewport([12, 3], 10, 10, { view: d.view("b", { scale: "1in-20ft" }), center: [0, 0] });
+    });
+  });
+  const drawing = d.build();
+  const inserts = drawing.layouts!.map((layout) => layout.entities[0]);
+  assert.deepEqual(inserts[0], {
+    kind: "insert",
+    layer: "G-ANNO-TTLB",
+    block: "TITLE BLOCK",
+    at: [0, 0],
+    id: "C-101.title-block",
+    attributes: {
+      PROJECT: "LOT 12",
+      TITLE: "SITE PLAN",
+      DATE: "2026-11-13",
+      SCALE: `1" = 10'`,
+      DRAWN: "AB",
+      CHECKED: "CD",
+      SHEET: "C-101",
+    },
+  });
+  assert.equal((inserts[1] as Insert).attributes?.SCALE, "AS SHOWN");
+  assert.equal((inserts[2] as Insert).attributes?.SCALE, "AS NOTED");
+  // The title block's definitions enter the drawing once, under their own names.
+  assert.deepEqual(
+    drawing.blocks?.map((b) => b.name),
+    ["TITLE BLOCK"],
+  );
+  assert.deepEqual(drawing.blocks?.[0], BUILT_IN_STANDARD.titleBlocks.plain.block!.blocks![0]);
+  assert.deepEqual(drawing.textStyles, [{ name: "TITLE BLOCK", font: "Arial" }]);
+  refused(() => d.block("Title Block", {}, () => {}), "duplicate-block", /already has a block/);
+  // One drawing: the number is the layout's name, and the drawing's fields give none.
+  d.layout("C-104", (sheet) =>
+    refused(
+      () => sheet.titleBlock({ number: "C-105" }),
+      "layout",
+      /^Under sheetFiles "one-drawing" a sheet's number is its layout's name, "C-104", and this one is "C-105"/,
+    ),
+  );
+  refused(
+    () => createDrawing({ standard, fields: { number: "C-1" } }),
+    "layout",
+    /^Under sheetFiles "one-drawing" a sheet's number is its layout's name/,
+  );
+  refused(
+    () => createDrawing({ standard, fields: { projet: "X" } }),
+    "standard",
+    /^fields has no field "projet"/,
+  );
+  d.layout("C-105", (sheet) =>
+    refused(
+      () => sheet.titleBlock({ REVISION: "A" }),
+      "layout",
+      /^The title block "plain" has no field "REVISION"/,
+    ),
+  );
+  refused(
+    // @ts-expect-error: fields fill a standard's title blocks.
+    () => createDrawing({ fields: { title: "A" } }),
+    "standard",
+    /^fields fills the title blocks of the drawing's standard, and this drawing has none/,
+  );
+  // A block of the title block's name is refused before it is placed too.
+  const before = createDrawing({ units: "ft", standard });
+  before.block("TITLE BLOCK", {}, () => {});
+  before.layout("C-1", (sheet) =>
+    refused(
+      () => sheet.titleBlock(),
+      "duplicate-block",
+      /^The title block "plain" holds the block "TITLE BLOCK", and the drawing has a block "TITLE BLOCK" that AutoCAD takes for it, with another definition/,
+    ),
+  );
+});
+
+test("the title block's insert holds the handles of its attributes", () => {
+  // Found by hashing the attribute handles of the title block inserts of 10^7 layouts and
+  // searching ids against them.
+  const handle = insertAttributeHandle("S6980407.title-block", "SCALE");
+  assert.equal(handle, "1B30312DFF4658");
+  assert.equal(idHandle("t74230822"), handle);
+  const after = createDrawing({ units: "ft", standard });
+  after.layout("S6980407", (sheet) => sheet.titleBlock());
+  refused(
+    () => after.line([0, 0], [1, 0], { id: "t74230822" }),
+    "id-handle",
+    /the attribute "SCALE" of the insert "S6980407.title-block"/,
+  );
+  const before = createDrawing({ units: "ft", standard });
+  before.line([0, 0], [1, 0], { id: "t74230822" });
+  before.layout("S6980407", (sheet) => {
+    refused(() => sheet.titleBlock(), "id-handle", /the id "t74230822"/);
+    // The refused title block left nothing on the layout, so it can be placed again.
+    assert.throws(() => sheet.titleBlock(), /the id "t74230822"/);
+  });
+  assert.deepEqual(before.build().layouts![0]!.entities, []);
+});
+
+/**
+ * A standard of a file per sheet whose title block's block inserts a block of an attribute with
+ * the id "S6980407.title-block", and draws on a layer with fields by discipline.
+ */
+const nested = defineStandard({
+  id: "nested",
+  version: "1",
+  extends: BUILT_IN_STANDARD,
+  sheetFiles: "sheet-per-file",
+  defaultSheetFormat: "nested",
+  layers: { "TB-CIVIL": { color: 7, byDiscipline: { C: { color: 3 } } } },
+  titleBlocks: {
+    nested: {
+      paper: "ARCH D",
+      block: (() => {
+        const d = createDrawing({ units: "in" });
+        d.layer("TB-CIVIL");
+        d.block("SCALE BOX", {}, () =>
+          d.attribute("SCALE", [33, 0.5], { value: "-", height: 0.1 }),
+        );
+        d.block("FIELDS", {}, () => {
+          d.attribute("NUMBER", [33, 1], { value: "-", height: 0.25 });
+          d.insert("SCALE BOX", [0, 0], { id: "S6980407.title-block" });
+          d.layer("TB-CIVIL", () => d.line([0.5, 0.5], [35.5, 0.5]));
+        });
+        return d.build();
+      })(),
+      blockName: "FIELDS",
+      layer: "C-PROP",
+      drawingArea: [0.5, 0.5, 35.5, 23.5],
+      fields: { NUMBER: { fills: "number" } },
+    },
+  },
+  sheetFormats: { nested: { paper: "ARCH D", titleBlock: "nested" } },
+});
+
+test("an insert with an id in a title block's block holds the handles of its attributes", () => {
+  assert.equal(insertAttributeHandle("S6980407.title-block", "SCALE"), idHandle("t74230822"));
+  const sheet = () =>
+    createDrawing({ units: "ft", standard: nested, discipline: "C", fields: { number: "A-1" } });
+  const after = sheet();
+  after.layout("A-1", (s) => s.titleBlock());
+  refused(
+    () => after.line([0, 0], [1, 0], { id: "t74230822" }),
+    "id-handle",
+    /the attribute "SCALE" of the insert "S6980407.title-block"/,
+  );
+  toDXF(after.build());
+  const before = sheet();
+  before.line([0, 0], [1, 0], { id: "t74230822" });
+  before.layout("A-1", (s) => refused(() => s.titleBlock(), "id-handle", /the id "t74230822"/));
+  toDXF(before.build());
+});
+
+test("a title block refused for a layer it draws on takes no layer or linetype", () => {
+  const d = createDrawing({ units: "ft", standard: nested, fields: { number: "A-1" } });
+  d.layout("A-1", (s) =>
+    refused(
+      () => s.titleBlock(),
+      "standard",
+      /^Layer "TB-CIVIL" has fields of its own in the discipline C/,
+    ),
+  );
+  const left = d.build();
+  assert.deepEqual(
+    [left.layers.map((l) => l.name), left.linetypes, left.blocks, left.textStyles],
+    [["0"], [], undefined, undefined],
+  );
+});
+
+test("a firm's border is an xref under the block of the fields, shared by every layout", () => {
+  const d = createDrawing({ units: "ft", standard: firm });
+  for (const [name, title] of [
+    ["A-101", "FIRST FLOOR"],
+    ["A-102", "SECOND FLOOR"],
+  ] as const) {
+    d.layout(name, (sheet) => {
+      sheet.titleBlock({ title });
+      assert.deepEqual(sheet.zone("views").width, 34);
+    });
+  }
+  const drawing = d.build();
+  assert.deepEqual(drawing.xrefs, [{ name: "BORDER", path: "border.dwg" }]);
+  assert.deepEqual(
+    drawing.layouts!.map((layout) =>
+      layout.entities.map((e) => [e.id, (e as Insert).block, (e as Insert).attributes]),
+    ),
+    [
+      [
+        ["A-101.border", "BORDER", undefined],
+        ["A-101.title-block", "FIELDS", { NUMBER: "A-101", TITLE: "FIRST FLOOR" }],
+      ],
+      [
+        ["A-102.border", "BORDER", undefined],
+        ["A-102.title-block", "FIELDS", { NUMBER: "A-102", TITLE: "SECOND FLOOR" }],
+      ],
+    ],
+  );
+  assert.deepEqual(drawing.textStyles, [{ name: "FIELDS", font: "Arial" }]);
+  // A title block refused for a block of its name leaves nothing of it in the drawing.
+  const taken = createDrawing({ units: "ft", standard: firm });
+  taken.block("FIELDS", {}, () => {});
+  taken.layout("A-101", (sheet) =>
+    refused(() => sheet.titleBlock(), "duplicate-block", /holds the block "FIELDS"/),
+  );
+  const left = taken.build();
+  assert.deepEqual(
+    [left.blocks?.map((b) => b.name), left.textStyles, left.xrefs, left.layouts![0]!.entities],
+    [["FIELDS"], undefined, undefined, []],
+  );
+  // A layout whose name is no id has inserts with none.
+  const spaced = createDrawing({ units: "ft", standard: firm });
+  spaced.layout("A 101", (sheet) => sheet.titleBlock());
+  assert.deepEqual(
+    spaced.build().layouts![0]!.entities.map((e) => e.id),
+    [undefined, undefined],
+  );
+});
+
+test("under sheet-per-file a drawing is one sheet, with a number that names its file", () => {
+  const sheet = (number?: string) => {
+    const d = createDrawing({
+      units: "ft",
+      standard: perFile,
+      ...(number ? { fields: { number } } : {}),
+    });
+    return d;
+  };
+  const d = sheet("C-101");
+  d.layout("SITE PLAN", { sheetFormat: "named" }, (page) =>
+    page.titleBlock({ title: "SITE PLAN" }),
+  );
+  const drawing = d.build();
+  // AutoCAD fills every field from the names: the builder writes the xref alone.
+  assert.deepEqual(
+    drawing.layouts![0]!.entities.map((e) => [e.id, (e as Insert).block]),
+    [[undefined, "TITLE"]],
+  );
+  refused(
+    () => d.layout("DETAILS", { sheetFormat: "named" }, () => {}),
+    "sheet-per-file",
+    /^Layout "DETAILS": Under sheetFiles "sheet-per-file" a drawing is one sheet, with one layout/,
+  );
+  refused(
+    () => sheet().layout("SITE PLAN", { sheetFormat: "named" }, () => {}),
+    "sheet-per-file",
+    /^Under sheetFiles "sheet-per-file" a sheet has a number, which names its file/,
+  );
+  sheet()
+    .layout("SITE PLAN", { sheetFormat: "named" }, (page) => page.titleBlock({ number: "C-102" }))
+    .build();
+  for (const [number, problem] of [
+    ["CON", /Windows keeps for a device/],
+    ["lpt1.dwg", /Windows keeps for a device/],
+    ["C-101.", /cannot end with a space or a dot/],
+    ["C/101", /cannot hold/],
+    ["x".repeat(65), /has 1 to 64 characters/],
+  ] as const) {
+    refused(() => sheet(number), "sheet-per-file", problem);
+  }
+  sheet().layout("SITE PLAN", { sheetFormat: "named" }, (page) => {
+    refused(
+      () => page.titleBlock({ number: "C-1", title: "SITE" }),
+      "layout",
+      /^The title block's field "TITLE" reads the layout's name, "SITE PLAN", which AutoCAD writes in it/,
+    );
+    refused(
+      () => page.titleBlock({ number: "C-1", date: "2026-11-13" }),
+      "layout",
+      /^The title block's field "DATE" holds the date AutoCAD opens or plots the sheet/,
+    );
+    page.titleBlock({ number: "C-1", title: "SITE PLAN" });
+  });
+  createDrawing({
+    units: "ft",
+    standard: perFile,
+    fields: { number: "C-1", title: "SITE" },
+  }).layout("SITE PLAN", { sheetFormat: "named" }, (page) =>
+    refused(
+      () => page.titleBlock(),
+      "layout",
+      /^The title block's field "TITLE" reads the layout's name, "SITE PLAN"/,
+    ),
+  );
+  // A model drawing has no layout, and needs no number.
+  createDrawing({ units: "ft", standard: perFile, discipline: "C" }).build();
+});
+
+test("under a standard a text names a role, and the drawing defines no text style", () => {
+  const d = createDrawing({ units: "ft", standard });
+  d.layout("C-1", () => {
+    refused(
+      // @ts-expect-error: a text names a role.
+      () => d.text([0, 0], "A", { height: 0.1 }),
+      "text-style-outside-standard",
+      /^Under a standard a text names a role of the standard/,
+    );
+    refused(
+      () => d.text([0, 0], "A"),
+      "text-style-outside-standard",
+      /^Under a standard a text names a role of the standard/,
+    );
+  });
+  d.block("B", {}, () =>
+    refused(
+      // @ts-expect-error: an attribute names a role too.
+      () => d.attribute("T", [0, 0], { style: "Standard" }),
+      "text-style-outside-standard",
+      /^Under a standard a text names a role/,
+    ),
   );
 });

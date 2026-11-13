@@ -63,6 +63,34 @@ const DIMENSION_VIEW_ON_PAPER =
   "A dimension on a layout is drawn in paper units, and names no view. Leave view out";
 const LAYOUT_PAPER_UNITS =
   "a sheet of a standard is in the standard's paper units, which its text roles and dimension styles are sized in";
+const TEXT_STYLE_DEFINED =
+  "Under a standard a text's style comes from its role, and a drawing defines no text style of its own. Add a role to the standard's textRoles in defineStandard, and name it";
+const TEXT_WITHOUT_ROLE =
+  "Under a standard a text names a role of the standard, which gives its text style and the height it plots at. Give it role, in place of height and style";
+const LAYOUT_PAPER =
+  "Under a standard a layout's paper and plot style table come from its sheet format. Give it sheetFormat, a sheet format of the standard, or leave it out for the standard's defaultSheetFormat";
+const SHEET_FORMAT_WITHOUT_STANDARD =
+  "sheetFormat names a sheet format of the drawing's standard, and this drawing has none. Draw to a standard with createDrawing({ standard }), or give the layout its paper";
+const LAYOUT_WITHOUT_PAPER =
+  "A layout of a drawing without a standard names its paper, as layout(name, { paper }, draw)";
+const LAYOUT_DRAW =
+  "layout() takes the function that draws the sheet last, and nothing after it: layout(name, { paper }, draw), or under a standard layout(name, { sheetFormat }, draw) or layout(name, draw)";
+const TITLE_BLOCK_WITHOUT_STANDARD =
+  "titleBlock() places the title block of the layout's sheet format, and this drawing has no standard. Draw to a standard with createDrawing({ standard }), or insert a block of your own";
+const TITLE_BLOCK_TWICE =
+  "A layout has one title block, and titleBlock() has placed this layout's already";
+const TITLE_BLOCK_CLOSED =
+  "A title block is placed while its layout is drawn. Call titleBlock() inside the draw of layout()";
+const ZONE_WITHOUT_STANDARD =
+  "A zone is a part of the layout's sheet format, and this drawing has no standard. Lay the sheet out from its width and height";
+const FIELDS_WITHOUT_STANDARD =
+  "fields fills the title blocks of the drawing's standard, and this drawing has none. Draw to a standard with createDrawing({ standard }), or give an insert its attributes";
+const NUMBER_ONE_DRAWING =
+  "Under sheetFiles \"one-drawing\" a sheet's number is its layout's name, which the builder writes in the title block, so createDrawing's fields give no number: one would stamp every sheet with it. Leave number out";
+const SECOND_LAYOUT =
+  'Under sheetFiles "sheet-per-file" a drawing is one sheet, with one layout, or a model drawing, with none. Draw each other sheet in a drawing of its own';
+const SHEET_WITHOUT_NUMBER =
+  'Under sheetFiles "sheet-per-file" a sheet has a number, which names its file. Give number in createDrawing\'s fields or in titleBlock()';
 
 export type StandardR12 = typeof STANDARD_R12;
 export type StandardLinetypeScale = typeof STANDARD_LINETYPE_SCALE;
@@ -79,6 +107,13 @@ export type InsertViewAndScale = typeof INSERT_VIEW_AND_SCALE;
 export type ViewportRatio = typeof VIEWPORT_RATIO;
 export type ViewportId = typeof VIEWPORT_ID;
 export type DimensionStyleDefined = typeof DIMENSION_STYLE_DEFINED;
+export type TextStyleDefined = typeof TEXT_STYLE_DEFINED;
+export type TextWithoutRole = typeof TEXT_WITHOUT_ROLE;
+export type LayoutPaper = typeof LAYOUT_PAPER;
+export type SheetFormatWithoutStandard = typeof SHEET_FORMAT_WITHOUT_STANDARD;
+export type TitleBlockWithoutStandard = typeof TITLE_BLOCK_WITHOUT_STANDARD;
+export type ZoneWithoutStandard = typeof ZONE_WITHOUT_STANDARD;
+export type FieldsWithoutStandard = typeof FIELDS_WITHOUT_STANDARD;
 
 /** The message for each rule of this file that has no name in it, for the builder. */
 export const DRAWN = {
@@ -107,6 +142,20 @@ export const DRAWN = {
   dimensionStyleDefined: DIMENSION_STYLE_DEFINED,
   dimensionWithoutView: DIMENSION_WITHOUT_VIEW,
   dimensionViewOnPaper: DIMENSION_VIEW_ON_PAPER,
+  textStyleDefined: TEXT_STYLE_DEFINED,
+  textWithoutRole: TEXT_WITHOUT_ROLE,
+  layoutPaper: LAYOUT_PAPER,
+  sheetFormatWithoutStandard: SHEET_FORMAT_WITHOUT_STANDARD,
+  layoutWithoutPaper: LAYOUT_WITHOUT_PAPER,
+  layoutDraw: LAYOUT_DRAW,
+  titleBlockWithoutStandard: TITLE_BLOCK_WITHOUT_STANDARD,
+  titleBlockTwice: TITLE_BLOCK_TWICE,
+  titleBlockClosed: TITLE_BLOCK_CLOSED,
+  zoneWithoutStandard: ZONE_WITHOUT_STANDARD,
+  fieldsWithoutStandard: FIELDS_WITHOUT_STANDARD,
+  numberOneDrawing: NUMBER_ONE_DRAWING,
+  secondLayout: SECOND_LAYOUT,
+  sheetWithoutNumber: SHEET_WITHOUT_NUMBER,
 } as const;
 
 type LayerLacks<
@@ -246,10 +295,6 @@ type RoleLacks<
 export const roleLacks = (name: string, standard: Standard): string =>
   `Role ${JSON.stringify(name)} is not a text role of ${of(standard)}. Add it to the standard, as textRoles: { ${JSON.stringify(name)}: { font: "Arial", height: 0.125 } } in defineStandard, or use one of its roles`;
 
-/** What is wrong with a text style `textStyle()` defines under the name of a role's text style. */
-export const roleTextStyleProblem = (name: string, role: string, standard: Standard): string =>
-  `Text style ${JSON.stringify(name)} is the text style of the role ${JSON.stringify(role)} of ${of(standard)}, which gives its font, width factor and oblique angle. Give the style another name, or change the role in the standard`;
-
 /** Resolves to `R` when it is a text role of the standard `Z`, and to the message otherwise. */
 export type RoleOfStandard<R extends string, Z extends Standard> = string extends R
   ? R
@@ -320,6 +365,70 @@ export const viewNotDeclared = (view: unknown): string => {
 /** What is wrong with an insert in model space, without a view, of a block with role texts. */
 export const roleBlockWithoutView = (block: string): string =>
   `Block ${JSON.stringify(block)} holds texts with roles, which are drawn in paper units, so an insert of it in model space names the view it is read in, as insert(name, at, { view })`;
+
+type SheetFormatLacks<
+  F extends string,
+  Z extends Standard,
+> = `Sheet format "${F}" is not a sheet format of ${Of<Z>}. Add it to the standard's sheetFormats in defineStandard, with its paper and its titleBlock, or use one of its sheet formats`;
+/** What is wrong with a sheet format the standard lacks. */
+export const sheetFormatLacks = (name: string, standard: Standard): string =>
+  `Sheet format ${JSON.stringify(name)} is not a sheet format of ${of(standard)}. Add it to the standard's sheetFormats in defineStandard, with its paper and its titleBlock, or use one of its sheet formats`;
+
+/** Resolves to `F` when it is a sheet format of the standard `Z`, and to the message otherwise. */
+export type SheetFormatOfStandard<F extends string, Z extends Standard> = string extends F
+  ? F
+  : F extends keyof Z["sheetFormats"]
+    ? F
+    : SheetFormatLacks<F, Z>;
+
+/** What is wrong with a layout that names no sheet format, under a standard that has no default. */
+export const noDefaultSheetFormat = (standard: Standard): string =>
+  `${capitalized(of(standard))} has no defaultSheetFormat. Give the layout the sheetFormat it is drawn on, or set defaultSheetFormat in the standard`;
+
+/** What `layout()` takes under a standard: the sheet format, which gives the paper and the rest. */
+export interface StandardLayoutOptions<F extends string = string, Z extends Standard = Standard> {
+  /** A sheet format of the standard, by its id. Defaults to its `defaultSheetFormat`. */
+  readonly sheetFormat?: SheetFormatOfStandard<F, Z>;
+  readonly paper?: LayoutPaper;
+  readonly plotStyle?: LayoutPaper;
+}
+
+/** What is wrong with a zone the layout's sheet format lacks. */
+export function zoneLacks(zone: string, format: string, zones: readonly string[]): string {
+  const listed =
+    zones.length === 0
+      ? "It has no zone, so lay the sheet out by its drawingArea"
+      : `Its zones are ${zones.length === 1 ? zones[0] : `${zones.slice(0, -1).join(", ")} and ${zones.at(-1)}`}`;
+  return `The sheet format ${JSON.stringify(format)} has no zone ${JSON.stringify(zone)}. ${listed}`;
+}
+
+/** What is wrong with a key of `fields` that names no field. */
+export function fieldLacks(key: string, where: string): string {
+  return `${where} has no field ${JSON.stringify(key)}. A key is one of number, title, project, date, scale, drawnBy and checkedBy, or the tag of a title block's field that fills none of them`;
+}
+
+/** What is wrong with a number, under `one-drawing`, that is not its layout's name. */
+export const numberNotLayoutName = (number: string, layout: string): string =>
+  `Under sheetFiles "one-drawing" a sheet's number is its layout's name, ${JSON.stringify(layout)}, and this one is ${JSON.stringify(number)}. Name the layout ${JSON.stringify(number)}, or leave number out`;
+
+/** What is wrong with a value given for a field that reads the layout's name. */
+export const layoutNameField = (tag: string, key: string, layout: string): string =>
+  `The title block's field ${JSON.stringify(tag)} reads the layout's name, ${JSON.stringify(layout)}, which AutoCAD writes in it. Leave ${key} out, or give it the layout's name`;
+
+/** What is wrong with a value given for a field that AutoCAD fills by itself. */
+export const filledByAutoCAD = (tag: string, key: string, what: string): string =>
+  `The title block's field ${JSON.stringify(tag)} holds ${what}, which AutoCAD writes in it. Leave ${key} out`;
+
+/** What is wrong with a sheet number that cannot name a file. */
+export const sheetNumberOfFile = (problem: string): string =>
+  `Under sheetFiles "sheet-per-file" a sheet's number names its file. ${problem}`;
+
+/**
+ * What is wrong with a layout whose name `layerAuditKey` folds to another layout's, where
+ * AutoCAD's own comparison of layout names keeps the two apart.
+ */
+export const layoutAuditTwin = (other: string): string =>
+  `AutoCAD's AUDIT takes this name and that of the layout ${JSON.stringify(other)} for one, as it takes a composed letter and its decomposed form, ß and ss, a name with a soft hyphen and without, and σ and ς. AutoCAD keeps both layouts, and a drawing drawn to a standard holds its layouts' names to AUDIT's comparison, as it holds its blocks' and its text styles'. Give this layout another name`;
 
 /** What is wrong with a layout whose paper is not in the standard's paper units. */
 export const layoutPaperUnitsProblem = (paper: string, units: string, standard: Standard): string =>

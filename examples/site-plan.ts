@@ -56,10 +56,13 @@
 // - A symbol is a block, drawn once and inserted where it is needed. The tree and the property
 //   corner are in the plan and in the legend, so each is inserted in model space and on the
 //   layout. A block's entities are on layer 0, so each insert draws on its own layer.
-// - The border and the title block are one block, `TITLE BLOCK`, drawn by `titleBlock`. Its
-//   fields are attributes, and the insert on the layout gives each its value. In CAD each
-//   stays an attribute. Its texts are in a text style of its own, `NOTES`, at the heights in
-//   `TITLE_BLOCK`. `titleBlock` and `TITLE_BLOCK` can be copied by themselves.
+// - The layout is on the standard's sheet format `arch-d`, which gives its paper, its title
+//   block and the zones it is laid out by: the views, the strip under them for the view titles,
+//   and the column of notes above the title block. `sheet.titleBlock()` places the border and
+//   the title block, one block whose fields are attributes, and fills them: the title from the
+//   call, the project, the date and who drew and checked it from `createDrawing`'s `fields`, the
+//   number from the layout's name and the scale from the viewport. In CAD each field stays an
+//   attribute.
 import { mkdirSync, writeFileSync } from "node:fs";
 import {
   BUILT_IN_STANDARD,
@@ -67,11 +70,9 @@ import {
   createDrawing,
   defineStandard,
   measureText,
-  PAPERS,
   toDXF,
   toSVG,
   type Drawing,
-  type DrawingBuilder,
   type Intent,
   type Point,
 } from "../src/index.ts";
@@ -88,33 +89,25 @@ export const standard = defineStandard({
   layers: { "V-TREE": { color: 3, pen: "fine", discipline: "V" } },
 });
 
-/** A builder of a drawing drawn to the standard. */
-type Builder = DrawingBuilder<"R2018", number, typeof standard>;
-
 /** A text role of the standard, which gives a text its text style and the height it plots at. */
 type Role = keyof typeof standard.textRoles;
 const roles = standard.textRoles;
 /** How long a text plots in a role, in inches. */
 const widthOf = (value: string, role: Role) => measureText({ value, ...roles[role] }).length;
 
-// The sheet. Lengths on it are inches of paper, from its lower-left corner. The paper is full
-// bleed, with no margin a plotter keeps clear, so the border sets the edge of the drawing:
-// it is `margin` inside the paper, and nothing is drawn outside it.
-const sheet = { number: "C-101", title: "SITE PLAN", paper: "ARCH D", margin: 1 / 2 } as const;
+// The sheet: its number, which is its layout's name, its title and its sheet format. Lengths on
+// it are inches of paper, from its lower-left corner. The paper is full bleed, with no margin a
+// plotter keeps clear, so the border sets the edge of the drawing, and nothing is drawn outside
+// it.
+const sheet = { number: "C-101", title: "SITE PLAN", format: "arch-d" } as const;
 const project = {
   name: "RESIDENCE AT LOT 12, BLOCK 3",
   date: "2026-11-11",
   drawnBy: "AB",
   checkedBy: "CD",
 };
-// The layout of the sheet: the width of the column of notes at the right of the drawing area,
-// the space between it and the viewport, the height of the strip under the viewport that
-// holds the view title, and how far text and symbols keep from the border. The title block is
-// at the foot of the column.
-const layout = { column: 7, gutter: 1, titleStrip: 1 + 1 / 2, clear: 1 / 4 };
-// The title block's text style and its font, which its lengths are measured in.
-const NOTES = "NOTES";
-const FONT = "Arial";
+// How far text and symbols keep from the edge of their zone.
+const clearOfEdge = 1 / 4;
 
 // The site, in feet. The lot's front left corner is the origin.
 const lot = { name: "LOT 12, BLOCK 3", width: 100, depth: 140 };
@@ -190,159 +183,6 @@ export interface Sheet {
   readonly view: Box;
 }
 
-/** A sheet's title block as a block: its name, and where its parts lie on the sheet. */
-interface TitleBlock {
-  readonly name: string;
-  readonly drawingArea: Box;
-  readonly box: Box;
-  readonly fields: Readonly<Record<string, Box>>;
-}
-
-/**
- * The title block: the name of its block, its size on the sheet and the heights of its texts,
- * in inches. `titleBlock` reads this and its arguments, and nothing else of this file.
- */
-const TITLE_BLOCK = {
-  name: "TITLE BLOCK",
-  width: 6.5,
-  height: 3,
-  text: { label: 1 / 16, field: 1 / 8, title: 3 / 16, number: 5 / 16 },
-} as const;
-
-/**
- * Defines the title block's block for a sheet `width` by `height`, in inches: the border,
- * `margin` inside the paper, and a title block in its lower right corner, with an attribute
- * for each field, a table for revisions and an area for a seal. Its texts are in the text
- * style `style`, which the drawing has. The block's base point is the sheet's lower-left
- * corner, so it is inserted on a layout at `[0, 0]`, with the fields in `attributes`.
- *
- * Its lines and texts are on layer 0, so they draw on the layer of the insert. The border and
- * the outline are drawn with the standard's heavy pen.
- */
-function titleBlock(
-  d: Builder,
-  {
-    width,
-    height,
-    margin,
-    style,
-  }: { width: number; height: number; margin: number; style: string },
-): TitleBlock {
-  const { name, text } = TITLE_BLOCK;
-  const area: Box = { left: margin, bottom: margin, right: width - margin, top: height - margin };
-  const box: Box = {
-    left: area.right - TITLE_BLOCK.width,
-    bottom: area.bottom,
-    right: area.right,
-    top: area.bottom + TITLE_BLOCK.height,
-  };
-  // The seal and the revisions take the left 2 in. The fields are in rows at their right: the
-  // project, the sheet's title, then four small fields beside the sheet number.
-  const split = box.left + 2;
-  const number = box.right - 1.75;
-  const rows = [box.top - 0.6, box.top - 1.4, box.top - 2.2];
-  const middle = (split + number) / 2;
-  const cell = (left: number, bottom: number, right: number, top: number): Box => ({
-    left,
-    bottom,
-    right,
-    top,
-  });
-  const seal = cell(box.left, box.top - 2, split, box.top);
-  const revisions = cell(box.left, box.bottom, split, seal.bottom);
-  const fields = {
-    PROJECT: cell(split, rows[0]!, box.right, box.top),
-    TITLE: cell(split, rows[1]!, box.right, rows[0]!),
-    DATE: cell(split, rows[2]!, middle, rows[1]!),
-    SCALE: cell(middle, rows[2]!, number, rows[1]!),
-    DRAWN: cell(split, box.bottom, middle, rows[2]!),
-    CHECKED: cell(middle, box.bottom, number, rows[2]!),
-    SHEET: cell(number, box.bottom, box.right, rows[1]!),
-  };
-  const pad = 1 / 16;
-  /** The small fixed text that names a cell, in its upper left corner. */
-  const label = (within: Box, value: string): void => {
-    d.text([within.left + pad, within.top - pad], value, {
-      height: text.label,
-      style,
-      valign: "top",
-    });
-  };
-  /** A field: its label, and its attribute at the foot of its cell. */
-  const field = (tag: keyof typeof fields, prompt: string, textHeight: number): void => {
-    const within = fields[tag];
-    label(within, prompt.toUpperCase());
-    d.attribute(tag, [within.left + pad, within.bottom + pad * 1.5], {
-      value: "-",
-      prompt,
-      height: textHeight,
-      style,
-    });
-  };
-
-  d.block(name, {}, () => {
-    d.rect([area.left, area.bottom], area.right - area.left, area.top - area.bottom, {
-      pen: "heavy",
-    });
-    // The title block's left and top edges. The border is its other two.
-    d.polyline(
-      [
-        [box.left, box.bottom],
-        [box.left, box.top],
-        [box.right, box.top],
-      ],
-      false,
-      { pen: "heavy" },
-    );
-    d.line([split, box.bottom], [split, box.top]);
-    d.line([box.left, seal.bottom], [split, seal.bottom]);
-    for (const y of rows) d.line([split, y], [y === rows[2] ? number : box.right, y]);
-    d.line([middle, box.bottom], [middle, rows[1]!]);
-    d.line([number, box.bottom], [number, rows[1]!]);
-
-    label(seal, "SEAL");
-    // The revisions: a heading, a row that names the columns, and three rows to fill.
-    label(revisions, "REVISIONS");
-    const rowHeight = (revisions.top - revisions.bottom) / 5;
-    const columns = [
-      { left: revisions.left, name: "NO." },
-      { left: revisions.left + 0.3, name: "DATE" },
-      { left: revisions.left + 0.9, name: "DESCRIPTION" },
-    ];
-    for (let row = 1; row < 5; row++) {
-      const y = revisions.top - rowHeight * row;
-      d.line([revisions.left, y], [revisions.right, y]);
-    }
-    for (const column of columns) {
-      const top = revisions.top - rowHeight;
-      if (column.left > revisions.left) d.line([column.left, revisions.bottom], [column.left, top]);
-      label({ ...revisions, left: column.left, top }, column.name);
-    }
-
-    field("PROJECT", "Project", text.field);
-    field("TITLE", "Sheet title", text.title);
-    field("DATE", "Date", text.field);
-    field("SCALE", "Scale", text.field);
-    field("DRAWN", "Drawn by", text.field);
-    field("CHECKED", "Checked by", text.field);
-    // The sheet number is the largest text of the sheet, centered in its cell.
-    label(fields.SHEET, "SHEET");
-    d.attribute(
-      "SHEET",
-      [(number + box.right) / 2, (fields.SHEET.bottom + fields.SHEET.top) / 2 - pad],
-      {
-        value: "-",
-        prompt: "Sheet number",
-        height: text.number,
-        style,
-        align: "center",
-        valign: "middle",
-      },
-    );
-  });
-  return { name, drawingArea: area, box, fields };
-}
-
 /**
  * Builds the sheet with its plan at a scale of the standard: `"1in-10ft"` is 1" = 10', and
  * `"1in-20ft"` is 1" = 20'.
@@ -352,28 +192,32 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
   // On a layout AutoCAD sizes dashes on the paper, in every viewport, so the standard's linetype
   // scale, 1/2, is a paper length and no drawing length: the dashes plot at half their pattern,
   // a 1/4 in dash, at every scale.
-  const d = createDrawing({ units: "ft", standard });
-  d.textStyle({ name: NOTES, font: FONT });
+  // The fields every sheet of the drawing shares in its title block.
+  const d = createDrawing({
+    units: "ft",
+    standard,
+    fields: {
+      project: project.name,
+      date: project.date,
+      drawnBy: project.drawnBy,
+      checkedBy: project.checkedBy,
+    },
+  });
   // The view of the plan, at the scale. `plan.paper` turns inches on paper into feet at its
   // ratio: a foot is 12 inches, so an inch on paper is `ratio / 12` feet.
   const plan = d.view("plan", { scale });
   const feetPerInch = plan.ratio / 12;
 
-  // The paper, and the viewport on it: the left part of the drawing area, above the strip for
-  // the view title.
-  const page = PAPERS[sheet.paper];
-  const area: Box = {
-    left: sheet.margin,
-    bottom: sheet.margin,
-    right: page.width - sheet.margin,
-    top: page.height - sheet.margin,
-  };
-  const viewport: Box = {
-    left: area.left,
-    bottom: area.bottom + layout.titleStrip,
-    right: area.right - layout.column - layout.gutter,
-    top: area.top,
-  };
+  // The viewport fills the sheet format's zone `views`. Model space is drawn before the sheet,
+  // so it reads the zone's size from the standard: the plan's lines run to the sides of the view.
+  const format = standard.sheetFormats[sheet.format];
+  const box = ([left, bottom, right, top]: readonly number[]): Box => ({
+    left: left!,
+    bottom: bottom!,
+    right: right!,
+    top: top!,
+  });
+  const viewport = box(format.zones.views!);
   // The viewport is centered on the plan: the lot and the street's right-of-way. `view` is the
   // part of model space it shows, and the lot stays at the origin at every scale.
   const planCenter: Point = [lot.width / 2, (lot.depth - street.rightOfWay) / 2];
@@ -421,12 +265,6 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
       role: "label",
       valign: "top",
     });
-  });
-  const block = titleBlock(d, {
-    width: page.width,
-    height: page.height,
-    margin: sheet.margin,
-    style: NOTES,
   });
 
   // Model space: the site, at its true size in feet.
@@ -634,36 +472,25 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
 
   // The sheet: everything drawn inside `d.layout` is on the paper, in inches, and a text there
   // plots at its role's height.
-  d.layout(sheet.number, { paper: sheet.paper }, (paperSheet) => {
-    // The border and the title block, with the sheet's fields.
-    d.layer("G-ANNO-TTLB", () => {
-      d.insert(block.name, [0, 0], {
-        id: "title-block",
-        attributes: {
-          PROJECT: project.name,
-          TITLE: sheet.title,
-          DATE: project.date,
-          SCALE: plan.label,
-          DRAWN: project.drawnBy,
-          CHECKED: project.checkedBy,
-          SHEET: paperSheet.name,
-        },
-      });
-    });
+  d.layout(sheet.number, { sheetFormat: sheet.format }, (paperSheet) => {
+    // The border and the title block, with the sheet's title. The builder fills the rest.
+    paperSheet.titleBlock({ title: sheet.title });
 
     // The plan, in its view. A viewport's border is on a layer that does not plot.
+    const views = paperSheet.zone("views");
     d.layer("G-ANNO-NPLT", () => {
-      const [width, height] = [viewport.right - viewport.left, viewport.top - viewport.bottom];
-      paperSheet.viewport([viewport.left, viewport.bottom], width, height, {
+      paperSheet.viewport([views.left, views.bottom], views.width, views.height, {
         view: plan,
         center: planCenter,
       });
     });
 
-    // The view title, under the viewport: the north arrow, the title and the graphic scale in
-    // a row. The underline of the title is level with the middle of the north arrow.
-    const underline = area.bottom + layout.clear + arrowRadius;
-    const titleX = area.left + layout.clear + arrowRadius * 2 + 3 / 8;
+    // The view title, in the strip under the viewport: the north arrow, the title and the
+    // graphic scale in a row. The underline of the title is level with the middle of the north
+    // arrow.
+    const strip = paperSheet.zone("viewTitles");
+    const underline = strip.bottom + clearOfEdge + arrowRadius;
+    const titleX = strip.left + clearOfEdge + arrowRadius * 2 + 3 / 8;
     d.layer("C-ANNO-TITL", () => {
       d.insert("VIEW TITLE", [titleX, underline], {
         attributes: { VIEW_TITLE: sheet.title, VIEW_SCALE: `SCALE: ${plan.label}` },
@@ -671,7 +498,7 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     });
     d.layer("C-ANNO-SYMB", () => {
       // The viewport is not turned, so north is up the sheet.
-      d.insert("NORTH ARROW", [area.left + layout.clear + arrowRadius, underline]);
+      d.insert("NORTH ARROW", [strip.left + clearOfEdge + arrowRadius, underline]);
 
       // A graphic scale 2 in long, divided at 1/2 in and 1 in, and numbered in feet of the
       // plan at the view's scale.
@@ -690,12 +517,13 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
       d.text([bar.x + bar.length + 1 / 8, y], "FEET", { role: "note" });
     });
 
-    // The column of notes: site data, general notes, legend and abbreviations, from the top of
-    // the drawing area down. `row` is the baseline of the next line.
-    const column = { left: area.right - layout.column, width: layout.column - layout.clear };
+    // The column of notes, in its zone above the title block: site data, general notes, legend
+    // and abbreviations, from the top down. `row` is the baseline of the next line.
+    const notes = paperSheet.zone("notes");
+    const column = { left: notes.left, width: notes.width - clearOfEdge };
     const leading = roles.label.height * 1.8; // from one line to the next
     const blockGap = 3 / 4; // between two blocks of the column
-    let row = area.top - layout.clear;
+    let row = notes.top - clearOfEdge;
 
     function columnHeading(title: string): void {
       row -= roles.heading.height;
@@ -843,12 +671,16 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     });
   });
 
+  // Where the title block's parts lie on the sheet, from the standard's title block.
+  const titleBlock = standard.titleBlocks[format.titleBlock as keyof typeof standard.titleBlocks];
   return {
     drawing: d.build(),
     layout: sheet.number,
-    drawingArea: block.drawingArea,
-    titleBlock: block.box,
-    fields: block.fields,
+    drawingArea: box(titleBlock.drawingArea),
+    titleBlock: box(titleBlock.box!),
+    fields: Object.fromEntries(
+      Object.entries(titleBlock.fields).map(([tag, field]) => [tag, box(field.box!)]),
+    ),
     viewport,
     view,
   };

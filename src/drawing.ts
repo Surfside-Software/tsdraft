@@ -28,8 +28,15 @@ import { validIdHandle } from "./handles.ts";
 import { layerAuditKey, layerKey, layoutNameKey } from "./layers.ts";
 import { validLayoutHandles } from "./layouts.ts";
 import { fromPaper, type PaperUnit } from "./paper.ts";
-import { paperInfo, type Paper, type PaperInfo, type PlotStyleTable } from "./papers.ts";
+import {
+  DEFAULT_PLOT_STYLE_TABLE,
+  paperInfo,
+  type Paper,
+  type PaperInfo,
+  type PlotStyleTable,
+} from "./papers.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
+import { canonical } from "./json.ts";
 import { DrawingError, type Diagnostic, type LintRule } from "./lint.ts";
 import {
   arcProblem,
@@ -70,6 +77,7 @@ import {
   plotStyleProblem,
   R12_ONLY,
   scaleProblem,
+  sheetNumberProblem,
   sizeProblem,
   textAlignProblem,
   textProblem,
@@ -139,29 +147,40 @@ import type {
   StandardLayer,
   StandardLinetype,
   StandardScale,
+  StandardSheetFormat,
   StandardTextRole,
+  StandardTitleBlock,
 } from "./standard/document.ts";
 import {
   dimensionStyleLacks,
   dimensionStyleReserved,
   disciplineLacks,
   DRAWN,
+  fieldLacks,
+  filledByAutoCAD,
   layerLacks,
+  layoutAuditTwin,
+  layoutNameField,
   layoutPaperUnitsProblem,
   linetypeLacks,
   noDefaultDimensionStyle,
+  noDefaultSheetFormat,
+  numberNotLayoutName,
   penLacks,
   penLineweightProblem,
   roleBlockWithoutView,
   roleLacks,
-  roleTextStyleProblem,
   scaleLacks,
+  sheetFormatLacks,
+  sheetNumberOfFile,
   unnamedDisciplineProblem,
   viewNotDeclared,
   writingLacks,
+  zoneLacks,
   type DimensionStyleDefined,
   type DimensionStyleOfStandard,
   type DisciplineWithoutStandard,
+  type FieldsWithoutStandard,
   type InsertViewAndScale,
   type LinetypeDefined,
   type PenWithoutStandard,
@@ -173,18 +192,24 @@ import {
   type RoleWithoutStandard,
   type ScaleOfStandard,
   type ScaleWithoutStandard,
+  type SheetFormatWithoutStandard,
   type StandardLayerOptions,
+  type StandardLayoutOptions,
   type LinetypeOfStandard,
   type StandardLinetypeScale,
   type LineweightUnderStandard,
   type PenOfStandard,
   type StandardR12,
+  type TextStyleDefined,
+  type TextWithoutRole,
+  type TitleBlockWithoutStandard,
   type ViewportId,
   type ViewportRatio,
   type ViewWithoutStandard,
+  type ZoneWithoutStandard,
 } from "./standard/drawn.ts";
 import { adopted } from "./standard/made.ts";
-import { capitals } from "./standard/rules.ts";
+import { capitals, FILL_KEYS, READS_A_NAME } from "./standard/rules.ts";
 
 /** A model-space point, in drawing units. Y points up, as in CAD. */
 export type Point = readonly [x: number, y: number];
@@ -628,6 +653,13 @@ export interface DrawingOptions<
    */
   readonly discipline?: Z extends Standard ? DisciplineOfStandard<D, Z> : DisciplineWithoutStandard;
   /**
+   * The values the drawing's sheets share in their title blocks, by what a field fills, such as
+   * `project`, and by its tag for a field that fills none of them. `titleBlock()` gives a sheet's
+   * own, which take their place. Under `sheetFiles` `"one-drawing"` a sheet's number is its
+   * layout's name, and `fields` gives none.
+   */
+  readonly fields?: Z extends Standard ? TitleBlockFields : FieldsWithoutStandard;
+  /**
    * Whether to record the call that draws each entity, so that a `lint` diagnostic names it in
    * `call`. It more than doubles the time the builder takes. Defaults to `false`, or to `true` when
    * `globalThis.TSDRAFT_RECORD_CALLS` is `true`, which a tool that runs drawing files sets
@@ -870,27 +902,24 @@ interface TextPlacement<V extends DxfVersion, Z extends Standard | undefined> {
 
 /**
  * The role, height and style of a text or an attribute, where `Height` and `Style` are what it
- * takes without a role. Under a standard a literal role gives the height and the style, and the
- * options are one of two whole shapes, with the role or with none, so each branch of a
- * conditional is checked as written. A role that is not a literal is checked when the code runs.
- * One conditional on `Z` around both shapes would make a builder without a standard not
- * assignable to one whose standard may be any.
+ * takes without a standard. Under a standard a text names a role, which gives its height and its
+ * style, so a literal height or style is a compile error with the builder's message: with a
+ * literal role it names the role, and without one it says to give one. Each conditional is inside
+ * the field it rules, so each branch of a conditional is checked as written.
  */
-type Sized<Z extends Standard | undefined, R extends string, Height, Style> =
-  | Size<
-      Z extends Standard ? RoleOfStandard<R, Z> : RoleWithoutStandard,
-      RoleOr<Z, R, Height, RoleAndHeight>,
-      RoleOr<Z, R, Style, RoleAndStyle>
-    >
-  | (Z extends Standard ? (string extends R ? never : Size<undefined, Height, Style>) : never);
+type Sized<Z extends Standard | undefined, R extends string, Height, Style> = Size<
+  Z extends Standard ? RoleOfStandard<R, Z> : RoleWithoutStandard,
+  RoleOr<Z, R, Height, RoleAndHeight>,
+  RoleOr<Z, R, Style, RoleAndStyle>
+>;
 
 /**
- * `Given` for a text with no role, or a role that is not a literal, and `Message` for a text with
- * a literal role under a standard, which takes no height and no style of its own.
+ * `Given` without a standard. Under one, `Message` for a text with a literal role, which takes no
+ * height and no style of its own, and the message that says to give a role for a text with none.
  */
 type RoleOr<Z extends Standard | undefined, R extends string, Given, Message> = Z extends Standard
   ? string extends R
-    ? Given
+    ? TextWithoutRole
     : Message
   : Given;
 
@@ -1122,6 +1151,7 @@ export interface LayoutOptions<P extends string = string> {
   readonly paper: PaperOf<P>;
   /** Defaults to `"monochrome.ctb"`, which plots every color in black. */
   readonly plotStyle?: PlotStyleTable;
+  readonly sheetFormat?: SheetFormatWithoutStandard;
 }
 
 /** The view of a viewport: what `viewport()` takes after the rectangle. */
@@ -1190,6 +1220,26 @@ export interface Sheet<Z extends Standard | undefined = undefined> {
   /** The paper's size, in its units. The sheet's lower-left corner is `[0, 0]`. */
   readonly width: number;
   readonly height: number;
+  /** Under a standard, the part of the paper inside the border of the sheet format's title block. */
+  readonly drawingArea: Z extends Standard ? Zone : undefined;
+  /**
+   * A zone of the layout's sheet format, a box of its drawing area that the sheet is laid out by,
+   * such as `views`. Under a standard alone.
+   */
+  zone(name: Z extends Standard ? string : ZoneWithoutStandard): Zone;
+  /**
+   * Places the layout's title block: the firm's drawing as an xref at its point, when the title
+   * block has one, and the block of its fields at `[0, 0]` over it, on the title block's layer. A
+   * field is filled from `fields`, then from `createDrawing`'s `fields`, then by the builder:
+   * under `sheetFiles` `"one-drawing"` the number is the layout's name, and the scale is the label
+   * of the one scale the layout's viewports show, or `AS NOTED` when they show more, which the
+   * builder writes when the layout's `draw` returns. Under a standard alone, once on a layout.
+   */
+  titleBlock(
+    ...fields: Z extends Standard
+      ? [fields?: TitleBlockFields]
+      : [fields: TitleBlockWithoutStandard]
+  ): this;
   /**
    * Adds a viewport: a rectangle from its lower-left `corner`, in paper units, that shows
    * model space about `view.center` at `view.ratio`. Its border is on the current layer, and
@@ -1202,6 +1252,35 @@ export interface Sheet<Z extends Standard | undefined = undefined> {
     height: Positive<H>,
     view: Z extends Standard ? StandardViewportOptions : ViewportOptions<R, I>,
   ): this;
+}
+
+/** A box of the paper, in paper units: a zone of a sheet format, or its drawing area. */
+export interface Zone {
+  readonly left: number;
+  readonly bottom: number;
+  readonly right: number;
+  readonly top: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * The values a title block's fields are filled with, by what a field fills, and by its tag for a
+ * field that fills none of these. A field whose source is `attribute` is written as the value of
+ * its attribute.
+ */
+export interface TitleBlockFields {
+  /** The sheet's number. Under `sheetFiles` `"one-drawing"` it is the layout's name. */
+  readonly number?: string;
+  readonly title?: string;
+  readonly project?: string;
+  readonly date?: string;
+  /** Defaults to the label of the one scale the layout's viewports show, or `AS NOTED`. */
+  readonly scale?: string;
+  readonly drawnBy?: string;
+  readonly checkedBy?: string;
+  /** A field that fills none of the above, by its tag. */
+  readonly [tag: string]: string | undefined;
 }
 
 /** The linetype and lineweight an entity is stored with: only what differs from ByLayer. */
@@ -1241,6 +1320,21 @@ interface OpenLayout {
   readonly ids: string[];
   /** The views its viewports show. */
   readonly views: Shown[];
+  /** Under a standard, its sheet format, by its id as the standard spells it. */
+  readonly format: readonly [id: string, format: StandardSheetFormat] | undefined;
+  /**
+   * The title block once `titleBlock()` has placed it: the index of the insert of its fields, the
+   * tags of its attributes in order, those the builder fills with the scale when `draw` returns,
+   * and the sheet's number under `sheet-per-file`.
+   */
+  titleBlock:
+    | {
+        readonly index: number | undefined;
+        readonly tags: readonly string[];
+        readonly scaleTags: readonly string[];
+        readonly number: string | undefined;
+      }
+    | undefined;
   /** True once `draw` has returned or thrown. */
   closed: boolean;
 }
@@ -1446,24 +1540,25 @@ export class DrawingBuilder<
   /**
    * Defines a text style, or updates the one of the same name. `notes` and `NOTES` are the
    * same style, and keep the first spelling. `Standard` is in every drawing, with the font
-   * `txt.shx`. Under a standard, a role's text style is the standard's, and `textStyle()` defines
-   * none of that name.
+   * `txt.shx`. A drawing drawn to a standard defines none: its texts' styles are its roles'.
    */
   textStyle<
     N extends string,
     F extends string,
     W extends number = number,
     O extends number = number,
-  >(style: V extends "R12" ? R12Text : TextStyleDefinition<N, F, W, O>): this {
+  >(
+    style: Z extends Standard
+      ? TextStyleDefined
+      : V extends "R12"
+        ? R12Text
+        : TextStyleDefinition<N, F, W, O>,
+  ): this {
     const definition = style as unknown as TextStyleDefinition;
     const name: unknown = definition?.name;
     try {
       if (this.dxf === "R12") refuse("text-style", R12_ONLY.text);
-      const role =
-        typeof name === "string" ? this.#standard?.roleStyles.get(layerKey(name)) : undefined;
-      if (role !== undefined) {
-        refuse("text-style", roleTextStyleProblem(name as string, role, this.#standard!.standard));
-      }
+      if (this.#standard) refuse("text-style-outside-standard", DRAWN.textStyleDefined);
       this.#defineTextStyle(definition);
     } catch (thrown) {
       const about = typeof name === "string" ? { textStyle: name } : {};
@@ -1918,32 +2013,41 @@ export class DrawingBuilder<
     // The parameter type is the error message when a literal is wrong, so read it as a string.
     const requested = name as string;
     try {
-      const fail = (rule: LintRule, problem: string): never =>
-        refuse(rule, `Xref ${JSON.stringify(requested)}: ${problem}`);
-      if (this.dxf === "R12") fail("xref", R12_ONLY.xrefs);
-      const nameProblem = blockNameProblem(requested);
-      if (nameProblem) fail("xref", nameProblem);
-      const first = this.#blocksAudited.get(layerAuditKey(requested));
-      if (first !== undefined) {
-        fail(
-          "duplicate-block",
-          xrefTwinProblem(requested, first.name, first.xref ? "xref" : "block"),
-        );
-      }
-      const pathProblem = xrefPathProblem(path);
-      if (pathProblem) fail("xref", pathProblem);
-      const handles = blockHandles(requested);
-      const what = `the xref ${JSON.stringify(requested)}`;
-      // An xref belongs to the drawing, also when it is referenced while a block is drawn.
-      for (const handle of [handles.record, handles.begin, handles.end]) {
-        this.#claim(handle, what, undefined, []);
-      }
-      this.#xrefs.set(layerKey(requested), { name: requested, path: path as string });
-      this.#blocksAudited.set(layerAuditKey(requested), { name: requested, xref: true });
+      this.#defineXref(requested, path);
     } catch (thrown) {
       throw located(thrown, DrawingBuilder.prototype.xref, { xref: requested });
     }
     return this;
+  }
+
+  /**
+   * Checks an xref and stores it. With `shared`, an xref the drawing has of the same name and
+   * path is the one it keeps, as a title block's border on each layout is.
+   */
+  #defineXref(requested: string, path: unknown, shared = false): void {
+    const fail = (rule: LintRule, problem: string): never =>
+      refuse(rule, `Xref ${JSON.stringify(requested)}: ${problem}`);
+    if (this.dxf === "R12") fail("xref", R12_ONLY.xrefs);
+    const nameProblem = blockNameProblem(requested);
+    if (nameProblem) fail("xref", nameProblem);
+    if (shared && this.#xrefs.get(layerKey(requested))?.path === path) return;
+    const first = this.#blocksAudited.get(layerAuditKey(requested));
+    if (first !== undefined) {
+      fail(
+        "duplicate-block",
+        xrefTwinProblem(requested, first.name, first.xref ? "xref" : "block"),
+      );
+    }
+    const pathProblem = xrefPathProblem(path);
+    if (pathProblem) fail("xref", pathProblem);
+    const handles = blockHandles(requested);
+    const what = `the xref ${JSON.stringify(requested)}`;
+    // An xref belongs to the drawing, also when it is referenced while a block or a layout is drawn.
+    for (const handle of [handles.record, handles.begin, handles.end]) {
+      this.#claim(handle, what, undefined, []);
+    }
+    this.#xrefs.set(layerKey(requested), { name: requested, path: path as string });
+    this.#blocksAudited.set(layerAuditKey(requested), { name: requested, xref: true });
   }
 
   /**
@@ -2021,100 +2125,115 @@ export class DrawingBuilder<
     at: Point,
     options: InsertOptions<S, I, Z> = {},
   ): this {
-    return this.#add(DrawingBuilder.prototype.insert, options, () => {
-      if (this.dxf === "R12") refuse("block", R12_ONLY.blocks);
-      const requested: unknown = block;
-      if (typeof requested !== "string")
-        return refuse("undefined-block", "A block is named by a string");
-      const nameProblem = blockNameProblem(requested);
-      if (nameProblem)
-        refuse("undefined-block", `Block ${JSON.stringify(requested)}: ${nameProblem}`);
-      if (this.#open && layerAuditKey(this.#open.name) === layerAuditKey(requested)) {
-        refuse("block-cycle", blockCycleProblem([this.#open.name, this.#open.name]));
+    return this.#add(DrawingBuilder.prototype.insert, options, () =>
+      this.#placed(block, at, options),
+    );
+  }
+
+  /** Checks an insert of a block or an xref, and returns it on the current layer. */
+  #placed(
+    block: unknown,
+    at: Point,
+    options: {
+      readonly scale?: unknown;
+      readonly view?: unknown;
+      readonly rotation?: number;
+      readonly attributes?: unknown;
+      readonly id?: unknown;
+    },
+  ): Insert {
+    if (this.dxf === "R12") refuse("block", R12_ONLY.blocks);
+    const requested: unknown = block;
+    if (typeof requested !== "string")
+      return refuse("undefined-block", "A block is named by a string");
+    const nameProblem = blockNameProblem(requested);
+    if (nameProblem)
+      refuse("undefined-block", `Block ${JSON.stringify(requested)}: ${nameProblem}`);
+    if (this.#open && layerAuditKey(this.#open.name) === layerAuditKey(requested)) {
+      refuse("block-cycle", blockCycleProblem([this.#open.name, this.#open.name]));
+    }
+    const xref = this.#xrefs.get(layerKey(requested));
+    const placed = this.#blocks.get(layerKey(requested));
+    if (!placed && !xref) {
+      refuse(
+        "undefined-block",
+        `${undefinedBlockProblem(requested)}. Define it with block() or xref() first`,
+      );
+    }
+    const insert: { -readonly [K in keyof Insert]: Insert[K] } = {
+      kind: "insert",
+      layer: this.#current,
+      block: (placed ?? xref)!.name,
+      at: pt(at),
+    };
+    let scale: unknown = options.scale;
+    const view: unknown = options.view;
+    const inModel = !this.#open && !this.#sheet;
+    if (view !== undefined) {
+      if (!this.#standard) refuse("role", DRAWN.viewWithoutStandard);
+      if (!inModel) refuse("role", DRAWN.insertViewOnPaper);
+      if (scale !== undefined) refuse("role", DRAWN.insertViewAndScale);
+      scale = onPaper(this.#declared(view, "role").view, 1, "scale");
+    } else if (inModel && placed && this.#roleBlocks.has(layerKey(placed.name))) {
+      refuse("role", roleBlockWithoutView(placed.name));
+    }
+    if (scale !== undefined) {
+      const pair = (typeof scale === "number" ? [scale, scale] : scale) as readonly unknown[];
+      if (!Array.isArray(pair) || pair.length !== 2) {
+        refuse("geometry", "scale must be a number or [x, y]");
       }
-      const xref = this.#xrefs.get(layerKey(requested));
-      const placed = this.#blocks.get(layerKey(requested));
-      if (!placed && !xref) {
-        refuse(
-          "undefined-block",
-          `${undefinedBlockProblem(requested)}. Define it with block() or xref() first`,
-        );
-      }
-      const insert: { -readonly [K in keyof Insert]: Insert[K] } = {
-        kind: "insert",
-        layer: this.#current,
-        block: (placed ?? xref)!.name,
-        at: pt(at),
-      };
-      let scale: unknown = options.scale;
-      const view: unknown = options.view;
-      const inModel = !this.#open && !this.#sheet;
-      if (view !== undefined) {
-        if (!this.#standard) refuse("role", DRAWN.viewWithoutStandard);
-        if (!inModel) refuse("role", DRAWN.insertViewOnPaper);
-        if (scale !== undefined) refuse("role", DRAWN.insertViewAndScale);
-        scale = onPaper(this.#declared(view, "role").view, 1, "scale");
-      } else if (inModel && placed && this.#roleBlocks.has(layerKey(placed.name))) {
-        refuse("role", roleBlockWithoutView(placed.name));
-      }
-      if (scale !== undefined) {
-        const pair = (typeof scale === "number" ? [scale, scale] : scale) as readonly unknown[];
-        if (!Array.isArray(pair) || pair.length !== 2) {
-          refuse("geometry", "scale must be a number or [x, y]");
-        }
-        const problem = scaleProblem(pair[0]) ?? scaleProblem(pair[1]);
-        if (problem) refuse("geometry", `scale: ${problem}`);
-        if (pair[0] !== 1 || pair[1] !== 1) insert.scale = [pair[0] as number, pair[1] as number];
-      }
-      const rotation = kept(options.rotation ?? 0, "rotation");
-      if (rotation !== 0) insert.rotation = rotation;
-      const set: unknown = options.attributes;
-      if (set !== undefined && (typeof set !== "object" || set === null || Array.isArray(set))) {
-        return refuse("undefined-attribute", ATTRIBUTES_SHAPE);
-      }
-      if (!placed) {
-        if (set !== undefined && Object.keys(set).length > 0) {
-          refuse("undefined-attribute", XREF_ATTRIBUTES);
-        }
-        return insert;
-      }
-      const definitions = placed.attributes ?? [];
-      if (set !== undefined) {
-        const values: Record<string, string> = {};
-        for (const [tag, value] of Object.entries(set as Record<string, unknown>)) {
-          if (!definitions.some((definition) => definition.tag === tag)) {
-            refuse("undefined-attribute", undefinedAttributeProblem(tag, placed.name));
-          }
-          const problem = typeof value === "string" ? textProblem(value) : "must be a string";
-          if (problem) refuse("text", `attribute ${JSON.stringify(tag)}: ${problem}`);
-          values[tag] = value as string;
-        }
-        if (Object.keys(values).length > 0) insert.attributes = values;
-      }
-      for (const definition of definitions) {
-        const style =
-          definition.style === undefined
-            ? undefined
-            : this.#textStyles.get(layerKey(definition.style));
-        const problem = placedAttributeProblem(
-          definition.tag,
-          placeAttribute(definition, style, insert, placed.base),
-        );
-        if (problem) refuse("geometry", problem);
-      }
-      const id: unknown = options.id;
-      if (typeof id === "string" && definitions.length > 0) {
-        const what = `the insert ${JSON.stringify(id)}`;
-        for (const { tag } of definitions) {
-          this.#claim(
-            insertAttributeHandle(id, tag),
-            `the attribute ${JSON.stringify(tag)} of ${what}`,
-          );
-        }
-        this.#claim(insertEndHandle(id), `the end of the attributes of ${what}`);
+      const problem = scaleProblem(pair[0]) ?? scaleProblem(pair[1]);
+      if (problem) refuse("geometry", `scale: ${problem}`);
+      if (pair[0] !== 1 || pair[1] !== 1) insert.scale = [pair[0] as number, pair[1] as number];
+    }
+    const rotation = kept(options.rotation ?? 0, "rotation");
+    if (rotation !== 0) insert.rotation = rotation;
+    const set: unknown = options.attributes;
+    if (set !== undefined && (typeof set !== "object" || set === null || Array.isArray(set))) {
+      return refuse("undefined-attribute", ATTRIBUTES_SHAPE);
+    }
+    if (!placed) {
+      if (set !== undefined && Object.keys(set).length > 0) {
+        refuse("undefined-attribute", XREF_ATTRIBUTES);
       }
       return insert;
-    });
+    }
+    const definitions = placed.attributes ?? [];
+    if (set !== undefined) {
+      const values: Record<string, string> = {};
+      for (const [tag, value] of Object.entries(set as Record<string, unknown>)) {
+        if (!definitions.some((definition) => definition.tag === tag)) {
+          refuse("undefined-attribute", undefinedAttributeProblem(tag, placed.name));
+        }
+        const problem = typeof value === "string" ? textProblem(value) : "must be a string";
+        if (problem) refuse("text", `attribute ${JSON.stringify(tag)}: ${problem}`);
+        values[tag] = value as string;
+      }
+      if (Object.keys(values).length > 0) insert.attributes = values;
+    }
+    for (const definition of definitions) {
+      const style =
+        definition.style === undefined
+          ? undefined
+          : this.#textStyles.get(layerKey(definition.style));
+      const problem = placedAttributeProblem(
+        definition.tag,
+        placeAttribute(definition, style, insert, placed.base),
+      );
+      if (problem) refuse("geometry", problem);
+    }
+    const id: unknown = options.id;
+    if (typeof id === "string" && definitions.length > 0) {
+      const what = `the insert ${JSON.stringify(id)}`;
+      for (const { tag } of definitions) {
+        this.#claim(
+          insertAttributeHandle(id, tag),
+          `the attribute ${JSON.stringify(tag)} of ${what}`,
+        );
+      }
+      this.#claim(insertEndHandle(id), `the end of the attributes of ${what}`);
+    }
+    return insert;
   }
 
   /**
@@ -2425,19 +2544,40 @@ export class DrawingBuilder<
    * shows model space on it at a scale. Inside `draw` the current layer starts as `"0"`. A
    * layout is defined once, and not inside a block or another layout. AutoCAD opens a drawing
    * on its first layout.
+   *
+   * Drawn to a standard, a layout is on a sheet format of the standard, which gives its paper,
+   * its plot style table, its title block and its zones: `layout(name, { sheetFormat }, draw)`,
+   * or `layout(name, draw)` for the standard's `defaultSheetFormat`. The sheet's `zone()` and
+   * `drawingArea` lay it out, and `titleBlock()` places its title block.
    */
-  layout<N extends string, P extends string>(
+  layout<N extends string, P extends string, F extends string = string>(
     name: V extends "R12" ? R12Layouts : LayoutName<N>,
-    options: LayoutOptions<P>,
-    draw: (sheet: Sheet<Z>) => void,
+    // Options of `undefined` are none. The conditional over `Z` stays one member of a union, so a
+    // builder of one standard is still a builder of any.
+    ...args:
+      | [
+          options:
+            | (Z extends Standard ? StandardLayoutOptions<F, Z> : LayoutOptions<P>)
+            | undefined,
+          draw: (sheet: Sheet<Z>) => void,
+        ]
+      | [draw: (sheet: Sheet<Z>) => void]
   ): this {
     // The parameter type is the error message when a literal name is wrong, so read it as a string.
     const requested = name as string;
+    // `draw` is last: the second argument, or the third after the options.
+    const [first, second] = args as readonly unknown[];
+    const drawFirst = typeof first === "function";
+    const given = drawFirst ? undefined : first;
+    const draw = (drawFirst ? first : second) as (sheet: Sheet<Z>) => void;
     let open: OpenLayout;
     const taken: string[] = [];
     try {
       const fail = (rule: LintRule, problem: string): never =>
         refuse(rule, `Layout ${JSON.stringify(requested)}: ${problem}`);
+      if (typeof draw !== "function" || args.length !== (drawFirst ? 1 : 2)) {
+        fail("layout", DRAWN.layoutDraw);
+      }
       if (this.dxf === "R12") fail("layout", R12_ONLY.layouts);
       const nameProblem = layoutNameProblem(requested);
       if (nameProblem) fail("layout", nameProblem);
@@ -2458,15 +2598,56 @@ export class DrawingBuilder<
           fail("duplicate-layout", layoutTwinProblem(requested, other?.name ?? requested)!);
         }
       }
-      const paper: unknown = options?.paper;
+      const drawn = this.#standard;
+      const o = (given ?? {}) as {
+        readonly paper?: unknown;
+        readonly plotStyle?: unknown;
+        readonly sheetFormat?: unknown;
+      };
+      let paper: unknown = o.paper;
+      let plotStyle: unknown = o.plotStyle;
+      let format: OpenLayout["format"];
+      if (drawn) {
+        const { standard } = drawn;
+        if (paper !== undefined || plotStyle !== undefined) {
+          fail("sheet-format-outside-standard", DRAWN.layoutPaper);
+        }
+        const id = o.sheetFormat === undefined ? standard.defaultSheetFormat : o.sheetFormat;
+        if (id === undefined) fail("sheet-format-outside-standard", noDefaultSheetFormat(standard));
+        format = typeof id === "string" ? drawn.sheetFormats.get(idKey(id)) : undefined;
+        if (format === undefined) {
+          fail(
+            "sheet-format-outside-standard",
+            typeof id === "string"
+              ? sheetFormatLacks(id, standard)
+              : "A sheet format is named by a string",
+          );
+        }
+        if (standard.sheetFiles === "sheet-per-file" && this.#layouts.size > 0) {
+          fail("sheet-per-file", DRAWN.secondLayout);
+        }
+        // AutoCAD keeps two layouts apart whose names only its AUDIT takes for one, and the
+        // record of each one's sheet format would have one key for the two.
+        for (const other of this.#layouts.values()) {
+          if (other && layerAuditKey(other.name) === layerAuditKey(requested)) {
+            fail("duplicate-layout", layoutAuditTwin(other.name));
+          }
+        }
+        paper = format![1].paper;
+        const table = format![1].plotStyle ?? standard.plotStyle;
+        plotStyle = table === DEFAULT_PLOT_STYLE_TABLE ? undefined : table;
+      } else {
+        if (given === undefined) fail("layout", DRAWN.layoutWithoutPaper);
+        if (o.sheetFormat !== undefined) {
+          fail("sheet-format-outside-standard", DRAWN.sheetFormatWithoutStandard);
+        }
+      }
       const problem = paperProblem(paper);
       if (problem) fail("layout", problem);
       const info = paperInfo(paper as Paper)!;
-      const standard = this.#standard?.standard;
-      if (standard && info.units !== standard.paperUnits) {
-        fail("layout", layoutPaperUnitsProblem(paper as string, info.units, standard));
+      if (drawn && info.units !== drawn.standard.paperUnits) {
+        fail("layout", layoutPaperUnitsProblem(paper as string, info.units, drawn.standard));
       }
-      const plotStyle: unknown = options.plotStyle;
       if (plotStyle !== undefined) {
         const styleProblem = plotStyleProblem(plotStyle);
         if (styleProblem) fail("layout", styleProblem);
@@ -2486,6 +2667,8 @@ export class DrawingBuilder<
         handles: taken,
         ids: [],
         views: [],
+        format,
+        titleBlock: undefined,
         closed: false,
       };
     } catch (thrown) {
@@ -2499,12 +2682,25 @@ export class DrawingBuilder<
     const previous = this.#current;
     this.#current = "0";
     this.#sheet = open;
+    const area = open.format && this.#sheetTitleBlock(open.format)[1].drawingArea;
     const sheet: Sheet<Z> = {
       name: open.name,
       paper: open.paper,
       units: open.info.units,
       width: open.info.width,
       height: open.info.height,
+      drawingArea: (area ? zoneOf(area) : undefined) as Sheet<Z>["drawingArea"],
+      zone: (zone) => {
+        try {
+          return this.#zone(open, zone);
+        } catch (thrown) {
+          throw located(thrown, sheet.zone, { layout: open.name });
+        }
+      },
+      titleBlock: (...fields) => {
+        this.#titleBlock(sheet.titleBlock, open, fields[0]);
+        return sheet as never;
+      },
       viewport: (corner, width, height, view) => {
         this.#viewport(sheet.viewport, open, corner, width, height, view);
         return sheet as never;
@@ -2512,13 +2708,14 @@ export class DrawingBuilder<
     };
     try {
       draw(sheet);
+      this.#finishSheet(open);
     } catch (thrown) {
       // Nothing of a layout that was not finished stays, so the call can be made again.
       this.#layouts.delete(key);
       for (const handle of open.handles) this.#handles.delete(handle);
       for (const id of open.ids) this.#ids.delete(id);
       for (const shown of open.views) shown.shown = false;
-      throw thrown;
+      throw located(thrown, DrawingBuilder.prototype.layout, { layout: requested });
     } finally {
       this.#current = previous;
       this.#sheet = undefined;
@@ -2536,6 +2733,317 @@ export class DrawingBuilder<
       entities: open.entities,
     });
     return this;
+  }
+
+  /** The title block of a sheet format, as the standard spells its id. */
+  #sheetTitleBlock([, format]: readonly [string, StandardSheetFormat]): readonly [
+    string,
+    StandardTitleBlock,
+  ] {
+    return this.#standard!.titleBlocks.get(idKey(format.titleBlock))!;
+  }
+
+  /** A zone of the sheet format of the layout being drawn, by its id in any case. */
+  #zone(open: OpenLayout, name: unknown): Zone {
+    if (!open.format) return refuse("layout", DRAWN.zoneWithoutStandard);
+    const [id, format] = open.format;
+    const found =
+      typeof name === "string"
+        ? Object.entries(format.zones).find(([zone]) => idKey(zone) === idKey(name))
+        : undefined;
+    if (!found) {
+      return refuse(
+        "layout",
+        typeof name === "string"
+          ? zoneLacks(name, id, Object.keys(format.zones))
+          : "A zone is named by a string",
+      );
+    }
+    return zoneOf(found[1]);
+  }
+
+  /**
+   * Places the title block of the layout being drawn: its xref, and the block of its fields over
+   * it with the values the fields are filled with. `method` is the sheet's own.
+   */
+  #titleBlock(method: Method, open: OpenLayout, given: unknown): void {
+    try {
+      const drawn = this.#standard;
+      if (!drawn) refuse("layout", DRAWN.titleBlockWithoutStandard);
+      if (open.closed) refuse("layout", DRAWN.titleBlockClosed);
+      if (open.titleBlock) refuse("layout", DRAWN.titleBlockTwice);
+      const [id, block] = this.#sheetTitleBlock(open.format!);
+      const { standard } = drawn!;
+      const oneDrawing = standard.sheetFiles === "one-drawing";
+      const fields = Object.entries(block.fields);
+      if (
+        oneDrawing &&
+        fields.some(([, f]) => f.source === "fileName" || f.source === "layoutName")
+      ) {
+        refuse("standard", READS_A_NAME);
+      }
+      const own = titleBlockValues(given, id, fields);
+      if (own.number !== undefined) {
+        if (oneDrawing && own.number !== open.name) {
+          refuse("layout", numberNotLayoutName(own.number, open.name));
+        }
+        const problem = oneDrawing ? undefined : sheetNumberProblem(own.number);
+        if (problem) refuse("sheet-per-file", sheetNumberOfFile(problem));
+      }
+      const values: Record<string, string | undefined> = { ...drawn!.fields, ...own };
+      if (oneDrawing) values.number = open.name;
+      const attributes: Record<string, string> = {};
+      const tags: string[] = [];
+      const scaleTags: string[] = [];
+      for (const [tag, field] of fields) {
+        const key = field.fills ?? tag;
+        if (field.source === "layoutName") {
+          // Such a field is in a file of one sheet, so the drawing's own value is this sheet's.
+          if (values[key] !== undefined && values[key] !== open.name) {
+            refuse("layout", layoutNameField(tag, key, open.name));
+          }
+        } else if (field.source === "currentDate") {
+          const taken = fields.some(([, f]) => f.source === "attribute" && (f.fills ?? "") === key);
+          if (own[key] !== undefined && !taken) {
+            refuse(
+              "layout",
+              filledByAutoCAD(tag, key, "the date AutoCAD opens or plots the sheet"),
+            );
+          }
+        } else if (field.source === "attribute") {
+          tags.push(tag);
+          const value = values[key];
+          if (value !== undefined) attributes[tag] = value;
+          else if (key === "scale") scaleTags.push(tag);
+        }
+      }
+      const [layer, copied] = this.#layersOrNone(
+        () =>
+          [
+            this.#standardLayer(block.layer, {} as LayerOptions),
+            block.block && this.#copyTitleBlock(id, block),
+          ] as const,
+      );
+      const target = open.entities;
+      const entities = target.length;
+      const calls = open.calls?.length ?? 0;
+      const ids = open.ids.length;
+      const handles = open.handles.length;
+      const previous = this.#current;
+      this.#current = layer.name;
+      let index: number | undefined;
+      try {
+        if (block.xref) {
+          const { name, path, at } = block.xref;
+          this.#defineXref(name, path, true);
+          const border = idWith(`${open.name}.border`);
+          this.#add(method, border, () => this.#placed(name, at, border));
+        }
+        if (copied !== undefined) {
+          index = target.length;
+          const fields = idWith(`${open.name}.title-block`);
+          this.#add(method, fields, () => this.#placed(copied, [0, 0], { ...fields, attributes }));
+        }
+      } catch (thrown) {
+        // A refused insert leaves nothing on the layout.
+        target.length = entities;
+        open.calls?.splice(calls);
+        for (const key of open.ids.splice(ids)) this.#ids.delete(key);
+        for (const handle of open.handles.splice(handles)) this.#handles.delete(handle);
+        throw thrown;
+      } finally {
+        this.#current = previous;
+      }
+      open.titleBlock = { index, tags, scaleTags, number: oneDrawing ? undefined : own.number };
+    } catch (thrown) {
+      throw located(thrown, method, { layout: open.name });
+    }
+  }
+
+  /**
+   * What the builder does when a layout's `draw` returns: it fills the scale of the title block's
+   * fields that were given none, and under `sheet-per-file` it requires the sheet's number.
+   */
+  #finishSheet(open: OpenLayout): void {
+    const drawn = this.#standard;
+    if (!drawn) return;
+    const block = open.titleBlock;
+    const labels = [...new Set(open.views.map((shown) => shown.view.label))];
+    if (block?.index !== undefined && block.scaleTags.length > 0 && labels.length > 0) {
+      const scale = labels.length === 1 ? labels[0]! : "AS NOTED";
+      const insert = open.entities[block.index] as Insert;
+      const set: Record<string, string> = {};
+      for (const tag of block.tags) {
+        const value = block.scaleTags.includes(tag) ? scale : insert.attributes?.[tag];
+        if (value !== undefined) set[tag] = value;
+      }
+      const placed = this.#blocks.get(layerKey(insert.block))!;
+      const filled: Insert = { ...insert, attributes: set };
+      for (const definition of placed.attributes ?? []) {
+        if (!block.scaleTags.includes(definition.tag)) continue;
+        const style =
+          definition.style === undefined
+            ? undefined
+            : this.#textStyles.get(layerKey(definition.style));
+        const problem = placedAttributeProblem(
+          definition.tag,
+          placeAttribute(definition, style, filled, placed.base),
+        );
+        if (problem) refuse("geometry", problem);
+      }
+      open.entities[block.index] = filled;
+    }
+    if (drawn.standard.sheetFiles === "sheet-per-file") {
+      if ((block?.number ?? drawn.fields.number) === undefined) {
+        refuse("sheet-per-file", DRAWN.sheetWithoutNumber);
+      }
+    }
+  }
+
+  /**
+   * Copies the block of a title block into the drawing, with every block it inserts and every
+   * text style they use, under their own names, and the layers and linetypes of the standard
+   * they draw on. A definition the drawing has with the same definition is the one it keeps, and
+   * one it has with another is refused. Returns the name of the block of the fields.
+   */
+  #copyTitleBlock(owner: string, titleBlock: StandardTitleBlock): string {
+    const drawing = titleBlock.block!;
+    const what = `The title block ${JSON.stringify(owner)}`;
+    const byName = new Map((drawing.blocks ?? []).map((b) => [layerKey(b.name), b]));
+    const start = byName.get(layerKey(titleBlock.blockName!))!;
+    // Each block comes after the blocks it inserts.
+    const closure: Block[] = [];
+    const seen = new Set<Block>();
+    const visit = (block: Block): void => {
+      if (seen.has(block)) return;
+      seen.add(block);
+      for (const e of block.entities) {
+        const inner = e.kind === "insert" ? byName.get(layerKey(e.block)) : undefined;
+        if (inner) visit(inner);
+      }
+      closure.push(block);
+    };
+    visit(start);
+    const styles = new Set<string>();
+    for (const block of closure) {
+      for (const e of block.entities)
+        if (e.kind === "text" && e.style) styles.add(layerKey(e.style));
+      for (const a of block.attributes ?? []) if (a.style) styles.add(layerKey(a.style));
+    }
+    // Every refusal comes before the drawing takes a text style, block, id or handle, and
+    // #titleBlock gives back the layers and linetypes, so a refused copy leaves nothing.
+    const added: TextStyle[] = [];
+    for (const style of drawing.textStyles ?? []) {
+      const key = layerKey(style.name);
+      if (!styles.has(key)) continue;
+      const existing = this.#textStyles.get(key);
+      if (existing) {
+        if (canonical(existing) !== canonical(style)) {
+          refuse(
+            "duplicate-block",
+            `${what} holds the text style ${JSON.stringify(style.name)}, and the drawing has a text style of this name with another font, width factor or oblique angle. A drawing holds one text style of a name`,
+          );
+        }
+        continue;
+      }
+      const twin = this.#textStylesAudited.get(layerAuditKey(style.name));
+      if (twin !== undefined) {
+        refuse(
+          "duplicate-block",
+          `${what} holds the text style ${JSON.stringify(style.name)}, which AutoCAD takes for the drawing's text style ${JSON.stringify(twin)}. A drawing holds one text style of a name`,
+        );
+      }
+      added.push(style);
+    }
+    const copied: Block[] = [];
+    const ids = new Map<string, string>();
+    const claims = new Map<string, { readonly id?: string; readonly what: string }>();
+    const claim = (handle: string, what: string, id?: string): void => {
+      this.#free(handle, what, id, claims);
+      claims.set(handle, id === undefined ? { what } : { id, what });
+    };
+    for (const block of closure) {
+      const first = this.#blocksAudited.get(layerAuditKey(block.name));
+      if (first !== undefined) {
+        const existing = first.xref ? undefined : this.#blocks.get(layerKey(block.name));
+        if (existing && canonical(existing) === canonical(block)) continue;
+        refuse(
+          "duplicate-block",
+          `${what} holds the block ${JSON.stringify(block.name)}, and the drawing has ${first.xref ? "an xref" : "a block"} ${JSON.stringify(first.name)} that AutoCAD takes for it, with another definition. A block's handles come from its name, so the builder renames neither: give one of them another name`,
+        );
+      }
+      copied.push(block);
+      const handles = blockHandles(block.name);
+      const named = `the block ${JSON.stringify(block.name)}`;
+      for (const handle of [handles.record, handles.begin, handles.end]) claim(handle, named);
+      for (const { tag } of block.attributes ?? []) {
+        claim(
+          definitionHandle(block.name, tag),
+          `the attribute ${JSON.stringify(tag)} of ${named}`,
+        );
+      }
+      for (const e of block.entities) {
+        if (e.id === undefined) continue;
+        const key = this.#idKey(e.id);
+        const first = ids.get(key);
+        if (first !== undefined) refuse("duplicate-id", duplicateIdProblem(e.id, first));
+        ids.set(key, e.id);
+        claim(validIdHandle(e.id), `the id ${JSON.stringify(e.id)}`, e.id);
+        // The handles #placed takes for an insert with an id.
+        const tags = e.kind === "insert" ? (byName.get(layerKey(e.block))?.attributes ?? []) : [];
+        if (tags.length === 0) continue;
+        const insert = `the insert ${JSON.stringify(e.id)}`;
+        for (const { tag } of tags) {
+          claim(
+            insertAttributeHandle(e.id, tag),
+            `the attribute ${JSON.stringify(tag)} of ${insert}`,
+          );
+        }
+        claim(insertEndHandle(e.id), `the end of the attributes of ${insert}`);
+      }
+    }
+    for (const block of copied) {
+      const layers = [...block.entities, ...(block.attributes ?? [])].map((e) => e.layer);
+      for (const layer of new Set(layers)) {
+        if (layer !== "0") this.#standardLayer(layer, {} as LayerOptions);
+      }
+      for (const e of block.entities) {
+        const linetype: unknown = (e as { readonly linetype?: unknown }).linetype;
+        if (linetype !== undefined) this.#linetypeName(linetype, refuse);
+      }
+    }
+    for (const style of added) {
+      this.#textStyles.set(layerKey(style.name), style);
+      this.#textStylesAudited.set(layerAuditKey(style.name), style.name);
+    }
+    // The blocks belong to the drawing, also when a layout that is not finished copies them.
+    for (const [handle, holder] of claims) this.#claim(handle, holder.what, holder.id, []);
+    for (const [key, id] of ids) this.#ids.set(key, id);
+    for (const block of copied) {
+      this.#blocks.set(layerKey(block.name), block);
+      this.#blocksAudited.set(layerAuditKey(block.name), { name: block.name, xref: false });
+    }
+    return start.name;
+  }
+
+  /** Runs `take`, and gives back every layer and linetype it stored when it throws. */
+  #layersOrNone<T>(take: () => T): T {
+    const tables: Map<string, unknown>[] = [
+      this.#layers,
+      this.#audited,
+      this.#linetypes,
+      this.#linetypesAudited,
+    ];
+    const kept = tables.map((table) => [...table]);
+    try {
+      return take();
+    } catch (thrown) {
+      tables.forEach((table, i) => {
+        table.clear();
+        for (const [key, value] of kept[i]!) table.set(key, value);
+      });
+      throw thrown;
+    }
   }
 
   /** Checks a viewport and adds it to the layout being drawn. `method` is the sheet's own. */
@@ -2687,8 +3195,10 @@ export class DrawingBuilder<
   #role(options: TextOptions): { readonly height: number; readonly style: string } | undefined {
     const role: unknown = options.role;
     const view: unknown = options.view;
-    if (role === undefined && view === undefined) return undefined;
     const drawn = this.#standard;
+    if (role === undefined && view === undefined) {
+      return drawn ? refuse("text-style-outside-standard", DRAWN.textWithoutRole) : undefined;
+    }
     if (!drawn) {
       return refuse(
         "role",
@@ -2821,17 +3331,26 @@ export class DrawingBuilder<
     id?: string,
     held = (this.#open ?? this.#sheet)?.handles,
   ): void {
-    const other = this.#handles.get(handle);
-    if (other !== undefined) {
-      refuse(
-        "id-handle",
-        id !== undefined && other.id !== undefined
-          ? idHandleProblem(id, other.id, handle)
-          : handleProblem(what, other.what, handle),
-      );
-    }
+    this.#free(handle, what, id);
     this.#handles.set(handle, id === undefined ? { what } : { id, what });
     held?.push(handle);
+  }
+
+  /** Refuses a handle that the drawing, or `pending`, already holds. */
+  #free(
+    handle: string,
+    what: string,
+    id?: string,
+    pending?: ReadonlyMap<string, { readonly id?: string; readonly what: string }>,
+  ): void {
+    const other = this.#handles.get(handle) ?? pending?.get(handle);
+    if (other === undefined) return;
+    refuse(
+      "id-handle",
+      id !== undefined && other.id !== undefined
+        ? idHandleProblem(id, other.id, handle)
+        : handleProblem(what, other.what, handle),
+    );
   }
 
   /** The linetype and lineweight an entity is stored with. */
@@ -3052,10 +3571,13 @@ interface Drawn {
     string,
     readonly [id: string, style: StandardDimensionStyle]
   >;
-  /** The id of each text role, by `layerKey` of its text style's name. */
-  readonly roleStyles: ReadonlyMap<string, string>;
+  /** Each sheet format and title block as the standard spells its id, by `idKey`. */
+  readonly sheetFormats: ReadonlyMap<string, readonly [id: string, format: StandardSheetFormat]>;
+  readonly titleBlocks: ReadonlyMap<string, readonly [id: string, block: StandardTitleBlock]>;
   /** The drawing's discipline, as the standard spells it. */
   readonly discipline?: string;
+  /** The values `createDrawing`'s `fields` gives the drawing's title blocks. */
+  readonly fields: Readonly<Record<string, string>>;
 }
 
 /** The maps of each standard a drawing has been drawn to. */
@@ -3070,6 +3592,7 @@ function drawnTo(
   const discipline: unknown = options.discipline;
   if (given === undefined) {
     if (discipline !== undefined) refuse("standard", DRAWN.disciplineWithoutStandard);
+    if (options.fields !== undefined) refuse("standard", DRAWN.fieldsWithoutStandard);
     return undefined;
   }
   const standard = adopted(given);
@@ -3088,19 +3611,91 @@ function drawnTo(
       textRoles: byKey(standard.textRoles, idKey),
       scales: byKey(standard.scales, idKey),
       dimensionStyles: byKey(standard.dimensionStyles, idKey),
-      roleStyles: new Map(
-        Object.keys(standard.textRoles).map((id) => [layerKey(capitals(id)), id]),
-      ),
+      sheetFormats: byKey(standard.sheetFormats, idKey),
+      titleBlocks: byKey(standard.titleBlocks, idKey),
+      fields: {},
     };
     drawnStandards.set(standard, drawn);
   }
-  if (discipline === undefined) return drawn;
+  const fields = drawingFields(options.fields, standard);
+  if (discipline === undefined) return { ...drawn, fields };
   if (typeof discipline !== "string")
     return refuse("standard", "A discipline is named by a string");
   const named = Object.keys(standard.disciplines).find((id) => idKey(id) === idKey(discipline));
   if (named === undefined) refuse("standard", disciplineLacks(discipline, standard));
   if (standard.sheetFiles === "one-drawing") refuse("standard", DRAWN.disciplineOneDrawing);
-  return { ...drawn, discipline: named };
+  return { ...drawn, discipline: named, fields };
+}
+
+/**
+ * The values `createDrawing`'s `fields` gives the title blocks, checked: each key is a value of
+ * `fills` or the tag of a field of a title block of the standard that fills nothing, and each
+ * value a text a field can hold. Under `one-drawing` it gives no number, and under
+ * `sheet-per-file` a number that names a file.
+ */
+function drawingFields(given: unknown, standard: Standard): Readonly<Record<string, string>> {
+  if (given === undefined) return {};
+  if (typeof given !== "object" || given === null || Array.isArray(given)) {
+    return refuse("standard", "fields is an object of the values of title block fields, by key");
+  }
+  const tags = new Set<string>();
+  for (const block of Object.values<StandardTitleBlock>(standard.titleBlocks)) {
+    for (const [tag, field] of Object.entries(block.fields)) {
+      if (field.fills === undefined) tags.add(tag);
+    }
+  }
+  const values: Record<string, string> = {};
+  for (const [key, value] of Object.entries(given as Record<string, unknown>)) {
+    if (value === undefined) continue;
+    if (!(FILL_KEYS as readonly string[]).includes(key) && !tags.has(key)) {
+      refuse("standard", fieldLacks(key, "fields"));
+    }
+    const problem = typeof value === "string" ? textProblem(value) : "must be a string";
+    if (problem) refuse("standard", `fields.${key}: ${problem}`);
+    values[key] = value as string;
+  }
+  const number = values.number;
+  if (number !== undefined) {
+    if (standard.sheetFiles === "one-drawing") refuse("layout", DRAWN.numberOneDrawing);
+    const problem = sheetNumberProblem(number);
+    if (problem) refuse("sheet-per-file", sheetNumberOfFile(problem));
+  }
+  return values;
+}
+
+/** `{ id }` for an insert the builder places, when `id` is a valid id, and `{}` otherwise. */
+function idWith(id: string): { readonly id?: string } {
+  return idProblem(id) === undefined ? { id } : {};
+}
+
+/** A box of a sheet format, `[left, bottom, right, top]`, as a `Zone`. */
+function zoneOf([left, bottom, right, top]: readonly [number, number, number, number]): Zone {
+  return Object.freeze({ left, bottom, right, top, width: right - left, height: top - bottom });
+}
+
+/**
+ * The values `titleBlock()` is given, checked: each key is what a field of the title block fills,
+ * or the tag of one of its fields that fills nothing, and each value a text a field can hold.
+ */
+function titleBlockValues(
+  given: unknown,
+  id: string,
+  fields: readonly (readonly [string, { readonly fills?: string }])[],
+): Readonly<Record<string, string | undefined>> {
+  if (given === undefined) return {};
+  if (typeof given !== "object" || given === null || Array.isArray(given)) {
+    return refuse("layout", "titleBlock() takes an object of the values of its fields, by key");
+  }
+  const keys = new Set(fields.map(([tag, field]) => field.fills ?? tag));
+  const values: Record<string, string> = {};
+  for (const [key, value] of Object.entries(given as Record<string, unknown>)) {
+    if (value === undefined) continue;
+    if (!keys.has(key)) refuse("layout", fieldLacks(key, `The title block ${JSON.stringify(id)}`));
+    const problem = typeof value === "string" ? textProblem(value) : "must be a string";
+    if (problem) refuse("text", `${key}: ${problem}`);
+    values[key] = value as string;
+  }
+  return values;
 }
 
 /** The id among the options of a dimension, which have no linetype or lineweight to take. */

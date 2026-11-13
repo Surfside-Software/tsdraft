@@ -85,8 +85,9 @@
 - `examples/site-plan.ts` is the sheet an agent copies, so it must read as a model: the site
   in model space at its true size, with the annotation that is read in the plan sized by the
   view it names, and everything that belongs to the paper inside `d.layout`, in paper units.
-  Its border and title block are one block whose fields are attributes. Never draw a sheet
-  in model space there.
+  Its layout is on its standard's sheet format and laid out by its zones, and its border and
+  title block are the standard's, placed by `sheet.titleBlock()`. Never draw a sheet in model
+  space there.
 - A view is drawn only where it can be seen. The clip of a view, the hidden rectangle and
   the cull all use one rectangle: the viewport, cut to the paper, cut to the picture `toSVG`
   is drawing (its `viewBox`), with every number as it will be written. If that rectangle has
@@ -175,6 +176,18 @@
   through `src/standard/made.ts` and never imports `define.ts`, which draws the plain title
   block with the builder as it loads. A drawing without a standard is built as it was before
   standards.
+- Under a standard, a top-level conditional on the standard's type parameter `Z` whose branches
+  mention `Z`, such as `Z extends Standard ? A<Z> : B` as a parameter's type, makes
+  `DrawingBuilder<…, undefined>` not assignable to `DrawingBuilder<…, Standard | undefined>`,
+  which a helper typed with `ReturnType<typeof createDrawing>` needs. A conditional inside a
+  field's type, a conditional whose branches do not mention `Z`, and a conditional that is one
+  member of a union are fine. In a rest tuple, an element whose type is that conditional alone
+  makes `DrawingBuilder<…, S>` for a standard `S` not assignable to `DrawingBuilder<…, Standard>`,
+  and so do overloads; `layout()` keeps it one member of a union with `| undefined`.
+- Under a standard, a title block's block, the blocks it inserts and their text styles enter the
+  drawing under their own names when `sheet.titleBlock()` first places it, and one the drawing
+  has with another definition is refused: never rename one, since its handles come from its
+  name. The builder fills a title block's scale when the layout's `draw` returns.
 - Under a standard, a role's text style and a dimension style of the standard enter the drawing
   on first use, under `capitals` of the id, and in model space with the view's scale id after a
   dimension style's: `DIMS-1in-10ft`. A view's id is taken when `view()` declares it, and the

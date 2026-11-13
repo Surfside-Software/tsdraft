@@ -153,6 +153,13 @@ const PAPER =
   'A paper must be one of PAPERS, the full-bleed sizes of AutoCAD\'s DWG To PDF.pc3, such as "ARCH D", each laid out landscape. A page setup names its paper as the plotter does, and AutoCAD plots nothing for a layout whose paper the plotter knows neither by its name nor by its size';
 const PLOT_STYLE =
   'A plot style table must be "monochrome.ctb", "acad.ctb", "Grayscale.ctb" or "DWF Virtual Pens.ctb", which AutoCAD installs. AutoCAD plots a layout whose plot style table it does not have with no table, each pen in its own color';
+const SHEET_NUMBER_LENGTH = "A sheet number has 1 to 64 characters";
+const SHEET_NUMBER_CHARS =
+  'A sheet number cannot hold < > : " / \\ | ? *, a control character or a character above U+FFFF. Windows names no file with one of them';
+const SHEET_NUMBER_END =
+  "A sheet number cannot end with a space or a dot. Windows drops them from the end of a file's name, so the file would not have the number's name";
+const SHEET_NUMBER_DEVICE =
+  "A sheet number cannot be a name Windows keeps for a device: CON, PRN, AUX, NUL, COM1 to COM9 or LPT1 to LPT9, in any case and with any extension. Windows opens the device in place of a file of that name";
 const XREF_PATH_EMPTY =
   "An xref's path cannot be empty. AutoCAD then looks for a DWG file named as the xref is";
 const XREF_PATH_DXF =
@@ -1509,6 +1516,25 @@ export function layoutTwinProblem(name: string, other: string): string | undefin
   if (layoutNameKey(name) !== layoutNameKey(other)) return undefined;
   const spelled = name === other ? "" : `, as ${JSON.stringify(other)}`;
   return `The drawing already has a layout of this name${spelled}. AutoCAD takes the two for one layout, keeps one, and its AUDIT reports the other as missing from the dictionary of layouts`;
+}
+
+/**
+ * Returns what is wrong with a sheet number, which names a sheet's file, or undefined when a file
+ * of Windows can have it as its name: `<number>.dwg`.
+ */
+export function sheetNumberProblem(number: unknown): string | undefined {
+  if (typeof number !== "string") return "A sheet number is a string";
+  if (number.length < 1 || number.length > 64) return SHEET_NUMBER_LENGTH;
+  for (let i = 0; i < number.length; i++) {
+    const code = number.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f || (code >= 0xd800 && code <= 0xdfff)) {
+      return SHEET_NUMBER_CHARS;
+    }
+  }
+  if (/[<>:"/\\|?*]/.test(number)) return SHEET_NUMBER_CHARS;
+  if (/[ .]$/.test(number)) return SHEET_NUMBER_END;
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(number)) return SHEET_NUMBER_DEVICE;
+  return undefined;
 }
 
 /**

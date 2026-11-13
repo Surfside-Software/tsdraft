@@ -162,7 +162,10 @@ export type LintRule =
   | "pen-outside-standard"
   | "role"
   | "scale-outside-standard"
-  | "dimension-style-outside-standard";
+  | "dimension-style-outside-standard"
+  | "text-style-outside-standard"
+  | "sheet-format-outside-standard"
+  | "sheet-per-file";
 
 export interface Diagnostic {
   readonly rule: LintRule;
