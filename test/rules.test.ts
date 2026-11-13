@@ -1009,9 +1009,12 @@ function textBox(e: Text): [left: number, bottom: number, right: number, top: nu
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 }
 
-for (const ratio of [120, 240]) {
-  test(`the example sheet at ratio ${ratio} is laid out in its two spaces`, () => {
-    const { drawing, layout, drawingArea, titleBlock, fields, viewport, view } = sitePlan(ratio);
+for (const [scale, ratio] of [
+  ["1in-10ft", 120],
+  ["1in-20ft", 240],
+] as const) {
+  test(`the example sheet at ${scale} is laid out in its two spaces`, () => {
+    const { drawing, layout, drawingArea, titleBlock, fields, viewport, view } = sitePlan(scale);
     const [page] = drawing.layouts!;
     assert.equal(page!.name, layout);
     const sides = (box: Box) => [box.left, box.bottom, box.right, box.top];
