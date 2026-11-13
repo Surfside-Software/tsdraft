@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { Builder, type Outcome } from "../src/build.ts";
+import { librarySteps } from "../src/warmup.ts";
 
 const root = join(fileURLToPath(new URL("..", import.meta.url)), ".");
 const built = join(root, "../dist");
@@ -126,6 +127,13 @@ async function ownCommand(dir: string, toSVG?: string) {
   };
   return { Builder: copy.Builder, file, mark };
 }
+
+// A warm-up swallows a step's error, so a step broken by a change to the library would only make
+// builds slower.
+test("each step of the library's warm-up runs, and its sheets lint clean", async () => {
+  const results = librarySteps(await import("tsdraft")).map((step) => step());
+  assert.deepEqual(results.filter(Array.isArray), [[], []]);
+});
 
 test("a build after another reads the drawing's files alone, and answers as the first did", async () => {
   const [cold, warm] = await builds(join(root, "../examples/site-plan.ts"), 2);

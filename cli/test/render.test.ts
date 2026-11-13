@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { after, test } from "node:test";
+import { BUILT_IN_STANDARD } from "tsdraft";
 import type { BuildState } from "../src/state.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -1050,6 +1051,205 @@ ${checkIntent}`,
     ],
   ]);
 });
+
+test("lint holds the drawing to the file's export `standard`, whose errors exit 2", () =>
+  inScratch(async (dir) => {
+    const file = join(dir, "wall.ts");
+    const write = (exported: string) =>
+      writeFileSync(
+        file,
+        `import { BUILT_IN_STANDARD as standard, createDrawing } from "tsdraft";
+const d = createDrawing({ units: "ft" });
+d.layer("A-WALL", { color: 2 }, () => d.rect([0, 0], 10, 10));
+export default d.build();
+${exported}\n`,
+      );
+    write("export { standard };");
+    const held = render(file, "--out", join(dir, "out"));
+    assert.equal(held.status, 2);
+    const { id, version, hash } = BUILT_IN_STANDARD;
+    assert.deepEqual(held.state.drawing?.standard, { id, version, hash, checked: true });
+    assert.ok(held.state.diagnostics.some((d) => d.rule === "layer-outside-standard"));
+    write("");
+    const alone = render(file, "--out", join(dir, "out"));
+    assert.deepEqual(
+      [alone.status, alone.state.drawing?.standard, alone.state.diagnostics],
+      [0, null, []],
+    );
+
+    const example = render(join(root, "../examples/site-plan.ts"), "--out", join(dir, "out"));
+    assert.equal(example.status, 0);
+    assert.deepEqual(example.state.diagnostics, []);
+    assert.deepEqual(
+      [example.state.drawing?.standard?.id, example.state.drawing?.standard?.checked],
+      ["site-plan-example", true],
+    );
+  }));
+
+test("a standard that the drawing's copy of tsdraft cannot check is warned of, never passed over", () => {
+  const dir = realpathSync(tempDir());
+  writeFileSync(join(dir, "package.json"), '{ "type": "module" }\n');
+  const library = join(dir, "node_modules/tsdraft");
+  mkdirSync(library, { recursive: true });
+  writeFileSync(
+    join(library, "package.json"),
+    '{ "name": "tsdraft", "type": "module", "exports": "./index.js" }\n',
+  );
+  // A copy from before standards: its lint would take the export and check nothing of it.
+  writeFileSync(
+    join(library, "index.js"),
+    `export const drawing = { format: 0, units: "ft", dxf: "R2018", layers: [], entities: [] };
+export const createDrawing = () => {};
+export const toDXF = () => "";
+export const lint = (d, options) =>
+  options?.standard ? [{ rule: "layer", severity: "error", message: "given a standard" }] : [];
+export const toSVG = () => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>';\n`,
+  );
+  writeFileSync(
+    join(dir, "plan.ts"),
+    `import { drawing } from "tsdraft";
+export default drawing;
+export const standard = { id: "acme", version: "2026.1", hash: "0d1f" };\n`,
+  );
+  const { state, status } = render(join(dir, "plan.ts"));
+  assert.equal(status, 0);
+  assert.deepEqual(state.drawing?.standard, {
+    id: "acme",
+    version: "2026.1",
+    hash: "0d1f",
+    checked: false,
+  });
+  assert.deepEqual(
+    state.diagnostics.map((d) => [d.rule, d.severity, d.message]),
+    [
+      [
+        "standard-unchecked",
+        "warning",
+        "The copy of tsdraft this drawing imports is from before standards and has no defineStandard, so the drawing was not checked against the export `standard`. Update it",
+      ],
+    ],
+  );
+});
+
+test("the pictures draw a title block's preview for its border, unless `xrefs` gives the border", () =>
+  inScratch(async (dir) => {
+    const file = join(dir, "sheet.ts");
+    const write = (exported: string) =>
+      writeFileSync(
+        file,
+        `import { BUILT_IN_STANDARD, createDrawing, defineStandard } from "tsdraft";
+const drawn = (layer: string) => {
+  const b = createDrawing({ units: "in" });
+  b.layer(layer, { color: 1 }, () => b.rect([0.5, 0.5], 35, 23));
+  return b.build();
+};
+export const standard = defineStandard({
+  id: "firm",
+  version: "1",
+  extends: BUILT_IN_STANDARD,
+  defaultSheetFormat: "firm",
+  titleBlocks: {
+    firm: {
+      paper: "ARCH D",
+      xref: { name: "BORDER", path: "border.dwg" },
+      preview: drawn("PREVIEW"),
+      layer: "G-ANNO-TTLB",
+      drawingArea: [0.5, 0.5, 35.5, 23.5],
+      fields: {},
+    },
+  },
+  sheetFormats: { firm: { paper: "ARCH D", titleBlock: "firm" } },
+});
+const d = createDrawing({ units: "ft", standard });
+d.layout("A-101", (sheet) => sheet.titleBlock());
+export default d.build();
+${exported}\n`,
+      );
+    const sheet = (exported: string) => {
+      write(exported);
+      const { state, status } = render(file, "--out", join(dir, "out"));
+      assert.equal(status, 0);
+      const layers = readFileSync(state.outputs.layouts[0]!.svg, "utf8").matchAll(
+        /data-layer="([^"]*)"/g,
+      );
+      return { xrefs: state.drawing?.xrefs, layers: new Set([...layers].map((m) => m[1])) };
+    };
+    const preview = sheet("");
+    assert.deepEqual(preview.xrefs, [
+      { name: "BORDER", path: "border.dwg", inserts: 1, shown: true, units: "in" },
+    ]);
+    assert.ok(preview.layers.has("BORDER|PREVIEW"));
+    // The file's own drawing for the xref, by any case of its name, is drawn in its place.
+    const given = sheet('export const xrefs = { border: drawn("GIVEN") };');
+    assert.ok(given.layers.has("BORDER|GIVEN") && !given.layers.has("BORDER|PREVIEW"));
+  }));
+
+test("a getter in the export `standard` never runs: lint's error stands, with exit 2", () =>
+  inScratch(async (dir) => {
+    const file = join(dir, "wall.ts");
+    const { id, version, hash } = BUILT_IN_STANDARD;
+    for (const [field, body] of [
+      ["titleBlocks", 'throw new Error("read")'],
+      ["titleBlocks", "for (;;);"],
+      ["id", 'throw new Error("read")'],
+      ["hash", "for (;;);"],
+    ] as const) {
+      writeFileSync(
+        file,
+        `import { BUILT_IN_STANDARD, createDrawing } from "tsdraft";
+export default createDrawing({ units: "ft" }).build();
+export const standard = { ...BUILT_IN_STANDARD };
+Object.defineProperty(standard, "${field}", { get() { ${body} }, enumerable: true });\n`,
+      );
+      // A getter that ran would loop until the timeout, a failed build with exit 1.
+      const { state, status } = render(file, "--out", join(dir, "out"), "--timeout", "5000");
+      assert.deepEqual(
+        [status, state.drawing?.standard, state.diagnostics.map((d) => [d.rule, d.severity])],
+        [
+          2,
+          field === "titleBlocks" ? { id, version, hash, checked: true } : null,
+          [["standard", "error"]],
+        ],
+        `${field}: ${body}`,
+      );
+    }
+  }));
+
+test("a refused standard gives no preview, and a proxy is never asked: exit 2, not a timeout", () =>
+  inScratch(async (dir) => {
+    const file = join(dir, "wall.ts");
+    const { id, version, hash } = BUILT_IN_STANDARD;
+    const looping = "{ for (;;); }";
+    for (const [name, standard, summary] of [
+      [
+        "a getter in a preview",
+        `{ ...BUILT_IN_STANDARD, titleBlocks: { firm: { xref: { name: "BORDER", path: "border.dwg" },
+  preview: { ...createDrawing({ units: "in" }).build(), entities: [Object.defineProperty({}, "kind", { get() ${looping}, enumerable: true })] } } } }`,
+        { id, version, hash, checked: true },
+      ],
+      [
+        "a proxy",
+        `new Proxy({ ...BUILT_IN_STANDARD }, { getPrototypeOf() { return Date.prototype; }, getOwnPropertyDescriptor() ${looping} })`,
+        null,
+      ],
+    ] as const) {
+      writeFileSync(
+        file,
+        `import { BUILT_IN_STANDARD, createDrawing } from "tsdraft";
+const d = createDrawing({ units: "ft" });
+d.xref("BORDER", "border.dwg");
+export default d.build();
+export const standard = ${standard};\n`,
+      );
+      const { state, status } = render(file, "--out", join(dir, "out"), "--timeout", "5000");
+      assert.equal(status, 2, name);
+      assert.deepEqual(state.drawing?.standard, summary, name);
+      assert.ok(
+        state.diagnostics.some((d) => d.rule === "standard" && d.severity === "error"),
+        name,
+      );
+    }
+  }));
 
 test("render --view draws one rectangle of model space or of a layout, and nothing else", () => {
   const out = tempDir();

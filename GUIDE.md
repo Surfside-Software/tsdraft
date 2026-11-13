@@ -236,6 +236,36 @@ Space lines one and a half text heights apart or more. Given `at`, `align`, `val
 is the box the `text-` warnings and their `bounds` use. A character outside Latin-1 is measured
 as a `?`, and the result then has `approximate: true`.
 
+## Drawing to a standard
+
+A standard is a firm's layers, pens, text roles, scales, dimension styles and title blocks as
+data. Extend the built-in one with what your drawing needs, and export it beside the drawing:
+
+```ts
+import { BUILT_IN_STANDARD, createDrawing, defineStandard } from "tsdraft";
+
+export const standard = defineStandard({
+  id: "my-firm",
+  version: "1",
+  extends: BUILT_IN_STANDARD,
+  layers: { "A-WALL": { color: 2, pen: "bold" } },
+});
+
+const d = createDrawing({ units: "ft", standard });
+d.layer("A-WALL", () => d.rect([24, 30], 52, 44));
+export default d.build();
+```
+
+`d.layer(name, draw)` names a layer of the standard, which gives its color, linetype, pen and
+plot flag, and an entity's `pen` names one of the standard's pens. A layer, role or scale the
+standard lacks is a compile error, and the builder throws the same message, which says how to add
+it to `defineStandard`. Add it there; never draw around the standard.
+
+The command holds the drawing to the exported standard with `lint`: its errors are diagnostics
+and give exit code 2, and `drawing.standard` names it.
+[docs/standard.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/standard.md) has
+the built-in standard and the rest.
+
 ## The file to copy
 
 [`examples/site-plan.ts`](https://github.com/Surfside-Software/tsdraft/blob/main/examples/site-plan.ts)
@@ -251,20 +281,17 @@ Its parameters come first and every position is worked out from them. Its column
 breaks are laid out with `measureText`. Its symbols are blocks.
 
 It is drawn to a standard of its own, which extends `BUILT_IN_STANDARD` with the layer
-`V-TREE`. `d.layer(name, draw)` names a layer of the standard, which gives its color, linetype,
-pen and plot flag, and an entity's `pen` names one of the standard's pens. A layer the standard
-lacks is a compile error that says how to add it to `layers` in `defineStandard`.
-
-A text names a `role` of the standard, which gives its text style and the height it plots at.
-The plan is a view at one of the standard's scales, `const plan = d.view("plan", { scale:
-"1in-10ft" })`, and what model space draws to be read in it names the view:
-`d.text(at, "LOT 27", { role: "label", view: plan })`, `d.insert("PROPERTY CORNER", at,
-{ view: plan })` for a symbol drawn in inches, and `d.linearDimension(from, to, line, { view:
-plan })` in the standard's dimension style. The viewport shows the view, as
-`sheet.viewport(corner, width, height, { view: plan, center })`, and `plan.paper(inches)`
-turns a gap on paper into drawing units. On the sheet and in a block, a text with a role is at
-the role's height and names no view. Under a standard every text names a role: a `height`, a
-`style` and `textStyle()` are refused. `sitePlan("1in-20ft")` draws the sheet at 1" = 20'.
+`V-TREE`, as the section above shows. A text names a `role` of the standard, which gives its text
+style and the height it plots at. The plan is a view at one of the standard's scales,
+`const plan = d.view("plan", { scale: "1in-10ft" })`, and what model space draws to be read in it
+names the view: `d.text(at, "LOT 27", { role: "label", view: plan })`,
+`d.insert("PROPERTY CORNER", at, { view: plan })` for a symbol drawn in inches, and
+`d.linearDimension(from, to, line, { view: plan })` in the standard's dimension style. The
+viewport shows the view, as `sheet.viewport(corner, width, height, { view: plan, center })`, and
+`plan.paper(inches)` turns a gap on paper into drawing units. On the sheet and in a block, a text
+with a role is at the role's height and names no view. Under a standard every text names a
+role: a `height`, a `style` and `textStyle()` are refused. `sitePlan("1in-20ft")` draws the
+sheet at 1" = 20'.
 
 Its layout is on a sheet format of the standard, `d.layout("C-101", { sheetFormat: "arch-d" },
 (sheet) => …)`, which gives the paper, the title block and the zones the sheet is laid out by:

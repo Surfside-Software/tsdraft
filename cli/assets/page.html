@@ -102,8 +102,13 @@
         font-weight: 600;
         letter-spacing: -0.01em;
       }
-      header .file {
+      header .file,
+      header .standard {
         color: var(--muted);
+      }
+      header .standard b {
+        color: var(--text);
+        font-weight: 500;
       }
       #status {
         margin-left: auto;
@@ -411,6 +416,7 @@
       <img src="/mark.svg" alt="" />
       <span class="name">tsdraft</span>
       <span class="file mono" id="file"></span>
+      <span class="standard mono" id="standard" hidden></span>
       <div id="status" class="mono" aria-live="polite">
         <span class="dot" id="dot"></span><span id="status-text">connecting</span>
       </div>
@@ -703,6 +709,22 @@
         return missing ? `${xrefs.length}, ${missing} not drawn` : `${xrefs.length}`;
       }
 
+      // The standard the drawing file exports, beside the file's name.
+      function renderStandard(state) {
+        const standard = state?.drawing?.standard;
+        const line = $("standard");
+        line.hidden = !standard;
+        line.replaceChildren();
+        if (!standard) return;
+        const id = document.createElement("b");
+        id.textContent = standard.id;
+        line.replaceChildren(
+          "standard ",
+          id,
+          ` version ${standard.version}${standard.checked ? "" : " · not checked"}`,
+        );
+      }
+
       function renderFacts(state) {
         const d = state.drawing;
         const fmt = (n) => (Math.round(n * 100) / 100).toString();
@@ -870,6 +892,7 @@
           select(null);
           renderLayers(state);
           renderFacts(state);
+          renderStandard(state);
         } else {
           const e = state.error;
           holder.classList.toggle("stale", Boolean(svg));
@@ -888,6 +911,7 @@
           if (lastGood) {
             renderLayers(lastGood);
             renderFacts(lastGood);
+            renderStandard(lastGood);
           } else $("empty").textContent = "No drawing yet";
         }
         renderDiagnostics(state);
@@ -920,6 +944,7 @@
         view = null;
         moved = false;
         lastGood = null;
+        renderStandard(null);
         swatches = {};
         for (const id of ["facts", "layers", "diagnostics"]) $(id).replaceChildren();
         $("error").hidden = true;

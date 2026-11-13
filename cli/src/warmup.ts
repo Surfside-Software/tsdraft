@@ -44,26 +44,75 @@ export const formatSteps: readonly (() => void)[] = [
 ];
 
 /**
- * The steps that run the library: a small sheet through the builder, `lint` and `toSVG`.
+ * The steps that run the library: a small sheet through the builder, `lint` and `toSVG`, then
+ * one call of `defineStandard` that extends the built-in standard, as a drawing file's does,
+ * and a sheet drawn to that standard and held to it.
  */
 export function librarySteps(library: Library): readonly (() => void)[] {
   let drawing: ReturnType<typeof sheet> | undefined;
+  let standard: ReturnType<typeof extended> | undefined;
+  let drawn: ReturnType<typeof sheetToStandard> | undefined;
+  const sheets = (d: ReturnType<typeof sheet> | undefined) => {
+    for (const layout of d?.layouts ?? []) library.toSVG?.(d!, { layout: layout.name });
+  };
   return [
     () => (drawing = sheet(library)),
     () => drawing && library.lint?.(drawing),
     () => drawing && library.toSVG?.(drawing, { margin: 0 }),
-    () => {
-      for (const layout of drawing?.layouts ?? [])
-        library.toSVG?.(drawing!, { layout: layout.name });
-    },
+    () => sheets(drawing),
+    () => (standard = extended(library)),
+    () => standard && (drawn = sheetToStandard(library, standard)),
+    () => drawn && library.lint?.(drawn, { standard: standard! }),
+    () => sheets(drawn),
     // Once more, since much of the code is compiled better on its second run.
     () => {
       const again = sheet(library);
       library.lint?.(again);
       library.toSVG?.(again, { margin: 0 });
-      for (const layout of again.layouts ?? []) library.toSVG?.(again, { layout: layout.name });
+      sheets(again);
+    },
+    () => {
+      if (!standard) return;
+      const again = sheetToStandard(library, standard);
+      library.lint?.(again, { standard });
+      sheets(again);
     },
   ];
+}
+
+/** A standard that extends the built-in one with a layer. A copy from before standards has none. */
+function extended(library: Library) {
+  return library.defineStandard?.({
+    id: "warm-up",
+    version: "1",
+    extends: library.BUILT_IN_STANDARD!,
+    layers: { "V-TREE": { color: 3, pen: "fine", discipline: "V" } },
+  });
+}
+
+/** A sheet drawn to a standard: layers, roles, a view, a dimension, a sheet format and its title block. */
+function sheetToStandard(library: Library, standard: NonNullable<ReturnType<typeof extended>>) {
+  const d = library.createDrawing!({
+    units: "ft",
+    standard,
+    fields: { project: "A HOUSE", date: "2026-01-01", drawnBy: "AB", checkedBy: "CD" },
+  });
+  const plan = d.view("plan", { scale: "1in-10ft" });
+  d.block("TREE", {}, () => d.circle([0, 0], 1));
+  d.layer("C-PROP", () => d.rect([0, 0], 80, 120));
+  d.layer("V-TREE", () => d.insert("TREE", [12, 100], { scale: 6 }));
+  d.layer("C-ANNO-TEXT", () => {
+    d.text([40, 60], "RESIDENCE", { role: "label", view: plan, align: "center" });
+  });
+  d.layer("C-ANNO-DIMS", () => d.linearDimension([0, 0], [80, 0], [0, -10], { view: plan }));
+  d.layout("C-101", { sheetFormat: "arch-d" }, (paperSheet) => {
+    paperSheet.titleBlock({ title: "SITE PLAN" });
+    d.layer("G-ANNO-NPLT", () => {
+      paperSheet.viewport([1, 2.5], 26, 20.5, { view: plan, center: [40, 60] });
+    });
+    d.layer("C-ANNO-TEXT", () => d.text([29, 22.5], "GENERAL NOTES", { role: "heading" }));
+  });
+  return d.build();
 }
 
 function sheet(library: Library) {
