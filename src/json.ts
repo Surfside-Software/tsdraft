@@ -22,20 +22,34 @@ export function toJSON(drawing: Drawing): string {
  * Writes a value as canonical JSON, as `toJSON` writes a drawing. Throws when the value holds
  * one JSON cannot, such as `NaN`, naming it as `what` does. `written` may give the canonical
  * JSON of an object already worked out, which is then used as it is.
+ *
+ * It also throws once the JSON would run past `most` characters, or it has read more than
+ * `most` keys, so a value that holds one list many times over costs no more than `most`.
  */
 export function canonical(
   value: unknown,
   what = "A value",
   written?: (value: object) => string | undefined,
+  most = Infinity,
 ): string {
   let out = "";
+  // Every key read, those whose value is `undefined` among them, which are left out: so it counts
+  // the work, and is only an upper bound of the keys written.
+  let keys = 0;
+  const past = (more: number): void => {
+    if (out.length + more > most || keys > most) {
+      throw new RangeError(`${what} runs past ${most} characters of JSON`);
+    }
+  };
   const write = (value: unknown): void => {
+    past(0);
     switch (typeof value) {
       case "number":
         if (!Number.isFinite(value)) break;
         out += Object.is(value, -0) ? "-0" : value;
         return;
       case "string":
+        past(value.length + 2);
         out += JSON.stringify(value);
         return;
       case "boolean":
@@ -52,6 +66,8 @@ export function canonical(
           return;
         }
         if (Array.isArray(value)) {
+          // Its brackets and commas.
+          past(value.length + 1);
           out += "[";
           for (let i = 0; i < value.length; i++) {
             if (i > 0) out += ",";
@@ -61,8 +77,11 @@ export function canonical(
           return;
         }
         const fields = value as Record<string, unknown>;
+        const names = Object.keys(fields);
+        keys += names.length;
+        past(0);
         let first = true;
-        for (const key of Object.keys(fields).sort()) {
+        for (const key of names.sort()) {
           if (fields[key] === undefined) continue;
           out += `${first ? "{" : ","}${JSON.stringify(key)}:`;
           first = false;

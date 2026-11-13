@@ -327,7 +327,8 @@ function shapes(all: boolean, typed = all): Shapes {
         let found = 0;
         for (const key in value) {
           const check = checks[key];
-          if (check === undefined) extra.push(unknownFieldProblem(at, key, names));
+          // `isSound` reads no message, and the hint compares the key with every field's name.
+          if (check === undefined) extra.push(asking ? "" : unknownFieldProblem(at, key, names));
           else if (check !== LEFT) {
             const field = value[key];
             if (field === undefined) continue;

@@ -39,6 +39,8 @@ import { validIdHandle } from "./handles.ts";
 import { validLayoutHandles, validViewportView } from "./layouts.ts";
 import { paperInfo } from "./papers.ts";
 import { isUnits } from "./units.ts";
+import type { Standard } from "./standard/document.ts";
+import { lintStandard } from "./standard/lint.ts";
 import {
   arrayProblem,
   isObject,
@@ -165,11 +167,29 @@ export type LintRule =
   | "dimension-style-outside-standard"
   | "text-style-outside-standard"
   | "sheet-format-outside-standard"
-  | "sheet-per-file";
+  | "sheet-per-file"
+  | "discipline-unknown"
+  | "linetype-differs-from-standard"
+  | "text-style-differs-from-standard"
+  | "dimension-style-differs-from-standard"
+  | "sheet-format-ambiguous"
+  | "height-below-standard"
+  | "height-off-role"
+  | "dimension-off-scale"
+  | "viewport-outside-drawing-area"
+  | "title-block-missing"
+  | "title-block-differs-from-standard"
+  | "title-block-field-unset"
+  | "title-block-field-overflow"
+  | "standard-check-capped";
 
 export interface Diagnostic {
   readonly rule: LintRule;
-  /** An error means AutoCAD rejects, repairs or garbles the output. `toDXF` refuses to write it. */
+  /**
+   * An error means AutoCAD rejects, repairs or garbles the output, and `toDXF` refuses to write
+   * it, or that the drawing breaks a rule of the standard `lint` was given, which `toDXF` does not
+   * check.
+   */
   readonly severity: "error" | "warning";
   readonly message: string;
   /** The layer the problem is in, when it is a layer problem. */
@@ -217,10 +237,31 @@ export interface Diagnostic {
   readonly call?: CallSite;
 }
 
-export interface LintOptions {
-  /** The DXF version to check against. Defaults to the drawing's own. */
-  readonly version?: DxfVersion;
-}
+/**
+ * What `lint` checks a drawing against: its DXF version, and the standard it is drawn to, with
+ * the drawing's discipline.
+ */
+export type LintOptions =
+  | {
+      /** The DXF version to check against. Defaults to the drawing's own. */
+      readonly version?: DxfVersion;
+      readonly standard?: undefined;
+      readonly discipline?: undefined;
+    }
+  | {
+      /** The DXF version to check against. Defaults to the drawing's own. */
+      readonly version?: DxfVersion;
+      /**
+       * The standard the drawing is drawn to, as `defineStandard` returns it, from this copy of
+       * tsdraft or another. `lint` then holds the drawing to its rules too.
+       */
+      readonly standard: Standard;
+      /**
+       * The drawing's discipline, a discipline of the standard, which resolves the entries with
+       * fields by discipline.
+       */
+      readonly discipline?: string;
+    };
 
 /**
  * Checks a drawing against the rules AutoCAD enforces when it opens DXF.
@@ -234,6 +275,12 @@ export interface LintOptions {
  * `Drawing`, such as a list that is not an array, an entity of an unknown kind or a field of
  * the wrong type, is an error that gives the path to it, and no other rule is checked on that
  * object. A field no object of its type has is an error too.
+ *
+ * With `standard`, it then holds the drawing to the standard: its layers, linetypes, pens, text
+ * styles, dimension styles, sheet formats and title blocks, the height each text plots at in
+ * each viewport that shows it and on its layout, and the scale each dimension is shown at. It
+ * takes the standard as plain data, checks it and works out its hash again, and a standard that
+ * does not check is one `standard` error. Without `standard` it checks none of this.
  */
 export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] {
   if (typeof drawing !== "object" || drawing === null || Array.isArray(drawing)) {
@@ -1211,6 +1258,8 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     }
   }
 
+  const given: unknown = options?.standard;
+  if (given !== undefined) lintStandard(drawing, given, options?.discipline, version, out);
   return out;
 }
 
