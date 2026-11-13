@@ -58,7 +58,7 @@
     "fmt:check": "oxfmt --check",
     "test": "pnpm build:lib && node --test test/*.test.ts cli/test/*.test.ts",
     "test:package": "node scripts/package-smoke.ts",
-    "example": "node examples/site-plan.ts && node examples/outdoor-kitchen.ts",
+    "example": "node examples/site-plan.ts && node examples/outdoor-kitchen.ts && node examples/plan-set/set.ts",
     "readme:drawing": "node scripts/readme-drawing.ts",
     "bench": "pnpm build:lib && node cli/scripts/bench.ts",
     "standard:files": "node scripts/standard-files.ts",

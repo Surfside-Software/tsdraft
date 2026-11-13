@@ -1,0 +1,1004 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -24 36 24" width="1100" height="733">
+  <rect x="0" y="-24" width="36" height="24" rx="0.0655" fill="#131315"/>
+  <rect x="0.016" y="-23.984" width="35.967" height="23.967" rx="0.0655" fill="none" stroke="#8b8b92" stroke-width="0.033"/>
+  <g transform="scale(1 -1)" fill="none" stroke-linejoin="round" stroke-width="0.026182">
+    <clipPath id="tsdraft-viewport-0"><rect x="2" y="2.75" width="23" height="20.5"/></clipPath>
+    <g data-viewport="0" data-id="vp-A-101" clip-path="url(#tsdraft-viewport-0)">
+      <rect x="2" y="2.75" width="23" height="20.5" visibility="hidden" stroke="#8b8b92"/>
+      <g transform="translate(13.5 13) scale(0.0208333333333) translate(-20312 -300)" stroke-width="1.2567">
+        <line x1="20000" y1="0" x2="20024" y2="0" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20216" y1="0" x2="20272" y2="0" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20376" y1="0" x2="20444" y2="0" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20480" y1="0" x2="20528" y2="0" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20564" y1="0" x2="20624" y2="0" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20008" y1="8" x2="20024" y2="8" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20216" y1="8" x2="20264" y2="8" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20384" y1="8" x2="20444" y2="8" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20480" y1="8" x2="20528" y2="8" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20564" y1="8" x2="20616" y2="8" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20000" y1="40" x2="20008" y2="40" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20272" y1="72" x2="20324" y2="72" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20366" y1="72" x2="20376" y2="72" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20000" y1="76" x2="20008" y2="76" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20616" y1="78" x2="20624" y2="78" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20272" y1="80" x2="20324" y2="80" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20366" y1="80" x2="20379.5" y2="80" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20379.5" y1="100" x2="20384" y2="100" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20616" y1="114" x2="20624" y2="114" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20000" y1="120" x2="20008" y2="120" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20000" y1="156" x2="20008" y2="156" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20379.5" y1="160" x2="20384" y2="160" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20384" y1="192" x2="20616" y2="192" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20384" y1="196.5" x2="20616" y2="196.5" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20379.5" y1="216" x2="20384" y2="216" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20379.5" y1="264" x2="20384" y2="264" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20008" y1="288" x2="20024" y2="288" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20060" y1="288" x2="20264" y2="288" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20272" y1="288" x2="20324" y2="288" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20372" y1="288" x2="20379.5" y2="288" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20272" y1="292.5" x2="20324" y2="292.5" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20372" y1="292.5" x2="20384" y2="292.5" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20008" y1="296" x2="20024" y2="296" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20060" y1="296" x2="20132" y2="296" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20136.5" y1="296" x2="20272" y2="296" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20616" y1="300" x2="20624" y2="300" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20132" y1="312" x2="20136.5" y2="312" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20000" y1="330" x2="20008" y2="330" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20132" y1="348" x2="20136.5" y2="348" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20000" y1="366" x2="20008" y2="366" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20616" y1="372" x2="20624" y2="372" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20008" y1="408" x2="20024" y2="408" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20054" y1="408" x2="20132" y2="408" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20008" y1="412.5" x2="20024" y2="412.5" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20054" y1="412.5" x2="20072" y2="412.5" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20076.5" y1="412.5" x2="20132" y2="412.5" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20616" y1="432" x2="20624" y2="432" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20132" y1="440" x2="20136.5" y2="440" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20000" y1="452" x2="20008" y2="452" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20616" y1="468" x2="20624" y2="468" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20132" y1="470" x2="20136.5" y2="470" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20000" y1="476" x2="20008" y2="476" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20008" y1="520" x2="20072" y2="520" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20076.5" y1="520" x2="20132" y2="520" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20136.5" y1="520" x2="20228" y2="520" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20276" y1="520" x2="20432" y2="520" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20576" y1="520" x2="20616" y2="520" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20000" y1="528" x2="20228" y2="528" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20276" y1="528" x2="20432" y2="528" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20576" y1="528" x2="20624" y2="528" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20000" y1="0" x2="20000" y2="40" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20000" y1="76" x2="20000" y2="120" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20000" y1="156" x2="20000" y2="330" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20000" y1="366" x2="20000" y2="452" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20000" y1="476" x2="20000" y2="528" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20008" y1="8" x2="20008" y2="40" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20008" y1="76" x2="20008" y2="120" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20008" y1="156" x2="20008" y2="288" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20008" y1="296" x2="20008" y2="330" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20008" y1="366" x2="20008" y2="408" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20008" y1="412.5" x2="20008" y2="452" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20008" y1="476" x2="20008" y2="520" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20024" y1="0" x2="20024" y2="8" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20024" y1="288" x2="20024" y2="296" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20024" y1="408" x2="20024" y2="412.5" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20054" y1="408" x2="20054" y2="412.5" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20060" y1="288" x2="20060" y2="296" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20072" y1="412.5" x2="20072" y2="520" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20076.5" y1="412.5" x2="20076.5" y2="520" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20132" y1="296" x2="20132" y2="312" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20132" y1="348" x2="20132" y2="408" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20132" y1="412.5" x2="20132" y2="440" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20132" y1="470" x2="20132" y2="520" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20136.5" y1="296" x2="20136.5" y2="312" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20136.5" y1="348" x2="20136.5" y2="440" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20136.5" y1="470" x2="20136.5" y2="520" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20216" y1="0" x2="20216" y2="8" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20228" y1="520" x2="20228" y2="528" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20264" y1="8" x2="20264" y2="288" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20272" y1="0" x2="20272" y2="72" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20272" y1="80" x2="20272" y2="288" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20272" y1="292.5" x2="20272" y2="296" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20276" y1="520" x2="20276" y2="528" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20324" y1="72" x2="20324" y2="80" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20324" y1="288" x2="20324" y2="292.5" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20366" y1="72" x2="20366" y2="80" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20372" y1="288" x2="20372" y2="292.5" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20376" y1="0" x2="20376" y2="72" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20379.5" y1="80" x2="20379.5" y2="100" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20379.5" y1="160" x2="20379.5" y2="216" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20379.5" y1="264" x2="20379.5" y2="288" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20384" y1="8" x2="20384" y2="100" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20384" y1="160" x2="20384" y2="192" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20384" y1="196.5" x2="20384" y2="216" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20384" y1="264" x2="20384" y2="292.5" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20432" y1="520" x2="20432" y2="528" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20444" y1="0" x2="20444" y2="8" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20480" y1="0" x2="20480" y2="8" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20528" y1="0" x2="20528" y2="8" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20564" y1="0" x2="20564" y2="8" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20576" y1="520" x2="20576" y2="528" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20616" y1="8" x2="20616" y2="78" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20616" y1="114" x2="20616" y2="192" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20616" y1="196.5" x2="20616" y2="300" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20616" y1="372" x2="20616" y2="432" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20616" y1="468" x2="20616" y2="520" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20624" y1="0" x2="20624" y2="78" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20624" y1="114" x2="20624" y2="300" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20624" y1="372" x2="20624" y2="432" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20624" y1="468" x2="20624" y2="528" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <line x1="20314" y1="116" x2="20318.5" y2="116" stroke="#f2f2f3" stroke-width="1.7593"/>
+        <line x1="20314" y1="286" x2="20318.5" y2="286" stroke="#f2f2f3" stroke-width="1.7593"/>
+        <line x1="20314" y1="116" x2="20314" y2="286" stroke="#f2f2f3" stroke-width="1.7593"/>
+        <line x1="20318.5" y1="116" x2="20318.5" y2="286" stroke="#f2f2f3" stroke-width="1.7593"/>
+        <line x1="20324" y1="80" x2="20324" y2="122" stroke="#f2f2f3"/>
+        <path d="M 20366 80 A 42 42 0 0 1 20324 122" stroke="#f2f2f3"/>
+        <line x1="20024" y1="7" x2="20216" y2="7" stroke="#f2f2f3"/>
+        <line x1="20024" y1="5.5" x2="20216" y2="5.5" stroke="#f2f2f3"/>
+        <path d="M 20024 8 L 20024 14 M 20024 17 L 20024 23 M 20024 26 L 20024 32 M 20024 35 L 20024 41 M 20024 44 L 20024 50 M 20024 53 L 20024 59 M 20024 62 L 20024 68 M 20024 71 L 20024 77 M 20024 80 L 20024 86 M 20024 89 L 20024 95 M 20024 98 L 20024 104 M 20024 107 L 20024 113" stroke="#8b8b92" stroke-width="0.9048"/>
+        <path d="M 20216 8 L 20216 14 M 20216 17 L 20216 23 M 20216 26 L 20216 32 M 20216 35 L 20216 41 M 20216 44 L 20216 50 M 20216 53 L 20216 59 M 20216 62 L 20216 68 M 20216 71 L 20216 77 M 20216 80 L 20216 86 M 20216 89 L 20216 95 M 20216 98 L 20216 104 M 20216 107 L 20216 113" stroke="#8b8b92" stroke-width="0.9048"/>
+        <line x1="20024" y1="296" x2="20024" y2="332" stroke="#f2f2f3"/>
+        <path d="M 20060 296 A 36 36 0 0 1 20024 332" stroke="#f2f2f3"/>
+        <line x1="20384" y1="100" x2="20414" y2="100" stroke="#f2f2f3"/>
+        <path d="M 20414 100 A 30 30 0 0 1 20384 130" stroke="#f2f2f3"/>
+        <line x1="20384" y1="160" x2="20414" y2="160" stroke="#f2f2f3"/>
+        <path d="M 20384 130 A 30 30 0 0 1 20414 160" stroke="#f2f2f3"/>
+        <line x1="20132" y1="312" x2="20096" y2="312" stroke="#f2f2f3"/>
+        <path d="M 20132 348 A 36 36 0 0 1 20096 312" stroke="#f2f2f3"/>
+        <line x1="20024" y1="412.5" x2="20024" y2="442.5" stroke="#f2f2f3"/>
+        <path d="M 20054 412.5 A 30 30 0 0 1 20024 442.5" stroke="#f2f2f3"/>
+        <line x1="20132" y1="470" x2="20102" y2="470" stroke="#f2f2f3"/>
+        <path d="M 20102 470 A 30 30 0 0 1 20132 440" stroke="#f2f2f3"/>
+        <line x1="20432" y1="525.25" x2="20470" y2="525.25" stroke="#f2f2f3"/>
+        <line x1="20468" y1="522.75" x2="20506" y2="522.75" stroke="#f2f2f3"/>
+        <line x1="20504" y1="522.75" x2="20542" y2="522.75" stroke="#f2f2f3"/>
+        <line x1="20540" y1="525.25" x2="20576" y2="525.25" stroke="#f2f2f3"/>
+        <line x1="20432" y1="520" x2="20576" y2="520" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20432" y1="528" x2="20576" y2="528" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20008" y1="156" x2="20044" y2="156" stroke="#f2f2f3"/>
+        <path d="M 20008 120 A 36 36 0 0 1 20044 156" stroke="#f2f2f3"/>
+        <path d="M 20324 290.25 L 20330 290.25 M 20333 290.25 L 20339 290.25 M 20342 290.25 L 20348 290.25 M 20351 290.25 L 20357 290.25 M 20360 290.25 L 20366 290.25 M 20369 290.25 L 20372 290.25" stroke="#8b8b92" stroke-width="0.9048"/>
+        <path d="M 20381.75 216 L 20381.75 222 M 20381.75 225 L 20381.75 231 M 20381.75 234 L 20381.75 240 M 20381.75 243 L 20381.75 249 M 20381.75 252 L 20381.75 258 M 20381.75 261 L 20381.75 264" stroke="#8b8b92" stroke-width="0.9048"/>
+        <line x1="20444" y1="0" x2="20480" y2="0" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20444" y1="8" x2="20480" y2="8" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20444" y1="3.25" x2="20480" y2="3.25" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20444" y1="4.75" x2="20480" y2="4.75" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20528" y1="0" x2="20564" y2="0" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20528" y1="8" x2="20564" y2="8" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20528" y1="3.25" x2="20564" y2="3.25" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20528" y1="4.75" x2="20564" y2="4.75" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20616" y1="78" x2="20616" y2="114" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20624" y1="78" x2="20624" y2="114" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20619.25" y1="78" x2="20619.25" y2="114" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20620.75" y1="78" x2="20620.75" y2="114" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20616" y1="300" x2="20616" y2="372" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20624" y1="300" x2="20624" y2="372" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20619.25" y1="300" x2="20619.25" y2="372" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20620.75" y1="300" x2="20620.75" y2="372" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20616" y1="432" x2="20616" y2="468" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20624" y1="432" x2="20624" y2="468" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20619.25" y1="432" x2="20619.25" y2="468" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20620.75" y1="432" x2="20620.75" y2="468" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20228" y1="520" x2="20276" y2="520" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20228" y1="528" x2="20276" y2="528" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20228" y1="523.25" x2="20276" y2="523.25" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20228" y1="524.75" x2="20276" y2="524.75" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20000" y1="330" x2="20000" y2="366" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20008" y1="330" x2="20008" y2="366" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20003.25" y1="330" x2="20003.25" y2="366" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20004.75" y1="330" x2="20004.75" y2="366" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20000" y1="452" x2="20000" y2="476" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20008" y1="452" x2="20008" y2="476" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20003.25" y1="452" x2="20003.25" y2="476" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20004.75" y1="452" x2="20004.75" y2="476" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20000" y1="40" x2="20000" y2="76" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20008" y1="40" x2="20008" y2="76" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20003.25" y1="40" x2="20003.25" y2="76" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20004.75" y1="40" x2="20004.75" y2="76" stroke="#f2f2f3" stroke-width="0.9048"/>
+        <line x1="20272" y1="116" x2="20314" y2="116" stroke="#f2f2f3"/>
+        <line x1="20272" y1="126" x2="20314" y2="126" stroke="#f2f2f3"/>
+        <line x1="20272" y1="136" x2="20314" y2="136" stroke="#f2f2f3"/>
+        <line x1="20272" y1="146" x2="20314" y2="146" stroke="#f2f2f3"/>
+        <line x1="20272" y1="156" x2="20314" y2="156" stroke="#f2f2f3"/>
+        <line x1="20272" y1="166" x2="20314" y2="166" stroke="#f2f2f3"/>
+        <line x1="20272" y1="176" x2="20314" y2="176" stroke="#f2f2f3"/>
+        <line x1="20272" y1="186" x2="20314" y2="186" stroke="#f2f2f3"/>
+        <line x1="20272" y1="196" x2="20314" y2="196" stroke="#f2f2f3"/>
+        <line x1="20272" y1="206" x2="20314" y2="206" stroke="#f2f2f3"/>
+        <line x1="20275" y1="116" x2="20275" y2="286" stroke="#f2f2f3"/>
+        <line x1="20272" y1="212" x2="20314" y2="200" stroke="#f2f2f3"/>
+        <polyline points="20293,122 20293,200" stroke="#f2f2f3"/>
+        <path d="M 20272 216 L 20278 216 M 20281 216 L 20287 216 M 20290 216 L 20296 216 M 20299 216 L 20305 216 M 20308 216 L 20314 216" stroke="#8b8b92" stroke-width="0.9048"/>
+        <path d="M 20272 226 L 20278 226 M 20281 226 L 20287 226 M 20290 226 L 20296 226 M 20299 226 L 20305 226 M 20308 226 L 20314 226" stroke="#8b8b92" stroke-width="0.9048"/>
+        <path d="M 20272 236 L 20278 236 M 20281 236 L 20287 236 M 20290 236 L 20296 236 M 20299 236 L 20305 236 M 20308 236 L 20314 236" stroke="#8b8b92" stroke-width="0.9048"/>
+        <path d="M 20272 246 L 20278 246 M 20281 246 L 20287 246 M 20290 246 L 20296 246 M 20299 246 L 20305 246 M 20308 246 L 20314 246" stroke="#8b8b92" stroke-width="0.9048"/>
+        <path d="M 20272 256 L 20278 256 M 20281 256 L 20287 256 M 20290 256 L 20296 256 M 20299 256 L 20305 256 M 20308 256 L 20314 256" stroke="#8b8b92" stroke-width="0.9048"/>
+        <path d="M 20272 266 L 20278 266 M 20281 266 L 20287 266 M 20290 266 L 20296 266 M 20299 266 L 20305 266 M 20308 266 L 20314 266" stroke="#8b8b92" stroke-width="0.9048"/>
+        <path d="M 20272 276 L 20278 276 M 20281 276 L 20287 276 M 20290 276 L 20296 276 M 20299 276 L 20305 276 M 20308 276 L 20314 276" stroke="#8b8b92" stroke-width="0.9048"/>
+        <path d="M 20272 286 L 20278 286 M 20281 286 L 20287 286 M 20290 286 L 20296 286 M 20299 286 L 20305 286 M 20308 286 L 20314 286" stroke="#8b8b92" stroke-width="0.9048"/>
+        <polygon points="20172.5,496 20379.5,496 20379.5,520 20172.5,520" stroke="#8b8b92" stroke-width="0.9048"/>
+        <polygon points="20136.5,354 20160.5,354 20160.5,434 20136.5,434" stroke="#8b8b92" stroke-width="0.9048"/>
+        <polygon points="20204,384 20312,384 20312,426 20204,426" stroke="#8b8b92" stroke-width="0.9048"/>
+        <polygon points="20268,517 20253,517 20253,501 20268,501" stroke="#8b8b92" stroke-width="0.9048"/>
+        <polygon points="20251,517 20236,517 20236,501 20251,501" stroke="#8b8b92" stroke-width="0.9048"/>
+        <polygon points="20136.5,409 20136.5,379 20160.5,379 20160.5,409" stroke="#8b8b92" stroke-width="0.9048"/>
+        <circle cx="20143.5" cy="401" r="4" stroke="#8b8b92" stroke-width="0.9048"/>
+        <circle cx="20143.5" cy="387" r="4" stroke="#8b8b92" stroke-width="0.9048"/>
+        <circle cx="20153.5" cy="401" r="4" stroke="#8b8b92" stroke-width="0.9048"/>
+        <circle cx="20153.5" cy="387" r="4" stroke="#8b8b92" stroke-width="0.9048"/>
+        <polygon points="20136.5,512 20136.5,476 20166.5,476 20166.5,512" stroke="#8b8b92" stroke-width="0.9048"/>
+        <line x1="20166.5" y1="512" x2="20136.5" y2="476" stroke="#8b8b92" stroke-width="0.9048"/>
+        <polygon points="20098,408 20071,408 20071,381 20098,381" stroke="#8b8b92" stroke-width="0.9048"/>
+        <polygon points="20069,408 20042,408 20042,381 20069,381" stroke="#8b8b92" stroke-width="0.9048"/>
+        <circle cx="20084.5" cy="394.5" r="10" stroke="#8b8b92" stroke-width="0.9048"/>
+        <polygon points="20008,510 20008,490 20016,490 20016,510" stroke="#8b8b92" stroke-width="0.9048"/>
+        <polygon points="20026,492.5 20029.09017,492.867076 20031.877853,493.932373 20034.09017,495.591611 20035.510565,497.682373 20036,500 20035.510565,502.317627 20034.09017,504.408389 20031.877853,506.067627 20029.09017,507.132924 20026,507.5 20022.90983,507.132924 20020.122147,506.067627 20017.90983,504.408389 20016.489435,502.317627 20016,500 20016.489435,497.682373 20017.90983,495.591611 20020.122147,493.932373 20022.90983,492.867076" stroke="#8b8b92" stroke-width="0.9048"/>
+        <polygon points="20008,485 20008,455 20030,455 20030,485" stroke="#8b8b92" stroke-width="0.9048"/>
+        <polygon points="20019,462 20020.854102,462.391548 20022.526712,463.527864 20023.854102,465.297718 20024.706339,467.527864 20025,470 20024.706339,472.472136 20023.854102,474.702282 20022.526712,476.472136 20020.854102,477.608452 20019,478 20017.145898,477.608452 20015.473288,476.472136 20014.145898,474.702282 20013.293661,472.472136 20013,470 20013.293661,467.527864 20014.145898,465.297718 20015.473288,463.527864 20017.145898,462.391548" stroke="#8b8b92" stroke-width="0.9048"/>
+        <circle cx="20240" cy="262" r="11" stroke="#8b8b92" stroke-width="0.9048"/>
+        <line x1="20014" y1="252" x2="20062" y2="252" stroke="#f2f2f3"/>
+        <line x1="20014" y1="242" x2="20062" y2="242" stroke="#f2f2f3"/>
+        <line x1="20014" y1="232" x2="20062" y2="232" stroke="#f2f2f3"/>
+        <line x1="20014" y1="222" x2="20062" y2="222" stroke="#f2f2f3"/>
+        <line x1="20014" y1="288" x2="20014" y2="222" stroke="#f2f2f3"/>
+        <line x1="20062" y1="288" x2="20062" y2="222" stroke="#f2f2f3"/>
+        <line x1="20060" y1="282" x2="20060" y2="222" stroke="#f2f2f3"/>
+        <line x1="20321" y1="0" x2="20369" y2="0" stroke="#f2f2f3"/>
+        <line x1="20321" y1="-11" x2="20369" y2="-11" stroke="#f2f2f3"/>
+        <line x1="20321" y1="-22" x2="20369" y2="-22" stroke="#f2f2f3"/>
+        <line x1="20321" y1="-33" x2="20369" y2="-33" stroke="#f2f2f3"/>
+        <line x1="20321" y1="-44" x2="20369" y2="-44" stroke="#f2f2f3"/>
+        <line x1="20321" y1="0" x2="20321" y2="-44" stroke="#f2f2f3"/>
+        <line x1="20369" y1="0" x2="20369" y2="-44" stroke="#f2f2f3"/>
+        <line x1="20323" y1="6" x2="20323" y2="-56" stroke="#f2f2f3"/>
+        <line x1="20367" y1="6" x2="20367" y2="-56" stroke="#f2f2f3"/>
+        <line x1="20476" y1="672" x2="20524" y2="672" stroke="#f2f2f3"/>
+        <line x1="20476" y1="683" x2="20524" y2="683" stroke="#f2f2f3"/>
+        <line x1="20476" y1="694" x2="20524" y2="694" stroke="#f2f2f3"/>
+        <line x1="20476" y1="705" x2="20524" y2="705" stroke="#f2f2f3"/>
+        <line x1="20476" y1="672" x2="20476" y2="705" stroke="#f2f2f3"/>
+        <line x1="20524" y1="672" x2="20524" y2="705" stroke="#f2f2f3"/>
+        <line x1="20478" y1="666" x2="20478" y2="717" stroke="#f2f2f3"/>
+        <line x1="20522" y1="666" x2="20522" y2="717" stroke="#f2f2f3"/>
+        <polygon points="20272,0 20323,0 20323,2 20272,2" stroke="#f2f2f3" stroke-width="1.7593"/>
+        <polygon points="20367,0 20376,0 20376,2 20367,2" stroke="#f2f2f3" stroke-width="1.7593"/>
+        <polygon points="20384,528 20386,528 20386,672 20384,672" stroke="#f2f2f3" stroke-width="1.7593"/>
+        <polygon points="20614,528 20616,528 20616,672 20614,672" stroke="#f2f2f3" stroke-width="1.7593"/>
+        <polygon points="20384,670 20478,670 20478,672 20384,672" stroke="#f2f2f3" stroke-width="1.7593"/>
+        <polygon points="20522,670 20616,670 20616,672 20522,672" stroke="#f2f2f3" stroke-width="1.7593"/>
+        <polyline points="20384,528 20384,672 20616,672 20616,528" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <polygon points="20384,660 20396,660 20396,672 20384,672" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <polygon points="20604,660 20616,660 20616,672 20604,672" stroke="#f2f2f3" stroke-width="2.5133"/>
+        <path d="M 20272 4 L 20278 4 M 20281 4 L 20287 4 M 20290 4 L 20296 4 M 20299 4 L 20305 4 M 20308 4 L 20314 4 M 20317 4 L 20323 4 M 20326 4 L 20332 4 M 20335 4 L 20341 4 M 20344 4 L 20350 4 M 20353 4 L 20359 4 M 20362 4 L 20368 4 M 20371 4 L 20376 4" stroke="#8b8b92" stroke-width="0.9048"/>
+        <path d="M 20384 666 L 20390 666 M 20393 666 L 20399 666 M 20402 666 L 20408 666 M 20411 666 L 20417 666 M 20420 666 L 20426 666 M 20429 666 L 20435 666 M 20438 666 L 20444 666 M 20447 666 L 20453 666 M 20456 666 L 20462 666 M 20465 666 L 20471 666 M 20474 666 L 20480 666 M 20483 666 L 20489 666 M 20492 666 L 20498 666 M 20501 666 L 20507 666 M 20510 666 L 20516 666 M 20519 666 L 20525 666 M 20528 666 L 20534 666 M 20537 666 L 20543 666 M 20546 666 L 20552 666 M 20555 666 L 20561 666 M 20564 666 L 20570 666 M 20573 666 L 20579 666 M 20582 666 L 20588 666 M 20591 666 L 20597 666 M 20600 666 L 20606 666 M 20609 666 L 20615 666" stroke="#8b8b92" stroke-width="0.9048"/>
+        <g data-block="ROOM TAG">
+          <text transform="matrix(48 0 0 48 20136 148) translate(0 0.04) scale(1 -1) translate(-0.373593 0)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.747186" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">GARAGE</text>
+          <text transform="matrix(48 0 0 48 20136 148) translate(0 -0.04) scale(1 -1) translate(-0.63876 0.09375)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="1.27752" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">498 SF  |  10'-0&quot; CLG.</text>
+        </g>
+        <g data-block="ROOM TAG">
+          <text transform="matrix(48 0 0 48 20349 200) translate(0 0.04) scale(1 -1) translate(-0.300776 0)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.601552" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">FOYER</text>
+          <text transform="matrix(48 0 0 48 20349 200) translate(0 -0.04) scale(1 -1) translate(0 0.09375)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" xml:space="preserve" fill="#f2f2f3" stroke="none"></text>
+        </g>
+        <g data-block="ROOM TAG">
+          <text transform="matrix(48 0 0 48 20500 100) translate(0 0.04) scale(1 -1) translate(-0.295916 0)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.591832" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">STUDY</text>
+          <text transform="matrix(48 0 0 48 20500 100) translate(0 -0.04) scale(1 -1) translate(-0.63876 0.09375)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="1.27752" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">296 SF  |  10'-0&quot; CLG.</text>
+        </g>
+        <g data-block="ROOM TAG">
+          <text transform="matrix(48 0 0 48 20500 358.25) translate(0 0.04) scale(1 -1) translate(-0.596649 0)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="1.193298" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">GREAT ROOM</text>
+          <text transform="matrix(48 0 0 48 20500 358.25) translate(0 -0.04) scale(1 -1) translate(-0.63876 0.09375)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="1.27752" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">521 SF  |  10'-0&quot; CLG.</text>
+        </g>
+        <g data-block="ROOM TAG">
+          <text transform="matrix(48 0 0 48 20258 340) translate(0 0.04) scale(1 -1) translate(-0.383228 0)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.766456" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">KITCHEN</text>
+          <text transform="matrix(48 0 0 48 20258 340) translate(0 -0.04) scale(1 -1) translate(-0.63876 0.09375)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="1.27752" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">384 SF  |  10'-0&quot; CLG.</text>
+        </g>
+        <g data-block="ROOM TAG">
+          <text transform="matrix(48 0 0 48 20070 352) translate(0 0.04) scale(1 -1) translate(-0.417249 0)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.834499" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">LAUNDRY</text>
+          <text transform="matrix(48 0 0 48 20070 352) translate(0 -0.04) scale(1 -1) translate(-0.565921 0.09375)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="1.131843" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">96 SF  |  9'-0&quot; CLG.</text>
+        </g>
+        <g data-block="ROOM TAG">
+          <text transform="matrix(48 0 0 48 20054 438) translate(0 0.04) scale(1 -1) translate(-0.291013 0)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.582026" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">PWDR.</text>
+          <text transform="matrix(48 0 0 48 20054 438) translate(0 -0.04) scale(1 -1) translate(0 0.09375)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" xml:space="preserve" fill="#f2f2f3" stroke="none"></text>
+        </g>
+        <g data-block="ROOM TAG">
+          <text transform="matrix(48 0 0 48 20104 500) translate(0 0.04) scale(1 -1) translate(-0.354152 0)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.708305" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">PANTRY</text>
+          <text transform="matrix(48 0 0 48 20104 500) translate(0 -0.04) scale(1 -1) translate(0 0.09375)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" xml:space="preserve" fill="#f2f2f3" stroke="none"></text>
+        </g>
+        <g data-block="ROOM TAG">
+          <text transform="matrix(48 0 0 48 20324 36) translate(0 0.04) scale(1 -1) translate(-0.635488 0)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="1.270975" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">ENTRY PORCH</text>
+          <text transform="matrix(48 0 0 48 20324 36) translate(0 -0.04) scale(1 -1) translate(-0.17471 0.09375)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.34942" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">52 SF</text>
+        </g>
+        <g data-block="ROOM TAG">
+          <text transform="matrix(48 0 0 48 20500 600) translate(0 0.04) scale(1 -1) translate(-0.70839 0)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="1.41678" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">COVERED LANAI</text>
+          <text transform="matrix(48 0 0 48 20500 600) translate(0 -0.04) scale(1 -1) translate(-0.211129 0.09375)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.422259" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">232 SF</text>
+        </g>
+        <g data-block="DOOR TAG">
+          <circle cx="20345" cy="90.4" r="6.72" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20345 90.4) translate(0 0) scale(1 -1) translate(-0.093233 0.04)" font-size="0.111732" font-family="Arial, Helvetica, sans-serif" data-height="0.08" textLength="0.186467" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">101</text>
+        </g>
+        <g data-block="DOOR TAG">
+          <circle cx="20120" cy="18.4" r="6.72" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20120 18.4) translate(0 0) scale(1 -1) translate(-0.093233 0.04)" font-size="0.111732" font-family="Arial, Helvetica, sans-serif" data-height="0.08" textLength="0.186467" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">102</text>
+        </g>
+        <g data-block="DOOR TAG">
+          <circle cx="20042" cy="277.6" r="6.72" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20042 277.6) translate(0 0) scale(1 -1) translate(-0.093233 0.04)" font-size="0.111732" font-family="Arial, Helvetica, sans-serif" data-height="0.08" textLength="0.186467" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">103</text>
+        </g>
+        <g data-block="DOOR TAG">
+          <circle cx="20367.35" cy="130" r="6.72" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20367.35 130) translate(0 0) scale(1 -1) translate(-0.093233 0.04)" font-size="0.111732" font-family="Arial, Helvetica, sans-serif" data-height="0.08" textLength="0.186467" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">104</text>
+        </g>
+        <g data-block="DOOR TAG">
+          <circle cx="20148.65" cy="330" r="6.72" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20148.65 330) translate(0 0) scale(1 -1) translate(-0.093233 0.04)" font-size="0.111732" font-family="Arial, Helvetica, sans-serif" data-height="0.08" textLength="0.186467" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">105</text>
+        </g>
+        <g data-block="DOOR TAG">
+          <circle cx="20039" cy="424.65" r="6.72" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20039 424.65) translate(0 0) scale(1 -1) translate(-0.093233 0.04)" font-size="0.111732" font-family="Arial, Helvetica, sans-serif" data-height="0.08" textLength="0.186467" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">106</text>
+        </g>
+        <g data-block="DOOR TAG">
+          <circle cx="20148.65" cy="455" r="6.72" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20148.65 455) translate(0 0) scale(1 -1) translate(-0.093233 0.04)" font-size="0.111732" font-family="Arial, Helvetica, sans-serif" data-height="0.08" textLength="0.186467" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">107</text>
+        </g>
+        <g data-block="DOOR TAG">
+          <circle cx="20504" cy="509.6" r="6.72" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20504 509.6) translate(0 0) scale(1 -1) translate(-0.093233 0.04)" font-size="0.111732" font-family="Arial, Helvetica, sans-serif" data-height="0.08" textLength="0.186467" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">108</text>
+        </g>
+        <g data-block="DOOR TAG">
+          <circle cx="20018.4" cy="138" r="6.72" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20018.4 138) translate(0 0) scale(1 -1) translate(-0.093233 0.04)" font-size="0.111732" font-family="Arial, Helvetica, sans-serif" data-height="0.08" textLength="0.186467" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">109</text>
+        </g>
+        <g data-block="WINDOW TAG">
+          <polygon points="20468.24,18.4 20465.12,23.803999 20458.88,23.803999 20455.76,18.4 20458.88,12.996001 20465.12,12.996001" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20462 18.4) translate(0 0) scale(1 -1) translate(-0.042115 0.045)" font-size="0.125698" font-family="Arial, Helvetica, sans-serif" data-height="0.09" textLength="0.084229" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">A</text>
+        </g>
+        <text transform="translate(20462 10.24) scale(1 -1) translate(-4.194065 3)" font-size="4.189944" font-family="Arial, Helvetica, sans-serif" data-height="3" textLength="8.388131" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">1-01</text>
+        <g data-block="WINDOW TAG">
+          <polygon points="20552.24,18.4 20549.12,23.803999 20542.88,23.803999 20539.76,18.4 20542.88,12.996001 20549.12,12.996001" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20546 18.4) translate(0 0) scale(1 -1) translate(-0.042115 0.045)" font-size="0.125698" font-family="Arial, Helvetica, sans-serif" data-height="0.09" textLength="0.084229" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">A</text>
+        </g>
+        <text transform="translate(20546 10.24) scale(1 -1) translate(-4.194065 3)" font-size="4.189944" font-family="Arial, Helvetica, sans-serif" data-height="3" textLength="8.388131" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">1-02</text>
+        <g data-block="WINDOW TAG">
+          <polygon points="20611.84,96 20608.72,101.403999 20602.48,101.403999 20599.36,96 20602.48,90.596001 20608.72,90.596001" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20605.6 96) translate(0 0) scale(1 -1) translate(-0.042115 0.045)" font-size="0.125698" font-family="Arial, Helvetica, sans-serif" data-height="0.09" textLength="0.084229" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">A</text>
+        </g>
+        <text transform="translate(20605.6 87.84) scale(1 -1) translate(-4.194065 3)" font-size="4.189944" font-family="Arial, Helvetica, sans-serif" data-height="3" textLength="8.388131" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">1-03</text>
+        <g data-block="WINDOW TAG">
+          <polygon points="20611.84,336 20608.72,341.403999 20602.48,341.403999 20599.36,336 20602.48,330.596001 20608.72,330.596001" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20605.6 336) translate(0 0) scale(1 -1) translate(-0.04193 0.045)" font-size="0.125698" font-family="Arial, Helvetica, sans-serif" data-height="0.09" textLength="0.083861" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">E</text>
+        </g>
+        <text transform="translate(20605.6 327.84) scale(1 -1) translate(-4.194065 3)" font-size="4.189944" font-family="Arial, Helvetica, sans-serif" data-height="3" textLength="8.388131" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">1-04</text>
+        <g data-block="WINDOW TAG">
+          <polygon points="20611.84,450 20608.72,455.403999 20602.48,455.403999 20599.36,450 20602.48,444.596001 20608.72,444.596001" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20605.6 450) translate(0 0) scale(1 -1) translate(-0.042115 0.045)" font-size="0.125698" font-family="Arial, Helvetica, sans-serif" data-height="0.09" textLength="0.084229" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">A</text>
+        </g>
+        <text transform="translate(20605.6 441.84) scale(1 -1) translate(-4.194065 3)" font-size="4.189944" font-family="Arial, Helvetica, sans-serif" data-height="3" textLength="8.388131" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">1-05</text>
+        <g data-block="WINDOW TAG">
+          <polygon points="20258.24,538.4 20255.12,543.803999 20248.88,543.803999 20245.76,538.4 20248.88,532.996001 20255.12,532.996001" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20252 538.4) translate(0 0) scale(1 -1) translate(-0.04193 0.045)" font-size="0.125698" font-family="Arial, Helvetica, sans-serif" data-height="0.09" textLength="0.083861" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">B</text>
+        </g>
+        <text transform="translate(20252 530.24) scale(1 -1) translate(-4.194065 3)" font-size="4.189944" font-family="Arial, Helvetica, sans-serif" data-height="3" textLength="8.388131" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">1-06</text>
+        <g data-block="WINDOW TAG">
+          <polygon points="20024.64,348 20021.52,353.403999 20015.28,353.403999 20012.16,348 20015.28,342.596001 20021.52,342.596001" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20018.4 348) translate(0 0) scale(1 -1) translate(-0.045399 0.045)" font-size="0.125698" font-family="Arial, Helvetica, sans-serif" data-height="0.09" textLength="0.090798" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">D</text>
+        </g>
+        <text transform="translate(20018.4 339.84) scale(1 -1) translate(-4.194065 3)" font-size="4.189944" font-family="Arial, Helvetica, sans-serif" data-height="3" textLength="8.388131" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">1-07</text>
+        <g data-block="WINDOW TAG">
+          <polygon points="19995.84,464 19992.72,469.403999 19986.48,469.403999 19983.36,464 19986.48,458.596001 19992.72,458.596001" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 19989.6 464) translate(0 0) scale(1 -1) translate(-0.045399 0.045)" font-size="0.125698" font-family="Arial, Helvetica, sans-serif" data-height="0.09" textLength="0.090798" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">C</text>
+        </g>
+        <text transform="translate(19989.6 455.84) scale(1 -1) translate(-4.194065 3)" font-size="4.189944" font-family="Arial, Helvetica, sans-serif" data-height="3" textLength="8.388131" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">1-08</text>
+        <g data-block="WINDOW TAG">
+          <polygon points="20024.64,58 20021.52,63.403999 20015.28,63.403999 20012.16,58 20015.28,52.596001 20021.52,52.596001" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20018.4 58) translate(0 0) scale(1 -1) translate(-0.045399 0.045)" font-size="0.125698" font-family="Arial, Helvetica, sans-serif" data-height="0.09" textLength="0.090798" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">D</text>
+        </g>
+        <text transform="translate(20018.4 49.84) scale(1 -1) translate(-4.194065 3)" font-size="4.189944" font-family="Arial, Helvetica, sans-serif" data-height="3" textLength="8.388131" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">1-09</text>
+        <g data-dimension="10'-0&quot;">
+          <line x1="20000" y1="-3" x2="20000" y2="-39" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20120" y1="-3" x2="20120" y2="-39" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="19997" y1="-36" x2="20123" y2="-36" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="19998.659099,-37.659099 20001.659099,-34.659099 20001.340901,-34.340901 19998.340901,-37.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20118.659099,-37.659099 20121.659099,-34.659099 20121.340901,-34.340901 20118.340901,-37.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20060 -34.5) scale(1 -1) translate(-8.006992 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="16.013984" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">10'-0&quot;</text>
+        </g>
+        <g data-dimension="12'-0&quot;">
+          <line x1="20120" y1="-3" x2="20120" y2="-39" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20264" y1="-3" x2="20264" y2="-39" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20117" y1="-36" x2="20267" y2="-36" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="20118.659099,-37.659099 20121.659099,-34.659099 20121.340901,-34.340901 20118.340901,-37.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20262.659099,-37.659099 20265.659099,-34.659099 20265.340901,-34.340901 20262.340901,-37.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20192 -34.5) scale(1 -1) translate(-8.006992 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="16.013984" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">12'-0&quot;</text>
+        </g>
+        <g data-dimension="6'-9&quot;">
+          <line x1="20264" y1="-3" x2="20264" y2="-39" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20345" y1="-3" x2="20345" y2="-39" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20261" y1="-36" x2="20348" y2="-36" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="20262.659099,-37.659099 20265.659099,-34.659099 20265.340901,-34.340901 20262.340901,-37.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20343.659099,-37.659099 20346.659099,-34.659099 20346.340901,-34.340901 20343.340901,-37.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20304.5 -34.5) scale(1 -1) translate(-6.258868 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="12.517735" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">6'-9&quot;</text>
+        </g>
+        <g data-dimension="2'-7&quot;">
+          <line x1="20345" y1="-3" x2="20345" y2="-39" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20376" y1="-3" x2="20376" y2="-39" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20342" y1="-36" x2="20379" y2="-36" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="20343.659099,-37.659099 20346.659099,-34.659099 20346.340901,-34.340901 20343.340901,-37.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20374.659099,-37.659099 20377.659099,-34.659099 20377.340901,-34.340901 20374.340901,-37.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20360.5 -34.5) scale(1 -1) translate(-6.258868 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="12.517735" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">2'-7&quot;</text>
+        </g>
+        <g data-dimension="7'-2&quot;">
+          <line x1="20376" y1="-3" x2="20376" y2="-39" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20462" y1="-3" x2="20462" y2="-39" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20373" y1="-36" x2="20465" y2="-36" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="20374.659099,-37.659099 20377.659099,-34.659099 20377.340901,-34.340901 20374.340901,-37.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20460.659099,-37.659099 20463.659099,-34.659099 20463.340901,-34.340901 20460.340901,-37.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20419 -34.5) scale(1 -1) translate(-6.258868 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="12.517735" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">7'-2&quot;</text>
+        </g>
+        <g data-dimension="7'-0&quot;">
+          <line x1="20462" y1="-3" x2="20462" y2="-39" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20546" y1="-3" x2="20546" y2="-39" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20459" y1="-36" x2="20549" y2="-36" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="20460.659099,-37.659099 20463.659099,-34.659099 20463.340901,-34.340901 20460.340901,-37.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20544.659099,-37.659099 20547.659099,-34.659099 20547.340901,-34.340901 20544.340901,-37.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20504 -34.5) scale(1 -1) translate(-6.258868 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="12.517735" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">7'-0&quot;</text>
+        </g>
+        <g data-dimension="6'-6&quot;">
+          <line x1="20546" y1="-3" x2="20546" y2="-39" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20624" y1="-3" x2="20624" y2="-39" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20543" y1="-36" x2="20627" y2="-36" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="20544.659099,-37.659099 20547.659099,-34.659099 20547.340901,-34.340901 20544.340901,-37.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20622.659099,-37.659099 20625.659099,-34.659099 20625.340901,-34.340901 20622.340901,-37.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20585 -34.5) scale(1 -1) translate(-6.258868 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="12.517735" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">6'-6&quot;</text>
+        </g>
+        <g data-dimension="22'-0&quot;">
+          <line x1="20000" y1="-3" x2="20000" y2="-57" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20264" y1="-3" x2="20264" y2="-57" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="19997" y1="-54" x2="20267" y2="-54" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="19998.659099,-55.659099 20001.659099,-52.659099 20001.340901,-52.340901 19998.340901,-55.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20262.659099,-55.659099 20265.659099,-52.659099 20265.340901,-52.340901 20262.340901,-55.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20132 -52.5) scale(1 -1) translate(-8.006992 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="16.013984" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">22'-0&quot;</text>
+        </g>
+        <g data-dimension="9'-4&quot;">
+          <line x1="20264" y1="-3" x2="20264" y2="-57" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20376" y1="-3" x2="20376" y2="-57" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20261" y1="-54" x2="20379" y2="-54" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="20262.659099,-55.659099 20265.659099,-52.659099 20265.340901,-52.340901 20262.340901,-55.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20374.659099,-55.659099 20377.659099,-52.659099 20377.340901,-52.340901 20374.340901,-55.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20320 -52.5) scale(1 -1) translate(-6.258868 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="12.517735" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">9'-4&quot;</text>
+        </g>
+        <g data-dimension="20'-8&quot;">
+          <line x1="20376" y1="-3" x2="20376" y2="-57" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20624" y1="-3" x2="20624" y2="-57" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20373" y1="-54" x2="20627" y2="-54" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="20374.659099,-55.659099 20377.659099,-52.659099 20377.340901,-52.340901 20374.340901,-55.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20622.659099,-55.659099 20625.659099,-52.659099 20625.340901,-52.340901 20622.340901,-55.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20500 -52.5) scale(1 -1) translate(-8.006992 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="16.013984" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">20'-8&quot;</text>
+        </g>
+        <g data-dimension="52'-0&quot;">
+          <line x1="20000" y1="-3" x2="20000" y2="-75" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20624" y1="-3" x2="20624" y2="-75" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="19997" y1="-72" x2="20627" y2="-72" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="19998.659099,-73.659099 20001.659099,-70.659099 20001.340901,-70.340901 19998.340901,-73.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20622.659099,-73.659099 20625.659099,-70.659099 20625.340901,-70.340901 20622.340901,-73.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20312 -70.5) scale(1 -1) translate(-8.006992 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="16.013984" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">52'-0&quot;</text>
+        </g>
+        <g data-dimension="21'-0&quot;">
+          <line x1="20000" y1="531" x2="20000" y2="567" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20252" y1="531" x2="20252" y2="567" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="19997" y1="564" x2="20255" y2="564" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="19998.659099,562.340901 20001.659099,565.340901 20001.340901,565.659099 19998.340901,562.659099" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20250.659099,562.340901 20253.659099,565.340901 20253.340901,565.659099 20250.340901,562.659099" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20126 565.5) scale(1 -1) translate(-8.006992 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="16.013984" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">21'-0&quot;</text>
+        </g>
+        <g data-dimension="21'-0&quot;">
+          <line x1="20252" y1="531" x2="20252" y2="567" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20504" y1="531" x2="20504" y2="567" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20249" y1="564" x2="20507" y2="564" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="20250.659099,562.340901 20253.659099,565.340901 20253.340901,565.659099 20250.340901,562.659099" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20502.659099,562.340901 20505.659099,565.340901 20505.340901,565.659099 20502.340901,562.659099" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20378 565.5) scale(1 -1) translate(-8.006992 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="16.013984" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">21'-0&quot;</text>
+        </g>
+        <g data-dimension="10'-0&quot;">
+          <line x1="20504" y1="531" x2="20504" y2="567" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20624" y1="531" x2="20624" y2="567" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20501" y1="564" x2="20627" y2="564" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="20502.659099,562.340901 20505.659099,565.340901 20505.340901,565.659099 20502.340901,562.659099" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20622.659099,562.340901 20625.659099,565.340901 20625.340901,565.659099 20622.340901,562.659099" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20564 565.5) scale(1 -1) translate(-8.006992 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="16.013984" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">10'-0&quot;</text>
+        </g>
+        <g data-dimension="52'-0&quot;">
+          <line x1="20000" y1="531" x2="20000" y2="585" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20624" y1="531" x2="20624" y2="585" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="19997" y1="582" x2="20627" y2="582" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="19998.659099,580.340901 20001.659099,583.340901 20001.340901,583.659099 19998.340901,580.659099" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20622.659099,580.340901 20625.659099,583.340901 20625.340901,583.659099 20622.340901,580.659099" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20312 583.5) scale(1 -1) translate(-8.006992 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="16.013984" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">52'-0&quot;</text>
+        </g>
+        <g data-dimension="8'-0&quot;">
+          <line x1="20627" y1="0" x2="20663" y2="0" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20627" y1="96" x2="20663" y2="96" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20660" y1="-3" x2="20660" y2="99" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="20661.659099,-1.340901 20658.659099,1.659099 20658.340901,1.340901 20661.340901,-1.659099" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20661.659099,94.659099 20658.659099,97.659099 20658.340901,97.340901 20661.340901,94.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20658.5 48) scale(1 -1) rotate(-90) translate(-6.258868 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="12.517735" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">8'-0&quot;</text>
+        </g>
+        <g data-dimension="20'-0&quot;">
+          <line x1="20627" y1="96" x2="20663" y2="96" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20627" y1="336" x2="20663" y2="336" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20660" y1="93" x2="20660" y2="339" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="20661.659099,94.659099 20658.659099,97.659099 20658.340901,97.340901 20661.340901,94.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20661.659099,334.659099 20658.659099,337.659099 20658.340901,337.340901 20661.340901,334.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20658.5 216) scale(1 -1) rotate(-90) translate(-8.006992 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="16.013984" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">20'-0&quot;</text>
+        </g>
+        <g data-dimension="9'-6&quot;">
+          <line x1="20627" y1="336" x2="20663" y2="336" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20627" y1="450" x2="20663" y2="450" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20660" y1="333" x2="20660" y2="453" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="20661.659099,334.659099 20658.659099,337.659099 20658.340901,337.340901 20661.340901,334.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20661.659099,448.659099 20658.659099,451.659099 20658.340901,451.340901 20661.340901,448.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20658.5 393) scale(1 -1) rotate(-90) translate(-6.258868 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="12.517735" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">9'-6&quot;</text>
+        </g>
+        <g data-dimension="6'-6&quot;">
+          <line x1="20627" y1="450" x2="20663" y2="450" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20627" y1="528" x2="20663" y2="528" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20660" y1="447" x2="20660" y2="531" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="20661.659099,448.659099 20658.659099,451.659099 20658.340901,451.340901 20661.340901,448.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20661.659099,526.659099 20658.659099,529.659099 20658.340901,529.340901 20661.340901,526.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20658.5 489) scale(1 -1) rotate(-90) translate(-6.258868 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="12.517735" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">6'-6&quot;</text>
+        </g>
+        <g data-dimension="44'-0&quot;">
+          <line x1="20627" y1="0" x2="20681" y2="0" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20627" y1="528" x2="20681" y2="528" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20678" y1="-3" x2="20678" y2="531" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="20679.659099,-1.340901 20676.659099,1.659099 20676.340901,1.340901 20679.340901,-1.659099" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20679.659099,526.659099 20676.659099,529.659099 20676.340901,529.340901 20679.340901,526.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20676.5 264) scale(1 -1) rotate(-90) translate(-8.006992 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="16.013984" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">44'-0&quot;</text>
+        </g>
+        <g data-dimension="4'-10&quot;">
+          <line x1="19997" y1="0" x2="19961" y2="0" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="19997" y1="58" x2="19961" y2="58" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="19964" y1="-3" x2="19964" y2="61" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="19965.659099,-1.340901 19962.659099,1.659099 19962.340901,1.340901 19965.340901,-1.659099" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="19965.659099,56.659099 19962.659099,59.659099 19962.340901,59.340901 19965.340901,56.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(19962.5 29) scale(1 -1) rotate(-90) translate(-8.006992 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="16.013984" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">4'-10&quot;</text>
+        </g>
+        <g data-dimension="6'-8&quot;">
+          <line x1="19997" y1="58" x2="19961" y2="58" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="19997" y1="138" x2="19961" y2="138" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="19964" y1="55" x2="19964" y2="141" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="19965.659099,56.659099 19962.659099,59.659099 19962.340901,59.340901 19965.340901,56.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="19965.659099,136.659099 19962.659099,139.659099 19962.340901,139.340901 19965.340901,136.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(19962.5 98) scale(1 -1) rotate(-90) translate(-6.258868 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="12.517735" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">6'-8&quot;</text>
+        </g>
+        <g data-dimension="17'-6&quot;">
+          <line x1="19997" y1="138" x2="19961" y2="138" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="19997" y1="348" x2="19961" y2="348" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="19964" y1="135" x2="19964" y2="351" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="19965.659099,136.659099 19962.659099,139.659099 19962.340901,139.340901 19965.340901,136.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="19965.659099,346.659099 19962.659099,349.659099 19962.340901,349.340901 19965.340901,346.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(19962.5 243) scale(1 -1) rotate(-90) translate(-8.006992 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="16.013984" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">17'-6&quot;</text>
+        </g>
+        <g data-dimension="9'-8&quot;">
+          <line x1="19997" y1="348" x2="19961" y2="348" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="19997" y1="464" x2="19961" y2="464" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="19964" y1="345" x2="19964" y2="467" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="19965.659099,346.659099 19962.659099,349.659099 19962.340901,349.340901 19965.340901,346.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="19965.659099,462.659099 19962.659099,465.659099 19962.340901,465.340901 19965.340901,462.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(19962.5 406) scale(1 -1) rotate(-90) translate(-6.258868 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="12.517735" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">9'-8&quot;</text>
+        </g>
+        <g data-dimension="5'-4&quot;">
+          <line x1="19997" y1="464" x2="19961" y2="464" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="19997" y1="528" x2="19961" y2="528" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="19964" y1="461" x2="19964" y2="531" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="19965.659099,462.659099 19962.659099,465.659099 19962.340901,465.340901 19965.340901,462.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="19965.659099,526.659099 19962.659099,529.659099 19962.340901,529.340901 19965.340901,526.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(19962.5 496) scale(1 -1) rotate(-90) translate(-6.258868 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="12.517735" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">5'-4&quot;</text>
+        </g>
+        <g data-dimension="44'-0&quot;">
+          <line x1="19997" y1="0" x2="19943" y2="0" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="19997" y1="528" x2="19943" y2="528" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="19946" y1="-3" x2="19946" y2="531" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="19947.659099,-1.340901 19944.659099,1.659099 19944.340901,1.340901 19947.340901,-1.659099" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="19947.659099,526.659099 19944.659099,529.659099 19944.340901,529.340901 19947.340901,526.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(19944.5 264) scale(1 -1) rotate(-90) translate(-8.006992 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="16.013984" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">44'-0&quot;</text>
+        </g>
+        <polyline points="20120,8 20150,-110 20156,-110" stroke="#f2f2f3"/>
+        <polygon points="20120,8 20120.509224,1.93859 20122.447561,2.431388" stroke="#f2f2f3"/>
+        <text transform="translate(20159 -110) scale(1 -1) translate(0 2.25)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="84.766371" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">16'-0&quot; X 8'-0&quot; IMPACT RATED</text>
+        <text transform="translate(20159 -117.2) scale(1 -1) translate(0 2.25)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="90.481924" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">OVERHEAD DOOR, SEE A-601</text>
+        <polyline points="20600,640 20690,720 20696,720" stroke="#f2f2f3"/>
+        <polygon points="20600,640 20605.14882,643.238774 20603.820092,644.733592" stroke="#f2f2f3"/>
+        <text transform="translate(20699 720) scale(1 -1) translate(0 2.25)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="111.962824" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">RAISED LANAI SLAB EL. 10.67' NAVD,</text>
+        <text transform="translate(20699 712.8) scale(1 -1) translate(0 2.25)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="122.058663" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">ON STEM WALLS PER S-101, 36&quot; GUARD</text>
+        <polyline points="20300,40 20060,-140 20054,-140" stroke="#f2f2f3"/>
+        <polygon points="20300,40 20294.6,37.2 20295.8,35.6" stroke="#f2f2f3"/>
+        <text transform="translate(20051 -140) scale(1 -1) translate(-114.396999 2.25)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="114.396999" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">ENTRY PORCH SLAB EL. 10.67' NAVD,</text>
+        <text transform="translate(20051 -147.2) scale(1 -1) translate(-100.384379 2.25)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="100.384379" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">4&quot; STEP DOWN FROM DOOR 101,</text>
+        <text transform="translate(20051 -154.4) scale(1 -1) translate(-82.577763 2.25)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="82.577763" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">36&quot; GUARD AT OPEN EDGE</text>
+        <polyline points="20345,-30 20450,-150 20456,-150" stroke="#f2f2f3"/>
+        <polygon points="20345,-30 20348.198451,-35.173965 20349.703604,-33.856956" stroke="#f2f2f3"/>
+        <text transform="translate(20459 -150) scale(1 -1) translate(0 2.25)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="75.609823" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">5R DN TO WALK AT 8.00',</text>
+        <text transform="translate(20459 -157.2) scale(1 -1) translate(0 2.25)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="75.803206" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">HANDRAILS BOTH SIDES</text>
+        <polyline points="20038,240 20120,230 20126,230" stroke="#f2f2f3"/>
+        <polygon points="20038,240 20043.834821,238.281028 20044.07693,240.26632" stroke="#f2f2f3"/>
+        <text transform="translate(20129 230) scale(1 -1) translate(0 2.25)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="77.552865" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">4R DN TO GARAGE SLAB,</text>
+        <text transform="translate(20129 222.8) scale(1 -1) translate(0 2.25)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="74.197817" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">HANDRAIL, 36&quot; LANDING</text>
+        <polyline points="20500,690 20420,740 20414,740" stroke="#f2f2f3"/>
+        <polygon points="20500,690 20495.442009,694.027992 20494.382011,692.331995" stroke="#f2f2f3"/>
+        <text transform="translate(20411 740) scale(1 -1) translate(-67.767053 2.25)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="67.767053" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">4R DN TO POOL DECK</text>
+        <text transform="translate(20411 732.8) scale(1 -1) translate(-42.436903 2.25)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="42.436903" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">AT 8.40' NAVD</text>
+        <polyline points="20000,100 19890,70 19884,70" stroke="#f2f2f3"/>
+        <polygon points="20000,100 19993.9483,99.386059 19994.474534,97.456532" stroke="#f2f2f3"/>
+        <text transform="translate(19881 70) scale(1 -1) translate(-75.100273 2.25)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="75.100273" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">FLOOD VENT, TYP. OF 4,</text>
+        <text transform="translate(19881 62.8) scale(1 -1) translate(-31.100955 2.25)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="31.100955" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">SEE S-101</text>
+        <g data-block="FLOOD VENT">
+          <polygon points="20006.4,16.24 20006.4,27.76 20001.6,27.76 20001.6,16.24" stroke="#f2f2f3"/>
+          <line x1="20006.4" y1="16.24" x2="20001.6" y2="27.76" stroke="#f2f2f3"/>
+        </g>
+        <g data-block="FLOOD VENT">
+          <polygon points="20006.4,94.24 20006.4,105.76 20001.6,105.76 20001.6,94.24" stroke="#f2f2f3"/>
+          <line x1="20006.4" y1="94.24" x2="20001.6" y2="105.76" stroke="#f2f2f3"/>
+        </g>
+        <g data-block="FLOOD VENT">
+          <polygon points="20006.4,184.24 20006.4,195.76 20001.6,195.76 20001.6,184.24" stroke="#f2f2f3"/>
+          <line x1="20006.4" y1="184.24" x2="20001.6" y2="195.76" stroke="#f2f2f3"/>
+        </g>
+        <g data-block="FLOOD VENT">
+          <polygon points="20234.24,1.6 20245.76,1.6 20245.76,6.4 20234.24,6.4" stroke="#f2f2f3"/>
+          <line x1="20234.24" y1="1.6" x2="20245.76" y2="6.4" stroke="#f2f2f3"/>
+        </g>
+        <g data-dimension="1'-3&quot;">
+          <line x1="20043" y1="485" x2="20065" y2="485" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20043" y1="500" x2="20065" y2="500" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20062" y1="482" x2="20062" y2="503" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="20063.659099,483.659099 20060.659099,486.659099 20060.340901,486.340901 20063.340901,483.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20063.659099,498.659099 20060.659099,501.659099 20060.340901,501.340901 20063.340901,498.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20060.5 492.5) scale(1 -1) rotate(-90) translate(-6.258868 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="12.517735" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">1'-3&quot;</text>
+        </g>
+        <g data-dimension="1'-8&quot;">
+          <line x1="20043" y1="500" x2="20065" y2="500" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20043" y1="520" x2="20065" y2="520" stroke="#1aafc8" stroke-width="0.9048" data-part="extension-line"/>
+          <line x1="20062" y1="497" x2="20062" y2="523" stroke="#1aafc8" stroke-width="0.9048" data-part="dimension-line"/>
+          <polygon points="20063.659099,498.659099 20060.659099,501.659099 20060.340901,501.340901 20063.340901,498.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <polygon points="20063.659099,518.659099 20060.659099,521.659099 20060.340901,521.340901 20063.340901,518.340901" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
+          <text transform="translate(20060.5 510) scale(1 -1) rotate(-90) translate(-6.258868 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="12.517735" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-part="text">1'-8&quot;</text>
+        </g>
+        <path d="M 20268 84 A 6.5 6.5 0 0 1 20281 84" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20281 84 A 6.5 6.5 0 0 1 20294 84" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20294 84 A 6.5 6.5 0 0 1 20307 84" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20307 84 A 6.5 6.5 0 0 1 20320 84" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20320 84 A 7.428571 7.428571 0 0 1 20320 98.857143" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20320 98.857143 A 7.428571 7.428571 0 0 1 20320 113.714286" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20320 113.714286 A 7.428571 7.428571 0 0 1 20320 128.571429" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20320 128.571429 A 7.428571 7.428571 0 0 1 20320 143.428571" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20320 143.428571 A 7.428571 7.428571 0 0 1 20320 158.285714" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20320 158.285714 A 7.428571 7.428571 0 0 1 20320 173.142857" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20320 173.142857 A 7.428571 7.428571 0 0 1 20320 188" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20320 188 A 7.428571 7.428571 0 0 1 20320 202.857143" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20320 202.857143 A 7.428571 7.428571 0 0 1 20320 217.714286" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20320 217.714286 A 7.428571 7.428571 0 0 1 20320 232.571429" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20320 232.571429 A 7.428571 7.428571 0 0 1 20320 247.428571" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20320 247.428571 A 7.428571 7.428571 0 0 1 20320 262.285714" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20320 262.285714 A 7.428571 7.428571 0 0 1 20320 277.142857" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20320 277.142857 A 7.428571 7.428571 0 0 1 20320 292" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20320 292 A 6.5 6.5 0 0 1 20307 292" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20307 292 A 6.5 6.5 0 0 1 20294 292" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20294 292 A 6.5 6.5 0 0 1 20281 292" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20281 292 A 6.5 6.5 0 0 1 20268 292" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20268 292 A 7.428571 7.428571 0 0 1 20268 277.142857" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20268 277.142857 A 7.428571 7.428571 0 0 1 20268 262.285714" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20268 262.285714 A 7.428571 7.428571 0 0 1 20268 247.428571" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20268 247.428571 A 7.428571 7.428571 0 0 1 20268 232.571429" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20268 232.571429 A 7.428571 7.428571 0 0 1 20268 217.714286" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20268 217.714286 A 7.428571 7.428571 0 0 1 20268 202.857143" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20268 202.857143 A 7.428571 7.428571 0 0 1 20268 188" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20268 188 A 7.428571 7.428571 0 0 1 20268 173.142857" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20268 173.142857 A 7.428571 7.428571 0 0 1 20268 158.285714" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20268 158.285714 A 7.428571 7.428571 0 0 1 20268 143.428571" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20268 143.428571 A 7.428571 7.428571 0 0 1 20268 128.571429" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20268 128.571429 A 7.428571 7.428571 0 0 1 20268 113.714286" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20268 113.714286 A 7.428571 7.428571 0 0 1 20268 98.857143" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20268 98.857143 A 7.428571 7.428571 0 0 1 20268 84" stroke="#8b8b92" stroke-width="1.7593"/>
+        <polygon points="20325.76,297.76 20339.2,297.76 20332.48,309.4528" stroke="#8b8b92" stroke-width="1.7593"/>
+        <text transform="translate(20332.48 301.792) scale(1 -1) translate(-1.864666 2.4)" font-size="6.703911" font-family="Arial, Helvetica, sans-serif" data-height="4.8" textLength="3.729332" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#8b8b92" stroke="none">1</text>
+        <path d="M 20010 214 A 7 7 0 0 1 20024 214" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20024 214 A 7 7 0 0 1 20038 214" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20038 214 A 7 7 0 0 1 20052 214" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20052 214 A 7 7 0 0 1 20066 214" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20066 214 A 7.6 7.6 0 0 1 20066 229.2" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20066 229.2 A 7.6 7.6 0 0 1 20066 244.4" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20066 244.4 A 7.6 7.6 0 0 1 20066 259.6" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20066 259.6 A 7.6 7.6 0 0 1 20066 274.8" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20066 274.8 A 7.6 7.6 0 0 1 20066 290" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20066 290 A 7 7 0 0 1 20052 290" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20052 290 A 7 7 0 0 1 20038 290" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20038 290 A 7 7 0 0 1 20024 290" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20024 290 A 7 7 0 0 1 20010 290" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20010 290 A 7.6 7.6 0 0 1 20010 274.8" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20010 274.8 A 7.6 7.6 0 0 1 20010 259.6" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20010 259.6 A 7.6 7.6 0 0 1 20010 244.4" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20010 244.4 A 7.6 7.6 0 0 1 20010 229.2" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20010 229.2 A 7.6 7.6 0 0 1 20010 214" stroke="#8b8b92" stroke-width="1.7593"/>
+        <polygon points="20071.76,295.76 20085.2,295.76 20078.48,307.4528" stroke="#8b8b92" stroke-width="1.7593"/>
+        <text transform="translate(20078.48 299.792) scale(1 -1) translate(-1.864666 2.4)" font-size="6.703911" font-family="Arial, Helvetica, sans-serif" data-height="4.8" textLength="3.729332" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#8b8b92" stroke="none">1</text>
+        <path d="M 20266 -58 A 7.25 7.25 0 0 1 20280.5 -58" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20280.5 -58 A 7.25 7.25 0 0 1 20295 -58" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20295 -58 A 7.25 7.25 0 0 1 20309.5 -58" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20309.5 -58 A 7.25 7.25 0 0 1 20324 -58" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20324 -58 A 7.25 7.25 0 0 1 20338.5 -58" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20338.5 -58 A 7.25 7.25 0 0 1 20353 -58" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20353 -58 A 7.25 7.25 0 0 1 20367.5 -58" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20367.5 -58 A 7.25 7.25 0 0 1 20382 -58" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20382 -58 A 8 8 0 0 1 20382 -42" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20382 -42 A 8 8 0 0 1 20382 -26" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20382 -26 A 8 8 0 0 1 20382 -10" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20382 -10 A 8 8 0 0 1 20382 6" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20382 6 A 7.25 7.25 0 0 1 20367.5 6" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20367.5 6 A 7.25 7.25 0 0 1 20353 6" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20353 6 A 7.25 7.25 0 0 1 20338.5 6" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20338.5 6 A 7.25 7.25 0 0 1 20324 6" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20324 6 A 7.25 7.25 0 0 1 20309.5 6" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20309.5 6 A 7.25 7.25 0 0 1 20295 6" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20295 6 A 7.25 7.25 0 0 1 20280.5 6" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20280.5 6 A 7.25 7.25 0 0 1 20266 6" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20266 6 A 8 8 0 0 1 20266 -10" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20266 -10 A 8 8 0 0 1 20266 -26" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20266 -26 A 8 8 0 0 1 20266 -42" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20266 -42 A 8 8 0 0 1 20266 -58" stroke="#8b8b92" stroke-width="1.7593"/>
+        <polygon points="20387.76,11.76 20401.2,11.76 20394.48,23.4528" stroke="#8b8b92" stroke-width="1.7593"/>
+        <text transform="translate(20394.48 15.792) scale(1 -1) translate(-1.864666 2.4)" font-size="6.703911" font-family="Arial, Helvetica, sans-serif" data-height="4.8" textLength="3.729332" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#8b8b92" stroke="none">1</text>
+        <path d="M 20010 416 A 7.5 7.5 0 0 1 20025 416" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20025 416 A 7.5 7.5 0 0 1 20040 416" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20040 416 A 7.5 7.5 0 0 1 20055 416" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20055 416 A 7.5 7.5 0 0 1 20070 416" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20070 416 A 7.285714 7.285714 0 0 1 20070 430.571429" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20070 430.571429 A 7.285714 7.285714 0 0 1 20070 445.142857" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20070 445.142857 A 7.285714 7.285714 0 0 1 20070 459.714286" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20070 459.714286 A 7.285714 7.285714 0 0 1 20070 474.285714" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20070 474.285714 A 7.285714 7.285714 0 0 1 20070 488.857143" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20070 488.857143 A 7.285714 7.285714 0 0 1 20070 503.428571" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20070 503.428571 A 7.285714 7.285714 0 0 1 20070 518" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20070 518 A 7.5 7.5 0 0 1 20055 518" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20055 518 A 7.5 7.5 0 0 1 20040 518" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20040 518 A 7.5 7.5 0 0 1 20025 518" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20025 518 A 7.5 7.5 0 0 1 20010 518" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20010 518 A 7.285714 7.285714 0 0 1 20010 503.428571" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20010 503.428571 A 7.285714 7.285714 0 0 1 20010 488.857143" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20010 488.857143 A 7.285714 7.285714 0 0 1 20010 474.285714" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20010 474.285714 A 7.285714 7.285714 0 0 1 20010 459.714286" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20010 459.714286 A 7.285714 7.285714 0 0 1 20010 445.142857" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20010 445.142857 A 7.285714 7.285714 0 0 1 20010 430.571429" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20010 430.571429 A 7.285714 7.285714 0 0 1 20010 416" stroke="#8b8b92" stroke-width="1.7593"/>
+        <polygon points="20075.76,523.76 20089.2,523.76 20082.48,535.4528" stroke="#8b8b92" stroke-width="1.7593"/>
+        <text transform="translate(20082.48 527.792) scale(1 -1) translate(-1.864666 2.4)" font-size="6.703911" font-family="Arial, Helvetica, sans-serif" data-height="4.8" textLength="3.729332" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#8b8b92" stroke="none">1</text>
+        <path d="M 20380 664 A 7.058824 7.058824 0 0 1 20394.117647 664" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20394.117647 664 A 7.058824 7.058824 0 0 1 20408.235294 664" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20408.235294 664 A 7.058824 7.058824 0 0 1 20422.352941 664" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20422.352941 664 A 7.058824 7.058824 0 0 1 20436.470588 664" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20436.470588 664 A 7.058824 7.058824 0 0 1 20450.588235 664" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20450.588235 664 A 7.058824 7.058824 0 0 1 20464.705882 664" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20464.705882 664 A 7.058824 7.058824 0 0 1 20478.823529 664" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20478.823529 664 A 7.058824 7.058824 0 0 1 20492.941176 664" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20492.941176 664 A 7.058824 7.058824 0 0 1 20507.058824 664" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20507.058824 664 A 7.058824 7.058824 0 0 1 20521.176471 664" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20521.176471 664 A 7.058824 7.058824 0 0 1 20535.294118 664" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20535.294118 664 A 7.058824 7.058824 0 0 1 20549.411765 664" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20549.411765 664 A 7.058824 7.058824 0 0 1 20563.529412 664" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20563.529412 664 A 7.058824 7.058824 0 0 1 20577.647059 664" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20577.647059 664 A 7.058824 7.058824 0 0 1 20591.764706 664" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20591.764706 664 A 7.058824 7.058824 0 0 1 20605.882353 664" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20605.882353 664 A 7.058824 7.058824 0 0 1 20620 664" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20620 664 A 8 8 0 0 1 20620 680" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20620 680 A 8 8 0 0 1 20620 696" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20620 696 A 8 8 0 0 1 20620 712" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20620 712 A 7.058824 7.058824 0 0 1 20605.882353 712" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20605.882353 712 A 7.058824 7.058824 0 0 1 20591.764706 712" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20591.764706 712 A 7.058824 7.058824 0 0 1 20577.647059 712" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20577.647059 712 A 7.058824 7.058824 0 0 1 20563.529412 712" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20563.529412 712 A 7.058824 7.058824 0 0 1 20549.411765 712" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20549.411765 712 A 7.058824 7.058824 0 0 1 20535.294118 712" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20535.294118 712 A 7.058824 7.058824 0 0 1 20521.176471 712" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20521.176471 712 A 7.058824 7.058824 0 0 1 20507.058824 712" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20507.058824 712 A 7.058824 7.058824 0 0 1 20492.941176 712" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20492.941176 712 A 7.058824 7.058824 0 0 1 20478.823529 712" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20478.823529 712 A 7.058824 7.058824 0 0 1 20464.705882 712" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20464.705882 712 A 7.058824 7.058824 0 0 1 20450.588235 712" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20450.588235 712 A 7.058824 7.058824 0 0 1 20436.470588 712" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20436.470588 712 A 7.058824 7.058824 0 0 1 20422.352941 712" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20422.352941 712 A 7.058824 7.058824 0 0 1 20408.235294 712" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20408.235294 712 A 7.058824 7.058824 0 0 1 20394.117647 712" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20394.117647 712 A 7.058824 7.058824 0 0 1 20380 712" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20380 712 A 8 8 0 0 1 20380 696" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20380 696 A 8 8 0 0 1 20380 680" stroke="#8b8b92" stroke-width="1.7593"/>
+        <path d="M 20380 680 A 8 8 0 0 1 20380 664" stroke="#8b8b92" stroke-width="1.7593"/>
+        <polygon points="20625.76,717.76 20639.2,717.76 20632.48,729.4528" stroke="#8b8b92" stroke-width="1.7593"/>
+        <text transform="translate(20632.48 721.792) scale(1 -1) translate(-1.864666 2.4)" font-size="6.703911" font-family="Arial, Helvetica, sans-serif" data-height="4.8" textLength="3.729332" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#8b8b92" stroke="none">1</text>
+        <text transform="translate(20293 110) scale(1 -1) translate(-4.366473 4.5)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="8.732947" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">UP</text>
+        <text transform="translate(20140 56) scale(1 -1) translate(-45.148874 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="90.297749" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">GARAGE SLAB EL. 8.50' NAVD</text>
+        <text transform="translate(20500 150) scale(1 -1) translate(-27.501876 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="55.003752" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">F.F.E. 11.00' NAVD</text>
+        <path d="M 20450 -60 L 20450 -30 M 20450 -24 L 20450 -18 M 20450 -12 L 20450 -6" stroke="#f2f2f3"/>
+        <path d="M 20450 672 L 20450 702 M 20450 708 L 20450 714 M 20450 720 L 20450 726 M 20450 732 L 20450 740" stroke="#f2f2f3"/>
+        <g data-block="SECTION BUBBLE">
+          <circle cx="20450" cy="-80" r="10.56" stroke="#f2f2f3"/>
+          <line x1="20439.44" y1="-80" x2="20460.56" y2="-80" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20450 -80) translate(0 0.04) scale(1 -1) translate(-0.038847 0)" font-size="0.139665" font-family="Arial, Helvetica, sans-serif" data-height="0.1" textLength="0.077694" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">1</text>
+          <text transform="matrix(48 0 0 48 20450 -80) translate(0 -0.04) scale(1 -1) translate(-0.130546 0.07)" font-size="0.097765" font-family="Arial, Helvetica, sans-serif" data-height="0.07" textLength="0.261091" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">A-301</text>
+        </g>
+        <polyline points="20442.608,-87.392 20429.936,-80 20442.608,-72.608" stroke="#f2f2f3"/>
+        <g data-block="SECTION BUBBLE">
+          <circle cx="20450" cy="760" r="10.56" stroke="#f2f2f3"/>
+          <line x1="20439.44" y1="760" x2="20460.56" y2="760" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20450 760) translate(0 0.04) scale(1 -1) translate(-0.038847 0)" font-size="0.139665" font-family="Arial, Helvetica, sans-serif" data-height="0.1" textLength="0.077694" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">1</text>
+          <text transform="matrix(48 0 0 48 20450 760) translate(0 -0.04) scale(1 -1) translate(-0.130546 0.07)" font-size="0.097765" font-family="Arial, Helvetica, sans-serif" data-height="0.07" textLength="0.261091" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">A-301</text>
+        </g>
+        <polyline points="20442.608,752.608 20429.936,760 20442.608,767.392" stroke="#f2f2f3"/>
+        <g data-block="SECTION BUBBLE">
+          <circle cx="20745" cy="410" r="10.56" stroke="#f2f2f3"/>
+          <line x1="20734.44" y1="410" x2="20755.56" y2="410" stroke="#f2f2f3"/>
+          <text transform="matrix(48 0 0 48 20745 410) translate(0 0.04) scale(1 -1) translate(-0.038847 0)" font-size="0.139665" font-family="Arial, Helvetica, sans-serif" data-height="0.1" textLength="0.077694" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">2</text>
+          <text transform="matrix(48 0 0 48 20745 410) translate(0 -0.04) scale(1 -1) translate(-0.130546 0.07)" font-size="0.097765" font-family="Arial, Helvetica, sans-serif" data-height="0.07" textLength="0.261091" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">A-301</text>
+        </g>
+        <polyline points="20737.608,402.608 20724.936,410 20737.608,417.392" stroke="#f2f2f3"/>
+        <line x1="20624" y1="410" x2="20724" y2="410" stroke="#f2f2f3"/>
+      </g>
+    </g>
+    <g data-id="border-A-101" data-block="TB-ARCHD" data-xref="Set up/TB-ARCHD.dwg">
+      <polygon points="1.5,0.5 35.5,0.5 35.5,23.5 1.5,23.5" stroke="#f2f2f3" stroke-width="0.073306"/>
+      <line x1="32" y1="0.5" x2="32" y2="23.5" stroke="#f2f2f3" stroke-width="0.073306"/>
+      <line x1="32" y1="21.2" x2="35.5" y2="21.2" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <line x1="32" y1="17.9" x2="35.5" y2="17.9" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <line x1="32" y1="14.6" x2="35.5" y2="14.6" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <line x1="32" y1="11.1" x2="35.5" y2="11.1" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <line x1="32" y1="9.9" x2="35.5" y2="9.9" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <line x1="32" y1="8.1" x2="35.5" y2="8.1" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <line x1="32" y1="4" x2="35.5" y2="4" stroke="#f2f2f3" stroke-width="0.036653"/>
+      <line x1="32" y1="9.3" x2="35.5" y2="9.3" stroke="#8b8b92" stroke-width="0.013614"/>
+      <line x1="32" y1="8.7" x2="35.5" y2="8.7" stroke="#8b8b92" stroke-width="0.013614"/>
+      <line x1="33.75" y1="9.9" x2="33.75" y2="8.7" stroke="#8b8b92" stroke-width="0.013614"/>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 22.95) scale(1 -1) translate(-1.676818 0) scale(0.9 1)" font-size="0.418994" font-family="Arial, Helvetica, sans-serif" data-height="0.3" textLength="3.726262" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">HALYARD &amp; MOSS</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 22.55) scale(1 -1) translate(-0.999318 0)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="1.998636" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">ENGINEERING  -  DEMO</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 22.2) scale(1 -1) translate(-0.592002 0)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="1.184004" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">100 EXAMPLE WAY, SUITE 0</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 22.04) scale(1 -1) translate(-0.628411 0)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="1.256821" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">CORAL HERON KEY, FL 34999</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 21.88) scale(1 -1) translate(-0.553121 0)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="1.106241" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">CA NO. 00000 (FICTIONAL)</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(32.07 21.13) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.407486" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">PROJECT</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 20.6) scale(1 -1) translate(-1.375497 0) scale(0.9 1)" font-size="0.261872" font-family="Arial, Helvetica, sans-serif" data-height="0.1875" textLength="3.056659" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">CALLOWAY RESIDENCE</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 20.3) scale(1 -1) translate(-0.992049 0)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="1.984098" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">NEW TWO-STORY SINGLE-FAMILY RESIDENCE</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 20) scale(1 -1) translate(-0.928003 0)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="1.856007" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">218 SANDPIPER COVE DRIVE</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 19.8) scale(1 -1) translate(-1.150004 0)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="2.300009" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">CORAL HERON KEY, FLORIDA 34999</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(32.07 19.55) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.334669" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">OWNER</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 19.2) scale(1 -1) translate(-1.018812 0)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="2.037624" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">JUNIPER AND THEO CALLOWAY</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 18.85) scale(1 -1) translate(-0.924262 0)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="1.848525" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">LOT 14, BLOCK C, HERON SOUND ESTATES</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 18.65) scale(1 -1) translate(-0.752323 0)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="1.504647" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">PARCEL ID 00-00-00-00000-000-0140</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 18.35) scale(1 -1) translate(-0.720349 0)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="1.440697" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">MANGROVE COUNTY (FICTIONAL)</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(32.07 17.83) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.475486" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">REVISIONS</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(32.07 14.53) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.778479" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">ENGINEER'S SEAL</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 13) scale(1 -1) translate(-0.960479 0)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="1.920958" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">DEMONSTRATION SET</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 12.75) scale(1 -1) translate(-1.120438 0)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="2.240877" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">NOT FOR CONSTRUCTION</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 12.45) scale(1 -1) translate(-0.805338 0)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="1.610675" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">NO SEAL. NO ENGINEER OF RECORD.</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(32.07 11.03) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="1.004178" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">ENGINEER OF RECORD</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 10.45) scale(1 -1) translate(-1.02607 0)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="2.05214" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">J. R. HALYARD, P.E. (FICTIONAL)</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 10.15) scale(1 -1) translate(-0.507098 0)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="1.014197" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">FLORIDA P.E. NO. 00000</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(32.07 9.83) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.232862" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">DATE</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.82 9.83) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.349292" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">JOB NO.</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(32.07 9.23) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.470541" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">DRAWN BY</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.82 9.23) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.567659" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">CHECKED BY</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(32.07 8.63) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.286323" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">SCALE</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(32.07 8.03) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.553078" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">SHEET TITLE</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(32.07 3.93) scale(1 -1) translate(0 0.0625)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.693724" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">SHEET NUMBER</text>
+    </g>
+    <g data-id="fields-A-101" data-block="SHEET FIELDS">
+      <text transform="matrix(1 0 0 1 0 0) translate(32.07 9.42) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.669935" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">2026-11-13</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.82 9.42) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.480645" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">26-0418</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(32.07 8.82) scale(1 -1) translate(-0.000192 0)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.451356" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">AGENT</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.82 8.82) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.087227" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">--</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(32.07 8.22) scale(1 -1) translate(-0.000192 0)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.669679" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">AS NOTED</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 7.3) scale(1 -1) translate(-1.254349 0) scale(0.9 1)" font-size="0.293296" font-family="Arial, Helvetica, sans-serif" data-height="0.21" textLength="2.787442" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">FIRST FLOOR PLAN</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 6.9) scale(1 -1) scale(0.9 1)" font-size="0.293296" font-family="Arial, Helvetica, sans-serif" data-height="0.21" xml:space="preserve" fill="#f2f2f3" stroke="none"></text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 4.5) scale(1 -1) translate(-0.66581 0)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="1.331621" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">ISSUED FOR PERMIT</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 2.1) scale(1 -1) translate(-1.174911 0.35) scale(0.9 1)" font-size="0.977654" font-family="Arial, Helvetica, sans-serif" data-height="0.7" textLength="2.610914" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">A-101</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(33.75 0.85) scale(1 -1) translate(-0.473099 0)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.946197" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">SHEET 3 OF 15</text>
+    </g>
+    <line x1="32" y1="17.68" x2="35.5" y2="17.68" stroke="#f2f2f3" stroke-width="0.01885"/>
+    <line x1="32" y1="17.34" x2="35.5" y2="17.34" stroke="#f2f2f3" stroke-width="0.01885"/>
+    <line x1="32" y1="17" x2="35.5" y2="17" stroke="#f2f2f3" stroke-width="0.01885"/>
+    <line x1="32" y1="16.66" x2="35.5" y2="16.66" stroke="#f2f2f3" stroke-width="0.01885"/>
+    <line x1="32" y1="16.32" x2="35.5" y2="16.32" stroke="#f2f2f3" stroke-width="0.01885"/>
+    <line x1="32" y1="15.98" x2="35.5" y2="15.98" stroke="#f2f2f3" stroke-width="0.01885"/>
+    <line x1="32" y1="15.64" x2="35.5" y2="15.64" stroke="#f2f2f3" stroke-width="0.01885"/>
+    <line x1="32" y1="15.3" x2="35.5" y2="15.3" stroke="#f2f2f3" stroke-width="0.01885"/>
+    <line x1="32" y1="14.96" x2="35.5" y2="14.96" stroke="#f2f2f3" stroke-width="0.01885"/>
+    <line x1="32" y1="14.62" x2="35.5" y2="14.62" stroke="#f2f2f3" stroke-width="0.01885"/>
+    <line x1="32.35" y1="17.68" x2="32.35" y2="14.62" stroke="#f2f2f3" stroke-width="0.01885"/>
+    <line x1="33.15" y1="17.68" x2="33.15" y2="14.62" stroke="#f2f2f3" stroke-width="0.01885"/>
+    <text transform="translate(32.05 17.51) scale(1 -1) translate(0 0.03125)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.155227" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">NO.</text>
+    <text transform="translate(32.4 17.51) scale(1 -1) translate(0 0.03125)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.232862" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">DATE</text>
+    <text transform="translate(33.2 17.51) scale(1 -1) translate(0 0.03125)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.596692" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">DESCRIPTION</text>
+    <text transform="translate(32.05 17.17) scale(1 -1) translate(0 0.03125)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.048559" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#8b8b92" stroke="none">0</text>
+    <text transform="translate(32.4 17.17) scale(1 -1) translate(0 0.03125)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.446623" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#8b8b92" stroke="none">2026-11-13</text>
+    <text transform="translate(33.2 17.17) scale(1 -1) translate(0 0.03125)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.887747" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#8b8b92" stroke="none">ISSUED FOR PERMIT</text>
+    <text transform="translate(32.05 16.83) scale(1 -1) translate(0 0.03125)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.048559" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#8b8b92" stroke="none">1</text>
+    <text transform="translate(32.4 16.83) scale(1 -1) translate(0 0.03125)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.446623" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#8b8b92" stroke="none">2026-11-13</text>
+    <text transform="translate(33.2 16.83) scale(1 -1) translate(0 0.03125)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="1.164478" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#8b8b92" stroke="none">PLAN REVIEW RESPONSES</text>
+    <g data-block="VIEW TITLE">
+      <circle cx="2.45" cy="2.25" r="0.25" stroke="#f2f2f3"/>
+      <line x1="2.2" y1="2.25" x2="2.7" y2="2.25" stroke="#f2f2f3"/>
+      <text transform="matrix(1 0 0 1 2.2 2.25) translate(0.25 0.05) scale(1 -1) translate(-0.048559 0)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.097118" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">1</text>
+      <text transform="matrix(1 0 0 1 2.2 2.25) translate(0.25 -0.05) scale(1 -1) translate(-0.149195 0.08)" font-size="0.111732" font-family="Arial, Helvetica, sans-serif" data-height="0.08" textLength="0.29839" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">A-101</text>
+      <text transform="matrix(1 0 0 1 2.2 2.25) translate(0.62 0.06) scale(1 -1) scale(0.9 1)" font-size="0.349162" font-family="Arial, Helvetica, sans-serif" data-height="0.25" textLength="3.318383" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">FIRST FLOOR PLAN</text>
+      <text transform="matrix(1 0 0 1 2.2 2.25) translate(0.62 -0.06) scale(1 -1) translate(0 0.125)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="1.521146" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">SCALE: 1/4&quot; = 1'-0&quot;</text>
+    </g>
+    <line x1="2.7" y1="2.25" x2="5.956545" y2="2.25" stroke="#f2f2f3" stroke-width="0.052361"/>
+    <g data-block="NORTH ARROW">
+      <circle cx="24" cy="2.2" r="0.375" stroke="#f2f2f3"/>
+      <polygon points="24,2.66875 24.1425,1.9375 24,2.06875 23.8575,1.9375" stroke="#f2f2f3"/>
+      <line x1="24" y1="2.06875" x2="24" y2="2.66875" stroke="#f2f2f3"/>
+      <text transform="matrix(1 0 0 1 24 2.2) translate(0 0.50625) scale(1 -1) translate(-0.094581 0)" font-size="0.261872" font-family="Arial, Helvetica, sans-serif" data-height="0.1875" textLength="0.189163" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">N</text>
+    </g>
+    <text transform="translate(25.5 23.15) scale(1 -1) translate(0 0.125)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="1.106241" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">PLAN NOTES</text>
+    <line x1="25.5" y1="22.965" x2="31.75" y2="22.965" stroke="#f2f2f3" stroke-width="0.036653"/>
+    <text transform="translate(25.5 22.79125) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.109226" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">1.</text>
+    <text transform="translate(25.718452 22.79125) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="5.806808" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">DIMENSIONS ARE TO THE FACE OF MASONRY OR THE FACE OF STUD UNLESS NOTED. DO</text>
+    <text transform="translate(25.718452 22.636563) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="1.833753" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">NOT SCALE THE DRAWINGS.</text>
+    <text transform="translate(25.5 22.435) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.109226" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">2.</text>
+    <text transform="translate(25.718452 22.435) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="5.744266" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">EXTERIOR WALLS OF THE FIRST FLOOR ARE 8&quot; CMU WITH A REINFORCED TIE BEAM. SEE</text>
+    <text transform="translate(25.718452 22.280312) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="1.084648" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">S-101 AND S-501.</text>
+    <text transform="translate(25.5 22.07875) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.109226" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">3.</text>
+    <text transform="translate(25.718452 22.07875) scale(1 -1) translate(-0.000192 0)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="5.771125" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">ALL EXTERIOR GLAZED OPENINGS ARE IMPACT RATED FOR THE DESIGN PRESSURES ON</text>
+    <text transform="translate(25.718452 21.924062) scale(1 -1) translate(-0.000192 0)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="2.823819" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">A-601, WITH FLORIDA PRODUCT APPROVAL.</text>
+    <text transform="translate(25.5 21.7225) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.109226" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">4.</text>
+    <text transform="translate(25.718452 21.7225) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="6.021423" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">GARAGE SEPARATION (FBC-R R302.6): 5/8&quot; TYPE X GYPSUM BOARD ON THE GARAGE CEILING</text>
+    <text transform="translate(25.718452 21.567812) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="5.832133" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">BELOW BEDROOM 2 AND THE HALL, 1/2&quot; GYPSUM BOARD ON THE GARAGE WALLS AND ON</text>
+    <text transform="translate(25.718452 21.413125) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="5.890263" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">STRUCTURE SUPPORTING THE CEILING. DOOR 103: SOLID CORE 1 3/8&quot; MIN., SELF-CLOSING</text>
+    <text transform="translate(25.718452 21.258437) scale(1 -1) translate(-0.000192 0)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="1.382844" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">AND SELF-LATCHING.</text>
+    <text transform="translate(25.5 21.056875) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.109226" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">5.</text>
+    <text transform="translate(25.718452 21.056875) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="5.865322" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">FLOOD VENTS: 4 ENGINEERED VENTS, EACH CERTIFIED (ICC-ES) TO COVER 200 SQ. FT. OF</text>
+    <text transform="translate(25.718452 20.902187) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="5.571602" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">ENCLOSED AREA: 4 X 200 = 800 SQ. FT. &gt;= 528 SQ. FT. GROSS GARAGE AREA. BOTTOM</text>
+    <text transform="translate(25.718452 20.7475) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="5.155227" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">WITHIN 12&quot; OF GRADE, ON TWO WALLS (FBC-R R322.2.2). LOCATIONS PER S-101.</text>
+    <text transform="translate(25.5 20.545937) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.109226" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">6.</text>
+    <text transform="translate(25.718452 20.545937) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="4.730218" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">SMOKE AND CARBON MONOXIDE ALARMS PER E-101, INTERCONNECTED.</text>
+    <text transform="translate(25.5 20.344375) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.109226" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">7.</text>
+    <text transform="translate(25.718452 20.344375) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="5.659213" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">MAIN STAIR: 18 RISERS AT 7.68&quot; (7 3/4&quot; MAX.), 17 TREADS AT 10&quot;, 36&quot; LANDINGS TOP AND</text>
+    <text transform="translate(25.718452 20.189687) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="5.291951" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">BOTTOM, HANDRAIL 34&quot;-38&quot; ABOVE THE NOSINGS, GUARD 36&quot; MIN. (FBC-R R311.7).</text>
+    <text transform="translate(25.5 19.988125) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.109226" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">8.</text>
+    <text transform="translate(25.718452 19.988125) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="5.932981" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">GARAGE STEPS AT DOOR 103: 36&quot; LANDING, 4 RISERS AT 7 1/2&quot;, TREADS 10&quot;, HANDRAIL ONE</text>
+    <text transform="translate(25.718452 19.833437) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="5.929975" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">SIDE. ENTRY STAIR: 5 RISERS AT 6 3/8&quot;, TREADS 11&quot;, HANDRAILS BOTH SIDES. LANAI STEPS:</text>
+    <text transform="translate(25.718452 19.67875) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="3.841384" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">4 RISERS AT 6 13/16&quot;, TREADS 11&quot;, HANDRAILS BOTH SIDES.</text>
+    <text transform="translate(25.5 19.477187) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.109226" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">9.</text>
+    <text transform="translate(25.718452 19.477187) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="5.572881" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">GUARDS 36&quot; HIGH AT THE PORCH AND LANAI EDGES, WHICH ARE 32&quot; ABOVE FINISHED</text>
+    <text transform="translate(25.718452 19.3225) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="4.983906" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">GRADE (8.00' NAVD), WITH NO OPENING A 4&quot; SPHERE PASSES (FBC-R R312.1).</text>
+    <text transform="translate(25.5 19.120937) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.182064" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">10.</text>
+    <text transform="translate(25.718452 19.120937) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="5.261383" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">ROOM AREAS ON THE TAGS ARE NET, TO THE INSIDE FACE OF THE WALLS. G-001</text>
+    <text transform="translate(25.718452 18.96625) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="1.790395" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">TABULATES GROSS AREAS.</text>
+    <text transform="translate(25.5 18.464687) scale(1 -1) translate(0 0.125)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.718111" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">LEGEND</text>
+    <line x1="25.5" y1="18.279687" x2="31.75" y2="18.279687" stroke="#f2f2f3" stroke-width="0.036653"/>
+    <g data-block="DOOR TAG">
+      <circle cx="25.8" cy="18.009687" r="0.14" stroke="#f2f2f3"/>
+      <text transform="matrix(1 0 0 1 25.8 18.009687) translate(0 0) scale(1 -1) translate(-0.093233 0.04)" font-size="0.111732" font-family="Arial, Helvetica, sans-serif" data-height="0.08" textLength="0.186467" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">101</text>
+    </g>
+    <text transform="translate(26.2 17.979687) scale(1 -1) translate(0 0.046875)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="1.717556" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">DOOR NUMBER, SEE A-601</text>
+    <g data-block="WINDOW TAG">
+      <polygon points="25.93,17.629687 25.865,17.742271 25.735,17.742271 25.67,17.629687 25.735,17.517104 25.865,17.517104" stroke="#f2f2f3"/>
+      <text transform="matrix(1 0 0 1 25.8 17.629687) translate(0 0) scale(1 -1) translate(-0.042115 0.045)" font-size="0.125698" font-family="Arial, Helvetica, sans-serif" data-height="0.09" textLength="0.084229" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">A</text>
+    </g>
+    <text transform="translate(26.2 17.599687) scale(1 -1) translate(0 0.046875)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="1.673815" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">WINDOW TYPE, SEE A-601</text>
+    <text transform="translate(25.8 17.249687) scale(1 -1) translate(-0.087376 0.03125)" font-size="0.087291" font-family="Arial, Helvetica, sans-serif" data-height="0.0625" textLength="0.174753" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">1-01</text>
+    <text transform="translate(26.2 17.219687) scale(1 -1) translate(0 0.046875)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="1.710138" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">WINDOW MARK, SEE A-601</text>
+    <polygon points="25.55,16.829687 26.05,16.829687 26.05,16.909687 25.55,16.909687" stroke="#f2f2f3" stroke-width="0.052361"/>
+    <text transform="translate(26.2 16.839687) scale(1 -1) translate(0 0.046875)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.847011" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">8&quot; CMU WALL</text>
+    <polygon points="25.55,16.469687 26.05,16.469687 26.05,16.509687 25.55,16.509687" stroke="#f2f2f3" stroke-width="0.052361"/>
+    <text transform="translate(26.2 16.459687) scale(1 -1) translate(0 0.046875)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="1.018972" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">2X4 STUD WALL</text>
+    <polygon points="25.55,16.089687 26.05,16.089687 26.05,16.129687 25.55,16.129687" stroke="#f2f2f3" stroke-width="0.036653"/>
+    <text transform="translate(26.2 16.079687) scale(1 -1) translate(0 0.046875)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="1.698563" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">36&quot; GUARD OR HALF WALL</text>
+    <path d="M 25.55 15.729687 L 25.675 15.729687 M 25.7375 15.729687 L 25.8625 15.729687 M 25.925 15.729687 L 26.05 15.729687" stroke="#8b8b92" stroke-width="0.01885"/>
+    <text transform="translate(26.2 15.699687) scale(1 -1) translate(0 0.046875)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="1.506331" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">OVERHEAD OR HIDDEN</text>
+    <g data-block="SECTION BUBBLE">
+      <circle cx="25.8" cy="15.349687" r="0.22" stroke="#f2f2f3"/>
+      <line x1="25.58" y1="15.349687" x2="26.02" y2="15.349687" stroke="#f2f2f3"/>
+      <text transform="matrix(1 0 0 1 25.8 15.349687) translate(0 0.04) scale(1 -1) translate(-0.038847 0)" font-size="0.139665" font-family="Arial, Helvetica, sans-serif" data-height="0.1" textLength="0.077694" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">1</text>
+      <text transform="matrix(1 0 0 1 25.8 15.349687) translate(0 -0.04) scale(1 -1) translate(-0.130546 0.07)" font-size="0.097765" font-family="Arial, Helvetica, sans-serif" data-height="0.07" textLength="0.261091" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">A-301</text>
+    </g>
+    <text transform="translate(26.2 15.319687) scale(1 -1) translate(0 0.046875)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="1.739107" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">SECTION CUT: NO. / SHEET</text>
+    <g data-block="FLOOD VENT">
+      <polygon points="25.68,14.919687 25.92,14.919687 25.92,15.019687 25.68,15.019687" stroke="#f2f2f3"/>
+      <line x1="25.68" y1="14.919687" x2="25.92" y2="15.019687" stroke="#f2f2f3"/>
+    </g>
+    <text transform="translate(26.2 14.939687) scale(1 -1) translate(0 0.046875)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.836843" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none">FLOOD VENT</text>
+  </g>
+</svg>
