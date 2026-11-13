@@ -13,11 +13,14 @@
 // --disallow-code-generation-from-strings.
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import vm from "node:vm";
 
 const dist = process.argv[2]!;
-const names = readdirSync(dist).filter((name) => name.endsWith(".js"));
+// Every built file, in its folders, by its path from `dist` with `/` between folders.
+const names = readdirSync(dist, { recursive: true, encoding: "utf8" })
+  .map((name) => name.split("\\").join("/"))
+  .filter((name) => name.endsWith(".js"));
 assert.ok(names.includes("index.js"), `${dist} has no index.js`);
 
 // The context is a browser's, not Node's: what the language itself defines, and the two globals
@@ -58,7 +61,8 @@ for (const name of names) {
 }
 
 const link = (specifier: string, from: vm.Module): vm.Module => {
-  const found = modules.get(specifier);
+  const path = `./${posix.join(posix.dirname(from.identifier), specifier)}`;
+  const found = specifier.startsWith(".") ? modules.get(path) : undefined;
   assert.ok(found, `${from.identifier} imports ${specifier}, which is not a file of the library`);
   return found;
 };
@@ -69,7 +73,7 @@ for (const module of modules.values()) {
 }
 
 const use = new vm.SourceTextModule(
-  `import { createDrawing, DASHED, fromJSON, lint, toDXF, toJSON, toSVG } from "./index.js";
+  `import { BUILT_IN_STANDARD, createDrawing, DASHED, defineStandard, fromJSON, lint, toDXF, toJSON, toSVG } from "./index.js";
    const d = createDrawing({ units: "ft" });
    d.layer("A-WALL", { color: 4, linetype: DASHED, lineweight: 0.5 }, () => {
      d.rect([0, 0], 10, 5, { id: "room" });
@@ -80,11 +84,12 @@ const use = new vm.SourceTextModule(
    });
    const drawing = d.build();
    const again = fromJSON(toJSON(drawing));
-   export default [lint(drawing).length, toSVG(again).slice(0, 4), toDXF(again).slice(-5), again.entities.length];`,
+   const standard = defineStandard({ id: "alone", version: "1", extends: BUILT_IN_STANDARD, layers: { "A-WALL": { color: 4, pen: "bold" } } });
+   export default [lint(drawing).length, toSVG(again).slice(0, 4), toDXF(again).slice(-5), again.entities.length, standard.chain[0].hash === BUILT_IN_STANDARD.hash];`,
   { identifier: "use.js", context, importModuleDynamically: refuse },
 );
 await use.link(link);
 await use.evaluate();
 const result = (use.namespace as { default: unknown[] }).default;
-assert.deepEqual([...result], [0, "<svg", "EOF\r\n", 5]);
+assert.deepEqual([...result], [0, "<svg", "EOF\r\n", 5, true]);
 console.log(`the library stands alone: ${names.length} files, no Node module and no package`);

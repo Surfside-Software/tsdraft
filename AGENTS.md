@@ -157,6 +157,17 @@
   drawings built another way. `toDXF` refuses to write a drawing with lint
   errors. Test a new rule with `@ts-expect-error` inside `assert.throws`, as
   `test/rules.test.ts` does, so both halves are proven.
+- `src/standard/` is a firm's standard. `shape.ts` is the one table of a document's fields: each
+  field's type, the rule of its value, its default and whether the hash reads it.
+  `scripts/standard-files.ts` writes `standard.schema.json` from it, `standard.json` from the
+  built-in standard and `src/version.ts` from `package.json`, and `test/standard.test.ts` fails
+  until `pnpm standard:files` has run after a change to any of them. A rule of a document's
+  literal is a type in `src/standard/literal.ts` with the runtime check's message, as a rule of a
+  drawing is in `src/rules.ts`. A default, once released, never changes: a change of behavior
+  comes as a new field or value. The library makes `BUILT_IN_STANDARD` as it loads without the
+  checks, with `BUILT_IN_HASH` in `src/standard/define.ts`, and a test resolves its document with
+  them. A change to what it states raises its version, which the CHANGELOG gives, and sets that
+  hash.
 - `lint` takes any plain data and never throws, since a `Drawing` can be written by hand.
   `src/shape.ts` holds the fields of each object and their types, once, for `fromJSON` and for
   `lint`. `lint` checks an object's shape there before a rule reads it, and skips the rules for

@@ -490,6 +490,13 @@ export type Precision<P extends number> = number extends P
     ? P
     : typeof PRECISION;
 
+/** Resolves to `Z` when it is a `suppressZeros`, and to the error message otherwise. */
+export type ZeroSuppressionOf<Z extends string> = string extends Z
+  ? Z
+  : Z extends (typeof ZERO_SUPPRESSIONS)[number]
+    ? Z
+    : typeof ZERO_SUPPRESSION;
+
 /**
  * Resolves to `S` when it is a suffix a dimension style can have, and to the error message
  * otherwise: no `\`, `{` or `}`, and no character a text cannot hold.
@@ -586,6 +593,13 @@ export type LayoutName<N extends string> = string extends N
 
 /** Resolves to `P` when it is one of `PAPERS`, and to the error message otherwise. */
 export type PaperOf<P extends string> = string extends P ? P : P extends Paper ? P : typeof PAPER;
+
+/** Resolves to `P` when it is one of `PLOT_STYLE_TABLES`, and to the error message otherwise. */
+export type PlotStyleOf<P extends string> = string extends P
+  ? P
+  : P extends PlotStyleTable
+    ? P
+    : typeof PLOT_STYLE;
 
 /** True for a path in lower case that ends in a dot other than the one after `.dwg`. */
 type TrailingDot<I extends string> = I extends `${string}.`
@@ -987,17 +1001,48 @@ export function textStyleProblem(
   const nameError = textStyleNameProblem(name);
   if (nameError) return nameError;
   if (isStandardTextStyle(name)) return STANDARD_STYLE;
-  if (typeof font !== "string" || !fontInfo(font)) return FONT;
-  if (typeof widthFactor !== "number" || !Number.isFinite(widthFactor)) {
+  return fontProblem(font) ?? widthFactorProblem(widthFactor) ?? obliqueAngleProblem(obliqueAngle);
+}
+
+/** Returns what is wrong with a font, or undefined when it is one of `FONTS`. Its type is `FontOf`. */
+export function fontProblem(font: unknown): string | undefined {
+  return typeof font === "string" && fontInfo(font) ? undefined : FONT;
+}
+
+/** Returns what is wrong with a width factor, or undefined. Its type is `WidthFactor`. */
+export function widthFactorProblem(value: unknown): string | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
     return "widthFactor must be a finite number";
   }
   // Judged as written, as every number is.
-  if (written(widthFactor) < 0.01 || written(widthFactor) > 100) return WIDTH_FACTOR;
-  if (typeof obliqueAngle !== "number" || !Number.isFinite(obliqueAngle)) {
+  return written(value) < 0.01 || written(value) > 100 ? WIDTH_FACTOR : undefined;
+}
+
+/** Returns what is wrong with an oblique angle, or undefined. Its type is `ObliqueAngle`. */
+export function obliqueAngleProblem(value: unknown): string | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
     return "obliqueAngle must be a finite number";
   }
   // Judged as written: 85.0000001 is written as 85.
-  return Math.abs(written(obliqueAngle)) > 85 ? OBLIQUE : undefined;
+  return Math.abs(written(value)) > 85 ? OBLIQUE : undefined;
+}
+
+/**
+ * Returns what is wrong with a lineweight in millimetres, or undefined when it is one of
+ * AutoCAD's. Its type is `LineweightOf`.
+ */
+export function lineweightValueProblem(value: unknown): string | undefined {
+  return typeof value === "number" && (LINEWEIGHTS as readonly number[]).includes(value)
+    ? undefined
+    : LINEWEIGHT;
+}
+
+/** Returns what is wrong with a scale ratio, or undefined. Its type is `Ratio`. */
+export function ratioProblem(value: unknown): string | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "The ratio must be a finite number";
+  }
+  return value > 0 ? magnitudeProblem(value) : RATIO;
 }
 
 /**
@@ -1592,10 +1637,18 @@ export function isStandardDimensionStyle(name: string): boolean {
  * valid: the arrow size, and how far an extension line starts from its point and runs past the
  * dimension line.
  */
-function notNegativeProblem(value: unknown, message: string = NOT_NEGATIVE): string | undefined {
+export function notNegativeProblem(
+  value: unknown,
+  message: string = NOT_NEGATIVE,
+): string | undefined {
   if (typeof value !== "number" || !Number.isFinite(value)) return "must be a finite number";
   // Judged as written: a size that is written as 0 is 0.
   return written(value) < 0 ? message : magnitudeProblem(value);
+}
+
+/** Returns what is wrong with the gap of a dimension's text, or undefined. Its type is `TextGap`. */
+export function textGapProblem(value: unknown): string | undefined {
+  return notNegativeProblem(value, TEXT_GAP);
 }
 
 /** Returns what is wrong with one of a dimension style's two scales, or undefined. */
@@ -1604,14 +1657,45 @@ function styleScaleProblem(value: unknown, message: string): string | undefined 
   return value > 0 ? sizeProblem(value) : message;
 }
 
+/** Returns what is wrong with a measurement scale, or undefined. Its type is `MeasurementScale`. */
+export function measurementScaleProblem(value: unknown): string | undefined {
+  return styleScaleProblem(value, MEASUREMENT_SCALE);
+}
+
+/** Returns what is wrong with an arrowhead, or undefined when it is one of `ARROWHEADS`. */
+export function arrowheadProblem(value: unknown): string | undefined {
+  return arrowheadInfo(value) ? undefined : ARROWHEAD;
+}
+
+/** Returns what is wrong with a precision, or undefined. Its type is `Precision`. */
+export function precisionProblem(value: unknown): string | undefined {
+  return typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= MAX_PRECISION
+    ? undefined
+    : PRECISION;
+}
+
+/** Returns what is wrong with a `suppressZeros`, or undefined. */
+export function zeroSuppressionProblem(value: unknown): string | undefined {
+  return (ZERO_SUPPRESSIONS as readonly unknown[]).includes(value) ? undefined : ZERO_SUPPRESSION;
+}
+
 /**
  * Returns what is wrong with a prefix, a suffix or a dimension's own text as a string AutoCAD
  * draws as it is, or undefined: it is a text, with none of the characters AutoCAD reads as
- * formatting.
+ * formatting. Its type, for a suffix, is `DimensionAffix`.
  */
-function plainDimensionText(value: unknown): string | undefined {
+export function plainDimensionText(value: unknown): string | undefined {
   if (typeof value !== "string") return "must be a string";
   return textProblem(value) ?? (/[\\{}]/.test(value) ? DIMENSION_FORMATTING : undefined);
+}
+
+/** Returns what is wrong with a dimension style's prefix, or undefined. Its type is `DimensionPrefix`. */
+export function dimensionPrefixProblem(value: unknown): string | undefined {
+  if (typeof value === "string" && value.includes("<>")) return PREFIX_MEASUREMENT;
+  return plainDimensionText(value);
 }
 
 /**
@@ -1643,12 +1727,12 @@ export function dimensionStyleProblem(style: unknown): string | undefined {
   }
   const height = sizeProblem(s.textHeight);
   if (height) return `textHeight: ${height}`;
-  if (s.arrowhead !== undefined && !arrowheadInfo(s.arrowhead)) return ARROWHEAD;
+  if (s.arrowhead !== undefined && arrowheadProblem(s.arrowhead)) return ARROWHEAD;
   for (const field of ["arrowSize", "extensionOffset", "extensionBeyond"] as const) {
     const problem = notNegativeProblem(s[field]);
     if (problem) return `${field}: ${problem}`;
   }
-  const gap = notNegativeProblem(s.textGap, TEXT_GAP);
+  const gap = textGapProblem(s.textGap);
   if (gap) return `textGap: ${gap}`;
   if (s.scale !== undefined) {
     const problem = styleScaleProblem(s.scale, DIMENSION_SCALE);
@@ -1675,29 +1759,20 @@ export function dimensionStyleProblem(style: unknown): string | undefined {
       return `${field}: times the scale it is ${size * scale}, which is written as 0 with the 6 decimals tsdraft writes, so the picture of a dimension would draw ${field === "textHeight" ? "its text" : "its arrowheads"} with no size. Use a larger size or scale${field === "arrowSize" ? ", or an arrow size of 0" : ""}`;
     }
   }
-  const precision = s.precision;
-  if (
-    typeof precision !== "number" ||
-    !Number.isInteger(precision) ||
-    precision < 0 ||
-    precision > MAX_PRECISION
-  ) {
-    return PRECISION;
-  }
+  const precision = precisionProblem(s.precision);
+  if (precision) return precision;
   for (const field of ["prefix", "suffix"] as const) {
     if (s[field] === undefined) continue;
     const problem = plainDimensionText(s[field]);
     if (problem) return `${field}: ${problem}`;
   }
   if (typeof s.prefix === "string" && s.prefix.includes("<>")) return PREFIX_MEASUREMENT;
-  if (
-    s.suppressZeros !== undefined &&
-    !(ZERO_SUPPRESSIONS as readonly unknown[]).includes(s.suppressZeros)
-  ) {
-    return ZERO_SUPPRESSION;
+  if (s.suppressZeros !== undefined) {
+    const problem = zeroSuppressionProblem(s.suppressZeros);
+    if (problem) return problem;
   }
   if (s.measurementScale !== undefined) {
-    const problem = styleScaleProblem(s.measurementScale, MEASUREMENT_SCALE);
+    const problem = measurementScaleProblem(s.measurementScale);
     if (problem) return `measurementScale: ${problem}`;
   }
   return undefined;

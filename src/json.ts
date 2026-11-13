@@ -15,6 +15,19 @@ import { isRecord, PLAIN_OBJECT, readDrawing } from "./shape.ts";
  * Throws when the drawing holds a value JSON cannot, such as `NaN`.
  */
 export function toJSON(drawing: Drawing): string {
+  return canonical(drawing, "A drawing");
+}
+
+/**
+ * Writes a value as canonical JSON, as `toJSON` writes a drawing. Throws when the value holds
+ * one JSON cannot, such as `NaN`, naming it as `what` does. `written` may give the canonical
+ * JSON of an object already worked out, which is then used as it is.
+ */
+export function canonical(
+  value: unknown,
+  what = "A value",
+  written?: (value: object) => string | undefined,
+): string {
   let out = "";
   const write = (value: unknown): void => {
     switch (typeof value) {
@@ -31,6 +44,11 @@ export function toJSON(drawing: Drawing): string {
       case "object": {
         if (value === null) {
           out += "null";
+          return;
+        }
+        const known = written?.(value);
+        if (known !== undefined) {
+          out += known;
           return;
         }
         if (Array.isArray(value)) {
@@ -55,9 +73,9 @@ export function toJSON(drawing: Drawing): string {
       }
     }
     const shown = typeof value === "number" ? String(value) : typeof value;
-    throw new Error(`A drawing with a value of ${shown} cannot be written as JSON`);
+    throw new Error(`${what} with a value of ${shown} cannot be written as JSON`);
   };
-  write(drawing);
+  write(value);
   return out;
 }
 

@@ -54,6 +54,9 @@ try {
     "package.json",
     "dist/index.js",
     "dist/index.d.ts",
+    "dist/standard/define.js",
+    "standard.json",
+    "standard.schema.json",
     "cli/dist/cli.js",
     "cli/dist/worker.js",
     "cli/assets/page.html",
@@ -65,11 +68,15 @@ try {
   }
   const stray = files.filter(
     (f) =>
-      !/^(LICENSE|README\.md|GUIDE\.md|CHANGELOG\.md|package\.json|dist\/[\w-]+\.(js|d\.ts)|cli\/dist\/[\w-]+\.js|cli\/assets\/.+)$/.test(
+      !/^(LICENSE|README\.md|GUIDE\.md|CHANGELOG\.md|package\.json|standard(\.schema)?\.json|dist\/(standard\/)?[\w-]+\.(js|d\.ts)|cli\/dist\/[\w-]+\.js|cli\/assets\/.+)$/.test(
         f,
       ),
   );
-  assert.deepEqual(stray, [], "tarball contains only dist/, cli/ and package metadata");
+  assert.deepEqual(
+    stray,
+    [],
+    "tarball contains only dist/, cli/, the standard and package metadata",
+  );
 
   const consumer = join(tmp, "consumer");
   const installed = join(consumer, "node_modules", "tsdraft");
@@ -98,7 +105,8 @@ try {
   writeFileSync(
     join(consumer, "main.ts"),
     [
-      `import { createDrawing, lint, toDXF, toSVG, type Drawing } from "tsdraft";`,
+      `import { BUILT_IN_STANDARD, createDrawing, defineStandard, lint, toDXF, toSVG, type Drawing } from "tsdraft";`,
+      `import builtIn from "tsdraft/standard.json" with { type: "json" };`,
       `const d: Drawing = createDrawing({ units: "ft" }).layer("A", { color: 1 }, () => {}).rect([0, 0], 10, 5).build();`,
       `if (lint(d).length > 0) throw new Error("unexpected lint problems");`,
       `// The published types must still reject a bad literal, and the code must still throw.`,
@@ -115,6 +123,15 @@ try {
       `const lineweight = () => createDrawing().line([0, 0], [1, 1], { lineweight: 0.33 });`,
       `try { lineweight(); threw = false; } catch { threw = true; }`,
       `if (!threw) throw new Error("a bad lineweight was accepted");`,
+      `// A standard's literal mistake is a compile error too, and the JSON the package ships is`,
+      `// a document that resolves to the built-in standard.`,
+      `const standard = defineStandard({ id: "acme", version: "1", extends: BUILT_IN_STANDARD, layers: { "A-WALL": { color: 2, pen: "bold" } } });`,
+      `const wall: { readonly color: number } = standard.layers["A-WALL"];`,
+      `// @ts-expect-error: the standard has no pen thick.`,
+      `const thick = () => defineStandard({ id: "acme", version: "1", extends: BUILT_IN_STANDARD, layers: { A: { color: 2, pen: "thick" } } });`,
+      `try { thick(); threw = false; } catch { threw = true; }`,
+      `if (!threw || wall.color !== 2) throw new Error("a pen the standard lacks was accepted");`,
+      `if (defineStandard(builtIn).hash !== BUILT_IN_STANDARD.hash) throw new Error("standard.json is not the built-in standard");`,
       `const dxf: string = toDXF(d);`,
       `const svg: string = toSVG(d);`,
       `if (!dxf.endsWith("EOF\\r\\n") || !svg.startsWith("<svg")) throw new Error("unexpected output");`,
@@ -133,7 +150,14 @@ try {
     writeFileSync(
       join(consumer, config),
       JSON.stringify({
-        compilerOptions: { ...options, strict: true, noEmit: true, skipLibCheck: false, types: [] },
+        compilerOptions: {
+          ...options,
+          strict: true,
+          noEmit: true,
+          skipLibCheck: false,
+          types: [],
+          resolveJsonModule: true,
+        },
         files: ["main.ts"],
       }),
     );

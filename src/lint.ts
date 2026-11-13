@@ -154,7 +154,8 @@ export type LintRule =
   | "duplicate-dimension-style"
   | "undefined-dimension-style"
   | "dimension"
-  | "zero-length";
+  | "zero-length"
+  | "standard";
 
 export interface Diagnostic {
   readonly rule: LintRule;
