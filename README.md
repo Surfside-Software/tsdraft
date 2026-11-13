@@ -24,7 +24,7 @@ The picture is what `toSVG` writes for
 page with a color for each layer. Its dimensions, leaders and stipple
 are small functions in the example that draw lines and text, and every size
 comes from a few parameters at the top of the file.
-[`examples`](examples) has both drawings and how to run them.
+[`examples`](examples) has the drawings and how to run them.
 
 A smaller drawing, start to finish:
 
@@ -317,7 +317,7 @@ directly, so tests and examples need no build step.
 ```sh
 pnpm install
 pnpm verify          # format check, lint, type check, tests, package smoke test
-pnpm example         # writes both examples to examples/out/ as DXF and SVG
+pnpm example         # writes the examples to examples/out/ as DXF and SVG
 pnpm readme:drawing  # redraws the pictures in docs/assets/ from the examples
 pnpm bench           # times the command from a save to the redrawn picture
 ```

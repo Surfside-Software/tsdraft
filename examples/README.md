@@ -1,9 +1,9 @@
 # Examples
 
 Each example builds a drawing and writes it to `examples/out/` as an AutoCAD
-2018 DXF and an SVG. `pnpm example` runs both. The pictures here are the SVGs
-restyled by `pnpm readme:drawing`, which gives each layer a color and keeps the
-lineweights the drawing sets.
+2018 DXF and an SVG. `pnpm example` runs them all. The pictures here are the
+SVGs restyled by `pnpm readme:drawing`, which gives each layer a color and keeps
+the lineweights the drawing sets.
 
 ## Outdoor kitchen
 
@@ -129,3 +129,85 @@ sides in the order `rect` draws them. The lot and the residence have the ids
 Move the residence toward the street and the command warns that it is in the
 front setback, with the distance it keeps. [Checks of intent](../docs/intent.md)
 has more.
+
+## Permit set
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../docs/assets/plan-set-A-101-dark.svg">
+  <img src="../docs/assets/plan-set-A-101-light.svg" alt="Sheet A-101 of the permit set, the first floor plan at 1/4 inch to 1 foot: walls, doors, windows, the stair and the fixtures, with door and window tags, room names and areas, dimension strings, revision clouds, plan notes and a legend, inside a border with the firm, the project and the sheet number in a strip down the right side" width="100%">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../docs/assets/plan-set-A-201-dark.svg">
+  <img src="../docs/assets/plan-set-A-201-light.svg" alt="Sheet A-201 of the permit set, the south and north elevations of a two-story house with a hip roof at 1/4 inch to 1 foot, with level markers in feet above the datum, flood elevations, window tags, notes and a table of levels, inside the same border" width="100%">
+</picture>
+
+[`plan-set/`](plan-set) is a permit set for a two-story house on a canal lot in
+Florida, in 15 sheets on ARCH D: a cover with the sheet index and the code data,
+the site plan, the floor plans and the roof plan, the elevations, a building
+section with a wall section, the door and window schedules, the foundation plan,
+the framing plans and the structural details, and the mechanical, electrical and
+plumbing sheets. It is one drawing in inches, with a layout for each sheet.
+
+The project, the owner, the address, the engineer and the firm are made up. The
+set shows how a whole set is drawn with tsdraft. It is not a design to build
+from: no engineer designed it, and its seal reads "DEMONSTRATION SET, NOT FOR
+CONSTRUCTION".
+
+```sh
+node examples/plan-set/set.ts
+```
+
+It writes the set to `examples/out/plan-set/plan-set.dxf`, the border to
+`Set up/TB-ARCHD.dxf` beside it and an SVG of each sheet with its border.
+The file's default export is the drawing, so `tsdraft render` and `tsdraft dev`
+take it too. It also exports the border's
+drawing as `xrefs`, which the pictures draw on each sheet, and `intent`, the
+zoning setbacks, which `tsdraft render` and `tsdraft dev` check on each build.
+
+How it is put together:
+
+- [`model/house.ts`](plan-set/model/house.ts) is the house, once: its walls,
+  openings, rooms, plate heights, floor depth and roof, in inches from the
+  southwest corner of the main block. Every sheet reads it. The floor plans, the
+  foundation and framing plans and the mechanical and electrical plans draw the
+  same walls, and the elevations, the section and the plumbing risers take their
+  heights from it.
+- The schedules and tables are worked out in code. The door and window schedules
+  list the openings of the model, with each window's design pressure. The cover
+  adds up the areas of the house. The panel schedule and the service load count
+  the devices the power plan places. The plumbing fixture schedule adds up the
+  fixture units of its fixtures. [`project.ts`](plan-set/project.ts) holds the
+  project, the firm and the design criteria that the cover, the notes and the
+  title block read.
+- [`lib/kit.ts`](plan-set/lib/kit.ts) defines the layers, the text styles, the
+  symbols as blocks and the helpers the sheets share, and
+  [`lib/plan.ts`](plan-set/lib/plan.ts) draws a floor plan of a level at any
+  origin. Each sheet draws its views in model space at an origin of its own, so
+  no viewport shows another sheet's views, and sizes their annotation for the
+  view's scale with `fromPaper`.
+- The border is a drawing of its own, `borderDrawing()` in
+  [`lib/titleblock.ts`](plan-set/lib/titleblock.ts). Each layout places it as the
+  xref `TB-ARCHD`, from the path `Set up/TB-ARCHD.dwg`, the way a firm keeps its
+  border in a file of its own. The sheet's fields, such as its title, number,
+  date and scale, are the attributes of a block, `SHEET FIELDS`, inserted over
+  the border. To load the border in CAD, save its DXF as that DWG, in a
+  `Set up` folder beside the set's file.
+
+What the set does not do yet, because tsdraft cannot:
+
+- Hatches and fills are loose lines: earth, insulation and stipple from
+  [`lib/drafting.ts`](lib/drafting.ts), and concrete, batt insulation and fill
+  from [`sheets/elevations-lib.ts`](plan-set/sheets/elevations-lib.ts).
+- Leaders are a polyline, an arrowhead and text, not leader objects.
+- A dimension writes only a decimal number, so the example writes the feet and
+  inches of each architectural dimension as its text.
+- A note is single-line texts, one for each line, broken with `measureText`.
+- The title block's fields are attributes the code sets, not fields that CAD
+  fills from the file and the layout.
+
+The set is also drawn without a standard. Its layers, text styles and text
+heights are its own, in `lib/kit.ts`, and its border is an xref and a block of
+its own rather than a standard's title block. To draw a sheet of your own, start
+from the [site plan](#site-plan), which takes its sheet format, title block,
+layers and text roles from a standard.

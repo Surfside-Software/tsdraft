@@ -5,6 +5,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import planSet, { xrefs as planSetXrefs } from "../examples/plan-set/set.ts";
 import { sitePlan } from "../examples/site-plan.ts";
 import { toSVG } from "../src/index.ts";
 
@@ -14,6 +15,8 @@ type Role = "line" | "muted" | "accent";
 
 interface Picture {
   readonly name: string;
+  /** The example to run, under `examples/`, when it is not `<name>.ts`. */
+  readonly example?: string;
   /** Width of the picture in pixels. */
   readonly width: number;
   /** The margin added around the drawing, in drawing units. */
@@ -37,6 +40,28 @@ interface Picture {
 // wide as its lineweight, and dashes as long as they plot.
 const site = sitePlan();
 const sitePicture = toSVG(site.drawing, { layout: site.drawing.layouts![0]!.name });
+
+// The permit set's pictures are two of its sheets, each with the border its xref draws.
+const planSetSheet = (layout: string) => toSVG(planSet, { layout, xrefs: planSetXrefs });
+
+/** The layers every sheet of the permit set draws: the border, its fields and the revisions. */
+const planSetFrame: Record<string, Role> = {
+  "TB-ARCHD|G-TTLB-HEVY": "line",
+  "TB-ARCHD|G-TTLB": "line",
+  "TB-ARCHD|G-TTLB-FINE": "muted",
+  "TB-ARCHD|G-TTLB-TEXT": "line",
+  "G-TTLB": "line",
+  Rev_Text: "line",
+  Rev_1: "muted",
+  Rev_2: "muted",
+  "G-ANNO-TEXT": "line",
+  "A-ANNO-TEXT": "line",
+  "A-ANNO-TAGS": "line",
+  "A-ANNO-SYMB": "line",
+  "A-ANNO-DIMS": "accent",
+  "A-GLAZ": "line",
+  "A-DOOR": "line",
+};
 
 const themes = {
   light: { bg: "#f6f8fa", line: "#1f2328", muted: "#818b98", accent: "#0d7a8c" },
@@ -86,6 +111,40 @@ const pictures: Picture[] = [
       "A-ANNO-NOTE": "line",
       "A-ANNO-SYMB": "line",
       "A-ANNO-TITL": "line",
+    },
+  },
+  {
+    name: "plan-set-A-101",
+    example: "plan-set/set.ts",
+    width: 1100,
+    pad: 0,
+    pen: 0.8,
+    sheetSvg: planSetSheet("A-101"),
+    roundCaps: false,
+    roles: {
+      ...planSetFrame,
+      "A-WALL": "line",
+      "A-WALL-PRHT": "line",
+      "A-FLOR-STRS": "line",
+      "A-FLOR-OVHD": "muted",
+      "P-FIXT": "muted",
+      "G-ANNO-REVS": "muted",
+    },
+  },
+  {
+    name: "plan-set-A-201",
+    example: "plan-set/set.ts",
+    width: 1100,
+    pad: 0,
+    pen: 0.8,
+    sheetSvg: planSetSheet("A-201"),
+    roundCaps: false,
+    roles: {
+      ...planSetFrame,
+      "A-ELEV": "line",
+      "A-ELEV-FINE": "muted",
+      "A-ELEV-GRAD": "line",
+      "S-FNDN-HIDD": "muted",
     },
   },
 ];
@@ -175,7 +234,10 @@ function sheetPicture(
 
 for (const picture of pictures) {
   const { name, width, pad, pen, roundCaps, roles, sheet } = picture;
-  execFileSync(process.execPath, [`examples/${name}.ts`], { cwd: root, stdio: "inherit" });
+  execFileSync(process.execPath, [`examples/${picture.example ?? `${name}.ts`}`], {
+    cwd: root,
+    stdio: "inherit",
+  });
   if (picture.sheetSvg !== undefined) {
     for (const [theme, colors] of Object.entries(themes)) {
       writeFileSync(
