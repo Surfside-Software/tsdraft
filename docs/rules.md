@@ -229,3 +229,96 @@ it would take `1e+100` for `1e+10` and report nothing.
 
 `toDXF` throws a `DrawingError` for errors only. Its `diagnostics` property holds
 them, and other code may throw one to refuse a drawing for its own reasons.
+
+## A drawing's standard
+
+`lint(drawing, { standard })` also holds a drawing to the standard it is drawn to, as the builder
+does at each call, so a drawing made by other code or read from JSON is held to it too. AutoCAD
+opens a drawing that breaks its standard, and `toDXF` writes one: these are a firm's rules, not
+AutoCAD's. `lint` takes the standard as plain data, from any copy of tsdraft: it checks it, and
+works out its hash again. A standard that does not check, or whose hash is not its content's, is
+one `standard` error, and `lint` holds the drawing to nothing else of it. `discipline` names the
+drawing's discipline, which resolves the entries with fields by discipline. Without `standard`,
+`lint` checks none of this.
+
+Errors:
+
+- `layer-outside-standard`: a layer the standard does not have, and an entity of model space or
+  of a layout on layer `0`, which is in no standard. In a block, layer `0` draws as the insert's
+  layer does, and is the layer to draw on.
+- `layer-differs-from-standard`: a layer whose color, linetype, lineweight or plot flag is not
+  the standard's, once for each.
+- `linetype-outside-standard`: a linetype the standard does not have.
+- `linetype-differs-from-standard`: a linetype whose pattern or description is not the
+  standard's, and a linetype scale other than the standard's.
+- `pen-outside-standard`: an entity's lineweight that is no pen's. `ByLayer` and `ByBlock` are
+  every standard's.
+- `text-style-outside-standard`: a text style that is no role's and no title block's, and a text
+  or an attribute definition in no role's text style, `Standard` among them.
+- `text-style-differs-from-standard`: a role's text style whose font, width factor or oblique
+  angle is not the role's.
+- `dimension-style-outside-standard`: a dimension style that is none of the standard's, which
+  are named after the style's id in capitals on a layout, such as `DIMS`, and with a scale's id
+  after it in model space, such as `DIMS-1in-10ft`.
+- `dimension-style-differs-from-standard`: one of those whose text style, sizes, arrowhead,
+  scale or writing is not what the standard gives it, once for each. A style that the standard
+  says nothing about how to write in its units, the drawing's or the paper's, is
+  `dimension-style`.
+- `scale-outside-standard`: a viewport whose ratio is no scale of the standard.
+- `sheet-format-outside-standard`: a layout on a paper that no sheet format of the standard is
+  on, and one whose plot style table is not its sheet format's.
+- `viewport-outside-drawing-area`: a viewport that reaches past the drawing area of its sheet
+  format's title block, or into the title block's box.
+- `title-block-differs-from-standard`: a title block in the drawing that is not the standard's,
+  as below, and a layout that inserts the title block of another sheet format than its own.
+- `height-off-role`: a text in a role's text style that plots at another height than the
+  role's.
+- `height-below-standard`: a text that plots below the standard's `minTextHeight`.
+- `dimension-off-scale`: a dimension shown in a viewport at another ratio than its style's
+  scale, and one on a layout in a style for model space.
+- `sheet-per-file`: under `sheetFiles` `"sheet-per-file"`, a drawing with a second layout, and
+  a sheet number in the title block that cannot name a file.
+- `layout`: under `sheetFiles` `"one-drawing"`, a sheet number in the title block that is not
+  its layout's name.
+- `standard`: besides a standard that does not check, an R12 drawing, and a `discipline` that is
+  none of the standard's, or is given under `"one-drawing"`.
+
+Warnings:
+
+- `sheet-format-ambiguous`: a layout on a paper that several sheet formats are on, which inserts
+  the title block of none of them, or of several with other title blocks that its plot style
+  table does not tell apart. `lint` does not check its drawing area, its title block or its
+  fields.
+- `title-block-missing`: a layout with no insert of its sheet format's title block.
+- `title-block-field-unset`: a field of the title block, written as an attribute, that its insert
+  does not set, so it shows its attribute's default.
+- `title-block-field-overflow`: a field's value that runs past the field's box, as `measureText`
+  measures it.
+- `discipline-unknown`: the entries with fields by discipline that `lint` checked in none of
+  their forms, since it was not given the drawing's discipline.
+- `standard-check-capped`: where the checks of text heights and dimension scales stopped. They
+  are bounded, counting each text, each dimension by the length of what its label reads, its
+  style's name, its own text and its style's prefix, suffix and text style, each insert they walk
+  and each item of the block it enters, each name they read the first time, by its length, and
+  each error by the length of its message. They enter only a block that can draw a text, so a
+  drawing with no text in its blocks costs nothing to walk. A drawing that draws more than they
+  look through, or nests blocks deeper than they can follow, gets one warning that says where
+  they stopped. The other checks take time in proportion to the drawing, the standard and the
+  problems they report: a standard given as data gets one problem for each pair of its names
+  that AutoCAD takes for one, however many there are.
+
+A layout is on the one sheet format of the standard on its paper. Among several on its paper, it
+is on those whose title block it inserts, and of those, on the ones whose plot style table it
+has. When they share one title block, `lint` checks the layout against that title block.
+
+A text is checked in each viewport that shows it, whether model space draws it itself or through
+an insert: where its box meets the part of model space the viewport shows, and its layer is on,
+thawed and plots. It plots at its height, times the scale of the insert that draws it, times the
+viewport's scale. A text of a layout plots at its height, times its insert's scale. Heights are
+compared as written, with 6 decimals.
+
+A title block in the drawing is the standard's when every definition of its closure is, by its
+JSON: its block, each block that block inserts, each text style their texts and attributes name,
+each linetype their entities name, and its xref's name and path. Then the rules for pens, text
+styles and role heights leave out what it draws, and `height-below-standard` still holds its
+texts. When one of them differs, or is missing, every rule holds it as any other block.

@@ -7,7 +7,7 @@ import { DrawingError, type Diagnostic } from "../lint.ts";
 import { paperInfo } from "../papers.ts";
 import { written } from "../format.ts";
 import { layerTwinProblem, shown } from "../rules.ts";
-import { isRecord } from "../shape.ts";
+import { isRecord, PLAIN_OBJECT } from "../shape.ts";
 import { sha256Text } from "../sha256.ts";
 import { BUILT_IN_DOCUMENT, BUILT_IN_SPECIFIER } from "./default.ts";
 import {
@@ -385,30 +385,24 @@ function resolve(
 
   // A dimension style's name in AutoCAD is its id in capitals on a layout, and with a scale's id
   // after it in model space. No two of those names may be one to AutoCAD.
-  const styleNames = new Map<string, string>();
+  const dimensionStyles = each<StandardDimensionStyle>("dimensionStyles");
   const scaleIds = [...merged.scales.values()].map(([name]) => name);
-  for (const [id, style, path] of each<StandardDimensionStyle>("dimensionStyles")) {
+  const styleName = ([style, scale]: StyleName): string =>
+    `the dimension style ${shown(dimensionStyles[style]![0])}${scale < 0 ? "" : ` at the scale ${shown(scaleIds[scale])}`}`;
+  const shared = sharedStyleNames(
+    dimensionStyles.map(([id]) => id),
+    scaleIds,
+  );
+  dimensionStyles.forEach(([, style, path], i) => {
     references("dimensionStyles", style, path);
     byDiscipline("dimensionStyles", style, path);
-    const named = (name: string, what: string): void => {
-      const key = layerAuditKey(name);
-      const other = styleNames.get(key);
-      if (other === undefined) styleNames.set(key, what);
-      else {
-        add(
-          path,
-          `${capital(what)} and ${other} have names that AutoCAD takes for one dimension style. Rename the style or the scale`,
-        );
-      }
-    };
-    named(capitals(id), `the dimension style ${shown(id)}`);
-    for (const scale of scaleIds) {
-      named(
-        `${capitals(id)}-${scale}`,
-        `the dimension style ${shown(id)} at the scale ${shown(scale)}`,
+    for (const [name, other] of shared.get(i) ?? []) {
+      add(
+        path,
+        `${capital(styleName(name))} and ${styleName(other)} have names that AutoCAD takes for one dimension style. Rename the style or the scale`,
       );
     }
-  }
+  });
 
   const papers = (paper: string, path: string) => {
     const info = paperInfo(paper);
@@ -645,21 +639,36 @@ function parentOf(
 
 /**
  * A standard from another copy of tsdraft, as data: read again as a document with no `extends`,
- * and undefined unless its hash is its content's.
+ * and undefined unless its hash is its content's. Each problem that makes it none is added to
+ * `problems`, with its path in the standard.
  */
-function readAgain(given: unknown): Standard | undefined {
-  const { hash, chain, ...rest } = isRecord(given) ? given : ({} as Record<string, unknown>);
-  const links =
-    Array.isArray(chain) &&
-    chain.every(
-      (link) =>
-        isRecord(link) &&
-        typeof link.id === "string" &&
-        typeof link.version === "string" &&
-        typeof link.hash === "string",
-    );
-  const again = links && typeof hash === "string" ? resolve(rest, {}, []) : undefined;
-  if (!again || again.hash !== hash) return undefined;
+function readAgain(given: unknown, problems: Problem[]): Standard | undefined {
+  if (!isRecord(given)) {
+    problems.push({ item: "", message: `A standard ${PLAIN_OBJECT}` });
+    return undefined;
+  }
+  const { hash, chain, ...rest } = given;
+  const before = problems.length;
+  if (typeof hash !== "string") problems.push({ item: "hash", message: NO_HASH });
+  let links = Array.isArray(chain);
+  // An empty slot is no link. `every` would skip it, and read a list of empty slots to its end.
+  for (let i = 0; links && i < (chain as unknown[]).length; i++) {
+    const link: unknown = (chain as unknown[])[i];
+    links =
+      isRecord(link) &&
+      typeof link.id === "string" &&
+      typeof link.version === "string" &&
+      typeof link.hash === "string";
+  }
+  if (!links) problems.push({ item: "chain", message: CHAIN });
+  if (rest.extends !== undefined) problems.push({ item: "extends", message: RESOLVED_EXTENDS });
+  if (problems.length > before) return undefined;
+  const again = resolve(rest, {}, problems);
+  if (!again) return undefined;
+  if (again.hash !== hash) {
+    problems.push({ item: "hash", message: hashProblem(again.hash) });
+    return undefined;
+  }
   // Its entries are `again`'s, whose drawings' JSON is known.
   const standard = Object.freeze({
     ...again,
@@ -782,11 +791,93 @@ function boxIn(
 
 const capital = (what: string): string => what.charAt(0).toUpperCase() + what.slice(1);
 
+/** A dimension style's name in AutoCAD: its style's index, and its scale's, or -1 on a layout. */
+type StyleName = readonly [style: number, scale: number];
+
+/**
+ * Each name of a dimension style that AUDIT takes for one met before it, when the styles are met
+ * in order and each style's name on a layout before its names at the scales in order: by its
+ * style's index, the name and the earlier one.
+ *
+ * Ids are ASCII, which `layerAuditKey` only lower-cases, so a name's key is its style's key, `-`
+ * and its scale's, and ids of one section have different keys. Two names are then one only when
+ * a style's key is another's, `-` and a scale's, or is another's, `-` and a part `w`, while a
+ * scale's key is `w`, `-` and another scale's. So every such name is found from the places `-`
+ * splits a key, in time linear in the ids and in the names found, not in styles times scales.
+ */
+function sharedStyleNames(
+  styles: readonly string[],
+  scales: readonly string[],
+): ReadonlyMap<number, readonly (readonly [name: StyleName, earlier: StyleName])[]> {
+  const styleKeys = styles.map((id) => layerAuditKey(capitals(id)));
+  const scaleKeys = scales.map((id) => layerAuditKey(id));
+  const styleAt = new Map(styleKeys.map((key, i) => [key, i]));
+  const scaleAt = new Map(scaleKeys.map((key, i) => [key, i]));
+  const splits = function* (key: string): Generator<readonly [string, string]> {
+    for (let at = key.indexOf("-"); at >= 0; at = key.indexOf("-", at + 1)) {
+      yield [key.slice(0, at), key.slice(at + 1)];
+    }
+  };
+  /** Every name that is one with another name. */
+  const names: StyleName[] = [];
+  styleKeys.forEach((key, i) => {
+    for (const [head, tail] of splits(key)) {
+      const style = styleAt.get(head);
+      const scale = scaleAt.get(tail);
+      if (style !== undefined && scale !== undefined) names.push([i, -1], [style, scale]);
+    }
+  });
+  const byPart = new Map<string, [scale: number, rest: number][]>();
+  scaleKeys.forEach((key, i) => {
+    for (const [head, tail] of splits(key)) {
+      const rest = scaleAt.get(tail);
+      if (rest === undefined) continue;
+      const found = byPart.get(head);
+      if (found) found.push([i, rest]);
+      else byPart.set(head, [[i, rest]]);
+    }
+  });
+  styleKeys.forEach((key, i) => {
+    for (const [head, part] of splits(key)) {
+      const style = styleAt.get(head);
+      if (style === undefined) continue;
+      for (const [scale, rest] of byPart.get(part) ?? []) names.push([style, scale], [i, rest]);
+    }
+  });
+
+  names.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const first = new Map<string, StyleName>();
+  const shared = new Map<number, [StyleName, StyleName][]>();
+  names.forEach((name, n) => {
+    const before = names[n - 1];
+    if (before && before[0] === name[0] && before[1] === name[1]) return;
+    const [style, scale] = name;
+    const key = scale < 0 ? styleKeys[style]! : `${styleKeys[style]}-${scaleKeys[scale]}`;
+    const earlier = first.get(key);
+    if (earlier === undefined) first.set(key, name);
+    else {
+      const found = shared.get(style);
+      if (found) found.push([name, earlier]);
+      else shared.set(style, [[name, earlier]]);
+    }
+  });
+  return shared;
+}
+
 const unitsProblem = (units: string, paperUnits: string): string =>
   `The drawing is in ${shown(units)}, and the standard's paperUnits are ${shown(paperUnits)}. A title block is drawn in paper units`;
 
 const filledByAutoCAD = (source: string): string =>
   `A field whose source is ${shown(source)} is a field of the xref's drawing that AutoCAD fills, and this title block has no xref`;
+
+const NO_HASH =
+  "A standard holds its hash, the SHA-256 of what it states, as 64 hexadecimal digits. Give the standard as defineStandard returns it";
+const CHAIN =
+  "A standard holds its chain, a list of the id, version and hash of each parent. Give the standard as defineStandard returns it";
+const RESOLVED_EXTENDS =
+  "A standard is resolved, with its parent's entries in it, and has no extends. Give the standard as defineStandard returns it";
+const hashProblem = (hash: string): string =>
+  `The standard's hash is not the hash of what it states, ${hash}: it changed after defineStandard made it. Give the standard as defineStandard returns it`;
 
 const REFERENCE_WORDS: Record<Section, string> = {
   disciplines: "discipline",

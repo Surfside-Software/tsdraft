@@ -192,6 +192,16 @@
   on first use, under `capitals` of the id, and in model space with the view's scale id after a
   dimension style's: `DIMS-1in-10ft`. A view's id is taken when `view()` declares it, and the
   one viewport that shows the view takes that id and no other.
+- `lint(drawing, { standard })` runs the rules of a standard in `src/standard/lint.ts` after the
+  others, and without `standard` runs none of them. It takes the standard through `adopted` in
+  `src/standard/made.ts`, as the builder does, and reads only what `TYPED` in `src/shape.ts` finds
+  sound. A rule the builder refuses under a standard has the builder's rule name in `lint`, and
+  its message from `src/standard/drawn.ts` where that fits a `Drawing`. It must stay bounded by
+  construction: it reads a list up to its first empty slot, reads each item of the drawing once,
+  and pays for anything it does again, in proportion to its size, before it does it. The walk of
+  an insert reads blocks made once a drawing, with only what can draw a text and a short token for
+  each name, and pays for each block it enters. A title block's definition is compared as JSON
+  cut short at the length of the standard's. `test/standard-lint.test.ts` fuzzes it from a seed.
 - `lint` takes any plain data and never throws, since a `Drawing` can be written by hand.
   `src/shape.ts` holds the fields of each object and their types, once, for `fromJSON` and for
   `lint`. `lint` checks an object's shape there before a rule reads it, and skips the rules for

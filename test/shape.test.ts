@@ -4,6 +4,8 @@ import { inspect } from "node:util";
 import { Script } from "node:vm";
 import { without } from "../cli/src/omit.ts";
 import {
+  BUILT_IN_STANDARD,
+  defineStandard,
   DrawingError,
   fromJSON,
   lint,
@@ -258,6 +260,38 @@ function replacements(drawing: unknown, path: Path): unknown[] {
   ];
 }
 
+/**
+ * A standard whose title block is the full drawing's block `TREE` on its sheet, so that `lint`
+ * walks every rule of a standard over the drawing, its title block and its fields among them.
+ */
+const treeStandard = defineStandard({
+  id: "tree",
+  version: "1",
+  paperUnits: "in",
+  minTextHeight: 0.05,
+  layers: { WALL: { color: 1 } },
+  textRoles: { note: { font: "Arial", height: 0.1 } },
+  titleBlocks: {
+    tree: {
+      paper: "ARCH D",
+      block: {
+        format: 0,
+        units: "in",
+        dxf: "R2018",
+        layers: [{ name: "0", color: 7 }],
+        entities: [],
+        textStyles: full.textStyles,
+        blocks: full.blocks,
+      },
+      blockName: "TREE",
+      layer: "WALL",
+      drawingArea: [0.5, 0.5, 35.5, 23.5],
+      fields: { TAG: { box: [1, 1, 2, 2] } },
+    },
+  },
+  sheetFormats: { d: { paper: "ARCH D", titleBlock: "tree" } },
+});
+
 const errors = (drawing: Drawing, version?: "R12" | "R2018") =>
   lint(drawing, version ? { version } : {}).filter((d) => d.severity === "error");
 
@@ -295,6 +329,8 @@ function failure(value: unknown): string | undefined {
   let found: Diagnostic[];
   try {
     for (const version of ["R12", "R2018"] as const) errors(drawing, version);
+    lint(drawing, { standard: BUILT_IN_STANDARD });
+    lint(drawing, { standard: treeStandard });
     found = errors(drawing);
   } catch (thrown) {
     return `lint threw ${String(thrown)}`;
