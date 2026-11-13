@@ -68,11 +68,13 @@ export {
   type TextStyleChoice,
   type TextStyleDefinition,
   type TextVerticalAlign,
+  type TitleBlockFields,
   type Units,
   type View,
   type Viewport,
   type ViewportOptions,
   type Xref,
+  type Zone,
 } from "./drawing.ts";
 export { toDXF, type DxfOptions } from "./dxf.ts";
 export { FONT_METRICS, FONT_METRICS_RANGES, type FontMetrics } from "./font-metrics.ts";

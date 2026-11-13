@@ -67,24 +67,25 @@ AutoCAD sizes dashes on the paper in a viewport and on the sheet alike. The
 street and the adjoining lot lines are part of the site: they run to the sides
 of what the viewport shows, where it cuts them off.
 
-The sheet is laid out from its parameters, in inches: the border half an inch
-inside the paper, the viewport in the left 27 inches of the drawing area above
-a strip for the view's title, a column 7 inches wide for the notes, and the
-title block at its foot, 6 1/2 by 3 inches in the lower right corner. The
-paper is full bleed, and the border is still inside it: AutoCAD plots a line
-on the left, bottom or right edge of the paper with half its width off the
-page, and does not plot a line on the top edge.
+The layout is on the standard's sheet format `arch-d`, which gives its paper,
+its title block and the zones it is laid out by, in inches: the border half an
+inch inside the paper, the zone `views` for the viewport in the left 27 inches
+of the drawing area above the zone `viewTitles` for the view's title, and the
+zone `notes`, a column 7 inches wide, above the title block, 6 1/2 by 3 inches
+in the lower right corner. The paper is full bleed, and the border is still
+inside it: AutoCAD plots a line on the left, bottom or right edge of the paper
+with half its width off the page, and does not plot a line on the top edge.
 
-The border and the title block are one block, `TITLE BLOCK`, which the
-function `titleBlock` draws for the sheet's size. Its fields are attributes:
-the project, the sheet's title and number, the date, the scale, and who drew
-and checked it. It also has a table for revisions and an area for a seal. The
-insert on the layout gives each field its value, and in CAD each stays an
-attribute. `titleBlock` reads its arguments and the constant `TITLE_BLOCK`
-beside it, so the two can be copied by themselves. The view title's
-attributes have tags of their own, `VIEW_TITLE` and `VIEW_SCALE`, so no tag
-names two fields. [Title blocks](../docs/title-blocks.md)
-has more, and the way to use a firm's own border.
+The border and the title block are the standard's, one block, `TITLE BLOCK`,
+which `sheet.titleBlock()` places. Its fields are attributes: the project, the
+sheet's title and number, the date, the scale, and who drew and checked it. It
+also has a table for revisions and an area for a seal. The title comes from the
+call, the project, the date and who drew and checked it from `createDrawing`'s
+`fields`, the number from the layout's name and the scale from the viewport,
+and in CAD each stays an attribute. The view title's attributes have tags of
+their own, `VIEW_TITLE` and `VIEW_SCALE`, so no tag names two fields.
+[Title blocks](../docs/title-blocks.md) has more, and the way to use a firm's
+own border.
 
 The trees, the property corners, the north arrow and the view title are blocks
 too. The tree and the property corner are in the plan and in the legend, so
@@ -93,10 +94,10 @@ radius in the plan and at 3/16 inch in the legend.
 
 The sheet is drawn to a standard of its own, `standard`, which extends
 `BUILT_IN_STANDARD` with the layer `V-TREE`. Each layer is named, and its color,
-linetype, pen and plot flag are the standard's. The border names the standard's
-heavy pen. The standard's linetype scale is a length of paper, 1/2. Each text
-names a role of the standard, which gives its text style and the height it
-plots at; the title block's texts are in a text style of its own, `NOTES`. The
+linetype, pen and plot flag are the standard's. The standard's linetype scale
+is a length of paper, 1/2. Each text names a role of the standard, which gives
+its text style and the height it plots at; the title block's texts are in a
+text style of its own, `TITLE BLOCK`. The
 view `plan` is at a scale of the standard, `1in-10ft`. Draw it at `1in-20ft`
 and nothing on the sheet moves: the plan is half as large in its viewport, and
 its text keeps its plotted height. The sheet holds the plan at 1" = 10' and at

@@ -185,8 +185,11 @@ export function leader(
   });
 }
 
-/** A slim closed arrowhead with its tip at `tip`, pointing away from `from`. */
-export function arrowhead(d: Pen, tip: Point, from: Point, length: number): void {
+/**
+ * A slim closed arrowhead with its tip at `tip`, pointing away from `from`. It draws no text, so
+ * a drawing whose texts name roles of a standard can be given.
+ */
+export function arrowhead(d: Pick<Pen, "polyline">, tip: Point, from: Point, length: number): void {
   const dx = tip[0] - from[0];
   const dy = tip[1] - from[1];
   const size = Math.hypot(dx, dy);

@@ -248,7 +248,7 @@ keeping `drafting.ts` in a `lib` folder beside it. Change two import strings to 
 `"../src/index.ts"` in `site-plan.ts`, and `"../../src/index.ts"` in `lib/drafting.ts`.
 
 Its parameters come first and every position is worked out from them. Its columns and line
-breaks are laid out with `measureText`. Its symbols are blocks, and so is its title block.
+breaks are laid out with `measureText`. Its symbols are blocks.
 
 It is drawn to a standard of its own, which extends `BUILT_IN_STANDARD` with the layer
 `V-TREE`. `d.layer(name, draw)` names a layer of the standard, which gives its color, linetype,
@@ -263,7 +263,16 @@ The plan is a view at one of the standard's scales, `const plan = d.view("plan",
 plan })` in the standard's dimension style. The viewport shows the view, as
 `sheet.viewport(corner, width, height, { view: plan, center })`, and `plan.paper(inches)`
 turns a gap on paper into drawing units. On the sheet and in a block, a text with a role is at
-the role's height and names no view. `sitePlan("1in-20ft")` draws the sheet at 1" = 20'.
+the role's height and names no view. Under a standard every text names a role: a `height`, a
+`style` and `textStyle()` are refused. `sitePlan("1in-20ft")` draws the sheet at 1" = 20'.
+
+Its layout is on a sheet format of the standard, `d.layout("C-101", { sheetFormat: "arch-d" },
+(sheet) => …)`, which gives the paper, the title block and the zones the sheet is laid out by:
+`sheet.zone("views")` is the box the viewport fills, as `{ left, bottom, right, top, width,
+height }`. `sheet.titleBlock({ title: "SITE PLAN" })` places the border and the title block
+and fills its fields: the project, the date and who drew and checked it come from
+`createDrawing({ standard, fields: { project, date, drawnBy, checkedBy } })`, the number is the
+layout's name and the scale is the viewport's.
 
 ## Checking intent
 
