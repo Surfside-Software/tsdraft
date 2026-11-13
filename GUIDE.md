@@ -250,6 +250,11 @@ keeping `drafting.ts` in a `lib` folder beside it. Change two import strings to 
 Its parameters come first and every position is worked out from them. Its columns and line
 breaks are laid out with `measureText`. Its symbols are blocks, and so is its title block.
 
+It is drawn to a standard of its own, which extends `BUILT_IN_STANDARD` with the layer
+`V-TREE`. `d.layer(name, draw)` names a layer of the standard, which gives its color, linetype,
+pen and plot flag, and an entity's `pen` names one of the standard's pens. A layer the standard
+lacks is a compile error that says how to add it to `layers` in `defineStandard`.
+
 ## Checking intent
 
 Export `intent` beside the drawing, and each build checks that every footprint keeps out of

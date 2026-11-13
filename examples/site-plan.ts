@@ -43,7 +43,10 @@
 //   inches on paper into feet for the viewport's ratio. So the same code draws the sheet at
 //   another ratio: the plan changes size in its viewport and its text keeps its plotted
 //   height.
-// - Each layer sets a linetype and a pen weight, and its entities draw ByLayer.
+// - The drawing is drawn to a standard, `standard`, which extends the built-in one with the
+//   layer `V-TREE`. A layer is named, and its color, linetype, pen and plot flag are the
+//   standard's. Its entities draw ByLayer, and one that plots heavier than its layer names a
+//   pen of the standard.
 // - Every text is in the sheet's text style, `NOTES`, through `put`, and is justified to its
 //   point with `align` and `valign`. Columns and line breaks are laid out by the length
 //   `measureText` gives a text in the style's font.
@@ -55,13 +58,12 @@
 //   stays an attribute. `titleBlock` and `TITLE_BLOCK` can be copied by themselves.
 import { mkdirSync, writeFileSync } from "node:fs";
 import {
-  CENTER,
+  BUILT_IN_STANDARD,
   checkIntent,
   createDrawing,
-  DASHED,
+  defineStandard,
   fromPaper,
   PAPERS,
-  PHANTOM,
   toDXF,
   toSVG,
   type Drawing,
@@ -72,6 +74,20 @@ import {
   type TextVerticalAlign,
 } from "../src/index.ts";
 import { arrowhead, textWidth } from "./lib/drafting.ts";
+
+/**
+ * The standard the sheet is drawn to: the built-in one, with a layer for the trees. Its layers
+ * give the plan its colors, linetypes and pens, and its linetype scale sizes the dashes.
+ */
+export const standard = defineStandard({
+  id: "site-plan-example",
+  version: "1",
+  extends: BUILT_IN_STANDARD,
+  layers: { "V-TREE": { color: 3, pen: "fine", discipline: "V" } },
+});
+
+/** A builder of a drawing drawn to the standard. */
+type Builder = DrawingBuilder<"R2018", number, typeof standard>;
 
 // The sheet. Lengths on it are inches of paper, from its lower-left corner. The paper is full
 // bleed, with no margin a plotter keeps clear, so the border sets the edge of the drawing:
@@ -199,10 +215,10 @@ const TITLE_BLOCK = {
  * corner, so it is inserted on a layout at `[0, 0]`, with the fields in `attributes`.
  *
  * Its lines and texts are on layer 0, so they draw on the layer of the insert. The border and
- * the outline carry a lineweight of their own.
+ * the outline are drawn with the standard's heavy pen.
  */
 function titleBlock(
-  d: DrawingBuilder,
+  d: Builder,
   {
     width,
     height,
@@ -264,7 +280,7 @@ function titleBlock(
 
   d.block(name, {}, () => {
     d.rect([area.left, area.bottom], area.right - area.left, area.top - area.bottom, {
-      lineweight: 0.7,
+      pen: "heavy",
     });
     // The title block's left and top edges. The border is its other two.
     d.polyline(
@@ -274,7 +290,7 @@ function titleBlock(
         [box.right, box.top],
       ],
       false,
-      { lineweight: 0.7 },
+      { pen: "heavy" },
     );
     d.line([split, box.bottom], [split, box.top]);
     d.line([box.left, seal.bottom], [split, seal.bottom]);
@@ -361,11 +377,11 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
     top: planCenter[1] + paper(viewport.top - viewport.bottom) / 2,
   };
 
-  // AutoCAD's linetype patterns are sized for paper: DASHED is a 0.5 dash and a 0.25 gap. On a
-  // layout AutoCAD sizes dashes on the paper, in every viewport, so the linetype scale is a
-  // paper length and no drawing length: at 1/2 the dashes plot at half their pattern, a 1/4 in
-  // dash, at every ratio.
-  const d = createDrawing({ units: scale.units, linetypeScale: 1 / 2 });
+  // The standard's linetype patterns are sized for paper: DASHED is a 0.5 dash and a 0.25 gap.
+  // On a layout AutoCAD sizes dashes on the paper, in every viewport, so the standard's linetype
+  // scale, 1/2, is a paper length and no drawing length: the dashes plot at half their pattern,
+  // a 1/4 in dash, at every ratio.
+  const d = createDrawing({ units: scale.units, standard });
   d.textStyle({ name: NOTES, font: FONT });
   const widthOf = (value: string, height: number) => textWidth(value, height, FONT);
 
@@ -381,22 +397,6 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
   ): void {
     d.text(at, value, { height, style: NOTES, ...options });
   }
-
-  d.layer("C-PROP", { color: 7, linetype: PHANTOM, lineweight: 0.7 });
-  d.layer("C-PROP-ADJC", { color: 8, linetype: PHANTOM, lineweight: 0.18 });
-  d.layer("C-PROP-MONU", { color: 7, lineweight: 0.25 });
-  d.layer("C-SETB", { color: 1, linetype: DASHED, lineweight: 0.25 });
-  d.layer("C-BLDG", { color: 5, lineweight: 0.7 });
-  d.layer("C-PAVE", { color: 8, lineweight: 0.35 });
-  d.layer("C-ROAD-CNTR", { color: 8, linetype: CENTER, lineweight: 0.18 });
-  d.layer("V-TREE", { color: 3, lineweight: 0.18 });
-  d.layer("C-ANNO-DIMS", { color: 8, lineweight: 0.18 });
-  d.layer("C-ANNO-TEXT", { color: 7, lineweight: 0.25 });
-  d.layer("C-ANNO-SYMB", { color: 7, lineweight: 0.35 });
-  d.layer("C-ANNO-TITL", { color: 7, lineweight: 0.5 });
-  d.layer("G-ANNO-TTLB", { color: 7, lineweight: 0.35 });
-  // A viewport's border is on a layer that does not plot.
-  d.layer("G-ANNO-NPLT", { color: 8, plot: false });
 
   // The symbols. A block's coordinates are its own, and its base point is its origin.
   d.block("TREE", {}, () => {
@@ -446,8 +446,8 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
   });
 
   // Model space: the site, at its true size in feet.
-  d.layer("C-PROP", {}, () => d.rect([0, 0], lot.width, lot.depth, { id: "lot" }));
-  d.layer("C-PROP-ADJC", {}, () => {
+  d.layer("C-PROP", () => d.rect([0, 0], lot.width, lot.depth, { id: "lot" }));
+  d.layer("C-PROP-ADJC", () => {
     // The adjoining lot lines and the street run to the sides of the view.
     for (const y of [0, lot.depth]) {
       d.line([view.left, y], [0, y]);
@@ -456,18 +456,18 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
     // The far side of the street's right-of-way.
     d.line([view.left, -street.rightOfWay], [view.right, -street.rightOfWay]);
   });
-  d.layer("C-PROP-MONU", {}, () => {
+  d.layer("C-PROP-MONU", () => {
     for (const x of [0, lot.width]) {
       for (const y of [0, lot.depth]) d.insert("PROPERTY CORNER", [x, y], { scale: paper(1) });
     }
   });
-  d.layer("C-SETB", {}, () => {
+  d.layer("C-SETB", () => {
     const { front, side, rear } = setbacks;
     d.rect([side, front], lot.width - side * 2, lot.depth - front - rear);
   });
-  d.layer("C-BLDG", {}, () => d.polyline(footprint, true, { id: "residence" }));
+  d.layer("C-BLDG", () => d.polyline(footprint, true, { id: "residence" }));
 
-  d.layer("C-PAVE", {}, () => {
+  d.layer("C-PAVE", () => {
     // The driveway, flared to the street with a quarter circle on each side.
     const flareY = pavement.near + driveway.flare;
     d.line([driveX, bounds.front], [driveX, flareY]);
@@ -484,8 +484,8 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
       d.line([driveX + driveway.width, y], [view.right, y]);
     }
   });
-  d.layer("C-ROAD-CNTR", {}, () => d.line([view.left, centerline], [view.right, centerline]));
-  d.layer("V-TREE", {}, () => {
+  d.layer("C-ROAD-CNTR", () => d.line([view.left, centerline], [view.right, centerline]));
+  d.layer("V-TREE", () => {
     for (const tree of trees) d.insert("TREE", tree.at, { scale: tree.radius });
   });
 
@@ -516,7 +516,7 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
   // Each runs through the building's corners, and ends on a lot line.
   const across = bounds.rear + paper(3 / 8);
   const up = lot.width + paper(5 / 8);
-  d.layer("C-ANNO-DIMS", {}, () => {
+  d.layer("C-ANNO-DIMS", () => {
     const acrossLot: Point[] = [
       [0, across],
       [bounds.left, bounds.rear],
@@ -537,7 +537,7 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
     }
   });
 
-  d.layer("C-ANNO-TEXT", {}, () => {
+  d.layer("C-ANNO-TEXT", () => {
     const { note, label, heading } = text;
     const middle = lot.width / 2;
 
@@ -626,7 +626,7 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
   // The sheet: everything drawn inside `d.layout` is on the paper, in inches.
   d.layout(sheet.number, { paper: sheet.paper }, (paperSheet) => {
     // The border and the title block, with the sheet's fields.
-    d.layer("G-ANNO-TTLB", {}, () => {
+    d.layer("G-ANNO-TTLB", () => {
       d.insert(block.name, [0, 0], {
         id: "title-block",
         attributes: {
@@ -641,8 +641,8 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
       });
     });
 
-    // The plan, at the ratio.
-    d.layer("G-ANNO-NPLT", {}, () => {
+    // The plan, at the ratio. A viewport's border is on a layer that does not plot.
+    d.layer("G-ANNO-NPLT", () => {
       const [width, height] = [viewport.right - viewport.left, viewport.top - viewport.bottom];
       paperSheet.viewport([viewport.left, viewport.bottom], width, height, {
         center: planCenter,
@@ -655,12 +655,12 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
     // a row. The underline of the title is level with the middle of the north arrow.
     const underline = area.bottom + layout.clear + arrowRadius;
     const titleX = area.left + layout.clear + arrowRadius * 2 + 3 / 8;
-    d.layer("C-ANNO-TITL", {}, () => {
+    d.layer("C-ANNO-TITL", () => {
       d.insert("VIEW TITLE", [titleX, underline], {
         attributes: { VIEW_TITLE: sheet.title, VIEW_SCALE: `SCALE: ${scaleLabel}` },
       });
     });
-    d.layer("C-ANNO-SYMB", {}, () => {
+    d.layer("C-ANNO-SYMB", () => {
       // The viewport is not turned, so north is up the sheet.
       d.insert("NORTH ARROW", [area.left + layout.clear + arrowRadius, underline]);
 
@@ -690,7 +690,7 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
 
     function columnHeading(title: string): void {
       row -= size.heading;
-      d.layer("C-ANNO-TITL", {}, () => {
+      d.layer("C-ANNO-TITL", () => {
         put([column.left, row], title, size.heading);
         d.line([column.left, row - gap], [column.left + column.width, row - gap]);
       });
@@ -730,7 +730,7 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
     }
 
     columnHeading("SITE DATA");
-    d.layer("C-ANNO-TEXT", {}, () => {
+    d.layer("C-ANNO-TEXT", () => {
       const coverage = (footprintArea / lotArea) * 100;
       const nameColumn = widthOf("BUILDING FOOTPRINT", size.label) + 1 / 2;
       table(
@@ -759,7 +759,7 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
 
     row -= blockGap;
     columnHeading("GENERAL NOTES");
-    d.layer("C-ANNO-TEXT", {}, () => {
+    d.layer("C-ANNO-TEXT", () => {
       const notes = [
         "PROPERTY LINES ARE DRAWN FROM THE RECORDED PLAT. NO FIELD SURVEY WAS MADE FOR THIS PLAN.",
         "DIMENSIONS ARE IN FEET, MEASURED TO THE OUTSIDE FACE OF THE FOUNDATION WALL.",
@@ -789,9 +789,9 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
     row -= blockGap;
     columnHeading("LEGEND");
     const sample = 2; // the length of a legend line
-    function legendRow(layer: Parameters<typeof d.layer>[0], name: string, draw: () => void): void {
-      d.layer(layer, {}, draw);
-      d.layer("C-ANNO-TEXT", {}, () => {
+    function legendRow(layer: keyof typeof standard.layers, name: string, draw: () => void): void {
+      d.layer(layer, draw);
+      d.layer("C-ANNO-TEXT", () => {
         put([column.left + sample + 3 / 8, row], name, size.label);
       });
       row -= leading * 1.5;
@@ -814,7 +814,7 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
 
     row -= blockGap;
     columnHeading("ABBREVIATIONS");
-    d.layer("C-ANNO-TEXT", {}, () => {
+    d.layer("C-ANNO-TEXT", () => {
       table(
         [
           ["AC", "ACRES"],

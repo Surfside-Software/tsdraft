@@ -436,6 +436,31 @@ test("a standard's type names only entries it has, and names that are not litera
   assert.equal(left.layers.C.color, 1);
   // @ts-expect-error: A may be left out.
   void left.layers.A;
+  // A section that is one of two literals names only what each of them leaves in place.
+  const parent = defineStandard({ ...alone, layers: { A: { color: 1 }, Q: { color: 1 } } });
+  const either = (removes: boolean) =>
+    defineStandard({
+      id: "c",
+      version: "1",
+      extends: parent,
+      layers: removes ? { A: null } : { B: { color: 1 } },
+    });
+  assert.deepEqual(Object.keys(either(true).layers), ["Q"]);
+  assert.equal(either(false).layers.Q.color, 1);
+  // @ts-expect-error: B is gone when the first literal is taken.
+  void either(false).layers.B;
+  const removal: { readonly A: null } = { A: null };
+  const addition: { readonly B: { readonly color: 1 } } = { B: { color: 1 } };
+  const one = (removes: boolean) =>
+    defineStandard({
+      id: "c",
+      version: "1",
+      extends: parent,
+      layers: removes ? removal : addition,
+    });
+  assert.equal(one(false).layers.Q.color, 1);
+  // @ts-expect-error: the first section removes A.
+  void one(false).layers.A;
   // A value typed as a document has names of type string.
   const doc: StandardDocument = { ...base, layers: { A: { color: 1 }, "C-PROP": null } };
   const typed = defineStandard(doc);

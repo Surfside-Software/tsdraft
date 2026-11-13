@@ -155,7 +155,11 @@ export type LintRule =
   | "undefined-dimension-style"
   | "dimension"
   | "zero-length"
-  | "standard";
+  | "standard"
+  | "layer-outside-standard"
+  | "layer-differs-from-standard"
+  | "linetype-outside-standard"
+  | "pen-outside-standard";
 
 export interface Diagnostic {
   readonly rule: LintRule;

@@ -11,7 +11,7 @@ import {
   type Arrowhead,
   type ZERO_SUPPRESSIONS,
 } from "./arrowheads.ts";
-import { holdCall, readCall, recordCalls, type HeldCall } from "./callsite.ts";
+import { holdCall, readCall, recordCalls, type CallSite, type HeldCall } from "./callsite.ts";
 import {
   arrowheadEntityHandle,
   dimensionAngle,
@@ -132,6 +132,28 @@ import {
   type TEXT_ALIGNS,
   type TEXT_VERTICAL_ALIGNS,
 } from "./rules.ts";
+import type { Standard, StandardLayer, StandardLinetype } from "./standard/document.ts";
+import {
+  disciplineLacks,
+  DRAWN,
+  layerLacks,
+  linetypeLacks,
+  penLacks,
+  penLineweightProblem,
+  unnamedDisciplineProblem,
+  type DisciplineWithoutStandard,
+  type LinetypeDefined,
+  type PenWithoutStandard,
+  type DisciplineOfStandard,
+  type LayerOfStandard,
+  type StandardLayerOptions,
+  type LinetypeOfStandard,
+  type StandardLinetypeScale,
+  type LineweightUnderStandard,
+  type PenOfStandard,
+  type StandardR12,
+} from "./standard/drawn.ts";
+import { adopted } from "./standard/made.ts";
 
 /** A model-space point, in drawing units. Y points up, as in CAD. */
 export type Point = readonly [x: number, y: number];
@@ -534,13 +556,46 @@ export interface Drawing {
   readonly dimensionStyles?: readonly DimensionStyle[];
 }
 
-export interface DrawingOptions<V extends DxfVersion = DxfVersion, S extends number = number> {
+/**
+ * What `createDrawing` takes.
+ *
+ * @typeParam Z - The standard the drawing is drawn to, or `undefined` for none.
+ * @typeParam D - The drawing's discipline as written.
+ */
+export interface DrawingOptions<
+  V extends DxfVersion = DxfVersion,
+  S extends number = number,
+  Z extends Standard | undefined = undefined,
+  D extends string = string,
+> {
   /** Defaults to `"in"`. */
   readonly units?: Units;
-  /** The DXF version to check the drawing against and export. Defaults to `"R2018"`. */
-  readonly dxf?: V;
-  /** The global linetype scale, which multiplies every linetype's pattern. Defaults to 1. */
-  readonly linetypeScale?: V extends "R12" ? 1 | R12Linetypes : Positive<S>;
+  /**
+   * The DXF version to check the drawing against and export. Defaults to `"R2018"`, which a
+   * drawing drawn to a standard is.
+   */
+  readonly dxf?: Z extends Standard ? (V extends "R12" ? StandardR12 : V) : V;
+  /**
+   * The global linetype scale, which multiplies every linetype's pattern. Defaults to 1. Under a
+   * standard it is the standard's, and may not be given.
+   */
+  readonly linetypeScale?: Z extends Standard
+    ? StandardLinetypeScale
+    : V extends "R12"
+      ? 1 | R12Linetypes
+      : Positive<S>;
+  /**
+   * The standard the drawing is drawn to, which `defineStandard` returns. `layer()` then names a
+   * layer of the standard, which gives its color, linetype, lineweight and plot flag, an entity's
+   * `pen` names a pen of it, and the linetype scale is the standard's.
+   */
+  readonly standard?: Z;
+  /**
+   * The drawing's discipline, a discipline of the standard: a model drawing's, or a sheet's, under
+   * `sheetFiles` `"sheet-per-file"`. An entry of the standard with `byDiscipline` takes that
+   * discipline's fields.
+   */
+  readonly discipline?: Z extends Standard ? DisciplineOfStandard<D, Z> : DisciplineWithoutStandard;
   /**
    * Whether to record the call that draws each entity, so that a `lint` diagnostic names it in
    * `call`. It more than doubles the time the builder takes. Defaults to `false`, or to `true` when
@@ -659,6 +714,8 @@ export interface LayerOptions<
  *
  * @typeParam L - The linetype as written, a name or a definition. A definition's literal mistakes
  *   are compile errors.
+ * @typeParam Z - The drawing's standard, or `undefined` for none.
+ * @typeParam P - The pen as written.
  */
 export interface EntityOptions<
   V extends DxfVersion = "R2018",
@@ -666,20 +723,34 @@ export interface EntityOptions<
   W extends number = number,
   L extends LinetypeValue = LinetypeDefinition,
   I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
 > {
   /**
    * A name for the entity that no other entity of the drawing has: 1 to 64 letters A to Z or a
    * to z, digits, `.`, `-` and `_`. Diagnostics and `toSVG` carry it.
    */
   readonly id?: EntityId<I>;
-  /** A linetype of the drawing, `"Continuous"`, `"ByBlock"` or `"ByLayer"`. R2018 only. */
-  readonly linetype?: V extends "R12"
-    ? R12LinetypeChoice<T, L, "bylayer", R12EntityStyle>
-    : LinetypeChoice<T, L>;
-  /** In millimetres, or `"ByLayer"`, `"ByBlock"` or `"Default"`. R2018 only. */
-  readonly lineweight?: V extends "R12"
-    ? "ByLayer" | R12EntityStyle
-    : LineweightOf<W> | "ByLayer" | "ByBlock" | "Default";
+  /**
+   * A linetype of the drawing, `"Continuous"`, `"ByBlock"` or `"ByLayer"`. R2018 only. Under a
+   * standard, a linetype of the standard by name, which the drawing then has.
+   */
+  readonly linetype?: Z extends Standard
+    ? LinetypeOfStandard<L, Z>
+    : V extends "R12"
+      ? R12LinetypeChoice<T, L, "bylayer", R12EntityStyle>
+      : LinetypeChoice<T, L>;
+  /**
+   * In millimetres, or `"ByLayer"`, `"ByBlock"` or `"Default"`. R2018 only. Under a standard,
+   * `"ByLayer"` or `"ByBlock"`, and a pen gives a lineweight.
+   */
+  readonly lineweight?: Z extends Standard
+    ? LineweightUnderStandard<W>
+    : V extends "R12"
+      ? "ByLayer" | R12EntityStyle
+      : LineweightOf<W> | "ByLayer" | "ByBlock" | "Default";
+  /** A pen of the drawing's standard, whose lineweight the entity takes. */
+  readonly pen?: Z extends Standard ? PenOfStandard<P, Z> : PenWithoutStandard;
 }
 
 /** A text style to define: a `TextStyle`, checked. */
@@ -741,7 +812,9 @@ export interface TextOptions<
   I extends string = string,
   S extends string = string,
   D extends TextStyleValue = TextStyleDefinition,
-> extends EntityOptions<V, T, W, L, I> {
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+> extends EntityOptions<V, T, W, L, I, Z, P> {
   readonly height?: Positive<H>;
   /** Degrees counterclockwise. */
   readonly rotation?: number;
@@ -999,7 +1072,7 @@ function refuse(rule: LintRule, message: string): never {
  */
 function located(
   thrown: unknown,
-  method: Method,
+  method: Method | readonly Method[],
   about: Pick<
     Diagnostic,
     | "id"
@@ -1014,7 +1087,11 @@ function located(
   >,
 ): unknown {
   if (!(thrown instanceof Problem)) return thrown;
-  const call = readCall(holdCall(method));
+  // The first of the methods that is on the stack is the one the caller called.
+  let call: CallSite | undefined;
+  for (const each of Array.isArray(method) ? method : [method]) {
+    call ??= readCall(holdCall(each as Method));
+  }
   const diagnostic: Diagnostic = {
     rule: thrown.rule,
     severity: "error",
@@ -1046,11 +1123,22 @@ function recordsCalls(): boolean {
  * when the code runs, for values the compiler cannot see: `layer`, `linetype`,
  * `textStyle`, `block`, `attribute`, `xref`, `layout`, `viewport` and the entity methods then throw a `DrawingError` whose
  * diagnostic has the rule, the entity's `id` and the `call` that broke it.
+ *
+ * Drawn to a standard, `Z`, the drawing's layers, linetypes, pens and linetype scale are the
+ * standard's: `layer()` names a layer of it, and an entity's `pen` one of its pens. `D` is the
+ * drawing's discipline as written, which the compiler checks against the standard's.
  */
-export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = number> {
+export class DrawingBuilder<
+  V extends DxfVersion = "R2018",
+  S extends number = number,
+  Z extends Standard | undefined = undefined,
+  D extends string = string,
+> {
   readonly units: Units;
   readonly dxf: V;
   readonly linetypeScale: number;
+  /** The standard the drawing is drawn to, with its entries by name as AutoCAD compares them. */
+  readonly #standard: Drawn | undefined;
   /** Keyed by `layerKey`, because AutoCAD ignores case in layer names. */
   readonly #layers = new Map<string, Layer>([["0", { name: "0", color: 7 }]]);
   /** The first layer name for each `layerAuditKey`, to find names AUDIT would call duplicates. */
@@ -1095,12 +1183,18 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
   readonly #arrowheadBlocks = new Set<string>();
   #current = "0";
 
-  constructor(options: DrawingOptions<V, S> = {}) {
+  constructor(options: DrawingOptions<V, S, Z, D> = {}) {
     const units = options.units ?? "in";
     if (!UNITS.includes(units)) throw new Error(`Unknown units: ${JSON.stringify(units)}`);
-    const dxf = options.dxf ?? "R2018";
+    const dxf: string = options.dxf ?? "R2018";
     if (!DXF_VERSIONS.includes(dxf)) {
       throw new Error(`Unsupported DXF version: ${JSON.stringify(dxf)}`);
+    }
+    let standard: Drawn | undefined;
+    try {
+      standard = drawnTo(options as DrawingOptions<DxfVersion, number, Standard>, dxf);
+    } catch (thrown) {
+      throw located(thrown, [createDrawing, DrawingBuilder as unknown as Method], {});
     }
     const scale = options.linetypeScale as unknown;
     if (scale !== undefined) {
@@ -1111,7 +1205,8 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     }
     this.units = units;
     this.dxf = dxf as V;
-    this.linetypeScale = (scale as number | undefined) ?? 1;
+    this.linetypeScale = standard?.standard.linetypeScale ?? (scale as number | undefined) ?? 1;
+    this.#standard = standard;
     this.#calls = (options.recordCalls ?? recordsCalls()) ? [] : undefined;
   }
 
@@ -1119,13 +1214,19 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
    * Defines a linetype, or updates the one of the same name. `dashed` and
    * `DASHED` are the same linetype, as in CAD, and keep the first spelling.
    * tsdraft exports the linetypes plans use, such as `DASHED` and `HIDDEN`.
+   * A drawing drawn to a standard defines none: its linetypes are the standard's.
    */
   linetype<N extends string, const P extends readonly number[], D extends string = string>(
-    linetype: V extends "R12" ? R12Linetypes : LinetypeDefinition<N, P, D>,
+    linetype: Z extends Standard
+      ? LinetypeDefined
+      : V extends "R12"
+        ? R12Linetypes
+        : LinetypeDefinition<N, P, D>,
   ): this {
     const definition = linetype as unknown as LinetypeDefinition;
     try {
       if (this.dxf === "R12") refuse("linetype", R12_ONLY.linetypes);
+      if (this.#standard) refuse("linetype-outside-standard", DRAWN.linetypeDefined);
       this.#define(definition);
     } catch (thrown) {
       const name: unknown = definition?.name;
@@ -1159,9 +1260,13 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
   }
 
   /**
-   * Defines or updates a layer. With `draw`, entities drawn inside it go on this layer.
+   * Defines or updates a layer. With `draw`, entities drawn inside it go on this layer, as
+   * `layer(name, draw)` or `layer(name, options, draw)`.
    * `wall` and `WALL` are the same layer, as in CAD, and keep the first spelling.
    * Options left out keep the values the layer has.
+   *
+   * Drawn to a standard, `name` is a layer of the standard, which gives its color, linetype,
+   * lineweight and plot flag, and `options` sets only its states: `off`, `frozen` and `locked`.
    */
   layer<
     N extends string,
@@ -1169,12 +1274,22 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     W extends number = number,
     T extends string = string,
     const L extends LinetypeValue = LinetypeDefinition,
-  >(name: LayerName<N, V>, options: LayerOptions<C, W, T, V, N, L> = {}, draw?: () => void): this {
+  >(
+    name: Z extends Standard ? LayerOfStandard<N, Z> : LayerName<N, V>,
+    options:
+      | (Z extends Standard ? StandardLayerOptions : LayerOptions<C, W, T, V, N, L>)
+      | (() => void) = {},
+    draw?: () => void,
+  ): this {
     // The parameter type is the error message when a literal name is wrong, so read it as a string.
     const requested = name as string;
+    const given = typeof options === "function" ? {} : options;
+    if (typeof options === "function") draw = options;
     let layer: Layer;
     try {
-      layer = this.#layer(requested, options as unknown as LayerOptions);
+      layer = this.#standard
+        ? this.#standardLayer(requested, given as unknown as LayerOptions)
+        : this.#layer(requested, given as unknown as LayerOptions);
     } catch (thrown) {
       throw located(thrown, DrawingBuilder.prototype.layer, { layer: requested });
     }
@@ -1244,12 +1359,49 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     return layer;
   }
 
+  /** Checks a layer of the standard and stores it with the standard's properties. */
+  #standardLayer(requested: string, o: LayerOptions): Layer {
+    const drawn = this.#standard!;
+    const nameProblem = layerNameProblem(requested, "R2018");
+    if (nameProblem) refuse("layer-name", `Layer ${JSON.stringify(requested)}: ${nameProblem}`);
+    if (requested === "0") refuse("layer-outside-standard", DRAWN.layerZero);
+    const found = drawn.layers.get(layerKey(requested));
+    if (!found) return refuse("layer-outside-standard", layerLacks(requested, drawn.standard));
+    for (const field of ["color", "linetype", "lineweight", "plot"] as const) {
+      if (o[field] !== undefined) {
+        refuse(
+          "layer-differs-from-standard",
+          `Layer ${JSON.stringify(requested)}: ${DRAWN.layerProperties}`,
+        );
+      }
+    }
+    const [name, entry] = found;
+    let fields: Omit<StandardLayer, "byDiscipline"> = entry;
+    if (entry.byDiscipline) {
+      if (drawn.discipline === undefined) {
+        refuse("standard", unnamedDisciplineProblem(name, entry));
+      }
+      fields = { ...entry, ...entry.byDiscipline[drawn.discipline] };
+    }
+    const pen = fields.pen === undefined ? undefined : drawn.standard.pens[fields.pen];
+    return this.#layer(name, {
+      color: fields.color as LayerColor<number>,
+      linetype: fields.linetype,
+      lineweight: (pen?.lineweight ?? "Default") as LineweightOf<number>,
+      plot: fields.plot,
+      off: o.off,
+      frozen: o.frozen,
+      locked: o.locked,
+    } as LayerOptions);
+  }
+
   line<
     T extends string = string,
     W extends number = number,
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
-  >(from: Point, to: Point, options: EntityOptions<V, T, W, L, I> = {}): this {
+    P extends string = string,
+  >(from: Point, to: Point, options: EntityOptions<V, T, W, L, I, Z, P> = {}): this {
     return this.#add(DrawingBuilder.prototype.line, options, () => ({
       kind: "line",
       layer: this.#current,
@@ -1263,7 +1415,12 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     W extends number = number,
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
-  >(points: readonly Point[], closed = false, options: EntityOptions<V, T, W, L, I> = {}): this {
+    P extends string = string,
+  >(
+    points: readonly Point[],
+    closed = false,
+    options: EntityOptions<V, T, W, L, I, Z, P> = {},
+  ): this {
     return this.#add(DrawingBuilder.prototype.polyline, options, () => {
       if (points.length < 2) refuse("geometry", "A polyline needs at least 2 points");
       return { kind: "polyline", layer: this.#current, points: points.map(pt), closed };
@@ -1278,11 +1435,12 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     LW extends number = number,
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
+    P extends string = string,
   >(
     corner: Point,
     width: Positive<W>,
     height: Positive<H>,
-    options: EntityOptions<V, T, LW, L, I> = {},
+    options: EntityOptions<V, T, LW, L, I, Z, P> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.rect, options, () => {
       const [x, y] = pt(corner);
@@ -1307,7 +1465,8 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     W extends number = number,
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
-  >(center: Point, radius: Positive<R>, options: EntityOptions<V, T, W, L, I> = {}): this {
+    P extends string = string,
+  >(center: Point, radius: Positive<R>, options: EntityOptions<V, T, W, L, I, Z, P> = {}): this {
     return this.#add(DrawingBuilder.prototype.circle, options, () => ({
       kind: "circle",
       layer: this.#current,
@@ -1331,12 +1490,13 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     W extends number = number,
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
+    P extends string = string,
   >(
     center: Point,
     radius: Positive<R>,
     startAngle: number,
     endAngle: number,
-    options: EntityOptions<V, T, W, L, I> = {},
+    options: EntityOptions<V, T, W, L, I, Z, P> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.arc, options, () => {
       const start = turn(num(startAngle, "startAngle"));
@@ -1363,7 +1523,8 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     I extends string = string,
     S extends string = string,
     const D extends TextStyleValue = TextStyleDefinition,
-  >(at: Point, value: string, options: TextOptions<H, V, T, W, L, I, S, D> = {}): this {
+    P extends string = string,
+  >(at: Point, value: string, options: TextOptions<H, V, T, W, L, I, S, D, Z, P> = {}): this {
     return this.#add(DrawingBuilder.prototype.text, options, () => ({
       kind: "text",
       layer: this.#current,
@@ -1784,7 +1945,7 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     options: V extends "R12" ? R12Dimensions : LinearDimensionOptions<S, T, I>,
   ): this {
     return this.#add(DrawingBuilder.prototype.linearDimension, idOf(options), () => {
-      const o = options as LinearDimensionOptions | undefined;
+      const o = options as unknown as LinearDimensionOptions | undefined;
       const along: unknown = o?.along ?? "x";
       const angle =
         along === "x"
@@ -1819,7 +1980,7 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     options: V extends "R12" ? R12Dimensions : AlignedDimensionOptions<S, T, I>,
   ): this {
     return this.#add(DrawingBuilder.prototype.alignedDimension, idOf(options), () =>
-      this.#dimension(options as AlignedDimensionOptions | undefined, (style, text) => ({
+      this.#dimension(options as unknown as AlignedDimensionOptions | undefined, (style, text) => ({
         kind: "aligned-dimension",
         layer: this.#current,
         style,
@@ -2198,6 +2359,24 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
       if (builtIn !== "ByLayer") style.linetype = builtIn ?? name;
     }
     const weight: unknown = options.lineweight;
+    const pen: unknown = options.pen;
+    const drawn = this.#standard;
+    if (!drawn) {
+      if (pen !== undefined) refuse("pen-outside-standard", DRAWN.penWithoutStandard);
+    } else if (pen !== undefined) {
+      if (weight !== undefined) refuse("pen-outside-standard", DRAWN.penAndLineweight);
+      const found = typeof pen === "string" ? drawn.pens.get(idKey(pen)) : undefined;
+      if (found === undefined) {
+        return refuse(
+          "pen-outside-standard",
+          typeof pen === "string" ? penLacks(pen, drawn.standard) : "A pen is named by a string",
+        );
+      }
+      style.lineweight = found;
+      return style;
+    } else if (weight !== undefined && weight !== "ByLayer" && weight !== "ByBlock") {
+      refuse("pen-outside-standard", penLineweightProblem(drawn.standard));
+    }
     if (weight !== undefined) {
       const problem = lineweightProblem(weight, "entity");
       if (problem) refuse("lineweight", problem);
@@ -2212,7 +2391,9 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
    * drawing has it. A definition is defined first if the drawing does not have it.
    */
   #linetypeName(choice: unknown, fail: (rule: LintRule, problem: string) => never): string {
+    const drawn = this.#standard;
     if (typeof choice === "object" && choice !== null) {
+      if (drawn) fail("linetype-outside-standard", DRAWN.linetypeDefined);
       return this.#define(choice as LinetypeDefinition, true);
     }
     if (typeof choice !== "string") {
@@ -2220,6 +2401,15 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
     }
     const problem = linetypeNameProblem(choice);
     if (problem) fail("undefined-linetype", `Linetype ${JSON.stringify(choice)}: ${problem}`);
+    if (drawn && !builtInLinetype(choice)) {
+      // The standard's linetype enters the drawing when a layer or an entity first names it.
+      const found = drawn.linetypes.get(layerKey(choice));
+      if (!found) fail("linetype-outside-standard", linetypeLacks(choice, drawn.standard));
+      const [name, { description, pattern }] = found!;
+      return (
+        this.#linetypes.get(layerKey(name))?.name ?? this.#define({ name, description, pattern })
+      );
+    }
     const known = builtInLinetype(choice) ?? this.#linetypes.get(layerKey(choice))?.name;
     if (known === undefined) {
       const absent = `${undefinedLinetypeProblem(choice)}. Define it with linetype() first`;
@@ -2347,10 +2537,70 @@ export class DrawingBuilder<V extends DxfVersion = "R2018", S extends number = n
   }
 }
 
-export function createDrawing<V extends DxfVersion = "R2018", S extends number = number>(
-  options?: DrawingOptions<V, S>,
-): DrawingBuilder<V> {
-  return new DrawingBuilder(options as DrawingOptions<V>);
+/**
+ * Starts a drawing. With `standard`, the drawing is drawn to it: see `DrawingOptions.standard`.
+ */
+export function createDrawing<
+  V extends DxfVersion = "R2018",
+  S extends number = number,
+  Z extends Standard | undefined = undefined,
+  D extends string = string,
+>(options?: DrawingOptions<V, S, Z, D>): DrawingBuilder<V, number, Z> {
+  return new DrawingBuilder(options as DrawingOptions<V, number, Z>);
+}
+
+/** A standard as the builder reads it: its entries by the keys AutoCAD finds them by. */
+interface Drawn {
+  readonly standard: Standard;
+  /** Each layer as the standard spells its name, by `layerKey`. */
+  readonly layers: ReadonlyMap<string, readonly [name: string, layer: StandardLayer]>;
+  /** Each linetype as the standard spells its name, by `layerKey`. */
+  readonly linetypes: ReadonlyMap<string, readonly [name: string, linetype: StandardLinetype]>;
+  /** Each pen's lineweight, by `idKey` of its id. */
+  readonly pens: ReadonlyMap<string, number>;
+  /** The drawing's discipline, as the standard spells it. */
+  readonly discipline?: string;
+}
+
+/** The maps of each standard a drawing has been drawn to. */
+const drawnStandards = new WeakMap<Standard, Drawn>();
+
+/** The standard `options` draws the drawing to, checked with the options it rules out. */
+function drawnTo(
+  options: DrawingOptions<DxfVersion, number, Standard | undefined>,
+  dxf: string,
+): Drawn | undefined {
+  const given: unknown = options.standard;
+  const discipline: unknown = options.discipline;
+  if (given === undefined) {
+    if (discipline !== undefined) refuse("standard", DRAWN.disciplineWithoutStandard);
+    return undefined;
+  }
+  const standard = adopted(given);
+  if (!standard) return refuse("standard", DRAWN.notAStandard);
+  if (dxf === "R12") refuse("standard", DRAWN.r12);
+  if (options.linetypeScale !== undefined) refuse("standard", DRAWN.linetypeScale);
+  let drawn = drawnStandards.get(standard);
+  if (!drawn) {
+    const byName = <T>(entries: Readonly<Record<string, T>>) =>
+      new Map(
+        Object.entries(entries).map(([name, entry]) => [layerKey(name), [name, entry] as const]),
+      );
+    drawn = {
+      standard,
+      layers: byName(standard.layers),
+      linetypes: byName(standard.linetypes),
+      pens: new Map(Object.entries(standard.pens).map(([id, pen]) => [idKey(id), pen.lineweight])),
+    };
+    drawnStandards.set(standard, drawn);
+  }
+  if (discipline === undefined) return drawn;
+  if (typeof discipline !== "string")
+    return refuse("standard", "A discipline is named by a string");
+  const named = Object.keys(standard.disciplines).find((id) => idKey(id) === idKey(discipline));
+  if (named === undefined) refuse("standard", disciplineLacks(discipline, standard));
+  if (standard.sheetFiles === "one-drawing") refuse("standard", DRAWN.disciplineOneDrawing);
+  return { ...drawn, discipline: named };
 }
 
 /** The id among the options of a dimension, which have no linetype or lineweight to take. */

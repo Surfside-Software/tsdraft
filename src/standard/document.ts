@@ -364,14 +364,19 @@ export interface StandardSheetFormat {
 /**
  * A standard: the document resolved, with no `$schema`, `extends` or `null`, every default filled
  * in and every title block's drawings as `Drawing` objects, with its `hash` and `chain`. It is
- * plain, frozen data. Its type carries the names of its entries, `N`, as literal types.
+ * plain, frozen data. Its type carries the names of its entries, `N`, and its id `I` and version
+ * `R`, as literal types.
  *
  * Left without `hash` and `chain`, it is a document with no `extends` that resolves to the same
  * standard, with the same hash.
  */
-export type Standard<N extends StandardNames = StandardNames> = {
-  readonly id: string;
-  readonly version: string;
+export type Standard<
+  N extends StandardNames = StandardNames,
+  I extends string = string,
+  R extends string = string,
+> = {
+  readonly id: I;
+  readonly version: R;
   readonly title: string;
   readonly paperUnits: PaperUnit;
   readonly minTextHeight: number;

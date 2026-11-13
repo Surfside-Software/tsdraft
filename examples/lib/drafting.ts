@@ -1,10 +1,35 @@
 // Drafting helpers for the examples. tsdraft draws lines, polylines, circles, arcs and text, and
 // these functions compose them into dimensions, leaders, patterns and symbols. In CAD they arrive
 // as the plain lines and text they are made of.
-import { measureText, type DrawingBuilder, type Font, type Point } from "../../src/index.ts";
+import {
+  measureText,
+  type Font,
+  type Point,
+  type TextAlign,
+  type TextVerticalAlign,
+} from "../../src/index.ts";
 
-/** The builder methods the helpers draw with. */
-export type Pen = Pick<DrawingBuilder, "line" | "polyline" | "circle" | "arc" | "text">;
+/**
+ * The builder methods the helpers draw with, as they call them, so a drawing with a standard or
+ * without one can be given.
+ */
+export interface Pen {
+  line(from: Point, to: Point): unknown;
+  polyline(points: readonly Point[], closed?: boolean): unknown;
+  circle(center: Point, radius: number): unknown;
+  arc(center: Point, radius: number, startAngle: number, endAngle: number): unknown;
+  text(
+    at: Point,
+    value: string,
+    options: {
+      readonly height: number;
+      readonly style?: string;
+      readonly align?: TextAlign;
+      readonly valign?: TextVerticalAlign;
+      readonly rotation?: number;
+    },
+  ): unknown;
+}
 
 /** A rectangle as its lower-left corner, width and height. */
 export type Box = readonly [x: number, y: number, width: number, height: number];

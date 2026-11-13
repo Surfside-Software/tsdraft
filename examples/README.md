@@ -90,8 +90,11 @@ too. The tree and the property corner are in the plan and in the legend, so
 each is inserted in model space and on the layout: the tree at each tree's
 radius in the plan and at 3/16 inch in the legend.
 
-Each layer sets a linetype and a pen weight. The linetype scale is a length of
-paper, 1/2. Change the ratio from 120 to 240 and nothing on the sheet moves:
+The sheet is drawn to a standard of its own, `standard`, which extends
+`BUILT_IN_STANDARD` with the layer `V-TREE`. Each layer is named, and its color,
+linetype, pen and plot flag are the standard's. The border names the standard's
+heavy pen. The standard's linetype scale is a length of paper, 1/2. Change the
+ratio from 120 to 240 and nothing on the sheet moves:
 the plan is half as large in its viewport, and its text keeps its plotted
 height. The sheet holds the plan at 1" = 10' and at 1" = 20'. At a larger
 scale, such as 1" = 8', the plan is taller than its viewport.
