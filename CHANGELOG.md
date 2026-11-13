@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.5.2
+
+Every R2018 DXF changes by one value, group 340 of the dimension style `Standard`; nothing
+else a drawing writes changes. The rest is new.
 
 - `checkIntent(drawing, intent)` checks a drawing against what it is meant to hold to, given
   as data beside it, and returns warnings. Its one check is setbacks: `intent.setbacks` names
