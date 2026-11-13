@@ -27,7 +27,7 @@ import { fmt, written } from "./format.ts";
 import { validIdHandle } from "./handles.ts";
 import { layerAuditKey, layerKey, layoutNameKey } from "./layers.ts";
 import { validLayoutHandles } from "./layouts.ts";
-import type { PaperUnit } from "./paper.ts";
+import { fromPaper, type PaperUnit } from "./paper.ts";
 import { paperInfo, type Paper, type PaperInfo, type PlotStyleTable } from "./papers.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import { DrawingError, type Diagnostic, type LintRule } from "./lint.ts";
@@ -125,6 +125,7 @@ import {
   type LayerColor,
   type LayerName,
   type LayoutName,
+  type PaperLength,
   type PaperOf,
   type Positive,
   type R12Layouts,
@@ -132,28 +133,58 @@ import {
   type TEXT_ALIGNS,
   type TEXT_VERTICAL_ALIGNS,
 } from "./rules.ts";
-import type { Standard, StandardLayer, StandardLinetype } from "./standard/document.ts";
+import type {
+  Standard,
+  StandardDimensionStyle,
+  StandardLayer,
+  StandardLinetype,
+  StandardScale,
+  StandardTextRole,
+} from "./standard/document.ts";
 import {
+  dimensionStyleLacks,
+  dimensionStyleReserved,
   disciplineLacks,
   DRAWN,
   layerLacks,
+  layoutPaperUnitsProblem,
   linetypeLacks,
+  noDefaultDimensionStyle,
   penLacks,
   penLineweightProblem,
+  roleBlockWithoutView,
+  roleLacks,
+  roleTextStyleProblem,
+  scaleLacks,
   unnamedDisciplineProblem,
+  viewNotDeclared,
+  writingLacks,
+  type DimensionStyleDefined,
+  type DimensionStyleOfStandard,
   type DisciplineWithoutStandard,
+  type InsertViewAndScale,
   type LinetypeDefined,
   type PenWithoutStandard,
   type DisciplineOfStandard,
   type LayerOfStandard,
+  type RoleAndHeight,
+  type RoleAndStyle,
+  type RoleOfStandard,
+  type RoleWithoutStandard,
+  type ScaleOfStandard,
+  type ScaleWithoutStandard,
   type StandardLayerOptions,
   type LinetypeOfStandard,
   type StandardLinetypeScale,
   type LineweightUnderStandard,
   type PenOfStandard,
   type StandardR12,
+  type ViewportId,
+  type ViewportRatio,
+  type ViewWithoutStandard,
 } from "./standard/drawn.ts";
 import { adopted } from "./standard/made.ts";
+import { capitals } from "./standard/rules.ts";
 
 /** A model-space point, in drawing units. Y points up, as in CAD. */
 export type Point = readonly [x: number, y: number];
@@ -802,8 +833,9 @@ export type TextStyleChoice<S extends string, D extends TextStyleValue = TextSty
  * @typeParam L - The linetype as written, a name or a definition. A definition's literal mistakes
  *   are compile errors.
  * @typeParam D - The text style as written, a name or a definition, checked the same way.
+ * @typeParam R - The role as written.
  */
-export interface TextOptions<
+export type TextOptions<
   H extends number = number,
   V extends DxfVersion = "R2018",
   T extends string = string,
@@ -814,16 +846,67 @@ export interface TextOptions<
   D extends TextStyleValue = TextStyleDefinition,
   Z extends Standard | undefined = undefined,
   P extends string = string,
-> extends EntityOptions<V, T, W, L, I, Z, P> {
-  readonly height?: Positive<H>;
+  R extends string = string,
+> = EntityOptions<V, T, W, L, I, Z, P> &
+  TextPlacement<V, Z> &
+  Sized<
+    Z,
+    R,
+    Positive<H>,
+    V extends "R12" ? typeof STANDARD_TEXT_STYLE | R12Text : TextStyleChoice<S, D>
+  >;
+
+/** Where a text is turned and justified, and in model space the view it is read in. */
+interface TextPlacement<V extends DxfVersion, Z extends Standard | undefined> {
   /** Degrees counterclockwise. */
   readonly rotation?: number;
-  /** A text style of the drawing, or a definition of one. Defaults to `"Standard"`. R2018 only. */
-  readonly style?: V extends "R12" ? typeof STANDARD_TEXT_STYLE | R12Text : TextStyleChoice<S, D>;
+  /** In model space, the view a text with a role is read in, which `view()` returns. */
+  readonly view?: Z extends Standard ? View : ViewWithoutStandard;
   /** Where `at` is along the text's line. Defaults to `"left"`. R2018 only. */
   readonly align?: V extends "R12" ? "left" | R12Text : TextAlign;
   /** Where `at` is up and down the text's line. Defaults to `"baseline"`. R2018 only. */
   readonly valign?: V extends "R12" ? "baseline" | R12Text : TextVerticalAlign;
+}
+
+/**
+ * The role, height and style of a text or an attribute, where `Height` and `Style` are what it
+ * takes without a role. Under a standard a literal role gives the height and the style, and the
+ * options are one of two whole shapes, with the role or with none, so each branch of a
+ * conditional is checked as written. A role that is not a literal is checked when the code runs.
+ * One conditional on `Z` around both shapes would make a builder without a standard not
+ * assignable to one whose standard may be any.
+ */
+type Sized<Z extends Standard | undefined, R extends string, Height, Style> =
+  | Size<
+      Z extends Standard ? RoleOfStandard<R, Z> : RoleWithoutStandard,
+      RoleOr<Z, R, Height, RoleAndHeight>,
+      RoleOr<Z, R, Style, RoleAndStyle>
+    >
+  | (Z extends Standard ? (string extends R ? never : Size<undefined, Height, Style>) : never);
+
+/**
+ * `Given` for a text with no role, or a role that is not a literal, and `Message` for a text with
+ * a literal role under a standard, which takes no height and no style of its own.
+ */
+type RoleOr<Z extends Standard | undefined, R extends string, Given, Message> = Z extends Standard
+  ? string extends R
+    ? Given
+    : Message
+  : Given;
+
+interface Size<Role, Height, Style> {
+  /**
+   * A text role of the drawing's standard, which gives the text its text style and the height it
+   * plots at: that height on a layout and in a block, and `view.paper` of it in model space.
+   */
+  readonly role?: Role;
+  /** Defaults to 0.125. A text with a role takes the role's. */
+  readonly height?: Height;
+  /**
+   * A text style of the drawing, or a definition of one. Defaults to `"Standard"`. R2018 only. A
+   * text with a role is in the role's text style.
+   */
+  readonly style?: Style;
 }
 
 /** What `block()` sets on a block. */
@@ -837,46 +920,72 @@ export interface BlockOptions {
  * rotation, style and justification, which are a text's.
  *
  * @typeParam D - The text style as written, a name or a definition, checked as a text's is.
+ * @typeParam R - The role as written.
  */
-export interface AttributeOptions<
+export type AttributeOptions<
   H extends number = number,
   S extends string = string,
   D extends TextStyleValue = TextStyleDefinition,
-> {
+  Z extends Standard | undefined = undefined,
+  R extends string = string,
+> = AttributeFields & Sized<Z, R, Positive<H>, TextStyleChoice<S, D>>;
+
+/** What an attribute definition holds besides its role, height and style. */
+interface AttributeFields {
   /** The value of an insert that does not set the attribute. Defaults to `""`. */
   readonly value?: string;
   /** What CAD asks for when the block is inserted by hand. Defaults to the tag. */
   readonly prompt?: string;
-  readonly height?: Positive<H>;
   /** Degrees counterclockwise. */
   readonly rotation?: number;
-  /** A text style of the drawing, or a definition of one. Defaults to `"Standard"`. */
-  readonly style?: TextStyleChoice<S, D>;
   /** Where `at` is along the text's line. Defaults to `"left"`. */
   readonly align?: TextAlign;
   /** Where `at` is up and down the text's line. Defaults to `"baseline"`. */
   readonly valign?: TextVerticalAlign;
 }
 
-/** The options of `insert()`. */
-export interface InsertOptions<
+/**
+ * The options of `insert()`. Under a standard they are one of two whole shapes, with a view or
+ * with a scale, and each branch of a conditional is checked as written.
+ *
+ * @typeParam Z - The drawing's standard, or `undefined` for none.
+ */
+export type InsertOptions<
   S extends number | readonly [number, number] = number,
   I extends string = string,
-> {
+  Z extends Standard | undefined = undefined,
+> = InsertFields<I> &
+  (Z extends Standard
+    ?
+        | (Scaled<View, InsertViewAndScale> & { readonly view: View })
+        | Scaled<undefined, InsertScale<S>>
+    : Scaled<ViewWithoutStandard, InsertScale<S>>);
+
+/** What an insert holds besides its scale and its view. */
+interface InsertFields<I extends string> {
   /**
    * A name for the insert that no other entity of the drawing has. The insert's attributes
    * keep their handles with it.
    */
   readonly id?: EntityId<I>;
-  /**
-   * One number for both axes, or `[x, y]`. Defaults to 1. A negative scale mirrors the block,
-   * and no scale may be 0.
-   */
-  readonly scale?: InsertScale<S>;
   /** Degrees counterclockwise, about the insert's point. Defaults to 0. */
   readonly rotation?: number;
   /** A value for each attribute to set, by its tag. The others have their default values. */
   readonly attributes?: Readonly<Record<string, string>>;
+}
+
+interface Scaled<ViewOf, Scale> {
+  /**
+   * One number for both axes, or `[x, y]`. Defaults to 1. A negative scale mirrors the block,
+   * and no scale may be 0. An insert with a view takes the view's.
+   */
+  readonly scale?: Scale;
+  /**
+   * In model space, the view the insert is read in, which `view()` returns. The insert's scale
+   * is then `view.paper(1)`, so a block drawn in paper units plots at its size. An insert in model
+   * space of a block that holds texts with roles names one.
+   */
+  readonly view?: ViewOf;
 }
 
 /**
@@ -944,6 +1053,7 @@ interface DimensionOptions<
   readonly text?: DimensionText<T>;
   /** A name for the dimension that no other entity of the drawing has. */
   readonly id?: EntityId<I>;
+  readonly view?: ViewWithoutStandard;
 }
 
 /** The options of `linearDimension()`. */
@@ -966,6 +1076,46 @@ export type AlignedDimensionOptions<
   I extends string = string,
 > = DimensionOptions<S, T, I>;
 
+/**
+ * What a dimension is drawn with under the standard `Z`: a dimension style of the standard by its
+ * id, and in model space the view it is read in. The builder defines the style's AutoCAD style on
+ * first use, with the standard's paper sizes, its role's text style and height, and the writing of
+ * the units it is drawn in: `DIMS-1in-10ft` for the style `dims` in a view at `1in-10ft`, scaled
+ * by `view.paper(1)`, and `DIMS` on a layout.
+ */
+export interface StandardAlignedDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+  Z extends Standard = Standard,
+> {
+  /** A dimension style of the standard, by its id. Defaults to its `defaultDimensionStyle`. */
+  readonly style?: DimensionStyleOfStandard<S, Z>;
+  /** In model space, the view the dimension is read in, which `view()` returns. */
+  readonly view?: View;
+  /**
+   * A text to draw in place of the measurement, in which `<>` stands for the measurement:
+   * `"<> TYP"`, or `"VARIES"`.
+   */
+  readonly text?: DimensionText<T>;
+  /** A name for the dimension that no other entity of the drawing has. */
+  readonly id?: EntityId<I>;
+}
+
+/** The options of `linearDimension()` under the standard `Z`. */
+export interface StandardLinearDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+  Z extends Standard = Standard,
+> extends StandardAlignedDimensionOptions<S, T, I, Z> {
+  /**
+   * The direction it measures along: `"x"`, the default, `"y"`, or an angle in degrees
+   * counterclockwise from +X.
+   */
+  readonly along?: "x" | "y" | number;
+}
+
 /** What `layout()` sets on a layout. */
 export interface LayoutOptions<P extends string = string> {
   /** One of `PAPERS`, such as `"ARCH D"`. */
@@ -985,14 +1135,53 @@ export interface ViewportOptions<R extends number = number, I extends string = s
   readonly ratio: Ratio<R>;
   /** A name for the viewport that no entity and no other viewport of the drawing has. */
   readonly id?: EntityId<I>;
+  readonly view?: ViewWithoutStandard;
+}
+
+/** What `viewport()` takes after the rectangle under a standard: the view it shows. */
+export interface StandardViewportOptions {
+  /**
+   * The view the viewport shows, which `view()` returns. The viewport takes its id, and its ratio
+   * from its scale. One viewport shows a view.
+   */
+  readonly view: View;
+  /** The point of model space shown at the middle of the viewport, in drawing units. */
+  readonly center: Point;
+  readonly ratio?: ViewportRatio;
+  readonly id?: ViewportId;
+}
+
+/**
+ * A view: a scale of the drawing's standard under an id, which `view()` declares. One viewport
+ * shows it, and takes its id. A text, an insert or a dimension of model space names the view it is
+ * read in, so that it plots at its size in paper units.
+ */
+export interface View<I extends string = string, C extends string = string> {
+  /** The view's id, an entity id of the drawing, which the viewport that shows it takes. */
+  readonly id: I;
+  /** The id of its scale in the standard. */
+  readonly scale: C;
+  /** The scale's label, such as `1" = 10'`. */
+  readonly label: string;
+  /** The scale's ratio, such as 120 for 1" = 10'. */
+  readonly ratio: number;
+  /**
+   * A length on paper, in the standard's paper units, in drawing units at the view's ratio, as
+   * `fromPaper(length, standard.paperUnits, { ratio, units })` works it out for the drawing's
+   * units. A length that `fromPaper` refuses throws a `DrawingError` under `geometry`, with the
+   * call.
+   */
+  paper<L extends number>(length: PaperLength<L>): number;
 }
 
 /**
  * The layout being drawn, which `layout()` gives its `draw`: the sheet's size, and the one
  * thing only a layout can hold, a viewport. Everything else is drawn with the builder's own
  * methods, which put it on the sheet while `draw` runs.
+ *
+ * @typeParam Z - The drawing's standard, or `undefined` for none.
  */
-export interface Sheet {
+export interface Sheet<Z extends Standard | undefined = undefined> {
   /** The layout's name. */
   readonly name: string;
   readonly paper: Paper;
@@ -1004,13 +1193,14 @@ export interface Sheet {
   /**
    * Adds a viewport: a rectangle from its lower-left `corner`, in paper units, that shows
    * model space about `view.center` at `view.ratio`. Its border is on the current layer, and
-   * its view is locked against zooming.
+   * its view is locked against zooming. Under a standard it shows the options' `view`, at the
+   * view's scale and with the view's id.
    */
   viewport<W extends number, H extends number, R extends number, I extends string = string>(
     corner: Point,
     width: Positive<W>,
     height: Positive<H>,
-    view: ViewportOptions<R, I>,
+    view: Z extends Standard ? StandardViewportOptions : ViewportOptions<R, I>,
   ): this;
 }
 
@@ -1031,6 +1221,8 @@ interface OpenBlock {
   /** The handles and the id keys taken for the block and what is drawn in it. */
   readonly handles: string[];
   readonly ids: string[];
+  /** True once a text or attribute with a role is in it, or an insert of a block that has one. */
+  roles: boolean;
 }
 
 /** A layout while its `draw` runs. */
@@ -1047,8 +1239,16 @@ interface OpenLayout {
   /** The handles and the id keys taken for the layout and what is drawn on it. */
   readonly handles: string[];
   readonly ids: string[];
+  /** The views its viewports show. */
+  readonly views: Shown[];
   /** True once `draw` has returned or thrown. */
   closed: boolean;
+}
+
+/** A view the drawing declared, and whether a viewport shows it. */
+interface Shown {
+  readonly view: View;
+  shown: boolean;
 }
 
 /** A broken rule, thrown inside a builder method and turned into a `DrawingError` on its way out. */
@@ -1125,8 +1325,11 @@ function recordsCalls(): boolean {
  * diagnostic has the rule, the entity's `id` and the `call` that broke it.
  *
  * Drawn to a standard, `Z`, the drawing's layers, linetypes, pens and linetype scale are the
- * standard's: `layer()` names a layer of it, and an entity's `pen` one of its pens. `D` is the
- * drawing's discipline as written, which the compiler checks against the standard's.
+ * standard's: `layer()` names a layer of it, and an entity's `pen` one of its pens. A text's
+ * `role` names a text role of it, `view(id, { scale })` declares a view at one of its scales,
+ * which a viewport shows and the annotation of model space names, and a dimension names a
+ * dimension style of it by id. `D` is the drawing's discipline as written, which the compiler
+ * checks against the standard's.
  */
 export class DrawingBuilder<
   V extends DxfVersion = "R2018",
@@ -1181,6 +1384,10 @@ export class DrawingBuilder<
   readonly #dimensionStylesAudited = new Map<string, string>();
   /** The blocks of the arrowheads the dimension styles use, whose handles are taken. */
   readonly #arrowheadBlocks = new Set<string>();
+  /** The views `view()` declared, by `idKey` of their ids. */
+  readonly #views = new Map<string, Shown>();
+  /** The blocks that hold texts with roles, directly or in a block they insert, by `layerKey`. */
+  readonly #roleBlocks = new Set<string>();
   #current = "0";
 
   constructor(options: DrawingOptions<V, S, Z, D> = {}) {
@@ -1239,7 +1446,8 @@ export class DrawingBuilder<
   /**
    * Defines a text style, or updates the one of the same name. `notes` and `NOTES` are the
    * same style, and keep the first spelling. `Standard` is in every drawing, with the font
-   * `txt.shx`.
+   * `txt.shx`. Under a standard, a role's text style is the standard's, and `textStyle()` defines
+   * none of that name.
    */
   textStyle<
     N extends string,
@@ -1248,11 +1456,16 @@ export class DrawingBuilder<
     O extends number = number,
   >(style: V extends "R12" ? R12Text : TextStyleDefinition<N, F, W, O>): this {
     const definition = style as unknown as TextStyleDefinition;
+    const name: unknown = definition?.name;
     try {
       if (this.dxf === "R12") refuse("text-style", R12_ONLY.text);
+      const role =
+        typeof name === "string" ? this.#standard?.roleStyles.get(layerKey(name)) : undefined;
+      if (role !== undefined) {
+        refuse("text-style", roleTextStyleProblem(name as string, role, this.#standard!.standard));
+      }
       this.#defineTextStyle(definition);
     } catch (thrown) {
-      const name: unknown = definition?.name;
       const about = typeof name === "string" ? { textStyle: name } : {};
       throw located(thrown, DrawingBuilder.prototype.textStyle, about);
     }
@@ -1376,13 +1589,7 @@ export class DrawingBuilder<
       }
     }
     const [name, entry] = found;
-    let fields: Omit<StandardLayer, "byDiscipline"> = entry;
-    if (entry.byDiscipline) {
-      if (drawn.discipline === undefined) {
-        refuse("standard", unnamedDisciplineProblem(name, entry));
-      }
-      fields = { ...entry, ...entry.byDiscipline[drawn.discipline] };
-    }
+    const fields: StandardLayer = this.#inDiscipline("Layer", name, entry);
     const pen = fields.pen === undefined ? undefined : drawn.standard.pens[fields.pen];
     return this.#layer(name, {
       color: fields.color as LayerColor<number>,
@@ -1393,6 +1600,77 @@ export class DrawingBuilder<
       frozen: o.frozen,
       locked: o.locked,
     } as LayerOptions);
+  }
+
+  /**
+   * Declares a view: a scale of the standard, by its id, under an id of the drawing's, which
+   * `view()` takes. One viewport shows it, with its id and its scale's ratio, and a text, an
+   * insert or a dimension of model space names the view it is read in. `view.paper(length)` is a
+   * length on paper in drawing units at the view's ratio.
+   */
+  view<I extends string, C extends string>(
+    id: EntityId<I>,
+    // Written out here: as an interface generic in `Z`, a builder without a standard would not be
+    // assignable to one whose standard may be any.
+    options: {
+      /** A scale of the drawing's standard, by its id, such as `"1in-10ft"`. */
+      readonly scale: Z extends Standard ? ScaleOfStandard<C, Z> : ScaleWithoutStandard;
+    },
+  ): View<I, C> {
+    const requested: unknown = id;
+    try {
+      const drawn = this.#standard;
+      if (!drawn) return refuse("scale-outside-standard", DRAWN.scaleWithoutStandard);
+      const key = this.#idKey(requested);
+      this.#freeIdHandle(requested as string);
+      const scale: unknown = (options as { readonly scale?: unknown } | undefined)?.scale;
+      const found = typeof scale === "string" ? drawn.scales.get(idKey(scale)) : undefined;
+      if (found === undefined) {
+        return refuse(
+          "scale-outside-standard",
+          typeof scale === "string"
+            ? scaleLacks(scale, drawn.standard)
+            : "A view's scale is named by a string",
+        );
+      }
+      const [scaleId, { label, ratio }] = found;
+      const { units } = this;
+      const { paperUnits } = drawn.standard;
+      const paper = <L extends number>(length: PaperLength<L>): number => {
+        try {
+          try {
+            return fromPaper(length, paperUnits, { ratio, units });
+          } catch (thrown) {
+            return refuse("geometry", (thrown as Error).message);
+          }
+        } catch (thrown) {
+          throw located(thrown, paper, { id: requested as string });
+        }
+      };
+      const view: View<I, C> = Object.freeze({
+        id: requested as I,
+        scale: scaleId as C,
+        label,
+        ratio,
+        paper,
+      });
+      // The view belongs to the drawing, also when it is declared while a block or a layout is drawn.
+      this.#claim(
+        validIdHandle(requested as string),
+        `the id ${JSON.stringify(requested)}`,
+        requested as string,
+        [],
+      );
+      this.#ids.set(key, requested as string);
+      this.#views.set(key, { view, shown: false });
+      return view;
+    } catch (thrown) {
+      throw located(
+        thrown,
+        DrawingBuilder.prototype.view,
+        typeof requested === "string" ? { id: requested } : {},
+      );
+    }
   }
 
   line<
@@ -1524,11 +1802,12 @@ export class DrawingBuilder<
     S extends string = string,
     const D extends TextStyleValue = TextStyleDefinition,
     P extends string = string,
-  >(at: Point, value: string, options: TextOptions<H, V, T, W, L, I, S, D, Z, P> = {}): this {
+    R extends string = string,
+  >(at: Point, value: string, options: TextOptions<H, V, T, W, L, I, S, D, Z, P, R> = {}): this {
     return this.#add(DrawingBuilder.prototype.text, options, () => ({
       kind: "text",
       layer: this.#current,
-      ...this.#textFields(at, value, options as TextOptions),
+      ...this.#textFields(at, value, options as unknown as TextOptions),
     }));
   }
 
@@ -1589,6 +1868,7 @@ export class DrawingBuilder<
         attributeCalls: [],
         handles: taken,
         ids: [],
+        roles: false,
       };
     } catch (thrown) {
       throw located(thrown, DrawingBuilder.prototype.block, { block: requested });
@@ -1615,6 +1895,7 @@ export class DrawingBuilder<
       recordCalls(open.entities, open.calls);
       recordCalls(open.attributes, open.attributeCalls);
     }
+    if (open.roles) this.#roleBlocks.add(layerKey(requested));
     this.#blocks.set(layerKey(requested), {
       name: open.name,
       ...(open.base ? { base: open.base } : {}),
@@ -1675,10 +1956,11 @@ export class DrawingBuilder<
     H extends number = number,
     S extends string = string,
     const D extends TextStyleValue = TextStyleDefinition,
+    R extends string = string,
   >(
     tag: V extends "R12" ? R12Blocks : AttributeTag<T>,
     at: Point,
-    options: AttributeOptions<H, S, D> = {},
+    options: AttributeOptions<H, S, D, Z, R> = {},
   ): this {
     const requested: unknown = tag;
     const open = this.#open;
@@ -1701,7 +1983,7 @@ export class DrawingBuilder<
         const problem = typeof prompt === "string" ? textProblem(prompt) : "must be a string";
         if (problem) refuse("text", `prompt: ${problem}`);
       }
-      const fields = this.#textFields(at, options.value ?? "", options as TextOptions);
+      const fields = this.#textFields(at, options.value ?? "", options as unknown as TextOptions);
       this.#claim(
         definitionHandle(open.name, named),
         `the attribute ${JSON.stringify(named)} of the block ${JSON.stringify(open.name)}`,
@@ -1712,6 +1994,7 @@ export class DrawingBuilder<
         layer: this.#current,
         ...fields,
       });
+      if (options.role !== undefined) open.roles = true;
     } catch (thrown) {
       const about = typeof requested === "string" ? { attribute: requested } : {};
       throw located(thrown, DrawingBuilder.prototype.attribute, {
@@ -1725,7 +2008,9 @@ export class DrawingBuilder<
 
   /**
    * Places a block or an xref of the drawing with its base point at `at`, on the current
-   * layer. Inside `block()`, it places it in the block being drawn.
+   * layer. Inside `block()`, it places it in the block being drawn. In model space under a
+   * standard, `view` scales it by `view.paper(1)`, so a block drawn in paper units plots at its
+   * size.
    */
   insert<
     N extends string,
@@ -1734,7 +2019,7 @@ export class DrawingBuilder<
   >(
     block: V extends "R12" ? R12Blocks : BlockName<N>,
     at: Point,
-    options: InsertOptions<S, I> = {},
+    options: InsertOptions<S, I, Z> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.insert, options, () => {
       if (this.dxf === "R12") refuse("block", R12_ONLY.blocks);
@@ -1761,7 +2046,17 @@ export class DrawingBuilder<
         block: (placed ?? xref)!.name,
         at: pt(at),
       };
-      const scale: unknown = options.scale;
+      let scale: unknown = options.scale;
+      const view: unknown = options.view;
+      const inModel = !this.#open && !this.#sheet;
+      if (view !== undefined) {
+        if (!this.#standard) refuse("role", DRAWN.viewWithoutStandard);
+        if (!inModel) refuse("role", DRAWN.insertViewOnPaper);
+        if (scale !== undefined) refuse("role", DRAWN.insertViewAndScale);
+        scale = onPaper(this.#declared(view, "role").view, 1, "scale");
+      } else if (inModel && placed && this.#roleBlocks.has(layerKey(placed.name))) {
+        refuse("role", roleBlockWithoutView(placed.name));
+      }
       if (scale !== undefined) {
         const pair = (typeof scale === "number" ? [scale, scale] : scale) as readonly unknown[];
         if (!Array.isArray(pair) || pair.length !== 2) {
@@ -1828,7 +2123,8 @@ export class DrawingBuilder<
    * line, the gap under the text, and how a measurement is written. The sizes are the sizes a
    * dimension plots at, and `scale` multiplies each: `fromPaper(1, "in", view)` for dimensions
    * in model space that a viewport shows at the view's ratio, and 1, the default, for
-   * dimensions on a layout. A style is defined once, under a name no other has.
+   * dimensions on a layout. A style is defined once, under a name no other has. A drawing drawn
+   * to a standard defines none: its dimensions name the standard's styles by their ids.
    */
   dimensionStyle<
     N extends string,
@@ -1845,13 +2141,16 @@ export class DrawingBuilder<
     SUF extends string = string,
     MS extends number = number,
   >(
-    style: V extends "R12"
-      ? R12Dimensions
-      : DimensionStyleDefinition<N, S, H, A, AS, EO, EB, G, SC, P, PRE, SUF, MS>,
+    style: Z extends Standard
+      ? DimensionStyleDefined
+      : V extends "R12"
+        ? R12Dimensions
+        : DimensionStyleDefinition<N, S, H, A, AS, EO, EB, G, SC, P, PRE, SUF, MS>,
   ): this {
     const definition = style as unknown as DimensionStyle;
     try {
       if (this.dxf === "R12") refuse("dimension-style", R12_ONLY.dimensions);
+      if (this.#standard) refuse("dimension-style-outside-standard", DRAWN.dimensionStyleDefined);
       this.#defineDimensionStyle(definition);
     } catch (thrown) {
       const name: unknown = (definition as { name?: unknown } | null)?.name;
@@ -1942,7 +2241,11 @@ export class DrawingBuilder<
     from: Point,
     to: Point,
     line: Point,
-    options: V extends "R12" ? R12Dimensions : LinearDimensionOptions<S, T, I>,
+    options: Z extends Standard
+      ? StandardLinearDimensionOptions<S, T, I, Z>
+      : V extends "R12"
+        ? R12Dimensions
+        : LinearDimensionOptions<S, T, I>,
   ): this {
     return this.#add(DrawingBuilder.prototype.linearDimension, idOf(options), () => {
       const o = options as unknown as LinearDimensionOptions | undefined;
@@ -1977,7 +2280,11 @@ export class DrawingBuilder<
     from: Point,
     to: Point,
     offset: number,
-    options: V extends "R12" ? R12Dimensions : AlignedDimensionOptions<S, T, I>,
+    options: Z extends Standard
+      ? StandardAlignedDimensionOptions<S, T, I, Z>
+      : V extends "R12"
+        ? R12Dimensions
+        : AlignedDimensionOptions<S, T, I>,
   ): this {
     return this.#add(DrawingBuilder.prototype.alignedDimension, idOf(options), () =>
       this.#dimension(options as unknown as AlignedDimensionOptions | undefined, (style, text) => ({
@@ -1994,23 +2301,30 @@ export class DrawingBuilder<
 
   /** Checks what a dimension names and what it measures, and returns the dimension `make` gives. */
   #dimension<D extends LinearDimension | AlignedDimension>(
-    options: { readonly style?: unknown; readonly text?: unknown } | undefined,
+    options:
+      | { readonly style?: unknown; readonly text?: unknown; readonly view?: unknown }
+      | undefined,
     make: (style: string, text: { readonly text?: string }) => D,
   ): D {
     if (this.dxf === "R12") refuse("dimension", R12_ONLY.dimensions);
     if (this.#open) refuse("dimension", DIMENSION_IN_BLOCK);
-    const named: unknown = options?.style;
-    const nameProblem = dimensionStyleNameProblem(named);
-    if (nameProblem) refuse("undefined-dimension-style", nameProblem);
-    const style = this.#dimensionStyles.get(layerKey(named as string));
-    if (!style) {
-      const absent = undefinedDimensionStyleProblem(named as string);
-      refuse(
-        "undefined-dimension-style",
-        isStandardDimensionStyle(named as string)
-          ? absent
-          : `${absent}. Define it with dimensionStyle() first`,
-      );
+    let style: DimensionStyle | undefined;
+    if (this.#standard) style = this.#standardDimensionStyle(options?.style, options?.view);
+    else {
+      if (options?.view !== undefined) refuse("dimension-style", DRAWN.viewWithoutStandard);
+      const named: unknown = options?.style;
+      const nameProblem = dimensionStyleNameProblem(named);
+      if (nameProblem) refuse("undefined-dimension-style", nameProblem);
+      style = this.#dimensionStyles.get(layerKey(named as string));
+      if (!style) {
+        const absent = undefinedDimensionStyleProblem(named as string);
+        refuse(
+          "undefined-dimension-style",
+          isStandardDimensionStyle(named as string)
+            ? absent
+            : `${absent}. Define it with dimensionStyle() first`,
+        );
+      }
     }
     const text: unknown = options?.text;
     if (text !== undefined) {
@@ -2043,6 +2357,68 @@ export class DrawingBuilder<
   }
 
   /**
+   * The AutoCAD style of a dimension style of the standard, where the dimension is drawn: its id
+   * in capitals on a layout, with a scale of 1 and the writing of the paper's units, and with the
+   * view's scale id after it in model space, with a scale of `view.paper(1)` and the writing of
+   * the drawing's units. It is defined on first use, with its role's text style.
+   */
+  #standardDimensionStyle(named: unknown, view: unknown): DimensionStyle {
+    const drawn = this.#standard!;
+    const id = named === undefined ? drawn.standard.defaultDimensionStyle : named;
+    if (id === undefined) {
+      return refuse("dimension-style-outside-standard", noDefaultDimensionStyle(drawn.standard));
+    }
+    const found = typeof id === "string" ? drawn.dimensionStyles.get(idKey(id)) : undefined;
+    if (found === undefined) {
+      return refuse(
+        "dimension-style-outside-standard",
+        typeof id === "string"
+          ? (dimensionStyleReserved(id) ?? dimensionStyleLacks(id, drawn.standard))
+          : "A dimension style is named by a string",
+      );
+    }
+    const [styleId, entry] = found;
+    const fields = this.#inDiscipline("Dimension style", styleId, entry);
+    const sheet = this.#sheet;
+    let name = capitals(styleId);
+    let scale = 1;
+    let units: string = this.units;
+    if (sheet) {
+      if (view !== undefined) refuse("dimension-style", DRAWN.dimensionViewOnPaper);
+      units = sheet.info.units;
+    } else {
+      if (view === undefined) refuse("dimension-style", DRAWN.dimensionWithoutView);
+      const shown = this.#declared(view, "dimension-style").view;
+      name = `${name}-${shown.scale}`;
+      scale = onPaper(shown, 1, "scale");
+    }
+    const writing = fields.writing[units as Units];
+    if (writing === undefined)
+      refuse("dimension-style", writingLacks(styleId, units, drawn.standard));
+    const existing = this.#dimensionStyles.get(layerKey(name));
+    if (existing !== undefined) return existing;
+    const role = drawn.textRoles.get(idKey(fields.role))!;
+    const { precision, prefix, suffix, suppressZeros, measurementScale } = writing!;
+    this.#defineDimensionStyle({
+      name,
+      textStyle: this.#roleStyle(role),
+      textHeight: this.#roleFields(role).height,
+      arrowhead: fields.arrowhead,
+      arrowSize: fields.arrowSize,
+      extensionOffset: fields.extensionOffset,
+      extensionBeyond: fields.extensionBeyond,
+      textGap: fields.textGap,
+      scale,
+      precision,
+      ...(prefix === undefined ? {} : { prefix }),
+      ...(suffix === undefined ? {} : { suffix }),
+      ...(suppressZeros === undefined ? {} : { suppressZeros }),
+      measurementScale,
+    });
+    return this.#dimensionStyles.get(layerKey(name))!;
+  }
+
+  /**
    * Adds a layout: a sheet of `options.paper` that AutoCAD shows as a tab and plots as one
    * page, at 1:1 on `DWG To PDF.pc3`. What `draw` draws goes on the sheet and not in model
    * space, in the paper's units from the sheet's lower-left corner, and `sheet.viewport()`
@@ -2053,7 +2429,7 @@ export class DrawingBuilder<
   layout<N extends string, P extends string>(
     name: V extends "R12" ? R12Layouts : LayoutName<N>,
     options: LayoutOptions<P>,
-    draw: (sheet: Sheet) => void,
+    draw: (sheet: Sheet<Z>) => void,
   ): this {
     // The parameter type is the error message when a literal name is wrong, so read it as a string.
     const requested = name as string;
@@ -2085,6 +2461,11 @@ export class DrawingBuilder<
       const paper: unknown = options?.paper;
       const problem = paperProblem(paper);
       if (problem) fail("layout", problem);
+      const info = paperInfo(paper as Paper)!;
+      const standard = this.#standard?.standard;
+      if (standard && info.units !== standard.paperUnits) {
+        fail("layout", layoutPaperUnitsProblem(paper as string, info.units, standard));
+      }
       const plotStyle: unknown = options.plotStyle;
       if (plotStyle !== undefined) {
         const styleProblem = plotStyleProblem(plotStyle);
@@ -2096,7 +2477,7 @@ export class DrawingBuilder<
       open = {
         name: requested,
         paper: paper as Paper,
-        info: paperInfo(paper as Paper)!,
+        info,
         plotStyle: plotStyle as PlotStyleTable | undefined,
         viewports: [],
         entities: [],
@@ -2104,6 +2485,7 @@ export class DrawingBuilder<
         viewportCalls: [],
         handles: taken,
         ids: [],
+        views: [],
         closed: false,
       };
     } catch (thrown) {
@@ -2117,14 +2499,14 @@ export class DrawingBuilder<
     const previous = this.#current;
     this.#current = "0";
     this.#sheet = open;
-    const sheet: Sheet = {
+    const sheet: Sheet<Z> = {
       name: open.name,
       paper: open.paper,
       units: open.info.units,
       width: open.info.width,
       height: open.info.height,
       viewport: (corner, width, height, view) => {
-        this.#viewport(sheet.viewport, open, corner, width, height, view as ViewportOptions);
+        this.#viewport(sheet.viewport, open, corner, width, height, view);
         return sheet as never;
       },
     };
@@ -2135,6 +2517,7 @@ export class DrawingBuilder<
       this.#layouts.delete(key);
       for (const handle of open.handles) this.#handles.delete(handle);
       for (const id of open.ids) this.#ids.delete(id);
+      for (const shown of open.views) shown.shown = false;
       throw thrown;
     } finally {
       this.#current = previous;
@@ -2162,9 +2545,13 @@ export class DrawingBuilder<
     corner: Point,
     width: unknown,
     height: unknown,
-    view: ViewportOptions,
+    options: unknown,
   ): void {
-    const id: unknown = (view as ViewportOptions | undefined)?.id;
+    const view = options as
+      | { readonly center?: Point; readonly ratio?: unknown; readonly id?: unknown }
+      | undefined;
+    const shows: unknown = (options as { readonly view?: unknown } | undefined)?.view;
+    let id: unknown = view?.id;
     try {
       if (open.closed) {
         refuse(
@@ -2172,7 +2559,19 @@ export class DrawingBuilder<
           "A viewport is added while its layout is drawn. Call viewport() inside the draw of layout()",
         );
       }
-      const key = id === undefined ? undefined : this.#idKey(id);
+      let shown: Shown | undefined;
+      if (this.#standard) {
+        if (view?.ratio !== undefined || shows === undefined)
+          refuse("viewport", DRAWN.viewportRatio);
+        if (id !== undefined) refuse("viewport", DRAWN.viewportId);
+        shown = this.#declared(shows, "viewport");
+        id = shown.view.id;
+        if (shown.shown) refuse("duplicate-id", duplicateIdProblem(shown.view.id, shown.view.id));
+      } else if (shows !== undefined) {
+        refuse("viewport", DRAWN.viewWithoutStandard);
+      }
+      // A view's id was taken when view() declared it.
+      const key = id === undefined || shown ? undefined : this.#idKey(id);
       if (key !== undefined) this.#freeIdHandle(id as string);
       const made = {
         ...(id === undefined ? {} : { id: id as string }),
@@ -2181,11 +2580,15 @@ export class DrawingBuilder<
         width,
         height,
         center: view?.center,
-        ratio: view?.ratio,
+        ratio: shown ? shown.view.ratio : view?.ratio,
       };
       const problem = viewportProblem(made, open.info.units, this.units);
       if (problem) refuse("viewport", problem);
-      open.viewports.push({ ...(made as Viewport), corner: pt(corner), center: pt(view.center) });
+      open.viewports.push({ ...(made as Viewport), corner: pt(corner), center: pt(view!.center!) });
+      if (shown) {
+        shown.shown = true;
+        open.views.push(shown);
+      }
       if (key !== undefined) {
         this.#ids.set(key, id as string);
         open.ids.push(key);
@@ -2234,17 +2637,20 @@ export class DrawingBuilder<
   ): Pick<Text, "at" | "value" | "height" | "rotation" | "style" | "align" | "valign"> {
     const problem = typeof value === "string" ? textProblem(value) : "Text must be a string";
     if (problem) refuse("text", problem);
+    const role = this.#role(options);
     const text: { -readonly [K in keyof Text]?: Text[K] } & Pick<
       Text,
       "at" | "value" | "height" | "rotation"
     > = {
       at: pt(at),
       value,
-      height: positive(options.height ?? 0.125, "height"),
+      height: positive(role ? role.height : (options.height ?? 0.125), "height"),
       rotation: kept(options.rotation ?? 0, "rotation"),
     };
     const r12 = this.dxf === "R12";
-    if (options.style !== undefined) {
+    if (role) {
+      text.style = role.style;
+    } else if (options.style !== undefined) {
       const named: unknown = options.style;
       // An R12 drawing has no style to look up but Standard.
       if (r12 && !(typeof named === "string" && isStandardTextStyle(named))) {
@@ -2274,6 +2680,80 @@ export class DrawingBuilder<
   }
 
   /**
+   * The height and text style of a text with a role, where it is drawn: the role's height in a
+   * block and on a layout, and `view.paper` of it in model space. Undefined for a text with no
+   * role and no view.
+   */
+  #role(options: TextOptions): { readonly height: number; readonly style: string } | undefined {
+    const role: unknown = options.role;
+    const view: unknown = options.view;
+    if (role === undefined && view === undefined) return undefined;
+    const drawn = this.#standard;
+    if (!drawn) {
+      return refuse(
+        "role",
+        role === undefined ? DRAWN.viewWithoutStandard : DRAWN.roleWithoutStandard,
+      );
+    }
+    if (role === undefined) return refuse("role", DRAWN.viewWithoutRole);
+    const found = typeof role === "string" ? drawn.textRoles.get(idKey(role)) : undefined;
+    if (found === undefined) {
+      return refuse(
+        "role",
+        typeof role === "string" ? roleLacks(role, drawn.standard) : "A role is named by a string",
+      );
+    }
+    if (options.height !== undefined) refuse("role", DRAWN.roleAndHeight);
+    if (options.style !== undefined) refuse("role", DRAWN.roleAndStyle);
+    let height = this.#roleFields(found).height;
+    if (this.#open || this.#sheet) {
+      if (view !== undefined) refuse("role", DRAWN.roleViewOnPaper);
+    } else {
+      if (view === undefined) refuse("role", DRAWN.roleWithoutView);
+      height = onPaper(this.#declared(view, "role").view, height, "height");
+    }
+    return { height, style: this.#roleStyle(found) };
+  }
+
+  /** A role's fields in the drawing's discipline. */
+  #roleFields([id, role]: readonly [string, StandardTextRole]): StandardTextRole {
+    return this.#inDiscipline("Text role", id, role);
+  }
+
+  /** The text style of a role, which enters the drawing when the role is first used. */
+  #roleStyle(found: readonly [string, StandardTextRole]): string {
+    const { font, widthFactor, obliqueAngle } = this.#roleFields(found);
+    return this.#defineTextStyle(
+      { name: capitals(found[0]), font, widthFactor, obliqueAngle } as TextStyleDefinition,
+      true,
+    );
+  }
+
+  /**
+   * An entry of the standard as the drawing's discipline resolves it: with that discipline's
+   * fields from `byDiscipline`. An entry with `byDiscipline` in a drawing that names no
+   * discipline is refused.
+   */
+  #inDiscipline<E extends { readonly byDiscipline?: { readonly [d: string]: object } }>(
+    what: string,
+    name: string,
+    entry: E,
+  ): E {
+    if (!entry.byDiscipline) return entry;
+    const discipline = this.#standard!.discipline;
+    if (discipline === undefined) refuse("standard", unnamedDisciplineProblem(what, name, entry));
+    return { ...entry, ...entry.byDiscipline[discipline!] };
+  }
+
+  /** The view `view()` of this drawing returned, or a refusal under `rule`. */
+  #declared(view: unknown, rule: LintRule): Shown {
+    const id: unknown = (view as { readonly id?: unknown } | null | undefined)?.id;
+    const shown = typeof id === "string" ? this.#views.get(idKey(id)) : undefined;
+    if (shown === undefined || shown.view !== view) return refuse(rule, viewNotDeclared(view));
+    return shown;
+  }
+
+  /**
    * Checks the entity that `make` gives and the `EntityOptions` it was drawn with, whose type
    * parameters differ from method to method, and stores it. `method` is the builder method the
    * caller called, which a diagnostic names the call of.
@@ -2287,6 +2767,7 @@ export class DrawingBuilder<
       const named = id === undefined ? {} : { id: id as string };
       const made = { ...make(), ...named, ...this.#style(o) } as Entity;
       (this.#open ?? this.#sheet ?? { entities: this.#entities }).entities.push(made);
+      if (this.#open && this.#drawsRoles(made, o)) this.#open.roles = true;
       if (key !== undefined) {
         this.#ids.set(key, id as string);
         (this.#open ?? this.#sheet)?.ids.push(key);
@@ -2302,6 +2783,12 @@ export class DrawingBuilder<
     }
     (this.#open ?? this.#sheet ?? { calls: this.#calls }).calls?.push(holdCall(method));
     return this;
+  }
+
+  /** True for a text with a role, and for an insert of a block that holds one. */
+  #drawsRoles(made: Entity, options: object): boolean {
+    if (made.kind === "text") return (options as { readonly role?: unknown }).role !== undefined;
+    return made.kind === "insert" && this.#roleBlocks.has(layerKey(made.block));
   }
 
   /** Checks an id the drawing does not have yet, and returns the key it is kept by. */
@@ -2558,6 +3045,15 @@ interface Drawn {
   readonly linetypes: ReadonlyMap<string, readonly [name: string, linetype: StandardLinetype]>;
   /** Each pen's lineweight, by `idKey` of its id. */
   readonly pens: ReadonlyMap<string, number>;
+  /** Each text role, scale and dimension style as the standard spells its id, by `idKey`. */
+  readonly textRoles: ReadonlyMap<string, readonly [id: string, role: StandardTextRole]>;
+  readonly scales: ReadonlyMap<string, readonly [id: string, scale: StandardScale]>;
+  readonly dimensionStyles: ReadonlyMap<
+    string,
+    readonly [id: string, style: StandardDimensionStyle]
+  >;
+  /** The id of each text role, by `layerKey` of its text style's name. */
+  readonly roleStyles: ReadonlyMap<string, string>;
   /** The drawing's discipline, as the standard spells it. */
   readonly discipline?: string;
 }
@@ -2582,15 +3078,19 @@ function drawnTo(
   if (options.linetypeScale !== undefined) refuse("standard", DRAWN.linetypeScale);
   let drawn = drawnStandards.get(standard);
   if (!drawn) {
-    const byName = <T>(entries: Readonly<Record<string, T>>) =>
-      new Map(
-        Object.entries(entries).map(([name, entry]) => [layerKey(name), [name, entry] as const]),
-      );
+    const byKey = <T>(entries: Readonly<Record<string, T>>, key: (name: string) => string) =>
+      new Map(Object.entries(entries).map(([name, entry]) => [key(name), [name, entry] as const]));
     drawn = {
       standard,
-      layers: byName(standard.layers),
-      linetypes: byName(standard.linetypes),
+      layers: byKey(standard.layers, layerKey),
+      linetypes: byKey(standard.linetypes, layerKey),
       pens: new Map(Object.entries(standard.pens).map(([id, pen]) => [idKey(id), pen.lineweight])),
+      textRoles: byKey(standard.textRoles, idKey),
+      scales: byKey(standard.scales, idKey),
+      dimensionStyles: byKey(standard.dimensionStyles, idKey),
+      roleStyles: new Map(
+        Object.keys(standard.textRoles).map((id) => [layerKey(capitals(id)), id]),
+      ),
     };
     drawnStandards.set(standard, drawn);
   }
@@ -2643,6 +3143,15 @@ function positive(value: unknown, label: string): number {
 
 function lostSide(size: string, axis: string, at: number): string {
   return `${size}: This value is too small at ${axis} = ${at}. Both sides of the rectangle are written as ${axis} = ${fmt(at)}, because tsdraft writes 6 decimals`;
+}
+
+/** A length on paper in drawing units at a view's ratio, refused when it cannot be written. */
+function onPaper(view: View, length: number, label: string): number {
+  try {
+    return view.paper(length);
+  } catch (thrown) {
+    return refuse("geometry", `${label}: ${(thrown as Error).message}`);
+  }
 }
 
 /** An angle a dimension measures along, refused beyond a turn, and turned to less than one. */

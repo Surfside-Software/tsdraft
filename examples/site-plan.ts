@@ -33,36 +33,40 @@
 // Run with `pnpm example`. It writes examples/out/site-plan.dxf (AutoCAD 2018 DXF),
 // site-plan.svg, which is model space, and site-plan-sheet.svg, which is the layout as it
 // plots. The drawing is also the default export, for a tool that takes a drawing file, and
-// `sitePlan(ratio)` builds the sheet at another ratio.
+// `sitePlan("1in-20ft")` builds the sheet at another scale of the standard.
 //
 // How it is put together:
 // - The parameters come first, and every position is worked out from them.
 // - What belongs to the site is drawn in model space, in feet. What belongs to the paper is
 //   drawn inside `d.layout(...)`, in inches, at the size it plots.
-// - An annotation of the plan is in model space, sized by how large it plots: `paper` turns
-//   inches on paper into feet for the viewport's ratio. So the same code draws the sheet at
-//   another ratio: the plan changes size in its viewport and its text keeps its plotted
-//   height.
 // - The drawing is drawn to a standard, `standard`, which extends the built-in one with the
 //   layer `V-TREE`. A layer is named, and its color, linetype, pen and plot flag are the
 //   standard's. Its entities draw ByLayer, and one that plots heavier than its layer names a
 //   pen of the standard.
-// - Every text is in the sheet's text style, `NOTES`, through `put`, and is justified to its
-//   point with `align` and `valign`. Columns and line breaks are laid out by the length
-//   `measureText` gives a text in the style's font.
+// - The plan is the view `plan`, at a scale of the standard, which the viewport shows. An
+//   annotation of the plan is in model space and names the view, which sizes it by how large it
+//   plots: a text plots at its role's height, a symbol at its size in inches and a dimension in
+//   the standard's dimension style. `plan.paper` turns other inches on paper, such as a gap,
+//   into feet at the view's ratio. So the same code draws the sheet at another scale: the plan
+//   changes size in its viewport and its text keeps its plotted height.
+// - A text names a role of the standard, which gives its text style and height, and is
+//   justified to its point with `align` and `valign`. Columns and line breaks are laid out by
+//   the length `measureText` gives a text in its role. The title block's texts, below, are the
+//   one exception.
 // - A symbol is a block, drawn once and inserted where it is needed. The tree and the property
 //   corner are in the plan and in the legend, so each is inserted in model space and on the
 //   layout. A block's entities are on layer 0, so each insert draws on its own layer.
 // - The border and the title block are one block, `TITLE BLOCK`, drawn by `titleBlock`. Its
 //   fields are attributes, and the insert on the layout gives each its value. In CAD each
-//   stays an attribute. `titleBlock` and `TITLE_BLOCK` can be copied by themselves.
+//   stays an attribute. Its texts are in a text style of its own, `NOTES`, at the heights in
+//   `TITLE_BLOCK`. `titleBlock` and `TITLE_BLOCK` can be copied by themselves.
 import { mkdirSync, writeFileSync } from "node:fs";
 import {
   BUILT_IN_STANDARD,
   checkIntent,
   createDrawing,
   defineStandard,
-  fromPaper,
+  measureText,
   PAPERS,
   toDXF,
   toSVG,
@@ -70,10 +74,8 @@ import {
   type DrawingBuilder,
   type Intent,
   type Point,
-  type TextAlign,
-  type TextVerticalAlign,
 } from "../src/index.ts";
-import { arrowhead, textWidth } from "./lib/drafting.ts";
+import { arrowhead } from "./lib/drafting.ts";
 
 /**
  * The standard the sheet is drawn to: the built-in one, with a layer for the trees. Its layers
@@ -88,6 +90,12 @@ export const standard = defineStandard({
 
 /** A builder of a drawing drawn to the standard. */
 type Builder = DrawingBuilder<"R2018", number, typeof standard>;
+
+/** A text role of the standard, which gives a text its text style and the height it plots at. */
+type Role = keyof typeof standard.textRoles;
+const roles = standard.textRoles;
+/** How long a text plots in a role, in inches. */
+const widthOf = (value: string, role: Role) => measureText({ value, ...roles[role] }).length;
 
 // The sheet. Lengths on it are inches of paper, from its lower-left corner. The paper is full
 // bleed, with no margin a plotter keeps clear, so the border sets the edge of the drawing:
@@ -104,15 +112,9 @@ const project = {
 // holds the view title, and how far text and symbols keep from the border. The title block is
 // at the foot of the column.
 const layout = { column: 7, gutter: 1, titleStrip: 1 + 1 / 2, clear: 1 / 4 };
-// Text heights on paper, in inches.
-const size = { note: 3 / 32, label: 1 / 8, heading: 3 / 16, title: 1 / 4 };
-// The sheet's text style and its font, which every length of a text is measured in.
+// The title block's text style and its font, which its lengths are measured in.
 const NOTES = "NOTES";
 const FONT = "Arial";
-
-// The scale the viewport shows the plan at, as a ratio, and the drawing's units. A foot is 12
-// inches, so an inch on paper is `ratio / 12` feet.
-const scale = { ratio: 120, units: "ft" } as const;
 
 // The site, in feet. The lot's front left corner is the origin.
 const lot = { name: "LOT 12, BLOCK 3", width: 100, depth: 140 };
@@ -341,16 +343,21 @@ function titleBlock(
   return { name, drawingArea: area, box, fields };
 }
 
-/** Builds the sheet with its plan at `ratio`: 120 is 1" = 10', and 240 is 1" = 20'. */
-export function sitePlan(ratio: number = scale.ratio): Sheet {
-  const feetPerInch = ratio / 12;
-  const scaleLabel = `1" = ${feetPerInch}'`;
-
-  /**
-   * A length on paper, in inches, as drawing units in the viewport. Every size and offset of
-   * an annotation in model space uses it.
-   */
-  const paper = (inches: number) => fromPaper(inches, "in", { ratio, units: scale.units });
+/**
+ * Builds the sheet with its plan at a scale of the standard: `"1in-10ft"` is 1" = 10', and
+ * `"1in-20ft"` is 1" = 20'.
+ */
+export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Sheet {
+  // The standard's linetype patterns are sized for paper: DASHED is a 0.5 dash and a 0.25 gap.
+  // On a layout AutoCAD sizes dashes on the paper, in every viewport, so the standard's linetype
+  // scale, 1/2, is a paper length and no drawing length: the dashes plot at half their pattern,
+  // a 1/4 in dash, at every scale.
+  const d = createDrawing({ units: "ft", standard });
+  d.textStyle({ name: NOTES, font: FONT });
+  // The view of the plan, at the scale. `plan.paper` turns inches on paper into feet at its
+  // ratio: a foot is 12 inches, so an inch on paper is `ratio / 12` feet.
+  const plan = d.view("plan", { scale });
+  const feetPerInch = plan.ratio / 12;
 
   // The paper, and the viewport on it: the left part of the drawing area, above the strip for
   // the view title.
@@ -368,35 +375,14 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
     top: area.top,
   };
   // The viewport is centered on the plan: the lot and the street's right-of-way. `view` is the
-  // part of model space it shows, and the lot stays at the origin at every ratio.
+  // part of model space it shows, and the lot stays at the origin at every scale.
   const planCenter: Point = [lot.width / 2, (lot.depth - street.rightOfWay) / 2];
   const view: Box = {
-    left: planCenter[0] - paper(viewport.right - viewport.left) / 2,
-    bottom: planCenter[1] - paper(viewport.top - viewport.bottom) / 2,
-    right: planCenter[0] + paper(viewport.right - viewport.left) / 2,
-    top: planCenter[1] + paper(viewport.top - viewport.bottom) / 2,
+    left: planCenter[0] - plan.paper(viewport.right - viewport.left) / 2,
+    bottom: planCenter[1] - plan.paper(viewport.top - viewport.bottom) / 2,
+    right: planCenter[0] + plan.paper(viewport.right - viewport.left) / 2,
+    top: planCenter[1] + plan.paper(viewport.top - viewport.bottom) / 2,
   };
-
-  // The standard's linetype patterns are sized for paper: DASHED is a 0.5 dash and a 0.25 gap.
-  // On a layout AutoCAD sizes dashes on the paper, in every viewport, so the standard's linetype
-  // scale, 1/2, is a paper length and no drawing length: the dashes plot at half their pattern,
-  // a 1/4 in dash, at every ratio.
-  const d = createDrawing({ units: scale.units, standard });
-  d.textStyle({ name: NOTES, font: FONT });
-  const widthOf = (value: string, height: number) => textWidth(value, height, FONT);
-
-  /**
-   * A text in the sheet's style. `height` is in the units of the space it is drawn in: inches
-   * on the layout, and `paper(inches)` in model space. `options` justify it to `at` and turn it.
-   */
-  function put(
-    at: Point,
-    value: string,
-    height: number,
-    options: { align?: TextAlign; valign?: TextVerticalAlign; rotation?: number } = {},
-  ): void {
-    d.text(at, value, { height, style: NOTES, ...options });
-  }
 
   // The symbols. A block's coordinates are its own, and its base point is its origin.
   d.block("TREE", {}, () => {
@@ -406,13 +392,13 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
     d.line([0, -0.15], [0, 0.15]);
   });
   // The other symbols are in inches, at the size they plot. On the layout they are inserted as
-  // they are, and in model space at `paper(1)`.
+  // they are, and in model space with the view, which scales them by `plan.paper(1)`.
   const gap = 1 / 16; // between a line and its text, in inches
   d.block("PROPERTY CORNER", {}, () => d.circle([0, 0], 1 / 16));
   const arrowRadius = 3 / 8;
   d.block("NORTH ARROW", {}, () => {
     // North is up the block. Its base point is the middle of the circle.
-    d.text([0, arrowRadius + gap], "N", { height: size.heading, style: NOTES, align: "center" });
+    d.text([0, arrowRadius + gap], "N", { role: "heading", align: "center" });
     d.circle([0, 0], arrowRadius);
     d.line([0, -arrowRadius], [0, arrowRadius * 0.4]);
     arrowhead(d, [0, arrowRadius], [0, 0], arrowRadius * 0.9);
@@ -421,20 +407,18 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
   // end of the line. The line has one fixed length, long enough for the sheet's view title,
   // and does not follow the title an insert sets. Its tags are its own: a tag of the title
   // block names another field.
-  const titleLine = widthOf(sheet.title, size.title) + 1 / 4;
+  const titleLine = widthOf(sheet.title, "title") + 1 / 4;
   d.block("VIEW TITLE", {}, () => {
     d.attribute("VIEW_TITLE", [0, gap], {
       value: "VIEW TITLE",
       prompt: "View title",
-      height: size.title,
-      style: NOTES,
+      role: "title",
     });
     d.line([0, 0], [titleLine, 0]);
     d.attribute("VIEW_SCALE", [0, -gap], {
       value: "SCALE: 1\" = 10'",
       prompt: "Scale",
-      height: size.label,
-      style: NOTES,
+      role: "label",
       valign: "top",
     });
   });
@@ -458,7 +442,7 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
   });
   d.layer("C-PROP-MONU", () => {
     for (const x of [0, lot.width]) {
-      for (const y of [0, lot.depth]) d.insert("PROPERTY CORNER", [x, y], { scale: paper(1) });
+      for (const y of [0, lot.depth]) d.insert("PROPERTY CORNER", [x, y], { view: plan });
     }
   });
   d.layer("C-SETB", () => {
@@ -489,33 +473,20 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
     for (const tree of trees) d.insert("TREE", tree.at, { scale: tree.radius });
   });
 
-  // The plan's annotation, in model space with what it describes. Its sizes are paper sizes,
-  // turned into feet for the viewport's ratio.
-  const text = { note: paper(size.note), label: paper(size.label), heading: paper(size.heading) };
-  const near = paper(gap); // between a line and its text
-  const clear = paper(1 / 8); // between a heavy line and its text
+  // The plan's annotation, in model space with what it describes. A text names the view it is
+  // read in, which sizes it to plot at its role's height. Gaps and offsets are lengths on paper,
+  // turned into feet for the view.
+  /** How tall a text of a role is in model space, in feet. */
+  const inPlan = (role: Role) => plan.paper(roles[role].height);
+  const near = plan.paper(gap); // between a line and its text
+  const clear = plan.paper(1 / 8); // between a heavy line and its text
 
   // The dimensions are AutoCAD's own: each measures the two points it is given, and writes
-  // what it measures. Their style has paper sizes in inches and the scale of this view, so a
-  // sheet at another ratio needs the same style at another scale, under another name.
-  const dimensions = `DIMS-${feetPerInch}`;
-  d.dimensionStyle({
-    name: dimensions,
-    textStyle: NOTES,
-    textHeight: size.note,
-    arrowhead: "architectural-tick",
-    arrowSize: 1 / 8,
-    extensionOffset: gap,
-    extensionBeyond: 1 / 8,
-    textGap: gap,
-    scale: paper(1),
-    precision: 1,
-    suffix: "'",
-  });
-  // One string across the lot, behind the building, and one up it, outside the east line.
+  // what it measures. They are in the standard's dimension style, which the view sizes for its
+  // scale. One string across the lot, behind the building, and one up it, outside the east line.
   // Each runs through the building's corners, and ends on a lot line.
-  const across = bounds.rear + paper(3 / 8);
-  const up = lot.width + paper(5 / 8);
+  const across = bounds.rear + plan.paper(3 / 8);
+  const up = lot.width + plan.paper(5 / 8);
   d.layer("C-ANNO-DIMS", () => {
     const acrossLot: Point[] = [
       [0, across],
@@ -530,39 +501,54 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
       [lot.width, lot.depth],
     ];
     for (let i = 1; i < acrossLot.length; i++) {
-      d.linearDimension(acrossLot[i - 1]!, acrossLot[i]!, [0, across], { style: dimensions });
+      d.linearDimension(acrossLot[i - 1]!, acrossLot[i]!, [0, across], { view: plan });
     }
     for (let i = 1; i < upLot.length; i++) {
-      d.linearDimension(upLot[i - 1]!, upLot[i]!, [up, 0], { style: dimensions, along: "y" });
+      d.linearDimension(upLot[i - 1]!, upLot[i]!, [up, 0], { view: plan, along: "y" });
     }
   });
 
   d.layer("C-ANNO-TEXT", () => {
-    const { note, label, heading } = text;
+    const note = inPlan("note");
+    const label = inPlan("label");
     const middle = lot.width / 2;
 
     // Bearings and distances, clockwise from the northwest corner. Each sits outside its line,
     // but for the front one, which is inside the lot, clear of the sidewalk and the driveway.
     const course = (bearing: string, length: number) => `${bearing}  ${length.toFixed(2)}'`;
     const sideMiddle = (across + lot.depth) / 2;
-    put([middle, lot.depth + clear], course(`N 90°00'00" E`, lot.width), note, { align: "center" });
-    put([lot.width + clear + note, sideMiddle], course(`S 00°00'00" E`, lot.depth), note, {
+    d.text([middle, lot.depth + clear], course(`N 90°00'00" E`, lot.width), {
+      role: "note",
+      view: plan,
+      align: "center",
+    });
+    d.text([lot.width + clear + note, sideMiddle], course(`S 00°00'00" E`, lot.depth), {
+      role: "note",
+      view: plan,
       align: "center",
       rotation: 90,
     });
-    put([driveX / 2, clear], course(`S 90°00'00" W`, lot.width), note, { align: "center" });
-    put([-clear, sideMiddle], course(`N 00°00'00" W`, lot.depth), note, {
+    d.text([driveX / 2, clear], course(`S 90°00'00" W`, lot.width), {
+      role: "note",
+      view: plan,
+      align: "center",
+    });
+    d.text([-clear, sideMiddle], course(`N 00°00'00" W`, lot.depth), {
+      role: "note",
+      view: plan,
       align: "center",
       rotation: 90,
     });
 
     // Setbacks, each along its line.
     const { front, side, rear } = setbacks;
-    const inset = side + paper(1 / 4);
-    put([inset, front + near], `${front}' FRONT SETBACK`, note);
-    put([inset, lot.depth - rear + near], `${rear}' REAR SETBACK`, note);
+    const inset = side + plan.paper(1 / 4);
+    d.text([inset, front + near], `${front}' FRONT SETBACK`, { role: "note", view: plan });
+    d.text([inset, lot.depth - rear + near], `${rear}' REAR SETBACK`, { role: "note", view: plan });
     for (const x of [side, lot.width - side]) {
-      put([x - near, (front + bounds.rear) / 2], `${side}' SIDE SETBACK`, note, {
+      d.text([x - near, (front + bounds.rear) / 2], `${side}' SIDE SETBACK`, {
+        role: "note",
+        view: plan,
         align: "center",
         rotation: 90,
       });
@@ -572,58 +558,82 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
     stack(
       [middle, (across + lot.depth - rear) / 2],
       [
-        [lot.name, heading],
-        [`${squareFeet(lotArea)} (${acres(lotArea)})`, label],
+        [lot.name, "heading"],
+        [`${squareFeet(lotArea)} (${acres(lotArea)})`, "label"],
       ],
     );
     stack(
       [(bounds.left + bounds.right) / 2, houseY + house.depth / 2],
       [
-        ["PROPOSED", heading],
-        ["RESIDENCE", heading],
-        [`${squareFeet(footprintArea)} FOOTPRINT`, label],
-        [`F.F.E. ${house.floor.toFixed(2)}'`, label],
+        ["PROPOSED", "heading"],
+        ["RESIDENCE", "heading"],
+        [`${squareFeet(footprintArea)} FOOTPRINT`, "label"],
+        [`F.F.E. ${house.floor.toFixed(2)}'`, "label"],
       ],
     );
-    put([driveX + driveway.width / 2, setbacks.front / 2], "CONC. DRIVEWAY", note, {
+    d.text([driveX + driveway.width / 2, setbacks.front / 2], "CONC. DRIVEWAY", {
+      role: "note",
+      view: plan,
       align: "center",
       valign: "middle",
       rotation: 90,
     });
-    put([0, -sidewalk.fromLot - sidewalk.width / 2], `${sidewalk.width}' CONC. SIDEWALK`, note, {
+    d.text([0, -sidewalk.fromLot - sidewalk.width / 2], `${sidewalk.width}' CONC. SIDEWALK`, {
+      role: "note",
+      view: plan,
       valign: "middle",
     });
-    put([0, pavement.near - near], "EDGE OF PAVEMENT", note, { valign: "top" });
+    d.text([0, pavement.near - near], "EDGE OF PAVEMENT", {
+      role: "note",
+      view: plan,
+      valign: "top",
+    });
     const rightOfWay = `${street.rightOfWay}' PUBLIC RIGHT-OF-WAY`;
-    put([middle, centerline + clear], rightOfWay, note, { align: "center" });
-    put([middle, centerline + clear + note + near * 1.5], street.name, heading, {
+    d.text([middle, centerline + clear], rightOfWay, { role: "note", view: plan, align: "center" });
+    d.text([middle, centerline + clear + note + near * 1.5], street.name, {
+      role: "heading",
+      view: plan,
       align: "center",
     });
-    put([view.right - clear, centerline + near], "CENTERLINE", note, { align: "right" });
+    d.text([view.right - clear, centerline + near], "CENTERLINE", {
+      role: "note",
+      view: plan,
+      align: "right",
+    });
 
     // The adjoining lots, each an inch outside its lot line and reading along it.
-    put([-paper(1), lot.depth / 2], "LOT 11", label, { align: "center", rotation: 90 });
-    put([lot.width + paper(1) + label, lot.depth / 2], "LOT 13", label, {
+    d.text([-plan.paper(1), lot.depth / 2], "LOT 11", {
+      role: "label",
+      view: plan,
       align: "center",
       rotation: 90,
     });
-    put([middle, lot.depth + paper(1)], "LOT 27", label, { align: "center" });
+    d.text([lot.width + plan.paper(1) + label, lot.depth / 2], "LOT 13", {
+      role: "label",
+      view: plan,
+      align: "center",
+      rotation: 90,
+    });
+    d.text([middle, lot.depth + plan.paper(1)], "LOT 27", {
+      role: "label",
+      view: plan,
+      align: "center",
+    });
   });
 
-  /** Lines of text in model space, each with its height, centered on `center` as one block. */
-  function stack(
-    center: Point,
-    lines: readonly (readonly [value: string, height: number])[],
-  ): void {
-    const height = lines.reduce((sum, line) => sum + line[1], 0) + near * 1.5 * (lines.length - 1);
+  /** Lines of text in model space, each in its role, centered on `center` as one block. */
+  function stack(center: Point, lines: readonly (readonly [value: string, role: Role])[]): void {
+    const heights = lines.map(([, role]) => inPlan(role));
+    const height = heights.reduce((sum, h) => sum + h, 0) + near * 1.5 * (lines.length - 1);
     let top = center[1] + height / 2;
-    for (const [value, lineHeight] of lines) {
-      put([center[0], top - lineHeight], value, lineHeight, { align: "center" });
-      top -= lineHeight + near * 1.5;
-    }
+    lines.forEach(([value, role], i) => {
+      d.text([center[0], top - heights[i]!], value, { role, view: plan, align: "center" });
+      top -= heights[i]! + near * 1.5;
+    });
   }
 
-  // The sheet: everything drawn inside `d.layout` is on the paper, in inches.
+  // The sheet: everything drawn inside `d.layout` is on the paper, in inches, and a text there
+  // plots at its role's height.
   d.layout(sheet.number, { paper: sheet.paper }, (paperSheet) => {
     // The border and the title block, with the sheet's fields.
     d.layer("G-ANNO-TTLB", () => {
@@ -633,7 +643,7 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
           PROJECT: project.name,
           TITLE: sheet.title,
           DATE: project.date,
-          SCALE: scaleLabel,
+          SCALE: plan.label,
           DRAWN: project.drawnBy,
           CHECKED: project.checkedBy,
           SHEET: paperSheet.name,
@@ -641,13 +651,12 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
       });
     });
 
-    // The plan, at the ratio. A viewport's border is on a layer that does not plot.
+    // The plan, in its view. A viewport's border is on a layer that does not plot.
     d.layer("G-ANNO-NPLT", () => {
       const [width, height] = [viewport.right - viewport.left, viewport.top - viewport.bottom];
       paperSheet.viewport([viewport.left, viewport.bottom], width, height, {
+        view: plan,
         center: planCenter,
-        ratio,
-        id: "plan",
       });
     });
 
@@ -657,7 +666,7 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
     const titleX = area.left + layout.clear + arrowRadius * 2 + 3 / 8;
     d.layer("C-ANNO-TITL", () => {
       d.insert("VIEW TITLE", [titleX, underline], {
-        attributes: { VIEW_TITLE: sheet.title, VIEW_SCALE: `SCALE: ${scaleLabel}` },
+        attributes: { VIEW_TITLE: sheet.title, VIEW_SCALE: `SCALE: ${plan.label}` },
       });
     });
     d.layer("C-ANNO-SYMB", () => {
@@ -665,7 +674,7 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
       d.insert("NORTH ARROW", [area.left + layout.clear + arrowRadius, underline]);
 
       // A graphic scale 2 in long, divided at 1/2 in and 1 in, and numbered in feet of the
-      // plan at the viewport's ratio.
+      // plan at the view's scale.
       const bar = { x: titleX + titleLine + 3 / 4, length: 2, height: 1 / 8 };
       const y = underline - bar.height;
       const stops = [0, 1 / 4, 1 / 2, 1]; // shares of the bar's length
@@ -676,22 +685,22 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
       d.line([bar.x, y + bar.height / 2], [bar.x + bar.length / 4, y + bar.height / 2]);
       for (const stop of stops) {
         const at: Point = [bar.x + bar.length * stop, y + bar.height + gap];
-        put(at, String(stop * bar.length * feetPerInch), size.note, { align: "center" });
+        d.text(at, String(stop * bar.length * feetPerInch), { role: "note", align: "center" });
       }
-      put([bar.x + bar.length + 1 / 8, y], "FEET", size.note);
+      d.text([bar.x + bar.length + 1 / 8, y], "FEET", { role: "note" });
     });
 
     // The column of notes: site data, general notes, legend and abbreviations, from the top of
     // the drawing area down. `row` is the baseline of the next line.
     const column = { left: area.right - layout.column, width: layout.column - layout.clear };
-    const leading = size.label * 1.8; // from one line to the next
+    const leading = roles.label.height * 1.8; // from one line to the next
     const blockGap = 3 / 4; // between two blocks of the column
     let row = area.top - layout.clear;
 
     function columnHeading(title: string): void {
-      row -= size.heading;
+      row -= roles.heading.height;
       d.layer("C-ANNO-TITL", () => {
-        put([column.left, row], title, size.heading);
+        d.text([column.left, row], title, { role: "heading" });
         d.line([column.left, row - gap], [column.left + column.width, row - gap]);
       });
       row -= gap + leading * 1.2;
@@ -704,22 +713,24 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
     function table(rows: readonly (readonly string[])[], first: number): void {
       const starts = [0, first];
       for (let i = 1; i < Math.max(...rows.map((cells) => cells.length)) - 1; i++) {
-        const widest = Math.max(...rows.map((cells) => widthOf(cells[i] ?? "", size.label)));
+        const widest = Math.max(...rows.map((cells) => widthOf(cells[i] ?? "", "label")));
         starts.push((starts[i] ?? 0) + widest + 1 / 2);
       }
       for (const cells of rows) {
-        cells.forEach((cell, i) => put([column.left + (starts[i] ?? 0), row], cell, size.label));
+        cells.forEach((cell, i) => {
+          d.text([column.left + (starts[i] ?? 0), row], cell, { role: "label" });
+        });
         row -= leading;
       }
     }
 
     /** Breaks a sentence into lines no longer than `width`, by the length each plots at. */
-    function wrap(sentence: string, height: number, width: number): string[] {
+    function wrap(sentence: string, role: Role, width: number): string[] {
       const lines: string[] = [];
       let line = "";
       for (const word of sentence.split(" ")) {
         const longer = line ? `${line} ${word}` : word;
-        if (line && widthOf(longer, height) > width) {
+        if (line && widthOf(longer, role) > width) {
           lines.push(line);
           line = word;
         } else {
@@ -732,7 +743,7 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
     columnHeading("SITE DATA");
     d.layer("C-ANNO-TEXT", () => {
       const coverage = (footprintArea / lotArea) * 100;
-      const nameColumn = widthOf("BUILDING FOOTPRINT", size.label) + 1 / 2;
+      const nameColumn = widthOf("BUILDING FOOTPRINT", "label") + 1 / 2;
       table(
         [
           ["PARCEL", lot.name],
@@ -772,11 +783,11 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
         "WORK IN THE PUBLIC RIGHT-OF-WAY NEEDS ITS OWN PERMIT.",
         "REPLACE ANY SIDEWALK OR PAVEMENT DAMAGED DURING CONSTRUCTION.",
       ];
-      const indent = widthOf("00. ", size.label);
+      const indent = widthOf("00. ", "label");
       notes.forEach((note, i) => {
-        put([column.left, row], `${i + 1}.`, size.label);
-        for (const line of wrap(note, size.label, column.width - indent)) {
-          put([column.left + indent, row], line, size.label);
+        d.text([column.left, row], `${i + 1}.`, { role: "label" });
+        for (const line of wrap(note, "label", column.width - indent)) {
+          d.text([column.left + indent, row], line, { role: "label" });
           row -= leading;
         }
         row -= leading / 3;
@@ -792,13 +803,16 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
     function legendRow(layer: keyof typeof standard.layers, name: string, draw: () => void): void {
       d.layer(layer, draw);
       d.layer("C-ANNO-TEXT", () => {
-        put([column.left + sample + 3 / 8, row], name, size.label);
+        d.text([column.left + sample + 3 / 8, row], name, { role: "label" });
       });
       row -= leading * 1.5;
     }
     const sampleLine = () =>
-      d.line([column.left, row + size.label / 2], [column.left + sample, row + size.label / 2]);
-    const sampleCenter = (): Point => [column.left + sample / 2, row + size.label / 2];
+      d.line(
+        [column.left, row + roles.label.height / 2],
+        [column.left + sample, row + roles.label.height / 2],
+      );
+    const sampleCenter = (): Point => [column.left + sample / 2, row + roles.label.height / 2];
     legendRow("C-PROP", "PROPERTY LINE", sampleLine);
     legendRow("C-PROP-ADJC", "ADJOINING LOT LINE", sampleLine);
     legendRow("C-SETB", "BUILDING SETBACK LINE", sampleLine);
@@ -824,7 +838,7 @@ export function sitePlan(ratio: number = scale.ratio): Sheet {
           ["MAX.", "MAXIMUM"],
           ["SF", "SQUARE FEET"],
         ],
-        widthOf("F.F.E.", size.label) + 1 / 2,
+        widthOf("F.F.E.", "label") + 1 / 2,
       );
     });
   });

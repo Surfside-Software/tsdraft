@@ -45,15 +45,16 @@ at 1" = 10'. It is the file to copy to start a drawing.
 - **Model space** holds the site at its true size, in feet: the lot from its
   plat dimensions, the setbacks, the building footprint, the driveway, the
   street and the trees. The annotation that is read in the plan is there too:
-  bearings and distances, dimensions and labels. Each is sized by how
-  large it plots, with `fromPaper` for the viewport's ratio. The dimensions
-  are dimension objects in a style with that scale, so CAD measures them.
+  bearings and distances, dimensions and labels. Each names the view `plan`,
+  which sizes it by how large it plots at the view's scale. The dimensions
+  are dimension objects in the standard's dimension style at that scale, so
+  CAD measures them.
 - **The layout `C-101`** holds the sheet, in inches of paper: the border, the
   title block, a column of site data, general notes, a legend and
   abbreviations, and under the plan the north arrow, the view's title and a
   graphic scale. A text there has the height it plots at.
 
-One viewport shows the plan on the layout at the ratio. It is on a layer that
+One viewport shows the view on the layout at its scale. It is on a layer that
 does not plot, so its border stays off the page. AutoCAD opens the file on the
 sheet and plots it at 1" = 10' on a page 36 by 24 inches.
 
@@ -93,18 +94,21 @@ radius in the plan and at 3/16 inch in the legend.
 The sheet is drawn to a standard of its own, `standard`, which extends
 `BUILT_IN_STANDARD` with the layer `V-TREE`. Each layer is named, and its color,
 linetype, pen and plot flag are the standard's. The border names the standard's
-heavy pen. The standard's linetype scale is a length of paper, 1/2. Change the
-ratio from 120 to 240 and nothing on the sheet moves:
-the plan is half as large in its viewport, and its text keeps its plotted
-height. The sheet holds the plan at 1" = 10' and at 1" = 20'. At a larger
-scale, such as 1" = 8', the plan is taller than its viewport.
+heavy pen. The standard's linetype scale is a length of paper, 1/2. Each text
+names a role of the standard, which gives its text style and the height it
+plots at; the title block's texts are in a text style of its own, `NOTES`. The
+view `plan` is at a scale of the standard, `1in-10ft`. Draw it at `1in-20ft`
+and nothing on the sheet moves: the plan is half as large in its viewport, and
+its text keeps its plotted height. The sheet holds the plan at 1" = 10' and at
+1" = 20'. At a larger scale the plan is taller than its viewport.
 
 The picture is the layout, as `toSVG(drawing, { layout: "C-101" })` draws the
-sheet, in the page's colors. `sitePlan(ratio)` builds the sheet at a ratio and
-returns the drawing with where its parts lie: `drawingArea`, `titleBlock`, the
-box of each of its `fields` and the `viewport` on the paper, in inches, and
-`view`, the part of model space the viewport shows. A test builds it at 120
-and at 240. It holds model space inside the view, the sheet inside the border,
+sheet, in the page's colors. `sitePlan(scale)` builds the sheet at a scale of
+the standard and returns the drawing with where its parts lie: `drawingArea`,
+`titleBlock`, the box of each of its `fields` and the `viewport` on the paper,
+in inches, and `view`, the part of model space the viewport shows. A test
+builds it at `1in-10ft` and at `1in-20ft`. It holds model space inside the
+view, the sheet inside the border,
 everything but the title block out of the title block's space and off the
 viewport, the texts of each space off one another, and each field inside its
 box.

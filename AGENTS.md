@@ -83,8 +83,8 @@
   lower case, or `@LAYOUT/INDEX` for one without an id: never change one. A dimension is
   refused inside a block, where AutoCAD draws nothing for it.
 - `examples/site-plan.ts` is the sheet an agent copies, so it must read as a model: the site
-  in model space at its true size, with the annotation that is read in the plan sized by
-  `fromPaper`, and everything that belongs to the paper inside `d.layout`, in paper units.
+  in model space at its true size, with the annotation that is read in the plan sized by the
+  view it names, and everything that belongs to the paper inside `d.layout`, in paper units.
   Its border and title block are one block whose fields are attributes. Never draw a sheet
   in model space there.
 - A view is drawn only where it can be seen. The clip of a view, the hidden rectangle and
@@ -175,6 +175,10 @@
   through `src/standard/made.ts` and never imports `define.ts`, which draws the plain title
   block with the builder as it loads. A drawing without a standard is built as it was before
   standards.
+- Under a standard, a role's text style and a dimension style of the standard enter the drawing
+  on first use, under `capitals` of the id, and in model space with the view's scale id after a
+  dimension style's: `DIMS-1in-10ft`. A view's id is taken when `view()` declares it, and the
+  one viewport that shows the view takes that id and no other.
 - `lint` takes any plain data and never throws, since a `Drawing` can be written by hand.
   `src/shape.ts` holds the fields of each object and their types, once, for `fromJSON` and for
   `lint`. `lint` checks an object's shape there before a rule reads it, and skips the rules for

@@ -159,7 +159,10 @@ export type LintRule =
   | "layer-outside-standard"
   | "layer-differs-from-standard"
   | "linetype-outside-standard"
-  | "pen-outside-standard";
+  | "pen-outside-standard"
+  | "role"
+  | "scale-outside-standard"
+  | "dimension-style-outside-standard";
 
 export interface Diagnostic {
   readonly rule: LintRule;

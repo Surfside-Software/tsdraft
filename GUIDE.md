@@ -255,6 +255,16 @@ It is drawn to a standard of its own, which extends `BUILT_IN_STANDARD` with the
 pen and plot flag, and an entity's `pen` names one of the standard's pens. A layer the standard
 lacks is a compile error that says how to add it to `layers` in `defineStandard`.
 
+A text names a `role` of the standard, which gives its text style and the height it plots at.
+The plan is a view at one of the standard's scales, `const plan = d.view("plan", { scale:
+"1in-10ft" })`, and what model space draws to be read in it names the view:
+`d.text(at, "LOT 27", { role: "label", view: plan })`, `d.insert("PROPERTY CORNER", at,
+{ view: plan })` for a symbol drawn in inches, and `d.linearDimension(from, to, line, { view:
+plan })` in the standard's dimension style. The viewport shows the view, as
+`sheet.viewport(corner, width, height, { view: plan, center })`, and `plan.paper(inches)`
+turns a gap on paper into drawing units. On the sheet and in a block, a text with a role is at
+the role's height and names no view. `sitePlan("1in-20ft")` draws the sheet at 1" = 20'.
+
 ## Checking intent
 
 Export `intent` beside the drawing, and each build checks that every footprint keeps out of
