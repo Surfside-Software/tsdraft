@@ -54,8 +54,20 @@ export function arrowheadInfo(name: unknown): ArrowheadInfo | undefined {
     : undefined;
 }
 
-/** The zeros of a measurement that a dimension style may leave out. */
+/** The zeros of a measurement in decimal units that a dimension style may leave out. */
 export const ZERO_SUPPRESSIONS = ["leading", "trailing", "both"] as const;
+
+/**
+ * How a dimension style writes a measurement: in decimal units, or in feet and inches with a
+ * fraction of an inch, such as 4'-1 7/16".
+ */
+export const DIMENSION_UNITS = ["decimal", "architectural"] as const;
+
+/**
+ * The zeros a measurement in feet and inches writes: the zero inches of 4'-0", the zero feet of
+ * 0'-6", both, or neither, which writes 4' and 6".
+ */
+export const FEET_INCH_ZEROS = ["inches", "feet", "both", "neither"] as const;
 
 /** The most decimals AutoCAD writes a measurement with. */
 export const MAX_PRECISION = 8;

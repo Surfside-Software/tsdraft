@@ -151,8 +151,8 @@ d.dimensionStyle({
 d.linearDimension([34, 30], [86, 30], [0, 22], { style: "PLAN" }); // 52.0'
 ```
 
-`alignedDimension` measures along the two points. [Dimensions](docs/dimensions.md) has the
-rest.
+`alignedDimension` measures along the two points, and a style with `units: "architectural"`
+writes feet and inches, as `4'-1 7/16"`. [Dimensions](docs/dimensions.md) has the rest.
 
 A layout is a sheet of paper that AutoCAD shows as a tab and plots as one page. What is drawn
 inside `layout` is on the sheet, in inches of paper, and a viewport shows the model on it at a
@@ -196,7 +196,7 @@ sized this way, and its border, title block and notes are on a layout.
 tsdraft is at an early stage. It draws layers, lines, polylines, rectangles,
 circles, arcs and single-line text, with linetypes and lineweights, text styles
 and justification, blocks with attributes and inserts of them, references to DWG files as
-xrefs, linear and aligned dimensions, layouts with a page setup and viewports, and layers
+xrefs, linear and aligned dimensions in decimal units or feet and inches, layouts with a page setup and viewports, and layers
 that are off, frozen, locked or not plotted. It does not yet have leaders, hatches, or the
 other kinds of dimension. It writes DXF, not DWG. The drawing at the top builds its
 dimensions, leaders and stipple from lines and text, so in CAD they are plain lines and text,

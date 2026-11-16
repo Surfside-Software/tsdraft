@@ -94,6 +94,13 @@
   the block of a picture and what it holds, where WHO is the dimension's id with A to Z in
   lower case, or `@LAYOUT/INDEX` for one without an id: never change one. A dimension is
   refused inside a block, where AutoCAD draws nothing for it.
+- A style in architectural units, `DIMLUNIT` 4, writes feet and inches with the fraction on the
+  line, `DIMFRAC` 2, and `feetInchZeros` is `DIMZIN` 0 to 3. `feetAndInches` in
+  `src/dimensions.ts` is the string, and the dimension holds no text of its own, so AutoCAD
+  measures it again when its points move. A standard's style is named in AutoCAD by
+  `styleNameAt` in `src/standard/rules.ts`, which the builder, `lint` and `defineStandard` share:
+  a `layoutName` or a name in `scaleNames` where the standard gives one, and the id's name
+  otherwise.
 - `examples/site-plan.ts` is the sheet an agent copies, so it must read as a model: the site
   in model space at its true size, with the annotation that is read in the plan sized by the
   view it names, and everything that belongs to the paper inside `d.layout`, in paper units.

@@ -332,10 +332,16 @@ export function lintStandard(
         style.scale ?? 1,
         at && units ? modelLength(1, standard.paperUnits, at[1].ratio, units) : 1,
       ],
+      ["units", style.units ?? "decimal", writing.units],
       ["precision", style.precision, writing.precision],
       ["prefix", style.prefix ?? "", writing.prefix ?? ""],
       ["suffix", style.suffix ?? "", writing.suffix ?? ""],
       ["suppressZeros", style.suppressZeros ?? "none", writing.suppressZeros ?? "none"],
+      [
+        "feetInchZeros",
+        style.feetInchZeros ?? (style.units === "architectural" ? "inches" : "none"),
+        writing.feetInchZeros ?? (writing.units === "architectural" ? "inches" : "none"),
+      ],
       ["measurementScale", style.measurementScale ?? 1, writing.measurementScale],
     ];
     for (const [field, value, own] of expected) {
@@ -1321,14 +1327,35 @@ function indexOf(standard: Standard): Index {
   const scales = Object.entries<StandardScale>(standard.scales);
   const pens = Object.entries(standard.pens).map(([id, pen]) => `${id} ${pen.lineweight}`);
   // A dimension style's name is its id in capitals on a layout, and with a scale's id after it in
-  // model space. Ids are ASCII, so a name's key is its style's key, `-` and its scale's key, and
-  // at most one style and scale give it: defineStandard refuses two names AutoCAD takes for one.
+  // model space, unless the standard gives it another. Ids are ASCII, so a name an id gives has
+  // its style's key, `-` and its scale's key, and at most one style and scale give it:
+  // defineStandard refuses two names AutoCAD takes for one.
+  const styles = Object.entries<StandardDimensionStyle>(standard.dimensionStyles);
   const styleKeys = new Map(
-    Object.entries<StandardDimensionStyle>(standard.dimensionStyles).map(
-      ([id, entry]) => [layerKey(capitals(id)), { id, entry, scale: undefined }] as const,
-    ),
+    styles.map(([id, entry]) => [layerKey(capitals(id)), { id, entry, scale: undefined }] as const),
   );
   const scaleKeys = new Map(scales.map((scale) => [layerKey(scale[0]), scale]));
+  type Found = ReturnType<Index["dimensionStyle"]>;
+  const givenNames = new Map<string, Found>();
+  // Each place a style is given a name, as its id and its scale's key, or its id alone.
+  const renamedAt = new Set<string>();
+  const place = (id: string, scale: string | undefined) =>
+    scale === undefined ? id : `${id}\u0000${layerKey(scale)}`;
+  for (const [id, entry] of styles) {
+    if (entry.layoutName !== undefined) {
+      givenNames.set(layerKey(entry.layoutName), { id, entry, scale: undefined });
+      renamedAt.add(place(id, undefined));
+    }
+    for (const [at, name] of Object.entries(entry.scaleNames ?? {})) {
+      const scale = scaleKeys.get(layerKey(at));
+      if (!scale) continue;
+      givenNames.set(layerKey(name), { id, entry, scale });
+      renamedAt.add(place(id, scale[0]));
+    }
+  }
+  /** True when the standard gives the style another name than its id gives it there. */
+  const renamed = (found: NonNullable<Found>): boolean =>
+    renamedAt.has(place(found.id, found.scale?.[0]));
   const longest = (keys: Iterable<string>) => {
     let most = 0;
     for (const key of keys) most = Math.max(most, key.length);
@@ -1336,9 +1363,13 @@ function indexOf(standard: Standard): Index {
   };
   const longestStyle = longest(styleKeys.keys());
   const longestScale = longest(scaleKeys.keys());
+  // A name the standard gives, or else the first name an id gives at a place it does not rename.
   const dimensionStyle: Index["dimensionStyle"] = (key) => {
+    const given = givenNames.get(key);
+    if (given) return given;
     const own = styleKeys.get(key);
-    if (own || key.length > longestStyle + 1 + longestScale) return own;
+    if (own && !renamed(own)) return own;
+    if (key.length > longestStyle + 1 + longestScale) return undefined;
     for (
       let at = key.indexOf("-", 1);
       at > 0 && at <= longestStyle;
@@ -1346,7 +1377,7 @@ function indexOf(standard: Standard): Index {
     ) {
       const style = styleKeys.get(key.slice(0, at));
       const scale = style && scaleKeys.get(key.slice(at + 1));
-      if (scale) return { ...style, scale };
+      if (scale && !renamed({ ...style, scale })) return { ...style, scale };
     }
     return undefined;
   };

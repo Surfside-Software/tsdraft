@@ -72,11 +72,11 @@ export function view(d: D, ratio: number): View {
     extensionBeyond: 1 / 16,
     textGap: 1 / 32,
     scale: p(1),
-    // A civil view measures in decimal feet. An architectural one gets feet and inches as a
-    // text override, since a dimension writes only decimals.
-    precision: civil ? 1 : 0,
-    measurementScale: civil ? 1 / 12 : 1,
-    suffix: civil ? "'" : '"',
+    // A civil view measures in decimal feet, and an architectural one in feet and inches to the
+    // nearest 1/16".
+    ...(civil
+      ? { precision: 1, measurementScale: 1 / 12, suffix: "'" }
+      : { units: "architectural", precision: 4 }),
   });
   const v: View = { ratio, label: LABELS[ratio] ?? `1:${ratio}`, p, dim };
   views.set(ratio, v);
@@ -491,8 +491,7 @@ export function defineSymbols(d: D): void {
 
 /**
  * A chained string of linear dimensions through `points`, along `axis`, with its line at `at`
- * on the other axis. An architectural view writes feet and inches as each dimension's text, as
- * a dimension writes only decimals.
+ * on the other axis. Each writes what it measures, in its view's style.
  */
 export function dimString(
   d: D,
@@ -508,11 +507,9 @@ export function dimString(
     const a = unique[k - 1]!;
     const b = unique[k]!;
     const line: Point = axis === "x" ? [0, at] : [at, 0];
-    const civil = v.ratio >= 120;
     d.linearDimension(a, b, line, {
       style: v.dim,
       ...(axis === "y" ? { along: "y" as const } : {}),
-      ...(civil ? {} : { text: ftIn(b[i] - a[i]) }),
     });
   }
 }

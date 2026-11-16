@@ -6,7 +6,10 @@ import type {
   BlockName,
   DimensionAffix,
   DimensionPrefix,
+  DimensionStyleNameOf,
   EntityId,
+  FeetInchZerosIn,
+  FeetInchZerosOf,
   FontOf,
   LayerColor,
   LayerName,
@@ -21,6 +24,7 @@ import type {
   Positive,
   Precision,
   Ratio,
+  SuppressZerosIn,
   TextGap,
   WidthFactor,
   XrefPath,
@@ -38,6 +42,7 @@ import type {
   RoleStandard,
   SheetFilesOf,
   SourceOf,
+  StyleNameStandard,
   WritingUnitsOf,
 } from "./rules.ts";
 
@@ -257,6 +262,9 @@ type Scale<E, N extends StandardNames> = {
       : unknown;
 };
 
+/** The units of a writing: `"decimal"` when it names none. */
+type WritingUnits<E> = E extends { readonly units: infer V } ? V : "decimal";
+
 type Writing<E> = {
   readonly [F in keyof E]: F extends "units"
     ? WritingUnitsOf<E[F]>
@@ -267,11 +275,31 @@ type Writing<E> = {
         : F extends "suffix"
           ? Str<E[F], DimensionAffix<E[F] & string>>
           : F extends "suppressZeros"
-            ? Str<E[F], ZeroSuppressionOf<E[F] & string>>
-            : F extends "measurementScale"
-              ? Num<E[F], MeasurementScale<E[F] & number>>
-              : unknown;
+            ? Str<
+                E[F],
+                [WritingUnits<E>] extends ["architectural"]
+                  ? SuppressZerosIn<"architectural">
+                  : ZeroSuppressionOf<E[F] & string>
+              >
+            : F extends "feetInchZeros"
+              ? Str<
+                  E[F],
+                  [WritingUnits<E>] extends ["decimal"]
+                    ? FeetInchZerosIn<"decimal">
+                    : FeetInchZerosOf<E[F] & string>
+                >
+              : F extends "measurementScale"
+                ? Num<E[F], MeasurementScale<E[F] & number>>
+                : unknown;
 };
+
+/** A name a standard gives a dimension style in AutoCAD. */
+type StyleNameOf<V> = Str<
+  V,
+  [StyleNameStandard<V & string>] extends [never]
+    ? DimensionStyleNameOf<V & string>
+    : StyleNameStandard<V & string>
+>;
 
 type StyleFields<E, N extends StandardNames> = {
   readonly [F in keyof E]: F extends "role"
@@ -292,7 +320,17 @@ type StyleFields<E, N extends StandardNames> = {
 type DimensionStyle<E, N extends StandardNames> = {
   readonly [F in keyof E]: F extends "byDiscipline"
     ? ByDiscipline<E[F], N, "dimensionStyles">
-    : StyleFields<E, N>[F];
+    : F extends "layoutName"
+      ? StyleNameOf<E[F]>
+      : F extends "scaleNames"
+        ? {
+            readonly [K in keyof E[F]]: K extends string
+              ? NameIn<K, N["scales"], "scales"> extends K
+                ? StyleNameOf<E[F][K]>
+                : NameIn<K, N["scales"], "scales">
+              : unknown;
+          }
+        : StyleFields<E, N>[F];
 };
 
 type Field<E> = {

@@ -102,12 +102,14 @@ test("blocks nested to draw millions of entities cost what the drawing holds", (
     warnings.map((w) => w.rule),
     ["text-check-capped"],
   );
-  assert.match(warnings[0]!.message, /stopped short at insert #57 of model space/);
+  // The insert comes after the sheet's own entities.
+  const top = `insert #${sheet.entities.length} of model space`;
+  assert.ok(warnings[0]!.message.includes(`stopped short at ${top}`));
   // A picture of them all is refused, with where it stopped.
   for (const draw of [() => toSVG(lines), () => svgWithin(lines, { layout: "C-101" }, 20_000)]) {
     const thrown = settled(2000, draw);
     assert.ok(thrown instanceof RangeError);
-    assert.match(thrown.message, /it stopped at insert #57 of model space/);
+    assert.ok(thrown.message.includes(`it stopped at ${top}`));
   }
 });
 

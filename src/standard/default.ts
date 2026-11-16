@@ -104,6 +104,19 @@ export const BUILT_IN_DOCUMENT = {
         mm: { precision: 0 },
       },
     },
+    "feet-inches": {
+      role: "dimension",
+      arrowhead: "architectural-tick",
+      arrowSize: 0.125,
+      extensionOffset: 0.0625,
+      extensionBeyond: 0.125,
+      textGap: 0.0625,
+      writing: {
+        ft: { units: "architectural", precision: 4, measurementScale: 12 },
+        in: { units: "architectural", precision: 4 },
+      },
+      description: 'Feet and inches to the nearest 1/16", as 4\'-1 7/16"',
+    },
   },
   titleBlocks: {
     plain: {

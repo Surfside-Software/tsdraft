@@ -79,6 +79,8 @@ const near = (got: readonly number[], want: readonly number[]): void => {
 
 test("a measurement is written as AutoCAD writes it: half up, with a little given to a length just under the half", () => {
   const at = (precision: number, more: Partial<DimensionStyle> = {}) => ({ precision, ...more });
+  const feet = (precision: number, more: Partial<DimensionStyle> = {}) =>
+    at(precision, { units: "architectural", ...more });
   // The length times the measurement scale, rounded half up to the precision, with the zeros
   // the style leaves out, between its prefix and its suffix.
   const strings: [length: number, style: ReturnType<typeof at>, text: string][] = [
@@ -123,11 +125,52 @@ test("a measurement is written as AutoCAD writes it: half up, with a little give
     [0.25, at(4, { measurementScale: 0.001 }), "0.0003"],
     [52, at(1, { suffix: "'" }), "52.0'"],
     [52, at(1, { prefix: "L=", suffix: " ft" }), "L=52.0 ft"],
+    // Architectural units: feet, a hyphen, inches and the fraction in lowest terms, rounded to
+    // the least fraction of the precision, half up.
+    [49.4375, feet(4), `4'-1 7/16"`],
+    [49.40625, feet(4), `4'-1 7/16"`],
+    [42, feet(4), `3'-6"`],
+    [47.97, feet(4), `4'-0"`],
+    [11.99, feet(4), `1'-0"`],
+    [6, feet(4), `6"`],
+    [0.5, feet(4), `1/2"`],
+    [48.5, feet(4), `4'-0 1/2"`],
+    [1200.5, feet(4), `100'-0 1/2"`],
+    [49.4375, feet(0), `4'-1"`],
+    [0.25, feet(1), `1/2"`],
+    [4.125, feet(8), `4 1/8"`],
+    // A drawing in feet writes inches with a measurement scale of 12.
+    [4.12, feet(4, { measurementScale: 12 }), `4'-1 7/16"`],
+    [48, feet(4, { feetInchZeros: "feet" }), `4'`],
+    [6, feet(4, { feetInchZeros: "feet" }), `0'-6"`],
+    [0.5, feet(4, { feetInchZeros: "both" }), `0'-0 1/2"`],
+    [48, feet(4, { feetInchZeros: "neither" }), `4'`],
+    [6, feet(4, { feetInchZeros: "neither" }), `6"`],
+    [42, feet(4, { prefix: "(", suffix: ")" }), `(3'-6")`],
   ];
   for (const [length, style, text] of strings) {
     assert.equal(measurementText(length, style), text, `${length} at ${JSON.stringify(style)}`);
   }
+  // The style AutoCAD measures with: architectural units, the fraction on the line, and the
+  // zeros of feet and inches. The dimension holds no text of its own.
+  const architectural = createDrawing({ units: "in" })
+    .dimensionStyle({ name: "ARCH", ...sizes, units: "architectural", precision: 4 })
+    .linearDimension([0, 0], [49.4375, 0], [0, 5], { style: "ARCH" })
+    .build();
+  const dxf = toDXF(architectural);
+  const arch = records(dxf, "DIMSTYLE").find((r) => value(r, 2) === "ARCH")!;
+  assert.deepEqual(
+    [277, 276, 78, 271].map((code) => value(arch, code)?.trim()),
+    ["4", "2", "3", "4"],
+  );
+  assert.equal(value(records(dxf, "DIMENSION")[0]!, 1), undefined);
+  assert.equal(
+    value(records(dxf, "MTEXT")[0]!, 1),
+    `\\A1;4'-1 7/16"`,
+    "the picture writes what AutoCAD draws",
+  );
   // A dimension's own text takes the measurement at its first `<>`, and at no other.
+  assert.equal(measurementText(42, feet(4), "<> CLR"), `3'-6" CLR`);
   assert.equal(measurementText(52, at(1, { suffix: "'" }), "<> TYP"), "52.0' TYP");
   assert.equal(measurementText(52, at(1), "<><>"), "52.0<>");
   assert.equal(measurementText(52, at(1), "VARIES"), "VARIES");
@@ -331,6 +374,21 @@ test("a dimension style is checked as literals and when the code runs", () => {
     () => d.dimensionStyle({ ...style, suppressZeros: "all" }),
     /"leading", "trailing" or "both"/,
   );
+  // @ts-expect-error: the units are a closed list.
+  assert.throws(() => d.dimensionStyle({ ...style, units: "metric" }), /"decimal" or/);
+  assert.throws(
+    // @ts-expect-error: and the zeros of feet and inches.
+    () => d.dimensionStyle({ ...style, units: "architectural", feetInchZeros: "all" }),
+    /"inches", "feet", "both" or "neither"/,
+  );
+  // Each kind of units has its own zeros.
+  assert.throws(
+    // @ts-expect-error: a style in feet and inches leaves out no zeros of a decimal.
+    () => d.dimensionStyle({ ...style, units: "architectural", suppressZeros: "leading" }),
+    /feetInchZeros for one in "architectural" units/,
+  );
+  // @ts-expect-error: and a style in decimal units writes no zeros of feet and inches.
+  assert.throws(() => d.dimensionStyle({ ...style, feetInchZeros: "both" }), /suppressZeros is/);
   assert.throws(
     () => d.dimensionStyle({ ...style, textStyle: "NOPE" }),
     rule("undefined-text-style"),

@@ -13,6 +13,7 @@ import {
   dimensionAngle,
   dimensionMeasure,
   dimensionPicture,
+  FEET_INCH_ZEROS_CODES,
   validDimensionPictureHandles,
   validDimensionStyleHandle,
   type DimensionPicture,
@@ -926,7 +927,8 @@ const ZERO_SUPPRESSION_CODES = { leading: 4, trailing: 8, both: 12 } as const;
 /**
  * The fields of a dimension style. Every dimension of tsdraft's is drawn one way where a
  * style has no choice: the text above the dimension line and along it, always between the
- * extension lines, with a dimension line between them too, and in decimal units.
+ * extension lines, with a dimension line between them too, and in architectural units with
+ * the fraction on the line.
  *
  * @param textStyle - The handle of the style's text style.
  */
@@ -947,14 +949,23 @@ function writeDimensionStyle(g: Group, style: DimensionStyle, textStyle: string)
   g(73, 0); // DIMTIH: the text is along the dimension line
   g(74, 0); // DIMTOH
   g(77, 1); // DIMTAD: the text is above the dimension line
-  g(78, style.suppressZeros === undefined ? 0 : ZERO_SUPPRESSION_CODES[style.suppressZeros]);
+  const architectural = style.units === "architectural";
+  g(
+    78,
+    architectural
+      ? FEET_INCH_ZEROS_CODES[style.feetInchZeros ?? "inches"]
+      : style.suppressZeros === undefined
+        ? 0
+        : ZERO_SUPPRESSION_CODES[style.suppressZeros],
+  ); // DIMZIN
   g(140, style.textHeight); // DIMTXT
   g(144, style.measurementScale ?? 1); // DIMLFAC
   g(147, style.textGap); // DIMGAP
   g(172, 1); // DIMTOFL: a dimension line between the extension lines, whatever fits
   g(174, 1); // DIMTIX: the text between the extension lines, whatever fits
   g(271, style.precision); // DIMDEC
-  g(277, 2); // DIMLUNIT: decimal
+  if (architectural) g(276, 2); // DIMFRAC: the fraction on the line, as 1 7/16
+  g(277, architectural ? 4 : 2); // DIMLUNIT: architectural or decimal
   g(278, 46); // DIMDSEP: a point
   g(340, textStyle); // DIMTXSTY
   if (block !== undefined) g(342, blockHandles(block).record); // DIMBLK

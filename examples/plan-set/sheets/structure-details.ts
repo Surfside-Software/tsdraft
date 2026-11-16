@@ -56,7 +56,7 @@ export function wood(d: D, p: Tx, x0: number, y0: number, x1: number, y1: number
   });
 }
 
-/** A linear dimension in a detail, with its feet-and-inches text. */
+/** A linear dimension in a detail, with words after what it measures. */
 export function dim(
   d: D,
   v: View,
@@ -66,12 +66,11 @@ export function dim(
   along: "x" | "y",
   suffix = "",
 ): void {
-  const len = along === "x" ? Math.abs(b[0] - a[0]) : Math.abs(b[1] - a[1]);
   d.layer(LAYERS.strDims, {}, () => {
     d.linearDimension(a, b, line, {
       style: v.dim,
       ...(along === "y" ? { along: "y" as const } : {}),
-      text: ftIn(len) + suffix,
+      ...(suffix === "" ? {} : { text: `<>${suffix}` }),
     });
   });
 }

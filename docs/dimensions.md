@@ -50,9 +50,11 @@ no other style has, and before the first dimension that names it.
 | `extensionBeyond`  | How far an extension line runs past the dimension line.                                        |
 | `textGap`          | The gap between the dimension line and the text above it.                                      |
 | `scale`            | What every size above is multiplied by. 1 unless given.                                        |
-| `precision`        | The decimals of a measurement, a whole number from 0 to 8.                                     |
+| `units`            | `"decimal"`, the default, or `"architectural"`, which writes feet and inches: `4'-1 7/16"`.    |
+| `precision`        | A whole number from 0 to 8: the decimals, or in feet and inches the least fraction, 1/2^n.     |
 | `prefix`, `suffix` | Written before and after each measurement.                                                     |
-| `suppressZeros`    | `"leading"` writes 0.5 as `.5`, `"trailing"` writes 52.50 as `52.5`, `"both"` does both.       |
+| `suppressZeros`    | Decimal units: `"leading"` writes 0.5 as `.5`, `"trailing"` 52.50 as `52.5`, `"both"` both.    |
+| `feetInchZeros`    | Feet and inches: which zeros are written. `"inches"` unless given: see below.                  |
 | `measurementScale` | What a length is multiplied by before it is written: 12 writes feet as inches. 1 unless given. |
 
 ### Sizes and the scale
@@ -76,7 +78,8 @@ Where a style has no field, every dimension is drawn one way:
 - A closed filled arrowhead is as long as `arrowSize` and a third as wide, with its tip on the
   extension line. An architectural tick is a stroke at 45 degrees through the end of the
   dimension line, and the dimension line runs one arrow size past each extension line.
-- The measurement is in decimal units of the drawing, times `measurementScale`.
+- The measurement is in decimal units of the drawing, or in feet and inches, times
+  `measurementScale`, with the fraction on the line.
 
 ### What a dimension needs room for
 
@@ -91,7 +94,7 @@ max(2 × arrowSize, widths × textHeight × widthFactor + lean) + 2 × textGap
 
 each size times the style's scale. `widths` adds up a width for each character of the text:
 1.1 for a figure, a point, an apostrophe, a quotation mark and a space, 1.104 for `9`, 1.239
-for a hyphen, and 2 for any other character. `widthFactor` is the text style's, and `lean` is
+for a hyphen and a slash, and 2 for any other character. `widthFactor` is the text style's, and `lean` is
 `textHeight × |tan(obliqueAngle)|` for a slanted text style. At 1" = 10' with the sizes in the
 example above and closed filled arrowheads, a dimension of `6.0'` has room and one of `3.8'`
 does not. A dimension with ticks, or with an arrow size of 0, is drawn the same whether its
@@ -135,6 +138,28 @@ one and a half units in the 16th significant digit. So 52.15 is written `52.2` a
 of 1, 1234567.15 is written `1234567.2`, and 5000000.05 is written `5000000.1`. A value that
 lies a few units in its last digit from that edge may be rounded the other way by AutoCAD: its
 own arithmetic moves the value it holds by about that much.
+
+### Feet and inches
+
+A style with `units: "architectural"` takes a length times its `measurementScale` as inches,
+rounds it half up to the least fraction its `precision` gives, 1 over 2 to that power, and
+writes feet, a hyphen, inches, and the fraction in lowest terms after a space, with the inch
+mark: 49.4375 is `4'-1 7/16"` at a precision of 4, and `4'-1"` at 0. A drawing in inches leaves
+`measurementScale` at 1, and a drawing in feet gives it 12.
+
+`feetInchZeros` says which zeros are written:
+
+| `feetInchZeros`      | 48      | 6       | 0.5         |
+| -------------------- | ------- | ------- | ----------- |
+| `"inches"` (default) | `4'-0"` | `6"`    | `1/2"`      |
+| `"feet"`             | `4'`    | `0'-6"` | `0'-0 1/2"` |
+| `"both"`             | `4'-0"` | `0'-6"` | `0'-0 1/2"` |
+| `"neither"`          | `4'`    | `6"`    | `1/2"`      |
+
+A fraction keeps the zero inches before it when the feet are written: 48.5 is `4'-0 1/2"`.
+The dimension holds no text of its own, so AutoCAD measures it in feet and inches when its
+points move, and the prefix, the suffix and a dimension's `text` with `<>` work as they do for
+a decimal measurement: `"<> CLR."` reads `3'-6" CLR.`.
 
 The file holds the string in the dimension's picture, and AutoCAD writes it again when the
 dimension's points move. The preview and the command give the string the picture holds.
@@ -182,6 +207,8 @@ Each of these is an error, at the builder's call and in `lint`. The rule is `dim
 - The measurement scale is greater than 0. AutoCAD's `AUDIT` reports 0, and AutoCAD applies a
   negative one only on a layout.
 - The precision is a whole number from 0 to 8. AutoCAD's `AUDIT` reports any other.
+- `units` is `"decimal"` or `"architectural"`. `suppressZeros` is for a style in decimal units
+  and `feetInchZeros` for one in architectural units, and a style has only its own.
 - An arrowhead is one of `ARROWHEADS`.
 - A prefix, a suffix and a dimension's text have none of `\`, `{` and `}`, which AutoCAD reads
   as the formatting of the text, and are single lines as any text is. A prefix has no `<>`.

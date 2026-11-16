@@ -103,7 +103,11 @@ const kinds: { readonly [K in Entity["kind"]]: Required<Extract<Entity, { kind: 
 const full: Required<Drawing> & {
   readonly linetypes: readonly [Required<Linetype>];
   readonly textStyles: readonly [Required<TextStyle>];
-  readonly dimensionStyles: readonly [Required<DimensionStyle>];
+  // A style in decimal units leaves zeros out, and one in architectural units writes them.
+  readonly dimensionStyles: readonly [
+    Required<Omit<DimensionStyle, "feetInchZeros">>,
+    Required<Omit<DimensionStyle, "suppressZeros">>,
+  ];
   readonly layers: readonly [Layer, Required<Layer>];
   readonly blocks: readonly [
     Block,
@@ -135,8 +139,26 @@ const full: Required<Drawing> & {
       precision: 2,
       prefix: "L ",
       suffix: "'",
+      units: "decimal",
       suppressZeros: "trailing",
       measurementScale: 2,
+    },
+    {
+      name: "ARCH",
+      textStyle: "NOTES",
+      textHeight: 0.1,
+      arrowhead: "architectural-tick",
+      arrowSize: 0.1,
+      extensionOffset: 0.05,
+      extensionBeyond: 0.1,
+      textGap: 0.05,
+      scale: 10,
+      precision: 4,
+      prefix: "",
+      suffix: "",
+      units: "architectural",
+      feetInchZeros: "both",
+      measurementScale: 12,
     },
   ],
   layers: [

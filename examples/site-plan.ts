@@ -321,8 +321,8 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
 
   // The dimensions are AutoCAD's own: each measures the two points it is given, and writes
   // what it measures. They are in the standard's dimension style, which the view sizes for its
-  // scale. One string across the lot, behind the building, and one up it, outside the east line.
-  // Each runs through the building's corners, and ends on a lot line.
+  // scale. One string across the lot, behind the building, and one up it, outside the east line,
+  // in decimal feet. Each runs through the building's corners, and ends on a lot line.
   const across = bounds.rear + plan.paper(3 / 8);
   const up = lot.width + plan.paper(5 / 8);
   d.layer("C-ANNO-DIMS", () => {
@@ -344,6 +344,14 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     for (let i = 1; i < upLot.length; i++) {
       d.linearDimension(upLot[i - 1]!, upLot[i]!, [up, 0], { view: plan, along: "y" });
     }
+    // The building in feet and inches, as an architect dimensions it, in the standard's style
+    // for that: its west wall, outside it.
+    d.linearDimension(
+      [houseX, houseY],
+      [houseX, houseY + house.depth],
+      [houseX - plan.paper(3 / 8), 0],
+      { view: plan, along: "y", style: "feet-inches" },
+    );
   });
 
   d.layer("C-ANNO-TEXT", () => {

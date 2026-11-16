@@ -9,6 +9,8 @@ import {
   arrowheadInfo,
   DEFAULT_ARROWHEAD,
   type Arrowhead,
+  type DIMENSION_UNITS,
+  type FEET_INCH_ZEROS,
   type ZERO_SUPPRESSIONS,
 } from "./arrowheads.ts";
 import { holdCall, readCall, recordCalls, type CallSite, type HeldCall } from "./callsite.ts";
@@ -99,6 +101,8 @@ import {
   type DimensionAffix,
   type DimensionPrefix,
   type DimensionScale,
+  type FeetInchZerosIn,
+  type SuppressZerosIn,
   type DimensionStyleName,
   type DimensionText,
   type Description,
@@ -209,7 +213,7 @@ import {
   type ZoneWithoutStandard,
 } from "./standard/drawn.ts";
 import { adopted } from "./standard/made.ts";
-import { capitals, FILL_KEYS, READS_A_NAME } from "./standard/rules.ts";
+import { capitals, FILL_KEYS, READS_A_NAME, styleNameAt } from "./standard/rules.ts";
 
 /** A model-space point, in drawing units. Y points up, as in CAD. */
 export type Point = readonly [x: number, y: number];
@@ -468,17 +472,34 @@ export interface DimensionStyle {
    * unit of the sizes is. Defaults to 1.
    */
   readonly scale?: number;
-  /** The decimals a measurement is written with, from 0 to 8. */
+  /**
+   * How a measurement is written: `"decimal"`, the default, or `"architectural"`, in feet and
+   * inches with a fraction of an inch, such as `4'-1 7/16"`, taking a length times the
+   * measurement scale as inches.
+   */
+  readonly units?: (typeof DIMENSION_UNITS)[number];
+  /**
+   * From 0 to 8: in decimal units the decimals a measurement is written with, and in
+   * architectural units the least fraction of an inch, 1 over 2 to this power, so 0 writes
+   * whole inches and 4 sixteenths.
+   */
   readonly precision: number;
   /** Written before each measurement. */
   readonly prefix?: string;
   /** Written after each measurement. */
   readonly suffix?: string;
   /**
-   * The zeros a measurement leaves out: `"leading"` writes 0.5 as `.5`, `"trailing"` writes
-   * 52.50 as `52.5` and 52.00 as `52`, and `"both"` does both. Defaults to none.
+   * The zeros a measurement in decimal units leaves out: `"leading"` writes 0.5 as `.5`,
+   * `"trailing"` writes 52.50 as `52.5` and 52.00 as `52`, and `"both"` does both. Defaults to
+   * none.
    */
   readonly suppressZeros?: (typeof ZERO_SUPPRESSIONS)[number];
+  /**
+   * The zeros a measurement in architectural units writes: `"inches"`, the default, writes
+   * `4'-0"` and `6"`, `"feet"` writes `4'` and `0'-6"`, `"both"` writes `4'-0"` and `0'-6"`, and
+   * `"neither"` writes `4'` and `6"`.
+   */
+  readonly feetInchZeros?: (typeof FEET_INCH_ZEROS)[number];
   /** What a length is multiplied by before it is written. Defaults to 1. */
   readonly measurementScale?: number;
 }
@@ -1037,6 +1058,7 @@ export interface DimensionStyleDefinition<
   PRE extends string = string,
   SUF extends string = string,
   MS extends number = number,
+  U extends (typeof DIMENSION_UNITS)[number] = "decimal",
 > {
   readonly name: NewDimensionStyleName<N>;
   /** A text style of the drawing. Defaults to `"Standard"`. */
@@ -1055,14 +1077,28 @@ export interface DimensionStyleDefinition<
   readonly textGap: TextGap<G>;
   /** What every size is multiplied by, greater than 0. Defaults to 1. */
   readonly scale?: DimensionScale<SC>;
-  /** The decimals a measurement is written with, from 0 to 8. */
+  /**
+   * `"decimal"`, the default, or `"architectural"`, which writes feet and inches with a
+   * fraction, such as `4'-1 7/16"`, taking a length times the measurement scale as inches.
+   */
+  readonly units?: U;
+  /**
+   * From 0 to 8: the decimals of a measurement in decimal units, and in architectural units
+   * the least fraction of an inch, 1 over 2 to this power: 0 for whole inches, 4 for 1/16".
+   */
   readonly precision: Precision<P>;
   /** Written before each measurement. */
   readonly prefix?: DimensionPrefix<PRE>;
   /** Written after each measurement, such as `"'"` for feet. */
   readonly suffix?: DimensionAffix<SUF>;
-  /** The zeros a measurement leaves out. Defaults to none. */
-  readonly suppressZeros?: (typeof ZERO_SUPPRESSIONS)[number];
+  /** The zeros a measurement in decimal units leaves out. Defaults to none. */
+  readonly suppressZeros?: SuppressZerosIn<U>;
+  /**
+   * The zeros a measurement in architectural units writes: `"inches"`, the default, writes
+   * `4'-0"` and `6"`, `"feet"` writes `4'` and `0'-6"`, `"both"` writes `4'-0"` and `0'-6"`,
+   * and `"neither"` writes `4'` and `6"`.
+   */
+  readonly feetInchZeros?: FeetInchZerosIn<U>;
   /** What a length is multiplied by before it is written, greater than 0. Defaults to 1. */
   readonly measurementScale?: MeasurementScale<MS>;
 }
@@ -1110,7 +1146,8 @@ export type AlignedDimensionOptions<
  * id, and in model space the view it is read in. The builder defines the style's AutoCAD style on
  * first use, with the standard's paper sizes, its role's text style and height, and the writing of
  * the units it is drawn in: `DIMS-1in-10ft` for the style `dims` in a view at `1in-10ft`, scaled
- * by `view.paper(1)`, and `DIMS` on a layout.
+ * by `view.paper(1)`, and `DIMS` on a layout, unless the standard gives the style another name
+ * there in `scaleNames` or `layoutName`.
  */
 export interface StandardAlignedDimensionOptions<
   S extends string = string,
@@ -2259,12 +2296,13 @@ export class DrawingBuilder<
     PRE extends string = string,
     SUF extends string = string,
     MS extends number = number,
+    U extends (typeof DIMENSION_UNITS)[number] = "decimal",
   >(
     style: Z extends Standard
       ? DimensionStyleDefined
       : V extends "R12"
         ? R12Dimensions
-        : DimensionStyleDefinition<N, S, H, A, AS, EO, EB, G, SC, P, PRE, SUF, MS>,
+        : DimensionStyleDefinition<N, S, H, A, AS, EO, EB, G, SC, P, PRE, SUF, MS, U>,
   ): this {
     const definition = style as unknown as DimensionStyle;
     try {
@@ -2329,7 +2367,8 @@ export class DrawingBuilder<
       throw thrown;
     }
     if (block !== undefined) this.#arrowheadBlocks.add(block);
-    const { prefix, suffix, suppressZeros } = definition;
+    const { prefix, suffix, suppressZeros, feetInchZeros } = definition;
+    const units = definition.units ?? "decimal";
     const scale = definition.scale ?? 1;
     const measurementScale = definition.measurementScale ?? 1;
     this.#dimensionStyles.set(layerKey(named), {
@@ -2342,10 +2381,12 @@ export class DrawingBuilder<
       extensionBeyond: definition.extensionBeyond,
       textGap: definition.textGap,
       ...(scale === 1 ? {} : { scale }),
+      ...(units === "decimal" ? {} : { units }),
       precision: definition.precision,
       ...(prefix === undefined || prefix === "" ? {} : { prefix }),
       ...(suffix === undefined || suffix === "" ? {} : { suffix }),
       ...(suppressZeros === undefined ? {} : { suppressZeros }),
+      ...(feetInchZeros === undefined ? {} : { feetInchZeros }),
       ...(measurementScale === 1 ? {} : { measurementScale }),
     });
     this.#dimensionStylesAudited.set(layerAuditKey(named), named);
@@ -2476,10 +2517,10 @@ export class DrawingBuilder<
   }
 
   /**
-   * The AutoCAD style of a dimension style of the standard, where the dimension is drawn: its id
-   * in capitals on a layout, with a scale of 1 and the writing of the paper's units, and with the
-   * view's scale id after it in model space, with a scale of `view.paper(1)` and the writing of
-   * the drawing's units. It is defined on first use, with its role's text style.
+   * The AutoCAD style of a dimension style of the standard, where the dimension is drawn: on a
+   * layout with a scale of 1 and the writing of the paper's units, and in model space with a scale
+   * of `view.paper(1)` and the writing of the drawing's units, under the name `styleNameAt`
+   * gives. It is defined on first use, with its role's text style.
    */
   #standardDimensionStyle(named: unknown, view: unknown): DimensionStyle {
     const drawn = this.#standard!;
@@ -2499,16 +2540,17 @@ export class DrawingBuilder<
     const [styleId, entry] = found;
     const fields = this.#inDiscipline("Dimension style", styleId, entry);
     const sheet = this.#sheet;
-    let name = capitals(styleId);
+    let name: string;
     let scale = 1;
     let units: string = this.units;
     if (sheet) {
       if (view !== undefined) refuse("dimension-style", DRAWN.dimensionViewOnPaper);
       units = sheet.info.units;
+      name = styleNameAt(styleId, entry, undefined);
     } else {
       if (view === undefined) refuse("dimension-style", DRAWN.dimensionWithoutView);
       const shown = this.#declared(view, "dimension-style").view;
-      name = `${name}-${shown.scale}`;
+      name = styleNameAt(styleId, entry, shown.scale);
       scale = onPaper(shown, 1, "scale");
     }
     const writing = fields.writing[units as Units];
@@ -2517,7 +2559,7 @@ export class DrawingBuilder<
     const existing = this.#dimensionStyles.get(layerKey(name));
     if (existing !== undefined) return existing;
     const role = drawn.textRoles.get(idKey(fields.role))!;
-    const { precision, prefix, suffix, suppressZeros, measurementScale } = writing!;
+    const { units: writes, precision, prefix, suffix, suppressZeros, feetInchZeros } = writing!;
     this.#defineDimensionStyle({
       name,
       textStyle: this.#roleStyle(role),
@@ -2528,11 +2570,13 @@ export class DrawingBuilder<
       extensionBeyond: fields.extensionBeyond,
       textGap: fields.textGap,
       scale,
+      ...(writes === "decimal" ? {} : { units: writes }),
       precision,
       ...(prefix === undefined ? {} : { prefix }),
       ...(suffix === undefined ? {} : { suffix }),
       ...(suppressZeros === undefined ? {} : { suppressZeros }),
-      measurementScale,
+      ...(feetInchZeros === undefined ? {} : { feetInchZeros }),
+      measurementScale: writing!.measurementScale,
     });
     return this.#dimensionStyles.get(layerKey(name))!;
   }

@@ -9,6 +9,8 @@ import { paperInfo, PLOT_STYLE_TABLES, type Paper, type PlotStyleTable } from ".
 import {
   arrowheadInfo,
   ARROWHEADS,
+  DIMENSION_UNITS,
+  FEET_INCH_ZEROS,
   MAX_PRECISION,
   STANDARD_DIMENSION_STYLE,
   ZERO_SUPPRESSIONS,
@@ -129,8 +131,12 @@ const DIMENSION_SCALE =
 const MEASUREMENT_SCALE =
   "The measurement scale must be greater than 0. AutoCAD's AUDIT reports a scale of 0, and AutoCAD applies a negative one only to a dimension on a layout";
 const PRECISION =
-  "A precision is a whole number of decimals from 0 to 8. AutoCAD's AUDIT reports a dimension style with any other";
+  "A precision is a whole number from 0 to 8: the decimals of a measurement, or in architectural units the least fraction of an inch, 1 over 2 to that power. AutoCAD's AUDIT reports a dimension style with any other";
 const ZERO_SUPPRESSION = 'suppressZeros must be "leading", "trailing" or "both"';
+const DIMENSION_UNITS_MESSAGE = 'units must be "decimal" or "architectural"';
+const FEET_INCH_ZEROS_MESSAGE = 'feetInchZeros must be "inches", "feet", "both" or "neither"';
+const ZEROS_OF_UNITS =
+  'suppressZeros is for a style in decimal units, and feetInchZeros for one in "architectural" units, which writes feet and inches';
 const DIMENSION_FORMATTING =
   "The prefix, the suffix and the text of a dimension cannot contain \\ { or }. AutoCAD reads them as the formatting of the text";
 const PREFIX_MEASUREMENT =
@@ -503,6 +509,41 @@ export type ZeroSuppressionOf<Z extends string> = string extends Z
   : Z extends (typeof ZERO_SUPPRESSIONS)[number]
     ? Z
     : typeof ZERO_SUPPRESSION;
+
+/** Resolves to `U` when it is a dimension style's `units`, and to the error message otherwise. */
+export type DimensionUnitsOf<U extends string> = string extends U
+  ? U
+  : U extends (typeof DIMENSION_UNITS)[number]
+    ? U
+    : typeof DIMENSION_UNITS_MESSAGE;
+
+/** Resolves to `Z` when it is a `feetInchZeros`, and to the error message otherwise. */
+export type FeetInchZerosOf<Z extends string> = string extends Z
+  ? Z
+  : Z extends (typeof FEET_INCH_ZEROS)[number]
+    ? Z
+    : typeof FEET_INCH_ZEROS_MESSAGE;
+
+/**
+ * The zeros a style in the units `U` may leave out in decimal units: none in architectural
+ * units, which resolves to the error message.
+ */
+export type SuppressZerosIn<U> = [U] extends ["architectural"]
+  ? typeof ZEROS_OF_UNITS
+  : (typeof ZERO_SUPPRESSIONS)[number];
+
+/**
+ * The zeros a style in the units `U` may write in feet and inches: none in decimal units, which
+ * resolves to the error message.
+ */
+export type FeetInchZerosIn<U> = [U] extends ["decimal"]
+  ? typeof ZEROS_OF_UNITS
+  : (typeof FEET_INCH_ZEROS)[number];
+
+/** Resolves to `N` when AutoCAD takes it as the name of a dimension style, and to the error message otherwise. */
+export type DimensionStyleNameOf<N extends string> = string extends N
+  ? N
+  : NameCheck<N, typeof DIMENSION_STYLE_NAMES, N>;
 
 /**
  * Resolves to `S` when it is a suffix a dimension style can have, and to the error message
@@ -1711,6 +1752,33 @@ export function zeroSuppressionProblem(value: unknown): string | undefined {
   return (ZERO_SUPPRESSIONS as readonly unknown[]).includes(value) ? undefined : ZERO_SUPPRESSION;
 }
 
+/** Returns what is wrong with a dimension style's `units`, or undefined. */
+export function dimensionUnitsProblem(value: unknown): string | undefined {
+  return (DIMENSION_UNITS as readonly unknown[]).includes(value)
+    ? undefined
+    : DIMENSION_UNITS_MESSAGE;
+}
+
+/** Returns what is wrong with a `feetInchZeros`, or undefined. */
+export function feetInchZerosProblem(value: unknown): string | undefined {
+  return (FEET_INCH_ZEROS as readonly unknown[]).includes(value)
+    ? undefined
+    : FEET_INCH_ZEROS_MESSAGE;
+}
+
+/**
+ * Returns what is wrong with the zeros a style leaves out, for its units, or undefined:
+ * `suppressZeros` is for decimal units and `feetInchZeros` for architectural ones.
+ */
+export function zerosOfUnitsProblem(
+  units: unknown,
+  suppressZeros: unknown,
+  feetInchZeros: unknown,
+): string | undefined {
+  const architectural = units === "architectural";
+  return (architectural ? suppressZeros : feetInchZeros) === undefined ? undefined : ZEROS_OF_UNITS;
+}
+
 /**
  * Returns what is wrong with a prefix, a suffix or a dimension's own text as a string AutoCAD
  * draws as it is, or undefined: it is a text, with none of the characters AutoCAD reads as
@@ -1796,10 +1864,20 @@ export function dimensionStyleProblem(style: unknown): string | undefined {
     if (problem) return `${field}: ${problem}`;
   }
   if (typeof s.prefix === "string" && s.prefix.includes("<>")) return PREFIX_MEASUREMENT;
+  if (s.units !== undefined) {
+    const problem = dimensionUnitsProblem(s.units);
+    if (problem) return problem;
+  }
   if (s.suppressZeros !== undefined) {
     const problem = zeroSuppressionProblem(s.suppressZeros);
     if (problem) return problem;
   }
+  if (s.feetInchZeros !== undefined) {
+    const problem = feetInchZerosProblem(s.feetInchZeros);
+    if (problem) return problem;
+  }
+  const zeros = zerosOfUnitsProblem(s.units, s.suppressZeros, s.feetInchZeros);
+  if (zeros) return zeros;
   if (s.measurementScale !== undefined) {
     const problem = measurementScaleProblem(s.measurementScale);
     if (problem) return `measurementScale: ${problem}`;

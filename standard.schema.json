@@ -290,6 +290,22 @@
           "pattern": "^[\\u0020-\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]*$",
           "description": "For people and the specimen. No rule reads it"
         },
+        "layoutName": {
+          "type": "string",
+          "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:[Ss][Tt][Aa][Nn][Dd][Aa][Rr][Dd])$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$",
+          "description": "The style's name in AutoCAD on a layout, such as the name a firm's drawings already give their style. Defaults to its id in capitals"
+        },
+        "scaleNames": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9._-]{1,64}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:[Ss][Tt][Aa][Nn][Dd][Aa][Rr][Dd])$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$"
+          },
+          "description": "The style's name in AutoCAD in model space at a scale, by the scale's id, such as the name a firm's drawings already give the style at that scale. A scale it does not list takes the id in capitals, a hyphen and the scale's id"
+        },
         "discipline": {
           "type": "string",
           "description": "The discipline the entry belongs to, a discipline of the standard. An entry without one belongs to every discipline"
@@ -867,15 +883,15 @@
         },
         "units": {
           "type": "string",
-          "enum": ["decimal"],
-          "description": "How a length is written: decimal, the one way tsdraft writes one",
+          "enum": ["decimal", "architectural"],
+          "description": "How a length is written: decimal, or architectural, which takes a length times measurementScale as inches and writes feet and inches with a fraction of an inch, as 4'-1 7/16\"",
           "default": "decimal"
         },
         "precision": {
           "type": "integer",
           "minimum": 0,
           "maximum": 8,
-          "description": "The decimals a measurement is written with, from 0 to 8"
+          "description": "From 0 to 8: the decimals of a measurement, or in architectural units the least fraction of an inch, 1 over 2 to this power, so 4 writes sixteenths"
         },
         "prefix": {
           "type": "string",
@@ -890,7 +906,12 @@
         "suppressZeros": {
           "type": "string",
           "enum": ["leading", "trailing", "both"],
-          "description": "The zeros of a measurement that are left out"
+          "description": "The zeros of a measurement in decimal units that are left out"
+        },
+        "feetInchZeros": {
+          "type": "string",
+          "enum": ["inches", "feet", "both", "neither"],
+          "description": "The zeros a measurement in architectural units writes: inches, which writes 4'-0\" and 6\", and is what a writing that names none writes; feet, which writes 4' and 0'-6\"; both; or neither"
         },
         "measurementScale": {
           "type": "number",

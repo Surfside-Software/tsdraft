@@ -9,6 +9,7 @@ import {
   DrawingBuilder,
   DrawingError,
   idHandle,
+  lint,
   toDXF,
   toJSON,
   type Drawing,
@@ -470,6 +471,215 @@ test("a role and a view size a text, a symbol and a dimension where each is draw
       e.kind === "linear-dimension" ? [e.style] : [],
     ),
     ["DIMS-1in-10ft", "DIMS-1in-10ft", "DIMS"],
+  );
+});
+
+test("a dimension style takes the names a firm's drawings give it, and writes feet and inches", () => {
+  const firm = defineStandard({
+    id: "firm",
+    version: "1",
+    extends: BUILT_IN_STANDARD,
+    dimensionStyles: {
+      plans: {
+        role: "dimension",
+        arrowhead: "architectural-tick",
+        arrowSize: 0.0625,
+        extensionOffset: 0.0625,
+        extensionBeyond: 0.0625,
+        textGap: 0.03125,
+        layoutName: "Firm Dims",
+        scaleNames: { "1-4in-1ft": "Firm Dims 48" },
+        writing: { in: { units: "architectural", precision: 4, feetInchZeros: "both" } },
+      },
+    },
+  });
+  const d = createDrawing({ units: "in", standard: firm });
+  const quarter = d.view("quarter", { scale: "1-4in-1ft" });
+  const eighth = d.view("eighth", { scale: "1-8in-1ft" });
+  d.linearDimension([0, 0], [49.4375, 0], [0, 12], { view: quarter, style: "plans" });
+  d.linearDimension([0, 0], [6, 0], [0, 12], { view: eighth, style: "plans" });
+  d.layout("A-1", () => d.linearDimension([1, 1], [3, 1], [1, 2], { style: "plans" }));
+  const drawing = d.build();
+  assert.deepEqual(
+    drawing.dimensionStyles!.map((s) => [s.name, s.scale ?? 1, s.units, s.feetInchZeros]),
+    [
+      ["Firm Dims 48", 48, "architectural", "both"],
+      ["PLANS-1-8in-1ft", 96, "architectural", "both"],
+      ["Firm Dims", 1, "architectural", "both"],
+    ],
+  );
+  assert.deepEqual(
+    lint(drawing, { standard: firm }).filter((d) => d.rule.startsWith("dimension")),
+    [],
+  );
+  // A style renamed on layouts frees its id's name there, which another style's name at a
+  // scale may be: lint finds the second.
+  const sizes = {
+    role: "dimension",
+    arrowhead: "architectural-tick",
+    arrowSize: 0.0625,
+    extensionOffset: 0.0625,
+    extensionBeyond: 0.0625,
+    textGap: 0.03125,
+    writing: { in: { units: "architectural", precision: 4 } },
+  } as const;
+  const freed = defineStandard({
+    id: "freed",
+    version: "1",
+    extends: BUILT_IN_STANDARD,
+    scales: { b: { label: "B", ratio: 24 } },
+    dimensionStyles: { a: sizes, "a-b": { ...sizes, layoutName: "Renamed" } },
+  });
+  const f = createDrawing({ units: "in", standard: freed });
+  f.linearDimension([0, 0], [12, 0], [0, 6], { view: f.view("b", { scale: "b" }), style: "a" });
+  const freedDrawing = f.build();
+  assert.deepEqual(
+    freedDrawing.dimensionStyles!.map((s) => s.name),
+    ["A-b"],
+  );
+  assert.deepEqual(
+    lint(freedDrawing, { standard: freed }).filter((d) => d.rule.startsWith("dimension")),
+    [],
+  );
+  // The name the id gives is no name of the standard where the standard gives another.
+  const renamed: Drawing = {
+    ...drawing,
+    dimensionStyles: drawing.dimensionStyles!.map((s) =>
+      s.name === "Firm Dims" ? { ...s, name: "PLANS" } : s,
+    ),
+    layouts: drawing.layouts!.map((l) => ({
+      ...l,
+      entities: l.entities.map((e) =>
+        e.kind === "linear-dimension" ? { ...e, style: "PLANS" } : e,
+      ),
+    })),
+  };
+  assert.deepEqual(
+    lint(renamed, { standard: firm })
+      .filter((d) => d.rule.startsWith("dimension"))
+      .map((d) => [d.rule, d.dimensionStyle]),
+    [["dimension-style-outside-standard", "PLANS"]],
+  );
+  assert.match(toDXF(drawing), /\\A1;4'-1 7\/16"\r\n/);
+  assert.match(toDXF(drawing), /\\A1;0'-6"\r\n/);
+  // The built-in style for feet and inches, in a drawing in feet.
+  const site = createDrawing({ units: "ft", standard: BUILT_IN_STANDARD });
+  const plan = site.view("plan", { scale: "1in-10ft" });
+  site.linearDimension([0, 0], [4.12, 0], [0, 5], { view: plan, style: "feet-inches" });
+  assert.match(toDXF(site.build()), /\\A1;4'-1 7\/16"\r\n/);
+});
+
+test("a standard refuses a name AutoCAD would take for another of its dimension styles", () => {
+  const style = {
+    role: "dimension",
+    arrowSize: 0.1,
+    extensionOffset: 0.1,
+    extensionBeyond: 0.1,
+    textGap: 0.1,
+    writing: { in: { precision: 0 } },
+  };
+  const problems = (dimensionStyles: object, more: object = {}): string[] => {
+    try {
+      defineStandard({
+        id: "x",
+        version: "1",
+        extends: BUILT_IN_STANDARD,
+        dimensionStyles,
+        ...more,
+      } as never);
+      return [];
+    } catch (thrown) {
+      assert.ok(thrown instanceof DrawingError);
+      return thrown.diagnostics.map((d) => `${d.item}: ${d.message}`);
+    }
+  };
+  assert.match(
+    problems({ a: { ...style, layoutName: "SAME" }, b: { ...style, layoutName: "same" } })[0]!,
+    /^dimensionStyles\["b"\]\.layoutName: The dimension style "b" and the dimension style "a" have names that AutoCAD takes for one dimension style, "same"/,
+  );
+  // A name given at a scale meets the name an id gives elsewhere.
+  assert.match(
+    problems({ a: { ...style, scaleNames: { "1-4in-1ft": "DIMS-1in-10ft" } } })[0]!,
+    /"a" at the scale "1-4in-1ft" and the dimension style "dims" at the scale "1in-10ft" have names/,
+  );
+  // A style renamed at a place frees the name its id gives there.
+  assert.deepEqual(
+    problems(
+      { dims: null, a: { ...style, layoutName: "DIMS" }, b: { ...style, layoutName: "A" } },
+      { defaultDimensionStyle: "a" },
+    ),
+    [],
+  );
+  // A place renamed takes no part in the names the ids give, and the others still meet.
+  const scales = { scales: { "b-c": { label: "B-C", ratio: 2 }, c: { label: "C", ratio: 3 } } };
+  assert.match(
+    problems(
+      { a: { ...style, scaleNames: { "b-c": "Renamed" } }, "a-b": style, "a-b-c": style },
+      scales,
+    ).join("\n"),
+    /The dimension style "a-b-c" and the dimension style "a-b" at the scale "c" have names/,
+  );
+  assert.match(
+    problems({ a: { ...style, scaleNames: { "1-5in-1ft": "X" } } })[0]!,
+    /scaleNames\["1-5in-1ft"\]: .*scale/,
+  );
+  assert.match(
+    problems({ a: { ...style, layoutName: "standard" } })[0]!,
+    /cannot be named "Standard"/,
+  );
+  // A style in feet and inches leaves out no zeros of a decimal, and one in decimal units
+  // writes none of feet and inches.
+  const zeros = style;
+  assert.throws(
+    () =>
+      defineStandard({
+        id: "x",
+        version: "1",
+        extends: BUILT_IN_STANDARD,
+        dimensionStyles: {
+          a: {
+            ...zeros,
+            // @ts-expect-error: no zeros of a decimal in feet and inches.
+            writing: { in: { units: "architectural", precision: 4, suppressZeros: "both" } },
+          },
+        },
+      }),
+    /feetInchZeros for one in "architectural" units/,
+  );
+  assert.throws(
+    () =>
+      defineStandard({
+        id: "x",
+        version: "1",
+        extends: BUILT_IN_STANDARD,
+        dimensionStyles: {
+          // @ts-expect-error: no zeros of feet and inches in decimal units.
+          a: { ...zeros, writing: { in: { precision: 4, feetInchZeros: "both" } } },
+        },
+      }),
+    /suppressZeros is for a style in decimal units/,
+  );
+  assert.match(
+    problems({
+      a: {
+        ...style,
+        writing: { in: { units: "architectural", precision: 4, suppressZeros: "both" } },
+      },
+    })[0]!,
+    /feetInchZeros for one in "architectural" units/,
+  );
+  assert.throws(
+    () =>
+      defineStandard({
+        id: "x",
+        version: "1",
+        extends: BUILT_IN_STANDARD,
+        dimensionStyles: {
+          // @ts-expect-error: AutoCAD's own style is no name a standard gives.
+          a: { ...style, layoutName: "Standard" },
+        },
+      }),
+    /cannot be named "Standard"/,
   );
 });
 

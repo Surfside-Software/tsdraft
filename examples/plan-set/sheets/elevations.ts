@@ -529,7 +529,7 @@ function elevation(d: D, v: View, key: FaceKey): Extent {
     d.linearDimension(L.P(right, Z.dfe), L.P(right, Z.mean), [x2, 0], {
       style: v.dim,
       along: "y",
-      text: `${ftIn(Z.mean - Z.dfe)} BLDG. HT., D.F.E. TO MEAN ROOF (${CRITERIA.zoning.maxHeight}'-0" MAX.)`,
+      text: `<> BLDG. HT., D.F.E. TO MEAN ROOF (${CRITERIA.zoning.maxHeight}'-0" MAX.)`,
     });
   });
 

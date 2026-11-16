@@ -344,6 +344,9 @@ d.linearDimension([24, 30], [76, 30], [0, 20], { style: "PLAN" });
 - The third point is on the dimension line. `along: "y"` measures up.
   `alignedDimension(from, to, offset, options)` measures along the two points.
 - CAD writes the measurement. `text: "<> TYP"` adds to it.
+- `units: "architectural"` writes feet and inches, as `4'-1 7/16"`, from a length in inches
+  times `measurementScale`, so give a drawing in feet `measurementScale: 12`. `precision` is
+  then the least fraction: 4 for 1/16". Never write feet and inches as a dimension's `text`.
 - Never draw a dimension from lines and text.
   [docs/dimensions.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/dimensions.md)
   has the rest.
@@ -527,8 +530,8 @@ writeFileSync("plan.dxf", toDXF(drawing));
 
 ## What tsdraft cannot draw yet
 
-- Leaders, hatches, fills, and dimensions that are not linear or aligned. A measurement is a
-  decimal number, not feet and inches.
+- Leaders, hatches, fills, and dimensions that are not linear or aligned. A fraction of an inch
+  in a dimension is on the line, as `1 7/16`, not stacked.
 - A block read from another file. A block is drawn in the drawing that inserts it. An xref
   references a whole DWG file, as an overlay, and the pictures draw it only from a drawing you
   give.
