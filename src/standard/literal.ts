@@ -13,6 +13,8 @@ import type {
   FontOf,
   LayerColor,
   LayerName,
+  LeaderArrowheadOf,
+  LeaderSize,
   LineweightOf,
   MeasurementScale,
   NewLinetypeName,
@@ -37,6 +39,8 @@ import type {
   DimensionStyleStandard,
   FillOf,
   LayerZero,
+  LeaderAttachmentOf,
+  LeaderStyleStandard,
   NameIn,
   PaperUnitsOf,
   RoleStandard,
@@ -142,9 +146,11 @@ export type CheckDocument<D, P, N extends StandardNames = NamesOf<D, P>> = {
             ? NameIn<D[K], N["sheetFormats"], "sheetFormats">
             : K extends "defaultDimensionStyle"
               ? NameIn<D[K], N["dimensionStyles"], "dimensionStyles">
-              : K extends Section
-                ? Entries<D[K], K, N>
-                : unknown;
+              : K extends "defaultLeaderStyle"
+                ? NameIn<D[K], N["leaderStyles"], "leaderStyles">
+                : K extends Section
+                  ? Entries<D[K], K, N>
+                  : unknown;
 };
 
 type Entries<E, S extends Section, N extends StandardNames> = {
@@ -167,7 +173,9 @@ type KeyProblem<K extends string, S extends Section> = string extends K
         ? IdProblem<K> | RoleStandard<K>
         : S extends "dimensionStyles"
           ? IdProblem<K> | DimensionStyleStandard<K>
-          : IdProblem<K>;
+          : S extends "leaderStyles"
+            ? IdProblem<K> | LeaderStyleStandard<K>
+            : IdProblem<K>;
 
 type Entry<E, S extends Section, N extends StandardNames> = S extends "pens"
   ? Pen<E>
@@ -181,11 +189,13 @@ type Entry<E, S extends Section, N extends StandardNames> = S extends "pens"
           ? Scale<E, N>
           : S extends "dimensionStyles"
             ? DimensionStyle<E, N>
-            : S extends "titleBlocks"
-              ? TitleBlock<E, N>
-              : S extends "sheetFormats"
-                ? SheetFormat<E, N>
-                : unknown;
+            : S extends "leaderStyles"
+              ? LeaderStyle<E, N>
+              : S extends "titleBlocks"
+                ? TitleBlock<E, N>
+                : S extends "sheetFormats"
+                  ? SheetFormat<E, N>
+                  : unknown;
 
 type Pen<E> = {
   readonly [F in keyof E]: F extends "lineweight"
@@ -211,7 +221,9 @@ type ByDiscipline<B, N extends StandardNames, S extends Section> = {
         ? LayerFields<B[K], N>
         : S extends "textRoles"
           ? RoleFields<B[K], N>
-          : StyleFields<B[K], N>
+          : S extends "leaderStyles"
+            ? LeaderFields<B[K], N>
+            : StyleFields<B[K], N>
       : Discipline<K, N>
     : unknown;
 };
@@ -331,6 +343,26 @@ type DimensionStyle<E, N extends StandardNames> = {
               : unknown;
           }
         : StyleFields<E, N>[F];
+};
+
+type LeaderFields<E, N extends StandardNames> = {
+  readonly [F in keyof E]: F extends "role"
+    ? NameIn<E[F], N["textRoles"], "textRoles">
+    : F extends "arrowhead"
+      ? Str<E[F], LeaderArrowheadOf<E[F] & string>>
+      : F extends "arrowSize" | "landing" | "gap"
+        ? Num<E[F], LeaderSize<E[F] & number>>
+        : F extends "attachment"
+          ? LeaderAttachmentOf<E[F]>
+          : F extends "discipline"
+            ? Discipline<E[F], N>
+            : unknown;
+};
+
+type LeaderStyle<E, N extends StandardNames> = {
+  readonly [F in keyof E]: F extends "byDiscipline"
+    ? ByDiscipline<E[F], N, "leaderStyles">
+    : LeaderFields<E, N>[F];
 };
 
 type Field<E> = {

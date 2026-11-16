@@ -15,6 +15,8 @@ import {
   type Entity,
   type Insert,
   type Layer,
+  type Leader,
+  type LeaderStyle,
   type Line,
   type Point,
   type Text,
@@ -26,6 +28,7 @@ import { fontInfo, STANDARD_FONT } from "./fonts.ts";
 import { fmt, written } from "./format.ts";
 import { layerKey, layerKeys } from "./layers.ts";
 import { findLayout, validViewportView } from "./layouts.ts";
+import { leaderPicture, type LeaderPicture } from "./leaders.ts";
 import { builtInLinetype, LINEWEIGHTS, lineweightCode } from "./linetypes.ts";
 import { drawnValue, inStyle, layoutText } from "./measure.ts";
 import { DEFAULT_PLOT_STYLE_TABLE, paperInfo } from "./papers.ts";
@@ -337,11 +340,31 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       frozen,
       xrefs,
       drawing.dimensionStyles,
+      drawing.leaderStyles,
       most,
     );
     const box = boxes(entities);
     if (boxes.capped) refuse(at(boxes.capped), true);
     return box;
+  };
+  /**
+   * The picture of each leader, worked out once for the picture, so that a leader an xref holds
+   * costs what it writes each time an insert places it, and its shafts' sides are found once.
+   */
+  const pictures = new WeakMap<
+    Leader,
+    { style: LeaderStyle; textStyle: TextStyle | undefined; picture: LeaderPicture }
+  >();
+  const pictureOf = (
+    e: Leader,
+    style: LeaderStyle,
+    textStyle: TextStyle | undefined,
+  ): LeaderPicture => {
+    const known = pictures.get(e);
+    if (known?.style === style && known.textStyle === textStyle) return known.picture;
+    const picture = leaderPicture(e, style, textStyle);
+    pictures.set(e, { style, textStyle, picture });
+    return picture;
   };
   /**
    * The element of an entity that draws something of its own, where `matrix` puts it. Its
@@ -356,6 +379,14 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     matrix?: Matrix,
   ): string => {
     const room = longest - length;
+    if (e.kind === "leader") {
+      const tables = tablesOf(from);
+      const style = tables.leaderStyles.get(key(e.style));
+      const named = e.textStyle ?? style?.textStyle;
+      const textStyle = named === undefined ? undefined : tables.textStyles.get(key(named));
+      const picture = style === undefined ? undefined : pictureOf(e, style, textStyle);
+      return leaderToSvg(e, picture, textStyle, mark, drawnPen, look, matrix, room, sides);
+    }
     if (e.kind !== "linear-dimension" && e.kind !== "aligned-dimension") {
       return entityToSvg(e, mark, drawnPen, look, styleOf(e, from), matrix, room, sides);
     }
@@ -528,7 +559,8 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
           shown[1].kind === "text" ||
           shown[1].kind === "insert" ||
           shown[1].kind === "linear-dimension" ||
-          shown[1].kind === "aligned-dimension";
+          shown[1].kind === "aligned-dimension" ||
+          shown[1].kind === "leader";
         const slack = lettered ? Math.max(box[2] - box[0], box[3] - box[1]) : 0;
         return [{ shown, box, slack }];
       });
@@ -772,6 +804,7 @@ interface Tables {
   readonly patterns: ReadonlyMap<string, number[] | undefined>;
   readonly textStyles: ReadonlyMap<string, TextStyle>;
   readonly dimensionStyles: ReadonlyMap<string, DimensionStyle>;
+  readonly leaderStyles: ReadonlyMap<string, LeaderStyle>;
 }
 
 function tablesFor(drawing: Drawing): Tables {
@@ -782,6 +815,7 @@ function tablesFor(drawing: Drawing): Tables {
     ),
     textStyles: new Map(filled(drawing.textStyles).map((t) => [layerKey(t.name), t])),
     dimensionStyles: new Map(filled(drawing.dimensionStyles).map((t) => [layerKey(t.name), t])),
+    leaderStyles: new Map(filled(drawing.leaderStyles).map((t) => [layerKey(t.name), t])),
   };
 }
 
@@ -840,11 +874,96 @@ function viewOf(view: SvgOptions["view"]): [number, number, number, number] | un
 type Drawn = Exclude<Entity, Insert>;
 
 /** An entity that is one shape, with a linetype and a lineweight it may have of its own. */
-type Shape = Exclude<Drawn, Dimension>;
+type Shape = Exclude<Drawn, Dimension | Leader>;
 
-/** The linetype and the lineweight an entity has of its own. A dimension draws ByLayer. */
+/** The linetype and the lineweight an entity has of its own. A dimension and a leader draw ByLayer. */
 function styled(e: Drawn): Pick<Line, "linetype" | "lineweight"> {
-  return e.kind === "linear-dimension" || e.kind === "aligned-dimension" ? {} : e;
+  return e.kind === "linear-dimension" || e.kind === "aligned-dimension" || e.kind === "leader"
+    ? {}
+    : e;
+}
+
+/**
+ * A leader as a group: its shafts and its landing, which take the dashes of its pen, its
+ * arrowheads, and each line of its note. A filled arrowhead and a dot are filled. A leader whose
+ * style the drawing does not have, and so has no picture, is an empty group.
+ */
+function leaderToSvg(
+  e: Leader,
+  picture: LeaderPicture | undefined,
+  textStyle: TextStyle | undefined,
+  mark: string,
+  pen: Pen,
+  look: Look,
+  matrix: Matrix | undefined,
+  room: number,
+  sides: WeakMap<object, Sides>,
+): string {
+  if (picture === undefined) return `<g ${mark}/>`;
+  const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
+  const parts: string[] = [];
+  // The parts share the picture's room: one that passes what is left ends the leader there,
+  // longer than the room, which `write` then refuses.
+  let left = room;
+  const add = (part: (left: number) => string): void => {
+    if (left < 0) return;
+    const drawn = part(left);
+    parts.push(drawn);
+    left -= drawn.length;
+  };
+  const shape = (part: string, shaped: Shape): void =>
+    add((left) =>
+      entityToSvg(shaped, `data-part="${part}"`, pen, look, undefined, matrix, left, sides),
+    );
+  const points = (corners: readonly Point[]): string =>
+    corners
+      .map(at)
+      .map(([x, y]) => `${fmt(x)},${fmt(y)}`)
+      .join(" ");
+  for (const shaft of picture.shafts) {
+    shape("shaft", { kind: "polyline", layer: e.layer, points: shaft, closed: false });
+  }
+  if (picture.landing) {
+    shape("landing", {
+      kind: "line",
+      layer: e.layer,
+      from: picture.landing[0],
+      to: picture.landing[1],
+    });
+  }
+  for (const arrowhead of picture.arrowheads) {
+    if (arrowhead.filled.length > 0) {
+      add(
+        () =>
+          `<polygon points="${points(arrowhead.filled)}" fill="${pen.color}" stroke="none" data-part="arrowhead"/>`,
+      );
+    }
+    for (const [from, to] of arrowhead.lines) {
+      shape("arrowhead", { kind: "line", layer: e.layer, from, to });
+    }
+    for (const { center, radius } of arrowhead.disks) {
+      add(() =>
+        roundToSvg(
+          at(center),
+          rounded(radius, matrix),
+          `fill="${pen.color}" stroke="none" data-part="arrowhead"`,
+        ),
+      );
+    }
+  }
+  for (const line of picture.lines) {
+    const text: Text = {
+      kind: "text",
+      layer: e.layer,
+      at: line.at,
+      height: line.height,
+      value: line.value,
+      rotation: 0,
+      ...(line.align === "right" ? { align: "right" as const } : {}),
+    };
+    add((left) => entityToSvg(text, `data-part="text"`, pen, look, textStyle, matrix, left));
+  }
+  return `<g ${mark} data-leader="${filled(e.text).map(esc).join("&#10;")}">\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
 }
 
 /**

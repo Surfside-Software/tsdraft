@@ -388,7 +388,7 @@ test("a block's box is a walk's to the last bit, and never smaller through a cyc
     if (!far) assert.deepEqual(found.map(written), expected.map(written), `drawing ${n}`);
     // With no walks left a placement maps the outline of all its block draws.
     if (!cyclic) {
-      const outlined = boxer([], blocks, hidden, frozen, undefined, [], 0)(top) ?? none;
+      const outlined = boxer([], blocks, hidden, frozen, undefined, [], [], 0)(top) ?? none;
       assert.ok(holds(outlined, expected), `drawing ${n}: ${outlined} for ${expected}`);
       if (!far) assert.deepEqual(outlined.map(written), expected.map(written), `drawing ${n}`);
     }
@@ -426,7 +426,7 @@ test("large ordinary drawings get the boxes a walk of every insert gives", () =>
   }));
   const never = () => false;
   const walked = walkedExtents(turned, [symbol], never, never);
-  assert.deepEqual(boxer([], [symbol], never, never, undefined, [], 0)(turned), walked);
+  assert.deepEqual(boxer([], [symbol], never, never, undefined, [], [], 0)(turned), walked);
   const drawing: Drawing = {
     ...createDrawing({ units: "ft" }).build(),
     blocks: [symbol],
@@ -468,7 +468,7 @@ test("large ordinary drawings get the boxes a walk of every insert gives", () =>
   };
   assert.deepEqual(lintWithin(tags, {}, 0), []);
   assert.deepEqual(
-    boxer([], [tag], never, never, undefined, [], 0)(tags.entities),
+    boxer([], [tag], never, never, undefined, [], [], 0)(tags.entities),
     walkedExtents(tags.entities, [tag], never, never),
   );
 });
@@ -649,7 +649,9 @@ test("moves that cancel through nested inserts keep what they draw", () => {
       entities: Array.from({ length: 100 }, () => blocks[2]!.entities[0]!),
     },
   ];
-  assert.ok(holds(boxer([], wide, undefined, undefined, undefined, [], 0)([top])!, [0, 0, 1, 1]));
+  assert.ok(
+    holds(boxer([], wide, undefined, undefined, undefined, [], [], 0)([top])!, [0, 0, 1, 1]),
+  );
 });
 
 test("a limit that is reached is never silent", () => {
@@ -664,14 +666,14 @@ test("a limit that is reached is never silent", () => {
   const at = (x: number): Insert => ({ kind: "insert", layer: "0", block: "LONG", at: [x, 0] });
   // What a block holds is read once and costs nothing against the limit.
   const plain = { ...long, attributes: [] };
-  const once = boxer([], [plain], undefined, undefined, undefined, [], 0);
+  const once = boxer([], [plain], undefined, undefined, undefined, [], [], 0);
   const never = () => false;
   assert.deepEqual(once([at(0)]), walkedExtents([at(0)], [plain], never, never));
   assert.equal(once.capped, undefined);
   // The default of an attribute is read again for each insert.
   const repeated = Array.from({ length: 300 }, (_, i) => at(i * 1e6));
   const thrown = settled(1000, () =>
-    extents(repeated, [], [long], undefined, undefined, undefined, [], 100_000),
+    extents(repeated, [], [long], undefined, undefined, undefined, [], [], 100_000),
   );
   assert.ok(thrown instanceof RangeError);
   assert.match(thrown.message, /stopped at insert #\d+/);
@@ -753,7 +755,7 @@ test("repeated work stops at the limit, and once a limit is reached no more is d
     block: "P",
     at: [i, 0],
   }));
-  const box = boxer([], [tagged], undefined, undefined, undefined, [], 0);
+  const box = boxer([], [tagged], undefined, undefined, undefined, [], [], 0);
   within(300, () => box(placed));
   assert.equal(box.capped, placed[0]);
   // A dashed line is cut only as far as the picture has room for.
@@ -1069,6 +1071,16 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
   type Data = Record<string, unknown>;
   const copies = (list: unknown): Data[] =>
     ((list as readonly Data[] | undefined) ?? []).map((item) => ({ ...item }));
+  const leader = (fields: Data): Entity =>
+    ({
+      kind: "leader",
+      layer: "0",
+      style: sheet.leaderStyles![0]!.name,
+      text: ["N"],
+      at: [10, 10],
+      shafts: [[[0, 0]]],
+      ...fields,
+    }) as unknown as Entity;
   for (let n = 0; n < 16; n++) {
     const blocks = copies(sheet.blocks);
     const layout: Data = {
@@ -1082,6 +1094,7 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
       linetypes: copies(sheet.linetypes),
       textStyles: copies(sheet.textStyles),
       dimensionStyles: copies(sheet.dimensionStyles),
+      leaderStyles: copies(sheet.leaderStyles),
       entities: copies(sheet.entities),
       blocks,
       layouts: [layout],
@@ -1098,6 +1111,15 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
       { ...(text("A") as Text), layer: long },
       { ...(text("A") as Text), style: "HEADING" },
       { kind: "insert", layer: "0", block: `T${depth - 1}`, at: [0, 0] },
+      // A leader with a long note, a note of many lines, many shafts, or a long text style.
+      leader({ text: [long] }),
+      leader({ text: Array.from({ length: 20_000 }, (_, i) => (i % 2 === 0 ? "" : "N")) }),
+      leader({
+        shafts: Array.from({ length: 2000 }, () =>
+          Array.from({ length: 10 }, (_, i) => [i + 1, -i]),
+        ),
+      }),
+      leader({ textStyle: long }),
     ]);
     const tree = nested(leaf, depth, width, "T");
     // Many lines that no check reads beside one label.
@@ -1150,6 +1172,14 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
       };
       (tree.blocks[0]!.entities as unknown as Data[]).push(still);
       (drawing.entities as Data[]).push(still);
+      // And a leader on a dotted layer whose shaft holds as many points that do not move.
+      (drawing.layers as Data[]).push({ name: "DOTTED", color: 7, linetype: "DOTS" });
+      const pointed = leader({
+        layer: "DOTTED",
+        shafts: [[[5, 5], ...Array.from({ length: 20_000 }, () => [0, 0])]],
+      });
+      (tree.blocks[0]!.entities as unknown as Entity[]).push(pointed);
+      (drawing.entities as Entity[]).push(pointed);
     }
     // A large block placed once.
     if (random() < 0.2) {
@@ -1217,12 +1247,27 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
     // A dimension style whose prefix every dimension reads.
     if (random() < 0.3) (drawing.dimensionStyles as Data[])[0]!.prefix = long;
     if (random() < 0.2) (drawing.dimensionStyles as Data[])[0]!.arrowhead = "A".repeat(1_000_000);
+    // A leader style whose arrowhead or text style every leader reads.
+    if (random() < 0.2) {
+      const style = (drawing.leaderStyles as Data[])[0]!;
+      if (random() < 0.5) style.arrowhead = "A".repeat(1_000_000);
+      else style.textStyle = long;
+    }
     // A list that is all empty slots, has a hole, or holds one item many times.
     if (random() < 0.5) {
+      const noted = (drawing.entities as Data[]).find((e) => e.kind === "leader")!;
       const lists: [Data, string][] = [
-        ...["layers", "linetypes", "textStyles", "dimensionStyles", "blocks", "entities"].map(
-          (field) => [drawing, field] as [Data, string],
-        ),
+        ...[
+          "layers",
+          "linetypes",
+          "textStyles",
+          "dimensionStyles",
+          "leaderStyles",
+          "blocks",
+          "entities",
+        ].map((field) => [drawing, field] as [Data, string]),
+        [noted, "text"],
+        [noted, "shafts"],
         [layout, "entities"],
         [layout, "viewports"],
         [blocks[0]!, "entities"],
@@ -1255,6 +1300,7 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
             undefined,
             undefined,
             d.dimensionStyles,
+            d.leaderStyles,
             20_000,
           )(d.entities),
       ],

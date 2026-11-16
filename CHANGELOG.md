@@ -1,5 +1,44 @@
 # Changelog
 
+## Unreleased
+
+A drawing without a leader style writes the same DXF as before. Two changes break code:
+
+- Breaking: `LintRule` gained `leader-style`, `duplicate-leader-style`,
+  `undefined-leader-style`, `leader`, `leader-style-outside-standard`,
+  `leader-style-differs-from-standard` and `leader-off-scale`. Code that switches over every
+  rule needs them.
+- Breaking: a drawing with a block named `_Open`, `_Dot` or `_None`, in any case of their
+  letters, is refused. CAD draws a leader's arrowheads with the blocks of those names.
+
+The rest is new:
+
+- Leaders, in R2018 drawings. `d.leaderStyle(definition)` defines a style with a text style,
+  a text height, an arrowhead (`"closed-filled"`, `"open"`, `"dot"` or `"none"`), an arrow
+  size, a landing, a gap, an attachment to the note's first or last line, and a scale.
+  `d.leader(text, { style, at, to })` points a note of one line, or of the lines of an array,
+  at one or more shafts that meet at `at`, each straight or bending through points of its
+  own. The note goes on the side away from the first shaft unless `side` says otherwise, and
+  a leader may set its own text style, text height, arrow size, landing, gap and attachment.
+  Each is a multileader in the file, which a drafter edits with CAD's multileader commands.
+  A leader goes in model space or on a layout, and not in a block.
+  [docs/leaders.md](docs/leaders.md) describes them.
+- `toSVG`, a drawing's extents and `inspectText` draw, measure and inspect each leader as CAD
+  draws it. `leaderPicture(leader, style, textStyle)` gives what that is, and `leaderSizes`,
+  `leaderSide`, `leaderAttachment`, `leaderOwnFlags` and `findLeaderStyle` the parts of it.
+  `leaderArrowheadInfo` and `DEFAULT_LEADER_ARROWHEAD` say what each arrowhead is, and
+  `leaderCount(drawing)` how many leaders a drawing has. `lineSpacing(height)` is the distance
+  between the lines of a note.
+- Handles: `leaderStyleHandle(name)`, `leaderStyleDictionaryHandle()` and
+  `leaderArrowheadHandles(arrowhead)`, from names, as a dimension style's are.
+- A standard lists leader styles in `leaderStyles`, each with a role and its sizes on paper,
+  and names one in `defaultLeaderStyle`. Under a standard a leader names the style by its id,
+  and in model space the view it is read in. The builder defines `NOTES-1in-10ft` for the
+  style `notes` in a view at `1in-10ft`, and `NOTES` on a layout. `lint` holds each line of a
+  leader's note to its role's height and to the least height, as it does a text.
+- The example sheet has two leaders, one with two shafts, and the permit set's leader notes
+  are leaders.
+
 ## 0.5.2
 
 Every R2018 DXF changes by one value, group 340 of the dimension style `Standard`; nothing

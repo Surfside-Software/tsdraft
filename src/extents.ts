@@ -15,11 +15,14 @@ import type {
   DimensionStyle,
   Entity,
   Insert,
+  Leader,
+  LeaderStyle,
   Point,
   Text,
   TextStyle,
 } from "./drawing.ts";
 import { layerKey, layerKeys } from "./layers.ts";
+import { leaderPicture } from "./leaders.ts";
 import { inStyle, measureText } from "./measure.ts";
 import { filled } from "./shape.ts";
 
@@ -50,7 +53,8 @@ const ROUNDING = 2 ** -52;
  * insert puts it, with a circle or an arc under an uneven scale as the box around its circle.
  * An insert of an xref counts for the drawing given for it in `xrefs`, and for nothing without
  * one. A dimension counts for its lines, its arrowheads and its text, when `dimensionStyles`
- * holds its style.
+ * holds its style, and a leader for its shafts, its arrowheads, its landing and each line of its
+ * note, when `leaderStyles` holds its style.
  *
  * @param isHidden - True for a layer whose entities are left out, wherever they are drawn.
  * @param isFrozen - True for a layer that hides the whole of an insert on it: a frozen layer,
@@ -67,9 +71,19 @@ export function extents(
   isFrozen: (layer: LayerRef) => boolean = () => false,
   xrefs?: ReadonlyMap<string, Referenced>,
   dimensionStyles: readonly DimensionStyle[] = [],
+  leaderStyles: readonly LeaderStyle[] = [],
   most = MAX_WORK,
 ): [number, number, number, number] {
-  const boxOf = boxer(textStyles, blocks, isHidden, isFrozen, xrefs, dimensionStyles, most);
+  const boxOf = boxer(
+    textStyles,
+    blocks,
+    isHidden,
+    isFrozen,
+    xrefs,
+    dimensionStyles,
+    leaderStyles,
+    most,
+  );
   const box = boxOf(entities);
   const at = boxOf.capped;
   if (at) {
@@ -166,25 +180,29 @@ export function boxer(
   isFrozen: (layer: LayerRef) => boolean = () => false,
   xrefs?: ReadonlyMap<string, Referenced>,
   dimensionStyles: readonly DimensionStyle[] = [],
+  leaderStyles: readonly LeaderStyle[] = [],
   most = MAX_WORK,
 ): Boxer {
   const key = layerKeys();
   interface Names {
     readonly textStyles: ReadonlyMap<string, TextStyle>;
     readonly dimensionStyles: ReadonlyMap<string, DimensionStyle>;
+    readonly leaderStyles: ReadonlyMap<string, LeaderStyle>;
     /** Counts the drawings, from 0 for the drawing itself. */
     readonly index: number;
   }
   const namesOf = (
     text: readonly TextStyle[] | undefined,
     dimensions: readonly DimensionStyle[] | undefined,
+    leaders: readonly LeaderStyle[] | undefined,
     index: number,
   ): Names => ({
     textStyles: new Map(filled(text).map((t) => [layerKey(t.name), t])),
     dimensionStyles: new Map(filled(dimensions).map((style) => [layerKey(style.name), style])),
+    leaderStyles: new Map(filled(leaders).map((style) => [layerKey(style.name), style])),
     index,
   });
-  const own = namesOf(textStyles, dimensionStyles, 0);
+  const own = namesOf(textStyles, dimensionStyles, leaderStyles, 0);
   // The names of each referenced drawing, worked out when one of its entities is first met.
   const referenced = new Map<Referenced, Names>();
   const byDrawing = new Map<Referenced["drawing"], Names>();
@@ -194,8 +212,8 @@ export function boxer(
     if (!found) {
       found = byDrawing.get(from.drawing);
       if (!found) {
-        const { textStyles, dimensionStyles } = from.drawing;
-        found = namesOf(textStyles, dimensionStyles, byDrawing.size + 1);
+        const { textStyles, dimensionStyles, leaderStyles } = from.drawing;
+        found = namesOf(textStyles, dimensionStyles, leaderStyles, byDrawing.size + 1);
         byDrawing.set(from.drawing, found);
       }
       referenced.set(from, found);
@@ -269,6 +287,9 @@ export function boxer(
       case "aligned-dimension":
         dimension(e, placed, from, add);
         break;
+      case "leader":
+        leader(e, placed, from, add);
+        break;
     }
   };
   /** What a dimension draws: its lines, its arrowheads, and its text as any text is boxed. */
@@ -297,6 +318,47 @@ export function boxer(
       ...(label.style === undefined ? {} : { style: label.style }),
     };
     shape(text, placed, from, add);
+  };
+  /**
+   * What a leader draws: its shafts, its arrowheads, its landing, and each line of its note as
+   * any text is boxed. `placed` counts all four corners of the box of a dot, as of a circle.
+   */
+  const leader = (e: Leader, placed: boolean, from: Names, add: Add): void => {
+    const style = from.leaderStyles.get(key(e.style));
+    if (style === undefined) return;
+    const named = e.textStyle ?? style.textStyle;
+    const textStyle = named === undefined ? undefined : from.textStyles.get(key(named));
+    const picture = leaderPicture(e, style, textStyle);
+    for (const shaft of picture.shafts) for (const p of shaft) add(...p);
+    for (const arrowhead of picture.arrowheads) {
+      for (const p of arrowhead.filled) add(...p);
+      for (const [a, b] of arrowhead.lines) {
+        add(...a);
+        add(...b);
+      }
+      for (const { center, radius } of arrowhead.disks) {
+        add(center[0] - radius, center[1] - radius);
+        add(center[0] + radius, center[1] + radius);
+        if (placed) {
+          add(center[0] - radius, center[1] + radius);
+          add(center[0] + radius, center[1] - radius);
+        }
+      }
+    }
+    for (const p of picture.landing ?? []) add(...p);
+    for (const line of picture.lines) {
+      const text: Text = {
+        kind: "text",
+        layer: e.layer,
+        at: line.at,
+        height: line.height,
+        value: line.value,
+        rotation: 0,
+        ...(line.align === "right" ? { align: "right" as const } : {}),
+        ...(named === undefined ? {} : { style: named }),
+      };
+      shape(text, placed, from, add);
+    }
   };
 
   /** The attribute definitions of each block, read once. */

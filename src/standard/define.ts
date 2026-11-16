@@ -16,6 +16,7 @@ import {
   type Section,
   type Standard,
   type StandardDimensionStyle,
+  type StandardLeaderStyle,
   type StandardDocument,
   type StandardLayer,
   type StandardLink,
@@ -107,6 +108,10 @@ const REFERENCES: { readonly [S in Section]: readonly (readonly [string, Section
   textRoles: [["discipline", "disciplines"]],
   scales: [["discipline", "disciplines"]],
   dimensionStyles: [
+    ["role", "textRoles"],
+    ["discipline", "disciplines"],
+  ],
+  leaderStyles: [
     ["role", "textRoles"],
     ["discipline", "disciplines"],
   ],
@@ -302,9 +307,11 @@ function resolve(
   const minTextHeight = fallback("minTextHeight");
   const defaultSheetFormat = doc.defaultSheetFormat ?? parent?.defaultSheetFormat;
   const defaultDimensionStyle = doc.defaultDimensionStyle ?? parent?.defaultDimensionStyle;
+  const defaultLeaderStyle = doc.defaultLeaderStyle ?? parent?.defaultLeaderStyle;
   for (const [field, section, name] of [
     ["defaultSheetFormat", "sheetFormats", defaultSheetFormat],
     ["defaultDimensionStyle", "dimensionStyles", defaultDimensionStyle],
+    ["defaultLeaderStyle", "leaderStyles", defaultLeaderStyle],
   ] as const) {
     if (name === undefined || spelling(section, name) !== undefined) continue;
     add(
@@ -384,7 +391,8 @@ function resolve(
   for (const [, scale, path] of each<object>("scales")) references("scales", scale, path);
 
   // A dimension style's name in AutoCAD is its id in capitals on a layout, and with a scale's id
-  // after it in model space. No two of those names may be one to AutoCAD.
+  // after it in model space. No two of those names may be one to AutoCAD. A leader style's are
+  // made the same way, among the leader styles.
   const dimensionStyles = each<StandardDimensionStyle>("dimensionStyles");
   const scaleIds = [...merged.scales.values()].map(([name]) => name);
   const styleName = ([style, scale]: StyleName): string =>
@@ -448,6 +456,24 @@ function resolve(
           `${capital(styleName(where))} and ${styleName(other)} have names that AutoCAD takes for one dimension style, ${shown(name)}. Give one another name`,
         );
       }
+    }
+  });
+  const leaderStyles = each<StandardLeaderStyle>("leaderStyles");
+  const leaderStyleName = ([style, scale]: StyleName): string =>
+    `the leader style ${shown(leaderStyles[style]![0])}${scale < 0 ? "" : ` at the scale ${shown(scaleIds[scale])}`}`;
+  const sharedLeaderNames = sharedStyleNames(
+    leaderStyles.map(([id]) => id),
+    scaleIds,
+    () => false,
+  );
+  leaderStyles.forEach(([, style, path], i) => {
+    references("leaderStyles", style, path);
+    byDiscipline("leaderStyles", style, path);
+    for (const [name, other] of sharedLeaderNames.get(i) ?? []) {
+      add(
+        path,
+        `${capital(leaderStyleName(name))} and ${leaderStyleName(other)} have names that AutoCAD takes for one leader style. Rename the style or the scale`,
+      );
     }
   });
 
@@ -641,6 +667,9 @@ function resolve(
     ...(defaultDimensionStyle === undefined
       ? {}
       : { defaultDimensionStyle: spelling("dimensionStyles", defaultDimensionStyle) }),
+    ...(defaultLeaderStyle === undefined
+      ? {}
+      : { defaultLeaderStyle: spelling("leaderStyles", defaultLeaderStyle) }),
     ...sections,
   };
   const chain = parent
@@ -756,6 +785,7 @@ function titleBlockDrawing(
   }
   for (const [field, what] of [
     ["dimensionStyles", "a dimension style"],
+    ["leaderStyles", "a leader style"],
     ["layouts", "a layout"],
     ["xrefs", "an xref"],
   ] as const) {
@@ -764,6 +794,9 @@ function titleBlockDrawing(
   const everything = [drawing.entities, ...(drawing.blocks ?? []).map((b) => b.entities)];
   if (everything.some((entities) => entities.some((e) => e.kind.endsWith("-dimension")))) {
     add(path, "A title block's drawing cannot hold a dimension");
+  }
+  if (everything.some((entities) => entities.some((e) => e.kind === "leader"))) {
+    add(path, "A title block's drawing cannot hold a leader");
   }
   for (const linetype of drawing.linetypes ?? []) {
     const own = lookup<{ description: string; pattern: readonly number[] }>(
@@ -838,7 +871,10 @@ function boxIn(
 
 const capital = (what: string): string => what.charAt(0).toUpperCase() + what.slice(1);
 
-/** A dimension style's name in AutoCAD: its style's index, and its scale's, or -1 on a layout. */
+/**
+ * A dimension style's or a leader style's name in AutoCAD: its style's index, and its scale's,
+ * or -1 on a layout.
+ */
 type StyleName = readonly [style: number, scale: number];
 
 /**
@@ -937,6 +973,7 @@ const REFERENCE_WORDS: Record<Section, string> = {
   textRoles: "text role",
   scales: "scale",
   dimensionStyles: "dimension style",
+  leaderStyles: "leader style",
   titleBlocks: "title block",
   sheetFormats: "sheet format",
 };

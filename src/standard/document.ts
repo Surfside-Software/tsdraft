@@ -5,9 +5,10 @@ import type {
   Arrowhead,
   DIMENSION_UNITS,
   FEET_INCH_ZEROS,
+  LeaderArrowhead,
   ZERO_SUPPRESSIONS,
 } from "../arrowheads.ts";
-import type { Drawing, Point, Units } from "../drawing.ts";
+import type { Drawing, LeaderAttachment, Point, Units } from "../drawing.ts";
 import type { Font } from "../fonts.ts";
 import type { PaperUnit } from "../paper.ts";
 import type { Paper, PlotStyleTable } from "../papers.ts";
@@ -43,6 +44,7 @@ export const SECTIONS = [
   "textRoles",
   "scales",
   "dimensionStyles",
+  "leaderStyles",
   "titleBlocks",
   "sheetFormats",
 ] as const;
@@ -83,6 +85,7 @@ export interface StandardDocument extends Commented {
   readonly sheetFiles?: string;
   readonly defaultSheetFormat?: string;
   readonly defaultDimensionStyle?: string;
+  readonly defaultLeaderStyle?: string;
   readonly disciplines?: Entries<DisciplineDocument>;
   readonly pens?: Entries<PenDocument>;
   readonly linetypes?: Entries<LinetypeDocument>;
@@ -90,6 +93,7 @@ export interface StandardDocument extends Commented {
   readonly textRoles?: Entries<TextRoleDocument>;
   readonly scales?: Entries<ScaleDocument>;
   readonly dimensionStyles?: Entries<DimensionStyleDocument>;
+  readonly leaderStyles?: Entries<LeaderStyleDocument>;
   readonly titleBlocks?: Entries<TitleBlockDocument>;
   readonly sheetFormats?: Entries<SheetFormatDocument>;
 }
@@ -191,6 +195,26 @@ export interface DimensionStyleDocument extends DimensionStyleFieldsDocument {
   readonly scaleNames?: { readonly [scale: string]: string };
   readonly discipline?: string;
   readonly byDiscipline?: { readonly [discipline: string]: DimensionStyleFieldsDocument };
+}
+
+export interface LeaderStyleFieldsDocument extends Commented {
+  /** The text role of the note, which gives its text style and height. */
+  readonly role?: string;
+  readonly arrowhead?: string;
+  readonly arrowSize?: number;
+  readonly landing?: number;
+  readonly gap?: number;
+  readonly attachment?: string;
+  readonly description?: string;
+}
+
+export interface LeaderStyleDocument extends LeaderStyleFieldsDocument {
+  readonly role: string;
+  readonly arrowSize: number;
+  readonly landing: number;
+  readonly gap: number;
+  readonly discipline?: string;
+  readonly byDiscipline?: { readonly [discipline: string]: LeaderStyleFieldsDocument };
 }
 
 export interface TitleBlockFieldDocument extends Commented {
@@ -347,6 +371,28 @@ export interface StandardDimensionStyle {
   readonly byDiscipline?: { readonly [discipline: string]: StandardDimensionStyleFields };
 }
 
+export interface StandardLeaderStyleFields {
+  readonly role?: string;
+  readonly arrowhead?: LeaderArrowhead;
+  readonly arrowSize?: number;
+  readonly landing?: number;
+  readonly gap?: number;
+  readonly attachment?: LeaderAttachment;
+  readonly description?: string;
+}
+
+export interface StandardLeaderStyle {
+  readonly role: string;
+  readonly arrowhead: LeaderArrowhead;
+  readonly arrowSize: number;
+  readonly landing: number;
+  readonly gap: number;
+  readonly attachment: LeaderAttachment;
+  readonly discipline?: string;
+  readonly description?: string;
+  readonly byDiscipline?: { readonly [discipline: string]: StandardLeaderStyleFields };
+}
+
 export interface StandardTitleBlockField {
   readonly fills?: TitleBlockFill;
   readonly box?: Box;
@@ -403,6 +449,7 @@ export type Standard<
   readonly sheetFiles: SheetFiles;
   readonly defaultSheetFormat?: N["sheetFormats"];
   readonly defaultDimensionStyle?: N["dimensionStyles"];
+  readonly defaultLeaderStyle?: N["leaderStyles"];
   readonly disciplines: { readonly [K in N["disciplines"]]: StandardDiscipline };
   readonly pens: { readonly [K in N["pens"]]: StandardPen };
   readonly linetypes: { readonly [K in N["linetypes"]]: StandardLinetype };
@@ -410,6 +457,7 @@ export type Standard<
   readonly textRoles: { readonly [K in N["textRoles"]]: StandardTextRole };
   readonly scales: { readonly [K in N["scales"]]: StandardScale };
   readonly dimensionStyles: { readonly [K in N["dimensionStyles"]]: StandardDimensionStyle };
+  readonly leaderStyles: { readonly [K in N["leaderStyles"]]: StandardLeaderStyle };
   readonly titleBlocks: { readonly [K in N["titleBlocks"]]: StandardTitleBlock };
   readonly sheetFormats: { readonly [K in N["sheetFormats"]]: StandardSheetFormat };
   /** The SHA-256 of what the standard states for a check. */

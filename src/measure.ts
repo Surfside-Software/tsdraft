@@ -1,5 +1,6 @@
-// How long a text plots and where its box lies. This is the one measure of a text: the
-// extents, `toSVG` and `inspectText` all take it from here.
+// How long a text plots, where its box lies and how far apart the lines of a text of several
+// lines are. This is the one measure of a text: the extents, `toSVG` and `inspectText` all take
+// it from here.
 import type { Point, TextAlign, TextVerticalAlign } from "./drawing.ts";
 import { FONT_METRICS, FONT_METRICS_RANGES, type FontMetrics } from "./font-metrics.ts";
 import { fontInfo, STANDARD_FONT } from "./fonts.ts";
@@ -161,6 +162,20 @@ export function inStyle(text: TextToMeasure, style: object | undefined): TextToM
       : from[field];
   }
   return out as unknown as TextToMeasure;
+}
+
+/**
+ * How far apart AutoCAD sets the lines of a text of several lines, such as a leader's note, from
+ * one baseline to the next: 5/3 of the height of a capital. A line whose letters reach above a
+ * capital or below the baseline pushes the next line that much further, as the round letters of
+ * a TrueType font do by about a fiftieth of the height, and a letter with a tail by more.
+ *
+ * ```ts
+ * lineSpacing(0.09375); // 0.15625: a note 3/32" tall sets its lines 5/32" apart
+ * ```
+ */
+export function lineSpacing(height: number): number {
+  return (height * 5) / 3;
 }
 
 /**

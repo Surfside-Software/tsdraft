@@ -3,7 +3,7 @@
   "$id": "https://cdn.jsdelivr.net/npm/tsdraft@0.5.2/standard.schema.json",
   "title": "A tsdraft standard",
   "type": "object",
-  "description": "A firm's CAD standard: its layers, pens, linetypes, text roles, scales, dimension styles, title blocks and sheet formats. What a schema cannot hold, such as a name that refers to another entry, is checked by defineStandard",
+  "description": "A firm's CAD standard: its layers, pens, linetypes, text roles, scales, dimension styles, leader styles, title blocks and sheet formats. What a schema cannot hold, such as a name that refers to another entry, is checked by defineStandard",
   "properties": {
     "$comment": {
       "type": "string",
@@ -67,6 +67,10 @@
     "defaultDimensionStyle": {
       "type": "string",
       "description": "The dimension style of a dimension that names none"
+    },
+    "defaultLeaderStyle": {
+      "type": "string",
+      "description": "The leader style of a leader that names none"
     },
     "disciplines": {
       "type": "object",
@@ -192,6 +196,24 @@
         ]
       },
       "description": "The dimension styles, by name. null removes the parent's entry of that name",
+      "default": {}
+    },
+    "leaderStyles": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^(?!(?:[Ss][Tt][Aa][Nn][Dd][Aa][Rr][Dd])$)[A-Za-z0-9._-]{1,64}$"
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/leaderStyle"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "description": "The leader styles, by name. null removes the parent's entry of that name",
       "default": {}
     },
     "titleBlocks": {
@@ -466,6 +488,113 @@
         "plot": {
           "type": "boolean",
           "description": "Whether the layer plots"
+        },
+        "description": {
+          "type": "string",
+          "pattern": "^[\\u0020-\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]*$",
+          "description": "For people and the specimen. No rule reads it"
+        }
+      },
+      "additionalProperties": false
+    },
+    "leaderStyle": {
+      "type": "object",
+      "description": "A leader style",
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "description": "For people. No rule reads it"
+        },
+        "role": {
+          "type": "string",
+          "description": "The text role of the note, which gives its text style and height"
+        },
+        "arrowhead": {
+          "type": "string",
+          "enum": ["closed-filled", "open", "dot", "none"],
+          "description": "One of LEADER_ARROWHEADS",
+          "default": "closed-filled"
+        },
+        "arrowSize": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The size of an arrowhead, on paper"
+        },
+        "landing": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The length of the landing, 0 for none, on paper"
+        },
+        "gap": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The gap between the end of the landing and the note, on paper"
+        },
+        "attachment": {
+          "type": "string",
+          "enum": ["first-line", "last-line"],
+          "description": "Which line of the note the landing meets, at the middle of its capitals",
+          "default": "first-line"
+        },
+        "description": {
+          "type": "string",
+          "pattern": "^[\\u0020-\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]*$",
+          "description": "For people and the specimen. No rule reads it"
+        },
+        "discipline": {
+          "type": "string",
+          "description": "The discipline the entry belongs to, a discipline of the standard. An entry without one belongs to every discipline"
+        },
+        "byDiscipline": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9._-]{1,64}$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/leaderStyleFields"
+          },
+          "description": "Fields that replace the entry's own in each discipline's drawings, by discipline. Only under sheetFiles \"sheet-per-file\""
+        }
+      },
+      "required": ["role", "arrowSize", "landing", "gap"],
+      "additionalProperties": false
+    },
+    "leaderStyleFields": {
+      "type": "object",
+      "description": "A leader style's fields for a discipline",
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "description": "For people. No rule reads it"
+        },
+        "role": {
+          "type": "string",
+          "description": "The text role of the note, which gives its text style and height"
+        },
+        "arrowhead": {
+          "type": "string",
+          "enum": ["closed-filled", "open", "dot", "none"],
+          "description": "One of LEADER_ARROWHEADS"
+        },
+        "arrowSize": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The size of an arrowhead, on paper"
+        },
+        "landing": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The length of the landing, 0 for none, on paper"
+        },
+        "gap": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The gap between the end of the landing and the note, on paper"
+        },
+        "attachment": {
+          "type": "string",
+          "enum": ["first-line", "last-line"],
+          "description": "Which line of the note the landing meets, at the middle of its capitals"
         },
         "description": {
           "type": "string",
@@ -787,7 +916,7 @@
         },
         "blockName": {
           "type": "string",
-          "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:_[Aa][Rr][Cc][Hh][Tt][Ii][Cc][Kk])$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$",
+          "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:_[Aa][Rr][Cc][Hh][Tt][Ii][Cc][Kk]|_[Oo][Pp][Ee][Nn]|_[Dd][Oo][Tt]|_[Nn][Oo][Nn][Ee])$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$",
           "description": "The block of block that the builder inserts at [0, 0] on each sheet"
         },
         "xref": {
@@ -964,7 +1093,7 @@
         },
         "name": {
           "type": "string",
-          "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:_[Aa][Rr][Cc][Hh][Tt][Ii][Cc][Kk])$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$",
+          "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:_[Aa][Rr][Cc][Hh][Tt][Ii][Cc][Kk]|_[Oo][Pp][Ee][Nn]|_[Dd][Oo][Tt]|_[Nn][Oo][Nn][Ee])$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$",
           "description": "The xref's name"
         },
         "path": {

@@ -20,6 +20,7 @@ import {
   type Entity,
   type Layer,
   type Layout,
+  type LeaderStyle,
   type Linetype,
   type TextStyle,
   type Viewport,
@@ -97,6 +98,28 @@ const kinds: { readonly [K in Entity["kind"]]: Required<Extract<Entity, { kind: 
     text: "VARIES",
     id: "h",
   },
+  leader: {
+    kind: "leader",
+    layer: "0",
+    style: "NOTE",
+    text: ["NOTE", "SECOND LINE"],
+    at: [40, 10],
+    shafts: [
+      [[35, 5]],
+      [
+        [36, 2],
+        [38, 4],
+      ],
+    ],
+    side: "right",
+    attachment: "last-line",
+    textStyle: "NOTES",
+    textHeight: 0.08,
+    arrowSize: 0.05,
+    landing: 0.1,
+    gap: 0.02,
+    id: "i",
+  },
 };
 
 /** One of everything an R2018 drawing can hold, with every field of every object. */
@@ -108,6 +131,7 @@ const full: Required<Drawing> & {
     Required<Omit<DimensionStyle, "feetInchZeros">>,
     Required<Omit<DimensionStyle, "suppressZeros">>,
   ];
+  readonly leaderStyles: readonly [Required<LeaderStyle>];
   readonly layers: readonly [Layer, Required<Layer>];
   readonly blocks: readonly [
     Block,
@@ -159,6 +183,19 @@ const full: Required<Drawing> & {
       units: "architectural",
       feetInchZeros: "both",
       measurementScale: 12,
+    },
+  ],
+  leaderStyles: [
+    {
+      name: "NOTE",
+      textStyle: "NOTES",
+      textHeight: 0.1,
+      arrowhead: "dot",
+      arrowSize: 0.1,
+      landing: 0.1,
+      gap: 0.05,
+      attachment: "first-line",
+      scale: 10,
     },
   ],
   layers: [
@@ -411,7 +448,7 @@ test("a value of the wrong shape is reported in these words, once", () => {
       { toString: 0 },
       [
         "xref: Xref a value of type object: A block's name must be a string",
-        `undefined-block: insert #8: Block "BASE" is not defined. AutoCAD's AUDIT reports an insert of a block the drawing does not have, and AutoCAD cannot save the drawing as DXF`,
+        `undefined-block: insert #9: Block "BASE" is not defined. AutoCAD's AUDIT reports an insert of a block the drawing does not have, and AutoCAD cannot save the drawing as DXF`,
       ],
     ],
     [

@@ -8,6 +8,7 @@ import {
   CENSUS_LIMIT,
   checkDrawingRead,
   createDrawing,
+  leaderCount,
   readDXF,
   ReadError,
   toDXF,
@@ -89,7 +90,12 @@ test("readDXF reads what toDXF writes of the example sheet", async () => {
     .flatMap((row) => Object.values(row.kinds))
     .reduce((a, b) => a + b, 0);
   assert.equal(counted, model);
-  assert.deepEqual(plain(read.unread), { entities: {}, objects: {}, malformed: {} });
+  // A multileader is counted, and has no reading of its own yet.
+  assert.deepEqual(plain(read.unread), {
+    entities: { MULTILEADER: leaderCount(sheet) },
+    objects: {},
+    malformed: {},
+  });
 
   // The same file read from a string, or a byte at a time, reads the same.
   assert.deepEqual(await readDXF(text), read);

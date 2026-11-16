@@ -12,7 +12,18 @@ import {
 } from "./blocks.ts";
 import { callOf, type CallSite } from "./callsite.ts";
 import { dimensionPicture } from "./dimensions.ts";
-import type { Block, Drawing, Entity, Insert, Point, Text } from "./drawing.ts";
+import { leaderPicture } from "./leaders.ts";
+import type {
+  Block,
+  Drawing,
+  Entity,
+  Insert,
+  Leader,
+  LeaderStyle,
+  Point,
+  Text,
+  TextStyle,
+} from "./drawing.ts";
 import { written } from "./format.ts";
 import { layerKey } from "./layers.ts";
 import { inStyle, measureText } from "./measure.ts";
@@ -73,7 +84,8 @@ const TOLERANCE = 0.1;
  * grid looks at, the eight corners of two texts held against each other, and each point of an
  * outline held against a text, eight times over for the four sides of its box. The walk of an
  * insert counts `WALKED` for each block it enters and each item it reads there, and as much for
- * each 32 characters of a text it reads there, or of what a dimension's label reads. Each insert
+ * each 32 characters of a text it reads there, or of what a dimension's label reads, and of the
+ * lines of a leader's note with their characters. Each insert
  * takes its first `FREE` of those steps free, and the walks of all of them as many more as one
  * walk of every block and xref would take.
  */
@@ -130,7 +142,8 @@ interface Outline extends Placed {
  * - `text-off-paper`: on a layout, a text whose box reaches that far past the paper.
  *
  * A text's box is the one `measureText` gives: its capitals, turned and leaned as the text
- * is. A dimension's text counts as a text, where the dimension's picture puts it. Only what plots counts, as in `toSVG`: nothing on a layer that is off, frozen or set not
+ * is. A dimension's text counts as a text, where the dimension's picture puts it, and so does
+ * each line of a leader's note. Only what plots counts, as in `toSVG`: nothing on a layer that is off, frozen or set not
  * to plot. Model space and each layout are looked at apart, and a layout's text is never held
  * against what a viewport shows. An insert counts for the texts, the attributes and the
  * closed polylines its block draws, where the insert puts them, and a text with no characters
@@ -175,6 +188,42 @@ export function inspectWithin(
     return !capped;
   };
   const walk = (cost: number): boolean => spend(cost * WALKED);
+  /**
+   * The lines of each leader's note that hold a character, as texts where its picture puts them,
+   * worked out once, with what reading them again costs.
+   */
+  const notes = new WeakMap<
+    Leader,
+    { style: LeaderStyle; textStyle: TextStyle | undefined; texts: Text[]; cost: number }
+  >();
+  const noteOf = (
+    leader: Leader,
+    style: LeaderStyle,
+    named: string | undefined,
+    textStyle: TextStyle | undefined,
+  ) => {
+    const known = notes.get(leader);
+    if (known?.style === style && known.textStyle === textStyle) return known;
+    const texts: Text[] = [];
+    let characters = 0;
+    for (const line of leaderPicture(leader, style, textStyle).lines) {
+      if (line.value.trim() === "") continue;
+      characters += line.value.length;
+      texts.push({
+        kind: "text",
+        layer: leader.layer,
+        at: line.at,
+        height: line.height,
+        value: line.value,
+        rotation: 0,
+        ...(line.align === "right" ? { align: "right" as const } : {}),
+        ...(named === undefined ? {} : { style: named }),
+      });
+    }
+    const note = { style, textStyle, texts, cost: Math.floor((texts.length + characters) / 32) };
+    notes.set(leader, note);
+    return note;
+  };
 
   const space = (entities: readonly Entity[], layout?: string, paper?: Box): void => {
     const texts: PlacedText[] = [];
@@ -189,6 +238,19 @@ export function inspectWithin(
     ): void => {
       const { id, layer } = entities[index]!;
       const place = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
+      if (drawn.kind === "leader") {
+        // Each line of a leader's note is a text where its picture puts it.
+        const tables = tablesOf(from);
+        const style = tables.leaderStyles.get(key(drawn.style));
+        if (style === undefined) return;
+        const named = drawn.textStyle ?? style.textStyle;
+        const textStyle = named === undefined ? undefined : tables.textStyles.get(key(named));
+        const note = noteOf(drawn, style, named, textStyle);
+        // The note is read again for each place it is drawn.
+        if (!walk(note.cost)) return;
+        for (const text of note.texts) keep(text, index, matrix, from, attribute);
+        return;
+      }
       if (drawn.kind === "linear-dimension" || drawn.kind === "aligned-dimension") {
         // A dimension's text is a text where its picture puts it.
         const style = tablesOf(from).dimensionStyles.get(key(drawn.style));
@@ -246,6 +308,7 @@ export function inspectWithin(
         ? e.value.trim() !== ""
         : e.kind === "linear-dimension" ||
           e.kind === "aligned-dimension" ||
+          e.kind === "leader" ||
           (e.kind === "polyline" && e.closed && Array.isArray(e.points) && e.points.length > 2);
     const where = layout === undefined ? "model space" : `layout ${shown(layout)}`;
     filled(entities).forEach((entity, index) => {
@@ -424,6 +487,7 @@ function looked(
         return Boolean(e.closed) && Array.isArray(e.points) && e.points.length > 2;
       case "linear-dimension":
       case "aligned-dimension":
+      case "leader":
         return true;
       default:
         return false;

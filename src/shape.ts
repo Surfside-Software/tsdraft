@@ -13,6 +13,8 @@ import type {
   Insert,
   Layer,
   Layout,
+  Leader,
+  LeaderStyle,
   Line,
   LinearDimension,
   Linetype,
@@ -53,6 +55,7 @@ const KINDS = [
   "insert",
   "linear-dimension",
   "aligned-dimension",
+  "leader",
 ] as const satisfies readonly Entity["kind"][];
 
 /** What is wrong with an entity whose kind tsdraft does not know. */
@@ -237,6 +240,7 @@ export interface Shapes {
   readonly linetype: Check;
   readonly textStyle: Check;
   readonly dimensionStyle: Check;
+  readonly leaderStyle: Check;
   readonly block: Check;
   readonly attribute: Check;
   readonly xref: Check;
@@ -423,6 +427,27 @@ function shapes(all: boolean, typed = all): Shapes {
       { kind, layer: string, style: ruled(string), from: point, to: point, offset: number },
       { id: ruled(string), text: ruled(string) },
     ),
+    // A rule of `lint` reports the note, the shafts and the leader's own fields, whatever their type.
+    leader: fields<Leader>(
+      {
+        kind,
+        layer: string,
+        style: ruled(string),
+        text: ruled(list(string)),
+        at: point,
+        shafts: ruled(list(list(point))),
+      },
+      {
+        id: ruled(string),
+        side: ruled(string),
+        attachment: ruled(string),
+        textStyle: ruled(string),
+        textHeight: ruled(number),
+        arrowSize: ruled(number),
+        landing: ruled(number),
+        gap: ruled(number),
+      },
+    ),
   } satisfies Record<Entity["kind"], FieldsCheck>;
 
   const entity: Check = (value, at, problems, extra) => {
@@ -509,6 +534,24 @@ function shapes(all: boolean, typed = all): Shapes {
       },
     ),
   );
+  // A rule of `lint` reports every field of a leader style, whatever its type.
+  const leaderStyle = record(
+    fields<LeaderStyle>(
+      {
+        name: ruled(string),
+        textHeight: ruled(number),
+        arrowSize: ruled(number),
+        landing: ruled(number),
+        gap: ruled(number),
+      },
+      {
+        textStyle: ruled(string),
+        arrowhead: ruled(string),
+        attachment: ruled(string),
+        scale: ruled(number),
+      },
+    ),
+  );
   const attribute = record(
     fields<AttributeDefinition>(
       {
@@ -569,6 +612,7 @@ function shapes(all: boolean, typed = all): Shapes {
       xrefs: ruled(table(record(xref))),
       layouts: ruled(table(layout)),
       dimensionStyles: ruled(table(dimensionStyle)),
+      leaderStyles: ruled(table(leaderStyle)),
     },
   );
   return {
@@ -578,6 +622,7 @@ function shapes(all: boolean, typed = all): Shapes {
     linetype,
     textStyle,
     dimensionStyle,
+    leaderStyle,
     block,
     attribute,
     xref: record(xref),

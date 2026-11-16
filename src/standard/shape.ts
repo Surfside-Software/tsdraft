@@ -3,10 +3,13 @@
 // `defineStandard` fills the defaults from it and the hash leaves out what it marks, and
 // `standardSchema` writes the JSON Schema from it, so the three cannot drift apart.
 import {
+  ARROWHEAD_BLOCKS,
   ARROWHEADS,
   DEFAULT_ARROWHEAD,
+  DEFAULT_LEADER_ARROWHEAD,
   DIMENSION_UNITS,
   FEET_INCH_ZEROS,
+  LEADER_ARROWHEADS,
   ZERO_SUPPRESSIONS,
 } from "../arrowheads.ts";
 import { FONTS } from "../fonts.ts";
@@ -25,6 +28,10 @@ import {
   idProblem,
   layerColorProblem,
   layerNameProblem,
+  LEADER_ATTACHMENTS,
+  leaderArrowheadProblem,
+  leaderAttachmentProblem,
+  leaderSizeProblem,
   lineweightValueProblem,
   linetypeProblem,
   linetypeScaleProblem,
@@ -54,6 +61,8 @@ import type {
   DisciplineDocument,
   LayerDocument,
   LayerFieldsDocument,
+  LeaderStyleDocument,
+  LeaderStyleFieldsDocument,
   LinetypeDocument,
   PenDocument,
   ScaleDocument,
@@ -72,6 +81,7 @@ import {
   FILL_KEYS,
   fillProblem,
   layerZeroProblem,
+  leaderStyleIdProblem,
   paperUnitsProblem,
   roleNameProblem,
   scaleLabelProblem,
@@ -514,6 +524,40 @@ const DIMENSION_STYLE = record<DimensionStyleDocument>("dimensionStyle", "a dime
   ),
 });
 
+const LEADER_FIELDS = {
+  role: {
+    node: string(),
+    description: "The text role of the note, which gives its text style and height",
+    required: true,
+  },
+  arrowhead: {
+    node: string({ enum: Object.keys(LEADER_ARROWHEADS) }, leaderArrowheadProblem),
+    description: "One of LEADER_ARROWHEADS",
+    default: DEFAULT_LEADER_ARROWHEAD,
+  },
+  arrowSize: size(leaderSizeProblem, "The size of an arrowhead"),
+  landing: size(leaderSizeProblem, "The length of the landing, 0 for none"),
+  gap: size(leaderSizeProblem, "The gap between the end of the landing and the note"),
+  attachment: {
+    node: string({ enum: LEADER_ATTACHMENTS }, leaderAttachmentProblem),
+    description: "Which line of the note the landing meets, at the middle of its capitals",
+    default: "first-line",
+  },
+  description,
+} as const satisfies FieldsOf<LeaderStyleFieldsDocument>;
+
+const LEADER_STYLE = record<LeaderStyleDocument>("leaderStyle", "a leader style", {
+  ...LEADER_FIELDS,
+  discipline,
+  byDiscipline: byDiscipline(
+    record<LeaderStyleFieldsDocument>(
+      "leaderStyleFields",
+      "a leader style's fields for a discipline",
+      replacing(LEADER_FIELDS) as FieldsOf<LeaderStyleFieldsDocument>,
+    ),
+  ),
+});
+
 const FIELD = record<TitleBlockFieldDocument>("titleBlockField", "a title block's field", {
   fills: {
     node: string({ enum: FILL_KEYS }, fillProblem),
@@ -531,7 +575,7 @@ const FIELD = record<TitleBlockFieldDocument>("titleBlockField", "a title block'
 const XREF = record<XrefDocument>("xref", "an xref", {
   name: {
     node: string(
-      lazy(() => patterns.name("_ArchTick")),
+      lazy(() => patterns.name(...ARROWHEAD_BLOCKS)),
       blockNameProblem,
     ),
     description: "The xref's name",
@@ -562,7 +606,7 @@ const TITLE_BLOCK = record<TitleBlockDocument>("titleBlock", "a title block", {
   },
   blockName: {
     node: string(
-      lazy(() => patterns.name("_ArchTick")),
+      lazy(() => patterns.name(...ARROWHEAD_BLOCKS)),
       blockNameProblem,
     ),
     description: "The block of block that the builder inserts at [0, 0] on each sheet",
@@ -690,6 +734,10 @@ export const DOCUMENT = record<StandardDocument>("standard", "a standard", {
     node: string(),
     description: "The dimension style of a dimension that names none",
   },
+  defaultLeaderStyle: {
+    node: string(),
+    description: "The leader style of a leader that names none",
+  },
   disciplines: section(ids(STANDARD, "discipline"), DISCIPLINE, "The disciplines"),
   pens: section(ids(STANDARD, "pen"), PEN, "Named lineweights"),
   linetypes: section(
@@ -720,6 +768,11 @@ export const DOCUMENT = record<StandardDocument>("standard", "a standard", {
     ids(STANDARD, "dimension style", dimensionStyleIdProblem, "standard"),
     DIMENSION_STYLE,
     "The dimension styles",
+  ),
+  leaderStyles: section(
+    ids(STANDARD, "leader style", leaderStyleIdProblem, "standard"),
+    LEADER_STYLE,
+    "The leader styles",
   ),
   titleBlocks: section(ids(STANDARD, "title block"), TITLE_BLOCK, "The title blocks"),
   sheetFormats: section(ids(STANDARD, "sheet format"), SHEET_FORMAT, "The sheet formats"),
@@ -1082,7 +1135,7 @@ export function standardSchema(version: string): Json {
     title: "A tsdraft standard",
     ...top,
     description:
-      "A firm's CAD standard: its layers, pens, linetypes, text roles, scales, dimension styles, title blocks and sheet formats. What a schema cannot hold, such as a name that refers to another entry, is checked by defineStandard",
+      "A firm's CAD standard: its layers, pens, linetypes, text roles, scales, dimension styles, leader styles, title blocks and sheet formats. What a schema cannot hold, such as a name that refers to another entry, is checked by defineStandard",
     $defs: Object.fromEntries(Object.entries(definitions).sort(([a], [b]) => (a < b ? -1 : 1))),
   };
 }

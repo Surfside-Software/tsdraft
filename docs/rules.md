@@ -183,6 +183,17 @@ it would take `1e+100` for `1e+10` and report nothing.
 - A block is not named `_ArchTick`, in any case. AutoCAD draws a dimension's architectural
   tick with the block of that name.
 - An R12 drawing has no dimensions.
+- A leader names a leader style the drawing defines, and not `Standard`, which is AutoCAD's
+  own. A leader style's name follows the rules of a dimension style's name. Its text style,
+  and a leader's own, is one the drawing defines. Its text height is greater than 0, its arrow
+  size, landing and gap are 0 or more, its scale is greater than 0, and its arrowhead is one of
+  `LEADER_ARROWHEADS`. [Leaders](leaders.md#what-lint-reports) says why.
+- A leader's note is lines of text with none of `\`, `{` and `}`, and one line that is not
+  empty or all spaces. A leader has a shaft, and the first segment of each has a length once it
+  is written with 6 decimals. Every number a leader draws is under 1e100.
+- A leader is not in a block, and an R12 drawing has no leaders.
+- A block is not named `_Open`, `_Dot` or `_None`, in any case. AutoCAD draws a leader's
+  arrowheads with the blocks of those names.
 - An entity's id has 1 to 64 letters A to Z or a to z, digits, `.`, `-` and
   `_`, and no two entities share one, whatever its case, in model space, in a block or on a
   layout. A viewport's id is one of them. See
@@ -195,11 +206,11 @@ it would take `1e+100` for `1e+10` and report nothing.
 - A drawing has the shape of a `Drawing`. `lint` takes any plain data and never throws: for a
   list that is not an array or has an empty slot, an item that is not an object, an entity
   whose `kind` is not one of `line`, `polyline`, `circle`, `arc`, `text`, `insert`,
-  `linear-dimension` and `aligned-dimension`, a missing
+  `linear-dimension`, `aligned-dimension` and `leader`, a missing
   field and a field of the wrong type, it gives an error with the path to the value, such as
   `entities[3].from must be a point, [x, y]`. The rule is `linetype`, `text-style`, `block` or
   `attribute` for a value in that list, `xref` for one in `xrefs`, `dimension-style` for one
-  in `dimensionStyles`, `layout` for a layout,
+  in `dimensionStyles`, `leader-style` for one in `leaderStyles`, `layout` for a layout,
   `viewport` for a viewport, and `format` for the rest, which an entity of a sheet is.
   No other rule is checked on an object of the wrong shape, and what names it gets no error
   for that. A `Proxy` is code, not data, and nothing can tell one from data without asking it:
@@ -222,7 +233,7 @@ it would take `1e+100` for `1e+10` and report nothing.
   the start of a control code when it draws it: `%%d` is drawn as a degree sign
   and `%%%` as one percent sign.
 - A dimension's text, or its style's prefix or suffix, that contains `%%`, for the same
-  reason.
+  reason, and a line of a leader's note that does.
 - An xref that no insert places. AutoCAD purges an xref that nothing references
   when it opens the drawing.
 - A viewport that reaches past its layout's paper. AutoCAD plots a layout as far as its paper
@@ -267,7 +278,8 @@ Errors:
 - `pen-outside-standard`: an entity's lineweight that is no pen's. `ByLayer` and `ByBlock` are
   every standard's.
 - `text-style-outside-standard`: a text style that is no role's and no title block's, and a text
-  or an attribute definition in no role's text style, `Standard` among them.
+  or an attribute definition in no role's text style, `Standard` among them. So is a leader with
+  a text style of its own that is no role's.
 - `text-style-differs-from-standard`: a role's text style whose font, width factor or oblique
   angle is not the role's.
 - `dimension-style-outside-standard`: a dimension style that is none of the standard's, which
@@ -277,6 +289,11 @@ Errors:
   scale or writing is not what the standard gives it, once for each. A style that the standard
   says nothing about how to write in its units, the drawing's or the paper's, is
   `dimension-style`.
+- `leader-style-outside-standard`: a leader style that is none of the standard's, which are
+  named as its dimension styles are, such as `NOTES` on a layout and `NOTES-1in-10ft` in model
+  space.
+- `leader-style-differs-from-standard`: one of those whose text style, text height, arrowhead,
+  sizes, attachment or scale is not what the standard gives it, once for each.
 - `scale-outside-standard`: a viewport whose ratio is no scale of the standard.
 - `sheet-format-outside-standard`: a layout on a paper that no sheet format of the standard is
   on, and one whose plot style table is not its sheet format's.
@@ -285,10 +302,13 @@ Errors:
 - `title-block-differs-from-standard`: a title block in the drawing that is not the standard's,
   as below, and a layout that inserts the title block of another sheet format than its own.
 - `height-off-role`: a text in a role's text style that plots at another height than the
-  role's.
-- `height-below-standard`: a text that plots below the standard's `minTextHeight`.
+  role's. A line of a leader's note counts as a text, where the leader is shown at its style's
+  scale.
+- `height-below-standard`: a text that plots below the standard's `minTextHeight`, a line of a
+  leader's note included.
 - `dimension-off-scale`: a dimension shown in a viewport at another ratio than its style's
   scale, and one on a layout in a style for model space.
+- `leader-off-scale`: the same for a leader.
 - `sheet-per-file`: under `sheetFiles` `"sheet-per-file"`, a drawing with a second layout, and
   a sheet number in the title block that cannot name a file.
 - `layout`: under `sheetFiles` `"one-drawing"`, a sheet number in the title block that is not

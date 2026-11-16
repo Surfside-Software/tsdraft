@@ -6,7 +6,13 @@ import {
   blocksByKey,
   placeAttribute,
 } from "./blocks.ts";
-import { arrowheadInfo, DEFAULT_ARROWHEAD } from "./arrowheads.ts";
+import {
+  arrowheadInfo,
+  DEFAULT_ARROWHEAD,
+  DEFAULT_LEADER_ARROWHEAD,
+  leaderArrowheadInfo,
+  type LeaderArrowheadStroke,
+} from "./arrowheads.ts";
 import {
   arrowheadEntityHandle,
   arrowheadsWithBlocks,
@@ -28,6 +34,8 @@ import type {
   Entity,
   Insert,
   Layout,
+  Leader,
+  LeaderStyle,
   Linetype,
   Text,
   TextStyle,
@@ -55,6 +63,20 @@ import { fontInfo, STANDARD_TEXT_STYLE } from "./fonts.ts";
 import { ID_HANDLE_SEED, validIdHandle } from "./handles.ts";
 import { dxfOnce, dxfText, fmt, readable, written, writtenAngle } from "./format.ts";
 import { layerKey, layerZeroFirst } from "./layers.ts";
+import {
+  attachmentCode,
+  LEADER_STYLE_DICTIONARY,
+  leaderArrowheadHandles,
+  leaderArrowheadsWithBlocks,
+  leaderAttachment,
+  leaderCount,
+  leaderOwnFlags,
+  leaderPicture,
+  leaderSizes,
+  leaderStyleDictionaryHandle,
+  STANDARD_LEADER_STYLE_SIZES,
+  validLeaderStyleHandle,
+} from "./leaders.ts";
 import { entityLinetype, layerLinetype, lineweightCode, patternLength } from "./linetypes.ts";
 import { shown, TEXT_ALIGNS, TEXT_VERTICAL_ALIGNS } from "./rules.ts";
 
@@ -118,6 +140,7 @@ export function toDXFR2018(
     undefined,
     undefined,
     drawing.dimensionStyles,
+    drawing.leaderStyles,
     checksLimit(drawing),
   );
   const [left, bottom, right, top] = extentsOf(drawing.entities, boxOf, "model space");
@@ -130,8 +153,24 @@ export function toDXFR2018(
     readable(top),
   ];
 
+  const leaderStyles = drawing.leaderStyles ?? [];
+  // Keyed as style names are compared, so a leader that names `notes` takes the style `NOTES`.
+  const leaderStylesByKey = new Map(leaderStyles.map((style) => [layerKey(style.name), style]));
+  const leaderArrowheads = leaderArrowheadsWithBlocks(leaderStyles);
+
   g(0, "SECTION");
   g(2, "CLASSES");
+  // A multileader and its style are objects of classes, which a drawing that has them lists.
+  if (leaderStyles.length > 0) {
+    writeClass(g, "MLEADERSTYLE", "AcDbMLeaderStyle", "ACDB_MLEADERSTYLE_CLASS", 4095, {
+      count: leaderStyles.length + 1,
+      entity: false,
+    });
+    writeClass(g, "MULTILEADER", "AcDbMLeader", "ACDB_MLEADER_CLASS", 1025, {
+      count: leaderCount(drawing),
+      entity: true,
+    });
+  }
   g(0, "ENDSEC");
 
   g(0, "SECTION");
@@ -151,15 +190,18 @@ export function toDXFR2018(
     { name: "Continuous", description: "Solid line", pattern: [] },
     ...(drawing.linetypes ?? []),
   ];
+  const linetypeHandles = linetypes.map(() => handle());
+  // A leader style draws its shafts in the linetype ByBlock, which it holds by its handle.
+  const linetypeByBlock = linetypeHandles[0]!;
   writeTable(
     g,
     handle,
     "LTYPE",
-    linetypes.map((linetype) => ({
+    linetypes.map((linetype, i) => ({
       type: "LTYPE",
       subclass: "AcDbLinetypeTableRecord",
       name: linetype.name,
-      handle: handle(),
+      handle: linetypeHandles[i]!,
       fields: (g) => {
         g(3, dxfOnce(linetype.description));
         g(72, 65); // alignment: "A"
@@ -356,8 +398,8 @@ export function toDXFR2018(
       handle: blockHandles(xref.name).record,
       fields: blockRecordFields,
     })),
-    // The block of each arrowhead a dimension style draws with.
-    ...arrowheads.map(({ block }) => ({
+    // The block of each arrowhead a dimension style or a leader style draws with.
+    ...[...arrowheads, ...leaderArrowheads].map(({ block }) => ({
       type: "BLOCK_RECORD",
       subclass: "AcDbBlockTableRecord",
       name: block,
@@ -387,6 +429,21 @@ export function toDXFR2018(
   ): void => {
     entities.forEach((entity, index) => {
       const own = entity.id === undefined ? handle() : handleOf(entity.id);
+      if (entity.kind === "leader") {
+        const style = leaderStylesByKey.get(layerKey(entity.style));
+        if (style === undefined) return;
+        const named = entity.textStyle ?? style.textStyle;
+        writeLeader(g, entity, style, {
+          handle: own,
+          owner,
+          paper,
+          textStyle: styleOf(named),
+          textStyleHandle:
+            textStyleHandles.get(layerKey(named ?? STANDARD_TEXT_STYLE)) ?? standardStyle,
+          linetype: linetypeByBlock,
+        });
+        return;
+      }
       if (entity.kind === "linear-dimension" || entity.kind === "aligned-dimension") {
         writeDimension(
           g,
@@ -518,6 +575,15 @@ export function toDXFR2018(
       },
     });
   }
+  for (const { arrowhead, block, strokes } of leaderArrowheads) {
+    const handles = blockHandles(block);
+    const own = leaderArrowheadHandles(arrowhead)!.strokes;
+    writeBlock(g, handles.begin, handles.end, block, handles.record, {
+      paper: false,
+      contents: () =>
+        strokes.forEach((stroke, i) => writeArrowheadStroke(g, stroke, own[i]!, handles.record)),
+    });
+  }
   for (const picture of pictures.values()) writePicture(g, picture);
   g(0, "ENDSEC");
 
@@ -540,6 +606,11 @@ export function toDXFR2018(
     g(3, "ACAD_LAYOUT");
     g(350, layoutDictionary);
   }
+  const leaderDictionary = leaderStyleDictionaryHandle();
+  if (leaderStyles.length > 0) {
+    g(3, LEADER_STYLE_DICTIONARY);
+    g(350, leaderDictionary);
+  }
   g(3, "ACAD_PLOTSTYLENAME");
   g(350, plotStyleDictionary);
   g(0, "DICTIONARY");
@@ -557,6 +628,27 @@ export function toDXFR2018(
   g(340, normalPlotStyle);
   g(0, "ACDBPLACEHOLDER");
   ownedBy(g, normalPlotStyle, plotStyleDictionary);
+  if (leaderStyles.length > 0) {
+    // AutoCAD's own style, then the drawing's, which the dictionary lists by name.
+    const styles: [LeaderStyle, string][] = [
+      [STANDARD_LEADER_STYLE_SIZES, standardStyle],
+      ...leaderStyles.map((style): [LeaderStyle, string] => [
+        style,
+        textStyleHandles.get(layerKey(style.textStyle ?? STANDARD_TEXT_STYLE)) ?? standardStyle,
+      ]),
+    ];
+    g(0, "DICTIONARY");
+    ownedBy(g, leaderDictionary, rootDictionary);
+    g(100, "AcDbDictionary");
+    g(281, 1);
+    for (const [style] of styles) {
+      g(3, dxfOnce(style.name));
+      g(350, validLeaderStyleHandle(style.name));
+    }
+    for (const [style, textStyle] of styles) {
+      writeLeaderStyle(g, style, leaderDictionary, textStyle, linetypeByBlock);
+    }
+  }
   if (sheets.length > 0) {
     g(0, "DICTIONARY");
     ownedBy(g, layoutDictionary, rootDictionary);
@@ -630,6 +722,7 @@ export function toDXFR2018(
     xrefs.length > 0 ||
     sheets.length > 0 ||
     dimensionStyles.length > 0 ||
+    leaderStyles.length > 0 ||
     drawing.entities.some((entity) => entity.id !== undefined);
   h(5, named ? ID_HANDLE_SEED : handle());
   h(0, "ENDSEC");
@@ -859,7 +952,7 @@ function writeAttributeFields(
  */
 function writeEntity(
   g: Group,
-  e: Exclude<Entity, Insert | Dimension>,
+  e: Exclude<Entity, Insert | Dimension | Leader>,
   handle: string,
   owner: string,
   style: TextStyle | undefined,
@@ -1442,4 +1535,260 @@ function writeLayout(
   g(76, 0); // orthographic UCS: none
   g(330, handles.record);
   g(331, handles.sheet); // the viewport that was last current
+}
+
+/** A class of the drawing's objects, by the name a DXF gives its objects. */
+function writeClass(
+  g: Group,
+  dxfName: string,
+  cppName: string,
+  appName: string,
+  proxyFlags: number,
+  of: { readonly count: number; readonly entity: boolean },
+): void {
+  g(0, "CLASS");
+  g(1, dxfName);
+  g(2, cppName);
+  g(3, appName);
+  g(90, proxyFlags);
+  g(91, of.count); // how many objects of the class the drawing holds
+  g(280, 0); // not a proxy
+  g(281, of.entity ? 1 : 0);
+}
+
+/** A color AutoCAD holds as ByLayer and as ByBlock, as a multileader and its style write one. */
+const COLOR_BY_LAYER = -1073741824;
+const COLOR_BY_BLOCK = -1056964608;
+/** The lineweight ByBlock, as a multileader and its style write it. */
+const LINEWEIGHT_BY_BLOCK = -2;
+
+/**
+ * A leader style, with its sizes times its scale and a scale of 1. Its shafts, its text and its
+ * block are ByBlock, so a leader draws in its own color, linetype and lineweight, which are its
+ * layer's. The note's lines are set at least `lineSpacing` apart and do not wrap, and the text
+ * is level.
+ *
+ * @param textStyle - The handle of the style's text style.
+ * @param linetype - The handle of the linetype ByBlock.
+ */
+function writeLeaderStyle(
+  g: Group,
+  style: LeaderStyle,
+  dictionary: string,
+  textStyle: string,
+  linetype: string,
+): void {
+  const sizes = leaderSizes({}, style);
+  const scale = written(style.scale ?? 1);
+  const attachment = attachmentCode(leaderAttachment({}, style));
+  const block = leaderArrowheadInfo(style.arrowhead ?? DEFAULT_LEADER_ARROWHEAD)?.block;
+  g(0, "MLEADERSTYLE");
+  ownedBy(g, validLeaderStyleHandle(style.name), dictionary);
+  g(100, "AcDbMLeaderStyle");
+  g(179, 2); // version
+  g(170, 2); // content: a text
+  g(171, 1); // the leader is drawn first
+  g(172, 0); // and from its arrowhead
+  g(90, 2); // the points MLEADER asks for
+  g(40, 0); // angles MLEADER keeps the segments to: none
+  g(41, 0);
+  g(173, 1); // straight shafts
+  g(91, COLOR_BY_BLOCK);
+  g(340, linetype);
+  g(92, LINEWEIGHT_BY_BLOCK);
+  g(290, 1); // a landing
+  g(42, sizes.gap);
+  g(291, 1); // of a set length
+  g(43, sizes.landing);
+  g(3, ""); // description
+  // The closed filled arrowhead is AutoCAD's default, which the style names by no block.
+  if (block !== undefined) g(341, blockHandles(block).record);
+  g(44, sizes.arrowSize);
+  g(300, ""); // the default text
+  g(342, textStyle);
+  g(174, attachment); // where the landing meets a note on its right
+  g(178, attachment); // and on its left
+  g(175, 1); // level text
+  g(176, 0); // text aligned as its attachment puts it
+  g(93, COLOR_BY_BLOCK);
+  g(45, sizes.textHeight);
+  g(292, 0); // no frame
+  g(297, 0); // a note on the left is justified right
+  g(46, 0.18 * scale); // the spacing MLEADERALIGN offers, as AutoCAD's Standard style has it
+  g(94, COLOR_BY_BLOCK);
+  g(47, 1); // the block's scale
+  g(49, 1);
+  g(140, 1);
+  g(293, 1);
+  g(141, 0); // the block's rotation
+  g(294, 1);
+  g(177, 0); // a block connects by its extents
+  g(142, 1); // scale
+  g(295, 0);
+  g(296, 0); // not annotative
+  g(143, 0.125 * scale); // the size of a break DIMBREAK makes, as AutoCAD's Standard style has it
+  g(271, 0); // the landing meets the note at its side
+  g(272, 9);
+  g(273, 9);
+  g(298, 0);
+}
+
+/**
+ * A leader: a multileader whose note is a text of lines that do not wrap, with one leader root,
+ * a leader line for each shaft and the numbers `leaderPicture` works out. It is held to the
+ * sizes it is drawn with, at a scale of 1, and names its style and every property it sets
+ * itself, in place of its style's.
+ */
+function writeLeader(
+  g: Group,
+  e: Leader,
+  style: LeaderStyle,
+  where: {
+    readonly handle: string;
+    readonly owner: string;
+    readonly paper: boolean;
+    /** The text style of its note, unless it is `Standard`, and its handle. */
+    readonly textStyle: TextStyle | undefined;
+    readonly textStyleHandle: string;
+    /** The handle of the linetype ByBlock. */
+    readonly linetype: string;
+  },
+): void {
+  const picture = leaderPicture(e, style, where.textStyle);
+  const { sizes } = picture;
+  const attachment = attachmentCode(picture.attachment);
+  const left = picture.side === "left";
+  const block = leaderArrowheadInfo(style.arrowhead ?? DEFAULT_LEADER_ARROWHEAD)?.block;
+  g(0, "MULTILEADER");
+  g(5, where.handle);
+  g(330, where.owner);
+  g(100, "AcDbEntity");
+  if (where.paper) g(67, 1);
+  g(8, e.layer);
+  g(100, "AcDbMLeader");
+  g(270, 2); // version
+  g(300, "CONTEXT_DATA{");
+  g(40, 1); // scale
+  point3(g, 10, ...picture.contentBase, 0);
+  g(41, sizes.textHeight);
+  g(140, sizes.arrowSize);
+  g(145, sizes.gap);
+  g(174, attachment);
+  g(175, attachment);
+  g(176, left ? 2 : 0); // justified right, or left
+  g(177, 0);
+  g(290, 1); // the content is a text
+  g(304, dxfOnce(e.text.join("\\P")));
+  point3(g, 11, 0, 0, 1); // the text's normal
+  g(340, where.textStyleHandle);
+  point3(g, 12, ...picture.location, 0);
+  point3(g, 13, 1, 0, 0); // along the text
+  g(42, 0); // rotation
+  g(43, 0); // no width to wrap at
+  g(44, 0);
+  g(45, 1); // line spacing
+  g(170, 1); // at least as set
+  g(90, COLOR_BY_LAYER);
+  g(171, left ? 3 : 1); // held by its top right, or top left
+  g(172, 5); // flow
+  g(91, COLOR_BY_LAYER); // no background
+  g(141, 0);
+  g(92, 0);
+  g(291, 0);
+  g(292, 0);
+  g(173, 0); // no columns
+  g(293, 0);
+  g(142, 0);
+  g(143, 0);
+  g(294, 0);
+  g(295, 0);
+  g(296, 0); // no block
+  // The plane the leader is drawn in, from the first tip, as AutoCAD's MLEADER sets it.
+  const tip = e.shafts[0]![0]!;
+  point3(g, 110, tip[0], tip[1], 0);
+  point3(g, 111, 1, 0, 0);
+  point3(g, 112, 0, 1, 0);
+  g(297, 0);
+  g(302, "LEADER{");
+  g(290, 1);
+  g(291, 1);
+  point3(g, 10, ...picture.connection, 0);
+  point3(g, 11, picture.direction, 0, 0);
+  g(90, 0); // the root's index
+  g(40, sizes.landing);
+  e.shafts.forEach((shaft, i) => {
+    g(304, "LEADER_LINE{");
+    for (const [x, y] of shaft) point3(g, 10, x, y, 0);
+    g(91, i);
+    g(305, "}");
+  });
+  g(271, 0); // the landing meets the note at its side
+  g(303, "}");
+  g(272, 9);
+  g(273, 9);
+  g(301, "}");
+  g(340, validLeaderStyleHandle(style.name));
+  g(90, leaderOwnFlags(e));
+  g(170, 1); // straight shafts
+  g(91, COLOR_BY_BLOCK);
+  g(341, where.linetype);
+  g(171, LINEWEIGHT_BY_BLOCK);
+  g(290, 1);
+  g(291, 1);
+  g(41, sizes.landing);
+  if (block !== undefined) g(342, blockHandles(block).record);
+  g(42, sizes.arrowSize);
+  g(172, 2); // content: a text
+  g(343, where.textStyleHandle);
+  g(173, attachment);
+  g(95, attachment);
+  g(174, 1); // level text
+  g(175, left ? 2 : 0);
+  g(92, COLOR_BY_BLOCK);
+  g(292, 0);
+  g(93, COLOR_BY_BLOCK);
+  point3(g, 10, 1, 1, 1); // the block's scale
+  g(43, 0);
+  g(176, 0);
+  g(293, 0); // not annotative
+  g(294, 0);
+  g(178, 0);
+  g(179, left ? 3 : 1); // justified right, or left
+  g(45, 1); // scale
+  g(271, 0);
+  g(272, 9);
+  g(273, 9);
+  g(295, 0);
+}
+
+/** One entity of the block of a leader's arrowhead, on layer `0` and ByBlock. */
+function writeArrowheadStroke(
+  g: Group,
+  stroke: LeaderArrowheadStroke,
+  handle: string,
+  owner: string,
+): void {
+  g(0, stroke.kind === "line" ? "LINE" : "LWPOLYLINE");
+  g(5, handle);
+  g(330, owner);
+  g(100, "AcDbEntity");
+  g(8, "0");
+  g(6, "ByBlock");
+  g(62, 0);
+  if (stroke.kind === "line") {
+    g(370, LINEWEIGHT_BY_BLOCK);
+    g(100, "AcDbLine");
+    point(g, 10, ...stroke.from);
+    point(g, 11, ...stroke.to);
+    return;
+  }
+  g(100, "AcDbPolyline");
+  g(90, stroke.points.length);
+  g(70, 1); // closed
+  g(43, stroke.width);
+  stroke.points.forEach(([x, y], i) => {
+    g(10, x);
+    g(20, y);
+    g(42, stroke.bulges[i]!);
+  });
 }

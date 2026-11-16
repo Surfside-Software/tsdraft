@@ -61,6 +61,14 @@ const DIMENSION_WITHOUT_VIEW =
   "A dimension of model space under a standard names the view it is read in, whose scale sizes its style: give it view, which view() returns";
 const DIMENSION_VIEW_ON_PAPER =
   "A dimension on a layout is drawn in paper units, and names no view. Leave view out";
+const LEADER_STYLE_DEFINED =
+  "Under a standard the leader styles are the standard's, and a drawing defines none of its own. Add the style to the standard's leaderStyles in defineStandard, and name it by its id";
+const LEADER_WITHOUT_VIEW =
+  "A leader of model space under a standard names the view it is read in, whose scale sizes its style: give it view, which view() returns";
+const LEADER_VIEW_ON_PAPER =
+  "A leader on a layout is drawn in paper units, and names no view. Leave view out";
+const LEADER_ROLE_AND_TEXT =
+  "Under a standard a leader's note takes its text style and height from a role: give it role, in place of textStyle and textHeight";
 const LAYOUT_PAPER_UNITS =
   "a sheet of a standard is in the standard's paper units, which its text roles and dimension styles are sized in";
 const TEXT_STYLE_DEFINED =
@@ -107,6 +115,8 @@ export type InsertViewAndScale = typeof INSERT_VIEW_AND_SCALE;
 export type ViewportRatio = typeof VIEWPORT_RATIO;
 export type ViewportId = typeof VIEWPORT_ID;
 export type DimensionStyleDefined = typeof DIMENSION_STYLE_DEFINED;
+export type LeaderStyleDefined = typeof LEADER_STYLE_DEFINED;
+export type LeaderRoleAndText = typeof LEADER_ROLE_AND_TEXT;
 export type TextStyleDefined = typeof TEXT_STYLE_DEFINED;
 export type TextWithoutRole = typeof TEXT_WITHOUT_ROLE;
 export type LayoutPaper = typeof LAYOUT_PAPER;
@@ -142,6 +152,10 @@ export const DRAWN = {
   dimensionStyleDefined: DIMENSION_STYLE_DEFINED,
   dimensionWithoutView: DIMENSION_WITHOUT_VIEW,
   dimensionViewOnPaper: DIMENSION_VIEW_ON_PAPER,
+  leaderStyleDefined: LEADER_STYLE_DEFINED,
+  leaderWithoutView: LEADER_WITHOUT_VIEW,
+  leaderViewOnPaper: LEADER_VIEW_ON_PAPER,
+  leaderRoleAndText: LEADER_ROLE_AND_TEXT,
   textStyleDefined: TEXT_STYLE_DEFINED,
   textWithoutRole: TEXT_WITHOUT_ROLE,
   layoutPaper: LAYOUT_PAPER,
@@ -351,6 +365,40 @@ export type DimensionStyleOfStandard<S extends string, Z extends Standard> = str
 /** What is wrong with a dimension that names no style, under a standard that has no default. */
 export const noDefaultDimensionStyle = (standard: Standard): string =>
   `${capitalized(of(standard))} has no defaultDimensionStyle. Give the dimension the style of the standard it is drawn in, or set defaultDimensionStyle in the standard`;
+
+type LeaderStyleLacks<
+  S extends string,
+  Z extends Standard,
+> = `Leader style "${S}" is not a leader style of ${Of<Z>}. Add it to the standard's leaderStyles in defineStandard, with its role, arrowSize, landing and gap, or use one of its leader styles`;
+/** What is wrong with a leader style the standard lacks. */
+export const leaderStyleLacks = (name: string, standard: Standard): string =>
+  `Leader style ${JSON.stringify(name)} is not a leader style of ${of(standard)}. Add it to the standard's leaderStyles in defineStandard, with its role, arrowSize, landing and gap, or use one of its leader styles`;
+
+type LeaderStyleReserved<S extends string> =
+  `Leader style "${S}" is in no standard: its name in AutoCAD would be STANDARD, which is AutoCAD's own leader style. Use one of the standard's leader styles`;
+/** What is wrong with the leader style `standard`, in any case, which no standard holds. */
+export const leaderStyleReserved = (name: string): string | undefined =>
+  name.toUpperCase() === "STANDARD"
+    ? `Leader style ${JSON.stringify(name)} is in no standard: its name in AutoCAD would be STANDARD, which is AutoCAD's own leader style. Use one of the standard's leader styles`
+    : undefined;
+
+/**
+ * Resolves to `S` when it is a leader style of the standard `Z`, and to the message otherwise,
+ * for each member of `S`, as `DimensionStyleOfStandard` does for a dimension style.
+ */
+export type LeaderStyleOfStandard<S extends string, Z extends Standard> = string extends S
+  ? S
+  : S extends unknown
+    ? Uppercase<S> extends "STANDARD"
+      ? LeaderStyleReserved<S>
+      : S extends keyof Z["leaderStyles"]
+        ? S
+        : LeaderStyleLacks<S, Z>
+    : never;
+
+/** What is wrong with a leader that names no style, under a standard that has no default. */
+export const noDefaultLeaderStyle = (standard: Standard): string =>
+  `${capitalized(of(standard))} has no defaultLeaderStyle. Give the leader a leader style of the standard it is drawn in, or set defaultLeaderStyle in the standard`;
 
 /** What is wrong with a dimension in a unit its style does not say how to write. */
 export const writingLacks = (style: string, units: string, standard: Standard): string =>

@@ -65,6 +65,16 @@ and a `text` where it has one. A linear one has `line`, a point of its dimension
 linetype or a lineweight. A drawing with no dimension has the JSON it had before dimensions
 existed. [Dimensions](dimensions.md) describes them.
 
+A drawing lists its leader styles in `leaderStyles`, and leaves the field out when it has none.
+A style has a `name`, a `textHeight`, an `arrowSize`, a `landing` and a `gap`, and where they
+are set a `textStyle`, an `arrowhead`, an `attachment` and a `scale`. A leader is an entity of
+kind `"leader"`, in `drawing.entities` or in a layout's `entities`, with its `layer`, `style`,
+`text`, the lines of its note from the top, `at`, where its shafts meet, and `shafts`, each a
+list of points from its tip. Where it has them of its own it has a `side`, an `attachment`, a
+`textStyle`, a `textHeight`, an `arrowSize`, a `landing` and a `gap`. It has no linetype or
+lineweight. A drawing with no leader has the JSON it had before leaders existed.
+[Leaders](leaders.md) describes them.
+
 A drawing written by hand needs `format: 0` too. `lint` reports a drawing without it, or with
 another version, under the rule `format`, and `toDXF` refuses to write it. `lint` takes any
 plain data and never throws: a list that is not an array, an entity of an unknown `kind`, a
@@ -138,6 +148,7 @@ drawing may hold the handle. `idHandle` throws on a string that is not a valid i
 A block's own objects, its attribute definitions and the attributes of an insert that has an
 id take handles from their names in the same way: see [Handles](blocks.md#handles). So do a
 dimension style and the block of a dimension's picture: see [Handles](dimensions.md#handles).
+A leader style and the block of a leader's arrowhead do too: see [Handles](leaders.md#handles).
 
 Handles from ids lie from `10000000000000` to `1FFFFFFFFFFFFF`, far above the counted ones,
 and a drawing that has ids has a `$HANDSEED` of `20000000000000`. AutoCAD numbers the objects

@@ -94,6 +94,15 @@
   the block of a picture and what it holds, where WHO is the dimension's id with A to Z in
   lower case, or `@LAYOUT/INDEX` for one without an id: never change one. A dimension is
   refused inside a block, where AutoCAD draws nothing for it.
+- A leader holds its note, its point, its shafts and its own sizes, and the R2018 writer writes it
+  as a multileader with no picture. `src/leaders.ts` is the one place that says what AutoCAD
+  draws, `leaderPicture`, which the writers, `toSVG`, the extents and `inspectText` all read, and
+  `lineSpacing` in `src/measure.ts` the one rule for the pitch of a note's lines. A style's sizes
+  are paper sizes times its `scale`, and the file holds them multiplied out with a scale of 1. The
+  writers add AutoCAD's own `Standard` and the dictionary `ACAD_MLEADERSTYLE` with the first
+  style. The keys of the handles are `leader-style:NAME`, with A to Z in lower case,
+  `dictionary:acad_mleaderstyle`, and `arrowhead:NAME` and `arrowhead:NAME/N` for the strokes of
+  the blocks `_Open`, `_Dot` and `_None`: never change one. A leader is refused inside a block.
 - A style in architectural units, `DIMLUNIT` 4, writes feet and inches with the fraction on the
   line, `DIMFRAC` 2, and `feetInchZeros` is `DIMZIN` 0 to 3. `feetAndInches` in
   `src/dimensions.ts` is the string, and the dimension holds no text of its own, so AutoCAD
@@ -212,9 +221,9 @@
   drawing under their own names when `sheet.titleBlock()` first places it, and one the drawing
   has with another definition is refused: never rename one, since its handles come from its
   name. The builder fills a title block's scale when the layout's `draw` returns.
-- Under a standard, a role's text style and a dimension style of the standard enter the drawing
-  on first use, under `capitals` of the id, and in model space with the view's scale id after a
-  dimension style's: `DIMS-1in-10ft`. A view's id is taken when `view()` declares it, and the
+- Under a standard, a role's text style and a dimension or leader style of the standard enter
+  the drawing on first use, under `capitals` of the id, and in model space with the view's scale
+  id after a dimension or leader style's: `DIMS-1in-10ft`. A view's id is taken when `view()` declares it, and the
   one viewport that shows the view takes that id and no other.
 - `lint(drawing, { standard })` runs the rules of a standard in `src/standard/lint.ts` after the
   others, and without `standard` runs none of them. It takes the standard through `adopted` in

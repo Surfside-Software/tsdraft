@@ -20,6 +20,9 @@ const ROLE_STANDARD =
   "A text role cannot be named standard, in any case of its letters. Its text style would be STANDARD, which AutoCAD takes for the text style Standard that every drawing has";
 const DIMENSION_STYLE_STANDARD =
   "A dimension style cannot be named standard, in any case of its letters. Its name in AutoCAD would be STANDARD, which AutoCAD takes for the dimension style Standard that every drawing has";
+const LEADER_STYLE_STANDARD =
+  "A leader style cannot be named standard, in any case of its letters. Its name in AutoCAD would be STANDARD, which is AutoCAD's own leader style";
+const LEADER_ATTACHMENT_OF = 'attachment must be "first-line" or "last-line"';
 const STANDARD_ID =
   "A standard's id has 1 to 128 characters, each a letter A to Z or a to z, a digit, ., -, _, @ or /";
 const STANDARD_VERSION =
@@ -36,6 +39,7 @@ const REFERENCES = {
   textRoles: ["Text role", "a text role", "text roles"],
   scales: ["Scale", "a scale", "scales"],
   dimensionStyles: ["Dimension style", "a dimension style", "dimension styles"],
+  leaderStyles: ["Leader style", "a leader style", "leader styles"],
   titleBlocks: ["Title block", "a title block", "title blocks"],
   sheetFormats: ["Sheet format", "a sheet format", "sheet formats"],
 } as const satisfies Record<Section, readonly [string, string, string]>;
@@ -147,6 +151,20 @@ export type DimensionStyleStandard<I extends string> =
 export function dimensionStyleIdProblem(id: string): string | undefined {
   return capitals(id) === "STANDARD" ? DIMENSION_STYLE_STANDARD : undefined;
 }
+
+/** Resolves to the message when the leader style `I` would be named `STANDARD`. */
+export type LeaderStyleStandard<I extends string> =
+  Uppercase<I> extends "STANDARD" ? typeof LEADER_STYLE_STANDARD : never;
+export function leaderStyleIdProblem(id: string): string | undefined {
+  return capitals(id) === "STANDARD" ? LEADER_STYLE_STANDARD : undefined;
+}
+
+/** Resolves to `V` when it is a leader style's attachment, and to the message otherwise. */
+export type LeaderAttachmentOf<V> = OneOf<
+  V,
+  "first-line" | "last-line",
+  typeof LEADER_ATTACHMENT_OF
+>;
 
 /**
  * Resolves to the message when `N` is `Standard` in any case, the name of AutoCAD's own style,

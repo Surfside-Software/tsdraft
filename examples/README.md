@@ -45,10 +45,11 @@ at 1" = 10'. It is the file to copy to start a drawing.
 - **Model space** holds the site at its true size, in feet: the lot from its
   plat dimensions, the setbacks, the building footprint, the driveway, the
   street and the trees. The annotation that is read in the plan is there too:
-  bearings and distances, dimensions and labels. Each names the view `plan`,
-  which sizes it by how large it plots at the view's scale. The dimensions
-  are dimension objects in the standard's dimension style at that scale, so
-  CAD measures them.
+  bearings and distances, dimensions, leaders and labels. Each names the view
+  `plan`, which sizes it by how large it plots at the view's scale. The
+  dimensions are dimension objects in the standard's dimension style at that
+  scale, so CAD measures them, and the leaders are leader objects in its
+  leader style, one with two shafts.
 - **The layout `C-101`** holds the sheet, in inches of paper: the border, the
   title block, a column of site data, general notes, a legend and
   abbreviations, and under the plan the north arrow, the view's title and a
@@ -199,7 +200,6 @@ What the set does not do yet, because tsdraft cannot:
 - Hatches and fills are loose lines: earth, insulation and stipple from
   [`lib/drafting.ts`](lib/drafting.ts), and concrete, batt insulation and fill
   from [`sheets/elevations-lib.ts`](plan-set/sheets/elevations-lib.ts).
-- Leaders are a polyline, an arrowhead and text, not leader objects.
 - A dimension writes only a decimal number, so the example writes the feet and
   inches of each architectural dimension as its text.
 - A note is single-line texts, one for each line, broken with `measureText`.

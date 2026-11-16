@@ -94,19 +94,22 @@ test("lint reports what the builder refuses under a standard, under the same rul
       ["layer-outside-standard", "A-WALL"],
       ["text-style-outside-standard", "MINE"],
       ["dimension-style-outside-standard", "MINE"],
-      ["layer-outside-standard", 58],
-      ["pen-outside-standard", 58],
-      ["text-style-outside-standard", 59],
+      ["layer-outside-standard", sheet.entities.length],
+      ["pen-outside-standard", sheet.entities.length],
+      ["text-style-outside-standard", sheet.entities.length + 1],
     ],
   );
   assert.match(
     found[0]!.message,
     /^Layer "A-WALL" is not a layer of the standard "site-plan-example" version 1/,
   );
-  assert.match(found[3]!.message, /^line #58: Layer "0" is in every drawing and in no standard/);
+  const line = `line #${sheet.entities.length}`;
+  assert.ok(
+    found[3]!.message.startsWith(`${line}: Layer "0" is in every drawing and in no standard`),
+  );
   assert.equal(
     found[4]!.message,
-    "line #58: A lineweight of 0.6 mm is no pen of the standard. Its pens are bold 0.5, fine 0.18, heavy 0.7, light 0.25 and medium 0.35 mm. Give the entity a pen",
+    `${line}: A lineweight of 0.6 mm is no pen of the standard. Its pens are bold 0.5, fine 0.18, heavy 0.7, light 0.25 and medium 0.35 mm. Give the entity a pen`,
   );
 });
 

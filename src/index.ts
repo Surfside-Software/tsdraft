@@ -8,7 +8,17 @@ export {
   placeAttribute,
   type PlacedAttribute,
 } from "./blocks.ts";
-export { ARROWHEADS, type Arrowhead, type ArrowheadInfo } from "./arrowheads.ts";
+export {
+  ARROWHEADS,
+  DEFAULT_LEADER_ARROWHEAD,
+  LEADER_ARROWHEADS,
+  leaderArrowheadInfo,
+  type Arrowhead,
+  type ArrowheadInfo,
+  type LeaderArrowhead,
+  type LeaderArrowheadInfo,
+  type LeaderArrowheadStroke,
+} from "./arrowheads.ts";
 export type { CallSite } from "./callsite.ts";
 export {
   arrowheadHandles,
@@ -48,6 +58,13 @@ export {
   type LayerOptions,
   type Layout,
   type LayoutOptions,
+  type Leader,
+  type LeaderAttachment,
+  type LeaderOptions,
+  type LeaderSide,
+  type LeaderStyle,
+  type LeaderStyleDefinition,
+  type LeaderTargets,
   type Line,
   type LinearDimension,
   type LinearDimensionOptions,
@@ -59,6 +76,7 @@ export {
   type Polyline,
   type Sheet,
   type StandardAlignedDimensionOptions,
+  type StandardLeaderOptions,
   type StandardLinearDimensionOptions,
   type StandardViewportOptions,
   type Text,
@@ -97,9 +115,27 @@ export {
 } from "./intent.ts";
 export { fromJSON, toJSON } from "./json.ts";
 export { layoutHandles, viewportView, type LayoutHandles, type ViewportView } from "./layouts.ts";
+export {
+  attachmentCode,
+  findLeaderStyle,
+  leaderArrowheadHandles,
+  leaderAttachment,
+  leaderCount,
+  leaderOwnFlags,
+  leaderPicture,
+  leaderSide,
+  leaderSizes,
+  leaderStyleDictionaryHandle,
+  leaderStyleHandle,
+  STANDARD_LEADER_STYLE_SIZES,
+  type LeaderArrowheadDrawn,
+  type LeaderLine,
+  type LeaderPicture,
+  type LeaderSizes,
+} from "./leaders.ts";
 export { DrawingError, lint, type Diagnostic, type LintOptions, type LintRule } from "./lint.ts";
 export { CENTER, DASHDOT, DASHED, DOT, HIDDEN, LINEWEIGHTS, PHANTOM } from "./linetypes.ts";
-export { measureText, type TextMeasure, type TextToMeasure } from "./measure.ts";
+export { lineSpacing, measureText, type TextMeasure, type TextToMeasure } from "./measure.ts";
 export { fromPaper, type PaperScale, type PaperUnit } from "./paper.ts";
 export {
   PAPERS,
@@ -126,10 +162,17 @@ export type {
   LayerLinetypeName,
   LayerName,
   LayoutName,
+  LeaderArrowheadOf,
+  LeaderScale,
+  LeaderSize,
+  LeaderStyleName,
+  LeaderTargetsOf,
+  LeaderText,
   LineweightOf,
   LinetypeName,
   MeasurementScale,
   NewDimensionStyleName,
+  NewLeaderStyleName,
   NewLinetypeName,
   NewTextStyleName,
   NotNegative,
@@ -155,6 +198,7 @@ export type {
   StandardDiscipline,
   StandardDocument,
   StandardLayer,
+  StandardLeaderStyle,
   StandardLinetype,
   StandardLink,
   StandardNames,

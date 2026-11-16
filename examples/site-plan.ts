@@ -1,6 +1,6 @@
 // A permit-style site plan: a lot from its plat dimensions, with setbacks, a building footprint,
-// the street, labels, dimensions, site data and notes, on a sheet with a border and a title
-// block. Copy this file to start a drawing.
+// the street, labels, dimensions, leaders, site data and notes, on a sheet with a border and a
+// title block. Copy this file to start a drawing.
 //
 // The drawing has two spaces, as a drafter keeps them:
 //
@@ -45,10 +45,11 @@
 //   pen of the standard.
 // - The plan is the view `plan`, at a scale of the standard, which the viewport shows. An
 //   annotation of the plan is in model space and names the view, which sizes it by how large it
-//   plots: a text plots at its role's height, a symbol at its size in inches and a dimension in
-//   the standard's dimension style. `plan.paper` turns other inches on paper, such as a gap,
-//   into feet at the view's ratio. So the same code draws the sheet at another scale: the plan
-//   changes size in its viewport and its text keeps its plotted height.
+//   plots: a text plots at its role's height, a symbol at its size in inches, a dimension in
+//   the standard's dimension style and a leader in its leader style, which is one entity in
+//   CAD, its shafts, landing and note together. `plan.paper` turns other inches on paper, such
+//   as a gap, into feet at the view's ratio. So the same code draws the sheet at another scale:
+//   the plan changes size in its viewport and its text keeps its plotted height.
 // - A text names a role of the standard, which gives its text style and height, and is
 //   justified to its point with `align` and `valign`. Columns and line breaks are laid out by
 //   the length `measureText` gives a text in its role. The title block's texts, below, are the
@@ -79,14 +80,18 @@ import {
 import { arrowhead } from "./lib/drafting.ts";
 
 /**
- * The standard the sheet is drawn to: the built-in one, with a layer for the trees. Its layers
- * give the plan its colors, linetypes and pens, and its linetype scale sizes the dashes.
+ * The standard the sheet is drawn to: the built-in one, with a layer for the trees and a leader
+ * style for the notes. Its layers give the plan its colors, linetypes and pens, its linetype
+ * scale sizes the dashes, and its leader style gives every leader its arrowhead, its landing and
+ * the role of its note.
  */
 export const standard = defineStandard({
   id: "site-plan-example",
   version: "1",
   extends: BUILT_IN_STANDARD,
   layers: { "V-TREE": { color: 3, pen: "fine", discipline: "V" } },
+  leaderStyles: { notes: { role: "note", arrowSize: 1 / 8, landing: 1 / 8, gap: 1 / 16 } },
+  defaultLeaderStyle: "notes",
 });
 
 /** A text role of the standard, which gives a text its text style and the height it plots at. */
@@ -465,7 +470,34 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
       view: plan,
       align: "center",
     });
+
+    // Leaders, in the standard's leader style, which the view sizes for its scale. A note's
+    // shafts meet where its landing starts, and each points at the edge of what it names. Every
+    // shaft comes from the side away from the note, so that none crosses it: one note for two
+    // trees at the rear, and one for the tree in the front yard, held by its last line so that
+    // it stacks up from the landing.
+    const [, rearMiddle, rearEast, frontYard] = trees;
+    const treeNote: Point = [62, lot.depth - rear + 2.5];
+    d.leader("EXISTING TREE TO REMAIN, TYP.", {
+      view: plan,
+      at: treeNote,
+      to: [canopyEdge(rearMiddle!, treeNote), canopyEdge(rearEast!, treeNote)],
+    });
+    const oakNote: Point = [35, front - 3];
+    d.leader(["EXISTING OAK", "TO REMAIN"], {
+      view: plan,
+      at: oakNote,
+      to: canopyEdge(frontYard!, oakNote),
+      attachment: "last-line",
+    });
   });
+
+  /** The point of a tree's canopy that faces `toward`, where a leader points at the tree. */
+  function canopyEdge(tree: (typeof trees)[number], toward: Point): Point {
+    const [dx, dy] = [toward[0] - tree.at[0], toward[1] - tree.at[1]];
+    const length = Math.hypot(dx, dy);
+    return [tree.at[0] + (dx / length) * tree.radius, tree.at[1] + (dy / length) * tree.radius];
+  }
 
   /** Lines of text in model space, each in its role, centered on `center` as one block. */
   function stack(center: Point, lines: readonly (readonly [value: string, role: Role])[]): void {

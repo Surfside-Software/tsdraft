@@ -2,7 +2,7 @@
 // refuses under a standard, for a drawing made by other code or read from JSON, under the same
 // rules, and what only the whole drawing shows, such as the height a text plots at in each
 // viewport that shows it. AutoCAD opens a drawing that breaks them: they are the firm's.
-import { DEFAULT_ARROWHEAD } from "../arrowheads.ts";
+import { DEFAULT_ARROWHEAD, DEFAULT_LEADER_ARROWHEAD } from "../arrowheads.ts";
 import {
   blocksByKey,
   eachDrawn,
@@ -22,6 +22,7 @@ import type {
   Insert,
   Layer,
   Layout,
+  LeaderStyle,
   Linetype,
   Point,
   Text,
@@ -35,6 +36,7 @@ import { written } from "../format.ts";
 import { grid, type Box } from "../inspect.ts";
 import { canonical } from "../json.ts";
 import { layerKey } from "../layers.ts";
+import { leaderPicture } from "../leaders.ts";
 import { validViewportView } from "../layouts.ts";
 import type { Diagnostic, LintRule } from "../lint.ts";
 import { inStyle, measureText } from "../measure.ts";
@@ -42,6 +44,7 @@ import { DEFAULT_PLOT_STYLE_TABLE, paperInfo } from "../papers.ts";
 import {
   idKey,
   isStandardDimensionStyle,
+  isStandardLeaderStyle,
   isStandardTextStyle,
   sheetNumberProblem,
   shown,
@@ -54,6 +57,7 @@ import type {
   Standard,
   StandardDimensionStyle,
   StandardLayer,
+  StandardLeaderStyle,
   StandardLinetype,
   StandardScale,
   StandardSheetFormat,
@@ -76,10 +80,11 @@ import type { Problem } from "./shape.ts";
 /**
  * The most work the checks of text heights and dimension scales do for one drawing, counted in
  * what they look at: each text and dimension a space draws, a text one more for each 32
- * characters, a dimension one more for each 32 characters its label reads, each insert walked
- * and each item of its block, each name read the first time, one more for each 32 characters,
- * each box a grid looks at, each text or dimension held against a viewport, and each error, one
- * more for each 32 characters of its message.
+ * characters, a dimension one more for each 32 characters its label reads, a leader as much again
+ * for its note and each line of the note as a text, each insert walked and each item of its
+ * block, each name read the first time, one more for each 32 characters, each box a grid looks
+ * at, each text or dimension held against a viewport, and each error, one more for each 32
+ * characters of its message.
  */
 const MAX_WORK = 1_000_000;
 
@@ -87,6 +92,8 @@ const IN_VIEWPORT =
   "it was sized for another scale. Draw it in the view of the viewport that shows it";
 const ON_LAYOUT =
   "a text on a layout plots at its height. Draw it in its role, and insert its block at a scale of 1";
+const LEADER_NOTE =
+  "a leader's note takes its text style and height from a role. Give the leader role, in place of textStyle and textHeight";
 
 /** Thrown inside a walk to end it when the work reaches its limit. */
 const CAPPED = Symbol("capped");
@@ -160,6 +167,7 @@ export function lintStandard(
     TYPED.dimensionStyle,
     filled(drawing.dimensionStyles),
   );
+  const leaderStyles = sound<LeaderStyle>(TYPED.leaderStyle, filled(drawing.leaderStyles));
   const blocks = sound<Block>(TYPED.block, filled(drawing.blocks));
   const xrefs = sound<Xref>(TYPED.xref, filled(drawing.xrefs));
   const layoutList = filled(drawing.layouts);
@@ -360,6 +368,78 @@ export function lintStandard(
     }
   }
 
+  // The leader styles: one of the standard's, on a layout or at one of its scales, as the
+  // dimension styles are.
+  const leaderRatio = new Map<
+    string,
+    {
+      readonly shown: string;
+      readonly scale: StandardScale | null;
+      readonly reads: number;
+      readonly style: LeaderStyle;
+      /** True when its text height is not its role's, which the style's own error reports. */
+      offHeight: boolean;
+      /** True when its text style is not its role's, which that error reports too. */
+      offStyle: boolean;
+    }
+  >();
+  const shownLeaderStyles = first(leaderStyles);
+  for (const style of shownLeaderStyles.values()) {
+    if (isStandardLeaderStyle(style.name)) continue;
+    const about = { leaderStyle: style.name };
+    const label = `Leader style ${shown(style.name)}`;
+    const found = index.leaderStyle(layerKey(style.name));
+    if (!found) {
+      error("leader-style-outside-standard", `${label}: ${DRAWN.leaderStyleDefined}`, about);
+      continue;
+    }
+    const { id, entry, scale: at } = found;
+    const ratio = {
+      shown: shown(style.name),
+      scale: at?.[1] ?? null,
+      reads: style.textStyle?.length ?? 0,
+      style,
+      offHeight: false,
+      offStyle: false,
+    };
+    leaderRatio.set(layerKey(style.name), ratio);
+    const fields = resolved(entry, `the leader style ${shown(id)}`);
+    const roleFound = fields && index.roles.get(idKey(fields.role));
+    const role = roleFound && resolved(roleFound[1], `the text role ${shown(roleFound[0])}`);
+    if (!fields || !roleFound || !role) continue;
+    if (at && !units) continue;
+    const expected: readonly (readonly [string, unknown, unknown])[] = [
+      ["textStyle", style.textStyle ?? "Standard", capitals(roleFound[0])],
+      ["textHeight", style.textHeight, role.height],
+      ["arrowhead", style.arrowhead ?? DEFAULT_LEADER_ARROWHEAD, fields.arrowhead],
+      ["arrowSize", style.arrowSize, fields.arrowSize],
+      ["landing", style.landing, fields.landing],
+      ["gap", style.gap, fields.gap],
+      ["attachment", style.attachment ?? "first-line", fields.attachment],
+      [
+        "scale",
+        style.scale ?? 1,
+        at && units ? modelLength(1, standard.paperUnits, at[1].ratio, units) : 1,
+      ],
+    ];
+    for (const [field, value, own] of expected) {
+      const same =
+        field === "textStyle"
+          ? layerKey(value as string) === layerKey(own as string)
+          : typeof value === "number" && typeof own === "number"
+            ? written(value) === written(own)
+            : value === own;
+      if (same) continue;
+      if (field === "textHeight") ratio.offHeight = true;
+      if (field === "textStyle") ratio.offStyle = true;
+      error(
+        "leader-style-differs-from-standard",
+        `${label} has ${field} ${shown(value)}, and the standard gives it ${field} ${shown(own)}`,
+        about,
+      );
+    }
+  }
+
   // The title blocks: one in the drawing is the standard's when every definition of its closure
   // is, and the rules for pens, text styles and role heights then skip what it draws.
   const standardBlocks = new Set<string>();
@@ -460,7 +540,16 @@ export function lintStandard(
       if (entity.kind === "text" && !roleOf(entity.style)) {
         error("text-style-outside-standard", `${label}: ${DRAWN.textWithoutRole}`, about);
       }
-      if (entity.kind === "insert" || entity.kind.endsWith("-dimension")) return;
+      if (entity.kind === "leader" && entity.textStyle !== undefined && !roleOf(entity.textStyle)) {
+        error("text-style-outside-standard", `${label}: ${DRAWN.leaderRoleAndText}`, about);
+      }
+      if (
+        entity.kind === "insert" ||
+        entity.kind.endsWith("-dimension") ||
+        entity.kind === "leader"
+      ) {
+        return;
+      }
       const weight = (entity as { readonly lineweight?: unknown }).lineweight;
       if (weight === undefined || weight === "ByLayer" || weight === "ByBlock") return;
       if (typeof weight === "number" && index.pens.has(written(weight))) return;
@@ -783,9 +872,15 @@ export function lintStandard(
     }
   };
   // The first style of each name, as `styleRatio` measured it.
-  const dimensionBox = boxer([...stylesByKey.values()], [], undefined, undefined, undefined, [
-    ...shownStyles.values(),
-  ]);
+  const dimensionBox = boxer(
+    [...stylesByKey.values()],
+    [],
+    undefined,
+    undefined,
+    undefined,
+    [...shownStyles.values()],
+    [...shownLeaderStyles.values()],
+  );
   /** The texts and the dimensions a space draws, with what a diagnostic says of each. */
   const lettered = (
     entities: unknown,
@@ -813,20 +908,29 @@ export function lintStandard(
         styled: Styled | undefined,
         placement: Placement | undefined,
         titleBlock: boolean,
+        note?: { readonly scale: StandardScale | null; readonly roleless?: boolean },
       ) => {
         const tag = placement?.attribute;
         const size = (typeof text.value === "string" ? text.value.length : 0) + (tag?.length ?? 0);
         if (!spend(1 + Math.floor(size / 32))) throw CAPPED;
         const measured = guarded(() => placedText(text, styled?.style, placement?.matrix));
         if (!measured) return;
-        const role = titleBlock ? undefined : roleIn(styled);
-        const what =
-          placement === undefined
+        const role = titleBlock || note?.roleless ? undefined : roleIn(styled);
+        const what = note
+          ? `The line ${shown(text.value)} of its note`
+          : placement === undefined
             ? "This text"
             : tag === undefined
               ? `The text ${shown(text.value)} of its block`
               : `The attribute ${shown(tag)} of its block`;
-        texts.push({ ...measured, ...(role ? { role } : {}), about, label, what });
+        texts.push({
+          ...measured,
+          ...(role ? { role } : {}),
+          ...(note ? { scale: note.scale } : {}),
+          about,
+          label,
+          what,
+        });
       };
       try {
         if (entity.kind === "linear-dimension" || entity.kind === "aligned-dimension") {
@@ -837,7 +941,62 @@ export function lintStandard(
           if (!spend(1 + Math.floor(reads / 32))) throw CAPPED;
           const box = guarded(() => dimensionBox([entity]));
           if (dimensionBox.capped) throw CAPPED;
-          if (box) dimensions.push({ about, label, box, style: style.shown, scale: style.scale });
+          if (box) {
+            dimensions.push({
+              about,
+              label,
+              box,
+              style: style.shown,
+              scale: style.scale,
+              kind: "dimension",
+            });
+          }
+          return;
+        }
+        if (entity.kind === "leader") {
+          const style = leaderRatio.get(walk.key(entity.style));
+          if (!style || walk.hidden({ name: walk.layer(entity.layer) })) return;
+          // Its box reads its style's name, each line of its note, its shafts and its text style.
+          let reads = entity.style.length + style.reads + (entity.textStyle?.length ?? 0);
+          for (const line of filled(entity.text)) {
+            reads += (typeof line === "string" ? line.length : 0) + 1;
+          }
+          for (const shaft of filled(entity.shafts))
+            reads += 32 * Math.max(1, filled(shaft).length);
+          if (!spend(1 + Math.floor(reads / 32))) throw CAPPED;
+          const box = guarded(() => dimensionBox([entity]));
+          if (dimensionBox.capped) throw CAPPED;
+          if (box) {
+            dimensions.push({
+              about,
+              label,
+              box,
+              style: style.shown,
+              scale: style.scale,
+              kind: "leader",
+            });
+          }
+          // Each line of its note is a text in its text style, at the height the leader draws it.
+          if (!spend(1 + Math.floor(reads / 32))) throw CAPPED;
+          const styled = walk.styled(walk.style(entity.textStyle ?? style.style.textStyle));
+          const lines = guarded(() => leaderPicture(entity, style.style, styled?.style).lines);
+          for (const line of lines ?? []) {
+            const text: Text = {
+              kind: "text",
+              layer: entity.layer,
+              at: line.at,
+              height: line.height,
+              value: line.value,
+              rotation: 0,
+              align: line.align,
+            };
+            // A note at its style's height, where that or the style's text style is not its
+            // role's, is reported with the style. A height of its own is still held to a role.
+            const roleless =
+              entity.textHeight === undefined &&
+              (style.offHeight || (entity.textStyle === undefined && style.offStyle));
+            keep(text, styled, undefined, false, { scale: style.scale, roleless });
+          }
           return;
         }
         if (entity.kind === "text") {
@@ -887,7 +1046,11 @@ export function lintStandard(
       for (const t of found.sort((a, b) => a - b)) {
         if (!spend(1)) break;
         const text = space.texts[t]!;
-        checkHeight(text, text.height * view.scale, shownIn, IN_VIEWPORT);
+        if (text.scale === undefined) {
+          checkHeight(text, text.height * view.scale, shownIn, IN_VIEWPORT);
+        } else if (text.scale && written(text.scale.ratio) === written(v.ratio)) {
+          checkHeight(text, text.height * view.scale, shownIn, LEADER_NOTE);
+        }
       }
       const dimensions: number[] = [];
       nearDimension(view.box, (d) => dimensions.push(d));
@@ -896,10 +1059,10 @@ export function lintStandard(
         const dimension = space.dimensions[d]!;
         if (dimension.scale && written(dimension.scale.ratio) === written(v.ratio)) continue;
         const style = dimension.scale
-          ? `the dimension style ${dimension.style}, for ${dimension.scale.label}`
-          : `the dimension style ${dimension.style}, which is for a layout`;
+          ? `the ${dimension.kind} style ${dimension.style}, for ${dimension.scale.label}`
+          : `the ${dimension.kind} style ${dimension.style}, which is for a layout`;
         report(
-          "dimension-off-scale",
+          `${dimension.kind}-off-scale`,
           `${dimension.label}: It is in ${style}, and is shown ${shownIn}. Draw it in the view of the viewport that shows it`,
           dimension.about,
           dimension.label,
@@ -909,12 +1072,15 @@ export function lintStandard(
     });
     if (capped !== undefined) break;
     const sheet = guarded(() => lettered(layout.entities, { layout: layout.name }));
-    for (const text of sheet?.texts ?? []) checkHeight(text, text.height, `on ${name}`, ON_LAYOUT);
+    for (const text of sheet?.texts ?? []) {
+      if (text.scale === undefined) checkHeight(text, text.height, `on ${name}`, ON_LAYOUT);
+      else if (text.scale === null) checkHeight(text, text.height, `on ${name}`, LEADER_NOTE);
+    }
     for (const dimension of sheet?.dimensions ?? []) {
       if (!dimension.scale) continue;
       report(
-        "dimension-off-scale",
-        `${dimension.label}: It is in the dimension style ${dimension.style}, for ${dimension.scale.label} in model space, and a layout plots it at 1:1. Give it the style of a layout: a dimension on a layout names no view`,
+        `${dimension.kind}-off-scale`,
+        `${dimension.label}: It is in the ${dimension.kind} style ${dimension.style}, for ${dimension.scale.label} in model space, and a layout plots it at 1:1. Give it the style of a layout: a ${dimension.kind} on a layout names no view`,
         dimension.about,
         dimension.label,
       );
@@ -942,9 +1108,15 @@ interface Lettered {
   readonly box: Box;
   /**
    * The role whose text style the text is in, as the drawing's discipline resolves it. A text of
-   * the standard's title block has none, since no role sizes it.
+   * the standard's title block has none, since no role sizes it, and nor has a line of a leader's
+   * note at the height of a style that is not its role's, which the style's error reports.
    */
   readonly role?: { readonly id: string; readonly height: number };
+  /**
+   * For a line of a leader's note, the scale of the leader's style, or null for a layout's. Its
+   * height is checked only where it plots at that scale: elsewhere `leader-off-scale` reports it.
+   */
+  readonly scale?: StandardScale | null;
   readonly about: Partial<Diagnostic>;
   /** The entity, as a message names it: `text #3 of layout "C-101"`. */
   readonly label: string;
@@ -952,7 +1124,10 @@ interface Lettered {
   readonly what: string;
 }
 
-/** A dimension of a space, with its box and the scale of its style, or null for a layout's. */
+/**
+ * A dimension or a leader of a space, with its box and the scale of its style, or null for a
+ * layout's.
+ */
 interface Measured {
   readonly about: Partial<Diagnostic>;
   readonly label: string;
@@ -960,6 +1135,7 @@ interface Measured {
   /** The name of its style, as a message shows it. */
   readonly style: string;
   readonly scale: StandardScale | null;
+  readonly kind: "dimension" | "leader";
 }
 
 /**
@@ -1259,13 +1435,9 @@ interface Index {
   readonly roleStyles: ReadonlyMap<string, readonly [id: string, role: StandardTextRole]>;
   readonly scalesByRatio: ReadonlyMap<number, StandardScale>;
   /** The dimension style of the standard whose AutoCAD name has this `layerKey`, and its scale. */
-  readonly dimensionStyle: (key: string) =>
-    | {
-        readonly id: string;
-        readonly entry: StandardDimensionStyle;
-        readonly scale: readonly [id: string, scale: StandardScale] | undefined;
-      }
-    | undefined;
+  readonly dimensionStyle: StyleLookup<StandardDimensionStyle>;
+  /** The leader style of the standard whose AutoCAD name has this `layerKey`, and its scale. */
+  readonly leaderStyle: StyleLookup<StandardLeaderStyle>;
   readonly titleBlocks: readonly TitleBlockIndex[];
   /** The id of the title block each block or xref name of a title block places, by `layerKey`. */
   readonly titleBlockParts: ReadonlyMap<string, string>;
@@ -1274,6 +1446,15 @@ interface Index {
   /** The sheet formats on each paper. */
   readonly formatsByPaper: ReadonlyMap<string, OnPaper>;
 }
+
+/** A style of a standard by the `layerKey` of its AutoCAD name, with the scale the name gives. */
+type StyleLookup<E> = (key: string) =>
+  | {
+      readonly id: string;
+      readonly entry: E;
+      readonly scale: readonly [id: string, scale: StandardScale] | undefined;
+    }
+  | undefined;
 
 /** A sheet format of a standard, with its title block and its plot style table. */
 interface Format {
@@ -1329,7 +1510,8 @@ function indexOf(standard: Standard): Index {
   // A dimension style's name is its id in capitals on a layout, and with a scale's id after it in
   // model space, unless the standard gives it another. Ids are ASCII, so a name an id gives has
   // its style's key, `-` and its scale's key, and at most one style and scale give it:
-  // defineStandard refuses two names AutoCAD takes for one.
+  // defineStandard refuses two names AutoCAD takes for one. A leader style's name is made from its
+  // id the same way, and the standard gives it no other.
   const styles = Object.entries<StandardDimensionStyle>(standard.dimensionStyles);
   const styleKeys = new Map(
     styles.map(([id, entry]) => [layerKey(capitals(id)), { id, entry, scale: undefined }] as const),
@@ -1378,6 +1560,26 @@ function indexOf(standard: Standard): Index {
       const style = styleKeys.get(key.slice(0, at));
       const scale = style && scaleKeys.get(key.slice(at + 1));
       if (scale && !renamed({ ...style, scale })) return { ...style, scale };
+    }
+    return undefined;
+  };
+  const leaderStyleKeys = new Map(
+    Object.entries<StandardLeaderStyle>(standard.leaderStyles).map(
+      ([id, entry]) => [layerKey(capitals(id)), { id, entry, scale: undefined }] as const,
+    ),
+  );
+  const longestLeaderStyle = longest(leaderStyleKeys.keys());
+  const leaderStyle: Index["leaderStyle"] = (key) => {
+    const own = leaderStyleKeys.get(key);
+    if (own || key.length > longestLeaderStyle + 1 + longestScale) return own;
+    for (
+      let at = key.indexOf("-", 1);
+      at > 0 && at <= longestLeaderStyle;
+      at = key.indexOf("-", at + 1)
+    ) {
+      const style = leaderStyleKeys.get(key.slice(0, at));
+      const scale = style && scaleKeys.get(key.slice(at + 1));
+      if (scale) return { ...style, scale };
     }
     return undefined;
   };
@@ -1439,6 +1641,7 @@ function indexOf(standard: Standard): Index {
     roleStyles: new Map([...roles.values()].map((role) => [layerKey(capitals(role[0])), role])),
     scalesByRatio: new Map(scales.map(([, scale]) => [written(scale.ratio), scale])),
     dimensionStyle,
+    leaderStyle,
     titleBlocks,
     titleBlockParts,
     titleBlockStyles: new Set(titleBlocks.flatMap((block) => [...block.textStyles.keys()])),

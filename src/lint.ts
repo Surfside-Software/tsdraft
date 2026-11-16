@@ -6,7 +6,14 @@ import {
   lookupCost,
   placeAttribute,
 } from "./blocks.ts";
-import { arrowheadInfo, DEFAULT_ARROWHEAD } from "./arrowheads.ts";
+import {
+  arrowheadInfo,
+  DEFAULT_ARROWHEAD,
+  DEFAULT_LEADER_ARROWHEAD,
+  leaderArrowheadInfo,
+  STANDARD_LEADER_STYLE,
+  type LeaderArrowhead,
+} from "./arrowheads.ts";
 import { callOf, type CallSite } from "./callsite.ts";
 import {
   arrowheadEntityHandle,
@@ -29,6 +36,8 @@ import type {
   Viewport,
   Insert,
   Layer,
+  Leader,
+  LeaderStyle,
   Linetype,
   Point,
   TextStyle,
@@ -38,6 +47,12 @@ import { boxer, type Boxer } from "./extents.ts";
 import { written } from "./format.ts";
 import { validIdHandle } from "./handles.ts";
 import { validLayoutHandles, validViewportView } from "./layouts.ts";
+import {
+  leaderArrowheadHandles,
+  leaderDrawnProblem,
+  leaderStyleDictionaryHandle,
+  validLeaderStyleHandle,
+} from "./leaders.ts";
 import { paperInfo } from "./papers.ts";
 import { isUnits } from "./units.ts";
 import type { Standard } from "./standard/document.ts";
@@ -79,7 +94,15 @@ import {
   idKey,
   idProblem,
   isStandardDimensionStyle,
+  isStandardLeaderStyle,
   isStandardTextStyle,
+  LEADER_IN_BLOCK,
+  leaderOwnProblem,
+  leaderShaftsProblem,
+  leaderStyleNameProblem,
+  leaderStyleProblem,
+  leaderStyleTwinProblem,
+  leaderTextProblem,
   layerColorProblem,
   layerFlagProblem,
   layerLinetypeProblem,
@@ -109,6 +132,8 @@ import {
   undefinedBlockProblem,
   undefinedDimensionStyleProblem,
   undefinedDimensionTextStyleProblem,
+  undefinedLeaderStyleProblem,
+  undefinedLeaderTextStyleProblem,
   undefinedLinetypeProblem,
   undefinedTextStyleProblem,
   viewportEmptyWarning,
@@ -158,6 +183,10 @@ export type LintRule =
   | "duplicate-dimension-style"
   | "undefined-dimension-style"
   | "dimension"
+  | "leader-style"
+  | "duplicate-leader-style"
+  | "undefined-leader-style"
+  | "leader"
   | "zero-length"
   | "standard"
   | "layer-outside-standard"
@@ -167,6 +196,7 @@ export type LintRule =
   | "role"
   | "scale-outside-standard"
   | "dimension-style-outside-standard"
+  | "leader-style-outside-standard"
   | "text-style-outside-standard"
   | "sheet-format-outside-standard"
   | "sheet-per-file"
@@ -174,10 +204,12 @@ export type LintRule =
   | "linetype-differs-from-standard"
   | "text-style-differs-from-standard"
   | "dimension-style-differs-from-standard"
+  | "leader-style-differs-from-standard"
   | "sheet-format-ambiguous"
   | "height-below-standard"
   | "height-off-role"
   | "dimension-off-scale"
+  | "leader-off-scale"
   | "viewport-outside-drawing-area"
   | "title-block-missing"
   | "title-block-differs-from-standard"
@@ -203,6 +235,8 @@ export interface Diagnostic {
   readonly textStyle?: string;
   /** The dimension style the problem is in, when it is a problem with its definition. */
   readonly dimensionStyle?: string;
+  /** The leader style the problem is in, when it is a problem with its definition. */
+  readonly leaderStyle?: string;
   /**
    * The block the problem is in: a problem with the block's definition, with one of its
    * attribute definitions, or with one of its entities.
@@ -416,7 +450,8 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       | "blocks"
       | "xrefs"
       | "layouts"
-      | "dimensionStyles",
+      | "dimensionStyles"
+      | "leaderStyles",
     rule: LintRule,
   ): readonly T[] => {
     const value: unknown = drawing[field];
@@ -427,7 +462,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   };
   /** Names an entry of a list in a diagnostic, when its name is one. */
   const named = (
-    field: "linetype" | "textStyle" | "dimensionStyle" | "block" | "xref",
+    field: "linetype" | "textStyle" | "dimensionStyle" | "leaderStyle" | "block" | "xref",
     name: unknown,
   ) => (typeof name === "string" ? { [field]: name } : {});
 
@@ -791,6 +826,138 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       style.textStyle === undefined ? undefined : stylesByKey.get(layerKey(style.textStyle));
     const problem = dimensionDrawnProblem(dimension, style, textStyle);
     if (problem) add("dimension", "error", problem);
+  };
+
+  // Leader style names are compared as dimension style names are. A style with a name counts for
+  // the leaders that name it, whatever else is wrong with it, and only one with nothing wrong is
+  // drawn with.
+  const leaderStyleNames = new Set<string>();
+  const leaderStyles = new Map<string, LeaderStyle>();
+  const leaderStylesAudited = new Map<string, string>();
+  const leaderArrowheads = new Set<string>();
+  each(
+    listed<LeaderStyle>("leaderStyles", "leader-style"),
+    "leaderStyles",
+    "leader-style",
+    TYPED.leaderStyle,
+    (style, i) => {
+      if (malformed(WALKABLE.leaderStyle, style, `leaderStyles[${i}]`, "leader-style")) return;
+      const error = (rule: LintRule, message: string) =>
+        out.push({
+          rule,
+          severity: "error",
+          message: `Leader style ${shown(style.name)}: ${message}`,
+          ...named("leaderStyle", style.name),
+        });
+      if (r12) {
+        error("leader-style", R12_ONLY.leaders);
+        return;
+      }
+      const problem = leaderStyleProblem(style);
+      if (problem) error("leader-style", problem);
+      const name: unknown = style.name;
+      if (leaderStyleNameProblem(name) || isStandardLeaderStyle(name as string)) return;
+      const auditKey = layerAuditKey(style.name);
+      const first = leaderStylesAudited.get(auditKey);
+      if (first !== undefined) {
+        error("duplicate-leader-style", leaderStyleTwinProblem(style.name, first)!);
+        return;
+      }
+      // The first style brings AutoCAD's own and the dictionary that holds them.
+      if (leaderStylesAudited.size === 0) {
+        for (const [handle, what] of [
+          [
+            validLeaderStyleHandle(STANDARD_LEADER_STYLE),
+            `the leader style ${shown(STANDARD_LEADER_STYLE)}`,
+          ],
+          [leaderStyleDictionaryHandle(), "the dictionary of leader styles"],
+        ] as const) {
+          const taken = claim(handle, what);
+          if (taken) error("id-handle", taken);
+        }
+      }
+      leaderStylesAudited.set(auditKey, style.name);
+      const key = layerKey(style.name);
+      leaderStyleNames.add(key);
+      const textStyle: unknown = style.textStyle;
+      let lettered = true;
+      if (
+        typeof textStyle === "string" &&
+        !textStyleNameProblem(textStyle) &&
+        !isStandardTextStyle(textStyle)
+      ) {
+        if (!textStyles.has(layerKey(textStyle))) {
+          error("undefined-text-style", undefinedLeaderTextStyleProblem(textStyle));
+          lettered = false;
+        } else if (unreadStyles.has(layerKey(textStyle))) lettered = false;
+      }
+      const clash = claim(
+        validLeaderStyleHandle(style.name),
+        `the leader style ${shown(style.name)}`,
+      );
+      if (clash) error("id-handle", clash);
+      const arrowhead: unknown = style.arrowhead ?? DEFAULT_LEADER_ARROWHEAD;
+      const block = leaderArrowheadInfo(arrowhead)?.block;
+      if (block !== undefined && !leaderArrowheads.has(block)) {
+        leaderArrowheads.add(block);
+        const handles = leaderArrowheadHandles(arrowhead as LeaderArrowhead)!;
+        for (const handle of [handles.record, handles.begin, handles.end, ...handles.strokes]) {
+          const taken = claim(handle, `the arrowhead ${shown(arrowhead)}`);
+          if (taken) error("id-handle", taken);
+        }
+      }
+      if (!problem && lettered) leaderStyles.set(key, style);
+    },
+  );
+  /** Checks what a leader names, its note and its shafts. `sound` is false for one no rule can read. */
+  const lintLeader = (
+    leader: Leader,
+    add: (rule: LintRule, severity: Diagnostic["severity"], problem: string) => void,
+    inBlock: boolean,
+  ): void => {
+    if (r12) {
+      add("leader", "error", R12_ONLY.leaders);
+      return;
+    }
+    if (inBlock) add("leader", "error", LEADER_IN_BLOCK);
+    const name: unknown = leader.style;
+    const nameProblem = leaderStyleNameProblem(name);
+    let style: LeaderStyle | undefined;
+    if (nameProblem) add("undefined-leader-style", "error", nameProblem);
+    else if (!leaderStyleNames.has(layerKey(name as string))) {
+      add("undefined-leader-style", "error", undefinedLeaderStyleProblem(name as string));
+    } else style = leaderStyles.get(layerKey(name as string));
+    const textProblem = leaderTextProblem(leader.text);
+    if (textProblem) add("leader", "error", textProblem);
+    else {
+      for (const line of leader.text) {
+        const warning = textWarning(line);
+        if (warning) {
+          add("text", "warning", warning);
+          break;
+        }
+      }
+    }
+    const shaftProblem = leaderShaftsProblem(leader.shafts, leader.at);
+    if (shaftProblem) add("leader", "error", shaftProblem);
+    const own: unknown = leader.textStyle;
+    let textStyle: TextStyle | undefined;
+    let lettered = true;
+    if (typeof own === "string" && !textStyleNameProblem(own) && !isStandardTextStyle(own)) {
+      if (!textStyles.has(layerKey(own))) {
+        add("undefined-text-style", "error", undefinedLeaderTextStyleProblem(own));
+        lettered = false;
+      } else if (unreadStyles.has(layerKey(own))) lettered = false;
+      else textStyle = stylesByKey.get(layerKey(own));
+    }
+    const ownProblem = leaderOwnProblem(leader, written(style?.scale ?? 1));
+    if (ownProblem) add("leader", "error", ownProblem);
+    if (!style || textProblem || shaftProblem || ownProblem || !lettered) return;
+    if (own === undefined && style.textStyle !== undefined) {
+      textStyle = stylesByKey.get(layerKey(style.textStyle));
+    }
+    const problem = leaderDrawnProblem(leader, style, textStyle);
+    if (problem) add("leader", "error", problem);
   };
 
   // AutoCAD takes two block names for one where its AUDIT would call two layer names
@@ -1169,6 +1336,10 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         }
         return;
       }
+      if (entity.kind === "leader") {
+        if (problems.length === 0) lintLeader(entity, add, block !== undefined);
+        return;
+      }
       if (entity.kind === "linear-dimension" || entity.kind === "aligned-dimension") {
         dimensioned = true;
         lintDimension(entity, add, problems.length === 0, block !== undefined, here);
@@ -1249,6 +1420,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         undefined,
         undefined,
         [...dimensionStyles.values()],
+        [...leaderStyles.values()],
         most - work,
       );
     } catch {
@@ -1620,6 +1792,9 @@ function geometryProblems(e: Entity): string[] {
     case "aligned-dimension":
       finite("its points and its offset", ...e.from, ...e.to, e.offset);
       break;
+    case "leader":
+      finite("its point", ...e.at);
+      break;
   }
   return out;
 }
@@ -1648,6 +1823,7 @@ function zeroLength(e: Entity): string | undefined {
     case "insert":
     case "linear-dimension":
     case "aligned-dimension":
+    case "leader":
       return undefined;
   }
 }
