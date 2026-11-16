@@ -379,6 +379,72 @@ takes, in order:
 3. the first copy the build loaded, when it loaded several and the project has none;
 4. the library the command was installed with.
 
+## Reading drawing files
+
+No command reads a drawing file yet. One that does reads a DXF with the library's `readDXF`, and
+a file of another format, such as a DWG, with a reader: a package that names one in its
+`package.json`, as [Reading drawing files](reading.md#readers-of-other-formats) says. The rules
+below hold for every such command.
+
+### Which reader
+
+Readers come from one project: the nearest folder, from the folder the command runs in upward,
+whose `package.json` lists `tsdraft` in `dependencies` or `devDependencies`, and from which Node
+resolves `tsdraft` to the very copy that is running, compared by real path. In a pnpm or npm
+workspace that is the workspace's package. A folder that lists tsdraft and resolves another copy,
+or none, ends the search with no project. A folder inside a file or folder the command was given
+to read is passed over, so a folder of drawings never supplies a reader.
+
+From the project, the command looks at each package in `dependencies` and `devDependencies`, and
+keeps those that name a reader for the file's extension with a module inside the package. It
+reads no other `package.json`.
+
+- One package that reads an extension is used.
+- Two or more are refused, with a message that names them and says to pick one with `--reader`.
+- `--reader <package>` names a package resolved from the project, or a path to a package's
+  folder, and it is the only reader used. With no project, as in a global install, it takes a
+  path.
+
+Each file read gives the reader's package name and version, or tsdraft's for a DXF.
+
+### The limits of a read
+
+Each file is read in a Node process of its own, which gets the file's bytes on its stdin and its
+name without folders, never its path, and ends when it has answered. At most two run at once.
+
+| Limit                                         | Default |
+| --------------------------------------------- | ------- |
+| The file's size, checked before it is read    | 1 GB    |
+| The process's heap, as `--max-old-space-size` | 2048 MB |
+| The time until it answers                     | 120 s   |
+| The size of its answer, as JSON               | 128 MB  |
+
+The process runs under `prlimit --core=1:1 --cpu=<seconds> --` where there is one, so an abort
+leaves no core dump, and a process the command has lost ends once it has used its time limit
+and 30 seconds more of CPU. Where there is no `prlimit`, as on macOS, nothing but the command
+ends a reading process, so one the command has lost while it loops runs until it is ended by
+hand. A command ended by SIGINT or SIGTERM ends its reading processes first. The answer comes
+back with no prototype on any of its objects, as `readDXF` gives its maps. Its answer is checked as plain data with `checkDrawingRead`, and its `bytes` and `sha256`
+must be the file's. A file that breaks a limit, makes the reader throw, ends the process or
+gives a malformed answer is skipped with the reason, and the next file is read.
+
+### What the limits do not enforce
+
+The heap's limit holds what JavaScript holds, not what native code allocates. Where Node has its
+permission model, the process runs under it, with read access to tsdraft's package and the
+reader's alone:
+
+| Node   | The reading process may not                                                                  |
+| ------ | -------------------------------------------------------------------------------------------- |
+| 22, 24 | write a file, start a process or a worker, load a native addon, or read outside the packages |
+| 26     | do any of those, or reach the network                                                        |
+
+On Node 22 and 24 nothing stops a reader from opening a network connection. Node calls its
+permission model a seat belt for trusted code, not a boundary against malicious code: a reader is
+code you chose to install, as any dependency is, and these limits hold its mistakes. Under the
+model a reader can import the files of its own package and `tsdraft`, and nothing else, so a
+reader bundles its dependencies.
+
 ## Speed
 
 In a checkout of the repository, `pnpm bench` measures the loop: from writing the file

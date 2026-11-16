@@ -68,7 +68,7 @@ try {
   }
   const stray = files.filter(
     (f) =>
-      !/^(LICENSE|README\.md|GUIDE\.md|CHANGELOG\.md|package\.json|standard(\.schema)?\.json|dist\/(standard\/)?[\w-]+\.(js|d\.ts)|cli\/dist\/[\w-]+\.js|cli\/assets\/.+)$/.test(
+      !/^(LICENSE|README\.md|GUIDE\.md|CHANGELOG\.md|package\.json|standard(\.schema)?\.json|dist\/((standard|read)\/)?[\w-]+\.(js|d\.ts)|cli\/dist\/[\w-]+\.js|cli\/assets\/.+)$/.test(
         f,
       ),
   );

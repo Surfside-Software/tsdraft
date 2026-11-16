@@ -18,20 +18,53 @@ const START = [
 
 const rotate = (x: number, n: number): number => (x >>> n) | (x << (32 - n));
 
-/** The SHA-256 of `bytes`, as 64 lower-case hexadecimal digits. */
-export function sha256(bytes: Uint8Array): string {
-  const blocks = Math.ceil((bytes.length + 9) / 64);
-  const message = new Uint8Array(blocks * 64);
-  message.set(bytes);
-  message[bytes.length] = 0x80;
-  const view = new DataView(message.buffer);
-  const bits = bytes.length * 8;
-  view.setUint32(message.length - 8, Math.floor(bits / 2 ** 32));
-  view.setUint32(message.length - 4, bits >>> 0);
+/** SHA-256 worked out as the bytes arrive, so a file need not be held whole. */
+export class Sha256 {
+  readonly #hash = new Uint32Array(START);
+  readonly #w = new Uint32Array(64);
+  readonly #block = new Uint8Array(64);
+  readonly #view = new DataView(this.#block.buffer);
+  #filled = 0;
+  #length = 0;
 
-  const hash = new Uint32Array(START);
-  const w = new Uint32Array(64);
-  for (let offset = 0; offset < message.length; offset += 64) {
+  /** Adds `bytes` to the message. */
+  update(bytes: Uint8Array): this {
+    this.#length += bytes.length;
+    let i = 0;
+    if (this.#filled > 0) {
+      const take = Math.min(64 - this.#filled, bytes.length);
+      this.#block.set(bytes.subarray(0, take), this.#filled);
+      this.#filled += take;
+      i = take;
+      if (this.#filled < 64) return this;
+      this.#compress(this.#view, 0);
+      this.#filled = 0;
+    }
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    for (; i + 64 <= bytes.length; i += 64) this.#compress(view, i);
+    this.#block.set(bytes.subarray(i));
+    this.#filled = bytes.length - i;
+    return this;
+  }
+
+  /** The SHA-256 of what was added, as 64 lower-case hexadecimal digits. Ends the message. */
+  digest(): string {
+    const bits = this.#length * 8;
+    const tail = new Uint8Array(this.#filled + 9 > 64 ? 128 : 64);
+    tail.set(this.#block.subarray(0, this.#filled));
+    tail[this.#filled] = 0x80;
+    const view = new DataView(tail.buffer);
+    view.setUint32(tail.length - 8, Math.floor(bits / 2 ** 32));
+    view.setUint32(tail.length - 4, bits >>> 0);
+    for (let offset = 0; offset < tail.length; offset += 64) this.#compress(view, offset);
+    let hex = "";
+    for (const word of this.#hash) hex += word.toString(16).padStart(8, "0");
+    return hex;
+  }
+
+  #compress(view: DataView, offset: number): void {
+    const hash = this.#hash;
+    const w = this.#w;
     for (let i = 0; i < 16; i++) w[i] = view.getUint32(offset + i * 4);
     for (let i = 16; i < 64; i++) {
       const a = w[i - 15]!;
@@ -73,9 +106,11 @@ export function sha256(bytes: Uint8Array): string {
     hash[6]! += g;
     hash[7]! += h;
   }
-  let hex = "";
-  for (const word of hash) hex += word.toString(16).padStart(8, "0");
-  return hex;
+}
+
+/** The SHA-256 of `bytes`, as 64 lower-case hexadecimal digits. */
+export function sha256(bytes: Uint8Array): string {
+  return new Sha256().update(bytes).digest();
 }
 
 /**

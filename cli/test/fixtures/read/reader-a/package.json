@@ -1,0 +1,11 @@
+{
+  "name": "reader-a",
+  "version": "1.0.0",
+  "type": "module",
+  "tsdraft": {
+    "readers": {
+      ".dwg": "./read.js",
+      ".dwt": "./read.js"
+    }
+  }
+}

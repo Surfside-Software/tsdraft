@@ -135,6 +135,22 @@
 - `../src` never imports from this folder. The command is compiled to `dist/` here, and
   `assets/` holds every file it reads at run time, found with a path from `import.meta.url`
   that is the same from `src/` and from `dist/`.
+- `src/read.ts` reads each drawing file in a process of its own, `src/read-child.ts`, which
+  gets the file's name and never its path, and answers once on file descriptor 3, never on
+  stdout, which a reader may print to. Where Node has its permission model, found by feature in
+  `process.allowedNodeEnvironmentFlags`, the process runs under it with read access to
+  tsdraft's folder and the reader's, by real path, and to the one link to tsdraft beside a
+  reader pnpm installed. Never pass another `--allow-` flag, and never let `NODE_OPTIONS` reach
+  the process: either would allow what the limits deny. Import a reader by its real path, since
+  Node refuses a path through a link outside the allowed folders even when its target is inside.
+  A busy reader never runs the process's own check on its parent, so `prlimit` also caps its CPU
+  time at the time limit and 30 seconds where `prlimit` exists, and only there, and the
+  parent ends live reads on SIGINT and SIGTERM,
+  then raises the signal again unless another listener, such as `tsdraft dev`'s, handles it.
+  An answer is joined and parsed in one step that never awaits, so two are never parsed at once.
+  `src/readers.ts` reads no package.json but those on the walk to the project, the project's
+  dependencies' and the one `--reader` names, and none inside an input path. Keep "Reading
+  drawing files" in [docs/command.md](../docs/command.md) true when a limit or a rule changes.
 - `@resvg/resvg-js` is an optional dependency. Only `src/png.ts` and `src/png-child.ts` load
   it, and only when a PNG is asked for or `tsdraft dev` starts. Without it the command still gives the SVG and the JSON,
   with the reason in `outputs.pngError`.

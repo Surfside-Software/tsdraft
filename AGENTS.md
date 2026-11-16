@@ -212,6 +212,14 @@
   the wrong type carries `item`, the path of what a reader has to leave out.
   `test/shape.test.ts` replaces every field of a full drawing with values of other types, and
   its drawing is typed so that a new field or entity kind is a compile error there.
+- `src/read/` reads a file into a `DrawingRead`, the read model, which is not a `Drawing` and is
+  never written back. `readDXF` reads as the bytes arrive and must never hold the whole file or
+  a list that grows with entities past `CENSUS_LIMIT`; a record's binary groups are dropped as
+  they arrive. It keeps no text of model space or a layout and no attribute value. It throws
+  only a `ReadError`, for a file it cannot read at all, and counts the rest it does not
+  understand under `unread`. A group's default, such as the text style `Standard`, is filled in,
+  since AutoCAD leaves a default out. `checkDrawingRead` holds a reader's answer to the model's
+  fields: change both together, and the reading page, `docs/reading.md`.
 - The writers print numbers with 6 decimals. `written` in `src/format.ts` is that
   rounding, and `lint` judges sizes, points and arc angles as written. A new
   check on a number must do the same.

@@ -169,4 +169,39 @@ export type {
   StandardXref,
   TitleBlockFill,
 } from "./standard/document.ts";
+export { checkDrawingRead } from "./read/check.ts";
+export { readDXF } from "./read/dxf.ts";
+export { ReadError } from "./read/groups.ts";
+export {
+  BLOCK_ITEMS,
+  CENSUS_LIMIT,
+  READ_FORMAT,
+  type DrawingRead,
+  type ReadArc,
+  type ReadAttributeDefinition,
+  type ReadBlock,
+  type ReadCensus,
+  type ReadCensusDimension,
+  type ReadCensusInsert,
+  type ReadCensusText,
+  type ReadCircle,
+  type ReadDimensionStyle,
+  type ReadDrawingFile,
+  type ReadEntity,
+  type ReadField,
+  type ReadHeader,
+  type ReadInsert,
+  type ReadLayer,
+  type ReadLayerCensus,
+  type ReadLayout,
+  type ReadLine,
+  type ReadLinetype,
+  type ReadPolyline,
+  type ReadSpace,
+  type ReadText,
+  type ReadTextStyle,
+  type ReadUnread,
+  type ReadViewport,
+  type ReadXref,
+} from "./read/model.ts";
 export { toSVG, type SvgOptions } from "./svg.ts";
