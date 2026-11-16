@@ -106,7 +106,15 @@ export const STANDARD_TEXT_STYLE = "Standard";
 /** The font of the `Standard` text style. */
 export const STANDARD_FONT: Font = "txt.shx";
 
-/** What tsdraft knows of a font, or undefined for a name that is not in `FONTS`. */
+/** The length of the longest name in `FONTS`. */
+const LONGEST_FONT = Math.max(...Object.keys(FONTS).map((name) => name.length));
+
+/**
+ * What tsdraft knows of a font, or undefined for a name that is not in `FONTS`. A name longer than
+ * any font's is not looked up, since looking up a long name can take time in proportion to it.
+ */
 export function fontInfo(name: string): FontInfo | undefined {
-  return Object.hasOwn(FONTS, name) ? FONTS[name as Font] : undefined;
+  return typeof name === "string" && name.length <= LONGEST_FONT && Object.hasOwn(FONTS, name)
+    ? FONTS[name as Font]
+    : undefined;
 }

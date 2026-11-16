@@ -202,8 +202,10 @@ it would take `1e+100` for `1e+10` and report nothing.
   in `dimensionStyles`, `layout` for a layout,
   `viewport` for a viewport, and `format` for the rest, which an entity of a sheet is.
   No other rule is checked on an object of the wrong shape, and what names it gets no error
-  for that. The error's `item` is the path of the item to leave out, such as `entities[3]`
-  or `layouts[0].viewports[1]`. An error about a layout's paper or about a viewport with no
+  for that. A `Proxy` is code, not data, and nothing can tell one from data without asking it:
+  `lint` reads one as the data its traps give and calls them in proportion to what it reads, so
+  a trap that throws or never returns does so inside `lint`. The error's `item` is the path of
+  the item to leave out, such as `entities[3]` or `layouts[0].viewports[1]`. An error about a layout's paper or about a viewport with no
   view has an `item` as well, since neither can be drawn.
 - An object has only the fields of its type. `colour` on a layer or `thickness` on an entity
   would not be written, so each is an error under the same rules, and the message names the
@@ -212,7 +214,7 @@ it would take `1e+100` for `1e+10` and report nothing.
 
 ## Warnings
 
-`lint` also returns warnings. Warnings do not stop an export. They are:
+`lint` also returns warnings. Warnings do not stop an export, except `check-capped`. They are:
 
 - A line, a polyline or an arc that has no length, or has none once its numbers
   are rounded.
@@ -226,8 +228,19 @@ it would take `1e+100` for `1e+10` and report nothing.
 - A viewport that reaches past its layout's paper. AutoCAD plots a layout as far as its paper
   goes.
 - A viewport that shows none of the drawing: nothing in model space lies in the box it shows.
+- `check-capped`: where `lint` stopped the checks it makes again for what a drawing repeats:
+  each attribute an insert places and each handle it takes past its first 64, a tag of 256
+  characters or more each time an insert's values are searched for it, what each
+  dimension reads from its style's prefix and suffix, the way back through a cycle of blocks,
+  which each block of the cycle's error names while there is room, and the extents of model
+  space and of each layout, which the DXF holds and each viewport is held against. They are bounded: they do at most
+  500,000 units of work, and 16 more for each entity and attribute definition the drawing holds,
+  so a drawing that repeats far more than it holds gets this one warning, which says where they
+  stopped. Every other check takes time in proportion to the drawing, and blocks nested to any
+  depth cost what they hold, not what they draw. `toDXF` refuses a drawing with this warning,
+  since a problem past that point would go unreported.
 
-`toDXF` throws a `DrawingError` for errors only. Its `diagnostics` property holds
+`toDXF` throws a `DrawingError` for errors, and for `check-capped`. Its `diagnostics` property holds
 them, and other code may throw one to refuse a drawing for its own reasons.
 
 ## A drawing's standard
@@ -302,8 +315,7 @@ Warnings:
   and each item of the block it enters, each name they read the first time, by its length, and
   each error by the length of its message. They enter only a block that can draw a text, so a
   drawing with no text in its blocks costs nothing to walk. A drawing that draws more than they
-  look through, or nests blocks deeper than they can follow, gets one warning that says where
-  they stopped. The other checks take time in proportion to the drawing, the standard and the
+  look through gets one warning that says where they stopped. The other checks take time in proportion to the drawing, the standard and the
   problems they report: a standard given as data gets one problem for each pair of its names
   that AutoCAD takes for one, however many there are.
 

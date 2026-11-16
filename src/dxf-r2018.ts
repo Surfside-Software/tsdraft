@@ -33,7 +33,8 @@ import type {
   Units,
   Viewport,
 } from "./drawing.ts";
-import { extents } from "./extents.ts";
+import { boxer, type Boxer } from "./extents.ts";
+import { checksLimit, DrawingError } from "./lint.ts";
 import {
   layoutBlockName,
   validLayoutHandles,
@@ -54,7 +55,7 @@ import { ID_HANDLE_SEED, validIdHandle } from "./handles.ts";
 import { dxfOnce, dxfText, fmt, readable, written, writtenAngle } from "./format.ts";
 import { layerKey, layerZeroFirst } from "./layers.ts";
 import { entityLinetype, layerLinetype, lineweightCode, patternLength } from "./linetypes.ts";
-import { TEXT_ALIGNS, TEXT_VERTICAL_ALIGNS } from "./rules.ts";
+import { shown, TEXT_ALIGNS, TEXT_VERTICAL_ALIGNS } from "./rules.ts";
 
 /** `$INSUNITS` codes from the DXF Reference. */
 const INSUNITS: Record<Units, number> = { in: 1, ft: 2, mm: 4, cm: 5, m: 6 };
@@ -107,8 +108,20 @@ export function toDXFR2018(
   const sheets = layouts.map((layout, index) => sheetOf(layout, index));
   const layoutDictionary = sheets.length > 0 ? handle() : "";
   const modelLayout = sheets.length > 0 ? handle() : "";
-  // The extents are worked out here, so they are brought into the range AutoCAD reads.
-  const [left, bottom, right, top] = extentsOf(drawing.entities, drawing);
+  // The extents are worked out here, so they are brought into the range AutoCAD reads. Each
+  // block's outline is worked out once for the drawing, within the limit `lint` boxes it in.
+  const boxOf = boxer(
+    drawing.textStyles,
+    drawing.blocks,
+    undefined,
+    undefined,
+    undefined,
+    drawing.dimensionStyles,
+    checksLimit(drawing),
+  );
+  const [left, bottom, right, top] = extentsOf(drawing.entities, boxOf, "model space");
+  // Each layout is boxed once, after model space, as `lint` boxes them.
+  const sheetBoxes = sheets.map((sheet) => sheetExtents(sheet, drawing, boxOf));
   const [minX, minY, maxX, maxY] = [
     readable(left),
     readable(bottom),
@@ -556,7 +569,7 @@ export function toDXFR2018(
     }
     writeModelLayout(g, modelLayout, layoutDictionary, modelSpace, [minX, minY, maxX, maxY]);
     sheets.forEach((sheet, index) => {
-      writeLayout(g, sheet, layoutDictionary, index + 1, sheetExtents(sheet, drawing));
+      writeLayout(g, sheet, layoutDictionary, index + 1, sheetBoxes[index]!);
     });
   }
   g(0, "ENDSEC");
@@ -593,7 +606,7 @@ export function toDXFR2018(
   const [first] = sheets;
   if (first !== undefined) {
     // AutoCAD takes the extents and the limits of the layout it opens on from the header.
-    const [pMinX, pMinY, pMaxX, pMaxY] = sheetExtents(first, drawing);
+    const [pMinX, pMinY, pMaxX, pMaxY] = sheetBoxes[0]!;
     const limits = sheetLimits(first.paper);
     h(9, "$PEXTMIN");
     point(h, 10, pMinX, pMinY);
@@ -1145,14 +1158,18 @@ function sheetLimits(paper: PaperInfo): [number, number, number, number] {
  * The extents of what a layout holds, in paper units: its entities and the rectangles of its
  * viewports. A layout that holds nothing has the extents AutoCAD gives an empty one.
  */
-function sheetExtents(sheet: Sheet, drawing: Drawing): [number, number, number, number] {
+function sheetExtents(
+  sheet: Sheet,
+  drawing: Drawing,
+  boxOf: Boxer,
+): [number, number, number, number] {
   const { layout, paper } = sheet;
   if (layout.entities.length === 0 && layout.viewports.length === 0) {
     return [EMPTY_EXTENT, EMPTY_EXTENT, -EMPTY_EXTENT, -EMPTY_EXTENT];
   }
   const box =
     layout.entities.length > 0
-      ? extentsOf(layout.entities, drawing)
+      ? extentsOf(layout.entities, boxOf, `layout ${shown(layout.name)}`)
       : [Infinity, Infinity, -Infinity, -Infinity];
   for (const viewport of layout.viewports) {
     const view = validViewportView(viewport, paper.units, drawing.units);
@@ -1164,20 +1181,30 @@ function sheetExtents(sheet: Sheet, drawing: Drawing): [number, number, number, 
   return box.map(readable) as [number, number, number, number];
 }
 
-/** The extents of some entities of a drawing, with its styles and its blocks. */
+/**
+ * The extents of some entities of a drawing, with its styles and its blocks.
+ *
+ * @throws DrawingError with a `check-capped` warning when the drawing repeats more than the
+ *   extents work out.
+ */
 function extentsOf(
   entities: readonly Entity[],
-  drawing: Drawing,
+  boxOf: Boxer,
+  space: string,
 ): [number, number, number, number] {
-  return extents(
-    entities,
-    drawing.textStyles,
-    drawing.blocks,
-    undefined,
-    undefined,
-    undefined,
-    drawing.dimensionStyles,
-  );
+  const box = boxOf(entities);
+  const at = boxOf.capped;
+  if (at) {
+    const where = `${at.kind} #${entities.indexOf(at)} of ${space}`;
+    throw new DrawingError([
+      {
+        rule: "check-capped",
+        severity: "warning",
+        message: `toDXF stopped working out the extents at ${where}; the drawing repeats more than they look through, so toDXF refuses it`,
+      },
+    ]);
+  }
+  return box ?? [0, 0, 1, 1];
 }
 
 /** The fields of a viewport that say how its view is drawn, which are the same in every one. */

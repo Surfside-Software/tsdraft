@@ -112,6 +112,21 @@ export function slotProblem(at: string, index: number): string {
 }
 
 /**
+ * The items of a list up to its first empty slot, where `lint` stops it, or none when it is not
+ * a list. A list with no empty slot is given itself, so `callOf` finds its calls.
+ */
+export function filled<T>(list: readonly T[] | undefined): readonly T[];
+export function filled(list: unknown): readonly unknown[];
+export function filled(list: unknown): readonly unknown[] {
+  if (arrayProblem(list, "") !== undefined) return [];
+  const items = list as readonly unknown[];
+  for (let i = 0; i < items.length; i++) {
+    if (items[i] === undefined && !(i in items)) return items.slice(0, i);
+  }
+  return items;
+}
+
+/**
  * How many letters must be changed, added, dropped or swapped with the next to make one word
  * of the other.
  */

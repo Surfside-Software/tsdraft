@@ -82,7 +82,9 @@ index in, from 1 to 255. Index 7 is black on paper and white on a dark screen, s
 in `currentColor`. A layer that is off or frozen, or whose `plot` is false, is left out.
 `toSVG(drawing, { drawNoPlot: true })` draws the layers that do not plot too, to see
 construction lines. The other options are `margin`, in drawing units, and `strokeWidth`, the
-width in screen pixels of a line of the default lineweight.
+width in screen pixels of a line of the default lineweight. A picture too large to write, such
+as blocks nested to draw millions of entities, is refused with a `RangeError` that says where
+it stopped, as [the preview of blocks](docs/blocks.md#the-preview) says.
 Entities go on layer `0` unless they are drawn inside a `layer()` callback.
 Linetypes and lineweights are set on a layer, and an entity draws ByLayer unless
 it is given its own. `DASHED`, `HIDDEN`, `CENTER`, `PHANTOM`, `DASHDOT` and `DOT`

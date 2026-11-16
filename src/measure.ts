@@ -2,7 +2,7 @@
 // extents, `toSVG` and `inspectText` all take it from here.
 import type { Point, TextAlign, TextVerticalAlign } from "./drawing.ts";
 import { FONT_METRICS, FONT_METRICS_RANGES, type FontMetrics } from "./font-metrics.ts";
-import { STANDARD_FONT } from "./fonts.ts";
+import { fontInfo, STANDARD_FONT } from "./fonts.ts";
 
 /** A text to measure. A `Text` and its `TextStyle` spread into one object are one. */
 export interface TextToMeasure {
@@ -91,9 +91,9 @@ export interface TextLayout {
  * middle one half a height, and of a bottom one as far below it as the font reaches.
  */
 export function layoutText(text: TextToMeasure): TextLayout {
-  const known: FontMetrics | undefined = Object.hasOwn(FONT_METRICS, text.font ?? STANDARD_FONT)
-    ? FONT_METRICS[text.font ?? STANDARD_FONT]
-    : undefined;
+  const font = text.font ?? STANDARD_FONT;
+  const known: FontMetrics | undefined =
+    fontInfo(font) && Object.hasOwn(FONT_METRICS, font) ? FONT_METRICS[font] : undefined;
   const metrics = known ?? FONT_METRICS[STANDARD_FONT]!;
   const value = drawnValue(text.value);
   // A centered or right-justified text placed by a space at either end may plot elsewhere.
@@ -136,6 +136,31 @@ export function layoutText(text: TextToMeasure): TextLayout {
     descent: metrics.below * text.height,
     approximate,
   };
+}
+
+/** The fields of a text `measureText` reads that a `TextStyle` holds. */
+const STYLED = ["font", "widthFactor", "obliqueAngle"] as const;
+
+/** The fields of a text `measureText` reads that only the text holds. */
+const OWN = ["value", "height", "at", "rotation", "align", "valign"] as const;
+
+/**
+ * A text in its style, as `measureText` takes it: the font, the width factor and the oblique
+ * angle from the style where it has them, as `{ ...text, ...style }` gives them, and the rest
+ * from the text, since a style holds no value, height, place or justification. Only those fields
+ * are read, so a text placed many times costs the same whatever else the two hold.
+ */
+export function inStyle(text: TextToMeasure, style: object | undefined): TextToMeasure {
+  if (typeof style !== "object" || style === null) return text;
+  const out: Record<string, unknown> = {};
+  const from = text as unknown as Record<string, unknown>;
+  for (const field of OWN) out[field] = from[field];
+  for (const field of STYLED) {
+    out[field] = Object.hasOwn(style, field)
+      ? (style as Record<string, unknown>)[field]
+      : from[field];
+  }
+  return out as unknown as TextToMeasure;
 }
 
 /**

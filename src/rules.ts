@@ -1367,6 +1367,8 @@ export function attributeTagProblem(tag: unknown): string | undefined {
  *
  * @param tag - The attribute's tag.
  * @param placed - The attribute as `placeAttribute` gives it.
+ * @param quoted - The tag as JSON, for a caller that checks one tag for many inserts. It is
+ *   read only for a problem.
  */
 export function placedAttributeProblem(
   tag: string,
@@ -1376,22 +1378,23 @@ export function placedAttributeProblem(
     readonly widthFactor: number;
     readonly obliqueAngle: number;
   },
+  quoted?: string,
 ): string | undefined {
-  const about = `its scale makes the attribute ${JSON.stringify(tag)}`;
-  if (!placed.at.every(Number.isFinite))
-    return `it puts the attribute ${JSON.stringify(tag)} at no point`;
+  const name = (): string => quoted ?? JSON.stringify(tag);
+  const about = (): string => `its scale makes the attribute ${name()}`;
+  if (!placed.at.every(Number.isFinite)) return `it puts the attribute ${name()} at no point`;
   const far = magnitudeProblem(placed.at[0]) ?? magnitudeProblem(placed.at[1]);
-  if (far) return `it puts the attribute ${JSON.stringify(tag)} at ${placed.at.join(", ")}. ${far}`;
+  if (far) return `it puts the attribute ${name()} at ${placed.at.join(", ")}. ${far}`;
   if (![placed.height, placed.widthFactor, placed.obliqueAngle].every(Number.isFinite)) {
-    return `${about} a text of no size`;
+    return `${about()} a text of no size`;
   }
   const height = sizeProblem(placed.height);
-  if (height) return `${about} ${placed.height} high. ${height}`;
+  if (height) return `${about()} ${placed.height} high. ${height}`;
   if (Math.abs(written(placed.obliqueAngle)) > 85) {
-    return `${about} slant by ${written(placed.obliqueAngle)} degrees. ${OBLIQUE}. Scale the insert more evenly`;
+    return `${about()} slant by ${written(placed.obliqueAngle)} degrees. ${OBLIQUE}. Scale the insert more evenly`;
   }
   if (written(placed.widthFactor) < 0.01 || written(placed.widthFactor) > 100) {
-    return `${about} ${written(placed.widthFactor)} times as wide as its font draws it. ${WIDTH_FACTOR}, and an attribute with one of 750000. Scale the insert more evenly`;
+    return `${about()} ${written(placed.widthFactor)} times as wide as its font draws it. ${WIDTH_FACTOR}, and an attribute with one of 750000. Scale the insert more evenly`;
   }
   return undefined;
 }

@@ -39,9 +39,17 @@ export type Arrowhead = keyof typeof ARROWHEADS;
 /** The arrowhead of a dimension style that names none. */
 export const DEFAULT_ARROWHEAD: Arrowhead = "closed-filled";
 
-/** What tsdraft knows of an arrowhead, or undefined for a name that is not in `ARROWHEADS`. */
+/** The length of the longest name in `ARROWHEADS`. */
+const LONGEST_ARROWHEAD = Math.max(...Object.keys(ARROWHEADS).map((name) => name.length));
+
+/**
+ * What tsdraft knows of an arrowhead, or undefined for a name that is not in `ARROWHEADS`. A name
+ * longer than any arrowhead's is not looked up, since that can take time in proportion to it.
+ */
 export function arrowheadInfo(name: unknown): ArrowheadInfo | undefined {
-  return typeof name === "string" && Object.hasOwn(ARROWHEADS, name)
+  return typeof name === "string" &&
+    name.length <= LONGEST_ARROWHEAD &&
+    Object.hasOwn(ARROWHEADS, name)
     ? ARROWHEADS[name as Arrowhead]
     : undefined;
 }

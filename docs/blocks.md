@@ -141,4 +141,8 @@ A drawing that has a block has a `$HANDSEED` of `20000000000000`, as one that ha
 for each entity its block draws, where the insert puts it, and a text for each attribute with
 the insert's value. Each element has the layer it draws on in `data-layer`. A circle under an
 uneven scale is an ellipse, a dash pattern scales with its insert, and the extents take in
-what every insert draws.
+what every insert draws. Blocks may nest to any depth, and what a block draws is read once for
+the drawing, so the extents cost what the drawing holds. A picture that would be longer than
+500 million characters, or whose inserts reach more than 2,000,000 blocks and entities that draw
+nothing, such as those on a layer that is off, is refused with a `RangeError` that names the
+insert or the viewport it stopped at: draw a part of it with `view`.

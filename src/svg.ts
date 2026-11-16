@@ -1,7 +1,6 @@
 import {
   blocksByKey,
   eachDrawn,
-  findXref,
   mapPoint,
   referencedByKey,
   type LayerRef,
@@ -22,15 +21,16 @@ import {
   type TextStyle,
   type Viewport,
 } from "./drawing.ts";
-import { boxer, extents } from "./extents.ts";
+import { boxer, type Boxer } from "./extents.ts";
 import { fontInfo, STANDARD_FONT } from "./fonts.ts";
 import { fmt, written } from "./format.ts";
-import { layerKey } from "./layers.ts";
+import { layerKey, layerKeys } from "./layers.ts";
 import { findLayout, validViewportView } from "./layouts.ts";
 import { builtInLinetype, LINEWEIGHTS, lineweightCode } from "./linetypes.ts";
-import { drawnValue, layoutText } from "./measure.ts";
+import { drawnValue, inStyle, layoutText } from "./measure.ts";
 import { DEFAULT_PLOT_STYLE_TABLE, paperInfo } from "./papers.ts";
-import { viewportProblem } from "./rules.ts";
+import { shown as quoted, viewportProblem } from "./rules.ts";
+import { filled } from "./shape.ts";
 import { isUnits } from "./units.ts";
 
 /**
@@ -157,6 +157,27 @@ const SCREEN_CAP_HEIGHT = 0.7;
  */
 const MAX_DASHES = 10000;
 
+/**
+ * The most a picture walks that it does not draw: each block the walk of an insert enters, each
+ * entity and attribute it reaches that draws nothing, such as one on a layer that is off, each
+ * 64 entities of model space a viewport past the first `FREE_VIEWS` looks through for what it
+ * shows, and each 32 lengths of a dash pattern scaled for a space. What the walk draws counts
+ * against the characters instead.
+ */
+const MAX_WALKED = 2_000_000;
+
+/**
+ * The most characters a picture is written in, for each entity `MAX_WALKED` allows: 500 million
+ * in all, under the 536,870,888 a JavaScript string holds.
+ */
+const CHARACTERS = 250;
+
+/** The viewports of a picture that look through model space free of `MAX_WALKED`. */
+const FREE_VIEWS = 64;
+
+/** How many elements of an insert are joined into one string as they are made. */
+const JOINED = 1024;
+
 export interface SvgOptions {
   /** Margin around the drawing's extents, in drawing units. Defaults to 2% of the larger side. */
   readonly margin?: number;
@@ -189,10 +210,30 @@ export interface SvgOptions {
 /** How an entity is drawn. */
 interface Pen {
   readonly color: string;
-  /** Dash, gap, dash, ... in drawing units, starting with a dash. Undefined for a solid line. */
-  readonly dashes: readonly number[] | undefined;
+  /** Undefined for a solid line. */
+  readonly dashes: Dashes | undefined;
   /** In hundredths of a millimetre. */
   readonly lineweight: number;
+}
+
+/** A dash pattern scaled for a space, worked out once for each entity drawn with it. */
+interface Dashes {
+  /** Dash, gap, dash, ... in drawing units, starting with a dash. */
+  readonly lengths: readonly number[];
+  /** What they add up to. */
+  readonly total: number;
+  /** True when one has no length: a dot, which draws as a round cap. */
+  readonly dot: boolean;
+}
+
+/**
+ * The sides of a polyline's points that have a length, which are all a pattern cuts: the points
+ * up to the first empty slot, the index of the point each such side ends at, and the longest.
+ */
+interface Sides {
+  readonly points: readonly Point[];
+  readonly ends: readonly number[];
+  readonly longest: number;
 }
 
 /**
@@ -234,15 +275,78 @@ interface Pen {
  * With `options.view`, the picture is that rectangle of the space: what lies well outside it is
  * left out, and a layout's viewports are cut to it.
  *
- * @throws RangeError when the drawing has no layout of the name `options.layout`, and when
- *   `options.view` is not four finite numbers with a width and a height.
+ * A list is read up to its first empty slot, where `lint` reports it.
+ *
+ * @throws RangeError when the drawing has no layout of the name `options.layout`, when
+ *   `options.view` is not four finite numbers with a width and a height, and when the picture
+ *   is larger than `toSVG` draws: it would be longer than 500,000,000 characters, or its walk
+ *   of inserts would reach more than 2,000,000 blocks and entities that draw nothing, such as
+ *   blocks nested to draw millions.
+ *   Its message names the entity or the viewport it stopped at. Draw a part of such a drawing
+ *   with `options.view`.
  */
 export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
+  return svgWithin(drawing, options, MAX_WALKED);
+}
+
+/** `toSVG` with `most` entities walked, and `most` times `CHARACTERS` characters written. */
+export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): string {
   const xrefs = referencedByKey(drawing, options.xrefs);
-  const { tablesOf, layerOf, hidden, frozen, styleOf } = visibility(drawing, options.drawNoPlot);
+  const { tablesOf, layerOf, hidden, frozen, styleOf, key } = visibility(
+    drawing,
+    options.drawNoPlot,
+  );
+  // The first xref of each name, as `findXref` finds it.
+  const xrefPaths = new Map<string, string>();
+  for (const xref of filled(drawing.xrefs)) {
+    if (!xrefPaths.has(key(xref.name))) xrefPaths.set(key(xref.name), xref.path);
+  }
+  const builtIns = new Map<string, ReturnType<typeof builtInLinetype>>();
+  const builtIn = (name: string) => {
+    if (!builtIns.has(name)) builtIns.set(name, builtInLinetype(name));
+    return builtIns.get(name);
+  };
   const blocks = blocksByKey(drawing.blocks);
   const view = viewOf(options.view);
-  /** The element of an entity that draws something of its own, where `matrix` puts it. */
+  let work = 0;
+  /** Counts the cost of a step, and says whether there is room left to take it. */
+  const spend = (cost: number): boolean => (work += cost) <= most;
+  let length = 0;
+  const longest = most * CHARACTERS;
+  /** Counts characters the picture writes, and says whether it has room for them. */
+  const write = (characters: number): boolean => (length += characters) <= longest;
+  const refuse = (where: string, boxing = false): never => {
+    throw new RangeError(
+      boxing
+        ? `The extents of what the picture holds take more work than toSVG does, ${most} units: it stopped at ${where}, where inserts or the prefixes and suffixes of dimension styles repeat more than it reads`
+        : length > longest
+          ? `The picture is longer than toSVG writes, ${longest} characters: it stopped at ${where}. Draw a part of it with view`
+          : `The picture walks more than toSVG does for one, ${most} blocks and entities that inserts reach and that draw nothing, or that viewports look through 64 at a time: it stopped at ${where}. Draw a part of it with view, or nest fewer inserts`,
+    );
+  };
+  /** Where an entity of a space is, as a message names it. */
+  const entityAt = (index: number, e: Entity, space: string): string =>
+    `${e.kind === "insert" ? "insert" : "entity"} #${index} of ${space}`;
+  /** The boxes of model space, made once for the picture, which reads each block once. */
+  let boxes: Boxer | undefined;
+  const boxOf = (entities: readonly Entity[], at: (e: Entity) => string) => {
+    boxes ??= boxer(
+      drawing.textStyles,
+      drawing.blocks,
+      hidden,
+      frozen,
+      xrefs,
+      drawing.dimensionStyles,
+      most,
+    );
+    const box = boxes(entities);
+    if (boxes.capped) refuse(at(boxes.capped), true);
+    return box;
+  };
+  /**
+   * The element of an entity that draws something of its own, where `matrix` puts it. Its
+   * dashes stop once they pass the room left in the picture, and `write` then refuses it.
+   */
   const drawn = (
     e: Drawn,
     mark: string,
@@ -251,25 +355,47 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     from?: Referenced,
     matrix?: Matrix,
   ): string => {
+    const room = longest - length;
     if (e.kind !== "linear-dimension" && e.kind !== "aligned-dimension") {
-      return entityToSvg(e, mark, drawnPen, look, styleOf(e, from), matrix);
+      return entityToSvg(e, mark, drawnPen, look, styleOf(e, from), matrix, room, sides);
     }
     const tables = tablesOf(from);
-    const style = tables.dimensionStyles.get(layerKey(e.style));
+    const style = tables.dimensionStyles.get(key(e.style));
     const textStyle =
-      style?.textStyle === undefined ? undefined : tables.textStyles.get(layerKey(style.textStyle));
-    return dimensionToSvg(e, style, textStyle, mark, drawnPen, look, matrix);
+      style?.textStyle === undefined ? undefined : tables.textStyles.get(key(style.textStyle));
+    return dimensionToSvg(e, style, textStyle, mark, drawnPen, look, matrix, room);
+  };
+
+  /** The sides of each list of points a pattern cuts, read once for the picture. */
+  const sides = new WeakMap<object, Sides>();
+
+  /** Each pattern scaled for each space, worked out when first drawn with. */
+  const scaled = new Map<readonly number[], Map<number, Dashes>>();
+  const dashesOf = (pattern: readonly number[], scale: number, where: () => string): Dashes => {
+    let byScale = scaled.get(pattern);
+    if (!byScale) scaled.set(pattern, (byScale = new Map()));
+    let found = byScale.get(scale);
+    if (!found) {
+      // A pattern AutoCAD takes has at most 12 lengths, but one given as data may hold any number.
+      if (!spend(Math.floor(pattern.length / 32))) refuse(where());
+      const lengths = pattern.map((length) => length * scale);
+      found = { lengths, total: lengths.reduce((a, b) => a + b, 0), dot: lengths.includes(0) };
+      byScale.set(scale, found);
+    }
+    return found;
   };
 
   /**
    * The pen of an entity that draws on `on`. `insertLayer` is the layer of the insert that
    * holds it, whose linetype and lineweight an entity set to ByBlock takes. `from` is the
-   * referenced drawing the entity is in, whose linetypes it names.
+   * referenced drawing the entity is in, whose linetypes it names. `where` names the entity of
+   * the space it is drawn for.
    */
   const pen = (
     look: Look,
     e: Pick<Line, "linetype" | "lineweight">,
     on: LayerRef,
+    where: () => string,
     insertLayer?: LayerRef,
     from?: Referenced,
   ): Pen => {
@@ -281,7 +407,7 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     const source = (
       value: string | number | undefined,
     ): { readonly layer: Layer | undefined; readonly of: Referenced | undefined } | "own" => {
-      const name = typeof value === "string" ? builtInLinetype(value) : undefined;
+      const name = typeof value === "string" ? builtIn(value) : undefined;
       if (value === undefined || name === "ByLayer") return { layer, of: on.of };
       // An insert draws ByLayer, so ByBlock is the insert's layer.
       if (name === "ByBlock" && insertLayer !== undefined) {
@@ -294,7 +420,7 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     // A layer's linetype is one of the layer's drawing, and an entity's one of the entity's.
     const named = linetypeFrom === "own" ? from : linetypeFrom.of;
     const pattern =
-      linetype === undefined ? undefined : tablesOf(named).patterns.get(layerKey(linetype));
+      linetype === undefined ? undefined : tablesOf(named).patterns.get(key(linetype));
     const weightFrom = source(e.lineweight);
     const weight =
       weightFrom === "own"
@@ -303,9 +429,10 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     const code = lineweightCode(weight);
     return {
       color: look.color(layer?.color ?? 7),
-      dashes: Number.isFinite(look.dashScale)
-        ? pattern?.map((length) => length * look.dashScale)
-        : undefined,
+      dashes:
+        pattern && Number.isFinite(look.dashScale)
+          ? dashesOf(pattern, look.dashScale, where)
+          : undefined,
       lineweight: code < 0 ? DEFAULT_LINEWEIGHT : code,
     };
   };
@@ -315,40 +442,65 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
    * holds is judged entity by entity, unless the insert's own layer is frozen.
    */
   const shownOf = (entities: readonly Entity[]): [number, Entity][] =>
-    [...entities.entries()].filter(([, e]) =>
+    [...filled(entities).entries()].filter(([, e]) =>
       e.kind === "insert" ? !frozen({ name: e.layer }) : !hidden({ name: e.layer }),
     );
 
-  /** An element for each entity that is drawn, as `look` draws it. */
-  const elements = (shown: readonly [number, Entity][], look: Look): string[] => {
+  /**
+   * An element for each entity that is drawn, as `look` draws it, in the space `space` names.
+   * Each counts with the line it is written on, set in by `look.indent`.
+   */
+  const elements = (shown: readonly [number, Entity][], look: Look, space: string): string[] => {
     const marks = (e: Entity, index: number): string =>
       `data-layer="${esc(e.layer)}" data-entity="${index}"${e.id === undefined ? "" : ` data-id="${esc(e.id)}"`}`;
+    const line = look.indent.length + 1;
     return shown.map(([i, e]) => {
+      const where = () => entityAt(i, e, space);
       if (e.kind !== "insert") {
-        return drawn(e, marks(e, i), pen(look, styled(e), { name: e.layer }), look);
+        const element = drawn(e, marks(e, i), pen(look, styled(e), { name: e.layer }, where), look);
+        if (!write(element.length + line)) refuse(where());
+        return element;
       }
-      const parts: string[] = [];
-      eachDrawn(
+      const between = `\n${look.indent}  `;
+      // An element is made of many small strings, so every `JOINED` of them are joined into one,
+      // which holds no more than its characters, with what joins them as the group joins them.
+      const joined: string[] = [];
+      let parts: string[] = [];
+      const walked = eachDrawn(
         e,
         blocks,
         frozen,
         (held, at) => {
-          if (at.frozen || hidden(at.layer)) return;
+          if (hidden(at.layer)) return;
           // AutoCAD names a layer of an xref by the xref's name, a bar and the layer's.
           const { name, of } = at.layer;
           const mark = `data-layer="${esc(of ? `${of.name}|${name}` : name)}"`;
-          const heldPen = pen(look, styled(held), at.layer, at.insertLayer, at.from);
-          parts.push(drawn(held, mark, heldPen, look, at.from, at.matrix));
+          const heldPen = pen(look, styled(held), at.layer, where, at.insertLayer, at.from);
+          const part = drawn(held, mark, heldPen, look, at.from, at.matrix);
+          if (!write(part.length + line + 2)) return;
+          parts.push(part);
+          if (parts.length === JOINED) {
+            joined.push(parts.join(between));
+            parts = [];
+          }
+          // What is drawn counts against the characters, so it gives back its step of the walk.
+          work--;
         },
         xrefs,
+        (cost) => length <= longest && spend(cost),
+        key,
       );
-      const inside =
-        parts.length > 0
-          ? `\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}`
-          : "";
-      const xref = blocks.has(layerKey(e.block)) ? undefined : findXref(drawing, e.block);
-      const path = xref === undefined ? "" : ` data-xref="${esc(xref.path)}"`;
-      return `<g ${marks(e, i)} data-block="${esc(e.block)}"${path}>${inside}</g>`;
+      if (!walked || length > longest) refuse(where());
+      const xref = blocks.has(key(e.block)) ? undefined : xrefPaths.get(key(e.block));
+      // Its names are read for each insert, so they are paid for before they are written.
+      const names = e.block.length + e.layer.length + (e.id?.length ?? 0) + (xref?.length ?? 0);
+      if (!write(names)) refuse(where());
+      const path = xref === undefined ? "" : ` data-xref="${esc(xref)}"`;
+      const open = `<g ${marks(e, i)} data-block="${esc(e.block)}"${path}>`;
+      const all = parts.length > 0 ? [...joined, parts.join(between)] : joined;
+      if (!write(open.length - names + 4 + line + (all.length > 0 ? line : 0))) refuse(where());
+      const inside = all.length > 0 ? `${between}${all.join(between)}\n${look.indent}` : "";
+      return `${open}${inside}</g>`;
     });
   };
 
@@ -361,22 +513,16 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
   let boxed:
     | { shown: [number, Entity]; box: readonly [number, number, number, number]; slack: number }[]
     | undefined;
+  /** How many times model space has been looked through. */
+  let views = 0;
   /**
    * The entities of model space that may reach into a rectangle of it, `[x0, y0, x1, y1]`, with
    * a pen that reaches `pen` past an entity's box. The test errs on the side of drawing.
    */
-  const reaching = (rect: readonly number[], pen: number): [number, Entity][] => {
+  const reaching = (rect: readonly number[], pen: number, where: string): [number, Entity][] => {
     if (!boxed) {
-      const boxOf = boxer(
-        drawing.textStyles,
-        drawing.blocks,
-        hidden,
-        frozen,
-        xrefs,
-        drawing.dimensionStyles,
-      );
       boxed = shownOf(drawing.entities).flatMap((shown) => {
-        const box = boxOf([shown[1]]);
+        const box = boxOf([shown[1]], (e) => entityAt(shown[0], e, "model space"));
         if (!box) return [];
         const lettered =
           shown[1].kind === "text" ||
@@ -387,6 +533,7 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
         return [{ shown, box, slack }];
       });
     }
+    if (++views > FREE_VIEWS && !spend(Math.floor(boxed.length / 64))) refuse(where);
     return boxed
       .filter(({ box: b, slack }) => {
         const by = pen + slack;
@@ -446,12 +593,19 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
     ] as const;
     const picture = [frame[0], -(frame[1] + frame[3]), frame[0] + frame[2], -frame[1]] as const;
     const parts: string[] = [];
-    layout.viewports.forEach((viewport, index) => {
+    const space = `layout ${quoted(layout.name)}`;
+    /** Keeps a part of the sheet, each on a line of its own set in by four spaces. */
+    const keep = (where: string, part: string): void => {
+      if (!write(part.length + 5)) refuse(where);
+      parts.push(part);
+    };
+    filled(layout.viewports).forEach((viewport, index) => {
+      const at = `viewport #${index} of ${space}`;
       const id = viewport.id === undefined ? "" : ` data-id="${esc(viewport.id)}"`;
       // A viewport `lint` refuses has no view to draw: a ratio of 0 or less, or no size.
       const sound = viewportProblem(viewport, paper.units, units) === undefined;
       if (!sound) {
-        parts.push(`<g data-viewport="${index}"${id}/>`);
+        keep(at, `<g data-viewport="${index}"${id}/>`);
         // Its border is still drawn where its rectangle can be read.
         const { corner, width, height, layer } = viewport as Partial<Viewport>;
         const sizes = [corner?.[0], corner?.[1], width, height];
@@ -463,7 +617,8 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
           !hidden({ name: layer })
         ) {
           const stroke = color(layerOf({ name: layer })?.color ?? 7);
-          parts.push(
+          keep(
+            at,
             `<rect x="${fmt(corner![0])}" y="${fmt(corner![1])}" width="${fmt(width!)}" height="${fmt(height!)}" stroke="${stroke}" stroke-width="${thin}" data-layer="${esc(layer)}" data-viewport-border="${index}"${id}/>`,
           );
         }
@@ -500,11 +655,11 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
       // Only what may reach into it is drawn: an entity's box, which for an arc is its
       // circle's, with the widest pen there is and the slack of its letters around it.
       const widest = (LINEWEIGHTS.at(-1)! * 100 * perHundredth) / view.scale;
-      const near = visible ? reaching(shows, widest) : [];
-      const inside = elements(near, plotted(view.scale, "        "));
+      const near = visible ? reaching(shows, widest, at) : [];
+      const inside = elements(near, plotted(view.scale, "        "), `model space in ${at}`);
       if (inside.length === 0) {
         // Nothing of the view can be seen, so there is nothing to clip.
-        parts.push(`<g data-viewport="${index}"${id}/>`);
+        keep(at, `<g data-viewport="${index}"${id}/>`);
       } else {
         // The first element is hidden and is the rectangle itself. It draws nothing, and it
         // keeps the group's box on the picture whatever else the group holds: resvg, which
@@ -512,51 +667,45 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
         // clips them, and stops the program that runs it when that box lies wholly more than
         // two widths of the picture to its left or right, or two heights above or below it.
         const rect = `x="${seen[0]}" y="${seen[1]}" width="${seenWidth}" height="${seenHeight}"`;
-        parts.push(
-          `<clipPath id="tsdraft-viewport-${index}"><rect ${rect}/></clipPath>`,
-          [
-            `<g data-viewport="${index}"${id} clip-path="url(#tsdraft-viewport-${index})">`,
-            `      <rect ${rect} visibility="hidden" stroke="#000000"/>`,
-            `      <g transform="${place}" stroke-width="${precise((base * perHundredth) / view.scale)}">`,
-            ...inside.map((element) => `        ${element}`),
-            `      </g>`,
-            `    </g>`,
-          ].join("\n"),
-        );
+        keep(at, `<clipPath id="tsdraft-viewport-${index}"><rect ${rect}/></clipPath>`);
+        // Its elements were counted as they were made.
+        const head = [
+          `<g data-viewport="${index}"${id} clip-path="url(#tsdraft-viewport-${index})">`,
+          `      <rect ${rect} visibility="hidden" stroke="#000000"/>`,
+          `      <g transform="${place}" stroke-width="${precise((base * perHundredth) / view.scale)}">`,
+        ];
+        const tail = [`      </g>`, `    </g>`];
+        if (!write([...head, ...tail].join("\n").length + 6)) refuse(at);
+        parts.push([...head, ...inside.map((element) => `        ${element}`), ...tail].join("\n"));
       }
       // AutoCAD plots a viewport's border as its thinnest line, and only when its layer plots.
       if (!hidden({ name: viewport.layer })) {
         const stroke = color(layerOf({ name: viewport.layer })?.color ?? 7);
-        parts.push(
+        keep(
+          at,
           `<rect ${box} stroke="${stroke}" stroke-width="${thin}" data-layer="${esc(viewport.layer)}" data-viewport-border="${index}"${id}/>`,
         );
       }
     });
-    parts.push(...elements(shownOf(layout.entities), onPaper));
-    return [
+    // A sheet may hold more entities than a call takes arguments.
+    for (const element of elements(shownOf(layout.entities), onPaper, space)) parts.push(element);
+    const head = [
       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${frame.join(" ")}" data-layout="${esc(layout.name)}" data-paper="${esc(layout.paper)}">`,
       `  <rect x="0" y="${fmt(-paper.height)}" width="${fmt(paper.width)}" height="${fmt(paper.height)}" fill="#ffffff"/>`,
       `  <g transform="scale(1 -1)" fill="none" stroke-width="${fmt(base * perHundredth)}">`,
-      ...parts.map((part) => `    ${part}`),
-      `  </g>`,
-      `</svg>`,
-      ``,
-    ].join("\n");
+    ];
+    const tail = [`  </g>`, `</svg>`, ``];
+    if (!write([...head, ...tail].join("\n").length + 1)) refuse(space);
+    return [...head, ...parts.map((part) => `    ${part}`), ...tail].join("\n");
   }
 
   // Each entity keeps its index in `drawing.entities`, for its element's data-entity.
   const all = shownOf(drawing.entities);
-  const [minX, minY, maxX, maxY] =
-    view ??
-    extents(
+  const [minX, minY, maxX, maxY] = view ??
+    boxOf(
       all.map(([, e]) => e),
-      drawing.textStyles,
-      drawing.blocks,
-      hidden,
-      frozen,
-      xrefs,
-      drawing.dimensionStyles,
-    );
+      (e) => entityAt(all.find(([, shown]) => shown === e)![0], e, "model space"),
+    ) ?? [0, 0, 1, 1];
   const margin = options.margin ?? (view ? 0 : Math.max(maxX - minX, maxY - minY, 1) * 0.02);
   const x = minX - margin;
   const y = -(maxY + margin);
@@ -567,7 +716,11 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
   // so it is taken to reach the picture's larger side past an entity's box, times the stroke
   // width when that is over 1: in a picture at least 5 pixels across no pen reaches further.
   const shown = view
-    ? reaching([x, -(y + h), x + w, -y], Math.max(w, h) * Math.max(1, stroke))
+    ? reaching(
+        [x, -(y + h), x + w, -y],
+        Math.max(w, h) * Math.max(1, stroke),
+        "the view of model space",
+      )
     : all;
   // On a screen each layer draws in its own color, and every line keeps its width in pixels
   // however far the picture is zoomed.
@@ -582,15 +735,14 @@ export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
           : ` stroke-width="${fmt((stroke * Math.max(lineweight, 5)) / DEFAULT_LINEWEIGHT)}"`
       } vector-effect="non-scaling-stroke"`,
   };
-  const body = elements(shown, onScreen).join("\n    ");
-  return [
+  const body = elements(shown, onScreen, "model space").join("\n    ");
+  const head = [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${fmt(x)} ${fmt(y)} ${fmt(w)} ${fmt(h)}">`,
     `  <g transform="scale(1 -1)" fill="none" stroke-width="${fmt(stroke)}" vector-effect="non-scaling-stroke">`,
-    `    ${body}`,
-    `  </g>`,
-    `</svg>`,
-    ``,
-  ].join("\n");
+  ];
+  const tail = [`  </g>`, `</svg>`, ``];
+  if (!write([...head, ...tail].join("\n").length + 1)) refuse("model space");
+  return [...head, `    ${body}`, ...tail].join("\n");
 }
 
 /**
@@ -624,12 +776,12 @@ interface Tables {
 
 function tablesFor(drawing: Drawing): Tables {
   return {
-    layers: new Map(drawing.layers.map((l) => [layerKey(l.name), l])),
+    layers: new Map(filled(drawing.layers).map((l) => [layerKey(l.name), l])),
     patterns: new Map(
-      (drawing.linetypes ?? []).map((t) => [layerKey(t.name), alternating(t.pattern)]),
+      filled(drawing.linetypes).map((t) => [layerKey(t.name), alternating(filled(t.pattern))]),
     ),
-    textStyles: new Map((drawing.textStyles ?? []).map((t) => [layerKey(t.name), t])),
-    dimensionStyles: new Map((drawing.dimensionStyles ?? []).map((t) => [layerKey(t.name), t])),
+    textStyles: new Map(filled(drawing.textStyles).map((t) => [layerKey(t.name), t])),
+    dimensionStyles: new Map(filled(drawing.dimensionStyles).map((t) => [layerKey(t.name), t])),
   };
 }
 
@@ -648,8 +800,9 @@ export function visibility(drawing: Drawing, drawNoPlot: boolean | undefined) {
     if (!found) tables.set(source, (found = tablesFor(source)));
     return found;
   };
-  const layerOf = (ref: LayerRef): Layer | undefined =>
-    tablesOf(ref.of).layers.get(layerKey(ref.name));
+  // A walk of inserts reads one name many times.
+  const key = layerKeys();
+  const layerOf = (ref: LayerRef): Layer | undefined => tablesOf(ref.of).layers.get(key(ref.name));
   const hidden = (ref: LayerRef): boolean => {
     const layer = layerOf(ref);
     if (layer?.off || layer?.frozen) return true;
@@ -663,9 +816,9 @@ export function visibility(drawing: Drawing, drawNoPlot: boolean | undefined) {
   };
   const styleOf = (e: Entity, from?: Referenced): TextStyle | undefined =>
     e.kind === "text" && e.style !== undefined
-      ? tablesOf(from).textStyles.get(layerKey(e.style))
+      ? tablesOf(from).textStyles.get(key(e.style))
       : undefined;
-  return { tablesOf, layerOf, hidden, frozen, styleOf };
+  return { tablesOf, layerOf, hidden, frozen, styleOf, key };
 }
 
 /** A view as given, checked: its corners as written, with a width and a height. */
@@ -706,7 +859,8 @@ function dimensionToSvg(
   mark: string,
   pen: Pen,
   look: Look,
-  matrix?: Matrix,
+  matrix: Matrix | undefined,
+  room: number,
 ): string {
   if (style === undefined) return `<g ${mark}/>`;
   const picture = dimensionPicture(e, style);
@@ -719,6 +873,7 @@ function dimensionToSvg(
       look,
       undefined,
       matrix,
+      room,
     );
   const { label } = picture;
   const text: Text = {
@@ -740,7 +895,7 @@ function dimensionToSvg(
         .join(" ");
       return `<polygon points="${points}" fill="${pen.color}" stroke="none" data-part="arrowhead"/>`;
     }),
-    entityToSvg(text, `data-part="text"`, pen, look, textStyle, matrix),
+    entityToSvg(text, `data-part="text"`, pen, look, textStyle, matrix, room),
   ];
   return `<g ${mark} data-dimension="${esc(label.value)}">\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
 }
@@ -767,6 +922,8 @@ function rounded(
 /**
  * @param mark - The data attributes of the element.
  * @param matrix - Where an insert puts the entity, for one that a block holds.
+ * @param room - The characters left in the picture. Dashes stop once they pass it.
+ * @param sides - The sides of each polyline's points, kept for the picture.
  */
 function entityToSvg(
   e: Shape,
@@ -774,15 +931,17 @@ function entityToSvg(
   pen: Pen,
   look: Look,
   style: TextStyle | undefined,
-  matrix?: Matrix,
+  matrix: Matrix | undefined,
+  room: number,
+  sides = new WeakMap<object, Sides>(),
 ): string {
   // A lineweight of 0 draws as the thinnest line, as in AutoCAD.
   const s = `stroke="${pen.color}"${look.stroke(pen.lineweight)} ${mark}`;
   const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
   if (e.kind !== "text" && pen.dashes) {
-    const d = dashedPath(e, pen.dashes, matrix);
+    const d = dashedPath(e, pen.dashes, matrix, room, sides);
     // A pattern with a dot draws it as a round cap on a path of no length.
-    const cap = pen.dashes.includes(0) ? ` stroke-linecap="round"` : "";
+    const cap = pen.dashes.dot ? ` stroke-linecap="round"` : "";
     if (d !== undefined) return `<path d="${d}"${cap} ${s}/>`;
   }
   switch (e.kind) {
@@ -792,7 +951,7 @@ function entityToSvg(
     }
     case "polyline": {
       const tag = e.closed ? "polygon" : "polyline";
-      const points = e.points
+      const points = filled(e.points)
         .map(at)
         .map(([px, py]) => `${fmt(px)},${fmt(py)}`)
         .join(" ");
@@ -826,7 +985,7 @@ function entityToSvg(
       const oblique = style?.obliqueAngle ?? 0;
       // The text is drawn from where it starts to plot, on its baseline, before the style
       // widens or slants it, and held to the length it plots.
-      const { start, end, baseline } = layoutText(style ? { ...e, ...style } : e);
+      const { start, end, baseline } = layoutText(inStyle(e, style));
       if (written(start) !== 0 || written(baseline) !== 0) {
         t += ` translate(${fmt(start)} ${fmt(-baseline)})`;
       }
@@ -878,26 +1037,37 @@ function alternating(pattern: readonly number[]): number[] | undefined {
  * is too fine for the entity and it draws solid. A polyline starts the pattern again at each
  * vertex, as AutoCAD does unless told otherwise. The cuts are made in the entity's own
  * coordinates and then placed by `matrix`, so a pattern scales with the insert that draws it.
+ * Once the path is longer than `room` characters it stops, and is longer than the room. A
+ * polyline's sides are read once a list of points, into `known`, so a placement does work only
+ * for the sides it draws: one with no length draws nothing.
  */
 function dashedPath(
   e: Exclude<Shape, { kind: "text" }>,
-  dashes: readonly number[],
+  { lengths: dashes, total }: Dashes,
   matrix: Matrix | undefined,
+  room: number,
+  known: WeakMap<object, Sides>,
 ): string | undefined {
+  // Dashes that add up to no length would never reach the end of a stretch.
+  if (!(total > 0)) return undefined;
   const place = (px: number, py: number): string => {
     const [mx, my] = matrix ? mapPoint(matrix, [px, py]) : [px, py];
     return `${fmt(mx)} ${fmt(my)}`;
   };
-  const total = dashes.reduce((a, b) => a + b, 0);
   const out: string[] = [];
+  let size = 0;
   /** Cuts a stretch of the given length, and draws each dash from `from` to `to` along it. */
   const cut = (length: number, draw: (from: number, to: number) => string): boolean => {
-    // Dashes that add up to no length would never reach the end of the stretch.
-    if (!(total > 0) || length / total > MAX_DASHES) return false;
+    if (size > room) return true;
+    if (length / total > MAX_DASHES) return false;
     let at = 0;
-    for (let i = 0; at < length; i = (i + 1) % dashes.length) {
+    for (let i = 0; at < length && size <= room; i = (i + 1) % dashes.length) {
       const end = Math.min(at + dashes[i]!, length);
-      if (i % 2 === 0) out.push(draw(at, end));
+      if (i % 2 === 0) {
+        const dash = draw(at, end);
+        size += dash.length + 1;
+        out.push(dash);
+      }
       at += dashes[i]!;
     }
     return true;
@@ -932,8 +1102,19 @@ function dashedPath(
       ok = straight(e.from, e.to);
       break;
     case "polyline": {
-      const points = e.closed ? [...e.points, e.points[0]!] : e.points;
-      ok = points.slice(1).every((p, i) => straight(points[i]!, p));
+      const { points, ends, longest } = sidesOf(e.points, known);
+      const [first, last] = [points[0], points.at(-1)];
+      // The side that closes it, NaN when there is none.
+      const closing =
+        e.closed && first && last ? Math.hypot(first[0] - last[0], first[1] - last[1]) : NaN;
+      // A side the pattern is too fine for draws the whole polyline solid.
+      if ((closing > longest ? closing : longest) / total > MAX_DASHES) return undefined;
+      for (const end of ends) {
+        if (size > room) break;
+        straight(points[end - 1]!, points[end]!);
+      }
+      if (closing > 0) straight(last!, first!);
+      ok = true;
       break;
     }
     case "circle":
@@ -944,6 +1125,28 @@ function dashedPath(
       break;
   }
   return ok && out.length > 0 ? out.join(" ") : undefined;
+}
+
+/**
+ * The sides of a list of points that have a length, read once into `known`. A side whose length
+ * is 0, or not a number, draws no dash.
+ */
+function sidesOf(list: unknown, known: WeakMap<object, Sides>): Sides {
+  const found = typeof list === "object" && list !== null ? known.get(list) : undefined;
+  if (found) return found;
+  const points = filled(list) as readonly Point[];
+  const ends: number[] = [];
+  let longest = 0;
+  for (let i = 1; i < points.length; i++) {
+    const [a, b] = [points[i - 1]!, points[i]!];
+    const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (!(length > 0)) continue;
+    ends.push(i);
+    if (length > longest) longest = length;
+  }
+  const sides = { points, ends, longest };
+  if (typeof list === "object" && list !== null) known.set(list, sides);
+  return sides;
 }
 
 function rad(degrees: number): number {

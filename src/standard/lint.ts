@@ -37,7 +37,7 @@ import { canonical } from "../json.ts";
 import { layerKey } from "../layers.ts";
 import { validViewportView } from "../layouts.ts";
 import type { Diagnostic, LintRule } from "../lint.ts";
-import { measureText } from "../measure.ts";
+import { inStyle, measureText } from "../measure.ts";
 import { DEFAULT_PLOT_STYLE_TABLE, paperInfo } from "../papers.ts";
 import {
   idKey,
@@ -47,7 +47,7 @@ import {
   shown,
   viewportProblem,
 } from "../rules.ts";
-import { arrayProblem, isSound, TYPED, type Check } from "../shape.ts";
+import { filled, isSound, TYPED, type Check } from "../shape.ts";
 import { visibility } from "../svg.ts";
 import { isUnits, modelLength } from "../units.ts";
 import type {
@@ -153,16 +153,16 @@ export function lintStandard(
   const units = isUnits(drawing.units) ? drawing.units : undefined;
   const sound = <T>(check: Check, list: readonly unknown[]): T[] =>
     list.filter((item) => isSound(check, item, false)) as T[];
-  const layers = sound<Layer>(TYPED.layer, listOf(drawing.layers));
-  const linetypes = sound<Linetype>(TYPED.linetype, listOf(drawing.linetypes));
-  const textStyles = sound<TextStyle>(TYPED.textStyle, listOf(drawing.textStyles));
+  const layers = sound<Layer>(TYPED.layer, filled(drawing.layers));
+  const linetypes = sound<Linetype>(TYPED.linetype, filled(drawing.linetypes));
+  const textStyles = sound<TextStyle>(TYPED.textStyle, filled(drawing.textStyles));
   const dimensionStyles = sound<DimensionStyle>(
     TYPED.dimensionStyle,
-    listOf(drawing.dimensionStyles),
+    filled(drawing.dimensionStyles),
   );
-  const blocks = sound<Block>(TYPED.block, listOf(drawing.blocks));
-  const xrefs = sound<Xref>(TYPED.xref, listOf(drawing.xrefs));
-  const layoutList = listOf(drawing.layouts);
+  const blocks = sound<Block>(TYPED.block, filled(drawing.blocks));
+  const xrefs = sound<Xref>(TYPED.xref, filled(drawing.xrefs));
+  const layoutList = filled(drawing.layouts);
   const layouts = sound<Layout>(TYPED.layout, layoutList);
   const isEntity = (e: unknown): e is Entity => isSound(TYPED.entity, e, false);
   const isDefinition = (a: unknown): a is AttributeDefinition => isSound(TYPED.attribute, a, false);
@@ -438,7 +438,7 @@ export function lintStandard(
         : where.layout !== undefined
           ? ` of layout ${shown(where.layout)}`
           : "";
-    listOf(entities).forEach((entity, i) => {
+    filled(entities).forEach((entity, i) => {
       if (!isEntity(entity)) return;
       const call = callOf(entities as object[], i);
       const about = {
@@ -465,7 +465,7 @@ export function lintStandard(
   for (const block of blocksByName.values()) {
     if (standardBlocks.has(layerKey(block.name))) continue;
     lintEntities(block.entities, { block: block.name });
-    listOf(block.attributes).forEach((definition, i) => {
+    filled(block.attributes).forEach((definition, i) => {
       if (!isDefinition(definition) || roleOf(definition.style)) return;
       const call = callOf(block.attributes!, i);
       error(
@@ -491,7 +491,7 @@ export function lintStandard(
     let found = definitions.get(block);
     if (!found) {
       found = new Map();
-      for (const a of listOf(block.attributes)) {
+      for (const a of filled(block.attributes)) {
         if (isDefinition(a) && !found.has(a.tag)) found.set(a.tag, a);
       }
       definitions.set(block, found);
@@ -500,7 +500,7 @@ export function lintStandard(
   };
   /** Each sound viewport of a layout, with its index and what a diagnostic about it carries. */
   const viewportsOf = (layout: Layout) =>
-    listOf(layout.viewports).flatMap((viewport, i) => {
+    filled(layout.viewports).flatMap((viewport, i) => {
       if (!isSound(TYPED.viewport, viewport, false)) return [];
       const v = viewport as Viewport;
       const call = callOf(layout.viewports, i);
@@ -527,7 +527,7 @@ export function lintStandard(
     if (!paper) continue;
     const label = `Layout ${shown(layout.name)}`;
     const about = { layout: layout.name };
-    const inserts = listOf(layout.entities).flatMap((e, i) =>
+    const inserts = filled(layout.entities).flatMap((e, i) =>
       isEntity(e) && e.kind === "insert" ? [[i, e] as const] : [],
     );
     /** What a diagnostic about the layout's entity `i` carries. */
@@ -542,7 +542,7 @@ export function lintStandard(
     };
     /** The blocks and xrefs the layout's inserts name, whether or not another rule can read them. */
     const named = new Set<string>();
-    for (const e of listOf(layout.entities)) {
+    for (const e of filled(layout.entities)) {
       const insert = (e as { readonly kind?: unknown; readonly block?: unknown } | null) ?? {};
       if (insert.kind === "insert" && typeof insert.block === "string") {
         named.add(layerKey(insert.block));
@@ -788,7 +788,7 @@ export function lintStandard(
     const texts: Lettered[] = [];
     const dimensions: Measured[] = [];
     const of = where.layout !== undefined ? ` of layout ${shown(where.layout)}` : "";
-    listOf(entities).forEach((entity, i) => {
+    filled(entities).forEach((entity, i) => {
       if (!isEntity(entity) || capped !== undefined) return;
       const call = callOf(entities as object[], i);
       const about = {
@@ -830,6 +830,7 @@ export function lintStandard(
           const reads = entity.style.length + (entity.text?.length ?? 0) + style.reads;
           if (!spend(1 + Math.floor(reads / 32))) throw CAPPED;
           const box = guarded(() => dimensionBox([entity]));
+          if (dimensionBox.capped) throw CAPPED;
           if (box) dimensions.push({ about, label, box, style: style.shown, scale: style.scale });
           return;
         }
@@ -843,12 +844,11 @@ export function lintStandard(
         if (placed === undefined || walk.frozen({ name: placed.layer })) return;
         const titleBlock = standardBlocks.has(walk.key(entity.block));
         eachDrawn(placed, walk.blocks(), walk.frozen, (drawn, placement) => {
-          if (drawn.kind !== "text" || placement.frozen || walk.hidden(placement.layer)) return;
+          if (drawn.kind !== "text" || walk.hidden(placement.layer)) return;
           keep(drawn, walk.styled(drawn.style), placement, titleBlock);
         });
       } catch (thrown) {
-        // Blocks nested deeper than the stack end the walk as its limit does.
-        if (thrown !== CAPPED && !(thrown instanceof RangeError)) throw thrown;
+        if (thrown !== CAPPED) throw thrown;
         capped ??= `at ${label}`;
       }
     });
@@ -870,7 +870,7 @@ export function lintStandard(
     const paper = paperInfo(layout.paper);
     if (!paper || paper.units !== paperUnits) continue;
     const name = `layout ${shown(layout.name)}`;
-    (listOf(layout.viewports) as unknown[]).forEach((viewport, i) => {
+    (filled(layout.viewports) as unknown[]).forEach((viewport, i) => {
       if (capped !== undefined || !units || !isSound(TYPED.viewport, viewport, false)) return;
       const v = viewport as Viewport;
       if (viewportProblem(v, paper.units, units)) return;
@@ -965,7 +965,7 @@ function placedText(
   style: TextStyle | undefined,
   matrix: Matrix | undefined,
 ): { readonly height: number; readonly box: Box } {
-  const { corners, descent } = measureText(style ? { ...text, ...style } : text);
+  const { corners, descent } = measureText(inStyle(text, style));
   const [c0, c1, c2, c3] = corners;
   const below = descent / text.height || 0;
   const points: Point[] = [
@@ -1114,7 +1114,7 @@ function lettering(
     for (const block of blocks.values()) {
       const items: Item[] = [];
       let texts = false;
-      for (const e of listOf(block.entities)) {
+      for (const e of filled(block.entities)) {
         const kind = (e as { readonly kind?: unknown } | null | undefined)?.kind;
         if ((kind !== "text" && kind !== "insert") || !isSound(TYPED.entity, e, false)) continue;
         const entity = e as Text | Insert;
@@ -1130,7 +1130,7 @@ function lettering(
         if (by) by.push(block);
         else insertedBy.set(inner, [block]);
       }
-      const definitions = listOf(block.attributes).filter((a) =>
+      const definitions = filled(block.attributes).filter((a) =>
         isSound(TYPED.attribute, a, false),
       ) as AttributeDefinition[];
       held.set(block, { items, definitions });
@@ -1196,19 +1196,6 @@ function guarded<T>(fn: () => T): T | undefined {
   } catch {
     return undefined;
   }
-}
-
-/**
- * The items of a list up to its first empty slot, where the other rules stop, or none when it is
- * not a list. A list with no empty slot is given itself, so `callOf` finds its calls.
- */
-function listOf(value: unknown): readonly unknown[] {
-  if (arrayProblem(value, "") !== undefined) return [];
-  const list = value as readonly unknown[];
-  for (let i = 0; i < list.length; i++) {
-    if (list[i] === undefined && !(i in list)) return list.slice(0, i);
-  }
-  return list;
 }
 
 function samePattern(a: readonly number[], b: readonly number[]): boolean {
