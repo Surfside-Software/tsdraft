@@ -23,6 +23,8 @@ writeFileSync("A-101.pdf", toPDF(drawing, { layouts: ["A-101"], xrefs, deflate }
   Node's `zlib.deflateSync`. The library imports nothing, so without it the pages are written as
   they are, and the file is several times larger. It is called as the PDF is written, so it
   cannot be an asynchronous one, such as a browser's `CompressionStream`.
+- `fonts` gives the TrueType file of each font the texts are set in, by its name in `FONTS`, as
+  [Text](#text) says. The PDF embeds each, cut to the letters it uses.
 - `missing` is told, for each sheet that has any, its layout's name, the characters of its texts
   that the PDF's faces lack, which the page sets as `?`, and its page, counted from 0.
 - `title` is the document's title, which a viewer shows in place of the file's name.
@@ -63,9 +65,33 @@ preview shows it:
 ## Text
 
 A text plots where `measureText` puts it, with its capitals as tall as its height and its
-length the length it plots. The PDF embeds no font: it sets each text in one of the three faces
-every PDF reader has without a font file, so the letters are the reader's own shapes of those
-faces:
+length the length it plots.
+
+`fonts` gives the TrueType file of each font the texts are set in, by the font's name in
+`FONTS`:
+
+```ts
+const fonts = { Arial: readFileSync("arial.ttf"), "Times New Roman": readFileSync("times.ttf") };
+writeFileSync("set.pdf", toPDF(drawing, { xrefs, deflate, fonts }));
+```
+
+The PDF embeds each file, cut to the glyphs of the characters its pages set, so every character
+plots in the letters of the file: `°`, `±`, `½` and `≥` as `A` does. A set embeds each font once,
+for all its pages. The file may be the font's own, or one made to its widths, such as Liberation
+Sans for Arial. A text in the font's own file is set at the size that makes the capital `A` of the
+file as tall as the text's height, as CAD sets the font; in another file, at the size that makes
+the cap height the file states as tall, as the command's PNG sets it. Either way it is stretched to the length it plots. A
+character the file has no glyph for, and a control character, is set as `?`, and `missing` is
+told.
+
+A file is embedded when it is a TrueType font with `glyf` outlines whose licence bits allow it
+to be embedded and cut to a subset. One that is not, such as a font with PostScript outlines, a
+collection, a file cut short or a font whose glyphs are built of each other in a loop, is not
+embedded, and its font is set as if no file were given. The same files give the same bytes.
+
+A text in an SHX font, and in a TrueType font with no file, is set in one of the three faces
+every PDF reader has without a font file, which the PDF does not embed, so the letters are the
+reader's own shapes of those faces:
 
 | A style's font                                                                        | The face    |
 | ------------------------------------------------------------------------------------- | ----------- |
@@ -80,10 +106,14 @@ face's capitals as tall as the text's height, and stretched to its length: it co
 space with letters of another shape. A font that is not one of `FONTS` is set in Courier, as
 the picture draws it in the font of `Standard`.
 
-A character outside Windows-1252, such as `≥`, is not in the faces: the page sets it as `?`,
-which `measureText` takes its width to be, and `missing` is told. The characters Windows-1252
-has from 0x80 to 0x9F, such as `–` and `“`, are set as themselves, each as wide as `?`, which
-is how `measureText` measures them.
+In those faces a character outside Windows-1252, such as `≥`, is set as `?`, which
+`measureText` takes its width to be, and `missing` is told. The characters Windows-1252 has
+from 0x80 to 0x9F, such as `–` and `“`, are set as themselves, each as wide as `?`, which is how
+`measureText` measures them.
+
+`pdfFace(font, file)` names the face a font is set in: with the file `fonts` gives for it, the
+PostScript name of the file's font, such as `ArialMT`, when the PDF embeds it, and `Helvetica`,
+`Times-Roman` or `Courier` otherwise.
 
 ## A set of files
 
@@ -98,7 +128,7 @@ const sheets = [
 writeFileSync("set.pdf", toPDF(sheets, { deflate }));
 ```
 
-`pdfFace(font)` names the face a font is set in. `svgToPDF(pictures, options)` plots pictures
+`svgToPDF(pictures, options)` plots pictures
 `toSVG` drew of layouts, a page each, as `toPDF` does: the command uses it to plot the pictures
 it already holds. A picture says its format in its `data-picture`, and `svgToPDF` takes only
 the format of its own copy of tsdraft. It throws a `RangeError` that names the first element,
@@ -108,7 +138,10 @@ attribute or format it does not draw, so a page never leaves something out unsai
 
 `tsdraft render plan.ts --pdf` writes `plan.pdf`, the set, and `plan.layout-<layout>.pdf` for
 each sheet, beside the pictures, and lists them in `outputs.pdf` and `outputs.layouts[].pdf`,
-with each sheet's faces in `pdfFonts` and the characters its faces lack in `pdfMissing`.
+with each sheet's faces in `pdfFonts` and the characters its faces lack in `pdfMissing`. It
+embeds the file the PNG sets each TrueType font in: the font's own from the operating system's
+font folders, or Liberation Sans, Serif or Mono for Arial, Times New Roman and Courier New. A
+font the machine has no file for is set in a standard face, and `pdfFonts` says which.
 `tsdraft dev` serves the set at `/drawing.pdf` and a sheet at `/drawing.pdf?layout=<name>`, and
 its page links both. Neither plots pictures drawn with `--draw-no-plot`, nor those of a build
 that left out what `lint` refused. [The command](command.md) has the rest.

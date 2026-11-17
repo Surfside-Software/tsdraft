@@ -118,7 +118,9 @@ until it is stopped, so start it in the background.
 
 To hand over the sheets, run `npx tsdraft render plan.ts --pdf`: it writes the set as
 `plan.pdf`, a page for each layout in order, and each sheet as `plan.layout-<layout>.pdf`, at
-the paths in `outputs.pdf` and `outputs.layouts[].pdf`. Each page is the sheet the PNG shows.
+the paths in `outputs.pdf` and `outputs.layouts[].pdf`. Each page is the sheet the PNG shows,
+with each TrueType font embedded from the file the PNG is set in. `outputs.layouts[].pdfFonts`
+names it, and says `Helvetica`, `Times-Roman` or `Courier` where the machine has no file.
 
 ## What the JSON holds
 

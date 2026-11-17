@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Fonts in a PDF. `toPDF(drawing, { fonts })` takes the TrueType file of each font by its name,
+  such as `{ Arial: bytes }`, and embeds it cut to the letters the pages use, so every
+  character, `°`, `±`, `½` and `≥` included, plots in the font's own letters. A text in an SHX
+  font, or in a font with no file, is set in Helvetica, Times or Courier, which no PDF embeds.
+  `pdfFace(font, file)` names the face a font is set in.
+- `tsdraft render --pdf` and `tsdraft dev` embed the file the machine has for each TrueType
+  font, the one the PNG is set in, and `pdfFonts` names it: `ArialMT`, or `LiberationSans` for a
+  font made to Arial's widths, where it named `Helvetica`.
+
 ## 0.5.3
 
 This release has breaking changes, though its number is a patch's. A project that depends on

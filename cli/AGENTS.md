@@ -29,7 +29,9 @@
   the one expected. `src/png.ts` sends the renderer's process the files a picture needs, and
   the process sets the SVG's font family to the file's own. Every other font is drawn in the
   shipped JetBrains Mono. `outputs.pngFonts` and each layout's `pngFonts` say which, from
-  `pictureFaces`, the one function that picks the files `toPNG` sends. Add a font to
+  `pictureFaces`, the one function that picks the files `toPNG` sends. A PDF embeds the same
+  files: `src/pdf.ts` sends the plot's process their paths from `pdfFiles`, and `pdfFonts` names
+  the face each is set in, which reads each file once for the life of the command. Add a font to
   `SAME_WIDTHS` only when every advance width of the Latin-1 letters is the same share of the
   size as the font's own. Ship no font file that is not under a licence that allows it.
 - A text is as long in a PNG as it plots because `toSVG` writes its `textLength`, and as tall

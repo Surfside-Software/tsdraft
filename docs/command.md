@@ -61,9 +61,12 @@ ones a plot gives each pen, so the darkest pens are faint on the dark preview.
 With `--pdf`, `render` also plots the sheets of a drawing with layouts: `<name>.layout-<layout>.pdf`,
 each sheet alone, in `outputs.layouts[].pdf`, and `<name>.pdf`, the set, with a page for each
 layout in order, in `outputs.pdf`. Each is made from the picture of its sheet, as
-[Plotting](plotting.md) says, so it is the sheet the PNG shows. Each sheet gives the face each
-of its fonts is set in, in `pdfFonts`, and the characters those faces lack, which it sets as `?`,
-in `pdfMissing`. A sheet that cannot be plotted has `null` there and the reason in `pdfError`,
+[Plotting](plotting.md) says, so it is the sheet the PNG shows. A PDF embeds the file the PNG
+sets each TrueType font in, cut to the letters it uses. Each sheet gives the face each of its
+fonts is set in, in `pdfFonts`: the PostScript name of the file embedded, such as `ArialMT` or
+`LiberationSans`, or `Helvetica`, `Times-Roman` or `Courier`, which nothing embeds, for an SHX
+font and a TrueType font the machine has no file for. `pdfMissing` has the characters those faces
+lack, which it sets as `?`. A sheet that cannot be plotted has `null` there and the reason in `pdfError`,
 the set is then not plotted either, and the run goes on with its exit code as it would be. A
 build that left out what `lint` refused, which `drawing.omitted` lists, is not plotted. Each
 plot runs in a process of its own, one at a time, which ends at two minutes. `--pdf` does not go with `--view`

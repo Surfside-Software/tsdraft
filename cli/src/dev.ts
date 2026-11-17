@@ -6,8 +6,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import { dirname, join, relative, sep } from "node:path";
 import { Builder, projectRoot, toState, type Outcome } from "./build.ts";
-import { pdfFace } from "tsdraft";
-import { pngFonts } from "./fonts.ts";
+import { pdfFonts, pngFonts } from "./fonts.ts";
 import { plot } from "./pdf.ts";
 import { pngUnavailable, startRenderer, toPNG } from "./png.ts";
 import type { BuildState } from "./state.ts";
@@ -213,7 +212,7 @@ export async function dev(
               pngFonts: pngFonts(fonts, svg),
               pdf: noPdf ? null : picture("pdf", name),
               pdfError: noPdf,
-              pdfFonts: fonts.map((font) => ({ font, face: pdfFace(font) })),
+              pdfFonts: pdfFonts(fonts),
               pdfMissing: null,
             })),
             view: null,

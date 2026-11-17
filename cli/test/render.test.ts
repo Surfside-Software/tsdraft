@@ -16,7 +16,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { after, test } from "node:test";
-import { BUILT_IN_STANDARD } from "tsdraft";
+import { BUILT_IN_STANDARD, pdfFace } from "tsdraft";
+import { faces } from "../src/fonts.ts";
 import type { BuildState } from "../src/state.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -798,17 +799,22 @@ test("a drawing with a layout gets a picture of its sheet, and the state says wh
   assert.match(readFileSync(plotted.pdf!, "latin1"), /^%PDF-1\.7\n[\s\S]*\/Count 2 /);
   assert.equal(plotted.layouts[1]?.pdf, join(dir, "out", "plan.layout-Fields.pdf"));
   assert.match(readFileSync(plotted.layouts[1]!.pdf!, "latin1"), /\/MediaBox \[0 0 1224 792\]/);
-  // It says the face each font is set in, and that no character of its texts is missing.
+  // It says the face each font is set in, and that no character of its texts is missing. Arial
+  // is embedded in the machine's file for it, when it has one, and set in Helvetica when not.
+  const arial = faces().get("Arial");
+  const face = arial ? pdfFace("Arial", readFileSync(arial.file)) : "Helvetica";
   assert.deepEqual(
     [plotted.layouts[1]!.pdfFonts, plotted.layouts[1]!.pdfMissing],
     [
       [
-        { font: "Arial", face: "Helvetica" },
+        { font: "Arial", face },
         { font: "txt.shx", face: "Courier" },
       ],
       "",
     ],
   );
+  const sheetPdf = readFileSync(plotted.layouts[1]!.pdf!, "latin1");
+  assert.equal(sheetPdf.includes(`+${face} /Encoding /Identity-H`), face !== "Helvetica");
   // A layout the drawing no longer has leaves no picture behind, and no plot.
   writeFileSync(plan, `export default ${JSON.stringify({ ...drawing, layouts: [] })};\n`);
   assert.deepEqual(render(plan).state.outputs.layouts, []);
