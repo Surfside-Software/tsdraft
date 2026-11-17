@@ -584,8 +584,9 @@ writeFileSync("plan.dxf", toDXF(drawing));
 - A color on a single entity. Color comes from the layer.
 - DWG files. tsdraft writes DXF.
 - An existing drawing as a background or a base to edit. `readDXF` reads a DXF's tables, blocks,
-  layouts and a census of what it draws, as [docs/reading.md](docs/reading.md) says, but not its
-  geometry, and tsdraft does not read DWG.
+  layouts and a census of what it draws, and with `geometry` what each space draws, as
+  [docs/reading.md](docs/reading.md) says, but tsdraft draws nothing from a read and does not read
+  DWG.
 
 When a drawing needs one of these, say so. Do not imitate it with something that will mislead
 whoever opens the file.

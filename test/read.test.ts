@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { test } from "node:test";
+import kitchen from "../examples/outdoor-kitchen.ts";
 import sheet from "../examples/site-plan.ts";
 import {
   CENSUS_LIMIT,
@@ -12,9 +13,12 @@ import {
   readDXF,
   ReadError,
   toDXF,
+  type ReadEntity,
 } from "../src/index.ts";
-import { inlineHeights } from "../src/read/dxf.ts";
+import { costOf } from "../src/read/entities.ts";
+import { inlineHeights, READ_LIMITS, readDXFDocument, readDXFWithin } from "../src/read/dxf.ts";
 import { Sha256 } from "../src/sha256.ts";
+import { readProblems } from "./read-agreement.ts";
 
 const encoder = new TextEncoder();
 
@@ -90,12 +94,11 @@ test("readDXF reads what toDXF writes of the example sheet", async () => {
     .flatMap((row) => Object.values(row.kinds))
     .reduce((a, b) => a + b, 0);
   assert.equal(counted, model);
-  // A multileader is counted, and has no reading of its own yet.
-  assert.deepEqual(plain(read.unread), {
-    entities: { MULTILEADER: leaderCount(sheet) },
-    objects: {},
-    malformed: {},
-  });
+  assert.equal(read.model.census.layers["C-ANNO-TEXT"]?.kinds.MULTILEADER, leaderCount(sheet));
+  assert.deepEqual(plain(read.unread), { entities: {}, objects: {}, malformed: {} });
+  // Without geometry a space holds its census alone, and no text of it is kept.
+  assert.equal(read.model.entities, undefined);
+  assert.ok(!JSON.stringify(read.layouts).includes("RESIDENCE AT LOT 12"));
 
   // The same file read from a string, or a byte at a time, reads the same.
   assert.deepEqual(await readDXF(text), read);
@@ -113,6 +116,29 @@ test("readDXF reads an R12 file", async () => {
   assert.equal(read.encoding, "windows-1252");
   assert.ok(read.layers.length > 0);
   assert.deepEqual(checkDrawingRead(read), []);
+  // An R12 dimension holds no measurement, where a later file leaves out one of 1.
+  const dimension = (version: string) =>
+    readDXF(
+      dxf([
+        ...section("HEADER", [
+          [9, "$ACADVER"],
+          [1, version],
+        ]),
+        ...section("ENTITIES", [
+          [0, "DIMENSION"],
+          [8, "0"],
+          [70, 0],
+        ]),
+        [0, "EOF"],
+      ]),
+      { geometry: true },
+    );
+  const measured = async (version: string) => {
+    const [e] = (await dimension(version)).model.entities!;
+    return e?.kind === "dimension" ? e.measurement : "none";
+  };
+  assert.equal(await measured("AC1009"), undefined);
+  assert.equal(await measured("AC1032"), 1);
 });
 
 test("readDXF decodes text by $DWGCODEPAGE before AutoCAD 2007's format, and as UTF-8 after", async () => {
@@ -331,30 +357,42 @@ test("Sha256 gives the same digest whatever the chunks", () => {
   }
 });
 
-test(
-  "readDXF reads a file of more than 500 MB within the limits of a read",
-  { timeout: 130_000 },
-  () => {
-    // The read runs as the command runs one: in a process with a heap of 2 GB, for 120 s.
-    const script = join(import.meta.dirname, "read-large.ts");
-    // Under prlimit, as the command runs it, an abort leaves no core.
-    const node = [process.execPath, "--max-old-space-size=2048", script];
-    const prlimit = spawnSync("prlimit", ["--version"]).status === 0;
-    const [command, ...args] = prlimit ? ["prlimit", "--core=1:1", "--", ...node] : node;
-    const run = spawnSync(command!, args, {
-      encoding: "utf8",
-      timeout: 120_000,
-    });
-    assert.equal(run.signal, null, "the read ran past 120 s or was killed");
-    assert.equal(run.status, 0, run.stderr);
-    const { bytes, capped, heap, answer } = JSON.parse(run.stdout) as Record<string, number>;
-    assert.ok(bytes! > 500e6);
-    assert.equal(capped, true);
-    assert.ok(heap! < 1024 ** 3, `the heap reached ${Math.round(heap! / 1e6)} MB`);
-    // The command takes an answer of up to 128 MB of JSON.
-    assert.ok(answer! < 128 * 1024 ** 2, `the answer is ${Math.round(answer! / 1e6)} MB`);
-  },
-);
+for (const geometry of [false, true]) {
+  test(
+    `readDXF reads a file of more than 500 MB within the limits of a read${geometry ? ", with geometry" : ""}`,
+    { timeout: 130_000 },
+    () => {
+      // The read runs as the command runs one: in a process with a heap of 2 GB, for 120 s.
+      const script = join(import.meta.dirname, "read-large.ts");
+      // Under prlimit, as the command runs it, an abort leaves no core.
+      const node = [
+        process.execPath,
+        "--max-old-space-size=2048",
+        script,
+        ...(geometry ? ["--geometry"] : []),
+      ];
+      const prlimit = spawnSync("prlimit", ["--version"]).status === 0;
+      const [command, ...args] = prlimit ? ["prlimit", "--core=1:1", "--", ...node] : node;
+      const run = spawnSync(command!, args, {
+        encoding: "utf8",
+        timeout: 120_000,
+      });
+      assert.equal(run.signal, null, "the read ran past 120 s or was killed");
+      assert.equal(run.status, 0, run.stderr);
+      const { bytes, capped, heap, answer, kept, past } = JSON.parse(run.stdout) as Record<
+        string,
+        number
+      >;
+      assert.ok(bytes! > 500e6);
+      assert.equal(capped, true);
+      // With geometry, model space keeps what GEOMETRY_ITEMS holds and counts the rest.
+      assert.equal(kept! > 0 && past! > 0, geometry);
+      assert.ok(heap! < 1024 ** 3, `the heap reached ${Math.round(heap! / 1e6)} MB`);
+      // The command takes an answer of up to 128 MB of JSON.
+      assert.ok(answer! < 128 * 1024 ** 2, `the answer is ${Math.round(answer! / 1e6)} MB`);
+    },
+  );
+}
 
 test("readDXF reads a string as UTF-8 whatever its header says", async () => {
   const text = dxf([
@@ -388,7 +426,7 @@ test("readDXF reads a string as UTF-8 whatever its header says", async () => {
   assert.equal(both.sha256, createHash("sha256").update(long).digest("hex"));
 });
 
-test("readDXF takes any layer name, places mirrored entities in the world, and skips a broken vertex", async () => {
+test("readDXF takes any layer name, places mirrored entities in the world, and skips a broken number", async () => {
   const read = await readDXF(
     dxf([
       ...section(
@@ -472,10 +510,23 @@ test("readDXF takes any layer name, places mirrored entities in the world, and s
       rotation: 330,
       tags: {},
     },
+    // Seen from below, a text reads backward and turns the other way.
+    {
+      kind: "text",
+      layer: "0",
+      at: [-2, 3],
+      startFrom: "file",
+      stored: [-2, 3],
+      height: 1,
+      rotation: 0,
+      style: "Standard",
+      backward: true,
+      value: "A",
+    },
   ]);
-  assert.deepEqual(plain(block?.other), { "CIRCLE in 3D": 1, "TEXT seen from below": 1 });
+  assert.deepEqual(plain(block?.other), { "CIRCLE in 3D": 1 });
   assert.deepEqual(plain(read.unread.malformed), {
-    "LWPOLYLINE with a point that is not a number": 1,
+    "LWPOLYLINE with a number that is not finite": 1,
   });
   assert.equal(
     Object.getOwnPropertyDescriptor(read.model.census.layers, "toString")?.value.kinds.LINE,
@@ -709,4 +760,334 @@ test("readDXF stops at EOF, keeps a field once, and leaves out a viewport past t
     "VIEWPORT with a number past the doubles": 1,
   });
   assert.deepEqual(viewport.layouts[0]?.viewports, []);
+});
+
+test("readDXF with geometry gives back every entity of both examples", async () => {
+  for (const drawing of [sheet, kitchen]) {
+    const read = await readDXF(chunks(encoder.encode(toDXF(drawing)), 65536), { geometry: true });
+    assert.deepEqual(checkDrawingRead(plain(read)), []);
+    assert.deepEqual(readProblems(drawing, read, "tsdraft"), []);
+  }
+  const read = await readDXF(toDXF(sheet), { geometry: true });
+  // Each dimension names the block of its picture, which a read with geometry keeps.
+  const dimensions = read.model.entities!.filter((e) => e.kind === "dimension");
+  assert.equal(dimensions.length, 7);
+  for (const dimension of dimensions) {
+    const picture = read.blocks.find((b) => b.handle === dimension.blockHandle);
+    assert.equal(picture?.name, dimension.block);
+    const kinds = new Set(picture!.entities.map((e) => e.kind));
+    assert.ok(kinds.has("line") && kinds.has("mtext"), [...kinds].join());
+  }
+  assert.deepEqual(read.opensAt, { layout: "C-101", center: [18, 12], height: 26.4, width: 42.24 });
+});
+
+test("readDXF gives back a text that holds AutoCAD's escapes as toDXF wrote it", async () => {
+  const d = createDrawing({ units: "in" });
+  d.leaderStyle({ name: "NOTE", textHeight: 0.125, arrowSize: 0.125, landing: 0.125, gap: 0.0625 });
+  const values = ["\\U+00B0", "\\M+18140", "a^b ^J", "\\U+005CU+00B0", "%%d \\P", "\\\\U+0041"];
+  values.forEach((value, i) => d.text([0, i], value, { height: 0.1 }));
+  // A leader's note holds no backslash, so it holds no escape but a caret's.
+  d.leader(["a^b", "%%d ^J"], { style: "NOTE", at: [5, 5], to: [0, 0] });
+  const drawing = d.build();
+  const read = await readDXF(toDXF(drawing), { geometry: true });
+  assert.deepEqual(readProblems(drawing, read, "tsdraft"), []);
+});
+
+test("readDXF holds a text as AutoCAD does from a DXF", async () => {
+  const record = (type: string, value: string): (readonly [number, string | number])[] => [
+    [0, type],
+    [8, "0"],
+    [10, 0],
+    [20, 0],
+    [40, 1],
+    [1, value],
+  ];
+  // A text is decoded twice, with \M+NXXXX in the second pass; a paragraph text once.
+  const cases: [string, string, string][] = [
+    ["TEXT", "\\U+005CU+00B0", "°"],
+    ["TEXT", "\\U+005CU+005CU+00B0", "\\U+00B0"],
+    ["TEXT", "\\U+005CM+18140", "　"],
+    ["TEXT", "\\M+1ABCD", "\\M+1ABCD"],
+    ["TEXT", "\\U+0000\\U+0041", "\\U+0000A"],
+    ["TEXT", "\\U+D800x", "�x"],
+    ["TEXT", "a^ b^J", "a^b\n"],
+    ["TEXT", "\\M+28140 \\M+3B0A1 \\M+58140", " 가 丂"],
+    // A code page the platform has no decoder for leaves its escape, but for ASCII.
+    ["TEXT", "\\M+4005C \\M+4A140", "\\ \\M+4A140"],
+    ["MTEXT", "\\U+005CU+00B0", "\\U+00B0"],
+    ["MTEXT", "\\M+1005CM+18140", "\\M+18140"],
+  ];
+  const read = await readDXF(
+    dxf([...section("ENTITIES", ...cases.map(([type, value]) => record(type, value))), [0, "EOF"]]),
+    { geometry: true },
+  );
+  assert.deepEqual(
+    read.model.entities!.map((e) => (e.kind === "text" || e.kind === "mtext" ? e.value : e.kind)),
+    cases.map(([, , held]) => held),
+  );
+});
+
+test("readDXF works a justified text's start out from the widths where they are exact", async () => {
+  const d = createDrawing({ units: "in" });
+  d.textStyle({ name: "A", font: "Arial" });
+  d.textStyle({ name: "R", font: "romans.shx", widthFactor: 0.8 });
+  d.text([100, 0], "~", { height: 2, style: "A", align: "right" });
+  d.text([100, 15], "X", { height: 2, style: "A", align: "center", valign: "middle" });
+  d.text([100, 20], "~", { height: 2, style: "R", align: "right" });
+  d.text([100, 30], "!~¡ÿ", { height: 2, style: "R", align: "right", valign: "top" });
+  // A space at an end, a control code, or a character outside the widths: no exact layout.
+  d.text([100, 40], " X", { height: 2, align: "center" });
+  d.text([100, 50], "%%d", { height: 2, align: "right" });
+  d.text([100, 60], "日本", { height: 2, align: "right" });
+  d.text([100, 70], "LEFT", { height: 2 });
+  const read = await readDXF(toDXF(d.build()), { geometry: true });
+  const texts = read.model.entities!.filter((e) => e.kind === "text");
+  // Where a right-justified or centered text starts in each font, as it plots.
+  const starts: [number, number][] = [
+    [98.36834924965893, 0],
+    [99.06821282401091, 14],
+    [98.32380952380953, 20],
+    [95.2, 28],
+  ];
+  starts.forEach(([x, y], i) => {
+    assert.equal(texts[i]!.startFrom, "widths");
+    assert.ok(Math.hypot(texts[i]!.at[0] - x, texts[i]!.at[1] - y) < 1e-9, `${texts[i]!.at}`);
+  });
+  for (const text of texts.slice(4, 7)) {
+    assert.equal(text.startFrom, "alignment");
+    assert.deepEqual(text.at, text.alignAt);
+  }
+  assert.equal(texts[7]!.startFrom, "file");
+  // A file that holds the start apart from the alignment point, as AutoCAD's does, gives it.
+  const saved = await readDXF(
+    dxf([
+      ...section("ENTITIES", [
+        [0, "TEXT"],
+        [8, "0"],
+        [10, 86.814461],
+        [20, 49],
+        [40, 1],
+        [1, "WWWWWWWWWW"],
+        [72, 2],
+        [11, 100],
+        [21, 50],
+        [100, "AcDbText"],
+        [73, 3],
+      ]),
+      [0, "EOF"],
+    ]),
+    { geometry: true },
+  );
+  assert.deepEqual(plain(saved.model.entities), [
+    {
+      kind: "text",
+      layer: "0",
+      at: [86.814461, 49],
+      startFrom: "file",
+      stored: [86.814461, 49],
+      alignAt: [100, 50],
+      height: 1,
+      rotation: 0,
+      style: "Standard",
+      align: "right",
+      valign: "top",
+      value: "WWWWWWWWWW",
+    },
+  ]);
+});
+
+test("readDXF keeps the pen an entity sets itself, and counts what it reads only in part", async () => {
+  const line = (more: (readonly [number, string | number])[]) =>
+    [[0, "LINE"], [8, "A"], ...more, [10, 0], [20, 0], [11, 1], [21, 1]] as const;
+  const read = await readDXF(
+    dxf([
+      ...section("HEADER", [
+        [9, "$TILEMODE"],
+        [70, 1],
+      ]),
+      ...section("TABLES", [
+        [0, "TABLE"],
+        [2, "VPORT"],
+        [0, "VPORT"],
+        [2, "*Active"],
+        [12, 5],
+        [22, 6],
+        [17, 1],
+        [27, 1],
+        [40, 10],
+        [41, 1.5],
+        [0, "ENDTAB"],
+      ]),
+      ...section(
+        "ENTITIES",
+        line([
+          [6, "DASHED"],
+          [62, 0],
+          [420, 0xff0000],
+          [370, 35],
+          [48, 2.5],
+        ]),
+        line([
+          [6, "BYLAYER"],
+          [62, 256],
+          [370, -1],
+          [48, 1],
+        ]),
+        [
+          [0, "DIMENSION"],
+          [8, "A"],
+          [70, 34],
+        ],
+        [
+          [0, "MULTILEADER"],
+          [8, "A"],
+          [300, "CONTEXT_DATA{"],
+          [301, "}"],
+          [172, 1],
+        ],
+        [
+          [0, "LINE"],
+          [8, "A"],
+          [10, "1e999"],
+        ],
+        // AutoCAD leaves out a measurement of 1, and a rotation in radians may be any number.
+        [
+          [0, "DIMENSION"],
+          [8, "A"],
+          [70, 32],
+        ],
+        [
+          [0, "MTEXT"],
+          [8, "A"],
+          [50, "1e308"],
+          [1, "M"],
+        ],
+      ),
+      [0, "EOF"],
+    ]),
+    { geometry: true },
+  );
+  assert.deepEqual(checkDrawingRead(plain(read)), []);
+  const [own, plainLine, dimension, mtext] = read.model.entities!;
+  assert.equal(dimension?.kind === "dimension" && dimension.measurement, 1);
+  assert.ok(mtext?.kind === "mtext" && mtext.rotation >= 0 && mtext.rotation < 360);
+  assert.deepEqual(
+    [own?.linetype, own?.color, own?.trueColor, own?.lineweight, own?.linetypeScale],
+    ["DASHED", 0, 0xff0000, 35, 2.5],
+  );
+  assert.deepEqual(Object.keys(plain(plainLine) as object).sort(), ["from", "kind", "layer", "to"]);
+  assert.deepEqual(plain(read.model.other), {
+    "DIMENSION angular": 1,
+    "MULTILEADER with a block": 1,
+  });
+  assert.deepEqual(plain(read.unread.malformed), { "LINE with a number that is not finite": 1 });
+  assert.deepEqual(read.opensAt, { center: [6, 7], height: 10, width: 15 });
+});
+
+test("readDXF keeps what the spaces draw within GEOMETRY_ITEMS and counts the rest", async () => {
+  const items = 400;
+  const read = await readDXFWithin(
+    toDXF(kitchen),
+    { geometry: true },
+    { ...READ_LIMITS, geometryItems: items },
+  );
+  const cost = (entities: readonly ReadEntity[]) => entities.reduce((sum, e) => sum + costOf(e), 0);
+  const kept = read.model.entities!;
+  assert.ok(kept.length > 0 && cost(kept) <= items, `${cost(kept)}`);
+  assert.equal(kept.length + read.model.other!["past the limit"]!, kitchen.entities.length);
+  // The census counts every entity whatever the geometry keeps.
+  const counted = Object.values(read.model.census.layers)
+    .flatMap((row) => Object.values(row.kinds))
+    .reduce((a, b) => a + b, 0);
+  assert.equal(counted, kitchen.entities.length);
+  // A multileader's styles are named once the file is read, and charged then: one that no
+  // longer fits is left out.
+  const d = createDrawing({ units: "in" });
+  const style = "S".repeat(200);
+  d.leaderStyle({ name: style, textHeight: 0.125, arrowSize: 0.125, landing: 0.125, gap: 0.0625 });
+  d.leader("NOTE", { style, at: [5, 5], to: [0, 0] });
+  const file = toDXF(d.build());
+  const whole = (await readDXF(file, { geometry: true })).model.entities!;
+  assert.equal(whole[0]?.kind === "multileader" && whole[0].style, style);
+  const full = costOf(whole[0]!);
+  for (const [most, kept] of [
+    [full, 1],
+    [full - 1, 0],
+  ] as const) {
+    const read = await readDXFWithin(
+      file,
+      { geometry: true },
+      { ...READ_LIMITS, geometryItems: most },
+    );
+    assert.equal(read.model.entities!.length, kept, `${most}`);
+    assert.equal(read.model.other!["past the limit"] ?? 0, 1 - kept);
+  }
+
+  // The blocks keep BLOCK_ITEMS of their own.
+  const blocked = await readDXFWithin(toDXF(sheet), {}, { ...READ_LIMITS, blockItems: 30 });
+  assert.ok(cost(blocked.blocks.flatMap((b) => b.entities)) <= 30);
+  assert.ok(blocked.blocks.some((b) => (b.other["past the limit"] ?? 0) > 0));
+});
+
+test("A DXF comes back byte for byte from its document", async () => {
+  const r12 = createDrawing({ units: "ft" });
+  r12.layer("C-PROP", { color: 3 }, () => r12.text([0, 0], "A", { height: 1 }));
+  const files = [
+    toDXF(sheet),
+    toDXF(kitchen),
+    toDXF(r12.build(), { version: "R12" }),
+    // A byte order mark, a comment before the first record, line ends of both kinds and what
+    // an old program wrote after the end.
+    `﻿999\r\nmade by hand\r\n  0\nSECTION\n  2\r\nENTITIES\n  0\nLINE\n  5\n1A\n330\n1F\n  8\n0\n  0\nENDSEC\n  0\nEOF\n\x1a`,
+  ];
+  for (const file of files) {
+    const bytes = encoder.encode(file);
+    const { read, document } = await readDXFDocument(chunks(bytes, 4093));
+    assert.equal(document.bytes, bytes.length);
+    assert.equal(document.capped, false);
+    const copy = new Uint8Array(bytes.length);
+    for (let i = 0; i < document.count; i++) {
+      const start = document.starts[i]!;
+      copy.set(bytes.subarray(start, start + document.length(i)), start);
+      if (i > 0) assert.equal(start, document.starts[i - 1]! + document.length(i - 1));
+    }
+    assert.deepEqual(copy, bytes);
+    // Each record starts at the group 0 that names its kind.
+    const latin1 = new TextDecoder("latin1");
+    for (let i = 0; i < document.count; i++) {
+      const kind = document.names[document.kinds[i]!]!;
+      if (i === 0 && kind === "") continue;
+      const [code, value] = latin1
+        .decode(bytes.subarray(document.starts[i]!, document.starts[i]! + 256))
+        .split("\n");
+      assert.equal(code!.trim(), "0", `record ${i}`);
+      assert.equal(value!.replace(/\r$/, ""), kind, `record ${i}`);
+    }
+    // Each entity the read keeps is a record of the document under its handle.
+    const handles = new Map<string, number>();
+    for (let i = 0; i < document.count; i++) {
+      const handle = document.handle(i);
+      if (handle !== undefined) handles.set(handle, i);
+    }
+    for (const e of read.model.census.texts) {
+      if (e.handle === undefined) continue;
+      const i = handles.get(e.handle.toUpperCase());
+      assert.equal(document.names[document.kinds[i!]!], e.kind, e.handle);
+    }
+  }
+  const { document } = await readDXFDocument(encoder.encode(toDXF(sheet)));
+  const seed = document.header().find((v) => v.name === "$HANDSEED")!;
+  const text = toDXF(sheet);
+  assert.match(
+    text.slice(seed.start, seed.start + seed.length),
+    /^9\r\n\$HANDSEED\r\n5\r\n\w+\r\n$/,
+  );
+  // A record names its owner, and the handles it refers to with the group that holds each.
+  const layer = [...Array(document.count).keys()].find(
+    (i) => document.names[document.kinds[i]!] === "LAYER",
+  )!;
+  const table = document.owner(layer)!;
+  assert.ok(document.references(layer).some((r) => r.code === 330 && r.handle === table));
+  assert.ok(document.references(layer).some((r) => r.code === 390));
+  assert.equal(document.names[document.sections[layer]!], "TABLES");
 });

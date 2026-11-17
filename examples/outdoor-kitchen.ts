@@ -662,10 +662,15 @@ d.layer("A-ANNO-TITL", {}, () => {
 });
 
 const drawing = d.build();
-const outDir = new URL("./out/", import.meta.url);
-mkdirSync(outDir, { recursive: true });
-writeFileSync(new URL("outdoor-kitchen.dxf", outDir), toDXF(drawing));
-writeFileSync(new URL("outdoor-kitchen.svg", outDir), toSVG(drawing, { margin: 4 }));
-console.log(
-  `Wrote ${drawing.entities.length} entities on ${drawing.layers.length} layers to examples/out/`,
-);
+export default drawing;
+
+// Run as a script, the example writes its files. Imported, it only hands over the drawing.
+if (import.meta.main) {
+  const outDir = new URL("./out/", import.meta.url);
+  mkdirSync(outDir, { recursive: true });
+  writeFileSync(new URL("outdoor-kitchen.dxf", outDir), toDXF(drawing));
+  writeFileSync(new URL("outdoor-kitchen.svg", outDir), toSVG(drawing, { margin: 4 }));
+  console.log(
+    `Wrote ${drawing.entities.length} entities on ${drawing.layers.length} layers to examples/out/`,
+  );
+}

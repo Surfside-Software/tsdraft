@@ -1,6 +1,6 @@
 // Reads a DXF of more than 500 MB, the example sheet's model space repeated, and prints how many
-// bytes it read, whether the census stopped at its limit, the largest heap seen at a chunk, and
-// the size of its answer as JSON.
+// bytes it read, whether the census stopped at its limit, the largest heap seen at a chunk, the
+// size of its answer as JSON, and with `--geometry` how many entities model space kept.
 // test/read.test.ts runs it in a process with the heap of a read.
 import sheet from "../examples/site-plan.ts";
 import { readDXF, toDXF } from "../src/index.ts";
@@ -21,6 +21,12 @@ async function* large(): AsyncGenerator<Uint8Array> {
   yield encoder.encode(text.slice(end));
 }
 
-const read = await readDXF(large());
+const geometry = process.argv.includes("--geometry");
+const read = await readDXF(large(), { geometry });
+heap = Math.max(heap, process.memoryUsage().heapUsed);
 const answer = new TextEncoder().encode(JSON.stringify(read)).length;
-console.log(JSON.stringify({ bytes: read.bytes, capped: read.model.census.capped, heap, answer }));
+const kept = read.model.entities?.length ?? 0;
+const past = read.model.other?.["past the limit"] ?? 0;
+console.log(
+  JSON.stringify({ bytes: read.bytes, capped: read.model.census.capped, heap, answer, kept, past }),
+);

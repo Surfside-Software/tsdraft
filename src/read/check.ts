@@ -72,16 +72,50 @@ const CENSUS: Fields = {
   capped: "boolean",
 };
 
-const BASE = { "handle?": "string", layer: "string" } as const;
+const BASE = {
+  "handle?": "string",
+  layer: "string",
+  "color?": "number",
+  "trueColor?": "number",
+  "linetype?": "string",
+  "lineweight?": "number",
+  "linetypeScale?": "number",
+} as const;
+
+const PLACEMENT: Fields = {
+  at: "point",
+  startFrom: { oneOf: ["file", "widths", "alignment"] },
+  stored: "point",
+  "alignAt?": "point",
+  height: "number",
+  rotation: "number",
+  style: "string",
+  "align?": { oneOf: ["center", "right", "aligned", "middle", "fit"] },
+  "valign?": { oneOf: ["bottom", "middle", "top"] },
+  "widthFactor?": "number",
+  "oblique?": "number",
+  "backward?": "boolean",
+  "upsideDown?": "boolean",
+};
+
+const ATTRIBUTE: Fields = {
+  ...BASE,
+  ...PLACEMENT,
+  tag: "string",
+  value: "string",
+  "invisible?": "boolean",
+};
 
 const INSERT: Fields = {
   ...BASE,
   kind: { oneOf: ["insert"] },
   block: "string",
+  "blockHandle?": "string",
   at: "point",
   scale: "point",
   rotation: "number",
   tags: { map: "boolean" },
+  "attributes?": { list: { fields: ATTRIBUTE } },
 };
 
 const ENTITY: Readonly<Record<string, Fields>> = {
@@ -101,16 +135,55 @@ const ENTITY: Readonly<Record<string, Fields>> = {
     start: "number",
     end: "number",
   },
-  text: {
+  text: { ...BASE, ...PLACEMENT, kind: { oneOf: ["text"] }, value: "string" },
+  insert: INSERT,
+  mtext: {
     ...BASE,
-    kind: { oneOf: ["text"] },
+    kind: { oneOf: ["mtext"] },
     at: "point",
     height: "number",
-    value: "string",
+    width: "number",
+    attachment: "number",
     rotation: "number",
     style: "string",
+    value: "string",
   },
-  insert: INSERT,
+  dimension: {
+    ...BASE,
+    kind: { oneOf: ["dimension"] },
+    type: { oneOf: ["linear", "aligned"] },
+    from: "point",
+    to: "point",
+    line: "point",
+    "angle?": "number",
+    textAt: "point",
+    "measurement?": "number",
+    "text?": "string",
+    style: "string",
+    "block?": "string",
+    "blockHandle?": "string",
+  },
+  multileader: {
+    ...BASE,
+    kind: { oneOf: ["multileader"] },
+    "style?": "string",
+    shafts: { list: { list: "point" } },
+    at: "point",
+    direction: "point",
+    landing: "number",
+    text: "string",
+    textAt: "point",
+    textHeight: "number",
+    textStyle: "string",
+    arrowSize: "number",
+  },
+  solid: { ...BASE, kind: { oneOf: ["solid"] }, points: { list: "point" } },
+};
+
+const SPACE: Fields = {
+  census: { fields: CENSUS },
+  "entities?": { list: "entity" },
+  "other?": counts,
 };
 
 const DRAWING_READ: Fields = {
@@ -203,13 +276,11 @@ const DRAWING_READ: Fields = {
         attributeDefinitions: {
           list: {
             fields: {
+              ...PLACEMENT,
               "handle?": "string",
               tag: "string",
               "prompt?": "string",
               "default?": "string",
-              at: "point",
-              "height?": "number",
-              style: "string",
               layer: "string",
               invisible: "boolean",
               constant: "boolean",
@@ -224,7 +295,7 @@ const DRAWING_READ: Fields = {
   xrefs: {
     list: { fields: { "handle?": "string", name: "string", path: "string", overlay: "boolean" } },
   },
-  model: { fields: { census: { fields: CENSUS } } },
+  model: { fields: SPACE },
   layouts: {
     list: {
       fields: {
@@ -256,7 +327,7 @@ const DRAWING_READ: Fields = {
           },
         },
         inserts: { list: { fields: INSERT } },
-        census: { fields: CENSUS },
+        ...SPACE,
       },
     },
   },
@@ -281,6 +352,9 @@ const DRAWING_READ: Fields = {
   },
   otherFields: counts,
   unread: { fields: { entities: counts, objects: counts, malformed: counts } },
+  "opensAt?": {
+    fields: { "layout?": "string", center: "point", height: "number", width: "number" },
+  },
 };
 
 /**

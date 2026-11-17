@@ -318,12 +318,21 @@
   its drawing is typed so that a new field or entity kind is a compile error there.
 - `src/read/` reads a file into a `DrawingRead`, the read model, which is not a `Drawing` and is
   never written back. `readDXF` reads as the bytes arrive and must never hold the whole file or
-  a list that grows with entities past `CENSUS_LIMIT`; a record's binary groups are dropped as
-  they arrive. It keeps no text of model space or a layout and no attribute value. It throws
-  only a `ReadError`, for a file it cannot read at all, and counts the rest it does not
-  understand under `unread`. A group's default, such as the text style `Standard`, is filled in,
-  since AutoCAD leaves a default out. `checkDrawingRead` holds a reader's answer to the model's
-  fields: change both together, and the reading page, `docs/reading.md`.
+  a list that grows with entities past its limits, `CENSUS_LIMIT`, `BLOCK_ITEMS` and
+  `GEOMETRY_ITEMS`; a record's binary groups are dropped as they arrive. Without `geometry` it
+  keeps no text of model space or a layout and no attribute value. It throws only a
+  `ReadError`, for a file it cannot read at all, and counts the rest it does not understand under
+  `unread`. A group's default, such as the text style `Standard`, is filled in, since AutoCAD
+  leaves a default out. `src/read/entities.ts` reads each kind of `ReadEntity`, for blocks and
+  spaces alike, and `costOf` there is what each costs against a budget. A string holds what
+  AutoCAD holds after reading the file, by the passes `src/read/groups.ts` makes, and a justified
+  text whose file stores its alignment point as its start is placed from `layoutText` only where
+  the layout is exact. No map of a read is keyed by a name longer than a DXF value holds, since
+  V8 hashes a long string by its length alone. `src/read/document.ts` is the document of a DXF:
+  where each record is in bytes, so the records copied in order give the file back. It is
+  internal. `checkDrawingRead` holds a reader's answer to the model's fields: change both
+  together, and the reading page, `docs/reading.md`. `test/read-fuzz.ts` fuzzes the reader from
+  a seed, and `test/read-agreement.ts` holds a read with geometry to the `Drawing` it came from.
 - `src/pdf.ts` plots layouts to PDF from the pictures `toSVG` draws of them, and decides
   nothing about a drawing: every rule of what a sheet plots stays in `toSVG`, so the preview
   and the plot cannot part. It reads the closed set of elements and attributes `toSVG` writes

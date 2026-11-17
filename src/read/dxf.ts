@@ -1,12 +1,48 @@
 // `readDXF`: the read model of an ASCII DXF, read as its bytes arrive. It keeps the tables, the
-// blocks, the xrefs, the layouts and the fields, and counts what each space draws.
+// blocks, the xrefs, the layouts and the fields, counts what each space draws and, when asked,
+// keeps what each space draws.
 import type { Point } from "../drawing.ts";
-import { GroupReader, unescaped } from "./groups.ts";
+import { nearestFont, type Font } from "../fonts.ts";
+import { layerKey } from "../layers.ts";
+import { layoutText } from "../measure.ts";
+import { DxfDocumentReader, type DxfDocument } from "./document.ts";
+import {
+  attributeCost,
+  attributeOf,
+  baseOf,
+  brokenNumber,
+  costOf,
+  handleAt,
+  nameCost,
+  placementOf,
+  readingOf,
+  type Later,
+  type PendingStart,
+} from "./entities.ts";
+import { GroupReader, textTwice, unescaped } from "./groups.ts";
+import {
+  add,
+  facing,
+  first,
+  inGroup,
+  inSubclass,
+  map,
+  name,
+  num,
+  ownerOf,
+  placed,
+  point,
+  xdata,
+  type Facing,
+  type Rec,
+} from "./records.ts";
 import {
   BLOCK_ITEMS,
   CENSUS_LIMIT,
+  GEOMETRY_ITEMS,
   READ_FORMAT,
   type DrawingRead,
+  type ReadAttribute,
   type ReadAttributeDefinition,
   type ReadBlock,
   type ReadCensus,
@@ -15,6 +51,7 @@ import {
   type ReadCensusText,
   type ReadDimensionStyle,
   type ReadEntity,
+  type ReadEntityBase,
   type ReadField,
   type ReadHeader,
   type ReadInsert,
@@ -22,7 +59,10 @@ import {
   type ReadLayerCensus,
   type ReadLayout,
   type ReadLinetype,
+  type ReadMultileader,
+  type ReadOptions,
   type ReadTextStyle,
+  type ReadView,
   type ReadViewport,
   type ReadXref,
 } from "./model.ts";
@@ -31,12 +71,69 @@ import {
  * Reads an ASCII DXF of any version: from a string, or from its bytes as they arrive. It never
  * holds the whole file. It throws a `ReadError` for a file it cannot read at all, such as a
  * binary DXF or one whose groups are out of step, and reads everything else, counting what it
- * did not understand.
+ * did not understand. With `geometry`, it keeps what model space and each layout draws too.
  */
-export async function readDXF(input: string | AsyncIterable<Uint8Array>): Promise<DrawingRead> {
-  const reader = new DxfReader();
+export function readDXF(
+  input: string | AsyncIterable<Uint8Array>,
+  options: ReadOptions = {},
+): Promise<DrawingRead> {
+  return readDXFWithin(input, options, READ_LIMITS);
+}
+
+/** The most a read keeps of each list, which `readDXFWithin` takes so a test can reach each. */
+export interface ReadLimits {
+  /** The most texts, dimensions, inserts and viewports a space lists, and fields in all. */
+  readonly census: number;
+  /** The most items the blocks keep in all. */
+  readonly blockItems: number;
+  /** The most items what the spaces draw keeps in all. */
+  readonly geometryItems: number;
+}
+
+export const READ_LIMITS: ReadLimits = {
+  census: CENSUS_LIMIT,
+  blockItems: BLOCK_ITEMS,
+  geometryItems: GEOMETRY_ITEMS,
+};
+
+/**
+ * `readDXF` within the limits given. Bytes given as one `Uint8Array` are read before it
+ * returns, so the whole read runs in the caller's turn.
+ */
+export async function readDXFWithin(
+  input: string | AsyncIterable<Uint8Array> | Uint8Array,
+  options: ReadOptions,
+  limits: ReadLimits,
+): Promise<DrawingRead> {
+  return (await reading(input, options, limits, undefined)).read;
+}
+
+/**
+ * The read of a file given as bytes, and its document: where each record of the file is, which
+ * the read's handles name.
+ */
+export async function readDXFDocument(
+  input: AsyncIterable<Uint8Array> | Uint8Array,
+  options: ReadOptions = {},
+): Promise<{ readonly read: DrawingRead; readonly document: DxfDocument }> {
+  const document = new DxfDocumentReader();
+  const { read } = await reading(input, options, READ_LIMITS, document);
+  return { read, document: document.end() };
+}
+
+async function reading(
+  input: string | AsyncIterable<Uint8Array> | Uint8Array,
+  options: ReadOptions,
+  limits: ReadLimits,
+  document: DxfDocumentReader | undefined,
+): Promise<{ read: DrawingRead }> {
+  const reader = new DxfReader(options, limits);
   const text = typeof input === "string";
   const groups = new GroupReader((code, value) => reader.group(code, value), text);
+  const push = (chunk: Uint8Array): void => {
+    document?.push(chunk);
+    groups.push(chunk);
+  };
   if (typeof input === "string") {
     // A string is text already: its UTF-8 bytes are read, whatever its header says.
     const encoder = new TextEncoder();
@@ -45,21 +142,16 @@ export async function readDXF(input: string | AsyncIterable<Uint8Array>): Promis
       // A piece never ends between the two halves of a surrogate pair.
       const last = input.charCodeAt(end - 1);
       if (end < input.length && last >= 0xd800 && last <= 0xdbff) end--;
-      groups.push(encoder.encode(input.slice(i, end)));
+      push(encoder.encode(input.slice(i, end)));
       i = end;
     }
+  } else if (input instanceof Uint8Array) {
+    push(input);
   } else {
-    for await (const chunk of input) groups.push(chunk);
+    for await (const chunk of input) push(chunk);
   }
   const { sha256, bytes } = groups.end();
-  return reader.finish(sha256, bytes, groups);
-}
-
-/** One record: its kind, from group 0, and its groups after that. */
-interface Rec {
-  type: string;
-  codes: number[];
-  values: string[];
+  return { read: reader.finish(sha256, bytes, groups) };
 }
 
 /** Groups no reading needs and that can be long: binary data, and long xdata strings. */
@@ -82,22 +174,26 @@ const NOTHING: ReadonlySet<number> = new Set();
 /** What the census of a space reads of an entity it only counts. */
 // 102 too, so that the owner is told from the handles of an application's group.
 const CENSUS: ReadonlySet<number> = new Set([5, 6, 8, 62, 67, 102, 330, 370, 420]);
-/** The kinds a block's definition reads whole. */
+/** The kinds a block's definition reads whole, and a space's with `geometry`. */
 const BLOCK_READS = new Set([
   "ARC",
   "ATTDEF",
   "ATTRIB",
   "CIRCLE",
+  "DIMENSION",
   "INSERT",
   "LINE",
   "LWPOLYLINE",
   "MTEXT",
+  "MULTILEADER",
   "POLYLINE",
   "SEQEND",
+  "SOLID",
   "TEXT",
   "VERTEX",
+  "VIEWPORT",
 ]);
-/** The kinds a space reads whole. */
+/** The kinds a space reads whole without `geometry`. */
 const SPACE_READS = new Set([
   "ATTRIB",
   "DIMENSION",
@@ -132,111 +228,7 @@ const HOUSEKEEPING = new Set([
 ]);
 
 /** The entity kinds the reader reads, and the records that belong to one of them. */
-const READ_ENTITIES = new Set([
-  "ARC",
-  "ATTDEF",
-  "ATTRIB",
-  "CIRCLE",
-  "DIMENSION",
-  "INSERT",
-  "LINE",
-  "LWPOLYLINE",
-  "MTEXT",
-  "POLYLINE",
-  "SEQEND",
-  "TEXT",
-  "VERTEX",
-  "VIEWPORT",
-]);
-
-const first = (r: Rec, code: number): string | undefined => {
-  const i = r.codes.indexOf(code);
-  return i < 0 ? undefined : r.values[i];
-};
-
-const num = (r: Rec, code: number): number | undefined => {
-  const value = first(r, code);
-  if (value === undefined) return undefined;
-  const n = Number(value);
-  return value.trim() !== "" && Number.isFinite(n) ? n : undefined;
-};
-
-const point = (r: Rec, x: number): Point => [num(r, x) ?? 0, num(r, x + 10) ?? 0];
-
-/**
- * How an entity's own coordinates lie in the world, from its extrusion, groups 210 to 230: 1 as
- * they are, -1 seen from below, which mirrors X, and 0 for any other direction.
- */
-function facing(r: Rec): 1 | -1 | 0 {
-  const x = num(r, 210) ?? 0;
-  const y = num(r, 220) ?? 0;
-  const z = num(r, 230) ?? 1;
-  if (Math.abs(x) > 1e-9 || Math.abs(y) > 1e-9 || z === 0) return 0;
-  return z > 0 ? 1 : -1;
-}
-
-/** A point of an entity's own coordinates, in the world's, for an entity that faces up or down. */
-const placed = (p: Point, face: 1 | -1 | 0): Point => (face === -1 ? [-p[0], p[1]] : p);
-
-/** An angle of an entity's own coordinates in the world's, in degrees. */
-const turned = (angle: number, face: 1 | -1 | 0): number =>
-  face === -1 ? (((180 - angle) % 360) + 360) % 360 : angle;
-
-const name = (r: Rec, code: number): string | undefined => {
-  const value = first(r, code);
-  return value === undefined ? undefined : unescaped(value);
-};
-
-/** Each value of `code` after the subclass marker `subclass` (group 100) and before the next. */
-function inSubclass(r: Rec, subclass: string): Rec {
-  const out: Rec = { type: r.type, codes: [], values: [] };
-  let inside = false;
-  for (let i = 0; i < r.codes.length; i++) {
-    if (r.codes[i] === 100) inside = r.values[i] === subclass;
-    else if (inside) {
-      out.codes.push(r.codes[i]!);
-      out.values.push(r.values[i]!);
-    }
-  }
-  return out;
-}
-
-/** The values of an application's xdata: what follows its 1001 group, up to the next. */
-function xdata(r: Rec, app: string): Rec {
-  const out: Rec = { type: r.type, codes: [], values: [] };
-  let inside = false;
-  for (let i = 0; i < r.codes.length; i++) {
-    if (r.codes[i] === 1001) inside = r.values[i]!.toUpperCase() === app.toUpperCase();
-    else if (inside) {
-      out.codes.push(r.codes[i]!);
-      out.values.push(r.values[i]!);
-    }
-  }
-  return out;
-}
-
-/**
- * The handle of a record's owner: its first group 330 outside the groups an application opens
- * with 102, such as `{ACAD_REACTORS`, which hold handles of other objects.
- */
-function ownerOf(r: Rec): string | undefined {
-  let inside = false;
-  for (let i = 0; i < r.codes.length; i++) {
-    if (r.codes[i] === 102) inside = r.values[i]!.startsWith("{");
-    else if (!inside && r.codes[i] === 330) return r.values[i];
-  }
-  return undefined;
-}
-
-/** The handle a 102 group `{NAME` opens, through its 360 or 330 group. */
-function inGroup(r: Rec, group: string, code: number): string | undefined {
-  let inside = false;
-  for (let i = 0; i < r.codes.length; i++) {
-    if (r.codes[i] === 102) inside = r.values[i] === group;
-    else if (inside && r.codes[i] === code) return r.values[i];
-  }
-  return undefined;
-}
+const READ_ENTITIES = BLOCK_READS;
 
 /** Whether xdata of `AcadAnnotative` marks the object annotative. */
 function annotative(r: Rec): boolean {
@@ -244,16 +236,6 @@ function annotative(r: Rec): boolean {
   const flags = data.values.filter((_, i) => data.codes[i] === 1070);
   return flags[1]?.trim() === "1";
 }
-
-/**
- * An object keyed by names from the file. It has no prototype, so a name such as `constructor`
- * or `__proto__` is a key like any other.
- */
-const map = <T>(): Record<string, T> => Object.create(null) as Record<string, T>;
-
-const add = (counts: Record<string, number>, key: string, n = 1): void => {
-  counts[key] = (counts[key] ?? 0) + n;
-};
 
 /** The heights an MTEXT's text sets with `\H`, from the height the MTEXT starts at. */
 export function inlineHeights(text: string, height: number): number[] {
@@ -291,6 +273,11 @@ class Census {
   readonly inserts: ReadCensusInsert[] = [];
   readonly counts = { texts: 0, dimensions: 0, inserts: 0 };
   capped = false;
+  readonly #limit: number;
+
+  constructor(limit: number) {
+    this.#limit = limit;
+  }
 
   count(r: Rec, layer: string): void {
     let row = this.layers[layer];
@@ -312,7 +299,7 @@ class Census {
 
   list<T>(items: T[], kind: keyof Census["counts"], item: () => T): void {
     this.counts[kind]++;
-    if (items.length < CENSUS_LIMIT) items.push(item());
+    if (items.length < this.#limit) items.push(item());
     else this.capped = true;
   }
 
@@ -328,21 +315,27 @@ class Census {
   }
 }
 
-/** What a space or a block holds while the reader is in it. */
-interface Space {
+/** Where the entities a reading keeps go: a block's definition, or a space read with geometry. */
+interface Target {
+  entities: ReadEntity[];
+  other: Record<string, number>;
+  /** True for a block, whose items count against `blockItems`. */
+  block: boolean;
+}
+
+/** What a space holds while the reader is in it. */
+interface Space extends Target {
   census: Census;
   viewports: (ReadViewport & { id: number | undefined })[];
   inserts: ReadInsert[];
 }
 
-interface BlockDraft {
+interface BlockDraft extends Target {
   handle: string | undefined;
   name: string;
   base: Point;
   anonymous: boolean;
   attributeDefinitions: ReadAttributeDefinition[];
-  entities: ReadEntity[];
-  other: Record<string, number>;
 }
 
 interface PendingMtext {
@@ -373,10 +366,68 @@ interface LayoutDraft {
 
 const MODEL = "*MODEL_SPACE";
 
+/** The header variables the read model holds, and the one that says which tab a file opens on. */
+const HEADER = new Set([
+  "$INSUNITS",
+  "$MEASUREMENT",
+  "$LTSCALE",
+  "$PSLTSCALE",
+  "$MSLTSCALE",
+  "$DIMSCALE",
+  "$DIMSTYLE",
+  "$TEXTSTYLE",
+  "$TILEMODE",
+  "$ACADVER",
+]);
+
+/** An insert whose attributes follow it, up to its `SEQEND`. */
+interface InsertOwner {
+  readonly kind: "insert";
+  readonly insert: ReadInsert & { tags: Record<string, boolean> };
+  /** Whether a space's census and its list of inserts list it. */
+  readonly place: boolean;
+  /** Whether its target keeps it. */
+  readonly keep: boolean;
+  /** How many tags it has, and its attributes when the read keeps them. */
+  tags: number;
+  readonly attributes: ReadAttribute[] | undefined;
+  /** What it costs so far, and whether its attributes went past what its target may keep. */
+  cost: number;
+  over: boolean;
+  /** The starts its attributes leave to work out, once it is kept. */
+  readonly starts: PendingStart[];
+}
+
+/** A multileader whose styles are named by handle, until the file is read. */
+interface PendingLeader {
+  readonly entity: ReadMultileader;
+  readonly style?: string;
+  readonly textStyle?: string;
+  /** Where it was kept, which its styles' names are charged to. */
+  readonly target?: Target;
+}
+
+/** A polyline whose vertices follow it, up to its `SEQEND`. */
+interface PolylineOwner {
+  readonly kind: "polyline";
+  readonly rec: Rec;
+  points: Point[];
+  arcs: boolean;
+  wide: boolean;
+  over: boolean;
+  broken: boolean;
+  readonly face: Facing;
+}
+
+/** The longest name a map of the file's names is keyed by: the most a DXF string holds. */
+const LONGEST_NAME = 2049;
+
 class DxfReader {
   #section = "";
   #variable = "";
   #rec: Rec | undefined;
+  readonly #geometry: boolean;
+  readonly #limits: ReadLimits;
 
   readonly header: Record<string, string> = map();
   readonly layers: ReadLayer[] = [];
@@ -396,6 +447,12 @@ class DxfReader {
     string,
     { evaluator: string; code: string; children: string[] }
   >();
+  /** The dictionary of leader styles, which the root dictionary names. */
+  #leaderStyleDictionary: string | undefined;
+  /** Each leader style's name, by its handle. */
+  readonly leaderStyles = new Map<string, string>();
+  /** The view of the first `*Active` record of the viewport table. */
+  #activeView: Omit<ReadView, "layout"> | undefined;
   readonly unread = {
     entities: map<number>(),
     objects: map<number>(),
@@ -408,29 +465,55 @@ class DxfReader {
   #block: BlockDraft | undefined;
   #inDimensionPicture = false;
   /** An insert or a polyline whose following records are its own, up to its SEQEND. */
-  #owner:
-    | {
-        kind: "insert";
-        insert: ReadInsert & { tags: Record<string, boolean> };
-        place: boolean;
-        tags: number;
-      }
-    | {
-        kind: "polyline";
-        rec: Rec;
-        points: Point[];
-        arcs: boolean;
-        wide: boolean;
-        over: boolean;
-        face: 1 | -1 | 0;
-      }
-    | undefined;
+  #owner: InsertOwner | PolylineOwner | undefined;
 
   #keep: ReadonlySet<number> = NOTHING;
+  /** True for a file of R12's format or older, as its `$ACADVER` says. */
+  #r12 = false;
   #blockItems = 0;
+  #geometryItems = 0;
   /** MTEXTs with a dictionary, and fields, past the limit of either list. */
   #fieldsPast = 0;
   #overflow = false;
+  /**
+   * The texts whose start is worked out, and the multileaders whose styles are named, at the end:
+   * those of entities kept alone. What one record leaves waits in `#staged` until it is kept.
+   */
+  readonly #starts: PendingStart[] = [];
+  readonly #leaders: PendingLeader[] = [];
+  readonly #staged: { starts: PendingStart[]; leaders: PendingLeader[] } = {
+    starts: [],
+    leaders: [],
+  };
+  readonly #later: Later = {
+    start: (pending) => this.#staged.starts.push(pending),
+    leader: (entity, style, textStyle) =>
+      this.#staged.leaders.push({
+        entity,
+        ...(style !== undefined && { style }),
+        ...(textStyle !== undefined && { textStyle }),
+      }),
+  };
+
+  /**
+   * What the record read last left to finish, kept when its entity is kept in `target`, and
+   * else dropped.
+   */
+  #settle(kept: boolean, target?: Target): PendingStart[] {
+    const { starts, leaders } = this.#staged;
+    this.#staged.starts = [];
+    this.#staged.leaders = [];
+    if (kept) {
+      for (const pending of leaders) this.#leaders.push({ ...pending, ...(target && { target }) });
+      return starts;
+    }
+    return [];
+  }
+
+  constructor(options: ReadOptions, limits: ReadLimits) {
+    this.#geometry = options.geometry === true;
+    this.#limits = limits;
+  }
 
   group(code: number, value: string): void {
     if (code === 0) {
@@ -450,7 +533,10 @@ class DxfReader {
     }
     if (this.#section === "HEADER") {
       if (code === 9) this.#variable = value.trim().toUpperCase();
-      else if (!(this.#variable in this.header)) this.header[this.#variable] = value;
+      else if (HEADER.has(this.#variable) && !(this.#variable in this.header)) {
+        this.header[this.#variable] = value;
+        if (this.#variable === "$ACADVER") this.#r12 = value.trim().toUpperCase() <= "AC1009";
+      }
       return;
     }
     const r = this.#rec;
@@ -466,6 +552,16 @@ class DxfReader {
 
   /** The groups of a record of this kind that a reading needs, here. */
   #keepFor(type: string): ReadonlySet<number> {
+    const inSpace = (): ReadonlySet<number> =>
+      this.#geometry
+        ? BLOCK_READS.has(type)
+          ? ALL
+          : CENSUS
+        : SPACE_READS.has(type)
+          ? ALL
+          : type === "VERTEX"
+            ? NOTHING
+            : CENSUS;
     switch (this.#section) {
       case "TABLES":
         return ALL;
@@ -475,9 +571,9 @@ class DxfReader {
         if (type === "BLOCK" || type === "ENDBLK") return ALL;
         if (this.#inDimensionPicture) return NOTHING;
         if (this.#block) return BLOCK_READS.has(type) ? ALL : NOTHING;
-        return SPACE_READS.has(type) ? ALL : type === "VERTEX" ? NOTHING : CENSUS;
+        return inSpace();
       case "ENTITIES":
-        return SPACE_READS.has(type) ? ALL : type === "VERTEX" ? NOTHING : CENSUS;
+        return inSpace();
       default:
         return NOTHING;
     }
@@ -487,6 +583,12 @@ class DxfReader {
     const r = this.#rec;
     this.#rec = undefined;
     if (!r) return;
+    // The file's names key the counts, and no name a DXF can hold is so long.
+    if (r.type.length > LONGEST_NAME) {
+      this.#overflow = false;
+      add(this.unread.malformed, `a record whose kind is longer than ${LONGEST_NAME} characters`);
+      return;
+    }
     if (this.#overflow) {
       this.#overflow = false;
       add(this.unread.malformed, `${r.type} of more than ${MAX_GROUPS} groups`);
@@ -511,7 +613,7 @@ class DxfReader {
   }
 
   #tableRecord(r: Rec): void {
-    const handle = first(r, 5) ?? first(r, 105);
+    const handle = handleAt(r, 5) ?? handleAt(r, 105);
     const recordName = name(r, 2) ?? "";
     const flags = num(r, 70) ?? 0;
     switch (r.type) {
@@ -587,13 +689,19 @@ class DxfReader {
         }
         const suffix = name(r, 3);
         if (suffix !== undefined && suffix !== "") style.suffix = suffix;
-        const textStyle = first(r, 340);
+        const textStyle = handleAt(r, 340);
         if (textStyle !== undefined) style.textStyleHandle = textStyle;
         this.dimensionStyles.push(style as unknown as ReadDimensionStyle);
         return;
       }
       case "BLOCK_RECORD":
         if (handle !== undefined) this.blockRecords.set(handle, recordName);
+        return;
+      case "VPORT":
+        // The first `*Active` record is the view model space opens at.
+        if (recordName.toUpperCase() === "*ACTIVE" && this.#activeView === undefined) {
+          this.#activeView = activeView(r);
+        }
         return;
       default:
         return;
@@ -609,7 +717,10 @@ class DxfReader {
       this.#block = undefined;
       this.#space = undefined;
       this.#inDimensionPicture = false;
-      if (upper === MODEL || upper.startsWith("*PAPER_SPACE")) {
+      if (blockName.length > LONGEST_NAME) {
+        add(this.unread.malformed, `BLOCK with a name longer than ${LONGEST_NAME} characters`);
+        this.#inDimensionPicture = true;
+      } else if (upper === MODEL || upper.startsWith("*PAPER_SPACE")) {
         this.#spaceName = upper;
         this.#space = this.#spaceFor(upper);
       } else if ((flags & 4) !== 0) {
@@ -621,7 +732,7 @@ class DxfReader {
         });
         // An xref's block holds nothing of its own in the host.
         this.#inDimensionPicture = true;
-      } else if (/^\*D\d*$/i.test(blockName)) {
+      } else if (!this.#geometry && /^\*D\d*$/i.test(blockName)) {
         this.#inDimensionPicture = true;
       } else {
         this.#block = {
@@ -632,6 +743,7 @@ class DxfReader {
           attributeDefinitions: [],
           entities: [],
           other: map(),
+          block: true,
         };
         this.blocks.push(this.#block);
       }
@@ -674,38 +786,51 @@ class DxfReader {
   #spaceFor(spaceName: string): Space {
     let space = this.spaces.get(spaceName);
     if (!space) {
-      space = { census: new Census(), viewports: [], inserts: [] };
+      space = {
+        census: new Census(this.#limits.census),
+        viewports: [],
+        inserts: [],
+        entities: [],
+        other: map(),
+        block: false,
+      };
       this.spaces.set(spaceName, space);
     }
     return space;
   }
 
+  /** Where the entity read now is kept: its block, or its space when the read keeps geometry. */
+  #target(): Target | undefined {
+    return this.#block ?? (this.#geometry ? this.#space : undefined);
+  }
+
+  /** How many more items a target may keep. */
+  #room(target: Target): number {
+    return target.block
+      ? this.#limits.blockItems - this.#blockItems
+      : this.#limits.geometryItems - this.#geometryItems;
+  }
+
+  /**
+   * Keeps an entity in its target, within the target's limit, or counts it as past the limit.
+   * True when it is kept.
+   */
+  #kept(target: Target, entity: ReadEntity, cost = costOf(entity)): boolean {
+    if (cost > this.#room(target)) {
+      add(target.other, "past the limit");
+      return false;
+    }
+    if (target.block) this.#blockItems += cost;
+    else this.#geometryItems += cost;
+    target.entities.push(entity);
+    return true;
+  }
+
   /** An entity of the current space or block. */
   #entity(r: Rec): void {
     if (this.#owner) {
-      if (this.#owner.kind === "insert" && r.type === "ATTRIB") {
-        const tag = name(r, 2);
-        const owner = this.#owner;
-        if (tag !== undefined && (tag in owner.insert.tags || owner.tags < MAX_TAGS)) {
-          if (!(tag in owner.insert.tags)) owner.tags++;
-          owner.insert.tags[tag] = (first(r, 1) ?? "") !== "";
-        }
-        return;
-      }
-      if (this.#owner.kind === "polyline" && r.type === "VERTEX") {
-        const flags = num(r, 70) ?? 0;
-        // A spline's frame point is not a point of the polyline.
-        if ((flags & 16) === 0 && this.#block && !this.#owner.over) {
-          // A polyline that cannot fit what the blocks may still keep holds no more points.
-          if (this.#blockItems + this.#owner.points.length >= BLOCK_ITEMS) {
-            this.#owner.over = true;
-            this.#owner.points = [];
-          } else this.#owner.points.push(point(r, 10));
-        }
-        if ((num(r, 42) ?? 0) !== 0) this.#owner.arcs = true;
-        if ((num(r, 40) ?? 0) !== 0 || (num(r, 41) ?? 0) !== 0) this.#owner.wide = true;
-        return;
-      }
+      if (this.#owner.kind === "insert" && r.type === "ATTRIB") return this.#attribute(r);
+      if (this.#owner.kind === "polyline" && r.type === "VERTEX") return this.#vertex(r);
       this.#closeOwner();
       if (r.type === "SEQEND") return;
     }
@@ -713,81 +838,23 @@ class DxfReader {
       add(this.unread.malformed, r.type);
       return;
     }
-    if (!READ_ENTITIES.has(r.type)) add(this.unread.entities, r.type);
     const layer = name(r, 8) ?? "0";
-    const handle = first(r, 5);
+    if (layer.length > LONGEST_NAME) {
+      add(this.unread.malformed, `${r.type} on a layer longer than ${LONGEST_NAME} characters`);
+      return;
+    }
+    if (!READ_ENTITIES.has(r.type)) add(this.unread.entities, r.type);
+    const handle = handleAt(r, 5);
     const space = this.#space;
     space?.census.count(r, layer);
     const block = this.#block;
-    // LINE, MTEXT and a dimension's definition point are in the world's coordinates already.
-    const face = r.type === "LINE" || r.type === "MTEXT" ? 1 : facing(r);
-    // A block keeps no entity that stands in another plane; a polyline is judged at its end.
-    const flat = face !== 0 || !block || r.type === "POLYLINE";
-    if (!flat && r.type !== "INSERT") {
-      if (BLOCK_READS.has(r.type)) add(block!.other, `${r.type} in 3D`);
-      return;
-    }
+    const target = this.#target();
+    // A line, an MTEXT and a multileader hold their points in the world's coordinates already.
+    const face =
+      r.type === "LINE" || r.type === "MTEXT" || r.type === "MULTILEADER" ? 1 : facing(r);
+    this.#census(r, layer, handle, face);
 
     switch (r.type) {
-      case "LINE":
-        this.#inBlock(block, { kind: "line", handle, layer, from: point(r, 10), to: point(r, 11) });
-        return;
-      case "CIRCLE":
-        this.#inBlock(block, {
-          kind: "circle",
-          handle,
-          layer,
-          center: placed(point(r, 10), face),
-          radius: num(r, 40) ?? 0,
-        });
-        return;
-      case "ARC":
-        // Seen from below, an arc runs the other way: its end is the world's start.
-        this.#inBlock(block, {
-          kind: "arc",
-          handle,
-          layer,
-          center: placed(point(r, 10), face),
-          radius: num(r, 40) ?? 0,
-          start: turned(num(r, face === -1 ? 51 : 50) ?? 0, face),
-          end: turned(num(r, face === -1 ? 50 : 51) ?? 0, face),
-        });
-        return;
-      case "LWPOLYLINE": {
-        if (!block) return;
-        const points: Point[] = [];
-        let arcs = false;
-        let x: number | undefined;
-        let broken = false;
-        let wide = (num(r, 43) ?? 0) !== 0;
-        for (let i = 0; i < r.codes.length; i++) {
-          const code = r.codes[i];
-          if (code === 10) x = Number(r.values[i]);
-          else if (code === 20 && x !== undefined) {
-            const y = Number(r.values[i]);
-            if (!Number.isFinite(x) || !Number.isFinite(y)) broken = true;
-            points.push(placed([x, y], face));
-            x = undefined;
-          } else if (code === 42 && Number(r.values[i]) !== 0) arcs = true;
-          else if ((code === 40 || code === 41) && Number(r.values[i]) !== 0) wide = true;
-        }
-        if (broken) {
-          add(this.unread.malformed, "LWPOLYLINE with a point that is not a number");
-          return;
-        }
-        if (arcs || wide) {
-          add(block.other, arcs ? "LWPOLYLINE with arcs" : "LWPOLYLINE with widths");
-          return;
-        }
-        this.#inBlock(block, {
-          kind: "polyline",
-          handle,
-          layer,
-          points,
-          closed: ((num(r, 70) ?? 0) & 1) !== 0,
-        });
-        return;
-      }
       case "POLYLINE":
         this.#owner = {
           kind: "polyline",
@@ -796,45 +863,122 @@ class DxfReader {
           arcs: false,
           wide: (num(r, 40) ?? 0) !== 0 || (num(r, 41) ?? 0) !== 0,
           over: false,
+          broken: brokenNumber(r),
           face,
         };
         return;
+      case "INSERT": {
+        const insert = { ...insertOf(r, baseOf(r, layer, handle), face), tags: map<boolean>() };
+        // A space lists an insert in any plane, as its census does; a block keeps it flat.
+        const place = face !== 0 || !block;
+        let keep = target !== undefined;
+        if (target && face === 0) {
+          add(target.other, "INSERT in 3D");
+          keep = false;
+        } else if (target && ((num(r, 70) ?? 1) > 1 || (num(r, 71) ?? 1) > 1)) {
+          add(target.other, "INSERT with columns and rows");
+          keep = false;
+        } else if (target && brokenNumber(r)) {
+          add(this.unread.malformed, "INSERT with a number that is not finite");
+          keep = false;
+        }
+        const owner = {
+          kind: "insert" as const,
+          insert,
+          place,
+          keep,
+          tags: 0,
+          attributes: keep && this.#geometry ? [] : undefined,
+          cost: costOf(insert),
+          over: false,
+          starts: [],
+        };
+        if (num(r, 66) === 1) this.#owner = owner;
+        else this.#placeInsert(owner);
+        return;
+      }
+      case "ATTDEF": {
+        if (!block) return;
+        if (face === 0) {
+          add(block.other, "ATTDEF in 3D");
+          return;
+        }
+        if (brokenNumber(r)) {
+          add(this.unread.malformed, "ATTDEF with a number that is not finite");
+          return;
+        }
+        const flags = num(r, 70) ?? 0;
+        const prompt = name(r, 3) === undefined ? undefined : textTwice(first(r, 3)!);
+        const value = textTwice(first(r, 1) ?? "");
+        const tag = textTwice(first(r, 2) ?? "");
+        const cost = 4 + Math.floor((tag.length + value.length + (prompt?.length ?? 0)) / 32);
+        if (cost > this.#room(block)) {
+          add(block.other, "past the limit");
+          return;
+        }
+        this.#blockItems += cost;
+        const { placement, pending } = placementOf(r, face, value, 74);
+        const definition = {
+          handle,
+          ...placement,
+          tag,
+          ...(prompt !== undefined && { prompt }),
+          default: value,
+          layer,
+          invisible: (flags & 1) !== 0,
+          constant: (flags & 2) !== 0,
+        };
+        if (pending) this.#starts.push({ ...pending, placement: definition });
+        block.attributeDefinitions.push(definition);
+        return;
+      }
+      case "VIEWPORT": {
+        if (!space) {
+          if (block) add(block.other, "VIEWPORT");
+          return;
+        }
+        const read = viewport(r, handle, layer);
+        if (read === undefined)
+          add(this.unread.malformed, "VIEWPORT with a number past the doubles");
+        else if (space.viewports.length < this.#limits.census) space.viewports.push(read);
+        else space.census.capped = true;
+        return;
+      }
+    }
+    if (!target) return;
+    const reading = readingOf(r, baseOf(r, layer, handle), face, this.#later, this.#r12);
+    const kept = reading !== undefined && "entity" in reading && this.#kept(target, reading.entity);
+    for (const pending of this.#settle(kept, target)) this.#starts.push(pending);
+    if (reading === undefined) add(target.other, r.type);
+    else if ("other" in reading) add(target.other, reading.other);
+    else if ("malformed" in reading) add(this.unread.malformed, reading.malformed);
+  }
+
+  /** What a space's census lists of a text, an `MTEXT` or a dimension, and the fields' MTEXTs. */
+  #census(r: Rec, layer: string, handle: string | undefined, face: Facing): void {
+    const space = this.#space;
+    const block = this.#block;
+    switch (r.type) {
       case "TEXT": {
-        const height = num(r, 40) ?? 0;
+        if (!space) return;
         const at = placed(point(r, 10), face);
+        const height = num(r, 40) ?? 0;
         const style = name(r, 7) ?? "Standard";
-        // A text seen from below reads backwards, which no rotation gives: it is counted.
-        if (face === -1 && block) add(block.other, "TEXT seen from below");
-        else {
-          this.#inBlock(block, {
-            kind: "text",
-            handle,
-            layer,
-            at,
-            height,
-            value: name(r, 1) ?? "",
-            rotation: num(r, 50) ?? 0,
-            style,
-          });
-        }
-        if (space) {
-          space.census.list(space.census.texts, "texts", () => ({
-            handle,
-            kind: "TEXT" as const,
-            layer,
-            style,
-            at,
-            height,
-          }));
-        }
+        space.census.list(space.census.texts, "texts", () => ({
+          handle,
+          kind: "TEXT" as const,
+          layer,
+          style,
+          at,
+          height,
+        }));
         return;
       }
       case "MTEXT": {
         const height = num(r, 40) ?? 0;
         const at = point(r, 10);
-        const style = name(r, 7) ?? "Standard";
-        if (block) add(block.other, "MTEXT");
         if (space) {
+          const style = name(r, 7) ?? "Standard";
           let text = "";
           for (let i = 0; i < r.codes.length; i++) {
             if (r.codes[i] === 3 || r.codes[i] === 1) text += r.values[i];
@@ -852,8 +996,9 @@ class DxfReader {
         }
         const dictionary = inGroup(r, "{ACAD_XDICTIONARY", 360);
         // An annotative MTEXT has a dictionary too, so the list stops at the limit.
-        if (dictionary !== undefined && this.mtexts.length >= CENSUS_LIMIT) this.#fieldsPast++;
-        else if (dictionary !== undefined) {
+        if (dictionary !== undefined && this.mtexts.length >= this.#limits.census) {
+          this.#fieldsPast++;
+        } else if (dictionary !== undefined) {
           this.mtexts.push({
             handle,
             dictionary,
@@ -867,39 +1012,7 @@ class DxfReader {
         }
         return;
       }
-      case "INSERT": {
-        const insert = { ...insertOf(r, layer, handle, face), tags: map<boolean>() };
-        if (!flat) add(block!.other, "INSERT in 3D");
-        if (num(r, 66) === 1) this.#owner = { kind: "insert", insert, place: flat, tags: 0 };
-        else if (flat) this.#placeInsert(insert);
-        return;
-      }
-      case "ATTDEF": {
-        if (!block) return;
-        const flags = num(r, 70) ?? 0;
-        const style = name(r, 7) ?? "Standard";
-        const prompt = name(r, 3);
-        if (this.#blockItems >= BLOCK_ITEMS) {
-          add(block.other, "past the limit");
-          return;
-        }
-        this.#blockItems++;
-        block.attributeDefinitions.push({
-          handle,
-          tag: name(r, 2) ?? "",
-          ...(prompt !== undefined && { prompt }),
-          default: name(r, 1) ?? "",
-          at: placed(point(r, 10), face),
-          ...(num(r, 40) !== undefined && { height: num(r, 40)! }),
-          style,
-          layer,
-          invisible: (flags & 1) !== 0,
-          constant: (flags & 2) !== 0,
-        });
-        return;
-      }
       case "DIMENSION": {
-        if (block) add(block.other, "DIMENSION");
         if (!space) return;
         const style = name(r, 3) ?? "Standard";
         const dstyle = xdata(r, "ACAD");
@@ -913,42 +1026,77 @@ class DxfReader {
         }));
         return;
       }
-      case "VIEWPORT": {
-        if (!space) {
-          if (block) add(block.other, "VIEWPORT");
-          return;
-        }
-        const read = viewport(r, handle, layer);
-        if (read === undefined)
-          add(this.unread.malformed, "VIEWPORT with a number past the doubles");
-        else if (space.viewports.length < CENSUS_LIMIT) space.viewports.push(read);
-        else space.census.capped = true;
-        return;
-      }
-      default:
-        if (block) add(block.other, r.type);
     }
   }
 
-  /**
-   * Keeps an entity of a block's definition, up to `BLOCK_ITEMS` in all, a polyline counting
-   * its points. What comes past it is counted in the block's `other`.
-   */
-  #inBlock(block: BlockDraft | undefined, entity: ReadEntity): void {
-    if (!block) return;
-    const size = entity.kind === "polyline" ? Math.max(1, entity.points.length) : 1;
-    if (this.#blockItems + size > BLOCK_ITEMS) {
-      add(block.other, "past the limit");
+  /** An attribute of the insert whose records these are. */
+  #attribute(r: Rec): void {
+    const owner = this.#owner as InsertOwner;
+    const tag = first(r, 2) === undefined ? undefined : textTwice(first(r, 2)!);
+    if (tag !== undefined && tag.length > LONGEST_NAME) {
+      add(this.unread.malformed, `ATTRIB with a tag longer than ${LONGEST_NAME} characters`);
       return;
     }
-    this.#blockItems += size;
-    block.entities.push(entity);
+    if (tag !== undefined && (tag in owner.insert.tags || owner.tags < MAX_TAGS)) {
+      if (!(tag in owner.insert.tags)) {
+        owner.tags++;
+        owner.cost += 1 + Math.floor(tag.length / 32);
+      }
+      owner.insert.tags[tag] = (first(r, 1) ?? "") !== "";
+    }
+    const target = this.#target();
+    if (!owner.attributes || owner.over || !target) return;
+    if (owner.attributes.length >= MAX_TAGS) {
+      add(target.other, "past the limit");
+      return;
+    }
+    const read = attributeOf(r, baseOf(r, name(r, 8) ?? "0", handleAt(r, 5)), this.#later);
+    let pushed = false;
+    if ("malformed" in read) add(this.unread.malformed, read.malformed);
+    else if ("other" in read) add(target.other, read.other);
+    else {
+      owner.cost += attributeCost(read);
+      // An insert whose attributes cannot fit what its target has left is counted, whole.
+      if (owner.cost > this.#room(target)) owner.over = true;
+      else {
+        owner.attributes.push(read);
+        pushed = true;
+      }
+    }
+    for (const pending of this.#settle(pushed)) owner.starts.push(pending);
   }
 
-  #placeInsert(insert: ReadInsert): void {
-    this.#inBlock(this.#block, insert);
+  /** A vertex of the polyline whose records these are. */
+  #vertex(r: Rec): void {
+    const owner = this.#owner as PolylineOwner;
+    const flags = num(r, 70) ?? 0;
+    const target = this.#target();
+    if (brokenNumber(r)) owner.broken = true;
+    // A spline's frame point is not a point of the polyline.
+    if ((flags & 16) === 0 && target && !owner.over) {
+      // A polyline that cannot fit what its target may still keep holds no more points.
+      if (owner.points.length >= this.#room(target)) {
+        owner.over = true;
+        owner.points = [];
+      } else owner.points.push(point(r, 10));
+    }
+    if ((num(r, 42) ?? 0) !== 0) owner.arcs = true;
+    if ((num(r, 40) ?? 0) !== 0 || (num(r, 41) ?? 0) !== 0) owner.wide = true;
+  }
+
+  #placeInsert(owner: InsertOwner): void {
+    const target = this.#target();
+    const { insert } = owner;
+    if (owner.keep && target) {
+      if (owner.over) add(target.other, "past the limit");
+      else {
+        const kept = owner.attributes ? { ...insert, attributes: owner.attributes } : insert;
+        if (this.#kept(target, kept))
+          for (const pending of owner.starts) this.#starts.push(pending);
+      }
+    }
     const space = this.#space;
-    if (!space) return;
+    if (!space || !owner.place || this.#block) return;
     space.census.list(space.census.inserts, "inserts", () => ({
       handle: insert.handle,
       layer: insert.layer,
@@ -956,7 +1104,7 @@ class DxfReader {
       at: insert.at,
       scale: insert.scale,
     }));
-    if (this.#spaceName !== MODEL && space.inserts.length < CENSUS_LIMIT)
+    if (this.#spaceName !== MODEL && space.inserts.length < this.#limits.census)
       space.inserts.push(insert);
   }
 
@@ -965,22 +1113,23 @@ class DxfReader {
     this.#owner = undefined;
     if (!owner) return;
     if (owner.kind === "insert") {
-      if (owner.place) this.#placeInsert(owner.insert);
+      this.#placeInsert(owner);
       return;
     }
-    const block = this.#block;
-    if (!block) return;
-    const flags = num(owner.rec, 70) ?? 0;
+    const target = this.#target();
+    if (!target) return;
+    const r = owner.rec;
+    const flags = num(r, 70) ?? 0;
     // 8 is a 3D polyline, 16 a mesh and 64 a face mesh.
-    if ((flags & (8 | 16 | 64)) !== 0 || owner.face === 0) add(block.other, "POLYLINE in 3D");
-    else if (owner.arcs) add(block.other, "POLYLINE with arcs");
-    else if (owner.wide) add(block.other, "POLYLINE with widths");
-    else if (owner.over) add(block.other, "past the limit");
+    if ((flags & (8 | 16 | 64)) !== 0 || owner.face === 0) add(target.other, "POLYLINE in 3D");
+    else if (owner.broken) add(this.unread.malformed, "POLYLINE with a number that is not finite");
+    else if (owner.arcs) add(target.other, "POLYLINE with arcs");
+    else if (owner.wide) add(target.other, "POLYLINE with widths");
+    else if (owner.over) add(target.other, "past the limit");
     else {
-      this.#inBlock(block, {
+      this.#kept(target, {
+        ...baseOf(r, name(r, 8) ?? "0", handleAt(r, 5)),
         kind: "polyline",
-        handle: first(owner.rec, 5),
-        layer: name(owner.rec, 8) ?? "0",
         points: owner.face === -1 ? owner.points.map((p) => placed(p, -1)) : owner.points,
         closed: (flags & 1) !== 0,
       });
@@ -990,34 +1139,45 @@ class DxfReader {
   #object(r: Rec): void {
     switch (r.type) {
       case "DICTIONARY": {
-        const handle = first(r, 5);
+        const handle = handleAt(r, 5);
         if (handle === undefined) return;
         let entries: Record<string, string> | undefined;
+        // The dictionary of leader styles names each by its name.
+        const styles = handle === this.#leaderStyleDictionary;
         for (let i = 0; i < r.codes.length; i++) {
           if (r.codes[i] !== 3) continue;
           const key = r.values[i]!;
           const next = r.codes[i + 1];
-          if ((key === "ACAD_FIELD" || key === "TEXT") && (next === 350 || next === 360)) {
+          if (next !== 350 && next !== 360) continue;
+          const value = r.values[i + 1]!;
+          // An entry keys a map by the handle it holds, which is 1 to 16 hexadecimal digits.
+          if (!/^[0-9A-Fa-f]{1,16}$/.test(value)) continue;
+          if (key === "ACAD_FIELD" || key === "TEXT") {
             entries ??= {};
-            entries[key] = r.values[i + 1]!;
+            entries[key] = value;
+          } else if (key === "ACAD_MLEADERSTYLE") this.#leaderStyleDictionary ??= value;
+          else if (styles && key.length <= LONGEST_NAME && !this.leaderStyles.has(value)) {
+            this.leaderStyles.set(value, unescaped(key));
           }
         }
-        if (entries && this.dictionaries.size < 2 * CENSUS_LIMIT) {
+        if (entries && this.dictionaries.size < 2 * this.#limits.census) {
           this.dictionaries.set(handle, entries);
         }
         return;
       }
       case "FIELD": {
-        const handle = first(r, 5);
+        const handle = handleAt(r, 5);
         if (handle === undefined) return;
         const field = inSubclass(r, "AcDbField");
         let code = "";
         const children: string[] = [];
         for (let i = 0; i < field.codes.length; i++) {
           if (field.codes[i] === 2 || field.codes[i] === 3) code += field.values[i];
-          if (field.codes[i] === 360) children.push(field.values[i]!);
+          if (field.codes[i] === 360 && /^[0-9A-Fa-f]{1,16}$/.test(field.values[i]!)) {
+            children.push(field.values[i]!);
+          }
         }
-        if (this.fieldObjects.size >= CENSUS_LIMIT) this.#fieldsPast++;
+        if (this.fieldObjects.size >= this.#limits.census) this.#fieldsPast++;
         else this.fieldObjects.set(handle, { evaluator: first(field, 1) ?? "", code, children });
         return;
       }
@@ -1027,7 +1187,7 @@ class DxfReader {
         const width = num(plot, 44);
         const height = num(plot, 45);
         this.layouts.push({
-          handle: first(r, 5),
+          handle: handleAt(r, 5),
           name: name(layout, 1) ?? "",
           tab: num(layout, 71) ?? 0,
           blockRecord: first(layout, 330),
@@ -1081,6 +1241,9 @@ class DxfReader {
       const textStyle = textStyleHandle === undefined ? undefined : styleNames.get(textStyleHandle);
       return textStyle === undefined ? style : { ...style, textStyle };
     });
+    this.#startsOfTexts();
+    this.#leaderStyles(styleNames);
+    this.#blockHandles();
 
     // A file before AutoCAD 2000's format has one paper space and no LAYOUT: AutoCAD opens it
     // as the layout `Layout1`.
@@ -1118,7 +1281,11 @@ class DxfReader {
             frozenLayers: frozenLayers.map((h) => layerNames.get(h) ?? h),
           })),
         inserts: space?.inserts ?? [],
-        census: (space?.census ?? new Census()).done(),
+        census: (space?.census ?? new Census(0)).done(),
+        ...(this.#geometry && {
+          entities: space?.entities ?? [],
+          other: space?.other ?? map<number>(),
+        }),
       });
     }
     // The first layout of each space, by the space's block in capitals.
@@ -1134,6 +1301,9 @@ class DxfReader {
     }
     const layoutOf = (spaceName: string | undefined): string | undefined =>
       spaceName === undefined || spaceName === MODEL ? undefined : layoutBySpace.get(spaceName);
+
+    const model = this.spaces.get(MODEL);
+    const opensAt = this.#opensAt(this.layouts, spaceOf);
 
     const fields: ReadField[] = [];
     const otherFields: Record<string, number> = map();
@@ -1169,7 +1339,7 @@ class DxfReader {
           const kind = fieldKind(field.code);
           if (kind === undefined) add(otherFields, field.code === "" ? "empty" : "other");
           else if (!kept(field.code)) add(otherFields, kind);
-          else if (fields.length >= CENSUS_LIMIT) this.#fieldsPast++;
+          else if (fields.length >= this.#limits.census) this.#fieldsPast++;
           else {
             const layout = layoutOf(mtext.space);
             fields.push({
@@ -1219,14 +1389,134 @@ class DxfReader {
       linetypes: this.linetypes,
       textStyles: this.textStyles,
       dimensionStyles,
-      blocks: this.blocks as ReadBlock[],
+      blocks: this.blocks.map((draft): ReadBlock => {
+        const { block: _, ...block } = draft;
+        return block;
+      }),
       xrefs: this.xrefs,
-      model: { census: (this.spaces.get(MODEL)?.census ?? new Census()).done() },
+      model: {
+        census: (model?.census ?? new Census(0)).done(),
+        ...(this.#geometry && {
+          entities: model?.entities ?? [],
+          other: model?.other ?? map<number>(),
+        }),
+      },
       layouts,
       fields,
       otherFields,
       unread: this.unread,
+      ...(opensAt !== undefined && { opensAt }),
     };
+  }
+
+  /**
+   * The view the file opens at: model space's `*Active` view when `$TILEMODE` is 1 or missing,
+   * and otherwise the view of its paper the layout in `*Paper_Space` keeps in its first viewport.
+   */
+  #opensAt(
+    layouts: readonly LayoutDraft[],
+    spaceOf: (draft: LayoutDraft) => string,
+  ): ReadView | undefined {
+    const tilemode = Number(this.header.$TILEMODE ?? "1");
+    if (tilemode !== 0) return this.#activeView;
+    const draft = layouts.find((d) => spaceOf(d) === "*PAPER_SPACE");
+    const sheet = this.spaces.get("*PAPER_SPACE")?.viewports.find((v) => v.id === 1);
+    if (draft === undefined || sheet === undefined) return undefined;
+    const width = sheet.height > 0 ? (sheet.viewHeight * sheet.width) / sheet.height : 0;
+    if (!Number.isFinite(width)) return undefined;
+    return { layout: draft.name, center: sheet.viewCenter, height: sheet.viewHeight, width };
+  }
+
+  /**
+   * Works out where each justified text starts whose file holds its alignment point as its first
+   * point, from tsdraft's widths of its font's characters, where they give it exactly.
+   */
+  #startsOfTexts(): void {
+    if (this.#starts.length === 0) return;
+    const fonts = new Map<string, { readonly font: Font; readonly exact: boolean }>();
+    for (const style of this.textStyles) {
+      if (style.name.length > LONGEST_NAME) continue;
+      const key = layerKey(style.name);
+      if (!fonts.has(key)) fonts.set(key, nearestFont(style.family ?? style.font ?? ""));
+    }
+    for (const { placement, value, own, rotation, face, flags } of this.#starts) {
+      const { align = "left", valign = "baseline" } = placement;
+      if (align !== "left" && align !== "center" && align !== "right") continue;
+      // A text mirrored in its own coordinates is placed by a rule the widths do not hold.
+      if ((flags & 6) !== 0 || placement.style.length > LONGEST_NAME) continue;
+      const font = fonts.get(layerKey(placement.style));
+      if (!font?.exact) continue;
+      const layout = layoutText({
+        value,
+        height: placement.height,
+        font: font.font,
+        widthFactor: placement.widthFactor ?? 1,
+        align,
+        valign,
+      });
+      if (layout.approximate) continue;
+      const [along, up] = [layout.end - layout.advance, layout.baseline];
+      const turn = (rotation * Math.PI) / 180;
+      const start: Point = [
+        own[0] + along * Math.cos(turn) - up * Math.sin(turn),
+        own[1] + along * Math.sin(turn) + up * Math.cos(turn),
+      ];
+      if (!Number.isFinite(start[0]) || !Number.isFinite(start[1])) continue;
+      placement.at = placed(start, face);
+      placement.startFrom = "widths";
+    }
+  }
+
+  /**
+   * Names each multileader's style and its note's style, which the file names by handle. The
+   * names are charged to the budget the leader was kept in, and a leader they do not fit is
+   * counted as past the limit and left out.
+   */
+  #leaderStyles(styleNames: ReadonlyMap<string, string>): void {
+    const left = new Set<ReadEntity>();
+    const targets = new Set<Target>();
+    for (const { entity, style, textStyle, target } of this.#leaders) {
+      const named = style === undefined ? undefined : this.leaderStyles.get(style);
+      const note = (textStyle === undefined ? undefined : styleNames.get(textStyle)) ?? "Standard";
+      const cost = nameCost(named) + nameCost(note) - nameCost(entity.textStyle);
+      if (target && cost > this.#room(target)) {
+        add(target.other, "past the limit");
+        left.add(entity);
+        targets.add(target);
+        continue;
+      }
+      if (target?.block) this.#blockItems += cost;
+      else if (target) this.#geometryItems += cost;
+      const mutable = entity as { style?: string; textStyle: string };
+      if (named !== undefined) mutable.style = named;
+      mutable.textStyle = note;
+    }
+    for (const target of targets) target.entities = target.entities.filter((e) => !left.has(e));
+  }
+
+  /** Gives each insert and dimension the handle of its block's record, found as AutoCAD finds it. */
+  #blockHandles(): void {
+    const records = new Map<string, string>();
+    for (const [handle, recordName] of this.blockRecords) {
+      if (recordName.length > LONGEST_NAME) continue;
+      const key = layerKey(recordName);
+      if (!records.has(key)) records.set(key, handle);
+    }
+    if (records.size === 0) return;
+    const named = (entities: readonly ReadEntity[]): void => {
+      for (const entity of entities) {
+        if (entity.kind !== "insert" && entity.kind !== "dimension") continue;
+        const block = entity.block;
+        if (block === undefined || block.length > LONGEST_NAME) continue;
+        const handle = records.get(layerKey(block));
+        if (handle !== undefined) (entity as { blockHandle?: string }).blockHandle = handle;
+      }
+    };
+    for (const block of this.blocks) named(block.entities);
+    for (const space of this.spaces.values()) {
+      named(space.entities);
+      named(space.inserts);
+    }
   }
 }
 
@@ -1234,18 +1524,12 @@ class DxfReader {
  * An insert from its record. Seen from below, its X mirrors and it turns the other way, so its
  * X scale is negated and its rotation too.
  */
-function insertOf(
-  r: Rec,
-  layer: string,
-  handle: string | undefined,
-  face: 1 | -1 | 0,
-): Omit<ReadInsert, "tags"> {
+function insertOf(r: Rec, base: ReadEntityBase, face: Facing): Omit<ReadInsert, "tags"> {
   const rotation = num(r, 50) ?? 0;
   const sx = num(r, 41) ?? 1;
   return {
+    ...base,
     kind: "insert",
-    handle,
-    layer,
     block: name(r, 2) ?? "",
     at: placed(point(r, 10), face),
     scale: [face === -1 ? -sx : sx, num(r, 42) ?? 1],
@@ -1296,6 +1580,21 @@ function viewport(
     frozenLayers,
     turnedView: direction[0] !== 0 || direction[1] !== 0 || direction[2]! <= 0,
   };
+}
+
+/** The view of a `*Active` record of the viewport table, from its center, target and twist. */
+function activeView(r: Rec): Omit<ReadView, "layout"> | undefined {
+  const height = num(r, 40) ?? 0;
+  const width = height * (num(r, 41) ?? 1);
+  const twist = num(r, 51) ?? 0;
+  const [cx, cy] = point(r, 12);
+  const [tx, ty] = point(r, 17);
+  const t = (-twist * Math.PI) / 180;
+  const center: Point = [
+    tx + cx * Math.cos(t) - cy * Math.sin(t),
+    ty + cx * Math.sin(t) + cy * Math.cos(t),
+  ];
+  return [...center, width].every(Number.isFinite) ? { center, height, width } : undefined;
 }
 
 /** The kind of a field's code, such as `\AcVar Filename` or `\AcDiesel`. */

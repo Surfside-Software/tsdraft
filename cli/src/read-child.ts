@@ -41,7 +41,11 @@ try {
   read = module
     ? ((await import(pathToFileURL(module).href)) as { readDrawingFile: ReadDrawingFile })
         .readDrawingFile
-    : (await import("tsdraft")).readDXF;
+    : await import("tsdraft").then(
+        ({ readDXF }): ReadDrawingFile =>
+          (chunks, _name, options) =>
+            readDXF(chunks, options),
+      );
   if (typeof read !== "function") throw new Error(`${module} exports no readDrawingFile`);
 } catch (error) {
   answer({ error: message(error), loading: true });

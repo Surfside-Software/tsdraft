@@ -222,12 +222,94 @@ function latin1(bytes: Uint8Array): string {
 }
 
 /**
- * A string value with AutoCAD's `\U+XXXX` escapes worked out, which a file before AutoCAD 2007's
- * format uses for a character its code page lacks.
+ * A value with its carets worked out: a caret and a space is a caret, and a caret before a
+ * character from `@` on is the control character 64 below it, so `^J` is a line feed.
+ */
+function carets(value: string): string {
+  if (!value.includes("^")) return value;
+  return value.replace(/\^([\s\S])/g, (whole, c: string) => {
+    if (c === " ") return "^";
+    const code = c.charCodeAt(0);
+    return code >= 0x40 && code < 0x80 ? String.fromCharCode(code - 0x40) : whole;
+  });
+}
+
+/** The decoder of each code page `\M+NXXXX` names by its digit N, or none where there is none. */
+const MULTIBYTE: Record<string, Decoder | null | undefined> = {};
+const MULTIBYTE_LABELS = ["", "shift_jis", "big5", "euc-kr", "", "gbk"];
+
+/** The character `\M+NXXXX` stands for, or undefined when it stands for none. */
+function multibyte(page: number, hex: string): string | undefined {
+  const code = Number.parseInt(hex, 16);
+  const [high, low] = [code >> 8, code & 0xff];
+  if (code === 0) return undefined;
+  if (high === 0 && low < 0x80) return String.fromCharCode(low);
+  let decoder = MULTIBYTE[page];
+  if (decoder === undefined) {
+    try {
+      decoder = MULTIBYTE_LABELS[page]
+        ? (new TextDecoder(MULTIBYTE_LABELS[page], { fatal: true }) as Decoder)
+        : null;
+    } catch {
+      decoder = null;
+    }
+    MULTIBYTE[page] = decoder;
+  }
+  if (decoder === null) return undefined;
+  try {
+    const text = decoder.decode(new Uint8Array(high === 0 ? [low] : [high, low]));
+    return [...text].length === 1 ? text : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * One pass of AutoCAD's escapes over a value, left to right, reading nothing a pass makes
+ * again: `\U+XXXX` becomes its character, but for `\U+0000`, and half of a surrogate pair
+ * becomes U+FFFD; with `multibyte`, `\M+NXXXX` becomes the character of code page N it stands
+ * for, where the platform has that code page.
+ */
+function pass(value: string, withMultibyte: boolean): string {
+  const pattern = withMultibyte
+    ? /\\[Uu]\+([0-9A-Fa-f]{4})|\\[Mm]\+([1-5])([0-9A-Fa-f]{4})/g
+    : /\\[Uu]\+([0-9A-Fa-f]{4})/g;
+  return value.replace(pattern, (whole, hex?: string, page?: string, bytes?: string) => {
+    if (hex !== undefined) {
+      const code = Number.parseInt(hex, 16);
+      if (code === 0) return whole;
+      return code >= 0xd800 && code <= 0xdfff ? "\ufffd" : String.fromCharCode(code);
+    }
+    return multibyte(Number(page), bytes!) ?? whole;
+  });
+}
+
+const escaped = (value: string): boolean => /\\[UuMm]\+/.test(value);
+
+/**
+ * A name or a path as AutoCAD holds it from a DXF: its carets worked out, then one pass of
+ * `\U+XXXX`, which a file before AutoCAD 2007's format uses for a character its code page lacks.
  */
 export function unescaped(value: string): string {
-  if (!value.includes("\\U+") && !value.includes("\\u+")) return value;
-  return value.replace(/\\[Uu]\+([0-9A-Fa-f]{4})/g, (_, hex: string) =>
-    String.fromCharCode(Number.parseInt(hex, 16)),
-  );
+  const plain = carets(value);
+  return escaped(plain) ? pass(plain, false) : plain;
+}
+
+/**
+ * The value of an `MTEXT`, a dimension's text or a multileader's note as AutoCAD holds it from
+ * a DXF: its carets worked out, then one pass of `\U+XXXX` and `\M+NXXXX` together.
+ */
+export function textOnce(value: string): string {
+  const plain = carets(value);
+  return escaped(plain) ? pass(plain, true) : plain;
+}
+
+/**
+ * The value of a `TEXT`, an attribute or an attribute definition as AutoCAD holds it from a
+ * DXF: its carets worked out, then a pass of `\U+XXXX`, then a pass of `\U+XXXX` and `\M+NXXXX`
+ * together. What the first pass makes is read by the second, and nothing is read a third time.
+ */
+export function textTwice(value: string): string {
+  const plain = carets(value);
+  return escaped(plain) ? pass(pass(plain, false), true) : plain;
 }

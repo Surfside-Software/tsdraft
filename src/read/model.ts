@@ -1,6 +1,7 @@
 // The read model: what a reader of a drawing file gives. It is not a `Drawing`. It holds what a
-// drawing file states about its tables, its blocks, its xrefs and its layouts, and a census of
-// what each space draws, and is never written back.
+// drawing file states about its tables, its blocks, its xrefs and its layouts, a census of what
+// each space draws and, for a read that asks for it, what each space draws, and is never
+// written back.
 import type { Point } from "../drawing.ts";
 
 /** The format of a `DrawingRead`. A reader gives the format it was built for. */
@@ -9,9 +10,10 @@ export const READ_FORMAT = 0;
 /**
  * What a reader read from one drawing file. Its size grows with the file's tables, and with
  * its entities only up to the limit of each list: `CENSUS_LIMIT` for a space's census, its
- * viewports and its inserts and for the fields, `BLOCK_ITEMS` for the blocks, 64 heights for
- * one `MTEXT` and 1,000 tags for one insert. Every object keyed by names from the file,
- * such as a census's `layers`, has no prototype, so any name is a key.
+ * viewports and its inserts and for the fields, `BLOCK_ITEMS` for the blocks, `GEOMETRY_ITEMS`
+ * for what the spaces draw, 64 heights for one `MTEXT` and 1,000 tags for one insert. Every
+ * object keyed by names from the file, such as a census's `layers`, has no prototype, so any
+ * name is a key.
  */
 export interface DrawingRead {
   readonly format: typeof READ_FORMAT;
@@ -33,10 +35,13 @@ export interface DrawingRead {
   readonly linetypes: readonly ReadLinetype[];
   readonly textStyles: readonly ReadTextStyle[];
   readonly dimensionStyles: readonly ReadDimensionStyle[];
-  /** Each block that is not a space, an xref or the picture of a dimension. */
+  /**
+   * Each block that is not a space or an xref. The pictures of dimensions, the blocks `*D` and a
+   * number, are kept by a read with `geometry` alone.
+   */
   readonly blocks: readonly ReadBlock[];
   readonly xrefs: readonly ReadXref[];
-  /** Model space: its census. */
+  /** Model space: its census, and with `geometry` what it draws. */
   readonly model: ReadSpace;
   /** Each layout of paper space, in the order of its tab. */
   readonly layouts: readonly ReadLayout[];
@@ -50,6 +55,28 @@ export interface DrawingRead {
   readonly otherFields: Readonly<Record<string, number>>;
   /** What the reader did not understand, counted by kind. */
   readonly unread: ReadUnread;
+  /** The tab the file opens on and the view it shows there, when the file states one. */
+  readonly opensAt?: ReadView;
+}
+
+/** What a reader reads. */
+export interface ReadOptions {
+  /**
+   * True to read what model space and each layout draws, into their `entities`, and the
+   * attributes of each insert. Without it a space holds its census alone.
+   */
+  readonly geometry?: boolean;
+}
+
+/** The view a file opens at: a piece of model space, or of a layout's paper. */
+export interface ReadView {
+  /** The layout it opens on, or none for the model tab. */
+  readonly layout?: string;
+  /** The point at the middle of the view. */
+  readonly center: Point;
+  /** How tall and how wide a piece of the space it shows. */
+  readonly height: number;
+  readonly width: number;
 }
 
 /** Header variables, each when the file states it. */
@@ -140,23 +167,74 @@ export interface ReadDimensionStyle {
   readonly suffix?: string;
 }
 
-/** An attribute definition of a block. */
-export interface ReadAttributeDefinition {
+/** An attribute definition of a block, placed as a text is. */
+export interface ReadAttributeDefinition extends ReadTextPlacement {
   readonly handle?: string | undefined;
   readonly tag: string;
   readonly prompt?: string;
   readonly default?: string;
-  readonly at: Point;
-  readonly height?: number;
-  readonly style: string;
   readonly layer: string;
   readonly invisible: boolean;
   readonly constant: boolean;
 }
 
-interface ReadEntityBase {
+/**
+ * What every entity keeps: its handle, its layer, and the pen it sets for itself. Each part of
+ * the pen is left out when it is the default, ByLayer.
+ */
+export interface ReadEntityBase {
   readonly handle?: string | undefined;
   readonly layer: string;
+  /** Group 62: a color index from 1 to 255, or 0 for ByBlock. */
+  readonly color?: number;
+  /** Group 420: a true color as 0xRRGGBB. */
+  readonly trueColor?: number;
+  /** Group 6: a linetype's name, or `ByBlock`. */
+  readonly linetype?: string;
+  /** Group 370: hundredths of a millimeter, or -2 for ByBlock and -3 for the default. */
+  readonly lineweight?: number;
+  /** Group 48: the entity's own linetype scale. Left out at 1. */
+  readonly linetypeScale?: number;
+}
+
+/**
+ * Where a text, an attribute or an attribute definition is, and how it is justified, in the
+ * world's coordinates.
+ */
+export interface ReadTextPlacement {
+  /** Where AutoCAD starts to draw the text: the left end of its baseline. */
+  readonly at: Point;
+  /**
+   * Where `at` comes from: `file`, the point the file stores; `widths`, worked out from
+   * `alignAt` with tsdraft's widths of the font's characters, for a justified text whose file
+   * stores its alignment point as its start; and `alignment`, `alignAt` itself, for such a text
+   * whose start the widths do not give.
+   */
+  readonly startFrom: "file" | "widths" | "alignment";
+  /** The first point as the file stores it. */
+  readonly stored: Point;
+  /** The point a justified text is justified to. Missing for a text on the left of its baseline. */
+  readonly alignAt?: Point;
+  readonly height: number;
+  /** Degrees counterclockwise. */
+  readonly rotation: number;
+  /** Its text style, `Standard` when the file names none. */
+  readonly style: string;
+  /**
+   * Where `alignAt` is along its line, as a `Text` has it, or `aligned` and `fit`, which fit the
+   * text between its two points, and `middle`, which centers it both ways. Left out for `left`.
+   */
+  readonly align?: "center" | "right" | "aligned" | "middle" | "fit";
+  /** Where `alignAt` is up and down its line, as a `Text` has it. Left out for `baseline`. */
+  readonly valign?: "bottom" | "middle" | "top";
+  /** Left out at 1. */
+  readonly widthFactor?: number;
+  /** Degrees to the right. Left out at 0. */
+  readonly oblique?: number;
+  /** True when it is drawn mirrored along its baseline, reading backward. */
+  readonly backward?: boolean;
+  /** True when it is drawn mirrored across its baseline. */
+  readonly upsideDown?: boolean;
 }
 
 export interface ReadLine extends ReadEntityBase {
@@ -187,29 +265,130 @@ export interface ReadArc extends ReadEntityBase {
   readonly end: number;
 }
 
-export interface ReadText extends ReadEntityBase {
+/** A text of one line. */
+export interface ReadText extends ReadEntityBase, ReadTextPlacement {
   readonly kind: "text";
-  /** The first alignment point, group 10. */
-  readonly at: Point;
-  readonly height: number;
+  /** As AutoCAD holds it, with `%%d` and the other codes as they are written. */
   readonly value: string;
-  readonly rotation: number;
-  /** Its text style, `Standard` when the file names none. */
-  readonly style: string;
+}
+
+/** An attribute of an insert, where the file places it. */
+export interface ReadAttribute extends ReadEntityBase, ReadTextPlacement {
+  readonly tag: string;
+  readonly value: string;
+  /** True for an attribute that does not show. */
+  readonly invisible?: boolean;
 }
 
 export interface ReadInsert extends ReadEntityBase {
   readonly kind: "insert";
   readonly block: string;
+  /** The handle of the block's record. */
+  readonly blockHandle?: string;
   readonly at: Point;
   readonly scale: readonly [x: number, y: number];
   readonly rotation: number;
   /** Whether the insert sets each attribute, by its tag: true when its value is not empty. */
   readonly tags: Readonly<Record<string, boolean>>;
+  /** Each attribute, in the order of the file, when the read asked for geometry. */
+  readonly attributes?: readonly ReadAttribute[];
 }
 
-/** What a block's definition holds of the kinds the core has. */
-export type ReadEntity = ReadLine | ReadPolyline | ReadCircle | ReadArc | ReadText | ReadInsert;
+/**
+ * A paragraph text. Its value keeps its formatting codes, such as `\P` between paragraphs, and
+ * it is not laid out.
+ */
+export interface ReadMtext extends ReadEntityBase {
+  readonly kind: "mtext";
+  /** The point of its box that `attachment` names. */
+  readonly at: Point;
+  /** The height its text starts at. */
+  readonly height: number;
+  /** The width it wraps at, or 0 when it does not wrap. */
+  readonly width: number;
+  /** 1 top left, 2 top center, 3 top right, 4 to 6 the middle, 7 to 9 the bottom. */
+  readonly attachment: number;
+  /** Degrees counterclockwise. */
+  readonly rotation: number;
+  /** Its text style, `Standard` when the file names none. */
+  readonly style: string;
+  /** As AutoCAD holds it. */
+  readonly value: string;
+}
+
+/** A linear or an aligned dimension. */
+export interface ReadDimension extends ReadEntityBase {
+  readonly kind: "dimension";
+  /** `linear`, which measures along `angle`, or `aligned`, which measures along its points. */
+  readonly type: "linear" | "aligned";
+  /** The two points it measures between, which its extension lines start at. */
+  readonly from: Point;
+  readonly to: Point;
+  /** The point where its dimension line meets its second extension line. */
+  readonly line: Point;
+  /** Degrees: the direction a linear dimension measures along. Left out at 0. */
+  readonly angle?: number;
+  /** The middle of its text. */
+  readonly textAt: Point;
+  /**
+   * What it measures, as the file states it: 1 where a file after R12 leaves it out, as AutoCAD
+   * does for 1, and -1 where AutoCAD has not worked it out. Missing from an R12 file.
+   */
+  readonly measurement?: number;
+  /** The text it draws in place of its measurement, where `<>` stands for it. */
+  readonly text?: string;
+  /** Its dimension style, `Standard` when the file names none. */
+  readonly style: string;
+  /** The block of its picture, `*D` and a number, when it has one. */
+  readonly block?: string;
+  /** The handle of that block's record. */
+  readonly blockHandle?: string;
+}
+
+/** A multileader with one note and straight shafts that meet at one landing. */
+export interface ReadMultileader extends ReadEntityBase {
+  readonly kind: "multileader";
+  /** Its leader style, when the file's dictionary of leader styles names it. */
+  readonly style?: string;
+  /** Each shaft: its tip, then each point it bends at on its way to `at`. */
+  readonly shafts: readonly (readonly Point[])[];
+  /** Where the shafts meet and the landing starts. */
+  readonly at: Point;
+  /** The way the landing runs from `at`, one unit long. */
+  readonly direction: Point;
+  /** How long the landing is. */
+  readonly landing: number;
+  /** Its note as AutoCAD holds it, with `\P` between lines. */
+  readonly text: string;
+  /** The corner of the note's box that holds it. */
+  readonly textAt: Point;
+  /** The height of the note's text. */
+  readonly textHeight: number;
+  /** The note's text style. */
+  readonly textStyle: string;
+  /** The length of an arrowhead. */
+  readonly arrowSize: number;
+}
+
+/** A filled outline of three or four corners, as a dimension draws an arrowhead. */
+export interface ReadSolid extends ReadEntityBase {
+  readonly kind: "solid";
+  /** Its corners in the order of its outline. Its last two are one point for a triangle. */
+  readonly points: readonly Point[];
+}
+
+/** What a space or a block draws, of the kinds the writers write. */
+export type ReadEntity =
+  | ReadLine
+  | ReadPolyline
+  | ReadCircle
+  | ReadArc
+  | ReadText
+  | ReadInsert
+  | ReadMtext
+  | ReadDimension
+  | ReadMultileader
+  | ReadSolid;
 
 export interface ReadBlock {
   /** The handle of the block's record, which an insert's block record points to. */
@@ -219,7 +398,7 @@ export interface ReadBlock {
   /** True for a block AutoCAD names itself, such as a dynamic block's state, `*U12`. */
   readonly anonymous: boolean;
   readonly attributeDefinitions: readonly ReadAttributeDefinition[];
-  /** Its lines, polylines of straight segments, circles, arcs, texts and inserts. */
+  /** What it draws of the kinds `ReadEntity` holds, in the order of the file. */
   readonly entities: readonly ReadEntity[];
   /**
    * What else it draws, counted by kind, such as `HATCH` or a polyline with an arc, and under
@@ -278,14 +457,28 @@ export interface ReadLayout {
   readonly plotRotation: number;
   /** Each viewport but the one that is the layout's own view of its paper. */
   readonly viewports: readonly ReadViewport[];
-  /** Its inserts of blocks and of xrefs, up to `CENSUS_LIMIT`, as its census lists them. */
+  /**
+   * Its inserts of blocks and of xrefs, up to `CENSUS_LIMIT`, as its census lists them, without
+   * their attributes.
+   */
   readonly inserts: readonly ReadInsert[];
   readonly census: ReadCensus;
+  /** With `geometry`, what it draws on its paper, as model space's are. Its viewports are above. */
+  readonly entities?: readonly ReadEntity[];
+  readonly other?: Readonly<Record<string, number>>;
 }
 
 /** Model space. */
 export interface ReadSpace {
   readonly census: ReadCensus;
+  /** With `geometry`, what it draws, in the order of the file. */
+  readonly entities?: readonly ReadEntity[];
+  /**
+   * With `geometry`, what it draws that `entities` leaves out, counted by kind: a kind it does not
+   * read, such as `HATCH`, one in another plane, such as `CIRCLE in 3D`, and under `past the
+   * limit` what came past `GEOMETRY_ITEMS`.
+   */
+  readonly other?: Readonly<Record<string, number>>;
 }
 
 /** A field of an `MTEXT`, with the code the learner maps. */
@@ -383,15 +576,22 @@ export interface ReadUnread {
 /** The most texts, dimensions or inserts a census lists for one space. */
 export const CENSUS_LIMIT = 200_000;
 
-/** The most entities, and points of polylines, the definitions of a file's blocks keep in all. */
+/**
+ * The most items the definitions of a file's blocks keep in all: an entity is one, and each of
+ * its points, each attribute and tag and each 32 characters of its names and its text one more.
+ */
 export const BLOCK_ITEMS = 400_000;
+
+/** The most items, counted as `BLOCK_ITEMS` counts them, that what the spaces draw keeps in all. */
+export const GEOMETRY_ITEMS = 400_000;
 
 /**
  * What a package that reads drawing files exports from the module its `package.json` names
  * under `"tsdraft": { "readers": { ".dwg": "./dist/read.js" } }`. It takes the file's bytes as
- * they arrive and its name without folders.
+ * they arrive, its name without folders, and what to read, as `readDXF` takes it.
  */
 export type ReadDrawingFile = (
   chunks: AsyncIterable<Uint8Array>,
   name: string,
+  options?: ReadOptions,
 ) => Promise<DrawingRead>;
