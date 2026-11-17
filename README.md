@@ -3,8 +3,11 @@
   <img src="https://raw.githubusercontent.com/Surfside-Software/tsdraft/main/docs/assets/tsdraft-logo-light.svg" alt="tsdraft" width="292" height="64">
 </picture>
 
-Write 2D CAD drawings in TypeScript and export them as DXF for CAD programs, or
-as SVG for a quick preview.
+Write 2D CAD drawings in TypeScript. tsdraft writes DXF for CAD programs and SVG
+for a preview, plots sheets to PDF, and reads DXF files to inspect them. Before it
+writes a DXF, it refuses a drawing that breaks a rule the leading CAD app holds a
+file to, such as a layer name that makes that app discard the whole file. `tsdraft dev`
+redraws the drawing on every save, so you, or an agent, can see each change.
 
 Working as an agent? Read [the guide for agents](GUIDE.md) first.
 
@@ -71,7 +74,16 @@ const svg = toSVG(drawing);
 ```
 
 A drawing is a program, so dimensions can come from variables, drawings can
-share code, and changes show up as diffs.
+share code, and changes show up as diffs. [`examples/plan-set`](examples/plan-set)
+is a 15-sheet permit set for a house, every sheet drawn from one model of it.
+This is its first floor plan:
+
+<a href="https://github.com/Surfside-Software/tsdraft/tree/main/examples/plan-set">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Surfside-Software/tsdraft/main/docs/assets/plan-set-A-101-dark.svg">
+    <img src="https://raw.githubusercontent.com/Surfside-Software/tsdraft/main/docs/assets/plan-set-A-101-light.svg" alt="Sheet A-101 of the permit set, the first floor plan at 1/4 inch to 1 foot: walls, doors, windows, the stair and the fixtures, with door and window tags, room names and areas, dimension strings, revision clouds, plan notes and a legend, inside a border with the firm, the project and the sheet number in a strip down the right side" width="100%">
+  </picture>
+</a>
 
 Coordinates are in drawing units with Y pointing up, as in CAD. Angles are in
 degrees, counterclockwise from +X. Layer colors are AutoCAD Color Index numbers.
@@ -194,14 +206,24 @@ sized this way, and its border, title block and notes are on a layout.
 
 ## Status
 
-tsdraft is at an early stage. It draws layers, lines, polylines, rectangles,
-circles, arcs and single-line text, with linetypes and lineweights, text styles
-and justification, blocks with attributes and inserts of them, references to DWG files as
-xrefs, linear and aligned dimensions in decimal units or feet and inches, layouts with a page setup and viewports, and layers
-that are off, frozen, locked or not plotted. It does not yet have leaders, hatches, or the
-other kinds of dimension. It writes DXF, not DWG. The drawing at the top builds its
-dimensions, leaders and stipple from lines and text, so in CAD they are plain lines and text,
-not dimension or hatch objects.
+tsdraft is early, and its API still changes. Until 1.0 any release, a patch
+included, can break code written for the one before. [CHANGELOG.md](CHANGELOG.md)
+starts each breaking change with `Breaking:`.
+
+It draws layers, lines, polylines, rectangles, circles, arcs and single-line text, with
+linetypes and lineweights, text styles and justification, blocks with attributes and inserts
+of them, references to DWG files as xrefs, linear and aligned dimensions in decimal units or
+feet and inches, leaders, layouts with a page setup and viewports, and layers that are off,
+frozen, locked or not plotted. A firm's [standard](docs/standard.md) sets its layers, pens,
+text and sheets. It writes DXF, not DWG.
+
+It does not yet have paragraph text, arcs or widths in a polyline, ellipses, splines or
+points, hatches, solid fills or masks, images, tables, color or transparency set on one
+entity, linetypes with text or shapes, PDF underlays, layers frozen in one viewport only or a
+twisted viewport, or the other kinds of dimension.
+
+`readDXF` reads an ASCII DXF into a model to inspect, which is not a drawing tsdraft can edit
+and write again. [Reading drawing files](docs/reading.md) has what it reads.
 
 The rules tsdraft checks are AutoCAD's. Other CAD programs may hold a drawing to
 other rules.

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The README and the package's description name what tsdraft does now: plotting to PDF,
+  reading DXF, leaders and standards. The README says any release before 1.0 can break code,
+  and lists what tsdraft does not draw yet.
 - Fonts in a PDF. `toPDF(drawing, { fonts })` takes the TrueType file of each font by its name,
   such as `{ Arial: bytes }`, and embeds it cut to the letters the pages use, so every
   character, `°`, `±`, `½` and `≥` included, plots in the font's own letters. A text in an SHX
