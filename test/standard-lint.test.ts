@@ -19,6 +19,7 @@ import {
   type Text,
 } from "../src/index.ts";
 import { lintStandard } from "../src/standard/lint.ts";
+import { timeLimit } from "./time-limit.ts";
 
 const layout = sheet.layouts![0]!;
 const titleBlock = layout.entities[0] as Insert;
@@ -37,7 +38,7 @@ const checking = new Script("checking()");
 /** The rules `lint` reports with `options`, stopped after `ms`, so a run that never ends fails. */
 const within = (ms: number, drawing: unknown, options: LintOptions = { standard }): string[] => {
   Object.assign(globalThis, { linting: () => rules(drawing as Drawing, options) });
-  return linting.runInThisContext({ timeout: ms }) as string[];
+  return linting.runInThisContext({ timeout: timeLimit(ms) }) as string[];
 };
 
 test("the example sheet breaks no rule of its standard at either scale, nor from JSON", () => {
@@ -717,7 +718,7 @@ test("the checks of a standard stay bounded on any data, and never throw", () =>
         lintStandard(checked as unknown as Drawing, given, discipline, undefined, out, 20_000),
     });
     try {
-      checking.runInThisContext({ timeout: 1000 });
+      checking.runInThisContext({ timeout: timeLimit(1000) });
     } catch (thrown) {
       assert.fail(`case ${n}: ${String((thrown as Error)?.message ?? thrown)}`);
     }

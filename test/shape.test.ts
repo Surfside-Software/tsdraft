@@ -26,6 +26,7 @@ import {
   type Viewport,
   type Xref,
 } from "../src/index.ts";
+import { timeLimit } from "./time-limit.ts";
 
 const styled = { linetype: "DD", lineweight: 0.25 } as const;
 const justified = { style: "NOTES", align: "center", valign: "middle" } as const;
@@ -367,7 +368,7 @@ Object.assign(globalThis, { toSVG });
 function drawn(drawing: Drawing): unknown {
   Object.assign(globalThis, { drawing });
   try {
-    draw.runInThisContext({ timeout: 1000 });
+    draw.runInThisContext({ timeout: timeLimit(1000) });
     return undefined;
   } catch (thrown) {
     return thrown;
