@@ -27,6 +27,12 @@ The model is format 0, `READ_FORMAT`, and is not settled. It holds what learning
 from a file needs, and it has no geometry or text of model space or of a layout yet. Until it
 does, a release may change its fields and what a reader of another format gives, below.
 
+What it gains next: the entities of model space and of each layout, the color, linetype and
+lineweight an entity sets for itself, a text's justification, the values of an insert's
+attributes, the dimensions and multileaders tsdraft writes, and the view a file opens at. A read
+will ask for them with an option, and one that does not ask will keep what it keeps today. A
+reader of another format takes the same option and fills the same fields.
+
 A `DrawingRead` is not a `Drawing`, and nothing writes it back to a file. It holds what a file
 states and keeps each object's handle, and it keeps going past what it does not understand:
 
