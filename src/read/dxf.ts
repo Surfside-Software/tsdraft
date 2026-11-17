@@ -1559,7 +1559,7 @@ function viewport(
   const status = num(r, 90);
   const frozenLayers: string[] = [];
   for (let i = 0; i < r.codes.length; i++) {
-    if (r.codes[i] === 341) frozenLayers.push(r.values[i]!);
+    if (r.codes[i] === 331) frozenLayers.push(r.values[i]!);
   }
   const direction = [num(r, 16) ?? 0, num(r, 26) ?? 0, num(r, 36) ?? 1];
   const ratio = viewHeight > 0 ? height / viewHeight : 0;

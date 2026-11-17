@@ -37,7 +37,7 @@ import { grid, type Box } from "../inspect.ts";
 import { canonical } from "../json.ts";
 import { layerKey } from "../layers.ts";
 import { leaderPicture } from "../leaders.ts";
-import { validViewportView } from "../layouts.ts";
+import { validViewportView, viewReaches } from "../layouts.ts";
 import type { Diagnostic, LintRule } from "../lint.ts";
 import { inStyle, measureText } from "../measure.ts";
 import { DEFAULT_PLOT_STYLE_TABLE, paperInfo } from "../papers.ts";
@@ -84,7 +84,8 @@ import type { Problem } from "./shape.ts";
  * for its note and each line of the note as a text, each insert walked and each item of its
  * block, each name read the first time, one more for each 32 characters, each box a grid looks
  * at, each text or dimension held against a viewport, and each error, one more for each 32
- * characters of its message.
+ * characters of its message. Model space is looked at again, and paid for again, for each set of
+ * layers a viewport freezes.
  */
 const MAX_WORK = 1_000_000;
 
@@ -97,6 +98,9 @@ const LEADER_NOTE =
 
 /** Thrown inside a walk to end it when the work reaches its limit. */
 const CAPPED = Symbol("capped");
+
+/** The frozen layers of a viewport that freezes none. */
+const NONE: readonly string[] = [];
 
 /**
  * Adds to `out` what breaks the standard `given`, which is taken as plain data from any copy of
@@ -673,11 +677,50 @@ export function lintStandard(
     }
     return found;
   };
+  /**
+   * Each viewport as the checks read it, worked out once for each: nothing when it is not sound,
+   * and otherwise its fields without its list of frozen layers, and that list apart. Only this
+   * reads the list, and `spaceFor` once for each list. A list another viewport holds too is paid
+   * for before this reads it again.
+   */
+  const checkedViewports = new WeakMap<
+    object,
+    { readonly viewport: Viewport; readonly frozen: readonly string[] } | null
+  >();
+  const checkedViewport = (viewport: unknown, where: string) => {
+    if (typeof viewport !== "object" || viewport === null) return undefined;
+    let checked = checkedViewports.get(viewport);
+    if (checked === undefined) {
+      const list: unknown = (viewport as { readonly frozenLayers?: unknown }).frozenLayers;
+      checked = null;
+      if (
+        affordable(list, ` of frozen layers of ${where}`) &&
+        isSound(TYPED.viewport, viewport, false)
+      ) {
+        // Each field is read by name, as the shape check reads it, so one it inherits counts.
+        const { layer, corner, width, height, center, ratio, id, twist } = viewport as Viewport;
+        const fields: Viewport = {
+          layer,
+          corner,
+          width,
+          height,
+          center,
+          ratio,
+          ...(id === undefined ? {} : { id }),
+          ...(twist === undefined ? {} : { twist }),
+        };
+        checked = { viewport: fields, frozen: Array.isArray(list) ? (list as string[]) : NONE };
+      }
+      checkedViewports.set(viewport, checked);
+    }
+    return checked ?? undefined;
+  };
   /** Each sound viewport of a layout, with its index and what a diagnostic about it carries. */
   const viewportsOf = (layout: Layout) =>
     filled(layout.viewports).flatMap((viewport, i) => {
-      if (!isSound(TYPED.viewport, viewport, false)) return [];
-      const v = viewport as Viewport;
+      const checked = checkedViewport(viewport, `viewport #${i} of layout ${shown(layout.name)}`);
+      if (!checked) return [];
+      const v = checked.viewport;
       const call = callOf(layout.viewports, i);
       const about = {
         layout: layout.name,
@@ -896,7 +939,7 @@ export function lintStandard(
 
   // The heights texts plot at and the scales dimensions are shown at, as bounded work.
   const shownLayers = visibility(
-    { ...drawing, layers, linetypes: [], textStyles: [], dimensionStyles: [] },
+    { ...drawing, layers, linetypes: [], textStyles: [], dimensionStyles: [], leaderStyles: [] },
     false,
   );
   const walk = lettering(blocksByName, shownLayers, stylesByKey, index.roleStyles, spend);
@@ -954,11 +997,17 @@ export function lintStandard(
     [...shownStyles.values()],
     [...shownLeaderStyles.values()],
   );
-  /** The texts and the dimensions a space draws, with what a diagnostic says of each. */
+  /**
+   * The texts and the dimensions a space draws, with what a diagnostic says of each, leaving out
+   * what is on the layers `frozenHere` holds the tokens of, as a viewport that freezes them does.
+   */
   const lettered = (
     entities: unknown,
     where: { readonly layout?: string },
+    frozenHere?: ReadonlySet<string>,
   ): { readonly texts: Lettered[]; readonly dimensions: Measured[] } => {
+    const hidden = (ref: LayerRef) => walk.hidden(ref) || frozenHere?.has(ref.name) === true;
+    const frozen = (ref: LayerRef) => walk.frozen(ref) || frozenHere?.has(ref.name) === true;
     const texts: Lettered[] = [];
     const dimensions: Measured[] = [];
     const of = where.layout !== undefined ? ` of layout ${shown(where.layout)}` : "";
@@ -1008,7 +1057,7 @@ export function lintStandard(
       try {
         if (entity.kind === "linear-dimension" || entity.kind === "aligned-dimension") {
           const style = styleRatio.get(walk.key(entity.style));
-          if (!style || walk.hidden({ name: walk.layer(entity.layer) })) return;
+          if (!style || hidden({ name: walk.layer(entity.layer) })) return;
           // Its box reads its style's name, its own text and what its style gives every label.
           const reads = entity.style.length + (entity.text?.length ?? 0) + style.reads;
           if (!spend(1 + Math.floor(reads / 32))) throw CAPPED;
@@ -1028,7 +1077,7 @@ export function lintStandard(
         }
         if (entity.kind === "leader") {
           const style = leaderRatio.get(walk.key(entity.style));
-          if (!style || walk.hidden({ name: walk.layer(entity.layer) })) return;
+          if (!style || hidden({ name: walk.layer(entity.layer) })) return;
           // Its box reads its style's name, each line of its note, its shafts and its text style.
           let reads = entity.style.length + style.reads + (entity.textStyle?.length ?? 0);
           for (const line of filled(entity.text)) {
@@ -1073,16 +1122,16 @@ export function lintStandard(
           return;
         }
         if (entity.kind === "text") {
-          if (walk.hidden({ name: walk.layer(entity.layer) })) return;
+          if (hidden({ name: walk.layer(entity.layer) })) return;
           keep(entity, walk.styled(walk.style(entity.style)), undefined, false);
           return;
         }
         if (entity.kind !== "insert") return;
         const placed = walk.insert(entity);
-        if (placed === undefined || walk.frozen({ name: placed.layer })) return;
+        if (placed === undefined || frozen({ name: placed.layer })) return;
         const titleBlock = standardBlocks.has(walk.key(entity.block));
-        eachDrawn(placed, walk.blocks(), walk.frozen, (drawn, placement) => {
-          if (drawn.kind !== "text" || walk.hidden(placement.layer)) return;
+        eachDrawn(placed, walk.blocks(), frozen, (drawn, placement) => {
+          if (drawn.kind !== "text" || hidden(placement.layer)) return;
           keep(drawn, walk.styled(drawn.style), placement, titleBlock);
         });
       } catch (thrown) {
@@ -1095,30 +1144,81 @@ export function lintStandard(
 
   const scaleLabel = (ratio: number): string =>
     index.scalesByRatio.get(written(ratio))?.label ?? `a ratio of ${ratio}`;
-  const space = guarded(() => lettered(drawing.entities, {})) ?? { texts: [], dimensions: [] };
-  const nearText = grid(
-    space.texts.map((t) => t.box),
-    spend,
-  );
-  const nearDimension = grid(
-    space.dimensions.map((d) => d.box),
-    spend,
-  );
+  /**
+   * What model space draws, and the grids that find it, for each set of layers a viewport
+   * freezes, keyed by their tokens: model space is walked again for each set, and paid for again.
+   */
+  const spaces = new Map<string, ReturnType<typeof modelSpace>>();
+  const modelSpace = (frozenHere?: ReadonlySet<string>) => {
+    const space = guarded(() => lettered(drawing.entities, {}, frozenHere)) ?? {
+      texts: [],
+      dimensions: [],
+    };
+    return {
+      space,
+      nearText: grid(
+        space.texts.map((t) => t.box),
+        spend,
+      ),
+      nearDimension: grid(
+        space.dimensions.map((d) => d.box),
+        spend,
+      ),
+    };
+  };
+  spaces.set("", modelSpace());
+  /** The set of layers each list of frozen layers names, with its key, read once a list. */
+  const frozenSets = new WeakMap<object, { key: string; tokens: Set<string> }>();
+  /**
+   * What model space draws in a viewport, or undefined when reading its layers or walking model
+   * space again for them reached the limit. A walk for a new set pays for each entity first.
+   */
+  const spaceFor = (list: readonly string[], where: string) => {
+    let set = frozenSets.get(list);
+    if (set === undefined) {
+      const tokens = new Set<string>();
+      try {
+        for (const name of filled(list)) if (typeof name === "string") tokens.add(walk.layer(name));
+      } catch (thrown) {
+        if (thrown !== CAPPED) throw thrown;
+        capped ??= `at ${where}`;
+        return undefined;
+      }
+      frozenSets.set(list, (set = { key: [...tokens].sort().join(" "), tokens }));
+    }
+    const { key, tokens } = set;
+    let found = spaces.get(key);
+    if (!found) {
+      const entities = Array.isArray(drawing.entities) ? filled(drawing.entities).length : 0;
+      if (!spend(entities)) {
+        capped ??= `at ${where}`;
+        return undefined;
+      }
+      spaces.set(key, (found = modelSpace(tokens)));
+    }
+    return found;
+  };
   for (const layout of layouts) {
     const paper = paperInfo(layout.paper);
     if (!paper || paper.units !== paperUnits) continue;
     const name = `layout ${shown(layout.name)}`;
     (filled(layout.viewports) as unknown[]).forEach((viewport, i) => {
-      if (capped !== undefined || !units || !isSound(TYPED.viewport, viewport, false)) return;
-      const v = viewport as Viewport;
+      if (capped !== undefined || !units) return;
+      const checked = checkedViewport(viewport, `viewport #${i} of ${name}`);
+      if (!checked) return;
+      const v = checked.viewport;
       if (viewportProblem(v, paper.units, units)) return;
       const view = validViewportView(v, paper.units, units);
+      const inView = spaceFor(checked.frozen, `viewport #${i} of ${name}`);
+      if (!inView) return;
+      const { space, nearText, nearDimension } = inView;
       const shownIn = `in ${typeof v.id === "string" ? `viewport ${shown(v.id)}` : `viewport #${i} of ${name}`} at ${scaleLabel(v.ratio)}`;
       const found: number[] = [];
       nearText(view.box, (t) => found.push(t));
       for (const t of found.sort((a, b) => a - b)) {
         if (!spend(1)) break;
         const text = space.texts[t]!;
+        if (!viewReaches(view, text.box)) continue;
         if (text.scale === undefined) {
           checkHeight(text, text.height * view.scale, shownIn, IN_VIEWPORT);
         } else if (text.scale && written(text.scale.ratio) === written(v.ratio)) {
@@ -1130,6 +1230,7 @@ export function lintStandard(
       for (const d of dimensions.sort((a, b) => a - b)) {
         if (!spend(1)) break;
         const dimension = space.dimensions[d]!;
+        if (!viewReaches(view, dimension.box)) continue;
         if (dimension.scale && written(dimension.scale.ratio) === written(v.ratio)) continue;
         const style = dimension.scale
           ? `the ${dimension.kind} style ${dimension.style}, for ${dimension.scale.label}`

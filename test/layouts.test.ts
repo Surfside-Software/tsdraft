@@ -8,6 +8,7 @@ import {
   layoutHandles,
   lint,
   PAPERS,
+  readDXF,
   toDXF,
   toJSON,
   toSVG,
@@ -371,6 +372,95 @@ test("a viewport is checked as it is added, and belongs to the layout being draw
     assert.deepEqual([found?.rule, found?.layout, found?.id], ["viewport", "A", "bad"]);
     assert.match(found?.call?.file ?? "", /layouts\.test\.ts$/);
   }
+});
+
+test("a viewport freezes layers of its own and turns its view, in the file and in the plot", async () => {
+  const d = createDrawing({ units: "ft" });
+  d.layer("WALL", { color: 1 }, () => d.line([0, 0], [10, 0], { id: "wall" }));
+  d.layer("NOTE", { color: 2 }, () => d.line([5, 0], [5, 5], { id: "note" }));
+  d.layer("VIEW", { color: 4, plot: false });
+  // A block with a line on NOTE and one on layer 0, placed on WALL and on NOTE.
+  d.block("B", {}, () => {
+    d.layer("NOTE", () => d.line([0, 0], [1, 0]));
+    d.line([0, 0], [0, 1]);
+  });
+  d.layer("WALL", () => d.insert("B", [4, 1], { id: "on-wall" }));
+  d.layer("NOTE", () => d.insert("B", [6, 1], { id: "on-note" }));
+  d.layout("A", { paper: "ARCH B" }, (page) => {
+    d.layer("VIEW", () => {
+      const view = { center: [5, 2.5], ratio: 12 } as const;
+      // A frozen layer is one the drawing has, named in any case, and kept once.
+      assert.throws(
+        () => page.viewport([1, 1], 7, 10, { ...view, frozenLayers: ["NOPE"] }),
+        /freezes layer "NOPE", which is not defined/,
+      );
+      assert.throws(() => page.viewport([1, 1], 7, 10, { ...view, twist: Number.NaN }), /twist/);
+      page.viewport([1, 1], 7, 10, { ...view, id: "plain" });
+      page.viewport([10, 1], 7, 10, {
+        ...view,
+        id: "turned",
+        twist: 30,
+        frozenLayers: ["note", "NOTE"],
+      });
+    });
+  });
+  const drawing = d.build();
+  const [plain, turned] = drawing.layouts![0]!.viewports;
+  assert.deepEqual([turned!.frozenLayers, turned!.twist], [["NOTE"], 30]);
+
+  // The file holds the twist in degrees and each frozen layer by its handle, which readDXF reads.
+  const dxf = toDXF(drawing);
+  const [, record] = records(dxf).filter(
+    (r) => r[0]![1] === "VIEWPORT" && r.some(([c, v]) => c === 8 && v === "VIEW"),
+  );
+  assert.deepEqual(
+    record!.filter(([c]) => c === 51 || c === 331).map(([c]) => c),
+    [51, 331],
+  );
+  const read = await readDXF(dxf);
+  const shown = read.layouts[0]!.viewports.map((v) => [v.twist, v.frozenLayers]);
+  assert.deepEqual(shown, [
+    [0, []],
+    [30, ["NOTE"]],
+  ]);
+  const center = read.layouts[0]!.viewports[1]!.viewCenter;
+  assert.ok(Math.hypot(center[0] - 5, center[1] - 2.5) < 1e-6);
+
+  // The plot leaves the frozen layer out of that viewport alone, and turns its view.
+  const svg = toSVG(drawing, { layout: "A" });
+  const group = (index: number) =>
+    svg.split(`data-viewport="${index}"`)[1]!.split("</g>\n    </g>")[0]!;
+  assert.match(group(0), /data-layer="NOTE"/);
+  assert.match(group(0), /data-id="on-note"/);
+  assert.doesNotMatch(group(1), /data-layer="NOTE"/);
+  assert.match(group(1), / rotate\(30\)"/);
+  // An insert on the frozen layer draws nothing there, and an insert on another layer draws all
+  // but its block's entities on the frozen layer, its layer 0 as its own.
+  assert.doesNotMatch(group(1), /data-id="on-note"/);
+  const onWall = group(1).split('data-id="on-wall"')[1]!.split("</g>")[0]!;
+  assert.deepEqual(
+    [...onWall.matchAll(/data-layer="([^"]+)"/g)].map((m) => m[1]),
+    ["WALL"],
+  );
+  assert.equal(viewportView(plain!, "in", "ft").twist, 0);
+
+  // lint holds a hand-built drawing to the same rules.
+  const layouts = (over: object) => [
+    { ...drawing.layouts![0]!, viewports: [{ ...turned!, ...over }] },
+  ];
+  const found = (over: object) =>
+    lint({ ...drawing, layouts: layouts(over) } as Drawing).map((x) => `${x.rule}: ${x.message}`);
+  assert.deepEqual(found({ frozenLayers: ["NOTE", "GONE"] }), [
+    `undefined-layer: viewport #0 of layout "A": its frozenLayers[1]: layer "GONE" is not defined`,
+  ]);
+  assert.match(found({ frozenLayers: "NOTE" }).join(), /frozenLayers must be a list/);
+  assert.match(found({ frozenLayers: [7] }).join(), /frozenLayers must be a list/);
+  assert.match(found({ twist: "30" }).join(), /twist must be a number of degrees/);
+  assert.match(found({ twist: 360 }).join(), /less than 360/);
+  assert.deepEqual(found({ twist: -359.5 }), []);
+  assert.deepEqual(found({ center: [1000, 1000] }), [
+    `viewport: viewport #0 of layout "A": the viewport shows none of the drawing: nothing in model space reaches into the rectangle it shows, 7 by 10 about 1000, 1000, turned 30 degrees`,
+  ]);
 });
 
 test("a layout whose draw throws leaves the builder as it was", () => {

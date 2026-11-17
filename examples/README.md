@@ -37,7 +37,7 @@ so a CAD program opens them as plain geometry.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="../docs/assets/site-plan-dark.svg">
-  <img src="../docs/assets/site-plan-light.svg" alt="A landscape sheet, 3 wide to 2 tall, inside a border. At the left, a permit-style site plan at 1 inch to 10 feet: a lot with its bearings, setback lines, a building footprint with dimension strings, a driveway, a sidewalk, trees and the street, with a north arrow, the view title and a graphic scale under it. At the right, a column of site data, general notes, a legend and abbreviations, and in the lower right corner a title block with the project, the sheet title, the date, the scale and the sheet number C-101" width="100%">
+  <img src="../docs/assets/site-plan-light.svg" alt="A landscape sheet, 3 wide to 2 tall, inside a border. At the left, a permit-style site plan at 1 inch to 10 feet: a lot with its bearings, setback lines, a building footprint with dimension strings, a driveway, a sidewalk, trees and the street, with a north arrow, the view title and a graphic scale under it. To its lower right, a key plan at 1 inch to 40 feet: the lot, its setbacks, the building and the trees, turned 30 degrees, with its own turned north arrow and title. At the right, a column of site data, general notes, a legend and abbreviations, and in the lower right corner a title block with the project, the sheet title, the date, the scale and the sheet number C-101" width="100%">
 </picture>
 
 The example sheet: a permit-style site plan on an ARCH D sheet, 36 by 24 inches,
@@ -55,12 +55,19 @@ at 1" = 10'. It is the file to copy to start a drawing.
   leader style, one with two shafts.
 - **The layout `C-101`** holds the sheet, in inches of paper: the border, the
   title block, a column of site data, general notes, a legend and
-  abbreviations, and under the plan the north arrow, the view's title and a
-  graphic scale. A text there has the height it plots at.
+  abbreviations, and under each view its north arrow and its title, and under
+  the plan a graphic scale. A text there has the height it plots at.
 
-One viewport shows the view on the layout at its scale. It is on a layer that
-does not plot, so its border stays off the page. AutoCAD opens the file on the
-sheet and plots it at 1" = 10' on a page 36 by 24 inches.
+One viewport shows the view on the layout at its scale. A second shows the
+view `key-plan` of the same model space, at 1" = 40' and turned 30 degrees with
+`twist`, and freezes the layers that are sized for the plan or run to its
+edges with `frozenLayers`: the dimensions, the text, the property corners, the
+adjoining lot lines, the pavement and the centerline. So the key plan shows the
+lot, its setbacks, the building and the trees, and the plan's viewport still
+shows everything. The key plan's north arrow is turned as far as its view. Both
+viewports are on a layer that does not plot, so their borders stay off the
+page. AutoCAD opens the file on the sheet and plots it on a page 36 by 24
+inches, with the title block's scale reading AS NOTED.
 
 Where a thing could go either way, the example puts it with what it belongs
 to. The north arrow and the graphic scale describe a view, not the site, so
@@ -73,8 +80,10 @@ of what the viewport shows, where it cuts them off.
 
 The layout is on the standard's sheet format `arch-d`, which gives its paper,
 its title block and the zones it is laid out by, in inches: the border half an
-inch inside the paper, the zone `views` for the viewport in the left 27 inches
-of the drawing area above the zone `viewTitles` for the view's title, and the
+inch inside the paper, the zone `views` in the left 27 inches of the drawing
+area, which the key plan's viewport, a square 6 1/2 inches across, shares with
+the plan's at its lower right, above the zone `viewTitles` for the views'
+titles, and the
 zone `notes`, a column 7 inches wide, above the title block, 6 1/2 by 3 inches
 in the lower right corner. The paper is full bleed, and the border is still
 inside it: AutoCAD plots a line on the left, bottom or right edge of the paper
@@ -110,12 +119,13 @@ its text keeps its plotted height. The sheet holds the plan at 1" = 10' and at
 The picture is the layout, as `toSVG(drawing, { layout: "C-101" })` draws the
 sheet, in the page's colors. `sitePlan(scale)` builds the sheet at a scale of
 the standard and returns the drawing with where its parts lie: `drawingArea`,
-`titleBlock`, the box of each of its `fields` and the `viewport` on the paper,
-in inches, and `view`, the part of model space the viewport shows. A test
+`titleBlock`, the box of each of its `fields`, the `viewport` and the
+`keyPlan` on the paper, in inches, and `view`, the part of model space the
+plan's viewport shows. A test
 builds it at `1in-10ft` and at `1in-20ft`. It holds model space inside the
 view, the sheet inside the border,
 everything but the title block out of the title block's space and off the
-viewport, the texts of each space off one another, and each field inside its
+viewports, the texts of each space off one another, and each field inside its
 box.
 
 The file's default export is the drawing, and it writes its DXF, the SVG of

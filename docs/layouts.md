@@ -137,8 +137,8 @@ AutoCAD does with a name that breaks it:
 
 ## A viewport
 
-`sheet.viewport(corner, width, height, { center, ratio, id })` adds a viewport: a rectangle on
-the paper, from its lower-left `corner`, that shows model space.
+`sheet.viewport(corner, width, height, { center, ratio, id, frozenLayers, twist })` adds a
+viewport: a rectangle on the paper, from its lower-left `corner`, that shows model space.
 
 - `center` is the point of model space at the middle of the rectangle, in drawing units.
 - `ratio` is how many times larger the model is than its plot, as [`fromPaper`](../README.md)
@@ -147,12 +147,48 @@ the paper, from its lower-left `corner`, that shows model space.
   model, which is 1270 in a drawing in millimetres.
 - `id` names the viewport as an entity's `id` names an entity. No entity and no other viewport
   of the drawing may have it.
+- `frozenLayers` names the layers frozen in this viewport alone, as AutoCAD's `VPLAYER` freezes
+  them. [Frozen layers and a twist](#frozen-layers-and-a-twist) has more.
+- `twist` turns the view, in degrees counterclockwise, less than a turn either way. It defaults
+  to 0.
 - The viewport is locked against zooming, as AutoCAD's `MVIEW` leaves one that it locks.
 
 A file holds no scale for a viewport. It holds the rectangle's height and the height of model
 space the viewport shows, and AutoCAD takes the first over the second for the scale. tsdraft
 works that height out from the ratio and both units. `viewportView(viewport, paperUnits,
 units)` gives it, with the box of model space the viewport shows.
+
+### Frozen layers and a twist
+
+One model space serves several views: a plan, and a key plan of the same lot at a smaller scale
+and turned, as the [example sheet](../examples/site-plan.ts) has.
+
+```ts
+d.layer("G-ANNO-NPLT", () =>
+  sheet.viewport([21, 2], 6.5, 6.5, {
+    center: [50, 70],
+    ratio: 480,
+    twist: 30,
+    frozenLayers: ["C-ANNO-TEXT", "C-ANNO-DIMS"],
+  }),
+);
+```
+
+- A layer in `frozenLayers` shows nothing in this viewport, as a frozen layer shows nothing
+  anywhere: an entity on it is not drawn there, and an insert on it draws nothing of its block,
+  whatever layers the block's entities are on. Every other viewport and the model tab still
+  show it. An entity on layer `0` of a block is judged by its insert's layer, as everywhere.
+- Each name is a layer of the drawing, in any case of its letters: `wall` freezes the layer
+  `WALL`. A file holds each frozen layer by the handle of the drawing's own layer, so the builder
+  refuses a name the drawing has no layer for when `viewport()` is called, and `lint` reports
+  one as `undefined-layer`. A layer named twice is frozen once, and the builder keeps the
+  drawing's spelling of each.
+- `twist` turns the model on the paper about the view's `center`: at 30, a line that runs east in
+  model space runs 30 degrees up from the right on the sheet. Text turns with the model. A north
+  arrow on the sheet, which is not in model space, is turned by the same angle to stay true.
+- A file holds the view's middle in the view's own coordinates, turned by the twist, with
+  6 decimals. `viewportView` gives the box of model space a turned viewport shows, which is the
+  box around the turned rectangle, with its `twist` and that `displayCenter`.
 
 ### The border
 
@@ -222,8 +258,8 @@ set of ids.
 
 - The picture is the paper, in paper units, as a white sheet.
 - Each viewport is a group with its index in `data-viewport`. It holds model space at the
-  viewport's scale, clipped to the part of its rectangle that can be seen: the part on the
-  paper and in the picture. Its first element is that part as a hidden rectangle, which draws
+  viewport's scale and turned by its twist, without its own frozen layers, clipped to the part
+  of its rectangle that can be seen: the part on the paper and in the picture. Its first element is that part as a hidden rectangle, which draws
   nothing. A viewport that shows nothing there, or has no such part, is an empty group with
   no clip.
 - A viewport `lint` reports an error for is drawn as its border alone.
@@ -243,7 +279,10 @@ Beside the rules above, `lint` warns of what it can see of a view:
 - A viewport that reaches past the paper. AutoCAD plots a layout as far as its paper goes.
 - A viewport that shows none of the drawing: nothing in model space lies in the box it shows.
 
-A viewport whose ratio is 0 or less, or whose size is, is an error.
+A viewport whose ratio is 0 or less, or whose size is, is an error. So is a twist of a turn or
+more either way, which a DXF holds in degrees and a DWG in radians, and a frozen layer the
+drawing does not have. A turned viewport warns that it shows none of the drawing when nothing
+in model space reaches into its turned rectangle.
 
 ## Handles
 

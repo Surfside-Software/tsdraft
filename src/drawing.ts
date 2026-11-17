@@ -111,6 +111,7 @@ import {
   undefinedLinetypeProblem,
   undefinedTextStyleProblem,
   viewportProblem,
+  frozenLayerAbsent,
   XREF_ATTRIBUTES,
   xrefPathProblem,
   xrefTwinProblem,
@@ -700,6 +701,17 @@ export interface Viewport {
    * 1" = 10', 96 for 1/8" = 1'-0", 50 for 1:50.
    */
   readonly ratio: number;
+  /**
+   * The layers frozen in this viewport alone, by name. Each is a layer of the drawing. Nothing
+   * on one shows in the viewport, as if it were frozen, and an insert on one shows nothing of
+   * its block, while every other viewport and the model tab show them.
+   */
+  readonly frozenLayers?: readonly string[];
+  /**
+   * How far the view is turned, in degrees counterclockwise, more than -360 and less than 360:
+   * the model shows on the paper turned that far about `center`. Defaults to 0.
+   */
+  readonly twist?: number;
 }
 
 /**
@@ -1438,6 +1450,10 @@ export interface ViewportOptions<R extends number = number, I extends string = s
   /** A name for the viewport that no entity and no other viewport of the drawing has. */
   readonly id?: EntityId<I>;
   readonly view?: ViewWithoutStandard;
+  /** The layers frozen in this viewport alone, each a layer the drawing has by then. */
+  readonly frozenLayers?: readonly string[];
+  /** How far the view is turned, in degrees counterclockwise, under a turn. Defaults to 0. */
+  readonly twist?: number;
 }
 
 /** What `viewport()` takes after the rectangle under a standard: the view it shows. */
@@ -1451,6 +1467,10 @@ export interface StandardViewportOptions {
   readonly center: Point;
   readonly ratio?: ViewportRatio;
   readonly id?: ViewportId;
+  /** The layers frozen in this viewport alone, each a layer the drawing has by then. */
+  readonly frozenLayers?: readonly string[];
+  /** How far the view is turned, in degrees counterclockwise, under a turn. Defaults to 0. */
+  readonly twist?: number;
 }
 
 /**
@@ -1516,7 +1536,9 @@ export interface Sheet<Z extends Standard | undefined = undefined> {
    * Adds a viewport: a rectangle from its lower-left `corner`, in paper units, that shows
    * model space about `view.center` at `view.ratio`. Its border is on the current layer, and
    * its view is locked against zooming. Under a standard it shows the options' `view`, at the
-   * view's scale and with the view's id.
+   * view's scale and with the view's id. `frozenLayers` names the layers frozen in this
+   * viewport alone, each a layer the drawing has when it is called, and `twist` turns the view
+   * that many degrees counterclockwise about `center`.
    */
   viewport<W extends number, H extends number, R extends number, I extends string = string>(
     corner: Point,
@@ -3633,7 +3655,13 @@ export class DrawingBuilder<
     options: unknown,
   ): void {
     const view = options as
-      | { readonly center?: Point; readonly ratio?: unknown; readonly id?: unknown }
+      | {
+          readonly center?: Point;
+          readonly ratio?: unknown;
+          readonly id?: unknown;
+          readonly frozenLayers?: unknown;
+          readonly twist?: unknown;
+        }
       | undefined;
     const shows: unknown = (options as { readonly view?: unknown } | undefined)?.view;
     let id: unknown = view?.id;
@@ -3666,10 +3694,24 @@ export class DrawingBuilder<
         height,
         center: view?.center,
         ratio: shown ? shown.view.ratio : view?.ratio,
+        ...(view?.frozenLayers === undefined ? {} : { frozenLayers: view.frozenLayers }),
+        ...(view?.twist === undefined ? {} : { twist: view.twist }),
       };
       const problem = viewportProblem(made, open.info.units, this.units);
       if (problem) refuse("viewport", problem);
-      open.viewports.push({ ...(made as Viewport), corner: pt(corner), center: pt(view!.center!) });
+      // Each frozen layer by the drawing's own spelling of its name, once.
+      const frozenLayers = new Map<string, string>();
+      for (const name of (made.frozenLayers ?? []) as readonly string[]) {
+        const layer = this.#layers.get(layerKey(name));
+        if (!layer) refuse("undefined-layer", frozenLayerAbsent(name));
+        if (!frozenLayers.has(layerKey(name))) frozenLayers.set(layerKey(name), layer!.name);
+      }
+      open.viewports.push({
+        ...(made as Viewport),
+        corner: pt(corner),
+        center: pt(view!.center!),
+        ...(made.frozenLayers === undefined ? {} : { frozenLayers: [...frozenLayers.values()] }),
+      });
       if (shown) {
         shown.shown = true;
         open.views.push(shown);

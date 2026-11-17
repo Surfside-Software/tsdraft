@@ -7,8 +7,8 @@
 // - Model space holds the site at its true size, in feet, with the annotation that is read in
 //   the plan: bearings, dimensions and labels.
 // - The layout `C-101` holds the sheet, in inches of paper: the border and the title block, the
-//   column of notes, the view title, the north arrow and the graphic scale. One viewport shows
-//   the plan on it at the scale.
+//   column of notes, the view titles, the north arrows and the graphic scale. One viewport shows
+//   the plan on it at the scale, and a second the key plan.
 //
 // The export `intent` says what the plan must hold to: the residence keeps out of the
 // setbacks. `tsdraft render` and `tsdraft dev` check it on each build, with `checkIntent`, and
@@ -17,18 +17,19 @@
 // Sheet: ARCH D, 36 wide and 24 tall. Scale: 1" = 10', a ratio of 120.
 //
 //   +----------------------------------------------+
-//   | +-------------------------------+  SITE DATA |   The border is 1/2 in inside the edge of
-//   | |                               |  GENERAL   |   the paper. The viewport is the left 27 in
-//   | |           viewport            |  NOTES     |   of the drawing area, above a strip for
-//   | |          (the plan)           |  LEGEND    |   the view title. A column 7 in wide holds
-//   | |                               |  ABBREV.   |   the notes, and the title block is at its
-//   | +-------------------------------+ +--------+ |   foot, in the lower right corner: 6 1/2 in
-//   |  N  view title   graphic scale    | title  | |   wide and 3 in tall.
-//   |                                   | block  | |
+//   | +----------------------+          SITE DATA |   The border is 1/2 in inside the edge of
+//   | |                      |          GENERAL   |   the paper. The plan's viewport is the
+//   | |       viewport       |          NOTES     |   left 20 in of the drawing area, and the
+//   | |      (the plan)      | +------+ LEGEND    |   key plan's a square 6 1/2 in across at
+//   | |                      | | key  | ABBREV.   |   its lower right, above a strip for the
+//   | |                      | | plan | +-------+ |   view titles. A column 7 in wide holds the
+//   | +----------------------+ +------+ |       | |   notes, and the title block is at its foot,
+//   |  N  view title   scale   N  title | title | |   in the lower right corner: 6 1/2 in wide
+//   |                                   | block | |   and 3 in tall.
 //   +----------------------------------------------+
 //
 // The sheet holds the plan at 1" = 10' and at 1" = 20'. At a larger scale the plan is taller
-// than its viewport.
+// than its viewport. The key plan is at 1" = 40', turned 30 degrees.
 //
 // Run with `pnpm example`. It writes examples/out/site-plan.dxf (AutoCAD 2018 DXF),
 // site-plan.svg, which is model space, and site-plan-sheet.svg, which is the layout as it
@@ -57,6 +58,12 @@
 // - A symbol is a block, drawn once and inserted where it is needed. The tree and the property
 //   corner are in the plan and in the legend, so each is inserted in model space and on the
 //   layout. A block's entities are on layer 0, so each insert draws on its own layer.
+// - The key plan is a second view of the same model space, at a smaller scale and turned, in a
+//   viewport of its own. That viewport freezes the layers of the plan's annotation, which is
+//   sized for the plan's scale, and of the lines that run to the plan's edges, so it shows the
+//   lot, its setbacks, the building and the trees. The plan's viewport and the model tab still
+//   show those layers. The key plan's north arrow is turned as far as its view, and the title
+//   block's scale reads AS NOTED, since the sheet holds two.
 // - The layout is on the standard's sheet format `arch-d`, which gives its paper, its title
 //   block and the zones it is laid out by: the views, the strip under them for the view titles,
 //   and the column of notes above the title block. `sheet.titleBlock()` places the border and
@@ -186,6 +193,8 @@ export interface Sheet {
   readonly viewport: Box;
   /** The part of model space the viewport shows, in drawing units. */
   readonly view: Box;
+  /** The key plan's viewport's rectangle on the paper, in inches. */
+  readonly keyPlan: Box;
 }
 
 /**
@@ -212,9 +221,14 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
   // ratio: a foot is 12 inches, so an inch on paper is `ratio / 12` feet.
   const plan = d.view("plan", { scale });
   const feetPerInch = plan.ratio / 12;
+  // The key plan: the lot at a smaller scale, turned counterclockwise on the sheet.
+  const keyView = d.view("key-plan", { scale: "1in-40ft" });
+  const keyTwist = 30;
 
-  // The viewport fills the sheet format's zone `views`. Model space is drawn before the sheet,
-  // so it reads the zone's size from the standard: the plan's lines run to the sides of the view.
+  // The two viewports share the sheet format's zone `views`: the key plan is a square in its
+  // lower right corner, and the plan fills the rest of its width, 1/2 in clear of it. Model space
+  // is drawn before the sheet, so it reads the zone's size from the standard: the plan's lines
+  // run to the sides of its view.
   const format = standard.sheetFormats[sheet.format];
   const box = ([left, bottom, right, top]: readonly number[]): Box => ({
     left: left!,
@@ -222,7 +236,15 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     right: right!,
     top: top!,
   });
-  const viewport = box(format.zones.views!);
+  const zone = box(format.zones.views!);
+  const keySide = 6.5;
+  const keyPlan: Box = {
+    left: zone.right - keySide,
+    bottom: zone.bottom,
+    right: zone.right,
+    top: zone.bottom + keySide,
+  };
+  const viewport: Box = { ...zone, right: keyPlan.left - 1 / 2 };
   // The viewport is centered on the plan: the lot and the street's right-of-way. `view` is the
   // part of model space it shows, and the lot stays at the origin at every scale.
   const planCenter: Point = [lot.width / 2, (lot.depth - street.rightOfWay) / 2];
@@ -516,29 +538,52 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     // The border and the title block, with the sheet's title. The builder fills the rest.
     paperSheet.titleBlock({ title: sheet.title });
 
-    // The plan, in its view. A viewport's border is on a layer that does not plot.
-    const views = paperSheet.zone("views");
+    // The plan and the key plan, each in its view. A viewport's border is on a layer that does
+    // not plot. The key plan's viewport freezes the layers of the plan's annotation and of the
+    // lines that run to the plan's edges, and turns its view.
     d.layer("G-ANNO-NPLT", () => {
-      paperSheet.viewport([views.left, views.bottom], views.width, views.height, {
+      const { left, bottom, right, top } = viewport;
+      paperSheet.viewport([left, bottom], right - left, top - bottom, {
         view: plan,
         center: planCenter,
       });
+      paperSheet.viewport([keyPlan.left, keyPlan.bottom], keySide, keySide, {
+        view: keyView,
+        center: [lot.width / 2, lot.depth / 2],
+        twist: keyTwist,
+        frozenLayers: [
+          "C-ANNO-DIMS",
+          "C-ANNO-TEXT",
+          "C-PROP-MONU",
+          "C-PROP-ADJC",
+          "C-PAVE",
+          "C-ROAD-CNTR",
+        ],
+      });
     });
 
-    // The view title, in the strip under the viewport: the north arrow, the title and the
-    // graphic scale in a row. The underline of the title is level with the middle of the north
-    // arrow.
+    // The view titles, in the strip under the viewports: under each, its north arrow and its
+    // title in a row, and for the plan its graphic scale. The underline of a title is level with
+    // the middle of its north arrow.
     const strip = paperSheet.zone("viewTitles");
     const underline = strip.bottom + clearOfEdge + arrowRadius;
     const titleX = strip.left + clearOfEdge + arrowRadius * 2 + 3 / 8;
+    const keyTitleX = keyPlan.left + clearOfEdge + arrowRadius * 2 + 3 / 8;
     d.layer("C-ANNO-TITL", () => {
       d.insert("VIEW TITLE", [titleX, underline], {
         attributes: { VIEW_TITLE: sheet.title, VIEW_SCALE: `SCALE: ${plan.label}` },
       });
+      d.insert("VIEW TITLE", [keyTitleX, underline], {
+        attributes: { VIEW_TITLE: "KEY PLAN", VIEW_SCALE: `SCALE: ${keyView.label}` },
+      });
     });
     d.layer("C-ANNO-SYMB", () => {
-      // The viewport is not turned, so north is up the sheet.
+      // The plan's viewport is not turned, so its north is up the sheet. The key plan's north
+      // arrow is turned as far as its view.
       d.insert("NORTH ARROW", [strip.left + clearOfEdge + arrowRadius, underline]);
+      d.insert("NORTH ARROW", [keyPlan.left + clearOfEdge + arrowRadius, underline], {
+        rotation: keyTwist,
+      });
 
       // A graphic scale 2 in long, divided at 1/2 in and 1 in, and numbered in feet of the
       // plan at the view's scale.
@@ -723,6 +768,7 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     ),
     viewport,
     view,
+    keyPlan,
   };
 }
 

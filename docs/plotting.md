@@ -52,7 +52,8 @@ preview shows it:
   `DWF Virtual Pens.ctb` plots every line 0.254 mm wide.
 - A layer that is off, frozen or set not to plot is left out, and so is everything an insert or
   an xref places on such a layer. An xref of a drawing an xref places is not drawn: a drawing's
-  overlays are its own.
+  overlays are its own. A viewport leaves out the layers frozen in it alone, and turns its view
+  by its twist, as [Frozen layers and a twist](layouts.md#frozen-layers-and-a-twist) says.
 - A curve strays from its arc by at most 1/1000 inch on the paper.
 - A dash pattern is sized on the paper and fitted to each line, side of a polyline, arc and
   circle, as [Linetypes on a sheet](layouts.md#linetypes-on-a-sheet) says.
