@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   createDrawing,
   DASHED,
+  DOT,
   idHandle,
   measureText,
   toDXF,
@@ -286,15 +287,28 @@ test("SVG draws dashes and pen weights, and leaves out layers that are off or fr
   d.layer("FROZEN", { frozen: true }, () => d.line([0, 2], [3, 2]));
   d.text([0, 3], "x");
   const svg = toSVG(d.build());
-  // DASHED is 0.5 on and 0.25 off, at a scale of 2, and 0.5 mm is twice the default width.
-  assert.match(svg, /<path d="M 0 0 L 1 0 M 1.5 0 L 2.5 0" stroke="currentColor" stroke-width="2"/);
+  // DASHED is 0.5 on and 0.25 off, at a scale of 2. A line 3 long holds two whole patterns, and
+  // starts and ends with half the first dash. 0.5 mm is twice the default width.
+  assert.match(
+    svg,
+    /<path d="M 0 0 L 0.5 0 M 1 0 L 2 0 M 2.5 0 L 3 0" stroke="currentColor" stroke-width="2"/,
+  );
   assert.doesNotMatch(svg, /data-layer="OFF"|data-layer="FROZEN"/);
   // The index is the entity's in drawing.entities, counting the ones left out.
   assert.match(svg, /data-layer="0" data-entity="3">x<\/text>/);
-  // A dash longer than a circle is drawn as the two halves of a full turn.
-  const long = { name: "LONG", pattern: [100, -1] };
-  const circle = toSVG(createDrawing().circle([0, 0], 1, { linetype: long }).build());
-  assert.match(circle, /<path d="M 1 0 A 1 1 0 0 1 -1 0 A 1 1 0 0 1 1 0"/);
+  // A dotted line shorter than its pattern is solid, as any stretch is.
+  const dotted = toSVG(createDrawing().line([0, 0], [0.1, 0], { linetype: DOT }).build());
+  assert.match(dotted, /<path d="M 0 0 L 0.1 0" /);
+  // A circle shorter than its pattern is solid, and one that holds a whole pattern stretches it
+  // to go round: here one dash of 6 and a gap of 0.2, each made longer by 2π / 6.2.
+  const circle = (pattern: number[]) =>
+    toSVG(
+      createDrawing()
+        .circle([0, 0], 1, { linetype: { name: "LONG", pattern } })
+        .build(),
+    );
+  assert.match(circle([100, -1]), /<circle cx="0" cy="0" r="1" /);
+  assert.match(circle([6, -0.2]), /<path d="M 1 0 A 1 1 0 1 1 0.97953 -0.201299"/);
 });
 
 test("R2018 DXF and SVG carry text styles and justification", () => {

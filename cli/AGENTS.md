@@ -58,6 +58,12 @@
   its check refuses a getter at any depth. For `drawing.standard` the worker reads the
   export's own data alone, never runs a getter and never asks a proxy at its top: one that
   loops would end the build.
+- A PDF is made from the pictures of the layouts, with the command's copy of tsdraft's
+  `svgToPDF`, in a process of its own, `src/pdf-child.ts`, which `src/pdf.ts` starts for each
+  plot, one at a time, and ends at its deadline, as the PNG renderer's process is kept apart: `render --pdf` writes the set and
+  each sheet, and `dev` makes one when `/drawing.pdf` is asked for, from the pictures it holds.
+  A picture `svgToPDF` refuses, as from a newer copy of tsdraft, gives `pdfError` and never
+  fails the build or changes the exit code. Never make a PDF nobody asked for.
 - `render --view` draws one rectangle with `toSVG`'s `view`, with no margin, as
   `outputs.view`, and writes no other picture. `tsdraft dev` has no view: its server keeps
   only SVG strings and a worker ends after one build. A `Builder` passes the view to the

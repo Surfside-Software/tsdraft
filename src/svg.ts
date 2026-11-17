@@ -181,6 +181,15 @@ const FREE_VIEWS = 64;
 /** How many elements of an insert are joined into one string as they are made. */
 const JOINED = 1024;
 
+/**
+ * The format of a picture of a layout, which `svgToPDF` reads: it goes up whenever an element or
+ * an attribute of such a picture changes what it means.
+ */
+export const SHEET_PICTURE = 1;
+
+/** The mark of a line drawn as the thinnest the printer draws: a lineweight of 0, or a border. */
+const THINNEST = ` data-thinnest=""`;
+
 export interface SvgOptions {
   /** Margin around the drawing's extents, in drawing units. Defaults to 2% of the larger side. */
   readonly margin?: number;
@@ -273,7 +282,12 @@ interface Sides {
  * `DWF Virtual Pens.ctb` plots every line 0.254 mm wide, whatever its lineweight. A
  * viewport's border is drawn as the thinnest line, or 0.254 mm wide under that table, when its
  * layer is on, thawed and set to plot, and its view is drawn whatever its layer's state. `data-entity` counts the layout's
- * entities, and inside a viewport's group the entities of model space.
+ * entities, and inside a viewport's group the entities of model space. Every line of a sheet
+ * ends and joins round, as a plotted pen does. The picture's format is its `data-picture`,
+ * which `svgToPDF` reads; a line drawn as the thinnest the printer draws, a border or a line
+ * of lineweight 0, has `data-thinnest`; the white of the paper has `data-paper-sheet`; and each
+ * text has the font its style names in `data-font`, empty for a font that is not one of
+ * `FONTS`.
  *
  * With `options.view`, the picture is that rectangle of the space: what lies well outside it is
  * left out, and a layout's viewports are cut to it.
@@ -429,6 +443,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     where: () => string,
     insertLayer?: LayerRef,
     from?: Referenced,
+    placed = 1,
   ): Pen => {
     const layer: Layer | undefined = layerOf(on);
     /**
@@ -460,9 +475,11 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     const code = lineweightCode(weight);
     return {
       color: look.color(layer?.color ?? 7),
+      // A pattern keeps its length whatever size an insert draws its entity at, so it is cut in
+      // the block's own units shrunk by the insert's scale.
       dashes:
-        pattern && Number.isFinite(look.dashScale)
-          ? dashesOf(pattern, look.dashScale, where)
+        pattern && Number.isFinite(look.dashScale / placed) && placed > 0
+          ? dashesOf(pattern, look.dashScale / placed, where)
           : undefined,
       lineweight: code < 0 ? DEFAULT_LINEWEIGHT : code,
     };
@@ -506,7 +523,16 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
           // AutoCAD names a layer of an xref by the xref's name, a bar and the layer's.
           const { name, of } = at.layer;
           const mark = `data-layer="${esc(of ? `${of.name}|${name}` : name)}"`;
-          const heldPen = pen(look, styled(held), at.layer, where, at.insertLayer, at.from);
+          const m = at.matrix;
+          const heldPen = pen(
+            look,
+            styled(held),
+            at.layer,
+            where,
+            at.insertLayer,
+            at.from,
+            m ? Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) : 1,
+          );
           const part = drawn(held, mark, heldPen, look, at.from, at.matrix);
           if (!write(part.length + line + 2)) return;
           parts.push(part);
@@ -606,11 +632,12 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       stroke: (lineweight) =>
         pen !== undefined || lineweight === DEFAULT_LINEWEIGHT
           ? ""
-          : ` stroke-width="${precise((Math.max(lineweight, 5) * perHundredth) / scale)}"`,
+          : ` stroke-width="${precise((Math.max(lineweight, 5) * perHundredth) / scale)}"${lineweight === 0 ? THINNEST : ""}`,
     });
     const onPaper = plotted(1, "    ");
     // A viewport's border plots as the thinnest line, or as the one pen a table gives every line.
     const thin = fmt((pen ?? 5) * perHundredth);
+    const thinnest = pen === undefined ? THINNEST : "";
     // A drawing in units tsdraft does not know is drawn as one in inches, as `lint` judges it.
     const units = isUnits(drawing.units) ? drawing.units : "in";
     // The picture: the paper, or the view asked for, and the margin around it, in paper units
@@ -651,7 +678,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
           const stroke = color(layerOf({ name: layer })?.color ?? 7);
           keep(
             at,
-            `<rect x="${fmt(corner![0])}" y="${fmt(corner![1])}" width="${fmt(width!)}" height="${fmt(height!)}" stroke="${stroke}" stroke-width="${thin}" data-layer="${esc(layer)}" data-viewport-border="${index}"${id}/>`,
+            `<rect x="${fmt(corner![0])}" y="${fmt(corner![1])}" width="${fmt(width!)}" height="${fmt(height!)}" stroke="${stroke}" stroke-width="${thin}"${thinnest} data-layer="${esc(layer)}" data-viewport-border="${index}"${id}/>`,
           );
         }
         return;
@@ -715,16 +742,16 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         const stroke = color(layerOf({ name: viewport.layer })?.color ?? 7);
         keep(
           at,
-          `<rect ${box} stroke="${stroke}" stroke-width="${thin}" data-layer="${esc(viewport.layer)}" data-viewport-border="${index}"${id}/>`,
+          `<rect ${box} stroke="${stroke}" stroke-width="${thin}"${thinnest} data-layer="${esc(viewport.layer)}" data-viewport-border="${index}"${id}/>`,
         );
       }
     });
     // A sheet may hold more entities than a call takes arguments.
     for (const element of elements(shownOf(layout.entities), onPaper, space)) parts.push(element);
     const head = [
-      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${frame.join(" ")}" data-layout="${esc(layout.name)}" data-paper="${esc(layout.paper)}">`,
-      `  <rect x="0" y="${fmt(-paper.height)}" width="${fmt(paper.width)}" height="${fmt(paper.height)}" fill="#ffffff"/>`,
-      `  <g transform="scale(1 -1)" fill="none" stroke-width="${fmt(base * perHundredth)}">`,
+      `<svg xmlns="http://www.w3.org/2000/svg" data-picture="${SHEET_PICTURE}" viewBox="${frame.join(" ")}" data-layout="${esc(layout.name)}" data-paper="${esc(layout.paper)}">`,
+      `  <rect x="0" y="${fmt(-paper.height)}" width="${fmt(paper.width)}" height="${fmt(paper.height)}" fill="#ffffff" data-paper-sheet=""/>`,
+      `  <g transform="scale(1 -1)" fill="none" stroke-width="${fmt(base * perHundredth)}" stroke-linecap="round" stroke-linejoin="round">`,
     ];
     const tail = [`  </g>`, `</svg>`, ``];
     if (!write([...head, ...tail].join("\n").length + 1)) refuse(space);
@@ -1117,7 +1144,9 @@ function entityToSvg(
       const length = written((end - start) / width);
       const held = length > 0 ? ` textLength="${length}" lengthAdjust="spacingAndGlyphs"` : "";
       const family = font?.family ?? "monospace";
-      return `<text transform="${t}" font-size="${fmt(size)}" font-family="${esc(family)}" data-height="${fmt(e.height)}"${held} xml:space="preserve" fill="${pen.color}" stroke="none" ${mark}>${esc(drawnValue(e.value))}</text>`;
+      // The font by its name in `FONTS`, and empty for a font that is not one of them.
+      const named = font ? (style?.font ?? STANDARD_FONT) : "";
+      return `<text transform="${t}" font-size="${fmt(size)}" font-family="${esc(family)}" data-height="${fmt(e.height)}"${held} xml:space="preserve" fill="${pen.color}" stroke="none" data-font="${esc(named)}" ${mark}>${esc(drawnValue(e.value))}</text>`;
     }
   }
 }
@@ -1155,7 +1184,8 @@ function alternating(pattern: readonly number[]): number[] | undefined {
  * An entity cut into the dashes of its pattern, as path data, or undefined when the pattern
  * is too fine for the entity and it draws solid. A polyline starts the pattern again at each
  * vertex, as AutoCAD does unless told otherwise. The cuts are made in the entity's own
- * coordinates and then placed by `matrix`, so a pattern scales with the insert that draws it.
+ * coordinates, with the pattern shrunk by the insert's scale, and then placed by `matrix`, so a
+ * dash is as long whatever size an insert draws its entity at.
  * Once the path is longer than `room` characters it stops, and is longer than the room. A
  * polyline's sides are read once a list of points, into `known`, so a placement does work only
  * for the sides it draws: one with no length draws nothing.
@@ -1175,45 +1205,91 @@ function dashedPath(
   };
   const out: string[] = [];
   let size = 0;
-  /** Cuts a stretch of the given length, and draws each dash from `from` to `to` along it. */
-  const cut = (length: number, draw: (from: number, to: number) => string): boolean => {
+  /** Draws a dash from `from` to `to` along a stretch, and counts its characters. */
+  const dash = (draw: (from: number, to: number) => string, from: number, to: number): void => {
+    const drawn = draw(from, to);
+    size += drawn.length + 1;
+    out.push(drawn);
+  };
+  /**
+   * Cuts a stretch of the given length, and draws each dash from `from` to `to` along it. A
+   * line, a side of a polyline and an arc are `fitted`, a pattern that starts with a dot too, whose
+   * end dots stay dots and whose leftover goes to the gaps beside them: it holds as many whole
+   * patterns as fit in it, and its first and last dash are each half of the pattern's first
+   * dash and of what is left over. A stretch shorter than its pattern is solid.
+   */
+  const cut = (
+    length: number,
+    draw: (from: number, to: number) => string,
+    fitted = false,
+    stretch = 1,
+  ): boolean => {
     if (size > room) return true;
     if (length / total > MAX_DASHES) return false;
+    const first = dashes[0]! * stretch;
+    let i = 0;
     let at = 0;
-    for (let i = 0; at < length && size <= room; i = (i + 1) % dashes.length) {
-      const end = Math.min(at + dashes[i]!, length);
-      if (i % 2 === 0) {
-        const dash = draw(at, end);
-        size += dash.length + 1;
-        out.push(dash);
-      }
-      at += dashes[i]!;
+    let last = length;
+    // A stretch shorter than its pattern is solid, whatever the pattern starts with.
+    if (fitted && length < total * (1 - 1e-9)) {
+      dash(draw, 0, length);
+      return true;
     }
+    // A dot stays a dot: a stretch of a pattern that starts with one has a dot at each end, and
+    // what is left over lengthens the gap after the first and before the last.
+    const dotted = first === 0;
+    if (fitted) {
+      const k = Math.floor(length / total + 1e-9);
+      const end = (length + first - k * total) / 2;
+      dash(draw, 0, dotted ? 0 : end);
+      [i, at, last] = [1, end, length - end];
+    }
+    // The pattern ends where the last dash starts, or where the stretch ends, to within what
+    // rounding moves a number.
+    const stop = last - total * stretch * 1e-9;
+    for (; at < stop && size <= room; i = (i + 1) % dashes.length) {
+      if (i % 2 === 0) dash(draw, at, Math.min(at + dashes[i]! * stretch, last));
+      at += dashes[i]! * stretch;
+    }
+    // A fitted stretch ends with its last dash, or a dot at its end.
+    if (fitted && size <= room) dash(draw, dotted ? length : last, length);
     return true;
   };
   const straight = (a: Point, b: Point): boolean => {
     const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
     const along = (t: number) =>
       place(a[0] + ((b[0] - a[0]) * t) / length, a[1] + ((b[1] - a[1]) * t) / length);
-    return length === 0 || cut(length, (from, to) => `M ${along(from)} L ${along(to)}`);
+    return length === 0 || cut(length, (from, to) => `M ${along(from)} L ${along(to)}`, true);
   };
-  const round = (center: Point, radius: number, start: number, turn: number): boolean => {
+  const round = (
+    center: Point,
+    radius: number,
+    start: number,
+    turn: number,
+    fitted: boolean,
+    stretch = 1,
+  ): boolean => {
     const along = (t: number) => {
       const angle = rad(start) + t / radius;
       return place(center[0] + radius * Math.cos(angle), center[1] + radius * Math.sin(angle));
     };
     const shape = rounded(radius, matrix);
-    return cut(radius * rad(turn), (from, to) => {
-      // SVG draws no arc between two equal points, so a dot is a line of no length.
-      if (to === from) return `M ${along(from)} L ${along(to)}`;
-      const arc = `A ${fmt(shape.rx)} ${fmt(shape.ry)} ${fmt(shape.turn)}`;
-      // A dash of a full turn ends where it starts, so it is drawn as two halves.
-      if ((to - from) / radius > Math.PI && along(from) === along(to)) {
-        return `M ${along(from)} ${arc} 0 ${shape.sweep} ${along((from + to) / 2)} ${arc} 0 ${shape.sweep} ${along(to)}`;
-      }
-      const large = (to - from) / radius > Math.PI ? 1 : 0;
-      return `M ${along(from)} ${arc} ${large} ${shape.sweep} ${along(to)}`;
-    });
+    return cut(
+      radius * rad(turn),
+      (from, to) => {
+        // SVG draws no arc between two equal points, so a dot is a line of no length.
+        if (to === from) return `M ${along(from)} L ${along(to)}`;
+        const arc = `A ${fmt(shape.rx)} ${fmt(shape.ry)} ${fmt(shape.turn)}`;
+        // A dash of a full turn ends where it starts, so it is drawn as two halves.
+        if ((to - from) / radius > Math.PI && along(from) === along(to)) {
+          return `M ${along(from)} ${arc} 0 ${shape.sweep} ${along((from + to) / 2)} ${arc} 0 ${shape.sweep} ${along(to)}`;
+        }
+        const large = (to - from) / radius > Math.PI ? 1 : 0;
+        return `M ${along(from)} ${arc} ${large} ${shape.sweep} ${along(to)}`;
+      },
+      fitted,
+      stretch,
+    );
   };
   let ok: boolean;
   switch (e.kind) {
@@ -1236,11 +1312,17 @@ function dashedPath(
       ok = true;
       break;
     }
-    case "circle":
-      ok = round(e.center, e.radius, 0, 360);
+    case "circle": {
+      // A circle holds the whole number of patterns nearest its length, each stretched or
+      // shrunk alike to go round it exactly, from a dash at its angle 0. One shorter than its
+      // pattern is solid.
+      const around = 2 * Math.PI * e.radius;
+      if (!(around >= total)) return undefined;
+      ok = round(e.center, e.radius, 0, 360, false, around / (Math.round(around / total) * total));
       break;
+    }
     case "arc":
-      ok = round(e.center, e.radius, e.startAngle, sweep(e.startAngle, e.endAngle));
+      ok = round(e.center, e.radius, e.startAngle, sweep(e.startAngle, e.endAngle), true);
       break;
   }
   return ok && out.length > 0 ? out.join(" ") : undefined;

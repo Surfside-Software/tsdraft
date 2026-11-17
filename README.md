@@ -169,9 +169,10 @@ d.layout("C-101", { paper: "ARCH D" }, (sheet) => {
 ```
 
 The file opens on the sheet with its page setup: `DWG To PDF.pc3`, the paper, 1:1 and
-`monochrome.ctb`. `toSVG(drawing, { layout: "C-101" })` draws the sheet as it plots.
-[Layouts](docs/layouts.md) has the rest, and [Title blocks](docs/title-blocks.md) shows a
-title block whose fields are attributes.
+`monochrome.ctb`. `toSVG(drawing, { layout: "C-101" })` draws the sheet as it plots, and
+`toPDF(drawing)` plots every sheet to one PDF, a page each, with no CAD program.
+[Layouts](docs/layouts.md) has the rest, [Plotting](docs/plotting.md) the PDF, and
+[Title blocks](docs/title-blocks.md) shows a title block whose fields are attributes.
 
 Text, symbols and dashes are sized by how large they plot. `fromPaper` turns a
 length on paper into drawing units for one scale, given as a plain ratio:
@@ -221,6 +222,7 @@ program:
 
 ```sh
 npx tsdraft render plan.ts   # writes an SVG and a PNG, and prints JSON with what lint found
+npx tsdraft render plan.ts --pdf   # also plots each sheet, and the set, to PDF
 npx tsdraft dev plan.ts      # a live preview that redraws on every save
 ```
 
@@ -300,6 +302,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   missing file, and how the preview draws a referenced drawing.
 - [Layouts](docs/layouts.md) covers sheets: the papers, the page setup, viewports and
   their scale, names, and how the preview draws a sheet as it plots.
+- [Plotting](docs/plotting.md) covers `toPDF` and `svgToPDF`: a PDF for each sheet and for the
+  set, what a page holds, and the faces text is set in.
 - [Title blocks](docs/title-blocks.md) covers a title block whose fields are
   attributes, and a firm's own border placed under a sheet as an xref.
 - [Text](docs/text.md) covers text styles, fonts and justification, how long a

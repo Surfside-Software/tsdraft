@@ -7,6 +7,8 @@ import { basename, extname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { Builder, projectRoot, round, toState } from "./build.ts";
 import { faces, pngFonts } from "./fonts.ts";
+import { pdfFace } from "tsdraft";
+import { plot } from "./pdf.ts";
 import { pngUnavailable, RendererCrashed, startRenderer, toPNG } from "./png.ts";
 import type { BuildError, BuildState, LayoutOutput } from "./state.ts";
 
@@ -20,7 +22,7 @@ if (major < 22 || (major === 22 && minor < 18) || (major === 23 && minor < 6)) {
 }
 
 const HELP = `Usage:
-  tsdraft render <file> [--out <dir>] [--width <px>] [--timeout <ms>]
+  tsdraft render <file> [--out <dir>] [--width <px>] [--timeout <ms>] [--pdf]
                         [--draw-no-plot] [--view <x0,y0,x1,y1> [--layout <name>]]
   tsdraft dev <file> [--port <n>] [--timeout <ms>] [--draw-no-plot]
 
@@ -37,10 +39,14 @@ render  Builds the file once, writes <name>.svg and <name>.png to --out (default
         write is removed from the default out folder, and left alone in --out.
         A drawing with layouts also gets <name>.layout-<layout>.svg and .png for
         each, the sheet as it plots, listed in outputs.layouts.
+        With --pdf it also plots the sheets: <name>.pdf, the set, a page for each
+        layout in order, as outputs.pdf, and <name>.layout-<layout>.pdf for each
+        sheet alone, as outputs.layouts[].pdf.
 dev     Serves a live preview on localhost that rebuilds on every save of the
         file or a file it imports. Also serves /state.json, which with
-        ?after=<build> waits for a newer build, /drawing.svg, /drawing.png?width=
-        and /events. Add layout=<name> to a picture's URL for a layout's sheet.
+        ?after=<build> waits for a newer build, /drawing.svg, /drawing.png?width=,
+        /drawing.pdf, the set, and /events. Add layout=<name> to a picture's URL
+        for a layout's sheet.
 
 --width    PNG width in pixels. Default 1600.
 --view     With render, draws one rectangle and nothing else, as <name>.view.svg
@@ -48,6 +54,7 @@ dev     Serves a live preview on localhost that rebuilds on every save of the
            to its upper-right x1,y1, in drawing units of model space. Use it to
            read small text, and give it the bounds of a diagnostic.
 --layout   With --view, the rectangle is on this layout's sheet, in paper units.
+--pdf      With render, plots the sheets to PDF as well, as listed above.
 --draw-no-plot  Draws the layers that do not plot too. The pictures leave them
            out by default, as a plot does.
 --port     Default 4610. When it is taken and no port was given, a free one.
@@ -90,6 +97,7 @@ try {
       port: { type: "string" },
       timeout: { type: "string" },
       "draw-no-plot": { type: "boolean" },
+      pdf: { type: "boolean" },
       view: { type: "string" },
       layout: { type: "string" },
       help: { type: "boolean", short: "h" },
@@ -114,6 +122,12 @@ const file = realpath(resolve(target));
 const timeout = number(values.timeout, "--timeout") ?? 10_000;
 if (values.view !== undefined && command !== "render") usage("--view goes with render.");
 if (values.layout !== undefined && values.view === undefined) usage("--layout goes with --view.");
+if (values.pdf && command !== "render") usage("--pdf goes with render.");
+if (values.pdf && values.view !== undefined)
+  usage("--pdf plots whole sheets, and --view draws one rectangle.");
+if (values.pdf && values["draw-no-plot"]) {
+  usage("--pdf plots the sheets as they plot, and --draw-no-plot draws layers a plot leaves out.");
+}
 
 if (command === "dev") {
   const { dev } = await import("./dev.ts");
@@ -164,6 +178,8 @@ if (command === "dev") {
     pngFonts: [],
     layouts,
     view: null,
+    pdf: null,
+    pdfError: null,
   };
   let failed: BuildError | null = null;
   const dir = resolve(values.out ?? join(file, "..", "out"));
@@ -210,6 +226,7 @@ if (command === "dev") {
       }
       // Each layout's sheet, beside the picture of model space.
       const taken = new Set<string>();
+      const sheets: { stem: string; svg: string }[] = [];
       for (const sheet of outcome.layouts) {
         const stem = layoutFile(name, sheet.name, taken);
         path = join(dir, `${stem}.svg`);
@@ -220,6 +237,10 @@ if (command === "dev") {
           png: null as string | null,
           pngError: unavailable,
           pngFonts: pngFonts(sheet.fonts, sheet.svg),
+          pdf: null as string | null,
+          pdfError: null as string | null,
+          pdfFonts: sheet.fonts.map((font) => ({ font, face: pdfFace(font) })),
+          pdfMissing: null as string | null,
         };
         if (unavailable === null) {
           path = join(dir, `${stem}.png`);
@@ -227,6 +248,40 @@ if (command === "dev") {
           if (made.pngError === null) made.png = path;
         }
         layouts.push(made);
+        sheets.push({ stem, svg: sheet.svg });
+      }
+      // Each sheet, then the set: a page for each sheet, in the order of the layouts.
+      if (values.pdf && sheets.length > 0) {
+        const omitted = outcome.drawing?.omitted?.length ?? 0;
+        if (omitted > 0) {
+          outputs.pdfError =
+            "The build left out what lint refused, which drawing.omitted lists, so its sheets are not plotted";
+          for (const made of layouts) made.pdfError = outputs.pdfError;
+        } else {
+          for (const [i, sheet] of sheets.entries()) {
+            const made = layouts[i]!;
+            const plotted = await plot([sheet.svg]);
+            made.pdfError = plotted.error;
+            if (plotted.pdf) {
+              path = join(dir, `${sheet.stem}.pdf`);
+              writeFileSync(path, plotted.pdf);
+              made.pdf = path;
+              made.pdfMissing = plotted.missing[0] ?? "";
+            }
+          }
+          const unplotted = layouts.find((made) => made.pdf === null);
+          if (unplotted) {
+            outputs.pdfError = `The sheet ${JSON.stringify(unplotted.name)} could not be plotted, so the set is not`;
+          } else {
+            const plotted = await plot(sheets.map((sheet) => sheet.svg));
+            outputs.pdfError = plotted.error;
+            if (plotted.pdf) {
+              path = join(dir, `${name}.pdf`);
+              writeFileSync(path, plotted.pdf);
+              outputs.pdf = path;
+            }
+          }
+        }
       }
     }
   } catch (error) {
@@ -240,6 +295,7 @@ if (command === "dev") {
     png: outputs.png,
     "view.svg": outputs.view?.svg ?? null,
     "view.png": outputs.view?.png ?? null,
+    pdf: outputs.pdf,
   })) {
     if (written !== null || values.out !== undefined) continue;
     const old = join(dir, `${name}.${kind}`);
@@ -251,10 +307,14 @@ if (command === "dev") {
   }
   // The same for the picture of a layout the drawing no longer has.
   if (values.out === undefined && existsSync(dir)) {
-    const kept = new Set(layouts.flatMap((made) => [made.svg, made.png]));
+    const kept = new Set(layouts.flatMap((made) => [made.svg, made.png, made.pdf]));
     for (const entry of readdirSync(dir)) {
       const old = join(dir, entry);
-      if (!entry.startsWith(`${name}.layout-`) || !/\.(svg|png)$/.test(entry) || kept.has(old)) {
+      if (
+        !entry.startsWith(`${name}.layout-`) ||
+        !/\.(svg|png|pdf)$/.test(entry) ||
+        kept.has(old)
+      ) {
         continue;
       }
       try {

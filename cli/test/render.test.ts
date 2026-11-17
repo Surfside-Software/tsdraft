@@ -97,6 +97,8 @@ test("a file that throws gives the error, its file and line, and a non-zero exit
     pngFonts: [],
     layouts: [],
     view: null,
+    pdf: null,
+    pdfError: null,
   });
   assert.match(thrown.state.error!.message, /^radius: /);
   assert.equal(thrown.state.error!.file, thrower);
@@ -158,6 +160,8 @@ test("a build that fails leaves no picture from an earlier run in the default fo
     pngFonts: [],
     layouts: [],
     view: null,
+    pdf: null,
+    pdfError: null,
   });
   assert.deepEqual([existsSync(outputs.svg!), existsSync(outputs.png!)], [false, false]);
 });
@@ -492,8 +496,12 @@ test("a throw in an imported helper is placed in the helper", () => {
 });
 
 /** Runs `tsdraft dev` on a file for the length of `use`, and gives it the server's address. */
-async function withDev(file: string, use: (base: string) => Promise<void>): Promise<void> {
-  const server = spawn(process.execPath, [join(root, "src/cli.ts"), "dev", file], {
+async function withDev(
+  file: string,
+  use: (base: string) => Promise<void>,
+  flags: readonly string[] = [],
+): Promise<void> {
+  const server = spawn(process.execPath, [join(root, "src/cli.ts"), "dev", file, ...flags], {
     stdio: ["ignore", "pipe", "inherit"],
   });
   try {
@@ -559,7 +567,9 @@ test("dev rebuilds when a file outside the project that the drawing imports chan
     await withDev(file, async (base) => {
       const first = (await (await fetch(`${base}/state.json?after=0`)).json()) as BuildState;
       assert.deepEqual(first.drawing?.extents.max, [10, 0]);
-      writeFileSync(helper, "export const width = 20;\n");
+      // Saved by a rename, as one change, for the reason the test above gives.
+      writeFileSync(`${helper}.new`, "export const width = 20;\n");
+      renameSync(`${helper}.new`, helper);
       const next = await fetch(`${base}/state.json?after=1&session=${first.session}`);
       const state = (await next.json()) as BuildState;
       assert.equal(next.status, 200);
@@ -782,10 +792,31 @@ test("a drawing with a layout gets a picture of its sheet, and the state says wh
   assert.equal(sheet?.svg, join(dir, "out", "plan.layout-Fields.svg"));
   assert.match(readFileSync(sheet!.svg, "utf8"), /viewBox="0 -11 17 11" data-layout="Fields"/);
   assert.ok(sheet?.png && existsSync(sheet.png));
-  // A layout the drawing no longer has leaves no picture behind.
+  // With --pdf the set is a page for each sheet, in order, and each sheet is a PDF of its own.
+  const plotted = render(plan, "--pdf").state.outputs;
+  assert.equal(plotted.pdf, join(dir, "out", "plan.pdf"));
+  assert.match(readFileSync(plotted.pdf!, "latin1"), /^%PDF-1\.7\n[\s\S]*\/Count 2 /);
+  assert.equal(plotted.layouts[1]?.pdf, join(dir, "out", "plan.layout-Fields.pdf"));
+  assert.match(readFileSync(plotted.layouts[1]!.pdf!, "latin1"), /\/MediaBox \[0 0 1224 792\]/);
+  // It says the face each font is set in, and that no character of its texts is missing.
+  assert.deepEqual(
+    [plotted.layouts[1]!.pdfFonts, plotted.layouts[1]!.pdfMissing],
+    [
+      [
+        { font: "Arial", face: "Helvetica" },
+        { font: "txt.shx", face: "Courier" },
+      ],
+      "",
+    ],
+  );
+  // A layout the drawing no longer has leaves no picture behind, and no plot.
   writeFileSync(plan, `export default ${JSON.stringify({ ...drawing, layouts: [] })};\n`);
   assert.deepEqual(render(plan).state.outputs.layouts, []);
   assert.equal(existsSync(sheet!.svg), false);
+  assert.deepEqual(
+    [existsSync(plotted.pdf!), existsSync(plotted.layouts[1]!.pdf!)],
+    [false, false],
+  );
 });
 
 test("the state lists each dimension with the number it measures and the text AutoCAD draws", () => {
@@ -1259,7 +1290,15 @@ test("render --view draws one rectangle of model space or of a layout, and nothi
   assert.equal(model.status, 0);
   assert.equal(model.state.diagnostics.length, 3);
   const { view, ...others } = model.state.outputs;
-  assert.deepEqual(others, { svg: null, png: null, pngError: null, pngFonts: [], layouts: [] });
+  assert.deepEqual(others, {
+    svg: null,
+    png: null,
+    pngError: null,
+    pngFonts: [],
+    layouts: [],
+    pdf: null,
+    pdfError: null,
+  });
   assert.deepEqual(view, {
     layout: null,
     box: { min: [8, 5.5], max: [18.5, 7] },
@@ -1380,3 +1419,24 @@ export default d.build();
     assert.ok(existsSync(good!.png!));
   },
 );
+
+test("dev plots the set and a sheet on request, and no picture that draws what does not plot", async () => {
+  const sheet = join(root, "../examples/site-plan.ts");
+  await withDev(sheet, async (base) => {
+    const state = (await (await fetch(`${base}/state.json?after=0`)).json()) as BuildState;
+    const set = await fetch(state.outputs.pdf!);
+    assert.equal(set.status, 200);
+    assert.equal(Buffer.from(await set.arrayBuffer()).toString("latin1", 0, 8), "%PDF-1.7");
+    assert.equal((await fetch(`${base}/drawing.pdf?layout=No%20such`)).status, 404);
+  });
+  await withDev(
+    sheet,
+    async (base) => {
+      const state = (await (await fetch(`${base}/state.json?after=0`)).json()) as BuildState;
+      assert.equal(state.outputs.pdf, null);
+      assert.match(state.outputs.pdfError!, /--draw-no-plot/);
+      assert.equal((await fetch(`${base}/drawing.pdf`)).status, 409);
+    },
+    ["--draw-no-plot"],
+  );
+});

@@ -13,6 +13,28 @@ A drawing without a leader style writes the same DXF as before. Two changes brea
 
 The rest is new:
 
+- Plotting. `toPDF(drawing, { layouts, xrefs, deflate })` plots a drawing's layouts to one PDF, a
+  page for each, in the drawing's order or the order of `layouts`: a sheet alone, or the set.
+  Each page is the picture `toSVG` draws of the sheet: the paper at its size, each viewport at
+  its scale and clipped to its rectangle, each pen in the color its plot style table gives it
+  and as wide as its lineweight, with round ends, each layer a layer of the PDF, and each text
+  where it plots in Helvetica, Times or Courier, as high and as long as it plots. `svgToPDF`
+  plots pictures `toSVG` drew of layouts, for a set whose sheets are files of their own. The
+  same drawing gives the same bytes. [docs/plotting.md](docs/plotting.md) describes it.
+- `tsdraft render --pdf` writes the set and each sheet as PDFs, listed as `outputs.pdf` and
+  `outputs.layouts[].pdf`, and `tsdraft dev` serves them at `/drawing.pdf` and links them on its
+  page.
+- A dash pattern is fitted to each line, side of a polyline and arc: it holds as many whole
+  patterns as fit, and its first and last dash are each half of the pattern's first dash and of
+  what is left over. A pattern that starts with a dot has a dot at each end, and what is left
+  over lengthens the gaps beside them. A circle holds the whole number of patterns nearest its length, stretched
+  alike to go round it from a dash at its angle 0. One shorter than its pattern is solid. A dash
+  of an entity in a block is as long whatever the insert's scale, where it grew with the
+  insert. Dashes started at the start of each stretch before, so the pictures of dashed lines
+  change.
+- A picture of a layout ends and joins its lines round, as a plotted pen does, and is stamped
+  with its format, `data-picture`, the font of each text, `data-font`, and the lines drawn as
+  the thinnest the printer draws, `data-thinnest`.
 - Leaders, in R2018 drawings. `d.leaderStyle(definition)` defines a style with a text style,
   a text height, an arrowhead (`"closed-filled"`, `"open"`, `"dot"` or `"none"`), an arrow
   size, a landing, a gap, an attachment to the note's first or last line, and a scale.

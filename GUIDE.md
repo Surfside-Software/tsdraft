@@ -116,6 +116,10 @@ file it imports, is saved. The same server answers you without a browser:
 read and returns the same JSON, and `/drawing.png?width=<px>` is the picture. The command runs
 until it is stopped, so start it in the background.
 
+To hand over the sheets, run `npx tsdraft render plan.ts --pdf`: it writes the set as
+`plan.pdf`, a page for each layout in order, and each sheet as `plan.layout-<layout>.pdf`, at
+the paths in `outputs.pdf` and `outputs.layouts[].pdf`. Each page is the sheet the PNG shows.
+
 ## What the JSON holds
 
 `render` printed this for the file above, shortened here to what you read first:

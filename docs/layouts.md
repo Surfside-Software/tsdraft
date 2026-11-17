@@ -176,6 +176,21 @@ pattern times the drawing's `linetypeScale`, whatever the viewport's scale. `DAS
 linetype scale of 0.5 plots a 1/4 inch dash at 1" = 10' and at 1" = 20' alike. So in a drawing
 that has a layout, `linetypeScale` is a length of paper.
 
+A pattern is fitted to each line, each side of a polyline and each arc. The stretch holds as
+many whole patterns as fit in it, and its first and last dash are each half of the pattern's
+first dash and of what is left over, so a line starts and ends with a dash of the same length.
+`DASHED` at 0.5, a 1/4 inch dash and a 1/8 inch gap, on a line 9 1/2 inches long on the sheet,
+holds 25 patterns with 1/8 inch over: it starts and ends with a dash 3/16 inch long. A circle
+holds the whole number of patterns nearest its length, each stretched or shrunk alike to go
+round it exactly, from a dash at its angle 0: a circle 4 inches across on the sheet holds 33.5
+of those patterns, and is drawn with 34 a little shorter. A line, side, arc or circle shorter
+than its pattern is solid. A pattern that starts with a dot is fitted the same way, with a dot
+at each end: what is left over lengthens the gap after the first dot and the gap before the
+last. A
+dash of an entity in a block is as long as one outside it, whatever the insert's scale; a
+circle under an uneven scale and an arc under a mirroring insert are the two exceptions that
+[Blocks](blocks.md#the-preview) gives.
+
 On the model tab the same dashes are that many drawing units long: a quarter of a foot across
 a plan 100 feet wide, which reads as a solid line. The picture of model space, `toSVG` with no
 `layout`, shows them that way too. Judge linetypes on the picture of the layout.

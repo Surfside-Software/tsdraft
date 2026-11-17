@@ -6,13 +6,17 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import { dirname, join, relative, sep } from "node:path";
 import { Builder, projectRoot, toState, type Outcome } from "./build.ts";
+import { pdfFace } from "tsdraft";
 import { pngFonts } from "./fonts.ts";
+import { plot } from "./pdf.ts";
 import { pngUnavailable, startRenderer, toPNG } from "./png.ts";
 import type { BuildState } from "./state.ts";
 import { fileVersion } from "./version.ts";
 import type { FileVersion } from "./worker.ts";
 
 const DEFAULT_PORT = 4610;
+/** How many PDFs of the build on screen are kept. */
+const PDF_CACHE = 4;
 const HOST = "127.0.0.1";
 /** Editors often write a file in more than one step; wait this long for the last one. */
 const SETTLE_MS = 8;
@@ -59,6 +63,8 @@ export async function dev(
     layout: string | null;
     png: Promise<{ png: Buffer; width: number }>;
   }[] = [];
+  /** Each PDF made of the build on screen, by its layout, `""` for the set. */
+  const pdfs = new Map<string, ReturnType<typeof plot>>();
   let base = "";
   /** The number of the latest build started. */
   let build = 0;
@@ -161,17 +167,37 @@ export async function dev(
       if (timer === undefined) void rebuild();
       return;
     }
-    if (outcome.ok && outcome.svg) pngs = [];
+    if (outcome.ok && outcome.svg) {
+      pngs = [];
+      pdfs.clear();
+    }
     const shownBuild = outcome.ok ? number : (shown?.build ?? null);
-    const picture = (kind: "svg" | "png", layout?: string): string =>
+    const picture = (kind: "svg" | "png" | "pdf", layout?: string): string =>
       `${base}/drawing.${kind}?session=${session}&build=${shownBuild}${
         layout === undefined ? "" : `&layout=${encodeURIComponent(layout)}`
       }`;
     // After a failed build the pictures are still those of the build on screen.
     const sheets = outcome.ok ? outcome.layouts : (shown?.layouts ?? []);
+    // Pictures that draw the layers a plot leaves out, or that leave out what lint refused, are
+    // not plotted.
+    const leftOut = (outcome.ok ? outcome.drawing : shown?.state.drawing)?.omitted?.length ?? 0;
+    const noPdf = options.drawNoPlot
+      ? "The preview draws the layers that do not plot, with --draw-no-plot, so it plots no PDF"
+      : leftOut > 0
+        ? "The build left out what lint refused, which drawing.omitted lists, so its sheets are not plotted"
+        : null;
     const outputs: BuildState["outputs"] =
       shownBuild === null
-        ? { svg: null, png: null, pngError: null, pngFonts: [], layouts: [], view: null }
+        ? {
+            svg: null,
+            png: null,
+            pngError: null,
+            pngFonts: [],
+            layouts: [],
+            view: null,
+            pdf: null,
+            pdfError: null,
+          }
         : {
             svg: picture("svg"),
             png: noPng ? null : picture("png"),
@@ -185,8 +211,14 @@ export async function dev(
               png: noPng ? null : picture("png", name),
               pngError: noPng,
               pngFonts: pngFonts(fonts, svg),
+              pdf: noPdf ? null : picture("pdf", name),
+              pdfError: noPdf,
+              pdfFonts: fonts.map((font) => ({ font, face: pdfFace(font) })),
+              pdfMissing: null,
             })),
             view: null,
+            pdf: sheets.length > 0 && !noPdf ? picture("pdf") : null,
+            pdfError: sheets.length > 0 ? noPdf : null,
           };
     state = toState(outcome, session, number, file, shownBuild, outputs);
     if (pending === number) pending = null;
@@ -294,7 +326,8 @@ export async function dev(
         return;
       }
       case "/drawing.svg":
-      case "/drawing.png": {
+      case "/drawing.png":
+      case "/drawing.pdf": {
         if (!shown) {
           res.writeHead(404, plain).end("No build has made a drawing yet");
           return;
@@ -316,6 +349,48 @@ export async function dev(
         }
         // Model space, or with `layout` the sheet of that layout.
         const layout = url.searchParams.get("layout");
+        if (url.pathname === "/drawing.pdf") {
+          // The set, a page for each sheet in order, or with `layout` that sheet alone, made
+          // from the pictures on screen.
+          const sheets =
+            layout === null
+              ? shown.layouts
+              : shown.layouts.filter((sheet) => sheet.name === layout);
+          if (sheets.length === 0) {
+            res
+              .writeHead(404, { ...stamp, "content-type": "text/plain" })
+              .end(
+                layout === null
+                  ? `Build ${shown.build} has no layout to plot.\n`
+                  : `Build ${shown.build} has no layout named ${layout}.\n`,
+              );
+            return;
+          }
+          const refused = shown.state.outputs.pdfError;
+          if (refused !== null) {
+            res.writeHead(409, { ...stamp, "content-type": "text/plain" }).end(`${refused}.\n`);
+            return;
+          }
+          const key = layout ?? "";
+          let made = pdfs.get(key);
+          if (!made) {
+            made = plot(sheets.map((sheet) => sheet.svg));
+            // A plot that failed, as at its deadline, is tried again when asked again.
+            const failed = made;
+            void made.then(
+              ({ error }) => error !== null && pdfs.get(key) === failed && pdfs.delete(key),
+            );
+          }
+          // The last few PDFs asked for are kept, each of which may be large.
+          pdfs.delete(key);
+          pdfs.set(key, made);
+          for (const old of pdfs.keys()) if (pdfs.size > PDF_CACHE) pdfs.delete(old);
+          void made.then(({ pdf, error }) => {
+            if (pdf) res.writeHead(200, { ...stamp, "content-type": "application/pdf" }).end(pdf);
+            else res.writeHead(500, { ...stamp, "content-type": "text/plain" }).end(`${error}\n`);
+          });
+          return;
+        }
         const source =
           layout === null ? shown.svg : shown.layouts.find((sheet) => sheet.name === layout)?.svg;
         if (source === undefined) {

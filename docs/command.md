@@ -42,7 +42,7 @@ every build sees the code as it is now. A build that runs longer than `--timeout
 
 ## Commands
 
-`tsdraft render <file> [--out <dir>] [--width <px>] [--draw-no-plot]` builds once, runs `lint`,
+`tsdraft render <file> [--out <dir>] [--width <px>] [--draw-no-plot] [--pdf]` builds once, runs `lint`,
 with the file's export `standard` when it has one,
 `inspectText` and, for a file that exports `intent`, `checkIntent`, writes `<name>.svg` and a `<name>.png` 1600 px wide to `out/` beside the
 file, and prints one JSON object. With `--view`, it writes one rectangle of the drawing and
@@ -57,6 +57,17 @@ write this run stays as it was, and `outputs` gives `null` for it. The pictures 
 as it plots: a layer that does not plot is left out, as one that is off or frozen is, and
 `--draw-no-plot` draws those layers too. `tsdraft dev` takes the same flag. The colors are the
 ones a plot gives each pen, so the darkest pens are faint on the dark preview.
+
+With `--pdf`, `render` also plots the sheets of a drawing with layouts: `<name>.layout-<layout>.pdf`,
+each sheet alone, in `outputs.layouts[].pdf`, and `<name>.pdf`, the set, with a page for each
+layout in order, in `outputs.pdf`. Each is made from the picture of its sheet, as
+[Plotting](plotting.md) says, so it is the sheet the PNG shows. Each sheet gives the face each
+of its fonts is set in, in `pdfFonts`, and the characters those faces lack, which it sets as `?`,
+in `pdfMissing`. A sheet that cannot be plotted has `null` there and the reason in `pdfError`,
+the set is then not plotted either, and the run goes on with its exit code as it would be. A
+build that left out what `lint` refused, which `drawing.omitted` lists, is not plotted. Each
+plot runs in a process of its own, one at a time, which ends at two minutes. `--pdf` does not go with `--view`
+or `--draw-no-plot`, and without it every PDF is `null`.
 
 `tsdraft dev <file> [--port <n>]` serves a live preview at `http://127.0.0.1:4610`, or the next
 free port when that one is taken. It rebuilds when you save the file or any file it imports,
@@ -76,10 +87,13 @@ entities are not drawn. Each diagnostic shows the call that drew its entity. Cli
 | `/drawing.svg?session=<s>&build=<n>` | The drawing on screen; 409 when build `n` of session `s` is not on screen |
 | `/drawing.png?width=<px>`            | The same, as a PNG, rasterized only when asked for                        |
 | `/drawing.svg?layout=<name>`         | The sheet of a layout as it plots. The PNG takes `layout` too             |
+| `/drawing.pdf`                       | The set: a page for each layout, in order, made when asked for            |
+| `/drawing.pdf?layout=<name>`         | The sheet of that layout alone, as a PDF                                  |
 | `/events`                            | Server-Sent Events: `hello`, then `start` and `build` per build           |
 
 Each response has an `x-tsdraft-session` header, and each state or picture an `x-tsdraft-build`
-header that gives the build it came from. A PNG is at most
+header that gives the build it came from. The page links the PDF of the sheet on screen and of
+the set, and `/state.json` gives their URLs in `outputs.pdf` and `outputs.layouts[].pdf`. A PNG is at most
 16 million pixels; a wider request is narrowed, and `x-tsdraft-width` gives the width used.
 
 ## A closer look

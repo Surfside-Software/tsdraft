@@ -21,6 +21,7 @@ import { written } from "../src/format.ts";
 import { inspectWithin } from "../src/inspect.ts";
 import { lintWithin } from "../src/lint.ts";
 import { measureText } from "../src/measure.ts";
+import { svgToPDF } from "../src/pdf.ts";
 import { svgWithin } from "../src/svg.ts";
 import { toDXFR2018 } from "../src/dxf-r2018.ts";
 
@@ -1306,6 +1307,18 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
       ],
       ["toSVG", () => svgWithin(d, {}, 20_000)],
       ["toSVG of the layout", () => svgWithin(d, { layout: "C-101" }, 20_000)],
+      [
+        "the PDF of the layout",
+        () => {
+          let picture: string;
+          try {
+            picture = svgWithin(d, { layout: "C-101" }, 20_000);
+          } catch {
+            return undefined;
+          }
+          return svgToPDF([picture]);
+        },
+      ],
     ];
     for (const [name, fn] of fns) {
       let result: unknown;
@@ -1313,6 +1326,14 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
         result = settled(1000, fn);
       } catch (thrown) {
         assert.fail(`case ${n}, ${name}: ${String((thrown as Error)?.message ?? thrown)}`);
+      }
+      // The PDF reads every picture toSVG draws: it refuses only a point too far off its page.
+      if (name === "the PDF of the layout" && !(result instanceof Uint8Array)) {
+        assert.ok(
+          result === undefined ||
+            (result instanceof RangeError && /numbers under 10\^15/.test(result.message)),
+          `case ${n}: the PDF of the layout gave ${String(result)}`,
+        );
       }
       if (name === "lint") {
         assert.ok(Array.isArray(result), `case ${n}: lint threw ${String(result)}`);

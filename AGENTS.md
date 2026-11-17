@@ -183,7 +183,12 @@
   by `item`, a path such as `setbacks[0]`, so a later check of intent gets a field of
   `Intent` of its own and adds no field to the warning.
 - AutoCAD sizes dashes on the paper in a viewport, so `toSVG` scales a pattern by the
-  linetype scale over the viewport's scale there. `toSVG` draws a layout with `elements`, the
+  linetype scale over the viewport's scale there. It fits a pattern to each line, side of a
+  polyline and arc: the stretch holds as many whole patterns as fit, its first and last dash
+  are each half of the first dash and of what is left over, and a stretch shorter than its
+  pattern is solid. A circle holds the whole number of patterns nearest its length, stretched
+  alike to go round it, from a dash at angle 0. `cut` in `dashedPath` is the one place that
+  does it. `toSVG` draws a layout with `elements`, the
   walk it draws model space with, under a `Look` that says how wide and what color a pen is.
 - A rule AutoCAD enforces lives in `src/rules.ts` twice: as a type, so a wrong
   literal is a compile error, and as a runtime check with the same message. The
@@ -290,6 +295,19 @@
   understand under `unread`. A group's default, such as the text style `Standard`, is filled in,
   since AutoCAD leaves a default out. `checkDrawingRead` holds a reader's answer to the model's
   fields: change both together, and the reading page, `docs/reading.md`.
+- `src/pdf.ts` plots layouts to PDF from the pictures `toSVG` draws of them, and decides
+  nothing about a drawing: every rule of what a sheet plots stays in `toSVG`, so the preview
+  and the plot cannot part. It reads the closed set of elements and attributes `toSVG` writes
+  for a layout, and refuses any other with a `RangeError` that names it, so a new element in
+  `toSVG` is drawn in the PDF in the same pull request or fails `test/pdf.test.ts`. It reads
+  each picture once, with a sticky pattern that refuses what it cannot read, and writes in
+  proportion to it. Each point is mapped to the page and written in points with three
+  decimals, never with an exponent. Text is set in Helvetica, Times or Courier with widths from
+  `src/font-metrics.ts` and stretched with `Tz` to the length `toSVG` holds it to. The library
+  has no zlib, so a caller passes `deflate`. The same pictures give the same bytes. A picture of
+  a layout says its format in `data-picture`, `SHEET_PICTURE` in `src/svg.ts`, and `svgToPDF`
+  reads no other: raise it in the pull request that changes what an element or an attribute of
+  such a picture means, since the closed list catches a new one and not a changed one.
 - The writers print numbers with 6 decimals. `written` in `src/format.ts` is that
   rounding, and `lint` judges sizes, points and arc angles as written. A new
   check on a number must do the same.
