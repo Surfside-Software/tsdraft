@@ -213,7 +213,8 @@ it would take `1e+100` for `1e+10` and report nothing.
   in `dimensionStyles`, `leader-style` for one in `leaderStyles`, `layout` for a layout,
   `viewport` for a viewport, and `format` for the rest, which an entity of a sheet is.
   No other rule is checked on an object of the wrong shape, and what names it gets no error
-  for that. A `Proxy` is code, not data, and nothing can tell one from data without asking it:
+  for that. An object that a drawing made in code shares among many places is reported where it
+  is first met. A `Proxy` is code, not data, and nothing can tell one from data without asking it:
   `lint` reads one as the data its traps give and calls them in proportion to what it reads, so
   a trap that throws or never returns does so inside `lint`. The error's `item` is the path of
   the item to leave out, such as `entities[3]` or `layouts[0].viewports[1]`. An error about a layout's paper or about a viewport with no
@@ -243,13 +244,17 @@ it would take `1e+100` for `1e+10` and report nothing.
   each attribute an insert places and each handle it takes past its first 64, a tag of 256
   characters or more each time an insert's values are searched for it, what each
   dimension reads from its style's prefix and suffix, the way back through a cycle of blocks,
-  which each block of the cycle's error names while there is room, and the extents of model
-  space and of each layout, which the DXF holds and each viewport is held against. They are bounded: they do at most
+  which each block of the cycle's error names while there is room, the extents of model
+  space and of each layout, which the DXF holds and each viewport is held against, and a list,
+  a list of 64 points or more, an insert's values past the first 64, or a string of 256
+  characters or more that a drawing made in code shares among many places, each time it is read
+  again. They are bounded: they do at most
   500,000 units of work, and 16 more for each entity and attribute definition the drawing holds,
+  counting a shared list once,
   so a drawing that repeats far more than it holds gets this one warning, which says where they
-  stopped. Every other check takes time in proportion to the drawing, and blocks nested to any
-  depth cost what they hold, not what they draw. `toDXF` refuses a drawing with this warning,
-  since a problem past that point would go unreported.
+  stopped, and no entity past there is checked. Every other check takes time in proportion to
+  the drawing, and blocks nested to any depth cost what they hold, not what they draw. `toDXF`
+  refuses a drawing with this warning, since a problem past that point would go unreported.
 
 `toDXF` throws a `DrawingError` for errors, and for `check-capped`. Its `diagnostics` property holds
 them, and other code may throw one to refuse a drawing for its own reasons.
@@ -329,11 +334,15 @@ Warnings:
   measures it.
 - `discipline-unknown`: the entries with fields by discipline that `lint` checked in none of
   their forms, since it was not given the drawing's discipline.
-- `standard-check-capped`: where the checks of text heights and dimension scales stopped. They
+- `standard-check-capped`: where the checks of text heights and dimension scales, or of a list
+  or a long string that a drawing made in code shares among many places, stopped. They
   are bounded, counting each text, each dimension by the length of what its label reads, its
   style's name, its own text and its style's prefix, suffix and text style, each insert they walk
   and each item of the block it enters, each name they read the first time, by its length, and
-  each error by the length of its message. They enter only a block that can draw a text, so a
+  each error by the length of its message. The checks of layers, pens and text styles pay for
+  a list each time another block reads it, each error from it by the length of its message, and
+  a string of 256 characters or more each time another place holds it. They enter only a block
+  that can draw a text, so a
   drawing with no text in its blocks costs nothing to walk. A drawing that draws more than they
   look through gets one warning that says where they stopped. The other checks take time in proportion to the drawing, the standard and the
   problems they report: a standard given as data gets one problem for each pair of its names

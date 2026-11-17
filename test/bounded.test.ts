@@ -5,6 +5,7 @@ import sheet, { standard } from "../examples/site-plan.ts";
 import {
   createDrawing,
   DrawingError,
+  fromJSON,
   inspectText,
   lint,
   toDXF,
@@ -21,6 +22,7 @@ import { written } from "../src/format.ts";
 import { inspectWithin } from "../src/inspect.ts";
 import { lintWithin } from "../src/lint.ts";
 import { measureText } from "../src/measure.ts";
+import { Strings } from "../src/shape.ts";
 import { svgToPDF } from "../src/pdf.ts";
 import { svgWithin } from "../src/svg.ts";
 import { toDXFR2018 } from "../src/dxf-r2018.ts";
@@ -122,7 +124,7 @@ test("a chain of blocks deeper than the stack is followed to its end", () => {
     [],
   );
   assert.deepEqual(
-    within(2000, () => extents([chain.top], [], chain.blocks)),
+    within(2000, () => extents([chain.top], [], chain.blocks).map(written)),
     [0, 0, 1, 1],
   );
   assert.deepEqual(
@@ -205,6 +207,9 @@ test("every walk stops at the first empty slot of a list", () => {
     { ...sheet, layouts: slots() },
     holed({ entities: slots() }),
     holed({ attributes: slots() }),
+    // oxlint-disable-next-line no-sparse-arrays
+    holed({ attributes: [undefined, , undefined] as never }),
+    holed({ attributes: [null, 1, "A"] as never }),
     { ...sheet, layouts: [{ ...layout, entities: slots() }] },
     { ...sheet, layouts: [{ ...layout, viewports: slots() }] },
     {
@@ -226,7 +231,8 @@ test("every walk stops at the first empty slot of a list", () => {
       () => toSVG(drawing, { layout: "C-101" }),
       () => extents(drawing.entities, drawing.textStyles, drawing.blocks),
     ]) {
-      settled(1000, fn);
+      const result = settled(1000, fn);
+      assert.ok(!(result instanceof Error) || result instanceof RangeError, String(result));
     }
   }
 });
@@ -301,7 +307,7 @@ const holds = (outer: readonly number[], inner: readonly number[]): boolean =>
   outer[2]! >= inner[2]! &&
   outer[3]! >= inner[3]!;
 
-test("a block's box is a walk's to the last bit, and never smaller through a cycle or past the limit", () => {
+test("a block's box holds a walk's, and is a walk's where no insert is turned", () => {
   const random = seeded(7);
   const pick = <T>(items: readonly T[]): T => items[Math.floor(random() * items.length)]!;
   const point = (): Point => [random() * 100 - 50, random() * 100 - 50];
@@ -314,6 +320,8 @@ test("a block's box is a walk's to the last bit, and never smaller through a cyc
     // Moves that cancel on the way down, and a cycle with inserts of its blocks from outside.
     const far = random() < 0.2;
     const cyclic = random() < 0.15;
+    const level = random() < 0.4;
+    const turn = (...angles: number[]): number => (level ? 0 : pick([...angles, random() * 360]));
     const blocks: Block[] = [];
     const depth = 1 + Math.floor(random() * 5);
     for (let i = 0; i < depth; i++) {
@@ -337,7 +345,7 @@ test("a block's box is a walk's to the last bit, and never smaller through a cyc
           at: far
             ? [(i % 2 === 0 ? 1e16 : -1e16) + random(), 0]
             : [random() * 200 - 100, random() * 200 - 100],
-          rotation: pick([0, 90, 180, -90, random() * 360]),
+          rotation: turn(0, 90, 180, -90),
           scale: pick<[number, number]>([
             [1, 1],
             [2, 2],
@@ -375,7 +383,7 @@ test("a block's box is a walk's to the last bit, and never smaller through a cyc
       layer: pick(["0", "A", "H", "F"]),
       block: cyclic ? `B${Math.floor(random() * depth)}` : `B${depth - 1}`,
       at: [random() * 1000, random() * 1000],
-      rotation: pick([0, 90, random() * 360]),
+      rotation: turn(0, 90),
       scale: pick<[number, number]>([
         [1, 1],
         [3, -3],
@@ -384,14 +392,23 @@ test("a block's box is a walk's to the last bit, and never smaller through a cyc
     }));
     const expected = walkedExtents(top, blocks, hidden, frozen);
     const found = boxer([], blocks, hidden, frozen)(top) ?? none;
-    if (cyclic) assert.ok(holds(found, expected), `drawing ${n}: ${found} for ${expected}`);
-    else assert.deepEqual(found, expected, `drawing ${n}`);
-    if (!far) assert.deepEqual(found.map(written), expected.map(written), `drawing ${n}`);
-    // With no walks left a placement maps the outline of all its block draws.
+    assert.ok(holds(found, expected), `drawing ${n}: ${found} for ${expected}`);
+    // A walk of the blocks with their matrices composed is a walk's, through a cycle too.
+    if (level) assert.deepEqual(found.map(written), expected.map(written), `drawing ${n}`);
+    // A turned box is larger than what it holds by no more than its own size at each level.
+    if (!far && expected[0] !== Infinity) {
+      const reach = 2 ** (depth + 1) * (expected[2]! - expected[0]! + expected[3]! - expected[1]!);
+      const grown = [-reach, -reach, reach, reach].map((d, i) => expected[i]! + d);
+      assert.ok(holds(grown, found), `drawing ${n}: ${found} for ${expected}`);
+    }
+    // With no walks left past each placement's first 64 blocks, a placement maps the box of
+    // all its block draws, widened by what rounding can move a number on the way.
     if (!cyclic) {
-      const outlined = boxer([], blocks, hidden, frozen, undefined, [], [], 0)(top) ?? none;
-      assert.ok(holds(outlined, expected), `drawing ${n}: ${outlined} for ${expected}`);
-      if (!far) assert.deepEqual(outlined.map(written), expected.map(written), `drawing ${n}`);
+      const unpaid = boxer([], blocks, hidden, frozen, undefined, [], [], 0)(top) ?? none;
+      assert.ok(holds(unpaid, expected), `drawing ${n}: ${unpaid} for ${expected}`);
+      if (level && !far) {
+        assert.deepEqual(unpaid.map(written), expected.map(written), `drawing ${n}`);
+      }
     }
   }
 });
@@ -625,7 +642,7 @@ test("a cycle's box holds what each way in draws", () => {
   assert.ok(holds(extents(top, [], blocks), walkedExtents(top, blocks, never, never)));
 });
 
-test("moves that cancel through nested inserts keep what they draw", () => {
+test("moves that cancel through nested inserts never lose what they draw", () => {
   const blocks: Block[] = [
     { name: "B0", base: [0, 0], entities: [line] },
     {
@@ -640,51 +657,61 @@ test("moves that cancel through nested inserts keep what they draw", () => {
     },
   ];
   const top: Insert = { kind: "insert", layer: "0", block: "B2", at: [0, 0] };
-  assert.deepEqual(extents([top], [], blocks), [0, 0, 1, 1]);
-  // Mapped as an outline, the box is widened by what rounding on the way can lose.
-  const wide: Block[] = [
-    ...blocks.slice(0, 2),
-    {
-      name: "B2",
-      base: [0, 0],
-      entities: Array.from({ length: 100 }, () => blocks[2]!.entities[0]!),
-    },
-  ];
-  assert.ok(
-    holds(boxer([], wide, undefined, undefined, undefined, [], [], 0)([top])!, [0, 0, 1, 1]),
-  );
+  // The box of B1 rounds the line away at 1e16, and is widened by what rounding can lose.
+  const box = extents([top], [], blocks);
+  assert.ok(holds(box, [0, 0, 1, 1]), String(box));
+  assert.ok(holds([-200, -200, 200, 200], box), String(box));
 });
 
 test("a limit that is reached is never silent", () => {
-  const long: Block = {
-    name: "LONG",
+  const definitions = (count: number, value = "V") =>
+    Array.from({ length: count }, (_, i) => ({
+      tag: `T${i}`,
+      value,
+      layer: "0",
+      at: [0, i] as Point,
+      height: 1,
+      rotation: 0,
+    }));
+  const many: Block = {
+    name: "MANY",
     base: [0, 0],
     entities: [{ ...(text("W".repeat(100_000)) as Text), at: [100, 100] }],
-    attributes: [
-      { tag: "T", value: "W".repeat(100_000), layer: "0", at: [0, 0], height: 1, rotation: 0 },
-    ],
+    attributes: definitions(2000),
   };
-  const at = (x: number): Insert => ({ kind: "insert", layer: "0", block: "LONG", at: [x, 0] });
+  const at = (x: number, block = "MANY"): Insert => ({
+    kind: "insert",
+    layer: "0",
+    block,
+    at: [x, 0],
+  });
   // What a block holds is read once and costs nothing against the limit.
-  const plain = { ...long, attributes: [] };
+  const plain = { ...many, attributes: [] };
   const once = boxer([], [plain], undefined, undefined, undefined, [], [], 0);
   const never = () => false;
   assert.deepEqual(once([at(0)]), walkedExtents([at(0)], [plain], never, never));
   assert.equal(once.capped, undefined);
-  // The default of an attribute is read again for each insert.
+  // Each attribute an insert places past its first 64 is work done again for each insert.
   const repeated = Array.from({ length: 300 }, (_, i) => at(i * 1e6));
   const thrown = settled(1000, () =>
-    extents(repeated, [], [long], undefined, undefined, undefined, [], [], 100_000),
+    extents(repeated, [], [many], undefined, undefined, undefined, [], [], 100_000),
   );
   assert.ok(thrown instanceof RangeError);
   assert.match(thrown.message, /stopped at insert #\d+/);
-  // lint counts the extents of model space against its own limit.
+  // lint counts the extents of model space against its own limit: what an insert places past
+  // its first 64 attributes is paid for by the checks and again by the box.
+  const placing: Block = {
+    name: "PLACING",
+    base: [0, 0],
+    entities: [],
+    attributes: definitions(128),
+  };
   const drawing: Drawing = {
     ...sheet,
-    blocks: [...sheet.blocks!, long],
-    entities: [...sheet.entities, ...repeated],
+    blocks: [...sheet.blocks!, placing],
+    entities: [...sheet.entities, ...Array.from({ length: 300 }, (_, i) => at(i, "PLACING"))],
   };
-  const found = within(1000, () => lintWithin(drawing, {}, 100_000));
+  const found = within(1000, () => lintWithin(drawing, {}, 30_000));
   assert.match(
     found.at(-1)!.message,
     /in the box of what model space draws; a problem past there may be unreported/,
@@ -693,8 +720,8 @@ test("a limit that is reached is never silent", () => {
   const refused = settled(1000, () =>
     toDXFR2018({
       ...createDrawing({ units: "ft" }).build(),
-      blocks: [long],
-      entities: Array.from({ length: 3000 }, (_, i) => at(i)),
+      blocks: [many],
+      entities: Array.from({ length: 300 }, (_, i) => at(i)),
     }),
   );
   assert.ok(refused instanceof DrawingError);
@@ -703,21 +730,21 @@ test("a limit that is reached is never silent", () => {
     ["check-capped"],
   );
   // lint boxes what the layouts place too, as the writer does, so it says where the writer stops.
-  const sheets: Drawing = {
+  const sheets = (block: Block): Drawing => ({
     ...createDrawing({ units: "ft" }).build(),
-    blocks: [long],
+    blocks: [block],
     layouts: Array.from({ length: 300 }, (_, i) => ({
       name: `S-${i}`,
       paper: "ARCH D",
-      entities: [at(0)],
+      entities: [at(0, block.name)],
       viewports: [],
     })),
-  };
-  assert.deepEqual(
-    within(1000, () => lint(sheets)).map((d) => d.rule),
-    ["check-capped"],
+  });
+  assert.match(
+    within(1000, () => lintWithin(sheets(placing), {}, 30_000)).at(-1)!.message,
+    /in the box of what layout "S-\d+" draws/,
   );
-  assert.ok(settled(1000, () => toDXFR2018(sheets)) instanceof DrawingError);
+  assert.ok(settled(1000, () => toDXFR2018(sheets(many))) instanceof DrawingError);
 });
 
 test("repeated work stops at the limit, and once a limit is reached no more is done", () => {
@@ -970,8 +997,8 @@ test("what an entity holds is read once, however many times it is drawn", () => 
     inspectWithin(piled, {}, 2000).at(-1)!.message,
     /stopped short at insert #\d+ of model space/,
   );
-  // A large block or xref placed once is mapped entity by entity, as a walk is, and through its
-  // outline once it is placed again: the box is the walk's to the last bit either way.
+  // A large block or xref is boxed once however many times it is placed: the box holds the
+  // walk's, and is the walk's where the insert is not turned.
   const big: Block = {
     name: "BIG",
     base: [0, 0],
@@ -992,10 +1019,539 @@ test("what an entity holds is read once, however many times it is drawn", () => 
       rotation: i * 7.3,
     }));
     const walked = walkedExtents(top, [big], never, never);
-    assert.deepEqual(boxer([], [big])(top), walked);
+    const box = boxer([], [big])(top)!;
+    if (count === 1) assert.deepEqual(box, walked);
+    else assert.ok(holds(box, walked));
     const host = { ...base, xrefs: [{ name: "BIG", path: "big.dwg" }] };
     const xrefs = referencedByKey(host, { BIG: { ...base, entities: big.entities } });
-    assert.deepEqual(boxer([], [], never, never, xrefs)(top), walked);
+    assert.deepEqual(boxer([], [], never, never, xrefs)(top), box);
+  }
+});
+
+test("what many places share is read once, or paid for each time it is read again", () => {
+  const base = createDrawing({ units: "ft" }).build();
+  const blocks = (count: number, entities: () => Entity[]): Block[] =>
+    Array.from({ length: count }, (_, i) => ({
+      name: `B${i}`,
+      base: [0, 0],
+      entities: entities(),
+    }));
+  const placing = (list: readonly Block[]): Insert[] =>
+    list.map((block, i) => ({ kind: "insert", layer: "0", block: block.name, at: [i * 3, 0] }));
+  const drawn = (list: Block[], entities: Entity[] = placing(list)): Drawing => ({
+    ...base,
+    blocks: list,
+    entities,
+  });
+  /** Counts the items read of the lists `counted` makes. */
+  let reads = 0;
+  const counted = <T>(list: T[]): T[] =>
+    new Proxy(list, { get: (t, k, r) => (typeof k === "string" && reads++, Reflect.get(t, k, r)) });
+  type Lists = { ring: Point[]; lines: Entity[] };
+  const lists = (): Lists => ({
+    ring: Array.from({ length: 40_000 }, (_, i): Point => [Math.cos(i), Math.sin(i)]),
+    lines: Array.from({ length: 40_000 }, (_, i): Entity => ({ ...line, from: [i, 0] })),
+  });
+  const long = "W".repeat(1_000_000);
+  const polyline = (points: Point[]): Entity => ({
+    kind: "polyline",
+    layer: "0",
+    points,
+    closed: true,
+  });
+  const tagged: Block = {
+    name: "TAG",
+    base: [0, 0],
+    entities: [line],
+    attributes: [{ tag: "T", value: "V", layer: "0", at: [0, 0], height: 1, rotation: 0 }],
+  };
+  const values = {
+    T: long,
+    ...Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [`K${i}`, "V"])),
+  };
+  const shared: [string, (lists: Lists) => Drawing][] = [
+    ["a list of points in 400 polylines", ({ ring }) => drawn(blocks(400, () => [polyline(ring)]))],
+    ["a list of entities in 400 blocks", ({ lines }) => drawn(blocks(400, () => lines))],
+    [
+      "a polyline 1,000 times in model space",
+      ({ ring }) =>
+        drawn(
+          [],
+          Array.from({ length: 1000 }, () => polyline(ring)),
+        ),
+    ],
+    [
+      "a long value in 1,000 texts",
+      () =>
+        drawn(
+          [],
+          Array.from({ length: 1000 }, (_, i) => ({ ...(text(long) as Text), at: [0, i * 2] })),
+        ),
+    ],
+    ["a long value in 1,000 blocks", () => drawn(blocks(1000, () => [text(long)]))],
+    [
+      "the values of 1,000 inserts",
+      () =>
+        drawn(
+          [tagged],
+          Array.from({ length: 1000 }, (_, i) => ({
+            kind: "insert",
+            layer: "0",
+            block: "TAG",
+            at: [i * 1e3, 0],
+            attributes: values,
+          })),
+        ),
+    ],
+  ];
+  const plain = lists();
+  const watched = lists();
+  const reading = { ring: counted(watched.ring), lines: counted(watched.lines) };
+  for (const [name, make] of shared) {
+    // The extents, the picture and the text checks read it once, so no limit is reached.
+    const counting = make(reading);
+    reads = 0;
+    const box = boxer([], counting.blocks, undefined, undefined, undefined, [], [], 0);
+    assert.ok(
+      within(1000, () => box(counting.entities)),
+      name,
+    );
+    assert.equal(box.capped, undefined, name);
+    assert.ok(reads < 400_000, `${name}: ${reads} reads`);
+    const drawing = make(plain);
+    const warnings = within(1000, () => inspectWithin(drawing, {}, 0));
+    assert.ok(
+      warnings.every((w) => w.rule === "text-check-capped"),
+      name,
+    );
+    settled(1000, () => svgWithin(drawing, {}, 20_000));
+    // lint reads it again for each place, and pays for that.
+    const found = within(1000, () => lintWithin(drawing, {}, 0));
+    assert.ok(found.length < 2000, `${name}: ${found.length}`);
+    if (!name.includes("long value")) assert.equal(found.at(-1)!.rule, "check-capped", name);
+  }
+});
+
+test("numbers that leave the range of doubles on the way are walked, so the box holds the walk's", () => {
+  const scaled = (block: string, s: number): Insert => ({
+    kind: "insert",
+    layer: "0",
+    block,
+    at: [0, 0],
+    scale: [s, s],
+  });
+  const never = () => false;
+  // Boxed from the inside, the line overflows at 1e360 and underflows below the least double,
+  // where the walk's composed matrices keep it.
+  for (const [leaf, scales] of [
+    [
+      [1e90, 1e90],
+      [1e90, 1e90, 1e90, ...Array.from({ length: 45 }, () => 1e-6)],
+    ],
+    [
+      [Number.MIN_VALUE, Number.MIN_VALUE],
+      [0.5, 2],
+    ],
+  ] as const) {
+    const blocks: Block[] = [
+      { name: "B0", base: [0, 0], entities: [{ ...line, from: [0, 0], to: leaf as Point }] },
+    ];
+    scales.forEach((s, i) => {
+      blocks.push({ name: `B${i + 1}`, base: [0, 0], entities: [scaled(`B${i}`, s)] });
+    });
+    const top = [scaled(`B${scales.length}`, 1)];
+    const box = extents(top, [], blocks);
+    assert.ok(box.every(Number.isFinite), String(box));
+    assert.ok(holds(box, walkedExtents(top, blocks, never, never)), String(box));
+    const dxf = toDXF({ ...createDrawing({ units: "ft" }).build(), blocks, entities: top });
+    assert.ok(!dxf.includes("NaN"));
+  }
+  // A block that inserts itself is boxed once for any way in, through thousands of blocks.
+  const self: Block = {
+    name: "A",
+    base: [0, 0],
+    entities: [...Array.from({ length: 8000 }, () => scaled("A", 1)), line],
+  };
+  const through = [scaled("A", 1)];
+  const parents = Array.from({ length: 8000 }, (_, i): Block => ({
+    name: `P${i}`,
+    base: [0, 0],
+    entities: through,
+  }));
+  const selfBox = boxer([], [self, ...parents], undefined, undefined, undefined, [], [], 100_000);
+  within(300, () => selfBox(parents.map((p) => scaled(p.name, 1))));
+  // The walk of a block that inserts itself thousands of times pays for each insert it reads.
+  const cyclic: Block[] = [
+    {
+      name: "A",
+      base: [0, 0],
+      entities: [...Array.from({ length: 8000 }, () => scaled("A", 1)), scaled("B", 0.5)],
+    },
+    { name: "B", base: [0, 0], entities: [{ ...line, to: [Number.MIN_VALUE, Number.MIN_VALUE] }] },
+  ];
+  const placed = boxer([], cyclic, undefined, undefined, undefined, [], [], 100_000);
+  within(1000, () => placed(Array.from({ length: 8000 }, () => scaled("A", 2))));
+  assert.ok(placed.capped);
+});
+
+test("toDXF refuses nothing lint passed, and toSVG refuses only what its walk would", () => {
+  const base = createDrawing({ units: "ft" }).build();
+  const at = (block: string, x = 0): Insert => ({ kind: "insert", layer: "0", block, at: [x, 0] });
+  // A tree past the walks, beside a line that underflows on the way, as a placement walks it.
+  const tree: Block[] = [{ name: "T0", base: [0, 0], entities: [line] }];
+  for (let i = 1; i <= 20; i++)
+    tree.push({ name: `T${i}`, base: [0, 0], entities: [at(`T${i - 1}`), at(`T${i - 1}`, 1)] });
+  const drawing: Drawing = {
+    ...base,
+    blocks: [
+      ...tree,
+      { name: "Q", base: [0, 0], entities: [{ ...line, to: [1e-310, 1] }] },
+      { name: "P", base: [0, 0], entities: [at("Q"), at("T19"), at("T18")] },
+    ],
+    entities: [at("P", 100)],
+  };
+  const found = within(2000, () => lint(drawing));
+  const refused = settled(2000, () => toDXF(drawing));
+  assert.equal(
+    refused instanceof DrawingError,
+    found.some((d) => d.rule === "check-capped"),
+  );
+  // A drawing given as its own xref: the walk skips the block it is in, and so does its cost.
+  const blocks: Block[] = [{ name: "A", base: [0, 0], entities: [at("X"), at("T0")] }];
+  for (let i = 0; i < 14; i++)
+    blocks.push({ name: `T${i}`, base: [0, 0], entities: [at(`T${i + 1}`), at(`T${i + 1}`, 1)] });
+  blocks.push({ name: "T14", base: [0, 0], entities: [line] });
+  const host: Drawing = {
+    ...base,
+    blocks,
+    xrefs: [{ name: "X", path: "x.dwg" }],
+    entities: [at("A")],
+  };
+  assert.equal(
+    typeof within(1000, () => svgWithin(host, { xrefs: { X: host } }, 100_000)),
+    "string",
+  );
+});
+
+test("what many places share is paid for through every field that reads it", () => {
+  const base = createDrawing({ units: "ft" }).build();
+  const long = "K".repeat(100_000);
+  const insert = (block: string, i: number, extra: object = {}): Insert => ({
+    kind: "insert",
+    layer: "0",
+    block,
+    at: [i, 0],
+    ...extra,
+  });
+  const definitions = Array.from({ length: 1000 }, (_, i) => ({
+    tag: `T${i}`,
+    value: "V",
+    layer: "0",
+    at: [0, 0] as Point,
+    height: 1,
+    rotation: 0,
+  }));
+  const blocks = Array.from({ length: 400 }, (_, i): Block => ({
+    name: `B${i}`,
+    base: [0, 0],
+    entities: [line],
+    attributes: definitions,
+  }));
+  const shown = (found: readonly { message: string }[]) =>
+    found.reduce((sum, d) => sum + d.message.length, 0);
+  // A list of definitions in 400 blocks, read for the text checks and under a standard.
+  const defined: Drawing = { ...base, blocks, entities: blocks.map((b, i) => insert(b.name, i)) };
+  within(1000, () => inspectWithin(defined, {}, 0));
+  const ruled = within(2000, () => lintWithin(defined, { standard }, 0));
+  assert.ok(shown(ruled) < 40_000_000, `${shown(ruled)} characters`);
+  assert.ok(ruled.some((d) => d.rule === "standard-check-capped"));
+  // One definition with 5,000 fields nobody knows, 500 times in one list.
+  const odd = {
+    ...definitions[0]!,
+    ...Object.fromEntries(Array.from({ length: 5000 }, (_, i) => [`x${i}`, i])),
+  };
+  const repeated: Drawing = {
+    ...base,
+    blocks: [{ name: "ODD", base: [0, 0], entities: [], attributes: Array(500).fill(odd) }],
+  };
+  const reported = within(1000, () => lintWithin(repeated, {}, 0));
+  assert.ok(reported.length < 20_000, `${reported.length} diagnostics`);
+  assert.equal(reported.at(-1)!.rule, "check-capped");
+  // One long name, tag or prefix that 400 entities share.
+  const xref = { ...base, xrefs: [{ name: "X", path: "x.dwg" }] };
+  const values = Object.fromEntries(Array.from({ length: 40_000 }, (_, i) => [`T${i}`, "V"]));
+  for (const drawing of [
+    { ...base, entities: Array.from({ length: 400 }, (_, i) => insert(long, i)) },
+    {
+      ...base,
+      entities: Array.from({ length: 400 }, (_, i) => ({ ...line, layer: long, from: [i, 0] })),
+    },
+    {
+      ...base,
+      entities: Array.from({ length: 400 }, (_, i) =>
+        insert("B0", i, { attributes: { [long]: "V" } }),
+      ),
+      blocks: [blocks[0]!],
+    },
+    {
+      ...xref,
+      entities: Array.from({ length: 400 }, (_, i) => insert("X", i, { attributes: values })),
+    },
+  ] as Drawing[]) {
+    const found = within(2000, () => lintWithin(drawing, {}, 0));
+    assert.ok(shown(found) < 1_000_000, `${shown(found)} characters`);
+    assert.equal(found.at(-1)!.rule, "check-capped");
+  }
+  // An unknown field or a kind with a long name, quoted in each message the object gives.
+  const z = "z".repeat(30_000);
+  for (const odd of [
+    { ...line, [z]: true },
+    { ...line, kind: z },
+  ]) {
+    const entities = Array(400).fill(odd) as Entity[];
+    const found = within(1000, () => lintWithin({ ...base, entities }, {}, 10_000));
+    assert.ok(shown(found) < 400_000, `${shown(found)} characters`);
+  }
+  // The field a long unknown key is meant for is found without comparing each letter with each
+  // field's.
+  const key = "q".repeat(2_000_000);
+  within(400, () => lintWithin({ ...base, entities: [{ ...line, [key]: 1 }] as Entity[] }, {}, 0));
+  // Inserts that share one object of 8,000 values are not read for them again past the limit.
+  const many = Object.fromEntries(Array.from({ length: 8000 }, (_, i) => [`T${i}`, "V"]));
+  const sharing = Array.from({ length: 8000 }, (_, i) => insert("X", i, { attributes: many }));
+  within(1000, () => lintWithin({ ...xref, entities: sharing }, {}, 0));
+  const prefixed: Drawing = {
+    ...base,
+    dimensionStyles: [{ ...sheet.dimensionStyles![0]!, name: "D", prefix: long }],
+    entities: Array.from({ length: 400 }, (_, i) => ({
+      kind: "aligned-dimension",
+      layer: "0",
+      style: "D",
+      from: [0, i * 5],
+      to: [10 + i, i * 5],
+      offset: 2,
+    })),
+  };
+  const box = boxer([], [], undefined, undefined, undefined, prefixed.dimensionStyles, [], 8000);
+  within(300, () => box(prefixed.entities));
+  assert.ok(box.capped);
+  // One drawing given for 400 xrefs is boxed again for each, and paid for.
+  const source: Drawing = {
+    ...base,
+    entities: Array.from({ length: 40_000 }, (_, i): Entity => ({ ...line, from: [i, 0] })),
+  };
+  const host = {
+    ...base,
+    xrefs: Array.from({ length: 400 }, (_, i) => ({ name: `X${i}`, path: "x.dwg" })),
+  };
+  const xrefs = referencedByKey(host, Object.fromEntries(host.xrefs.map((x) => [x.name, source])));
+  const placed = boxer([], [], undefined, undefined, xrefs, [], [], 0);
+  within(300, () => placed(host.xrefs.map((x, i) => insert(x.name, i))));
+  assert.ok(placed.capped);
+});
+
+test("an object that is not sound is reported once, and past the limit nothing more is read", () => {
+  const base = createDrawing({ units: "ft" }).build();
+  const shown = (found: readonly { message: string }[]) =>
+    found.reduce((sum, d) => sum + d.message.length, 0);
+  // One entity whose kind is 4,000,000 letters long, at 2,000 places, is quoted where it is
+  // first met.
+  const kind = { kind: "k".repeat(4_000_000), layer: "0" } as unknown as Entity;
+  const quoted = within(1000, () => lint({ ...base, entities: Array(2000).fill(kind) }));
+  assert.ok(shown(quoted) < 5_000_000, `${shown(quoted)} characters`);
+  // Entities of their own that share one long field name nobody knows, or one long kind, pay for
+  // each message that quotes it.
+  const long = "q".repeat(1_000_000);
+  for (const odd of [{ [long]: 1 }, { kind: long }]) {
+    const entities = Array.from({ length: 400 }, (_, i): unknown => ({
+      ...line,
+      from: [i, 0],
+      ...odd,
+    }));
+    const found = within(1000, () => lint({ ...base, entities: entities as Entity[] }));
+    assert.ok(shown(found) < 40_000_000, `${shown(found)} characters`);
+    assert.equal(found.at(-1)!.rule, "check-capped");
+  }
+  // One with 4,000 fields nobody knows, at 2,000 places, is not read again.
+  const fields = Object.fromEntries(Array.from({ length: 4000 }, (_, i) => [`x${i}`, i]));
+  const keyed = { ...line, ...fields } as Entity;
+  within(300, () => lintWithin({ ...base, entities: Array(2000).fill(keyed) }, {}, 0));
+  // Past the limit, a viewport with 4,000 fields nobody knows that 10,000 places share is asked
+  // about once, after 2,000 texts that share a long value have stopped the checks.
+  const value = "q".repeat(300_000);
+  const said = Array.from({ length: 2000 }, (_, i): Entity => ({
+    ...(text(value) as Text),
+    at: [i, 0],
+  }));
+  const viewport = {
+    layer: "0",
+    corner: [1, 1],
+    width: 34,
+    height: 22,
+    center: [170, 110],
+    ratio: 120,
+    ...fields,
+  };
+  const viewed = {
+    ...base,
+    entities: said,
+    layouts: [
+      { name: "A-101", paper: "ARCH D", viewports: Array(10_000).fill(viewport), entities: [] },
+    ],
+  } as unknown as Drawing;
+  assert.equal(within(1000, () => lint(viewed)).at(-1)!.rule, "check-capped");
+  // A drawing read from JSON that `lint` checks only part of is refused, as `toDXF` refuses it,
+  // since an error past where it stopped would go unreported.
+  const read = JSON.stringify({
+    ...base,
+    entities: [...said.slice(0, 100), { ...line, layer: "nope" }],
+  });
+  assert.throws(
+    () => fromJSON(read),
+    (thrown: unknown) =>
+      thrown instanceof DrawingError && thrown.diagnostics.some((d) => d.rule === "check-capped"),
+  );
+  // Blocks that share one list of inserts of a long name are not read again for cycles once the
+  // checks have stopped, here at the field nobody knows.
+  const inserts = Array(80).fill({
+    ...line,
+    kind: "insert",
+    block: "z".repeat(100_000),
+    at: [0, 0],
+  });
+  const scanned = {
+    ...base,
+    extra: true,
+    blocks: Array.from({ length: 40 }, (_, i) => ({
+      name: `B${i}`,
+      base: [0, 0],
+      entities: inserts,
+    })),
+  } as unknown as Drawing;
+  within(300, () => lintWithin(scanned, {}, 0));
+  // Leaders whose notes take turns between two long strings that agree but near their end are
+  // compared only until the checks stop.
+  const a = "a".repeat(1_000_000);
+  const b = `${a.slice(0, -30)}b${a.slice(-29)}`;
+  const leaders: Drawing = {
+    ...base,
+    leaderStyles: [{ name: "L", textHeight: 1, arrowSize: 1, landing: 1, gap: 1 }],
+    entities: Array.from({ length: 2000 }, (_, i): Entity => ({
+      kind: "leader",
+      layer: "0",
+      style: "L",
+      at: [0, 0],
+      shafts: [
+        [
+          [0, 0],
+          [1, 1],
+        ],
+      ],
+      text: [i % 2 ? b : a],
+    })),
+  };
+  const { get } = Strings.prototype;
+  let lookups = 0;
+  Strings.prototype.get = function (this: Strings<unknown>, key: string) {
+    if (key.length === a.length) lookups++;
+    return get.call(this, key);
+  };
+  try {
+    const runs: (() => readonly { rule: string }[])[] = [
+      () => lintWithin(leaders, {}, 0),
+      () => inspectWithin(leaders, {}, 0),
+    ];
+    for (const run of runs) {
+      lookups = 0;
+      const found = within(1000, run);
+      assert.match(found.at(-1)!.rule, /check-capped/);
+      assert.ok(lookups < 100, `${lookups} lookups`);
+    }
+  } finally {
+    Strings.prototype.get = get;
+  }
+});
+
+test("long strings of one length are told apart, and one that takes another's place is paid for", () => {
+  // V8 hashes a string over 16,383 characters by its length alone. Distinct values of one length
+  // are read once each, as ordinary text is.
+  const distinct = Array.from(
+    { length: 2000 },
+    (_, i) => "W".repeat(20_000) + String(i).padStart(6, "0"),
+  );
+  // Two that agree but past the characters a table keys them by take each other's place.
+  const stem = "W".repeat(20_000);
+  const twins = [0, 1].map((i) => `${stem.slice(0, 19_970)}${i}${stem.slice(19_971)}`);
+  const texts = (value: (i: number) => string): Entity[] =>
+    Array.from({ length: 2000 }, (_, i) => ({ ...(text(value(i)) as Text), at: [0, i * 2] }));
+  const capped = (entities: Entity[]) => {
+    const box = boxer([], [], undefined, undefined, undefined, [], [], 100_000);
+    within(2000, () => box(entities));
+    return box.capped !== undefined;
+  };
+  assert.equal(capped(texts((i) => distinct[i]!)), false);
+  assert.equal(capped(texts(() => stem)), false);
+  assert.equal(capped(texts((i) => twins[i % 2]!)), true);
+  const drawing = (entities: Entity[], blocks: Block[] = []): Drawing => ({
+    ...createDrawing({ units: "ft" }).build(),
+    blocks,
+    entities,
+  });
+  // Blank values are told apart the same way: one shared by many blocks is read once, and two
+  // that take each other's place are paid for.
+  const blank = " ".repeat(100_000);
+  const blankTwins = [0, 1].map(
+    (i) => `${blank.slice(0, 99_970)}${i ? "\u00a0" : " "}${blank.slice(99_971)}`,
+  );
+  const holding = Array.from({ length: 1000 }, (_, i): Block => ({
+    name: `B${i}`,
+    base: [0, 0],
+    entities: [text(blank)],
+  }));
+  const warned = within(1000, () => inspectWithin(drawing([], holding), {}, 0));
+  assert.ok(!warned.some((w) => w.rule === "text-check-capped"));
+  const twinned = within(1000, () =>
+    inspectWithin(drawing(texts((i) => blankTwins[i % 2]!)), {}, 1000),
+  );
+  assert.equal(twinned.at(-1)!.rule, "text-check-capped");
+  // Past the limit no value is looked up, which would compare it with another.
+  const wide = " ".repeat(1_000_000);
+  const wideTwins = [0, 1].map(
+    (i) => `${wide.slice(0, 999_970)}${i ? "\u00a0" : " "}${wide.slice(999_971)}`,
+  );
+  const pairs = Array.from({ length: 2000 }, (_, i): Block => ({
+    name: `C${i}`,
+    base: [0, 0],
+    entities: [text(wideTwins[i % 2]!)],
+  }));
+  within(150, () => inspectWithin(drawing([], pairs), {}, 0));
+  assert.ok(
+    !within(2000, () => lint(drawing(texts((i) => distinct[i]!)))).some(
+      (d) => d.rule === "check-capped",
+    ),
+  );
+  assert.equal(
+    within(2000, () => lintWithin(drawing(texts((i) => twins[i % 2]!)), {}, 100_000)).at(-1)!.rule,
+    "check-capped",
+  );
+});
+
+test("a text warning pays for the texts and tags it quotes", () => {
+  const value = "W".repeat(10_000);
+  // Each text overlaps the one before it, so each but the first is warned about.
+  const chain = (texts: (i: number) => Entity): Drawing => ({
+    ...createDrawing({ units: "ft" }).build(),
+    entities: Array.from({ length: 1000 }, (_, i) => texts(i)),
+  });
+  for (const drawing of [
+    chain((i) => ({ ...(text(value) as Text), at: [i * 7000, 0] })),
+    chain((i) => ({ ...(text(`${i}${value}`) as Text), at: [i * 7000, 0] })),
+  ]) {
+    const found = within(1000, () => inspectWithin(drawing, {}, 100_000));
+    assert.equal(found.at(-1)!.rule, "text-check-capped");
+    const quoted = found.reduce((sum, w) => sum + w.message.length, 0);
+    assert.ok(quoted < 200_000, `${quoted} characters`);
+    assert.ok(found.length > 2);
   }
 });
 
@@ -1041,7 +1597,9 @@ test("a proxy is read as the data its traps give, with each trap called a bounde
     );
     assert.ok(traps <= most, `${name}: ${traps} traps for ${most}`);
   }
-  // Data that its traps make up as it is read, with no end, is refused where its shape is wrong.
+  // A proxy is read in proportion to what it reports: an array that reports 2^32 - 1 sound lines
+  // is read to its end, within the limits. Data that its traps make up as it is read, with no
+  // end, is refused where its shape is wrong.
   const endless = (): object =>
     new Proxy(
       {},
@@ -1245,6 +1803,29 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
       rotation: random() * 360,
     }));
     (random() < 0.5 ? (drawing.entities as Data[]) : (layout.entities as Data[])).push(...inserts);
+    // One list of points, one list of entities and one long value that many places share.
+    if (random() < 0.3) {
+      const points = Array.from({ length: 20_000 }, (_, i): Point => [i % 7, i % 5]);
+      const outline = { kind: "polyline", layer: "0", points, closed: true };
+      const list = [outline, { ...outline }, { ...(text(long) as Text), at: [3, 3] }];
+      const count = pick([100, 400]);
+      blocks.push(
+        ...Array.from({ length: count }, (_, i) => ({
+          name: `S${i}`,
+          base: [0, 0],
+          entities: random() < 0.5 ? list : [{ ...outline }, text(long)],
+        })),
+      );
+      (pick([drawing, layout]).entities as Data[]).push(
+        ...Array.from({ length: count }, (_, i) => ({
+          kind: "insert",
+          layer: "0",
+          block: `S${i}`,
+          at: [i * 10, 0],
+        })),
+        ...Array.from({ length: 100 }, () => pick<Data>([outline, list[2]!])),
+      );
+    }
     // A dimension style whose prefix every dimension reads.
     if (random() < 0.3) (drawing.dimensionStyles as Data[])[0]!.prefix = long;
     if (random() < 0.2) (drawing.dimensionStyles as Data[])[0]!.arrowhead = "A".repeat(1_000_000);
@@ -1327,6 +1908,11 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
       } catch (thrown) {
         assert.fail(`case ${n}, ${name}: ${String((thrown as Error)?.message ?? thrown)}`);
       }
+      // What stops at a limit says so with a RangeError, and nothing else is thrown.
+      assert.ok(
+        !(result instanceof Error) || result instanceof RangeError,
+        `case ${n}, ${name}: ${String(result)}`,
+      );
       // The PDF reads every picture toSVG draws: it refuses only a point too far off its page.
       if (name === "the PDF of the layout" && !(result instanceof Uint8Array)) {
         assert.ok(

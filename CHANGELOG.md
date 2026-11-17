@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-A drawing without a leader style writes the same DXF as before. Two changes break code:
+A drawing without a leader style or a turned insert writes the same DXF as before, unless its
+inserts reach more blocks through nesting than its extents walk, about half a million and 16
+for each entity it holds. Two changes break code:
 
 - Breaking: `LintRule` gained `leader-style`, `duplicate-leader-style`,
   `undefined-leader-style`, `leader`, `leader-style-outside-standard`,
@@ -60,6 +62,38 @@ The rest is new:
   leader's note to its role's height and to the least height, as it does a text.
 - The example sheet has two leaders, one with two shafts, and the permit set's leader notes
   are leaders.
+
+What changes for a drawing with blocks:
+
+- The extents take in the box of what each block's own entities draw, in the block's
+  coordinates, where the inserts on the way put the box's corners. An insert that is not turned
+  counts for what it draws, as before. A turned one may count for a little more, so `$EXTMAX` and
+  `$EXTMIN` in the DXF and the frame `toSVG` gives model space can be larger, and they never
+  leave out what is drawn. A block placed many times costs one read of it: a block of 800,000
+  entities placed twice is boxed as fast as one placed once. Past the blocks the extents walk,
+  an insert counts for the box of all its block draws, widened by what rounding can move a
+  number on the way, which can move the last decimal the DXF writes. `lint` works the extents
+  out as `toDXF` does, so `toDXF` refuses nothing `lint` passed.
+- A list, an object or a long string that a drawing made in code shares among many places is
+  read once by the extents, `toSVG` and `inspectText`. `lint` pays again for each place it
+  reads it, as `toDXF` writes it again for each, so a drawing that shares far more than it
+  holds ends with `check-capped`, which `toDXF` refuses. So does a string of 256 characters or
+  more that many entities, definitions or values share, since `lint` quotes and `toDXF` writes it
+  again for each. An object of the wrong shape that many places share, such as one with a long
+  field name nobody knows or a long `kind`, is reported where it is first met, and not read
+  again. Once `lint` or `inspectText` stops, it reads no entity past there, so `fromJSON` now
+  refuses a drawing that ends with `check-capped`, as `toDXF` does. `lint` also pays for an attribute definition's value by its length for each insert that
+  repeats it, and its `check-capped` message names the lists that many places share.
+  With a standard, the checks of layers, pens and text styles pay for a shared list and each
+  error they give from it, and end with `standard-check-capped`.
+- An `inspectText` warning pays for each character of the texts, tags and layout names it
+  quotes, so a drawing whose warnings would quote more text than it checks ends with
+  `text-check-capped`.
+- An item of a block's `attributes` that is not an object, such as `undefined` or a value beside
+  an empty slot, draws nothing in the extents, `toSVG` and `inspectText`, where they threw a
+  `TypeError`. `lint` reports it, as before.
+- `lint` finds the field that a long unknown field name may be meant for without comparing it
+  letter by letter with each field, which took seconds for a name of millions of characters.
 
 ## 0.5.2
 

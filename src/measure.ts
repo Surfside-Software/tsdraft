@@ -4,6 +4,7 @@
 import type { Point, TextAlign, TextVerticalAlign } from "./drawing.ts";
 import { FONT_METRICS, FONT_METRICS_RANGES, type FontMetrics } from "./font-metrics.ts";
 import { fontInfo, STANDARD_FONT } from "./fonts.ts";
+import { Strings } from "./shape.ts";
 
 /** A text to measure. A `Text` and its `TextStyle` spread into one object are one. */
 export interface TextToMeasure {
@@ -84,6 +85,38 @@ export interface TextLayout {
   readonly approximate: boolean;
 }
 
+/** What a text's value gives its layout in one font, read character by character. */
+interface Read {
+  /** How far the first character starts to draw from where it is placed, at height 1. */
+  readonly head: number | undefined;
+  /** The advances of the characters and what the last one adds, at height 1. */
+  readonly width: number;
+  /** True when it holds `%%` or a character the font's numbers do not cover. */
+  readonly odd: boolean;
+  /** True when it starts or ends with a space as it is drawn. */
+  readonly spaced: boolean;
+}
+
+function read(value: string, metrics: FontMetrics): Read {
+  const drawn = drawnValue(value);
+  let odd = value.includes("%%");
+  let width = 0;
+  let head: number | undefined;
+  let tail = 0;
+  // By character, so that one outside the Basic Multilingual Plane counts once.
+  for (const character of drawn) {
+    let index = tableIndex(character.codePointAt(0)!);
+    if (index < 0) {
+      index = UNKNOWN;
+      odd = true;
+    }
+    head ??= metrics.heads[index]!;
+    width += metrics.advances[index]!;
+    tail = metrics.tails[index]!;
+  }
+  return { head, width: width + tail, odd, spaced: /^[ \u00a0]|[ \u00a0]$/.test(drawn) };
+}
+
 /**
  * Lays a text out about its point. Its length is the advances of its characters and what the
  * last one adds or takes off, from where the first starts to draw. A centered text has its
@@ -92,32 +125,23 @@ export interface TextLayout {
  * middle one half a height, and of a bottom one as far below it as the font reaches.
  */
 export function layoutText(text: TextToMeasure): TextLayout {
+  return layOut(text, read);
+}
+
+function layOut(
+  text: TextToMeasure,
+  reading: (value: string, metrics: FontMetrics) => Read,
+): TextLayout {
   const font = text.font ?? STANDARD_FONT;
   const known: FontMetrics | undefined =
     fontInfo(font) && Object.hasOwn(FONT_METRICS, font) ? FONT_METRICS[font] : undefined;
   const metrics = known ?? FONT_METRICS[STANDARD_FONT]!;
-  const value = drawnValue(text.value);
+  const { head, width, odd, spaced } = reading(text.value, metrics);
   // A centered or right-justified text placed by a space at either end may plot elsewhere.
-  let approximate =
-    known === undefined ||
-    text.value.includes("%%") ||
-    ((text.align === "center" || text.align === "right") && /^[ \u00a0]|[ \u00a0]$/.test(value));
-  let width = 0;
-  let head: number | undefined;
-  let tail = 0;
-  // By character, so that one outside the Basic Multilingual Plane counts once.
-  for (const character of value) {
-    let index = tableIndex(character.codePointAt(0)!);
-    if (index < 0) {
-      index = UNKNOWN;
-      approximate = true;
-    }
-    head ??= metrics.heads[index]!;
-    width += metrics.advances[index]!;
-    tail = metrics.tails[index]!;
-  }
+  const approximate =
+    known === undefined || odd || ((text.align === "center" || text.align === "right") && spaced);
   const along = text.height * (text.widthFactor ?? 1);
-  const [from, to] = [(head ?? 0) * along, (width + tail) * along];
+  const [from, to] = [(head ?? 0) * along, width * along];
   // The text's first point, which its first character is drawn from.
   const first = text.align === "center" ? -(from + to) / 2 : text.align === "right" ? -to : 0;
   // A text is slanted after it is widened, so the width factor does not widen the lean.
@@ -136,6 +160,43 @@ export function layoutText(text: TextToMeasure): TextLayout {
     lean: Number.isFinite(lean) ? lean : 0,
     descent: metrics.below * text.height,
     approximate,
+  };
+}
+
+/** The shortest value a `Measurer` reads only once. */
+const LONG = 256;
+
+/** `layoutText` and `measureText` for the texts of one call, which may share their values. */
+export interface Measurer {
+  layout(text: TextToMeasure): TextLayout;
+  measure(text: TextToMeasure): TextMeasure;
+  /**
+   * True when measuring a value would read it again: a long one that took the place of another
+   * of its length, as `Strings` keeps them. The caller pays for it by its length.
+   */
+  again(value: string): boolean;
+}
+
+/**
+ * Measures as `measureText` does, and reads each value of `LONG` characters or more once for
+ * each font, so that texts and attributes that share one long string cost what one does. It
+ * holds those values until it is dropped, so make one for a call.
+ */
+export function measurer(): Measurer {
+  const reads = new Strings<Map<FontMetrics, Read>>();
+  const reading = (value: string, metrics: FontMetrics): Read => {
+    if (value.length < LONG) return read(value, metrics);
+    let fonts = reads.get(value);
+    if (!fonts) reads.set(value, (fonts = new Map()));
+    let found = fonts.get(metrics);
+    if (!found) fonts.set(metrics, (found = read(value, metrics)));
+    return found;
+  };
+  const layout = (text: TextToMeasure): TextLayout => layOut(text, reading);
+  return {
+    layout,
+    measure: (text) => placed(text, layout(text)),
+    again: (value) => value.length >= LONG && reads.clashes(value),
   };
 }
 
@@ -191,7 +252,12 @@ export function lineSpacing(height: number): number {
  * ```
  */
 export function measureText(text: TextToMeasure): TextMeasure {
-  const { start, end, baseline, lean, descent, approximate } = layoutText(text);
+  return placed(text, layoutText(text));
+}
+
+/** A text's measure from its layout. */
+function placed(text: TextToMeasure, layout: TextLayout): TextMeasure {
+  const { start, end, baseline, lean, descent, approximate } = layout;
   const turn = ((text.rotation ?? 0) * Math.PI) / 180;
   const [cos, sin] = [Math.cos(turn), Math.sin(turn)];
   const [x, y] = text.at ?? [0, 0];

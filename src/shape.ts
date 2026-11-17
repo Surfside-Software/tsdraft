@@ -109,6 +109,48 @@ export function arrayProblem(value: unknown, at: string): string | undefined {
   return Array.isArray(value) && value instanceof Array ? undefined : `${at} must be an array`;
 }
 
+/**
+ * The longest string V8 hashes by its characters. It hashes a longer one by its length alone, so
+ * a `Map` keyed by many long strings of one length compares each it looks up with all the others.
+ */
+export const KEYED = 16_383;
+
+/**
+ * Values by strings, which stays fast for strings longer than `KEYED`. It keys each of those by
+ * its length and 80 of its characters from its start, its middle and its end, and keeps one
+ * string for each such key, which a string looked up is compared with. So a long string it does
+ * not keep is one it never held, or one that took the place of another that agrees with it at
+ * those characters, which `clashes` says, and a walk pays for reading such a one again.
+ */
+export class Strings<T> {
+  readonly #short = new Map<string, T>();
+  readonly #long = new Map<string, readonly [string, T]>();
+
+  get(key: string): T | undefined {
+    if (key.length <= KEYED) return this.#short.get(key);
+    const kept = this.#long.get(sampled(key));
+    return kept !== undefined && kept[0] === key ? kept[1] : undefined;
+  }
+
+  set(key: string, value: T): void {
+    if (key.length <= KEYED) this.#short.set(key, value);
+    else this.#long.set(sampled(key), [key, value]);
+  }
+
+  /** True for a string longer than `KEYED` whose place another string holds. */
+  clashes(key: string): boolean {
+    if (key.length <= KEYED) return false;
+    const kept = this.#long.get(sampled(key));
+    return kept !== undefined && kept[0] !== key;
+  }
+}
+
+/** A short key for a long string: its length and 80 of its characters. */
+function sampled(key: string): string {
+  const middle = Math.floor(key.length / 2);
+  return `${key.length}:${key.slice(0, 24)}${key.slice(middle - 16, middle + 16)}${key.slice(-24)}`;
+}
+
 /** What is wrong with the array at `at`, which has no item at `index`. */
 export function slotProblem(at: string, index: number): string {
   return `${at} has no item at index ${index}. An array cannot have empty slots`;
@@ -188,8 +230,17 @@ function meant(key: string, known: readonly string[]): string | undefined {
   );
   if (same) return same[0];
   if (EVERY_FIELD.has(typed)) return undefined;
+  // Two words whose lengths differ by more than `letters` are further apart, which spares a long
+  // key the comparison with each field.
   const away = (letters: number): string | undefined =>
-    only(named.filter(([, name]) => distance(typed, name) === letters).map(([name]) => name));
+    only(
+      named
+        .filter(
+          ([, name]) =>
+            Math.abs(typed.length - name.length) <= letters && distance(typed, name) === letters,
+        )
+        .map(([name]) => name),
+    );
   const one = away(1);
   const short = only(named.filter(([, name]) => shortens(typed, name)).map(([name]) => name));
   if (one !== undefined && short !== undefined && one !== short) return undefined;
@@ -366,8 +417,9 @@ function shapes(all: boolean, typed = all): Shapes {
         }
       }
       for (const [key, field] of Object.entries(value)) {
-        if (!Object.hasOwn(known, key)) problems.push(unknownFieldProblem(at, key, names));
-        else if (field !== undefined) known[key]!(field, inside(at, key), problems);
+        if (!Object.hasOwn(known, key)) {
+          problems.push(asking ? "" : unknownFieldProblem(at, key, names));
+        } else if (field !== undefined) known[key]!(field, inside(at, key), problems);
       }
     };
   }
@@ -459,7 +511,7 @@ function shapes(all: boolean, typed = all): Shapes {
     if (typeof named === "string" && Object.hasOwn(ENTITIES, named)) {
       ENTITIES[named as Entity["kind"]](value, at, problems, extra);
     } else {
-      problems.push(`${at}: ${unknownKindProblem(named)}`);
+      problems.push(asking ? "" : `${at}: ${unknownKindProblem(named)}`);
     }
   };
 

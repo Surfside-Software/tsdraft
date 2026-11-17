@@ -50,7 +50,7 @@ import {
   shown,
   viewportProblem,
 } from "../rules.ts";
-import { filled, isSound, TYPED, type Check } from "../shape.ts";
+import { filled, isSound, Strings, TYPED, type Check } from "../shape.ts";
 import { visibility } from "../svg.ts";
 import { isUnits, modelLength } from "../units.ts";
 import type {
@@ -513,6 +513,75 @@ export function lintStandard(
     );
   }
 
+  // What the checks do again is bounded work: a list that many blocks share, and the heights
+  // texts plot at and the scales dimensions are shown at. Past the limit, no more is checked.
+  let work = 0;
+  let capped: string | undefined;
+  const spend = (cost: number): boolean => {
+    if (capped !== undefined) return false;
+    work += cost;
+    return work <= most;
+  };
+  /** The lists of entities and definitions read, so that one many blocks share is paid again. */
+  const read = new WeakSet<object>();
+  /** True when the checks stopped at a list or a long string that many places share. */
+  let shared = false;
+  /** The strings of 256 characters or more the checks have read. */
+  const long = new Strings<true>();
+  /**
+   * Whether an object may be read: free, unless a field these checks read or quote holds a long
+   * string another place holds, which is read and quoted again, and paid for by its length.
+   */
+  const fresh = (object: object, at: string): boolean => {
+    let cost = 0;
+    const fields = object as Readonly<Record<string, unknown>>;
+    for (const field of ["layer", "style", "textStyle", "lineweight", "tag"] as const) {
+      const value = fields[field];
+      if (typeof value !== "string" || value.length < 256) continue;
+      // Past the limit a long string is not looked up, which compares it with another.
+      if (capped !== undefined) return false;
+      // One that took the place of another of its length counts as read before.
+      if (long.get(value) !== undefined || long.clashes(value)) {
+        cost += Math.floor(value.length / 32);
+      }
+      long.set(value, true);
+    }
+    if (cost === 0 || spend(cost)) return true;
+    if (capped === undefined) {
+      capped = `at ${at}`;
+      shared = true;
+    }
+    return false;
+  };
+  /** Whether a list may be read: once free, and again for another block when paid for. */
+  const affordable = (list: unknown, of: string): boolean => {
+    if (!Array.isArray(list)) return true;
+    if (!read.has(list)) {
+      read.add(list);
+      return true;
+    }
+    if (spend(list.length)) return true;
+    if (capped === undefined) {
+      capped = `at the list${of || " of model space"}`;
+      shared = true;
+    }
+    return false;
+  };
+
+  /**
+   * `error` for the items of a list read again for another block, where each error pays for its
+   * message by its length, as each error of the heights and scales does.
+   */
+  const paid =
+    (at: string): typeof error =>
+    (rule, message, about) => {
+      if (spend(Math.floor(message.length / 32))) error(rule, message, about);
+      else if (capped === undefined) {
+        capped = `at ${at}`;
+        shared = true;
+      }
+    };
+
   // Each entity and attribute definition: its layer, its text style and its pen.
   const lintEntities = (
     entities: unknown,
@@ -524,8 +593,11 @@ export function lintStandard(
         : where.layout !== undefined
           ? ` of layout ${shown(where.layout)}`
           : "";
+    const again = Array.isArray(entities) && read.has(entities);
+    if (!affordable(entities, of)) return;
+    const say = again ? paid(`the list${of || " of model space"}`) : error;
     filled(entities).forEach((entity, i) => {
-      if (!isEntity(entity)) return;
+      if (!isEntity(entity) || !fresh(entity, `${entity.kind} #${i}${of}`)) return;
       const call = callOf(entities as object[], i);
       const about = {
         ...where,
@@ -535,13 +607,13 @@ export function lintStandard(
       };
       const label = `${entity.kind} #${i}${of}`;
       if (where.block === undefined && layerKey(entity.layer) === "0") {
-        error("layer-outside-standard", `${label}: ${DRAWN.layerZero}`, about);
+        say("layer-outside-standard", `${label}: ${DRAWN.layerZero}`, about);
       }
       if (entity.kind === "text" && !roleOf(entity.style)) {
-        error("text-style-outside-standard", `${label}: ${DRAWN.textWithoutRole}`, about);
+        say("text-style-outside-standard", `${label}: ${DRAWN.textWithoutRole}`, about);
       }
       if (entity.kind === "leader" && entity.textStyle !== undefined && !roleOf(entity.textStyle)) {
-        error("text-style-outside-standard", `${label}: ${DRAWN.leaderRoleAndText}`, about);
+        say("text-style-outside-standard", `${label}: ${DRAWN.leaderRoleAndText}`, about);
       }
       if (
         entity.kind === "insert" ||
@@ -553,17 +625,22 @@ export function lintStandard(
       const weight = (entity as { readonly lineweight?: unknown }).lineweight;
       if (weight === undefined || weight === "ByLayer" || weight === "ByBlock") return;
       if (typeof weight === "number" && index.pens.has(written(weight))) return;
-      error("pen-outside-standard", `${label}: ${penProblem(weight, index)}`, about);
+      say("pen-outside-standard", `${label}: ${penProblem(weight, index)}`, about);
     });
   };
   lintEntities(drawing.entities, {});
   for (const block of blocksByName.values()) {
     if (standardBlocks.has(layerKey(block.name))) continue;
     lintEntities(block.entities, { block: block.name });
+    const of = ` of block ${shown(block.name)}`;
+    const again = Array.isArray(block.attributes) && read.has(block.attributes);
+    if (!affordable(block.attributes, of)) continue;
+    const say = again ? paid(`the list${of}`) : error;
     filled(block.attributes).forEach((definition, i) => {
       if (!isDefinition(definition) || roleOf(definition.style)) return;
+      if (!fresh(definition, `an attribute${of}`)) return;
       const call = callOf(block.attributes!, i);
-      error(
+      say(
         "text-style-outside-standard",
         `Block ${shown(block.name)}, attribute ${shown(definition.tag)}: ${DRAWN.textWithoutRole}`,
         { block: block.name, attribute: definition.tag, ...(call ? { call } : {}) },
@@ -581,15 +658,18 @@ export function lintStandard(
     }
   }
   /** The first sound attribute definition of each tag a block has, worked out once a block. */
-  const definitions = new Map<Block, Map<string, AttributeDefinition>>();
+  const definitions = new Map<object, Map<string, AttributeDefinition>>();
   const definitionsOf = (block: Block): ReadonlyMap<string, AttributeDefinition> => {
-    let found = definitions.get(block);
+    // Read once for each list, however many blocks share it.
+    const list: unknown = block.attributes;
+    const key = typeof list === "object" && list !== null ? list : block;
+    let found = definitions.get(key);
     if (!found) {
       found = new Map();
       for (const a of filled(block.attributes)) {
         if (isDefinition(a) && !found.has(a.tag)) found.set(a.tag, a);
       }
-      definitions.set(block, found);
+      definitions.set(key, found);
     }
     return found;
   };
@@ -815,13 +895,6 @@ export function lintStandard(
   }
 
   // The heights texts plot at and the scales dimensions are shown at, as bounded work.
-  let work = 0;
-  let capped: string | undefined;
-  const spend = (cost: number): boolean => {
-    if (capped !== undefined) return false;
-    work += cost;
-    return work <= most;
-  };
   const shownLayers = visibility(
     { ...drawing, layers, linetypes: [], textStyles: [], dimensionStyles: [] },
     false,
@@ -1090,7 +1163,9 @@ export function lintStandard(
   if (capped !== undefined || work > most) {
     warn(
       "standard-check-capped",
-      `lint stopped its checks of the heights texts plot at and the scales dimensions are shown at their limit, ${capped ?? "at the end"}: the drawing draws more than they look through, so a text or a dimension past that point may break the standard with no error`,
+      shared
+        ? `lint stopped its checks of the lists and the long strings that many places share at their limit, ${capped}: the drawing shares more than they look through, so an entity there or past that point may break the standard with no error`
+        : `lint stopped its checks of the heights texts plot at and the scales dimensions are shown at their limit, ${capped ?? "at the end"}: the drawing draws more than they look through, so a text or a dimension past that point may break the standard with no error`,
     );
   }
 
@@ -1293,30 +1368,48 @@ function lettering(
     const held = new Map<Block, { items: Item[]; definitions: AttributeDefinition[] }>();
     const insertedBy = new Map<Block, Block[]>();
     const lettered: Block[] = [];
+    // A list that many blocks share is read once, and what it inserts is paid for again.
+    type Read = { items: Item[]; texts: boolean; inners: Block[] };
+    const reads = new Map<unknown, Read>();
+    const definitionLists = new Map<unknown, AttributeDefinition[]>();
     for (const block of blocks.values()) {
-      const items: Item[] = [];
-      let texts = false;
-      for (const e of filled(block.entities)) {
-        const kind = (e as { readonly kind?: unknown } | null | undefined)?.kind;
-        if ((kind !== "text" && kind !== "insert") || !isSound(TYPED.entity, e, false)) continue;
-        const entity = e as Text | Insert;
-        if (entity.kind === "text") {
-          items.push({ text: entity });
-          texts = true;
-          continue;
+      let found = reads.get(block.entities);
+      if (found) {
+        if (found.inners.length > 0 && !spend(found.inners.length)) throw CAPPED;
+      } else {
+        const items: Item[] = [];
+        const inners = new Set<Block>();
+        let texts = false;
+        for (const e of filled(block.entities)) {
+          const kind = (e as { readonly kind?: unknown } | null | undefined)?.kind;
+          if ((kind !== "text" && kind !== "insert") || !isSound(TYPED.entity, e, false)) continue;
+          const entity = e as Text | Insert;
+          if (entity.kind === "text") {
+            items.push({ text: entity });
+            texts = true;
+            continue;
+          }
+          const inner = blocks.get(key(entity.block));
+          if (inner === undefined) continue;
+          items.push({ insert: entity, block: inner });
+          inners.add(inner);
         }
-        const inner = blocks.get(key(entity.block));
-        if (inner === undefined) continue;
-        items.push({ insert: entity, block: inner });
+        reads.set(block.entities, (found = { items, texts, inners: [...inners] }));
+      }
+      for (const inner of found.inners) {
         const by = insertedBy.get(inner);
         if (by) by.push(block);
         else insertedBy.set(inner, [block]);
       }
-      const definitions = filled(block.attributes).filter((a) =>
-        isSound(TYPED.attribute, a, false),
-      ) as AttributeDefinition[];
-      held.set(block, { items, definitions });
-      if (texts || definitions.length > 0) lettered.push(block);
+      let definitions = definitionLists.get(block.attributes);
+      if (!definitions) {
+        definitions = filled(block.attributes).filter((a) =>
+          isSound(TYPED.attribute, a, false),
+        ) as AttributeDefinition[];
+        definitionLists.set(block.attributes, definitions);
+      }
+      held.set(block, { items: found.items, definitions });
+      if (found.texts || definitions.length > 0) lettered.push(block);
     }
     const drawsText = new Set(lettered);
     for (let i = 0; i < lettered.length; i++) {
@@ -1328,13 +1421,24 @@ function lettering(
     }
     for (const block of drawsText) tokens.set(block, `#${tokens.size}`);
     const walked: [string, Block][] = [];
+    const built = new Map<Item[], Entity[]>();
+    const copies = new Map<AttributeDefinition[], AttributeDefinition[]>();
+    const copied = (list: AttributeDefinition[]): AttributeDefinition[] => {
+      let found = copies.get(list);
+      if (!found) copies.set(list, (found = list.map(definitionOf)));
+      return found;
+    };
     for (const block of drawsText) {
       const { items, definitions } = held.get(block)!;
-      const entities: Entity[] = [];
-      for (const item of items) {
-        if ("text" in item) entities.push(textOf(item.text));
-        else if (drawsText.has(item.block))
-          entities.push(placed(item.insert, tokens.get(item.block)!));
+      let entities = built.get(items);
+      if (!entities) {
+        entities = [];
+        for (const item of items) {
+          if ("text" in item) entities.push(textOf(item.text));
+          else if (drawsText.has(item.block))
+            entities.push(placed(item.insert, tokens.get(item.block)!));
+        }
+        built.set(items, entities);
       }
       const token = tokens.get(block)!;
       walked.push([
@@ -1343,7 +1447,7 @@ function lettering(
           name: token,
           ...(block.base === undefined ? {} : { base: block.base }),
           entities,
-          attributes: definitions.map(definitionOf),
+          attributes: copied(definitions),
         },
       ]);
     }

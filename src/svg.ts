@@ -346,8 +346,8 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     `${e.kind === "insert" ? "insert" : "entity"} #${index} of ${space}`;
   /** The boxes of model space, made once for the picture, which reads each block once. */
   let boxes: Boxer | undefined;
-  const boxOf = (entities: readonly Entity[], at: (e: Entity) => string) => {
-    boxes ??= boxer(
+  const boxesOf = (): Boxer =>
+    (boxes ??= boxer(
       drawing.textStyles,
       drawing.blocks,
       hidden,
@@ -356,7 +356,9 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       drawing.dimensionStyles,
       drawing.leaderStyles,
       most,
-    );
+    ));
+  const boxOf = (entities: readonly Entity[], at: (e: Entity) => string) => {
+    const boxes = boxesOf();
     const box = boxes(entities);
     if (boxes.capped) refuse(at(boxes.capped), true);
     return box;
@@ -509,6 +511,10 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         if (!write(element.length + line)) refuse(where());
         return element;
       }
+      // A walk that would spend more than is left is refused before it is taken.
+      const boxes = boxesOf();
+      if (work + boxes.walkCost(e) > most) refuse(where());
+      if (boxes.capped) refuse(where(), true);
       const between = `\n${look.indent}  `;
       // An element is made of many small strings, so every `JOINED` of them are joined into one,
       // which holds no more than its characters, with what joins them as the group joins them.

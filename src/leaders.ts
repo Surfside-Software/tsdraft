@@ -26,7 +26,56 @@ import { keyHandle } from "./handles.ts";
 import { layerKey } from "./layers.ts";
 import { lineSpacing, measureText } from "./measure.ts";
 import { leaderStyleNameProblem, pictureNumberProblem } from "./rules.ts";
-import { filled } from "./shape.ts";
+import { filled, Strings } from "./shape.ts";
+
+/** The shortest line of a note that `leaderRepeats` tells apart by its value. */
+const LONG = 256;
+
+/**
+ * For the leaders of one call, what reading a leader again costs when it shares its list of
+ * shafts, a shaft, its note or a line of `LONG` characters or more with a leader read before, as
+ * a drawing made in code may: a unit for each shaft, each point and each line, and one for each
+ * 32 characters a line holds. 0 for a leader that shares none, whose lists the drawing holds.
+ */
+export function leaderRepeats(): (leader: Leader) => number {
+  const lists = new WeakMap<object, { readonly cost: number; readonly shares: boolean }>();
+  const shafts = new WeakSet<object>();
+  const lines = new Strings<true>();
+  /** What a list costs, worked out once, and whether it was read before or shares an item. */
+  const read = (list: unknown, item: (value: unknown) => [number, boolean]): [number, boolean] => {
+    if (typeof list !== "object" || list === null) return [0, false];
+    const known = lists.get(list);
+    if (known) return [known.cost, true];
+    let cost = 0;
+    let shares = false;
+    for (const value of filled(list)) {
+      const [more, again] = item(value);
+      cost += more;
+      shares ||= again;
+    }
+    lists.set(list, { cost, shares });
+    return [cost, shares];
+  };
+  const shaft = (value: unknown): [number, boolean] => {
+    if (typeof value !== "object" || value === null) return [1, false];
+    const again = shafts.has(value);
+    shafts.add(value);
+    return [1 + (Array.isArray(value) ? value.length : 0), again];
+  };
+  const line = (value: unknown): [number, boolean] => {
+    if (typeof value !== "string") return [1, false];
+    // A line that took the place of another of its length counts as read before.
+    const long = value.length >= LONG;
+    const again = long && (lines.get(value) !== undefined || lines.clashes(value));
+    if (long) lines.set(value, true);
+    return [1 + Math.floor(value.length / 32), again];
+  };
+  return (leader) => {
+    const [ofShafts, sharedShafts] = read(leader.shafts, shaft);
+    const [ofText, sharedText] = read(leader.text, line);
+    return sharedShafts || sharedText ? ofShafts + ofText : 0;
+  };
+}
 
 /**
  * A leader style's name as its handle is keyed: A to Z in lower case and nothing else changed,

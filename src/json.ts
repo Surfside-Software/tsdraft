@@ -104,7 +104,8 @@ export function canonical(
  *
  * It refuses a format version it does not know, a field or an entity kind it does not know, a
  * missing field and a value of the wrong type, and then every error `lint` finds, so a drawing
- * that was read has passed each check the builder makes. It throws a `DrawingError` whose
+ * that was read has passed each check the builder makes, and a `check-capped` warning, as
+ * `toDXF` refuses it. It throws a `DrawingError` whose
  * diagnostics name each problem, with the rule `"format"` for the ones `lint` does not look for.
  */
 export function fromJSON(json: unknown): Drawing {
@@ -123,7 +124,11 @@ export function fromJSON(json: unknown): Drawing {
   const problems: string[] = [];
   readDrawing(value, "", problems);
   if (problems.length > 0) refuse(problems);
-  const errors = lint(value as unknown as Drawing).filter((d) => d.severity === "error");
+  // A drawing too repetitive for `lint` to check to its end may hide an error past where it
+  // stopped, so it is refused as `toDXF` refuses it.
+  const errors = lint(value as unknown as Drawing).filter(
+    (d) => d.severity === "error" || d.rule === "check-capped",
+  );
   if (errors.length > 0) throw new DrawingError(errors);
   return value as unknown as Drawing;
 }

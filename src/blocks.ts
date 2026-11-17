@@ -279,6 +279,14 @@ export function blocksByKey(blocks: readonly Block[] | undefined): Map<string, B
   return out;
 }
 
+/**
+ * True for an item of a block's `attributes` that a walk reads as a definition: an object. Any
+ * other item draws nothing, where `lint` reports it.
+ */
+export function isDefinition(item: unknown): item is AttributeDefinition {
+  return typeof item === "object" && item !== null;
+}
+
 /** The fields of a text that an attribute definition gives the text an insert draws for it. */
 const DRAWN_FIELDS = [
   "id",
@@ -481,7 +489,11 @@ export function eachDrawn(
       continue;
     }
     if (holds(at.definitions, at.next)) {
-      const definition = at.definitions[at.next++]!;
+      const definition: unknown = at.definitions[at.next++];
+      if (!isDefinition(definition)) {
+        if (!spend(1)) return false;
+        continue;
+      }
       if (!spend(1 + lookupCost(at.insert, definition))) return false;
       draw(attributeText(at.insert, definition), {
         matrix: at.matrix,

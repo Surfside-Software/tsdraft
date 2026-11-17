@@ -162,7 +162,9 @@ text gets one warning of each rule at most. Its work is bounded: a drawing with 
 closed polylines near each other than it checks, such as thousands of texts on one spot, gets
 one `text-check-capped` warning, and what is left is not held against other texts or
 polylines. So does a drawing whose inserts draw more than it walks, such as blocks nested to
-draw one text millions of times. The warning says where it stopped. The walk of an insert
+draw one text millions of times, and one whose warnings would quote more text than it checks,
+since each character a warning quotes counts. The warning says where it stopped, and no
+entity past there is looked at. The walk of an insert
 reads only what the checks look at: a text with something to draw, a dimension, a closed
 polyline, an attribute, and the inserts that lead to one, so a block of linework with one label
 costs two steps. It counts each block it enters and each of those it reads there, and a text by

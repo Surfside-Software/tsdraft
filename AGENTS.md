@@ -46,16 +46,22 @@
   for `toSVG` and `inspectText`. It keeps its own stack, so a chain of any depth is walked,
   does not enter an insert on a frozen layer, reads each list up to its first empty slot, and
   asks `spend` before each block it enters and each item it reads. The extents never walk an
-  entity of a block: `boxer` in `src/extents.ts` reads each block once for each drawing it is in
-  and whether its layer `0` is hidden, and keeps the outline of what it draws, the points on or
-  within a hair of their convex hull, which a map of the plane takes to the box of all of them
-  to the last bit. A placement composes its matrices as `eachDrawn` does and maps each outline,
-  so its box is a walk's to the last bit. The first placement of a block at the top of a space
-  maps its own entities one by one instead, which is the walk itself, and its outline is worked
-  out only when it is mapped again, so a large xref placed once costs what reading it does.
-  Through a cycle, and past the boxer's limit of walks, it maps the outline of all its block
-  draws and widens the box by what rounding can move a number on the way, so the extents never come out smaller than a walk's. An outline that depends
-  on a block of a cycle being open is not kept for another way in. An insert's attributes are written as texts in the insert's
+  entity of a block: `boxer` in `src/extents.ts` keeps the box of each block's own entities, in
+  the block's coordinates, worked out once for each drawing it is in and whether its layer `0`
+  is hidden. A placement walks the blocks it inserts, with their matrices composed as
+  `eachDrawn` composes them, and maps the corners of each block's own box: each side takes the
+  corner that rounds no nearer than any point inside, so the box holds the walk's to the last
+  bit, is the walk's where no insert is turned, and for a turned insert may be larger. Each walk
+  enters its first 64 blocks free and all walks the boxer's `walking` more, which `lint` gives
+  the writer's whole limit, so the two take one path, and `lint` boxes model space when it holds
+  anything whose box can cost: an insert, a dimension, a leader or a text past `KEYED`. Past that, a placement
+  maps the corners of the box of all its block draws, widened by what rounding can move a number
+  on the way, so the extents never come out smaller than a walk's. Where a number on the way
+  overflowed or a product underflowed, which the slack cannot cover, it walks the blocks within
+  the walks left, and past them the boxer stops. A box that
+  depends on a block of a cycle being open is not kept for another way in. What many places share is read once a boxer: the box of a list of entities,
+  of a long list of points and of a leader, a long value's measure, and the inserts of a list.
+  An insert's attributes are written as texts in the insert's
   own coordinates, which `placeAttribute` works out from the numbers as they are written. An
   attribute is stored on its definition's layer, and one on layer `0` draws as its insert's
   layer does. An insert on a frozen layer, or in a plot on a layer that does not plot, draws
@@ -157,8 +163,8 @@
   `visibility` in `src/svg.ts` with `toSVG`, so the two leave out the same layers, and walks
   inserts with `eachDrawn`. It must stay bounded: boxes are worked out once and found through
   a grid, and every box the grid looks at, every point a check reads and each step of the walk
-  of an insert, a text by its length, count against one limit, which ends the checks with
-  `text-check-capped`, saying where, when it is reached. The walk reads blocks and xrefs cut to
+  of an insert, a text by its length, and each character a warning quotes, count against one
+  limit, which ends the checks with `text-check-capped`, saying where, when it is reached. The walk reads blocks and xrefs cut to
   what the checks keep, `looked` in `src/inspect.ts`, so linework costs it nothing, and its
   steps are free for the first 64 of each insert and for as many more as one walk of every
   block and xref takes.
@@ -246,7 +252,28 @@
 - `lint`, `inspectText`, the extents and `toSVG` must stay bounded on any data, by construction:
   each reads a list up to its first empty slot, works out each name's `layerKey` once a call,
   follows blocks with a stack of its own, and pays for what it does again, by its size, before
-  it does it. Each insert does its first 64 attributes, and the first 64 steps of its walk, free
+  it does it. The data is the value as given, and a drawing made in code may share one list,
+  object or string among many places, which JSON cannot. So what a walk reads of one of those
+  and can keep, it keeps for the call, by the object or, for a value of 256 characters or more,
+  by the string: the extents' boxes, a text's measure through `measurer` in `src/measure.ts`,
+  `inspectText`'s cut of a list and the outline of a long list of points, and `lint`'s checks of
+  a long value and an insert's values. What a walk must read again for each place, `lint` pays
+  for by its size each time after the first: a list of entities or of attribute definitions, a
+  list of points of 64 or more, an insert's values past the first 64, and a string of 256
+  characters or more in a field an entity, a definition or an insert's values has, since a
+  message quotes it and `toDXF` writes it again. An object of the wrong shape is reported where
+  it is first met, and its messages pay for their length, so a long key or kind that many objects
+  share is paid for each time it is quoted. Once `lint` or `inspectText` stops, it reads no entity
+  past there. `itemsOf` counts a list once. The boxer pays for a list that
+  another drawing holds too, such as one drawing given for many xrefs, and the standard's checks
+  pay for a shared list, each error they give from it by its length, and a shared long string. A
+  walk skips an attribute definition that is no object, as `isDefinition` in `src/blocks.ts`
+  says. Key no `Map` or `Set` of a walk by strings a drawing holds: V8 hashes a string over
+  16,383 characters by its length alone, so a table of many such strings of one length compares
+  each it looks up with all the others. `Strings` in `src/shape.ts` keys a long one by its length
+  and 80 of its characters, keeps one string a key, and says when a string takes another's
+  place, which the walk then pays for by its length. So distinct long strings crafted to agree at
+  those characters pay as if they were shared. Each insert does its first 64 attributes, and the first 64 steps of its walk, free
   of the limit: that is work in proportion to the drawing. `lint` pays for each attribute an
   insert places and each handle it takes past those, what a dimension reads from its style's
   prefix and suffix, the search for the way back through a cycle, which finds cycles first in
@@ -259,7 +286,8 @@
   placement reads only the fields it needs, as `inStyle` and `attributeText` do, never a copy
   of all an object holds, and a measured text takes only its font, width factor and oblique
   angle from its style. `toSVG` writes at most 500 million characters, and walks through
-  inserts at most 2,000,000 blocks and entities that draw nothing; what it draws counts against
+  inserts at most 2,000,000 blocks and entities that draw nothing, and refuses an insert whose
+  walk would spend more than is left before it walks it, from the boxer's `walkCost`; what it draws counts against
   the characters, so drawing an entity may cost only in proportion to what it writes: a dashed
   polyline's sides that have a length are found once a picture, for each list of points. Past
   either it throws a `RangeError` that names where it stopped. It joins an insert's elements as
@@ -269,7 +297,8 @@
   longest, and a walk that looks a definition's tag up among an insert's values pays a unit for
   each 256 characters of it, `lookupCost` in `src/blocks.ts`.
   `test/bounded.test.ts` fuzzes the four from a seed under a vm timeout, with limits given to
-  `lintWithin`, `inspectWithin` and `svgWithin`.
+  `lintWithin`, `inspectWithin` and `svgWithin`, and with lists and values that many places
+  share. Every walk but `lint` may throw a `RangeError` there, and nothing else.
 - `lint` takes any plain data and never throws, since a `Drawing` can be written by hand. A
   `Proxy` is code, not data, and `src/`, which imports no `node:` module, has no way to tell one
   from data without calling its traps. So `lint`, like the rest of the library, reads one as the

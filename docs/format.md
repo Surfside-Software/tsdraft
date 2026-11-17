@@ -188,7 +188,8 @@ whose `diagnostics` name every problem:
 - in a value that did not come from JSON text: an object that is not a plain object, a field
   that is inherited, hidden, or a getter or setter, and an array with an empty slot, with a key
   that is not an index, or without the methods of `Array`;
-- every error `lint` finds, so a drawing that was read has passed each check the builder makes.
+- every error `lint` finds, so a drawing that was read has passed each check the builder makes,
+  and `check-capped`, which says `lint` stopped short of checking it all, as `toDXF` refuses it.
 
 All but the last have the rule `format`. Nothing is dropped or defaulted. A drawing that went
 through `toJSON` and `fromJSON` gives the same DXF, and equals the original with every field
