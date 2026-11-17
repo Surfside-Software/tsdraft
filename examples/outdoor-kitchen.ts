@@ -2,20 +2,18 @@
 // grill. Run with `pnpm example`. It writes examples/out/outdoor-kitchen.dxf (AutoCAD 2018 DXF)
 // and outdoor-kitchen.svg.
 //
-// Every size comes from the parameters below. The dimensions, leaders, stipple and hatch are
-// functions in lib/drafting.ts that draw them with lines and text.
+// Every size comes from the parameters below. The dimensions are dimension objects in feet and
+// inches, and the notes are leaders. The stipple, hatch and symbols are functions in
+// lib/drafting.ts that draw them with lines and text.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createDrawing, toDXF, toSVG, type Point } from "../src/index.ts";
 import {
   breakLine,
   dashedLine,
-  dimension,
-  dimensionChain,
   earth,
   gridLines,
   hatch,
   insulation,
-  leader,
   lineOutside,
   sectionMark,
   stipple,
@@ -52,11 +50,12 @@ const run: { kind: Kind; width: number }[] = [
   { kind: "sink", width: 30 },
 ];
 
-// The sheet plots at 3/8" = 1'-0", so an inch on paper is 32 inches in the model.
+// The sheet plots at 3/8" = 1'-0", so an inch on paper is 32 inches in the model. Notes plot
+// 1/8" high.
 const scale = { label: `3/8" = 1'-0"`, factor: 32 };
-const noteHeight = (1 / 8) * scale.factor;
+const notePaper = 1 / 8;
+const noteHeight = notePaper * scale.factor;
 const titleHeight = (3 / 16) * scale.factor;
-const dims = { text: noteHeight, tick: 1, gap: 1.5, extend: 1.5 };
 
 // Positions worked out from the parameters.
 const runWidth = run.reduce((sum, item) => sum + item.width, 0);
@@ -165,7 +164,35 @@ d.layer("A-ANNO-NOTE", { color: 2, lineweight: 0.25 });
 d.layer("A-ANNO-SYMB", { color: 4, lineweight: 0.25 });
 d.layer("A-ANNO-TITL", { color: 7, lineweight: 0.35 });
 
+// The styles' sizes are on paper, and their scale makes them the size the sheet plots them at.
+d.dimensionStyle({
+  name: "DIMS",
+  textHeight: notePaper,
+  arrowhead: "architectural-tick",
+  arrowSize: 1 / 16,
+  extensionOffset: 3 / 64,
+  extensionBeyond: 3 / 64,
+  textGap: 1 / 16,
+  scale: scale.factor,
+  units: "architectural",
+  precision: 4,
+});
+d.leaderStyle({
+  name: "NOTES",
+  textHeight: notePaper,
+  arrowSize: 1 / 10,
+  landing: 1 / 8,
+  gap: 1 / 16,
+  scale: scale.factor,
+});
+
 const rect = ([x, y, w, h]: Box) => d.rect([x, y], w, h);
+/** A string of dimensions from each point to the next, with its dimension line through `line`. */
+const dimensionChain = (points: readonly Point[], line: Point, along: "x" | "y") => {
+  points.slice(1).forEach((to, i) => {
+    d.linearDimension(points[i] ?? to, to, line, { style: "DIMS", along });
+  });
+};
 
 // ---------------------------------------------------------------------------------------------
 // View 1: the elevation. The wall's lower-left corner is at 0,0 and the slab is at y = 0.
@@ -352,46 +379,65 @@ d.layer("A-WALL-PATT", {}, () => {
   });
 });
 
-// Dimensions: the cabinet widths and the run below, the heights on the left.
+// Dimensions: each appliance's width and the run below, the heights on the left. A note names
+// the fillers between them, whose text would not fit between the extension lines.
 d.layer("A-ANNO-DIMS", {}, () => {
-  const edges: Point[] = [...cabinets.map((c): Point => [c.x, 0]), [runRight, 0]];
-  dimensionChain(d, edges, "x", -9, dims);
-  dimension(d, [runLeft, 0], [runRight, 0], "x", -23, dims);
+  for (const c of cabinets.filter((c) => c.kind !== "filler")) {
+    d.linearDimension([c.x, 0], [c.x + c.width, 0], [0, -9], { style: "DIMS" });
+  }
+  d.linearDimension([runLeft, 0], [runRight, 0], [0, -23], { style: "DIMS" });
   dimensionChain(
-    d,
     [
       [0, 0],
       [0, top],
       [0, hoodBottom],
     ],
+    [-8, 0],
     "y",
-    -8,
-    dims,
   );
-  dimension(d, [0, 0], [0, wall.height], "y", -16, dims);
+  d.linearDimension([0, 0], [0, wall.height], [-16, 0], { style: "DIMS", along: "y" });
 });
 
-// Notes. Sizes in the notes come from the parameters.
+// Notes, each a leader from where it lands to what it names. Sizes in the notes come from the
+// parameters.
 d.layer("A-ANNO-NOTE", {}, () => {
-  const h = noteHeight;
+  const style = "NOTES";
   const left = -26;
   const right = wall.width + 8;
-  leader(d, [7, 98], [left, 102], ["STUCCO FINISH,", "PAINTED"], h);
+  d.leader(["STUCCO FINISH,", "PAINTED"], { style, at: [left, 102], to: [7, 98] });
   const upperShelf = top + Math.max(...shelves.above) + shelves.thickness / 2;
-  leader(d, [shelfLeft, upperShelf], [left, 84], ["FLOATING", "SHELVES"], h);
-  leader(d, [lid.left + 4, lid.top], [left, 66], [`${grill.width}" BUILT-IN`, "GAS GRILL"], h);
-  leader(d, [counterLeft + 2, top + 6], [left, 44], ["TILE BACKSPLASH"], h);
-  leader(d, [counterLeft, under + 0.75], [left, 32], ["STONE COUNTERTOP"], h);
-  leader(d, [fridge.x + 5, 16], [left, 9], [`${fridge.width}" UNDERCOUNTER`, "REFRIGERATOR"], h);
-  leader(d, [grillCenter + hood.chimney / 2, 98], [right, 100], ["STAINLESS", "VENT HOOD"], h);
-  leader(
-    d,
-    [windowLeft + windowSize.width, windowBottom + 26],
-    [right, 76],
-    ["ALUMINUM", "WINDOW"],
-    h,
-  );
-  leader(d, [sinkCenter + 11, under - 4], [right, 30], ["UNDERMOUNT", "SINK"], h);
+  d.leader(["FLOATING", "SHELVES"], { style, at: [left, 84], to: [shelfLeft, upperShelf] });
+  d.leader([`${grill.width}" BUILT-IN`, "GAS GRILL"], {
+    style,
+    at: [left, 66],
+    to: [lid.left + 4, lid.top],
+  });
+  d.leader("TILE BACKSPLASH", { style, at: [left, 44], to: [counterLeft + 2, top + 6] });
+  d.leader("STONE COUNTERTOP", { style, at: [left, 32], to: [counterLeft, under + 0.75] });
+  d.leader([`${fridge.width}" UNDERCOUNTER`, "REFRIGERATOR"], {
+    style,
+    at: [left, 9],
+    to: [fridge.x + 5, 16],
+  });
+  d.leader(["STAINLESS", "VENT HOOD"], {
+    style,
+    at: [right, 100],
+    to: [grillCenter + hood.chimney / 2, 98],
+  });
+  d.leader(["ALUMINUM", "WINDOW"], {
+    style,
+    at: [right, 76],
+    to: [windowLeft + windowSize.width, windowBottom + 26],
+  });
+  d.leader(["UNDERMOUNT", "SINK"], { style, at: [right, 30], to: [sinkCenter + 11, under - 4] });
+  const filler = cabinets.find((c) => c.kind === "filler");
+  if (filler) {
+    d.leader([`${filler.width}" FILLER,`, "TYP."], {
+      style,
+      at: [right, 12],
+      to: [sink.x - 1.5, 14],
+    });
+  }
 });
 
 // The cut for view 2, through the grill and looking toward the sink.
@@ -595,60 +641,54 @@ d.layer("A-EQPM", {}, () => {
 d.layer("A-ANNO-DIMS", {}, () => {
   // The depth is measured above the grill, and the heights start on the slab.
   const depthAt = lid.top + 6;
-  dimension(d, [face, depthAt - 4], [front, depthAt - 4], "x", depthAt, dims);
+  d.linearDimension([face, depthAt - 4], [front, depthAt - 4], [0, depthAt], { style: "DIMS" });
   const tier = front + 10;
   dimensionChain(
-    d,
     [
       [tier, 0],
       [front, top],
       [face + hood.depth, hoodBottom],
     ],
+    [tier, 0],
     "y",
-    tier,
-    dims,
   );
 });
 
 d.layer("A-ANNO-NOTE", {}, () => {
-  const h = noteHeight;
+  const style = "NOTES";
   const x = right + 2;
   const canopyMiddle: Point = [
     face + (hood.depth + hood.chimneyDepth) / 2,
     (canopyBottom + canopyTop) / 2,
   ];
   const insulationTop = chordTop + ceiling.insulation;
-  leader(
-    d,
-    [insideFace - 5, insulationTop - 1],
-    [x, insulationTop + 11],
-    ["R-30 BATT", "INSULATION"],
-    h,
-  );
-  leader(d, [ductRight, chordTop + 4], [x, chordTop + 2], [`${hood.duct}" DUCT TO`, "ROOF CAP"], h);
-  leader(d, canopyMiddle, [x, 96], ["STAINLESS", "VENT HOOD"], h);
-  leader(
-    d,
-    [wallCenter + 0.7, 70],
-    [x, 70],
-    [`STUCCO ON ${wall.thickness}"`, "CMU W/ #5 VERT.", `@ 48" O.C.`],
-    h,
-  );
-  leader(d, [cabinetFront, 12], [x, 8], ["STAINLESS", "ACCESS DOOR"], h);
-  leader(
-    d,
-    [right - 6, -slab.thickness / 2],
-    [x, -7],
-    [`${slab.thickness}" CONCRETE`, "PATIO SLAB"],
-    h,
-  );
-  leader(
-    d,
-    bars[1] ?? [cmuFace, footingBottom],
-    [x, -22],
-    [`${footing.width}"x${footing.depth}" FOOTING`, "W/ (2) #5 CONT."],
-    h,
-  );
+  d.leader(["R-30 BATT", "INSULATION"], {
+    style,
+    at: [x, insulationTop + 11],
+    to: [insideFace - 5, insulationTop - 1],
+  });
+  d.leader([`${hood.duct}" DUCT TO`, "ROOF CAP"], {
+    style,
+    at: [x, chordTop + 2],
+    to: [ductRight, chordTop + 4],
+  });
+  d.leader(["STAINLESS", "VENT HOOD"], { style, at: [x, 96], to: canopyMiddle });
+  d.leader([`STUCCO ON ${wall.thickness}"`, "CMU W/ #5 VERT.", `@ 48" O.C.`], {
+    style,
+    at: [x, 70],
+    to: [wallCenter + 0.7, 70],
+  });
+  d.leader(["STAINLESS", "ACCESS DOOR"], { style, at: [x, 8], to: [cabinetFront, 12] });
+  d.leader([`${slab.thickness}" CONCRETE`, "PATIO SLAB"], {
+    style,
+    at: [x, -7],
+    to: [right - 6, -slab.thickness / 2],
+  });
+  d.leader([`${footing.width}"x${footing.depth}" FOOTING`, "W/ (2) #5 CONT."], {
+    style,
+    at: [x, -22],
+    to: bars[1] ?? [cmuFace, footingBottom],
+  });
 });
 
 d.layer("A-ANNO-TITL", {}, () => {

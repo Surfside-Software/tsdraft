@@ -25,10 +25,13 @@ note says 42".
 node examples/outdoor-kitchen.ts
 ```
 
-The dimensions, leaders, stucco stipple, hatching, earth, insulation, dashed
-lines, break lines and view titles come from [`lib/drafting.ts`](lib/drafting.ts).
-Each function takes the drawing builder and draws lines, polylines, circles,
-arcs and text, so a CAD program opens the result as plain geometry.
+The dimensions are dimension objects in one style, in feet and inches with
+architectural ticks, and the notes are leaders in one leader style, so CAD
+measures the dimensions again when their points move and moves each note as
+one. The stucco stipple, hatching, earth, insulation, dashed lines, break lines
+and view titles come from [`lib/drafting.ts`](lib/drafting.ts). Each function
+takes the drawing builder and draws lines, polylines, circles, arcs and text,
+so a CAD program opens them as plain geometry.
 
 ## Site plan
 
