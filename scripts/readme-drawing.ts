@@ -154,6 +154,12 @@ const pictures: Picture[] = [
 const group =
   '<g transform="scale(1 -1)" fill="none" stroke-width="1" vector-effect="non-scaling-stroke">';
 
+/** The white rectangle toSVG draws the paper of a layout with. */
+const PAPER = 'fill="#ffffff" data-paper-sheet=""/>';
+
+/** A dimension or a leader is a group that names the layer, and its parts are the lines after it. */
+const GROUPED = / data-(dimension|leader)="/;
+
 /** A line one pixel wide just inside the edge of the picture, which is the sheet's edge. */
 function sheetOutline(x: number, y: number, w: number, h: number, pixel: number, color: string) {
   const at = [x + pixel / 2, y + pixel / 2, w - pixel, h - pixel].map((n) => Number(n.toFixed(3)));
@@ -176,14 +182,14 @@ function sheetPicture(
   const base = Number(
     /<g transform="scale\(1 -1\)" fill="none" stroke-width="([^"]+)"/.exec(svg)?.[1],
   );
-  if (!(w > 0) || !(base > 0) || !svg.includes('fill="#ffffff"/>')) {
+  if (!(w > 0) || !(base > 0) || !svg.includes(PAPER)) {
     throw new Error(
       "toSVG's picture of a layout changed shape, so the restyling no longer applies",
     );
   }
   const unitsPerPixel = w / width;
   const wider = (pen * unitsPerPixel) / base;
-  let dimension: string | undefined;
+  let entity: string | undefined;
   const out = svg.split("\n").map((line) => {
     if (line.startsWith("<svg ")) {
       return line.replace(
@@ -191,7 +197,7 @@ function sheetPicture(
         `viewBox="${x} ${y} ${w} ${h}" width="${width}" height="${Math.round((width * h) / w)}">`,
       );
     }
-    if (line.includes('fill="#ffffff"/>')) {
+    if (line.includes(PAPER)) {
       return [
         `  <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${Number((2 * unitsPerPixel).toFixed(4))}" fill="${colors.bg}"/>`,
         sheetOutline(x, y, w, h, unitsPerPixel, colors.muted).replace(
@@ -201,17 +207,14 @@ function sheetPicture(
       ].join("\n");
     }
     const layer = /data-layer="([^"]+)"/.exec(line)?.[1];
-    // A dimension is a group that names the layer, and its parts are the lines after it.
-    if (line.includes("data-dimension=")) dimension = layer;
-    else if (line.trim() === "</g>") dimension = undefined;
-    const drawnOn = layer ?? dimension;
+    if (GROUPED.test(line)) entity = layer;
+    else if (line.trim() === "</g>") entity = undefined;
+    const drawnOn = layer ?? entity;
     const role = drawnOn === undefined ? undefined : roles[drawnOn];
     if (drawnOn !== undefined && !role) throw new Error(`Layer ${drawnOn} of ${name} has no role`);
-    const styled = line
-      .replace(/stroke-width="([^"]+)"/, (_, value: string) => {
-        return `stroke-width="${Number((Number(value) * wider).toPrecision(5))}"`;
-      })
-      .replace('fill="none" stroke-width', 'fill="none" stroke-linejoin="round" stroke-width');
+    const styled = line.replace(/stroke-width="([^"]+)"/, (_, value: string) => {
+      return `stroke-width="${Number((Number(value) * wider).toPrecision(5))}"`;
+    });
     // The hidden rectangle of a clipped view draws nothing, and has no layer.
     if (line.includes('visibility="hidden"')) {
       return styled.replace('stroke="#000000"', `stroke="${colors.muted}"`);
@@ -280,13 +283,20 @@ for (const picture of pictures) {
     // file small.
     const body: string[] = [];
     let openGroup = "";
+    // The parts of a dimension or a leader, and the end of its group, are drawn as the group is.
+    let entity: { role: Role; tag: string } | undefined;
     for (const line of lines) {
       const layer = /data-layer="([^"]+)"/.exec(line)?.[1];
-      const role = layer === undefined ? undefined : roles[layer];
-      if (layer !== undefined && !role) throw new Error(`Layer ${layer} of ${name} has no role`);
+      const own = layer === undefined ? undefined : roles[layer];
+      if (layer !== undefined && !own) throw new Error(`Layer ${layer} of ${name} has no role`);
+      const role = entity?.role ?? own;
       const relative = Number(/ stroke-width="([\d.]+)"/.exec(line)?.[1] ?? 1);
       const strokeWidth = Number((relative * pen * unitsPerPixel).toFixed(3));
-      const groupTag = role ? `    <g stroke="${colors[role]}" stroke-width="${strokeWidth}">` : "";
+      const groupTag =
+        entity?.tag ??
+        (role ? `    <g stroke="${colors[role]}" stroke-width="${strokeWidth}">` : "");
+      if (role && GROUPED.test(line)) entity = { role, tag: groupTag };
+      else if (line.trim() === "</g>") entity = undefined;
       if (groupTag !== openGroup) {
         if (openGroup) body.push("    </g>");
         if (groupTag) body.push(groupTag);

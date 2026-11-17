@@ -13,6 +13,10 @@
 - `tsdraft render --pdf` and `tsdraft dev` embed the file the machine has for each TrueType
   font, the one the PNG is set in, and `pdfFonts` names it: `ArialMT`, or `LiberationSans` for a
   font made to Arial's widths, where it named `Helvetica`.
+- The outdoor kitchen example, `examples/outdoor-kitchen.ts`, draws its dimensions with
+  `linearDimension`, in feet and inches with architectural ticks, and its notes with `d.leader`. Its
+  helpers that drew them from lines and text, `dimensionChain`, `dimension`, `leader` and
+  `textWidth`, are gone from `examples/lib/drafting.ts`.
 
 What changes for a read of a DXF, whose model is format 0 and not settled:
 

@@ -24,9 +24,10 @@ Working as an agent? Read [the guide for agents](GUIDE.md) first.
 
 The picture is what `toSVG` writes for
 [`examples/outdoor-kitchen.ts`](examples/outdoor-kitchen.ts), restyled for this
-page with a color for each layer. Its dimensions, leaders and stipple
-are small functions in the example that draw lines and text, and every size
-comes from a few parameters at the top of the file.
+page with a color for each layer. Its dimensions are tsdraft's dimensions, in
+feet and inches, and its notes are leaders. The stipple and hatching are small
+functions in the example that draw lines, and every size comes from a few
+parameters at the top of the file.
 [`examples`](examples) has the drawings and how to run them.
 
 A smaller drawing, start to finish:
