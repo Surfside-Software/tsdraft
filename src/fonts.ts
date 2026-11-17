@@ -118,3 +118,39 @@ export function fontInfo(name: string): FontInfo | undefined {
     ? FONTS[name as Font]
     : undefined;
 }
+
+/** Each font of `FONTS` by its name, its file and its file without the extension, in lower case. */
+const FONT_NAMES: ReadonlyMap<string, Font> = new Map(
+  (Object.entries(FONTS) as [Font, FontInfo][]).flatMap(([font, info]) => [
+    [font.toLowerCase(), font],
+    [info.file.toLowerCase(), font],
+    [info.file.toLowerCase().replace(/\.(shx|ttf)$/, ""), font],
+  ]),
+);
+
+/** The longest key of `FONT_NAMES`. */
+const LONGEST_FONT_NAME = Math.max(...[...FONT_NAMES.keys()].map((key) => key.length));
+
+/** The start of each name a font of `FONTS` may go by, longest first, such as `romans` or `times`. */
+const FONT_STEMS: readonly (readonly [string, Font])[] = [...FONT_NAMES]
+  .map(([key, font]) => [key.replace(/\.(shx|ttf)$/, "").split(" ")[0]!, font] as const)
+  .sort((a, b) => b[0].length - a[0].length);
+
+/**
+ * The font of `FONTS` a text set in `named` measures in: the font itself when `named` is one,
+ * by its name or its file, in any case and with or without its folder and extension. A font
+ * tsdraft does not have, such as a firm's SHX font or another TrueType family, measures in the
+ * font of `FONTS` whose name it starts with, such as `romans.shx` for `romans2.shx` or `Arial` for
+ * `Arial Narrow`, or else in `Arial`. `exact` is false for those.
+ */
+export function nearestFont(named: string): { readonly font: Font; readonly exact: boolean } {
+  const key = named
+    .trim()
+    .replace(/^.*[\\/]/, "")
+    .toLowerCase();
+  const font = key.length <= LONGEST_FONT_NAME ? FONT_NAMES.get(key) : undefined;
+  if (font !== undefined) return { font, exact: true };
+  const bare = key.replace(/\.[a-z0-9]{3}$/, "");
+  const stem = FONT_STEMS.find(([start]) => bare.startsWith(start));
+  return { font: stem?.[1] ?? "Arial", exact: false };
+}

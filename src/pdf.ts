@@ -3,11 +3,12 @@
 // drawing: it turns the elements of that picture into the operators of a page.
 import type { Drawing } from "./drawing.ts";
 import { FONT_METRICS, FONT_METRICS_RANGES, type FontMetrics } from "./font-metrics.ts";
-import { FONTS, type Font } from "./fonts.ts";
+import { FONTS, fontInfo, type Font } from "./fonts.ts";
 import { paperInfo } from "./papers.ts";
 import { Sha256 } from "./sha256.ts";
 import { filled } from "./shape.ts";
 import { SHEET_PICTURE, toSVG } from "./svg.ts";
+import { readTrueType, type TrueType } from "./truetype.ts";
 
 export interface PdfOptions {
   /** The layouts to plot, in this order. Defaults to every layout, in the drawing's order. */
@@ -23,9 +24,17 @@ export interface PdfOptions {
    */
   readonly deflate?: (bytes: Uint8Array) => Uint8Array;
   /**
+   * The TrueType file of each font the texts are set in, by the font's name in `FONTS`, such as
+   * `{ Arial: bytes }`: the font's own file, or one made to its widths. The PDF embeds each, cut
+   * to the letters it uses. A text in a font with no file here, or with a file `pdfFace` does
+   * not take, and a text in an SHX font, is set in a standard face that is not embedded.
+   */
+  readonly fonts?: Readonly<Record<string, Uint8Array>>;
+  /**
    * Told, for each page that has any, the characters of its texts that the page's faces lack,
-   * which it sets as `?`: a character outside Windows-1252, such as `≥`. `page` counts from 0,
-   * which tells two sheets of one name apart in a list of sheets.
+   * which it sets as `?`: a character the embedded font has no glyph for, or one outside
+   * Windows-1252, such as `≥`, in a standard face. `page` counts from 0, which tells two sheets
+   * of one name apart in a list of sheets.
    */
   readonly missing?: (layout: string, characters: string, page: number) => void;
   /** The document's title, which a viewer shows in place of the file's name. */
@@ -350,17 +359,32 @@ const FACE_OF_FONT: ReadonlyMap<string, Face> = new Map(
 );
 
 /**
- * The face a PDF of tsdraft's sets a text in, for the font its style names: `Helvetica`,
- * `Times-Roman` or `Courier`, none of them embedded. Arial, Times New Roman and Courier New are
- * set in the face with their widths, and every other font in the face of its kind, stretched to
- * the length the text plots. A font that is not one of `FONTS` is set in Courier, as the picture
- * draws it in the font of `Standard`.
+ * The face a PDF of tsdraft's sets a text in, for the font its style names. With `file`, the
+ * TrueType file given for the font in `fonts`, it is the PostScript name of the file's font,
+ * which the PDF embeds, when the font is a TrueType font of `FONTS` and the file one the PDF can
+ * embed. Otherwise it is `Helvetica`, `Times-Roman` or `Courier`, which no PDF embeds: Arial,
+ * Times New Roman and Courier New are set in the face with their widths, and every other font in
+ * the face of its kind, stretched to the length the text plots. A font that is not one of
+ * `FONTS` is set in Courier, as the picture draws it in the font of `Standard`.
  */
-export function pdfFace(font: string): "Helvetica" | "Times-Roman" | "Courier" {
+export function pdfFace(font: string, file?: Uint8Array): string {
+  const read = file === undefined ? undefined : embeddable(font, file);
+  return read === undefined ? standIn(font).name : read.name;
+}
+
+/** The standard face a font is set in when it is not embedded. */
+function standIn(font: string | undefined): Face {
   return (
-    (typeof font === "string" && Object.hasOwn(FONTS, font) ? FACE_OF_FONT.get(font) : undefined)
-      ?.name ?? FACES.mono.name
+    (typeof font === "string" && Object.hasOwn(FONTS, font) ? FACE_OF_FONT.get(font) : undefined) ??
+    FACES.mono
   );
+}
+
+/** The font of a file, when it is a TrueType font for a TrueType font of `FONTS` a PDF can embed. */
+function embeddable(font: string, file: unknown): TrueType | undefined {
+  if (fontInfo(font)?.capHeight === undefined || !(file instanceof Uint8Array)) return undefined;
+  const read = readTrueType(file);
+  return typeof read === "string" ? undefined : read;
 }
 
 /** The characters Windows-1252 puts at 0x80 to 0x9F, by their code there. */
@@ -395,6 +419,11 @@ const WIN_ANSI_HIGH: Readonly<Record<number, number>> = {
 };
 
 const QUESTION = 0x3f;
+
+/** A control character, which no face sets: U+0000 to U+001F and U+007F to U+009F. */
+function control(code: number): boolean {
+  return code < 0x20 || (code >= 0x7f && code <= 0x9f);
+}
 
 /** A character's code in Windows-1252, the encoding of the page's fonts, or `?` for one it lacks. */
 function winAnsi(code: number): number {
@@ -452,6 +481,90 @@ const TEXT_PIECE = 32_768;
 
 /** The most cubic curves one arc is drawn with. */
 const MAX_CURVES = 4096;
+
+/** The most characters one embedded font sets, beside `?`, since a code is two bytes. */
+const MAX_CODES = 65_000;
+
+/**
+ * A TrueType font a PDF embeds, cut to the characters its pages set in it. Each character gets
+ * a code of its own, from 1, in the order the pages meet it, so a reader that copies a text
+ * gets its characters back, even two that share a glyph.
+ */
+class Embedded {
+  readonly font: TrueType;
+  /** The height of the text as a share of its size: the font's capitals. */
+  readonly capital: number;
+  readonly object: number;
+  readonly codes = new Map<string, number>();
+  /** The glyph of each code, at the code less 1. */
+  readonly glyphs: number[] = [];
+
+  constructor(font: TrueType, capital: number, object: number) {
+    this.font = font;
+    this.capital = capital;
+    this.object = object;
+  }
+
+  /**
+   * The code of a character, given one when it is first set. A character the font has no glyph
+   * for, and a control character, is added to `missing` and set as `?`, as `measureText`
+   * measures it, or as the font's empty glyph, code 0, when it has no `?` either.
+   */
+  code(character: string, missing: Set<string>): number {
+    const known = this.codes.get(character);
+    if (known !== undefined) return known;
+    const point = character.codePointAt(0)!;
+    const glyph = control(point) ? 0 : this.font.glyph(point);
+    if (glyph !== 0 && (this.codes.size < MAX_CODES || character === "?")) {
+      this.glyphs.push(glyph);
+      this.codes.set(character, this.glyphs.length);
+      return this.glyphs.length;
+    }
+    missing.add(character);
+    if (character === "?") return 0;
+    return this.codes.get("?") ?? (this.font.glyph(QUESTION) === 0 ? 0 : this.code("?", missing));
+  }
+}
+
+/** The six capitals that name a subset of a font, from a hash of the subset's bytes. */
+function subsetTag(program: Uint8Array): string {
+  const hex = new Sha256().update(program).digest();
+  let tag = "";
+  for (let i = 0; i < 6; i++) {
+    tag += String.fromCharCode(65 + (Number.parseInt(hex.slice(2 * i, 2 * i + 2), 16) % 26));
+  }
+  return tag;
+}
+
+/** A map from codes to the characters they set, as a PDF's `ToUnicode` CMap holds one. */
+function toUnicode(codes: ReadonlyMap<string, number>): string {
+  const hex = (value: number) => value.toString(16).padStart(4, "0").toUpperCase();
+  const lines = [
+    "/CIDInit /ProcSet findresource begin",
+    "12 dict begin",
+    "begincmap",
+    "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def",
+    "/CMapName /Adobe-Identity-UCS def",
+    "/CMapType 2 def",
+    "1 begincodespacerange",
+    "<0000> <FFFF>",
+    "endcodespacerange",
+  ];
+  const entries = [...codes];
+  // A CMap holds at most 100 entries in each block.
+  for (let at = 0; at < entries.length; at += 100) {
+    const block = entries.slice(at, at + 100);
+    lines.push(`${block.length} beginbfchar`);
+    for (const [character, code] of block) {
+      let units = "";
+      for (let i = 0; i < character.length; i++) units += hex(character.charCodeAt(i));
+      lines.push(`<${hex(code)}> <${units}>`);
+    }
+    lines.push("endbfchar");
+  }
+  lines.push("endcmap", "CMapName currentdict /CMap defineresource pop", "end", "end");
+  return `${lines.join("\n")}\n`;
+}
 
 /** Bytes of ASCII text, which is all a PDF's structure and content hold here. */
 function ascii(text: string): Uint8Array {
@@ -696,16 +809,20 @@ class PdfWriter {
   private readonly faces = new Map<Face, number>();
   private readonly layers = new Map<string, number>();
   private readonly widths = new Map<Face, number[]>();
+  /** Each font of `FONTS` whose file the PDF embeds, or null for one it sets in a face. */
+  private readonly embedded = new Map<string, Embedded | null>();
 
   private readonly deflate: PdfOptions["deflate"];
   private readonly missing: PdfOptions["missing"];
+  private readonly files: PdfOptions["fonts"];
   private readonly title: string | undefined;
   /** The hash of every byte written, from which the file's id comes. */
   private readonly hash = new Sha256();
 
-  constructor({ deflate, missing, title }: Omit<PdfOptions, "layouts" | "xrefs">) {
+  constructor({ deflate, missing, title, fonts }: Omit<PdfOptions, "layouts" | "xrefs">) {
     this.deflate = deflate;
     this.missing = missing;
+    this.files = typeof fonts === "object" && fonts !== null ? fonts : undefined;
     this.title = typeof title === "string" ? title : undefined;
     // A comment of bytes above 127 on the second line tells a reader the file is binary.
     this.write(ascii("%PDF-1.7\n"));
@@ -745,6 +862,86 @@ class PdfWriter {
     return number;
   }
 
+  /** The font a text in `font` is embedded in, read from its file once, or null for none. */
+  private embeddedOf(font: string): Embedded | null {
+    let found = this.embedded.get(font);
+    if (found === undefined) {
+      const own = fontInfo(font)?.capHeight;
+      const file =
+        this.files !== undefined && own !== undefined && Object.hasOwn(this.files, font)
+          ? this.files[font]
+          : undefined;
+      const read = file === undefined ? undefined : embeddable(font, file);
+      // AutoCAD makes the capital `A` of a font as tall as the text, by the number `FONTS` holds
+      // for the font's own file. A file that stands in is sized by the cap height it states, as
+      // the command's PNG sizes it, so the preview and the plot agree.
+      const capital = read?.family === font ? own : (read?.capHeight ?? own);
+      found =
+        read === undefined || capital === undefined
+          ? null
+          : new Embedded(read, capital, this.reserve());
+      this.embedded.set(font, found);
+    }
+    return found;
+  }
+
+  /** Writes an embedded font, cut to the glyphs of the characters its pages set. */
+  private embed(embedded: Embedded): void {
+    const { font } = embedded;
+    // The glyphs of the subset: the empty glyph first, then each glyph set, once.
+    const order = [0];
+    const place = new Map<number, number>([[0, 0]]);
+    for (const glyph of embedded.glyphs) {
+      if (!place.has(glyph)) {
+        place.set(glyph, order.length);
+        order.push(glyph);
+      }
+    }
+    const program = font.subset(order);
+    const name = `${subsetTag(program)}+${font.name}`;
+    const per = 1000 / font.unitsPerEm;
+    const [descendant, descriptor, file, unicode, glyphMap, list] = [1, 2, 3, 4, 5, 6].map(() =>
+      this.reserve(),
+    ) as [number, number, number, number, number, number];
+    const glyphs = [0, ...embedded.glyphs];
+    const widths = glyphs.map((glyph) => real(font.advance(glyph) * per, 3));
+    this.object(
+      embedded.object,
+      `<< /Type /Font /Subtype /Type0 /BaseFont /${name} /Encoding /Identity-H /DescendantFonts [${descendant} 0 R] /ToUnicode ${unicode} 0 R >>`,
+    );
+    this.object(
+      descendant,
+      `<< /Type /Font /Subtype /CIDFontType2 /BaseFont /${name} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor ${descriptor} 0 R /DW ${widths[0]} /W ${list} 0 R /CIDToGIDMap ${glyphMap} 0 R >>`,
+    );
+    // The advance of each code, from code 0, in thousandths of the size.
+    this.object(list, `[0 [${widths.join(" ")}]]`);
+    const box = font.box.map((value) => Math.round(value * per)).join(" ");
+    this.object(
+      descriptor,
+      `<< /Type /FontDescriptor /FontName /${name} /Flags 4 /FontBBox [${box}] /ItalicAngle ${real(font.italicAngle, 3)} /Ascent ${Math.round(font.ascent * per)} /Descent ${Math.round(font.descent * per)} /CapHeight ${Math.round(embedded.capital * 1000)} /StemV 80 /FontFile2 ${file} 0 R >>`,
+    );
+    this.stream(file, program, ` /Length1 ${program.length}`);
+    this.stream(unicode, ascii(toUnicode(embedded.codes)));
+    // Each code's glyph in the subset, two bytes each, from code 0.
+    const map = new Uint8Array(2 * glyphs.length);
+    glyphs.forEach((glyph, code) => {
+      const at = place.get(glyph)!;
+      map[2 * code] = at >> 8;
+      map[2 * code + 1] = at & 0xff;
+    });
+    this.stream(glyphMap, map);
+  }
+
+  /** Writes a stream object, compressed with `deflate` when there is one. */
+  private stream(number: number, bytes: Uint8Array, entries = ""): void {
+    const data = this.deflate ? this.deflate(bytes) : bytes;
+    this.object(
+      number,
+      `<< /Length ${data.length}${this.deflate ? " /Filter /FlateDecode" : ""}${entries} >>`,
+      data,
+    );
+  }
+
   private widthsOf(face: Face): number[] {
     let widths = this.widths.get(face);
     if (!widths) this.widths.set(face, (widths = faceWidths(face)));
@@ -760,7 +957,7 @@ class PdfWriter {
   /** Adds a page drawn from a picture `toSVG` made of a layout. */
   page(svg: string): void {
     const content = new Content();
-    const fonts = new Map<Face, string>();
+    const fonts = new Map<Face | Embedded, string>();
     const missing = new Set<string>();
     const marks = new Map<string, string>();
     const page = this.pages.length + 1;
@@ -1109,7 +1306,9 @@ class PdfWriter {
       `<< /Length ${stream.length}${this.deflate ? " /Filter /FlateDecode" : ""} >>`,
       stream,
     );
-    const fontList = [...fonts].map(([face, key]) => `/${key} ${this.faceObject(face)} 0 R`);
+    const fontList = [...fonts].map(
+      ([face, key]) => `/${key} ${"codes" in face ? face.object : this.faceObject(face)} 0 R`,
+    );
     const layerList = [...marks].map(([layer, key]) => `/${key} ${this.layers.get(layer)} 0 R`);
     const resources = [
       fontList.length > 0 ? `/Font << ${fontList.join(" ")} >>` : "",
@@ -1133,35 +1332,55 @@ class PdfWriter {
     element: Record<string, string>,
     inherited: Inherited,
     value: string,
-    fonts: Map<Face, string>,
+    fonts: Map<Face | Embedded, string>,
     missing: Set<string>,
     where: string,
   ): { fill: string; operators: readonly string[] } | undefined {
     const fill = colorOf(inherited.fill, where);
-    const codes: number[] = [];
-    for (const character of value) {
-      const code = winAnsi(character.codePointAt(0)!);
-      if (code === QUESTION && character !== "?") missing.add(character);
-      codes.push(code);
-    }
-    if (fill === undefined || codes.length === 0) return undefined;
+    if (fill === undefined) return undefined;
     const font = element["data-font"];
-    // A font that is not one of `FONTS` is drawn as `toSVG` draws it, in the font of `Standard`.
-    const face = font === undefined ? undefined : (FACE_OF_FONT.get(font) ?? FACES.mono);
     const height = Number(element["data-height"]);
-    if (!face || !(height > 0) || !Number.isFinite(height)) {
+    if (font === undefined || !(height > 0) || !Number.isFinite(height)) {
       throw refuse(
         `a text in the font ${JSON.stringify(font)} of height ${JSON.stringify(element["data-height"])}`,
         where,
       );
     }
-    let key = fonts.get(face);
-    if (key === undefined) fonts.set(face, (key = `F${this.faceObject(face)}`));
-    // The face's capitals are as tall as the text's height: by the cap height of the font the
-    // face has the widths of, and by its own for any other font.
-    const size = height / (font === face.widthsOf ? face.capHeight : face.ownCapHeight);
-    const widths = this.widthsOf(face);
-    const natural = codes.reduce((sum, code) => sum + widths[code - 32]!, 0) * (size / 1000);
+    const embedded = this.embeddedOf(font);
+    // A font that is not one of `FONTS` is drawn as `toSVG` draws it, in the font of `Standard`.
+    const face = standIn(font);
+    let codes: number[];
+    let natural: number;
+    let size: number;
+    if (embedded) {
+      codes = [];
+      let advance = 0;
+      for (const character of value) {
+        const code = embedded.code(character, missing);
+        codes.push(code);
+        advance += embedded.font.advance(code === 0 ? 0 : embedded.glyphs[code - 1]!);
+      }
+      size = height / embedded.capital;
+      natural = (advance / embedded.font.unitsPerEm) * size;
+    } else {
+      codes = [];
+      for (const character of value) {
+        const code = winAnsi(character.codePointAt(0)!);
+        if (code === QUESTION && character !== "?") missing.add(character);
+        codes.push(code);
+      }
+      // The face's capitals are as tall as the text's height: by the cap height of the font the
+      // face has the widths of, and by its own for any other font.
+      size = height / (font === face.widthsOf ? face.capHeight : face.ownCapHeight);
+      const widths = this.widthsOf(face);
+      natural = codes.reduce((sum, code) => sum + widths[code - 32]!, 0) * (size / 1000);
+    }
+    if (codes.length === 0) return undefined;
+    const used = embedded ?? face;
+    let key = fonts.get(used);
+    if (key === undefined) {
+      fonts.set(used, (key = `F${embedded ? embedded.object : this.faceObject(face)}`));
+    }
     const held = Number(element.textLength);
     const stretch =
       element.textLength !== undefined && held > 0 && natural > 0 ? (held / natural) * 100 : 100;
@@ -1173,11 +1392,12 @@ class PdfWriter {
     if (!Number.isFinite(k)) throw refuse(`a text under a map that stretches it by ${k}`, where);
     const matrix = m.map((part, i) => (i < 4 ? real(part / k, 9) : num(part)));
     // A long text is shown in pieces, each from where the last ended, so no string grows with it.
+    const digits = embedded ? 4 : 2;
     const shown: string[] = [];
     for (let at = 0; at < codes.length; at += TEXT_PIECE) {
       const piece = codes.slice(at, at + TEXT_PIECE);
       shown.push(
-        `<${piece.map((code) => code.toString(16).padStart(2, "0").toUpperCase()).join("")}> Tj`,
+        `<${piece.map((code) => code.toString(16).padStart(digits, "0").toUpperCase()).join("")}> Tj`,
       );
     }
     const operators = [
@@ -1193,6 +1413,7 @@ class PdfWriter {
 
   /** Writes the fonts, the layers, the bookmarks, the page tree and the catalog. */
   finish(): Uint8Array {
+    for (const embedded of this.embedded.values()) if (embedded) this.embed(embedded);
     for (const [face, number] of this.faces) {
       const descriptor = this.reserve();
       this.object(

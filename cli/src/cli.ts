@@ -6,8 +6,7 @@ import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync
 import { basename, extname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { Builder, projectRoot, round, toState } from "./build.ts";
-import { faces, pngFonts } from "./fonts.ts";
-import { pdfFace } from "tsdraft";
+import { faces, pdfFonts, pngFonts } from "./fonts.ts";
 import { plot } from "./pdf.ts";
 import { pngUnavailable, RendererCrashed, startRenderer, toPNG } from "./png.ts";
 import type { BuildError, BuildState, LayoutOutput } from "./state.ts";
@@ -239,7 +238,7 @@ if (command === "dev") {
           pngFonts: pngFonts(sheet.fonts, sheet.svg),
           pdf: null as string | null,
           pdfError: null as string | null,
-          pdfFonts: sheet.fonts.map((font) => ({ font, face: pdfFace(font) })),
+          pdfFonts: pdfFonts(sheet.fonts),
           pdfMissing: null as string | null,
         };
         if (unavailable === null) {

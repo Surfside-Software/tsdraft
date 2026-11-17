@@ -77,6 +77,11 @@ export interface TextLayout {
   /** Where the text starts and ends to draw along its baseline, from its point. */
   readonly start: number;
   readonly end: number;
+  /**
+   * How far from its first point the text ends to draw: the advances of its characters and what
+   * the last one adds or takes off. Its first point is `end - advance` along it from its point.
+   */
+  readonly advance: number;
   /** How far the baseline is above the point. */
   readonly baseline: number;
   /** How far along the text the top of a capital lies from its foot. */
@@ -149,6 +154,7 @@ function layOut(
   return {
     start: first + from,
     end: first + to,
+    advance: to,
     baseline:
       text.valign === "top"
         ? -text.height

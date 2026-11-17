@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { Script } from "node:vm";
 import sheet, { standard } from "../examples/site-plan.ts";
@@ -27,6 +28,12 @@ import { svgToPDF } from "../src/pdf.ts";
 import { svgWithin } from "../src/svg.ts";
 import { toDXFR2018 } from "../src/dxf-r2018.ts";
 import { timeLimit } from "./time-limit.ts";
+
+/** The command's own font, given to the PDF as the file of every TrueType font, to embed. */
+const shipped = new Uint8Array(
+  readFileSync(new URL("../cli/assets/fonts/JetBrainsMono-Regular.ttf", import.meta.url)),
+);
+const embedded = { Arial: shipped, Calibri: shipped, "Times New Roman": shipped };
 
 const running = new Script("running()");
 /** What `fn` gives, stopped after `ms`, so a run that never ends fails. */
@@ -1898,7 +1905,7 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
           } catch {
             return undefined;
           }
-          return svgToPDF([picture]);
+          return svgToPDF([picture], { fonts: embedded });
         },
       ],
     ];

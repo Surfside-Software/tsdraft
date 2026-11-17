@@ -1,9 +1,11 @@
 // The plot of a drawing's sheets as a PDF, made from the pictures of its layouts with the
-// command's own copy of tsdraft, so a drawing whose copy is older still plots. Each plot runs in
+// command's own copy of tsdraft, so a drawing whose copy is older still plots. It embeds the font
+// files `pdfFiles` finds, as `pdfFonts` reports them. Each plot runs in
 // a process of its own, `pdf-child.ts`, one at a time, with a deadline and a cap on its heap: a
 // plot too large for its time or for the machine's memory costs that plot alone.
 import { fork } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { pdfFiles } from "./fonts.ts";
 import type { PdfAnswer, PdfRequest } from "./pdf-child.ts";
 
 const childPath = fileURLToPath(
@@ -79,7 +81,7 @@ function plotNow(pictures: readonly string[]): Promise<Plotted> {
     child.once("exit", (code, signal) =>
       settle(failed(`its process ended with ${signal ?? `exit code ${code}`}`)),
     );
-    child.send({ pictures } satisfies PdfRequest, (error) => {
+    child.send({ pictures, fonts: pdfFiles() } satisfies PdfRequest, (error) => {
       if (error) settle(failed(error.message));
     });
   });

@@ -118,7 +118,9 @@ until it is stopped, so start it in the background.
 
 To hand over the sheets, run `npx tsdraft render plan.ts --pdf`: it writes the set as
 `plan.pdf`, a page for each layout in order, and each sheet as `plan.layout-<layout>.pdf`, at
-the paths in `outputs.pdf` and `outputs.layouts[].pdf`. Each page is the sheet the PNG shows.
+the paths in `outputs.pdf` and `outputs.layouts[].pdf`. Each page is the sheet the PNG shows,
+with each TrueType font embedded from the file the PNG is set in. `outputs.layouts[].pdfFonts`
+names it, and says `Helvetica`, `Times-Roman` or `Courier` where the machine has no file.
 
 ## What the JSON holds
 
@@ -582,8 +584,9 @@ writeFileSync("plan.dxf", toDXF(drawing));
 - A color on a single entity. Color comes from the layer.
 - DWG files. tsdraft writes DXF.
 - An existing drawing as a background or a base to edit. `readDXF` reads a DXF's tables, blocks,
-  layouts and a census of what it draws, as [docs/reading.md](docs/reading.md) says, but not its
-  geometry, and tsdraft does not read DWG.
+  layouts and a census of what it draws, and with `geometry` what each space draws, as
+  [docs/reading.md](docs/reading.md) says, but tsdraft draws nothing from a read and does not read
+  DWG.
 
 When a drawing needs one of these, say so. Do not imitate it with something that will mislead
 whoever opens the file.

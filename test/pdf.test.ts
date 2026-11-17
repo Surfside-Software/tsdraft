@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { deflateSync, inflateSync } from "node:zlib";
-import { createDrawing, svgToPDF, toPDF, toSVG } from "../src/index.ts";
+import { createDrawing, pdfFace, svgToPDF, toPDF, toSVG } from "../src/index.ts";
+import { readTrueType, type TrueType } from "../src/truetype.ts";
 import exampleSheet from "../examples/site-plan.ts";
 import set, { xrefs } from "../examples/plan-set/set.ts";
 
@@ -151,4 +153,120 @@ test("a text seen through a view at any scale keeps its size on the page", () =>
     d.layer("VIEW", {}, () => sheet.viewport([1, 1], 9, 6.5, { center: [0, 0], ratio: 1e9 }));
   });
   assert.match(latin1(toPDF(d.build())), /\/F\d+ 20\.111732 Tf\n1 0 0 1 [\d.]+ [\d.]+ Tm/);
+});
+
+/** A stream of a PDF written without `deflate`, by its object's number. */
+function stream(pdf: string, object: string): Uint8Array {
+  const head = new RegExp(`\\n${object} 0 obj\\n<< /Length (\\d+)[^\\n]*>>\\nstream\\n`).exec(pdf)!;
+  const at = head.index + head[0].length;
+  return new Uint8Array(Buffer.from(pdf.slice(at, at + Number(head[1])), "latin1"));
+}
+
+/** A TrueType program's tables, and the bytes of each glyph by its number. */
+function program(bytes: Uint8Array) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const tables = new Map<string, number>();
+  for (let i = 0; i < view.getUint16(4); i++) {
+    const entry = 12 + 16 * i;
+    tables.set(String.fromCharCode(...bytes.subarray(entry, entry + 4)), view.getUint32(entry + 8));
+  }
+  const long = view.getInt16(tables.get("head")! + 50) === 1;
+  const loca = tables.get("loca")!;
+  const start = (g: number) =>
+    long ? view.getUint32(loca + 4 * g) : 2 * view.getUint16(loca + 2 * g);
+  const glyf = tables.get("glyf")!;
+  return {
+    advance: (g: number) => view.getUint16(tables.get("hmtx")! + 4 * g),
+    glyph: (g: number) => bytes.subarray(glyf + start(g), glyf + start(g + 1)),
+  };
+}
+
+/**
+ * True when glyph `a` of one program draws what glyph `b` of the other does: the same bytes, or
+ * for a composite the same bytes but its parts' numbers, and parts that draw the same.
+ */
+function sameGlyph(
+  one: ReturnType<typeof program>,
+  a: number,
+  other: ReturnType<typeof program>,
+  b: number,
+): boolean {
+  const [x, y] = [one.glyph(a), other.glyph(b)];
+  if (x.length < 10 || new DataView(x.buffer, x.byteOffset).getInt16(0) >= 0) {
+    return Buffer.from(x).equals(Buffer.from(y.subarray(0, x.length)));
+  }
+  const [vx, vy] = [x, y].map((g) => new DataView(g.buffer, g.byteOffset, g.byteLength));
+  let p = 10;
+  let flags: number;
+  do {
+    flags = vx!.getUint16(p);
+    if (!sameGlyph(one, vx!.getUint16(p + 2), other, vy!.getUint16(p + 2))) return false;
+    if (vx!.getUint16(p) !== vy!.getUint16(p)) return false;
+    p += 4 + (flags & 1 ? 4 : 2) + (flags & 8 ? 2 : flags & 0x40 ? 4 : flags & 0x80 ? 8 : 0);
+  } while (flags & 0x20);
+  return true;
+}
+
+test("a TrueType font given a file is embedded, cut to the characters set, each in its own glyph", () => {
+  // A Node `Buffer`, as the command reads a file.
+  const file = readFileSync(
+    new URL("../cli/assets/fonts/JetBrainsMono-Regular.ttf", import.meta.url),
+  );
+  const before = Buffer.from(file);
+  const d = createDrawing({ units: "in" });
+  d.textStyle({ name: "NOTE", font: "Arial" });
+  d.layout("A", { paper: "ANSI A" }, () => {
+    d.text([1, 2], "45° ±½ Ø ℄", { height: 0.25, style: "NOTE" });
+    d.text([1, 1.5], "ÉÀÇ àéü ĀŁ≥Δ", { height: 0.25, style: "NOTE" });
+    d.text([1, 1], "TXT", { height: 0.25 });
+  });
+  const missing: [string, string, number][] = [];
+  const plot = () =>
+    latin1(toPDF(d.build(), { fonts: { Arial: file }, missing: (...said) => missing.push(said) }));
+  const pdf = plot();
+  holdsTogether(pdf);
+  assert.equal(pdfFace("Arial", file), "JetBrainsMono-Regular");
+  assert.equal(pdfFace("Arial"), "Helvetica");
+  assert.equal(pdfFace("txt.shx", file), "Courier");
+  const name = /\/BaseFont \/([A-Z]{6}\+JetBrainsMono-Regular) \/Encoding \/Identity-H/.exec(
+    pdf,
+  )?.[1];
+  assert.ok(name, "the font is embedded under the name of a subset");
+  // Each character has a code of its own, from 1; the one the font lacks is set as `?` and said.
+  // The size makes the file's capitals, 0.73 of its em, as tall as the text.
+  assert.match(
+    pdf,
+    /\/F\d+ 24\.657534 Tf\n1 0 0 1 72 144 Tm\n[\d.]+ Tz\n<0001000200030004000500060004000700040008> Tj/,
+  );
+  assert.deepEqual(missing, [["A", "℄", 0]]);
+  // Each code leads, through the map of glyphs, to the glyph of its character in the file, and
+  // as wide: a composite's parts too.
+  const font = readTrueType(new Uint8Array(file)) as TrueType;
+  const [original, subset] = [
+    program(new Uint8Array(file)),
+    program(stream(pdf, /\/FontFile2 (\d+)/.exec(pdf)![1]!)),
+  ];
+  const glyphs = stream(pdf, /\/CIDToGIDMap (\d+)/.exec(pdf)![1]!);
+  const unicode = Buffer.from(stream(pdf, /\/ToUnicode (\d+)/.exec(pdf)![1]!)).toString("latin1");
+  let composites = 0;
+  for (const [, code, character] of unicode.matchAll(/<([0-9A-F]{4})> <([0-9A-F]{4})>/g)) {
+    const at = Number.parseInt(code!, 16);
+    const to = (glyphs[2 * at]! << 8) | glyphs[2 * at + 1]!;
+    const from = font.glyph(Number.parseInt(character!, 16));
+    assert.ok(sameGlyph(original, from, subset, to), `the glyph of U+${character}`);
+    assert.equal(subset.advance(to), original.advance(from));
+    if (
+      new DataView(original.glyph(from).buffer, original.glyph(from).byteOffset).getInt16(0) < 0
+    ) {
+      composites++;
+    }
+  }
+  assert.ok(composites >= 5);
+  // The program holds those glyphs alone, an SHX font keeps its standard face, the same files
+  // give the same bytes, and the file given is as it was.
+  const length = Number(/\/Length1 (\d+)/.exec(pdf)?.[1]);
+  assert.ok(length > 0 && length < file.length / 20);
+  assert.match(pdf, /\/BaseFont \/Courier /);
+  assert.equal(plot(), pdf);
+  assert.ok(file.equals(before));
 });

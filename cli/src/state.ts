@@ -119,14 +119,19 @@ export interface LayoutOutput {
   readonly pdf: string | null;
   readonly pdfError: string | null;
   /**
-   * The face the PDF sets each font of this sheet in: `Helvetica`, `Times-Roman` or `Courier`,
-   * none of them embedded. Only Arial, Times New Roman and Courier New are set in a face with
-   * their own widths; any other font is set in the face of its kind, stretched to its length.
+   * The face the PDF sets each font of this sheet in. For a TrueType font the machine has a file
+   * for, the file's own font, which the PDF embeds cut to the letters it uses, by its PostScript
+   * name, such as `ArialMT`, or `LiberationSans` for a font made to Arial's widths. Otherwise
+   * `Helvetica`, `Times-Roman` or `Courier`, which no PDF embeds: Arial, Times New Roman and
+   * Courier New are set in the face with their widths, and any other font in the face of its
+   * kind, stretched to its length. Every SHX font is set in one of those three.
    */
   readonly pdfFonts: readonly PngFont[];
   /**
    * The characters of this sheet's texts that the PDF's faces lack, which it sets as `?`, from
-   * `render --pdf`: empty when there are none, and `null` when this run made no PDF of it.
+   * `render --pdf`: empty when there are none, and `null` when this run made no PDF of it. An
+   * embedded font lacks a character it has no glyph for, and a standard face one outside
+   * Windows-1252.
    */
   readonly pdfMissing: string | null;
 }

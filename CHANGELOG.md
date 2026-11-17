@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+- Fonts in a PDF. `toPDF(drawing, { fonts })` takes the TrueType file of each font by its name,
+  such as `{ Arial: bytes }`, and embeds it cut to the letters the pages use, so every
+  character, `°`, `±`, `½` and `≥` included, plots in the font's own letters. A text in an SHX
+  font, or in a font with no file, is set in Helvetica, Times or Courier, which no PDF embeds.
+  `pdfFace(font, file)` names the face a font is set in.
+- `tsdraft render --pdf` and `tsdraft dev` embed the file the machine has for each TrueType
+  font, the one the PNG is set in, and `pdfFonts` names it: `ArialMT`, or `LiberationSans` for a
+  font made to Arial's widths, where it named `Helvetica`.
+
+What changes for a read of a DXF, whose model is format 0 and not settled:
+
+- `readDXF(input, { geometry: true })` keeps what model space and each layout draws, in
+  `entities` beside each space's census, with `other` for what it leaves out, and the attributes
+  of each insert. A read without it keeps what it kept. `readDrawingFile` takes the same
+  `ReadOptions` as a third argument.
+- Breaking: `ReadEntity` gained `mtext`, `dimension`, `multileader` and `solid`, which a block now
+  keeps where it counted them under `other`, and `unread.entities` no longer counts a
+  `MULTILEADER` or a `SOLID`. Code that switches over every kind needs them.
+- Breaking: a text, an attribute definition and an attribute have `at`, where the text starts to
+  draw, beside `stored`, `alignAt`, `align`, `valign`, `startFrom`, its width factor and oblique
+  angle, and `backward` and `upsideDown`. For a justified text of tsdraft's own DXF, `at` was its
+  alignment point and is now its start. A text of a block seen from below is read as backward,
+  where it was counted.
+- An entity keeps the color, true color, linetype, lineweight and linetype scale it sets itself,
+  an insert and a dimension name their block's record by `blockHandle`, and `opensAt` gives the
+  tab and the view a file opens at. `GEOMETRY_ITEMS`, 400,000, bounds what the spaces keep.
+- A string holds what AutoCAD holds after reading the file: a caret and a space is a caret, `^J`
+  a line feed, a text's `\U+XXXX` is decoded twice and `\M+NXXXX` once, and an `MTEXT`'s once.
+  A name with a caret read as two characters before.
+- An entity with a number that is not finite, and a record whose kind, layer, block name or tag
+  is longer than a DXF value holds, is counted under `unread.malformed`.
+
 ## 0.5.3
 
 This release has breaking changes, though its number is a patch's. A project that depends on

@@ -1,13 +1,14 @@
-// The typeface the PNG renderer sets each of tsdraft's fonts in. The command ships one font,
-// which answers for every font it finds no file for. A TrueType font is set in its own file
-// when the machine has it, or in a font made to its widths, so that its letters have their own
-// shapes. `toSVG` holds every text to the length it plots, whatever the typeface, and the
-// renderer sizes each by the cap height of the typeface it draws, which is read here.
+// The typeface the PNG renderer and the PDF set each of tsdraft's fonts in. The command ships
+// one font, which answers in a PNG for every font it finds no file for. A TrueType font is set
+// in its own file when the machine has it, or in a font made to its widths, so that its letters
+// have their own shapes, and a PDF embeds that file cut to the letters it uses. `toSVG` holds
+// every text to the length it plots, whatever the typeface, and the renderer sizes each by the
+// cap height of the typeface it draws, which is read here.
 import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { FONTS } from "tsdraft";
+import { FONTS, pdfFace } from "tsdraft";
 import type { PngFont } from "./state.ts";
 
 /** The font the command ships: JetBrains Mono, under the OFL in assets/fonts/OFL.txt. */
@@ -224,5 +225,41 @@ export function pngFonts(
     const family = (FONTS as Readonly<Record<string, { family: string }>>)[font]?.family;
     const face = used.find((one) => one.family === family);
     return { font, face: face?.face ?? SHIPPED.face };
+  });
+}
+
+/** The files a PDF embeds, by the font each sets: the faces the machine has. */
+export function pdfFiles(known: ReadonlyMap<string, Face> = faces()): Record<string, string> {
+  return Object.fromEntries([...known].map(([font, face]) => [font, face.file]));
+}
+
+/** The face a PDF sets a font in with a file, by the font and the file's path, read once. */
+const pdfFaces = new Map<string, string>();
+
+/**
+ * How a PDF of a picture sets each of its fonts: in the face of the file `pdfFiles` gives the PDF
+ * for it, which the PDF embeds, or in the standard face `pdfFace` names for a font with no file,
+ * or with one the PDF cannot embed.
+ *
+ * @param fonts - The fonts of the picture, as the build names them.
+ */
+export function pdfFonts(
+  fonts: readonly string[],
+  known: ReadonlyMap<string, Face> = faces(),
+): PngFont[] {
+  return fonts.map((font) => {
+    const file = known.get(font)?.file;
+    if (file === undefined) return { font, face: pdfFace(font) };
+    const key = `${font}\0${file}`;
+    let face = pdfFaces.get(key);
+    if (face === undefined) {
+      try {
+        face = pdfFace(font, readFileSync(file));
+      } catch {
+        face = pdfFace(font);
+      }
+      pdfFaces.set(key, face);
+    }
+    return { font, face };
   });
 }
