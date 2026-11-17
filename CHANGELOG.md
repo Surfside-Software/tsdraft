@@ -1,5 +1,268 @@
 # Changelog
 
+## 0.5.3
+
+This release has breaking changes, though its number is a patch's. A project that depends on
+`^0.5.0` gets them on its next install. A drawing without a standard, a leader style or a turned
+insert writes the same DXF as before, unless its inserts reach more blocks through nesting than
+its extents walk, about half a million and 16 for each entity it holds.
+
+- Breaking: `LintRule` gained `standard`, `discipline-unknown`, `layer-outside-standard`,
+  `layer-differs-from-standard`, `linetype-outside-standard`, `linetype-differs-from-standard`,
+  `pen-outside-standard`, `role`, `scale-outside-standard`, `text-style-outside-standard`,
+  `text-style-differs-from-standard`, `dimension-style-outside-standard`,
+  `dimension-style-differs-from-standard`, `sheet-format-outside-standard`,
+  `sheet-format-ambiguous`, `sheet-per-file`, `height-below-standard`, `height-off-role`,
+  `dimension-off-scale`, `viewport-outside-drawing-area`, `title-block-missing`,
+  `title-block-differs-from-standard`, `title-block-field-unset`, `title-block-field-overflow`,
+  `standard-check-capped`, `check-capped`, `leader-style`, `duplicate-leader-style`,
+  `undefined-leader-style`, `leader`, `leader-style-outside-standard`,
+  `leader-style-differs-from-standard` and `leader-off-scale`. Code that switches over every
+  rule needs them.
+- Breaking: past its limit, 500,000 units of work and 16 more for each entity and attribute
+  definition the drawing holds, `lint` ends with the warning `check-capped`, which says where it
+  stopped, and `toDXF` and `fromJSON` refuse a drawing with it, as they refuse an error. A
+  drawing reaches it only when it draws millions of entities through its blocks or shares far
+  more than it holds.
+- Breaking: a drawing with a block named `_Open`, `_Dot` or `_None`, in any case of their
+  letters, is refused. CAD draws a leader's arrowheads with the blocks of those names.
+- Breaking: `Paper` gained `"ARCH E"`, `PlotStyleTable` gained `"Grayscale.ctb"` and
+  `"DWF Virtual Pens.ctb"`, and `PaperInfo` gained `medium`. Code that switches over every
+  paper or table needs them.
+- Breaking: `TextOptions`, `AttributeOptions` and `InsertOptions` are type aliases now, not
+  interfaces, so a declaration that merges into one stops compiling. An interface that extends
+  one still compiles.
+- Breaking: `toSVG` fits a dash pattern to each line, side of a polyline and arc: it holds as
+  many whole patterns as fit, and its first and last dash are each half of the pattern's first
+  dash and of what is left over. A pattern that starts with a dot has a dot at each end, and
+  what is left over lengthens the gaps beside them. A circle holds the whole number of patterns
+  nearest its length, stretched alike to go round it from a dash at its angle 0. One shorter
+  than its pattern is solid. A dash of an entity in a block is as long whatever the insert's
+  scale, where it grew with the insert. Dashes started at the start of each stretch before, so
+  the pictures of dashed lines change.
+- Breaking: a picture of a layout ends and joins its lines round, as a plotted pen does, and is
+  stamped with its format, `data-picture`, the font of each text, `data-font`, and the lines
+  drawn as the thinnest the printer draws, `data-thinnest`.
+- Breaking: in the example, `sitePlan(scale)` takes a scale of the example's standard, such as
+  `"1in-20ft"`, in place of a ratio.
+
+Standards, which are new:
+
+- A standard describes a firm's drawings: its disciplines, pens, linetypes, layers, text roles,
+  scales, dimension and leader styles, title blocks and sheet formats, as one JSON document or
+  as a TypeScript literal. `defineStandard(document, { files })` checks one and returns it
+  resolved and frozen, with every default filled in. A literal mistake is a compile error with
+  the message the check gives when the code runs, such as a layer name AutoCAD refuses or a pen
+  the standard does not have. At run time a name is compared as AutoCAD compares it, so `c-prop`
+  finds `C-PROP`. A problem is a `DrawingError` with the rule `standard` and its path, such as
+  `layers["A-WALL"].pen`.
+- `extends` takes a parent. A child's entry replaces its parent's whole, and `null` removes one.
+  The library reads no file: a string `extends`, or a title block's drawing given as a string,
+  is looked up in `files`.
+- Each standard has a `hash`, the SHA-256 of what it states for a check: descriptions, comments,
+  its id and version, a default written out and a name written in another case leave it as it
+  is. `chain` gives each parent's id, version and hash.
+- `BUILT_IN_STANDARD`, version 1, holds layers in the National CAD Standard's format, five pens,
+  the six linetypes, five text roles, the engineering and architectural scales, a dimension
+  style in decimal units and one in feet and inches, `feet-inches`, to the nearest 1/16", and a
+  plain ARCH D title block. The package ships it as `tsdraft/standard.json`, and the standard's
+  JSON Schema as `tsdraft/standard.schema.json`.
+- `createDrawing({ standard })` draws to a standard, and the builder refuses what the standard
+  does not give, as a compile error for a literal with the message it throws when the code
+  runs. A message about a missing name says how to add it. `d.layer(name, draw)` names a layer
+  of the standard, which gives its color, linetype, lineweight and plot flag, and an entity's
+  `pen` gives it that pen's lineweight. The linetype scale is the standard's, and the drawing is
+  R2018. `createDrawing({ standard, discipline })` names the discipline whose fields a layer
+  with `byDiscipline` takes.
+- Under a standard, every text and attribute names a `role`, which gives its text style and the
+  height it plots at, and in model space the `view` it is read in. `d.view(id, { scale })`
+  declares a view at a scale of the standard and returns a `View`, whose `paper(length)` turns a
+  length on paper into drawing units. `sheet.viewport(corner, width, height, { view, center })`
+  shows a view, and `insert(name, at, { view })` scales a symbol drawn in paper units to plot at
+  its size. A dimension or a leader names a style of the standard by its id, and the drawing
+  gets the style on first use with the standard's sizes: `DIMS-1in-10ft` for the style `dims` in
+  a view at `1in-10ft`, and `DIMS` on a layout.
+- `d.layout(name, { sheetFormat }, draw)` puts a layout on a sheet format of the standard, which
+  gives its paper and its plot style table, and `d.layout(name, draw)` on the standard's
+  `defaultSheetFormat`. The sheet has `drawingArea`, the part of the paper inside the border, and
+  `zone(name)`, a zone of the sheet format, each a `Zone` in paper units.
+  `sheet.titleBlock(fields)` places the title block: a block tsdraft draws, or the firm's own
+  drawing attached as an xref with the block of the sheet's fields over it. A field is filled
+  from the `fields` given to `titleBlock()`, then from `createDrawing({ fields })`, then by the
+  builder, which gives the sheet's number and its scale. `sheetFiles` says whether a set is one
+  drawing or a file per sheet. [docs/title-blocks.md](docs/title-blocks.md) describes both.
+- `lint(drawing, { standard, discipline })` holds a drawing to its standard as the builder does,
+  so a drawing made by other code or read from JSON is held to it too, under the builder's rule
+  names. It also checks what only the whole drawing shows: a layer, linetype, text style or
+  dimension style whose values are not the standard's, a layout's plot style table, a viewport
+  past its drawing area or into the title block, a title block that is not the standard's, a
+  text that plots at another height than its role's or below the standard's least height, and a
+  dimension shown at another ratio than its style's. Warnings say when a layout has no title
+  block, or a field is unset or runs past its box. `lint` takes the standard as plain data and
+  works out its hash again, and a standard that does not check is one `standard` error. Without
+  `standard`, `lint` reports what it did before. [docs/rules.md](docs/rules.md) lists each rule.
+- `tsdraft render` and `tsdraft dev` check a drawing file's export `standard` with `lint` on each
+  build. A rule of the standard that the drawing breaks is a diagnostic, and its errors give exit
+  code 2. `drawing.standard` in the JSON gives the standard's `id`, `version` and `hash`, and
+  `checked`, and the page of `tsdraft dev` shows its id and version. When the project's copy of
+  tsdraft is from before standards, the build warns with `standard-unchecked`. A title block
+  attached as an xref is drawn from its `preview` unless the file's `xrefs` export gives a
+  drawing for it. `schema` stays 3.
+- A drawing without a standard is built, linted and written as before. `d.layer(name, draw)` is
+  a new form for every drawing, the same as `d.layer(name, {}, draw)`, and `layout()` takes its
+  `draw` last, with options of `undefined` taken as none. `DrawingBuilder`, `DrawingOptions`,
+  `EntityOptions`, `TextOptions`, `AttributeOptions`, `InsertOptions` and `Sheet` gain type
+  parameters with defaults. [docs/standard.md](docs/standard.md) describes standards, and
+  GUIDE.md shows how to extend the built-in one.
+
+Plotting:
+
+- `toPDF(drawing, { layouts, xrefs, deflate })` plots a drawing's layouts to one PDF, a page for
+  each, in the drawing's order or the order of `layouts`: a sheet alone, or the set. Each page is
+  the picture `toSVG` draws of the sheet: the paper at its size, each viewport at its scale and
+  clipped to its rectangle, each pen in the color its plot style table gives it and as wide as
+  its lineweight, with round ends, each layer a layer of the PDF, and each text where it plots in
+  Helvetica, Times or Courier, as high and as long as it plots. `svgToPDF` plots pictures
+  `toSVG` drew of layouts, for a set whose sheets are files of their own. The same drawing gives
+  the same bytes. [docs/plotting.md](docs/plotting.md) describes it.
+- `tsdraft render --pdf` writes the set and each sheet as PDFs, listed as `outputs.pdf` and
+  `outputs.layouts[].pdf`, and `tsdraft dev` serves them at `/drawing.pdf` and links them on its
+  page.
+- `PLOT_STYLE_TABLES`, now exported, lists two more tables. `Grayscale.ctb` plots each color in a
+  gray of its own and 7 in black. `DWF Virtual Pens.ctb` plots each color in its pen's own
+  color, which is not always the index's, and every line 0.254 mm wide, whatever its
+  lineweight, a viewport's border too. `toSVG` draws a sheet in the colors and widths its table
+  plots.
+- `PAPERS` has `"ARCH E"`, 48 by 36 on its layout. `DWG To PDF.pc3` holds that paper upright, so
+  its page setup stores the paper as the plotter holds it, which `PaperInfo.medium` gives, and
+  turns the plot a quarter turn onto it. The PDF shows the page 48 by 36, with the drawing
+  upright. A drawing on any other paper is written as before.
+
+Dimensions and leaders:
+
+- Feet and inches. A dimension style with `units: "architectural"` takes a length times its
+  `measurementScale` as inches and writes `4'-1 7/16"`. Its `precision` is the least fraction of
+  an inch, 1 over 2 to that power, so 4 writes sixteenths. `feetInchZeros` says which zeros it
+  writes: `"inches"`, the default, writes `4'-0"` and `6"`; `"feet"` writes `4'` and `0'-6"`;
+  `"both"` writes both zeros and `"neither"` writes neither. The dimension holds no text of its
+  own, so CAD measures it again in feet and inches when its points move, and a `text` such as
+  `"<> CLR."` adds words to what it measures. The fraction is on the line. `suppressZeros` stays
+  for decimal units, and a style has only the zeros of its own units.
+- A standard's dimension style can take the names a firm's drawings already give it:
+  `layoutName` on a layout, and `scaleNames`, by a scale's id, in model space. A dimension placed
+  in the firm's drawing is then drawn by the firm's own definition of that style there.
+  `defineStandard` refuses a name that CAD would take for another style of the standard, and the
+  name `Standard`.
+- Leaders, in R2018 drawings. `d.leaderStyle(definition)` defines a style with a text style, a
+  text height, an arrowhead (`"closed-filled"`, `"open"`, `"dot"` or `"none"`), an arrow size, a
+  landing, a gap, an attachment to the note's first or last line, and a scale.
+  `d.leader(text, { style, at, to })` points a note of one line, or of the lines of an array, at
+  one or more shafts that meet at `at`, each straight or bending through points of its own. The
+  note goes on the side away from the first shaft unless `side` says otherwise, and a leader may
+  set its own text style, text height, arrow size, landing, gap and attachment. Each is a
+  multileader in the file, which a drafter edits with CAD's multileader commands. A leader goes
+  in model space or on a layout, and not in a block. [docs/leaders.md](docs/leaders.md)
+  describes them.
+- `toSVG`, a drawing's extents and `inspectText` draw, measure and inspect each leader as CAD
+  draws it. `leaderPicture(leader, style, textStyle)` gives what that is, and `leaderSizes`,
+  `leaderSide`, `leaderAttachment`, `leaderOwnFlags` and `findLeaderStyle` the parts of it.
+  `leaderArrowheadInfo` and `DEFAULT_LEADER_ARROWHEAD` say what each arrowhead is, and
+  `leaderCount(drawing)` how many leaders a drawing has. `lineSpacing(height)` is the distance
+  between the lines of a note.
+- Handles: `leaderStyleHandle(name)`, `leaderStyleDictionaryHandle()` and
+  `leaderArrowheadHandles(arrowhead)`, from names, as a dimension style's are.
+- A standard lists leader styles in `leaderStyles`, each with a role and its sizes on paper, and
+  names one in `defaultLeaderStyle`. Under a standard a leader names the style by its id, and in
+  model space the view it is read in. The builder defines `NOTES-1in-10ft` for the style `notes`
+  in a view at `1in-10ft`, and `NOTES` on a layout. `lint` holds each line of a leader's note to
+  its role's height and to the least height, as it does a text.
+
+Reading:
+
+- `readDXF(input)` reads a DXF, given as a string or as its bytes in an
+  `AsyncIterable<Uint8Array>`, as the bytes arrive and without holding the whole file. It gives
+  a `DrawingRead`: the file's SHA-256, version and header, its layers, linetypes, text styles and
+  dimension styles, its blocks with their attribute definitions and their lines, polylines,
+  circles, arcs, texts and inserts, its xrefs, each layout with its paper, plot style table,
+  viewports and inserts, the fields of its `MTEXT`, a census of what each space draws, and counts
+  of what it did not understand. It keeps no text of model space or a layout. Text is decoded as
+  UTF-8 from the 2007 format on and by `$DWGCODEPAGE` before it. A binary DXF is refused with a
+  `ReadError`. [docs/reading.md](docs/reading.md) describes the model, and what it gains next.
+- A package can add a reader of another format by naming it in its `package.json` under
+  `"tsdraft": { "readers": { ".dwg": "./dist/read.js" } }`, with a module that exports
+  `readDrawingFile(chunks, name)`. `checkDrawingRead(value)` lists what is wrong with a reader's
+  answer. The `tsdraft` command finds the readers of the project whose tsdraft is running, and
+  reads each file in a process of its own, within the limits
+  [docs/command.md](docs/command.md#reading-drawing-files) gives. No command reads a file yet.
+
+Bounded on any data:
+
+- `lint`, `inspectText`, `toSVG` and `toDXF` take time in proportion to what a drawing holds, not
+  to what it draws, whatever data they are given. Blocks may nest to any depth: a chain of 20,000
+  blocks no longer overflows the stack, and no longer gives a viewport a false warning that it
+  shows none of the drawing. Every list is read up to its first empty slot, where `lint` reports
+  it, so a list such as `new Array(2 ** 32 - 1)` no longer hangs any of them.
+- The extents take in the box of what each block's own entities draw, in the block's
+  coordinates, where the inserts on the way put the box's corners. An insert that is not turned
+  counts for what it draws, as before. A turned one may count for a little more, so `$EXTMAX` and
+  `$EXTMIN` in the DXF and the frame `toSVG` gives model space can be larger, and they never
+  leave out what is drawn. A block placed many times costs one read of it: a block of 800,000
+  entities placed twice is boxed as fast as one placed once. Past the blocks the extents walk,
+  an insert counts for the box of all its block draws, widened by what rounding can move a
+  number on the way, which can move the last decimal the DXF writes. `lint` works the extents
+  out as `toDXF` does, so `toDXF` refuses nothing `lint` passed.
+- A list, an object or a long string that a drawing made in code shares among many places is
+  read once by the extents, `toSVG` and `inspectText`. `lint` pays again for each place it reads
+  it, as `toDXF` writes it again for each, and so it does for a string of 256 characters or more
+  that many entities, definitions or values share, since `lint` quotes and `toDXF` writes it
+  again for each. It also pays for the attributes each insert places past its first 64, an
+  attribute definition's value by its length for each insert that repeats it, what each
+  dimension reads from its style, and each block of a cycle. Its `check-capped` message names
+  the lists that many places share. An object of the wrong shape that many places share, such as
+  one with a long field name nobody knows or a long `kind`, is reported where it is first met,
+  and not read again. Once `lint` or `inspectText` stops, it reads no entity past there. With a
+  standard, the checks of layers, pens and text styles pay for a shared list and each error they
+  give from it, and end with `standard-check-capped`.
+- `inspectText` walks only what it checks: a text with something to draw, a dimension, a closed
+  polyline, an attribute, and the inserts that lead to one. It pays for a text by its length
+  before it reads it, and for each character of the texts, tags and layout names a warning
+  quotes, so a drawing whose warnings would quote more text than it checks ends with
+  `text-check-capped`, which now says where it stopped.
+- `toSVG` throws a `RangeError` that names the insert or the viewport it stopped at when a
+  picture would be longer than 500,000,000 characters, near the most a JavaScript string holds,
+  or when its inserts would reach more than 2,000,000 blocks and entities that draw nothing, such
+  as those on a layer that is off. Draw a part of such a drawing with `view`. A layout that holds
+  more than about 120,000 entities no longer overflows the stack.
+- A text is measured by its own value, height, point and justification, and by its style's font,
+  width factor and oblique angle alone. A text style that holds other fields, which `lint`
+  reports as an error, no longer changes how its texts measure.
+- An item of a block's `attributes` that is not an object, such as `undefined` or a value beside
+  an empty slot, draws nothing in the extents, `toSVG` and `inspectText`, where they threw a
+  `TypeError`. `lint` reports it, as before.
+- `lint` finds the field that a long unknown field name may be meant for without comparing it
+  letter by letter with each field, which took seconds for a name of millions of characters.
+- The library reads a `Proxy` as the data its traps give, calling them in proportion to what it
+  reads. A trap that throws or never returns does so inside the call.
+  [docs/rules.md](docs/rules.md), [docs/blocks.md](docs/blocks.md) and
+  [docs/text.md](docs/text.md) state the limits.
+
+The examples:
+
+- `examples/plan-set` is a permit set for a made-up two-story house on a Florida canal lot: 15
+  sheets on ARCH D, from the cover with the sheet index and code data through the site plan,
+  floor and roof plans, elevations, sections, schedules, foundation and framing plans,
+  structural details, and mechanical, electrical and plumbing sheets. It is one drawing with a
+  layout for each sheet, and every sheet reads one house model, `model/house.ts`. The firm's
+  border is a drawing of its own, placed on each layout as an xref, with the sheet's fields as
+  the attributes of a block over it. Its leader notes are leaders, and its dimensions measure
+  themselves in feet and inches. `node examples/plan-set/set.ts` writes the set's DXF, the
+  border's DXF and an SVG of each sheet to `examples/out/plan-set/`. The project, owner, address
+  and firm are fictional, and the set is an illustration, not a design to build from.
+- The example sheet draws its layers, pens, text, symbols and dimensions from a standard of its
+  own, which extends the built-in one with `V-TREE`, on the built-in sheet format `arch-d` with
+  the standard's title block. It dimensions its building's west wall in feet and inches, and has
+  two leaders, one with two shafts.
+
 ## 0.5.2
 
 Every R2018 DXF changes by one value, group 340 of the dimension style `Standard`; nothing

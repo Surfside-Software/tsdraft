@@ -201,7 +201,13 @@ export function arrowheadsWithBlocks(
 /** How a dimension style writes a measurement. */
 export type MeasurementFormat = Pick<
   DimensionStyle,
-  "precision" | "prefix" | "suffix" | "suppressZeros" | "measurementScale"
+  | "units"
+  | "precision"
+  | "prefix"
+  | "suffix"
+  | "suppressZeros"
+  | "feetInchZeros"
+  | "measurementScale"
 >;
 
 /**
@@ -224,6 +230,7 @@ function belowHalf(value: number): number {
  * @param length - What the dimension measures, in drawing units, not negative.
  */
 export function measurementNumber(length: number, format: MeasurementFormat): string {
+  if (format.units === "architectural") return feetAndInches(length, format);
   let text = roundedMeasurement(length, format);
   const suppress = format.suppressZeros;
   if ((suppress === "trailing" || suppress === "both") && text.includes(".")) {
@@ -237,13 +244,70 @@ export function measurementNumber(length: number, format: MeasurementFormat): st
 
 /**
  * A length times the style's measurement scale, rounded as `measurementNumber` rounds it, with
- * every decimal of the style's precision and before any zero is left out.
+ * every decimal of the style's precision and before any zero is left out. In architectural
+ * units it is the whole inches, which is all the rules hold of such a measurement's digits.
  */
 export function roundedMeasurement(length: number, format: MeasurementFormat): string {
   const value = Math.abs(length) * written(format.measurementScale ?? 1);
-  // A precision the rules refuse is drawn as the nearest one they take.
-  const decimals = Math.min(MAX_PRECISION, Math.max(0, Math.trunc(format.precision) || 0));
-  return (value + belowHalf(value)).toFixed(decimals);
+  if (format.units === "architectural") {
+    const [steps, per] = fractionSteps(value, format.precision);
+    return String(Math.floor(steps / per));
+  }
+  return (value + belowHalf(value)).toFixed(precisionOf(format.precision));
+}
+
+/** A precision the rules refuse is drawn as the nearest one they take. */
+function precisionOf(precision: number): number {
+  return Math.min(MAX_PRECISION, Math.max(0, Math.trunc(precision) || 0));
+}
+
+/**
+ * A length in inches rounded to the least fraction of a precision, as the count of those
+ * fractions and how many make an inch. It is rounded half up as a decimal measurement is, with
+ * the same tolerance below the half.
+ */
+function fractionSteps(inches: number, precision: number): readonly [steps: number, per: number] {
+  const per = 2 ** precisionOf(precision);
+  const value = inches * per;
+  return [Math.floor(value + 0.5 + belowHalf(value + 0.5)), per];
+}
+
+/** `DIMZIN` from 0 to 3 for each choice of the zeros a length in feet and inches writes. */
+export const FEET_INCH_ZEROS_CODES = { neither: 0, both: 1, feet: 2, inches: 3 } as const;
+
+/**
+ * A length as AutoCAD writes it in architectural units, before any prefix or suffix: times the
+ * style's measurement scale, as inches, rounded to the least fraction of the style's precision
+ * and written as feet, a hyphen, inches and the fraction in lowest terms after a space, with the
+ * inch mark: `4'-1 7/16"`. A length under a foot drops its feet and one of whole feet its inches,
+ * unless `feetInchZeros` writes that zero: the default, `"inches"`, writes `4'-0"` and `6"`. A
+ * length of less than an inch writes no zero inches before its fraction, as `1/2"`, unless its
+ * feet are written: `0'-0 1/2"`.
+ *
+ * @param length - What the dimension measures, in drawing units, not negative.
+ */
+export function feetAndInches(length: number, format: MeasurementFormat): string {
+  const value = Math.abs(length) * written(format.measurementScale ?? 1);
+  const [steps, per] = fractionSteps(value, format.precision);
+  const feet = Math.floor(steps / (12 * per));
+  const rest = steps - feet * 12 * per;
+  const inches = Math.floor(rest / per);
+  let numerator = rest - inches * per;
+  let denominator = per;
+  while (numerator > 0 && numerator % 2 === 0) {
+    numerator /= 2;
+    denominator /= 2;
+  }
+  const zeros = format.feetInchZeros ?? "inches";
+  const zeroFeet = zeros === "feet" || zeros === "both";
+  const zeroInches = zeros === "inches" || zeros === "both";
+  const fraction = numerator > 0 ? `${numerator}/${denominator}` : "";
+  const showFeet = feet > 0 || zeroFeet;
+  const showInches = rest > 0 || zeroInches || !showFeet;
+  const inchText =
+    fraction === "" ? String(inches) : inches > 0 || showFeet ? `${inches} ${fraction}` : fraction;
+  if (!showFeet) return `${inchText}"`;
+  return showInches ? `${feet}'-${inchText}"` : `${feet}'`;
 }
 
 /**
@@ -539,6 +603,7 @@ export const WIDEST_CHARACTERS: Readonly<Record<string, number>> = {
   "9": 1.104,
   ".": 1.1,
   "-": 1.239,
+  "/": 1.239,
   "'": 1.1,
   '"': 1.1,
   " ": 1.1,

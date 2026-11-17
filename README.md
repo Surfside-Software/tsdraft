@@ -82,7 +82,9 @@ index in, from 1 to 255. Index 7 is black on paper and white on a dark screen, s
 in `currentColor`. A layer that is off or frozen, or whose `plot` is false, is left out.
 `toSVG(drawing, { drawNoPlot: true })` draws the layers that do not plot too, to see
 construction lines. The other options are `margin`, in drawing units, and `strokeWidth`, the
-width in screen pixels of a line of the default lineweight.
+width in screen pixels of a line of the default lineweight. A picture too large to write, such
+as blocks nested to draw millions of entities, is refused with a `RangeError` that says where
+it stopped, as [the preview of blocks](docs/blocks.md#the-preview) says.
 Entities go on layer `0` unless they are drawn inside a `layer()` callback.
 Linetypes and lineweights are set on a layer, and an entity draws ByLayer unless
 it is given its own. `DASHED`, `HIDDEN`, `CENTER`, `PHANTOM`, `DASHDOT` and `DOT`
@@ -149,8 +151,8 @@ d.dimensionStyle({
 d.linearDimension([34, 30], [86, 30], [0, 22], { style: "PLAN" }); // 52.0'
 ```
 
-`alignedDimension` measures along the two points. [Dimensions](docs/dimensions.md) has the
-rest.
+`alignedDimension` measures along the two points, and a style with `units: "architectural"`
+writes feet and inches, as `4'-1 7/16"`. [Dimensions](docs/dimensions.md) has the rest.
 
 A layout is a sheet of paper that AutoCAD shows as a tab and plots as one page. What is drawn
 inside `layout` is on the sheet, in inches of paper, and a viewport shows the model on it at a
@@ -167,9 +169,10 @@ d.layout("C-101", { paper: "ARCH D" }, (sheet) => {
 ```
 
 The file opens on the sheet with its page setup: `DWG To PDF.pc3`, the paper, 1:1 and
-`monochrome.ctb`. `toSVG(drawing, { layout: "C-101" })` draws the sheet as it plots.
-[Layouts](docs/layouts.md) has the rest, and [Title blocks](docs/title-blocks.md) shows a
-title block whose fields are attributes.
+`monochrome.ctb`. `toSVG(drawing, { layout: "C-101" })` draws the sheet as it plots, and
+`toPDF(drawing)` plots every sheet to one PDF, a page each, with no CAD program.
+[Layouts](docs/layouts.md) has the rest, [Plotting](docs/plotting.md) the PDF, and
+[Title blocks](docs/title-blocks.md) shows a title block whose fields are attributes.
 
 Text, symbols and dashes are sized by how large they plot. `fromPaper` turns a
 length on paper into drawing units for one scale, given as a plain ratio:
@@ -194,7 +197,7 @@ sized this way, and its border, title block and notes are on a layout.
 tsdraft is at an early stage. It draws layers, lines, polylines, rectangles,
 circles, arcs and single-line text, with linetypes and lineweights, text styles
 and justification, blocks with attributes and inserts of them, references to DWG files as
-xrefs, linear and aligned dimensions, layouts with a page setup and viewports, and layers
+xrefs, linear and aligned dimensions in decimal units or feet and inches, layouts with a page setup and viewports, and layers
 that are off, frozen, locked or not plotted. It does not yet have leaders, hatches, or the
 other kinds of dimension. It writes DXF, not DWG. The drawing at the top builds its
 dimensions, leaders and stipple from lines and text, so in CAD they are plain lines and text,
@@ -219,6 +222,7 @@ program:
 
 ```sh
 npx tsdraft render plan.ts   # writes an SVG and a PNG, and prints JSON with what lint found
+npx tsdraft render plan.ts --pdf   # also plots each sheet, and the set, to PDF
 npx tsdraft dev plan.ts      # a live preview that redraws on every save
 ```
 
@@ -298,6 +302,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   missing file, and how the preview draws a referenced drawing.
 - [Layouts](docs/layouts.md) covers sheets: the papers, the page setup, viewports and
   their scale, names, and how the preview draws a sheet as it plots.
+- [Plotting](docs/plotting.md) covers `toPDF` and `svgToPDF`: a PDF for each sheet and for the
+  set, what a page holds, and the faces text is set in.
 - [Title blocks](docs/title-blocks.md) covers a title block whose fields are
   attributes, and a firm's own border placed under a sheet as an xref.
 - [Text](docs/text.md) covers text styles, fonts and justification, how long a
@@ -309,6 +315,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   holds a drawing to, and the `standard` a drawing file exports.
 - [Checks of intent](docs/intent.md) covers `checkIntent`, which warns of a
   footprint that crosses a setback, and the `intent` a drawing file exports.
+- [Reading drawing files](docs/reading.md) covers `readDXF`, the read model it gives of a
+  firm's DXF, and the readers a package adds for other formats.
 - [The `tsdraft` command](docs/command.md) covers `render`, `dev`, the JSON they
   give, and what happens without the PNG renderer.
 

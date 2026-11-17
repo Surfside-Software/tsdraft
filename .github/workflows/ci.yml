@@ -34,7 +34,11 @@ jobs:
       - run: pnpm fmt:check
       - run: pnpm lint
       - run: pnpm check
+      # Hosted runners run every test file at once on a few cores, so the tests' vm time limits
+      # are four times what they are on a faster machine.
       - run: pnpm test
+        env:
+          TSDRAFT_TIME_LIMIT_SCALE: 4
       - run: pnpm test:package
       # tsrs ports TypeScript 7.1 beta, so it reports only; `pnpm check` is the gate.
       - name: tsrs check (informational)

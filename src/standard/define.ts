@@ -6,7 +6,7 @@ import { layerAuditKey, layerKey } from "../layers.ts";
 import { DrawingError, type Diagnostic } from "../lint.ts";
 import { paperInfo } from "../papers.ts";
 import { written } from "../format.ts";
-import { layerTwinProblem, shown } from "../rules.ts";
+import { idKey, layerTwinProblem, shown } from "../rules.ts";
 import { isRecord, PLAIN_OBJECT } from "../shape.ts";
 import { sha256Text } from "../sha256.ts";
 import { BUILT_IN_DOCUMENT, BUILT_IN_SPECIFIER } from "./default.ts";
@@ -16,6 +16,7 @@ import {
   type Section,
   type Standard,
   type StandardDimensionStyle,
+  type StandardLeaderStyle,
   type StandardDocument,
   type StandardLayer,
   type StandardLink,
@@ -110,6 +111,10 @@ const REFERENCES: { readonly [S in Section]: readonly (readonly [string, Section
     ["role", "textRoles"],
     ["discipline", "disciplines"],
   ],
+  leaderStyles: [
+    ["role", "textRoles"],
+    ["discipline", "disciplines"],
+  ],
   titleBlocks: [["layer", "layers"]],
   sheetFormats: [
     ["titleBlock", "titleBlocks"],
@@ -141,7 +146,7 @@ const plainDrawing = (): Drawing => (plain ??= remember(frozen(plainTitleBlock()
  * standard. A change to what it states needs a new version, which the CHANGELOG gives, and then
  * this hash.
  */
-const BUILT_IN_HASH = "5cf072f6c9b4d19975a1b417039da159acf4a4b491ec3599ba9f05dcc8405403";
+const BUILT_IN_HASH = "6594f10d73a998d20b826bf3eb76bb0a7dad8cd367f69d4afb67062c30787947";
 
 let builtIn: Standard | undefined;
 /** The built-in standard, made once. */
@@ -302,9 +307,11 @@ function resolve(
   const minTextHeight = fallback("minTextHeight");
   const defaultSheetFormat = doc.defaultSheetFormat ?? parent?.defaultSheetFormat;
   const defaultDimensionStyle = doc.defaultDimensionStyle ?? parent?.defaultDimensionStyle;
+  const defaultLeaderStyle = doc.defaultLeaderStyle ?? parent?.defaultLeaderStyle;
   for (const [field, section, name] of [
     ["defaultSheetFormat", "sheetFormats", defaultSheetFormat],
     ["defaultDimensionStyle", "dimensionStyles", defaultDimensionStyle],
+    ["defaultLeaderStyle", "leaderStyles", defaultLeaderStyle],
   ] as const) {
     if (name === undefined || spelling(section, name) !== undefined) continue;
     add(
@@ -384,22 +391,88 @@ function resolve(
   for (const [, scale, path] of each<object>("scales")) references("scales", scale, path);
 
   // A dimension style's name in AutoCAD is its id in capitals on a layout, and with a scale's id
-  // after it in model space. No two of those names may be one to AutoCAD.
+  // after it in model space. No two of those names may be one to AutoCAD. A leader style's are
+  // made the same way, among the leader styles.
   const dimensionStyles = each<StandardDimensionStyle>("dimensionStyles");
   const scaleIds = [...merged.scales.values()].map(([name]) => name);
   const styleName = ([style, scale]: StyleName): string =>
     `the dimension style ${shown(dimensionStyles[style]![0])}${scale < 0 ? "" : ` at the scale ${shown(scaleIds[scale])}`}`;
+  // A style's own name at a place, by its index among the scales, or -1 on a layout.
+  const scaleAt = new Map(scaleIds.map((id, i) => [idKey(id), i]));
+  const ownNames = dimensionStyles.map(([, style]) => {
+    const own = new Map<number, string>();
+    if (style.layoutName !== undefined) own.set(-1, style.layoutName);
+    for (const [scale, name] of Object.entries(style.scaleNames ?? {})) {
+      const at = scaleAt.get(idKey(scale));
+      if (at !== undefined) own.set(at, name);
+    }
+    return own;
+  });
+  const named = ([style, scale]: StyleName): boolean => ownNames[style]!.has(scale);
   const shared = sharedStyleNames(
     dimensionStyles.map(([id]) => id),
     scaleIds,
+    named,
   );
   dimensionStyles.forEach(([, style, path], i) => {
     references("dimensionStyles", style, path);
     byDiscipline("dimensionStyles", style, path);
+    for (const scale of Object.keys(style.scaleNames ?? {})) {
+      refer("scales", scale, `${path}.scaleNames[${JSON.stringify(scale)}]`);
+    }
     for (const [name, other] of shared.get(i) ?? []) {
       add(
         path,
         `${capital(styleName(name))} and ${styleName(other)} have names that AutoCAD takes for one dimension style. Rename the style or the scale`,
+      );
+    }
+  });
+  // Each name a style is given, against the names given before it and every name an id gives.
+  const styleKeys = new Map(dimensionStyles.map(([id], i) => [layerAuditKey(capitals(id)), i]));
+  const scaleKeys = new Map(scaleIds.map((id, i) => [layerAuditKey(id), i]));
+  const given = new Map<string, StyleName>();
+  ownNames.forEach((own, i) => {
+    for (const [scale, name] of own) {
+      const where: StyleName = [i, scale];
+      const key = layerAuditKey(name);
+      let other = given.get(key);
+      const style = styleKeys.get(key);
+      if (other === undefined && style !== undefined && !named([style, -1])) other = [style, -1];
+      for (
+        let at = key.indexOf("-");
+        other === undefined && at >= 0;
+        at = key.indexOf("-", at + 1)
+      ) {
+        const [head, tail] = [styleKeys.get(key.slice(0, at)), scaleKeys.get(key.slice(at + 1))];
+        if (head !== undefined && tail !== undefined && !named([head, tail])) other = [head, tail];
+      }
+      if (other === undefined) given.set(key, where);
+      else {
+        const path = dimensionStyles[i]![2];
+        add(
+          scale < 0
+            ? `${path}.layoutName`
+            : `${path}.scaleNames[${JSON.stringify(Object.keys(dimensionStyles[i]![1].scaleNames!).find((id) => idKey(id) === idKey(scaleIds[scale]!))!)}]`,
+          `${capital(styleName(where))} and ${styleName(other)} have names that AutoCAD takes for one dimension style, ${shown(name)}. Give one another name`,
+        );
+      }
+    }
+  });
+  const leaderStyles = each<StandardLeaderStyle>("leaderStyles");
+  const leaderStyleName = ([style, scale]: StyleName): string =>
+    `the leader style ${shown(leaderStyles[style]![0])}${scale < 0 ? "" : ` at the scale ${shown(scaleIds[scale])}`}`;
+  const sharedLeaderNames = sharedStyleNames(
+    leaderStyles.map(([id]) => id),
+    scaleIds,
+    () => false,
+  );
+  leaderStyles.forEach(([, style, path], i) => {
+    references("leaderStyles", style, path);
+    byDiscipline("leaderStyles", style, path);
+    for (const [name, other] of sharedLeaderNames.get(i) ?? []) {
+      add(
+        path,
+        `${capital(leaderStyleName(name))} and ${leaderStyleName(other)} have names that AutoCAD takes for one leader style. Rename the style or the scale`,
       );
     }
   });
@@ -594,6 +667,9 @@ function resolve(
     ...(defaultDimensionStyle === undefined
       ? {}
       : { defaultDimensionStyle: spelling("dimensionStyles", defaultDimensionStyle) }),
+    ...(defaultLeaderStyle === undefined
+      ? {}
+      : { defaultLeaderStyle: spelling("leaderStyles", defaultLeaderStyle) }),
     ...sections,
   };
   const chain = parent
@@ -709,6 +785,7 @@ function titleBlockDrawing(
   }
   for (const [field, what] of [
     ["dimensionStyles", "a dimension style"],
+    ["leaderStyles", "a leader style"],
     ["layouts", "a layout"],
     ["xrefs", "an xref"],
   ] as const) {
@@ -717,6 +794,9 @@ function titleBlockDrawing(
   const everything = [drawing.entities, ...(drawing.blocks ?? []).map((b) => b.entities)];
   if (everything.some((entities) => entities.some((e) => e.kind.endsWith("-dimension")))) {
     add(path, "A title block's drawing cannot hold a dimension");
+  }
+  if (everything.some((entities) => entities.some((e) => e.kind === "leader"))) {
+    add(path, "A title block's drawing cannot hold a leader");
   }
   for (const linetype of drawing.linetypes ?? []) {
     const own = lookup<{ description: string; pattern: readonly number[] }>(
@@ -791,13 +871,16 @@ function boxIn(
 
 const capital = (what: string): string => what.charAt(0).toUpperCase() + what.slice(1);
 
-/** A dimension style's name in AutoCAD: its style's index, and its scale's, or -1 on a layout. */
+/**
+ * A dimension style's or a leader style's name in AutoCAD: its style's index, and its scale's,
+ * or -1 on a layout.
+ */
 type StyleName = readonly [style: number, scale: number];
 
 /**
  * Each name of a dimension style that AUDIT takes for one met before it, when the styles are met
  * in order and each style's name on a layout before its names at the scales in order: by its
- * style's index, the name and the earlier one.
+ * style's index, the name and the earlier one. A place `renamed` gives another name has none here.
  *
  * Ids are ASCII, which `layerAuditKey` only lower-cases, so a name's key is its style's key, `-`
  * and its scale's, and ids of one section have different keys. Two names are then one only when
@@ -808,6 +891,7 @@ type StyleName = readonly [style: number, scale: number];
 function sharedStyleNames(
   styles: readonly string[],
   scales: readonly string[],
+  renamed: (name: StyleName) => boolean,
 ): ReadonlyMap<number, readonly (readonly [name: StyleName, earlier: StyleName])[]> {
   const styleKeys = styles.map((id) => layerAuditKey(capitals(id)));
   const scaleKeys = scales.map((id) => layerAuditKey(id));
@@ -851,6 +935,8 @@ function sharedStyleNames(
   names.forEach((name, n) => {
     const before = names[n - 1];
     if (before && before[0] === name[0] && before[1] === name[1]) return;
+    // A place the standard gives another name has no name from the ids.
+    if (renamed(name)) return;
     const [style, scale] = name;
     const key = scale < 0 ? styleKeys[style]! : `${styleKeys[style]}-${scaleKeys[scale]}`;
     const earlier = first.get(key);
@@ -887,6 +973,7 @@ const REFERENCE_WORDS: Record<Section, string> = {
   textRoles: "text role",
   scales: "scale",
   dimensionStyles: "dimension style",
+  leaderStyles: "leader style",
   titleBlocks: "title block",
   sheetFormats: "sheet format",
 };

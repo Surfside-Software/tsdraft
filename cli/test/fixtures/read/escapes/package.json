@@ -1,0 +1,10 @@
+{
+  "name": "escapes",
+  "version": "1.0.0",
+  "type": "module",
+  "tsdraft": {
+    "readers": {
+      ".dwg": "../reader-a/read.js"
+    }
+  }
+}

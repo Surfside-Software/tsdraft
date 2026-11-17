@@ -1,5 +1,5 @@
 {
-  "$schema": "https://cdn.jsdelivr.net/npm/tsdraft@0.5.2/standard.schema.json",
+  "$schema": "https://cdn.jsdelivr.net/npm/tsdraft@0.5.3/standard.schema.json",
   "id": "tsdraft",
   "version": "1",
   "title": "tsdraft",
@@ -281,8 +281,30 @@
           "measurementScale": 1
         }
       }
+    },
+    "feet-inches": {
+      "role": "dimension",
+      "arrowhead": "architectural-tick",
+      "arrowSize": 0.125,
+      "extensionOffset": 0.0625,
+      "extensionBeyond": 0.125,
+      "textGap": 0.0625,
+      "writing": {
+        "in": {
+          "units": "architectural",
+          "precision": 4,
+          "measurementScale": 1
+        },
+        "ft": {
+          "units": "architectural",
+          "precision": 4,
+          "measurementScale": 12
+        }
+      },
+      "description": "Feet and inches to the nearest 1/16\", as 4'-1 7/16\""
     }
   },
+  "leaderStyles": {},
   "titleBlocks": {
     "plain": {
       "paper": "ARCH D",

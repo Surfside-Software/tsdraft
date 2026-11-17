@@ -43,7 +43,25 @@
   `layerAuditKey`, and an insert finds its block by `layerKey`.
 - An entity on layer `0` of a block draws as its insert's layer does. `eachDrawn` in
   `src/blocks.ts` walks what an insert draws, with the layer and the matrix of each entity,
-  for `toSVG` and the extents. An insert's attributes are written as texts in the insert's
+  for `toSVG` and `inspectText`. It keeps its own stack, so a chain of any depth is walked,
+  does not enter an insert on a frozen layer, reads each list up to its first empty slot, and
+  asks `spend` before each block it enters and each item it reads. The extents never walk an
+  entity of a block: `boxer` in `src/extents.ts` keeps the box of each block's own entities, in
+  the block's coordinates, worked out once for each drawing it is in and whether its layer `0`
+  is hidden. A placement walks the blocks it inserts, with their matrices composed as
+  `eachDrawn` composes them, and maps the corners of each block's own box: each side takes the
+  corner that rounds no nearer than any point inside, so the box holds the walk's to the last
+  bit, is the walk's where no insert is turned, and for a turned insert may be larger. Each walk
+  enters its first 64 blocks free and all walks the boxer's `walking` more, which `lint` gives
+  the writer's whole limit, so the two take one path, and `lint` boxes model space when it holds
+  anything whose box can cost: an insert, a dimension, a leader or a text past `KEYED`. Past that, a placement
+  maps the corners of the box of all its block draws, widened by what rounding can move a number
+  on the way, so the extents never come out smaller than a walk's. Where a number on the way
+  overflowed or a product underflowed, which the slack cannot cover, it walks the blocks within
+  the walks left, and past them the boxer stops. A box that
+  depends on a block of a cycle being open is not kept for another way in. What many places share is read once a boxer: the box of a list of entities,
+  of a long list of points and of a leader, a long value's measure, and the inserts of a list.
+  An insert's attributes are written as texts in the insert's
   own coordinates, which `placeAttribute` works out from the numbers as they are written. An
   attribute is stored on its definition's layer, and one on layer `0` draws as its insert's
   layer does. An insert on a frozen layer, or in a plot on a layer that does not plot, draws
@@ -82,6 +100,22 @@
   the block of a picture and what it holds, where WHO is the dimension's id with A to Z in
   lower case, or `@LAYOUT/INDEX` for one without an id: never change one. A dimension is
   refused inside a block, where AutoCAD draws nothing for it.
+- A leader holds its note, its point, its shafts and its own sizes, and the R2018 writer writes it
+  as a multileader with no picture. `src/leaders.ts` is the one place that says what AutoCAD
+  draws, `leaderPicture`, which the writers, `toSVG`, the extents and `inspectText` all read, and
+  `lineSpacing` in `src/measure.ts` the one rule for the pitch of a note's lines. A style's sizes
+  are paper sizes times its `scale`, and the file holds them multiplied out with a scale of 1. The
+  writers add AutoCAD's own `Standard` and the dictionary `ACAD_MLEADERSTYLE` with the first
+  style. The keys of the handles are `leader-style:NAME`, with A to Z in lower case,
+  `dictionary:acad_mleaderstyle`, and `arrowhead:NAME` and `arrowhead:NAME/N` for the strokes of
+  the blocks `_Open`, `_Dot` and `_None`: never change one. A leader is refused inside a block.
+- A style in architectural units, `DIMLUNIT` 4, writes feet and inches with the fraction on the
+  line, `DIMFRAC` 2, and `feetInchZeros` is `DIMZIN` 0 to 3. `feetAndInches` in
+  `src/dimensions.ts` is the string, and the dimension holds no text of its own, so AutoCAD
+  measures it again when its points move. A standard's style is named in AutoCAD by
+  `styleNameAt` in `src/standard/rules.ts`, which the builder, `lint` and `defineStandard` share:
+  a `layoutName` or a name in `scaleNames` where the standard gives one, and the id's name
+  otherwise.
 - `examples/site-plan.ts` is the sheet an agent copies, so it must read as a model: the site
   in model space at its true size, with the annotation that is read in the plan sized by the
   view it names, and everything that belongs to the paper inside `d.layout`, in paper units.
@@ -110,7 +144,8 @@
   The box holds the lean of a text whose style has an oblique angle: AutoCAD slants a
   text after it widens it, so the lean is the height times the tangent of the angle and the
   width factor has no part in it. `toSVG` writes `skewX` before `scale` for that reason.
-  Build `boxer` once for a drawing: it reads every block and text style when it is made.
+  Build `boxer` once for a drawing: it reads every block and text style when it is made, and
+  keeps each block's box. `toSVG` and the DXF writer each build one for a call.
 - `measureText` in `src/measure.ts` is the one measure of a text: its length from the widths
   in `src/font-metrics.ts`, where its justification puts it, and the one rule for its
   baseline. The extents, `toSVG` and `inspectText` all take a text's box from it, so a
@@ -127,8 +162,12 @@
   and its type are its own, `LintRule` stays closed, and `toDXF` never asks it. It shares
   `visibility` in `src/svg.ts` with `toSVG`, so the two leave out the same layers, and walks
   inserts with `eachDrawn`. It must stay bounded: boxes are worked out once and found through
-  a grid, and every box the grid looks at and every point a check reads count against one
-  limit, which ends the checks with `text-check-capped` when it is reached.
+  a grid, and every box the grid looks at, every point a check reads and each step of the walk
+  of an insert, a text by its length, and each character a warning quotes, count against one
+  limit, which ends the checks with `text-check-capped`, saying where, when it is reached. The walk reads blocks and xrefs cut to
+  what the checks keep, `looked` in `src/inspect.ts`, so linework costs it nothing, and its
+  steps are free for the first 64 of each insert and for as many more as one walk of every
+  block and xref takes.
 - `checkIntent` in `src/intent.ts` checks a drawing against the intent given beside it: so
   far, setbacks. It is not `lint` either, and its rules and type are its own. It finds
   entities of model space by id, with `idKey`, and reads no layer's state. It takes any value
@@ -150,7 +189,12 @@
   by `item`, a path such as `setbacks[0]`, so a later check of intent gets a field of
   `Intent` of its own and adds no field to the warning.
 - AutoCAD sizes dashes on the paper in a viewport, so `toSVG` scales a pattern by the
-  linetype scale over the viewport's scale there. `toSVG` draws a layout with `elements`, the
+  linetype scale over the viewport's scale there. It fits a pattern to each line, side of a
+  polyline and arc: the stretch holds as many whole patterns as fit, its first and last dash
+  are each half of the first dash and of what is left over, and a stretch shorter than its
+  pattern is solid. A circle holds the whole number of patterns nearest its length, stretched
+  alike to go round it, from a dash at angle 0. `cut` in `dashedPath` is the one place that
+  does it. `toSVG` draws a layout with `elements`, the
   walk it draws model space with, under a `Look` that says how wide and what color a pen is.
 - A rule AutoCAD enforces lives in `src/rules.ts` twice: as a type, so a wrong
   literal is a compile error, and as a runtime check with the same message. The
@@ -188,9 +232,9 @@
   drawing under their own names when `sheet.titleBlock()` first places it, and one the drawing
   has with another definition is refused: never rename one, since its handles come from its
   name. The builder fills a title block's scale when the layout's `draw` returns.
-- Under a standard, a role's text style and a dimension style of the standard enter the drawing
-  on first use, under `capitals` of the id, and in model space with the view's scale id after a
-  dimension style's: `DIMS-1in-10ft`. A view's id is taken when `view()` declares it, and the
+- Under a standard, a role's text style and a dimension or leader style of the standard enter
+  the drawing on first use, under `capitals` of the id, and in model space with the view's scale
+  id after a dimension or leader style's: `DIMS-1in-10ft`. A view's id is taken when `view()` declares it, and the
   one viewport that shows the view takes that id and no other.
 - `lint(drawing, { standard })` runs the rules of a standard in `src/standard/lint.ts` after the
   others, and without `standard` runs none of them. It takes the standard through `adopted` in
@@ -202,7 +246,67 @@
   an insert reads blocks made once a drawing, with only what can draw a text and a short token for
   each name, and pays for each block it enters. A title block's definition is compared as JSON
   cut short at the length of the standard's. `test/standard-lint.test.ts` fuzzes it from a seed.
-- `lint` takes any plain data and never throws, since a `Drawing` can be written by hand.
+  To time `lint` against a standard given as data, time the standard's own check, `adopted`,
+  apart from the index and the rules: it checks the whole document and works out its hash again
+  on each call, so it can hide what the rest costs.
+- `lint`, `inspectText`, the extents and `toSVG` must stay bounded on any data, by construction:
+  each reads a list up to its first empty slot, works out each name's `layerKey` once a call,
+  follows blocks with a stack of its own, and pays for what it does again, by its size, before
+  it does it. The data is the value as given, and a drawing made in code may share one list,
+  object or string among many places, which JSON cannot. So what a walk reads of one of those
+  and can keep, it keeps for the call, by the object or, for a value of 256 characters or more,
+  by the string: the extents' boxes, a text's measure through `measurer` in `src/measure.ts`,
+  `inspectText`'s cut of a list and the outline of a long list of points, and `lint`'s checks of
+  a long value and an insert's values. What a walk must read again for each place, `lint` pays
+  for by its size each time after the first: a list of entities or of attribute definitions, a
+  list of points of 64 or more, an insert's values past the first 64, and a string of 256
+  characters or more in a field an entity, a definition or an insert's values has, since a
+  message quotes it and `toDXF` writes it again. An object of the wrong shape is reported where
+  it is first met, and its messages pay for their length, so a long key or kind that many objects
+  share is paid for each time it is quoted. Once `lint` or `inspectText` stops, it reads no entity
+  past there. `itemsOf` counts a list once. The boxer pays for a list that
+  another drawing holds too, such as one drawing given for many xrefs, and the standard's checks
+  pay for a shared list, each error they give from it by its length, and a shared long string. A
+  walk skips an attribute definition that is no object, as `isDefinition` in `src/blocks.ts`
+  says. Key no `Map` or `Set` of a walk by strings a drawing holds: V8 hashes a string over
+  16,383 characters by its length alone, so a table of many such strings of one length compares
+  each it looks up with all the others. `Strings` in `src/shape.ts` keys a long one by its length
+  and 80 of its characters, keeps one string a key, and says when a string takes another's
+  place, which the walk then pays for by its length. So distinct long strings crafted to agree at
+  those characters pay as if they were shared. Each insert does its first 64 attributes, and the first 64 steps of its walk, free
+  of the limit: that is work in proportion to the drawing. `lint` pays for each attribute an
+  insert places and each handle it takes past those, what a dimension reads from its style's
+  prefix and suffix, the search for the way back through a cycle, which finds cycles first in
+  one pass, and the extents of model space, which the DXF writer works out within the same
+  limit; past its limit, 500,000 units and 16 more for each entity and attribute definition the
+  drawing holds, it ends with `check-capped`, which `toDXF` refuses. `lint` boxes model space
+  and then each layout with one boxer, as the writer does, so the writer stops on nothing `lint`
+  passed. What a drawing repeats is paid for and what it holds is not: a value an insert holds
+  is free, a definition's value it repeats is paid for by its length. Whatever is read for each
+  placement reads only the fields it needs, as `inStyle` and `attributeText` do, never a copy
+  of all an object holds, and a measured text takes only its font, width factor and oblique
+  angle from its style. `toSVG` writes at most 500 million characters, and walks through
+  inserts at most 2,000,000 blocks and entities that draw nothing, and refuses an insert whose
+  walk would spend more than is left before it walks it, from the boxer's `walkCost`; what it draws counts against
+  the characters, so drawing an entity may cost only in proportion to what it writes: a dashed
+  polyline's sides that have a length are found once a picture, for each list of points. Past
+  either it throws a `RangeError` that names where it stopped. It joins an insert's elements as
+  it makes them, so the memory it holds stays near its characters. Looking a long string up in
+  an object can take time in proportion to its length, so a name is looked up in a table of
+  tsdraft's, such as `FONTS` or `ARROWHEADS`, only when it is no longer than the table's
+  longest, and a walk that looks a definition's tag up among an insert's values pays a unit for
+  each 256 characters of it, `lookupCost` in `src/blocks.ts`.
+  `test/bounded.test.ts` fuzzes the four from a seed under a vm timeout, with limits given to
+  `lintWithin`, `inspectWithin` and `svgWithin`, and with lists and values that many places
+  share. Every walk but `lint` may throw a `RangeError` there, and nothing else.
+- `lint` takes any plain data and never throws, since a `Drawing` can be written by hand. A
+  `Proxy` is code, not data, and `src/`, which imports no `node:` module, has no way to tell one
+  from data without calling its traps. So `lint`, like the rest of the library, reads one as the
+  data its traps give, calling them in proportion to what it reads, and a trap that throws or
+  never returns does so inside the call. `test/bounded.test.ts` holds both: the traps of one that
+  returns are called a bounded number of times, and data a proxy makes up as it is read is
+  refused where its shape is wrong. The command, which runs a drawing file's code, ends a build
+  past its timeout.
   `src/shape.ts` holds the fields of each object and their types, once, for `fromJSON` and for
   `lint`. `lint` checks an object's shape there before a rule reads it, and skips the rules for
   an object that fails, but still records its name, so that nothing that names it gets a
@@ -212,6 +316,27 @@
   the wrong type carries `item`, the path of what a reader has to leave out.
   `test/shape.test.ts` replaces every field of a full drawing with values of other types, and
   its drawing is typed so that a new field or entity kind is a compile error there.
+- `src/read/` reads a file into a `DrawingRead`, the read model, which is not a `Drawing` and is
+  never written back. `readDXF` reads as the bytes arrive and must never hold the whole file or
+  a list that grows with entities past `CENSUS_LIMIT`; a record's binary groups are dropped as
+  they arrive. It keeps no text of model space or a layout and no attribute value. It throws
+  only a `ReadError`, for a file it cannot read at all, and counts the rest it does not
+  understand under `unread`. A group's default, such as the text style `Standard`, is filled in,
+  since AutoCAD leaves a default out. `checkDrawingRead` holds a reader's answer to the model's
+  fields: change both together, and the reading page, `docs/reading.md`.
+- `src/pdf.ts` plots layouts to PDF from the pictures `toSVG` draws of them, and decides
+  nothing about a drawing: every rule of what a sheet plots stays in `toSVG`, so the preview
+  and the plot cannot part. It reads the closed set of elements and attributes `toSVG` writes
+  for a layout, and refuses any other with a `RangeError` that names it, so a new element in
+  `toSVG` is drawn in the PDF in the same pull request or fails `test/pdf.test.ts`. It reads
+  each picture once, with a sticky pattern that refuses what it cannot read, and writes in
+  proportion to it. Each point is mapped to the page and written in points with three
+  decimals, never with an exponent. Text is set in Helvetica, Times or Courier with widths from
+  `src/font-metrics.ts` and stretched with `Tz` to the length `toSVG` holds it to. The library
+  has no zlib, so a caller passes `deflate`. The same pictures give the same bytes. A picture of
+  a layout says its format in `data-picture`, `SHEET_PICTURE` in `src/svg.ts`, and `svgToPDF`
+  reads no other: raise it in the pull request that changes what an element or an attribute of
+  such a picture means, since the closed list catches a new one and not a changed one.
 - The writers print numbers with 6 decimals. `written` in `src/format.ts` is that
   rounding, and `lint` judges sizes, points and arc angles as written. A new
   check on a number must do the same.

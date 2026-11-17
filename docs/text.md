@@ -161,8 +161,17 @@ A text with nothing but spaces in it is left out, so a blank attribute warns of 
 text gets one warning of each rule at most. Its work is bounded: a drawing with more text and
 closed polylines near each other than it checks, such as thousands of texts on one spot, gets
 one `text-check-capped` warning, and what is left is not held against other texts or
-polylines. `inspectText` takes the `xrefs` that `toSVG` takes, and like it may throw on a
-drawing `lint` reports an error for.
+polylines. So does a drawing whose inserts draw more than it walks, such as blocks nested to
+draw one text millions of times, and one whose warnings would quote more text than it checks,
+since each character a warning quotes counts. The warning says where it stopped, and no
+entity past there is looked at. The walk of an insert
+reads only what the checks look at: a text with something to draw, a dimension, a closed
+polyline, an attribute, and the inserts that lead to one, so a block of linework with one label
+costs two steps. It counts each block it enters and each of those it reads there, and a text by
+its length. Each insert takes its first 64 steps free, and the walks of all the inserts take as
+many more free as one walk of every block and xref, so a large xref placed once is checked in
+full. `inspectText` takes the `xrefs` that `toSVG` takes, and like it may throw on a drawing
+`lint` reports an error for.
 
 ## Escapes
 

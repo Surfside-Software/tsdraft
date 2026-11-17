@@ -2,7 +2,16 @@
 // its default and whether the hash reads it. `readDocument` checks a document against it,
 // `defineStandard` fills the defaults from it and the hash leaves out what it marks, and
 // `standardSchema` writes the JSON Schema from it, so the three cannot drift apart.
-import { ARROWHEADS, DEFAULT_ARROWHEAD, ZERO_SUPPRESSIONS } from "../arrowheads.ts";
+import {
+  ARROWHEAD_BLOCKS,
+  ARROWHEADS,
+  DEFAULT_ARROWHEAD,
+  DEFAULT_LEADER_ARROWHEAD,
+  DIMENSION_UNITS,
+  FEET_INCH_ZEROS,
+  LEADER_ARROWHEADS,
+  ZERO_SUPPRESSIONS,
+} from "../arrowheads.ts";
 import { FONTS } from "../fonts.ts";
 import { layerKey, rejectedNameCharacter } from "../layers.ts";
 import { LINEWEIGHTS } from "../linetypes.ts";
@@ -12,11 +21,17 @@ import {
   attributeTagProblem,
   blockNameProblem,
   dimensionPrefixProblem,
+  dimensionStyleNameProblem,
+  feetInchZerosProblem,
   fontProblem,
   idKey,
   idProblem,
   layerColorProblem,
   layerNameProblem,
+  LEADER_ATTACHMENTS,
+  leaderArrowheadProblem,
+  leaderAttachmentProblem,
+  leaderSizeProblem,
   lineweightValueProblem,
   linetypeProblem,
   linetypeScaleProblem,
@@ -35,6 +50,7 @@ import {
   widthFactorProblem,
   xrefPathProblem,
   zeroSuppressionProblem,
+  zerosOfUnitsProblem,
 } from "../rules.ts";
 import { canonical } from "../json.ts";
 import { isRecord, PLAIN_OBJECT } from "../shape.ts";
@@ -45,6 +61,8 @@ import type {
   DisciplineDocument,
   LayerDocument,
   LayerFieldsDocument,
+  LeaderStyleDocument,
+  LeaderStyleFieldsDocument,
   LinetypeDocument,
   PenDocument,
   ScaleDocument,
@@ -59,9 +77,11 @@ import type {
 } from "./document.ts";
 import {
   dimensionStyleIdProblem,
+  styleNameStandardProblem,
   FILL_KEYS,
   fillProblem,
   layerZeroProblem,
+  leaderStyleIdProblem,
   paperUnitsProblem,
   roleNameProblem,
   scaleLabelProblem,
@@ -392,35 +412,47 @@ const SCALE = record<ScaleDocument>("scale", "a scale", {
   discipline,
 });
 
-const WRITING = record<WritingDocument>("writing", "a dimension style's writing", {
-  units: {
-    node: string({ enum: ["decimal"] }, writingUnitsProblem),
-    description: "How a length is written: decimal, the one way tsdraft writes one",
-    default: "decimal",
+const WRITING = record<WritingDocument>(
+  "writing",
+  "a dimension style's writing",
+  {
+    units: {
+      node: string({ enum: DIMENSION_UNITS }, writingUnitsProblem),
+      description:
+        "How a length is written: decimal, or architectural, which takes a length times measurementScale as inches and writes feet and inches with a fraction of an inch, as 4'-1 7/16\"",
+      default: "decimal",
+    },
+    precision: {
+      node: number({ type: "integer", minimum: 0, maximum: 8 }, precisionProblem),
+      description:
+        "From 0 to 8: the decimals of a measurement, or in architectural units the least fraction of an inch, 1 over 2 to this power, so 4 writes sixteenths",
+      required: true,
+    },
+    prefix: {
+      node: string(lazy(patterns.prefix), dimensionPrefixProblem),
+      description: "Written before each measurement",
+    },
+    suffix: {
+      node: string(lazy(patterns.suffix), plainDimensionText),
+      description: "Written after each measurement",
+    },
+    suppressZeros: {
+      node: string({ enum: ZERO_SUPPRESSIONS }, zeroSuppressionProblem),
+      description: "The zeros of a measurement in decimal units that are left out",
+    },
+    feetInchZeros: {
+      node: string({ enum: FEET_INCH_ZEROS }, feetInchZerosProblem),
+      description:
+        "The zeros a measurement in architectural units writes: inches, which writes 4'-0\" and 6\", and is what a writing that names none writes; feet, which writes 4' and 0'-6\"; both; or neither",
+    },
+    measurementScale: {
+      node: number({ exclusiveMinimum: 0 }, measurementScaleProblem),
+      description: "Each measurement is written times this",
+      default: 1,
+    },
   },
-  precision: {
-    node: number({ type: "integer", minimum: 0, maximum: 8 }, precisionProblem),
-    description: "The decimals a measurement is written with, from 0 to 8",
-    required: true,
-  },
-  prefix: {
-    node: string(lazy(patterns.prefix), dimensionPrefixProblem),
-    description: "Written before each measurement",
-  },
-  suffix: {
-    node: string(lazy(patterns.suffix), plainDimensionText),
-    description: "Written after each measurement",
-  },
-  suppressZeros: {
-    node: string({ enum: ZERO_SUPPRESSIONS }, zeroSuppressionProblem),
-    description: "The zeros of a measurement that are left out",
-  },
-  measurementScale: {
-    node: number({ exclusiveMinimum: 0 }, measurementScaleProblem),
-    description: "Each measurement is written times this",
-    default: 1,
-  },
-});
+  (value) => zerosOfUnitsProblem(value.units, value.suppressZeros, value.feetInchZeros),
+);
 
 const unitsOf = (what: string): Node =>
   record<NonNullable<DimensionStyleDocument["writing"]>>("writings", what, {
@@ -464,14 +496,64 @@ const STYLE_FIELDS = {
   description,
 } as const satisfies FieldsOf<DimensionStyleFieldsDocument>;
 
+/** A name a standard gives a dimension style in AutoCAD: any name AutoCAD takes, but `Standard`. */
+const styleName: Node = string(
+  lazy(() => patterns.name("Standard")),
+  (name) => dimensionStyleNameProblem(name) ?? styleNameStandardProblem(name),
+);
+
 const DIMENSION_STYLE = record<DimensionStyleDocument>("dimensionStyle", "a dimension style", {
   ...STYLE_FIELDS,
+  layoutName: {
+    node: styleName,
+    description:
+      "The style's name in AutoCAD on a layout, such as the name a firm's drawings already give their style. Defaults to its id in capitals",
+  },
+  scaleNames: {
+    node: map(ids("scaleNames", "scale"), styleName),
+    description:
+      "The style's name in AutoCAD in model space at a scale, by the scale's id, such as the name a firm's drawings already give the style at that scale. A scale it does not list takes the id in capitals, a hyphen and the scale's id",
+  },
   discipline,
   byDiscipline: byDiscipline(
     record<DimensionStyleFieldsDocument>(
       "dimensionStyleFields",
       "a dimension style's fields for a discipline",
       replacing(STYLE_FIELDS) as FieldsOf<DimensionStyleFieldsDocument>,
+    ),
+  ),
+});
+
+const LEADER_FIELDS = {
+  role: {
+    node: string(),
+    description: "The text role of the note, which gives its text style and height",
+    required: true,
+  },
+  arrowhead: {
+    node: string({ enum: Object.keys(LEADER_ARROWHEADS) }, leaderArrowheadProblem),
+    description: "One of LEADER_ARROWHEADS",
+    default: DEFAULT_LEADER_ARROWHEAD,
+  },
+  arrowSize: size(leaderSizeProblem, "The size of an arrowhead"),
+  landing: size(leaderSizeProblem, "The length of the landing, 0 for none"),
+  gap: size(leaderSizeProblem, "The gap between the end of the landing and the note"),
+  attachment: {
+    node: string({ enum: LEADER_ATTACHMENTS }, leaderAttachmentProblem),
+    description: "Which line of the note the landing meets, at the middle of its capitals",
+    default: "first-line",
+  },
+  description,
+} as const satisfies FieldsOf<LeaderStyleFieldsDocument>;
+
+const LEADER_STYLE = record<LeaderStyleDocument>("leaderStyle", "a leader style", {
+  ...LEADER_FIELDS,
+  discipline,
+  byDiscipline: byDiscipline(
+    record<LeaderStyleFieldsDocument>(
+      "leaderStyleFields",
+      "a leader style's fields for a discipline",
+      replacing(LEADER_FIELDS) as FieldsOf<LeaderStyleFieldsDocument>,
     ),
   ),
 });
@@ -493,7 +575,7 @@ const FIELD = record<TitleBlockFieldDocument>("titleBlockField", "a title block'
 const XREF = record<XrefDocument>("xref", "an xref", {
   name: {
     node: string(
-      lazy(() => patterns.name("_ArchTick")),
+      lazy(() => patterns.name(...ARROWHEAD_BLOCKS)),
       blockNameProblem,
     ),
     description: "The xref's name",
@@ -524,7 +606,7 @@ const TITLE_BLOCK = record<TitleBlockDocument>("titleBlock", "a title block", {
   },
   blockName: {
     node: string(
-      lazy(() => patterns.name("_ArchTick")),
+      lazy(() => patterns.name(...ARROWHEAD_BLOCKS)),
       blockNameProblem,
     ),
     description: "The block of block that the builder inserts at [0, 0] on each sheet",
@@ -652,6 +734,10 @@ export const DOCUMENT = record<StandardDocument>("standard", "a standard", {
     node: string(),
     description: "The dimension style of a dimension that names none",
   },
+  defaultLeaderStyle: {
+    node: string(),
+    description: "The leader style of a leader that names none",
+  },
   disciplines: section(ids(STANDARD, "discipline"), DISCIPLINE, "The disciplines"),
   pens: section(ids(STANDARD, "pen"), PEN, "Named lineweights"),
   linetypes: section(
@@ -682,6 +768,11 @@ export const DOCUMENT = record<StandardDocument>("standard", "a standard", {
     ids(STANDARD, "dimension style", dimensionStyleIdProblem, "standard"),
     DIMENSION_STYLE,
     "The dimension styles",
+  ),
+  leaderStyles: section(
+    ids(STANDARD, "leader style", leaderStyleIdProblem, "standard"),
+    LEADER_STYLE,
+    "The leader styles",
   ),
   titleBlocks: section(ids(STANDARD, "title block"), TITLE_BLOCK, "The title blocks"),
   sheetFormats: section(ids(STANDARD, "sheet format"), SHEET_FORMAT, "The sheet formats"),
@@ -1044,7 +1135,7 @@ export function standardSchema(version: string): Json {
     title: "A tsdraft standard",
     ...top,
     description:
-      "A firm's CAD standard: its layers, pens, linetypes, text roles, scales, dimension styles, title blocks and sheet formats. What a schema cannot hold, such as a name that refers to another entry, is checked by defineStandard",
+      "A firm's CAD standard: its layers, pens, linetypes, text roles, scales, dimension styles, leader styles, title blocks and sheet formats. What a schema cannot hold, such as a name that refers to another entry, is checked by defineStandard",
     $defs: Object.fromEntries(Object.entries(definitions).sort(([a], [b]) => (a < b ? -1 : 1))),
   };
 }

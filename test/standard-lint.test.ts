@@ -19,6 +19,7 @@ import {
   type Text,
 } from "../src/index.ts";
 import { lintStandard } from "../src/standard/lint.ts";
+import { timeLimit } from "./time-limit.ts";
 
 const layout = sheet.layouts![0]!;
 const titleBlock = layout.entities[0] as Insert;
@@ -37,7 +38,7 @@ const checking = new Script("checking()");
 /** The rules `lint` reports with `options`, stopped after `ms`, so a run that never ends fails. */
 const within = (ms: number, drawing: unknown, options: LintOptions = { standard }): string[] => {
   Object.assign(globalThis, { linting: () => rules(drawing as Drawing, options) });
-  return linting.runInThisContext({ timeout: ms }) as string[];
+  return linting.runInThisContext({ timeout: timeLimit(ms) }) as string[];
 };
 
 test("the example sheet breaks no rule of its standard at either scale, nor from JSON", () => {
@@ -94,19 +95,22 @@ test("lint reports what the builder refuses under a standard, under the same rul
       ["layer-outside-standard", "A-WALL"],
       ["text-style-outside-standard", "MINE"],
       ["dimension-style-outside-standard", "MINE"],
-      ["layer-outside-standard", 57],
-      ["pen-outside-standard", 57],
-      ["text-style-outside-standard", 58],
+      ["layer-outside-standard", sheet.entities.length],
+      ["pen-outside-standard", sheet.entities.length],
+      ["text-style-outside-standard", sheet.entities.length + 1],
     ],
   );
   assert.match(
     found[0]!.message,
     /^Layer "A-WALL" is not a layer of the standard "site-plan-example" version 1/,
   );
-  assert.match(found[3]!.message, /^line #57: Layer "0" is in every drawing and in no standard/);
+  const line = `line #${sheet.entities.length}`;
+  assert.ok(
+    found[3]!.message.startsWith(`${line}: Layer "0" is in every drawing and in no standard`),
+  );
   assert.equal(
     found[4]!.message,
-    "line #57: A lineweight of 0.6 mm is no pen of the standard. Its pens are bold 0.5, fine 0.18, heavy 0.7, light 0.25 and medium 0.35 mm. Give the entity a pen",
+    `${line}: A lineweight of 0.6 mm is no pen of the standard. Its pens are bold 0.5, fine 0.18, heavy 0.7, light 0.25 and medium 0.35 mm. Give the entity a pen`,
   );
 });
 
@@ -135,6 +139,7 @@ test("a layer, a linetype, a role's text style and a dimension style hold the st
       "The drawing's linetypeScale is 1, and the standard's is 0.5. Leave linetypeScale to the standard",
       'Text style "NOTE" has font "romans.shx", and the role "note" gives it font "Arial"',
       'Dimension style "DIMS-1in-10ft" has arrowSize 0.2, and the standard gives it arrowSize 0.125',
+      'Dimension style "FEET-INCHES-1in-10ft" has arrowSize 0.2, and the standard gives it arrowSize 0.125',
     ],
   );
   assert.deepEqual(
@@ -145,6 +150,7 @@ test("a layer, a linetype, a role's text style and a dimension style hold the st
       "linetype-differs-from-standard",
       "linetype-differs-from-standard",
       "text-style-differs-from-standard",
+      "dimension-style-differs-from-standard",
       "dimension-style-differs-from-standard",
     ],
   );
@@ -168,8 +174,8 @@ test("a text plots at its role's height in each viewport that shows it, and at l
   assert.deepEqual(
     lint(half, { standard }).map((d) => d.message),
     [
-      `text #50: This text of the role "note" plots 0.047 in tall in viewport "plan" at 1" = 10', and the role is 0.094 in: it was sized for another scale. Draw it in the view of the viewport that shows it`,
-      `text #50: This text plots 0.047 in tall in viewport "plan" at 1" = 10', below the standard's least height of 0.0625 in`,
+      `text #51: This text of the role "note" plots 0.047 in tall in viewport "plan" at 1" = 10', and the role is 0.094 in: it was sized for another scale. Draw it in the view of the viewport that shows it`,
+      `text #51: This text plots 0.047 in tall in viewport "plan" at 1" = 10', below the standard's least height of 0.0625 in`,
     ],
   );
   // The model of the sheet at 1" = 10', shown at 1" = 20': every text and dimension is off.
@@ -212,7 +218,8 @@ test("a dimension is shown at its style's scale", () => {
     },
     { standard },
   );
-  assert.equal(found.length, 6);
+  // Every one of the seven dimensions, each now in the style for 1" = 20'.
+  assert.equal(found.length, 7);
   assert.match(
     found[0]!.message,
     /^linear-dimension #28: It is in the dimension style "DIMS-1in-20ft", for 1" = 20', and is shown in viewport "plan" at 1" = 10'/,
@@ -711,7 +718,7 @@ test("the checks of a standard stay bounded on any data, and never throw", () =>
         lintStandard(checked as unknown as Drawing, given, discipline, undefined, out, 20_000),
     });
     try {
-      checking.runInThisContext({ timeout: 1000 });
+      checking.runInThisContext({ timeout: timeLimit(1000) });
     } catch (thrown) {
       assert.fail(`case ${n}: ${String((thrown as Error)?.message ?? thrown)}`);
     }

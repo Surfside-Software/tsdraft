@@ -1,8 +1,14 @@
 // A standard as a document, before `extends` and `null` are resolved, and as a `Standard`, after.
 // The document's types are as wide as a JSON import gives them: `defineStandard` checks each
 // literal through `CheckDocument`, and every value when the code runs.
-import type { Arrowhead, ZERO_SUPPRESSIONS } from "../arrowheads.ts";
-import type { Drawing, Point, Units } from "../drawing.ts";
+import type {
+  Arrowhead,
+  DIMENSION_UNITS,
+  FEET_INCH_ZEROS,
+  LeaderArrowhead,
+  ZERO_SUPPRESSIONS,
+} from "../arrowheads.ts";
+import type { Drawing, LeaderAttachment, Point, Units } from "../drawing.ts";
 import type { Font } from "../fonts.ts";
 import type { PaperUnit } from "../paper.ts";
 import type { Paper, PlotStyleTable } from "../papers.ts";
@@ -38,6 +44,7 @@ export const SECTIONS = [
   "textRoles",
   "scales",
   "dimensionStyles",
+  "leaderStyles",
   "titleBlocks",
   "sheetFormats",
 ] as const;
@@ -78,6 +85,7 @@ export interface StandardDocument extends Commented {
   readonly sheetFiles?: string;
   readonly defaultSheetFormat?: string;
   readonly defaultDimensionStyle?: string;
+  readonly defaultLeaderStyle?: string;
   readonly disciplines?: Entries<DisciplineDocument>;
   readonly pens?: Entries<PenDocument>;
   readonly linetypes?: Entries<LinetypeDocument>;
@@ -85,6 +93,7 @@ export interface StandardDocument extends Commented {
   readonly textRoles?: Entries<TextRoleDocument>;
   readonly scales?: Entries<ScaleDocument>;
   readonly dimensionStyles?: Entries<DimensionStyleDocument>;
+  readonly leaderStyles?: Entries<LeaderStyleDocument>;
   readonly titleBlocks?: Entries<TitleBlockDocument>;
   readonly sheetFormats?: Entries<SheetFormatDocument>;
 }
@@ -152,12 +161,13 @@ export interface ScaleDocument extends Commented {
 
 /** How a dimension style writes a length in one unit of a drawing. */
 export interface WritingDocument extends Commented {
-  /** `"decimal"`, the default, which is the one way tsdraft writes a length. */
+  /** `"decimal"`, the default, or `"architectural"`, which writes feet and inches. */
   readonly units?: string;
   readonly precision: number;
   readonly prefix?: string;
   readonly suffix?: string;
   readonly suppressZeros?: string;
+  readonly feetInchZeros?: string;
   readonly measurementScale?: number;
 }
 
@@ -179,8 +189,32 @@ export interface DimensionStyleDocument extends DimensionStyleFieldsDocument {
   readonly extensionOffset: number;
   readonly extensionBeyond: number;
   readonly textGap: number;
+  /** Its name in AutoCAD on a layout. Defaults to its id in capitals. */
+  readonly layoutName?: string;
+  /** Its name in AutoCAD in model space at a scale, by the scale's id. */
+  readonly scaleNames?: { readonly [scale: string]: string };
   readonly discipline?: string;
   readonly byDiscipline?: { readonly [discipline: string]: DimensionStyleFieldsDocument };
+}
+
+export interface LeaderStyleFieldsDocument extends Commented {
+  /** The text role of the note, which gives its text style and height. */
+  readonly role?: string;
+  readonly arrowhead?: string;
+  readonly arrowSize?: number;
+  readonly landing?: number;
+  readonly gap?: number;
+  readonly attachment?: string;
+  readonly description?: string;
+}
+
+export interface LeaderStyleDocument extends LeaderStyleFieldsDocument {
+  readonly role: string;
+  readonly arrowSize: number;
+  readonly landing: number;
+  readonly gap: number;
+  readonly discipline?: string;
+  readonly byDiscipline?: { readonly [discipline: string]: LeaderStyleFieldsDocument };
 }
 
 export interface TitleBlockFieldDocument extends Commented {
@@ -297,11 +331,12 @@ export interface StandardScale {
 }
 
 export interface StandardWriting {
-  readonly units: "decimal";
+  readonly units: (typeof DIMENSION_UNITS)[number];
   readonly precision: number;
   readonly prefix?: string;
   readonly suffix?: string;
   readonly suppressZeros?: (typeof ZERO_SUPPRESSIONS)[number];
+  readonly feetInchZeros?: (typeof FEET_INCH_ZEROS)[number];
   readonly measurementScale: number;
 }
 
@@ -324,9 +359,38 @@ export interface StandardDimensionStyle {
   readonly extensionBeyond: number;
   readonly textGap: number;
   readonly writing: { readonly [U in Units]?: StandardWriting };
+  /** Its name in AutoCAD on a layout, when it is not its id in capitals. */
+  readonly layoutName?: string;
+  /**
+   * Its name in AutoCAD in model space at a scale, by the scale's id, where it is not its id in
+   * capitals, a hyphen and the scale's id.
+   */
+  readonly scaleNames?: { readonly [scale: string]: string };
   readonly discipline?: string;
   readonly description?: string;
   readonly byDiscipline?: { readonly [discipline: string]: StandardDimensionStyleFields };
+}
+
+export interface StandardLeaderStyleFields {
+  readonly role?: string;
+  readonly arrowhead?: LeaderArrowhead;
+  readonly arrowSize?: number;
+  readonly landing?: number;
+  readonly gap?: number;
+  readonly attachment?: LeaderAttachment;
+  readonly description?: string;
+}
+
+export interface StandardLeaderStyle {
+  readonly role: string;
+  readonly arrowhead: LeaderArrowhead;
+  readonly arrowSize: number;
+  readonly landing: number;
+  readonly gap: number;
+  readonly attachment: LeaderAttachment;
+  readonly discipline?: string;
+  readonly description?: string;
+  readonly byDiscipline?: { readonly [discipline: string]: StandardLeaderStyleFields };
 }
 
 export interface StandardTitleBlockField {
@@ -385,6 +449,7 @@ export type Standard<
   readonly sheetFiles: SheetFiles;
   readonly defaultSheetFormat?: N["sheetFormats"];
   readonly defaultDimensionStyle?: N["dimensionStyles"];
+  readonly defaultLeaderStyle?: N["leaderStyles"];
   readonly disciplines: { readonly [K in N["disciplines"]]: StandardDiscipline };
   readonly pens: { readonly [K in N["pens"]]: StandardPen };
   readonly linetypes: { readonly [K in N["linetypes"]]: StandardLinetype };
@@ -392,6 +457,7 @@ export type Standard<
   readonly textRoles: { readonly [K in N["textRoles"]]: StandardTextRole };
   readonly scales: { readonly [K in N["scales"]]: StandardScale };
   readonly dimensionStyles: { readonly [K in N["dimensionStyles"]]: StandardDimensionStyle };
+  readonly leaderStyles: { readonly [K in N["leaderStyles"]]: StandardLeaderStyle };
   readonly titleBlocks: { readonly [K in N["titleBlocks"]]: StandardTitleBlock };
   readonly sheetFormats: { readonly [K in N["sheetFormats"]]: StandardSheetFormat };
   /** The SHA-256 of what the standard states for a check. */

@@ -8,7 +8,12 @@ import {
 import {
   arrowheadInfo,
   DEFAULT_ARROWHEAD,
+  DEFAULT_LEADER_ARROWHEAD,
+  STANDARD_LEADER_STYLE,
   type Arrowhead,
+  type DIMENSION_UNITS,
+  type FEET_INCH_ZEROS,
+  type LeaderArrowhead,
   type ZERO_SUPPRESSIONS,
 } from "./arrowheads.ts";
 import { holdCall, readCall, recordCalls, type CallSite, type HeldCall } from "./callsite.ts";
@@ -23,6 +28,12 @@ import {
   type DimensionPlace,
 } from "./dimensions.ts";
 import { STANDARD_TEXT_STYLE } from "./fonts.ts";
+import {
+  leaderArrowheadHandles,
+  leaderDrawnProblem,
+  leaderStyleDictionaryHandle,
+  validLeaderStyleHandle,
+} from "./leaders.ts";
 import { fmt, written } from "./format.ts";
 import { validIdHandle } from "./handles.ts";
 import { layerAuditKey, layerKey, layoutNameKey } from "./layers.ts";
@@ -58,7 +69,15 @@ import {
   idKey,
   idProblem,
   isStandardDimensionStyle,
+  isStandardLeaderStyle,
   isStandardTextStyle,
+  LEADER_IN_BLOCK,
+  leaderOwnProblem,
+  leaderShaftsProblem,
+  leaderStyleNameProblem,
+  leaderStyleProblem,
+  leaderStyleTwinProblem,
+  leaderTextProblem,
   placedAttributeProblem,
   layerColorProblem,
   layerFlagProblem,
@@ -87,6 +106,8 @@ import {
   undefinedBlockProblem,
   undefinedDimensionStyleProblem,
   undefinedDimensionTextStyleProblem,
+  undefinedLeaderStyleProblem,
+  undefinedLeaderTextStyleProblem,
   undefinedLinetypeProblem,
   undefinedTextStyleProblem,
   viewportProblem,
@@ -99,6 +120,8 @@ import {
   type DimensionAffix,
   type DimensionPrefix,
   type DimensionScale,
+  type FeetInchZerosIn,
+  type SuppressZerosIn,
   type DimensionStyleName,
   type DimensionText,
   type Description,
@@ -107,6 +130,14 @@ import {
   type FrozenCurrent,
   type InsertScale,
   type LayerLinetypeName,
+  type LeaderArrowheadOf,
+  type LeaderScale,
+  type LeaderSize,
+  type LeaderStyleName,
+  type LeaderTargetsOf,
+  type LeaderText,
+  type NewLeaderStyleName,
+  type R12Leaders,
   type LineweightMm,
   type LineweightOf,
   type LinetypeName,
@@ -140,10 +171,13 @@ import {
   type Ratio,
   type TEXT_ALIGNS,
   type TEXT_VERTICAL_ALIGNS,
+  type LEADER_ATTACHMENTS,
+  type LEADER_SIDES,
 } from "./rules.ts";
 import type {
   Standard,
   StandardDimensionStyle,
+  StandardLeaderStyle,
   StandardLayer,
   StandardLinetype,
   StandardScale,
@@ -162,8 +196,11 @@ import {
   layoutAuditTwin,
   layoutNameField,
   layoutPaperUnitsProblem,
+  leaderStyleLacks,
+  leaderStyleReserved,
   linetypeLacks,
   noDefaultDimensionStyle,
+  noDefaultLeaderStyle,
   noDefaultSheetFormat,
   numberNotLayoutName,
   penLacks,
@@ -179,6 +216,9 @@ import {
   zoneLacks,
   type DimensionStyleDefined,
   type DimensionStyleOfStandard,
+  type LeaderRoleAndText,
+  type LeaderStyleDefined,
+  type LeaderStyleOfStandard,
   type DisciplineWithoutStandard,
   type FieldsWithoutStandard,
   type InsertViewAndScale,
@@ -209,7 +249,7 @@ import {
   type ZoneWithoutStandard,
 } from "./standard/drawn.ts";
 import { adopted } from "./standard/made.ts";
-import { capitals, FILL_KEYS, READS_A_NAME } from "./standard/rules.ts";
+import { capitals, FILL_KEYS, READS_A_NAME, styleNameAt } from "./standard/rules.ts";
 
 /** A model-space point, in drawing units. Y points up, as in CAD. */
 export type Point = readonly [x: number, y: number];
@@ -428,6 +468,51 @@ export interface AlignedDimension extends DimensionBase {
   readonly offset: number;
 }
 
+/** Which side of the point where its shafts meet a leader's note is on. */
+export type LeaderSide = (typeof LEADER_SIDES)[number];
+
+/**
+ * Which line of a leader's note its landing meets, at the middle of that line's capitals: the
+ * first, which is AutoCAD's own choice, or the last.
+ */
+export type LeaderAttachment = (typeof LEADER_ATTACHMENTS)[number];
+
+/**
+ * A leader: a note joined to what it names by one or more shafts. AutoCAD holds it as one
+ * multileader, which a drafter moves and edits as one. Its shafts end at `at`, where its landing
+ * starts: a level line as long as its style's `landing`, to the side the note is on, which ends a
+ * gap short of the note. A note on the right is justified left, one on the left justified right,
+ * and the landing meets the middle of its first line's capitals, or of its last line's.
+ */
+export interface Leader extends Placed {
+  readonly kind: "leader";
+  /** A leader style of the drawing. */
+  readonly style: string;
+  /** The lines of the note, from the top. */
+  readonly text: readonly string[];
+  /** Where the shafts meet and the landing starts. */
+  readonly at: Point;
+  /**
+   * Each shaft: its tip, where its arrowhead points, then each point it bends at on its way to
+   * `at`.
+   */
+  readonly shafts: readonly (readonly Point[])[];
+  /**
+   * Which side of `at` the note is on. Defaults to the side away from the first shaft: right
+   * when `at` is not to the left of the shaft's last point before it, its last bend or its tip.
+   */
+  readonly side?: LeaderSide;
+  /** Which line of the note the landing meets. Defaults to its style's. */
+  readonly attachment?: LeaderAttachment;
+  /** The leader's own text style, in place of its style's. */
+  readonly textStyle?: string;
+  /** The leader's own sizes, in place of its style's, in the same units: each times its scale. */
+  readonly textHeight?: number;
+  readonly arrowSize?: number;
+  readonly landing?: number;
+  readonly gap?: number;
+}
+
 export type Entity =
   | Line
   | Polyline
@@ -436,7 +521,39 @@ export type Entity =
   | Text
   | Insert
   | LinearDimension
-  | AlignedDimension;
+  | AlignedDimension
+  | Leader;
+
+/**
+ * A leader style: how the leaders that name it are drawn. Its sizes are the sizes its leaders
+ * plot at, each multiplied by `scale`, so a style for another view is the same style with
+ * another scale.
+ *
+ * tsdraft draws every leader the same way where a style has no choice: straight shafts, a level
+ * landing, and a note of lines that do not wrap, set `lineSpacing` apart.
+ */
+export interface LeaderStyle {
+  readonly name: string;
+  /** The text style of the note. Defaults to `"Standard"`. */
+  readonly textStyle?: string;
+  /** The height of the note's capitals. */
+  readonly textHeight: number;
+  /** One of `LEADER_ARROWHEADS`. Defaults to `"closed-filled"`. */
+  readonly arrowhead?: string;
+  /** The length of an arrowhead, or 0 for none. */
+  readonly arrowSize: number;
+  /** The length of the landing, or 0 for none. */
+  readonly landing: number;
+  /** The gap between the end of the landing and the note. */
+  readonly gap: number;
+  /** Which line of the note the landing meets. Defaults to `"first-line"`. */
+  readonly attachment?: LeaderAttachment;
+  /**
+   * What every size of the style is multiplied by: how many units of the leader's space one
+   * unit of the sizes is. Defaults to 1.
+   */
+  readonly scale?: number;
+}
 
 /**
  * A dimension style: how the dimensions that name it are drawn and how they write what they
@@ -468,17 +585,34 @@ export interface DimensionStyle {
    * unit of the sizes is. Defaults to 1.
    */
   readonly scale?: number;
-  /** The decimals a measurement is written with, from 0 to 8. */
+  /**
+   * How a measurement is written: `"decimal"`, the default, or `"architectural"`, in feet and
+   * inches with a fraction of an inch, such as `4'-1 7/16"`, taking a length times the
+   * measurement scale as inches.
+   */
+  readonly units?: (typeof DIMENSION_UNITS)[number];
+  /**
+   * From 0 to 8: in decimal units the decimals a measurement is written with, and in
+   * architectural units the least fraction of an inch, 1 over 2 to this power, so 0 writes
+   * whole inches and 4 sixteenths.
+   */
   readonly precision: number;
   /** Written before each measurement. */
   readonly prefix?: string;
   /** Written after each measurement. */
   readonly suffix?: string;
   /**
-   * The zeros a measurement leaves out: `"leading"` writes 0.5 as `.5`, `"trailing"` writes
-   * 52.50 as `52.5` and 52.00 as `52`, and `"both"` does both. Defaults to none.
+   * The zeros a measurement in decimal units leaves out: `"leading"` writes 0.5 as `.5`,
+   * `"trailing"` writes 52.50 as `52.5` and 52.00 as `52`, and `"both"` does both. Defaults to
+   * none.
    */
   readonly suppressZeros?: (typeof ZERO_SUPPRESSIONS)[number];
+  /**
+   * The zeros a measurement in architectural units writes: `"inches"`, the default, writes
+   * `4'-0"` and `6"`, `"feet"` writes `4'` and `0'-6"`, `"both"` writes `4'-0"` and `0'-6"`, and
+   * `"neither"` writes `4'` and `6"`.
+   */
+  readonly feetInchZeros?: (typeof FEET_INCH_ZEROS)[number];
   /** What a length is multiplied by before it is written. Defaults to 1. */
   readonly measurementScale?: number;
 }
@@ -610,6 +744,8 @@ export interface Drawing {
   readonly layouts?: readonly Layout[];
   /** The dimension styles that dimensions name. */
   readonly dimensionStyles?: readonly DimensionStyle[];
+  /** The leader styles that leaders name. */
+  readonly leaderStyles?: readonly LeaderStyle[];
 }
 
 /**
@@ -1037,6 +1173,7 @@ export interface DimensionStyleDefinition<
   PRE extends string = string,
   SUF extends string = string,
   MS extends number = number,
+  U extends (typeof DIMENSION_UNITS)[number] = "decimal",
 > {
   readonly name: NewDimensionStyleName<N>;
   /** A text style of the drawing. Defaults to `"Standard"`. */
@@ -1055,14 +1192,28 @@ export interface DimensionStyleDefinition<
   readonly textGap: TextGap<G>;
   /** What every size is multiplied by, greater than 0. Defaults to 1. */
   readonly scale?: DimensionScale<SC>;
-  /** The decimals a measurement is written with, from 0 to 8. */
+  /**
+   * `"decimal"`, the default, or `"architectural"`, which writes feet and inches with a
+   * fraction, such as `4'-1 7/16"`, taking a length times the measurement scale as inches.
+   */
+  readonly units?: U;
+  /**
+   * From 0 to 8: the decimals of a measurement in decimal units, and in architectural units
+   * the least fraction of an inch, 1 over 2 to this power: 0 for whole inches, 4 for 1/16".
+   */
   readonly precision: Precision<P>;
   /** Written before each measurement. */
   readonly prefix?: DimensionPrefix<PRE>;
   /** Written after each measurement, such as `"'"` for feet. */
   readonly suffix?: DimensionAffix<SUF>;
-  /** The zeros a measurement leaves out. Defaults to none. */
-  readonly suppressZeros?: (typeof ZERO_SUPPRESSIONS)[number];
+  /** The zeros a measurement in decimal units leaves out. Defaults to none. */
+  readonly suppressZeros?: SuppressZerosIn<U>;
+  /**
+   * The zeros a measurement in architectural units writes: `"inches"`, the default, writes
+   * `4'-0"` and `6"`, `"feet"` writes `4'` and `0'-6"`, `"both"` writes `4'-0"` and `0'-6"`,
+   * and `"neither"` writes `4'` and `6"`.
+   */
+  readonly feetInchZeros?: FeetInchZerosIn<U>;
   /** What a length is multiplied by before it is written, greater than 0. Defaults to 1. */
   readonly measurementScale?: MeasurementScale<MS>;
 }
@@ -1110,7 +1261,8 @@ export type AlignedDimensionOptions<
  * id, and in model space the view it is read in. The builder defines the style's AutoCAD style on
  * first use, with the standard's paper sizes, its role's text style and height, and the writing of
  * the units it is drawn in: `DIMS-1in-10ft` for the style `dims` in a view at `1in-10ft`, scaled
- * by `view.paper(1)`, and `DIMS` on a layout.
+ * by `view.paper(1)`, and `DIMS` on a layout, unless the standard gives the style another name
+ * there in `scaleNames` or `layoutName`.
  */
 export interface StandardAlignedDimensionOptions<
   S extends string = string,
@@ -1143,6 +1295,126 @@ export interface StandardLinearDimensionOptions<
    * counterclockwise from +X.
    */
   readonly along?: "x" | "y" | number;
+}
+
+/**
+ * A leader style to define: a `LeaderStyle`, checked. Its sizes are lengths on paper, in the unit
+ * that suits the sheet, and `scale` turns them into the units of the space its leaders are drawn
+ * in: `fromPaper(1, "in", view)` for model space seen at a view's ratio, and 1 on a layout.
+ */
+export interface LeaderStyleDefinition<
+  N extends string = string,
+  S extends string = string,
+  H extends number = number,
+  A extends string = string,
+  AS extends number = number,
+  L extends number = number,
+  G extends number = number,
+  SC extends number = number,
+> {
+  readonly name: NewLeaderStyleName<N>;
+  /** A text style of the drawing. Defaults to `"Standard"`. */
+  readonly textStyle?: TextStyleName<S>;
+  /** The height of the note's capitals, greater than 0. */
+  readonly textHeight: Positive<H>;
+  /** One of `LEADER_ARROWHEADS`. Defaults to `"closed-filled"`. */
+  readonly arrowhead?: LeaderArrowheadOf<A>;
+  /** The length of an arrowhead, or 0 for none. */
+  readonly arrowSize: LeaderSize<AS>;
+  /** The length of the landing, or 0 for none. */
+  readonly landing: LeaderSize<L>;
+  /** The gap between the end of the landing and the note. */
+  readonly gap: LeaderSize<G>;
+  /** Which line of the note the landing meets. Defaults to `"first-line"`. */
+  readonly attachment?: LeaderAttachment;
+  /** What every size is multiplied by, greater than 0. Defaults to 1. */
+  readonly scale?: LeaderScale<SC>;
+}
+
+/**
+ * Where a leader's shafts end: the tip of its one shaft, or a list of shafts, each its tip, or
+ * its tip and then each point it bends at on its way to the landing.
+ */
+export type LeaderTargets = Point | readonly (Point | readonly Point[])[];
+
+/** What every leader is drawn with: where its shafts meet, what they point to and how. */
+interface LeaderPlacement<TO extends LeaderTargets = LeaderTargets> {
+  /** Where the shafts meet and the landing starts. */
+  readonly at: Point;
+  /** What the note names: the tip of each shaft, as `LeaderTargets` says, and at least one. */
+  readonly to: LeaderTargetsOf<TO>;
+  /**
+   * Which side of `at` the note is on. Defaults to the side away from the first shaft: right when
+   * `at` is not to the left of the shaft's last point before it.
+   */
+  readonly side?: LeaderSide;
+  /** Which line of the note the landing meets. Defaults to its style's. */
+  readonly attachment?: LeaderAttachment;
+}
+
+/** The options of `leader()`. Each size of its own replaces its style's, and is multiplied by the style's scale. */
+export interface LeaderOptions<
+  S extends string = string,
+  I extends string = string,
+  TS extends string = string,
+  H extends number = number,
+  AS extends number = number,
+  L extends number = number,
+  G extends number = number,
+  TO extends LeaderTargets = LeaderTargets,
+> extends LeaderPlacement<TO> {
+  /** A leader style of the drawing. */
+  readonly style: LeaderStyleName<S>;
+  /** A text style of the drawing for the note, in place of its style's. */
+  readonly textStyle?: TextStyleName<TS>;
+  /** The height of the note's capitals, in place of its style's. */
+  readonly textHeight?: Positive<H>;
+  /** The length of each arrowhead, in place of its style's. */
+  readonly arrowSize?: LeaderSize<AS>;
+  /** The length of the landing, in place of its style's. */
+  readonly landing?: LeaderSize<L>;
+  /** The gap between the landing and the note, in place of its style's. */
+  readonly gap?: LeaderSize<G>;
+  /** A name for the leader that no other entity of the drawing has. */
+  readonly id?: EntityId<I>;
+  readonly view?: ViewWithoutStandard;
+  readonly role?: RoleWithoutStandard;
+}
+
+/**
+ * What a leader is drawn with under the standard `Z`: a leader style of the standard by its id,
+ * and in model space the view it is read in. The builder defines the style's AutoCAD style on
+ * first use, with the standard's paper sizes and its role's text style and height: `NOTES-1in-10ft`
+ * for the style `notes` in a view at `1in-10ft`, scaled by `view.paper(1)`, and `NOTES` on a
+ * layout. A size of the leader's own is a length on paper, which the scale multiplies as it does
+ * the style's, and `role` gives the note the text style and height of another role.
+ */
+export interface StandardLeaderOptions<
+  S extends string = string,
+  I extends string = string,
+  R extends string = string,
+  Z extends Standard = Standard,
+  AS extends number = number,
+  L extends number = number,
+  G extends number = number,
+  TO extends LeaderTargets = LeaderTargets,
+> extends LeaderPlacement<TO> {
+  /** A leader style of the standard, by its id. Defaults to its `defaultLeaderStyle`. */
+  readonly style?: LeaderStyleOfStandard<S, Z>;
+  /** In model space, the view the leader is read in, which `view()` returns. */
+  readonly view?: View;
+  /** A text role of the standard for the note, in place of its style's. */
+  readonly role?: RoleOfStandard<R, Z>;
+  /** The length of each arrowhead on paper, in place of its style's. */
+  readonly arrowSize?: LeaderSize<AS>;
+  /** The length of the landing on paper, in place of its style's. */
+  readonly landing?: LeaderSize<L>;
+  /** The gap between the landing and the note on paper, in place of its style's. */
+  readonly gap?: LeaderSize<G>;
+  /** A name for the leader that no other entity of the drawing has. */
+  readonly id?: EntityId<I>;
+  readonly textStyle?: LeaderRoleAndText;
+  readonly textHeight?: LeaderRoleAndText;
 }
 
 /** What `layout()` sets on a layout. */
@@ -1374,6 +1646,7 @@ function located(
     | "linetype"
     | "textStyle"
     | "dimensionStyle"
+    | "leaderStyle"
     | "block"
     | "attribute"
     | "xref"
@@ -1478,6 +1751,11 @@ export class DrawingBuilder<
   readonly #dimensionStylesAudited = new Map<string, string>();
   /** The blocks of the arrowheads the dimension styles use, whose handles are taken. */
   readonly #arrowheadBlocks = new Set<string>();
+  /** Keyed by `layerKey`: leader style names are compared as dimension style names are. */
+  readonly #leaderStyles = new Map<string, LeaderStyle>();
+  readonly #leaderStylesAudited = new Map<string, string>();
+  /** The blocks of the arrowheads the leader styles use, whose handles are taken. */
+  readonly #leaderArrowheadBlocks = new Set<string>();
   /** The views `view()` declared, by `idKey` of their ids. */
   readonly #views = new Map<string, Shown>();
   /** The blocks that hold texts with roles, directly or in a block they insert, by `layerKey`. */
@@ -2259,12 +2537,13 @@ export class DrawingBuilder<
     PRE extends string = string,
     SUF extends string = string,
     MS extends number = number,
+    U extends (typeof DIMENSION_UNITS)[number] = "decimal",
   >(
     style: Z extends Standard
       ? DimensionStyleDefined
       : V extends "R12"
         ? R12Dimensions
-        : DimensionStyleDefinition<N, S, H, A, AS, EO, EB, G, SC, P, PRE, SUF, MS>,
+        : DimensionStyleDefinition<N, S, H, A, AS, EO, EB, G, SC, P, PRE, SUF, MS, U>,
   ): this {
     const definition = style as unknown as DimensionStyle;
     try {
@@ -2329,7 +2608,8 @@ export class DrawingBuilder<
       throw thrown;
     }
     if (block !== undefined) this.#arrowheadBlocks.add(block);
-    const { prefix, suffix, suppressZeros } = definition;
+    const { prefix, suffix, suppressZeros, feetInchZeros } = definition;
+    const units = definition.units ?? "decimal";
     const scale = definition.scale ?? 1;
     const measurementScale = definition.measurementScale ?? 1;
     this.#dimensionStyles.set(layerKey(named), {
@@ -2342,10 +2622,12 @@ export class DrawingBuilder<
       extensionBeyond: definition.extensionBeyond,
       textGap: definition.textGap,
       ...(scale === 1 ? {} : { scale }),
+      ...(units === "decimal" ? {} : { units }),
       precision: definition.precision,
       ...(prefix === undefined || prefix === "" ? {} : { prefix }),
       ...(suffix === undefined || suffix === "" ? {} : { suffix }),
       ...(suppressZeros === undefined ? {} : { suppressZeros }),
+      ...(feetInchZeros === undefined ? {} : { feetInchZeros }),
       ...(measurementScale === 1 ? {} : { measurementScale }),
     });
     this.#dimensionStylesAudited.set(layerAuditKey(named), named);
@@ -2476,10 +2758,10 @@ export class DrawingBuilder<
   }
 
   /**
-   * The AutoCAD style of a dimension style of the standard, where the dimension is drawn: its id
-   * in capitals on a layout, with a scale of 1 and the writing of the paper's units, and with the
-   * view's scale id after it in model space, with a scale of `view.paper(1)` and the writing of
-   * the drawing's units. It is defined on first use, with its role's text style.
+   * The AutoCAD style of a dimension style of the standard, where the dimension is drawn: on a
+   * layout with a scale of 1 and the writing of the paper's units, and in model space with a scale
+   * of `view.paper(1)` and the writing of the drawing's units, under the name `styleNameAt`
+   * gives. It is defined on first use, with its role's text style.
    */
   #standardDimensionStyle(named: unknown, view: unknown): DimensionStyle {
     const drawn = this.#standard!;
@@ -2499,16 +2781,17 @@ export class DrawingBuilder<
     const [styleId, entry] = found;
     const fields = this.#inDiscipline("Dimension style", styleId, entry);
     const sheet = this.#sheet;
-    let name = capitals(styleId);
+    let name: string;
     let scale = 1;
     let units: string = this.units;
     if (sheet) {
       if (view !== undefined) refuse("dimension-style", DRAWN.dimensionViewOnPaper);
       units = sheet.info.units;
+      name = styleNameAt(styleId, entry, undefined);
     } else {
       if (view === undefined) refuse("dimension-style", DRAWN.dimensionWithoutView);
       const shown = this.#declared(view, "dimension-style").view;
-      name = `${name}-${shown.scale}`;
+      name = styleNameAt(styleId, entry, shown.scale);
       scale = onPaper(shown, 1, "scale");
     }
     const writing = fields.writing[units as Units];
@@ -2517,7 +2800,7 @@ export class DrawingBuilder<
     const existing = this.#dimensionStyles.get(layerKey(name));
     if (existing !== undefined) return existing;
     const role = drawn.textRoles.get(idKey(fields.role))!;
-    const { precision, prefix, suffix, suppressZeros, measurementScale } = writing!;
+    const { units: writes, precision, prefix, suffix, suppressZeros, feetInchZeros } = writing!;
     this.#defineDimensionStyle({
       name,
       textStyle: this.#roleStyle(role),
@@ -2528,13 +2811,307 @@ export class DrawingBuilder<
       extensionBeyond: fields.extensionBeyond,
       textGap: fields.textGap,
       scale,
+      ...(writes === "decimal" ? {} : { units: writes }),
       precision,
       ...(prefix === undefined ? {} : { prefix }),
       ...(suffix === undefined ? {} : { suffix }),
       ...(suppressZeros === undefined ? {} : { suppressZeros }),
-      measurementScale,
+      ...(feetInchZeros === undefined ? {} : { feetInchZeros }),
+      measurementScale: writing!.measurementScale,
     });
     return this.#dimensionStyles.get(layerKey(name))!;
+  }
+
+  /**
+   * Defines a leader style: the text style and height of its leaders' notes, their arrowheads,
+   * the length of the landing, the gap between the landing and the note, and which line of the
+   * note the landing meets. The sizes are the sizes a leader plots at, and `scale` multiplies
+   * each: `fromPaper(1, "in", view)` for leaders in model space that a viewport shows at the
+   * view's ratio, and 1, the default, for leaders on a layout. A style is defined once, under a
+   * name no other has. A drawing drawn to a standard defines none: its leaders name the
+   * standard's styles by their ids.
+   */
+  leaderStyle<
+    N extends string,
+    S extends string = string,
+    H extends number = number,
+    A extends string = string,
+    AS extends number = number,
+    L extends number = number,
+    G extends number = number,
+    SC extends number = number,
+  >(
+    style: Z extends Standard
+      ? LeaderStyleDefined
+      : V extends "R12"
+        ? R12Leaders
+        : LeaderStyleDefinition<N, S, H, A, AS, L, G, SC>,
+  ): this {
+    const definition = style as unknown as LeaderStyle;
+    try {
+      if (this.dxf === "R12") refuse("leader-style", R12_ONLY.leaders);
+      if (this.#standard) refuse("leader-style-outside-standard", DRAWN.leaderStyleDefined);
+      this.#defineLeaderStyle(definition);
+    } catch (thrown) {
+      const name: unknown = (definition as { name?: unknown } | null)?.name;
+      const about = typeof name === "string" ? { leaderStyle: name } : {};
+      throw located(thrown, DrawingBuilder.prototype.leaderStyle, about);
+    }
+    return this;
+  }
+
+  /** Checks a leader style and stores it. */
+  #defineLeaderStyle(definition: LeaderStyle): void {
+    const name: unknown = (definition as { name?: unknown } | null)?.name;
+    const fail = (rule: LintRule, problem: string): never =>
+      refuse(
+        rule,
+        `Leader style ${typeof name === "string" ? JSON.stringify(name) : "with no name"}: ${problem}`,
+      );
+    const problem = leaderStyleProblem(definition);
+    if (problem) fail("leader-style", problem);
+    // leaderStyleProblem has checked the types.
+    const named = name as string;
+    const first = this.#leaderStylesAudited.get(layerAuditKey(named));
+    if (first !== undefined) fail("duplicate-leader-style", leaderStyleTwinProblem(named, first)!);
+    let textStyle: string | undefined;
+    if (definition.textStyle !== undefined && !isStandardTextStyle(definition.textStyle)) {
+      textStyle = this.#textStyles.get(layerKey(definition.textStyle))?.name;
+      if (textStyle === undefined) {
+        fail(
+          "undefined-text-style",
+          `${undefinedLeaderTextStyleProblem(definition.textStyle)}. Define it with textStyle() first`,
+        );
+      }
+    }
+    const arrowhead = (definition.arrowhead ?? DEFAULT_LEADER_ARROWHEAD) as LeaderArrowhead;
+    const block = leaderArrowheadHandles(arrowhead);
+    // A handle taken before another was refused is given back.
+    const taken: string[] = [];
+    try {
+      const what = `the leader style ${JSON.stringify(named)}`;
+      this.#claim(validLeaderStyleHandle(named), what, undefined, taken);
+      // The first style brings AutoCAD's own and the dictionary that holds them.
+      if (this.#leaderStyles.size === 0) {
+        const standard = `the leader style ${JSON.stringify(STANDARD_LEADER_STYLE)}`;
+        this.#claim(validLeaderStyleHandle(STANDARD_LEADER_STYLE), standard, undefined, taken);
+        this.#claim(
+          leaderStyleDictionaryHandle(),
+          "the dictionary of leader styles",
+          undefined,
+          taken,
+        );
+      }
+      if (block !== undefined && !this.#leaderArrowheadBlocks.has(arrowhead)) {
+        const head = `the arrowhead ${JSON.stringify(arrowhead)}`;
+        for (const handle of [block.record, block.begin, block.end, ...block.strokes]) {
+          this.#claim(handle, head, undefined, taken);
+        }
+      }
+    } catch (thrown) {
+      for (const handle of taken) this.#handles.delete(handle);
+      throw thrown;
+    }
+    if (block !== undefined) this.#leaderArrowheadBlocks.add(arrowhead);
+    const scale = definition.scale ?? 1;
+    const attachment = definition.attachment ?? "first-line";
+    this.#leaderStyles.set(layerKey(named), {
+      name: named,
+      ...(textStyle === undefined ? {} : { textStyle }),
+      textHeight: definition.textHeight,
+      ...(arrowhead === DEFAULT_LEADER_ARROWHEAD ? {} : { arrowhead }),
+      arrowSize: definition.arrowSize,
+      landing: definition.landing,
+      gap: definition.gap,
+      ...(attachment === "first-line" ? {} : { attachment }),
+      ...(scale === 1 ? {} : { scale }),
+    });
+    this.#leaderStylesAudited.set(layerAuditKey(named), named);
+  }
+
+  /**
+   * Draws a leader on the current layer: the note `text`, one line or a list of lines from the
+   * top, joined by a shaft to each point `options.to` names. The shafts meet at `options.at`,
+   * where the landing starts, and the note is a gap past the landing's end. AutoCAD holds it as
+   * one multileader, which a drafter moves and edits as one.
+   *
+   * ```ts
+   * d.leader(["EXISTING WINDOW", "TO BE REPLACED"], { style: "NOTES", at: [40, 30], to: [32, 24] });
+   * d.leader("2x4 STUDS @ 16\" O.C.", { style: "NOTES", at: [40, 30], to: [[32, 24], [34, 20]] });
+   * ```
+   */
+  leader<
+    const T,
+    S extends string = string,
+    I extends string = string,
+    TS extends string = string,
+    H extends number = number,
+    AS extends number = number,
+    L extends number = number,
+    G extends number = number,
+    R extends string = string,
+    TO extends LeaderTargets = LeaderTargets,
+  >(
+    text: LeaderText<T>,
+    options: Z extends Standard
+      ? StandardLeaderOptions<S, I, R, Z, AS, L, G, TO>
+      : V extends "R12"
+        ? R12Leaders
+        : LeaderOptions<S, I, TS, H, AS, L, G, TO>,
+  ): this {
+    return this.#add(DrawingBuilder.prototype.leader, idOf(options), () =>
+      this.#leader(text as unknown, options as unknown),
+    );
+  }
+
+  /** Checks what a leader names, its note and its shafts, and returns it. */
+  #leader(text: unknown, given: unknown): Leader {
+    if (this.dxf === "R12") refuse("leader", R12_ONLY.leaders);
+    if (this.#open) refuse("leader", LEADER_IN_BLOCK);
+    const o = (typeof given === "object" && given !== null ? given : {}) as Record<string, unknown>;
+    const lines: unknown = typeof text === "string" ? [text] : text;
+    const textProblem = leaderTextProblem(lines);
+    if (textProblem) refuse("leader", textProblem);
+    // Its point and its shafts first: under a standard, finding its style defines the style.
+    const at = o.at;
+    if (
+      !Array.isArray(at) ||
+      at.length !== 2 ||
+      !at.every((n) => typeof n === "number" && Number.isFinite(n))
+    ) {
+      return refuse("leader", "at must be a point, [x, y], where the shafts meet");
+    }
+    const point = pt(at as unknown as Point);
+    const shafts = shaftsOf(o.to);
+    const shaftProblem = leaderShaftsProblem(shafts, point);
+    if (shaftProblem) refuse("leader", shaftProblem);
+    let style: LeaderStyle;
+    let own: Partial<Pick<Leader, "textStyle" | "textHeight">> = {};
+    if (this.#standard) {
+      style = this.#standardLeaderStyle(o.style, o.view);
+      if (o.textStyle !== undefined || o.textHeight !== undefined) {
+        refuse("role", DRAWN.leaderRoleAndText);
+      }
+      if (o.role !== undefined) own = this.#leaderRole(o.role, o.style);
+    } else {
+      if (o.view !== undefined) refuse("leader-style", DRAWN.viewWithoutStandard);
+      if (o.role !== undefined) refuse("role", DRAWN.roleWithoutStandard);
+      const named = o.style;
+      const nameProblem = leaderStyleNameProblem(named);
+      if (nameProblem) refuse("undefined-leader-style", nameProblem);
+      const found = this.#leaderStyles.get(layerKey(named as string));
+      if (!found) {
+        const absent = undefinedLeaderStyleProblem(named as string);
+        refuse(
+          "undefined-leader-style",
+          isStandardLeaderStyle(named as string)
+            ? absent
+            : `${absent}. Define it with leaderStyle() first`,
+        );
+      }
+      style = found!;
+      if (o.textStyle !== undefined) {
+        if (typeof o.textStyle !== "string") {
+          refuse("undefined-text-style", "a text style is named by a string");
+        }
+        const name = this.#textStyleName(o.textStyle as string);
+        own = { textStyle: name };
+      }
+      if (o.textHeight !== undefined) own = { ...own, textHeight: o.textHeight as number };
+    }
+    const made: Leader = {
+      kind: "leader",
+      layer: this.#current,
+      style: style.name,
+      text: [...(lines as readonly string[])],
+      at: point,
+      shafts: (shafts as readonly (readonly Point[])[]).map((shaft) => shaft.map(pt)),
+      ...(o.side === undefined ? {} : { side: o.side as LeaderSide }),
+      ...(o.attachment === undefined ? {} : { attachment: o.attachment as LeaderAttachment }),
+      ...own,
+      ...(o.arrowSize === undefined ? {} : { arrowSize: o.arrowSize as number }),
+      ...(o.landing === undefined ? {} : { landing: o.landing as number }),
+      ...(o.gap === undefined ? {} : { gap: o.gap as number }),
+    };
+    const ownProblem = leaderOwnProblem(made, written(style.scale ?? 1));
+    if (ownProblem) refuse("leader", ownProblem);
+    const styleName = made.textStyle ?? style.textStyle;
+    const textStyle =
+      styleName === undefined ? undefined : this.#textStyles.get(layerKey(styleName));
+    const drawn = leaderDrawnProblem(made, style, textStyle);
+    if (drawn) refuse("leader", drawn);
+    return made;
+  }
+
+  /**
+   * The AutoCAD style of a leader style of the standard, where the leader is drawn: its id in
+   * capitals on a layout, with a scale of 1, and with the view's scale id after it in model space,
+   * with a scale of `view.paper(1)`. It is defined on first use, with its role's text style and
+   * height.
+   */
+  #standardLeaderStyle(named: unknown, view: unknown): LeaderStyle {
+    const drawn = this.#standard!;
+    const id = named === undefined ? drawn.standard.defaultLeaderStyle : named;
+    if (id === undefined) {
+      return refuse("leader-style-outside-standard", noDefaultLeaderStyle(drawn.standard));
+    }
+    const found = typeof id === "string" ? drawn.leaderStyles.get(idKey(id)) : undefined;
+    if (found === undefined) {
+      return refuse(
+        "leader-style-outside-standard",
+        typeof id === "string"
+          ? (leaderStyleReserved(id) ?? leaderStyleLacks(id, drawn.standard))
+          : "A leader style is named by a string",
+      );
+    }
+    const [styleId, entry] = found;
+    const fields = this.#inDiscipline("Leader style", styleId, entry);
+    let name = capitals(styleId);
+    let scale = 1;
+    if (this.#sheet) {
+      if (view !== undefined) refuse("leader-style", DRAWN.leaderViewOnPaper);
+    } else {
+      if (view === undefined) refuse("leader-style", DRAWN.leaderWithoutView);
+      const shown = this.#declared(view, "leader-style").view;
+      name = `${name}-${shown.scale}`;
+      scale = onPaper(shown, 1, "scale");
+    }
+    const existing = this.#leaderStyles.get(layerKey(name));
+    if (existing !== undefined) return existing;
+    const role = drawn.textRoles.get(idKey(fields.role))!;
+    this.#defineLeaderStyle({
+      name,
+      textStyle: this.#roleStyle(role),
+      textHeight: this.#roleFields(role).height,
+      arrowhead: fields.arrowhead,
+      arrowSize: fields.arrowSize,
+      landing: fields.landing,
+      gap: fields.gap,
+      attachment: fields.attachment,
+      scale,
+    });
+    return this.#leaderStyles.get(layerKey(name))!;
+  }
+
+  /**
+   * The text style and height a leader's note takes from a role of the standard, where its own
+   * style's role is another: none when the role is the style's.
+   */
+  #leaderRole(role: unknown, styleId: unknown): Partial<Pick<Leader, "textStyle" | "textHeight">> {
+    const drawn = this.#standard!;
+    const found = typeof role === "string" ? drawn.textRoles.get(idKey(role)) : undefined;
+    if (found === undefined) {
+      return refuse(
+        "role",
+        typeof role === "string" ? roleLacks(role, drawn.standard) : "A role is named by a string",
+      );
+    }
+    const id = styleId === undefined ? drawn.standard.defaultLeaderStyle : styleId;
+    const entry = typeof id === "string" ? drawn.leaderStyles.get(idKey(id)) : undefined;
+    const styleRole =
+      entry === undefined ? undefined : this.#inDiscipline("Leader style", ...entry).role;
+    if (styleRole !== undefined && idKey(styleRole) === idKey(found[0])) return {};
+    return { textStyle: this.#roleStyle(found), textHeight: this.#roleFields(found).height };
   }
 
   /**
@@ -3131,6 +3708,7 @@ export class DrawingBuilder<
       ...(this.#dimensionStyles.size > 0
         ? { dimensionStyles: [...this.#dimensionStyles.values()] }
         : {}),
+      ...(this.#leaderStyles.size > 0 ? { leaderStyles: [...this.#leaderStyles.values()] } : {}),
     };
   }
 
@@ -3571,6 +4149,7 @@ interface Drawn {
     string,
     readonly [id: string, style: StandardDimensionStyle]
   >;
+  readonly leaderStyles: ReadonlyMap<string, readonly [id: string, style: StandardLeaderStyle]>;
   /** Each sheet format and title block as the standard spells its id, by `idKey`. */
   readonly sheetFormats: ReadonlyMap<string, readonly [id: string, format: StandardSheetFormat]>;
   readonly titleBlocks: ReadonlyMap<string, readonly [id: string, block: StandardTitleBlock]>;
@@ -3611,6 +4190,7 @@ function drawnTo(
       textRoles: byKey(standard.textRoles, idKey),
       scales: byKey(standard.scales, idKey),
       dimensionStyles: byKey(standard.dimensionStyles, idKey),
+      leaderStyles: byKey(standard.leaderStyles, idKey),
       sheetFormats: byKey(standard.sheetFormats, idKey),
       titleBlocks: byKey(standard.titleBlocks, idKey),
       fields: {},
@@ -3702,6 +4282,19 @@ function titleBlockValues(
 function idOf(options: unknown): { readonly id?: unknown } {
   const id: unknown = (options as { id?: unknown } | null | undefined)?.id;
   return id === undefined ? {} : { id };
+}
+
+/**
+ * The shafts `to` names, as lists of points from each tip, unchecked: a point is one shaft of its
+ * tip, and a list holds a shaft for each item, a point or a list of points. Anything else is no
+ * shaft, which `leaderShaftsProblem` refuses.
+ */
+function shaftsOf(to: unknown): unknown {
+  if (!Array.isArray(to)) return undefined;
+  if (typeof to[0] === "number") return [[to]];
+  return to.map((shaft: unknown) =>
+    Array.isArray(shaft) && typeof shaft[0] === "number" ? [shaft] : shaft,
+  );
 }
 
 /** True when `choice` names the built-in linetype `name`, in any case. */

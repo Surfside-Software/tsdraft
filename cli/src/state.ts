@@ -81,6 +81,11 @@ export interface BuildState {
    *
    * `view` is the one picture of a `render --view` run, which writes no other: `svg`, `png`
    * and `layouts` are then `null` and empty. It is `null` in every other run.
+   *
+   * `pdf` is the plot of the set: one page for each layout, in the order of `layouts`, made from
+   * the pictures of the layouts. `render` writes it with `--pdf`, and `dev` makes it when it is
+   * asked for. It is `null` for a drawing with no layout, and from `render` without `--pdf`.
+   * `pdfError` says why there is no PDF where one was asked for, and is otherwise `null`.
    */
   readonly outputs: {
     readonly svg: string | null;
@@ -89,6 +94,8 @@ export interface BuildState {
     readonly pngFonts: readonly PngFont[];
     readonly layouts: readonly LayoutOutput[];
     readonly view: ViewOutput | null;
+    readonly pdf: string | null;
+    readonly pdfError: string | null;
   };
   /** What the drawing file printed to stdout and stderr, cut to its last 8,000 characters. */
   readonly log: string;
@@ -108,6 +115,20 @@ export interface LayoutOutput {
   readonly pngError: string | null;
   /** The typeface this sheet's PNG sets each of its fonts in. */
   readonly pngFonts: readonly PngFont[];
+  /** The plot of this sheet alone, as `outputs.pdf` is of the set, and `null` when it is. */
+  readonly pdf: string | null;
+  readonly pdfError: string | null;
+  /**
+   * The face the PDF sets each font of this sheet in: `Helvetica`, `Times-Roman` or `Courier`,
+   * none of them embedded. Only Arial, Times New Roman and Courier New are set in a face with
+   * their own widths; any other font is set in the face of its kind, stretched to its length.
+   */
+  readonly pdfFonts: readonly PngFont[];
+  /**
+   * The characters of this sheet's texts that the PDF's faces lack, which it sets as `?`, from
+   * `render --pdf`: empty when there are none, and `null` when this run made no PDF of it.
+   */
+  readonly pdfMissing: string | null;
 }
 
 /** The picture of one rectangle of model space or of a layout, which `render --view` asks for. */

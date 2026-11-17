@@ -116,6 +116,10 @@ file it imports, is saved. The same server answers you without a browser:
 read and returns the same JSON, and `/drawing.png?width=<px>` is the picture. The command runs
 until it is stopped, so start it in the background.
 
+To hand over the sheets, run `npx tsdraft render plan.ts --pdf`: it writes the set as
+`plan.pdf`, a page for each layout in order, and each sheet as `plan.layout-<layout>.pdf`, at
+the paths in `outputs.pdf` and `outputs.layouts[].pdf`. Each page is the sheet the PNG shows.
+
 ## What the JSON holds
 
 `render` printed this for the file above, shortened here to what you read first:
@@ -270,7 +274,7 @@ the built-in standard and the rest.
 
 [`examples/site-plan.ts`](https://github.com/Surfside-Software/tsdraft/blob/main/examples/site-plan.ts)
 in the tsdraft repository is a whole sheet: a permit-style site plan at 1" = 10' with property
-lines, setbacks, a building, dimensions and labels in model space, and on a landscape
+lines, setbacks, a building, dimensions, leaders and labels in model space, and on a landscape
 ARCH D layout, 36 by 24 inches, its border, a title block whose fields are attributes, notes,
 a legend, the view's title and a graphic scale. Start a new drawing from it. It is not in the npm package. Copy it and
 [`examples/lib/drafting.ts`](https://github.com/Surfside-Software/tsdraft/blob/main/examples/lib/drafting.ts),
@@ -281,17 +285,17 @@ Its parameters come first and every position is worked out from them. Its column
 breaks are laid out with `measureText`. Its symbols are blocks.
 
 It is drawn to a standard of its own, which extends `BUILT_IN_STANDARD` with the layer
-`V-TREE`, as the section above shows. A text names a `role` of the standard, which gives its text
-style and the height it plots at. The plan is a view at one of the standard's scales,
-`const plan = d.view("plan", { scale: "1in-10ft" })`, and what model space draws to be read in it
-names the view: `d.text(at, "LOT 27", { role: "label", view: plan })`,
-`d.insert("PROPERTY CORNER", at, { view: plan })` for a symbol drawn in inches, and
-`d.linearDimension(from, to, line, { view: plan })` in the standard's dimension style. The
-viewport shows the view, as `sheet.viewport(corner, width, height, { view: plan, center })`, and
-`plan.paper(inches)` turns a gap on paper into drawing units. On the sheet and in a block, a text
-with a role is at the role's height and names no view. Under a standard every text names a
-role: a `height`, a `style` and `textStyle()` are refused. `sitePlan("1in-20ft")` draws the
-sheet at 1" = 20'.
+`V-TREE`, as the section above shows, and a leader style. A text names a `role` of the standard,
+which gives its text style and the height it plots at. The plan is a view at one of the
+standard's scales, `const plan = d.view("plan", { scale: "1in-10ft" })`, and what model space
+draws to be read in it names the view: `d.text(at, "LOT 27", { role: "label", view: plan })`,
+`d.insert("PROPERTY CORNER", at, { view: plan })` for a symbol drawn in inches,
+`d.linearDimension(from, to, line, { view: plan })` in the standard's dimension style, and
+`d.leader(text, { view: plan, at, to })` in its leader style. The viewport shows the view, as
+`sheet.viewport(corner, width, height, { view: plan, center })`, and `plan.paper(inches)` turns a
+gap on paper into drawing units. On the sheet and in a block, a text with a role is at the role's
+height and names no view. Under a standard every text names a role: a `height`, a `style` and
+`textStyle()` are refused. `sitePlan("1in-20ft")` draws the sheet at 1" = 20'.
 
 Its layout is on a sheet format of the standard, `d.layout("C-101", { sheetFormat: "arch-d" },
 (sheet) => …)`, which gives the paper, the title block and the zones the sheet is laid out by:
@@ -344,8 +348,39 @@ d.linearDimension([24, 30], [76, 30], [0, 20], { style: "PLAN" });
 - The third point is on the dimension line. `along: "y"` measures up.
   `alignedDimension(from, to, offset, options)` measures along the two points.
 - CAD writes the measurement. `text: "<> TYP"` adds to it.
+- `units: "architectural"` writes feet and inches, as `4'-1 7/16"`, from a length in inches
+  times `measurementScale`, so give a drawing in feet `measurementScale: 12`. `precision` is
+  then the least fraction: 4 for 1/16". Never write feet and inches as a dimension's `text`.
 - Never draw a dimension from lines and text.
   [docs/dimensions.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/dimensions.md)
+  has the rest.
+
+## Leaders
+
+Define a leader style, then point a note at what it names:
+
+```ts
+d.leaderStyle({
+  name: "NOTE",
+  textStyle: "NOTES",
+  textHeight: 3 / 32,
+  arrowSize: 1 / 8,
+  landing: 1 / 8,
+  gap: 1 / 16,
+  scale: fromPaper(1, "in", view),
+});
+d.leader(["EXISTING TREE", "TO REMAIN"], { style: "NOTE", at: [62, 38], to: [52, 26] });
+```
+
+- The sizes are the sizes that plot, and `scale` carries the view, as for a dimension style.
+- `at` is where the shafts meet. `to` is a point, or a list with a shaft for each item: a point,
+  or a list of points from the tip through each bend. The note goes on the side away from the
+  first shaft unless `side` says otherwise.
+- A string is a one-line note, and an array its lines from the top. The note does not wrap.
+- `arrowhead` is `"closed-filled"`, `"open"`, `"dot"` or `"none"`, and `attachment` has the
+  landing meet the `"first-line"` or the `"last-line"`.
+- Never draw a leader from lines and text.
+  [docs/leaders.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/leaders.md)
   has the rest.
 
 ## Blocks
@@ -527,8 +562,10 @@ writeFileSync("plan.dxf", toDXF(drawing));
 
 ## What tsdraft cannot draw yet
 
-- Leaders, hatches, fills, and dimensions that are not linear or aligned. A measurement is a
-  decimal number, not feet and inches.
+- Hatches, fills, and dimensions that are not linear or aligned. A fraction of an inch in a
+  dimension is on the line, as `1 7/16`, not stacked.
+- A leader with two roots, a curved shaft, a block in place of its note, or a note attached at
+  its top or bottom.
 - A block read from another file. A block is drawn in the drawing that inserts it. An xref
   references a whole DWG file, as an overlay, and the pictures draw it only from a drawing you
   give.
@@ -537,13 +574,16 @@ writeFileSync("plan.dxf", toDXF(drawing));
   viewport is a locked rectangle that shows every layer at one scale.
 - A paper outside the list in the section on layouts, a paper in portrait, and a page setup
   for another plotter.
-- Multiline text. A text is a single line: break a note into lines with `measureText`. A text
+- Multiline text, but a leader's note. A text is a single line: break a note into lines with
+  `measureText`. A text
   takes a text style with a font, and `align` and `valign` to justify it to its point, as the
   example sheet does.
 - Ellipses, splines, and curved segments in a polyline.
 - A color on a single entity. Color comes from the layer.
 - DWG files. tsdraft writes DXF.
-- An existing drawing. tsdraft does not read DXF or DWG.
+- An existing drawing as a background or a base to edit. `readDXF` reads a DXF's tables, blocks,
+  layouts and a census of what it draws, as [docs/reading.md](docs/reading.md) says, but not its
+  geometry, and tsdraft does not read DWG.
 
 When a drawing needs one of these, say so. Do not imitate it with something that will mislead
 whoever opens the file.

@@ -7,12 +7,17 @@ import type { DxfVersion, Units } from "./drawing.ts";
 import type { PaperUnit } from "./paper.ts";
 import { paperInfo, PLOT_STYLE_TABLES, type Paper, type PlotStyleTable } from "./papers.ts";
 import {
+  ARROWHEAD_BLOCKS,
   arrowheadInfo,
-  ARROWHEADS,
+  DIMENSION_UNITS,
+  FEET_INCH_ZEROS,
   MAX_PRECISION,
+  leaderArrowheadInfo,
   STANDARD_DIMENSION_STYLE,
+  STANDARD_LEADER_STYLE,
   ZERO_SUPPRESSIONS,
   type Arrowhead,
+  type LeaderArrowhead,
 } from "./arrowheads.ts";
 import { isPaperUnit, isUnits, modelLength } from "./units.ts";
 import { isTooLarge, written, writtenAngle } from "./format.ts";
@@ -76,12 +81,22 @@ const DIMENSION_STYLE_NAMES = {
   length:
     "Dimension style names cannot be longer than 255 characters. AutoCAD's DIMSTYLE command refuses a longer name",
 } as const;
+const LEADER_STYLE_NAMES = {
+  empty: "Leader style names cannot be empty",
+  chars: 'Leader style names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
+  rejected:
+    "Leader style names cannot contain a character AutoCAD rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
+  edge: "Leader style names cannot start or end with a space",
+  length:
+    "Leader style names cannot be longer than 255 characters, as dimension style names cannot",
+} as const;
 type NameMessages =
   | typeof LAYER_NAMES
   | typeof LINETYPE_NAMES
   | typeof TEXT_STYLE_NAMES
   | typeof BLOCK_NAMES
-  | typeof DIMENSION_STYLE_NAMES;
+  | typeof DIMENSION_STYLE_NAMES
+  | typeof LEADER_STYLE_NAMES;
 const NAME_R12_CHARS =
   'R12 layer names can only use letters, digits, $, - and _. Use DXF version "R2018" for other characters';
 const NAME_R12_LENGTH =
@@ -113,8 +128,10 @@ const R12_LAYOUTS =
   'tsdraft writes no layouts to R12 drawings. Use DXF version "R2018" for a layout';
 const R12_DIMENSIONS =
   'tsdraft writes no dimensions to R12 drawings. Use DXF version "R2018" for a dimension';
+const R12_LEADERS =
+  'tsdraft writes no leaders to R12 drawings. Use DXF version "R2018" for a leader';
 const ARROWHEAD_BLOCK =
-  "Block names cannot be _ArchTick, in any case of its letters. AutoCAD draws the architectural tick of a dimension with the block of that name";
+  "Block names cannot be _ArchTick, _Open, _Dot or _None, in any case of their letters. AutoCAD draws the architectural tick of a dimension and the arrowheads of a leader with the blocks of those names";
 const STANDARD_DIMENSION_STYLE_DEFINED =
   'The dimension style "Standard" is in every drawing and cannot be defined. AutoCAD keeps the first style of a name and skips a second';
 const STANDARD_DIMENSION_STYLE_USED =
@@ -129,8 +146,12 @@ const DIMENSION_SCALE =
 const MEASUREMENT_SCALE =
   "The measurement scale must be greater than 0. AutoCAD's AUDIT reports a scale of 0, and AutoCAD applies a negative one only to a dimension on a layout";
 const PRECISION =
-  "A precision is a whole number of decimals from 0 to 8. AutoCAD's AUDIT reports a dimension style with any other";
+  "A precision is a whole number from 0 to 8: the decimals of a measurement, or in architectural units the least fraction of an inch, 1 over 2 to that power. AutoCAD's AUDIT reports a dimension style with any other";
 const ZERO_SUPPRESSION = 'suppressZeros must be "leading", "trailing" or "both"';
+const DIMENSION_UNITS_MESSAGE = 'units must be "decimal" or "architectural"';
+const FEET_INCH_ZEROS_MESSAGE = 'feetInchZeros must be "inches", "feet", "both" or "neither"';
+const ZEROS_OF_UNITS =
+  'suppressZeros is for a style in decimal units, and feetInchZeros for one in "architectural" units, which writes feet and inches';
 const DIMENSION_FORMATTING =
   "The prefix, the suffix and the text of a dimension cannot contain \\ { or }. AutoCAD reads them as the formatting of the text";
 const PREFIX_MEASUREMENT =
@@ -425,8 +446,8 @@ export type BlockName<N extends string> = string extends N
     ? typeof ARROWHEAD_BLOCK
     : NameCheck<N, typeof BLOCK_NAMES, N>;
 
-/** The block of the one arrowhead that has a block. */
-type TickBlock = (typeof ARROWHEADS)["architectural-tick"]["block"];
+/** The blocks AutoCAD draws arrowheads with. */
+type TickBlock = "_ArchTick" | "_Open" | "_Dot" | "_None";
 
 /**
  * Resolves to `N` when it is a valid name for a dimension style to be used by, and to the error
@@ -503,6 +524,41 @@ export type ZeroSuppressionOf<Z extends string> = string extends Z
   : Z extends (typeof ZERO_SUPPRESSIONS)[number]
     ? Z
     : typeof ZERO_SUPPRESSION;
+
+/** Resolves to `U` when it is a dimension style's `units`, and to the error message otherwise. */
+export type DimensionUnitsOf<U extends string> = string extends U
+  ? U
+  : U extends (typeof DIMENSION_UNITS)[number]
+    ? U
+    : typeof DIMENSION_UNITS_MESSAGE;
+
+/** Resolves to `Z` when it is a `feetInchZeros`, and to the error message otherwise. */
+export type FeetInchZerosOf<Z extends string> = string extends Z
+  ? Z
+  : Z extends (typeof FEET_INCH_ZEROS)[number]
+    ? Z
+    : typeof FEET_INCH_ZEROS_MESSAGE;
+
+/**
+ * The zeros a style in the units `U` may leave out in decimal units: none in architectural
+ * units, which resolves to the error message.
+ */
+export type SuppressZerosIn<U> = [U] extends ["architectural"]
+  ? typeof ZEROS_OF_UNITS
+  : (typeof ZERO_SUPPRESSIONS)[number];
+
+/**
+ * The zeros a style in the units `U` may write in feet and inches: none in decimal units, which
+ * resolves to the error message.
+ */
+export type FeetInchZerosIn<U> = [U] extends ["decimal"]
+  ? typeof ZEROS_OF_UNITS
+  : (typeof FEET_INCH_ZEROS)[number];
+
+/** Resolves to `N` when AutoCAD takes it as the name of a dimension style, and to the error message otherwise. */
+export type DimensionStyleNameOf<N extends string> = string extends N
+  ? N
+  : NameCheck<N, typeof DIMENSION_STYLE_NAMES, N>;
 
 /**
  * Resolves to `S` when it is a suffix a dimension style can have, and to the error message
@@ -807,6 +863,7 @@ export type R12Blocks = typeof R12_BLOCKS;
 export type R12Xrefs = typeof R12_XREFS;
 export type R12Layouts = typeof R12_LAYOUTS;
 export type R12Dimensions = typeof R12_DIMENSIONS;
+export type R12Leaders = typeof R12_LEADERS;
 
 /** Returns what is wrong with a layer name for a DXF version, or undefined when it is valid. */
 export function layerNameProblem(name: string, version: DxfVersion): string | undefined {
@@ -968,6 +1025,7 @@ export const R12_ONLY = {
   xrefs: R12_XREFS,
   layouts: R12_LAYOUTS,
   dimensions: R12_DIMENSIONS,
+  leaders: R12_LEADERS,
 } as const;
 
 /** How a text is justified across its line, and up and down it. The first of each is the default. */
@@ -1232,7 +1290,7 @@ export function blockNameProblem(name: unknown): string | undefined {
   const problem = nameProblem(name, BLOCK_NAMES);
   if (problem) return problem;
   // AutoCAD draws an arrowhead with whatever block has its name.
-  return layerKey(name) === layerKey(ARROWHEADS["architectural-tick"].block)
+  return ARROWHEAD_BLOCKS.some((block) => layerKey(block) === layerKey(name))
     ? ARROWHEAD_BLOCK
     : undefined;
 }
@@ -1367,6 +1425,8 @@ export function attributeTagProblem(tag: unknown): string | undefined {
  *
  * @param tag - The attribute's tag.
  * @param placed - The attribute as `placeAttribute` gives it.
+ * @param quoted - The tag as JSON, for a caller that checks one tag for many inserts. It is
+ *   read only for a problem.
  */
 export function placedAttributeProblem(
   tag: string,
@@ -1376,22 +1436,23 @@ export function placedAttributeProblem(
     readonly widthFactor: number;
     readonly obliqueAngle: number;
   },
+  quoted?: string,
 ): string | undefined {
-  const about = `its scale makes the attribute ${JSON.stringify(tag)}`;
-  if (!placed.at.every(Number.isFinite))
-    return `it puts the attribute ${JSON.stringify(tag)} at no point`;
+  const name = (): string => quoted ?? JSON.stringify(tag);
+  const about = (): string => `its scale makes the attribute ${name()}`;
+  if (!placed.at.every(Number.isFinite)) return `it puts the attribute ${name()} at no point`;
   const far = magnitudeProblem(placed.at[0]) ?? magnitudeProblem(placed.at[1]);
-  if (far) return `it puts the attribute ${JSON.stringify(tag)} at ${placed.at.join(", ")}. ${far}`;
+  if (far) return `it puts the attribute ${name()} at ${placed.at.join(", ")}. ${far}`;
   if (![placed.height, placed.widthFactor, placed.obliqueAngle].every(Number.isFinite)) {
-    return `${about} a text of no size`;
+    return `${about()} a text of no size`;
   }
   const height = sizeProblem(placed.height);
-  if (height) return `${about} ${placed.height} high. ${height}`;
+  if (height) return `${about()} ${placed.height} high. ${height}`;
   if (Math.abs(written(placed.obliqueAngle)) > 85) {
-    return `${about} slant by ${written(placed.obliqueAngle)} degrees. ${OBLIQUE}. Scale the insert more evenly`;
+    return `${about()} slant by ${written(placed.obliqueAngle)} degrees. ${OBLIQUE}. Scale the insert more evenly`;
   }
   if (written(placed.widthFactor) < 0.01 || written(placed.widthFactor) > 100) {
-    return `${about} ${written(placed.widthFactor)} times as wide as its font draws it. ${WIDTH_FACTOR}, and an attribute with one of 750000. Scale the insert more evenly`;
+    return `${about()} ${written(placed.widthFactor)} times as wide as its font draws it. ${WIDTH_FACTOR}, and an attribute with one of 750000. Scale the insert more evenly`;
   }
   return undefined;
 }
@@ -1708,6 +1769,33 @@ export function zeroSuppressionProblem(value: unknown): string | undefined {
   return (ZERO_SUPPRESSIONS as readonly unknown[]).includes(value) ? undefined : ZERO_SUPPRESSION;
 }
 
+/** Returns what is wrong with a dimension style's `units`, or undefined. */
+export function dimensionUnitsProblem(value: unknown): string | undefined {
+  return (DIMENSION_UNITS as readonly unknown[]).includes(value)
+    ? undefined
+    : DIMENSION_UNITS_MESSAGE;
+}
+
+/** Returns what is wrong with a `feetInchZeros`, or undefined. */
+export function feetInchZerosProblem(value: unknown): string | undefined {
+  return (FEET_INCH_ZEROS as readonly unknown[]).includes(value)
+    ? undefined
+    : FEET_INCH_ZEROS_MESSAGE;
+}
+
+/**
+ * Returns what is wrong with the zeros a style leaves out, for its units, or undefined:
+ * `suppressZeros` is for decimal units and `feetInchZeros` for architectural ones.
+ */
+export function zerosOfUnitsProblem(
+  units: unknown,
+  suppressZeros: unknown,
+  feetInchZeros: unknown,
+): string | undefined {
+  const architectural = units === "architectural";
+  return (architectural ? suppressZeros : feetInchZeros) === undefined ? undefined : ZEROS_OF_UNITS;
+}
+
 /**
  * Returns what is wrong with a prefix, a suffix or a dimension's own text as a string AutoCAD
  * draws as it is, or undefined: it is a text, with none of the characters AutoCAD reads as
@@ -1793,10 +1881,20 @@ export function dimensionStyleProblem(style: unknown): string | undefined {
     if (problem) return `${field}: ${problem}`;
   }
   if (typeof s.prefix === "string" && s.prefix.includes("<>")) return PREFIX_MEASUREMENT;
+  if (s.units !== undefined) {
+    const problem = dimensionUnitsProblem(s.units);
+    if (problem) return problem;
+  }
   if (s.suppressZeros !== undefined) {
     const problem = zeroSuppressionProblem(s.suppressZeros);
     if (problem) return problem;
   }
+  if (s.feetInchZeros !== undefined) {
+    const problem = feetInchZerosProblem(s.feetInchZeros);
+    if (problem) return problem;
+  }
+  const zeros = zerosOfUnitsProblem(s.units, s.suppressZeros, s.feetInchZeros);
+  if (zeros) return zeros;
   if (s.measurementScale !== undefined) {
     const problem = measurementScaleProblem(s.measurementScale);
     if (problem) return `measurementScale: ${problem}`;
@@ -1963,4 +2061,344 @@ export function dimensionMeasureProblem(
     return `its text may not fit between its extension lines: it measures ${written(measurement)}, and its text, ${JSON.stringify(text)}, and its arrowheads may need ${written(room)}. AutoCAD then turns closed filled arrowheads outward, by the width of the text in its font, which tsdraft does not hold. Give it more room, a smaller text or arrow size, or the arrowhead "architectural-tick", which is drawn the same either way`;
   }
   return undefined;
+}
+
+// Leaders.
+
+const STANDARD_LEADER_STYLE_DEFINED =
+  "The leader style \"Standard\" is AutoCAD's own, which tsdraft writes beside a drawing's leader styles, and cannot be defined. AutoCAD keeps the first style of a name and skips a second";
+const STANDARD_LEADER_STYLE_USED =
+  'tsdraft draws no leader in the leader style "Standard", which is AutoCAD\'s own. Define a style with leaderStyle() and name it';
+const LEADER_ARROWHEAD =
+  'A leader\'s arrowhead must be one of LEADER_ARROWHEADS: "closed-filled", "open", "dot" or "none"';
+const LEADER_SIZE =
+  "This value cannot be less than 0. A leader's arrow size, landing and gap are lengths, and 0 draws none";
+const LEADER_SCALE = "The scale must be greater than 0. It multiplies every size of the style";
+const LEADER_FORMATTING =
+  "A leader's text cannot contain \\ { or }. AutoCAD reads them as the formatting of the note";
+const LEADER_TEXT_BLANK =
+  "A leader's note needs a line that is not empty or all spaces. tsdraft draws no leader without a note";
+const LEADER_TEXT_LINES =
+  "A leader's text is a string, one line, or an array of the lines of its note from the top";
+const LEADER_SHAFTS =
+  "A leader needs a shaft: to is a point, the tip of its one shaft, or a list of shafts, each its tip or its tip and the points it bends at on its way to the landing";
+const LEADER_SHAFT_LENGTH =
+  "The tip of a shaft and the point after it are one point once they are written with the 6 decimals tsdraft writes, which leaves AutoCAD no direction to point the arrowhead in. Move the tip, or the point after it";
+const LEADER_ATTACHMENT = 'attachment must be "first-line" or "last-line"';
+const LEADER_SIDE = 'side must be "left" or "right"';
+
+/** Which line of its note a leader's landing meets: the first is AutoCAD's own choice. */
+export const LEADER_ATTACHMENTS = ["first-line", "last-line"] as const;
+
+/** Which side of the point where its shafts meet a leader's note is on. */
+export const LEADER_SIDES = ["left", "right"] as const;
+
+/** What is wrong with a leader in a block. */
+export const LEADER_IN_BLOCK =
+  "a leader cannot be in a block. tsdraft writes a leader in model space or on a layout, where a drafter moves it as one. Draw it there";
+
+/**
+ * Resolves to `N` when it is a valid name for a leader style to be used by, and to the error
+ * message otherwise. AutoCAD holds leader style names to the rules of layer names. `Standard` is
+ * no style tsdraft draws a leader in.
+ */
+export type LeaderStyleName<N extends string> = string extends N
+  ? N
+  : Lowercase<N> extends Lowercase<typeof STANDARD_LEADER_STYLE>
+    ? typeof STANDARD_LEADER_STYLE_USED
+    : NameCheck<N, typeof LEADER_STYLE_NAMES, N>;
+
+/**
+ * Resolves to `N` when it is a valid name for a new leader style, and to the error message
+ * otherwise: a name that is valid to use, and not `Standard`, AutoCAD's own.
+ */
+export type NewLeaderStyleName<N extends string> = string extends N
+  ? N
+  : Lowercase<N> extends Lowercase<typeof STANDARD_LEADER_STYLE>
+    ? typeof STANDARD_LEADER_STYLE_DEFINED
+    : NameCheck<N, typeof LEADER_STYLE_NAMES, N>;
+
+/** Resolves to `A` when it is one of `LEADER_ARROWHEADS`, and to the error message otherwise. */
+export type LeaderArrowheadOf<A extends string> = string extends A
+  ? A
+  : A extends LeaderArrowhead
+    ? A
+    : typeof LEADER_ARROWHEAD;
+
+/** Resolves to `N` when it is an arrow size, a landing or a gap of a leader, and to the message otherwise. */
+export type LeaderSize<N extends number> = NotNegative<N, typeof LEADER_SIZE>;
+
+/** Resolves to `T` when it names a shaft, and to the error message for a list of none. */
+export type LeaderTargetsOf<T> = T extends readonly never[] ? typeof LEADER_SHAFTS : T;
+
+/** Resolves to `N` when it is the scale of a leader style, and to the error message otherwise. */
+export type LeaderScale<N extends number> = StyleScale<N, typeof LEADER_SCALE>;
+
+/** Resolves to `L` when it is a line a leader's note can have, and to the error message otherwise. */
+type LeaderLine<L extends string> = string extends L
+  ? L
+  : L extends `${string}${"\\" | "{" | "}"}${string}`
+    ? typeof LEADER_FORMATTING
+    : Description<L>;
+
+/**
+ * Resolves to `T` when it is the text of a leader's note, one line or a list of lines, and to the
+ * error message otherwise: no line holds `\`, `{` or `}`, or a character a text cannot hold, and
+ * a note of literal lines has one that is not blank. `T` has no constraint, so that the compiler
+ * infers a list of literal lines as one.
+ */
+export type LeaderText<T> = T extends readonly string[]
+  ? number extends T["length"]
+    ? T
+    : [LinesProblem<T>] extends [never]
+      ? AllBlank<T> extends true
+        ? typeof LEADER_TEXT_BLANK
+        : T
+      : LinesProblem<T>
+  : T extends string
+    ? Blank<T> extends true
+      ? typeof LEADER_TEXT_BLANK
+      : LeaderLine<T>
+    : typeof LEADER_TEXT_LINES;
+
+/** The message for the first of a list of literal lines that a note cannot hold, or `never`. */
+type LinesProblem<T extends readonly string[]> = T extends readonly [
+  infer F extends string,
+  ...infer R extends readonly string[],
+]
+  ? [LeaderLine<F>] extends [F]
+    ? LinesProblem<R>
+    : LeaderLine<F>
+  : never;
+
+/** True for a list of literal lines that are each empty or all spaces. */
+type AllBlank<T extends readonly string[]> = T extends readonly [
+  infer F extends string,
+  ...infer R extends readonly string[],
+]
+  ? string extends F
+    ? false
+    : Blank<F> extends true
+      ? AllBlank<R>
+      : false
+  : true;
+
+/**
+ * Returns what is wrong with the name a leader names its style by, or undefined when it is
+ * valid. `Standard` is a valid name, of a style tsdraft draws no leader in.
+ */
+export function leaderStyleNameProblem(name: unknown): string | undefined {
+  if (typeof name !== "string") return "A leader style's name must be a string";
+  return nameProblem(name, LEADER_STYLE_NAMES);
+}
+
+/** True for `Standard`, AutoCAD's own leader style, in any case. */
+export function isStandardLeaderStyle(name: string): boolean {
+  return layerKey(name) === layerKey(STANDARD_LEADER_STYLE);
+}
+
+/** Returns what is wrong with an arrowhead of a leader, or undefined when it is one of `LEADER_ARROWHEADS`. */
+export function leaderArrowheadProblem(value: unknown): string | undefined {
+  return leaderArrowheadInfo(value) ? undefined : LEADER_ARROWHEAD;
+}
+
+/** Returns what is wrong with an arrow size, a landing or a gap of a leader, or undefined. Its type is `LeaderSize`. */
+export function leaderSizeProblem(value: unknown): string | undefined {
+  return notNegativeProblem(value, LEADER_SIZE);
+}
+
+/** Returns what is wrong with a leader's attachment, or undefined. */
+export function leaderAttachmentProblem(value: unknown): string | undefined {
+  return (LEADER_ATTACHMENTS as readonly unknown[]).includes(value) ? undefined : LEADER_ATTACHMENT;
+}
+
+/** Returns what is wrong with a leader's side, or undefined. */
+export function leaderSideProblem(value: unknown): string | undefined {
+  return (LEADER_SIDES as readonly unknown[]).includes(value) ? undefined : LEADER_SIDE;
+}
+
+/**
+ * Returns what is wrong with sizes a leader is drawn with, times the scale of its style, or
+ * undefined: each must be under 1e100, and a text height or an arrow size above 0 must not be
+ * written as 0.
+ */
+function leaderScaledProblem(
+  sizes: Readonly<Record<string, unknown>>,
+  scale: number,
+): string | undefined {
+  for (const field of ["textHeight", "arrowSize", "landing", "gap"] as const) {
+    if (sizes[field] === undefined) continue;
+    const size = written(sizes[field] as number);
+    const scaled = size * scale;
+    if (!(Math.abs(scaled) < 1e100)) {
+      return `${field}: times the scale it is ${scaled}, and AutoCAD reads only two exponent digits from DXF, so every size of a leader must be under 1e100. Use a smaller size or scale`;
+    }
+    if ((field === "textHeight" || field === "arrowSize") && size > 0 && written(scaled) === 0) {
+      return `${field}: times the scale it is ${scaled}, which is written as 0 with the 6 decimals tsdraft writes. Use a larger size or scale${field === "arrowSize" ? ", or an arrow size of 0" : ""}`;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Returns what is wrong with a leader style, or undefined when it is valid. It takes a value of
+ * any shape, so that `lint` can report a drawing built by hand. Whether the drawing has the
+ * style's text style is the caller's to check, since it depends on the drawing.
+ */
+export function leaderStyleProblem(style: unknown): string | undefined {
+  if (typeof style !== "object" || style === null || Array.isArray(style)) {
+    return "A leader style must be an object with a name and its sizes";
+  }
+  const s = style as Record<string, unknown>;
+  const nameError = leaderStyleNameProblem(s.name);
+  if (nameError) return nameError;
+  if (isStandardLeaderStyle(s.name as string)) return STANDARD_LEADER_STYLE_DEFINED;
+  if (s.textStyle !== undefined) {
+    if (typeof s.textStyle !== "string") return "textStyle: a text style is named by a string";
+    const problem = textStyleNameProblem(s.textStyle);
+    if (problem) return `textStyle: ${problem}`;
+  }
+  if (typeof s.textHeight !== "number" || !Number.isFinite(s.textHeight)) {
+    return "textHeight must be a finite number";
+  }
+  const height = sizeProblem(s.textHeight);
+  if (height) return `textHeight: ${height}`;
+  if (s.arrowhead !== undefined && leaderArrowheadProblem(s.arrowhead)) return LEADER_ARROWHEAD;
+  for (const field of ["arrowSize", "landing", "gap"] as const) {
+    const problem = leaderSizeProblem(s[field]);
+    if (problem) return `${field}: ${problem}`;
+  }
+  if (s.attachment !== undefined) {
+    const problem = leaderAttachmentProblem(s.attachment);
+    if (problem) return problem;
+  }
+  if (s.scale !== undefined) {
+    const problem = styleScaleProblem(s.scale, LEADER_SCALE);
+    if (problem) return `scale: ${problem}`;
+  }
+  return leaderScaledProblem(s, s.scale === undefined ? 1 : written(s.scale as number));
+}
+
+/**
+ * Returns what is wrong with a drawing that has two leader styles of these names, or undefined
+ * when the two can stand together, as `dimensionStyleTwinProblem` says of dimension styles.
+ */
+export function leaderStyleTwinProblem(name: string, other: string): string | undefined {
+  if (layerAuditKey(name) !== layerAuditKey(other)) return undefined;
+  if (layerKey(name) === layerKey(other)) {
+    return "The drawing already has a leader style of this name. CAD ignores case in leader style names and keeps the first";
+  }
+  return `The drawing already has a leader style of this name, as ${JSON.stringify(other)}. tsdraft holds leader style names to the rules of dimension style names, which AutoCAD's AUDIT takes for one name`;
+}
+
+/**
+ * Returns what is wrong with a leader style or a leader whose text style the drawing does not
+ * have. The rule depends on the drawing, so it has no type.
+ */
+export function undefinedLeaderTextStyleProblem(name: string): string {
+  return `Text style ${JSON.stringify(name)} is not defined. A leader and its style hold their text style by its handle, which would lead to no style`;
+}
+
+/**
+ * Returns what is wrong with a leader that names a leader style the drawing does not define.
+ * The rule depends on the drawing, so it has no type.
+ */
+export function undefinedLeaderStyleProblem(name: string): string {
+  return isStandardLeaderStyle(name)
+    ? STANDARD_LEADER_STYLE_USED
+    : `Leader style ${JSON.stringify(name)} is not defined. A leader holds its style by its handle, which would lead to no style`;
+}
+
+/**
+ * Returns what is wrong with a line of a leader's note, or undefined when AutoCAD draws it as
+ * it is: a text, with none of the characters AutoCAD reads as formatting.
+ */
+export function leaderLineProblem(value: unknown): string | undefined {
+  if (typeof value !== "string") return "each line of a leader's note must be a string";
+  return textProblem(value) ?? (/[\\{}]/.test(value) ? LEADER_FORMATTING : undefined);
+}
+
+/**
+ * Returns what is wrong with the lines of a leader's note, or undefined: a list of lines, each
+ * as `leaderLineProblem` holds it, of which one is not blank.
+ */
+export function leaderTextProblem(text: unknown): string | undefined {
+  if (!Array.isArray(text)) return LEADER_TEXT_LINES;
+  for (const line of text as readonly unknown[]) {
+    const problem = leaderLineProblem(line);
+    if (problem) return problem;
+  }
+  return (text as readonly string[]).some((line) => /[^ ]/.test(line))
+    ? undefined
+    : LEADER_TEXT_BLANK;
+}
+
+/**
+ * Returns what is wrong with a leader's shafts as data, or undefined: a list of at least one
+ * shaft, each a list of finite points that starts with the tip, whose first segment has a length
+ * as written. `at` is where every shaft ends.
+ */
+export function leaderShaftsProblem(
+  shafts: unknown,
+  at: readonly [number, number],
+): string | undefined {
+  if (!Array.isArray(shafts) || shafts.length === 0) return LEADER_SHAFTS;
+  for (const shaft of shafts as readonly unknown[]) {
+    if (!Array.isArray(shaft) || shaft.length === 0) return LEADER_SHAFTS;
+    for (const point of shaft as readonly unknown[]) {
+      const [x, y]: unknown[] = Array.isArray(point) ? point : [];
+      if (
+        !Array.isArray(point) ||
+        point.length !== 2 ||
+        typeof x !== "number" ||
+        typeof y !== "number" ||
+        !Number.isFinite(x) ||
+        !Number.isFinite(y)
+      ) {
+        return "each point of a shaft must be [x, y], two finite numbers";
+      }
+      const far = magnitudeProblem(point[0] as number) ?? magnitudeProblem(point[1] as number);
+      if (far) return `a point of a shaft: ${far}`;
+    }
+    const [tip, next = at] = shaft as readonly (readonly [number, number])[];
+    if (written(tip![0]) === written(next[0]) && written(tip![1]) === written(next[1])) {
+      return LEADER_SHAFT_LENGTH;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Returns what is wrong with a leader's own sizes, side and attachment, or undefined, with the
+ * scale of its style. `textStyle` is checked by name: whether the drawing has it is the caller's
+ * to check.
+ */
+export function leaderOwnProblem(given: object, scale: number): string | undefined {
+  const leader = given as Readonly<Record<string, unknown>>;
+  if (leader.side !== undefined) {
+    const problem = leaderSideProblem(leader.side);
+    if (problem) return problem;
+  }
+  if (leader.attachment !== undefined) {
+    const problem = leaderAttachmentProblem(leader.attachment);
+    if (problem) return problem;
+  }
+  if (leader.textStyle !== undefined) {
+    if (typeof leader.textStyle !== "string") return "textStyle: a text style is named by a string";
+    const problem = textStyleNameProblem(leader.textStyle);
+    if (problem) return `textStyle: ${problem}`;
+  }
+  if (leader.textHeight !== undefined) {
+    if (typeof leader.textHeight !== "number" || !Number.isFinite(leader.textHeight)) {
+      return "textHeight must be a finite number";
+    }
+    const problem = sizeProblem(leader.textHeight);
+    if (problem) return `textHeight: ${problem}`;
+  }
+  for (const field of ["arrowSize", "landing", "gap"] as const) {
+    if (leader[field] === undefined) continue;
+    const problem = leaderSizeProblem(leader[field]);
+    if (problem) return `${field}: ${problem}`;
+  }
+  return leaderScaledProblem(leader, scale);
 }

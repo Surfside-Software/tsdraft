@@ -233,6 +233,18 @@
       #tabs button.on {
         color: var(--text);
       }
+      #tabs a.plot {
+        display: flex;
+        align-items: center;
+        height: 28px;
+        padding: 0 10px;
+        border-left: 1px solid var(--border);
+        color: var(--muted);
+        text-decoration: none;
+      }
+      #tabs a.plot:hover {
+        color: var(--text);
+      }
       #cursor {
         position: absolute;
         left: 20px;
@@ -592,6 +604,20 @@
         if (tab === undefined || (tab !== null && !names.includes(tab))) tab = names[0] ?? null;
         const bar = $("tabs");
         bar.hidden = names.length === 0;
+        // The plot of the sheet on screen, and of the set, as the server makes them.
+        const plots = lastGood?.outputs;
+        const sheetPdf = plots?.layouts?.find((sheet) => sheet.name === tab)?.pdf;
+        const links = [
+          [sheetPdf, "PDF", "This sheet as it plots"],
+          [plots?.pdf, "Set PDF", "Every sheet as it plots, a page each"],
+        ]
+          .filter(([href]) => href)
+          .map(([href, text, title]) => {
+            const link = document.createElement("a");
+            Object.assign(link, { href, textContent: text, title, target: "_blank" });
+            link.className = "plot";
+            return link;
+          });
         bar.replaceChildren(
           ...[null, ...names].map((name) => {
             const button = document.createElement("button");
@@ -607,6 +633,7 @@
             });
             return button;
           }),
+          ...links,
         );
         const source =
           tab === null ? pictures.model : pictures.layouts.find((s) => s.name === tab)?.svg;

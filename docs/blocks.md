@@ -140,5 +140,15 @@ A drawing that has a block has a `$HANDSEED` of `20000000000000`, as one that ha
 `toSVG` draws an insert as a group, `<g data-entity data-layer data-block>`, with an element
 for each entity its block draws, where the insert puts it, and a text for each attribute with
 the insert's value. Each element has the layer it draws on in `data-layer`. A circle under an
-uneven scale is an ellipse, a dash pattern scales with its insert, and the extents take in
-what every insert draws.
+uneven scale is an ellipse, a dash is as long as it is outside a block whatever the insert's
+scale, and the extents take in the box of what each block's own entities draw, where the inserts
+on the way put its corners: an insert that is not turned counts for what it draws, and a turned
+one may count for a little more. The dashes of a circle under an uneven scale are cut along the
+circle and then stretched with it, where a plot spaces them evenly along the ellipse, and an arc
+under a mirroring insert is fitted from both its ends alike, where a plot fits it from the
+block's start: draw such a symbol solid, or as its own entities, until the picture follows these
+too. Blocks may nest to any depth, and what a block draws is read once for the drawing, so the
+extents cost what the drawing holds. A picture that would be longer than
+500 million characters, or whose inserts reach more than 2,000,000 blocks and entities that draw
+nothing, such as those on a layer that is off, is refused with a `RangeError` that names the
+insert or the viewport it stopped at: draw a part of it with `view`.

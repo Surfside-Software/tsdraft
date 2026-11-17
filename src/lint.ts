@@ -3,9 +3,17 @@ import {
   insertAttributeHandle,
   insertEndHandle,
   blockHandles,
+  lookupCost,
   placeAttribute,
 } from "./blocks.ts";
-import { arrowheadInfo, DEFAULT_ARROWHEAD } from "./arrowheads.ts";
+import {
+  arrowheadInfo,
+  DEFAULT_ARROWHEAD,
+  DEFAULT_LEADER_ARROWHEAD,
+  leaderArrowheadInfo,
+  STANDARD_LEADER_STYLE,
+  type LeaderArrowhead,
+} from "./arrowheads.ts";
 import { callOf, type CallSite } from "./callsite.ts";
 import {
   arrowheadEntityHandle,
@@ -28,27 +36,40 @@ import type {
   Viewport,
   Insert,
   Layer,
+  Leader,
+  LeaderStyle,
   Linetype,
   Point,
+  Text,
   TextStyle,
   Xref,
 } from "./drawing.ts";
-import { extents } from "./extents.ts";
+import { boxer, type Boxer } from "./extents.ts";
 import { written } from "./format.ts";
 import { validIdHandle } from "./handles.ts";
 import { validLayoutHandles, validViewportView } from "./layouts.ts";
+import {
+  leaderArrowheadHandles,
+  leaderDrawnProblem,
+  leaderRepeats,
+  leaderStyleDictionaryHandle,
+  validLeaderStyleHandle,
+} from "./leaders.ts";
 import { paperInfo } from "./papers.ts";
 import { isUnits } from "./units.ts";
 import type { Standard } from "./standard/document.ts";
 import { lintStandard } from "./standard/lint.ts";
 import {
   arrayProblem,
+  filled,
   isObject,
   isSound,
+  KEYED,
   PLAIN_OBJECT,
   slotProblem,
   TYPED,
   WALKABLE,
+  Strings,
   type Check,
 } from "./shape.ts";
 import { layerAuditKey, layerKey, layoutNameKey } from "./layers.ts";
@@ -77,7 +98,15 @@ import {
   idKey,
   idProblem,
   isStandardDimensionStyle,
+  isStandardLeaderStyle,
   isStandardTextStyle,
+  LEADER_IN_BLOCK,
+  leaderOwnProblem,
+  leaderShaftsProblem,
+  leaderStyleNameProblem,
+  leaderStyleProblem,
+  leaderStyleTwinProblem,
+  leaderTextProblem,
   layerColorProblem,
   layerFlagProblem,
   layerLinetypeProblem,
@@ -107,6 +136,8 @@ import {
   undefinedBlockProblem,
   undefinedDimensionStyleProblem,
   undefinedDimensionTextStyleProblem,
+  undefinedLeaderStyleProblem,
+  undefinedLeaderTextStyleProblem,
   undefinedLinetypeProblem,
   undefinedTextStyleProblem,
   viewportEmptyWarning,
@@ -156,6 +187,10 @@ export type LintRule =
   | "duplicate-dimension-style"
   | "undefined-dimension-style"
   | "dimension"
+  | "leader-style"
+  | "duplicate-leader-style"
+  | "undefined-leader-style"
+  | "leader"
   | "zero-length"
   | "standard"
   | "layer-outside-standard"
@@ -165,6 +200,7 @@ export type LintRule =
   | "role"
   | "scale-outside-standard"
   | "dimension-style-outside-standard"
+  | "leader-style-outside-standard"
   | "text-style-outside-standard"
   | "sheet-format-outside-standard"
   | "sheet-per-file"
@@ -172,16 +208,19 @@ export type LintRule =
   | "linetype-differs-from-standard"
   | "text-style-differs-from-standard"
   | "dimension-style-differs-from-standard"
+  | "leader-style-differs-from-standard"
   | "sheet-format-ambiguous"
   | "height-below-standard"
   | "height-off-role"
   | "dimension-off-scale"
+  | "leader-off-scale"
   | "viewport-outside-drawing-area"
   | "title-block-missing"
   | "title-block-differs-from-standard"
   | "title-block-field-unset"
   | "title-block-field-overflow"
-  | "standard-check-capped";
+  | "standard-check-capped"
+  | "check-capped";
 
 export interface Diagnostic {
   readonly rule: LintRule;
@@ -200,6 +239,8 @@ export interface Diagnostic {
   readonly textStyle?: string;
   /** The dimension style the problem is in, when it is a problem with its definition. */
   readonly dimensionStyle?: string;
+  /** The leader style the problem is in, when it is a problem with its definition. */
+  readonly leaderStyle?: string;
   /**
    * The block the problem is in: a problem with the block's definition, with one of its
    * attribute definitions, or with one of its entities.
@@ -264,6 +305,29 @@ export type LintOptions =
     };
 
 /**
+ * The most work the checks do again for what a drawing repeats, beside `REPEATS` for each
+ * entity and attribute definition it holds, counted in what they look at: each attribute an
+ * insert places past its first `FREE`, each handle an attribute of an insert with an id takes
+ * past its first `FREE`, one more for each 32 characters of the id and the tag, one for each 32
+ * characters a dimension's style's prefix and suffix and its own text hold, each block the
+ * search for the way back through a cycle looks at, with each insert it holds, and each 32
+ * characters of the names on the way, and what `boxer` counts for the box of model space.
+ */
+const MAX_WORK = 500_000;
+
+/** The work the checks may do again for each entity and attribute definition of a drawing. */
+const REPEATS = 16;
+
+/** The attributes of each insert that are placed, and take handles, free of the limit. */
+const FREE = 64;
+
+/** The values of an insert that gives none. */
+const NO_VALUES: Readonly<Record<string, string>> = Object.freeze({});
+
+/** The shortest text value the checks read once, however many places share it. */
+const LONG = 256;
+
+/**
  * Checks a drawing against the rules AutoCAD enforces when it opens DXF.
  *
  * A drawing made with `createDrawing()` already passes the error rules for its
@@ -271,10 +335,11 @@ export type LintOptions =
  * matters when a `Drawing` was built by hand or by other code, when it is
  * exported as a different version than it was built for, and for warnings.
  *
- * It takes any plain data and never throws. A value that does not have the shape of a
- * `Drawing`, such as a list that is not an array, an entity of an unknown kind or a field of
- * the wrong type, is an error that gives the path to it, and no other rule is checked on that
- * object. A field no object of its type has is an error too.
+ * It takes any plain data and never throws. A `Proxy` is read as the data its traps give, so a
+ * trap that throws or never returns does so inside `lint`. A value that does not have the shape
+ * of a `Drawing`, such as a list that is not an array, an entity of an unknown kind or a field
+ * of the wrong type, is an error that gives the path to it, and no other rule is checked on
+ * that object. A field no object of its type has is an error too.
  *
  * With `standard`, it then holds the drawing to the standard: its layers, linetypes, pens, text
  * styles, dimension styles, sheet formats and title blocks, the height each text plots at in
@@ -283,11 +348,157 @@ export type LintOptions =
  * does not check is one `standard` error. Without `standard` it checks none of this.
  */
 export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] {
+  return lintWithin(drawing, options, checksLimit(drawing));
+}
+
+/**
+ * The work `lint` does again for what a drawing repeats, at most. The DXF writer boxes the
+ * drawing within it, so it stops on nothing `lint` passed.
+ */
+export function checksLimit(drawing: Drawing): number {
+  return MAX_WORK + REPEATS * itemsOf(drawing);
+}
+
+/** How many entities and attribute definitions a drawing's lists hold, up to their empty slots. */
+function itemsOf(drawing: Drawing): number {
+  if (!isObject(drawing)) return 0;
+  // A list that many blocks share is counted once.
+  const counted = new WeakSet<object>();
+  const count = (list: unknown): number => {
+    if (typeof list !== "object" || list === null || counted.has(list)) return 0;
+    counted.add(list);
+    return filled(list).length;
+  };
+  let items = count(drawing.entities);
+  for (const block of filled(drawing.blocks as unknown)) {
+    if (isObject(block)) items += count(block.entities) + count(block.attributes);
+  }
+  for (const layout of filled(drawing.layouts as unknown)) {
+    if (isObject(layout)) items += count(layout.entities);
+  }
+  return items;
+}
+
+/** `lint` with `most` units of work for what it does again. */
+export function lintWithin(drawing: Drawing, options: LintOptions, most: number): Diagnostic[] {
   if (typeof drawing !== "object" || drawing === null || Array.isArray(drawing)) {
     return [{ rule: "format", severity: "error", message: `The drawing ${PLAIN_OBJECT}` }];
   }
   const version = options?.version ?? drawing.dxf;
   const out: Diagnostic[] = [];
+
+  // What the checks do again for each insert of a block, each dimension of a style and each
+  // block of a cycle is paid for before it is done, and ends at a limit with one warning.
+  let work = 0;
+  let stopped: string | undefined;
+  /** Counts the cost of a step at `where`, and says whether there is room left to take it. */
+  const spend = (cost: number, where: () => string): boolean => {
+    if (stopped !== undefined) return false;
+    work += cost;
+    if (work <= most) return true;
+    stopped = where();
+    return false;
+  };
+
+  /**
+   * The lists, the long lists of points and the objects of an insert's values the checks have
+   * read. A drawing made in code may share one among many places, and reading it again is paid
+   * for, by its size, before it is done.
+   */
+  const read = new WeakSet<object>();
+  /** True for a list or an object the checks have read before, which it notes otherwise. */
+  const again = (value: unknown): boolean => {
+    if (typeof value !== "object" || value === null) return false;
+    if (read.has(value)) return true;
+    read.add(value);
+    return false;
+  };
+  /** What is wrong with a text value and what it warns of, worked out once for a long one. */
+  const textChecks = new Strings<readonly [string | undefined, string | undefined]>();
+  const checkText = (value: string): readonly [string | undefined, string | undefined] => {
+    if (value.length < LONG) return [textProblem(value), textWarning(value)];
+    let found = textChecks.get(value);
+    if (!found) textChecks.set(value, (found = [textProblem(value), textWarning(value)]));
+    return found;
+  };
+  /** The strings of `LONG` characters or more the checks have read. */
+  const long = new Strings<true>();
+  /**
+   * What reading a string again costs: one for each 32 characters of one of `LONG` or more that
+   * the checks have read before, in another place. A long string that many places share is read,
+   * quoted and written again for each.
+   */
+  const repeat = (value: unknown): number => {
+    if (typeof value !== "string" || value.length < LONG) return 0;
+    // One that took the place of another of its length counts as read before.
+    const again = long.get(value) !== undefined || long.clashes(value);
+    long.set(value, true);
+    return again ? Math.floor(value.length / 32) : 0;
+  };
+  /**
+   * What reading the strings of an entity or a definition again costs, as `repeat` counts it,
+   * for each field the checks read or quote. A field nobody knows, or a kind that is none, is
+   * quoted only where its object is first met, through `malformed`. Past the limit a long string
+   * is not looked up, which would compare it with another.
+   */
+  const long1 = (value: unknown): number =>
+    typeof value === "string" && value.length >= LONG
+      ? stopped === undefined
+        ? repeat(value)
+        : 1
+      : 0;
+  /** Of an entity: the fields every entity has, and those its kind adds. */
+  const repeatedIn = (e: Readonly<Record<string, unknown>>): number => {
+    let cost = long1(e.id) + long1(e.layer) + long1(e.linetype) + long1(e.lineweight);
+    switch (e.kind) {
+      case "text":
+        cost += long1(e.value) + long1(e.style) + long1(e.align) + long1(e.valign);
+        break;
+      case "insert":
+        cost += long1(e.block);
+        break;
+      case "linear-dimension":
+      case "aligned-dimension":
+        cost += long1(e.style) + long1(e.text);
+        break;
+      case "leader":
+        cost += long1(e.style) + long1(e.textStyle);
+        break;
+    }
+    return cost;
+  };
+  /** Of an attribute definition. */
+  const repeatedOf = (d: Readonly<Record<string, unknown>>): number =>
+    long1(d.tag) +
+    long1(d.value) +
+    long1(d.prompt) +
+    long1(d.layer) +
+    long1(d.style) +
+    long1(d.align) +
+    long1(d.valign);
+  const leaderAgain = leaderRepeats();
+  /** What is wrong with a dimension's own text, worked out once for a long one. */
+  const dimensionTexts = new Strings<readonly [string | undefined]>();
+  const checkDimensionText = (text: unknown): string | undefined => {
+    if (typeof text !== "string" || text.length < LONG) return dimensionTextProblem(text);
+    let found = dimensionTexts.get(text);
+    if (!found) dimensionTexts.set(text, (found = [dimensionTextProblem(text)]));
+    return found[0];
+  };
+  /** Whether the drawing holds an entity whose box can cost anything against the limit. */
+  let boxable = false;
+  /** The blocks whose definitions were past the limit, which no insert's value is held to. */
+  const unreadDefinitions = new Set<Block>();
+  /** The values each object of an insert's values holds, read once, and what its long strings cost. */
+  const valuesOf = new WeakMap<
+    object,
+    { readonly entries: readonly (readonly [string, unknown])[]; readonly long: number }
+  >();
+
+  /** Whether a rule can read each object that is not sound, under each check it was met with. */
+  const shapes = new WeakMap<object, Map<Check, boolean>>();
+  /** True once an object that is not sound has been met, before which none is looked up. */
+  let unsound = false;
 
   // A rule reads an object only once its shape is sound. A value of the wrong shape is reported
   // with the path to it and the item it is in, and no rule reads it.
@@ -302,22 +513,65 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     rule: LintRule,
     about: Partial<Diagnostic> = {},
   ): boolean => {
+    // An object that is not sound is reported where it is first met. A drawing made in code may
+    // share it among many places, which give no messages again and cost a unit each: the drawing
+    // has an error there, so toDXF refuses it.
+    const object = typeof value === "object" && value !== null ? value : undefined;
+    const before = object && unsound ? shapes.get(object)?.get(check) : undefined;
+    if (before !== undefined) {
+      spend(1, () => at || "the drawing");
+      return !before;
+    }
     if (isSound(check, value)) return false;
+    const remember = (readable: boolean): void => {
+      if (!object) return;
+      unsound = true;
+      let checks = shapes.get(object);
+      if (!checks) shapes.set(object, (checks = new Map()));
+      checks.set(check, readable);
+    };
+    // Past the limit a shape is only asked about, which builds no message.
+    if (stopped !== undefined) {
+      const readable = isSound(check, value, false);
+      remember(readable);
+      return !readable;
+    }
     const problems: string[] = [];
     const extra: string[] = [];
     check(value, at, problems, extra);
+    remember(problems.length === 0);
+    // A message pays for what it quotes, such as a long key or kind that many objects share.
+    let length = 0;
+    for (const message of [...extra, ...problems]) length += message.length;
+    if (!spend(Math.floor(length / 32), () => at || "the drawing")) return problems.length > 0;
     for (const message of extra) out.push({ rule, severity: "error", message, ...about });
     for (const message of problems) {
       out.push({ rule, severity: "error", message, ...about, ...(at ? { item: at } : {}) });
     }
     return problems.length > 0;
   };
+  /** True for an object met before that was not sound under `check`, whose shape is not read again. */
+  const metUnsound = (check: Check, value: unknown): boolean =>
+    unsound &&
+    typeof value === "object" &&
+    value !== null &&
+    shapes.get(value)?.has(check) === true;
   /**
    * Names the item at `at` in the errors added since `from`, when a field of it has the wrong
    * type. A rule has then reported the field, and what draws the drawing cannot read the item.
    */
+  /** Whether an object is sound under a check but for fields nobody knows, worked out once. */
+  const typedSound = new WeakMap<object, Map<Check, boolean>>();
   const mark = (typed: Check, value: unknown, at: string, from: number): void => {
-    if (out.length === from || isSound(typed, value, false)) return;
+    if (out.length === from) return;
+    let sound: boolean | undefined;
+    if (typeof value === "object" && value !== null) {
+      let checks = typedSound.get(value);
+      if (!checks) typedSound.set(value, (checks = new Map()));
+      sound = checks.get(typed);
+      if (sound === undefined) checks.set(typed, (sound = isSound(typed, value, false)));
+    } else sound = isSound(typed, value, false);
+    if (sound) return;
     for (let i = from; i < out.length; i++) {
       const found = out[i]!;
       if (found.severity === "error" && found.item === undefined) out[i] = { ...found, item: at };
@@ -355,7 +609,8 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
       | "blocks"
       | "xrefs"
       | "layouts"
-      | "dimensionStyles",
+      | "dimensionStyles"
+      | "leaderStyles",
     rule: LintRule,
   ): readonly T[] => {
     const value: unknown = drawing[field];
@@ -366,7 +621,7 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
   };
   /** Names an entry of a list in a diagnostic, when its name is one. */
   const named = (
-    field: "linetype" | "textStyle" | "dimensionStyle" | "block" | "xref",
+    field: "linetype" | "textStyle" | "dimensionStyle" | "leaderStyle" | "block" | "xref",
     name: unknown,
   ) => (typeof name === "string" ? { [field]: name } : {});
 
@@ -690,6 +945,7 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     add: (rule: LintRule, severity: Diagnostic["severity"], problem: string) => void,
     sound: boolean,
     inBlock: boolean,
+    where: () => string,
   ): void => {
     if (r12) {
       add("dimension", "error", R12_ONLY.dimensions);
@@ -705,12 +961,12 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     } else style = dimensionStyles.get(layerKey(name as string));
     const text: unknown = dimension.text;
     if (text !== undefined) {
-      const problem = dimensionTextProblem(text);
+      const problem = checkDimensionText(text);
       if (problem) {
         add("dimension", "error", problem);
         return;
       }
-      const warning = textWarning(text as string);
+      const warning = checkText(text as string)[1];
       if (warning) add("text", "warning", warning);
     }
     if (sound && dimension.kind === "linear-dimension" && dimension.angle !== undefined) {
@@ -721,10 +977,146 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
       }
     }
     if (!style || !sound) return;
+    // Its style's prefix and suffix are read again for each dimension that has the style.
+    const reads =
+      (style.prefix?.length ?? 0) + (style.suffix?.length ?? 0) + ((text as string)?.length ?? 0);
+    if (!spend(Math.floor(reads / 32), where)) return;
     const textStyle =
       style.textStyle === undefined ? undefined : stylesByKey.get(layerKey(style.textStyle));
     const problem = dimensionDrawnProblem(dimension, style, textStyle);
     if (problem) add("dimension", "error", problem);
+  };
+
+  // Leader style names are compared as dimension style names are. A style with a name counts for
+  // the leaders that name it, whatever else is wrong with it, and only one with nothing wrong is
+  // drawn with.
+  const leaderStyleNames = new Set<string>();
+  const leaderStyles = new Map<string, LeaderStyle>();
+  const leaderStylesAudited = new Map<string, string>();
+  const leaderArrowheads = new Set<string>();
+  each(
+    listed<LeaderStyle>("leaderStyles", "leader-style"),
+    "leaderStyles",
+    "leader-style",
+    TYPED.leaderStyle,
+    (style, i) => {
+      if (malformed(WALKABLE.leaderStyle, style, `leaderStyles[${i}]`, "leader-style")) return;
+      const error = (rule: LintRule, message: string) =>
+        out.push({
+          rule,
+          severity: "error",
+          message: `Leader style ${shown(style.name)}: ${message}`,
+          ...named("leaderStyle", style.name),
+        });
+      if (r12) {
+        error("leader-style", R12_ONLY.leaders);
+        return;
+      }
+      const problem = leaderStyleProblem(style);
+      if (problem) error("leader-style", problem);
+      const name: unknown = style.name;
+      if (leaderStyleNameProblem(name) || isStandardLeaderStyle(name as string)) return;
+      const auditKey = layerAuditKey(style.name);
+      const first = leaderStylesAudited.get(auditKey);
+      if (first !== undefined) {
+        error("duplicate-leader-style", leaderStyleTwinProblem(style.name, first)!);
+        return;
+      }
+      // The first style brings AutoCAD's own and the dictionary that holds them.
+      if (leaderStylesAudited.size === 0) {
+        for (const [handle, what] of [
+          [
+            validLeaderStyleHandle(STANDARD_LEADER_STYLE),
+            `the leader style ${shown(STANDARD_LEADER_STYLE)}`,
+          ],
+          [leaderStyleDictionaryHandle(), "the dictionary of leader styles"],
+        ] as const) {
+          const taken = claim(handle, what);
+          if (taken) error("id-handle", taken);
+        }
+      }
+      leaderStylesAudited.set(auditKey, style.name);
+      const key = layerKey(style.name);
+      leaderStyleNames.add(key);
+      const textStyle: unknown = style.textStyle;
+      let lettered = true;
+      if (
+        typeof textStyle === "string" &&
+        !textStyleNameProblem(textStyle) &&
+        !isStandardTextStyle(textStyle)
+      ) {
+        if (!textStyles.has(layerKey(textStyle))) {
+          error("undefined-text-style", undefinedLeaderTextStyleProblem(textStyle));
+          lettered = false;
+        } else if (unreadStyles.has(layerKey(textStyle))) lettered = false;
+      }
+      const clash = claim(
+        validLeaderStyleHandle(style.name),
+        `the leader style ${shown(style.name)}`,
+      );
+      if (clash) error("id-handle", clash);
+      const arrowhead: unknown = style.arrowhead ?? DEFAULT_LEADER_ARROWHEAD;
+      const block = leaderArrowheadInfo(arrowhead)?.block;
+      if (block !== undefined && !leaderArrowheads.has(block)) {
+        leaderArrowheads.add(block);
+        const handles = leaderArrowheadHandles(arrowhead as LeaderArrowhead)!;
+        for (const handle of [handles.record, handles.begin, handles.end, ...handles.strokes]) {
+          const taken = claim(handle, `the arrowhead ${shown(arrowhead)}`);
+          if (taken) error("id-handle", taken);
+        }
+      }
+      if (!problem && lettered) leaderStyles.set(key, style);
+    },
+  );
+  /** Checks what a leader names, its note and its shafts. `sound` is false for one no rule can read. */
+  const lintLeader = (
+    leader: Leader,
+    add: (rule: LintRule, severity: Diagnostic["severity"], problem: string) => void,
+    inBlock: boolean,
+  ): void => {
+    if (r12) {
+      add("leader", "error", R12_ONLY.leaders);
+      return;
+    }
+    if (inBlock) add("leader", "error", LEADER_IN_BLOCK);
+    const name: unknown = leader.style;
+    const nameProblem = leaderStyleNameProblem(name);
+    let style: LeaderStyle | undefined;
+    if (nameProblem) add("undefined-leader-style", "error", nameProblem);
+    else if (!leaderStyleNames.has(layerKey(name as string))) {
+      add("undefined-leader-style", "error", undefinedLeaderStyleProblem(name as string));
+    } else style = leaderStyles.get(layerKey(name as string));
+    const textProblem = leaderTextProblem(leader.text);
+    if (textProblem) add("leader", "error", textProblem);
+    else {
+      for (const line of leader.text) {
+        const warning = textWarning(line);
+        if (warning) {
+          add("text", "warning", warning);
+          break;
+        }
+      }
+    }
+    const shaftProblem = leaderShaftsProblem(leader.shafts, leader.at);
+    if (shaftProblem) add("leader", "error", shaftProblem);
+    const own: unknown = leader.textStyle;
+    let textStyle: TextStyle | undefined;
+    let lettered = true;
+    if (typeof own === "string" && !textStyleNameProblem(own) && !isStandardTextStyle(own)) {
+      if (!textStyles.has(layerKey(own))) {
+        add("undefined-text-style", "error", undefinedLeaderTextStyleProblem(own));
+        lettered = false;
+      } else if (unreadStyles.has(layerKey(own))) lettered = false;
+      else textStyle = stylesByKey.get(layerKey(own));
+    }
+    const ownProblem = leaderOwnProblem(leader, written(style?.scale ?? 1));
+    if (ownProblem) add("leader", "error", ownProblem);
+    if (!style || textProblem || shaftProblem || ownProblem || !lettered) return;
+    if (own === undefined && style.textStyle !== undefined) {
+      textStyle = stylesByKey.get(layerKey(style.textStyle));
+    }
+    const problem = leaderDrawnProblem(leader, style, textStyle);
+    if (problem) add("leader", "error", problem);
   };
 
   // AutoCAD takes two block names for one where its AUDIT would call two layer names
@@ -745,6 +1137,49 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
       readonly based: boolean;
     }
   >();
+  /**
+   * The tags of a block's definitions, and those an insert places, with their text styles and
+   * their tags as JSON, which a message about any insert of the block quotes.
+   */
+  const placing = new Map<
+    Block,
+    {
+      readonly tags: ReadonlySet<string>;
+      readonly placed: readonly [
+        AttributeDefinition & { tag: string },
+        TextStyle | undefined,
+        string,
+      ][];
+    }
+  >();
+  const placingOf = (block: Block) => {
+    let found = placing.get(block);
+    if (found) return found;
+    const read = walked.get(block)!;
+    const tags = new Set<string>();
+    for (const tag of read.tags) if (tag !== undefined) tags.add(tag);
+    const placed: [AttributeDefinition & { tag: string }, TextStyle | undefined, string][] = [];
+    for (const definition of read.definitions) {
+      if (
+        !definition ||
+        typeof definition.tag !== "string" ||
+        (typeof definition.style === "string" && unreadStyles.has(layerKey(definition.style))) ||
+        geometryProblems(asText(definition)).length > 0
+      )
+        continue;
+      const style =
+        typeof definition.style === "string"
+          ? stylesByKey.get(layerKey(definition.style))
+          : undefined;
+      placed.push([
+        definition as AttributeDefinition & { tag: string },
+        style,
+        JSON.stringify(definition.tag),
+      ]);
+    }
+    placing.set(block, (found = { tags, placed }));
+    return found;
+  };
   each(listed<Block>("blocks", "block"), "blocks", "block", TYPED.block, (block, i) => {
     const at = `blocks[${i}]`;
     // A block with a name stays one an insert can place, whatever else is wrong with it.
@@ -778,8 +1213,15 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     const isList = (value: unknown) => !unread || arrayProblem(value, "") === undefined;
     const definitions: (AttributeDefinition | undefined)[] = [];
     const tags: (string | undefined)[] = [];
+    const attributes =
+      block.attributes !== undefined && isList(block.attributes) ? block.attributes : [];
+    // A list that many blocks share is read again for each, and paid for. Past the limit its
+    // definitions are not read, and no value of an insert is held against them.
+    const where = () => `the attributes of block ${shown(block.name)}`;
+    const unpaid = again(attributes) && !spend(attributes.length, where);
+    if (unpaid) unreadDefinitions.add(block);
     each(
-      block.attributes !== undefined && isList(block.attributes) ? block.attributes : [],
+      unpaid ? [] : attributes,
       `${at}.attributes`,
       "attribute",
       TYPED.attribute,
@@ -870,6 +1312,10 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
       if (!definition && kept[index] === undefined) return;
       const from = out.length;
       const tag: unknown = definition ? definition.tag : kept[index];
+      // A long string that another place holds too is read again, and paid for.
+      const shared = definition ? repeatedOf(definition as never) : 0;
+      const where = () => `the attribute ${shown(tag)} of block ${shown(block.name)}`;
+      if (shared > 0 && !spend(shared, where)) return;
       const add = (rule: LintRule, severity: Diagnostic["severity"], problem: string) => {
         const call = block.attributes ? callOf(block.attributes, index) : undefined;
         out.push({
@@ -896,14 +1342,14 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
         ["its value", definition.value],
         ["its prompt", definition.prompt ?? ""],
       ] as const) {
-        const problem = typeof value === "string" ? textProblem(value) : "must be a string";
+        const [problem, warning] =
+          typeof value === "string" ? checkText(value) : ["must be a string", undefined];
         if (problem) add("text", "error", `${field}: ${problem}`);
-        const warning = typeof value === "string" ? textWarning(value) : undefined;
         if (warning) add("text", "warning", `${field}: ${warning}`);
       }
       const layer = undefinedLayer(definition.layer);
       if (layer) add("undefined-layer", "error", layer);
-      for (const problem of geometryProblems({ ...definition, kind: "text" })) {
+      for (const problem of geometryProblems(asText(definition))) {
         add("geometry", "error", problem);
       }
       for (const [rule, found] of textProblems(definition)) add(rule, "error", found);
@@ -950,8 +1396,36 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
         ? `${sheet.at}.entities`
         : "entities";
     const inBlock = block ? { block: block.name } : sheet ? { layout: sheet.name } : {};
+    const space = block
+      ? `block ${shown(block.name)}`
+      : sheet
+        ? `layout ${shown(sheet.name)}`
+        : "model space";
     const lintEntity = (entity: Entity, index: number): void => {
-      if (!isSound(WALKABLE.entity, entity)) {
+      // Once the checks have stopped, no entity is read again: `check-capped` says a problem past
+      // there may be unreported, and toDXF refuses the drawing.
+      if (stopped !== undefined) return;
+      const here = () => `${entity.kind} #${index} of ${space}`;
+      // A long list of points that many polylines share is read again for each, and paid for.
+      const points: unknown =
+        isObject(entity) && entity.kind === "polyline" ? entity.points : undefined;
+      if (
+        Array.isArray(points) &&
+        points.length >= FREE &&
+        again(points) &&
+        !spend(Math.floor(points.length / 8), here)
+      ) {
+        return;
+      }
+      // What the extents would do again is paid for there, so a drawing that can cost them
+      // anything is boxed below.
+      if (isObject(entity) && !boxable) boxable = costsBoxes(entity);
+      // So are a leader that shares its shafts or its note with another and a long string.
+      const shared = isObject(entity)
+        ? (entity.kind === "leader" ? leaderAgain(entity) : 0) + repeatedIn(entity)
+        : 0;
+      if (shared > 0 && !spend(shared, here)) return;
+      if (metUnsound(WALKABLE.entity, entity) || !isSound(WALKABLE.entity, entity)) {
         const call = callOf(entities, index);
         const about = { ...inBlock, entity: index, ...(call ? { call } : {}) };
         if (malformed(WALKABLE.entity, entity, `${at}[${index}]`, "format", about)) {
@@ -996,55 +1470,80 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
           const hint = twin ? `. Name it as the drawing does, ${shown(twin)}` : "";
           add("undefined-block", "error", `${undefinedBlockProblem(name)}${hint}`);
         }
-        const set: unknown = entity.attributes === undefined ? {} : entity.attributes;
+        const set: unknown = entity.attributes === undefined ? NO_VALUES : entity.attributes;
         if (typeof set !== "object" || set === null || Array.isArray(set)) {
           add("undefined-attribute", "error", ATTRIBUTES_SHAPE);
           return;
         }
+        // An object that many inserts share is read again for each, past the first `FREE`, and
+        // so is a long tag or value. One that costs nothing to read again is not kept.
+        let known = valuesOf.get(set);
+        let cost: number;
+        if (known) cost = Math.max(0, known.entries.length - FREE) + known.long;
+        else {
+          const entries = Object.entries(set as Record<string, unknown>);
+          let long = 0;
+          cost = 0;
+          for (const [tag, value] of entries) {
+            cost += long1(tag) + long1(value);
+            for (const text of [tag, value]) {
+              if (typeof text === "string" && text.length >= LONG)
+                long += Math.floor(text.length / 32);
+            }
+          }
+          known = { entries, long };
+          if (entries.length > FREE || long > 0) valuesOf.set(set, known);
+        }
+        if (cost > 0 && !spend(cost, here)) return;
+        const values = known.entries;
         if (xref) {
-          if (Object.keys(set).length > 0) add("undefined-attribute", "error", XREF_ATTRIBUTES);
+          if (values.length > 0) add("undefined-attribute", "error", XREF_ATTRIBUTES);
           return;
         }
-        const read = placed ? walked.get(placed)! : undefined;
-        const tags = new Set<string>();
-        for (const tag of read?.tags ?? []) if (tag !== undefined) tags.add(tag);
+        const read = placed ? placingOf(placed) : undefined;
+        const tags = read?.tags ?? new Set<string>();
         // What the insert makes of each attribute, once the insert itself is sound.
-        if (placed && read?.based && problems.length === 0) {
-          for (const definition of read.definitions) {
-            if (
-              !definition ||
-              typeof definition.tag !== "string" ||
-              (typeof definition.style === "string" &&
-                unreadStyles.has(layerKey(definition.style))) ||
-              geometryProblems({ ...definition, kind: "text" }).length > 0
-            )
-              continue;
-            const style =
-              typeof definition.style === "string"
-                ? stylesByKey.get(layerKey(definition.style))
-                : undefined;
+        if (placed && walked.get(placed)!.based && problems.length === 0) {
+          let count = 0;
+          for (const [definition, style, quoted] of read!.placed) {
+            // A definition's value that the insert does not hold is written again for it.
+            const repeated = !Object.hasOwn(set as object, definition.tag);
+            const cost =
+              (count++ >= FREE ? 1 : 0) +
+              lookupCost(entity, definition) +
+              (repeated ? Math.floor(definition.value.length / 32) : 0);
+            if (cost > 0 && !spend(cost, here)) break;
             const problem = placedAttributeProblem(
               definition.tag,
               placeAttribute(definition, style, entity, placed.base),
+              quoted,
             );
             if (problem) add("geometry", "error", problem);
           }
         }
-        for (const [tag, value] of Object.entries(set as Record<string, unknown>)) {
-          if (placed && !tags.has(tag)) {
+        for (const [tag, value] of values) {
+          if (placed && !tags.has(tag) && !unreadDefinitions.has(placed)) {
             add("undefined-attribute", "error", undefinedAttributeProblem(tag, placed.name));
           }
-          const problem = typeof value === "string" ? textProblem(value) : "must be a string";
+          const [problem, warning] =
+            typeof value === "string" ? checkText(value) : ["must be a string", undefined];
           if (problem) add("text", "error", `attribute ${shown(tag)}: ${problem}`);
-          const warning = typeof value === "string" ? textWarning(value) : undefined;
           if (warning) add("text", "warning", `attribute ${shown(tag)}: ${warning}`);
         }
         if (named && tags.size > 0) {
           const insert = `the insert ${shown(id)}`;
-          const taken = [...tags].map((tag): [string, string] => [
-            insertAttributeHandle(id as string, tag),
-            `the attribute ${shown(tag)} of ${insert}`,
-          ]);
+          const taken: [string, string][] = [];
+          let count = 0;
+          for (const tag of tags) {
+            // A sound id has at most 64 characters, so only the tag, which each insert of the
+            // block repeats, is paid for by its length.
+            const cost = (count++ >= FREE ? 1 : 0) + Math.floor(tag.length / 32);
+            if (cost > 0 && !spend(cost, here)) break;
+            taken.push([
+              insertAttributeHandle(id as string, tag),
+              `the attribute ${shown(tag)} of ${insert}`,
+            ]);
+          }
           taken.push([insertEndHandle(id as string), `the end of the attributes of ${insert}`]);
           for (const [handle, what] of taken) {
             const clash = claim(handle, what);
@@ -1053,8 +1552,12 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
         }
         return;
       }
+      if (entity.kind === "leader") {
+        if (problems.length === 0) lintLeader(entity, add, block !== undefined);
+        return;
+      }
       if (entity.kind === "linear-dimension" || entity.kind === "aligned-dimension") {
-        lintDimension(entity, add, problems.length === 0, block !== undefined);
+        lintDimension(entity, add, problems.length === 0, block !== undefined, here);
         // The block of its picture takes handles from its id, or else from its place.
         if (!r12 && !block && (id === undefined || named)) {
           const place: DimensionPlace = {
@@ -1089,16 +1592,17 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
         if (problem) add("lineweight", "error", problem);
       }
       if (entity.kind === "text") {
-        const problem = textProblem(entity.value);
+        const [problem, warning] = checkText(entity.value);
         if (problem) add("text", "error", problem);
         for (const [rule, found] of textProblems(entity)) add(rule, "error", found);
-        const warning = textWarning(entity.value);
         if (warning) add("text", "warning", warning);
       }
       // A shape with a geometry error has no length worth a second message.
       const collapsed = problems.length === 0 ? zeroLength(entity) : undefined;
       if (collapsed) add("zero-length", "warning", collapsed);
     };
+    // A list that many blocks share is read again for each, and paid for.
+    if (again(entities) && !spend(entities.length, () => `the entities of ${space}`)) return;
     each(entities, at, "format", TYPED.entity, lintEntity, inBlock);
   };
   for (const block of blocks.values()) {
@@ -1109,29 +1613,59 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
 
   // AutoCAD compares layout names by a table of its own, which `layoutNameKey` holds.
   const layoutNames = new Map<string, string>();
-  /** The box of what model space holds, worked out when a viewport first asks. */
+  /**
+   * The box of what model space holds, worked out when a viewport first asks, or undefined when
+   * the work it takes reaches its limit. The boxes of the layouts are worked out after it with the
+   * same boxer, in the DXF writer's order, so the writer stops on nothing `lint` passed.
+   */
   let modelBox: readonly [number, number, number, number] | null | undefined;
-  const boxOfModel = (): readonly [number, number, number, number] | null => {
-    if (modelBox === undefined) {
+  let boxed = false;
+  const boxOfModel = (): readonly [number, number, number, number] | null | undefined => {
+    if (boxed) return modelBox;
+    boxed = true;
+    if (stopped !== undefined) return undefined;
+    // A drawing whose entities cannot be measured has errors of its own above.
+    modelBox = null;
+    let boxOf: Boxer;
+    try {
+      // What the boxes do again counts against the checks' limit.
+      boxOf = boxer(
+        drawing.textStyles,
+        drawing.blocks,
+        undefined,
+        undefined,
+        undefined,
+        [...dimensionStyles.values()],
+        [...leaderStyles.values()],
+        most - work,
+        // The writer's walks have the whole limit, and so have these, so the two take one path.
+        most,
+      );
+    } catch {
+      return modelBox;
+    }
+    const spaces: [unknown, string][] = [[drawing.entities, "model space"]];
+    for (const layout of filled(drawing.layouts as unknown) as Partial<Layout>[]) {
+      spaces.push([layout?.entities, `layout ${shown(layout?.name)}`]);
+    }
+    for (const [entities, space] of spaces) {
+      if (!Array.isArray(entities)) continue;
+      const model = space === "model space";
       try {
-        const model: unknown = drawing.entities;
-        modelBox =
-          !Array.isArray(model) || model.length === 0
-            ? null
-            : extents(
-                drawing.entities,
-                drawing.textStyles,
-                drawing.blocks,
-                undefined,
-                undefined,
-                undefined,
-                [...dimensionStyles.values()],
-              );
+        const box = boxOf(entities);
+        if (model && entities.length > 0) modelBox = box ?? [0, 0, 1, 1];
       } catch {
-        // A drawing whose entities cannot be measured has errors of its own above.
-        modelBox = null;
+        continue;
+      }
+      const at = boxOf.capped;
+      if (at !== undefined) {
+        if (model) modelBox = undefined;
+        const index = (entities as readonly unknown[]).indexOf(at);
+        stopped ??= `${at.kind} #${index} of ${space}, in the box of what ${space} draws`;
+        break;
       }
     }
+    work += boxOf.spent;
     return modelBox;
   };
   each(listed<Layout>("layouts", "layout"), "layouts", "layout", TYPED.layout, (layout, i) => {
@@ -1224,6 +1758,7 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
       if (offPaper) add("viewport", "warning", offPaper);
       const model = boxOfModel();
       const [minX, minY, maxX, maxY] = view.box;
+      if (model === undefined) return;
       if (!model || model[0] > maxX || model[2] < minX || model[1] > maxY || model[3] < minY) {
         add("viewport", "warning", viewportEmptyWarning(view.box));
       }
@@ -1232,7 +1767,11 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     lintEntities(isList(layout.entities) ? layout.entities : [], undefined, { name, at });
   });
 
-  for (const xref of xrefs.values()) {
+  // The DXF writer works the extents out within the same limit, so a drawing whose extents can
+  // cost anything is boxed here too.
+  if (boxable) boxOfModel();
+  // Past the limit, an insert that places an xref may not have been read.
+  for (const xref of stopped === undefined ? xrefs.values() : []) {
     if (placedXrefs.has(xref)) continue;
     out.push({
       rule: "xref",
@@ -1242,20 +1781,45 @@ export function lint(drawing: Drawing, options: LintOptions = {}): Diagnostic[] 
     });
   }
 
-  // A block that holds an insert of itself, directly or through the blocks it inserts.
-  const inserted = (block: Block): Block[] =>
-    walked.get(block)!.entities.flatMap((entity) => {
+  // A block that holds an insert of itself, directly or through the blocks it inserts. The walk
+  // above paid for each list and long name this reads again, and past the limit it reads none.
+  const insertedBy = new Map<Block, Block[]>();
+  for (const block of stopped === undefined ? blocks.values() : []) {
+    const found: Block[] = [];
+    for (const entity of filled(walked.get(block)!.entities)) {
       const name: unknown =
         (entity as Entity | null)?.kind === "insert" ? (entity as Insert).block : undefined;
-      const found = typeof name === "string" ? blocks.get(layerKey(name)) : undefined;
-      return found ? [found] : [];
-    });
-  for (const block of blocks.values()) {
-    const path = pathBack(block, inserted);
-    if (path) {
-      const message = blockCycleProblem(path.map((b) => b.name));
-      out.push({ rule: "block-cycle", severity: "error", message, block: block.name });
+      const inner = typeof name === "string" ? blocks.get(layerKey(name)) : undefined;
+      if (inner) found.push(inner);
     }
+    insertedBy.set(block, found);
+  }
+  const cyclic = inCycles([...insertedBy.keys()], (block) => insertedBy.get(block)!);
+  // The way back from a block of a cycle stays among the blocks that reach each other.
+  const grouped = new Map<Block, Block[]>();
+  for (const [block, group] of cyclic) {
+    grouped.set(
+      block,
+      insertedBy.get(block)!.filter((inner) => cyclic.get(inner) === group),
+    );
+  }
+  for (const block of blocks.values()) {
+    if (!cyclic.has(block)) continue;
+    const where = () => `the cycle of block ${shown(block.name)}`;
+    const found = pathBack(block, (from) => grouped.get(from)!, spend, where);
+    const names = found?.map((b) => b.name);
+    const length = names?.reduce((sum, name) => sum + name.length, 0) ?? 0;
+    const path = names && spend(Math.floor(length / 32), where) ? names : [block.name];
+    const message = blockCycleProblem(path);
+    out.push({ rule: "block-cycle", severity: "error", message, block: block.name });
+  }
+
+  if (stopped !== undefined) {
+    out.push({
+      rule: "check-capped",
+      severity: "warning",
+      message: `lint stopped repeating its checks of each insert, each dimension, each block of a cycle and each list that many places share at ${stopped}; a problem past there may be unreported, so toDXF refuses the drawing`,
+    });
   }
 
   const given: unknown = options?.standard;
@@ -1293,16 +1857,24 @@ export class DrawingError extends Error {
  * The shortest way from a block through the blocks it inserts back to itself, the block first
  * and last, or undefined when it holds no insert of itself.
  */
-function pathBack<T>(start: T, next: (from: T) => readonly T[]): T[] | undefined {
+function pathBack<T>(
+  start: T,
+  next: (from: T) => readonly T[],
+  spend: (cost: number, where: () => string) => boolean,
+  where: () => string,
+): T[] | undefined {
   const cameFrom = new Map<T, T>();
   const queue = [start];
   for (let i = 0; i < queue.length; i++) {
     const from = queue[i]!;
-    for (const to of next(from)) {
+    const ahead = next(from);
+    if (!spend(1 + ahead.length, where)) return undefined;
+    for (const to of ahead) {
       if (to === start) {
-        const path = [start];
-        for (let at = from; at !== start; at = cameFrom.get(at)!) path.unshift(at);
-        return [start, ...path];
+        const back = [start];
+        for (let at = from; at !== start; at = cameFrom.get(at)!) back.push(at);
+        back.push(start);
+        return back.reverse();
       }
       if (!cameFrom.has(to)) {
         cameFrom.set(to, from);
@@ -1311,6 +1883,88 @@ function pathBack<T>(start: T, next: (from: T) => readonly T[]): T[] | undefined
     }
   }
   return undefined;
+}
+
+/**
+ * The blocks that are in a cycle of inserts, each with the number of its group: those that
+ * reach each other. A block that inserts itself is a group of its own. The walk keeps its own
+ * stack, so a chain of any length is followed, and it reads each insert once.
+ */
+function inCycles<T>(nodes: readonly T[], next: (from: T) => readonly T[]): Map<T, number> {
+  const order = new Map<T, number>();
+  const low = new Map<T, number>();
+  const held: T[] = [];
+  const holding = new Set<T>();
+  const out = new Map<T, number>();
+  let groups = 0;
+  for (const root of nodes) {
+    if (order.has(root)) continue;
+    const stack: [T, number][] = [[root, 0]];
+    order.set(root, order.size);
+    low.set(root, order.get(root)!);
+    held.push(root);
+    holding.add(root);
+    while (stack.length > 0) {
+      const top = stack.at(-1)!;
+      const [node, at] = top;
+      const after = next(node);
+      if (at < after.length) {
+        top[1]++;
+        const to = after[at]!;
+        if (!order.has(to)) {
+          order.set(to, order.size);
+          low.set(to, order.get(to)!);
+          held.push(to);
+          holding.add(to);
+          stack.push([to, 0]);
+        } else if (holding.has(to)) low.set(node, Math.min(low.get(node)!, order.get(to)!));
+        continue;
+      }
+      stack.pop();
+      const parent = stack.at(-1);
+      if (parent) low.set(parent[0], Math.min(low.get(parent[0])!, low.get(node)!));
+      if (low.get(node) !== order.get(node)) continue;
+      const group: T[] = [];
+      let member: T;
+      do {
+        member = held.pop()!;
+        holding.delete(member);
+        group.push(member);
+      } while (member !== node);
+      if (group.length > 1 || after.includes(node)) {
+        for (const m of group) out.set(m, groups);
+        groups++;
+      }
+    }
+  }
+  return out;
+}
+
+/** The text an attribute definition's geometry is checked as, from the fields that place it. */
+function asText(definition: AttributeDefinition): Text {
+  return {
+    kind: "text",
+    layer: definition.layer,
+    at: definition.at,
+    height: definition.height,
+    value: definition.value,
+    rotation: definition.rotation,
+  };
+}
+
+/**
+ * True for an entity whose box can cost anything: an insert, a dimension, a leader, and a text
+ * too long for a table of strings to keep.
+ */
+function costsBoxes(e: Readonly<Record<string, unknown>>): boolean {
+  const kind = e.kind;
+  if (kind === "text") return typeof e.value === "string" && e.value.length > KEYED;
+  return (
+    kind === "insert" ||
+    kind === "leader" ||
+    kind === "linear-dimension" ||
+    kind === "aligned-dimension"
+  );
 }
 
 function geometryProblems(e: Entity): string[] {
@@ -1383,6 +2037,9 @@ function geometryProblems(e: Entity): string[] {
     case "aligned-dimension":
       finite("its points and its offset", ...e.from, ...e.to, e.offset);
       break;
+    case "leader":
+      finite("its point", ...e.at);
+      break;
   }
   return out;
 }
@@ -1411,6 +2068,7 @@ function zeroLength(e: Entity): string | undefined {
     case "insert":
     case "linear-dimension":
     case "aligned-dimension":
+    case "leader":
       return undefined;
   }
 }

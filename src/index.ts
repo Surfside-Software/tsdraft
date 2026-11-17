@@ -8,7 +8,17 @@ export {
   placeAttribute,
   type PlacedAttribute,
 } from "./blocks.ts";
-export { ARROWHEADS, type Arrowhead, type ArrowheadInfo } from "./arrowheads.ts";
+export {
+  ARROWHEADS,
+  DEFAULT_LEADER_ARROWHEAD,
+  LEADER_ARROWHEADS,
+  leaderArrowheadInfo,
+  type Arrowhead,
+  type ArrowheadInfo,
+  type LeaderArrowhead,
+  type LeaderArrowheadInfo,
+  type LeaderArrowheadStroke,
+} from "./arrowheads.ts";
 export type { CallSite } from "./callsite.ts";
 export {
   arrowheadHandles,
@@ -48,6 +58,13 @@ export {
   type LayerOptions,
   type Layout,
   type LayoutOptions,
+  type Leader,
+  type LeaderAttachment,
+  type LeaderOptions,
+  type LeaderSide,
+  type LeaderStyle,
+  type LeaderStyleDefinition,
+  type LeaderTargets,
   type Line,
   type LinearDimension,
   type LinearDimensionOptions,
@@ -59,6 +76,7 @@ export {
   type Polyline,
   type Sheet,
   type StandardAlignedDimensionOptions,
+  type StandardLeaderOptions,
   type StandardLinearDimensionOptions,
   type StandardViewportOptions,
   type Text,
@@ -97,10 +115,29 @@ export {
 } from "./intent.ts";
 export { fromJSON, toJSON } from "./json.ts";
 export { layoutHandles, viewportView, type LayoutHandles, type ViewportView } from "./layouts.ts";
+export {
+  attachmentCode,
+  findLeaderStyle,
+  leaderArrowheadHandles,
+  leaderAttachment,
+  leaderCount,
+  leaderOwnFlags,
+  leaderPicture,
+  leaderSide,
+  leaderSizes,
+  leaderStyleDictionaryHandle,
+  leaderStyleHandle,
+  STANDARD_LEADER_STYLE_SIZES,
+  type LeaderArrowheadDrawn,
+  type LeaderLine,
+  type LeaderPicture,
+  type LeaderSizes,
+} from "./leaders.ts";
 export { DrawingError, lint, type Diagnostic, type LintOptions, type LintRule } from "./lint.ts";
 export { CENTER, DASHDOT, DASHED, DOT, HIDDEN, LINEWEIGHTS, PHANTOM } from "./linetypes.ts";
-export { measureText, type TextMeasure, type TextToMeasure } from "./measure.ts";
+export { lineSpacing, measureText, type TextMeasure, type TextToMeasure } from "./measure.ts";
 export { fromPaper, type PaperScale, type PaperUnit } from "./paper.ts";
+export { pdfFace, svgToPDF, toPDF, type PdfOptions, type PdfSheet } from "./pdf.ts";
 export {
   PAPERS,
   PLOT_STYLE_TABLES,
@@ -126,10 +163,17 @@ export type {
   LayerLinetypeName,
   LayerName,
   LayoutName,
+  LeaderArrowheadOf,
+  LeaderScale,
+  LeaderSize,
+  LeaderStyleName,
+  LeaderTargetsOf,
+  LeaderText,
   LineweightOf,
   LinetypeName,
   MeasurementScale,
   NewDimensionStyleName,
+  NewLeaderStyleName,
   NewLinetypeName,
   NewTextStyleName,
   NotNegative,
@@ -155,6 +199,7 @@ export type {
   StandardDiscipline,
   StandardDocument,
   StandardLayer,
+  StandardLeaderStyle,
   StandardLinetype,
   StandardLink,
   StandardNames,
@@ -169,4 +214,39 @@ export type {
   StandardXref,
   TitleBlockFill,
 } from "./standard/document.ts";
+export { checkDrawingRead } from "./read/check.ts";
+export { readDXF } from "./read/dxf.ts";
+export { ReadError } from "./read/groups.ts";
+export {
+  BLOCK_ITEMS,
+  CENSUS_LIMIT,
+  READ_FORMAT,
+  type DrawingRead,
+  type ReadArc,
+  type ReadAttributeDefinition,
+  type ReadBlock,
+  type ReadCensus,
+  type ReadCensusDimension,
+  type ReadCensusInsert,
+  type ReadCensusText,
+  type ReadCircle,
+  type ReadDimensionStyle,
+  type ReadDrawingFile,
+  type ReadEntity,
+  type ReadField,
+  type ReadHeader,
+  type ReadInsert,
+  type ReadLayer,
+  type ReadLayerCensus,
+  type ReadLayout,
+  type ReadLine,
+  type ReadLinetype,
+  type ReadPolyline,
+  type ReadSpace,
+  type ReadText,
+  type ReadTextStyle,
+  type ReadUnread,
+  type ReadViewport,
+  type ReadXref,
+} from "./read/model.ts";
 export { toSVG, type SvgOptions } from "./svg.ts";

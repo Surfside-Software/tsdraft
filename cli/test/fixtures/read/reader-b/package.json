@@ -1,0 +1,10 @@
+{
+  "name": "reader-b",
+  "version": "2.0.0",
+  "type": "module",
+  "tsdraft": {
+    "readers": {
+      ".dwg": "./read.js"
+    }
+  }
+}

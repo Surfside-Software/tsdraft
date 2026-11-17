@@ -6,6 +6,7 @@ import { keyHandle } from "./handles.ts";
 import { layoutNameKey } from "./layers.ts";
 import type { PaperUnit } from "./paper.ts";
 import { layoutNameProblem, viewportProblem } from "./rules.ts";
+import { filled } from "./shape.ts";
 import { modelLength } from "./units.ts";
 
 /**
@@ -138,5 +139,5 @@ export function viewportView(
  */
 export function findLayout(drawing: Pick<Drawing, "layouts">, name: string): Layout | undefined {
   const key = layoutNameKey(name);
-  return drawing.layouts?.find((layout) => layoutNameKey(layout.name) === key);
+  return filled(drawing.layouts).find((layout) => layoutNameKey(layout.name) === key);
 }

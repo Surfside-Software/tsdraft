@@ -478,9 +478,15 @@ test("toSVG draws a layout as it plots: the sheet, each view clipped at its scal
   const svg = toSVG(drawing, { layout: "a-101" });
   // The picture is the paper, in its units, and white.
   assert.match(svg, /viewBox="0 -24 36 24" data-layout="A-101" data-paper="ARCH D">/);
-  assert.match(svg, /<rect x="0" y="-24" width="36" height="24" fill="#ffffff"\/>/);
+  assert.match(
+    svg,
+    /<rect x="0" y="-24" width="36" height="24" fill="#ffffff" data-paper-sheet=""\/>/,
+  );
   // The default pen is 0.25 mm of paper, in inches.
-  assert.match(svg, /<g transform="scale\(1 -1\)" fill="none" stroke-width="0.009843">/);
+  assert.match(
+    svg,
+    /<g transform="scale\(1 -1\)" fill="none" stroke-width="0.009843" stroke-linecap="round" stroke-linejoin="round">/,
+  );
   // The view: clipped to its rectangle, a tenth of an inch to the foot, about its center.
   assert.match(
     svg,
@@ -493,14 +499,16 @@ test("toSVG draws a layout as it plots: the sheet, each view clipped at its scal
   );
   // Inside it a 0.5 mm line is 0.5 mm on the paper, black under monochrome.ctb, and its
   // dashes are as long on the paper as the pattern: 0.5 of an inch is 5 feet of model space.
+  // The wall, 100 feet long, holds 13 patterns of 7.5 feet, and starts and ends with half of
+  // its first dash and of the 2.5 feet left over.
   const wall =
-    /<path d="M 100 100 L 105 100 M 107.5 100[^"]*" stroke="#000000" stroke-width="0.196850393701" [^>]*data-id="wall"\/>/;
+    /<path d="M 100 100 L 103.75 100 M 106.25 100 L 111.25 100[^"]*" stroke="#000000" stroke-width="0.196850393701" [^>]*data-id="wall"\/>/;
   assert.match(svg, wall);
   // The border of the viewport is on a layer that does not plot, so it is not drawn.
   assert.doesNotMatch(svg, /data-viewport-border/);
   assert.match(
     toSVG(drawing, { layout: "A-101", drawNoPlot: true }),
-    /<rect x="1" y="1" width="34" height="22" stroke="#000000" stroke-width="0.001969" data-layer="VIEW" data-viewport-border="0" data-id="plan"\/>/,
+    /<rect x="1" y="1" width="34" height="22" stroke="#000000" stroke-width="0.001969" data-thinnest="" data-layer="VIEW" data-viewport-border="0" data-id="plan"\/>/,
   );
   // What is on the sheet is drawn in paper units, after the views.
   assert.match(
@@ -525,7 +533,10 @@ test("toSVG draws a layout as it plots: the sheet, each view clipped at its scal
     /stroke="#4c4c4c" stroke-width="0.196850393701" [^>]*data-id="wall"/,
   );
   const pens = plotted("DWF Virtual Pens.ctb");
-  assert.match(pens, /fill="none" stroke-width="0.01">/);
+  assert.match(
+    pens,
+    /fill="none" stroke-width="0.01" stroke-linecap="round" stroke-linejoin="round">/,
+  );
   assert.match(pens, /stroke="#ff0000" data-layer="WALL" [^>]*data-id="wall"/);
   assert.throws(() => toSVG(drawing, { layout: "Nope" }), RangeError);
   // Model space is drawn as it was.

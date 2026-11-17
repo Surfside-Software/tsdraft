@@ -277,6 +277,16 @@ export function layerKey(name: string): string {
   return key;
 }
 
+/** `layerKey`, worked out once for each name, for a walk that reads one name many times. */
+export function layerKeys(): (name: string) => string {
+  const keys = new Map<string, string>();
+  return (name) => {
+    let key = keys.get(name);
+    if (key === undefined) keys.set(name, (key = layerKey(name)));
+    return key;
+  };
+}
+
 /**
  * The form of a layer name that AutoCAD's AUDIT compares when it looks for
  * duplicate names. AUDIT takes more names for the same than the layer table

@@ -6,17 +6,30 @@ import {
   eachDrawn,
   mapPoint,
   referencedByKey,
+  type LayerRef,
   type Matrix,
   type Referenced,
 } from "./blocks.ts";
 import { callOf, type CallSite } from "./callsite.ts";
 import { dimensionPicture } from "./dimensions.ts";
-import type { Drawing, Entity, Insert, Point, Text } from "./drawing.ts";
+import { leaderPicture, leaderRepeats } from "./leaders.ts";
+import type {
+  Block,
+  Drawing,
+  Entity,
+  Insert,
+  Leader,
+  LeaderStyle,
+  Point,
+  Text,
+  TextStyle,
+} from "./drawing.ts";
 import { written } from "./format.ts";
 import { layerKey } from "./layers.ts";
-import { measureText } from "./measure.ts";
+import { inStyle, measurer } from "./measure.ts";
 import { paperInfo } from "./papers.ts";
 import { shown } from "./rules.ts";
+import { filled, Strings } from "./shape.ts";
 import { visibility } from "./svg.ts";
 
 /** The checks `inspectText` makes. `text-check-capped` says that it stopped short. */
@@ -69,9 +82,26 @@ const TOLERANCE = 0.1;
 /**
  * The most work one drawing is checked for, counted in what the checks look at: each box the
  * grid looks at, the eight corners of two texts held against each other, and each point of an
- * outline held against a text, eight times over for the four sides of its box.
+ * outline held against a text, eight times over for the four sides of its box. The walk of an
+ * insert counts `WALKED` for each block it enters and each item it reads there, and as much for
+ * each 32 characters of a text it reads there, or of what a dimension's label reads, and of the
+ * lines of a leader's note with their characters. Each insert
+ * takes its first `FREE` of those steps free, and the walks of all of them as many more as one
+ * walk of every block and xref would take.
  */
 const MAX_WORK = 16_000_000;
+
+/** The shortest value or list of points a call reads once, however many places share it. */
+const LONG = 256;
+
+/** What the walk of an insert counts for each step, against `MAX_WORK`. */
+const WALKED = 16;
+
+/** The steps the walk of each insert takes free of the limit. */
+const FREE = 64;
+
+/** A block that draws nothing `inspectText` looks at, which stands in for one. */
+const NOTHING: Block = { name: "", entities: [] };
 
 export type Box = readonly [minX: number, minY: number, maxX: number, maxY: number];
 
@@ -115,7 +145,8 @@ interface Outline extends Placed {
  * - `text-off-paper`: on a layout, a text whose box reaches that far past the paper.
  *
  * A text's box is the one `measureText` gives: its capitals, turned and leaned as the text
- * is. A dimension's text counts as a text, where the dimension's picture puts it. Only what plots counts, as in `toSVG`: nothing on a layer that is off, frozen or set not
+ * is. A dimension's text counts as a text, where the dimension's picture puts it, and so does
+ * each line of a leader's note. Only what plots counts, as in `toSVG`: nothing on a layer that is off, frozen or set not
  * to plot. Model space and each layout are looked at apart, and a layout's text is never held
  * against what a viewport shows. An insert counts for the texts, the attributes and the
  * closed polylines its block draws, where the insert puts them, and a text with no characters
@@ -127,18 +158,108 @@ interface Outline extends Placed {
  * throw on a drawing `lint` reports an error for.
  */
 export function inspectText(drawing: Drawing, options: InspectOptions = {}): TextWarning[] {
-  const { tablesOf, hidden, frozen, styleOf } = visibility(drawing, options.drawNoPlot);
-  const blocks = blocksByKey(drawing.blocks);
-  const xrefs = referencedByKey(drawing, options.xrefs);
+  return inspectWithin(drawing, options, MAX_WORK);
+}
+
+/** `inspectText` with `most` units of work. */
+export function inspectWithin(
+  drawing: Drawing,
+  options: InspectOptions,
+  most: number,
+): TextWarning[] {
+  const { tablesOf, hidden, frozen, styleOf, key } = visibility(drawing, options.drawNoPlot);
   const out: TextWarning[] = [];
   let work = 0;
   let capped = false;
+  /** Where the checks are, put into words only once they stop there: an entity of a space. */
+  const at = { insert: false, index: 0, space: "" };
+  let stopped = "";
   /** Counts the cost of a step, and says whether there is room left to take it. */
-  const spend = (cost: number): boolean => {
+  const spend = (cost: number, where?: string): boolean => {
     if (capped) return false;
     work += cost;
-    capped = work > MAX_WORK;
+    capped = work > most;
+    if (capped) stopped = where ?? `${at.insert ? "insert" : "entity"} #${at.index} of ${at.space}`;
     return !capped;
+  };
+  const walk = (cost: number): boolean => spend(cost * WALKED);
+  const { measure, again: readAgain } = measurer();
+  /**
+   * Whether each value of `LONG` characters or more holds only spaces, read once. One that took
+   * the place of another, as `Strings` keeps them, is read again and paid for by its length,
+   * and past the limit counts as blank, so nothing is kept of it.
+   */
+  const blanks = new Strings<boolean>();
+  const blank = (value: string, where?: string): boolean => {
+    if (value.length < LONG) return value.trim() === "";
+    // Past the limit a long value is not looked up, which compares it with another.
+    if (capped) return true;
+    const known = blanks.get(value);
+    if (known !== undefined) return known;
+    if (blanks.clashes(value) && !spend(Math.floor(value.length / 32), where)) return true;
+    const found = value.trim() === "";
+    blanks.set(value, found);
+    return found;
+  };
+  const { blocks, xrefs, steps } = looked(
+    blocksByKey(drawing.blocks),
+    referencedByKey(drawing, options.xrefs),
+    hidden,
+    frozen,
+    (value) => blank(value, "the texts of the blocks"),
+  );
+  /** The steps the walks have left free of the limit, besides each insert's own. */
+  let pool = steps;
+  /** The outline of each long list of points no insert maps, worked out once however many hold it. */
+  const outlined = new WeakMap<object, Pick<Outline, "points" | "area" | "box" | "upright">>();
+  const outlineOf = (
+    points: readonly Point[],
+  ): Pick<Outline, "points" | "area" | "box" | "upright"> => {
+    const area = Math.abs(shoelace(points));
+    const box = boxOf(points);
+    // A polygon that fills its box is the box.
+    const upright = written(area) === written(2 * (box[2] - box[0]) * (box[3] - box[1]));
+    return { points, area, box, upright };
+  };
+  /**
+   * The lines of each leader's note that hold a character, as texts where its picture puts them,
+   * worked out once, with what reading them again costs.
+   */
+  const repeats = leaderRepeats();
+  const notes = new WeakMap<
+    Leader,
+    { style: LeaderStyle; textStyle: TextStyle | undefined; texts: Text[]; cost: number }
+  >();
+  const noteOf = (
+    leader: Leader,
+    style: LeaderStyle,
+    named: string | undefined,
+    textStyle: TextStyle | undefined,
+  ) => {
+    const known = notes.get(leader);
+    if (known?.style === style && known.textStyle === textStyle) return known;
+    const texts: Text[] = [];
+    // A leader that shares its shafts or its note with another is read again, and paid for.
+    const again = repeats(leader);
+    if (again > 0 && !walk(again)) return { style, textStyle, texts, cost: 0 };
+    let characters = 0;
+    for (const line of leaderPicture(leader, style, textStyle).lines) {
+      if (line.value.trim() === "") continue;
+      characters += line.value.length;
+      texts.push({
+        kind: "text",
+        layer: leader.layer,
+        at: line.at,
+        height: line.height,
+        value: line.value,
+        rotation: 0,
+        ...(line.align === "right" ? { align: "right" as const } : {}),
+        ...(named === undefined ? {} : { style: named }),
+      });
+    }
+    const note = { style, textStyle, texts, cost: Math.floor((texts.length + characters) / 32) };
+    notes.set(leader, note);
+    return note;
   };
 
   const space = (entities: readonly Entity[], layout?: string, paper?: Box): void => {
@@ -154,10 +275,27 @@ export function inspectText(drawing: Drawing, options: InspectOptions = {}): Tex
     ): void => {
       const { id, layer } = entities[index]!;
       const place = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
+      if (drawn.kind === "leader") {
+        // Each line of a leader's note is a text where its picture puts it.
+        const tables = tablesOf(from);
+        const style = tables.leaderStyles.get(key(drawn.style));
+        if (style === undefined) return;
+        const named = drawn.textStyle ?? style.textStyle;
+        const textStyle = named === undefined ? undefined : tables.textStyles.get(key(named));
+        const note = noteOf(drawn, style, named, textStyle);
+        // The note is read again for each place it is drawn.
+        if (!walk(note.cost)) return;
+        for (const text of note.texts) keep(text, index, matrix, from, attribute);
+        return;
+      }
       if (drawn.kind === "linear-dimension" || drawn.kind === "aligned-dimension") {
         // A dimension's text is a text where its picture puts it.
-        const style = tablesOf(from).dimensionStyles.get(layerKey(drawn.style));
+        const style = tablesOf(from).dimensionStyles.get(key(drawn.style));
         if (style === undefined) return;
+        // Its style's prefix and suffix are read for each dimension that has the style.
+        const reads =
+          (style.prefix?.length ?? 0) + (style.suffix?.length ?? 0) + (drawn.text?.length ?? 0);
+        if (!walk(Math.floor(reads / 32))) return;
         const { label } = dimensionPicture(drawn, style);
         const text: Text = {
           kind: "text",
@@ -174,7 +312,7 @@ export function inspectText(drawing: Drawing, options: InspectOptions = {}): Tex
       }
       if (drawn.kind === "text") {
         const style = styleOf(drawn, from);
-        const { corners } = measureText(style ? { ...drawn, ...style } : drawn);
+        const { corners } = measure(inStyle(drawn, style));
         const placed = matrix ? corners.map(place) : corners;
         const inner = innerBox(placed);
         if (!inner) return;
@@ -191,41 +329,80 @@ export function inspectText(drawing: Drawing, options: InspectOptions = {}): Tex
           box: boxOf(placed),
         });
       } else if (drawn.kind === "polyline") {
-        const points = matrix ? drawn.points.map(place) : drawn.points;
-        const area = Math.abs(shoelace(points));
-        if (!(area > 0)) return;
-        const box = boxOf(points);
-        // A polygon that fills its box is the box.
-        const upright = written(area) === written(2 * (box[2] - box[0]) * (box[3] - box[1]));
-        outlines.push({ entity: index, attribute, id, layer, points, area, box, upright });
+        if (matrix && !spend(Math.floor(drawn.points.length / 8))) return;
+        const long = !matrix && drawn.points.length >= LONG;
+        let found = long ? outlined.get(drawn.points) : undefined;
+        if (!found) {
+          const listed = filled(drawn.points);
+          found = outlineOf(matrix ? listed.map(place) : listed);
+          if (long) outlined.set(drawn.points, found);
+        }
+        if (!(found.area > 0)) return;
+        outlines.push({ entity: index, attribute, id, layer, ...found });
       }
     };
     const wanted = (e: Exclude<Entity, Insert>): boolean =>
       e.kind === "text"
-        ? e.value.trim() !== ""
+        ? !blank(e.value)
         : e.kind === "linear-dimension" ||
           e.kind === "aligned-dimension" ||
-          (e.kind === "polyline" && e.closed && e.points.length > 2);
-    entities.forEach((entity, index) => {
-      // Most entities are no insert, and are looked at without the walk an insert needs.
+          e.kind === "leader" ||
+          (e.kind === "polyline" && e.closed && Array.isArray(e.points) && e.points.length > 2);
+    const where = layout === undefined ? "model space" : `layout ${shown(layout)}`;
+    filled(entities).forEach((entity, index) => {
+      // Once the checks have stopped, no entity is read again.
+      if (capped) return;
+      at.insert = entity.kind === "insert";
+      at.index = index;
+      at.space = where;
+      // Most entities are no insert, and are looked at without the walk an insert needs. A long
+      // value that took the place of another of its length is read again, and paid for.
       if (entity.kind !== "insert") {
+        const value: unknown = entity.kind === "text" ? entity.value : undefined;
+        if (typeof value === "string" && value.length >= LONG && readAgain(value)) {
+          if (!spend(Math.floor(value.length / 32))) return;
+        }
         if (wanted(entity) && !hidden({ name: entity.layer })) keep(entity, index);
         return;
       }
       if (frozen({ name: entity.layer })) return;
+      let free = FREE;
+      const step = (cost: number): boolean => {
+        if (capped) return false;
+        const own = Math.min(free, cost);
+        free -= own;
+        const pooled = Math.min(pool, cost - own);
+        pool -= pooled;
+        return own + pooled === cost || walk(cost - own - pooled);
+      };
       eachDrawn(
         entity,
         blocks,
         frozen,
-        (drawn, at) => {
-          if (!wanted(drawn) || at.frozen || hidden(at.layer)) return;
-          keep(drawn, index, at.matrix, at.from, at.attribute);
+        (drawn, placement) => {
+          // A text is read for each place it is drawn, blank or not, so it is paid for first.
+          if (drawn.kind === "text" && !step(Math.floor(drawn.value.length / 32))) return;
+          if (!wanted(drawn) || hidden(placement.layer)) return;
+          keep(drawn, index, placement.matrix, placement.from, placement.attribute);
         },
         xrefs,
+        step,
+        key,
       );
     });
 
-    const warn = (rule: TextRule, text: PlacedText, message: string, other?: Placed): void => {
+    /**
+     * Adds a warning. Its message quotes texts, tags and names, `quoted` characters in all, and
+     * holds them, so it pays a unit for each before it is put into words.
+     */
+    const warn = (
+      rule: TextRule,
+      text: PlacedText,
+      message: () => string,
+      quoted: number,
+      other?: Placed,
+    ): void => {
+      if (!spend(quoted)) return;
       const box =
         other && "corners" in other
           ? boxOf([...text.corners, ...(other as PlacedText).corners])
@@ -234,7 +411,7 @@ export function inspectText(drawing: Drawing, options: InspectOptions = {}): Tex
       out.push({
         rule,
         severity: "warning",
-        message,
+        message: message(),
         ...(layout === undefined ? {} : { layout }),
         entity: text.entity,
         ...(text.attribute === undefined ? {} : { attribute: text.attribute }),
@@ -287,12 +464,16 @@ export function inspectText(drawing: Drawing, options: InspectOptions = {}): Tex
         : undefined;
     };
     texts.forEach((text, index) => {
+      at.insert = entities[text.entity]!.kind === "insert";
+      at.index = text.entity;
       const over = capped ? undefined : earliest(text, index);
       if (over) {
         warn(
           "text-overlaps-text",
           text,
-          `${named(text)} plots over ${named(over, false)}. Move one of them or make it shorter`,
+          () =>
+            `${named(text)} plots over ${named(over, false)}. Move one of them or make it shorter`,
+          quotes(text) + quotes(over),
           over,
         );
       }
@@ -301,7 +482,9 @@ export function inspectText(drawing: Drawing, options: InspectOptions = {}): Tex
         warn(
           "text-leaves-boundary",
           text,
-          `${named(text)} starts inside a closed polyline and runs past it. Make it shorter, break it into lines that measureText says fit, or move it`,
+          () =>
+            `${named(text)} starts inside a closed polyline and runs past it. Make it shorter, break it into lines that measureText says fit, or move it`,
+          quotes(text),
           around,
         );
       }
@@ -309,14 +492,16 @@ export function inspectText(drawing: Drawing, options: InspectOptions = {}): Tex
         warn(
           "text-off-paper",
           text,
-          `${named(text)} runs off the paper of layout ${shown(layout)}, which is ${paper[2]} by ${paper[3]}`,
+          () =>
+            `${named(text)} runs off the paper of layout ${shown(layout)}, which is ${paper[2]} by ${paper[3]}`,
+          quotes(text) + (layout?.length ?? 0),
         );
       }
     });
   };
 
   if (Array.isArray(drawing.entities)) space(drawing.entities);
-  for (const layout of Array.isArray(drawing.layouts) ? drawing.layouts : []) {
+  for (const layout of filled(drawing.layouts)) {
     if (!Array.isArray(layout?.entities)) continue;
     const paper = typeof layout.paper === "string" ? paperInfo(layout.paper) : undefined;
     space(layout.entities, layout.name, paper && [0, 0, paper.width, paper.height]);
@@ -325,11 +510,205 @@ export function inspectText(drawing: Drawing, options: InspectOptions = {}): Tex
     out.push({
       rule: "text-check-capped",
       severity: "warning",
-      message:
-        "The drawing has more text and closed polylines near each other than inspectText checks: it stopped short, so a text may overlap another or leave its outline with no warning",
+      message: `The drawing draws more text and closed polylines, or holds more near each other, than inspectText checks: it stopped short at ${stopped}, so a text from there on may overlap another or leave its outline with no warning`,
     });
   }
   return out;
+}
+
+/** What the walk of an insert reads, as `looked` leaves it. */
+interface Looked {
+  readonly blocks: ReadonlyMap<string, Block>;
+  readonly xrefs: ReadonlyMap<string, Referenced>;
+  /** The steps one walk of every block and every xref's model space takes. */
+  readonly steps: number;
+}
+
+/**
+ * The blocks and the xrefs as the walk of an insert finds them, each holding only what the
+ * checks can keep: a text with something to draw, a dimension, a closed polyline, an attribute
+ * definition, and an insert of a block or an xref that holds any of these, itself or through what
+ * it inserts. What is on a layer of its own that is hidden is left out wherever it is placed, and
+ * so is an insert on one that is frozen. A block left with nothing stands as one that draws
+ * nothing. The walk then pays only for what the checks look at.
+ */
+function looked(
+  blocks: ReadonlyMap<string, Block>,
+  xrefs: ReadonlyMap<string, Referenced>,
+  hidden: (layer: LayerRef) => boolean,
+  frozen: (layer: LayerRef) => boolean,
+  blank: (value: string) => boolean,
+): Looked {
+  let steps = 0;
+  /** Whether the checks may keep an entity that is no insert, as `wanted` judges it. */
+  const kept = (e: Exclude<Entity, Insert>): boolean => {
+    switch (e.kind) {
+      case "text":
+        // A value that is not a string is left for the walk to read as it did.
+        return typeof e.value !== "string" || !blank(e.value);
+      case "polyline":
+        return Boolean(e.closed) && Array.isArray(e.points) && e.points.length > 2;
+      case "linear-dimension":
+      case "aligned-dimension":
+      case "leader":
+        return true;
+      default:
+        return false;
+    }
+  };
+  /** A drawing's blocks, or an xref's model space, with what the checks keep and its inserts. */
+  interface Read {
+    readonly entities: Entity[];
+    /** The key of each insert's block, by its index in `entities`. */
+    readonly inserts: Map<number, string>;
+    /** Whether it holds something the checks keep, apart from its inserts. */
+    draws: boolean;
+  }
+  const read = (list: unknown, of: Referenced | undefined): Read => {
+    const out: Read = { entities: [], inserts: new Map(), draws: false };
+    for (const item of filled(list)) {
+      const e = item as Entity;
+      // An item that is no object is left for the walk to read as it did.
+      if (typeof item !== "object" || item === null) {
+        out.entities.push(e);
+        continue;
+      }
+      // An entity on a layer of its own hides as that layer does, wherever it is placed.
+      const layer: unknown = e.layer;
+      const own =
+        typeof layer === "string" && layer !== "0"
+          ? of
+            ? { name: layer, of }
+            : { name: layer }
+          : undefined;
+      if (e.kind === "insert") {
+        const name: unknown = e.block;
+        if (typeof name !== "string" || (own && frozen(own))) continue;
+        out.inserts.set(out.entities.length, layerKey(name));
+        out.entities.push(e);
+      } else if (kept(e) && !(own && hidden(own))) {
+        out.draws = true;
+        out.entities.push(e);
+      }
+    }
+    return out;
+  };
+  /**
+   * The blocks of one drawing that draw something the checks keep, given which xrefs do, with
+   * each block's entities cut to those.
+   */
+  const settle = (
+    within: ReadonlyMap<string, Block>,
+    of: Referenced | undefined,
+    xrefDraws: (key: string) => boolean,
+  ): Map<string, Block> => {
+    const reads = new Map<Block, Read>();
+    // A list that many blocks share is read once, and so are the keys it inserts.
+    const lists = new Map<unknown, Read>();
+    const holders = new Map<Read, Block[]>();
+    const insertedBy = new Map<string, Read[]>();
+    const toXref = new Set<Read>();
+    const defined = new Map<unknown, boolean>();
+    const drawing = new Set<Block>();
+    for (const block of within.values()) {
+      let found = lists.get(block.entities);
+      if (!found) {
+        lists.set(block.entities, (found = read(block.entities, of)));
+        holders.set(found, []);
+        for (const key of new Set(found.inserts.values())) {
+          if (!within.has(key) && xrefDraws(key)) toXref.add(found);
+          const by = insertedBy.get(key);
+          if (by) by.push(found);
+          else insertedBy.set(key, [found]);
+        }
+      }
+      reads.set(block, found);
+      holders.get(found)!.push(block);
+      let definitions = defined.get(block.attributes);
+      if (definitions === undefined) {
+        defined.set(block.attributes, (definitions = filled(block.attributes).length > 0));
+      }
+      if (found.draws || definitions || toXref.has(found)) drawing.add(block);
+    }
+    const keys = new Map<Block, string>();
+    for (const [key, block] of within) keys.set(block, key);
+    // Each list that inserts a block that draws is reached once, with every block that holds it.
+    const reached = new Set<Read>();
+    for (const block of drawing) {
+      for (const found of insertedBy.get(keys.get(block)!) ?? []) {
+        if (reached.has(found)) continue;
+        reached.add(found);
+        for (const by of holders.get(found)!) drawing.add(by);
+      }
+    }
+    const draws = (key: string): boolean => {
+      const block = within.get(key);
+      return block ? drawing.has(block) : xrefDraws(key);
+    };
+    const out = new Map<string, Block>();
+    const placings = new Map<Read, Entity[]>();
+    // What many blocks share is walked free of the limit once.
+    const counted = new Set<unknown>();
+    const count = (list: unknown, steps: () => number): number => {
+      if (counted.has(list)) return 0;
+      counted.add(list);
+      return steps();
+    };
+    for (const [key, block] of within) {
+      if (!drawing.has(block)) {
+        out.set(key, NOTHING);
+        continue;
+      }
+      const found = reads.get(block)!;
+      let placed = placings.get(found);
+      if (!placed) {
+        const { entities, inserts } = found;
+        placed = entities.filter((_, i) => !inserts.has(i) || draws(inserts.get(i)!));
+        placings.set(found, placed);
+      }
+      out.set(key, { ...block, entities: placed });
+      const listed = placed;
+      steps +=
+        1 +
+        count(listed, () => listed.length + characters(listed)) +
+        count(block.attributes, () => filled(block.attributes).length);
+    }
+    return out;
+  };
+  // An xref's model space, read once for each drawing given, and walked without xrefs of its own.
+  const done = new Map<Drawing, Referenced | undefined>();
+  const outXrefs = new Map<string, Referenced>();
+  for (const [key, xref] of xrefs) {
+    if (!done.has(xref.drawing)) {
+      const entities: Entity[] = [];
+      const of: Referenced = {
+        name: xref.name,
+        drawing: { ...xref.drawing, entities },
+        blocks: xref.blocks,
+      };
+      const inner = settle(xref.blocks, of, () => false);
+      const space = read(xref.drawing.entities, of);
+      space.entities.forEach((e, i) => {
+        const placed = space.inserts.get(i);
+        if (placed === undefined || (inner.get(placed) ?? NOTHING) !== NOTHING) entities.push(e);
+      });
+      steps += 1 + entities.length + characters(entities);
+      done.set(xref.drawing, entities.length > 0 ? { ...of, blocks: inner } : undefined);
+    }
+    const found = done.get(xref.drawing);
+    if (found) outXrefs.set(key, { ...found, name: xref.name });
+  }
+  const out = settle(blocks, undefined, (key) => outXrefs.has(key));
+  return { blocks: out, xrefs: outXrefs, steps };
+}
+
+/** The steps the walk counts for the lengths of the texts among some entities. */
+function characters(entities: readonly Entity[]): number {
+  let steps = 0;
+  for (const e of entities) {
+    if (e?.kind === "text" && typeof e.value === "string") steps += Math.floor(e.value.length / 32);
+  }
+  return steps;
 }
 
 function occurrence({ entity, attribute, id }: Placed): TextOccurrence {
@@ -338,6 +717,11 @@ function occurrence({ entity, attribute, id }: Placed): TextOccurrence {
     ...(attribute === undefined ? {} : { attribute }),
     ...(id === undefined ? {} : { id }),
   };
+}
+
+/** The characters `named` quotes. */
+function quotes(text: PlacedText): number {
+  return text.value.length + (text.attribute?.length ?? 0);
 }
 
 /** A text by its value, and by its tag when it is an attribute. */

@@ -72,11 +72,11 @@ export function view(d: D, ratio: number): View {
     extensionBeyond: 1 / 16,
     textGap: 1 / 32,
     scale: p(1),
-    // A civil view measures in decimal feet. An architectural one gets feet and inches as a
-    // text override, since a dimension writes only decimals.
-    precision: civil ? 1 : 0,
-    measurementScale: civil ? 1 / 12 : 1,
-    suffix: civil ? "'" : '"',
+    // A civil view measures in decimal feet, and an architectural one in feet and inches to the
+    // nearest 1/16".
+    ...(civil
+      ? { precision: 1, measurementScale: 1 / 12, suffix: "'" }
+      : { units: "architectural", precision: 4 }),
   });
   const v: View = { ratio, label: LABELS[ratio] ?? `1:${ratio}`, p, dim };
   views.set(ratio, v);
@@ -491,8 +491,7 @@ export function defineSymbols(d: D): void {
 
 /**
  * A chained string of linear dimensions through `points`, along `axis`, with its line at `at`
- * on the other axis. An architectural view writes feet and inches as each dimension's text, as
- * a dimension writes only decimals.
+ * on the other axis. Each writes what it measures, in its view's style.
  */
 export function dimString(
   d: D,
@@ -508,11 +507,9 @@ export function dimString(
     const a = unique[k - 1]!;
     const b = unique[k]!;
     const line: Point = axis === "x" ? [0, at] : [at, 0];
-    const civil = v.ratio >= 120;
     d.linearDimension(a, b, line, {
       style: v.dim,
       ...(axis === "y" ? { along: "y" as const } : {}),
-      ...(civil ? {} : { text: ftIn(b[i] - a[i]) }),
     });
   }
 }
@@ -520,7 +517,12 @@ export function dimString(
 // ---------------------------------------------------------------------------------------------
 // Notes in model space: a leader to a point, with lines of text.
 
-/** A note with a leader, sized for view `v`. `lines` are wrapped by the caller. */
+/**
+ * A leader: the note `lines` on a landing at `elbow`, with a shaft to `target` that ends in a
+ * closed arrowhead. The note is on the side of the elbow away from the target, justified away
+ * from the landing, with the middle of its first line level with the elbow. In CAD it is one
+ * multileader, in the view's leader style.
+ */
 export function leaderNote(
   d: D,
   v: View,
@@ -528,18 +530,30 @@ export function leaderNote(
   elbow: Point,
   lines: readonly string[],
 ): void {
-  const h = v.p(H.note);
-  const side = elbow[0] >= target[0] ? 1 : -1;
-  const end: Point = [elbow[0] + side * v.p(1 / 8), elbow[1]];
-  d.polyline([target, elbow, end]);
-  arrowhead(d, target, elbow, v.p(1 / 8));
-  const x = end[0] + side * v.p(1 / 16);
-  lines.forEach((line, k) => {
-    put(d, [x, elbow[1] - k * h * 1.6], line, h, {
-      align: side > 0 ? "left" : "right",
-      valign: "middle",
+  d.leader(lines, { style: leaderStyle(d, v), at: elbow, to: target });
+}
+
+/** The ratios each drawing has a leader style for. */
+const leaderStyles = new WeakMap<D, Set<number>>();
+
+/** The leader style of a view, `NOTE-` and its ratio, defined on first use in the drawing. */
+function leaderStyle(d: D, v: View): string {
+  const name = `NOTE-${v.ratio}`;
+  let defined = leaderStyles.get(d);
+  if (!defined) leaderStyles.set(d, (defined = new Set()));
+  if (!defined.has(v.ratio)) {
+    d.leaderStyle({
+      name,
+      textStyle: NOTES,
+      textHeight: H.note,
+      arrowSize: 1 / 8,
+      landing: 1 / 8,
+      gap: 1 / 16,
+      scale: v.p(1),
     });
-  });
+    defined.add(v.ratio);
+  }
+  return name;
 }
 
 /** A note of several lines in model space, wrapped to `maxPaper` inches. */

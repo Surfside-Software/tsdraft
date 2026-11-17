@@ -15,6 +15,7 @@ import { keyHandle } from "./handles.ts";
 import { layerKey } from "./layers.ts";
 import { written } from "./format.ts";
 import { attributeTagProblem, blockNameProblem, idKey, idProblem } from "./rules.ts";
+import { filled } from "./shape.ts";
 
 /** A map of the plane: `x' = a x + c y + e` and `y' = b x + d y + f`. */
 export type Matrix = readonly [a: number, b: number, c: number, d: number, e: number, f: number];
@@ -112,7 +113,7 @@ export function attributesEndHandle(insertId: string): string {
  */
 export function findBlock(drawing: Pick<Drawing, "blocks">, name: string): Block | undefined {
   const key = layerKey(name);
-  return drawing.blocks?.find((block) => layerKey(block.name) === key);
+  return filled(drawing.blocks).find((block) => layerKey(block.name) === key);
 }
 
 /**
@@ -121,11 +122,14 @@ export function findBlock(drawing: Pick<Drawing, "blocks">, name: string): Block
  */
 export function findXref(drawing: Pick<Drawing, "xrefs">, name: string): Xref | undefined {
   const key = layerKey(name);
-  return drawing.xrefs?.find((xref) => layerKey(xref.name) === key);
+  return filled(drawing.xrefs).find((xref) => layerKey(xref.name) === key);
 }
 
 /** The matrix that takes a block's coordinates to where an insert puts them. */
-export function insertMatrix(insert: Insert, base: Point = [0, 0]): Matrix {
+export function insertMatrix(
+  insert: Pick<Insert, "at" | "scale" | "rotation">,
+  base: Point = [0, 0],
+): Matrix {
   const [sx, sy] = insert.scale ?? [1, 1];
   const turn = ((insert.rotation ?? 0) * Math.PI) / 180;
   const cos = Math.cos(turn);
@@ -201,9 +205,9 @@ export function placeAttribute(
 ): PlacedAttribute {
   const value = attributeValue(insert, definition);
   const [sx, sy] = insert.scale ?? [1, 1];
+  // Only the numbers that place it are read, however many fields the insert has.
   const matrix = insertMatrix(
     {
-      ...insert,
       at: [written(insert.at[0]), written(insert.at[1])],
       scale: [written(sx), written(sy)],
       rotation: written(insert.rotation ?? 0),
@@ -253,21 +257,63 @@ export function attributeValue(insert: Insert, definition: AttributeDefinition):
     : definition.value;
 }
 
+/**
+ * The units of looking an attribute's tag up among the values an insert holds, one for each 256
+ * characters of the tag, since a lookup by a long name may take time in proportion to its length.
+ */
+export function lookupCost(insert: Insert, definition: AttributeDefinition): number {
+  const tag: unknown = definition.tag;
+  return insert.attributes !== undefined && typeof tag === "string"
+    ? Math.floor(tag.length / 256)
+    : 0;
+}
+
 /** The blocks of a drawing by name, as AutoCAD looks a block up. */
 export function blocksByKey(blocks: readonly Block[] | undefined): Map<string, Block> {
   const out = new Map<string, Block>();
   // The first of a name is the block, as it is for a layer.
-  for (const block of blocks ?? []) {
+  for (const block of filled(blocks)) {
     const key = layerKey(block.name);
     if (!out.has(key)) out.set(key, block);
   }
   return out;
 }
 
-/** An attribute definition as the text an insert draws for it, in the block's coordinates. */
-function attributeText(insert: Insert, definition: AttributeDefinition): Text {
-  const { tag: _tag, prompt: _prompt, value: _value, ...text } = definition;
-  return { kind: "text", ...text, value: attributeValue(insert, definition) };
+/**
+ * True for an item of a block's `attributes` that a walk reads as a definition: an object. Any
+ * other item draws nothing, where `lint` reports it.
+ */
+export function isDefinition(item: unknown): item is AttributeDefinition {
+  return typeof item === "object" && item !== null;
+}
+
+/** The fields of a text that an attribute definition gives the text an insert draws for it. */
+const DRAWN_FIELDS = [
+  "id",
+  "layer",
+  "linetype",
+  "lineweight",
+  "at",
+  "height",
+  "rotation",
+  "style",
+  "align",
+  "valign",
+] as const;
+
+/**
+ * An attribute definition as the text an insert draws for it, in the block's coordinates. It
+ * reads the fields a text has, so each placement costs the same whatever else the definition
+ * holds.
+ */
+export function attributeText(insert: Insert, definition: AttributeDefinition): Text {
+  const text: Record<string, unknown> = { kind: "text" };
+  const given = definition as unknown as Readonly<Record<string, unknown>>;
+  for (const field of DRAWN_FIELDS) {
+    if (Object.hasOwn(given, field)) text[field] = given[field];
+  }
+  text["value"] = attributeValue(insert, definition);
+  return text as unknown as Text;
 }
 
 /** A drawing that an xref stands for, under the xref's name in the drawing that references it. */
@@ -296,7 +342,7 @@ export function referencedByKey(
   const out = new Map<string, Referenced>();
   if (given === undefined) return out;
   const byKey = new Map(Object.keys(given).map((name) => [layerKey(name), given[name]!]));
-  for (const xref of drawing.xrefs ?? []) {
+  for (const xref of filled(drawing.xrefs)) {
     const key = layerKey(xref.name);
     const found = byKey.get(key);
     if (found !== undefined && !out.has(key)) {
@@ -312,8 +358,6 @@ export interface Placement {
   readonly matrix: Matrix | undefined;
   /** The layer the entity draws on: its own, or its insert's for an entity on layer `"0"`. */
   readonly layer: LayerRef;
-  /** True when an insert above the entity is on a layer that hides all an insert draws. */
-  readonly frozen: boolean;
   /**
    * The layer that the insert holding the entity draws on, which gives an entity its
    * `"ByBlock"` linetype and lineweight. Undefined in model space.
@@ -328,10 +372,33 @@ export interface Placement {
   readonly attribute?: string;
 }
 
+/** A block the walk of an insert is in, and how far it has read it. */
+interface Entered {
+  readonly insert: Insert;
+  readonly held: Block | Referenced;
+  readonly items: readonly Entity[];
+  readonly definitions: readonly AttributeDefinition[];
+  readonly matrix: Matrix;
+  readonly layer: LayerRef;
+  readonly inside: Referenced | undefined;
+  /** The blocks its inserts find theirs among. */
+  readonly inner: ReadonlyMap<string, Block>;
+  /** The next item to read: an entity until `entities` is false, then an attribute definition. */
+  next: number;
+  entities: boolean;
+}
+
+/** True for an index of a list that holds an item, which is not an empty slot or past its end. */
+function holds(list: readonly unknown[], index: number): boolean {
+  return index < list.length && (index in list || list[index] !== undefined);
+}
+
 /**
  * Calls `draw` for everything an entity draws: the entity itself, or for an insert each entity
- * of its block and each of its attributes as a text, through every insert inside. An insert of
- * a block the drawing does not have, or of a block that holds itself, draws nothing.
+ * of its block and each of its attributes as a text, through every insert inside, in that
+ * order. An insert of a block the drawing does not have, of a block that holds itself, or on a
+ * layer `isFrozen` takes draws nothing, and the walk does not enter it. A list is read up to its
+ * first empty slot. The walk keeps its own stack, so blocks nested any depth are walked.
  *
  * An insert of an xref draws the model space of the drawing given for it, as AutoCAD draws a
  * loaded xref: an entity on layer `"0"` there draws as the insert's layer does, as in a block,
@@ -342,6 +409,10 @@ export interface Placement {
  * @param isFrozen - True for a layer that hides everything an insert on it draws: a frozen
  *   layer, and in a plot a layer that does not plot.
  * @param xrefs - The drawing of each xref, as `referencedByKey` gives them.
+ * @param spend - Asked for 1 before the walk enters a block and before it reads each item of
+ *   one. The walk ends when it says no.
+ * @param key - `layerKey`, which the walk finds a block by.
+ * @returns False when `spend` ended the walk.
  */
 export function eachDrawn(
   entity: Entity,
@@ -349,63 +420,92 @@ export function eachDrawn(
   isFrozen: (layer: LayerRef) => boolean,
   draw: (entity: Exclude<Entity, Insert>, placement: Placement) => void,
   xrefs?: ReadonlyMap<string, Referenced>,
-): void {
+  spend: (cost: number) => boolean = () => true,
+  key: (name: string) => string = layerKey,
+): boolean {
   if (entity.kind !== "insert") {
     draw(entity, {
       matrix: undefined,
       layer: { name: entity.layer },
-      frozen: false,
       insertLayer: undefined,
       from: undefined,
     });
-    return;
+    return true;
   }
   const open = new Set<Block | Referenced>();
-  const walk = (
+  const stack: Entered[] = [];
+  /** Enters the block of an insert, when it draws anything. False when `spend` says no. */
+  const enter = (
     insert: Insert,
     within: ReadonlyMap<string, Block>,
     from: Referenced | undefined,
     outer: Matrix | undefined,
     layer: LayerRef,
-    frozen: boolean,
-  ) => {
-    const key = layerKey(insert.block);
-    const block = within.get(key);
-    const referenced = block || from ? undefined : xrefs?.get(key);
+  ): boolean => {
+    if (isFrozen(layer)) return true;
+    const name = key(insert.block);
+    const block = within.get(name);
+    const referenced = block || from ? undefined : xrefs?.get(name);
     const held = block ?? referenced;
-    if (!held || open.has(held)) return;
+    if (!held || open.has(held)) return true;
+    if (!spend(1)) return false;
     open.add(held);
     const own = insertMatrix(insert, block?.base);
-    const matrix = outer ? compose(outer, own) : own;
-    const hidden = frozen || isFrozen(layer);
-    // What the insert holds names the layers, linetypes and text styles of this drawing.
-    const inside = referenced ?? from;
+    const items = block ? block.entities : referenced!.drawing.entities;
+    const definitions = block?.attributes ?? [];
+    stack.push({
+      insert,
+      held,
+      items: Array.isArray(items) ? items : [],
+      definitions: Array.isArray(definitions) ? definitions : [],
+      matrix: outer ? compose(outer, own) : own,
+      layer,
+      // What the insert holds names the layers, linetypes and text styles of this drawing.
+      inside: referenced ?? from,
+      inner: referenced ? referenced.blocks : within,
+      next: 0,
+      entities: true,
+    });
+    return true;
+  };
+  if (!enter(entity, blocks, undefined, undefined, { name: entity.layer })) return false;
+  while (stack.length > 0) {
+    const at = stack.at(-1)!;
+    const { inside } = at;
     const layerOf = (name: string): LayerRef =>
-      name === "0" ? layer : inside ? { name, of: inside } : { name };
-    const inner = referenced ? referenced.blocks : within;
-    for (const item of block ? block.entities : referenced!.drawing.entities) {
-      if (item.kind === "insert") walk(item, inner, inside, matrix, layerOf(item.layer), hidden);
-      else {
+      name === "0" ? at.layer : inside ? { name, of: inside } : { name };
+    if (at.entities && !holds(at.items, at.next)) [at.entities, at.next] = [false, 0];
+    if (at.entities) {
+      const item = at.items[at.next++]!;
+      if (!spend(1)) return false;
+      if (item.kind !== "insert") {
         draw(item, {
-          matrix,
+          matrix: at.matrix,
           layer: layerOf(item.layer),
-          frozen: hidden,
-          insertLayer: layer,
+          insertLayer: at.layer,
           from: inside,
         });
-      }
+      } else if (!enter(item, at.inner, inside, at.matrix, layerOf(item.layer))) return false;
+      continue;
     }
-    for (const definition of block?.attributes ?? []) {
-      draw(attributeText(insert, definition), {
-        matrix,
+    if (holds(at.definitions, at.next)) {
+      const definition: unknown = at.definitions[at.next++];
+      if (!isDefinition(definition)) {
+        if (!spend(1)) return false;
+        continue;
+      }
+      if (!spend(1 + lookupCost(at.insert, definition))) return false;
+      draw(attributeText(at.insert, definition), {
+        matrix: at.matrix,
         layer: layerOf(definition.layer),
-        frozen: hidden,
-        insertLayer: layer,
+        insertLayer: at.layer,
         from: inside,
         attribute: definition.tag,
       });
+      continue;
     }
-    open.delete(held);
-  };
-  walk(entity, blocks, undefined, undefined, { name: entity.layer }, false);
+    open.delete(at.held);
+    stack.pop();
+  }
+  return true;
 }

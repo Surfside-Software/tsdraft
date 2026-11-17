@@ -2,6 +2,7 @@
 // mistake is a compile error, and as a runtime check with the same message, as `src/rules.ts`
 // holds the rules of a drawing. The rules a standard shares with a drawing, such as a layer's
 // name and color, are there.
+import { idKey, isStandardDimensionStyle } from "../rules.ts";
 import type { Section } from "./document.ts";
 
 const PAPER_UNITS = 'paperUnits must be "in" or "mm"';
@@ -9,13 +10,19 @@ const SHEET_FILES = 'sheetFiles must be "one-drawing" or "sheet-per-file"';
 const FILLS =
   'fills must be "number", "title", "project", "date", "scale", "drawnBy" or "checkedBy"';
 const SOURCE = 'source must be "attribute", "fileName", "layoutName" or "currentDate"';
-const WRITING_UNITS = 'units must be "decimal", the one way tsdraft writes a length';
+const WRITING_UNITS =
+  'units must be "decimal" or "architectural", which writes feet and inches with a fraction';
+const STYLE_NAME_STANDARD =
+  'A dimension style of a standard cannot be named "Standard" in AutoCAD, in any case: every drawing has AutoCAD\'s own style of that name';
 const LAYER_ZERO =
   'Layer "0" is in every drawing and in no standard. AutoCAD makes it in every drawing, and an entity of a block on it draws on its insert\'s layer';
 const ROLE_STANDARD =
   "A text role cannot be named standard, in any case of its letters. Its text style would be STANDARD, which AutoCAD takes for the text style Standard that every drawing has";
 const DIMENSION_STYLE_STANDARD =
   "A dimension style cannot be named standard, in any case of its letters. Its name in AutoCAD would be STANDARD, which AutoCAD takes for the dimension style Standard that every drawing has";
+const LEADER_STYLE_STANDARD =
+  "A leader style cannot be named standard, in any case of its letters. Its name in AutoCAD would be STANDARD, which is AutoCAD's own leader style";
+const LEADER_ATTACHMENT_OF = 'attachment must be "first-line" or "last-line"';
 const STANDARD_ID =
   "A standard's id has 1 to 128 characters, each a letter A to Z or a to z, a digit, ., -, _, @ or /";
 const STANDARD_VERSION =
@@ -32,6 +39,7 @@ const REFERENCES = {
   textRoles: ["Text role", "a text role", "text roles"],
   scales: ["Scale", "a scale", "scales"],
   dimensionStyles: ["Dimension style", "a dimension style", "dimension styles"],
+  leaderStyles: ["Leader style", "a leader style", "leader styles"],
   titleBlocks: ["Title block", "a title block", "title blocks"],
   sheetFormats: ["Sheet format", "a sheet format", "sheet formats"],
 } as const satisfies Record<Section, readonly [string, string, string]>;
@@ -116,8 +124,8 @@ export const SOURCES = ["attribute", "fileName", "layoutName", "currentDate"] as
 export type SourceOf<V> = OneOf<V, (typeof SOURCES)[number], typeof SOURCE>;
 export const sourceProblem = oneOf(SOURCES, SOURCE);
 
-export type WritingUnitsOf<V> = OneOf<V, "decimal", typeof WRITING_UNITS>;
-export const writingUnitsProblem = oneOf(["decimal"], WRITING_UNITS);
+export type WritingUnitsOf<V> = OneOf<V, "decimal" | "architectural", typeof WRITING_UNITS>;
+export const writingUnitsProblem = oneOf(["decimal", "architectural"], WRITING_UNITS);
 
 /** Resolves to the message when `N` is layer `0`, and to `never` otherwise. */
 export type LayerZero<N extends string> = N extends "0" ? typeof LAYER_ZERO : never;
@@ -142,6 +150,51 @@ export type DimensionStyleStandard<I extends string> =
   Uppercase<I> extends "STANDARD" ? typeof DIMENSION_STYLE_STANDARD : never;
 export function dimensionStyleIdProblem(id: string): string | undefined {
   return capitals(id) === "STANDARD" ? DIMENSION_STYLE_STANDARD : undefined;
+}
+
+/** Resolves to the message when the leader style `I` would be named `STANDARD`. */
+export type LeaderStyleStandard<I extends string> =
+  Uppercase<I> extends "STANDARD" ? typeof LEADER_STYLE_STANDARD : never;
+export function leaderStyleIdProblem(id: string): string | undefined {
+  return capitals(id) === "STANDARD" ? LEADER_STYLE_STANDARD : undefined;
+}
+
+/** Resolves to `V` when it is a leader style's attachment, and to the message otherwise. */
+export type LeaderAttachmentOf<V> = OneOf<
+  V,
+  "first-line" | "last-line",
+  typeof LEADER_ATTACHMENT_OF
+>;
+
+/**
+ * Resolves to the message when `N` is `Standard` in any case, the name of AutoCAD's own style,
+ * which a style of a standard's `layoutName` or `scaleNames` cannot have.
+ */
+export type StyleNameStandard<N extends string> =
+  Lowercase<N> extends "standard" ? typeof STYLE_NAME_STANDARD : never;
+export function styleNameStandardProblem(name: string): string | undefined {
+  return isStandardDimensionStyle(name) ? STYLE_NAME_STANDARD : undefined;
+}
+
+/**
+ * The name AutoCAD gives a dimension style of a standard: its `layoutName` on a layout, or else
+ * its id in capitals, and at a scale its name in `scaleNames`, found by the scale's id in any
+ * case, or else its id in capitals, a hyphen and the scale's id.
+ *
+ * @param scale - The id of the scale of the view a dimension in model space is drawn for, or
+ *   undefined on a layout.
+ */
+export function styleNameAt(
+  id: string,
+  style: { readonly layoutName?: string; readonly scaleNames?: Readonly<Record<string, string>> },
+  scale: string | undefined,
+): string {
+  if (scale === undefined) return style.layoutName ?? capitals(id);
+  const key = idKey(scale);
+  for (const [at, name] of Object.entries(style.scaleNames ?? {})) {
+    if (idKey(at) === key) return name;
+  }
+  return `${capitals(id)}-${scale}`;
 }
 
 /** Returns what is wrong with a standard's id, or undefined. */

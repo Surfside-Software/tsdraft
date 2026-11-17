@@ -20,11 +20,13 @@ import {
   type Entity,
   type Layer,
   type Layout,
+  type LeaderStyle,
   type Linetype,
   type TextStyle,
   type Viewport,
   type Xref,
 } from "../src/index.ts";
+import { timeLimit } from "./time-limit.ts";
 
 const styled = { linetype: "DD", lineweight: 0.25 } as const;
 const justified = { style: "NOTES", align: "center", valign: "middle" } as const;
@@ -97,13 +99,40 @@ const kinds: { readonly [K in Entity["kind"]]: Required<Extract<Entity, { kind: 
     text: "VARIES",
     id: "h",
   },
+  leader: {
+    kind: "leader",
+    layer: "0",
+    style: "NOTE",
+    text: ["NOTE", "SECOND LINE"],
+    at: [40, 10],
+    shafts: [
+      [[35, 5]],
+      [
+        [36, 2],
+        [38, 4],
+      ],
+    ],
+    side: "right",
+    attachment: "last-line",
+    textStyle: "NOTES",
+    textHeight: 0.08,
+    arrowSize: 0.05,
+    landing: 0.1,
+    gap: 0.02,
+    id: "i",
+  },
 };
 
 /** One of everything an R2018 drawing can hold, with every field of every object. */
 const full: Required<Drawing> & {
   readonly linetypes: readonly [Required<Linetype>];
   readonly textStyles: readonly [Required<TextStyle>];
-  readonly dimensionStyles: readonly [Required<DimensionStyle>];
+  // A style in decimal units leaves zeros out, and one in architectural units writes them.
+  readonly dimensionStyles: readonly [
+    Required<Omit<DimensionStyle, "feetInchZeros">>,
+    Required<Omit<DimensionStyle, "suppressZeros">>,
+  ];
+  readonly leaderStyles: readonly [Required<LeaderStyle>];
   readonly layers: readonly [Layer, Required<Layer>];
   readonly blocks: readonly [
     Block,
@@ -135,8 +164,39 @@ const full: Required<Drawing> & {
       precision: 2,
       prefix: "L ",
       suffix: "'",
+      units: "decimal",
       suppressZeros: "trailing",
       measurementScale: 2,
+    },
+    {
+      name: "ARCH",
+      textStyle: "NOTES",
+      textHeight: 0.1,
+      arrowhead: "architectural-tick",
+      arrowSize: 0.1,
+      extensionOffset: 0.05,
+      extensionBeyond: 0.1,
+      textGap: 0.05,
+      scale: 10,
+      precision: 4,
+      prefix: "",
+      suffix: "",
+      units: "architectural",
+      feetInchZeros: "both",
+      measurementScale: 12,
+    },
+  ],
+  leaderStyles: [
+    {
+      name: "NOTE",
+      textStyle: "NOTES",
+      textHeight: 0.1,
+      arrowhead: "dot",
+      arrowSize: 0.1,
+      landing: 0.1,
+      gap: 0.05,
+      attachment: "first-line",
+      scale: 10,
     },
   ],
   layers: [
@@ -308,7 +368,7 @@ Object.assign(globalThis, { toSVG });
 function drawn(drawing: Drawing): unknown {
   Object.assign(globalThis, { drawing });
   try {
-    draw.runInThisContext({ timeout: 1000 });
+    draw.runInThisContext({ timeout: timeLimit(1000) });
     return undefined;
   } catch (thrown) {
     return thrown;
@@ -389,7 +449,7 @@ test("a value of the wrong shape is reported in these words, once", () => {
       { toString: 0 },
       [
         "xref: Xref a value of type object: A block's name must be a string",
-        `undefined-block: insert #8: Block "BASE" is not defined. AutoCAD's AUDIT reports an insert of a block the drawing does not have, and AutoCAD cannot save the drawing as DXF`,
+        `undefined-block: insert #9: Block "BASE" is not defined. AutoCAD's AUDIT reports an insert of a block the drawing does not have, and AutoCAD cannot save the drawing as DXF`,
       ],
     ],
     [

@@ -176,7 +176,7 @@ toSVG(sheet, { xrefs: { BASE: base } });
   the path in `data-xref`. It holds the model space of the drawing you gave, where the insert
   puts it, by the layer rules above. An element on a layer of the referenced drawing has
   `data-layer="BASE|C-BLDG"`, as AutoCAD names that layer.
-- The extents take in what each insert draws.
+- The extents take in the box of what each insert draws, as they do for a block.
 - An xref with no drawing given draws nothing: its group is empty, and the extents leave it
   out.
 - The xrefs of the drawing you gave are not drawn, as AutoCAD loads no overlay of an overlay.
