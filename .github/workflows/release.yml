@@ -30,6 +30,10 @@ jobs:
             exit 1
           fi
       - run: pnpm install --frozen-lockfile
+      # A hosted runner, as in CI: the tests' vm time limits are four times what they are on a
+      # faster machine.
       - run: pnpm verify
+        env:
+          TSDRAFT_TIME_LIMIT_SCALE: 4
       - run: npm --version
       - run: npm publish
