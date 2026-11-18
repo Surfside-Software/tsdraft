@@ -192,7 +192,7 @@ import {
   disciplineLacks,
   DRAWN,
   fieldLacks,
-  filledByAutoCAD,
+  filledByCad,
   layerLacks,
   layoutAuditTwin,
   layoutNameField,
@@ -3406,7 +3406,7 @@ export class DrawingBuilder<
           if (own[key] !== undefined && !taken) {
             refuse(
               "layout",
-              filledByAutoCAD(tag, key, "the date the leading CAD app opens or plots the sheet"),
+              filledByCad(tag, key, "the date the leading CAD app opens or plots the sheet"),
             );
           }
         } else if (field.source === "attribute") {

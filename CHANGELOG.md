@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The README lists a viewport's own frozen layers and its twist with what tsdraft draws, and no
+  longer with what it does not have yet.
 - The README and the package's description name what tsdraft does now: plotting to PDF,
   reading DXF, leaders and standards. The README says any release before 1.0 can break code,
   and lists what tsdraft does not draw yet.

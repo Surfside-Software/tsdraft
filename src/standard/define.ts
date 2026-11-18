@@ -520,7 +520,7 @@ function resolve(
         boxIn(field.box, [0, 0, info.width, info.height], "the paper", `${at}.box`, add);
       }
       if (field.source !== "attribute" && !block.xref)
-        add(`${at}.source`, filledByAutoCAD(field.source));
+        add(`${at}.source`, filledByCad(field.source));
       if (
         (field.source === "fileName" || field.source === "layoutName") &&
         sheetFiles === "one-drawing"
@@ -953,7 +953,7 @@ function sharedStyleNames(
 const unitsProblem = (units: string, paperUnits: string): string =>
   `The drawing is in ${shown(units)}, and the standard's paperUnits are ${shown(paperUnits)}. A title block is drawn in paper units`;
 
-const filledByAutoCAD = (source: string): string =>
+const filledByCad = (source: string): string =>
   `A field whose source is ${shown(source)} is a field of the xref's drawing that the leading CAD app fills, and this title block has no xref`;
 
 const NO_HASH =
