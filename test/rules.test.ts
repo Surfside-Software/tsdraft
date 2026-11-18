@@ -48,19 +48,19 @@ test("literal mistakes are compile errors and runtime errors", () => {
   assert.throws(() => r2018.layer("A^B"), /cannot contain/);
   // @ts-expect-error: a line break would inject records into the file.
   assert.throws(() => r2018.layer("A\r\n0\r\nEOF"), /cannot contain/);
-  // @ts-expect-error: AutoCAD rejects a leading space.
+  // @ts-expect-error: the leading CAD app rejects a leading space.
   assert.throws(() => r2018.layer(" A"), /start or end/);
-  // @ts-expect-error: AutoCAD rejects a trailing space.
+  // @ts-expect-error: the leading CAD app rejects a trailing space.
   assert.throws(() => r2018.layer("A "), /start or end/);
   // @ts-expect-error: a name is required.
   assert.throws(() => r2018.layer(""), /empty/);
 
   // @ts-expect-error: colors run from 1 to 255.
-  assert.throws(() => r2018.layer("X", { color: 0 }), /Color Index/);
+  assert.throws(() => r2018.layer("X", { color: 0 }), /color index/);
   // @ts-expect-error: colors run from 1 to 255.
-  assert.throws(() => r2018.layer("X", { color: 256 }), /Color Index/);
+  assert.throws(() => r2018.layer("X", { color: 256 }), /color index/);
   // @ts-expect-error: colors are integers.
-  assert.throws(() => r2018.layer("X", { color: 1.5 }), /Color Index/);
+  assert.throws(() => r2018.layer("X", { color: 1.5 }), /color index/);
   r2018.layer("X", { color: 255 });
 
   // @ts-expect-error: a radius must be positive.
@@ -73,7 +73,7 @@ test("literal mistakes are compile errors and runtime errors", () => {
   assert.throws(() => r2018.text([0, 0], "x", { height: 0 }), /height/);
 
   // tsdraft writes 6 decimals, so a size under 0.0000005 would be written as 0.
-  // @ts-expect-error: AutoCAD gives text of height 0 its default height.
+  // @ts-expect-error: the leading CAD app gives text of height 0 its default height.
   assert.throws(() => r2018.text([0, 0], "x", { height: 4e-7 }), /height: .*written as 0/);
   // @ts-expect-error: the same number written out in full.
   assert.throws(() => r2018.circle([0, 0], 0.0000004), /radius: .*written as 0/);
@@ -88,7 +88,7 @@ test("literal mistakes are compile errors and runtime errors", () => {
   r2018.text([0, 0], "x", { height: 0.000001 });
   r2018.rect([0, 0], 1e21, 9.5e-7);
 
-  // AutoCAD reads two exponent digits from DXF, so it would take 1e+100 for 1e+10.
+  // The leading CAD app reads two exponent digits from DXF, so it would take 1e+100 for 1e+10.
   // @ts-expect-error: a radius of 1e100 would be read as 10000000000.
   assert.throws(() => r2018.circle([0, 0], 1e100), /radius: .*under 1e100/);
   // @ts-expect-error: the same for any number that prints with three exponent digits.
@@ -99,17 +99,17 @@ test("literal mistakes are compile errors and runtime errors", () => {
   r2018.circle([0, 0], 1e99);
   r2018.text([0, 0], "x", { height: 1e21 });
 
-  // @ts-expect-error: AutoCAD discards a drawing over an ohm sign in a layer name.
-  assert.throws(() => r2018.layer("10 k\u2126"), /AutoCAD rejects.*This name has U\+2126/);
+  // @ts-expect-error: the leading CAD app discards a drawing over an ohm sign in a layer name.
+  assert.throws(() => r2018.layer("10 k\u2126"), /CAD app rejects.*This name has U\+2126/);
   // @ts-expect-error: and over a zero-width space, which no one can see.
-  assert.throws(() => r2018.layer("A\u200bB"), /AutoCAD rejects.*This name has U\+200B/);
+  assert.throws(() => r2018.layer("A\u200bB"), /CAD app rejects.*This name has U\+200B/);
   // @ts-expect-error: and over Coptic letters.
-  assert.throws(() => r2018.layer("\u2c80\u2c81"), /AutoCAD rejects/);
-  // @ts-expect-error: AutoCAD replaces these private-use characters.
-  assert.throws(() => r2018.layer("A\ue8ffB"), /AutoCAD rejects or replaces/);
+  assert.throws(() => r2018.layer("\u2c80\u2c81"), /the leading CAD app rejects/);
+  // @ts-expect-error: the leading CAD app replaces these private-use characters.
+  assert.throws(() => r2018.layer("A\ue8ffB"), /the leading CAD app rejects or replaces/);
   // @ts-expect-error: the R12 rule comes second, so the message is the one for the character.
-  assert.throws(() => r12.layer("\u2126"), /AutoCAD rejects/);
-  // AutoCAD refuses only the ASCII space at the ends of a name.
+  assert.throws(() => r12.layer("\u2126"), /the leading CAD app rejects/);
+  // The leading CAD app refuses only the ASCII space at the ends of a name.
   r2018.layer("\u00a0A\u3000");
   r2018.layer("10 k\u03a9");
   r2018.layer("A\u00a0B \ue7ff\ue900 \u2116");
@@ -120,7 +120,7 @@ test("values the compiler cannot see are checked when the code runs", () => {
   const color: number = 300;
   assert.throws(() => createDrawing({ dxf: "R12" }).layer(name), /R12 layer names can only use/);
   createDrawing().layer(name);
-  assert.throws(() => createDrawing().layer("X", { color }), /Color Index/);
+  assert.throws(() => createDrawing().layer("X", { color }), /color index/);
   assert.throws(() => createDrawing().text([0, 0], "two\nlines"), /single line/);
   assert.throws(() => createDrawing().text([0, 0], "a\u0000b"), /control characters/);
   assert.throws(() => createDrawing().text([0, 0], "smile 😀"), /emoji/);
@@ -222,7 +222,7 @@ test("sizes, lines and arcs that rounding would collapse", () => {
   // Each side is big enough alone, but the far corner rounds onto the near one.
   assert.throws(() => b.rect([0.0000006, 0], 0.0000006, 5), /width: .*x = 0.000001/);
   assert.throws(() => b.rect([0, 1e17], 5, 1), /height: .*y = 100000000000000000/);
-  // All but a full circle: both angles are written as 180, which AutoCAD holds as no arc at all.
+  // All but a full circle: both angles are written as 180, which the leading CAD app holds as no arc at all.
   assert.throws(() => b.arc([0, 0], 1, 180.0000004, 180), /nearly a full turn/);
   assert.throws(() => b.arc([0, 0], 1, 0, 359.9999996), /nearly a full turn/);
   assert.throws(() => b.arc([0, 0], 1, 0.0000004, 0), /nearly a full turn/);
@@ -296,7 +296,7 @@ test("sizes, lines and arcs that rounding would collapse", () => {
   assert.throws(() => toDXF(byHand), DrawingError);
 });
 
-test("layer names are compared the way AutoCAD compares them", () => {
+test("layer names are compared the way the leading CAD app compares them", () => {
   const drawing = (layers: string[], used: string[]): Drawing => ({
     format: 0,
     units: "in",
@@ -306,13 +306,13 @@ test("layer names are compared the way AutoCAD compares them", () => {
   });
   const found = (d: Drawing) => lint(d).map((p) => `${p.rule} ${p.entity ?? p.layer}`);
 
-  // AutoCAD puts each of these lines on the declared layer.
+  // The leading CAD app puts each of these lines on the declared layer.
   const declared = ["MixedCase", "CAFÉ", "ΑΒΓ", "Слой", "ǄURO", "ＡＢＣ"];
   assert.deepEqual(
     found(drawing(declared, ["mixedcase", "café", "αβγ", "СЛОЙ", "ǆuro", "ａｂｃ"])),
     [],
   );
-  // AutoCAD makes a new layer for each of these, because its table does not pair the letters.
+  // The leading CAD app makes a new layer for each of these, because its table does not pair the letters.
   assert.deepEqual(
     found(
       drawing(
@@ -331,12 +331,12 @@ test("layer names are compared the way AutoCAD compares them", () => {
     ],
   );
 
-  // One layer to AutoCAD, which keeps only the first.
+  // One layer to the leading CAD app, which keeps only the first.
   assert.deepEqual(found(drawing(["ΑΒΓ", "αβγ", "Αβγ"], [])), [
     "duplicate-layer αβγ",
     "duplicate-layer Αβγ",
   ]);
-  // Two layers to AutoCAD, and one duplicate name to its AUDIT.
+  // Two layers to the leading CAD app, and one duplicate name to its AUDIT.
   const twins = lint(drawing(["ΟΔΟΣ", "οδος", "ŸVES", "ÿves", "ǅ", "ǆ", "STRAẞE", "straße"], []));
   assert.deepEqual(
     twins.map((p) => `${p.severity} ${p.rule} ${p.layer}`),
@@ -347,8 +347,8 @@ test("layer names are compared the way AutoCAD compares them", () => {
       "error duplicate-layer straße",
     ],
   );
-  assert.match(twins[0]?.message ?? "", /"οδος": AutoCAD keeps this layer and "ΟΔΟΣ" as two/);
-  // Neither AutoCAD nor its AUDIT takes these for the same.
+  assert.match(twins[0]?.message ?? "", /"οδος": The leading CAD app keeps this layer and "ΟΔΟΣ"/);
+  // Neither the leading CAD app nor its AUDIT takes these for the same.
   assert.deepEqual(found(drawing(["µm", "μm", "TITLE", "tıtle", "ᲐᲑ", "აბ"], [])), []);
 
   const b = createDrawing({ dxf: "R2018" });
@@ -364,7 +364,7 @@ test("layer names are compared the way AutoCAD compares them", () => {
   assert.equal(b.build().entities[0]?.layer, "ΟΔΟΣ");
 });
 
-test("lint handles text AutoCAD would change or draw differently", () => {
+test("lint handles text the leading CAD app would change or draw differently", () => {
   const d: Drawing = {
     format: 0,
     units: "in",
@@ -426,7 +426,7 @@ test("a DrawingError names no file format", () => {
   assert.doesNotMatch(many.message, /DXF/);
 });
 
-test("lint refuses a number AutoCAD would misread", () => {
+test("lint refuses a number the leading CAD app would misread", () => {
   const d: Drawing = {
     format: 0,
     units: "in",
@@ -448,7 +448,7 @@ test("lint refuses a number AutoCAD would misread", () => {
       { kind: "arc", layer: "0", center: [-1e100, 0], radius: 1e101, startAngle: 0, endAngle: 90 },
       { kind: "text", layer: "0", at: [0, 0], height: 1e100, rotation: 0, value: "x" },
       { kind: "text", layer: "0", at: [0, 0], height: 1, rotation: 1e100, value: "x" },
-      // Under 1e100 everything is written as AutoCAD reads it.
+      // Under 1e100 everything is written as the leading CAD app reads it.
       { kind: "line", layer: "0", from: [0, 9e99], to: [3, -9e99] },
       { kind: "circle", layer: "0", center: [9.999999e99, 0], radius: 9.999999999999998e99 },
     ],
@@ -516,7 +516,7 @@ test("lint refuses layer names that AUDIT would report as duplicates", () => {
   const [problem] = lint(drawing(["straße", "STRASSE"]));
   assert.equal(
     problem?.message,
-    'Layer "STRASSE": AutoCAD keeps this layer and "straße" as two layers, but its AUDIT reports them as one duplicate name',
+    'Layer "STRASSE": The leading CAD app keeps this layer and "straße" as two layers, but its AUDIT reports them as one duplicate name',
   );
 
   // AUDIT reports none of these, so they are no error.
@@ -537,7 +537,7 @@ test("lint refuses layer names that AUDIT would report as duplicates", () => {
     assert.deepEqual(duplicates([name, other]), [], name);
   }
 
-  // An entity on the other spelling is on no declared layer: AutoCAD would add one for it.
+  // An entity on the other spelling is on no declared layer: the leading CAD app would add one for it.
   const strays = lint(drawing(["straße", "café"], ["STRASSE", "cafe\u0301", "strase"]));
   assert.deepEqual(
     strays.map((p) => `${p.severity} ${p.rule} ${p.entity}`),
@@ -545,7 +545,7 @@ test("lint refuses layer names that AUDIT would report as duplicates", () => {
   );
   assert.equal(
     strays[0]?.message,
-    'line #0: layer "STRASSE" is not defined. AutoCAD does not take it for layer "straße": it would add a layer, and its AUDIT would report a duplicate name',
+    'line #0: layer "STRASSE" is not defined. The leading CAD app does not take it for layer "straße": it would add a layer, and its AUDIT would report a duplicate name',
   );
   assert.equal(strays[2]?.message, 'line #2: layer "strase" is not defined');
 
@@ -575,13 +575,13 @@ test("linetype, lineweight and layer state mistakes are compile errors and runti
   r12.layer("A", { linetype: "CONTINUOUS", lineweight: "Default", off: false, plot: true });
   r12.line([0, 0], [1, 1], { linetype: "ByLayer", lineweight: "ByLayer" });
 
-  // @ts-expect-error: AutoCAD discards a drawing with an entity of another lineweight.
-  assert.throws(() => d.line([0, 0], [1, 1], { lineweight: 0.33 }), /one of AutoCAD's/);
+  // @ts-expect-error: the leading CAD app discards a drawing with an entity of another lineweight.
+  assert.throws(() => d.line([0, 0], [1, 1], { lineweight: 0.33 }), /one of the leading CAD app's/);
   // @ts-expect-error: and gives a layer of another lineweight the default.
-  assert.throws(() => d.layer("A", { lineweight: 2.5 }), /one of AutoCAD's/);
+  assert.throws(() => d.layer("A", { lineweight: 2.5 }), /one of the leading CAD app's/);
   // @ts-expect-error: a layer's lineweight cannot be ByLayer.
   assert.throws(() => d.layer("A", { lineweight: "ByLayer" }), /or "Default"$/);
-  // @ts-expect-error: AutoCAD does not freeze the current layer.
+  // @ts-expect-error: the leading CAD app does not freeze the current layer.
   assert.throws(() => d.layer("0", { frozen: true }), /current layer/);
   // @ts-expect-error: AUDIT reports a layer whose linetype is ByLayer.
   assert.throws(() => d.layer("A", { linetype: "ByLayer" }), /cannot be ByLayer or ByBlock/);
@@ -592,11 +592,11 @@ test("linetype, lineweight and layer state mistakes are compile errors and runti
   // @ts-expect-error: AUDIT reports a pattern of one length.
   assert.throws(() => d.linetype({ name: "ONE", pattern: [1] }), /2 to 12 lengths/);
   const thirteen = [1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1] as const;
-  // @ts-expect-error: AutoCAD discards a drawing with a pattern of 13.
+  // @ts-expect-error: the leading CAD app discards a drawing with a pattern of 13.
   assert.throws(() => d.linetype({ name: "LONG", pattern: thirteen }), /2 to 12/);
   // @ts-expect-error: the linetype scale is a size.
   assert.throws(() => createDrawing({ linetypeScale: 0 }), /linetypeScale: .*greater than 0/);
-  // @ts-expect-error: and AutoCAD reads one written as 0 as 1.
+  // @ts-expect-error: and the leading CAD app reads one written as 0 as 1.
   assert.throws(() => createDrawing({ linetypeScale: 1e-7 }), /linetypeScale: .*written as 0/);
   // @ts-expect-error: the constructor checks it the same way.
   assert.throws(() => new DrawingBuilder({ linetypeScale: 0 }), /linetypeScale: .*greater than 0/);
@@ -604,13 +604,13 @@ test("linetype, lineweight and layer state mistakes are compile errors and runti
   assert.throws(() => d.linetype({ name: "T", pattern: [4e-7, -1] }), /pattern: .*written as 0/);
   // @ts-expect-error: and so would a gap.
   assert.throws(() => d.linetype({ name: "T", pattern: [1, -0.0000004] }), /written as 0/);
-  // @ts-expect-error: AutoCAD reads two exponent digits from DXF.
+  // @ts-expect-error: the leading CAD app reads two exponent digits from DXF.
   assert.throws(() => d.linetype({ name: "T", pattern: [1e100, -1] }), /pattern: .*under 1e100/);
   // @ts-expect-error: with two problems, the first length's is the one reported.
   assert.throws(() => d.linetype({ name: "T", pattern: [1e-7, 1e100] }), /pattern: .*written as 0/);
   // @ts-expect-error: a description is a single line.
   assert.throws(() => d.linetype({ name: "T", pattern: [], description: "a\nb" }), /single line/);
-  // @ts-expect-error: with none of the private-use characters AutoCAD replaces.
+  // @ts-expect-error: with none of the private-use characters the leading CAD app replaces.
   assert.throws(() => d.linetype({ name: "T", pattern: [], description: "\ue800" }), /private-use/);
   // @ts-expect-error: a definition given to a layer is checked as linetype() checks one.
   assert.throws(() => d.layer("A", { linetype: { name: "Continuous", pattern: [] } }), /in every/);
@@ -652,7 +652,7 @@ test("linetype mistakes the compiler cannot see are checked when the code runs",
   const weight: number = 0.33;
   const name: string = "NOPE";
   const pattern: number[] = [1];
-  assert.throws(() => d.line([0, 0], [1, 1], { lineweight: weight }), /one of AutoCAD's/);
+  assert.throws(() => d.line([0, 0], [1, 1], { lineweight: weight }), /CAD app's, in/);
   assert.throws(() => d.line([0, 0], [1, 1], { linetype: name }), /"NOPE" is not defined/);
   assert.throws(() => d.linetype({ name: "P", pattern }), /2 to 12 lengths/);
   assert.throws(
@@ -660,7 +660,7 @@ test("linetype mistakes the compiler cannot see are checked when the code runs",
     /249/,
   );
   d.linetype({ name: "ΟΔΟΣ", pattern: [1, -1] });
-  // A final sigma is no capital sigma to AutoCAD, but its AUDIT calls the two one name.
+  // A final sigma is no capital sigma to the leading CAD app, but its AUDIT calls the two one name.
   assert.throws(() => d.linetype({ name: "οδος", pattern: [1, -1] }), /AUDIT reports them as one/);
   assert.throws(() => d.line([0, 0], [1, 1], { linetype: "οδος" }), /not defined/);
   // The total of the lengths is written too, and the compiler cannot add.
@@ -721,7 +721,7 @@ test("lint checks the linetypes, lineweights and layer states of a drawing", () 
       "lineweight 1",
     ],
   );
-  assert.match(lint(drawing)[8]?.message ?? "", /AutoCAD discards a drawing that uses a linetype/);
+  assert.match(lint(drawing)[8]?.message ?? "", /discards a drawing that uses a linetype/);
 
   const r12: Drawing = {
     ...drawing,
@@ -761,17 +761,17 @@ test("lint checks the linetypes, lineweights and layer states of a drawing", () 
   assert.deepEqual(
     lint(odd).map((p) => p.message),
     [
-      `Linetype "TOTAL": its pattern: A linetype pattern's lengths, added up without their signs, must be under 1e100. The total is written too, and AutoCAD reads only two exponent digits from DXF`,
+      `Linetype "TOTAL": its pattern: A linetype pattern's lengths, added up without their signs, must be under 1e100. The total is written too, and the leading CAD app reads only two exponent digits from DXF`,
       'Linetype "TINY": its pattern: A dash or gap of this length is written as 0, because tsdraft writes 6 decimals, and would draw as a dot. Use 0 for a dot, or a length of 0.000001 or more',
-      'Linetype "Conti\u00adnuous": AutoCAD keeps this linetype and "Continuous" as two linetypes, but its AUDIT reports them as one duplicate name',
+      'Linetype "Conti\u00adnuous": The leading CAD app keeps this linetype and "Continuous" as two linetypes, but its AUDIT reports them as one duplicate name',
       `Linetype "NO DESCRIPTION": A linetype's description must be a string`,
       `Linetype "NOT AN ARRAY": A linetype's pattern must be an array of finite numbers`,
       "Linetype 7: A linetype's name must be a string",
       'Layer "0": a linetype is named by a string',
-      'Layer "0": A lineweight must be one of AutoCAD\'s, in millimetres: 0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8, 0.9, 1, 1.06, 1.2, 1.4, 1.58, 2 or 2.11, or "Default"',
+      'Layer "0": A lineweight must be one of the leading CAD app\'s, in millimetres: 0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8, 0.9, 1, 1.06, 1.2, 1.4, 1.58, 2 or 2.11, or "Default"',
       'Layer "0": off must be true or false',
       "line #0: a linetype is named by a string",
-      'line #0: A lineweight must be one of AutoCAD\'s, in millimetres: 0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8, 0.9, 1, 1.06, 1.2, 1.4, 1.58, 2 or 2.11, or "ByLayer", "ByBlock" or "Default"',
+      'line #0: A lineweight must be one of the leading CAD app\'s, in millimetres: 0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8, 0.9, 1, 1.06, 1.2, 1.4, 1.58, 2 or 2.11, or "ByLayer", "ByBlock" or "Default"',
     ],
   );
 });
@@ -792,7 +792,7 @@ test("text style and justification mistakes are compile errors and runtime error
   assert.throws(() => r12.text([0, 0], "x", { valign: "top" }), /no text justification/);
   r12.text([0, 0], "x", { style: "Standard", align: "left", valign: "baseline" });
 
-  // @ts-expect-error: AutoCAD draws a font it does not have in another font.
+  // @ts-expect-error: the leading CAD app draws a font it does not have in another font.
   assert.throws(() => d.textStyle({ name: "A", font: "Comic Sans MS" }), /one of FONTS/);
   // @ts-expect-error: an SHX font goes by its file name.
   assert.throws(() => d.textStyle({ name: "A", font: "txt" }), /one of FONTS/);
@@ -851,7 +851,7 @@ test("text style and justification mistakes are compile errors and runtime error
       assert.equal(found?.id, "t");
       assert.match(
         thrown.message,
-        /"MISSING" is not defined\. AutoCAD puts .* in Standard.* Define it with textStyle\(\) first/,
+        /"MISSING" is not defined\. The leading CAD app puts .* in Standard.* Define it with textStyle\(\) first/,
       );
       return true;
     },
@@ -1201,7 +1201,7 @@ test("two ids that give one handle are refused by the builder and by lint", () =
 });
 
 test("the extents hold a slanted text's lean, which its width factor does not widen", () => {
-  // AutoCAD draws the top of this text one height further along it, at a width factor of 2.
+  // The leading CAD app draws the top of this text one height further along it, at a width factor of 2.
   const box = (obliqueAngle: 45 | -45) => {
     const d = createDrawing();
     d.textStyle({ name: "S", font: "txt.shx", widthFactor: 2, obliqueAngle });

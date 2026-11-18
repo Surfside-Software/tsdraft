@@ -4,7 +4,7 @@ import type { PaperUnit } from "./paper.ts";
 
 /** What tsdraft knows of a paper size. */
 export interface PaperInfo {
-  /** The name AutoCAD stores for the size in a page setup for `DWG To PDF.pc3`. */
+  /** The name the leading CAD app stores for the size in a page setup for `DWG To PDF.pc3`. */
   readonly media: string;
   /** The unit of the size, and of everything drawn on a layout of this paper. */
   readonly units: PaperUnit;
@@ -14,8 +14,9 @@ export interface PaperInfo {
   /**
    * The medium as the plotter holds it, which the page setup stores: its width and height, and
    * the plot's rotation on it, as DXF group 73 holds it. 0 plots the layout as it is, on a medium
-   * as wide as the layout. 1 turns it a quarter turn onto a medium held upright, as AutoCAD's own
-   * landscape page setup on that medium does, and the PDF shows the page turned back, landscape.
+   * as wide as the layout. 1 turns it a quarter turn onto a medium held upright, as the leading CAD
+   * app's own landscape page setup on that medium does, and the PDF shows
+   * the page turned back, landscape.
    */
   readonly medium: {
     readonly width: number;
@@ -31,11 +32,11 @@ export interface PaperInfo {
 }
 
 /**
- * Every paper a layout may have. Each is a size that AutoCAD's `DWG To PDF.pc3` offers as full
- * bleed, with no margin the plotter keeps clear, and a layout of each is landscape, with the
- * longer side across. The plotter holds `ARCH E` upright, so its plot is turned a quarter turn
+ * Every paper a layout may have. Each is a size that the leading CAD app's `DWG To PDF.pc3` offers
+ * as full bleed, with no margin the plotter keeps clear, and a layout of each is landscape, with
+ * the longer side across. The plotter holds `ARCH E` upright, so its plot is turned a quarter turn
  * onto it. The list is closed because a page setup names its paper by the name the plotter
- * gives it, and AutoCAD plots a layout whose paper the plotter does not have on another size.
+ * gives it, and that app plots a layout whose paper the plotter does not have on another size.
  */
 export const PAPERS = {
   "ARCH A": inches("ARCH_full_bleed_A_(12.00_x_9.00_Inches)", 12, 9),
@@ -71,9 +72,9 @@ export function paperInfo(name: string): PaperInfo | undefined {
 
 /**
  * The plot style tables a layout's page setup may name, which are color-dependent tables that
- * AutoCAD installs. `monochrome.ctb` plots every color in black, `acad.ctb` each in its own
- * color, `Grayscale.ctb` each in a gray of its own, and `DWF Virtual Pens.ctb` each in the color
- * of its pen. Each but `DWF Virtual Pens.ctb` plots a line at the lineweight it has; that one
+ * the leading CAD app installs. `monochrome.ctb` plots every color in black, `acad.ctb` each in its
+ * own color, `Grayscale.ctb` each in a gray of its own, and `DWF Virtual Pens.ctb` each in the
+ * color of its pen. Each but `DWF Virtual Pens.ctb` plots a line at the lineweight it has; that one
  * plots every line 0.254 mm wide.
  */
 export const PLOT_STYLE_TABLES = [
@@ -95,8 +96,8 @@ export const PLOTTER = "DWG To PDF.pc3";
 const MM_PER_INCH = 25.4;
 
 /**
- * A paper length in millimetres as AutoCAD holds it in a page setup: the nearest number that
- * fits in four bytes, which for 36 inches is 914.4000244140625.
+ * A paper length in millimetres as the leading CAD app holds it in a page setup: the nearest number
+ * that fits in four bytes, which for 36 inches is 914.4000244140625.
  */
 export function paperMillimetres(length: number, units: PaperUnit): number {
   return Math.fround(units === "in" ? length * MM_PER_INCH : length);

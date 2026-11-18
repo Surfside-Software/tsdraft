@@ -97,8 +97,8 @@ interface TableRecord {
 }
 
 /**
- * Writes an ASCII DXF for AutoCAD 2018 and later (AC1032), the newest DXF
- * version Autodesk has published. AutoCAD 2027 still reads and writes AC1032.
+ * Writes an ASCII DXF in the R2018 format (AC1032), the newest DXF version
+ * published. The 2027 release of the leading CAD app still reads and writes AC1032.
  *
  * Unlike R12, this version has handles, owner links, an OBJECTS section and the
  * `$INSUNITS` header, so the drawing's units reach CAD and xref and block
@@ -131,8 +131,8 @@ export function toDXFR2018(
   const sheets = layouts.map((layout, index) => sheetOf(layout, index));
   const layoutDictionary = sheets.length > 0 ? handle() : "";
   const modelLayout = sheets.length > 0 ? handle() : "";
-  // The extents are worked out here, so they are brought into the range AutoCAD reads. Each
-  // block's outline is worked out once for the drawing, within the limit `lint` boxes it in.
+  // The extents are worked out here, so they are brought into the range the leading CAD app reads.
+  // Each block's outline is worked out once for the drawing, within the limit `lint` boxes it in.
   const boxOf = boxer(
     drawing.textStyles,
     drawing.blocks,
@@ -233,7 +233,7 @@ export function toDXFR2018(
         g(6, layerLinetype(layer));
         if (layer.plot === false) g(290, 0);
         g(370, lineweightCode(layer.lineweight ?? "Default"));
-        g(390, normalPlotStyle); // AutoCAD rejects a layer without a plot style
+        g(390, normalPlotStyle); // the leading CAD app rejects a layer without a plot style
       },
     })),
   );
@@ -392,7 +392,7 @@ export function toDXFR2018(
       flags: INSUNITS[drawing.units],
       fields: blockRecordFields,
     })),
-    // An xref's record states no units: AutoCAD keeps the scale each insert of it has.
+    // An xref's record states no units: the leading CAD app keeps the scale each insert of it has.
     ...xrefs.map((xref) => ({
       type: "BLOCK_RECORD",
       subclass: "AcDbBlockTableRecord",
@@ -632,7 +632,7 @@ export function toDXFR2018(
   g(0, "ACDBPLACEHOLDER");
   ownedBy(g, normalPlotStyle, plotStyleDictionary);
   if (leaderStyles.length > 0) {
-    // AutoCAD's own style, then the drawing's, which the dictionary lists by name.
+    // The leading CAD app's own style, then the drawing's, which the dictionary lists by name.
     const styles: [LeaderStyle, string][] = [
       [STANDARD_LEADER_STYLE_SIZES, standardStyle],
       ...leaderStyles.map((style): [LeaderStyle, string] => [
@@ -701,7 +701,7 @@ export function toDXFR2018(
   h(8, "0");
   const [first] = sheets;
   if (first !== undefined) {
-    // AutoCAD takes the extents and the limits of the layout it opens on from the header.
+    // The leading CAD app takes the extents and the limits of the layout it opens on from the header.
     const [pMinX, pMinY, pMaxX, pMaxY] = sheetBoxes[0]!;
     const limits = sheetLimits(first.paper);
     h(9, "$PEXTMIN");
@@ -719,7 +719,7 @@ export function toDXFR2018(
     h(70, 0);
   }
   h(9, "$HANDSEED");
-  // AutoCAD numbers the objects it adds from the seed up, so it is above every handle here.
+  // The leading CAD app numbers the objects it adds from the seed up, so it is above every handle here.
   const named =
     blocks.length > 0 ||
     xrefs.length > 0 ||
@@ -799,7 +799,7 @@ function writeActiveViewport(
   maxY: number,
 ): void {
   const aspect = 1.6;
-  // A drawing can span more than AutoCAD can read as one number, so the height is capped.
+  // A drawing can span more than the leading CAD app can read as one number, so the height is capped.
   const height = readable(Math.max(maxY - minY, (maxX - minX) / aspect, 1) * 1.1);
   g(10, 0); // lower-left corner of the viewport on screen
   g(20, 0);
@@ -867,7 +867,7 @@ function writeBlock(
   g(70, block.anonymous ? 1 : block.xrefPath !== undefined ? 12 : block.hasAttributes ? 2 : 0);
   point(g, 10, ...(block.base ?? [0, 0]));
   g(3, name);
-  // AutoCAD decodes a block's path once, where it decodes a text twice.
+  // The leading CAD app decodes a block's path once, where it decodes a text twice.
   g(1, block.xrefPath === undefined ? "" : dxfOnce(block.xrefPath));
   block.contents?.();
   g(0, "ENDBLK");
@@ -1031,7 +1031,7 @@ const ZERO_SUPPRESSION_CODES = { leading: 4, trailing: 8, both: 12 } as const;
 function writeDimensionStyle(g: Group, style: DimensionStyle, textStyle: string): void {
   const prefix = style.prefix ?? "";
   const suffix = style.suffix ?? "";
-  // AutoCAD decodes this string once, as it does a linetype's description.
+  // The leading CAD app decodes this string once, as it does a linetype's description.
   if (prefix !== "" || suffix !== "") g(3, dxfOnce(`${prefix}<>${suffix}`));
   g(40, style.scale ?? 1); // DIMSCALE
   g(41, style.arrowSize); // DIMASZ
@@ -1040,7 +1040,7 @@ function writeDimensionStyle(g: Group, style: DimensionStyle, textStyle: string)
   const arrowhead = style.arrowhead ?? DEFAULT_ARROWHEAD;
   const block = arrowheadInfo(arrowhead)?.block;
   // DIMDLE: with a tick, the dimension line runs one arrow size past each extension line,
-  // as AutoCAD draws it whenever it turns the ticks outward.
+  // as the leading CAD app draws it whenever it turns the ticks outward.
   if (block !== undefined) g(46, style.arrowSize);
   g(73, 0); // DIMTIH: the text is along the dimension line
   g(74, 0); // DIMTOH
@@ -1068,8 +1068,8 @@ function writeDimensionStyle(g: Group, style: DimensionStyle, textStyle: string)
 }
 
 /**
- * Writes a dimension. It names no block of its picture: AutoCAD draws the picture when it
- * reads the file, from the dimension's points and its style.
+ * Writes a dimension. It names no block of its picture: the leading CAD app draws the picture when
+ * it reads the file, from the dimension's points and its style.
  */
 function writeDimension(
   g: Group,
@@ -1097,7 +1097,7 @@ function writeDimension(
   g(70, e.kind === "aligned-dimension" ? 33 : 32);
   if (e.text !== undefined) g(1, dxfOnce(e.text));
   g(71, 5); // the text is placed by its middle
-  // What it reads, with 15 digits: AutoCAD works it out only when it draws the picture
+  // What it reads, with 15 digits: the leading CAD app works it out only when it draws the picture
   // itself, and keeps the picture the file holds.
   if (style) g(42, measurementValue(e, style));
   g(3, style?.name ?? e.style);
@@ -1126,9 +1126,9 @@ interface Picture {
 const TEXT_CHUNK = 250;
 
 /**
- * Writes the block of a dimension's picture as AutoCAD writes one: the two extension lines,
- * the dimension line, the arrowheads and the text, on the dimension's layer, in the color and
- * lineweight of the dimension. It holds no definition points: they do not plot, and AutoCAD
+ * Writes the block of a dimension's picture as the leading CAD app writes one: the two extension
+ * lines, the dimension line, the arrowheads and the text, on the dimension's layer, in the color
+ * and lineweight of the dimension. It holds no definition points: they do not plot, and that app
  * works them out again when it draws the dimension anew.
  */
 function writePicture(g: Group, { name, picture, handles, layer, textStyle }: Picture): void {
@@ -1186,7 +1186,7 @@ function writePicture(g: Group, { name, picture, handles, layer, textStyle }: Pi
       g(46, 0);
       g(71, 5); // placed by its middle
       g(72, 1); // left to right
-      // AutoCAD writes the text with a code that centers what is stacked in it.
+      // The leading CAD app writes the text with a code that centers what is stacked in it.
       const text = dxfOnce(`\\A1;${label.value}`);
       let at = 0;
       while (text.length - at > TEXT_CHUNK) {
@@ -1198,7 +1198,7 @@ function writePicture(g: Group, { name, picture, handles, layer, textStyle }: Pi
       g(1, text.slice(at));
       g(7, textStyle);
       if (written(label.rotation) !== 0) {
-        // 15 digits of the direction: 6 decimals would turn the text off AutoCAD's own.
+        // 15 digits of the direction: 6 decimals would turn the text off the leading CAD app's own.
         g(11, fifteenDigits(label.direction[0]));
         g(21, fifteenDigits(label.direction[1]));
         g(31, 0);
@@ -1219,8 +1219,8 @@ function measurementValue(dimension: Dimension, style: DimensionStyle): string {
 /**
  * A number with 15 significant digits and no exponent, which JavaScript writes for a number
  * under a millionth. Summed as a whole number, 15 digits stay under 2^53, so the double
- * AutoCAD reads from them can be worked out exactly, where a 16th may move it a unit in the
- * last place.
+ * the leading CAD app reads from them can be worked out exactly, where a 16th may move it a unit in
+ * the last place.
  */
 function fifteenDigits(value: number): string {
   const kept = Number(value.toPrecision(15));
@@ -1242,12 +1242,13 @@ function sheetOf(layout: Layout, index: number): Sheet {
   return { layout, handles: validLayoutHandles(layout.name), block: layoutBlockName(index), paper };
 }
 
-/** AutoCAD holds the extents of a space with nothing in it as these, the wrong way round. */
+/** The leading CAD app holds the extents of a space with nothing in it as these, the wrong way round. */
 const EMPTY_EXTENT = 1e20;
 
 /**
  * The limits of a layout, `[minX, minY, maxX, maxY]` in paper units: the part of the sheet
- * that prints, worked out as AutoCAD does from the sizes its page setup holds in millimetres.
+ * that prints, worked out as the leading CAD app does from the sizes its
+ * page setup holds in millimetres.
  */
 function sheetLimits(paper: PaperInfo): [number, number, number, number] {
   const [left, bottom, right, top] = paper.printable;
@@ -1263,7 +1264,7 @@ function sheetLimits(paper: PaperInfo): [number, number, number, number] {
 
 /**
  * The extents of what a layout holds, in paper units: its entities and the rectangles of its
- * viewports. A layout that holds nothing has the extents AutoCAD gives an empty one.
+ * viewports. A layout that holds nothing has the extents the leading CAD app gives an empty one.
  */
 function sheetExtents(
   sheet: Sheet,
@@ -1369,12 +1370,13 @@ function writeViewFields(
 
 /** In a viewport's status, group 90: the view is locked against zooming. */
 const VIEW_LOCKED = 0x4000;
-/** In group 90: a bit AutoCAD sets on every viewport, with the UCS icon's two bits. */
+/** In group 90: a bit the leading CAD app sets on every viewport, with the UCS icon's two bits. */
 const VIEW_STATUS = 0x8000 | 0x40 | 0x20;
 
 /**
- * The viewport AutoCAD keeps for the sheet as a whole, which is the first of every layout and
- * has the number 1. Its view is the sheet with a margin, so the layout opens on its paper.
+ * The viewport the leading CAD app keeps for the sheet as a whole, which is the first of every
+ * layout and has the number 1. Its view is the sheet with a margin, so
+ * the layout opens on its paper.
  */
 function writeSheetViewport(g: Group, sheet: Sheet, owner: string): void {
   const { width, height } = sheet.paper;
@@ -1436,8 +1438,8 @@ const PLOT_MODEL_TYPE = 1024;
 const PLOT_INITIALIZING = 8192;
 
 /**
- * The layout of the model tab. Its page setup names no plotter, so AutoCAD marks it as one
- * still to be set up, and plots model space with the settings a drafter gives it.
+ * The layout of the model tab. Its page setup names no plotter, so the leading CAD app marks it as
+ * one still to be set up, and plots model space with the settings a drafter gives it.
  */
 function writeModelLayout(
   g: Group,
@@ -1584,7 +1586,7 @@ function writeClass(
   g(281, of.entity ? 1 : 0);
 }
 
-/** A color AutoCAD holds as ByLayer and as ByBlock, as a multileader and its style write one. */
+/** A color the leading CAD app holds as ByLayer and as ByBlock, as a multileader and its style write one. */
 const COLOR_BY_LAYER = -1073741824;
 const COLOR_BY_BLOCK = -1056964608;
 /** The lineweight ByBlock, as a multileader and its style write it. */
@@ -1629,7 +1631,7 @@ function writeLeaderStyle(
   g(291, 1); // of a set length
   g(43, sizes.landing);
   g(3, ""); // description
-  // The closed filled arrowhead is AutoCAD's default, which the style names by no block.
+  // The closed filled arrowhead is the leading CAD app's default, which the style names by no block.
   if (block !== undefined) g(341, blockHandles(block).record);
   g(44, sizes.arrowSize);
   g(300, ""); // the default text
@@ -1642,7 +1644,7 @@ function writeLeaderStyle(
   g(45, sizes.textHeight);
   g(292, 0); // no frame
   g(297, 0); // a note on the left is justified right
-  g(46, 0.18 * scale); // the spacing MLEADERALIGN offers, as AutoCAD's Standard style has it
+  g(46, 0.18 * scale); // the spacing MLEADERALIGN offers, as the leading CAD app's Standard style has it
   g(94, COLOR_BY_BLOCK);
   g(47, 1); // the block's scale
   g(49, 1);
@@ -1654,7 +1656,7 @@ function writeLeaderStyle(
   g(142, 1); // scale
   g(295, 0);
   g(296, 0); // not annotative
-  g(143, 0.125 * scale); // the size of a break DIMBREAK makes, as AutoCAD's Standard style has it
+  g(143, 0.125 * scale); // the size of a break DIMBREAK makes, as the leading CAD app's Standard style has it
   g(271, 0); // the landing meets the note at its side
   g(272, 9);
   g(273, 9);
@@ -1731,7 +1733,7 @@ function writeLeader(
   g(294, 0);
   g(295, 0);
   g(296, 0); // no block
-  // The plane the leader is drawn in, from the first tip, as AutoCAD's MLEADER sets it.
+  // The plane the leader is drawn in, from the first tip, as the leading CAD app's MLEADER sets it.
   const tip = e.shafts[0]![0]!;
   point3(g, 110, tip[0], tip[1], 0);
   point3(g, 111, 1, 0, 0);

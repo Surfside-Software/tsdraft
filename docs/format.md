@@ -104,9 +104,9 @@ A wrong literal id is a compile error. The builder checks every id when the code
 ### An id gives a handle
 
 In an R2018 DXF every object has a handle, a number that is unique in the drawing and written
-in hexadecimal. AutoCAD names an object by its handle. When another drawing attaches yours as
-an xref and someone dimensions one of your entities there, the dimension holds that entity's
-handle and nothing else about it.
+in hexadecimal. The leading CAD app names an object by its handle. When another drawing attaches
+yours as an xref and someone dimensions one of your entities there, the dimension holds that
+entity's handle and nothing else about it.
 
 An entity with an id gets a handle that comes from the id alone:
 
@@ -118,13 +118,13 @@ idHandle("column-A1"); // "1C53484D4C9BAB"
 
 - The entity keeps that handle when other entities, layers, linetypes and text styles are
   added, removed or reordered, and when the entity itself changes. That much is guaranteed.
-- What another drawing has tied to the handle is AutoCAD's to place. A dimension on the ends
-  of a line or the quadrants of a circle follows the entity when it moves and the xref is
+- What another drawing has tied to the handle is the leading CAD app's to place. A dimension on the
+  ends of a line or the quadrants of a circle follows the entity when it moves and the xref is
   reloaded. That is not promised when the entity becomes another kind of entity, or when a
   polyline gains, loses or reorders vertices.
 - An entity with no id gets the next handle counted up from 1, after the tables. Add a layer
-  or an entity in front of it and it has another handle. AutoCAD then leaves a dimension that
-  was on it where it stood, or ties it to whichever object has the old handle now, and reports
+  or an entity in front of it and it has another handle. The leading CAD app then leaves a dimension
+  that was on it where it stood, or ties it to whichever object has the old handle now, and reports
   neither.
 - Renaming an id gives the entity another handle. Changing only its capitals does not:
   `Door-1` and `door-1` give one handle, as they are one id.
@@ -151,12 +151,12 @@ dimension style and the block of a dimension's picture: see [Handles](dimensions
 A leader style and the block of a leader's arrowhead do too: see [Handles](leaders.md#handles).
 
 Handles from ids lie from `10000000000000` to `1FFFFFFFFFFFFF`, far above the counted ones,
-and a drawing that has ids has a `$HANDSEED` of `20000000000000`. AutoCAD numbers the objects
-it adds from the seed up, so they stay clear of every handle an id can give.
+and a drawing that has ids has a `$HANDSEED` of `20000000000000`. The leading CAD app numbers the
+objects it adds from the seed up, so they stay clear of every handle an id can give.
 
 Two ids can give one handle, though among a million ids the chance is about 1 in 10,000.
-AutoCAD discards a drawing in which two objects have one handle, so the builder refuses the
-second id and `lint` reports it under the rule `id-handle`, naming both. Change one of them.
+The leading CAD app discards a drawing in which two objects have one handle, so the builder refuses
+the second id and `lint` reports it under the rule `id-handle`, naming both. Change one of them.
 
 The R12 writer writes no handles. The rule holds for a drawing made for R12 all the same,
 because `toDXF` can write any drawing as R2018.

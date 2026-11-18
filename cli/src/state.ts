@@ -452,7 +452,7 @@ export interface InsertSummary {
 
 export interface LayerSummary {
   readonly name: string;
-  /** AutoCAD Color Index. */
+  /** A number in the color index CAD programs share. */
   readonly color: number;
   /** The linetype its entities draw with ByLayer. */
   readonly linetype: string;

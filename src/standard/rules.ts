@@ -13,15 +13,15 @@ const SOURCE = 'source must be "attribute", "fileName", "layoutName" or "current
 const WRITING_UNITS =
   'units must be "decimal" or "architectural", which writes feet and inches with a fraction';
 const STYLE_NAME_STANDARD =
-  'A dimension style of a standard cannot be named "Standard" in AutoCAD, in any case: every drawing has AutoCAD\'s own style of that name';
+  'A dimension style of a standard cannot be named "Standard" in the leading CAD app, in any case: every drawing has that app\'s own style of that name';
 const LAYER_ZERO =
-  'Layer "0" is in every drawing and in no standard. AutoCAD makes it in every drawing, and an entity of a block on it draws on its insert\'s layer';
+  'Layer "0" is in every drawing and in no standard. The leading CAD app makes it in every drawing, and an entity of a block on it draws on its insert\'s layer';
 const ROLE_STANDARD =
-  "A text role cannot be named standard, in any case of its letters. Its text style would be STANDARD, which AutoCAD takes for the text style Standard that every drawing has";
+  "A text role cannot be named standard, in any case of its letters. Its text style would be STANDARD, which the leading CAD app takes for the text style Standard that every drawing has";
 const DIMENSION_STYLE_STANDARD =
-  "A dimension style cannot be named standard, in any case of its letters. Its name in AutoCAD would be STANDARD, which AutoCAD takes for the dimension style Standard that every drawing has";
+  "A dimension style cannot be named standard, in any case of its letters. Its name in the leading CAD app would be STANDARD, which that app takes for the dimension style Standard that every drawing has";
 const LEADER_STYLE_STANDARD =
-  "A leader style cannot be named standard, in any case of its letters. Its name in AutoCAD would be STANDARD, which is AutoCAD's own leader style";
+  "A leader style cannot be named standard, in any case of its letters. Its name in the leading CAD app would be STANDARD, which is that app's own leader style";
 const LEADER_ATTACHMENT_OF = 'attachment must be "first-line" or "last-line"';
 const STANDARD_ID =
   "A standard's id has 1 to 128 characters, each a letter A to Z or a to z, a digit, ., -, _, @ or /";
@@ -52,8 +52,8 @@ type Reference<
 /**
  * Resolves to `V` when it names an entry of the section `S`, whose names are `Names`, and to
  * the error message otherwise. A name that is not a literal, or a section whose names are not
- * literals, passes the compiler and is checked when the code runs, where AutoCAD's folding of
- * case applies.
+ * literals, passes the compiler and is checked when the code runs, where the leading CAD app's
+ * folding of case applies.
  */
 export type NameIn<V, Names extends string, S extends Section> = V extends string
   ? string extends V
@@ -167,8 +167,8 @@ export type LeaderAttachmentOf<V> = OneOf<
 >;
 
 /**
- * Resolves to the message when `N` is `Standard` in any case, the name of AutoCAD's own style,
- * which a style of a standard's `layoutName` or `scaleNames` cannot have.
+ * Resolves to the message when `N` is `Standard` in any case, the name of the leading CAD app's own
+ * style, which a style of a standard's `layoutName` or `scaleNames` cannot have.
  */
 export type StyleNameStandard<N extends string> =
   Lowercase<N> extends "standard" ? typeof STYLE_NAME_STANDARD : never;
@@ -177,9 +177,9 @@ export function styleNameStandardProblem(name: string): string | undefined {
 }
 
 /**
- * The name AutoCAD gives a dimension style of a standard: its `layoutName` on a layout, or else
- * its id in capitals, and at a scale its name in `scaleNames`, found by the scale's id in any
- * case, or else its id in capitals, a hyphen and the scale's id.
+ * The name the leading CAD app gives a dimension style of a standard: its `layoutName` on a layout,
+ * or else its id in capitals, and at a scale its name in `scaleNames`, found by the scale's id in
+ * any case, or else its id in capitals, a hyphen and the scale's id.
  *
  * @param scale - The id of the scale of the view a dimension in model space is drawn for, or
  *   undefined on a layout.

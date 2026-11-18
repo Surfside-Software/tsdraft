@@ -7,8 +7,8 @@ text its style and plotted height, a dimension its style, a layout its paper and
 The builder refuses what the standard lacks, `lint` holds a drawing to it, and the `tsdraft`
 command checks a drawing file against the standard it exports.
 
-AutoCAD opens a drawing that breaks its standard, and `toDXF` writes one: the rules of a
-standard are a firm's, not AutoCAD's. The rules that are AutoCAD's, such as a layer name it
+The leading CAD app opens a drawing that breaks its standard, and `toDXF` writes one: the rules of a
+standard are a firm's, not that app's. The rules that are that app's, such as a layer name it
 refuses, hold in a standard too.
 
 ## A standard of your own
@@ -54,12 +54,12 @@ and `chain`, the id, version and hash of each parent from the nearest.
   first 10.
 - The document is a TypeScript literal, or the value `JSON.parse` gives for a standard kept as
   JSON. A literal mistake is a compile error with the runtime check's message: a layer name
-  AutoCAD refuses, a color outside 1 to 255, a lineweight AutoCAD does not have, a font not in
-  `FONTS`, a paper not in `PAPERS`, and a discipline, pen, linetype, role, dimension style, title
-  block or sheet format that the standard and its parent do not have.
-- The compiler compares names exactly, and the runtime check as AutoCAD compares them: `"c-prop"`
-  is a compile error for a standard that spells it `C-PROP`, and the runtime takes it. The
-  `Standard` spells every name as its entry does.
+  the leading CAD app refuses, a color outside 1 to 255, a lineweight that app does not have, a font
+  not in `FONTS`, a paper not in `PAPERS`, and a discipline, pen, linetype, role, dimension style,
+  title block or sheet format that the standard and its parent do not have.
+- The compiler compares names exactly, and the runtime check as the leading CAD app compares them:
+  `"c-prop"` is a compile error for a standard that spells it `C-PROP`, and the runtime takes it.
+  The `Standard` spells every name as its entry does.
 - In TypeScript, `extends` is a `Standard`. A string `extends`, and a title block's `block` or
   `preview` given as a string, are looked up in `options.files`, by the string exactly as the
   document writes it: a `Standard` for `extends`, and the value `JSON.parse` gives for a drawing.
@@ -67,9 +67,9 @@ and `chain`, the id, version and hash of each parent from the nearest.
   library reads no file.
 - `hash` is the SHA-256 of what the standard states for a check. Its `id`, `version` and
   `title`, a discipline's `title`, and the `description` of a pen, a layer, a text role and a
-  dimension style are not part of it. A linetype's `description` is, since it is what AutoCAD's
-  `LINETYPE` command shows for the linetype. A `Standard` with `hash` and `chain` left out is a
-  document with no `extends` that resolves to the same standard, with the same hash, so a
+  dimension style are not part of it. A linetype's `description` is, since it is what the leading
+  CAD app's `LINETYPE` command shows for the linetype. A `Standard` with `hash` and `chain` left out
+  is a document with no `extends` that resolves to the same standard, with the same hash, so a
   standard written in TypeScript can be kept as JSON.
 - A `Standard` made by another copy of tsdraft is read again as data, and refused unless its
   hash is its content's, by `defineStandard`'s `extends`, by `createDrawing` and by `lint`.
@@ -79,13 +79,13 @@ resolved, and `standard.json`, the built-in standard resolved, which `"tsdraft/s
 names. Give a standard kept as JSON a `$schema` of
 `https://cdn.jsdelivr.net/npm/tsdraft@<version>/standard.schema.json`, and an editor completes
 and checks it. What the schema cannot say, such as a name that refers to another entry, two names
-AutoCAD takes for one, or a box inside another, `defineStandard` checks.
+the leading CAD app takes for one, or a box inside another, `defineStandard` checks.
 
 ## The document
 
 A standard is one JSON object. Every length on paper is in its `paperUnits`. A lineweight is one
-of AutoCAD's millimetre values, in a standard in inches too. A ratio is a plain number, such as
-`120` for 1" = 10'.
+of the leading CAD app's millimetre values, in a standard in inches too. A ratio is a plain number,
+such as `120` for 1" = 10'.
 
 | Field                   | What it holds                                                                  | Default                    |
 | ----------------------- | ------------------------------------------------------------------------------ | -------------------------- |
@@ -109,10 +109,10 @@ name, such as `layers`, has no `$comment`: a key there is a name.
 
 `id` and `version` contain no control character and nothing above U+FFFF. The ids of
 disciplines, pens, text roles, scales, dimension styles, title blocks, sheet formats and zones
-have 1 to 64 letters, digits, `.`, `-` and `_`, the characters every AutoCAD name takes, since
-an id ends up in one, and two of one section that differ only in case are an error. A layer's or
-a linetype's name follows AutoCAD's rules for a layer name in R2018, and two that AutoCAD's
-`AUDIT` takes for one are an error: AutoCAD would merge their entries. Layer `0` is in no
+have 1 to 64 letters, digits, `.`, `-` and `_`, the characters the leading CAD app takes in any
+name, since an id ends up in one, and two of one section that differ only in case are an error. A
+layer's or a linetype's name follows that app's rules for a layer name in R2018, and two names its
+`AUDIT` takes for one are an error: that app would merge their entries. Layer `0` is in no
 standard.
 
 ### Sections
@@ -124,20 +124,21 @@ one kind of drawing. An entry with no `discipline` belongs to every one.
 `description`.
 
 **`linetypes`**: `"DASHED": { "description": "Dashed __ __", "pattern": [0.5, -0.25] }`. A
-pattern is in paper units before `linetypeScale`: AutoCAD sizes a dash on the paper in every
-viewport, so a dash plots `pattern` times `linetypeScale` long at every scale. `Continuous` is in
-every standard and is never listed.
+pattern is in paper units before `linetypeScale`: the leading CAD app sizes a dash on the paper in
+every viewport, so a dash plots `pattern` times `linetypeScale` long at every scale. `Continuous` is
+in every standard and is never listed.
 
 **`layers`**: `"C-PROP": { "color": 7, "linetype": "PHANTOM", "pen": "heavy", "discipline":
-"C" }`. `color` is an AutoCAD Color Index from 1 to 255 and is required. `linetype` names a
-linetype of the standard and defaults to `Continuous`. `pen` names a pen, and without one the
-layer has AutoCAD's `Default` lineweight. `plot` defaults to `true`. A layer's off, frozen and
-locked states are the drawing's to set.
+"C" }`. `color` is a number from 1 to 255 in the color index CAD programs share, and is
+required. `linetype` names a linetype of the standard and defaults to `Continuous`. `pen` names a
+pen, and without one the layer has the leading CAD app's `Default` lineweight. `plot` defaults
+to `true`. A layer's off, frozen and locked states are the drawing's to set.
 
 **`textRoles`**: `"note": { "font": "Arial", "height": 0.09375 }`, with `widthFactor` and
 `obliqueAngle` optional. `font` is one of `FONTS`. `height` is the plotted height of a capital,
 at least `minTextHeight`. The role's text style is its id in capitals, `NOTE`, so no role is
-named `standard`: AutoCAD takes `STANDARD` for the text style `Standard` that every drawing has.
+named `standard`: the leading CAD app takes `STANDARD` for the text style `Standard` that every
+drawing has.
 
 **`scales`**: `"1in-10ft": { "label": "1\" = 10'", "ratio": 120 }`. `label` is how the scale
 is written, at most 64 characters, and `ratio` is above 0.
@@ -146,9 +147,9 @@ is written, at most 64 characters, and `ratio` is above 0.
 `arrowSize`, `extensionOffset`, `extensionBeyond` and `textGap` are paper sizes, and `writing`
 says how a length is written in each unit of a drawing, with `precision`, `prefix`, `suffix`,
 `suppressZeros` and `measurementScale`. A drawing in a unit `writing` does not list draws no
-dimension in that style. The AutoCAD style is the id in capitals, `DIMS` on a layout, and with
-a scale's id after it in model space: `DIMS-1in-10ft`. No dimension style is named `standard`,
-and two names among every style at every scale that AutoCAD takes for one are an error.
+dimension in that style. The style's name in the leading CAD app is the id in capitals, `DIMS` on a
+layout, and with a scale's id after it in model space: `DIMS-1in-10ft`. No dimension style is named
+`standard`, and two names among every style at every scale that that app takes for one are an error.
 
 **`titleBlocks`**: a title block tsdraft draws as a block, or a firm's own drawing attached as an
 xref, with the fields a sheet fills, its `drawingArea` and its `box`. [Title
@@ -164,8 +165,8 @@ Every paper of `PAPERS` is in inches, so a standard in millimetres has no sheet 
 `layers`, `textRoles` and `dimensionStyles` entries of a standard whose `sheetFiles` is
 `"sheet-per-file"` may hold `byDiscipline`, fields that replace the entry's own in the drawings
 of a discipline. Each discipline's drawing is a file of its own there, attached by xref, and
-AutoCAD keeps each one's layers apart. In one drawing a layer name has one set of properties, so
-`defineStandard` refuses `byDiscipline` under `"one-drawing"`.
+the leading CAD app keeps each one's layers apart. In one drawing a layer name has one set of
+properties, so `defineStandard` refuses `byDiscipline` under `"one-drawing"`.
 
 ### `extends` and `null`
 
@@ -253,9 +254,9 @@ the standard's, and `fields` holds the values of title block fields the drawing'
   texts have roles, names the view, `d.insert(name, at, { view: plan })`, and is scaled to plot
   at its size. An insert of any other block takes `scale`.
 - **Dimensions.** A dimension names a dimension style of the standard by its id, or is in
-  `defaultDimensionStyle`, and in model space names its view. The builder defines the AutoCAD
-  style on first use, with the standard's sizes, its role's text style and height, the
-  `writing` of the drawing's units, and the view's scale.
+  `defaultDimensionStyle`, and in model space names its view. The builder defines the drawing's
+  own dimension style for it on first use, with the standard's sizes, its role's text style and
+  height, the `writing` of the drawing's units, and the view's scale.
 - **Layouts.** `d.layout(name, { sheetFormat }, draw)` is on a sheet format of the standard, and
   `d.layout(name, draw)` on `defaultSheetFormat`. `sheet.zone(name)` gives a zone and
   `sheet.titleBlock(fields)` places the title block and fills its fields: see [Title
@@ -282,7 +283,7 @@ defineStandard, or use one of its layers`.
 | `dimensionStyle()`, or a dimension style the standard lacks                                | `dimension-style-outside-standard` |
 | A dimension in a unit its style's `writing` lacks                                          | `dimension-style`                  |
 | A layout with `paper` or `plotStyle`, or a sheet format the standard lacks                 | `sheet-format-outside-standard`    |
-| A layout whose name AutoCAD's `AUDIT` takes for another layout's                           | `duplicate-layout`                 |
+| A layout whose name the leading CAD app's `AUDIT` takes for another layout's               | `duplicate-layout`                 |
 | A title block's block or text style the drawing has with another definition                | `duplicate-block`                  |
 | `createDrawing` with `linetypeScale` or for R12, or a discipline under `"one-drawing"`     | `standard`                         |
 | A second layout, or a sheet without a number, under `"sheet-per-file"`                     | `sheet-per-file`                   |
@@ -292,8 +293,8 @@ that is where it belongs, and `lint` reports one of model space or of a layout.
 
 ## `lint` and the standard
 
-`lint(drawing, { standard })` holds a drawing to its standard after AutoCAD's rules, as the
-builder does at each call, so a drawing built by other code or read from JSON is held to it too.
+`lint(drawing, { standard })` holds a drawing to its standard after the leading CAD app's rules, as
+the builder does at each call, so a drawing built by other code or read from JSON is held to it too.
 It takes the standard as plain data from any copy of tsdraft, checks it, and works out its hash
 again: a standard that does not check is one `standard` error. Without `standard` it checks none
 of this. `discipline` names the drawing's discipline, and without it an entry with

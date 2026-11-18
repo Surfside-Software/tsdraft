@@ -305,7 +305,7 @@ type Writing<E> = {
                 : unknown;
 };
 
-/** A name a standard gives a dimension style in AutoCAD. */
+/** A name a standard gives a dimension style in the leading CAD app. */
 type StyleNameOf<V> = Str<
   V,
   [StyleNameStandard<V & string>] extends [never]

@@ -31,7 +31,8 @@ export type TitleBlockFill =
 
 /**
  * Where a title block's field gets its value: an attribute the builder sets, or a field of the
- * xref's drawing that AutoCAD fills with the sheet's file name, its layout's name or the date.
+ * xref's drawing that the leading CAD app fills with the sheet's file name,
+ * its layout's name or the date.
  */
 export type FieldSource = "attribute" | "fileName" | "layoutName" | "currentDate";
 
@@ -103,7 +104,7 @@ export interface DisciplineDocument extends Commented {
 }
 
 export interface PenDocument extends Commented {
-  /** One of AutoCAD's lineweights, in millimetres. */
+  /** One of the leading CAD app's lineweights, in millimetres. */
   readonly lineweight: number;
   readonly description?: string;
 }
@@ -115,11 +116,11 @@ export interface LinetypeDocument extends Commented {
 }
 
 export interface LayerFieldsDocument extends Commented {
-  /** An AutoCAD Color Index from 1 to 255. */
+  /** A number from 1 to 255 in the color index CAD programs share. */
   readonly color?: number;
   /** A linetype of the standard, or `Continuous`, the default. */
   readonly linetype?: string;
-  /** A pen of the standard. Without one the layer has AutoCAD's lineweight `Default`. */
+  /** A pen of the standard. Without one the layer has the leading CAD app's lineweight `Default`. */
   readonly pen?: string;
   /** Defaults to true. */
   readonly plot?: boolean;
@@ -135,7 +136,7 @@ export interface LayerDocument extends LayerFieldsDocument {
 }
 
 export interface TextRoleFieldsDocument extends Commented {
-  /** One of `FONTS`, as AutoCAD stores it. */
+  /** One of `FONTS`, as the leading CAD app stores it. */
   readonly font?: string;
   /** The plotted height of a capital, in paper units, at least `minTextHeight`. */
   readonly height?: number;
@@ -152,7 +153,7 @@ export interface TextRoleDocument extends TextRoleFieldsDocument {
 }
 
 export interface ScaleDocument extends Commented {
-  /** The name AutoCAD's scale list gives the scale, such as `1" = 10'`. */
+  /** The name the leading CAD app's scale list gives the scale, such as `1" = 10'`. */
   readonly label: string;
   /** Drawing lengths per paper length, such as 120 for 1" = 10'. */
   readonly ratio: number;
@@ -189,9 +190,9 @@ export interface DimensionStyleDocument extends DimensionStyleFieldsDocument {
   readonly extensionOffset: number;
   readonly extensionBeyond: number;
   readonly textGap: number;
-  /** Its name in AutoCAD on a layout. Defaults to its id in capitals. */
+  /** Its name in the leading CAD app on a layout. Defaults to its id in capitals. */
   readonly layoutName?: string;
-  /** Its name in AutoCAD in model space at a scale, by the scale's id. */
+  /** Its name in the leading CAD app in model space at a scale, by the scale's id. */
   readonly scaleNames?: { readonly [scale: string]: string };
   readonly discipline?: string;
   readonly byDiscipline?: { readonly [discipline: string]: DimensionStyleFieldsDocument };
@@ -359,11 +360,11 @@ export interface StandardDimensionStyle {
   readonly extensionBeyond: number;
   readonly textGap: number;
   readonly writing: { readonly [U in Units]?: StandardWriting };
-  /** Its name in AutoCAD on a layout, when it is not its id in capitals. */
+  /** Its name in the leading CAD app on a layout, when it is not its id in capitals. */
   readonly layoutName?: string;
   /**
-   * Its name in AutoCAD in model space at a scale, by the scale's id, where it is not its id in
-   * capitals, a hyphen and the scale's id.
+   * Its name in the leading CAD app in model space at a scale, by the scale's id, where it is not
+   * its id in capitals, a hyphen and the scale's id.
    */
   readonly scaleNames?: { readonly [scale: string]: string };
   readonly discipline?: string;

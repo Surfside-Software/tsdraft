@@ -38,8 +38,8 @@
   because `src/png-child.ts` sets its `font-size` to its `data-height` over the cap height of
   the face that draws it. `src/fonts.ts` reads that cap height from the face's file, the
   shipped font's too, and takes `FONTS`' own number for a font's own file, which is how
-  AutoCAD sizes the font. Never write a cap height as a constant. The pictures are what an
-  agent judges fit by, so `test/png.test.ts` measures a PNG's ink against `measureText`.
+  the leading CAD app sizes the font. Never write a cap height as a constant. The pictures are what
+  an agent judges fit by, so `test/png.test.ts` measures a PNG's ink against `measureText`.
 - The worker runs the library's `inspectText` after `lint`, when the copy of tsdraft the
   drawing loaded has it, and puts its warnings after `lint`'s diagnostics. It must never fail
   a build or change the exit code, so a throw there gives no warnings. Each warning brings

@@ -145,17 +145,17 @@ Each of these is an error, at the builder's call and in `lint`. The rule is `lea
 `duplicate-leader-style`, `undefined-leader-style` or `leader`.
 
 - A style's name follows the rules of a dimension style's name, and no two styles have names
-  AutoCAD takes for one.
+  the leading CAD app takes for one.
 - `Standard` is not defined and not named. Every drawing with a leader style has that style,
-  with AutoCAD's own values, and AutoCAD skips a second style of the name.
+  with the leading CAD app's own values, and that app skips a second style of the name.
 - A style's text style, and a leader's own, is one the drawing defines. Each holds it by its
   handle, which would lead to no style.
 - A text height is greater than 0. The arrow size, the landing and the gap are 0 or more, and
   the scale is greater than 0.
 - An arrowhead is one of `LEADER_ARROWHEADS`, an attachment `"first-line"` or `"last-line"`,
   and a side `"left"` or `"right"`.
-- Every line of a note is a single line of text with none of `\`, `{` and `}`, which AutoCAD
-  reads as the formatting of the note. One line is not empty or all spaces.
+- Every line of a note is a single line of text with none of `\`, `{` and `}`, which the leading CAD
+  app reads as the formatting of the note. One line is not empty or all spaces.
 - A leader has a shaft, and each shaft starts with its tip. Its tip and the point after it, or
   `at` for a straight shaft, are not one point once they are written with 6 decimals: CAD would
   have no direction to point the arrowhead in.
@@ -165,12 +165,12 @@ Each of these is an error, at the builder's call and in `lint`. The rule is `lea
 - A leader names a style the drawing defines.
 - A leader is not in a block. tsdraft writes a leader in model space or on a layout, where a
   drafter moves it as one.
-- No block is named `_Open`, `_Dot` or `_None`, in any case of their letters. AutoCAD draws the
-  arrowheads of a leader with the blocks of those names.
+- No block is named `_Open`, `_Dot` or `_None`, in any case of their letters. The leading CAD app
+  draws the arrowheads of a leader with the blocks of those names.
 - An R12 drawing has no leaders.
 
-`lint` warns of a line of a note with `%%`, which AutoCAD reads as the start of a control code,
-as it does in any text.
+`lint` warns of a line of a note with `%%`, which the leading CAD app reads as the start of a
+control code, as it does in any text.
 
 Under a standard, `lint` also reports `leader-style-outside-standard` for a leader style that is
 none of the standard's, `leader-style-differs-from-standard` for one whose text style, sizes,
@@ -193,8 +193,8 @@ tsdraft.
 
 ## What a file holds
 
-For a drawing with a leader style, tsdraft writes AutoCAD's own leader style `Standard` and each
-style of the drawing, in the dictionary `ACAD_MLEADERSTYLE`, the blocks `_Open`, `_Dot` and
+For a drawing with a leader style, tsdraft writes the leading CAD app's own leader style `Standard`
+and each style of the drawing, in the dictionary `ACAD_MLEADERSTYLE`, the blocks `_Open`, `_Dot` and
 `_None` that its styles draw arrowheads with, and each leader as a multileader: one leader root
 where its shafts meet, a leader line for each shaft, and its note as a multiline text. The file
 holds no picture of a leader. CAD draws it from what the multileader holds.

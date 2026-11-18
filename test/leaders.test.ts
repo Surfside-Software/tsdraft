@@ -33,7 +33,7 @@ test("a leader style and a leader are checked as literals and when the code runs
   const d = createDrawing();
   // @ts-expect-error: a leader style's name follows the rules of layer names.
   assert.throws(() => d.leaderStyle({ ...STYLE, name: "A/B" }), /Leader style names cannot/);
-  // @ts-expect-error: Standard is AutoCAD's own.
+  // @ts-expect-error: Standard is the leading CAD app's own.
   assert.throws(() => d.leaderStyle({ ...STYLE, name: "standard" }), /cannot be defined/);
   // @ts-expect-error: an arrowhead is one of LEADER_ARROWHEADS.
   assert.throws(() => d.leaderStyle({ ...STYLE, name: "A", arrowhead: "tick" }), /LEADER_ARROW/);
@@ -47,14 +47,14 @@ test("a leader style and a leader are checked as literals and when the code runs
   assert.throws(() => d.leaderStyle({ ...STYLE, name: "notes" }), /already has a leader style/);
 
   const at = [1, 1] as const;
-  // @ts-expect-error: AutoCAD reads a backslash as the start of a code of the note's format.
+  // @ts-expect-error: the leading CAD app reads a backslash as the start of a code of the note's format.
   assert.throws(() => d.leader("A\\B", { style: "NOTES", at, to: [0, 0] }), /cannot contain \\/);
   // @ts-expect-error: and a brace as a group of its format, in any line.
   assert.throws(() => d.leader(["A", "{B}"], { style: "NOTES", at, to: [0, 0] }), /\{ or \}/);
   // @ts-expect-error: a note needs a line with something on it.
   assert.throws(() => d.leader(["", " "], { style: "NOTES", at, to: [0, 0] }), /is not empty/);
   // @ts-expect-error: a leader names a style the drawing has.
-  assert.throws(() => d.leader("A", { style: "Standard", at, to: [0, 0] }), /AutoCAD's own/);
+  assert.throws(() => d.leader("A", { style: "Standard", at, to: [0, 0] }), /CAD app's own/);
   assert.throws(() => d.leader("A", { style: "OTHER", at, to: [0, 0] }), /not defined/);
   // @ts-expect-error: and its sizes of its own are sizes.
   assert.throws(() => d.leader("A", { style: "NOTES", at, to: [0, 0], arrowSize: -1 }), /0/);
@@ -103,7 +103,7 @@ test("lint finds what the builder refuses, in a drawing built by hand", () => {
   assert.deepEqual(rules([leader], { leaderStyles: [style, { ...style, name: "notes" }] }), [
     "duplicate-leader-style",
   ]);
-  // A leader in a block is refused, and one with a style of a name AutoCAD keeps for its own.
+  // A leader in a block is refused, and one with a style of a name the leading CAD app keeps for its own.
   assert.deepEqual(
     lint({ ...drawing, blocks: [{ name: "B", entities: [leader] }] }).map((found) => found.rule),
     ["leader"],
@@ -114,7 +114,7 @@ test("lint finds what the builder refuses, in a drawing built by hand", () => {
   ]);
 });
 
-test("a leader is drawn where AutoCAD draws it", () => {
+test("a leader is drawn where the leading CAD app draws it", () => {
   const style: LeaderStyle = { name: "S", ...STYLE, scale: 2 };
   const leader: Leader = {
     kind: "leader",
@@ -214,8 +214,7 @@ test("the extents hold a dot that an insert turns and stretches into an ellipse"
     .build();
   const xrefs = referencedByKey(host, { BASE: base });
   const [minX, minY] = extents(host.entities, [], host.blocks, undefined, undefined, xrefs);
-  // A dot of radius 2 becomes an ellipse 6 by 2, turned 45 degrees, which reaches √20 past its
-  // center on every side.
+  // A dot of radius 2 becomes an ellipse 6 by 2, turned 45 degrees, which reaches √20 past its center on every side.
   assert.ok(minX <= -Math.sqrt(20) + 1e-9, `${minX}`);
   assert.ok(minY <= -Math.sqrt(20) + 1e-9, `${minY}`);
 });

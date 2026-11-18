@@ -85,8 +85,8 @@ test("an xref's name and path are checked as literals and when the code runs", (
   assert.throws(() => d.xref("A", "ba\tse.dwg"), rule("xref"));
   assert.throws(() => d.xref("A", `${"a/".repeat(16000)}b.dwg`), /32,000 characters/);
   assert.throws(() => d.xref("A", 5 as unknown as string), /must be a string/);
-  // What AutoCAD loads: folders either way, spaces, other letters, no extension, a `\U+`, a
-  // dot after `.dwg`.
+  // What the leading CAD app loads: folders either way, spaces, other letters, no extension, a
+  // `\U+`, a dot after `.dwg`.
   d.xref("OK 1", "./a b/é 図.dwg").xref("OK 2", "..\\..\\base");
   d.xref("OK 4", "sub\\U+0041\\M+base.dwg").xref("OK 5", "sub./base.DWG.");
   const r12 = createDrawing({ dxf: "R12" });
@@ -173,7 +173,7 @@ test("lint reports each xref rule in a drawing built another way", () => {
     /^error xref: Xref "C": An xref cannot have attribute definitions/,
     /^error undefined-attribute: insert #0: An insert of an xref cannot set attributes/,
     /^error undefined-attribute: insert #1: attributes must be an object/,
-    /^warning xref: Xref "B": No insert places this xref\. AutoCAD purges/,
+    /^warning xref: Xref "B": No insert places this xref\. The leading CAD app purges/,
   ]) {
     assert.ok(
       found.some((message) => expected.test(message)),
@@ -196,7 +196,7 @@ test("R2018 DXF holds an xref as a block with a path, and its inserts", () => {
   const record = blockHandle("BASE");
   assert.deepEqual(of("BLOCK_RECORD")[0]?.slice(1, 2), [`5=${record}`]);
   const [block] = of("BLOCK");
-  // 12 is an xref that is an overlay, and a path is escaped for one pass of AutoCAD's reader.
+  // 12 is an xref that is an overlay, and a path is escaped for one pass of the leading CAD app's reader.
   assert.ok(block?.includes("70=12") && block.includes(`330=${record}`));
   assert.equal(block?.at(-1), "1=..\\base\\base.dwg");
   const inserts = of("INSERT");
@@ -226,7 +226,7 @@ test("a drawing with xrefs goes to JSON and back, and the parser says why an xre
   );
 });
 
-test("SVG draws the drawing given for an xref where each insert puts it, as AutoCAD draws a loaded xref", () => {
+test("SVG draws the drawing given for an xref where each insert puts it, as the leading CAD app draws a loaded xref", () => {
   const drawing = host();
   const alone = toSVG(drawing);
   // With no drawing given the group is empty, and the extents are those of a drawing of nothing.

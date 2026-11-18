@@ -225,9 +225,9 @@ export type LintRule =
 export interface Diagnostic {
   readonly rule: LintRule;
   /**
-   * An error means AutoCAD rejects, repairs or garbles the output, and `toDXF` refuses to write
-   * it, or that the drawing breaks a rule of the standard `lint` was given, which `toDXF` does not
-   * check.
+   * An error means the leading CAD app rejects, repairs or garbles the output, and `toDXF` refuses
+   * to write it, or that the drawing breaks a rule of the standard `lint` was given, which `toDXF`
+   * does not check.
    */
   readonly severity: "error" | "warning";
   readonly message: string;
@@ -328,7 +328,7 @@ const NO_VALUES: Readonly<Record<string, string>> = Object.freeze({});
 const LONG = 256;
 
 /**
- * Checks a drawing against the rules AutoCAD enforces when it opens DXF.
+ * Checks a drawing against the rules the leading CAD app enforces when it opens DXF.
  *
  * A drawing made with `createDrawing()` already passes the error rules for its
  * own DXF version, because the builder throws at the offending call. `lint`
@@ -649,8 +649,8 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     });
   }
 
-  // AutoCAD compares linetype names as it compares layer names, and AUDIT reports a twin of a
-  // built-in linetype as it reports any other.
+  // The leading CAD app compares linetype names as it compares layer names, and AUDIT reports a
+  // twin of a built-in linetype as it reports any other.
   const linetypes = new Set<string>();
   const linetypesAudited = new Map<string, string>(
     BUILT_IN_LINETYPES.map((name) => [layerAuditKey(name), name]),
@@ -686,7 +686,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     linetypes.add(key);
     if (!linetypesAudited.has(auditKey)) linetypesAudited.set(auditKey, linetype.name);
   });
-  /** What is wrong with a reference to a linetype, which AutoCAD discards a drawing over. */
+  /** What is wrong with a reference to a linetype, which the leading CAD app discards a drawing over. */
   const missing = (name: unknown): string | undefined => {
     if (typeof name !== "string") return "a linetype is named by a string";
     const problem = linetypeNameProblem(name);
@@ -696,7 +696,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       : undefinedLinetypeProblem(name);
   };
 
-  // AutoCAD compares text style names as it compares layer names.
+  // The leading CAD app compares text style names as it compares layer names.
   const textStyles = new Set<string>();
   const stylesByKey = new Map<string, TextStyle>();
   const unreadStyles = new Set<string>();
@@ -772,7 +772,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     return found;
   };
 
-  // AutoCAD looks layers up by one form of their names, and AUDIT compares another.
+  // The leading CAD app looks layers up by one form of their names, and AUDIT compares another.
   const seen = new Set<string>();
   const audited = new Map<string, string>();
   each(listed<Layer>("layers", "format"), "layers", "format", TYPED.layer, (layer, i) => {
@@ -846,18 +846,18 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   };
   const undefinedLayer = (layer: string): string | undefined => {
     if (seen.has(layerKey(layer))) return undefined;
-    // AutoCAD adds a layer for a name it does not know. When AUDIT takes that name for a
-    // declared layer's, it then reports the new layer as a duplicate of it.
+    // The leading CAD app adds a layer for a name it does not know. When AUDIT takes that name for
+    // a declared layer's, it then reports the new layer as a duplicate of it.
     const twin = audited.get(layerAuditKey(layer));
     const hint = twin
-      ? `. AutoCAD does not take it for layer ${shown(twin)}: it would add a layer, and its AUDIT would report a duplicate name`
+      ? `. The leading CAD app does not take it for layer ${shown(twin)}: it would add a layer, and its AUDIT would report a duplicate name`
       : "";
     return `layer ${shown(layer)} is not defined${hint}`;
   };
 
-  // AutoCAD compares dimension style names as it compares layer names, and keeps the first of
-  // two it takes for one. A style with a name counts for the dimensions that name it, whatever
-  // else is wrong with it, and only one with nothing wrong is measured with.
+  // The leading CAD app compares dimension style names as it compares layer names, and keeps the
+  // first of two it takes for one. A style with a name counts for the dimensions that name it,
+  // whatever else is wrong with it, and only one with nothing wrong is measured with.
   const dimensionStyleNames = new Set<string>();
   const dimensionStyles = new Map<string, DimensionStyle>();
   const dimensionStylesAudited = new Map<string, string>();
@@ -1022,7 +1022,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         error("duplicate-leader-style", leaderStyleTwinProblem(style.name, first)!);
         return;
       }
-      // The first style brings AutoCAD's own and the dictionary that holds them.
+      // The first style brings the leading CAD app's own and the dictionary that holds them.
       if (leaderStylesAudited.size === 0) {
         for (const [handle, what] of [
           [
@@ -1119,7 +1119,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     if (problem) add("leader", "error", problem);
   };
 
-  // AutoCAD takes two block names for one where its AUDIT would call two layer names
+  // The leading CAD app takes two block names for one where its AUDIT would call two layer names
   // duplicates, and an insert finds its block as an entity finds its layer.
   const blocks = new Map<string, Block>();
   const blocksAudited = new Map<string, string>();
@@ -1255,8 +1255,8 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     }
   });
 
-  // An xref is a block to AutoCAD, so it shares the blocks' names, and an insert finds it as
-  // it finds a block.
+  // An xref is a block to the leading CAD app, so it shares the blocks' names, and an insert finds
+  // it as it finds a block.
   const xrefs = new Map<string, Xref>();
   const xrefsAudited = new Set<string>();
   const placedXrefs = new Set<Xref>();
@@ -1611,7 +1611,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   }
   lintEntities(listed<Entity>("entities", "format"), undefined);
 
-  // AutoCAD compares layout names by a table of its own, which `layoutNameKey` holds.
+  // The leading CAD app compares layout names by a table of its own, which `layoutNameKey` holds.
   const layoutNames = new Map<string, string>();
   /**
    * The box of what model space holds, worked out when a viewport first asks, or undefined when

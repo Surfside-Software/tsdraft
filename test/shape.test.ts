@@ -451,7 +451,7 @@ test("a value of the wrong shape is reported in these words, once", () => {
       { toString: 0 },
       [
         "xref: Xref a value of type object: A block's name must be a string",
-        `undefined-block: insert #9: Block "BASE" is not defined. AutoCAD's AUDIT reports an insert of a block the drawing does not have, and AutoCAD cannot save the drawing as DXF`,
+        `undefined-block: insert #9: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
       ],
     ],
     [
@@ -480,7 +480,7 @@ test("a value of the wrong shape is reported in these words, once", () => {
       [{ ...full.blocks[1].attributes[0], height: "x" }, full.blocks[1].attributes[0]],
       [
         "attribute: blocks[1].attributes[0].height must be a number",
-        'duplicate-attribute: Block "TREE", attribute "TAG": The block already has an attribute with the tag "TAG". An insert sets an attribute by its tag, and the tag gives the definition its handle: AutoCAD discards a drawing in which two objects have one handle',
+        'duplicate-attribute: Block "TREE", attribute "TAG": The block already has an attribute with the tag "TAG". An insert sets an attribute by its tag, and the tag gives the definition its handle: the leading CAD app discards a drawing in which two objects have one handle',
       ],
     ],
     [

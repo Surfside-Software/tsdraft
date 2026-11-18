@@ -19,31 +19,31 @@ d.text([0, 2], "TITLE", { height: 2, style: { name: "TITLE", font: "Arial" } });
 Every drawing has the style `Standard`, with the font `txt.shx`. A text with no `style` is in
 it.
 
-A font goes by the name AutoCAD stores for it: the file name for an SHX font, the typeface for
-a TrueType font. `FONTS` lists the fonts a style may have, and `Font` is the type of their
-names:
+A font goes by the name the leading CAD app stores for it: the file name for an SHX font, the
+typeface for a TrueType font. `FONTS` lists the fonts a style may have, and `Font` is the type of
+their names:
 
 | Kind     | Fonts                                                                                                                                                  |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | SHX      | `txt.shx`, `monotxt.shx`, `simplex.shx`, `romans.shx`, `romand.shx`, `romanc.shx`, `romant.shx`, `complex.shx`, `italic.shx`, `isocp.shx`, `isoct.shx` |
 | TrueType | `Arial`, `Calibri`, `Consolas`, `Courier New`, `Georgia`, `Segoe UI`, `Tahoma`, `Times New Roman`, `Trebuchet MS`, `Verdana`                           |
 
-The SHX fonts are drafting alphabets that AutoCAD 2025 installs, and the TrueType fonts come
-with Windows. The list is closed because AutoCAD draws text in a font it does not have in
-another font, and its `AUDIT` reports nothing. A font outside the list is a compile error
-where it is written as a literal, a builder error and a `lint` error.
+The SHX fonts are drafting alphabets that the 2025 release of the leading CAD app installs, and the
+TrueType fonts come with Windows. The list is closed because that app draws text in a font it does
+not have in another font, and its `AUDIT` reports nothing. A font outside the list is a compile
+error where it is written as a literal, a builder error and a `lint` error.
 
-A width factor is from 0.01 to 100, the range AutoCAD's `STYLE` command takes. AutoCAD's
-`AUDIT` reports a style with a width factor of 0 or less, of 0.0001 or of 1000000. An oblique
+A width factor is from 0.01 to 100, the range the leading CAD app's `STYLE` command takes. That
+app's `AUDIT` reports a style with a width factor of 0 or less, of 0.0001 or of 1000000. An oblique
 angle is from -85 to 85 degrees, and `AUDIT` reports a style or a text slanted further. Both
 limits are judged as the number is written, with 6 decimals.
 
-AutoCAD slants a text after it widens it: the top of a text of height 1 lies the tangent of
-the oblique angle further along the text, whatever the width factor, and a negative angle
+The leading CAD app slants a text after it widens it: the top of a text of height 1 lies the tangent
+of the oblique angle further along the text, whatever the width factor, and a negative angle
 leans it back. `toSVG` draws it so, and the drawing's extents take the lean in.
 
-AutoCAD sizes a TrueType font so that its capital `A` is as tall as the text's height. In
-Times New Roman, Georgia and Trebuchet MS that `A` is taller than a flat capital such as
+The leading CAD app sizes a TrueType font so that its capital `A` is as tall as the text's height.
+In Times New Roman, Georgia and Trebuchet MS that `A` is taller than a flat capital such as
 `H`, so an `H` of a text of height 1 is a little under 1 tall.
 
 A text holds its style's width factor and oblique angle from the moment it is written. Change
@@ -72,8 +72,8 @@ d.text([100, 0], "CENTERLINE", { height: 1, align: "right" });
 | `"top"`      | At the top of a capital                          |
 
 tsdraft writes the point as the text's alignment point, so no width has to be estimated to
-center a text or to end it at a point. AutoCAD's "aligned" and "fit" modes, which stretch a
-text between two points, are not written.
+center a text or to end it at a point. The leading CAD app's "aligned" and "fit" modes, which
+stretch a text between two points, are not written.
 
 ## How long a text is
 
@@ -116,7 +116,7 @@ one object are such a text.
   The box leaves that out.
 - `approximate` is true for an estimate. `FONT_METRICS` holds the widths of each font's
   characters from U+0020 to U+007E and from U+00A0 to U+00FF. Any other character is taken
-  to be as wide as `?`. `%%d`, `%%p` and `%%c`, which AutoCAD draws as a degree sign, a
+  to be as wide as `?`. `%%d`, `%%p` and `%%c`, which the leading CAD app draws as a degree sign, a
   plus-or-minus sign and a diameter sign, each count as one character. A text with any of
   these, or with another `%%`, is measured approximately, and so is a centered or
   right-justified text that starts or ends with a space.
@@ -135,7 +135,7 @@ height itself is in the element's `data-height`. An SHX font is drawn in a gener
 a font whose capitals are 0.7 of its size, so on a screen an SHX text's letters have other
 shapes and may be a little taller or shorter than they plot. The
 [command's PNG](command.md#fonts-in-a-png) sizes each text by the typeface it draws it in.
-`toSVG` draws `%%d`, `%%p` and `%%c` as the characters AutoCAD draws for them.
+`toSVG` draws `%%d`, `%%p` and `%%c` as the characters the leading CAD app draws for them.
 
 `inspectText(drawing)` returns warnings about text that plots badly, which no rule of the file
 forbids, so `lint` does not report them and `toDXF` writes the file all the same:
@@ -175,13 +175,13 @@ full. `inspectText` takes the `xrefs` that `toSVG` takes, and like it may throw 
 
 ## Escapes
 
-When AutoCAD opens tsdraft's DXF, it holds each text exactly as the drawing has
+When the leading CAD app opens tsdraft's DXF, it holds each text exactly as the drawing has
 it. tsdraft escapes what DXF would otherwise read as something else: a caret,
-and a backslash that starts `\U+XXXX` or `\M+NXXXX`, which AutoCAD decodes into
-a character. A text `\U+00B0` reaches AutoCAD as those seven characters and not
+and a backslash that starts `\U+XXXX` or `\M+NXXXX`, which that app decodes into
+a character. A text `\U+00B0` reaches that app as those seven characters and not
 as a degree sign. Write the character itself, `°`, to get the character.
 
-That lasts until AutoCAD saves the drawing, because AutoCAD does not escape these
+That lasts until the leading CAD app saves the drawing, because that app does not escape these
 sequences in what it writes. After it saves as DWG and opens the file again, a
 text `\M+18140` holds the character U+3000. After it saves as DXF and opens
 that, `\U+00B0` holds a degree sign as well. tsdraft cannot change this.

@@ -31,7 +31,7 @@
 // The sheet holds the plan at 1" = 10' and at 1" = 20'. At a larger scale the plan is taller
 // than its viewport. The key plan is at 1" = 40', turned 30 degrees.
 //
-// Run with `pnpm example`. It writes examples/out/site-plan.dxf (AutoCAD 2018 DXF),
+// Run with `pnpm example`. It writes examples/out/site-plan.dxf (R2018 DXF),
 // site-plan.svg, which is model space, and site-plan-sheet.svg, which is the layout as it
 // plots. The drawing is also the default export, for a tool that takes a drawing file, and
 // `sitePlan("1in-20ft")` builds the sheet at another scale of the standard.
@@ -203,9 +203,9 @@ export interface Sheet {
  */
 export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Sheet {
   // The standard's linetype patterns are sized for paper: DASHED is a 0.5 dash and a 0.25 gap.
-  // On a layout AutoCAD sizes dashes on the paper, in every viewport, so the standard's linetype
-  // scale, 1/2, is a paper length and no drawing length: the dashes plot at half their pattern,
-  // a 1/4 in dash, at every scale.
+  // On a layout the leading CAD app sizes dashes on the paper, in every viewport, so the standard's
+  // linetype scale, 1/2, is a paper length and no drawing length: the dashes plot at half their
+  // pattern, a 1/4 in dash, at every scale.
   // The fields every sheet of the drawing shares in its title block.
   const d = createDrawing({
     units: "ft",
@@ -346,10 +346,10 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
   const near = plan.paper(gap); // between a line and its text
   const clear = plan.paper(1 / 8); // between a heavy line and its text
 
-  // The dimensions are AutoCAD's own: each measures the two points it is given, and writes
-  // what it measures. They are in the standard's dimension style, which the view sizes for its
-  // scale. One string across the lot, behind the building, and one up it, outside the east line,
-  // in decimal feet. Each runs through the building's corners, and ends on a lot line.
+  // The dimensions are the leading CAD app's own: each measures the two points it is given,
+  // and writes what it measures. They are in the standard's dimension style, which the view sizes
+  // for its scale. One string across the lot, behind the building, and one up it, outside the east
+  // line, in decimal feet. Each runs through the building's corners, and ends on a lot line.
   const across = bounds.rear + plan.paper(3 / 8);
   const up = lot.width + plan.paper(5 / 8);
   d.layer("C-ANNO-DIMS", () => {
@@ -708,8 +708,8 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     });
 
     // The legend shows each line of the plan on its own layer, and each symbol as the block
-    // the plan inserts. Dashes are as long here as in the viewport, since AutoCAD sizes both
-    // on the paper.
+    // the plan inserts. Dashes are as long here as in the viewport, since the leading CAD app sizes
+    // both on the paper.
     row -= blockGap;
     columnHeading("LEGEND");
     const sample = 2; // the length of a legend line

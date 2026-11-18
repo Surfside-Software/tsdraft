@@ -77,7 +77,7 @@ const near = (got: readonly number[], want: readonly number[]): void => {
   got.forEach((value, i) => assert.ok(Math.abs(value - want[i]!) < 5e-7, `${got} is not ${want}`));
 };
 
-test("a measurement is written as AutoCAD writes it: half up, with a little given to a length just under the half", () => {
+test("a measurement is written as the leading CAD app writes it: half up, with a little given to a length just under the half", () => {
   const at = (precision: number, more: Partial<DimensionStyle> = {}) => ({ precision, ...more });
   const feet = (precision: number, more: Partial<DimensionStyle> = {}) =>
     at(precision, { units: "architectural", ...more });
@@ -151,8 +151,8 @@ test("a measurement is written as AutoCAD writes it: half up, with a little give
   for (const [length, style, text] of strings) {
     assert.equal(measurementText(length, style), text, `${length} at ${JSON.stringify(style)}`);
   }
-  // The style AutoCAD measures with: architectural units, the fraction on the line, and the
-  // zeros of feet and inches. The dimension holds no text of its own.
+  // The style the leading CAD app measures with: architectural units, the fraction on the line, and
+  // the zeros of feet and inches. The dimension holds no text of its own.
   const architectural = createDrawing({ units: "in" })
     .dimensionStyle({ name: "ARCH", ...sizes, units: "architectural", precision: 4 })
     .linearDimension([0, 0], [49.4375, 0], [0, 5], { style: "ARCH" })
@@ -167,7 +167,7 @@ test("a measurement is written as AutoCAD writes it: half up, with a little give
   assert.equal(
     value(records(dxf, "MTEXT")[0]!, 1),
     `\\A1;4'-1 7/16"`,
-    "the picture writes what AutoCAD draws",
+    "the picture writes what the leading CAD app draws",
   );
   // A dimension's own text takes the measurement at its first `<>`, and at no other.
   assert.equal(measurementText(42, feet(4), "<> CLR"), `3'-6" CLR`);
@@ -176,7 +176,7 @@ test("a measurement is written as AutoCAD writes it: half up, with a little give
   assert.equal(measurementText(52, at(1), "VARIES"), "VARIES");
 });
 
-test("a dimension is drawn where AutoCAD draws it", () => {
+test("a dimension is drawn where the leading CAD app draws it", () => {
   // Along X, 10 long, with its dimension line 4 above: each extension line starts the offset
   // from its point and runs the length past the dimension line, and the text sits one gap above
   // the middle of the line.
@@ -251,7 +251,7 @@ test("a dimension is drawn where AutoCAD draws it", () => {
   near([(first![1]![0] + first![2]![0]) / 2, (first![1]![1] + first![2]![1]) / 2], [0.5, 4.5]);
   near([Math.hypot(first![0]![0] - first![3]![0], first![0]![1] - first![3]![1])], [0.15]);
 
-  // At 30 degrees, with paper sizes and a scale of 10: AutoCAD's own numbers.
+  // At 30 degrees, with paper sizes and a scale of 10: the leading CAD app's own numbers.
   const turned = dimensionPicture(
     {
       kind: "linear-dimension",
@@ -299,7 +299,7 @@ test("the text of a dimension reads from below or from the right, above its line
       },
       arrows,
     ).label;
-  // The angle AutoCAD turned the text by, for each angle a dimension measured along.
+  // The angle the leading CAD app turned the text by, for each angle a dimension measured along.
   for (const [angle, reads] of [
     [0, 0],
     [89, 89],
@@ -336,9 +336,9 @@ test("the text of a dimension reads from below or from the right, above its line
 test("a dimension style is checked as literals and when the code runs", () => {
   const d = createDrawing({ units: "ft" });
   const style = { name: "S", ...sizes } as const;
-  // @ts-expect-error: AutoCAD discards a drawing over such a name.
+  // @ts-expect-error: the leading CAD app discards a drawing over such a name.
   assert.throws(() => d.dimensionStyle({ ...style, name: "A/B" }), /cannot contain/);
-  // @ts-expect-error: AutoCAD keeps its own Standard and skips a second.
+  // @ts-expect-error: the leading CAD app keeps its own Standard and skips a second.
   assert.throws(() => d.dimensionStyle({ ...style, name: "standard" }), /cannot be defined/);
   assert.throws(() => d.dimensionStyle({ ...style, name: "a".repeat(256) }), /DIMSTYLE command/);
   // @ts-expect-error: AUDIT reports a text height of 0.
@@ -349,9 +349,9 @@ test("a dimension style is checked as literals and when the code runs", () => {
   assert.throws(() => d.dimensionStyle({ ...style, extensionOffset: -0.1 }), /less than 0/);
   // @ts-expect-error: and a negative length past the dimension line.
   assert.throws(() => d.dimensionStyle({ ...style, extensionBeyond: -0.1 }), /less than 0/);
-  // @ts-expect-error: AutoCAD draws a box around the text for a negative gap.
+  // @ts-expect-error: the leading CAD app draws a box around the text for a negative gap.
   assert.throws(() => d.dimensionStyle({ ...style, textGap: -0.1 }), /box around the text/);
-  // @ts-expect-error: AutoCAD works a scale of 0 out for itself.
+  // @ts-expect-error: the leading CAD app works a scale of 0 out for itself.
   assert.throws(() => d.dimensionStyle({ ...style, scale: 0 }), /works out from a viewport/);
   // @ts-expect-error: AUDIT reports a measurement scale of 0.
   assert.throws(() => d.dimensionStyle({ ...style, measurementScale: 0 }), /measurement scale/);
@@ -363,11 +363,11 @@ test("a dimension style is checked as literals and when the code runs", () => {
   assert.throws(() => d.dimensionStyle({ ...style, precision: 1.5 }), /from 0 to 8/);
   // @ts-expect-error: the arrowheads are a closed list.
   assert.throws(() => d.dimensionStyle({ ...style, arrowhead: "dot" }), /one of ARROWHEADS/);
-  // @ts-expect-error: AutoCAD reads a backslash as formatting.
+  // @ts-expect-error: the leading CAD app reads a backslash as formatting.
   assert.throws(() => d.dimensionStyle({ ...style, suffix: "\\P" }), /formatting/);
   // @ts-expect-error: and braces.
   assert.throws(() => d.dimensionStyle({ ...style, prefix: "{" }), /formatting/);
-  // @ts-expect-error: AutoCAD puts the measurement at the first <>.
+  // @ts-expect-error: the leading CAD app puts the measurement at the first <>.
   assert.throws(() => d.dimensionStyle({ ...style, prefix: "a<>" }), /place of the measurement/);
   assert.throws(
     // @ts-expect-error: the zeros to leave out are a closed list.
@@ -393,7 +393,7 @@ test("a dimension style is checked as literals and when the code runs", () => {
     () => d.dimensionStyle({ ...style, textStyle: "NOPE" }),
     rule("undefined-text-style"),
   );
-  // Sizes of 0 are AutoCAD's to draw: no arrowhead, and lines that touch.
+  // Sizes of 0 are the leading CAD app's to draw: no arrowhead, and lines that touch.
   d.dimensionStyle({ ...style, arrowSize: 0, extensionOffset: 0, extensionBeyond: 0, textGap: 0 });
   assert.throws(() => d.dimensionStyle(style), rule("duplicate-dimension-style"));
   assert.throws(() => d.dimensionStyle({ ...style, name: "s" }), /keeps the first/);
@@ -416,16 +416,16 @@ test("a dimension is checked when it is drawn, and lint finds the same in a draw
     const draw = (options: object) =>
       d.linearDimension(from, [20, 0], [0, 5], options as { style: "TICKS" });
     assert.throws(() => draw({ style: "NOPE" }), rule("undefined-dimension-style"));
-    // @ts-expect-error: tsdraft draws no dimension in AutoCAD's own style.
+    // @ts-expect-error: tsdraft draws no dimension in the leading CAD app's own style.
     assert.throws(() => d.linearDimension(from, [20, 0], [0, 5], { style: "Standard" }), /own/);
     assert.throws(() => draw({}), /must be a string/);
     assert.throws(
-      // @ts-expect-error: AutoCAD draws a dimension whose text is a space with no text.
+      // @ts-expect-error: the leading CAD app draws a dimension whose text is a space with no text.
       () => d.linearDimension(from, [20, 0], [0, 5], { style: "TICKS", text: " " }),
       /empty or all spaces/,
     );
     assert.throws(
-      // @ts-expect-error: AutoCAD reads a backslash as formatting.
+      // @ts-expect-error: the leading CAD app reads a backslash as formatting.
       () => d.linearDimension(from, [20, 0], [0, 5], { style: "TICKS", text: "A\\PB" }),
       /formatting/,
     );
@@ -446,7 +446,7 @@ test("a dimension is checked when it is drawn, and lint finds the same in a draw
       () => d.linearDimension(from, [2e8, 0], [0, 5], { style: "TICKS" }),
       /16 digits of a measurement/,
     );
-    // 15 digits at the style's precision, and no more: AutoCAD works the 16th out itself.
+    // 15 digits at the style's precision, and no more: the leading CAD app works the 16th out itself.
     d.dimensionStyle({ ...sizes, name: "EIGHT", arrowhead: "architectural-tick", precision: 8 });
     assert.throws(
       () => d.linearDimension(from, [12345678, 0], [0, 5], { style: "EIGHT" }),
@@ -473,7 +473,7 @@ test("a dimension is checked when it is drawn, and lint finds the same in a draw
     );
     d.alignedDimension(from, [20, 0], -5, { style: "TICKS", id: "again", text: "<> TYP" });
     d.block("B", {}, () => d.line([0, 0], [1, 0]));
-    // @ts-expect-error: AutoCAD draws the architectural tick with the block of this name.
+    // @ts-expect-error: the leading CAD app draws the architectural tick with the block of this name.
     assert.throws(() => d.block("_archtick", {}, () => {}), /architectural tick/);
   });
   assert.deepEqual(lint(made), []);
@@ -595,7 +595,7 @@ test("the limits on digits look at the number as it is written", () => {
   );
   assert.throws(
     () => d.linearDimension([0, 0], [99999999999.99998, 0], [0, 5], { style: "MILLI" }),
-    /it reads 100000000\.0000000, and AutoCAD writes 16 digits/,
+    /it reads 100000000\.0000000, and the leading CAD app writes 16 digits/,
   );
   d.alignedDimension([0, 0], [9999999.99999, 0], 5, { style: "EIGHT" });
   const built = d.build();

@@ -4,7 +4,7 @@ import { layerZeroFirst } from "./layers.ts";
 
 /**
  * Writes an ASCII DXF (AC1009, R12). R12 is the most widely readable DXF:
- * AutoCAD, BricsCAD, LibreCAD, QCAD and most converters open it.
+ * the leading CAD app, many other CAD programs and most converters open it.
  *
  * R12 has no header variable for drawing units, so coordinates are written as
  * plain numbers in the drawing's units and `drawing.units` is not written.

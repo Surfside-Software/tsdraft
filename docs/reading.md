@@ -19,14 +19,14 @@ drawn.model.entities?.filter((e) => e.kind === "text").map((t) => [t.at, t.value
 
 ## Text
 
-From AutoCAD 2007's format, `AC1021`, on, a DXF's text is UTF-8. Before it, the text is in the
+From the R2007 format, `AC1021`, on, a DXF's text is UTF-8. Before it, the text is in the
 code page `$DWGCODEPAGE` names, such as `ANSI_1252`, and the reader decodes it in that code
 page. `encoding` says which it used. A string given to `readDXF` is text already, so it is read
 as it is, whatever its header says, and its `sha256` is that of its UTF-8 bytes.
 
-Each string then holds what AutoCAD holds after reading the same file. A caret and a space is a
-caret, and a caret before a letter is a control character, so `^J` is a line feed. Past that,
-AutoCAD decodes two escapes: `\U+XXXX`, a character by its code, but for `\U+0000`, and
+Each string then holds what the leading CAD app holds after reading the same file. A caret and a
+space is a caret, and a caret before a letter is a control character, so `^J` is a line feed. Beyond
+the carets, that app decodes two escapes: `\U+XXXX`, a character by its code, but for `\U+0000`, and
 `\M+NXXXX`, a character of one of the five code pages of East Asia by its two bytes, where the
 platform's `TextDecoder` has that code page. It decodes them in passes, left to right, and a pass
 does not read again what it made:
@@ -38,8 +38,8 @@ does not read again what it made:
   both.
 - A name, such as a layer's, and an xref's path go through one pass of `\U+XXXX`.
 
-tsdraft's own DXF escapes what AutoCAD would decode, so a read of it gives every text as the
-drawing has it.
+tsdraft's own DXF escapes what the leading CAD app would decode, so a read of it gives every text as
+the drawing has it.
 
 ## The read model
 
@@ -58,8 +58,8 @@ states and keeps each object's handle, and it keeps going past what it does not 
   else a block draws is counted under `other` by kind, such as `HATCH` or `LWPOLYLINE with arcs`,
   and so is what stands in another plane than the block's. The blocks keep `BLOCK_ITEMS`,
   400,000 items in all, counted as below, and count what comes past that under `past the limit`.
-  The pictures AutoCAD makes for dimensions, the blocks named `*D` and a number, are kept by a
-  read with `geometry` alone.
+  The pictures the leading CAD app makes for dimensions, the blocks named `*D` and a number, are
+  kept by a read with `geometry` alone.
 - `xrefs`: each with its name, its path as the file holds it, and whether it is an overlay.
 - `layouts`: each with its paper, its plotter, its plot style table, its plot's rotation, its
   viewports and its inserts. A viewport has its rectangle on the paper, the center and height
@@ -119,8 +119,8 @@ a justified text is justified to; and `at`, where the text starts to draw, the l
 baseline. `stored` is the first point as the file stores it, and `startFrom` says where `at` came
 from:
 
-- `file`: the point the file stores. AutoCAD's own DXF stores where a justified text starts apart
-  from its alignment point.
+- `file`: the point the file stores. A DXF that the leading CAD app writes stores where a justified
+  text starts apart from its alignment point.
 - `widths`: worked out from `alignAt` with `layoutText`, for a justified text whose file stores
   its alignment point as its start too, as tsdraft's DXF does. That is done where the layout is
   exact: the style's font is one of `FONTS`, every character is in its widths, the text holds no
@@ -143,9 +143,10 @@ reaches `GEOMETRY_ITEMS` and every census list answers in about 110 MB of JSON, 
 Points and angles are in the world's coordinates: an entity drawn seen from below, as a
 mirrored block's arcs and inserts are, is turned into them. An entity in another plane is counted
 under `other` by kind, and one with a number that is not finite under `unread.malformed`. A file
-older than AutoCAD 2000's format has one paper space and no layouts, and its paper space reads as
-the layout `Layout1`, as AutoCAD opens it. Every object keyed by names from the file, such as a
-census's `layers`, has no prototype, so a layer named `constructor` is a key like any other.
+older than the R2000 format (AC1015) has one paper space and no layouts, and its paper space reads as
+the layout `Layout1`, as the leading CAD app opens it. Every object keyed by names from the file,
+such as a census's `layers`, has no prototype, so a layer named `constructor` is a key like any
+other.
 
 `readDXF` throws a `ReadError` for a file it cannot read at all: a binary DXF, a group code
 that is not an integer, or a file that ends between a code and its value. A record whose kind,

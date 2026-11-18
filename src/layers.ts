@@ -1,8 +1,8 @@
-// What AutoCAD 2025 does with layer names: which characters it refuses, which
-// names it takes for the same layer, and where layer "0" must sit.
+// What the 2025 release of the leading CAD app does with layer names: which characters it refuses,
+// which names it takes for the same layer, and where layer "0" must sit.
 import type { Layer } from "./drawing.ts";
 
-// AutoCAD discards a drawing whose layer table has a name with one of the
+// The leading CAD app discards a drawing whose layer table has a name with one of the
 // characters below, as it does for the ASCII punctuation `rules.ts` lists. The
 // exception is the private-use block, which it replaces with `\M+00000`. They
 // are string literals, with every character written as an escape, so that
@@ -98,7 +98,7 @@ const REJECTED: ReadonlySet<string> = new Set(
 );
 
 /**
- * Finds the first character of a layer name that AutoCAD rejects, beyond the
+ * Finds the first character of a layer name that the leading CAD app rejects, beyond the
  * ASCII punctuation and control characters that `layerNameProblem` checks.
  *
  * @param name - The layer name.
@@ -110,9 +110,9 @@ export function rejectedNameCharacter(name: string): string | undefined {
 }
 
 /**
- * The capital letters AutoCAD lower-cases when it looks a layer name up, as
+ * The capital letters the leading CAD app lower-cases when it looks a layer name up, as
  * hexadecimal code point ranges. `/2` marks a range that takes every second
- * code point. AutoCAD's table is older and smaller than Unicode's: it leaves
+ * code point. That app's table is older and smaller than Unicode's: it leaves
  * out Ÿ (U+0178), İ (U+0130) and ϴ (U+03F4), the title-case digraphs such as
  * ǅ (U+01C5), and most letters added since Unicode 5.1.
  */
@@ -145,7 +145,7 @@ function codeSet(ranges: string): ReadonlySet<number> {
 const FOLDED = codeSet(FOLDED_RANGES);
 
 /**
- * The capital letters AutoCAD lower-cases when it looks a layout up by its name, in the
+ * The capital letters the leading CAD app lower-cases when it looks a layout up by its name, in the
  * notation of `FOLDED_RANGES`. A layout is an entry of a dictionary and no record of a symbol
  * table, and the table is another: it has Ÿ (U+0178), and the Georgian, Glagolitic and Coptic
  * capitals that a layer name cannot hold.
@@ -167,8 +167,8 @@ const LAYOUT_FOLDED_RANGES =
 const LAYOUT_FOLDED = codeSet(LAYOUT_FOLDED_RANGES);
 
 /**
- * The form AutoCAD compares two layout names in: each capital of its table in lower case, one
- * character at a time. Two names with one key are one layout to AutoCAD.
+ * The form the leading CAD app compares two layout names in: each capital of its table in lower
+ * case, one character at a time. Two names with one key are one layout to that app.
  */
 export function layoutNameKey(name: string): string {
   let key = "";
@@ -180,7 +180,7 @@ export function layoutNameKey(name: string): string {
 }
 
 /**
- * Pairs of letters that AutoCAD keeps as two layers but its AUDIT reports as a
+ * Pairs of letters that the leading CAD app keeps as two layers but its AUDIT reports as a
  * duplicate name, written `from>to` in hexadecimal after `layerKey` has
  * lower-cased the name. They include the two lower-case sigmas σ and ς.
  */
@@ -258,11 +258,11 @@ const SOFT_HYPHEN = "\u00ad";
 const IGNORED_SOFT_HYPHENS = /\u00ad+(?![\u00ad\p{M}\u1100-\u11ff\ua960-\ua97f\ud7b0-\ud7ff])/gu;
 
 /**
- * The form of a layer name that AutoCAD looks layers up by. Two names with the
- * same key are one layer to AutoCAD: an entity on `wall` goes on a layer
- * declared as `WALL`, and AutoCAD keeps only the first of two such layers.
+ * The form of a layer name that the leading CAD app looks layers up by. Two names with the
+ * same key are one layer to that app: an entity on `wall` goes on a layer
+ * declared as `WALL`, and that app keeps only the first of two such layers.
  *
- * AutoCAD lower-cases one character at a time from its own table, so this is
+ * That app lower-cases one character at a time from its own table, so this is
  * not `toLowerCase()`: a final sigma ς, a dotless ı and ß stay as they are.
  *
  * @param name - The layer name.
@@ -288,7 +288,7 @@ export function layerKeys(): (name: string) => string {
 }
 
 /**
- * The form of a layer name that AutoCAD's AUDIT compares when it looks for
+ * The form of a layer name that the leading CAD app's AUDIT compares when it looks for
  * duplicate names. AUDIT takes more names for the same than the layer table
  * does, so two layers can have different `layerKey`s and still be an AUDIT
  * error. Two names with the same key here are such a pair, unless they have
@@ -332,7 +332,7 @@ function decomposed(name: string): string {
 }
 
 /**
- * Orders layers for a DXF layer table. AutoCAD's AUDIT reports "Layer zero name
+ * Orders layers for a DXF layer table. The leading CAD app's AUDIT reports "Layer zero name
  * found at incorrect index" when layer `0` is not the first record.
  *
  * @param layers - The drawing's layers, in any order.

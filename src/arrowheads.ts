@@ -5,13 +5,13 @@
 /** What tsdraft knows of an arrowhead. */
 export interface ArrowheadInfo {
   /**
-   * The block AutoCAD draws the arrowhead with, which a drawing that uses it holds. Missing
-   * for the closed filled arrowhead, which AutoCAD draws with no block.
+   * The block the leading CAD app draws the arrowhead with, which a drawing that uses it holds.
+   * Missing for the closed filled arrowhead, which that app draws with no block.
    */
   readonly block?: string;
   /**
    * What that block holds: one stroke from `from` to `to`, `width` wide, for an arrow size of
-   * 1. AutoCAD scales it by the arrow size and turns it with the dimension line.
+   * 1. The leading CAD app scales it by the arrow size and turns it with the dimension line.
    */
   readonly stroke?: {
     readonly from: readonly [x: number, y: number];
@@ -21,10 +21,10 @@ export interface ArrowheadInfo {
 }
 
 /**
- * Every arrowhead a dimension style may have, by the name AutoCAD's dimension style dialog gives
- * it. `"closed-filled"` is a solid arrow as long as the arrow size and a third as wide.
- * `"architectural-tick"` is a heavy stroke through the end of the dimension line, at 45 degrees
- * to it, as long as the arrow size times the square root of 2.
+ * Every arrowhead a dimension style may have, by the name the leading CAD app's dimension style
+ * dialog gives it. `"closed-filled"` is a solid arrow as long as the arrow size and a third as
+ * wide. `"architectural-tick"` is a heavy stroke through the end of the dimension line, at 45
+ * degrees to it, as long as the arrow size times the square root of 2.
  */
 export const ARROWHEADS = {
   "closed-filled": {},
@@ -77,15 +77,15 @@ export type LeaderArrowheadStroke =
 /** What tsdraft knows of an arrowhead a leader style may have. */
 export interface LeaderArrowheadInfo {
   /**
-   * The block AutoCAD draws the arrowhead with, which a drawing that uses it holds. Missing for
-   * the closed filled arrowhead, which AutoCAD draws with no block.
+   * The block the leading CAD app draws the arrowhead with, which a drawing that uses it holds.
+   * Missing for the closed filled arrowhead, which that app draws with no block.
    */
   readonly block?: string;
   /** What that block holds. */
   readonly strokes?: readonly LeaderArrowheadStroke[];
   /**
-   * True when the shaft runs to the tip. Otherwise AutoCAD stops the shaft one arrow size short
-   * of the tip and the arrowhead draws the rest.
+   * True when the shaft runs to the tip. Otherwise the leading CAD app stops the shaft one arrow
+   * size short of the tip and the arrowhead draws the rest.
    */
   readonly toTip?: boolean;
 }
@@ -171,11 +171,11 @@ export const DIMENSION_UNITS = ["decimal", "architectural"] as const;
  */
 export const FEET_INCH_ZEROS = ["inches", "feet", "both", "neither"] as const;
 
-/** The most decimals AutoCAD writes a measurement with. */
+/** The most decimals the leading CAD app writes a measurement with. */
 export const MAX_PRECISION = 8;
 
-/** The dimension style every drawing has, in the spelling AutoCAD gives it. */
+/** The dimension style every drawing has, in the spelling the leading CAD app gives it. */
 export const STANDARD_DIMENSION_STYLE = "Standard";
 
-/** The leader style a drawing with leaders has beside its own, in the spelling AutoCAD gives it. */
+/** The leader style a drawing with leaders has beside its own, in the spelling the leading CAD app gives it. */
 export const STANDARD_LEADER_STYLE = "Standard";

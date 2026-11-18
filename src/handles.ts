@@ -1,7 +1,7 @@
 // The handle an entity's id gives it in an R2018 drawing.
 //
-// AutoCAD names an object by its handle, a number that is unique in its drawing. A dimension
-// that another drawing puts on an entity of this one, through an xref, holds the entity's
+// The leading CAD app names an object by its handle, a number that is unique in its drawing. A
+// dimension that another drawing puts on an entity of this one, through an xref, holds the entity's
 // handle and nothing else. So the handle comes from the id alone and never from what else the
 // drawing holds.
 //
@@ -16,13 +16,14 @@
 //   cannot hold `:` or `/`. It hashes into this same range, and two keys that give one handle
 //   are refused as two ids are. A key is hashed as its UTF-8 bytes, which for an id are its
 //   characters.
-// - AutoCAD numbers the objects it adds from `$HANDSEED` up, which is 2^53 when a drawing has
-//   ids.
+// - The leading CAD app numbers the objects it adds from `$HANDSEED` up, which is 2^53 when a
+//   drawing has ids.
 import { idKey, idProblem } from "./rules.ts";
 
 /**
  * `$HANDSEED` of a drawing that has ids: 2^53, one more than the last handle an id can give.
- * AutoCAD numbers the objects it adds from the seed up, so they stay clear of every id's handle.
+ * The leading CAD app numbers the objects it adds from the seed up, so they
+ * stay clear of every id's handle.
  */
 export const ID_HANDLE_SEED = "20000000000000";
 

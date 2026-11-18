@@ -872,9 +872,9 @@ class PdfWriter {
           ? this.files[font]
           : undefined;
       const read = file === undefined ? undefined : embeddable(font, file);
-      // AutoCAD makes the capital `A` of a font as tall as the text, by the number `FONTS` holds
-      // for the font's own file. A file that stands in is sized by the cap height it states, as
-      // the command's PNG sizes it, so the preview and the plot agree.
+      // The leading CAD app makes the capital `A` of a font as tall as the text, by the number
+      // `FONTS` holds for the font's own file. A file that stands in is sized by the cap height it
+      // states, as the command's PNG sizes it, so the preview and the plot agree.
       const capital = read?.family === font ? own : (read?.capHeight ?? own);
       found =
         read === undefined || capital === undefined

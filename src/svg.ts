@@ -37,8 +37,9 @@ import { filled } from "./shape.ts";
 import { isUnits } from "./units.ts";
 
 /**
- * The color AutoCAD plots each ACI index in, from 1 to 255, ten to a row. The entry for index
- * 7 is not used: 7 is black on paper and white on a dark screen, so it draws in currentColor.
+ * ACI, the color index CAD programs share: the color the leading CAD app plots each index in, from
+ * 1 to 255, ten to a row. The entry for index 7 is not used: 7 is black on paper and white on a
+ * dark screen, so it draws in currentColor.
  */
 const ACI: readonly string[] = [
   "ff0000 ffff00 00ff00 00ffff 0000ff ff00ff 000000 808080 dcdcdc ff0000",
@@ -145,7 +146,7 @@ function plottedColor(table: string, index: number): string {
 /** The lineweight `DWF Virtual Pens.ctb` plots every pen at, in hundredths of a millimetre. */
 const VIRTUAL_PEN_WIDTH = 25.4;
 
-/** AutoCAD draws a lineweight of "Default" at its LWDEFAULT, 0.25 mm. */
+/** The leading CAD app draws a lineweight of "Default" at its LWDEFAULT, 0.25 mm. */
 const DEFAULT_LINEWEIGHT = 25;
 
 /**
@@ -155,8 +156,8 @@ const DEFAULT_LINEWEIGHT = 25;
 const SCREEN_CAP_HEIGHT = 0.7;
 
 /**
- * The most dashes one entity is cut into. AutoCAD draws a line solid when its pattern is too
- * fine to show, and so does the preview.
+ * The most dashes one entity is cut into. The leading CAD app draws a line solid when its pattern
+ * is too fine to show, and so does the preview.
  */
 const MAX_DASHES = 10000;
 
@@ -251,9 +252,9 @@ interface Sides {
 /**
  * Renders a preview SVG of the drawing as it plots. Model Y points up, so the drawing group
  * flips Y. Entities on layers that are off, frozen or set not to plot are left out, and each
- * layer draws in the color AutoCAD plots its index in. Dashed lines are cut into their dashes,
- * scaled by the drawing's linetype scale, and each line is as wide as its lineweight. A text
- * starts where `measureText` says it plots and is held to the length it plots with
+ * layer draws in the color the leading CAD app plots its index in. Dashed lines are cut into their
+ * dashes, scaled by the drawing's linetype scale, and each line is as wide as its lineweight. A
+ * text starts where `measureText` says it plots and is held to the length it plots with
  * `textLength`, with its style's width factor and oblique angle, in the CSS font family
  * tsdraft gives its style's font, which ends in a generic family for a screen that lacks the
  * font. Its element has the height of its capitals in `data-height`, and its font size is that
@@ -267,14 +268,14 @@ interface Sides {
  * insert on a frozen layer, or on a layer that does not plot, draws nothing.
  *
  * An insert of an xref is such a group too, with the xref's path in `data-xref`. `toSVG` opens
- * no file, so it draws the drawing given for the xref in `options.xrefs`, as AutoCAD draws a
- * loaded xref: an entity on layer `0` there draws as the insert's layer does, and any other as
- * its own layer of the referenced drawing does, in that layer's color, linetype, lineweight
- * and state, with `data-layer` naming it as AutoCAD does, `XREF|LAYER`. Dashes are scaled by
+ * no file, so it draws the drawing given for the xref in `options.xrefs`, as the leading CAD app
+ * draws a loaded xref: an entity on layer `0` there draws as the insert's layer does, and any other
+ * as its own layer of the referenced drawing does, in that layer's color, linetype, lineweight
+ * and state, with `data-layer` naming it as that app does, `XREF|LAYER`. Dashes are scaled by
  * this drawing's linetype scale. The group is empty for an xref with no drawing given.
  *
- * With `options.layout`, the picture is that layout as AutoCAD plots it, in paper units: a
- * white sheet the size of its paper, each viewport as a group with its index in
+ * With `options.layout`, the picture is that layout as the leading CAD app plots it, in paper
+ * units: a white sheet the size of its paper, each viewport as a group with its index in
  * `data-viewport` that shows model space at the viewport's scale, clipped to its rectangle,
  * and then what is drawn on the sheet. Every line is as wide as its lineweight on the paper,
  * a dash is as long on the paper as its pattern times the linetype scale, in a viewport too,
@@ -423,7 +424,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     if (!byScale) scaled.set(pattern, (byScale = new Map()));
     let found = byScale.get(scale);
     if (!found) {
-      // A pattern AutoCAD takes has at most 12 lengths, but one given as data may hold any number.
+      // A pattern the leading CAD app takes has at most 12 lengths, but one given as data may hold any number.
       if (!spend(Math.floor(pattern.length / 32))) refuse(where());
       const lengths = pattern.map((length) => length * scale);
       found = { lengths, total: lengths.reduce((a, b) => a + b, 0), dot: lengths.includes(0) };
@@ -533,7 +534,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         isFrozen,
         (held, at) => {
           if (hidden(at.layer) || frozenHere?.(at.layer)) return;
-          // AutoCAD names a layer of an xref by the xref's name, a bar and the layer's.
+          // The leading CAD app names a layer of an xref by the xref's name, a bar and the layer's.
           const { name, of } = at.layer;
           const mark = `data-layer="${esc(of ? `${of.name}|${name}` : name)}"`;
           const m = at.matrix;
@@ -618,9 +619,9 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       .map(({ shown }) => shown);
   };
 
-  // AutoCAD scales the dashes of a referenced drawing by the linetype scale of the drawing
-  // that references it.
-  // AutoCAD reads a scale of 0 or less as 1, and so is one that is not a finite number here.
+  // The leading CAD app scales the dashes of a referenced drawing by the linetype scale of the
+  // drawing that references it.
+  // That app reads a scale of 0 or less as 1, and so is one that is not a finite number here.
   const stated = drawing.linetypeScale ?? 1;
   const linetypeScale = stated > 0 && Number.isFinite(stated) ? stated : 1;
   if (options.layout !== undefined) {
@@ -784,7 +785,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         if (!write([...head, ...tail].join("\n").length + 6)) refuse(at);
         parts.push([...head, ...inside.map((element) => `        ${element}`), ...tail].join("\n"));
       }
-      // AutoCAD plots a viewport's border as its thinnest line, and only when its layer plots.
+      // The leading CAD app plots a viewport's border as its thinnest line, and only when its layer plots.
       if (!hidden({ name: viewport.layer })) {
         const stroke = color(layerOf({ name: viewport.layer })?.color ?? 7);
         keep(
@@ -873,7 +874,7 @@ interface Look {
 
 /** What a drawing's entities name: its layers, its dash patterns and its text styles. */
 interface Tables {
-  /** Keyed as AutoCAD looks layers up, so an entity on `wall` takes the color of layer `WALL`. */
+  /** Keyed as the leading CAD app looks layers up, so an entity on `wall` takes the color of layer `WALL`. */
   readonly layers: ReadonlyMap<string, Layer>;
   readonly patterns: ReadonlyMap<string, number[] | undefined>;
   readonly textStyles: ReadonlyMap<string, TextStyle>;
@@ -1128,7 +1129,7 @@ function entityToSvg(
   room: number,
   sides = new WeakMap<object, Sides>(),
 ): string {
-  // A lineweight of 0 draws as the thinnest line, as in AutoCAD.
+  // A lineweight of 0 draws as the thinnest line, as in the leading CAD app.
   const s = `stroke="${pen.color}"${look.stroke(pen.lineweight)} ${mark}`;
   const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
   if (e.kind !== "text" && pen.dashes) {
@@ -1182,8 +1183,8 @@ function entityToSvg(
       if (written(start) !== 0 || written(baseline) !== 0) {
         t += ` translate(${fmt(start)} ${fmt(-baseline)})`;
       }
-      // AutoCAD slants a text after it widens it, so the width factor does not widen the lean.
-      // The transform applied last comes first.
+      // The leading CAD app slants a text after it widens it, so the width factor does not widen
+      // the lean. The transform applied last comes first.
       if (oblique !== 0) t += ` skewX(${fmt(-oblique)})`;
       if (width !== 1) t += ` scale(${fmt(width)} 1)`;
       // A text's height is the height of its capitals, which a font draws smaller than its size.
@@ -1230,7 +1231,7 @@ function alternating(pattern: readonly number[]): number[] | undefined {
 /**
  * An entity cut into the dashes of its pattern, as path data, or undefined when the pattern
  * is too fine for the entity and it draws solid. A polyline starts the pattern again at each
- * vertex, as AutoCAD does unless told otherwise. The cuts are made in the entity's own
+ * vertex, as the leading CAD app does unless told otherwise. The cuts are made in the entity's own
  * coordinates, with the pattern shrunk by the insert's scale, and then placed by `matrix`, so a
  * dash is as long whatever size an insert draws its entity at.
  * Once the path is longer than `room` characters it stops, and is longer than the room. A

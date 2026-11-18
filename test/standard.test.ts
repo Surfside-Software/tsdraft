@@ -65,16 +65,16 @@ test("literal mistakes in a standard are compile errors and runtime errors", () 
   const role = { font: "Arial", height: 0.1 } as const;
   const throws = assert.throws;
 
-  // @ts-expect-error: AutoCAD refuses a comma in a layer name.
+  // @ts-expect-error: the leading CAD app refuses a comma in a layer name.
   throws(() => defineStandard({ ...base, layers: { "A,B": { color: 1 } } }), /cannot contain/);
   // @ts-expect-error: layer 0 is in every drawing.
   throws(() => defineStandard({ ...base, layers: { "0": { color: 1 } } }), /Layer "0" is in/);
   // @ts-expect-error: colors run from 1 to 255.
-  throws(() => defineStandard({ ...base, layers: { A: { color: 0 } } }), /Color Index/);
+  throws(() => defineStandard({ ...base, layers: { A: { color: 0 } } }), /color index/);
   // @ts-expect-error: colors are integers.
-  throws(() => defineStandard({ ...base, layers: { A: { color: 1.5 } } }), /Color Index/);
-  // @ts-expect-error: 0.33 mm is not one of AutoCAD's lineweights.
-  throws(() => defineStandard({ ...base, pens: { p: { lineweight: 0.33 } } }), /AutoCAD's, in/);
+  throws(() => defineStandard({ ...base, layers: { A: { color: 1.5 } } }), /color index/);
+  // @ts-expect-error: 0.33 mm is not one of the leading CAD app's lineweights.
+  throws(() => defineStandard({ ...base, pens: { p: { lineweight: 0.33 } } }), /CAD app's, in/);
   // @ts-expect-error: a font must be one of FONTS.
   throws(() => defineStandard({ ...base, textRoles: { r: { ...role, font: "Ariel" } } }), /FONTS/);
   throws(
@@ -153,7 +153,7 @@ test("literal mistakes in a standard are compile errors and runtime errors", () 
     /A text role cannot be named standard/,
   );
   throws(
-    // @ts-expect-error: a dimension style named standard would be AutoCAD's own.
+    // @ts-expect-error: a dimension style named standard would be the leading CAD app's own.
     () => defineStandard({ ...base, dimensionStyles: { standard: { ...style, role: "note" } } }),
     /A dimension style cannot be named standard/,
   );
@@ -182,7 +182,7 @@ test("literal mistakes in a standard are compile errors and runtime errors", () 
   throws(() => defineStandard({ ...alone, paperUnits: "cm" }), /paperUnits must be "in" or "mm"/);
   // @ts-expect-error: sheets are one drawing, or a file each.
   throws(() => defineStandard({ ...base, sheetFiles: "many" }), /sheetFiles must be/);
-  // @ts-expect-error: a plot style table must be one AutoCAD installs.
+  // @ts-expect-error: a plot style table must be one the leading CAD app installs.
   throws(() => defineStandard({ ...base, plotStyle: "pens.ctb" }), /plot style table must be/);
   throws(
     // @ts-expect-error: a sheet format's own plot style table too.
@@ -219,7 +219,7 @@ test("literal mistakes in a standard are compile errors and runtime errors", () 
   );
   throws(
     () =>
-      // @ts-expect-error: AutoCAD draws a box around a text whose gap is negative.
+      // @ts-expect-error: the leading CAD app draws a box around a text whose gap is negative.
       defineStandard({ ...base, dimensionStyles: { d: { ...style, role: "note", textGap: -1 } } }),
     /The gap cannot be less than 0/,
   );
@@ -245,7 +245,7 @@ test("literal mistakes in a standard are compile errors and runtime errors", () 
                 precision: 1,
                 // @ts-expect-error: a prefix cannot hold the place of the measurement.
                 prefix: "<>",
-                // @ts-expect-error: AutoCAD reads a brace as formatting.
+                // @ts-expect-error: the leading CAD app reads a brace as formatting.
                 suffix: "{",
                 // @ts-expect-error: a measurement scale is above 0.
                 measurementScale: 0,
@@ -260,7 +260,7 @@ test("literal mistakes in a standard are compile errors and runtime errors", () 
       }),
     (thrown: DrawingError) =>
       /A prefix cannot contain <>/.test(thrown.message) &&
-      /AutoCAD reads them as the formatting/.test(thrown.message) &&
+      /The leading CAD app reads them as the formatting/.test(thrown.message) &&
       /The measurement scale must be greater than 0/.test(thrown.message) &&
       /units must be "decimal"/.test(thrown.message) &&
       /suppressZeros must be "leading", "trailing" or "both"/.test(thrown.message),
@@ -292,7 +292,7 @@ test("literal mistakes in a standard are compile errors and runtime errors", () 
     () =>
       defineStandard({
         ...base,
-        // @ts-expect-error: AutoCAD draws an architectural tick with the block _ArchTick.
+        // @ts-expect-error: the leading CAD app draws an architectural tick with the block _ArchTick.
         titleBlocks: { t: { ...block, xref: { ...xref, name: "_ArchTick" } } },
       }),
     /_ArchTick/,
@@ -308,14 +308,14 @@ test("literal mistakes in a standard are compile errors and runtime errors", () 
   );
 });
 
-test("values the compiler cannot see are checked when the code runs, and names fold as AutoCAD folds them", () => {
+test("values the compiler cannot see are checked when the code runs, and names fold as the leading CAD app folds them", () => {
   const name: string = ["A", "B"].join(",");
   assert.throws(
     () => defineStandard({ ...base, layers: { [name]: { color: 1 } } }),
     /cannot contain/,
   );
-  // The compiler compares names exactly; AutoCAD takes "HEAVY" for "heavy" and "c-prop" for
-  // "C-PROP", and so does the runtime, which keeps the name as the standard spells it.
+  // The compiler compares names exactly; the leading CAD app takes "HEAVY" for "heavy" and "c-prop"
+  // for "C-PROP", and so does the runtime, which keeps the name as the standard spells it.
   const folded = defineStandard({ ...base, layers: { A: { color: 1, pen: "HEAVY" as string } } });
   assert.equal(folded.layers.A.pen, "heavy");
   // @ts-expect-error: the compiler holds a literal to the standard's spelling.
@@ -408,13 +408,13 @@ test("a child replaces an entry whole under its parent's spelling, and null remo
 });
 
 test("a standard's type names only entries it has, and names that are not literals are strings", () => {
-  // AutoCAD takes ΟΣ for οσ, though Lowercase makes it ος, with a final sigma.
+  // The leading CAD app takes ΟΣ for οσ, though Lowercase makes it ος, with a final sigma.
   const greek = defineStandard({ ...alone, layers: { ΟΣ: { color: 1 }, ΟΣΑ: { color: 1 } } });
   const child = defineStandard({ id: "c", version: "1", extends: greek, layers: { οσ: null } });
   assert.deepEqual(Object.keys(child.layers), ["ΟΣΑ"]);
   // @ts-expect-error: the child removed the layer.
   void child.layers["ΟΣ"];
-  // The type takes ÿ for Ÿ, which AutoCAD keeps apart, so it names neither.
+  // The type takes ÿ for Ÿ, which the leading CAD app keeps apart, so it names neither.
   const upper = defineStandard({ ...alone, layers: { Ÿ: { color: 1 } } });
   const lower = defineStandard({
     id: "c",
@@ -585,7 +585,7 @@ test("how a firm keeps its sheets decides where a title block's fields come from
     }).join(),
     /^$/,
   );
-  // A field that AutoCAD fills is a field of the xref's drawing.
+  // A field that the leading CAD app fills is a field of the xref's drawing.
   const plain = BUILT_IN_STANDARD.titleBlocks.plain;
   const own = { ...area, block: plain.block, blockName: "TITLE BLOCK" };
   assert.match(
@@ -722,7 +722,7 @@ test("a title block's names are one definition each in a drawing", () => {
   );
 });
 
-test("boxes lie inside the boxes that hold them, and AutoCAD's names of dimension styles are distinct", () => {
+test("boxes lie inside the boxes that hold them, and the leading CAD app's names of dimension styles are distinct", () => {
   const area = {
     paper: "ARCH D",
     layer: "G-ANNO-TTLB",
@@ -767,7 +767,7 @@ test("boxes lie inside the boxes that hold them, and AutoCAD's names of dimensio
   };
   assert.match(
     problems(twins)[0]!,
-    /The dimension style "a-b" at the scale "c" and the dimension style "a" at the scale "b-c" have names that AutoCAD takes for one dimension style/,
+    /The dimension style "a-b" at the scale "c" and the dimension style "a" at the scale "b-c" have names that the leading CAD app takes for one dimension style/,
   );
 });
 

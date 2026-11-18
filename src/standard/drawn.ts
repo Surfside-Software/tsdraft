@@ -1,7 +1,7 @@
 // What the builder refuses in a drawing drawn to a standard, each rule twice: as a type, so a
 // literal mistake is a compile error, and as a runtime message that is the same, as
 // `src/rules.ts` holds the rules of a drawing. A literal names an entry exactly as the standard
-// spells it, and the builder, as AutoCAD does, finds one in any case.
+// spells it, and the builder, as the leading CAD app does, finds one in any case.
 import type { LayerName, LinetypeName } from "../rules.ts";
 import type { Standard } from "./document.ts";
 
@@ -182,7 +182,7 @@ export const layerLacks = (name: string, standard: Standard): string =>
 
 /**
  * Resolves to `N` when it is a layer of the standard `Z`, and to the error message otherwise: a
- * name AutoCAD refuses, layer `0`, or a layer the standard lacks.
+ * name the leading CAD app refuses, layer `0`, or a layer the standard lacks.
  */
 export type LayerOfStandard<N extends string, Z extends Standard> = string extends N
   ? N
@@ -340,11 +340,11 @@ export const dimensionStyleLacks = (name: string, standard: Standard): string =>
   `Dimension style ${JSON.stringify(name)} is not a dimension style of ${of(standard)}. Add it to the standard's dimensionStyles in defineStandard, with its role, arrowSize, extensionOffset, extensionBeyond, textGap and writing, or use one of its dimension styles`;
 
 type DimensionStyleReserved<S extends string> =
-  `Dimension style "${S}" is in no standard: its name in AutoCAD would be STANDARD, which AutoCAD takes for the dimension style Standard that every drawing has. Use one of the standard's dimension styles`;
+  `Dimension style "${S}" is in no standard: its name in the leading CAD app would be STANDARD, which that app takes for the dimension style Standard that every drawing has. Use one of the standard's dimension styles`;
 /** What is wrong with the dimension style `standard`, in any case, which no standard holds. */
 export const dimensionStyleReserved = (name: string): string | undefined =>
   name.toUpperCase() === "STANDARD"
-    ? `Dimension style ${JSON.stringify(name)} is in no standard: its name in AutoCAD would be STANDARD, which AutoCAD takes for the dimension style Standard that every drawing has. Use one of the standard's dimension styles`
+    ? `Dimension style ${JSON.stringify(name)} is in no standard: its name in the leading CAD app would be STANDARD, which that app takes for the dimension style Standard that every drawing has. Use one of the standard's dimension styles`
     : undefined;
 
 /**
@@ -375,11 +375,11 @@ export const leaderStyleLacks = (name: string, standard: Standard): string =>
   `Leader style ${JSON.stringify(name)} is not a leader style of ${of(standard)}. Add it to the standard's leaderStyles in defineStandard, with its role, arrowSize, landing and gap, or use one of its leader styles`;
 
 type LeaderStyleReserved<S extends string> =
-  `Leader style "${S}" is in no standard: its name in AutoCAD would be STANDARD, which is AutoCAD's own leader style. Use one of the standard's leader styles`;
+  `Leader style "${S}" is in no standard: its name in the leading CAD app would be STANDARD, which is that app's own leader style. Use one of the standard's leader styles`;
 /** What is wrong with the leader style `standard`, in any case, which no standard holds. */
 export const leaderStyleReserved = (name: string): string | undefined =>
   name.toUpperCase() === "STANDARD"
-    ? `Leader style ${JSON.stringify(name)} is in no standard: its name in AutoCAD would be STANDARD, which is AutoCAD's own leader style. Use one of the standard's leader styles`
+    ? `Leader style ${JSON.stringify(name)} is in no standard: its name in the leading CAD app would be STANDARD, which is that app's own leader style. Use one of the standard's leader styles`
     : undefined;
 
 /**
@@ -461,11 +461,11 @@ export const numberNotLayoutName = (number: string, layout: string): string =>
 
 /** What is wrong with a value given for a field that reads the layout's name. */
 export const layoutNameField = (tag: string, key: string, layout: string): string =>
-  `The title block's field ${JSON.stringify(tag)} reads the layout's name, ${JSON.stringify(layout)}, which AutoCAD writes in it. Leave ${key} out, or give it the layout's name`;
+  `The title block's field ${JSON.stringify(tag)} reads the layout's name, ${JSON.stringify(layout)}, which the leading CAD app writes in it. Leave ${key} out, or give it the layout's name`;
 
-/** What is wrong with a value given for a field that AutoCAD fills by itself. */
+/** What is wrong with a value given for a field that the leading CAD app fills by itself. */
 export const filledByAutoCAD = (tag: string, key: string, what: string): string =>
-  `The title block's field ${JSON.stringify(tag)} holds ${what}, which AutoCAD writes in it. Leave ${key} out`;
+  `The title block's field ${JSON.stringify(tag)} holds ${what}, which the leading CAD app writes in it. Leave ${key} out`;
 
 /** What is wrong with a sheet number that cannot name a file. */
 export const sheetNumberOfFile = (problem: string): string =>
@@ -473,10 +473,10 @@ export const sheetNumberOfFile = (problem: string): string =>
 
 /**
  * What is wrong with a layout whose name `layerAuditKey` folds to another layout's, where
- * AutoCAD's own comparison of layout names keeps the two apart.
+ * the leading CAD app's own comparison of layout names keeps the two apart.
  */
 export const layoutAuditTwin = (other: string): string =>
-  `AutoCAD's AUDIT takes this name and that of the layout ${JSON.stringify(other)} for one, as it takes a composed letter and its decomposed form, ß and ss, a name with a soft hyphen and without, and σ and ς. AutoCAD keeps both layouts, and a drawing drawn to a standard holds its layouts' names to AUDIT's comparison, as it holds its blocks' and its text styles'. Give this layout another name`;
+  `The leading CAD app's AUDIT takes this name and that of the layout ${JSON.stringify(other)} for one, as it takes a composed letter and its decomposed form, ß and ss, a name with a soft hyphen and without, and σ and ς. That app keeps both layouts, and a drawing drawn to a standard holds its layouts' names to AUDIT's comparison, as it holds its blocks' and its text styles'. Give this layout another name`;
 
 /** What is wrong with a layout whose paper is not in the standard's paper units. */
 export const layoutPaperUnitsProblem = (paper: string, units: string, standard: Standard): string =>

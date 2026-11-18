@@ -1,7 +1,7 @@
 # Examples
 
-Each example builds a drawing and writes it to `examples/out/` as an AutoCAD
-2018 DXF and an SVG. `pnpm example` runs them all. The pictures here are the
+Each example builds a drawing and writes it to `examples/out/` as an R2018
+DXF and an SVG. `pnpm example` runs them all. The pictures here are the
 SVGs restyled by `pnpm readme:drawing`, which gives each layer a color and keeps
 the lineweights the drawing sets.
 
@@ -66,7 +66,7 @@ adjoining lot lines, the pavement and the centerline. So the key plan shows the
 lot, its setbacks, the building and the trees, and the plan's viewport still
 shows everything. The key plan's north arrow is turned as far as its view. Both
 viewports are on a layer that does not plot, so their borders stay off the
-page. AutoCAD opens the file on the sheet and plots it on a page 36 by 24
+page. The leading CAD app opens the file on the sheet and plots it on a page 36 by 24
 inches, with the title block's scale reading AS NOTED.
 
 Where a thing could go either way, the example puts it with what it belongs
@@ -74,7 +74,7 @@ to. The north arrow and the graphic scale describe a view, not the site, so
 they are on the sheet beside the view's title, and the scale is numbered from
 the viewport's ratio. The legend is part of the sheet. Its lines are drawn on
 the plan's own layers, and its dashes are as long as the plan's, because
-AutoCAD sizes dashes on the paper in a viewport and on the sheet alike. The
+the leading CAD app sizes dashes on the paper in a viewport and on the sheet alike. The
 street and the adjoining lot lines are part of the site: they run to the sides
 of what the viewport shows, where it cuts them off.
 
@@ -86,7 +86,7 @@ the plan's at its lower right, above the zone `viewTitles` for the views'
 titles, and the
 zone `notes`, a column 7 inches wide, above the title block, 6 1/2 by 3 inches
 in the lower right corner. The paper is full bleed, and the border is still
-inside it: AutoCAD plots a line on the left, bottom or right edge of the paper
+inside it: the leading CAD app plots a line on the left, bottom or right edge of the paper
 with half its width off the page, and does not plot a line on the top edge.
 
 The border and the title block are the standard's, one block, `TITLE BLOCK`,
