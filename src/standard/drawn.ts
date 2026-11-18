@@ -464,7 +464,7 @@ export const layoutNameField = (tag: string, key: string, layout: string): strin
   `The title block's field ${JSON.stringify(tag)} reads the layout's name, ${JSON.stringify(layout)}, which the leading CAD app writes in it. Leave ${key} out, or give it the layout's name`;
 
 /** What is wrong with a value given for a field that the leading CAD app fills by itself. */
-export const filledByAutoCAD = (tag: string, key: string, what: string): string =>
+export const filledByCad = (tag: string, key: string, what: string): string =>
   `The title block's field ${JSON.stringify(tag)} holds ${what}, which the leading CAD app writes in it. Leave ${key} out`;
 
 /** What is wrong with a sheet number that cannot name a file. */

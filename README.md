@@ -214,14 +214,13 @@ starts each breaking change with `Breaking:`.
 It draws layers, lines, polylines, rectangles, circles, arcs and single-line text, with
 linetypes and lineweights, text styles and justification, blocks with attributes and inserts
 of them, references to DWG files as xrefs, linear and aligned dimensions in decimal units or
-feet and inches, leaders, layouts with a page setup and viewports, and layers that are off,
-frozen, locked or not plotted. A firm's [standard](docs/standard.md) sets its layers, pens,
-text and sheets. It writes DXF, not DWG.
+feet and inches, leaders, layouts with a page setup and viewports, which can freeze their own
+layers or twist the view, and layers that are off, frozen, locked or not plotted. A firm's
+[standard](docs/standard.md) sets its layers, pens, text and sheets. It writes DXF, not DWG.
 
 It does not yet have paragraph text, arcs or widths in a polyline, ellipses, splines or
 points, hatches, solid fills or masks, images, tables, color or transparency set on one
-entity, linetypes with text or shapes, PDF underlays, layers frozen in one viewport only or a
-twisted viewport, or the other kinds of dimension.
+entity, linetypes with text or shapes, PDF underlays, or the other kinds of dimension.
 
 `readDXF` reads an ASCII DXF into a model to inspect, which is not a drawing tsdraft can edit
 and write again. [Reading drawing files](docs/reading.md) has what it reads.

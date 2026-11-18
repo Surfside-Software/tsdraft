@@ -27,7 +27,7 @@ import type {
   ReadTextPlacement,
 } from "../src/read/model.ts";
 
-export type ReadBy = "tsdraft" | "autocad";
+export type ReadBy = "tsdraft" | "cad";
 
 /** A text as the leading CAD app's DXF export writes what it holds: a caret as `^ `, a control character as `^` and a letter. */
 function exported(text: string): string {
@@ -134,7 +134,7 @@ export function readProblems(
   /** A text of tsdraft's own read, worked out from the widths, against the leading CAD app's start. */
   const start = (got: ReadTextPlacement, mine: unknown, value: string, label: string): void => {
     const ownText = mine as ReadTextPlacement | undefined;
-    if (by !== "autocad" || ownText?.startFrom !== "widths") return;
+    if (by !== "cad" || ownText?.startFrom !== "widths") return;
     // The widths are measured to 11 decimals: 1e-9 of the height for each character.
     const slack =
       1e-9 * got.height * Math.max(1, [...value].length) +
@@ -359,7 +359,7 @@ export function readProblems(
         }
         if (got.text !== once(want.text.join("\\P")))
           say(`${label}: note ${JSON.stringify(got.text)}`);
-        const loose = by === "autocad";
+        const loose = by === "cad";
         for (const [what, a, b] of [
           ["text height", got.textHeight, picture.sizes.textHeight],
           ["arrow size", got.arrowSize, picture.sizes.arrowSize],

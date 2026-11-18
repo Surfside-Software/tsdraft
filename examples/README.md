@@ -213,8 +213,6 @@ What the set does not do yet, because tsdraft cannot:
 - Hatches and fills are loose lines: earth, insulation and stipple from
   [`lib/drafting.ts`](lib/drafting.ts), and concrete, batt insulation and fill
   from [`sheets/elevations-lib.ts`](plan-set/sheets/elevations-lib.ts).
-- A dimension writes only a decimal number, so the example writes the feet and
-  inches of each architectural dimension as its text.
 - A note is single-line texts, one for each line, broken with `measureText`.
 - The title block's fields are attributes the code sets, not fields that CAD
   fills from the file and the layout.
