@@ -2068,3 +2068,119 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
     }
   }
 });
+
+test("a chain of references ends however the drawings given share, circle or nest", () => {
+  const random = seeded(23);
+  const pick = <T>(items: readonly T[]): T => items[Math.floor(random() * items.length)]!;
+  /** A drawing that attaches, or now and then overlays, each name, placed once each. */
+  const link = (names: readonly string[], own: readonly Entity[]): Drawing => ({
+    format: 0,
+    units: "ft",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    entities: [
+      ...own,
+      ...names.map((name, i): Entity => ({ kind: "insert", layer: "0", block: name, at: [i, 0] })),
+    ],
+    xrefs: names.map((name) => ({ name, path: `${name}.dwg`, attach: random() < 0.9 })),
+  });
+  for (let n = 0; n < 12; n++) {
+    const names = Array.from({ length: pick([1, 2, 8, 64]) }, (_, i) => `X${i}`);
+    const depth = pick([3, 17, 40, 2000]);
+    const own = random() < 0.3 ? Array.from({ length: 20_000 }, () => line) : [line, text("A")];
+    // Each level gives one value for every name, shared, which a walk of every path would follow
+    // names ** depth times.
+    let below: unknown = link([], own);
+    const levels: Record<string, unknown>[] = [];
+    for (let i = 0; i < depth; i++) {
+      const given: Record<string, unknown> = Object.fromEntries(names.map((name) => [name, below]));
+      levels.push(given);
+      below = { drawing: link(names, own), xrefs: given };
+    }
+    // The values circle back to the top.
+    if (random() < 0.5) levels[0]![names[0]!] = below;
+    // A value that is no drawing, or whose xrefs are none.
+    if (random() < 0.4) {
+      levels[depth - 1]![names[0]!] = pick<unknown>([
+        5,
+        null,
+        [],
+        { drawing: 5 },
+        { drawing: link([], own), xrefs: "X" },
+      ]);
+    }
+    const host = link(names, []);
+    const options = { xrefs: Object.fromEntries(names.map((name) => [name, below])) as never };
+    const fns: [string, () => unknown][] = [
+      ["lint", () => lintWithin(host, options, 20_000)],
+      ["inspectText", () => inspectWithin(host, options, 200_000)],
+      [
+        "extents",
+        () =>
+          boxer(
+            [],
+            [],
+            undefined,
+            undefined,
+            referencedByKey(host, options.xrefs),
+            [],
+            [],
+            20_000,
+          )(host.entities),
+      ],
+      ["toSVG", () => svgWithin(host, options, 20_000)],
+    ];
+    for (const [name, fn] of fns) {
+      const result = settled(2000, fn);
+      assert.ok(
+        !(result instanceof Error) || result instanceof RangeError,
+        `case ${n}, ${name}: ${String(result)}`,
+      );
+      if (name === "lint")
+        assert.ok(Array.isArray(result), `case ${n}: lint threw ${String(result)}`);
+    }
+  }
+  // Long names that differ only at their ends, given and declared, which no map of lint's
+  // reading of what is given is keyed by.
+  const tail = (i: number) => `${"L".repeat(20_000)}${i}`;
+  const longs = Array.from({ length: 2000 }, (_, i) => tail(i));
+  const holder = link(longs, [line]);
+  const given = Object.fromEntries(longs.map((name) => [name, holder]));
+  const deepXrefs = { X: { drawing: holder, xrefs: given } } as never;
+  assert.ok(Array.isArray(within(1000, () => lint(link(["X"], []), { xrefs: deepXrefs }))));
+  // One model at many places, each giving its attachment, whose block places it 1,000 times: the
+  // block's inserts read again at each place are paid for.
+  const many = Array.from({ length: 1000 }, (_, i): Entity => ({
+    kind: "insert",
+    layer: "0",
+    block: "IN",
+    at: [i, 0],
+  }));
+  const placing: Drawing = {
+    ...link(["IN"], []),
+    entities: [{ kind: "insert", layer: "0", block: "HOLD", at: [0, 0] }],
+    blocks: [{ name: "HOLD", entities: many }],
+  };
+  const places = Array.from({ length: 48 }, (_, i) => `P${i}`);
+  const placed = Object.fromEntries(
+    places.map((name) => [name, { drawing: placing, xrefs: { IN: link([], [line]) } }]),
+  ) as never;
+  const paid = settled(1000, () => svgWithin(link(places, []), { xrefs: placed }, 5000));
+  assert.ok(paid instanceof RangeError && /extents/.test(paid.message), String(paid));
+  // Copies of one drawing with many xrefs, one list shared, under many names: the list is
+  // read once, and not at all where nothing is given inside the drawing.
+  const declared = link(
+    Array.from({ length: 4096 }, (_, i) => `D${i}`),
+    [line],
+  );
+  const hosts = Array.from({ length: 256 }, (_, i) => `H${i}`);
+  const host = link(hosts, []);
+  for (const inner of [{}, { D0: link([], [line]) }]) {
+    const xrefs = Object.fromEntries(
+      hosts.map((name) => [name, { drawing: { ...declared }, xrefs: inner }]),
+    ) as never;
+    assert.ok(Array.isArray(within(1000, () => lint(host, { xrefs }))));
+    const drawn = settled(1000, () => svgWithin(host, { xrefs }, 20_000));
+    assert.ok(typeof drawn === "string" || drawn instanceof RangeError, String(drawn));
+  }
+});

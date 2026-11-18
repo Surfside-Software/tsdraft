@@ -1,6 +1,7 @@
 // A drawing's layouts as a PDF: a page for each sheet, made from the picture `toSVG` draws of
 // it. `toSVG` holds every rule of what a sheet plots, so this file decides nothing about the
 // drawing: it turns the elements of that picture into the operators of a page.
+import type { XrefDrawings } from "./blocks.ts";
 import type { Drawing } from "./drawing.ts";
 import { FONT_METRICS, FONT_METRICS_RANGES, type FontMetrics } from "./font-metrics.ts";
 import { FONTS, fontInfo, type Font } from "./fonts.ts";
@@ -14,10 +15,11 @@ export interface PdfOptions {
   /** The layouts to plot, in this order. Defaults to every layout, in the drawing's order. */
   readonly layouts?: readonly string[];
   /**
-   * The drawing each xref stands for, by the xref's name, as `toSVG` takes them. An xref with
-   * no drawing given plots nothing.
+   * The drawing each xref stands for, by the xref's name, as `toSVG` takes them, with the
+   * drawings its attachments stand for when given as `{ drawing, xrefs }`. An xref with no
+   * drawing given plots nothing.
    */
-  readonly xrefs?: Readonly<Record<string, Drawing>>;
+  readonly xrefs?: XrefDrawings;
   /**
    * Compresses each page's content: a function that gives the zlib form of its bytes, such as
    * Node's `zlib.deflateSync`. Without it the content is written as it is.
@@ -46,8 +48,8 @@ export interface PdfSheet {
   readonly drawing: Drawing;
   /** The name of the layout of `drawing` that is the sheet. */
   readonly layout: string;
-  /** The drawing each xref of `drawing` stands for, by name. */
-  readonly xrefs?: Readonly<Record<string, Drawing>>;
+  /** The drawing each xref of `drawing` stands for, by name, as `toSVG` takes them. */
+  readonly xrefs?: XrefDrawings;
 }
 
 /**

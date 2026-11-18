@@ -730,10 +730,20 @@
         }
       }
 
-      // The page draws an xref only when the drawing file gave its drawing.
+      // The page draws an xref only when the drawing file gave its drawing. Inside a drawing it
+      // draws, an attachment its model space places and not drawn is missing too; CAD draws no
+      // overlay there, and nothing the drawing places elsewhere.
       function xrefsFact(xrefs) {
-        const missing = xrefs.filter((x) => !x.shown).length;
-        return missing ? `${xrefs.length}, ${missing} not drawn` : `${xrefs.length}`;
+        // A nested xref placed nowhere its drawing's model space reaches draws nothing below it.
+        const placed = (x, top) => top || (x.attach && x.inserts > 0);
+        const missing = (list, top) =>
+          list.reduce(
+            (count, x) =>
+              count + (!placed(x, top) ? 0 : x.shown ? missing(x.xrefs ?? [], false) : 1),
+            0,
+          );
+        const count = missing(xrefs, true);
+        return count ? `${xrefs.length}, ${count} not drawn` : `${xrefs.length}`;
       }
 
       // The standard the drawing file exports, beside the file's name.

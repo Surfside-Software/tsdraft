@@ -143,8 +143,14 @@ export interface WorkerResult {
   readonly modules: { readonly read: number; readonly ahead: number };
 }
 
+/** What the `xrefs` export gives: a drawing, or `{ drawing, xrefs }`, by an xref's name. */
+type GivenXrefs = Readonly<Record<string, unknown>>;
+
 interface Library {
-  readonly lint: (drawing: Drawing, options?: { standard: unknown }) => Diagnostic[];
+  readonly lint: (
+    drawing: Drawing,
+    options?: { standard?: unknown; xrefs?: GivenXrefs },
+  ) => Diagnostic[];
   /** A copy of tsdraft from before standards has none, and its `lint` takes no standard. */
   readonly defineStandard?: unknown;
   readonly toSVG: (
@@ -152,7 +158,7 @@ interface Library {
     options?: {
       margin?: number;
       drawNoPlot?: boolean;
-      xrefs?: Readonly<Record<string, Drawing>>;
+      xrefs?: GivenXrefs;
       layout?: string;
       view?: readonly [number, number, number, number];
     },
@@ -160,7 +166,7 @@ interface Library {
   /** What is wrong with the text as it plots. A copy of tsdraft from before it has none. */
   readonly inspectText?: (
     drawing: Drawing,
-    options?: { drawNoPlot?: boolean; xrefs?: Readonly<Record<string, Drawing>> },
+    options?: { drawNoPlot?: boolean; xrefs?: GivenXrefs },
   ) => TextWarning[];
   /** Where the drawing does not hold to its intent. A copy of tsdraft from before it has none. */
   readonly checkIntent?: (drawing: Drawing, intent: Intent) => IntentWarning[];
@@ -173,6 +179,11 @@ interface Library {
   readonly findBlock?: (drawing: Drawing, name: string) => Block | undefined;
   /** The xref an insert of a name places. A copy of tsdraft from before xrefs has none. */
   readonly findXref?: (drawing: Drawing, name: string) => Xref | undefined;
+  /**
+   * What the pictures draw of the drawings given for the xrefs. A copy of tsdraft from before
+   * attachments has none, and draws no reference of a referenced drawing.
+   */
+  readonly drawnXrefs?: (drawing: Drawing, xrefs: GivenXrefs) => GivenXrefs;
   /** A dimension's style and what it draws. A copy of tsdraft from before dimensions has neither. */
   readonly findDimensionStyle?: (drawing: Drawing, name: string) => DimensionStyle | undefined;
   readonly dimensionPicture?: (
@@ -523,7 +534,7 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
 
   let t = now();
   let drawing: Drawing;
-  let referenced: Readonly<Record<string, Drawing>>;
+  let referenced: GivenXrefs;
   let intent: unknown;
   let standard: unknown;
   try {
@@ -538,7 +549,7 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
     const problem = notADrawing(value, "default" in module) ?? notXrefs(module.xrefs);
     if (problem) return fail(atExport(file, problem));
     drawing = value as Drawing;
-    referenced = (module.xrefs ?? {}) as Readonly<Record<string, Drawing>>;
+    referenced = (module.xrefs ?? {}) as GivenXrefs;
     intent = module.intent;
     standard = module.standard;
   } catch (thrown) {
@@ -552,7 +563,12 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
     t = now();
     // A copy of tsdraft from before standards would take the export and check nothing of it.
     const checked = standard !== undefined && typeof library.defineStandard === "function";
-    const found = checked ? library.lint(drawing, { standard }) : library.lint(drawing);
+    // A copy that draws attachments says why a drawing the export gives is not drawn.
+    // The export with one name for each xref, the first, which the pictures and lint both take.
+    const exported = exportedXrefs(library, drawing, referenced);
+    // A copy that draws attachments says why a drawing the export gives is not drawn.
+    const chains = typeof library.drawnXrefs === "function" ? { xrefs: exported } : {};
+    const found = library.lint(drawing, checked ? { standard, ...chains } : chains);
     const unchecked: BuildDiagnostic[] =
       standard !== undefined && !checked
         ? [
@@ -573,14 +589,9 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
       Number(a.severity === "warning") - Number(b.severity === "warning");
     /** The build's answer, with `shown` drawn in place of the drawing when items are left out. */
     const report = (shown: Drawing, omitted: readonly string[]): WorkerResult => {
-      const given = givenDrawings(library, shown, referenced, previews);
-      const drawn = Object.fromEntries(
-        [...given.values()].filter((g) => g.errors.length === 0).map((g) => [g.name, g.drawing]),
-      );
-      const linted = [
-        ...found,
-        ...[...given].flatMap(([xref, g]) => g.errors.map((d) => inGiven(xref, g, d))),
-      ]
+      const given = givenDrawings(library, shown, exported, previews);
+      const drawn = drawnOf(given);
+      const linted = [...found, ...givenErrors(given, [])]
         .sort(errorsFirst)
         .map((d) => aboutEntity(library, shown, drawn, d));
       timings.lint ??= now() - t;
@@ -597,7 +608,7 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
         timings.intent = now() - t;
       }
       t = now();
-      const fontsOf = fontsIn(library, [shown, ...Object.values(drawn)]);
+      const fontsOf = fontsIn(library, [shown, ...drawingsOf(given)]);
       const { svg, min, max } = framed(
         library.toSVG(shown, { margin: 0, drawNoPlot: drawNoPlot === true, xrefs: drawn }),
       );
@@ -700,7 +711,7 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
 function aboutEntity(
   library: Library,
   drawing: Drawing,
-  referenced: Readonly<Record<string, Drawing>>,
+  referenced: GivenXrefs,
   found: Diagnostic,
 ): BuildDiagnostic {
   const d = withPath(found);
@@ -737,7 +748,7 @@ function aboutEntity(
 function textWarnings(
   library: Library,
   drawing: Drawing,
-  referenced: Readonly<Record<string, Drawing>>,
+  referenced: GivenXrefs,
   drawNoPlot: boolean,
 ): BuildDiagnostic[] {
   try {
@@ -825,20 +836,42 @@ function missingFile(thrown: unknown): FileVersion[] {
 
 /**
  * Says what is wrong with an `xrefs` export, or returns undefined: it is an object that gives
- * a drawing for each xref the pictures are to draw, by the xref's name.
+ * a drawing for each xref the pictures are to draw, by the xref's name, as a Drawing or as
+ * `{ drawing, xrefs }` with the drawings that drawing's own xrefs stand for.
  */
 function notXrefs(value: unknown): string | undefined {
   if (value === undefined) return undefined;
   const shape =
-    "The export `xrefs` must be an object that gives a Drawing for an xref's name, such as `export const xrefs = { BASE: base }`";
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return shape;
-  for (const [name, drawing] of Object.entries(value)) {
-    if (notADrawing(drawing, true)) return `${shape}. Its ${JSON.stringify(name)} is not a Drawing`;
+    "The export `xrefs` must be an object that gives a Drawing, or { drawing, xrefs } with the drawings of that drawing's own xrefs, for an xref's name, such as `export const xrefs = { BASE: base }`";
+  // Each object given is checked once, so a circle of them ends.
+  const seen = new Set<object>();
+  const open: [xrefs: unknown, at: string][] = [[value, ""]];
+  for (let next = open.pop(); next !== undefined; next = open.pop()) {
+    const [xrefs, at] = next;
+    if (typeof xrefs !== "object" || xrefs === null || Array.isArray(xrefs)) {
+      return at === "" ? shape : `${shape}. Its ${at} is not an object`;
+    }
+    if (seen.has(xrefs)) continue;
+    seen.add(xrefs);
+    for (const [name, given] of Object.entries(xrefs)) {
+      const here = `${at}${at === "" ? "" : " > "}${JSON.stringify(name)}`;
+      const { drawing, xrefs: inner } = givenOf(given);
+      if (notADrawing(drawing, true)) return `${shape}. Its ${here} is not a Drawing`;
+      if (inner !== undefined) open.push([inner, `xrefs of ${here}`]);
+    }
   }
   return undefined;
 }
 
-/** Says what is wrong with a default export that is not a `Drawing`, or returns undefined. */
+/** The drawing a value of the `xrefs` export gives, and what it gives for that drawing's xrefs. */
+function givenOf(value: unknown): { readonly drawing: unknown; readonly xrefs: unknown } {
+  if (typeof value === "object" && value !== null && "drawing" in value) {
+    const nested = value as { readonly drawing: unknown; readonly xrefs?: unknown };
+    return { drawing: nested.drawing, xrefs: nested.xrefs };
+  }
+  return { drawing: value, xrefs: undefined };
+}
+
 function notADrawing(value: unknown, hasDefault: boolean): string | undefined {
   if (!hasDefault) {
     return "The file has no default export. End it with `export default d.build()`";
@@ -1101,30 +1134,113 @@ interface Given {
   readonly preview: boolean;
   /** The errors `lint` finds in it. A drawing with any is not drawn. */
   readonly errors: readonly Diagnostic[];
+  /** What the file gives for each attachment of `drawing` that the pictures draw. */
+  readonly nested: ReadonlyMap<Xref, Given>;
 }
 
 /**
  * The drawing given for each xref of the drawing, checked by the library that checks the
- * drawing. A preview stands for an xref the file's `xrefs` gives no drawing for.
+ * drawing. A preview stands for an xref the file's `xrefs` gives no drawing for. Below them, each
+ * drawing the library's `drawnXrefs` says the pictures draw. Each drawing is linted once.
  */
 function givenDrawings(
   library: Library,
   drawing: Drawing,
-  referenced: Readonly<Record<string, Drawing>>,
+  referenced: GivenXrefs,
   previews: readonly (readonly [name: string, preview: Drawing])[],
 ): Map<Xref, Given> {
-  const given = new Map<Xref, Given>();
-  const offered = [
-    ...Object.entries(referenced).map(([name, other]) => [name, other, false] as const),
-    ...previews.map(([name, preview]) => [name, preview, true] as const),
-  ];
-  for (const [name, other, preview] of offered) {
+  const linted = new Map<Drawing, readonly Diagnostic[]>();
+  const errorsOf = (other: Drawing): readonly Diagnostic[] => {
+    let found = linted.get(other);
+    if (!found) {
+      found = library.lint(other).filter((d) => d.severity === "error");
+      linted.set(other, found);
+    }
+    return found;
+  };
+  // The file's own drawings for the xrefs come first, and a preview stands for one it does not
+  // give.
+  const exported = new Set<Xref>();
+  const taken = new Set<Xref>();
+  // An xref may be named `__proto__`, which an object with a prototype would not keep.
+  const offered: Record<string, unknown> = Object.create(null);
+  for (const [name, value, own] of [
+    ...Object.entries(referenced).map(([name, value]) => [name, value, true] as const),
+    ...previews.map(([name, preview]) => [name, preview, false] as const),
+  ]) {
     const xref = xrefNamed(library, drawing, name);
-    if (!xref || given.has(xref)) continue;
-    const errors = library.lint(other).filter((d) => d.severity === "error");
-    given.set(xref, { name, drawing: other, preview, errors });
+    if (!xref || taken.has(xref)) continue;
+    taken.add(xref);
+    if (own) exported.add(xref);
+    offered[name] = value;
   }
-  return given;
+  /** What is given for the xrefs of `of`, as the library draws it. */
+  const read = (of: Drawing, tree: GivenXrefs, top: boolean): Map<Xref, Given> => {
+    const out = new Map<Xref, Given>();
+    for (const [name, value] of Object.entries(tree)) {
+      const xref = xrefNamed(library, of, name);
+      if (!xref || out.has(xref)) continue;
+      const { drawing: other, xrefs } = givenOf(value) as { drawing: Drawing; xrefs?: GivenXrefs };
+      const errors = errorsOf(other);
+      const below =
+        errors.length > 0 || xrefs === undefined ? new Map() : read(other, xrefs, false);
+      const preview = top && !exported.has(xref);
+      out.set(xref, { name, drawing: other, preview, errors, nested: below });
+    }
+    return out;
+  };
+  const drawn = library.drawnXrefs?.(drawing, offered) ?? flatOf(library, drawing, offered);
+  return read(drawing, drawn, true);
+}
+
+/** The export `xrefs` with the first of its names for each xref of the drawing, and no other. */
+function exportedXrefs(library: Library, drawing: Drawing, referenced: GivenXrefs): GivenXrefs {
+  const taken = new Set<Xref>();
+  const out: Record<string, unknown> = Object.create(null);
+  for (const [name, value] of Object.entries(referenced)) {
+    const xref = xrefNamed(library, drawing, name);
+    if (!xref || taken.has(xref)) continue;
+    taken.add(xref);
+    out[name] = value;
+  }
+  return out;
+}
+
+/** What a copy of tsdraft from before attachments draws: each drawing given alone, as given. */
+function flatOf(library: Library, drawing: Drawing, offered: GivenXrefs): GivenXrefs {
+  return Object.fromEntries(
+    Object.entries(offered).flatMap(([name, value]) => {
+      const { drawing: other } = givenOf(value);
+      return xrefNamed(library, drawing, name) && other !== drawing ? [[name, other]] : [];
+    }),
+  );
+}
+
+/** What the pictures are given for the xrefs: each drawing given with no lint error. */
+function drawnOf(given: ReadonlyMap<Xref, Given>): Record<string, unknown> {
+  return Object.fromEntries(
+    [...given.values()]
+      .filter((g) => g.errors.length === 0)
+      .map((g) => [
+        g.name,
+        g.nested.size > 0 ? { drawing: g.drawing, xrefs: drawnOf(g.nested) } : g.drawing,
+      ]),
+  );
+}
+
+/** Every drawing the pictures are given for an xref, at any depth. */
+function drawingsOf(given: ReadonlyMap<Xref, Given>): Drawing[] {
+  return [...given.values()].flatMap((g) =>
+    g.errors.length === 0 ? [g.drawing, ...drawingsOf(g.nested)] : [],
+  );
+}
+
+/** The errors of each drawing given, as problems of the chain of xrefs that leads to it. */
+function givenErrors(given: ReadonlyMap<Xref, Given>, chain: readonly string[]): Diagnostic[] {
+  return [...given].flatMap(([xref, g]) => {
+    const here = [...chain, xref.name];
+    return [...g.errors.map((d) => inGiven(here, g, d)), ...givenErrors(g.nested, here)];
+  });
 }
 
 /**
@@ -1176,43 +1292,91 @@ function standardSummary(standard: unknown, checked: boolean): StandardSummary |
 /**
  * A problem in the drawing given for an xref, as a problem of the xref. It keeps the rule, the
  * id and the call, and leaves out the entity's index, which counts another drawing's entities.
+ * `chain` runs from the xref of the drawing down to the xref the drawing is given for.
  */
-function inGiven(xref: Xref, given: Given, found: Diagnostic): Diagnostic {
+function inGiven(chain: readonly string[], given: Given, found: Diagnostic): Diagnostic {
   const what = given.preview ? "its title block's preview" : "the drawing given for it";
   return {
     rule: found.rule,
     severity: found.severity,
-    message: `Xref ${JSON.stringify(xref.name)}: ${what} has an error, so it is not drawn. ${found.message}`,
-    xref: xref.name,
+    message: `Xref ${chain.map((name) => JSON.stringify(name)).join(" > ")}: ${what} has an error, so it is not drawn. ${found.message}`,
+    xref: chain[0]!,
     ...(found.id === undefined ? {} : { id: found.id }),
     ...(found.call === undefined ? {} : { call: found.call }),
   };
 }
 
+/**
+ * Each xref of the drawing. For a drawing drawn inside another, `referenced`, only what its
+ * model space reaches is drawn, directly or through its blocks, so only those inserts count.
+ */
 function xrefSummaries(
   library: Library,
   drawing: Drawing,
   given: ReadonlyMap<Xref, Given>,
+  referenced = false,
+  counts = new Map<Drawing, Map<unknown, number>>(),
 ): XrefSummary[] {
-  const placed = new Map<unknown, number>();
-  for (const entities of [
-    drawing.entities,
-    ...(drawing.blocks ?? []).map((b) => b.entities),
-    ...sheetEntities(drawing),
-  ]) {
-    for (const e of entities) {
+  // A drawing given at many places is counted once, and each name in it looked up once: one
+  // drawn inside another has passed lint, so its names are short.
+  let placed = referenced ? counts.get(drawing) : undefined;
+  if (!placed) {
+    placed = new Map<unknown, number>();
+    const named = new Map<string, Xref | undefined>();
+    const xrefOf = (name: string): Xref | undefined => {
+      if (!referenced) return xrefNamed(library, drawing, name);
+      if (!named.has(name)) named.set(name, xrefNamed(library, drawing, name));
+      return named.get(name);
+    };
+    const lists = referenced
+      ? reached(library, drawing)
+      : [
+          drawing.entities,
+          ...(drawing.blocks ?? []).map((b) => b.entities),
+          ...sheetEntities(drawing),
+        ];
+    for (const entities of lists) {
+      for (const e of entities) {
+        if (e.kind !== "insert") continue;
+        const xref = xrefOf(e.block);
+        placed.set(xref, (placed.get(xref) ?? 0) + 1);
+      }
+    }
+    if (referenced) counts.set(drawing, placed);
+  }
+  return (drawing.xrefs ?? []).map((x) => {
+    const found = given.get(x);
+    const inserts = placed.get(x) ?? 0;
+    const shown = found?.errors.length === 0;
+    return {
+      name: x.name,
+      path: x.path,
+      attach: x.attach === true,
+      inserts,
+      shown,
+      units: found?.drawing.units ?? null,
+      xrefs: shown ? xrefSummaries(library, found.drawing, found.nested, true, counts) : [],
+    };
+  });
+}
+
+/** Model space and each block it reaches through its inserts, once each. */
+function reached(library: Library, drawing: Drawing): (readonly Entity[])[] {
+  const lists: (readonly Entity[])[] = [drawing.entities];
+  const seen = new Set<Block>();
+  // Each name is looked up once: the drawing has passed lint, so its names are short.
+  const named = new Map<string, Block | undefined>();
+  for (let at = 0; at < lists.length; at++) {
+    for (const e of lists[at]!) {
       if (e.kind !== "insert") continue;
-      const xref = xrefNamed(library, drawing, e.block);
-      placed.set(xref, (placed.get(xref) ?? 0) + 1);
+      if (!named.has(e.block)) named.set(e.block, blockNamed(library, drawing, e.block));
+      const block = named.get(e.block);
+      if (!block || seen.has(block)) continue;
+      seen.add(block);
+      lists.push(block.entities);
     }
   }
-  return (drawing.xrefs ?? []).map((x) => ({
-    name: x.name,
-    path: x.path,
-    inserts: placed.get(x) ?? 0,
-    shown: given.get(x)?.errors.length === 0,
-    units: given.get(x)?.drawing.units ?? null,
-  }));
+  return lists;
 }
 
 function insertSummaries(

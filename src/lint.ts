@@ -5,6 +5,8 @@ import {
   blockHandles,
   lookupCost,
   placeAttribute,
+  referencedTree,
+  type XrefDrawings,
 } from "./blocks.ts";
 import {
   arrowheadInfo,
@@ -145,6 +147,8 @@ import {
   viewportProblem,
   XREF_ATTRIBUTES,
   XREF_REFUSED_FIELDS,
+  XREFS_GIVEN,
+  xrefChainProblem,
   XREF_UNPLACED,
   xrefFieldProblem,
   xrefPathProblem,
@@ -282,7 +286,13 @@ export interface Diagnostic {
  * What `lint` checks a drawing against: its DXF version, and the standard it is drawn to, with
  * the drawing's discipline.
  */
-export type LintOptions =
+export type LintOptions = {
+  /**
+   * The drawings the xrefs stand for, as `toSVG` takes them. `lint` then says why any drawing
+   * given there is not drawn. It does not check those drawings: lint each on its own.
+   */
+  readonly xrefs?: XrefDrawings;
+} & (
   | {
       /** The DXF version to check against. Defaults to the drawing's own. */
       readonly version?: DxfVersion;
@@ -302,7 +312,8 @@ export type LintOptions =
        * fields by discipline.
        */
       readonly discipline?: string;
-    };
+    }
+);
 
 /**
  * The most work the checks do again for what a drawing repeats, beside `REPEATS` for each
@@ -1854,7 +1865,50 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
 
   const given: unknown = options?.standard;
   if (given !== undefined) lintStandard(drawing, given, options?.discipline, version, out);
+  const referenced: unknown = options?.xrefs;
+  if (referenced !== undefined) lintReferenced(drawing, referenced, out);
   return out;
+}
+
+/** The blocks `lintReferenced` reads of a drawing given: none. */
+const NO_BLOCKS: ReadonlyMap<string, Block> = new Map();
+
+/**
+ * Why a drawing given in `xrefs` is not drawn, as `referencedTree` finds it: a warning of the
+ * xref of the drawing it is under, or an error for a value that is no drawing.
+ */
+function lintReferenced(drawing: Drawing, xrefs: unknown, out: Diagnostic[]): void {
+  if (typeof xrefs !== "object" || xrefs === null || Array.isArray(xrefs)) {
+    out.push({ rule: "xref", severity: "error", message: XREFS_GIVEN });
+    return;
+  }
+  const { problems, unreported, unreportedShapes } = referencedTree(
+    drawing,
+    xrefs,
+    () => NO_BLOCKS,
+  );
+  for (const { kind, chain } of problems) {
+    out.push({
+      rule: "xref",
+      severity: kind === "shape" ? "error" : "warning",
+      message: xrefChainProblem(kind, chain),
+      ...(chain[0] === undefined ? {} : { xref: chain[0] }),
+    });
+  }
+  if (unreportedShapes > 0) {
+    out.push({
+      rule: "xref",
+      severity: "error",
+      message: `${unreportedShapes} more values given in xrefs are neither a Drawing nor { drawing, xrefs }, so nothing is drawn for them`,
+    });
+  }
+  if (unreported > unreportedShapes) {
+    out.push({
+      rule: "xref",
+      severity: "warning",
+      message: `${unreported - unreportedShapes} more drawings given in xrefs are not drawn, for the reasons above`,
+    });
+  }
 }
 
 /**

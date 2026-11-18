@@ -3,10 +3,13 @@ export {
   attributeHandle,
   attributesEndHandle,
   blockHandle,
+  drawnXrefs,
   findBlock,
   findXref,
   placeAttribute,
   type PlacedAttribute,
+  type XrefDrawing,
+  type XrefDrawings,
 } from "./blocks.ts";
 export {
   ARROWHEADS,
@@ -189,6 +192,7 @@ export type {
   WidthFactor,
   XrefPath,
 } from "./rules.ts";
+export { XREF_DEPTH } from "./rules.ts";
 export { BUILT_IN_STANDARD, defineStandard, type BuiltInStandard } from "./standard/define.ts";
 export type {
   Box,

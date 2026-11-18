@@ -3,6 +3,7 @@
 // runtime check, for values the compiler can't see. The messages are shared.
 //
 // That app discards the whole drawing over most names that break the name rules.
+import type { XrefProblem } from "./blocks.ts";
 import type { DxfVersion, Point, Units } from "./drawing.ts";
 import type { PaperUnit } from "./paper.ts";
 import { paperInfo, PLOT_STYLE_TABLES, type Paper, type PlotStyleTable } from "./papers.ts";
@@ -1362,6 +1363,48 @@ export function xrefFieldProblem(field: (typeof XREF_REFUSED_FIELDS)[number]): s
 /** What is wrong with an insert of an xref that sets attributes. */
 export const XREF_ATTRIBUTES =
   "An insert of an xref cannot set attributes. An insert gives a value to an attribute its block defines, and an xref defines none in this drawing";
+
+/**
+ * The most drawings a chain of references is drawn through in a picture: the drawing given for
+ * an xref, the drawing given for one of its attachments, and so on down.
+ */
+export const XREF_DEPTH = 16;
+
+/** The most names the drawings given for xrefs are looked through for, in one picture. */
+export const XREF_LOOKS = 4096;
+
+/** What is wrong with `xrefs` given to `lint` that is no object. */
+export const XREFS_GIVEN =
+  "xrefs must be an object that gives, for an xref's name, a Drawing or { drawing, xrefs }";
+
+/** The names of a chain of xrefs, each cut to the 255 characters a block's name may have. */
+function chainOf(chain: readonly string[]): string {
+  return chain
+    .map((name) => JSON.stringify(name.length > 255 ? `${name.slice(0, 255)}…` : name))
+    .join(" > ");
+}
+
+/**
+ * Why the drawing given in `xrefs` for the last xref of a chain is not drawn, the chain running
+ * from an xref of the drawing down through the attachments of the drawings given.
+ */
+export function xrefChainProblem(kind: XrefProblem["kind"], chain: readonly string[]): string {
+  const at = `Xref ${chainOf(chain)}`;
+  const last = chainOf(chain.slice(-1));
+  const above = chainOf(chain.slice(-2, -1));
+  switch (kind) {
+    case "overlay":
+      return `${at}: ${last} is an overlay of the drawing given for ${above}, and the leading CAD app draws no overlay of a referenced drawing, so the drawing given for it is not drawn`;
+    case "cycle":
+      return `${at}: a circular reference. The drawing given for ${last} is drawn above it on this chain already, and the leading CAD app breaks the circle there, so it is not drawn again`;
+    case "deep":
+      return `${at}: a chain of references is drawn ${XREF_DEPTH} drawings down and no further, so the drawing given for ${last} is not drawn`;
+    case "many":
+      return `The drawings given in xrefs name more than ${XREF_LOOKS} xrefs inside referenced drawings, past which tsdraft draws none of them: only the drawings given for this drawing's own xrefs are drawn`;
+    case "shape":
+      return `${at}: the value given for ${last} is neither a Drawing nor { drawing, xrefs }, so nothing is drawn for it`;
+  }
+}
 
 /** The warning for an xref that no insert places. */
 export const XREF_UNPLACED =

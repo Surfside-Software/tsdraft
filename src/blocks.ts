@@ -14,7 +14,14 @@ import type {
 import { keyHandle } from "./handles.ts";
 import { layerKey } from "./layers.ts";
 import { written } from "./format.ts";
-import { attributeTagProblem, blockNameProblem, idKey, idProblem } from "./rules.ts";
+import {
+  attributeTagProblem,
+  blockNameProblem,
+  idKey,
+  idProblem,
+  XREF_DEPTH,
+  XREF_LOOKS,
+} from "./rules.ts";
 import { filled } from "./shape.ts";
 
 /** A map of the plane: `x' = a x + c y + e` and `y' = b x + d y + f`. */
@@ -317,12 +324,33 @@ export function attributeText(insert: Insert, definition: AttributeDefinition): 
   return text as unknown as Text;
 }
 
+/**
+ * The drawing an xref stands for, with the drawings its own xrefs stand for, by their names in
+ * it. Only its attachments are drawn: the leading CAD app loads no overlay of a referenced
+ * drawing.
+ */
+export interface XrefDrawing {
+  readonly drawing: Drawing;
+  readonly xrefs?: XrefDrawings;
+}
+
+/**
+ * The drawing each xref stands for, by the xref's name: a `Drawing`, which draws none of its
+ * own xrefs, or an `XrefDrawing`, which gives the drawings its attachments stand for.
+ */
+export type XrefDrawings = Readonly<Record<string, Drawing | XrefDrawing>>;
+
+/** The most problems `referencedTree` names: past them it counts them. */
+const XREF_PROBLEMS = 64;
+
 /** A drawing that an xref stands for, under the xref's name in the drawing that references it. */
 export interface Referenced {
   readonly name: string;
   readonly drawing: Drawing;
   /** The drawing's blocks, as `blocksByKey` gives them. */
   readonly blocks: ReadonlyMap<string, Block>;
+  /** The drawings its attachments stand for, by `layerKey` of each xref's name. */
+  readonly xrefs: ReadonlyMap<string, Referenced>;
 }
 
 /** A layer by its name: one of the drawing's own, or one of a drawing it references. */
@@ -333,24 +361,221 @@ export interface LayerRef {
 }
 
 /**
+ * Why a drawing given for an xref is not drawn: it stands for an overlay of a referenced
+ * drawing, for a drawing the chain above it already draws, past `XREF_DEPTH` drawings down, or
+ * it is neither a `Drawing` nor an `XrefDrawing`; or, with no chain, the names given inside
+ * referenced drawings passed `XREF_LOOKS`, so no drawing below the drawing's own xrefs is drawn.
+ */
+export interface XrefProblem {
+  readonly kind: "overlay" | "cycle" | "deep" | "many" | "shape";
+  /** The names of the xrefs from one of the drawing's own down to the one not drawn. */
+  readonly chain: readonly string[];
+}
+
+const NO_XREFS: ReadonlyMap<string, Referenced> = new Map();
+const NO_VALUES: ReadonlyMap<string, readonly [name: string, value: unknown]> = new Map();
+const NO_BLOCKS: ReadonlyMap<string, Block> = new Map();
+
+/**
+ * The longest name of a block, and so of an xref. A longer name names no xref the walk can find,
+ * and is never a key of its maps, since V8 hashes a long string by its length alone.
+ */
+const LONGEST_NAME = 255;
+
+/** True for a value with what every drawing has: a list of layers and of entities, and units. */
+function drawingLike(value: unknown): value is Drawing {
+  if (typeof value !== "object" || value === null) return false;
+  const { layers, entities, units } = value as Partial<Drawing>;
+  return Array.isArray(layers) && Array.isArray(entities) && typeof units === "string";
+}
+
+/**
+ * What a picture of `drawing` draws of the drawings given in `xrefs`: each drawing given for
+ * one of its xrefs, and below it each drawing given for an attachment, as `toSVG` follows them,
+ * by the xref's name. A drawing that draws none of its own xrefs is given alone. Giving the
+ * result, or the result with drawings left out, draws the same, less what was left out.
+ */
+export function drawnXrefs(drawing: Drawing, xrefs: XrefDrawings | undefined): XrefDrawings {
+  const out = (tree: ReadonlyMap<string, Referenced>): Record<string, Drawing | XrefDrawing> =>
+    Object.fromEntries(
+      [...tree.values()].map((r) => [
+        r.name,
+        r.xrefs.size > 0 ? { drawing: r.drawing, xrefs: out(r.xrefs) } : r.drawing,
+      ]),
+    );
+  return out(referencedTree(drawing, xrefs, () => NO_BLOCKS).xrefs);
+}
+
+/**
  * The drawings to draw for the xrefs of `drawing`, by `layerKey` of each xref's name, from
  * drawings given by name. A name that matches no xref of the drawing is left out.
  */
 export function referencedByKey(
   drawing: Pick<Drawing, "xrefs">,
-  given: Readonly<Record<string, Drawing>> | undefined,
+  given: XrefDrawings | undefined,
 ): Map<string, Referenced> {
-  const out = new Map<string, Referenced>();
-  if (given === undefined) return out;
-  const byKey = new Map(Object.keys(given).map((name) => [layerKey(name), given[name]!]));
-  for (const xref of filled(drawing.xrefs)) {
-    const key = layerKey(xref.name);
-    const found = byKey.get(key);
-    if (found !== undefined && !out.has(key)) {
-      out.set(key, { name: xref.name, drawing: found, blocks: blocksByKey(found.blocks) });
+  return referencedTree(drawing, given).xrefs;
+}
+
+/**
+ * The drawings to draw for the xrefs of `drawing`, as `referencedByKey` gives them, and why
+ * any drawing given is not drawn. Inside a referenced drawing it follows an attachment and
+ * never an overlay, as the leading CAD app loads one. A drawing already on the chain above,
+ * `drawing` itself included, is a circular reference, which that app breaks, and is not drawn
+ * again. It follows a chain `XREF_DEPTH` drawings down. Past `XREF_LOOKS` names looked for
+ * inside referenced drawings it follows none: so a picture given a part of what was given cuts
+ * nothing that the whole did not. It reads each object given, each list of xrefs and each
+ * referenced drawing's blocks once.
+ *
+ * @param blocksOf - The blocks of a referenced drawing, `blocksByKey` unless they are not wanted.
+ */
+export function referencedTree(
+  drawing: Pick<Drawing, "xrefs">,
+  given: unknown,
+  blocksOf: (drawing: Drawing) => ReadonlyMap<string, Block> = (d) => blocksByKey(d.blocks),
+): {
+  readonly xrefs: Map<string, Referenced>;
+  /** The first `XREF_PROBLEMS` problems. */
+  readonly problems: XrefProblem[];
+  /** How many more there were. */
+  readonly unreported: number;
+  /** How many of those were values that are no drawing. */
+  readonly unreportedShapes: number;
+} {
+  const top = new Map<string, Referenced>();
+  const problems: XrefProblem[] = [];
+  let unreported = 0;
+  /** How many of those past the first `XREF_PROBLEMS` are of the drawing's own xrefs. */
+  let outside = 0;
+  /** How many of those are values that are no drawing, of any xref and of the drawing's own. */
+  let shapes = 0;
+  let outsideShapes = 0;
+  const note = (kind: XrefProblem["kind"], chain: readonly string[]): void => {
+    if (problems.length < XREF_PROBLEMS) problems.push({ kind, chain });
+    else {
+      unreported++;
+      if (kind === "shape") shapes++;
+      if (chain.length === 1) outside++;
+      if (chain.length === 1 && kind === "shape") outsideShapes++;
+    }
+  };
+  if (given === undefined) return { xrefs: top, problems, unreported, unreportedShapes: 0 };
+  /** The values of an object given, by the key of each name, the last of a key kept. */
+  const values = new WeakMap<object, ReadonlyMap<string, readonly [string, unknown]>>();
+  const valuesOf = (from: unknown): ReadonlyMap<string, readonly [string, unknown]> => {
+    if (typeof from !== "object" || from === null) return NO_VALUES;
+    let found = values.get(from);
+    if (!found) {
+      const read = new Map<string, readonly [string, unknown]>();
+      for (const name of Object.keys(from)) {
+        if (name.length > LONGEST_NAME) continue;
+        read.set(layerKey(name), [name, (from as Record<string, unknown>)[name]]);
+      }
+      values.set(from, (found = read));
+    }
+    return found;
+  };
+  /**
+   * The xrefs of a drawing, by key, the first of a key kept, as `findXref` finds them, read once
+   * for each list, which copies of a drawing may share.
+   */
+  const xrefLists = new WeakMap<object, ReadonlyMap<string, Xref>>();
+  const xrefsOf = (of: Pick<Drawing, "xrefs">): ReadonlyMap<string, Xref> => {
+    const list: unknown = of.xrefs;
+    if (typeof list !== "object" || list === null) return new Map();
+    let found = xrefLists.get(list);
+    if (!found) {
+      const read = new Map<string, Xref>();
+      for (const xref of filled(list)) {
+        const name: unknown = (xref as Xref | null)?.name;
+        if (typeof name !== "string" || name.length > LONGEST_NAME) continue;
+        const key = layerKey(name);
+        if (!read.has(key)) read.set(key, xref as Xref);
+      }
+      xrefLists.set(list, (found = read));
+    }
+    return found;
+  };
+  const blocks = new WeakMap<object, ReadonlyMap<string, Block>>();
+  /** A drawing given, and the drawings its xrefs stand for, still to look through. */
+  interface Open {
+    readonly drawing: Pick<Drawing, "xrefs">;
+    readonly given: unknown;
+    readonly into: Map<string, Referenced>;
+    readonly chain: readonly string[];
+    /** The drawings above it, from `drawing` itself down. */
+    readonly above: readonly object[];
+  }
+  const queue: Open[] = [{ drawing, given, into: top, chain: [], above: [drawing] }];
+  let looks = 0;
+  for (let at = 0; at < queue.length; at++) {
+    const open = queue[at]!;
+    const inside = open.chain.length > 0;
+    const given = valuesOf(open.given);
+    if (given.size === 0) continue;
+    const listed = xrefsOf(open.drawing);
+    for (const [key, [, value]] of given) {
+      // The drawing's own xrefs are read once. What a referenced drawing is given may be shared
+      // by many, so each name looked for there counts, and past the limit none is drawn.
+      if (inside && ++looks > XREF_LOOKS) {
+        for (const [name, referenced] of top) top.set(name, { ...referenced, xrefs: NO_XREFS });
+        const outer = problems.filter((problem) => problem.chain.length === 1);
+        return {
+          xrefs: top,
+          problems: [...outer, { kind: "many", chain: [] }],
+          unreported: outside,
+          unreportedShapes: outsideShapes,
+        };
+      }
+      const xref = listed.get(key);
+      if (xref === undefined || value === undefined) continue;
+      const chain = [...open.chain, xref.name];
+      // An xref of the drawing itself is drawn whatever it is, and one inside another only
+      // when it is attached.
+      if (inside && xref.attach !== true) {
+        note("overlay", chain);
+        continue;
+      }
+      const nested = typeof value === "object" && value !== null && "drawing" in value;
+      const found: unknown = nested ? (value as XrefDrawing).drawing : value;
+      const inner: unknown = nested ? (value as XrefDrawing).xrefs : undefined;
+      if (
+        !drawingLike(found) ||
+        (inner !== undefined && (typeof inner !== "object" || inner === null))
+      ) {
+        note("shape", chain);
+        continue;
+      }
+      if (open.above.includes(found)) {
+        note("cycle", chain);
+        continue;
+      }
+      if (chain.length > XREF_DEPTH) {
+        note("deep", chain);
+        continue;
+      }
+      const referenced = found as Drawing;
+      let held = blocks.get(referenced);
+      if (!held) blocks.set(referenced, (held = blocksOf(referenced)));
+      const into = inner === undefined ? undefined : new Map<string, Referenced>();
+      open.into.set(key, {
+        name: xref.name,
+        drawing: referenced,
+        blocks: held,
+        xrefs: into ?? NO_XREFS,
+      });
+      if (into) {
+        queue.push({
+          drawing: referenced,
+          given: inner,
+          into,
+          chain,
+          above: [...open.above, found],
+        });
+      }
     }
   }
-  return out;
+  return { xrefs: top, problems, unreported, unreportedShapes: shapes };
 }
 
 /** Where one entity is drawn. */
@@ -403,9 +628,10 @@ function holds(list: readonly unknown[], index: number): boolean {
  *
  * An insert of an xref draws the model space of the drawing given for it, as the leading CAD app
  * draws a loaded xref: an entity on layer `"0"` there draws as the insert's layer does, as in a
- * block, and any other on its own layer of the referenced drawing. The xrefs of a referenced
- * drawing are not drawn, as that app loads no overlay of an overlay. An xref with no drawing given
- * draws nothing.
+ * block, and any other on its own layer of the referenced drawing. Inside a referenced drawing an
+ * insert of one of its attachments draws the drawing `referencedTree` gives for it, the same way,
+ * and one of its overlays draws nothing, as that app loads no overlay of a referenced drawing. An
+ * xref with no drawing given draws nothing.
  *
  * @param isFrozen - True for a layer that hides everything an insert on it draws: a frozen
  *   layer, and in a plot a layer that does not plot.
@@ -446,7 +672,7 @@ export function eachDrawn(
     if (isFrozen(layer)) return true;
     const name = key(insert.block);
     const block = within.get(name);
-    const referenced = block || from ? undefined : xrefs?.get(name);
+    const referenced = block ? undefined : (from ? from.xrefs : xrefs)?.get(name);
     const held = block ?? referenced;
     if (!held || open.has(held)) return true;
     if (!spend(1)) return false;

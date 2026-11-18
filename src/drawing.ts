@@ -671,6 +671,11 @@ export interface Xref {
    * folders, such as `"base.dwg"` or `"..\\survey\\base.dwg"`.
    */
   readonly path: string;
+  /**
+   * True for an attachment: a drawing that references this one draws the file too. An overlay,
+   * the default, is drawn only by the drawing that references it.
+   */
+  readonly attach?: boolean;
 }
 
 /**
@@ -2305,15 +2310,18 @@ export class DrawingBuilder<
    * xref has. `insert(name, at)` then places it, as it places a block, and the leading CAD app
    * loads the file and draws it there each time it opens this drawing. `path` leads from the folder
    * of this drawing's file to the DWG file, such as `"base.dwg"` or `"../survey/base.dwg"`.
+   * The xref is an overlay unless `attach` is true: a drawing that references this one draws an
+   * attachment too, and never an overlay.
    */
   xref<N extends string, P extends string>(
     name: V extends "R12" ? R12Xrefs : BlockName<N>,
     path: V extends "R12" ? R12Xrefs : XrefPath<P>,
+    options: { readonly attach?: boolean } = {},
   ): this {
     // The parameter type is the error message when a literal is wrong, so read it as a string.
     const requested = name as string;
     try {
-      this.#defineXref(requested, path);
+      this.#defineXref(requested, path, false, options?.attach);
     } catch (thrown) {
       throw located(thrown, DrawingBuilder.prototype.xref, { xref: requested });
     }
@@ -2324,12 +2332,15 @@ export class DrawingBuilder<
    * Checks an xref and stores it. With `shared`, an xref the drawing has of the same name and
    * path is the one it keeps, as a title block's border on each layout is.
    */
-  #defineXref(requested: string, path: unknown, shared = false): void {
+  #defineXref(requested: string, path: unknown, shared = false, attach?: unknown): void {
     const fail = (rule: LintRule, problem: string): never =>
       refuse(rule, `Xref ${JSON.stringify(requested)}: ${problem}`);
     if (this.dxf === "R12") fail("xref", R12_ONLY.xrefs);
     const nameProblem = blockNameProblem(requested);
     if (nameProblem) fail("xref", nameProblem);
+    if (attach !== undefined && typeof attach !== "boolean") {
+      fail("xref", "attach must be true or false");
+    }
     if (shared && this.#xrefs.get(layerKey(requested))?.path === path) return;
     const first = this.#blocksAudited.get(layerAuditKey(requested));
     if (first !== undefined) {
@@ -2346,7 +2357,11 @@ export class DrawingBuilder<
     for (const handle of [handles.record, handles.begin, handles.end]) {
       this.#claim(handle, what, undefined, []);
     }
-    this.#xrefs.set(layerKey(requested), { name: requested, path: path as string });
+    this.#xrefs.set(layerKey(requested), {
+      name: requested,
+      path: path as string,
+      ...(attach === true ? { attach: true } : {}),
+    });
     this.#blocksAudited.set(layerAuditKey(requested), { name: requested, xref: true });
   }
 

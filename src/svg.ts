@@ -6,6 +6,7 @@ import {
   type LayerRef,
   type Matrix,
   type Referenced,
+  type XrefDrawings,
 } from "./blocks.ts";
 import { dimensionPicture, type Dimension } from "./dimensions.ts";
 import {
@@ -203,9 +204,11 @@ export interface SvgOptions {
   readonly drawNoPlot?: boolean;
   /**
    * The drawing each xref stands for, by the xref's name. An insert of an xref draws the model
-   * space of the drawing given here, and nothing when none is given.
+   * space of the drawing given here, and nothing when none is given. Given as
+   * `{ drawing, xrefs }`, a drawing draws its attachments too, from the drawings its own `xrefs`
+   * gives, and so on down.
    */
-  readonly xrefs?: Readonly<Record<string, Drawing>>;
+  readonly xrefs?: XrefDrawings;
   /**
    * The name of a layout to draw in place of model space: the sheet as it plots. `margin` then
    * defaults to 0, and `strokeWidth` is not used, because a sheet's lines are as wide as their
@@ -272,7 +275,12 @@ interface Sides {
  * draws a loaded xref: an entity on layer `0` there draws as the insert's layer does, and any other
  * as its own layer of the referenced drawing does, in that layer's color, linetype, lineweight
  * and state, with `data-layer` naming it as that app does, `XREF|LAYER`. Dashes are scaled by
- * this drawing's linetype scale. The group is empty for an xref with no drawing given.
+ * this drawing's linetype scale. The group is empty for an xref with no drawing given. A drawing
+ * given as `{ drawing, xrefs }` draws each of its attachments the same way, inside the group,
+ * with a layer of the attached drawing named by the attachment's name, and none of its
+ * overlays, as that app loads no overlay of a referenced drawing. A circular reference is
+ * broken where it would draw a drawing the chain above already draws, as that app breaks one,
+ * and a chain is followed 16 drawings down; `lint` with the same `xrefs` reports both.
  *
  * With `options.layout`, the picture is that layout as the leading CAD app plots it, in paper
  * units: a white sheet the size of its paper, each viewport as a group with its index in

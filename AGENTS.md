@@ -68,11 +68,20 @@
   nothing of its block.
 - An xref is a block record with a path: `Drawing.xrefs` holds a name and a path, and an
   insert places one by its name. It shares the blocks' names and the keys of their handles,
-  `block:KEY` and the two beside it, and is written as an overlay, which cannot make a cycle
-  the leading CAD app has to break. That app reads the path of a BLOCK once, so the DXF writes it
-  with `dxfOnce`. `eachDrawn` walks the drawing a caller gives for an xref as it walks a block,
-  with each layer as a `LayerRef` that says which drawing's layer it is. `src/` opens no
-  file: `toSVG` draws only the drawings it is given.
+  `block:KEY` and the two beside it, and is written as an overlay, unless `attach` is true. That
+  app reads the path of a BLOCK once, so the DXF writes it with `dxfOnce`. `eachDrawn` walks the
+  drawing a caller gives for an xref as it walks a block, with each layer as a `LayerRef` that
+  says which drawing's layer it is. `src/` opens no file: `toSVG` draws only the drawings it is
+  given. `referencedTree` in `src/blocks.ts` is the one reading of what is given in `xrefs`: a
+  tree of `Referenced`, one for each place, each with the drawings of its own attachments,
+  never of an overlay, cut where a drawing on the chain above comes again and past `XREF_DEPTH`
+  drawings down, with why in its problems, which `lint` reports with `xrefs`. Past `XREF_LOOKS`
+  names looked for inside referenced drawings it follows none, so the same given with drawings
+  left out cuts nothing the whole did not, which the command relies on; `drawnXrefs` gives the
+  tree in the form given. `eachDrawn` and the boxer read that tree, the boxer keeping a block's
+  box for each drawing and the drawings given for its attachments. `inspectText` reads the
+  drawings given for the drawing's own xrefs alone, once each, and checks no text of their
+  attachments: a cut for each place cost work outside its limit.
 - A layout is a sheet: `Drawing.layouts` holds each with its paper, its viewports and the
   entities drawn on it in paper units. `src/papers.ts` is the one list of papers and of plot
   style tables, with the name the leading CAD app stores for each paper. Add a paper only when

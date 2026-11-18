@@ -515,7 +515,7 @@ function shapes(all: boolean, typed = all): Shapes {
     }
   };
 
-  const xrefFields = fields<Xref>({ name: string, path: string }, {});
+  const xrefFields = fields<Xref>({ name: string, path: string }, { attach: boolean });
 
   /**
    * An xref, which is told why it cannot have a field of a block. `lint` has a rule for each of
@@ -533,7 +533,7 @@ function shapes(all: boolean, typed = all): Shapes {
       }
     : fields<Xref & { [F in (typeof XREF_REFUSED_FIELDS)[number]]?: unknown }>(
         { name: ruled(string), path: ruled(string) },
-        { entities: LEFT, base: LEFT, attributes: LEFT },
+        { attach: boolean, entities: LEFT, base: LEFT, attributes: LEFT },
       );
 
   const layer = record(

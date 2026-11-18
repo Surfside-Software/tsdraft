@@ -9,6 +9,7 @@ import {
   type LayerRef,
   type Matrix,
   type Referenced,
+  type XrefDrawings,
 } from "./blocks.ts";
 import { callOf, type CallSite } from "./callsite.ts";
 import { dimensionPicture } from "./dimensions.ts";
@@ -72,8 +73,11 @@ export interface TextWarning extends Partial<TextOccurrence> {
 export interface InspectOptions {
   /** Counts the layers whose `plot` is false too, as `toSVG` draws them with the same option. */
   readonly drawNoPlot?: boolean;
-  /** The drawing each xref stands for, by the xref's name, as `toSVG` takes them. */
-  readonly xrefs?: Readonly<Record<string, Drawing>>;
+  /**
+   * The drawing each xref stands for, by the xref's name, as `toSVG` takes them. The texts of the
+   * drawings given for the drawing's own xrefs are checked, and not those of their attachments.
+   */
+  readonly xrefs?: XrefDrawings;
 }
 
 /** How far a text may reach into another, or past an outline, as a share of its height. */
@@ -675,7 +679,8 @@ function looked(
     }
     return out;
   };
-  // An xref's model space, read once for each drawing given, and walked without xrefs of its own.
+  // An xref's model space, read once for each drawing given, and walked without xrefs of its own:
+  // the checks read the drawings given for the drawing's own xrefs, and none they attach.
   const done = new Map<Drawing, Referenced | undefined>();
   const outXrefs = new Map<string, Referenced>();
   for (const [key, xref] of xrefs) {
@@ -685,6 +690,7 @@ function looked(
         name: xref.name,
         drawing: { ...xref.drawing, entities },
         blocks: xref.blocks,
+        xrefs: new Map(),
       };
       const inner = settle(xref.blocks, of, () => false);
       const space = read(xref.drawing.entities, of);

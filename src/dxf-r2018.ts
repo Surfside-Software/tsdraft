@@ -550,6 +550,7 @@ export function toDXFR2018(
     writeBlock(g, handles.begin, handles.end, xref.name, handles.record, {
       paper: false,
       xrefPath: xref.path,
+      attach: xref.attach === true,
     });
   }
   for (const { arrowhead, block } of arrowheads) {
@@ -849,6 +850,8 @@ function writeBlock(
     readonly hasAttributes?: boolean;
     /** The path of the file an xref's block stands for. */
     readonly xrefPath?: string;
+    /** True for an xref that is attached, and not an overlay. */
+    readonly attach?: boolean;
     /** True for a block of no name of its own, such as a dimension's picture. */
     readonly anonymous?: boolean;
     readonly contents?: () => void;
@@ -864,7 +867,8 @@ function writeBlock(
   g(2, name);
   // 1: the block is anonymous. 2: it has attribute definitions. 4 and 8: it is an xref, and an
   // overlay.
-  g(70, block.anonymous ? 1 : block.xrefPath !== undefined ? 12 : block.hasAttributes ? 2 : 0);
+  const xref = block.attach === true ? 4 : 12;
+  g(70, block.anonymous ? 1 : block.xrefPath !== undefined ? xref : block.hasAttributes ? 2 : 0);
   point(g, 10, ...(block.base ?? [0, 0]));
   g(3, name);
   // The leading CAD app decodes a block's path once, where it decodes a text twice.

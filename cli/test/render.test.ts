@@ -303,9 +303,33 @@ test("the state lists each xref, and the pictures draw the ones the file gives a
   const { state } = render(plan);
   assert.equal(state.drawing?.counts.xrefs, 3);
   assert.deepEqual(state.drawing?.xrefs, [
-    { name: "BASE", path: "../civil/base.dwg", inserts: 2, shown: true, units: "ft" },
-    { name: "SURVEY", path: "survey.dwg", inserts: 1, shown: false, units: null },
-    { name: "SPARE", path: "spare.dwg", inserts: 0, shown: false, units: null },
+    {
+      name: "BASE",
+      path: "../civil/base.dwg",
+      attach: false,
+      inserts: 2,
+      shown: true,
+      units: "ft",
+      xrefs: [],
+    },
+    {
+      name: "SURVEY",
+      path: "survey.dwg",
+      attach: false,
+      inserts: 1,
+      shown: false,
+      units: null,
+      xrefs: [],
+    },
+    {
+      name: "SPARE",
+      path: "spare.dwg",
+      attach: false,
+      inserts: 0,
+      shown: false,
+      units: null,
+      xrefs: [],
+    },
   ]);
   assert.deepEqual(
     state.drawing?.inserts.map((i) => [i.block, i.xref]),
@@ -389,6 +413,123 @@ test("the state lists each xref, and the pictures draw the ones the file gives a
 
   file("export const xrefs = { BASE: 5 };");
   assert.match(render(plan).state.error!.message, /The export `xrefs` must be an object/);
+  file("export const xrefs = { BASE: { drawing: 5 } };");
+  assert.match(render(plan).state.error!.message, /Its "BASE" is not a Drawing$/);
+});
+
+test("the pictures draw an attachment inside a drawing the file gives with its xrefs, and no overlay there", () => {
+  const dir = realpathSync(tempDir());
+  const drawing = (layer: string, entities: unknown[], xrefs?: unknown[]) => ({
+    format: 0,
+    units: "ft",
+    dxf: "R2018",
+    layers: [
+      { name: "0", color: 7 },
+      { name: layer, color: 1 },
+    ],
+    entities,
+    ...(xrefs ? { xrefs } : {}),
+  });
+  const line = (layer: string) => ({ kind: "line", layer, from: [0, 0], to: [1, 0] });
+  const insert = (block: string, x: number) => ({ kind: "insert", layer: "0", block, at: [x, 0] });
+  const detail = drawing("D", [line("D")]);
+  const survey = drawing("S", [line("S")]);
+  const model = drawing(
+    "M",
+    [line("M"), insert("DETAIL", 10), insert("SURVEY", 20)],
+    [
+      { name: "DETAIL", path: "detail.dwg", attach: true },
+      { name: "SURVEY", path: "survey.dwg" },
+    ],
+  );
+  const sheet = drawing("X", [insert("MODEL", 100)], [{ name: "MODEL", path: "model.dwg" }]);
+  const plan = join(dir, "plan.ts");
+  const file = (detailGiven: unknown): void =>
+    writeFileSync(
+      plan,
+      `export const xrefs = { MODEL: { drawing: ${JSON.stringify(model)}, xrefs: { DETAIL: ${JSON.stringify(detailGiven)}, SURVEY: ${JSON.stringify(survey)} } } };\nexport default ${JSON.stringify(sheet)};\n`,
+    );
+  file(detail);
+  const { state, status } = render(plan, "--out", dir);
+  assert.equal(status, 0);
+  const svg = readFileSync(state.outputs.svg!, "utf8");
+  assert.match(svg, /<line x1="110" y1="0" x2="111" y2="0" [^>]*data-layer="DETAIL\|D"\/>/);
+  assert.doesNotMatch(svg, /SURVEY/);
+  const summary = (name: string, path: string, attach: boolean, shown: boolean) => ({
+    name,
+    path,
+    attach,
+    inserts: 1,
+    shown,
+    units: shown ? "ft" : null,
+    xrefs: [],
+  });
+  assert.deepEqual(state.drawing?.xrefs, [
+    {
+      ...summary("MODEL", "model.dwg", false, true),
+      xrefs: [
+        summary("DETAIL", "detail.dwg", true, true),
+        summary("SURVEY", "survey.dwg", false, false),
+      ],
+    },
+  ]);
+  assert.deepEqual(
+    state.diagnostics.map((d) => [d.rule, d.severity, d.xref, d.message]),
+    [
+      [
+        "xref",
+        "warning",
+        "MODEL",
+        'Xref "MODEL" > "SURVEY": "SURVEY" is an overlay of the drawing given for "MODEL", and the leading CAD app draws no overlay of a referenced drawing, so the drawing given for it is not drawn',
+      ],
+    ],
+  );
+  // An attachment the model places only on a sheet of its own is placed nowhere drawn: CAD draws
+  // a referenced drawing's model space alone.
+  const sheetOnly = {
+    ...model,
+    entities: [line("M"), insert("SURVEY", 20)],
+    layouts: [{ name: "M-1", paper: "ANSI B", viewports: [], entities: [insert("DETAIL", 1)] }],
+  };
+  writeFileSync(
+    plan,
+    `export const xrefs = { MODEL: { drawing: ${JSON.stringify(sheetOnly)}, xrefs: { DETAIL: ${JSON.stringify(detail)} } } };\nexport default ${JSON.stringify(sheet)};\n`,
+  );
+  const onSheet = render(plan, "--out", dir);
+  assert.deepEqual(
+    onSheet.state.drawing?.xrefs[0]?.xrefs.map((x) => [x.name, x.inserts, x.shown]),
+    [
+      ["DETAIL", 0, true],
+      ["SURVEY", 1, false],
+    ],
+  );
+  assert.doesNotMatch(readFileSync(onSheet.state.outputs.svg!, "utf8"), /DETAIL\|/);
+  // The export's first name for an xref is the one drawn and checked, and an xref may be named
+  // `__proto__`.
+  writeFileSync(
+    plan,
+    `export const xrefs = { MODEL: { drawing: ${JSON.stringify(model)}, xrefs: { DETAIL: ${JSON.stringify(detail)}, SURVEY: ${JSON.stringify(survey)} } }, model: ${JSON.stringify(model)}, ["__proto__"]: ${JSON.stringify(detail)} };\nexport default ${JSON.stringify({ ...sheet, entities: [...sheet.entities, insert("__proto__", 200)], xrefs: [...sheet.xrefs!, { name: "__proto__", path: "proto.dwg" }] })};\n`,
+  );
+  const aliased = render(plan, "--out", dir);
+  const aliasedSvg = readFileSync(aliased.state.outputs.svg!, "utf8");
+  assert.match(aliasedSvg, /data-layer="DETAIL\|D"/);
+  assert.match(aliasedSvg, /data-layer="__proto__\|D"/);
+  assert.deepEqual(
+    aliased.state.diagnostics.map((d) => d.message.slice(0, 26)),
+    ['Xref "MODEL" > "SURVEY": "'],
+  );
+  // A drawing given inside another is checked too, and one with an error is not drawn.
+  file(drawing("D", [{ kind: "circle", layer: "D", center: [0, 0], radius: -5 }]));
+  const broken = render(plan, "--out", dir);
+  assert.equal(broken.status, 2);
+  assert.equal(broken.state.drawing?.xrefs[0]?.xrefs[0]?.shown, false);
+  const error = broken.state.diagnostics.find((d) => d.severity === "error");
+  assert.match(
+    error?.message ?? "",
+    /^Xref "MODEL" > "DETAIL": the drawing given for it has an error, so it is not drawn\./,
+  );
+  assert.equal(error?.xref, "MODEL");
+  assert.doesNotMatch(readFileSync(broken.state.outputs.svg!, "utf8"), /DETAIL\|/);
 });
 
 test("a drawing file Node reads as CommonJS says how to make it a module", () => {
@@ -767,7 +908,15 @@ test("a drawing with a layout gets a picture of its sheet, and the state says wh
     { name: "TITLE BLOCK", entities: 0, attributes: ["SHEET", "DATE"], inserts: 1 },
   ]);
   assert.deepEqual(state.drawing?.xrefs, [
-    { name: "BORDER", path: "border.dwg", inserts: 1, shown: false, units: null },
+    {
+      name: "BORDER",
+      path: "border.dwg",
+      attach: false,
+      inserts: 1,
+      shown: false,
+      units: null,
+      xrefs: [],
+    },
   ]);
   // Model space has no text. The sheet has text in both fonts, and the PNG sets an SHX font
   // in the renderer's own face.
@@ -1213,7 +1362,15 @@ ${exported}\n`,
     };
     const preview = sheet("");
     assert.deepEqual(preview.xrefs, [
-      { name: "BORDER", path: "border.dwg", inserts: 1, shown: true, units: "in" },
+      {
+        name: "BORDER",
+        path: "border.dwg",
+        attach: false,
+        inserts: 1,
+        shown: true,
+        units: "in",
+        xrefs: [],
+      },
     ]);
     assert.ok(preview.layers.has("BORDER|PREVIEW"));
     // The file's own drawing for the xref, by any case of its name, is drawn in its place.

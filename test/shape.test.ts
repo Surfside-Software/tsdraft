@@ -235,7 +235,7 @@ const full: Required<Drawing> & {
       ],
     },
   ],
-  xrefs: [{ name: "BASE", path: "base.dwg" }],
+  xrefs: [{ name: "BASE", path: "base.dwg", attach: true }],
   entities: [...Object.values(kinds), { kind: "insert", layer: "0", block: "BASE", at: [0, 0] }],
   layouts: [
     {

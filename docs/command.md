@@ -157,18 +157,29 @@ dimension in model space: its `entity` index, `id`, `layer`, `kind`, which is `l
 `aligned`, `style`, `measurement`, the length it measures in drawing units, and `text`, the
 string the leading CAD app draws for it. The last two are `null` for a dimension whose style the
 drawing does not define. A layout's `dimensions` lists those on its sheet in the same way.
-`drawing.xrefs` gives each xref's `name`, its `path`, how many `inserts` place it, in model
-space, in blocks and on layouts, `shown` and `units`. The command opens no DWG file. It draws an xref when
+`drawing.xrefs` gives each xref's `name`, its `path`, whether it is an `attach`ment or an
+overlay, how many `inserts` place it, in model space, in blocks and on layouts, `shown`, `units`
+and `xrefs`. The command opens no DWG file. It draws an xref when
 the drawing file has a named export `xrefs`, an object that gives a `Drawing` under the xref's
 name, such as `export const xrefs = { BASE: base }`. `shown` says that the pictures drew that
-drawing. The command cannot tell whether it is what the file at `path` holds, so `shown` is
+drawing. Given as `{ drawing, xrefs }`, such as
+`export const xrefs = { MODEL: { drawing: model, xrefs: { SURVEY: survey } } }`, a drawing's own
+attachments are drawn too, from the drawings its `xrefs` gives, and so on down, and its
+overlays are not, as CAD loads them. An xref's `xrefs` then lists the xrefs of the drawing drawn
+for it, each in the same way, and is empty when it is not shown. There `inserts` counts only
+what the drawing's model space reaches, directly or through its blocks, since CAD draws nothing
+else of a referenced drawing. `lint` warns, with the `xref`
+under which it is, of a drawing given that is not drawn: an overlay inside a referenced
+drawing, a circular reference, which CAD breaks, or a chain more than `XREF_DEPTH`, 16,
+drawings down. The command cannot tell whether it is what the file at `path` holds, so `shown` is
 about the pictures and not about what CAD will load. When `xrefs` gives no drawing for an xref
 that is the border of a title block of the file's `standard`, and the command checked the
 standard and found no error, the pictures draw the title block's `preview` in its place, and `shown` is true. `units` is the units of the drawing drawn,
 or `null` when there is none: where they differ from the drawing's own, each insert needs the
-scale between the two. The command runs `lint` on each drawing it is given. One with an error
-is not drawn, its `shown` is false, and each error is in `diagnostics` with the `xref` it
-belongs to, counted in `counts.errors`. An xref that is not shown is left out of the pictures
+scale between the two. The command runs `lint` on each drawing it is given that it draws, at
+any depth. One with an error is not drawn, its `shown` is false, and each error is in `diagnostics` with the
+`xref` of the drawing it is under and the chain of xrefs in its message, counted in
+`counts.errors`. An xref that is not shown is left out of the pictures
 and of `drawing.extents`. `drawing.layouts` gives each layout: its `name`, its `paper`, its `paperUnits`, `width` and
 `height`, its `plotStyle`, how many `entities` are on its sheet, and each viewport, with its
 `id`, its `layer`, whether its `border` plots, its `rectangle` on the sheet, its `ratio`, the

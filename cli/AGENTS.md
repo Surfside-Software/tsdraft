@@ -6,7 +6,11 @@
   gained the inserts on layouts while layouts were unreleased.
 - The command opens no file an xref names. The worker draws an xref from the drawing file's
   named export `xrefs` alone, and `drawing.xrefs` says with `shown` which ones the pictures
-  have, so an agent knows what it is not seeing.
+  have, so an agent knows what it is not seeing, and for one shown, the same of its own `xrefs`.
+  A value given as `{ drawing, xrefs }` draws its attachments where the copy of tsdraft has
+  `drawnXrefs`. The worker takes from it what the pictures draw, lints each of those drawings
+  once, leaves out one with an error, which cuts nothing else, and passes the export to `lint`
+  for why a drawing given is not drawn.
 - `outputs.svg` and `outputs.png` are model space, with or without layouts, and
   `outputs.layouts` has each sheet. The worker draws a layout only with a copy of tsdraft that
   has `viewportView`, since an older one would draw model space for it. `without` leaves a

@@ -493,6 +493,8 @@ d.layer("X-BASE", { color: 8 }, () => d.insert("BASE", [0, 0]));
 - Layer `0` of the referenced file draws as the insert's layer does, and its other layers as
   themselves.
 - Place every xref at least once. `lint` warns of one that no insert places, which CAD drops.
+- An xref is an overlay unless you write `d.xref("BASE", "base.dwg", { attach: true })`. A
+  drawing that references yours draws your attachments too, and never your overlays.
 
 The command opens no DWG, so the pictures leave an xref out unless the drawing file gives the
 drawing it stands for. When that drawing is a tsdraft file too, import it and export it under
@@ -507,6 +509,14 @@ export default d.build();
 
 The command checks each drawing you give as it checks yours. One with a `lint` error is not
 drawn: `shown` is false, and each error is a diagnostic that names the `xref`.
+
+To draw what a referenced drawing attaches, give it as `{ drawing, xrefs }`, with the drawings
+of its own xrefs. Its attachments are drawn and its overlays are not, as CAD draws them, and
+`drawing.xrefs[].xrefs` lists them with their own `shown`:
+
+```ts
+export const xrefs = { MODEL: { drawing: model, xrefs: { SURVEY: survey } } };
+```
 
 Read `drawing.xrefs` in the JSON before you trust a picture of a drawing with xrefs. A picture
 with `shown: true` shows the drawing you exported, which is only as current as the DWG file CAD

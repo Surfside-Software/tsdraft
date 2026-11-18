@@ -200,21 +200,17 @@ export function boxer(
     readonly textStyles: ReadonlyMap<string, TextStyle>;
     readonly dimensionStyles: ReadonlyMap<string, DimensionStyle>;
     readonly leaderStyles: ReadonlyMap<string, LeaderStyle>;
-    /** Counts the drawings, from 0 for the drawing itself. */
-    readonly index: number;
   }
   const namesOf = (
     text: readonly TextStyle[] | undefined,
     dimensions: readonly DimensionStyle[] | undefined,
     leaders: readonly LeaderStyle[] | undefined,
-    index: number,
   ): Names => ({
     textStyles: new Map(filled(text).map((t) => [layerKey(t.name), t])),
     dimensionStyles: new Map(filled(dimensions).map((style) => [layerKey(style.name), style])),
     leaderStyles: new Map(filled(leaders).map((style) => [layerKey(style.name), style])),
-    index,
   });
-  const own = namesOf(textStyles, dimensionStyles, leaderStyles, 0);
+  const own = namesOf(textStyles, dimensionStyles, leaderStyles);
   // The names of each referenced drawing, worked out when one of its entities is first met.
   const referenced = new Map<Referenced, Names>();
   const byDrawing = new Map<Referenced["drawing"], Names>();
@@ -225,7 +221,7 @@ export function boxer(
       found = byDrawing.get(from.drawing);
       if (!found) {
         const { textStyles, dimensionStyles, leaderStyles } = from.drawing;
-        found = namesOf(textStyles, dimensionStyles, leaderStyles, byDrawing.size + 1);
+        found = namesOf(textStyles, dimensionStyles, leaderStyles);
         byDrawing.set(from.drawing, found);
       }
       referenced.set(from, found);
@@ -428,7 +424,22 @@ export function boxer(
     return true;
   };
 
-  /** Each block in each drawing, by the drawing and whether its layer `0` is hidden. */
+  /**
+   * The places a block is held in, from 1: each referenced drawing with the drawings given for
+   * its attachments, which two places that give one drawing may give apart. The drawing itself
+   * is 0.
+   */
+  const places = new Map<Referenced["drawing"], Map<Referenced["xrefs"], number>>();
+  let counted = 0;
+  const placeOf = (inside: Referenced | undefined): number => {
+    if (inside === undefined) return 0;
+    let byXrefs = places.get(inside.drawing);
+    if (!byXrefs) places.set(inside.drawing, (byXrefs = new Map()));
+    let place = byXrefs.get(inside.xrefs);
+    if (place === undefined) byXrefs.set(inside.xrefs, (place = ++counted));
+    return place;
+  };
+  /** Each block in each place, by the place and whether its layer `0` is hidden. */
   const helds = new Map<Block | Referenced, Held[]>();
   const heldOf = (
     held: Block | Referenced,
@@ -437,7 +448,7 @@ export function boxer(
     inner: ReadonlyMap<string, Block>,
     hidden: boolean,
   ): Held => {
-    const slot = names(inside).index * 2 + (hidden ? 1 : 0);
+    const slot = placeOf(inside) * 2 + (hidden ? 1 : 0);
     let all = helds.get(held);
     if (!all) helds.set(held, (all = []));
     return (all[slot] ??= {
@@ -469,7 +480,7 @@ export function boxer(
     if (!zero && isFrozen(layer)) return undefined;
     const name = key(insert.block);
     const block = within.inner.get(name);
-    const xref = block || inside ? undefined : xrefs?.get(name);
+    const xref = block ? undefined : (inside ? inside.xrefs : xrefs)?.get(name);
     const held = block ?? xref;
     if (!held) return undefined;
     const hidden = zero ? within.hidden : isHidden(layer);
@@ -510,21 +521,25 @@ export function boxer(
     }
     return (slots[slot] = box);
   };
-  /** The inserts of a list, found once, and the block or xref that first read them. */
-  const insertLists = new WeakMap<object, { inserts: readonly Insert[]; by: Block | Referenced }>();
-  /** Reads the inserts a block holds, once, and pays for a list read for another block. */
+  /** The inserts of a list, found once, and the block or xref and the place that first read them. */
+  const insertLists = new WeakMap<
+    object,
+    { inserts: readonly Insert[]; by: Block | Referenced; place: number }
+  >();
+  /** Reads the inserts a block holds, once, and pays for a list read for another block or place. */
   const fill = (held: Held): void => {
     if (held.filled) return;
     held.filled = true;
     const list = listOf(held);
+    const place = placeOf(held.inside);
     let found = insertLists.get(list);
     if (!found) {
       const inserts = filled(list).filter((item): item is Insert => item.kind === "insert");
-      insertLists.set(list, (found = { inserts, by: held.held }));
+      insertLists.set(list, (found = { inserts, by: held.held, place }));
     }
     const { inserts } = found;
     held.inserts = inserts.length;
-    if (found.by !== held.held && inserts.length > 0) {
+    if ((found.by !== held.held || found.place !== place) && inserts.length > 0) {
       if (!spend(1 + Math.floor(inserts.length / 8))) return;
     }
     const children: Child[] = [];

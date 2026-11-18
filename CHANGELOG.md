@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Attachments, and the xrefs of a referenced drawing in the preview and the plot.
+  `d.xref(name, path, { attach: true })` writes an attachment, which a drawing that references
+  this one draws too, where an xref is an overlay by default, and `Xref` holds `attach`. `toSVG`
+  and `toPDF` take a drawing in `xrefs` as `{ drawing, xrefs }`, with the drawings its own xrefs
+  stand for, and draw its attachments, and none of its overlays, as the leading CAD app draws
+  them, 16 drawings down at most, `XREF_DEPTH`; a drawing given alone draws no xref of
+  its own, as before. A circular reference is broken where the chain would draw a drawing it
+  already draws, and past 4,096 names given inside referenced drawings none is drawn.
+  `lint(drawing, { xrefs })` warns of each drawing given there that is not drawn, and why, and
+  `drawnXrefs(drawing, xrefs)` gives what a picture draws of them. `inspectText` takes the same
+  `xrefs`, and checks the texts of the drawings given for the drawing's own xrefs, not of their
+  attachments. `tsdraft render` and
+  `tsdraft dev` take the same in the export `xrefs`, lint each drawing given that they draw, at
+  any depth, and `drawing.xrefs` gives each xref's `attach` and, for one shown, the `xrefs` of
+  the drawing drawn for it. [docs/xrefs.md](docs/xrefs.md) describes them.
 - The README lists a viewport's own frozen layers and its twist with what tsdraft draws, and no
   longer with what it does not have yet.
 - The README and the package's description name what tsdraft does now: plotting to PDF,
