@@ -214,6 +214,8 @@ export function toDXFR2018(
       },
     })),
   );
+  // A viewport holds each layer it freezes by the layer's handle.
+  const layerHandles = new Map<string, string>();
   writeTable(
     g,
     handle,
@@ -223,7 +225,7 @@ export function toDXFR2018(
       type: "LAYER",
       subclass: "AcDbLayerTableRecord",
       name: layer.name,
-      handle: handle(),
+      handle: layerHandleOf(layerHandles, layer.name, handle()),
       flags: (layer.frozen ? 1 : 0) | (layer.locked ? 4 : 0),
       fields: (g) => {
         // A layer that is off has its color negated.
@@ -500,7 +502,8 @@ export function toDXFR2018(
     sheet.layout.viewports.forEach((viewport, index) => {
       const own = viewport.id === undefined ? handle() : handleOf(viewport.id);
       // The sheet's own viewport has the number 1, so the others count from 2.
-      writeViewport(g, viewport, own, owner, index + 2, sheet.paper, drawing.units);
+      const frozen = frozenHandles(viewport, layerHandles);
+      writeViewport(g, viewport, own, owner, index + 2, sheet.paper, drawing.units, frozen);
     });
     writeEntities(sheet.layout.entities, owner, true, space);
   };
@@ -1311,8 +1314,30 @@ function extentsOf(
   return box ?? [0, 0, 1, 1];
 }
 
-/** The fields of a viewport that say how its view is drawn, which are the same in every one. */
-function writeViewFields(g: Group, viewHeight: number, status: number): void {
+/** Keeps the handle of a layer by its key, the first of a key, and gives it back. */
+function layerHandleOf(handles: Map<string, string>, name: string, given: string): string {
+  if (!handles.has(layerKey(name))) handles.set(layerKey(name), given);
+  return given;
+}
+
+/** The handle of each layer a viewport freezes, once each, in the order it names them. */
+function frozenHandles(viewport: Viewport, layerHandles: ReadonlyMap<string, string>): string[] {
+  const frozen = new Set<string>();
+  for (const name of viewport.frozenLayers ?? []) frozen.add(layerHandles.get(layerKey(name))!);
+  return [...frozen];
+}
+
+/**
+ * The fields of a viewport that say how its view is drawn: its height, its twist, the layers it
+ * freezes by their handles, and its status. The others are the same in every viewport.
+ */
+function writeViewFields(
+  g: Group,
+  viewHeight: number,
+  status: number,
+  twist = 0,
+  frozen: readonly string[] = [],
+): void {
   point(g, 13, 0, 0); // snap base
   g(14, 0.5); // snap spacing
   g(24, 0.5);
@@ -1325,8 +1350,9 @@ function writeViewFields(g: Group, viewHeight: number, status: number): void {
   g(44, 0); // back clip
   g(45, viewHeight);
   g(50, 0); // snap angle
-  g(51, 0); // view twist
+  g(51, twist); // view twist, in degrees counterclockwise
   g(72, 1000); // circle zoom percent
+  for (const layer of frozen) g(331, layer);
   g(90, status);
   g(1, ""); // plot style sheet
   g(281, 0); // render mode: 2D
@@ -1380,6 +1406,7 @@ function writeViewport(
   number: number,
   paper: PaperInfo,
   units: Units,
+  frozen: readonly string[],
 ): void {
   const view = validViewportView(viewport, paper.units, units);
   g(0, "VIEWPORT");
@@ -1394,9 +1421,10 @@ function writeViewport(
   g(41, view.height);
   g(68, number); // on, and its place in the order the viewports are drawn in
   g(69, number);
-  g(12, view.center[0]);
-  g(22, view.center[1]);
-  writeViewFields(g, view.viewHeight, VIEW_STATUS | VIEW_LOCKED);
+  // The view's middle in its own coordinates, which turn with its twist about the target, 0.
+  g(12, view.displayCenter[0]);
+  g(22, view.displayCenter[1]);
+  writeViewFields(g, view.viewHeight, VIEW_STATUS | VIEW_LOCKED, view.twist, frozen);
 }
 
 /** In a page setup's flags, group 70. */

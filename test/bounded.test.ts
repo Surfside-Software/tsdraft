@@ -21,7 +21,8 @@ import { blocksByKey, eachDrawn, mapPoint, referencedByKey, type LayerRef } from
 import { boxer, extents } from "../src/extents.ts";
 import { written } from "../src/format.ts";
 import { inspectWithin } from "../src/inspect.ts";
-import { lintWithin } from "../src/lint.ts";
+import { lintWithin, type Diagnostic } from "../src/lint.ts";
+import { lintStandard } from "../src/standard/lint.ts";
 import { measureText } from "../src/measure.ts";
 import { Strings } from "../src/shape.ts";
 import { svgToPDF } from "../src/pdf.ts";
@@ -1137,6 +1138,132 @@ test("what many places share is read once, or paid for each time it is read agai
     const found = within(1000, () => lintWithin(drawing, {}, 0));
     assert.ok(found.length < 2000, `${name}: ${found.length}`);
     if (!name.includes("long value")) assert.equal(found.at(-1)!.rule, "check-capped", name);
+  }
+});
+
+test("a list of frozen layers many viewports share, and model space walked again for each set, are paid for", () => {
+  const d = createDrawing({ units: "ft" });
+  for (let i = 0; i < 100; i++) d.layer(`L${i}`, {}, () => d.line([i, 0], [i, 1]));
+  const base = d.build();
+  const viewport = { layer: "0", width: 1, height: 1, ratio: 12 } as const;
+  // Each item read of the list counts, so that a pass that reads it again unpaid shows.
+  let reads = 0;
+  const shared: string[] = new Proxy(
+    Array.from({ length: 20_000 }, () => "0"),
+    { get: (t, k, r) => (typeof k === "string" && reads++, Reflect.get(t, k, r)) },
+  );
+  /** The items `check` reads of the shared list. */
+  const readBy = (check: () => unknown): number => {
+    reads = 0;
+    try {
+      check();
+    } catch {
+      // A walk that stops at its limit throws a RangeError, which the asserts below expect.
+    }
+    return reads;
+  };
+  const sharedBy = (count: number): Drawing => ({
+    ...base,
+    layouts: [
+      {
+        name: "A",
+        paper: "ARCH D",
+        entities: [],
+        viewports: Array.from({ length: count }, () => ({
+          ...viewport,
+          corner: [0, 0] as const,
+          center: [0, 0] as const,
+          frozenLayers: shared,
+        })),
+      },
+    ],
+  });
+  const sharing = sharedBy(100);
+  assert.ok(lintWithin(sharing, {}, 10).some((x) => x.rule === "check-capped"));
+  // The first viewport reads the list free, and the others read it no more unpaid.
+  const once = readBy(() => lintWithin(sharedBy(1), {}, 10));
+  assert.ok(readBy(() => lintWithin(sharing, {}, 10)) < 1.01 * once);
+  const drawn = readBy(() => svgWithin(sharedBy(1), { layout: "A" }, 100));
+  assert.ok(readBy(() => svgWithin(sharing, { layout: "A" }, 100)) < 1.01 * drawn);
+  assert.deepEqual(
+    lintWithin(sharing, {}, 1_000_000).filter((x) => x.severity === "error"),
+    [],
+  );
+  assert.throws(() => svgWithin(sharing, { layout: "A" }, 100), RangeError);
+  svgWithin(sharing, { layout: "A" }, 100_000);
+
+  // Under a standard, 20,000 lines and 100 viewports that each freeze another layer.
+  const lines = Array.from({ length: 20_000 }, (_, i): Entity => ({
+    kind: "line",
+    layer: "C-PROP",
+    from: [i, 0],
+    to: [i, 1],
+  }));
+  const [page] = sheet.layouts!;
+  const plan = page!.viewports[0]!;
+  const layers = sheet.layers.map((l) => l.name);
+  const each: Drawing = {
+    ...sheet,
+    entities: [...sheet.entities, ...lines],
+    layouts: [
+      {
+        ...page!,
+        viewports: Array.from({ length: 100 }, (_, i) => ({
+          ...plan,
+          frozenLayers: [layers[i % layers.length]!, layers[(i * 7 + 3) % layers.length]!],
+        })),
+      },
+    ],
+  };
+  const out: Diagnostic[] = [];
+  lintStandard(each, standard, undefined, undefined, out, 1000);
+  assert.ok(out.some((x) => x.rule === "standard-check-capped"));
+  // Under a standard, the shared list is paid for before each pass reads it again.
+  const onSheet = (count: number): Drawing => ({
+    ...sheet,
+    layouts: [
+      {
+        ...page!,
+        viewports: Array.from({ length: count }, () => ({ ...plan, frozenLayers: shared })),
+      },
+    ],
+  });
+  const standardOnce = readBy(() =>
+    lintStandard(onSheet(1), standard, undefined, undefined, [], 1000),
+  );
+  assert.ok(
+    readBy(() => lintStandard(onSheet(100), standard, undefined, undefined, [], 1000)) <
+      1.01 * standardOnce,
+  );
+  // Core lint pays for it too where each viewport reports an error first, here its id, which
+  // all of them repeat, or an id that is no id.
+  for (const id of ["plan", "no id"]) {
+    const reported = (count: number): Drawing => {
+      const drawing = onSheet(count);
+      const [layout] = drawing.layouts!;
+      return {
+        ...drawing,
+        layouts: [{ ...layout!, viewports: layout!.viewports.map((v) => ({ ...v, id })) }],
+      };
+    };
+    assert.ok(
+      readBy(() => lintWithin(reported(100), {}, 10)) <
+        1.01 * readBy(() => lintWithin(reported(2), {}, 10)),
+    );
+  }
+  // And so it is when one viewport is in the list many times.
+  const one = { ...plan, frozenLayers: shared };
+  const repeated = (count: number): Drawing => ({
+    ...sheet,
+    layouts: [{ ...page!, viewports: Array.from({ length: count }, () => one) }],
+  });
+  for (const check of [
+    (drawing: Drawing) => lintStandard(drawing, standard, undefined, undefined, [], 1000),
+    (drawing: Drawing) => lintWithin(drawing, {}, 10),
+    (drawing: Drawing) => svgWithin(drawing, { layout: page!.name }, 100),
+  ]) {
+    // Past the first two, more of it is read no more.
+    assert.ok(readBy(() => check(repeated(100))) < 1.01 * readBy(() => check(repeated(2))));
   }
 });
 

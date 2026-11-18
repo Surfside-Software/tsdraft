@@ -13,6 +13,7 @@ import {
   type Diagnostic,
   type Drawing,
   type Entity,
+  type Point,
   type Insert,
   type LintOptions,
   type Standard,
@@ -199,10 +200,46 @@ test("a text plots at its role's height in each viewport that shows it, and at l
     only(found, "height-off-role")
       .map((d) => d.message)
       .join("\n"),
-    `insert #${layout.entities.findIndex((e) => e.kind === "insert" && e.block === "NORTH ARROW")} of layout "C-101": The text "N" of its block of the role "heading" plots 0.094 in tall on layout "C-101", and the role is 0.188 in: a text on a layout plots at its height. Draw it in its role, and insert its block at a scale of 1`,
+    layout.entities
+      .flatMap((e, i) => (e.kind === "insert" && e.block === "NORTH ARROW" ? [i] : []))
+      .map(
+        (i) =>
+          `insert #${i} of layout "C-101": The text "N" of its block of the role "heading" plots 0.094 in tall on layout "C-101", and the role is 0.188 in: a text on a layout plots at its height. Draw it in its role, and insert its block at a scale of 1`,
+      )
+      .join("\n"),
   );
   assert.ok(only(found, "height-below-standard").every((d) => d.entity === 0));
   assert.ok(only(found, "height-below-standard").length > 0);
+});
+
+test("a viewport holds a text to its scale where the text reaches into it, turned or not, and frozen layers out", () => {
+  // The key plan is turned 30 degrees about [50, 70] and shows 260 feet across. The plan's
+  // viewport shows x from -50 to 150. Both points are past the plan, and inside the box around
+  // the key plan's turned rectangle: the first is in the rectangle, the second is not.
+  const far = (at: Point, layer = "C-SETB"): Entity => ({
+    kind: "text",
+    layer,
+    at,
+    height: 0.01,
+    value: "FAR",
+    rotation: 0,
+  });
+  const found = (text: Entity) =>
+    lint(withModel([...sheet.entities, text]), { standard })
+      .filter((d) => d.rule === "height-below-standard")
+      .map((d) => d.message);
+  assert.match(found(far([170, 60])).join(), /in viewport "key-plan"/);
+  assert.deepEqual(found(far([200, 230])), []);
+  // A layer the key plan freezes shows nothing there.
+  assert.deepEqual(found(far([170, 60], "C-ANNO-TEXT")), []);
+});
+
+test("a viewport whose fields are inherited is checked as one that holds them", () => {
+  const plain = withSheet({});
+  const inherited = withSheet({
+    viewports: layout.viewports.map((v) => Object.create(v) as typeof v),
+  });
+  assert.deepEqual(lint(inherited, { standard }), lint(plain, { standard }));
 });
 
 test("a dimension is shown at its style's scale", () => {
@@ -248,7 +285,9 @@ test("a layout is on a sheet format of its paper, with its title block and insid
     "sheet-format-outside-standard",
   ]);
   assert.deepEqual(
-    rules(withSheet({ viewports: layout.viewports.map((v) => ({ ...v, width: 30 })) })),
+    rules(
+      withSheet({ viewports: layout.viewports.map((v, i) => (i === 0 ? { ...v, width: 30 } : v)) }),
+    ),
     ["viewport-outside-drawing-area"],
   );
   assert.deepEqual(rules(withSheet({ entities: layout.entities.slice(1) })), [

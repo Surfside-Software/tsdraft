@@ -47,7 +47,7 @@ import type {
 import { boxer, type Boxer } from "./extents.ts";
 import { written } from "./format.ts";
 import { validIdHandle } from "./handles.ts";
-import { validLayoutHandles, validViewportView } from "./layouts.ts";
+import { validLayoutHandles, validViewportView, viewReaches } from "./layouts.ts";
 import {
   leaderArrowheadHandles,
   leaderDrawnProblem,
@@ -1715,6 +1715,18 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     const isList = (value: unknown) => !unread || arrayProblem(value, "") === undefined;
     const viewports = isList(layout.viewports) ? layout.viewports : [];
     const lintViewport = (viewport: Viewport, index: number): void => {
+      // A list of frozen layers that another viewport holds too is read again, and paid for by
+      // its length, as each long name in it that another place holds is by its own. That comes
+      // first, so that a viewport the limit stops reports nothing, and no check reads its list.
+      const frozenList: unknown =
+        typeof viewport === "object" && viewport !== null ? viewport.frozenLayers : undefined;
+      if (Array.isArray(frozenList)) {
+        const where = () => `the frozen layers of viewport #${index} of layout ${shown(name)}`;
+        if (again(frozenList) && !spend(frozenList.length, where)) return;
+        let names = 0;
+        for (const frozen of filled(frozenList)) names += repeat(frozen);
+        if (names > 0 && !spend(names, where)) return;
+      }
       const call = callOf(viewports, index);
       const about = { layout: name, viewport: index, ...(call ? { call } : {}) };
       const path = `${at}.viewports[${index}]`;
@@ -1743,6 +1755,11 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         out[out.length - 1] = { ...out.at(-1)!, item: path };
         return;
       }
+      // A file holds each layer a viewport freezes by its handle, which only a layer has.
+      (viewport.frozenLayers ?? []).forEach((frozen, j) => {
+        const absent = undefinedLayer(frozen);
+        if (absent) add("undefined-layer", "error", `its frozenLayers[${j}]: ${absent}`);
+      });
       if (!paper) return;
       const view = validViewportView(viewport, paper.units, units);
       const half = [view.width / 2, view.height / 2] as const;
@@ -1759,8 +1776,21 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       const model = boxOfModel();
       const [minX, minY, maxX, maxY] = view.box;
       if (model === undefined) return;
-      if (!model || model[0] > maxX || model[2] < minX || model[1] > maxY || model[3] < minY) {
-        add("viewport", "warning", viewportEmptyWarning(view.box));
+      const apart =
+        !model ||
+        model[0] > maxX ||
+        model[2] < minX ||
+        model[1] > maxY ||
+        model[3] < minY ||
+        !viewReaches(view, model);
+      if (apart) {
+        const turned = {
+          width: view.width / view.scale,
+          height: view.viewHeight,
+          center: view.center,
+          twist: view.twist,
+        };
+        add("viewport", "warning", viewportEmptyWarning(view.box, turned));
       }
     };
     each(viewports, `${at}.viewports`, "viewport", TYPED.viewport, lintViewport, inLayout);

@@ -3,7 +3,7 @@
 // runtime check, for values the compiler can't see. The messages are shared.
 //
 // AutoCAD discards the whole drawing over most names that break the name rules.
-import type { DxfVersion, Units } from "./drawing.ts";
+import type { DxfVersion, Point, Units } from "./drawing.ts";
 import type { PaperUnit } from "./paper.ts";
 import { paperInfo, PLOT_STYLE_TABLES, type Paper, type PlotStyleTable } from "./papers.ts";
 import {
@@ -1619,13 +1619,44 @@ export function plotStyleProblem(table: unknown): string | undefined {
 export const VIEWPORT_SHAPE =
   "a viewport must be an object with a layer, a corner, a width, a height, a center and a ratio";
 
+const FROZEN_LAYERS = "its frozenLayers must be a list of the names of layers";
+
+/** The cosine and sine of a twist in degrees, exactly 1 and 0 for no twist. */
+export function turning(twist: number): readonly [cos: number, sin: number] {
+  if (twist === 0) return [1, 0];
+  const turn = (twist * Math.PI) / 180;
+  return [Math.cos(turn), Math.sin(turn)];
+}
+
+/**
+ * The middle of a viewport's view as a file holds it, in the view's own coordinates: the
+ * center turned by the twist about the origin, each number as written.
+ *
+ * @param twist - The twist in degrees, as written.
+ */
+export function twistedCenter(center: Point, twist: number): Point {
+  const [x, y] = [written(center[0]), written(center[1])];
+  if (twist === 0) return [x, y];
+  const [cos, sin] = turning(twist);
+  return [written(x * cos - y * sin), written(x * sin + y * cos)];
+}
+
+/**
+ * The problem with a layer a viewport freezes that the drawing does not have. A file holds each
+ * frozen layer as a pointer to the drawing's own layer, so a name with no layer cannot be written.
+ */
+export function frozenLayerAbsent(name: string): string {
+  return `it freezes layer ${shown(name)}, which is not defined. Define the layer before the viewport that freezes it`;
+}
+
 /**
  * Returns what is wrong with a viewport, or undefined when it can be written: its corner and
  * its center are points, its width and its height are sizes, and its ratio is greater than 0
  * and gives a view AutoCAD can hold. A file holds the height of model space the viewport
  * shows, in drawing units, where a scale would be, so that height is held to the rules of any
- * size: it is not written as 0 and is under 1e100. It takes `unknown` so that `lint` can
- * report a drawing built by hand. The ratio has the type `Ratio`.
+ * size: it is not written as 0 and is under 1e100. A twist is under a turn either way, and the
+ * frozen layers a list of names, which `lint` holds to the drawing's layers. It takes
+ * `unknown` so that `lint` can report a drawing built by hand. The ratio has the type `Ratio`.
  *
  * @param viewport - The viewport, with or without its layer and id, which are not judged.
  * @param paperUnits - The units of the paper of the viewport's layout.
@@ -1641,7 +1672,24 @@ export function viewportProblem(
   }
   if (!isPaperUnit(paperUnits)) return `The paper unit must be "in" or "mm"`;
   if (!isUnits(units)) return `Unknown units: ${JSON.stringify(units)}`;
-  const { corner, width, height, center, ratio } = viewport as Record<string, unknown>;
+  const { corner, width, height, center, ratio, frozenLayers, twist } = viewport as Record<
+    string,
+    unknown
+  >;
+  if (twist !== undefined) {
+    // The DXF holds degrees and the DWG radians, which part past a turn.
+    if (typeof twist !== "number" || !(Math.abs(twist) < 360)) {
+      return "its twist must be a number of degrees more than -360 and less than 360";
+    }
+  }
+  if (frozenLayers !== undefined) {
+    const names = Array.isArray(frozenLayers) ? (frozenLayers as unknown[]) : undefined;
+    // Each slot is read by its index, so an empty one is a name that is not a string.
+    for (let i = 0; names && i < names.length; i++) {
+      if (typeof names[i] !== "string") return FROZEN_LAYERS;
+    }
+    if (!names) return FROZEN_LAYERS;
+  }
   for (const [label, point] of [
     ["corner", corner],
     ["center", center],
@@ -1658,6 +1706,9 @@ export function viewportProblem(
     const far = magnitudeProblem(point[0] as number) ?? magnitudeProblem(point[1] as number);
     if (far) return `its ${label}: ${far}`;
   }
+  const turned = twistedCenter(center as Point, written((twist as number | undefined) ?? 0));
+  const far = magnitudeProblem(turned[0]) ?? magnitudeProblem(turned[1]);
+  if (far) return `its center, turned by its twist as a file holds it: ${far}`;
   for (const [label, size] of [
     ["width", width],
     ["height", height],
@@ -1698,10 +1749,23 @@ export function viewportOffPaperWarning(
     : undefined;
 }
 
-/** The warning for a viewport that frames a part of model space where nothing is drawn. */
+/**
+ * The warning for a viewport that frames a part of model space where nothing is drawn. A turned
+ * view is named by its rectangle, its size in drawing units about its center, and its twist.
+ */
 export function viewportEmptyWarning(
   box: readonly [minX: number, minY: number, maxX: number, maxY: number],
+  turned?: {
+    readonly width: number;
+    readonly height: number;
+    readonly center: Point;
+    readonly twist: number;
+  },
 ): string {
+  if (turned && turned.twist !== 0) {
+    const { width, height, center, twist } = turned;
+    return `the viewport shows none of the drawing: nothing in model space reaches into the rectangle it shows, ${written(width)} by ${written(height)} about ${written(center[0])}, ${written(center[1])}, turned ${twist} degrees`;
+  }
   return `the viewport shows none of the drawing: nothing in model space lies in the box it shows, from ${written(box[0])}, ${written(box[1])} to ${written(box[2])}, ${written(box[3])}`;
 }
 

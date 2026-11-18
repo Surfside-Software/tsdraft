@@ -251,6 +251,8 @@ const full: Required<Drawing> & {
           height: 10,
           center: [5, 2],
           ratio: 12,
+          frozenLayers: ["WALL"],
+          twist: 30,
         },
       ],
       // One of each kind of entity on the sheet, each with an id of its own.

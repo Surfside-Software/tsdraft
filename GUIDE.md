@@ -447,7 +447,9 @@ d.layout("C-101", { paper: "ARCH D" }, (sheet) => {
   bleed. `ARCH D` is 36 by 24, and `ARCH E` 48 by 36.
 - `sheet.viewport(corner, width, height, { center, ratio })` shows model space in a rectangle
   on the paper. `center` is the model point at its middle. `ratio` is the one you give
-  `fromPaper`: 120 is 1" = 10'.
+  `fromPaper`: 120 is 1" = 10'. `frozenLayers` names layers that show nothing in that viewport
+  alone, such as the annotation of another scale, and `twist` turns its view in degrees
+  counterclockwise.
 - Put a viewport on a layer that does not plot, unless you want its border on the sheet. The
   view plots either way.
 - In a drawing with a layout, `linetypeScale` is a length of paper: dashes plot as long as the

@@ -17,6 +17,22 @@
   `linearDimension`, in feet and inches with architectural ticks, and its notes with `d.leader`. Its
   helpers that drew them from lines and text, `dimensionChain`, `dimension`, `leader` and
   `textWidth`, are gone from `examples/lib/drafting.ts`.
+- A viewport's own frozen layers, and its twist, in R2018 drawings. `sheet.viewport(…)` takes
+  `frozenLayers`, the layers that show nothing in that viewport alone, and `twist`, which turns
+  its view in degrees counterclockwise, and `Viewport` holds both. `toDXF` writes them, and
+  `toSVG`, `toPDF` and `tsdraft render` draw the viewport without its frozen layers and with its
+  view turned. The builder and `lint` refuse a frozen layer the drawing does not have, as
+  `undefined-layer`, and a twist of a turn or more either way. `viewportView` gives a
+  view's `twist` and `displayCenter`, and the `box` of a turned view is the box around the turned
+  rectangle. [docs/layouts.md](docs/layouts.md) describes them.
+- `readDXF` reads a viewport's frozen layers from group 331, where AutoCAD writes them, in place
+  of group 341.
+- Under a standard, `lint`'s checks of the height a text plots at in a viewport leave out what
+  the viewport freezes. They no longer stop for a drawing with a malformed leader style, which
+  `lint` reports on its own.
+- The example sheet has a key plan: a second viewport at 1" = 40', turned 30 degrees, which
+  freezes the plan's annotation and the lines that run to the plan's edges, beside a narrower
+  plan. Its title block's scale reads AS NOTED.
 
 What changes for a read of a DXF, whose model is format 0 and not settled:
 

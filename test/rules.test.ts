@@ -1014,13 +1014,15 @@ for (const [scale, ratio] of [
   ["1in-20ft", 240],
 ] as const) {
   test(`the example sheet at ${scale} is laid out in its two spaces`, () => {
-    const { drawing, layout, drawingArea, titleBlock, fields, viewport, view } = sitePlan(scale);
+    const { drawing, layout, drawingArea, titleBlock, fields, viewport, view, keyPlan } =
+      sitePlan(scale);
     const [page] = drawing.layouts!;
     assert.equal(page!.name, layout);
     const sides = (box: Box) => [box.left, box.bottom, box.right, box.top];
     assert.deepEqual(sides(drawingArea), [0.5, 0.5, 35.5, 23.5]);
     assert.deepEqual(sides(titleBlock), [29, 0.5, 35.5, 3.5]);
-    assert.deepEqual(sides(viewport), [0.5, 2, 27.5, 23.5]);
+    assert.deepEqual(sides(viewport), [0.5, 2, 20.5, 23.5]);
+    assert.deepEqual(sides(keyPlan), [21, 2, 27.5, 8.5]);
     // The viewport shows `view` of model space, which is its rectangle at the ratio.
     const [shown] = page!.viewports;
     const seen = viewportView(shown!, "in", drawing.units);
@@ -1068,6 +1070,7 @@ for (const [scale, ratio] of [
       const what = `${entity.kind} on ${entity.layer}`;
       assert.ok(!overlap(box, sides(titleBlock)), `${what} is in the title block's space`);
       assert.ok(!overlap(box, sides(viewport)), `${what} is over the viewport`);
+      assert.ok(!overlap(box, sides(keyPlan)), `${what} is over the key plan`);
     }
 
     // Every text of a space, the ones its inserts draw among them, attributes too. The
@@ -1115,7 +1118,8 @@ for (const [scale, ratio] of [
     const values = (border as Insert).attributes!;
     assert.deepEqual(Object.keys(values).sort(), Object.keys(fields).sort());
     assert.equal(values.SHEET, layout);
-    assert.equal(values.SCALE, `1" = ${ratio / 12}'`);
+    // The sheet shows the plan and the key plan at two scales.
+    assert.equal(values.SCALE, "AS NOTED");
     for (const [tag, box] of Object.entries(fields)) {
       const text = onPaper.find((t) => t.value === values[tag]);
       assert.ok(text && inside(textBox(text), box), `the field ${tag} is outside its box`);

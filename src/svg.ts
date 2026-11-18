@@ -32,7 +32,7 @@ import { leaderPicture, type LeaderPicture } from "./leaders.ts";
 import { builtInLinetype, LINEWEIGHTS, lineweightCode } from "./linetypes.ts";
 import { drawnValue, inStyle, layoutText } from "./measure.ts";
 import { DEFAULT_PLOT_STYLE_TABLE, paperInfo } from "./papers.ts";
-import { shown as quoted, viewportProblem } from "./rules.ts";
+import { shown as quoted, turning, viewportProblem } from "./rules.ts";
 import { filled } from "./shape.ts";
 import { isUnits } from "./units.ts";
 
@@ -500,7 +500,14 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
    * An element for each entity that is drawn, as `look` draws it, in the space `space` names.
    * Each counts with the line it is written on, set in by `look.indent`.
    */
-  const elements = (shown: readonly [number, Entity][], look: Look, space: string): string[] => {
+  const elements = (
+    shown: readonly [number, Entity][],
+    look: Look,
+    space: string,
+    frozenHere?: (layer: LayerRef) => boolean,
+  ): string[] => {
+    // A layer frozen in a viewport is frozen there for the walk of an insert too.
+    const isFrozen = frozenHere ? (ref: LayerRef) => frozen(ref) || frozenHere(ref) : frozen;
     const marks = (e: Entity, index: number): string =>
       `data-layer="${esc(e.layer)}" data-entity="${index}"${e.id === undefined ? "" : ` data-id="${esc(e.id)}"`}`;
     const line = look.indent.length + 1;
@@ -523,9 +530,9 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       const walked = eachDrawn(
         e,
         blocks,
-        frozen,
+        isFrozen,
         (held, at) => {
-          if (hidden(at.layer)) return;
+          if (hidden(at.layer) || frozenHere?.(at.layer)) return;
           // AutoCAD names a layer of an xref by the xref's name, a bar and the layer's.
           const { name, of } = at.layer;
           const mark = `data-layer="${esc(of ? `${of.name}|${name}` : name)}"`;
@@ -664,8 +671,16 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       if (!write(part.length + 5)) refuse(where);
       parts.push(part);
     };
+    /** The lists of frozen layers the viewports have read. */
+    const frozenLists = new WeakSet<object>();
     filled(layout.viewports).forEach((viewport, index) => {
       const at = `viewport #${index} of ${space}`;
+      // A list of frozen layers another viewport holds too is read again, and paid for.
+      const frozenList: unknown = (viewport as Partial<Viewport>).frozenLayers;
+      if (Array.isArray(frozenList)) {
+        if (!frozenLists.has(frozenList)) frozenLists.add(frozenList);
+        else if (!spend(Math.ceil(frozenList.length / 64))) refuse(at);
+      }
       const id = viewport.id === undefined ? "" : ` data-id="${esc(viewport.id)}"`;
       // A viewport `lint` refuses has no view to draw: a ratio of 0 or less, or no size.
       const sound = viewportProblem(viewport, paper.units, units) === undefined;
@@ -692,10 +707,19 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       const view = validViewportView(viewport, paper.units, units);
       const [x, y] = [view.paperCenter[0] - view.width / 2, view.paperCenter[1] - view.height / 2];
       const box = `x="${fmt(x)}" y="${fmt(y)}" width="${fmt(view.width)}" height="${fmt(view.height)}"`;
-      // Model space is placed so that the view's center lies at the middle of the rectangle.
-      // The scale is written in full: six decimals leave a drawing in millimetres at 1:1000,
-      // whose scale is 0.0000393701, two digits.
-      const place = `translate(${fmt(view.paperCenter[0])} ${fmt(view.paperCenter[1])}) scale(${precise(view.scale)}) translate(${fmt(-view.center[0])} ${fmt(-view.center[1])})`;
+      // Model space is placed so that the view's center lies at the middle of the rectangle,
+      // turned by the twist about the origin as the file holds the view, with its center
+      // turned too. The scale is written in full: six decimals leave a drawing in millimetres
+      // at 1:1000, whose scale is 0.0000393701, two digits.
+      const [cx, cy] = view.displayCenter;
+      const turn = view.twist === 0 ? "" : ` rotate(${fmt(view.twist)})`;
+      const place = `translate(${fmt(view.paperCenter[0])} ${fmt(view.paperCenter[1])}) scale(${precise(view.scale)}) translate(${fmt(-cx)} ${fmt(-cy)})${turn}`;
+      // The layers frozen in this viewport alone, which an entity of the drawing's own is on.
+      const frozenKeys = new Set(filled(viewport.frozenLayers ?? []).map(key));
+      const frozenHere =
+        frozenKeys.size === 0
+          ? undefined
+          : (ref: LayerRef) => ref.of === undefined && frozenKeys.has(key(ref.name));
       // A view is drawn only where it can be seen: the viewport, cut to the paper, cut to
       // the picture, with every number as it is written. The clip, the hidden rectangle and
       // the choice of what to draw all use this one rectangle.
@@ -713,15 +737,32 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         seenHeight > 0 &&
         Math.fround(seen[0]) < Math.fround(seen[2]) &&
         Math.fround(seen[1]) < Math.fround(seen[3]);
-      // The same rectangle in model space.
-      const shows = seen.map(
-        (at, i) => view.center[i % 2]! + (at - view.paperCenter[i % 2]!) / view.scale,
+      // The box of the same rectangle in model space, turned back by the twist.
+      const [cos, sin] = turning(view.twist);
+      const corners = [0, 2].flatMap((i) =>
+        [1, 3].map((j) => {
+          const u = cx + (seen[i]! - view.paperCenter[0]) / view.scale;
+          const v = cy + (seen[j]! - view.paperCenter[1]) / view.scale;
+          return [u * cos + v * sin, v * cos - u * sin] as const;
+        }),
       );
+      const shows = [
+        Math.min(...corners.map((c) => c[0])),
+        Math.min(...corners.map((c) => c[1])),
+        Math.max(...corners.map((c) => c[0])),
+        Math.max(...corners.map((c) => c[1])),
+      ];
       // Only what may reach into it is drawn: an entity's box, which for an arc is its
       // circle's, with the widest pen there is and the slack of its letters around it.
       const widest = (LINEWEIGHTS.at(-1)! * 100 * perHundredth) / view.scale;
-      const near = visible ? reaching(shows, widest, at) : [];
-      const inside = elements(near, plotted(view.scale, "        "), `model space in ${at}`);
+      const reached = visible ? reaching(shows, widest, at) : [];
+      const near = frozenHere ? reached.filter(([, e]) => !frozenHere({ name: e.layer })) : reached;
+      const inside = elements(
+        near,
+        plotted(view.scale, "        "),
+        `model space in ${at}`,
+        frozenHere,
+      );
       if (inside.length === 0) {
         // Nothing of the view can be seen, so there is nothing to clip.
         keep(at, `<g data-viewport="${index}"${id}/>`);

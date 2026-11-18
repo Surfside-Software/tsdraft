@@ -634,7 +634,7 @@ function shapes(all: boolean, typed = all): Shapes {
         center: ruled(point),
         ratio: ruled(number),
       },
-      { id: ruled(string) },
+      { id: ruled(string), frozenLayers: ruled(list(string)), twist: ruled(number) },
     ),
   );
   const layout = record(
