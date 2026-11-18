@@ -43,7 +43,7 @@ insert puts at its own point, `[0, 0]` unless given.
 ## Layers in a block
 
 An entity of a block keeps its layer, with one exception: layer `0` stands for the layer of
-the insert. AutoCAD draws an entity on layer `0` of a block in the color, linetype and
+the insert. The leading CAD app draws an entity on layer `0` of a block in the color, linetype and
 lineweight of the layer its insert is on, and an entity on any other layer in that layer's
 own. The rule holds through inserts inside blocks: an insert on layer `0` of a block passes
 on the layer of the insert outside it.
@@ -52,8 +52,8 @@ on the layer of the insert outside it.
   other layers still draw.
 - An insert on a frozen layer hides everything its block holds, and an insert on a layer that
   does not plot plots none of it.
-- An attribute is stored on its definition's layer. AutoCAD's `INSERT` leaves an attribute
-  on layer `0` when its definition is there, and draws it as the insert's layer draws.
+- An attribute is stored on its definition's layer. The leading CAD app's `INSERT` leaves an
+  attribute on layer `0` when its definition is there, and draws it as the insert's layer draws.
 - An entity whose linetype or lineweight is `"ByBlock"` takes its insert's, which is the
   insert's layer's.
 
@@ -67,7 +67,7 @@ block by hand.
 An insert sets values by tag in `attributes`. An attribute it does not set has its definition's
 default. Each insert carries one attribute for every definition of its block.
 
-An attribute stays a field in CAD, in model space and on a layout: AutoCAD's `-ATTEDIT`
+An attribute stays a field in CAD, in model space and on a layout: the leading CAD app's `-ATTEDIT`
 command changes its value, and the drawing keeps the new value when it is saved.
 
 ## Inserting a block
@@ -80,8 +80,8 @@ layer.
 - `id` names the insert, as it names any entity.
 - `attributes` holds a value for each tag to set.
 
-AutoCAD holds each attribute of an insert as a text of its own, with the height, rotation,
-width factor and oblique angle that the insert's scale and rotation give the definition's.
+The leading CAD app holds each attribute of an insert as a text of its own, with the height,
+rotation, width factor and oblique angle that the insert's scale and rotation give the definition's.
 `placeAttribute(definition, style, insert, base)` returns that text. An insert that scales its
 block unevenly widens or narrows each attribute and slants it, and is refused when the result
 is slanted by more than 85 degrees or has a width factor outside 0.01 to 100. The numbers
@@ -92,19 +92,19 @@ decimals.
 
 A block name follows the rules of layer names, and is at most 255 characters.
 
-AutoCAD takes two block names for one more readily than it does two layer names. `TREE` and
-`tree` are one block, and so are `straße` and `strasse`, and a composed `é` and a decomposed
+The leading CAD app takes two block names for one more readily than it does two layer names. `TREE`
+and `tree` are one block, and so are `straße` and `strasse`, and a composed `é` and a decomposed
 one: every pair of names that [`AUDIT` reports as duplicates](layer-names.md) among layers.
-Given two such blocks, AutoCAD keeps one, puts the entities of both in it, and reports
+Given two such blocks, that app keeps one, puts the entities of both in it, and reports
 nothing. So the second is an error.
 
 An insert finds its block as an entity finds its layer: `tree` finds `TREE`.
 `findBlock(drawing, name)` returns the block an insert of a name places. It does not find
-`straße` by `strasse`, though AutoCAD would. Name a block as the drawing spells it.
+`straße` by `strasse`, though the leading CAD app would. Name a block as the drawing spells it.
 
 `lint` follows the kinds of pair [Layer names](layer-names.md) lists, which are not all that
-AutoCAD takes for one. Two block names that differ only in a letter added to Unicode after
-about 2008, such as `Ԥ`, U+0524, are one block to AutoCAD and two to `lint`.
+the leading CAD app takes for one. Two block names that differ only in a letter added to Unicode
+after about 2008, such as `Ԥ`, U+0524, are one block to that app and two to `lint`.
 
 ## Handles
 

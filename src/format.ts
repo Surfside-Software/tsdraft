@@ -21,9 +21,9 @@ export function writtenAngle(degrees: number): number {
 
 /**
  * The size from which a number prints with three exponent digits, as `1e+100`.
- * AutoCAD reads only two from DXF: it takes `1e+100` for `1e+10` and
+ * The leading CAD app reads only two from DXF: it takes `1e+100` for `1e+10` and
  * `1e+308` for `1e+30`, with no AUDIT error. Writing the digits out does not
- * help, because AutoCAD takes a number of 101 digits for 0.
+ * help, because that app takes a number of 101 digits for 0.
  */
 const TOO_LARGE = 1e100;
 
@@ -31,7 +31,7 @@ const TOO_LARGE = 1e100;
 const LARGEST = 9.999999999999998e99;
 
 /**
- * True for a number AutoCAD would misread from DXF, because it is 1e100 or
+ * True for a number the leading CAD app would misread from DXF, because it is 1e100 or
  * more in size. `lint` refuses these wherever a drawing holds one.
  */
 export function isTooLarge(value: number): boolean {
@@ -40,7 +40,7 @@ export function isTooLarge(value: number): boolean {
 
 /**
  * Brings a number a writer works out for itself, such as an extent or the
- * height of the view, into the range AutoCAD reads. `lint` cannot vouch for
+ * height of the view, into the range the leading CAD app reads. `lint` cannot vouch for
  * those: two coordinates under 1e100 can be more than 1e100 apart.
  */
 export function readable(value: number): number {
@@ -53,23 +53,23 @@ export function fmt(value: number): string {
 }
 
 /**
- * A backslash that starts a `\U+XXXX` or `\M+NXXXX` sequence. AutoCAD decodes
+ * A backslash that starts a `\U+XXXX` or `\M+NXXXX` sequence. The leading CAD app decodes
  * both forms in a DXF string, in either letter case.
  */
 const ESCAPE_START = /\\(?=[Uu]\+[0-9A-Fa-f]{4}|[Mm]\+[1-5][0-9A-Fa-f]{4})/g;
 
 /**
- * Escapes a string value for DXF, so that AutoCAD holds the string as given.
+ * Escapes a string value for DXF, so that the leading CAD app holds the string as given.
  *
- * A caret starts a control-character escape in DXF, and AutoCAD discards the
+ * A caret starts a control-character escape in DXF, and that app discards the
  * drawing when it meets a bare one, so a literal caret is written as a caret
  * and a space.
  *
- * AutoCAD decodes `\U+XXXX` and `\M+NXXXX` in a string, and it does so twice.
+ * That app decodes `\U+XXXX` and `\M+NXXXX` in a string, and it does so twice.
  * A backslash that would start one is written as `\U+005CU+005C`: the first
  * pass leaves `\U+005C` and the second leaves the backslash, with nothing left
- * to decode what follows it. This lasts until AutoCAD saves the drawing:
- * AutoCAD writes the text unescaped, so it decodes it on a later open.
+ * to decode what follows it. This lasts until that app saves the drawing:
+ * that app writes the text unescaped, so it decodes it on a later open.
  *
  * With `ascii`, characters outside ASCII become `\U+XXXX`, which is how DXF
  * versions before 2007 carry them. Later versions are UTF-8 and need no escape.
@@ -86,8 +86,8 @@ export function dxfText(value: string, ascii = false): string {
 }
 
 /**
- * Escapes a string that AutoCAD decodes once when it reads DXF, as it does a linetype's
- * description, so that AutoCAD holds the string as given. `dxfText` explains the escapes; a
+ * Escapes a string that the leading CAD app decodes once when it reads DXF, as it does a linetype's
+ * description, so that that app holds the string as given. `dxfText` explains the escapes; a
  * text is decoded twice, and a description once, so here a backslash that would start an
  * escape is written as `\U+005C`.
  */

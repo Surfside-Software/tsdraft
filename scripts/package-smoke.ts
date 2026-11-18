@@ -119,7 +119,7 @@ try {
       `}`,
       `if (!threw) throw new Error("a bad layer name was accepted");`,
       `createDrawing().layer("A WALL");`,
-      `// @ts-expect-error: 0.33 mm is not one of AutoCAD's lineweights.`,
+      `// @ts-expect-error: 0.33 mm is not one of the leading CAD app's lineweights.`,
       `const lineweight = () => createDrawing().line([0, 0], [1, 1], { lineweight: 0.33 });`,
       `try { lineweight(); threw = false; } catch { threw = true; }`,
       `if (!threw) throw new Error("a bad lineweight was accepted");`,

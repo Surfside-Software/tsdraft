@@ -1,5 +1,5 @@
 // An outdoor kitchen wall on a covered patio, drawn as an elevation and a section through the
-// grill. Run with `pnpm example`. It writes examples/out/outdoor-kitchen.dxf (AutoCAD 2018 DXF)
+// grill. Run with `pnpm example`. It writes examples/out/outdoor-kitchen.dxf (R2018 DXF)
 // and outdoor-kitchen.svg.
 //
 // Every size comes from the parameters below. The dimensions are dimension objects in feet and

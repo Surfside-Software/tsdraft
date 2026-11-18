@@ -3,8 +3,8 @@
 A title block is the part of a sheet that says what the sheet is: its number and title, the
 project, the date, the scale, who drew and checked it, with room for revisions and a seal. In
 a drawing it is a [block](blocks.md) whose fields are attributes, inserted on a
-[layout](layouts.md). In CAD each field stays an attribute, whose value AutoCAD's `-ATTEDIT`
-command changes.
+[layout](layouts.md). In CAD each field stays an attribute, whose value the leading CAD app's
+`-ATTEDIT` command changes.
 
 There are two ways to give a sheet one:
 
@@ -88,8 +88,8 @@ section but one says.
 ### The edge of the paper
 
 The papers are full bleed: the plotter keeps no margin clear. Keep the border inside the paper
-all the same. AutoCAD plots a line that lies on the left, the bottom or the right edge of the
-paper with half its width off the page, and plots no line that lies on the top edge. The
+all the same. The leading CAD app plots a line that lies on the left, the bottom or the right edge
+of the paper with half its width off the page, and plots no line that lies on the top edge. The
 example's border is half an inch inside the paper on every side.
 
 ## A firm's border under a sheet
@@ -145,20 +145,20 @@ toDXF(drawing); // holds the path "border.dwg" and the fields, and nothing of th
 toSVG(drawing, { layout: "C-101", xrefs: { BORDER: border } }); // the sheet over the border
 ```
 
-AutoCAD loads `border.dwg` each time it opens the sheet, draws it on the layout under the
-fields, and plots both. The fields stay attributes of the sheet.
-An xref that only a layout places is placed: AutoCAD does not purge it.
+The leading CAD app loads `border.dwg` each time it opens the sheet, draws it on the layout under
+the fields, and plots both. The fields stay attributes of the sheet.
+An xref that only a layout places is placed: that app does not purge it.
 
 ### What the border's file may hold
 
-- **Its border in model space.** AutoCAD draws the model space of a referenced file and
+- **Its border in model space.** The leading CAD app draws the model space of a referenced file and
   nothing of its layouts. A firm whose title block sits on a layout of its template writes it
   out once to a DWG of its own, with the border in model space.
 - **Its lower-left corner where the insert puts it.** With the border's corner at `0, 0` in its
   file, the insert is at `[0, 0]` on the layout.
 - **Paper units.** A border for a paper in inches is drawn in inches, and is inserted at a
-  scale of 1. AutoCAD draws an insert at the scale the file gives it, whatever the units of
-  the two drawings, so the border is its own size on the paper under a drawing in feet. A
+  scale of 1. The leading CAD app draws an insert at the scale the file gives it, whatever the units
+  of the two drawings, so the border is its own size on the paper under a drawing in feet. A
   border drawn in other units than the paper's needs the scale between them in the insert.
 - **Layers of its own.** What the border has on layer `0` draws in the color and lineweight of
   the layer its insert is on. What it has on another layer draws as that layer of its file,
@@ -166,24 +166,25 @@ An xref that only a layout places is placed: AutoCAD does not purge it.
 - **Its own text and attributes.** They plot as the border's file has them: an attribute of a
   block in the border shows the value it has there, on every sheet that references the border.
   So what differs from sheet to sheet belongs in the sheet's own fields.
-- **No xrefs of its own.** tsdraft writes an xref as an overlay, and AutoCAD loads an overlay
-  for the drawing that references it and not for a drawing that references that one. A logo
+- **No xrefs of its own.** tsdraft writes an xref as an overlay, and the leading CAD app loads an
+  overlay for the drawing that references it and not for a drawing that references that one. A logo
   the border references as a drawing does not reach the sheet. The border holds its logo
   itself.
-- **Fonts the plotting machine has.** AutoCAD draws the border's text in the fonts its file
-  names, and in another font where the machine lacks one.
+- **Fonts the plotting machine has.** The leading CAD app draws the border's text in the fonts its
+  file names, and in another font where the machine lacks one.
 
 The border has to be a DWG file, by a path from the folder of the sheet's file:
-[Xrefs](xrefs.md) has the rules for the path, and what AutoCAD does when the file is missing.
+[Xrefs](xrefs.md) has the rules for the path, and what the leading CAD app does when the file is
+missing.
 
 ### What a drafter meets in CAD
 
-- **Attaching the border by hand scales it.** AutoCAD's own attach command works a scale out
+- **Attaching the border by hand scales it.** The leading CAD app's attach command works a scale out
   from the units of the two drawings. Attached by hand to a layout of a drawing in feet, a
   border drawn in inches comes in at 1/12 of its size, and needs a scale of 12 there. The
   insert tsdraft writes has the scale the code gives it, 1 unless it says otherwise, and
-  AutoCAD leaves it as it is.
-- **The fields are edited in the sheet.** AutoCAD's `-ATTEDIT` command changes a field's
+  that app leaves it as it is.
+- **The fields are edited in the sheet.** The leading CAD app's `-ATTEDIT` command changes a field's
   value, and the drawing keeps it when it is saved. The next export from the code writes the
   code's values again.
 
@@ -243,9 +244,9 @@ d.layout("C-101", { sheetFormat: "arch-d" }, (sheet) => {
   the standard, with the standard's properties.
 
 A field's `source` says where its value comes from: an attribute of the block, which tsdraft
-writes, or a field of the firm's drawing that AutoCAD fills in the sheet, from the sheet's file
-name, its layout's name, or the date it opens or plots the sheet. tsdraft writes nothing for
-the last three.
+writes, or a field of the firm's drawing that the leading CAD app fills in the sheet, from the
+sheet's file name, its layout's name, or the date it opens or plots the sheet. tsdraft writes
+nothing for the last three.
 
 ### One drawing, or a file per sheet
 
@@ -259,9 +260,9 @@ A standard's `sheetFiles` says how a firm keeps its sheets.
 - No field reads the file's name or the layout's name: each field the sheet fills is an attribute,
   which the builder writes over the firm's drawing. One drawing has one file name, which such a
   field would show on every sheet. A field that reads `CTAB`, the layout's name, plots each
-  layout's own name, with `-PLOT` and with `-PUBLISH`, since AutoCAD works it out as it plots each
-  one. But under one drawing the layouts' names are the sheets' numbers, so such a field in the
-  title's place would plot the number there.
+  layout's own name, with `-PLOT` and with `-PUBLISH`, since the leading CAD app works it out as it
+  plots each one. But under one drawing the layouts' names are the sheets' numbers, so such a field
+  in the title's place would plot the number there.
 
 **`"sheet-per-file"`** keeps each sheet as a drawing of its own, with one layout, which
 references the firm's title block and the model drawings as xrefs.
@@ -273,11 +274,12 @@ references the firm's title block and the model drawings as xrefs.
   device: `CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9` or `LPT1` to `LPT9`, in any case and with
   any extension. Windows names no file with such a character, drops a space or a dot from the end
   of a name, and opens the device for a file of a device's name.
-- Save a sheet as `<number>.dwg`, or `<number>.dxf`. AutoCAD fills a field that reads the file's
-  name from the name the file has, so a sheet saved under another name shows that name as its
-  number, and AutoCAD says nothing.
+- Save a sheet as `<number>.dwg`, or `<number>.dxf`. The leading CAD app fills a field that reads
+  the file's name from the name the file has, so a sheet saved under another name shows that name as
+  its number, and that app says nothing.
 - A field that reads the layout's name shows the layout's name, and `titleBlock()` refuses
-  another value for it. A field of the date AutoCAD opens or plots the sheet takes no value.
+  another value for it. A field of the date the leading CAD app opens or plots the sheet takes no
+  value.
 
 ### A firm's title block as an xref
 

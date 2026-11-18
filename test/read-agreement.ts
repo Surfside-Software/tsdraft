@@ -1,9 +1,9 @@
 // What differs between a read with geometry and the `Drawing` its file was written from: each
 // entity of model space, of each layout and of each block, in order, with its pen, its points,
 // its text and its justification. `tsdraft` holds a read of tsdraft's own DXF to the numbers as
-// written. `autocad` holds a read of a DXF that AutoCAD wrote of the same drawing to the doubles
-// AutoCAD holds, within the rounding of 6 decimals for what AutoCAD works out again, and each
-// text to what AutoCAD's DXF reader makes of the text as AutoCAD wrote it.
+// written. The other reader's read is of a DXF that the leading CAD app wrote of the same drawing,
+// held to the doubles that app holds, within the rounding of 6 decimals for what it works out
+// again, and each text to what its DXF reader makes of the text it wrote.
 import { placeAttribute } from "../src/blocks.ts";
 import { dimensionAngle, dimensionMeasure, dimensionPicture } from "../src/dimensions.ts";
 import type {
@@ -29,7 +29,7 @@ import type {
 
 export type ReadBy = "tsdraft" | "autocad";
 
-/** A text as AutoCAD's DXF export writes what it holds: a caret as `^ `, a control character as `^` and a letter. */
+/** A text as the leading CAD app's DXF export writes what it holds: a caret as `^ `, a control character as `^` and a letter. */
 function exported(text: string): string {
   let out = "";
   for (const c of text) {
@@ -40,9 +40,9 @@ function exported(text: string): string {
 }
 
 /**
- * The problems found, at most `most`. `own`, for a read by AutoCAD, is the read of tsdraft's own
- * DXF of the drawing: where it worked a text's start out from the widths, AutoCAD's start must
- * be within the widths' measure of it.
+ * The problems found, at most `most`. `own`, for a read by the leading CAD app, is the read of
+ * tsdraft's own DXF of the drawing: where it worked a text's start out from the widths, that app's
+ * start must be within the widths' measure of it.
  */
 export function readProblems(
   drawing: Drawing,
@@ -55,9 +55,9 @@ export function readProblems(
   const say = (problem: string): void => {
     if (problems.length < most) problems.push(problem);
   };
-  // tsdraft's own file holds each number as written. AutoCAD's holds the double it read, and a
-  // multileader and a dimension as AutoCAD works them out again, within the rounding of 6
-  // decimals.
+  // tsdraft's own file holds each number as written. The leading CAD app's holds the double it
+  // read, and a multileader and a dimension as that app works them out again, within the rounding
+  // of 6 decimals.
   const near = (a: number, b: number, loose = false): boolean =>
     by === "tsdraft" && !loose
       ? a === b
@@ -131,7 +131,7 @@ export function readProblems(
     if (got.upsideDown) say(`${label}: upside down`);
   };
 
-  /** A text of tsdraft's own read, worked out from the widths, against AutoCAD's start. */
+  /** A text of tsdraft's own read, worked out from the widths, against the leading CAD app's start. */
   const start = (got: ReadTextPlacement, mine: unknown, value: string, label: string): void => {
     const ownText = mine as ReadTextPlacement | undefined;
     if (by !== "autocad" || ownText?.startFrom !== "widths") return;
@@ -141,7 +141,7 @@ export function readProblems(
       1e-12 * Math.max(1, Math.abs(got.at[0]), Math.abs(got.at[1]));
     const [dx, dy] = [got.at[0] - ownText.at[0], got.at[1] - ownText.at[1]];
     if (Math.hypot(dx, dy) > slack) {
-      say(`${label}: AutoCAD starts it at ${got.at}, and the widths at ${ownText.at}`);
+      say(`${label}: the leading CAD app starts it at ${got.at}, and the widths at ${ownText.at}`);
     }
   };
 
@@ -323,8 +323,9 @@ export function readProblems(
         }
         if (!style) return;
         const picture = dimensionPicture(want, style);
-        // AutoCAD works the point of the dimension line out again as it draws the picture, and
-        // places the text by its letters, so a read by AutoCAD is held to where the line is.
+        // The leading CAD app works the point of the dimension line out again as it draws the
+        // picture, and places the text by its letters, so a read by that
+        // app is held to where the line is.
         if (!nearPoint(got.line, picture.definitionPoint, true)) {
           say(
             `${label}: its line meets the second extension line at ${got.line}, expected ${picture.definitionPoint}`,

@@ -99,7 +99,7 @@ test("R2018 DXF has AC1032 sections, units and valid handles", () => {
     assert.ok(has(2, name), name);
   }
   assert.ok(has(3, "ACAD_GROUP"), "root dictionary");
-  // AutoCAD discards the file ("Did not receive PlotStyleName") if a layer has no 390 pointer.
+  // The leading CAD app discards the file ("Did not receive PlotStyleName") if a layer has no 390 pointer.
   const layers = p.filter(([c, v]) => c === 0 && v === "LAYER").length;
   assert.equal(p.filter(([c]) => c === 390).length, layers, "every layer has a plot style");
   assert.ok(has(0, "ACDBDICTIONARYWDFLT") && has(3, "ACAD_PLOTSTYLENAME"), "plot styles");
@@ -125,7 +125,7 @@ test("toDXF rejects unknown versions", () => {
 
 test("text is escaped for each DXF version", () => {
   const b = createDrawing({ dxf: "R12" }).text([0, 0], "Ø 25 – café x^2");
-  // R12 predates Unicode DXF. AutoCAD discards a drawing with a bare caret in either version.
+  // R12 predates Unicode DXF. The leading CAD app discards a drawing with a bare caret in either version.
   assert.match(toDXF(b.build()), /\r\n\\U\+00D8 25 \\U\+2013 caf\\U\+00E9 x\^ 2\r\n/);
   assert.match(toDXF(b.build(), { version: "R2018" }), /\r\nØ 25 – café x\^ 2\r\n/);
 });
@@ -144,21 +144,21 @@ test("an R2018 drawing has $XEDIT 0, and an R12 drawing does not state it", () =
   assert.doesNotMatch(dxf("R12"), /XEDIT/);
 });
 
-test("text that looks like a DXF escape is written so AutoCAD keeps it", () => {
-  /** The value AutoCAD is given for a text, which is group 1 of the TEXT record. */
+test("text that looks like a DXF escape is written so the leading CAD app keeps it", () => {
+  /** The value the leading CAD app is given for a text, which is group 1 of the TEXT record. */
   const value = (text: string, version: "R12" | "R2018") => {
     const p = pairs(toDXF(createDrawing().text([0, 0], text).build(), { version }));
     const record = p.slice(p.findIndex(([code, v]) => code === 0 && v === "TEXT"));
     return record.find(([code]) => code === 1)?.[1];
   };
   for (const version of ["R12", "R2018"] as const) {
-    // AutoCAD decodes these twice, so the backslash is escaped twice.
+    // The leading CAD app decodes these twice, so the backslash is escaped twice.
     assert.equal(value("\\U+00B0 literal", version), "\\U+005CU+005CU+00B0 literal");
     assert.equal(value("\\u+00b0", version), "\\U+005CU+005Cu+00b0");
     assert.equal(value("\\M+18140", version), "\\U+005CU+005CM+18140");
     assert.equal(value("\\m+5abcd", version), "\\U+005CU+005Cm+5abcd");
     assert.equal(value("\\U+00\\U+00420", version), "\\U+00\\U+005CU+005CU+00420");
-    // A backslash that starts nothing AutoCAD decodes stays as it is.
+    // A backslash that starts nothing the leading CAD app decodes stays as it is.
     for (const plain of [
       "C:\\Users\\file",
       "\\U+00B",
@@ -236,7 +236,7 @@ test("SVG draws an arc of nearly a full turn, and colors by layer whatever the c
   assert.match(short ?? "", /<path d="M 6 5 A 1 1 0 0 1 6 5" stroke="#ff0000"/);
 });
 
-test("numbers are written in the forms AutoCAD reads", () => {
+test("numbers are written in the forms the leading CAD app reads", () => {
   const printed = (value: number) => {
     const p = pairs(toDXF(createDrawing().line([0, 0], [value, 0]).build()));
     return p
@@ -251,7 +251,7 @@ test("numbers are written in the forms AutoCAD reads", () => {
     [-0.000001, "-0.000001"],
     [0.1 + 0.2, "0.3"],
     [1234.5678915, "1234.567892"],
-    // Digits up to 1e21, which AutoCAD reads at their full length.
+    // Digits up to 1e21, which the leading CAD app reads at their full length.
     [123456789012345680000, "123456789012345680000"],
     // An exponent from 1e21 up, and never more than two digits of it.
     [1e21, "1e+21"],
@@ -262,7 +262,7 @@ test("numbers are written in the forms AutoCAD reads", () => {
   assert.throws(() => printed(1e100), /under 1e100/);
 });
 
-test("the numbers a writer works out stay in the range AutoCAD reads", () => {
+test("the numbers a writer works out stay in the range the leading CAD app reads", () => {
   const b = createDrawing({ dxf: "R2018" });
   // The ends are 1.8e100 apart, and the text is guessed to be 5.9e102 wide.
   b.line([0, 9e99], [3, -9e99]);
@@ -366,7 +366,7 @@ test("R2018 DXF and SVG carry text styles and justification", () => {
   assert.ok(!svg.includes("text-anchor"));
 });
 
-test("SVG draws a text's spaces and the characters AutoCAD draws for its codes", () => {
+test("SVG draws a text's spaces and the characters the leading CAD app draws for its codes", () => {
   const d = createDrawing();
   d.text([0, 0], "A   B  45%%d %%P1 %%c2", { height: 1 });
   d.text([0, 2], "", { height: 1 });
@@ -398,7 +398,7 @@ test("SVG draws a view in place of the whole of model space", () => {
   }
 });
 
-test("SVG sizes a TrueType font by its capital A, which AutoCAD makes the text's height", () => {
+test("SVG sizes a TrueType font by its capital A, which the leading CAD app makes the text's height", () => {
   // The top of each font's `A` in the units of its file, 2048 to the em.
   const tops = {
     Arial: 1466,

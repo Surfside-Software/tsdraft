@@ -1,6 +1,6 @@
 // What a dimension needs worked out: the keys of the handles of a dimension style, of an
-// arrowhead's block and of the block of a dimension's picture, the text AutoCAD writes for a
-// measurement, and the lines, arrowheads and text AutoCAD draws for a dimension.
+// arrowhead's block and of the block of a dimension's picture, the text the leading CAD app writes
+// for a measurement, and the lines, arrowheads and text that app draws for a dimension.
 import type {
   AlignedDimension,
   DimensionStyle,
@@ -35,9 +35,9 @@ export type Dimension = LinearDimension | AlignedDimension;
 
 /**
  * A dimension style's name as its handle is keyed: A to Z in lower case and nothing else
- * changed, as `idKey` treats an id. AutoCAD takes two names with one key for one style, so the
- * duplicate rule refuses the second. No table that can grow is part of this, and it must never
- * change.
+ * changed, as `idKey` treats an id. The leading CAD app takes two names with one key for one style,
+ * so the duplicate rule refuses the second. No table that can grow is part of
+ * this, and it must never change.
  */
 function dimensionStyleKey(name: string): string {
   return name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
@@ -148,8 +148,8 @@ export function dimensionPictureHandles(place: DimensionPlace): DimensionPicture
 }
 
 /**
- * The dimension style a dimension of this name is in: the first whose name AutoCAD's style
- * table would take for the same, so `dims` finds `DIMS`.
+ * The dimension style a dimension of this name is in: the first whose name the leading CAD app's
+ * style table would take for the same, so `dims` finds `DIMS`.
  */
 export function findDimensionStyle(
   drawing: Pick<Drawing, "dimensionStyles">,
@@ -168,8 +168,8 @@ export function arrowheadEntityHandle(block: string): string {
 }
 
 /**
- * The handles of the block AutoCAD draws an arrowhead with, in an R2018 drawing: the block's
- * record, and the stroke it holds. They come from the block's name, so they are the same in
+ * The handles of the block the leading CAD app draws an arrowhead with, in an R2018 drawing: the
+ * block's record, and the stroke it holds. They come from the block's name, so they are the same in
  * every drawing. Undefined for an arrowhead that has no block.
  *
  * @throws RangeError when `arrowhead` is not one of `ARROWHEADS`.
@@ -211,18 +211,18 @@ export type MeasurementFormat = Pick<
 >;
 
 /**
- * How far below the half a value may lie and still be written as on it, as AutoCAD writes a
- * measurement: a ten-billionth of the value under 1, and from 1 up a ten-billionth and one and
- * a half units in the 16th significant digit, which grows with each power of ten.
+ * How far below the half a value may lie and still be written as on it, as the leading CAD app
+ * writes a measurement: a ten-billionth of the value under 1, and from 1 up a ten-billionth and one
+ * and a half units in the 16th significant digit, which grows with each power of ten.
  */
 function belowHalf(value: number): number {
   return value < 1 ? 1e-10 * value : 1e-10 + 1.5 * 10 ** (integerDigits(value) - 16);
 }
 
 /**
- * A length as AutoCAD writes it in decimal units, before any prefix or suffix: times the
- * style's measurement scale, with `precision` decimals, and without the zeros the style leaves
- * out. AutoCAD rounds half up, and takes a value a little below the half as on it: within a
+ * A length as the leading CAD app writes it in decimal units, before any prefix or suffix: times
+ * the style's measurement scale, with `precision` decimals, and without the zeros the style leaves
+ * out. That app rounds half up, and takes a value a little below the half as on it: within a
  * ten-billionth of the value under 1, and from 1 up within a ten-billionth and one and a half
  * units in the 16th significant digit. So 52.15, which a computer holds as a little less, is
  * written `52.2` at a precision of 1, and so is 1234567.15.
@@ -276,13 +276,13 @@ function fractionSteps(inches: number, precision: number): readonly [steps: numb
 export const FEET_INCH_ZEROS_CODES = { neither: 0, both: 1, feet: 2, inches: 3 } as const;
 
 /**
- * A length as AutoCAD writes it in architectural units, before any prefix or suffix: times the
- * style's measurement scale, as inches, rounded to the least fraction of the style's precision
- * and written as feet, a hyphen, inches and the fraction in lowest terms after a space, with the
- * inch mark: `4'-1 7/16"`. A length under a foot drops its feet and one of whole feet its inches,
- * unless `feetInchZeros` writes that zero: the default, `"inches"`, writes `4'-0"` and `6"`. A
- * length of less than an inch writes no zero inches before its fraction, as `1/2"`, unless its
- * feet are written: `0'-0 1/2"`.
+ * A length as the leading CAD app writes it in architectural units, before any prefix or suffix:
+ * times the style's measurement scale, as inches, rounded to the least fraction of the style's
+ * precision and written as feet, a hyphen, inches and the fraction in lowest terms after a space,
+ * with the inch mark: `4'-1 7/16"`. A length under a foot drops its feet and one of whole feet its
+ * inches, unless `feetInchZeros` writes that zero: the default, `"inches"`, writes `4'-0"` and
+ * `6"`. A length of less than an inch writes no zero inches before its fraction, as `1/2"`, unless
+ * its feet are written: `0'-0 1/2"`.
  *
  * @param length - What the dimension measures, in drawing units, not negative.
  */
@@ -311,8 +311,8 @@ export function feetAndInches(length: number, format: MeasurementFormat): string
 }
 
 /**
- * The text AutoCAD draws for a dimension: the measurement with the style's prefix and suffix,
- * or the dimension's own text, in which the first `<>` stands for that.
+ * The text the leading CAD app draws for a dimension: the measurement with the style's prefix and
+ * suffix, or the dimension's own text, in which the first `<>` stands for that.
  *
  * @param length - What the dimension measures, in drawing units.
  * @param text - The dimension's own text, when it has one.
@@ -324,7 +324,7 @@ export function measurementText(length: number, format: MeasurementFormat, text?
   return at < 0 ? text : `${text.slice(0, at)}${measured}${text.slice(at + 2)}`;
 }
 
-/** The text of a dimension as AutoCAD draws it, and where. */
+/** The text of a dimension as the leading CAD app draws it, and where. */
 export interface DimensionLabel {
   readonly value: string;
   /** The middle of the text's baseline. */
@@ -357,8 +357,8 @@ export type ArrowheadEntity =
     };
 
 /**
- * What AutoCAD draws for a dimension, in the coordinates of the dimension's space, with every
- * number of the dimension and of its style taken as the writers write it.
+ * What the leading CAD app draws for a dimension, in the coordinates of the dimension's space, with
+ * every number of the dimension and of its style taken as the writers write it.
  */
 export interface DimensionPicture {
   /** What the dimension measures, in drawing units, before the style's measurement scale. */
@@ -375,8 +375,8 @@ export interface DimensionPicture {
   /** The outline of each arrowhead, which is filled. None for an arrow size of 0. */
   readonly arrowheads: readonly (readonly Point[])[];
   /**
-   * The entity that draws each arrowhead in the block of the dimension's picture, as AutoCAD
-   * writes it: a filled triangle, or an insert of the arrowhead's block. None for an arrow
+   * The entity that draws each arrowhead in the block of the dimension's picture, as the leading
+   * CAD app writes it: a filled triangle, or an insert of the arrowhead's block. None for an arrow
    * size of 0.
    */
   readonly arrowheadEntities: readonly ArrowheadEntity[];
@@ -458,8 +458,8 @@ function direction(degrees: number): Point {
 }
 
 /**
- * What AutoCAD draws for a dimension in a style, for a dimension and a style the rules have
- * passed. The dimension line runs through the definition point along the direction measured.
+ * What the leading CAD app draws for a dimension in a style, for a dimension and a style the rules
+ * have passed. The dimension line runs through the definition point along the direction measured.
  * Each extension line starts the style's offset from its point, on the side of the dimension
  * line, and ends the style's length beyond that line. The text is centered between the
  * extension lines, one gap above the dimension line as the text reads, and turned to read
@@ -547,7 +547,7 @@ export function dimensionPicture(dimension: Dimension, style: DimensionStyle): D
       } else {
         const base = move(tip, run, inward * size);
         arrowheads.push([tip, move(base, side, size / 6), move(base, side, -size / 6)]);
-        // AutoCAD gives the corner to the left of the direction measured first.
+        // The leading CAD app gives the corner to the left of the direction measured first.
         arrowheadEntities.push({
           kind: "solid",
           corners: [move(base, across, size / 6), move(base, across, -size / 6), tip],
@@ -586,9 +586,9 @@ export function dimensionPicture(dimension: Dimension, style: DimensionStyle): D
 
 /**
  * The widest a character of any font in `FONTS` is drawn, as a share of the text's height,
- * before its style's width factor: for the characters of a measurement, the widest AutoCAD lays
- * out in any of them, and for every other character 2, which no character of Latin-1 reaches
- * in any of them.
+ * before its style's width factor: for the characters of a measurement, the widest the leading CAD
+ * app lays out in any of them, and for every other character 2, which no character of Latin-1
+ * reaches in any of them.
  */
 export const WIDEST_CHARACTERS: Readonly<Record<string, number>> = {
   "0": 1.1,
@@ -611,15 +611,15 @@ export const WIDEST_CHARACTERS: Readonly<Record<string, number>> = {
 const WIDEST_CHARACTER = 2;
 
 /**
- * The least a dimension with closed filled arrowheads must measure for AutoCAD to draw its
- * arrowheads between the extension lines, whatever the widths of its font: more than twice the
+ * The least a dimension with closed filled arrowheads must measure for the leading CAD app to draw
+ * its arrowheads between the extension lines, whatever the widths of its font: more than twice the
  * arrow size and twice the gap, and at least the widest its text can be and twice the gap. The
  * widest is each character's width from `WIDEST_CHARACTERS` times the height and the width
  * factor, and the lean of a slanted style once, the height times the tangent of its angle.
  * Undefined for a style whose picture does not depend on that: one with ticks, or with an
  * arrow size of 0.
  *
- * @param text - The text of the dimension as AutoCAD draws it.
+ * @param text - The text of the dimension as that app draws it.
  * @param textStyle - The text style of the dimension's style, unless it is `Standard`.
  */
 export function arrowRoom(

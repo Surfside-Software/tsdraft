@@ -155,8 +155,8 @@ the value it shows for each attribute, and `xref`, which is true for an insert o
 `drawing.dimensions` gives each
 dimension in model space: its `entity` index, `id`, `layer`, `kind`, which is `linear` or
 `aligned`, `style`, `measurement`, the length it measures in drawing units, and `text`, the
-string AutoCAD draws for it. The last two are `null` for a dimension whose style the drawing does not define. A
-layout's `dimensions` lists those on its sheet in the same way.
+string the leading CAD app draws for it. The last two are `null` for a dimension whose style the
+drawing does not define. A layout's `dimensions` lists those on its sheet in the same way.
 `drawing.xrefs` gives each xref's `name`, its `path`, how many `inserts` place it, in model
 space, in blocks and on layouts, `shown` and `units`. The command opens no DWG file. It draws an xref when
 the drawing file has a named export `xrefs`, an object that gives a `Drawing` under the xref's

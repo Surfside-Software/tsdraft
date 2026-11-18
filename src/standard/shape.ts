@@ -216,9 +216,9 @@ const textBut =
 
 const patterns = {
   text: () => `^${characterClass(isText)}*$`,
-  /** A dimension style's suffix: a text with none of the characters AutoCAD reads as formatting. */
+  /** A dimension style's suffix: a text with none of the characters the leading CAD app reads as formatting. */
   suffix: () => `^${characterClass(textBut("\\{}"))}*$`,
-  /** A prefix: a suffix with no `<>`, which AutoCAD takes for the place of the measurement. */
+  /** A prefix: a suffix with no `<>`, which the leading CAD app takes for the place of the measurement. */
   prefix: () => `^(?![\\s\\S]*<>)${characterClass(textBut("\\{}"))}*$`,
   /**
    * An xref's path: from the folder of the drawing's file, with no `* ? < > | : "` and no
@@ -228,7 +228,7 @@ const patterns = {
     `^(?![/\\\\]|[A-Za-z]:)(?![\\s\\S]*\\.[Dd][Xx][Ff]$)(?=(?![\\s\\S]*\\.$)|[\\s\\S]*\\.[Dd][Ww][Gg]\\.$)(?![\\s\\S]*\\\\[Mm]\\+[1-5][0-9A-Fa-f]{4})${characterClass(textBut('*?<>|:"'))}+$`,
   tag: () => `^${characterClass((c) => isText(c) && !(c >= 0x61 && c <= 0x7a))}+$`,
   property: () => `^${characterClass((c) => c >= 0x20 && c !== 0x7f && !surrogate(c))}{1,64}$`,
-  /** An AutoCAD name, of a layer, a linetype or a block, with `exclude` refused in any case. */
+  /** A name the leading CAD app takes for a layer, a linetype or a block, with `exclude` refused in any case. */
   name: (...exclude: string[]) =>
     `^(?! )(?![\\s\\S]* $)${exclude.length ? `(?!(?:${exclude.map(anyCase).join("|")})$)` : ""}${characterClass(isNameCharacter)}{1,255}$`,
   id: (...exclude: string[]) =>
@@ -261,7 +261,7 @@ const twins = (owner: string, what: string, names?: true): Fold => ({
   key: names ? layerKey : idKey,
   twin: (first) =>
     names
-      ? `${owner} already has a ${what} of this name, as ${shown(first)}. AutoCAD takes the two names for one`
+      ? `${owner} already has a ${what} of this name, as ${shown(first)}. The leading CAD app takes the two names for one`
       : `${owner} already has a ${what} of this id, as ${shown(first)}. Ids are compared without regard to case`,
 });
 /** Keys that are ids of `owner`'s `what`s. */
@@ -295,7 +295,7 @@ const DISCIPLINE = record<DisciplineDocument>("discipline", "a discipline", {
 const PEN = record<PenDocument>("pen", "a pen", {
   lineweight: {
     node: number({ enum: LINEWEIGHTS }, lineweightValueProblem),
-    description: "One of AutoCAD's lineweights, in millimetres",
+    description: "One of the leading CAD app's lineweights, in millimetres",
     required: true,
   },
   description,
@@ -307,7 +307,7 @@ const LINETYPE = record<LinetypeDocument>(
   {
     description: {
       node: string(lazy(patterns.text, { maxLength: 249 })),
-      description: "What AutoCAD's LINETYPE command shows for it",
+      description: "What the leading CAD app's LINETYPE command shows for it",
       default: "",
     },
     pattern: {
@@ -328,7 +328,7 @@ const LINETYPE = record<LinetypeDocument>(
 const LAYER_FIELDS = {
   color: {
     node: number({ type: "integer", minimum: 1, maximum: 255 }, layerColorProblem),
-    description: "An AutoCAD Color Index from 1 to 255",
+    description: "A number from 1 to 255 in the color index CAD programs share",
     required: true,
   },
   linetype: {
@@ -338,7 +338,8 @@ const LAYER_FIELDS = {
   },
   pen: {
     node: string(),
-    description: 'A pen of the standard. Without one the layer has AutoCAD\'s lineweight "Default"',
+    description:
+      'A pen of the standard. Without one the layer has the leading CAD app\'s lineweight "Default"',
   },
   plot: { node: boolean, description: "Whether the layer plots", default: true },
   description,
@@ -365,7 +366,7 @@ const LAYER = record<LayerDocument>("layer", "a layer", {
 const ROLE_FIELDS = {
   font: {
     node: string({ enum: Object.keys(FONTS) }, fontProblem),
-    description: "One of FONTS, as AutoCAD stores it",
+    description: "One of FONTS, as the leading CAD app stores it",
     required: true,
   },
   height: {
@@ -401,7 +402,7 @@ const ROLE = record<TextRoleDocument>("textRole", "a text role", {
 const SCALE = record<ScaleDocument>("scale", "a scale", {
   label: {
     node: string(lazy(patterns.property), scaleLabelProblem),
-    description: "The name AutoCAD's scale list gives the scale, such as 1\" = 10'",
+    description: "The name the leading CAD app's scale list gives the scale, such as 1\" = 10'",
     required: true,
   },
   ratio: {
@@ -496,7 +497,7 @@ const STYLE_FIELDS = {
   description,
 } as const satisfies FieldsOf<DimensionStyleFieldsDocument>;
 
-/** A name a standard gives a dimension style in AutoCAD: any name AutoCAD takes, but `Standard`. */
+/** A name a standard gives a dimension style in the leading CAD app: any name that app takes, but `Standard`. */
 const styleName: Node = string(
   lazy(() => patterns.name("Standard")),
   (name) => dimensionStyleNameProblem(name) ?? styleNameStandardProblem(name),
@@ -507,12 +508,12 @@ const DIMENSION_STYLE = record<DimensionStyleDocument>("dimensionStyle", "a dime
   layoutName: {
     node: styleName,
     description:
-      "The style's name in AutoCAD on a layout, such as the name a firm's drawings already give their style. Defaults to its id in capitals",
+      "The style's name in the leading CAD app on a layout, such as the name a firm's drawings already give their style. Defaults to its id in capitals",
   },
   scaleNames: {
     node: map(ids("scaleNames", "scale"), styleName),
     description:
-      "The style's name in AutoCAD in model space at a scale, by the scale's id, such as the name a firm's drawings already give the style at that scale. A scale it does not list takes the id in capitals, a hyphen and the scale's id",
+      "The style's name in the leading CAD app in model space at a scale, by the scale's id, such as the name a firm's drawings already give the style at that scale. A scale it does not list takes the id in capitals, a hyphen and the scale's id",
   },
   discipline,
   byDiscipline: byDiscipline(
@@ -567,7 +568,7 @@ const FIELD = record<TitleBlockFieldDocument>("titleBlockField", "a title block'
   source: {
     node: string({ enum: SOURCES }, sourceProblem),
     description:
-      "attribute: an attribute of the block that the builder sets. fileName, layoutName and currentDate: a field of the xref's drawing that AutoCAD fills",
+      "attribute: an attribute of the block that the builder sets. fileName, layoutName and currentDate: a field of the xref's drawing that the leading CAD app fills",
     default: "attribute",
   },
 });

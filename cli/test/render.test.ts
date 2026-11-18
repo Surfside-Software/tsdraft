@@ -207,7 +207,7 @@ test("the state says which blocks a drawing has and where each is inserted", () 
         attributes: { TAG: "T-1" },
       },
       { kind: "insert", layer: "0", block: "GROVE", at: [40, 0] },
-      // AutoCAD's layer table keeps these two letters apart, so this insert finds no block.
+      // The leading CAD app's layer table keeps these two letters apart, so this insert finds no block.
       { kind: "insert", layer: "0", block: "ÿ", at: [0, 0] },
     ],
   };
@@ -825,7 +825,7 @@ test("a drawing with a layout gets a picture of its sheet, and the state says wh
   );
 });
 
-test("the state lists each dimension with the number it measures and the text AutoCAD draws", () => {
+test("the state lists each dimension with the number it measures and the text the leading CAD app draws", () => {
   const dir = realpathSync(tempDir());
   const plan = join(dir, "plan.ts");
   const drawing = {

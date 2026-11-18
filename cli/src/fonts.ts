@@ -180,8 +180,8 @@ export function findFaces(folders: readonly string[] = fontFolders()): Map<strin
     }
     if (familyName(bytes) !== face) continue;
     const info: { family: string; capHeight?: number } = FONTS[font as keyof typeof FONTS];
-    // The font's own file is sized as `FONTS` says AutoCAD sizes the font. A font that stands
-    // in for it is sized by its own capitals, and one that states no cap height as the font.
+    // The font's own file is sized as `FONTS` says the leading CAD app sizes the font. A font that
+    // stands in for it is sized by its own capitals, and one that states no cap height as the font.
     const cap = (face === font ? undefined : capHeight(bytes)) ?? info.capHeight ?? shippedCap();
     faces.set(font, { family: info.family, face, file: path, capHeight: cap });
   }

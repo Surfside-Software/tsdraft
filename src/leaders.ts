@@ -1,6 +1,6 @@
 // What a leader needs worked out: the keys of the handles of a leader style, of the dictionary
 // that holds the styles and of an arrowhead's block, the sizes a leader is drawn with, and the
-// shafts, arrowheads, landing and lines of its note that AutoCAD draws.
+// shafts, arrowheads, landing and lines of its note that the leading CAD app draws.
 import {
   DEFAULT_LEADER_ARROWHEAD,
   leaderArrowheadInfo,
@@ -92,8 +92,9 @@ export function validLeaderStyleHandle(name: string): string {
 
 /**
  * The handle of a leader style in an R2018 drawing. It comes from the style's name with A to Z
- * in lower case, so the style keeps it when the drawing around it changes. `Standard`, AutoCAD's
- * own style, which the writers add beside a drawing's own, has the handle of its name too.
+ * in lower case, so the style keeps it when the drawing around it changes. `Standard`, the leading
+ * CAD app's own style, which the writers add beside a drawing's own,
+ * has the handle of its name too.
  *
  * @throws RangeError when `name` is not a valid name for a leader style.
  */
@@ -111,14 +112,14 @@ export function leaderStyleDictionaryHandle(): string {
   return keyHandle("dictionary:acad_mleaderstyle");
 }
 
-/** The name of the dictionary of leader styles, as AutoCAD names it. */
+/** The name of the dictionary of leader styles, as the leading CAD app names it. */
 export const LEADER_STYLE_DICTIONARY = "ACAD_MLEADERSTYLE";
 
 /**
- * The handles of the block AutoCAD draws a leader's arrowhead with, in an R2018 drawing: the
- * block's record, the two objects that open and close its definition in a DXF, and each entity
- * it holds. They come from the block's name, so they are the same in every drawing: the first
- * entity has the key a dimension's arrowhead has, `arrowhead:NAME`, and each after it
+ * The handles of the block the leading CAD app draws a leader's arrowhead with, in an R2018
+ * drawing: the block's record, the two objects that open and close its definition in a DXF, and
+ * each entity it holds. They come from the block's name, so they are the same in every drawing: the
+ * first entity has the key a dimension's arrowhead has, `arrowhead:NAME`, and each after it
  * `arrowhead:NAME/N`. Undefined for an arrowhead that has no block.
  *
  * @throws RangeError when `arrowhead` is not one of `LEADER_ARROWHEADS`.
@@ -167,8 +168,8 @@ export function leaderArrowheadsWithBlocks(styles: readonly LeaderStyle[] | unde
 }
 
 /**
- * The leader style a leader of this name is in: the first whose name AutoCAD would take for the
- * same, so `notes` finds `NOTES`. `Standard` is in no drawing's list.
+ * The leader style a leader of this name is in: the first whose name the leading CAD app would take
+ * for the same, so `notes` finds `NOTES`. `Standard` is in no drawing's list.
  */
 export function findLeaderStyle(
   drawing: Pick<Drawing, "leaderStyles">,
@@ -188,8 +189,9 @@ export function leaderCount(drawing: Pick<Drawing, "entities" | "layouts">): num
 }
 
 /**
- * AutoCAD's own leader style, `Standard`, as the writers write it beside a drawing's own: its
- * sizes and its arrowhead are the ones AutoCAD gives the style in a new drawing in inches.
+ * The leading CAD app's own leader style, `Standard`, as the writers write it beside a drawing's
+ * own: its sizes and its arrowhead are the ones that app gives the
+ * style in a new drawing in inches.
  */
 export const STANDARD_LEADER_STYLE_SIZES: LeaderStyle = {
   name: STANDARD_LEADER_STYLE,
@@ -249,7 +251,8 @@ export function leaderAttachment(
 
 /**
  * The bits a multileader holds for each property it sets itself, in place of its style's. A
- * multileader that AutoCAD's MLEADER command draws has the three of `LEADER_OWN_ALWAYS`.
+ * multileader that the leading CAD app's MLEADER command draws has the three of
+ * `LEADER_OWN_ALWAYS`.
  */
 const OWN = {
   gap: 1 << 5,
@@ -287,7 +290,7 @@ export function attachmentCode(attachment: LeaderAttachment): 1 | 3 {
   return attachment === "first-line" ? 1 : 3;
 }
 
-/** One line of a leader's note, as AutoCAD draws it. */
+/** One line of a leader's note, as the leading CAD app draws it. */
 export interface LeaderLine {
   readonly value: string;
   /** The end of its baseline it is justified to: the left end, or the right end. */
@@ -297,7 +300,7 @@ export interface LeaderLine {
   readonly height: number;
 }
 
-/** What AutoCAD draws for a leader's arrowhead, where it draws it. */
+/** What the leading CAD app draws for a leader's arrowhead, where it draws it. */
 export interface LeaderArrowheadDrawn {
   /** A filled triangle: the tip, then the two corners of its base. Empty but for a filled arrowhead. */
   readonly filled: readonly Point[];
@@ -309,8 +312,9 @@ export interface LeaderArrowheadDrawn {
 }
 
 /**
- * What AutoCAD draws for a leader, in the coordinates of the leader's space, with every number of
- * the leader and of its style taken as the writers write it, and the numbers a file holds for it.
+ * What the leading CAD app draws for a leader, in the coordinates of the leader's space, with every
+ * number of the leader and of its style taken as the writers write it, and
+ * the numbers a file holds for it.
  */
 export interface LeaderPicture {
   readonly sizes: LeaderSizes;
@@ -320,7 +324,7 @@ export interface LeaderPicture {
   readonly connection: Point;
   /** Along X, the way the landing runs: 1 to the right, -1 to the left. */
   readonly direction: 1 | -1;
-  /** Each shaft as AutoCAD draws it: from where its arrowhead leaves it, through its bends, to `connection`. */
+  /** Each shaft as the leading CAD app draws it: from where its arrowhead leaves it, through its bends, to `connection`. */
   readonly shafts: readonly (readonly Point[])[];
   /** Each shaft's arrowhead. None for an arrow size of 0. */
   readonly arrowheads: readonly LeaderArrowheadDrawn[];
@@ -340,12 +344,12 @@ export interface LeaderPicture {
 const RADIANS = Math.PI / 180;
 
 /**
- * What AutoCAD draws for a leader in a style, for a leader and a style the rules have passed.
- * Each shaft runs from its tip through its bends to `at`, and the arrowhead at its tip points
- * along the shaft's first segment: AutoCAD stops the shaft one arrow size short of the tip, and
- * the arrowhead draws the rest, but for the arrowhead `"none"`, whose shaft runs to the tip. The
- * landing runs level from `at`, as long as the leader's landing, to the side the note is on. The
- * note starts a gap past the landing's end, justified left on the right and right on the left,
+ * What the leading CAD app draws for a leader in a style, for a leader and a style the rules have
+ * passed. Each shaft runs from its tip through its bends to `at`, and the arrowhead at its tip
+ * points along the shaft's first segment: that app stops the shaft one arrow size short of the tip,
+ * and the arrowhead draws the rest, but for the arrowhead `"none"`, whose shaft runs to the tip.
+ * The landing runs level from `at`, as long as the leader's landing, to the side the note is on.
+ * The note starts a gap past the landing's end, justified left on the right and right on the left,
  * with the middle of its first line's capitals, or of its last line's, level with `at`, and its
  * lines `lineSpacing` apart. Each list is read up to its first empty slot.
  *

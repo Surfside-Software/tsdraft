@@ -5,6 +5,8 @@
 - The README and the package's description name what tsdraft does now: plotting to PDF,
   reading DXF, leaders and standards. The README says any release before 1.0 can break code,
   and lists what tsdraft does not draw yet.
+- Docs, comments, error messages and the package's keywords describe CAD programs without naming
+  a vendor. A rule one program holds is said of "the leading CAD app".
 - Fonts in a PDF. `toPDF(drawing, { fonts })` takes the TrueType file of each font by its name,
   such as `{ Arial: bytes }`, and embeds it cut to the letters the pages use, so every
   character, `°`, `±`, `½` and `≥` included, plots in the font's own letters. A text in an SHX
@@ -25,8 +27,8 @@
   `undefined-layer`, and a twist of a turn or more either way. `viewportView` gives a
   view's `twist` and `displayCenter`, and the `box` of a turned view is the box around the turned
   rectangle. [docs/layouts.md](docs/layouts.md) describes them.
-- `readDXF` reads a viewport's frozen layers from group 331, where AutoCAD writes them, in place
-  of group 341.
+- `readDXF` reads a viewport's frozen layers from group 331, where the leading CAD app writes them,
+  in place of group 341.
 - Under a standard, `lint`'s checks of the height a text plots at in a viewport leave out what
   the viewport freezes. They no longer stop for a drawing with a malformed leader style, which
   `lint` reports on its own.
@@ -51,9 +53,9 @@ What changes for a read of a DXF, whose model is format 0 and not settled:
 - An entity keeps the color, true color, linetype, lineweight and linetype scale it sets itself,
   an insert and a dimension name their block's record by `blockHandle`, and `opensAt` gives the
   tab and the view a file opens at. `GEOMETRY_ITEMS`, 400,000, bounds what the spaces keep.
-- A string holds what AutoCAD holds after reading the file: a caret and a space is a caret, `^J`
-  a line feed, a text's `\U+XXXX` is decoded twice and `\M+NXXXX` once, and an `MTEXT`'s once.
-  A name with a caret read as two characters before.
+- A string holds what the leading CAD app holds after reading the file: a caret and a space is a
+  caret, `^J` a line feed, a text's `\U+XXXX` is decoded twice and `\M+NXXXX` once, and an `MTEXT`'s
+  once. A name with a caret read as two characters before.
 - An entity with a number that is not finite, and a record whose kind, layer, block name or tag
   is longer than a DXF value holds, is counted under `unread.malformed`.
 

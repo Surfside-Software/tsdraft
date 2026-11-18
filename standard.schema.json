@@ -315,7 +315,7 @@
         "layoutName": {
           "type": "string",
           "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:[Ss][Tt][Aa][Nn][Dd][Aa][Rr][Dd])$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$",
-          "description": "The style's name in AutoCAD on a layout, such as the name a firm's drawings already give their style. Defaults to its id in capitals"
+          "description": "The style's name in the leading CAD app on a layout, such as the name a firm's drawings already give their style. Defaults to its id in capitals"
         },
         "scaleNames": {
           "type": "object",
@@ -326,7 +326,7 @@
             "type": "string",
             "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:[Ss][Tt][Aa][Nn][Dd][Aa][Rr][Dd])$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$"
           },
-          "description": "The style's name in AutoCAD in model space at a scale, by the scale's id, such as the name a firm's drawings already give the style at that scale. A scale it does not list takes the id in capitals, a hyphen and the scale's id"
+          "description": "The style's name in the leading CAD app in model space at a scale, by the scale's id, such as the name a firm's drawings already give the style at that scale. A scale it does not list takes the id in capitals, a hyphen and the scale's id"
         },
         "discipline": {
           "type": "string",
@@ -424,7 +424,7 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 255,
-          "description": "An AutoCAD Color Index from 1 to 255"
+          "description": "A number from 1 to 255 in the color index CAD programs share"
         },
         "linetype": {
           "type": "string",
@@ -433,7 +433,7 @@
         },
         "pen": {
           "type": "string",
-          "description": "A pen of the standard. Without one the layer has AutoCAD's lineweight \"Default\""
+          "description": "A pen of the standard. Without one the layer has the leading CAD app's lineweight \"Default\""
         },
         "plot": {
           "type": "boolean",
@@ -475,7 +475,7 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 255,
-          "description": "An AutoCAD Color Index from 1 to 255"
+          "description": "A number from 1 to 255 in the color index CAD programs share"
         },
         "linetype": {
           "type": "string",
@@ -483,7 +483,7 @@
         },
         "pen": {
           "type": "string",
-          "description": "A pen of the standard. Without one the layer has AutoCAD's lineweight \"Default\""
+          "description": "A pen of the standard. Without one the layer has the leading CAD app's lineweight \"Default\""
         },
         "plot": {
           "type": "boolean",
@@ -616,7 +616,7 @@
           "type": "string",
           "maxLength": 249,
           "pattern": "^[\\u0020-\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]*$",
-          "description": "What AutoCAD's LINETYPE command shows for it",
+          "description": "What the leading CAD app's LINETYPE command shows for it",
           "default": ""
         },
         "pattern": {
@@ -649,7 +649,7 @@
             0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8,
             0.9, 1, 1.06, 1.2, 1.4, 1.58, 2, 2.11
           ],
-          "description": "One of AutoCAD's lineweights, in millimetres"
+          "description": "One of the leading CAD app's lineweights, in millimetres"
         },
         "description": {
           "type": "string",
@@ -671,7 +671,7 @@
         "label": {
           "type": "string",
           "pattern": "^[\\u0020-\\u007e\\u0080-\\ud7ff\\ue000-\\uffff]{1,64}$",
-          "description": "The name AutoCAD's scale list gives the scale, such as 1\" = 10'"
+          "description": "The name the leading CAD app's scale list gives the scale, such as 1\" = 10'"
         },
         "ratio": {
           "type": "number",
@@ -776,7 +776,7 @@
             "Trebuchet MS",
             "Verdana"
           ],
-          "description": "One of FONTS, as AutoCAD stores it"
+          "description": "One of FONTS, as the leading CAD app stores it"
         },
         "height": {
           "type": "number",
@@ -853,7 +853,7 @@
             "Trebuchet MS",
             "Verdana"
           ],
-          "description": "One of FONTS, as AutoCAD stores it"
+          "description": "One of FONTS, as the leading CAD app stores it"
         },
         "height": {
           "type": "number",
@@ -996,7 +996,7 @@
         "source": {
           "type": "string",
           "enum": ["attribute", "fileName", "layoutName", "currentDate"],
-          "description": "attribute: an attribute of the block that the builder sets. fileName, layoutName and currentDate: a field of the xref's drawing that AutoCAD fills",
+          "description": "attribute: an attribute of the block that the builder sets. fileName, layoutName and currentDate: a field of the xref's drawing that the leading CAD app fills",
           "default": "attribute"
         }
       },

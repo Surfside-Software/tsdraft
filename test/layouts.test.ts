@@ -104,7 +104,7 @@ test("layout() puts what is drawn inside it on a sheet, and the drawing round-tr
   );
 });
 
-test("a viewport's ratio gives the view AutoCAD holds, in every pair of units", () => {
+test("a viewport's ratio gives the view the leading CAD app holds, in every pair of units", () => {
   const viewport = sheet().layouts![0]!.viewports[0]!;
   // 1" = 10': 22 inches of paper show 220 feet, and a foot takes a tenth of an inch.
   const view = viewportView(viewport, "in", "ft");
@@ -250,8 +250,8 @@ test("an ARCH E layout is 48 by 36, with its plot turned onto the upright medium
   d.layout("E-101", { paper: "ARCH E" }, () => d.line([0, 0], [1, 1]));
   const dxf = toDXF(d.build());
   const setup = dxf.slice(dxf.indexOf("ARCH_full_bleed_E_(36.00_x_48.00_Inches)"));
-  // The medium is 36 wide and 48 tall, in millimetres as AutoCAD holds it, and AutoCAD's own
-  // landscape page setup on it turns the plot with a rotation of 1.
+  // The medium is 36 wide and 48 tall, in millimetres as the leading CAD app holds it, and that
+  // app's own landscape page setup on it turns the plot with a rotation of 1.
   assert.match(setup, /\r\n44\r\n914\.400024\r\n45\r\n1219\.199951\r\n/);
   assert.match(setup, /\r\n72\r\n0\r\n73\r\n1\r\n/);
   // The layout's limits are 48 by 36.
@@ -259,7 +259,7 @@ test("an ARCH E layout is 48 by 36, with its plot turned onto the upright medium
   assert.deepEqual([PAPERS["ARCH E"].width, PAPERS["ARCH E"].height], [48, 36]);
 });
 
-test("a layout's name is held to AutoCAD's rules, at compile time and when the code runs", () => {
+test("a layout's name is held to the leading CAD app's rules, at compile time and when the code runs", () => {
   const d = createDrawing();
   const refused = (run: () => unknown, pattern: RegExp): void => {
     assert.throws(run, (error: unknown) => {
@@ -272,7 +272,7 @@ test("a layout's name is held to AutoCAD's rules, at compile time and when the c
   refused(() => d.layout("", { paper: "ARCH D" }, () => {}), /cannot be empty/);
   // @ts-expect-error the model tab's name
   refused(() => d.layout("MODEL", { paper: "ARCH D" }, () => {}), /cannot be named Model/);
-  // @ts-expect-error a character AutoCAD's LAYOUT command refuses
+  // @ts-expect-error a character the leading CAD app's LAYOUT command refuses
   refused(() => d.layout("A/B", { paper: "ARCH D" }, () => {}), /cannot contain/);
   // @ts-expect-error a space at the end
   refused(() => d.layout("A ", { paper: "ARCH D" }, () => {}), /start or end with a space/);
@@ -285,9 +285,9 @@ test("a layout's name is held to AutoCAD's rules, at compile time and when the c
   refused(() => d.layout("A\tB", { paper: "ARCH D" }, () => {}), /control characters/);
   refused(() => d.layout(5 as never, { paper: "ARCH D" }, () => {}), /must be a string/);
   refused(() => d.layout("A", null as never, () => {}), /must be one of PAPERS/);
-  // A caret and a space inside are names AutoCAD's own command takes.
+  // A caret and a space inside are names the leading CAD app's own command takes.
   d.layout("A^1 plan", { paper: "ANSI A" }, () => {});
-  // AutoCAD takes these for the same name, and a layout that is being drawn has its name.
+  // The leading CAD app takes these for the same name, and a layout that is being drawn has its name.
   refused(() => d.layout("a^1 PLAN", { paper: "ANSI A" }, () => {}), /already has a layout/);
   refused(
     () => d.layout("É", { paper: "ANSI A" }, () => d.layout("é", { paper: "ANSI A" }, () => {})),
@@ -304,7 +304,7 @@ test("a layout's name is held to AutoCAD's rules, at compile time and when the c
   refused(() => r12.layout("A", { paper: "ARCH D" }, () => {}), /no layouts to R12/);
 });
 
-test("AutoCAD's table of letters decides which two layout names are one", () => {
+test("the leading CAD app's table of letters decides which two layout names are one", () => {
   for (const [a, b] of [
     ["Sheet", "SHEET"],
     ["Ÿ", "ÿ"],
@@ -531,7 +531,7 @@ test("lint repeats every layout rule for a drawing built another way", () => {
   assert.match(one(withView({ layer: null })), /a layer is named by a string/);
   assert.match(one(withView({ id: "wall" })), /error duplicate-id: /);
   assert.match(one(withView({ id: 5 })), /error id: /);
-  // Two layouts AutoCAD takes for one, and an entity of a layout that breaks an entity's rule.
+  // Two layouts the leading CAD app takes for one, and an entity of a layout that breaks an entity's rule.
   assert.match(
     one([good, { ...good, name: "a-101", viewports: [], entities: [] }]),
     /error duplicate-layout: Layout "a-101": .*as "A-101"/,
@@ -863,7 +863,7 @@ test("a border is an xref placed on a layout alone, with the sheet's fields over
     d.insert("FIELDS", [0, 0], { attributes: { SHEET: "C-101" } });
   });
   const sheet = d.build();
-  // An xref that only a layout places is placed: nothing warns that AutoCAD will purge it.
+  // An xref that only a layout places is placed: nothing warns that the leading CAD app will purge it.
   assert.deepEqual(lint(sheet), []);
   // The preview draws the border on the paper at the insert's scale, under the field, and
   // none of it in the picture of model space.

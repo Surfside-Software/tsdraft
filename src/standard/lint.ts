@@ -1,7 +1,7 @@
 // The rules of a standard that `lint(drawing, { standard })` holds a drawing to: what the builder
 // refuses under a standard, for a drawing made by other code or read from JSON, under the same
 // rules, and what only the whole drawing shows, such as the height a text plots at in each
-// viewport that shows it. AutoCAD opens a drawing that breaks them: they are the firm's.
+// viewport that shows it. The leading CAD app opens a drawing that breaks them: they are the firm's.
 import { DEFAULT_ARROWHEAD, DEFAULT_LEADER_ARROWHEAD } from "../arrowheads.ts";
 import {
   blocksByKey,
@@ -1627,7 +1627,7 @@ interface TitleBlockIndex {
   readonly linetypes: ReadonlyMap<string, { readonly name: string; readonly json: string }>;
 }
 
-/** A standard as `lint` reads it: its entries by the keys AutoCAD finds them by. */
+/** A standard as `lint` reads it: its entries by the keys the leading CAD app finds them by. */
 interface Index {
   readonly layers: ReadonlyMap<string, readonly [name: string, layer: StandardLayer]>;
   readonly linetypes: ReadonlyMap<string, readonly [name: string, linetype: StandardLinetype]>;
@@ -1639,9 +1639,9 @@ interface Index {
   /** Each role by `layerKey` of its text style's name. */
   readonly roleStyles: ReadonlyMap<string, readonly [id: string, role: StandardTextRole]>;
   readonly scalesByRatio: ReadonlyMap<number, StandardScale>;
-  /** The dimension style of the standard whose AutoCAD name has this `layerKey`, and its scale. */
+  /** The dimension style of the standard whose name in the leading CAD app has this `layerKey`, and its scale. */
   readonly dimensionStyle: StyleLookup<StandardDimensionStyle>;
-  /** The leader style of the standard whose AutoCAD name has this `layerKey`, and its scale. */
+  /** The leader style of the standard whose name in the leading CAD app has this `layerKey`, and its scale. */
   readonly leaderStyle: StyleLookup<StandardLeaderStyle>;
   readonly titleBlocks: readonly TitleBlockIndex[];
   /** The id of the title block each block or xref name of a title block places, by `layerKey`. */
@@ -1652,7 +1652,7 @@ interface Index {
   readonly formatsByPaper: ReadonlyMap<string, OnPaper>;
 }
 
-/** A style of a standard by the `layerKey` of its AutoCAD name, with the scale the name gives. */
+/** A style of a standard by the `layerKey` of its name in the leading CAD app, with the scale the name gives. */
 type StyleLookup<E> = (key: string) =>
   | {
       readonly id: string;
@@ -1715,8 +1715,8 @@ function indexOf(standard: Standard): Index {
   // A dimension style's name is its id in capitals on a layout, and with a scale's id after it in
   // model space, unless the standard gives it another. Ids are ASCII, so a name an id gives has
   // its style's key, `-` and its scale's key, and at most one style and scale give it:
-  // defineStandard refuses two names AutoCAD takes for one. A leader style's name is made from its
-  // id the same way, and the standard gives it no other.
+  // defineStandard refuses two names the leading CAD app takes for one. A leader style's name is
+  // made from its id the same way, and the standard gives it no other.
   const styles = Object.entries<StandardDimensionStyle>(standard.dimensionStyles);
   const styleKeys = new Map(
     styles.map(([id, entry]) => [layerKey(capitals(id)), { id, entry, scale: undefined }] as const),

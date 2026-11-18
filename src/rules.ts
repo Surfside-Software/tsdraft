@@ -1,8 +1,8 @@
-// The rules a drawing must follow for AutoCAD to open its DXF. Each rule exists
+// The rules a drawing must follow for the leading CAD app to open its DXF. Each rule exists
 // twice: as a type, so a literal mistake is an error in the editor, and as a
 // runtime check, for values the compiler can't see. The messages are shared.
 //
-// AutoCAD discards the whole drawing over most names that break the name rules.
+// That app discards the whole drawing over most names that break the name rules.
 import type { DxfVersion, Point, Units } from "./drawing.ts";
 import type { PaperUnit } from "./paper.ts";
 import { paperInfo, PLOT_STYLE_TABLES, type Paper, type PlotStyleTable } from "./papers.ts";
@@ -36,13 +36,13 @@ import {
   type REJECTED_PRIVATE,
 } from "./layers.ts";
 
-// AutoCAD holds layer names, linetype names and text style names to the same rules, so each
-// rule has a message for each kind of name.
+// The leading CAD app holds layer names, linetype names and text style names to the same rules, so
+// each rule has a message for each kind of name.
 const LAYER_NAMES = {
   empty: "Layer names cannot be empty",
   chars: 'Layer names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
   rejected:
-    "Layer names cannot contain a character AutoCAD rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
+    "Layer names cannot contain a character the leading CAD app rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
   edge: "Layer names cannot start or end with a space",
   length: "Layer names cannot be longer than 255 characters",
 } as const;
@@ -50,7 +50,7 @@ const LINETYPE_NAMES = {
   empty: "Linetype names cannot be empty",
   chars: 'Linetype names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
   rejected:
-    "Linetype names cannot contain a character AutoCAD rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
+    "Linetype names cannot contain a character the leading CAD app rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
   edge: "Linetype names cannot start or end with a space",
   length: "Linetype names cannot be longer than 255 characters",
 } as const;
@@ -58,34 +58,34 @@ const TEXT_STYLE_NAMES = {
   empty: "Text style names cannot be empty",
   chars: 'Text style names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
   rejected:
-    "Text style names cannot contain a character AutoCAD rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
+    "Text style names cannot contain a character the leading CAD app rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
   edge: "Text style names cannot start or end with a space",
   length: "Text style names cannot be longer than 255 characters",
 } as const;
 const BLOCK_NAMES = {
   empty: "Block names cannot be empty",
   chars:
-    'Block names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks. AutoCAD keeps names that start with * for the blocks it makes itself, and its AUDIT reports any other block of such a name',
+    'Block names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks. The leading CAD app keeps names that start with * for the blocks it makes itself, and its AUDIT reports any other block of such a name',
   rejected:
-    "Block names cannot contain a character AutoCAD rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
+    "Block names cannot contain a character the leading CAD app rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
   edge: "Block names cannot start or end with a space",
   length:
-    "Block names cannot be longer than 255 characters. AutoCAD's BLOCK command refuses a longer name",
+    "Block names cannot be longer than 255 characters. The leading CAD app's BLOCK command refuses a longer name",
 } as const;
 const DIMENSION_STYLE_NAMES = {
   empty: "Dimension style names cannot be empty",
   chars: 'Dimension style names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
   rejected:
-    "Dimension style names cannot contain a character AutoCAD rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
+    "Dimension style names cannot contain a character the leading CAD app rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
   edge: "Dimension style names cannot start or end with a space",
   length:
-    "Dimension style names cannot be longer than 255 characters. AutoCAD's DIMSTYLE command refuses a longer name",
+    "Dimension style names cannot be longer than 255 characters. The leading CAD app's DIMSTYLE command refuses a longer name",
 } as const;
 const LEADER_STYLE_NAMES = {
   empty: "Leader style names cannot be empty",
   chars: 'Leader style names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
   rejected:
-    "Leader style names cannot contain a character AutoCAD rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
+    "Leader style names cannot contain a character the leading CAD app rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
   edge: "Leader style names cannot start or end with a space",
   length:
     "Leader style names cannot be longer than 255 characters, as dimension style names cannot",
@@ -101,19 +101,19 @@ const NAME_R12_CHARS =
   'R12 layer names can only use letters, digits, $, - and _. Use DXF version "R2018" for other characters';
 const NAME_R12_LENGTH =
   'R12 layer names cannot be longer than 31 characters. Use DXF version "R2018" for longer names';
-const COLOR = "A layer color must be an AutoCAD Color Index integer from 1 to 255";
+const COLOR = "A layer color must be a color index, an integer from 1 to 255";
 const POSITIVE = "This value must be greater than 0";
 const WRITTEN_AS_ZERO =
   "This value is written as 0, because tsdraft writes 6 decimals. Use 0.000001 or more";
 const TOO_LARGE =
-  "This value must be under 1e100, because AutoCAD reads only two exponent digits from DXF and would take 1e+100 for 1e+10";
+  "This value must be under 1e100, because the leading CAD app reads only two exponent digits from DXF and would take 1e+100 for 1e+10";
 const PAPER_LENGTH = "The paper length must be greater than 0";
 const RATIO = "The ratio must be greater than 0";
 const ARC_LOST =
-  "An arc of nearly a full turn cannot be written: its angles are the same once rounded to 6 decimals, so AutoCAD would hold an arc of no length. Draw a circle instead";
+  "An arc of nearly a full turn cannot be written: its angles are the same once rounded to 6 decimals, so the leading CAD app would hold an arc of no length. Draw a circle instead";
 const TEXT_CONTROL = "Text must be a single line with no control characters";
 const TEXT_PRIVATE_USE =
-  "Text cannot contain the private-use characters U+E800 to U+E8FF, because AutoCAD replaces them when it reads DXF";
+  "Text cannot contain the private-use characters U+E800 to U+E8FF, because the leading CAD app replaces them when it reads DXF";
 const R12_LINETYPES =
   'R12 drawings have no linetypes but Continuous, and no linetype scale. Use DXF version "R2018" for linetypes';
 const R12_LINEWEIGHTS = 'R12 drawings have no lineweights. Use DXF version "R2018" for lineweights';
@@ -131,49 +131,49 @@ const R12_DIMENSIONS =
 const R12_LEADERS =
   'tsdraft writes no leaders to R12 drawings. Use DXF version "R2018" for a leader';
 const ARROWHEAD_BLOCK =
-  "Block names cannot be _ArchTick, _Open, _Dot or _None, in any case of their letters. AutoCAD draws the architectural tick of a dimension and the arrowheads of a leader with the blocks of those names";
+  "Block names cannot be _ArchTick, _Open, _Dot or _None, in any case of their letters. The leading CAD app draws the architectural tick of a dimension and the arrowheads of a leader with the blocks of those names";
 const STANDARD_DIMENSION_STYLE_DEFINED =
-  'The dimension style "Standard" is in every drawing and cannot be defined. AutoCAD keeps the first style of a name and skips a second';
+  'The dimension style "Standard" is in every drawing and cannot be defined. The leading CAD app keeps the first style of a name and skips a second';
 const STANDARD_DIMENSION_STYLE_USED =
-  'tsdraft draws no dimension in the dimension style "Standard", which is AutoCAD\'s own. Define a style with dimensionStyle() and name it';
+  'tsdraft draws no dimension in the dimension style "Standard", which is the leading CAD app\'s own. Define a style with dimensionStyle() and name it';
 const ARROWHEAD = 'An arrowhead must be one of ARROWHEADS: "closed-filled" or "architectural-tick"';
 const NOT_NEGATIVE =
-  "This value cannot be less than 0. AutoCAD's AUDIT reports a dimension style with a negative size";
+  "This value cannot be less than 0. The leading CAD app's AUDIT reports a dimension style with a negative size";
 const TEXT_GAP =
-  "The gap cannot be less than 0. AutoCAD draws a box around the text of a dimension whose style has a negative gap";
+  "The gap cannot be less than 0. The leading CAD app draws a box around the text of a dimension whose style has a negative gap";
 const DIMENSION_SCALE =
-  "The scale must be greater than 0. AutoCAD takes a scale of 0 for one it works out from a viewport, and its AUDIT reports a negative one";
+  "The scale must be greater than 0. The leading CAD app takes a scale of 0 for one it works out from a viewport, and its AUDIT reports a negative one";
 const MEASUREMENT_SCALE =
-  "The measurement scale must be greater than 0. AutoCAD's AUDIT reports a scale of 0, and AutoCAD applies a negative one only to a dimension on a layout";
+  "The measurement scale must be greater than 0. The leading CAD app's AUDIT reports a scale of 0, and that app applies a negative one only to a dimension on a layout";
 const PRECISION =
-  "A precision is a whole number from 0 to 8: the decimals of a measurement, or in architectural units the least fraction of an inch, 1 over 2 to that power. AutoCAD's AUDIT reports a dimension style with any other";
+  "A precision is a whole number from 0 to 8: the decimals of a measurement, or in architectural units the least fraction of an inch, 1 over 2 to that power. The leading CAD app's AUDIT reports a dimension style with any other";
 const ZERO_SUPPRESSION = 'suppressZeros must be "leading", "trailing" or "both"';
 const DIMENSION_UNITS_MESSAGE = 'units must be "decimal" or "architectural"';
 const FEET_INCH_ZEROS_MESSAGE = 'feetInchZeros must be "inches", "feet", "both" or "neither"';
 const ZEROS_OF_UNITS =
   'suppressZeros is for a style in decimal units, and feetInchZeros for one in "architectural" units, which writes feet and inches';
 const DIMENSION_FORMATTING =
-  "The prefix, the suffix and the text of a dimension cannot contain \\ { or }. AutoCAD reads them as the formatting of the text";
+  "The prefix, the suffix and the text of a dimension cannot contain \\ { or }. The leading CAD app reads them as the formatting of the text";
 const PREFIX_MEASUREMENT =
-  "A prefix cannot contain <>, which AutoCAD takes for the place of the measurement";
+  "A prefix cannot contain <>, which the leading CAD app takes for the place of the measurement";
 const DIMENSION_TEXT_BLANK =
-  "A dimension's text cannot be empty or all spaces. AutoCAD draws a dimension whose text is a space with no text. Leave the text out to draw the measurement";
+  "A dimension's text cannot be empty or all spaces. The leading CAD app draws a dimension whose text is a space with no text. Leave the text out to draw the measurement";
 const DIMENSION_TEXT_ALTERNATE =
-  "A dimension's text cannot contain [] beside <>. AutoCAD writes the measurement a second time for it, in alternate units";
+  "A dimension's text cannot contain [] beside <>. The leading CAD app writes the measurement a second time for it, in alternate units";
 const LAYOUT_NAME_EMPTY =
-  "A layout's name cannot be empty. AutoCAD's commands take an empty answer for the current layout, so none of them can name such a layout";
+  "A layout's name cannot be empty. The leading CAD app's commands take an empty answer for the current layout, so none of them can name such a layout";
 const LAYOUT_NAME_CHARS =
-  "A layout's name cannot contain < > / \\ \" : ; ? * | , = or `. AutoCAD's LAYOUT command refuses a name with one of them, and AutoCAD opens a file that holds such a layout without a word";
+  "A layout's name cannot contain < > / \\ \" : ; ? * | , = or `. The leading CAD app's LAYOUT command refuses a name with one of them, and that app opens a file that holds such a layout without a word";
 const LAYOUT_NAME_EDGE =
-  "A layout's name cannot start or end with a space. AutoCAD's -PLOT command finds no layout by such a name";
+  "A layout's name cannot start or end with a space. The leading CAD app's -PLOT command finds no layout by such a name";
 const LAYOUT_NAME_LENGTH =
-  "A layout's name cannot be longer than 255 characters. AutoCAD's LAYOUT command refuses a longer name";
+  "A layout's name cannot be longer than 255 characters. The leading CAD app's LAYOUT command refuses a longer name";
 const LAYOUT_NAME_MODEL =
-  "A layout cannot be named Model, in any case of its letters. AutoCAD keeps that name for the model tab: it discards a drawing whose layout is named MODEL, takes a layout named model for the model tab's own and loses its sheet, and never finishes opening a drawing with a second layout named Model";
+  "A layout cannot be named Model, in any case of its letters. The leading CAD app keeps that name for the model tab: it discards a drawing whose layout is named MODEL, takes a layout named model for the model tab's own and loses its sheet, and never finishes opening a drawing with a second layout named Model";
 const PAPER =
-  'A paper must be one of PAPERS, the full-bleed sizes of AutoCAD\'s DWG To PDF.pc3, such as "ARCH D", each laid out landscape. A page setup names its paper as the plotter does, and AutoCAD plots nothing for a layout whose paper the plotter knows neither by its name nor by its size';
+  'A paper must be one of PAPERS, the full-bleed sizes of the leading CAD app\'s DWG To PDF.pc3, such as "ARCH D", each laid out landscape. A page setup names its paper as the plotter does, and that app plots nothing for a layout whose paper the plotter knows neither by its name nor by its size';
 const PLOT_STYLE =
-  'A plot style table must be "monochrome.ctb", "acad.ctb", "Grayscale.ctb" or "DWF Virtual Pens.ctb", which AutoCAD installs. AutoCAD plots a layout whose plot style table it does not have with no table, each pen in its own color';
+  'A plot style table must be "monochrome.ctb", "acad.ctb", "Grayscale.ctb" or "DWF Virtual Pens.ctb", which the leading CAD app installs. That app plots a layout whose plot style table it does not have with no table, each pen in its own color';
 const SHEET_NUMBER_LENGTH = "A sheet number has 1 to 64 characters";
 const SHEET_NUMBER_CHARS =
   'A sheet number cannot hold < > : " / \\ | ? *, a control character or a character above U+FFFF. Windows names no file with one of them';
@@ -182,59 +182,59 @@ const SHEET_NUMBER_END =
 const SHEET_NUMBER_DEVICE =
   "A sheet number cannot be a name Windows keeps for a device: CON, PRN, AUX, NUL, COM1 to COM9 or LPT1 to LPT9, in any case and with any extension. Windows opens the device in place of a file of that name";
 const XREF_PATH_EMPTY =
-  "An xref's path cannot be empty. AutoCAD then looks for a DWG file named as the xref is";
+  "An xref's path cannot be empty. The leading CAD app then looks for a DWG file named as the xref is";
 const XREF_PATH_DXF =
-  "An xref's path cannot end in .dxf. AutoCAD loads only a DWG file as an xref: it reports that it is unable to load a DXF, and draws nothing for it";
+  "An xref's path cannot end in .dxf. The leading CAD app loads only a DWG file as an xref: it reports that it is unable to load a DXF, and draws nothing for it";
 const XREF_PATH_ABSOLUTE =
-  'An xref\'s path must start from the folder of the drawing\'s file, as "base.dwg" and "../survey/base.dwg" do, and cannot start with /, \\ or a drive such as C:. AutoCAD takes an absolute path, and where that folder is missing, as on another machine, it loads a file of the same name from the drawing\'s folder when there is one and reports the xref as loaded';
+  'An xref\'s path must start from the folder of the drawing\'s file, as "base.dwg" and "../survey/base.dwg" do, and cannot start with /, \\ or a drive such as C:. The leading CAD app takes an absolute path, and where that folder is missing, as on another machine, it loads a file of the same name from the drawing\'s folder when there is one and reports the xref as loaded';
 const XREF_PATH_LENGTH =
-  "An xref's path cannot be longer than 32,000 characters. AutoCAD finds no file by a path that comes to more than 32,767 characters with the folder of the drawing";
+  "An xref's path cannot be longer than 32,000 characters. The leading CAD app finds no file by a path that comes to more than 32,767 characters with the folder of the drawing";
 const XREF_PATH_CHARS =
-  "An xref's path cannot hold * ? < > | : or \". AutoCAD finds no file whose name holds one of them. It does read a path wrapped in a pair of quotes as the path inside, and tsdraft wants that path written without them";
+  "An xref's path cannot hold * ? < > | : or \". The leading CAD app finds no file whose name holds one of them. It does read a path wrapped in a pair of quotes as the path inside, and tsdraft wants that path written without them";
 const XREF_PATH_DOT =
-  "An xref's path cannot end in a dot. AutoCAD adds .dwg after the dot, so for base. it looks for base..dwg and finds no file";
+  "An xref's path cannot end in a dot. The leading CAD app adds .dwg after the dot, so for base. it looks for base..dwg and finds no file";
 const XREF_PATH_MULTIBYTE =
-  "An xref's path cannot hold a backslash before M+, a digit from 1 to 5 and four hex digits, such as \\M+10041. Once AutoCAD has saved the drawing it reads those as one character, and looks for another file. Write / there";
+  "An xref's path cannot hold a backslash before M+, a digit from 1 to 5 and four hex digits, such as \\M+10041. Once the leading CAD app has saved the drawing it reads those as one character, and looks for another file. Write / there";
 const SCALE_ZERO =
-  "A scale cannot be 0, or be written as 0, as tsdraft's 6 decimals write a scale under 0.0000005. AutoCAD reads a scale of 0 as 1";
+  "A scale cannot be 0, or be written as 0, as tsdraft's 6 decimals write a scale under 0.0000005. The leading CAD app reads a scale of 0 as 1";
 const TAG_EMPTY =
-  "An attribute's tag cannot be empty. AutoCAD's AUDIT reports an attribute with an empty tag";
+  "An attribute's tag cannot be empty. The leading CAD app's AUDIT reports an attribute with an empty tag";
 const TAG_LOWER =
-  "An attribute's tag cannot hold a lower-case letter a to z. AutoCAD's ATTDEF command holds a tag in capitals, and its -ATTEDIT command finds no attribute whose tag has a lower-case letter";
+  "An attribute's tag cannot hold a lower-case letter a to z. The leading CAD app's ATTDEF command holds a tag in capitals, and its -ATTEDIT command finds no attribute whose tag has a lower-case letter";
 const R12_TEXT =
   'tsdraft writes no text styles and no text justification to R12 drawings. Use DXF version "R2018" for a text style or a justified text';
 const STANDARD_STYLE =
-  "The text style Standard is in every drawing, with the font txt.shx, and cannot be defined. AutoCAD keeps the first style of a name and skips a second";
+  "The text style Standard is in every drawing, with the font txt.shx, and cannot be defined. The leading CAD app keeps the first style of a name and skips a second";
 const FONT =
-  'A font must be one of FONTS, the fonts AutoCAD 2025 or Windows installs: an SHX font by its file name, such as "txt.shx", or a TrueType font by its typeface, such as "Arial". AutoCAD draws text in a font it does not have in another font, and its AUDIT reports nothing';
+  'A font must be one of FONTS, the fonts the 2025 release of the leading CAD app or Windows installs: an SHX font by its file name, such as "txt.shx", or a TrueType font by its typeface, such as "Arial". That app draws text in a font it does not have in another font, and its AUDIT reports nothing';
 const OBLIQUE =
-  "An oblique angle must be from -85 to 85 degrees. AutoCAD's AUDIT reports a text style or a text slanted further";
+  "An oblique angle must be from -85 to 85 degrees. The leading CAD app's AUDIT reports a text style or a text slanted further";
 const WIDTH_FACTOR =
-  "A width factor must be from 0.01 to 100, the range AutoCAD's STYLE command takes. AutoCAD's AUDIT reports a text style with a width factor of 0 or less, of 0.0001 or of 1000000";
+  "A width factor must be from 0.01 to 100, the range the leading CAD app's STYLE command takes. That app's AUDIT reports a text style with a width factor of 0 or less, of 0.0001 or of 1000000";
 const LINEWEIGHT =
-  "A lineweight must be one of AutoCAD's, in millimetres: 0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8, 0.9, 1, 1.06, 1.2, 1.4, 1.58, 2 or 2.11";
+  "A lineweight must be one of the leading CAD app's, in millimetres: 0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8, 0.9, 1, 1.06, 1.2, 1.4, 1.58, 2 or 2.11";
 const LAYER_LINEWEIGHT = `${LINEWEIGHT}, or "Default"`;
 const ENTITY_LINEWEIGHT = `${LINEWEIGHT}, or "ByLayer", "ByBlock" or "Default"`;
 const FROZEN_CURRENT =
-  'Layer "0" cannot be frozen: it is the current layer, and AutoCAD does not freeze the current layer';
+  'Layer "0" cannot be frozen: it is the current layer, and the leading CAD app does not freeze the current layer';
 const LAYER_LINETYPE =
-  "A layer's linetype cannot be ByLayer or ByBlock. AutoCAD's AUDIT reports a layer with either";
+  "A layer's linetype cannot be ByLayer or ByBlock. The leading CAD app's AUDIT reports a layer with either";
 const BUILT_IN =
-  "Continuous, ByLayer and ByBlock are in every drawing and cannot be defined. AutoCAD keeps its own and drops the definition";
+  "Continuous, ByLayer and ByBlock are in every drawing and cannot be defined. The leading CAD app keeps its own and drops the definition";
 const PATTERN_COUNT =
-  "A linetype pattern has 2 to 12 lengths, or none for a solid line. AutoCAD's AUDIT reports a pattern of one length, and AutoCAD discards a drawing with a pattern of more than 12";
+  "A linetype pattern has 2 to 12 lengths, or none for a solid line. The leading CAD app's AUDIT reports a pattern of one length, and that app discards a drawing with a pattern of more than 12";
 const PATTERN_WRITTEN_AS_ZERO =
   "A dash or gap of this length is written as 0, because tsdraft writes 6 decimals, and would draw as a dot. Use 0 for a dot, or a length of 0.000001 or more";
 const PATTERN_TOTAL =
-  "A linetype pattern's lengths, added up without their signs, must be under 1e100. The total is written too, and AutoCAD reads only two exponent digits from DXF";
+  "A linetype pattern's lengths, added up without their signs, must be under 1e100. The total is written too, and the leading CAD app reads only two exponent digits from DXF";
 const PATTERN_TYPE = "A linetype's pattern must be an array of finite numbers";
 const DESCRIPTION_LENGTH =
-  "A linetype description cannot be longer than 249 characters, because AutoCAD cuts it there when it reads DXF";
+  "A linetype description cannot be longer than 249 characters, because the leading CAD app cuts it there when it reads DXF";
 const ID_EMPTY = "An id cannot be empty";
 const ID_CHARS = "An id can only use the letters A to Z and a to z, digits, ., - and _";
 const ID_LENGTH = "An id cannot be longer than 64 characters";
 const TEXT_PERCENT =
-  'AutoCAD reads "%%" in text as the start of a control code: it draws "%%d" as a degree sign and "%%%" as one percent sign. The text is stored as written';
+  'The leading CAD app reads "%%" in text as the start of a control code: it draws "%%d" as a degree sign and "%%%" as one percent sign. The text is stored as written';
 
 type ForbiddenChar =
   | "<"
@@ -302,7 +302,7 @@ export type LayerName<N extends string, V extends DxfVersion> = string extends N
 
 /**
  * Resolves to `N` when it is a valid name for a linetype to be used by, and to
- * the error message otherwise. AutoCAD holds linetype names to the rules of
+ * the error message otherwise. The leading CAD app holds linetype names to the rules of
  * layer names, apart from R12's, since R12 drawings have no linetypes.
  */
 export type LinetypeName<N extends string> = string extends N
@@ -338,7 +338,7 @@ type Enumerate<N extends number, A extends number[] = []> = A["length"] extends 
   ? A[number]
   : Enumerate<N, [...A, A["length"]]>;
 
-/** AutoCAD Color Index: an integer from 1 to 255. */
+/** A number in the color index CAD programs share: an integer from 1 to 255. */
 export type Aci = Exclude<Enumerate<256>, 0>;
 
 /** Resolves to `C` when it is a valid layer color, and to the error message otherwise. */
@@ -419,7 +419,7 @@ type Unsigned<S extends string> = S extends `-${infer A}` ? A : S;
 
 /**
  * Resolves to `N` when it is a valid name for a text style to be used by, and to the error
- * message otherwise. AutoCAD holds text style names to the rules of layer names.
+ * message otherwise. The leading CAD app holds text style names to the rules of layer names.
  */
 export type TextStyleName<N extends string> = string extends N
   ? N
@@ -436,9 +436,9 @@ export type NewTextStyleName<N extends string> = string extends N
     : TextStyleName<N>;
 
 /**
- * Resolves to `N` when it is a valid block name, and to the error message otherwise. AutoCAD
- * holds block names to the rules of layer names. Whether the drawing has the block, and
- * whether it has another that AutoCAD takes for the same, is checked when the code runs.
+ * Resolves to `N` when it is a valid block name, and to the error message otherwise. The leading
+ * CAD app holds block names to the rules of layer names. Whether the drawing has the block, and
+ * whether it has another that that app takes for the same, is checked when the code runs.
  */
 export type BlockName<N extends string> = string extends N
   ? N
@@ -446,13 +446,13 @@ export type BlockName<N extends string> = string extends N
     ? typeof ARROWHEAD_BLOCK
     : NameCheck<N, typeof BLOCK_NAMES, N>;
 
-/** The blocks AutoCAD draws arrowheads with. */
+/** The blocks the leading CAD app draws arrowheads with. */
 type TickBlock = "_ArchTick" | "_Open" | "_Dot" | "_None";
 
 /**
  * Resolves to `N` when it is a valid name for a dimension style to be used by, and to the error
- * message otherwise. AutoCAD holds dimension style names to the rules of layer names. `Standard`
- * is no style tsdraft draws a dimension in.
+ * message otherwise. The leading CAD app holds dimension style names to the rules of layer names.
+ * `Standard` is no style tsdraft draws a dimension in.
  */
 export type DimensionStyleName<N extends string> = string extends N
   ? N
@@ -511,7 +511,7 @@ export type DimensionScale<N extends number> = StyleScale<N, typeof DIMENSION_SC
 /** Resolves to `N` when it is the measurement scale of a dimension style, and to the error message otherwise. */
 export type MeasurementScale<N extends number> = StyleScale<N, typeof MEASUREMENT_SCALE>;
 
-/** Resolves to `P` when it is a precision AutoCAD has, and to the error message otherwise. */
+/** Resolves to `P` when it is a precision the leading CAD app has, and to the error message otherwise. */
 export type Precision<P extends number> = number extends P
   ? P
   : P extends Enumerate<9>
@@ -555,7 +555,7 @@ export type FeetInchZerosIn<U> = [U] extends ["decimal"]
   ? typeof ZEROS_OF_UNITS
   : (typeof FEET_INCH_ZEROS)[number];
 
-/** Resolves to `N` when AutoCAD takes it as the name of a dimension style, and to the error message otherwise. */
+/** Resolves to `N` when the leading CAD app takes it as the name of a dimension style, and to the error message otherwise. */
 export type DimensionStyleNameOf<N extends string> = string extends N
   ? N
   : NameCheck<N, typeof DIMENSION_STYLE_NAMES, N>;
@@ -614,8 +614,8 @@ type LowerLetter = Chars<"abcdefghijklmnopqrstuvwxyz">;
  * Resolves to `P` when it is a path an xref can have, and to the error message otherwise: a
  * path is not empty, starts from the folder of the drawing's file, does not end in `.dxf` or
  * in a dot, and holds no `* ? < > | :`, no multibyte escape, no character a text cannot
- * hold, and no `"`: AutoCAD reads a path wrapped in a pair of quotes, and tsdraft wants it
- * written without them. Its length is checked when the code runs.
+ * hold, and no `"`: the leading CAD app reads a path wrapped in a pair of quotes, and tsdraft wants
+ * it written without them. Its length is checked when the code runs.
  */
 export type XrefPath<P extends string> = string extends P
   ? P
@@ -639,8 +639,8 @@ export type XrefPath<P extends string> = string extends P
  * Resolves to `N` when it is a name a layout can have, and to the error message otherwise: a
  * name is not empty, is not `Model` in any case, holds none of `< > / \ " : ; ? * | , =` and
  * the backtick, no character a text cannot hold, and no space at either end. Its length, and
- * whether the drawing has another layout AutoCAD takes for the same, are checked when the code
- * runs.
+ * whether the drawing has another layout the leading CAD app takes for the same, are checked when
+ * the code runs.
  */
 export type LayoutName<N extends string> = string extends N
   ? N
@@ -790,7 +790,7 @@ type FirstLengthProblem<P extends readonly number[]> = P extends readonly [
   : never;
 
 /**
- * Resolves to `P` when it is a pattern AutoCAD accepts, and to the error
+ * Resolves to `P` when it is a pattern the leading CAD app accepts, and to the error
  * message otherwise. A pattern that is not a tuple, and the total of the
  * lengths, which the compiler cannot add, are checked when the code runs.
  */
@@ -806,7 +806,7 @@ type ControlChar =
   Chars<"\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\u0008\u0009\u000a\u000b\u000c\u000d\u000e\u000f\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a\u001b\u001c\u001d\u001e\u001f\u007f">;
 
 /**
- * Resolves to `D` when it is a linetype description AutoCAD keeps, and to the
+ * Resolves to `D` when it is a linetype description the leading CAD app keeps, and to the
  * error message otherwise. Its length, and characters above U+FFFF, are checked
  * when the code runs.
  */
@@ -818,7 +818,7 @@ export type Description<D extends string> = string extends D
       ? typeof TEXT_PRIVATE_USE
       : D;
 
-/** A lineweight AutoCAD offers, in millimetres. */
+/** A lineweight the leading CAD app offers, in millimetres. */
 export type LineweightMm =
   | 0
   | 0.05
@@ -845,7 +845,7 @@ export type LineweightMm =
   | 2
   | 2.11;
 
-/** Resolves to `W` when it is one of AutoCAD's lineweights, and to the error message otherwise. */
+/** Resolves to `W` when it is one of the leading CAD app's lineweights, and to the error message otherwise. */
 export type LineweightOf<W extends number> = number extends W
   ? W
   : W extends LineweightMm
@@ -889,7 +889,7 @@ function nameProblem(name: string, messages: NameMessages): string | undefined {
   if (/[<>/\\":;?*|=`^,]/.test(name) || hasControl(name) || hasAstral(name)) return messages.chars;
   const rejected = rejectedNameCharacter(name);
   if (rejected !== undefined) return `${messages.rejected}. This name has ${codePoint(rejected)}`;
-  // Only the ASCII space: AutoCAD takes a no-break space or any other at either end.
+  // Only the ASCII space: the leading CAD app takes a no-break space or any other at either end.
   if (name.startsWith(" ") || name.endsWith(" ")) return messages.edge;
   if (name.length > 255) return messages.length;
   return undefined;
@@ -897,18 +897,18 @@ function nameProblem(name: string, messages: NameMessages): string | undefined {
 
 /**
  * Returns what is wrong with a drawing that has both names as layers, or
- * undefined when the two can stand together. AutoCAD looks layers up one way
+ * undefined when the two can stand together. The leading CAD app looks layers up one way
  * and its AUDIT compares their names another, so some pairs of names are two
- * layers to AutoCAD and one duplicate name to AUDIT: `ΟΔΟΣ` and `οδος`,
+ * layers to that app and one duplicate name to AUDIT: `ΟΔΟΣ` and `οδος`,
  * `straße` and `strasse`, a composed é and a decomposed one, and a name with
  * and without a soft hyphen. `layerAuditKey` lists the kinds this covers,
- * which are not all that AUDIT reports. Names that are one layer to AutoCAD
+ * which are not all that AUDIT reports. Names that are one layer to that app
  * are not this function's concern. The rule compares two names, so it has no
  * type.
  *
  * @param name - The name of the layer being checked.
  * @param other - The name of another layer in the drawing.
- * @param kind - Whether the names are of layers, of linetypes or of text styles, which AutoCAD
+ * @param kind - Whether the names are of layers, of linetypes or of text styles, which that app
  *   compares alike.
  * @returns The problem, or undefined.
  */
@@ -920,7 +920,7 @@ export function layerTwinProblem(
   if (layerKey(name) === layerKey(other) || layerAuditKey(name) !== layerAuditKey(other)) {
     return undefined;
   }
-  return `AutoCAD keeps this ${kind} and ${JSON.stringify(other)} as two ${kind}s, but its AUDIT reports them as one duplicate name`;
+  return `The leading CAD app keeps this ${kind} and ${JSON.stringify(other)} as two ${kind}s, but its AUDIT reports them as one duplicate name`;
 }
 
 /**
@@ -961,7 +961,7 @@ export function linetypeProblem(
  * drawing does not have. The rule depends on the drawing, so it has no type.
  */
 export function undefinedLinetypeProblem(name: string): string {
-  return `Linetype ${JSON.stringify(name)} is not defined, and AutoCAD discards a drawing that uses a linetype it does not have`;
+  return `Linetype ${JSON.stringify(name)} is not defined, and the leading CAD app discards a drawing that uses a linetype it does not have`;
 }
 
 /** Returns what is wrong with the linetype a layer names, or undefined when it can be a layer's. */
@@ -973,7 +973,7 @@ export function layerLinetypeProblem(name: string): string | undefined {
 /**
  * Returns what is wrong with a lineweight, or undefined when it is valid. A
  * layer's lineweight may also be "Default", and an entity's "ByLayer",
- * "ByBlock" or "Default". AutoCAD discards a drawing with an entity of any
+ * "ByBlock" or "Default". The leading CAD app discards a drawing with an entity of any
  * other lineweight, and gives a layer of another lineweight the default.
  *
  * @param value - The lineweight, in millimetres or by name.
@@ -990,8 +990,8 @@ export function lineweightProblem(value: unknown, of: "layer" | "entity"): strin
 }
 
 /**
- * Returns what is wrong with a layer's states, or undefined when AutoCAD takes
- * them. tsdraft writes layer "0" as the current layer, and AutoCAD's AUDIT
+ * Returns what is wrong with a layer's states, or undefined when the leading CAD app takes
+ * them. tsdraft writes layer "0" as the current layer, and that app's AUDIT
  * reports a drawing whose current layer is frozen.
  */
 export function layerStateProblem(name: string, frozen: boolean | undefined): string | undefined {
@@ -1007,7 +1007,7 @@ export function layerFlagProblem(state: string, value: unknown): string | undefi
 
 /**
  * Returns what is wrong with the global linetype scale, or undefined when it is
- * valid. AutoCAD reads a scale of 0 or less, or one written as 0, as 1.
+ * valid. The leading CAD app reads a scale of 0 or less, or one written as 0, as 1.
  */
 export function linetypeScaleProblem(value: number): string | undefined {
   if (!Number.isFinite(value)) return "This value must be a finite number";
@@ -1094,7 +1094,7 @@ export function obliqueAngleProblem(value: unknown): string | undefined {
 
 /**
  * Returns what is wrong with a lineweight in millimetres, or undefined when it is one of
- * AutoCAD's. Its type is `LineweightOf`.
+ * the leading CAD app's. Its type is `LineweightOf`.
  */
 export function lineweightValueProblem(value: unknown): string | undefined {
   return typeof value === "number" && (LINEWEIGHTS as readonly number[]).includes(value)
@@ -1115,7 +1115,7 @@ export function ratioProblem(value: unknown): string | undefined {
  * not have. The rule depends on the drawing, so it has no type.
  */
 export function undefinedTextStyleProblem(name: string): string {
-  return `Text style ${JSON.stringify(name)} is not defined. AutoCAD puts a text that names a style it does not have in Standard, and reports nothing`;
+  return `Text style ${JSON.stringify(name)} is not defined. The leading CAD app puts a text that names a style it does not have in Standard, and reports nothing`;
 }
 
 /**
@@ -1140,7 +1140,7 @@ export function layerColorProblem(color: number): string | undefined {
 /**
  * Returns what is wrong with a radius, a text height or a rectangle size, or
  * undefined when it is valid. A size that is written as 0 is refused like 0
- * itself: AutoCAD gives text of height 0 the drawing's default text height,
+ * itself: the leading CAD app gives text of height 0 the drawing's default text height,
  * and a circle of radius 0 is a point. A size of 1e100 or more is refused
  * too, as `magnitudeProblem` explains.
  *
@@ -1173,14 +1173,14 @@ export function paperLengthProblem(
     return `The result, ${result} drawing units, is written as 0, because tsdraft writes 6 decimals. Use a longer paper length or a larger ratio`;
   }
   if (isTooLarge(result)) {
-    return "The result is 1e100 drawing units or more, and AutoCAD reads only two exponent digits from DXF. Use a shorter paper length or a smaller ratio";
+    return "The result is 1e100 drawing units or more, and the leading CAD app reads only two exponent digits from DXF. Use a shorter paper length or a smaller ratio";
   }
   return undefined;
 }
 
 /**
  * Returns what is wrong with the size of a number a drawing holds, or
- * undefined when AutoCAD can read it. This goes for every number that is
+ * undefined when the leading CAD app can read it. This goes for every number that is
  * written: coordinates, sizes and text rotation. Only sizes can be checked as
  * literals, through `Positive`, because points and rotations have no literal
  * types.
@@ -1194,7 +1194,7 @@ export function magnitudeProblem(value: number): string | undefined {
 
 /**
  * Returns what is wrong with an arc's angles once they are rounded for
- * writing, or undefined when the arc can be written. AutoCAD holds an arc
+ * writing, or undefined when the arc can be written. The leading CAD app holds an arc
  * whose start and end angles are equal as an arc of no length, so an arc that
  * is all but a full circle would vanish. The compiler cannot subtract two
  * literals, so this rule has no type.
@@ -1255,41 +1255,41 @@ export function duplicateIdProblem(id: string, first: string): string {
 
 /**
  * Returns what is wrong with an entity whose id gives the handle another id already gave.
- * `idHandle` in `handles.ts` works a handle out from each id, and AutoCAD discards a drawing in
- * which two objects have one handle. The rule depends on the drawing, so it has no type.
+ * `idHandle` in `handles.ts` works a handle out from each id, and the leading CAD app discards a
+ * drawing in which two objects have one handle. The rule depends on the drawing, so it has no type.
  *
  * @param id - The id of the second entity.
  * @param first - The id that gave the handle first.
  * @param handle - The handle both ids give.
  */
 export function idHandleProblem(id: string, first: string, handle: string): string {
-  return `The ids ${JSON.stringify(first)} and ${JSON.stringify(id)} give the same handle, ${handle}. An entity's handle comes from its id, and AutoCAD discards a drawing in which two objects have one handle. Change this id`;
+  return `The ids ${JSON.stringify(first)} and ${JSON.stringify(id)} give the same handle, ${handle}. An entity's handle comes from its id, and the leading CAD app discards a drawing in which two objects have one handle. Change this id`;
 }
 
 /**
  * Returns what is wrong with an object whose key gives the handle another key already gave.
  * A block's own objects take their handles from its name, an attribute definition from its
  * block and tag, and the attributes of an insert that has an id from the id and the tag, as
- * an entity takes its handle from its id. AutoCAD discards a drawing in which two objects have
- * one handle. The rule depends on the drawing, so it has no type.
+ * an entity takes its handle from its id. The leading CAD app discards a drawing in which two
+ * objects have one handle. The rule depends on the drawing, so it has no type.
  *
  * @param what - What the second object is, such as `the block "TREE"`.
  * @param first - What the first object is.
  * @param handle - The handle both give.
  */
 export function handleProblem(what: string, first: string, handle: string): string {
-  return `${what} and ${first} give the same handle, ${handle}. AutoCAD discards a drawing in which two objects have one handle. Rename one of them`;
+  return `${what} and ${first} give the same handle, ${handle}. The leading CAD app discards a drawing in which two objects have one handle. Rename one of them`;
 }
 
 /**
- * Returns what is wrong with a block name, or undefined when it is valid. AutoCAD discards a
- * drawing over a block name that breaks the rules of layer names.
+ * Returns what is wrong with a block name, or undefined when it is valid. The leading CAD app
+ * discards a drawing over a block name that breaks the rules of layer names.
  */
 export function blockNameProblem(name: unknown): string | undefined {
   if (typeof name !== "string") return "A block's name must be a string";
   const problem = nameProblem(name, BLOCK_NAMES);
   if (problem) return problem;
-  // AutoCAD draws an arrowhead with whatever block has its name.
+  // The leading CAD app draws an arrowhead with whatever block has its name.
   return ARROWHEAD_BLOCKS.some((block) => layerKey(block) === layerKey(name))
     ? ARROWHEAD_BLOCK
     : undefined;
@@ -1297,8 +1297,8 @@ export function blockNameProblem(name: unknown): string | undefined {
 
 /**
  * Returns what is wrong with a drawing that has both names as blocks, or undefined when the two
- * can stand together. AutoCAD takes two block names for one where it would call two layer
- * names duplicates: `TREE` and `tree`, `straße` and `strasse`, a composed é and a decomposed
+ * can stand together. The leading CAD app takes two block names for one where it would call two
+ * layer names duplicates: `TREE` and `tree`, `straße` and `strasse`, a composed é and a decomposed
  * one. It then keeps one block, puts the entities of both in it, and reports nothing.
  * `layerAuditKey` lists the kinds of pair this covers. The rule compares two names, so it has
  * no type.
@@ -1309,13 +1309,13 @@ export function blockNameProblem(name: unknown): string | undefined {
 export function blockTwinProblem(name: string, other: string): string | undefined {
   if (layerAuditKey(name) !== layerAuditKey(other)) return undefined;
   const spelled = name === other ? "" : `, as ${JSON.stringify(other)}`;
-  return `The drawing already has a block of this name${spelled}. AutoCAD takes the two for one block, puts the entities of both in it and reports nothing`;
+  return `The drawing already has a block of this name${spelled}. The leading CAD app takes the two for one block, puts the entities of both in it and reports nothing`;
 }
 
 /**
- * Returns what is wrong with an xref whose name AutoCAD takes for the name of a block or of
- * another xref of the drawing, as `blockTwinProblem` says of two blocks. An xref is a block to
- * AutoCAD, and the two share their names.
+ * Returns what is wrong with an xref whose name the leading CAD app takes for the name of a block
+ * or of another xref of the drawing, as `blockTwinProblem` says of two blocks. An xref is a block
+ * to that app, and the two share their names.
  *
  * @param name - The name being checked: an xref's, or a block's when `kind` is `"xref"`.
  * @param other - The name the drawing already has.
@@ -1323,7 +1323,7 @@ export function blockTwinProblem(name: string, other: string): string | undefine
  */
 export function xrefTwinProblem(name: string, other: string, kind: "block" | "xref"): string {
   const spelled = name === other ? "" : `, as ${JSON.stringify(other)}`;
-  return `The drawing already has ${kind === "xref" ? "an xref" : "a block"} of this name${spelled}. An xref is a block to AutoCAD, which takes the two names for one: it discards a drawing with two such names that differ in case, and makes one xref of any other two and reports nothing`;
+  return `The drawing already has ${kind === "xref" ? "an xref" : "a block"} of this name${spelled}. An xref is a block to the leading CAD app, which takes the two names for one: it discards a drawing with two such names that differ in case, and makes one xref of any other two and reports nothing`;
 }
 
 /**
@@ -1365,14 +1365,14 @@ export const XREF_ATTRIBUTES =
 
 /** The warning for an xref that no insert places. */
 export const XREF_UNPLACED =
-  "No insert places this xref. AutoCAD purges an xref that nothing references when it opens the drawing";
+  "No insert places this xref. The leading CAD app purges an xref that nothing references when it opens the drawing";
 
 /**
  * Returns what is wrong with an insert that names a block the drawing does not have. The rule
  * depends on the drawing, so it has no type.
  */
 export function undefinedBlockProblem(name: string): string {
-  return `Block ${JSON.stringify(name)} is not defined. AutoCAD's AUDIT reports an insert of a block the drawing does not have, and AutoCAD cannot save the drawing as DXF`;
+  return `Block ${JSON.stringify(name)} is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`;
 }
 
 /**
@@ -1389,7 +1389,7 @@ export function blockCycleProblem(path: readonly string[]): string {
           .map((name) => JSON.stringify(name))
           .join(" and ")}`
       : "";
-  return `Block ${JSON.stringify(path[0])} holds an insert of itself${through}. AutoCAD's AUDIT reports such blocks as self referencing`;
+  return `Block ${JSON.stringify(path[0])} holds an insert of itself${through}. The leading CAD app's AUDIT reports such blocks as self referencing`;
 }
 
 /**
@@ -1417,9 +1417,9 @@ export function attributeTagProblem(tag: unknown): string | undefined {
 
 /**
  * Returns what is wrong with the text an insert makes of an attribute definition, or
- * undefined when AutoCAD takes it. An insert that scales its block unevenly widens or narrows
- * each attribute and slants it, and AutoCAD's AUDIT reports an attribute slanted by more than
- * 85 degrees as it reports a text, and one whose width factor is 750000. The width factor is
+ * undefined when the leading CAD app takes it. An insert that scales its block unevenly widens or
+ * narrows each attribute and slants it, and that app's AUDIT reports an attribute slanted by more
+ * than 85 degrees as it reports a text, and one whose width factor is 750000. The width factor is
  * held to the range of a text style's, and the attribute's point to the size of any point. The rule depends on the insert and its
  * block, so it has no type.
  *
@@ -1460,11 +1460,11 @@ export function placedAttributeProblem(
 /**
  * Returns what is wrong with a second attribute definition of a block that has the tag of an
  * earlier one. An insert sets an attribute by its tag, and the tag gives the definition its
- * handle, so two definitions of one tag would have one handle, and AutoCAD discards a drawing
- * in which two objects have one handle. The rule depends on the block, so it has no type.
+ * handle, so two definitions of one tag would have one handle, and the leading CAD app discards a
+ * drawing in which two objects have one handle. The rule depends on the block, so it has no type.
  */
 export function duplicateAttributeProblem(tag: string): string {
-  return `The block already has an attribute with the tag ${JSON.stringify(tag)}. An insert sets an attribute by its tag, and the tag gives the definition its handle: AutoCAD discards a drawing in which two objects have one handle`;
+  return `The block already has an attribute with the tag ${JSON.stringify(tag)}. An insert sets an attribute by its tag, and the tag gives the definition its handle: the leading CAD app discards a drawing in which two objects have one handle`;
 }
 
 /** What an insert's `attributes` must be. */
@@ -1502,14 +1502,14 @@ export function shown(value: unknown): string {
 export function textProblem(value: string): string | undefined {
   if (hasControl(value)) return TEXT_CONTROL;
   if (hasAstral(value)) {
-    return "Text cannot contain emoji or other characters above U+FFFF, because AutoCAD cannot read them from DXF";
+    return "Text cannot contain emoji or other characters above U+FFFF, because the leading CAD app cannot read them from DXF";
   }
   if (/[\ue800-\ue8ff]/.test(value)) return TEXT_PRIVATE_USE;
   return undefined;
 }
 
 /**
- * Returns a warning for text that AutoCAD stores as written but draws
+ * Returns a warning for text that the leading CAD app stores as written but draws
  * differently, or undefined when it draws what it stores.
  *
  * @param value - The text value.
@@ -1565,8 +1565,8 @@ export function layoutNameProblem(name: unknown): string | undefined {
 
 /**
  * Returns what is wrong with a drawing that has two layouts of these names, or undefined when
- * the two can stand together. AutoCAD takes two layout names for one when they differ only in
- * the case of letters it folds, which `layoutNameKey` holds: `Sheet` and `SHEET`, `É1` and
+ * the two can stand together. The leading CAD app takes two layout names for one when they differ
+ * only in the case of letters it folds, which `layoutNameKey` holds: `Sheet` and `SHEET`, `É1` and
  * `é1`. It then keeps one of the two layouts under the name, and its AUDIT reports the other as
  * missing from the dictionary of layouts. The rule compares two names, so it has no type.
  *
@@ -1576,7 +1576,7 @@ export function layoutNameProblem(name: unknown): string | undefined {
 export function layoutTwinProblem(name: string, other: string): string | undefined {
   if (layoutNameKey(name) !== layoutNameKey(other)) return undefined;
   const spelled = name === other ? "" : `, as ${JSON.stringify(other)}`;
-  return `The drawing already has a layout of this name${spelled}. AutoCAD takes the two for one layout, keeps one, and its AUDIT reports the other as missing from the dictionary of layouts`;
+  return `The drawing already has a layout of this name${spelled}. The leading CAD app takes the two for one layout, keeps one, and its AUDIT reports the other as missing from the dictionary of layouts`;
 }
 
 /**
@@ -1652,9 +1652,9 @@ export function frozenLayerAbsent(name: string): string {
 /**
  * Returns what is wrong with a viewport, or undefined when it can be written: its corner and
  * its center are points, its width and its height are sizes, and its ratio is greater than 0
- * and gives a view AutoCAD can hold. A file holds the height of model space the viewport
- * shows, in drawing units, where a scale would be, so that height is held to the rules of any
- * size: it is not written as 0 and is under 1e100. A twist is under a turn either way, and the
+ * and gives a view the leading CAD app can hold. A file holds the height of model space the
+ * viewport shows, in drawing units, where a scale would be, so that height is held to the rules of
+ * any size: it is not written as 0 and is under 1e100. A twist is under a turn either way, and the
  * frozen layers a list of names, which `lint` holds to the drawing's layers. It takes
  * `unknown` so that `lint` can report a drawing built by hand. The ratio has the type `Ratio`.
  *
@@ -1725,7 +1725,7 @@ export function viewportProblem(
   if (!(ratio > 0)) return RATIO;
   const viewHeight = modelLength(written(height as number), paperUnits, ratio, units);
   if (!Number.isFinite(viewHeight) || isTooLarge(viewHeight)) {
-    return `At the ratio ${ratio} the viewport shows 1e100 drawing units or more, and AutoCAD reads only two exponent digits from DXF. Use a smaller ratio`;
+    return `At the ratio ${ratio} the viewport shows 1e100 drawing units or more, and the leading CAD app reads only two exponent digits from DXF. Use a smaller ratio`;
   }
   if (written(viewHeight) === 0) {
     return `At the ratio ${ratio} the viewport shows ${viewHeight} drawing units up and down, which is written as 0, because tsdraft writes 6 decimals. Use a larger ratio`;
@@ -1734,8 +1734,8 @@ export function viewportProblem(
 }
 
 /**
- * The warning for a viewport whose rectangle reaches past its layout's paper. AutoCAD plots a
- * layout as far as its paper goes.
+ * The warning for a viewport whose rectangle reaches past its layout's paper. The leading CAD app
+ * plots a layout as far as its paper goes.
  *
  * @returns The warning, or undefined when the rectangle is on the paper.
  */
@@ -1745,7 +1745,7 @@ export function viewportOffPaperWarning(
 ): string | undefined {
   const [minX, minY, maxX, maxY] = rectangle;
   return minX < 0 || minY < 0 || maxX > paper.width || maxY > paper.height
-    ? `the viewport reaches from ${minX}, ${minY} to ${maxX}, ${maxY}, past the paper, which is ${paper.width} by ${paper.height}. AutoCAD plots a layout as far as its paper goes`
+    ? `the viewport reaches from ${minX}, ${minY} to ${maxX}, ${maxY}, past the paper, which is ${paper.width} by ${paper.height}. The leading CAD app plots a layout as far as its paper goes`
     : undefined;
 }
 
@@ -1861,8 +1861,8 @@ export function zerosOfUnitsProblem(
 }
 
 /**
- * Returns what is wrong with a prefix, a suffix or a dimension's own text as a string AutoCAD
- * draws as it is, or undefined: it is a text, with none of the characters AutoCAD reads as
+ * Returns what is wrong with a prefix, a suffix or a dimension's own text as a string the leading
+ * CAD app draws as it is, or undefined: it is a text, with none of the characters that app reads as
  * formatting. Its type, for a suffix, is `DimensionAffix`.
  */
 export function plainDimensionText(value: unknown): string | undefined {
@@ -1881,9 +1881,9 @@ export function dimensionPrefixProblem(value: unknown): string | undefined {
  * of any shape, so that `lint` can report a drawing built by hand. Whether the drawing has the
  * style's text style is the caller's to check, since it depends on the drawing.
  *
- * AutoCAD's AUDIT reports a style whose text height is 0 or less, whose arrow size or either
- * extension line length is less than 0, whose scale is less than 0, whose measurement scale is
- * 0, or whose precision is not a whole number from 0 to 8. It draws a box around the text for a
+ * The leading CAD app's AUDIT reports a style whose text height is 0 or less, whose arrow size or
+ * either extension line length is less than 0, whose scale is less than 0, whose measurement scale
+ * is 0, or whose precision is not a whole number from 0 to 8. It draws a box around the text for a
  * gap less than 0, works a scale of 0 out from a viewport, and applies a measurement scale
  * less than 0 on a layout alone.
  */
@@ -1927,7 +1927,7 @@ export function dimensionStyleProblem(style: unknown): string | undefined {
   ] as const) {
     const scaled = written(s[field] as number) * scale;
     if (!(Math.abs(scaled) < 1e100)) {
-      return `${field}: times the scale it is ${scaled}, and AutoCAD reads only two exponent digits from DXF, so every size of a picture must be under 1e100. Use a smaller size or scale`;
+      return `${field}: times the scale it is ${scaled}, and the leading CAD app reads only two exponent digits from DXF, so every size of a picture must be under 1e100. Use a smaller size or scale`;
     }
   }
   // The picture writes the text's height and an arrowhead's size with 6 decimals.
@@ -1967,8 +1967,8 @@ export function dimensionStyleProblem(style: unknown): string | undefined {
 }
 
 /**
- * Returns the warning for a prefix or a suffix AutoCAD stores as written and draws differently,
- * as `textWarning` gives one for a text, or undefined.
+ * Returns the warning for a prefix or a suffix the leading CAD app stores as written and draws
+ * differently, as `textWarning` gives one for a text, or undefined.
  */
 export function dimensionStyleWarning(style: {
   readonly prefix?: unknown;
@@ -1984,8 +1984,8 @@ export function dimensionStyleWarning(style: {
 
 /**
  * Returns what is wrong with a drawing that has two dimension styles of these names, or
- * undefined when the two can stand together. AutoCAD keeps the first of two names that differ
- * only in case and skips the second, and its AUDIT reports two names it takes for one in the
+ * undefined when the two can stand together. The leading CAD app keeps the first of two names that
+ * differ only in case and skips the second, and its AUDIT reports two names it takes for one in the
  * other ways `layerAuditKey` lists, such as `strasse` and `straße`. The rule compares two
  * names, so it has no type.
  */
@@ -1994,7 +1994,7 @@ export function dimensionStyleTwinProblem(name: string, other: string): string |
   if (layerKey(name) === layerKey(other)) {
     return "The drawing already has a dimension style of this name. CAD ignores case in dimension style names and keeps the first";
   }
-  return `The drawing already has a dimension style of this name, as ${JSON.stringify(other)}. AutoCAD's AUDIT reports a duplicate name in the dimension style table`;
+  return `The drawing already has a dimension style of this name, as ${JSON.stringify(other)}. The leading CAD app's AUDIT reports a duplicate name in the dimension style table`;
 }
 
 /**
@@ -2002,7 +2002,7 @@ export function dimensionStyleTwinProblem(name: string, other: string): string |
  * rule depends on the drawing, so it has no type.
  */
 export function undefinedDimensionTextStyleProblem(name: string): string {
-  return `Text style ${JSON.stringify(name)} is not defined. A dimension style holds its text style by its handle, and AutoCAD's AUDIT reports one that leads to no style`;
+  return `Text style ${JSON.stringify(name)} is not defined. A dimension style holds its text style by its handle, and the leading CAD app's AUDIT reports one that leads to no style`;
 }
 
 /**
@@ -2012,10 +2012,10 @@ export function undefinedDimensionTextStyleProblem(name: string): string {
 export function undefinedDimensionStyleProblem(name: string): string {
   return isStandardDimensionStyle(name)
     ? STANDARD_DIMENSION_STYLE_USED
-    : `Dimension style ${JSON.stringify(name)} is not defined. AutoCAD discards a drawing with a dimension in a style it does not have`;
+    : `Dimension style ${JSON.stringify(name)} is not defined. The leading CAD app discards a drawing with a dimension in a style it does not have`;
 }
 
-/** Returns what is wrong with a dimension's own text, or undefined when AutoCAD draws it as it is. */
+/** Returns what is wrong with a dimension's own text, or undefined when the leading CAD app draws it as it is. */
 export function dimensionTextProblem(text: unknown): string | undefined {
   if (typeof text !== "string") return "its text must be a string";
   if (text.trim() === "" && !/[^ ]/.test(text)) return DIMENSION_TEXT_BLANK;
@@ -2026,14 +2026,14 @@ export function dimensionTextProblem(text: unknown): string | undefined {
 
 /** What is wrong with a dimension in a block. */
 export const DIMENSION_IN_BLOCK =
-  "a dimension cannot be in a block. AutoCAD draws nothing for a dimension inside a block when it opens the file, so an insert of the block would show nothing of it. Draw it in model space or on a layout";
+  "a dimension cannot be in a block. The leading CAD app draws nothing for a dimension inside a block when it opens the file, so an insert of the block would show nothing of it. Draw it in model space or on a layout";
 
-/** The measurement from which AutoCAD has too few digits for every decimal. */
+/** The measurement from which the leading CAD app has too few digits for every decimal. */
 const MEASUREMENT_LIMIT = 1e8;
 
 /**
- * The most digits a measurement may be written with, before and after its point. AutoCAD writes
- * 16, and works the 16th out from its own arithmetic on the points.
+ * The most digits a measurement may be written with, before and after its point. The leading CAD
+ * app writes 16, and works the 16th out from its own arithmetic on the points.
  */
 const MEASUREMENT_DIGITS = 15;
 
@@ -2070,18 +2070,18 @@ export function dimensionAngleProblem(angle: unknown): string | undefined {
 export function pictureNumberProblem(value: number): string | undefined {
   return Number.isFinite(value) && Math.abs(value) < 1e100
     ? undefined
-    : `what it draws reaches ${value}, and AutoCAD reads only two exponent digits from DXF, so every number of a picture must be under 1e100. Use smaller points, sizes or a smaller scale`;
+    : `what it draws reaches ${value}, and the leading CAD app reads only two exponent digits from DXF, so every number of a picture must be under 1e100. Use smaller points, sizes or a smaller scale`;
 }
 
 /**
- * Returns what is wrong with what a dimension measures, or undefined when AutoCAD draws it as
- * tsdraft does. The rule depends on the dimension's points and its style, so it has no type.
+ * Returns what is wrong with what a dimension measures, or undefined when the leading CAD app draws
+ * it as tsdraft does. The rule depends on the dimension's points and its style, so it has no type.
  *
- * A dimension must measure something as it is written: AutoCAD draws one that measures nothing
+ * A dimension must measure something as it is written: that app draws one that measures nothing
  * with the text 0 and its arrowheads turned outward. What it writes, the measurement times the
  * style's measurement scale rounded to the style's precision, must be under 100,000,000:
- * AutoCAD writes 16 digits of a measurement, so it drops decimals of a larger one at a
- * precision of 8, and writes 1e16 as `1.0E+16`. It must have no more than 15 digits: AutoCAD
+ * that app writes 16 digits of a measurement, so it drops decimals of a larger one at a
+ * precision of 8, and writes 1e16 as `1.0E+16`. It must have no more than 15 digits: that app
  * writes the 16th from its own arithmetic on the points, so it wrote 99,999,999.5 at a
  * precision of 8 as `99999999.50000002`. Both are judged on the number as it is rounded, since
  * 9,999,999.999999999 at a precision of 8 is written `10000000.00000000`. And one with closed
@@ -2093,7 +2093,7 @@ export function pictureNumberProblem(value: number): string | undefined {
  * @param rounded - That rounded to the style's precision with every decimal, before any zero
  *   is left out, as `roundedMeasurement` gives it.
  * @param aligned - True for an aligned dimension.
- * @param text - The text AutoCAD draws for it.
+ * @param text - The text that app draws for it.
  * @param room - The least it must measure for its arrowheads to stay between its extension
  *   lines, as `arrowRoom` gives it, or undefined when its picture does not depend on that.
  */
@@ -2110,19 +2110,19 @@ export function dimensionMeasureProblem(
   }
   if (written(measurement) === 0) {
     return aligned
-      ? "it has no length: its two points are one point once they are written with the 6 decimals tsdraft writes. AutoCAD draws such a dimension with the text 0 and its arrowheads turned outward"
-      : "it measures nothing: its two points are as far along the direction it measures, once they are written with the 6 decimals tsdraft writes. AutoCAD draws such a dimension with the text 0 and its arrowheads turned outward";
+      ? "it has no length: its two points are one point once they are written with the 6 decimals tsdraft writes. The leading CAD app draws such a dimension with the text 0 and its arrowheads turned outward"
+      : "it measures nothing: its two points are as far along the direction it measures, once they are written with the 6 decimals tsdraft writes. The leading CAD app draws such a dimension with the text 0 and its arrowheads turned outward";
   }
   const [whole = "", decimals = ""] = rounded.split(".");
   if (!(Number(whole) < MEASUREMENT_LIMIT)) {
-    return `it reads ${rounded}, and AutoCAD writes 16 digits of a measurement: from 100,000,000 up it drops decimals at a precision of 8, and it writes 1e16 as 1.0E+16. Use a smaller measurement scale`;
+    return `it reads ${rounded}, and the leading CAD app writes 16 digits of a measurement: from 100,000,000 up it drops decimals at a precision of 8, and it writes 1e16 as 1.0E+16. Use a smaller measurement scale`;
   }
   const digits = whole.replace(/^0+/, "").length + decimals.length;
   if (digits > MEASUREMENT_DIGITS) {
-    return `it reads ${rounded}, which is ${digits} digits at a precision of ${decimals.length}. AutoCAD works out the 16th digit of a measurement from its own arithmetic on the points, so it may end in another digit: it writes 99,999,999.5 at a precision of 8 as 99999999.50000002. Use a smaller precision or measurement scale`;
+    return `it reads ${rounded}, which is ${digits} digits at a precision of ${decimals.length}. The leading CAD app works out the 16th digit of a measurement from its own arithmetic on the points, so it may end in another digit: it writes 99,999,999.5 at a precision of 8 as 99999999.50000002. Use a smaller precision or measurement scale`;
   }
   if (room !== undefined && measurement <= room) {
-    return `its text may not fit between its extension lines: it measures ${written(measurement)}, and its text, ${JSON.stringify(text)}, and its arrowheads may need ${written(room)}. AutoCAD then turns closed filled arrowheads outward, by the width of the text in its font, which tsdraft does not hold. Give it more room, a smaller text or arrow size, or the arrowhead "architectural-tick", which is drawn the same either way`;
+    return `its text may not fit between its extension lines: it measures ${written(measurement)}, and its text, ${JSON.stringify(text)}, and its arrowheads may need ${written(room)}. The leading CAD app then turns closed filled arrowheads outward, by the width of the text in its font, which tsdraft does not hold. Give it more room, a smaller text or arrow size, or the arrowhead "architectural-tick", which is drawn the same either way`;
   }
   return undefined;
 }
@@ -2130,16 +2130,16 @@ export function dimensionMeasureProblem(
 // Leaders.
 
 const STANDARD_LEADER_STYLE_DEFINED =
-  "The leader style \"Standard\" is AutoCAD's own, which tsdraft writes beside a drawing's leader styles, and cannot be defined. AutoCAD keeps the first style of a name and skips a second";
+  "The leader style \"Standard\" is the leading CAD app's own, which tsdraft writes beside a drawing's leader styles, and cannot be defined. That app keeps the first style of a name and skips a second";
 const STANDARD_LEADER_STYLE_USED =
-  'tsdraft draws no leader in the leader style "Standard", which is AutoCAD\'s own. Define a style with leaderStyle() and name it';
+  'tsdraft draws no leader in the leader style "Standard", which is the leading CAD app\'s own. Define a style with leaderStyle() and name it';
 const LEADER_ARROWHEAD =
   'A leader\'s arrowhead must be one of LEADER_ARROWHEADS: "closed-filled", "open", "dot" or "none"';
 const LEADER_SIZE =
   "This value cannot be less than 0. A leader's arrow size, landing and gap are lengths, and 0 draws none";
 const LEADER_SCALE = "The scale must be greater than 0. It multiplies every size of the style";
 const LEADER_FORMATTING =
-  "A leader's text cannot contain \\ { or }. AutoCAD reads them as the formatting of the note";
+  "A leader's text cannot contain \\ { or }. The leading CAD app reads them as the formatting of the note";
 const LEADER_TEXT_BLANK =
   "A leader's note needs a line that is not empty or all spaces. tsdraft draws no leader without a note";
 const LEADER_TEXT_LINES =
@@ -2147,11 +2147,11 @@ const LEADER_TEXT_LINES =
 const LEADER_SHAFTS =
   "A leader needs a shaft: to is a point, the tip of its one shaft, or a list of shafts, each its tip or its tip and the points it bends at on its way to the landing";
 const LEADER_SHAFT_LENGTH =
-  "The tip of a shaft and the point after it are one point once they are written with the 6 decimals tsdraft writes, which leaves AutoCAD no direction to point the arrowhead in. Move the tip, or the point after it";
+  "The tip of a shaft and the point after it are one point once they are written with the 6 decimals tsdraft writes, which leaves the leading CAD app no direction to point the arrowhead in. Move the tip, or the point after it";
 const LEADER_ATTACHMENT = 'attachment must be "first-line" or "last-line"';
 const LEADER_SIDE = 'side must be "left" or "right"';
 
-/** Which line of its note a leader's landing meets: the first is AutoCAD's own choice. */
+/** Which line of its note a leader's landing meets: the first is the leading CAD app's own choice. */
 export const LEADER_ATTACHMENTS = ["first-line", "last-line"] as const;
 
 /** Which side of the point where its shafts meet a leader's note is on. */
@@ -2163,8 +2163,8 @@ export const LEADER_IN_BLOCK =
 
 /**
  * Resolves to `N` when it is a valid name for a leader style to be used by, and to the error
- * message otherwise. AutoCAD holds leader style names to the rules of layer names. `Standard` is
- * no style tsdraft draws a leader in.
+ * message otherwise. The leading CAD app holds leader style names to the rules of layer names.
+ * `Standard` is no style tsdraft draws a leader in.
  */
 export type LeaderStyleName<N extends string> = string extends N
   ? N
@@ -2174,7 +2174,7 @@ export type LeaderStyleName<N extends string> = string extends N
 
 /**
  * Resolves to `N` when it is a valid name for a new leader style, and to the error message
- * otherwise: a name that is valid to use, and not `Standard`, AutoCAD's own.
+ * otherwise: a name that is valid to use, and not `Standard`, the leading CAD app's own.
  */
 export type NewLeaderStyleName<N extends string> = string extends N
   ? N
@@ -2256,7 +2256,7 @@ export function leaderStyleNameProblem(name: unknown): string | undefined {
   return nameProblem(name, LEADER_STYLE_NAMES);
 }
 
-/** True for `Standard`, AutoCAD's own leader style, in any case. */
+/** True for `Standard`, the leading CAD app's own leader style, in any case. */
 export function isStandardLeaderStyle(name: string): boolean {
   return layerKey(name) === layerKey(STANDARD_LEADER_STYLE);
 }
@@ -2295,7 +2295,7 @@ function leaderScaledProblem(
     const size = written(sizes[field] as number);
     const scaled = size * scale;
     if (!(Math.abs(scaled) < 1e100)) {
-      return `${field}: times the scale it is ${scaled}, and AutoCAD reads only two exponent digits from DXF, so every size of a leader must be under 1e100. Use a smaller size or scale`;
+      return `${field}: times the scale it is ${scaled}, and the leading CAD app reads only two exponent digits from DXF, so every size of a leader must be under 1e100. Use a smaller size or scale`;
     }
     if ((field === "textHeight" || field === "arrowSize") && size > 0 && written(scaled) === 0) {
       return `${field}: times the scale it is ${scaled}, which is written as 0 with the 6 decimals tsdraft writes. Use a larger size or scale${field === "arrowSize" ? ", or an arrow size of 0" : ""}`;
@@ -2352,7 +2352,7 @@ export function leaderStyleTwinProblem(name: string, other: string): string | un
   if (layerKey(name) === layerKey(other)) {
     return "The drawing already has a leader style of this name. CAD ignores case in leader style names and keeps the first";
   }
-  return `The drawing already has a leader style of this name, as ${JSON.stringify(other)}. tsdraft holds leader style names to the rules of dimension style names, which AutoCAD's AUDIT takes for one name`;
+  return `The drawing already has a leader style of this name, as ${JSON.stringify(other)}. tsdraft holds leader style names to the rules of dimension style names, which the leading CAD app's AUDIT takes for one name`;
 }
 
 /**
@@ -2374,8 +2374,8 @@ export function undefinedLeaderStyleProblem(name: string): string {
 }
 
 /**
- * Returns what is wrong with a line of a leader's note, or undefined when AutoCAD draws it as
- * it is: a text, with none of the characters AutoCAD reads as formatting.
+ * Returns what is wrong with a line of a leader's note, or undefined when the leading CAD app draws
+ * it as it is: a text, with none of the characters that app reads as formatting.
  */
 export function leaderLineProblem(value: unknown): string | undefined {
   if (typeof value !== "string") return "each line of a leader's note must be a string";

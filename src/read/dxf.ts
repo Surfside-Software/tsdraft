@@ -1245,8 +1245,8 @@ class DxfReader {
     this.#leaderStyles(styleNames);
     this.#blockHandles();
 
-    // A file before AutoCAD 2000's format has one paper space and no LAYOUT: AutoCAD opens it
-    // as the layout `Layout1`.
+    // A file before the R2000 format (AC1015) has one paper space and no LAYOUT: the leading CAD
+    // app opens it as the layout `Layout1`.
     if (this.layouts.length === 0 && this.spaces.has("*PAPER_SPACE")) {
       this.layouts.push({
         space: "*PAPER_SPACE",
@@ -1494,7 +1494,7 @@ class DxfReader {
     for (const target of targets) target.entities = target.entities.filter((e) => !left.has(e));
   }
 
-  /** Gives each insert and dimension the handle of its block's record, found as AutoCAD finds it. */
+  /** Gives each insert and dimension the handle of its block's record, found as the leading CAD app finds it. */
   #blockHandles(): void {
     const records = new Map<string, string>();
     for (const [handle, recordName] of this.blockRecords) {

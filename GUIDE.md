@@ -57,9 +57,9 @@ export default d.build();
 ```
 
 Coordinates are in drawing units with Y pointing up. Angles are in degrees, counterclockwise
-from +X. A layer's color is an AutoCAD Color Index number from 1 to 255, and a lineweight is in
-millimetres. Entities drawn inside a `layer()` callback go on that layer. The builder draws
-`line`, `polyline`, `rect`, `circle`, `arc`, `text` and dimensions.
+from +X. A layer's color is a number from 1 to 255 in the color index CAD programs share, and a
+lineweight is in millimetres. Entities drawn inside a `layer()` callback go on that layer. The
+builder draws `line`, `polyline`, `rect`, `circle`, `arc`, `text` and dimensions.
 
 Give an entity an `id` when you will want to find it again: 1 to 64 letters, digits, `.`, `-`
 and `_`, each used once in a drawing. A diagnostic about the entity carries the id.
@@ -462,7 +462,7 @@ d.layout("C-101", { paper: "ARCH D" }, (sheet) => {
 - A title block is a block with an attribute for each field, and a firm's own border is an
   xref on the layout:
   [docs/title-blocks.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/title-blocks.md).
-  Keep a border inside the paper: on its left, bottom or right edge AutoCAD plots a line
+  Keep a border inside the paper: on its left, bottom or right edge the leading CAD app plots a line
   with half its width off the page, and on its top edge not at all.
 
 Look at the sheet's picture, in `outputs.layouts`, and not only at model space, and read its
@@ -516,8 +516,8 @@ rest.
 
 ## Rules as compile errors
 
-tsdraft holds a drawing to the rules AutoCAD enforces. AutoCAD discards a whole file over one
-bad layer name. A value written as a literal is checked by the TypeScript compiler, and the
+tsdraft holds a drawing to the rules the leading CAD app enforces. That app discards a whole file
+over one bad layer name. A value written as a literal is checked by the TypeScript compiler, and the
 error message says what is wrong:
 
 ```ts

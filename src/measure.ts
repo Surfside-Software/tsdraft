@@ -50,7 +50,7 @@ export interface TextMeasure {
   readonly approximate: boolean;
 }
 
-/** What AutoCAD draws for a control code, each as one character. */
+/** What the leading CAD app draws for a control code, each as one character. */
 const CODES: Readonly<Record<string, string>> = { d: "°", p: "±", c: "Ø" };
 
 /** A text's value with the degree, plus-or-minus and diameter codes as the characters they draw. */
@@ -232,10 +232,11 @@ export function inStyle(text: TextToMeasure, style: object | undefined): TextToM
 }
 
 /**
- * How far apart AutoCAD sets the lines of a text of several lines, such as a leader's note, from
- * one baseline to the next: 5/3 of the height of a capital. A line whose letters reach above a
- * capital or below the baseline pushes the next line that much further, as the round letters of
- * a TrueType font do by about a fiftieth of the height, and a letter with a tail by more.
+ * How far apart the leading CAD app sets the lines of a text of several lines, such as a leader's
+ * note, from one baseline to the next: 5/3 of the height of a capital. A line whose letters reach
+ * above a capital or below the baseline pushes the next line that much further, as the round
+ * letters of a TrueType font do by about a fiftieth of the height,
+ * and a letter with a tail by more.
  *
  * ```ts
  * lineSpacing(0.09375); // 0.15625: a note 3/32" tall sets its lines 5/32" apart

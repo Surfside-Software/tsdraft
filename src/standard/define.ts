@@ -45,10 +45,10 @@ import { PLAIN_TITLE_BLOCK_SPECIFIER, plainTitleBlock } from "./title-block.ts";
  * Checks a standard's document, resolves it against its parent and returns the `Standard`.
  *
  * A literal mistake in the document is a compile error with the message of the runtime check:
- * a layer name AutoCAD refuses, a color outside 1 to 255, a lineweight AutoCAD does not have, a
- * font not in `FONTS`, a paper not in `PAPERS`, and a discipline, pen, linetype, layer, role,
- * dimension style, title block or sheet format that the standard and its parent do not have.
- * The compiler compares names exactly; the runtime check folds case as AutoCAD does.
+ * a layer name the leading CAD app refuses, a color outside 1 to 255, a lineweight that app does
+ * not have, a font not in `FONTS`, a paper not in `PAPERS`, and a discipline, pen, linetype, layer,
+ * role, dimension style, title block or sheet format that the standard and its parent do not have.
+ * The compiler compares names exactly; the runtime check folds case as that app does.
  *
  * @param document - The standard, as a TypeScript literal or as the value `JSON.parse` gives.
  * @param options - `files` gives what a string `extends`, `block` or `preview` names.
@@ -91,7 +91,7 @@ function standardError(problems: readonly Problem[]): DrawingError {
 /** `layerKey` of `Continuous`, the linetype every standard has. */
 const CONTINUOUS = layerKey("Continuous");
 
-/** How the names of a section are compared: AutoCAD's way for its names, and ids without case. */
+/** How the names of a section are compared: the leading CAD app's way for its names, and ids without case. */
 const foldOf = (section: Section): ((name: string) => string) =>
   (DOCUMENT.fields[section]!.node as MapNode).fold!.key;
 
@@ -246,7 +246,7 @@ function resolve(
     }
   };
 
-  // Each section: the parent's entries, then the document's, by name as AutoCAD compares names.
+  // Each section: the parent's entries, then the document's, by name as the leading CAD app compares names.
   const merged = {} as Record<Section, Map<string, readonly [name: string, entry: unknown]>>;
   for (const section of SECTIONS) {
     const fold = foldOf(section);
@@ -322,7 +322,7 @@ function resolve(
     );
   }
 
-  // Two names that AUDIT takes for one, which the merge by AutoCAD's own folding keeps apart.
+  // Two names that AUDIT takes for one, which the merge, folding case as the leading CAD app does, keeps apart.
   for (const section of ["layers", "linetypes"] as const) {
     const seen = new Map<string, string>();
     for (const [name] of merged[section].values()) {
@@ -390,9 +390,9 @@ function resolve(
 
   for (const [, scale, path] of each<object>("scales")) references("scales", scale, path);
 
-  // A dimension style's name in AutoCAD is its id in capitals on a layout, and with a scale's id
-  // after it in model space. No two of those names may be one to AutoCAD. A leader style's are
-  // made the same way, among the leader styles.
+  // A dimension style's name in the leading CAD app is its id in capitals on a layout, and with a
+  // scale's id after it in model space. No two of those names may be one to that app. A leader
+  // style's are made the same way, among the leader styles.
   const dimensionStyles = each<StandardDimensionStyle>("dimensionStyles");
   const scaleIds = [...merged.scales.values()].map(([name]) => name);
   const styleName = ([style, scale]: StyleName): string =>
@@ -423,7 +423,7 @@ function resolve(
     for (const [name, other] of shared.get(i) ?? []) {
       add(
         path,
-        `${capital(styleName(name))} and ${styleName(other)} have names that AutoCAD takes for one dimension style. Rename the style or the scale`,
+        `${capital(styleName(name))} and ${styleName(other)} have names that the leading CAD app takes for one dimension style. Rename the style or the scale`,
       );
     }
   });
@@ -453,7 +453,7 @@ function resolve(
           scale < 0
             ? `${path}.layoutName`
             : `${path}.scaleNames[${JSON.stringify(Object.keys(dimensionStyles[i]![1].scaleNames!).find((id) => idKey(id) === idKey(scaleIds[scale]!))!)}]`,
-          `${capital(styleName(where))} and ${styleName(other)} have names that AutoCAD takes for one dimension style, ${shown(name)}. Give one another name`,
+          `${capital(styleName(where))} and ${styleName(other)} have names that the leading CAD app takes for one dimension style, ${shown(name)}. Give one another name`,
         );
       }
     }
@@ -472,7 +472,7 @@ function resolve(
     for (const [name, other] of sharedLeaderNames.get(i) ?? []) {
       add(
         path,
-        `${capital(leaderStyleName(name))} and ${leaderStyleName(other)} have names that AutoCAD takes for one leader style. Rename the style or the scale`,
+        `${capital(leaderStyleName(name))} and ${leaderStyleName(other)} have names that the leading CAD app takes for one leader style. Rename the style or the scale`,
       );
     }
   });
@@ -586,7 +586,7 @@ function resolve(
     if (block) {
       add(
         `titleBlocks[${JSON.stringify(xref.owner)}].xref.name`,
-        `The xref ${shown(xref.name)} has the name of the block ${shown(block.name)} of the title block ${shown(block.owner)}. An xref is a block to AutoCAD: give one of them another name`,
+        `The xref ${shown(xref.name)} has the name of the block ${shown(block.name)} of the title block ${shown(block.owner)}. An xref is a block to the leading CAD app: give one of them another name`,
       );
     }
   }
@@ -872,8 +872,8 @@ function boxIn(
 const capital = (what: string): string => what.charAt(0).toUpperCase() + what.slice(1);
 
 /**
- * A dimension style's or a leader style's name in AutoCAD: its style's index, and its scale's,
- * or -1 on a layout.
+ * A dimension style's or a leader style's name in the leading CAD app: its style's index, and its
+ * scale's, or -1 on a layout.
  */
 type StyleName = readonly [style: number, scale: number];
 
@@ -954,7 +954,7 @@ const unitsProblem = (units: string, paperUnits: string): string =>
   `The drawing is in ${shown(units)}, and the standard's paperUnits are ${shown(paperUnits)}. A title block is drawn in paper units`;
 
 const filledByAutoCAD = (source: string): string =>
-  `A field whose source is ${shown(source)} is a field of the xref's drawing that AutoCAD fills, and this title block has no xref`;
+  `A field whose source is ${shown(source)} is a field of the xref's drawing that the leading CAD app fills, and this title block has no xref`;
 
 const NO_HASH =
   "A standard holds its hash, the SHA-256 of what it states, as 64 hexadecimal digits. Give the standard as defineStandard returns it";

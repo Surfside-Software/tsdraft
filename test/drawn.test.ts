@@ -58,7 +58,7 @@ test("under a standard the builder refuses what the standard does not give", () 
   );
   // @ts-expect-error: layer 0 is in no standard.
   refused(() => d.layer("0"), "layer-outside-standard", /^Layer "0" is in every drawing/);
-  // @ts-expect-error: AutoCAD refuses the name, which no standard can hold either.
+  // @ts-expect-error: the leading CAD app refuses the name, which no standard can hold either.
   refused(() => d.layer("A,B"), "layer-name", /cannot contain/);
   refused(
     // @ts-expect-error: the standard gives the layer's color.
@@ -143,7 +143,7 @@ test("under a standard the builder refuses what the standard does not give", () 
 
 test("a layer of a standard has the standard's properties and the drawing's states", () => {
   const d = createDrawing({ units: "ft", standard });
-  // The compiler compares names exactly, and the builder finds one in any case, as AutoCAD does.
+  // The compiler compares names exactly, and the builder finds one in any case, as the leading CAD app does.
   const [prop, dashed]: string[] = ["c-prop", "dashed"];
   d.layer(prop!, { locked: true }, () => d.line([0, 0], [10, 0]));
   d.layer("V-TREE", () => {
@@ -281,7 +281,7 @@ test("under a standard the builder refuses a role, a view or a dimension style i
         view: plan,
       }),
     "dimension-style-outside-standard",
-    /^Dimension style "Standard" is in no standard: its name in AutoCAD would be STANDARD, which AutoCAD takes for the dimension style Standard that every drawing has. Use one of the standard's dimension styles$/,
+    /^Dimension style "Standard" is in no standard: its name in the leading CAD app would be STANDARD, which that app takes for the dimension style Standard that every drawing has. Use one of the standard's dimension styles$/,
   );
   assert.throws(
     // @ts-expect-error: a length on paper is greater than 0.
@@ -569,7 +569,7 @@ test("a dimension style takes the names a firm's drawings give it, and writes fe
   assert.match(toDXF(site.build()), /\\A1;4'-1 7\/16"\r\n/);
 });
 
-test("a standard refuses a name AutoCAD would take for another of its dimension styles", () => {
+test("a standard refuses a name the leading CAD app would take for another of its dimension styles", () => {
   const style = {
     role: "dimension",
     arrowSize: 0.1,
@@ -595,7 +595,7 @@ test("a standard refuses a name AutoCAD would take for another of its dimension 
   };
   assert.match(
     problems({ a: { ...style, layoutName: "SAME" }, b: { ...style, layoutName: "same" } })[0]!,
-    /^dimensionStyles\["b"\]\.layoutName: The dimension style "b" and the dimension style "a" have names that AutoCAD takes for one dimension style, "same"/,
+    /^dimensionStyles\["b"\]\.layoutName: The dimension style "b" and the dimension style "a" have names that the leading CAD app takes for one dimension style, "same"/,
   );
   // A name given at a scale meets the name an id gives elsewhere.
   assert.match(
@@ -675,7 +675,7 @@ test("a standard refuses a name AutoCAD would take for another of its dimension 
         version: "1",
         extends: BUILT_IN_STANDARD,
         dimensionStyles: {
-          // @ts-expect-error: AutoCAD's own style is no name a standard gives.
+          // @ts-expect-error: the leading CAD app's own style is no name a standard gives.
           a: { ...style, layoutName: "Standard" },
         },
       }),
@@ -790,7 +790,7 @@ const firm = defineStandard({
   sheetFormats: { firm: { paper: "ARCH D", titleBlock: "firm", zones: { views: [1, 3, 35, 23] } } },
 });
 
-/** A standard of a file per sheet, whose xref title block AutoCAD fills from the names. */
+/** A standard of a file per sheet, whose xref title block the leading CAD app fills from the names. */
 const perFile = defineStandard({
   id: "per-file",
   version: "1",
@@ -912,7 +912,7 @@ test("a layout is on a sheet format of the standard, laid out by its zones", () 
   refused(
     () => d.layout("STRASSE", () => {}),
     "duplicate-layout",
-    /^Layout "STRASSE": AutoCAD's AUDIT takes this name and that of the layout "STRAßE" for one/,
+    /^Layout "STRASSE": The leading CAD app's AUDIT takes this name and that of the layout "STRAßE" for one/,
   );
   plain.layout("STRAßE", { paper: "ARCH D" }, () => {});
   plain.layout("STRASSE", { paper: "ARCH D" }, () => {});
@@ -1013,7 +1013,7 @@ test("the title block is the standard's, filled from the sheet, the drawing and 
     refused(
       () => sheet.titleBlock(),
       "duplicate-block",
-      /^The title block "plain" holds the block "TITLE BLOCK", and the drawing has a block "TITLE BLOCK" that AutoCAD takes for it, with another definition/,
+      /^The title block "plain" holds the block "TITLE BLOCK", and the drawing has a block "TITLE BLOCK" that the leading CAD app takes for it, with another definition/,
     ),
   );
 });
@@ -1174,7 +1174,7 @@ test("under sheet-per-file a drawing is one sheet, with a number that names its 
     page.titleBlock({ title: "SITE PLAN" }),
   );
   const drawing = d.build();
-  // AutoCAD fills every field from the names: the builder writes the xref alone.
+  // The leading CAD app fills every field from the names: the builder writes the xref alone.
   assert.deepEqual(
     drawing.layouts![0]!.entities.map((e) => [e.id, (e as Insert).block]),
     [[undefined, "TITLE"]],
@@ -1205,12 +1205,12 @@ test("under sheet-per-file a drawing is one sheet, with a number that names its 
     refused(
       () => page.titleBlock({ number: "C-1", title: "SITE" }),
       "layout",
-      /^The title block's field "TITLE" reads the layout's name, "SITE PLAN", which AutoCAD writes in it/,
+      /^The title block's field "TITLE" reads the layout's name, "SITE PLAN", which the leading CAD app writes in it/,
     );
     refused(
       () => page.titleBlock({ number: "C-1", date: "2026-11-13" }),
       "layout",
-      /^The title block's field "DATE" holds the date AutoCAD opens or plots the sheet/,
+      /^The title block's field "DATE" holds the date the leading CAD app opens or plots the sheet/,
     );
     page.titleBlock({ number: "C-1", title: "SITE PLAN" });
   });

@@ -268,7 +268,7 @@ const UNITS: readonly string[] = ["in", "ft", "mm", "cm", "m"] satisfies readonl
  *
  * - `"R12"` (AC1009) opens in nearly every CAD program, but stores no units and
  *   limits layer names to 31 letters, digits, `$`, `-` and `_`.
- * - `"R2018"` (AC1032) is the newest published version and the one AutoCAD has
+ * - `"R2018"` (AC1032) is the newest published version and the one the leading CAD app has
  *   used since 2018. It records the drawing's units.
  */
 export type DxfVersion = "R12" | "R2018";
@@ -287,20 +287,20 @@ export interface Linetype {
 }
 
 /**
- * The lineweights AutoCAD offers, in millimetres. A lineweight is how wide a line plots, and
- * how wide AutoCAD shows it when LWDISPLAY is on.
+ * The lineweights the leading CAD app offers, in millimetres. A lineweight is how wide a line
+ * plots, and how wide that app shows it when LWDISPLAY is on.
  */
 export type Lineweight = LineweightMm;
 
 export interface Layer {
   readonly name: string;
-  /** AutoCAD Color Index, 1 to 255. 7 is white on dark backgrounds, black on light. */
+  /** A number from 1 to 255 in the color index CAD programs share. 7 is white on dark backgrounds, black on light. */
   readonly color: number;
   /** The linetype of the layer's entities that draw ByLayer. Defaults to `"Continuous"`. */
   readonly linetype?: string;
   /**
-   * In millimetres, one of `Lineweight`, or `"Default"`, which AutoCAD draws at its LWDEFAULT
-   * of 0.25 mm. Defaults to `"Default"`.
+   * In millimetres, one of `Lineweight`, or `"Default"`, which the leading CAD app draws at its
+   * LWDEFAULT of 0.25 mm. Defaults to `"Default"`.
    */
   readonly lineweight?: number | "Default";
   /** An off layer is not shown or plotted, but CAD still regenerates it. */
@@ -442,8 +442,8 @@ interface DimensionBase extends Placed {
 
 /**
  * A linear dimension: the distance between two points along one direction, which is along X
- * unless `angle` says otherwise. AutoCAD holds it as a dimension, measures it again when its
- * points move, and writes the measurement as its style says.
+ * unless `angle` says otherwise. The leading CAD app holds it as a dimension, measures it again
+ * when its points move, and writes the measurement as its style says.
  */
 export interface LinearDimension extends DimensionBase {
   readonly kind: "linear-dimension";
@@ -474,16 +474,16 @@ export type LeaderSide = (typeof LEADER_SIDES)[number];
 
 /**
  * Which line of a leader's note its landing meets, at the middle of that line's capitals: the
- * first, which is AutoCAD's own choice, or the last.
+ * first, which is the leading CAD app's own choice, or the last.
  */
 export type LeaderAttachment = (typeof LEADER_ATTACHMENTS)[number];
 
 /**
- * A leader: a note joined to what it names by one or more shafts. AutoCAD holds it as one
- * multileader, which a drafter moves and edits as one. Its shafts end at `at`, where its landing
- * starts: a level line as long as its style's `landing`, to the side the note is on, which ends a
- * gap short of the note. A note on the right is justified left, one on the left justified right,
- * and the landing meets the middle of its first line's capitals, or of its last line's.
+ * A leader: a note joined to what it names by one or more shafts. The leading CAD app holds it as
+ * one multileader, which a drafter moves and edits as one. Its shafts end at `at`, where its
+ * landing starts: a level line as long as its style's `landing`, to the side the note is on, which
+ * ends a gap short of the note. A note on the right is justified left, one on the left justified
+ * right, and the landing meets the middle of its first line's capitals, or of its last line's.
  */
 export interface Leader extends Placed {
   readonly kind: "leader";
@@ -659,9 +659,9 @@ export interface Block {
 }
 
 /**
- * An external reference, or xref: another drawing's DWG file, which AutoCAD loads each time it
- * opens this drawing and draws wherever an insert of `name` places it. The drawing holds the
- * file's path and nothing of what the file draws.
+ * An external reference, or xref: another drawing's DWG file, which the leading CAD app loads each
+ * time it opens this drawing and draws wherever an insert of `name` places it. The drawing holds
+ * the file's path and nothing of what the file draws.
  */
 export interface Xref {
   /** A block name, which no block and no other xref of the drawing has. An insert names it. */
@@ -716,8 +716,8 @@ export interface Viewport {
 
 /**
  * A layout: a sheet of paper with its page setup, what is drawn on it in paper units, and the
- * viewports that show model space on it. AutoCAD shows each layout as a tab and plots it as
- * one page: on `DWG To PDF.pc3`, at 1:1, with the lineweights its entities have.
+ * viewports that show model space on it. The leading CAD app shows each layout as a tab and plots
+ * it as one page: on `DWG To PDF.pc3`, at 1:1, with the lineweights its entities have.
  */
 export interface Layout {
   /** The name on the layout's tab. */
@@ -752,7 +752,7 @@ export interface Drawing {
   readonly blocks?: readonly Block[];
   /** The DWG files the drawing references, which inserts place as they place blocks. */
   readonly xrefs?: readonly Xref[];
-  /** The drawing's sheets. AutoCAD opens a drawing that has one on the first. */
+  /** The drawing's sheets. The leading CAD app opens a drawing that has one on the first. */
   readonly layouts?: readonly Layout[];
   /** The dimension styles that dimensions name. */
   readonly dimensionStyles?: readonly DimensionStyle[];
@@ -894,7 +894,7 @@ export interface LayerOptions<
   N extends string = string,
   L extends LinetypeValue = LinetypeDefinition,
 > {
-  /** AutoCAD Color Index, 1 to 255. */
+  /** A number from 1 to 255 in the color index CAD programs share. */
   readonly color?: LayerColor<C>;
   /** Defaults to `"Continuous"`. It cannot be ByLayer or ByBlock. R2018 only. */
   readonly linetype?: V extends "R12"
@@ -1270,11 +1270,11 @@ export type AlignedDimensionOptions<
 
 /**
  * What a dimension is drawn with under the standard `Z`: a dimension style of the standard by its
- * id, and in model space the view it is read in. The builder defines the style's AutoCAD style on
- * first use, with the standard's paper sizes, its role's text style and height, and the writing of
- * the units it is drawn in: `DIMS-1in-10ft` for the style `dims` in a view at `1in-10ft`, scaled
- * by `view.paper(1)`, and `DIMS` on a layout, unless the standard gives the style another name
- * there in `scaleNames` or `layoutName`.
+ * id, and in model space the view it is read in. The builder defines the drawing's own dimension
+ * style for it on first use, with the standard's paper sizes, its role's text style and height, and
+ * the writing of the units it is drawn in: `DIMS-1in-10ft` for the style `dims` in a view at
+ * `1in-10ft`, scaled by `view.paper(1)`, and `DIMS` on a layout, unless the standard gives the
+ * style another name there in `scaleNames` or `layoutName`.
  */
 export interface StandardAlignedDimensionOptions<
   S extends string = string,
@@ -1395,11 +1395,11 @@ export interface LeaderOptions<
 
 /**
  * What a leader is drawn with under the standard `Z`: a leader style of the standard by its id,
- * and in model space the view it is read in. The builder defines the style's AutoCAD style on
- * first use, with the standard's paper sizes and its role's text style and height: `NOTES-1in-10ft`
- * for the style `notes` in a view at `1in-10ft`, scaled by `view.paper(1)`, and `NOTES` on a
- * layout. A size of the leader's own is a length on paper, which the scale multiplies as it does
- * the style's, and `role` gives the note the text style and height of another role.
+ * and in model space the view it is read in. The builder defines the drawing's own leader style for
+ * it on first use, with the standard's paper sizes and its role's text style and height:
+ * `NOTES-1in-10ft` for the style `notes` in a view at `1in-10ft`, scaled by `view.paper(1)`, and
+ * `NOTES` on a layout. A size of the leader's own is a length on paper, which the scale multiplies
+ * as it does the style's, and `role` gives the note the text style and height of another role.
  */
 export interface StandardLeaderOptions<
   S extends string = string,
@@ -1729,19 +1729,19 @@ export class DrawingBuilder<
   readonly units: Units;
   readonly dxf: V;
   readonly linetypeScale: number;
-  /** The standard the drawing is drawn to, with its entries by name as AutoCAD compares them. */
+  /** The standard the drawing is drawn to, with its entries by name as the leading CAD app compares them. */
   readonly #standard: Drawn | undefined;
-  /** Keyed by `layerKey`, because AutoCAD ignores case in layer names. */
+  /** Keyed by `layerKey`, because the leading CAD app ignores case in layer names. */
   readonly #layers = new Map<string, Layer>([["0", { name: "0", color: 7 }]]);
   /** The first layer name for each `layerAuditKey`, to find names AUDIT would call duplicates. */
   readonly #audited = new Map<string, string>([["0", "0"]]);
-  /** Keyed by `layerKey`: AutoCAD compares linetype names as it compares layer names. */
+  /** Keyed by `layerKey`: the leading CAD app compares linetype names as it compares layer names. */
   readonly #linetypes = new Map<string, Linetype>();
   /** Seeded with the built-in linetypes, whose twins AUDIT reports as it reports any other. */
   readonly #linetypesAudited = new Map<string, string>(
     BUILT_IN_LINETYPES.map((name) => [layerAuditKey(name), name]),
   );
-  /** Keyed by `layerKey`: AutoCAD compares text style names as it compares layer names. */
+  /** Keyed by `layerKey`: the leading CAD app compares text style names as it compares layer names. */
   readonly #textStyles = new Map<string, TextStyle>();
   readonly #textStylesAudited = new Map<string, string>([
     [layerAuditKey(STANDARD_TEXT_STYLE), STANDARD_TEXT_STYLE],
@@ -1758,17 +1758,17 @@ export class DrawingBuilder<
   /** Keyed by `layerKey`, as blocks are: an insert finds an xref as it finds a block. */
   readonly #xrefs = new Map<string, Xref>();
   /**
-   * The first block or xref name for each `layerAuditKey`: AutoCAD takes two such names for
-   * one block.
+   * The first block or xref name for each `layerAuditKey`: the leading CAD app takes two such names
+   * for one block.
    */
   readonly #blocksAudited = new Map<string, { readonly name: string; readonly xref: boolean }>();
   /** The block being drawn, which takes what is drawn until its `draw` returns. */
   #open: OpenBlock | undefined;
-  /** Keyed by `layoutNameKey`, as AutoCAD compares layout names. In the order of the tabs. */
+  /** Keyed by `layoutNameKey`, as the leading CAD app compares layout names. In the order of the tabs. */
   readonly #layouts = new Map<string, Layout | undefined>();
   /** The layout being drawn, which takes what is drawn until its `draw` returns. */
   #sheet: OpenLayout | undefined;
-  /** Keyed by `layerKey`: AutoCAD compares dimension style names as it compares layer names. */
+  /** Keyed by `layerKey`: the leading CAD app compares dimension style names as it compares layer names. */
   readonly #dimensionStyles = new Map<string, DimensionStyle>();
   readonly #dimensionStylesAudited = new Map<string, string>();
   /** The blocks of the arrowheads the dimension styles use, whose handles are taken. */
@@ -2150,11 +2150,11 @@ export class DrawingBuilder<
 
   /**
    * Arc from `startAngle` counterclockwise to `endAngle`. Angles are stored
-   * from 0 up to 360, so -90 becomes 270, because AutoCAD's AUDIT rejects
+   * from 0 up to 360, so -90 becomes 270, because the leading CAD app's AUDIT rejects
    * angles outside that range.
    *
    * Angles are written with 6 decimals. An arc within 0.000001 degrees of a
-   * full turn would be written with equal angles, which AutoCAD holds as an
+   * full turn would be written with equal angles, which that app holds as an
    * arc of no length, so it throws: draw a circle instead.
    */
   arc<
@@ -2302,9 +2302,9 @@ export class DrawingBuilder<
 
   /**
    * References another drawing's DWG file as an xref, under a name that no block and no other
-   * xref has. `insert(name, at)` then places it, as it places a block, and AutoCAD loads the
-   * file and draws it there each time it opens this drawing. `path` leads from the folder of
-   * this drawing's file to the DWG file, such as `"base.dwg"` or `"../survey/base.dwg"`.
+   * xref has. `insert(name, at)` then places it, as it places a block, and the leading CAD app
+   * loads the file and draws it there each time it opens this drawing. `path` leads from the folder
+   * of this drawing's file to the DWG file, such as `"base.dwg"` or `"../survey/base.dwg"`.
    */
   xref<N extends string, P extends string>(
     name: V extends "R12" ? R12Xrefs : BlockName<N>,
@@ -2657,8 +2657,8 @@ export class DrawingBuilder<
 
   /**
    * Draws a linear dimension on the current layer: the distance from `from` to `to` along X,
-   * or along `options.along`, with its dimension line through `line`. AutoCAD holds it as a
-   * dimension, which reads its length again when its points move.
+   * or along `options.along`, with its dimension line through `line`. The leading CAD app holds it
+   * as a dimension, which reads its length again when its points move.
    */
   linearDimension<S extends string, T extends string = string, I extends string = string>(
     from: Point,
@@ -2780,9 +2780,9 @@ export class DrawingBuilder<
   }
 
   /**
-   * The AutoCAD style of a dimension style of the standard, where the dimension is drawn: on a
-   * layout with a scale of 1 and the writing of the paper's units, and in model space with a scale
-   * of `view.paper(1)` and the writing of the drawing's units, under the name `styleNameAt`
+   * The drawing's own style for a dimension style of the standard, where the dimension is drawn: on
+   * a layout with a scale of 1 and the writing of the paper's units, and in model space with a
+   * scale of `view.paper(1)` and the writing of the drawing's units, under the name `styleNameAt`
    * gives. It is defined on first use, with its role's text style.
    */
   #standardDimensionStyle(named: unknown, view: unknown): DimensionStyle {
@@ -2913,7 +2913,7 @@ export class DrawingBuilder<
     try {
       const what = `the leader style ${JSON.stringify(named)}`;
       this.#claim(validLeaderStyleHandle(named), what, undefined, taken);
-      // The first style brings AutoCAD's own and the dictionary that holds them.
+      // The first style brings the leading CAD app's own and the dictionary that holds them.
       if (this.#leaderStyles.size === 0) {
         const standard = `the leader style ${JSON.stringify(STANDARD_LEADER_STYLE)}`;
         this.#claim(validLeaderStyleHandle(STANDARD_LEADER_STYLE), standard, undefined, taken);
@@ -2954,8 +2954,8 @@ export class DrawingBuilder<
   /**
    * Draws a leader on the current layer: the note `text`, one line or a list of lines from the
    * top, joined by a shaft to each point `options.to` names. The shafts meet at `options.at`,
-   * where the landing starts, and the note is a gap past the landing's end. AutoCAD holds it as
-   * one multileader, which a drafter moves and edits as one.
+   * where the landing starts, and the note is a gap past the landing's end. The leading CAD app
+   * holds it as one multileader, which a drafter moves and edits as one.
    *
    * ```ts
    * d.leader(["EXISTING WINDOW", "TO BE REPLACED"], { style: "NOTES", at: [40, 30], to: [32, 24] });
@@ -3066,10 +3066,10 @@ export class DrawingBuilder<
   }
 
   /**
-   * The AutoCAD style of a leader style of the standard, where the leader is drawn: its id in
-   * capitals on a layout, with a scale of 1, and with the view's scale id after it in model space,
-   * with a scale of `view.paper(1)`. It is defined on first use, with its role's text style and
-   * height.
+   * The drawing's own style for a leader style of the standard, where the leader is drawn: its id
+   * in capitals on a layout, with a scale of 1, and with the view's scale id after it in model
+   * space, with a scale of `view.paper(1)`. It is defined on first use, with
+   * its role's text style and height.
    */
   #standardLeaderStyle(named: unknown, view: unknown): LeaderStyle {
     const drawn = this.#standard!;
@@ -3137,11 +3137,11 @@ export class DrawingBuilder<
   }
 
   /**
-   * Adds a layout: a sheet of `options.paper` that AutoCAD shows as a tab and plots as one
-   * page, at 1:1 on `DWG To PDF.pc3`. What `draw` draws goes on the sheet and not in model
+   * Adds a layout: a sheet of `options.paper` that the leading CAD app shows as a tab and plots as
+   * one page, at 1:1 on `DWG To PDF.pc3`. What `draw` draws goes on the sheet and not in model
    * space, in the paper's units from the sheet's lower-left corner, and `sheet.viewport()`
    * shows model space on it at a scale. Inside `draw` the current layer starts as `"0"`. A
-   * layout is defined once, and not inside a block or another layout. AutoCAD opens a drawing
+   * layout is defined once, and not inside a block or another layout. That app opens a drawing
    * on its first layout.
    *
    * Drawn to a standard, a layout is on a sheet format of the standard, which gives its paper,
@@ -3225,8 +3225,8 @@ export class DrawingBuilder<
         if (standard.sheetFiles === "sheet-per-file" && this.#layouts.size > 0) {
           fail("sheet-per-file", DRAWN.secondLayout);
         }
-        // AutoCAD keeps two layouts apart whose names only its AUDIT takes for one, and the
-        // record of each one's sheet format would have one key for the two.
+        // The leading CAD app keeps two layouts apart whose names only its AUDIT takes for one, and
+        // the record of each one's sheet format would have one key for the two.
         for (const other of this.#layouts.values()) {
           if (other && layerAuditKey(other.name) === layerAuditKey(requested)) {
             fail("duplicate-layout", layoutAuditTwin(other.name));
@@ -3406,7 +3406,7 @@ export class DrawingBuilder<
           if (own[key] !== undefined && !taken) {
             refuse(
               "layout",
-              filledByAutoCAD(tag, key, "the date AutoCAD opens or plots the sheet"),
+              filledByAutoCAD(tag, key, "the date the leading CAD app opens or plots the sheet"),
             );
           }
         } else if (field.source === "attribute") {
@@ -3549,7 +3549,7 @@ export class DrawingBuilder<
       if (twin !== undefined) {
         refuse(
           "duplicate-block",
-          `${what} holds the text style ${JSON.stringify(style.name)}, which AutoCAD takes for the drawing's text style ${JSON.stringify(twin)}. A drawing holds one text style of a name`,
+          `${what} holds the text style ${JSON.stringify(style.name)}, which the leading CAD app takes for the drawing's text style ${JSON.stringify(twin)}. A drawing holds one text style of a name`,
         );
       }
       added.push(style);
@@ -3568,7 +3568,7 @@ export class DrawingBuilder<
         if (existing && canonical(existing) === canonical(block)) continue;
         refuse(
           "duplicate-block",
-          `${what} holds the block ${JSON.stringify(block.name)}, and the drawing has ${first.xref ? "an xref" : "a block"} ${JSON.stringify(first.name)} that AutoCAD takes for it, with another definition. A block's handles come from its name, so the builder renames neither: give one of them another name`,
+          `${what} holds the block ${JSON.stringify(block.name)}, and the drawing has ${first.xref ? "an xref" : "a block"} ${JSON.stringify(first.name)} that the leading CAD app takes for it, with another definition. A block's handles come from its name, so the builder renames neither: give one of them another name`,
         );
       }
       copied.push(block);
@@ -4175,7 +4175,7 @@ export function createDrawing<
   return new DrawingBuilder(options as DrawingOptions<V, number, Z>);
 }
 
-/** A standard as the builder reads it: its entries by the keys AutoCAD finds them by. */
+/** A standard as the builder reads it: its entries by the keys the leading CAD app finds them by. */
 interface Drawn {
   readonly standard: Standard;
   /** Each layer as the standard spells its name, by `layerKey`. */
@@ -4391,7 +4391,7 @@ function turned(angle: number): number {
   return dimensionAngle({ angle });
 }
 
-/** A number the drawing keeps and the writers print, which AutoCAD must be able to read. */
+/** A number the drawing keeps and the writers print, which the leading CAD app must be able to read. */
 function kept(value: number, label: string): number {
   const problem = magnitudeProblem(num(value, label));
   if (problem) refuse("geometry", `${label}: ${problem}`);

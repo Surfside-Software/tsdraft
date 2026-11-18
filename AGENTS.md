@@ -16,14 +16,14 @@
   R2018 only, and `lint` refuses an R12 drawing that uses it. Check that an
   entity or header variable exists in the target version before writing it.
   `src/dxf.ts` picks the writer.
-- AC1032 needs every handle unique, every owner (330) and pointer (340, 350, 390) to resolve, and `$HANDSEED` above the highest handle. AutoCAD also
-  discards the whole file if a LAYER has no 390 plot style pointer. The tests
-  check all of this.
+- AC1032 needs every handle unique, every owner (330) and pointer (340, 350, 390) to resolve, and
+  `$HANDSEED` above the highest handle. The leading CAD app also discards the whole file if a LAYER
+  has no 390 plot style pointer. The tests check all of this.
 - An entity with an id takes the handle `idHandle` in `src/handles.ts` gives the id, from
   2^52 up to 2^53, and a drawing that has ids has a `$HANDSEED` of 2^53. Every other object
   is counted up from 1. Another drawing that dimensions the entity through an xref holds that
   handle, so never change what `idHandle` returns for an id, nor `idKey`, which it hashes:
-  every such dimension would come loose, and AutoCAD would report nothing.
+  every such dimension would come loose, and the leading CAD app would report nothing.
 - The range from 2^52 to 2^53 is for every handle that comes from a name, not only an
   entity's id. Another kind of object, such as a block, hashes its key with a prefix that no
   id can contain, such as `block:NAME`, since an id cannot hold `:` or `/`. It hashes into
@@ -38,7 +38,7 @@
   written. Neither `layerKey` nor any table that can grow may be part of a key, because a
   change to the table would move every handle it touches. An insert without an id and its
   attributes are counted.
-- AutoCAD takes two block names for one wherever its `AUDIT` would call two layer names
+- The leading CAD app takes two block names for one wherever its `AUDIT` would call two layer names
   duplicates, and merges the two blocks without a word. So a second block is refused by
   `layerAuditKey`, and an insert finds its block by `layerKey`.
 - An entity on layer `0` of a block draws as its insert's layer does. `eachDrawn` in
@@ -69,50 +69,50 @@
 - An xref is a block record with a path: `Drawing.xrefs` holds a name and a path, and an
   insert places one by its name. It shares the blocks' names and the keys of their handles,
   `block:KEY` and the two beside it, and is written as an overlay, which cannot make a cycle
-  AutoCAD has to break. AutoCAD reads the path of a BLOCK once, so the DXF writes it with
-  `dxfOnce`. `eachDrawn` walks the drawing a caller gives for an xref as it walks a block,
+  the leading CAD app has to break. That app reads the path of a BLOCK once, so the DXF writes it
+  with `dxfOnce`. `eachDrawn` walks the drawing a caller gives for an xref as it walks a block,
   with each layer as a `LayerRef` that says which drawing's layer it is. `src/` opens no
   file: `toSVG` draws only the drawings it is given.
 - A layout is a sheet: `Drawing.layouts` holds each with its paper, its viewports and the
   entities drawn on it in paper units. `src/papers.ts` is the one list of papers and of plot
-  style tables, with the name AutoCAD stores for each paper. Add a paper only when
+  style tables, with the name the leading CAD app stores for each paper. Add a paper only when
   `DWG To PDF.pc3` has it, and with the name the plotter gives it. `src/layouts.ts` holds the
   keys of a layout's handles, `layout:KEY` and the four beside it, from its name with A to Z
-  in lower case: never change one. AutoCAD compares layout names by a table of its own,
+  in lower case: never change one. That app compares layout names by a table of its own,
   `layoutNameKey` in `src/layers.ts`, which is not `layerKey`. The DXF holds the first layout
   in `*Paper_Space`, with its entities among model space's and marked with group 67, and
   every other in a block `*Paper_Space0` and on. A viewport holds the height of its view and
   no scale: `validViewportView` works it out from the numbers as they are written.
 - A dimension holds its two points, its style and its text, and both writers add the block of
-  its picture, `*D` and a number, which AutoCAD shows and which an xref or an insert of the
-  file needs: AutoCAD draws nothing for a dimension inside another drawing's block.
-  `src/dimensions.ts` is the one place that says what AutoCAD draws, `dimensionPicture`, and
+  its picture, `*D` and a number, which the leading CAD app shows and which an xref or an insert of
+  the file needs: that app draws nothing for a dimension inside another drawing's block.
+  `src/dimensions.ts` is the one place that says what that app draws, `dimensionPicture`, and
   what string it writes, `measurementText`: the writers, `toSVG`, the extents and the command
   all read it, from the numbers as they are written. What a dimension reads, group 42, and the
-  direction of its text are written with 15 significant digits: near enough to AutoCAD's own,
-  and few enough that the double AutoCAD reads from them can be worked out exactly. Every number of a picture must stay under 1e100,
-  which `dimensionDrawnProblem` checks for the builder and `lint` alike. A style's sizes are paper
-  sizes and its `scale` is AutoCAD's overall scale. The text is always above the line and
-  between the extension lines, so the one case that depends on a font's widths, closed
-  filled arrowheads that may not fit, is refused by `arrowRoom`. The keys of the handles are
-  `dimension-style:NAME`, with A to Z in lower case, `arrowhead:NAME` for the stroke in an
-  arrowhead's block, whose own handles are the block's, and `dimension-picture:WHO/PART` for
+  direction of its text are written with 15 significant digits: near enough to the leading CAD app's
+  own, and few enough that the double that app reads from them can be worked out exactly. Every
+  number of a picture must stay under 1e100, which `dimensionDrawnProblem` checks for the builder
+  and `lint` alike. A style's sizes are paper sizes and its `scale` is that app's overall scale. The
+  text is always above the line and between the extension lines, so the one case that depends on a
+  font's widths, closed filled arrowheads that may not fit, is refused by `arrowRoom`. The keys of
+  the handles are `dimension-style:NAME`, with A to Z in lower case, `arrowhead:NAME` for the stroke
+  in an arrowhead's block, whose own handles are the block's, and `dimension-picture:WHO/PART` for
   the block of a picture and what it holds, where WHO is the dimension's id with A to Z in
   lower case, or `@LAYOUT/INDEX` for one without an id: never change one. A dimension is
-  refused inside a block, where AutoCAD draws nothing for it.
+  refused inside a block, where that app draws nothing for it.
 - A leader holds its note, its point, its shafts and its own sizes, and the R2018 writer writes it
-  as a multileader with no picture. `src/leaders.ts` is the one place that says what AutoCAD
-  draws, `leaderPicture`, which the writers, `toSVG`, the extents and `inspectText` all read, and
-  `lineSpacing` in `src/measure.ts` the one rule for the pitch of a note's lines. A style's sizes
-  are paper sizes times its `scale`, and the file holds them multiplied out with a scale of 1. The
-  writers add AutoCAD's own `Standard` and the dictionary `ACAD_MLEADERSTYLE` with the first
+  as a multileader with no picture. `src/leaders.ts` is the one place that says what the leading CAD
+  app draws, `leaderPicture`, which the writers, `toSVG`, the extents and `inspectText` all read,
+  and `lineSpacing` in `src/measure.ts` the one rule for the pitch of a note's lines. A style's
+  sizes are paper sizes times its `scale`, and the file holds them multiplied out with a scale of 1.
+  The writers add that app's own `Standard` and the dictionary `ACAD_MLEADERSTYLE` with the first
   style. The keys of the handles are `leader-style:NAME`, with A to Z in lower case,
   `dictionary:acad_mleaderstyle`, and `arrowhead:NAME` and `arrowhead:NAME/N` for the strokes of
   the blocks `_Open`, `_Dot` and `_None`: never change one. A leader is refused inside a block.
 - A style in architectural units, `DIMLUNIT` 4, writes feet and inches with the fraction on the
   line, `DIMFRAC` 2, and `feetInchZeros` is `DIMZIN` 0 to 3. `feetAndInches` in
-  `src/dimensions.ts` is the string, and the dimension holds no text of its own, so AutoCAD
-  measures it again when its points move. A standard's style is named in AutoCAD by
+  `src/dimensions.ts` is the string, and the dimension holds no text of its own, so the leading CAD
+  app measures it again when its points move. A standard's style is named in that app by
   `styleNameAt` in `src/standard/rules.ts`, which the builder, `lint` and `defineStandard` share:
   a `layoutName` or a name in `scaleNames` where the standard gives one, and the id's name
   otherwise.
@@ -141,7 +141,7 @@
   insert, by the larger side of the box, since a letter may reach past the box of its text.
   A `view` of model space is culled the same way, but its pens are as wide in pixels at any
   size, so a pen is taken to reach the picture's larger side, times `strokeWidth` above 1.
-  The box holds the lean of a text whose style has an oblique angle: AutoCAD slants a
+  The box holds the lean of a text whose style has an oblique angle: the leading CAD app slants a
   text after it widens it, so the lean is the height times the tangent of the angle and the
   width factor has no part in it. `toSVG` writes `skewX` before `scale` for that reason.
   Build `boxer` once for a drawing: it reads every block and text style when it is made, and
@@ -188,7 +188,7 @@
   number of their own. A warning names the part of the intent it is about
   by `item`, a path such as `setbacks[0]`, so a later check of intent gets a field of
   `Intent` of its own and adds no field to the warning.
-- AutoCAD sizes dashes on the paper in a viewport, so `toSVG` scales a pattern by the
+- The leading CAD app sizes dashes on the paper in a viewport, so `toSVG` scales a pattern by the
   linetype scale over the viewport's scale there. It fits a pattern to each line, side of a
   polyline and arc: the stretch holds as many whole patterns as fit, its first and last dash
   are each half of the first dash and of what is left over, and a stretch shorter than its
@@ -196,7 +196,7 @@
   alike to go round it, from a dash at angle 0. `cut` in `dashedPath` is the one place that
   does it. `toSVG` draws a layout with `elements`, the
   walk it draws model space with, under a `Look` that says how wide and what color a pen is.
-- A rule AutoCAD enforces lives in `src/rules.ts` twice: as a type, so a wrong
+- A rule the leading CAD app enforces lives in `src/rules.ts` twice: as a type, so a wrong
   literal is a compile error, and as a runtime check with the same message. The
   builder calls the runtime check, and `lint()` in `src/lint.ts` repeats it for
   drawings built another way. `toDXF` refuses to write a drawing with lint
@@ -216,8 +216,8 @@
 - A rule of a drawing drawn to a standard, which the builder refuses, is a type in
   `src/standard/drawn.ts` with the runtime check's message, and its message names the standard
   by the id and version its type carries. The builder finds an entry of the standard in any case,
-  as AutoCAD does, and the type compares the exact spelling. `drawing.ts` reads a standard
-  through `src/standard/made.ts` and never imports `define.ts`, which draws the plain title
+  as the leading CAD app does, and the type compares the exact spelling. `drawing.ts` reads a
+  standard through `src/standard/made.ts` and never imports `define.ts`, which draws the plain title
   block with the builder as it loads. A drawing without a standard is built as it was before
   standards.
 - Under a standard, a top-level conditional on the standard's type parameter `Z` whose branches
@@ -322,10 +322,10 @@
   `GEOMETRY_ITEMS`; a record's binary groups are dropped as they arrive. Without `geometry` it
   keeps no text of model space or a layout and no attribute value. It throws only a
   `ReadError`, for a file it cannot read at all, and counts the rest it does not understand under
-  `unread`. A group's default, such as the text style `Standard`, is filled in, since AutoCAD
-  leaves a default out. `src/read/entities.ts` reads each kind of `ReadEntity`, for blocks and
-  spaces alike, and `costOf` there is what each costs against a budget. A string holds what
-  AutoCAD holds after reading the file, by the passes `src/read/groups.ts` makes, and a justified
+  `unread`. A group's default, such as the text style `Standard`, is filled in, since the leading
+  CAD app leaves a default out. `src/read/entities.ts` reads each kind of `ReadEntity`, for blocks
+  and spaces alike, and `costOf` there is what each costs against a budget. A string holds what
+  that app holds after reading the file, by the passes `src/read/groups.ts` makes, and a justified
   text whose file stores its alignment point as its start is placed from `layoutText` only where
   the layout is exact. No map of a read is keyed by a name longer than a DXF value holds, since
   V8 hashes a long string by its length alone. `src/read/document.ts` is the document of a DXF:
@@ -356,21 +356,21 @@
 - The writers print numbers with 6 decimals. `written` in `src/format.ts` is that
   rounding, and `lint` judges sizes, points and arc angles as written. A new
   check on a number must do the same.
-- AutoCAD reads two exponent digits from DXF, so no number may be written as
+- The leading CAD app reads two exponent digits from DXF, so no number may be written as
   1e100 or more. `lint` refuses those in a drawing. A number a writer works out
   for itself, such as an extent, must go through `readable` in `src/format.ts`.
-- `src/layers.ts` holds what AutoCAD does with layer-name characters: the ones
+- `src/layers.ts` holds what the leading CAD app does with layer-name characters: the ones
   it refuses, the capitals it lower-cases to compare names, and the pairs only
   `AUDIT` calls duplicates. Never compare layer names with `toLowerCase()`.
-- AutoCAD holds linetype names to the layer-name rules and compares them the
+- The leading CAD app holds linetype names to the layer-name rules and compares them the
   same way, so linetypes use `layerKey`, `layerAuditKey` and the name checks of
   layers.
 - `src/fonts.ts` is the one list of fonts a text style may have, with the file
-  AutoCAD stores for each and, for a TrueType font, its pitch and family.
+  the leading CAD app stores for each and, for a TrueType font, its pitch and family.
   `lint`, both writers and `toSVG` read the list. A TrueType font also has its `capHeight`,
   which `toSVG` and the command read: the top of the font's capital `A` over its units per em, since
-  AutoCAD makes that `A` as tall as the text's height. It is not the cap height the font
-  states. Add a font only when AutoCAD 2025
+  that app makes that `A` as tall as the text's height. It is not the cap height the font
+  states. Add a font only when the 2025 release of that app
   or Windows installs it.
 - Text style names use `layerKey`, `layerAuditKey` and the name checks of
   layers, as linetype names do. A text holds its own width factor and oblique
@@ -378,7 +378,7 @@
 - `layerAuditKey` follows only the kinds of pair `docs/layer-names.md` lists,
   and must never call two names duplicates when `AUDIT` does not. Add a kind
   only when `AUDIT` reports every pair of that kind as a duplicate.
-- Passing ezdxf or another parser proves little: AutoCAD discards files they
+- Passing ezdxf or another parser proves little: the leading CAD app discards files they
   accept.
 - The published library must run on Node 22. The command needs 22.18, checks it at start and
   says so. Only development tooling may need

@@ -11,8 +11,9 @@ import { modelLength } from "./units.ts";
 
 /**
  * A layout's name as its handles are keyed: A to Z in lower case and nothing else changed, as
- * `idKey` treats an id. AutoCAD takes two names with one key for one layout, so the duplicate
- * rule refuses the second. No table that can grow is part of this, and it must never change.
+ * `idKey` treats an id. The leading CAD app takes two names with one key for one layout, so the
+ * duplicate rule refuses the second. No table that can grow is part of
+ * this, and it must never change.
  */
 function layoutKey(name: string): string {
   return name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
@@ -27,7 +28,7 @@ export interface LayoutHandles {
   /** The two objects that open and close that block's definition in a DXF. */
   readonly begin: string;
   readonly end: string;
-  /** The viewport AutoCAD keeps for the sheet as a whole, the first of every layout. */
+  /** The viewport the leading CAD app keeps for the sheet as a whole, the first of every layout. */
   readonly sheet: string;
 }
 
@@ -56,8 +57,8 @@ export function layoutHandles(name: string): LayoutHandles {
 }
 
 /**
- * The name of the block that holds a layout, by the layout's place in the drawing. AutoCAD
- * names the block of the layout it opens on `*Paper_Space`, and the others `*Paper_Space0`,
+ * The name of the block that holds a layout, by the layout's place in the drawing. The leading CAD
+ * app names the block of the layout it opens on `*Paper_Space`, and the others `*Paper_Space0`,
  * `*Paper_Space1` and so on.
  */
 export function layoutBlockName(index: number): string {
@@ -75,7 +76,7 @@ export interface ViewportView {
   readonly center: Point;
   /**
    * The height of model space the viewport shows, in drawing units. A file holds it where a
-   * scale would be: AutoCAD takes the viewport's height over this for the scale.
+   * scale would be: the leading CAD app takes the viewport's height over this for the scale.
    */
   readonly viewHeight: number;
   /**
@@ -103,7 +104,7 @@ export function validViewportView(
   const [x, y] = [written(viewport.corner[0]), written(viewport.corner[1])];
   const [width, height] = [written(viewport.width), written(viewport.height)];
   const twist = written(viewport.twist ?? 0);
-  // The file holds the middle turned by the twist, which AutoCAD turns back.
+  // The file holds the middle turned by the twist, which the leading CAD app turns back.
   const displayCenter = twistedCenter(viewport.center, twist);
   const [cos, sin] = turning(twist);
   const center: Point =
@@ -155,7 +156,7 @@ export function viewReaches(view: ViewportView, box: readonly number[]): boolean
  * The view of model space a viewport shows: the box of the model it frames and the scale it
  * shows it at, from the viewport's rectangle and ratio, the units of its layout's paper and
  * the drawing's units. Every number is taken as the writers write it, with 6 decimals, so the
- * view is the one AutoCAD holds for the file.
+ * view is the one the leading CAD app holds for the file.
  *
  * @param paperUnits - The units of the paper of the viewport's layout, as `PAPERS` gives them.
  * @param units - The drawing's units.
@@ -173,8 +174,8 @@ export function viewportView(
 }
 
 /**
- * The layout of this name, found as AutoCAD finds one, without regard to the case of the
- * letters it folds: `sheet` finds `Sheet`.
+ * The layout of this name, found as the leading CAD app finds one, without regard to the case of
+ * the letters it folds: `sheet` finds `Sheet`.
  */
 export function findLayout(drawing: Pick<Drawing, "layouts">, name: string): Layout | undefined {
   const key = layoutNameKey(name);

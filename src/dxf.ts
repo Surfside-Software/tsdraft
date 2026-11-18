@@ -11,7 +11,7 @@ export interface DxfOptions {
 /**
  * Writes the drawing as ASCII DXF. Throws a `DrawingError` listing every lint
  * error when the drawing breaks a rule of the version being written, because
- * AutoCAD would reject or garble the file, and when `lint` stopped short of checking it
+ * the leading CAD app would reject or garble the file, and when `lint` stopped short of checking it
  * all, with its `check-capped` warning.
  */
 export function toDXF(drawing: Drawing, options: DxfOptions = {}): string {

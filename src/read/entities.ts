@@ -279,7 +279,7 @@ function dimension(r: Rec, base: ReadEntityBase, face: Facing, r12: boolean): Re
   const kind = (num(r, 70) ?? 0) & 7;
   if (kind > 1) return { other: `DIMENSION ${DIMENSION_KINDS[kind] ?? "of another kind"}` };
   const angle = kind === 0 ? (num(r, 50) ?? 0) : 0;
-  // AutoCAD leaves the measurement out when it is 1. An R12 file holds none.
+  // The leading CAD app leaves the measurement out when it is 1. An R12 file holds none.
   const measurement = num(r, 42) ?? (r12 ? undefined : 1);
   const text = first(r, 1);
   const block = name(r, 2);
@@ -316,7 +316,7 @@ function multileader(r: Rec, base: ReadEntityBase, later: Later): Reading {
   for (let i = 0; i < c.length; i++) {
     const code = c[i]!;
     const value = v[i]!;
-    // The groups that open and close a part, as AutoCAD writes them, may carry spaces.
+    // The groups that open and close a part, as the leading CAD app writes them, may carry spaces.
     const mark = code >= 300 && code <= 305 ? value.trim() : value;
     if (where === "before") {
       if (code === 300 && mark === "CONTEXT_DATA{") where = "context";

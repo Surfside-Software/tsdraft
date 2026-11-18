@@ -22,8 +22,9 @@ export type Matrix = readonly [a: number, b: number, c: number, d: number, e: nu
 
 /**
  * A block's name as its handles are keyed: A to Z in lower case and nothing else changed, as
- * `idKey` treats an id. Two names with one key are one block to AutoCAD, so the duplicate rule
- * refuses the second. No table that can grow is part of this, and it must never change.
+ * `idKey` treats an id. Two names with one key are one block to the leading CAD app, so the
+ * duplicate rule refuses the second. No table that can grow is part of
+ * this, and it must never change.
  */
 function blockKey(name: string): string {
   return name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
@@ -108,8 +109,8 @@ export function attributesEndHandle(insertId: string): string {
 }
 
 /**
- * The block an insert of this name places: the first whose name AutoCAD's layer table would
- * take for the same, so `tree` finds `TREE`.
+ * The block an insert of this name places: the first whose name the leading CAD app's layer table
+ * would take for the same, so `tree` finds `TREE`.
  */
 export function findBlock(drawing: Pick<Drawing, "blocks">, name: string): Block | undefined {
   const key = layerKey(name);
@@ -162,19 +163,19 @@ export function mapPoint(m: Matrix, p: Point): Point {
   return [m[0] * p[0] + m[2] * p[1] + m[4], m[1] * p[0] + m[3] * p[1] + m[5]];
 }
 
-/** An attribute of an insert, as the text AutoCAD holds for it. */
+/** An attribute of an insert, as the text the leading CAD app holds for it. */
 export interface PlacedAttribute {
   readonly tag: string;
   readonly value: string;
   /**
-   * The layer the attribute is stored on, which is its definition's. AutoCAD's INSERT leaves
-   * an attribute on layer `"0"` when its definition is there, and draws it as the insert's
+   * The layer the attribute is stored on, which is its definition's. The leading CAD app's INSERT
+   * leaves an attribute on layer `"0"` when its definition is there, and draws it as the insert's
    * layer draws.
    */
   readonly layer: string;
   /**
    * The point the text is justified to. For a mirrored insert it is in the coordinates
-   * AutoCAD holds a mirrored text in, where X runs the other way.
+   * the leading CAD app holds a mirrored text in, where X runs the other way.
    */
   readonly at: Point;
   readonly height: number;
@@ -183,16 +184,16 @@ export interface PlacedAttribute {
   readonly widthFactor: number;
   /** Degrees to the right. */
   readonly obliqueAngle: number;
-  /** True for an insert with one negative scale, which AutoCAD holds with an extrusion of 0, 0, -1. */
+  /** True for an insert with one negative scale, which the leading CAD app holds with an extrusion of 0, 0, -1. */
   readonly mirrored: boolean;
   readonly definition: AttributeDefinition;
 }
 
 /**
- * What an insert makes of an attribute definition. AutoCAD holds each attribute of an insert as
- * a text in the insert's own coordinates, with the height, rotation, width factor and oblique
- * angle that the insert's scale and rotation give the definition's. Every number is taken as
- * the writers write it, with 6 decimals, so the attribute lies where the file's insert, block
+ * What an insert makes of an attribute definition. The leading CAD app holds each attribute of an
+ * insert as a text in the insert's own coordinates, with the height, rotation, width factor and
+ * oblique angle that the insert's scale and rotation give the definition's. Every number is taken
+ * as the writers write it, with 6 decimals, so the attribute lies where the file's insert, block
  * and definition put it.
  *
  * @param style - The definition's text style, unless it is `Standard`.
@@ -268,7 +269,7 @@ export function lookupCost(insert: Insert, definition: AttributeDefinition): num
     : 0;
 }
 
-/** The blocks of a drawing by name, as AutoCAD looks a block up. */
+/** The blocks of a drawing by name, as the leading CAD app looks a block up. */
 export function blocksByKey(blocks: readonly Block[] | undefined): Map<string, Block> {
   const out = new Map<string, Block>();
   // The first of a name is the block, as it is for a layer.
@@ -400,10 +401,10 @@ function holds(list: readonly unknown[], index: number): boolean {
  * layer `isFrozen` takes draws nothing, and the walk does not enter it. A list is read up to its
  * first empty slot. The walk keeps its own stack, so blocks nested any depth are walked.
  *
- * An insert of an xref draws the model space of the drawing given for it, as AutoCAD draws a
- * loaded xref: an entity on layer `"0"` there draws as the insert's layer does, as in a block,
- * and any other on its own layer of the referenced drawing. The xrefs of a referenced drawing
- * are not drawn, as AutoCAD loads no overlay of an overlay. An xref with no drawing given
+ * An insert of an xref draws the model space of the drawing given for it, as the leading CAD app
+ * draws a loaded xref: an entity on layer `"0"` there draws as the insert's layer does, as in a
+ * block, and any other on its own layer of the referenced drawing. The xrefs of a referenced
+ * drawing are not drawn, as that app loads no overlay of an overlay. An xref with no drawing given
  * draws nothing.
  *
  * @param isFrozen - True for a layer that hides everything an insert on it draws: a frozen

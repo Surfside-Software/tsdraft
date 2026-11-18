@@ -1,8 +1,8 @@
 # Layouts
 
 A layout is a sheet: a piece of paper of a named size, with what is drawn on it and the
-viewports that show the model on it at a scale. AutoCAD shows each layout as a tab beside the
-model tab, and plots it as one page. Layouts are written to R2018 drawings only.
+viewports that show the model on it at a scale. The leading CAD app shows each layout as a tab
+beside the model tab, and plots it as one page. Layouts are written to R2018 drawings only.
 
 ```ts
 import { createDrawing, toDXF, toSVG } from "tsdraft";
@@ -33,7 +33,7 @@ on the sheet and not in model space. The current layer starts as `"0"`, and `d.l
 puts entities on a layer as it does anywhere.
 
 - A drawing has any number of layouts. Their tabs are in the order they were added, and
-  AutoCAD opens the drawing on the first.
+  the leading CAD app opens the drawing on the first.
 - A layout is added once, and not inside a block or another layout. A block is defined
   outside `draw`, and inserted inside it.
 - When `draw` throws, the layout is not added, and its name, its ids and what it drew are
@@ -45,14 +45,14 @@ puts entities on a layer as it does anywhere.
   its plot style table: `d.layout(name, { sheetFormat }, draw)`, or `d.layout(name, draw)` on the
   standard's `defaultSheetFormat`. The sheet then has `sheet.drawingArea`, `sheet.zone(name)` and
   `sheet.titleBlock()`, which [Title blocks](title-blocks.md#the-title-block-of-a-standard)
-  describes. A second layout whose name AutoCAD's `AUDIT` takes for another's, such as `STRAßE`
-  beside `STRASSE`, is refused there. AutoCAD keeps both layouts, and a drawing drawn to a
+  describes. A second layout whose name the leading CAD app's `AUDIT` takes for another's, such as
+  `STRAßE` beside `STRASSE`, is refused there. That app keeps both layouts, and a drawing drawn to a
   standard holds its layouts' names to `AUDIT`'s comparison.
 
 ### Paper
 
-`paper` is one of `PAPERS`. Each is a size that AutoCAD's `DWG To PDF.pc3` offers as full
-bleed, with no margin the plotter keeps clear, and a layout of each is landscape, with the
+`paper` is one of `PAPERS`. Each is a size that the leading CAD app's `DWG To PDF.pc3` offers as
+full bleed, with no margin the plotter keeps clear, and a layout of each is landscape, with the
 longer side across.
 
 | Paper    | Inches    |
@@ -69,17 +69,17 @@ longer side across.
 
 The plotter holds `ARCH E` upright, as `ARCH_full_bleed_E_(36.00_x_48.00_Inches)`, 36 wide
 and 48 tall. Its page setup stores that size and turns the plot a quarter turn onto it, as
-AutoCAD's own landscape page setup on that paper does, and the PDF shows the page landscape,
-48 by 36, with the drawing upright. `PaperInfo.medium` holds the size as the plotter holds it
-and the turn.
+the leading CAD app's own landscape page setup on that paper does, and the PDF shows the page
+landscape, 48 by 36, with the drawing upright. `PaperInfo.medium` holds the size as the plotter
+holds it and the turn.
 
 The paper's units are the units of the sheet: on these, an inch. The sheet's lower-left corner
 is `[0, 0]`. Sizes drawn on a sheet are the sizes they plot at, so a text 1/8 inch high has a
 height of `0.125`, whatever the drawing's own units are.
 
 The list is closed because a page setup names its paper by the name the plotter gives it,
-such as `ARCH_full_bleed_D_(36.00_x_24.00_Inches)`. AutoCAD plots a layout whose paper the
-plotter does not know by name on a paper of the same size when it has one, and plots nothing
+such as `ARCH_full_bleed_D_(36.00_x_24.00_Inches)`. The leading CAD app plots a layout whose paper
+the plotter does not know by name on a paper of the same size when it has one, and plots nothing
 otherwise.
 
 ### The page setup
@@ -95,8 +95,8 @@ Every layout has the same page setup, apart from its paper and its plot style ta
 | Lineweights      | Plotted, each line as wide as its lineweight |
 | Orientation      | Landscape                                    |
 
-`plotStyle` is one of `PLOT_STYLE_TABLES`, the color-dependent tables AutoCAD installs. Each
-plots a line as wide as its lineweight, apart from `DWF Virtual Pens.ctb`:
+`plotStyle` is one of `PLOT_STYLE_TABLES`, the color-dependent tables the leading CAD app installs.
+Each plots a line as wide as its lineweight, apart from `DWF Virtual Pens.ctb`:
 
 | Table                  | Colors                                                           |
 | ---------------------- | ---------------------------------------------------------------- |
@@ -108,30 +108,30 @@ plots a line as wide as its lineweight, apart from `DWF Virtual Pens.ctb`:
 A pen of `DWF Virtual Pens.ctb` has a color of its own, which is near its index's but not
 always the same: 9 plots as `#c0c0c0`, and 12 as `#a50000`. The table also gives every pen one
 lineweight, so a line plots 0.254 mm wide whatever its own lineweight, and so does a viewport's
-border. `toSVG` draws a sheet in the colors and widths its table plots. AutoCAD plots a layout
-whose plot style table it does not have with no table, each pen in its own color.
+border. `toSVG` draws a sheet in the colors and widths its table plots. The leading CAD app plots a
+layout whose plot style table it does not have with no table, each pen in its own color.
 
 ### Names
 
 A layout's name is on its tab. tsdraft holds a name to these rules, and each says what
-AutoCAD does with a name that breaks it:
+the leading CAD app does with a name that breaks it:
 
-- It is not empty, and has at most 255 characters. AutoCAD's `LAYOUT` command refuses a
+- It is not empty, and has at most 255 characters. The leading CAD app's `LAYOUT` command refuses a
   longer name, and its `-PLOT` takes an empty answer for the current layout, so it cannot name
   a layout that has no name.
 - It holds none of `< > / \ " : ; ? * | , =` and the backtick, and no control character.
-  AutoCAD opens a file with such a name without a word, and its own command refuses to give a
-  layout that name.
-- It does not start or end with a space. AutoCAD's `-PLOT` command finds no layout by such a
-  name.
-- It is not `Model`, in any case of its letters. That name is the model tab's. AutoCAD
+  The leading CAD app opens a file with such a name without a word, and its own command refuses to
+  give a layout that name.
+- It does not start or end with a space. The leading CAD app's `-PLOT` command finds no layout by
+  such a name.
+- It is not `Model`, in any case of its letters. That name is the model tab's. The leading CAD app
   discards a drawing whose layout is named `MODEL`, takes a layout named `model` for the model
   tab's own and loses its sheet, and never finishes opening a drawing with a second layout
   named `Model`.
 - No two layouts have names that differ only in the case of their letters: `Sheet` and
-  `SHEET`, `É1` and `é1`. AutoCAD takes the two for one layout, keeps one, and its `AUDIT`
-  reports the other as missing from the dictionary of layouts. It folds the letters of a table
-  of its own, which is not the one it folds layer names by: it has Ÿ and leaves out letters
+  `SHEET`, `É1` and `é1`. The leading CAD app takes the two for one layout, keeps one, and its
+  `AUDIT` reports the other as missing from the dictionary of layouts. It folds the letters of a
+  table of its own, which is not the one it folds layer names by: it has Ÿ and leaves out letters
   added to Unicode since about 2008, so `Ꭰ1` and `ꭰ1` are two layouts. It keeps `straße` and
   `STRASSE` apart, and a composed é and a decomposed one.
 
@@ -147,15 +147,15 @@ viewport: a rectangle on the paper, from its lower-left `corner`, that shows mod
   model, which is 1270 in a drawing in millimetres.
 - `id` names the viewport as an entity's `id` names an entity. No entity and no other viewport
   of the drawing may have it.
-- `frozenLayers` names the layers frozen in this viewport alone, as AutoCAD's `VPLAYER` freezes
-  them. [Frozen layers and a twist](#frozen-layers-and-a-twist) has more.
+- `frozenLayers` names the layers frozen in this viewport alone, as the leading CAD app's `VPLAYER`
+  freezes them. [Frozen layers and a twist](#frozen-layers-and-a-twist) has more.
 - `twist` turns the view, in degrees counterclockwise, less than a turn either way. It defaults
   to 0.
-- The viewport is locked against zooming, as AutoCAD's `MVIEW` leaves one that it locks.
+- The viewport is locked against zooming, as the leading CAD app's `MVIEW` leaves one that it locks.
 
 A file holds no scale for a viewport. It holds the rectangle's height and the height of model
-space the viewport shows, and AutoCAD takes the first over the second for the scale. tsdraft
-works that height out from the ratio and both units. `viewportView(viewport, paperUnits,
+space the viewport shows, and the leading CAD app takes the first over the second for the scale.
+tsdraft works that height out from the ratio and both units. `viewportView(viewport, paperUnits,
 units)` gives it, with the box of model space the viewport shows.
 
 ### Frozen layers and a twist
@@ -201,14 +201,14 @@ A viewport is on the current layer, and that layer decides its border alone:
 | Frozen               | Not plotted | Plotted  |
 | Set not to plot      | Not plotted | Plotted  |
 
-AutoCAD plots a border as its thinnest line, whatever lineweight the layer has. Offices keep
-viewports on a layer that does not plot. tsdraft has no such layer of its own: put the
+The leading CAD app plots a border as its thinnest line, whatever lineweight the layer has. Offices
+keep viewports on a layer that does not plot. tsdraft has no such layer of its own: put the
 viewport on one, as the example above does.
 
 ### Linetypes on a sheet
 
-AutoCAD sizes dashes on the paper in every viewport: a dash is as long on the sheet as its
-pattern times the drawing's `linetypeScale`, whatever the viewport's scale. `DASHED` at a
+The leading CAD app sizes dashes on the paper in every viewport: a dash is as long on the sheet as
+its pattern times the drawing's `linetypeScale`, whatever the viewport's scale. `DASHED` at a
 linetype scale of 0.5 plots a 1/4 inch dash at 1" = 10' and at 1" = 20' alike. So in a drawing
 that has a layout, `linetypeScale` is a length of paper.
 
@@ -245,8 +245,8 @@ as they are in model space, with the same options and the same rules.
   legends, each view's title and its graphic scale. What is read in the plan, such as a
   dimension or a label, is drawn in model space and sized with `fromPaper` for the viewport's
   ratio.
-- AutoCAD plots a layout as far as its paper goes. It plots a line that lies on the left, the
-  bottom or the right edge of the paper with half its width off the page, and no line that
+- The leading CAD app plots a layout as far as its paper goes. It plots a line that lies on the
+  left, the bottom or the right edge of the paper with half its width off the page, and no line that
   lies on the top edge. Keep a border inside the paper.
 
 An `id` is unique in the whole drawing: model space, every block and every layout share one
@@ -276,7 +276,8 @@ Without `layout`, `toSVG` draws model space as it always has.
 
 Beside the rules above, `lint` warns of what it can see of a view:
 
-- A viewport that reaches past the paper. AutoCAD plots a layout as far as its paper goes.
+- A viewport that reaches past the paper. The leading CAD app plots a layout as far as its paper
+  goes.
 - A viewport that shows none of the drawing: nothing in model space lies in the box it shows.
 
 A viewport whose ratio is 0 or less, or whose size is, is an error. So is a twist of a turn or
@@ -288,17 +289,17 @@ in model space reaches into its turned rectangle.
 
 A layout's own objects take their handles from its name, with A to Z in lower case, as a
 block's do: the layout, the record of its block, the two objects that open and close that
-block in a DXF, and the viewport AutoCAD keeps for the sheet as a whole. `layoutHandles(name)`
-gives them. A viewport or an entity of a sheet that has an `id` takes `idHandle(id)`. So a
-layout keeps its handles when the drawing around it changes.
+block in a DXF, and the viewport the leading CAD app keeps for the sheet as a whole.
+`layoutHandles(name)` gives them. A viewport or an entity of a sheet that has an `id` takes
+`idHandle(id)`. So a layout keeps its handles when the drawing around it changes.
 
 ## What a file holds
 
 For a drawing with a layout, tsdraft writes the dictionary of layouts, a layout for the model
 tab, and for each layout its page setup, a block for its sheet and, first in that block, the
-viewport AutoCAD keeps for the sheet as a whole. AutoCAD discards a drawing whose layouts lack
-the model tab's, and one whose layout has a viewport with no such first viewport before it.
-`$TILEMODE` is 0, which opens the drawing on its first layout.
+viewport the leading CAD app keeps for the sheet as a whole. That app discards a drawing whose
+layouts lack the model tab's, and one whose layout has a viewport with no such first viewport before
+it. `$TILEMODE` is 0, which opens the drawing on its first layout.
 
-A drawing with no layout is written as it was before layouts: AutoCAD gives it the two empty
-layouts it gives any drawing.
+A drawing with no layout is written as it was before layouts: the leading CAD app gives it the two
+empty layouts it gives any drawing.

@@ -1,7 +1,7 @@
 # Dimensions
 
 A dimension measures the distance between two points and writes it beside a dimension line.
-In the file it is a dimension and not lines and text: AutoCAD measures it again when its
+In the file it is a dimension and not lines and text: the leading CAD app measures it again when its
 points move, and a drafter edits it with the dimension commands. tsdraft draws two kinds,
 linear and aligned, in R2018 drawings only.
 
@@ -65,8 +65,8 @@ which is 10: a text height of 3/32 is then 0.9375 feet in the model and plots 3/
 high. A dimension on a layout is in paper units already, so its style has no scale. A drawing
 shown at two ratios needs a style for each, the same but for the scale.
 
-AutoCAD holds the sizes and the scale as two things, as the style does, and multiplies them
-when it draws.
+The leading CAD app holds the sizes and the scale as two things, as the style does, and multiplies
+them when it draws.
 
 ### How a dimension is drawn
 
@@ -83,7 +83,7 @@ Where a style has no field, every dimension is drawn one way:
 
 ### What a dimension needs room for
 
-AutoCAD moves closed filled arrowheads outside the extension lines when the text and the
+The leading CAD app moves closed filled arrowheads outside the extension lines when the text and the
 arrowheads do not fit between them, and it decides that from the width of the text in its
 font. tsdraft gives the text room for the widest it can be in any font of `FONTS`, so `lint`
 refuses a dimension with closed filled arrowheads that measures no more than
@@ -132,11 +132,11 @@ times the style's `measurementScale`. It is rounded half up to the style's `prec
 between the `prefix` and the `suffix`.
 
 A computer holds most halves as a little less than they are, as it holds 52.15 or 1234567.15.
-AutoCAD takes a value a little under the half as on it, and so does tsdraft: under 1, a value
-within a ten-billionth of itself under the half, and from 1 up, within a ten-billionth and
+The leading CAD app takes a value a little under the half as on it, and so does tsdraft: under 1, a
+value within a ten-billionth of itself under the half, and from 1 up, within a ten-billionth and
 one and a half units in the 16th significant digit. So 52.15 is written `52.2` at a precision
 of 1, 1234567.15 is written `1234567.2`, and 5000000.05 is written `5000000.1`. A value that
-lies a few units in its last digit from that edge may be rounded the other way by AutoCAD: its
+lies a few units in its last digit from that edge may be rounded the other way by that app: its
 own arithmetic moves the value it holds by about that much.
 
 ### Feet and inches
@@ -157,14 +157,14 @@ mark: 49.4375 is `4'-1 7/16"` at a precision of 4, and `4'-1"` at 0. A drawing i
 | `"neither"`          | `4'`    | `6"`    | `1/2"`      |
 
 A fraction keeps the zero inches before it when the feet are written: 48.5 is `4'-0 1/2"`.
-The dimension holds no text of its own, so AutoCAD measures it in feet and inches when its
-points move, and the prefix, the suffix and a dimension's `text` with `<>` work as they do for
+The dimension holds no text of its own, so the leading CAD app measures it in feet and inches when
+its points move, and the prefix, the suffix and a dimension's `text` with `<>` work as they do for
 a decimal measurement: `"<> CLR."` reads `3'-6" CLR.`.
 
-The file holds the string in the dimension's picture, and AutoCAD writes it again when the
-dimension's points move. The preview and the command give the string the picture holds.
+The file holds the string in the dimension's picture, and the leading CAD app writes it again when
+the dimension's points move. The preview and the command give the string the picture holds.
 
-`dimensionPicture(dimension, style)` gives what AutoCAD draws for a dimension: its
+`dimensionPicture(dimension, style)` gives what the leading CAD app draws for a dimension: its
 `measurement` in drawing units, its `label` with the string as `value`, where it is and how it
 is turned, the two extension lines, the dimension line, the arrowheads, and the entities the
 file's picture draws the arrowheads with.
@@ -172,8 +172,8 @@ file's picture draws the arrowheads with.
 
 ## The preview
 
-`toSVG` draws each dimension as AutoCAD does, in model space, through a viewport and on a
-sheet, in its layer's color and lineweight. A dimension is a `<g>` with `data-layer`,
+`toSVG` draws each dimension as the leading CAD app does, in model space, through a viewport and on
+a sheet, in its layer's color and lineweight. A dimension is a `<g>` with `data-layer`,
 `data-entity`, `data-id` and `data-dimension`, the string it reads. Its children have a
 `data-part`: `extension-line`, `dimension-line`, `arrowhead` or `text`. A drawing's extents
 take its dimensions in, text included.
@@ -190,56 +190,57 @@ and the string it reads: see [The JSON](command.md#the-json).
 Each of these is an error, at the builder's call and in `lint`. The rule is `dimension-style`,
 `duplicate-dimension-style`, `undefined-dimension-style` or `dimension`.
 
-- A style's name follows the rules of a layer's name. AutoCAD discards a drawing over a
+- A style's name follows the rules of a layer's name. The leading CAD app discards a drawing over a
   character it refuses in a name, and its `DIMSTYLE` command refuses a name of more than 255
   characters.
-- No two styles have names AutoCAD takes for one. It keeps the first of two that differ only
-  in case, and its `AUDIT` reports a duplicate for two such as `strasse` and `straße`.
-- `Standard` is not defined and not named. Every drawing has that style, with AutoCAD's own
-  values, and AutoCAD skips a second style of the name.
+- No two styles have names the leading CAD app takes for one. It keeps the first of two that differ
+  only in case, and its `AUDIT` reports a duplicate for two such as `strasse` and `straße`.
+- `Standard` is not defined and not named. Every drawing has that style, with the leading CAD app's
+  own values, and that app skips a second style of the name.
 - A style's text style is one the drawing defines. A style holds it by its handle, and
-  AutoCAD's `AUDIT` reports one that leads to no style.
+  the leading CAD app's `AUDIT` reports one that leads to no style.
 - A text height is greater than 0. The arrow size and both extension lengths are 0 or more.
-  AutoCAD's `AUDIT` reports a style that breaks either.
-- The gap is 0 or more. AutoCAD draws a box around the text of a style with a negative gap.
-- The scale is greater than 0. AutoCAD works a scale of 0 out from a viewport, and its `AUDIT`
-  reports a negative one.
-- The measurement scale is greater than 0. AutoCAD's `AUDIT` reports 0, and AutoCAD applies a
-  negative one only on a layout.
-- The precision is a whole number from 0 to 8. AutoCAD's `AUDIT` reports any other.
+  The leading CAD app's `AUDIT` reports a style that breaks either.
+- The gap is 0 or more. The leading CAD app draws a box around the text of a style with a negative
+  gap.
+- The scale is greater than 0. The leading CAD app works a scale of 0 out from a viewport, and its
+  `AUDIT` reports a negative one.
+- The measurement scale is greater than 0. The leading CAD app's `AUDIT` reports 0, and that app
+  applies a negative one only on a layout.
+- The precision is a whole number from 0 to 8. The leading CAD app's `AUDIT` reports any other.
 - `units` is `"decimal"` or `"architectural"`. `suppressZeros` is for a style in decimal units
   and `feetInchZeros` for one in architectural units, and a style has only its own.
 - An arrowhead is one of `ARROWHEADS`.
-- A prefix, a suffix and a dimension's text have none of `\`, `{` and `}`, which AutoCAD reads
-  as the formatting of the text, and are single lines as any text is. A prefix has no `<>`.
-- A dimension's text is not empty or all spaces: AutoCAD draws such a dimension with no text.
-  It has no `[]` beside `<>`: AutoCAD writes the measurement a second time for it, in
+- A prefix, a suffix and a dimension's text have none of `\`, `{` and `}`, which the leading CAD app
+  reads as the formatting of the text, and are single lines as any text is. A prefix has no `<>`.
+- A dimension's text is not empty or all spaces: the leading CAD app draws such a dimension with no
+  text. It has no `[]` beside `<>`: that app writes the measurement a second time for it, in
   alternate units.
-- A dimension names a style the drawing defines. AutoCAD discards a drawing with a dimension
-  in a style it does not have.
-- A dimension measures something once its points are written with 6 decimals. AutoCAD draws
-  one that measures nothing with the text 0 and its arrowheads turned outward.
+- A dimension names a style the drawing defines. The leading CAD app discards a drawing with a
+  dimension in a style it does not have.
+- A dimension measures something once its points are written with 6 decimals. The leading CAD app
+  draws one that measures nothing with the text 0 and its arrowheads turned outward.
 - What a dimension writes, rounded to the style's precision, is under 100,000,000 and has no
   more than 15 digits: 9,999,999.9999999982 at a precision of 8 is written
-  `10000000.00000000`, which has 16. AutoCAD writes 16 digits of a measurement, so it drops decimals from
-  100,000,000 on at a precision of 8, and it works the 16th digit out from its own arithmetic
-  on the points: it writes 99,999,999.5 at a precision of 8 as `99999999.50000002`.
+  `10000000.00000000`, which has 16. The leading CAD app writes 16 digits of a measurement, so it
+  drops decimals from 100,000,000 on at a precision of 8, and it works the 16th digit out from its
+  own arithmetic on the points: it writes 99,999,999.5 at a precision of 8 as `99999999.50000002`.
 - Every number a dimension draws is under 1e100: each size of its style times the scale, and
-  each point of its picture. AutoCAD reads only two exponent digits from DXF.
+  each point of its picture. The leading CAD app reads only two exponent digits from DXF.
 - The text height times the scale, and an arrow size other than 0 times the scale, is not
   written as 0 with the 6 decimals tsdraft writes. The picture would draw the text or the
   arrowheads with no size.
 - A linear dimension measures along an angle from -360 to 360. This is tsdraft's own rule: an
   angle beyond a turn is refused, so that one direction has one angle.
 - A dimension with closed filled arrowheads has the room given above.
-- A dimension is not in a block. AutoCAD draws nothing for a dimension inside a block when it
-  opens the file, so an insert of the block would show nothing of it.
-- No block is named `_ArchTick`, in any case of its letters. AutoCAD draws the architectural
-  tick with the block of that name, so a block of yours would be drawn as the tick.
+- A dimension is not in a block. The leading CAD app draws nothing for a dimension inside a block
+  when it opens the file, so an insert of the block would show nothing of it.
+- No block is named `_ArchTick`, in any case of its letters. The leading CAD app draws the
+  architectural tick with the block of that name, so a block of yours would be drawn as the tick.
 - An R12 drawing has no dimensions.
 
-`lint` warns of a prefix, a suffix or a text with `%%`, which AutoCAD reads as the start of a
-control code, as it does in any text.
+`lint` warns of a prefix, a suffix or a text with `%%`, which the leading CAD app reads as the start
+of a control code, as it does in any text.
 
 ## Handles
 
@@ -262,22 +263,22 @@ For a drawing with a dimension, tsdraft writes each dimension style to the dimen
 table, the block `_ArchTick` when a style has ticks, and each dimension with its points, its
 style, its text, what it reads, and the block of its picture.
 
-The picture is what AutoCAD draws for the dimension, as AutoCAD writes it: the two extension
-lines, the dimension line, two filled triangles or two inserts of `_ArchTick`, and the text,
-each on the dimension's layer and in the dimension's color. AutoCAD shows the picture the file
-holds when it opens the drawing, and when another drawing attaches the file as an xref or
+The picture is what the leading CAD app draws for the dimension, as that app writes it: the two
+extension lines, the dimension line, two filled triangles or two inserts of `_ArchTick`, and the
+text, each on the dimension's layer and in the dimension's color. That app shows the picture the
+file holds when it opens the drawing, and when another drawing attaches the file as an xref or
 inserts it as a block. It draws a new picture when the dimension's points or style change. A
 program that draws a dimension from its block, as most programs that read DXF do, shows the
 same picture.
 
-Without the picture, AutoCAD would draw a dimension when it first shows it: on opening the
-file for model space and the first layout, and for a later layout when that layout is first
+Without the picture, the leading CAD app would draw a dimension when it first shows it: on opening
+the file for model space and the first layout, and for a later layout when that layout is first
 shown or plotted. It draws nothing for a dimension in the block of another drawing, so an xref
 or an insert of the file would show none, and a program that only draws a dimension's block
 would show none either.
 
-Every R2018 drawing holds the dimension style `Standard`, with AutoCAD's own values and the
-text style `Standard`. AutoCAD draws no text for a dimension in a style that names no text
+Every R2018 drawing holds the dimension style `Standard`, with the leading CAD app's own values and
+the text style `Standard`. That app draws no text for a dimension in a style that names no text
 style, so without it a dimension a drafter adds in `Standard` would have none. A drawing with
 no dimension style holds nothing else for dimensions.
 

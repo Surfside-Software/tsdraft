@@ -73,7 +73,7 @@ const rules = (drawing: Drawing): string[] => lint(drawing).map((d) => d.rule);
 test("block names, attribute tags and insert scales are checked as literals and when the code runs", () => {
   const d = createDrawing();
   const draw = () => d.line([0, 0], [1, 0]);
-  // @ts-expect-error: AutoCAD keeps names with a star for its own blocks.
+  // @ts-expect-error: the leading CAD app keeps names with a star for its own blocks.
   assert.throws(() => d.block("*U1", {}, draw), /Block names cannot contain/);
   // @ts-expect-error: a block name cannot be empty.
   assert.throws(() => d.block("", {}, draw), /cannot be empty/);
@@ -81,17 +81,17 @@ test("block names, attribute tags and insert scales are checked as literals and 
   assert.throws(() => d.block("A ", {}, draw), /start or end with a space/);
   assert.throws(() => d.block("a".repeat(256), {}, draw), /longer than 255 characters/);
   d.block("A", {}, () => {
-    // @ts-expect-error: AutoCAD holds a tag in capitals.
+    // @ts-expect-error: the leading CAD app holds a tag in capitals.
     assert.throws(() => d.attribute("tag", [0, 0]), /lower-case letter/);
     // @ts-expect-error: a tag cannot be empty.
     assert.throws(() => d.attribute("", [0, 0]), /cannot be empty/);
     d.attribute("TWO WORDS", [0, 0]);
     assert.throws(() => d.attribute("TWO WORDS", [0, 1]), rule("duplicate-attribute"));
-    // @ts-expect-error: a height of 0 is a text's default height to AutoCAD.
+    // @ts-expect-error: a height of 0 is a text's default height to the leading CAD app.
     assert.throws(() => d.attribute("H", [0, 0], { height: 0 }), /greater than 0/);
     draw();
   });
-  // @ts-expect-error: AutoCAD reads a scale of 0 as 1.
+  // @ts-expect-error: the leading CAD app reads a scale of 0 as 1.
   assert.throws(() => d.insert("A", [0, 0], { scale: 0 }), /reads a scale of 0 as 1/);
   // @ts-expect-error: either scale.
   assert.throws(() => d.insert("A", [0, 0], { scale: [1, 0] }), /reads a scale of 0 as 1/);
@@ -121,7 +121,7 @@ test("the builder refuses what a drawing's blocks cannot be, at the call", () =>
     assert.throws(() => d.insert("tree", [0, 0]), rule("block-cycle"));
   });
   assert.throws(() => d.attribute("TAG", [0, 0]), /belongs to a block/);
-  // AutoCAD takes these names for the block it has, and would put the entities of both in it.
+  // The leading CAD app takes these names for the block it has, and would put the entities of both in it.
   assert.throws(() => d.block("tree", {}, () => {}), rule("duplicate-block"));
   d.block("straße", {}, () => {});
   assert.throws(() => d.block("STRASSE", {}, () => {}), rule("duplicate-block"));
@@ -134,15 +134,15 @@ test("the builder refuses what a drawing's blocks cannot be, at the call", () =>
   // An id names one entity of the drawing, in a block or out of one.
   d.block("B", {}, () => d.line([0, 0], [1, 0], { id: "edge" }));
   assert.throws(() => d.line([0, 0], [1, 0], { id: "Edge" }), rule("duplicate-id"));
-  // An uneven scale slants and widens an attribute past what AutoCAD's AUDIT takes.
+  // An uneven scale slants and widens an attribute past what the leading CAD app's AUDIT takes.
   assert.throws(() => d.insert("TREE", [0, 0], { scale: [1000, 0.001] }), /times as wide/);
-  // A slant past 85 degrees, with a width factor AutoCAD takes.
+  // A slant past 85 degrees, with a width factor the leading CAD app takes.
   d.block("SLANTED", {}, () =>
     d.attribute("A", [0, 0], { style: { name: "S", font: "Arial", obliqueAngle: 60 } }),
   );
   assert.throws(() => d.insert("SLANTED", [0, 0], { scale: [1, 0.1] }), /slant by 86\.69/);
   d.insert("SLANTED", [0, 0], { scale: [1, 0.2] });
-  // An attribute an insert would put past what AutoCAD reads.
+  // An attribute an insert would put past what the leading CAD app reads.
   d.block("FAR", {}, () => d.attribute("A", [1e99, 0]));
   assert.throws(() => d.insert("FAR", [0, 0], { scale: 1000000 }), /puts the attribute "A" at/);
   assert.equal(d.build().entities.length, 1);
@@ -276,13 +276,13 @@ test("R2018 DXF holds blocks, inserts and attributes with handles that resolve",
   assert.equal(mirrored.split("\r\n230\r\n-1\r\n").length - 1, 2);
 });
 
-test("an insert gives an attribute the text AutoCAD holds for it", () => {
+test("an insert gives an attribute the text the leading CAD app holds for it", () => {
   const [tree] = sample().blocks!;
   const [, species] = tree!.attributes!;
   const style = sample().textStyles![0];
   const near = (actual: number, expected: number) =>
     assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} is not ${expected}`);
-  // What AutoCAD made of this definition in an insert scaled 2 by 0.5 and turned 30 degrees.
+  // What the leading CAD app made of this definition in an insert scaled 2 by 0.5 and turned 30 degrees.
   const uneven = placeAttribute(
     species!,
     style,
@@ -344,7 +344,7 @@ test("a drawing with blocks goes to JSON and back, and the parser knows each new
   );
 });
 
-test("SVG draws an insert's block where the insert puts it, on the layers AutoCAD draws it on", () => {
+test("SVG draws an insert's block where the insert puts it, on the layers the leading CAD app draws it on", () => {
   const drawing = sample();
   const svg = toSVG(drawing);
   const [first, second] = svg.split("</g>");

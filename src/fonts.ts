@@ -3,18 +3,18 @@
 
 /** What tsdraft knows of a font. */
 export interface FontInfo {
-  /** The font file AutoCAD stores for a style of this font. */
+  /** The font file the leading CAD app stores for a style of this font. */
   readonly file: string;
   /**
-   * For a TrueType font, the pitch and family number AutoCAD stores beside the typeface.
-   * Missing for an SHX font.
+   * For a TrueType font, the pitch and family number the leading CAD app stores beside the
+   * typeface. Missing for an SHX font.
    */
   readonly pitchAndFamily?: number;
   /** The CSS `font-family` that `toSVG` draws the font with, ending in a generic family. */
   readonly family: string;
   /**
-   * For a TrueType font, the top of its capital `A` as a share of the font's size. AutoCAD
-   * draws a text so that this `A` is as tall as the text's height, so `toSVG` draws the font
+   * For a TrueType font, the top of its capital `A` as a share of the font's size. The leading CAD
+   * app draws a text so that this `A` is as tall as the text's height, so `toSVG` draws the font
    * this much larger. It is not always the cap height a font states: the `A` of Times New
    * Roman is taller than its `H`.
    */
@@ -22,11 +22,11 @@ export interface FontInfo {
 }
 
 /**
- * Every font a text style may have, by the name a style gives it, which is the name AutoCAD
- * stores: the file name for an SHX font, the typeface for a TrueType font. The SHX fonts are
- * drafting alphabets that AutoCAD 2025 installs, and the TrueType fonts come with Windows. The
- * list is closed because AutoCAD draws text in a font it does not have in another font, and its
- * `AUDIT` reports nothing.
+ * Every font a text style may have, by the name a style gives it, which is the name the leading CAD
+ * app stores: the file name for an SHX font, the typeface for a TrueType font. The SHX fonts are
+ * drafting alphabets that the 2025 release of that app installs, and the TrueType fonts come with
+ * Windows. The list is closed because that app draws text in a font it does not have in another
+ * font, and its `AUDIT` reports nothing.
  */
 export const FONTS = {
   "txt.shx": { file: "txt.shx", family: "monospace" },
@@ -100,7 +100,7 @@ export const FONTS = {
 /** The name of a font a text style may have. */
 export type Font = keyof typeof FONTS;
 
-/** The text style every drawing has, in the spelling AutoCAD gives it. Its font is `txt.shx`. */
+/** The text style every drawing has, in the spelling the leading CAD app gives it. Its font is `txt.shx`. */
 export const STANDARD_TEXT_STYLE = "Standard";
 
 /** The font of the `Standard` text style. */

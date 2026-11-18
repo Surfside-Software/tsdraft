@@ -1,5 +1,5 @@
 // The groups of an ASCII DXF, from its bytes as they arrive. A group is two lines: an integer
-// code, then a value. Text is UTF-8 from AutoCAD 2007's format, AC1021, on, and in the code page
+// code, then a value. Text is UTF-8 from the R2007 format, AC1021, on, and in the code page
 // `$DWGCODEPAGE` names before it, so the bytes wait until the header has said which.
 import { Sha256 } from "../sha256.ts";
 
@@ -11,7 +11,7 @@ export class ReadError extends Error {
   }
 }
 
-/** The WHATWG label of each code page AutoCAD names, past the ones that are `windows-NNNN`. */
+/** The WHATWG label of each code page the leading CAD app names, past the ones that are `windows-NNNN`. */
 const CODE_PAGES: Readonly<Record<string, string>> = {
   ANSI_874: "windows-874",
   ANSI_932: "shift_jis",
@@ -265,8 +265,8 @@ function multibyte(page: number, hex: string): string | undefined {
 }
 
 /**
- * One pass of AutoCAD's escapes over a value, left to right, reading nothing a pass makes
- * again: `\U+XXXX` becomes its character, but for `\U+0000`, and half of a surrogate pair
+ * One pass of the leading CAD app's escapes over a value, left to right, reading nothing a pass
+ * makes again: `\U+XXXX` becomes its character, but for `\U+0000`, and half of a surrogate pair
  * becomes U+FFFD; with `multibyte`, `\M+NXXXX` becomes the character of code page N it stands
  * for, where the platform has that code page.
  */
@@ -287,8 +287,8 @@ function pass(value: string, withMultibyte: boolean): string {
 const escaped = (value: string): boolean => /\\[UuMm]\+/.test(value);
 
 /**
- * A name or a path as AutoCAD holds it from a DXF: its carets worked out, then one pass of
- * `\U+XXXX`, which a file before AutoCAD 2007's format uses for a character its code page lacks.
+ * A name or a path as the leading CAD app holds it from a DXF: its carets worked out, then one pass
+ * of `\U+XXXX`, which a file before the R2007 format uses for a character its code page lacks.
  */
 export function unescaped(value: string): string {
   const plain = carets(value);
@@ -296,8 +296,8 @@ export function unescaped(value: string): string {
 }
 
 /**
- * The value of an `MTEXT`, a dimension's text or a multileader's note as AutoCAD holds it from
- * a DXF: its carets worked out, then one pass of `\U+XXXX` and `\M+NXXXX` together.
+ * The value of an `MTEXT`, a dimension's text or a multileader's note as the leading CAD app holds
+ * it from a DXF: its carets worked out, then one pass of `\U+XXXX` and `\M+NXXXX` together.
  */
 export function textOnce(value: string): string {
   const plain = carets(value);
@@ -305,9 +305,10 @@ export function textOnce(value: string): string {
 }
 
 /**
- * The value of a `TEXT`, an attribute or an attribute definition as AutoCAD holds it from a
- * DXF: its carets worked out, then a pass of `\U+XXXX`, then a pass of `\U+XXXX` and `\M+NXXXX`
- * together. What the first pass makes is read by the second, and nothing is read a third time.
+ * The value of a `TEXT`, an attribute or an attribute definition as the leading CAD app holds it
+ * from a DXF: its carets worked out, then a pass of `\U+XXXX`, then a pass of `\U+XXXX` and
+ * `\M+NXXXX` together. What the first pass makes is read by the second,
+ * and nothing is read a third time.
  */
 export function textTwice(value: string): string {
   const plain = carets(value);

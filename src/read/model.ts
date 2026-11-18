@@ -202,7 +202,7 @@ export interface ReadEntityBase {
  * world's coordinates.
  */
 export interface ReadTextPlacement {
-  /** Where AutoCAD starts to draw the text: the left end of its baseline. */
+  /** Where the leading CAD app starts to draw the text: the left end of its baseline. */
   readonly at: Point;
   /**
    * Where `at` comes from: `file`, the point the file stores; `widths`, worked out from
@@ -268,7 +268,7 @@ export interface ReadArc extends ReadEntityBase {
 /** A text of one line. */
 export interface ReadText extends ReadEntityBase, ReadTextPlacement {
   readonly kind: "text";
-  /** As AutoCAD holds it, with `%%d` and the other codes as they are written. */
+  /** As the leading CAD app holds it, with `%%d` and the other codes as they are written. */
   readonly value: string;
 }
 
@@ -312,7 +312,7 @@ export interface ReadMtext extends ReadEntityBase {
   readonly rotation: number;
   /** Its text style, `Standard` when the file names none. */
   readonly style: string;
-  /** As AutoCAD holds it. */
+  /** As the leading CAD app holds it. */
   readonly value: string;
 }
 
@@ -331,8 +331,8 @@ export interface ReadDimension extends ReadEntityBase {
   /** The middle of its text. */
   readonly textAt: Point;
   /**
-   * What it measures, as the file states it: 1 where a file after R12 leaves it out, as AutoCAD
-   * does for 1, and -1 where AutoCAD has not worked it out. Missing from an R12 file.
+   * What it measures, as the file states it: 1 where a file after R12 leaves it out, as the leading
+   * CAD app does for 1, and -1 where that app has not worked it out. Missing from an R12 file.
    */
   readonly measurement?: number;
   /** The text it draws in place of its measurement, where `<>` stands for it. */
@@ -358,7 +358,7 @@ export interface ReadMultileader extends ReadEntityBase {
   readonly direction: Point;
   /** How long the landing is. */
   readonly landing: number;
-  /** Its note as AutoCAD holds it, with `\P` between lines. */
+  /** Its note as the leading CAD app holds it, with `\P` between lines. */
   readonly text: string;
   /** The corner of the note's box that holds it. */
   readonly textAt: Point;
@@ -395,7 +395,7 @@ export interface ReadBlock {
   readonly handle?: string | undefined;
   readonly name: string;
   readonly base: Point;
-  /** True for a block AutoCAD names itself, such as a dynamic block's state, `*U12`. */
+  /** True for a block the leading CAD app names itself, such as a dynamic block's state, `*U12`. */
   readonly anonymous: boolean;
   readonly attributeDefinitions: readonly ReadAttributeDefinition[];
   /** What it draws of the kinds `ReadEntity` holds, in the order of the file. */

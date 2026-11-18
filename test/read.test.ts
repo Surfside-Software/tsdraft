@@ -29,7 +29,7 @@ async function* chunks(bytes: Uint8Array, size: number): AsyncGenerator<Uint8Arr
   for (let i = 0; i < bytes.length; i += size) yield bytes.subarray(i, i + size);
 }
 
-/** A DXF of groups, as `[code, value]` pairs, one per line pair, with CRLF as AutoCAD writes. */
+/** A DXF of groups, as `[code, value]` pairs, one per line pair, with CRLF as the leading CAD app writes. */
 const dxf = (groups: readonly (readonly [number, string | number])[]): string =>
   groups.map(([code, value]) => `${String(code).padStart(3)}\r\n${value}\r\n`).join("");
 
@@ -141,7 +141,7 @@ test("readDXF reads an R12 file", async () => {
   assert.equal(await measured("AC1032"), 1);
 });
 
-test("readDXF decodes text by $DWGCODEPAGE before AutoCAD 2007's format, and as UTF-8 after", async () => {
+test("readDXF decodes text by $DWGCODEPAGE before the R2007 format, and as UTF-8 after", async () => {
   const file = (version: string, codepage: string, layer: Uint8Array): Uint8Array => {
     const head = encoder.encode(
       dxf([
@@ -781,7 +781,7 @@ test("readDXF with geometry gives back every entity of both examples", async () 
   assert.deepEqual(read.opensAt, { layout: "C-101", center: [18, 12], height: 26.4, width: 42.24 });
 });
 
-test("readDXF gives back a text that holds AutoCAD's escapes as toDXF wrote it", async () => {
+test("readDXF gives back a text that holds the leading CAD app's escapes as toDXF wrote it", async () => {
   const d = createDrawing({ units: "in" });
   d.leaderStyle({ name: "NOTE", textHeight: 0.125, arrowSize: 0.125, landing: 0.125, gap: 0.0625 });
   const values = ["\\U+00B0", "\\M+18140", "a^b ^J", "\\U+005CU+00B0", "%%d \\P", "\\\\U+0041"];
@@ -793,7 +793,7 @@ test("readDXF gives back a text that holds AutoCAD's escapes as toDXF wrote it",
   assert.deepEqual(readProblems(drawing, read, "tsdraft"), []);
 });
 
-test("readDXF holds a text as AutoCAD does from a DXF", async () => {
+test("readDXF holds a text as the leading CAD app does from a DXF", async () => {
   const record = (type: string, value: string): (readonly [number, string | number])[] => [
     [0, type],
     [8, "0"],
@@ -858,7 +858,7 @@ test("readDXF works a justified text's start out from the widths where they are 
     assert.deepEqual(text.at, text.alignAt);
   }
   assert.equal(texts[7]!.startFrom, "file");
-  // A file that holds the start apart from the alignment point, as AutoCAD's does, gives it.
+  // A file that holds the start apart from the alignment point, as the leading CAD app's does, gives it.
   const saved = await readDXF(
     dxf([
       ...section("ENTITIES", [
@@ -950,7 +950,7 @@ test("readDXF keeps the pen an entity sets itself, and counts what it reads only
           [8, "A"],
           [10, "1e999"],
         ],
-        // AutoCAD leaves out a measurement of 1, and a rotation in radians may be any number.
+        // The leading CAD app leaves out a measurement of 1, and a rotation in radians may be any number.
         [
           [0, "DIMENSION"],
           [8, "A"],
