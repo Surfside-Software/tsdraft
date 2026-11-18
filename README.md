@@ -87,10 +87,10 @@ This is its first floor plan:
 </a>
 
 Coordinates are in drawing units with Y pointing up, as in CAD. Angles are in
-degrees, counterclockwise from +X. Layer colors are AutoCAD Color Index numbers.
+degrees, counterclockwise from +X. Layer colors are numbers from the color index CAD programs share.
 
 `toSVG` draws the drawing as it plots, an insert as what its block draws where the insert
-puts it. Each layer is drawn in the color AutoCAD plots its
+puts it. Each layer is drawn in the color the leading CAD app plots its
 index in, from 1 to 255. Index 7 is black on paper and white on a dark screen, so it is drawn
 in `currentColor`. A layer that is off or frozen, or whose `plot` is false, is left out.
 `toSVG(drawing, { drawNoPlot: true })` draws the layers that do not plot too, to see
@@ -101,12 +101,12 @@ it stopped, as [the preview of blocks](docs/blocks.md#the-preview) says.
 Entities go on layer `0` unless they are drawn inside a `layer()` callback.
 Linetypes and lineweights are set on a layer, and an entity draws ByLayer unless
 it is given its own. `DASHED`, `HIDDEN`, `CENTER`, `PHANTOM`, `DASHDOT` and `DOT`
-are AutoCAD's own definitions; `d.linetype({ name, pattern })` defines another,
+are the leading CAD app's own definitions; `d.linetype({ name, pattern })` defines another,
 with dashes as positive lengths, gaps as negative ones and dots as 0. A
 lineweight is in millimetres.
 
 A text is in the style `Standard` unless it names another. `d.textStyle({ name,
-font })` defines one, with a font from `FONTS`: SHX fonts AutoCAD installs and
+font })` defines one, with a font from `FONTS`: SHX fonts the leading CAD app installs and
 TrueType fonts Windows installs. `align` and `valign` justify a text to its
 point:
 
@@ -134,7 +134,7 @@ An entity on layer `0` of a block draws as the layer of each insert does.
 [Blocks](docs/blocks.md) has the rest.
 
 A drawing can reference another drawing's DWG file as an xref, and place it as it places a
-block. AutoCAD loads the file each time it opens the drawing:
+block. A CAD program loads the file each time it opens the drawing:
 
 ```ts
 d.xref("BASE", "../civil/base.dwg");
@@ -146,7 +146,7 @@ when it is given one, as `toSVG(drawing, { xrefs: { BASE: base } })`. [Xrefs](do
 has the rest.
 
 A dimension measures between two points and writes what it measures. In the file it is a
-dimension, which AutoCAD measures again when its points move, and a dimension style says how
+dimension, which a CAD program measures again when its points move, and a dimension style says how
 it is drawn:
 
 ```ts
@@ -167,7 +167,7 @@ d.linearDimension([34, 30], [86, 30], [0, 22], { style: "PLAN" }); // 52.0'
 `alignedDimension` measures along the two points, and a style with `units: "architectural"`
 writes feet and inches, as `4'-1 7/16"`. [Dimensions](docs/dimensions.md) has the rest.
 
-A layout is a sheet of paper that AutoCAD shows as a tab and plots as one page. What is drawn
+A layout is a sheet of paper that a CAD program shows as a tab and plots as one page. What is drawn
 inside `layout` is on the sheet, in inches of paper, and a viewport shows the model on it at a
 scale:
 
@@ -226,7 +226,7 @@ twisted viewport, or the other kinds of dimension.
 `readDXF` reads an ASCII DXF into a model to inspect, which is not a drawing tsdraft can edit
 and write again. [Reading drawing files](docs/reading.md) has what it reads.
 
-The rules tsdraft checks are AutoCAD's. Other CAD programs may hold a drawing to
+The rules tsdraft checks are the leading CAD app's. Other CAD programs may hold a drawing to
 other rules.
 
 ## Install
@@ -262,9 +262,8 @@ JSON says why there is no PNG.
 ## DXF versions
 
 A drawing is written for one DXF version. `createDrawing()` targets R2018, the
-version AutoCAD has used since 2018, which is the newest one Autodesk has
-published. `createDrawing({ dxf: "R12" })` targets R12, the oldest version still
-in common use, which nearly every CAD program can open. `toDXF(drawing)` writes
+newest published version, in use since 2018. `createDrawing({ dxf: "R12" })`
+targets R12, the oldest version still in common use, which nearly every CAD program can open. `toDXF(drawing)` writes
 the drawing's version, and `toDXF(drawing, { version })` writes another one.
 
 |                           | `"R2018"`, the default                                                  | `"R12"`                                            |
@@ -279,13 +278,13 @@ the drawing's version, and `toDXF(drawing, { version })` writes another one.
 | Dimensions                | Linear and aligned                                                      | No                                                 |
 
 R12 gets no new features. Choose it only for a program that cannot read R2018.
-CAD needs the stored units to scale a drawing inserted into another, and AutoCAD
-shows layer names from an R12 file in upper case.
+CAD needs the stored units to scale a drawing inserted into another, and the leading
+CAD app shows layer names from an R12 file in upper case.
 
 ## Checks
 
-AutoCAD discards a whole drawing over one bad layer name, and it reports no
-line of your code when it does. tsdraft checks the rules AutoCAD enforces at
+The leading CAD app discards a whole drawing over one bad layer name, and it
+reports no line of your code when it does. tsdraft checks that app's rules at
 three points, so the mistake shows up where you made it.
 
 1. **In the editor.** Layer names, colors, sizes and fonts written as literals are
@@ -294,7 +293,7 @@ three points, so the mistake shows up where you made it.
    This covers values the compiler cannot see, such as a name read from a file.
 3. **Before export.** `lint(drawing)` returns every problem in a drawing, and
    `toDXF` throws a `DrawingError` that lists them instead of writing a file
-   AutoCAD would reject.
+   that app would reject.
 
 ```ts
 const d = createDrawing({ units: "ft", dxf: "R12" });
@@ -314,7 +313,7 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
 - [Rules](docs/rules.md) lists what `lint` refuses and what it warns about.
 - [The Drawing format](docs/format.md) covers format 0, entity ids, `toJSON`
   and `fromJSON`, and what a diagnostic carries.
-- [Layer names](docs/layer-names.md) explains how AutoCAD compares layer and
+- [Layer names](docs/layer-names.md) explains how the leading CAD app compares layer and
   linetype names, and lists the pairs `AUDIT` calls duplicates and the
   characters it refuses.
 - [Blocks](docs/blocks.md) covers blocks, inserts and attributes: layers in a
@@ -331,8 +330,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   attributes, and a firm's own border placed under a sheet as an xref.
 - [Text](docs/text.md) covers text styles, fonts and justification, how long a
   text plots with `measureText`, the warnings of `inspectText` about text that
-  overlaps or leaves its border, what tsdraft escapes in text, and what AutoCAD
-  does with it after a save.
+  overlaps or leaves its border, what tsdraft escapes in text, and what the leading
+  CAD app does with it after a save.
 - [Standards](docs/standard.md) covers a firm's standard: the document,
   `defineStandard`, the built-in standard, drawing to a standard, what `lint`
   holds a drawing to, and the `standard` a drawing file exports.
