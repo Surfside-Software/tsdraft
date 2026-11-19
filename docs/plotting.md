@@ -61,6 +61,8 @@ preview shows it:
   circle, as [Linetypes on a sheet](layouts.md#linetypes-on-a-sheet) says.
 - A line of lineweight 0 plots as the thinnest line the printer draws, as a viewport's border
   does.
+- A wide side of a polyline is filled, at its width whatever its pen, with its joins and its
+  dashes as [How it plots](polylines.md#how-it-plots) says.
 - Each layer is a layer of the PDF too, by the name the picture gives it, `XREF|LAYER` for a
   layer of an xref, so a PDF viewer lists the layers and can hide one.
 - Each page has a bookmark and a page label with its layout's name.

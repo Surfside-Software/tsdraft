@@ -55,7 +55,7 @@ states and keeps each object's handle, and it keeps going past what it does not 
   style with whether it is annotative, and a dimension style with the units it writes lengths
   in. Two entries of one name are both kept, in the order of the file.
 - `blocks`: each with its base point, its attribute definitions and its entities, below. What
-  else a block draws is counted under `other` by kind, such as `HATCH` or `LWPOLYLINE with arcs`,
+  else a block draws is counted under `other` by kind, such as `HATCH` or `LWPOLYLINE in 3D`,
   and so is what stands in another plane than the block's. The blocks keep `BLOCK_ITEMS`,
   400,000 items in all, counted as below, and count what comes past that under `past the limit`.
   The pictures the leading CAD app makes for dimensions, the blocks named `*D` and a number, are
@@ -91,8 +91,10 @@ The texts of a block's definition are kept, since a title block's labels belong 
 
 A space and a block hold one type, `ReadEntity`, of the kinds tsdraft's writers write:
 
-- `line`, `circle` and `arc`, and `polyline` for a polyline of straight segments, open or
-  closed. A polyline with an arc or a width is counted under `other`.
+- `line`, `circle` and `arc`, and `polyline` for a lightweight polyline or a 2D one, open or
+  closed, with `bulges`, one for each side, when a side is an arc, and `width`, one width for
+  every side, or `widths`, each side's width at its start and its end, when a side is wide, as
+  a `Polyline` holds them. A 2D polyline's vertex with no width of its own has the polyline's.
 - `text`: a text of one line, with its `value`.
 - `insert`: its block, by name and by the handle of its record in `blockHandle`, its point,
   scale and rotation, `tags`, and with `geometry` its `attributes`: each a text with its `tag`

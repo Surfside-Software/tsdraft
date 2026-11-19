@@ -19,10 +19,12 @@ import type {
   Leader,
   LeaderStyle,
   Point,
+  Polyline,
   Text,
   TextStyle,
 } from "./drawing.ts";
 import { layerKey, layerKeys } from "./layers.ts";
+import { hasArcsOrWidths, mayCurve, polylineBox, PolylineMemo } from "./polylines.ts";
 import { leaderPicture, leaderRepeats } from "./leaders.ts";
 import { inStyle, measurer } from "./measure.ts";
 import { filled } from "./shape.ts";
@@ -58,7 +60,8 @@ const SHARED = 64;
 const LONG = 256;
 
 /**
- * Approximate extents. Arcs use their full circle. A text counts for the box `measureText`
+ * Approximate extents. Arcs use their full circle, and a polyline counts for its points, the
+ * arcs of its sides and its wide sides with their joins. A text counts for the box `measureText`
  * gives it, its capitals as long as the text plots, justified, turned and leaned as it is,
  * and for what its font draws below the baseline. An insert counts for the box of what its block
  * draws, in the block's coordinates, where the insert puts the box's corners, so a turned insert
@@ -260,7 +263,7 @@ export function boxer(
         add(...e.to);
         break;
       case "polyline": {
-        const box = pointsBox(e.points);
+        const box = curvedBox(e) ?? pointsBox(e.points);
         if (box[0] === Infinity) break;
         add(box[0], box[1]);
         add(box[2], box[3]);
@@ -307,6 +310,47 @@ export function boxer(
     const box = empty();
     for (const p of filled(points)) include(box, ...p);
     if (long) pointBoxes.set(points, box);
+    return box;
+  };
+  /**
+   * The box of a polyline with an arc or a width, or undefined for one with neither, worked out
+   * once for every polyline that holds the same lists: its points, its arcs and its filled sides.
+   * A long list read again for another polyline is paid for, as `lint` pays for it.
+   */
+  const curvedBoxes = new PolylineMemo<Bounds | null>();
+  const curvedLists = new WeakSet<object>();
+  const curvedBox = (e: Polyline): Bounds | undefined => {
+    if (!mayCurve(e)) return undefined;
+    const known = curvedBoxes.get(e);
+    if (known !== undefined) return known ?? undefined;
+    /**
+     * Pays for reading long lists again, a unit for each `per` items, and says whether there was
+     * room to.
+     */
+    const paid = (lists: readonly unknown[], per: number): boolean => {
+      let cost = 0;
+      for (const list of lists) {
+        if (!Array.isArray(list) || list.length < SHARED) continue;
+        if (curvedLists.has(list)) cost += Math.floor(list.length / per);
+        else curvedLists.add(list);
+      }
+      return cost === 0 || spend(cost);
+    };
+    // Telling whether it has an arc or a width reads its bulges and widths. Boxing it reads its
+    // points and works out each side's arc, filled shape and join, which costs more for each.
+    if (!paid([e.bulges, e.widths], 8)) return empty();
+    if (!hasArcsOrWidths(e)) {
+      curvedBoxes.set(e, null);
+      return undefined;
+    }
+    if (!paid([e.points], 2)) return empty();
+    const box = empty();
+    const found = polylineBox(e);
+    if (found) {
+      include(box, found[0], found[1]);
+      include(box, found[2], found[3]);
+    }
+    curvedBoxes.set(e, box);
     return box;
   };
   /** What a dimension draws: its lines, its arrowheads, and its text as any text is boxed. */

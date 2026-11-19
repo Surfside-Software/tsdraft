@@ -20,10 +20,25 @@ import {
   type LeaderStyle,
   type Line,
   type Point,
+  type Polyline,
   type Text,
   type TextStyle,
   type Viewport,
 } from "./drawing.ts";
+import {
+  arcPoint,
+  hasArcsOrWidths,
+  isWide,
+  mayCurve,
+  polylineBands,
+  polylineSides,
+  PolylineMemo,
+  sideArc,
+  sideLength,
+  type Band,
+  type PolylineSide,
+  type SideArc,
+} from "./polylines.ts";
 import { boxer, type Boxer } from "./extents.ts";
 import { fontInfo, STANDARD_FONT } from "./fonts.ts";
 import { fmt, written } from "./format.ts";
@@ -177,6 +192,9 @@ const MAX_WALKED = 2_000_000;
  */
 const CHARACTERS = 250;
 
+/** The fewest items of a list a plan reads that `toSVG` pays for when another plan reads it again. */
+const PLANNED = 64;
+
 /** The viewports of a picture that look through model space free of `MAX_WALKED`. */
 const FREE_VIEWS = 64;
 
@@ -250,6 +268,81 @@ interface Sides {
   readonly points: readonly Point[];
   readonly ends: readonly number[];
   readonly longest: number;
+}
+
+/**
+ * What a polyline with an arc or a width draws, worked out once a picture, so that a placement
+ * does work only for what it draws: each side that has a length, with its arc, the length a
+ * pattern is fitted to and,
+ * drawn solid, its filled shape and joins, and the longest side.
+ */
+interface Plan {
+  readonly parts: readonly {
+    readonly side: PolylineSide;
+    readonly arc: SideArc | undefined;
+    /**
+     * The length a pattern is fitted to: the side's own, or for a wide arc its length along its
+     * outer edge, at the larger of its widths.
+     */
+    readonly fit: number;
+    readonly band: Band | undefined;
+  }[];
+  /** The longest `fit`, which a pattern too fine for draws the whole polyline solid. */
+  readonly longest: number;
+}
+
+/**
+ * What a picture works out once: the sides of each list of points, and the plan of each
+ * polyline with an arc or a width, or `null` for one with neither.
+ */
+interface Known {
+  readonly sides: WeakMap<object, Sides>;
+  readonly plans: PolylineMemo<Plan | null>;
+  /**
+   * Pays for the lists a plan is about to read, when a list was read for another plan before,
+   * or refuses the picture.
+   */
+  readonly readAgain: (lists: readonly unknown[]) => void;
+}
+
+/** A new `Known`, for one picture, which pays for lists read again with `readAgain`. */
+function knowing(readAgain: Known["readAgain"] = () => {}): Known {
+  return { sides: new WeakMap(), plans: new PolylineMemo(), readAgain };
+}
+
+/**
+ * The plan of a polyline with an arc or a width, or undefined for one with neither, worked out
+ * once into `known` for every polyline that holds the same lists.
+ */
+function planOf(e: Polyline, known: Known): Plan | undefined {
+  if (!mayCurve(e)) return undefined;
+  const found = known.plans.get(e);
+  if (found !== undefined) return found ?? undefined;
+  // Telling whether it has an arc or a width reads its bulges and widths, and its plan its points.
+  known.readAgain([e.bulges, e.widths]);
+  if (!hasArcsOrWidths(e)) {
+    known.plans.set(e, null);
+    return undefined;
+  }
+  known.readAgain([e.points]);
+  const sides = polylineSides(e);
+  const bands = polylineBands(sides, e.closed);
+  const parts: Plan["parts"][number][] = [];
+  let longest = 0;
+  sides.forEach((side, i) => {
+    const arc = sideArc(side.from, side.to, side.bulge);
+    const length = sideLength(side, arc);
+    if (!(length > 0)) return;
+    const fit =
+      arc && isWide(side)
+        ? (arc.radius + Math.max(side.startWidth, side.endWidth) / 2) * Math.abs(arc.sweep)
+        : length;
+    if (fit > longest) longest = fit;
+    parts.push({ side, arc, fit, band: bands[i] });
+  });
+  const plan = { parts, longest };
+  known.plans.set(e, plan);
+  return plan;
 }
 
 /**
@@ -423,7 +516,19 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
   };
 
   /** The sides of each list of points a pattern cuts, read once for the picture. */
-  const sides = new WeakMap<object, Sides>();
+  // A long list that one polyline's plan read and another's reads again is paid for, as `lint`
+  // pays for it, by the entity drawn at the time.
+  let drawingAt: (() => string) | undefined;
+  const planned = new WeakSet<object>();
+  const sides = knowing((lists) => {
+    let cost = 0;
+    for (const list of lists) {
+      if (!Array.isArray(list) || list.length < PLANNED) continue;
+      if (planned.has(list)) cost += Math.floor(list.length / 8);
+      else planned.add(list);
+    }
+    if (cost > 0 && !spend(cost)) refuse(drawingAt?.() ?? "a polyline");
+  });
 
   /** Each pattern scaled for each space, worked out when first drawn with. */
   const scaled = new Map<readonly number[], Map<number, Dashes>>();
@@ -522,6 +627,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     const line = look.indent.length + 1;
     return shown.map(([i, e]) => {
       const where = () => entityAt(i, e, space);
+      drawingAt = where;
       if (e.kind !== "insert") {
         const element = drawn(e, marks(e, i), pen(look, styled(e), { name: e.layer }, where), look);
         if (!write(element.length + line)) refuse(where());
@@ -980,7 +1086,7 @@ function leaderToSvg(
   look: Look,
   matrix: Matrix | undefined,
   room: number,
-  sides: WeakMap<object, Sides>,
+  sides: Known,
 ): string {
   if (picture === undefined) return `<g ${mark}/>`;
   const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
@@ -1135,11 +1241,15 @@ function entityToSvg(
   style: TextStyle | undefined,
   matrix: Matrix | undefined,
   room: number,
-  sides = new WeakMap<object, Sides>(),
+  sides: Known = knowing(),
 ): string {
   // A lineweight of 0 draws as the thinnest line, as in the leading CAD app.
   const s = `stroke="${pen.color}"${look.stroke(pen.lineweight)} ${mark}`;
   const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
+  const plan = e.kind === "polyline" ? planOf(e, sides) : undefined;
+  if (e.kind === "polyline" && plan) {
+    return polylineToSvg(e, plan, mark, pen, look, matrix, room, sides);
+  }
   if (e.kind !== "text" && pen.dashes) {
     const d = dashedPath(e, pen.dashes, matrix, room, sides);
     // A pattern with a dot draws it as a round cap on a path of no length.
@@ -1251,7 +1361,8 @@ function dashedPath(
   { lengths: dashes, total }: Dashes,
   matrix: Matrix | undefined,
   room: number,
-  known: WeakMap<object, Sides>,
+  known: Known,
+  wide?: { readonly fills: string[]; readonly ends: string[] },
 ): string | undefined {
   // Dashes that add up to no length would never reach the end of a stretch.
   if (!(total > 0)) return undefined;
@@ -1259,7 +1370,7 @@ function dashedPath(
     const [mx, my] = matrix ? mapPoint(matrix, [px, py]) : [px, py];
     return `${fmt(mx)} ${fmt(my)}`;
   };
-  const out: string[] = [];
+  let out: string[] = [];
   let size = 0;
   /** Draws a dash from `from` to `to` along a stretch, and counts its characters. */
   const dash = (draw: (from: number, to: number) => string, from: number, to: number): void => {
@@ -1353,6 +1464,43 @@ function dashedPath(
       ok = straight(e.from, e.to);
       break;
     case "polyline": {
+      const plan = planOf(e, known);
+      if (plan) {
+        // A side the pattern is too fine for draws the whole polyline solid.
+        if (plan.longest / total > MAX_DASHES) return undefined;
+        const strokes = out;
+        for (const { side, arc, fit } of plan.parts) {
+          if (size > room) break;
+          if (!isWide(side)) {
+            if (!arc) straight(side.from, side.to);
+            else {
+              // An arc that turns clockwise is cut from its end, which fits the same dashes.
+              const from = arc.sweep > 0 ? arc.start : arc.start + arc.sweep;
+              round(arc.center, arc.radius, degrees(from), degrees(Math.abs(arc.sweep)), true);
+            }
+            continue;
+          }
+          // Each dash of a wide side is filled, square at both ends.
+          out = [];
+          cut(fit, (from, to) => bandPiece(side, arc, from / fit, to / fit, place, matrix), true);
+          if (out.length > 0) wide?.fills.push(out.join(" "));
+          out = strokes;
+          // A straight side cut into dashes ends in the thinnest line across its end, and so does
+          // an arc whose width changes, at the end it reaches counterclockwise.
+          const tapered = side.startWidth !== side.endWidth;
+          if ((!arc || tapered) && fit >= total * (1 - 1e-9)) {
+            const t = !arc || arc.sweep > 0 ? 1 : 0;
+            const ended = bandPiece(side, arc, t, t, place, matrix).split(" L ");
+            const across = arc
+              ? `${ended[0]!} L ${ended[ended.length / 2]!}`
+              : `${ended[0]!} L ${ended[2]!}`;
+            size += across.length + 1;
+            wide?.ends.push(across);
+          }
+        }
+        ok = true;
+        break;
+      }
       const { points, ends, longest } = sidesOf(e.points, known);
       const [first, last] = [points[0], points.at(-1)];
       // The side that closes it, NaN when there is none.
@@ -1381,15 +1529,146 @@ function dashedPath(
       ok = round(e.center, e.radius, e.startAngle, sweep(e.startAngle, e.endAngle), true);
       break;
   }
-  return ok && out.length > 0 ? out.join(" ") : undefined;
+  return ok && (out.length > 0 || (wide?.fills.length ?? 0) > 0) ? out.join(" ") : undefined;
+}
+
+/**
+ * The path of the filled piece of a side from `t0` to `t1` of the way along it, square to the
+ * side at both ends, where `matrix` puts it: its left edge from `t0` to `t1`, then its right edge
+ * back. The width changes along it from the side's start width to its end width.
+ */
+function bandPiece(
+  side: PolylineSide,
+  arc: SideArc | undefined,
+  t0: number,
+  t1: number,
+  place: (x: number, y: number) => string,
+  matrix: Matrix | undefined,
+): string {
+  const half = (t: number): number => (side.startWidth + (side.endWidth - side.startWidth) * t) / 2;
+  if (!arc) {
+    const [dx, dy] = [side.to[0] - side.from[0], side.to[1] - side.from[1]];
+    const length = Math.hypot(dx, dy);
+    const [nx, ny] = [-dy / length, dx / length];
+    const edge = (t: number, h: number): string =>
+      place(side.from[0] + dx * t + nx * h, side.from[1] + dy * t + ny * h);
+    return `M ${edge(t0, half(t0))} L ${edge(t1, half(t1))} L ${edge(t1, -half(t1))} L ${edge(t0, -half(t0))}`;
+  }
+  // The left of an arc that turns counterclockwise is toward its center.
+  const inward = arc.sweep > 0 ? 1 : -1;
+  const point = (t: number, h: number): string => {
+    const [x, y] = arcPoint(arc, t, arc.radius + h);
+    return place(x, y);
+  };
+  if (side.startWidth === side.endWidth) {
+    const h = side.startWidth / 2;
+    /** The edge `offset` off the middle from `from` to `to` of the way along, in arcs of at most half a turn. */
+    const edge = (offset: number, from: number, to: number): string => {
+      const round = rounded(Math.abs(arc.radius + offset), matrix);
+      // sweep-flag 1 is counterclockwise in local coordinates, which a mirroring matrix turns.
+      const ccw = arc.sweep > 0 === to > from;
+      const flag = ccw ? round.sweep : 1 - round.sweep;
+      const a = `A ${fmt(round.rx)} ${fmt(round.ry)} ${fmt(round.turn)} 0 ${flag}`;
+      return Math.abs(arc.sweep * (to - from)) > Math.PI
+        ? `${a} ${point((from + to) / 2, offset)} ${a} ${point(to, offset)}`
+        : `${a} ${point(to, offset)}`;
+    };
+    const [left, right] = [-inward * h, inward * h];
+    return `M ${point(t0, left)} ${edge(left, t0, t1)} L ${point(t1, right)} ${edge(right, t1, t0)}`;
+  }
+  // An edge whose width changes along the arc is drawn in chords of at most 5 degrees.
+  const count = Math.max(2, Math.ceil((Math.abs(arc.sweep) * (t1 - t0)) / (Math.PI / 36)));
+  const along = (h: (t: number) => number, from: number, to: number): string[] =>
+    Array.from({ length: count + 1 }, (_, k) => {
+      const t = from + ((to - from) * k) / count;
+      return point(t, h(t));
+    });
+  const left = along((t) => -inward * half(t), t0, t1);
+  const right = along((t) => inward * half(t), t1, t0);
+  return `M ${[...left, ...right].join(" L ")}`;
+}
+
+/**
+ * A polyline with an arc or a width: each wide side filled, with its joins, and each run of
+ * sides of width 0 as one path, straight or along its arcs. With dashes, each dash of a wide side
+ * is filled on its own. Several elements are a group, which `mark` is on.
+ */
+function polylineToSvg(
+  e: Polyline,
+  plan: Plan,
+  mark: string,
+  pen: Pen,
+  look: Look,
+  matrix: Matrix | undefined,
+  room: number,
+  known: Known,
+): string {
+  const place = (px: number, py: number): string => {
+    const [mx, my] = matrix ? mapPoint(matrix, [px, py]) : [px, py];
+    return `${fmt(mx)} ${fmt(my)}`;
+  };
+  const stroked = `stroke="${pen.color}"${look.stroke(pen.lineweight)}`;
+  const fill = `fill="${pen.color}" stroke="none"`;
+  const parts: string[] = [];
+  const dashed = pen.dashes
+    ? { fills: [] as string[], ends: [] as string[], d: undefined as string | undefined }
+    : undefined;
+  if (pen.dashes && dashed) dashed.d = dashedPath(e, pen.dashes, matrix, room, known, dashed);
+  if (dashed && (dashed.d !== undefined || dashed.fills.length > 0)) {
+    const cap = pen.dashes?.dot ? ` stroke-linecap="round"` : "";
+    if (dashed.d) parts.push(`<path d="${dashed.d}"${cap} ${stroked}/>`);
+    for (const d of dashed.fills) parts.push(`<path d="${d}" ${fill}/>`);
+    if (dashed.ends.length > 0) {
+      parts.push(`<path d="${dashed.ends.join(" ")}" stroke="${pen.color}"${look.stroke(0)}/>`);
+    }
+  } else {
+    let run: string[] = [];
+    let used = 0;
+    const flush = (): void => {
+      if (run.length > 0) parts.push(`<path d="${run.join(" ")}" ${stroked}/>`);
+      run = [];
+    };
+    for (const { side, arc, band } of plan.parts) {
+      if (used > room) break;
+      if (band) {
+        flush();
+        const d = band.arc
+          ? bandPiece(side, band.arc, 0, 1, place, matrix)
+          : `M ${[band.startLeft, band.endLeft, band.endRight, band.startRight].map(([x, y]) => place(x, y)).join(" L ")}`;
+        parts.push(`<path d="${d}" ${fill}/>`);
+        used += d.length;
+        continue;
+      }
+      if (run.length === 0) run.push(`M ${place(...side.from)}`);
+      if (!arc) run.push(`L ${place(...side.to)}`);
+      else {
+        const round = rounded(arc.radius, matrix);
+        const flag = arc.sweep > 0 ? round.sweep : 1 - round.sweep;
+        const a = `A ${fmt(round.rx)} ${fmt(round.ry)} ${fmt(round.turn)} 0 ${flag}`;
+        // An arc of more than half a turn is drawn as two halves, so that no arc of the path
+        // ends where it starts, which SVG would draw as nothing.
+        if (Math.abs(arc.sweep) > Math.PI) run.push(`${a} ${place(...arcPoint(arc, 0.5))}`);
+        run.push(`${a} ${place(...side.to)}`);
+      }
+      used += run.at(-1)!.length;
+    }
+    flush();
+  }
+  if (parts.length === 0) return `<g ${mark}/>`;
+  if (parts.length === 1) return parts[0]!.replace(/\/>$/, ` ${mark}/>`);
+  return `<g ${mark}>\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
+}
+
+function degrees(radians: number): number {
+  return (radians * 180) / Math.PI;
 }
 
 /**
  * The sides of a list of points that have a length, read once into `known`. A side whose length
  * is 0, or not a number, draws no dash.
  */
-function sidesOf(list: unknown, known: WeakMap<object, Sides>): Sides {
-  const found = typeof list === "object" && list !== null ? known.get(list) : undefined;
+function sidesOf(list: unknown, known: Known): Sides {
+  const found = typeof list === "object" && list !== null ? known.sides.get(list) : undefined;
   if (found) return found;
   const points = filled(list) as readonly Point[];
   const ends: number[] = [];
@@ -1402,7 +1681,7 @@ function sidesOf(list: unknown, known: WeakMap<object, Sides>): Sides {
     if (length > longest) longest = length;
   }
   const sides = { points, ends, longest };
-  if (typeof list === "object" && list !== null) known.set(list, sides);
+  if (typeof list === "object" && list !== null) known.sides.set(list, sides);
   return sides;
 }
 

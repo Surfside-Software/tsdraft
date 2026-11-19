@@ -16,6 +16,7 @@ import {
   nameCost,
   placementOf,
   readingOf,
+  sidesOf,
   type Later,
   type PendingStart,
 } from "./entities.ts";
@@ -412,8 +413,11 @@ interface PolylineOwner {
   readonly kind: "polyline";
   readonly rec: Rec;
   points: Point[];
-  arcs: boolean;
-  wide: boolean;
+  /** The bulge and the widths each vertex gives the side from it to the next. */
+  bulges: number[];
+  widths: [number, number][];
+  /** The widths of a vertex that gives none, the polyline's own. */
+  readonly widthsAt: readonly [number, number];
   over: boolean;
   broken: boolean;
   readonly face: Facing;
@@ -860,8 +864,9 @@ class DxfReader {
           kind: "polyline",
           rec: r,
           points: [],
-          arcs: false,
-          wide: (num(r, 40) ?? 0) !== 0 || (num(r, 41) ?? 0) !== 0,
+          bulges: [],
+          widths: [],
+          widthsAt: [num(r, 40) ?? 0, num(r, 41) ?? 0],
           over: false,
           broken: brokenNumber(r),
           face,
@@ -1074,14 +1079,20 @@ class DxfReader {
     if (brokenNumber(r)) owner.broken = true;
     // A spline's frame point is not a point of the polyline.
     if ((flags & 16) === 0 && target && !owner.over) {
-      // A polyline that cannot fit what its target may still keep holds no more points.
+      // A polyline that cannot fit what its target may still keep holds no more points, nor
+      // the bulge and the pair of widths of each.
       if (owner.points.length >= this.#room(target)) {
         owner.over = true;
         owner.points = [];
-      } else owner.points.push(point(r, 10));
+        owner.bulges = [];
+        owner.widths = [];
+      } else {
+        owner.points.push(point(r, 10));
+        owner.bulges.push(num(r, 42) ?? 0);
+        // A vertex with no width of its own has the polyline's.
+        owner.widths.push([num(r, 40) ?? owner.widthsAt[0], num(r, 41) ?? owner.widthsAt[1]]);
+      }
     }
-    if ((num(r, 42) ?? 0) !== 0) owner.arcs = true;
-    if ((num(r, 40) ?? 0) !== 0 || (num(r, 41) ?? 0) !== 0) owner.wide = true;
   }
 
   #placeInsert(owner: InsertOwner): void {
@@ -1123,15 +1134,15 @@ class DxfReader {
     // 8 is a 3D polyline, 16 a mesh and 64 a face mesh.
     if ((flags & (8 | 16 | 64)) !== 0 || owner.face === 0) add(target.other, "POLYLINE in 3D");
     else if (owner.broken) add(this.unread.malformed, "POLYLINE with a number that is not finite");
-    else if (owner.arcs) add(target.other, "POLYLINE with arcs");
-    else if (owner.wide) add(target.other, "POLYLINE with widths");
     else if (owner.over) add(target.other, "past the limit");
     else {
+      const closed = (flags & 1) !== 0;
       this.#kept(target, {
         ...baseOf(r, name(r, 8) ?? "0", handleAt(r, 5)),
         kind: "polyline",
         points: owner.face === -1 ? owner.points.map((p) => placed(p, -1)) : owner.points,
-        closed: (flags & 1) !== 0,
+        closed,
+        ...sidesOf(owner.points.length, closed, owner.bulges, owner.widths, 0, owner.face),
       });
     }
   }

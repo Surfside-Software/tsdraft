@@ -123,6 +123,7 @@ import {
   linetypeScaleProblem,
   R12_ONLY,
   magnitudeProblem,
+  polylineSidesProblems,
   paperProblem,
   placedAttributeProblem,
   plotStyleProblem,
@@ -1417,16 +1418,15 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       // there may be unreported, and toDXF refuses the drawing.
       if (stopped !== undefined) return;
       const here = () => `${entity.kind} #${index} of ${space}`;
-      // A long list of points that many polylines share is read again for each, and paid for.
-      const points: unknown =
-        isObject(entity) && entity.kind === "polyline" ? entity.points : undefined;
-      if (
-        Array.isArray(points) &&
-        points.length >= FREE &&
-        again(points) &&
-        !spend(Math.floor(points.length / 8), here)
-      ) {
-        return;
+      // A long list of points, bulges or widths that many polylines share is read again for
+      // each, and paid for.
+      if (isObject(entity) && entity.kind === "polyline") {
+        let cost = 0;
+        for (const list of [entity.points, entity.bulges, entity.widths]) {
+          if (Array.isArray(list) && list.length >= FREE && again(list))
+            cost += Math.floor(list.length / 8);
+        }
+        if (cost > 0 && !spend(cost, here)) return;
       }
       // What the extents would do again is paid for there, so a drawing that can cost them
       // anything is boxed below.
@@ -1465,6 +1465,13 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       if (layer) add("undefined-layer", "error", layer);
       const problems = geometryProblems(entity);
       for (const problem of problems) add("geometry", "error", problem);
+      if (
+        r12 &&
+        entity.kind === "polyline" &&
+        (entity.bulges !== undefined || entity.width !== undefined || entity.widths !== undefined)
+      ) {
+        add("geometry", "error", R12_ONLY.polylines);
+      }
       if (entity.kind === "insert") {
         if (r12) {
           add("block", "error", R12_ONLY.blocks);
@@ -2037,12 +2044,16 @@ function asText(definition: AttributeDefinition): Text {
 }
 
 /**
- * True for an entity whose box can cost anything: an insert, a dimension, a leader, and a text
- * too long for a table of strings to keep.
+ * True for an entity whose box can cost anything: an insert, a dimension, a leader, a text too
+ * long for a table of strings to keep, and a polyline that may have an arc or a width, whose box
+ * pays for a long list read again.
  */
 function costsBoxes(e: Readonly<Record<string, unknown>>): boolean {
   const kind = e.kind;
   if (kind === "text") return typeof e.value === "string" && e.value.length > KEYED;
+  if (kind === "polyline") {
+    return Array.isArray(e.bulges) || Array.isArray(e.widths) || typeof e.width === "number";
+  }
   return (
     kind === "insert" ||
     kind === "leader" ||
@@ -2081,6 +2092,10 @@ function geometryProblems(e: Entity): string[] {
           out.push(`its points: ${problem}`);
           break;
         }
+      }
+      if (e.points.length >= 2) {
+        const sides = e.closed ? e.points.length : e.points.length - 1;
+        out.push(...polylineSidesProblems(sides, e.bulges, e.width, e.widths));
       }
       break;
     case "circle":

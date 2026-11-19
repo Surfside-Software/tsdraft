@@ -9,6 +9,7 @@ import type {
   ReadEntityBase,
   ReadMtext,
   ReadMultileader,
+  ReadPolyline,
   ReadTextPlacement,
 } from "./model.ts";
 import {
@@ -221,27 +222,63 @@ export function readingOf(
 function lwpolyline(r: Rec, base: ReadEntityBase, face: Facing): Reading {
   if (face === 0) return { other: "LWPOLYLINE in 3D" };
   const points: Point[] = [];
-  let arcs = false;
-  let x: number | undefined;
-  let wide = (num(r, 43) ?? 0) !== 0;
+  // The bulge and the two widths each point gives the side from it to the next, from its group
+  // 10 up to the next point's, in whatever order they come.
+  const bulges: number[] = [];
+  const widths: [number, number][] = [];
+  let vertex: { x: number; y?: number; bulge: number; widths: [number, number] } | undefined;
+  const close = (): void => {
+    if (vertex?.y === undefined) return;
+    points.push(placed([vertex.x, vertex.y], face));
+    bulges.push(vertex.bulge);
+    widths.push(vertex.widths);
+  };
   for (let i = 0; i < r.codes.length; i++) {
     const code = r.codes[i];
-    if (code === 10) x = Number(r.values[i]);
-    else if (code === 20 && x !== undefined) {
-      points.push(placed([x, Number(r.values[i])], face));
-      x = undefined;
-    } else if (code === 42 && Number(r.values[i]) !== 0) arcs = true;
-    else if ((code === 40 || code === 41) && Number(r.values[i]) !== 0) wide = true;
+    const value = Number(r.values[i]);
+    if (code === 10) {
+      close();
+      vertex = { x: value, bulge: 0, widths: [0, 0] };
+    } else if (vertex === undefined) continue;
+    else if (code === 20 && vertex.y === undefined) vertex.y = value;
+    else if (code === 42) vertex.bulge = value;
+    else if (code === 40 || code === 41) vertex.widths[code - 40] = value;
   }
-  if (arcs) return { other: "LWPOLYLINE with arcs" };
-  if (wide) return { other: "LWPOLYLINE with widths" };
+  close();
+  const closed = ((num(r, 70) ?? 0) & 1) !== 0;
   return {
     entity: {
       ...base,
       kind: "polyline",
       points,
-      closed: ((num(r, 70) ?? 0) & 1) !== 0,
+      closed,
+      ...sidesOf(points.length, closed, bulges, widths, num(r, 43) ?? 0, face),
     },
+  };
+}
+
+/**
+ * The bulges and the widths of a polyline's sides, from what each of its points gives the side
+ * from it to the next, as `ReadPolyline` holds them: each left out when every one is 0, and the
+ * constant width only where no point gives a width of its own. A bulge seen from below turns the
+ * other way.
+ */
+export function sidesOf(
+  count: number,
+  closed: boolean,
+  bulges: readonly number[],
+  widths: readonly (readonly [number, number])[],
+  constant: number,
+  face: Facing,
+): Pick<ReadPolyline, "bulges" | "width" | "widths"> {
+  const sides = closed ? count : Math.max(0, count - 1);
+  const bent = bulges.slice(0, sides).map((bulge) => (face === -1 ? -bulge : bulge));
+  const own = widths.slice(0, sides);
+  const wide = own.some(([start, end]) => start !== 0 || end !== 0);
+  return {
+    ...(bent.some((bulge) => bulge !== 0) ? { bulges: bent.map((bulge) => bulge + 0) } : {}),
+    ...(wide ? { widths: own.map(([start, end]) => [start, end] as const) } : {}),
+    ...(!wide && constant !== 0 ? { width: constant } : {}),
   };
 }
 
@@ -417,7 +454,8 @@ export const attributeCost = (a: ReadAttribute): number =>
 
 /**
  * What an entity costs against `BLOCK_ITEMS` or `GEOMETRY_ITEMS`: one, and one more for each of
- * its points, each attribute or tag, and each 32 characters of its names and its text.
+ * its points, bulges and pairs of widths, each attribute or tag, and each 32 characters of its
+ * names and its text.
  */
 export function costOf(e: ReadEntity): number {
   const own = 1 + chars(e.layer) + chars(e.linetype);
@@ -428,6 +466,7 @@ export function costOf(e: ReadEntity): number {
     case "arc":
       return own + 1;
     case "polyline":
+      return own + e.points.length + (e.bulges?.length ?? 0) + (e.widths?.length ?? 0);
     case "solid":
       return own + e.points.length;
     case "text":

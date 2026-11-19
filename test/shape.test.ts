@@ -22,6 +22,7 @@ import {
   type Layout,
   type LeaderStyle,
   type Linetype,
+  type Polyline,
   type TextStyle,
   type Viewport,
   type Xref,
@@ -31,8 +32,15 @@ import { timeLimit } from "./time-limit.ts";
 const styled = { linetype: "DD", lineweight: 0.25 } as const;
 const justified = { style: "NOTES", align: "center", valign: "middle" } as const;
 
-/** Each kind of entity with every field it can have: a field left out is a compile error. */
-const kinds: { readonly [K in Entity["kind"]]: Required<Extract<Entity, { kind: K }>> } = {
+/**
+ * Each kind of entity with every field it can have: a field left out is a compile error. A
+ * polyline has a width or widths for each side, and `wide` has the other.
+ */
+const kinds: {
+  readonly [K in Entity["kind"]]: K extends "polyline"
+    ? Required<Omit<Polyline, "width">>
+    : Required<Extract<Entity, { kind: K }>>;
+} = {
   line: { kind: "line", layer: "WALL", from: [0, 0], to: [10, 0], id: "a", ...styled },
   polyline: {
     kind: "polyline",
@@ -43,6 +51,12 @@ const kinds: { readonly [K in Entity["kind"]]: Required<Extract<Entity, { kind: 
       [10, 5],
     ],
     closed: true,
+    bulges: [0, 0.5, -1],
+    widths: [
+      [0, 1],
+      [1, 1],
+      [0.5, 0],
+    ],
     id: "b",
     ...styled,
   },
@@ -121,6 +135,18 @@ const kinds: { readonly [K in Entity["kind"]]: Required<Extract<Entity, { kind: 
     gap: 0.02,
     id: "i",
   },
+};
+
+/** A polyline of one width, with every field the polyline of `kinds` leaves out. */
+const wide: Required<Omit<Polyline, "widths">> = {
+  kind: "polyline",
+  layer: "0",
+  points: kinds.polyline.points,
+  closed: false,
+  bulges: [0.25, 0],
+  width: 0.25,
+  id: "j",
+  ...styled,
 };
 
 /** One of everything an R2018 drawing can hold, with every field of every object. */
@@ -236,7 +262,11 @@ const full: Required<Drawing> & {
     },
   ],
   xrefs: [{ name: "BASE", path: "base.dwg", attach: true }],
-  entities: [...Object.values(kinds), { kind: "insert", layer: "0", block: "BASE", at: [0, 0] }],
+  entities: [
+    ...Object.values(kinds),
+    { kind: "insert", layer: "0", block: "BASE", at: [0, 0] },
+    wide,
+  ],
   layouts: [
     {
       name: "C-101",
@@ -270,7 +300,15 @@ const r12: Drawing = {
   layers: [{ name: "0", color: 7 }],
   entities: [
     { kind: "line", layer: "0", from: [0, 0], to: [10, 0], id: "a" },
-    { ...kinds.polyline, linetype: "ByLayer", lineweight: "ByLayer" },
+    {
+      kind: "polyline",
+      layer: "0",
+      points: kinds.polyline.points,
+      closed: true,
+      id: "b",
+      linetype: "ByLayer",
+      lineweight: "ByLayer",
+    },
     { kind: "circle", layer: "0", center: [5, 5], radius: 2 },
     { kind: "arc", layer: "0", center: [5, 5], radius: 3, startAngle: 0, endAngle: 90 },
     { kind: "text", layer: "0", at: [0, 4], height: 1, rotation: 0, value: "T-0" },

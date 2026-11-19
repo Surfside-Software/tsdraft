@@ -335,11 +335,12 @@ function shapes(all: boolean, typed = all): Shapes {
     (value, at, problems) => {
       const items = value as readonly unknown[];
       if (array(value, at) || items.length !== 2 || !isNumber(items[0]) || !isNumber(items[1])) {
-        problems.push(`${at} must be ${what}, [x, y]`);
+        problems.push(`${at} must be ${what}`);
       }
     };
-  const point = pair("a point");
-  const scale = pair("a scale along each axis");
+  const point = pair("a point, [x, y]");
+  const scale = pair("a scale along each axis, [x, y]");
+  const sideWidths = pair("the widths at a side's start and end, [start, end]");
   const oneOf =
     (...values: readonly string[]): Check =>
     (value, at, problems) => {
@@ -456,7 +457,7 @@ function shapes(all: boolean, typed = all): Shapes {
     line: fields<Line>({ kind, layer: string, from: point, to: point }, shared),
     polyline: fields<Polyline>(
       { kind, layer: string, points: list(point), closed: boolean },
-      shared,
+      { ...shared, bulges: list(number), width: number, widths: list(sideWidths) },
     ),
     circle: fields<Circle>({ kind, layer: string, center: point, radius: number }, shared),
     arc: fields<Arc>(

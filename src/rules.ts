@@ -131,6 +131,11 @@ const R12_DIMENSIONS =
   'tsdraft writes no dimensions to R12 drawings. Use DXF version "R2018" for a dimension';
 const R12_LEADERS =
   'tsdraft writes no leaders to R12 drawings. Use DXF version "R2018" for a leader';
+const R12_POLYLINES =
+  'tsdraft writes no arcs or widths of a polyline to R12 drawings. Use DXF version "R2018" for a polyline with bulges or a width';
+const POLYLINE_WIDTH =
+  "A polyline's width cannot be less than 0. The leading CAD app reads a negative width of every side as 0, and keeps a negative width of one side with no AUDIT error";
+const DONUT_HOLE = "A donut's hole cannot be less than 0 across";
 const ARROWHEAD_BLOCK =
   "Block names cannot be _ArchTick, _Open, _Dot or _None, in any case of their letters. The leading CAD app draws the architectural tick of a dimension and the arrowheads of a leader with the blocks of those names";
 const STANDARD_DIMENSION_STYLE_DEFINED =
@@ -865,6 +870,13 @@ export type R12Xrefs = typeof R12_XREFS;
 export type R12Layouts = typeof R12_LAYOUTS;
 export type R12Dimensions = typeof R12_DIMENSIONS;
 export type R12Leaders = typeof R12_LEADERS;
+export type R12Polylines = typeof R12_POLYLINES;
+
+/** Resolves to `N` when it is a width a polyline can have, and to the error message otherwise. */
+export type PolylineWidth<N extends number> = NotNegative<N, typeof POLYLINE_WIDTH>;
+
+/** Resolves to `N` when it is a donut's hole, and to the error message otherwise. */
+export type DonutHole<N extends number> = NotNegative<N, typeof DONUT_HOLE>;
 
 /** Returns what is wrong with a layer name for a DXF version, or undefined when it is valid. */
 export function layerNameProblem(name: string, version: DxfVersion): string | undefined {
@@ -1027,7 +1039,74 @@ export const R12_ONLY = {
   layouts: R12_LAYOUTS,
   dimensions: R12_DIMENSIONS,
   leaders: R12_LEADERS,
+  polylines: R12_POLYLINES,
 } as const;
+
+/** What is wrong with a donut's hole, of `inside` across, or undefined. */
+export function donutHoleProblem(inside: unknown): string | undefined {
+  return notNegativeProblem(inside, DONUT_HOLE);
+}
+
+/**
+ * What is wrong with the bulges and the widths of a polyline of `sides` sides, or undefined for
+ * each that is sound. It takes `unknown`s so that `lint` can report a drawing built by hand. A
+ * bulge and a width are judged as written: a width written as 0 is 0, and a bulge written as 0
+ * is a straight side.
+ */
+export function polylineSidesProblems(
+  sides: number,
+  bulges: unknown,
+  width: unknown,
+  widths: unknown,
+): string[] {
+  const out: string[] = [];
+  const counted = (list: readonly unknown[], what: string): boolean => {
+    if (list.length === sides) return true;
+    out.push(
+      `its ${what} must have one for each side, ${sides}, and it has ${list.length}. A closed polyline has a side for each point, and an open one a side fewer`,
+    );
+    return false;
+  };
+  if (bulges !== undefined) {
+    if (!Array.isArray(bulges)) out.push("its bulges must be an array of numbers");
+    else if (counted(bulges, "bulges")) {
+      for (let i = 0; i < bulges.length; i++) {
+        const bulge: unknown = bulges[i];
+        const problem =
+          typeof bulge !== "number" || !Number.isFinite(bulge)
+            ? "must be a finite number"
+            : magnitudeProblem(bulge);
+        if (!problem) continue;
+        out.push(`its bulge ${i}: ${problem}`);
+        break;
+      }
+    }
+  }
+  if (width !== undefined && widths !== undefined) {
+    out.push("it has a width and widths for each side: give one or the other");
+  }
+  if (width !== undefined) {
+    const problem = notNegativeProblem(width, POLYLINE_WIDTH);
+    if (problem) out.push(`its width: ${problem}`);
+  }
+  if (widths !== undefined) {
+    if (!Array.isArray(widths)) out.push("its widths must be an array of pairs of numbers");
+    else if (counted(widths, "widths")) {
+      for (let i = 0; i < widths.length; i++) {
+        const pair: unknown = widths[i];
+        const problem =
+          !Array.isArray(pair) || pair.length !== 2
+            ? "must be a pair of numbers, [start, end]"
+            : (notNegativeProblem(pair[0], POLYLINE_WIDTH) ??
+              notNegativeProblem(pair[1], POLYLINE_WIDTH));
+        if (!problem) continue;
+        out.push(`its widths ${i}: ${problem}`);
+        break;
+      }
+    }
+  }
+  return out;
+}
 
 /** How a text is justified across its line, and up and down it. The first of each is the default. */
 export const TEXT_ALIGNS = ["left", "center", "right"] as const;

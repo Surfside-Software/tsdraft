@@ -17,6 +17,27 @@
   `tsdraft dev` take the same in the export `xrefs`, lint each drawing given that they draw, at
   any depth, and `drawing.xrefs` gives each xref's `attach` and, for one shown, the `xrefs` of
   the drawing drawn for it. [docs/xrefs.md](docs/xrefs.md) describes them.
+- Polyline arcs and widths, in R2018 drawings. A `Polyline` holds `bulges`, one for each side,
+  where 0 is straight and 1 a half circle, and `width`, one width for every side, or `widths`,
+  the width at each side's start and end. `d.polyline(points, closed, options)` takes all three,
+  and `radius`, which rounds each corner with an arc tangent to both sides, as a bar's hook is
+  bent; `d.rect` takes `radius` too. `d.cloud(outline, { arc })` draws a revision cloud along an
+  outline, one closed polyline of arcs that each turn 110 degrees and bulge out of it, so a cloud
+  drawn around a note crosses none of it; an outline with a notch narrower than an arc bulges is
+  refused. `d.donut(center, outside, { inside })` draws a filled
+  ring, or a dot. `bulgeThrough(from, through, to)` gives the bulge of the arc through a point,
+  and `polylineBox` the box a polyline covers. `toDXF` writes them, `readDXF` reads them from a
+  lightweight polyline and from a 2D one, and `lint` refuses a list of bulges or widths that does
+  not have one for each side, a bulge or a width that is not a number, a negative width, `width`
+  and `widths` together, and either in an R12 drawing. `toSVG`, `toPDF` and `tsdraft render` draw
+  a side of width 0 with its pen and fill a wide one with no pen, as the leading CAD app plots
+  them: two straight sides meet in a miter up to a turn of 151 degrees, a straight side meets an
+  arc along the line from the arc's center, two arcs each end square, and each dash of a wide
+  side is filled. `checkIntent` leaves a footprint or a property line with an arc unchecked, and
+  says so. [docs/polylines.md](docs/polylines.md) describes them.
+- The example sheet has a revision cloud around the driveway, with a delta, on the layer
+  `C-ANNO-REVS` of its standard, and its north arrow's head is one polyline that widens from its
+  tip, which CAD programs fill.
 - The README lists a viewport's own frozen layers and its twist with what tsdraft draws, and no
   longer with what it does not have yet.
 - The README and the package's description name what tsdraft does now: plotting to PDF,

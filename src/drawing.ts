@@ -47,6 +47,7 @@ import {
   type PlotStyleTable,
 } from "./papers.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
+import { arcsAlong, cloud, donut, MAX_CLOUD_ARCS, rounded } from "./polylines.ts";
 import { canonical } from "./json.ts";
 import { DrawingError, type Diagnostic, type LintRule } from "./lint.ts";
 import {
@@ -62,6 +63,7 @@ import {
   dimensionStyleTwinProblem,
   dimensionAngleProblem,
   dimensionTextProblem,
+  donutHoleProblem,
   duplicateAttributeProblem,
   duplicateIdProblem,
   handleProblem,
@@ -94,6 +96,7 @@ import {
   layoutTwinProblem,
   paperProblem,
   plotStyleProblem,
+  polylineSidesProblems,
   R12_ONLY,
   scaleProblem,
   sheetNumberProblem,
@@ -138,7 +141,10 @@ import {
   type LeaderTargetsOf,
   type LeaderText,
   type NewLeaderStyleName,
+  type DonutHole,
+  type PolylineWidth,
   type R12Leaders,
+  type R12Polylines,
   type LineweightMm,
   type LineweightOf,
   type LinetypeName,
@@ -340,10 +346,25 @@ export interface Line extends EntityBase {
   readonly to: Point;
 }
 
+/**
+ * A polyline: sides from each point to the next and, when it is closed, from the last back to
+ * the first. A side is straight, or an arc by its bulge, and may be drawn wide: CAD programs fill
+ * a side that has a width, and draw one of width 0 with its pen.
+ */
 export interface Polyline extends EntityBase {
   readonly kind: "polyline";
   readonly points: readonly Point[];
   readonly closed: boolean;
+  /**
+   * The bulge of each side, one for each: 0 for a straight side, and for an arc the tangent of a
+   * quarter of the angle it turns through, greater than 0 when it turns counterclockwise. 1 is a
+   * half circle. Defaults to every side straight. R2018 only.
+   */
+  readonly bulges?: readonly number[];
+  /** The width of every side, in drawing units, 0 or more. R2018 only. */
+  readonly width?: number;
+  /** The width of each side at its start and at its end, one pair for each side. R2018 only. */
+  readonly widths?: readonly (readonly [start: number, end: number])[];
 }
 
 export interface Circle extends EntityBase {
@@ -967,6 +988,111 @@ export interface EntityOptions<
       : LineweightOf<W> | "ByLayer" | "ByBlock" | "Default";
   /** A pen of the drawing's standard, whose lineweight the entity takes. */
   readonly pen?: Z extends Standard ? PenOfStandard<P, Z> : PenWithoutStandard;
+}
+
+/**
+ * How wide a polyline is drawn: the width of every side, in drawing units, 0 or more. CAD
+ * programs fill a side that has a width, at that width whatever its pen, and draw one of width 0
+ * with its pen. R2018 only.
+ */
+interface Widened<V extends DxfVersion, N extends number> {
+  readonly width?: V extends "R12" ? R12Polylines : PolylineWidth<N>;
+}
+
+/**
+ * The options of `polyline()`: the bulge and the width of its sides, or a radius that rounds its
+ * corners, and the options of every entity.
+ *
+ * @typeParam N - The width as written.
+ * @typeParam R - The radius as written.
+ */
+export interface PolylineOptions<
+  V extends DxfVersion = "R2018",
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+  N extends number = number,
+  R extends number = number,
+>
+  extends EntityOptions<V, T, W, L, I, Z, P>, Widened<V, N> {
+  /**
+   * The bulge of each side, one for each: 0 for a straight side, and for an arc the tangent of a
+   * quarter of the angle it turns through, greater than 0 when it turns counterclockwise.
+   * `bulgeThrough` gives the bulge of the arc through a third point. R2018 only.
+   */
+  readonly bulges?: V extends "R12" ? R12Polylines : readonly number[];
+  /** The width of each side at its start and at its end, one pair for each side. R2018 only. */
+  readonly widths?: V extends "R12" ? R12Polylines : readonly (readonly [number, number])[];
+  /**
+   * Rounds every corner with an arc of this radius, tangent to both sides, as a bar's bend or a
+   * duct's turn is drawn. The polyline then holds the arcs' ends in place of its corners. With
+   * `width` only, not `bulges` or `widths`. R2018 only.
+   */
+  readonly radius?: V extends "R12" ? R12Polylines : Positive<R>;
+}
+
+/**
+ * The options of `rect()`: a radius that rounds its corners, and the options of every entity.
+ *
+ * @typeParam R - The radius as written.
+ */
+export interface RectOptions<
+  V extends DxfVersion = "R2018",
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+  R extends number = number,
+> extends EntityOptions<V, T, W, L, I, Z, P> {
+  /** Rounds each corner with a quarter circle of this radius, at most half the shorter side. R2018 only. */
+  readonly radius?: V extends "R12" ? R12Polylines : Positive<R>;
+}
+
+/**
+ * The options of `cloud()`: the length of its arcs, its width, and the options of every entity.
+ *
+ * @typeParam A - The length of an arc as written.
+ * @typeParam N - The width as written.
+ */
+export interface CloudOptions<
+  A extends number = number,
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+  N extends number = number,
+>
+  extends EntityOptions<"R2018", T, W, L, I, Z, P>, Widened<"R2018", N> {
+  /**
+   * About how far apart the ends of each arc are, in drawing units: each side of the outline
+   * holds the whole number of arcs nearest its length over this, and at least one.
+   */
+  readonly arc: Positive<A>;
+}
+
+/**
+ * The options of `donut()`: the diameter of its hole, and the options of every entity.
+ *
+ * @typeParam H - The diameter of the hole as written.
+ */
+export interface DonutOptions<
+  H extends number = number,
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+> extends EntityOptions<"R2018", T, W, L, I, Z, P> {
+  /** The diameter of its hole, less than the outside diameter. Defaults to 0: a filled dot. */
+  readonly inside?: DonutHole<H>;
 }
 
 /** A text style to define: a `TextStyle`, checked. */
@@ -2088,24 +2214,34 @@ export class DrawingBuilder<
     }));
   }
 
+  /**
+   * A polyline through `points`, and back to the first when `closed`. `bulges` makes a side an
+   * arc, `width` or `widths` draws the sides wide, and `radius` rounds every corner with an arc,
+   * as a bar's hook is bent: `d.polyline(hook, false, { radius: bend, width: bar })`.
+   */
   polyline<
     T extends string = string,
     W extends number = number,
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
     P extends string = string,
+    N extends number = number,
+    R extends number = number,
   >(
     points: readonly Point[],
     closed = false,
-    options: EntityOptions<V, T, W, L, I, Z, P> = {},
+    options: PolylineOptions<V, T, W, L, I, Z, P, N, R> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.polyline, options, () => {
       if (points.length < 2) refuse("geometry", "A polyline needs at least 2 points");
-      return { kind: "polyline", layer: this.#current, points: points.map(pt), closed };
+      return this.#polyline(points.map(pt), closed, options);
     });
   }
 
-  /** Closed rectangle from its lower-left corner. */
+  /**
+   * A closed rectangle from its lower-left corner, `width` along X and `height` along Y. `radius`
+   * rounds its corners.
+   */
   rect<
     W extends number,
     H extends number,
@@ -2114,11 +2250,12 @@ export class DrawingBuilder<
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
     P extends string = string,
+    R extends number = number,
   >(
     corner: Point,
     width: Positive<W>,
     height: Positive<H>,
-    options: EntityOptions<V, T, LW, L, I, Z, P> = {},
+    options: RectOptions<V, T, LW, L, I, Z, P, R> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.rect, options, () => {
       const [x, y] = pt(corner);
@@ -2133,8 +2270,152 @@ export class DrawingBuilder<
         [x + w, y + h],
         [x, y + h],
       ];
-      return { kind: "polyline", layer: this.#current, points: corners.map(pt), closed: true };
+      const { radius } = options as { readonly radius?: unknown };
+      return this.#polyline(corners.map(pt), true, radius === undefined ? {} : { radius });
     });
+  }
+
+  /**
+   * A revision cloud along a closed outline: the corners of a rectangle, or an outline drawn
+   * around what changed. It is one closed polyline of arcs from point to point along each side,
+   * each bulging out of the outline, so the cloud crosses nothing inside it. `arc` is about how
+   * far apart each arc's ends are, and `width` draws it wide. An arc that would reach across the
+   * outline, in a notch narrower than it bulges, is refused. R2018 only.
+   */
+  cloud<
+    A extends number,
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    P extends string = string,
+    N extends number = number,
+  >(
+    outline: readonly Point[],
+    options: V extends "R12" ? R12Polylines : CloudOptions<A, T, W, L, I, Z, P, N>,
+  ): this {
+    const o = options as unknown as CloudOptions;
+    return this.#add(DrawingBuilder.prototype.cloud, o, () => {
+      if (this.dxf === "R12") refuse("geometry", R12_ONLY.polylines);
+      if (outline.length < 3) refuse("geometry", "A cloud's outline needs at least 3 points");
+      const corners = outline.map(pt);
+      const arc = positive(o.arc, "arc");
+      const count = arcsAlong(corners, arc);
+      if (count > MAX_CLOUD_ARCS) {
+        refuse(
+          "geometry",
+          `arc: the cloud would have ${count} arcs, and has at most ${MAX_CLOUD_ARCS}. Give a longer arc`,
+        );
+      }
+      const made = cloud(corners, arc);
+      if (typeof made === "string") refuse("geometry", capitalized(made));
+      return this.#polyline(made.points, true, {
+        bulges: made.bulges,
+        ...(o.width === undefined ? {} : { width: o.width }),
+      });
+    });
+  }
+
+  /**
+   * A donut: a filled ring `outside` across about `center`, with a hole `inside` across, which
+   * defaults to 0 for a filled dot, such as a bar cut in a section. It is one closed polyline of
+   * two half circles, as wide as the ring. R2018 only.
+   */
+  donut<
+    D extends number,
+    H extends number = number,
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    P extends string = string,
+  >(
+    center: Point,
+    outside: V extends "R12" ? R12Polylines : Positive<D>,
+    options?: V extends "R12" ? R12Polylines : DonutOptions<H, T, W, L, I, Z, P>,
+  ): this {
+    const o = (options ?? {}) as unknown as DonutOptions;
+    return this.#add(DrawingBuilder.prototype.donut, o, () => {
+      if (this.dxf === "R12") refuse("geometry", R12_ONLY.polylines);
+      const [x, y] = pt(center);
+      const across = positive(outside, "outside");
+      const inside: unknown = o.inside ?? 0;
+      const problem = donutHoleProblem(inside);
+      if (problem) refuse("geometry", `inside: ${problem}`);
+      if (!((inside as number) < across)) {
+        refuse("geometry", "inside: A donut's hole must be less across than the donut");
+      }
+      const made = donut([x, y], across, inside as number);
+      // Its middle, between its two points, and its ring are written within 1% of what they are.
+      const middle = (across + (inside as number)) / 2;
+      const chord = written(made.points[1]![0]) - written(made.points[0]![0]);
+      const off = (wrote: number, is: number): boolean => !(Math.abs(wrote - is) <= is / 100);
+      if (off(chord, middle) || off(written(made.width), made.width)) {
+        refuse(
+          "geometry",
+          "outside: The donut is too small for the 6 decimals tsdraft writes: its ring or its middle would be written more than 1% off. Give a larger donut, or a hole further from its size",
+        );
+      }
+      return this.#polyline(made.points.map(pt), true, {
+        bulges: made.bulges,
+        width: made.width,
+      });
+    });
+  }
+
+  /**
+   * A polyline of the current layer through `points`, with what `given` says of its sides, once
+   * the sides are checked. A radius rounds the corners first.
+   */
+  #polyline(
+    points: readonly Point[],
+    closed: boolean,
+    given: {
+      readonly bulges?: unknown;
+      readonly width?: unknown;
+      readonly widths?: unknown;
+      readonly radius?: unknown;
+    },
+  ): Polyline {
+    const { width, widths, radius } = given;
+    let { bulges } = given;
+    if (
+      this.dxf === "R12" &&
+      (bulges !== undefined || width !== undefined || widths !== undefined || radius !== undefined)
+    ) {
+      refuse("geometry", R12_ONLY.polylines);
+    }
+    let shape = points;
+    if (radius !== undefined) {
+      if (bulges !== undefined || widths !== undefined) {
+        refuse(
+          "geometry",
+          "radius: A polyline whose corners a radius rounds takes no bulges or widths of its own, since its sides are made anew. Give it width alone",
+        );
+      }
+      const made = rounded(points, closed, positive(radius, "radius"));
+      if (typeof made === "string") refuse("geometry", `radius: ${capitalized(made)}`);
+      shape = made.points.map(pt);
+      if (made.bulges.some((bulge) => bulge !== 0)) bulges = made.bulges;
+    }
+    const sides = closed ? shape.length : shape.length - 1;
+    const [problem] = polylineSidesProblems(sides, bulges, width, widths);
+    if (problem) refuse("geometry", capitalized(problem));
+    return {
+      kind: "polyline",
+      layer: this.#current,
+      points: shape,
+      closed,
+      ...(bulges === undefined ? {} : { bulges: [...(bulges as readonly number[])] }),
+      ...(width === undefined ? {} : { width: width as number }),
+      ...(widths === undefined
+        ? {}
+        : {
+            widths: (widths as readonly (readonly [number, number])[]).map(
+              ([start, end]) => [start, end] as const,
+            ),
+          }),
+    };
   }
 
   circle<
@@ -4384,6 +4665,11 @@ function positive(value: unknown, label: string): number {
   const problem = sizeProblem(value);
   if (problem) refuse("geometry", `${label}: ${problem}`);
   return value;
+}
+
+/** A problem as a sentence of its own. */
+function capitalized(problem: string): string {
+  return problem.charAt(0).toUpperCase() + problem.slice(1);
 }
 
 function lostSide(size: string, axis: string, at: number): string {

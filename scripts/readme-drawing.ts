@@ -86,6 +86,7 @@ const pictures: Picture[] = [
       "C-ROAD-CNTR": "muted",
       "V-TREE": "muted",
       "C-ANNO-DIMS": "accent",
+      "C-ANNO-REVS": "accent",
       "C-ANNO-TEXT": "line",
       "C-ANNO-SYMB": "line",
       "C-ANNO-TITL": "line",

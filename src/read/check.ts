@@ -125,6 +125,9 @@ const ENTITY: Readonly<Record<string, Fields>> = {
     kind: { oneOf: ["polyline"] },
     points: { list: "point" },
     closed: "boolean",
+    "bulges?": { list: "number" },
+    "width?": "number",
+    "widths?": { list: "point" },
   },
   circle: { ...BASE, kind: { oneOf: ["circle"] }, center: "point", radius: "number" },
   arc: {

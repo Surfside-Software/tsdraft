@@ -243,11 +243,23 @@ export interface ReadLine extends ReadEntityBase {
   readonly to: Point;
 }
 
-/** A polyline of straight segments. */
+/**
+ * A polyline in its plane: a lightweight one, or a 2D one with its vertices. Its sides are
+ * straight or arcs, and may be wide, as a `Polyline`'s are.
+ */
 export interface ReadPolyline extends ReadEntityBase {
   readonly kind: "polyline";
   readonly points: readonly Point[];
   readonly closed: boolean;
+  /**
+   * The bulge of each side, one for each, as a `Polyline` holds them, in the world's coordinates:
+   * greater than 0 for an arc that turns counterclockwise. Left out when every side is straight.
+   */
+  readonly bulges?: readonly number[];
+  /** The width of every side. Left out at 0, and when the file gives each side its own. */
+  readonly width?: number;
+  /** The width at the start and the end of each side, one pair for each. Left out when none is not 0. */
+  readonly widths?: readonly (readonly [start: number, end: number])[];
 }
 
 export interface ReadCircle extends ReadEntityBase {

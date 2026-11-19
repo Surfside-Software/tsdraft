@@ -9,6 +9,7 @@ import {
   fromJSON,
   inspectText,
   lint,
+  polylineBox,
   toDXF,
   toSVG,
   type Block,
@@ -263,7 +264,20 @@ function walkedExtents(
       box[3] = Math.max(box[3]!, py);
     };
     if (e.kind === "line") [e.from, e.to].forEach((p) => add(...p));
-    if (e.kind === "polyline") e.points.forEach((p) => add(...p));
+    if (e.kind === "polyline") {
+      // Its arcs and its wide sides, by the corners of their box.
+      const [x0, y0, x1, y1] = polylineBox(e) ?? [Infinity, Infinity, -Infinity, -Infinity];
+      if (x0 !== Infinity) {
+        for (const [x, y] of [
+          [x0, y0],
+          [x1, y0],
+          [x1, y1],
+          [x0, y1],
+        ] as const) {
+          add(x, y);
+        }
+      }
+    }
     if (e.kind === "circle") {
       for (const [i, j] of [
         [-1, -1],
@@ -318,6 +332,7 @@ const holds = (outer: readonly number[], inner: readonly number[]): boolean =>
 
 test("a block's box holds a walk's, and is a walk's where no insert is turned", () => {
   const random = seeded(7);
+  const curving = seeded(11);
   const pick = <T>(items: readonly T[]): T => items[Math.floor(random() * items.length)]!;
   const point = (): Point => [random() * 100 - 50, random() * 100 - 50];
   const none = [Infinity, Infinity, -Infinity, -Infinity];
@@ -345,6 +360,19 @@ test("a block's box holds a walk's, and is a walk's where no insert is turned", 
             () => ({ kind: "polyline", layer, points: [point(), point(), point()], closed: true }),
           ])(),
         );
+      }
+      // A polyline with arcs and a width, from a stream of its own, which leaves the drawings
+      // above as they were.
+      if (curving() < 0.3) {
+        const at = (): Point => [curving() * 100 - 50, curving() * 100 - 50];
+        entities.push({
+          kind: "polyline",
+          layer: "A",
+          points: [at(), at(), at()],
+          closed: false,
+          bulges: [curving() * 4 - 2, curving() < 0.5 ? 0 : -3],
+          width: curving() < 0.5 ? 0 : curving() * 5,
+        });
       }
       for (let k = 0; i > 0 && k < 1 + Math.floor(random() * 3); k++) {
         entities.push({
@@ -1875,6 +1903,42 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
       (tree.blocks[0]!.entities as unknown as Entity[]).push(pointed);
       (drawing.entities as Entity[]).push(pointed);
     }
+    // A polyline of many sides that are arcs and wide, dashed or solid, with lists of bulges
+    // and widths that many polylines share: bulges of nearly a whole turn and of none, and
+    // widths far wider than the polyline.
+    if (random() < 0.3) {
+      (drawing.linetypes as Data[]).push({ name: "BANDS", description: "", pattern: [0.5, -0.25] });
+      const count = 20_000;
+      const curved = {
+        kind: "polyline",
+        layer: "0",
+        linetype: pick(["BANDS", "ByLayer"]),
+        closed: random() < 0.5,
+        points: Array.from({ length: count }, (_, i) => [i % 7, i % 2 === 0 ? 0 : 3]),
+        bulges: Array.from({ length: count }, () => pick([0, 1, -1e9, 1e-7, 0.5])),
+        widths: Array.from({ length: count }, () => [pick([0, 0.1, 1e6]), random()]),
+      };
+      if (!curved.closed) {
+        curved.bulges.pop();
+        curved.widths.pop();
+      }
+      (tree.blocks[0]!.entities as unknown as Data[]).push(curved);
+      // Polylines of their own that share its lists, some closed the other way, and one whose
+      // bulges are a list as long as a list can be, with nothing in it.
+      (drawing.entities as Data[]).push(
+        ...Array.from({ length: 50 }, (_, i) => ({ ...curved, closed: i % 3 === 0 })),
+        // oxlint-disable-next-line unicorn/no-new-array
+        {
+          ...curved,
+          points: [
+            [0, 0],
+            [1, 1],
+          ],
+          bulges: new Array(2 ** 32 - 1),
+          widths: undefined,
+        },
+      );
+    }
     // A large block placed once.
     if (random() < 0.2) {
       blocks.push({
@@ -2182,5 +2246,31 @@ test("a chain of references ends however the drawings given share, circle or nes
     assert.ok(Array.isArray(within(1000, () => lint(host, { xrefs }))));
     const drawn = settled(1000, () => svgWithin(host, { xrefs }, 20_000));
     assert.ok(typeof drawn === "string" || drawn instanceof RangeError, String(drawn));
+  }
+});
+
+test("polylines that share a long list of points, each with lists or a width of its own, are boxed in a bounded time", () => {
+  const points = Array.from({ length: 1_000_000 }, (_, i): Point => [i, i % 2]);
+  const bulges = Array.from({ length: 999_999 }, (_, i) => (i === 7 ? 0.5 : 0));
+  const own = [
+    (k: number) => ({ width: -k }),
+    () => ({ bulges: [] }),
+    () => ({ widths: [[0, 0] as const] }),
+    (k: number) => ({ bulges, width: -k }),
+    (k: number) => ({ bulges, closed: k % 2 === 0 }),
+  ];
+  for (const fields of own) {
+    const entities = Array.from({ length: 2000 }, (_, k): Entity => ({
+      kind: "polyline",
+      layer: "0",
+      points,
+      closed: false,
+      ...fields(k),
+    }));
+    // Telling whether each has an arc reads no point, and a list read again is paid for.
+    const found = settled(2000, () =>
+      extents(entities, [], [], undefined, undefined, undefined, [], [], 20_000),
+    );
+    assert.ok(Array.isArray(found) || found instanceof RangeError, String(found));
   }
 });

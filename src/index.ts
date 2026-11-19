@@ -48,8 +48,10 @@ export {
   type Block,
   type BlockOptions,
   type Circle,
+  type CloudOptions,
   type DimensionStyle,
   type DimensionStyleDefinition,
+  type DonutOptions,
   type Drawing,
   type DrawingOptions,
   type DxfVersion,
@@ -77,6 +79,8 @@ export {
   type Lineweight,
   type Point,
   type Polyline,
+  type PolylineOptions,
+  type RectOptions,
   type Sheet,
   type StandardAlignedDimensionOptions,
   type StandardLeaderOptions,
@@ -98,6 +102,7 @@ export {
   type Zone,
 } from "./drawing.ts";
 export { toDXF, type DxfOptions } from "./dxf.ts";
+export { bulgeThrough, polylineBox, type PolylineBox } from "./polylines.ts";
 export { FONT_METRICS, FONT_METRICS_RANGES, type FontMetrics } from "./font-metrics.ts";
 export { FONTS, type Font, type FontInfo } from "./fonts.ts";
 export { idHandle } from "./handles.ts";
@@ -157,6 +162,7 @@ export type {
   DimensionAffix,
   DimensionPrefix,
   DimensionScale,
+  DonutHole,
   DimensionStyleName,
   DimensionText,
   EntityId,
@@ -184,6 +190,7 @@ export type {
   PaperLength,
   PaperOf,
   Pattern,
+  PolylineWidth,
   Positive,
   Precision,
   Ratio,

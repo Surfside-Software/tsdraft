@@ -18,6 +18,7 @@ import {
   type Drawing,
   type Entity,
   type Insert,
+  type Point,
   type Text,
 } from "../src/index.ts";
 import sheet, { sitePlan, type Box } from "../examples/site-plan.ts";
@@ -1224,4 +1225,32 @@ test("the extents of a turned text reach its far corner", () => {
   // The box holds the corner above the text's end, one height up from the end of its line.
   assert.ok(Math.abs(top - (along + 2) / Math.SQRT2) < 1e-9);
   assert.ok(Math.abs(left + 2 / Math.SQRT2) < 1e-9);
+});
+
+test("a polyline's width, radius and arcs, a cloud's arc and a donut's hole are checked twice", () => {
+  const d = createDrawing();
+  const r12 = createDrawing({ dxf: "R12" });
+  const corner: Point[] = [
+    [0, 0],
+    [1, 0],
+    [1, 1],
+  ];
+  // @ts-expect-error: a width cannot be less than 0.
+  assert.throws(() => d.polyline(corner, false, { width: -1 }), /width cannot be less than 0/);
+  // @ts-expect-error: a radius must be greater than 0.
+  assert.throws(() => d.polyline(corner, false, { radius: 0 }), /greater than 0/);
+  // @ts-expect-error: a radius must be greater than 0.
+  assert.throws(() => d.rect([0, 0], 2, 2, { radius: -1 }), /greater than 0/);
+  // @ts-expect-error: a cloud's arc must be greater than 0.
+  assert.throws(() => d.cloud(corner, { arc: 0 }), /greater than 0/);
+  // @ts-expect-error: a donut's hole cannot be less than 0 across.
+  assert.throws(() => d.donut([0, 0], 1, { inside: -0.5 }), /hole cannot be less than 0/);
+  // @ts-expect-error: R12 holds no arc of a polyline.
+  assert.throws(() => r12.polyline(corner, false, { bulges: [0, 1] }), /no arcs or widths/);
+  // @ts-expect-error: R12 holds no width.
+  assert.throws(() => r12.polyline(corner, false, { width: 1 }), /no arcs or widths/);
+  // @ts-expect-error: R12 holds no cloud, which is a polyline of arcs.
+  assert.throws(() => r12.cloud(corner, { arc: 1 }), /no arcs or widths/);
+  // @ts-expect-error: R12 holds no donut, which is a polyline of arcs.
+  assert.throws(() => r12.donut([0, 0], 1), /no arcs or widths/);
 });

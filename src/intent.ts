@@ -452,6 +452,16 @@ function outlineOf(
       return { why: ", which has a point that is not two numbers" };
     }
   }
+  // An arc's side is no straight line between its points, which the checks measure.
+  const bulges: unknown = entity.bulges;
+  if (Array.isArray(bulges)) {
+    if (!spend(READ_COST * bulges.length)) return "short";
+    if (bulges.some((bulge) => bulge !== 0)) {
+      return {
+        why: ", which has a side that is an arc. checkIntent takes an outline of straight sides",
+      };
+    }
+  }
   const same = (p: Point, q: Point): boolean => p[0] === q[0] && p[1] === q[1];
   const corners: Point[] = [];
   for (let i = 0; i < points.length; i++) {

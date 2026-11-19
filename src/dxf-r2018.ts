@@ -985,16 +985,25 @@ function writeEntity(
       point(g, 10, ...e.from);
       point(g, 11, ...e.to);
       return;
-    case "polyline":
+    case "polyline": {
       begin("LWPOLYLINE", "AcDbPolyline");
       g(90, e.points.length);
       g(70, e.closed ? 1 : 0);
-      g(43, 0); // constant width
-      for (const [x, y] of e.points) {
+      // A width for each side is written at each point, and a constant width once.
+      if (e.widths === undefined) g(43, e.width ?? 0);
+      e.points.forEach(([x, y], i) => {
         g(10, x);
         g(20, y);
-      }
+        const pair = e.widths?.[i];
+        if (e.widths) {
+          g(40, pair?.[0] ?? 0);
+          g(41, pair?.[1] ?? 0);
+        }
+        const bulge = e.bulges?.[i] ?? 0;
+        if (written(bulge) !== 0) g(42, bulge);
+      });
       return;
+    }
     case "circle":
       begin("CIRCLE", "AcDbCircle");
       point(g, 10, ...e.center);

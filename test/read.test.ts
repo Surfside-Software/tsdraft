@@ -671,7 +671,7 @@ test("readDXF decodes the DOS code pages, and keeps MTEXT heights to their scope
   assert.deepEqual(inlineHeights("\\H1e308x;\\H2x;\\H0.5;", 1), [1e308, 0.5]);
 });
 
-test("readDXF keeps a polyline with widths of 0, and counts one with widths", async () => {
+test("readDXF reads the widths of a polyline's sides, and leaves out widths of 0", async () => {
   const polyline = (widths: [number, number | string][]) => [
     [0, "LWPOLYLINE"] as const,
     [8, "0"] as const,
@@ -699,8 +699,10 @@ test("readDXF keeps a polyline with widths of 0, and counts one with widths", as
       [0, "EOF"],
     ]),
   );
-  assert.equal(read.blocks[0]?.entities.length, 1);
-  assert.deepEqual(plain(read.blocks[0]?.other), { "LWPOLYLINE with widths": 1 });
+  const [zero, wide] = read.blocks[0]?.entities ?? [];
+  assert.equal(zero?.kind === "polyline" && zero.widths, undefined);
+  assert.deepEqual(wide?.kind === "polyline" && wide.widths, [[0, 0.5]]);
+  assert.deepEqual(plain(read.blocks[0]?.other), {});
 });
 
 test("checkDrawingRead takes no hole or getter for a value", async () => {

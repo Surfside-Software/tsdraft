@@ -40,7 +40,7 @@ The child's entries are added to its parent's, an entry of the same name replace
 whole, and `null` removes one. Export the standard beside the drawing, so that
 [the command](#the-command) holds the drawing to it.
 [`examples/site-plan.ts`](../examples/site-plan.ts) is a whole sheet drawn this way, to a
-standard that adds the layer `V-TREE` to the built-in one.
+standard that adds the layers `V-TREE` and `C-ANNO-REVS` to the built-in one.
 
 ## `defineStandard`
 

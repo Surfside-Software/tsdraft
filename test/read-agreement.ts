@@ -232,6 +232,24 @@ export function readProblems(
         ) {
           say(`${label}: points ${JSON.stringify(got.points).slice(0, 200)}`);
         }
+        {
+          // Each side's bulge and widths as written, where a list left out is all 0.
+          const sides = want.closed ? want.points.length : want.points.length - 1;
+          for (let i = 0; i < sides; i++) {
+            const bulge = [got.bulges?.[i] ?? 0, written(want.bulges?.[i] ?? 0)];
+            const constant = [got.width ?? 0, written(want.width ?? 0)] as const;
+            const read = got.widths?.[i] ?? [constant[0], constant[0]];
+            const drawn = want.widths?.[i] ?? [constant[1], constant[1]];
+            if (
+              !near(bulge[0]!, bulge[1]!) ||
+              !near(read[0], written(drawn[0])) ||
+              !near(read[1], written(drawn[1]))
+            ) {
+              say(`${label}: side ${i} has bulge ${bulge[0]} and widths ${read.join(", ")}`);
+              break;
+            }
+          }
+        }
         return;
       case "circle":
         if (!kind("circle") || got.kind !== "circle") return;

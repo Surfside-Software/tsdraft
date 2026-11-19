@@ -59,7 +59,10 @@ export default d.build();
 Coordinates are in drawing units with Y pointing up. Angles are in degrees, counterclockwise
 from +X. A layer's color is a number from 1 to 255 in the color index CAD programs share, and a
 lineweight is in millimetres. Entities drawn inside a `layer()` callback go on that layer. The
-builder draws `line`, `polyline`, `rect`, `circle`, `arc`, `text` and dimensions.
+builder draws `line`, `polyline`, `rect`, `circle`, `arc`, `text` and dimensions. A polyline
+takes `bulges` to make a side an arc, `width` or `widths` to draw its sides wide, and `radius`
+to round its corners; `cloud` draws a revision cloud around an outline, which crosses nothing
+inside it, and `donut` a filled ring or dot. [docs/polylines.md](docs/polylines.md) has them.
 
 Give an entity an `id` when you will want to find it again: 1 to 64 letters, digits, `.`, `-`
 and `_`, each used once in a drawing. A diagnostic about the entity carries the id.
@@ -276,18 +279,17 @@ the built-in standard and the rest.
 
 [`examples/site-plan.ts`](https://github.com/Surfside-Software/tsdraft/blob/main/examples/site-plan.ts)
 in the tsdraft repository is a whole sheet: a permit-style site plan at 1" = 10' with property
-lines, setbacks, a building, dimensions, leaders and labels in model space, and on a landscape
+lines, setbacks, a building, dimensions, leaders, labels and a revision cloud in model space,
+and on a landscape
 ARCH D layout, 36 by 24 inches, its border, a title block whose fields are attributes, notes,
 a legend, the view's title and a graphic scale. Start a new drawing from it. It is not in the npm package. Copy it and
-[`examples/lib/drafting.ts`](https://github.com/Surfside-Software/tsdraft/blob/main/examples/lib/drafting.ts),
-keeping `drafting.ts` in a `lib` folder beside it. Change two import strings to `"tsdraft"`:
-`"../src/index.ts"` in `site-plan.ts`, and `"../../src/index.ts"` in `lib/drafting.ts`.
+change its import string `"../src/index.ts"` to `"tsdraft"`.
 
 Its parameters come first and every position is worked out from them. Its columns and line
 breaks are laid out with `measureText`. Its symbols are blocks.
 
-It is drawn to a standard of its own, which extends `BUILT_IN_STANDARD` with the layer
-`V-TREE`, as the section above shows, and a leader style. A text names a `role` of the standard,
+It is drawn to a standard of its own, which extends `BUILT_IN_STANDARD` with the layers
+`V-TREE` and `C-ANNO-REVS`, as the section above shows, and a leader style. A text names a `role` of the standard,
 which gives its text style and the height it plots at. The plan is a view at one of the
 standard's scales, `const plan = d.view("plan", { scale: "1in-10ft" })`, and what model space
 draws to be read in it names the view: `d.text(at, "LOT 27", { role: "label", view: plan })`,
@@ -592,7 +594,7 @@ writeFileSync("plan.dxf", toDXF(drawing));
   `measureText`. A text
   takes a text style with a font, and `align` and `valign` to justify it to its point, as the
   example sheet does.
-- Ellipses, splines, and curved segments in a polyline.
+- Ellipses and splines.
 - A color on a single entity. Color comes from the layer.
 - DWG files. tsdraft writes DXF.
 - An existing drawing as a background or a base to edit. `readDXF` reads a DXF's tables, blocks,

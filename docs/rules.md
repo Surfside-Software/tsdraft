@@ -31,6 +31,11 @@ it would take `1e+100` for `1e+10` and report nothing.
   characters U+E800 to U+E8FF, which that app replaces.
 - Coordinates, sizes and text rotations are under 1e100 in size, because
   the leading CAD app reads only two exponent digits from DXF.
+- A polyline has a bulge for each side and a pair of widths for each side when it has them:
+  a closed polyline has a side for each point, an open one a side fewer. A width is 0 or more,
+  since the leading CAD app reads a negative width of every side as 0 and keeps a negative width
+  of one side with no `AUDIT` error, and a polyline has one width for every side or one for each,
+  not both. [Polylines](polylines.md#checks) has the rest.
 - Arc angles are stored from 0 up to 360, so -90 becomes 270. An arc cannot come
   within 0.000001 degrees of a full turn, because its two angles would be
   written the same and the leading CAD app holds such an arc as having no length. Draw a

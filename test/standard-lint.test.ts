@@ -714,7 +714,12 @@ test("the checks of a standard stay bounded on any data, and never throw", () =>
     }
     // A field of something in the drawing: a long name, a value of the wrong type, or a field
     // nobody knows that is large written out.
-    const records: Data[] = [drawing, sheetLayout, ...lists.flatMap(([o, f]) => o[f] as Data[])];
+    // A list the sheet does not have, such as its xrefs, holds no record.
+    const records: Data[] = [
+      drawing,
+      sheetLayout,
+      ...lists.flatMap(([o, f]) => (o[f] as Data[] | undefined) ?? []),
+    ];
     for (const e of [...sheetLayout.entities, ...(drawing.entities as Data[])]) {
       if (e.attributes) records.push((e.attributes = { ...(e.attributes as Data) }));
     }

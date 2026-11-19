@@ -1,6 +1,6 @@
 // A permit-style site plan: a lot from its plat dimensions, with setbacks, a building footprint,
-// the street, labels, dimensions, leaders, site data and notes, on a sheet with a border and a
-// title block. Copy this file to start a drawing.
+// the street, labels, dimensions, leaders, a revision cloud, site data and notes, on a sheet with
+// a border and a title block. Copy this file to start a drawing.
 //
 // The drawing has two spaces, as a drafter keeps them:
 //
@@ -41,7 +41,7 @@
 // - What belongs to the site is drawn in model space, in feet. What belongs to the paper is
 //   drawn inside `d.layout(...)`, in inches, at the size it plots.
 // - The drawing is drawn to a standard, `standard`, which extends the built-in one with the
-//   layer `V-TREE`. A layer is named, and its color, linetype, pen and plot flag are the
+//   layers `V-TREE` and `C-ANNO-REVS`. A layer is named, and its color, linetype, pen and plot flag are the
 //   standard's. Its entities draw ByLayer, and one that plots heavier than its layer names a
 //   pen of the standard.
 // - The plan is the view `plan`, at a scale of the standard, which the viewport shows. An
@@ -58,6 +58,9 @@
 // - A symbol is a block, drawn once and inserted where it is needed. The tree and the property
 //   corner are in the plan and in the legend, so each is inserted in model space and on the
 //   layout. A block's entities are on layer 0, so each insert draws on its own layer.
+// - A revision is a cloud around what it changed, one polyline of arcs that bulge out of its
+//   outline, with a delta that holds its number. A polyline can also be drawn wide: the north
+//   arrow's head is one side that widens from nothing at its tip, which CAD programs fill.
 // - The key plan is a second view of the same model space, at a smaller scale and turned, in a
 //   viewport of its own. That viewport freezes the layers of the plan's annotation, which is
 //   sized for the plan's scale, and of the lines that run to the plan's edges, so it shows the
@@ -84,11 +87,10 @@ import {
   type Intent,
   type Point,
 } from "../src/index.ts";
-import { arrowhead } from "./lib/drafting.ts";
 
 /**
- * The standard the sheet is drawn to: the built-in one, with a layer for the trees and a leader
- * style for the notes. Its layers give the plan its colors, linetypes and pens, its linetype
+ * The standard the sheet is drawn to: the built-in one, with layers for the trees and the
+ * revision and a leader style for the notes. Its layers give the plan its colors, linetypes and pens, its linetype
  * scale sizes the dashes, and its leader style gives every leader its arrowhead, its landing and
  * the role of its note.
  */
@@ -96,7 +98,10 @@ export const standard = defineStandard({
   id: "site-plan-example",
   version: "1",
   extends: BUILT_IN_STANDARD,
-  layers: { "V-TREE": { color: 3, pen: "fine", discipline: "V" } },
+  layers: {
+    "V-TREE": { color: 3, pen: "fine", discipline: "V" },
+    "C-ANNO-REVS": { color: 1, pen: "medium", discipline: "C" },
+  },
   leaderStyles: { notes: { role: "note", arrowSize: 1 / 8, landing: 1 / 8, gap: 1 / 16 } },
   defaultLeaderStyle: "notes",
 });
@@ -272,7 +277,16 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     d.text([0, arrowRadius + gap], "N", { role: "heading", align: "center" });
     d.circle([0, 0], arrowRadius);
     d.line([0, -arrowRadius], [0, arrowRadius * 0.4]);
-    arrowhead(d, [0, arrowRadius], [0, 0], arrowRadius * 0.9);
+    // The arrowhead is one polyline from the tip, where it has no width, to its base.
+    const head = arrowRadius * 0.9;
+    d.polyline(
+      [
+        [0, arrowRadius],
+        [0, arrowRadius - head],
+      ],
+      false,
+      { widths: [[0, head / 3]] },
+    );
   });
   // The view title: the title over a line and the scale under it. Its base point is the left
   // end of the line. The line has one fixed length, long enough for the sheet's view title,
@@ -514,6 +528,34 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     });
   });
 
+  // A revision: a cloud around the driveway, which it changed, and a delta with its number beside
+  // the cloud. Each arc of the cloud is about 3/8 in on paper, and every arc bulges out
+  // of the outline, so the cloud crosses none of what it wraps.
+  d.layer("C-ANNO-REVS", () => {
+    const margin = plan.paper(1 / 8);
+    const left = driveX - driveway.flare - margin;
+    const right = driveX + driveway.width + driveway.flare + margin;
+    const bottom = pavement.near - margin;
+    const top = bounds.front - plan.paper(1 / 4);
+    const outline: Point[] = [
+      [left, bottom],
+      [right, bottom],
+      [right, top],
+      [left, top],
+    ];
+    d.cloud(outline, { arc: plan.paper(3 / 8) });
+    // The delta: a triangle 3/8 in on a side, pointing up, with the number at its middle.
+    const side = plan.paper(3 / 8);
+    const middle: Point = [right + side, (bottom + top) / 2];
+    const reach = side / Math.sqrt(3);
+    const corners = [90, 210, 330].map((angle): Point => {
+      const a = (angle * Math.PI) / 180;
+      return [middle[0] + reach * Math.cos(a), middle[1] + reach * Math.sin(a)];
+    });
+    d.polyline(corners, true);
+    d.text(middle, "1", { role: "label", view: plan, align: "center", valign: "middle" });
+  });
+
   /** The point of a tree's canopy that faces `toward`, where a leader points at the tree. */
   function canopyEdge(tree: (typeof trees)[number], toward: Point): Point {
     const [dx, dy] = [toward[0] - tree.at[0], toward[1] - tree.at[1]];
@@ -554,6 +596,7 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
         frozenLayers: [
           "C-ANNO-DIMS",
           "C-ANNO-TEXT",
+          "C-ANNO-REVS",
           "C-PROP-MONU",
           "C-PROP-ADJC",
           "C-PAVE",
