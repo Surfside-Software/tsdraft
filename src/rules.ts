@@ -23,6 +23,31 @@ import {
 import { isPaperUnit, isUnits, modelLength } from "./units.ts";
 import { isTooLarge, written, writtenAngle } from "./format.ts";
 import { fontInfo, STANDARD_TEXT_STYLE, type Font } from "./fonts.ts";
+import {
+  parseParagraph,
+  PARAGRAPH_CONTROL,
+  PARAGRAPH_ASTRAL,
+  PARAGRAPH_NESTING,
+  PARAGRAPH_NEVER_CLOSED,
+  PARAGRAPH_NEVER_OPENED,
+  PARAGRAPH_PRIVATE_USE,
+  PARAGRAPH_SHX_DIAMETER,
+  PARAGRAPH_STACK_LINED,
+  PARAGRAPH_STACK_PART,
+  PARAGRAPH_STACK_SEPARATOR,
+  PARAGRAPH_TOO_DEEP,
+  PARAGRAPH_TRAILING,
+  type BoldFont,
+  type ParsedParagraph,
+  type paragraphFontOption,
+  type paragraphFontOptionTwice,
+  type paragraphItalic,
+  type paragraphNoSemicolon,
+  type paragraphNotLaidOut,
+  type paragraphShxBold,
+  type paragraphUnknownCode,
+  type paragraphUnknownFont,
+} from "./paragraph-codes.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype, LINEWEIGHTS, patternLength } from "./linetypes.ts";
 import {
   layerAuditKey,
@@ -131,6 +156,9 @@ const R12_DIMENSIONS =
   'tsdraft writes no dimensions to R12 drawings. Use DXF version "R2018" for a dimension';
 const R12_LEADERS =
   'tsdraft writes no leaders to R12 drawings. Use DXF version "R2018" for a leader';
+const R12_PARAGRAPHS =
+  'tsdraft writes no paragraphs to R12 drawings. Use DXF version "R2018" for a paragraph';
+const LINE_SPACING = "A paragraph's line spacing is a factor from 0.25 to 4";
 const R12_POLYLINES =
   'tsdraft writes no arcs or widths of a polyline to R12 drawings. Use DXF version "R2018" for a polyline with bulges or a width';
 const POLYLINE_WIDTH =
@@ -871,12 +899,363 @@ export type R12Layouts = typeof R12_LAYOUTS;
 export type R12Dimensions = typeof R12_DIMENSIONS;
 export type R12Leaders = typeof R12_LEADERS;
 export type R12Polylines = typeof R12_POLYLINES;
+export type R12Paragraphs = typeof R12_PARAGRAPHS;
 
 /** Resolves to `N` when it is a width a polyline can have, and to the error message otherwise. */
 export type PolylineWidth<N extends number> = NotNegative<N, typeof POLYLINE_WIDTH>;
 
 /** Resolves to `N` when it is a donut's hole, and to the error message otherwise. */
 export type DonutHole<N extends number> = NotNegative<N, typeof DONUT_HOLE>;
+
+/**
+ * Resolves to `N` when it is a line spacing factor a paragraph can have, from 0.25 to 4, and to
+ * the error message otherwise.
+ */
+export type LineSpacing<N extends number> = number extends N
+  ? N
+  : `${N}` extends
+        | `0.${"0" | "1"}${string}`
+        | `0.2${"0" | "1" | "2" | "3" | "4"}${string}`
+        | `0.${"0" | "1" | "2"}`
+        | `-${string}`
+        | `${string}e${string}`
+        | "0"
+    ? typeof LINE_SPACING
+    : `${N}` extends `0.${string}` | `${"1" | "2" | "3"}` | `${"1" | "2" | "3"}.${string}` | "4"
+      ? N
+      : typeof LINE_SPACING;
+
+/** A digit of a hexadecimal number, in either case. */
+type HexDigit = Chars<"0123456789abcdefABCDEF">;
+
+/**
+ * The first of `\`, `{`, `}` and `%` in `S`, and what follows it, or `undefined` for none: a
+ * delimiter is the first when what comes before it holds none of the others.
+ */
+type ParagraphStep<S extends string> = S extends `${infer A}\\${infer R}`
+  ? A extends `${string}${"{" | "}" | "%"}${string}`
+    ? ParagraphBrace<S>
+    : ["\\", R]
+  : ParagraphBrace<S>;
+
+type ParagraphBrace<S extends string> = S extends `${infer A}{${infer R}`
+  ? A extends `${string}${"}" | "%" | "\\"}${string}`
+    ? ParagraphClose<S>
+    : ["{", R]
+  : ParagraphClose<S>;
+
+type ParagraphClose<S extends string> = S extends `${infer A}}${infer R}`
+  ? A extends `${string}${"%" | "\\" | "{"}${string}`
+    ? ParagraphPercent<S>
+    : ["}", R]
+  : ParagraphPercent<S>;
+
+type ParagraphPercent<S extends string> = S extends `${string}%${infer R}` ? ["%", R] : undefined;
+
+/** The codes of a paragraph that draw a character, and need nothing after them. */
+type ParagraphPlainCode = "P" | "~" | "\\" | "{" | "}" | "o";
+
+/** The codes tsdraft does not lay out that end with a `;`. */
+type ParagraphEndedCode = "p" | "H" | "W" | "Q" | "T" | "A" | "C" | "c";
+
+/**
+ * Whether the characters are underlined, `L`, struck through, `K`, both or neither, as the codes
+ * `\L`, `\l`, `\K` and `\k` set it and each `}` puts it back.
+ */
+type Lined = "" | "L" | "K" | "LK";
+
+/**
+ * The format the walk keeps of the characters, as each `{` saves it and its `}` puts it back:
+ * their lines, and whether a `\f` or `\F` has set them in an SHX font.
+ */
+interface Format {
+  readonly lined: Lined;
+  readonly shx: boolean;
+}
+
+/** The format of a value's first character. */
+interface PlainFormat extends Format {
+  readonly lined: "";
+  readonly shx: false;
+}
+
+/** What `\L`, `\l`, `\K` and `\k` make of `F`. */
+type Relined<F extends Lined, C extends "L" | "l" | "K" | "k"> = C extends "L"
+  ? F extends "K" | "LK"
+    ? "LK"
+    : "L"
+  : C extends "l"
+    ? F extends "K" | "LK"
+      ? "K"
+      : ""
+    : C extends "K"
+      ? F extends "L" | "LK"
+        ? "LK"
+        : "K"
+      : F extends "L" | "LK"
+        ? "L"
+        : "";
+
+/**
+ * Resolves to `T` when it is a value a paragraph can be given, and to the error message
+ * otherwise: no control character but a line feed, which is a paragraph break, and no character a
+ * text cannot hold, and the codes `parseParagraph` reads, each as tsdraft lays it out, with `%%c`
+ * refused in an SHX font that a `\f` or `\F` names. Two checks are left to the code when it
+ * runs: `%%c` in the paragraph's own font, which only the style knows, and a character above
+ * U+FFFF, since TypeScript reads a template literal type by code points and never splits the
+ * surrogate pair that holds one, so no pattern of a type can find it.
+ */
+export type ParagraphValue<T extends string> = string extends T
+  ? T
+  : T extends `${string}${Exclude<ControlChar, "\n">}${string}`
+    ? typeof PARAGRAPH_CONTROL
+    : T extends `${string}${Chars<typeof REJECTED_PRIVATE>}${string}`
+      ? typeof PARAGRAPH_PRIVATE_USE
+      : ParagraphCodes<T, T, [], [], PlainFormat>;
+
+/**
+ * The most steps the walk of a literal value takes. A value that needs more passes as it is, and
+ * is checked when the code runs, so the compiler never gives up on a long one.
+ */
+type ParagraphTypeSteps = 250;
+
+/**
+ * Walks `S`, the rest of the value `T`, from one special character to the next, with what each
+ * open brace saved in `D`, a mark in `N` for each step, and the format of the characters in `F`.
+ */
+type ParagraphCodes<
+  T extends string,
+  S extends string,
+  D extends Format[],
+  N extends 0[],
+  F extends Format,
+> = N["length"] extends ParagraphTypeSteps
+  ? T
+  : ParagraphStep<S> extends [infer M, infer R extends string]
+    ? M extends "{"
+      ? D["length"] extends typeof PARAGRAPH_NESTING
+        ? typeof PARAGRAPH_TOO_DEEP
+        : ParagraphCodes<T, R, [...D, F], [...N, 0], F>
+      : M extends "}"
+        ? D extends [...infer E extends Format[], infer Saved extends Format]
+          ? ParagraphCodes<T, R, E, [...N, 0], Saved>
+          : typeof PARAGRAPH_NEVER_OPENED
+        : M extends "%"
+          ? R extends `%${"c" | "C"}${infer After}`
+            ? F["shx"] extends true
+              ? typeof PARAGRAPH_SHX_DIAMETER
+              : ParagraphCodes<T, After, D, [...N, 0], F>
+            : R extends `%${"d" | "D" | "p" | "P"}${infer After}`
+              ? ParagraphCodes<T, After, D, [...N, 0], F>
+              : ParagraphCodes<T, R, D, [...N, 0], F>
+          : ParagraphCode<T, R, D, N, F>
+    : D extends []
+      ? T
+      : typeof PARAGRAPH_NEVER_CLOSED;
+
+/** Reads the code after a backslash, `R` and what follows it. */
+type ParagraphCode<
+  T extends string,
+  R extends string,
+  D extends Format[],
+  N extends 0[],
+  F extends Format,
+> = R extends `${infer C}${infer After}`
+  ? C extends ParagraphPlainCode
+    ? ParagraphCodes<T, After, D, [...N, 0], F>
+    : C extends "L" | "l" | "K" | "k"
+      ? ParagraphCodes<T, After, D, [...N, 0], { lined: Relined<F["lined"], C>; shx: F["shx"] }>
+      : C extends "f" | "F"
+        ? After extends `${infer Body};${infer Next}`
+          ? ParagraphFont<T, C, Body, Next, D, N, F>
+          : ReturnType<typeof paragraphNoSemicolon<C>>
+        : C extends "S"
+          ? ParagraphStack<T, After, D, false, N, F, "", true>
+          : C extends ParagraphEndedCode
+            ? After extends `${string};${string}`
+              ? ReturnType<typeof paragraphNotLaidOut<C>>
+              : ReturnType<typeof paragraphNoSemicolon<C>>
+            : C extends "N" | "X" | "O"
+              ? ReturnType<typeof paragraphNotLaidOut<C>>
+              : C extends "U" | "u"
+                ? After extends `+${infer H1}${infer H2}${infer H3}${infer H4}${infer Next}`
+                  ? [H1, H2, H3, H4] extends [HexDigit, HexDigit, HexDigit, HexDigit]
+                    ? ParagraphUnicode<T, Lowercase<`${H1}${H2}${H3}${H4}`>, Next, D, N, F>
+                    : ReturnType<typeof paragraphUnknownCode<C>>
+                  : ReturnType<typeof paragraphUnknownCode<C>>
+                : C extends "M" | "m"
+                  ? After extends `+${"1" | "2" | "3" | "4" | "5"}${infer H1}${infer H2}${infer H3}${infer H4}${string}`
+                    ? [H1, H2, H3, H4] extends [HexDigit, HexDigit, HexDigit, HexDigit]
+                      ? ReturnType<typeof paragraphNotLaidOut<C>>
+                      : ReturnType<typeof paragraphUnknownCode<C>>
+                    : ReturnType<typeof paragraphUnknownCode<C>>
+                  : ReturnType<typeof paragraphUnknownCode<C>>
+  : typeof PARAGRAPH_TRAILING;
+
+/** A `\U+XXXX` code, with its four digits in lower case. */
+type ParagraphUnicode<
+  T extends string,
+  X extends string,
+  Next extends string,
+  D extends Format[],
+  N extends 0[],
+  F extends Format,
+> = X extends `00${"0" | "1"}${string}` | "007f"
+  ? typeof PARAGRAPH_CONTROL
+  : X extends `d${"8" | "9" | "a" | "b" | "c" | "d" | "e" | "f"}${string}`
+    ? typeof PARAGRAPH_ASTRAL
+    : X extends `e8${string}`
+      ? typeof PARAGRAPH_PRIVATE_USE
+      : ParagraphCodes<T, Next, D, [...N, 0], F>;
+
+/** A `\f` or `\F` code: a font of `FONTS`, then its options. */
+type ParagraphFont<
+  T extends string,
+  C extends "f" | "F",
+  Body extends string,
+  Next extends string,
+  D extends Format[],
+  N extends 0[],
+  F extends Format,
+> = Body extends `${infer Name}|${infer Options}`
+  ? Name extends Font
+    ? ParagraphFontOptions<T, C, Name, Options, Next, D, [...N, 0], InFont<F, Name>>
+    : ReturnType<typeof paragraphUnknownFont<C, Name>>
+  : Body extends Font
+    ? ParagraphCodes<T, Next, D, [...N, 0], InFont<F, Body>>
+    : ReturnType<typeof paragraphUnknownFont<C, Body>>;
+
+/** `F` in the font `Name`, which is an SHX font when it has no bold face. */
+type InFont<F extends Format, Name extends Font> = {
+  lined: F["lined"];
+  shx: Name extends BoldFont ? false : true;
+};
+
+/** The options of a font code, with the letters of those given so far in `Given`. */
+type ParagraphFontOptions<
+  T extends string,
+  C extends "f" | "F",
+  Name extends Font,
+  O extends string,
+  Next extends string,
+  D extends Format[],
+  N extends 0[],
+  F extends Format,
+  Given extends string = never,
+> = N["length"] extends ParagraphTypeSteps
+  ? T
+  : O extends `${infer First}|${infer More}`
+    ? ParagraphFontOnce<C, Name, First, Given> extends true
+      ? ParagraphFontOptions<T, C, Name, More, Next, D, [...N, 0], F, Given | OptionLetter<First>>
+      : ParagraphFontOnce<C, Name, First, Given>
+    : ParagraphFontOnce<C, Name, O, Given> extends true
+      ? ParagraphCodes<T, Next, D, [...N, 0], F>
+      : ParagraphFontOnce<C, Name, O, Given>;
+
+/** The letter of a font option. */
+type OptionLetter<O extends string> = O extends `${infer L}${string}` ? L : never;
+
+/** True for an option a font may have whose letter `Given` does not hold, and the message otherwise. */
+type ParagraphFontOnce<
+  C extends string,
+  Name extends Font,
+  O extends string,
+  Given extends string,
+> =
+  ParagraphFontOption<C, Name, O> extends true
+    ? O extends `${Given}${string}`
+      ? ReturnType<typeof paragraphFontOptionTwice<C, OptionLetter<O>>>
+      : true
+    : ParagraphFontOption<C, Name, O>;
+
+/**
+ * True for one or more digits, as `isNumbered` in `src/paragraph-codes.ts` reads a font option's
+ * number. Past 64 it gives up and leaves the rest to the runtime check.
+ */
+type AllDigits<S extends string, K extends 0[] = []> = K["length"] extends 64
+  ? true
+  : S extends `${Digit}${infer R}`
+    ? R extends ""
+      ? true
+      : AllDigits<R, [...K, 0]>
+    : false;
+
+/** True for an option a font may have, and the message otherwise. */
+type ParagraphFontOption<C extends string, Name extends Font, O extends string> = O extends
+  | "b0"
+  | "i0"
+  ? true
+  : O extends `${"c" | "p"}${infer Count}`
+    ? AllDigits<Count> extends true
+      ? true
+      : ReturnType<typeof paragraphFontOption<C, O>>
+    : O extends "b1"
+      ? Name extends BoldFont
+        ? true
+        : ReturnType<typeof paragraphShxBold<C, Name>>
+      : O extends "i1"
+        ? ReturnType<typeof paragraphItalic<C>>
+        : ReturnType<typeof paragraphFontOption<C, O>>;
+
+/** A digit or a capital, which a stacked part may hold. */
+type Tall = Chars<"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ">;
+
+/**
+ * What a stacked part holds so far: nothing, `""`; spaces only, `"s"`; signs only, `"o"`; digits or
+ * capitals with signs or not, `"t"`; or something it may not hold, `"x"`.
+ */
+type PartHolds = "" | "s" | "o" | "t" | "x";
+
+/** What a part holds after the character `C`. */
+type PartStep<P extends PartHolds, C extends string> = C extends " "
+  ? P extends "" | "s"
+    ? "s"
+    : "x"
+  : C extends Tall
+    ? P extends "" | "o" | "t"
+      ? "t"
+      : "x"
+    : C extends "." | "," | "+" | "-"
+      ? P extends "" | "o"
+        ? "o"
+        : P extends "t"
+          ? "t"
+          : "x"
+      : "x";
+
+/**
+ * A `\S` code from after its letter: its parts, divided by the first `/`, `#` or `^`, up to its
+ * `;`, with what the part being read holds in `P` and whether the top part may be stacked in
+ * `Top`. It is refused in underlined or struck-through characters.
+ */
+type ParagraphStack<
+  T extends string,
+  S extends string,
+  D extends Format[],
+  Divided extends boolean,
+  N extends 0[],
+  F extends Format,
+  P extends PartHolds,
+  Top extends boolean,
+> = N["length"] extends ParagraphTypeSteps
+  ? T
+  : S extends `\\${infer C}${infer R}`
+    ? ParagraphStack<T, R, D, Divided, [...N, 0], F, PartStep<P, C>, Top>
+    : S extends `;${infer R}`
+      ? Divided extends true
+        ? F["lined"] extends ""
+          ? [Top, P extends "" | "s" | "t" ? true : false] extends [true, true]
+            ? ParagraphCodes<T, R, D, [...N, 0], F>
+            : typeof PARAGRAPH_STACK_PART
+          : typeof PARAGRAPH_STACK_LINED
+        : typeof PARAGRAPH_STACK_SEPARATOR
+      : S extends `${"/" | "#" | "^"}${infer R}`
+        ? Divided extends true
+          ? ParagraphStack<T, R, D, true, [...N, 0], F, "x", Top>
+          : ParagraphStack<T, R, D, true, [...N, 0], F, "", P extends "" | "s" | "t" ? true : false>
+        : S extends `${infer C}${infer R}`
+          ? ParagraphStack<T, R, D, Divided, [...N, 0], F, PartStep<P, C>, Top>
+          : ReturnType<typeof paragraphNoSemicolon<"S">>;
 
 /** Returns what is wrong with a layer name for a DXF version, or undefined when it is valid. */
 export function layerNameProblem(name: string, version: DxfVersion): string | undefined {
@@ -1040,6 +1419,7 @@ export const R12_ONLY = {
   dimensions: R12_DIMENSIONS,
   leaders: R12_LEADERS,
   polylines: R12_POLYLINES,
+  paragraphs: R12_PARAGRAPHS,
 } as const;
 
 /** What is wrong with a donut's hole, of `inside` across, or undefined. */
@@ -1210,6 +1590,70 @@ export function textAlignProblem(field: "align" | "valign", value: unknown): str
         .map((v) => JSON.stringify(v))
         .join(", ")
         .replace(/, ([^,]*)$/, " or $1")}`;
+}
+
+/** How a paragraph is justified across its box, and up and down it, and how its lines are spaced. The first of each is the default. */
+export const PARAGRAPH_ALIGNS = ["left", "center", "right"] as const;
+export const PARAGRAPH_VERTICAL_ALIGNS = ["top", "middle", "bottom"] as const;
+export const LINE_SPACING_STYLES = ["at-least", "exactly"] as const;
+
+/** The least and the most line spacing factor the leading CAD app takes. */
+export const LINE_SPACING_RANGE = [0.25, 4] as const;
+
+/** Returns what is wrong with a paragraph's `align`, `valign` or `lineSpacingStyle`, or undefined. */
+export function paragraphChoiceProblem(
+  field: "align" | "valign" | "lineSpacingStyle",
+  value: unknown,
+): string | undefined {
+  const values: readonly string[] =
+    field === "align"
+      ? PARAGRAPH_ALIGNS
+      : field === "valign"
+        ? PARAGRAPH_VERTICAL_ALIGNS
+        : LINE_SPACING_STYLES;
+  return values.includes(value as string)
+    ? undefined
+    : `${field} must be ${values
+        .map((v) => JSON.stringify(v))
+        .join(", ")
+        .replace(/, ([^,]*)$/, " or $1")}`;
+}
+
+/**
+ * Returns what is wrong with a paragraph's line spacing factor, or undefined. The factor as given
+ * is held to the range, as the type holds it, so none that passes rounds out of it when written.
+ */
+export function lineSpacingProblem(value: unknown): string | undefined {
+  return typeof value === "number" &&
+    value >= LINE_SPACING_RANGE[0] &&
+    value <= LINE_SPACING_RANGE[1]
+    ? undefined
+    : LINE_SPACING;
+}
+
+/**
+ * Returns what is wrong with a paragraph's value in its style's font, or undefined: a code
+ * tsdraft does not know or does not lay out, a brace that is never closed or never opened, a code
+ * with no `;` to end it, a font that is not one of `FONTS`, italic, bold or `%%c` in an SHX font,
+ * braces nested past `PARAGRAPH_NESTING`, a control character, and the characters a text cannot
+ * hold.
+ */
+export function paragraphValueProblem(value: unknown, font: unknown): string | undefined {
+  if (typeof value !== "string") return "A paragraph's value must be a string";
+  return paragraphProblemIn(parseParagraph(value), font);
+}
+
+/**
+ * What `paragraphValueProblem` gives for a value already read, in its style's font. A font that
+ * is not one of `FONTS` has an error of its own, and is not checked here.
+ */
+export function paragraphProblemIn(
+  parsed: Pick<ParsedParagraph, "problem" | "ownDiameter">,
+  font: unknown,
+): string | undefined {
+  if (parsed.problem !== undefined) return parsed.problem;
+  const shx = typeof font === "string" && fontInfo(font)?.file.endsWith(".shx") === true;
+  return parsed.ownDiameter && shx ? PARAGRAPH_SHX_DIAMETER : undefined;
 }
 
 /** Returns what is wrong with a layer color, or undefined when it is valid. */

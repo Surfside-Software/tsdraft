@@ -3,12 +3,13 @@ import { test } from "node:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createDrawing, FONTS, measureText, toSVG, type Font } from "tsdraft";
+import { capHeightOf, createDrawing, FONTS, measureText, toSVG, type Font } from "tsdraft";
 import {
   capHeight,
   faces,
   familyName,
   findFaces,
+  pdfFiles,
   pngFonts,
   shippedCap,
   SHIPPED,
@@ -16,6 +17,12 @@ import {
 } from "../src/fonts.ts";
 import { pngUnavailable, RendererCrashed, toPNG } from "../src/png.ts";
 import { decode, ink } from "./pixels.ts";
+
+/** A font's family and the height of its capitals, as a face of it has them. */
+const faceOf = (font: "Arial" | "Times New Roman") => ({
+  family: FONTS[font].family,
+  capHeight: FONTS[font].capHeight,
+});
 
 test(
   "a renderer whose process cannot start gives each picture the reason, and the command lives",
@@ -82,8 +89,8 @@ test("a font file is a face of the font only when it names itself so", (t) => {
     { font: "Arial", face: "JetBrains Mono" },
     { font: "romans.shx", face: "JetBrains Mono" },
   ]);
-  const arial = { ...FONTS.Arial, face: "Liberation Sans", file: "/fonts/a.ttf" };
-  const times = { ...FONTS["Times New Roman"], face: "Times New Roman", file: "/t" };
+  const arial = { ...faceOf("Arial"), face: "Liberation Sans", file: "/fonts/a.ttf" };
+  const times = { ...faceOf("Times New Roman"), face: "Times New Roman", file: "/t" };
   const both = new Map<string, Face>([
     ["Arial", arial],
     ["Times New Roman", times],
@@ -94,6 +101,47 @@ test("a font file is a face of the font only when it names itself so", (t) => {
   assert.deepEqual(pngFonts(["Times New Roman"], timesText, both), [
     { font: "Times New Roman", face: "Times New Roman" },
   ]);
+});
+
+/** A copy of a TrueType file whose Windows names give `family`, no longer than its own, as its family. */
+function renamed(bytes: Uint8Array, family: string): Uint8Array {
+  const copy = new Uint8Array(bytes);
+  const view = new DataView(copy.buffer);
+  for (let i = 0; i < view.getUint16(4); i++) {
+    const entry = 12 + i * 16;
+    if (String.fromCharCode(...copy.subarray(entry, entry + 4)) !== "name") continue;
+    const table = view.getUint32(entry + 8);
+    const strings = table + view.getUint16(table + 4);
+    for (let n = 0; n < view.getUint16(table + 2); n++) {
+      const record = table + 6 + n * 12;
+      if (view.getUint16(record) !== 3 || view.getUint16(record + 6) !== 1) continue;
+      const offset = strings + view.getUint16(record + 10);
+      for (let k = 0; k < family.length; k++) view.setUint16(offset + 2 * k, family.charCodeAt(k));
+      view.setUint16(record + 8, family.length * 2);
+    }
+  }
+  return copy;
+}
+
+test("a TrueType font's bold file is found beside its own, and the PDF is given it", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "tsdraft-fonts-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const arial = renamed(readFileSync(SHIPPED.file), "Arial");
+  assert.equal(familyName(arial), "Arial");
+  writeFileSync(join(dir, "arial.ttf"), arial);
+  // No bold yet: the face has none.
+  assert.equal(findFaces([dir]).get("Arial")?.bold, undefined);
+  writeFileSync(join(dir, "arialbd.ttf"), arial);
+  const found = findFaces([dir]);
+  // The font's own bold is sized as the leading CAD app sizes it.
+  assert.deepEqual(found.get("Arial")?.bold, {
+    file: join(dir, "arialbd.ttf"),
+    capHeight: capHeightOf("Arial", true),
+  });
+  assert.deepEqual(pdfFiles(found), {
+    Arial: join(dir, "arial.ttf"),
+    "Arial Bold": join(dir, "arialbd.ttf"),
+  });
 });
 
 /** Pixels to a drawing unit in the pictures below, which are 60 units wide. */
@@ -180,7 +228,7 @@ test(
     const own = faces().get("Arial");
     if (own) check(await drawn(value, { font: "Arial" }), own.face);
     // A face that says its capitals are half as tall as they are is drawn twice too tall.
-    const wrong = new Map([["Arial", { ...FONTS.Arial, ...SHIPPED, capHeight: 0.73 / 2 }]]);
+    const wrong = new Map([["Arial", { ...faceOf("Arial"), ...SHIPPED, capHeight: 0.73 / 2 }]]);
     const [, bottom, , top] = await drawn(value, { font: "Arial" }, wrong);
     assert.ok(Math.abs(top - bottom - 2) <= 3 / SCALE);
   },

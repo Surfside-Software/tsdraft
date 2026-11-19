@@ -835,7 +835,9 @@ function titleBlockDrawing(
       }
     }
     for (const e of block.entities) {
-      if (e.kind === "text" && e.style !== undefined) styleNames.add(layerKey(e.style));
+      if ((e.kind === "text" || e.kind === "paragraph") && e.style !== undefined) {
+        styleNames.add(layerKey(e.style));
+      }
       if (e.kind !== "insert") continue;
       const inserted = byName.get(layerKey(e.block));
       if (inserted && !blocks.includes(inserted)) blocks.push(inserted);

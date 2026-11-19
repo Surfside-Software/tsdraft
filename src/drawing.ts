@@ -27,7 +27,8 @@ import {
   validDimensionStyleHandle,
   type DimensionPlace,
 } from "./dimensions.ts";
-import { STANDARD_TEXT_STYLE } from "./fonts.ts";
+import { STANDARD_FONT, STANDARD_TEXT_STYLE } from "./fonts.ts";
+import { paragraphUnknownCode, parseParagraph } from "./paragraph-codes.ts";
 import {
   leaderArrowheadHandles,
   leaderDrawnProblem,
@@ -103,6 +104,9 @@ import {
   sizeProblem,
   textAlignProblem,
   textProblem,
+  lineSpacingProblem,
+  paragraphChoiceProblem,
+  paragraphProblemIn,
   textStyleNameProblem,
   textStyleProblem,
   undefinedAttributeProblem,
@@ -145,6 +149,9 @@ import {
   type PolylineWidth,
   type R12Leaders,
   type R12Polylines,
+  type R12Paragraphs,
+  type LineSpacing,
+  type ParagraphValue,
   type LineweightMm,
   type LineweightOf,
   type LinetypeName,
@@ -178,6 +185,9 @@ import {
   type Ratio,
   type TEXT_ALIGNS,
   type TEXT_VERTICAL_ALIGNS,
+  type LINE_SPACING_STYLES,
+  type PARAGRAPH_ALIGNS,
+  type PARAGRAPH_VERTICAL_ALIGNS,
   type LEADER_ATTACHMENTS,
   type LEADER_SIDES,
 } from "./rules.ts";
@@ -424,6 +434,48 @@ export interface Text extends EntityBase {
   readonly valign?: TextVerticalAlign;
 }
 
+/** Where a paragraph's `at` point is across its box, and how its lines are set in it. */
+export type ParagraphAlign = (typeof PARAGRAPH_ALIGNS)[number];
+
+/** Where a paragraph's `at` point is up and down its box. */
+export type ParagraphVerticalAlign = (typeof PARAGRAPH_VERTICAL_ALIGNS)[number];
+
+/**
+ * How a paragraph's line spacing is taken: as the least its lines are apart, so a line whose
+ * letters reach further pushes the next one down, or as exactly that.
+ */
+export type LineSpacingStyle = (typeof LINE_SPACING_STYLES)[number];
+
+/**
+ * Paragraph text: one entity whose lines wrap at a width and break at each `\P`, which the
+ * leading CAD app holds as one multi-line text and a drafter edits as one. Its value holds that
+ * app's inline codes, such as `\L` for an underline and `\S1/2;` for a stacked fraction, which
+ * `parseParagraph` reads. R2018 only.
+ */
+export interface Paragraph extends EntityBase {
+  readonly kind: "paragraph";
+  /** The point of its box `align` and `valign` name: with their defaults, its upper left corner. */
+  readonly at: Point;
+  /** The height of a capital, where no code sets another. */
+  readonly height: number;
+  /** The value, with its codes. `\P` breaks a paragraph. */
+  readonly value: string;
+  /** Degrees counterclockwise. */
+  readonly rotation: number;
+  /** The width its lines wrap at. Missing, its lines break only at `\P`. */
+  readonly width?: number;
+  /** A text style of the drawing. Defaults to `"Standard"`. */
+  readonly style?: string;
+  /** Defaults to `"left"`. */
+  readonly align?: ParagraphAlign;
+  /** Defaults to `"top"`. */
+  readonly valign?: ParagraphVerticalAlign;
+  /** A factor of the spacing of its lines, from 0.25 to 4. Defaults to 1. */
+  readonly lineSpacing?: number;
+  /** Defaults to `"at-least"`. */
+  readonly lineSpacingStyle?: LineSpacingStyle;
+}
+
 /**
  * A block placed at a point. It draws the block's entities there, scaled and turned about the
  * block's base point, and carries a value for each of the block's attribute definitions. An
@@ -541,6 +593,7 @@ export type Entity =
   | Circle
   | Arc
   | Text
+  | Paragraph
   | Insert
   | LinearDimension
   | AlignedDimension
@@ -1177,6 +1230,50 @@ interface TextPlacement<V extends DxfVersion, Z extends Standard | undefined> {
   readonly align?: V extends "R12" ? "left" | R12Text : TextAlign;
   /** Where `at` is up and down the text's line. Defaults to `"baseline"`. R2018 only. */
   readonly valign?: V extends "R12" ? "baseline" | R12Text : TextVerticalAlign;
+}
+
+/**
+ * The options of `paragraph()`: where its box is, its width, height, rotation, style,
+ * justification and line spacing, and the options of every entity.
+ *
+ * @typeParam N - The width as written.
+ * @typeParam F - The line spacing factor as written.
+ */
+export type ParagraphOptions<
+  H extends number = number,
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  S extends string = string,
+  D extends TextStyleValue = TextStyleDefinition,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+  R extends string = string,
+  N extends number = number,
+  F extends number = number,
+> = EntityOptions<"R2018", T, W, L, I, Z, P> &
+  ParagraphPlacement<Z, N, F> &
+  Sized<Z, R, Positive<H>, TextStyleChoice<S, D>>;
+
+/** Where a paragraph is, how wide, turned and justified, how its lines are spaced, and the view it is read in. */
+interface ParagraphPlacement<Z extends Standard | undefined, N extends number, F extends number> {
+  /** The point of the paragraph's box `align` and `valign` name. */
+  readonly at: Point;
+  /** The width its lines wrap at. Missing, its lines break only at a line feed. */
+  readonly width?: Positive<N>;
+  /** Degrees counterclockwise. */
+  readonly rotation?: number;
+  /** In model space, the view a paragraph with a role is read in, which `view()` returns. */
+  readonly view?: Z extends Standard ? View : ViewWithoutStandard;
+  /** Where `at` is across the box, and how the lines are set in it. Defaults to `"left"`. */
+  readonly align?: ParagraphAlign;
+  /** Where `at` is up and down the box. Defaults to `"top"`. */
+  readonly valign?: ParagraphVerticalAlign;
+  /** A factor of the spacing of its lines, from 0.25 to 4. Defaults to 1. */
+  readonly lineSpacing?: LineSpacing<F>;
+  /** Defaults to `"at-least"`. */
+  readonly lineSpacingStyle?: LineSpacingStyle;
 }
 
 /**
@@ -2490,6 +2587,116 @@ export class DrawingBuilder<
       layer: this.#current,
       ...this.#textFields(at, value, options as unknown as TextOptions),
     }));
+  }
+
+  /**
+   * Paragraph text: one entity whose lines wrap at `width` and break at each line feed, held as
+   * the leading CAD app's multi-line text. Its box is placed by `at`, which `align` and `valign`
+   * name a point of, its upper left corner by default. The value may hold that app's inline
+   * codes, which `underline`, `bold`, `stack`, `superscript`, `subscript` and `plain` write, and
+   * a line feed in it is written as `\P`. R2018 only.
+   *
+   * ```ts
+   * d.paragraph(`GENERAL NOTES\n1. ALL WORK SHALL COMPLY WITH ${underline("THE CODES")}.`, {
+   *   at: [1, 10],
+   *   width: 4,
+   *   height: 0.1,
+   * });
+   * ```
+   */
+  paragraph<
+    Q extends string,
+    H extends number = number,
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    S extends string = string,
+    const D extends TextStyleValue = TextStyleDefinition,
+    P extends string = string,
+    R extends string = string,
+    N extends number = number,
+    F extends number = number,
+  >(
+    value: ParagraphValue<Q>,
+    options: V extends "R12" ? R12Paragraphs : ParagraphOptions<H, T, W, L, I, S, D, Z, P, R, N, F>,
+  ): this {
+    const o = options as unknown as ParagraphOptions;
+    return this.#add(DrawingBuilder.prototype.paragraph, o, () => {
+      if (this.dxf === "R12") refuse("paragraph", R12_ONLY.paragraphs);
+      return this.#paragraph(value, o);
+    });
+  }
+
+  /** Checks a paragraph and returns it on the current layer. */
+  #paragraph(given: unknown, o: ParagraphOptions): Paragraph {
+    if (typeof given !== "string")
+      return refuse("paragraph", "A paragraph's value must be a string");
+    // A backslash would escape the `\` of the `\P` a line feed becomes, as the type refuses it.
+    let backslashes = 0;
+    for (let i = 0; i < given.length; i++) {
+      const code = given.charCodeAt(i);
+      if (code === 92) backslashes++;
+      else {
+        if (code === 10 && backslashes % 2 === 1) {
+          return refuse("paragraph", paragraphUnknownCode("\n"));
+        }
+        backslashes = 0;
+      }
+    }
+    const value = given.replaceAll("\n", "\\P");
+    const parsed = parseParagraph(value);
+    if (parsed.problem) refuse("paragraph", parsed.problem);
+    const at: unknown = o?.at;
+    if (!Array.isArray(at) || at.length !== 2) {
+      return refuse("geometry", "at must be a point, [x, y], of the paragraph's box");
+    }
+    const role = this.#role(o as unknown as TextOptions);
+    const paragraph: { -readonly [K in keyof Paragraph]?: Paragraph[K] } & Pick<
+      Paragraph,
+      "kind" | "layer" | "at" | "value" | "height" | "rotation"
+    > = {
+      kind: "paragraph",
+      layer: this.#current,
+      at: pt(at as unknown as Point),
+      value,
+      height: positive(role ? role.height : (o.height ?? 0.125), "height"),
+      rotation: kept(o.rotation ?? 0, "rotation"),
+    };
+    if (o.width !== undefined) paragraph.width = positive(o.width, "width");
+    if (role) paragraph.style = role.style;
+    else if (o.style !== undefined) {
+      const style = this.#textStyleName(o.style);
+      if (style !== STANDARD_TEXT_STYLE) paragraph.style = style;
+    }
+    // A value is checked in its style's font, which decides what `%%c` draws.
+    const font =
+      paragraph.style === undefined
+        ? STANDARD_FONT
+        : (this.#textStyles.get(layerKey(paragraph.style))?.font ?? STANDARD_FONT);
+    const problem = paragraphProblemIn(parsed, font);
+    if (problem) refuse("paragraph", problem);
+    const { align, valign, lineSpacing, lineSpacingStyle } = o as unknown as Record<
+      string,
+      unknown
+    >;
+    for (const [field, chosen, plain] of [
+      ["align", align, "left"],
+      ["valign", valign, "top"],
+      ["lineSpacingStyle", lineSpacingStyle, "at-least"],
+    ] as const) {
+      if (chosen === undefined) continue;
+      const choiceProblem = paragraphChoiceProblem(field, chosen);
+      if (choiceProblem)
+        refuse(field === "lineSpacingStyle" ? "paragraph" : "text-align", choiceProblem);
+      if (chosen !== plain) (paragraph as Record<string, unknown>)[field] = chosen;
+    }
+    if (lineSpacing !== undefined) {
+      const spacingProblem = lineSpacingProblem(lineSpacing);
+      if (spacingProblem) refuse("paragraph", spacingProblem);
+      if (lineSpacing !== 1) paragraph.lineSpacing = lineSpacing as number;
+    }
+    return paragraph as Paragraph;
   }
 
   /**
@@ -3822,7 +4029,7 @@ export class DrawingBuilder<
     const styles = new Set<string>();
     for (const block of closure) {
       for (const e of block.entities)
-        if (e.kind === "text" && e.style) styles.add(layerKey(e.style));
+        if ((e.kind === "text" || e.kind === "paragraph") && e.style) styles.add(layerKey(e.style));
       for (const a of block.attributes ?? []) if (a.style) styles.add(layerKey(a.style));
     }
     // Every refusal comes before the drawing takes a text style, block, id or handle, and
@@ -4213,7 +4420,9 @@ export class DrawingBuilder<
 
   /** True for a text with a role, and for an insert of a block that holds one. */
   #drawsRoles(made: Entity, options: object): boolean {
-    if (made.kind === "text") return (options as { readonly role?: unknown }).role !== undefined;
+    if (made.kind === "text" || made.kind === "paragraph") {
+      return (options as { readonly role?: unknown }).role !== undefined;
+    }
     return made.kind === "insert" && this.#roleBlocks.has(layerKey(made.block));
   }
 

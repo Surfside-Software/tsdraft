@@ -223,24 +223,32 @@ measureText({ value: "GENERAL NOTES", height: 0.125, font: "Arial" }).length; //
 
 `font` is the font of the text's style, and `txt.shx`, the font of `Standard`, when left out.
 A capital of `txt.shx` takes a whole text height of the line, far more than most screen fonts
-do, so a note sized by eye runs long. Pass the style's `widthFactor` too when it has one.
-Break a note into lines with it, and check that a value fits its cell before you draw it:
+do, so a note sized by eye runs long. Pass the style's `widthFactor` too when it has one, and
+check that a value fits its cell before you draw it.
+
+A note of more than one line is a paragraph, which wraps at its width and which a drafter edits
+as one. Never break a note into texts of one line:
 
 ```ts
-/** Breaks a sentence into lines that plot no longer than `width`. */
-function wrap(sentence: string, height: number, width: number): string[] {
-  const lines: string[] = [];
-  for (const word of sentence.split(" ")) {
-    const longer = lines.length > 0 ? `${lines.at(-1)} ${word}` : word;
-    const fits = measureText({ value: longer, height }).length <= width;
-    if (lines.length > 0 && fits) lines[lines.length - 1] = longer;
-    else lines.push(word);
-  }
-  return lines;
-}
+import { layoutParagraph, underline } from "tsdraft";
+
+d.paragraph(`1. ${underline("VERIFY")} ALL DIMENSIONS IN THE FIELD.\n2. DO NOT SCALE.`, {
+  at: [1, 20], // the upper left corner of its box
+  width: 4,
+  height: 0.1,
+});
+layoutParagraph({ value: "...", height: 0.1, width: 4 }).lines.length; // how many lines it takes
 ```
 
-Space lines one and a half text heights apart or more. Given `at`, `align`, `valign` and
+A line feed starts a new paragraph. `measureParagraph` gives its lines and its box, from the
+widths `measureText` uses, and `inspectText` checks each line as a text. `underline`, `bold`,
+`stack`, `superscript` and `subscript` write the codes for what they name, and `plain(text)`
+escapes text from elsewhere. `lint` refuses a code tsdraft does not lay out, such as a tab, a
+list's indents or a change of height, and names it.
+[docs/paragraphs.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/paragraphs.md)
+has the codes.
+
+Space the lines of a column of texts one and a half text heights apart or more. Given `at`, `align`, `valign` and
 `rotation` as well, `measureText` returns `corners`, the box the text's capitals fill, which
 is the box the `text-` warnings and their `bounds` use. A character outside Latin-1 is measured
 as a `?`, and the result then has `approximate: true`.
@@ -285,8 +293,9 @@ ARCH D layout, 36 by 24 inches, its border, a title block whose fields are attri
 a legend, the view's title and a graphic scale. Start a new drawing from it. It is not in the npm package. Copy it and
 change its import string `"../src/index.ts"` to `"tsdraft"`.
 
-Its parameters come first and every position is worked out from them. Its columns and line
-breaks are laid out with `measureText`. Its symbols are blocks.
+Its parameters come first and every position is worked out from them. Its columns are laid
+out with `measureText`, and each general note is a paragraph that wraps at the width of the
+column of notes. Its symbols are blocks.
 
 It is drawn to a standard of its own, which extends `BUILT_IN_STANDARD` with the layers
 `V-TREE` and `C-ANNO-REVS`, as the section above shows, and a leader style. A text names a `role` of the standard,
@@ -590,10 +599,9 @@ writeFileSync("plan.dxf", toDXF(drawing));
   viewport is a locked rectangle that shows every layer at one scale.
 - A paper outside the list in the section on layouts, a paper in portrait, and a page setup
   for another plotter.
-- Multiline text, but a leader's note. A text is a single line: break a note into lines with
-  `measureText`. A text
-  takes a text style with a font, and `align` and `valign` to justify it to its point, as the
-  example sheet does.
+- Lists with hanging indents, tab stops and columns in a paragraph, and the codes that change
+  the height, width, slant, spacing or color of characters inside one. Number a list with a
+  text beside each note's paragraph, as the example sheet does.
 - Ellipses and splines.
 - A color on a single entity. Color comes from the layer.
 - DWG files. tsdraft writes DXF.

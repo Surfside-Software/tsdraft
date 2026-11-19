@@ -4,7 +4,7 @@
 import type { XrefDrawings } from "./blocks.ts";
 import type { Drawing } from "./drawing.ts";
 import { FONT_METRICS, FONT_METRICS_RANGES, type FontMetrics } from "./font-metrics.ts";
-import { FONTS, fontInfo, type Font } from "./fonts.ts";
+import { FONTS, fontInfo, type Font, capHeightOf } from "./fonts.ts";
 import { paperInfo } from "./papers.ts";
 import { Sha256 } from "./sha256.ts";
 import { filled } from "./shape.ts";
@@ -28,7 +28,9 @@ export interface PdfOptions {
   /**
    * The TrueType file of each font the texts are set in, by the font's name in `FONTS`, such as
    * `{ Arial: bytes }`: the font's own file, or one made to its widths. The PDF embeds each, cut
-   * to the letters it uses. A text in a font with no file here, or with a file `pdfFace` does
+   * to the letters it uses. A run of a paragraph in bold is set in the file of its font's bold
+   * face, by the font's name and ` Bold`, such as `{ "Arial Bold": bytes }`, which `boldFontKey`
+   * gives. A text in a font with no file here, or with a file `pdfFace` does
    * not take, and a text in an SHX font, is set in a standard face that is not embedded.
    */
   readonly fonts?: Readonly<Record<string, Uint8Array>>;
@@ -269,6 +271,7 @@ const ATTRIBUTES = new Set([
   "textLength",
   "lengthAdjust",
   "xml:space",
+  "font-weight",
 ]);
 
 /**
@@ -287,7 +290,13 @@ function unescape(text: string, where: string): string {
 
 /** One of the three faces every PDF reader has without a file, as a font of the page. */
 interface Face {
-  readonly name: "Helvetica" | "Times-Roman" | "Courier";
+  readonly name:
+    | "Helvetica"
+    | "Times-Roman"
+    | "Courier"
+    | "Helvetica-Bold"
+    | "Times-Bold"
+    | "Courier-Bold";
   /** The font whose widths it is given, which has the same advances. */
   readonly widthsOf: Font;
   /** The height of a capital as a share of the size, as the font it has the widths of has it. */
@@ -335,6 +344,39 @@ const FACES = {
     descent: -157,
     stem: 51,
   },
+  sansBold: {
+    name: "Helvetica-Bold",
+    widthsOf: "Arial",
+    capHeight: FONTS.Arial.capHeight,
+    ownCapHeight: 0.718,
+    flags: 262176,
+    box: "-170 -228 1003 962",
+    ascent: 718,
+    descent: -207,
+    stem: 140,
+  },
+  serifBold: {
+    name: "Times-Bold",
+    widthsOf: "Times New Roman",
+    capHeight: FONTS["Times New Roman"].bold.capHeight,
+    ownCapHeight: 0.676,
+    flags: 262178,
+    box: "-168 -218 1000 935",
+    ascent: 683,
+    descent: -217,
+    stem: 139,
+  },
+  monoBold: {
+    name: "Courier-Bold",
+    widthsOf: "Courier New",
+    capHeight: FONTS["Courier New"].bold.capHeight,
+    ownCapHeight: 0.562,
+    flags: 262177,
+    box: "-113 -250 749 801",
+    ascent: 629,
+    descent: -157,
+    stem: 106,
+  },
 } as const satisfies Record<string, Face>;
 
 /**
@@ -360,8 +402,21 @@ const FACE_OF_FONT: ReadonlyMap<string, Face> = new Map(
   }),
 );
 
+/** The bold face of each standard face, which has its widths: tsdraft measures bold as regular. */
+const BOLD_OF: ReadonlyMap<Face, Face> = new Map<Face, Face>([
+  [FACES.sans, FACES.sansBold],
+  [FACES.serif, FACES.serifBold],
+  [FACES.mono, FACES.monoBold],
+]);
+
+/** The key in `fonts` of the bold face of a font: its name and ` Bold`, such as `Arial Bold`. */
+export function boldFontKey(font: string): string {
+  return `${font} Bold`;
+}
+
 /**
- * The face a PDF of tsdraft's sets a text in, for the font its style names. With `file`, the
+ * The face a PDF of tsdraft's sets a text in, for the font its style names, or its bold face for a
+ * run of a paragraph a code sets in bold. With `file`, the
  * TrueType file given for the font in `fonts`, it is the PostScript name of the file's font,
  * which the PDF embeds, when the font is a TrueType font of `FONTS` and the file one the PDF can
  * embed. Otherwise it is `Helvetica`, `Times-Roman` or `Courier`, which no PDF embeds: Arial,
@@ -369,17 +424,17 @@ const FACE_OF_FONT: ReadonlyMap<string, Face> = new Map(
  * the face of its kind, stretched to the length the text plots. A font that is not one of
  * `FONTS` is set in Courier, as the picture draws it in the font of `Standard`.
  */
-export function pdfFace(font: string, file?: Uint8Array): string {
+export function pdfFace(font: string, file?: Uint8Array, bold = false): string {
   const read = file === undefined ? undefined : embeddable(font, file);
-  return read === undefined ? standIn(font).name : read.name;
+  return read === undefined ? standIn(font, bold).name : read.name;
 }
 
-/** The standard face a font is set in when it is not embedded. */
-function standIn(font: string | undefined): Face {
-  return (
+/** The standard face a font is set in when it is not embedded, in bold or not. */
+function standIn(font: string | undefined, bold = false): Face {
+  const face =
     (typeof font === "string" && Object.hasOwn(FONTS, font) ? FACE_OF_FONT.get(font) : undefined) ??
-    FACES.mono
-  );
+    FACES.mono;
+  return bold ? BOLD_OF.get(face)! : face;
 }
 
 /** The font of a file, when it is a TrueType font for a TrueType font of `FONTS` a PDF can embed. */
@@ -811,7 +866,10 @@ class PdfWriter {
   private readonly faces = new Map<Face, number>();
   private readonly layers = new Map<string, number>();
   private readonly widths = new Map<Face, number[]>();
-  /** Each font of `FONTS` whose file the PDF embeds, or null for one it sets in a face. */
+  /**
+   * Each font of `FONTS` whose file the PDF embeds, by its name or `boldFontKey` of it, or null for
+   * one it sets in a face.
+   */
   private readonly embedded = new Map<string, Embedded | null>();
 
   private readonly deflate: PdfOptions["deflate"];
@@ -864,14 +922,18 @@ class PdfWriter {
     return number;
   }
 
-  /** The font a text in `font` is embedded in, read from its file once, or null for none. */
-  private embeddedOf(font: string): Embedded | null {
-    let found = this.embedded.get(font);
+  /**
+   * The font a text in `font` is embedded in, in its bold face for `bold`, read from its file
+   * once, or null for none.
+   */
+  private embeddedOf(font: string, bold: boolean): Embedded | null {
+    const named = bold ? boldFontKey(font) : font;
+    let found = this.embedded.get(named);
     if (found === undefined) {
-      const own = fontInfo(font)?.capHeight;
+      const own = capHeightOf(font, bold);
       const file =
-        this.files !== undefined && own !== undefined && Object.hasOwn(this.files, font)
-          ? this.files[font]
+        this.files !== undefined && own !== undefined && Object.hasOwn(this.files, named)
+          ? this.files[named]
           : undefined;
       const read = file === undefined ? undefined : embeddable(font, file);
       // The leading CAD app makes the capital `A` of a font as tall as the text, by the number
@@ -882,7 +944,7 @@ class PdfWriter {
         read === undefined || capital === undefined
           ? null
           : new Embedded(read, capital, this.reserve());
-      this.embedded.set(font, found);
+      this.embedded.set(named, found);
     }
     return found;
   }
@@ -1348,9 +1410,14 @@ class PdfWriter {
         where,
       );
     }
-    const embedded = this.embeddedOf(font);
+    const weight = element["font-weight"];
+    if (weight !== undefined && weight !== "bold") {
+      throw refuse(`the font-weight ${JSON.stringify(weight)}`, where);
+    }
+    const bold = weight === "bold";
+    const embedded = this.embeddedOf(font, bold);
     // A font that is not one of `FONTS` is drawn as `toSVG` draws it, in the font of `Standard`.
-    const face = standIn(font);
+    const face = standIn(font, bold);
     let codes: number[];
     let natural: number;
     let size: number;

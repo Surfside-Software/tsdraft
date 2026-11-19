@@ -11,6 +11,17 @@ export function written(value: number): number {
 }
 
 /**
+ * A number with 15 significant digits and no exponent, which JavaScript writes for a number
+ * under a millionth. Summed as a whole number, 15 digits stay under 2^53, so the double
+ * the leading CAD app reads from them can be worked out exactly, where a 16th may move it a unit in
+ * the last place.
+ */
+export function fifteenDigits(value: number): string {
+  const kept = Number(value.toPrecision(15));
+  return Math.abs(kept) < 1e-6 ? kept.toFixed(20) : String(kept);
+}
+
+/**
  * An arc angle in degrees as the DXF writers print it: rounded to 6 decimals,
  * with 0 in place of an angle that rounds up to 360.
  */

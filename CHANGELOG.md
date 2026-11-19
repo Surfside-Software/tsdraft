@@ -8,6 +8,47 @@
   it does not show marked invisible, so an insert of one now reads as the state it shows. An
   attribute or attribute definition marked so is `invisible`, as one whose own flag hides it is,
   and a space counts such a definition under `other`.
+- Paragraph text, in R2018 drawings: `d.paragraph(value, options)` draws one text whose lines wrap
+  at `width` and break at each line feed, held as an `MTEXT` that a CAD user edits as one. Its
+  box is placed by `at`, the point `align` and `valign` name, its upper left corner by default,
+  and it takes a `height`, a `rotation`, a `style`, a `lineSpacing` factor from 0.25 to 4 and a
+  `lineSpacingStyle`, and under a standard a `role` and a `view`, as a text does. Its value holds
+  the inline codes of an `MTEXT`: underline, strike-through, bold in a TrueType font, stacked
+  fractions, slash stacks and tolerances, a superscript and a subscript, `%%d`, `%%p`, `%%c`,
+  `\U+XXXX` and the escapes; `underline`, `bold`, `stack`, `superscript`, `subscript` and `plain`
+  write them, and `parseParagraph` reads them. `lint` and the builder refuse a value with a brace
+  never closed, a code it does not know or does not lay out yet, such as a tab, a list's indents,
+  columns, a change of height or an overline, a stacked part of lower-case letters, a stack in
+  underlined text, a font that is not one of `FONTS`, italic, bold in an SHX font, a font option
+  other than `b0`, `b1`, `i0`, and `c` or `p` with digits, or one given twice, and a paragraph in
+  an R12 drawing; a literal value with one of these is a compile error. They also refuse `%%c` in
+  an SHX font, which draws a diameter sign of its own that is not laid out yet; a literal value's
+  type refuses it in a font a `\f` or `\F` code sets, and leaves a character above U+FFFF to them.
+  `layoutParagraph` and `measureParagraph` lay a paragraph out as the leading CAD app does: each
+  line set by the ink of its first and last letters, broken where the next word's ink would pass
+  the width, spaced by what its letters and stacks reach, with each run, bold face, underline,
+  bar and stack part where that app draws it, from the font tables' new columns and the numbers as
+  the writers write them. The extents, `toSVG`, `toPDF` and `inspectText` take a paragraph's lines
+  and its box from them, and a long value many paragraphs share is laid out once in each of its
+  settings. A paragraph's rotation is taken within a turn and to 6 decimals, and
+  `paragraphDirection` gives the one direction both writers write and its layout is placed by.
+  `FONTS` names
+  each TrueType font's bold file, `capHeightOf` gives the height of a face's capital `A`, `toPDF`
+  sets a bold run in the file `fonts` gives under the font's name and ` Bold`, and `tsdraft render`
+  and `tsdraft dev` find the bold files as they find the regular ones. `readDXF` reads an
+  `MTEXT`'s line spacing as `lineSpacing` and `lineSpacingStyle`, and its group 50 in degrees, and
+  `layoutMtext` and `measureMtext` lay a read one out. [docs/paragraphs.md](docs/paragraphs.md)
+  describes them.
+- `toSVG` draws a text in a TrueType font from its first point, held to its characters' advances,
+  and `toPDF` sets it at 100 `Tz` there, as the leading CAD app plots it: a text that ended in a
+  letter whose ink passes its advance, as an `f` does, was stretched to its ink. `layoutText`
+  gives the advances alone as `advances`.
+- `measureText` turns a text by its rotation as the writers write it, to 6 decimals, so a tall
+  text turned by less than a millionth of a degree is measured as the file draws it.
+- `FONT_METRICS` holds, for each character of each font, where its ink starts and ends, how far
+  it reaches above and below the baseline, the room each font leaves after a stack, and for each
+  TrueType font its bold face's own numbers.
+- The example sheet's general notes are paragraphs that wrap at the width of its column of notes.
 - Attachments, and the xrefs of a referenced drawing in the preview and the plot.
   `d.xref(name, path, { attach: true })` writes an attachment, which a drawing that references
   this one draws too, where an xref is an overlay by default, and `Xref` holds `attach`. `toSVG`

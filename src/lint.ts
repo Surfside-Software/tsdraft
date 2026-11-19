@@ -75,7 +75,8 @@ import {
   type Check,
 } from "./shape.ts";
 import { layerAuditKey, layerKey, layoutNameKey } from "./layers.ts";
-import { STANDARD_TEXT_STYLE } from "./fonts.ts";
+import { STANDARD_FONT, STANDARD_TEXT_STYLE } from "./fonts.ts";
+import { parseParagraph, type ParsedParagraph } from "./paragraph-codes.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import {
   arcIsWrittenAsPoint,
@@ -132,6 +133,10 @@ import {
   sizeProblem,
   textAlignProblem,
   textProblem,
+  lineSpacingProblem,
+  paragraphChoiceProblem,
+  paragraphProblemIn,
+  paragraphValueProblem,
   textStyleNameProblem,
   textStyleProblem,
   textWarning,
@@ -196,6 +201,7 @@ export type LintRule =
   | "duplicate-leader-style"
   | "undefined-leader-style"
   | "leader"
+  | "paragraph"
   | "zero-length"
   | "standard"
   | "layer-outside-standard"
@@ -433,6 +439,17 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     if (!found) textChecks.set(value, (found = [textProblem(value), textWarning(value)]));
     return found;
   };
+  /** What is wrong with a paragraph's value in its style's font, read once for a long one. */
+  const paragraphChecks = new Strings<Pick<ParsedParagraph, "problem" | "ownDiameter">>();
+  const checkParagraph = (value: string, font: unknown): string | undefined => {
+    if (value.length < LONG) return paragraphValueProblem(value, font);
+    let found = paragraphChecks.get(value);
+    if (!found) {
+      const { problem, ownDiameter } = parseParagraph(value);
+      paragraphChecks.set(value, (found = { problem, ownDiameter }));
+    }
+    return paragraphProblemIn(found, font);
+  };
   /** The strings of `LONG` characters or more the checks have read. */
   const long = new Strings<true>();
   /**
@@ -465,6 +482,14 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     switch (e.kind) {
       case "text":
         cost += long1(e.value) + long1(e.style) + long1(e.align) + long1(e.valign);
+        break;
+      case "paragraph":
+        cost +=
+          long1(e.value) +
+          long1(e.style) +
+          long1(e.align) +
+          long1(e.valign) +
+          long1(e.lineSpacingStyle);
         break;
       case "insert":
         cost += long1(e.block);
@@ -1615,6 +1640,37 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         for (const [rule, found] of textProblems(entity)) add(rule, "error", found);
         if (warning) add("text", "warning", warning);
       }
+      if (entity.kind === "paragraph") {
+        if (r12) {
+          add("paragraph", "error", R12_ONLY.paragraphs);
+          return;
+        }
+        // A value is checked in its style's font, which decides what `%%c` draws. A style that is
+        // not found has an error of its own.
+        const style: unknown = entity.style;
+        const font =
+          style === undefined
+            ? STANDARD_FONT
+            : typeof style === "string"
+              ? (stylesByKey.get(layerKey(style))?.font ??
+                (isStandardTextStyle(style) ? STANDARD_FONT : undefined))
+              : undefined;
+        const problem = checkParagraph(entity.value, font);
+        if (problem) add("paragraph", "error", problem);
+        const { align, valign, lineSpacing, lineSpacingStyle } = entity;
+        for (const [rule, field, value] of [
+          ["text-align", "align", align],
+          ["text-align", "valign", valign],
+          ["paragraph", "lineSpacingStyle", lineSpacingStyle],
+        ] as const) {
+          const choice = value === undefined ? undefined : paragraphChoiceProblem(field, value);
+          if (choice) add(rule, "error", choice);
+        }
+        const spacing = lineSpacing === undefined ? undefined : lineSpacingProblem(lineSpacing);
+        if (spacing) add("paragraph", "error", spacing);
+        const styled = entity.style === undefined ? {} : { style: entity.style };
+        for (const [rule, found] of textProblems(styled)) add(rule, "error", found);
+      }
       // A shape with a geometry error has no length worth a second message.
       const collapsed = problems.length === 0 ? zeroLength(entity) : undefined;
       if (collapsed) add("zero-length", "warning", collapsed);
@@ -2051,6 +2107,8 @@ function asText(definition: AttributeDefinition): Text {
 function costsBoxes(e: Readonly<Record<string, unknown>>): boolean {
   const kind = e.kind;
   if (kind === "text") return typeof e.value === "string" && e.value.length > KEYED;
+  // A paragraph's layout reads its value again for each place, as a long text's measure does.
+  if (kind === "paragraph") return typeof e.value === "string" && e.value.length >= LONG;
   if (kind === "polyline") {
     return Array.isArray(e.bulges) || Array.isArray(e.widths) || typeof e.width === "number";
   }
@@ -2118,6 +2176,11 @@ function geometryProblems(e: Entity): string[] {
       finite("its position and rotation", ...e.at, e.rotation);
       size("height", e.height);
       break;
+    case "paragraph":
+      finite("its position and rotation", ...e.at, e.rotation);
+      size("height", e.height);
+      if (e.width !== undefined) size("width", e.width);
+      break;
     case "insert": {
       finite("its position and rotation", ...e.at, e.rotation ?? 0);
       const scale: unknown = e.scale;
@@ -2164,6 +2227,7 @@ function zeroLength(e: Entity): string | undefined {
         : undefined;
     case "circle":
     case "text":
+    case "paragraph":
     case "insert":
     case "linear-dimension":
     case "aligned-dimension":

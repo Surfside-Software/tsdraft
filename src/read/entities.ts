@@ -292,11 +292,12 @@ function mtext(record: Rec, base: ReadEntityBase): Reading {
   }
   const dx = num(r, 11);
   const dy = num(r, 21);
-  // Its direction, groups 11 and 21, or else its rotation in radians, group 50.
+  // Its direction, groups 11 and 21, or else its rotation, group 50, which the leading CAD app
+  // reads as degrees, though the DXF Reference gives radians.
   const rotation =
     dx !== undefined && dy !== undefined && (dx !== 0 || dy !== 0)
       ? degrees((Math.atan2(dy, dx) * 180) / Math.PI)
-      : degrees((((num(r, 50) ?? 0) % (2 * Math.PI)) * 180) / Math.PI);
+      : degrees(num(r, 50) ?? 0);
   const entity: ReadMtext = {
     ...base,
     kind: "mtext",
@@ -307,6 +308,8 @@ function mtext(record: Rec, base: ReadEntityBase): Reading {
     rotation,
     style: name(r, 7) ?? "Standard",
     value: textOnce(value),
+    lineSpacing: num(r, 44) ?? 1,
+    lineSpacingStyle: num(r, 73) === 2 ? "exactly" : "at-least",
   };
   return { entity };
 }

@@ -28,6 +28,7 @@ import type {
 import { written } from "./format.ts";
 import { layerKey } from "./layers.ts";
 import { inStyle, measurer } from "./measure.ts";
+import { measured, paragraphInStyle, paragraphMeasurer } from "./paragraphs.ts";
 import { paperInfo } from "./papers.ts";
 import { shown } from "./rules.ts";
 import { filled, Strings } from "./shape.ts";
@@ -188,6 +189,9 @@ export function inspectWithin(
   };
   const walk = (cost: number): boolean => spend(cost * WALKED);
   const { measure, again: readAgain } = measurer();
+  const paragraphs = paragraphMeasurer();
+  /** The paragraphs, and the layouts of long values, whose lines a place has read. */
+  const expanded = new WeakSet<object>();
   /**
    * Whether each value of `LONG` characters or more holds only spaces, read once. One that took
    * the place of another, as `Strings` keeps them, is read again and paid for by its length,
@@ -314,6 +318,38 @@ export function inspectWithin(
         if (text.value.trim() !== "") keep(text, index, matrix, from, attribute);
         return;
       }
+      if (drawn.kind === "paragraph") {
+        // Each line of a paragraph that draws a character is a text where its layout puts it.
+        // Only the first place of a paragraph, of a value not laid out before, is free. Any other
+        // pays first: by its value's length to lay a long value out again, and by its lines to
+        // read them again.
+        const paragraph = paragraphInStyle(drawn, styleOf(drawn, from));
+        const again = paragraphs.again(paragraph);
+        if (again > 0 && !spend(again)) return;
+        const layout = paragraphs.layout(paragraph);
+        const repeated = again > 0 || expanded.has(drawn) || expanded.has(layout);
+        expanded.add(drawn);
+        expanded.add(layout);
+        if (repeated && !walk(layout.lines.length)) return;
+        for (const line of measured(paragraph, layout).lines) {
+          const placed = matrix ? line.corners.map(place) : line.corners;
+          const inner = innerBox(placed);
+          if (!inner) continue;
+          texts.push({
+            entity: index,
+            attribute,
+            id,
+            layer,
+            value: line.value,
+            at: placed[0]!,
+            corners: placed,
+            inner: inner.corners,
+            height: inner.height,
+            box: boxOf(placed),
+          });
+        }
+        return;
+      }
       if (drawn.kind === "text") {
         const style = styleOf(drawn, from);
         const { corners } = measure(inStyle(drawn, style));
@@ -346,7 +382,7 @@ export function inspectWithin(
       }
     };
     const wanted = (e: Exclude<Entity, Insert>): boolean =>
-      e.kind === "text"
+      e.kind === "text" || e.kind === "paragraph"
         ? !blank(e.value)
         : e.kind === "linear-dimension" ||
           e.kind === "aligned-dimension" ||
@@ -360,7 +396,8 @@ export function inspectWithin(
       at.index = index;
       at.space = where;
       // Most entities are no insert, and are looked at without the walk an insert needs. A long
-      // value that took the place of another of its length is read again, and paid for.
+      // text that took the place of another of its length is read again, and paid for; `keep`
+      // pays for a paragraph's.
       if (entity.kind !== "insert") {
         const value: unknown = entity.kind === "text" ? entity.value : undefined;
         if (typeof value === "string" && value.length >= LONG && readAgain(value)) {
@@ -385,7 +422,12 @@ export function inspectWithin(
         frozen,
         (drawn, placement) => {
           // A text is read for each place it is drawn, blank or not, so it is paid for first.
-          if (drawn.kind === "text" && !step(Math.floor(drawn.value.length / 32))) return;
+          if (
+            (drawn.kind === "text" || drawn.kind === "paragraph") &&
+            !step(Math.floor(drawn.value.length / 32))
+          ) {
+            return;
+          }
           if (!wanted(drawn) || hidden(placement.layer)) return;
           keep(drawn, index, placement.matrix, placement.from, placement.attribute);
         },
@@ -548,6 +590,7 @@ function looked(
   const kept = (e: Exclude<Entity, Insert>): boolean => {
     switch (e.kind) {
       case "text":
+      case "paragraph":
         // A value that is not a string is left for the walk to read as it did.
         return typeof e.value !== "string" || !blank(e.value);
       case "polyline":
@@ -712,7 +755,9 @@ function looked(
 function characters(entities: readonly Entity[]): number {
   let steps = 0;
   for (const e of entities) {
-    if (e?.kind === "text" && typeof e.value === "string") steps += Math.floor(e.value.length / 32);
+    if ((e?.kind === "text" || e?.kind === "paragraph") && typeof e.value === "string") {
+      steps += Math.floor(e.value.length / 32);
+    }
   }
   return steps;
 }

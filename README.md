@@ -157,6 +157,23 @@ d.donut([10, 10], 0.5); // a filled dot
 `bulges` makes any side an arc, and `widths` gives each side a width at each end.
 [Polylines](docs/polylines.md) has the rest.
 
+A paragraph is one text whose lines wrap at a width, which a CAD user edits as one. A line feed
+starts a new paragraph, and small helpers write the codes for an underline, bold, a stacked
+fraction and a superscript:
+
+```ts
+import { stack, underline } from "tsdraft";
+
+d.paragraph(`GENERAL NOTES\n1. ${underline("VERIFY")} ALL DIMENSIONS. GAP 3${stack("1", "2")}"`, {
+  at: [1, 20], // the upper left corner of its box
+  width: 4,
+  height: 0.1,
+});
+```
+
+`measureParagraph` gives its lines and its box. [Paragraphs](docs/paragraphs.md) has the codes
+it takes and what it refuses.
+
 A dimension measures between two points and writes what it measures. In the file it is a
 dimension, which a CAD program measures again when its points move, and a dimension style says how
 it is drawn:
@@ -224,14 +241,14 @@ included, can break code written for the one before. [CHANGELOG.md](CHANGELOG.md
 starts each breaking change with `Breaking:`.
 
 It draws layers, lines, polylines with arcs and widths, rectangles, revision clouds, donuts,
-circles, arcs and single-line text, with
+circles, arcs, single-line text and paragraph text that wraps to a width, with
 linetypes and lineweights, text styles and justification, blocks with attributes and inserts
 of them, references to DWG files as xrefs, linear and aligned dimensions in decimal units or
 feet and inches, leaders, layouts with a page setup and viewports, which can freeze their own
 layers or twist the view, and layers that are off, frozen, locked or not plotted. A firm's
 [standard](docs/standard.md) sets its layers, pens, text and sheets. It writes DXF, not DWG.
 
-It does not yet have paragraph text, ellipses, splines or points, hatches, solid fills or masks, images, tables, color or transparency set on one
+It does not yet have lists, tab stops, columns or overlines in paragraph text, ellipses, splines or points, hatches, solid fills or masks, images, tables, color or transparency set on one
 entity, linetypes with text or shapes, PDF underlays, or the other kinds of dimension.
 
 `readDXF` reads an ASCII DXF into a model to inspect, which is not a drawing tsdraft can edit
@@ -283,6 +300,7 @@ the drawing's version, and `toDXF(drawing, { version })` writes another one.
 | Drawing units             | Stored in `$INSUNITS`.                                                  | Not stored. Set them in CAD with `UNITS`.          |
 | Polylines                 | `LWPOLYLINE`                                                            | `POLYLINE` with `VERTEX` records                   |
 | Polyline arcs and widths  | Yes                                                                     | No                                                 |
+| Paragraph text            | `MTEXT`                                                                 | No                                                 |
 | Text                      | UTF-8                                                                   | ASCII, with `\U+XXXX` escapes for other characters |
 | Layer names               | Up to 255 characters, except those in [the rules](docs/rules.md#errors) | Up to 31 letters, digits, `$`, `-` and `_`         |
 | Linetypes, lineweights    | Yes                                                                     | No: only `Continuous`, and no lineweights          |
@@ -332,6 +350,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   block, names, handles and what the preview draws.
 - [Polylines](docs/polylines.md) covers arcs by their bulge, rounded corners, revision clouds,
   widths and donuts, how a wide polyline plots, and what `lint` refuses of them.
+- [Paragraphs](docs/paragraphs.md) covers paragraph text: its width and box, the codes its
+  value takes, the helpers that write them, how it is laid out, and what `lint` refuses.
 - [Dimensions](docs/dimensions.md) covers dimension styles, linear and aligned
   dimensions, how a measurement is written, and what `lint` refuses.
 - [Xrefs](docs/xrefs.md) covers references to DWG files: the path, units, a

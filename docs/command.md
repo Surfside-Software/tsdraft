@@ -315,6 +315,9 @@ set each TrueType font in:
 - a font made to its widths, whose letters each take the room of the font's own: Liberation
   Sans for Arial, Liberation Serif for Times New Roman and Liberation Mono for Courier New.
 
+Beside each, it looks for the file of its bold, such as `arialbd.ttf`, the name `FONTS` gives
+it, or `LiberationSans-Bold.ttf`, for the bold runs of paragraphs, and a PDF embeds it too.
+
 A file counts only when the family name inside it is the one expected. An SHX font, and a
 TrueType font the machine has neither file for, is set in JetBrains Mono.
 

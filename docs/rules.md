@@ -36,6 +36,16 @@ it would take `1e+100` for `1e+10` and report nothing.
   since the leading CAD app reads a negative width of every side as 0 and keeps a negative width
   of one side with no `AUDIT` error, and a polyline has one width for every side or one for each,
   not both. [Polylines](polylines.md#checks) has the rest.
+- A paragraph is R2018 only. Its height, and its width where it has one, are greater than 0 as
+  written, its line spacing is a factor from 0.25 to 4 as written, and its value holds only the
+  codes tsdraft lays out: its braces close, each code is one tsdraft knows and ends with its `;`
+  where it takes one, a font is one of `FONTS`, in bold only for a TrueType font and never in
+  italic, and braces nest at most 16 deep. The codes of lists, tab stops, columns, the height,
+  width, slant, spacing, alignment and color of characters, and an overline, are refused until
+  tsdraft lays them out, since a paragraph that held one would plot otherwise than tsdraft draws
+  it. So are a stacked part of other characters than digits and capitals with `.`, `,`, `+` or
+  `-`, or spaces, and a stack in underlined or struck-through characters.
+  [Paragraphs](paragraphs.md#what-lint-refuses) has the rest.
 - Arc angles are stored from 0 up to 360, so -90 becomes 270. An arc cannot come
   within 0.000001 degrees of a full turn, because its two angles would be
   written the same and the leading CAD app holds such an arc as having no length. Draw a

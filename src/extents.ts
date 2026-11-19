@@ -27,6 +27,7 @@ import { layerKey, layerKeys } from "./layers.ts";
 import { hasArcsOrWidths, mayCurve, polylineBox, PolylineMemo } from "./polylines.ts";
 import { leaderPicture, leaderRepeats } from "./leaders.ts";
 import { inStyle, measurer } from "./measure.ts";
+import { paragraphInStyle, paragraphMeasurer } from "./paragraphs.ts";
 import { filled } from "./shape.ts";
 
 type Bounds = [number, number, number, number];
@@ -63,7 +64,8 @@ const LONG = 256;
  * Approximate extents. Arcs use their full circle, and a polyline counts for its points, the
  * arcs of its sides and its wide sides with their joins. A text counts for the box `measureText`
  * gives it, its capitals as long as the text plots, justified, turned and leaned as it is,
- * and for what its font draws below the baseline. An insert counts for the box of what its block
+ * and for what its font draws below the baseline, and a paragraph for the box of all it draws,
+ * as `measureParagraph` gives it. An insert counts for the box of what its block
  * draws, in the block's coordinates, where the insert puts the box's corners, so a turned insert
  * may count for more than it draws. An insert of an xref counts for the drawing given for it in
  * `xrefs`, and for nothing without one. A dimension counts for its lines, its arrowheads and its
@@ -199,6 +201,7 @@ export function boxer(
 ): Boxer {
   const key = layerKeys();
   const { measure, again: readAgain } = measurer();
+  const paragraphs = paragraphMeasurer();
   interface Names {
     readonly textStyles: ReadonlyMap<string, TextStyle>;
     readonly dimensionStyles: ReadonlyMap<string, DimensionStyle>;
@@ -286,6 +289,15 @@ export function boxer(
         const below = descent / e.height || 0;
         add(c0[0] - (c3[0] - c0[0]) * below, c0[1] - (c3[1] - c0[1]) * below);
         add(c1[0] - (c2[0] - c1[0]) * below, c1[1] - (c2[1] - c1[1]) * below);
+        break;
+      }
+      case "paragraph": {
+        const style = e.style === undefined ? undefined : from.textStyles.get(key(e.style));
+        const paragraph = paragraphInStyle(e, style);
+        // A long value laid out again is paid for first; a box already kept is mapped alone.
+        const again = paragraphs.boxAgain(paragraph);
+        if (again > 0 && !spend(again)) break;
+        for (const [x, y] of paragraphs.box(paragraph) ?? []) add(x, y);
         break;
       }
       case "linear-dimension":

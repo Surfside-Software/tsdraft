@@ -106,8 +106,11 @@ A space and a block hold one type, `ReadEntity`, of the kinds tsdraft's writers 
   scale and rotation, `tags`, and with `geometry` its `attributes`: each a text with its `tag`
   and its `value` where the file places it, and `invisible` for one that does not show. An
   insert with columns and rows is counted under `other`.
-- `mtext`: a paragraph text with its point, height, width, attachment, rotation, style and
-  value, its formatting codes kept. It is not laid out.
+- `mtext`: a paragraph text with its point, height, width, attachment, rotation, from its
+  direction or else from group 50 in degrees, style,
+  value, its formatting codes kept, `lineSpacing`, its line spacing factor, 1 where the file
+  states none, and `lineSpacingStyle`, `"at-least"` or `"exactly"`. `layoutMtext` and
+  `measureMtext` lay it out as tsdraft lays out a paragraph: [Paragraphs](paragraphs.md#reading).
 - `dimension`: a linear or aligned dimension, with its two points, the point where its dimension
   line meets its second extension line, its direction, the middle of its text, what it measures,
   its text, its style and the block of its picture. The other kinds of dimension are counted

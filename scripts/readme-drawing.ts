@@ -158,8 +158,11 @@ const group =
 /** The white rectangle toSVG draws the paper of a layout with. */
 const PAPER = 'fill="#ffffff" data-paper-sheet=""/>';
 
-/** A dimension or a leader is a group that names the layer, and its parts are the lines after it. */
-const GROUPED = / data-(dimension|leader)="/;
+/**
+ * A dimension, a leader or a paragraph is a group that names the layer, and its parts are the
+ * lines after it.
+ */
+const GROUPED = / data-(dimension|leader|paragraph)="/;
 
 /** A line one pixel wide just inside the edge of the picture, which is the sheet's edge. */
 function sheetOutline(x: number, y: number, w: number, h: number, pixel: number, color: string) {

@@ -29,8 +29,9 @@
   there is no `prlimit`.
 - The renderer consults no system font by name. `src/fonts.ts` looks in the machine's font
   folders, once for the life of the command, for the file of each TrueType font of `FONTS`,
-  or of a font made to its widths, and takes a file only when the family name inside it is
-  the one expected. `src/png.ts` sends the renderer's process the files a picture needs, and
+  or of a font made to its widths, and of its bold beside it, and takes a file only when the
+  family name inside it is the one expected. A bold text's `font-weight` comes before the three
+  attributes `src/png-child.ts` sizes a text by, so it sizes one by its bold face's cap height. `src/png.ts` sends the renderer's process the files a picture needs, and
   the process sets the SVG's font family to the file's own. Every other font is drawn in the
   shipped JetBrains Mono. `outputs.pngFonts` and each layout's `pngFonts` say which, from
   `pictureFaces`, the one function that picks the files `toPNG` sends. A PDF embeds the same

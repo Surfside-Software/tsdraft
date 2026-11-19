@@ -61,8 +61,9 @@ import {
 } from "./papers.ts";
 import { fontInfo, STANDARD_TEXT_STYLE } from "./fonts.ts";
 import { ID_HANDLE_SEED, validIdHandle } from "./handles.ts";
-import { dxfOnce, dxfText, fmt, readable, written, writtenAngle } from "./format.ts";
+import { dxfOnce, dxfText, fifteenDigits, fmt, readable, written, writtenAngle } from "./format.ts";
 import { layerKey, layerZeroFirst } from "./layers.ts";
+import { lineSpacingStyleCode, paragraphAttachment, paragraphDirection } from "./paragraphs.ts";
 import {
   attachmentCode,
   LEADER_STYLE_DICTIONARY,
@@ -464,7 +465,7 @@ export function toDXFR2018(
           entity,
           own,
           owner,
-          entity.kind === "text" ? styleOf(entity.style) : undefined,
+          entity.kind === "text" || entity.kind === "paragraph" ? styleOf(entity.style) : undefined,
           paper,
         );
         return;
@@ -1017,6 +1018,26 @@ function writeEntity(
       g(50, writtenAngle(e.startAngle));
       g(51, writtenAngle(e.endAngle));
       return;
+    case "paragraph": {
+      begin("MTEXT", "AcDbMText");
+      point(g, 10, ...e.at);
+      g(40, e.height);
+      g(41, e.width ?? 0); // the width its lines wrap at, or 0 for none
+      g(46, 0); // no height of its own
+      g(71, paragraphAttachment(e));
+      g(72, 1); // left to right
+      writeMtextValue(g, e.value);
+      g(7, style?.name ?? STANDARD_TEXT_STYLE);
+      const [cos, sin] = paragraphDirection(e.rotation);
+      if (cos !== 1 || sin !== 0) {
+        g(11, fifteenDigits(cos));
+        g(21, fifteenDigits(sin));
+        g(31, 0);
+      }
+      g(73, lineSpacingStyleCode(e));
+      g(44, e.lineSpacing ?? 1);
+      return;
+    }
     case "text":
       begin("TEXT", "AcDbText");
       writeTextFields(g, e, style, undefined);
@@ -1200,15 +1221,7 @@ function writePicture(g: Group, { name, picture, handles, layer, textStyle }: Pi
       g(71, 5); // placed by its middle
       g(72, 1); // left to right
       // The leading CAD app writes the text with a code that centers what is stacked in it.
-      const text = dxfOnce(`\\A1;${label.value}`);
-      let at = 0;
-      while (text.length - at > TEXT_CHUNK) {
-        // A caret and what it escapes stay in one group.
-        const end = text[at + TEXT_CHUNK - 1] === "^" ? at + TEXT_CHUNK - 1 : at + TEXT_CHUNK;
-        g(3, text.slice(at, end));
-        at = end;
-      }
-      g(1, text.slice(at));
+      writeMtextValue(g, `\\A1;${label.value}`);
       g(7, textStyle);
       if (written(label.rotation) !== 0) {
         // 15 digits of the direction: 6 decimals would turn the text off the leading CAD app's own.
@@ -1222,22 +1235,27 @@ function writePicture(g: Group, { name, picture, handles, layer, textStyle }: Pi
   });
 }
 
+/**
+ * Writes the value of an MTEXT, which the leading CAD app decodes once: in groups 3 of
+ * `TEXT_CHUNK` characters, and the rest in group 1.
+ */
+function writeMtextValue(g: Group, value: string): void {
+  const text = dxfOnce(value);
+  let at = 0;
+  while (text.length - at > TEXT_CHUNK) {
+    // A caret and what it escapes stay in one group.
+    const end = text[at + TEXT_CHUNK - 1] === "^" ? at + TEXT_CHUNK - 1 : at + TEXT_CHUNK;
+    g(3, text.slice(at, end));
+    at = end;
+  }
+  g(1, text.slice(at));
+}
+
 /** What a dimension reads, as the DXF writes it: the length times the style's measurement scale. */
 function measurementValue(dimension: Dimension, style: DimensionStyle): string {
   return fifteenDigits(
     dimensionMeasure(dimension).measurement * written(style.measurementScale ?? 1),
   );
-}
-
-/**
- * A number with 15 significant digits and no exponent, which JavaScript writes for a number
- * under a millionth. Summed as a whole number, 15 digits stay under 2^53, so the double
- * the leading CAD app reads from them can be worked out exactly, where a 16th may move it a unit in
- * the last place.
- */
-function fifteenDigits(value: number): string {
-  const kept = Number(value.toPrecision(15));
-  return Math.abs(kept) < 1e-6 ? kept.toFixed(20) : String(kept);
 }
 
 /** A layout with what the writer works out for it once. */

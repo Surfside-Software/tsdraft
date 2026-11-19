@@ -162,9 +162,23 @@
   anywhere else. `src/font-metrics.ts` holds, for each font of `FONTS` and each character
   from U+0020 to U+007E and U+00A0 to U+00FF, the numbers of a text of height 1. It is data:
   never edit a number by hand, and keep its header to what the numbers are.
-- `toSVG` draws a text from where `measureText` starts it, with no `text-anchor`, and holds
-  it to its length with `textLength` and `lengthAdjust="spacingAndGlyphs"`, so every renderer
-  draws it as long as it plots in whatever typeface it has. `xml:space="preserve"` keeps its
+- `src/paragraphs.ts` is the one layout of a paragraph, `layoutParagraph` and `measureParagraph`:
+  where each line and each run sits, its strokes and its box, from the font tables' advances and
+  their paragraph columns, each letter's ink and each bold face.
+  The extents, `toSVG`, `inspectText`, the writers' boxes and `src/read/mtext.ts` all take a
+  paragraph from it, and every rule of where a line goes is in the block at its top. Its value is
+  read only by `parseParagraph` in `src/paragraph-codes.ts`, in one pass with a stack of its own
+  and at most `PARAGRAPH_NESTING` formats, and `ParagraphValue` in `src/rules.ts` is the same
+  grammar as a type, which gives up past a fixed number of steps and leaves the rest to the
+  runtime check. Two rules only the runtime check holds: `%%c` in the style's font, which the type
+  does not know, and a character above U+FFFF, since TypeScript never splits the surrogate pair
+  that holds one. A code it does not lay out is refused by `lint`, never drawn as a guess.
+- `toSVG` draws a text with no `text-anchor`, and holds it to a length with `textLength` and
+  `lengthAdjust="spacingAndGlyphs"`, so every renderer draws it as long in whatever typeface it
+  has. A text or a paragraph's run in a TrueType font is drawn from its first point and held to
+  its characters' advances, which the leading CAD app's PDF sets at `100 Tz`; one in an SHX
+  font, which plots as strokes, from where `measureText` starts it and held to the length it
+  plots. `xml:space="preserve"` keeps its
   spaces. `data-height` follows `font-family` directly, and `font-size` comes before both:
   the command finds the three together to size a text for the typeface it draws.
 - `inspectText` in `src/inspect.ts` warns about text as it plots. It is not `lint`: its rules
@@ -364,7 +378,10 @@
   seed.
 - The writers print numbers with 6 decimals. `written` in `src/format.ts` is that
   rounding, and `lint` judges sizes, points and arc angles as written. A new
-  check on a number must do the same.
+  check on a number must do the same. One exception: a paragraph's line-spacing factor is judged
+  as given, from 0.25 to 4, as its type holds a literal, which cannot round. Both ends have 6
+  decimals, so no factor in the range rounds out of it when written, and the type and the runtime
+  check agree.
 - The leading CAD app reads two exponent digits from DXF, so no number may be written as
   1e100 or more. `lint` refuses those in a drawing. A number a writer works out
   for itself, such as an extent, must go through `readable` in `src/format.ts`.

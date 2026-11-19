@@ -80,6 +80,10 @@ const fonts = { Arial: readFileSync("arial.ttf"), "Times New Roman": readFileSyn
 writeFileSync("set.pdf", toPDF(drawing, { xrefs, deflate, fonts }));
 ```
 
+A bold run of a paragraph is set in the file given under its font's name and ` Bold`, which
+`boldFontKey` gives: `{ "Arial Bold": readFileSync("arialbd.ttf") }`. `FONTS` names each bold
+file.
+
 The PDF embeds each file, cut to the glyphs of the characters its pages set, so every character
 plots in the letters of the file: `°`, `±`, `½` and `≥` as `A` does. A set embeds each font once,
 for all its pages. The file may be the font's own, or one made to its widths, such as Liberation

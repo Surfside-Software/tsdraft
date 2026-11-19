@@ -308,7 +308,7 @@ export interface ReadInsert extends ReadEntityBase {
 
 /**
  * A paragraph text. Its value keeps its formatting codes, such as `\P` between paragraphs, and
- * it is not laid out.
+ * `layoutMtext` lays it out.
  */
 export interface ReadMtext extends ReadEntityBase {
   readonly kind: "mtext";
@@ -326,6 +326,10 @@ export interface ReadMtext extends ReadEntityBase {
   readonly style: string;
   /** As the leading CAD app holds it. */
   readonly value: string;
+  /** The factor of its line spacing, 1 when the file states none. */
+  readonly lineSpacing: number;
+  /** How its line spacing is taken: as the least, or exactly. */
+  readonly lineSpacingStyle: "at-least" | "exactly";
 }
 
 /** A linear or an aligned dimension. */

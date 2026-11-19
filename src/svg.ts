@@ -19,6 +19,7 @@ import {
   type Leader,
   type LeaderStyle,
   type Line,
+  type Paragraph,
   type Point,
   type Polyline,
   type Text,
@@ -40,13 +41,20 @@ import {
   type SideArc,
 } from "./polylines.ts";
 import { boxer, type Boxer } from "./extents.ts";
-import { fontInfo, STANDARD_FONT } from "./fonts.ts";
+import { fontInfo, STANDARD_FONT, capHeightOf } from "./fonts.ts";
 import { fmt, written } from "./format.ts";
 import { layerKey, layerKeys } from "./layers.ts";
 import { findLayout, validViewportView } from "./layouts.ts";
 import { leaderPicture, type LeaderPicture } from "./leaders.ts";
 import { builtInLinetype, LINEWEIGHTS, lineweightCode } from "./linetypes.ts";
 import { drawnValue, inStyle, layoutText } from "./measure.ts";
+import {
+  paragraphInStyle,
+  paragraphMeasurer,
+  paragraphTurn,
+  placer,
+  type ParagraphLayout,
+} from "./paragraphs.ts";
 import { DEFAULT_PLOT_STYLE_TABLE, paperInfo } from "./papers.ts";
 import { shown as quoted, turning, viewportProblem } from "./rules.ts";
 import { filled } from "./shape.ts";
@@ -484,6 +492,8 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     pictures.set(e, { style, textStyle, picture });
     return picture;
   };
+  /** The layout of each paragraph, a long value laid out once for the picture. */
+  const paragraphs = paragraphMeasurer();
   /**
    * The element of an entity that draws something of its own, where `matrix` puts it. Its
    * dashes stop once they pass the room left in the picture, and `write` then refuses it.
@@ -497,6 +507,11 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     matrix?: Matrix,
   ): string => {
     const room = longest - length;
+    if (e.kind === "paragraph") {
+      const style = styleOf(e, from);
+      const layout = () => paragraphs.layout(paragraphInStyle(e, style));
+      return paragraphToSvg(e, layout, mark, drawnPen, look, matrix, room);
+    }
     if (e.kind === "leader") {
       const tables = tablesOf(from);
       const style = tables.leaderStyles.get(key(e.style));
@@ -711,6 +726,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         if (!box) return [];
         const lettered =
           shown[1].kind === "text" ||
+          shown[1].kind === "paragraph" ||
           shown[1].kind === "insert" ||
           shown[1].kind === "linear-dimension" ||
           shown[1].kind === "aligned-dimension" ||
@@ -1038,7 +1054,7 @@ export function visibility(drawing: Drawing, drawNoPlot: boolean | undefined) {
     return layer?.frozen === true || (drawNoPlot !== true && layer?.plot === false);
   };
   const styleOf = (e: Entity, from?: Referenced): TextStyle | undefined =>
-    e.kind === "text" && e.style !== undefined
+    (e.kind === "text" || e.kind === "paragraph") && e.style !== undefined
       ? tablesOf(from).textStyles.get(key(e.style))
       : undefined;
   return { tablesOf, layerOf, hidden, frozen, styleOf, key };
@@ -1063,7 +1079,7 @@ function viewOf(view: SvgOptions["view"]): [number, number, number, number] | un
 type Drawn = Exclude<Entity, Insert>;
 
 /** An entity that is one shape, with a linetype and a lineweight it may have of its own. */
-type Shape = Exclude<Drawn, Dimension | Leader>;
+type Shape = Exclude<Drawn, Dimension | Leader | Paragraph>;
 
 /** The linetype and the lineweight an entity has of its own. A dimension and a leader draw ByLayer. */
 function styled(e: Drawn): Pick<Line, "linetype" | "lineweight"> {
@@ -1153,6 +1169,67 @@ function leaderToSvg(
     add((left) => entityToSvg(text, `data-part="text"`, pen, look, textStyle, matrix, left));
   }
   return `<g ${mark} data-leader="${filled(e.text).map(esc).join("&#10;")}">\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
+}
+
+/**
+ * A paragraph as a group: each run of each line as a text is drawn, in its font and in bold where
+ * a code sets it, and its underlines, overlines, strike-throughs and the bars of its stacks as
+ * lines of its pen, which take no dashes. It stops once it passes `room`, the characters left in
+ * the picture, longer than the room, which `write` then refuses, and lays nothing out when its
+ * value alone passes it.
+ */
+function paragraphToSvg(
+  e: Paragraph,
+  layOut: () => ParagraphLayout,
+  mark: string,
+  pen: Pen,
+  look: Look,
+  matrix: Matrix | undefined,
+  room: number,
+): string {
+  const place = placer(e);
+  const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
+  const parts: string[] = [];
+  let left = room - e.value.length;
+  const add = (part: string): void => {
+    parts.push(part);
+    left -= part.length;
+  };
+  const layout = left < 0 ? undefined : layOut();
+  const { widthFactor = 1, obliqueAngle = 0 } = layout ?? {};
+  for (const line of layout?.lines ?? []) {
+    if (left < 0) break;
+    for (const run of line.runs) {
+      if (left < 0) break;
+      const text: Text = {
+        kind: "text",
+        layer: e.layer,
+        at: place(run.x, run.baseline),
+        height: run.height,
+        value: run.value,
+        rotation: paragraphTurn(e.rotation),
+      };
+      const style: TextStyle = { name: "", font: run.font, widthFactor, obliqueAngle };
+      // The run is drawn in its own face, from its first point.
+      const drawn = {
+        start: run.start - run.x,
+        end: run.end - run.x,
+        advance: run.advance,
+        bold: run.bold,
+      };
+      add(textToSvg(text, style, pen, `data-part="text"`, matrix, false, drawn));
+    }
+  }
+  for (const { kind, from, to } of layout?.strokes ?? []) {
+    if (left < 0) break;
+    const [a, b] = [at(place(...from)), at(place(...to))];
+    add(
+      `<line x1="${fmt(a[0])}" y1="${fmt(a[1])}" x2="${fmt(b[0])}" y2="${fmt(b[1])}" stroke="${pen.color}"${look.stroke(pen.lineweight)} data-part="${kind}"/>`,
+    );
+  }
+  const open = `<g ${mark} data-paragraph="${esc(e.value)}"`;
+  if (parts.length === 0) return `${open}/>`;
+  return `${open}>\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
 }
 
 /**
@@ -1287,34 +1364,70 @@ function entityToSvg(
       // sweep-flag 1 is the positive-angle direction in local (Y-up) coordinates: counterclockwise.
       return `<path d="M ${start} A ${fmt(round.rx)} ${fmt(round.ry)} ${fmt(round.turn)} ${large} ${round.sweep} ${end}" ${s}/>`;
     }
-    case "text": {
-      // Undo the group's Y flip so the text reads upright, then apply CAD rotation.
-      let t = `translate(${fmt(e.at[0])} ${fmt(e.at[1])}) scale(1 -1)${e.rotation ? ` rotate(${fmt(-e.rotation)})` : ""}`;
-      // An insert's matrix is applied last, so it comes first.
-      if (matrix) t = `matrix(${matrix.map(fmt).join(" ")}) ${t}`;
-      const font = fontInfo(style?.font ?? STANDARD_FONT);
-      const width = style?.widthFactor ?? 1;
-      const oblique = style?.obliqueAngle ?? 0;
-      // The text is drawn from where it starts to plot, on its baseline, before the style
-      // widens or slants it, and held to the length it plots.
-      const { start, end, baseline } = layoutText(inStyle(e, style));
-      if (written(start) !== 0 || written(baseline) !== 0) {
-        t += ` translate(${fmt(start)} ${fmt(-baseline)})`;
-      }
-      // The leading CAD app slants a text after it widens it, so the width factor does not widen
-      // the lean. The transform applied last comes first.
-      if (oblique !== 0) t += ` skewX(${fmt(-oblique)})`;
-      if (width !== 1) t += ` scale(${fmt(width)} 1)`;
-      // A text's height is the height of its capitals, which a font draws smaller than its size.
-      const size = e.height / (font?.capHeight ?? SCREEN_CAP_HEIGHT);
-      const length = written((end - start) / width);
-      const held = length > 0 ? ` textLength="${length}" lengthAdjust="spacingAndGlyphs"` : "";
-      const family = font?.family ?? "monospace";
-      // The font by its name in `FONTS`, and empty for a font that is not one of them.
-      const named = font ? (style?.font ?? STANDARD_FONT) : "";
-      return `<text transform="${t}" font-size="${fmt(size)}" font-family="${esc(family)}" data-height="${fmt(e.height)}"${held} xml:space="preserve" fill="${pen.color}" stroke="none" data-font="${esc(named)}" ${mark}>${esc(drawnValue(e.value))}</text>`;
-    }
+    case "text":
+      return textToSvg(e, style, pen, mark, matrix, true);
   }
+}
+
+/**
+ * A text as an element, drawn from where `layoutText` starts it and held to its length, or, for a
+ * run of a paragraph, from where its layout starts it, in bold where it is. `decode` draws its
+ * `%%` codes as the characters they stand for. A bold run's `font-weight` comes before the three
+ * attributes the command sizes a text by.
+ */
+function textToSvg(
+  e: Text,
+  style: TextStyle | undefined,
+  pen: Pen,
+  mark: string,
+  matrix: Matrix | undefined,
+  decode: boolean,
+  run?: {
+    readonly start: number;
+    readonly end: number;
+    readonly advance: number;
+    readonly bold: boolean;
+  },
+): string {
+  // Undo the group's Y flip so the text reads upright, then apply CAD rotation.
+  let t = `translate(${fmt(e.at[0])} ${fmt(e.at[1])}) scale(1 -1)${e.rotation ? ` rotate(${fmt(-e.rotation)})` : ""}`;
+  // An insert's matrix is applied last, so it comes first.
+  if (matrix) t = `matrix(${matrix.map(fmt).join(" ")}) ${t}`;
+  const named = style?.font ?? STANDARD_FONT;
+  const font = fontInfo(named);
+  const width = style?.widthFactor ?? 1;
+  const oblique = style?.obliqueAngle ?? 0;
+  // A text is drawn on its baseline, before the style widens or slants it. In a TrueType font it
+  // is drawn from its first point and held to its characters' advances, as the leading CAD app's
+  // PDF sets its glyphs; in an SHX font, which plots as strokes, from where it starts to plot and
+  // held to the length it plots.
+  const trueType = font?.pitchAndFamily !== undefined;
+  let start: number;
+  let end: number;
+  let baseline = 0;
+  if (run) [start, end] = trueType ? [0, run.advance] : [run.start, run.end];
+  else {
+    const laid = layoutText(inStyle(e, style));
+    const first = laid.end - laid.advance;
+    [start, end] = trueType ? [first, first + laid.advances] : [laid.start, laid.end];
+    baseline = laid.baseline;
+  }
+  if (written(start) !== 0 || written(baseline) !== 0) {
+    t += ` translate(${fmt(start)} ${fmt(-baseline)})`;
+  }
+  // The leading CAD app slants a text after it widens it, so the width factor does not widen
+  // the lean. The transform applied last comes first.
+  if (oblique !== 0) t += ` skewX(${fmt(-oblique)})`;
+  if (width !== 1) t += ` scale(${fmt(width)} 1)`;
+  // A text's height is the height of its capitals, which a font draws smaller than its size.
+  const size = e.height / (capHeightOf(named, run?.bold) ?? SCREEN_CAP_HEIGHT);
+  const length = written((end - start) / width);
+  const held = length > 0 ? ` textLength="${length}" lengthAdjust="spacingAndGlyphs"` : "";
+  const family = font?.family ?? "monospace";
+  const value = decode ? drawnValue(e.value) : e.value;
+  // The font by its name in `FONTS`, and empty for a font that is not one of them.
+  const weight = run?.bold ? ` font-weight="bold"` : "";
+  return `<text transform="${t}"${weight} font-size="${fmt(size)}" font-family="${esc(family)}" data-height="${fmt(e.height)}"${held} xml:space="preserve" fill="${pen.color}" stroke="none" data-font="${esc(font ? named : "")}" ${mark}>${esc(value)}</text>`;
 }
 
 /** A circle, or the ellipse an insert that scales unevenly makes of one. */

@@ -18,6 +18,7 @@ import type {
   Line,
   LinearDimension,
   Linetype,
+  Paragraph,
   Polyline,
   Text,
   TextStyle,
@@ -52,6 +53,7 @@ const KINDS = [
   "circle",
   "arc",
   "text",
+  "paragraph",
   "insert",
   "linear-dimension",
   "aligned-dimension",
@@ -467,6 +469,16 @@ function shapes(all: boolean, typed = all): Shapes {
     text: fields<Text>(
       { kind, layer: string, at: point, height: number, value: string, rotation: number },
       { ...shared, ...justified },
+    ),
+    paragraph: fields<Paragraph>(
+      { kind, layer: string, at: point, height: number, value: string, rotation: number },
+      {
+        ...shared,
+        ...justified,
+        width: number,
+        lineSpacing: number,
+        lineSpacingStyle: ruled(string),
+      },
     ),
     insert: fields<Insert>(
       { kind, layer: string, block: ruled(string), at: point },

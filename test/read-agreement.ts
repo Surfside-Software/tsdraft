@@ -19,6 +19,7 @@ import { idHandle } from "../src/handles.ts";
 import { findLeaderStyle, leaderPicture } from "../src/leaders.ts";
 import { layerKey } from "../src/layers.ts";
 import { entityLinetype, lineweightCode } from "../src/linetypes.ts";
+import { paragraphAttachment, paragraphTurn } from "../src/paragraphs.ts";
 import { textOnce, textTwice } from "../src/read/groups.ts";
 import type {
   DrawingRead,
@@ -289,6 +290,33 @@ export function readProblems(
           label,
         );
         start(got, mine, got.value, label);
+        return;
+      }
+      case "paragraph": {
+        if (!kind("mtext") || got.kind !== "mtext") return;
+        const style = styleOf(want.style);
+        // A DWG keeps a `\U+XXXX` as written, where a DXF's reader decodes it.
+        if (got.value !== once(want.value) && got.value !== want.value) {
+          say(`${label}: reads ${JSON.stringify(got.value)}`);
+        }
+        if (!sameName(got.style, style?.name ?? want.style ?? "Standard")) {
+          say(`${label}: style ${got.style}`);
+        }
+        if (!nearPoint(got.at, point(want.at))) say(`${label}: at ${got.at}`);
+        for (const [what, a, b] of [
+          ["height", got.height, written(want.height)],
+          ["width", got.width, written(want.width ?? 0)],
+          ["attachment", got.attachment, paragraphAttachment(want)],
+          ["line spacing", got.lineSpacing, written(want.lineSpacing ?? 1)],
+        ] as const) {
+          if (!near(a, b)) say(`${label}: ${what} ${a}, expected ${b}`);
+        }
+        if (got.lineSpacingStyle !== (want.lineSpacingStyle ?? "at-least")) {
+          say(`${label}: line spacing ${got.lineSpacingStyle}`);
+        }
+        // Its direction is written with 15 digits, which give its turn back within their rounding.
+        const turned = (((got.rotation - paragraphTurn(want.rotation)) % 360) + 360) % 360;
+        if (Math.min(turned, 360 - turned) > 1e-9) say(`${label}: turned ${got.rotation}`);
         return;
       }
       case "insert": {

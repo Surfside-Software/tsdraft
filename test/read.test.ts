@@ -1026,7 +1026,8 @@ test("readDXF keeps the pen an entity sets itself, and counts what it reads only
           [8, "A"],
           [10, "1e999"],
         ],
-        // The leading CAD app leaves out a measurement of 1, and a rotation in radians may be any number.
+        // The leading CAD app leaves out a measurement of 1, and a rotation may be any number. It
+        // reads an MTEXT's group 50 as degrees.
         [
           [0, "DIMENSION"],
           [8, "A"],
@@ -1038,15 +1039,22 @@ test("readDXF keeps the pen an entity sets itself, and counts what it reads only
           [50, "1e308"],
           [1, "M"],
         ],
+        [
+          [0, "MTEXT"],
+          [8, "A"],
+          [50, "390"],
+          [1, "M"],
+        ],
       ),
       [0, "EOF"],
     ]),
     { geometry: true },
   );
   assert.deepEqual(checkDrawingRead(plain(read)), []);
-  const [own, plainLine, dimension, mtext] = read.model.entities!;
+  const [own, plainLine, dimension, mtext, turned] = read.model.entities!;
   assert.equal(dimension?.kind === "dimension" && dimension.measurement, 1);
   assert.ok(mtext?.kind === "mtext" && mtext.rotation >= 0 && mtext.rotation < 360);
+  assert.equal(turned?.kind === "mtext" && turned.rotation, 30);
   assert.deepEqual(
     [own?.linetype, own?.color, own?.trueColor, own?.lineweight, own?.linetypeScale],
     ["DASHED", 0, 0xff0000, 35, 2.5],

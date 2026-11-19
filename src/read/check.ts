@@ -150,6 +150,8 @@ const ENTITY: Readonly<Record<string, Fields>> = {
     rotation: "number",
     style: "string",
     value: "string",
+    lineSpacing: "number",
+    lineSpacingStyle: { oneOf: ["at-least", "exactly"] },
   },
   dimension: {
     ...BASE,

@@ -25,6 +25,7 @@ import type {
   LeaderStyle,
   Linetype,
   Point,
+  Paragraph,
   Text,
   TextStyle,
   Viewport,
@@ -40,6 +41,7 @@ import { leaderPicture } from "../leaders.ts";
 import { validViewportView, viewReaches } from "../layouts.ts";
 import type { Diagnostic, LintRule } from "../lint.ts";
 import { inStyle, measureText } from "../measure.ts";
+import { measureParagraph, paragraphInStyle } from "../paragraphs.ts";
 import { DEFAULT_PLOT_STYLE_TABLE, paperInfo } from "../papers.ts";
 import {
   idKey,
@@ -613,7 +615,7 @@ export function lintStandard(
       if (where.block === undefined && layerKey(entity.layer) === "0") {
         say("layer-outside-standard", `${label}: ${DRAWN.layerZero}`, about);
       }
-      if (entity.kind === "text" && !roleOf(entity.style)) {
+      if ((entity.kind === "text" || entity.kind === "paragraph") && !roleOf(entity.style)) {
         say("text-style-outside-standard", `${label}: ${DRAWN.textWithoutRole}`, about);
       }
       if (entity.kind === "leader" && entity.textStyle !== undefined && !roleOf(entity.textStyle)) {
@@ -1026,7 +1028,7 @@ export function lintStandard(
        * more for each 32 characters of its value and its tag, which it is measured and named by.
        */
       const keep = (
-        text: Text,
+        text: Text | Paragraph,
         styled: Styled | undefined,
         placement: Placement | undefined,
         titleBlock: boolean,
@@ -1041,7 +1043,9 @@ export function lintStandard(
         const what = note
           ? `The line ${shown(text.value)} of its note`
           : placement === undefined
-            ? "This text"
+            ? text.kind === "paragraph"
+              ? "This paragraph"
+              : "This text"
             : tag === undefined
               ? `The text ${shown(text.value)} of its block`
               : `The attribute ${shown(tag)} of its block`;
@@ -1121,7 +1125,7 @@ export function lintStandard(
           }
           return;
         }
-        if (entity.kind === "text") {
+        if (entity.kind === "text" || entity.kind === "paragraph") {
           if (hidden({ name: walk.layer(entity.layer) })) return;
           keep(entity, walk.styled(walk.style(entity.style)), undefined, false);
           return;
@@ -1131,7 +1135,9 @@ export function lintStandard(
         if (placed === undefined || frozen({ name: placed.layer })) return;
         const titleBlock = standardBlocks.has(walk.key(entity.block));
         eachDrawn(placed, walk.blocks(), frozen, (drawn, placement) => {
-          if (drawn.kind !== "text" || hidden(placement.layer)) return;
+          if ((drawn.kind !== "text" && drawn.kind !== "paragraph") || hidden(placement.layer)) {
+            return;
+          }
           keep(drawn, walk.styled(drawn.style), placement, titleBlock);
         });
       } catch (thrown) {
@@ -1319,18 +1325,24 @@ interface Measured {
  * box `boxer` gives it there: its capitals, and what its font draws below the baseline.
  */
 function placedText(
-  text: Text,
+  text: Text | Paragraph,
   style: TextStyle | undefined,
   matrix: Matrix | undefined,
 ): { readonly height: number; readonly box: Box } {
-  const { corners, descent } = measureText(inStyle(text, style));
-  const [c0, c1, c2, c3] = corners;
-  const below = descent / text.height || 0;
-  const points: Point[] = [
-    ...corners,
-    [c0[0] - (c3[0] - c0[0]) * below, c0[1] - (c3[1] - c0[1]) * below],
-    [c1[0] - (c2[0] - c1[0]) * below, c1[1] - (c2[1] - c1[1]) * below],
-  ];
+  let points: Point[];
+  if (text.kind === "paragraph") {
+    const { corners, frame } = measureParagraph(paragraphInStyle(text, style));
+    points = [...(corners ?? frame)];
+  } else {
+    const { corners, descent } = measureText(inStyle(text, style));
+    const [c0, c1, c2, c3] = corners;
+    const below = descent / text.height || 0;
+    points = [
+      ...corners,
+      [c0[0] - (c3[0] - c0[0]) * below, c0[1] - (c3[1] - c0[1]) * below],
+      [c1[0] - (c2[0] - c1[0]) * below, c1[1] - (c2[1] - c1[1]) * below],
+    ];
+  }
   const placed = matrix ? points.map((p) => mapPoint(matrix, p)) : points;
   const xs = placed.map((p) => p[0]);
   const ys = placed.map((p) => p[1]);
@@ -1441,15 +1453,33 @@ function lettering(
     ...(text.align === undefined ? {} : { align: text.align }),
     ...(text.valign === undefined ? {} : { valign: text.valign }),
   });
-  const textOf = (text: Text): Text => ({
-    kind: "text",
-    layer: layer(text.layer),
-    at: text.at,
-    height: text.height,
-    value: text.value,
-    rotation: text.rotation,
-    ...justified(text),
-  });
+  const textOf = (text: Text | Paragraph): Text | Paragraph =>
+    text.kind === "paragraph"
+      ? {
+          kind: "paragraph",
+          layer: layer(text.layer),
+          at: text.at,
+          height: text.height,
+          value: text.value,
+          rotation: text.rotation,
+          ...(text.style === undefined ? {} : { style: style(text.style)! }),
+          ...(text.width === undefined ? {} : { width: text.width }),
+          ...(text.align === undefined ? {} : { align: text.align }),
+          ...(text.valign === undefined ? {} : { valign: text.valign }),
+          ...(text.lineSpacing === undefined ? {} : { lineSpacing: text.lineSpacing }),
+          ...(text.lineSpacingStyle === undefined
+            ? {}
+            : { lineSpacingStyle: text.lineSpacingStyle }),
+        }
+      : {
+          kind: "text",
+          layer: layer(text.layer),
+          at: text.at,
+          height: text.height,
+          value: text.value,
+          rotation: text.rotation,
+          ...justified(text),
+        };
   const definitionOf = (definition: AttributeDefinition): AttributeDefinition => ({
     tag: definition.tag,
     value: definition.value,
@@ -1465,7 +1495,9 @@ function lettering(
   const enter = (): Entered => {
     if (entered) return entered;
     // What each block holds that can draw a text, and the blocks that insert each.
-    type Item = { readonly text: Text } | { readonly insert: Insert; readonly block: Block };
+    type Item =
+      | { readonly text: Text | Paragraph }
+      | { readonly insert: Insert; readonly block: Block };
     const held = new Map<Block, { items: Item[]; definitions: AttributeDefinition[] }>();
     const insertedBy = new Map<Block, Block[]>();
     const lettered: Block[] = [];
@@ -1483,9 +1515,14 @@ function lettering(
         let texts = false;
         for (const e of filled(block.entities)) {
           const kind = (e as { readonly kind?: unknown } | null | undefined)?.kind;
-          if ((kind !== "text" && kind !== "insert") || !isSound(TYPED.entity, e, false)) continue;
-          const entity = e as Text | Insert;
-          if (entity.kind === "text") {
+          if (
+            (kind !== "text" && kind !== "paragraph" && kind !== "insert") ||
+            !isSound(TYPED.entity, e, false)
+          ) {
+            continue;
+          }
+          const entity = e as Text | Paragraph | Insert;
+          if (entity.kind === "text" || entity.kind === "paragraph") {
             items.push({ text: entity });
             texts = true;
             continue;
@@ -1875,7 +1912,9 @@ function closureOf(id: string, titleBlock: StandardTitleBlock): TitleBlockIndex 
       const block = queue[i]!;
       blocks.set(layerKey(block.name), { name: block.name, json: canonical(block) });
       for (const e of block.entities) {
-        if (e.kind === "text" && e.style !== undefined) styles.add(layerKey(e.style));
+        if ((e.kind === "text" || e.kind === "paragraph") && e.style !== undefined) {
+          styles.add(layerKey(e.style));
+        }
         const linetype = (e as { readonly linetype?: string }).linetype;
         if (linetype !== undefined) lines.add(layerKey(linetype));
         const inner = e.kind === "insert" ? byName.get(layerKey(e.block)) : undefined;

@@ -1803,6 +1803,16 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
       shafts: [[[0, 0]]],
       ...fields,
     }) as unknown as Entity;
+  const paragraph = (fields: Data): Entity =>
+    ({
+      kind: "paragraph",
+      layer: "0",
+      at: [0, 0],
+      height: 1,
+      value: "N",
+      rotation: 0,
+      ...fields,
+    }) as unknown as Entity;
   for (let n = 0; n < 16; n++) {
     const blocks = copies(sheet.blocks);
     const layout: Data = {
@@ -1842,6 +1852,15 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
         ),
       }),
       leader({ textStyle: long }),
+      // A paragraph of many lines, of many runs, of one long word, of deep braces, or of numbers
+      // past what can be drawn.
+      paragraph({ value: "WORD ".repeat(20_000), width: 1 }),
+      paragraph({ value: "\\La\\l\\S1/2;".repeat(10_000), width: 0 }),
+      paragraph({ value: long, width: 0.5, style: "HEADING" }),
+      paragraph({ value: `${"{".repeat(50_000)}x`, width: 1e99, height: 1e99, rotation: 1e99 }),
+      // And of a run for each character and of stacks that each end a line.
+      paragraph({ value: "\\fArial|b1;a\\fArial|b0;b".repeat(4_000), width: 1e-6 }),
+      paragraph({ value: "\\S1/2; X\\S2^ ; X\\S^2; ".repeat(2_000), width: 1e-6 }),
     ]);
     const tree = nested(leaf, depth, width, "T");
     // Many lines that no check reads beside one label.
@@ -2273,4 +2292,135 @@ test("polylines that share a long list of points, each with lists or a width of 
     );
     assert.ok(Array.isArray(found) || found instanceof RangeError, String(found));
   }
+});
+
+test("a paragraph of many lines, runs or braces, a long word and numbers past drawing stay bounded", () => {
+  const paragraph = (fields: Record<string, unknown>): Entity =>
+    ({
+      kind: "paragraph",
+      layer: "0",
+      at: [0, 0],
+      height: 1,
+      value: "N",
+      rotation: 0,
+      ...fields,
+    }) as unknown as Entity;
+  const hostile = [
+    paragraph({ value: "WORD ".repeat(100_000), width: 1 }),
+    paragraph({ value: "\\La\\l\\S1/2;".repeat(50_000) }),
+    paragraph({ value: "W".repeat(500_000), width: 0.5 }),
+    paragraph({ value: `${"{".repeat(250_000)}x`, width: 1e99, height: 1e99, rotation: 1e99 }),
+    paragraph({ value: "\\".repeat(500_000) }),
+    paragraph({ value: "\\S".repeat(250_000) }),
+    paragraph({ value: "A B ".repeat(100_000), width: -1, lineSpacing: 1e300 }),
+    // A run for each character, bold on and off, and stacks of every kind, of long parts, and
+    // each ending a line where the spaces after it are dropped.
+    paragraph({ value: "{\\La}{\\Kb}".repeat(50_000), width: 1e-6 }),
+    paragraph({ value: "\\fArial|b1;a\\fArial|b0;b".repeat(20_000), width: 2 }),
+    paragraph({ value: "\\S1/2; X\\S2^ ; X\\S^2; 1\\S1#2; ".repeat(10_000), width: 1e-6 }),
+    paragraph({ value: `\\S${"1".repeat(200_000)}/${"2".repeat(200_000)};`, width: 1 }),
+    paragraph({ value: "%".repeat(500_000), lineSpacingStyle: "exactly" }),
+    paragraph({ value: `\\fArial${"|b0".repeat(200_000)};X` }),
+  ];
+  for (const [i, leaf] of hostile.entries()) {
+    const d: Drawing = {
+      ...withModel(nested(leaf, 20, 2)),
+      entities: [...sheet.entities, leaf, nested(leaf, 20, 2).top],
+      layouts: [{ ...sheet.layouts![0]!, entities: [...sheet.layouts![0]!.entities, leaf] }],
+    };
+    const fns: [string, () => unknown][] = [
+      ["lint", () => lintWithin(d, {}, 20_000)],
+      ["inspectText", () => inspectWithin(d, {}, 200_000)],
+      [
+        "extents",
+        () =>
+          boxer(
+            d.textStyles,
+            d.blocks,
+            undefined,
+            undefined,
+            undefined,
+            d.dimensionStyles,
+            d.leaderStyles,
+            20_000,
+          )(d.entities),
+      ],
+      ["toSVG", () => svgWithin(d, {}, 20_000)],
+      [
+        "the PDF of the layout",
+        () => svgToPDF([svgWithin(d, { layout: "C-101" }, 20_000)], { fonts: embedded }),
+      ],
+    ];
+    for (const [name, fn] of fns) {
+      const result = settled(3000, fn);
+      assert.ok(
+        !(result instanceof Error) || result instanceof RangeError,
+        `paragraph ${i}, ${name}: ${String(result)}`,
+      );
+    }
+  }
+});
+
+test("a long paragraph value many places share is laid out once in each of its settings, and each other place pays", () => {
+  const paragraph = (value: string, fields: Record<string, unknown> = {}): Entity =>
+    ({
+      kind: "paragraph",
+      layer: "0",
+      at: [0, 0],
+      height: 1,
+      value,
+      rotation: 0,
+      ...fields,
+    }) as unknown as Entity;
+  const lines = "AB\\P".repeat(20_000);
+  // The extents map the box of its one layout at each place, whatever its lines.
+  const boxes = boxer([], [], undefined, undefined, undefined, [], [], 0);
+  const many = Array.from({ length: 10_000 }, () => paragraph(lines));
+  assert.ok(within(1000, () => boxes(many)));
+  assert.equal(boxes.capped, undefined);
+  // A layout in other settings lays it out again, and is paid for before it is.
+  const wide = "HHHH ".repeat(16_000);
+  for (const settings of [
+    (i: number) => ({ height: 1 + i / 1000 }),
+    (i: number) => ({ width: 10 + i }),
+  ]) {
+    const each = Array.from({ length: 200 }, (_, i) => paragraph(wide, settings(i)));
+    const paying = boxer([], [], undefined, undefined, undefined, [], [], 0);
+    within(1000, () => paying(each));
+    assert.equal(paying.capped, each[1]);
+  }
+  // The text checks read its lines again at each place after the first, and pay for them first.
+  const shared: Drawing = {
+    ...createDrawing({ units: "ft" }).build(),
+    entities: Array.from({ length: 128 }, () => paragraph("H\\P".repeat(2000))),
+  };
+  const [stop, ...rest] = within(1000, () => inspectWithin(shared, {}, 1));
+  assert.equal(rest.length, 0);
+  assert.match(stop!.message, /stopped short at entity #1 of model space/);
+  // One long value at many widths is laid out again at each, and each place after the first
+  // pays first, by the value's length and by its lines.
+  for (const value of ["AB ".repeat(12_000), "\\S1/2;".repeat(6_000)]) {
+    const d: Drawing = {
+      ...createDrawing({ units: "ft" }).build(),
+      entities: Array.from({ length: 1000 }, (_, i) =>
+        paragraph(value, { at: [i * 1e5, 0], height: 0.1, width: 1 + i / 1000 }),
+      ),
+    };
+    const [first] = within(1000, () => inspectWithin(d, {}, value.length - 1));
+    assert.match(first!.message, /stopped short at entity #1 of model space/);
+    const capped = within(1000, () => inspectWithin(d, {}, 300_000));
+    assert.equal(capped.at(-1)?.rule, "text-check-capped");
+    const boxes = boxer([], [], undefined, undefined, undefined, [], [], value.length - 1);
+    within(1000, () => boxes(d.entities));
+    assert.equal(boxes.capped, d.entities[1]);
+    assert.ok(settled(1000, () => svgWithin(d, {}, 300_000)) instanceof RangeError);
+  }
+  // The lines of a value at a new width are paid for besides its length.
+  const words = "AB ".repeat(12_000);
+  const wrapped: Drawing = {
+    ...createDrawing({ units: "ft" }).build(),
+    entities: [1, 2].map((width) => paragraph(words, { height: 0.1, width })),
+  };
+  const [paid] = within(1000, () => inspectWithin(wrapped, {}, words.length + 1000));
+  assert.match(paid!.message, /stopped short at entity #1 of model space/);
 });

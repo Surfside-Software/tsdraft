@@ -82,6 +82,22 @@ const kinds: {
     ...styled,
     ...justified,
   },
+  paragraph: {
+    kind: "paragraph",
+    layer: "0",
+    at: [0, 8],
+    height: 0.5,
+    rotation: 15,
+    value: 'ALL WORK SHALL {\\LCOMPLY}\\P3\\S1/2;" GAP',
+    width: 6,
+    style: "NOTES",
+    align: "center",
+    valign: "bottom",
+    lineSpacing: 1.5,
+    lineSpacingStyle: "exactly",
+    id: "k",
+    ...styled,
+  },
   insert: {
     kind: "insert",
     layer: "0",
@@ -489,7 +505,7 @@ test("a value of the wrong shape is reported in these words, once", () => {
       { toString: 0 },
       [
         "xref: Xref a value of type object: A block's name must be a string",
-        `undefined-block: insert #9: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
+        `undefined-block: insert #10: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
       ],
     ],
     [

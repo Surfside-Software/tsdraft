@@ -1254,3 +1254,82 @@ test("a polyline's width, radius and arcs, a cloud's arc and a donut's hole are 
   // @ts-expect-error: R12 holds no donut, which is a polyline of arcs.
   assert.throws(() => r12.donut([0, 0], 1), /no arcs or widths/);
 });
+
+test("a paragraph's height, width, line spacing and codes are checked twice", () => {
+  const d = createDrawing();
+  const r12 = createDrawing({ dxf: "R12" });
+  const at: Point = [0, 0];
+  // @ts-expect-error: a height must be greater than 0.
+  assert.throws(() => d.paragraph("NOTE", { at, height: 0 }), /greater than 0/);
+  // @ts-expect-error: a width must be greater than 0.
+  assert.throws(() => d.paragraph("NOTE", { at, width: -1 }), /greater than 0/);
+  // @ts-expect-error: a width that rounds to 0 is written as 0, which wraps nothing.
+  assert.throws(() => d.paragraph("NOTE", { at, width: 1e-7 }), /written as 0/);
+  // @ts-expect-error: the leading CAD app takes a line spacing from 0.25 to 4.
+  assert.throws(() => d.paragraph("NOTE", { at, lineSpacing: 0.2 }), /from 0.25 to 4/);
+  // @ts-expect-error: the leading CAD app takes a line spacing from 0.25 to 4.
+  assert.throws(() => d.paragraph("NOTE", { at, lineSpacing: 4.5 }), /from 0.25 to 4/);
+  // @ts-expect-error: a factor is held to the range as given, so none rounds into it when written.
+  assert.throws(() => d.paragraph("NOTE", { at, lineSpacing: 0.2499999 }), /from 0.25 to 4/);
+  // @ts-expect-error: nor out of it.
+  assert.throws(() => d.paragraph("NOTE", { at, lineSpacing: 4.0000004 }), /from 0.25 to 4/);
+  d.paragraph("NOTE", { at, lineSpacing: 0.25 }).paragraph("NOTE", { at, lineSpacing: 4 });
+  // @ts-expect-error: a brace is never closed.
+  assert.throws(() => d.paragraph("{\\LNOTE", { at }), /never closed/);
+  // @ts-expect-error: a brace closes nothing.
+  assert.throws(() => d.paragraph("NOTE}", { at }), /closes no \{/);
+  // @ts-expect-error: a height inside the value is not laid out yet.
+  assert.throws(() => d.paragraph("\\H2x;NOTE", { at }), /code \\H, which sets the height/);
+  // @ts-expect-error: nor are a paragraph's indents and tab stops.
+  assert.throws(() => d.paragraph("\\pxi-3,l3;NOTE", { at }), /code \\p, which sets the indents/);
+  // @ts-expect-error: nor is a tab.
+  assert.throws(() => d.paragraph("1.\tNOTE", { at }), /control characters/);
+  // @ts-expect-error: nor are columns.
+  assert.throws(() => d.paragraph("ONE\\NTWO", { at }), /code \\N, which starts a new column/);
+  // @ts-expect-error: a code tsdraft does not know.
+  assert.throws(() => d.paragraph("\\ZNOTE", { at }), /code \\Z is not one tsdraft knows/);
+  // @ts-expect-error: a font with no ; to end it.
+  assert.throws(() => d.paragraph("\\fArial|b1NOTE", { at }), /no ; to end it/);
+  // @ts-expect-error: a font that is not one of FONTS.
+  assert.throws(() => d.paragraph("\\fHelvetica;NOTE", { at }), /not one of FONTS/);
+  // @ts-expect-error: tsdraft has no widths for italic.
+  assert.throws(() => d.paragraph("\\fArial|b0|i1;NOTE", { at }), /sets italic/);
+  // @ts-expect-error: a font's option has digits alone after its letter, as the parser reads it.
+  assert.throws(() => d.paragraph("\\fArial|c-1;NOTE", { at }), /option "c-1"/);
+  // @ts-expect-error: and gives each option once.
+  assert.throws(() => d.paragraph("\\fArial|b1|b0;NOTE", { at }), /option b twice/);
+  d.paragraph("\\fArial|b0|c01|p34;NOTE", { at });
+  // @ts-expect-error: an SHX font has no bold.
+  assert.throws(() => d.paragraph("\\ftxt.shx|b1;NOTE", { at }), /SHX font, which has no bold/);
+  // @ts-expect-error: a stack needs a divider.
+  assert.throws(() => d.paragraph("3\\S12;", { at }), /needs a \/, # or \^/);
+  // @ts-expect-error: nor is an overline.
+  assert.throws(() => d.paragraph("\\ONOTE", { at }), /code \\O, which draws a line over/);
+  // @ts-expect-error: nor is a stacked part of letters whose tops the tables do not hold.
+  assert.throws(() => d.paragraph("\\Sx/y;", { at }), /stacked part/);
+  // @ts-expect-error: nor is a stack in underlined text.
+  assert.throws(() => d.paragraph("{\\L1\\S1/2;}", { at }), /stack in underlined/);
+  // @ts-expect-error: and a slash after the divider is a character of the bottom part.
+  assert.throws(() => d.paragraph("\\S1/2/3;", { at }), /stacked part/);
+  const deep = "{{{{{{{{{{{{{{{{{x}}}}}}}}}}}}}}}}}";
+  // @ts-expect-error: braces nest at most 16 deep.
+  assert.throws(() => d.paragraph(deep, { at }), /nest more than 16 deep/);
+  // An SHX font draws %%c as a sign of its own, which is not laid out yet. The type does not know
+  // the style's font.
+  assert.throws(() => d.paragraph("%%c6", { at }), /%%c in an SHX font/);
+  d.textStyle({ name: "NOTES", font: "Arial" });
+  // @ts-expect-error: but it knows one a code names, as far as its group reaches.
+  assert.throws(() => d.paragraph("\\fromans.shx;%%c6", { at }), /%%c in an SHX font/);
+  // @ts-expect-error: a group inside it in another font closes back to the SHX one.
+  assert.throws(() => d.paragraph("\\Fromans.shx;{\\fArial;x}%%C6", { at }), /%%c in an SHX/);
+  d.paragraph("{\\fromans.shx;x}%%c6 {\\fromans.shx;{\\fArial;%%c6}}", { at, style: "NOTES" });
+  // @ts-expect-error: a backslash before a line feed would escape the paragraph break.
+  assert.throws(() => d.paragraph("A\\\nB", { at }), /code \\\n is not one tsdraft knows/);
+  d.paragraph("A\\\\\nB", { at, style: "NOTES" });
+  // A line feed is a paragraph break, and the codes tsdraft lays out pass.
+  const laid =
+    "{\\fArial|b1;NOTES}\n1. {\\LALL} WORK\\~%%d %%c %%% 100%% \\S1/2; \\S+0.01^-0.02; \\S2^ ; \\S^2; \\U+00B0 \\\\";
+  d.paragraph(laid, { at, width: 2, style: "NOTES" });
+  // @ts-expect-error: R12 holds no paragraph.
+  assert.throws(() => r12.paragraph("NOTE", { at }), /no paragraphs to R12/);
+});

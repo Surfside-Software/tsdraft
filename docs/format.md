@@ -75,6 +75,14 @@ list of points from its tip. Where it has them of its own it has a `side`, an `a
 lineweight. A drawing with no leader has the JSON it had before leaders existed.
 [Leaders](leaders.md) describes them.
 
+A paragraph is an entity of kind `"paragraph"`, in `drawing.entities`, a block's `entities` or a
+layout's `entities`, with its `layer`, `at`, `height`, `value` and `rotation`, as a text has them,
+and where they are set a `width`, a `style`, an `align` of `"center"` or `"right"`, a `valign` of
+`"middle"` or `"bottom"`, a `lineSpacing` other than 1, a `lineSpacingStyle` of `"exactly"`, and
+the `linetype` and `lineweight` of every entity. Its value holds `\P` for each paragraph break.
+A drawing with no paragraph has the JSON it had before paragraphs existed.
+[Paragraphs](paragraphs.md) describes them.
+
 A drawing written by hand needs `format: 0` too. `lint` reports a drawing without it, or with
 another version, under the rule `format`, and `toDXF` refuses to write it. `lint` takes any
 plain data and never throws: a list that is not an array, an entity of an unknown `kind`, a

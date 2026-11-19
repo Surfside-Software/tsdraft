@@ -73,10 +73,15 @@ export {
   type Line,
   type LinearDimension,
   type LinearDimensionOptions,
+  type LineSpacingStyle,
   type Linetype,
   type LinetypeChoice,
   type LinetypeDefinition,
   type Lineweight,
+  type Paragraph,
+  type ParagraphAlign,
+  type ParagraphOptions,
+  type ParagraphVerticalAlign,
   type Point,
   type Polyline,
   type PolylineOptions,
@@ -104,7 +109,7 @@ export {
 export { toDXF, type DxfOptions } from "./dxf.ts";
 export { bulgeThrough, polylineBox, type PolylineBox } from "./polylines.ts";
 export { FONT_METRICS, FONT_METRICS_RANGES, type FontMetrics } from "./font-metrics.ts";
-export { FONTS, type Font, type FontInfo } from "./fonts.ts";
+export { capHeightOf, FONTS, type Font, type FontInfo } from "./fonts.ts";
 export { idHandle } from "./handles.ts";
 export {
   inspectText,
@@ -144,8 +149,37 @@ export {
 export { DrawingError, lint, type Diagnostic, type LintOptions, type LintRule } from "./lint.ts";
 export { CENTER, DASHDOT, DASHED, DOT, HIDDEN, LINEWEIGHTS, PHANTOM } from "./linetypes.ts";
 export { lineSpacing, measureText, type TextMeasure, type TextToMeasure } from "./measure.ts";
+export {
+  bold,
+  parseParagraph,
+  plain,
+  PARAGRAPH_NESTING,
+  stack,
+  subscript,
+  superscript,
+  underline,
+  type BoldFont,
+  type ParagraphPiece,
+  type ParsedParagraph,
+  type RunFormat,
+} from "./paragraph-codes.ts";
+export {
+  attachmentPlace,
+  layoutParagraph,
+  lineSpacingStyleCode,
+  measureParagraph,
+  paragraphAttachment,
+  paragraphDirection,
+  paragraphInStyle,
+  type ParagraphLayout,
+  type ParagraphLine,
+  type ParagraphMeasure,
+  type ParagraphRun,
+  type ParagraphStroke,
+  type ParagraphToMeasure,
+} from "./paragraphs.ts";
 export { fromPaper, type PaperScale, type PaperUnit } from "./paper.ts";
-export { pdfFace, svgToPDF, toPDF, type PdfOptions, type PdfSheet } from "./pdf.ts";
+export { boldFontKey, pdfFace, svgToPDF, toPDF, type PdfOptions, type PdfSheet } from "./pdf.ts";
 export {
   PAPERS,
   PLOT_STYLE_TABLES,
@@ -189,6 +223,8 @@ export type {
   ObliqueAngle,
   PaperLength,
   PaperOf,
+  LineSpacing,
+  ParagraphValue,
   Pattern,
   PolylineWidth,
   Positive,
@@ -199,7 +235,7 @@ export type {
   WidthFactor,
   XrefPath,
 } from "./rules.ts";
-export { XREF_DEPTH } from "./rules.ts";
+export { LINE_SPACING_RANGE, XREF_DEPTH } from "./rules.ts";
 export { BUILT_IN_STANDARD, defineStandard, type BuiltInStandard } from "./standard/define.ts";
 export type {
   Box,
@@ -228,6 +264,7 @@ export type {
 export { checkDrawingRead } from "./read/check.ts";
 export { readDXF } from "./read/dxf.ts";
 export { ReadError } from "./read/groups.ts";
+export { layoutMtext, measureMtext } from "./read/mtext.ts";
 export {
   BLOCK_ITEMS,
   CENSUS_LIMIT,
