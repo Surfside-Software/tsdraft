@@ -433,7 +433,8 @@ export function attributeOf(
     ...placement,
     tag: textTwice(first(r, 2) ?? ""),
     value,
-    ...(((num(r, 70) ?? 0) & 1) !== 0 && { invisible: true }),
+    // Its own flag, group 70, or the entity's, group 60, as a dynamic block's state hides it.
+    ...((((num(r, 70) ?? 0) & 1) !== 0 || num(r, 60) === 1) && { invisible: true }),
   };
   if (pending) later.start({ ...pending, placement: attribute });
   return attribute;

@@ -174,7 +174,9 @@ const ALL: ReadonlySet<number> = new Set();
 const NOTHING: ReadonlySet<number> = new Set();
 /** What the census of a space reads of an entity it only counts. */
 // 102 too, so that the owner is told from the handles of an application's group.
-const CENSUS: ReadonlySet<number> = new Set([5, 6, 8, 62, 67, 102, 330, 370, 420]);
+const CENSUS: ReadonlySet<number> = new Set([5, 6, 8, 60, 62, 67, 102, 330, 370, 420]);
+/** What a block reads of an entity of a kind it counts: whether it shows. */
+const VISIBILITY: ReadonlySet<number> = new Set([60]);
 /** The kinds a block's definition reads whole, and a space's with `geometry`. */
 const BLOCK_READS = new Set([
   "ARC",
@@ -426,6 +428,12 @@ interface PolylineOwner {
 /** The longest name a map of the file's names is keyed by: the most a DXF string holds. */
 const LONGEST_NAME = 2049;
 
+/**
+ * True for an entity the file marks invisible, group 60, which draws nothing. A dynamic block's
+ * record holds the entities of every state, with those of the states it does not show marked so.
+ */
+const hidden = (r: Rec): boolean => num(r, 60) === 1;
+
 class DxfReader {
   #section = "";
   #variable = "";
@@ -574,7 +582,7 @@ class DxfReader {
       case "BLOCKS":
         if (type === "BLOCK" || type === "ENDBLK") return ALL;
         if (this.#inDimensionPicture) return NOTHING;
-        if (this.#block) return BLOCK_READS.has(type) ? ALL : NOTHING;
+        if (this.#block) return BLOCK_READS.has(type) ? ALL : VISIBILITY;
         return inSpace();
       case "ENTITIES":
         return inSpace();
@@ -877,7 +885,10 @@ class DxfReader {
         // A space lists an insert in any plane, as its census does; a block keeps it flat.
         const place = face !== 0 || !block;
         let keep = target !== undefined;
-        if (target && face === 0) {
+        if (target && hidden(r)) {
+          add(target.other, "invisible");
+          keep = false;
+        } else if (target && face === 0) {
           add(target.other, "INSERT in 3D");
           keep = false;
         } else if (target && ((num(r, 70) ?? 1) > 1 || (num(r, 71) ?? 1) > 1)) {
@@ -903,7 +914,8 @@ class DxfReader {
         return;
       }
       case "ATTDEF": {
-        if (!block) return;
+        // A space keeps no attribute definition, but counts one that does not show.
+        if (!block) return target && hidden(r) ? add(target.other, "invisible") : undefined;
         if (face === 0) {
           add(block.other, "ATTDEF in 3D");
           return;
@@ -930,7 +942,7 @@ class DxfReader {
           ...(prompt !== undefined && { prompt }),
           default: value,
           layer,
-          invisible: (flags & 1) !== 0,
+          invisible: (flags & 1) !== 0 || hidden(r),
           constant: (flags & 2) !== 0,
         };
         if (pending) this.#starts.push({ ...pending, placement: definition });
@@ -951,6 +963,7 @@ class DxfReader {
       }
     }
     if (!target) return;
+    if (hidden(r)) return add(target.other, "invisible");
     const reading = readingOf(r, baseOf(r, layer, handle), face, this.#later, this.#r12);
     const kept = reading !== undefined && "entity" in reading && this.#kept(target, reading.entity);
     for (const pending of this.#settle(kept, target)) this.#starts.push(pending);
@@ -1132,7 +1145,8 @@ class DxfReader {
     const r = owner.rec;
     const flags = num(r, 70) ?? 0;
     // 8 is a 3D polyline, 16 a mesh and 64 a face mesh.
-    if ((flags & (8 | 16 | 64)) !== 0 || owner.face === 0) add(target.other, "POLYLINE in 3D");
+    if (hidden(r)) add(target.other, "invisible");
+    else if ((flags & (8 | 16 | 64)) !== 0 || owner.face === 0) add(target.other, "POLYLINE in 3D");
     else if (owner.broken) add(this.unread.malformed, "POLYLINE with a number that is not finite");
     else if (owner.over) add(target.other, "past the limit");
     else {

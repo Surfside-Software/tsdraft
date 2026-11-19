@@ -56,8 +56,14 @@ states and keeps each object's handle, and it keeps going past what it does not 
   in. Two entries of one name are both kept, in the order of the file.
 - `blocks`: each with its base point, its attribute definitions and its entities, below. What
   else a block draws is counted under `other` by kind, such as `HATCH` or `LWPOLYLINE in 3D`,
-  and so is what stands in another plane than the block's. The blocks keep `BLOCK_ITEMS`,
-  400,000 items in all, counted as below, and count what comes past that under `past the limit`.
+  and so is what stands in another plane than the block's. An entity the file marks invisible,
+  group 60, draws nothing and is counted under `invisible`: a dynamic block's states each keep
+  the entities of every state, with those of the others marked so, and an insert reads as the
+  block it names: the definition, for the state the definition shows, or a `*U` block for
+  another, which draws the state it shows. An attribute or attribute definition hidden that way
+  is `invisible`, as one whose own flag hides it is, and a space counts such a definition under
+  `other`. The blocks keep `BLOCK_ITEMS`, 400,000 items in all, counted as below, and count what
+  comes past that under `past the limit`.
   The pictures the leading CAD app makes for dimensions, the blocks named `*D` and a number, are
   kept by a read with `geometry` alone.
 - `xrefs`: each with its name, its path as the file holds it, and whether it is an overlay.
@@ -136,9 +142,10 @@ seen from below reads backward.
 ### What a read keeps
 
 What the spaces draw counts against one budget, `GEOMETRY_ITEMS`, 400,000 items, and the blocks
-against `BLOCK_ITEMS`. An entity is one item, and each of its points, each attribute and tag, and
-each 32 characters of its names and its text one more. What comes past a budget is counted
-under `past the limit` in its space's or block's `other`. A read of a DXF of more than 500 MB that
+against `BLOCK_ITEMS`. An entity is one item, and each of its points, each bulge and pair of
+widths of a polyline's sides, each attribute and tag, and each 32 characters of its names and its
+text one more. What comes past a budget is counted under `past the limit` in its space's or
+block's `other`. A read of a DXF of more than 500 MB that
 reaches `GEOMETRY_ITEMS` and every census list answers in about 110 MB of JSON, within the
 128 MB the command takes.
 

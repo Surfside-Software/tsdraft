@@ -705,6 +705,80 @@ test("readDXF reads the widths of a polyline's sides, and leaves out widths of 0
   assert.deepEqual(plain(read.blocks[0]?.other), {});
 });
 
+test("readDXF counts an entity the file marks invisible, in a block and in a space, and hides such an attribute", async () => {
+  const hidden = (type: string): (readonly [number, string | number])[] => [
+    [0, type],
+    [8, "0"],
+    [60, 1],
+    [10, 0],
+    [20, 0],
+    [11, 1],
+    [21, 0],
+  ];
+  const read = await readDXF(
+    dxf([
+      ...section(
+        "BLOCKS",
+        [
+          [0, "BLOCK"],
+          [2, "B"],
+        ],
+        hidden("LINE"),
+        hidden("HATCH"),
+        [[0, "ENDBLK"]],
+      ),
+      ...section(
+        "ENTITIES",
+        hidden("LINE"),
+        [
+          [0, "INSERT"],
+          [8, "0"],
+          [60, 1],
+          [2, "B"],
+        ],
+        [
+          [0, "INSERT"],
+          [8, "0"],
+          [2, "B"],
+          [66, 1],
+        ],
+        [
+          [0, "ATTRIB"],
+          [8, "0"],
+          [60, 1],
+          [10, 0],
+          [20, 0],
+          [40, 1],
+          [1, "V"],
+          [2, "TAG"],
+          [70, 0],
+        ],
+        [[0, "SEQEND"]],
+        [
+          [0, "ATTDEF"],
+          [8, "0"],
+          [60, 1],
+          [10, 0],
+          [20, 0],
+          [40, 1],
+          [1, ""],
+          [2, "TAG"],
+          [70, 0],
+        ],
+      ),
+      [0, "EOF"],
+    ]),
+    { geometry: true },
+  );
+  assert.deepEqual(read.blocks[0]?.entities, []);
+  assert.deepEqual(plain(read.blocks[0]?.other), { invisible: 2 });
+  const [insert] = read.model.entities ?? [];
+  assert.equal(insert?.kind === "insert" && insert.attributes?.[0]?.invisible, true);
+  assert.equal(read.model.entities?.length, 1);
+  assert.deepEqual(plain(read.model.other), { invisible: 3 });
+  assert.deepEqual(plain(read.model.census.layers["0"]?.kinds), { LINE: 1, INSERT: 2, ATTDEF: 1 });
+});
+
 test("checkDrawingRead takes no hole or getter for a value", async () => {
   const read = (await readDXF(fieldsFile())) as unknown as Record<string, unknown>;
   const text = (read.model as { census: { texts: Record<string, unknown>[] } }).census.texts[0]!;

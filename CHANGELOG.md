@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `readDXF` leaves out of a block's and a space's `entities` an entity the file marks invisible,
+  group 60, and counts it under `other` as `invisible`. A dynamic block's definition and each `*U`
+  block that holds one of its states keep the entities of every state, with those of the states
+  it does not show marked invisible, so an insert of one now reads as the state it shows. An
+  attribute or attribute definition marked so is `invisible`, as one whose own flag hides it is,
+  and a space counts such a definition under `other`.
 - Attachments, and the xrefs of a referenced drawing in the preview and the plot.
   `d.xref(name, path, { attach: true })` writes an attachment, which a drawing that references
   this one draws too, where an xref is an overlay by default, and `Xref` holds `attach`. `toSVG`
