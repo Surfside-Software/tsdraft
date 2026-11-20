@@ -1287,8 +1287,18 @@ test("a paragraph's height, width, line spacing and codes are checked twice", ()
   assert.throws(() => d.paragraph("\\psa1;NOTE", { at }), /at least a size apart/);
   // @ts-expect-error: an option \p does not know.
   assert.throws(() => d.paragraph("\\pz3;NOTE", { at }), /option "z3"/);
-  // @ts-expect-error: nor are columns.
-  assert.throws(() => d.paragraph("ONE\\NTWO", { at }), /code \\N, which starts a new column/);
+  d.paragraph("ONE\\NTWO", { at, width: 2, columns: { count: 2, height: 1 } });
+  assert.throws(
+    // @ts-expect-error: a height and heights both.
+    () => d.paragraph("ONE", { at, width: 2, columns: { height: 1, heights: [1] } }),
+    /\{ heights, gutter\? \}/,
+  );
+  assert.throws(
+    // @ts-expect-error: a count with heights.
+    () => d.paragraph("ONE", { at, width: 2, columns: { heights: [1], count: 2 } }),
+    /\{ heights, gutter\? \}/,
+  );
+  assert.throws(() => d.paragraph("ONE", { at, columns: { height: 1 } }), /needs a width/);
   // @ts-expect-error: a code tsdraft does not know.
   assert.throws(() => d.paragraph("\\ZNOTE", { at }), /code \\Z is not one tsdraft knows/);
   // @ts-expect-error: a font with no ; to end it.

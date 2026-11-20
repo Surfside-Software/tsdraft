@@ -39,7 +39,6 @@ export const PARAGRAPH_NOT_LAID_OUT = {
   A: "sets where the characters after it sit up and down the line",
   C: "sets the color of the characters after it",
   c: "sets the true color of the characters after it",
-  N: "starts a new column",
   X: "starts the part of a dimension's text below its line",
   M: "holds a character of a code page",
   m: "holds a character of a code page",
@@ -182,14 +181,15 @@ export type ParagraphPiece =
       readonly format: RunFormat;
     }
   /** A paragraph break, `\P`. */
-  | { readonly kind: "break" };
+  /** `\P`, or `\N`, which also starts the next column: `column` true. */
+  | { readonly kind: "break"; readonly column?: boolean };
 
 export interface ParsedParagraph {
   readonly pieces: readonly ParagraphPiece[];
   /**
    * The first code or character of the value that tsdraft refuses to write, or undefined. The
-   * pieces are still read past it: a code it does not lay out draws nothing, and `\N` and `\X`
-   * break the line.
+   * pieces are still read past it: a code it does not lay out draws nothing, and `\X` breaks
+   * the line.
    */
   readonly problem: string | undefined;
   /**
@@ -197,6 +197,8 @@ export interface ParsedParagraph {
    * when that font is an SHX font. One in an SHX font a `\f` code set is a `problem`.
    */
   readonly ownDiameter: boolean;
+  /** True when it holds a `\N`, which starts the next column. */
+  readonly columnBreak: boolean;
 }
 
 const PLAIN: RunFormat = {
@@ -288,6 +290,7 @@ export function parseParagraph(value: string, dimension = false): ParsedParagrap
   let run = "";
   let diameter = false;
   let ownDiameter = false;
+  let columnBreak = false;
   const flush = (): void => {
     if (diameter) {
       if (format.font === undefined) ownDiameter = true;
@@ -350,7 +353,7 @@ export function parseParagraph(value: string, dimension = false): ParsedParagrap
   }
   flush();
   if (saved.length > 0 || deeper > 0) fail(PARAGRAPH_NEVER_CLOSED);
-  return { pieces, problem, ownDiameter };
+  return { pieces, problem, ownDiameter, columnBreak };
 
   /** Reads the code after a backslash at `at`, and gives where the value goes on after it. */
   function code(at: number): number {
@@ -373,6 +376,10 @@ export function parseParagraph(value: string, dimension = false): ParsedParagrap
         run += letter;
         return at + 1;
       case "N":
+        flush();
+        columnBreak = true;
+        pieces.push({ kind: "break", column: true });
+        return at + 1;
       case "X":
         fail(paragraphNotLaidOut(letter));
         flush();

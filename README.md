@@ -267,14 +267,14 @@ included, can break code written for the one before. [CHANGELOG.md](CHANGELOG.md
 starts each breaking change with `Breaking:`.
 
 It draws layers, lines, polylines with arcs and widths, rectangles, revision clouds, donuts,
-circles, arcs, single-line text and paragraph text that wraps to a width, with lists and tab
-stops, linetypes and lineweights, text styles and justification, blocks with attributes and inserts
+circles, arcs, single-line text and paragraph text that wraps to a width, with lists, tab
+stops and columns, linetypes and lineweights, text styles and justification, blocks with attributes and inserts
 of them, references to DWG files as xrefs, linear and aligned dimensions in decimal units or
 feet and inches with stacked fractions, words below the line and text on a leader, leaders, layouts with a page setup and viewports, which can freeze their own
 layers or twist the view, and layers that are off, frozen, locked or not plotted. A firm's
 [standard](docs/standard.md) sets its layers, pens, text and sheets. It writes DXF, not DWG.
 
-It does not yet have columns or overlines in paragraph text, ellipses, splines or points, hatches, solid fills or masks, images, tables, color or transparency set on one
+It does not yet have overlines in paragraph text, ellipses, splines or points, hatches, solid fills or masks, images, tables, color or transparency set on one
 entity, linetypes with text or shapes, PDF underlays, or the other kinds of dimension.
 
 `readDXF` reads an ASCII DXF into a model to inspect, which is not a drawing tsdraft can edit

@@ -1015,7 +1015,7 @@ type ParagraphClose<S extends string> = S extends `${infer A}}${infer R}`
 type ParagraphPercent<S extends string> = S extends `${string}%${infer R}` ? ["%", R] : undefined;
 
 /** The codes of a paragraph that draw a character, and need nothing after them. */
-type ParagraphPlainCode = "P" | "~" | "\\" | "{" | "}" | "o";
+type ParagraphPlainCode = "P" | "N" | "~" | "\\" | "{" | "}" | "o";
 
 /** The codes tsdraft does not lay out that end with a `;`. */
 type ParagraphEndedCode = "H" | "W" | "Q" | "T" | "A" | "C" | "c";
@@ -1151,7 +1151,7 @@ type ParagraphCode<
               ? After extends `${string};${string}`
                 ? ReturnType<typeof paragraphNotLaidOut<C>>
                 : ReturnType<typeof paragraphNoSemicolon<C>>
-              : C extends "N" | "X" | "O"
+              : C extends "X" | "O"
                 ? ReturnType<typeof paragraphNotLaidOut<C>>
                 : C extends "U" | "u"
                   ? After extends `+${infer H1}${infer H2}${infer H3}${infer H4}${infer Next}`
@@ -1792,6 +1792,107 @@ export function lineSpacingProblem(value: unknown): string | undefined {
     ? undefined
     : LINE_SPACING;
 }
+
+/** The most columns a paragraph has, and the most heights it gives one by one. */
+export const PARAGRAPH_COLUMNS_MOST = 1000;
+
+/** The message for a paragraph's columns that are not as `ParagraphColumns` gives them. */
+export const PARAGRAPH_COLUMNS =
+  "A paragraph's columns are { height, count?, gutter? } or { heights, gutter? }, in drawing units: a height above 0 as written, a whole count from 1 to 1000, from 1 to 1000 heights above 0 as written, and a gutter of 0 or more";
+
+/** The message for columns wider than a file holds. */
+export const PARAGRAPH_COLUMNS_WIDE =
+  "A paragraph's columns, their widths and gutters, are too wide to write: as many as the count gives, or 1000 of them without one";
+
+/** The message for columns on a paragraph with no width. */
+export const PARAGRAPH_COLUMNS_WIDTH =
+  "A paragraph with columns needs a width, which each of its columns is as wide as";
+
+/** The warning for a `\N` in a paragraph with no columns. */
+export const PARAGRAPH_COLUMN_BREAK =
+  "The paragraph code \\N starts the next column, and this paragraph has no columns: it breaks the line, as \\P does";
+
+/** A number above 0 as the writers write it, and not too large to write. */
+const writtenPositive = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && written(value) > 0 && !isTooLarge(value);
+
+const COLUMN_FIELDS = new Set(["height", "heights", "count", "gutter"]);
+
+/**
+ * Returns what is wrong with a paragraph's columns apart from its width, or undefined. It reads a
+ * list of heights by its items alone, and stops at the first field it does not know.
+ */
+export function paragraphColumnsShapeProblem(columns: unknown): string | undefined {
+  if (typeof columns !== "object" || columns === null || Array.isArray(columns)) {
+    return PARAGRAPH_COLUMNS;
+  }
+  for (const key in columns) if (!COLUMN_FIELDS.has(key)) return PARAGRAPH_COLUMNS;
+  const { height, heights, count, gutter } = columns as Record<string, unknown>;
+  if (
+    gutter !== undefined &&
+    !(
+      typeof gutter === "number" &&
+      Number.isFinite(gutter) &&
+      written(gutter) >= 0 &&
+      !isTooLarge(gutter)
+    )
+  ) {
+    return PARAGRAPH_COLUMNS;
+  }
+  if (heights !== undefined) {
+    if (height !== undefined || count !== undefined || !Array.isArray(heights)) {
+      return PARAGRAPH_COLUMNS;
+    }
+    const list = heights as readonly unknown[];
+    if (list.length < 1 || list.length > PARAGRAPH_COLUMNS_MOST) return PARAGRAPH_COLUMNS;
+    for (let i = 0; i < list.length; i++) if (!writtenPositive(list[i])) return PARAGRAPH_COLUMNS;
+    return undefined;
+  }
+  if (!writtenPositive(height)) return PARAGRAPH_COLUMNS;
+  if (
+    count !== undefined &&
+    !(
+      Number.isInteger(count) &&
+      (count as number) >= 1 &&
+      (count as number) <= PARAGRAPH_COLUMNS_MOST
+    )
+  ) {
+    return PARAGRAPH_COLUMNS;
+  }
+  return undefined;
+}
+
+/**
+ * Returns what is wrong with a paragraph's columns beside its width, or undefined: their shape,
+ * no width, and columns too wide to write, as many as static ones give or as dynamic ones may
+ * take, at the gutter given or the one of `height`.
+ */
+export function paragraphColumnsProblem(
+  columns: unknown,
+  width: unknown,
+  height: unknown = 0,
+): string | undefined {
+  return (
+    paragraphColumnsShapeProblem(columns) ?? paragraphColumnsSizeProblem(columns, width, height)
+  );
+}
+
+/** What is wrong with columns of a sound shape beside the paragraph's width, or undefined. */
+export function paragraphColumnsSizeProblem(
+  columns: unknown,
+  width: unknown,
+  height: unknown,
+): string | undefined {
+  if (!positiveNumber(width)) return PARAGRAPH_COLUMNS_WIDTH;
+  const c = columns as { readonly count?: number; readonly gutter?: number };
+  const gutter =
+    c.gutter ?? 5 * (typeof height === "number" && Number.isFinite(height) ? height : 0);
+  const count = c.count ?? PARAGRAPH_COLUMNS_MOST;
+  return isTooLarge(count * ((width as number) + gutter)) ? PARAGRAPH_COLUMNS_WIDE : undefined;
+}
+
+const positiveNumber = (value: unknown): boolean =>
+  typeof value === "number" && Number.isFinite(value) && value > 0;
 
 /**
  * Returns what is wrong with a paragraph's value in its style's font, or undefined: a code

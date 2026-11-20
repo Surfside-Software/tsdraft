@@ -1,3 +1,4 @@
+import type { ParagraphColumns } from "./paragraphs.ts";
 import {
   definitionHandle,
   insertAttributeHandle,
@@ -112,6 +113,7 @@ import {
   textAlignProblem,
   textProblem,
   lineSpacingProblem,
+  paragraphColumnsProblem,
   paragraphChoiceProblem,
   paragraphProblemIn,
   textStyleNameProblem,
@@ -487,6 +489,8 @@ export interface Paragraph extends EntityBase {
   readonly lineSpacing?: number;
   /** Defaults to `"at-least"`. */
   readonly lineSpacingStyle?: LineSpacingStyle;
+  /** Columns its lines flow through, each `width` wide. Missing, one column. */
+  readonly columns?: ParagraphColumns;
 }
 
 /**
@@ -1461,6 +1465,11 @@ interface ParagraphPlacement<Z extends Standard | undefined, N extends number, F
   readonly lineSpacing?: LineSpacing<F>;
   /** Defaults to `"at-least"`. */
   readonly lineSpacingStyle?: LineSpacingStyle;
+  /**
+   * Columns its lines flow through, each `width` wide, in drawing units: `{ count, height }` for
+   * that many, `{ height }` for as many as it takes, or `{ heights }` for one of each height.
+   */
+  readonly columns?: ParagraphColumns;
 }
 
 /**
@@ -3021,6 +3030,20 @@ export class DrawingBuilder<
       const spacingProblem = lineSpacingProblem(lineSpacing);
       if (spacingProblem) refuse("paragraph", spacingProblem);
       if (lineSpacing !== 1) paragraph.lineSpacing = lineSpacing as number;
+    }
+    const columns: unknown = (o as { columns?: unknown }).columns;
+    if (columns !== undefined) {
+      const columnsProblem = paragraphColumnsProblem(columns, paragraph.width, paragraph.height);
+      if (columnsProblem) refuse("paragraph", columnsProblem);
+      const c = columns as ParagraphColumns;
+      const heights = c.heights;
+      paragraph.columns = {
+        ...(heights
+          ? { heights: Array.from({ length: heights.length }, (_, i) => heights[i]!) }
+          : { height: c.height! }),
+        ...(c.count !== undefined && { count: c.count }),
+        ...(c.gutter !== undefined && { gutter: c.gutter }),
+      } as ParagraphColumns;
     }
     return paragraph as Paragraph;
   }

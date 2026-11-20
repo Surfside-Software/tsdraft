@@ -1,5 +1,6 @@
 // What a DXF record of an entity reads as: the kinds of `ReadEntity`, each in the world's
 // coordinates with the pen it sets for itself.
+import type { ParagraphColumns } from "../paragraphs.ts";
 import type { Point } from "../drawing.ts";
 import { textOnce, textTwice } from "./groups.ts";
 import { wholeImageClip } from "../images.ts";
@@ -396,7 +397,65 @@ function mtext(record: Rec, base: ReadEntityBase): Reading {
     lineSpacing: num(r, 44) ?? 1,
     lineSpacingStyle: num(r, 73) === 2 ? "exactly" : "at-least",
   };
-  return { entity };
+  // The embedded object's direction wins over the MTEXT's own, as the leading CAD app reads it.
+  const embedded = embeddedDirection(record);
+  const turned = embedded === undefined ? entity : { ...entity, rotation: embedded };
+  const held = columnsOf(record);
+  if (held) return { entity: { ...turned, width: held.width, columns: held.columns } };
+  return { entity: turned };
+}
+
+/** The direction in an `MTEXT`'s embedded object, in degrees, or undefined where it has none. */
+function embeddedDirection(record: Rec): number | undefined {
+  const from = record.codes.indexOf(101);
+  if (from < 0) return undefined;
+  const after: Rec = {
+    type: record.type,
+    codes: record.codes.slice(from + 1),
+    values: record.values.slice(from + 1),
+  };
+  const dx = num(after, 10);
+  const dy = num(after, 20);
+  if (dx === undefined || dy === undefined || (dx === 0 && dy === 0)) return undefined;
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return undefined;
+  return degrees((Math.atan2(dy, dx) * 180) / Math.PI);
+}
+
+/**
+ * An `MTEXT`'s columns, from its embedded object, with the width of each, or undefined when it
+ * has none: static ones, type 1, by their count; dynamic ones, type 2, by their height, or one
+ * by one by the heights after group 74 up to the first of 0, which takes the rest.
+ */
+function columnsOf(record: Rec): { width: number; columns: ParagraphColumns } | undefined {
+  const from = record.codes.indexOf(101);
+  if (from < 0) return undefined;
+  const after: Rec = {
+    type: record.type,
+    codes: record.codes.slice(from + 1),
+    values: record.values.slice(from + 1),
+  };
+  const type = num(after, 71);
+  const width = num(after, 44);
+  const height = num(after, 41);
+  const gutter = num(after, 45) ?? 0;
+  const good = (n: number | undefined): n is number => n !== undefined && Number.isFinite(n);
+  if ((type !== 1 && type !== 2) || !good(width) || width <= 0 || !good(height) || gutter < 0) {
+    return undefined;
+  }
+  if (type === 1) {
+    const count = num(after, 72);
+    if (!good(count) || count < 1) return undefined;
+    return { width, columns: { count: Math.floor(count), height, gutter } };
+  }
+  if (num(after, 73) !== 0) return { width, columns: { height, gutter } };
+  const heights: number[] = [];
+  for (let i = 0; i < after.codes.length; i++) {
+    if (after.codes[i] !== 46) continue;
+    const tall = Number(after.values[i]);
+    if (!(tall > 0)) break;
+    heights.push(tall);
+  }
+  return heights.length > 0 ? { width, columns: { heights, gutter } } : undefined;
 }
 
 function dimension(r: Rec, base: ReadEntityBase, face: Facing, r12: boolean): Reading {
@@ -596,7 +655,7 @@ export function costOf(e: ReadEntity): number {
     case "text":
       return own + placementCost(e) + chars(e.value);
     case "mtext":
-      return own + 1 + chars(e.value) + chars(e.style);
+      return own + 1 + chars(e.value) + chars(e.style) + (e.columns?.heights?.length ?? 0);
     case "dimension":
       return own + 4 + chars(e.text) + chars(e.textBelow) + chars(e.style) + chars(e.block);
     case "radial-dimension":

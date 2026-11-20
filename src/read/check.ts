@@ -15,7 +15,9 @@ type Type =
   | { readonly fields: Fields }
   | { readonly list: Type }
   | { readonly map: Type }
-  | { readonly oneOf: readonly string[] };
+  | { readonly oneOf: readonly string[] }
+  /** The fields of one of these, named in a message as `named`. */
+  | { readonly either: readonly Fields[]; readonly named: string };
 
 /** Each field and its type. A field whose name ends in `?` may be left out. */
 type Fields = Readonly<Record<string, Type>>;
@@ -152,6 +154,13 @@ const ENTITY: Readonly<Record<string, Fields>> = {
     value: "string",
     lineSpacing: "number",
     lineSpacingStyle: { oneOf: ["at-least", "exactly"] },
+    "columns?": {
+      either: [
+        { height: "number", "count?": "count", "gutter?": "number" },
+        { heights: { list: "number" }, "gutter?": "number" },
+      ],
+      named: "{ height, count?, gutter? } or { heights, gutter? }",
+    },
   },
   dimension: {
     ...BASE,
@@ -525,6 +534,15 @@ export function checkDrawingRead(value: unknown): string[] {
         if (problems.length >= MAX_PROBLEMS) return;
         check(v[key], type.map, `${at}[${JSON.stringify(key).slice(0, 80)}]`);
       }
+    } else if ("either" in type) {
+      // The first of them it holds to, with what that one finds wrong taken back from the others.
+      const before = problems.length;
+      for (const fields of type.either) {
+        checkFields(v, fields, at);
+        if (problems.length === before) return;
+        problems.length = before;
+      }
+      say(at, `must be ${type.named}`);
     } else checkFields(v, type.fields, at);
   };
 

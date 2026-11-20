@@ -2,6 +2,7 @@
 // drawing file states about its tables, its blocks, its xrefs and its layouts, a census of what
 // each space draws and, for a read that asks for it, what each space draws, and is never
 // written back.
+import type { ParagraphColumns } from "../paragraphs.ts";
 import type { Point } from "../drawing.ts";
 
 /** The format of a `DrawingRead`. A reader gives the format it was built for. */
@@ -351,6 +352,11 @@ export interface ReadMtext extends ReadEntityBase {
   readonly lineSpacing: number;
   /** How its line spacing is taken: as the least, or exactly. */
   readonly lineSpacingStyle: "at-least" | "exactly";
+  /**
+   * Its columns, each `width` wide, as a paragraph's: a count for static ones, none for dynamic
+   * ones, and heights for dynamic ones of a height each, up to the first of 0.
+   */
+  readonly columns?: ParagraphColumns;
 }
 
 /**

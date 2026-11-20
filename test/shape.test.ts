@@ -95,6 +95,7 @@ const kinds: {
     valign: "bottom",
     lineSpacing: 1.5,
     lineSpacingStyle: "exactly",
+    columns: { height: 4, count: 2, gutter: 0.5 },
     id: "k",
     ...styled,
   },

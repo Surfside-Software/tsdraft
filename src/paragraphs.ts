@@ -12,7 +12,7 @@ import {
   type ParsedParagraph,
   type RunFormat,
 } from "./paragraph-codes.ts";
-import { LINE_SPACING_RANGE } from "./rules.ts";
+import { LINE_SPACING_RANGE, PARAGRAPH_COLUMNS_MOST } from "./rules.ts";
 import { fifteenDigits, written } from "./format.ts";
 import { Strings } from "./shape.ts";
 
@@ -78,7 +78,8 @@ import { Strings } from "./shape.ts";
 //   Justified, each line but the paragraph's last grows each space after its last tab alike, to
 //   end at the right indent; the last stands by the attachment. Distributed, every line grows
 //   each gap after its last tab between two characters or stacks alike, and is centered without
-//   a width. A grown line draws each word and space, or each character, as a run of its own.
+//   a width. A grown line draws each word and space, or each character, as a run of its own. A
+//   line wider than its room is not grown, and a distributed one is then centered.
 // - `\pb` leaves room before each paragraph, the first among them, and no less than
 //   `BEFORE_LEAST`, and `\pa` after each but the last. Once a code has `x`, the numbers of each
 //   after it are heights too. `\psm` spaces each line `MULTIPLE` times its A and D, times its factor, and the box
@@ -86,6 +87,14 @@ import { Strings } from "./shape.ts";
 //   size below its line's top and each next line 5/3 of it below, and the box ends 2/3 of it
 //   below the last baseline, less 4/3 of what it passes the height by.
 // - A tab's underline runs from the pen to its stop.
+// - Columns, each the width wide and the gutter apart: a line whose box reaches below its column's
+//   height, where at-least spacing ends it at its ink, starts the next, as does the first line
+//   after a `\N`. It starts the column as a first line does, with the room its paragraph leaves
+//   before it and none of what the one before leaves after. Static columns stop at their count,
+//   the last taking the rest, and stand as wide as all of them; one height each takes the heights
+//   in turn and then a column for the rest. In a column that takes the rest a `\N` only breaks the
+//   line. Each column is a box of its own, which the attachment places up and down. Without
+//   columns `\N` is `\P`.
 /** How far past the width a word may reach and stay: the tables' rounding, and no more. */
 const SLACK = 1e-9;
 const UNDERLINE_SHX = 0.2;
@@ -116,6 +125,10 @@ const TAB = 9;
 const NO_GAPS: readonly number[] = [];
 /** The least room a paragraph's `\pb` leaves before it, in heights. */
 const BEFORE_LEAST = 1 / 4;
+/** The gutter of columns given none, in heights, as the leading CAD app's. */
+const DEFAULT_GUTTER = 5;
+/** How far, in heights, a line's baseline may pass its column's height and stay in it. */
+const COLUMN_SLACK = 1e-9;
 
 /** A paragraph to lay out. A `Paragraph` and its `TextStyle` spread into one object are one. */
 export interface ParagraphToMeasure {
@@ -143,6 +156,93 @@ export interface ParagraphToMeasure {
   readonly lineSpacing?: number;
   /** Defaults to `"at-least"`. */
   readonly lineSpacingStyle?: LineSpacingStyle;
+  /** Columns its lines flow through, each `width` wide. Missing, one column. */
+  readonly columns?: ParagraphColumns;
+}
+
+/**
+ * Columns a paragraph's lines flow through, each as wide as its `width`, in drawing units. A line
+ * whose box reaches below its column's height starts the next column, as does the first after a
+ * `\N`.
+ *
+ * - `{ count, height }`: that many columns, each `height` high, and the last takes what the
+ *   others leave, past its height.
+ * - `{ height }`: as many columns as the text takes, each `height` high.
+ * - `{ heights }`: a column of each height, in order, as many as the text takes. Past the last
+ *   height, one more column takes the rest, as a height of 0 does.
+ *
+ * `gutter` is the room between two columns. It defaults to five times the paragraph's height.
+ */
+export type ParagraphColumns =
+  | {
+      readonly height: number;
+      readonly count?: number;
+      readonly heights?: never;
+      readonly gutter?: number;
+    }
+  | {
+      readonly heights: readonly number[];
+      readonly height?: never;
+      readonly count?: never;
+      readonly gutter?: number;
+    };
+
+/** A paragraph's columns as a file holds them, from the paragraph and its layout. */
+export interface ParagraphColumnsHeld {
+  /** 1 for static columns, a count given, and 2 for dynamic ones. */
+  readonly type: 1 | 2;
+  /** How many: as given for static columns, and as many as the layout took for dynamic ones. */
+  readonly count: number;
+  /** Each column's width, and the room between two. */
+  readonly width: number;
+  readonly gutter: number;
+  /** Their height, or the first of `heights`. */
+  readonly height: number;
+  /** True for dynamic columns all `height` high. */
+  readonly auto: boolean;
+  /**
+   * For dynamic columns of a height each, the height of each of `count`: 0 for the one past the
+   * heights given, which takes the rest. Empty otherwise.
+   */
+  readonly heights: readonly number[];
+  /** The width of all of them and the gutters between them, and the height of the tallest. */
+  readonly total: number;
+  readonly tallest: number;
+}
+
+/** What a file holds of a paragraph's columns, or undefined for a paragraph without them. */
+export function paragraphColumnsHeld(
+  paragraph: ParagraphToMeasure,
+  layout: ParagraphLayout,
+): ParagraphColumnsHeld | undefined {
+  // The numbers as the writers write them, and as the layout read them, so that what a file
+  // holds of them adds up.
+  const settings = settingsOf(paragraph);
+  const columns = settings.columns;
+  if (columns === undefined) return undefined;
+  const width = settings.width;
+  const gutter = columns.gutter;
+  const boxes = layout.columns;
+  const tallest = boxes.reduce((most, [, bottom, , top]) => Math.max(most, top - bottom), 0);
+  const fixed = columns.fixed === true;
+  const count = fixed ? columns.count : Math.max(boxes.length, 1);
+  const given = columns.heights;
+  return {
+    type: fixed ? 1 : 2,
+    count,
+    width,
+    gutter,
+    height: given[0] ?? 0,
+    auto: columns.repeat && !fixed,
+    heights: columns.repeat ? [] : Array.from({ length: count }, (_, k) => given[k] ?? 0),
+    total: written(count * width + (count - 1) * gutter),
+    tallest,
+  };
+}
+
+/** The gutter of a paragraph's columns: its own, or five times the paragraph's height. */
+export function paragraphGutter(columns: ParagraphColumns, height: number): number {
+  return columns.gutter ?? DEFAULT_GUTTER * height;
 }
 
 /** A run of characters a paragraph draws in one font and one format, as a text is drawn. */
@@ -192,6 +292,8 @@ export interface ParagraphLine {
   readonly end: number;
   /** How far above its baseline it reaches: its A, which sets where it sits under at-least spacing. */
   readonly top: number;
+  /** The column it is in, from 0. */
+  readonly column: number;
 }
 
 /** A paragraph before it is turned and moved to its point: X along its lines, Y up them, from `at`. */
@@ -204,6 +306,11 @@ export interface ParagraphLayout {
    * the width from the point `align` names, or as the widest line without one.
    */
   readonly frame: readonly [number, number, number, number];
+  /**
+   * Each column's box, `[left, bottom, right, top]`, which `align` and `valign` place on its own:
+   * one for a paragraph without columns, its frame, and as many as the text took for dynamic ones.
+   */
+  readonly columns: readonly (readonly [number, number, number, number])[];
   /**
    * The box of all it draws, its letters with what they reach below the baseline and their lean,
    * and its strokes: `[left, bottom, right, top]`. Undefined when it draws nothing.
@@ -238,6 +345,8 @@ export interface ParagraphMeasure {
   readonly lines: readonly {
     readonly value: string;
     readonly corners: readonly [Point, Point, Point, Point];
+    /** The column it is in, from 0. */
+    readonly column: number;
   }[];
   readonly approximate: boolean;
 }
@@ -503,6 +612,8 @@ interface Line {
   readonly paragraph: number;
   /** True for the first line of its paragraph. */
   readonly first: boolean;
+  /** True for the first line after a `\N`, which starts the next column. */
+  readonly column: boolean;
   /** Where it starts, from the left of the box: its paragraph's indent, in drawing units. */
   readonly origin: number;
   /**
@@ -693,6 +804,8 @@ interface Settings {
   readonly font: string | undefined;
   readonly align: ParagraphAlign | undefined;
   readonly valign: ParagraphVerticalAlign | undefined;
+  /** Its columns, or undefined for one. */
+  readonly columns: Columns | undefined;
   /**
    * True for the text of a dimension's picture, whose box ends below the last line's characters
    * and below where a stack sets its lowest part, and not at a stacked part's ink.
@@ -700,8 +813,77 @@ interface Settings {
   readonly dimension?: boolean;
 }
 
+/** A paragraph's columns, read: how many at most, the height of each, and the gutter. */
+interface Columns {
+  /** How many at most: the last takes what the others leave. */
+  readonly count: number;
+  /**
+   * The height of the column of each index. Past them, the last again when `repeat`, or else one
+   * more column that takes the rest, as one of height 0 does.
+   */
+  readonly heights: readonly number[];
+  readonly repeat: boolean;
+  /** True for static columns, which stand as wide as all `count` of them, filled or not. */
+  readonly fixed?: boolean;
+  readonly gutter: number;
+  /** What a layout's key holds of `heights`: them, or a name of a long list of them. */
+  readonly key: string;
+}
+
+/** A paragraph's columns as the layout reads them, or undefined for one column. */
+/** A paragraph's columns, or undefined where it has none, or none an object gives. */
+function columnsGiven(paragraph: ParagraphToMeasure): ParagraphColumns | undefined {
+  const c: unknown = paragraph.columns;
+  return typeof c === "object" && c !== null ? (c as ParagraphColumns) : undefined;
+}
+
+/** Reads a list of heights as the layout takes them: by its items alone, up to the most. */
+function readHeights(given: readonly unknown[]): readonly number[] {
+  const n = Math.min(given.length, PARAGRAPH_COLUMNS_MOST);
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) out.push(Math.max(written(finite(given[i], 0)), 0));
+  return out;
+}
+
+/** A short name for each long list of heights, by the list itself, for the keys of layouts. */
+const heightNames = new WeakMap<object, string>();
+let heightsNamed = 0;
+
+function columnsOf(
+  paragraph: ParagraphToMeasure,
+  height: number,
+  read: (given: readonly unknown[]) => readonly number[] = readHeights,
+): Columns | undefined {
+  const c = columnsGiven(paragraph);
+  if (c === undefined) return undefined;
+  const gutter = Math.max(written(finite(paragraphGutter(c, height), 0)), 0);
+  const given: unknown = c.heights;
+  if (Array.isArray(given)) {
+    const heights = read(given);
+    let key = heights.length <= 16 ? heights.join(",") : heightNames.get(given);
+    if (key === undefined) heightNames.set(given, (key = `#${heightsNamed++}`));
+    return { count: PARAGRAPH_COLUMNS_MOST, heights, repeat: false, gutter, key };
+  }
+  const count = Math.min(
+    Math.max(Math.floor(finite(c.count, PARAGRAPH_COLUMNS_MOST)), 1),
+    PARAGRAPH_COLUMNS_MOST,
+  );
+  const tall = Math.max(written(finite(c.height, 0)), 0);
+  return {
+    count,
+    fixed: c.count !== undefined,
+    heights: [tall],
+    repeat: true,
+    gutter,
+    key: `${tall}`,
+  };
+}
+
 /** A paragraph's settings, from its numbers as the writers write them, as a file holds them. */
-function settingsOf(paragraph: ParagraphToMeasure): Settings {
+function settingsOf(
+  paragraph: ParagraphToMeasure,
+  read?: (given: readonly unknown[]) => readonly number[],
+): Settings {
   const chosen = written(finite(paragraph.lineSpacing, 1));
   const font = paragraph.font ?? STANDARD_FONT;
   const align = paragraph.align;
@@ -716,6 +898,7 @@ function settingsOf(paragraph: ParagraphToMeasure): Settings {
     font: fontMetrics(font).known ? font : undefined,
     align: align === "center" || align === "right" ? align : undefined,
     valign: valign === "middle" || valign === "bottom" ? valign : undefined,
+    columns: columnsOf(paragraph, Math.max(written(finite(paragraph.height, 0)), 0), read),
   };
 }
 
@@ -776,6 +959,8 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
 
   let lines: Line[] = [];
   let paragraph = 0;
+  /** True after a `\N`, until the line it starts. */
+  let nextColumn = false;
   /** A line of the paragraph `paragraph`. */
   const newLine = (first: boolean): Line => {
     const p = properties[paragraph] ?? UNSET;
@@ -784,9 +969,11 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
       spaced: false,
       paragraph,
       first,
+      column: nextColumn,
       origin: originOf(p, first),
       at: undefined,
     };
+    nextColumn = false;
     lines.push(made);
     return made;
   };
@@ -1088,6 +1275,7 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     if (piece.kind === "break") {
       endWord();
       endLine();
+      if (piece.column) nextColumn = true;
       paragraph++;
       limit = limitOf(properties[paragraph] ?? UNSET);
       restart(true);
@@ -1231,6 +1419,13 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
   // Down the box: each line's baseline from its top, by its paragraph's spacing, with the room
   // its paragraph leaves before it and the last one after it.
   const baselines: number[] = [];
+  /**
+   * Where each line's slot starts, before the room its paragraph leaves and after the room the one
+   * before leaves, and where its box ends.
+   */
+  const tops: number[] = [];
+  const bottoms: number[] = [];
+  let columnCount = 1;
   let boxHeight: number;
   {
     let top = 0;
@@ -1239,8 +1434,10 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
       const p = properties[m.built.paragraph] ?? UNSET;
       if (m.built.first) {
         const before = k > 0 ? (properties[m.built.paragraph - 1] ?? UNSET).after : 0;
+        // A column's first line leaves out the room the paragraph before it leaves after it.
+        tops.push(top - before);
         top -= (p.before > 0 ? Math.max(p.before, BEFORE_LEAST * height) : p.before) + before;
-      }
+      } else tops.push(top);
       const spacing = p.spacing;
       let baseline: number;
       let slot: number;
@@ -1266,15 +1463,51 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
         bottom = baseline + m.down;
       }
       baselines.push(baseline);
+      bottoms.push(bottom);
       top -= slot;
     });
     boxHeight = -bottom;
   }
+  // Across the columns: a line whose box reaches below its column's height starts the next, as
+  // does the first after a `\N`, its top at the column's top. Each column is a box of its own,
+  // which the attachment places.
+  const columnOf: number[] = [];
+  const columnHeights: number[] = [];
+  const columns = settings.columns;
+  if (columns) {
+    let column = 0;
+    let shift = 0;
+    let first = 0;
+    const heightOf = (k: number): number => {
+      const tall = columns.heights[columns.repeat ? Math.min(k, columns.heights.length - 1) : k];
+      return tall === undefined || tall <= 0 ? Infinity : tall;
+    };
+    for (let k = 0; k < baselines.length; k++) {
+      // The last static column and the one past the heights given take the rest.
+      const more = column + 1 < columns.count && Number.isFinite(heightOf(column));
+      const below = -(bottoms[k]! + shift) > heightOf(column) + COLUMN_SLACK * height;
+      if (k > first && more && (measured[k]!.built.column || below)) {
+        column++;
+        first = k;
+        shift = -tops[k]!;
+      }
+      baselines[k]! += shift;
+      columnHeights[column] = -(bottoms[k]! + shift);
+      columnOf.push(column);
+    }
+    boxHeight = Math.max(...columnHeights);
+    // Static columns stand as wide as all of them, filled or not.
+    columnCount = columns.fixed ? columns.count : column + 1;
+  }
   const { align, valign } = settings;
-  const boxTop = valign === "middle" ? boxHeight / 2 : valign === "bottom" ? boxHeight : 0;
+  const topOf = (tall: number): number =>
+    valign === "middle" ? tall / 2 : valign === "bottom" ? tall : 0;
+  const boxTop = topOf(boxHeight);
   /** Where the left of the box stands from the point, and where its lines may reach. */
+  /** The width of the box: of all its columns and the gutters between them. */
+  const boxWidth = given + (columns ? (columnCount - 1) * (given + columns.gutter) : 0);
   const boxLeft =
-    given > 0 ? (align === "center" ? -given / 2 : align === "right" ? -given : 0) : 0;
+    given > 0 ? (align === "center" ? -boxWidth / 2 : align === "right" ? -boxWidth : 0) : 0;
 
   const ink: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
   const include = (x: number, y: number): void => {
@@ -1368,7 +1601,7 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     const m = measured[k]!;
     const built = m.built;
     const p = properties[built.paragraph] ?? UNSET;
-    baseline = boxTop + baselines[k]!;
+    baseline = (columns ? topOf(columnHeights[columnOf[k]!]!) : boxTop) + baselines[k]!;
     const lastOfParagraph = lines[k + 1]?.paragraph !== built.paragraph;
     const justification =
       p.justification === "justified" && lastOfParagraph ? undefined : p.justification;
@@ -1388,14 +1621,15 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     let after = -1;
     let across = 0;
     if (!m.empty && given > 0 && (style === "justified" || style === "distributed")) {
-      gaps = gapsOf(built, style === "distributed", along);
+      // A line wider than its room is not squeezed: it stands as one with no gaps would.
+      gaps = to < inkTo ? NO_GAPS : gapsOf(built, style === "distributed", along);
       after = lastTabOf(built);
       if (gaps.length > 0) stretch = (to - inkTo) / gaps.length;
     }
     if (style === "center" || (style === "distributed" && gaps.length === 0)) {
       across = (from + to) / 2 - (inkFrom + inkTo) / 2;
     } else if (style === "right") across = to - inkTo;
-    const offset = boxLeft + at + across;
+    const offset = boxLeft + at + across + (columns ? columnOf[k]! * (given + columns.gutter) : 0);
     runs = [];
     value = "";
     values = undefined;
@@ -1475,15 +1709,27 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
       start: m.empty ? 0 : m.start + offset,
       end: m.empty ? 0 : m.end + offset + grown,
       top: m.top,
+      column: columns ? columnOf[k]! : 0,
     });
   }
 
-  const frameWidth = given > 0 ? given : widest;
+  const frameWidth = given > 0 ? boxWidth : widest;
   const left = align === "center" ? -frameWidth / 2 : align === "right" ? -frameWidth : 0;
+  const frame = [left, boxTop - boxHeight, left + frameWidth, boxTop] as const;
+  const boxes: (readonly [number, number, number, number])[] = [];
+  if (columns) {
+    for (let k = 0; k < columnCount; k++) {
+      const tall = columnHeights[k] ?? 0;
+      const top = topOf(tall);
+      const x = left + k * (given + columns.gutter);
+      boxes.push([x, top - tall, x + given, top]);
+    }
+  } else boxes.push(frame);
   return {
     lines: laid,
     strokes,
-    frame: [left, boxTop - boxHeight, left + frameWidth, boxTop],
+    frame,
+    columns: boxes,
     ink: ink[0] === Infinity ? undefined : ink,
     lean,
     widthFactor,
@@ -1542,7 +1788,7 @@ function corners(
 export function measured(paragraph: ParagraphToMeasure, layout: ParagraphLayout): ParagraphMeasure {
   const place = placer(paragraph);
   const box = (b: readonly [number, number, number, number]) => corners(place, b);
-  const lines: { value: string; corners: [Point, Point, Point, Point] }[] = [];
+  const lines: { value: string; corners: [Point, Point, Point, Point]; column: number }[] = [];
   for (const line of layout.lines) {
     if (line.runs.length === 0) continue;
     const lean = layout.lean * line.top;
@@ -1554,6 +1800,7 @@ export function measured(paragraph: ParagraphToMeasure, layout: ParagraphLayout)
         place(line.end + lean, line.baseline + line.top),
         place(line.start + lean, line.baseline + line.top),
       ],
+      column: line.column,
     });
   }
   return {
@@ -1640,7 +1887,10 @@ export interface ParagraphMeasurer {
 
 /** A key of a paragraph's settings. */
 function keyOf(settings: Settings): string {
-  return JSON.stringify(settings);
+  // A long list of heights is keyed by its name, so that no key grows with it.
+  return JSON.stringify(settings, (field, value: unknown) =>
+    field === "heights" ? undefined : value,
+  );
 }
 
 /**
@@ -1656,6 +1906,14 @@ export function paragraphMeasurer(): ParagraphMeasurer {
     last: { readonly key: string; readonly layout: ParagraphLayout } | undefined;
   }
   const kept = new Strings<Kept>();
+  /** Each list of heights, read once however many paragraphs share it. */
+  const heights = new WeakMap<object, readonly number[]>();
+  const read = (given: readonly unknown[]): readonly number[] => {
+    let found = heights.get(given);
+    if (!found) heights.set(given, (found = readHeights(given)));
+    return found;
+  };
+  const settingsIn = (paragraph: ParagraphToMeasure): Settings => settingsOf(paragraph, read);
   const long = (value: unknown): value is string =>
     typeof value === "string" && value.length >= LONG;
   /** What laying a long value out again costs, unless `has` finds what it keeps. */
@@ -1664,7 +1922,7 @@ export function paragraphMeasurer(): ParagraphMeasurer {
     if (!long(value)) return 0;
     const found = kept.get(value);
     const again =
-      kept.clashes(value) || (found !== undefined && !has(found, keyOf(settingsOf(paragraph))));
+      kept.clashes(value) || (found !== undefined && !has(found, keyOf(settingsIn(paragraph))));
     return again ? value.length : 0;
   };
   const entry = (value: string): Kept => {
@@ -1674,8 +1932,8 @@ export function paragraphMeasurer(): ParagraphMeasurer {
   };
   const layout = (paragraph: ParagraphToMeasure): ParagraphLayout => {
     const value = paragraph.value;
-    if (!long(value)) return layoutParagraph(paragraph);
-    const settings = settingsOf(paragraph);
+    const settings = settingsIn(paragraph);
+    if (!long(value)) return layOut(settings, parseParagraph(value));
     const key = keyOf(settings);
     const found = entry(value);
     if (found.last?.key !== key) {
@@ -1686,9 +1944,9 @@ export function paragraphMeasurer(): ParagraphMeasurer {
   const box = (paragraph: ParagraphToMeasure): ParagraphMeasure["corners"] => {
     const value = paragraph.value;
     let ink: Ink;
-    if (!long(value)) ink = layoutParagraph(paragraph).ink;
+    const settings = settingsIn(paragraph);
+    if (!long(value)) ink = layOut(settings, parseParagraph(value)).ink;
     else {
-      const settings = settingsOf(paragraph);
       const key = keyOf(settings);
       const found = entry(value);
       found.boxes ??= new Map();
@@ -1719,6 +1977,7 @@ const OWN = [
   "valign",
   "lineSpacing",
   "lineSpacingStyle",
+  "columns",
 ] as const;
 
 /**

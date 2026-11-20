@@ -307,6 +307,14 @@ export interface Shapes {
   readonly entity: Check;
 }
 
+/** A paragraph's columns, every field of each kind at once, as their shape is checked. */
+interface ColumnsShape {
+  readonly height?: number;
+  readonly heights?: readonly number[];
+  readonly count?: number;
+  readonly gutter?: number;
+}
+
 /**
  * The checks of each object in a drawing, with one message for a problem whichever is asked.
  *
@@ -483,6 +491,14 @@ function shapes(all: boolean, typed = all): Shapes {
         width: number,
         lineSpacing: number,
         lineSpacingStyle: ruled(string),
+        columns: ruled(
+          record(
+            fields<ColumnsShape>(
+              {},
+              { height: number, heights: list(number), count: number, gutter: number },
+            ),
+          ),
+        ),
       },
     ),
     insert: fields<Insert>(

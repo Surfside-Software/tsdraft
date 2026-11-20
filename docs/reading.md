@@ -112,7 +112,9 @@ A space and a block hold one type, `ReadEntity`, of the kinds tsdraft's writers 
 - `mtext`: a paragraph text with its point, height, width, attachment, rotation, from its
   direction or else from group 50 in degrees, style,
   value, its formatting codes kept, `lineSpacing`, its line spacing factor, 1 where the file
-  states none, and `lineSpacingStyle`, `"at-least"` or `"exactly"`. `layoutMtext` and
+  states none, `lineSpacingStyle`, `"at-least"` or `"exactly"`, and its `columns`, as a
+  paragraph's, with `width` then each column's. Heights one by one are those of the columns the
+  text reaches. `layoutMtext` and
   `measureMtext` lay it out as tsdraft lays out a paragraph: [Paragraphs](paragraphs.md#reading).
 - `dimension`: a linear or aligned dimension, with its two points, the point where its dimension
   line meets its second extension line, its direction, the middle of its text, what it measures,

@@ -2367,6 +2367,22 @@ test("a paragraph of many lines, runs or braces, a long word and numbers past dr
     paragraph({ value: `\\pxi1,l2,r3;${"W ".repeat(200_000)}`, width: 6 }),
     paragraph({ value: "\\pl99999999999999999999,r-1e9;A".repeat(1_000), width: 1 }),
     paragraph({ value: "\\pxsm4,se0.0001,b1000,a-1000;A\\P".repeat(50_000), width: 1 }),
+    // Columns: a line each, a break each, heights past the most, and numbers past drawing.
+    paragraph({ value: "A\\P".repeat(100_000), width: 1, columns: { height: 1e-9 } }),
+    paragraph({ value: "A\\N".repeat(100_000), width: 1, columns: { count: 1e9, height: 1 } }),
+    paragraph({
+      value: "WORD ".repeat(100_000),
+      width: 1,
+      columns: { heights: Array.from({ length: 5_000 }, () => 1e-3), gutter: 1e300 },
+    }),
+    paragraph({ value: "A B ".repeat(50_000), width: 1e99, columns: { height: 1e99, gutter: -1 } }),
+    paragraph({ value: "A B ".repeat(50_000), width: 1, columns: null }),
+    // Heights many paragraphs share, under a value long enough to be kept.
+    paragraph({
+      value: "X".repeat(256),
+      width: 2,
+      columns: { heights: Array.from({ length: 1_000 }, () => 1.2345678901234567e70) },
+    }),
   ];
   for (const [i, leaf] of hostile.entries()) {
     const d: Drawing = {

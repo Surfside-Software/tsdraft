@@ -40,6 +40,19 @@
   as `radial-dimension`. The font tables hold the diameter sign, with the advance a paragraph
   gives it in a font that lacks it; every other number is as it was. `toPDF` plots the diameter
   sign as Ø in a font that lacks it, as the leading CAD app plots it.
+- Columns in paragraph text. `columns: { count, height }` flows a paragraph's lines through that
+  many columns, the last taking what the others leave; `{ height }` through as many as the text
+  takes; and `{ heights }` through a column of each height, then one for the rest. Each column is
+  the paragraph's `width` wide and `gutter` apart, five heights by default, and `\N` in the value
+  starts the next column. `layoutParagraph` lays them out where the leading CAD app plots them: a
+  line starts the next column when its box reaches below the height, and the attachment places
+  each column on its own. Its layout gives each line's `column` and each column's box in
+  `columns`, and `measureParagraph` each line's column. `lint` and the builder refuse columns that
+  are not one of those, and `lint` warns of a `\N` in a paragraph without columns. Both writers
+  write columns as the leading CAD app saves them, and `readDXF` reads them back with each
+  column's width. A distributed line wider than its room is no longer squeezed, and stands
+  centered. `ParagraphColumns`, `ParagraphColumnsHeld`, `paragraphColumnsHeld` and
+  `paragraphGutter` are new.
 - What a dimension style sets of how its dimensions look. In architectural units, `fraction`
   stacks the fraction of an inch over a bar, `"stacked"`, or beside a slash, `"diagonal"`, at
   `fractionScale` of the text's height, as `4'-1` and a stacked `7/16`. `textPlacement:

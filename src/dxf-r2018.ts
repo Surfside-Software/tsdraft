@@ -88,7 +88,14 @@ import { fontInfo, STANDARD_TEXT_STYLE } from "./fonts.ts";
 import { ID_HANDLE_SEED, validIdHandle } from "./handles.ts";
 import { dxfOnce, dxfText, fifteenDigits, fmt, readable, written, writtenAngle } from "./format.ts";
 import { layerKey, layerZeroFirst } from "./layers.ts";
-import { lineSpacingStyleCode, paragraphAttachment, paragraphDirection } from "./paragraphs.ts";
+import {
+  layoutParagraph,
+  lineSpacingStyleCode,
+  paragraphAttachment,
+  paragraphColumnsHeld,
+  paragraphDirection,
+  paragraphInStyle,
+} from "./paragraphs.ts";
 import {
   attachmentCode,
   LEADER_STYLE_DICTIONARY,
@@ -1106,11 +1113,16 @@ function writeEntity(
       return;
     case "paragraph": {
       begin("MTEXT", "AcDbMText");
+      // Columns: the width of them all and their height, then an embedded object after group 44,
+      // as the leading CAD app saves them.
+      const columns =
+        e.columns && paragraphColumnsHeld(e, layoutParagraph(paragraphInStyle(e, style)));
       point(g, 10, ...e.at);
       g(40, e.height);
-      g(41, e.width ?? 0); // the width its lines wrap at, or 0 for none
-      g(46, 0); // no height of its own
-      g(71, paragraphAttachment(e));
+      g(41, columns ? columns.total : (e.width ?? 0)); // the width its lines wrap at, or 0 for none
+      g(46, columns ? columns.height : 0); // no height of its own
+      const attachment = paragraphAttachment(e);
+      g(71, attachment);
       g(72, 1); // left to right
       writeMtextValue(g, e.value);
       g(7, style?.name ?? STANDARD_TEXT_STYLE);
@@ -1122,6 +1134,28 @@ function writeEntity(
       }
       g(73, lineSpacingStyleCode(e));
       g(44, e.lineSpacing ?? 1);
+      if (columns) {
+        g(101, "Embedded Object");
+        g(70, attachment);
+        if (cos === 1 && sin === 0) point(g, 10, 1, 0);
+        else {
+          g(10, fifteenDigits(cos));
+          g(20, fifteenDigits(sin));
+          g(30, 0);
+        }
+        point(g, 11, ...e.at);
+        g(40, columns.total);
+        g(41, columns.height);
+        g(42, columns.total);
+        g(43, readable(columns.tallest));
+        g(71, columns.type);
+        g(72, columns.count);
+        g(44, columns.width);
+        g(45, columns.gutter);
+        g(73, columns.auto ? 1 : 0);
+        g(74, 0); // left to right
+        for (const tall of columns.heights) g(46, tall);
+      }
       return;
     }
     case "text":

@@ -32,6 +32,30 @@ flush right.
 - `lineSpacing` is a factor of the spacing of the lines, from 0.25 to 4, 1 by default.
   `lineSpacingStyle` is `"at-least"`, the default, or `"exactly"`.
 
+### Columns
+
+```ts
+d.paragraph(notes, { at: [1, 20], width: 3, columns: { count: 2, height: 6 } });
+d.paragraph(notes, { at: [1, 12], width: 3, columns: { height: 6 } });
+d.paragraph(notes, { at: [1, 4], width: 3, columns: { heights: [6, 4] } });
+```
+
+`columns` flows the lines through columns side by side, each `width` wide and `gutter` apart, in
+drawing units. A column takes lines until the next one's box would reach below its height; that
+line, or the first after a `\N` in the value, starts the next column at its top. In the column
+that takes the rest, a `\N` only breaks the line.
+
+- `{ count, height }` gives that many columns, each `height` high, and the last takes whatever
+  the others leave, past its height. The box is as wide as all of them, filled or not.
+- `{ height }` gives as many columns as the text takes, each `height` high.
+- `{ heights }` gives a column of each height in turn, then one more that takes the rest. A file
+  holds the heights of the columns the text reaches, so heights past them are not read back.
+- `gutter` is five times the paragraph's height when not given.
+
+`align` and `valign` place each column as a box of its own: with `valign: "bottom"`, every
+column's last line ends on `at`. `layoutParagraph` gives each column's box in `columns`, and each
+line its `column`.
+
 A paragraph takes the options of every entity: an `id`, a `linetype`, a `lineweight` and, under
 a standard, a `pen`. Under a standard it names a `role`, which gives its height and text style as
 it gives a text's, and in model space the `view` it is read in.
@@ -48,6 +72,7 @@ these:
 | Code                 | Draws                                                                       |
 | -------------------- | --------------------------------------------------------------------------- |
 | `\P`                 | A paragraph break                                                           |
+| `\N`                 | A paragraph break that starts the next column                               |
 | `\~`                 | A space the line does not break at                                          |
 | `\\`, `\{`, `\}`     | A backslash and a brace                                                     |
 | `{` and `}`          | A group: what a code sets inside it ends at its `}`, 16 groups deep at most |
@@ -151,7 +176,7 @@ message names the code.
 - In `\p`, an option it does not know, a tab stop that aligns text by its right, its center or a
   decimal point, `tr`, `tc` and `td`, and spacing at least a size, `sa`, which tsdraft does not
   lay out.
-- The codes tsdraft does not lay out yet: `\N`, columns; `\H` the height, `\W` the width
+- The codes tsdraft does not lay out yet: `\H` the height, `\W` the width
   factor, `\Q` the oblique angle, `\T` the spacing and `\A` the alignment of the characters after
   it; `\C` and `\c` color; `\O`, an overline, which sits at a TrueType font's ascent, which
   tsdraft's tables do not hold; `\X`, which only a dimension's text holds; and `\M+NXXXX`, a
@@ -159,6 +184,11 @@ message names the code.
 - A stacked part that holds other characters than those above, such as `\Sx/y;`, since where it
   stands depends on the top of its letters, which tsdraft's tables hold only for digits and
   capitals; and a stack in underlined or struck-through characters, which is laid out otherwise.
+
+It refuses columns that are not one of the three kinds above: a count that is not a whole number
+from 1 to 1000, a height or heights not above 0, from 1 to 1000 heights, a gutter below 0, and
+columns on a paragraph without a width. It warns of a `\N` in a paragraph without columns, which
+breaks the line as `\P` does.
 
 It also refuses a height or a width that is not greater than 0 as written, a line spacing outside
 0.25 to 4 as given, so none rounds into the range or out of it, an `align`, a `valign` or a `lineSpacingStyle` that is not one of its
@@ -220,7 +250,12 @@ from the widths and the ink of each character that `FONT_METRICS` holds:
   its last tab alike to end at the right indent, but a paragraph's last line, which stands by
   `align`. A distributed line grows each gap between two letters or stacks after its last tab
   alike, every line, and stands centered without a width. A grown line draws each word and space,
-  or each letter, as a run of its own.
+  or each letter, as a run of its own. A line wider than its room is not grown, and a distributed
+  one is centered.
+- In columns, a line starts the next column when its box reaches below its column's height: its
+  ink with `"at-least"` spacing, `h/3` below its baseline with `"exactly"`, and the box of the
+  paragraph's own spacing. It stands at the column's top as a first line does, and the next column
+  is the width and the gutter further along.
 - With `"at-least"` spacing, each line takes `lineSpacing` times its ascent, a third of the height
   of what reaches highest, and `h/3`. Its ascent is how far its letters reach above the baseline,
   at least `h`, as an `Å` or a stack reaches further: a plain line takes `5h/3`. The first line's
@@ -234,7 +269,8 @@ from the widths and the ink of each character that `FONT_METRICS` holds:
   its line's top and the next line `5v/3` below, and the box ends `2v/3` below the last baseline,
   less `4/3` of what `v` passes `h` by.
 - The room before a paragraph comes before its first line, the first paragraph's too, and is a
-  quarter of a height at least; the room after one comes before the next. Once a `\p` code has
+  quarter of a height at least; the room after one comes before the next, and not at the top of a
+  column. Once a `\p` code has
   `x`, the numbers of each code after it are in heights too.
 - The style's width factor scales everything along a line. In a TrueType font its oblique angle
   moves where a line starts by its first letter's bottom, and where it ends by its ascent, times
@@ -276,15 +312,17 @@ Times-Bold or Courier-Bold otherwise. `FONTS` names each TrueType font's bold fi
 ## Reading
 
 `readDXF` reads an `MTEXT` with its point, height, width, attachment, rotation, text style, value,
-line spacing factor and line spacing style. Its rotation comes from its direction, groups 11 and
-21, or else from group 50 in degrees, as the leading CAD app reads it, though the DXF Reference
-gives radians; tsdraft writes the direction. `layoutMtext(mtext, style)` and `measureMtext` lay
+line spacing factor and line spacing style, and its columns from the embedded object the leading
+CAD app saves after its own groups, its `width` then each column's. Its rotation comes from its
+direction, groups 11 and 21, or else from group 50 in degrees, as the leading CAD app reads it,
+though the DXF Reference gives radians; tsdraft writes the direction. `layoutMtext(mtext, style)` and `measureMtext` lay
 one out by the same rules, in the font of `FONTS` nearest its style's, and say it is approximate
 when the font is not the style's own or the value holds a code tsdraft does not lay out.
 [Reading drawing files](reading.md) has the rest.
 
 ## Not yet
 
-Columns, the codes that change the height, width, slant, spacing, alignment or color of the
-characters after them, an overline, stacked parts in lower case, tab stops that align text by its
-right, its center or a decimal point, and attributes of more than one line.
+The codes that change the height, width, slant, spacing, alignment or color of the characters
+after them, an overline, stacked parts in lower case, tab stops that align text by its right, its
+center or a decimal point, columns that flow from right to left, and attributes of more than one
+line.

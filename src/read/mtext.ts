@@ -35,6 +35,7 @@ export function mtextToMeasure(
     valign: place?.valign ?? "top",
     lineSpacing: mtext.lineSpacing,
     lineSpacingStyle: mtext.lineSpacingStyle,
+    ...(mtext.columns && { columns: mtext.columns }),
   };
   return { paragraph, exact: font.exact && place !== undefined };
 }

@@ -145,6 +145,9 @@ import {
   textProblem,
   lineSpacingProblem,
   paragraphChoiceProblem,
+  paragraphColumnsShapeProblem,
+  paragraphColumnsSizeProblem,
+  PARAGRAPH_COLUMN_BREAK,
   paragraphProblemIn,
   paragraphValueProblem,
   textStyleNameProblem,
@@ -451,16 +454,21 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     return found;
   };
   /** What is wrong with a paragraph's value in its style's font, read once for a long one. */
-  const paragraphChecks = new Strings<Pick<ParsedParagraph, "problem" | "ownDiameter">>();
-  const checkParagraph = (value: string, font: unknown): string | undefined => {
-    if (value.length < LONG) return paragraphValueProblem(value, font);
-    let found = paragraphChecks.get(value);
+  const paragraphChecks = new Strings<
+    Pick<ParsedParagraph, "problem" | "ownDiameter" | "columnBreak">
+  >();
+  /** What is wrong with a paragraph's value, and whether it holds a `\N`. */
+  const checkParagraph = (value: string, font: unknown): [string | undefined, boolean] => {
+    let found = value.length < LONG ? undefined : paragraphChecks.get(value);
     if (!found) {
-      const { problem, ownDiameter } = parseParagraph(value);
-      paragraphChecks.set(value, (found = { problem, ownDiameter }));
+      const { problem, ownDiameter, columnBreak } = parseParagraph(value);
+      found = { problem, ownDiameter, columnBreak };
+      if (value.length >= LONG) paragraphChecks.set(value, found);
     }
-    return paragraphProblemIn(found, font);
+    return [paragraphProblemIn(found, font), found.columnBreak];
   };
+  /** What is wrong with each columns object a paragraph gives, apart from its width. */
+  const columnShapes = new WeakMap<object, string | undefined>();
   /** The strings of `LONG` characters or more the checks have read. */
   const long = new Strings<true>();
   /**
@@ -1536,12 +1544,20 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       // there may be unreported, and toDXF refuses the drawing.
       if (stopped !== undefined) return;
       const here = () => `${entity.kind} #${index} of ${space}`;
-      // A long list of points, bulges or widths that many polylines share is read again for
-      // each, and paid for.
-      if (isObject(entity) && (entity.kind === "polyline" || entity.kind === "image")) {
+      // A long list of points, bulges, widths or column heights that many entities share is read
+      // again for each, and paid for.
+      if (
+        isObject(entity) &&
+        (entity.kind === "polyline" || entity.kind === "image" || entity.kind === "paragraph")
+      ) {
         let cost = 0;
+        const columns: unknown = entity.kind === "paragraph" ? entity.columns : undefined;
         const lists =
-          entity.kind === "image" ? [entity.clip] : [entity.points, entity.bulges, entity.widths];
+          entity.kind === "image"
+            ? [entity.clip]
+            : entity.kind === "paragraph"
+              ? [isObject(columns) ? columns.heights : undefined]
+              : [entity.points, entity.bulges, entity.widths];
         for (const list of lists) {
           if (Array.isArray(list) && list.length >= FREE && again(list))
             cost += Math.floor(list.length / 8);
@@ -1757,8 +1773,22 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
               ? (stylesByKey.get(layerKey(style))?.font ??
                 (isStandardTextStyle(style) ? STANDARD_FONT : undefined))
               : undefined;
-        const problem = checkParagraph(entity.value, font);
+        const [problem, columnBreak] =
+          typeof entity.value === "string"
+            ? checkParagraph(entity.value, font)
+            : [paragraphValueProblem(entity.value, font), false];
         if (problem) add("paragraph", "error", problem);
+        if (entity.columns !== undefined) {
+          // Columns many paragraphs share are checked once.
+          const given: unknown = entity.columns;
+          let shape: string | undefined;
+          if (typeof given === "object" && given !== null) {
+            if (columnShapes.has(given)) shape = columnShapes.get(given);
+            else columnShapes.set(given, (shape = paragraphColumnsShapeProblem(given)));
+          } else shape = paragraphColumnsShapeProblem(given);
+          const columns = shape ?? paragraphColumnsSizeProblem(given, entity.width, entity.height);
+          if (columns) add("paragraph", "error", columns);
+        } else if (columnBreak) add("paragraph", "warning", PARAGRAPH_COLUMN_BREAK);
         const { align, valign, lineSpacing, lineSpacingStyle } = entity;
         for (const [rule, field, value] of [
           ["text-align", "align", align],

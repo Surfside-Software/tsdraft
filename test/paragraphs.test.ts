@@ -22,11 +22,15 @@ import {
   svgToPDF,
   toDXF,
   toSVG,
+  checkDrawingRead,
+  paragraphColumnsHeld,
   underline,
   type Drawing,
   type Entity,
   type Paragraph,
+  type ParagraphLayout,
 } from "../src/index.ts";
+import { paragraphMeasurer } from "../src/paragraphs.ts";
 import { readProblems } from "./read-agreement.ts";
 import { timeLimit } from "./time-limit.ts";
 
@@ -101,7 +105,6 @@ test("what tsdraft does not lay out is refused, and named", () => {
     ["\\ptr3;A", /aligns text by its right/],
     ["\\psa1.2;A", /at least a size apart/],
     ["\\pi-;A", /option "i-"/],
-    ["A\\NB", /code \\N, which starts a new column/],
     ["A\\XB", /code \\X/],
     ["\\OA", /code \\O, which draws a line over/],
     ["\\M+18140", /code \\M, which holds a character of a code page/],
@@ -360,6 +363,81 @@ test("a list hangs its items under their marks, and its tabs and indents fall wh
   assert.ok(svgToPDF([picture]).length > 0);
 });
 
+test("columns take a paragraph's lines in turn, where the leading CAD app sets them", () => {
+  const arial = { font: "Arial", height: 0.2, width: 2 } as const;
+  const twelve = Array.from({ length: 12 }, (_, k) => `L${k + 1} HHHH`).join("\\P");
+  const ten = Array.from({ length: 10 }, (_, k) => `L${k + 1} HHHH`).join("\\P");
+  const lay = (value: string, more: object) => layoutParagraph({ value, ...arial, ...more });
+  const columnsOf = (layout: ParagraphLayout) =>
+    layout.lines.map((line) => `${line.column}:${line.value.split(" ")[0]}`).join(" ");
+  const first = (layout: ParagraphLayout, value: string) =>
+    layout.lines.flatMap((line) => line.runs).find((run) => run.value === value)!;
+  const near = (got: number, want: number) =>
+    assert.ok(Math.abs(got - want) < 2e-4, `${got} ${want}`);
+  // A line whose box reaches below the column's height starts the next, the gutter past it; the
+  // last static column takes what is left.
+  const two = lay(twelve, { columns: { count: 2, height: 1, gutter: 0.5 } });
+  assert.match(columnsOf(two), /^0:L1 0:L2 0:L3 1:L4 .* 1:L12$/);
+  near(first(two, "L1 HHHH").x, -0.0205);
+  near(first(two, "L4 HHHH").x, 2.4795);
+  near(first(two, "L4 HHHH").baseline, -0.2);
+  assert.equal(two.columns.length, 2);
+  // Without a count, as many as it takes; with heights, one each, then one for the rest.
+  assert.equal(lay(twelve, { columns: { height: 1, gutter: 0.5 } }).columns.length, 4);
+  assert.equal(
+    columnsOf(lay(ten, { columns: { heights: [0.6, 1.2], gutter: 0.5 } })),
+    "0:L1 0:L2 1:L3 1:L4 1:L5 2:L6 2:L7 2:L8 2:L9 2:L10",
+  );
+  // `\N` starts the next column; exact spacing ends a line's box a third of a height down.
+  assert.equal(
+    columnsOf(lay("L1 HHHH\\NL2 HHHH", { columns: { count: 2, height: 2 } })),
+    "0:L1 1:L2",
+  );
+  assert.equal(
+    columnsOf(lay(ten, { lineSpacingStyle: "exactly", columns: { count: 2, height: 0.58 } })),
+    "0:L1 1:L2 1:L3 1:L4 1:L5 1:L6 1:L7 1:L8 1:L9 1:L10",
+  );
+  // Each column is a box the attachment places on its own; static ones stand as wide as all.
+  const bottom = lay(twelve, { valign: "bottom", columns: { count: 2, height: 1.2, gutter: 0.5 } });
+  near(first(bottom, "L3 HHHH").baseline, 0.0035);
+  near(first(bottom, "L12 HHHH").baseline, 0.0001);
+  const right = lay("L1 HHHH\\PL2 HHHH", {
+    align: "right",
+    columns: { count: 3, height: 1, gutter: 0.5 },
+  });
+  near(first(right, "L1 HHHH").x, -6.173);
+  assert.deepEqual([right.frame[0], right.frame[2]], [-7, 0]);
+  // Past the heights given one column takes the rest, a \\N there too.
+  assert.equal(columnsOf(lay("A\\NB\\NC", { columns: { heights: [1] } })), "0:A 1:B 1:C");
+  // What a file holds adds up as written.
+  const held = {
+    value: "A",
+    height: 0.2,
+    width: 1.2345674,
+    columns: { count: 3, height: 1, gutter: 0.2345674 },
+  };
+  const kept = paragraphColumnsHeld(held, layoutParagraph(held))!;
+  assert.deepEqual([kept.width, kept.gutter, kept.total], [1.234567, 0.234567, 4.172835]);
+  // One measurer keeps a long value's layout for each height of its columns.
+  const notes = `${"VERIFY ALL DIMENSIONS IN FIELD\\P".repeat(10)}END`;
+  const measurer = paragraphMeasurer();
+  const counts = [0.2, 10].map(
+    (height) =>
+      measurer.layout({ value: notes, ...arial, height: 0.125, width: 8, columns: { height } })
+        .columns.length,
+  );
+  assert.deepEqual(counts, [11, 1]);
+  // Columns that are not an object, as data may hold them, are none.
+  assert.equal(lay(twelve, { columns: null }).columns.length, 1);
+  // A distributed line wider than its room is left whole, and centered.
+  const wide = lay("\\pxqd;CONSTRUCTION.", {});
+  assert.deepEqual(
+    wide.lines[0]!.runs.map((run) => run.value),
+    ["CONSTRUCTION."],
+  );
+  near(wide.lines[0]!.runs[0]!.x, -0.1589);
+});
+
 test("what the tables cannot lay out exactly is approximate, or refused", () => {
   const approximate = (value: string, font: string, obliqueAngle = 0) =>
     layoutParagraph({ value, height: 1, font, obliqueAngle }).approximate;
@@ -421,6 +499,16 @@ test("lint refuses a paragraph built as data that the leading CAD app would not 
     // code sets.
     [{ value: "%%c6" }, /^paragraph: .*%%c in an SHX font/],
     [{ value: "\\fArial;\\fromans.shx;%%c6" }, /^paragraph: .*%%c in an SHX font/],
+    [{ columns: { height: 1 } }, /^paragraph: .*needs a width/],
+    [{ width: 2, columns: { count: 0, height: 1 } }, /^paragraph: .*a whole count from 1 to 1000/],
+    [{ width: 2, columns: { height: 1, heights: [1] } }, /^paragraph: .*\{ heights, gutter\? \}/],
+    [{ width: 2, columns: { heights: [] } }, /^paragraph: .*from 1 to 1000 heights/],
+    [{ width: 2, columns: { height: 1, gutter: -1 } }, /^paragraph: .*a gutter of 0 or more/],
+    [{ width: 2, columns: { heights: [4e-7, 2] } }, /^paragraph: .*heights above 0 as written/],
+    [
+      { width: 2, columns: { height: 1, count: 1000, gutter: 1e98 } },
+      /^paragraph: .*too wide to write/,
+    ],
   ];
   for (const [fields, problem] of refused) {
     const found = errors(holding(fields));
@@ -433,6 +521,20 @@ test("lint refuses a paragraph built as data that the leading CAD app would not 
   const arial = { textStyles: [{ name: "NOTES", font: "Arial" }] };
   assert.deepEqual(errors({ ...holding({ value: "%%c6", style: "NOTES" }), ...arial }), []);
   assert.deepEqual(errors(holding({ value: "\\fArial;%%c6" })), []);
+  // A \N without columns only breaks the line, which lint warns of.
+  const warnings = (drawing: Drawing) =>
+    lint(drawing)
+      .filter((d) => d.severity === "warning")
+      .map((d) => d.message);
+  assert.deepEqual(warnings(holding({ value: "A\\NB" })), [
+    "paragraph #0: The paragraph code \\N starts the next column, and this paragraph has no columns: it breaks the line, as \\P does",
+  ]);
+  assert.deepEqual(warnings(holding({ value: "A\\NB", width: 2, columns: { height: 1 } })), []);
+  // A list of heights is read by its items, whatever its methods.
+  const odd = Object.assign([1, 2], { [Symbol.iterator]: 0, slice: 0, map: 0 });
+  const shadowed = holding({ value: "A\\NB", width: 2, columns: { heights: odd } });
+  assert.deepEqual(errors(shadowed), []);
+  assert.doesNotThrow(() => toSVG(shadowed));
 });
 
 test("readDXF gives back each paragraph as toDXF wrote it, in model space, a block and a layout", async () => {
@@ -461,14 +563,44 @@ test("readDXF gives back each paragraph as toDXF wrote it, in model space, a blo
     d.paragraph(long, { at: [1, 20], width: 6, height: 0.125 }),
   );
   d.paragraph(list(["ONE\tTWO", "THREE"]), { at: [0, -6], width: 4 });
+  // Columns of each kind, held in an embedded object after the MTEXT's own groups.
+  d.paragraph(long, { at: [10, 0], width: 2, columns: { count: 2, height: 1, gutter: 0.25 } });
+  d.paragraph(long, { at: [20, 0], width: 2, rotation: 30, columns: { height: 1 } });
+  d.paragraph(`${long}\\N${long}`, { at: [30, 0], width: 2, columns: { heights: [1, 2] } });
+  // A file holds the heights of the columns the text reaches.
+  d.paragraph("A", { at: [40, 0], width: 2, columns: { heights: [1, 2, 3] } });
   const drawing = d.build();
   const dxf = toDXF(drawing);
   assert.ok(dxf.includes("1.^IONE^ITWO"), "a tab is written as ^I");
   const read = await readDXF(dxf, { geometry: true });
   assert.deepEqual(readProblems(drawing, read, "tsdraft"), []);
   const mtexts = read.model.entities!.filter((e) => e.kind === "mtext");
-  assert.equal(mtexts.length, 3);
+  assert.equal(mtexts.length, 7);
   assert.equal(mtexts[1]!.kind === "mtext" && mtexts[1]!.value, long);
+  // The embedded object's direction wins over group 50.
+  const turned = await readDXF(
+    dxf.replace(/\r\n11\r\n0\.866025403784439\r\n21\r\n0\.5\r\n31\r\n0\r\n/, "\r\n50\r\n90\r\n"),
+    { geometry: true },
+  );
+  const thirty = turned.model.entities!.filter((e) => e.kind === "mtext")[4]!;
+  assert.equal(thirty.kind === "mtext" && thirty.rotation, 30);
+  const both = structuredClone(read) as unknown as {
+    model: { entities: Record<string, unknown>[] };
+  };
+  both.model.entities.find((e) => e.columns !== undefined)!.columns = { height: 1, heights: [2] };
+  assert.match(
+    checkDrawingRead(both).join("; "),
+    /columns must be \{ height, count\?, gutter\? \}/,
+  );
+  assert.deepEqual(
+    mtexts.slice(3).map((e) => e.kind === "mtext" && [e.width, e.columns]),
+    [
+      [2, { count: 2, height: 1, gutter: 0.25 }],
+      [2, { height: 1, gutter: 0.625 }],
+      [2, { heights: [1, 2], gutter: 0.625 }],
+      [2, { heights: [1], gutter: 0.625 }],
+    ],
+  );
 });
 
 test("a paragraph is laid out from its numbers as written, as a read of the file lays it out", async () => {

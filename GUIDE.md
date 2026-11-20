@@ -247,11 +247,12 @@ layoutParagraph({ value: notes, height: 0.1, width: 4 }).lines.length; // how ma
 
 A line feed starts a new paragraph. `list` writes numbered or lettered notes in two levels, each
 hanging under its mark as CAD programs set a list, and `paragraphFormat` a paragraph's indents,
-tab stops, justification and spacing. `measureParagraph` gives its lines and its box, from the
+tab stops, justification and spacing. `columns: { count: 2, height: 6 }` flows the notes into
+columns side by side, each `width` wide. `measureParagraph` gives its lines and its box, from the
 widths `measureText` uses, and `inspectText` checks each line as a text. `underline`, `bold`,
 `stack`, `superscript` and `subscript` write the codes for what they name, and `plain(text)`
-escapes text from elsewhere. `lint` refuses a code tsdraft does not lay out, such as columns or
-a change of height, and names it.
+escapes text from elsewhere. `lint` refuses a code tsdraft does not lay out, such as a change of
+height, and names it.
 [docs/paragraphs.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/paragraphs.md)
 has the codes.
 
@@ -614,9 +615,8 @@ writeFileSync("plan.dxf", toDXF(drawing));
   viewport is a locked rectangle that shows every layer at one scale.
 - A paper outside the list in the section on layouts, a paper in portrait, and a page setup
   for another plotter.
-- Lists with hanging indents, tab stops and columns in a paragraph, and the codes that change
-  the height, width, slant, spacing or color of characters inside one. Number a list with a
-  text beside each note's paragraph, as the example sheet does.
+- The codes that change the height, width, slant, spacing or color of characters inside a
+  paragraph.
 - Ellipses and splines.
 - A color on a single entity. Color comes from the layer.
 - DWG files. tsdraft writes DXF.
