@@ -1,4 +1,5 @@
 export {
+  attributeParagraph,
   attributeDefinitionHandle,
   attributeHandle,
   attributesEndHandle,
@@ -8,6 +9,7 @@ export {
   findXref,
   placeAttribute,
   type PlacedAttribute,
+  type PlacedAttributeParagraph,
   type XrefDrawing,
   type XrefDrawings,
 } from "./blocks.ts";
@@ -60,6 +62,8 @@ export {
   type AlignedDimensionOptions,
   type Arc,
   type AttributeDefinition,
+  type ParagraphAttributeDefinition,
+  type TextAttributeDefinition,
   type AttributeOptions,
   type Block,
   type BlockOptions,
@@ -377,6 +381,7 @@ export {
   type ReadArc,
   type ReadAttribute,
   type ReadAttributeDefinition,
+  type ReadAttributeParagraph,
   type ReadBlock,
   type ReadCensus,
   type ReadCensusDimension,

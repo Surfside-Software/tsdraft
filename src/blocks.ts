@@ -6,6 +6,8 @@ import type {
   Drawing,
   Entity,
   Insert,
+  Paragraph,
+  ParagraphAttributeDefinition,
   Point,
   Text,
   TextStyle,
@@ -194,6 +196,25 @@ export interface PlacedAttribute {
   /** True for an insert with one negative scale, which the leading CAD app holds with an extrusion of 0, 0, -1. */
   readonly mirrored: boolean;
   readonly definition: AttributeDefinition;
+  /** For a definition of paragraph text, the paragraph the leading CAD app holds for it. */
+  readonly paragraph?: PlacedAttributeParagraph;
+}
+
+/**
+ * The paragraph an insert makes of a definition of paragraph text, placed at the attribute's
+ * `at` and turned by its `rotation`, in the definition's text style. An insert that scales its
+ * block unevenly sets the paragraph at its height in the insert, wraps it at the definition's
+ * width times the share of its height that is left, and sets its characters at the attribute's
+ * width factor, to four decimals, by a code before its value, in the place of the style's: the
+ * leading CAD app slants none of them by the insert, and keeps the style's oblique angle.
+ */
+export interface PlacedAttributeParagraph {
+  /** The width its lines wrap at, or undefined for none. */
+  readonly width: number | undefined;
+  /** The value as it is laid out, after the code of an uneven scale. */
+  readonly value: string;
+  /** True for an insert that scales its block unevenly. */
+  readonly uneven: boolean;
 }
 
 /**
@@ -228,8 +249,11 @@ export function placeAttribute(
     ? [-matrix[0], matrix[1], -matrix[2], matrix[3], -matrix[4], matrix[5]]
     : matrix;
   const at: Point = [a * x + c * y + e, b * x + d * y + f];
-  const widthFactor = written(style?.widthFactor ?? 1);
-  const obliqueAngle = written(style?.obliqueAngle ?? 0);
+  // A definition of paragraph text holds a text of no width factor or slant of its own: its
+  // paragraph is drawn in its style's.
+  const own = definition.kind === "paragraph" ? undefined : style;
+  const widthFactor = written(own?.widthFactor ?? 1);
+  const obliqueAngle = written(own?.obliqueAngle ?? 0);
   const height = written(definition.height);
   const turn = (written(definition.rotation) * Math.PI) / 180;
   const slant = Math.tan((obliqueAngle * Math.PI) / 180);
@@ -243,7 +267,7 @@ export function placeAttribute(
   const length = Math.hypot(along[0], along[1]);
   const rise = (along[0] * up[1] - along[1] * up[0]) / length;
   const run = (along[0] * up[0] + along[1] * up[1]) / length;
-  return {
+  const placed = {
     tag: definition.tag,
     value,
     layer: definition.layer,
@@ -255,7 +279,78 @@ export function placeAttribute(
     widthFactor: (widthFactor * length) / rise,
     obliqueAngle: (Math.atan2(run, rise) * 180) / Math.PI,
   };
+  if (definition.kind !== "paragraph") return placed;
+  const uneven = Math.abs(written(sx)) !== Math.abs(written(sy));
+  // A value or a width of the wrong type, which `lint` reports, is laid out as none.
+  const given: unknown = definition.width;
+  const width = typeof given === "number" ? written(given) * rise : undefined;
+  const text = typeof value === "string" ? value : "";
+  return {
+    ...placed,
+    paragraph: {
+      width,
+      value: uneven ? `\\W${placed.widthFactor.toFixed(4)};${text}` : text,
+      uneven,
+    },
+  };
 }
+
+/**
+ * True for a definition of paragraph text and an insert whose numbers `placeAttribute` can place.
+ * A walk draws nothing of any other, which `lint` reports.
+ */
+export function placeable(definition: AttributeDefinition, insert: Insert): boolean {
+  const number = (value: unknown): boolean => typeof value === "number";
+  const point = (value: unknown): boolean =>
+    Array.isArray(value) && number(value[0]) && number(value[1]);
+  const d = definition as unknown as Readonly<Record<string, unknown>>;
+  const i = insert as unknown as Readonly<Record<string, unknown>>;
+  return (
+    point(d["at"]) &&
+    number(d["height"]) &&
+    number(d["rotation"]) &&
+    point(i["at"]) &&
+    (i["scale"] === undefined || point(i["scale"])) &&
+    (i["rotation"] === undefined || number(i["rotation"]))
+  );
+}
+
+/**
+ * The paragraph an insert draws for a definition of paragraph text, in the insert's own
+ * coordinates, or for a mirrored insert in the coordinates `placeAttribute` gives, where X runs
+ * the other way. It reads the fields a paragraph has, so each placement costs the same whatever
+ * else the definition holds.
+ */
+export function attributeParagraph(placed: PlacedAttribute): Paragraph | undefined {
+  if (!placed.paragraph) return undefined;
+  const definition = placed.definition as ParagraphAttributeDefinition;
+  const paragraph: Record<string, unknown> = { kind: "paragraph" };
+  const given = definition as unknown as Readonly<Record<string, unknown>>;
+  for (const field of PARAGRAPH_FIELDS) {
+    if (Object.hasOwn(given, field)) paragraph[field] = given[field];
+  }
+  paragraph["at"] = placed.at;
+  paragraph["height"] = placed.height;
+  paragraph["rotation"] = placed.rotation;
+  paragraph["value"] = placed.paragraph.value;
+  if (placed.paragraph.width === undefined) delete paragraph["width"];
+  else paragraph["width"] = placed.paragraph.width;
+  return paragraph as unknown as Paragraph;
+}
+
+/** The fields of a paragraph that a definition of paragraph text gives the one an insert draws. */
+const PARAGRAPH_FIELDS = [
+  "layer",
+  "style",
+  "width",
+  "align",
+  "valign",
+  "lineSpacing",
+  "lineSpacingStyle",
+] as const;
+
+/** The matrix that takes a mirrored attribute's coordinates, where X runs the other way, to the insert's. */
+export const MIRRORED: Matrix = [-1, 0, 0, 1, 0, 0];
 
 /** The value an insert gives an attribute: its own for the tag, or the definition's default. */
 export function attributeValue(insert: Insert, definition: AttributeDefinition): string {
@@ -615,6 +710,11 @@ export interface Placement {
   readonly from: Referenced | undefined;
   /** For the text of an insert's attribute, the attribute's tag. */
   readonly attribute?: string;
+  /**
+   * True for an attribute of paragraph text an insert scales unevenly, whose value, with the code
+   * before it, is no string the drawing holds: whatever lays it out pays as `made` says.
+   */
+  readonly made?: boolean;
 }
 
 /** A block the walk of an insert is in, and how far it has read it. */
@@ -624,6 +724,10 @@ interface Entered {
   readonly items: readonly Entity[];
   readonly definitions: readonly AttributeDefinition[];
   readonly matrix: Matrix;
+  /** The matrix of the space the insert is in, which an attribute of paragraph text is drawn with. */
+  readonly outer: Matrix | undefined;
+  /** The block's base point. */
+  readonly base: Point | undefined;
   readonly layer: LayerRef;
   readonly inside: Referenced | undefined;
   /** The blocks its inserts find theirs among. */
@@ -650,7 +754,8 @@ function holds(list: readonly unknown[], index: number): boolean {
  * block, and any other on its own layer of the referenced drawing. Inside a referenced drawing an
  * insert of one of its attachments draws the drawing `referencedTree` gives for it, the same way,
  * and one of its overlays draws nothing, as that app loads no overlay of a referenced drawing. An
- * xref with no drawing given draws nothing.
+ * xref with no drawing given draws nothing. Each definition of paragraph text is drawn as the
+ * paragraph `attributeParagraph` gives, in the coordinates of the space its insert is in.
  *
  * @param isFrozen - True for a layer that hides everything an insert on it draws: a frozen
  *   layer, and in a plot a layer that does not plot.
@@ -705,6 +810,8 @@ export function eachDrawn(
       items: Array.isArray(items) ? items : [],
       definitions: Array.isArray(definitions) ? definitions : [],
       matrix: outer ? compose(outer, own) : own,
+      outer,
+      base: block?.base,
       layer,
       // What the insert holds names the layers, linetypes and text styles of this drawing.
       inside: referenced ?? from,
@@ -741,6 +848,24 @@ export function eachDrawn(
         continue;
       }
       if (!spend(1 + lookupCost(at.insert, definition))) return false;
+      if (definition.kind === "paragraph") {
+        if (!placeable(definition, at.insert)) continue;
+        const placed = placeAttribute(definition, undefined, at.insert, at.base);
+        const flip = placed.mirrored
+          ? at.outer
+            ? compose(at.outer, MIRRORED)
+            : MIRRORED
+          : undefined;
+        draw(attributeParagraph(placed)!, {
+          matrix: flip ?? at.outer,
+          layer: layerOf(definition.layer),
+          insertLayer: at.layer,
+          from: inside,
+          attribute: definition.tag,
+          made: placed.paragraph!.uneven,
+        });
+        continue;
+      }
       draw(attributeText(at.insert, definition), {
         matrix: at.matrix,
         layer: layerOf(definition.layer),

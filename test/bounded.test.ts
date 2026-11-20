@@ -2068,27 +2068,48 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
       (drawing.entities as Data[]).push({ ...tree.top, block: `T${Math.floor(depth / 2)}` });
     }
     if (random() < 0.4) {
+      // Of one line, or of paragraph text: long, of many lines, of deep braces, or wrapped at a
+      // width past what can be drawn, one definition shared by every place or each its own.
+      const paragraphs = random() < 0.5;
+      const shared = {
+        kind: "paragraph",
+        tag: "P",
+        value: pick([long, "WORD\\P".repeat(20_000), `${"{".repeat(50_000)}x`, "A B C"]),
+        layer: "0",
+        at: [0, 0] as Point,
+        height: 1,
+        rotation: 30,
+        width: pick([1e-6, 2, 1e90]),
+        lineSpacing: 4,
+      };
       (tree.blocks[0] as { attributes?: unknown }).attributes = Array.from(
         { length: pick([1, 100, 300]) },
-        (_, i) => ({
-          tag: i === 0 && random() < 0.5 ? "T".repeat(2_000_000) : `A${i}`,
-          value: pick(["V", long]),
-          layer: "0",
-          at: [0, 0] as Point,
-          height: 1,
-          rotation: 0,
-          ...(i === 0 && random() < 0.2 ? fields() : {}),
-        }),
+        (_, i) =>
+          paragraphs && random() < 0.5
+            ? { ...shared, tag: `P${i}` }
+            : {
+                tag: i === 0 && random() < 0.5 ? "T".repeat(2_000_000) : `A${i}`,
+                value: pick(["V", long]),
+                layer: "0",
+                at: [0, 0] as Point,
+                height: 1,
+                rotation: 0,
+                ...(paragraphs ? { kind: "paragraph", width: 3 } : {}),
+                ...(i === 0 && random() < 0.2 ? fields() : {}),
+              },
       );
     }
     blocks.push(...(tree.blocks as unknown as Data[]));
     // Values each insert holds, long or not.
     const values = random() < 0.3 ? { A0: pick(["V", long]), A1: long } : undefined;
+    // Scaled unevenly or mirrored, which places an attribute of paragraph text again in each.
+    const scale = pick([undefined, [2, 0.5], [-1, 1], [1e-6, 1e6]]);
     const inserts = Array.from({ length: pick([1, 300]) }, (_, i) => ({
       ...tree.top,
       at: [i, 0],
       ...(random() < 0.5 ? { id: `I${i}` } : {}),
       ...(values ? { attributes: values } : {}),
+      ...(scale ? { scale } : {}),
       rotation: random() * 360,
     }));
     (random() < 0.5 ? (drawing.entities as Data[]) : (layout.entities as Data[])).push(...inserts);

@@ -100,12 +100,27 @@ const PLACEMENT: Fields = {
   "upsideDown?": "boolean",
 };
 
+const ATTRIBUTE_PARAGRAPH: Type = {
+  fields: {
+    at: "point",
+    height: "number",
+    width: "number",
+    attachment: "number",
+    rotation: "number",
+    style: "string",
+    lineSpacing: "number",
+    lineSpacingStyle: { oneOf: ["at-least", "exactly"] },
+    "mirrored?": "boolean",
+  },
+};
+
 const ATTRIBUTE: Fields = {
   ...BASE,
   ...PLACEMENT,
   tag: "string",
   value: "string",
   "invisible?": "boolean",
+  "paragraph?": ATTRIBUTE_PARAGRAPH,
 };
 
 const INSERT: Fields = {
@@ -444,6 +459,7 @@ const DRAWING_READ: Fields = {
               layer: "string",
               invisible: "boolean",
               constant: "boolean",
+              "paragraph?": ATTRIBUTE_PARAGRAPH,
             },
           },
         },

@@ -740,6 +740,55 @@ test("a paragraph is placed in the direction the DXF holds: its rotation within 
   assert.deepEqual(readProblems(drawing, read, "tsdraft"), []);
 });
 
+test("an attribute of paragraph text is written and read as the leading CAD app's -INSERT makes it", async () => {
+  const d = createDrawing({ units: "in" });
+  d.textStyle({ name: "NOTES", font: "Arial", widthFactor: 0.8 });
+  d.block("NOTE", {}, () =>
+    d.attribute("NOTE", [1, 1], {
+      kind: "paragraph",
+      value: "ALL WORK SHALL COMPLY\nWITH THE CODES",
+      width: 3,
+      height: 0.25,
+      style: "NOTES",
+      align: "right",
+      valign: "bottom",
+      lineSpacing: 2,
+    }),
+  );
+  d.insert("NOTE", [0, 0]);
+  d.insert("NOTE", [10, 0], { scale: [2, 0.5], rotation: 30, attributes: { NOTE: "OWN\nVALUE" } });
+  d.insert("NOTE", [20, 0], { scale: [-1.5, 1.5], rotation: 45 });
+  const drawing = d.build();
+  const dxf = toDXF(drawing);
+  // The text the attribute would be as a line holds no value, and its paragraph follows it.
+  assert.ok(dxf.includes("\r\n71\r\n     4\r\n") || dxf.includes("\r\n71\r\n4\r\n"));
+  assert.ok(dxf.includes("\r\n101\r\nEmbedded Object\r\n"));
+  assert.ok(dxf.includes("\\W4.0000;OWN\\PVALUE"), "an uneven scale widens by a code");
+  const read = await readDXF(dxf, { geometry: true });
+  assert.deepEqual(checkDrawingRead(JSON.parse(JSON.stringify(read))), []);
+  assert.deepEqual(readProblems(drawing, read, "tsdraft"), []);
+  const [definition] = read.blocks.find((b) => b.name === "NOTE")!.attributeDefinitions;
+  assert.equal(definition!.default, "ALL WORK SHALL COMPLY\\PWITH THE CODES");
+  // Its text starts where a text of no value does: at the bottom, Arial's descent above the point.
+  assert.equal(definition!.startFrom, "file");
+  assert.equal(definition!.at[0], 1);
+  assert.ok(Math.abs(definition!.at[1] - (1 + 0.29604365621 * 0.25)) < 1e-14);
+  assert.deepEqual(definition!.paragraph, {
+    at: [1, 1],
+    height: 0.25,
+    width: 3,
+    attachment: 9,
+    rotation: 0,
+    style: "NOTES",
+    lineSpacing: 2,
+    lineSpacingStyle: "at-least",
+  });
+  const inserts = read.model.entities!.filter((e) => e.kind === "insert");
+  const mirrored = inserts[2]!.kind === "insert" ? inserts[2]!.attributes![0]! : undefined;
+  assert.equal(mirrored?.paragraph?.mirrored, true);
+  assert.equal(mirrored?.value, "ALL WORK SHALL COMPLY\\PWITH THE CODES");
+});
+
 test("a run and a text in a TrueType font are plotted from their first point at their advances", () => {
   const d = createDrawing({ units: "in" });
   d.textStyle({ name: "NOTES", font: "Arial" });
@@ -798,4 +847,38 @@ test("under a standard a paragraph is held to its role's text style and height, 
       .map((d) => d.rule);
   assert.deepEqual(rules(changed({ height: 0.2 })), ["height-off-role"]);
   assert.deepEqual(rules(changed({ style: undefined })), ["text-style-outside-standard"]);
+});
+
+test("a leaned word wraps as if its ink reached twice its last character's lean further", () => {
+  // The least width that holds two words on one line, in Arial capitals of height 1.
+  const least = (obliqueAngle: number, widthFactor = 1) => {
+    let [lo, hi] = [0, 20];
+    for (let i = 0; i < 50; i++) {
+      const width = (lo + hi) / 2;
+      const { lines } = layoutParagraph({
+        value: "HHH HHH",
+        height: 1,
+        width,
+        font: "Arial",
+        obliqueAngle,
+        widthFactor,
+      });
+      [lo, hi] = lines.length === 1 ? [lo, width] : [width, hi];
+    }
+    return hi;
+  };
+  for (const [angle, factor] of [
+    [15, 1],
+    [30, 1],
+    [15, 0.5],
+  ] as const) {
+    const further = least(angle, factor) - least(0, factor);
+    // Within the rounding of a width as written.
+    assert.ok(
+      Math.abs(further - 2 * Math.tan((angle * Math.PI) / 180)) < 1e-5,
+      `${angle}, ${factor}`,
+    );
+  }
+  // A left lean wraps as an upright word does.
+  assert.equal(least(-15), least(0));
 });

@@ -12,7 +12,8 @@ import {
   toDXF,
   toJSON,
   toSVG,
-  type AttributeDefinition,
+  type ParagraphAttributeDefinition,
+  type TextAttributeDefinition,
   type Block,
   type Diagnostic,
   type DimensionStyle,
@@ -333,7 +334,12 @@ const full: Required<Drawing> & {
   readonly layers: readonly [Layer, Required<Layer>];
   readonly blocks: readonly [
     Block,
-    Required<Block> & { readonly attributes: readonly [Required<AttributeDefinition>] },
+    Required<Block> & {
+      readonly attributes: readonly [
+        Required<TextAttributeDefinition>,
+        Required<ParagraphAttributeDefinition>,
+      ];
+    },
   ];
   readonly xrefs: readonly [Required<Xref>];
   readonly layouts: readonly [
@@ -456,6 +462,7 @@ const full: Required<Drawing> & {
       base: [1, 2],
       attributes: [
         {
+          kind: "text",
           tag: "TAG",
           prompt: "Tree tag",
           value: "T-0",
@@ -464,6 +471,22 @@ const full: Required<Drawing> & {
           height: 1,
           rotation: 0,
           ...justified,
+        },
+        {
+          kind: "paragraph",
+          tag: "NOTE",
+          prompt: "Note",
+          value: "PLANT IN\\PSPRING",
+          layer: "0",
+          at: [0, -4],
+          height: 0.5,
+          rotation: 0,
+          style: "NOTES",
+          width: 6,
+          align: "center",
+          valign: "middle",
+          lineSpacing: 1.5,
+          lineSpacingStyle: "exactly",
         },
       ],
       entities: [

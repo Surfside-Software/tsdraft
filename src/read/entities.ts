@@ -6,6 +6,7 @@ import { textOnce, textTwice } from "./groups.ts";
 import { wholeImageClip } from "../images.ts";
 import type {
   ReadAttribute,
+  ReadAttributeParagraph,
   ReadDimension,
   ReadRadialDimension,
   ReadAngularDimension,
@@ -1008,18 +1009,87 @@ export function attributeOf(
   if (brokenNumber(r)) return { malformed: "ATTRIB with a number that is not finite" };
   const face = facing(r);
   if (face === 0) return { other: "ATTRIB in 3D" };
-  const value = textTwice(first(r, 1) ?? "");
-  const { placement, pending } = placementOf(r, face, value, 74);
+  const { text, paragraph } = attributeParts(r);
+  if (paragraph === null) return { other: "ATTRIB of paragraph text in 3D" };
+  const value = paragraph ? paragraph.value : textTwice(first(text, 1) ?? "");
+  const { placement, pending } = placementOf(text, face, value, 74);
   const attribute = {
     ...base,
     ...placement,
-    tag: textTwice(first(r, 2) ?? ""),
+    tag: textTwice(first(text, 2) ?? ""),
     value,
     // Its own flag, group 70, or the entity's, group 60, as a dynamic block's state hides it.
-    ...((((num(r, 70) ?? 0) & 1) !== 0 || num(r, 60) === 1) && { invisible: true }),
+    ...((((num(text, 70) ?? 0) & 1) !== 0 || num(text, 60) === 1) && { invisible: true }),
+    ...(paragraph && { paragraph: paragraph.paragraph }),
   };
-  if (pending) later.start({ ...pending, placement: attribute });
+  if (pending && !paragraph) later.start({ ...pending, placement: attribute });
   return attribute;
+}
+
+/**
+ * The parts of an `ATTRIB` or an `ATTDEF`: its text's groups, without the paragraph's flags its
+ * subclass holds, and for one of paragraph text the paragraph after group 101, its embedded
+ * object, with its value. Its paragraph is null where it lies off the plane.
+ */
+export function attributeParts(r: Rec): {
+  readonly text: Rec;
+  readonly paragraph:
+    | { readonly paragraph: ReadAttributeParagraph; readonly value: string }
+    | undefined
+    | null;
+} {
+  const from = r.codes.indexOf(101);
+  if (from < 0) return { text: r, paragraph: undefined };
+  // Groups 71 and 72 after the subclass of the attribute say it is of paragraph text.
+  const subclass = r.codes.findIndex(
+    (code, i) =>
+      code === 100 &&
+      (r.values[i] === "AcDbAttribute" || r.values[i] === "AcDbAttributeDefinition"),
+  );
+  const codes: number[] = [];
+  const values: string[] = [];
+  for (let i = 0; i < from; i++) {
+    if (subclass >= 0 && i > subclass && (r.codes[i] === 71 || r.codes[i] === 72)) continue;
+    codes.push(r.codes[i]!);
+    values.push(r.values[i]!);
+  }
+  const text: Rec = { type: r.type, codes, values };
+  const after: Rec = {
+    type: r.type,
+    codes: r.codes.slice(from + 1),
+    values: r.values.slice(from + 1),
+  };
+  const z = num(after, 230) ?? 1;
+  if (Math.abs(num(after, 210) ?? 0) > 1e-9 || Math.abs(num(after, 220) ?? 0) > 1e-9) {
+    return { text, paragraph: null };
+  }
+  let value = "";
+  for (let i = 0; i < after.codes.length; i++) {
+    if (after.codes[i] === 3 || after.codes[i] === 1) value += after.values[i];
+  }
+  const dx = num(after, 11);
+  const dy = num(after, 21);
+  const rotation =
+    dx !== undefined && dy !== undefined && (dx !== 0 || dy !== 0)
+      ? degrees((Math.atan2(dy, dx) * 180) / Math.PI)
+      : 0;
+  return {
+    text,
+    paragraph: {
+      value: textOnce(value),
+      paragraph: {
+        at: point(after, 10),
+        height: num(after, 40) ?? 0,
+        width: num(after, 41) ?? 0,
+        attachment: num(after, 71) ?? 1,
+        rotation,
+        style: name(after, 7) ?? "Standard",
+        lineSpacing: num(after, 44) ?? 1,
+        lineSpacingStyle: num(after, 73) === 2 ? "exactly" : "at-least",
+        ...(z < 0 && { mirrored: true }),
+      },
+    },
+  };
 }
 
 /** The characters a string costs against a budget: one item for each 32. */
@@ -1033,7 +1103,13 @@ const placementCost = (p: ReadTextPlacement): number =>
 
 /** What an attribute costs against a budget. */
 export const attributeCost = (a: ReadAttribute): number =>
-  1 + placementCost(a) + chars(a.tag) + chars(a.value) + chars(a.layer) + chars(a.linetype);
+  1 +
+  placementCost(a) +
+  chars(a.tag) +
+  chars(a.value) +
+  chars(a.layer) +
+  chars(a.linetype) +
+  (a.paragraph ? 2 + chars(a.paragraph.style) : 0);
 
 /**
  * What an entity costs against `BLOCK_ITEMS` or `GEOMETRY_ITEMS`: one, and one more for each of

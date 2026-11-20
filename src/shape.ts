@@ -4,7 +4,8 @@
 import type {
   AlignedDimension,
   Arc,
-  AttributeDefinition,
+  ParagraphAttributeDefinition,
+  TextAttributeDefinition,
   Block,
   Circle,
   DimensionStyle,
@@ -317,6 +318,10 @@ export interface Shapes {
   readonly viewport: Check;
   readonly entity: Check;
 }
+
+/** An attribute definition, every field of each kind at once, as its shape is checked. */
+type AttributeShape = Omit<TextAttributeDefinition, "kind"> &
+  Omit<ParagraphAttributeDefinition, "kind" | "align" | "valign"> & { readonly kind?: string };
 
 /** A paragraph's columns, every field of each kind at once, as their shape is checked. */
 interface ColumnsShape {
@@ -769,7 +774,7 @@ function shapes(all: boolean, typed = all): Shapes {
     ),
   );
   const attribute = record(
-    fields<AttributeDefinition>(
+    fields<AttributeShape>(
       {
         tag: ruled(string),
         value: ruled(string),
@@ -778,7 +783,14 @@ function shapes(all: boolean, typed = all): Shapes {
         height: number,
         rotation: number,
       },
-      { prompt: string, ...justified },
+      {
+        prompt: string,
+        ...justified,
+        kind: ruled(string),
+        width: number,
+        lineSpacing: number,
+        lineSpacingStyle: ruled(string),
+      },
     ),
   );
   const block = record(

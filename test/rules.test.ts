@@ -1495,3 +1495,81 @@ test("a hatch's pattern named SOLID is refused: a solid hatch has none", () => {
     /SOLID is the name/,
   );
 });
+
+test("an attribute of paragraph text and each insert's value of it are checked as a paragraph", () => {
+  const d = createDrawing();
+  const at: Point = [0, 0];
+  d.textStyle({ name: "HAND", font: "romans.shx" });
+  d.block("NOTE", {}, () => {
+    d.attribute("NOTE", at, { kind: "paragraph", value: "ONE\nTWO \LTHREE\l", width: 2 });
+    d.attribute("HAND", at, { kind: "paragraph", style: "HAND", valign: "bottom" });
+    // @ts-expect-error: a brace is never closed.
+    assert.throws(() => d.attribute("A", at, { kind: "paragraph", value: "{\LA" }), /never closed/);
+    // @ts-expect-error: a width must be greater than 0.
+    assert.throws(() => d.attribute("B", at, { kind: "paragraph", width: 0 }), /greater than 0/);
+    assert.throws(
+      // @ts-expect-error: the leading CAD app takes a line spacing from 0.25 to 4.
+      () => d.attribute("C", at, { kind: "paragraph", lineSpacing: 5 }),
+      /from 0.25 to 4/,
+    );
+    // @ts-expect-error: a paragraph is not set on its baseline.
+    assert.throws(() => d.attribute("D", at, { kind: "paragraph", valign: "baseline" }), /valign/);
+    // @ts-expect-error: nor is a width one of a line of text's.
+    assert.throws(() => d.attribute("E", at, { width: 2 }), Error);
+    // Nor beside a field a line of text has, nor in options held apart from the call.
+    // @ts-expect-error: a width beside a value.
+    assert.throws(() => d.attribute("F", at, { value: "x", width: 2 }), /width belongs/);
+    // @ts-expect-error: a line spacing beside a prompt.
+    assert.throws(() => d.attribute("G", at, { prompt: "p", lineSpacing: 2 }), /lineSpacing/);
+    const options = { kind: "text" as const, width: 12 };
+    // @ts-expect-error: a width on options of one line.
+    assert.throws(() => d.attribute("H", at, options), /width belongs/);
+  });
+  d.insert("NOTE", [0, 0], { attributes: { NOTE: "A\nB", HAND: "%%d" } });
+  assert.deepEqual(d.build().entities[0], {
+    kind: "insert",
+    layer: "0",
+    block: "NOTE",
+    at: [0, 0],
+    attributes: { NOTE: "A\\PB", HAND: "%%d" },
+  });
+  // An insert's value is read in the definition's font, which the type does not know.
+  assert.throws(
+    () => d.insert("NOTE", [0, 0], { attributes: { HAND: "%%c6" } }),
+    /attribute "HAND": .*%%c in an SHX font/,
+  );
+  assert.throws(
+    () => d.insert("NOTE", [0, 0], { attributes: { NOTE: "{x" } }),
+    /attribute "NOTE": .*never closed/,
+  );
+  // lint holds a drawing written by hand to the same rules, and R12, which holds no block.
+  const drawing = d.build();
+  const block = drawing.blocks![0]!;
+  const definition = block.attributes![0]!;
+  const broken = (changed: Record<string, unknown>, values?: Record<string, string>) =>
+    lint({
+      ...drawing,
+      blocks: [
+        { ...block, attributes: [{ ...definition, ...changed } as never, block.attributes![1]!] },
+      ],
+      entities: [{ ...drawing.entities[0]!, ...(values ? { attributes: values } : {}) } as never],
+    }).map((diagnostic) => diagnostic.message);
+  assert.deepEqual(broken({}), []);
+  assert.match(broken({ value: "\\Zx" }).join(), /code \\Z is not one tsdraft knows/);
+  assert.match(broken({ width: -1 }).join(), /width: .*greater than 0/);
+  assert.match(broken({ align: "fit" }).join(), /align must be/);
+  assert.match(broken({ kind: "lines" }).join(), /kind must be "text" or "paragraph"/);
+  assert.match(
+    broken({ kind: "text" }).join(),
+    /width belongs to an attribute definition of paragraph text/,
+  );
+  assert.match(broken({}, { NOTE: "{x" }).join(), /attribute "NOTE": .*never closed/);
+  assert.match(
+    lint({ ...drawing, dxf: "R12" })
+      .map((x) => x.message)
+      .join(),
+    /no blocks to R12/,
+  );
+  // An insert that scales its block so unevenly that its width factor leaves the range is refused.
+  assert.throws(() => d.insert("NOTE", [0, 0], { scale: [1000, 0.001] }), /times as wide/);
+});

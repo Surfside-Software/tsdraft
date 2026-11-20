@@ -2714,6 +2714,7 @@ export function placedAttributeProblem(
     readonly height: number;
     readonly widthFactor: number;
     readonly obliqueAngle: number;
+    readonly paragraph?: { readonly width: number | undefined };
   },
   quoted?: string,
 ): string | undefined {
@@ -2727,6 +2728,9 @@ export function placedAttributeProblem(
   }
   const height = sizeProblem(placed.height);
   if (height) return `${about()} ${placed.height} high. ${height}`;
+  const width = placed.paragraph?.width;
+  const wide = width === undefined ? undefined : sizeProblem(width);
+  if (wide) return `${about()} wrap at a width of ${width}. ${wide}`;
   if (Math.abs(written(placed.obliqueAngle)) > 85) {
     return `${about()} slant by ${written(placed.obliqueAngle)} degrees. ${OBLIQUE}. Scale the insert more evenly`;
   }
@@ -2744,6 +2748,17 @@ export function placedAttributeProblem(
  */
 export function duplicateAttributeProblem(tag: string): string {
   return `The block already has an attribute with the tag ${JSON.stringify(tag)}. An insert sets an attribute by its tag, and the tag gives the definition its handle: the leading CAD app discards a drawing in which two objects have one handle`;
+}
+
+/** What an attribute definition's `kind` must be. */
+export const ATTRIBUTE_KIND = 'An attribute definition\'s kind must be "text" or "paragraph"';
+
+/** The fields only an attribute definition of paragraph text has. */
+export const PARAGRAPH_ONLY = ["width", "lineSpacing", "lineSpacingStyle"] as const;
+
+/** What is wrong with a field of paragraph text on an attribute definition of one line. */
+export function paragraphOnlyProblem(field: (typeof PARAGRAPH_ONLY)[number]): string {
+  return `${field} belongs to an attribute definition of paragraph text, which has kind "paragraph"`;
 }
 
 /** What an insert's `attributes` must be. */

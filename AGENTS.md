@@ -62,7 +62,11 @@
   depends on a block of a cycle being open is not kept for another way in. What many places share is read once a boxer: the box of a list of entities,
   of a long list of points and of a leader, a long value's measure, and the inserts of a list.
   An insert's attributes are written as texts in the insert's
-  own coordinates, which `placeAttribute` works out from the numbers as they are written. An
+  own coordinates, which `placeAttribute` works out from the numbers as they are written. One of
+  paragraph text is the paragraph `attributeParagraph` gives in those coordinates, mirrored where
+  X runs the other way, which `eachDrawn` draws with the matrix of the space the insert is in, and
+  the boxer keeps apart from a block's other attributes, in the coordinates of its insert's
+  space, since an uneven scale lays it out again rather than stretching it. An
   attribute is stored on its definition's layer, and one on layer `0` draws as its insert's
   layer does. An insert on a frozen layer, or in a plot on a layer that does not plot, draws
   nothing of its block.

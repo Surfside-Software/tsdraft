@@ -30,6 +30,26 @@
   file's sort table draws a space or a block in, `drawOrder`; and whether wipeouts' frames show,
   `header.wipeoutFrame`.
 
+- Attributes of paragraph text. `d.attribute(tag, at, { kind: "paragraph", width, ... })` defines
+  one, as CAD programs' multiple-line attributes: its value and each insert's hold the codes of
+  paragraph text, checked as a paragraph's value is, wrap at its width and break at each line
+  feed, and its box is placed by `align`, `valign`, `lineSpacing` and `lineSpacingStyle` as a
+  paragraph's is. `AttributeDefinition` is `TextAttributeDefinition` or
+  `ParagraphAttributeDefinition`, told apart by `kind`. Each insert holds the attribute as CAD
+  programs' own insert does: at its height in the insert, wrapped at the width times the same
+  share, and, where the insert scales its block unevenly, with its characters widened by a code
+  of the attribute's width factor before its value, in place of the style's. `placeAttribute`
+  gives that paragraph in `paragraph`, and `attributeParagraph` the `Paragraph` drawn. The R2018
+  DXF writes it, `readDXF` reads it back as `ReadAttributeParagraph`, and `toSVG`, `toPDF`,
+  `inspectText`, the extents and `lint` lay it out where CAD programs plot it. `lint` and the
+  builder refuse a width, a line spacing or a style of paragraph text on a definition of one
+  line, and R12 holds no blocks.
+- A leaned line of paragraph text wraps a word as CAD programs do: as if its ink reached twice its
+  last character's lean further, whatever its width factor. A line in a style with an oblique
+  angle, or after `\Q`, may wrap a word earlier than before.
+- `lint` no longer throws on an attribute definition whose value is not a string when an insert
+  of its block sets no value for it.
+
 - Leaders' notes, as CAD programs draw them. A note is laid out as paragraph text is, each line
   set by the ink of its letters, so its lines move where they plot by up to a quarter of their
   height from where earlier versions drew them. `attachment` takes every place CAD programs

@@ -17,6 +17,7 @@ import type {
   Block,
   Drawing,
   Entity,
+  ParagraphAttributeDefinition,
   Point,
   TextStyle,
 } from "../src/drawing.ts";
@@ -26,11 +27,12 @@ import { findLeaderStyle, leaderPicture } from "../src/leaders.ts";
 import { fromImagePixels, imageClip, imageVectors, writtenImagePath } from "../src/images.ts";
 import { layerKey } from "../src/layers.ts";
 import { entityLinetype, lineweightCode } from "../src/linetypes.ts";
-import { paragraphAttachment, paragraphTurn } from "../src/paragraphs.ts";
+import { paragraphAttachment, paragraphDirection, paragraphTurn } from "../src/paragraphs.ts";
 import { textOnce, textTwice } from "../src/read/groups.ts";
 import type {
   DrawingRead,
   ReadAttribute,
+  ReadAttributeParagraph,
   ReadEntity,
   ReadTextPlacement,
 } from "../src/read/model.ts";
@@ -103,6 +105,8 @@ export function readProblems(
       readonly widthFactor: number;
       readonly obliqueAngle: number;
       readonly mirrored: boolean;
+      /** True for the text of an attribute of paragraph text, whose file holds where it starts. */
+      readonly paragraph?: boolean;
     },
     label: string,
   ): void => {
@@ -117,7 +121,7 @@ export function readProblems(
     const at = justified ? got.alignAt : got.at;
     if (!nearPoint(at, want.at)) say(`${label}: placed at ${at}, expected ${want.at}`);
     if (!justified && got.startFrom !== "file") say(`${label}: starts from ${got.startFrom}`);
-    if (justified && by === "tsdraft" && got.startFrom === "file") {
+    if (justified && by === "tsdraft" && got.startFrom === "file" && !want.paragraph) {
       say(`${label}: starts from the file, which holds its alignment point there`);
     }
     if (!near(got.height, want.height))
@@ -168,24 +172,88 @@ export function readProblems(
     const style = styleOf(definition.style);
     const placed = placeAttribute(definition, style, insert, block.base);
     if (got.tag !== twice(definition.tag)) say(`${label}: tag ${got.tag}`);
-    if (got.value !== twice(placed.value)) say(`${label}: reads ${JSON.stringify(got.value)}`);
+    const value = placed.paragraph?.value;
+    if (value === undefined ? got.value !== twice(placed.value) : !paragraphValue(got.value, value))
+      say(`${label}: reads ${JSON.stringify(got.value)}`);
     if (!sameName(got.layer, definition.layer)) say(`${label}: on layer ${got.layer}`);
     // The file holds a mirrored insert's attribute seen from below, which mirrors X.
     const at: Point = placed.mirrored ? [-placed.at[0], placed.at[1]] : placed.at;
+    const uneven = placed.paragraph?.uneven ?? true;
     placement(
       got,
       {
-        ...definition,
+        ...lineOf(definition),
         at: point(at),
         height: written(placed.height),
         rotation: written(placed.mirrored ? -placed.rotation : placed.rotation),
-        widthFactor: written(placed.widthFactor),
-        obliqueAngle: written(placed.obliqueAngle),
+        widthFactor: uneven ? written(placed.widthFactor) : 1,
+        obliqueAngle: uneven ? written(placed.obliqueAngle) : 0,
         mirrored: placed.mirrored,
+        paragraph: placed.paragraph !== undefined,
       },
       label,
     );
+    if (placed.paragraph) {
+      const [cos, sin] = paragraphDirection(placed.rotation);
+      paragraphOf(got.paragraph, definition as ParagraphAttributeDefinition, {
+        at: point(at),
+        height: written(placed.height),
+        width: placed.paragraph.width ?? 0,
+        turn: (Math.atan2(sin, placed.mirrored ? -cos : cos) * 180) / Math.PI,
+        mirrored: placed.mirrored,
+        label,
+      });
+      return;
+    }
     start(got, mine, got.value, label);
+  };
+
+  /** A paragraph's value as a reader holds it: a DWG keeps a `\U+XXXX` as written. */
+  const paragraphValue = (got: string, want: string): boolean => got === once(want) || got === want;
+
+  /** A definition of paragraph text as the text of one line its file holds with it. */
+  const lineOf = (definition: AttributeDefinition): AttributeDefinition =>
+    definition.kind === "paragraph"
+      ? {
+          ...definition,
+          kind: "text",
+          align: definition.align ?? "left",
+          valign: definition.valign ?? "top",
+        }
+      : definition;
+
+  /** The paragraph of an attribute or a definition of paragraph text, against what it must be. */
+  const paragraphOf = (
+    got: ReadAttributeParagraph | undefined,
+    definition: ParagraphAttributeDefinition,
+    want: {
+      readonly at: Point;
+      readonly height: number;
+      readonly width: number;
+      readonly turn: number;
+      readonly mirrored: boolean;
+      readonly label: string;
+    },
+  ): void => {
+    const { label } = want;
+    if (!got) return say(`${label}: holds no paragraph`);
+    if (!sameName(got.style, definition.style ?? "Standard")) say(`${label}: style ${got.style}`);
+    if (!nearPoint(got.at, want.at)) say(`${label}: paragraph at ${got.at}, expected ${want.at}`);
+    for (const [what, a, b] of [
+      ["height", got.height, want.height],
+      ["width", got.width, want.width],
+      ["attachment", got.attachment, paragraphAttachment(definition)],
+      ["line spacing", got.lineSpacing, written(definition.lineSpacing ?? 1)],
+    ] as const) {
+      if (!near(a, b)) say(`${label}: paragraph ${what} ${a}, expected ${b}`);
+    }
+    if (got.lineSpacingStyle !== (definition.lineSpacingStyle ?? "at-least")) {
+      say(`${label}: line spacing ${got.lineSpacingStyle}`);
+    }
+    // Its direction is written with 15 digits, which give its turn back within their rounding.
+    const turned = (((got.rotation - want.turn) % 360) + 360) % 360;
+    if (Math.min(turned, 360 - turned) > 1e-9) say(`${label}: paragraph turned ${got.rotation}`);
+    if ((got.mirrored ?? false) !== want.mirrored) say(`${label}: mirrored ${got.mirrored}`);
   };
 
   const entity = (
@@ -648,7 +716,12 @@ export function readProblems(
       if (!read) return say(`${label}: missing`);
       const style = styleOf(definition.style);
       if (read.tag !== twice(definition.tag)) say(`${label}: tag ${read.tag}`);
-      if (read.default !== twice(definition.value))
+      const paragraph = definition.kind === "paragraph";
+      if (
+        paragraph
+          ? !paragraphValue(read.default ?? "", definition.value)
+          : read.default !== twice(definition.value)
+      )
         say(`${label}: reads ${JSON.stringify(read.default)}`);
       if (read.prompt !== twice(definition.prompt ?? definition.tag))
         say(`${label}: asks ${read.prompt}`);
@@ -656,17 +729,27 @@ export function readProblems(
       placement(
         read,
         {
-          ...definition,
+          ...lineOf(definition),
           at: point(definition.at),
           height: written(definition.height),
           rotation: written(definition.rotation),
-          widthFactor: written(style?.widthFactor ?? 1),
-          obliqueAngle: written(style?.obliqueAngle ?? 0),
+          widthFactor: paragraph ? 1 : written(style?.widthFactor ?? 1),
+          obliqueAngle: paragraph ? 0 : written(style?.obliqueAngle ?? 0),
           mirrored: false,
+          paragraph,
         },
         label,
       );
-      start(read, mine?.attributeDefinitions[i], read.default ?? "", label);
+      if (definition.kind === "paragraph") {
+        paragraphOf(read.paragraph, definition, {
+          at: point(definition.at),
+          height: written(definition.height),
+          width: written(definition.width ?? 0),
+          turn: paragraphTurn(definition.rotation),
+          mirrored: false,
+          label,
+        });
+      } else start(read, mine?.attributeDefinitions[i], read.default ?? "", label);
     });
   }
   if (Object.keys(read.unread.malformed).length > 0) {

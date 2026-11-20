@@ -267,6 +267,7 @@ export function inspectWithin(
       matrix?: Matrix,
       from?: Referenced,
       attribute?: string,
+      made?: boolean,
     ): void => {
       const { id, layer } = entities[index]!;
       const place = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
@@ -326,10 +327,12 @@ export function inspectWithin(
         // pays first: by its value's length to lay a long value out again, and by its lines to
         // read them again.
         const paragraph = paragraphInStyle(drawn, styleOf(drawn, from));
-        const again = paragraphs.again(paragraph);
+        // A value the drawing does not hold, as an uneven insert makes of an attribute, is no
+        // first place of anything.
+        const again = made ? paragraphs.made(paragraph) : paragraphs.again(paragraph);
         if (again > 0 && !spend(again)) return;
         const layout = paragraphs.layout(paragraph);
-        const repeated = again > 0 || expanded.has(drawn) || expanded.has(layout);
+        const repeated = again > 0 || made === true || expanded.has(drawn) || expanded.has(layout);
         expanded.add(drawn);
         expanded.add(layout);
         if (repeated && !walk(layout.lines.length)) return;
@@ -430,7 +433,7 @@ export function inspectWithin(
             return;
           }
           if (!wanted(drawn) || hidden(placement.layer)) return;
-          keep(drawn, index, placement.matrix, placement.from, placement.attribute);
+          keep(drawn, index, placement.matrix, placement.from, placement.attribute, placement.made);
         },
         xrefs,
         step,

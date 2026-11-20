@@ -204,10 +204,40 @@ export interface ReadAttributeDefinition extends ReadTextPlacement {
   readonly handle?: string | undefined;
   readonly tag: string;
   readonly prompt?: string;
+  /** Of one of paragraph text, its paragraph's value, with its codes. */
   readonly default?: string;
   readonly layer: string;
   readonly invisible: boolean;
   readonly constant: boolean;
+  /** The paragraph of a definition of paragraph text, which the leading CAD app draws. */
+  readonly paragraph?: ReadAttributeParagraph;
+}
+
+/**
+ * The paragraph text an attribute or a definition of more than one line holds, which the leading
+ * CAD app draws in the place of its text: an MTEXT of its own, whose value is the attribute's.
+ */
+export interface ReadAttributeParagraph {
+  /** The point of its box that `attachment` names, in the world's coordinates. */
+  readonly at: Point;
+  /** The height its text starts at. */
+  readonly height: number;
+  /** The width it wraps at, or 0 when it does not wrap. */
+  readonly width: number;
+  /** 1 top left, 2 top center, 3 top right, 4 to 6 the middle, 7 to 9 the bottom. */
+  readonly attachment: number;
+  /** The direction of its lines, in degrees counterclockwise. */
+  readonly rotation: number;
+  /** Its text style, `Standard` when the file names none. */
+  readonly style: string;
+  /** The factor of its line spacing, 1 when the file states none. */
+  readonly lineSpacing: number;
+  readonly lineSpacingStyle: "at-least" | "exactly";
+  /**
+   * True when it is seen from below, as an insert that mirrors its block holds it: its lines run
+   * along `rotation` with their tops to its right.
+   */
+  readonly mirrored?: boolean;
 }
 
 /**
@@ -319,9 +349,12 @@ export interface ReadText extends ReadEntityBase, ReadTextPlacement {
 /** An attribute of an insert, where the file places it. */
 export interface ReadAttribute extends ReadEntityBase, ReadTextPlacement {
   readonly tag: string;
+  /** Of one of paragraph text, its paragraph's value, with its codes. */
   readonly value: string;
   /** True for an attribute that does not show. */
   readonly invisible?: boolean;
+  /** The paragraph of an attribute of paragraph text, which the leading CAD app draws. */
+  readonly paragraph?: ReadAttributeParagraph;
 }
 
 export interface ReadInsert extends ReadEntityBase {

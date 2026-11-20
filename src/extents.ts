@@ -1,10 +1,13 @@
 import {
+  attributeParagraph,
   attributeText,
   blocksByKey,
   compose,
   insertMatrix,
   isDefinition,
   lookupCost,
+  placeAttribute,
+  placeable,
   type LayerRef,
   type Matrix,
   type Referenced,
@@ -44,6 +47,8 @@ import {
 import { filled } from "./shape.ts";
 
 type Bounds = [number, number, number, number];
+
+const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
 
 /**
  * The most work one boxer does again for what a drawing repeats: each attribute an insert places
@@ -168,8 +173,10 @@ interface Child {
   readonly held: Held;
   /** From the inserted block's coordinates to the block's that holds the insert. */
   readonly matrix: Matrix;
-  /** The box of the insert's attributes, in the inserted block's coordinates. */
+  /** The box of the insert's attributes of one line, in the inserted block's coordinates. */
   readonly attributes: Bounds;
+  /** The box of its attributes of paragraph text, in the coordinates of the block that holds it. */
+  readonly paragraphs: Bounds;
 }
 
 /**
@@ -276,7 +283,7 @@ export function boxer(
 
   type Add = (x: number, y: number) => void;
   /** The points that bound what an entity that is no insert draws, given to `add`. */
-  const shape = (e: Exclude<Entity, Insert>, from: Names, add: Add): void => {
+  const shape = (e: Exclude<Entity, Insert>, from: Names, add: Add, made = false): void => {
     switch (e.kind) {
       case "line":
         add(...e.from);
@@ -314,14 +321,14 @@ export function boxer(
         const mask = maskOf(e.mask);
         if (mask === undefined) {
           // A long value laid out again is paid for first; a box already kept is mapped alone.
-          const again = paragraphs.boxAgain(paragraph);
+          const again = made ? paragraphs.boxMade(paragraph) : paragraphs.boxAgain(paragraph);
           if (again > 0 && !spend(again)) break;
           for (const [x, y] of paragraphs.box(paragraph) ?? []) add(x, y);
           break;
         }
         // A mask reaches past the ink, and hides what is drawn before it there. Both boxes come
         // from one layout, kept for a long value, whose mask's box is read once.
-        const again = paragraphs.again(paragraph);
+        const again = made ? paragraphs.made(paragraph) : paragraphs.again(paragraph);
         if (again > 0 && !spend(again)) break;
         const layout = paragraphs.layout(paragraph);
         if (layout.ink) {
@@ -543,12 +550,13 @@ export function boxer(
     return found;
   };
   /**
-   * Gives `add` the points of the attributes an insert places, in its block's coordinates, the
-   * first `FREE` of them free of the limit. A value the insert holds is read once for each time
-   * the insert is, so only a definition's value, which each insert without one repeats, is paid
-   * for by its length. False when the limit stopped it.
+   * Gives `add` the points of the attributes an insert places, those of one line in its block's
+   * coordinates and those of paragraph text to `addPlaced`, in the coordinates of the space the
+   * insert is in, the first `FREE` of them free of the limit. A value the insert holds is read
+   * once for each time the insert is, so only a definition's value, which each insert without one
+   * repeats, is paid for by its length. False when the limit stopped it.
    */
-  const attributes = (insert: Insert, held: Held, add: Add): boolean => {
+  const attributes = (insert: Insert, held: Held, add: Add, addPlaced: Add): boolean => {
     if (!held.block) return true;
     const from = names(held.inside);
     const listed = definitionsOf(held.block);
@@ -560,11 +568,28 @@ export function boxer(
       const cost =
         (i < FREE ? 0 : 1) +
         lookupCost(insert, definition) +
-        (repeated ? Math.floor(Math.min(value.value.length, LONG) / 32) : 0);
+        (repeated && typeof value.value === "string"
+          ? Math.floor(Math.min(value.value.length, LONG) / 32)
+          : 0);
       if (cost > 0 && !spend(cost)) return false;
       const layer = definition.layer;
       const hidden = layer === "0" ? held.hidden : isHidden(layerOf(layer, held.inside));
-      if (!hidden) shape(value, from, add);
+      if (hidden) continue;
+      if (definition.kind !== "paragraph") {
+        shape(value, from, add);
+        continue;
+      }
+      // Laid out where the insert puts it, and mirrored back where the insert mirrors it.
+      if (!placeable(definition, insert)) continue;
+      const placed = placeAttribute(definition, undefined, insert, held.block.base);
+      const flip = placed.mirrored ? -1 : 1;
+      // Under an uneven scale its value is one the drawing does not hold.
+      shape(
+        attributeParagraph(placed)!,
+        from,
+        (x, y) => addPlaced(flip * x, y),
+        placed.paragraph!.uneven,
+      );
     }
     return true;
   };
@@ -692,11 +717,18 @@ export function boxer(
       const inner = placedBy(item, held, false);
       if (!inner) continue;
       const box = empty();
-      attributes(item, inner, (x, y) => include(box, x, y));
+      const placed = empty();
+      attributes(
+        item,
+        inner,
+        (x, y) => include(box, x, y),
+        (x, y) => include(placed, x, y),
+      );
       children.push({
         held: inner,
         matrix: insertMatrix(item, inner.block?.base),
         attributes: box,
+        paragraphs: placed,
       });
     }
     held.children = children;
@@ -778,6 +810,7 @@ export function boxer(
         }
         if (frame.again && !spend(1)) return undefined;
         add(frame, child.attributes, child.matrix, sizeOf(child.attributes), 1);
+        add(frame, child.paragraphs, IDENTITY, sizeOf(child.paragraphs), 0);
         const inner = flats.get(child.held);
         if (inner) add(frame, inner.box, child.matrix, inner.size, inner.depth + 1, inner.rough);
         else {
@@ -849,6 +882,7 @@ export function boxer(
         if (open.has(child.held.held)) continue;
         const m = compose(at.m, child.matrix);
         if (child.attributes[0] !== Infinity) mapCorners(into, child.attributes, m);
+        if (child.paragraphs[0] !== Infinity) mapCorners(into, child.paragraphs, at.m);
         if (!pay(1)) return false;
         walkInto(child.held, m, into);
         continue;
@@ -967,7 +1001,12 @@ export function boxer(
       const matrix = insertMatrix(e, held.block?.base);
       place(held, matrix, box);
       const [a, b, c, d, x0, y0] = matrix;
-      attributes(e, held, (x, y) => include(box, a * x + c * y + x0, b * x + d * y + y0));
+      attributes(
+        e,
+        held,
+        (x, y) => include(box, a * x + c * y + x0, b * x + d * y + y0),
+        (x, y) => include(box, x, y),
+      );
     }
     boxing = undefined;
     return box[0] === Infinity ? undefined : box;

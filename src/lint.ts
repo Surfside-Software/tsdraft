@@ -95,7 +95,10 @@ import {
   imagePixelsProblem,
   arcIsWrittenAsPoint,
   arcProblem,
+  ATTRIBUTE_KIND,
   ATTRIBUTES_SHAPE,
+  PARAGRAPH_ONLY,
+  paragraphOnlyProblem,
   attributeTagProblem,
   blockCycleProblem,
   blockNameProblem,
@@ -981,6 +984,17 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   // The leading CAD app compares text style names as it compares layer names.
   const textStyles = new Set<string>();
   const stylesByKey = new Map<string, TextStyle>();
+  /**
+   * The font a paragraph's value is checked in: its style's, which decides what `%%c` draws. A
+   * style that is not found has an error of its own.
+   */
+  const fontOf = (style: unknown): unknown =>
+    style === undefined
+      ? STANDARD_FONT
+      : typeof style === "string"
+        ? (stylesByKey.get(layerKey(style))?.font ??
+          (isStandardTextStyle(style) ? STANDARD_FONT : undefined))
+        : undefined;
   const unreadStyles = new Set<string>();
   const textStylesAudited = new Map<string, string>([
     [layerAuditKey(STANDARD_TEXT_STYLE), STANDARD_TEXT_STYLE],
@@ -1467,6 +1481,8 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         TextStyle | undefined,
         string,
       ][];
+      /** The font of each definition of paragraph text, by its tag. */
+      readonly paragraphs: ReadonlyMap<string, unknown>;
     }
   >();
   const placingOf = (block: Block) => {
@@ -1476,7 +1492,12 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     const tags = new Set<string>();
     for (const tag of read.tags) if (tag !== undefined) tags.add(tag);
     const placed: [AttributeDefinition & { tag: string }, TextStyle | undefined, string][] = [];
+    /** The font of each definition of paragraph text, by its tag, which its values are read in. */
+    const paragraphs = new Map<string, unknown>();
     for (const definition of read.definitions) {
+      if (definition?.kind === "paragraph" && typeof definition.tag === "string") {
+        paragraphs.set(definition.tag, fontOf(definition.style));
+      }
       if (
         !definition ||
         typeof definition.tag !== "string" ||
@@ -1494,7 +1515,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         JSON.stringify(definition.tag),
       ]);
     }
-    placing.set(block, (found = { tags, placed }));
+    placing.set(block, (found = { tags, placed, paragraphs }));
     return found;
   };
   each(listed<Block>("blocks", "block"), "blocks", "block", TYPED.block, (block, i) => {
@@ -1667,8 +1688,19 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         if (clash) add("id-handle", "error", clash);
       }
       if (!definition) return;
+      const kind: unknown = definition.kind;
+      const paragraph = kind === "paragraph";
+      if (kind !== undefined && kind !== "text" && !paragraph)
+        add("attribute", "error", ATTRIBUTE_KIND);
+      if (paragraph && r12) add("paragraph", "error", R12_ONLY.paragraphs);
+      const given = definition as unknown as Readonly<Record<string, unknown>>;
+      if (!paragraph) {
+        for (const field of PARAGRAPH_ONLY) {
+          if (given[field] !== undefined) add("attribute", "error", paragraphOnlyProblem(field));
+        }
+      }
       for (const [field, value] of [
-        ["its value", definition.value],
+        ["its value", paragraph ? "" : definition.value],
         ["its prompt", definition.prompt ?? ""],
       ] as const) {
         const [problem, warning] =
@@ -1681,7 +1713,37 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       for (const problem of geometryProblems(asText(definition))) {
         add("geometry", "error", problem);
       }
-      for (const [rule, found] of textProblems(definition)) add(rule, "error", found);
+      if (paragraph) {
+        const value: unknown = definition.value;
+        const font = fontOf(definition.style);
+        const [problem, columnBreak] =
+          typeof value === "string"
+            ? checkParagraph(value, font)
+            : [paragraphValueProblem(value, font), false];
+        if (problem) add("paragraph", "error", `its value: ${problem}`);
+        else if (columnBreak) add("paragraph", "warning", `its value: ${PARAGRAPH_COLUMN_BREAK}`);
+        const width: unknown = given["width"];
+        if (width !== undefined) {
+          const size =
+            typeof width === "number" && Number.isFinite(width)
+              ? sizeProblem(width)
+              : "This value must be finite";
+          if (size) add("geometry", "error", `width: ${size}`);
+        }
+        for (const [rule, field, chosen] of [
+          ["text-align", "align", given["align"]],
+          ["text-align", "valign", given["valign"]],
+          ["paragraph", "lineSpacingStyle", given["lineSpacingStyle"]],
+        ] as const) {
+          const choice = chosen === undefined ? undefined : paragraphChoiceProblem(field, chosen);
+          if (choice) add(rule, "error", choice);
+        }
+        const spacing = given["lineSpacing"];
+        const spaced = spacing === undefined ? undefined : lineSpacingProblem(spacing);
+        if (spaced) add("paragraph", "error", spaced);
+        const styled = definition.style === undefined ? {} : { style: definition.style };
+        for (const [rule, found] of textProblems(styled)) add(rule, "error", found);
+      } else for (const [rule, found] of textProblems(definition)) add(rule, "error", found);
       mark(TYPED.attribute, definition, `${at}.attributes[${index}]`, from);
     });
   };
@@ -1933,7 +1995,9 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
             const cost =
               (count++ >= FREE ? 1 : 0) +
               lookupCost(entity, definition) +
-              (repeated ? Math.floor(definition.value.length / 32) : 0);
+              (repeated && typeof definition.value === "string"
+                ? Math.floor(definition.value.length / 32)
+                : 0);
             if (cost > 0 && !spend(cost, here)) break;
             const problem = placedAttributeProblem(
               definition.tag,
@@ -1946,6 +2010,18 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         for (const [tag, value] of values) {
           if (placed && !tags.has(tag) && !unreadDefinitions.has(placed)) {
             add("undefined-attribute", "error", undefinedAttributeProblem(tag, placed.name));
+          }
+          if (read?.paragraphs.has(tag)) {
+            const font = read.paragraphs.get(tag);
+            const [problem, columnBreak] =
+              typeof value === "string"
+                ? checkParagraph(value, font)
+                : [paragraphValueProblem(value, font), false];
+            const about = `attribute ${shown(tag)}`;
+            if (problem) add("paragraph", "error", `${about}: ${problem}`);
+            else if (columnBreak)
+              add("paragraph", "warning", `${about}: ${PARAGRAPH_COLUMN_BREAK}`);
+            continue;
           }
           const [problem, warning] =
             typeof value === "string" ? checkText(value) : ["must be a string", undefined];
@@ -2047,16 +2123,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
           add("paragraph", "error", R12_ONLY.paragraphs);
           return;
         }
-        // A value is checked in its style's font, which decides what `%%c` draws. A style that is
-        // not found has an error of its own.
-        const style: unknown = entity.style;
-        const font =
-          style === undefined
-            ? STANDARD_FONT
-            : typeof style === "string"
-              ? (stylesByKey.get(layerKey(style))?.font ??
-                (isStandardTextStyle(style) ? STANDARD_FONT : undefined))
-              : undefined;
+        const font = fontOf(entity.style);
         const [problem, columnBreak] =
           typeof entity.value === "string"
             ? checkParagraph(entity.value, font)

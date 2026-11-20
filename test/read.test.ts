@@ -1206,3 +1206,14 @@ test("a hatch with a group that is not a number is counted, not read as NaN", as
     assert.deepEqual(plain(read.unread.malformed), { "HATCH with a number that is not finite": 1 });
   }
 });
+
+test("a definition of paragraph text pays for its style's name against the block's items", async () => {
+  const d = createDrawing({ units: "in" });
+  const style = "A" + "X".repeat(199);
+  d.textStyle({ name: style, font: "Arial" });
+  d.block("B", {}, () => d.attribute("A", [0, 0], { kind: "paragraph", value: "A", style }));
+  const read = await readDXFWithin(toDXF(d.build()), {}, { ...READ_LIMITS, blockItems: 8 });
+  const block = read.blocks.find((b) => b.name === "B")!;
+  assert.equal(block.attributeDefinitions.length, 0);
+  assert.equal(block.other["past the limit"], 1);
+});

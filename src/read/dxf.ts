@@ -9,6 +9,7 @@ import { DxfDocumentReader, type DxfDocument } from "./document.ts";
 import {
   attributeCost,
   attributeOf,
+  attributeParts,
   baseOf,
   brokenNumber,
   costOf,
@@ -1008,17 +1009,25 @@ class DxfReader {
           add(this.unread.malformed, "ATTDEF with a number that is not finite");
           return;
         }
-        const flags = num(r, 70) ?? 0;
-        const prompt = name(r, 3) === undefined ? undefined : textTwice(first(r, 3)!);
-        const value = textTwice(first(r, 1) ?? "");
-        const tag = textTwice(first(r, 2) ?? "");
-        const cost = 4 + Math.floor((tag.length + value.length + (prompt?.length ?? 0)) / 32);
+        const { text, paragraph } = attributeParts(r);
+        if (paragraph === null) {
+          add(block.other, "ATTDEF of paragraph text in 3D");
+          return;
+        }
+        const flags = num(text, 70) ?? 0;
+        const prompt = name(text, 3) === undefined ? undefined : textTwice(first(text, 3)!);
+        const value = paragraph ? paragraph.value : textTwice(first(text, 1) ?? "");
+        const tag = textTwice(first(text, 2) ?? "");
+        const cost =
+          4 +
+          (paragraph ? 2 + nameCost(paragraph.paragraph.style) : 0) +
+          Math.floor((tag.length + value.length + (prompt?.length ?? 0)) / 32);
         if (cost > this.#room(block)) {
           add(block.other, "past the limit");
           return;
         }
         this.#blockItems += cost;
-        const { placement, pending } = placementOf(r, face, value, 74);
+        const { placement, pending } = placementOf(text, face, value, 74);
         const definition = {
           handle,
           ...placement,
@@ -1028,8 +1037,9 @@ class DxfReader {
           layer,
           invisible: (flags & 1) !== 0 || hidden(r),
           constant: (flags & 2) !== 0,
+          ...(paragraph && { paragraph: paragraph.paragraph }),
         };
-        if (pending) this.#starts.push({ ...pending, placement: definition });
+        if (pending && !paragraph) this.#starts.push({ ...pending, placement: definition });
         block.attributeDefinitions.push(definition);
         return;
       }
@@ -1156,7 +1166,8 @@ class DxfReader {
         owner.tags++;
         owner.cost += 1 + Math.floor(tag.length / 32);
       }
-      owner.insert.tags[tag] = (first(r, 1) ?? "") !== "";
+      const { text, paragraph } = attributeParts(r);
+      owner.insert.tags[tag] = paragraph ? paragraph.value !== "" : (first(text, 1) ?? "") !== "";
     }
     const target = this.#target();
     if (!owner.attributes || owner.over || !target) return;

@@ -5,6 +5,7 @@ import {
   blockHandles,
   blocksByKey,
   placeAttribute,
+  type PlacedAttribute,
 } from "./blocks.ts";
 import {
   arrowheadInfo,
@@ -37,6 +38,7 @@ import {
 } from "./dimensions.ts";
 import type {
   AttributeDefinition,
+  ParagraphAttributeDefinition,
   Block,
   DimensionStyle,
   Drawing,
@@ -103,10 +105,11 @@ import {
   PLOTTER,
   type PaperInfo,
 } from "./papers.ts";
-import { fontInfo, STANDARD_TEXT_STYLE } from "./fonts.ts";
+import { fontInfo, STANDARD_FONT, STANDARD_TEXT_STYLE } from "./fonts.ts";
 import { ID_HANDLE_SEED, validIdHandle } from "./handles.ts";
 import { dxfOnce, dxfText, fifteenDigits, fmt, readable, written, writtenAngle } from "./format.ts";
 import { layerKey, layerZeroFirst } from "./layers.ts";
+import { layoutText } from "./measure.ts";
 import {
   layoutParagraph,
   lineSpacingStyleCode,
@@ -608,6 +611,10 @@ export function toDXFR2018(
         if (paper) g(67, 1);
         g(8, definition.layer);
         g(100, "AcDbText");
+        if (definition.kind === "paragraph") {
+          writeParagraphAttribute(g, definition, styleOf(definition.style), placed, undefined);
+          continue;
+        }
         writeTextFields(g, { ...definition, ...placed }, styleOf(definition.style), placed);
         g(100, "AcDbAttribute");
         writeAttributeFields(g, definition, undefined);
@@ -663,6 +670,11 @@ export function toDXFR2018(
           g(100, "AcDbEntity");
           g(8, definition.layer);
           g(100, "AcDbText");
+          if (definition.kind === "paragraph") {
+            const prompt = definition.prompt ?? definition.tag;
+            writeParagraphAttribute(g, definition, styleOf(definition.style), undefined, prompt);
+            continue;
+          }
           writeTextFields(g, definition, styleOf(definition.style), undefined);
           g(100, "AcDbAttributeDefinition");
           writeAttributeFields(g, definition, definition.prompt ?? definition.tag);
@@ -1064,7 +1076,8 @@ function writeInsert(
 
 /**
  * The fields a text, an attribute definition and an attribute share, up to the justification
- * across the line. `placed` is what an insert makes of an attribute's definition.
+ * across the line. `placed` is what an insert makes of an attribute's definition. `start` is a
+ * first point written in place of `at`.
  */
 function writeTextFields(
   g: Group,
@@ -1073,8 +1086,13 @@ function writeTextFields(
   placed:
     | { readonly widthFactor: number; readonly obliqueAngle: number; readonly mirrored: boolean }
     | undefined,
+  start?: readonly [x: string, y: string],
 ): void {
-  point(g, 10, ...e.at);
+  if (start) {
+    g(10, start[0]);
+    g(20, start[1]);
+    g(30, 0);
+  } else point(g, 10, ...e.at);
   g(40, e.height);
   g(1, dxfText(e.value));
   if (e.rotation !== 0) g(50, e.rotation);
@@ -1107,6 +1125,81 @@ function writeAttributeFields(
   if (valign > 0) g(74, valign);
   g(280, 1); // the attribute keeps its place in the block
 }
+
+/**
+ * Writes an attribute definition of paragraph text, with its prompt, or an insert's attribute of
+ * one, as `placed` gives it, after its subclass of a text: the text it would be as a line, which
+ * holds no value, then the paragraph the leading CAD app draws, as an embedded object. The
+ * attribute's paragraph is in the drawing's coordinates, also where the insert mirrors it.
+ */
+function writeParagraphAttribute(
+  g: Group,
+  definition: ParagraphAttributeDefinition,
+  style: TextStyle | undefined,
+  placed: PlacedAttribute | undefined,
+  prompt: string | undefined,
+): void {
+  const uneven = placed?.paragraph?.uneven === true;
+  const at = placed?.at ?? definition.at;
+  const mirrored = placed?.mirrored === true;
+  const height = placed?.height ?? definition.height;
+  const rotation = placed?.rotation ?? definition.rotation;
+  const valign = TEXT_VALIGN_OF[definition.valign ?? "top"];
+  // The leading CAD app holds the text where a text of no value starts, worked out from its point
+  // as written, and keeps that point from a DXF: the height below it at the top, half of it in the
+  // middle, and the font's descent above it at the bottom.
+  const font = style?.font ?? STANDARD_FONT;
+  const up = layoutText({ value: "", height: written(height), font, valign }).baseline;
+  const turn = written(rotation) / (180 / Math.PI);
+  const start = [
+    fifteenDigits(written(at[0]) - up * Math.sin(turn)),
+    fifteenDigits(written(at[1]) + up * Math.cos(turn)),
+  ] as const;
+  writeTextFields(
+    g,
+    { at, height, value: "", rotation, align: definition.align ?? "left", valign },
+    style,
+    {
+      widthFactor: uneven ? placed.widthFactor : 1,
+      obliqueAngle: uneven ? placed.obliqueAngle : 0,
+      mirrored,
+    },
+    start,
+  );
+  g(100, prompt === undefined ? "AcDbAttribute" : "AcDbAttributeDefinition");
+  g(280, 0); // version
+  if (prompt !== undefined) g(3, dxfText(prompt));
+  g(2, dxfText(definition.tag));
+  g(70, 0); // visible, and asked for on insertion
+  g(74, TEXT_VERTICAL_ALIGNS.indexOf(valign));
+  g(280, 1); // the attribute keeps its place in the block
+  g(71, prompt === undefined ? 2 : 4); // of paragraph text, an attribute or a definition
+  g(72, 0);
+  const [x, y] = mirrored ? [-at[0], at[1]] : at;
+  point(g, 11, x, y);
+  g(101, "Embedded Object");
+  point(g, 10, x, y);
+  g(40, height);
+  g(41, (placed ? placed.paragraph?.width : definition.width) ?? 0);
+  g(46, 0); // no height of its own
+  g(71, paragraphAttachment(definition));
+  g(72, 1); // left to right
+  writeMtextValue(g, placed?.paragraph?.value ?? definition.value);
+  g(7, style?.name ?? STANDARD_TEXT_STYLE);
+  if (mirrored) point3(g, 210, 0, 0, -1);
+  const [cos, sin] = paragraphDirection(rotation);
+  const across = mirrored ? -cos : cos;
+  if (across !== 1 || sin !== 0) {
+    g(11, fifteenDigits(across));
+    g(21, fifteenDigits(sin));
+    g(31, 0);
+  }
+  g(73, lineSpacingStyleCode(definition));
+  g(44, definition.lineSpacing ?? 1);
+}
+
+/** The vertical justification of the text a paragraph attribute would be as a line. */
+const TEXT_VALIGN_OF = { top: "top", middle: "middle", bottom: "bottom" } as const;
 
 /**
  * Writes an entity. `style` is the text style of a text that is not in `Standard`, and `paper`

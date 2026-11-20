@@ -109,7 +109,8 @@ leader:
 - `insert`: its block, by name and by the handle of its record in `blockHandle`, its point,
   scale and rotation, `tags`, and with `geometry` its `attributes`: each a text with its `tag`
   and its `value` where the file places it, and `invisible` for one that does not show. An
-  insert with columns and rows is counted under `other`.
+  attribute of paragraph text has its `paragraph` too, below, and its `value` is the paragraph's.
+  An insert with columns and rows is counted under `other`.
 - `mtext`: a paragraph text with its point, height, width, attachment, rotation, from its
   direction or else from group 50 in degrees, style,
   value, its formatting codes kept, `lineSpacing`, its line spacing factor, 1 where the file
@@ -213,6 +214,16 @@ from:
 
 `backward` and `upsideDown` say a text is drawn mirrored along its baseline or across it. A text
 seen from below reads backward.
+
+An attribute and an attribute definition of paragraph text, which the leading CAD app holds as a
+text of one line with no value and a paragraph text after it, have `paragraph`, the paragraph
+that app draws in the text's place, as an `mtext` holds one: its `at`, in the world's coordinates,
+`height`, `width`, `attachment`, `rotation`, the direction of its lines, `style`, `lineSpacing`
+and `lineSpacingStyle`, and `mirrored` for one seen from below, as an insert that mirrors its
+block holds it, whose lines run along `rotation` with their tops to its right. The value of the
+attribute, and the `default` of the definition, are the paragraph's, with its codes. Its text
+keeps its place, justified by the attachment. One whose paragraph lies in another plane is
+counted under `other`.
 
 ### What a read keeps
 

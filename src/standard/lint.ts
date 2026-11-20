@@ -1502,15 +1502,29 @@ function lettering(
           rotation: text.rotation,
           ...justified(text),
         };
-  const definitionOf = (definition: AttributeDefinition): AttributeDefinition => ({
-    tag: definition.tag,
-    value: definition.value,
-    layer: layer(definition.layer),
-    at: definition.at,
-    height: definition.height,
-    rotation: definition.rotation,
-    ...justified(definition),
-  });
+  const definitionOf = (definition: AttributeDefinition): AttributeDefinition =>
+    ({
+      tag: definition.tag,
+      value: definition.value,
+      layer: layer(definition.layer),
+      at: definition.at,
+      height: definition.height,
+      rotation: definition.rotation,
+      ...justified(definition),
+      // One of paragraph text is drawn as the paragraph each insert lays out again.
+      ...(definition.kind === "paragraph"
+        ? {
+            kind: "paragraph",
+            ...(definition.width === undefined ? {} : { width: definition.width }),
+            ...(definition.lineSpacing === undefined
+              ? {}
+              : { lineSpacing: definition.lineSpacing }),
+            ...(definition.lineSpacingStyle === undefined
+              ? {}
+              : { lineSpacingStyle: definition.lineSpacingStyle }),
+          }
+        : {}),
+    }) as AttributeDefinition;
 
   const tokens = new Map<Block, string>();
   let entered: Entered | undefined;

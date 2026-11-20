@@ -40,7 +40,8 @@ import { Strings } from "./shape.ts";
 //   the factor below it, and the bottom of the box h/3 below the last.
 // - The style's width factor scales everything along a line. Its oblique angle moves where a line
 //   starts by its first character's bottom times the angle's tangent, and where it ends by its A
-//   times it. It is measured for a TrueType font, and an estimate for an SHX font.
+//   times it. A leaned word wraps as if its ink reached twice its last character's lean further,
+//   whatever its width factor. It is measured for a TrueType font, and an estimate for an SHX font.
 // - An underline runs along a run from its first point to where its advances end, `UNDERLINE_SHX`
 //   below the baseline in an SHX font and the font's descent, `below`, in a TrueType font; a
 //   strike-through `STRIKE_THROUGH` above it. An overline, refused, is drawn `OVERLINE` above it.
@@ -1280,7 +1281,8 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     trial.started = pen.started;
     trial.tabbed = pen.tabbed;
     place(spaces, trial);
-    if (words > 0 && overflows(place(word, trial), trial)) {
+    // A leaned word reaches past its ink by twice its last character's lean.
+    if (words > 0 && overflows(place(word, trial) + 2 * trial.leaned, trial)) {
       endLine();
       restart(false);
     } else place(spaces, pen, line);
@@ -2123,6 +2125,14 @@ export interface ParagraphMeasurer {
   again(paragraph: ParagraphToMeasure): number;
   /** What `box` costs before it lays a paragraph out, as `again` gives it for `layout`. */
   boxAgain(paragraph: ParagraphToMeasure): number;
+  /**
+   * What laying out a value the drawing does not hold costs, such as an attribute's with the code
+   * an uneven insert puts before it: a long value's length the first time, as a long value laid
+   * out again costs, since no place of the drawing paid for it, and `again` after that.
+   */
+  made(paragraph: ParagraphToMeasure): number;
+  /** As `made`, for `box`. */
+  boxMade(paragraph: ParagraphToMeasure): number;
 }
 
 /** A key of a paragraph's settings. */
@@ -2165,6 +2175,11 @@ export function paragraphMeasurer(): ParagraphMeasurer {
       kept.clashes(value) || (found !== undefined && !has(found, keyOf(settingsIn(paragraph))));
     return again ? value.length : 0;
   };
+  /** A long value's length when it has not been laid out, or undefined. */
+  const firstTime = (paragraph: ParagraphToMeasure): number | undefined => {
+    const value = paragraph.value;
+    return long(value) && kept.get(value) === undefined ? value.length : undefined;
+  };
   const entry = (value: string): Kept => {
     let found = kept.get(value);
     if (!found) kept.set(value, (found = { boxes: undefined, last: undefined }));
@@ -2200,6 +2215,10 @@ export function paragraphMeasurer(): ParagraphMeasurer {
     box,
     again: (paragraph) => cost(paragraph, (found, key) => found.last?.key === key),
     boxAgain: (paragraph) => cost(paragraph, (found, key) => found.boxes?.has(key) ?? false),
+    made: (paragraph) =>
+      firstTime(paragraph) ?? cost(paragraph, (found, key) => found.last?.key === key),
+    boxMade: (paragraph) =>
+      firstTime(paragraph) ?? cost(paragraph, (found, key) => found.boxes?.has(key) ?? false),
   };
 }
 

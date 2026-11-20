@@ -242,7 +242,8 @@ from the widths and the ink of each character that `FONT_METRICS` holds:
   come to no more than the width. The left of the line's first letter has no part in it. A word
   wider than the width stays whole and passes it. In a word that holds a stack, what follows the
   last stack stands for the word, or the stack where it ends the word. A tab goes with the word
-  after it where the line wraps.
+  after it where the line wraps. A leaned word's ink is taken to reach twice its last letter's
+  lean further, whatever its width factor.
 - With a width, a paragraph's first line starts at its left indent plus its first-line indent,
   never left of the box, its other lines at its left indent, and its words wrap at its right
   indent. A word that reaches the width itself leaves a line that starts at an indent or holds a
@@ -339,5 +340,5 @@ when the font is not the style's own or the value holds a code tsdraft does not 
 ## Not yet
 
 The spacing of the characters, `\T`, an overline, stacked parts in lower case, tab stops that align text by its right, its
-center or a decimal point, columns that flow from right to left, and attributes of more than one
-line.
+center or a decimal point, and columns that flow from right to left. Attributes of paragraph text
+are in [Blocks](blocks.md#attributes-of-paragraph-text).

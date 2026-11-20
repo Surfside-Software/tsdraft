@@ -73,7 +73,10 @@ import { canonical } from "./json.ts";
 import { DrawingError, type Diagnostic, type LintRule } from "./lint.ts";
 import {
   arcProblem,
+  ATTRIBUTE_KIND,
   ATTRIBUTES_SHAPE,
+  PARAGRAPH_ONLY,
+  paragraphOnlyProblem,
   attributeTagProblem,
   blockCycleProblem,
   blockNameProblem,
@@ -1086,10 +1089,13 @@ export interface DimensionStyle {
 
 /**
  * An attribute definition of a block: a text that each insert of the block carries with a
- * value of its own, under a tag. It is placed and justified as a `Text` is, in the block's
- * coordinates.
+ * value of its own, under a tag, in the block's coordinates. One of one line is placed and
+ * justified as a `Text` is, and one of paragraph text as a `Paragraph` is.
  */
-export interface AttributeDefinition {
+export type AttributeDefinition = TextAttributeDefinition | ParagraphAttributeDefinition;
+
+/** What an attribute definition of one line and one of paragraph text share. */
+interface AttributeDefinitionBase {
   /** The name of the attribute in its block, with no lower-case letter a to z. */
   readonly tag: string;
   /** What CAD asks for when the block is inserted by hand. Defaults to the tag. */
@@ -1099,15 +1105,41 @@ export interface AttributeDefinition {
   /** The layer of the attribute on each insert. `"0"` stands for the insert's layer. */
   readonly layer: string;
   readonly at: Point;
+  /** The height of a capital. */
   readonly height: number;
   /** Degrees counterclockwise. */
   readonly rotation: number;
   /** A text style of the drawing. Defaults to `"Standard"`. */
   readonly style?: string;
+}
+
+/** An attribute definition of one line, placed and justified as a `Text` is. */
+export interface TextAttributeDefinition extends AttributeDefinitionBase {
+  /** Defaults to `"text"`. */
+  readonly kind?: "text";
   /** Defaults to `"left"`. */
   readonly align?: TextAlign;
   /** Defaults to `"baseline"`. */
   readonly valign?: TextVerticalAlign;
+}
+
+/**
+ * An attribute definition of paragraph text: its value, and each insert's, holds the codes of a
+ * `Paragraph`'s, wraps at `width` and breaks at each `\P`, and its box is placed by `at`, `align`
+ * and `valign` as a paragraph's is. R2018 only.
+ */
+export interface ParagraphAttributeDefinition extends AttributeDefinitionBase {
+  readonly kind: "paragraph";
+  /** The width its lines wrap at. Missing, its lines break only at `\P`. */
+  readonly width?: number;
+  /** Defaults to `"left"`. */
+  readonly align?: ParagraphAlign;
+  /** Defaults to `"top"`. */
+  readonly valign?: ParagraphVerticalAlign;
+  /** A factor of the spacing of its lines, from 0.25 to 4. Defaults to 1. */
+  readonly lineSpacing?: number;
+  /** Defaults to `"at-least"`. */
+  readonly lineSpacingStyle?: LineSpacingStyle;
 }
 
 /**
@@ -1821,10 +1853,12 @@ export interface BlockOptions {
 
 /**
  * The options of `attribute()`: the definition's default value and prompt, and its height,
- * rotation, style and justification, which are a text's.
+ * rotation, style and justification, which are a text's, or with `kind: "paragraph"` a
+ * paragraph's.
  *
  * @typeParam D - The text style as written, a name or a definition, checked as a text's is.
  * @typeParam R - The role as written.
+ * @typeParam Q - The default value of paragraph text as written, checked as a paragraph's is.
  */
 export type AttributeOptions<
   H extends number = number,
@@ -1832,20 +1866,58 @@ export type AttributeOptions<
   D extends TextStyleValue = TextStyleDefinition,
   Z extends Standard | undefined = undefined,
   R extends string = string,
-> = AttributeFields & Sized<Z, R, Positive<H>, TextStyleChoice<S, D>>;
+  Q extends string = string,
+  N extends number = number,
+  F extends number = number,
+> = (TextAttributeFields | ParagraphAttributeFields<Q, N, F>) &
+  Sized<Z, R, Positive<H>, TextStyleChoice<S, D>>;
 
 /** What an attribute definition holds besides its role, height and style. */
 interface AttributeFields {
-  /** The value of an insert that does not set the attribute. Defaults to `""`. */
-  readonly value?: string;
   /** What CAD asks for when the block is inserted by hand. Defaults to the tag. */
   readonly prompt?: string;
   /** Degrees counterclockwise. */
   readonly rotation?: number;
+}
+
+/** What a definition of one line holds besides its role, height and style. */
+interface TextAttributeFields extends AttributeFields {
+  /** Defaults to `"text"`. */
+  readonly kind?: "text";
+  /** The value of an insert that does not set the attribute. Defaults to `""`. */
+  readonly value?: string;
   /** Where `at` is along the text's line. Defaults to `"left"`. */
   readonly align?: TextAlign;
   /** Where `at` is up and down the text's line. Defaults to `"baseline"`. */
   readonly valign?: TextVerticalAlign;
+  /** Fields of paragraph text alone, which an attribute of one line never has. */
+  readonly width?: never;
+  readonly lineSpacing?: never;
+  readonly lineSpacingStyle?: never;
+}
+
+/** What a definition of paragraph text holds besides its role, height and style. R2018 only. */
+interface ParagraphAttributeFields<
+  Q extends string,
+  N extends number,
+  F extends number,
+> extends AttributeFields {
+  readonly kind: "paragraph";
+  /**
+   * The value of an insert that does not set the attribute, with a paragraph's codes: a line
+   * feed in it is written as `\P`. Defaults to `""`.
+   */
+  readonly value?: ParagraphValue<Q>;
+  /** The width its lines wrap at. Missing, its lines break only at a line feed. */
+  readonly width?: Positive<N>;
+  /** Where `at` is across the box, and how the lines are set in it. Defaults to `"left"`. */
+  readonly align?: ParagraphAlign;
+  /** Where `at` is up and down the box. Defaults to `"top"`. */
+  readonly valign?: ParagraphVerticalAlign;
+  /** A factor of the spacing of its lines, from 0.25 to 4. Defaults to 1. */
+  readonly lineSpacing?: LineSpacing<F>;
+  /** Defaults to `"at-least"`. */
+  readonly lineSpacingStyle?: LineSpacingStyle;
 }
 
 /**
@@ -3780,7 +3852,8 @@ export class DrawingBuilder<
   /**
    * Adds an attribute definition to the block being drawn: a text that each insert of the
    * block carries with a value of its own, under `tag`. It is placed and justified as `text()`
-   * places a text, and goes on the current layer.
+   * places a text, or with `kind: "paragraph"` as `paragraph()` places a paragraph, whose value
+   * and each insert's hold a paragraph's codes, and goes on the current layer.
    */
   attribute<
     T extends string,
@@ -3788,10 +3861,13 @@ export class DrawingBuilder<
     S extends string = string,
     const D extends TextStyleValue = TextStyleDefinition,
     R extends string = string,
+    Q extends string = string,
+    N extends number = number,
+    F extends number = number,
   >(
     tag: V extends "R12" ? R12Blocks : AttributeTag<T>,
     at: Point,
-    options: AttributeOptions<H, S, D, Z, R> = {},
+    options: AttributeOptions<H, S, D, Z, R, Q, N, F> = {},
   ): this {
     const requested: unknown = tag;
     const open = this.#open;
@@ -3814,7 +3890,23 @@ export class DrawingBuilder<
         const problem = typeof prompt === "string" ? textProblem(prompt) : "must be a string";
         if (problem) refuse("text", `prompt: ${problem}`);
       }
-      const fields = this.#textFields(at, options.value ?? "", options as unknown as TextOptions);
+      const kind: unknown = options.kind;
+      if (kind !== undefined && kind !== "text" && kind !== "paragraph") {
+        refuse("attribute", ATTRIBUTE_KIND);
+      }
+      if (kind !== "paragraph") {
+        const given = options as unknown as Readonly<Record<string, unknown>>;
+        for (const field of PARAGRAPH_ONLY) {
+          if (given[field] !== undefined) refuse("attribute", paragraphOnlyProblem(field));
+        }
+      }
+      const fields =
+        kind === "paragraph"
+          ? this.#paragraphFields(
+              at,
+              options as unknown as ParagraphAttributeFields<string, number, number> & TextOptions,
+            )
+          : this.#textFields(at, options.value ?? "", options as unknown as TextOptions);
       this.#claim(
         definitionHandle(open.name, named),
         `the attribute ${JSON.stringify(named)} of the block ${JSON.stringify(open.name)}`,
@@ -3824,7 +3916,7 @@ export class DrawingBuilder<
         ...(prompt === undefined ? {} : { prompt: prompt as string }),
         layer: this.#current,
         ...fields,
-      });
+      } as AttributeDefinition);
       if (options.role !== undefined) open.roles = true;
     } catch (thrown) {
       const about = typeof requested === "string" ? { attribute: requested } : {};
@@ -3929,8 +4021,12 @@ export class DrawingBuilder<
     if (set !== undefined) {
       const values: Record<string, string> = {};
       for (const [tag, value] of Object.entries(set as Record<string, unknown>)) {
-        if (!definitions.some((definition) => definition.tag === tag)) {
-          refuse("undefined-attribute", undefinedAttributeProblem(tag, placed.name));
+        const definition = definitions.find((d) => d.tag === tag);
+        if (!definition) refuse("undefined-attribute", undefinedAttributeProblem(tag, placed.name));
+        if (definition!.kind === "paragraph") {
+          const about = `attribute ${JSON.stringify(tag)}: `;
+          values[tag] = this.#paragraphValue(value, definition!.style, "paragraph", about);
+          continue;
         }
         const problem = typeof value === "string" ? textProblem(value) : "must be a string";
         if (problem) refuse("text", `attribute ${JSON.stringify(tag)}: ${problem}`);
@@ -5510,6 +5606,75 @@ export class DrawingBuilder<
       }
     }
     return text;
+  }
+
+  /**
+   * The fields of a definition of paragraph text: its point and value, and the height, rotation,
+   * style, width, justification and line spacing its options give, each checked as a
+   * paragraph's.
+   */
+  #paragraphFields(
+    at: Point,
+    options: ParagraphAttributeFields<string, number, number> & TextOptions,
+  ): Omit<ParagraphAttributeDefinition, "tag" | "prompt" | "layer"> {
+    const { align, valign, ...rest } = options as unknown as Record<string, unknown>;
+    const placed = this.#textFields(at, "", rest as unknown as TextOptions);
+    const definition: Record<string, unknown> = {
+      kind: "paragraph",
+      at: placed.at,
+      height: placed.height,
+      rotation: placed.rotation,
+      ...(placed.style === undefined ? {} : { style: placed.style }),
+      value: this.#paragraphValue(options.value ?? "", placed.style, "attribute"),
+    };
+    if (options.width !== undefined) definition["width"] = positive(options.width, "width");
+    const { lineSpacing, lineSpacingStyle } = options as unknown as Record<string, unknown>;
+    for (const [field, chosen, plain] of [
+      ["align", align, "left"],
+      ["valign", valign, "top"],
+      ["lineSpacingStyle", lineSpacingStyle, "at-least"],
+    ] as const) {
+      if (chosen === undefined) continue;
+      const choiceProblem = paragraphChoiceProblem(field, chosen);
+      if (choiceProblem)
+        refuse(field === "lineSpacingStyle" ? "paragraph" : "text-align", choiceProblem);
+      if (chosen !== plain) definition[field] = chosen;
+    }
+    if (lineSpacing !== undefined) {
+      const spacingProblem = lineSpacingProblem(lineSpacing);
+      if (spacingProblem) refuse("paragraph", spacingProblem);
+      if (lineSpacing !== 1) definition["lineSpacing"] = lineSpacing;
+    }
+    return definition as unknown as Omit<ParagraphAttributeDefinition, "tag" | "prompt" | "layer">;
+  }
+
+  /**
+   * A value of paragraph text as the drawing holds it, with each line feed as `\P`, checked as a
+   * paragraph's in the font of `style`, or refused under `rule`.
+   */
+  #paragraphValue(given: unknown, style: string | undefined, rule: LintRule, about = ""): string {
+    if (typeof given !== "string")
+      return refuse(rule, `${about}A paragraph's value must be a string`);
+    // A backslash would escape the `\` of the `\P` a line feed becomes, as the type refuses it.
+    let backslashes = 0;
+    for (let i = 0; i < given.length; i++) {
+      const code = given.charCodeAt(i);
+      if (code === 92) backslashes++;
+      else {
+        if (code === 10 && backslashes % 2 === 1) {
+          return refuse(rule, `${about}${paragraphUnknownCode("\n")}`);
+        }
+        backslashes = 0;
+      }
+    }
+    const value = given.replaceAll("\n", "\\P");
+    const font =
+      style === undefined
+        ? STANDARD_FONT
+        : (this.#textStyles.get(layerKey(style))?.font ?? STANDARD_FONT);
+    const problem = paragraphProblemIn(parseParagraph(value), font);
+    if (problem) refuse(rule, `${about}${problem}`);
+    return value;
   }
 
   /**
