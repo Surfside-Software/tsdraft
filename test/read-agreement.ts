@@ -450,12 +450,15 @@ export function readProblems(
         const style = findLeaderStyle(drawing, want.style);
         if (!style) return;
         const named = want.textStyle ?? style.textStyle;
-        const picture = leaderPicture(want, style, styleOf(named));
+        const picture = leaderPicture(want, style, styleOf(named), (name) =>
+          blocks.get(layerKey(name)),
+        );
         if (!sameName(got.style, style.name)) say(`${label}: style ${got.style}`);
         if (!sameName(got.textStyle, styleOf(named)?.name ?? named ?? "Standard")) {
           say(`${label}: note in ${got.textStyle}`);
         }
-        if (got.text !== once(want.text.join("\\P")))
+        // The note as written, with the code an underline of every line puts before it.
+        if (got.text !== once(picture.note.value))
           say(`${label}: note ${JSON.stringify(got.text)}`);
         const loose = by === "cad";
         for (const [what, a, b] of [
@@ -467,7 +470,9 @@ export function readProblems(
           if (!near(a, b, loose)) say(`${label}: ${what} ${a}, expected ${b}`);
         }
         if (!nearPoint(got.at, picture.connection, loose)) say(`${label}: at ${got.at}`);
-        if (!nearPoint(got.textAt, picture.location, loose)) say(`${label}: note at ${got.textAt}`);
+        // A block in place of the note is held at the block's point.
+        const noteAt = picture.block === undefined ? picture.location : point(picture.block.at);
+        if (!nearPoint(got.textAt, noteAt, loose)) say(`${label}: note at ${got.textAt}`);
         if (
           got.shafts.length !== want.shafts.length ||
           got.shafts.some(

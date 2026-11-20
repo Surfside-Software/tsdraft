@@ -81,6 +81,9 @@ export {
   type LayoutOptions,
   type Leader,
   type LeaderAttachment,
+  type LeaderDirection,
+  type LeaderMask,
+  type LeaderVerticalAttachment,
   type LeaderOptions,
   type LeaderSide,
   type LeaderStyle,
@@ -182,7 +185,10 @@ export {
   leaderSizes,
   leaderStyleDictionaryHandle,
   leaderStyleHandle,
+  leaderVerticalAttachment,
+  noteAttachmentPoint,
   STANDARD_LEADER_STYLE_SIZES,
+  verticalAttachmentCode,
   type LeaderArrowheadDrawn,
   type LeaderLine,
   type LeaderPicture,
@@ -289,7 +295,15 @@ export type {
   WidthFactor,
   XrefPath,
 } from "./rules.ts";
-export { LINE_SPACING_RANGE, XREF_DEPTH } from "./rules.ts";
+export {
+  LEADER_ATTACHMENTS,
+  LEADER_DIRECTIONS,
+  LEADER_SHAFT_KINDS,
+  LEADER_SIDES,
+  LEADER_VERTICAL_ATTACHMENTS,
+  LINE_SPACING_RANGE,
+  XREF_DEPTH,
+} from "./rules.ts";
 export { BUILT_IN_STANDARD, defineStandard, type BuiltInStandard } from "./standard/define.ts";
 export type {
   Box,

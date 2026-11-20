@@ -428,29 +428,97 @@ export interface ReadRadialDimension extends ReadEntityBase {
   readonly blockHandle?: string;
 }
 
-/** A multileader with one note and straight shafts that meet at one landing. */
+/** One root of a multileader: where some of its shafts meet, and the landing from there. */
+export interface ReadLeaderRoot {
+  /** Where its shafts meet and its landing starts. */
+  readonly at: Point;
+  /** The way its landing runs from `at`, one unit long. */
+  readonly direction: Point;
+  /** How long its landing is. */
+  readonly landing: number;
+  /** Each shaft: its tip, then each point it bends at on its way to `at`. */
+  readonly shafts: readonly (readonly Point[])[];
+}
+
+/**
+ * A multileader: a note or a block, with shafts from one root, or from two on either side of it.
+ * `shafts`, `at`, `direction` and `landing` are its first root's, and for one with no root none,
+ * `textAt` and no landing.
+ */
 export interface ReadMultileader extends ReadEntityBase {
   readonly kind: "multileader";
   /** Its leader style, when the file's dictionary of leader styles names it. */
   readonly style?: string;
-  /** Each shaft: its tip, then each point it bends at on its way to `at`. */
+  /** Each shaft of its first root: its tip, then each point it bends at on its way to `at`. */
   readonly shafts: readonly (readonly Point[])[];
-  /** Where the shafts meet and the landing starts. */
+  /** Where its first root's shafts meet and its landing starts. */
   readonly at: Point;
-  /** The way the landing runs from `at`, one unit long. */
+  /** The way the first root's landing runs from `at`, one unit long. */
   readonly direction: Point;
-  /** How long the landing is. */
+  /** How long the first root's landing is. */
   readonly landing: number;
-  /** Its note as the leading CAD app holds it, with `\P` between lines. */
+  /** Each root, the first among them, in the order of the file. */
+  readonly roots: readonly ReadLeaderRoot[];
+  /** How its shafts are drawn: straight, as a curve through their points, or not at all. */
+  readonly shaft: "straight" | "curved" | "none";
+  /** Its note as the leading CAD app holds it, with `\P` between lines, or `""` for a block. */
   readonly text: string;
-  /** The corner of the note's box that holds it. */
+  /** The point of the note's box that `textAttachment` names, or a block's `at`. */
   readonly textAt: Point;
+  /** Where `textAt` is on the note's box: 1 top left, 2 top center, 3 top right, as an MTEXT's. */
+  readonly textAttachment: number;
+  /** The width the note wraps at, or 0 when it does not wrap. */
+  readonly width: number;
   /** The height of the note's text. */
   readonly textHeight: number;
   /** The note's text style. */
   readonly textStyle: string;
   /** The length of an arrowhead. */
   readonly arrowSize: number;
+  /**
+   * Where a landing meets the note, by the side of the note it meets: 0 to 8 at its left or right,
+   * from the top of its first line to an underline of every line, and 9, at the middle, or 10,
+   * with a line as wide as the note, at its top or bottom.
+   */
+  readonly attachments: {
+    readonly left: number;
+    readonly right: number;
+    readonly top: number;
+    readonly bottom: number;
+  };
+  /** True when its landings meet the note at its top or bottom, not its sides. */
+  readonly vertical?: true;
+  /** True for a frame around the note. */
+  readonly frame?: true;
+  /**
+   * The mask behind the note: the drawing's background, or a color index, over the note's box
+   * grown by `offsetFactor` times its text height less one.
+   */
+  readonly mask?: { readonly offsetFactor: number; readonly color?: number };
+  /** The block that is its content in place of a note, where it is placed, and its tags' values. */
+  readonly block?: {
+    readonly name: string;
+    readonly at: Point;
+    readonly scale: number;
+    /** Degrees counterclockwise. */
+    readonly rotation: number;
+    readonly attributes?: Readonly<Record<string, string>>;
+  };
+}
+
+/** The old leader: a line of points from its arrowhead, its note an entity of its own. */
+export interface ReadLeader extends ReadEntityBase {
+  readonly kind: "leader";
+  /** Its dimension style, whose sizes it is drawn with. */
+  readonly style: string;
+  /** Its points from its tip. */
+  readonly points: readonly Point[];
+  /** How it runs through its points: straight, or as a curve. */
+  readonly shaft: "straight" | "curved";
+  /** True when it draws an arrowhead at its tip. */
+  readonly arrowhead: boolean;
+  /** The handle of its note, an `MTEXT`, a tolerance or an insert, when it has one. */
+  readonly note?: string;
 }
 
 /** A filled outline of three or four corners, as a dimension draws an arrowhead. */
@@ -514,6 +582,7 @@ export type ReadEntity =
   | ReadDimension
   | ReadRadialDimension
   | ReadMultileader
+  | ReadLeader
   | ReadSolid
   | ReadImage;
 

@@ -111,8 +111,14 @@
   refused inside a block, where that app draws nothing for it.
 - A leader holds its note, its point, its shafts and its own sizes, and the R2018 writer writes it
   as a multileader with no picture. `src/leaders.ts` is the one place that says what the leading CAD
-  app draws, `leaderPicture`, which the writers, `toSVG`, the extents and `inspectText` all read,
-  and `lineSpacing` in `src/measure.ts` the one rule for the pitch of a note's lines. A style's
+  app draws, `leaderPicture`, which the writers, `toSVG`, the extents and `inspectText` all read.
+  Its note is a `Paragraph`, laid out by `layoutParagraph` and held where the multileader holds it,
+  so the note's lines follow every rule of a paragraph's. A mask is drawn first in the leader's
+  group, so it hides what is drawn before the leader and none of the leader. A block in place of
+  the note is placed from its own outline, read once for each list of a block's entities and cut
+  at `OUTLINE_ITEMS`; `toSVG` draws it as an insert after the leader, so the insert walk draws it
+  and its attributes. A curved shaft is solved as three diagonals, in time in proportion to its
+  points. A style's
   sizes are paper sizes times its `scale`, and the file holds them multiplied out with a scale of 1.
   The writers add that app's own `Standard` and the dictionary `ACAD_MLEADERSTYLE` with the first
   style. The keys of the handles are `leader-style:NAME`, with A to Z in lower case,

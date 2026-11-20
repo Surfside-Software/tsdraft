@@ -1,7 +1,7 @@
 {
   "$schema": "https://cdn.jsdelivr.net/npm/tsdraft@0.5.3/standard.schema.json",
   "id": "tsdraft",
-  "version": "2",
+  "version": "3",
   "title": "tsdraft",
   "paperUnits": "in",
   "minTextHeight": 0.0625,
@@ -10,6 +10,7 @@
   "sheetFiles": "one-drawing",
   "defaultSheetFormat": "arch-d",
   "defaultDimensionStyle": "dims",
+  "defaultLeaderStyle": "notes",
   "disciplines": {
     "C": {
       "title": "Civil"
@@ -360,7 +361,21 @@
       "description": "Feet and inches to the nearest 1/16\", as 4'-1 7/16\""
     }
   },
-  "leaderStyles": {},
+  "leaderStyles": {
+    "notes": {
+      "role": "note",
+      "arrowhead": "closed-filled",
+      "arrowSize": 0.125,
+      "landing": 0.125,
+      "gap": 0.0625,
+      "attachment": "first-line",
+      "direction": "horizontal",
+      "verticalAttachment": "center",
+      "frame": false,
+      "shaft": "straight",
+      "description": "Notes in the note role, a closed filled arrow, the landing meeting the first line"
+    }
+  },
   "titleBlocks": {
     "plain": {
       "paper": "ARCH D",

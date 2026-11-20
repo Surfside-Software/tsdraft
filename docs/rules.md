@@ -213,9 +213,12 @@ it would take `1e+100` for `1e+10` and report nothing.
 - A leader names a leader style the drawing defines, and not `Standard`, which is the leading CAD
   app's own. A leader style's name follows the rules of a dimension style's name. Its text style,
   and a leader's own, is one the drawing defines. Its text height is greater than 0, its arrow
-  size, landing and gap are 0 or more, its scale is greater than 0, and its arrowhead is one of
-  `LEADER_ARROWHEADS`. [Leaders](leaders.md#what-lint-reports) says why.
-- A leader's note is lines of text with none of `\`, `{` and `}`, and one line that is not
+  size, landing and gap are 0 or more, its scale is greater than 0, its arrowhead is one of
+  `LEADER_ARROWHEADS` and its attachment one of `LEADER_ATTACHMENTS`. A leader's width is greater
+  than 0, and its mask `true`, `false` or a color index and a factor from 1 to 5. A leader whose
+  content is a block names a block of the drawing and sets nothing only a note has.
+  [Leaders](leaders.md#what-lint-reports) says why.
+- A leader's note is paragraphs of text with none of `\`, `{` and `}`, and one that is not
   empty or all spaces. A leader has a shaft, and the first segment of each has a length once it
   is written with 6 decimals. Every number a leader draws is under 1e100.
 - A leader is not in a block, and an R12 drawing has no leaders.

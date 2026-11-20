@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+- Leaders' notes, as CAD programs draw them. A note is laid out as paragraph text is, each line
+  set by the ink of its letters, so its lines move where they plot by up to a quarter of their
+  height from where earlier versions drew them. `attachment` takes every place CAD programs
+  attach a landing, `LEADER_ATTACHMENTS`: `"top-of-first"`, `"first-line"`, `"middle"`,
+  `"last-line"`, `"bottom-of-last"`, `"underline-last"`, `"underline-first"`, `"bottom-of-first"`
+  and `"underline-all"`, which underline the line they meet by running the landing on under it.
+  The middle of a line runs from its top as far down as its capitals and the last line's letters
+  below the baseline, as CAD programs measure it, so `"first-line"` and `"last-line"` notes sit a
+  little higher than before. A leader style's `direction: "vertical"` puts the note above or
+  below its point, `side` takes `"above"` and `"below"`, and `verticalAttachment` is `"center"` or
+  `"line"`, a line as wide as the note through the point. A leader's `width` wraps its note, each
+  item of its text a paragraph; `frame` on a style or a leader draws a frame one gap outside the
+  note; and a leader's `mask` hides what is drawn before it behind its note, `true` for the
+  drawing's background or `{ color, offsetFactor }`. Both writers write each of these as the
+  multileader CAD programs make, and `toSVG` and `toPDF` draw them where they plot. `lint` and
+  the builder refuse a width not greater than 0, a mask of another shape, and a value of
+  `attachment`, `side`, `direction` or `verticalAttachment` not in its list.
+- Leaders with two roots, curved shafts and a block in place of the note. `toFarSide` gives the
+  shafts of a second root on the note's far side, whose point tsdraft works out from the note as
+  CAD programs do. `shaft: "curved"`, on a style or a leader, draws each shaft as the cubic CAD
+  programs draw through its tip, its bends and the end of its landing. `d.leader({ block,
+  attributes }, options)` holds a block of the drawing in place of the note, such as a keynote
+  bubble; a style may name the `block`, and `blockConnection` and `blockScale` say how it meets
+  the landing and how large it is. `Leader.text` is optional, since a leader whose content is a
+  block has none, and `leaderPicture` takes a fourth argument that finds a block by its name.
+  `lint` and the builder refuse a block the drawing lacks, a leader whose content is a block
+  that sets an option only a note has, and far shafts that are no shafts.
+- The built-in standard, version 3, has the leader style `notes`, its `defaultLeaderStyle`: the
+  role `note`, a closed filled arrow 1/8 inch long, a landing of 1/8 and a gap of 1/16. A
+  standard's leader style takes a `direction`, a `verticalAttachment`, a `frame` and a `shaft`.
+- `readDXF` and `readDWG` read a multileader whole: each of its roots, its kind of shaft, the
+  attachment of each side, its note's width and where it is held, its frame, its mask, and a
+  block in place of its note with its attributes; and the old `LEADER`, as the read model's
+  `leader`.
+
 - Raster images, in R2018 drawings: `d.image(path, at, { pixels, width })` draws a PNG or a JPEG
   with its lower-left corner at `at`, `width` drawing units wide, and `height`, `rotation`,
   `clip`, `invertClip` and `transparent` where given; its height defaults to the file's

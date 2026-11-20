@@ -69,12 +69,15 @@ existed. [Dimensions](dimensions.md) describes them.
 
 A drawing lists its leader styles in `leaderStyles`, and leaves the field out when it has none.
 A style has a `name`, a `textHeight`, an `arrowSize`, a `landing` and a `gap`, and where they
-are set a `textStyle`, an `arrowhead`, an `attachment` and a `scale`. A leader is an entity of
-kind `"leader"`, in `drawing.entities` or in a layout's `entities`, with its `layer`, `style`,
-`text`, the lines of its note from the top, `at`, where its shafts meet, and `shafts`, each a
-list of points from its tip. Where it has them of its own it has a `side`, an `attachment`, a
-`textStyle`, a `textHeight`, an `arrowSize`, a `landing` and a `gap`. It has no linetype or
-lineweight. A drawing with no leader has the JSON it had before leaders existed.
+are set a `textStyle`, an `arrowhead`, an `attachment`, a `direction`, a `verticalAttachment`, a
+`frame`, a `shaft`, a `block`, a `blockConnection`, a `blockScale` and a `scale`. A leader is an entity of kind `"leader"`, in `drawing.entities` or in a
+layout's `entities`, with its `layer`, `style`, `text`, the paragraphs of its note from the top,
+`at`, where its shafts meet, and `shafts`, each a list of points from its tip. Where it has them
+of its own it has a `side`, an `attachment`, a `verticalAttachment`, a `width`, a `frame`, a
+`mask`, a `shaft`, `farShafts`, the shafts of a root on the note's far side, a `textStyle`, a
+`textHeight`, an `arrowSize`, a `landing` and a `gap`. A leader whose content is a block has no
+`text`, and a `block` and, where it sets them, `attributes`. It has no linetype
+or lineweight. A drawing with no leader has the JSON it had before leaders existed.
 [Leaders](leaders.md) describes them.
 
 A paragraph is an entity of kind `"paragraph"`, in `drawing.entities`, a block's `entities` or a

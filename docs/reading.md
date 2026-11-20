@@ -34,8 +34,8 @@ does not read again what it made:
 - The value of a `TEXT`, an attribute and an attribute definition, with its tag and its prompt,
   goes through two passes: `\U+XXXX` in the first, and `\U+XXXX` and `\M+NXXXX` in the second.
   So `\U+005CU+00B0` is held as `°`, and `\U+005CU+005CU+00B0` as `\U+00B0`.
-- The value of an `MTEXT`, a dimension's text and a multileader's note goes through one pass of
-  both.
+- The value of an `MTEXT`, a dimension's text, and a multileader's note and its block's labels go
+  through one pass of both.
 - A name, such as a layer's, and an xref's path go through one pass of `\U+XXXX`.
 
 tsdraft's own DXF escapes what the leading CAD app would decode, so a read of it gives every text as
@@ -98,7 +98,8 @@ The texts of a block's definition are kept, since a title block's labels belong 
 
 ### Entities
 
-A space and a block hold one type, `ReadEntity`, of the kinds tsdraft's writers write:
+A space and a block hold one type, `ReadEntity`, of the kinds tsdraft's writers write, and the old
+leader:
 
 - `line`, `circle` and `arc`, and `polyline` for a lightweight polyline or a 2D one, open or
   closed, with `bulges`, one for each side, when a side is an arc, and `width`, one width for
@@ -125,9 +126,26 @@ A space and a block hold one type, `ReadEntity`, of the kinds tsdraft's writers 
   middle of its text, `placed` where the file holds the text where it was placed, what it
   measures, its text, its style and the block of its picture. A file holds a diameter's far
   point, and the center is halfway to the point.
-- `multileader`: one with straight shafts, one root and a note, with its style, each shaft from
-  its tip, the point where the shafts meet, the landing's direction and length, its note, where
-  the note is held, and the note's height and style. Any other is counted under `other`.
+- `multileader`: a note or a block, with its `style`, `textHeight` and `arrowSize`. `roots` holds
+  each root in the file's order, one with no shafts among them: the point `at` where its shafts
+  meet, its landing's `direction` and length, and its `shafts`, each from its tip. `shafts`, `at`,
+  `direction` and `landing` repeat the first root's, and one with no root has no shafts, its
+  note's point and no landing. `shaft` says how its shafts are drawn: `straight`, `curved` through
+  their points, or `none`. Its note is `text`, with `\P` between lines, held at `textAt` by the
+  point `textAttachment` names, as an `MTEXT`'s attachment, wrapping at `width`, or 0 where it
+  does not, in `textStyle`. `attachments` says where a landing meets each side of the note,
+  `vertical` that its landings meet the note's top or bottom, `frame` that a frame goes around the
+  note, and `mask` that a mask is behind it: the drawing's background, or the color index `color`,
+  over the note's box grown by `offsetFactor` times its height less one. A block as its content
+  has `text` `""`, `textAt` at the block, and `block`: its `name`, `at`, `scale`, `rotation` in
+  degrees, and `attributes`, the value each of its labels gives, by the tag of the attribute
+  definition it fills. A label whose definition the read does not hold is left out, and at most
+  1,000 are read. One whose note or block leaves the plane is counted under `other`.
+- `leader`: the old leader, with its dimension `style`, its `points` from its tip as the file
+  holds them, `shaft`, `straight` or `curved`, whether it draws an `arrowhead`, and `note`, the
+  handle of the entity that is its note, where it has one. The leading CAD app leaves group 71 out
+  where it draws an arrowhead, and group 73 where it has no note. One in another plane is counted
+  under `other`.
 - `solid`: three or four corners, filled, as a dimension draws an arrowhead.
 - `image`: a raster image, with its definition's `path` and the handle of the `definition`, the
   `pixels` it states, its lower-left corner `at`, and `u` and `v`, the vectors of one of its pixels

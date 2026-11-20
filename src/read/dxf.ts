@@ -14,10 +14,12 @@ import {
   costOf,
   handleAt,
   imageInWorld,
+  MAX_TAGS,
   nameCost,
   placementOf,
   readingOf,
   sidesOf,
+  type LeaderNames,
   type Later,
   type PendingStart,
 } from "./entities.ts";
@@ -167,9 +169,6 @@ const FIELD_WORK = 1_000_000;
 /** The most heights of one MTEXT's text that are kept. */
 const MAX_INLINE_HEIGHTS = 64;
 
-/** The most tags of one insert that are kept. */
-const MAX_TAGS = 1000;
-
 /** The most groups one record keeps. */
 const MAX_GROUPS = 1_000_000;
 
@@ -190,6 +189,7 @@ const BLOCK_READS = new Set([
   "IMAGE",
   "INSERT",
   "LARGE_RADIAL_DIMENSION",
+  "LEADER",
   "LINE",
   "LWPOLYLINE",
   "MTEXT",
@@ -409,12 +409,10 @@ interface InsertOwner {
   readonly starts: PendingStart[];
 }
 
-/** A multileader whose styles are named by handle, until the file is read. */
-interface PendingLeader {
+/** A multileader whose styles and block are named by handle, until the file is read. */
+interface PendingLeader extends LeaderNames {
   readonly entity: ReadMultileader;
-  readonly style?: string;
-  readonly textStyle?: string;
-  /** Where it was kept, which its styles' names are charged to. */
+  /** Where it was kept, which its names are charged to. */
   readonly target?: Target;
 }
 
@@ -523,12 +521,7 @@ class DxfReader {
   >();
   readonly #later: Later = {
     start: (pending) => this.#staged.starts.push(pending),
-    leader: (entity, style, textStyle) =>
-      this.#staged.leaders.push({
-        entity,
-        ...(style !== undefined && { style }),
-        ...(textStyle !== undefined && { textStyle }),
-      }),
+    leader: (entity, names) => this.#staged.leaders.push({ entity, ...names }),
   };
 
   /**
@@ -1584,17 +1577,34 @@ class DxfReader {
   }
 
   /**
-   * Names each multileader's style and its note's style, which the file names by handle. The
-   * names are charged to the budget the leader was kept in, and a leader they do not fit is
-   * counted as past the limit and left out.
+   * Names each multileader's style, its note's style and its block, which the file names by
+   * handle, and keys its block's labels by the tags of the definitions they fill, which the blocks
+   * read hold. The names are charged to the budget the leader was kept in, and a leader they do
+   * not fit is counted as past the limit and left out.
    */
   #leaderStyles(styleNames: ReadonlyMap<string, string>): void {
     const left = new Set<ReadEntity>();
     const targets = new Set<Target>();
-    for (const { entity, style, textStyle, target } of this.#leaders) {
+    let tags: Map<string, string> | undefined;
+    for (const { entity, style, textStyle, block, target } of this.#leaders) {
       const named = style === undefined ? undefined : this.leaderStyles.get(style);
       const note = (textStyle === undefined ? undefined : styleNames.get(textStyle)) ?? "Standard";
-      const cost = nameCost(named) + nameCost(note) - nameCost(entity.textStyle);
+      const blockName = block === undefined ? "" : (this.blockRecords.get(block) ?? "");
+      let cost = nameCost(named) + nameCost(note) - nameCost(entity.textStyle);
+      if (entity.block) cost += nameCost(blockName) - nameCost(entity.block.name);
+      const held = entity.block?.attributes;
+      let attributes: Record<string, string> | undefined;
+      if (held) {
+        tags ??= this.#definitionTags();
+        for (const definition in held) {
+          const tag = tags.get(definition);
+          if (tag === undefined || tag.length > LONGEST_NAME || (attributes && tag in attributes))
+            continue;
+          attributes ??= map<string>();
+          attributes[tag] = held[definition]!;
+          cost += nameCost(tag) - nameCost(definition);
+        }
+      }
       if (target && cost > this.#room(target)) {
         add(target.other, "past the limit");
         left.add(entity);
@@ -1603,11 +1613,25 @@ class DxfReader {
       }
       if (target?.block) this.#blockItems += cost;
       else if (target) this.#geometryItems += cost;
-      const mutable = entity as { style?: string; textStyle: string };
+      const mutable = entity as { style?: string; textStyle: string; block?: object };
       if (named !== undefined) mutable.style = named;
       mutable.textStyle = note;
+      if (entity.block) {
+        const { attributes: _, ...rest } = entity.block;
+        mutable.block = { ...rest, name: blockName, ...(attributes && { attributes }) };
+      }
     }
     for (const target of targets) target.entities = target.entities.filter((e) => !left.has(e));
+  }
+
+  /** The tag of each attribute definition the blocks read hold, by its handle in capitals. */
+  #definitionTags(): Map<string, string> {
+    const tags = new Map<string, string>();
+    for (const block of this.blocks)
+      for (const { handle, tag } of block.attributeDefinitions)
+        if (handle !== undefined && !tags.has(handle.toUpperCase()))
+          tags.set(handle.toUpperCase(), tag);
+    return tags;
   }
 
   /** Gives each insert and dimension the handle of its block's record, found as the leading CAD app finds it. */

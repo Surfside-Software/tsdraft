@@ -432,6 +432,10 @@ export function lintStandard(
       ["landing", style.landing, fields.landing],
       ["gap", style.gap, fields.gap],
       ["attachment", style.attachment ?? "first-line", fields.attachment],
+      ["direction", style.direction ?? "horizontal", fields.direction],
+      ["verticalAttachment", style.verticalAttachment ?? "center", fields.verticalAttachment],
+      ["frame", style.frame ?? false, fields.frame],
+      ["shaft", style.shaft ?? "straight", fields.shaft],
       [
         "scale",
         style.scale ?? 1,

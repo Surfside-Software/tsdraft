@@ -1018,8 +1018,11 @@ test("readDXF keeps the pen an entity sets itself, and counts what it reads only
           [0, "MULTILEADER"],
           [8, "A"],
           [300, "CONTEXT_DATA{"],
+          [290, 1],
+          [11, 1],
+          [21, 0],
+          [31, 0],
           [301, "}"],
-          [172, 1],
         ],
         [
           [0, "LINE"],
@@ -1062,7 +1065,7 @@ test("readDXF keeps the pen an entity sets itself, and counts what it reads only
   assert.deepEqual(Object.keys(plain(plainLine) as object).sort(), ["from", "kind", "layer", "to"]);
   assert.deepEqual(plain(read.model.other), {
     "DIMENSION angular": 1,
-    "MULTILEADER with a block": 1,
+    "MULTILEADER in 3D": 1,
   });
   assert.deepEqual(plain(read.unread.malformed), { "LINE with a number that is not finite": 1 });
   assert.deepEqual(read.opensAt, { center: [6, 7], height: 10, width: 15 });

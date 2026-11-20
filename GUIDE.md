@@ -406,9 +406,14 @@ d.leader(["EXISTING TREE", "TO REMAIN"], { style: "NOTE", at: [62, 38], to: [52,
 - `at` is where the shafts meet. `to` is a point, or a list with a shaft for each item: a point,
   or a list of points from the tip through each bend. The note goes on the side away from the
   first shaft unless `side` says otherwise.
-- A string is a one-line note, and an array its lines from the top. The note does not wrap.
-- `arrowhead` is `"closed-filled"`, `"open"`, `"dot"` or `"none"`, and `attachment` has the
-  landing meet the `"first-line"` or the `"last-line"`.
+- A string is a one-line note, and an array its paragraphs from the top. `width` wraps them.
+- `arrowhead` is `"closed-filled"`, `"open"`, `"dot"` or `"none"`, and `attachment` is where the
+  landing meets the note, one of `LEADER_ATTACHMENTS`, such as `"first-line"` or
+  `"underline-last"`. A style with `direction: "vertical"` puts the note above or below its point.
+- `frame: true` draws a frame around the note, and `mask: true` hides what is behind it.
+- `shaft: "curved"` draws each shaft as a curve, `toFarSide` adds shafts from the note's other
+  side, and `d.leader({ block: "TAG", attributes: { NUM: "3" } }, options)` points a block, such
+  as a keynote bubble, at what it names.
 - Never draw a leader from lines and text.
   [docs/leaders.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/leaders.md)
   has the rest.
@@ -605,8 +610,6 @@ writeFileSync("plan.dxf", toDXF(drawing));
 ## What tsdraft cannot draw yet
 
 - Hatches, fills, and angular, arc length and ordinate dimensions.
-- A leader with two roots, a curved shaft, a block in place of its note, or a note attached at
-  its top or bottom.
 - A block read from another file. A block is drawn in the drawing that inserts it. An xref
   references a whole DWG file, as an overlay, and the pictures draw it only from a drawing you
   give.

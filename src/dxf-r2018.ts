@@ -107,6 +107,9 @@ import {
   leaderPicture,
   leaderSizes,
   leaderStyleDictionaryHandle,
+  leaderVerticalAttachment,
+  noteAttachmentPoint,
+  verticalAttachmentCode,
   STANDARD_LEADER_STYLE_SIZES,
   validLeaderStyleHandle,
 } from "./leaders.ts";
@@ -511,6 +514,7 @@ export function toDXFR2018(
           handle: own,
           owner,
           paper,
+          findBlock: (name) => blocksByName.get(layerKey(name)),
           textStyle: styleOf(named),
           textStyleHandle:
             textStyleHandles.get(layerKey(named ?? STANDARD_TEXT_STYLE)) ?? standardStyle,
@@ -740,7 +744,9 @@ export function toDXFR2018(
       g(350, validLeaderStyleHandle(style.name));
     }
     for (const [style, textStyle] of styles) {
-      writeLeaderStyle(g, style, leaderDictionary, textStyle, linetypeByBlock);
+      const content =
+        style.block === undefined ? undefined : blocksByName.get(layerKey(style.block))?.name;
+      writeLeaderStyle(g, style, leaderDictionary, textStyle, linetypeByBlock, content);
     }
   }
   if (images.length > 0) {
@@ -1964,11 +1970,12 @@ const LINEWEIGHT_BY_BLOCK = -2;
 /**
  * A leader style, with its sizes times its scale and a scale of 1. Its shafts, its text and its
  * block are ByBlock, so a leader draws in its own color, linetype and lineweight, which are its
- * layer's. The note's lines are set at least `lineSpacing` apart and do not wrap, and the text
+ * layer's. The note's lines are spaced at least as the paragraph layout sets them, and the text
  * is level.
  *
  * @param textStyle - The handle of the style's text style.
  * @param linetype - The handle of the linetype ByBlock.
+ * @param content - The block the style holds in place of a note, as the drawing names it.
  */
 function writeLeaderStyle(
   g: Group,
@@ -1976,22 +1983,24 @@ function writeLeaderStyle(
   dictionary: string,
   textStyle: string,
   linetype: string,
+  content: string | undefined,
 ): void {
   const sizes = leaderSizes({}, style);
   const scale = written(style.scale ?? 1);
   const attachment = attachmentCode(leaderAttachment({}, style));
+  const vertical = verticalAttachmentCode(leaderVerticalAttachment({}, style));
   const block = leaderArrowheadInfo(style.arrowhead ?? DEFAULT_LEADER_ARROWHEAD)?.block;
   g(0, "MLEADERSTYLE");
   ownedBy(g, validLeaderStyleHandle(style.name), dictionary);
   g(100, "AcDbMLeaderStyle");
   g(179, 2); // version
-  g(170, 2); // content: a text
+  g(170, content === undefined ? 2 : 1); // content: a text, or a block
   g(171, 1); // the leader is drawn first
   g(172, 0); // and from its arrowhead
   g(90, 2); // the points MLEADER asks for
   g(40, 0); // angles MLEADER keeps the segments to: none
   g(41, 0);
-  g(173, 1); // straight shafts
+  g(173, style.shaft === "curved" ? 2 : 1); // straight shafts, or curves
   g(91, COLOR_BY_BLOCK);
   g(340, linetype);
   g(92, LINEWEIGHT_BY_BLOCK);
@@ -2011,24 +2020,27 @@ function writeLeaderStyle(
   g(176, 0); // text aligned as its attachment puts it
   g(93, COLOR_BY_BLOCK);
   g(45, sizes.textHeight);
-  g(292, 0); // no frame
+  g(292, style.frame === true ? 1 : 0);
   g(297, 0); // a note on the left is justified right
   g(46, 0.18 * scale); // the spacing MLEADERALIGN offers, as the leading CAD app's Standard style has it
+  // The block as the drawing names it, whose record's handle comes from that name.
+  if (content !== undefined) g(343, blockHandles(content).record);
   g(94, COLOR_BY_BLOCK);
-  g(47, 1); // the block's scale
-  g(49, 1);
-  g(140, 1);
+  const blockScale = written(style.blockScale ?? 1);
+  g(47, blockScale); // the block's scale
+  g(49, blockScale);
+  g(140, blockScale);
   g(293, 1);
   g(141, 0); // the block's rotation
   g(294, 1);
-  g(177, 0); // a block connects by its extents
+  g(177, style.blockConnection === "insertion" ? 1 : 0); // by its extents, or its insertion point
   g(142, 1); // scale
   g(295, 0);
   g(296, 0); // not annotative
   g(143, 0.125 * scale); // the size of a break DIMBREAK makes, as the leading CAD app's Standard style has it
-  g(271, 0); // the landing meets the note at its side
-  g(272, 9);
-  g(273, 9);
+  g(271, style.direction === "vertical" ? 1 : 0);
+  g(272, vertical);
+  g(273, vertical);
   g(298, 0);
 }
 
@@ -2046,6 +2058,8 @@ function writeLeader(
     readonly handle: string;
     readonly owner: string;
     readonly paper: boolean;
+    /** The block of the drawing of a name, for a block in place of the note. */
+    readonly findBlock: (name: string) => Block | undefined;
     /** The text style of its note, unless it is `Standard`, and its handle. */
     readonly textStyle: TextStyle | undefined;
     readonly textStyleHandle: string;
@@ -2053,11 +2067,18 @@ function writeLeader(
     readonly linetype: string;
   },
 ): void {
-  const picture = leaderPicture(e, style, where.textStyle);
+  const picture = leaderPicture(e, style, where.textStyle, where.findBlock);
   const { sizes } = picture;
+  const content = picture.block;
+  const byInsertion = style.blockConnection === "insertion" ? 1 : 0;
   const attachment = attachmentCode(picture.attachment);
+  const vertical = verticalAttachmentCode(picture.verticalAttachment);
   const left = picture.side === "left";
+  // A block in place of the note keeps a note's default alignment.
+  const align = content !== undefined ? 0 : picture.noteAttachment === 2 ? 1 : left ? 2 : 0;
   const block = leaderArrowheadInfo(style.arrowhead ?? DEFAULT_LEADER_ARROWHEAD)?.block;
+  const mask = picture.mask;
+  const maskColor = mask?.color;
   g(0, "MULTILEADER");
   g(5, where.handle);
   g(330, where.owner);
@@ -2074,34 +2095,69 @@ function writeLeader(
   g(145, sizes.gap);
   g(174, attachment);
   g(175, attachment);
-  g(176, left ? 2 : 0); // justified right, or left
-  g(177, 0);
-  g(290, 1); // the content is a text
-  g(304, dxfOnce(e.text.join("\\P")));
-  point3(g, 11, 0, 0, 1); // the text's normal
-  g(340, where.textStyleHandle);
-  point3(g, 12, ...picture.location, 0);
-  point3(g, 13, 1, 0, 0); // along the text
-  g(42, 0); // rotation
-  g(43, 0); // no width to wrap at
-  g(44, 0);
-  g(45, 1); // line spacing
-  g(170, 1); // at least as set
-  g(90, COLOR_BY_LAYER);
-  g(171, left ? 3 : 1); // held by its top right, or top left
-  g(172, 5); // flow
-  g(91, COLOR_BY_LAYER); // no background
-  g(141, 0);
-  g(92, 0);
-  g(291, 0);
-  g(292, 0);
-  g(173, 0); // no columns
-  g(293, 0);
-  g(142, 0);
-  g(143, 0);
-  g(294, 0);
-  g(295, 0);
-  g(296, 0); // no block
+  g(176, align); // justified left, centered or right
+  g(177, content === undefined ? 0 : byInsertion);
+  if (content !== undefined) {
+    // A block in place of the note, where it is placed, and the matrix that places it.
+    const scale = content.scale?.[0] ?? 1;
+    g(290, 0);
+    g(296, 1);
+    g(341, blockHandles(content.block).record);
+    point3(g, 14, 0, 0, 1);
+    point3(g, 15, ...content.at, 0);
+    point3(g, 16, scale, scale, scale);
+    g(46, 0);
+    g(93, COLOR_BY_LAYER);
+    for (const value of [
+      scale,
+      0,
+      0,
+      content.at[0],
+      0,
+      scale,
+      0,
+      content.at[1],
+      0,
+      0,
+      scale,
+      0,
+      0,
+      0,
+      0,
+      1,
+    ]) {
+      g(47, value);
+    }
+  }
+  if (content === undefined) {
+    g(290, 1); // the content is a text
+    g(304, dxfOnce(picture.note.value));
+    point3(g, 11, 0, 0, 1); // the text's normal
+    g(340, where.textStyleHandle);
+    point3(g, 12, ...picture.location, 0);
+    point3(g, 13, 1, 0, 0); // along the text
+    g(42, 0); // rotation
+    g(43, picture.note.width ?? 0); // the width it wraps at
+    g(44, 0);
+    g(45, 1); // line spacing
+    g(170, 1); // at least as set
+    g(90, COLOR_BY_LAYER);
+    g(171, picture.noteAttachment); // held by its top left, top center or top right
+    g(172, 5); // flow
+    // A mask in the drawing's background, or in a color of its own.
+    g(91, maskColor === undefined || maskColor === 256 ? COLOR_BY_LAYER : aciColor(maskColor));
+    g(141, mask?.factor ?? 0);
+    g(92, 0);
+    g(291, mask !== undefined && maskColor === undefined ? 1 : 0);
+    g(292, mask === undefined ? 0 : 1);
+    g(173, 0); // no columns
+    g(293, 0);
+    g(142, 0);
+    g(143, 0);
+    g(294, 0);
+    g(295, 0);
+    g(296, 0); // no block
+  }
   // The plane the leader is drawn in, from the first tip, as the leading CAD app's MLEADER sets it.
   const tip = e.shafts[0]![0]!;
   point3(g, 110, tip[0], tip[1], 0);
@@ -2121,14 +2177,32 @@ function writeLeader(
     g(91, i);
     g(305, "}");
   });
-  g(271, 0); // the landing meets the note at its side
+  g(271, picture.vertical ? 1 : 0); // the landing meets the note at its side, or its top or bottom
   g(303, "}");
-  g(272, 9);
-  g(273, 9);
+  // A second root on the note's far side, its lines numbered on from the first root's.
+  if (picture.farConnection !== undefined) {
+    g(302, "LEADER{");
+    g(290, 1);
+    g(291, 1);
+    point3(g, 10, ...picture.farConnection, 0);
+    point3(g, 11, picture.farDirection ?? -picture.direction, 0, 0);
+    g(90, 1); // the root's index
+    g(40, sizes.landing);
+    (e.farShafts ?? []).forEach((shaft, j) => {
+      g(304, "LEADER_LINE{");
+      for (const [x, y] of shaft) point3(g, 10, x, y, 0);
+      g(91, e.shafts.length + j);
+      g(305, "}");
+    });
+    g(271, picture.vertical ? 1 : 0);
+    g(303, "}");
+  }
+  g(272, vertical);
+  g(273, vertical);
   g(301, "}");
   g(340, validLeaderStyleHandle(style.name));
-  g(90, leaderOwnFlags(e));
-  g(170, 1); // straight shafts
+  g(90, leaderOwnFlags(e, style));
+  g(170, picture.curved ? 2 : 1); // straight shafts, or curves
   g(91, COLOR_BY_BLOCK);
   g(341, where.linetype);
   g(171, LINEWEIGHT_BY_BLOCK);
@@ -2137,27 +2211,43 @@ function writeLeader(
   g(41, sizes.landing);
   if (block !== undefined) g(342, blockHandles(block).record);
   g(42, sizes.arrowSize);
-  g(172, 2); // content: a text
+  g(172, content === undefined ? 2 : 1); // content: a text, or a block
   g(343, where.textStyleHandle);
   g(173, attachment);
   g(95, attachment);
   g(174, 1); // level text
-  g(175, left ? 2 : 0);
+  g(175, content === undefined && left ? 2 : 0);
   g(92, COLOR_BY_BLOCK);
-  g(292, 0);
+  g(292, picture.frame === undefined ? 0 : 1);
+  if (content !== undefined) g(344, blockHandles(content.block).record);
   g(93, COLOR_BY_BLOCK);
   point3(g, 10, 1, 1, 1); // the block's scale
   g(43, 0);
-  g(176, 0);
+  g(176, content === undefined ? 0 : byInsertion);
   g(293, 0); // not annotative
+  // Each attribute of a block in place of the note, by its definition, and its value.
+  if (content !== undefined) {
+    const block = where.findBlock(content.block);
+    (block?.attributes ?? []).forEach((definition, i) => {
+      g(330, definitionHandle(block!.name, definition.tag));
+      g(177, i + 1);
+      g(44, 0);
+      g(302, dxfText(content.attributes?.[definition.tag] ?? definition.value));
+    });
+  }
   g(294, 0);
   g(178, 0);
-  g(179, left ? 3 : 1); // justified right, or left
+  g(179, content === undefined ? noteAttachmentPoint(picture.side, e.width !== undefined) : 1);
   g(45, 1); // scale
-  g(271, 0);
-  g(272, 9);
-  g(273, 9);
+  g(271, picture.vertical ? 1 : 0);
+  g(272, vertical);
+  g(273, vertical);
   g(295, 0);
+}
+
+/** A color index as a multileader holds it: the index in the low byte of a color by index. */
+function aciColor(index: number): number {
+  return 0xc3000000 | index | 0;
 }
 
 /** One entity of the block of a leader's arrowhead, on layer `0` and ByBlock. */

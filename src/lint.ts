@@ -55,6 +55,7 @@ import { validIdHandle } from "./handles.ts";
 import { validLayoutHandles, validViewportView, viewReaches } from "./layouts.ts";
 import {
   leaderArrowheadHandles,
+  leaderBlock,
   leaderDrawnProblem,
   leaderRepeats,
   leaderStyleDictionaryHandle,
@@ -119,6 +120,7 @@ import {
   leaderStyleNameProblem,
   leaderStyleProblem,
   leaderStyleTwinProblem,
+  leaderBlockContentProblem,
   leaderTextProblem,
   layerColorProblem,
   layerFlagProblem,
@@ -1143,6 +1145,8 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       if (!problem && lettered) leaderStyles.set(key, style);
     },
   );
+  /** The tags of each block a leader holds in place of its note, worked out once. */
+  const tagsOf = new WeakMap<Block, ReadonlySet<unknown>>();
   /** Checks what a leader names, its note and its shafts. `sound` is false for one no rule can read. */
   const lintLeader = (
     leader: Leader,
@@ -1161,13 +1165,41 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     else if (!leaderStyleNames.has(layerKey(name as string))) {
       add("undefined-leader-style", "error", undefinedLeaderStyleProblem(name as string));
     } else style = leaderStyles.get(layerKey(name as string));
-    const textProblem = leaderTextProblem(leader.text);
-    if (textProblem) add("leader", "error", textProblem);
-    else {
-      for (const line of leader.text) {
-        const warning = textWarning(line);
-        if (warning) {
-          add("text", "warning", warning);
+    const content = leaderBlock(leader, style);
+    let noteProblem: string | undefined;
+    const ownBlock: unknown = leader.block;
+    if (ownBlock !== undefined && typeof ownBlock !== "string") {
+      noteProblem = "a block is named by a string";
+      add("undefined-block", "error", noteProblem);
+    } else if (content === undefined) {
+      noteProblem = leaderTextProblem(leader.text);
+      if (noteProblem) add("leader", "error", noteProblem);
+      else {
+        for (const line of leader.text ?? []) {
+          const warning = textWarning(line);
+          if (warning) {
+            add("text", "warning", warning);
+            break;
+          }
+        }
+      }
+    } else {
+      if (typeof content !== "string") noteProblem = "a block is named by a string";
+      else if (!blocks.has(layerKey(content))) noteProblem = undefinedBlockProblem(content);
+      if (noteProblem) add("undefined-block", "error", noteProblem);
+      const problem = leaderBlockContentProblem(leader);
+      if (problem) add("leader", "error", problem);
+      noteProblem ??= problem;
+      // Each value names an attribute of the block, as an insert's does.
+      const held = typeof content === "string" ? blocks.get(layerKey(content)) : undefined;
+      const set: unknown = leader.attributes;
+      if (!problem && held && typeof set === "object" && set !== null) {
+        let tags = tagsOf.get(held);
+        if (!tags) tagsOf.set(held, (tags = new Set(filled(held.attributes).map((d) => d?.tag))));
+        for (const tag of Object.keys(set)) {
+          if (tags.has(tag)) continue;
+          noteProblem = undefinedAttributeProblem(tag, held.name);
+          add("undefined-attribute", "error", noteProblem);
           break;
         }
       }
@@ -1186,11 +1218,13 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     }
     const ownProblem = leaderOwnProblem(leader, written(style?.scale ?? 1));
     if (ownProblem) add("leader", "error", ownProblem);
-    if (!style || textProblem || shaftProblem || ownProblem || !lettered) return;
+    if (!style || noteProblem || shaftProblem || ownProblem || !lettered) return;
     if (own === undefined && style.textStyle !== undefined) {
       textStyle = stylesByKey.get(layerKey(style.textStyle));
     }
-    const problem = leaderDrawnProblem(leader, style, textStyle);
+    const problem = leaderDrawnProblem(leader, style, textStyle, (name) =>
+      blocks.get(layerKey(name)),
+    );
     if (problem) add("leader", "error", problem);
   };
 
@@ -1329,6 +1363,18 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       if (clash) error("id-handle", clash);
     }
   });
+  // A style's block is written by its record's handle, so it is one the drawing defines.
+  for (const style of leaderStyles.values()) {
+    const block: unknown = style.block;
+    if (typeof block === "string" && !blocks.has(layerKey(block))) {
+      out.push({
+        rule: "undefined-block",
+        severity: "error",
+        message: `Leader style ${shown(style.name)}: ${undefinedBlockProblem(block)}`,
+        ...named("leaderStyle", style.name),
+      });
+    }
+  }
 
   // An xref is a block to the leading CAD app, so it shares the blocks' names, and an insert finds
   // it as it finds a block.

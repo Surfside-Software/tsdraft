@@ -3196,16 +3196,56 @@ const LEADER_TEXT_LINES =
   "A leader's text is a string, one line, or an array of the lines of its note from the top";
 const LEADER_SHAFTS =
   "A leader needs a shaft: to is a point, the tip of its one shaft, or a list of shafts, each its tip or its tip and the points it bends at on its way to the landing";
-const LEADER_SHAFT_LENGTH =
+export const LEADER_SHAFT_LENGTH =
   "The tip of a shaft and the point after it are one point once they are written with the 6 decimals tsdraft writes, which leaves the leading CAD app no direction to point the arrowhead in. Move the tip, or the point after it";
-const LEADER_ATTACHMENT = 'attachment must be "first-line" or "last-line"';
-const LEADER_SIDE = 'side must be "left" or "right"';
-
-/** Which line of its note a leader's landing meets: the first is the leading CAD app's own choice. */
-export const LEADER_ATTACHMENTS = ["first-line", "last-line"] as const;
+/**
+ * Where a leader's landing meets the side of its note, in the order the leading CAD app numbers
+ * them: the top of the first line, the middle of the first line, which is that app's own choice,
+ * the middle of the note, the middle of the last line, the bottom of the last line, the bottom of
+ * the last line with the landing drawn on under it, the bottom of the first line with the landing
+ * under it, the bottom of the first line, and the bottom of the first line with every line
+ * underlined.
+ */
+export const LEADER_ATTACHMENTS = [
+  "top-of-first",
+  "first-line",
+  "middle",
+  "last-line",
+  "bottom-of-last",
+  "underline-last",
+  "underline-first",
+  "bottom-of-first",
+  "underline-all",
+] as const;
 
 /** Which side of the point where its shafts meet a leader's note is on. */
-export const LEADER_SIDES = ["left", "right"] as const;
+export const LEADER_SIDES = ["left", "right", "above", "below"] as const;
+
+/** Whether a style's landings meet the side of its notes, or their top or bottom. */
+export const LEADER_DIRECTIONS = ["horizontal", "vertical"] as const;
+
+/**
+ * Where a landing meets a note above or below it: at the middle of its bottom or top, or there
+ * with a line as wide as the note.
+ */
+export const LEADER_VERTICAL_ATTACHMENTS = ["center", "line"] as const;
+
+/** How a leader's shafts run through their points: straight, or as a curve. */
+export const LEADER_SHAFT_KINDS = ["straight", "curved"] as const;
+
+/** How a block in place of a leader's note meets its landing: by its extents or its insertion point. */
+export const LEADER_BLOCK_CONNECTIONS = ["extents", "insertion"] as const;
+
+const LEADER_ATTACHMENT = `attachment must be one of LEADER_ATTACHMENTS: ${LEADER_ATTACHMENTS.map((a) => JSON.stringify(a)).join(", ")}`;
+const LEADER_SIDE = 'side must be "left", "right", "above" or "below"';
+const LEADER_DIRECTION = 'direction must be "horizontal" or "vertical"';
+const LEADER_VERTICAL_ATTACHMENT = 'verticalAttachment must be "center" or "line"';
+const LEADER_SHAFT_KIND = 'shaft must be "straight" or "curved"';
+const LEADER_FRAME = "frame must be true or false";
+const LEADER_WIDTH =
+  "width must be greater than 0. It is the width the note wraps at; leave it out for a note that does not wrap";
+const LEADER_MASK =
+  "mask must be true, false, or { color?, offsetFactor? }: a color index from 1 to 256, where 256 is the layer's, and a factor of the text height from 1 to 5";
 
 /** What is wrong with a leader in a block. */
 export const LEADER_IN_BLOCK =
@@ -3331,6 +3371,92 @@ export function leaderSideProblem(value: unknown): string | undefined {
   return (LEADER_SIDES as readonly unknown[]).includes(value) ? undefined : LEADER_SIDE;
 }
 
+/** Returns what is wrong with a leader style's direction, or undefined. */
+export function leaderDirectionProblem(value: unknown): string | undefined {
+  return (LEADER_DIRECTIONS as readonly unknown[]).includes(value) ? undefined : LEADER_DIRECTION;
+}
+
+/** Returns what is wrong with a leader's vertical attachment, or undefined. */
+export function leaderVerticalAttachmentProblem(value: unknown): string | undefined {
+  return (LEADER_VERTICAL_ATTACHMENTS as readonly unknown[]).includes(value)
+    ? undefined
+    : LEADER_VERTICAL_ATTACHMENT;
+}
+
+/** Returns what is wrong with a leader's kind of shaft, or undefined. */
+export function leaderShaftKindProblem(value: unknown): string | undefined {
+  return (LEADER_SHAFT_KINDS as readonly unknown[]).includes(value) ? undefined : LEADER_SHAFT_KIND;
+}
+
+/** Returns what is wrong with a leader's mask, or undefined. */
+export function leaderMaskProblem(value: unknown): string | undefined {
+  if (typeof value === "boolean") return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return LEADER_MASK;
+  const m = value as Record<string, unknown>;
+  for (const key of Object.keys(m))
+    if (key !== "color" && key !== "offsetFactor") return LEADER_MASK;
+  if (
+    m.color !== undefined &&
+    !(Number.isInteger(m.color) && (m.color as number) >= 1 && (m.color as number) <= 256)
+  ) {
+    return LEADER_MASK;
+  }
+  if (
+    m.offsetFactor !== undefined &&
+    !(
+      typeof m.offsetFactor === "number" &&
+      written(m.offsetFactor) >= 1 &&
+      written(m.offsetFactor) <= 5
+    )
+  ) {
+    return LEADER_MASK;
+  }
+  return undefined;
+}
+
+/** The fields of a leader that only a note has, which a leader whose content is a block may not set. */
+const NOTE_ONLY = [
+  "text",
+  "attachment",
+  "verticalAttachment",
+  "width",
+  "frame",
+  "mask",
+  "textStyle",
+  "textHeight",
+] as const;
+
+/**
+ * Returns what is wrong with a leader whose content is a block, or undefined: it sets none of
+ * what only a note has, and its attributes are strings by their tags.
+ */
+export function leaderBlockContentProblem(leader: object): string | undefined {
+  const l = leader as Readonly<Record<string, unknown>>;
+  for (const field of NOTE_ONLY) {
+    if (l[field] !== undefined) {
+      return `${field}: a leader whose content is a block has no note to give it to. Leave it out, or give the leader a note instead`;
+    }
+  }
+  const set = l.attributes;
+  if (set === undefined) return undefined;
+  if (typeof set !== "object" || set === null || Array.isArray(set)) {
+    return "attributes must be an object of values by their tags";
+  }
+  for (const value of Object.values(set)) {
+    if (typeof value !== "string") return "each value of attributes must be a string";
+    const problem = textProblem(value);
+    if (problem) return `attributes: ${problem}`;
+  }
+  return undefined;
+}
+
+/** Returns what is wrong with a leader's width, or undefined: a finite length greater than 0. */
+export function leaderWidthProblem(value: unknown): string | undefined {
+  return typeof value === "number" && Number.isFinite(value) && written(value) > 0
+    ? magnitudeProblem(value)
+    : LEADER_WIDTH;
+}
+
 /**
  * Returns what is wrong with sizes a leader is drawn with, times the scale of its style, or
  * undefined: each must be under 1e100, and a text height or an arrow size above 0 must not be
@@ -3340,14 +3466,14 @@ function leaderScaledProblem(
   sizes: Readonly<Record<string, unknown>>,
   scale: number,
 ): string | undefined {
-  for (const field of ["textHeight", "arrowSize", "landing", "gap"] as const) {
+  for (const field of ["textHeight", "arrowSize", "landing", "gap", "width"] as const) {
     if (sizes[field] === undefined) continue;
     const size = written(sizes[field] as number);
     const scaled = size * scale;
     if (!(Math.abs(scaled) < 1e100)) {
       return `${field}: times the scale it is ${scaled}, and the leading CAD app reads only two exponent digits from DXF, so every size of a leader must be under 1e100. Use a smaller size or scale`;
     }
-    if ((field === "textHeight" || field === "arrowSize") && size > 0 && written(scaled) === 0) {
+    if (field !== "landing" && field !== "gap" && size > 0 && written(scaled) === 0) {
       return `${field}: times the scale it is ${scaled}, which is written as 0 with the 6 decimals tsdraft writes. Use a larger size or scale${field === "arrowSize" ? ", or an arrow size of 0" : ""}`;
     }
   }
@@ -3385,6 +3511,34 @@ export function leaderStyleProblem(style: unknown): string | undefined {
   if (s.attachment !== undefined) {
     const problem = leaderAttachmentProblem(s.attachment);
     if (problem) return problem;
+  }
+  if (s.direction !== undefined) {
+    const problem = leaderDirectionProblem(s.direction);
+    if (problem) return problem;
+  }
+  if (s.verticalAttachment !== undefined) {
+    const problem = leaderVerticalAttachmentProblem(s.verticalAttachment);
+    if (problem) return problem;
+  }
+  if (s.frame !== undefined && typeof s.frame !== "boolean") return LEADER_FRAME;
+  if (s.shaft !== undefined) {
+    const problem = leaderShaftKindProblem(s.shaft);
+    if (problem) return problem;
+  }
+  if (s.block !== undefined) {
+    if (typeof s.block !== "string") return "block: a block is named by a string";
+    const problem = blockNameProblem(s.block);
+    if (problem) return `block: ${problem}`;
+  }
+  if (
+    s.blockConnection !== undefined &&
+    !(LEADER_BLOCK_CONNECTIONS as readonly unknown[]).includes(s.blockConnection)
+  ) {
+    return 'blockConnection must be "extents" or "insertion"';
+  }
+  if (s.blockScale !== undefined) {
+    const problem = styleScaleProblem(s.blockScale, LEADER_SCALE);
+    if (problem) return `blockScale: ${problem}`;
   }
   if (s.scale !== undefined) {
     const problem = styleScaleProblem(s.scale, LEADER_SCALE);
@@ -3496,6 +3650,28 @@ export function leaderOwnProblem(given: object, scale: number): string | undefin
   if (leader.attachment !== undefined) {
     const problem = leaderAttachmentProblem(leader.attachment);
     if (problem) return problem;
+  }
+  if (leader.verticalAttachment !== undefined) {
+    const problem = leaderVerticalAttachmentProblem(leader.verticalAttachment);
+    if (problem) return problem;
+  }
+  if (leader.frame !== undefined && typeof leader.frame !== "boolean") return LEADER_FRAME;
+  if (leader.shaft !== undefined) {
+    const problem = leaderShaftKindProblem(leader.shaft);
+    if (problem) return problem;
+  }
+  if (leader.mask !== undefined) {
+    const problem = leaderMaskProblem(leader.mask);
+    if (problem) return problem;
+  }
+  if (leader.width !== undefined) {
+    const problem = leaderWidthProblem(leader.width);
+    if (problem) return `width: ${problem}`;
+  }
+  if (leader.farShafts !== undefined) {
+    // The far root's point comes from the note, so a shaft of one point is held to it once drawn.
+    const problem = leaderShaftsProblem(leader.farShafts, [Number.NaN, Number.NaN]);
+    if (problem) return `farShafts: ${problem}`;
   }
   if (leader.textStyle !== undefined) {
     if (typeof leader.textStyle !== "string") return "textStyle: a text style is named by a string";

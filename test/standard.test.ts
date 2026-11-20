@@ -341,7 +341,7 @@ test("a child replaces an entry whole under its parent's spelling, and null remo
   // @ts-expect-error: the removed layer is not in the child's type.
   void child.layers["C-ROAD-CNTR"];
   assert.equal(child.layers["A-WALL"].color, 2);
-  assert.deepEqual(child.chain, [{ id: "tsdraft", version: "2", hash: BUILT_IN_STANDARD.hash }]);
+  assert.deepEqual(child.chain, [{ id: "tsdraft", version: "3", hash: BUILT_IN_STANDARD.hash }]);
   assert.equal(child.title, "acme");
   assert.equal(child.minTextHeight, BUILT_IN_STANDARD.minTextHeight);
   assert.ok(
@@ -398,8 +398,8 @@ test("a child replaces an entry whole under its parent's spelling, and null remo
     `paperUnits: A standard that extends nothing must have the field "paperUnits"`,
     `minTextHeight: A standard that extends nothing must have the field "minTextHeight"`,
   ]);
-  assert.deepEqual(problems({ ...base, id: "tsdraft", version: "2" }), [
-    `extends: The standard "tsdraft" version "2" extends itself`,
+  assert.deepEqual(problems({ ...base, id: "tsdraft", version: "3" }), [
+    `extends: The standard "tsdraft" version "3" extends itself`,
   ]);
   assert.match(
     problems({ ...base, minTextHeight: 0.1 })[0]!,
@@ -819,7 +819,7 @@ test("the hash is what the merged document states for a check", () => {
   const checked = defineStandard(BUILT_IN_DOCUMENT as never);
   assert.equal(JSON.stringify(checked), JSON.stringify(BUILT_IN_STANDARD));
   assert.deepEqual(lint(BUILT_IN_STANDARD.titleBlocks.plain.block!), []);
-  assert.equal(BUILT_IN_STANDARD.version, "2");
+  assert.equal(BUILT_IN_STANDARD.version, "3");
 });
 
 test("SHA-256 gives the digests of FIPS 180-4 and of node:crypto", () => {

@@ -21,6 +21,7 @@ import {
   facing,
   first,
   inSubclass,
+  map,
   name,
   num,
   placed,
@@ -38,11 +39,16 @@ export type Reading =
   | { readonly other: string }
   | { readonly malformed: string };
 
+const HANDLE = /^[0-9A-Fa-f]{1,16}$/;
+
 /** The handle a group holds: 1 to 16 hexadecimal digits, or undefined for anything else. */
 export function handleAt(r: Rec, code: number): string | undefined {
   const value = first(r, code);
-  return value !== undefined && /^[0-9A-Fa-f]{1,16}$/.test(value) ? value : undefined;
+  return value !== undefined && HANDLE.test(value) ? value : undefined;
 }
+
+/** The most tags of one insert, and labels of one multileader's block, that are kept. */
+export const MAX_TAGS = 1000;
 
 /** The pen an entity sets for itself, with each part left out at ByLayer. */
 export function baseOf(r: Rec, layer: string, handle: string | undefined): ReadEntityBase {
@@ -152,12 +158,20 @@ function ownGroups(r: Rec): Rec {
 /** The names of the kinds of dimension `ReadDimension` does not hold, by group 70's low bits. */
 const DIMENSION_KINDS = ["", "", "angular", "diameter", "radius", "angular 3-point", "ordinate"];
 
+/** What a multileader names by handle, until the file is read. */
+export interface LeaderNames {
+  readonly style?: string | undefined;
+  readonly textStyle?: string | undefined;
+  /** The record of the block that is its content. */
+  readonly block?: string | undefined;
+}
+
 /** What the reader finishes once the whole file is read. */
 export interface Later {
   /** A justified text whose start is worked out from its font. */
   start(pending: PendingStart): void;
-  /** A multileader whose styles are named by these handles. */
-  leader(entity: ReadMultileader, style: string | undefined, textStyle: string | undefined): void;
+  /** A multileader whose styles, block and block's labels are named by handle. */
+  leader(entity: ReadMultileader, names: LeaderNames): void;
 }
 
 /**
@@ -215,6 +229,8 @@ export function readingOf(
       return dimension(r, base, face, r12);
     case "MULTILEADER":
       return multileader(r, base, later);
+    case "LEADER":
+      return leader(r, base, face);
     case "IMAGE":
       return image(r, base);
     case "SOLID": {
@@ -487,6 +503,12 @@ function dimension(r: Rec, base: ReadEntityBase, face: Facing, r12: boolean): Re
   return { entity };
 }
 
+/** The color index of a mask's color from the 32 bits a file holds: ByBlock 0, an index, else 256. */
+export function maskColor(raw: number): number {
+  const method = raw >>> 24;
+  return method === 0xc1 ? 0 : method === 0xc3 ? raw & 0xff : 256;
+}
+
 /**
  * A radius (group 70's kind 4), a diameter (3) or a jogged radius (9) dimension. A diameter holds
  * the far end of its line in group 10 and its center halfway to group 15.
@@ -520,8 +542,9 @@ function radialDimension(r: Rec, base: ReadEntityBase, kind: number, r12: boolea
 }
 
 /**
- * A `MULTILEADER` with one root, straight shafts and a note, as the writers write one, from the
- * context data that says how it is drawn. Any other is left out by what it holds.
+ * A `MULTILEADER`, from the context data that says how it is drawn: every root with its shafts, a
+ * note or a block, and the multileader's own groups after the context. One whose note or block
+ * leaves the plane is left out.
  */
 function multileader(r: Rec, base: ReadEntityBase, later: Later): Reading {
   const c = r.codes;
@@ -529,9 +552,11 @@ function multileader(r: Rec, base: ReadEntityBase, later: Later): Reading {
   let where: "before" | "context" | "leader" | "line" | "after" = "before";
   const roots: { shafts: Point[][]; groups: Record<number, string> }[] = [];
   let shaft: Point[] = [];
-  // The first value of each group of the context and of what follows it, which hold each once.
+  // The first value of each group of the context and of what follows it, which hold each once,
+  // but for the block's labels after the context: groups 330 and 302 of each.
   const context: Record<number, string> = {};
   const after: Record<number, string> = {};
+  const labels: { definition: string | undefined; text: string }[] = [];
   for (let i = 0; i < c.length; i++) {
     const code = c[i]!;
     const value = v[i]!;
@@ -552,7 +577,13 @@ function multileader(r: Rec, base: ReadEntityBase, later: Later): Reading {
     } else if (where === "leader" && code === 303) where = "context";
     else if (where === "line") {
       if (code === 10 && c[i + 1] === 20) shaft.push([Number(value), Number(v[i + 1])]);
-    } else {
+    } else if (where === "after" && code === 330) {
+      const handle = value.trim();
+      // A label of the null handle fills no definition.
+      const known = HANDLE.test(handle) && !/^0+$/.test(handle);
+      labels.push({ definition: known ? handle.toUpperCase() : undefined, text: "" });
+    } else if (where === "after" && code === 302 && labels.length > 0) labels.at(-1)!.text = value;
+    else {
       const groups =
         where === "leader" ? roots.at(-1)!.groups : where === "context" ? context : after;
       if (!(code in groups)) groups[code] = value;
@@ -564,39 +595,114 @@ function multileader(r: Rec, base: ReadEntityBase, later: Later): Reading {
   };
   const pair = (groups: Record<number, string>, x: number): Point | undefined =>
     groups[x] === undefined ? undefined : [number(groups, x, 0), number(groups, x + 10, 0)];
-  // Group 172 after the context is what the note is: 2 a text, 1 a block. 170 is the shafts'
-  // kind: 1 straight, 2 curved, 0 none.
-  if (number(after, 172, 2) !== 2) return { other: "MULTILEADER with a block" };
-  if (number(after, 170, 1) !== 1) return { other: "MULTILEADER without straight shafts" };
-  if (roots.length !== 1) return { other: "MULTILEADER with other than one root" };
-  // The note's normal is groups 11, 21 and 31 of the context.
-  if (
-    Math.abs(number(context, 11, 0)) > 1e-9 ||
-    Math.abs(number(context, 21, 0)) > 1e-9 ||
-    number(context, 31, 1) <= 0
-  ) {
-    return { other: "MULTILEADER in 3D" };
+  const up = (x: number): boolean =>
+    Math.abs(number(context, x, 0)) <= 1e-9 &&
+    Math.abs(number(context, x + 10, 0)) <= 1e-9 &&
+    number(context, x + 20, 1) > 0;
+  // Group 290 of the context says it holds a note, and 296 a block; group 172 after it says the
+  // same, 2 a note and 1 a block, for a file that leaves the context's out.
+  const content = number(after, 172, 2);
+  const hasText = number(context, 290, content === 2 ? 1 : 0) === 1;
+  const hasBlock = !hasText && number(context, 296, content === 1 ? 1 : 0) === 1;
+  // The normal of the note is groups 11, 21 and 31 of the context, and of the block 14, 24 and 34.
+  if ((hasText && !up(11)) || (hasBlock && !up(14))) return { other: "MULTILEADER in 3D" };
+  // A block's labels are keyed by the handle of the definition each fills until the file is read.
+  let attributes: Record<string, string> | undefined;
+  let kept = 0;
+  for (const { definition, text } of hasBlock ? labels : []) {
+    attributes ??= map<string>();
+    if (definition === undefined || definition in attributes) continue;
+    if (kept++ >= MAX_TAGS) break;
+    attributes[definition] = textTwice(text);
   }
-  const root = roots[0]!;
-  const at = pair(root.groups, 10);
-  const textAt = pair(context, 12);
-  const text = context[304];
-  if (text === undefined || !at || !textAt) return { other: "MULTILEADER without a note" };
+  const block = hasBlock
+    ? {
+        name: "",
+        at: pair(context, 15) ?? [0, 0],
+        scale: number(context, 16, 1),
+        rotation: (number(context, 46, 0) * 180) / Math.PI,
+        ...(attributes && { attributes }),
+      }
+    : undefined;
+  const textAt = (hasText && pair(context, 12)) || block?.at || pair(context, 10) || [0, 0];
+  const read = roots.map((root) => ({
+    at: pair(root.groups, 10) ?? [0, 0],
+    direction: pair(root.groups, 11) ?? ([1, 0] as Point),
+    landing: number(root.groups, 40, 0),
+    shafts: root.shafts,
+  }));
+  const [first] = read;
+  const masked = hasText && number(context, 292, 0) === 1;
   const entity: ReadMultileader = {
     ...base,
     kind: "multileader",
-    shafts: root.shafts,
-    at,
-    direction: pair(root.groups, 11) ?? [1, 0],
-    landing: number(root.groups, 40, 0),
-    text: textOnce(text),
+    shafts: first?.shafts ?? [],
+    at: first?.at ?? textAt,
+    direction: first?.direction ?? [1, 0],
+    landing: first?.landing ?? 0,
+    roots: read,
+    // Group 170 after the context: 0 no shafts, 1 straight, 2 curved.
+    shaft: (["none", "straight", "curved"] as const)[number(after, 170, 1)] ?? "straight",
+    text: hasText ? textOnce(context[304] ?? "") : "",
     textAt,
+    textAttachment: hasText ? number(context, 171, 1) : 1,
+    width: hasText ? number(context, 43, 0) : 0,
     textHeight: number(context, 41, 0),
     textStyle: "Standard",
     arrowSize: number(context, 140, 0),
+    attachments: {
+      left: number(context, 174, 1),
+      right: number(context, 175, 1),
+      top: number(context, 273, 9),
+      bottom: number(context, 272, 9),
+    },
+    ...(number(after, 271, 0) === 1 && { vertical: true }),
+    ...(number(after, 292, 0) === 1 && { frame: true }),
+    // Group 292 of the context masks the note, with the drawing's background where 291 says so
+    // and else with the color of group 91.
+    ...(masked && {
+      mask: {
+        offsetFactor: number(context, 141, 1.5),
+        ...(number(context, 291, 0) !== 1 && {
+          color: maskColor(number(context, 91, 0xc0000000)),
+        }),
+      },
+    }),
+    ...(block && { block }),
   };
-  later.leader(entity, after[340], context[340]);
+  later.leader(entity, {
+    style: after[340],
+    // A note names its text style in the context, and the multileader its own after it.
+    textStyle: hasText ? context[340] : after[343],
+    ...(hasBlock && { block: context[341] ?? after[344] }),
+  });
   return { entity };
+}
+
+/**
+ * The old `LEADER`: its points as the file holds them, in the world's coordinates, and the handle
+ * of its note. The leading CAD app leaves group 71 out where it draws an arrowhead, and group 73
+ * out where it has no note.
+ */
+function leader(r: Rec, base: ReadEntityBase, face: Facing): Reading {
+  if (face === 0) return { other: "LEADER in 3D" };
+  const points: Point[] = [];
+  for (let i = 0; i < r.codes.length; i++) {
+    if (r.codes[i] !== 10) continue;
+    points.push([Number(r.values[i]), r.codes[i + 1] === 20 ? Number(r.values[i + 1]) : 0]);
+  }
+  const note = (num(r, 73) ?? 3) === 3 ? undefined : handleAt(r, 340);
+  return {
+    entity: {
+      ...base,
+      kind: "leader",
+      style: name(r, 3) ?? "Standard",
+      points,
+      shaft: num(r, 72) === 1 ? "curved" : "straight",
+      arrowhead: num(r, 71) !== 0,
+      ...(note !== undefined && { note }),
+    },
+  };
 }
 
 /** An attribute of an insert from its `ATTRIB` record. */
@@ -662,9 +768,25 @@ export function costOf(e: ReadEntity): number {
       return own + 5 + chars(e.text) + chars(e.textBelow) + chars(e.style) + chars(e.block);
     case "multileader": {
       let points = 3;
-      for (const shaft of e.shafts) points += shaft.length;
-      return own + points + chars(e.text) + chars(e.textStyle) + chars(e.style);
+      for (const root of e.roots) {
+        points += 3;
+        for (const shaft of root.shafts) points += 1 + shaft.length;
+      }
+      let labels = 0;
+      const attributes = e.block?.attributes ?? {};
+      for (const tag in attributes) labels += 1 + chars(tag) + chars(attributes[tag]);
+      return (
+        own +
+        points +
+        labels +
+        chars(e.text) +
+        chars(e.textStyle) +
+        chars(e.style) +
+        chars(e.block?.name)
+      );
     }
+    case "leader":
+      return own + e.points.length + chars(e.style) + chars(e.note);
     case "insert": {
       let more = 2 + chars(e.block);
       for (const tag in e.tags) more += 1 + chars(tag);

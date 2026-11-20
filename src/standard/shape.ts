@@ -41,9 +41,15 @@ import {
   layerColorProblem,
   layerNameProblem,
   LEADER_ATTACHMENTS,
+  LEADER_DIRECTIONS,
+  LEADER_SHAFT_KINDS,
+  LEADER_VERTICAL_ATTACHMENTS,
   leaderArrowheadProblem,
   leaderAttachmentProblem,
+  leaderDirectionProblem,
+  leaderShaftKindProblem,
   leaderSizeProblem,
+  leaderVerticalAttachmentProblem,
   lineweightValueProblem,
   linetypeProblem,
   linetypeScaleProblem,
@@ -602,8 +608,30 @@ const LEADER_FIELDS = {
   gap: size(leaderSizeProblem, "The gap between the end of the landing and the note"),
   attachment: {
     node: string({ enum: LEADER_ATTACHMENTS }, leaderAttachmentProblem),
-    description: "Which line of the note the landing meets, at the middle of its capitals",
+    description: "Where the landing meets the side of the note: one of LEADER_ATTACHMENTS",
     default: "first-line",
+  },
+  direction: {
+    node: string({ enum: LEADER_DIRECTIONS }, leaderDirectionProblem),
+    description:
+      'Whether the landing meets the side of the note, "horizontal", or its top or bottom, "vertical"',
+    default: "horizontal",
+  },
+  verticalAttachment: {
+    node: string({ enum: LEADER_VERTICAL_ATTACHMENTS }, leaderVerticalAttachmentProblem),
+    description:
+      'Where the landing meets a note above or below it: "center", or "line" with a line as wide as the note',
+    default: "center",
+  },
+  frame: {
+    node: boolean,
+    description: "True for a frame around each note, one gap outside it",
+    default: false,
+  },
+  shaft: {
+    node: string({ enum: LEADER_SHAFT_KINDS }, leaderShaftKindProblem),
+    description: 'How the shafts run through their points: "straight", or "curved"',
+    default: "straight",
   },
   description,
 } as const satisfies FieldsOf<LeaderStyleFieldsDocument>;

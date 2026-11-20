@@ -12,7 +12,15 @@ import type {
   LeaderArrowhead,
   ZERO_SUPPRESSIONS,
 } from "../arrowheads.ts";
-import type { Drawing, LeaderAttachment, Point, Units } from "../drawing.ts";
+import type {
+  Drawing,
+  LeaderAttachment,
+  LeaderDirection,
+  LeaderShaftKind,
+  LeaderVerticalAttachment,
+  Point,
+  Units,
+} from "../drawing.ts";
 import type { Font } from "../fonts.ts";
 import type { PaperUnit } from "../paper.ts";
 import type { Paper, PlotStyleTable } from "../papers.ts";
@@ -218,6 +226,10 @@ export interface LeaderStyleFieldsDocument extends Commented {
   readonly landing?: number;
   readonly gap?: number;
   readonly attachment?: string;
+  readonly direction?: string;
+  readonly verticalAttachment?: string;
+  readonly frame?: boolean;
+  readonly shaft?: string;
   readonly description?: string;
 }
 
@@ -405,6 +417,10 @@ export interface StandardLeaderStyleFields {
   readonly landing?: number;
   readonly gap?: number;
   readonly attachment?: LeaderAttachment;
+  readonly direction?: LeaderDirection;
+  readonly verticalAttachment?: LeaderVerticalAttachment;
+  readonly frame?: boolean;
+  readonly shaft?: LeaderShaftKind;
   readonly description?: string;
 }
 
@@ -415,6 +431,10 @@ export interface StandardLeaderStyle {
   readonly landing: number;
   readonly gap: number;
   readonly attachment: LeaderAttachment;
+  readonly direction: LeaderDirection;
+  readonly verticalAttachment: LeaderVerticalAttachment;
+  readonly frame: boolean;
+  readonly shaft: LeaderShaftKind;
   readonly discipline?: string;
   readonly description?: string;
   readonly byDiscipline?: { readonly [discipline: string]: StandardLeaderStyleFields };

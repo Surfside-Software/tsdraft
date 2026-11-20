@@ -212,17 +212,21 @@ export function boxer(
     readonly textStyles: ReadonlyMap<string, TextStyle>;
     readonly dimensionStyles: ReadonlyMap<string, DimensionStyle>;
     readonly leaderStyles: ReadonlyMap<string, LeaderStyle>;
+    /** The blocks a leader's content names. */
+    readonly blocks: ReadonlyMap<string, Block>;
   }
   const namesOf = (
     text: readonly TextStyle[] | undefined,
     dimensions: readonly DimensionStyle[] | undefined,
     leaders: readonly LeaderStyle[] | undefined,
+    blocks: readonly Block[] | undefined,
   ): Names => ({
     textStyles: new Map(filled(text).map((t) => [layerKey(t.name), t])),
     dimensionStyles: new Map(filled(dimensions).map((style) => [layerKey(style.name), style])),
     leaderStyles: new Map(filled(leaders).map((style) => [layerKey(style.name), style])),
+    blocks: new Map(filled(blocks).map((block) => [layerKey(block.name), block])),
   });
-  const own = namesOf(textStyles, dimensionStyles, leaderStyles);
+  const own = namesOf(textStyles, dimensionStyles, leaderStyles, blocks);
   // The names of each referenced drawing, worked out when one of its entities is first met.
   const referenced = new Map<Referenced, Names>();
   const byDrawing = new Map<Referenced["drawing"], Names>();
@@ -232,8 +236,8 @@ export function boxer(
     if (!found) {
       found = byDrawing.get(from.drawing);
       if (!found) {
-        const { textStyles, dimensionStyles, leaderStyles } = from.drawing;
-        found = namesOf(textStyles, dimensionStyles, leaderStyles);
+        const { textStyles, dimensionStyles, leaderStyles, blocks } = from.drawing;
+        found = namesOf(textStyles, dimensionStyles, leaderStyles, blocks);
         byDrawing.set(from.drawing, found);
       }
       referenced.set(from, found);
@@ -439,7 +443,7 @@ export function boxer(
     if (style === undefined) return box;
     const named = e.textStyle ?? style.textStyle;
     const textStyle = named === undefined ? undefined : from.textStyles.get(key(named));
-    const picture = leaderPicture(e, style, textStyle);
+    const picture = leaderPicture(e, style, textStyle, (name) => from.blocks.get(key(name)));
     for (const shaft of picture.shafts) for (const p of shaft) add(...p);
     for (const arrowhead of picture.arrowheads) {
       for (const p of arrowhead.filled) add(...p);
@@ -452,20 +456,19 @@ export function boxer(
         add(center[0] + radius, center[1] + radius);
       }
     }
-    for (const p of picture.landing ?? []) add(...p);
-    for (const line of picture.lines) {
-      const text: Text = {
-        kind: "text",
-        layer: e.layer,
-        at: line.at,
-        height: line.height,
-        value: line.value,
-        rotation: 0,
-        ...(line.align === "right" ? { align: "right" as const } : {}),
-        ...(named === undefined ? {} : { style: named }),
-      };
-      shape(text, from, add);
+    for (const p of [...(picture.landing ?? []), ...(picture.farLanding ?? [])]) add(...p);
+    for (const [a, b] of picture.underlines) {
+      add(...a);
+      add(...b);
     }
+    for (const p of picture.frame ?? []) add(...p);
+    for (const p of picture.mask?.corners ?? []) add(...p);
+    // A block in place of the note: the box of its outline, as the picture places it.
+    if (picture.block !== undefined) {
+      add(picture.box[0], picture.box[1]);
+      add(picture.box[2], picture.box[3]);
+    }
+    shape(picture.note, from, add);
     return box;
   };
 

@@ -21,8 +21,8 @@ import type {
   Insert,
   Leader,
   LeaderStyle,
+  Paragraph,
   Point,
-  Text,
   TextStyle,
 } from "./drawing.ts";
 import { written } from "./format.ts";
@@ -241,38 +241,20 @@ export function inspectWithin(
   const repeats = leaderRepeats();
   const notes = new WeakMap<
     Leader,
-    { style: LeaderStyle; textStyle: TextStyle | undefined; texts: Text[]; cost: number }
+    { style: LeaderStyle; textStyle: TextStyle | undefined; texts: Paragraph[]; cost: number }
   >();
-  const noteOf = (
-    leader: Leader,
-    style: LeaderStyle,
-    named: string | undefined,
-    textStyle: TextStyle | undefined,
-  ) => {
+  /** A leader's note, as the paragraph it is laid out as, where its picture holds it. */
+  const noteOf = (leader: Leader, style: LeaderStyle, textStyle: TextStyle | undefined) => {
     const known = notes.get(leader);
     if (known?.style === style && known.textStyle === textStyle) return known;
-    const texts: Text[] = [];
     // A leader that shares its shafts or its note with another is read again, and paid for.
     const again = repeats(leader);
-    if (again > 0 && !walk(again)) return { style, textStyle, texts, cost: 0 };
-    let characters = 0;
-    for (const line of leaderPicture(leader, style, textStyle).lines) {
-      if (line.value.trim() === "") continue;
-      characters += line.value.length;
-      texts.push({
-        kind: "text",
-        layer: leader.layer,
-        at: line.at,
-        height: line.height,
-        value: line.value,
-        rotation: 0,
-        ...(line.align === "right" ? { align: "right" as const } : {}),
-        ...(named === undefined ? {} : { style: named }),
-      });
-    }
-    const note = { style, textStyle, texts, cost: Math.floor((texts.length + characters) / 32) };
-    notes.set(leader, note);
-    return note;
+    if (again > 0 && !walk(again)) return { style, textStyle, texts: [], cost: 0 };
+    const note = leaderPicture(leader, style, textStyle).note;
+    const texts = note.value.trim() === "" ? [] : [note];
+    const result = { style, textStyle, texts, cost: Math.floor(note.value.length / 32) };
+    notes.set(leader, result);
+    return result;
   };
 
   const space = (entities: readonly Entity[], layout?: string, paper?: Box): void => {
@@ -295,7 +277,7 @@ export function inspectWithin(
         if (style === undefined) return;
         const named = drawn.textStyle ?? style.textStyle;
         const textStyle = named === undefined ? undefined : tables.textStyles.get(key(named));
-        const note = noteOf(drawn, style, named, textStyle);
+        const note = noteOf(drawn, style, textStyle);
         // The note is read again for each place it is drawn.
         if (!walk(note.cost)) return;
         for (const text of note.texts) keep(text, index, matrix, from, attribute);

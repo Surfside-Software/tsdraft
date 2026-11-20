@@ -610,9 +610,42 @@
         },
         "attachment": {
           "type": "string",
-          "enum": ["first-line", "last-line"],
-          "description": "Which line of the note the landing meets, at the middle of its capitals",
+          "enum": [
+            "top-of-first",
+            "first-line",
+            "middle",
+            "last-line",
+            "bottom-of-last",
+            "underline-last",
+            "underline-first",
+            "bottom-of-first",
+            "underline-all"
+          ],
+          "description": "Where the landing meets the side of the note: one of LEADER_ATTACHMENTS",
           "default": "first-line"
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["horizontal", "vertical"],
+          "description": "Whether the landing meets the side of the note, \"horizontal\", or its top or bottom, \"vertical\"",
+          "default": "horizontal"
+        },
+        "verticalAttachment": {
+          "type": "string",
+          "enum": ["center", "line"],
+          "description": "Where the landing meets a note above or below it: \"center\", or \"line\" with a line as wide as the note",
+          "default": "center"
+        },
+        "frame": {
+          "type": "boolean",
+          "description": "True for a frame around each note, one gap outside it",
+          "default": false
+        },
+        "shaft": {
+          "type": "string",
+          "enum": ["straight", "curved"],
+          "description": "How the shafts run through their points: \"straight\", or \"curved\"",
+          "default": "straight"
         },
         "description": {
           "type": "string",
@@ -671,8 +704,37 @@
         },
         "attachment": {
           "type": "string",
-          "enum": ["first-line", "last-line"],
-          "description": "Which line of the note the landing meets, at the middle of its capitals"
+          "enum": [
+            "top-of-first",
+            "first-line",
+            "middle",
+            "last-line",
+            "bottom-of-last",
+            "underline-last",
+            "underline-first",
+            "bottom-of-first",
+            "underline-all"
+          ],
+          "description": "Where the landing meets the side of the note: one of LEADER_ATTACHMENTS"
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["horizontal", "vertical"],
+          "description": "Whether the landing meets the side of the note, \"horizontal\", or its top or bottom, \"vertical\""
+        },
+        "verticalAttachment": {
+          "type": "string",
+          "enum": ["center", "line"],
+          "description": "Where the landing meets a note above or below it: \"center\", or \"line\" with a line as wide as the note"
+        },
+        "frame": {
+          "type": "boolean",
+          "description": "True for a frame around each note, one gap outside it"
+        },
+        "shaft": {
+          "type": "string",
+          "enum": ["straight", "curved"],
+          "description": "How the shafts run through their points: \"straight\", or \"curved\""
         },
         "description": {
           "type": "string",

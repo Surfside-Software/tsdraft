@@ -74,7 +74,7 @@ import { fontInfo, STANDARD_FONT, capHeightOf } from "./fonts.ts";
 import { fmt, written } from "./format.ts";
 import { layerKey, layerKeys } from "./layers.ts";
 import { findLayout, validViewportView } from "./layouts.ts";
-import { leaderPicture, type LeaderPicture } from "./leaders.ts";
+import { leaderBlock, leaderPicture, type LeaderPicture } from "./leaders.ts";
 import { builtInLinetype, LINEWEIGHTS, lineweightCode } from "./linetypes.ts";
 import { drawnValue, inStyle, layoutText } from "./measure.ts";
 import {
@@ -526,7 +526,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
   ): LeaderPicture => {
     const known = pictures.get(e);
     if (known?.style === style && known.textStyle === textStyle) return known.picture;
-    const picture = leaderPicture(e, style, textStyle);
+    const picture = leaderPicture(e, style, textStyle, (name) => blocks.get(key(name)));
     pictures.set(e, { style, textStyle, picture });
     return picture;
   };
@@ -709,7 +709,8 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       const named = e.textStyle ?? style?.textStyle;
       const textStyle = named === undefined ? undefined : tables.textStyles.get(key(named));
       const picture = style === undefined ? undefined : pictureOf(e, style, textStyle);
-      return leaderToSvg(e, picture, textStyle, mark, drawnPen, look, matrix, room, sides);
+      const layOut = () => paragraphs.layout(paragraphInStyle(picture!.note, textStyle));
+      return leaderToSvg(e, picture, layOut, mark, drawnPen, look, matrix, room, sides);
     }
     if (e.kind === "image") {
       // One whose fields cannot be drawn, which `lint` refuses, draws nothing.
@@ -818,9 +819,29 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
    * holds is judged entity by entity, unless the insert's own layer is frozen.
    */
   const shownOf = (entities: readonly Entity[]): [number, Entity][] =>
-    [...filled(entities).entries()].filter(([, e]) =>
-      e.kind === "insert" ? !frozen({ name: e.layer }) : !hidden({ name: e.layer }),
-    );
+    [...filled(entities).entries()]
+      .filter(([, e]) =>
+        e.kind === "insert" ? !frozen({ name: e.layer }) : !hidden({ name: e.layer }),
+      )
+      .flatMap(([i, e]): [number, Entity][] => {
+        // A leader whose content is a block draws the block as an insert of it, after itself.
+        const content = e.kind === "leader" ? contentOf(e) : undefined;
+        return content === undefined
+          ? [[i, e]]
+          : [
+              [i, e],
+              [i, content],
+            ];
+      });
+  /** The insert of the block in place of a leader's note, where its picture places it. */
+  const contentOf = (e: Leader): Insert | undefined => {
+    const tables = tablesOf(undefined);
+    const style = tables.leaderStyles.get(key(e.style));
+    if (style === undefined || leaderBlock(e, style) === undefined) return undefined;
+    const named = e.textStyle ?? style.textStyle;
+    const textStyle = named === undefined ? undefined : tables.textStyles.get(key(named));
+    return pictureOf(e, style, textStyle).block;
+  };
 
   /**
    * An element for each entity that is drawn, as `look` draws it, in the space `space` names.
@@ -1302,7 +1323,7 @@ function styled(e: Drawn): Pick<Line, "linetype" | "lineweight"> {
 function leaderToSvg(
   e: Leader,
   picture: LeaderPicture | undefined,
-  textStyle: TextStyle | undefined,
+  layOut: () => ParagraphLayout,
   mark: string,
   pen: Pen,
   look: Look,
@@ -1331,16 +1352,23 @@ function leaderToSvg(
       .map(at)
       .map(([x, y]) => `${fmt(x)},${fmt(y)}`)
       .join(" ");
+  // A mask hides what is drawn before the leader, and none of the leader's own parts.
+  if (picture.mask) {
+    const color = picture.mask.color;
+    const fill = color === undefined ? "#ffffff" : color === 256 ? pen.color : look.color(color);
+    // One in the drawing's background is marked, for a viewer whose background is not white.
+    const background = color === undefined ? ` data-mask="background"` : "";
+    add(
+      () =>
+        `<polygon points="${points(picture.mask!.corners)}" fill="${fill}" stroke="none"${background} data-part="mask"/>`,
+    );
+  }
   for (const shaft of picture.shafts) {
     shape("shaft", { kind: "polyline", layer: e.layer, points: shaft, closed: false });
   }
-  if (picture.landing) {
-    shape("landing", {
-      kind: "line",
-      layer: e.layer,
-      from: picture.landing[0],
-      to: picture.landing[1],
-    });
+  for (const landing of [picture.landing, picture.farLanding]) {
+    if (landing)
+      shape("landing", { kind: "line", layer: e.layer, from: landing[0], to: landing[1] });
   }
   for (const arrowhead of picture.arrowheads) {
     if (arrowhead.filled.length > 0) {
@@ -1362,18 +1390,13 @@ function leaderToSvg(
       );
     }
   }
-  for (const line of picture.lines) {
-    const text: Text = {
-      kind: "text",
-      layer: e.layer,
-      at: line.at,
-      height: line.height,
-      value: line.value,
-      rotation: 0,
-      ...(line.align === "right" ? { align: "right" as const } : {}),
-    };
-    add((left) => entityToSvg(text, `data-part="text"`, pen, look, textStyle, matrix, left));
+  for (const [from, to] of picture.underlines) {
+    shape("underline", { kind: "line", layer: e.layer, from, to });
   }
+  if (picture.frame) {
+    shape("frame", { kind: "polyline", layer: e.layer, points: picture.frame, closed: true });
+  }
+  add((left) => paragraphToSvg(picture.note, layOut, `data-part="text"`, pen, look, matrix, left));
   return `<g ${mark} data-leader="${filled(e.text).map(esc).join("&#10;")}">\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
 }
 

@@ -97,9 +97,9 @@ import {
 
 /**
  * The standard the sheet is drawn to: the built-in one, with layers for the trees and the
- * revision and a leader style for the notes. Its layers give the plan its colors, linetypes and pens, its linetype
- * scale sizes the dashes, and its leader style gives every leader its arrowhead, its landing and
- * the role of its note.
+ * revision. Its layers give the plan its colors, linetypes and pens, its linetype scale sizes the
+ * dashes, and its leader style `notes` gives every leader its arrowhead, its landing and the role
+ * of its note.
  */
 export const standard = defineStandard({
   id: "site-plan-example",
@@ -110,8 +110,6 @@ export const standard = defineStandard({
     "C-ANNO-REVS": { color: 1, pen: "medium", discipline: "C" },
     "C-ANNO-IMAG": { color: 8, pen: "fine", discipline: "C" },
   },
-  leaderStyles: { notes: { role: "note", arrowSize: 1 / 8, landing: 1 / 8, gap: 1 / 16 } },
-  defaultLeaderStyle: "notes",
 });
 
 /**

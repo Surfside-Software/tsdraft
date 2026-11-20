@@ -85,11 +85,185 @@ export function seedFiles(): Uint8Array[] {
     images.insert("LOGO", [0, 10]);
   });
   return [
-    toDXF(sheet),
-    toDXF(kitchen),
-    toDXF(d.build(), { version: "R12" }),
-    toDXF(images.build()),
-  ].map((t) => encoder.encode(t));
+    ...[
+      toDXF(sheet),
+      toDXF(kitchen),
+      toDXF(d.build(), { version: "R12" }),
+      toDXF(images.build()),
+    ].map((t) => encoder.encode(t)),
+    leaderFile(),
+  ];
+}
+
+type Pair = readonly [code: number, value: string | number];
+
+/** A multileader's record, with a note or a block, from its roots: each a list of shafts. */
+function multileaderRecord(
+  handle: string,
+  roots: readonly (readonly (readonly Pair[])[])[],
+  options: { block?: boolean; shaft?: number; labels?: readonly string[] },
+): Pair[] {
+  const out: Pair[] = [
+    [0, "MULTILEADER"],
+    [5, handle],
+    [8, "0"],
+    [100, "AcDbMLeader"],
+  ];
+  out.push([270, 2], [300, "CONTEXT_DATA{"], [40, 1], [10, 5], [20, 5], [30, 0], [41, 0.18]);
+  out.push([140, 0.18], [145, 0.09], [174, 1], [175, 1], [176, 0], [177, 0]);
+  if (options.block) {
+    out.push([290, 0], [296, 1], [341, "1F"], [14, 0], [24, 0], [34, 1], [15, 6], [25, 5]);
+    out.push([35, 0], [16, 2], [26, 2], [36, 2], [46, 0.5], [93, -1056964608]);
+    for (let i = 0; i < 16; i++) out.push([47, i % 5 === 0 ? 1 : 0]);
+  } else {
+    out.push([290, 1], [304, "NOTE\\PTWO"], [11, 0], [21, 0], [31, 1], [340, "11"]);
+    out.push([12, 6], [22, 5], [32, 0], [13, 1], [23, 0], [33, 0], [42, 0], [43, 2], [44, 0]);
+    out.push([45, 1], [170, 1], [90, -1073741824], [171, 1], [172, 5], [91, -1023410175]);
+    out.push([141, 1.5], [92, 0], [291, 0], [292, 1], [293, 0], [294, 0], [296, 0]);
+  }
+  out.push([110, 0], [120, 0], [130, 0], [111, 1], [121, 0], [131, 0], [112, 0], [122, 1]);
+  out.push([132, 0], [297, 0]);
+  roots.forEach((lines, r) => {
+    out.push([302, "LEADER{"], [290, 1], [291, 1], [10, 5 - r], [20, 5], [30, 0], [11, 1]);
+    out.push([21, 0], [31, 0], [90, 0], [40, 0.36]);
+    lines.forEach((points, l) => out.push([304, "LEADER_LINE{"], ...points, [91, l], [305, "}"]));
+    out.push([271, 0], [303, "}"]);
+  });
+  out.push([272, 9], [273, 9], [301, "}"], [340, "12"], [90, 6816768], [170, options.shaft ?? 1]);
+  out.push([91, -1056964608], [341, "14"], [171, -2], [290, 1], [291, 1], [41, 0.36], [42, 0.18]);
+  out.push([172, options.block ? 1 : 2], [343, "11"], [173, 1], [95, 1], [174, 1], [175, 0]);
+  out.push([92, -1056964608], [292, 1], [344, "1F"], [93, -1056964608], [10, 1], [20, 1]);
+  out.push([30, 1], [43, 0], [176, 0], [293, 0]);
+  (options.labels ?? []).forEach((definition, i) =>
+    out.push([330, definition], [177, i], [44, 0], [302, `V${i}`]),
+  );
+  out.push([294, 0], [178, 0], [179, 1], [45, 1], [271, 1], [272, 9], [273, 9], [295, 0]);
+  return out;
+}
+
+/** An old leader's record through `points`, with its note's handle unless it has none. */
+const leaderRecord = (handle: string, points: number, more: readonly Pair[]): Pair[] => [
+  [0, "LEADER"],
+  [5, handle],
+  [8, "0"],
+  [100, "AcDbLeader"],
+  [3, "Standard"],
+  ...more,
+  [76, points],
+  ...Array.from({ length: points }, (_, i): Pair[] => [
+    [10, i],
+    [20, i % 2],
+    [30, 0],
+  ]).flat(),
+];
+
+/**
+ * A file of multileaders of many roots, shafts and points, one whose block has labels, of more
+ * definitions than a read keeps among them, and old leaders, one of many points and one in 3D.
+ */
+function leaderFile(): Uint8Array {
+  const shaft = (n: number): Pair[] =>
+    Array.from({ length: n }, (_, i): Pair[] => [
+      [10, i],
+      [20, i],
+      [30, 0],
+    ]).flat();
+  const roots = (r: number, l: number, n: number) =>
+    Array.from({ length: r }, () => Array.from({ length: l }, () => shaft(n)));
+  const labels = [
+    "2A",
+    ...Array.from({ length: 1200 }, (_, i) => (0x1000 + i).toString(16)),
+    "2B",
+    "2A",
+    "0",
+    "zz",
+  ];
+  const groups: Pair[] = [
+    ...([
+      [0, "SECTION"],
+      [2, "HEADER"],
+      [9, "$ACADVER"],
+      [1, "AC1032"],
+      [0, "ENDSEC"],
+    ] as Pair[]),
+    ...([
+      [0, "SECTION"],
+      [2, "TABLES"],
+      [0, "TABLE"],
+      [2, "BLOCK_RECORD"],
+    ] as Pair[]),
+    ...([
+      [0, "BLOCK_RECORD"],
+      [5, "1F"],
+      [2, "TAG"],
+      [0, "ENDTAB"],
+      [0, "ENDSEC"],
+    ] as Pair[]),
+    ...([
+      [0, "SECTION"],
+      [2, "BLOCKS"],
+      [0, "BLOCK"],
+      [5, "20"],
+      [330, "1F"],
+      [8, "0"],
+    ] as Pair[]),
+    ...([
+      [2, "TAG"],
+      [70, 2],
+      [10, 0],
+      [20, 0],
+    ] as Pair[]),
+    ...(["2A", "2B"].flatMap((h, i) => [
+      [0, "ATTDEF"],
+      [5, h],
+      [330, "1F"],
+      [8, "0"],
+      [10, 0],
+      [20, i],
+      [40, 0.1],
+      [1, "1"],
+      [3, "Prompt"],
+      [2, `T${i}`],
+      [70, 0],
+    ]) as Pair[]),
+    ...([
+      [0, "ENDBLK"],
+      [5, "21"],
+      [330, "1F"],
+      [8, "0"],
+      [0, "ENDSEC"],
+    ] as Pair[]),
+    ...([
+      [0, "SECTION"],
+      [2, "ENTITIES"],
+    ] as Pair[]),
+    ...multileaderRecord("40", roots(3, 4, 6), { shaft: 2 }),
+    ...multileaderRecord("41", roots(2, 1, 2), { block: true, labels }),
+    ...multileaderRecord("42", [], { shaft: 0 }),
+    ...multileaderRecord("43", [[]], {}),
+    ...multileaderRecord("44", roots(50, 10, 40), { block: true, labels: ["2A"] }),
+    ...leaderRecord("50", 3, [
+      [71, 0],
+      [72, 1],
+      [73, 0],
+      [340, "40"],
+    ]),
+    ...leaderRecord("51", 5000, []),
+    ...leaderRecord("52", 2, [
+      [73, 0],
+      [340, "41"],
+      [210, 1],
+      [220, 0],
+      [230, 0],
+    ]),
+    ...([
+      [0, "ENDSEC"],
+      [0, "EOF"],
+    ] as Pair[]),
+  ];
+  return encoder.encode(
+    groups.map(([code, value]) => `${String(code).padStart(3)}\r\n${value}\r\n`).join(""),
+  );
 }
 
 const NUMBERS = ["0", "1", "-1", "4294967295", "1e308", "-1e308", "1e999", "NaN", "", "1.#QNAN"];
@@ -132,7 +306,7 @@ export function mutate(bytes: Uint8Array, next: () => number): Uint8Array {
     const at = index(groups.length);
     const group = groups[at];
     if (!group) break;
-    switch (index(11)) {
+    switch (index(12)) {
       case 0: {
         // Codes swapped.
         const other = groups[index(groups.length)]!;
@@ -195,8 +369,21 @@ export function mutate(bytes: Uint8Array, next: () => number): Uint8Array {
             73,
             90,
             102,
+            76,
+            170,
+            172,
+            177,
+            290,
+            296,
+            300,
+            301,
+            302,
+            303,
+            304,
+            305,
             330,
             340,
+            341,
             360,
             1001,
             index(1100),
@@ -219,6 +406,7 @@ export function mutate(bytes: Uint8Array, next: () => number): Uint8Array {
             "MTEXT",
             "DIMENSION",
             "MULTILEADER",
+            "LEADER",
             "SECTION",
             "ENDSEC",
             "BLOCK",
@@ -242,6 +430,19 @@ export function mutate(bytes: Uint8Array, next: () => number): Uint8Array {
         // A handle given to two records.
         const handles = groups.filter(([code]) => code.trim() === "5");
         if (handles.length > 1) pick(handles)[1] = pick(handles)[1];
+        break;
+      }
+      case 11: {
+        // A run of a record's groups repeated, such as a multileader's roots, shafts, points or
+        // labels, up to a million groups in all.
+        const [from, to] = record();
+        const start = from + index(to - from);
+        const end = start + 1 + index(Math.min(40, to - start));
+        const copies = Math.min(1 + index(2000), Math.floor(1e6 / (end - start)));
+        const run = groups.slice(start, end);
+        const after = groups.splice(end);
+        for (let k = 0; k < copies; k++) for (const g of run) groups.push([...g]);
+        for (const g of after) groups.push(g);
         break;
       }
     }

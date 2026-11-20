@@ -22,6 +22,7 @@ import {
   type Layout,
   type LeaderStyle,
   type Linetype,
+  type Leader,
   type Polyline,
   type TextStyle,
   type Viewport,
@@ -34,12 +35,15 @@ const justified = { style: "NOTES", align: "center", valign: "middle" } as const
 
 /**
  * Each kind of entity with every field it can have: a field left out is a compile error. A
- * polyline has a width or widths for each side, and `wide` has the other.
+ * polyline has a width or widths for each side, and `wide` has the other. A leader has a note,
+ * and `keyed` a block in its place.
  */
 const kinds: {
   readonly [K in Entity["kind"]]: K extends "polyline"
     ? Required<Omit<Polyline, "width">>
-    : Required<Extract<Entity, { kind: K }>>;
+    : K extends "leader"
+      ? Required<Omit<Leader, "block" | "attributes">>
+      : Required<Extract<Entity, { kind: K }>>;
 } = {
   line: { kind: "line", layer: "WALL", from: [0, 0], to: [10, 0], id: "a", ...styled },
   polyline: {
@@ -147,6 +151,12 @@ const kinds: {
     ],
     side: "right",
     attachment: "last-line",
+    verticalAttachment: "line",
+    width: 2,
+    frame: true,
+    mask: { color: 1, offsetFactor: 1.25 },
+    shaft: "curved",
+    farShafts: [[[45, 5]]],
     textStyle: "NOTES",
     textHeight: 0.08,
     arrowSize: 0.05,
@@ -219,6 +229,35 @@ const wide: Required<Omit<Polyline, "widths">> = {
   width: 0.25,
   id: "j",
   ...styled,
+};
+
+const keyed: Required<
+  Omit<
+    Leader,
+    | "text"
+    | "attachment"
+    | "verticalAttachment"
+    | "width"
+    | "frame"
+    | "mask"
+    | "textStyle"
+    | "textHeight"
+  >
+> = {
+  kind: "leader",
+  layer: "0",
+  style: "NOTE",
+  block: "TREE",
+  attributes: { TAG: "T-2" },
+  at: [60, 10],
+  shafts: [[[55, 5]]],
+  side: "right",
+  shaft: "straight",
+  farShafts: [[[65, 5]]],
+  arrowSize: 0.05,
+  landing: 0.1,
+  gap: 0.02,
+  id: "keyed",
 };
 
 /** One of everything an R2018 drawing can hold, with every field of every object. */
@@ -309,6 +348,13 @@ const full: Required<Drawing> & {
       landing: 0.1,
       gap: 0.05,
       attachment: "first-line",
+      direction: "vertical",
+      verticalAttachment: "line",
+      frame: true,
+      shaft: "curved",
+      block: "TREE",
+      blockConnection: "insertion",
+      blockScale: 2,
       scale: 10,
     },
   ],
@@ -353,6 +399,7 @@ const full: Required<Drawing> & {
     ...Object.values(kinds),
     { kind: "insert", layer: "0", block: "BASE", at: [0, 0] },
     wide,
+    keyed,
   ],
   layouts: [
     {

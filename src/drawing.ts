@@ -120,6 +120,7 @@ import {
   textStyleProblem,
   undefinedAttributeProblem,
   undefinedBlockProblem,
+  leaderBlockContentProblem,
   undefinedDimensionStyleProblem,
   undefinedDimensionTextStyleProblem,
   undefinedLeaderStyleProblem,
@@ -204,7 +205,11 @@ import {
   type PARAGRAPH_ALIGNS,
   type PARAGRAPH_VERTICAL_ALIGNS,
   type LEADER_ATTACHMENTS,
+  type LEADER_DIRECTIONS,
+  type LEADER_BLOCK_CONNECTIONS,
+  type LEADER_SHAFT_KINDS,
   type LEADER_SIDES,
+  type LEADER_VERTICAL_ATTACHMENTS,
 } from "./rules.ts";
 import type {
   Standard,
@@ -620,11 +625,27 @@ export interface JoggedRadiusDimension extends RadialDimensionBase {
 /** Which side of the point where its shafts meet a leader's note is on. */
 export type LeaderSide = (typeof LEADER_SIDES)[number];
 
-/**
- * Which line of a leader's note its landing meets, at the middle of that line's capitals: the
- * first, which is the leading CAD app's own choice, or the last.
- */
+/** Where a leader's landing meets the side of its note: one of `LEADER_ATTACHMENTS`. */
 export type LeaderAttachment = (typeof LEADER_ATTACHMENTS)[number];
+
+/** Whether a leader style's landings meet the side of its notes or their top or bottom. */
+export type LeaderDirection = (typeof LEADER_DIRECTIONS)[number];
+
+/** How a leader's shafts run through their points: straight, or as a curve. */
+export type LeaderShaftKind = (typeof LEADER_SHAFT_KINDS)[number];
+
+/** How a block in place of a leader's note meets its landing. */
+export type LeaderBlockConnection = (typeof LEADER_BLOCK_CONNECTIONS)[number];
+
+/** Where a landing meets a note above or below it: at its middle, or with a line as wide as it. */
+export type LeaderVerticalAttachment = (typeof LEADER_VERTICAL_ATTACHMENTS)[number];
+
+/**
+ * A mask behind a leader's note, which hides what is drawn before the leader there: `true` for
+ * the drawing's background, or a color index of its own, over the note's box grown by
+ * `offsetFactor` times its text height less one, 1.5 unless given.
+ */
+export type LeaderMask = boolean | { readonly color?: number; readonly offsetFactor?: number };
 
 /**
  * A leader: a note joined to what it names by one or more shafts. The leading CAD app holds it as
@@ -637,8 +658,15 @@ export interface Leader extends Placed {
   readonly kind: "leader";
   /** A leader style of the drawing. */
   readonly style: string;
-  /** The lines of the note, from the top. */
-  readonly text: readonly string[];
+  /**
+   * The paragraphs of the note, from the top. Each is one line unless `width` wraps it. A leader
+   * whose content is a block has none.
+   */
+  readonly text?: readonly string[];
+  /** A block of the drawing in place of the note. Defaults to its style's. */
+  readonly block?: string;
+  /** The value of each attribute of the block, by its tag, where it is not its definition's. */
+  readonly attributes?: Readonly<Record<string, string>>;
   /** Where the shafts meet and the landing starts. */
   readonly at: Point;
   /**
@@ -647,12 +675,29 @@ export interface Leader extends Placed {
    */
   readonly shafts: readonly (readonly Point[])[];
   /**
-   * Which side of `at` the note is on. Defaults to the side away from the first shaft: right
-   * when `at` is not to the left of the shaft's last point before it, its last bend or its tip.
+   * Which side of `at` the note is on. Defaults to the side away from the first shaft: in a style
+   * whose `direction` is horizontal, right when `at` is not to the left of the shaft's last point
+   * before it, its last bend or its tip, and in a vertical one above when `at` is not below it.
+   * Above or below, the landing meets the note at its bottom or top.
    */
   readonly side?: LeaderSide;
-  /** Which line of the note the landing meets. Defaults to its style's. */
+  /** Where the landing meets the side of the note. Defaults to its style's. */
   readonly attachment?: LeaderAttachment;
+  /** Where the landing meets a note above or below it. Defaults to its style's. */
+  readonly verticalAttachment?: LeaderVerticalAttachment;
+  /** The width the note wraps at, in the same units as its sizes: times its style's scale. */
+  readonly width?: number;
+  /** True for a frame around the note. Defaults to its style's. */
+  readonly frame?: boolean;
+  /** A mask behind the note. */
+  readonly mask?: LeaderMask;
+  /** How its shafts run through their points. Defaults to its style's. */
+  readonly shaft?: LeaderShaftKind;
+  /**
+   * The shafts of a second root, on the note's far side: each its tip, then each point it bends
+   * at on its way to that root, whose point is worked out from the note.
+   */
+  readonly farShafts?: readonly (readonly Point[])[];
   /** The leader's own text style, in place of its style's. */
   readonly textStyle?: string;
   /** The leader's own sizes, in place of its style's, in the same units: each times its scale. */
@@ -723,7 +768,7 @@ export type Entity =
  * another scale.
  *
  * tsdraft draws every leader the same way where a style has no choice: straight shafts, a level
- * landing, and a note of lines that do not wrap, set `lineSpacing` apart.
+ * landing, and a note laid out as paragraph text, its lines spaced at least as far as they need.
  */
 export interface LeaderStyle {
   readonly name: string;
@@ -739,8 +784,28 @@ export interface LeaderStyle {
   readonly landing: number;
   /** The gap between the end of the landing and the note. */
   readonly gap: number;
-  /** Which line of the note the landing meets. Defaults to `"first-line"`. */
+  /** Where the landing meets the side of the note. Defaults to `"first-line"`. */
   readonly attachment?: LeaderAttachment;
+  /**
+   * Whether the landing meets the side of the note, `"horizontal"`, the default, or its top or
+   * bottom, `"vertical"`, which also sets the side a leader's note takes by default.
+   */
+  readonly direction?: LeaderDirection;
+  /** Where the landing meets a note above or below it. Defaults to `"center"`. */
+  readonly verticalAttachment?: LeaderVerticalAttachment;
+  /** True for a frame around each note, one gap outside it. Defaults to false. */
+  readonly frame?: boolean;
+  /** How its leaders' shafts run through their points: `"straight"`, the default, or `"curved"`. */
+  readonly shaft?: LeaderShaftKind;
+  /** A block of the drawing its leaders hold in place of a note. */
+  readonly block?: string;
+  /**
+   * How a block meets the landing: by its extents, `"extents"`, the default, or by its outline on
+   * the line through its insertion point, `"insertion"`.
+   */
+  readonly blockConnection?: LeaderBlockConnection;
+  /** What the block is scaled by, times `scale`. Defaults to 1. */
+  readonly blockScale?: number;
   /**
    * What every size of the style is multiplied by: how many units of the leader's space one
    * unit of the sizes is. Defaults to 1.
@@ -1828,8 +1893,22 @@ export interface LeaderStyleDefinition<
   readonly landing: LeaderSize<L>;
   /** The gap between the end of the landing and the note. */
   readonly gap: LeaderSize<G>;
-  /** Which line of the note the landing meets. Defaults to `"first-line"`. */
+  /** Where the landing meets the side of the note. Defaults to `"first-line"`. */
   readonly attachment?: LeaderAttachment;
+  /** `"horizontal"`, the default, or `"vertical"`: the landing meets the note's top or bottom. */
+  readonly direction?: LeaderDirection;
+  /** Where the landing meets a note above or below it. Defaults to `"center"`. */
+  readonly verticalAttachment?: LeaderVerticalAttachment;
+  /** True for a frame around each note, one gap outside it. Defaults to false. */
+  readonly frame?: boolean;
+  /** `"straight"`, the default, or `"curved"`: a curve through the tip, each bend and the landing. */
+  readonly shaft?: LeaderShaftKind;
+  /** A block of the drawing its leaders hold in place of a note, as `{ block }` gives one. */
+  readonly block?: string;
+  /** `"extents"`, the default, or `"insertion"`: how a block meets the landing. */
+  readonly blockConnection?: LeaderBlockConnection;
+  /** What the block is scaled by, times `scale`, greater than 0. Defaults to 1. */
+  readonly blockScale?: number;
   /** What every size is multiplied by, greater than 0. Defaults to 1. */
   readonly scale?: LeaderScale<SC>;
 }
@@ -1840,6 +1919,15 @@ export interface LeaderStyleDefinition<
  */
 export type LeaderTargets = Point | readonly (Point | readonly Point[])[];
 
+/**
+ * A block of the drawing in place of a leader's note, and the value of each of its attributes
+ * that is not its definition's, by its tag. The note's own options, such as `width`, do not apply.
+ */
+export interface LeaderBlockContent {
+  readonly block: string;
+  readonly attributes?: Readonly<Record<string, string>>;
+}
+
 /** What every leader is drawn with: where its shafts meet, what they point to and how. */
 interface LeaderPlacement<TO extends LeaderTargets = LeaderTargets> {
   /** Where the shafts meet and the landing starts. */
@@ -1848,11 +1936,25 @@ interface LeaderPlacement<TO extends LeaderTargets = LeaderTargets> {
   readonly to: LeaderTargetsOf<TO>;
   /**
    * Which side of `at` the note is on. Defaults to the side away from the first shaft: right when
-   * `at` is not to the left of the shaft's last point before it.
+   * `at` is not to the left of the shaft's last point before it, or in a vertical style above
+   * when `at` is not below it.
    */
   readonly side?: LeaderSide;
-  /** Which line of the note the landing meets. Defaults to its style's. */
+  /** Where the landing meets the side of the note. Defaults to its style's. */
   readonly attachment?: LeaderAttachment;
+  /** Where the landing meets a note above or below it. Defaults to its style's. */
+  readonly verticalAttachment?: LeaderVerticalAttachment;
+  /** True for a frame around the note. Defaults to its style's. */
+  readonly frame?: boolean;
+  /** A mask behind the note: `true` for the drawing's background, or `{ color, offsetFactor }`. */
+  readonly mask?: LeaderMask;
+  /** How its shafts run through their points. Defaults to its style's. */
+  readonly shaft?: LeaderShaftKind;
+  /**
+   * The shafts of a second root on the note's far side, as `to` gives shafts: its point is worked
+   * out from the note, on its other side, or above or below it.
+   */
+  readonly toFarSide?: LeaderTargets;
 }
 
 /** The options of `leader()`. Each size of its own replaces its style's, and is multiplied by the style's scale. */
@@ -1865,9 +1967,12 @@ export interface LeaderOptions<
   L extends number = number,
   G extends number = number,
   TO extends LeaderTargets = LeaderTargets,
+  W extends number = number,
 > extends LeaderPlacement<TO> {
   /** A leader style of the drawing. */
   readonly style: LeaderStyleName<S>;
+  /** The width the note wraps at, greater than 0, in place of none: times the style's scale. */
+  readonly width?: Positive<W>;
   /** A text style of the drawing for the note, in place of its style's. */
   readonly textStyle?: TextStyleName<TS>;
   /** The height of the note's capitals, in place of its style's. */
@@ -1901,9 +2006,12 @@ export interface StandardLeaderOptions<
   L extends number = number,
   G extends number = number,
   TO extends LeaderTargets = LeaderTargets,
+  W extends number = number,
 > extends LeaderPlacement<TO> {
   /** A leader style of the standard, by its id. Defaults to its `defaultLeaderStyle`. */
   readonly style?: LeaderStyleOfStandard<S, Z>;
+  /** The width the note wraps at on paper, greater than 0. */
+  readonly width?: Positive<W>;
   /** In model space, the view the leader is read in, which `view()` returns. */
   readonly view?: View;
   /** A text role of the standard for the note, in place of its style's. */
@@ -3926,6 +4034,23 @@ export class DrawingBuilder<
       landing: definition.landing,
       gap: definition.gap,
       ...(attachment === "first-line" ? {} : { attachment }),
+      ...(definition.direction === undefined || definition.direction === "horizontal"
+        ? {}
+        : { direction: definition.direction }),
+      ...(definition.verticalAttachment === undefined || definition.verticalAttachment === "center"
+        ? {}
+        : { verticalAttachment: definition.verticalAttachment }),
+      ...(definition.frame === true ? { frame: true } : {}),
+      ...(definition.shaft === undefined || definition.shaft === "straight"
+        ? {}
+        : { shaft: definition.shaft }),
+      ...(definition.block === undefined ? {} : { block: definition.block }),
+      ...(definition.blockConnection === undefined || definition.blockConnection === "extents"
+        ? {}
+        : { blockConnection: definition.blockConnection }),
+      ...(definition.blockScale === undefined || definition.blockScale === 1
+        ? {}
+        : { blockScale: definition.blockScale }),
       ...(scale === 1 ? {} : { scale }),
     });
     this.#leaderStylesAudited.set(layerAuditKey(named), named);
@@ -3953,13 +4078,14 @@ export class DrawingBuilder<
     G extends number = number,
     R extends string = string,
     TO extends LeaderTargets = LeaderTargets,
+    W extends number = number,
   >(
-    text: LeaderText<T>,
+    text: LeaderText<T> | LeaderBlockContent,
     options: Z extends Standard
-      ? StandardLeaderOptions<S, I, R, Z, AS, L, G, TO>
+      ? StandardLeaderOptions<S, I, R, Z, AS, L, G, TO, W>
       : V extends "R12"
         ? R12Leaders
-        : LeaderOptions<S, I, TS, H, AS, L, G, TO>,
+        : LeaderOptions<S, I, TS, H, AS, L, G, TO, W>,
   ): this {
     return this.#add(DrawingBuilder.prototype.leader, idOf(options), () =>
       this.#leader(text as unknown, options as unknown),
@@ -3971,9 +4097,34 @@ export class DrawingBuilder<
     if (this.dxf === "R12") refuse("leader", R12_ONLY.leaders);
     if (this.#open) refuse("leader", LEADER_IN_BLOCK);
     const o = (typeof given === "object" && given !== null ? given : {}) as Record<string, unknown>;
+    // A block in place of the note: `{ block, attributes }`.
+    const content =
+      typeof text === "object" && text !== null && !Array.isArray(text)
+        ? (text as { readonly block?: unknown; readonly attributes?: unknown })
+        : undefined;
     const lines: unknown = typeof text === "string" ? [text] : text;
-    const textProblem = leaderTextProblem(lines);
-    if (textProblem) refuse("leader", textProblem);
+    if (content === undefined) {
+      const textProblem = leaderTextProblem(lines);
+      if (textProblem) refuse("leader", textProblem);
+    } else {
+      if (typeof content.block !== "string")
+        refuse("undefined-block", "a block is named by a string");
+      const placed = this.#blocks.get(layerKey(content.block as string));
+      if (placed === undefined) {
+        refuse(
+          "undefined-block",
+          `${undefinedBlockProblem(content.block as string)}. Define it with block() first`,
+        );
+      }
+      const problem = leaderBlockContentProblem({ ...o, attributes: content.attributes });
+      if (problem) refuse("leader", problem);
+      // Each value names an attribute of the block, as an insert's does.
+      const tags = new Set((placed!.attributes ?? []).map((d) => d.tag));
+      for (const tag of Object.keys((content.attributes as object | undefined) ?? {})) {
+        if (!tags.has(tag))
+          refuse("undefined-attribute", undefinedAttributeProblem(tag, placed!.name));
+      }
+    }
     // Its point and its shafts first: under a standard, finding its style defines the style.
     const at = o.at;
     if (
@@ -3987,6 +4138,8 @@ export class DrawingBuilder<
     const shafts = shaftsOf(o.to);
     const shaftProblem = leaderShaftsProblem(shafts, point);
     if (shaftProblem) refuse("leader", shaftProblem);
+    // The far root's point is the note's, so its shafts are checked as a leader's once it is made.
+    const far = o.toFarSide === undefined ? undefined : shaftsOf(o.toFarSide);
     let style: LeaderStyle;
     let own: Partial<Pick<Leader, "textStyle" | "textHeight">> = {};
     if (this.#standard) {
@@ -4025,22 +4178,41 @@ export class DrawingBuilder<
       kind: "leader",
       layer: this.#current,
       style: style.name,
-      text: [...(lines as readonly string[])],
+      ...(content === undefined
+        ? { text: [...(lines as readonly string[])] }
+        : {
+            block: this.#blocks.get(layerKey(content.block as string))!.name,
+            ...(content.attributes === undefined
+              ? {}
+              : { attributes: { ...(content.attributes as Record<string, string>) } }),
+          }),
       at: point,
       shafts: (shafts as readonly (readonly Point[])[]).map((shaft) => shaft.map(pt)),
       ...(o.side === undefined ? {} : { side: o.side as LeaderSide }),
       ...(o.attachment === undefined ? {} : { attachment: o.attachment as LeaderAttachment }),
+      ...(o.verticalAttachment === undefined
+        ? {}
+        : { verticalAttachment: o.verticalAttachment as LeaderVerticalAttachment }),
       ...own,
       ...(o.arrowSize === undefined ? {} : { arrowSize: o.arrowSize as number }),
       ...(o.landing === undefined ? {} : { landing: o.landing as number }),
       ...(o.gap === undefined ? {} : { gap: o.gap as number }),
+      ...(o.width === undefined ? {} : { width: o.width as number }),
+      ...(o.frame === undefined ? {} : { frame: o.frame as boolean }),
+      ...(o.mask === undefined ? {} : { mask: o.mask as LeaderMask }),
+      ...(o.shaft === undefined ? {} : { shaft: o.shaft as LeaderShaftKind }),
+      ...(far === undefined
+        ? {}
+        : { farShafts: (far as readonly (readonly Point[])[]).map((shaft) => shaft.map(pt)) }),
     };
     const ownProblem = leaderOwnProblem(made, written(style.scale ?? 1));
     if (ownProblem) refuse("leader", ownProblem);
     const styleName = made.textStyle ?? style.textStyle;
     const textStyle =
       styleName === undefined ? undefined : this.#textStyles.get(layerKey(styleName));
-    const drawn = leaderDrawnProblem(made, style, textStyle);
+    const drawn = leaderDrawnProblem(made, style, textStyle, (name) =>
+      this.#blocks.get(layerKey(name)),
+    );
     if (drawn) refuse("leader", drawn);
     return made;
   }
@@ -4090,6 +4262,10 @@ export class DrawingBuilder<
       landing: fields.landing,
       gap: fields.gap,
       attachment: fields.attachment,
+      direction: fields.direction,
+      verticalAttachment: fields.verticalAttachment,
+      frame: fields.frame,
+      shaft: fields.shaft,
       scale,
     });
     return this.#leaderStyles.get(layerKey(name))!;

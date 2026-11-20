@@ -23,13 +23,14 @@ const architectural = (id: string, label: string, inches: number) =>
 
 export const BUILT_IN_DOCUMENT = {
   id: "tsdraft",
-  version: "2",
+  version: "3",
   paperUnits: "in",
   minTextHeight: 0.0625,
   linetypeScale: 0.5,
   plotStyle: "monochrome.ctb",
   defaultSheetFormat: "arch-d",
   defaultDimensionStyle: "dims",
+  defaultLeaderStyle: "notes",
   disciplines: {
     G: { title: "General" },
     C: { title: "Civil" },
@@ -131,6 +132,18 @@ export const BUILT_IN_DOCUMENT = {
         mm: { precision: 0 },
       },
       description: "Closed filled arrows, with the text centered in a break of the line",
+    },
+  },
+  leaderStyles: {
+    notes: {
+      role: "note",
+      arrowhead: "closed-filled",
+      arrowSize: 0.125,
+      landing: 0.125,
+      gap: 0.0625,
+      attachment: "first-line",
+      description:
+        "Notes in the note role, a closed filled arrow, the landing meeting the first line",
     },
   },
   titleBlocks: {
