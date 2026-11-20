@@ -10,6 +10,7 @@ import {
   arrowheadInfo,
   DEFAULT_ARROWHEAD,
   DEFAULT_LEADER_ARROWHEAD,
+  DIMENSION_ANGLE_UNITS,
   JOG_ANGLE,
   leaderArrowheadInfo,
   type LeaderArrowheadStroke,
@@ -1214,6 +1215,8 @@ function writeDimensionStyle(g: Group, style: DimensionStyle, textStyle: string)
         ? 0
         : ZERO_SUPPRESSION_CODES[style.suppressZeros],
   ); // DIMZIN
+  const angleZeros = style.suppressAngleZeros;
+  if (angleZeros !== undefined) g(79, ANGLE_ZERO_CODES[angleZeros]); // DIMAZIN
   g(140, style.textHeight); // DIMTXT
   g(144, style.measurementScale ?? 1); // DIMLFAC
   if (style.fractionScale !== undefined) g(146, style.fractionScale); // DIMTFAC
@@ -1222,7 +1225,10 @@ function writeDimensionStyle(g: Group, style: DimensionStyle, textStyle: string)
   const leader = style.textFit === "leader";
   // DIMTIX: the text between the extension lines whatever fits, or moved out where it does not.
   g(174, leader ? 0 : 1);
+  if ((style.anglePrecision ?? 0) !== 0) g(179, style.anglePrecision!); // DIMADEC
   g(271, style.precision); // DIMDEC
+  const angleUnits = style.angleUnits ?? "degrees";
+  if (angleUnits !== "degrees") g(275, DIMENSION_ANGLE_UNITS.indexOf(angleUnits)); // DIMAUNIT
   // DIMFRAC: stacked across, stacked diagonally, or on the line, as 1 7/16.
   if (architectural) g(276, FRACTION_CODES[style.fraction ?? "inline"]);
   g(277, architectural ? 4 : 2); // DIMLUNIT: architectural or decimal
@@ -1233,6 +1239,9 @@ function writeDimensionStyle(g: Group, style: DimensionStyle, textStyle: string)
   if (style.dimensionLineweight !== undefined) g(371, Math.round(style.dimensionLineweight * 100)); // DIMLWD
   if (style.extensionLineweight !== undefined) g(372, Math.round(style.extensionLineweight * 100)); // DIMLWE
 }
+
+/** `DIMAZIN` for the zeros an angle leaves out. */
+const ANGLE_ZERO_CODES = { leading: 1, trailing: 2, both: 3 } as const;
 
 /** `DIMFRAC` for each way a style writes a fraction of an inch. */
 const FRACTION_CODES = { stacked: 0, diagonal: 1, inline: 2 } as const;
@@ -1252,7 +1261,13 @@ function writeDimension(
   drawn: DimensionPicture | undefined,
 ): void {
   // `lint` refuses a dimension in a style the drawing does not have, which has no picture.
-  const at = isRadial(e) ? e.center : e.kind === "linear-dimension" ? e.line : e.to;
+  const at = isRadial(e)
+    ? e.center
+    : e.kind === "linear-dimension"
+      ? e.line
+      : e.kind === "angular-dimension"
+        ? e.at
+        : e.to;
   const picture = drawn ?? { definitionPoint: at, textPoint: at };
   const jogged = e.kind === "jogged-radius-dimension";
   g(0, jogged ? "LARGE_RADIAL_DIMENSION" : "DIMENSION");
@@ -1275,6 +1290,13 @@ function writeDimension(
   // itself, and keeps the picture the file holds.
   if (style) g(42, measurementValue(e, style));
   g(3, style?.name ?? e.style);
+  if (e.kind === "angular-dimension") {
+    g(100, "AcDb3PointAngularDimension");
+    point(g, 13, ...e.from);
+    point(g, 14, ...e.to);
+    point(g, 15, ...e.vertex);
+    return;
+  }
   if (isRadial(e)) {
     if (e.kind === "jogged-radius-dimension") {
       g(100, "AcDbRadialDimensionLarge");
@@ -1341,6 +1363,7 @@ const DIMENSION_TYPES = {
   "diameter-dimension": 3,
   "radius-dimension": 4,
   "jogged-radius-dimension": 9,
+  "angular-dimension": 5,
 } as const;
 
 /** The block of a dimension's picture, with what the writer needs for it. */
@@ -1401,6 +1424,14 @@ function writePicture(g: Group, { name, picture, handles, layer, textStyle }: Pi
         point(g, 10, ...from);
         point(g, 11, ...to);
       }
+      picture.dimensionArcs.forEach((arc, i) => {
+        begin("ARC", handles.dimensionArcs[i]!, "AcDbCircle", weights.dimension);
+        point(g, 10, ...arc.center);
+        g(40, arc.radius);
+        g(100, "AcDbArc");
+        g(50, writtenAngle(arc.start));
+        g(51, writtenAngle(arc.end));
+      });
       picture.arrowheadEntities.forEach((arrowhead, i) => {
         const handle = handles.arrowheads[i]!;
         if (arrowhead.kind === "solid") {
@@ -1468,9 +1499,9 @@ function writeMtextValue(g: Group, value: string): void {
 
 /** What a dimension reads, as the DXF writes it: the length times the style's measurement scale. */
 function measurementValue(dimension: Dimension, style: DimensionStyle): string {
-  return fifteenDigits(
-    dimensionMeasure(dimension).measurement * written(style.measurementScale ?? 1),
-  );
+  // An angle, in radians, takes no measurement scale.
+  const scale = dimension.kind === "angular-dimension" ? 1 : written(style.measurementScale ?? 1);
+  return fifteenDigits(dimensionMeasure(dimension).measurement * scale);
 }
 
 /** A layout with what the writer works out for it once. */

@@ -6,6 +6,7 @@ import type {
   DIMENSION_FRACTIONS,
   DIMENSION_TEXT_FITS,
   DIMENSION_RADIAL_TEXTS,
+  DIMENSION_ANGLE_UNITS,
   DIMENSION_TEXT_PLACEMENTS,
   DIMENSION_UNITS,
   FEET_INCH_ZEROS,
@@ -200,6 +201,9 @@ export interface DimensionStyleFieldsDocument extends Commented {
   readonly extensionLineweight?: number;
   readonly radialText?: string;
   readonly jogAngle?: number;
+  readonly angleUnits?: string;
+  readonly anglePrecision?: number;
+  readonly suppressAngleZeros?: string;
   readonly writing?: { readonly [U in Units]?: WritingDocument };
   readonly description?: string;
 }
@@ -380,6 +384,9 @@ export interface StandardDimensionStyleFields {
   readonly extensionLineweight?: number;
   readonly radialText?: (typeof DIMENSION_RADIAL_TEXTS)[number];
   readonly jogAngle?: number;
+  readonly angleUnits?: (typeof DIMENSION_ANGLE_UNITS)[number];
+  readonly anglePrecision?: number;
+  readonly suppressAngleZeros?: (typeof ZERO_SUPPRESSIONS)[number];
   readonly writing?: { readonly [U in Units]?: StandardWriting };
   readonly description?: string;
 }
@@ -397,6 +404,9 @@ export interface StandardDimensionStyle {
   readonly extensionLineweight?: number;
   readonly radialText: (typeof DIMENSION_RADIAL_TEXTS)[number];
   readonly jogAngle: number;
+  readonly angleUnits: (typeof DIMENSION_ANGLE_UNITS)[number];
+  readonly anglePrecision: number;
+  readonly suppressAngleZeros?: (typeof ZERO_SUPPRESSIONS)[number];
   readonly writing: { readonly [U in Units]?: StandardWriting };
   /** Its name in the leading CAD app on a layout, when it is not its id in capitals. */
   readonly layoutName?: string;

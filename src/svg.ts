@@ -1499,6 +1499,24 @@ function dimensionToSvg(
   const parts = [
     ...picture.extensionLines.map((ends) => line("extension-line", ends, extension)),
     ...picture.dimensionLines.map((ends) => line("dimension-line", ends, dimension)),
+    ...picture.dimensionArcs.map((arc) =>
+      entityToSvg(
+        {
+          kind: "arc",
+          layer: e.layer,
+          center: arc.center,
+          radius: arc.radius,
+          startAngle: arc.start,
+          endAngle: arc.end,
+        },
+        `data-part="dimension-line"`,
+        dimension,
+        look,
+        undefined,
+        matrix,
+        room,
+      ),
+    ),
     ...picture.leader.map((ends) => line("leader", ends, dimension)),
     ...picture.arrowheads.map((corners) => {
       if (thin) return line("arrowhead", [corners[0]!, corners[1]!], dimension);

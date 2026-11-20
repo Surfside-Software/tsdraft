@@ -14,6 +14,7 @@ export {
 export {
   ARROWHEADS,
   DEFAULT_LEADER_ARROWHEAD,
+  DIMENSION_ANGLE_UNITS,
   DIMENSION_FRACTIONS,
   DIMENSION_RADIAL_TEXTS,
   DIMENSION_TEXT_FITS,
@@ -28,7 +29,9 @@ export {
 } from "./arrowheads.ts";
 export type { CallSite } from "./callsite.ts";
 export {
+  angleNumber,
   arrowheadHandles,
+  dimensionArcPoints,
   dimensionAngle,
   dimensionFileText,
   dimensionMeasure,
@@ -40,6 +43,7 @@ export {
   mtextOfLabel,
   pictureTexts,
   type ArrowheadEntity,
+  type DimensionArc,
   type DimensionFont,
   type DimensionLabel,
   type DimensionPicture,
@@ -74,6 +78,8 @@ export {
   type Insert,
   type JoggedRadiusDimension,
   type JoggedRadiusDimensionOptions,
+  type AngularDimension,
+  type AngularDimensionOptions,
   type InsertOptions,
   type Layer,
   type LayerOptions,
@@ -351,6 +357,7 @@ export {
   type ReadCircle,
   type ReadDimension,
   type ReadRadialDimension,
+  type ReadAngularDimension,
   type ReadDimensionStyle,
   type ReadDrawingFile,
   type ReadEntity,

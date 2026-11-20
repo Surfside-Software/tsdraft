@@ -321,6 +321,24 @@
           "description": "The angle of a jogged radius dimension's jog to its line, in degrees",
           "default": 45
         },
+        "angleUnits": {
+          "type": "string",
+          "enum": ["degrees", "degrees-minutes-seconds", "grads", "radians"],
+          "description": "The units an angular dimension writes its angle in: degrees, degrees, minutes and seconds, grads or radians",
+          "default": "degrees"
+        },
+        "anglePrecision": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 8,
+          "description": "How many decimals an angle takes; in degrees, minutes and seconds, 0 writes the degrees, 1 and 2 the minutes too, and 3 and 4 the seconds",
+          "default": 0
+        },
+        "suppressAngleZeros": {
+          "type": "string",
+          "enum": ["leading", "trailing", "both"],
+          "description": "The zeros an angle leaves out. Defaults to none"
+        },
         "textFit": {
           "type": "string",
           "enum": ["inside", "leader"],
@@ -439,6 +457,22 @@
           "minimum": 5,
           "maximum": 90,
           "description": "The angle of a jogged radius dimension's jog to its line, in degrees"
+        },
+        "angleUnits": {
+          "type": "string",
+          "enum": ["degrees", "degrees-minutes-seconds", "grads", "radians"],
+          "description": "The units an angular dimension writes its angle in: degrees, degrees, minutes and seconds, grads or radians"
+        },
+        "anglePrecision": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 8,
+          "description": "How many decimals an angle takes; in degrees, minutes and seconds, 0 writes the degrees, 1 and 2 the minutes too, and 3 and 4 the seconds"
+        },
+        "suppressAngleZeros": {
+          "type": "string",
+          "enum": ["leading", "trailing", "both"],
+          "description": "The zeros an angle leaves out. Defaults to none"
         },
         "textFit": {
           "type": "string",

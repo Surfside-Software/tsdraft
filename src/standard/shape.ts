@@ -10,6 +10,8 @@ import {
   DIMENSION_FRACTIONS,
   DIMENSION_TEXT_FITS,
   DIMENSION_RADIAL_TEXTS,
+  DIMENSION_ANGLE_UNITS,
+  MAX_ANGLE_PRECISION,
   JOG_ANGLE,
   DIMENSION_TEXT_PLACEMENTS,
   DIMENSION_UNITS,
@@ -30,6 +32,9 @@ import {
   textFitProblem,
   radialTextProblem,
   jogAngleProblem,
+  angleUnitsProblem,
+  anglePrecisionProblem,
+  angleZerosProblem,
   textPlacementProblem,
   blockNameProblem,
   dimensionPrefixProblem,
@@ -538,6 +543,22 @@ const STYLE_FIELDS = {
     node: number({ minimum: JOG_ANGLE.least, maximum: JOG_ANGLE.most }, jogAngleProblem),
     description: "The angle of a jogged radius dimension's jog to its line, in degrees",
     default: JOG_ANGLE.default,
+  },
+  angleUnits: {
+    node: string({ enum: DIMENSION_ANGLE_UNITS }, angleUnitsProblem),
+    description:
+      "The units an angular dimension writes its angle in: degrees, degrees, minutes and seconds, grads or radians",
+    default: "degrees",
+  },
+  anglePrecision: {
+    node: number({ minimum: 0, maximum: MAX_ANGLE_PRECISION }, anglePrecisionProblem),
+    description:
+      "How many decimals an angle takes; in degrees, minutes and seconds, 0 writes the degrees, 1 and 2 the minutes too, and 3 and 4 the seconds",
+    default: 0,
+  },
+  suppressAngleZeros: {
+    node: string({ enum: ZERO_SUPPRESSIONS }, angleZerosProblem),
+    description: "The zeros an angle leaves out. Defaults to none",
   },
   textFit: {
     node: string({ enum: DIMENSION_TEXT_FITS }, textFitProblem),

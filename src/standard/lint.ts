@@ -365,6 +365,13 @@ export function lintStandard(
       ["textFit", style.textFit ?? "inside", fields.textFit],
       ["radialText", style.radialText ?? "aligned", fields.radialText],
       ["jogAngle", style.jogAngle ?? JOG_ANGLE.default, fields.jogAngle],
+      ["angleUnits", style.angleUnits ?? "degrees", fields.angleUnits],
+      ["anglePrecision", style.anglePrecision ?? 0, fields.anglePrecision],
+      [
+        "suppressAngleZeros",
+        style.suppressAngleZeros ?? "none",
+        fields.suppressAngleZeros ?? "none",
+      ],
       ["dimensionLineweight", style.dimensionLineweight, fields.dimensionLineweight],
       ["extensionLineweight", style.extensionLineweight, fields.extensionLineweight],
     ];

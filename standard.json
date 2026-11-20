@@ -266,6 +266,8 @@
       "textPlacement": "centered",
       "radialText": "aligned",
       "jogAngle": 45,
+      "angleUnits": "degrees",
+      "anglePrecision": 0,
       "textFit": "inside",
       "writing": {
         "in": {
@@ -304,6 +306,8 @@
       "textPlacement": "above",
       "radialText": "aligned",
       "jogAngle": 45,
+      "angleUnits": "degrees",
+      "anglePrecision": 0,
       "textFit": "inside",
       "writing": {
         "in": {
@@ -341,6 +345,8 @@
       "textPlacement": "above",
       "radialText": "aligned",
       "jogAngle": 45,
+      "angleUnits": "degrees",
+      "anglePrecision": 0,
       "textFit": "inside",
       "writing": {
         "in": {

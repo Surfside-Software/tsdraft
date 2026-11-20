@@ -21,6 +21,7 @@ import type {
   RadiusDimension,
   DiameterDimension,
   JoggedRadiusDimension,
+  AngularDimension,
   Linetype,
   Paragraph,
   Polyline,
@@ -535,6 +536,18 @@ function shapes(all: boolean, typed = all): Shapes {
       { kind, layer: string, style: ruled(string), center: point, point, start: point, jog: point },
       { id: ruled(string), text: ruled(string), textBelow: ruled(string) },
     ),
+    "angular-dimension": fields<AngularDimension>(
+      {
+        kind,
+        layer: string,
+        style: ruled(string),
+        vertex: point,
+        from: point,
+        to: point,
+        at: point,
+      },
+      { id: ruled(string), text: ruled(string), textBelow: ruled(string) },
+    ),
     // A rule of `lint` reports the note, the shafts and the leader's own fields, whatever their type.
     leader: fields<Leader>(
       {
@@ -675,6 +688,9 @@ function shapes(all: boolean, typed = all): Shapes {
         extensionLineweight: ruled(numberOrName),
         radialText: ruled(string),
         jogAngle: ruled(number),
+        angleUnits: ruled(string),
+        anglePrecision: ruled(number),
+        suppressAngleZeros: ruled(string),
       },
     ),
   );

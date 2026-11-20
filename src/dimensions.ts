@@ -3,6 +3,7 @@
 // for a measurement, and the lines, arrowheads and text that app draws for a dimension.
 import type {
   AlignedDimension,
+  AngularDimension,
   DiameterDimension,
   DimensionStyle,
   Drawing,
@@ -17,6 +18,7 @@ import {
   ARROWHEADS,
   DEFAULT_ARROWHEAD,
   JOG_ANGLE,
+  MAX_ANGLE_PRECISION,
   MAX_PRECISION,
   type Arrowhead,
 } from "./arrowheads.ts";
@@ -36,6 +38,17 @@ import {
   DIMENSION_LEADER_ARROWS,
   DIMENSION_LEADER_BELOW,
   dimensionMeasureProblem,
+  ANGULAR_ARC_LOST,
+  ANGULAR_ARC_ON_LINE,
+  ANGULAR_ARROWS_LONG,
+  arcProblem,
+  ANGULAR_ARC_ON_POINT,
+  ANGULAR_CENTERED_SHORT,
+  ANGULAR_CENTERED_BELOW,
+  ANGULAR_NO_ANGLE,
+  ANGULAR_TEXT_OUT,
+  ANGULAR_NO_ARC,
+  ANGULAR_NO_SIDE,
   RADIAL_CENTERED,
   RADIAL_JOG_SHORT,
   RADIAL_NO_RADIUS,
@@ -56,14 +69,17 @@ export type StraightDimension = LinearDimension | AlignedDimension;
 export type RadialDimension = RadiusDimension | DiameterDimension | JoggedRadiusDimension;
 
 /** A dimension of any kind. */
-export type Dimension = StraightDimension | RadialDimension;
+export type Dimension = StraightDimension | RadialDimension | AngularDimension;
 
 /** Whether an entity is a dimension. */
 export function isDimension<E extends { readonly kind: string }>(
   entity: E,
 ): entity is Extract<E, Dimension> {
   return (
-    entity.kind === "linear-dimension" || entity.kind === "aligned-dimension" || isRadial(entity)
+    entity.kind === "linear-dimension" ||
+    entity.kind === "aligned-dimension" ||
+    entity.kind === "angular-dimension" ||
+    isRadial(entity)
   );
 }
 
@@ -122,6 +138,8 @@ export interface DimensionPictureHandles {
   readonly leader: readonly [string, string];
   /** The text below the dimension line. */
   readonly belowText: string;
+  /** The pieces of an angular dimension's arc. */
+  readonly dimensionArcs: readonly [string, string, string];
 }
 
 /** Where a dimension is: its id, or else its place among the entities of its space. */
@@ -157,6 +175,7 @@ export function validDimensionPictureHandles(place: DimensionPlace): DimensionPi
     ],
     leader: [handle("leader-1"), handle("leader-2")],
     belowText: handle("text-below"),
+    dimensionArcs: [handle("arc-1"), handle("arc-2"), handle("arc-3")],
   };
 }
 
@@ -183,6 +202,7 @@ export function pictureHandleList(handles: DimensionPictureHandles): string[] {
     ...handles.dimensionLines.slice(1),
     ...handles.leader,
     handles.belowText,
+    ...handles.dimensionArcs,
   ];
 }
 
@@ -486,6 +506,8 @@ export interface DimensionPicture {
   readonly dimensionLines: readonly (readonly [Point, Point])[];
   /** The lines of the leader to a text moved outside the extension lines. Empty for none. */
   readonly leader: readonly (readonly [Point, Point])[];
+  /** The pieces of an angular dimension's arc. Empty for a dimension of any other kind. */
+  readonly dimensionArcs: readonly DimensionArc[];
   /** The outline of each arrowhead, which is filled. None for an arrow size of 0. */
   readonly arrowheads: readonly (readonly Point[])[];
   /**
@@ -511,6 +533,27 @@ export interface DimensionPicture {
    * lines, as group 370 holds it: -2 ByBlock, or hundredths of a millimetre.
    */
   readonly lineweights: { readonly dimension: number; readonly extension: number };
+}
+
+/** A piece of an arc: its center, its radius, and the degrees it runs counterclockwise between. */
+export interface DimensionArc {
+  readonly center: Point;
+  readonly radius: number;
+  readonly start: number;
+  readonly end: number;
+}
+
+/** The points of an arc's piece that bound it: its ends, and its points furthest along each axis. */
+export function dimensionArcPoints(arc: DimensionArc): Point[] {
+  const sweep = (((arc.end - arc.start) % 360) + 360) % 360;
+  const out: Point[] = [];
+  for (const degrees of [arc.start, arc.end, 0, 90, 180, 270]) {
+    const past = (((degrees - arc.start) % 360) + 360) % 360;
+    if (degrees !== arc.start && degrees !== arc.end && past > sweep) continue;
+    const [x, y] = direction(degrees);
+    out.push([arc.center[0] + x * arc.radius, arc.center[1] + y * arc.radius]);
+  }
+  return out;
 }
 
 /** A style's lineweight as group 370 holds it: ByBlock where it gives none. */
@@ -605,6 +648,10 @@ export function dimensionMeasure(dimension: Dimension): {
   readonly angle: number;
   readonly measurement: number;
 } {
+  if (dimension.kind === "angular-dimension") {
+    const { start, sweep } = angularArc(dimension);
+    return { angle: start + sweep / 2, measurement: sweep * RADIANS };
+  }
   if (isRadial(dimension)) {
     const [x1, y1] = [written(dimension.center[0]), written(dimension.center[1])];
     const [x2, y2] = [written(dimension.point[0]), written(dimension.point[1])];
@@ -655,6 +702,7 @@ export function dimensionPicture(
   textStyle?: DimensionFont,
 ): DimensionPicture {
   if (isRadial(dimension)) return radialPicture(dimension, style, textStyle);
+  if (dimension.kind === "angular-dimension") return angularPicture(dimension, style, textStyle);
   const from: Point = [written(dimension.from[0]), written(dimension.from[1])];
   const to: Point = [written(dimension.to[0]), written(dimension.to[1])];
   const { angle, measurement } = dimensionMeasure(dimension);
@@ -850,6 +898,7 @@ export function dimensionPicture(
     dimensionLine,
     dimensionLines,
     leader,
+    dimensionArcs: [],
     arrowheads,
     arrowheadEntities,
     label: label(aboveText, textMiddle, topLayout),
@@ -1115,6 +1164,7 @@ function radialPicture(
     dimensionLine: [center, point],
     dimensionLines: lines,
     leader: [],
+    dimensionArcs: [],
     arrowheads,
     arrowheadEntities,
     label: label(aboveText, textMiddle, topLayout),
@@ -1130,6 +1180,365 @@ function radialPicture(
       extension: lineweightCode(style.extensionLineweight),
     },
   };
+}
+
+/**
+ * An angular dimension's arc as the writers write its points: its vertex, its radius, and the
+ * degrees, from 0 up to 360, its arc runs counterclockwise between, from `start` through `sweep`.
+ * The angle between the two lines from `from` round to `to` holds the arc's point, or else the
+ * rest of the turn does, and the arc spans that one. `first` is the point at its start.
+ */
+export function angularArc(dimension: AngularDimension): {
+  readonly vertex: Point;
+  readonly radius: number;
+  readonly start: number;
+  readonly sweep: number;
+  readonly first: Point;
+  readonly second: Point;
+} {
+  const p = (q: Point): Point => [written(q[0]), written(q[1])];
+  const [vertex, from, to, at] = [
+    p(dimension.vertex),
+    p(dimension.from),
+    p(dimension.to),
+    p(dimension.at),
+  ];
+  const angleOf = (q: Point): number => {
+    const a = Math.atan2(q[1] - vertex[1], q[0] - vertex[0]) / RADIANS;
+    return a < 0 ? a + 360 : a;
+  };
+  const turn = (a: number, b: number): number => (((b - a) % 360) + 360) % 360;
+  const [a, b, c] = [angleOf(from), angleOf(to), angleOf(at)];
+  const inside = turn(a, c) <= turn(a, b);
+  const [start, end, first, second] = inside ? [a, b, from, to] : [b, a, to, from];
+  return {
+    vertex,
+    radius: Math.hypot(at[0] - vertex[0], at[1] - vertex[1]),
+    start,
+    sweep: turn(start, end),
+    first,
+    second,
+  };
+}
+
+/**
+ * An angle as the leading CAD app writes it in a style, before any prefix or suffix: in the
+ * style's `angleUnits`, with `anglePrecision` decimals, rounded half up as a length is, and without
+ * the zeros `suppressAngleZeros` leaves out. In degrees, minutes and seconds the precision picks
+ * the parts: 0 the degrees, 1 and 2 the minutes, 3 and 4 the seconds, and each more a decimal of
+ * the seconds; no zero is left out of them.
+ *
+ * @param radians - The angle, not negative.
+ */
+export function angleNumber(
+  radians: number,
+  style: Pick<DimensionStyle, "angleUnits" | "anglePrecision" | "suppressAngleZeros">,
+): string {
+  const units = style.angleUnits ?? "degrees";
+  const places = Math.min(
+    MAX_ANGLE_PRECISION,
+    Math.max(0, Math.trunc(style.anglePrecision ?? 0) || 0),
+  );
+  const degrees = radians / RADIANS;
+  const round = (value: number, decimals: number): string =>
+    (value + belowHalf(value)).toFixed(decimals);
+  if (units === "degrees-minutes-seconds") {
+    if (places === 0) return `${round(degrees, 0)}°`;
+    if (places <= 2) {
+      const minutes = Number(round(degrees * 60, 0));
+      return `${Math.floor(minutes / 60)}°${minutes % 60}'`;
+    }
+    const decimals = Math.max(0, places - 4);
+    const tenths = 10 ** decimals;
+    const seconds = Number(round(degrees * 3600 * tenths, 0));
+    const whole = Math.floor(seconds / tenths);
+    const part = (seconds % tenths) / tenths;
+    return `${Math.floor(whole / 3600)}°${Math.floor(whole / 60) % 60}'${((whole % 60) + part).toFixed(decimals)}"`;
+  }
+  const value = units === "grads" ? (degrees * 400) / 360 : units === "radians" ? radians : degrees;
+  let text = round(value, places);
+  const suppress = style.suppressAngleZeros;
+  if ((suppress === "trailing" || suppress === "both") && text.includes(".")) {
+    text = text.replace(/0+$/, "").replace(/\.$/, "");
+  }
+  if ((suppress === "leading" || suppress === "both") && text.startsWith("0."))
+    text = text.slice(1);
+  return `${text}${units === "degrees" ? "°" : units === "grads" ? "g" : "r"}`;
+}
+
+/** What an angular dimension draws above its arc and below it, as `dimensionTexts` for a length. */
+export function angularTexts(
+  dimension: AngularDimension,
+  radians: number,
+  style: DimensionStyle,
+): readonly [above: string, below: string | undefined] {
+  const measured = `${style.prefix ?? ""}${angleNumber(radians, style)}${style.suffix ?? ""}`;
+  const text = dimensionFileText(dimension);
+  const at = text === undefined ? -1 : text.indexOf("<>");
+  const drawn =
+    text === undefined
+      ? measured
+      : at < 0
+        ? text
+        : `${text.slice(0, at)}${measured}${text.slice(at + 2)}`;
+  const cut = drawn.indexOf("\\X");
+  return cut < 0 ? [drawn, undefined] : [drawn.slice(0, cut), drawn.slice(cut + 2)];
+}
+
+/**
+ * What the leading CAD app draws for an angular dimension in a style. Each extension line runs
+ * along its line from the style's offset off its point, toward the arc, to the style's length
+ * past the arc. The arc runs between the arrowheads, each of which takes a chord of the arrow
+ * size, or between the ticks. The text stands at the middle of the arc, along it, turned to read
+ * upright: a gap above it, or centered in a break of it.
+ */
+function angularPicture(
+  dimension: AngularDimension,
+  style: DimensionStyle,
+  textStyle: DimensionFont | undefined,
+): DimensionPicture {
+  const { vertex, radius, start, sweep, first, second } = angularArc(dimension);
+  const end = start + sweep;
+  const measurement = sweep * RADIANS;
+  const polar = (degrees: number, distance: number): Point => {
+    const [x, y] = direction(degrees);
+    return [vertex[0] + x * distance, vertex[1] + y * distance];
+  };
+  const move = (from: Point, by: Point, distance: number): Point => [
+    from[0] + by[0] * distance,
+    from[1] + by[1] * distance,
+  ];
+  const sizes = dimensionSizes(style);
+  const size = sizes.arrowSize;
+  const gap = sizes.textGap;
+  const info = arrowheadInfo(style.arrowhead ?? DEFAULT_ARROWHEAD);
+  const stroke = info?.stroke;
+  const tick = stroke !== undefined;
+
+  // An extension line runs from its point toward the arc, and past it.
+  const extension = (degrees: number, side: Point): readonly [Point, Point] => {
+    const r = Math.hypot(side[0] - vertex[0], side[1] - vertex[1]);
+    const out = radius > r ? 1 : -1;
+    return [
+      polar(degrees, r + out * sizes.extensionOffset),
+      polar(degrees, radius + out * sizes.extensionBeyond),
+    ];
+  };
+  const extensionLines = [extension(start, first), extension(end, second)];
+
+  const [aboveText, belowText] = angularTexts(dimension, measurement, style);
+  const font = textStyle?.font ?? STANDARD_FONT;
+  const lay = (value: string): ParagraphLayout =>
+    layoutDimensionText({
+      value,
+      height: sizes.textHeight,
+      font,
+      widthFactor: written(textStyle?.widthFactor ?? 1),
+      obliqueAngle: written(textStyle?.obliqueAngle ?? 0),
+      align: "center",
+      valign: "middle",
+    });
+  const boxHeight = (layout: ParagraphLayout): number => layout.frame[3] - layout.frame[1];
+  const widest = (layout: ParagraphLayout): number =>
+    layout.lines.reduce((most, line) => Math.max(most, line.end - line.start), 0);
+  // Words below the arc are a second line of the one text, which stands on the arc.
+  const value = belowText === undefined ? aboveText : `${aboveText}\\P${belowText}`;
+  const layout = lay(mtextOfLabel(value));
+  const textWidth = widest(layout);
+  const half = boxHeight(layout) / 2;
+  const centered = style.textPlacement === "centered";
+
+  // An arrowhead takes a chord of its size at each end of the arc, and a tick none.
+  const sizeChord = size > 0 ? (2 * Math.asin(Math.min(1, size / (2 * radius)))) / RADIANS : 0;
+  const closed = !tick && size > 0;
+  const chord = closed ? sizeChord : 0;
+  const middle = start + sweep / 2;
+  // Where a centered text, or a text that would move out, leaves the marks no room on the arc,
+  // they turn outward, each with a tail past it, and the arc runs whole between them.
+  const room = angularRoom(radius, sweep, textWidth, style);
+  // An arrow size of 0 draws no marks, which have nothing to turn.
+  const flipped =
+    size > 0 && (closed ? centered || style.textFit === "leader" : centered) && !room.marks;
+  const arc = (from: number, to: number): DimensionArc => ({
+    center: vertex,
+    radius,
+    start: ((from % 360) + 360) % 360,
+    end: ((to % 360) + 360) % 360,
+  });
+  const lineMiddle = polar(middle, radius);
+  const rotation = readable(middle - 90);
+  const quarter = direction(rotation);
+  const above: Point =
+    rotation % 90 === 0
+      ? [-quarter[1], quarter[0]]
+      : [-Math.sin(rotation * RADIANS), Math.cos(rotation * RADIANS)];
+  let textMiddle: Point;
+  const dimensionArcs: DimensionArc[] = [];
+  if (flipped) {
+    dimensionArcs.push(
+      arc(start - chord - sizeChord, start - chord),
+      arc(end + chord, end + chord + sizeChord),
+      arc(start, end),
+    );
+  } else if (centered && belowText === undefined) {
+    const opening = Math.asin(Math.min(1, (gap + textWidth / 2) / radius)) / RADIANS;
+    dimensionArcs.push(arc(start + chord, middle - opening), arc(middle + opening, end - chord));
+  } else {
+    dimensionArcs.push(arc(start + chord, end - chord));
+  }
+  textMiddle =
+    centered || belowText !== undefined ? lineMiddle : move(lineMiddle, above, gap + half);
+
+  const arrowheads: Point[][] = [];
+  const arrowheadEntities: ArrowheadEntity[] = [];
+  /** An arrowhead at the arc's end at `degrees`, pointing on round the circle the way `turn` says. */
+  const arrow = (degrees: number, turn: 1 | -1): void => {
+    if (!(size > 0)) return;
+    const tip = polar(degrees, radius);
+    if (tick) {
+      const pointing = (((degrees + turn * 90) % 360) + 360) % 360;
+      const way = direction(pointing);
+      arrowheadEntities.push({
+        kind: "insert",
+        block: info!.block!,
+        at: tip,
+        rotation: pointing,
+        scale: size,
+      });
+      const halfStroke = move(
+        move([0, 0], way, stroke.to[0] * size),
+        [-way[1], way[0]],
+        stroke.to[1] * size,
+      );
+      const wide = (stroke.width * size) / 2 / Math.SQRT2;
+      const edge: Point = [(way[0] + way[1]) * wide, (way[1] - way[0]) * wide];
+      arrowheads.push([
+        [tip[0] - halfStroke[0] + edge[0], tip[1] - halfStroke[1] + edge[1]],
+        [tip[0] + halfStroke[0] + edge[0], tip[1] + halfStroke[1] + edge[1]],
+        [tip[0] + halfStroke[0] - edge[0], tip[1] + halfStroke[1] - edge[1]],
+        [tip[0] - halfStroke[0] - edge[0], tip[1] - halfStroke[1] - edge[1]],
+      ]);
+      return;
+    }
+    const base = polar(degrees - turn * chord, radius);
+    const length = Math.hypot(tip[0] - base[0], tip[1] - base[1]);
+    const way: Point = [(tip[0] - base[0]) / length, (tip[1] - base[1]) / length];
+    const left: Point = [-way[1], way[0]];
+    arrowheads.push([tip, move(base, left, size / 6), move(base, left, -size / 6)]);
+    arrowheadEntities.push({
+      kind: "solid",
+      corners: [move(base, left, size / 6), move(base, left, -size / 6), tip],
+    });
+  };
+  arrow(start, flipped ? 1 : -1);
+  arrow(end, flipped ? -1 : 1);
+
+  const textStyleName = style.textStyle;
+  const label = (value: string, at: Point, layout: ParagraphLayout): DimensionLabel => ({
+    value,
+    at: move(at, above, layout.lines[0]?.baseline ?? 0),
+    height: sizes.textHeight,
+    rotation,
+    direction: quarter,
+    ...(textStyleName === undefined ? {} : { style: textStyleName }),
+  });
+  const at: Point = [written(dimension.at[0]), written(dimension.at[1])];
+  return {
+    measurement,
+    definitionPoint: at,
+    extensionLines,
+    dimensionLine: [polar(start, radius), polar(end, radius)],
+    dimensionLines: [],
+    leader: [],
+    dimensionArcs,
+    arrowheads,
+    arrowheadEntities,
+    label: label(value, textMiddle, layout),
+    textMiddle,
+    textPoint: textMiddle,
+    textWidth,
+    lineweights: {
+      dimension: lineweightCode(style.dimensionLineweight),
+      extension: lineweightCode(style.extensionLineweight),
+    },
+  };
+}
+
+/** What is wrong with an angular dimension in its style, or undefined. */
+function angularDrawnProblem(
+  dimension: AngularDimension,
+  style: DimensionStyle,
+  textStyle: TextStyle | undefined,
+): string | undefined {
+  const p = (q: Point): Point => [written(q[0]), written(q[1])];
+  const vertex = p(dimension.vertex);
+  const off = (q: Point): number => Math.hypot(p(q)[0] - vertex[0], p(q)[1] - vertex[1]);
+  if (off(dimension.from) === 0 || off(dimension.to) === 0) return ANGULAR_NO_SIDE;
+  if (off(dimension.at) === 0) return ANGULAR_NO_ARC;
+  const { radius, sweep, first, second } = angularArc(dimension);
+  if (!(sweep > 0) || sweep >= 360) return ANGULAR_NO_ANGLE;
+  // Where the arc's point lies on one of the lines, a rounding picks the angle or the rest of the
+  // turn.
+  const at = p(dimension.at);
+  for (const side of [first, second]) {
+    const [ux, uy] = [side[0] - vertex[0], side[1] - vertex[1]];
+    const [vx, vy] = [at[0] - vertex[0], at[1] - vertex[1]];
+    const cross = ux * vy - uy * vx;
+    if (ux * vx + uy * vy > 0 && Math.abs(cross) <= 1e-12 * Math.hypot(ux, uy) * Math.hypot(vx, vy))
+      return ANGULAR_ARC_ON_LINE;
+  }
+  // The leading CAD app runs an extension line one way or the other by a rounding where the arc
+  // passes through its point.
+  for (const side of [first, second]) {
+    const r = Math.hypot(side[0] - vertex[0], side[1] - vertex[1]);
+    if (Math.abs(r - radius) <= 1e-9 * Math.max(1, radius)) return ANGULAR_ARC_ON_POINT;
+  }
+  // A closed arrowhead is a chord of the arc as long as the arrow size.
+  const size = dimensionSizes(style).arrowSize;
+  const closed = arrowheadInfo(style.arrowhead ?? DEFAULT_ARROWHEAD)?.stroke === undefined;
+  if (closed && size >= 2 * radius) return ANGULAR_ARROWS_LONG;
+  const picture = angularPicture(dimension, style, textStyle);
+  // An arc of all but a whole turn is written with one angle at both ends, which draws nothing.
+  for (const piece of picture.dimensionArcs) {
+    if (arcProblem(piece.start, piece.end)) return ANGULAR_ARC_LOST;
+  }
+  const room = angularRoom(radius, sweep, picture.textWidth, style);
+  if (style.textFit === "leader" && !room.text) return ANGULAR_TEXT_OUT;
+  // A centered text breaks the arc, and each piece must run on from its mark to the text: one
+  // that would run back past its mark, the long way round, is not laid out. Each half of the
+  // arc holds a closed arrowhead's chord and half the text's opening.
+  // Turned outward, the marks and their tails must stay clear of each other round the back.
+  if (picture.dimensionArcs.length === 3) {
+    const tail = (2 * Math.asin(size / (2 * radius))) / RADIANS;
+    if (sweep + 2 * ((closed ? tail : 0) + tail) >= 360) return ANGULAR_ARROWS_LONG;
+  }
+  if (style.textPlacement === "centered" && picture.dimensionArcs.length === 2) {
+    const chord = closed && size > 0 ? (2 * Math.asin(size / (2 * radius))) / RADIANS : 0;
+    const half = dimensionSizes(style).textGap + picture.textWidth / 2;
+    const opening = Math.asin(Math.min(1, half / radius)) / RADIANS;
+    if (opening + chord > sweep / 2 + 1e-9) return ANGULAR_CENTERED_SHORT;
+  }
+  if (style.textPlacement === "centered" && dimension.textBelow !== undefined)
+    return ANGULAR_CENTERED_BELOW;
+  return pictureNumbersProblem(picture);
+}
+
+/**
+ * Whether an angular dimension's arc holds its text, with a gap each side, and its marks too: a
+ * closed arrowhead's size each side more. The arc is measured along its length.
+ */
+function angularRoom(
+  radius: number,
+  sweep: number,
+  textWidth: number,
+  style: DimensionStyle,
+): { readonly text: boolean; readonly marks: boolean } {
+  const sizes = dimensionSizes(style);
+  const length = radius * sweep * RADIANS;
+  const needs = textWidth + 2 * sizes.textGap;
+  const tick = arrowheadInfo(style.arrowhead ?? DEFAULT_ARROWHEAD)?.stroke !== undefined;
+  const arrows = !tick && sizes.arrowSize > 0 ? 2 * sizes.arrowSize : 0;
+  return { text: length > needs, marks: length > needs + arrows };
 }
 
 /**
@@ -1229,6 +1638,8 @@ export function dimensionDrawnProblem(
 ): string | undefined {
   const { measurement } = dimensionMeasure(dimension);
   if (isRadial(dimension)) return radialDrawnProblem(dimension, measurement, style, textStyle);
+  if (dimension.kind === "angular-dimension")
+    return angularDrawnProblem(dimension, style, textStyle);
   // The arrowheads need room for the wider of the texts above and below the line.
   const [above, below] = dimensionTexts(dimension, measurement, style);
   let drawn = above;
@@ -1343,6 +1754,7 @@ function pictureNumbersProblem(picture: DimensionPicture): string | undefined {
     ...picture.dimensionLine.flat(),
     ...picture.dimensionLines.flat(2),
     ...picture.leader.flat(2),
+    ...picture.dimensionArcs.flatMap((arc) => [...arc.center, arc.radius]),
     ...picture.arrowheads.flat(2),
     ...picture.label.at,
     picture.label.height,

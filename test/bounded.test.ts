@@ -2080,8 +2080,24 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
           };
         }),
       );
+      // Angular ones: an arc near the vertex or far, a sliver of an angle or most of a turn.
+      (pick([drawing, layout]).entities as Data[]).push(
+        ...Array.from({ length: pick([1, 300]) }, (_, i): Data => ({
+          kind: "angular-dimension",
+          layer: "0",
+          style: style.name,
+          vertex: [0, i],
+          from: [10, i],
+          to: [pick([10, -10, 1e9]), i + pick([0.001, 10, -1e9])],
+          at: [pick([0.01, 5, 1e9]), i + pick([0.0001, 3, -2])],
+          text: pick(["<>", long]),
+          textBelow: pick([long, "A\\P".repeat(5_000)]),
+        })),
+      );
       style.radialText = pick(["aligned", "horizontal"]);
       style.jogAngle = pick([5, 45, 90]);
+      style.angleUnits = pick(["degrees", "degrees-minutes-seconds", "grads", "radians"]);
+      style.anglePrecision = pick([0, 4, 8]);
     }
     // A leader style whose arrowhead or text style every leader reads.
     if (random() < 0.2) {

@@ -1648,7 +1648,8 @@ class DxfReader {
         if (
           entity.kind !== "insert" &&
           entity.kind !== "dimension" &&
-          entity.kind !== "radial-dimension"
+          entity.kind !== "radial-dimension" &&
+          entity.kind !== "angular-dimension"
         )
           continue;
         const block = entity.block;

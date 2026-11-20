@@ -8,6 +8,7 @@ import type {
   ReadAttribute,
   ReadDimension,
   ReadRadialDimension,
+  ReadAngularDimension,
   ReadEntity,
   ReadEntityBase,
   ReadImage,
@@ -479,6 +480,7 @@ function dimension(r: Rec, base: ReadEntityBase, face: Facing, r12: boolean): Re
   // The kind is group 70's low four bits, 9 for a jogged radius: 32, 64 and 128 are flags.
   const kind = (num(r, 70) ?? 0) & 15;
   if (kind === 3 || kind === 4 || kind === 9) return radialDimension(r, base, kind, r12);
+  if (kind === 2 || kind === 5) return angularDimension(r, base, kind, r12);
   if (kind > 1) return { other: `DIMENSION ${DIMENSION_KINDS[kind] ?? "of another kind"}` };
   const angle = kind === 0 ? (num(r, 50) ?? 0) : 0;
   // The leading CAD app leaves the measurement out when it is 1. An R12 file holds none.
@@ -531,6 +533,40 @@ function radialDimension(r: Rec, base: ReadEntityBase, kind: number, r12: boolea
     center,
     point: onCircle,
     ...(kind === 9 && { start: point(r, 13), jog: point(r, 14) }),
+    textAt: point(r, 11),
+    ...(((num(r, 70) ?? 0) & 128) !== 0 && { placed: true }),
+    ...(measurement !== undefined && { measurement }),
+    ...parts,
+    style: name(r, 3) ?? "Standard",
+    ...(block !== undefined && block !== "" && { block }),
+  };
+  return { entity };
+}
+
+/**
+ * An angular dimension by two lines (group 70's kind 2), 13 to 14 and 15 to 10, its arc through
+ * 16, or by three points (5), its vertex 15, its lines through 13 and 14, its arc through 10.
+ */
+function angularDimension(r: Rec, base: ReadEntityBase, kind: number, r12: boolean): Reading {
+  const radians = num(r, 42) ?? (r12 ? undefined : 1);
+  // An angle of radians too large for degrees is left out, as no angle.
+  const degrees =
+    radians === undefined ? undefined : radians === -1 ? -1 : radians * (180 / Math.PI);
+  const measurement = degrees !== undefined && Number.isFinite(degrees) ? degrees : undefined;
+  const text = first(r, 1);
+  const block = name(r, 2);
+  const parts = text === undefined ? {} : dimensionTextParts(textOnce(text));
+  const entity: ReadAngularDimension = {
+    ...base,
+    kind: "angular-dimension",
+    ...(kind === 5
+      ? { type: "three-point", vertex: point(r, 15), from: point(r, 13), to: point(r, 14) }
+      : {
+          type: "two-line",
+          first: [point(r, 13), point(r, 14)],
+          second: [point(r, 15), point(r, 10)],
+        }),
+    at: point(r, kind === 5 ? 10 : 16),
     textAt: point(r, 11),
     ...(((num(r, 70) ?? 0) & 128) !== 0 && { placed: true }),
     ...(measurement !== undefined && { measurement }),
@@ -766,6 +802,8 @@ export function costOf(e: ReadEntity): number {
       return own + 4 + chars(e.text) + chars(e.textBelow) + chars(e.style) + chars(e.block);
     case "radial-dimension":
       return own + 5 + chars(e.text) + chars(e.textBelow) + chars(e.style) + chars(e.block);
+    case "angular-dimension":
+      return own + 6 + chars(e.text) + chars(e.textBelow) + chars(e.style) + chars(e.block);
     case "multileader": {
       let points = 3;
       for (const root of e.roots) {

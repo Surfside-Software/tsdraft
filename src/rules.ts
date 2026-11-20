@@ -14,6 +14,8 @@ import {
   DIMENSION_FRACTIONS,
   DIMENSION_TEXT_FITS,
   DIMENSION_RADIAL_TEXTS,
+  DIMENSION_ANGLE_UNITS,
+  MAX_ANGLE_PRECISION,
   JOG_ANGLE,
   DIMENSION_TEXT_PLACEMENTS,
   DIMENSION_UNITS,
@@ -226,6 +228,10 @@ const TEXT_PLACEMENT_MESSAGE = 'textPlacement must be "above" or "centered"';
 const TEXT_FIT_MESSAGE = 'textFit must be "inside" or "leader"';
 const RADIAL_TEXT_MESSAGE = 'radialText must be "aligned" or "horizontal"';
 const JOG_ANGLE_MESSAGE = "jogAngle must be a number of degrees from 5 to 90";
+const ANGLE_UNITS_MESSAGE =
+  'angleUnits must be "degrees", "degrees-minutes-seconds", "grads" or "radians"';
+const ANGLE_PRECISION_MESSAGE = `anglePrecision must be a whole number from 0 to ${MAX_ANGLE_PRECISION}`;
+const ANGLE_ZEROS_MESSAGE = 'suppressAngleZeros must be "leading", "trailing" or "both"';
 const ZEROS_OF_UNITS =
   'suppressZeros is for a style in decimal units, and feetInchZeros for one in "architectural" units, which writes feet and inches';
 const DIMENSION_FORMATTING =
@@ -2923,6 +2929,29 @@ export function radialTextProblem(value: unknown): string | undefined {
     : RADIAL_TEXT_MESSAGE;
 }
 
+/** Returns what is wrong with a dimension style's `angleUnits`, or undefined. */
+export function angleUnitsProblem(value: unknown): string | undefined {
+  return (DIMENSION_ANGLE_UNITS as readonly unknown[]).includes(value)
+    ? undefined
+    : ANGLE_UNITS_MESSAGE;
+}
+
+/** Returns what is wrong with a dimension style's `anglePrecision`, or undefined. */
+export function anglePrecisionProblem(value: unknown): string | undefined {
+  return Number.isInteger(value) &&
+    (value as number) >= 0 &&
+    (value as number) <= MAX_ANGLE_PRECISION
+    ? undefined
+    : ANGLE_PRECISION_MESSAGE;
+}
+
+/** Returns what is wrong with a dimension style's `suppressAngleZeros`, or undefined. */
+export function angleZerosProblem(value: unknown): string | undefined {
+  return (ZERO_SUPPRESSIONS as readonly unknown[]).includes(value)
+    ? undefined
+    : ANGLE_ZEROS_MESSAGE;
+}
+
 /** Returns what is wrong with a dimension style's `jogAngle`, or undefined. */
 export function jogAngleProblem(value: unknown): string | undefined {
   return typeof value === "number" &&
@@ -2970,6 +2999,14 @@ export function dimensionStyleLookProblem(s: Record<string, unknown>): string | 
   }
   if (s.jogAngle !== undefined) {
     const problem = jogAngleProblem(s.jogAngle);
+    if (problem) return problem;
+  }
+  for (const [field, problemOf] of [
+    ["angleUnits", angleUnitsProblem],
+    ["anglePrecision", anglePrecisionProblem],
+    ["suppressAngleZeros", angleZerosProblem],
+  ] as const) {
+    const problem = s[field] === undefined ? undefined : problemOf(s[field]);
     if (problem) return problem;
   }
   for (const field of ["dimensionLineweight", "extensionLineweight"] as const) {
@@ -3067,6 +3104,46 @@ export const RADIAL_JOG_SHORT =
 /** What is wrong with a radius or a diameter dimension that measures nothing. */
 export const RADIAL_NO_RADIUS =
   "its point is its center once they are written with the 6 decimals tsdraft writes, so it has no radius";
+
+/** An angular dimension with a line of no length. */
+export const ANGULAR_NO_SIDE =
+  "its vertex is one of its two points once they are written with the 6 decimals tsdraft writes, so that line has no direction";
+
+/** An angular dimension whose arc has no radius. */
+export const ANGULAR_NO_ARC =
+  "its arc's point is its vertex once they are written with the 6 decimals tsdraft writes, so the arc has no radius";
+
+/** An angular dimension whose arc passes through one of its points. */
+export const ANGULAR_ARC_ON_POINT =
+  "its arc passes through one of its two points, where the leading CAD app runs that point's extension line toward the vertex or away from it by a rounding, which is not laid out yet, so tsdraft refuses it. Move the arc's point nearer the vertex or further from it";
+
+/** An angular dimension whose arc, or a piece of it, is all but a whole turn. */
+export const ANGULAR_ARC_LOST =
+  "its arc, or a piece of it, runs all but a whole turn, so its two angles are one once they are written with the 6 decimals tsdraft writes, and the leading CAD app draws such an arc as nothing";
+
+/** An angular dimension whose closed arrowheads are longer than its arc is wide. */
+export const ANGULAR_ARROWS_LONG =
+  "its closed arrowheads are as long as its arc is wide or longer, which is not laid out yet, so tsdraft refuses it. Move the arc's point further from the vertex, or use a smaller arrow size";
+
+/** An angular dimension whose arc's point lies on one of its lines. */
+export const ANGULAR_ARC_ON_LINE =
+  "its arc's point is on one of its two lines, where the leading CAD app takes the angle between them or the rest of the turn by a rounding, which is not laid out yet, so tsdraft refuses it. Move the arc's point into the angle it measures";
+
+/** An angular dimension whose centered text leaves its arc no room each side. */
+export const ANGULAR_CENTERED_SHORT =
+  'its arc is too short for its text "centered" in it and its arrowheads, where the leading CAD app may turn the arrowheads outward, which is not laid out yet, so tsdraft refuses it. Move the arc\'s point further from the vertex, or put the text "above"';
+
+/** An angular dimension whose text would move out on a leader. */
+export const ANGULAR_TEXT_OUT =
+  'its arc is too short for its text, which the style\'s textFit "leader" moves outside, and that is not laid out yet, so tsdraft refuses it. Move the arc\'s point further from the vertex, or use textFit "inside"';
+
+/** An angular dimension with words below and its text centered in its arc. */
+export const ANGULAR_CENTERED_BELOW =
+  'its words below the arc with its text "centered" in the arc is not laid out yet, so tsdraft refuses it';
+
+/** An angular dimension whose two lines run one way. */
+export const ANGULAR_NO_ANGLE =
+  "its two lines run the same way once their points are written with the 6 decimals tsdraft writes, so there is no angle between them";
 
 /** What is wrong with a dimension in a block. */
 export const DIMENSION_IN_BLOCK =

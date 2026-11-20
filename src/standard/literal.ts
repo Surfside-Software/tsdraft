@@ -4,7 +4,9 @@ import type {
   DIMENSION_FRACTIONS,
   DIMENSION_TEXT_FITS,
   DIMENSION_RADIAL_TEXTS,
+  DIMENSION_ANGLE_UNITS,
   DIMENSION_TEXT_PLACEMENTS,
+  ZERO_SUPPRESSIONS,
 } from "../arrowheads.ts";
 import type {
   ArrowheadOf,
@@ -338,11 +340,15 @@ type StyleFields<E, N extends StandardNames> = {
               ? Str<E[F], OneOf<E[F] & string, (typeof DIMENSION_TEXT_FITS)[number]>>
               : F extends "radialText"
                 ? Str<E[F], OneOf<E[F] & string, (typeof DIMENSION_RADIAL_TEXTS)[number]>>
-                : F extends "writing"
-                  ? { readonly [U in keyof E[F]]: Writing<E[F][U]> }
-                  : F extends "discipline"
-                    ? Discipline<E[F], N>
-                    : unknown;
+                : F extends "angleUnits"
+                  ? Str<E[F], OneOf<E[F] & string, (typeof DIMENSION_ANGLE_UNITS)[number]>>
+                  : F extends "suppressAngleZeros"
+                    ? Str<E[F], OneOf<E[F] & string, (typeof ZERO_SUPPRESSIONS)[number]>>
+                    : F extends "writing"
+                      ? { readonly [U in keyof E[F]]: Writing<E[F][U]> }
+                      : F extends "discipline"
+                        ? Discipline<E[F], N>
+                        : unknown;
 };
 
 type DimensionStyle<E, N extends StandardNames> = {

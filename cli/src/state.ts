@@ -355,14 +355,15 @@ export interface DimensionSummary {
   readonly id: string | null;
   readonly layer: string;
   /**
-   * `linear` measures along one direction, `aligned` from point to point, and `radius`,
-   * `diameter` and `jogged-radius` a circle or an arc.
+   * `linear` measures along one direction, `aligned` from point to point, `radius`, `diameter`
+   * and `jogged-radius` a circle or an arc, and `angular` the angle between two lines.
    */
-  readonly kind: "linear" | "aligned" | "radius" | "diameter" | "jogged-radius";
+  readonly kind: "linear" | "aligned" | "radius" | "diameter" | "jogged-radius" | "angular";
   /** The dimension style as the dimension names it. */
   readonly style: string;
   /**
-   * The length it measures, in the units of its space, before its style's measurement scale.
+   * The length it measures, in the units of its space, before its style's measurement scale, or
+   * an angular dimension's angle in degrees.
    * `null` when it cannot be worked out: its style is not defined, or the copy of tsdraft
    * the drawing loaded is from before dimensions.
    */

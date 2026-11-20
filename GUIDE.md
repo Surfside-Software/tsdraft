@@ -381,6 +381,10 @@ d.linearDimension([24, 30], [76, 30], [0, 20], { style: "PLAN" });
   `joggedRadiusDimension(center, point, start, jog, options)` dimension circles and arcs; CAD
   writes the R and the diameter sign. `textFromCenter` places the text along the line, and a
   style's `radialText: "horizontal"` levels it.
+- `angularDimension(vertex, from, to, at, options)` dimensions the angle at `vertex` between the
+  lines to `from` and `to`, its arc through `at`, which picks the angle. A style's `angleUnits`,
+  `anglePrecision` and `suppressAngleZeros` write it, as `37°15'30"` in
+  `"degrees-minutes-seconds"`.
 - Never draw a dimension from lines and text.
   [docs/dimensions.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/dimensions.md)
   has the rest.

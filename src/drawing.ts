@@ -18,6 +18,7 @@ import {
   type DIMENSION_TEXT_PLACEMENTS,
   type DIMENSION_TEXT_FITS,
   type DIMENSION_RADIAL_TEXTS,
+  type DIMENSION_ANGLE_UNITS,
   type FEET_INCH_ZEROS,
   type LeaderArrowhead,
   type ZERO_SUPPRESSIONS,
@@ -622,6 +623,30 @@ export interface JoggedRadiusDimension extends RadialDimensionBase {
   readonly jog: Point;
 }
 
+/**
+ * An angular dimension: the angle at `vertex` between the line to `from` and the line to `to`, its
+ * arc through `at`. The arc's point picks the angle, as the leading CAD app picks it: the one
+ * between the two lines that holds `at`, or the rest of the turn, so the order of `from` and `to`
+ * means nothing. Its extension lines run from near `from` and `to` along their lines to past the
+ * arc, and its text stands at the middle of the arc.
+ */
+export interface AngularDimension extends Placed {
+  readonly kind: "angular-dimension";
+  /** A dimension style of the drawing. */
+  readonly style: string;
+  /** Where the two lines meet. */
+  readonly vertex: Point;
+  /** A point of each line, which its extension line starts near. */
+  readonly from: Point;
+  readonly to: Point;
+  /** A point the dimension's arc passes through, about the vertex. */
+  readonly at: Point;
+  /** A text to draw in place of the measurement, as a linear dimension's `text`. */
+  readonly text?: string;
+  /** Words drawn under its arc, opposite the text, as a linear dimension's `textBelow`. */
+  readonly textBelow?: string;
+}
+
 /** Which side of the point where its shafts meet a leader's note is on. */
 export type LeaderSide = (typeof LEADER_SIDES)[number];
 
@@ -759,6 +784,7 @@ export type Entity =
   | RadiusDimension
   | DiameterDimension
   | JoggedRadiusDimension
+  | AngularDimension
   | Leader
   | Image;
 
@@ -905,6 +931,19 @@ export interface DimensionStyle {
   readonly radialText?: (typeof DIMENSION_RADIAL_TEXTS)[number];
   /** The angle of a jogged radius dimension's jog to its line, in degrees from 5 to 90. Defaults to 45. */
   readonly jogAngle?: number;
+  /**
+   * The units an angular dimension writes its angle in: `"degrees"`, the default, as `45.5°`,
+   * `"degrees-minutes-seconds"`, as `45°30'`, `"grads"`, as `50.56g`, or `"radians"`, as `0.79r`.
+   */
+  readonly angleUnits?: (typeof DIMENSION_ANGLE_UNITS)[number];
+  /**
+   * How many decimals an angle takes, from 0, the default, to 8. In degrees, minutes and seconds,
+   * 0 writes the degrees, 1 and 2 the minutes too, 3 and 4 the seconds, and more the seconds'
+   * decimals.
+   */
+  readonly anglePrecision?: number;
+  /** The zeros an angle leaves out, as `suppressZeros` does for a length. */
+  readonly suppressAngleZeros?: "leading" | "trailing" | "both";
 }
 
 /**
@@ -1739,6 +1778,19 @@ export interface DimensionStyleDefinition<
   readonly radialText?: (typeof DIMENSION_RADIAL_TEXTS)[number];
   /** The angle of a jogged radius dimension's jog to its line, in degrees from 5 to 90. Defaults to 45. */
   readonly jogAngle?: number;
+  /**
+   * The units an angular dimension writes its angle in: `"degrees"`, the default, as `45.5°`,
+   * `"degrees-minutes-seconds"`, as `45°30'`, `"grads"`, as `50.56g`, or `"radians"`, as `0.79r`.
+   */
+  readonly angleUnits?: (typeof DIMENSION_ANGLE_UNITS)[number];
+  /**
+   * How many decimals an angle takes, from 0, the default, to 8. In degrees, minutes and seconds,
+   * 0 writes the degrees, 1 and 2 the minutes too, 3 and 4 the seconds, and more the seconds'
+   * decimals.
+   */
+  readonly anglePrecision?: number;
+  /** The zeros an angle leaves out, as `suppressZeros` does for a length. */
+  readonly suppressAngleZeros?: "leading" | "trailing" | "both";
 }
 
 /** What every dimension is drawn with. */
@@ -1803,6 +1855,13 @@ export type DiameterDimensionOptions<
   T extends string = string,
   I extends string = string,
 > = RadiusDimensionOptions<S, T, I>;
+
+/** The options of `angularDimension()`. */
+export type AngularDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+> = DimensionOptions<S, T, I>;
 
 /** The options of `joggedRadiusDimension()`. */
 export type JoggedRadiusDimensionOptions<
@@ -3593,6 +3652,7 @@ export class DrawingBuilder<
     const { prefix, suffix, suppressZeros, feetInchZeros } = definition;
     const { fraction, fractionScale, textPlacement, textFit } = definition;
     const { dimensionLineweight, extensionLineweight, radialText, jogAngle } = definition;
+    const { angleUnits, anglePrecision, suppressAngleZeros } = definition;
     const units = definition.units ?? "decimal";
     const scale = definition.scale ?? 1;
     const measurementScale = definition.measurementScale ?? 1;
@@ -3621,6 +3681,9 @@ export class DrawingBuilder<
       ...(extensionLineweight === undefined ? {} : { extensionLineweight }),
       ...(radialText === undefined || radialText === "aligned" ? {} : { radialText }),
       ...(jogAngle === undefined || written(jogAngle) === JOG_ANGLE.default ? {} : { jogAngle }),
+      ...(angleUnits === undefined || angleUnits === "degrees" ? {} : { angleUnits }),
+      ...(anglePrecision === undefined || anglePrecision === 0 ? {} : { anglePrecision }),
+      ...(suppressAngleZeros === undefined ? {} : { suppressAngleZeros }),
     });
     this.#dimensionStylesAudited.set(layerAuditKey(named), named);
   }
@@ -3761,6 +3824,36 @@ export class DrawingBuilder<
           ...text,
         }),
       ),
+    );
+  }
+
+  /**
+   * Draws an angular dimension on the current layer: the angle at `vertex` between the lines to
+   * `from` and to `to`, with its arc through `at`. The arc's point picks which angle, so the order
+   * of `from` and `to` means nothing.
+   */
+  angularDimension<S extends string, T extends string = string, I extends string = string>(
+    vertex: Point,
+    from: Point,
+    to: Point,
+    at: Point,
+    options: Z extends Standard
+      ? StandardAlignedDimensionOptions<S, T, I, Z>
+      : V extends "R12"
+        ? R12Dimensions
+        : AngularDimensionOptions<S, T, I>,
+  ): this {
+    return this.#add(DrawingBuilder.prototype.angularDimension, idOf(options), () =>
+      this.#dimension(options as unknown as AngularDimensionOptions | undefined, (style, text) => ({
+        kind: "angular-dimension",
+        layer: this.#current,
+        style,
+        vertex: pt(vertex),
+        from: pt(from),
+        to: pt(to),
+        at: pt(at),
+        ...text,
+      })),
     );
   }
 
@@ -3928,6 +4021,11 @@ export class DrawingBuilder<
       ...(extensionLineweight === undefined ? {} : { extensionLineweight }),
       ...(fields.radialText === "aligned" ? {} : { radialText: fields.radialText }),
       ...(fields.jogAngle === JOG_ANGLE.default ? {} : { jogAngle: fields.jogAngle }),
+      ...(fields.angleUnits === "degrees" ? {} : { angleUnits: fields.angleUnits }),
+      ...(fields.anglePrecision === 0 ? {} : { anglePrecision: fields.anglePrecision }),
+      ...(fields.suppressAngleZeros === undefined
+        ? {}
+        : { suppressAngleZeros: fields.suppressAngleZeros }),
     });
     return this.#dimensionStyles.get(layerKey(name))!;
   }

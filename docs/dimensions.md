@@ -188,6 +188,55 @@ A dimension style sets two things of these kinds alone:
 or its diameter sign; a placed text in a style that levels the text or centers it in the line; a
 jogged one in a style that centers its text; and a radius of 0.
 
+### Angular
+
+`d.angularDimension(vertex, from, to, at, options)` measures the angle at `vertex` between the line
+to `from` and the line to `to`. Its arc runs about the vertex through `at`, and `at` picks the
+angle, as the leading CAD app picks it: the angle between the two lines that holds `at`, or the rest
+of the turn when `at` is on the other side, so the order of `from` and `to` means nothing.
+
+```ts
+d.angularDimension([0, 0], [10, 0], [0, 10], [6, 6], { style: "DIMS" }); // 90°
+d.angularDimension([0, 0], [10, 0], [0, 10], [-6, -6], { style: "DIMS" }); // 270°
+```
+
+Each extension line runs along its line, from the style's offset off its point toward the arc, to
+the style's length past the arc: out from the vertex when the arc is beyond the point, and in
+toward it when the arc is nearer. The arc runs between the arrowheads, each a chord of the arrow
+size long, or between the ticks. The text stands at the middle of the arc, turned along it to read
+upright: a gap above it, or centered in a break of it. Words below make a second line of the one
+text, which stands on the arc, `90°` over the arc and `MIN.` under it.
+
+Where a centered text and its gaps leave the marks no room on the arc, the marks turn outward, each
+with a tail an arrow size long past it, and the arc runs whole under the text. A closed arrowhead
+also turns outward so for a style whose text fit is `"leader"`. A text above the arc stays put,
+and so do its marks, as short as the arc is.
+
+A dimension style sets how its angles are written:
+
+- `angleUnits`: `"degrees"`, the default, as `45.5°`; `"degrees-minutes-seconds"`, as `45°30'`;
+  `"grads"`, as `50.56g`; or `"radians"`, as `0.79r`.
+- `anglePrecision`, the decimals, from 0, the default, to 8. In degrees, minutes and seconds it
+  picks the parts, and the zeros are always written:
+
+  | `anglePrecision` | 0      | 1 and 2   | 3 and 4      | 5              | 8                 |
+  | ---------------- | ------ | --------- | ------------ | -------------- | ----------------- |
+  | 123.4567°        | `123°` | `123°27'` | `123°27'24"` | `123°27'24.1"` | `123°27'24.1412"` |
+
+- `suppressAngleZeros`, the zeros an angle leaves out, as `suppressZeros` does for a length:
+  `"leading"` writes 0.50° as `.50°`, `"trailing"` as `0.5°`, and `"both"` as `.5°`.
+
+An angle is rounded half up as a length is, and carries: 45.99999° is `46°0'0.0"` at a precision of 5. The style's `prefix` and `suffix` stand around it, and its `measurementScale` takes no part.
+
+`lint` refuses an angular dimension whose vertex is one of its points, whose arc's point is its
+vertex, or whose lines run one way; one whose arc's point is on one of its lines, where the leading
+CAD app takes the angle or the rest of the turn by a rounding; one whose arc passes through one of
+its points, where that app runs the point's extension line either way by a rounding; one whose
+text is too wide for its arc in a style whose text fit is `"leader"`, which that app moves outside;
+one whose centered text leaves its arc no room each side; one whose closed arrowheads are as long
+as its arc is wide; one whose arc runs all but a whole turn, which its 6 decimals write with one
+angle at both ends; and words below in a style that centers its text.
+
 ## How a measurement is written
 
 A measurement is the length between the points as the file holds them, with 6 decimals,
@@ -362,7 +411,8 @@ no dimension style holds nothing else for dimensions.
 
 ## What is not drawn yet
 
-Angular, arc length and ordinate dimensions. A radial dimension's center mark, which the leading
+Arc length and ordinate dimensions, an angular dimension by two lines, and an angular dimension's
+level text or text a drafter placed. A radial dimension's center mark, which the leading
 CAD app draws only without the line to the center, and a level text placed along its line. Tolerances and alternate
 units, and the unit formats but decimal and feet and inches. The other fits of a text, such as
 moving the arrowheads first, and a text a drafter placed. A dimension tied to an entity, which

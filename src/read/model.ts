@@ -428,6 +428,35 @@ export interface ReadRadialDimension extends ReadEntityBase {
   readonly blockHandle?: string;
 }
 
+/**
+ * An angular dimension: by three points, its vertex and a point of each line, or by two lines,
+ * each by two points, which need not meet.
+ */
+export interface ReadAngularDimension extends ReadEntityBase {
+  readonly kind: "angular-dimension";
+  readonly type: "three-point" | "two-line";
+  /** By three points: where the lines meet, and a point of each. */
+  readonly vertex?: Point;
+  readonly from?: Point;
+  readonly to?: Point;
+  /** By two lines: each line, by two of its points. */
+  readonly first?: readonly [Point, Point];
+  readonly second?: readonly [Point, Point];
+  /** A point its arc passes through. */
+  readonly at: Point;
+  /** The middle of its text. */
+  readonly textAt: Point;
+  /** True where the file holds its text where it was placed, not where the leading CAD app puts it. */
+  readonly placed?: boolean;
+  /** The angle it measures, in degrees, as the file states it; -1 where the file says -1. */
+  readonly measurement?: number;
+  readonly text?: string;
+  readonly textBelow?: string;
+  readonly style: string;
+  readonly block?: string;
+  readonly blockHandle?: string;
+}
+
 /** One root of a multileader: where some of its shafts meet, and the landing from there. */
 export interface ReadLeaderRoot {
   /** Where its shafts meet and its landing starts. */
@@ -581,6 +610,7 @@ export type ReadEntity =
   | ReadMtext
   | ReadDimension
   | ReadRadialDimension
+  | ReadAngularDimension
   | ReadMultileader
   | ReadLeader
   | ReadSolid

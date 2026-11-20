@@ -25,7 +25,7 @@ import {
   type Drawing,
   type Entity,
 } from "../src/index.ts";
-import { arrowRoom, measurementText, WIDEST_CHARACTERS } from "../src/dimensions.ts";
+import { angleNumber, arrowRoom, measurementText, WIDEST_CHARACTERS } from "../src/dimensions.ts";
 import { toDXFR2018 } from "../src/dxf-r2018.ts";
 import { extents } from "../src/extents.ts";
 
@@ -807,6 +807,7 @@ test("a dimension is written with its style, its points and the block of its pic
     dimensionLines: ["14E64A214426A5", "1A23E71AA31D32", "1A22E71AA31F7D", "1A25E71AA31254"],
     leader: ["1C6E99C485049E", "1C7199C48501B7"],
     belowText: "1A5AD40549288F",
+    dimensionArcs: ["1FAB45DF867869", "1FAC45DF867AA4", "1FAD45DF867CF3"],
   });
   assert.equal(dimensionPictureHandles({ index: 1 }).record, "16DCBD6115A74B");
   assert.equal(dimensionPictureHandles({ index: 0, layout: "a-101" }).record, "1D645DAA891E34");
@@ -1103,5 +1104,135 @@ test("a radial dimension is refused where the leading CAD app would draw what ts
   assert.throws(
     () => d.joggedRadiusDimension([0, 0], [120, 0], [118, 0.5], [119.7, 0.1], { style: "S" }),
     /shorter than its text/,
+  );
+});
+
+test("an angular dimension is built, written and read back, its arc's point picking the angle", async () => {
+  const d = createDrawing({ units: "in" });
+  d.dimensionStyle({ ...sizes, name: "S" });
+  d.angularDimension([0, 0], [2, 0], [0, 2], [3, 3], { style: "S", id: "a" });
+  // Its point on the far side of the vertex picks the rest of the turn.
+  d.angularDimension([0, 0], [2, 0], [0, 2], [-3, -3], { style: "S", text: "<> TYP." });
+  const drawing = d.build();
+  assert.deepEqual(lint(drawing), []);
+  assert.deepEqual(fromJSON(toJSON(drawing)), drawing);
+  const style = drawing.dimensionStyles![0]!;
+  assert.deepEqual(
+    drawing.entities.map((e) => dimensionPicture(e as never, style).label.value),
+    ["90°", "270° TYP."],
+  );
+  const read = await readDXF(toDXF(drawing), { geometry: true });
+  const angular = (read.model.entities ?? []).filter((e) => e.kind === "angular-dimension");
+  assert.deepEqual(
+    angular.map((e) => [e.type, e.vertex, e.from, e.to, e.at, Math.round(e.measurement!)]),
+    [
+      ["three-point", [0, 0], [2, 0], [0, 2], [3, 3], 90],
+      ["three-point", [0, 0], [2, 0], [0, 2], [-3, -3], 270],
+    ],
+  );
+  // An angle too large for degrees reads as no angle.
+  const huge = toDXF(drawing).replace("42\r\n1.5707963267949\r\n", "42\r\n1e308\r\n");
+  const hugeRead = await readDXF(huge, { geometry: true });
+  assert.equal((hugeRead.model.entities![0] as { measurement?: number }).measurement, undefined);
+});
+
+test("an angle is written in each unit and precision as the leading CAD app writes it", () => {
+  const at = (degrees: number, style: Parameters<typeof angleNumber>[1]): string =>
+    angleNumber((degrees * Math.PI) / 180, style);
+  const dms = { angleUnits: "degrees-minutes-seconds" } as const;
+  // Each from a case the app drew, of the angle its points make.
+  assert.deepEqual(
+    [0, 1, 2, 3, 4, 5, 6, 8].map((places) => at(123.456705888, { ...dms, anglePrecision: places })),
+    [
+      "123°",
+      "123°27'",
+      "123°27'",
+      `123°27'24"`,
+      `123°27'24"`,
+      `123°27'24.1"`,
+      `123°27'24.14"`,
+      `123°27'24.1412"`,
+    ],
+  );
+  // Rounding carries into the minutes and the degrees.
+  assert.equal(at(45.999993816, { ...dms, anglePrecision: 5 }), `46°0'0.0"`);
+  assert.equal(at(45.999993816, { ...dms, anglePrecision: 6 }), `45°59'59.98"`);
+  assert.equal(at(123.456705888, { anglePrecision: 2 }), "123.46°");
+  assert.equal(at(89.995007537, { anglePrecision: 2 }), "90.00°");
+  assert.equal(at(45.000007829, { angleUnits: "grads", anglePrecision: 2 }), "50.00g");
+  assert.equal(at(20.000009666, { angleUnits: "radians", anglePrecision: 3 }), "0.349r");
+  assert.deepEqual(
+    (["leading", "trailing", "both"] as const).map((zeros) =>
+      at(0.5, { anglePrecision: 2, suppressAngleZeros: zeros }),
+    ),
+    [".50°", "0.5°", ".5°"],
+  );
+});
+
+test("an angular dimension is refused where the leading CAD app would draw what tsdraft does not", () => {
+  const d = createDrawing({ units: "in" });
+  d.dimensionStyle({ ...sizes, name: "S" });
+  d.dimensionStyle({ ...sizes, name: "OUT", textFit: "leader" });
+  assert.throws(
+    () => d.angularDimension([0, 0], [0, 0], [0, 2], [3, 3], { style: "S" }),
+    /no direction/,
+  );
+  assert.throws(
+    () => d.angularDimension([0, 0], [2, 0], [0, 2], [0, 0], { style: "S" }),
+    /no radius/,
+  );
+  assert.throws(
+    () => d.angularDimension([0, 0], [2, 0], [4, 0], [3, 3], { style: "S" }),
+    /no angle/,
+  );
+  // The arc through one of its points, whose extension line runs either way by a rounding.
+  assert.throws(
+    () => d.angularDimension([0, 0], [2, 0], [0, 2], [1.2, 1.6], { style: "S" }),
+    /passes through one of its two points/,
+  );
+  // The arc's point on one of the lines, where a rounding picks the angle or the rest of the turn.
+  assert.throws(
+    () => d.angularDimension([1.1, 2.3], [1.2, 2.37], [1.03, 2.4], [1.3, 2.44], { style: "S" }),
+    /on one of its two lines/,
+  );
+  // A centered text that leaves the arc no room each side, with no marks to turn.
+  d.dimensionStyle({ ...sizes, name: "BARE", arrowSize: 0, textPlacement: "centered" });
+  assert.throws(
+    () => d.angularDimension([0, 0], [2, 0], [2, 0.05], [1, 0.01], { style: "BARE" }),
+    /too short for its text "centered"/,
+  );
+  // The rest of the turn, its centered text and arrowheads too wide for each half of it.
+  d.dimensionStyle({
+    ...sizes,
+    name: "WIDE",
+    textPlacement: "centered",
+    textHeight: 0.25,
+    textGap: 0.1,
+    extensionOffset: 0,
+    extensionBeyond: 0,
+  });
+  assert.throws(
+    () => d.angularDimension([0, 0], [2, 0], [2, -0.2], [-0.55, 0], { style: "WIDE" }),
+    /too short for its text "centered"/,
+  );
+  // An arc of all but a whole turn, which its 6 decimals write with one angle at both ends.
+  d.dimensionStyle({ ...sizes, name: "THIN", arrowSize: 0 });
+  assert.throws(
+    () => d.angularDimension([0, 0], [1000, 0], [1000, 0.000007], [-2000, 0], { style: "THIN" }),
+    /all but a whole turn/,
+  );
+  // Closed arrowheads longer than the arc is wide.
+  assert.throws(
+    () => d.angularDimension([0, 0], [2, 0], [0, 2], [0.04, 0.04], { style: "S" }),
+    /as long as its arc is wide/,
+  );
+  // A text too wide for the arc, which "leader" moves outside.
+  assert.throws(
+    () => d.angularDimension([0, 0], [2, 0], [2, 0.1], [0.5, 0.01], { style: "OUT" }),
+    /too short for its text/,
+  );
+  assert.throws(
+    () => d.dimensionStyle({ ...sizes, name: "BAD", anglePrecision: 9 }),
+    /anglePrecision must be a whole number from 0 to 8/,
   );
 });

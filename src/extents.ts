@@ -10,7 +10,12 @@ import {
   type Referenced,
 } from "./blocks.ts";
 import { imageCorners, imageDrawable, imageFrame } from "./images.ts";
-import { dimensionPicture, pictureTexts, type Dimension } from "./dimensions.ts";
+import {
+  dimensionArcPoints,
+  dimensionPicture,
+  pictureTexts,
+  type Dimension,
+} from "./dimensions.ts";
 import type {
   AttributeDefinition,
   Block,
@@ -315,6 +320,7 @@ export function boxer(
       case "radius-dimension":
       case "diameter-dimension":
       case "jogged-radius-dimension":
+      case "angular-dimension":
         dimension(e, from, add);
         break;
       case "leader": {
@@ -416,6 +422,8 @@ export function boxer(
       add(...line[0]);
       add(...line[1]);
     }
+    for (const arc of picture.dimensionArcs)
+      for (const p of dimensionArcPoints(arc)) add(p[0], p[1]);
     for (const arrowhead of picture.arrowheads) for (const corner of arrowhead) add(...corner);
     // Each text by the box of what it draws, as its block's paragraph lays it out.
     for (const text of pictureTexts(picture, font)) {

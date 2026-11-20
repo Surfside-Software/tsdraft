@@ -445,6 +445,40 @@ export function readProblems(
         }
         return;
       }
+      case "angular-dimension": {
+        if (!kind("angular-dimension") || got.kind !== "angular-dimension") return;
+        if (got.type !== "three-point") say(`${label}: ${got.type}, expected three-point`);
+        if (!sameName(got.style, want.style)) say(`${label}: style ${got.style}`);
+        if (
+          !nearPoint(got.vertex ?? [NaN, NaN], point(want.vertex)) ||
+          !nearPoint(got.from ?? [NaN, NaN], point(want.from)) ||
+          !nearPoint(got.to ?? [NaN, NaN], point(want.to))
+        ) {
+          say(`${label}: vertex ${got.vertex}, from ${got.from}, to ${got.to}`);
+        }
+        // The leading CAD app keeps a point of the arc of its own choosing.
+        if (by === "tsdraft" && !nearPoint(got.at, point(want.at)))
+          say(`${label}: arc at ${got.at}`);
+        if ((got.text ?? undefined) !== (want.text === undefined ? undefined : once(want.text))) {
+          say(`${label}: text ${JSON.stringify(got.text)}`);
+        }
+        const below = want.textBelow === undefined ? undefined : once(want.textBelow);
+        if ((got.textBelow ?? undefined) !== below) {
+          say(`${label}: text below ${JSON.stringify(got.textBelow)}`);
+        }
+        const style = dimensionStyles.get(layerKey(want.style));
+        if (!style) return;
+        const font = drawing.textStyles?.find((t) => sameName(t.name, style.textStyle ?? ""));
+        const picture = dimensionPicture(want, style, font);
+        if (by === "tsdraft" && !nearPoint(got.textAt, point(picture.textPoint))) {
+          say(`${label}: its text at ${got.textAt}, expected ${picture.textPoint}`);
+        }
+        const degrees = (dimensionMeasure(want).measurement * 180) / Math.PI;
+        if (got.measurement === undefined || Math.abs(got.measurement - degrees) > 1e-9 * degrees) {
+          say(`${label}: measures ${got.measurement}, expected ${degrees}`);
+        }
+        return;
+      }
       case "leader": {
         if (!kind("multileader") || got.kind !== "multileader") return;
         const style = findLeaderStyle(drawing, want.style);

@@ -206,3 +206,17 @@ export const STANDARD_DIMENSION_STYLE = "Standard";
 
 /** The leader style a drawing with leaders has beside its own, in the spelling the leading CAD app gives it. */
 export const STANDARD_LEADER_STYLE = "Standard";
+
+/**
+ * The units an angular dimension writes its angle in, as `DIMAUNIT` 0 to 3: decimal degrees,
+ * degrees, minutes and seconds, grads and radians.
+ */
+export const DIMENSION_ANGLE_UNITS = [
+  "degrees",
+  "degrees-minutes-seconds",
+  "grads",
+  "radians",
+] as const;
+
+/** The most decimals an angle takes, as `DIMADEC` holds them. */
+export const MAX_ANGLE_PRECISION = 8;

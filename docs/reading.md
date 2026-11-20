@@ -120,12 +120,16 @@ leader:
 - `dimension`: a linear or aligned dimension, with its two points, the point where its dimension
   line meets its second extension line, its direction, the middle of its text, what it measures,
   its text and the words below its line, which the file holds after `\X`, its style and the
-  block of its picture. Angular and ordinate dimensions are counted under `other`.
+  block of its picture. Ordinate dimensions are counted under `other`.
 - `radial-dimension`: a radius, a diameter or a jogged radius dimension, its `type`, with its
   center, the point of the circle or arc its line meets, a jogged one's start and jog, the
   middle of its text, `placed` where the file holds the text where it was placed, what it
   measures, its text, its style and the block of its picture. A file holds a diameter's far
   point, and the center is halfway to the point.
+- `angular-dimension`: an angular dimension, its `type`, `"three-point"` with its `vertex` and
+  a point of each line, `from` and `to`, or `"two-line"` with its `first` and `second` lines, each
+  two points; a point its arc passes through, `at`, the middle of its text, `placed`, the angle it
+  measures in degrees, its text, its style and the block of its picture.
 - `multileader`: a note or a block, with its `style`, `textHeight` and `arrowSize`. `roots` holds
   each root in the file's order, one with no shafts among them: the point `at` where its shafts
   meet, its landing's `direction` and length, and its `shafts`, each from its tip. `shafts`, `at`,

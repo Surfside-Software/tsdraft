@@ -217,6 +217,18 @@ const kinds: {
     textBelow: "CURB",
     id: "h-j",
   },
+  "angular-dimension": {
+    kind: "angular-dimension",
+    layer: "0",
+    style: "ARCH",
+    vertex: [0, 0],
+    from: [10, 0],
+    to: [0, 10],
+    at: [7, 7],
+    text: "<> TYP",
+    textBelow: "MIN.",
+    id: "h-a",
+  },
 };
 
 /** A polyline of one width, with every field the polyline of `kinds` leaves out. */
@@ -311,6 +323,9 @@ const full: Required<Drawing> & {
       extensionLineweight: 0.25,
       radialText: "horizontal",
       jogAngle: 30,
+      angleUnits: "degrees-minutes-seconds",
+      anglePrecision: 4,
+      suppressAngleZeros: "leading",
     },
     {
       name: "ARCH",
@@ -336,6 +351,9 @@ const full: Required<Drawing> & {
       extensionLineweight: 0.18,
       radialText: "aligned",
       jogAngle: 45,
+      angleUnits: "degrees",
+      anglePrecision: 0,
+      suppressAngleZeros: "both",
     },
   ],
   leaderStyles: [
@@ -623,7 +641,7 @@ test("a value of the wrong shape is reported in these words, once", () => {
       { toString: 0 },
       [
         "xref: Xref a value of type object: A block's name must be a string",
-        `undefined-block: insert #14: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
+        `undefined-block: insert #15: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
       ],
     ],
     [

@@ -1553,6 +1553,7 @@ const SUMMARY_KINDS = {
   "radius-dimension": "radius",
   "diameter-dimension": "diameter",
   "jogged-radius-dimension": "jogged-radius",
+  "angular-dimension": "angular",
 } as const;
 
 /** Each dimension among some entities, with what the library the drawing loaded says it reads. */
@@ -1572,7 +1573,10 @@ function dimensionSummaries(
           : undefined;
       const picture = style && library.dimensionPicture?.(dimension, style);
       if (picture && Number.isFinite(picture.measurement)) {
-        read = { measurement: picture.measurement, text: picture.label.value };
+        // An angle in degrees, as every angle of a drawing is.
+        const degrees = dimension.kind === "angular-dimension";
+        const measurement = degrees ? (picture.measurement * 180) / Math.PI : picture.measurement;
+        read = { measurement, text: picture.label.value };
       }
     } catch {
       // A dimension or a style that breaks a rule, which the diagnostics say.

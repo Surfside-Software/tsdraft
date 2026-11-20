@@ -66,6 +66,14 @@
   coordinates, and lists the file's image definitions in `images`, with how many images name each,
   one that none names among them. The example sheet has a vicinity map above its key plan.
   [docs/images.md](docs/images.md) describes them.
+- Angular dimensions: `angularDimension(vertex, from, to, at, options)` measures the angle at
+  `vertex` between the lines to `from` and `to`, its arc through `at`, which picks the angle as the
+  leading CAD app does: the one between the lines that holds `at`, or the rest of the turn. Drawn as
+  that app draws them, with the text above the arc or centered in it, words below as a second
+  line, and the marks turned outward where a centered text leaves them no room. A dimension style's
+  `angleUnits` (`"degrees"`, `"degrees-minutes-seconds"`, `"grads"` or `"radians"`),
+  `anglePrecision` and `suppressAngleZeros` write the angle. `toDXF` writes them, and `readDXF`
+  reads them as `angular-dimension`, by three points or by two lines, with the angle in degrees.
 - Radius, diameter and jogged radius dimensions: `radiusDimension(center, point, options)`,
   `diameterDimension(center, point, options)` and `joggedRadiusDimension(center, point, start,
   jog, options)`, drawn as the leading CAD app draws them, with the R and the diameter sign it
