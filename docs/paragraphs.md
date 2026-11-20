@@ -78,6 +78,11 @@ these:
 | `{` and `}`          | A group: what a code sets inside it ends at its `}`, 16 groups deep at most |
 | `\L` and `\l`        | Underline on and off                                                        |
 | `\K` and `\k`        | Strike-through on and off                                                   |
+| `\H0.2;`, `\H2x;`    | The height of the characters after it, in drawing units or times the last   |
+| `\W0.8;`             | Their width factor, in the place of the style's                             |
+| `\Q15;`              | Their oblique angle in degrees, -85 to 85, in the place of the style's      |
+| `\A0;` to `\A2;`     | Where they sit on the line: on the baseline, centered or at the top         |
+| `\C1;`               | A color by its index, which moves nothing and which the preview draws       |
 | `\fArial\|b1;`       | A TrueType font of `FONTS`, in bold with `b1`: `i0`, `c` and `p` pass       |
 | `\Fromans.shx;`      | An SHX font of `FONTS`                                                      |
 | `\S1/2;`             | A fraction stacked over a level bar                                         |
@@ -176,11 +181,15 @@ message names the code.
 - In `\p`, an option it does not know, a tab stop that aligns text by its right, its center or a
   decimal point, `tr`, `tc` and `td`, and spacing at least a size, `sa`, which tsdraft does not
   lay out.
-- The codes tsdraft does not lay out yet: `\H` the height, `\W` the width
-  factor, `\Q` the oblique angle, `\T` the spacing and `\A` the alignment of the characters after
-  it; `\C` and `\c` color; `\O`, an overline, which sits at a TrueType font's ascent, which
-  tsdraft's tables do not hold; `\X`, which only a dimension's text holds; and `\M+NXXXX`, a
-  character of a code page. A paragraph that held one would plot otherwise than tsdraft draws it.
+- A code of the table above whose number is not one it takes: a height or width factor of 0 or
+  of more than 15 digits before its point, an oblique angle past 85, `\A` other than 0, 1 or 2, a
+  color number past 257.
+- The codes tsdraft does not lay out yet: `\T` the spacing of the characters after it, which the
+  leading CAD app plots as a spacing of its own between characters; `\c`, a true color, which
+  the preview cannot draw as the plot does yet; `\O`, an overline, which sits
+  at a TrueType font's ascent, which tsdraft's tables do not hold; `\X`, which only a dimension's
+  text holds; and `\M+NXXXX`, a character of a code page. A paragraph that held one would plot
+  otherwise than tsdraft draws it.
 - A stacked part that holds other characters than those above, such as `\Sx/y;`, since where it
   stands depends on the top of its letters, which tsdraft's tables hold only for digits and
   capitals; and a stack in underlined or struck-through characters, which is laid out otherwise.
@@ -252,6 +261,13 @@ from the widths and the ink of each character that `FONT_METRICS` holds:
   alike, every line, and stands centered without a width. A grown line draws each word and space,
   or each letter, as a run of its own. A line wider than its room is not grown, and a distributed
   one is centered.
+- A run of the codes above is laid out at its own height, width factor and oblique angle: its
+  advances scale with them, and a line's A is its tallest run's top, and its D a third of that
+  run's height, with the third of the paragraph's height after it. `\A1;` centers the runs after
+  it on the line's tallest run, and `\A2;` sets them at its top. A run after a leaned one starts
+  further by how far the lean takes the last capital's top. A line that holds spaces or a tab in
+  a format of their own, or ends in one of another format than the spaces dropped after it, is
+  placed by its first point and not by its ink.
 - In columns, a line starts the next column when its box reaches below its column's height: its
   ink with `"at-least"` spacing, `h/3` below its baseline with `"exactly"`, and the box of the
   paragraph's own spacing. It stands at the column's top as a first line does, and the next column
@@ -322,7 +338,6 @@ when the font is not the style's own or the value holds a code tsdraft does not 
 
 ## Not yet
 
-The codes that change the height, width, slant, spacing, alignment or color of the characters
-after them, an overline, stacked parts in lower case, tab stops that align text by its right, its
+The spacing of the characters, `\T`, an overline, stacked parts in lower case, tab stops that align text by its right, its
 center or a decimal point, columns that flow from right to left, and attributes of more than one
 line.

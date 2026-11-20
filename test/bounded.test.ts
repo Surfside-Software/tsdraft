@@ -2444,6 +2444,10 @@ test("a paragraph of many lines, runs or braces, a long word and numbers past dr
     }),
     paragraph({ value: "A B ".repeat(50_000), width: 1e99, columns: { height: 1e99, gutter: -1 } }),
     paragraph({ value: "A B ".repeat(50_000), width: 1, columns: null }),
+    // The codes of the characters: heights past drawing, a run each, and nested groups of them.
+    paragraph({ value: "\\H999999999999999;W ".repeat(20_000), width: 1 }),
+    paragraph({ value: "{\\H0.5x;\\W3;\\Q-85;\\A2;\\C7;A}".repeat(20_000), width: 2 }),
+    paragraph({ value: `${"{\\H2x;".repeat(16)}A${"}".repeat(16)} B`.repeat(5_000), width: 1 }),
     // Heights many paragraphs share, under a value long enough to be kept.
     paragraph({
       value: "X".repeat(256),

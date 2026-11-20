@@ -256,8 +256,9 @@ tab stops, justification and spacing. `columns: { count: 2, height: 6 }` flows t
 columns side by side, each `width` wide. `measureParagraph` gives its lines and its box, from the
 widths `measureText` uses, and `inspectText` checks each line as a text. `underline`, `bold`,
 `stack`, `superscript` and `subscript` write the codes for what they name, and `plain(text)`
-escapes text from elsewhere. `lint` refuses a code tsdraft does not lay out, such as a change of
-height, and names it.
+escapes text from elsewhere. The codes `\H`, `\W`, `\Q`, `\A` and `\C` change the height, width,
+slant, place and color of the characters after them, and `lint` refuses a code tsdraft does not
+lay out, such as `\T`, and names it.
 [docs/paragraphs.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/paragraphs.md)
 has the codes.
 
@@ -627,8 +628,7 @@ writeFileSync("plan.dxf", toDXF(drawing));
   viewport is a locked rectangle that shows every layer at one scale.
 - A paper outside the list in the section on layouts, a paper in portrait, and a page setup
   for another plotter.
-- The codes that change the height, width, slant, spacing or color of characters inside a
-  paragraph.
+- The spacing of characters inside a paragraph, `\T`, and an overline, `\O`.
 - Ellipses and splines.
 - A color on a single entity. Color comes from the layer.
 - DWG files. tsdraft writes DXF.

@@ -1433,7 +1433,6 @@ function paragraphToSvg(
     left -= part.length;
   };
   const layout = left < 0 ? undefined : layOut();
-  const { widthFactor = 1, obliqueAngle = 0 } = layout ?? {};
   const mask = maskOf(e.mask);
   if (mask && layout) {
     const corners = paragraphMaskCorners(e, layout, mask).map(at);
@@ -1443,6 +1442,9 @@ function paragraphToSvg(
     if (left < 0) break;
     for (const run of line.runs) {
       if (left < 0) break;
+      // A run too small to write, which a `\H` factor can make of a small paragraph, draws
+      // nothing, and its layout says it is approximate.
+      if (!(written(run.height) > 0)) continue;
       const text: Text = {
         kind: "text",
         layer: e.layer,
@@ -1451,7 +1453,13 @@ function paragraphToSvg(
         value: run.value,
         rotation: paragraphTurn(e.rotation),
       };
-      const style: TextStyle = { name: "", font: run.font, widthFactor, obliqueAngle };
+      // Each run in its own width factor and oblique angle, the style's or a code's.
+      const style: TextStyle = {
+        name: "",
+        font: run.font,
+        widthFactor: run.widthFactor,
+        obliqueAngle: run.obliqueAngle,
+      };
       // The run is drawn in its own face, from its first point.
       const drawn = {
         start: run.start - run.x,
@@ -1459,7 +1467,11 @@ function paragraphToSvg(
         advance: run.advance,
         bold: run.bold,
       };
-      add(textToSvg(text, style, pen, `data-part="text"`, matrix, false, drawn));
+      // A run a `\C` code colors is drawn in that color, as a layer's is: by block, by layer and
+      // by entity leave it the entity's.
+      const own = run.color !== undefined && run.color >= 1 && run.color <= 255;
+      const runPen = own ? { ...pen, color: look.color(run.color!) } : pen;
+      add(textToSvg(text, style, runPen, `data-part="text"`, matrix, false, drawn));
     }
   }
   for (const { kind, from, to } of layout?.strokes ?? []) {

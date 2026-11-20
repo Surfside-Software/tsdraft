@@ -32,12 +32,7 @@ export const PARAGRAPH_STACK_PART =
 
 /** What each code a paragraph may hold but tsdraft does not lay out yet does. */
 export const PARAGRAPH_NOT_LAID_OUT = {
-  H: "sets the height of the characters after it",
-  W: "sets the width factor of the characters after it",
-  Q: "sets the oblique angle of the characters after it",
   T: "sets the spacing of the characters after it",
-  A: "sets where the characters after it sit up and down the line",
-  C: "sets the color of the characters after it",
   c: "sets the true color of the characters after it",
   X: "starts the part of a dimension's text below its line",
   M: "holds a character of a code page",
@@ -124,10 +119,21 @@ export interface RunFormat {
   readonly bold: boolean;
   /** The font of `FONTS` a `\f` or `\F` code set, or undefined for the paragraph's own. */
   readonly font: Font | undefined;
-  /** The height as a share of the paragraph's, which `\H` sets in a dimension's text. */
+  /** The height as a share of the paragraph's, which `\H` with an `x` sets. */
   readonly size: number;
-  /** Where a stack sits up and down the line, which `\A` sets in a dimension's text: 0 on it, 1 centered. */
+  /**
+   * The height in drawing units a `\H` without an `x` set, times what each `\H` with one after it
+   * gives, or undefined where none did, for the paragraph's times `size`.
+   */
+  readonly height: number | undefined;
+  /** The width factor `\W` sets, or undefined for the style's. */
+  readonly widthFactor: number | undefined;
+  /** The oblique angle in degrees `\Q` sets, or undefined for the style's. */
+  readonly obliqueAngle: number | undefined;
+  /** Where the characters and stacks sit up and down the line, `\A`: 0 on it, 1 centered, 2 at its top. */
   readonly align: 0 | 1 | 2;
+  /** The color by its index, 0 to 257, that a `\C` code sets, or undefined for the entity's. */
+  readonly color: number | undefined;
 }
 
 /** How a paragraph's lines stand across its box, as a `\pq` code sets it. */
@@ -208,7 +214,11 @@ const PLAIN: RunFormat = {
   bold: false,
   font: undefined,
   size: 1,
+  height: undefined,
+  widthFactor: undefined,
+  obliqueAngle: undefined,
   align: 0,
+  color: undefined,
 };
 
 /**
@@ -236,6 +246,59 @@ const TOGGLES: Readonly<Record<string, readonly [keyof RunFormat, boolean]>> = {
 
 /** The codes tsdraft does not lay out that end with a `;`. */
 const ENDED = new Set(["H", "W", "Q", "T", "A", "C", "c"]);
+
+/**
+ * The argument each code before a `;` takes, as its type in `src/rules.ts` reads it: a number of
+ * at most 15 digits before its point and 64 after it, above 0, for `\H`, which may end in `x`,
+ * and `\W`; an angle from -85 to 85 for `\Q`; 0, 1 or 2 for `\A`; and 0 to 257 for `\C`.
+ */
+const ARGUMENTS: Readonly<Record<string, RegExp>> = {
+  H: /^\d{1,15}(?:\.\d{1,64})?x?$/,
+  W: /^\d{1,15}(?:\.\d{1,64})?$/,
+  Q: /^-?(?:(?:\d|[1-7]\d|8[0-4])(?:\.\d{1,64})?|85(?:\.0{1,64})?)$/,
+  A: /^[012]$/,
+  C: /^(?:\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-7])$/,
+};
+
+/**
+ * What each code before a `;` sets of the characters after it, from an argument it takes. `\C`
+ * sets a color, which moves nothing but starts a run. A height or width factor of 0 is no argument.
+ */
+const CODE_SETS: Readonly<
+  Record<string, (argument: string, format: RunFormat) => RunFormat | undefined>
+> = {
+  H: (argument, format) => {
+    const times = argument.endsWith("x");
+    const n = Number(times ? argument.slice(0, -1) : argument);
+    if (!(n > 0)) return undefined;
+    if (!times) return { ...format, height: n, size: 1 };
+    return format.height === undefined
+      ? { ...format, size: format.size * n }
+      : { ...format, height: format.height * n };
+  },
+  W: (argument, format) =>
+    Number(argument) > 0 ? { ...format, widthFactor: Number(argument) } : undefined,
+  Q: (argument, format) => ({ ...format, obliqueAngle: Number(argument) }),
+  A: (argument, format) => ({ ...format, align: Number(argument) as 0 | 1 | 2 }),
+  C: (argument, format) => ({ ...format, color: Number(argument) }),
+};
+
+/** The codes before a `;` that take an argument, and what each takes. */
+export const PARAGRAPH_CODE_ARGUMENTS = {
+  H: "a height above 0, in drawing units, or with an x after it a factor of the height before it",
+  W: "a width factor above 0",
+  Q: "an oblique angle in degrees, from -85 to 85",
+  A: "0, 1 or 2: on the baseline, centered or at the top",
+  C: "a color number from 0 to 257",
+} as const;
+
+export type ArgumentCode = keyof typeof PARAGRAPH_CODE_ARGUMENTS;
+
+export function paragraphCodeArgument<C extends ArgumentCode>(
+  code: C,
+): `The paragraph code \\${C} takes ${(typeof PARAGRAPH_CODE_ARGUMENTS)[C]}, and a ; after it` {
+  return `The paragraph code \\${code} takes ${PARAGRAPH_CODE_ARGUMENTS[code]}, and a ; after it`;
+}
 
 function isHex(code: number): boolean {
   return (code >= 48 && code <= 57) || (code >= 65 && code <= 70) || (code >= 97 && code <= 102);
@@ -267,7 +330,11 @@ function sameFormat(a: RunFormat, b: RunFormat): boolean {
     a.bold === b.bold &&
     a.font === b.font &&
     a.size === b.size &&
-    a.align === b.align
+    a.height === b.height &&
+    a.widthFactor === b.widthFactor &&
+    a.obliqueAngle === b.obliqueAngle &&
+    a.align === b.align &&
+    a.color === b.color
   );
 }
 
@@ -275,10 +342,9 @@ function sameFormat(a: RunFormat, b: RunFormat): boolean {
  * Reads a paragraph's value in one pass, in time and memory in proportion to its length, with a
  * stack of its own for its braces that holds at most `PARAGRAPH_NESTING` formats: a brace past
  * that is counted and changes nothing. It never throws, and reads any string: what it refuses
- * is `problem`, the first it met. With `dimension`, as for the text of a dimension's picture, it
- * also reads `\A0;` to `\A2;` and `\H` with a factor, such as `\H0.75x;`.
+ * is `problem`, the first it met. The text of a dimension's picture is read alike.
  */
-export function parseParagraph(value: string, dimension = false): ParsedParagraph {
+export function parseParagraph(value: string): ParsedParagraph {
   const pieces: ParagraphPiece[] = [];
   let problem: string | undefined;
   const fail = (message: string): void => {
@@ -431,18 +497,16 @@ export function parseParagraph(value: string, dimension = false): ParsedParagrap
         fail(paragraphNoSemicolon(letter));
         return n;
       }
-      // The text of a dimension's picture centers its stacks and sizes its fractions.
+      if (letter === "T" || letter === "c") {
+        fail(paragraphNotLaidOut(letter));
+        return end + 1;
+      }
       const argument = value.slice(at + 1, end);
-      if (dimension && letter === "A" && /^[012]$/.test(argument)) {
-        set({ ...format, align: Number(argument) as 0 | 1 | 2 });
-        return end + 1;
-      }
-      const times = dimension && letter === "H" ? /^(\d+(?:\.\d+)?)x$/.exec(argument) : null;
-      if (times !== null && Number(times[1]) > 0) {
-        set({ ...format, size: format.size * Number(times[1]) });
-        return end + 1;
-      }
-      fail(paragraphNotLaidOut(letter as NotLaidOutCode));
+      const set1 = ARGUMENTS[letter]!.test(argument)
+        ? CODE_SETS[letter]!(argument, format)
+        : undefined;
+      if (set1 === undefined) fail(paragraphCodeArgument(letter as ArgumentCode));
+      else set(set1);
       return end + 1;
     }
     fail(paragraphUnknownCode(letter));

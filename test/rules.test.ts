@@ -1278,8 +1278,21 @@ test("a paragraph's height, width, line spacing and codes are checked twice", ()
   assert.throws(() => d.paragraph("{\\LNOTE", { at }), /never closed/);
   // @ts-expect-error: a brace closes nothing.
   assert.throws(() => d.paragraph("NOTE}", { at }), /closes no \{/);
-  // @ts-expect-error: a height inside the value is not laid out yet.
-  assert.throws(() => d.paragraph("\\H2x;NOTE", { at }), /code \\H, which sets the height/);
+  d.paragraph("\\H2x;NOTE\\W0.8;\\Q15;\\A1;\\C1;", { at });
+  // @ts-expect-error: a true color is not drawn yet.
+  assert.throws(() => d.paragraph("\\c255;NOTE", { at }), /code \\c, which sets the true color/);
+  assert.throws(
+    () =>
+      // @ts-expect-error: more than 64 digits after the point.
+      d.paragraph("\\W1.00000000000000000000000000000000000000000000000000000000000000001;NOTE", {
+        at,
+      }),
+    /code \\W takes a width factor above 0/,
+  );
+  // @ts-expect-error: a height of 0.
+  assert.throws(() => d.paragraph("\\H0x;NOTE", { at }), /code \\H takes a height above 0/);
+  // @ts-expect-error: the spacing of the characters is not laid out yet.
+  assert.throws(() => d.paragraph("\\T1.5;NOTE", { at }), /code \\T, which sets the spacing/);
   d.paragraph("\\pxi-3,l3,t3;1.\tNOTE", { at });
   // @ts-expect-error: a tab stop that aligns by its right is not laid out yet.
   assert.throws(() => d.paragraph("\\pxtr3;1.\tNOTE", { at }), /aligns text by its right/);

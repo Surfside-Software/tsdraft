@@ -54,6 +54,16 @@
   block in place of its note with its attributes; and the old `LEADER`, as the read model's
   `leader`.
 
+- Paragraph text lays out the codes that change the characters after them, as the leading CAD
+  app does: `\H` a height in drawing units or, with `x`, times the last; `\W` a width factor and
+  `\Q` an oblique angle, each in the place of the style's; `\A` the characters on the baseline,
+  centered on the line's tallest run, or at its top; and `\C` a color by its index, which moves
+  nothing. A line's spacing grows with its tallest run. `lint`, the builder and a literal value's
+  type refuse a number a code does not take, with one grammar for each. Each run of a laid-out
+  line gives its `widthFactor`, `obliqueAngle` and `color`, which the preview draws it in, and
+  `RunFormat` gains `height`, `widthFactor`, `obliqueAngle` and `color`. `\T`, the spacing of the
+  characters, `\c`, a true color, and `\O`, an overline, are still refused.
+
 - Raster images, in R2018 drawings: `d.image(path, at, { pixels, width })` draws a PNG or a JPEG
   with its lower-left corner at `at`, `width` drawing units wide, and `height`, `rotation`,
   `clip`, `invertClip` and `transparent` where given; its height defaults to the file's

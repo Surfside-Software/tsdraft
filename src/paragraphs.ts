@@ -87,6 +87,11 @@ import { Strings } from "./shape.ts";
 //   size below its line's top and each next line 5/3 of it below, and the box ends 2/3 of it
 //   below the last baseline, less 4/3 of what it passes the height by.
 // - A tab's underline runs from the pen to its stop.
+// - A run of `\H`, `\W` or `\Q` is laid out at its own height, width factor and lean. A line's A is
+//   its tallest run's top, its D a third of that run's height, and the slot adds a third of the
+//   paragraph's height. `\A1;` centers the runs after it on the line's tallest run, `\A2;` sets
+//   them at its top. A run after a leaned one starts further by its last character's lean. A line
+//   holding spaces or a tab in a format of their own is placed by its first point.
 // - Columns, each the width wide and the gutter apart: a line whose box reaches below its column's
 //   height, where at-least spacing ends it at its ink, starts the next, as does the first line
 //   after a `\N`. It starts the column as a first line does, with the room its paragraph leaves
@@ -259,6 +264,12 @@ export interface ParagraphRun {
   readonly font: string;
   /** True for a run in its font's bold face. */
   readonly bold: boolean;
+  /** What scales its characters along the line, the style's width factor or a `\W` code's. */
+  readonly widthFactor: number;
+  /** Its oblique angle in degrees: the style's, or a `\Q` code's. */
+  readonly obliqueAngle: number;
+  /** The color by its index a `\C` code sets, or undefined for the entity's. */
+  readonly color: number | undefined;
   /** How far its characters' advances take it along the line from its first point. */
   readonly advance: number;
   /** Where it starts and ends to draw along the line from `at`, as `layoutText` gives a text. */
@@ -583,6 +594,12 @@ interface Built {
   lastIndex: number;
   top: number;
   bottom: number;
+  /** Its height, what scales its characters along the line, and its lean, from its format. */
+  readonly size: number;
+  readonly along: number;
+  readonly lean: number;
+  /** How far `\A` raises it from the line's baseline, once the line is measured. */
+  rise: number;
 }
 
 /** A stack a line holds, at its first point `x`. */
@@ -592,6 +609,7 @@ interface Stacked {
   readonly shape: StackShape;
   readonly face: Face;
   readonly value: string;
+  readonly format: RunFormat;
 }
 
 /** Where a tab of a line takes the pen, from `from` to `to`, in the format it is in. */
@@ -606,7 +624,11 @@ interface Tabbed {
 /** What a line holds as it is built, in drawing units from its first point. */
 interface Line {
   readonly items: (Built | Stacked | Tabbed)[];
-  /** True when it ends in a stack and the spaces after the stack were dropped. */
+  /**
+   * True when it is placed by its first point and not by its first character's ink: when it ends
+   * in a stack or a run of another format than the spaces dropped after it, or holds spaces or a
+   * tab in a format of their own.
+   */
   spaced: boolean;
   /** The paragraph it is in, by its index in the properties `resolve` gives. */
   readonly paragraph: number;
@@ -631,6 +653,8 @@ interface Pen {
   key: string | undefined;
   /** Where the last character's ink ends. */
   ink: number;
+  /** How far the last character's lean takes its top or its foot past its ink. */
+  leaned: number;
   /** A tab the next character ends, which goes to a stop once that character is known. */
   tab: PendingTab | undefined;
   /**
@@ -668,6 +692,7 @@ type WordPart =
       readonly shape: StackShape;
       readonly face: Face;
       readonly value: string;
+      readonly format: RunFormat;
     };
 
 /** The parts of a word or of the spaces before it, kept from word to word to be used again. */
@@ -780,10 +805,7 @@ export function layoutParagraph(paragraph: ParagraphToMeasure): ParagraphLayout 
  * a fraction.
  */
 export function layoutDimensionText(paragraph: ParagraphToMeasure): ParagraphLayout {
-  return layOut(
-    { ...settingsOf(paragraph), dimension: true },
-    parseParagraph(paragraph.value, true),
-  );
+  return layOut({ ...settingsOf(paragraph), dimension: true }, parseParagraph(paragraph.value));
 }
 
 /** The text of a dimension's picture where it plots, as `measureParagraph` gives a paragraph. */
@@ -910,6 +932,20 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
   const given = settings.width;
   const tangent = Math.tan((obliqueAngle * Math.PI) / 180);
   const lean = Number.isFinite(tangent) ? tangent : 0;
+  /** A run's height, held to the most and least a number may be, which a chain of factors can pass. */
+  const sizeOf = (format: RunFormat): number => {
+    const tall = format.height ?? height * format.size;
+    if (tall > 0 && tall < PROPERTY_MOST) return tall;
+    approximate = true;
+    return tall >= PROPERTY_MOST ? PROPERTY_MOST : Number.MIN_VALUE;
+  };
+  const alongOf = (format: RunFormat): number =>
+    sizeOf(format) * (format.widthFactor ?? widthFactor);
+  const leanOf = (format: RunFormat): number => {
+    if (format.obliqueAngle === undefined) return lean;
+    const turned = Math.tan((format.obliqueAngle * Math.PI) / 180);
+    return Number.isFinite(turned) ? turned : 0;
+  };
   let approximate = settings.font === undefined || parsed.problem !== undefined;
   const properties = resolve(parsed.pieces, height);
   // Spacing outside what a paragraph's own may be, indents and room below nothing, numbers held
@@ -949,7 +985,7 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     return face;
   };
   const keyOf = (format: RunFormat, face: Face): string =>
-    `${face.font}|${face.bold}|${format.underline}|${format.overline}|${format.strikeThrough}`;
+    `${face.font}|${face.bold}|${format.underline}|${format.overline}|${format.strikeThrough}|${format.size}|${format.height}|${format.widthFactor}|${format.obliqueAngle}|${format.align}|${format.color}`;
 
   /** Where a line of a paragraph starts from the left of the box: none without a width. */
   const originOf = (p: Resolved, first: boolean): number =>
@@ -983,6 +1019,7 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     x: 0,
     key: undefined,
     ink: 0,
+    leaned: 0,
     tab: undefined,
     gap: 0,
     started: false,
@@ -1030,7 +1067,7 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
    * of the first of them, or the last stack's ink; spaces have no part in it.
    */
   const place = (parts: Parts, pen: Pen, into?: Line): number => {
-    let { x, key, ink } = pen;
+    let { x, key, ink, leaned } = pen;
     let reach = x;
     let left: number | undefined;
     /** Where the line's first point stands from the left of the box. */
@@ -1055,6 +1092,7 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
         });
       }
       ink = x;
+      leaned = 0;
       pen.tab = undefined;
       pen.tabbed = true;
     };
@@ -1071,10 +1109,12 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
             shape: part.shape,
             face: part.face,
             value: part.value,
+            format: part.format,
           });
         }
         reach = x + part.shape.ink + pen.gap;
         ink = x + part.shape.ink;
+        leaned = 0;
         pen.started = true;
         x += part.shape.advance;
         key = undefined;
@@ -1083,6 +1123,8 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
       }
       const { face } = part;
       const { source: value, to } = part;
+      const along = alongOf(part.format);
+      const size = sizeOf(part.format);
       let run: Built | undefined;
       if (into && key === part.key) {
         const last = into.items[into.items.length - 1];
@@ -1105,14 +1147,24 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
         const lefts = code === 32 ? 0 : face.lefts[index]! * along;
         if (at === undefined) {
           // The first character of a line: its ink, or a space's first point, starts the line.
-          at = line.origin - (code === 32 ? 0 : lefts + lean * face.bottoms[index]! * height);
+          // Leaned right, its ink starts at its foot; leaned left, at its top, and never right of
+          // its first point.
+          const leaning = leanOf(part.format);
+          at =
+            line.origin -
+            (code === 32
+              ? 0
+              : leaning < 0
+                ? Math.max(0, lefts + leaning * face.tops[index]! * size)
+                : lefts + leaning * face.bottoms[index]! * size);
         }
         // The first character after a tab: its ink starts at the stop.
         if (pen.tab) toStop(lefts);
         pen.started = true;
         if (key !== part.key) {
-          // A new run starts where the last one's advances end, or its ink where that is further.
-          if (key !== undefined && ink > x) x = ink;
+          // A new run starts where the last one's advances end, or its ink where that is further,
+          // and further by how far the last one's lean took its last character.
+          if (key !== undefined) x = Math.max(x, ink) + leaned;
           key = part.key;
           if (into) {
             into.at ??= at;
@@ -1130,6 +1182,10 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
               lastIndex: 0,
               top: 0,
               bottom: 0,
+              size,
+              along,
+              lean: leanOf(part.format),
+              rise: 0,
             };
             into.items.push(run);
           }
@@ -1139,6 +1195,9 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
           left ??= lefts;
           reach = ink - left + pen.gap;
         }
+        // The next run starts further by how far this character's lean takes its top or its foot.
+        const leaning = run?.lean ?? leanOf(part.format);
+        leaned = Math.max(0, leaning * face.tops[index]!, leaning * face.bottoms[index]!) * size;
         if (run) {
           if (run.source !== value || run.to !== k) {
             if (run.to > run.from) (run.head ??= []).push(run.source.slice(run.from, run.to));
@@ -1164,12 +1223,23 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     pen.x = x;
     pen.key = key;
     pen.ink = ink;
+    pen.leaned = leaned;
     return reach + line.origin;
   };
 
   /** Drops the spaces a line ends with. */
   const endLine = (): void => {
-    if (spaces.count > 0 && line.items[line.items.length - 1]?.kind === "stack") line.spaced = true;
+    const last = line.items[line.items.length - 1];
+    const dropped = spaces.count > 0 ? spaces.items[0] : undefined;
+    if (
+      dropped &&
+      (last?.kind === "stack" ||
+        (last?.kind === "run" &&
+          dropped.kind === "characters" &&
+          dropped.key !== keyOf(last.format, last.face)))
+    ) {
+      line.spaced = true;
+    }
     spaces.count = 0;
   };
   const restart = (first: boolean): void => {
@@ -1177,6 +1247,7 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     pen.x = 0;
     pen.key = undefined;
     pen.ink = 0;
+    pen.leaned = 0;
     pen.tab = undefined;
     pen.gap = 0;
     pen.started = false;
@@ -1192,6 +1263,7 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     x: 0,
     key: undefined,
     ink: 0,
+    leaned: 0,
     tab: undefined,
     gap: 0,
     started: false,
@@ -1202,6 +1274,7 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     trial.x = pen.x;
     trial.key = pen.key;
     trial.ink = pen.ink;
+    trial.leaned = pen.leaned;
     trial.tab = pen.tab;
     trial.gap = pen.gap;
     trial.started = pen.started;
@@ -1260,6 +1333,7 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     pen.x = 0;
     pen.key = undefined;
     pen.ink = 0;
+    pen.leaned = 0;
     pen.tab = undefined;
     pen.gap = 0;
     pen.started = false;
@@ -1294,13 +1368,17 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
       if ((blank(top) && top.ink > bottom.ink) || (blank(bottom) && bottom.ink > top.ink)) {
         approximate = true;
       }
+      // A stack under a width factor or a lean of its own is laid out in them, unmeasured.
+      if (piece.format.widthFactor !== undefined || piece.format.obliqueAngle !== undefined) {
+        approximate = true;
+      }
       const stacked = stackShape(
         top,
         bottom,
         piece.separator,
         face,
-        height * piece.format.size,
-        widthFactor,
+        sizeOf(piece.format),
+        piece.format.widthFactor ?? widthFactor,
       );
       // A centered stack's bar, or the middle of its slash, is half a height above the line.
       let shape = stacked;
@@ -1311,12 +1389,14 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
         } else approximate = true;
       }
       const value = `${piece.top}${piece.separator}${piece.bottom}`;
-      word.items[word.count++] = { kind: "stack", shape, face, value };
+      word.items[word.count++] = { kind: "stack", shape, face, value, format: piece.format };
       return;
     }
     if (face.shx && piece.diameter) approximate = true;
-    // Characters at a size of their own are not laid out yet.
-    if (piece.format.size !== 1) approximate = true;
+    // An SHX font leaned by a `\Q` code is not measured, as one a style leans is not.
+    if (face.shx && piece.format.obliqueAngle !== undefined && piece.format.obliqueAngle !== 0) {
+      approximate = true;
+    }
     const { format } = piece;
     const key = keyOf(format, face);
     let from = 0;
@@ -1345,6 +1425,36 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
 
   if (lean !== 0 && [...faces.values()].some((face) => face.shx)) approximate = true;
 
+  /** True for a line that holds spaces, or a tab, in a format of their own. */
+  const holdsLoneSpace = (built: Line): boolean => {
+    const items = built.items;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]!;
+      if (item.kind === "tab") {
+        const before = items[i - 1];
+        if (
+          before?.kind === "run" &&
+          keyOf(before.format, before.face) !== keyOf(item.format, item.face)
+        )
+          return true;
+        continue;
+      }
+      if (item.kind !== "run") continue;
+      const before = items[i - 1];
+      const after = items[i + 1];
+      const apart =
+        (before?.kind === "run" &&
+          keyOf(before.format, before.face) !== keyOf(item.format, item.face)) ||
+        (after?.kind === "run" &&
+          keyOf(after.format, after.face) !== keyOf(item.format, item.face));
+      if (!apart) continue;
+      let blank = item.to > item.from || item.head !== undefined;
+      for (let k = item.from; blank && k < item.to; k++) blank = item.source.charCodeAt(k) === 32;
+      if (blank && item.head?.some((part) => part.trim() !== "")) blank = false;
+      if (blank) return true;
+    }
+    return false;
+  };
   // Each line's ink along it, upright and leaned, and how far it reaches up and down.
   const measured = lines.map((built) => {
     let up = 0;
@@ -1359,6 +1469,10 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     // and how far below the line a stack sets its lowest part's baseline.
     let runDown = 0;
     let drop = 0;
+    /** The height of the line's tallest run, which `\A` sets the others by and D is a third of. */
+    let tallest = 0;
+    let lastLean = lean;
+    for (const item of built.items) if (item.kind === "run") tallest = Math.max(tallest, item.size);
     for (const item of built.items) {
       if (item.kind === "tab") {
         start ??= 0;
@@ -1374,13 +1488,20 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
         continue;
       }
       const run = item;
-      up = Math.max(up, (run.format.overline ? Math.max(run.top, OVERLINE) : run.top) * height);
-      down = Math.min(down, run.bottom * height);
+      const size = run.size;
+      // Centered on the tallest run, or at its top.
+      run.rise =
+        run.format.align === 1 ? (tallest - size) / 2 : run.format.align === 2 ? tallest - size : 0;
+      up = Math.max(
+        up,
+        (run.format.overline ? Math.max(run.top, OVERLINE) : run.top) * size + run.rise,
+      );
+      down = Math.min(down, run.bottom * size + run.rise);
       runDown = Math.min(
         runDown,
-        run.bottom * height,
+        run.bottom * size,
         settings.dimension && !run.face.shx && valueOf(run).includes(" ")
-          ? -run.face.unit * height
+          ? -run.face.unit * size
           : 0,
       );
       if (start === undefined) {
@@ -1388,10 +1509,13 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
           (run.head?.[0] ?? run.source.slice(run.from, run.to)).codePointAt(0) ?? 32,
         );
         if (index < 0) index = UNKNOWN;
-        start = run.x + run.face.lefts[index]! * along;
-        startLean = lean * run.face.bottoms[index]! * height;
+        start = run.x + run.face.lefts[index]! * run.along;
+        startLean =
+          (run.lean < 0 ? run.lean * run.face.tops[index]! : run.lean * run.face.bottoms[index]!) *
+          size;
       }
-      end = run.last + run.face.rights[run.lastIndex]! * along;
+      end = run.last + run.face.rights[run.lastIndex]! * run.along;
+      lastLean = run.lean;
       drawn = true;
     }
     const empty = !drawn;
@@ -1400,18 +1524,19 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     // A line that ends in a stack and dropped spaces after it is placed by its first point and
     // not by its ink: the left of its first character's ink further on, at any attachment.
     const first = built.items[0];
-    const shift = built.spaced && first?.kind === "run" ? (start ?? 0) - first.x : 0;
+    const shift =
+      (built.spaced || holdsLoneSpace(built)) && first?.kind === "run" ? (start ?? 0) - first.x : 0;
     return {
       built,
       top,
-      below: stackUp > up ? 0 : AT_LEAST_BELOW * height,
+      below: stackUp > up ? 0 : AT_LEAST_BELOW * Math.max(tallest, height * (empty ? 1 : 0)),
       // A dimension's box reaches where a stack sets its lowest part only when the stack reaches highest.
       down: settings.dimension ? runDown - (stackUp > up ? drop : 0) : down,
       start: start ?? 0,
       end,
       shift,
       leanedStart: (start ?? 0) + startLean - shift,
-      leanedEnd: empty ? 0 : end + lean * top - shift,
+      leanedEnd: empty ? 0 : end + lastLean * top - shift,
       empty,
     };
   });
@@ -1539,8 +1664,22 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     else if (value === "") value = part;
     else values = [value, part];
   };
-  /** Adds a run of `value` in `face` at its first point `x`, of `size`, with its baseline at `base`. */
-  const run = (value: string, x: number, base: number, size: number, face: Face, top: number) => {
+  /**
+   * Adds a run of `value` in `face` at its first point `x`, of `size`, with its baseline at `base`,
+   * its characters scaled along the line by `factor` and leaning by `leaning`.
+   */
+  const run = (
+    value: string,
+    x: number,
+    base: number,
+    size: number,
+    face: Face,
+    top: number,
+    factor: number = widthFactor,
+    leaning: number = lean,
+    angle: number = obliqueAngle,
+    color: number | undefined = undefined,
+  ) => {
     if (value === "") return undefined;
     let advance = 0;
     let head: number | undefined;
@@ -1552,7 +1691,9 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
       advance += face.advances[index]!;
       tail = face.tails?.[index] ?? 0;
     }
-    const scale = size * widthFactor;
+    // A run too small for the writers' decimals draws nothing in the preview.
+    if (!(written(size) > 0)) approximate = true;
+    const scale = size * factor;
     const drawn: ParagraphRun = {
       value,
       x,
@@ -1563,28 +1704,42 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
       advance: advance * scale,
       start: x + (head ?? 0) * scale,
       end: x + (advance + tail) * scale,
+      widthFactor: factor,
+      obliqueAngle: angle,
+      color,
     };
     runs.push(drawn);
     const below = face.below * size;
     const reach = Math.max(top, 1) * size;
     const from = Math.min(drawn.start, x);
     const to = Math.max(drawn.end, x + drawn.advance);
-    include(from - lean * below, base - below);
-    include(to + lean * reach, base + reach);
-    include(from + lean * reach, base + reach);
-    include(to - lean * below, base - below);
+    include(from - leaning * below, base - below);
+    include(to + leaning * reach, base + reach);
+    include(from + leaning * reach, base + reach);
+    include(to - leaning * below, base - below);
     return drawn;
   };
-  /** The underline, overline and strike-through of `format` from `x0` to `x1` on the line. */
-  const lined = (format: RunFormat, face: Face, x0: number, x1: number): void => {
+  /**
+   * The underline, overline and strike-through of `format` from `x0` to `x1` on the line, of
+   * characters `size` high on a baseline `rise` above the line's.
+   */
+  const lined = (
+    format: RunFormat,
+    face: Face,
+    x0: number,
+    x1: number,
+    size: number = height,
+    rise = 0,
+  ): void => {
+    const base = baseline + rise;
     if (format.underline) {
-      const up = baseline - face.underline * height;
+      const up = base - face.underline * size;
       stroke("underline", [x0, up], [x1, up]);
     }
     if (format.overline)
-      stroke("overline", [x0, baseline + OVERLINE * height], [x1, baseline + OVERLINE * height]);
+      stroke("overline", [x0, base + OVERLINE * size], [x1, base + OVERLINE * size]);
     if (format.strikeThrough) {
-      const up = baseline + STRIKE_THROUGH * height;
+      const up = base + STRIKE_THROUGH * size;
       stroke("strike-through", [x0, up], [x1, up]);
     }
   };
@@ -1622,7 +1777,7 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     let across = 0;
     if (!m.empty && given > 0 && (style === "justified" || style === "distributed")) {
       // A line wider than its room is not squeezed: it stands as one with no gaps would.
-      gaps = to < inkTo ? NO_GAPS : gapsOf(built, style === "distributed", along);
+      gaps = to < inkTo ? NO_GAPS : gapsOf(built, style === "distributed");
       after = lastTabOf(built);
       if (gaps.length > 0) stretch = (to - inkTo) / gaps.length;
     }
@@ -1648,8 +1803,20 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
       if (item.kind === "stack") {
         add(item.value);
         const x = item.x + offset + (i > after ? grow(item.x) : 0);
+        const f = item.format;
         for (const part of item.shape.parts) {
-          run(part.value, x + part.x, baseline + part.up, item.shape.size, item.face, part.top);
+          run(
+            part.value,
+            x + part.x,
+            baseline + part.up,
+            item.shape.size,
+            item.face,
+            part.top,
+            f.widthFactor ?? widthFactor,
+            leanOf(f),
+            f.obliqueAngle ?? obliqueAngle,
+            f.color,
+          );
         }
         const drawnStroke = item.shape.stroke;
         if (drawnStroke) {
@@ -1660,10 +1827,22 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
       }
       const drawn = valueOf(item);
       add(drawn);
+      const factor = item.format.widthFactor ?? widthFactor;
       if (i <= after || gaps.length === 0) {
         const x = item.x + offset;
-        run(drawn, x, baseline, height, item.face, item.top);
-        lined(item.format, item.face, x, x + item.advance);
+        run(
+          drawn,
+          x,
+          baseline + item.rise,
+          item.size,
+          item.face,
+          item.top,
+          factor,
+          item.lean,
+          item.format.obliqueAngle ?? obliqueAngle,
+          item.format.color,
+        );
+        lined(item.format, item.face, x, x + item.advance, item.size, item.rise);
         continue;
       }
       // A stretched line draws each word and each space, or each character, on its own: the
@@ -1677,12 +1856,18 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
         const placed = run(
           drawn.slice(start, end),
           pieceX + offset + grow(pieceX),
-          baseline,
-          height,
+          baseline + item.rise,
+          item.size,
           item.face,
           item.top,
+          factor,
+          item.lean,
+          item.format.obliqueAngle ?? obliqueAngle,
+          item.format.color,
         );
-        if (placed) lined(item.format, item.face, placed.x, placed.x + placed.advance);
+        if (placed) {
+          lined(item.format, item.face, placed.x, placed.x + placed.advance, item.size, item.rise);
+        }
         start = end;
         pieceX = x;
       };
@@ -1693,7 +1878,7 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
         afterSpace = space;
         let index = tableIndex(drawn.codePointAt(c)!);
         if (index < 0) index = UNKNOWN;
-        x += item.face.advances[index]! * along;
+        x += item.face.advances[index]! * item.along;
         // A pair of surrogates is one character.
         if (code >= 0xd800 && code <= 0xdbff && drawn.charCodeAt(c + 1) >= 0xdc00) c++;
       }
@@ -1750,7 +1935,7 @@ function lastTabOf(line: Line): number {
  * what it lacks: after each space that follows a character since its last tab. A distributed line
  * grows before each character and stack since its last tab but the first.
  */
-function gapsOf(line: Line, distributed: boolean, along: number): number[] {
+function gapsOf(line: Line, distributed: boolean): number[] {
   const out: number[] = [];
   let seen = false;
   const items = line.items;
@@ -1766,7 +1951,7 @@ function gapsOf(line: Line, distributed: boolean, along: number): number[] {
     for (const character of valueOf(item)) {
       let index = indexOf(character);
       if (index < 0) index = UNKNOWN;
-      const advance = item.face.advances[index]! * along;
+      const advance = item.face.advances[index]! * item.along;
       const space = character === " ";
       if (distributed ? seen : space && seen) out.push(distributed ? x : x + advance);
       if (distributed || !space) seen = true;
@@ -1784,6 +1969,61 @@ function corners(
   return [place(x0, y0), place(x1, y0), place(x1, y1), place(x0, y1)];
 }
 
+/**
+ * Where a line's box reaches along it, on its baseline and at its top, left and right, so that it
+ * holds each run leaned by its own angle up to its own top. A run's top is its capitals' height,
+ * scaled so that the tallest reaches the line's top, and a run of spaces holds nothing. The left
+ * side leans from the line's start on its baseline, its first point, past every run's corners.
+ * The right side stands upright or leans as the line's last run does, whichever leaves the less
+ * room, pushed out past every run's corners.
+ */
+function sides(
+  line: ParagraphLine,
+): [lowLeft: number, lowRight: number, highRight: number, highLeft: number] {
+  const { runs, top, start, end } = line;
+  let tallest = 0;
+  let first = -1;
+  let last = -1;
+  for (let i = 0; i < runs.length; i++) {
+    const run = runs[i]!;
+    tallest = Math.max(tallest, run.baseline - line.baseline + run.height);
+    if (/\S/.test(run.value)) {
+      if (first < 0) first = i;
+      last = i;
+    }
+  }
+  if (!(top > 0) || !(tallest > 0) || first < 0) return [start, end, end, start];
+  const tangent = (run: ParagraphRun): number => {
+    const turned = Math.tan((run.obliqueAngle * Math.PI) / 180);
+    return Number.isFinite(turned) ? turned : 0;
+  };
+  const lean = tangent(runs[last]!);
+  let left = Infinity;
+  let upright = end;
+  let leaning = end;
+  for (let i = first; i <= last; i++) {
+    const run = runs[i]!;
+    if (!/\S/.test(run.value)) continue;
+    const slant = tangent(run);
+    const foot = run.baseline - line.baseline;
+    const head = Math.min(top, Math.max(foot, ((foot + run.height) * top) / tallest));
+    if (head <= 0) continue;
+    const from = i === first ? start : Math.max(start, run.start);
+    const to = i === last ? end : Math.min(end, run.end);
+    for (const y of [Math.max(foot, 0), head]) {
+      const x = to + slant * (y - foot);
+      upright = Math.max(upright, x);
+      leaning = Math.max(leaning, x - lean * y);
+      if (y > 0) left = Math.min(left, (from + slant * (y - foot) - start) / y);
+    }
+  }
+  const highLeft = start + (Number.isFinite(left) ? left : 0) * top;
+  // Halfway up, the upright side stands at `upright` and the leaning one at leaning + lean * top / 2.
+  return upright <= leaning + (lean * top) / 2
+    ? [start, upright, upright, highLeft]
+    : [start, leaning, leaning + lean * top, highLeft];
+}
+
 /** A paragraph's measure from its layout, in time in proportion to its lines. */
 export function measured(paragraph: ParagraphToMeasure, layout: ParagraphLayout): ParagraphMeasure {
   const place = placer(paragraph);
@@ -1791,14 +2031,14 @@ export function measured(paragraph: ParagraphToMeasure, layout: ParagraphLayout)
   const lines: { value: string; corners: [Point, Point, Point, Point]; column: number }[] = [];
   for (const line of layout.lines) {
     if (line.runs.length === 0) continue;
-    const lean = layout.lean * line.top;
+    const [lowLeft, lowRight, highRight, highLeft] = sides(line);
     lines.push({
       value: line.value,
       corners: [
-        place(line.start, line.baseline),
-        place(line.end, line.baseline),
-        place(line.end + lean, line.baseline + line.top),
-        place(line.start + lean, line.baseline + line.top),
+        place(lowLeft, line.baseline),
+        place(lowRight, line.baseline),
+        place(highRight, line.baseline + line.top),
+        place(highLeft, line.baseline + line.top),
       ],
       column: line.column,
     });

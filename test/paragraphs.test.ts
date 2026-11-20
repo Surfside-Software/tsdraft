@@ -20,6 +20,8 @@ import {
   subscript,
   superscript,
   svgToPDF,
+  inspectText,
+  toPDF,
   toDXF,
   toSVG,
   checkDrawingRead,
@@ -29,6 +31,7 @@ import {
   type Entity,
   type Paragraph,
   type ParagraphLayout,
+  type Point,
 } from "../src/index.ts";
 import { paragraphMeasurer } from "../src/paragraphs.ts";
 import { readProblems } from "./read-agreement.ts";
@@ -71,7 +74,11 @@ test("a paragraph's codes draw what the DXF Reference gives them", () => {
     bold: false,
     font: undefined,
     size: 1,
+    height: undefined,
+    widthFactor: undefined,
+    obliqueAngle: undefined,
     align: 0,
+    color: undefined,
   };
   assert.deepEqual(formats, [
     ["U", { ...plainFormat, underline: true }],
@@ -95,12 +102,13 @@ test("what tsdraft does not lay out is refused, and named", () => {
   const refused: [string, RegExp][] = [
     ["{A", /never closed/],
     ["A}", /closes no \{/],
-    ["\\H2;A", /code \\H, which sets the height/],
-    ["\\W0.8;A", /code \\W/],
-    ["\\Q15;A", /code \\Q/],
-    ["\\T2;A", /code \\T/],
-    ["\\A1;A", /code \\A/],
-    ["\\C1;A", /code \\C, which sets the color/],
+    ["\\H0;A", /code \\H takes a height above 0/],
+    ["\\H2.;A", /code \\H takes a height above 0/],
+    ["\\W-1;A", /code \\W takes a width factor above 0/],
+    ["\\Q86;A", /code \\Q takes an oblique angle in degrees, from -85 to 85/],
+    ["\\T2;A", /code \\T, which sets the spacing/],
+    ["\\A3;A", /code \\A takes 0, 1 or 2/],
+    ["\\C258;A", /code \\C takes a color number from 0 to 257/],
     ["\\c255;A", /code \\c, which sets the true color/],
     ["\\ptr3;A", /aligns text by its right/],
     ["\\psa1.2;A", /at least a size apart/],
@@ -438,6 +446,97 @@ test("columns take a paragraph's lines in turn, where the leading CAD app sets t
   near(wide.lines[0]!.runs[0]!.x, -0.1589);
 });
 
+test("the codes that change the characters after them set them where the leading CAD app does", () => {
+  const lay = (value: string, more: object = {}) =>
+    layoutParagraph({ value, height: 0.25, font: "Arial", ...more });
+  const runs = (value: string, more: object = {}) =>
+    lay(value, more).lines.flatMap((line) =>
+      line.runs.map((run) => [run.value, +run.x.toFixed(4), +run.baseline.toFixed(4), run.height]),
+    );
+  // A height drawn in drawing units or as a factor, the line set by its tallest run.
+  assert.deepEqual(runs("HH\\H2x;HH"), [
+    ["HH", -0.028, -0.5, 0.25],
+    ["HH", 0.4765, -0.5, 0.5],
+  ]);
+  // A line's D is a third of its tallest run.
+  assert.deepEqual(
+    lay("HH\\P{\\H2x;HH}\\PHH").lines.map((line) => +line.baseline.toFixed(4)),
+    [-0.25, -0.9167, -1.4167],
+  );
+  assert.deepEqual(
+    runs("\\H0.4;HH\\PHH").map((run) => run[3]),
+    [0.4, 0.4],
+  );
+  // A width factor and an oblique angle of their own, not the style's.
+  const wide = lay("HH\\W2;HH", { widthFactor: 0.8 }).lines[0]!.runs.map((run) => run.widthFactor);
+  assert.deepEqual(wide, [0.8, 2]);
+  // A run after a leaned run starts further by the lean of its last capital's top.
+  assert.deepEqual(
+    runs("HH\\Q0;HH{\\Q30;HH}", { obliqueAngle: 15 }).map((run) => run[1]),
+    [-0.028, 0.5435, 1.0479],
+  );
+  // Centered on the tallest run, from where \\A stands.
+  assert.deepEqual(
+    runs("H{\\H2x;H}\\A1;H{\\H0.5x;H}").map((run) => run[2]),
+    [-0.5, -0.5, -0.375, -0.3125],
+  );
+  // A color starts a run and moves nothing; spaces of their own size place the line by its
+  // first point.
+  assert.deepEqual(
+    runs("\\C1;RED\\C3;GREEN").map((run) => run[0]),
+    ["RED", "GREEN"],
+  );
+  // The preview draws a run in the color its code sets.
+  const colored = createDrawing({ units: "in" });
+  colored.paragraph("{\\C1;RED} BLACK", { at: [0, 0] });
+  const fills = toSVG(colored.build())
+    .match(/<text[^>]*>/g)!
+    .map((t) => /fill="([^"]*)"/.exec(t)![1]);
+  assert.deepEqual(fills, ["#ff0000", "currentColor"]);
+  assert.equal(runs("HH {\\H3x; } HH")[0]![1], 0);
+  // A stack under a width factor or a lean of its own is laid out and drawn in them, unmeasured.
+  const squeezed = lay('\\W2;1\\S1/2;" GYP');
+  assert.ok(squeezed.approximate);
+  assert.deepEqual([...new Set(squeezed.lines[0]!.runs.map((run) => run.widthFactor))], [2]);
+  // A run leaned by a code leans its line's box, which inspectText reads.
+  const leaned = createDrawing({ units: "in" });
+  leaned.rect([0, 0], 1.1, 1.1);
+  leaned.paragraph("\\Q45;H", { at: [0.05, 1], height: 1, style: { name: "A", font: "Arial" } });
+  assert.ok(inspectText(leaned.build()).some((d) => d.rule === "text-leaves-boundary"));
+  // Each run leans the box by its own angle, up to its own top.
+  const leaves = (value: string, width: number, high = 1.4, at: Point = [0.2, 1.3]) => {
+    const d = createDrawing({ units: "in" });
+    d.rect([0, 0], width, high);
+    d.paragraph(value, { at, height: 1, style: { name: "A", font: "Arial" } });
+    return inspectText(d.build()).some((w) => w.rule === "text-leaves-boundary");
+  };
+  assert.equal(leaves("I{\\Q-40;H}I", 4), true);
+  assert.equal(leaves("H{\\H0.25x;\\Q45;H}", 1.7), false);
+  assert.equal(leaves("{\\Q85;T}{\\H9x;.}", 40, 40, [10, 30]), false);
+  // An upright line that starts with a stack is boxed by its ink, as before the codes.
+  const scale = createDrawing({ units: "in" });
+  const value = '\\S1/16;" = 1\'-0"';
+  const style = { name: "A", font: "Arial" } as const;
+  const line = layoutParagraph({ value, height: 1, font: "Arial" }).lines[0]!;
+  scale.paragraph(value, { at: [10, 2.8], height: 1, style });
+  scale.text([10 + line.start - 0.1, 2.8 + line.baseline], "SCALE:", {
+    height: 1,
+    style: "A",
+    align: "right",
+  });
+  assert.deepEqual(inspectText(scale.build()), []);
+  // A run a factor makes too small to write draws nothing, and the plot goes on.
+  const small = createDrawing({ units: "m" });
+  small.paragraph("{\\H0.4x;NOTE}", { at: [0, 0.000004], height: 0.000001 });
+  small.layout("A", { paper: "ANSI A" }, (page) =>
+    page.viewport([1, 1], 4, 4, { center: [0, 0], ratio: 0.0001 }),
+  );
+  assert.ok(toPDF(small.build()).length > 0);
+  // A chain of factors past what a number holds is held, and approximate.
+  const tall = lay(`${"\\H999999999999999x;".repeat(21)}A`);
+  assert.ok(tall.approximate && Number.isFinite(tall.lines[0]!.runs[0]!.height));
+});
+
 test("what the tables cannot lay out exactly is approximate, or refused", () => {
   const approximate = (value: string, font: string, obliqueAngle = 0) =>
     layoutParagraph({ value, height: 1, font, obliqueAngle }).approximate;
@@ -484,7 +583,7 @@ test("lint refuses a paragraph built as data that the leading CAD app would not 
   ]);
   const refused: [Record<string, unknown>, RegExp][] = [
     [{ value: "A\nB" }, /^paragraph: .*control characters/],
-    [{ value: "\\H2;A" }, /^paragraph: .*code \\H/],
+    [{ value: "\\H0;A" }, /^paragraph: .*code \\H takes/],
     [{ lineSpacing: 5 }, /^paragraph: .*from 0.25 to 4/],
     [
       { lineSpacingStyle: "loose" },

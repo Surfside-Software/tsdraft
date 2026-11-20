@@ -54,6 +54,7 @@ import {
   type paragraphItalic,
   type paragraphNoSemicolon,
   type paragraphNotLaidOut,
+  type paragraphCodeArgument,
   type paragraphPropertyUnknown,
   type paragraphShxBold,
   type paragraphUnknownCode,
@@ -1025,8 +1026,96 @@ type ParagraphPercent<S extends string> = S extends `${string}%${infer R}` ? ["%
 /** The codes of a paragraph that draw a character, and need nothing after them. */
 type ParagraphPlainCode = "P" | "N" | "~" | "\\" | "{" | "}" | "o";
 
-/** The codes tsdraft does not lay out that end with a `;`. */
-type ParagraphEndedCode = "H" | "W" | "Q" | "T" | "A" | "C" | "c";
+/** The codes that set what the characters after them are and end with a `;`. */
+type ParagraphEndedCode = "H" | "W" | "Q" | "A" | "C";
+
+/** True for all zeros. */
+type AllZeros<S extends string> = S extends `0${infer R}`
+  ? R extends ""
+    ? true
+    : AllZeros<R>
+  : false;
+
+/** True for one to `M` digits, as many as `Most` holds. */
+type FewDigits<
+  S extends string,
+  Most extends 0[],
+  K extends 0[] = [0],
+> = S extends `${Digit}${infer R}`
+  ? R extends ""
+    ? true
+    : K["length"] extends Most["length"]
+      ? false
+      : FewDigits<R, Most, [...K, 0]>
+  : false;
+
+type Fifteen = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+type SixtyFour = [...Fifteen, ...Fifteen, ...Fifteen, ...Fifteen, 0, 0, 0, 0];
+
+/** True for nothing, or a point and digits. */
+type Fraction<S extends string> = S extends ""
+  ? true
+  : S extends `.${infer F}`
+    ? AllDigits<F>
+    : false;
+
+/** True for a number of at most 15 digits before its point and 64 after, above 0, as `\H` and `\W` take. */
+type CodeAmount<S extends string> = S extends `${infer I}.${infer F}`
+  ? FewDigits<I, Fifteen> extends true
+    ? FewDigits<F, SixtyFour> extends true
+      ? AllZeros<`${I}${F}`> extends true
+        ? false
+        : true
+      : false
+    : false
+  : FewDigits<S, Fifteen> extends true
+    ? AllZeros<S> extends true
+      ? false
+      : true
+    : false;
+
+type Below85 =
+  | Digit
+  | `${"1" | "2" | "3" | "4" | "5" | "6" | "7"}${Digit}`
+  | `8${"0" | "1" | "2" | "3" | "4"}`;
+
+/** True for an angle from -85 to 85, as `\Q` takes. */
+type CodeOblique<S extends string> = S extends `-${infer R}` ? CodeOblique85<R> : CodeOblique85<S>;
+type CodeOblique85<S extends string> = S extends `${infer I}.${infer F}`
+  ? FewDigits<F, SixtyFour> extends true
+    ? I extends Below85
+      ? true
+      : I extends "85"
+        ? AllZeros<F>
+        : false
+    : false
+  : S extends Below85 | "85"
+    ? true
+    : false;
+
+type Below258 =
+  | Digit
+  | `${"1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"}${Digit}`
+  | `1${Digit}${Digit}`
+  | `2${"0" | "1" | "2" | "3" | "4"}${Digit}`
+  | `25${"0" | "1" | "2" | "3" | "4" | "5" | "6" | "7"}`;
+
+/** True for the argument code `C` takes, as `ARGUMENTS` in `src/paragraph-codes.ts` reads it. */
+type CodeArgument<C extends ParagraphEndedCode, S extends string> = C extends "H"
+  ? S extends `${infer A}x`
+    ? CodeAmount<A>
+    : CodeAmount<S>
+  : C extends "W"
+    ? CodeAmount<S>
+    : C extends "Q"
+      ? CodeOblique<S>
+      : C extends "A"
+        ? S extends "0" | "1" | "2"
+          ? true
+          : false
+        : S extends Below258
+          ? true
+          : false;
 
 /**
  * Whether the characters are underlined, `L`, struck through, `K`, both or neither, as the codes
@@ -1155,25 +1244,31 @@ type ParagraphCode<
                     [...N, 0]
                   >
               : ReturnType<typeof paragraphNoSemicolon<C>>
-            : C extends ParagraphEndedCode
+            : C extends "T" | "c"
               ? After extends `${string};${string}`
                 ? ReturnType<typeof paragraphNotLaidOut<C>>
                 : ReturnType<typeof paragraphNoSemicolon<C>>
-              : C extends "X" | "O"
-                ? ReturnType<typeof paragraphNotLaidOut<C>>
-                : C extends "U" | "u"
-                  ? After extends `+${infer H1}${infer H2}${infer H3}${infer H4}${infer Next}`
-                    ? [H1, H2, H3, H4] extends [HexDigit, HexDigit, HexDigit, HexDigit]
-                      ? ParagraphUnicode<T, Lowercase<`${H1}${H2}${H3}${H4}`>, Next, D, N, F>
-                      : ReturnType<typeof paragraphUnknownCode<C>>
-                    : ReturnType<typeof paragraphUnknownCode<C>>
-                  : C extends "M" | "m"
-                    ? After extends `+${"1" | "2" | "3" | "4" | "5"}${infer H1}${infer H2}${infer H3}${infer H4}${string}`
+              : C extends ParagraphEndedCode
+                ? After extends `${infer Argument};${infer Next}`
+                  ? CodeArgument<C, Argument> extends true
+                    ? ParagraphCodes<T, Next, D, [...N, 0], F>
+                    : ReturnType<typeof paragraphCodeArgument<C>>
+                  : ReturnType<typeof paragraphNoSemicolon<C>>
+                : C extends "X" | "O"
+                  ? ReturnType<typeof paragraphNotLaidOut<C>>
+                  : C extends "U" | "u"
+                    ? After extends `+${infer H1}${infer H2}${infer H3}${infer H4}${infer Next}`
                       ? [H1, H2, H3, H4] extends [HexDigit, HexDigit, HexDigit, HexDigit]
-                        ? ReturnType<typeof paragraphNotLaidOut<C>>
+                        ? ParagraphUnicode<T, Lowercase<`${H1}${H2}${H3}${H4}`>, Next, D, N, F>
                         : ReturnType<typeof paragraphUnknownCode<C>>
                       : ReturnType<typeof paragraphUnknownCode<C>>
-                    : ReturnType<typeof paragraphUnknownCode<C>>
+                    : C extends "M" | "m"
+                      ? After extends `+${"1" | "2" | "3" | "4" | "5"}${infer H1}${infer H2}${infer H3}${infer H4}${string}`
+                        ? [H1, H2, H3, H4] extends [HexDigit, HexDigit, HexDigit, HexDigit]
+                          ? ReturnType<typeof paragraphNotLaidOut<C>>
+                          : ReturnType<typeof paragraphUnknownCode<C>>
+                        : ReturnType<typeof paragraphUnknownCode<C>>
+                      : ReturnType<typeof paragraphUnknownCode<C>>
   : typeof PARAGRAPH_TRAILING;
 
 /**
