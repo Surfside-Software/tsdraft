@@ -77,7 +77,7 @@
 //   call, the project, the date and who drew and checked it from `createDrawing`'s `fields`, the
 //   number from the layout's name and the scale from the viewport. In CAD each field stays an
 //   attribute.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import {
   BUILT_IN_STANDARD,
   checkIntent,
@@ -87,6 +87,7 @@ import {
   list,
   measureText,
   paragraphFormat,
+  rasterSize,
   toDXF,
   toSVG,
   type Drawing,
@@ -107,10 +108,20 @@ export const standard = defineStandard({
   layers: {
     "V-TREE": { color: 3, pen: "fine", discipline: "V" },
     "C-ANNO-REVS": { color: 1, pen: "medium", discipline: "C" },
+    "C-ANNO-IMAG": { color: 8, pen: "fine", discipline: "C" },
   },
   leaderStyles: { notes: { role: "note", arrowSize: 1 / 8, landing: 1 / 8, gap: 1 / 16 } },
   defaultLeaderStyle: "notes",
 });
+
+/**
+ * The raster files the sheet's images show, by the path each image gives, from this file's
+ * folder: the vicinity map, a PNG. `rasterSize` reads its pixels, which the image must state.
+ */
+export const images = {
+  "vicinity-map.png": new Uint8Array(readFileSync(new URL("./vicinity-map.png", import.meta.url))),
+};
+const vicinityPixels = rasterSize(images["vicinity-map.png"])!;
 
 /** A text role of the standard, which gives a text its text style and the height it plots at. */
 type Role = keyof typeof standard.textRoles;
@@ -626,6 +637,25 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
         attributes: { VIEW_TITLE: "KEY PLAN", VIEW_SCALE: `SCALE: ${keyView.label}` },
       });
     });
+
+    // The vicinity map, a raster image above the key plan, as wide as it and at the image's own
+    // proportions, with its title under it. CAD programs load the file each time they open the
+    // drawing, by its path from the drawing's folder.
+    const mapWidth = keySide;
+    const mapHeight = (mapWidth * vicinityPixels[1]) / vicinityPixels[0];
+    const mapTitle = keyPlan.top + 1;
+    d.layer("C-ANNO-IMAG", () =>
+      d.image("vicinity-map.png", [keyPlan.left, mapTitle + 3 / 4], {
+        pixels: vicinityPixels,
+        width: mapWidth,
+        height: mapHeight,
+      }),
+    );
+    d.layer("C-ANNO-TITL", () =>
+      d.insert("VIEW TITLE", [keyTitleX, mapTitle], {
+        attributes: { VIEW_TITLE: "VICINITY MAP", VIEW_SCALE: "NOT TO SCALE" },
+      }),
+    );
     d.layer("C-ANNO-SYMB", () => {
       // The plan's viewport is not turned, so its north is up the sheet. The key plan's north
       // arrow is turned as far as its view.
@@ -827,8 +857,11 @@ if (import.meta.main) {
   const outDir = new URL("./out/", import.meta.url);
   mkdirSync(outDir, { recursive: true });
   writeFileSync(new URL("site-plan.dxf", outDir), toDXF(drawing));
-  writeFileSync(new URL("site-plan.svg", outDir), toSVG(drawing));
-  writeFileSync(new URL("site-plan-sheet.svg", outDir), toSVG(drawing, { layout: example.layout }));
+  writeFileSync(new URL("site-plan.svg", outDir), toSVG(drawing, { images }));
+  writeFileSync(
+    new URL("site-plan-sheet.svg", outDir),
+    toSVG(drawing, { layout: example.layout, images }),
+  );
   const onSheet = drawing.layouts?.[0]?.entities.length ?? 0;
   console.log(
     `Wrote ${drawing.entities.length} entities in model space and ${onSheet} on the sheet, ` +

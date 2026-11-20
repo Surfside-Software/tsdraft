@@ -41,6 +41,11 @@ export interface DrawingRead {
    */
   readonly blocks: readonly ReadBlock[];
   readonly xrefs: readonly ReadXref[];
+  /**
+   * Each image definition of the file's dictionary of them, in the order of the dictionary, those
+   * no image uses among them: the leading CAD app keeps one through a save and a purge.
+   */
+  readonly images: readonly ReadImageDefinition[];
   /** Model space: its census, and with `geometry` what it draws. */
   readonly model: ReadSpace;
   /** Each layout of paper space, in the order of its tab. */
@@ -425,6 +430,48 @@ export interface ReadSolid extends ReadEntityBase {
   readonly points: readonly Point[];
 }
 
+/**
+ * A raster image, as the file places it: its lower-left corner and the vectors of one of its
+ * pixels along its bottom and up its side, which a mirrored or slanted image has too.
+ */
+export interface ReadImage extends ReadEntityBase {
+  readonly kind: "image";
+  /** The path of its definition as the file holds it, or `""` when it names none. */
+  readonly path: string;
+  /** The handle of its definition, when it names one. */
+  readonly definition?: string;
+  /** The pixels the image states, group 13. */
+  readonly pixels: readonly [width: number, height: number];
+  readonly at: Point;
+  /** The vector of one pixel along the image's bottom edge, and up its side. */
+  readonly u: Point;
+  readonly v: Point;
+  /**
+   * The clip's boundary, in the world's coordinates: two opposite corners of a rectangle along the
+   * image's sides, or a polygon, without its first point again at its end. Left out when the file
+   * holds the whole image's boundary with the clip off and not inverted, as the leading CAD app
+   * saves an image it does not clip; `unclipped` says when the image is shown whole anyway.
+   */
+  readonly clip?: readonly Point[];
+  /** True when the image shows outside its clip, and the clip is a hole. */
+  readonly invertClip?: boolean;
+  /** True when the transparent pixels of a PNG show what is behind. */
+  readonly transparent?: boolean;
+  /** True when the file says not to show the image, which then shows its frame alone. */
+  readonly hidden?: boolean;
+  /**
+   * True when the file says not to clip the image, so it all shows, whatever `clip` says. Its
+   * frame still follows `clip`.
+   */
+  readonly unclipped?: boolean;
+  /** Group 281, from 0 to 100. Left out at 50. */
+  readonly brightness?: number;
+  /** Group 282, from 0 to 100. Left out at 50. */
+  readonly contrast?: number;
+  /** Group 283, from 0 to 100. Left out at 0. */
+  readonly fade?: number;
+}
+
 /** What a space or a block draws, of the kinds the writers write. */
 export type ReadEntity =
   | ReadLine
@@ -436,7 +483,8 @@ export type ReadEntity =
   | ReadMtext
   | ReadDimension
   | ReadMultileader
-  | ReadSolid;
+  | ReadSolid
+  | ReadImage;
 
 export interface ReadBlock {
   /** The handle of the block's record, which an insert's block record points to. */
@@ -462,6 +510,21 @@ export interface ReadXref {
   /** The path as the file holds it, relative or absolute. */
   readonly path: string;
   readonly overlay: boolean;
+}
+
+/** An image definition: the file an image shows. */
+export interface ReadImageDefinition {
+  readonly handle?: string | undefined;
+  /** Its name in the dictionary of image definitions. */
+  readonly name: string;
+  /** The path as the file holds it, relative or absolute. */
+  readonly path: string;
+  /** The pixels it states the file has. */
+  readonly pixels: readonly [width: number, height: number];
+  /** False when the file marks it not loaded, which the leading CAD app draws as a frame alone. */
+  readonly loaded: boolean;
+  /** How many images of the file name it. */
+  readonly images: number;
 }
 
 export interface ReadViewport {

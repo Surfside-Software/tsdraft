@@ -2,11 +2,13 @@
 // coordinates with the pen it sets for itself.
 import type { Point } from "../drawing.ts";
 import { textOnce, textTwice } from "./groups.ts";
+import { wholeImageClip } from "../images.ts";
 import type {
   ReadAttribute,
   ReadDimension,
   ReadEntity,
   ReadEntityBase,
+  ReadImage,
   ReadMtext,
   ReadMultileader,
   ReadPolyline,
@@ -16,6 +18,7 @@ import { dimensionTextParts } from "./model.ts";
 import {
   facing,
   first,
+  inSubclass,
   name,
   num,
   placed,
@@ -209,6 +212,8 @@ export function readingOf(
       return dimension(r, base, face, r12);
     case "MULTILEADER":
       return multileader(r, base, later);
+    case "IMAGE":
+      return image(r, base);
     case "SOLID": {
       if (face === 0) return { other: "SOLID in 3D" };
       const corner = (code: number): Point =>
@@ -218,6 +223,83 @@ export function readingOf(
     default:
       return undefined;
   }
+}
+
+/**
+ * An image as its file places it. Its clip is held in the image's pixels, as the file holds it,
+ * a polygon without its first point again at its end, and its path is the definition's, which
+ * the reader fills in once it has read the definitions: `imageInWorld` finishes it.
+ */
+function image(r: Rec, base: ReadEntityBase): Reading {
+  const s = inSubclass(r, "AcDbRasterImage");
+  // An image whose vectors leave the plane is one the read model does not hold.
+  if ([31, 32, 30].some((code) => Math.abs(num(s, code) ?? 0) > 1e-9)) {
+    return { other: "IMAGE in 3D" };
+  }
+  const flags = num(s, 70) ?? 0;
+  const points: Point[] = [];
+  for (let i = 0; i < s.codes.length; i++) {
+    if (s.codes[i] !== 14) continue;
+    const y = s.codes[i + 1] === 24 ? Number(s.values[i + 1]) : 0;
+    points.push([Number(s.values[i]), y]);
+  }
+  const [head] = points;
+  const tail = points.at(-1);
+  if (
+    (num(s, 71) ?? 1) !== 1 &&
+    points.length > 1 &&
+    head![0] === tail![0] &&
+    head![1] === tail![1]
+  ) {
+    points.pop();
+  }
+  const definition = handleAt(s, 340);
+  const brightness = num(s, 281) ?? 50;
+  const contrast = num(s, 282) ?? 50;
+  const fade = num(s, 283) ?? 0;
+  return {
+    entity: {
+      ...base,
+      kind: "image",
+      path: "",
+      ...(definition !== undefined && { definition }),
+      pixels: [num(s, 13) ?? 0, num(s, 23) ?? 0],
+      at: point(s, 10),
+      u: point(s, 11),
+      v: point(s, 12),
+      // Flag 4 clips the image to its boundary whatever 280 says, as the leading CAD app draws
+      // it, and the whole image's boundary is no clip, unless it is inverted: a hole of it all.
+      ...(points.length > 0 &&
+        ((num(s, 280) ?? 0) !== 0 ||
+          (num(s, 290) ?? 0) !== 0 ||
+          !wholeImageClip(num(s, 71) ?? 1, points, [num(s, 13) ?? 0, num(s, 23) ?? 0])) && {
+          clip: points,
+        }),
+      ...((num(s, 290) ?? 0) !== 0 && { invertClip: true }),
+      ...((flags & 8) !== 0 && { transparent: true }),
+      ...((flags & 1) === 0 && { hidden: true }),
+      ...((flags & 4) === 0 && { unclipped: true }),
+      ...(brightness !== 50 && { brightness }),
+      ...(contrast !== 50 && { contrast }),
+      ...(fade !== 0 && { fade }),
+    },
+  };
+}
+
+/**
+ * Finishes an image the reader kept: its definition's path, and its clip from its pixels into
+ * the world's coordinates.
+ */
+export function imageInWorld(image: ReadImage, path: string | undefined): void {
+  const mutable = image as Mutable<ReadImage>;
+  mutable.path = path ?? "";
+  if (image.clip === undefined) return;
+  const { at, u, v } = image;
+  const height = image.pixels[1];
+  mutable.clip = image.clip.map(([x, y]) => {
+    const [s, t] = [x + 0.5, height - y - 0.5];
+    return [at[0] + s * u[0] + t * v[0], at[1] + s * u[1] + t * v[1]];
+  });
 }
 
 function lwpolyline(r: Rec, base: ReadEntityBase, face: Facing): Reading {
@@ -492,5 +574,7 @@ export function costOf(e: ReadEntity): number {
       for (const a of e.attributes ?? []) more += attributeCost(a);
       return own + more;
     }
+    case "image":
+      return own + 4 + (e.clip?.length ?? 0) + chars(e.definition);
   }
 }

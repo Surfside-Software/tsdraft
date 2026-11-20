@@ -184,6 +184,24 @@ const ENTITY: Readonly<Record<string, Fields>> = {
     arrowSize: "number",
   },
   solid: { ...BASE, kind: { oneOf: ["solid"] }, points: { list: "point" } },
+  image: {
+    ...BASE,
+    kind: { oneOf: ["image"] },
+    path: "string",
+    "definition?": "string",
+    pixels: "point",
+    at: "point",
+    u: "point",
+    v: "point",
+    "clip?": { list: "point" },
+    "invertClip?": "boolean",
+    "transparent?": "boolean",
+    "hidden?": "boolean",
+    "unclipped?": "boolean",
+    "brightness?": "number",
+    "contrast?": "number",
+    "fade?": "number",
+  },
 };
 
 const SPACE: Fields = {
@@ -308,6 +326,18 @@ const DRAWING_READ: Fields = {
   },
   xrefs: {
     list: { fields: { "handle?": "string", name: "string", path: "string", overlay: "boolean" } },
+  },
+  images: {
+    list: {
+      fields: {
+        "handle?": "string",
+        name: "string",
+        path: "string",
+        pixels: "point",
+        loaded: "boolean",
+        images: "count",
+      },
+    },
   },
   model: { fields: SPACE },
   layouts: {

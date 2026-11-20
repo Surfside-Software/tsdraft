@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import planSet, { xrefs as planSetXrefs } from "../examples/plan-set/set.ts";
-import { sitePlan } from "../examples/site-plan.ts";
+import { images, sitePlan } from "../examples/site-plan.ts";
 import { toSVG } from "../src/index.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -39,7 +39,7 @@ interface Picture {
 // The site plan's picture is its layout, as toSVG draws the sheet: paper units, each line as
 // wide as its lineweight, and dashes as long as they plot.
 const site = sitePlan();
-const sitePicture = toSVG(site.drawing, { layout: site.drawing.layouts![0]!.name });
+const sitePicture = toSVG(site.drawing, { layout: site.drawing.layouts![0]!.name, images });
 
 // The permit set's pictures are two of its sheets, each with the border its xref draws.
 const planSetSheet = (layout: string) => toSVG(planSet, { layout, xrefs: planSetXrefs });
@@ -90,6 +90,7 @@ const pictures: Picture[] = [
       "C-ANNO-TEXT": "line",
       "C-ANNO-SYMB": "line",
       "C-ANNO-TITL": "line",
+      "C-ANNO-IMAG": "muted",
       "G-ANNO-TTLB": "line",
     },
   },

@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- Raster images, in R2018 drawings: `d.image(path, at, { pixels, width })` draws a PNG or a JPEG
+  with its lower-left corner at `at`, `width` drawing units wide, and `height`, `rotation`,
+  `clip`, `invertClip` and `transparent` where given; its height defaults to the file's
+  proportions. `path` starts from the drawing file's folder and the writers write it with `\`.
+  `pixels` are the file's, which the new `rasterSize` reads from a PNG's or a JPEG's header, and
+  two images of one file must give it the same. `clip` is two corners of a rectangle along the
+  image's sides, or a polygon of three points or more, in the drawing's coordinates, and may reach
+  past the image. Both writers write each file once as an image definition, with its reactor, the
+  dictionary of images and the drawing's image variables, and the four classes counted, without
+  which CAD programs draw nothing of an image. `imageFrame: false` on a drawing hides every
+  image's frame. `lint` and the builder refuse an image in an R12 drawing, an empty or absolute
+  path or one with `* ? < > | : "`, pixels that are not two whole numbers from 1 to 2^31-1, a
+  width or height not greater than 0, a clip of fewer than 2 points or more than 10,000, a
+  rectangle of no size along the image's sides, a polygon of fewer than 3 points that differ,
+  and `invertClip` with no clip; a literal path is a compile error. `toSVG` and `toPDF` take the
+  files' bytes as `images`, by the image's path as the drawing gives it, and draw each image as
+  CAD programs plot it: the file's pixels mapped onto its corners, cut to its clip, opaque unless
+  it is `transparent`, then its frame, its outline or its clip's, in its pen. The picture holds
+  each file once, a JPEG without its EXIF and a PNG that plots opaque without its transparency
+  up to 4,194,304 pixels, and the PDF holds a JPEG and a PNG of no transparency
+  to show as their own data and decodes any other PNG. An image whose file is not given is its
+  frame with its path inside it, and one whose file has other pixels is refused with a
+  `RangeError`. An xref's images take their files from `{ drawing, images }` among `xrefs`,
+  never from the sheet's. `tsdraft render` and `tsdraft dev` read each image's file from the drawing file's
+  folder, warn of one missing, and report an error for one of other pixels. `readDXF` reads each
+  image, with `u` and `v`, the vectors of one of its pixels, and its clip in the world's
+  coordinates, and lists the file's image definitions in `images`, with how many images name each,
+  one that none names among them. The example sheet has a vicinity map above its key plan.
+  [docs/images.md](docs/images.md) describes them.
 - What a dimension style sets of how its dimensions look. In architectural units, `fraction`
   stacks the fraction of an inch over a bar, `"stacked"`, or beside a slash, `"diagonal"`, at
   `fractionScale` of the text's height, as `4'-1` and a stacked `7/16`. `textPlacement:

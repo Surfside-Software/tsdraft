@@ -9,6 +9,7 @@ import {
   type Matrix,
   type Referenced,
 } from "./blocks.ts";
+import { imageCorners, imageDrawable, imageFrame } from "./images.ts";
 import { dimensionPicture, pictureTexts, type Dimension } from "./dimensions.ts";
 import type {
   AttributeDefinition,
@@ -316,10 +317,28 @@ export function boxer(
         add(box[2], box[3]);
         break;
       }
+      case "image": {
+        // The image, and the frame of a clip that reaches past it: a rectangle's four corners
+        // along the image's sides, or a polygon's points. One the plots cannot draw has none.
+        if (!imageDrawable(e, clipsChecked)) break;
+        for (const [x, y] of imageCorners(e)) add(x, y);
+        if (e.clip === undefined) break;
+        if (e.clip.length === 2) {
+          for (const [x, y] of imageFrame(e)) add(x, y);
+          break;
+        }
+        const box = pointsBox(e.clip);
+        if (box[0] === Infinity) break;
+        add(box[0], box[1]);
+        add(box[2], box[3]);
+        break;
+      }
     }
   };
   /** The box of a list of points, worked out once for a long list however many hold it. */
   const pointBoxes = new WeakMap<object, Bounds>();
+  /** Whether each clip an image gives can be drawn, read once however many images share it. */
+  const clipsChecked = new WeakMap<object, boolean>();
   const pointsBox = (points: readonly Point[]): Bounds => {
     const long = Array.isArray(points) && points.length >= SHARED;
     const known = long ? pointBoxes.get(points) : undefined;

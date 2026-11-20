@@ -85,6 +85,14 @@ the `linetype` and `lineweight` of every entity. Its value holds `\P` for each p
 A drawing with no paragraph has the JSON it had before paragraphs existed.
 [Paragraphs](paragraphs.md) describes them.
 
+An image is an entity of kind `"image"`, in `drawing.entities`, a block's `entities` or a layout's
+`entities`, with its `layer`, its file's `path` and `pixels`, its lower-left corner `at`, its
+`width` and `height` in drawing units, and where they are set a `rotation`, a `clip`, a list of
+points, `invertClip` and `transparent`, each `true`, and the `linetype` and `lineweight` of every
+entity, which its frame is drawn in. `imageFrame: false` on the drawing hides every image's frame.
+A drawing with no image has the JSON it had before images existed. [Images](images.md) describes
+them.
+
 A drawing written by hand needs `format: 0` too. `lint` reports a drawing without it, or with
 another version, under the rule `format`, and `toDXF` refuses to write it. `lint` takes any
 plain data and never throws: a list that is not an array, an entity of an unknown `kind`, a

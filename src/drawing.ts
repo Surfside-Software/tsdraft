@@ -52,6 +52,7 @@ import {
 } from "./papers.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import { arcsAlong, cloud, donut, MAX_CLOUD_ARCS, rounded } from "./polylines.ts";
+import { imageVectors } from "./images.ts";
 import { canonical } from "./json.ts";
 import { DrawingError, type Diagnostic, type LintRule } from "./lint.ts";
 import {
@@ -152,6 +153,12 @@ import {
   type PolylineWidth,
   type R12Leaders,
   type R12Polylines,
+  type R12Images,
+  type ImagePath,
+  imageClipProblem,
+  imagePathProblem,
+  imagePixelsProblem,
+  IMAGE_INVERT_WITHOUT_CLIP,
   type R12Paragraphs,
   type LineSpacing,
   type ParagraphValue,
@@ -595,6 +602,45 @@ export interface Leader extends Placed {
   readonly gap?: number;
 }
 
+/**
+ * A raster image: a PNG or a JPEG file, which the leading CAD app loads each time it opens the
+ * drawing and draws at its size in drawing units. The drawing holds the file's path and its size
+ * in pixels, and nothing of what it shows. Each file the drawing's images name is written as one
+ * definition of it. R2018 only.
+ */
+export interface Image extends EntityBase {
+  readonly kind: "image";
+  /**
+   * The file's path from the folder of this drawing's file, with `\` or `/` between folders, such
+   * as `"aerial.png"` or `"..\\images\\aerial.png"`.
+   */
+  readonly path: string;
+  /**
+   * The file's width and height in pixels, as the file holds them, which `rasterSize` reads. The
+   * leading CAD app draws the file's own pixels at the size each pixel has here, so an image of a
+   * file with other pixels plots at the wrong size.
+   */
+  readonly pixels: readonly [width: number, height: number];
+  /** Where its lower-left corner goes. */
+  readonly at: Point;
+  /** How wide it is along its bottom edge, in drawing units. */
+  readonly width: number;
+  /** How high it is up its side, in drawing units. */
+  readonly height: number;
+  /** Degrees counterclockwise. Defaults to 0. */
+  readonly rotation?: number;
+  /**
+   * The outline that clips it, in the drawing's coordinates: two opposite corners of a rectangle
+   * along its sides, or the points of a polygon, three or more. What lies outside the clip or
+   * outside the image is not shown.
+   */
+  readonly clip?: readonly Point[];
+  /** True to show the image outside its clip and hide what the clip holds. */
+  readonly invertClip?: boolean;
+  /** True to show what is behind the transparent pixels of a PNG. Otherwise it is opaque. */
+  readonly transparent?: boolean;
+}
+
 export type Entity =
   | Line
   | Polyline
@@ -605,7 +651,8 @@ export type Entity =
   | Insert
   | LinearDimension
   | AlignedDimension
-  | Leader;
+  | Leader
+  | Image;
 
 /**
  * A leader style: how the leaders that name it are drawn. Its sizes are the sizes its leaders
@@ -869,6 +916,11 @@ export interface Drawing {
   readonly dimensionStyles?: readonly DimensionStyle[];
   /** The leader styles that leaders name. */
   readonly leaderStyles?: readonly LeaderStyle[];
+  /**
+   * Whether each image's frame shows and plots: its outline, or its clip's, in its pen. Defaults
+   * to true, as the leading CAD app has it. A sheet with a logo or an aerial wants false.
+   */
+  readonly imageFrame?: boolean;
 }
 
 /**
@@ -1178,6 +1230,42 @@ export interface DonutOptions<
 > extends EntityOptions<"R2018", T, W, L, I, Z, P> {
   /** The diameter of its hole, less than the outside diameter. Defaults to 0: a filled dot. */
   readonly inside?: DonutHole<H>;
+}
+
+/**
+ * The options of `image()`: the file's pixels, the image's size and turn, its clip, and the
+ * options of every entity.
+ *
+ * @typeParam IW - The width as written.
+ * @typeParam IH - The height as written.
+ */
+export interface ImageOptions<
+  IW extends number = number,
+  IH extends number = number,
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+> extends EntityOptions<"R2018", T, W, L, I, Z, P> {
+  /** The file's width and height in pixels, which `rasterSize` reads from its bytes. */
+  readonly pixels: readonly [width: number, height: number];
+  /** How wide the image is along its bottom edge, in drawing units. */
+  readonly width: Positive<IW>;
+  /** How high it is. Defaults to the width times the file's height over its width. */
+  readonly height?: Positive<IH>;
+  /** Degrees counterclockwise. Defaults to 0. */
+  readonly rotation?: number;
+  /**
+   * The outline that clips it, in the drawing's coordinates: two opposite corners of a rectangle
+   * along its sides, or the points of a polygon, three or more.
+   */
+  readonly clip?: readonly Point[];
+  /** True to show the image outside its clip and hide what the clip holds. */
+  readonly invertClip?: boolean;
+  /** True to show what is behind the transparent pixels of a PNG. */
+  readonly transparent?: boolean;
 }
 
 /** A text style to define: a `TextStyle`, checked. */
@@ -2514,6 +2602,78 @@ export class DrawingBuilder<
         bulges: made.bulges,
         width: made.width,
       });
+    });
+  }
+
+  /**
+   * A raster image: the PNG or JPEG file at `path`, from the folder of this drawing's file, with
+   * its lower-left corner at `at`, `width` drawing units wide. `pixels` are the file's own, which
+   * `rasterSize` reads, and its height defaults to the width times the file's height over its
+   * width. `clip` hides what lies outside two corners of a rectangle along its sides or a
+   * polygon, in the drawing's coordinates. R2018 only.
+   *
+   * ```ts
+   * d.image("aerial.png", [0, 0], { pixels: [4000, 3000], width: 400 });
+   * ```
+   */
+  image<
+    const F extends string,
+    IW extends number,
+    IH extends number = number,
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    P extends string = string,
+  >(
+    path: V extends "R12" ? R12Images : ImagePath<F>,
+    at: Point,
+    options: V extends "R12" ? R12Images : ImageOptions<IW, IH, T, W, L, I, Z, P>,
+  ): this {
+    const o = options as unknown as ImageOptions;
+    return this.#add(DrawingBuilder.prototype.image, o, () => {
+      if (this.dxf === "R12") refuse("image", R12_ONLY.images);
+      const pathProblem = imagePathProblem(path);
+      if (pathProblem) refuse("image", pathProblem);
+      const pixelsProblem = imagePixelsProblem(o.pixels);
+      if (pixelsProblem) refuse("image", `pixels: ${pixelsProblem}`);
+      const [w, h] = o.pixels;
+      const width = positive(o.width, "width");
+      const height = o.height === undefined ? width * (h / w) : positive(o.height, "height");
+      if (o.height === undefined && sizeProblem(height)) {
+        refuse("geometry", `height: ${sizeProblem(height)}`);
+      }
+      const rotation =
+        o.rotation === undefined ? undefined : kept(num(o.rotation, "rotation"), "rotation");
+      const image: Image = {
+        kind: "image",
+        layer: this.#current,
+        path: path as string,
+        pixels: [w, h],
+        at: pt(at),
+        width,
+        height,
+        ...(rotation === undefined ? {} : { rotation }),
+      };
+      if (o.clip !== undefined) {
+        const [u, v] = imageVectors(image);
+        const clipProblem = imageClipProblem(o.clip, image.at, u, v);
+        if (clipProblem) refuse("image", `clip: ${clipProblem}`);
+      } else if (o.invertClip === true) refuse("image", IMAGE_INVERT_WITHOUT_CLIP);
+      for (const [field, value] of [
+        ["invertClip", o.invertClip],
+        ["transparent", o.transparent],
+      ] as const) {
+        if (value !== undefined && typeof value !== "boolean") {
+          refuse("image", `${field} must be true or false`);
+        }
+      }
+      return {
+        ...image,
+        ...(o.clip === undefined ? {} : { clip: o.clip.map(pt) }),
+        ...(o.invertClip === true ? { invertClip: true } : {}),
+        ...(o.transparent === true ? { transparent: true } : {}),
+      };
     });
   }
 

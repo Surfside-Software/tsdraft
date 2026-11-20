@@ -34,6 +34,7 @@ import type {
   Drawing,
   DxfVersion,
   Entity,
+  Image,
   Layout,
   Viewport,
   Insert,
@@ -47,6 +48,7 @@ import type {
   Xref,
 } from "./drawing.ts";
 import { boxer, type Boxer } from "./extents.ts";
+import { exactKey, imagePathKey, imageReactorHandle, imageVectors } from "./images.ts";
 import { written } from "./format.ts";
 import { validIdHandle } from "./handles.ts";
 import { validLayoutHandles, validViewportView, viewReaches } from "./layouts.ts";
@@ -79,6 +81,13 @@ import { STANDARD_FONT, STANDARD_TEXT_STYLE } from "./fonts.ts";
 import { parseParagraph, type ParsedParagraph } from "./paragraph-codes.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import {
+  IMAGE_CLIP_MOST,
+  IMAGE_CLIP_MOST_PROBLEM,
+  IMAGE_INVERT_WITHOUT_CLIP,
+  IMAGE_PIXELS_SAME,
+  imageClipProblem,
+  imagePathProblem,
+  imagePixelsProblem,
   arcIsWrittenAsPoint,
   arcProblem,
   ATTRIBUTES_SHAPE,
@@ -202,6 +211,7 @@ export type LintRule =
   | "undefined-leader-style"
   | "leader"
   | "paragraph"
+  | "image"
   | "zero-length"
   | "standard"
   | "layer-outside-standard"
@@ -501,6 +511,9 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       case "leader":
         cost += long1(e.style) + long1(e.textStyle);
         break;
+      case "image":
+        cost += long1(e.path);
+        break;
     }
     return cost;
   };
@@ -683,6 +696,16 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       severity: "error",
       message: `linetypeScale: ${problem}`,
       ...(typeof scale === "number" ? {} : { item: "linetypeScale" }),
+    });
+  }
+
+  const frame: unknown = drawing.imageFrame;
+  if (frame !== undefined && typeof frame !== "boolean") {
+    out.push({
+      rule: "image",
+      severity: "error",
+      message: "imageFrame must be true or false",
+      item: "imageFrame",
     });
   }
 
@@ -1398,6 +1421,69 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   };
 
   type Add = (rule: LintRule, severity: Diagnostic["severity"], problem: string) => void;
+  /** The pixels the first image of each file gives it, by its path with \ and / as one. */
+  // Keyed exactly, since a path may be long.
+  const imagePixels = new Map<string, readonly [number, number]>();
+  /**
+   * Checks what an image holds beyond the fields every entity has: its path, its pixels, its clip
+   * and its flags, and that each file has one size, and takes its reactor's handle from its id.
+   */
+  const lintImage = (
+    image: Image,
+    add: Add,
+    sound: boolean,
+    named: boolean,
+    here: () => string,
+  ): void => {
+    const pathProblem = imagePathProblem(image.path);
+    if (pathProblem) add("image", "error", pathProblem);
+    const pixelsProblem = imagePixelsProblem(image.pixels);
+    if (pixelsProblem) add("image", "error", `pixels: ${pixelsProblem}`);
+    for (const [field, value] of [
+      ["invertClip", image.invertClip],
+      ["transparent", image.transparent],
+    ] as const) {
+      if (value !== undefined && typeof value !== "boolean") {
+        add("image", "error", `${field} must be true or false`);
+      }
+    }
+    if (image.clip === undefined && image.invertClip === true) {
+      add("image", "error", IMAGE_INVERT_WITHOUT_CLIP);
+    }
+    if (pathProblem === undefined && pixelsProblem === undefined) {
+      const key = exactKey(imagePathKey(image.path));
+      const first = imagePixels.get(key);
+      // A long path many images share is read again for each, which `repeatedIn` paid for.
+      if (first === undefined) imagePixels.set(key, [image.pixels[0], image.pixels[1]]);
+      else if (first[0] !== image.pixels[0] || first[1] !== image.pixels[1]) {
+        add("image", "error", IMAGE_PIXELS_SAME);
+      }
+    }
+    if (sound && pixelsProblem === undefined && image.clip !== undefined) {
+      const list: unknown = image.clip;
+      if (Array.isArray(list) && list.length > IMAGE_CLIP_MOST) {
+        add("image", "error", `clip: ${IMAGE_CLIP_MOST_PROBLEM}`);
+      } else if (
+        Array.isArray(list) &&
+        list.length > 64 &&
+        !spend(Math.floor(list.length / 8), here)
+      ) {
+        return;
+      } else {
+        const [u, v] = imageVectors(image);
+        const at: Point = [written(image.at[0]), written(image.at[1])];
+        const problem = imageClipProblem(image.clip, at, u, v);
+        if (problem) add("image", "error", `clip: ${problem}`);
+      }
+    }
+    if (named) {
+      const clash = claim(
+        imageReactorHandle(idKey(image.id as string)),
+        `the reactor of the image ${shown(image.id)}`,
+      );
+      if (clash) add("id-handle", "error", clash);
+    }
+  };
   /** Checks the id of an entity or a viewport and takes its handle. True for an id that is new. */
   const lintId = (id: unknown, add: Add): boolean => {
     if (id === undefined) return false;
@@ -1448,9 +1534,11 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       const here = () => `${entity.kind} #${index} of ${space}`;
       // A long list of points, bulges or widths that many polylines share is read again for
       // each, and paid for.
-      if (isObject(entity) && entity.kind === "polyline") {
+      if (isObject(entity) && (entity.kind === "polyline" || entity.kind === "image")) {
         let cost = 0;
-        for (const list of [entity.points, entity.bulges, entity.widths]) {
+        const lists =
+          entity.kind === "image" ? [entity.clip] : [entity.points, entity.bulges, entity.widths];
+        for (const list of lists) {
           if (Array.isArray(list) && list.length >= FREE && again(list))
             cost += Math.floor(list.length / 8);
         }
@@ -1601,6 +1689,13 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       if (entity.kind === "leader") {
         if (problems.length === 0) lintLeader(entity, add, block !== undefined);
         return;
+      }
+      if (entity.kind === "image") {
+        if (r12) {
+          add("image", "error", R12_ONLY.images);
+          return;
+        }
+        lintImage(entity, add, problems.length === 0, named, here);
       }
       if (entity.kind === "linear-dimension" || entity.kind === "aligned-dimension") {
         lintDimension(entity, add, problems.length === 0, block !== undefined, here);
@@ -2205,6 +2300,11 @@ function geometryProblems(e: Entity): string[] {
     case "leader":
       finite("its point", ...e.at);
       break;
+    case "image":
+      finite("its position and rotation", ...e.at, e.rotation ?? 0);
+      size("width", e.width);
+      size("height", e.height);
+      break;
   }
   return out;
 }
@@ -2235,6 +2335,7 @@ function zeroLength(e: Entity): string | undefined {
     case "linear-dimension":
     case "aligned-dimension":
     case "leader":
+    case "image":
       return undefined;
   }
 }

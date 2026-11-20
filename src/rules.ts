@@ -166,6 +166,28 @@ const R12_LEADERS =
 const R12_PARAGRAPHS =
   'tsdraft writes no paragraphs to R12 drawings. Use DXF version "R2018" for a paragraph';
 const LINE_SPACING = "A paragraph's line spacing is a factor from 0.25 to 4";
+const R12_IMAGES = 'tsdraft writes no images to R12 drawings. Use DXF version "R2018" for an image';
+const IMAGE_PATH_EMPTY = "An image's path cannot be empty. The leading CAD app finds no file by it";
+const IMAGE_PATH_ABSOLUTE =
+  'An image\'s path must start from the folder of the drawing\'s file, as "aerial.png" and "../images/aerial.png" do, and cannot start with /, \\ or a drive such as C:. The leading CAD app looks for the file of an absolute path in that folder alone, and on another machine finds none';
+const IMAGE_PATH_CHARS =
+  "An image's path cannot hold * ? < > | : or \". The leading CAD app finds no file whose name holds one of them";
+const IMAGE_PATH_LENGTH =
+  "An image's path cannot be longer than 32,000 characters. The leading CAD app finds no file by a path that comes to more than 32,767 characters with the folder of the drawing";
+const IMAGE_PATH_MULTIBYTE =
+  "An image's path cannot hold a backslash before M+, a digit from 1 to 5 and four hex digits, such as \\M+10041. The leading CAD app reads those as one character, and looks for another file. Write / there";
+const IMAGE_PIXELS =
+  "An image's pixels are its file's width and height in pixels, each a whole number from 1 to 2,147,483,647, which rasterSize reads from the file. The leading CAD app draws the file's own pixels at the size each has in the drawing, so pixels other than the file's plot it at the wrong size";
+const IMAGE_CLIP_POINTS =
+  "An image's clip is two opposite corners of a rectangle along its sides, or a polygon of at least 3 points";
+const IMAGE_CLIP_RECTANGLE =
+  "An image's clip of two corners must have its corners apart along the image's width and up its height, as written: it is a rectangle along the image's sides, and one of no width or height shows nothing";
+const IMAGE_CLIP_POLYGON =
+  "An image's clip of a polygon needs at least 3 points that differ, as written";
+const IMAGE_INVERT_CLIP =
+  "invertClip needs a clip: it shows the image outside the clip, and with no clip there is no outside";
+const IMAGE_PIXELS_DIFFER =
+  "Two images of one file must give it the same pixels: the file is written once, as one definition, with its pixels";
 const R12_POLYLINES =
   'tsdraft writes no arcs or widths of a polyline to R12 drawings. Use DXF version "R2018" for a polyline with bulges or a width';
 const POLYLINE_WIDTH =
@@ -686,6 +708,25 @@ export type XrefPath<P extends string> = string extends P
                 : Description<P>;
 
 /**
+ * Resolves to `P` when it is a path an image can have, and to the error message otherwise: a path
+ * is not empty, starts from the folder of the drawing's file, and holds no `* ? < > | : "`, no
+ * multibyte escape and no character a text cannot hold. Its length is checked when the code runs.
+ */
+export type ImagePath<P extends string> = string extends P
+  ? P
+  : P extends ""
+    ? typeof IMAGE_PATH_EMPTY
+    : P extends `/${string}` | `\\${string}`
+      ? typeof IMAGE_PATH_ABSOLUTE
+      : Lowercase<P> extends `${LowerLetter}:${string}`
+        ? typeof IMAGE_PATH_ABSOLUTE
+        : P extends `${string}${Chars<'*?<>|:"'>}${string}`
+          ? typeof IMAGE_PATH_CHARS
+          : HasMultibyteEscape<Lowercase<P>> extends true
+            ? typeof IMAGE_PATH_MULTIBYTE
+            : Description<P>;
+
+/**
  * Resolves to `N` when it is a name a layout can have, and to the error message otherwise: a
  * name is not empty, is not `Model` in any case, holds none of `< > / \ " : ; ? * | , =` and
  * the backtick, no character a text cannot hold, and no space at either end. Its length, and
@@ -916,6 +957,7 @@ export type R12Dimensions = typeof R12_DIMENSIONS;
 export type R12Leaders = typeof R12_LEADERS;
 export type R12Polylines = typeof R12_POLYLINES;
 export type R12Paragraphs = typeof R12_PARAGRAPHS;
+export type R12Images = typeof R12_IMAGES;
 
 /** Resolves to `N` when it is a width a polyline can have, and to the error message otherwise. */
 export type PolylineWidth<N extends number> = NotNegative<N, typeof POLYLINE_WIDTH>;
@@ -1535,6 +1577,7 @@ export const R12_ONLY = {
   leaders: R12_LEADERS,
   polylines: R12_POLYLINES,
   paragraphs: R12_PARAGRAPHS,
+  images: R12_IMAGES,
 } as const;
 
 /** What is wrong with a donut's hole, of `inside` across, or undefined. */
@@ -1980,6 +2023,101 @@ export function xrefPathProblem(path: unknown): string | undefined {
   if (/\\[Mm]\+[1-5][0-9A-Fa-f]{4}/.test(path)) return XREF_PATH_MULTIBYTE;
   return textProblem(path);
 }
+
+/** Returns what is wrong with an image's path, or undefined when it is valid. */
+export function imagePathProblem(path: unknown): string | undefined {
+  if (typeof path !== "string") return "An image's path must be a string";
+  if (path.length === 0) return IMAGE_PATH_EMPTY;
+  if (/^(?:[/\\]|[A-Za-z]:)/.test(path)) return IMAGE_PATH_ABSOLUTE;
+  if (/[*?<>|:"]/.test(path)) return IMAGE_PATH_CHARS;
+  if (path.length > 32000) return IMAGE_PATH_LENGTH;
+  if (/\\[Mm]\+[1-5][0-9A-Fa-f]{4}/.test(path)) return IMAGE_PATH_MULTIBYTE;
+  return textProblem(path);
+}
+
+/** The most pixels an image's side may have: PNG's own most. */
+export const IMAGE_SIDE = 2_147_483_647;
+
+/** Returns what is wrong with an image's pixels, or undefined when they are valid. */
+export function imagePixelsProblem(pixels: unknown): string | undefined {
+  // A plain array of two, with no key but its indexes and its length.
+  if (!Array.isArray(pixels) || pixels.length !== 2 || Reflect.ownKeys(pixels).length !== 3)
+    return IMAGE_PIXELS;
+  // Each side read as a plain value, without a getter or the array's iterator.
+  const side = (i: number) => {
+    const item = Object.getOwnPropertyDescriptor(pixels, i);
+    const n: unknown = item && "value" in item ? item.value : undefined;
+    return Number.isInteger(n) && (n as number) >= 1 && (n as number) <= IMAGE_SIDE;
+  };
+  return side(0) && side(1) ? undefined : IMAGE_PIXELS;
+}
+
+/**
+ * Returns what is wrong with an image's clip, or undefined when it is valid. It is judged in the
+ * image's own axes, the vectors of one of its pixels `u` and `v`, from its corner `at`, with its
+ * points as written.
+ */
+export function imageClipProblem(
+  clip: unknown,
+  at: readonly [number, number],
+  u: readonly [number, number],
+  v: readonly [number, number],
+): string | undefined {
+  if (!Array.isArray(clip) || clip.length < 2) return IMAGE_CLIP_POINTS;
+  if (Reflect.ownKeys(clip).length !== clip.length + 1) {
+    return "An image's clip must be a plain array of points, with no key but its indexes";
+  }
+  const written2: (readonly [number, number])[] = [];
+  // Read by index as plain values, so an empty slot or a getter is a point that is missing.
+  const item = (list: unknown[], i: number): unknown => {
+    const found = Object.getOwnPropertyDescriptor(list, i);
+    return found && "value" in found ? found.value : undefined;
+  };
+  for (let i = 0; i < clip.length; i++) {
+    const point = item(clip, i);
+    const [x, y]: unknown[] =
+      Array.isArray(point) && point.length === 2 && Reflect.ownKeys(point).length === 3
+        ? [item(point, 0), item(point, 1)]
+        : [];
+    if (
+      typeof x !== "number" ||
+      typeof y !== "number" ||
+      !Number.isFinite(x) ||
+      !Number.isFinite(y)
+    ) {
+      return "Each point of an image's clip must be a point, [x, y], of finite numbers";
+    }
+    const problem = magnitudeProblem(x) ?? magnitudeProblem(y);
+    if (problem) return problem;
+    written2.push([written(x), written(y)]);
+  }
+  if (written2.length === 2) {
+    const det = u[0] * v[1] - u[1] * v[0];
+    const along = ([x, y]: readonly [number, number]) => {
+      const [dx, dy] = [x - at[0], y - at[1]];
+      return [(dx * v[1] - dy * v[0]) / det, (u[0] * dy - u[1] * dx) / det] as const;
+    };
+    const [a, b] = [along(written2[0]!), along(written2[1]!)];
+    // Apart by a millionth of a pixel at least, which the 15 digits a clip is written with keep.
+    const apart = (p: number, q: number) =>
+      Math.abs(p - q) > 1e-6 * Math.max(1, Math.abs(p), Math.abs(q));
+    return apart(a[0], b[0]) && apart(a[1], b[1]) ? undefined : IMAGE_CLIP_RECTANGLE;
+  }
+  const distinct = new Set(written2.map(([x, y]) => `${x},${y}`));
+  return distinct.size >= 3 ? undefined : IMAGE_CLIP_POLYGON;
+}
+
+/** The most points an image's clip may have. */
+export const IMAGE_CLIP_MOST = 10_000;
+
+/** What is wrong with a clip of more points than `IMAGE_CLIP_MOST`. */
+export const IMAGE_CLIP_MOST_PROBLEM = `An image's clip has at most ${IMAGE_CLIP_MOST} points`;
+
+/** What is wrong with `invertClip` on an image with no clip. */
+export const IMAGE_INVERT_WITHOUT_CLIP = IMAGE_INVERT_CLIP;
+
+/** What is wrong with two images of one file that give it other pixels. */
+export const IMAGE_PIXELS_SAME = IMAGE_PIXELS_DIFFER;
 
 /** The fields of a block that an xref cannot have, since its file holds what it draws. */
 export const XREF_REFUSED_FIELDS = ["entities", "base", "attributes"] as const;

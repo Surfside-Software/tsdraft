@@ -332,6 +332,12 @@ export function attributeText(insert: Insert, definition: AttributeDefinition): 
 export interface XrefDrawing {
   readonly drawing: Drawing;
   readonly xrefs?: XrefDrawings;
+  /**
+   * The bytes of each raster file the drawing's images show, by the image's path as the drawing
+   * gives it, which starts from the drawing's own folder. Without it, its images are drawn as
+   * images whose files are missing.
+   */
+  readonly images?: Readonly<Record<string, Uint8Array>>;
 }
 
 /**
@@ -351,6 +357,8 @@ export interface Referenced {
   readonly blocks: ReadonlyMap<string, Block>;
   /** The drawings its attachments stand for, by `layerKey` of each xref's name. */
   readonly xrefs: ReadonlyMap<string, Referenced>;
+  /** The files of its images, as its `XrefDrawing` gives them. */
+  readonly images?: unknown;
 }
 
 /** A layer by its name: one of the drawing's own, or one of a drawing it references. */
@@ -400,7 +408,15 @@ export function drawnXrefs(drawing: Drawing, xrefs: XrefDrawings | undefined): X
     Object.fromEntries(
       [...tree.values()].map((r) => [
         r.name,
-        r.xrefs.size > 0 ? { drawing: r.drawing, xrefs: out(r.xrefs) } : r.drawing,
+        r.xrefs.size > 0 || r.images !== undefined
+          ? {
+              drawing: r.drawing,
+              ...(r.xrefs.size > 0 ? { xrefs: out(r.xrefs) } : {}),
+              ...(r.images === undefined
+                ? {}
+                : { images: r.images as Readonly<Record<string, Uint8Array>> }),
+            }
+          : r.drawing,
       ]),
     );
   return out(referencedTree(drawing, xrefs, () => NO_BLOCKS).xrefs);
@@ -539,9 +555,11 @@ export function referencedTree(
       const nested = typeof value === "object" && value !== null && "drawing" in value;
       const found: unknown = nested ? (value as XrefDrawing).drawing : value;
       const inner: unknown = nested ? (value as XrefDrawing).xrefs : undefined;
+      const files: unknown = nested ? (value as XrefDrawing).images : undefined;
       if (
         !drawingLike(found) ||
-        (inner !== undefined && (typeof inner !== "object" || inner === null))
+        (inner !== undefined && (typeof inner !== "object" || inner === null)) ||
+        (files !== undefined && (typeof files !== "object" || files === null))
       ) {
         note("shape", chain);
         continue;
@@ -563,6 +581,7 @@ export function referencedTree(
         drawing: referenced,
         blocks: held,
         xrefs: into ?? NO_XREFS,
+        ...(files === undefined ? {} : { images: files }),
       });
       if (into) {
         queue.push({

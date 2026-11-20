@@ -10,6 +10,7 @@ import type {
   DimensionStyle,
   Drawing,
   Entity,
+  Image,
   Insert,
   Layer,
   Layout,
@@ -58,6 +59,7 @@ const KINDS = [
   "linear-dimension",
   "aligned-dimension",
   "leader",
+  "image",
 ] as const satisfies readonly Entity["kind"][];
 
 /** What is wrong with an entity whose kind tsdraft does not know. */
@@ -513,6 +515,25 @@ function shapes(all: boolean, typed = all): Shapes {
         gap: ruled(number),
       },
     ),
+    // A rule of `lint` reports the path, the pixels, the clip and the flags, whatever their type.
+    image: fields<Image>(
+      {
+        kind,
+        layer: string,
+        path: ruled(string),
+        pixels: ruled(point),
+        at: point,
+        width: number,
+        height: number,
+      },
+      {
+        ...shared,
+        rotation: number,
+        clip: ruled(list(point)),
+        invertClip: ruled(boolean),
+        transparent: ruled(boolean),
+      },
+    ),
   } satisfies Record<Entity["kind"], FieldsCheck>;
 
   const entity: Check = (value, at, problems, extra) => {
@@ -684,6 +705,7 @@ function shapes(all: boolean, typed = all): Shapes {
       layouts: ruled(table(layout)),
       dimensionStyles: ruled(table(dimensionStyle)),
       leaderStyles: ruled(table(leaderStyle)),
+      imageFrame: ruled(boolean),
     },
   );
   return {

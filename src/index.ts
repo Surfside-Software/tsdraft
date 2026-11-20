@@ -66,6 +66,8 @@ export {
   type DxfVersion,
   type Entity,
   type EntityOptions,
+  type Image,
+  type ImageOptions,
   type Insert,
   type InsertOptions,
   type Layer,
@@ -116,6 +118,29 @@ export {
   type Zone,
 } from "./drawing.ts";
 export { toDXF, type DxfOptions } from "./dxf.ts";
+export { rasterSize } from "./raster.ts";
+export {
+  drawingImages,
+  fromImagePixels,
+  IMAGE_DICTIONARY,
+  IMAGE_VARIABLES,
+  imageClip,
+  imageCorners,
+  imageDefinitionHandle,
+  imageDefinitions,
+  imageDictionaryHandle,
+  imageFrame,
+  imagePathKey,
+  imageReactorHandle,
+  imageVectors,
+  RASTER_UNITS,
+  rasterVariablesHandle,
+  toImagePixels,
+  wholeImageClip,
+  writtenImagePath,
+  type ImageClip,
+  type ImageDefinition,
+} from "./images.ts";
 export { bulgeThrough, polylineBox, type PolylineBox } from "./polylines.ts";
 export { FONT_METRICS, FONT_METRICS_RANGES, type FontMetrics } from "./font-metrics.ts";
 export { capHeightOf, FONTS, type Font, type FontInfo } from "./fonts.ts";
@@ -305,6 +330,8 @@ export {
   type ReadEntityBase,
   type ReadField,
   type ReadHeader,
+  type ReadImage,
+  type ReadImageDefinition,
   type ReadInsert,
   type ReadLayer,
   type ReadLayerCensus,

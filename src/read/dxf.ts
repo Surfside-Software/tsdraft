@@ -13,6 +13,7 @@ import {
   brokenNumber,
   costOf,
   handleAt,
+  imageInWorld,
   nameCost,
   placementOf,
   readingOf,
@@ -55,6 +56,8 @@ import {
   type ReadEntityBase,
   type ReadField,
   type ReadHeader,
+  type ReadImage,
+  type ReadImageDefinition,
   type ReadInsert,
   type ReadLayer,
   type ReadLayerCensus,
@@ -184,6 +187,7 @@ const BLOCK_READS = new Set([
   "ATTRIB",
   "CIRCLE",
   "DIMENSION",
+  "IMAGE",
   "INSERT",
   "LINE",
   "LWPOLYLINE",
@@ -200,6 +204,7 @@ const BLOCK_READS = new Set([
 const SPACE_READS = new Set([
   "ATTRIB",
   "DIMENSION",
+  "IMAGE",
   "INSERT",
   "MTEXT",
   "POLYLINE",
@@ -217,6 +222,7 @@ const HOUSEKEEPING = new Set([
   "CELLSTYLEMAP",
   "DICTIONARYVAR",
   "FIELDLIST",
+  "IMAGEDEF_REACTOR",
   "MATERIAL",
   "MLEADERSTYLE",
   "MLINESTYLE",
@@ -500,6 +506,19 @@ class DxfReader {
     starts: [],
     leaders: [],
   };
+  /** The images kept, to finish once the definitions are read. */
+  readonly #images: ReadImage[] = [];
+  /** How many images name each definition, by its handle. */
+  readonly #imageUses = new Map<string, number>();
+  /** The handle of the dictionary of image definitions, from the root dictionary. */
+  #imageDictionary: string | undefined;
+  /** The dictionary's entries, in its order: each definition's name and handle. */
+  readonly #imageEntries: (readonly [name: string, handle: string])[] = [];
+  /** Each image definition, by its handle. */
+  readonly #imageDefinitions = new Map<
+    string,
+    { readonly path: string; readonly pixels: readonly [number, number]; readonly loaded: boolean }
+  >();
   readonly #later: Later = {
     start: (pending) => this.#staged.starts.push(pending),
     leader: (entity, style, textStyle) =>
@@ -581,7 +600,9 @@ class DxfReader {
       case "TABLES":
         return ALL;
       case "OBJECTS":
-        return type === "DICTIONARY" || type === "FIELD" || type === "LAYOUT" ? ALL : NOTHING;
+        return type === "DICTIONARY" || type === "FIELD" || type === "LAYOUT" || type === "IMAGEDEF"
+          ? ALL
+          : NOTHING;
       case "BLOCKS":
         if (type === "BLOCK" || type === "ENDBLK") return ALL;
         if (this.#inDimensionPicture) return NOTHING;
@@ -974,10 +995,20 @@ class DxfReader {
         return;
       }
     }
+    // How many images name each definition, whatever the read keeps of them, for as many
+    // definitions as the census holds.
+    if (r.type === "IMAGE") {
+      const definition = handleAt(r, 340);
+      const uses = definition === undefined ? undefined : this.#imageUses.get(definition);
+      if (uses !== undefined) this.#imageUses.set(definition!, uses + 1);
+      else if (definition !== undefined && this.#imageUses.size < this.#limits.census)
+        this.#imageUses.set(definition, 1);
+    }
     if (!target) return;
     if (hidden(r)) return add(target.other, "invisible");
     const reading = readingOf(r, baseOf(r, layer, handle), face, this.#later, this.#r12);
     const kept = reading !== undefined && "entity" in reading && this.#kept(target, reading.entity);
+    if (kept && reading.entity.kind === "image") this.#images.push(reading.entity);
     for (const pending of this.#settle(kept, target)) this.#starts.push(pending);
     if (reading === undefined) add(target.other, r.type);
     else if ("other" in reading) add(target.other, reading.other);
@@ -1193,13 +1224,31 @@ class DxfReader {
             entries ??= {};
             entries[key] = value;
           } else if (key === "ACAD_MLEADERSTYLE") this.#leaderStyleDictionary ??= value;
-          else if (styles && key.length <= LONGEST_NAME && !this.leaderStyles.has(value)) {
+          else if (key === "ACAD_IMAGE_DICT") this.#imageDictionary ??= value;
+          else if (
+            handle === this.#imageDictionary &&
+            key.length <= LONGEST_NAME &&
+            this.#imageEntries.length < this.#limits.census
+          ) {
+            this.#imageEntries.push([unescaped(key), value]);
+          } else if (styles && key.length <= LONGEST_NAME && !this.leaderStyles.has(value)) {
             this.leaderStyles.set(value, unescaped(key));
           }
         }
         if (entries && this.dictionaries.size < 2 * this.#limits.census) {
           this.dictionaries.set(handle, entries);
         }
+        return;
+      }
+      case "IMAGEDEF": {
+        const handle = handleAt(r, 5);
+        if (handle === undefined || this.#imageDefinitions.size >= this.#limits.census) return;
+        const definition = inSubclass(r, "AcDbRasterImageDef");
+        this.#imageDefinitions.set(handle, {
+          path: name(definition, 1) ?? "",
+          pixels: [num(definition, 10) ?? 0, num(definition, 20) ?? 0],
+          loaded: (num(definition, 280) ?? 1) !== 0,
+        });
         return;
       }
       case "FIELD": {
@@ -1423,10 +1472,28 @@ class DxfReader {
     }
     if (this.#fieldsPast > 0) add(otherFields, "past the limit", this.#fieldsPast);
 
+    for (const image of this.#images) {
+      const definition =
+        image.definition === undefined ? undefined : this.#imageDefinitions.get(image.definition);
+      imageInWorld(image, definition?.path);
+    }
+    // The dictionary's definitions in its order, then any it does not list.
+    const listed = new Set<string>();
+    const images: ReadImageDefinition[] = [];
+    const listDefinition = (handle: string, name: string): void => {
+      const definition = this.#imageDefinitions.get(handle);
+      if (definition === undefined || listed.has(handle)) return;
+      listed.add(handle);
+      images.push({ handle, name, ...definition, images: this.#imageUses.get(handle) ?? 0 });
+    };
+    for (const [name, handle] of this.#imageEntries) listDefinition(handle, name);
+    for (const handle of this.#imageDefinitions.keys()) listDefinition(handle, "");
+
     return {
       format: READ_FORMAT,
       sha256,
       bytes,
+      images,
       ...(groups.version !== undefined && { version: groups.version }),
       ...(groups.codepage !== undefined && { codepage: groups.codepage }),
       encoding: groups.encoding,

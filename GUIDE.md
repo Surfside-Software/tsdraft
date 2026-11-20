@@ -63,6 +63,10 @@ builder draws `line`, `polyline`, `rect`, `circle`, `arc`, `text` and dimensions
 takes `bulges` to make a side an arc, `width` or `widths` to draw its sides wide, and `radius`
 to round its corners; `cloud` draws a revision cloud around an outline, which crosses nothing
 inside it, and `donut` a filled ring or dot. [docs/polylines.md](docs/polylines.md) has them.
+`image` draws a PNG or a JPEG at a width in drawing units, with the file's `pixels`, which
+`rasterSize` reads, and an optional `clip`; the command reads the file from the drawing file's
+folder for the pictures, and warns of one that is missing.
+[docs/images.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/images.md) has them.
 
 Give an entity an `id` when you will want to find it again: 1 to 64 letters, digits, `.`, `-`
 and `_`, each used once in a drawing. A diagnostic about the entity carries the id.

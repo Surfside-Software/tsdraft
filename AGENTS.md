@@ -356,6 +356,16 @@
   internal. `checkDrawingRead` holds a reader's answer to the model's fields: change both
   together, and the reading page, `docs/reading.md`. `test/read-fuzz.ts` fuzzes the reader from
   a seed, and `test/read-agreement.ts` holds a read with geometry to the `Drawing` it came from.
+- `src/images.ts` is the one place of where an image's pixels go, its clip as the file holds it
+  and its frame: the writers, the plots, the extents and the readers all take an image from it.
+  A file is keyed by its path with `exactKey`, never `Strings`, since a lost key writes a file
+  twice. A file's bytes are untrusted input: `src/raster.ts` reads them as `src/truetype.ts` reads
+  a font, and decodes a PNG only up to `RASTER_PIXELS`. A browser drops the colors of a pixel of
+  no alpha, which the leading CAD app plots for an image not marked transparent, so `toSVG` holds
+  such a PNG again without its transparency, up to `OPAQUE_PIXELS`; past them it holds the file
+  as it is and marks the `<use>` `data-opaque`, which `toPDF` reads. That is the one place the
+  preview and the plot part. A PNG the plot must decode and cannot is drawn by neither, as a file
+  not given.
 - `src/pdf.ts` plots layouts to PDF from the pictures `toSVG` draws of them, and decides
   nothing about a drawing: every rule of what a sheet plots stays in `toSVG`, so the preview
   and the plot cannot part. It reads the closed set of elements and attributes `toSVG` writes

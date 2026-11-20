@@ -39,7 +39,7 @@ function refusal(value: unknown): readonly Diagnostic[] {
   return assert.fail("fromJSON took the value");
 }
 
-const kinds = ` An entity's kind is "line", "polyline", "circle", "arc", "text", "paragraph", "insert", "linear-dimension", "aligned-dimension" or "leader"`;
+const kinds = ` An entity's kind is "line", "polyline", "circle", "arc", "text", "paragraph", "insert", "linear-dimension", "aligned-dimension", "leader" or "image"`;
 
 test("a drawing goes to JSON and back unchanged", () => {
   const drawing = sample();

@@ -58,9 +58,38 @@ export function seedFiles(): Uint8Array[] {
       [1, 1],
     ]);
   });
-  return [toDXF(sheet), toDXF(kitchen), toDXF(d.build(), { version: "R12" })].map((t) =>
-    encoder.encode(t),
+  // Images in model space and in a block, clipped both ways, with their objects.
+  const images = createDrawing({ units: "ft" });
+  images.block("LOGO", {}, () =>
+    images.layer("0", {}, () => images.image("logo.png", [0, 0], { pixels: [8, 4], width: 2 })),
   );
+  images.layer("A", { color: 1 }, () => {
+    images.image("a.png", [0, 0], {
+      pixels: [4, 2],
+      width: 4,
+      clip: [
+        [1, 0.5],
+        [3, 1.5],
+      ],
+    });
+    images.image("b/a.png", [5, 0], {
+      pixels: [4, 4],
+      width: 4,
+      invertClip: true,
+      clip: [
+        [6, 1],
+        [8, 1],
+        [7, 3],
+      ],
+    });
+    images.insert("LOGO", [0, 10]);
+  });
+  return [
+    toDXF(sheet),
+    toDXF(kitchen),
+    toDXF(d.build(), { version: "R12" }),
+    toDXF(images.build()),
+  ].map((t) => encoder.encode(t));
 }
 
 const NUMBERS = ["0", "1", "-1", "4294967295", "1e308", "-1e308", "1e999", "NaN", "", "1.#QNAN"];

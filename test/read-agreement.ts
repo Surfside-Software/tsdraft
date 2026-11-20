@@ -17,6 +17,7 @@ import type {
 import { written, writtenAngle } from "../src/format.ts";
 import { idHandle } from "../src/handles.ts";
 import { findLeaderStyle, leaderPicture } from "../src/leaders.ts";
+import { fromImagePixels, imageClip, imageVectors, writtenImagePath } from "../src/images.ts";
 import { layerKey } from "../src/layers.ts";
 import { entityLinetype, lineweightCode } from "../src/linetypes.ts";
 import { paragraphAttachment, paragraphTurn } from "../src/paragraphs.ts";
@@ -430,6 +431,43 @@ export function readProblems(
           )
         ) {
           say(`${label}: shafts ${JSON.stringify(got.shafts).slice(0, 200)}`);
+        }
+        return;
+      }
+      case "image": {
+        if (!kind("image") || got.kind !== "image") return;
+        if (got.path !== writtenImagePath(want.path))
+          say(`${label}: path ${JSON.stringify(got.path)}`);
+        if (got.pixels[0] !== want.pixels[0] || got.pixels[1] !== want.pixels[1]) {
+          say(`${label}: pixels ${got.pixels.join(" by ")}`);
+        }
+        const [u, v] = imageVectors(want);
+        if (!nearPoint(got.at, point(want.at)) || !nearPoint(got.u, u) || !nearPoint(got.v, v)) {
+          say(`${label}: at ${got.at}, u ${got.u}, v ${got.v}`);
+        }
+        // The clip as both readers give it: in the world, a rectangle by its lower and upper
+        // corners in the image's pixels, a polygon without its first point again.
+        const clip = imageClip(want);
+        const at = point(want.at);
+        const world =
+          want.clip === undefined
+            ? undefined
+            : (clip.type === 2 ? clip.points.slice(0, -1) : clip.points).map((p) =>
+                fromImagePixels(at, u, v, want.pixels, p),
+              );
+        if (
+          (world === undefined) !== (got.clip === undefined) ||
+          (world !== undefined &&
+            (world.length !== got.clip!.length ||
+              world.some((p, k) => !nearPoint(got.clip![k]!, p))))
+        ) {
+          say(`${label}: clip ${JSON.stringify(got.clip)}`);
+        }
+        if ((got.invertClip ?? false) !== (want.invertClip ?? false)) say(`${label}: invertClip`);
+        if ((got.transparent ?? false) !== (want.transparent ?? false))
+          say(`${label}: transparent`);
+        for (const flag of ["hidden", "unclipped"] as const) {
+          if (got[flag]) say(`${label}: ${flag}`);
         }
         return;
       }

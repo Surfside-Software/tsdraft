@@ -161,8 +161,11 @@ interface Library {
       xrefs?: GivenXrefs;
       layout?: string;
       view?: readonly [number, number, number, number];
+      images?: Readonly<Record<string, Uint8Array>>;
     },
   ) => string;
+  /** A raster file's pixels. A copy of tsdraft from before images has none. */
+  readonly rasterSize?: (bytes: Uint8Array) => [number, number] | undefined;
   /** What is wrong with the text as it plots. A copy of tsdraft from before it has none. */
   readonly inspectText?: (
     drawing: Drawing,
@@ -608,9 +611,28 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
         timings.intent = now() - t;
       }
       t = now();
+      // The files of the drawing's images, read once from the drawing file's folder, and of each
+      // xref's from the folder of its file.
+      const budget = { total: 0 };
+      const rasters = rasterFiles(library, shown, file, budget);
+      diagnostics.push(...rasters.diagnostics);
+      const images = rasters.images === undefined ? {} : { images: rasters.images };
+      const pictured =
+        rasters.images === undefined
+          ? drawn
+          : drawnOf(given, dirname(file), (referenced, at, xref) => {
+              const read = rasterFiles(library, referenced, at, budget, xref);
+              diagnostics.push(...read.diagnostics);
+              return read.images;
+            });
       const fontsOf = fontsIn(library, [shown, ...drawingsOf(given)]);
       const { svg, min, max } = framed(
-        library.toSVG(shown, { margin: 0, drawNoPlot: drawNoPlot === true, xrefs: drawn }),
+        library.toSVG(shown, {
+          margin: 0,
+          drawNoPlot: drawNoPlot === true,
+          xrefs: pictured,
+          ...images,
+        }),
       );
       // Each layout's sheet. A copy of tsdraft from before layouts would draw model space for
       // each, so it draws none. Two layouts of one name are one picture, the first's.
@@ -624,7 +646,8 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
               const options = {
                 layout: layout.name,
                 drawNoPlot: drawNoPlot === true,
-                xrefs: drawn,
+                xrefs: pictured,
+                ...images,
               };
               const sheet = library.toSVG(shown, options);
               return [{ name: layout.name, svg: sheet, fonts: fontsOf(sheet) }];
@@ -641,7 +664,8 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
           view: view.box,
           ...(view.layout === undefined ? {} : { layout: view.layout }),
           drawNoPlot: drawNoPlot === true,
-          xrefs: drawn,
+          xrefs: pictured,
+          ...images,
         });
         viewed = { layout: view.layout ?? null, svg: one, fonts: fontsOf(one) };
       }
@@ -1216,15 +1240,133 @@ function flatOf(library: Library, drawing: Drawing, offered: GivenXrefs): GivenX
   );
 }
 
-/** What the pictures are given for the xrefs: each drawing given with no lint error. */
-function drawnOf(given: ReadonlyMap<Xref, Given>): Record<string, unknown> {
+/** The most bytes the files of a drawing's images are read to, all told. */
+const RASTER_BYTES = 1 << 30;
+
+/**
+ * The files of a drawing's images, by each image's path as the drawing gives it, read from the
+ * folder of the drawing's file, with what is wrong with each: one that is not there, is not a PNG
+ * or a JPEG, or has other pixels than its image gives it, which the picture then draws as its
+ * frame and its path, as the leading CAD app draws an image whose file it cannot find. Each is
+ * tracked, so `tsdraft dev` builds again when one changes. `budget` counts the bytes read for
+ * every drawing of the build, and once it is spent nothing more is read. `xref` names the xref
+ * the drawing stands for. Undefined for a copy of tsdraft from before images.
+ */
+function rasterFiles(
+  library: Library,
+  drawing: Drawing,
+  file: string,
+  budget: { total: number },
+  xref?: string,
+): { images: Record<string, Uint8Array> | undefined; diagnostics: BuildDiagnostic[] } {
+  if (typeof library.rasterSize !== "function") return { images: undefined, diagnostics: [] };
+  if (budget.total > RASTER_BYTES) return { images: {}, diagnostics: [] };
+  const of = xref === undefined ? "" : ` of the xref ${JSON.stringify(xref)}`;
+  const images: Record<string, Uint8Array> = {};
+  const diagnostics: BuildDiagnostic[] = [];
+  const seen = new Set<string>();
+  const lists: unknown[] = [
+    drawing.entities,
+    ...(Array.isArray(drawing.layouts) ? drawing.layouts.map((l) => l?.entities) : []),
+    ...(Array.isArray(drawing.blocks) ? drawing.blocks.map((b) => b?.entities) : []),
+  ];
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const e of list) {
+      if (typeof e !== "object" || e === null || e.kind !== "image") continue;
+      const { path, pixels } = e as { path?: unknown; pixels?: unknown };
+      if (
+        typeof path !== "string" ||
+        seen.has(path) ||
+        isAbsolute(path) ||
+        /^[A-Za-z]:/.test(path)
+      ) {
+        continue;
+      }
+      seen.add(path);
+      const at = join(dirname(file), path.replaceAll("\\", "/"));
+      // A link is watched beside the file it leads to, whose change it does not see.
+      track(at, fileVersion(at));
+      try {
+        const real = realpathSync(at);
+        if (real !== at) track(real, fileVersion(real));
+      } catch {
+        // A missing file has no file behind it.
+      }
+      let bytes: Uint8Array;
+      try {
+        bytes = new Uint8Array(readFileSync(at));
+      } catch {
+        diagnostics.push({
+          rule: "image",
+          severity: "warning",
+          message: `The file of the image ${JSON.stringify(path)}${of} is not at ${at}, so the pictures draw its frame and its path, as the leading CAD app draws an image whose file it cannot find`,
+        });
+        continue;
+      }
+      budget.total += bytes.length;
+      if (budget.total > RASTER_BYTES) {
+        diagnostics.push({
+          rule: "image",
+          severity: "warning",
+          message: `The files of the drawing's images come to more than ${RASTER_BYTES} bytes, so the pictures draw the image ${JSON.stringify(path)}${of} and those after it as frames`,
+        });
+        return { images, diagnostics };
+      }
+      const size = library.rasterSize(bytes);
+      if (size === undefined) {
+        diagnostics.push({
+          rule: "image",
+          severity: "warning",
+          message: `The file of the image ${JSON.stringify(path)}${of} is not a PNG or a JPEG the pictures can draw, so they draw its frame and its path`,
+        });
+        continue;
+      }
+      if (!Array.isArray(pixels) || pixels[0] !== size[0] || pixels[1] !== size[1]) {
+        diagnostics.push({
+          rule: "image",
+          severity: "error",
+          message: `The file of the image ${JSON.stringify(path)}${of} is ${size[0]} by ${size[1]} pixels, and the drawing gives it ${JSON.stringify(pixels)}: the leading CAD app would plot it at the wrong size. Give it the file's pixels, which rasterSize reads`,
+        });
+        continue;
+      }
+      images[path] = bytes;
+    }
+  }
+  return { images, diagnostics };
+}
+
+/**
+ * What the pictures are given for the xrefs: each drawing given with no lint error, and with
+ * `files`, the files of its images, read from the folder of the xref's file, which `folder`, the
+ * folder of the drawing that references it, starts its path from.
+ */
+function drawnOf(
+  given: ReadonlyMap<Xref, Given>,
+  folder = "",
+  files?: (drawing: Drawing, file: string, xref: string) => Record<string, Uint8Array> | undefined,
+): Record<string, unknown> {
   return Object.fromEntries(
-    [...given.values()]
-      .filter((g) => g.errors.length === 0)
-      .map((g) => [
-        g.name,
-        g.nested.size > 0 ? { drawing: g.drawing, xrefs: drawnOf(g.nested) } : g.drawing,
-      ]),
+    [...given]
+      .filter(([, g]) => g.errors.length === 0)
+      .map(([xref, g]) => {
+        const path = typeof xref.path === "string" ? xref.path.replaceAll("\\", "/") : "";
+        const at = isAbsolute(path) ? path : join(folder, path);
+        // A path with a drive, which lint refuses, names no folder here.
+        const found = path !== "" && !/^[A-Za-z]:/.test(path);
+        const images = files && !g.preview && found ? files(g.drawing, at, g.name) : undefined;
+        const nested = g.nested.size > 0 ? drawnOf(g.nested, dirname(at), files) : undefined;
+        return [
+          g.name,
+          nested === undefined && images === undefined
+            ? g.drawing
+            : {
+                drawing: g.drawing,
+                ...(nested === undefined ? {} : { xrefs: nested }),
+                ...(images === undefined ? {} : { images }),
+              },
+        ];
+      }),
   );
 }
 

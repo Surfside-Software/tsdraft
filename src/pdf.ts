@@ -9,6 +9,7 @@ import { paperInfo } from "./papers.ts";
 import { Sha256 } from "./sha256.ts";
 import { filled } from "./shape.ts";
 import { SHEET_PICTURE, toSVG } from "./svg.ts";
+import { fromBase64, plotDecodes, pngPixels, rasterInfo, uncompressed } from "./raster.ts";
 import { readTrueType, type TrueType } from "./truetype.ts";
 
 export interface PdfOptions {
@@ -43,6 +44,12 @@ export interface PdfOptions {
   readonly missing?: (layout: string, characters: string, page: number) => void;
   /** The document's title, which a viewer shows in place of the file's name. */
   readonly title?: string;
+  /**
+   * The bytes of each raster file the drawing's images show, by the image's path exactly as the
+   * drawing gives it, as `toSVG` takes them. The PDF holds each PNG and JPEG once, as it is: a
+   * JPEG and a PNG of no transparency as the file holds them, and any other PNG decoded.
+   */
+  readonly images?: Readonly<Record<string, Uint8Array>>;
 }
 
 /** One sheet of a set whose sheets are drawings of their own. */
@@ -52,6 +59,8 @@ export interface PdfSheet {
   readonly layout: string;
   /** The drawing each xref of `drawing` stands for, by name, as `toSVG` takes them. */
   readonly xrefs?: XrefDrawings;
+  /** The raster files of its images, as `toPDF` takes them, in place of those of the options. */
+  readonly images?: Readonly<Record<string, Uint8Array>>;
 }
 
 /**
@@ -90,6 +99,7 @@ export function toPDF(given: Drawing | readonly PdfSheet[], options: PdfOptions 
         layout: layout!,
         ...(options.xrefs ? { xrefs: options.xrefs } : {}),
       }));
+  const images = options.images;
   if (sheets.length === 0) throw new RangeError("There is no layout to plot");
   sheets.forEach((sheet, i) => {
     if (
@@ -103,8 +113,12 @@ export function toPDF(given: Drawing | readonly PdfSheet[], options: PdfOptions 
     }
   });
   const pdf = new PdfWriter(options);
-  for (const { drawing, layout, xrefs } of sheets) {
-    pdf.page(toSVG(drawing, xrefs ? { layout, xrefs } : { layout }));
+  for (const sheet of sheets) {
+    const { drawing, layout, xrefs } = sheet;
+    const own = sheet.images ?? images;
+    pdf.page(
+      toSVG(drawing, { layout, ...(xrefs ? { xrefs } : {}), ...(own ? { images: own } : {}) }),
+    );
   }
   return pdf.finish();
 }
@@ -236,6 +250,9 @@ const ELEMENTS = new Set([
   "ellipse",
   "path",
   "text",
+  "defs",
+  "image",
+  "use",
 ]);
 
 /** The attributes it writes on them, apart from `data-` ones, which say what an element is. */
@@ -272,6 +289,9 @@ const ATTRIBUTES = new Set([
   "lengthAdjust",
   "xml:space",
   "font-weight",
+  "href",
+  "preserveAspectRatio",
+  "clip-rule",
 ]);
 
 /**
@@ -1012,6 +1032,100 @@ class PdfWriter {
     return widths;
   }
 
+  /** Each image the PDF holds, by its name, and the name of each file. */
+  private readonly images = new Map<string, { readonly object: number }>();
+  private readonly imageNames = new Map<string, string | null>();
+  /** The hash of each picture's copy of a file, worked out once however many times it is used. */
+  private readonly digests = new WeakMap<Uint8Array, string>();
+
+  /**
+   * The name of the image XObject of a raster file, written the first time the PDF meets it, or
+   * undefined for one it cannot read. A picture holds a file to plot opaque without its
+   * transparency, or marks the image `data-opaque`, which `opaque` is.
+   */
+  private imageObject(bytes: Uint8Array, opaque: boolean): string | undefined {
+    let digest = this.digests.get(bytes);
+    if (digest === undefined)
+      this.digests.set(bytes, (digest = new Sha256().update(bytes).digest()));
+    const key = `${digest}${opaque ? "/opaque" : ""}`;
+    const known = this.imageNames.get(key);
+    if (known !== undefined) return known ?? undefined;
+    const written = this.writeImage(bytes, opaque);
+    const name = written === undefined ? null : `Im${this.images.size}`;
+    if (name !== null) this.images.set(name, { object: written! });
+    this.imageNames.set(key, name);
+    return name ?? undefined;
+  }
+
+  /**
+   * Writes a raster file as an image XObject, and its soft mask, and gives its object, which is
+   * reserved only once the file reads.
+   */
+  private writeImage(bytes: Uint8Array, opaque: boolean): number | undefined {
+    const info = rasterInfo(bytes);
+    if (info === undefined) return undefined;
+    const size = `/Type /XObject /Subtype /Image /Width ${info.width} /Height ${info.height}`;
+    if (info.kind === "jpeg") {
+      const space = ["", "/DeviceGray", "", "/DeviceRGB", "/DeviceCMYK"][info.components]!;
+      // An Adobe CMYK JPEG holds each part inverted.
+      const decode = info.components === 4 && info.inverted ? " /Decode [1 0 1 0 1 0 1 0]" : "";
+      const object = this.reserve();
+      this.object(
+        object,
+        `<< ${size} /ColorSpace ${space} /BitsPerComponent 8${decode} /Filter /DCTDecode /Length ${bytes.length} >>`,
+        bytes,
+      );
+      return object;
+    }
+    const palette =
+      info.palette === undefined
+        ? undefined
+        : `[/Indexed /DeviceRGB ${info.palette.length / 3 - 1} <${[...info.palette].map((b) => b.toString(16).padStart(2, "0")).join("")}>]`;
+    // A PNG of no transparency is its own data, which a PDF undoes the filters of as a PNG's.
+    // One stored without compression, as a picture holds a file to plot opaque, is decoded and
+    // compressed, and kept as it is when it does not decode.
+    const own = !plotDecodes(info);
+    const pixels = own && !uncompressed(info) ? undefined : pngPixels(info);
+    if (own && pixels === undefined) {
+      const colors = info.color === 2 ? 3 : 1;
+      const space = palette ?? (colors === 3 ? "/DeviceRGB" : "/DeviceGray");
+      const object = this.reserve();
+      this.object(
+        object,
+        `<< ${size} /ColorSpace ${space} /BitsPerComponent ${info.depth} /Filter /FlateDecode /DecodeParms << /Predictor 15 /Colors ${colors} /BitsPerComponent ${info.depth} /Columns ${info.width} >> /Length ${info.data.length} >>`,
+        info.data,
+      );
+      return object;
+    }
+    if (pixels === undefined) return undefined;
+    const { width, height, channels, samples } = pixels;
+    const colors = channels >= 3 ? 3 : 1;
+    const alpha = channels === 2 || channels === 4;
+    const color = new Uint8Array(width * height * colors);
+    const mask = alpha && !opaque ? new Uint8Array(width * height) : undefined;
+    for (let i = 0; i < width * height; i++) {
+      for (let k = 0; k < colors; k++) color[i * colors + k] = samples[i * channels + k]!;
+      if (mask) mask[i] = samples[i * channels + channels - 1]!;
+    }
+    const object = this.reserve();
+    let soft = "";
+    if (mask) {
+      const maskObject = this.reserve();
+      this.stream(
+        maskObject,
+        mask,
+        ` /Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceGray /BitsPerComponent 8`,
+      );
+      soft = ` /SMask ${maskObject} 0 R`;
+    }
+    this.stream(
+      object,
+      color,
+      ` ${size} /ColorSpace ${colors === 3 ? "/DeviceRGB" : "/DeviceGray"} /BitsPerComponent 8${soft}`,
+    );
+    return object;
+  }
+
   private layerObject(name: string): number {
     let number = this.layers.get(name);
     if (number === undefined) this.layers.set(name, (number = this.reserve()));
@@ -1024,6 +1138,8 @@ class PdfWriter {
     const fonts = new Map<Face | Embedded, string>();
     const missing = new Set<string>();
     const marks = new Map<string, string>();
+    /** The images the page paints, by their names in its resources. */
+    const images = new Set<string>();
     const page = this.pages.length + 1;
     const where = (tag: string) => `the element <${tag}> of picture ${page}`;
     let paper:
@@ -1031,9 +1147,15 @@ class PdfWriter {
       | undefined;
     const stack: Inherited[] = [];
     /** The tag of each group open, the root's first, and whether the root has closed. */
-    const names: ("svg" | "g")[] = [];
+    const names: ("svg" | "g" | "defs")[] = [];
     let ended = false;
-    const clips = new Map<string, { x: number; y: number; width: number; height: number }>();
+    const clips = new Map<
+      string,
+      | { x: number; y: number; width: number; height: number }
+      | { pieces: readonly Piece[]; evenOdd: boolean }
+    >();
+    /** Each raster file the picture holds, by its id. */
+    const rasters = new Map<string, Uint8Array>();
     /** The clip path being read, whose rectangles are kept and not drawn. */
     let inClip: string | undefined;
     /** The layer of the marked content open, and the pen last set at this depth of `q`. */
@@ -1116,6 +1238,8 @@ class PdfWriter {
             (tag === "clipPath"
               ? inClip !== undefined
               : inClip === undefined && names.at(-1) === tag);
+      // What the picture holds in its definitions is kept there, and drawn where a use names it.
+      const inDefs = names.includes("defs");
       if (
         ended ||
         (closing && (!ends || attributeText!.trim() !== "")) ||
@@ -1143,6 +1267,7 @@ class PdfWriter {
           }
           text = undefined;
         } else if (tag === "clipPath") inClip = undefined;
+        else if (tag === "defs") names.pop();
         else if (tag === "g" || tag === "svg") {
           names.pop();
           ended = names.length === 0;
@@ -1220,7 +1345,43 @@ class PdfWriter {
       }
       const parent = stack.at(-1);
       if (!parent) throw refuse(`<${tag}> outside the picture`, `picture ${page}`);
+      if (tag === "defs") {
+        if (inDefs || inClip !== undefined || Object.keys(element).length > 0) {
+          throw refuse("<defs> where it is", where(tag));
+        }
+        if (!selfClosing) names.push("defs");
+        continue;
+      }
+      if (inDefs) {
+        if (tag !== "image" || !selfClosing || element.id === undefined) {
+          throw refuse(`<${tag}> in the definitions`, where(tag));
+        }
+        const data = /^data:image\/(?:png|jpeg);base64,(.*)$/s.exec(element.href ?? "")?.[1];
+        const bytes = data === undefined ? undefined : fromBase64(data);
+        if (
+          bytes === undefined ||
+          element.width !== "1" ||
+          element.height !== "1" ||
+          element.preserveAspectRatio !== "none"
+        ) {
+          throw refuse("an image that is not a PNG or a JPEG of the unit square", where(tag));
+        }
+        rasters.set(element.id, bytes);
+        continue;
+      }
       if (inClip !== undefined) {
+        if (tag === "path") {
+          const extra = Object.keys(element).find((name) => name !== "d" && name !== "clip-rule");
+          if (extra !== undefined) throw refuse(`the attribute ${extra} of a clip`, where(tag));
+          const rule = element["clip-rule"];
+          if (rule !== undefined && rule !== "evenodd")
+            throw refuse(`the clip-rule ${rule}`, where(tag));
+          clips.set(inClip, {
+            pieces: pathPieces(element.d ?? "", where(tag), 1),
+            evenOdd: rule === "evenodd",
+          });
+          continue;
+        }
         if (tag !== "rect") throw refuse(`<${tag}> in a clip path`, where(tag));
         // A clip is a rectangle of the group's space, and nothing turns or moves it.
         const extra = Object.keys(element).find(
@@ -1268,15 +1429,30 @@ class PdfWriter {
           close();
           pens.push(pen);
           pen = { ...pen };
-          const corners = [
-            [rect.x, rect.y],
-            [rect.x + rect.width, rect.y],
-            [rect.x + rect.width, rect.y + rect.height],
-            [rect.x, rect.y + rect.height],
-          ].map(([cx, cy]) => apply(matrix, cx!, cy!).map(num).join(" "));
-          content.add(
-            `q\n${corners[0]} m\n${corners[1]} l\n${corners[2]} l\n${corners[3]} l\nh W n`,
-          );
+          if ("pieces" in rect) {
+            // An image's clip: its outline, or the image's with the hole inside it.
+            content.add("q");
+            const p = (point: readonly [number, number]) =>
+              apply(matrix, point[0], point[1]).map(num).join(" ");
+            for (const piece of rect.pieces) {
+              if (piece.kind === "move") content.add(`${p(piece.to)} m`);
+              else if (piece.kind === "line") content.add(`${p(piece.to)} l`);
+              else if (piece.kind === "curve")
+                content.add(`${p(piece.c1)} ${p(piece.c2)} ${p(piece.to)} c`);
+              else content.add("h");
+            }
+            content.add(rect.evenOdd ? "W* n" : "W n");
+          } else {
+            const corners = [
+              [rect.x, rect.y],
+              [rect.x + rect.width, rect.y],
+              [rect.x + rect.width, rect.y + rect.height],
+              [rect.x, rect.y + rect.height],
+            ].map(([cx, cy]) => apply(matrix, cx!, cy!).map(num).join(" "));
+            content.add(
+              `q\n${corners[0]} m\n${corners[1]} l\n${corners[2]} l\n${corners[3]} l\nh W n`,
+            );
+          }
           saved = true;
         }
         stack.push({ ...inherited, saved });
@@ -1289,6 +1465,20 @@ class PdfWriter {
         continue;
       }
       if (!selfClosing) throw refuse(`<${tag}> with something inside it`, where(tag));
+      if (tag === "use") {
+        const id = /^#(.+)$/.exec(element.href ?? "")?.[1];
+        const bytes = id === undefined ? undefined : rasters.get(id);
+        if (bytes === undefined)
+          throw refuse(`the use of ${JSON.stringify(element.href)}`, where(tag));
+        const key = this.imageObject(bytes, element["data-opaque"] !== undefined);
+        if (key === undefined) continue;
+        mark(inherited.layer);
+        images.add(key);
+        // The picture's image holds its top row at y 0, and a PDF's at y 1.
+        const m = compose(matrix, [1, 0, 0, -1, 0, 1]).map(num).join(" ");
+        content.add(`q\n${m} cm\n/${key} Do\nQ`);
+        continue;
+      }
       // The hidden rectangle of a view, and the white of the paper, put no ink on the page.
       if (element.visibility === "hidden" || element["data-paper-sheet"] !== undefined) continue;
       const stroke = colorOf(inherited.stroke, where(tag));
@@ -1374,9 +1564,11 @@ class PdfWriter {
       ([face, key]) => `/${key} ${"codes" in face ? face.object : this.faceObject(face)} 0 R`,
     );
     const layerList = [...marks].map(([layer, key]) => `/${key} ${this.layers.get(layer)} 0 R`);
+    const imageList = [...images].map((key) => `/${key} ${this.images.get(key)!.object} 0 R`);
     const resources = [
       fontList.length > 0 ? `/Font << ${fontList.join(" ")} >>` : "",
       layerList.length > 0 ? `/Properties << ${layerList.join(" ")} >>` : "",
+      imageList.length > 0 ? `/XObject << ${imageList.join(" ")} >>` : "",
     ]
       .filter(Boolean)
       .join(" ");

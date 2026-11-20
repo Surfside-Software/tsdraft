@@ -125,6 +125,17 @@ Give `--view` the `bounds` of a diagnostic, a little larger, to see what the dia
 about, and read a sheet's title block and notes with it. `tsdraft dev` has no such flag: its
 page pans and zooms.
 
+## Images
+
+The pictures and the PDF draw each image from its file, which the command reads from the folder
+of the drawing file by the image's path, `\` and `/` alike, once a build, up to 1 GB in all. A
+file that is missing, or is not a PNG or a JPEG, gives an `image` warning, and the pictures draw
+the image's frame with its path inside it, as a CAD program draws an image whose file it cannot
+find. A file whose pixels are not the ones the image gives it is an `image` error, and its frame is
+drawn the same way. An xref's images are read from the folder of its file, which its path starts
+from the drawing file's. `tsdraft dev` builds again when an image's file changes.
+[Images](images.md#plotting) has what a picture holds of one.
+
 ## The JSON
 
 `BuildState` in [`cli/src/state.ts`](../cli/src/state.ts) documents each field, and `schema`,

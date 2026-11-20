@@ -15,6 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { deflateSync } from "node:zlib";
 import { after, test } from "node:test";
 import { BUILT_IN_STANDARD, pdfFace } from "tsdraft";
 import { faces } from "../src/fonts.ts";
@@ -1602,4 +1603,79 @@ test("dev plots the set and a sheet on request, and no picture that draws what d
     },
     ["--draw-no-plot"],
   );
+});
+
+/** A PNG of one gray, `width` by `height`. */
+function grayPng(width: number, height: number): Uint8Array {
+  const crc = (bytes: Uint8Array): number => {
+    let c = 0xffffffff;
+    for (const b of bytes) {
+      c ^= b;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    }
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type: string, data: Uint8Array): Buffer => {
+    const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
+    const out = Buffer.alloc(body.length + 8);
+    out.writeUInt32BE(data.length, 0);
+    body.copy(out, 4);
+    out.writeUInt32BE(crc(body), body.length + 4);
+    return out;
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header.set([8, 0, 0, 0, 0], 8);
+  const rows = Buffer.alloc((width + 1) * height, 128);
+  for (let y = 0; y < height; y++) rows[y * (width + 1)] = 0;
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(rows)),
+    chunk("IEND", new Uint8Array()),
+  ]);
+}
+
+test("render reads each image's file beside its drawing, an xref's beside the xref's file", () => {
+  const dir = realpathSync(tempDir());
+  mkdirSync(join(dir, "sheets"));
+  mkdirSync(join(dir, "civil"));
+  // One name in both folders, of other sizes: each drawing draws its own.
+  writeFileSync(join(dir, "sheets", "aerial.png"), grayPng(2, 2));
+  writeFileSync(join(dir, "civil", "aerial.png"), grayPng(3, 3));
+  const image = {
+    kind: "image",
+    layer: "0",
+    path: "aerial.png",
+    at: [0, 0],
+    width: 10,
+    height: 10,
+  };
+  const drawing = (pixels: number, more: object = {}) => ({
+    format: 0,
+    units: "ft",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    entities: [{ ...image, pixels: [pixels, pixels] }],
+    ...more,
+  });
+  const base = drawing(3);
+  const sheet = drawing(2, {
+    xrefs: [{ name: "BASE", path: "../civil/base.dwg" }],
+    entities: [
+      { ...image, pixels: [2, 2] },
+      { kind: "insert", layer: "0", block: "BASE", at: [20, 0] },
+    ],
+  });
+  const plan = join(dir, "sheets", "plan.ts");
+  writeFileSync(
+    plan,
+    `export const xrefs = { BASE: ${JSON.stringify(base)} };\nexport default ${JSON.stringify(sheet)};\n`,
+  );
+  const { state } = render(plan);
+  assert.deepEqual(state.diagnostics, []);
+  const svg = readFileSync(state.outputs.svg!, "utf8");
+  assert.match(svg, /data-pixels="2 2"/);
+  assert.match(svg, /data-pixels="3 3"/);
 });

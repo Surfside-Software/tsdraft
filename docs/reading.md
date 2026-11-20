@@ -67,6 +67,9 @@ states and keeps each object's handle, and it keeps going past what it does not 
   The pictures the leading CAD app makes for dimensions, the blocks named `*D` and a number, are
   kept by a read with `geometry` alone.
 - `xrefs`: each with its name, its path as the file holds it, and whether it is an overlay.
+- `images`: each image definition of the file's dictionary of them, with its name, its path as
+  the file holds it, the pixels it states, whether it is loaded, and how many images name it. One
+  no image uses is kept, as CAD programs keep it through a save and a purge.
 - `layouts`: each with its paper, its plotter, its plot style table, its plot's rotation, its
   viewports and its inserts. A viewport has its rectangle on the paper, the center and height
   of the model space it shows, `ratio`, which is paper units per model unit, its twist, and
@@ -120,6 +123,15 @@ A space and a block hold one type, `ReadEntity`, of the kinds tsdraft's writers 
   its tip, the point where the shafts meet, the landing's direction and length, its note, where
   the note is held, and the note's height and style. Any other is counted under `other`.
 - `solid`: three or four corners, filled, as a dimension draws an arrowhead.
+- `image`: a raster image, with its definition's `path` and the handle of the `definition`, the
+  `pixels` it states, its lower-left corner `at`, and `u` and `v`, the vectors of one of its pixels
+  along its bottom and up its side, which a mirrored or slanted image has too. `clip` is its clip
+  boundary, unless the file holds the whole image's with its clip off and not inverted, in the
+  world's coordinates: two opposite corners of a rectangle along its sides, as the file holds them,
+  or a polygon without its first point again. `invertClip`, `transparent`, `hidden` for one the
+  file says not to show and `unclipped` for one it says not to clip say so, and `brightness`,
+  `contrast` and `fade` are left out at 50, 50 and 0. An image out of the plane is counted under
+  `other`.
 
 Each keeps the pen it sets for itself, each part left out when it is ByLayer: `color`, an index
 with 0 for ByBlock, `trueColor` as `0xRRGGBB`, `linetype`, `lineweight` in hundredths of a

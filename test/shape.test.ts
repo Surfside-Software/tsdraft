@@ -153,6 +153,25 @@ const kinds: {
     gap: 0.02,
     id: "i",
   },
+  image: {
+    kind: "image",
+    layer: "0",
+    path: "images/aerial.png",
+    pixels: [400, 200],
+    at: [50, 0],
+    width: 20,
+    height: 10,
+    rotation: 15,
+    clip: [
+      [52, 2],
+      [60, 1],
+      [58, 8],
+    ],
+    invertClip: true,
+    transparent: true,
+    id: "m",
+    ...styled,
+  },
 };
 
 /** A polyline of one width, with every field the polyline of `kinds` leaves out. */
@@ -192,6 +211,7 @@ const full: Required<Drawing> & {
   units: "ft",
   dxf: "R2018",
   linetypeScale: 2,
+  imageFrame: false,
   linetypes: [{ name: "DD", description: "Dash dot", pattern: [0.5, -0.25, 0, -0.25] }],
   textStyles: [{ name: "NOTES", font: "Arial", widthFactor: 0.9, obliqueAngle: 10 }],
   dimensionStyles: [
@@ -517,7 +537,7 @@ test("a value of the wrong shape is reported in these words, once", () => {
       { toString: 0 },
       [
         "xref: Xref a value of type object: A block's name must be a string",
-        `undefined-block: insert #10: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
+        `undefined-block: insert #11: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
       ],
     ],
     [

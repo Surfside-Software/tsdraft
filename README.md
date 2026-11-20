@@ -177,6 +177,27 @@ d.paragraph(
 `measureParagraph` gives its lines and its box. [Paragraphs](docs/paragraphs.md) has the codes
 it takes and what it refuses.
 
+An image is a PNG or a JPEG drawn at a size in drawing units, such as an aerial under a plan or
+a vicinity map on a sheet. The drawing holds the file's path and its pixels, which `rasterSize`
+reads, and the plot draws the file from the bytes it is given:
+
+```ts
+import { rasterSize } from "tsdraft";
+
+const pixels = rasterSize(readFileSync("aerial.png"))!;
+d.image("aerial.png", [0, 0], {
+  pixels,
+  width: 400,
+  clip: [
+    [20, 20],
+    [380, 260],
+  ],
+});
+toPDF(drawing, { images: { "aerial.png": readFileSync("aerial.png") } });
+```
+
+[Images](docs/images.md) has clips, frames and transparency, and what `lint` refuses.
+
 A dimension measures between two points and writes what it measures. In the file it is a
 dimension, which a CAD program measures again when its points move, and a dimension style says how
 it is drawn:
@@ -357,6 +378,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   widths and donuts, how a wide polyline plots, and what `lint` refuses of them.
 - [Paragraphs](docs/paragraphs.md) covers paragraph text: its width and box, the codes its
   value takes, the helpers that write them, how it is laid out, and what `lint` refuses.
+- [Images](docs/images.md) covers raster images: the path and the pixels, clips, frames,
+  transparency, how the plot draws one, and what `lint` refuses.
 - [Dimensions](docs/dimensions.md) covers dimension styles, linear and aligned
   dimensions, how a measurement is written, and what `lint` refuses.
 - [Xrefs](docs/xrefs.md) covers references to DWG files: the path, units, a

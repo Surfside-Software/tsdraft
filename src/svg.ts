@@ -14,6 +14,7 @@ import {
   type DimensionStyle,
   type Drawing,
   type Entity,
+  type Image,
   type Insert,
   type Layer,
   type Leader,
@@ -41,6 +42,34 @@ import {
   type SideArc,
 } from "./polylines.ts";
 import { boxer, type Boxer } from "./extents.ts";
+import { exactKey, imageCorners, imageDrawable, imageFrame, writtenImagePath } from "./images.ts";
+import {
+  base64,
+  base64Length,
+  hasAlpha,
+  opaquePng,
+  plotDecodes,
+  RASTER_PIXELS,
+  rasterInfo,
+  withoutExif,
+  type RasterInfo,
+} from "./raster.ts";
+
+/**
+ * The most pixels of a PNG with an alpha channel that a picture decodes and holds again without
+ * it: 4 megapixels, 16 MB of samples, where a logo has far fewer and the copy of an aerial would
+ * take more memory than a program has.
+ */
+export const OPAQUE_PIXELS = 4_194_304;
+
+/**
+ * Whether an image of a file that plots opaque is pictured from the file as it is, marked
+ * `data-opaque`: a PNG with an alpha channel of more than `OPAQUE_PIXELS`.
+ */
+const markedOpaque = (info: RasterInfo): boolean =>
+  info.kind === "png" &&
+  (info.color === 4 || info.color === 6) &&
+  info.width * info.height > OPAQUE_PIXELS;
 import { fontInfo, STANDARD_FONT, capHeightOf } from "./fonts.ts";
 import { fmt, written } from "./format.ts";
 import { layerKey, layerKeys } from "./layers.ts";
@@ -231,10 +260,17 @@ export interface SvgOptions {
   /** Draws the layers whose `plot` is false too. They are left out by default. */
   readonly drawNoPlot?: boolean;
   /**
+   * The bytes of each raster file the drawing's images show, by the image's path exactly as the
+   * drawing gives it: a PNG or a JPEG, which the picture holds. An image whose file is missing
+   * here, or is neither, is drawn as the leading CAD app draws an image whose file it cannot find:
+   * its frame, with its path written inside.
+   */
+  readonly images?: Readonly<Record<string, Uint8Array>>;
+  /**
    * The drawing each xref stands for, by the xref's name. An insert of an xref draws the model
    * space of the drawing given here, and nothing when none is given. Given as
    * `{ drawing, xrefs }`, a drawing draws its attachments too, from the drawings its own `xrefs`
-   * gives, and so on down.
+   * gives, and so on down. `{ drawing, images }` gives the files of that drawing's images.
    */
   readonly xrefs?: XrefDrawings;
   /**
@@ -497,6 +533,159 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
   /** The layout of each paragraph, a long value laid out once for the picture. */
   const paragraphs = paragraphMeasurer();
   /**
+   * Each raster file the picture holds, by the files it was given in and the path it was given
+   * by: the drawing's own, or a referenced drawing's, whose paths start from its own folder.
+   */
+  /** A file the picture can hold, and the id of each of its two pictures once written. */
+  interface Raster {
+    readonly bytes: Uint8Array;
+    readonly info: RasterInfo;
+    /** False for a file the plot cannot draw, which the picture draws as a file not given. */
+    readonly plotted: boolean;
+    /** Its pixels as they are, and with any transparency left out; null for one not read. */
+    shown?: string | null;
+    opaque?: string | null;
+  }
+  // Keyed exactly, since a path may be long.
+  const rasters = new WeakMap<object, Map<string, Raster | null>>();
+  let rastersHeld = 0;
+  /** Whether each clip an image gives can be drawn, read once however many images share it. */
+  const clipsChecked = new WeakMap<object, boolean>();
+  const defs: string[] = [];
+  let clips = 0;
+  /**
+   * The raster file of an image's path, read once for the picture, or null for none it draws. An
+   * image of a referenced drawing, `from`, takes its file from that drawing's files alone.
+   */
+  const rasterOf = (e: Image, from: Referenced | undefined): Raster | null => {
+    const given: unknown = from === undefined ? options.images : from.images;
+    if (typeof given !== "object" || given === null) return null;
+    let held = rasters.get(given);
+    if (!held) rasters.set(given, (held = new Map()));
+    const key = exactKey(e.path);
+    let found = held.get(key);
+    if (found === undefined) {
+      const item = Object.getOwnPropertyDescriptor(given, e.path);
+      const bytes = item && item.value instanceof Uint8Array ? item.value : undefined;
+      const info = bytes === undefined ? undefined : rasterInfo(bytes);
+      // A PNG the plot must decode and cannot, past `RASTER_PIXELS`, is drawn by neither.
+      const plotted =
+        info !== undefined &&
+        (info.kind !== "png" || !plotDecodes(info) || info.width * info.height <= RASTER_PIXELS);
+      found = info === undefined ? null : { bytes: bytes!, info, plotted };
+      held.set(key, found);
+    }
+    // Every image of a file is held to its pixels, whichever drawing it is in.
+    const info = found?.info;
+    if (info !== undefined && (info.width !== e.pixels[0] || info.height !== e.pixels[1])) {
+      throw new RangeError(
+        `The file of the image ${quoted(e.path)} is ${info.width} by ${info.height} pixels, and the drawing gives it ${e.pixels[0]} by ${e.pixels[1]}: the leading CAD app would plot it at the wrong size. Give it the file's pixels, which rasterSize reads`,
+      );
+    }
+    return found;
+  };
+  /**
+   * The id of the picture's image of a file, written the first time an image shows it: as it is,
+   * or for an image not marked transparent, with its transparency left out, as the leading CAD
+   * app plots one. A renderer drops the colors of a pixel of no alpha, which that app shows, so
+   * the picture holds the file again without its alpha, up to `OPAQUE_PIXELS`: past them it holds
+   * the file, and marks the image `data-opaque` for the plot. Null for a file that does not decode.
+   */
+  const rasterId = (raster: Raster, opaque: boolean, path: string): string | null => {
+    const { info } = raster;
+    const copy = opaque && hasAlpha(info) && !markedOpaque(info);
+    const known = copy ? raster.opaque : raster.shown;
+    if (known !== undefined) return known;
+    let bytes: Uint8Array | undefined = raster.bytes;
+    if (info.kind === "jpeg") bytes = withoutExif(bytes);
+    else if (copy && info.kind === "png") bytes = opaquePng(info, bytes);
+    let id: string | null = null;
+    if (bytes !== undefined) {
+      id = `tsdraft-image-${rastersHeld++}`;
+      const kind = info.kind === "png" ? "image/png" : "image/jpeg";
+      const head = `<image id="${id}" width="1" height="1" preserveAspectRatio="none" data-pixels="${info.width} ${info.height}" href="data:${kind};base64,`;
+      // Charged before it is encoded, so a file too long for the picture is refused unread.
+      if (!write(head.length + base64Length(bytes.length) + 11))
+        refuse(`the image ${quoted(path)}`);
+      defs.push(`${head}${base64(bytes)}"/>`);
+    }
+    if (copy) raster.opaque = id;
+    else raster.shown = id;
+    return id;
+  };
+  /**
+   * An image: its file mapped onto its corners and cut to its clip, then its frame in its pen.
+   * One whose file is not given, or is not one the picture can hold, is its frame with its path
+   * inside it, as the leading CAD app draws one whose file it cannot find.
+   */
+  const imageElement = (
+    e: Image,
+    mark: string,
+    pen: Pen,
+    look: Look,
+    from: Referenced | undefined,
+    matrix: Matrix | undefined,
+    room: number,
+  ): string => {
+    const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
+    const raster = rasterOf(e, from);
+    const shown =
+      raster === null || !raster.plotted ? null : rasterId(raster, e.transparent !== true, e.path);
+    const parts: string[] = [];
+    // A closed outline, back to its first point, as a path of moves and lines.
+    const ring = (points: readonly Point[]) =>
+      [...points, points[0]!]
+        .map(at)
+        .map(([x, y], i) => `${i === 0 ? "M" : "L"} ${precise(x)} ${precise(y)}`)
+        .join(" ");
+    if (shown !== null) {
+      const [p0, p1, , p3] = imageCorners(e).map(at) as [Point, Point, Point, Point];
+      // The unit square of the picture's image, its top row first, onto the image's corners.
+      const place = [p1[0] - p0[0], p1[1] - p0[1], p0[0] - p3[0], p0[1] - p3[1], p3[0], p3[1]]
+        .map(precise)
+        .join(" ");
+      // A file too large to hold again is the file, which the plot shows opaque.
+      const marked = e.transparent !== true && markedOpaque(raster!.info);
+      const use = `<use href="#${shown}" transform="matrix(${place})"${marked ? ` data-opaque=""` : ""}/>`;
+      if (e.clip === undefined) parts.push(use);
+      else {
+        const id = `tsdraft-image-clip-${clips++}`;
+        const outline = ring(imageFrame(e));
+        const d = e.invertClip ? `${ring(imageCorners(e))} ${outline}` : outline;
+        const rule = e.invertClip ? ` clip-rule="evenodd"` : "";
+        parts.push(
+          `<clipPath id="${id}"><path d="${d}"${rule}/></clipPath>`,
+          `<g clip-path="url(#${id})">${use}</g>`,
+        );
+      }
+    } else {
+      // The path as the file holds it, centered, as high as the image is wide over its letters.
+      const value = writtenImagePath(e.path);
+      const corners = imageCorners(e);
+      const middle: Point = [
+        (corners[0][0] + corners[2][0]) / 2,
+        (corners[0][1] + corners[2][1]) / 2,
+      ];
+      const text: Text = {
+        kind: "text",
+        layer: e.layer,
+        at: middle,
+        height: e.width / Math.max(1, value.length),
+        value,
+        rotation: e.rotation ?? 0,
+        align: "center",
+        valign: "middle",
+      };
+      parts.push(entityToSvg(text, "", pen, look, undefined, matrix, room));
+    }
+    if (drawing.imageFrame !== false) {
+      parts.push(
+        `<path d="${ring(imageFrame(e))}" stroke="${pen.color}"${look.stroke(pen.lineweight)}/>`,
+      );
+    }
+    return `<g ${mark} data-image="">${parts.join("")}</g>`;
+  };
+  /**
    * The element of an entity that draws something of its own, where `matrix` puts it. Its
    * dashes stop once they pass the room left in the picture, and `write` then refuses it.
    */
@@ -521,6 +710,12 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       const textStyle = named === undefined ? undefined : tables.textStyles.get(key(named));
       const picture = style === undefined ? undefined : pictureOf(e, style, textStyle);
       return leaderToSvg(e, picture, textStyle, mark, drawnPen, look, matrix, room, sides);
+    }
+    if (e.kind === "image") {
+      // One whose fields cannot be drawn, which `lint` refuses, draws nothing.
+      return imageDrawable(e, clipsChecked)
+        ? imageElement(e, mark, drawnPen, look, from, matrix, room)
+        : "";
     }
     if (e.kind !== "linear-dimension" && e.kind !== "aligned-dimension") {
       return entityToSvg(e, mark, drawnPen, look, styleOf(e, from), matrix, room, sides);
@@ -939,7 +1134,14 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     ];
     const tail = [`  </g>`, `</svg>`, ``];
     if (!write([...head, ...tail].join("\n").length + 1)) refuse(space);
-    return [...head, ...parts.map((part) => `    ${part}`), ...tail].join("\n");
+    const held = defs.length > 0 ? [`  <defs>${defs.join("")}</defs>`] : [];
+    return [
+      head[0],
+      ...held,
+      ...head.slice(1),
+      ...parts.map((part) => `    ${part}`),
+      ...tail,
+    ].join("\n");
   }
 
   // Each entity keeps its index in `drawing.entities`, for its element's data-entity.
@@ -985,7 +1187,8 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
   ];
   const tail = [`  </g>`, `</svg>`, ``];
   if (!write([...head, ...tail].join("\n").length + 1)) refuse("model space");
-  return [...head, `    ${body}`, ...tail].join("\n");
+  const held = defs.length > 0 ? [`  <defs>${defs.join("")}</defs>`] : [];
+  return [head[0], ...held, ...head.slice(1), `    ${body}`, ...tail].join("\n");
 }
 
 /**
@@ -1085,7 +1288,7 @@ function viewOf(view: SvgOptions["view"]): [number, number, number, number] | un
 type Drawn = Exclude<Entity, Insert>;
 
 /** An entity that is one shape, with a linetype and a lineweight it may have of its own. */
-type Shape = Exclude<Drawn, Dimension | Leader | Paragraph>;
+type Shape = Exclude<Drawn, Dimension | Leader | Paragraph | Image>;
 
 /** The linetype and the lineweight an entity has of its own. A dimension and a leader draw ByLayer. */
 function styled(e: Drawn): Pick<Line, "linetype" | "lineweight"> {

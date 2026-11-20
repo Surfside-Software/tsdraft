@@ -46,6 +46,13 @@ it would take `1e+100` for `1e+10` and report nothing.
   it. So are a stacked part of other characters than digits and capitals with `.`, `,`, `+` or
   `-`, or spaces, and a stack in underlined or struck-through characters.
   [Paragraphs](paragraphs.md#what-lint-refuses) has the rest.
+- An image is R2018 only. Its path is not empty, starts from the folder of the drawing's file and
+  holds no `* ? < > | : "`, since the leading CAD app finds the file of an absolute path only
+  there, its `pixels` are the file's, two whole numbers from 1 to 2,147,483,647, and two images of
+  one file give it the same pixels. Its width and height are greater than 0 as written. A clip is
+  two corners of a rectangle of some width and height along the image's sides, or a polygon of 3
+  points that differ, at most 10,000 in all, and `invertClip` needs a clip.
+  [Images](images.md#what-lint-refuses) has the rest.
 - Arc angles are stored from 0 up to 360, so -90 becomes 270. An arc cannot come
   within 0.000001 degrees of a full turn, because its two angles would be
   written the same and the leading CAD app holds such an arc as having no length. Draw a

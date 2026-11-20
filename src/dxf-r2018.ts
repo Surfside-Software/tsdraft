@@ -35,6 +35,7 @@ import type {
   DimensionStyle,
   Drawing,
   Entity,
+  Image,
   Insert,
   Layout,
   Leader,
@@ -47,6 +48,23 @@ import type {
   Viewport,
 } from "./drawing.ts";
 import { boxer, type Boxer } from "./extents.ts";
+import {
+  drawingImages,
+  IMAGE_DICTIONARY,
+  IMAGE_VARIABLES,
+  exactKey,
+  imageClip,
+  imageDefinitions,
+  imageDictionaryHandle,
+  imagePathKey,
+  imageReactorHandle,
+  imageVectors,
+  RASTER_UNITS,
+  rasterVariablesHandle,
+  writtenImagePath,
+  type ImageDefinition,
+} from "./images.ts";
+import { isUnits } from "./units.ts";
 import { checksLimit, DrawingError } from "./lint.ts";
 import {
   layoutBlockName,
@@ -83,7 +101,7 @@ import {
   validLeaderStyleHandle,
 } from "./leaders.ts";
 import { entityLinetype, layerLinetype, lineweightCode, patternLength } from "./linetypes.ts";
-import { shown, TEXT_ALIGNS, TEXT_VERTICAL_ALIGNS } from "./rules.ts";
+import { idKey, shown, TEXT_ALIGNS, TEXT_VERTICAL_ALIGNS } from "./rules.ts";
 
 /** `$INSUNITS` codes from the DXF Reference. */
 const INSUNITS: Record<Units, number> = { in: 1, ft: 2, mm: 4, cm: 5, m: 6 };
@@ -162,6 +180,14 @@ export function toDXFR2018(
   // Keyed as style names are compared, so a leader that names `notes` takes the style `NOTES`.
   const leaderStylesByKey = new Map(leaderStyles.map((style) => [layerKey(style.name), style]));
   const leaderArrowheads = leaderArrowheadsWithBlocks(leaderStyles);
+  // Each file the images show is one definition, and each image has a reactor of its own.
+  const images = [...drawingImages(drawing)];
+  const definitions = imageDefinitions(images);
+  // Keyed exactly, since a path may be long.
+  const definitionOf = new Map<string, ImageDefinition>();
+  for (const definition of definitions)
+    definitionOf.set(exactKey(imagePathKey(definition.path)), definition);
+  const reactors: { readonly image: string; readonly reactor: string; readonly of: string }[] = [];
 
   g(0, "SECTION");
   g(2, "CLASSES");
@@ -175,6 +201,14 @@ export function toDXFR2018(
       count: leaderCount(drawing),
       entity: true,
     });
+  }
+  // The leading CAD app draws nothing of an image whose class it holds no count of.
+  if (images.length > 0) {
+    const count = (n: number, entity = false) => ({ count: n, entity });
+    writeClass(g, "IMAGEDEF", "AcDbRasterImageDef", "ISM", 0, count(definitions.length));
+    writeClass(g, "RASTERVARIABLES", "AcDbRasterVariables", "ISM", 0, count(1));
+    writeClass(g, "IMAGEDEF_REACTOR", "AcDbRasterImageDefReactor", "ISM", 1, count(images.length));
+    writeClass(g, "IMAGE", "AcDbRasterImage", "ISM", 2175, count(images.length, true));
   }
   g(0, "ENDSEC");
 
@@ -436,6 +470,19 @@ export function toDXFR2018(
   ): void => {
     entities.forEach((entity, index) => {
       const own = entity.id === undefined ? handle() : handleOf(entity.id);
+      if (entity.kind === "image") {
+        const definition = definitionOf.get(exactKey(imagePathKey(entity.path)))!;
+        const reactor = entity.id === undefined ? handle() : imageReactorHandle(idKey(entity.id));
+        reactors.push({ image: own, reactor, of: definition.handle });
+        writeImage(g, entity, {
+          handle: own,
+          owner,
+          paper,
+          definition: definition.handle,
+          reactor,
+        });
+        return;
+      }
       if (entity.kind === "leader") {
         const style = leaderStylesByKey.get(layerKey(entity.style));
         if (style === undefined) return;
@@ -623,6 +670,12 @@ export function toDXFR2018(
   g(281, 1); // duplicate records: keep existing
   g(3, "ACAD_GROUP");
   g(350, groupDictionary);
+  if (images.length > 0) {
+    g(3, IMAGE_DICTIONARY);
+    g(350, imageDictionaryHandle());
+    g(3, IMAGE_VARIABLES);
+    g(350, rasterVariablesHandle());
+  }
   if (sheets.length > 0) {
     g(3, "ACAD_LAYOUT");
     g(350, layoutDictionary);
@@ -669,6 +722,9 @@ export function toDXFR2018(
     for (const [style, textStyle] of styles) {
       writeLeaderStyle(g, style, leaderDictionary, textStyle, linetypeByBlock);
     }
+  }
+  if (images.length > 0) {
+    writeImageObjects(g, definitions, reactors, rootDictionary, drawing);
   }
   if (sheets.length > 0) {
     g(0, "DICTIONARY");
@@ -744,6 +800,7 @@ export function toDXFR2018(
     sheets.length > 0 ||
     dimensionStyles.length > 0 ||
     leaderStyles.length > 0 ||
+    images.length > 0 ||
     drawing.entities.some((entity) => entity.id !== undefined);
   h(5, named ? ID_HANDLE_SEED : handle());
   h(0, "ENDSEC");
@@ -1659,6 +1716,135 @@ function writeClass(
   g(91, of.count); // how many objects of the class the drawing holds
   g(280, 0); // not a proxy
   g(281, of.entity ? 1 : 0);
+}
+
+/** Where an image's IMAGE goes, and what it points to. */
+interface ImagePlace {
+  readonly handle: string;
+  readonly owner: string;
+  readonly paper: boolean;
+  readonly definition: string;
+  readonly reactor: string;
+}
+
+/**
+ * An IMAGE: its corner, the vectors of one pixel and its pixels, its definition, shown and
+ * clipped, transparent when asked, brightness 50, contrast 50 and fade 0, and its clip in pixels.
+ * The vectors and the clip are written with 15 digits, which a pixel of a large file needs.
+ */
+function writeImage(g: Group, e: Image, place: ImagePlace): void {
+  g(0, "IMAGE");
+  g(5, place.handle);
+  g(330, place.owner);
+  g(100, "AcDbEntity");
+  if (place.paper) g(67, 1);
+  g(8, e.layer);
+  const linetype = entityLinetype(e);
+  if (linetype !== undefined) g(6, linetype);
+  if (e.lineweight !== undefined && e.lineweight !== "ByLayer") {
+    g(370, lineweightCode(e.lineweight));
+  }
+  g(100, "AcDbRasterImage");
+  g(90, 0); // the class's version
+  point(g, 10, ...e.at);
+  const [u, v] = imageVectors(e);
+  for (const [code, [x, y]] of [
+    [11, u],
+    [12, v],
+  ] as const) {
+    g(code, fifteenDigits(x));
+    g(code + 10, fifteenDigits(y));
+    g(code + 20, 0);
+  }
+  g(13, e.pixels[0]);
+  g(23, e.pixels[1]);
+  g(340, place.definition);
+  // Shown, shown when not square to the screen, clipped by its boundary, and transparent.
+  g(70, 7 | (e.transparent ? 8 : 0));
+  g(280, e.clip === undefined ? 0 : 1);
+  g(281, 50);
+  g(282, 50);
+  g(283, 0);
+  g(290, e.invertClip ? 1 : 0);
+  g(360, place.reactor);
+  const clip = imageClip(e);
+  g(71, clip.type);
+  g(91, clip.points.length);
+  for (const [x, y] of clip.points) {
+    g(14, fifteenDigits(x));
+    g(24, fifteenDigits(y));
+  }
+}
+
+/**
+ * The objects of a drawing's images: the dictionary of their definitions, each definition with
+ * the reactors of the images of it, each reactor, and RASTERVARIABLES, which says whether a frame
+ * shows.
+ */
+function writeImageObjects(
+  g: Group,
+  definitions: readonly ImageDefinition[],
+  reactors: readonly { readonly image: string; readonly reactor: string; readonly of: string }[],
+  root: string,
+  drawing: Drawing,
+): void {
+  const dictionary = imageDictionaryHandle();
+  g(0, "DICTIONARY");
+  ownedBy(g, dictionary, root);
+  g(100, "AcDbDictionary");
+  g(281, 1);
+  // In the order the leading CAD app saves them: by the name folded to lower case as it folds
+  // names, a character's code at a time.
+  const sorted = definitions
+    .map((definition) => ({ definition, key: layerKey(definition.name) }))
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+    .map(({ definition }) => definition);
+  // Each definition's reactors, by its handle, which is short.
+  const reactorsOf = new Map<string, string[]>();
+  for (const { reactor, of } of reactors) {
+    const list = reactorsOf.get(of);
+    if (list) list.push(reactor);
+    else reactorsOf.set(of, [reactor]);
+  }
+  for (const definition of sorted) {
+    g(3, dxfOnce(definition.name));
+    g(350, definition.handle);
+  }
+  for (const definition of definitions) {
+    g(0, "IMAGEDEF");
+    g(5, definition.handle);
+    g(102, "{ACAD_REACTORS");
+    g(330, dictionary);
+    for (const reactor of reactorsOf.get(definition.handle) ?? []) g(330, reactor);
+    g(102, "}");
+    g(330, dictionary);
+    g(100, "AcDbRasterImageDef");
+    g(90, 0);
+    g(1, dxfOnce(writtenImagePath(definition.path)));
+    g(10, definition.pixels[0]);
+    g(20, definition.pixels[1]);
+    // The size of one pixel, as the leading CAD app gives a file of no resolution: a whole image
+    // one unit wide.
+    g(11, fifteenDigits(1 / definition.pixels[0]));
+    g(21, fifteenDigits(1 / definition.pixels[0]));
+    g(280, 1); // loaded
+    g(281, 0); // no unit of resolution
+  }
+  for (const { image, reactor } of reactors) {
+    g(0, "IMAGEDEF_REACTOR");
+    g(5, reactor);
+    g(330, image);
+    g(100, "AcDbRasterImageDefReactor");
+    g(90, 2);
+    g(330, image);
+  }
+  g(0, "RASTERVARIABLES");
+  ownedBy(g, rasterVariablesHandle(), root);
+  g(100, "AcDbRasterVariables");
+  g(90, 0);
+  g(70, drawing.imageFrame === false ? 0 : 1);
+  g(71, 1); // high quality
+  g(72, isUnits(drawing.units) ? RASTER_UNITS[drawing.units] : RASTER_UNITS.in);
 }
 
 /** A color the leading CAD app holds as ByLayer and as ByBlock, as a multileader and its style write one. */
