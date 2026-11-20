@@ -67,6 +67,11 @@ inside it, and `donut` a filled ring or dot. [docs/polylines.md](docs/polylines.
 `rasterSize` reads, and an optional `clip`; the command reads the file from the drawing file's
 folder for the pictures, and warns of one that is missing.
 [docs/images.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/images.md) has them.
+`hatch` fills one outline, or a list of loops `{ points, bulges? }` where a loop inside another is
+a hole, solid in the layer's color; `wipeout` hides what is drawn before it behind a polygon; and
+a paragraph's `mask: true` hides what is drawn before it behind its text. Draw a fill before the
+lines over it.
+[docs/fills.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/fills.md) has them.
 
 Give an entity an `id` when you will want to find it again: 1 to 64 letters, digits, `.`, `-`
 and `_`, each used once in a drawing. A diagnostic about the entity carries the id.

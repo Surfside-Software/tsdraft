@@ -73,6 +73,8 @@ export {
   type DxfVersion,
   type Entity,
   type EntityOptions,
+  type Hatch,
+  type HatchLoop,
   type Image,
   type ImageOptions,
   type Insert,
@@ -88,7 +90,6 @@ export {
   type Leader,
   type LeaderAttachment,
   type LeaderDirection,
-  type LeaderMask,
   type LeaderVerticalAttachment,
   type LeaderOptions,
   type LeaderSide,
@@ -121,6 +122,7 @@ export {
   type StandardViewportOptions,
   type Text,
   type TextAlign,
+  type TextMask,
   type TextOptions,
   type TextStyle,
   type TextStyleChoice,
@@ -131,6 +133,7 @@ export {
   type View,
   type Viewport,
   type ViewportOptions,
+  type Wipeout,
   type Xref,
   type Zone,
 } from "./drawing.ts";
@@ -158,6 +161,18 @@ export {
   type ImageClip,
   type ImageDefinition,
 } from "./images.ts";
+export {
+  dimensionMask,
+  loopBulged,
+  maskOf,
+  variableDictionaryHandle,
+  WIPEOUT_APPLICATION,
+  wipeoutClip,
+  wipeoutCount,
+  wipeoutFrameVariableHandle,
+  wipeoutPicture,
+  wipeoutVariablesHandle,
+} from "./fills.ts";
 export { bulgeThrough, polylineBox, type PolylineBox } from "./polylines.ts";
 export { FONT_METRICS, FONT_METRICS_RANGES, type FontMetrics } from "./font-metrics.ts";
 export { capHeightOf, FONTS, type Font, type FontInfo } from "./fonts.ts";
@@ -363,6 +378,8 @@ export {
   type ReadEntity,
   type ReadEntityBase,
   type ReadField,
+  type ReadHatch,
+  type ReadHatchLoop,
   type ReadHeader,
   type ReadImage,
   type ReadImageDefinition,
@@ -372,6 +389,7 @@ export {
   type ReadLayout,
   type ReadLine,
   type ReadLinetype,
+  type ReadMask,
   type ReadMtext,
   type ReadMultileader,
   type ReadOptions,
@@ -384,6 +402,7 @@ export {
   type ReadUnread,
   type ReadView,
   type ReadViewport,
+  type ReadWipeout,
   type ReadXref,
 } from "./read/model.ts";
 export { toSVG, type SvgOptions } from "./svg.ts";

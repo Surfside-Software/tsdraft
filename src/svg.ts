@@ -14,6 +14,7 @@ import {
   type DimensionStyle,
   type Drawing,
   type Entity,
+  type Hatch,
   type Image,
   type Insert,
   type Layer,
@@ -26,7 +27,9 @@ import {
   type Text,
   type TextStyle,
   type Viewport,
+  type Wipeout,
 } from "./drawing.ts";
+import { dimensionMask, drawnLoops, loopSides, maskOf, paragraphMaskCorners } from "./fills.ts";
 import {
   arcPoint,
   hasArcsOrWidths,
@@ -718,6 +721,11 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         ? imageElement(e, mark, drawnPen, look, from, matrix, room)
         : "";
     }
+    if (e.kind === "hatch") return hatchToSvg(e, mark, drawnPen, matrix, room);
+    if (e.kind === "wipeout") {
+      const frame = (from?.drawing ?? drawing).wipeoutFrame !== false;
+      return wipeoutToSvg(e, mark, drawnPen, look, matrix, frame);
+    }
     if (!isDimension(e)) {
       return entityToSvg(e, mark, drawnPen, look, styleOf(e, from), matrix, room, sides);
     }
@@ -1308,7 +1316,7 @@ function viewOf(view: SvgOptions["view"]): [number, number, number, number] | un
 type Drawn = Exclude<Entity, Insert>;
 
 /** An entity that is one shape, with a linetype and a lineweight it may have of its own. */
-type Shape = Exclude<Drawn, Dimension | Leader | Paragraph | Image>;
+type Shape = Exclude<Drawn, Dimension | Leader | Paragraph | Image | Hatch | Wipeout>;
 
 /** The linetype and the lineweight an entity has of its own. A dimension and a leader draw ByLayer. */
 function styled(e: Drawn): Pick<Line, "linetype" | "lineweight"> {
@@ -1426,6 +1434,11 @@ function paragraphToSvg(
   };
   const layout = left < 0 ? undefined : layOut();
   const { widthFactor = 1, obliqueAngle = 0 } = layout ?? {};
+  const mask = maskOf(e.mask);
+  if (mask && layout) {
+    const corners = paragraphMaskCorners(e, layout, mask).map(at);
+    add(maskToSvg(corners, mask.color, pen, look));
+  }
   for (const line of layout?.lines ?? []) {
     if (left < 0) break;
     for (const run of line.runs) {
@@ -1463,6 +1476,103 @@ function paragraphToSvg(
 }
 
 /**
+ * A mask: a polygon in the drawing's background, white and marked so, or in a color index of its
+ * own, or ByLayer for 256, with no outline.
+ */
+function maskToSvg(
+  corners: readonly Point[],
+  color: number | undefined,
+  pen: Pen,
+  look: Look,
+): string {
+  const fill = color === undefined ? "#ffffff" : color === 256 ? pen.color : look.color(color);
+  // One in the drawing's background is marked, for a viewer whose background is not white.
+  const background = color === undefined ? ` data-mask="background"` : "";
+  const points = corners.map(([x, y]) => `${fmt(x)},${fmt(y)}`).join(" ");
+  return `<polygon points="${points}" fill="${fill}" stroke="none"${background} data-part="mask"/>`;
+}
+
+/**
+ * A hatch: its loops as one path, filled in its pen's color by the parity of the loops around each
+ * point, as the leading CAD app fills them, with no outline. Its arcs are drawn as `matrix` puts
+ * them, and it stops once it passes the room left in the picture.
+ */
+function hatchToSvg(
+  e: Hatch,
+  mark: string,
+  pen: Pen,
+  matrix: Matrix | undefined,
+  room: number,
+): string {
+  const place = (x: number, y: number): string => {
+    const [px, py] = matrix ? mapPoint(matrix, [x, y]) : [x, y];
+    return `${fmt(px)} ${fmt(py)}`;
+  };
+  // Each loop is one string once made, and each side is paid for from the room, so that what the
+  // hatch holds stays near what it writes: the loop that passes the room ends there. The loops are
+  // added on, not joined, so that a path past the room is not copied before `write` refuses it.
+  let d = "";
+  let left = room;
+  for (const loop of drawnLoops(e.loops)) {
+    if (left < 0) break;
+    const sides = loopSides(loop);
+    if (sides.length === 0) continue;
+    const parts = [`M ${place(...sides[0]!.from)}`];
+    let used = parts[0]!.length;
+    for (const side of sides) {
+      if (used > left) break;
+      const arc = sideArc(side.from, side.to, side.bulge);
+      if (!arc) parts.push(`L ${place(...side.to)}`);
+      else {
+        const round = rounded(arc.radius, matrix);
+        const flag = arc.sweep > 0 ? round.sweep : 1 - round.sweep;
+        const a = `A ${fmt(round.rx)} ${fmt(round.ry)} ${fmt(round.turn)} 0 ${flag}`;
+        // An arc of more than half a turn is drawn as two halves, so that no arc of the path ends
+        // where it starts, which SVG would draw as nothing.
+        if (Math.abs(arc.sweep) > Math.PI) {
+          parts.push(`${a} ${place(...arcPoint(arc, 0.5))}`);
+          used += parts.at(-1)!.length + 1;
+        }
+        parts.push(`${a} ${place(...side.to)}`);
+      }
+      used += parts.at(-1)!.length + 1;
+    }
+    parts.push("Z");
+    const path = parts.join(" ");
+    d = d === "" ? path : d + " " + path;
+    left -= path.length + 1;
+  }
+  if (d === "") return `<g ${mark}/>`;
+  return `<path d="${d}" fill="${pen.color}" fill-rule="evenodd" stroke="none" ${mark} data-hatch=""/>`;
+}
+
+/**
+ * A wipeout: its polygon in the paper's white, marked as a mask in the drawing's background, and
+ * its frame in its pen when the drawing shows wipeouts' frames.
+ */
+function wipeoutToSvg(
+  e: Wipeout,
+  mark: string,
+  pen: Pen,
+  look: Look,
+  matrix: Matrix | undefined,
+  frame: boolean,
+): string {
+  const corners = filled(e.points).map((p) => (matrix ? mapPoint(matrix, p) : p));
+  if (corners.length < 3) return `<g ${mark}/>`;
+  const points = corners.map(([x, y]) => `${fmt(x)},${fmt(y)}`).join(" ");
+  const parts = [
+    `<polygon points="${points}" fill="#ffffff" stroke="none" data-mask="background" data-part="mask"/>`,
+  ];
+  if (frame) {
+    parts.push(
+      `<polygon points="${points}" stroke="${pen.color}"${look.stroke(pen.lineweight)} data-part="frame"/>`,
+    );
+  }
+  return `<g ${mark} data-wipeout="">${parts.join("")}</g>`;
+}
+
+/**
  * A dimension as a group: its extension lines, the pieces of its dimension line and the leader to
  * a text moved out, which take the dashes of its pen and the lineweights its style gives them,
  * its arrowheads, filled, or a tick with no width as a line, and each text as the paragraph its
@@ -1496,6 +1606,15 @@ function dimensionToSvg(
   const extension = weighed(picture.lineweights.extension);
   const dimension = weighed(picture.lineweights.dimension);
   const thin = arrowheadInfo(style.arrowhead ?? DEFAULT_ARROWHEAD)?.stroke?.width === 0;
+  // A style's mask is drawn behind each text, as its picture's paragraph holds it.
+  const masked = dimensionMask(style);
+  const mask =
+    masked === undefined
+      ? undefined
+      : {
+          ...(masked.color === undefined ? {} : { color: masked.color }),
+          offsetFactor: masked.offsetFactor,
+        };
   const parts = [
     ...picture.extensionLines.map((ends) => line("extension-line", ends, extension)),
     ...picture.dimensionLines.map((ends) => line("dimension-line", ends, dimension)),
@@ -1537,6 +1656,7 @@ function dimensionToSvg(
           rotation: text.rotation ?? 0,
           align: "center",
           valign: "middle",
+          ...(mask === undefined ? {} : { mask }),
         },
         () => layoutDimensionText(text),
         `data-part="text"`,

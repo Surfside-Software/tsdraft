@@ -10,6 +10,8 @@ import type {
   DimensionStyle,
   Drawing,
   Entity,
+  Hatch,
+  HatchLoop,
   Image,
   Insert,
   Layer,
@@ -28,6 +30,7 @@ import type {
   Text,
   TextStyle,
   Viewport,
+  Wipeout,
   Xref,
 } from "./drawing.ts";
 import { shown, XREF_REFUSED_FIELDS, xrefFieldProblem } from "./rules.ts";
@@ -64,6 +67,8 @@ const KINDS = [
   "aligned-dimension",
   "leader",
   "image",
+  "hatch",
+  "wipeout",
 ] as const satisfies readonly Entity["kind"][];
 
 /** What is wrong with an entity whose kind tsdraft does not know. */
@@ -462,6 +467,7 @@ function shapes(all: boolean, typed = all): Shapes {
     };
 
   const kind: Check = LEFT;
+  const loop = fields<HatchLoop>({ points: list(point) }, { bulges: list(number) });
   const shared = {
     id: ruled(string),
     linetype: ruled(string),
@@ -500,6 +506,8 @@ function shapes(all: boolean, typed = all): Shapes {
             ),
           ),
         ),
+        // true, false or an object: the rule reports any other.
+        mask: LEFT,
       },
     ),
     insert: fields<Insert>(
@@ -597,6 +605,8 @@ function shapes(all: boolean, typed = all): Shapes {
         transparent: ruled(boolean),
       },
     ),
+    hatch: fields<Hatch>({ kind, layer: string, loops: list(record(loop)) }, shared),
+    wipeout: fields<Wipeout>({ kind, layer: string, points: list(point) }, shared),
   } satisfies Record<Entity["kind"], FieldsCheck>;
 
   const entity: Check = (value, at, problems, extra) => {
@@ -691,6 +701,8 @@ function shapes(all: boolean, typed = all): Shapes {
         angleUnits: ruled(string),
         anglePrecision: ruled(number),
         suppressAngleZeros: ruled(string),
+        // true, false or an object: the rule reports any other.
+        textMask: LEFT,
       },
     ),
   );
@@ -781,6 +793,7 @@ function shapes(all: boolean, typed = all): Shapes {
       dimensionStyles: ruled(table(dimensionStyle)),
       leaderStyles: ruled(table(leaderStyle)),
       imageFrame: ruled(boolean),
+      wipeoutFrame: ruled(boolean),
     },
   );
   return {

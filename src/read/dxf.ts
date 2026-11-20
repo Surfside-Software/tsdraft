@@ -186,6 +186,7 @@ const BLOCK_READS = new Set([
   "ATTRIB",
   "CIRCLE",
   "DIMENSION",
+  "HATCH",
   "IMAGE",
   "INSERT",
   "LARGE_RADIAL_DIMENSION",
@@ -200,6 +201,7 @@ const BLOCK_READS = new Set([
   "TEXT",
   "VERTEX",
   "VIEWPORT",
+  "WIPEOUT",
 ]);
 /** The kinds a space reads whole without `geometry`. */
 const SPACE_READS = new Set([
@@ -214,6 +216,33 @@ const SPACE_READS = new Set([
   "TEXT",
   "VIEWPORT",
 ]);
+
+const HANDLE = /^[0-9A-Fa-f]{1,16}$/;
+
+/** Two handles' order as numbers: by their digits once leading zeros are left out. */
+function handleOrder(a: string, b: string): number {
+  const [x, y] = [a.replace(/^0+/, ""), b.replace(/^0+/, "")];
+  return x.length - y.length || (x < y ? -1 : x > y ? 1 : 0);
+}
+
+/**
+ * The handles of a space's entities in the order the leading CAD app draws them by its sort table:
+ * by each one's sort handle, or its own where the table gives none, and in the order of the file
+ * between two of one sort handle.
+ */
+function sortedOrder(
+  entities: readonly ReadEntity[],
+  table: ReadonlyMap<string, string>,
+): readonly string[] {
+  const keyed: { handle: string; sort: string; at: number }[] = [];
+  entities.forEach((e, at) => {
+    if (e.handle === undefined) return;
+    const own = e.handle.toUpperCase();
+    keyed.push({ handle: e.handle, sort: table.get(own) ?? own, at });
+  });
+  keyed.sort((a, b) => handleOrder(a.sort, b.sort) || a.at - b.at);
+  return keyed.map((k) => k.handle);
+}
 
 /** Object kinds every file holds and that say nothing the read model keeps. */
 const HOUSEKEEPING = new Set([
@@ -512,6 +541,17 @@ class DxfReader {
   readonly #imageUses = new Map<string, number>();
   /** The handle of the dictionary of image definitions, from the root dictionary. */
   #imageDictionary: string | undefined;
+  /** The dictionary of the drawing's variables, and the variable WIPEOUTFRAME's handle in it. */
+  #variableDictionary: string | undefined;
+  #wipeoutFrameVariable: string | undefined;
+  /** The value of each DICTIONARYVAR read, by its handle, up to the census's limit. */
+  readonly #variables = new Map<string, string>();
+  /**
+   * Each sort table, by the handle of the block record it orders, with each entity's sort
+   * handle, up to as many entries as the geometry's items.
+   */
+  readonly #sortTables = new Map<string, Map<string, string>>();
+  #sortEntries = 0;
   /** The dictionary's entries, in its order: each definition's name and handle. */
   readonly #imageEntries: (readonly [name: string, handle: string])[] = [];
   /** Each image definition, by its handle. */
@@ -595,7 +635,12 @@ class DxfReader {
       case "TABLES":
         return ALL;
       case "OBJECTS":
-        return type === "DICTIONARY" || type === "FIELD" || type === "LAYOUT" || type === "IMAGEDEF"
+        return type === "DICTIONARY" ||
+          type === "FIELD" ||
+          type === "LAYOUT" ||
+          type === "IMAGEDEF" ||
+          type === "DICTIONARYVAR" ||
+          type === "SORTENTSTABLE"
           ? ALL
           : NOTHING;
       case "BLOCKS":
@@ -731,6 +776,15 @@ class DxfReader {
         if (textStyle !== undefined) style.textStyleHandle = textStyle;
         const arrowhead = handleAt(r, 342);
         if (arrowhead !== undefined) style.arrowheadHandle = arrowhead;
+        // DIMTFILL, and DIMTFILLCLR after it, a 70 of its own past the record's flags.
+        const fill = r.codes.indexOf(69);
+        if (fill >= 0) {
+          const n = Number(r.values[fill]);
+          if (Number.isFinite(n) && n !== 0) style.textFill = n;
+          const color = r.codes.indexOf(70, fill);
+          const index = color < 0 ? NaN : Number(r.values[color]);
+          if (n === 2 && Number.isFinite(index)) style.textFillColor = index;
+        }
         this.dimensionStyles.push(style as unknown as ReadDimensionStyle);
         return;
       }
@@ -1221,6 +1275,9 @@ class DxfReader {
             entries[key] = value;
           } else if (key === "ACAD_MLEADERSTYLE") this.#leaderStyleDictionary ??= value;
           else if (key === "ACAD_IMAGE_DICT") this.#imageDictionary ??= value;
+          else if (key === "AcDbVariableDictionary") this.#variableDictionary ??= value;
+          else if (handle === this.#variableDictionary && key === "WIPEOUTFRAME")
+            this.#wipeoutFrameVariable ??= value;
           else if (
             handle === this.#imageDictionary &&
             key.length <= LONGEST_NAME &&
@@ -1233,6 +1290,42 @@ class DxfReader {
         }
         if (entries && this.dictionaries.size < 2 * this.#limits.census) {
           this.dictionaries.set(handle, entries);
+        }
+        return;
+      }
+      case "DICTIONARYVAR": {
+        const handle = handleAt(r, 5);
+        const value = first(inSubclass(r, "DictionaryVariables"), 1);
+        if (handle === undefined || value === undefined) return;
+        if (this.#variables.size < this.#limits.census) this.#variables.set(handle, value);
+        return;
+      }
+      case "SORTENTSTABLE": {
+        // The block record it orders, the 330 after its subclass.
+        const table = inSubclass(r, "AcDbSortentsTable");
+        const at = table.codes.indexOf(330);
+        const named = at < 0 ? undefined : table.values[at]!.trim();
+        const owner = named !== undefined && HANDLE.test(named) ? named.toUpperCase() : undefined;
+        // One no block record of the file holds is not read, and counted, as readDWG counts it.
+        if (
+          owner === undefined ||
+          !(this.blockRecords.has(owner) || this.blockRecords.has(named!))
+        ) {
+          add(this.unread.objects, r.type);
+          return;
+        }
+        let entries = this.#sortTables.get(owner);
+        if (entries === undefined) {
+          if (this.#sortTables.size >= this.#limits.census) return;
+          this.#sortTables.set(owner, (entries = new Map()));
+        }
+        for (let i = 0; i + 1 < table.codes.length; i++) {
+          if (table.codes[i] !== 331 || table.codes[i + 1] !== 5) continue;
+          const [entity, sort] = [table.values[i]!.trim(), table.values[i + 1]!.trim()];
+          if (!HANDLE.test(entity) || !HANDLE.test(sort)) continue;
+          if (this.#sortEntries >= this.#limits.geometryItems) break;
+          this.#sortEntries++;
+          entries.set(entity.toUpperCase(), sort.toUpperCase());
         }
         return;
       }
@@ -1310,6 +1403,11 @@ class DxfReader {
     }
     if (h.$DIMSTYLE !== undefined) header.dimstyle = unescaped(h.$DIMSTYLE);
     if (h.$TEXTSTYLE !== undefined) header.textstyle = unescaped(h.$TEXTSTYLE);
+    const frame =
+      this.#wipeoutFrameVariable === undefined
+        ? undefined
+        : Number(this.#variables.get(this.#wipeoutFrameVariable));
+    if (frame !== undefined && Number.isInteger(frame)) header.wipeoutFrame = frame;
 
     const layerNames = new Map<string, string>();
     for (const layer of this.layers) {
@@ -1354,6 +1452,31 @@ class DxfReader {
         ? ""
         : (this.blockRecords.get(draft.blockRecord) ?? "")
       ).toUpperCase();
+    // The handle of each block's record by its name in capitals, and the order of what a space
+    // or a block draws, when the file holds a sort table for it.
+    const recordOf = new Map<string, string>();
+    for (const [handle, recordName] of this.blockRecords) {
+      if (recordName.length <= LONGEST_NAME && !recordOf.has(recordName.toUpperCase()))
+        recordOf.set(recordName.toUpperCase(), handle.toUpperCase());
+    }
+    // A block's entities are read with geometry and without, and a space's with it alone.
+    const order = (
+      entities: readonly ReadEntity[] | undefined,
+      recordName: string,
+    ): readonly string[] | undefined => {
+      if (entities === undefined) return undefined;
+      const record = recordOf.get(recordName.toUpperCase());
+      const table = record === undefined ? undefined : this.#sortTables.get(record);
+      return table === undefined ? undefined : sortedOrder(entities, table);
+    };
+    /** A space's draw order as a field of its read, which a read without geometry leaves out. */
+    const ordered = (
+      entities: readonly ReadEntity[] | undefined,
+      recordName: string,
+    ): { drawOrder?: readonly string[] } => {
+      const sorted = this.#geometry ? order(entities, recordName) : undefined;
+      return sorted === undefined ? {} : { drawOrder: sorted };
+    };
     const layouts: ReadLayout[] = [];
     for (const draft of this.layouts.toSorted((a, b) => a.tab - b.tab)) {
       const recordName = spaceOf(draft);
@@ -1377,6 +1500,7 @@ class DxfReader {
           entities: space?.entities ?? [],
           other: space?.other ?? map<number>(),
         }),
+        ...ordered(space?.entities, recordName),
       });
     }
     // The first layout of each space, by the space's block in capitals.
@@ -1500,7 +1624,8 @@ class DxfReader {
       dimensionStyles,
       blocks: this.blocks.map((draft): ReadBlock => {
         const { block: _, ...block } = draft;
-        return block;
+        const sorted = order(block.entities, block.name);
+        return sorted === undefined ? block : { ...block, drawOrder: sorted };
       }),
       xrefs: this.xrefs,
       model: {
@@ -1509,6 +1634,7 @@ class DxfReader {
           entities: model?.entities ?? [],
           other: model?.other ?? map<number>(),
         }),
+        ...ordered(model?.entities, MODEL),
       },
       layouts,
       fields,

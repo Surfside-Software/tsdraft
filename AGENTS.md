@@ -372,6 +372,13 @@
   as it is and marks the `<use>` `data-opaque`, which `toPDF` reads. That is the one place the
   preview and the plot part. A PNG the plot must decode and cannot is drawn by neither, as a file
   not given.
+- `src/fills.ts` is the one place of what a hatch, a wipeout and a text's mask draw: a hatch's loops
+  and their sides, filled by parity, which the writers make the leading CAD app's rule too by island
+  style normal and polyline loops; a wipeout's square picture of one pixel and its clip; a mask's box
+  and factor, a paragraph's and a dimension style's. The writers, `toSVG`, the extents, `lint` and
+  the readers take them from it. The wipeout frame is the dictionary variable `WIPEOUTFRAME`, which is
+  what that app reads, beside `WIPEOUTVARIABLES`, which it does not. A hatch is drawn as one path
+  with `fill-rule="evenodd"`, which `toPDF` writes as `f*`.
 - `src/pdf.ts` plots layouts to PDF from the pictures `toSVG` draws of them, and decides
   nothing about a drawing: every rule of what a sheet plots stays in `toSVG`, so the preview
   and the plot cannot part. It reads the closed set of elements and attributes `toSVG` writes

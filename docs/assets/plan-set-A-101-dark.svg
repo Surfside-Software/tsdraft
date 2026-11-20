@@ -655,51 +655,65 @@
           <polyline points="20121.478393,2.184989 20150,-110" stroke="#f2f2f3" data-part="shaft"/>
           <line x1="20150" y1="-110" x2="20156" y2="-110" stroke="#f2f2f3" data-part="landing"/>
           <polygon points="20120,8 20120.509224,1.93859 20122.447561,2.431388" fill="#f2f2f3" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(20159 -112.25) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="84.766371" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">16'-0&quot; X 8'-0&quot; IMPACT RATED</text>
-          <text transform="translate(20159 -119.75) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="90.481924" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">OVERHEAD DOOR, SEE A-601</text>
+          <g data-part="text" data-paragraph="16'-0&quot; X 8'-0&quot; IMPACT RATED\POVERHEAD DOOR, SEE A-601">
+          <text transform="translate(20158.315484 -111.88165) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="84.766371" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">16'-0&quot; X 8'-0&quot; IMPACT RATED</text>
+          <text transform="translate(20158.696112 -119.461459) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="90.481924" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">OVERHEAD DOOR, SEE A-601</text>
+        </g>
         </g>
         <g data-leader="RAISED LANAI SLAB EL. 10.67' NAVD,&#10;ON STEM WALLS PER S-101, 36&quot; GUARD">
           <polyline points="20604.484456,643.986183 20690,720" stroke="#f2f2f3" data-part="shaft"/>
           <line x1="20690" y1="720" x2="20696" y2="720" stroke="#f2f2f3" data-part="landing"/>
           <polygon points="20600,640 20605.14882,643.238774 20603.820092,644.733592" fill="#f2f2f3" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(20699 717.75) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="111.962824" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">RAISED LANAI SLAB EL. 10.67' NAVD,</text>
-          <text transform="translate(20699 710.25) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="122.058663" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">ON STEM WALLS PER S-101, 36&quot; GUARD</text>
+          <g data-part="text" data-paragraph="RAISED LANAI SLAB EL. 10.67' NAVD,\PON STEM WALLS PER S-101, 36&quot; GUARD">
+          <text transform="translate(20698.505798 718.11835) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="111.962824" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">RAISED LANAI SLAB EL. 10.67' NAVD,</text>
+          <text transform="translate(20698.696112 710.538541) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="122.058663" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">ON STEM WALLS PER S-101, 36&quot; GUARD</text>
+        </g>
         </g>
         <g data-leader="ENTRY PORCH SLAB EL. 10.67' NAVD,&#10;4&quot; STEP DOWN FROM DOOR 101,&#10;36&quot; GUARD AT OPEN EDGE">
           <polyline points="20295.2,36.4 20060,-140" stroke="#f2f2f3" data-part="shaft"/>
           <line x1="20060" y1="-140" x2="20054" y2="-140" stroke="#f2f2f3" data-part="landing"/>
           <polygon points="20300,40 20294.6,37.2 20295.8,35.6" fill="#f2f2f3" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(20051 -142.25) scale(1 -1) translate(-114.396999 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="114.396999" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">ENTRY PORCH SLAB EL. 10.67' NAVD,</text>
-          <text transform="translate(20051 -149.75) scale(1 -1) translate(-100.384379 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="100.384379" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">4&quot; STEP DOWN FROM DOOR 101,</text>
-          <text transform="translate(20051 -157.25) scale(1 -1) translate(-82.577763 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="82.577763" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">36&quot; GUARD AT OPEN EDGE</text>
+          <g data-part="text" data-paragraph="ENTRY PORCH SLAB EL. 10.67' NAVD,\P4&quot; STEP DOWN FROM DOOR 101,\P36&quot; GUARD AT OPEN EDGE">
+          <text transform="translate(19937.161664 -142.289904) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="114.396999" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">ENTRY PORCH SLAB EL. 10.67' NAVD,</text>
+          <text transform="translate(19951.174284 -149.869713) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="100.384379" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">4&quot; STEP DOWN FROM DOOR 101,</text>
+          <text transform="translate(19968.759891 -157.449522) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="82.577763" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">36&quot; GUARD AT OPEN EDGE</text>
+        </g>
         </g>
         <g data-leader="5R DN TO WALK AT 8.00',&#10;HANDRAILS BOTH SIDES">
           <polyline points="20348.951028,-34.51546 20450,-150" stroke="#f2f2f3" data-part="shaft"/>
           <line x1="20450" y1="-150" x2="20456" y2="-150" stroke="#f2f2f3" data-part="landing"/>
           <polygon points="20345,-30 20348.198451,-35.173965 20349.703604,-33.856956" fill="#f2f2f3" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(20459 -152.25) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="75.609823" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">5R DN TO WALK AT 8.00',</text>
-          <text transform="translate(20459 -159.75) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="75.803206" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">HANDRAILS BOTH SIDES</text>
+          <g data-part="text" data-paragraph="5R DN TO WALK AT 8.00',\PHANDRAILS BOTH SIDES">
+          <text transform="translate(20458.739086 -152.291439) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="75.609823" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">5R DN TO WALK AT 8.00',</text>
+          <text transform="translate(20458.496589 -159.871248) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="75.803206" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">HANDRAILS BOTH SIDES</text>
+        </g>
         </g>
         <g data-leader="4R DN TO GARAGE SLAB,&#10;HANDRAIL, 36&quot; LANDING">
           <polyline points="20043.955875,239.273674 20120,230" stroke="#f2f2f3" data-part="shaft"/>
           <line x1="20120" y1="230" x2="20126" y2="230" stroke="#f2f2f3" data-part="landing"/>
           <polygon points="20038,240 20043.834821,238.281028 20044.07693,240.26632" fill="#f2f2f3" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(20129 227.75) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="77.552865" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">4R DN TO GARAGE SLAB,</text>
-          <text transform="translate(20129 220.25) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="74.197817" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">HANDRAIL, 36&quot; LANDING</text>
+          <g data-part="text" data-paragraph="4R DN TO GARAGE SLAB,\PHANDRAIL, 36&quot; LANDING">
+          <text transform="translate(20128.920191 228.11528) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="77.552865" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">4R DN TO GARAGE SLAB,</text>
+          <text transform="translate(20128.496589 220.538541) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="74.197817" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">HANDRAIL, 36&quot; LANDING</text>
+        </g>
         </g>
         <g data-leader="4R DN TO POOL DECK&#10;AT 8.40' NAVD">
           <polyline points="20494.91201,693.179994 20420,740" stroke="#f2f2f3" data-part="shaft"/>
           <line x1="20420" y1="740" x2="20414" y2="740" stroke="#f2f2f3" data-part="landing"/>
           <polygon points="20500,690 20495.442009,694.027992 20494.382011,692.331995" fill="#f2f2f3" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(20411 737.75) scale(1 -1) translate(-67.767053 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="67.767053" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">4R DN TO POOL DECK</text>
-          <text transform="translate(20411 730.25) scale(1 -1) translate(-42.427694 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="42.427694" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">AT 8.40' NAVD</text>
+          <g data-part="text" data-paragraph="4R DN TO POOL DECK\PAT 8.40' NAVD">
+          <text transform="translate(20343.245225 737.708561) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="67.767053" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">4R DN TO POOL DECK</text>
+          <text transform="translate(20368.906889 730.190144) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="42.427694" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">AT 8.40' NAVD</text>
+        </g>
         </g>
         <g data-leader="FLOOD VENT, TYP. OF 4,&#10;SEE S-101">
           <polyline points="19994.211417,98.421296 19890,70" stroke="#f2f2f3" data-part="shaft"/>
           <line x1="19890" y1="70" x2="19884" y2="70" stroke="#f2f2f3" data-part="landing"/>
           <polygon points="20000,100 19993.9483,99.386059 19994.474534,97.456532" fill="#f2f2f3" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(19881 67.75) scale(1 -1) translate(-75.100273 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="75.100273" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">FLOOD VENT, TYP. OF 4,</text>
-          <text transform="translate(19881 60.25) scale(1 -1) translate(-31.100955 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="31.100955" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">SEE S-101</text>
+          <g data-part="text" data-paragraph="FLOOD VENT, TYP. OF 4,\PSEE S-101">
+          <text transform="translate(19806.45839 67.708561) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="75.100273" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">FLOOD VENT, TYP. OF 4,</text>
+          <text transform="translate(19851.053206 60.131822) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="31.100955" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial" data-part="text">SEE S-101</text>
+        </g>
         </g>
         <g data-block="FLOOD VENT">
           <polygon points="20006.4,16.24 20006.4,27.76 20001.6,27.76 20001.6,16.24" stroke="#f2f2f3"/>

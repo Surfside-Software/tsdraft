@@ -53,6 +53,19 @@ import type {
 } from "./drawing.ts";
 import { boxer, type Boxer } from "./extents.ts";
 import {
+  dimensionMask,
+  loopBulged,
+  maskOf,
+  type Mask,
+  variableDictionaryHandle,
+  WIPEOUT_APPLICATION,
+  wipeoutClip,
+  wipeoutCount,
+  wipeoutFrameVariableHandle,
+  wipeoutPicture,
+  wipeoutVariablesHandle,
+} from "./fills.ts";
+import {
   drawingImages,
   IMAGE_DICTIONARY,
   IMAGE_VARIABLES,
@@ -224,6 +237,21 @@ export function toDXFR2018(
     writeClass(g, "MULTILEADER", "AcDbMLeader", "ACDB_MLEADER_CLASS", 1025, {
       count: leaderCount(drawing),
       entity: true,
+    });
+  }
+  const wipeouts = wipeoutCount(drawing);
+  if (wipeouts > 0) {
+    writeClass(g, "WIPEOUT", "AcDbWipeout", WIPEOUT_APPLICATION, 2175, {
+      count: wipeouts,
+      entity: true,
+    });
+    writeClass(g, "WIPEOUTVARIABLES", "AcDbWipeoutVariables", WIPEOUT_APPLICATION, 0, {
+      count: 1,
+      entity: false,
+    });
+    writeClass(g, "DICTIONARYVAR", "AcDbDictionaryVar", "ObjectDBX Classes", 0, {
+      count: 1,
+      entity: false,
     });
   }
   // The leading CAD app draws nothing of an image whose class it holds no count of.
@@ -408,6 +436,7 @@ export function toDXFR2018(
         }),
         layer: entity.layer,
         textStyle: styleOf(style.textStyle)?.name ?? STANDARD_TEXT_STYLE,
+        mask: dimensionMask(style),
       });
     });
   });
@@ -712,6 +741,12 @@ export function toDXFR2018(
   }
   g(3, "ACAD_PLOTSTYLENAME");
   g(350, plotStyleDictionary);
+  if (wipeouts > 0) {
+    g(3, "ACAD_WIPEOUT_VARS");
+    g(350, wipeoutVariablesHandle());
+    g(3, "AcDbVariableDictionary");
+    g(350, variableDictionaryHandle());
+  }
   g(0, "DICTIONARY");
   ownedBy(g, groupDictionary, rootDictionary);
   g(100, "AcDbDictionary");
@@ -753,6 +788,7 @@ export function toDXFR2018(
   if (images.length > 0) {
     writeImageObjects(g, definitions, reactors, rootDictionary, drawing);
   }
+  if (wipeouts > 0) writeWipeoutObjects(g, rootDictionary, drawing);
   if (sheets.length > 0) {
     g(0, "DICTIONARY");
     ownedBy(g, layoutDictionary, rootDictionary);
@@ -828,6 +864,7 @@ export function toDXFR2018(
     dimensionStyles.length > 0 ||
     leaderStyles.length > 0 ||
     images.length > 0 ||
+    wipeoutCount(drawing) > 0 ||
     drawing.entities.some((entity) => entity.id !== undefined);
   h(5, named ? ID_HANDLE_SEED : handle());
   h(0, "ENDSEC");
@@ -1141,6 +1178,7 @@ function writeEntity(
       }
       g(73, lineSpacingStyleCode(e));
       g(44, e.lineSpacing ?? 1);
+      writeMask(g, maskOf(e.mask));
       if (columns) {
         g(101, "Embedded Object");
         g(70, attachment);
@@ -1165,6 +1203,62 @@ function writeEntity(
       }
       return;
     }
+    case "hatch": {
+      begin("HATCH", "AcDbHatch");
+      point(g, 10, 0, 0);
+      point3(g, 210, 0, 0, 1);
+      g(2, "SOLID");
+      g(70, 1); // solid
+      g(71, 0); // no boundary objects
+      const loops = e.loops;
+      g(91, loops.length);
+      for (const loop of loops) {
+        const points = loop.points;
+        const bulged = loopBulged(loop);
+        g(92, 2); // a polyline
+        g(72, bulged ? 1 : 0);
+        g(73, 1); // closed
+        g(93, points.length);
+        points.forEach(([x, y], i) => {
+          g(10, x);
+          g(20, y);
+          if (bulged) g(42, loop.bulges?.[i] ?? 0);
+        });
+        g(97, 0);
+      }
+      g(75, 0); // normal: the parity of the loops around a point
+      g(76, 1); // predefined
+      g(98, 1);
+      g(10, 0);
+      g(20, 0);
+      return;
+    }
+    case "wipeout": {
+      begin("WIPEOUT", "AcDbWipeout");
+      g(90, 0); // the class's version
+      const { corner, side } = wipeoutPicture(e.points);
+      point(g, 10, ...corner);
+      point(g, 11, side, 0);
+      point(g, 12, 0, side);
+      g(13, 1);
+      g(23, 1);
+      g(340, "0"); // no definition
+      g(70, 7); // shown, shown when not square to the screen, clipped
+      g(280, 1);
+      g(281, 50);
+      g(282, 50);
+      g(283, 0);
+      g(290, 0);
+      g(360, "0");
+      g(71, 2); // a polygon
+      const clip = wipeoutClip(e.points);
+      g(91, clip.length);
+      for (const [x, y] of clip) {
+        g(14, fifteenDigits(x));
+        g(24, fifteenDigits(y));
+      }
+      return;
+    }
     case "text":
       begin("TEXT", "AcDbText");
       writeTextFields(g, e, style, undefined);
@@ -1176,6 +1270,18 @@ function writeEntity(
       }
       return;
   }
+}
+
+/**
+ * A text's mask, after the line spacing of its MTEXT: on and in the drawing's background, or in a
+ * color index of its own, and the factor its box grows by.
+ */
+function writeMask(g: Group, mask: Mask | undefined): void {
+  if (mask === undefined) return;
+  g(90, mask.color === undefined ? 3 : 1);
+  g(63, mask.color ?? 256);
+  g(45, mask.offsetFactor);
+  g(441, 0);
 }
 
 /** What a dimension style's `suppressZeros` is in `DIMZIN`, group 78. */
@@ -1203,6 +1309,11 @@ function writeDimensionStyle(g: Group, style: DimensionStyle, textStyle: string)
   // DIMDLE: with a tick, the dimension line runs one arrow size past each extension line,
   // as the leading CAD app draws it whenever it turns the ticks outward.
   if (block !== undefined) g(46, style.arrowSize);
+  const mask = dimensionMask(style);
+  if (mask !== undefined) {
+    g(69, mask.color === undefined ? 1 : 2); // DIMTFILL: the background, or DIMTFILLCLR
+    if (mask.color !== undefined) g(70, mask.color); // DIMTFILLCLR
+  }
   g(73, 0); // DIMTIH: the text is along the dimension line
   g(74, 0); // DIMTOH
   g(77, style.textPlacement === "centered" ? 0 : 1); // DIMTAD: above the line, or in it
@@ -1375,6 +1486,8 @@ interface Picture {
   /** The dimension's layer, which everything in the block is on. */
   readonly layer: string;
   readonly textStyle: string;
+  /** The mask behind each of its texts, from its style. */
+  readonly mask: Mask | undefined;
 }
 
 /** The most characters of a text DXF holds in one group. */
@@ -1386,7 +1499,7 @@ const TEXT_CHUNK = 250;
  * and lineweight of the dimension. It holds no definition points: they do not plot, and that app
  * works them out again when it draws the dimension anew.
  */
-function writePicture(g: Group, { name, picture, handles, layer, textStyle }: Picture): void {
+function writePicture(g: Group, { name, picture, handles, layer, textStyle, mask }: Picture): void {
   const owner = handles.record;
   writeBlock(g, handles.begin, handles.end, name, owner, {
     paper: false,
@@ -1471,6 +1584,7 @@ function writePicture(g: Group, { name, picture, handles, layer, textStyle }: Pi
         }
         g(73, 1); // line spacing at least as set
         g(44, 1);
+        writeMask(g, mask);
       };
       text(picture.label, picture.textMiddle, handles.text, mtextOfLabel(picture.label.value));
       if (picture.below) {
@@ -1990,6 +2104,31 @@ function writeImageObjects(
   g(70, drawing.imageFrame === false ? 0 : 1);
   g(71, 1); // high quality
   g(72, isUnits(drawing.units) ? RASTER_UNITS[drawing.units] : RASTER_UNITS.in);
+}
+
+/**
+ * The objects of a drawing's wipeouts: WIPEOUTVARIABLES, and the variable `WIPEOUTFRAME` in the
+ * dictionary of the drawing's variables, which is what the leading CAD app reads of whether their
+ * frames show.
+ */
+function writeWipeoutObjects(g: Group, root: string, drawing: Drawing): void {
+  const frame = drawing.wipeoutFrame === false ? 0 : 1;
+  g(0, "WIPEOUTVARIABLES");
+  ownedBy(g, wipeoutVariablesHandle(), root);
+  g(100, "AcDbWipeoutVariables");
+  g(70, frame);
+  const variables = variableDictionaryHandle();
+  g(0, "DICTIONARY");
+  ownedBy(g, variables, root);
+  g(100, "AcDbDictionary");
+  g(281, 1);
+  g(3, "WIPEOUTFRAME");
+  g(350, wipeoutFrameVariableHandle());
+  g(0, "DICTIONARYVAR");
+  ownedBy(g, wipeoutFrameVariableHandle(), variables);
+  g(100, "DictionaryVariables");
+  g(280, 0);
+  g(1, String(frame));
 }
 
 /** A color the leading CAD app holds as ByLayer and as ByBlock, as a multileader and its style write one. */

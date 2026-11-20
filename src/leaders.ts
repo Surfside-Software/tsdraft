@@ -11,6 +11,7 @@ import {
   type LeaderArrowheadStroke,
 } from "./arrowheads.ts";
 import { blockHandles } from "./blocks.ts";
+import { maskOf } from "./fills.ts";
 import { arrowheadEntityHandle } from "./dimensions.ts";
 import type {
   Block,
@@ -453,8 +454,6 @@ const RADIANS = Math.PI / 180;
 const UNDERLINE = 0.2;
 /** How far below the top of the note the first line's underline runs, in text heights. */
 const FIRST_UNDERLINE = 1.2;
-/** A mask's factor of the text height unless given, as the leading CAD app sets one. */
-const MASK_FACTOR = 1.5;
 
 /** A block's own outline, as a block in place of a leader's note is placed by it. */
 interface Outline {
@@ -748,29 +747,6 @@ export function leaderVerticalAttachment(
   style: Pick<LeaderStyle, "verticalAttachment">,
 ): LeaderVerticalAttachment {
   return leader.verticalAttachment ?? style.verticalAttachment ?? "center";
-}
-
-/**
- * A leader's mask as it is drawn: none for `false`, and for `true` or an object the drawing's
- * background or a color index, and its factor as written. A field the rules refuse is drawn as
- * its default, and any other value as no mask.
- */
-export function maskOf(
-  mask: unknown,
-): { readonly color?: number; readonly offsetFactor: number } | undefined {
-  if (mask === true) return { offsetFactor: MASK_FACTOR };
-  if (typeof mask !== "object" || mask === null || Array.isArray(mask)) return undefined;
-  const { color, offsetFactor } = mask as Record<string, unknown>;
-  const factor =
-    typeof offsetFactor === "number" && Number.isFinite(offsetFactor)
-      ? written(offsetFactor)
-      : MASK_FACTOR;
-  return {
-    ...(Number.isInteger(color) && (color as number) >= 1 && (color as number) <= 256
-      ? { color: color as number }
-      : {}),
-    offsetFactor: factor,
-  };
 }
 
 /**

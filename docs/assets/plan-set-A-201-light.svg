@@ -293,77 +293,99 @@
           <polyline points="82492.72,281.695 82688.8,281.695" stroke="#1f2328" data-part="shaft"/>
           <line x1="82688.8" y1="281.695" x2="82694.8" y2="281.695" stroke="#1f2328" data-part="landing"/>
           <polygon points="82486.72,281.695 82492.72,280.695 82492.72,282.695" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82697.8 279.445) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="130.641201" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">STANDING SEAM METAL ROOFING, 24 GA.,</text>
-          <text transform="translate(82697.8 271.945) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="129.250682" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">6:12, ON SELF-ADHERED UNDERLAYMENT</text>
+          <g data-part="text" data-paragraph="STANDING SEAM METAL ROOFING, 24 GA.,\P6:12, ON SELF-ADHERED UNDERLAYMENT">
+          <text transform="translate(82697.517599 279.81028) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="130.641201" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">STANDING SEAM METAL ROOFING, 24 GA.,</text>
+          <text transform="translate(82697.563643 272.230471) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="129.250682" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">6:12, ON SELF-ADHERED UNDERLAYMENT</text>
+        </g>
         </g>
         <g data-leader="ALUMINUM FASCIA AND&#10;VENTED ALUMINUM SOFFIT">
           <polyline points="82652,238.375 82688.8,238.375" stroke="#1f2328" data-part="shaft"/>
           <line x1="82688.8" y1="238.375" x2="82694.8" y2="238.375" stroke="#1f2328" data-part="landing"/>
           <polygon points="82646,238.375 82652,237.375 82652,239.375" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82697.8 236.125) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="73.000682" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">ALUMINUM FASCIA AND</text>
-          <text transform="translate(82697.8 228.625) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="84.870737" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">VENTED ALUMINUM SOFFIT</text>
+          <g data-part="text" data-paragraph="ALUMINUM FASCIA AND\PVENTED ALUMINUM SOFFIT">
+          <text transform="translate(82697.8 236.086631) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="73.000682" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">ALUMINUM FASCIA AND</text>
+          <text transform="translate(82697.772374 228.506822) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="84.870737" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">VENTED ALUMINUM SOFFIT</text>
+        </g>
         </g>
         <g data-leader="STUCCO ON LATH OVER 7/16&quot; OSB&#10;ON 2X6 STUDS AT 16&quot; O.C.">
           <polyline points="82610,208.25 82688.8,208.25" stroke="#1f2328" data-part="shaft"/>
           <line x1="82688.8" y1="208.25" x2="82694.8" y2="208.25" stroke="#1f2328" data-part="landing"/>
           <polygon points="82604,208.25 82610,207.25 82610,209.25" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82697.8 206) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="106.33322" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">STUCCO ON LATH OVER 7/16&quot; OSB</text>
-          <text transform="translate(82697.8 198.5) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="80.834243" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">ON 2X6 STUDS AT 16&quot; O.C.</text>
+          <g data-part="text" data-paragraph="STUCCO ON LATH OVER 7/16&quot; OSB\PON 2X6 STUDS AT 16&quot; O.C.">
+          <text transform="translate(82697.517599 205.958561) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="106.33322" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">STUCCO ON LATH OVER 7/16&quot; OSB</text>
+          <text transform="translate(82697.496112 198.378752) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="80.834243" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">ON 2X6 STUDS AT 16&quot; O.C.</text>
+        </g>
         </g>
         <g data-leader="STUCCO BAND AT FLOOR LINE,&#10;CONTROL JOINT TOP AND BOTTOM">
           <polyline points="82620,129.125 82688.8,129.125" stroke="#1f2328" data-part="shaft"/>
           <line x1="82688.8" y1="129.125" x2="82694.8" y2="129.125" stroke="#1f2328" data-part="landing"/>
           <polygon points="82614,129.125 82620,128.125 82620,130.125" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82697.8 126.875) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="96.406207" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">STUCCO BAND AT FLOOR LINE,</text>
-          <text transform="translate(82697.8 119.375) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="108.966917" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">CONTROL JOINT TOP AND BOTTOM</text>
+          <g data-part="text" data-paragraph="STUCCO BAND AT FLOOR LINE,\PCONTROL JOINT TOP AND BOTTOM">
+          <text transform="translate(82697.517599 126.833561) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="96.406207" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">STUCCO BAND AT FLOOR LINE,</text>
+          <text transform="translate(82697.486903 119.253752) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="108.966917" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">CONTROL JOINT TOP AND BOTTOM</text>
+        </g>
         </g>
         <g data-leader="IMPACT RATED WINDOW,&#10;SEE A-601">
           <polyline points="82450,92 82688.8,92" stroke="#1f2328" data-part="shaft"/>
           <line x1="82688.8" y1="92" x2="82694.8" y2="92" stroke="#1f2328" data-part="landing"/>
           <polygon points="82444,92 82450,91 82450,93" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82697.8 89.75) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="77.87824" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">IMPACT RATED WINDOW,</text>
-          <text transform="translate(82697.8 82.25) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="31.100955" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">SEE A-601</text>
+          <g data-part="text" data-paragraph="IMPACT RATED WINDOW,\PSEE A-601">
+          <text transform="translate(82697.213711 89.708561) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="77.87824" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">IMPACT RATED WINDOW,</text>
+          <text transform="translate(82697.517599 82.131822) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="31.100955" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">SEE A-601</text>
+        </g>
         </g>
         <g data-leader="5/8&quot; STUCCO ON 8&quot; CMU">
           <polyline points="82610,50 82688.8,50" stroke="#1f2328" data-part="shaft"/>
           <line x1="82688.8" y1="50" x2="82694.8" y2="50" stroke="#1f2328" data-part="landing"/>
           <polygon points="82604,50 82610,49 82610,51" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82697.8 47.75) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="73.973738" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">5/8&quot; STUCCO ON 8&quot; CMU</text>
+          <g data-part="text" data-paragraph="5/8&quot; STUCCO ON 8&quot; CMU">
+          <text transform="translate(82697.539086 47.708561) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="73.973738" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">5/8&quot; STUCCO ON 8&quot; CMU</text>
+        </g>
         </g>
         <g data-leader="36&quot; GUARD AT PORCH EDGE,&#10;4&quot; SPHERE MAX. OPENING (R312.1)">
           <polyline points="82290.572788,20.172216 82268,-72" stroke="#1f2328" data-part="shaft"/>
           <line x1="82268" y1="-72" x2="82262" y2="-72" stroke="#1f2328" data-part="landing"/>
           <polygon points="82292,26 82289.60149,20.410085 82291.544085,19.934347" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82259 -74.25) scale(1 -1) translate(-89.211119 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="89.211119" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">36&quot; GUARD AT PORCH EDGE,</text>
-          <text transform="translate(82259 -81.75) scale(1 -1) translate(-107.386085 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="107.386085" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">4&quot; SPHERE MAX. OPENING (R312.1)</text>
+          <g data-part="text" data-paragraph="36&quot; GUARD AT PORCH EDGE,\P4&quot; SPHERE MAX. OPENING (R312.1)">
+          <text transform="translate(82170.347544 -73.668315) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="89.211119" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">36&quot; GUARD AT PORCH EDGE,</text>
+          <text transform="translate(82151.841064 -81.248124) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="107.386085" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">4&quot; SPHERE MAX. OPENING (R312.1)</text>
+        </g>
         </g>
         <g data-leader="STUCCO ON CMU STEM WALL,&#10;COMPACTED FILL BELOW SLAB">
           <polyline points="82530,-3 82688.8,-3" stroke="#1f2328" data-part="shaft"/>
           <line x1="82688.8" y1="-3" x2="82694.8" y2="-3" stroke="#1f2328" data-part="landing"/>
           <polygon points="82524,-3 82530,-4 82530,-2" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82697.8 -5.25) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="93.603683" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">STUCCO ON CMU STEM WALL,</text>
-          <text transform="translate(82697.8 -12.75) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="96.765348" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">COMPACTED FILL BELOW SLAB</text>
+          <g data-part="text" data-paragraph="STUCCO ON CMU STEM WALL,\PCOMPACTED FILL BELOW SLAB">
+          <text transform="translate(82697.517599 -5.291439) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="93.603683" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">STUCCO ON CMU STEM WALL,</text>
+          <text transform="translate(82697.486903 -12.871248) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="96.765348" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">COMPACTED FILL BELOW SLAB</text>
+        </g>
         </g>
         <g data-leader="16'-0&quot; X 8'-0&quot; IMPACT&#10;OVERHEAD DOOR, SEE A-601">
           <polyline points="82037.472301,-15.441575 82011.2,-72" stroke="#1f2328" data-part="shaft"/>
           <line x1="82011.2" y1="-72" x2="82005.2" y2="-72" stroke="#1f2328" data-part="landing"/>
           <polygon points="82040,-10 82036.565372,-15.020292 82038.37923,-15.862858" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82002.2 -74.25) scale(1 -1) translate(-61.713847 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="61.713847" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">16'-0&quot; X 8'-0&quot; IMPACT</text>
-          <text transform="translate(82002.2 -81.75) scale(1 -1) translate(-90.481924 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="90.481924" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">OVERHEAD DOOR, SEE A-601</text>
+          <g data-part="text" data-paragraph="16'-0&quot; X 8'-0&quot; IMPACT\POVERHEAD DOOR, SEE A-601">
+          <text transform="translate(81940.612005 -73.88165) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="61.713847" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">16'-0&quot; X 8'-0&quot; IMPACT</text>
+          <text transform="translate(81912.872237 -81.461459) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="90.481924" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">OVERHEAD DOOR, SEE A-601</text>
+        </g>
         </g>
         <g data-leader="ENTRY STAIR: 5 RISERS AT 6.4&quot;, 4 TREADS&#10;AT 11&quot;, HANDRAILS BOTH SIDES AT 34&quot;-38&quot;">
           <polyline points="82368.139578,-31.513027 82393,-72" stroke="#1f2328" data-part="shaft"/>
           <line x1="82393" y1="-72" x2="82399" y2="-72" stroke="#1f2328" data-part="landing"/>
           <polygon points="82365,-26.4 82367.287407,-32.03629 82368.991749,-30.989764" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82402 -74.25) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="130.438608" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">ENTRY STAIR: 5 RISERS AT 6.4&quot;, 4 TREADS</text>
-          <text transform="translate(82402 -81.75) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="130.368008" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">AT 11&quot;, HANDRAILS BOTH SIDES AT 34&quot;-38&quot;</text>
+          <g data-part="text" data-paragraph="ENTRY STAIR: 5 RISERS AT 6.4&quot;, 4 TREADS\PAT 11&quot;, HANDRAILS BOTH SIDES AT 34&quot;-38&quot;">
+          <text transform="translate(82401.502729 -73.88165) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="130.438608" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">ENTRY STAIR: 5 RISERS AT 6.4&quot;, 4 TREADS</text>
+          <text transform="translate(82402 -81.461459) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="130.368008" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">AT 11&quot;, HANDRAILS BOTH SIDES AT 34&quot;-38&quot;</text>
+        </g>
         </g>
         <g data-leader="FINISH GRADE EL. 8.00' NAVD, SLOPE&#10;AWAY 6&quot; IN 10'-0&quot; (FBC-R R401.3)">
           <polyline points="82668.4,-36 82688.8,-36" stroke="#1f2328" data-part="shaft"/>
           <line x1="82688.8" y1="-36" x2="82694.8" y2="-36" stroke="#1f2328" data-part="landing"/>
           <polygon points="82662.4,-36 82668.4,-37 82668.4,-35" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82697.8 -38.25) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="114.743861" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">FINISH GRADE EL. 8.00' NAVD, SLOPE</text>
-          <text transform="translate(82697.8 -45.75) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="98.938608" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">AWAY 6&quot; IN 10'-0&quot; (FBC-R R401.3)</text>
+          <g data-part="text" data-paragraph="FINISH GRADE EL. 8.00' NAVD, SLOPE\PAWAY 6&quot; IN 10'-0&quot; (FBC-R R401.3)">
+          <text transform="translate(82697.284311 -37.668315) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="114.743861" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">FINISH GRADE EL. 8.00' NAVD, SLOPE</text>
+          <text transform="translate(82697.8 -45.245054) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="98.938608" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">AWAY 6&quot; IN 10'-0&quot; (FBC-R R401.3)</text>
+        </g>
         </g>
       </g>
     </g>
@@ -720,77 +742,99 @@
           <polyline points="82492.72,3281.695 82688.8,3281.695" stroke="#1f2328" data-part="shaft"/>
           <line x1="82688.8" y1="3281.695" x2="82694.8" y2="3281.695" stroke="#1f2328" data-part="landing"/>
           <polygon points="82486.72,3281.695 82492.72,3280.695 82492.72,3282.695" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82697.8 3279.445) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="130.641201" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">STANDING SEAM METAL ROOFING, 24 GA.,</text>
-          <text transform="translate(82697.8 3271.945) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="129.250682" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">6:12, ON SELF-ADHERED UNDERLAYMENT</text>
+          <g data-part="text" data-paragraph="STANDING SEAM METAL ROOFING, 24 GA.,\P6:12, ON SELF-ADHERED UNDERLAYMENT">
+          <text transform="translate(82697.517599 3279.81028) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="130.641201" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">STANDING SEAM METAL ROOFING, 24 GA.,</text>
+          <text transform="translate(82697.563643 3272.230471) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="129.250682" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">6:12, ON SELF-ADHERED UNDERLAYMENT</text>
+        </g>
         </g>
         <g data-leader="ALUMINUM FASCIA AND&#10;VENTED ALUMINUM SOFFIT">
           <polyline points="82652,3238.375 82688.8,3238.375" stroke="#1f2328" data-part="shaft"/>
           <line x1="82688.8" y1="3238.375" x2="82694.8" y2="3238.375" stroke="#1f2328" data-part="landing"/>
           <polygon points="82646,3238.375 82652,3237.375 82652,3239.375" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82697.8 3236.125) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="73.000682" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">ALUMINUM FASCIA AND</text>
-          <text transform="translate(82697.8 3228.625) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="84.870737" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">VENTED ALUMINUM SOFFIT</text>
+          <g data-part="text" data-paragraph="ALUMINUM FASCIA AND\PVENTED ALUMINUM SOFFIT">
+          <text transform="translate(82697.8 3236.086631) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="73.000682" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">ALUMINUM FASCIA AND</text>
+          <text transform="translate(82697.772374 3228.506822) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="84.870737" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">VENTED ALUMINUM SOFFIT</text>
+        </g>
         </g>
         <g data-leader="STUCCO ON LATH OVER 7/16&quot; OSB&#10;ON 2X6 STUDS AT 16&quot; O.C.">
           <polyline points="82610,3208.25 82688.8,3208.25" stroke="#1f2328" data-part="shaft"/>
           <line x1="82688.8" y1="3208.25" x2="82694.8" y2="3208.25" stroke="#1f2328" data-part="landing"/>
           <polygon points="82604,3208.25 82610,3207.25 82610,3209.25" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82697.8 3206) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="106.33322" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">STUCCO ON LATH OVER 7/16&quot; OSB</text>
-          <text transform="translate(82697.8 3198.5) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="80.834243" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">ON 2X6 STUDS AT 16&quot; O.C.</text>
+          <g data-part="text" data-paragraph="STUCCO ON LATH OVER 7/16&quot; OSB\PON 2X6 STUDS AT 16&quot; O.C.">
+          <text transform="translate(82697.517599 3205.958561) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="106.33322" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">STUCCO ON LATH OVER 7/16&quot; OSB</text>
+          <text transform="translate(82697.496112 3198.378752) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="80.834243" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">ON 2X6 STUDS AT 16&quot; O.C.</text>
+        </g>
         </g>
         <g data-leader="LANAI ROOF, STANDING SEAM&#10;METAL AT 3:12, SEE S-102">
           <polyline points="82228,3129.75 82688.8,3129.75" stroke="#1f2328" data-part="shaft"/>
           <line x1="82688.8" y1="3129.75" x2="82694.8" y2="3129.75" stroke="#1f2328" data-part="landing"/>
           <polygon points="82222,3129.75 82228,3128.75 82228,3130.75" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82697.8 3127.5) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="93.612892" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">LANAI ROOF, STANDING SEAM</text>
-          <text transform="translate(82697.8 3120) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="79.314802" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">METAL AT 3:12, SEE S-102</text>
+          <g data-part="text" data-paragraph="LANAI ROOF, STANDING SEAM\PMETAL AT 3:12, SEE S-102">
+          <text transform="translate(82697.339563 3127.86528) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="93.612892" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">LANAI ROOF, STANDING SEAM</text>
+          <text transform="translate(82697.333424 3120.288541) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="79.314802" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">METAL AT 3:12, SEE S-102</text>
+        </g>
         </g>
         <g data-leader="STUCCO BAND AT FLOOR LINE,&#10;CONTROL JOINT TOP AND BOTTOM">
           <polyline points="82619.805287,3127.608873 82688.8,3109.59" stroke="#1f2328" data-part="shaft"/>
           <line x1="82688.8" y1="3109.59" x2="82694.8" y2="3109.59" stroke="#1f2328" data-part="landing"/>
           <polygon points="82614,3129.125 82619.552599,3126.641325 82620.057975,3128.576421" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82697.8 3107.34) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="96.406207" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">STUCCO BAND AT FLOOR LINE,</text>
-          <text transform="translate(82697.8 3099.84) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="108.966917" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">CONTROL JOINT TOP AND BOTTOM</text>
+          <g data-part="text" data-paragraph="STUCCO BAND AT FLOOR LINE,\PCONTROL JOINT TOP AND BOTTOM">
+          <text transform="translate(82697.517599 3107.298561) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="96.406207" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">STUCCO BAND AT FLOOR LINE,</text>
+          <text transform="translate(82697.486903 3099.718752) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="108.966917" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">CONTROL JOINT TOP AND BOTTOM</text>
+        </g>
         </g>
         <g data-leader="IMPACT RATED WINDOW,&#10;SEE A-601">
           <polyline points="82353.999829,3091.954755 82688.8,3089.43" stroke="#1f2328" data-part="shaft"/>
           <line x1="82688.8" y1="3089.43" x2="82694.8" y2="3089.43" stroke="#1f2328" data-part="landing"/>
           <polygon points="82348,3092 82353.992289,3090.954783 82354.00737,3092.954726" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82697.8 3087.18) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="77.87824" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">IMPACT RATED WINDOW,</text>
-          <text transform="translate(82697.8 3079.68) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="31.100955" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">SEE A-601</text>
+          <g data-part="text" data-paragraph="IMPACT RATED WINDOW,\PSEE A-601">
+          <text transform="translate(82697.213711 3087.138561) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="77.87824" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">IMPACT RATED WINDOW,</text>
+          <text transform="translate(82697.517599 3079.561822) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="31.100955" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">SEE A-601</text>
+        </g>
         </g>
         <g data-leader="5/8&quot; STUCCO ON 8&quot; CMU">
           <polyline points="82610,3050 82688.8,3050" stroke="#1f2328" data-part="shaft"/>
           <line x1="82688.8" y1="3050" x2="82694.8" y2="3050" stroke="#1f2328" data-part="landing"/>
           <polygon points="82604,3050 82610,3049 82610,3051" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82697.8 3047.75) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="73.973738" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">5/8&quot; STUCCO ON 8&quot; CMU</text>
+          <g data-part="text" data-paragraph="5/8&quot; STUCCO ON 8&quot; CMU">
+          <text transform="translate(82697.539086 3047.708561) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="73.973738" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">5/8&quot; STUCCO ON 8&quot; CMU</text>
+        </g>
         </g>
         <g data-leader="36&quot; GUARD AT LANAI, 3 SIDES,&#10;4&quot; SPHERE MAX. OPENING (R312.1)">
           <polyline points="82048.572788,3020.172216 82026,2928" stroke="#1f2328" data-part="shaft"/>
           <line x1="82026" y1="2928" x2="82020" y2="2928" stroke="#1f2328" data-part="landing"/>
           <polygon points="82050,3026 82047.60149,3020.410085 82049.544085,3019.934347" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82017 2925.75) scale(1 -1) translate(-92.716576 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="92.716576" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">36&quot; GUARD AT LANAI, 3 SIDES,</text>
-          <text transform="translate(82017 2918.25) scale(1 -1) translate(-107.386085 0)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="107.386085" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">4&quot; SPHERE MAX. OPENING (R312.1)</text>
+          <g data-part="text" data-paragraph="36&quot; GUARD AT LANAI, 3 SIDES,\P4&quot; SPHERE MAX. OPENING (R312.1)">
+          <text transform="translate(81924.842087 2926.334755) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="92.716576" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">36&quot; GUARD AT LANAI, 3 SIDES,</text>
+          <text transform="translate(81909.841064 2918.754946) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="107.386085" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">4&quot; SPHERE MAX. OPENING (R312.1)</text>
+        </g>
         </g>
         <g data-leader="STUCCO ON CMU STEM WALL,&#10;COMPACTED FILL BELOW SLAB">
           <polyline points="82530,2997 82688.8,2997" stroke="#1f2328" data-part="shaft"/>
           <line x1="82688.8" y1="2997" x2="82694.8" y2="2997" stroke="#1f2328" data-part="landing"/>
           <polygon points="82524,2997 82530,2996 82530,2998" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82697.8 2994.75) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="93.603683" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">STUCCO ON CMU STEM WALL,</text>
-          <text transform="translate(82697.8 2987.25) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="96.765348" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">COMPACTED FILL BELOW SLAB</text>
+          <g data-part="text" data-paragraph="STUCCO ON CMU STEM WALL,\PCOMPACTED FILL BELOW SLAB">
+          <text transform="translate(82697.517599 2994.708561) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="93.603683" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">STUCCO ON CMU STEM WALL,</text>
+          <text transform="translate(82697.486903 2987.128752) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="96.765348" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">COMPACTED FILL BELOW SLAB</text>
+        </g>
         </g>
         <g data-leader="LANAI STEPS: 4 RISERS AT 6.8&quot;, 11&quot; TREADS,&#10;HANDRAILS BOTH SIDES, TO POOL DECK EL. 8.40'">
           <polyline points="82147.246953,2973.923228 82176.8,2928" stroke="#1f2328" data-part="shaft"/>
           <line x1="82176.8" y1="2928" x2="82182.8" y2="2928" stroke="#1f2328" data-part="landing"/>
           <polygon points="82144,2978.96875 82146.406033,2973.382069 82148.087873,2974.464386" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82185.8 2925.75) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="136.875512" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">LANAI STEPS: 4 RISERS AT 6.8&quot;, 11&quot; TREADS,</text>
-          <text transform="translate(82185.8 2918.25) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="152.818895" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">HANDRAILS BOTH SIDES, TO POOL DECK EL. 8.40'</text>
+          <g data-part="text" data-paragraph="LANAI STEPS: 4 RISERS AT 6.8&quot;, 11&quot; TREADS,\PHANDRAILS BOTH SIDES, TO POOL DECK EL. 8.40'">
+          <text transform="translate(82185.339563 2926.11835) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="136.875512" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">LANAI STEPS: 4 RISERS AT 6.8&quot;, 11&quot; TREADS,</text>
+          <text transform="translate(82185.296589 2918.538541) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="152.818895" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">HANDRAILS BOTH SIDES, TO POOL DECK EL. 8.40'</text>
+        </g>
         </g>
         <g data-leader="FINISH GRADE EL. 8.00' NAVD, SLOPE&#10;AWAY 6&quot; IN 10'-0&quot; (FBC-R R401.3)">
           <polyline points="82668.4,2964 82688.8,2964" stroke="#1f2328" data-part="shaft"/>
           <line x1="82688.8" y1="2964" x2="82694.8" y2="2964" stroke="#1f2328" data-part="landing"/>
           <polygon points="82662.4,2964 82668.4,2963 82668.4,2965" fill="#1f2328" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(82697.8 2961.75) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="114.743861" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">FINISH GRADE EL. 8.00' NAVD, SLOPE</text>
-          <text transform="translate(82697.8 2954.25) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="98.938608" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">AWAY 6&quot; IN 10'-0&quot; (FBC-R R401.3)</text>
+          <g data-part="text" data-paragraph="FINISH GRADE EL. 8.00' NAVD, SLOPE\PAWAY 6&quot; IN 10'-0&quot; (FBC-R R401.3)">
+          <text transform="translate(82697.284311 2962.331685) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="114.743861" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">FINISH GRADE EL. 8.00' NAVD, SLOPE</text>
+          <text transform="translate(82697.8 2954.754946) scale(1 -1)" font-size="6.284916" font-family="Arial, Helvetica, sans-serif" data-height="4.5" textLength="98.938608" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial" data-part="text">AWAY 6&quot; IN 10'-0&quot; (FBC-R R401.3)</text>
+        </g>
         </g>
       </g>
     </g>

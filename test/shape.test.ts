@@ -100,6 +100,8 @@ const kinds: {
     lineSpacing: 1.5,
     lineSpacingStyle: "exactly",
     columns: { height: 4, count: 2, gutter: 0.5 },
+    // A paragraph in columns takes no mask; a leader's note has one of every field.
+    mask: false,
     id: "k",
     ...styled,
   },
@@ -181,6 +183,33 @@ const kinds: {
     invertClip: true,
     transparent: true,
     id: "m",
+    ...styled,
+  },
+  hatch: {
+    kind: "hatch",
+    layer: "0",
+    loops: [
+      {
+        points: [
+          [70, 0],
+          [80, 0],
+          [80, 10],
+        ],
+        bulges: [0, 0.5, 0],
+      },
+    ],
+    id: "w1",
+    ...styled,
+  },
+  wipeout: {
+    kind: "wipeout",
+    layer: "0",
+    points: [
+      [90, 0],
+      [95, 0],
+      [92, 4],
+    ],
+    id: "w2",
     ...styled,
   },
   "radius-dimension": {
@@ -298,6 +327,7 @@ const full: Required<Drawing> & {
   dxf: "R2018",
   linetypeScale: 2,
   imageFrame: false,
+  wipeoutFrame: false,
   linetypes: [{ name: "DD", description: "Dash dot", pattern: [0.5, -0.25, 0, -0.25] }],
   textStyles: [{ name: "NOTES", font: "Arial", widthFactor: 0.9, obliqueAngle: 10 }],
   dimensionStyles: [
@@ -326,6 +356,7 @@ const full: Required<Drawing> & {
       angleUnits: "degrees-minutes-seconds",
       anglePrecision: 4,
       suppressAngleZeros: "leading",
+      textMask: { color: 3 },
     },
     {
       name: "ARCH",
@@ -354,6 +385,7 @@ const full: Required<Drawing> & {
       angleUnits: "degrees",
       anglePrecision: 0,
       suppressAngleZeros: "both",
+      textMask: true,
     },
   ],
   leaderStyles: [
@@ -641,7 +673,7 @@ test("a value of the wrong shape is reported in these words, once", () => {
       { toString: 0 },
       [
         "xref: Xref a value of type object: A block's name must be a string",
-        `undefined-block: insert #15: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
+        `undefined-block: insert #17: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
       ],
     ],
     [

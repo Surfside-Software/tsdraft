@@ -291,17 +291,13 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     // North is up the block. Its base point is the middle of the circle.
     d.text([0, arrowRadius + gap], "N", { role: "heading", align: "center" });
     d.circle([0, 0], arrowRadius);
-    d.line([0, -arrowRadius], [0, arrowRadius * 0.4]);
-    // The arrowhead is one polyline from the tip, where it has no width, to its base.
+    d.line([0, -arrowRadius], [0, arrowRadius * 0.2]);
+    // The arrowhead: its outline from the tip, notched at the shaft, and its east half filled.
     const head = arrowRadius * 0.9;
-    d.polyline(
-      [
-        [0, arrowRadius],
-        [0, arrowRadius - head],
-      ],
-      false,
-      { widths: [[0, head / 3]] },
-    );
+    const tip: Point = [0, arrowRadius];
+    const notch: Point = [0, arrowRadius - head * 0.8];
+    d.polyline([tip, [-head / 3, arrowRadius - head], notch, [head / 3, arrowRadius - head]], true);
+    d.hatch([tip, notch, [head / 3, arrowRadius - head]]);
   });
   // The view title: the title over a line and the scale under it. Its base point is the left
   // end of the line. The line has one fixed length, long enough for the sheet's view title,

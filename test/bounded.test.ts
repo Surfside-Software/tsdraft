@@ -229,6 +229,12 @@ test("every walk stops at the first empty slot of a list", () => {
         { kind: "polyline", layer: "0", points: slots(), closed: true },
       ],
     },
+    { ...sheet, entities: [...sheet.entities, { kind: "hatch", layer: "0", loops: slots() }] },
+    {
+      ...sheet,
+      entities: [...sheet.entities, { kind: "hatch", layer: "0", loops: [{ points: slots() }] }],
+    },
+    { ...sheet, entities: [...sheet.entities, { kind: "wipeout", layer: "0", points: slots() }] },
     {
       ...sheet,
       linetypes: [...sheet.linetypes!, { name: "HOLE", description: "", pattern: slots() }],
@@ -2344,6 +2350,51 @@ test("polylines that share a long list of points, each with lists or a width of 
     );
     assert.ok(Array.isArray(found) || found instanceof RangeError, String(found));
   }
+});
+
+test("hatches that share their loops, and loops that share one list of points, are drawn in a bounded time", () => {
+  const points = Array.from({ length: 10_000 }, (_, k): Point => [
+    10 * Math.cos(k / 1591.5),
+    10 * Math.sin(k / 1591.5),
+  ]);
+  const shared = Array.from({ length: 512 }, () => ({
+    points: [
+      [0, 0],
+      [1, 0],
+      [0, 1],
+    ] as Point[],
+  }));
+  for (const entities of [
+    // One hatch whose loops all hold one long list: its picture is refused before it is held.
+    [{ kind: "hatch", layer: "0", loops: Array.from({ length: 20_000 }, () => ({ points })) }],
+    // Many hatches that hold one list of loops: its box is worked out once.
+    Array.from({ length: 512 }, () => ({ kind: "hatch", layer: "0", loops: shared })),
+  ] as Entity[][]) {
+    const drawing: Drawing = {
+      format: 0,
+      units: "in",
+      dxf: "R2018",
+      layers: [{ name: "0", color: 7 }],
+      entities,
+    };
+    const found = settled(5000, () => svgWithin(drawing, {}, 50_000));
+    assert.ok(typeof found === "string" || found instanceof RangeError, String(found));
+  }
+});
+
+test("masked paragraphs that share a long value read its mask's box once", () => {
+  const value = Array.from({ length: 20_000 }, () => "I").join("\\P");
+  const entities = Array.from({ length: 100_000 }, (_, k): Entity => ({
+    kind: "paragraph",
+    layer: "0",
+    value,
+    at: [k, 0],
+    rotation: 0,
+    height: 1,
+    mask: true,
+  }));
+  const found = settled(2000, () => extents(entities));
+  assert.ok(Array.isArray(found), String(found));
 });
 
 test("a paragraph of many lines, runs or braces, a long word and numbers past drawing stay bounded", () => {

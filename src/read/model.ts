@@ -99,6 +99,12 @@ export interface ReadHeader {
   readonly dimstyle?: string;
   /** `$TEXTSTYLE`, the current text style. */
   readonly textstyle?: string;
+  /**
+   * The dictionary variable `WIPEOUTFRAME`, which the leading CAD app reads of whether wipeouts'
+   * frames show: 0 neither shown nor plotted, 1 both, 2 shown and not plotted. A file without it
+   * shows and plots them.
+   */
+  readonly wipeoutFrame?: number;
 }
 
 /** A layer of the file's table, with its state as the file holds it. */
@@ -187,6 +193,10 @@ export interface ReadDimensionStyle {
   readonly extensionLineweight?: number;
   /** The block `DIMBLK` draws each arrowhead with, such as `_ArchTick`. Missing for closed filled. */
   readonly arrowheadBlock?: string;
+  /** `DIMTFILL`: 0 no mask behind the text, 1 one in the drawing's background, 2 one in `textFillColor`. */
+  readonly textFill?: number;
+  /** `DIMTFILLCLR`, the color index of the mask, for a `textFill` of 2. */
+  readonly textFillColor?: number;
 }
 
 /** An attribute definition of a block, placed as a text is. */
@@ -357,6 +367,21 @@ export interface ReadMtext extends ReadEntityBase {
    * ones, and heights for dynamic ones of a height each, up to the first of 0.
    */
   readonly columns?: ParagraphColumns;
+  /**
+   * The mask behind it, over its box grown by `offsetFactor` times its height less one: in the
+   * drawing's background where `color` and `trueColor` are left out, or in a color of its own.
+   */
+  readonly mask?: ReadMask;
+}
+
+/** A text's background mask, as an MTEXT holds it. */
+export interface ReadMask {
+  /** Group 63: a color index, when the mask is not in the drawing's background. */
+  readonly color?: number;
+  /** Group 421: a true color as 0xRRGGBB, when it is not in the background. */
+  readonly trueColor?: number;
+  /** Group 45. */
+  readonly offsetFactor: number;
 }
 
 /**
@@ -599,6 +624,46 @@ export interface ReadImage extends ReadEntityBase {
   readonly fade?: number;
 }
 
+/** A loop of a hatch, as a closed polyline holds its points and the bulge of each side. */
+export interface ReadHatchLoop {
+  readonly points: readonly Point[];
+  /** Left out when every side is straight. */
+  readonly bulges?: readonly number[];
+  /**
+   * Group 92, as the file holds it: 1 external, 2 a polyline, 4 derived from what it bounds, 8 a
+   * text's box, 16 outermost.
+   */
+  readonly flags: number;
+}
+
+/**
+ * A hatch: its loops, its pattern and how it takes islands. The leading CAD app fills one of style
+ * `normal` by the parity of all its loops around a point; one of style `outer` by the parity of
+ * its loops marked external or outermost alone, and one of style `ignore` by its external ones.
+ */
+export interface ReadHatch extends ReadEntityBase {
+  readonly kind: "hatch";
+  /** Group 2, such as `SOLID` or `ANSI31`. */
+  readonly pattern: string;
+  /** True for a solid fill, group 70. */
+  readonly solid: boolean;
+  /** Group 75. */
+  readonly style: "normal" | "outer" | "ignore";
+  /** True when the file ties it to the entities it bounds, group 71. */
+  readonly associative?: true;
+  /**
+   * Its loops, in the order of the file, each a polyline or a loop of lines and arcs read as one.
+   * A hatch with a loop of an ellipse or a spline is counted instead.
+   */
+  readonly loops: readonly ReadHatchLoop[];
+}
+
+/** A wipeout: its polygon in the world's coordinates, without its first point again at its end. */
+export interface ReadWipeout extends ReadEntityBase {
+  readonly kind: "wipeout";
+  readonly points: readonly Point[];
+}
+
 /** What a space or a block draws, of the kinds the writers write. */
 export type ReadEntity =
   | ReadLine
@@ -614,7 +679,9 @@ export type ReadEntity =
   | ReadMultileader
   | ReadLeader
   | ReadSolid
-  | ReadImage;
+  | ReadImage
+  | ReadHatch
+  | ReadWipeout;
 
 export interface ReadBlock {
   /** The handle of the block's record, which an insert's block record points to. */
@@ -626,6 +693,8 @@ export interface ReadBlock {
   readonly attributeDefinitions: readonly ReadAttributeDefinition[];
   /** What it draws of the kinds `ReadEntity` holds, in the order of the file. */
   readonly entities: readonly ReadEntity[];
+  /** The order the leading CAD app draws them in, as `ReadSpace.drawOrder` says. */
+  readonly drawOrder?: readonly string[];
   /**
    * What else it draws, counted by kind, such as `HATCH` or a polyline with an arc, and under
    * `past the limit` what it holds past `BLOCK_ITEMS`.
@@ -706,6 +775,8 @@ export interface ReadLayout {
   readonly census: ReadCensus;
   /** With `geometry`, what it draws on its paper, as model space's are. Its viewports are above. */
   readonly entities?: readonly ReadEntity[];
+  /** With `geometry`, the order the leading CAD app draws them in, as `ReadSpace.drawOrder` says. */
+  readonly drawOrder?: readonly string[];
   readonly other?: Readonly<Record<string, number>>;
 }
 
@@ -714,6 +785,12 @@ export interface ReadSpace {
   readonly census: ReadCensus;
   /** With `geometry`, what it draws, in the order of the file. */
   readonly entities?: readonly ReadEntity[];
+  /**
+   * With `geometry`, and when the file holds a sort table for the space, the handles of
+   * `entities` in the order the leading CAD app draws them: by each one's sort handle, its own
+   * handle where the table gives none. Without a table it draws them in the order of the file.
+   */
+  readonly drawOrder?: readonly string[];
   /**
    * With `geometry`, what it draws that `entities` leaves out, counted by kind: a kind it does not
    * read, such as `HATCH`, one in another plane, such as `CIRCLE in 3D`, and under `past the

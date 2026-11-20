@@ -11,6 +11,7 @@ import type {
   ReadAngularDimension,
   ReadEntity,
   ReadEntityBase,
+  ReadHatchLoop,
   ReadImage,
   ReadMtext,
   ReadMultileader,
@@ -234,6 +235,10 @@ export function readingOf(
       return leader(r, base, face);
     case "IMAGE":
       return image(r, base);
+    case "HATCH":
+      return hatch(r, base, face);
+    case "WIPEOUT":
+      return wipeout(r, base);
     case "SOLID": {
       if (face === 0) return { other: "SOLID in 3D" };
       const corner = (code: number): Point =>
@@ -304,6 +309,148 @@ function image(r: Rec, base: ReadEntityBase): Reading {
       ...(fade !== 0 && { fade }),
     },
   };
+}
+
+/** What a hatch's island style 75 reads as. */
+const HATCH_STYLES = ["normal", "outer", "ignore"] as const;
+
+/** The bulge of an arc that turns through `sweep` degrees, counterclockwise when above 0. */
+const bulgeOf = (sweep: number): number => Math.tan((sweep * Math.PI) / 720);
+
+/**
+ * A hatch: its pattern, its style and its loops, each a polyline, or a loop of lines and arcs
+ * read as one, as points and the bulge of each side. One with an ellipse or a spline in a loop,
+ * which `ReadHatchLoop` does not hold, is counted.
+ */
+function hatch(r: Rec, base: ReadEntityBase, face: Facing): Reading {
+  if (face === 0) return { other: "HATCH in 3D" };
+  const s = inSubclass(r, "AcDbHatch");
+  const { codes, values } = s;
+  let i = codes.indexOf(91);
+  if (i < 0) return { malformed: "HATCH with no count of loops" };
+  const value = (k: number) => Number(values[k]);
+  // The next group of a code from `i` on, read by the order of the loop's groups.
+  const take = (code: number): number | undefined => {
+    if (codes[i] !== code) return undefined;
+    return value(i++);
+  };
+  const count = value(i++);
+  const loops: ReadHatchLoop[] = [];
+  const mirror = (p: Point): Point => placed(p, face);
+  for (let loop = 0; loop < count && i < codes.length; loop++) {
+    const flags = take(92);
+    if (flags === undefined) return { malformed: "HATCH whose loops do not follow its count" };
+    const points: Point[] = [];
+    const bulges: number[] = [];
+    if ((flags & 2) !== 0) {
+      const bulged = take(72) === 1;
+      take(73);
+      const n = take(93) ?? 0;
+      for (let k = 0; k < n && codes[i] === 10; k++) {
+        const x = value(i++);
+        const y = take(20) ?? 0;
+        points.push(mirror([x, y]));
+        const bulge = bulged ? (take(42) ?? 0) : 0;
+        bulges.push(face === -1 ? -bulge : bulge);
+      }
+    } else {
+      const n = take(93) ?? 0;
+      for (let k = 0; k < n && codes[i] === 72; k++) {
+        const type = take(72);
+        if (type === 1) {
+          const [x0, y0] = [take(10) ?? 0, take(20) ?? 0];
+          take(11);
+          take(21);
+          points.push(mirror([x0, y0]));
+          bulges.push(0);
+        } else if (type === 2) {
+          const [cx, cy] = [take(10) ?? 0, take(20) ?? 0];
+          const radius = take(40) ?? 0;
+          const [start, end] = [take(50) ?? 0, take(51) ?? 0];
+          const ccw = take(73) !== 0;
+          // A clockwise arc holds its angles as they turn clockwise: the world's are less 360.
+          const [a0, a1] = ccw ? [start, end] : [360 - start, 360 - end];
+          let sweep = ccw ? a1 - a0 : -(a0 - a1);
+          if (ccw && sweep <= 0) sweep += 360;
+          if (!ccw && sweep >= 0) sweep -= 360;
+          const at = (angle: number): Point =>
+            mirror([
+              cx + radius * Math.cos((angle * Math.PI) / 180),
+              cy + radius * Math.sin((angle * Math.PI) / 180),
+            ]);
+          const sign = face === -1 ? -1 : 1;
+          // A whole circle is two halves, since one side cannot end where it starts.
+          if (Math.abs(sweep) >= 360 - 1e-9) {
+            points.push(at(a0), at(a0 + sweep / 2));
+            bulges.push(sign * bulgeOf(sweep / 2), sign * bulgeOf(sweep / 2));
+          } else {
+            points.push(at(a0));
+            bulges.push(sign * bulgeOf(sweep));
+          }
+        } else if (type === 3 || type === 4) {
+          return { other: "HATCH bounded by an ellipse or a spline" };
+        } else return { malformed: "HATCH with an edge of no known kind" };
+      }
+    }
+    // The handles of the entities it bounds, which the read model does not hold.
+    const objects = take(97) ?? 0;
+    for (let k = 0; k < objects && codes[i] === 330; k++) i++;
+    loops.push({
+      points,
+      ...(bulges.some((b) => b !== 0) && { bulges: bulges.map((b) => b + 0) }),
+      flags,
+    });
+  }
+  const style = HATCH_STYLES[num(s, 75) ?? 0] ?? "normal";
+  return {
+    entity: {
+      ...base,
+      kind: "hatch",
+      pattern: name(s, 2) ?? "",
+      solid: num(s, 70) === 1,
+      style,
+      ...(num(s, 71) === 1 && { associative: true as const }),
+      loops,
+    },
+  };
+}
+
+/**
+ * A wipeout: its clip, which the file holds in the axes of its picture of one pixel, in the
+ * world's coordinates, a polygon without its first point again at its end, or a rectangle's four
+ * corners. One whose vectors leave the plane is counted.
+ */
+function wipeout(r: Rec, base: ReadEntityBase): Reading {
+  const s = inSubclass(r, "AcDbWipeout");
+  if ([31, 32, 30].some((code) => Math.abs(num(s, code) ?? 0) > 1e-9)) {
+    return { other: "WIPEOUT in 3D" };
+  }
+  const held: Point[] = [];
+  for (let i = 0; i < s.codes.length; i++) {
+    if (s.codes[i] !== 14) continue;
+    const y = s.codes[i + 1] === 24 ? Number(s.values[i + 1]) : 0;
+    held.push([Number(s.values[i]), y]);
+  }
+  const [at, u, v] = [point(s, 10), point(s, 11), point(s, 12)];
+  const rectangle = (num(s, 71) ?? 2) === 1;
+  let corners = held;
+  if (rectangle && held.length === 2) {
+    const [[x0, y0], [x1, y1]] = held as [Point, Point];
+    corners = [
+      [x0, y0],
+      [x1, y0],
+      [x1, y1],
+      [x0, y1],
+    ];
+  } else if (held.length > 1) {
+    const [head, tail] = [held[0]!, held.at(-1)!];
+    if (head[0] === tail[0] && head[1] === tail[1]) corners = held.slice(0, -1);
+  }
+  const points = corners.map(([x, y]): Point => {
+    const [a, b] = [x + 0.5, 0.5 - y];
+    return [at[0] + a * u[0] + b * v[0], at[1] + a * u[1] + b * v[1]];
+  });
+  return { entity: { ...base, kind: "wipeout", points } };
 }
 
 /**
@@ -401,6 +548,19 @@ function mtext(record: Rec, base: ReadEntityBase): Reading {
     dx !== undefined && dy !== undefined && (dx !== 0 || dy !== 0)
       ? degrees((Math.atan2(dy, dx) * 180) / Math.PI)
       : degrees(num(r, 50) ?? 0);
+  const flags = num(r, 90) ?? 0;
+  const color = num(r, 63);
+  const trueColor = num(r, 421);
+  // Bit 1 turns the mask on, and bit 2 fills it with the drawing's background.
+  const mask =
+    (flags & 1) === 0
+      ? undefined
+      : {
+          // A true color stands for the color, whose index is only the nearest one.
+          ...((flags & 2) === 0 && trueColor === undefined && color !== undefined && { color }),
+          ...((flags & 2) === 0 && trueColor !== undefined && { trueColor }),
+          offsetFactor: num(r, 45) ?? 1.5,
+        };
   const entity: ReadMtext = {
     ...base,
     kind: "mtext",
@@ -413,6 +573,7 @@ function mtext(record: Rec, base: ReadEntityBase): Reading {
     value: textOnce(value),
     lineSpacing: num(r, 44) ?? 1,
     lineSpacingStyle: num(r, 73) === 2 ? "exactly" : "at-least",
+    ...(mask !== undefined && { mask }),
   };
   // The embedded object's direction wins over the MTEXT's own, as the leading CAD app reads it.
   const embedded = embeddedDirection(record);
@@ -833,5 +994,12 @@ export function costOf(e: ReadEntity): number {
     }
     case "image":
       return own + 4 + (e.clip?.length ?? 0) + chars(e.definition);
+    case "hatch": {
+      let points = 0;
+      for (const loop of e.loops) points += 1 + loop.points.length + (loop.bulges?.length ?? 0);
+      return own + points + chars(e.pattern);
+    }
+    case "wipeout":
+      return own + e.points.length;
   }
 }

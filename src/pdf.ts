@@ -292,6 +292,7 @@ const ATTRIBUTES = new Set([
   "href",
   "preserveAspectRatio",
   "clip-rule",
+  "fill-rule",
 ]);
 
 /**
@@ -844,6 +845,7 @@ function pathPieces(d: string, where: string, scale: number): Piece[] {
   const tokens = d.trim().split(/[\s,]+/);
   const pieces: Piece[] = [];
   let at: [number, number] = [0, 0];
+  let start: [number, number] = [0, 0];
   let i = 0;
   const numbers = (count: number): number[] => {
     const out = tokens.slice(i, i + count).map(Number);
@@ -856,7 +858,12 @@ function pathPieces(d: string, where: string, scale: number): Piece[] {
     if (command === "M" || command === "L") {
       const [x, y] = numbers(2) as [number, number];
       at = [x, y];
+      if (command === "M") start = at;
       pieces.push({ kind: command === "M" ? "move" : "line", to: at });
+    } else if (command === "Z") {
+      // A hatch's loop closes back to where it started.
+      pieces.push({ kind: "close" });
+      at = start;
     } else if (command === "A") {
       const [rx, ry, turn, large, sweep, x, y] = numbers(7) as number[];
       const to: [number, number] = [x!, y!];
@@ -1191,7 +1198,12 @@ class PdfWriter {
     const paint = (
       pieces: readonly Piece[],
       m: Matrix,
-      state: { stroke: string | undefined; fill: string | undefined; width: number },
+      state: {
+        stroke: string | undefined;
+        fill: string | undefined;
+        width: number;
+        evenOdd?: boolean;
+      },
     ): void => {
       if (state.stroke === undefined && state.fill === undefined) return;
       if (state.stroke !== undefined && state.stroke !== pen.stroke) {
@@ -1218,7 +1230,10 @@ class PdfWriter {
           content.add(`${p(piece.c1)} ${p(piece.c2)} ${p(piece.to)} c`);
         } else content.add("h");
       }
-      content.add(state.fill === undefined ? "S" : state.stroke === undefined ? "f" : "B");
+      const rule = state.evenOdd ? "*" : "";
+      content.add(
+        state.fill === undefined ? "S" : state.stroke === undefined ? `f${rule}` : `B${rule}`,
+      );
     };
 
     // Sticky, so each match starts where the last ended: what it cannot read is refused, never
@@ -1497,7 +1512,15 @@ class PdfWriter {
       const fill = colorOf(inherited.fill, where(tag));
       // The thinnest line, which `toSVG` marks, plots 0 wide: the thinnest the printer draws.
       const thinnest = element["data-thinnest"] !== undefined;
-      const state = { stroke, fill, width: thinnest ? 0 : width * scaleOf(inherited.matrix) };
+      const state = {
+        stroke,
+        fill,
+        width: thinnest ? 0 : width * scaleOf(inherited.matrix),
+        evenOdd: element["fill-rule"] === "evenodd",
+      };
+      if (element["fill-rule"] !== undefined && element["fill-rule"] !== "evenodd") {
+        throw refuse(`the fill rule ${JSON.stringify(element["fill-rule"])}`, where(tag));
+      }
       mark(inherited.layer);
       let pieces: Piece[];
       switch (tag) {

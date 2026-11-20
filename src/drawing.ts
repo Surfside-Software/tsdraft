@@ -57,6 +57,7 @@ import {
 } from "./papers.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import { arcsAlong, cloud, donut, MAX_CLOUD_ARCS, rounded } from "./polylines.ts";
+import { onOneLine, polygonCrosses } from "./fills.ts";
 import { imageVectors } from "./images.ts";
 import { canonical } from "./json.ts";
 import { DrawingError, type Diagnostic, type LintRule } from "./lint.ts";
@@ -211,6 +212,13 @@ import {
   type LEADER_SHAFT_KINDS,
   type LEADER_SIDES,
   type LEADER_VERTICAL_ATTACHMENTS,
+  HATCH_LOOP_POINTS,
+  HATCH_NO_LOOPS,
+  textMaskProblem,
+  PARAGRAPH_MASK_COLUMNS,
+  WIPEOUT_CROSSES,
+  WIPEOUT_FLAT,
+  WIPEOUT_POINTS,
 } from "./rules.ts";
 import type {
   Standard,
@@ -497,6 +505,8 @@ export interface Paragraph extends EntityBase {
   readonly lineSpacingStyle?: LineSpacingStyle;
   /** Columns its lines flow through, each `width` wide. Missing, one column. */
   readonly columns?: ParagraphColumns;
+  /** A mask behind it, over its box: as wide as its width, or its widest line where that is wider. */
+  readonly mask?: TextMask;
 }
 
 /**
@@ -666,11 +676,11 @@ export type LeaderBlockConnection = (typeof LEADER_BLOCK_CONNECTIONS)[number];
 export type LeaderVerticalAttachment = (typeof LEADER_VERTICAL_ATTACHMENTS)[number];
 
 /**
- * A mask behind a leader's note, which hides what is drawn before the leader there: `true` for
- * the drawing's background, or a color index of its own, over the note's box grown by
- * `offsetFactor` times its text height less one, 1.5 unless given.
+ * A mask behind a text, which hides what is drawn before it there: `true` for the drawing's
+ * background, or a color index of its own, over the text's box grown by `offsetFactor` times its
+ * text height less one, from 1 to 5 and 1.5 unless given.
  */
-export type LeaderMask = boolean | { readonly color?: number; readonly offsetFactor?: number };
+export type TextMask = boolean | { readonly color?: number; readonly offsetFactor?: number };
 
 /**
  * A leader: a note joined to what it names by one or more shafts. The leading CAD app holds it as
@@ -715,7 +725,7 @@ export interface Leader extends Placed {
   /** True for a frame around the note. Defaults to its style's. */
   readonly frame?: boolean;
   /** A mask behind the note. */
-  readonly mask?: LeaderMask;
+  readonly mask?: TextMask;
   /** How its shafts run through their points. Defaults to its style's. */
   readonly shaft?: LeaderShaftKind;
   /**
@@ -771,6 +781,38 @@ export interface Image extends EntityBase {
   readonly transparent?: boolean;
 }
 
+/**
+ * A closed outline of a hatch: from each point to the next and from the last back to the first,
+ * each side straight or an arc by its bulge, as a closed `Polyline`'s sides are.
+ */
+export interface HatchLoop {
+  readonly points: readonly Point[];
+  /** The bulge of each side, one for each, as `Polyline.bulges`. Defaults to every side straight. */
+  readonly bulges?: readonly number[];
+}
+
+/**
+ * A hatch: an area filled solid in its pen's color, which the leading CAD app holds as one entity
+ * a drafter edits and measures as one. The area inside an odd number of its loops is filled, so
+ * a loop inside another is a hole, and a loop inside a hole fills again. R2018 only.
+ */
+export interface Hatch extends EntityBase {
+  readonly kind: "hatch";
+  /** Its loops, in any order and either way round. */
+  readonly loops: readonly HatchLoop[];
+}
+
+/**
+ * A wipeout: a polygon filled with the paper's color, which hides what is drawn before it, such
+ * as the lines behind a note. Its frame, the polygon drawn in its pen, shows as
+ * `Drawing.wipeoutFrame` says. R2018 only.
+ */
+export interface Wipeout extends EntityBase {
+  readonly kind: "wipeout";
+  /** Its corners, three or more, in order. It closes back to the first. */
+  readonly points: readonly Point[];
+}
+
 export type Entity =
   | Line
   | Polyline
@@ -786,7 +828,9 @@ export type Entity =
   | JoggedRadiusDimension
   | AngularDimension
   | Leader
-  | Image;
+  | Image
+  | Hatch
+  | Wipeout;
 
 /**
  * A leader style: how the leaders that name it are drawn. Its sizes are the sizes its leaders
@@ -944,6 +988,11 @@ export interface DimensionStyle {
   readonly anglePrecision?: number;
   /** The zeros an angle leaves out, as `suppressZeros` does for a length. */
   readonly suppressAngleZeros?: "leading" | "trailing" | "both";
+  /**
+   * A mask behind the text: `true` for the drawing's background, or a color index of its own, over
+   * the text's box grown by a quarter of its height. Defaults to none.
+   */
+  readonly textMask?: boolean | { readonly color: number };
 }
 
 /**
@@ -1096,6 +1145,11 @@ export interface Drawing {
    * to true, as the leading CAD app has it. A sheet with a logo or an aerial wants false.
    */
   readonly imageFrame?: boolean;
+  /**
+   * Whether each wipeout's frame shows and plots: its polygon, in its pen. Defaults to true, as
+   * the leading CAD app has it. A mask behind notes wants false.
+   */
+  readonly wipeoutFrame?: boolean;
 }
 
 /**
@@ -1574,6 +1628,12 @@ interface ParagraphPlacement<Z extends Standard | undefined, N extends number, F
    * that many, `{ height }` for as many as it takes, or `{ heights }` for one of each height.
    */
   readonly columns?: ParagraphColumns;
+  /**
+   * A mask behind it, which hides what is drawn before it there: `true` for the drawing's
+   * background, or `{ color, offsetFactor }`, over its box grown by the factor less one times its
+   * height, 1.5 unless given.
+   */
+  readonly mask?: TextMask;
 }
 
 /**
@@ -1791,6 +1851,11 @@ export interface DimensionStyleDefinition<
   readonly anglePrecision?: number;
   /** The zeros an angle leaves out, as `suppressZeros` does for a length. */
   readonly suppressAngleZeros?: "leading" | "trailing" | "both";
+  /**
+   * A mask behind the text: `true` for the drawing's background, or a color index of its own, over
+   * the text's box grown by a quarter of its height. Defaults to none.
+   */
+  readonly textMask?: boolean | { readonly color: number };
 }
 
 /** What every dimension is drawn with. */
@@ -2006,7 +2071,7 @@ interface LeaderPlacement<TO extends LeaderTargets = LeaderTargets> {
   /** True for a frame around the note. Defaults to its style's. */
   readonly frame?: boolean;
   /** A mask behind the note: `true` for the drawing's background, or `{ color, offsetFactor }`. */
-  readonly mask?: LeaderMask;
+  readonly mask?: TextMask;
   /** How its shafts run through their points. Defaults to its style's. */
   readonly shaft?: LeaderShaftKind;
   /**
@@ -2891,6 +2956,83 @@ export class DrawingBuilder<
   }
 
   /**
+   * A hatch, filled solid in the current layer's color: one outline's points, or a list of loops.
+   * The area inside an odd number of loops is filled, so a loop inside another is a hole and one
+   * inside a hole fills again, whichever way each runs. A loop's `bulges` make its sides arcs, as
+   * a polyline's do. R2018 only.
+   *
+   * ```ts
+   * d.hatch([
+   *   { points: [[0, 0], [8, 0], [8, 0.5], [0, 0.5]] },
+   *   { points: [[3, 0], [3.5, 0], [3.5, 0.5]] },
+   * ]);
+   * ```
+   */
+  hatch<
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    P extends string = string,
+  >(
+    boundary: readonly Point[] | readonly HatchLoop[],
+    options: EntityOptions<V, T, W, L, I, Z, P> = {},
+  ): this {
+    return this.#add(DrawingBuilder.prototype.hatch, options, () => {
+      if (this.dxf === "R12") refuse("hatch", R12_ONLY.hatches);
+      if (!Array.isArray(boundary))
+        refuse("geometry", "A hatch's boundary is a list of points or of loops");
+      const first: unknown = boundary[0];
+      const outline = Array.isArray(first) || first === undefined;
+      const given = (outline ? [{ points: boundary }] : boundary) as readonly HatchLoop[];
+      if (given.length === 0 || (outline && boundary.length === 0))
+        refuse("geometry", capitalized(HATCH_NO_LOOPS));
+      const loops = given.map((loop, k): HatchLoop => {
+        if (typeof loop !== "object" || loop === null || !Array.isArray(loop.points))
+          return refuse("geometry", `Loop ${k} must be { points, bulges? }`);
+        const points = loop.points.map(pt);
+        const bulges = loop.bulges;
+        const problem =
+          polylineSidesProblems(points.length, bulges, undefined, undefined)[0] ??
+          (points.length < 2 ||
+          (points.length === 2 && !(bulges ?? []).some((b) => written(b) !== 0))
+            ? HATCH_LOOP_POINTS
+            : undefined);
+        if (problem) refuse("geometry", `Loop ${k}: ${problem}`);
+        return { points, ...(bulges === undefined ? {} : { bulges: [...bulges] }) };
+      });
+      return { kind: "hatch", layer: this.#current, loops };
+    });
+  }
+
+  /**
+   * A wipeout: a polygon filled with the paper's color, which hides what is drawn before it, such
+   * as the lines behind a note. Its frame shows as `Drawing.wipeoutFrame` says. R2018 only.
+   *
+   * ```ts
+   * d.wipeout([[2, 2], [5, 2], [5, 3], [2, 3]]);
+   * ```
+   */
+  wipeout<
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    P extends string = string,
+  >(points: readonly Point[], options: EntityOptions<V, T, W, L, I, Z, P> = {}): this {
+    return this.#add(DrawingBuilder.prototype.wipeout, options, () => {
+      if (this.dxf === "R12") refuse("wipeout", R12_ONLY.hatches);
+      if (!Array.isArray(points) || points.length < 3)
+        refuse("geometry", capitalized(WIPEOUT_POINTS));
+      const corners = points.map(pt);
+      if (onOneLine(corners)) refuse("geometry", capitalized(WIPEOUT_FLAT));
+      if (corners.length <= 4096 && polygonCrosses(corners))
+        refuse("wipeout", capitalized(WIPEOUT_CROSSES));
+      return { kind: "wipeout", layer: this.#current, points: corners };
+    });
+  }
+
+  /**
    * A raster image: the PNG or JPEG file at `path`, from the folder of this drawing's file, with
    * its lower-left corner at `at`, `width` drawing units wide. `pixels` are the file's own, which
    * `rasterSize` reads, and its height defaults to the width times the file's height over its
@@ -3211,6 +3353,14 @@ export class DrawingBuilder<
         ...(c.count !== undefined && { count: c.count }),
         ...(c.gutter !== undefined && { gutter: c.gutter }),
       } as ParagraphColumns;
+    }
+    const mask: unknown = (o as { mask?: unknown }).mask;
+    if (mask !== undefined) {
+      const maskProblem = textMaskProblem(mask);
+      if (maskProblem) refuse("paragraph", maskProblem);
+      if (mask !== false && paragraph.columns !== undefined)
+        refuse("paragraph", capitalized(PARAGRAPH_MASK_COLUMNS));
+      if (mask !== false) paragraph.mask = mask === true ? true : { ...(mask as object) };
     }
     return paragraph as Paragraph;
   }
@@ -3651,7 +3801,7 @@ export class DrawingBuilder<
     if (block !== undefined) this.#arrowheadBlocks.add(block);
     const { prefix, suffix, suppressZeros, feetInchZeros } = definition;
     const { fraction, fractionScale, textPlacement, textFit } = definition;
-    const { dimensionLineweight, extensionLineweight, radialText, jogAngle } = definition;
+    const { dimensionLineweight, extensionLineweight, radialText, jogAngle, textMask } = definition;
     const { angleUnits, anglePrecision, suppressAngleZeros } = definition;
     const units = definition.units ?? "decimal";
     const scale = definition.scale ?? 1;
@@ -3684,6 +3834,9 @@ export class DrawingBuilder<
       ...(angleUnits === undefined || angleUnits === "degrees" ? {} : { angleUnits }),
       ...(anglePrecision === undefined || anglePrecision === 0 ? {} : { anglePrecision }),
       ...(suppressAngleZeros === undefined ? {} : { suppressAngleZeros }),
+      ...(textMask === undefined || textMask === false
+        ? {}
+        : { textMask: textMask === true ? true : { color: textMask.color } }),
     });
     this.#dimensionStylesAudited.set(layerAuditKey(named), named);
   }
@@ -4297,7 +4450,7 @@ export class DrawingBuilder<
       ...(o.gap === undefined ? {} : { gap: o.gap as number }),
       ...(o.width === undefined ? {} : { width: o.width as number }),
       ...(o.frame === undefined ? {} : { frame: o.frame as boolean }),
-      ...(o.mask === undefined ? {} : { mask: o.mask as LeaderMask }),
+      ...(o.mask === undefined ? {} : { mask: o.mask as TextMask }),
       ...(o.shaft === undefined ? {} : { shaft: o.shaft as LeaderShaftKind }),
       ...(far === undefined
         ? {}

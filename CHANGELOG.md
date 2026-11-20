@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Solid fills, wipeouts and masks, in R2018 drawings. `d.hatch(boundary)` fills the area inside
+  one outline, or inside a list of loops `{ points, bulges? }`, solid in its layer's color: the
+  area inside an odd number of loops is filled, so a loop inside another is a hole, whichever
+  way each runs, as CAD programs fill one. `d.wipeout(points)` draws a polygon in the paper's
+  color, which hides what is drawn before it, with its frame in its pen unless
+  `Drawing.wipeoutFrame` is `false`. A paragraph's `mask` hides what is drawn before it behind its
+  box grown by `offsetFactor`, and a dimension style's `textMask` masks every dimension's text, its
+  box grown by a quarter of the text's height. Both writers write each as CAD programs hold it, and
+  `toSVG` and `toPDF` draw it where it plots. `lint` and the builder refuse a hatch with no loop
+  or a loop of fewer than 3 points, or 2 joined by an arc; a wipeout of fewer than 3 points, on
+  one line or with sides that cross; and a mask of another shape. `LeaderMask` is now
+  `TextMask`, which a leader's and a paragraph's mask share.
+- `readDXF` and `readDWG` read a hatch, its loops of polylines or of lines and arcs as points and
+  bulges, its pattern and its island style; a wipeout; an `MTEXT`'s background mask; the order a
+  file's sort table draws a space or a block in, `drawOrder`; and whether wipeouts' frames show,
+  `header.wipeoutFrame`.
+
 - Leaders' notes, as CAD programs draw them. A note is laid out as paragraph text is, each line
   set by the ink of its letters, so its lines move where they plot by up to a quarter of their
   height from where earlier versions drew them. `attachment` takes every place CAD programs

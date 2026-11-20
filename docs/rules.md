@@ -54,6 +54,13 @@ it would take `1e+100` for `1e+10` and report nothing.
   two corners of a rectangle of some width and height along the image's sides, or a polygon of 3
   points that differ, at most 10,000 in all, and `invertClip` needs a clip.
   [Images](images.md#what-lint-refuses) has the rest.
+- A hatch and a wipeout are R2018 only. A hatch has at least one loop, and each loop at least 3
+  points, or 2 joined by an arc, with a bulge for each side where it has bulges. A wipeout has at
+  least 3 points, which do not lie on one line as written, and sides that do not cross.
+  `wipeoutFrame` is `true` or `false`. A paragraph's mask is `true`, `false` or
+  `{ color?, offsetFactor? }`, a color from 1 to 256 and a factor from 1 to 5, as a leader's is,
+  on a paragraph without columns, and a dimension style's `textMask` is `true`, `false` or `{ color }`.
+  [Fills, wipeouts and masks](fills.md) has the rest.
 - Arc angles are stored from 0 up to 360, so -90 becomes 270. An arc cannot come
   within 0.000001 degrees of a full turn, because its two angles would be
   written the same and the leading CAD app holds such an arc as having no length. Draw a

@@ -232,7 +232,7 @@ function fieldsFile(): string {
         [1, "%<\\_FldIdx 0>%"],
       ],
       [
-        [0, "HATCH"],
+        [0, "SPLINE"],
         [5, "A2"],
         [8, "NOTES"],
       ],
@@ -297,13 +297,13 @@ test("readDXF keeps fields, the heights MTEXT sets, and counts what it does not 
   const [text] = read.model.census.texts;
   assert.deepEqual(text?.inlineHeights, [0.2, 0.30000000000000004]);
   assert.deepEqual(plain(read.model.census.layers.NOTES), {
-    kinds: { MTEXT: 1, HATCH: 1, OLE2FRAME: 1 },
+    kinds: { MTEXT: 1, SPLINE: 1, OLE2FRAME: 1 },
     ownColor: 1,
     ownLinetype: 0,
     ownLineweight: 1,
     lineweights: { "35": 1 },
   });
-  assert.deepEqual(plain(read.unread.entities), { HATCH: 1, OLE2FRAME: 1 });
+  assert.deepEqual(plain(read.unread.entities), { SPLINE: 1, OLE2FRAME: 1 });
   assert.deepEqual(plain(read.unread.objects), { ACAD_PROXY_OBJECT: 1 });
   // No text value of model space is kept.
   assert.ok(!JSON.stringify(read).includes("big"));

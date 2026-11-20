@@ -96,6 +96,13 @@ entity, which its frame is drawn in. `imageFrame: false` on the drawing hides ev
 A drawing with no image has the JSON it had before images existed. [Images](images.md) describes
 them.
 
+A hatch is an entity of kind `"hatch"`, with its `layer` and its `loops`, each `{ points }` and
+where a side is an arc its `bulges`, one for each side, and the `linetype` and `lineweight` of
+every entity. A wipeout is an entity of kind `"wipeout"`, with its `layer` and its `points`.
+`wipeoutFrame: false` on the drawing hides every wipeout's frame. A paragraph's `mask` and a
+dimension style's `textMask` are written where they are set. A drawing with none of them has the
+JSON it had before they existed. [Fills, wipeouts and masks](fills.md) describes them.
+
 A drawing written by hand needs `format: 0` too. `lint` reports a drawing without it, or with
 another version, under the rule `format`, and `toDXF` refuses to write it. `lint` takes any
 plain data and never throws: a list that is not an array, an entity of an unknown `kind`, a

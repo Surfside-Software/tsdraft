@@ -171,6 +171,8 @@ const R12_PARAGRAPHS =
   'tsdraft writes no paragraphs to R12 drawings. Use DXF version "R2018" for a paragraph';
 const LINE_SPACING = "A paragraph's line spacing is a factor from 0.25 to 4";
 const R12_IMAGES = 'tsdraft writes no images to R12 drawings. Use DXF version "R2018" for an image';
+const R12_HATCHES =
+  'tsdraft writes no hatches or wipeouts to R12 drawings. Use DXF version "R2018" for a fill';
 const IMAGE_PATH_EMPTY = "An image's path cannot be empty. The leading CAD app finds no file by it";
 const IMAGE_PATH_ABSOLUTE =
   'An image\'s path must start from the folder of the drawing\'s file, as "aerial.png" and "../images/aerial.png" do, and cannot start with /, \\ or a drive such as C:. The leading CAD app looks for the file of an absolute path in that folder alone, and on another machine finds none';
@@ -1588,7 +1590,45 @@ export const R12_ONLY = {
   polylines: R12_POLYLINES,
   paragraphs: R12_PARAGRAPHS,
   images: R12_IMAGES,
+  hatches: R12_HATCHES,
 } as const;
+
+/** What is wrong with a hatch with no loop. */
+export const HATCH_NO_LOOPS = "a hatch needs at least one loop";
+
+/** What is wrong with a loop of too few points. */
+export const HATCH_LOOP_POINTS =
+  "a loop needs at least 3 points, or 2 joined by an arc, so that it closes around an area";
+
+/** What is wrong with a wipeout of too few points. */
+export const WIPEOUT_POINTS = "a wipeout needs at least 3 points";
+
+/** What is wrong with a wipeout whose polygon has no area as written. */
+export const WIPEOUT_FLAT =
+  "a wipeout's points must not lie on one line once rounded to the 6 decimals tsdraft writes: the leading CAD app hides nothing behind it";
+
+/** What is wrong with a wipeout whose sides cross. */
+export const WIPEOUT_CROSSES =
+  "a wipeout's sides must not cross each other: the leading CAD app hides nothing behind one that does. Give its corners in order around it";
+
+/** What is wrong with a value of `wipeoutFrame`. */
+export const WIPEOUT_FRAME = "wipeoutFrame must be true or false";
+
+/** What is wrong with a dimension style's mask. */
+export const DIMENSION_TEXT_MASK =
+  "textMask must be true, false, or { color }: a color index from 1 to 256, where 256 is the layer's";
+
+/** Returns what is wrong with a dimension style's mask, or undefined. */
+export function dimensionTextMaskProblem(value: unknown): string | undefined {
+  if (typeof value === "boolean") return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return DIMENSION_TEXT_MASK;
+  const m = value as Record<string, unknown>;
+  for (const key of Object.keys(m)) if (key !== "color") return DIMENSION_TEXT_MASK;
+  return Number.isInteger(m.color) && (m.color as number) >= 1 && (m.color as number) <= 256
+    ? undefined
+    : DIMENSION_TEXT_MASK;
+}
 
 /** What is wrong with a donut's hole, of `inside` across, or undefined. */
 export function donutHoleProblem(inside: unknown): string | undefined {
@@ -3009,6 +3049,10 @@ export function dimensionStyleLookProblem(s: Record<string, unknown>): string | 
     const problem = s[field] === undefined ? undefined : problemOf(s[field]);
     if (problem) return problem;
   }
+  if (s.textMask !== undefined) {
+    const problem = dimensionTextMaskProblem(s.textMask);
+    if (problem) return problem;
+  }
   for (const field of ["dimensionLineweight", "extensionLineweight"] as const) {
     const value = s[field];
     if (value === undefined) continue;
@@ -3321,7 +3365,7 @@ const LEADER_SHAFT_KIND = 'shaft must be "straight" or "curved"';
 const LEADER_FRAME = "frame must be true or false";
 const LEADER_WIDTH =
   "width must be greater than 0. It is the width the note wraps at; leave it out for a note that does not wrap";
-const LEADER_MASK =
+const TEXT_MASK =
   "mask must be true, false, or { color?, offsetFactor? }: a color index from 1 to 256, where 256 is the layer's, and a factor of the text height from 1 to 5";
 
 /** What is wrong with a leader in a block. */
@@ -3465,18 +3509,21 @@ export function leaderShaftKindProblem(value: unknown): string | undefined {
   return (LEADER_SHAFT_KINDS as readonly unknown[]).includes(value) ? undefined : LEADER_SHAFT_KIND;
 }
 
-/** Returns what is wrong with a leader's mask, or undefined. */
-export function leaderMaskProblem(value: unknown): string | undefined {
+/** What is wrong with a mask on a paragraph in columns. */
+export const PARAGRAPH_MASK_COLUMNS =
+  "a paragraph in columns takes no mask yet: tsdraft would draw one mask across the columns and the gaps between them. Give the mask to a paragraph without columns";
+
+/** Returns what is wrong with a mask behind a leader's note or a paragraph, or undefined. */
+export function textMaskProblem(value: unknown): string | undefined {
   if (typeof value === "boolean") return undefined;
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return LEADER_MASK;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return TEXT_MASK;
   const m = value as Record<string, unknown>;
-  for (const key of Object.keys(m))
-    if (key !== "color" && key !== "offsetFactor") return LEADER_MASK;
+  for (const key of Object.keys(m)) if (key !== "color" && key !== "offsetFactor") return TEXT_MASK;
   if (
     m.color !== undefined &&
     !(Number.isInteger(m.color) && (m.color as number) >= 1 && (m.color as number) <= 256)
   ) {
-    return LEADER_MASK;
+    return TEXT_MASK;
   }
   if (
     m.offsetFactor !== undefined &&
@@ -3486,7 +3533,7 @@ export function leaderMaskProblem(value: unknown): string | undefined {
       written(m.offsetFactor) <= 5
     )
   ) {
-    return LEADER_MASK;
+    return TEXT_MASK;
   }
   return undefined;
 }
@@ -3738,7 +3785,7 @@ export function leaderOwnProblem(given: object, scale: number): string | undefin
     if (problem) return problem;
   }
   if (leader.mask !== undefined) {
-    const problem = leaderMaskProblem(leader.mask);
+    const problem = textMaskProblem(leader.mask);
     if (problem) return problem;
   }
   if (leader.width !== undefined) {

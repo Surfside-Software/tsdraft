@@ -9,6 +9,7 @@ import {
   type Matrix,
   type Referenced,
 } from "./blocks.ts";
+import { dimensionMask, drawnLoops, loopOutline, maskOf, paragraphMaskCorners } from "./fills.ts";
 import { imageCorners, imageDrawable, imageFrame } from "./images.ts";
 import {
   dimensionArcPoints,
@@ -38,6 +39,7 @@ import {
   measured,
   paragraphInStyle,
   paragraphMeasurer,
+  placer,
 } from "./paragraphs.ts";
 import { filled } from "./shape.ts";
 
@@ -309,10 +311,26 @@ export function boxer(
       case "paragraph": {
         const style = e.style === undefined ? undefined : from.textStyles.get(key(e.style));
         const paragraph = paragraphInStyle(e, style);
-        // A long value laid out again is paid for first; a box already kept is mapped alone.
-        const again = paragraphs.boxAgain(paragraph);
+        const mask = maskOf(e.mask);
+        if (mask === undefined) {
+          // A long value laid out again is paid for first; a box already kept is mapped alone.
+          const again = paragraphs.boxAgain(paragraph);
+          if (again > 0 && !spend(again)) break;
+          for (const [x, y] of paragraphs.box(paragraph) ?? []) add(x, y);
+          break;
+        }
+        // A mask reaches past the ink, and hides what is drawn before it there. Both boxes come
+        // from one layout, kept for a long value, whose mask's box is read once.
+        const again = paragraphs.again(paragraph);
         if (again > 0 && !spend(again)) break;
-        for (const [x, y] of paragraphs.box(paragraph) ?? []) add(x, y);
+        const layout = paragraphs.layout(paragraph);
+        if (layout.ink) {
+          const place = placer(paragraph);
+          const [x0, y0, x1, y1] = layout.ink;
+          for (const [x, y] of [place(x0, y0), place(x1, y0), place(x1, y1), place(x0, y1)])
+            add(x, y);
+        }
+        for (const [x, y] of paragraphMaskCorners(e, layout, mask)) add(x, y);
         break;
       }
       case "linear-dimension":
@@ -325,6 +343,20 @@ export function boxer(
         break;
       case "leader": {
         const box = leaderBox(e, from);
+        if (box[0] === Infinity) break;
+        add(box[0], box[1]);
+        add(box[2], box[3]);
+        break;
+      }
+      case "hatch": {
+        const box = loopsBox(e.loops, e.layer);
+        if (box[0] === Infinity) break;
+        add(box[0], box[1]);
+        add(box[2], box[3]);
+        break;
+      }
+      case "wipeout": {
+        const box = pointsBox(e.points);
         if (box[0] === Infinity) break;
         add(box[0], box[1]);
         add(box[2], box[3]);
@@ -350,6 +382,22 @@ export function boxer(
   };
   /** The box of a list of points, worked out once for a long list however many hold it. */
   const pointBoxes = new WeakMap<object, Bounds>();
+  /** The box of a hatch's list of loops, worked out once however many hatches hold the list. */
+  const loopBoxes = new WeakMap<object, Bounds>();
+  const loopsBox = (loops: unknown, layer: string): Bounds => {
+    const shared = typeof loops === "object" && loops !== null;
+    const known = shared ? loopBoxes.get(loops) : undefined;
+    if (known) return known;
+    const box = empty();
+    for (const loop of drawnLoops(loops)) {
+      const found = curvedBox(loopOutline(loop, layer)) ?? pointsBox(loop.points);
+      if (found[0] === Infinity) continue;
+      include(box, found[0], found[1]);
+      include(box, found[2], found[3]);
+    }
+    if (shared) loopBoxes.set(loops, box);
+    return box;
+  };
   /** Whether each clip an image gives can be drawn, read once however many images share it. */
   const clipsChecked = new WeakMap<object, boolean>();
   const pointsBox = (points: readonly Point[]): Bounds => {
@@ -425,9 +473,13 @@ export function boxer(
     for (const arc of picture.dimensionArcs)
       for (const p of dimensionArcPoints(arc)) add(p[0], p[1]);
     for (const arrowhead of picture.arrowheads) for (const corner of arrowhead) add(...corner);
-    // Each text by the box of what it draws, as its block's paragraph lays it out.
+    // Each text by the box of what it draws, as its block's paragraph lays it out, and by its
+    // mask where the style masks it.
+    const mask = dimensionMask(style);
     for (const text of pictureTexts(picture, font)) {
-      for (const corner of measured(text, layoutDimensionText(text)).corners ?? []) add(...corner);
+      const layout = layoutDimensionText(text);
+      for (const corner of measured(text, layout).corners ?? []) add(...corner);
+      if (mask) for (const corner of paragraphMaskCorners(text, layout, mask)) add(...corner);
     }
   };
   /**

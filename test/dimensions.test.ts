@@ -1236,3 +1236,31 @@ test("an angular dimension is refused where the leading CAD app would draw what 
     /anglePrecision must be a whole number from 0 to 8/,
   );
 });
+
+test("a style's text mask is kept by the builder, written, plotted and boxed", () => {
+  const masked = (textMask?: boolean | { color: number }) => {
+    const d = createDrawing({ units: "ft" });
+    d.textStyle({ name: "NOTES", font: "Arial" });
+    d.dimensionStyle({ ...sizes, name: "MASKED", ...(textMask === undefined ? {} : { textMask }) });
+    d.linearDimension([0, 0], [100, 0], [50, 20], { style: "MASKED" });
+    return d.build();
+  };
+  assert.deepEqual(masked(true).dimensionStyles?.[0]?.textMask, true);
+  assert.deepEqual(masked({ color: 3 }).dimensionStyles?.[0]?.textMask, { color: 3 });
+  assert.equal(masked(false).dimensionStyles?.[0]?.textMask, undefined);
+  assert.match(toDXF(masked(true)), /\r\n *69\r\n *1\r\n/);
+  assert.match(toSVG(masked(true)), /data-part="mask"/);
+  assert.doesNotMatch(toSVG(masked()), /data-part="mask"/);
+  // The mask grows the text's box by a quarter of its height each side, past the dimension's top.
+  const top = (drawing: Drawing) =>
+    extents(
+      drawing.entities,
+      drawing.textStyles,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      drawing.dimensionStyles,
+    )[3];
+  assert.ok(top(masked(true)) > top(masked()), `${top(masked(true))} ${top(masked())}`);
+});

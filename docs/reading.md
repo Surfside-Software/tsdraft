@@ -160,6 +160,26 @@ leader:
   file says not to show and `unclipped` for one it says not to clip say so, and `brightness`,
   `contrast` and `fade` are left out at 50, 50 and 0. An image out of the plane is counted under
   `other`.
+- `hatch`: its `pattern`, such as `SOLID` or `ANSI31`, whether it is `solid`, its island `style`,
+  `normal`, `outer` or `ignore`, `associative` where the file ties it to what it bounds, and its
+  `loops`, each its `points`, its `bulges` where a side is an arc, and its `flags` as the file
+  holds them: 1 external, 2 a polyline, 4 derived, 8 a text's box, 16 outermost. A loop of lines
+  and arcs is read as points and bulges, a whole circle as two half circles. CAD programs fill a
+  hatch of style `normal` by the parity of all its loops, one of style `outer` by the parity of
+  those marked external or outermost, and one of style `ignore` by the external ones. A hatch
+  bounded by an ellipse or a spline is counted under `other`, as is one out of the plane.
+- `wipeout`: its `points` in the world's coordinates, without the first again at the end.
+- An `mtext` with a background holds `mask`: its `offsetFactor`, and its `color` or `trueColor`
+  where it is not in the drawing's background.
+
+`header.wipeoutFrame` is the file's dictionary variable `WIPEOUTFRAME`, which CAD programs read of
+whether wipeouts' frames show: 0 neither shown nor plotted, 1 both, 2 shown and not plotted. A
+file without it shows and plots them.
+
+With `geometry`, a space, a layout or a block whose file holds a sort table has `drawOrder`: the
+handles of its entities in the order CAD programs draw them, by each one's sort handle, or its own
+handle where the table gives none. Without a sort table they draw in the order of the file, the
+order of `entities`.
 
 Each keeps the pen it sets for itself, each part left out when it is ByLayer: `color`, an index
 with 0 for ByBlock, `trueColor` as `0xRRGGBB`, `linetype`, `lineweight` in hundredths of a

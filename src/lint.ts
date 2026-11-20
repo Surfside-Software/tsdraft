@@ -174,7 +174,16 @@ import {
   xrefFieldProblem,
   xrefPathProblem,
   xrefTwinProblem,
+  HATCH_LOOP_POINTS,
+  HATCH_NO_LOOPS,
+  textMaskProblem,
+  PARAGRAPH_MASK_COLUMNS,
+  WIPEOUT_CROSSES,
+  WIPEOUT_FLAT,
+  WIPEOUT_FRAME,
+  WIPEOUT_POINTS,
 } from "./rules.ts";
+import { loopBulged, onOneLine, polygonCrosses } from "./fills.ts";
 
 export type LintRule =
   | "format"
@@ -218,6 +227,8 @@ export type LintRule =
   | "leader"
   | "paragraph"
   | "image"
+  | "hatch"
+  | "wipeout"
   | "zero-length"
   | "standard"
   | "layer-outside-standard"
@@ -722,6 +733,10 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       message: "imageFrame must be true or false",
       item: "imageFrame",
     });
+  }
+  const wipeoutFrame: unknown = drawing.wipeoutFrame;
+  if (wipeoutFrame !== undefined && typeof wipeoutFrame !== "boolean") {
+    out.push({ rule: "wipeout", severity: "error", message: WIPEOUT_FRAME, item: "wipeoutFrame" });
   }
 
   // The leading CAD app compares linetype names as it compares layer names, and AUDIT reports a
@@ -1595,16 +1610,30 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       // again for each, and paid for.
       if (
         isObject(entity) &&
-        (entity.kind === "polyline" || entity.kind === "image" || entity.kind === "paragraph")
+        (entity.kind === "polyline" ||
+          entity.kind === "image" ||
+          entity.kind === "paragraph" ||
+          entity.kind === "hatch" ||
+          entity.kind === "wipeout")
       ) {
         let cost = 0;
         const columns: unknown = entity.kind === "paragraph" ? entity.columns : undefined;
+        const loops = entity.kind === "hatch" ? filled(entity.loops as unknown) : [];
         const lists =
           entity.kind === "image"
             ? [entity.clip]
             : entity.kind === "paragraph"
               ? [isObject(columns) ? columns.heights : undefined]
-              : [entity.points, entity.bulges, entity.widths];
+              : entity.kind === "wipeout"
+                ? [entity.points]
+                : entity.kind === "hatch"
+                  ? [
+                      entity.loops,
+                      ...loops.flatMap((loop) =>
+                        isObject(loop) ? [loop.points, loop.bulges] : [],
+                      ),
+                    ]
+                  : [entity.points, entity.bulges, entity.widths];
         for (const list of lists) {
           if (Array.isArray(list) && list.length >= FREE && again(list))
             cost += Math.floor(list.length / 8);
@@ -1764,6 +1793,19 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         }
         lintImage(entity, add, problems.length === 0, named, here);
       }
+      if (entity.kind === "hatch" || entity.kind === "wipeout") {
+        if (r12) {
+          add(entity.kind, "error", R12_ONLY.hatches);
+          return;
+        }
+        // Each side against each other one, paid for by the pairs past the first 4,096.
+        if (entity.kind === "wipeout" && entity.points.length > 3 && problems.length === 0) {
+          const n = entity.points.length;
+          const pairs = Math.floor((n * n) / 2);
+          if (pairs > 4096 && !spend(Math.floor(pairs / 64), here)) return;
+          if (polygonCrosses(entity.points)) add("wipeout", "error", WIPEOUT_CROSSES);
+        }
+      }
       if (isDimension(entity)) {
         lintDimension(entity, add, problems.length === 0, block !== undefined, here);
         // The block of its picture takes handles from its id, or else from its place.
@@ -1847,6 +1889,10 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         }
         const spacing = lineSpacing === undefined ? undefined : lineSpacingProblem(lineSpacing);
         if (spacing) add("paragraph", "error", spacing);
+        const mask = entity.mask === undefined ? undefined : textMaskProblem(entity.mask);
+        if (mask) add("paragraph", "error", mask);
+        else if (entity.mask !== undefined && entity.mask !== false && entity.columns !== undefined)
+          add("paragraph", "error", PARAGRAPH_MASK_COLUMNS);
         const styled = entity.style === undefined ? {} : { style: entity.style };
         for (const [rule, found] of textProblems(styled)) add(rule, "error", found);
       }
@@ -2399,6 +2445,49 @@ function geometryProblems(e: Entity): string[] {
       finite("its position and rotation", ...e.at, e.rotation ?? 0);
       size("width", e.width);
       size("height", e.height);
+      break;
+    case "hatch": {
+      if (e.loops.length === 0) out.push(HATCH_NO_LOOPS);
+      // One message of each kind for the hatch, with the first loop it is about.
+      const found = new Set<string>();
+      e.loops.forEach((loop, k) => {
+        const say = (problem: string) => {
+          if (found.has(problem)) return;
+          found.add(problem);
+          out.push(`loop ${k}: ${problem}`);
+        };
+        const n = loop.points.length;
+        if (!loop.points.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]))) {
+          say("its points must be finite numbers");
+          return;
+        }
+        for (const [x, y] of loop.points) {
+          const problem = magnitudeProblem(x) ?? magnitudeProblem(y);
+          if (problem) {
+            say(`its points: ${problem}`);
+            break;
+          }
+        }
+        if (n >= 2)
+          for (const problem of polylineSidesProblems(n, loop.bulges, undefined, undefined))
+            say(problem);
+        if (n < 2 || (n === 2 && !loopBulged(loop))) say(HATCH_LOOP_POINTS);
+      });
+      break;
+    }
+    case "wipeout":
+      if (e.points.length < 3) out.push(WIPEOUT_POINTS);
+      if (!e.points.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]))) {
+        out.push("its points must be finite numbers");
+        break;
+      }
+      for (const [x, y] of e.points) {
+        const problem = magnitudeProblem(x) ?? magnitudeProblem(y);
+        if (!problem) continue;
+        out.push(`its points: ${problem}`);
+        return out;
+      }
+      if (e.points.length >= 3 && onOneLine(e.points)) out.push(WIPEOUT_FLAT);
       break;
   }
   return out;

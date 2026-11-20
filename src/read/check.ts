@@ -161,6 +161,9 @@ const ENTITY: Readonly<Record<string, Fields>> = {
       ],
       named: "{ height, count?, gutter? } or { heights, gutter? }",
     },
+    "mask?": {
+      fields: { "color?": "number", "trueColor?": "number", offsetFactor: "number" },
+    },
   },
   dimension: {
     ...BASE,
@@ -282,12 +285,27 @@ const ENTITY: Readonly<Record<string, Fields>> = {
     "contrast?": "number",
     "fade?": "number",
   },
+  hatch: {
+    ...BASE,
+    kind: { oneOf: ["hatch"] },
+    pattern: "string",
+    solid: "boolean",
+    style: { oneOf: ["normal", "outer", "ignore"] },
+    "associative?": "boolean",
+    loops: {
+      list: {
+        fields: { points: { list: "point" }, "bulges?": { list: "number" }, flags: "number" },
+      },
+    },
+  },
+  wipeout: { ...BASE, kind: { oneOf: ["wipeout"] }, points: { list: "point" } },
 };
 
 const SPACE: Fields = {
   census: { fields: CENSUS },
   "entities?": { list: "entity" },
   "other?": counts,
+  "drawOrder?": strings,
 };
 
 const DRAWING_READ: Fields = {
@@ -307,6 +325,7 @@ const DRAWING_READ: Fields = {
       "dimscale?": "number",
       "dimstyle?": "string",
       "textstyle?": "string",
+      "wipeoutFrame?": "number",
     },
   },
   layers: {
@@ -375,6 +394,8 @@ const DRAWING_READ: Fields = {
         "dimensionLineweight?": "number",
         "extensionLineweight?": "number",
         "arrowheadBlock?": "string",
+        "textFill?": "number",
+        "textFillColor?": "number",
       },
     },
   },
@@ -400,6 +421,7 @@ const DRAWING_READ: Fields = {
           },
         },
         entities: { list: "entity" },
+        "drawOrder?": strings,
         other: counts,
       },
     },
