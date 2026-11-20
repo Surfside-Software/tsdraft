@@ -58,7 +58,16 @@ import {
 } from "./papers.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import { arcsAlong, cloud, donut, MAX_CLOUD_ARCS, rounded } from "./polylines.ts";
-import { onOneLine, polygonCrosses } from "./fills.ts";
+import {
+  hatchSpread,
+  loopsBox,
+  onOneLine,
+  patternDrawnProblem,
+  patternSizes,
+  polygonCrosses,
+  type PatternSizes,
+} from "./fills.ts";
+import { parsePatterns } from "./patterns.ts";
 import { imageVectors } from "./images.ts";
 import { canonical } from "./json.ts";
 import { DrawingError, type Diagnostic, type LintRule } from "./lint.ts";
@@ -215,6 +224,10 @@ import {
   type LEADER_VERTICAL_ATTACHMENTS,
   HATCH_LOOP_POINTS,
   HATCH_NO_LOOPS,
+  hatchPatternChoiceProblem,
+  hatchPatternProblem,
+  shown,
+  undefinedHatchPatternProblem,
   textMaskProblem,
   PARAGRAPH_MASK_COLUMNS,
   WIPEOUT_CROSSES,
@@ -814,15 +827,62 @@ export interface HatchLoop {
   readonly bulges?: readonly number[];
 }
 
+/** One line of a pattern's definition, in its file's units. */
+export interface PatternLine {
+  /** Degrees counterclockwise. */
+  readonly angle: number;
+  /** A point the line runs through. */
+  readonly base: Point;
+  /** Where the next line of the family lies from this one: along the line, then across it. */
+  readonly offset: Point;
+  /** Its dashes: a length drawn, a negative length left out, 0 a dot. Missing for a solid line. */
+  readonly dashes?: readonly number[];
+}
+
 /**
- * A hatch: an area filled solid in its pen's color, which the leading CAD app holds as one entity
- * a drafter edits and measures as one. The area inside an odd number of its loops is filled, so
- * a loop inside another is a hole, and a loop inside a hole fills again. R2018 only.
+ * A hatch pattern's definition: families of parallel lines, each through its base point at its
+ * angle, the next one over moved by its offset, its dashes repeating from the base point.
+ * `parsePatterns` reads the patterns of a pattern file.
+ */
+export interface HatchPattern {
+  readonly name: string;
+  readonly description?: string;
+  readonly lines: readonly PatternLine[];
+}
+
+/**
+ * How a hatch is drawn when it is not solid: a pattern of the drawing's `patterns`, by its name,
+ * scaled and turned; or lines of its own, `spacing` apart at `angle`, crossed by as many square
+ * to them when `crossed`. `origin` is where the pattern's lines start, `[0, 0]` unless given.
+ */
+export type HatchPatternChoice =
+  | {
+      readonly name: string;
+      readonly scale?: number;
+      /** Degrees counterclockwise. */
+      readonly angle?: number;
+      readonly origin?: Point;
+    }
+  | {
+      readonly spacing: number;
+      /** Degrees counterclockwise. */
+      readonly angle?: number;
+      readonly crossed?: boolean;
+      readonly origin?: Point;
+    };
+
+/**
+ * A hatch: an area filled solid in its pen's color, or with a pattern's lines in its pen, which
+ * the leading CAD app holds as one entity a drafter edits and measures as one. The area inside an
+ * odd number of its loops is filled, so a loop inside another is a hole, and a loop inside a hole
+ * fills again. R2018 only.
  */
 export interface Hatch extends EntityBase {
   readonly kind: "hatch";
   /** Its loops, in any order and either way round. */
   readonly loops: readonly HatchLoop[];
+  /** Its pattern. Missing, it is solid. */
+  readonly pattern?: HatchPatternChoice;
 }
 
 /**
@@ -1179,6 +1239,8 @@ export interface Drawing {
    * the leading CAD app has it. A mask behind notes wants false.
    */
   readonly wipeoutFrame?: boolean;
+  /** The hatch patterns that hatches name, such as a firm's pattern file's from `parsePatterns`. */
+  readonly patterns?: readonly HatchPattern[];
 }
 
 /**
@@ -1383,6 +1445,54 @@ export interface EntityOptions<
       : LineweightOf<W> | "ByLayer" | "ByBlock" | "Default";
   /** A pen of the drawing's standard, whose lineweight the entity takes. */
   readonly pen?: Z extends Standard ? PenOfStandard<P, Z> : PenWithoutStandard;
+}
+
+/**
+ * A hatch's pattern as `hatch()` takes it: a `HatchPatternChoice` whose scale or spacing is greater
+ * than 0 and not written as 0, with no field of the other kind.
+ *
+ * @typeParam S - The scale or the spacing as written.
+ */
+export type HatchPatternOf<S extends number = number> =
+  | {
+      readonly name: string;
+      readonly scale?: Positive<S>;
+      /** Degrees counterclockwise. */
+      readonly angle?: number;
+      readonly origin?: Point;
+      readonly spacing?: never;
+      readonly crossed?: never;
+    }
+  | {
+      readonly spacing: Positive<S>;
+      /** Degrees counterclockwise. */
+      readonly angle?: number;
+      readonly crossed?: boolean;
+      readonly origin?: Point;
+      readonly name?: never;
+      readonly scale?: never;
+    };
+
+/**
+ * The options of `hatch()`: its pattern, and the options of every entity.
+ *
+ * @typeParam S - The pattern's scale or spacing as written.
+ */
+export interface HatchOptions<
+  V extends DxfVersion = "R2018",
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+  S extends number = number,
+> extends EntityOptions<V, T, W, L, I, Z, P> {
+  /**
+   * The lines it is drawn with in its pen: a pattern that `patterns()` added, by its name, with its
+   * `scale`, `angle` and `origin`, or lines of its own, `spacing` apart. Solid when left out.
+   */
+  readonly pattern?: HatchPatternOf<S>;
 }
 
 /**
@@ -2507,6 +2617,8 @@ export class DrawingBuilder<
   );
   /** Keyed by `layerKey`: the leading CAD app compares text style names as it compares layer names. */
   readonly #textStyles = new Map<string, TextStyle>();
+  /** Keyed by `layerKey`, with the sizes a hatch's check reads: a hatch finds its pattern so. */
+  readonly #patterns = new Map<string, readonly [HatchPattern, PatternSizes]>();
   readonly #textStylesAudited = new Map<string, string>([
     [layerAuditKey(STANDARD_TEXT_STYLE), STANDARD_TEXT_STYLE],
   ]);
@@ -2597,6 +2709,62 @@ export class DrawingBuilder<
       const name: unknown = definition?.name;
       const about = typeof name === "string" ? { linetype: name } : {};
       throw located(thrown, DrawingBuilder.prototype.linetype, about);
+    }
+    return this;
+  }
+
+  /**
+   * Adds hatch patterns, which a hatch names in its `pattern`: the text of a pattern file, which
+   * `parsePatterns` reads, or definitions. tsdraft has no patterns of its own, so pass the firm's
+   * file. A pattern of a name the drawing has replaces it and keeps the first spelling, as
+   * `linetype()` does, and of two of one name in one call the first is added, as CAD programs read
+   * a pattern file. Nothing is added when one is refused. A hatch is checked against its pattern
+   * when it is drawn; one a later pattern of its name makes too dense is left to `lint`.
+   *
+   * ```ts
+   * d.patterns(readFileSync("firm.pat", "utf8"));
+   * d.hatch(slab, { pattern: { name: "AR-CONC", scale: 0.5 } });
+   * ```
+   */
+  patterns(file: string | readonly HatchPattern[]): this {
+    try {
+      if (this.dxf === "R12") refuse("hatch-pattern", R12_ONLY.hatches);
+      let given: unknown = file;
+      if (typeof file === "string") {
+        try {
+          given = parsePatterns(file);
+        } catch (thrown) {
+          refuse("hatch-pattern", thrown instanceof Error ? thrown.message : String(thrown));
+        }
+      }
+      if (!Array.isArray(given)) {
+        refuse(
+          "hatch-pattern",
+          "patterns() takes a pattern file's text or a list of hatch patterns",
+        );
+      }
+      const added = new Map<string, readonly [HatchPattern, PatternSizes]>();
+      for (const definition of given as readonly unknown[]) {
+        const problem = hatchPatternProblem(definition);
+        const { name, description, lines } = (definition ?? {}) as HatchPattern;
+        if (problem) refuse("hatch-pattern", `Hatch pattern ${shown(name)}: ${problem}`);
+        const key = layerKey(name);
+        if (added.has(key)) continue;
+        const copy: HatchPattern = {
+          name: this.#patterns.get(key)?.[0].name ?? name,
+          ...(description === undefined ? {} : { description }),
+          lines: lines.map(({ angle, base, offset, dashes }) => ({
+            angle,
+            base: [base[0], base[1]],
+            offset: [offset[0], offset[1]],
+            ...(dashes === undefined ? {} : { dashes: [...dashes] }),
+          })),
+        };
+        added.set(key, [copy, patternSizes(copy.lines, new WeakMap())!]);
+      }
+      for (const [key, pattern] of added) this.#patterns.set(key, pattern);
+    } catch (thrown) {
+      throw located(thrown, DrawingBuilder.prototype.patterns, {});
     }
     return this;
   }
@@ -3002,11 +3170,20 @@ export class DrawingBuilder<
    * inside a hole fills again, whichever way each runs. A loop's `bulges` make its sides arcs, as
    * a polyline's do. R2018 only.
    *
+   * With `pattern`, it draws a pattern's lines in its pen instead: a pattern `patterns()` added,
+   * by its name, or lines of its own `spacing` apart, crossed by as many square to them when
+   * `crossed`. A pattern that would draw more than 1,000,000 lines across the loops is refused.
+   *
    * ```ts
    * d.hatch([
    *   { points: [[0, 0], [8, 0], [8, 0.5], [0, 0.5]] },
    *   { points: [[3, 0], [3.5, 0], [3.5, 0.5]] },
    * ]);
+   * d.patterns(readFileSync("firm.pat", "utf8"));
+   * d.hatch([[0, 1], [8, 1], [8, 3], [0, 3]], {
+   *   pattern: { name: "AR-CONC", scale: 0.25, angle: 45, origin: [0, 1] },
+   * });
+   * d.hatch([[10, 1], [12, 1], [12, 3], [10, 3]], { pattern: { spacing: 0.125, crossed: true } });
    * ```
    */
   hatch<
@@ -3015,9 +3192,10 @@ export class DrawingBuilder<
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
     P extends string = string,
+    S extends number = number,
   >(
     boundary: readonly Point[] | readonly HatchLoop[],
-    options: EntityOptions<V, T, W, L, I, Z, P> = {},
+    options: HatchOptions<V, T, W, L, I, Z, P, S> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.hatch, options, () => {
       if (this.dxf === "R12") refuse("hatch", R12_ONLY.hatches);
@@ -3042,8 +3220,47 @@ export class DrawingBuilder<
         if (problem) refuse("geometry", `Loop ${k}: ${problem}`);
         return { points, ...(bulges === undefined ? {} : { bulges: [...bulges] }) };
       });
-      return { kind: "hatch", layer: this.#current, loops };
+      const choice: unknown = options.pattern;
+      return {
+        kind: "hatch",
+        layer: this.#current,
+        loops,
+        ...(choice === undefined ? {} : { pattern: this.#hatchPattern(choice, loops) }),
+      };
     });
+  }
+
+  /**
+   * Checks a hatch's pattern as `lint` does, with the name in the drawing's spelling, and returns
+   * a copy of it.
+   */
+  #hatchPattern(choice: unknown, loops: readonly HatchLoop[]): HatchPatternChoice {
+    const problem = hatchPatternChoiceProblem(choice);
+    if (problem) refuse("hatch-pattern", capitalized(problem));
+    const c = choice as Record<string, unknown>;
+    const angle = c.angle === undefined ? {} : { angle: c.angle as number };
+    const at = c.origin as Point | undefined;
+    const origin = at === undefined ? {} : { origin: [at[0], at[1]] as Point };
+    let found: readonly [HatchPattern, PatternSizes] | undefined;
+    let copy: HatchPatternChoice;
+    if (typeof c.name === "string") {
+      found = this.#patterns.get(layerKey(c.name));
+      if (found === undefined) refuse("hatch-pattern", undefinedHatchPatternProblem(c.name, true));
+      const scale = c.scale === undefined ? {} : { scale: c.scale as number };
+      copy = { name: found![0].name, ...scale, ...angle, ...origin };
+    } else {
+      const crossed = c.crossed === undefined ? {} : { crossed: c.crossed as boolean };
+      copy = { spacing: c.spacing as number, ...angle, ...crossed, ...origin };
+    }
+    const box = loopsBox(loops);
+    const spread = hatchSpread(
+      { pattern: copy },
+      () => found?.[0],
+      () => found?.[1],
+    );
+    const drawn = box && spread ? patternDrawnProblem(box, spread) : undefined;
+    if (drawn) refuse("hatch-pattern", capitalized(drawn));
+    return copy;
   }
 
   /**
@@ -5236,6 +5453,9 @@ export class DrawingBuilder<
         ? { dimensionStyles: [...this.#dimensionStyles.values()] }
         : {}),
       ...(this.#leaderStyles.size > 0 ? { leaderStyles: [...this.#leaderStyles.values()] } : {}),
+      ...(this.#patterns.size > 0
+        ? { patterns: [...this.#patterns.values()].map(([pattern]) => pattern) }
+        : {}),
     };
   }
 

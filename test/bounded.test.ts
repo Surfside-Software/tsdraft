@@ -196,6 +196,65 @@ test("lint pays for what inserts repeat, and toDXF refuses what it stopped short
   );
 });
 
+/** The example sheet with a hatch pattern, and a hatch of it in model space. */
+const patterned = (pattern: object): Drawing => ({
+  ...sheet,
+  patterns: [pattern as never],
+  entities: [
+    ...sheet.entities,
+    {
+      kind: "hatch",
+      layer: "0",
+      loops: [
+        {
+          points: [
+            [0, 0],
+            [10, 0],
+            [10, 10],
+          ],
+        },
+      ],
+      pattern: { name: "HOLE" },
+    },
+  ],
+});
+
+test("lint and toSVG pay for the lines of hatch patterns that many places share", () => {
+  const dashes = Array.from({ length: 30_000 }, (_, i) => (i % 2 === 0 ? 1 : -1));
+  const lines = Array.from({ length: 30_000 }, (_, i) => ({
+    angle: i,
+    base: [0, 0] as Point,
+    offset: [0, 1] as Point,
+    dashes,
+  }));
+  const loops = [
+    {
+      points: [
+        [0, 0],
+        [1e5, 0],
+        [1e5, 1e5],
+      ] as Point[],
+    },
+  ];
+  const drawing: Drawing = {
+    ...createDrawing({ units: "ft" }).build(),
+    patterns: Array.from({ length: 1000 }, (_, i) => ({ name: `P${i}`, lines })),
+    entities: Array.from({ length: 10_000 }, (_, i) => ({
+      kind: "hatch",
+      layer: "0",
+      loops,
+      pattern: pick(i),
+    })),
+  };
+  function pick(i: number) {
+    return i % 2 === 0 ? { name: `P${i % 1000}` } : { spacing: 1e-6, crossed: true };
+  }
+  const found = within(3000, () => lint(drawing));
+  assert.ok(found.some((d) => d.rule === "check-capped"));
+  const drawn = settled(3000, () => toSVG(drawing));
+  assert.ok(typeof drawn === "string" || drawn instanceof RangeError, String(drawn));
+});
+
 test("every walk stops at the first empty slot of a list", () => {
   // oxlint-disable-next-line unicorn/no-new-array
   const slots = () => new Array(2 ** 32 - 1);
@@ -239,6 +298,12 @@ test("every walk stops at the first empty slot of a list", () => {
       ...sheet,
       linetypes: [...sheet.linetypes!, { name: "HOLE", description: "", pattern: slots() }],
     },
+    { ...sheet, patterns: slots() },
+    patterned({ name: "HOLE", lines: slots() }),
+    patterned({
+      name: "HOLE",
+      lines: [{ angle: 0, base: [0, 0], offset: [0, 1], dashes: slots() }],
+    }),
   ] as Drawing[]) {
     assert.ok(within(1000, () => lint(drawing)).length > 0);
     for (const fn of [

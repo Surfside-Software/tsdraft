@@ -315,6 +315,15 @@ const ENTITY: Readonly<Record<string, Fields>> = {
         fields: { points: { list: "point" }, "bulges?": { list: "number" }, flags: "number" },
       },
     },
+    "patternType?": "number",
+    "patternAngle?": "number",
+    "patternScale?": "number",
+    "crossed?": "boolean",
+    "patternLines?": {
+      list: {
+        fields: { angle: "number", base: "point", offset: "point", "dashes?": { list: "number" } },
+      },
+    },
   },
   wipeout: { ...BASE, kind: { oneOf: ["wipeout"] }, points: { list: "point" } },
 };

@@ -65,9 +65,9 @@ preview shows it:
   dashes as [How it plots](polylines.md#how-it-plots) says.
 - An image is drawn from its file's bytes, given as `images`, clipped to its clip, with its frame
   in its pen, and the PDF holds each file once, as [Plotting](images.md#plotting) says.
-- A hatch is filled by the parity of its loops, a wipeout and a mask in the paper's white or a
-  mask's color, each over what is drawn before it, as [Fills, wipeouts and
-  masks](fills.md) says.
+- A hatch is filled by the parity of its loops, or draws its pattern's lines and dashes cut to
+  them, a wipeout and a mask in the paper's white or a mask's color, each over what is drawn
+  before it, as [Fills, wipeouts and masks](fills.md) says.
 - Each layer is a layer of the PDF too, by the name the picture gives it, `XREF|LAYER` for a
   layer of an xref, so a PDF viewer lists the layers and can hide one.
 - Each page has a bookmark and a page label with its layout's name.

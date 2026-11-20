@@ -35,6 +35,8 @@ import type {
   Drawing,
   DxfVersion,
   Entity,
+  Hatch,
+  HatchPattern,
   Image,
   Layout,
   Viewport,
@@ -43,6 +45,7 @@ import type {
   Leader,
   LeaderStyle,
   Linetype,
+  PatternLine,
   Point,
   Text,
   TextStyle,
@@ -182,8 +185,23 @@ import {
   WIPEOUT_FLAT,
   WIPEOUT_FRAME,
   WIPEOUT_POINTS,
+  hatchPatternChoiceProblem,
+  hatchPatternNameProblem,
+  PATTERN_ITEMS,
+  patternLineProblem,
+  patternLinesProblem,
+  undefinedHatchPatternProblem,
 } from "./rules.ts";
-import { loopBulged, onOneLine, polygonCrosses } from "./fills.ts";
+import {
+  hatchSpread,
+  lineSizes,
+  loopBulged,
+  loopsBox,
+  onOneLine,
+  patternDrawnProblem,
+  polygonCrosses,
+  type PatternSizes,
+} from "./fills.ts";
 
 export type LintRule =
   | "format"
@@ -228,6 +246,8 @@ export type LintRule =
   | "paragraph"
   | "image"
   | "hatch"
+  | "hatch-pattern"
+  | "duplicate-hatch-pattern"
   | "wipeout"
   | "zero-length"
   | "standard"
@@ -365,6 +385,25 @@ const REPEATS = 16;
 
 /** The attributes of each insert that are placed, and take handles, free of the limit. */
 const FREE = 64;
+
+/** A check of no type, for a list whose items' types a rule reports with the item's path. */
+const UNTYPED: Check = () => {};
+
+/**
+ * True for a line of a hatch pattern whose fields all have their types: a rule refused it for a
+ * value, not for a type. A list of more dashes than a pattern holds is refused for its length.
+ */
+function lineTyped(line: Readonly<Record<string, unknown>>): boolean {
+  const pair = (p: unknown): boolean =>
+    Array.isArray(p) && p.length === 2 && typeof p[0] === "number" && typeof p[1] === "number";
+  if (typeof line.angle !== "number" || !pair(line.base) || !pair(line.offset)) return false;
+  const dashes: unknown = line.dashes;
+  if (dashes === undefined) return true;
+  if (!Array.isArray(dashes)) return false;
+  if (dashes.length > PATTERN_ITEMS) return true;
+  for (let i = 0; i < dashes.length; i++) if (typeof dashes[i] !== "number") return false;
+  return true;
+}
 
 /** The values of an insert that gives none. */
 const NO_VALUES: Readonly<Record<string, string>> = Object.freeze({});
@@ -541,6 +580,10 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       case "image":
         cost += long1(e.path);
         break;
+      case "hatch":
+        // A message quotes the name of a pattern the drawing does not have.
+        cost += long1(isObject(e.pattern) ? e.pattern.name : undefined);
+        break;
     }
     return cost;
   };
@@ -687,7 +730,8 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       | "xrefs"
       | "layouts"
       | "dimensionStyles"
-      | "leaderStyles",
+      | "leaderStyles"
+      | "patterns",
     rule: LintRule,
   ): readonly T[] => {
     const value: unknown = drawing[field];
@@ -777,6 +821,153 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     linetypes.add(key);
     if (!linetypesAudited.has(auditKey)) linetypesAudited.set(auditKey, linetype.name);
   });
+  // A hatch finds its pattern by name as a linetype is found, whatever the case of its letters,
+  // and takes the first of a name. A pattern's lines are read up to `PATTERN_ITEMS` of them, and a
+  // list of lines or of dashes that many definitions share is paid for each time it is read again.
+  /** Each pattern a hatch can find, with its sizes, by `layerKey`: undefined for one refused. */
+  const patternsByKey = new Map<string, readonly [HatchPattern, PatternSizes] | undefined>();
+  const patternList = listed<HatchPattern>("patterns", "hatch-pattern");
+  if (r12 && patternList.length > 0) {
+    out.push({
+      rule: "hatch-pattern",
+      severity: "error",
+      message: `patterns: ${R12_ONLY.hatches}`,
+    });
+  } else {
+    each(patternList, "patterns", "hatch-pattern", UNTYPED, (pattern, i) => {
+      const at = `patterns[${i}]`;
+      const where = () => at;
+      const from = out.length;
+      const name: unknown = isObject(pattern) ? pattern.name : undefined;
+      const long = long1(name) + long1(isObject(pattern) ? pattern.description : undefined);
+      if (long > 0 && !spend(long, where)) return;
+      const key = typeof name === "string" && name.length <= 255 ? layerKey(name) : undefined;
+      /** Names the pattern, which a reader leaves out, where an error names a part of it. */
+      const whole = (): void => {
+        for (let k = from; k < out.length; k++) {
+          const found = out[k]!;
+          if (found.item?.startsWith(`${at}.`)) out[k] = { ...found, item: at };
+        }
+      };
+      if (malformed(WALKABLE.pattern, pattern, at, "hatch-pattern")) {
+        // A hatch that names it gets no second error.
+        if (key !== undefined && !patternsByKey.has(key)) patternsByKey.set(key, undefined);
+        return;
+      }
+      const label = `Hatch pattern ${shown(name)}`;
+      const error = (message: string, typed: boolean): void => {
+        out.push({
+          rule: "hatch-pattern",
+          severity: "error",
+          message: `${label}: ${message}`,
+          ...(typed ? { item: at } : {}),
+        });
+      };
+      const description: unknown = pattern.description;
+      let sound = true;
+      const head = hatchPatternNameProblem(name, description);
+      if (head) {
+        error(
+          head,
+          typeof name !== "string" || !["string", "undefined"].includes(typeof description),
+        );
+        sound = false;
+      }
+      const lines: unknown = pattern.lines;
+      const listProblem = patternLinesProblem(lines);
+      const sizes = { items: 0, angle: 0, base: 0, reach: 0 };
+      if (listProblem) {
+        error(listProblem, !Array.isArray(lines));
+        sound = false;
+      } else {
+        const list = lines as readonly unknown[];
+        // A list read again pays for its lines and for the dashes of each.
+        const repeated = list.length >= FREE && again(list);
+        if (repeated && !spend(Math.floor(list.length / 8), where)) return;
+        sizes.items = list.length;
+        for (let j = 0; j < list.length; j++) {
+          if (!(j in list)) {
+            error(slotProblem(`${at}.lines`, j), true);
+            sound = false;
+            break;
+          }
+          const line: unknown = list[j];
+          if (malformed(WALKABLE.patternLine, line, `${at}.lines[${j}]`, "hatch-pattern")) {
+            sound = false;
+            break;
+          }
+          const dashes: unknown = (line as Record<string, unknown>).dashes;
+          const shared =
+            Array.isArray(dashes) &&
+            dashes.length <= PATTERN_ITEMS &&
+            (repeated || (dashes.length >= FREE && again(dashes)));
+          if (shared && !spend(Math.floor(dashes.length / 8), where)) return;
+          const problem = patternLineProblem(line);
+          if (problem) {
+            error(`line ${j}: ${problem}`, !lineTyped(line as Record<string, unknown>));
+            sound = false;
+            break;
+          }
+          const { angle, base, reach } = lineSizes(line as PatternLine);
+          sizes.angle = Math.max(sizes.angle, angle);
+          sizes.base = Math.max(sizes.base, base);
+          sizes.reach = Math.max(sizes.reach, reach);
+          sizes.items += Array.isArray(dashes) ? dashes.length : 0;
+        }
+      }
+      whole();
+      if (key === undefined) return;
+      if (patternsByKey.has(key)) {
+        out.push({
+          rule: "duplicate-hatch-pattern",
+          severity: "error",
+          message: `${label} is defined twice. A hatch finds its pattern by name whatever the case of its letters, as CAD programs do, and takes the first`,
+        });
+      } else patternsByKey.set(key, sound ? [pattern, sizes] : undefined);
+    });
+  }
+  /** The key of each name a hatch gives its pattern, worked out once. */
+  const patternKeys = new Map<string, string>();
+  /** What is wrong with each object a hatch gives as its pattern, worked out once. */
+  const choices = new WeakMap<object, string | undefined>();
+  /**
+   * Checks a hatch's pattern: its fields, the definition it names, and, for a hatch whose loops are
+   * sound, what its lines draw.
+   */
+  const lintHatchPattern = (hatch: Hatch, add: Add, sound: boolean, here: () => string): void => {
+    const choice: unknown = hatch.pattern;
+    let problem: string | undefined;
+    if (typeof choice === "object" && choice !== null) {
+      if (choices.has(choice)) problem = choices.get(choice);
+      else choices.set(choice, (problem = hatchPatternChoiceProblem(choice)));
+    } else problem = hatchPatternChoiceProblem(choice);
+    if (problem) return add("hatch-pattern", "error", problem);
+    const name: unknown = (choice as Record<string, unknown>).name;
+    let found: readonly [HatchPattern, PatternSizes] | undefined;
+    if (typeof name === "string") {
+      let key = name.length <= 255 ? patternKeys.get(name) : undefined;
+      if (key === undefined && name.length <= 255) patternKeys.set(name, (key = layerKey(name)));
+      if (key === undefined || !patternsByKey.has(key)) {
+        return add("hatch-pattern", "error", undefinedHatchPatternProblem(name));
+      }
+      found = patternsByKey.get(key);
+      // A definition the rules refused has its errors, and draws nothing that can be checked.
+      if (found === undefined) return;
+    }
+    if (!sound) return;
+    // The writers place every line and dash of the pattern again for each hatch that names it.
+    const items = found?.[1].items ?? 0;
+    if (items >= FREE && !spend(Math.floor(items / 8), here)) return;
+    const box = loopsBox(hatch.loops);
+    const spread = hatchSpread(
+      hatch,
+      () => found?.[0],
+      () => found?.[1],
+    );
+    const drawn = box && spread ? patternDrawnProblem(box, spread) : undefined;
+    if (drawn) add("hatch-pattern", "error", drawn);
+  };
+
   /** What is wrong with a reference to a linetype, which the leading CAD app discards a drawing over. */
   const missing = (name: unknown): string | undefined => {
     if (typeof name !== "string") return "a linetype is named by a string";
@@ -1798,6 +1989,9 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         if (r12) {
           add(entity.kind, "error", R12_ONLY.hatches);
           return;
+        }
+        if (entity.kind === "hatch" && entity.pattern !== undefined) {
+          lintHatchPattern(entity, add, problems.length === 0, here);
         }
         // Each side against each other one, paid for by the pairs past the first 4,096.
         if (entity.kind === "wipeout" && entity.points.length > 3 && problems.length === 0) {

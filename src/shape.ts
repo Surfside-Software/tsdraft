@@ -12,6 +12,7 @@ import type {
   Entity,
   Hatch,
   HatchLoop,
+  HatchPattern,
   Image,
   Insert,
   Layer,
@@ -27,6 +28,7 @@ import type {
   ArcLengthDimension,
   Linetype,
   Paragraph,
+  PatternLine,
   Polyline,
   Text,
   TextStyle,
@@ -303,6 +305,8 @@ export interface Shapes {
   readonly point: Check;
   readonly layer: Check;
   readonly linetype: Check;
+  readonly pattern: Check;
+  readonly patternLine: Check;
   readonly textStyle: Check;
   readonly dimensionStyle: Check;
   readonly leaderStyle: Check;
@@ -619,7 +623,11 @@ function shapes(all: boolean, typed = all): Shapes {
         transparent: ruled(boolean),
       },
     ),
-    hatch: fields<Hatch>({ kind, layer: string, loops: list(record(loop)) }, shared),
+    // A rule of `lint` reports the pattern, whatever its type.
+    hatch: fields<Hatch>(
+      { kind, layer: string, loops: list(record(loop)) },
+      { ...shared, pattern: LEFT },
+    ),
     wipeout: fields<Wipeout>({ kind, layer: string, points: list(point) }, shared),
   } satisfies Record<Entity["kind"], FieldsCheck>;
 
@@ -668,6 +676,20 @@ function shapes(all: boolean, typed = all): Shapes {
         locked: ruled(boolean),
         plot: ruled(boolean),
       },
+    ),
+  );
+  // A rule of `lint` reports every field of a hatch pattern and of its lines, whatever its type,
+  // and reads at most as many lines and dashes as a file holds.
+  const patternLine = record(
+    fields<PatternLine>(
+      { angle: ruled(number), base: ruled(point), offset: ruled(point) },
+      { dashes: ruled(list(number)) },
+    ),
+  );
+  const pattern = record(
+    fields<HatchPattern>(
+      { name: ruled(string), lines: ruled(list(patternLine)) },
+      { description: ruled(string) },
     ),
   );
   const linetype = record(
@@ -809,6 +831,7 @@ function shapes(all: boolean, typed = all): Shapes {
       leaderStyles: ruled(table(leaderStyle)),
       imageFrame: ruled(boolean),
       wipeoutFrame: ruled(boolean),
+      patterns: ruled(table(pattern)),
     },
   );
   return {
@@ -816,6 +839,8 @@ function shapes(all: boolean, typed = all): Shapes {
     point,
     layer,
     linetype,
+    pattern,
+    patternLine,
     textStyle,
     dimensionStyle,
     leaderStyle,

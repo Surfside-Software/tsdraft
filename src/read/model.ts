@@ -683,6 +683,29 @@ export interface ReadHatch extends ReadEntityBase {
    * A hatch with a loop of an ellipse or a spline is counted instead.
    */
   readonly loops: readonly ReadHatchLoop[];
+  /** Group 76 of one that is not solid: 0 user-defined lines, 1 a pattern the app ships, 2 a pattern of a file. */
+  readonly patternType?: number;
+  /** Group 52: the pattern's angle, in degrees, as the file holds it: not mirrored for a hatch seen from below, though its lines are. */
+  readonly patternAngle?: number;
+  /** Group 41: the pattern's scale, or the user-defined lines' spacing. */
+  readonly patternScale?: number;
+  /** Group 77: true for user-defined lines crossed by as many more. */
+  readonly crossed?: true;
+  /**
+   * The lines its pattern draws, as the file holds them: in the world's coordinates, each angle
+   * with the pattern's added, its base point placed and its offset turned to the line, its dashes
+   * scaled. A firm's patterns can be read back from its drawings this way.
+   */
+  readonly patternLines?: readonly ReadPatternLine[];
+}
+
+/** A line of a hatch's pattern, as `ReadHatch.patternLines` holds it. */
+export interface ReadPatternLine {
+  readonly angle: number;
+  readonly base: Point;
+  readonly offset: Point;
+  /** Left out for a solid line. */
+  readonly dashes?: readonly number[];
 }
 
 /** A wipeout: its polygon in the world's coordinates, without its first point again at its end. */

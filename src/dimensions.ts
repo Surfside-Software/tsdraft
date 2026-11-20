@@ -33,6 +33,7 @@ import {
 import { written } from "./format.ts";
 import { keyHandle } from "./handles.ts";
 import { layerKey } from "./layers.ts";
+import { direction } from "./polylines.ts";
 import {
   arrowRoomProblem,
   DIMENSION_CENTERED_WIDE,
@@ -684,16 +685,6 @@ export function dimensionMeasure(dimension: Dimension): {
   const angle = dimensionAngle(dimension);
   const [cos, sin] = direction(angle);
   return { angle, measurement: Math.abs((x2 - x1) * cos + (y2 - y1) * sin) };
-}
-
-/** The unit vector at an angle in degrees, exact along the axes. */
-function direction(degrees: number): Point {
-  const quarter = ((degrees % 360) + 360) % 360;
-  if (quarter === 0) return [1, 0];
-  if (quarter === 90) return [0, 1];
-  if (quarter === 180) return [-1, 0];
-  if (quarter === 270) return [0, -1];
-  return [Math.cos(degrees * RADIANS), Math.sin(degrees * RADIANS)];
 }
 
 /**

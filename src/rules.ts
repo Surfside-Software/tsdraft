@@ -129,13 +129,22 @@ const LEADER_STYLE_NAMES = {
   length:
     "Leader style names cannot be longer than 255 characters, as dimension style names cannot",
 } as const;
+const HATCH_PATTERN_NAMES = {
+  empty: "Hatch pattern names cannot be empty",
+  chars: 'Hatch pattern names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
+  rejected:
+    "Hatch pattern names cannot contain a character the leading CAD app rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
+  edge: "Hatch pattern names cannot start or end with a space",
+  length: "Hatch pattern names cannot be longer than 255 characters",
+} as const;
 type NameMessages =
   | typeof LAYER_NAMES
   | typeof LINETYPE_NAMES
   | typeof TEXT_STYLE_NAMES
   | typeof BLOCK_NAMES
   | typeof DIMENSION_STYLE_NAMES
-  | typeof LEADER_STYLE_NAMES;
+  | typeof LEADER_STYLE_NAMES
+  | typeof HATCH_PATTERN_NAMES;
 const NAME_R12_CHARS =
   'R12 layer names can only use letters, digits, $, - and _. Use DXF version "R2018" for other characters';
 const NAME_R12_LENGTH =
@@ -1709,6 +1718,210 @@ export const WIPEOUT_CROSSES =
 
 /** What is wrong with a value of `wipeoutFrame`. */
 export const WIPEOUT_FRAME = "wipeoutFrame must be true or false";
+
+/**
+ * The most lines a hatch pattern has, and the most dashes one of its lines has: a file holds each
+ * count as a 16-bit integer.
+ */
+export const PATTERN_ITEMS = 32_767;
+
+/** The most lines tsdraft draws for one hatch's pattern, across the box of its loops. */
+export const HATCH_LINES = 1_000_000;
+
+const PATTERN_CHOICE =
+  "pattern must be { name, scale?, angle?, origin? } for a pattern of the drawing's patterns, or { spacing, angle?, crossed?, origin? } for lines of the hatch's own";
+const PATTERN_NAME_AND_SPACING =
+  "pattern has a name or a spacing, not both: a name for a pattern of the drawing's patterns, a spacing for lines of the hatch's own";
+const PATTERN_SCALE_WITH_SPACING =
+  "pattern's scale is for a pattern by its name: lines of the hatch's own are spaced by spacing";
+const PATTERN_CROSSED_WITH_NAME =
+  "pattern's crossed is for lines of the hatch's own, with spacing: a pattern by its name has the lines its definition gives";
+const PATTERN_POINT = "must be a point, [x, y], of finite numbers";
+const PATTERN_LINES =
+  "A hatch pattern's lines must be a list of lines, each { angle, base, offset, dashes? }";
+const PATTERN_NO_LINES = "A hatch pattern needs at least one line";
+const PATTERN_MANY_LINES = `A hatch pattern has at most ${PATTERN_ITEMS} lines: a file holds their count as a 16-bit integer`;
+const PATTERN_DASHES = "its dashes must be a list of finite numbers";
+const PATTERN_MANY_DASHES = `a line of a hatch pattern has at most ${PATTERN_ITEMS} dashes: a file holds their count as a 16-bit integer`;
+const PATTERN_ZERO_DASHES =
+  "its dashes cannot all be 0: dots with no gap between them repeat over no length. Give each gap as a negative length";
+const PATTERN_NO_SPACING =
+  "its offset across the line, the second number of offset, rounds to 0 at the 6 decimals tsdraft writes, and at 0 all its lines would lie on one. Use 0.000001 or more";
+
+/**
+ * What is wrong with a hatch's lines placed by its pattern: a number of 1e100 or more, which the
+ * file holds for each line.
+ */
+export const PATTERN_REACH =
+  "its pattern's lines, scaled, turned and moved to its origin, hold a number of 1e100 or more, and the leading CAD app reads only two exponent digits from DXF: give it a smaller scale, or an angle or origin nearer 0";
+
+/** What is wrong with a size of a hatch's pattern, its `scale` or its `spacing`, or undefined. */
+function patternSizeProblem(field: "scale" | "spacing", value: unknown): string | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || !(value > 0)) {
+    return `pattern's ${field} must be a finite number greater than 0`;
+  }
+  if (written(value) === 0) return `pattern's ${field}: ${WRITTEN_AS_ZERO}`;
+  const large = magnitudeProblem(value);
+  return large ? `pattern's ${field}: ${large}` : undefined;
+}
+
+/** What is wrong with a value that must be a point of finite numbers, or undefined. */
+function finitePointProblem(value: unknown, what: string): string | undefined {
+  if (!Array.isArray(value) || value.length !== 2) return `${what} ${PATTERN_POINT}`;
+  for (let i = 0; i < 2; i++) {
+    const n: unknown = value[i];
+    if (typeof n !== "number" || !Number.isFinite(n)) return `${what} ${PATTERN_POINT}`;
+  }
+  const large = magnitudeProblem(value[0] as number) ?? magnitudeProblem(value[1] as number);
+  return large ? `${what}: ${large}` : undefined;
+}
+
+/** What is wrong with a value that must be a finite angle, or undefined. */
+function finiteAngleProblem(value: unknown, what: string): string | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return `${what} must be a finite number`;
+  }
+  const large = magnitudeProblem(value);
+  return large ? `${what}: ${large}` : undefined;
+}
+
+/** What is wrong with a hatch whose pattern is named SOLID. */
+export const PATTERN_SOLID =
+  "pattern SOLID is the name CAD programs give a solid fill: leave the pattern out for a solid hatch";
+
+/**
+ * Returns what is wrong with a hatch's `pattern`, or undefined: an object with a `name` of the
+ * drawing's patterns and its `scale`, `angle` and `origin`, or a `spacing` of lines of the hatch's
+ * own with their `angle`, `crossed` and `origin`. Whether the drawing has a pattern of the name
+ * depends on the drawing, so it is checked apart.
+ */
+export function hatchPatternChoiceProblem(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return PATTERN_CHOICE;
+  const c = value as Record<string, unknown>;
+  for (const key of Object.keys(c)) {
+    if (!["name", "scale", "angle", "origin", "spacing", "crossed"].includes(key)) {
+      return PATTERN_CHOICE;
+    }
+  }
+  const named = c.name !== undefined;
+  const spaced = c.spacing !== undefined;
+  if (named && spaced) return PATTERN_NAME_AND_SPACING;
+  if (!named && !spaced) return PATTERN_CHOICE;
+  if (named) {
+    if (typeof c.name !== "string") return "pattern's name must be a string";
+    if (c.name.toUpperCase() === "SOLID") return PATTERN_SOLID;
+    if (c.crossed !== undefined) return PATTERN_CROSSED_WITH_NAME;
+    if (c.scale !== undefined) {
+      const problem = patternSizeProblem("scale", c.scale);
+      if (problem) return problem;
+    }
+  } else {
+    if (c.scale !== undefined) return PATTERN_SCALE_WITH_SPACING;
+    const problem = patternSizeProblem("spacing", c.spacing);
+    if (problem) return problem;
+    if (c.crossed !== undefined && typeof c.crossed !== "boolean") {
+      return "pattern's crossed must be true or false";
+    }
+  }
+  if (c.angle !== undefined) {
+    const problem = finiteAngleProblem(c.angle, "pattern's angle");
+    if (problem) return problem;
+  }
+  return c.origin === undefined ? undefined : finitePointProblem(c.origin, "pattern's origin");
+}
+
+/**
+ * Returns what is wrong with a hatch that names a pattern the drawing does not have. tsdraft has
+ * none of its own, so the message says where a firm's come from. The rule depends on the drawing,
+ * so it has no type.
+ */
+export function undefinedHatchPatternProblem(name: string, builder = false): string {
+  const fix = builder
+    ? "add the firm's pattern file with patterns() first"
+    : "pass the firm's pattern file through parsePatterns into the drawing's patterns";
+  return `Hatch pattern ${shown(name)} is not defined. tsdraft has no patterns of its own: ${fix}`;
+}
+
+/** What is wrong with a hatch whose pattern draws more lines than `HATCH_LINES`. */
+export function patternDensityProblem(lines: number): string {
+  const count = lines < 1e15 ? Math.ceil(lines).toLocaleString("en-US") : "1e15 or more";
+  return `its pattern draws ${count} lines across its loops, more than the ${HATCH_LINES.toLocaleString("en-US")} tsdraft draws for one hatch: give it a larger scale or spacing`;
+}
+
+/**
+ * Returns what is wrong with a hatch pattern's name and description, or undefined. The name is
+ * held to the rules of a linetype's.
+ */
+export function hatchPatternNameProblem(name: unknown, description: unknown): string | undefined {
+  if (typeof name !== "string") return "A hatch pattern's name must be a string";
+  const problem = nameProblem(name, HATCH_PATTERN_NAMES);
+  if (problem) return problem;
+  if (description === undefined) return undefined;
+  if (typeof description !== "string") return "A hatch pattern's description must be a string";
+  const text = textProblem(description);
+  return text ? `its description: ${text}` : undefined;
+}
+
+/**
+ * Returns what is wrong with a hatch pattern's list of lines as a list, or undefined: from 1 to
+ * `PATTERN_ITEMS` of them. No line is read.
+ */
+export function patternLinesProblem(lines: unknown): string | undefined {
+  if (!Array.isArray(lines)) return PATTERN_LINES;
+  if (lines.length === 0) return PATTERN_NO_LINES;
+  return lines.length > PATTERN_ITEMS ? PATTERN_MANY_LINES : undefined;
+}
+
+/**
+ * Returns what is wrong with a line of a hatch pattern, or undefined: its angle, base and offset
+ * finite and under 1e100, its offset across the line not 0 as written, and its dashes at most
+ * `PATTERN_ITEMS` finite numbers under 1e100, not all 0.
+ */
+export function patternLineProblem(line: unknown): string | undefined {
+  if (typeof line !== "object" || line === null || Array.isArray(line)) {
+    return "a line must be { angle, base, offset, dashes? }";
+  }
+  const l = line as Record<string, unknown>;
+  const problem =
+    finiteAngleProblem(l.angle, "its angle") ??
+    finitePointProblem(l.base, "its base") ??
+    finitePointProblem(l.offset, "its offset");
+  if (problem) return problem;
+  if (written((l.offset as readonly number[])[1]!) === 0) return PATTERN_NO_SPACING;
+  const dashes: unknown = l.dashes;
+  if (dashes === undefined) return undefined;
+  if (!Array.isArray(dashes)) return PATTERN_DASHES;
+  if (dashes.length > PATTERN_ITEMS) return PATTERN_MANY_DASHES;
+  let drawn = dashes.length === 0;
+  for (let i = 0; i < dashes.length; i++) {
+    const length: unknown = dashes[i];
+    if (typeof length !== "number" || !Number.isFinite(length)) return PATTERN_DASHES;
+    const large = magnitudeProblem(length);
+    if (large) return `its dashes: ${large}`;
+    if (length !== 0) drawn = true;
+  }
+  return drawn ? undefined : PATTERN_ZERO_DASHES;
+}
+
+/**
+ * Returns what is wrong with a hatch pattern's definition, or undefined: its name, its
+ * description and each of its lines. It reads at most `PATTERN_ITEMS` lines and as many dashes of
+ * each.
+ */
+export function hatchPatternProblem(definition: unknown): string | undefined {
+  if (typeof definition !== "object" || definition === null || Array.isArray(definition)) {
+    return "A hatch pattern must be { name, description?, lines }";
+  }
+  const { name, description, lines } = definition as Record<string, unknown>;
+  const problem = hatchPatternNameProblem(name, description) ?? patternLinesProblem(lines);
+  if (problem) return problem;
+  const list = lines as readonly unknown[];
+  for (let i = 0; i < list.length; i++) {
+    const found = patternLineProblem(list[i]);
+    if (found) return `line ${i}: ${found}`;
+  }
+  return undefined;
+}
 
 /** What is wrong with a dimension style's mask. */
 export const DIMENSION_TEXT_MASK =

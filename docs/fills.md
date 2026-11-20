@@ -2,7 +2,8 @@
 
 A solid fill is a hatch: an area filled in its pen's color, which CAD programs hold as one entity a
 drafter selects, edits and measures as one. Wall poché, filled arrowheads, bar dots and the filled
-parts of symbols are hatches. A wipeout is a polygon filled with the paper's color, which hides
+parts of symbols are hatches. A hatch with a pattern draws the pattern's lines inside its loops
+instead, as for concrete, earth or brick. A wipeout is a polygon filled with the paper's color, which hides
 what is drawn before it. A mask hides what is drawn before a text, behind the text's box: a
 paragraph, a leader's note and a dimension's text each take one.
 
@@ -61,7 +62,74 @@ A hatch is filled in its layer's color, with no outline whatever its lineweight.
 as a polyline of its own where the sheet shows one. In a block, an insert's scale and rotation place a hatch as they place the rest of the
 block, and a negative scale mirrors it.
 
-Hatch patterns, a firm's own pattern file and gradients come later. A hatch today is solid.
+Gradients come later.
+
+## Patterns
+
+A hatch with a `pattern` draws a pattern's lines in its pen in place of the solid fill. tsdraft has
+no patterns of its own: a firm's patterns are its pattern file, the `.pat` file CAD programs read.
+`parsePatterns(text)` reads one into `HatchPattern`s, and `d.patterns()` adds them to the drawing,
+from the file's text or a list of definitions. A hatch then names one, whatever the case of its
+letters, as a layer names a linetype:
+
+```ts
+import { readFileSync } from "node:fs";
+
+const d = createDrawing({ units: "in" });
+d.patterns(readFileSync("firm.pat", "utf8"));
+d.layer("A-WALL-PATT", { color: 8 }, () =>
+  d.hatch(
+    [
+      [0, 0],
+      [96, 0],
+      [96, 8],
+      [0, 8],
+    ],
+    { pattern: { name: "AR-CONC", scale: 0.5, angle: 45, origin: [0, 0] } },
+  ),
+);
+```
+
+`scale` multiplies every length of the pattern, `angle` turns it, in degrees counterclockwise, and
+`origin` is the point its lines start from; they are 1, 0 and `[0, 0]` unless given. A pattern of
+a name the drawing has replaces it and keeps the first spelling, as `linetype()` does, and of two
+of one name in one call the first is added, as CAD programs read a pattern file. A drawing written
+by hand holds its patterns in `Drawing.patterns`, and a hatch takes the first of a name.
+
+A pattern is families of parallel lines. In a pattern file a pattern starts at a line
+`*NAME, description`, and each line after it is `angle, x, y, dx, dy` and its dashes: the family's
+line runs through the base point `x, y` at `angle`, the next line of the family lies `dx` along it
+and `dy` across it, and its dashes repeat along it from the base point, a positive length drawn, a
+negative one left out and 0 a dot. A `;` starts a comment. A `HatchPattern` holds the same,
+`{ name, description?, lines }`, with each line `{ angle, base, offset, dashes? }` and no dashes for
+a solid line.
+
+Lines of the hatch's own need no pattern: `{ spacing, angle?, crossed?, origin? }` draws lines
+`spacing` apart at `angle`, and with `crossed: true` as many more square to them:
+
+```ts
+d.hatch(slab, { pattern: { spacing: 0.25, angle: 45, crossed: true } });
+```
+
+`lint` and the builder refuse a hatch that names a pattern the drawing does not have, a `scale` or
+`spacing` not greater than 0 or written as 0, a `name` and a `spacing` together, and `crossed` with
+a name. They refuse a pattern whose name breaks the rules of a linetype's name, with no line or more
+than 32,767, a line whose offset across it rounds to 0 at 6 decimals, more than 32,767 dashes on a
+line or dashes all 0, and two patterns of one name. A hatch whose pattern would draw more than
+1,000,000 lines across the box of its loops is refused, as is one whose lines, scaled, turned and
+moved to its origin, hold a number of 1e100 or more: give it a larger scale or spacing.
+
+`toSVG` and `toPDF` draw the lines cut to the loops, inside an odd number of them as a solid hatch
+is filled, as the leading CAD app plots them. Each line's dashes count from its base point, a dot
+is a round end of no length, and where a line runs along a side of a loop the side is drawn alone.
+
+`readDXF` and `readDWG` read a hatch's pattern back: `pattern` is its name, `_U` for lines of its
+own, `patternType` is 0 for lines of its own, 1 for a pattern CAD programs ship and 2 for one of a
+file, and `patternAngle`, `patternScale`, the spacing of lines of its own, and `crossed` are as the
+file holds them. `patternLines` holds each line as the file holds it, placed in the drawing: its
+angle with the pattern's added, its base point scaled, turned and moved to the origin, its offset
+scaled and turned to the line, and its dashes scaled. A firm's patterns can be read back from its
+drawings this way.
 
 ## Wipeouts
 
@@ -125,7 +193,12 @@ gives, `drawOrder`.
 ## In the file
 
 A hatch is a `HATCH` of the pattern `SOLID`, with island detection normal and each loop a
-polyline path. A wipeout is a `WIPEOUT`, a square picture of one pixel clipped by its polygon, and
+polyline path. A hatch with a pattern holds its lines instead: group 2 its pattern's name, or `_U`
+for lines of its own, 70 0, 76 its type, 2 for a pattern of the drawing's and 0 for lines of its
+own, 52 its angle, 41 its scale or its spacing, 77 1 where its lines are crossed, and 78 the
+number of its lines. Each line follows, placed in the drawing: 53 its angle, 43 and 44 its base
+point, 45 and 46 its offset, 79 the number of its dashes and a 49 for each dash, with 15
+significant digits. A wipeout is a `WIPEOUT`, a square picture of one pixel clipped by its polygon, and
 the drawing holds `WIPEOUTVARIABLES` and the dictionary variable `WIPEOUTFRAME`, which is what CAD
 programs read of whether frames show. A mask is the background of an `MTEXT`, and a dimension
 style's is its `DIMTFILL` and `DIMTFILLCLR` and the background of the `MTEXT` of its picture.

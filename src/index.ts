@@ -77,6 +77,10 @@ export {
   type EntityOptions,
   type Hatch,
   type HatchLoop,
+  type HatchOptions,
+  type HatchPattern,
+  type HatchPatternOf,
+  type HatchPatternChoice,
   type Image,
   type ImageOptions,
   type Insert,
@@ -110,6 +114,7 @@ export {
   type Lineweight,
   type Paragraph,
   type ParagraphAlign,
+  type PatternLine,
   type ParagraphOptions,
   type ParagraphVerticalAlign,
   type Point,
@@ -142,6 +147,8 @@ export {
   type Zone,
 } from "./drawing.ts";
 export { toDXF, type DxfOptions } from "./dxf.ts";
+export { parsePatterns, PATTERN_FILE_LENGTH } from "./patterns.ts";
+export { fifteenDigits } from "./format.ts";
 export { rasterSize } from "./raster.ts";
 export {
   drawingImages,
@@ -167,8 +174,10 @@ export {
 } from "./images.ts";
 export {
   dimensionMask,
+  hatchLines,
   loopBulged,
   maskOf,
+  patternFinder,
   variableDictionaryHandle,
   WIPEOUT_APPLICATION,
   wipeoutClip,
@@ -396,6 +405,7 @@ export {
   type ReadLinetype,
   type ReadMask,
   type ReadMtext,
+  type ReadPatternLine,
   type ReadMultileader,
   type ReadOptions,
   type ReadPolyline,

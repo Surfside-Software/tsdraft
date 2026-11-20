@@ -52,10 +52,13 @@ import type {
   TextStyle,
   Units,
   Viewport,
+  HatchPattern,
 } from "./drawing.ts";
 import { boxer, type Boxer } from "./extents.ts";
 import {
   dimensionMask,
+  hatchLines,
+  patternFinder,
   loopBulged,
   maskOf,
   type Mask,
@@ -392,6 +395,7 @@ export function toDXFR2018(
   ]);
   // Keyed as style names are compared, so a text that names `notes` takes the style `NOTES`.
   const stylesByKey = new Map(textStyles.map((style) => [layerKey(style.name), style]));
+  const patternOf = patternFinder(drawing.patterns);
   const styleOf = (name: string | undefined): TextStyle | undefined =>
     name === undefined ? undefined : stylesByKey.get(layerKey(name));
   writeTable(g, handle, "VIEW", []);
@@ -586,6 +590,7 @@ export function toDXFR2018(
           owner,
           entity.kind === "text" || entity.kind === "paragraph" ? styleOf(entity.style) : undefined,
           paper,
+          patternOf,
         );
         return;
       }
@@ -1114,6 +1119,7 @@ function writeEntity(
   owner: string,
   style: TextStyle | undefined,
   paper: boolean,
+  patternOf: (name: string) => HatchPattern | undefined,
 ): void {
   const begin = (type: string, subclass: string) => {
     g(0, type);
@@ -1219,8 +1225,9 @@ function writeEntity(
       begin("HATCH", "AcDbHatch");
       point(g, 10, 0, 0);
       point3(g, 210, 0, 0, 1);
-      g(2, "SOLID");
-      g(70, 1); // solid
+      const pattern = hatchLines(e, patternOf);
+      g(2, pattern?.name ?? "SOLID");
+      g(70, pattern === undefined ? 1 : 0); // solid, or lines
       g(71, 0); // no boundary objects
       const loops = e.loops;
       g(91, loops.length);
@@ -1239,7 +1246,23 @@ function writeEntity(
         g(97, 0);
       }
       g(75, 0); // normal: the parity of the loops around a point
-      g(76, 1); // predefined
+      if (pattern === undefined) g(76, 1); // predefined
+      else {
+        g(76, pattern.type);
+        g(52, pattern.angle);
+        g(41, pattern.scale);
+        g(77, pattern.crossed ? 1 : 0);
+        g(78, pattern.lines.length);
+        for (const line of pattern.lines) {
+          g(53, fifteenDigits(line.angle));
+          g(43, fifteenDigits(line.base[0]));
+          g(44, fifteenDigits(line.base[1]));
+          g(45, fifteenDigits(line.offset[0]));
+          g(46, fifteenDigits(line.offset[1]));
+          g(79, line.dashes.length);
+          for (const dash of line.dashes) g(49, fifteenDigits(dash));
+        }
+      }
       g(98, 1);
       g(10, 0);
       g(20, 0);

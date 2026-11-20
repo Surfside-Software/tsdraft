@@ -14,6 +14,7 @@ import type {
   ReadEntityBase,
   ReadHatchLoop,
   ReadImage,
+  ReadPatternLine,
   ReadMtext,
   ReadMultileader,
   ReadPolyline,
@@ -331,7 +332,14 @@ function hatch(r: Rec, base: ReadEntityBase, face: Facing): Reading {
   const { codes, values } = s;
   let i = codes.indexOf(91);
   if (i < 0) return { malformed: "HATCH with no count of loops" };
-  const value = (k: number) => Number(values[k]);
+  // A group whose value is not a finite number makes the hatch malformed, once all is read.
+  let broken = false;
+  const value = (k: number) => {
+    const text = values[k]!;
+    const n = Number(text);
+    if (text.trim() === "" || !Number.isFinite(n)) broken = true;
+    return n;
+  };
   // The next group of a code from `i` on, read by the order of the loop's groups.
   const take = (code: number): number | undefined => {
     if (codes[i] !== code) return undefined;
@@ -405,15 +413,58 @@ function hatch(r: Rec, base: ReadEntityBase, face: Facing): Reading {
     });
   }
   const style = HATCH_STYLES[num(s, 75) ?? 0] ?? "normal";
+  const solid = num(s, 70) === 1;
+  // What a pattern holds after its loops: its kind, angle, scale, crossing and lines.
+  let pattern: Partial<Record<"patternType" | "patternAngle" | "patternScale", number>> & {
+    crossed?: true;
+    patternLines?: ReadPatternLine[];
+  } = {};
+  if (!solid) {
+    while (i < codes.length && codes[i] !== 76) i++;
+    const type = take(76);
+    const angle = take(52);
+    const scale = take(41);
+    const crossed = take(77) === 1;
+    const count = take(78) ?? 0;
+    const lines: ReadPatternLine[] = [];
+    for (let k = 0; k < count && codes[i] === 53; k++) {
+      const angleOf = take(53) ?? 0;
+      const placedBase = mirror([take(43) ?? 0, take(44) ?? 0]);
+      const offset = mirror([take(45) ?? 0, take(46) ?? 0]);
+      const dashCount = take(79) ?? 0;
+      const dashes: number[] = [];
+      for (let d = 0; d < dashCount && codes[i] === 49; d++) dashes.push(take(49) ?? 0);
+      if (dashes.length !== dashCount || codes[i] === 49)
+        return { malformed: "HATCH whose pattern lines do not follow their counts" };
+      lines.push({
+        // Seen from below, a line's direction is mirrored too.
+        angle: face === -1 ? 180 - angleOf : angleOf,
+        base: placedBase,
+        offset,
+        ...(dashes.length > 0 && { dashes }),
+      });
+    }
+    if (lines.length !== count || codes[i] === 53)
+      return { malformed: "HATCH whose pattern lines do not follow their counts" };
+    pattern = {
+      ...(type !== undefined && { patternType: type }),
+      ...(angle !== undefined && { patternAngle: angle }),
+      ...(scale !== undefined && { patternScale: scale }),
+      ...(crossed && { crossed: true as const }),
+      patternLines: lines,
+    };
+  }
+  if (broken) return { malformed: "HATCH with a number that is not finite" };
   return {
     entity: {
       ...base,
       kind: "hatch",
       pattern: name(s, 2) ?? "",
-      solid: num(s, 70) === 1,
+      solid,
       style,
       ...(num(s, 71) === 1 && { associative: true as const }),
       loops,
+      ...pattern,
     },
   };
 }
@@ -1044,6 +1095,7 @@ export function costOf(e: ReadEntity): number {
     case "hatch": {
       let points = 0;
       for (const loop of e.loops) points += 1 + loop.points.length + (loop.bulges?.length ?? 0);
+      for (const line of e.patternLines ?? []) points += 3 + (line.dashes?.length ?? 0);
       return own + points + chars(e.pattern);
     }
     case "wipeout":

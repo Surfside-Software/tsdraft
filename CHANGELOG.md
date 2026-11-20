@@ -14,6 +14,17 @@
   or a loop of fewer than 3 points, or 2 joined by an arc; a wipeout of fewer than 3 points, on
   one line or with sides that cross; and a mask of another shape. `LeaderMask` is now
   `TextMask`, which a leader's and a paragraph's mask share.
+- Hatch patterns, in R2018 drawings. tsdraft has no patterns of its own: `parsePatterns(text)`
+  reads a firm's pattern file, and `d.patterns()` adds its patterns, or definitions given as data,
+  to the drawing's `patterns`. A hatch's `pattern` names one, with its `scale`, `angle` and
+  `origin`, or draws lines of its own `spacing` apart at its `angle`, `crossed` by as many more.
+  `toDXF` writes the lines each hatch draws, and `toSVG` and `toPDF` draw them and their dashes cut
+  to its loops, as CAD programs plot them. `readDXF` and `readDWG` read a hatch's `patternType`,
+  `patternAngle`, `patternScale`, `crossed` and `patternLines`, so a firm's patterns can be read
+  back from its drawings. `lint` and the builder refuse, under the rule `hatch-pattern`, a hatch
+  that names a pattern the drawing does not have, a scale or spacing not greater than 0, a
+  pattern's definition that cannot be written, and a hatch whose pattern would draw more than
+  1,000,000 lines across its loops; two patterns of one name are a `duplicate-hatch-pattern`.
 - `readDXF` and `readDWG` read a hatch, its loops of polylines or of lines and arcs as points and
   bulges, its pattern and its island style; a wipeout; an `MTEXT`'s background mask; the order a
   file's sort table draws a space or a block in, `drawOrder`; and whether wipeouts' frames show,

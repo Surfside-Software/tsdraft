@@ -171,7 +171,14 @@ leader:
   and arcs is read as points and bulges, a whole circle as two half circles. CAD programs fill a
   hatch of style `normal` by the parity of all its loops, one of style `outer` by the parity of
   those marked external or outermost, and one of style `ignore` by the external ones. A hatch
-  bounded by an ellipse or a spline is counted under `other`, as is one out of the plane.
+  bounded by an ellipse or a spline is counted under `other`, as is one out of the plane. One that
+  is not solid holds its `patternType`, 0 for user-defined lines, named `_U`, 1 for a pattern CAD
+  programs ship and 2 for one of a file, its `patternAngle`, its `patternScale`, which is the
+  spacing of user-defined lines, `crossed` for user-defined lines crossed by as many more, and
+  `patternLines`, each `{ angle, base, offset, dashes? }` as the file holds it: placed in the
+  drawing, with the pattern's angle added, the base point scaled, turned and moved to the origin,
+  and the offset and dashes scaled, the offset turned to the line. [Patterns](fills.md#patterns)
+  says how a firm's patterns are read back this way.
 - `wipeout`: its `points` in the world's coordinates, without the first again at the end.
 - An `mtext` with a background holds `mask`: its `offsetFactor`, and its `color` or `trueColor`
   where it is not in the drawing's background.

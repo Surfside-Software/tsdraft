@@ -15,6 +15,7 @@ import {
   type Drawing,
   type Entity,
   type Hatch,
+  type HatchPattern,
   type Image,
   type Insert,
   type Layer,
@@ -29,7 +30,21 @@ import {
   type Viewport,
   type Wipeout,
 } from "./drawing.ts";
-import { dimensionMask, drawnLoops, loopSides, maskOf, paragraphMaskCorners } from "./fills.ts";
+import {
+  dimensionMask,
+  drawnLoops,
+  hatchLines,
+  type HatchLines,
+  hatchSpread,
+  loopsBox,
+  loopSides,
+  maskOf,
+  paragraphMaskCorners,
+  patternDrawnProblem,
+  patternSizes,
+  type PatternSizes,
+} from "./fills.ts";
+import { patternPieces } from "./patterns.ts";
 import {
   arcPoint,
   hasArcsOrWidths,
@@ -74,7 +89,7 @@ const markedOpaque = (info: RasterInfo): boolean =>
   (info.color === 4 || info.color === 6) &&
   info.width * info.height > OPAQUE_PIXELS;
 import { fontInfo, STANDARD_FONT, capHeightOf } from "./fonts.ts";
-import { fmt, written } from "./format.ts";
+import { fifteenDigits, fmt, written } from "./format.ts";
 import { layerKey, layerKeys } from "./layers.ts";
 import { findLayout, validViewportView } from "./layouts.ts";
 import { leaderBlock, leaderPicture, type LeaderPicture } from "./leaders.ts";
@@ -91,7 +106,7 @@ import {
 import { arrowheadInfo, DEFAULT_ARROWHEAD } from "./arrowheads.ts";
 import { DEFAULT_PLOT_STYLE_TABLE, paperInfo } from "./papers.ts";
 import { shown as quoted, turning, viewportProblem } from "./rules.ts";
-import { filled } from "./shape.ts";
+import { filled, KEYED } from "./shape.ts";
 import { isUnits } from "./units.ts";
 
 /**
@@ -721,7 +736,23 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         ? imageElement(e, mark, drawnPen, look, from, matrix, room)
         : "";
     }
-    if (e.kind === "hatch") return hatchToSvg(e, mark, drawnPen, matrix, room);
+    if (e.kind === "hatch") {
+      const found = tablesOf(from).hatchPatterns;
+      // A pattern whose lines cannot be placed, which `lint` refuses, is one the drawing lacks.
+      const patternOf = (name: string) => {
+        const pattern = name.length > KEYED ? undefined : found.get(layerKey(name));
+        return pattern !== undefined && sizesOf(pattern) !== undefined ? pattern : undefined;
+      };
+      // The walk of a pattern's lines is paid for as the picture's other work is, and placing
+      // them by their number and their dashes'.
+      const step = (cost: number) => spend(cost) || refuse(drawingAt?.() ?? "a hatch");
+      const placing = (pattern: HatchPattern) => {
+        const sizes = sizesOf(pattern);
+        if (sizes !== undefined) step(Math.floor(sizes.items / 16));
+        return sizes;
+      };
+      return hatchToSvg(e, mark, drawnPen, look, matrix, room, patternOf, placing, step);
+    }
     if (e.kind === "wipeout") {
       const frame = (from?.drawing ?? drawing).wipeoutFrame !== false;
       return wipeoutToSvg(e, mark, drawnPen, look, matrix, frame);
@@ -736,6 +767,15 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     return dimensionToSvg(e, style, textStyle, mark, drawnPen, look, matrix, room);
   };
 
+  /** The sizes of each list of a hatch pattern's lines, read once for the picture. */
+  const linesRead = new WeakMap<object, PatternSizes | undefined>();
+  const dashesRead = new WeakMap<object, number | undefined>();
+  const sizesOf = (pattern: HatchPattern): PatternSizes | undefined => {
+    const lines: unknown = pattern.lines;
+    if (typeof lines !== "object" || lines === null) return undefined;
+    if (!linesRead.has(lines)) linesRead.set(lines, patternSizes(lines, dashesRead));
+    return linesRead.get(lines);
+  };
   /** The sides of each list of points a pattern cuts, read once for the picture. */
   // A long list that one polyline's plan read and another's reads again is paid for, as `lint`
   // pays for it, by the entity drawn at the time.
@@ -1247,9 +1287,17 @@ interface Tables {
   readonly textStyles: ReadonlyMap<string, TextStyle>;
   readonly dimensionStyles: ReadonlyMap<string, DimensionStyle>;
   readonly leaderStyles: ReadonlyMap<string, LeaderStyle>;
+  /** The hatch patterns, by name as a linetype's is found: the first of a name. */
+  readonly hatchPatterns: ReadonlyMap<string, HatchPattern>;
 }
 
 function tablesFor(drawing: Drawing): Tables {
+  const hatchPatterns = new Map<string, HatchPattern>();
+  for (const pattern of filled(drawing.patterns)) {
+    if (typeof pattern?.name !== "string") continue;
+    const key = layerKey(pattern.name);
+    if (!hatchPatterns.has(key)) hatchPatterns.set(key, pattern);
+  }
   return {
     layers: new Map(filled(drawing.layers).map((l) => [layerKey(l.name), l])),
     patterns: new Map(
@@ -1258,6 +1306,7 @@ function tablesFor(drawing: Drawing): Tables {
     textStyles: new Map(filled(drawing.textStyles).map((t) => [layerKey(t.name), t])),
     dimensionStyles: new Map(filled(drawing.dimensionStyles).map((t) => [layerKey(t.name), t])),
     leaderStyles: new Map(filled(drawing.leaderStyles).map((t) => [layerKey(t.name), t])),
+    hatchPatterns,
   };
 }
 
@@ -1513,9 +1562,21 @@ function hatchToSvg(
   e: Hatch,
   mark: string,
   pen: Pen,
+  look: Look,
   matrix: Matrix | undefined,
   room: number,
+  patternOf: (name: string) => HatchPattern | undefined,
+  sizesOf: (pattern: HatchPattern) => PatternSizes | undefined,
+  step: (cost: number) => boolean,
 ): string {
+  const spread = hatchSpread(e, patternOf, sizesOf);
+  if (spread !== undefined) {
+    // One whose loops or lines `lint` refuses draws none of its lines.
+    const box = loopsBox(e.loops);
+    if (box === undefined || patternDrawnProblem(box, spread) !== undefined) return `<g ${mark}/>`;
+    const pattern = hatchLines(e, patternOf)!;
+    return patternToSvg(e, pattern, mark, pen, look, matrix, room, step);
+  }
   const place = (x: number, y: number): string => {
     const [px, py] = matrix ? mapPoint(matrix, [x, y]) : [x, y];
     return `${fmt(px)} ${fmt(py)}`;
@@ -1556,6 +1617,48 @@ function hatchToSvg(
   }
   if (d === "") return `<g ${mark}/>`;
   return `<path d="${d}" fill="${pen.color}" fill-rule="evenodd" stroke="none" ${mark} data-hatch=""/>`;
+}
+
+/**
+ * A hatch's pattern: each dash and dot its lines draw inside its loops, as one path in its pen,
+ * a dot as a piece of no length, which the plot's round ends draw. It stops once it passes the
+ * room left in the picture, longer than the room, which `write` then refuses; `step` pays for the
+ * walk of its lines.
+ */
+function patternToSvg(
+  e: Hatch,
+  pattern: HatchLines,
+  mark: string,
+  pen: Pen,
+  look: Look,
+  matrix: Matrix | undefined,
+  room: number,
+  step: (cost: number) => boolean,
+): string {
+  const place = ([x, y]: Point): string => {
+    const [px, py] = matrix ? mapPoint(matrix, [x, y]) : [x, y];
+    return `${fmt(px)} ${fmt(py)}`;
+  };
+  // The loops and the lines as the file holds them: points with 6 decimals, lines with 15 digits.
+  const rings = drawnLoops(e.loops).map(loopSides);
+  const digits = (value: number) => Number(fifteenDigits(value));
+  const lines = pattern.lines.map((line) => ({
+    angle: digits(line.angle),
+    base: [digits(line.base[0]), digits(line.base[1])] as Point,
+    offset: [digits(line.offset[0]), digits(line.offset[1])] as Point,
+    dashes: line.dashes.map(digits),
+  }));
+  // The pieces are paid for from the room, and the one that passes it ends the path there.
+  const parts: string[] = [];
+  let left = room;
+  patternPieces(rings, lines, step, (from, to) => {
+    const part = `M ${place(from)} L ${place(to)}`;
+    parts.push(part);
+    return (left -= part.length + 1) >= 0;
+  });
+  if (parts.length === 0) return `<g ${mark}/>`;
+  const d = parts.join(" ");
+  return `<path d="${d}" stroke="${pen.color}"${look.stroke(pen.lineweight)} stroke-linecap="round" ${mark} data-hatch=""/>`;
 }
 
 /**

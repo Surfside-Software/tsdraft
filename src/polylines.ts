@@ -6,6 +6,17 @@ import type { Point, Polyline } from "./drawing.ts";
 import { written } from "./format.ts";
 import { filled } from "./shape.ts";
 
+/** The unit vector at an angle in degrees, exact along the axes. */
+export function direction(degrees: number): Point {
+  const quarter = ((degrees % 360) + 360) % 360;
+  if (quarter === 0) return [1, 0];
+  if (quarter === 90) return [0, 1];
+  if (quarter === 180) return [-1, 0];
+  if (quarter === 270) return [0, -1];
+  const radians = (degrees * Math.PI) / 180;
+  return [Math.cos(radians), Math.sin(radians)];
+}
+
 /** A side of a polyline, from one of its points to the next. */
 export interface PolylineSide {
   readonly from: Point;

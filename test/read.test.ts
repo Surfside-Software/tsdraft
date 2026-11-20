@@ -1178,3 +1178,31 @@ test("A DXF comes back byte for byte from its document", async () => {
   assert.ok(document.references(layer).some((r) => r.code === 390));
   assert.equal(document.names[document.sections[layer]!], "TABLES");
 });
+
+test("a hatch with a group that is not a number is counted, not read as NaN", async () => {
+  const d = createDrawing({ units: "in" });
+  d.hatch([
+    [0, 0],
+    [1, 0],
+    [1, 1],
+  ]);
+  d.hatch(
+    [
+      [2, 0],
+      [3, 0],
+      [3, 1],
+    ],
+    { pattern: { spacing: 0.1 } },
+  );
+  const dxf = toDXF(d.build());
+  // The first hatch's loop flags, and the second's pattern type.
+  const second = dxf.lastIndexOf("AcDbHatch");
+  for (const bent of [
+    dxf.replace("91\r\n1\r\n92\r\n2\r\n", "91\r\n1\r\n92\r\nx\r\n"),
+    dxf.slice(0, second) + dxf.slice(second).replace("76\r\n0\r\n", "76\r\n1e999\r\n"),
+  ]) {
+    assert.notEqual(bent, dxf);
+    const read = await readDXF(bent, { geometry: true });
+    assert.deepEqual(plain(read.unread.malformed), { "HATCH with a number that is not finite": 1 });
+  }
+});

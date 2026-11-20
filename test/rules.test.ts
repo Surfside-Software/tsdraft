@@ -7,12 +7,14 @@ import {
   DASHED,
   DrawingBuilder,
   DrawingError,
+  fromJSON,
   fromPaper,
   HIDDEN,
   inspectText,
   lint,
   measureText,
   toDXF,
+  toJSON,
   toSVG,
   viewportView,
   type Drawing,
@@ -1358,4 +1360,138 @@ test("a paragraph's height, width, line spacing and codes are checked twice", ()
   d.paragraph(laid, { at, width: 2, style: "NOTES" });
   // @ts-expect-error: R12 holds no paragraph.
   assert.throws(() => r12.paragraph("NOTE", { at }), /no paragraphs to R12/);
+});
+
+test("hatch patterns and a hatch's pattern are checked by the builder and by lint", () => {
+  const file = "*STRIPES, Dashed stripes\n45, 0,0, 0,0.25, 0.5,-0.25\n*STRIPES\n0, 0,0, 0,1\n";
+  const box: Point[] = [
+    [0, 0],
+    [8, 0],
+    [8, 4],
+    [0, 4],
+  ];
+  const d = createDrawing({ units: "in" }).patterns(file);
+  d.hatch(box, { pattern: { name: "stripes", scale: 2, angle: 30, origin: [1, 1] } });
+  d.hatch(box, { pattern: { spacing: 0.5, crossed: true } });
+  const built = d.build();
+  // The first of a name in one file is added, and a hatch holds the name as the drawing has it.
+  assert.deepEqual(built.patterns, [
+    {
+      name: "STRIPES",
+      description: "Dashed stripes",
+      lines: [{ angle: 45, base: [0, 0], offset: [0, 0.25], dashes: [0.5, -0.25] }],
+    },
+  ]);
+  assert.deepEqual(built.entities[0], {
+    kind: "hatch",
+    layer: "0",
+    loops: [{ points: box }],
+    pattern: { name: "STRIPES", scale: 2, angle: 30, origin: [1, 1] },
+  });
+  assert.deepEqual(lint(built), []);
+  assert.deepEqual(fromJSON(toJSON(built)), built);
+  assert.equal("patterns" in createDrawing().build(), false);
+  // A later call replaces a pattern of the name, and keeps its spelling.
+  d.patterns([{ name: "Stripes", lines: [{ angle: 0, base: [0, 0], offset: [0, 1] }] }]);
+  assert.deepEqual(d.build().patterns, [
+    { name: "STRIPES", lines: [{ angle: 0, base: [0, 0], offset: [0, 1] }] },
+  ]);
+
+  // The builder refuses what lint refuses, in its words.
+  const hatched = (pattern: unknown, patterns = built.patterns): Drawing => ({
+    ...built,
+    ...(patterns ? { patterns } : {}),
+    entities: [{ kind: "hatch", layer: "0", loops: [{ points: box }], pattern: pattern as never }],
+  });
+  const both = (pattern: unknown, expected: RegExp) => {
+    assert.throws(() => d.hatch(box, { pattern: pattern as never }), expected);
+    const found = lint(hatched(pattern)).map((x) => `${x.rule}: ${x.message}`);
+    assert.equal(found.length, 1, found.join("\n"));
+    assert.match(found[0]!, /^hatch-pattern: hatch #0: /);
+    assert.match(found[0]!, expected);
+  };
+  both({ name: "BRICK" }, /"BRICK" is not defined\. tsdraft has no patterns of its own/);
+  both({ spacing: 0 }, /spacing must be a finite number greater than 0/);
+  both({ name: "STRIPES", scale: 1e-7 }, /scale: This value is written as 0/);
+  both({ name: "STRIPES", spacing: 1 }, /a name or a spacing, not both/);
+  both({ name: "STRIPES", crossed: true }, /crossed is for lines of the hatch's own/);
+  both({ spacing: 1, origin: [0, NaN] }, /origin must be a point/);
+  both({ spacing: 1, scale: 2 }, /scale is for a pattern by its name/);
+  both({ spacing: 1, zz: 1 }, /attern must be \{ name, scale\?/);
+  // The literal mistakes are compile errors too.
+  // @ts-expect-error: a spacing is greater than 0.
+  assert.throws(() => d.hatch(box, { pattern: { spacing: -1 } }), /greater than 0/);
+  // @ts-expect-error: and is not written as 0.
+  assert.throws(() => d.hatch(box, { pattern: { name: "STRIPES", scale: 1e-7 } }), /written as 0/);
+  // @ts-expect-error: a pattern has a name or a spacing.
+  assert.throws(() => d.hatch(box, { pattern: { name: "STRIPES", spacing: 1 } }), /not both/);
+  // @ts-expect-error: crossed goes with a spacing, and a scale with a name.
+  assert.throws(() => d.hatch(box, { pattern: { spacing: 1, scale: 2 } }), /scale is for/);
+  both({ spacing: 1e-6 }, /draws 4,000,001 lines .*more than the 1,000,000 tsdraft draws/);
+  // A line's base point at 10, scaled by 1e99, is placed at 1e100.
+  const big = [
+    { name: "BIG", lines: [{ angle: 0, base: [10, 0] as Point, offset: [0, 1] as Point }] },
+  ];
+  const placed = { name: "BIG", scale: 1e99 };
+  assert.throws(
+    () => createDrawing().patterns(big).hatch(box, { pattern: placed }),
+    /1e100 or more/,
+  );
+  assert.match(lint(hatched(placed, big))[0]!.message, /1e100 or more/);
+  assert.deepEqual(lint(hatched({ name: "BIG", scale: 9e98 }, big)), []);
+  assert.match(lint(hatched({ name: "BRICK" }))[0]!.message, /through parsePatterns into/);
+  assert.throws(() => d.hatch(box, { pattern: { name: "BRICK" } }), /with patterns\(\) first/);
+
+  // A definition of the drawing's patterns, by the builder and by lint.
+  const defined = (patterns: unknown[]) =>
+    lint(hatched({ name: "STRIPES" }, patterns as never)).map((x) => `${x.rule}: ${x.message}`);
+  const line = { angle: 0, base: [0, 0], offset: [0, 1] };
+  for (const [pattern, expected] of [
+    [{ name: "", lines: [line] }, /Hatch pattern names cannot be empty/],
+    [{ name: "A*", lines: [line] }, /Hatch pattern names cannot contain/],
+    [{ name: "STRIPES", lines: [] }, /needs at least one line/],
+    [{ name: "STRIPES", lines: [{ ...line, offset: [1, 1e-7] }] }, /line 0: its offset across/],
+    [{ name: "STRIPES", lines: [{ ...line, dashes: [0, 0] }] }, /line 0: its dashes cannot all/],
+    [{ name: "STRIPES", lines: [{ ...line, angle: Infinity }] }, /line 0: its angle must be/],
+    [{ name: "STRIPES", lines: [{ ...line, base: [1e100, 0] }] }, /line 0: its base: .*1e100/],
+  ] as const) {
+    assert.throws(() => d.patterns([pattern as never]), expected);
+    const found = defined([pattern]);
+    assert.ok(
+      found.length >= 1 && found.every((x) => x.startsWith("hatch-pattern: ")),
+      String(found),
+    );
+    assert.match(found[0]!, expected);
+  }
+  // Of two of a name, a hatch takes the first.
+  assert.deepEqual(defined([built.patterns![0], { ...built.patterns![0], name: "stripes" }]), [
+    'duplicate-hatch-pattern: Hatch pattern "stripes" is defined twice. A hatch finds its pattern by name whatever the case of its letters, as CAD programs do, and takes the first',
+  ]);
+  // A pattern file a line of which cannot be read, and R12, which has no hatches.
+  assert.throws(() => d.patterns("45, 0,0, 0,1"), /line 1 of the pattern file: a line before/);
+  assert.throws(
+    () => createDrawing({ dxf: "R12" }).patterns(file),
+    /no hatches or wipeouts to R12/,
+  );
+  assert.match(
+    lint({ ...hatched(undefined), dxf: "R12", entities: [] })[0]!.message,
+    /^patterns: /,
+  );
+});
+
+test("a hatch's pattern named SOLID is refused: a solid hatch has none", () => {
+  const d = createDrawing({ units: "in" });
+  d.patterns("*SOLID, Solid fill\n45, 0,0, 0,.125\n");
+  assert.throws(
+    () =>
+      d.hatch(
+        [
+          [0, 0],
+          [1, 0],
+          [1, 1],
+        ],
+        { pattern: { name: "Solid" } },
+      ),
+    /SOLID is the name/,
+  );
 });

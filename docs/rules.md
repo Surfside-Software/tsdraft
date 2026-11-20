@@ -62,6 +62,17 @@ it would take `1e+100` for `1e+10` and report nothing.
   `{ color?, offsetFactor? }`, a color from 1 to 256 and a factor from 1 to 5, as a leader's is,
   on a paragraph without columns, and a dimension style's `textMask` is `true`, `false` or `{ color }`.
   [Fills, wipeouts and masks](fills.md) has the rest.
+- A hatch pattern of the drawing's `patterns` has a name that follows the rules of a linetype's
+  name, a description of one line, and 1 to 32,767 lines, each with an angle, a base point and an
+  offset of finite numbers under 1e100, an offset across the line that does not round to 0 at 6
+  decimals, and at most 32,767 dashes under 1e100, not all 0. Two patterns of one name, whatever
+  the case of its letters, are a `duplicate-hatch-pattern` error, and a hatch takes the first. A
+  hatch's `pattern` names one of them other than `SOLID`, which a solid hatch leaves the pattern
+  out for, or gives a `spacing` for lines of its own, not both; its
+  `scale` and `spacing` are greater than 0 and not written as 0, `crossed` goes with a spacing
+  alone, and its `angle` and `origin` are finite. The lines it places hold no number of 1e100 or
+  more, and it draws at most 1,000,000 lines across the box of its loops. The rule of these is
+  `hatch-pattern`. [Patterns](fills.md#patterns) has the rest.
 - Arc angles are stored from 0 up to 360, so -90 becomes 270. An arc cannot come
   within 0.000001 degrees of a full turn, because its two angles would be
   written the same and the leading CAD app holds such an arc as having no length. Draw a
@@ -248,7 +259,8 @@ it would take `1e+100` for `1e+10` and report nothing.
   field and a field of the wrong type, it gives an error with the path to the value, such as
   `entities[3].from must be a point, [x, y]`. The rule is `linetype`, `text-style`, `block` or
   `attribute` for a value in that list, `xref` for one in `xrefs`, `dimension-style` for one
-  in `dimensionStyles`, `leader-style` for one in `leaderStyles`, `layout` for a layout,
+  in `dimensionStyles`, `leader-style` for one in `leaderStyles`, `hatch-pattern` for one in
+  `patterns`, `layout` for a layout,
   `viewport` for a viewport, and `format` for the rest, which an entity of a sheet is.
   No other rule is checked on an object of the wrong shape, and what names it gets no error
   for that. An object that a drawing made in code shares among many places is reported where it

@@ -7,11 +7,23 @@
 // lower-left corner the polygon's least X and Y and its side the larger of the polygon's width and
 // height, clipped by the polygon in that pixel's axes, y down from its top. It plots a text's mask
 // as the text's box grown by the mask's factor less one times its height, each side.
-import type { Drawing, Entity, HatchLoop, Point, Polyline } from "./drawing.ts";
+import type {
+  Drawing,
+  Entity,
+  Hatch,
+  HatchLoop,
+  HatchPattern,
+  PatternLine,
+  Point,
+  Polyline,
+} from "./drawing.ts";
+import { placedLines, userLines, type PlacedLine } from "./patterns.ts";
 import { written } from "./format.ts";
 import { keyHandle } from "./handles.ts";
+import { layerKey } from "./layers.ts";
 import { placer, type ParagraphLayout, type ParagraphToMeasure } from "./paragraphs.ts";
-import { polylineSides, type PolylineSide } from "./polylines.ts";
+import { direction, polylineSides, type PolylineSide } from "./polylines.ts";
+import { HATCH_LINES, PATTERN_ITEMS, PATTERN_REACH, patternDensityProblem } from "./rules.ts";
 import { filled } from "./shape.ts";
 
 /**
@@ -36,6 +48,266 @@ export function loopOutline(loop: HatchLoop, layer: string): Polyline {
     closed: true,
     ...(loop.bulges === undefined ? {} : { bulges: loop.bulges }),
   };
+}
+
+/** What a hatch's pattern draws, as a file holds it. */
+export interface HatchLines {
+  /** The pattern's name, or `_U` for user-defined lines, as the leading CAD app names them. */
+  readonly name: string;
+  /** Group 76: 2 a pattern of a file, 0 user-defined lines. */
+  readonly type: 0 | 2;
+  readonly angle: number;
+  /** The pattern's scale, or the user-defined lines' spacing. */
+  readonly scale: number;
+  readonly crossed: boolean;
+  readonly lines: readonly PlacedLine[];
+}
+
+/**
+ * A drawing's patterns by the name a hatch gives, which is taken as a linetype's name is, whatever
+ * the case of its letters: the first of a name where two share it, which `lint` refuses.
+ */
+export function patternFinder(
+  patterns: readonly HatchPattern[] | undefined,
+): (name: string) => HatchPattern | undefined {
+  const byKey = new Map<string, HatchPattern>();
+  for (const pattern of patterns ?? []) {
+    const key = layerKey(pattern.name);
+    if (!byKey.has(key)) byKey.set(key, pattern);
+  }
+  return (name) => byKey.get(layerKey(name));
+}
+
+/** A hatch's pattern as it is drawn, before its lines are placed. */
+interface Chosen extends Omit<HatchLines, "lines"> {
+  readonly origin: Point;
+  /** The pattern of the drawing it names, or undefined for user-defined lines. */
+  readonly pattern?: HatchPattern;
+}
+
+/**
+ * A hatch's pattern from its numbers as written, a field the rules refuse taken as its default:
+ * undefined for a solid hatch, and for a pattern `patternOf` does not find.
+ */
+function chosen(
+  hatch: Pick<Hatch, "pattern">,
+  patternOf: (name: string) => HatchPattern | undefined,
+): Chosen | undefined {
+  const p: unknown = hatch.pattern;
+  if (typeof p !== "object" || p === null || Array.isArray(p)) return undefined;
+  const given = p as Record<string, unknown>;
+  const number = (value: unknown, otherwise: number) =>
+    typeof value === "number" && Number.isFinite(value) ? written(value) : otherwise;
+  const at = given.origin;
+  const origin: Point =
+    Array.isArray(at) && at.length === 2 ? [number(at[0], 0), number(at[1], 0)] : [0, 0];
+  const angle = number(given.angle, 0);
+  if (typeof given.spacing === "number") {
+    const spacing = number(given.spacing, 0);
+    if (!(spacing > 0)) return undefined;
+    const crossed = given.crossed === true;
+    return { name: "_U", type: 0, angle, scale: spacing, crossed, origin };
+  }
+  if (typeof given.name !== "string") return undefined;
+  const pattern = patternOf(given.name);
+  if (pattern === undefined) return undefined;
+  const scale = number(given.scale, 1);
+  if (!(scale > 0)) return undefined;
+  return { name: pattern.name, type: 2, angle, scale, crossed: false, origin, pattern };
+}
+
+/**
+ * The lines a hatch's pattern draws, placed in the drawing: undefined for a solid hatch, and for a
+ * pattern `patternOf` does not find, which `lint` refuses.
+ */
+export function hatchLines(
+  hatch: Pick<Hatch, "pattern">,
+  patternOf: (name: string) => HatchPattern | undefined,
+): HatchLines | undefined {
+  const c = chosen(hatch, patternOf);
+  if (c === undefined) return undefined;
+  const { name, type, angle, scale, crossed, origin, pattern } = c;
+  const lines = pattern
+    ? placedLines(filled(pattern.lines), scale, angle, origin)
+    : userLines(scale, angle, crossed, origin);
+  return { name, type, angle, scale, crossed, lines };
+}
+
+/** The box of a hatch's loops: `[x0, y0, x1, y1]`. */
+export type LoopsBox = readonly [number, number, number, number];
+
+/**
+ * A box that holds what a hatch's loops close around, its arcs too, from their numbers as given:
+ * the box of each side grown by the height of its arc, `|bulge|` times half its chord, which holds
+ * the arc whatever its sweep. Undefined for a loop with a point or a bulge that is not a finite
+ * number, which `lint` refuses, and for no point at all.
+ */
+export function loopsBox(loops: unknown): LoopsBox | undefined {
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
+  for (const loop of drawnLoops(loops)) {
+    const points = filled(loop.points as unknown);
+    const bulges: unknown = loop.bulges;
+    const n = points.length;
+    for (let i = 0; i < n; i++) {
+      const p: unknown = points[i];
+      const q: unknown = points[(i + 1) % n];
+      if (!Array.isArray(p) || !Array.isArray(q)) return undefined;
+      const [px, py, qx, qy]: unknown[] = [p[0], p[1], q[0], q[1]];
+      if (!finite(px) || !finite(py) || !finite(qx) || !finite(qy)) return undefined;
+      const b: unknown = Array.isArray(bulges) && i < bulges.length ? bulges[i] : 0;
+      if (b !== undefined && !finite(b)) return undefined;
+      const grow = b ? (Math.abs(b) * Math.hypot(qx - px, qy - py)) / 2 : 0;
+      x0 = Math.min(x0, px - grow, qx - grow);
+      y0 = Math.min(y0, py - grow, qy - grow);
+      x1 = Math.max(x1, px + grow, qx + grow);
+      y1 = Math.max(y1, py + grow, qy + grow);
+    }
+  }
+  return x0 <= x1 && y0 <= y1 ? [x0, y0, x1, y1] : undefined;
+}
+
+/** What a hatch pattern's definition holds, as the checks of what a hatch draws read it. */
+export interface PatternSizes {
+  /** Its lines and the dashes of each, which a hatch's lines are placed from. */
+  readonly items: number;
+  /** The largest size of a line's angle. */
+  readonly angle: number;
+  /** The largest sum of the sizes of a line's base point's numbers. */
+  readonly base: number;
+  /** The largest size of a number a line's offset or dashes gives, the offset's two summed. */
+  readonly reach: number;
+}
+
+/** The sizes of one of a pattern's lines, whose numbers are all finite. */
+export function lineSizes(line: PatternLine): Omit<PatternSizes, "items"> {
+  let reach = Math.abs(line.offset[0]) + Math.abs(line.offset[1]);
+  for (const dash of filled(line.dashes ?? [])) reach = Math.max(reach, Math.abs(dash));
+  return {
+    angle: Math.abs(line.angle),
+    base: Math.abs(line.base[0]) + Math.abs(line.base[1]),
+    reach,
+  };
+}
+
+/**
+ * The sizes of a pattern's lines, or undefined when one cannot be placed: at most `PATTERN_ITEMS`
+ * lines, each an object of finite numbers with at most as many dashes. A list of dashes that many
+ * lines share is read once, through `dashesRead`.
+ */
+export function patternSizes(
+  lines: unknown,
+  dashesRead: WeakMap<object, number | undefined>,
+): PatternSizes | undefined {
+  if (!Array.isArray(lines) || lines.length > PATTERN_ITEMS) return undefined;
+  const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
+  const pair = (p: unknown): boolean => Array.isArray(p) && finite(p[0]) && finite(p[1]);
+  let [items, angle, bases, reach] = [lines.length, 0, 0, 0];
+  for (let i = 0; i < lines.length; i++) {
+    const line: unknown = lines[i];
+    if (typeof line !== "object" || line === null) return undefined;
+    const l = line as Record<string, unknown>;
+    if (!finite(l.angle) || !pair(l.base) || !pair(l.offset)) return undefined;
+    const dashes: unknown = l.dashes;
+    let most = 0;
+    if (dashes !== undefined) {
+      if (!Array.isArray(dashes)) return undefined;
+      if (!dashesRead.has(dashes)) {
+        let found: number | undefined = 0;
+        if (dashes.length > PATTERN_ITEMS) found = undefined;
+        else
+          for (let j = 0; j < dashes.length; j++) {
+            const dash: unknown = dashes[j];
+            if (!finite(dash)) {
+              found = undefined;
+              break;
+            }
+            found = Math.max(found, Math.abs(dash));
+          }
+        dashesRead.set(dashes, found);
+      }
+      const found = dashesRead.get(dashes);
+      if (found === undefined) return undefined;
+      most = found;
+      items += dashes.length;
+    }
+    const [base, offset] = [l.base as Point, l.offset as Point];
+    angle = Math.max(angle, Math.abs(l.angle));
+    bases = Math.max(bases, Math.abs(base[0]) + Math.abs(base[1]));
+    reach = Math.max(reach, most, Math.abs(offset[0]) + Math.abs(offset[1]));
+  }
+  return { items, angle, base: bases, reach };
+}
+
+/** A family of a hatch's lines as their count reads it: their angle and how far apart they lie. */
+export interface Family {
+  readonly angle: number;
+  readonly apart: number;
+}
+
+/** What a hatch's pattern places, as the checks of what it draws read it. */
+export interface PatternSpread {
+  readonly families: readonly Family[];
+  /** At least the largest size of a number a placed line holds: an angle, a coordinate, a dash. */
+  readonly reach: number;
+}
+
+/**
+ * What a hatch's pattern places, from its numbers as written: each family of lines, and a size no
+ * number its placed lines hold is above. Undefined for a solid hatch, and for a pattern `patternOf`
+ * does not find; `sizesOf` gives the sizes of the definition it finds.
+ */
+export function hatchSpread(
+  hatch: Pick<Hatch, "pattern">,
+  patternOf: (name: string) => HatchPattern | undefined,
+  sizesOf: (pattern: HatchPattern) => PatternSizes | undefined,
+): PatternSpread | undefined {
+  const c = chosen(hatch, patternOf);
+  if (c === undefined) return undefined;
+  const { angle, scale, origin, pattern } = c;
+  const away = Math.max(Math.abs(origin[0]), Math.abs(origin[1]));
+  if (pattern === undefined) {
+    const families = [{ angle, apart: scale }];
+    if (c.crossed) families.push({ angle: angle + 90, apart: scale });
+    return { families, reach: Math.max(Math.abs(angle) + 90, scale, away) };
+  }
+  const sizes = sizesOf(pattern);
+  if (sizes === undefined) return undefined;
+  const families: Family[] = [];
+  for (const line of filled(pattern.lines)) {
+    families.push({ angle: line.angle + angle, apart: line.offset[1] * scale });
+  }
+  // A line's base is scaled, turned and moved, and its offset and dashes scaled and turned.
+  return {
+    families,
+    reach: Math.max(sizes.angle + Math.abs(angle), sizes.base * scale + away, sizes.reach * scale),
+  };
+}
+
+/**
+ * How many lines a hatch's pattern draws across the box of its loops, at most: for each family,
+ * the box's extent across its lines over how far apart they lie, and one more.
+ */
+export function linesAcross(box: LoopsBox, families: readonly Family[]): number {
+  const [width, height] = [box[2] - box[0], box[3] - box[1]];
+  let count = 0;
+  for (const { angle, apart } of families) {
+    const [c, s] = direction(angle);
+    count += Math.floor((width * Math.abs(s) + height * Math.abs(c)) / Math.abs(apart)) + 1;
+  }
+  return count;
+}
+
+/**
+ * What is wrong with what a hatch's pattern draws inside its loops, or undefined: a number of its
+ * placed lines that is 1e100 or more, or more lines than `HATCH_LINES`. `lint` and the builder
+ * refuse such a hatch, and `toSVG` draws none of its lines.
+ */
+export function patternDrawnProblem(box: LoopsBox, spread: PatternSpread): string | undefined {
+  // Written with 15 digits, a number just under 1e100 would print as 1e+100.
+  if (!(Number(spread.reach.toPrecision(15)) < 1e100)) return PATTERN_REACH;
+  const count = linesAcross(box, spread.families);
+  return count <= HATCH_LINES ? undefined : patternDensityProblem(count);
 }
 
 /** The sides of a hatch's loop, as a closed polyline's. */

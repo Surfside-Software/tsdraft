@@ -21,7 +21,9 @@ import {
   type Layer,
   type Layout,
   type LeaderStyle,
+  type HatchPattern,
   type Linetype,
+  type PatternLine,
   type Leader,
   type Polyline,
   type TextStyle,
@@ -198,6 +200,7 @@ const kinds: {
         bulges: [0, 0.5, 0],
       },
     ],
+    pattern: { name: "STRIPES", scale: 2, angle: 30, origin: [1, 1] },
     id: "w1",
     ...styled,
   },
@@ -317,6 +320,9 @@ const keyed: Required<
 /** One of everything an R2018 drawing can hold, with every field of every object. */
 const full: Required<Drawing> & {
   readonly linetypes: readonly [Required<Linetype>];
+  readonly patterns: readonly [
+    Required<HatchPattern> & { readonly lines: readonly [Required<PatternLine>] },
+  ];
   readonly textStyles: readonly [Required<TextStyle>];
   // A style in decimal units leaves zeros out, and one in architectural units writes them.
   readonly dimensionStyles: readonly [
@@ -342,6 +348,13 @@ const full: Required<Drawing> & {
   imageFrame: false,
   wipeoutFrame: false,
   linetypes: [{ name: "DD", description: "Dash dot", pattern: [0.5, -0.25, 0, -0.25] }],
+  patterns: [
+    {
+      name: "STRIPES",
+      description: "Dashed stripes",
+      lines: [{ angle: 45, base: [0, 0], offset: [0, 0.25], dashes: [0.5, -0.25, 0, -0.25] }],
+    },
+  ],
   textStyles: [{ name: "NOTES", font: "Arial", widthFactor: 0.9, obliqueAngle: 10 }],
   dimensionStyles: [
     {

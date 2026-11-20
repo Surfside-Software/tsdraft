@@ -378,7 +378,12 @@
   and factor, a paragraph's and a dimension style's. The writers, `toSVG`, the extents, `lint` and
   the readers take them from it. The wipeout frame is the dictionary variable `WIPEOUTFRAME`, which is
   what that app reads, beside `WIPEOUTVARIABLES`, which it does not. A hatch is drawn as one path
-  with `fill-rule="evenodd"`, which `toPDF` writes as `f*`.
+  with `fill-rule="evenodd"`, which `toPDF` writes as `f*`. tsdraft ships no hatch pattern: a
+  firm's pattern file gives them. A hatch finds its pattern by `layerKey` of its name, the first of
+  a name, and `patternDrawnProblem` is the one check of what its lines draw, which `lint`, the
+  builder and `toSVG` share: a pattern that would draw more than `HATCH_LINES` lines across the
+  box of its loops, or place a number of 1e100 or more, is refused, and `toSVG` draws none of its
+  lines.
 - `src/pdf.ts` plots layouts to PDF from the pictures `toSVG` draws of them, and decides
   nothing about a drawing: every rule of what a sheet plots stays in `toSVG`, so the preview
   and the plot cannot part. It reads the closed set of elements and attributes `toSVG` writes
