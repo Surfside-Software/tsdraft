@@ -230,21 +230,24 @@ A note of more than one line is a paragraph, which wraps at its width and which 
 as one. Never break a note into texts of one line:
 
 ```ts
-import { layoutParagraph, underline } from "tsdraft";
+import { layoutParagraph, list, underline } from "tsdraft";
 
-d.paragraph(`1. ${underline("VERIFY")} ALL DIMENSIONS IN THE FIELD.\n2. DO NOT SCALE.`, {
+const notes = list([`${underline("VERIFY")} ALL DIMENSIONS IN THE FIELD.`, "DO NOT SCALE."]);
+d.paragraph(notes, {
   at: [1, 20], // the upper left corner of its box
   width: 4,
   height: 0.1,
 });
-layoutParagraph({ value: "...", height: 0.1, width: 4 }).lines.length; // how many lines it takes
+layoutParagraph({ value: notes, height: 0.1, width: 4 }).lines.length; // how many lines it takes
 ```
 
-A line feed starts a new paragraph. `measureParagraph` gives its lines and its box, from the
+A line feed starts a new paragraph. `list` writes numbered or lettered notes in two levels, each
+hanging under its mark as CAD programs set a list, and `paragraphFormat` a paragraph's indents,
+tab stops, justification and spacing. `measureParagraph` gives its lines and its box, from the
 widths `measureText` uses, and `inspectText` checks each line as a text. `underline`, `bold`,
 `stack`, `superscript` and `subscript` write the codes for what they name, and `plain(text)`
-escapes text from elsewhere. `lint` refuses a code tsdraft does not lay out, such as a tab, a
-list's indents or a change of height, and names it.
+escapes text from elsewhere. `lint` refuses a code tsdraft does not lay out, such as columns or
+a change of height, and names it.
 [docs/paragraphs.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/paragraphs.md)
 has the codes.
 

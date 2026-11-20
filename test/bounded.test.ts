@@ -2339,6 +2339,16 @@ test("a paragraph of many lines, runs or braces, a long word and numbers past dr
     paragraph({ value: `\\S${"1".repeat(200_000)}/${"2".repeat(200_000)};`, width: 1 }),
     paragraph({ value: "%".repeat(500_000), lineSpacingStyle: "exactly" }),
     paragraph({ value: `\\fArial${"|b0".repeat(200_000)};X` }),
+    // Tabs to stops of their own and by default, indents, stretched lines and a right indent,
+    // which lays the lines out twice.
+    paragraph({ value: "H\t".repeat(200_000), width: 3 }),
+    paragraph({ value: `\\pxt${"1,".repeat(100_000)}2;${"H\t".repeat(100_000)}`, width: 1e6 }),
+    paragraph({ value: "\\pxi-3,l3,t3;1.\tA B\\P".repeat(40_000), width: 4 }),
+    paragraph({ value: "\\pxqd;AB CD ".repeat(50_000), width: 1e-6 }),
+    paragraph({ value: "\\pxqj;AB CD ".repeat(50_000), width: 20 }),
+    paragraph({ value: `\\pxi1,l2,r3;${"W ".repeat(200_000)}`, width: 6 }),
+    paragraph({ value: "\\pl99999999999999999999,r-1e9;A".repeat(1_000), width: 1 }),
+    paragraph({ value: "\\pxsm4,se0.0001,b1000,a-1000;A\\P".repeat(50_000), width: 1 }),
   ];
   for (const [i, leaf] of hostile.entries()) {
     const d: Drawing = {

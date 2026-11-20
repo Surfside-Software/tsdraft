@@ -1281,10 +1281,10 @@ function writePicture(g: Group, { name, picture, handles, layer, textStyle }: Pi
 
 /**
  * Writes the value of an MTEXT, which the leading CAD app decodes once: in groups 3 of
- * `TEXT_CHUNK` characters, and the rest in group 1.
+ * `TEXT_CHUNK` characters, and the rest in group 1, with a tab as `^I`.
  */
 function writeMtextValue(g: Group, value: string): void {
-  const text = dxfOnce(value);
+  const text = dxfOnce(value).replaceAll("\t", "^I");
   let at = 0;
   while (text.length - at > TEXT_CHUNK) {
     // A caret and what it escapes stay in one group.

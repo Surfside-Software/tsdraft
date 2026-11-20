@@ -55,9 +55,9 @@
 //   justified to its point with `align` and `valign`. Columns are laid out by the length
 //   `measureText` gives a text in its role. The title block's texts, below, are the one
 //   exception.
-// - A general note is one paragraph, which wraps at the width of the column of notes and which a
-//   drafter edits as one. `layoutParagraph` gives its lines, so its first line sits on its
-//   number's row and the next note starts under its last line.
+// - The general notes are one paragraph, a numbered list whose items hang under their numbers and
+//   wrap at the width of the column of notes, which a drafter edits as one. `layoutParagraph`
+//   gives its lines, so its first line sits on the row and the next block starts under its last.
 // - A symbol is a block, drawn once and inserted where it is needed. The tree and the property
 //   corner are in the plan and in the legend, so each is inserted in model space and on the
 //   layout. A block's entities are on layer 0, so each insert draws on its own layer.
@@ -84,7 +84,9 @@ import {
   createDrawing,
   defineStandard,
   layoutParagraph,
+  list,
   measureText,
+  paragraphFormat,
   toDXF,
   toSVG,
   type Drawing,
@@ -727,17 +729,13 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
         "WORK IN THE PUBLIC RIGHT-OF-WAY NEEDS ITS OWN PERMIT.",
         "REPLACE ANY SIDEWALK OR PAVEMENT DAMAGED DURING CONSTRUCTION.",
       ];
-      const indent = widthOf("00. ", "label");
-      const width = column.width - indent;
-      notes.forEach((note, i) => {
-        d.text([column.left, row], `${i + 1}.`, { role: "label" });
-        // The note's first baseline is on its number's row, and the next note starts a line and a
-        // third below its last.
-        const { lines } = layoutParagraph({ value: note, ...roles.label, width });
-        const [first, last] = [lines[0]!.baseline, lines.at(-1)!.baseline];
-        d.paragraph(note, { role: "label", at: [column.left + indent, row - first], width });
-        row += last - first - leading - leading / 3;
-      });
+      // One paragraph, a numbered list whose items hang under their numbers, a third of a line
+      // apart. Its first baseline is on the row, and the next block starts under its last.
+      const value = `${paragraphFormat({ after: 1 / 3 })}${list(notes)}`;
+      const { lines } = layoutParagraph({ value, ...roles.label, width: column.width });
+      const [first, last] = [lines[0]!.baseline, lines.at(-1)!.baseline];
+      d.paragraph(value, { role: "label", at: [column.left, row - first], width: column.width });
+      row += last - first - leading;
     });
 
     // The legend shows each line of the plan on its own layer, and each symbol as the block

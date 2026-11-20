@@ -1233,7 +1233,8 @@ function paragraphToSvg(
       `<line x1="${fmt(a[0])}" y1="${fmt(a[1])}" x2="${fmt(b[0])}" y2="${fmt(b[1])}" stroke="${pen.color}"${look.stroke(pen.lineweight)} data-part="${kind}"/>`,
     );
   }
-  const open = `<g ${mark} data-paragraph="${esc(e.value)}"`;
+  // A tab as `&#9;`, which an XML reader would read in an attribute as a space.
+  const open = `<g ${mark} data-paragraph="${esc(e.value).replaceAll("\t", "&#9;")}"`;
   if (parts.length === 0) return `${open}/>`;
   return `${open}>\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
 }

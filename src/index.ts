@@ -160,6 +160,8 @@ export { CENTER, DASHDOT, DASHED, DOT, HIDDEN, LINEWEIGHTS, PHANTOM } from "./li
 export { lineSpacing, measureText, type TextMeasure, type TextToMeasure } from "./measure.ts";
 export {
   bold,
+  list,
+  paragraphFormat,
   parseParagraph,
   plain,
   PARAGRAPH_NESTING,
@@ -168,7 +170,11 @@ export {
   superscript,
   underline,
   type BoldFont,
+  type ListItem,
+  type ListMarks,
+  type ParagraphJustification,
   type ParagraphPiece,
+  type ParagraphProperties,
   type ParsedParagraph,
   type RunFormat,
 } from "./paragraph-codes.ts";

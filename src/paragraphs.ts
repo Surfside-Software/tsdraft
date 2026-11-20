@@ -5,7 +5,13 @@ import type { LineSpacingStyle, ParagraphAlign, ParagraphVerticalAlign, Point } 
 import { FONT_METRICS, type FontMetrics } from "./font-metrics.ts";
 import { capHeightOf, fontInfo, STANDARD_FONT } from "./fonts.ts";
 import { fontMetrics, tableIndex, UNKNOWN } from "./measure.ts";
-import { parseParagraph, type ParsedParagraph, type RunFormat } from "./paragraph-codes.ts";
+import {
+  parseParagraph,
+  type ParagraphJustification,
+  type ParagraphPiece,
+  type ParsedParagraph,
+  type RunFormat,
+} from "./paragraph-codes.ts";
 import { LINE_SPACING_RANGE } from "./rules.ts";
 import { fifteenDigits, written } from "./format.ts";
 import { Strings } from "./shape.ts";
@@ -54,6 +60,32 @@ import { Strings } from "./shape.ts";
 //   a TrueType font but those of `STACKS_MEASURED`, and one whose part of spaces is the wider.
 // - A line that ends in a stack and drops the spaces after it is placed by its first point and not
 //   by the left of its first character's ink, at any attachment.
+// - A `\p` code sets what it gives of the paragraph it stands in, wherever in it, and of each
+//   later one until another changes it: in heights after `x`, in drawing units without. With a
+//   width, a paragraph's first line starts at its left indent plus its first-line indent from the
+//   left of the box, never left of it, its other lines at its left indent, and its words wrap at
+//   its right indent. Without a width no indent moves a line.
+// - A tab ends a word and starts the next, which takes it along where the line wraps. It takes the
+//   pen to a stop, from the left of the box: of the left indent and each stop given, the first
+//   past the pen by the next character's left, and else the first multiple of `DEFAULT_TAB` past
+//   the pen; one at or past the right indent takes it nowhere. The next character's ink starts on
+//   the stop. Without a width only the left indent and the multiples are stops, and a tab before
+//   the line's first character takes the pen nowhere.
+// - After a tab the wrap measures the words as a line that starts on the stop, and a word that
+//   reaches the width itself leaves a line that starts at an indent or holds a tab.
+// - A line stands by its paragraph's justification, or the attachment's: from its start, ending at
+//   the right indent, or centered between the two, and about the point without a width.
+//   Justified, each line but the paragraph's last grows each space after its last tab alike, to
+//   end at the right indent; the last stands by the attachment. Distributed, every line grows
+//   each gap after its last tab between two characters or stacks alike, and is centered without
+//   a width. A grown line draws each word and space, or each character, as a run of its own.
+// - `\pb` leaves room before each paragraph, the first among them, and no less than
+//   `BEFORE_LEAST`, and `\pa` after each but the last. Once a code has `x`, the numbers of each
+//   after it are heights too. `\psm` spaces each line `MULTIPLE` times its A and D, times its factor, and the box
+//   ends the lesser of that and A and D below the last line's top. `\pse` sets each baseline its
+//   size below its line's top and each next line 5/3 of it below, and the box ends 2/3 of it
+//   below the last baseline, less 4/3 of what it passes the height by.
+// - A tab's underline runs from the pen to its stop.
 /** How far past the width a word may reach and stay: the tables' rounding, and no more. */
 const SLACK = 1e-9;
 const UNDERLINE_SHX = 0.2;
@@ -73,6 +105,17 @@ const STACKS_MEASURED: ReadonlySet<string> = new Set(["Arial"]);
 const AT_LEAST_BELOW = 1 / 3;
 const EXACT_PITCH = 5 / 3;
 const EXACT_BELOW = 1 / 3;
+/** A paragraph's own factor of spacing, `\psm`, spaces its lines this much more than its A and D. */
+const MULTIPLE = 5 / 4;
+/** How far apart a tab's stops are, in heights, past those a paragraph gives. */
+const DEFAULT_TAB = 4;
+/** How far past the pen a stop must be to take it, in heights: the tables' rounding. */
+const STOP_SLACK = 1e-9;
+const TAB = 9;
+/** A line's gaps when it is not stretched. */
+const NO_GAPS: readonly number[] = [];
+/** The least room a paragraph's `\pb` leaves before it, in heights. */
+const BEFORE_LEAST = 1 / 4;
 
 /** A paragraph to lay out. A `Paragraph` and its `TextStyle` spread into one object are one. */
 export interface ParagraphToMeasure {
@@ -133,7 +176,10 @@ export interface ParagraphStroke {
 
 /** One line of a paragraph. */
 export interface ParagraphLine {
-  /** What it draws: its characters in order, and each stack as its parts either side of its divider. */
+  /**
+   * What it draws: its characters in order, each tab as a tab, and each stack as its parts either
+   * side of its divider.
+   */
   readonly value: string;
   readonly runs: readonly ParagraphRun[];
   /** Its baseline, up from `at`. */
@@ -430,20 +476,40 @@ interface Built {
   bottom: number;
 }
 
+/** A stack a line holds, at its first point `x`. */
+interface Stacked {
+  readonly kind: "stack";
+  readonly x: number;
+  readonly shape: StackShape;
+  readonly face: Face;
+  readonly value: string;
+}
+
+/** Where a tab of a line takes the pen, from `from` to `to`, in the format it is in. */
+interface Tabbed {
+  readonly kind: "tab";
+  readonly from: number;
+  readonly to: number;
+  readonly format: RunFormat;
+  readonly face: Face;
+}
+
 /** What a line holds as it is built, in drawing units from its first point. */
 interface Line {
-  readonly items: (
-    | Built
-    | {
-        readonly kind: "stack";
-        readonly x: number;
-        readonly shape: StackShape;
-        readonly face: Face;
-        readonly value: string;
-      }
-  )[];
+  readonly items: (Built | Stacked | Tabbed)[];
   /** True when it ends in a stack and the spaces after the stack were dropped. */
   spaced: boolean;
+  /** The paragraph it is in, by its index in the properties `resolve` gives. */
+  readonly paragraph: number;
+  /** True for the first line of its paragraph. */
+  readonly first: boolean;
+  /** Where it starts, from the left of the box: its paragraph's indent, in drawing units. */
+  readonly origin: number;
+  /**
+   * Where its first point stands from the left of the box, once its first character is placed:
+   * so that the left of that character's ink, or a tab or a space, is at `origin`.
+   */
+  at: number | undefined;
 }
 
 /** Where the next character of a line goes, and what it continues. */
@@ -454,6 +520,25 @@ interface Pen {
   key: string | undefined;
   /** Where the last character's ink ends. */
   ink: number;
+  /** A tab the next character ends, which goes to a stop once that character is known. */
+  tab: PendingTab | undefined;
+  /**
+   * What the wrap adds to a word's reach, from the line's start: after a tab, from where the line
+   * would start for the words to stand as they do from the stop.
+   */
+  gap: number;
+  /** True once the line has a character or a stack. */
+  started: boolean;
+  /** True once a tab of the line has gone to its stop. */
+  tabbed: boolean;
+}
+
+/** A tab, from where the pen stood, from the left of the box, in the format it is in. */
+interface PendingTab {
+  readonly from: number;
+  readonly started: boolean;
+  readonly format: RunFormat;
+  readonly face: Face;
 }
 
 /** A word's characters of one format, the stretch of `source` from `from` to `to`, or a stack. */
@@ -486,9 +571,92 @@ function valueOf(run: Built): string {
   return run.head === undefined ? last : [...run.head, last].join("");
 }
 
+/** What the `\p` codes set of one paragraph, in drawing units, with what it carries from the last. */
+interface Resolved {
+  readonly indent: number;
+  readonly left: number;
+  readonly right: number;
+  readonly tabs: readonly number[];
+  readonly justification: ParagraphJustification | undefined;
+  readonly before: number;
+  readonly after: number;
+  /** A factor of its own spacing for `m`, or the spacing exactly in drawing units for `e`. */
+  readonly spacing: { readonly style: "m" | "e"; readonly value: number } | undefined;
+}
+
+const UNSET: Resolved = {
+  indent: 0,
+  left: 0,
+  right: 0,
+  tabs: [],
+  justification: undefined,
+  before: 0,
+  after: 0,
+  spacing: undefined,
+};
+
 /**
- * Lays a paragraph out about its point, in time in proportion to its value: its lines broken at
- * its width and at each `\P`, each run of each line where it draws, and its strokes. It reads any
+ * What each paragraph of a value sets, in order: a paragraph takes what the one before it had,
+ * and then what each of its own `\p` codes sets, wherever in it the code stands. A number is in
+ * heights of the text after `x`, and in drawing units without it.
+ */
+/** The most a `\p` number may come to, in drawing units, so that no sum of them overflows. */
+const PROPERTY_MOST = 1e15;
+
+/** A `\p` number within `PROPERTY_MOST`; `resolve` marks one it moved approximate. */
+function held(value: number): number {
+  return Math.min(PROPERTY_MOST, Math.max(-PROPERTY_MOST, value));
+}
+
+/** A code's tab stops in drawing units, in order and each once. */
+function stopsOf(tabs: readonly number[], unit: number): number[] {
+  const sorted = tabs.map((tab) => held(tab * unit)).sort((a, b) => a - b);
+  return sorted.filter((tab, k) => k === 0 || tab !== sorted[k - 1]);
+}
+
+function resolve(pieces: readonly ParagraphPiece[], height: number): Resolved[] {
+  const out: Resolved[] = [];
+  let current = UNSET;
+  /** True once a code has had `x`: the codes after it are in heights too. */
+  let heights = false;
+  const finish = (): void => {
+    out.push(current);
+  };
+  for (const piece of pieces) {
+    if (piece.kind === "break") {
+      finish();
+      continue;
+    }
+    if (piece.kind !== "properties") continue;
+    const p = piece.properties;
+    heights ||= p.heights === true;
+    const unit = heights ? height : 1;
+    const size = (value: number | undefined, was: number): number =>
+      value === undefined ? was : held(value * unit);
+    current = {
+      indent: size(p.indent, current.indent),
+      left: size(p.left, current.left),
+      right: size(p.right, current.right),
+      tabs: p.tabs ? stopsOf(p.tabs, unit) : current.tabs,
+      justification: p.justification ?? current.justification,
+      before: size(p.before, current.before),
+      after: size(p.after, current.after),
+      spacing: p.spacing
+        ? {
+            style: p.spacing.style,
+            value: held(p.spacing.style === "e" ? p.spacing.value * unit : p.spacing.value),
+          }
+        : current.spacing,
+    };
+  }
+  finish();
+  return out;
+}
+
+/**
+ * Lays a paragraph out about its point, in time in proportion to its value, with a search of its
+ * paragraph's tab stops, sorted once for each `\p` code, for each tab: its lines broken at its
+ * width and at each `\P`, each run of each line where it draws, and its strokes. It reads any
  * value and never throws.
  */
 export function layoutParagraph(paragraph: ParagraphToMeasure): ParagraphLayout {
@@ -557,10 +725,34 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
   const own = fontMetrics(settings.font);
   const ownFont = settings.font ?? STANDARD_FONT;
   const given = settings.width;
-  const wrapAt = given > 0 ? given + SLACK * height : Infinity;
   const tangent = Math.tan((obliqueAngle * Math.PI) / 180);
   const lean = Number.isFinite(tangent) ? tangent : 0;
   let approximate = settings.font === undefined || parsed.problem !== undefined;
+  const properties = resolve(parsed.pieces, height);
+  // Spacing outside what a paragraph's own may be, indents and room below nothing, numbers held
+  // to `PROPERTY_MOST` and tab stops out of order are laid out but not measured.
+  // Each code is looked at once, since what it sets carries into the paragraphs after it.
+  let heights = false;
+  for (const piece of parsed.pieces) {
+    if (piece.kind !== "properties" || approximate) continue;
+    const p = piece.properties;
+    heights ||= p.heights === true;
+    const unit = heights ? height : 1;
+    const { tabs, spacing } = p;
+    const most = (value: number | undefined) =>
+      value !== undefined && Math.abs(value * unit) >= PROPERTY_MOST;
+    const below = (value: number | undefined) => value !== undefined && value < 0;
+    if (
+      [p.indent, p.left, p.right, p.before, p.after].some(most) ||
+      [p.left, p.right, p.before, p.after].some(below) ||
+      tabs?.some((tab, k) => most(tab) || (k > 0 && tab < tabs[k - 1]!)) ||
+      (spacing?.style === "m" &&
+        !(spacing.value >= LINE_SPACING_RANGE[0] && spacing.value <= LINE_SPACING_RANGE[1])) ||
+      (spacing?.style === "e" && !(spacing.value > 0 && !most(spacing.value)))
+    ) {
+      approximate = true;
+    }
+  }
 
   // The faces of the call, by font and weight. A paragraph names at most the fonts of `FONTS`.
   const faces = new Map<string, Face>();
@@ -576,27 +768,116 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
   const keyOf = (format: RunFormat, face: Face): string =>
     `${face.font}|${face.bold}|${format.underline}|${format.overline}|${format.strikeThrough}`;
 
-  const lines: Line[] = [];
-  let line: Line = { items: [], spaced: false };
-  lines.push(line);
-  const pen: Pen = { x: 0, key: undefined, ink: 0 };
+  /** Where a line of a paragraph starts from the left of the box: none without a width. */
+  const originOf = (p: Resolved, first: boolean): number =>
+    given > 0 ? Math.max(0, p.left + (first ? p.indent : 0)) : 0;
+  /** How far from the left of the box a line's words may reach. */
+  const limitOf = (p: Resolved): number => (given > 0 ? given - p.right : Infinity);
+
+  let lines: Line[] = [];
+  let paragraph = 0;
+  /** A line of the paragraph `paragraph`. */
+  const newLine = (first: boolean): Line => {
+    const p = properties[paragraph] ?? UNSET;
+    const made: Line = {
+      items: [],
+      spaced: false,
+      paragraph,
+      first,
+      origin: originOf(p, first),
+      at: undefined,
+    };
+    lines.push(made);
+    return made;
+  };
+  let line = newLine(true);
+  let limit = limitOf(properties[0] ?? UNSET);
+  const pen: Pen = {
+    x: 0,
+    key: undefined,
+    ink: 0,
+    tab: undefined,
+    gap: 0,
+    started: false,
+    tabbed: false,
+  };
   const word: Parts = { items: [], count: 0 };
   const spaces: Parts = { items: [], count: 0 };
+  /** The words placed in the paragraph so far. */
   let words = 0;
 
   /**
+   * The stop a tab takes the pen to, from the left of the box, from where it stands, for a next
+   * character whose ink starts `lefts` past its first point: of the left indent and then each
+   * stop given, the first that puts that point past the pen, and then the first multiple of
+   * `DEFAULT_TAB` heights past the pen. Without a width a paragraph has no stops of its own but the left indent, and a tab
+   * before the line's first character takes it to no multiple.
+   */
+  const stopAfter = (from: number, started: boolean, lefts: number): number => {
+    const p = properties[line.paragraph] ?? UNSET;
+    const after = from + STOP_SLACK * height;
+    let stop: number | undefined;
+    if (p.left > after + lefts) stop = p.left;
+    else if (given > 0) {
+      // The first stop past the point, by halves: a value may give many.
+      const { tabs } = p;
+      let low = 0;
+      let high = tabs.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (tabs[middle]! > after + lefts) high = middle;
+        else low = middle + 1;
+      }
+      stop = tabs[low];
+    } else if (!started) return from;
+    const step = DEFAULT_TAB * height;
+    stop ??= (Math.floor(after / step) + 1) * step;
+    // A stop the line cannot reach takes the pen nowhere.
+    return stop < limit ? stop : from;
+  };
+
+  /**
    * Places parts from where `pen` is, and moves `pen` on past them. With `into`, it adds them to
-   * that line. It gives how far the last of them reach for the break: the last characters' ink
-   * less the left of the first of them, or the last stack's ink; spaces have no part in it.
+   * that line. It gives how far the last of them reach, from the left of the box, for the break:
+   * from the line's first point, as the wrap measures it, the last characters' ink less the left
+   * of the first of them, or the last stack's ink; spaces have no part in it.
    */
   const place = (parts: Parts, pen: Pen, into?: Line): number => {
     let { x, key, ink } = pen;
     let reach = x;
     let left: number | undefined;
+    /** Where the line's first point stands from the left of the box. */
+    let at = line.at;
+    /** Takes the pending tab to its stop, for a next character whose ink starts `lefts` on. */
+    const toStop = (lefts: number): void => {
+      const tab = pen.tab!;
+      const start = at!;
+      const stop = stopAfter(tab.from, tab.started, lefts);
+      const before = tab.from - start;
+      x = stop - start - lefts;
+      // The words after it are measured as a line that starts on the stop.
+      pen.gap = start + lefts - line.origin;
+      if (into) {
+        into.at ??= start;
+        into.items.push({
+          kind: "tab",
+          from: before,
+          to: stop - start,
+          format: tab.format,
+          face: tab.face,
+        });
+      }
+      ink = x;
+      pen.tab = undefined;
+      pen.tabbed = true;
+    };
     for (let p = 0; p < parts.count; p++) {
       const part = parts.items[p]!;
       if (part.kind === "stack") {
+        if (at === undefined) at = line.origin;
+        if (pen.tab) toStop(0);
         if (into) {
+          into.at ??= at;
           into.items.push({
             kind: "stack",
             x,
@@ -605,52 +886,78 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
             value: part.value,
           });
         }
-        reach = x + part.shape.ink;
+        reach = x + part.shape.ink + pen.gap;
+        ink = x + part.shape.ink;
+        pen.started = true;
         x += part.shape.advance;
-        ink = reach;
         key = undefined;
         left = undefined;
         continue;
       }
       const { face } = part;
+      const { source: value, to } = part;
       let run: Built | undefined;
-      if (key !== part.key) {
-        // A new run starts where the last one's advances end, or its ink where that is further.
-        if (key !== undefined && ink > x) x = ink;
-        key = part.key;
-        if (into) {
-          run = {
-            kind: "run",
-            head: undefined,
-            source: part.source,
-            from: part.from,
-            to: part.from,
-            x,
-            face,
-            format: part.format,
-            advance: 0,
-            last: x,
-            lastIndex: 0,
-            top: 0,
-            bottom: 0,
-          };
-          into.items.push(run);
-        }
-      } else if (into) {
+      if (into && key === part.key) {
         const last = into.items[into.items.length - 1];
         run = last?.kind === "run" ? last : undefined;
       }
-      const { source: value, to } = part;
       for (let k = part.from; k < to; k++) {
         const code = value.charCodeAt(k);
+        if (code === TAB) {
+          // The pen goes to a stop once the next character is known.
+          if (at === undefined) at = line.origin;
+          if (pen.tab) toStop(0);
+          pen.tab = { from: at + x, started: pen.started, format: part.format, face };
+          key = undefined;
+          run = undefined;
+          left = undefined;
+          continue;
+        }
         let index = tableIndex(value.codePointAt(k)!);
         if (index < 0) index = UNKNOWN;
+        const lefts = code === 32 ? 0 : face.lefts[index]! * along;
+        if (at === undefined) {
+          // The first character of a line: its ink, or a space's first point, starts the line.
+          at = line.origin - (code === 32 ? 0 : lefts + lean * face.bottoms[index]! * height);
+        }
+        // The first character after a tab: its ink starts at the stop.
+        if (pen.tab) toStop(lefts);
+        pen.started = true;
+        if (key !== part.key) {
+          // A new run starts where the last one's advances end, or its ink where that is further.
+          if (key !== undefined && ink > x) x = ink;
+          key = part.key;
+          if (into) {
+            into.at ??= at;
+            run = {
+              kind: "run",
+              head: undefined,
+              source: value,
+              from: k,
+              to: k,
+              x,
+              face,
+              format: part.format,
+              advance: 0,
+              last: x,
+              lastIndex: 0,
+              top: 0,
+              bottom: 0,
+            };
+            into.items.push(run);
+          }
+        }
         ink = x + face.rights[index]! * along;
         if (code !== 32) {
-          left ??= face.lefts[index]! * along;
-          reach = ink - left;
+          left ??= lefts;
+          reach = ink - left + pen.gap;
         }
         if (run) {
+          if (run.source !== value || run.to !== k) {
+            if (run.to > run.from) (run.head ??= []).push(run.source.slice(run.from, run.to));
+            run.source = value;
+            run.from = k;
+          }
           run.last = x;
           run.lastIndex = index;
           if (face.tops[index]! > run.top) run.top = face.tops[index]!;
@@ -658,24 +965,19 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
         }
         x += face.advances[index]! * along;
         // A pair of surrogates is one character.
-        if (code >= 0xd800 && code <= 0xdbff && k + 1 < to && value.charCodeAt(k + 1) >= 0xdc00)
-          k++;
-      }
-      if (run) {
-        // The run holds the part's characters, as one stretch where they follow on.
-        if (run.source !== value || run.to !== part.from) {
-          if (run.to > run.from) (run.head ??= []).push(run.source.slice(run.from, run.to));
-          run.source = value;
-          run.from = part.from;
+        const pair =
+          code >= 0xd800 && code <= 0xdbff && k + 1 < to && value.charCodeAt(k + 1) >= 0xdc00;
+        if (pair) k++;
+        if (run) {
+          run.to = k + 1;
+          run.advance = x - run.x;
         }
-        run.to = to;
-        run.advance = x - run.x;
       }
     }
     pen.x = x;
     pen.key = key;
     pen.ink = ink;
-    return reach;
+    return reach + line.origin;
   };
 
   /** Drops the spaces a line ends with. */
@@ -683,20 +985,44 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     if (spaces.count > 0 && line.items[line.items.length - 1]?.kind === "stack") line.spaced = true;
     spaces.count = 0;
   };
-  const trial: Pen = { x: 0, key: undefined, ink: 0 };
+  const restart = (first: boolean): void => {
+    line = newLine(first);
+    pen.x = 0;
+    pen.key = undefined;
+    pen.ink = 0;
+    pen.tab = undefined;
+    pen.gap = 0;
+    pen.started = false;
+    pen.tabbed = false;
+  };
+  /**
+   * True when a word reaching `reach` leaves the line: past the width by more than the tables'
+   * rounding, or on a line that starts at an indent or holds a tab, at the width itself.
+   */
+  const overflows = (reach: number, pen: Pen): boolean =>
+    reach > limit + (line.origin > 0 || pen.tabbed ? -SLACK : SLACK) * height;
+  const trial: Pen = {
+    x: 0,
+    key: undefined,
+    ink: 0,
+    tab: undefined,
+    gap: 0,
+    started: false,
+    tabbed: false,
+  };
   const endWord = (): void => {
     if (word.count === 0) return;
     trial.x = pen.x;
     trial.key = pen.key;
     trial.ink = pen.ink;
+    trial.tab = pen.tab;
+    trial.gap = pen.gap;
+    trial.started = pen.started;
+    trial.tabbed = pen.tabbed;
     place(spaces, trial);
-    if (words > 0 && place(word, trial) > wrapAt) {
+    if (words > 0 && overflows(place(word, trial), trial)) {
       endLine();
-      line = { items: [], spaced: false };
-      lines.push(line);
-      pen.x = 0;
-      pen.key = undefined;
-      pen.ink = 0;
+      restart(false);
     } else place(spaces, pen, line);
     place(word, pen, line);
     words++;
@@ -738,18 +1064,37 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     into.count++;
   };
 
-  for (const piece of parsed.pieces) {
+  /** Breaks the value into lines. */
+  const build = (): void => {
+    lines = [];
+    paragraph = 0;
+    line = newLine(true);
+    limit = limitOf(properties[0] ?? UNSET);
+    pen.x = 0;
+    pen.key = undefined;
+    pen.ink = 0;
+    pen.tab = undefined;
+    pen.gap = 0;
+    pen.started = false;
+    pen.tabbed = false;
+    word.count = 0;
+    spaces.count = 0;
+    words = 0;
+    for (const piece of parsed.pieces) breakPiece(piece);
+    endWord();
+    endLine();
+  };
+  const breakPiece = (piece: ParagraphPiece): void => {
     if (piece.kind === "break") {
       endWord();
       endLine();
-      line = { items: [], spaced: false };
-      lines.push(line);
-      pen.x = 0;
-      pen.key = undefined;
-      pen.ink = 0;
+      paragraph++;
+      limit = limitOf(properties[paragraph] ?? UNSET);
+      restart(true);
       words = 0;
-      continue;
+      return;
     }
+    if (piece.kind === "properties") return;
     const face = faceFor(piece.format);
     if (piece.kind === "stack") {
       const top = partOf(piece.top, face);
@@ -779,7 +1124,7 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
       }
       const value = `${piece.top}${piece.separator}${piece.bottom}`;
       word.items[word.count++] = { kind: "stack", shape, face, value };
-      continue;
+      return;
     }
     if (face.shx && piece.diameter) approximate = true;
     // Characters at a size of their own are not laid out yet.
@@ -791,19 +1136,24 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     const value = nonBreaking(piece.value);
     const breaking = piece.value;
     for (let k = 0; k < value.length; k++) {
-      if (breaking.charCodeAt(k) === 32) {
+      const code = breaking.charCodeAt(k);
+      if (code === 32) {
         if (k > from) append(word, value, from, k, format, face, key);
         endWord();
         append(spaces, value, k, k + 1, format, face, key);
         from = k + 1;
+      } else if (code === TAB) {
+        // A tab starts a word, which takes it along where the line wraps.
+        if (k > from) append(word, value, from, k, format, face, key);
+        endWord();
+        from = k;
       } else if (tableIndex(value.codePointAt(k)!) < 0) {
         approximate = true;
       }
     }
     if (value.length > from) append(word, value, from, value.length, format, face, key);
-  }
-  endWord();
-  endLine();
+  };
+  build();
 
   if (lean !== 0 && [...faces.values()].some((face) => face.shx)) approximate = true;
 
@@ -816,17 +1166,23 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     /** How far the lean moves where the line starts: by its first character's bottom. */
     let startLean = 0;
     let end = 0;
+    let drawn = false;
     // What the box of a dimension's text takes below the baseline: how far its characters reach,
     // and how far below the line a stack sets its lowest part's baseline.
     let runDown = 0;
     let drop = 0;
     for (const item of built.items) {
+      if (item.kind === "tab") {
+        start ??= 0;
+        continue;
+      }
       if (item.kind === "stack") {
         stackUp = Math.max(stackUp, item.shape.top);
         down = Math.min(down, item.shape.bottom);
         for (const part of item.shape.parts) drop = Math.max(drop, -part.up);
         start ??= item.x;
         end = item.x + item.shape.ink;
+        drawn = true;
         continue;
       }
       const run = item;
@@ -848,8 +1204,9 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
         startLean = lean * run.face.bottoms[index]! * height;
       }
       end = run.last + run.face.rights[run.lastIndex]! * along;
+      drawn = true;
     }
-    const empty = start === undefined;
+    const empty = !drawn;
     // A line's A is at least a capital's height, and D a third of it unless a stack reaches highest.
     const top = empty ? height : Math.max(up, stackUp);
     // A line that ends in a stack and dropped spaces after it is placed by its first point and
@@ -864,28 +1221,60 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
       down: settings.dimension ? runDown - (stackUp > up ? drop : 0) : down,
       start: start ?? 0,
       end,
+      shift,
       leanedStart: (start ?? 0) + startLean - shift,
       leanedEnd: empty ? 0 : end + lean * top - shift,
+      empty,
     };
   });
 
-  // Down the box: each line's baseline from its top.
+  // Down the box: each line's baseline from its top, by its paragraph's spacing, with the room
+  // its paragraph leaves before it and the last one after it.
   const baselines: number[] = [];
   let boxHeight: number;
-  if (exactly) {
-    measured.forEach((_, k) => baselines.push(-height - k * EXACT_PITCH * factor * height));
-    boxHeight = -baselines[baselines.length - 1]! + EXACT_BELOW * height;
-  } else {
+  {
     let top = 0;
-    for (const m of measured) {
-      baselines.push(top - m.top);
-      top -= factor * (m.top + m.below + AT_LEAST_BELOW * height);
-    }
-    const last = measured[measured.length - 1]!;
-    boxHeight = -(baselines[baselines.length - 1]! + last.down);
+    let bottom = 0;
+    measured.forEach((m, k) => {
+      const p = properties[m.built.paragraph] ?? UNSET;
+      if (m.built.first) {
+        const before = k > 0 ? (properties[m.built.paragraph - 1] ?? UNSET).after : 0;
+        top -= (p.before > 0 ? Math.max(p.before, BEFORE_LEAST * height) : p.before) + before;
+      }
+      const spacing = p.spacing;
+      let baseline: number;
+      let slot: number;
+      if (spacing?.style === "e") {
+        baseline = top - spacing.value;
+        slot = EXACT_PITCH * spacing.value;
+        // The box ends two thirds of the spacing below the last baseline, less four thirds of
+        // what the spacing passes the height by.
+        const past = Math.max(0, spacing.value - height);
+        bottom = baseline - (2 * spacing.value - 4 * past) / 3;
+      } else if (spacing?.style === "m") {
+        const natural = m.top + m.below;
+        baseline = top - m.top;
+        slot = spacing.value * MULTIPLE * natural;
+        bottom = top - Math.min(slot, natural);
+      } else if (exactly) {
+        baseline = top - height;
+        slot = EXACT_PITCH * factor * height;
+        bottom = baseline - EXACT_BELOW * height;
+      } else {
+        baseline = top - m.top;
+        slot = factor * (m.top + m.below + AT_LEAST_BELOW * height);
+        bottom = baseline + m.down;
+      }
+      baselines.push(baseline);
+      top -= slot;
+    });
+    boxHeight = -bottom;
   }
   const { align, valign } = settings;
   const boxTop = valign === "middle" ? boxHeight / 2 : valign === "bottom" ? boxHeight : 0;
+  /** Where the left of the box stands from the point, and where its lines may reach. */
+  const boxLeft =
+    given > 0 ? (align === "center" ? -given / 2 : align === "right" ? -given : 0) : 0;
 
   const ink: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
   const include = (x: number, y: number): void => {
@@ -901,94 +1290,193 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     include(...to);
   };
   let widest = 0;
-  const laid = measured.map((m, k): ParagraphLine => {
-    const baseline = boxTop + baselines[k]!;
-    const offset =
-      align === "center"
-        ? -(m.leanedStart + m.leanedEnd) / 2
-        : align === "right"
-          ? -m.leanedEnd
-          : -m.leanedStart;
-    const runs: ParagraphRun[] = [];
-    /** The value of the line's one run or stack, and those of all once it has more, joined flat. */
-    let value = "";
-    let values: string[] | undefined;
-    const add = (part: string): void => {
-      if (values) values.push(part);
-      else if (value === "") value = part;
-      else values = [value, part];
+  // What the line being placed holds and how it is stretched, kept across lines so that placing
+  // one makes no closures of its own.
+  let runs: ParagraphRun[] = [];
+  let value = "";
+  let values: string[] | undefined;
+  let baseline = 0;
+  let gaps: readonly number[] = NO_GAPS;
+  let stretch = 0;
+  let gap = 0;
+  let grown = 0;
+  /** Adds a part to the line's value: the one run or stack, and all once it has more, joined flat. */
+  const add = (part: string): void => {
+    if (values) values.push(part);
+    else if (value === "") value = part;
+    else values = [value, part];
+  };
+  /** Adds a run of `value` in `face` at its first point `x`, of `size`, with its baseline at `base`. */
+  const run = (value: string, x: number, base: number, size: number, face: Face, top: number) => {
+    if (value === "") return undefined;
+    let advance = 0;
+    let head: number | undefined;
+    let tail = 0;
+    for (const character of value) {
+      let index = indexOf(character);
+      if (index < 0) index = UNKNOWN;
+      head ??= face.heads?.[index] ?? 0;
+      advance += face.advances[index]!;
+      tail = face.tails?.[index] ?? 0;
+    }
+    const scale = size * widthFactor;
+    const drawn: ParagraphRun = {
+      value,
+      x,
+      baseline: base,
+      height: size,
+      font: face.font,
+      bold: face.bold,
+      advance: advance * scale,
+      start: x + (head ?? 0) * scale,
+      end: x + (advance + tail) * scale,
     };
-    /** Adds a run of `value` in `face` at its first point `x`, of `size`, with its baseline at `base`. */
-    const run = (value: string, x: number, base: number, size: number, face: Face, top: number) => {
-      if (value === "") return;
-      let advance = 0;
-      let head: number | undefined;
-      let tail = 0;
-      for (const character of value) {
-        let index = indexOf(character);
-        if (index < 0) index = UNKNOWN;
-        head ??= face.heads?.[index] ?? 0;
-        advance += face.advances[index]!;
-        tail = face.tails?.[index] ?? 0;
+    runs.push(drawn);
+    const below = face.below * size;
+    const reach = Math.max(top, 1) * size;
+    const from = Math.min(drawn.start, x);
+    const to = Math.max(drawn.end, x + drawn.advance);
+    include(from - lean * below, base - below);
+    include(to + lean * reach, base + reach);
+    include(from + lean * reach, base + reach);
+    include(to - lean * below, base - below);
+    return drawn;
+  };
+  /** The underline, overline and strike-through of `format` from `x0` to `x1` on the line. */
+  const lined = (format: RunFormat, face: Face, x0: number, x1: number): void => {
+    if (format.underline) {
+      const up = baseline - face.underline * height;
+      stroke("underline", [x0, up], [x1, up]);
+    }
+    if (format.overline)
+      stroke("overline", [x0, baseline + OVERLINE * height], [x1, baseline + OVERLINE * height]);
+    if (format.strikeThrough) {
+      const up = baseline + STRIKE_THROUGH * height;
+      stroke("strike-through", [x0, up], [x1, up]);
+    }
+  };
+  /** How far the gaps before a place of the line have grown it. */
+  const grow = (x: number): number => {
+    while (gap < gaps.length && gaps[gap]! <= x) {
+      grown += stretch;
+      gap++;
+    }
+    return grown;
+  };
+  const laid: ParagraphLine[] = [];
+  for (let k = 0; k < measured.length; k++) {
+    const m = measured[k]!;
+    const built = m.built;
+    const p = properties[built.paragraph] ?? UNSET;
+    baseline = boxTop + baselines[k]!;
+    const lastOfParagraph = lines[k + 1]?.paragraph !== built.paragraph;
+    const justification =
+      p.justification === "justified" && lastOfParagraph ? undefined : p.justification;
+    const style = justification ?? align ?? "left";
+    // The line is laid out from the left of the box, then moved across to its place: its ink
+    // from `origin` to the right indent, or about the point without a width.
+    const at = (built.at ?? built.origin) + m.shift;
+    const from = given > 0 ? built.origin : 0;
+    const to = given > 0 ? Math.max(built.origin, given - p.right) : 0;
+    const inkFrom = at + m.leanedStart;
+    const inkTo = at + m.leanedEnd;
+    // How far each of the gaps a justified or distributed line stretches grows, and after which.
+    stretch = 0;
+    gap = 0;
+    grown = 0;
+    gaps = NO_GAPS;
+    let after = -1;
+    let across = 0;
+    if (!m.empty && given > 0 && (style === "justified" || style === "distributed")) {
+      gaps = gapsOf(built, style === "distributed", along);
+      after = lastTabOf(built);
+      if (gaps.length > 0) stretch = (to - inkTo) / gaps.length;
+    }
+    if (style === "center" || (style === "distributed" && gaps.length === 0)) {
+      across = (from + to) / 2 - (inkFrom + inkTo) / 2;
+    } else if (style === "right") across = to - inkTo;
+    const offset = boxLeft + at + across;
+    runs = [];
+    value = "";
+    values = undefined;
+    // Where each word of a stretched line in an SHX font stands is not measured.
+    if (gaps.length > 0 && built.items.some((item) => item.kind !== "tab" && item.face.shx)) {
+      approximate = true;
+    }
+    const items = built.items;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]!;
+      if (item.kind === "tab") {
+        add("\t");
+        lined(item.format, item.face, offset + item.from, offset + item.to);
+        continue;
       }
-      const scale = size * widthFactor;
-      const drawn: ParagraphRun = {
-        value,
-        x,
-        baseline: base,
-        height: size,
-        font: face.font,
-        bold: face.bold,
-        advance: advance * scale,
-        start: x + (head ?? 0) * scale,
-        end: x + (advance + tail) * scale,
-      };
-      runs.push(drawn);
-      const below = face.below * size;
-      const reach = Math.max(top, 1) * size;
-      const from = Math.min(drawn.start, x);
-      const to = Math.max(drawn.end, x + drawn.advance);
-      include(from - lean * below, base - below);
-      include(to + lean * reach, base + reach);
-      include(from + lean * reach, base + reach);
-      include(to - lean * below, base - below);
-    };
-    for (const item of m.built.items) {
       if (item.kind === "stack") {
         add(item.value);
-        const at = item.x + offset;
+        const x = item.x + offset + (i > after ? grow(item.x) : 0);
         for (const part of item.shape.parts) {
-          run(part.value, at + part.x, baseline + part.up, item.shape.size, item.face, part.top);
+          run(part.value, x + part.x, baseline + part.up, item.shape.size, item.face, part.top);
         }
         const drawnStroke = item.shape.stroke;
         if (drawnStroke) {
           const [[x0, y0], [x1, y1]] = drawnStroke;
-          stroke("bar", [at + x0, baseline + y0], [at + x1, baseline + y1]);
+          stroke("bar", [x + x0, baseline + y0], [x + x1, baseline + y1]);
         }
         continue;
       }
-      const built = item;
-      const x = built.x + offset;
-      const drawn = valueOf(built);
+      const drawn = valueOf(item);
       add(drawn);
-      run(drawn, x, baseline, height, built.face, built.top);
-      const { underline, overline, strikeThrough } = built.format;
-      const across = (kind: ParagraphStroke["kind"], up: number): void =>
-        stroke(kind, [x, baseline + up], [x + built.advance, baseline + up]);
-      if (underline) across("underline", -built.face.underline * height);
-      if (overline) across("overline", OVERLINE * height);
-      if (strikeThrough) across("strike-through", STRIKE_THROUGH * height);
+      if (i <= after || gaps.length === 0) {
+        const x = item.x + offset;
+        run(drawn, x, baseline, height, item.face, item.top);
+        lined(item.format, item.face, x, x + item.advance);
+        continue;
+      }
+      // A stretched line draws each word and each space, or each character, on its own: the
+      // stretch of the run's value from `start`, which starts at `pieceX`.
+      let x = item.x;
+      let start = 0;
+      let pieceX = x;
+      let afterSpace = false;
+      const flush = (end: number): void => {
+        if (end === start) return;
+        const placed = run(
+          drawn.slice(start, end),
+          pieceX + offset + grow(pieceX),
+          baseline,
+          height,
+          item.face,
+          item.top,
+        );
+        if (placed) lined(item.format, item.face, placed.x, placed.x + placed.advance);
+        start = end;
+        pieceX = x;
+      };
+      for (let c = 0; c < drawn.length; c++) {
+        const code = drawn.charCodeAt(c);
+        const space = code === 32;
+        if (style === "distributed" || space || afterSpace) flush(c);
+        afterSpace = space;
+        let index = tableIndex(drawn.codePointAt(c)!);
+        if (index < 0) index = UNKNOWN;
+        x += item.face.advances[index]! * along;
+        // A pair of surrogates is one character.
+        if (code >= 0xd800 && code <= 0xdbff && drawn.charCodeAt(c + 1) >= 0xdc00) c++;
+      }
+      flush(drawn.length);
     }
     widest = Math.max(widest, m.end - m.start);
-    return {
-      value: values ? values.join("") : value,
+    // `add` sets the two, which the compiler does not follow.
+    const parts = values as string[] | undefined;
+    laid.push({
+      value: parts ? parts.join("") : value,
       runs,
       baseline,
-      start: m.built.items.length === 0 ? 0 : m.start + offset,
-      end: m.built.items.length === 0 ? 0 : m.end + offset,
+      start: m.empty ? 0 : m.start + offset,
+      end: m.empty ? 0 : m.end + offset + grown,
       top: m.top,
-    };
-  });
+    });
+  }
 
   const frameWidth = given > 0 ? given : widest;
   const left = align === "center" ? -frameWidth / 2 : align === "right" ? -frameWidth : 0;
@@ -1003,6 +1491,43 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     approximate,
     problem: parsed.problem,
   };
+}
+
+/** The index of a line's last tab among its items, or -1. */
+function lastTabOf(line: Line): number {
+  for (let i = line.items.length - 1; i >= 0; i--) if (line.items[i]!.kind === "tab") return i;
+  return -1;
+}
+
+/**
+ * The places along a line, from its first point, past which a justified line grows by a share of
+ * what it lacks: after each space that follows a character since its last tab. A distributed line
+ * grows before each character and stack since its last tab but the first.
+ */
+function gapsOf(line: Line, distributed: boolean, along: number): number[] {
+  const out: number[] = [];
+  let seen = false;
+  const items = line.items;
+  for (let i = lastTabOf(line) + 1; i < items.length; i++) {
+    const item = items[i]!;
+    if (item.kind === "tab") continue;
+    if (item.kind === "stack") {
+      if (distributed && seen) out.push(item.x);
+      seen = true;
+      continue;
+    }
+    let x = item.x;
+    for (const character of valueOf(item)) {
+      let index = indexOf(character);
+      if (index < 0) index = UNKNOWN;
+      const advance = item.face.advances[index]! * along;
+      const space = character === " ";
+      if (distributed ? seen : space && seen) out.push(distributed ? x : x + advance);
+      if (distributed || !space) seen = true;
+      x += advance;
+    }
+  }
+  return out;
 }
 
 /** The corners of a box of a layout where `place` puts them: lower left, lower right, upper right, upper left. */

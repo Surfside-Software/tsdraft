@@ -275,16 +275,16 @@ const ATTRIBUTES = new Set([
 ]);
 
 /**
- * Text with the four entities `toSVG` escapes with, and the line feed it writes as `&#10;`, in
- * their place. Any other `&` is refused.
+ * Text with the four entities `toSVG` escapes with, and the line feed and the tab it writes as
+ * `&#10;` and `&#9;`, in their place. Any other `&` is refused.
  */
 function unescape(text: string, where: string): string {
   if (!text.includes("&")) return text;
-  return text.replace(/&(amp;|lt;|gt;|quot;|#10;)?/g, (_, name: string | undefined) => {
+  return text.replace(/&(amp;|lt;|gt;|quot;|#10;|#9;)?/g, (_, name: string | undefined) => {
     if (name === undefined) throw refuse("an & that is not one toSVG writes", where);
-    return ({ "amp;": "&", "lt;": "<", "gt;": ">", "quot;": '"', "#10;": "\n" } as const)[
-      name as "amp;"
-    ];
+    return (
+      { "amp;": "&", "lt;": "<", "gt;": ">", "quot;": '"', "#10;": "\n", "#9;": "\t" } as const
+    )[name as "amp;"];
   });
 }
 

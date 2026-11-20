@@ -25,7 +25,22 @@
   it, from the font tables' new column `stackTops`: a 7 over a 16 stands lower than a capital.
   A slash stack stands its top part on its bottom part's ink, and its gap is not widened with
   the letters. Every other number of the tables is as it was.
-
+- Lists, tab stops and a paragraph's own format in paragraph text. `list(items, options)` writes a
+  numbered or lettered list in two levels, each item hanging under its mark as CAD programs write
+  one, and `paragraphFormat(properties)` a `\p` code: a paragraph's first-line, left and right
+  indents, tab stops, justification left, centered, right, justified or distributed, room before
+  and after it, and its own line spacing, by a factor or exactly. A value may hold a tab and
+  `\p` codes, in heights after `x` and in drawing units without, as a firm's drawing holds them;
+  a code sets the paragraph it stands in and each after it until another changes it.
+  `layoutParagraph` lays them out as the leading CAD app does: indents, tab stops from the left
+  of the box and every four heights past the last, the next letter's ink on its stop and the words
+  after it wrapped as a line that starts there, justified lines grown at each space and
+  distributed ones at each gap, each word and space or letter then a run of its own, and the
+  spacing, the room and the box of a paragraph's own. `lint` and the builder refuse a `\p` option they do not
+  know, a tab stop that aligns by its right, its center or a decimal point, and spacing at least
+  a size, `sa`, as the type of a literal value does. Both writers write a tab, as `^I` in DXF,
+  and `readDXF` reads it back. `ParagraphPiece` gains a `properties` piece, which
+  `ParagraphProperties` describes. The example sheet's general notes are one numbered list.
 - `readDXF` leaves out of a block's and a space's `entities` an entity the file marks invisible,
   group 60, and counts it under `other` as `invisible`. A dynamic block's definition and each `*U`
   block that holds one of its states keep the entities of every state, with those of the states

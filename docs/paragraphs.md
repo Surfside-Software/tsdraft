@@ -61,6 +61,8 @@ these:
 | `\S2^ ;` and `\S^2;` | A superscript and a subscript                                               |
 | `%%d`, `%%p`, `%%c`  | A degree sign, a plus-or-minus sign and a diameter sign                     |
 | `\U+XXXX`            | The character of that code point                                            |
+| A tab                | A move to the next tab stop                                                 |
+| `\pxi-3,l3,t3;`      | The indents, tab stops, justification, room and spacing of the paragraph    |
 
 `%%` before any other character draws as it is: `100%%%` draws three percent signs, and `%%%d`
 a percent sign and a degree sign.
@@ -72,7 +74,7 @@ a subscript does. Its parts are as tall as the text around them.
 Helpers write the codes, so a value reads as what it draws:
 
 ```ts
-import { bold, plain, stack, subscript, superscript, underline } from "tsdraft";
+import { bold, list, plain, stack, subscript, superscript, underline } from "tsdraft";
 
 d.paragraph(
   `${bold("GENERAL NOTES", "Arial")}
@@ -89,9 +91,40 @@ d.paragraph(
 - `stack(top, bottom, divider)` stacks two parts: over a level bar for `"/"`, the default,
   beside a slash for `"#"`, and with no bar for `"^"`.
 - `superscript(text)` and `subscript(text)` set a part above the line, and at its foot.
+- `list(items, { marks, subMarks, indent })` writes a numbered or lettered list in two levels, as
+  CAD programs write one: each item a paragraph of its own, its mark, a tab and its text, under a
+  hanging indent of `indent` heights, 3 by default. An item is a string, or `{ text, items }` with
+  the items of the level under it, indented as far again. `marks` is `"1."`, the default, `"1)"`,
+  `"A."` or `"a."`, and `subMarks` `"A."` by default. The items are joined by `\P`.
+- `paragraphFormat(properties)` writes a `\p` code that sets what it gives, in heights: `indent`,
+  the first line's indent from the left indent; `left` and `right`, the indents; `tabs`, the tab
+  stops from the left of the box, and `[]` for none; `justification`, `"left"`, `"center"`,
+  `"right"`, `"justified"` or `"distributed"`; `before` and `after`, the room before and after the
+  paragraph; and `spacing`, `{ style: "m", value }` for a factor of the paragraph's own spacing or
+  `{ style: "e", value }` for its lines exactly that far apart.
 - `plain(text)` escapes what would start a code: a backslash, a brace, and the second percent
   sign of `%%d`, `%%p` and `%%c`, written as `\U+0025`, so a value that comes from elsewhere draws
   as it is.
+
+A `\p` code sets what it gives of the paragraph it stands in, wherever in it, and of every
+paragraph after it until another code changes it. So the text after a list keeps the list's
+indents and tab stops; start it with `paragraphFormat({ indent: 0, left: 0, tabs: [] })`:
+
+```ts
+d.paragraph(
+  `GENERAL NOTES\\P${list([
+    "VERIFY ALL DIMENSIONS IN THE FIELD.",
+    {
+      text: "DO NOT SCALE THE DRAWINGS.",
+      items: ["USE THE DIMENSIONS SHOWN.", "ASK THE ENGINEER."],
+    },
+  ])}\\P${paragraphFormat({ indent: 0, left: 0, tabs: [] })}END OF NOTES`,
+  { at: [1, 20], width: 4, height: 0.1 },
+);
+```
+
+With `x`, as the helpers write it, a `\p` code's numbers are in heights of the text; without it,
+in drawing units, as a firm's drawing may hold them.
 
 ## What `lint` refuses
 
@@ -111,12 +144,14 @@ message names the code.
   keeps it. The type of a literal value refuses it in a font a `\f` or `\F` code sets, as far as
   that code's group reaches; in the style's font only `lint` and the builder refuse it, since the
   type does not know the style's font. A read `MTEXT` that holds one is laid out as approximate.
-- A control character, a tab among them, a character above U+FFFF and the private-use characters
+- A control character but a tab, a character above U+FFFF and the private-use characters
   U+E800 to U+E8FF, which a text cannot hold either. The type of a literal value refuses all but a
   character above U+FFFF, which only `lint` and the builder refuse: TypeScript reads a template
   literal type by characters and never splits the two halves of one, so no type can find it.
-- The codes tsdraft does not lay out yet: `\p`, a paragraph's indents, tab stops and alignment,
-  which numbered and lettered lists are made of; `\N`, columns; `\H` the height, `\W` the width
+- In `\p`, an option it does not know, a tab stop that aligns text by its right, its center or a
+  decimal point, `tr`, `tc` and `td`, and spacing at least a size, `sa`, which tsdraft does not
+  lay out.
+- The codes tsdraft does not lay out yet: `\N`, columns; `\H` the height, `\W` the width
   factor, `\Q` the oblique angle, `\T` the spacing and `\A` the alignment of the characters after
   it; `\C` and `\c` color; `\O`, an overline, which sits at a TrueType font's ascent, which
   tsdraft's tables do not hold; `\X`, which only a dimension's text holds; and `\M+NXXXX`, a
@@ -163,11 +198,29 @@ from the widths and the ink of each character that `FONT_METRICS` holds:
 - A line starts at the left of its first character's ink and ends at the right of its last
   one's. It keeps the spaces it starts with and drops those it ends with. `"left"` puts that
   start on `at`, `"right"` that end, and `"center"` the middle of the two: the width moves no line.
-- A line breaks only at a space, and only to keep the next word inside the width: the word stays
-  when the advances up to it, from the line's first point, and its own ink come to no more than
-  the width. The left of the line's first letter has no part in it. A word wider than the width
-  stays whole and passes it. In a word that holds a stack, what follows the last stack stands
-  for the word, or the stack where it ends the word.
+- A line breaks only at a space or before a tab, and only to keep the next word inside the
+  width: the word stays when the advances up to it, from the line's first point, and its own ink
+  come to no more than the width. The left of the line's first letter has no part in it. A word
+  wider than the width stays whole and passes it. In a word that holds a stack, what follows the
+  last stack stands for the word, or the stack where it ends the word. A tab goes with the word
+  after it where the line wraps.
+- With a width, a paragraph's first line starts at its left indent plus its first-line indent,
+  never left of the box, its other lines at its left indent, and its words wrap at its right
+  indent. A word that reaches the width itself leaves a line that starts at an indent or holds a
+  tab. Without a width, no indent moves a line.
+- A tab moves the pen to a stop, measured from the left of the box: of the left indent and the
+  paragraph's stops, the first that leaves the next letter's first point past the pen, and then
+  the next multiple of `4h`. A stop at or past the right indent moves it nowhere. The next letter's
+  ink starts on the stop. Without a width only the left indent and the multiples of `4h` are stops,
+  counted from the line's first letter, and a tab before that letter moves nothing. After a tab,
+  the wrap measures the words as a line that starts on the stop.
+- `"left"`, `"center"` and `"right"`, from `align` or from the paragraph's justification, set a
+  line flush left at its start, centered between its start and the right indent, or flush right
+  at the right indent, and without a width about `at`. A justified line grows each space after
+  its last tab alike to end at the right indent, but a paragraph's last line, which stands by
+  `align`. A distributed line grows each gap between two letters or stacks after its last tab
+  alike, every line, and stands centered without a width. A grown line draws each word and space,
+  or each letter, as a run of its own.
 - With `"at-least"` spacing, each line takes `lineSpacing` times its ascent, a third of the height
   of what reaches highest, and `h/3`. Its ascent is how far its letters reach above the baseline,
   at least `h`, as an `Å` or a stack reaches further: a plain line takes `5h/3`. The first line's
@@ -175,12 +228,20 @@ from the widths and the ink of each character that `FONT_METRICS` holds:
 - With `"exactly"`, the first baseline is `h` below the top of the box and each next one
   `lineSpacing` times `5h/3` below it, whatever the lines hold, and the box ends `h/3` below the
   last.
+- A paragraph's own spacing takes the place of both. A factor `f` gives each line `f` times `5/4`
+  of its ascent and the third of a height below it, `5h/3` for a line of capitals, and the box
+  ends no further below the last line's top than that. Exactly `v` sets each baseline `v` below
+  its line's top and the next line `5v/3` below, and the box ends `2v/3` below the last baseline,
+  less `4/3` of what `v` passes `h` by.
+- The room before a paragraph comes before its first line, the first paragraph's too, and is a
+  quarter of a height at least; the room after one comes before the next. Once a `\p` code has
+  `x`, the numbers of each code after it are in heights too.
 - The style's width factor scales everything along a line. In a TrueType font its oblique angle
   moves where a line starts by its first letter's bottom, and where it ends by its ascent, times
   the angle's tangent.
-- An underline runs from a run's first character to the end of its last one's advance, at the
-  font's descent in a TrueType font and `h/5` below the baseline in an SHX font. A
-  strike-through runs `h/2` above it.
+- An underline runs from a run's first character to the end of its last one's advance, and
+  through a tab from the pen to the stop, at the font's descent in a TrueType font and `h/5` below
+  the baseline in an SHX font. A strike-through runs `h/2` above it.
 - A bold run is in its font's bold face, with that face's own widths and ink.
 - A fraction's top part has its ink's top at the top of the stack and its baseline `h/6` above a
   bar as long as the wider part's ink, and the bottom part its ink `h/6` below the bar and its
@@ -191,8 +252,11 @@ from the widths and the ink of each character that `FONT_METRICS` holds:
 
 `approximate` is true where tsdraft's numbers are an estimate: a value with a code it does not
 lay out or a character outside its tables, a font that is not one of `FONTS`, an oblique angle in
-an SHX font, `%%c` in an SHX font, which draws a diameter sign of its own, and a stack in a
-TrueType font other than Arial, whose digits and capitals may stand lower than its `A`.
+an SHX font, `%%c` in an SHX font, which draws a diameter sign of its own, a stack in a
+TrueType font other than Arial, whose digits and capitals may stand lower than its `A`, a
+negative indent or room, a `\p` number past `1e15` drawing units, which is held there, tab stops
+given out of order, a paragraph's own spacing by a factor outside 0.25 to 4 or exactly 0 or
+less, and a justified or distributed line in an SHX font.
 
 `inspectText` checks each line of a paragraph as it checks a text: one that plots over another
 text, runs past the outline it starts in, or off the paper.
@@ -221,6 +285,6 @@ when the font is not the style's own or the value holds a code tsdraft does not 
 
 ## Not yet
 
-Numbered and lettered lists with hanging indents, tab stops, columns, the codes that change the
-height, width, slant, spacing, alignment or color of the characters after them, an overline,
-stacked parts in lower case, and attributes of more than one line.
+Columns, the codes that change the height, width, slant, spacing, alignment or color of the
+characters after them, an overline, stacked parts in lower case, tab stops that align text by its
+right, its center or a decimal point, and attributes of more than one line.

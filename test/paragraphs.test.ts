@@ -8,8 +8,10 @@ import {
   layoutMtext,
   layoutParagraph,
   lint,
+  list,
   measureMtext,
   measureParagraph,
+  paragraphFormat,
   paragraphInStyle,
   parseParagraph,
   plain,
@@ -96,7 +98,9 @@ test("what tsdraft does not lay out is refused, and named", () => {
     ["\\A1;A", /code \\A/],
     ["\\C1;A", /code \\C, which sets the color/],
     ["\\c255;A", /code \\c, which sets the true color/],
-    ["\\pi-1,l1;A", /code \\p/],
+    ["\\ptr3;A", /aligns text by its right/],
+    ["\\psa1.2;A", /at least a size apart/],
+    ["\\pi-;A", /option "i-"/],
     ["A\\NB", /code \\N, which starts a new column/],
     ["A\\XB", /code \\X/],
     ["\\OA", /code \\O, which draws a line over/],
@@ -265,6 +269,97 @@ test("a paragraph is laid out where the leading CAD app sets its lines and runs"
   }
 });
 
+test("a list hangs its items under their marks, and its tabs and indents fall where the leading CAD app puts them", () => {
+  const arial = { font: "Arial" } as const;
+  const lines = (value: string, width: number) =>
+    layoutParagraph({ value, height: 1, width, ...arial }).lines.map((line) => line.value);
+  assert.equal(
+    list(["ONE", { text: "TWO", items: ["UNDER"] }]),
+    "\\pxi-3,l3,t3;1.\tONE\\P\\pxi-3,l3,t3;2.\tTWO\\P\\pxi-3,l6,t6;A.\tUNDER",
+  );
+  assert.equal(
+    paragraphFormat({
+      indent: 0,
+      left: 0,
+      tabs: [],
+      justification: "justified",
+      spacing: { style: "m", value: 1.15 },
+    }),
+    "\\pxi0,l0,tz,qj,sm1.15;",
+  );
+  // The text after the tab starts its ink on the stop, the left indent, as do the lines it wraps to.
+  assert.ok(
+    near(runs({ value: list(["HHHH HHHH HHHH"]), width: 11.35, ...arial }), [
+      ["1.", -0.15211, -1.00409],
+      ["HHHH HHHH", 2.88813, -1.00409],
+      ["HHHH", 2.88813, -2.67076],
+    ]),
+  );
+  // The words after the tab are measured as a line that starts on the stop, as the plot wraps them.
+  assert.deepEqual(lines(list(["HHHH HHHH HHHH"]), 11.2348), ["1.\tHHHH HHHH", "HHHH"]);
+  assert.deepEqual(lines(list(["HHHH HHHH HHHH"]), 11.2346), ["1.\tHHHH", "HHHH", "HHHH"]);
+  // Stops given, then every four heights; a stop that would put the next letter behind the pen is
+  // passed, and a centered line is laid out from the box and then moved.
+  assert.ok(
+    near(runs({ value: "\\pxt2.5,4;H\tH\tH\tH", width: 20, ...arial }), [
+      ["H", -0.11187, -1],
+      ["H", 2.38813, -1],
+      ["H", 3.88813, -1],
+      ["H", 7.88813, -1],
+    ]),
+  );
+  assert.deepEqual(lines("\\pxt3;HHH\tHHH HHH HHH", 6), ["HHH", "\tHHH", "HHH", "HHH"]);
+  assert.ok(
+    near(runs({ value: "\\pxqc;H\tH", width: 10, ...arial }), [
+      ["H", 2.49591, -1],
+      ["H", 6.49591, -1],
+    ]),
+  );
+  // A right indent holds every line short of it, and the lines after the first start at the left
+  // indent.
+  const starts = layoutParagraph({
+    value: `\\pxi1,l2,r1;${"HHHH ".repeat(8)}`,
+    height: 1,
+    width: 32,
+    ...arial,
+  }).lines.map((line) => [line.value.split(" ").length, Math.round(line.start)]);
+  assert.deepEqual(starts, [
+    [6, 3],
+    [2, 2],
+  ]);
+  // A justified line grows its spaces to end at the width, each space a run of its own; its
+  // paragraph's last line stands by the attachment.
+  assert.ok(
+    near(
+      runs({ value: "\\pqj;HHHH HH HHHH H HHHH HHHH HHH", width: 12, ...arial }).slice(0, 5),
+      [
+        ["HHHH", -0.11187, -1],
+        [" ", 3.92361, -1],
+        ["HH", 4.99, -1],
+        [" ", 7.0067, -1],
+        ["HHHH", 8.0771, -1],
+      ],
+      0.003,
+    ),
+  );
+  // The paragraph's own spacing, by a factor and exactly, and room before and after it.
+  const baselines = (value: string, height = 1) =>
+    layoutParagraph({ value, height, ...arial }).lines.map((line) => +line.baseline.toFixed(4));
+  assert.deepEqual(baselines("\\psm1.5;HHH\\P1\\S1/2;\\PHHH"), [-1, -4.8415, -7.8903]);
+  assert.deepEqual(baselines("\\pse0.6;HHH\\PHHH"), [-0.6, -1.6]);
+  assert.deepEqual(baselines("\\pb1;HHH\\P\\pa2;HHH\\PHHH"), [-2, -4.6667, -9.3333]);
+  // Room before a paragraph is a quarter of a height at least, and `x` holds for the codes after.
+  assert.deepEqual(baselines("\\pxa0.5;HHH\\P\\pb0.1;HHH"), [-1, -3.4167]);
+  assert.deepEqual(baselines("\\pxa0.5;HHH\\P\\pb0.5;HHH", 2), [-2, -7.3333]);
+  assert.deepEqual(baselines("\\pa1;HHH\\P\\pb0.5;HHH", 2), [-2, -6.8333]);
+  // The picture holds the tab as an entity, which an XML reader keeps, and the plot reads it.
+  const d = createDrawing({ units: "in" });
+  d.layout("SHEET", { paper: "ARCH D" }, () => d.paragraph(list(["ONE"]), { at: [1, 20] }));
+  const picture = toSVG(d.build(), { layout: "SHEET" });
+  assert.ok(picture.includes('data-paragraph="\\pxi-3,l3,t3;1.&#9;ONE"'));
+  assert.ok(svgToPDF([picture]).length > 0);
+});
+
 test("what the tables cannot lay out exactly is approximate, or refused", () => {
   const approximate = (value: string, font: string, obliqueAngle = 0) =>
     layoutParagraph({ value, height: 1, font, obliqueAngle }).approximate;
@@ -365,11 +460,14 @@ test("readDXF gives back each paragraph as toDXF wrote it, in model space, a blo
   d.layout("SHEET", { paper: "ARCH D" }, () =>
     d.paragraph(long, { at: [1, 20], width: 6, height: 0.125 }),
   );
+  d.paragraph(list(["ONE\tTWO", "THREE"]), { at: [0, -6], width: 4 });
   const drawing = d.build();
-  const read = await readDXF(toDXF(drawing), { geometry: true });
+  const dxf = toDXF(drawing);
+  assert.ok(dxf.includes("1.^IONE^ITWO"), "a tab is written as ^I");
+  const read = await readDXF(dxf, { geometry: true });
   assert.deepEqual(readProblems(drawing, read, "tsdraft"), []);
   const mtexts = read.model.entities!.filter((e) => e.kind === "mtext");
-  assert.equal(mtexts.length, 2);
+  assert.equal(mtexts.length, 3);
   assert.equal(mtexts[1]!.kind === "mtext" && mtexts[1]!.value, long);
 });
 

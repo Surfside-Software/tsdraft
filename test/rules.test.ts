@@ -1280,10 +1280,13 @@ test("a paragraph's height, width, line spacing and codes are checked twice", ()
   assert.throws(() => d.paragraph("NOTE}", { at }), /closes no \{/);
   // @ts-expect-error: a height inside the value is not laid out yet.
   assert.throws(() => d.paragraph("\\H2x;NOTE", { at }), /code \\H, which sets the height/);
-  // @ts-expect-error: nor are a paragraph's indents and tab stops.
-  assert.throws(() => d.paragraph("\\pxi-3,l3;NOTE", { at }), /code \\p, which sets the indents/);
-  // @ts-expect-error: nor is a tab.
-  assert.throws(() => d.paragraph("1.\tNOTE", { at }), /control characters/);
+  d.paragraph("\\pxi-3,l3,t3;1.\tNOTE", { at });
+  // @ts-expect-error: a tab stop that aligns by its right is not laid out yet.
+  assert.throws(() => d.paragraph("\\pxtr3;1.\tNOTE", { at }), /aligns text by its right/);
+  // @ts-expect-error: nor is spacing at least a size.
+  assert.throws(() => d.paragraph("\\psa1;NOTE", { at }), /at least a size apart/);
+  // @ts-expect-error: an option \p does not know.
+  assert.throws(() => d.paragraph("\\pz3;NOTE", { at }), /option "z3"/);
   // @ts-expect-error: nor are columns.
   assert.throws(() => d.paragraph("ONE\\NTWO", { at }), /code \\N, which starts a new column/);
   // @ts-expect-error: a code tsdraft does not know.

@@ -10,7 +10,7 @@ export const PARAGRAPH_NESTING = 16;
 const QUOTED = 64;
 
 export const PARAGRAPH_CONTROL =
-  "A paragraph's value holds no control characters. paragraph() takes a line feed as a paragraph break and holds it as \\P, and tabs are not laid out yet";
+  "A paragraph's value holds no control characters but a tab, written as itself. paragraph() takes a line feed as a paragraph break and holds it as \\P";
 export const PARAGRAPH_ASTRAL =
   "A paragraph cannot hold emoji or other characters above U+FFFF, because the leading CAD app cannot read them from DXF";
 export const PARAGRAPH_PRIVATE_USE =
@@ -32,7 +32,6 @@ export const PARAGRAPH_STACK_PART =
 
 /** What each code a paragraph may hold but tsdraft does not lay out yet does. */
 export const PARAGRAPH_NOT_LAID_OUT = {
-  p: "sets the indents, tab stops and alignment of a paragraph",
   H: "sets the height of the characters after it",
   W: "sets the width factor of the characters after it",
   Q: "sets the oblique angle of the characters after it",
@@ -54,6 +53,18 @@ export function paragraphNotLaidOut<C extends NotLaidOutCode>(
 ): `The paragraph code \\${C}, which ${(typeof PARAGRAPH_NOT_LAID_OUT)[C]}, is not laid out yet, so tsdraft refuses it` {
   return `The paragraph code \\${code}, which ${PARAGRAPH_NOT_LAID_OUT[code]}, is not laid out yet, so tsdraft refuses it`;
 }
+
+export function paragraphPropertyUnknown<O extends string>(
+  option: O,
+): `The paragraph code \\p has the option "${O}", which tsdraft does not know: it takes i, l, r, b and a with a number, t with numbers or z, q with l, c, r, j or d, and s with m or e and a number` {
+  return `The paragraph code \\p has the option "${quoted(option) as O}", which tsdraft does not know: it takes i, l, r, b and a with a number, t with numbers or z, q with l, c, r, j or d, and s with m or e and a number`;
+}
+
+export const PARAGRAPH_SPACING_AT_LEAST =
+  "The paragraph code \\p sets its lines at least a size apart, sa, which is not laid out yet, so tsdraft refuses it. Give sm and a factor, or se and the size exactly";
+
+export const PARAGRAPH_TAB_KIND =
+  "The paragraph code \\p sets a tab stop that aligns text by its right, its center or a decimal point, which is not laid out yet, so tsdraft refuses it. Give the stop as a number alone";
 
 export function paragraphUnknownCode<C extends string>(
   code: C,
@@ -120,8 +131,37 @@ export interface RunFormat {
   readonly align: 0 | 1 | 2;
 }
 
+/** How a paragraph's lines stand across its box, as a `\pq` code sets it. */
+export type ParagraphJustification = "left" | "center" | "right" | "justified" | "distributed";
+
+/**
+ * What a `\p` code sets of the paragraph it is in, each number in heights of the paragraph's
+ * text. What it leaves out stays as it was.
+ */
+export interface ParagraphProperties {
+  /** `i`: where the first line starts, from `left`. */
+  readonly indent?: number;
+  /** `l`: where every line but the first starts, from the left of the box. */
+  readonly left?: number;
+  /** `r`: how far short of the right of the box the lines stop. */
+  readonly right?: number;
+  /** `t`: where each tab stops, from the left of the box, as given; `tz` gives none. */
+  readonly tabs?: readonly number[];
+  /** `q`. */
+  readonly justification?: ParagraphJustification;
+  /** `b` and `a`: the room before and after the paragraph. */
+  readonly before?: number;
+  readonly after?: number;
+  /** `s`: the spacing of its lines, `m` a factor of the paragraph's own and `e` exactly. */
+  readonly spacing?: { readonly style: "m" | "e"; readonly value: number };
+  /** True for `x`: the numbers are in heights of the text, and otherwise in drawing units. */
+  readonly heights?: boolean;
+}
+
 /** A piece of a paragraph, in the order it is drawn. */
 export type ParagraphPiece =
+  /** What a `\p` code sets, where it stands. */
+  | { readonly kind: "properties"; readonly properties: ParagraphProperties }
   /**
    * Characters drawn in one format, with no break among them. `diameter` is true when they hold
    * a diameter sign written `%%c`, which an SHX font draws as a sign of its own.
@@ -193,7 +233,7 @@ const TOGGLES: Readonly<Record<string, readonly [keyof RunFormat, boolean]>> = {
 };
 
 /** The codes tsdraft does not lay out that end with a `;`. */
-const ENDED = new Set(["p", "H", "W", "Q", "T", "A", "C", "c"]);
+const ENDED = new Set(["H", "W", "Q", "T", "A", "C", "c"]);
 
 function isHex(code: number): boolean {
   return (code >= 48 && code <= 57) || (code >= 65 && code <= 70) || (code >= 97 && code <= 102);
@@ -206,9 +246,12 @@ function hexAt(value: string, at: number): number {
   return parseInt(value.slice(at, at + 4), 16);
 }
 
+/** A tab, which a paragraph's characters may hold, and a stacked part may not. */
+const TAB = 9;
+
 /** What is wrong with a character a paragraph holds, or undefined. */
-function characterProblem(code: number): string | undefined {
-  if (code < 0x20 || code === 0x7f) return PARAGRAPH_CONTROL;
+function characterProblem(code: number, tab = false): string | undefined {
+  if ((code < 0x20 && !(tab && code === TAB)) || code === 0x7f) return PARAGRAPH_CONTROL;
   if (code >= 0xd800 && code <= 0xdfff) return PARAGRAPH_ASTRAL;
   if (code >= 0xe800 && code <= 0xe8ff) return PARAGRAPH_PRIVATE_USE;
   return undefined;
@@ -293,7 +336,7 @@ export function parseParagraph(value: string, dimension = false): ParsedParagrap
         continue;
       }
     }
-    const wrong = characterProblem(c);
+    const wrong = characterProblem(c, true);
     if (wrong) fail(wrong);
     // A pair of surrogates is one character above U+FFFF.
     const pair =
@@ -301,8 +344,8 @@ export function parseParagraph(value: string, dimension = false): ParsedParagrap
       c <= 0xdbff &&
       value.charCodeAt(i + 1) >= 0xdc00 &&
       value.charCodeAt(i + 1) <= 0xdfff;
-    // A control character draws nothing.
-    if (!(c < 0x20 || c === 0x7f)) run += pair ? value.slice(i, i + 2) : character;
+    // A control character but a tab draws nothing.
+    if (!((c < 0x20 && c !== TAB) || c === 0x7f)) run += pair ? value.slice(i, i + 2) : character;
     i += pair ? 2 : 1;
   }
   flush();
@@ -338,6 +381,18 @@ export function parseParagraph(value: string, dimension = false): ParsedParagrap
       case "f":
       case "F":
         return font(letter, at + 1);
+      case "p": {
+        const end = value.indexOf(";", at + 1);
+        if (end < 0) {
+          fail(paragraphNoSemicolon(letter));
+          return n;
+        }
+        const read = readProperties(value.slice(at + 1, end));
+        if (read.problem) fail(read.problem);
+        flush();
+        pieces.push({ kind: "properties", properties: read.properties });
+        return end + 1;
+      }
       case "S":
         return stack(at + 1);
       case "U":
@@ -447,7 +502,8 @@ export function parseParagraph(value: string, dimension = false): ParsedParagrap
         taken = PERCENT_CODES[value[k + 2]!]!;
         k += 3;
       } else k++;
-      const wrong = characterProblem(taken.charCodeAt(0));
+      // A tab is a character a stacked part may not hold, which `stackable` refuses.
+      const wrong = characterProblem(taken.charCodeAt(0), true);
       if (wrong) fail(wrong);
       if (separator === undefined) top += taken;
       else bottom += taken;
@@ -467,6 +523,135 @@ export function parseParagraph(value: string, dimension = false): ParsedParagrap
     pieces.push({ kind: "stack", top, bottom, separator, format });
     return k + 1;
   }
+}
+
+/** The justification each letter of a `\pq` code names. */
+const JUSTIFICATIONS: Readonly<Record<string, ParagraphJustification>> = {
+  l: "left",
+  c: "center",
+  r: "right",
+  j: "justified",
+  d: "distributed",
+};
+
+/** A number of a `\p` code: a sign, then digits with a point among them or before them. */
+const PROPERTY_NUMBER = /-?(?:\d+(?:\.\d*)?|\.\d+)/y;
+
+/**
+ * Reads what a `\p` code sets, from the text between `\p` and its `;`: an `x` first, then
+ * options one after another, a comma between them or not. Each takes a letter and what follows
+ * it: `i`, `l`, `r`, `b` and `a` a number, `q` one of `l`, `c`, `r`, `j` and `d`, `s` one of
+ * `m`, `e` and `a` and a number, and `t` `z` or numbers with a comma between each. It reads in
+ * one pass and never throws.
+ */
+export function readProperties(body: string): {
+  readonly properties: ParagraphProperties;
+  readonly problem: string | undefined;
+} {
+  const out: { -readonly [K in keyof ParagraphProperties]: ParagraphProperties[K] } = {};
+  let problem: string | undefined;
+  const n = body.length;
+  let k = 0;
+  if (body.startsWith("x")) {
+    out.heights = true;
+    k = 1;
+  }
+  const number = (): number | undefined => {
+    PROPERTY_NUMBER.lastIndex = k;
+    const found = PROPERTY_NUMBER.exec(body);
+    if (!found) return undefined;
+    k += found[0].length;
+    const read = Number(found[0]);
+    return Number.isFinite(read) ? read : undefined;
+  };
+  while (k < n && problem === undefined) {
+    const from = k;
+    const letter = body[k++]!;
+    if (letter === ",") continue;
+    let ok = true;
+    switch (letter) {
+      case "i":
+      case "l":
+      case "r":
+      case "b":
+      case "a": {
+        const read = number();
+        if (read === undefined) ok = false;
+        else {
+          const field = ({ i: "indent", l: "left", r: "right", b: "before", a: "after" } as const)[
+            letter
+          ];
+          out[field] = read;
+        }
+        break;
+      }
+      case "q": {
+        const justification = JUSTIFICATIONS[body[k] ?? ""];
+        if (justification === undefined) ok = false;
+        else {
+          out.justification = justification;
+          k++;
+        }
+        break;
+      }
+      case "s": {
+        const style = body[k];
+        if (style === "a") {
+          problem = PARAGRAPH_SPACING_AT_LEAST;
+          break;
+        }
+        if (style !== "m" && style !== "e") {
+          ok = false;
+          break;
+        }
+        k++;
+        const read = number();
+        if (read === undefined) ok = false;
+        else out.spacing = { style, value: read };
+        break;
+      }
+      case "t": {
+        if (body[k] === "z") {
+          k++;
+          out.tabs = [];
+          break;
+        }
+        if (body[k] === "r" || body[k] === "c" || body[k] === "d") {
+          problem = PARAGRAPH_TAB_KIND;
+          break;
+        }
+        const tabs: number[] = [];
+        let read = number();
+        if (read === undefined) {
+          ok = false;
+          break;
+        }
+        tabs.push(read);
+        // A comma before a number gives another stop; before a letter, another option.
+        while (body[k] === ",") {
+          const next = body[k + 1] ?? "";
+          if (next === "r" || next === "c" || next === "d") {
+            problem = PARAGRAPH_TAB_KIND;
+            break;
+          }
+          if (!/[-.0-9]/.test(next)) break;
+          k++;
+          read = number();
+          if (read === undefined) {
+            ok = false;
+            break;
+          }
+          tabs.push(read);
+        }
+        out.tabs = tabs;
+        break;
+      }
+      default:
+        ok = false;
+    }
+    if (!ok) problem = paragraphPropertyUnknown(body.slice(from, from + 2));
+  }
+  return { properties: out, problem };
 }
 
 /**
@@ -560,4 +745,103 @@ export function superscript(text: string): string {
 /** Text set at the foot of the line, under room for a top part, as an index is: `\S^2;`. */
 export function subscript(text: string): string {
   return `\\S^${part(text)};`;
+}
+
+/** A number of a `\p` code as its grammar reads it: up to 6 decimals, never with an exponent. */
+function propertyNumber(value: number): string {
+  if (!Number.isFinite(value) || Math.abs(value) >= 1e15) {
+    throw new RangeError(`A paragraph's format takes numbers below 1e15, not ${value}`);
+  }
+  const rounded = Math.round(value * 1e6) / 1e6;
+  return rounded === 0 ? "0" : String(rounded);
+}
+
+/** The letter `q` takes for each justification. */
+const JUSTIFICATION_LETTERS: Readonly<Record<ParagraphJustification, string>> = {
+  left: "l",
+  center: "c",
+  right: "r",
+  justified: "j",
+  distributed: "d",
+};
+
+/**
+ * A `\p` code that sets what `properties` gives of the paragraph it starts and of each after it,
+ * in heights of the text: written with `x`. `tabs: []` sets no stops, `tz`.
+ *
+ * ```ts
+ * d.paragraph(`${paragraphFormat({ justification: "center" })}TITLE`, { at: [0, 0], width: 4 });
+ * ```
+ */
+export function paragraphFormat(properties: Omit<ParagraphProperties, "heights">): string {
+  const options: string[] = [];
+  const add = (letter: string, value: number | undefined): void => {
+    if (value !== undefined) options.push(`${letter}${propertyNumber(value)}`);
+  };
+  add("i", properties.indent);
+  add("l", properties.left);
+  add("r", properties.right);
+  if (properties.tabs) {
+    options.push(
+      properties.tabs.length === 0 ? "tz" : `t${properties.tabs.map(propertyNumber).join(",")}`,
+    );
+  }
+  if (properties.justification) options.push(`q${JUSTIFICATION_LETTERS[properties.justification]}`);
+  add("b", properties.before);
+  add("a", properties.after);
+  if (properties.spacing) add(`s${properties.spacing.style}`, properties.spacing.value);
+  return `\\px${options.join(",")};`;
+}
+
+/** How a list marks its items, by its first: `"1."`, `"1)"`, `"A."` or `"a."`. */
+export type ListMarks = "1." | "1)" | "A." | "a.";
+
+/** An item of a list, with the items of the level under it. */
+export interface ListItem {
+  readonly text: string;
+  readonly items?: readonly string[];
+}
+
+/** The mark of the item `n`, from 1: a number, or letters from A to Z, then AA, AB and on. */
+function mark(marks: ListMarks, n: number): string {
+  if (marks === "1." || marks === "1)") return `${n}${marks[1]}`;
+  let letters = "";
+  for (let k = n; k > 0; k = Math.floor((k - 1) / 26)) {
+    letters = String.fromCharCode(65 + ((k - 1) % 26)) + letters;
+  }
+  return `${marks === "a." ? letters.toLowerCase() : letters}.`;
+}
+
+/**
+ * A numbered or lettered list in two levels, as the leading CAD app writes one: each item a
+ * paragraph of its own, its mark, a tab and its text, under a hanging indent of `indent` heights,
+ * 3 by default, and each item of the level under it indented as far again. The items are joined
+ * by `\P`, so the value lays out alike in `d.paragraph` and in `layoutParagraph`. What follows a list in the same paragraph value keeps its indents and tab stops
+ * until `paragraphFormat({ indent: 0, left: 0, tabs: [] })` sets them back.
+ *
+ * ```ts
+ * d.paragraph(`GENERAL NOTES\\P${list(["VERIFY ALL DIMENSIONS.", { text: "DO NOT SCALE.", items: ["SEE A-101."] }])}`, {
+ *   at: [0, 0],
+ *   width: 4,
+ * });
+ * ```
+ */
+export function list(
+  items: readonly (string | ListItem)[],
+  options: {
+    readonly marks?: ListMarks;
+    readonly subMarks?: ListMarks;
+    readonly indent?: number;
+  } = {},
+): string {
+  const { marks = "1.", subMarks = "A.", indent = 3 } = options;
+  const level = (depth: number): string =>
+    paragraphFormat({ indent: -indent, left: indent * depth, tabs: [indent * depth] });
+  const out: string[] = [];
+  items.forEach((item, i) => {
+    const { text, items: under = [] } = typeof item === "string" ? { text: item } : item;
+    out.push(`${level(1)}${mark(marks, i + 1)}\t${text}`);
+    under.forEach((sub, k) => out.push(`${level(2)}${mark(subMarks, k + 1)}\t${sub}`));
+  });
+  return out.join("\\P");
 }

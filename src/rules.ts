@@ -39,6 +39,8 @@ import {
   PARAGRAPH_STACK_LINED,
   PARAGRAPH_STACK_PART,
   PARAGRAPH_STACK_SEPARATOR,
+  PARAGRAPH_SPACING_AT_LEAST,
+  PARAGRAPH_TAB_KIND,
   PARAGRAPH_TOO_DEEP,
   PARAGRAPH_TRAILING,
   type BoldFont,
@@ -48,6 +50,7 @@ import {
   type paragraphItalic,
   type paragraphNoSemicolon,
   type paragraphNotLaidOut,
+  type paragraphPropertyUnknown,
   type paragraphShxBold,
   type paragraphUnknownCode,
   type paragraphUnknownFont,
@@ -969,7 +972,7 @@ type ParagraphPercent<S extends string> = S extends `${string}%${infer R}` ? ["%
 type ParagraphPlainCode = "P" | "~" | "\\" | "{" | "}" | "o";
 
 /** The codes tsdraft does not lay out that end with a `;`. */
-type ParagraphEndedCode = "p" | "H" | "W" | "Q" | "T" | "A" | "C" | "c";
+type ParagraphEndedCode = "H" | "W" | "Q" | "T" | "A" | "C" | "c";
 
 /**
  * Whether the characters are underlined, `L`, struck through, `K`, both or neither, as the codes
@@ -1020,7 +1023,7 @@ type Relined<F extends Lined, C extends "L" | "l" | "K" | "k"> = C extends "L"
  */
 export type ParagraphValue<T extends string> = string extends T
   ? T
-  : T extends `${string}${Exclude<ControlChar, "\n">}${string}`
+  : T extends `${string}${Exclude<ControlChar, "\n" | "\t">}${string}`
     ? typeof PARAGRAPH_CONTROL
     : T extends `${string}${Chars<typeof REJECTED_PRIVATE>}${string}`
       ? typeof PARAGRAPH_PRIVATE_USE
@@ -1084,26 +1087,125 @@ type ParagraphCode<
           : ReturnType<typeof paragraphNoSemicolon<C>>
         : C extends "S"
           ? ParagraphStack<T, After, D, false, N, F, "", true>
-          : C extends ParagraphEndedCode
-            ? After extends `${string};${string}`
-              ? ReturnType<typeof paragraphNotLaidOut<C>>
+          : C extends "p"
+            ? After extends `${infer Body};${infer Next}`
+              ? ParagraphProperties<
+                  Body extends `x${infer Rest}` ? Rest : Body,
+                  "option",
+                  [...N, 0]
+                > extends true
+                ? ParagraphCodes<T, Next, D, [...N, 0], F>
+                : ParagraphProperties<
+                    Body extends `x${infer Rest}` ? Rest : Body,
+                    "option",
+                    [...N, 0]
+                  >
               : ReturnType<typeof paragraphNoSemicolon<C>>
-            : C extends "N" | "X" | "O"
-              ? ReturnType<typeof paragraphNotLaidOut<C>>
-              : C extends "U" | "u"
-                ? After extends `+${infer H1}${infer H2}${infer H3}${infer H4}${infer Next}`
-                  ? [H1, H2, H3, H4] extends [HexDigit, HexDigit, HexDigit, HexDigit]
-                    ? ParagraphUnicode<T, Lowercase<`${H1}${H2}${H3}${H4}`>, Next, D, N, F>
-                    : ReturnType<typeof paragraphUnknownCode<C>>
-                  : ReturnType<typeof paragraphUnknownCode<C>>
-                : C extends "M" | "m"
-                  ? After extends `+${"1" | "2" | "3" | "4" | "5"}${infer H1}${infer H2}${infer H3}${infer H4}${string}`
+            : C extends ParagraphEndedCode
+              ? After extends `${string};${string}`
+                ? ReturnType<typeof paragraphNotLaidOut<C>>
+                : ReturnType<typeof paragraphNoSemicolon<C>>
+              : C extends "N" | "X" | "O"
+                ? ReturnType<typeof paragraphNotLaidOut<C>>
+                : C extends "U" | "u"
+                  ? After extends `+${infer H1}${infer H2}${infer H3}${infer H4}${infer Next}`
                     ? [H1, H2, H3, H4] extends [HexDigit, HexDigit, HexDigit, HexDigit]
-                      ? ReturnType<typeof paragraphNotLaidOut<C>>
+                      ? ParagraphUnicode<T, Lowercase<`${H1}${H2}${H3}${H4}`>, Next, D, N, F>
                       : ReturnType<typeof paragraphUnknownCode<C>>
                     : ReturnType<typeof paragraphUnknownCode<C>>
-                  : ReturnType<typeof paragraphUnknownCode<C>>
+                  : C extends "M" | "m"
+                    ? After extends `+${"1" | "2" | "3" | "4" | "5"}${infer H1}${infer H2}${infer H3}${infer H4}${string}`
+                      ? [H1, H2, H3, H4] extends [HexDigit, HexDigit, HexDigit, HexDigit]
+                        ? ReturnType<typeof paragraphNotLaidOut<C>>
+                        : ReturnType<typeof paragraphUnknownCode<C>>
+                      : ReturnType<typeof paragraphUnknownCode<C>>
+                    : ReturnType<typeof paragraphUnknownCode<C>>
   : typeof PARAGRAPH_TRAILING;
+
+/**
+ * Where the walk of a `\p` code's options stands: before an option, where a number starts, after
+ * its sign, after its point with no digit yet, among its digits, or among a tab stop's, where a
+ * comma may start another stop.
+ */
+type PropertyState = "option" | "number" | "signed" | "point" | "digits" | "decimals";
+
+/**
+ * True for the options of a `\p` code after its `x`, as `readProperties` in
+ * `src/paragraph-codes.ts` reads them, and the message otherwise, which quotes an option by its
+ * letter and the character after it, `O`. `Stops` is true inside a list of tab stops. Past the
+ * walk's steps it gives up and leaves the rest to the runtime check.
+ */
+type ParagraphProperties<
+  S extends string,
+  State extends PropertyState,
+  N extends 0[],
+  O extends string = "",
+  Stops extends boolean = false,
+> = N["length"] extends ParagraphTypeSteps
+  ? true
+  : State extends "option"
+    ? S extends `${infer C}${infer R}`
+      ? C extends ","
+        ? ParagraphProperties<R, "option", [...N, 0]>
+        : C extends "i" | "l" | "r" | "b" | "a"
+          ? ParagraphProperties<R, "number", [...N, 0], PropertyOption<S>>
+          : C extends "q"
+            ? R extends `${"l" | "c" | "r" | "j" | "d"}${infer After}`
+              ? ParagraphProperties<After, "option", [...N, 0]>
+              : ReturnType<typeof paragraphPropertyUnknown<PropertyOption<S>>>
+            : C extends "s"
+              ? R extends `${"m" | "e"}${infer After}`
+                ? ParagraphProperties<After, "number", [...N, 0], PropertyOption<S>>
+                : R extends `a${string}`
+                  ? typeof PARAGRAPH_SPACING_AT_LEAST
+                  : ReturnType<typeof paragraphPropertyUnknown<PropertyOption<S>>>
+              : C extends "t"
+                ? R extends `z${infer After}`
+                  ? ParagraphProperties<After, "option", [...N, 0]>
+                  : R extends `${"r" | "c" | "d"}${string}`
+                    ? typeof PARAGRAPH_TAB_KIND
+                    : ParagraphProperties<R, "number", [...N, 0], PropertyOption<S>, true>
+                : ReturnType<typeof paragraphPropertyUnknown<PropertyOption<S>>>
+      : true
+    : State extends "number" | "signed" | "point"
+      ? S extends `${infer C}${infer R}`
+        ? C extends Digit
+          ? ParagraphProperties<
+              R,
+              State extends "point" ? "decimals" : "digits",
+              [...N, 0],
+              O,
+              Stops
+            >
+          : [State, C] extends ["number", "-"]
+            ? ParagraphProperties<R, "signed", [...N, 0], O, Stops>
+            : [State, C] extends ["number" | "signed", "."]
+              ? ParagraphProperties<R, "point", [...N, 0], O, Stops>
+              : ReturnType<typeof paragraphPropertyUnknown<O>>
+        : ReturnType<typeof paragraphPropertyUnknown<O>>
+      : S extends `${Digit}${infer R}`
+        ? ParagraphProperties<R, State, [...N, 0], O, Stops>
+        : [State, S] extends ["digits", `.${infer R}`]
+          ? ParagraphProperties<R, "decimals", [...N, 0], O, Stops>
+          : Stops extends true
+            ? S extends `,${infer R}`
+              ? R extends `${"r" | "c" | "d"}${string}`
+                ? typeof PARAGRAPH_TAB_KIND
+                : R extends `${Digit | "." | "-"}${string}`
+                  ? ParagraphProperties<R, "number", [...N, 0], O, true>
+                  : ParagraphProperties<S, "option", [...N, 0]>
+              : ParagraphProperties<S, "option", [...N, 0]>
+            : ParagraphProperties<S, "option", [...N, 0]>;
+
+/**
+ * The option a message quotes: its letter and the character after it, as the builder holds them, a
+ * line feed as the `\P` it becomes.
+ */
+type PropertyOption<S extends string> = S extends `\n${string}`
+  ? "\\P"
+  : S extends `${infer A}${infer B}${string}`
+    ? `${A}${B extends "\n" ? "\\" : B}`
+    : S;
 
 /** A `\U+XXXX` code, with its four digits in lower case. */
 type ParagraphUnicode<
