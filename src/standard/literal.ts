@@ -1,6 +1,11 @@
 // The compile-time half of `defineStandard`: the names a document resolves to, with its parent's,
 // and the check of each literal in the document, whose message is the runtime check's.
 import type {
+  DIMENSION_FRACTIONS,
+  DIMENSION_TEXT_FITS,
+  DIMENSION_TEXT_PLACEMENTS,
+} from "../arrowheads.ts";
+import type {
   ArrowheadOf,
   AttributeTag,
   BlockName,
@@ -123,6 +128,8 @@ type SectionNames<D, P, S extends Section> =
 export type NamesOf<D, P> = { readonly [S in Section]: SectionNames<D, P, S> };
 
 type Str<V, R> = V extends string ? R : unknown;
+/** A value of a list, or the list where it is another: a string as wide as JSON gives passes. */
+type OneOf<V extends string, U extends string> = string extends V ? V : V extends U ? V : U;
 type Num<V, R> = V extends number ? R : unknown;
 
 /** `Problem` when a name breaks a rule, and `never` when it is valid. */
@@ -302,7 +309,9 @@ type Writing<E> = {
                 >
               : F extends "measurementScale"
                 ? Num<E[F], MeasurementScale<E[F] & number>>
-                : unknown;
+                : F extends "fraction"
+                  ? Str<E[F], OneOf<E[F] & string, (typeof DIMENSION_FRACTIONS)[number]>>
+                  : unknown;
 };
 
 /** A name a standard gives a dimension style in the leading CAD app. */
@@ -322,11 +331,15 @@ type StyleFields<E, N extends StandardNames> = {
         ? Num<E[F], NotNegative<E[F] & number>>
         : F extends "textGap"
           ? Num<E[F], TextGap<E[F] & number>>
-          : F extends "writing"
-            ? { readonly [U in keyof E[F]]: Writing<E[F][U]> }
-            : F extends "discipline"
-              ? Discipline<E[F], N>
-              : unknown;
+          : F extends "textPlacement"
+            ? Str<E[F], OneOf<E[F] & string, (typeof DIMENSION_TEXT_PLACEMENTS)[number]>>
+            : F extends "textFit"
+              ? Str<E[F], OneOf<E[F] & string, (typeof DIMENSION_TEXT_FITS)[number]>>
+              : F extends "writing"
+                ? { readonly [U in keyof E[F]]: Writing<E[F][U]> }
+                : F extends "discipline"
+                  ? Discipline<E[F], N>
+                  : unknown;
 };
 
 type DimensionStyle<E, N extends StandardNames> = {

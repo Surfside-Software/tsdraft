@@ -357,6 +357,12 @@ export function lintStandard(
         writing.feetInchZeros ?? (writing.units === "architectural" ? "inches" : "none"),
       ],
       ["measurementScale", style.measurementScale ?? 1, writing.measurementScale],
+      ["fraction", style.fraction ?? "inline", writing.fraction],
+      ["fractionScale", style.fractionScale ?? 1, writing.fractionScale],
+      ["textPlacement", style.textPlacement ?? "above", fields.textPlacement],
+      ["textFit", style.textFit ?? "inside", fields.textFit],
+      ["dimensionLineweight", style.dimensionLineweight, fields.dimensionLineweight],
+      ["extensionLineweight", style.extensionLineweight, fields.extensionLineweight],
     ];
     for (const [field, value, own] of expected) {
       const same =

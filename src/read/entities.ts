@@ -12,6 +12,7 @@ import type {
   ReadPolyline,
   ReadTextPlacement,
 } from "./model.ts";
+import { dimensionTextParts } from "./model.ts";
 import {
   facing,
   first,
@@ -323,6 +324,7 @@ function dimension(r: Rec, base: ReadEntityBase, face: Facing, r12: boolean): Re
   const measurement = num(r, 42) ?? (r12 ? undefined : 1);
   const text = first(r, 1);
   const block = name(r, 2);
+  const parts = text === undefined ? {} : dimensionTextParts(textOnce(text));
   const entity: ReadDimension = {
     ...base,
     kind: "dimension",
@@ -333,7 +335,7 @@ function dimension(r: Rec, base: ReadEntityBase, face: Facing, r12: boolean): Re
     ...(angle !== 0 && { angle }),
     textAt: point(r, 11),
     ...(measurement !== undefined && { measurement }),
-    ...(text !== undefined && text !== "" && { text: textOnce(text) }),
+    ...parts,
     style: name(r, 3) ?? "Standard",
     ...(block !== undefined && block !== "" && { block }),
   };
@@ -478,7 +480,7 @@ export function costOf(e: ReadEntity): number {
     case "mtext":
       return own + 1 + chars(e.value) + chars(e.style);
     case "dimension":
-      return own + 4 + chars(e.text) + chars(e.style) + chars(e.block);
+      return own + 4 + chars(e.text) + chars(e.textBelow) + chars(e.style) + chars(e.block);
     case "multileader": {
       let points = 3;
       for (const shaft of e.shafts) points += shaft.length;

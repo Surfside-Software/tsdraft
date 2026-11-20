@@ -390,12 +390,12 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
       d.linearDimension(upLot[i - 1]!, upLot[i]!, [up, 0], { view: plan, along: "y" });
     }
     // The building in feet and inches, as an architect dimensions it, in the standard's style
-    // for that: its west wall, outside it.
+    // for that: its west wall, outside it, with what it measures written under the line.
     d.linearDimension(
       [houseX, houseY],
       [houseX, houseY + house.depth],
       [houseX - plan.paper(3 / 8), 0],
-      { view: plan, along: "y", style: "feet-inches" },
+      { view: plan, along: "y", style: "feet-inches", textBelow: "BUILDING" },
     );
   });
 

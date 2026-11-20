@@ -496,7 +496,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         break;
       case "linear-dimension":
       case "aligned-dimension":
-        cost += long1(e.style) + long1(e.text);
+        cost += long1(e.style) + long1(e.text) + long1(e.textBelow);
         break;
       case "leader":
         cost += long1(e.style) + long1(e.textStyle);
@@ -996,8 +996,8 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     else if (!dimensionStyleNames.has(layerKey(name as string))) {
       add("undefined-dimension-style", "error", undefinedDimensionStyleProblem(name as string));
     } else style = dimensionStyles.get(layerKey(name as string));
-    const text: unknown = dimension.text;
-    if (text !== undefined) {
+    for (const text of [dimension.text, dimension.textBelow] as unknown[]) {
+      if (text === undefined) continue;
       const problem = checkDimensionText(text);
       if (problem) {
         add("dimension", "error", problem);
@@ -1016,7 +1016,10 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     if (!style || !sound) return;
     // Its style's prefix and suffix are read again for each dimension that has the style.
     const reads =
-      (style.prefix?.length ?? 0) + (style.suffix?.length ?? 0) + ((text as string)?.length ?? 0);
+      (style.prefix?.length ?? 0) +
+      (style.suffix?.length ?? 0) +
+      ((dimension.text as string | undefined)?.length ?? 0) +
+      ((dimension.textBelow as string | undefined)?.length ?? 0);
     if (!spend(Math.floor(reads / 32), where)) return;
     const textStyle =
       style.textStyle === undefined ? undefined : stylesByKey.get(layerKey(style.textStyle));

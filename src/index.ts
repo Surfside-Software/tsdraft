@@ -14,6 +14,9 @@ export {
 export {
   ARROWHEADS,
   DEFAULT_LEADER_ARROWHEAD,
+  DIMENSION_FRACTIONS,
+  DIMENSION_TEXT_FITS,
+  DIMENSION_TEXT_PLACEMENTS,
   LEADER_ARROWHEADS,
   leaderArrowheadInfo,
   type Arrowhead,
@@ -26,11 +29,17 @@ export type { CallSite } from "./callsite.ts";
 export {
   arrowheadHandles,
   dimensionAngle,
+  dimensionFileText,
+  dimensionMeasure,
   dimensionPicture,
   dimensionPictureHandles,
   dimensionStyleHandle,
+  dimensionTexts,
   findDimensionStyle,
+  mtextOfLabel,
+  pictureTexts,
   type ArrowheadEntity,
+  type DimensionFont,
   type DimensionLabel,
   type DimensionPicture,
   type DimensionPictureHandles,
@@ -165,7 +174,9 @@ export {
 } from "./paragraph-codes.ts";
 export {
   attachmentPlace,
+  layoutDimensionText,
   layoutParagraph,
+  measureDimensionText,
   lineSpacingStyleCode,
   measureParagraph,
   paragraphAttachment,
@@ -268,6 +279,7 @@ export { layoutMtext, measureMtext } from "./read/mtext.ts";
 export {
   BLOCK_ITEMS,
   CENSUS_LIMIT,
+  dimensionTextParts,
   GEOMETRY_ITEMS,
   READ_FORMAT,
   type DrawingRead,

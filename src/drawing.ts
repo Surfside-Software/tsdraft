@@ -12,6 +12,9 @@ import {
   STANDARD_LEADER_STYLE,
   type Arrowhead,
   type DIMENSION_UNITS,
+  type DIMENSION_FRACTIONS,
+  type DIMENSION_TEXT_PLACEMENTS,
+  type DIMENSION_TEXT_FITS,
   type FEET_INCH_ZEROS,
   type LeaderArrowhead,
   type ZERO_SUPPRESSIONS,
@@ -511,6 +514,11 @@ interface DimensionBase extends Placed {
    * style writes it, so `"<> TYP"` adds to it and `"VARIES"` replaces it.
    */
   readonly text?: string;
+  /**
+   * Words drawn under the dimension line, opposite the measurement, such as `"WINDOW HEAD HT."`.
+   * `<>` in them stands for the measurement as it does in `text`.
+   */
+  readonly textBelow?: string;
 }
 
 /**
@@ -690,6 +698,30 @@ export interface DimensionStyle {
   readonly feetInchZeros?: (typeof FEET_INCH_ZEROS)[number];
   /** What a length is multiplied by before it is written. Defaults to 1. */
   readonly measurementScale?: number;
+  /**
+   * How a measurement in architectural units writes its fraction of an inch: `"inline"`, the
+   * default, as `4'-1 7/16"`; `"stacked"`, over a bar; or `"diagonal"`, beside a slash.
+   */
+  readonly fraction?: (typeof DIMENSION_FRACTIONS)[number];
+  /** The height of a stacked fraction as a share of the text's height, from 0.25 to 1. Defaults to 1. */
+  readonly fractionScale?: number;
+  /**
+   * Where the text is: `"above"` the dimension line, the default, or `"centered"` in a break of
+   * it.
+   */
+  readonly textPlacement?: (typeof DIMENSION_TEXT_PLACEMENTS)[number];
+  /**
+   * Where the text goes when it does not fit between the extension lines: `"inside"` them all the
+   * same, the default, or outside on a `"leader"` from the middle of the dimension line.
+   */
+  readonly textFit?: (typeof DIMENSION_TEXT_FITS)[number];
+  /**
+   * In millimetres, one of `Lineweight`: how heavy the dimension line, its arrowheads and ticks
+   * and a leader to its text plot. Defaults to the dimension's own.
+   */
+  readonly dimensionLineweight?: number;
+  /** The same for the extension lines. Defaults to the dimension's own. */
+  readonly extensionLineweight?: number;
 }
 
 /**
@@ -1456,6 +1488,24 @@ export interface DimensionStyleDefinition<
   readonly feetInchZeros?: FeetInchZerosIn<U>;
   /** What a length is multiplied by before it is written, greater than 0. Defaults to 1. */
   readonly measurementScale?: MeasurementScale<MS>;
+  /**
+   * In architectural units, how the fraction of an inch is written: `"inline"`, the default, as
+   * `4'-1 7/16"`, `"stacked"` over a bar, or `"diagonal"` beside a slash.
+   */
+  readonly fraction?: U extends "architectural" ? (typeof DIMENSION_FRACTIONS)[number] : never;
+  /** A stacked fraction's height as a share of the text's, from 0.25 to 1. Defaults to 1. */
+  readonly fractionScale?: U extends "architectural" ? number : never;
+  /** The text `"above"` the dimension line, the default, or `"centered"` in a break of it. */
+  readonly textPlacement?: (typeof DIMENSION_TEXT_PLACEMENTS)[number];
+  /**
+   * Where the text goes when it does not fit between the extension lines: `"inside"` them, the
+   * default, or outside on a `"leader"`.
+   */
+  readonly textFit?: (typeof DIMENSION_TEXT_FITS)[number];
+  /** The lineweight of the dimension line and its arrowheads, in millimetres, one of `Lineweight`. */
+  readonly dimensionLineweight?: number;
+  /** The lineweight of the extension lines, in millimetres, one of `Lineweight`. */
+  readonly extensionLineweight?: number;
 }
 
 /** What every dimension is drawn with. */
@@ -1471,6 +1521,11 @@ interface DimensionOptions<
    * `"<> TYP"`, or `"VARIES"`.
    */
   readonly text?: DimensionText<T>;
+  /**
+   * Words under the dimension line, opposite its text: `"WINDOW HEAD HT."`. `<>` in them stands
+   * for the measurement where `text` holds none.
+   */
+  readonly textBelow?: DimensionText<string>;
   /** A name for the dimension that no other entity of the drawing has. */
   readonly id?: EntityId<I>;
   readonly view?: ViewWithoutStandard;
@@ -1519,6 +1574,8 @@ export interface StandardAlignedDimensionOptions<
    * `"<> TYP"`, or `"VARIES"`.
    */
   readonly text?: DimensionText<T>;
+  /** Words under the dimension line, opposite its text, as `textBelow` of a drawing's own style. */
+  readonly textBelow?: DimensionText<string>;
   /** A name for the dimension that no other entity of the drawing has. */
   readonly id?: EntityId<I>;
 }
@@ -3134,6 +3191,8 @@ export class DrawingBuilder<
     }
     if (block !== undefined) this.#arrowheadBlocks.add(block);
     const { prefix, suffix, suppressZeros, feetInchZeros } = definition;
+    const { fraction, fractionScale, textPlacement, textFit } = definition;
+    const { dimensionLineweight, extensionLineweight } = definition;
     const units = definition.units ?? "decimal";
     const scale = definition.scale ?? 1;
     const measurementScale = definition.measurementScale ?? 1;
@@ -3154,6 +3213,12 @@ export class DrawingBuilder<
       ...(suppressZeros === undefined ? {} : { suppressZeros }),
       ...(feetInchZeros === undefined ? {} : { feetInchZeros }),
       ...(measurementScale === 1 ? {} : { measurementScale }),
+      ...(fraction === undefined || fraction === "inline" ? {} : { fraction }),
+      ...(fractionScale === undefined || fractionScale === 1 ? {} : { fractionScale }),
+      ...(textPlacement === undefined || textPlacement === "above" ? {} : { textPlacement }),
+      ...(textFit === undefined || textFit === "inside" ? {} : { textFit }),
+      ...(dimensionLineweight === undefined ? {} : { dimensionLineweight }),
+      ...(extensionLineweight === undefined ? {} : { extensionLineweight }),
     });
     this.#dimensionStylesAudited.set(layerAuditKey(named), named);
   }
@@ -3228,9 +3293,14 @@ export class DrawingBuilder<
   /** Checks what a dimension names and what it measures, and returns the dimension `make` gives. */
   #dimension<D extends LinearDimension | AlignedDimension>(
     options:
-      | { readonly style?: unknown; readonly text?: unknown; readonly view?: unknown }
+      | {
+          readonly style?: unknown;
+          readonly text?: unknown;
+          readonly textBelow?: unknown;
+          readonly view?: unknown;
+        }
       | undefined,
-    make: (style: string, text: { readonly text?: string }) => D,
+    make: (style: string, text: { readonly text?: string; readonly textBelow?: string }) => D,
   ): D {
     if (this.dxf === "R12") refuse("dimension", R12_ONLY.dimensions);
     if (this.#open) refuse("dimension", DIMENSION_IN_BLOCK);
@@ -3253,11 +3323,16 @@ export class DrawingBuilder<
       }
     }
     const text: unknown = options?.text;
-    if (text !== undefined) {
-      const problem = dimensionTextProblem(text);
+    const below: unknown = options?.textBelow;
+    for (const words of [text, below]) {
+      if (words === undefined) continue;
+      const problem = dimensionTextProblem(words);
       if (problem) refuse("dimension", problem);
     }
-    const made = make(style!.name, text === undefined ? {} : { text: text as string });
+    const made = make(style!.name, {
+      ...(text === undefined ? {} : { text: text as string }),
+      ...(below === undefined ? {} : { textBelow: below as string }),
+    });
     const textStyle =
       style!.textStyle === undefined ? undefined : this.#textStyles.get(layerKey(style!.textStyle));
     const problem = dimensionDrawnProblem(made, style!, textStyle);
@@ -3326,6 +3401,8 @@ export class DrawingBuilder<
     if (existing !== undefined) return existing;
     const role = drawn.textRoles.get(idKey(fields.role))!;
     const { units: writes, precision, prefix, suffix, suppressZeros, feetInchZeros } = writing!;
+    const { fraction, fractionScale } = writing!;
+    const { dimensionLineweight, extensionLineweight } = fields;
     this.#defineDimensionStyle({
       name,
       textStyle: this.#roleStyle(role),
@@ -3343,6 +3420,12 @@ export class DrawingBuilder<
       ...(suppressZeros === undefined ? {} : { suppressZeros }),
       ...(feetInchZeros === undefined ? {} : { feetInchZeros }),
       measurementScale: writing!.measurementScale,
+      ...(fraction === "inline" ? {} : { fraction }),
+      ...(fractionScale === 1 ? {} : { fractionScale }),
+      ...(fields.textPlacement === "above" ? {} : { textPlacement: fields.textPlacement }),
+      ...(fields.textFit === "inside" ? {} : { textFit: fields.textFit }),
+      ...(dimensionLineweight === undefined ? {} : { dimensionLineweight }),
+      ...(extensionLineweight === undefined ? {} : { extensionLineweight }),
     });
     return this.#dimensionStyles.get(layerKey(name))!;
   }

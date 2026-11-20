@@ -39,23 +39,29 @@ Every dimension names a dimension style, which says how it is drawn and how it w
 measures. `d.dimensionStyle(definition)` defines one. A style is defined once, under a name
 no other style has, and before the first dimension that names it.
 
-| Field              | What it sets                                                                                   |
-| ------------------ | ---------------------------------------------------------------------------------------------- |
-| `name`             | The style's name, held to the rules of a layer's name, and at most 255 characters.             |
-| `textStyle`        | The text style of the text. `"Standard"` unless given.                                         |
-| `textHeight`       | The height of the text. Greater than 0.                                                        |
-| `arrowhead`        | `"closed-filled"`, the default, or `"architectural-tick"`. `ARROWHEADS` lists them.            |
-| `arrowSize`        | The length of an arrowhead. 0 draws none.                                                      |
-| `extensionOffset`  | How far from its point an extension line starts.                                               |
-| `extensionBeyond`  | How far an extension line runs past the dimension line.                                        |
-| `textGap`          | The gap between the dimension line and the text above it.                                      |
-| `scale`            | What every size above is multiplied by. 1 unless given.                                        |
-| `units`            | `"decimal"`, the default, or `"architectural"`, which writes feet and inches: `4'-1 7/16"`.    |
-| `precision`        | A whole number from 0 to 8: the decimals, or in feet and inches the least fraction, 1/2^n.     |
-| `prefix`, `suffix` | Written before and after each measurement.                                                     |
-| `suppressZeros`    | Decimal units: `"leading"` writes 0.5 as `.5`, `"trailing"` 52.50 as `52.5`, `"both"` both.    |
-| `feetInchZeros`    | Feet and inches: which zeros are written. `"inches"` unless given: see below.                  |
-| `measurementScale` | What a length is multiplied by before it is written: 12 writes feet as inches. 1 unless given. |
+| Field                 | What it sets                                                                                    |
+| --------------------- | ----------------------------------------------------------------------------------------------- |
+| `name`                | The style's name, held to the rules of a layer's name, and at most 255 characters.              |
+| `textStyle`           | The text style of the text. `"Standard"` unless given.                                          |
+| `textHeight`          | The height of the text. Greater than 0.                                                         |
+| `arrowhead`           | `"closed-filled"`, the default, `"architectural-tick"` or `"oblique"`. `ARROWHEADS` lists them. |
+| `arrowSize`           | The length of an arrowhead. 0 draws none.                                                       |
+| `extensionOffset`     | How far from its point an extension line starts.                                                |
+| `extensionBeyond`     | How far an extension line runs past the dimension line.                                         |
+| `textGap`             | The gap between the dimension line and the text above it.                                       |
+| `scale`               | What every size above is multiplied by. 1 unless given.                                         |
+| `units`               | `"decimal"`, the default, or `"architectural"`, which writes feet and inches: `4'-1 7/16"`.     |
+| `precision`           | A whole number from 0 to 8: the decimals, or in feet and inches the least fraction, 1/2^n.      |
+| `prefix`, `suffix`    | Written before and after each measurement.                                                      |
+| `suppressZeros`       | Decimal units: `"leading"` writes 0.5 as `.5`, `"trailing"` 52.50 as `52.5`, `"both"` both.     |
+| `feetInchZeros`       | Feet and inches: which zeros are written. `"inches"` unless given: see below.                   |
+| `measurementScale`    | What a length is multiplied by before it is written: 12 writes feet as inches. 1 unless given.  |
+| `fraction`            | Feet and inches: `"inline"`, the default, as `4'-1 7/16"`, `"stacked"` or `"diagonal"`.         |
+| `fractionScale`       | A stacked fraction's height as a share of the text's, from 0.25 to 1. 1 unless given.           |
+| `textPlacement`       | `"above"` the dimension line, the default, or `"centered"` in a break of it.                    |
+| `textFit`             | A text with no room between the extension lines: `"inside"` them, the default, or `"leader"`.   |
+| `dimensionLineweight` | The lineweight of the dimension line, its arrowheads and a leader, in millimetres.              |
+| `extensionLineweight` | The lineweight of the extension lines, in millimetres.                                          |
 
 ### Sizes and the scale
 
@@ -70,16 +76,21 @@ them when it draws.
 
 ### How a dimension is drawn
 
-Where a style has no field, every dimension is drawn one way:
-
-- The text is above the dimension line, in the middle between the extension lines, and reads
-  along the line. It is turned to read from the bottom or from the right of the sheet.
+- The text is in the middle between the extension lines and reads along the line, turned to
+  read from the bottom or from the right of the sheet. Above the line, its box stands one gap
+  off it; `textPlacement: "centered"` puts the middle of its box on the line, which breaks a gap
+  either side of it. The box is the box of the text as the leading CAD app sets it: from the top
+  of its tallest letter or stack to the foot of its lowest letter.
 - The dimension line runs from one extension line to the other.
 - A closed filled arrowhead is as long as `arrowSize` and a third as wide, with its tip on the
-  extension line. An architectural tick is a stroke at 45 degrees through the end of the
-  dimension line, and the dimension line runs one arrow size past each extension line.
+  extension line. An architectural tick is a heavy stroke at 45 degrees through the end of the
+  dimension line, and an oblique tick the same stroke as thin as the dimension line; with
+  either, the dimension line runs one arrow size past each extension line.
 - The measurement is in decimal units of the drawing, or in feet and inches, times
-  `measurementScale`, with the fraction on the line.
+  `measurementScale`, with the fraction on the line unless `fraction` stacks it.
+- The dimension line, its arrowheads and a leader take `dimensionLineweight`, and the
+  extension lines `extensionLineweight`. Without them, each takes the dimension's own: its
+  layer's.
 
 ### What a dimension needs room for
 
@@ -89,17 +100,34 @@ font. tsdraft gives the text room for the widest it can be in any font of `FONTS
 refuses a dimension with closed filled arrowheads that measures no more than
 
 ```text
-max(2 × arrowSize, widths × textHeight × widthFactor + lean) + 2 × textGap
+text above the line:     max(2 × arrowSize, text) + 2 × textGap
+text centered in a break: text + 2 × arrowSize + 2 × textGap
+text = widths × textHeight × widthFactor + lean
 ```
 
-each size times the style's scale. `widths` adds up a width for each character of the text:
+each size times the style's scale. The text is the wider of the words above the line and below
+it, with a stacked fraction counted as its longer part and a diagonal one as its two parts and a
+slash. `lint` also takes the text as tsdraft lays it out in its font, where that is wider: a narrow
+font does not narrow the gap of a diagonal stack. `widths` adds up a width for each character of the text:
 1.1 for a figure, a point, an apostrophe, a quotation mark and a space, 1.104 for `9`, 1.239
 for a hyphen and a slash, and 2 for any other character. `widthFactor` is the text style's, and `lean` is
 `textHeight × |tan(obliqueAngle)|` for a slanted text style. At 1" = 10' with the sizes in the
 example above and closed filled arrowheads, a dimension of `6.0'` has room and one of `3.8'`
-does not. A dimension with ticks, or with an arrow size of 0, is drawn the same whether its
-text fits or not, so it may be as short as it likes: its text then lies over the extension
-lines.
+does not. A dimension with ticks, or with an arrow size of 0, may be as short as it likes. Ticks turn
+outward when the text does not fit: above the line, when the text is wider than the line less
+two gaps; centered in it, when the line is shorter than the text and two arrow sizes. The
+dimension line then breaks at each tick.
+
+### A text that does not fit
+
+With `textFit: "leader"`, a text that is wider than the line less two gaps moves out on a
+leader, as the leading CAD app moves it: from the middle of the dimension line, away from the
+points, to an elbow past the reach of the extension lines and a gap and a half, leaning toward
+where the text reads, then along a landing to the text. Above the line the text stands a gap
+over a landing as long as it and a gap either side; centered, it follows a landing two gaps
+long. The ticks stay inward unless the line is shorter than two gaps. `lint` refuses what is
+not laid out yet: words below the line of a text that moves out, arrowheads twice the text's
+height or longer in such a style, and closed filled arrowheads with the text centered.
 
 ## The two kinds
 
@@ -118,6 +146,10 @@ Both take `style`, the name of the dimension style, and optionally:
 - `text`, a text to draw in place of the measurement. `<>` in it stands for the measurement
   as the style writes it, so `"<> TYP"` adds to it and `"VARIES"` replaces it. Only the first
   `<>` is the measurement.
+- `textBelow`, words under the dimension line, opposite the text: `{ textBelow: "WINDOW HEAD
+  HT." }` writes the measurement over the line and the words under it. The first `<>` of
+  `text` and `textBelow` together is the measurement. With words below, a centered text stands a
+  gap above the line too, and the line breaks for the wider of the two.
 - `id`, as any entity takes one: see [Ids](format.md#ids).
 
 A dimension is on the current layer, and is drawn in that layer's color and lineweight. It
@@ -147,6 +179,11 @@ writes feet, a hyphen, inches, and the fraction in lowest terms after a space, w
 mark: 49.4375 is `4'-1 7/16"` at a precision of 4, and `4'-1"` at 0. A drawing in inches leaves
 `measurementScale` at 1, and a drawing in feet gives it 12.
 
+`fraction: "stacked"` stacks the fraction over a bar and `"diagonal"` beside a slash, right after
+the inches, at `fractionScale` of the text's height: `4'-1` and a stacked `7/16`. A stacked part
+stands by its own ink, as the leading CAD app sets it, so a 7 over 16 stands a little lower than
+a 1 over 16.
+
 `feetInchZeros` says which zeros are written:
 
 | `feetInchZeros`      | 48      | 6       | 0.5         |
@@ -175,12 +212,12 @@ file's picture draws the arrowheads with.
 `toSVG` draws each dimension as the leading CAD app does, in model space, through a viewport and on
 a sheet, in its layer's color and lineweight. A dimension is a `<g>` with `data-layer`,
 `data-entity`, `data-id` and `data-dimension`, the string it reads. Its children have a
-`data-part`: `extension-line`, `dimension-line`, `arrowhead` or `text`. A drawing's extents
-take its dimensions in, text included.
+`data-part`: `extension-line`, `dimension-line`, `leader`, `arrowhead` or `text`, and each text
+is a paragraph group as [paragraphs](paragraphs.md) are drawn, stacks included. A drawing's
+extents take its dimensions in, text included.
 
-`inspectText` takes a dimension's text for a text where the picture puts it, measured as
-`measureText` measures any text, so it warns of a text that plots over it. A dimension's text
-that its room holds never measures longer than that room in any font.
+`inspectText` takes each line of a dimension's texts for a text where the picture puts it, so
+it warns of a text that plots over it.
 
 The `tsdraft` command lists each dimension in its JSON, with its id, the number it measures
 and the string it reads: see [The JSON](command.md#the-json).
@@ -210,6 +247,10 @@ Each of these is an error, at the builder's call and in `lint`. The rule is `dim
 - The precision is a whole number from 0 to 8. The leading CAD app's `AUDIT` reports any other.
 - `units` is `"decimal"` or `"architectural"`. `suppressZeros` is for a style in decimal units
   and `feetInchZeros` for one in architectural units, and a style has only its own.
+- `fraction` is one of `DIMENSION_FRACTIONS`, `textPlacement` one of
+  `DIMENSION_TEXT_PLACEMENTS` and `textFit` one of `DIMENSION_TEXT_FITS`. A stacked fraction
+  and its `fractionScale`, from 0.25 to 1, are for a style in architectural units, and a
+  `fractionScale` for a fraction that is stacked. A lineweight is one of `LINEWEIGHTS`.
 - An arrowhead is one of `ARROWHEADS`.
 - A prefix, a suffix and a dimension's text have none of `\`, `{` and `}`, which the leading CAD app
   reads as the formatting of the text, and are single lines as any text is. A prefix has no `<>`.
@@ -233,10 +274,13 @@ Each of these is an error, at the builder's call and in `lint`. The rule is `dim
 - A linear dimension measures along an angle from -360 to 360. This is tsdraft's own rule: an
   angle beyond a turn is refused, so that one direction has one angle.
 - A dimension with closed filled arrowheads has the room given above.
+- A text centered in its line has the room of its width and two gaps there, unless it moves
+  out on a leader. Where its pieces then go is not laid out yet.
+- What [A text that does not fit](#a-text-that-does-not-fit) says is not laid out yet.
 - A dimension is not in a block. The leading CAD app draws nothing for a dimension inside a block
   when it opens the file, so an insert of the block would show nothing of it.
-- No block is named `_ArchTick`, in any case of its letters. The leading CAD app draws the
-  architectural tick with the block of that name, so a block of yours would be drawn as the tick.
+- No block is named `_ArchTick` or `_Oblique`, in any case of its letters. The leading CAD app
+  draws the ticks with the blocks of those names, so a block of yours would be drawn as a tick.
 - An R12 drawing has no dimensions.
 
 `lint` warns of a prefix, a suffix or a text with `%%`, which the leading CAD app reads as the start
@@ -264,8 +308,10 @@ table, the block `_ArchTick` when a style has ticks, and each dimension with its
 style, its text, what it reads, and the block of its picture.
 
 The picture is what the leading CAD app draws for the dimension, as that app writes it: the two
-extension lines, the dimension line, two filled triangles or two inserts of `_ArchTick`, and the
-text, each on the dimension's layer and in the dimension's color. That app shows the picture the
+extension lines, the dimension line in one piece or more, the leader to a text moved out, two
+filled triangles or two inserts of `_ArchTick` or `_Oblique`, and each text as a paragraph, each
+on the dimension's layer and in the dimension's color. A dimension with words below holds its
+text and them as one, `<>\XWINDOW HEAD HT.`, as that app does. That app shows the picture the
 file holds when it opens the drawing, and when another drawing attaches the file as an xref or
 inserts it as a block. It draws a new picture when the dimension's points or style change. A
 program that draws a dimension from its block, as most programs that read DXF do, shows the
@@ -284,7 +330,7 @@ no dimension style holds nothing else for dimensions.
 
 ## What is not drawn yet
 
-Leaders, and angular, radial, diameter and ordinate dimensions. Tolerances and alternate
-units. Feet and inches, fractions and the other unit formats: a measurement is a decimal
-number. A dimension tied to an entity, which follows it when it moves: a dimension's points
-are the ones the code gives it.
+Angular, radial, diameter, arc length and ordinate dimensions. Tolerances and alternate
+units, and the unit formats but decimal and feet and inches. The other fits of a text, such as
+moving the arrowheads first, and a text a drafter placed. A dimension tied to an entity, which
+follows it when it moves: a dimension's points are the ones the code gives it.

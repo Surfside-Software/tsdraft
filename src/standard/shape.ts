@@ -7,6 +7,9 @@ import {
   ARROWHEADS,
   DEFAULT_ARROWHEAD,
   DEFAULT_LEADER_ARROWHEAD,
+  DIMENSION_FRACTIONS,
+  DIMENSION_TEXT_FITS,
+  DIMENSION_TEXT_PLACEMENTS,
   DIMENSION_UNITS,
   FEET_INCH_ZEROS,
   LEADER_ARROWHEADS,
@@ -19,6 +22,11 @@ import { DEFAULT_PLOT_STYLE_TABLE, PAPERS, PLOT_STYLE_TABLES } from "../papers.t
 import {
   arrowheadProblem,
   attributeTagProblem,
+  dimensionStyleLookProblem,
+  fractionProblem,
+  fractionScaleProblem,
+  textFitProblem,
+  textPlacementProblem,
   blockNameProblem,
   dimensionPrefixProblem,
   dimensionStyleNameProblem,
@@ -451,8 +459,25 @@ const WRITING = record<WritingDocument>(
       description: "Each measurement is written times this",
       default: 1,
     },
+    fraction: {
+      node: string({ enum: DIMENSION_FRACTIONS }, fractionProblem),
+      description:
+        "In architectural units, how the fraction of an inch is written: inline, as 4'-1 7/16\", stacked over a bar, or diagonal, beside a slash",
+      default: "inline",
+    },
+    fractionScale: {
+      node: number({ minimum: 0.25, maximum: 1 }, fractionScaleProblem),
+      description: "The height of a stacked fraction as a share of the text's, from 0.25 to 1",
+      default: 1,
+    },
   },
-  (value) => zerosOfUnitsProblem(value.units, value.suppressZeros, value.feetInchZeros),
+  (value) =>
+    zerosOfUnitsProblem(value.units, value.suppressZeros, value.feetInchZeros) ??
+    dimensionStyleLookProblem({
+      units: value.units,
+      fraction: value.fraction,
+      fractionScale: value.fractionScale,
+    }),
 );
 
 const unitsOf = (what: string): Node =>
@@ -488,6 +513,27 @@ const STYLE_FIELDS = {
     "How far an extension line runs past the dimension line",
   ),
   textGap: size(textGapProblem, "The gap between the text and the dimension line"),
+  textPlacement: {
+    node: string({ enum: DIMENSION_TEXT_PLACEMENTS }, textPlacementProblem),
+    description: "The text above the dimension line, or centered in a break of it",
+    default: "above",
+  },
+  textFit: {
+    node: string({ enum: DIMENSION_TEXT_FITS }, textFitProblem),
+    description:
+      "Where a text goes that does not fit between the extension lines: inside them all the same, or out on a leader",
+    default: "inside",
+  },
+  dimensionLineweight: {
+    node: number({ enum: LINEWEIGHTS }, lineweightValueProblem),
+    description:
+      "The lineweight of the dimension line, its arrowheads and a leader to its text, in millimetres. Defaults to the dimension's own",
+  },
+  extensionLineweight: {
+    node: number({ enum: LINEWEIGHTS }, lineweightValueProblem),
+    description:
+      "The lineweight of the extension lines, in millimetres. Defaults to the dimension's own",
+  },
   writing: {
     node: unitsOf("a dimension style's writing"),
     description:

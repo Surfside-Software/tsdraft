@@ -117,6 +117,7 @@ const kinds: {
     line: [0, -6],
     angle: 15,
     text: "<> TYP",
+    textBelow: "CLR.",
     id: "g",
   },
   "aligned-dimension": {
@@ -127,6 +128,7 @@ const kinds: {
     to: [30, 10],
     offset: 8,
     text: "VARIES",
+    textBelow: "<> O.C.",
     id: "h",
   },
   leader: {
@@ -171,7 +173,7 @@ const full: Required<Drawing> & {
   readonly textStyles: readonly [Required<TextStyle>];
   // A style in decimal units leaves zeros out, and one in architectural units writes them.
   readonly dimensionStyles: readonly [
-    Required<Omit<DimensionStyle, "feetInchZeros">>,
+    Required<Omit<DimensionStyle, "feetInchZeros" | "fraction" | "fractionScale">>,
     Required<Omit<DimensionStyle, "suppressZeros">>,
   ];
   readonly leaderStyles: readonly [Required<LeaderStyle>];
@@ -209,6 +211,10 @@ const full: Required<Drawing> & {
       units: "decimal",
       suppressZeros: "trailing",
       measurementScale: 2,
+      textPlacement: "centered",
+      textFit: "leader",
+      dimensionLineweight: 0.5,
+      extensionLineweight: 0.25,
     },
     {
       name: "ARCH",
@@ -226,6 +232,12 @@ const full: Required<Drawing> & {
       units: "architectural",
       feetInchZeros: "both",
       measurementScale: 12,
+      fraction: "stacked",
+      fractionScale: 0.75,
+      textPlacement: "above",
+      textFit: "inside",
+      dimensionLineweight: 0.35,
+      extensionLineweight: 0.18,
     },
   ],
   leaderStyles: [

@@ -17,11 +17,14 @@ import {
   arrowheadEntityHandle,
   arrowheadsWithBlocks,
   dimensionAngle,
+  dimensionFileText,
   dimensionMeasure,
   dimensionPicture,
   FEET_INCH_ZEROS_CODES,
   validDimensionPictureHandles,
   validDimensionStyleHandle,
+  mtextOfLabel,
+  type DimensionLabel,
   type DimensionPicture,
   type DimensionPictureHandles,
   type Dimension,
@@ -37,6 +40,7 @@ import type {
   Leader,
   LeaderStyle,
   Linetype,
+  Point,
   Text,
   TextStyle,
   Units,
@@ -338,7 +342,7 @@ export function toDXFR2018(
       const layout = space === 0 ? undefined : sheets[space - 1]!.layout.name;
       pictures.set(`${space}/${index}`, {
         name: `*D${pictures.size + 1}`,
-        picture: dimensionPicture(entity, style),
+        picture: dimensionPicture(entity, style, styleOf(style.textStyle)),
         handles: validDimensionPictureHandles({
           index,
           ...(entity.id === undefined ? {} : { id: entity.id }),
@@ -448,6 +452,7 @@ export function toDXFR2018(
         return;
       }
       if (entity.kind === "linear-dimension" || entity.kind === "aligned-dimension") {
+        const picture = space === undefined ? undefined : pictures.get(`${space}/${index}`);
         writeDimension(
           g,
           entity,
@@ -455,7 +460,8 @@ export function toDXFR2018(
           own,
           owner,
           paper,
-          space === undefined ? undefined : pictures.get(`${space}/${index}`)?.name,
+          picture?.name,
+          picture?.picture,
         );
         return;
       }
@@ -561,7 +567,17 @@ export function toDXFR2018(
       paper: false,
       contents: () => {
         // One stroke, as wide as the arrowhead's, which takes its color and its linetype
-        // from the dimension that draws it.
+        // from the dimension that draws it: a line where it has no width, which takes its
+        // lineweight from the dimension too.
+        if (stroke.width === 0) {
+          writeArrowheadStroke(
+            g,
+            { kind: "line", from: stroke.from, to: stroke.to },
+            arrowheadEntityHandle(block),
+            handles.record,
+          );
+          return;
+        }
         g(0, "LWPOLYLINE");
         g(5, arrowheadEntityHandle(block));
         g(330, handles.record);
@@ -1078,7 +1094,7 @@ function writeDimensionStyle(g: Group, style: DimensionStyle, textStyle: string)
   if (block !== undefined) g(46, style.arrowSize);
   g(73, 0); // DIMTIH: the text is along the dimension line
   g(74, 0); // DIMTOH
-  g(77, 1); // DIMTAD: the text is above the dimension line
+  g(77, style.textPlacement === "centered" ? 0 : 1); // DIMTAD: above the line, or in it
   const architectural = style.units === "architectural";
   g(
     78,
@@ -1090,16 +1106,26 @@ function writeDimensionStyle(g: Group, style: DimensionStyle, textStyle: string)
   ); // DIMZIN
   g(140, style.textHeight); // DIMTXT
   g(144, style.measurementScale ?? 1); // DIMLFAC
+  if (style.fractionScale !== undefined) g(146, style.fractionScale); // DIMTFAC
   g(147, style.textGap); // DIMGAP
   g(172, 1); // DIMTOFL: a dimension line between the extension lines, whatever fits
-  g(174, 1); // DIMTIX: the text between the extension lines, whatever fits
+  const leader = style.textFit === "leader";
+  // DIMTIX: the text between the extension lines whatever fits, or moved out where it does not.
+  g(174, leader ? 0 : 1);
   g(271, style.precision); // DIMDEC
-  if (architectural) g(276, 2); // DIMFRAC: the fraction on the line, as 1 7/16
+  // DIMFRAC: stacked across, stacked diagonally, or on the line, as 1 7/16.
+  if (architectural) g(276, FRACTION_CODES[style.fraction ?? "inline"]);
   g(277, architectural ? 4 : 2); // DIMLUNIT: architectural or decimal
   g(278, 46); // DIMDSEP: a point
+  if (leader) g(279, 1); // DIMTMOVE: a text moved out hangs on a leader
   g(340, textStyle); // DIMTXSTY
   if (block !== undefined) g(342, blockHandles(block).record); // DIMBLK
+  if (style.dimensionLineweight !== undefined) g(371, Math.round(style.dimensionLineweight * 100)); // DIMLWD
+  if (style.extensionLineweight !== undefined) g(372, Math.round(style.extensionLineweight * 100)); // DIMLWE
 }
+
+/** `DIMFRAC` for each way a style writes a fraction of an inch. */
+const FRACTION_CODES = { stacked: 0, diagonal: 1, inline: 2 } as const;
 
 /**
  * Writes a dimension. It names no block of its picture: the leading CAD app draws the picture when
@@ -1113,10 +1139,11 @@ function writeDimension(
   owner: string,
   paper: boolean,
   block: string | undefined,
+  drawn: DimensionPicture | undefined,
 ): void {
   // `lint` refuses a dimension in a style the drawing does not have, which has no picture.
   const at = e.kind === "linear-dimension" ? e.line : e.to;
-  const picture = style ? dimensionPicture(e, style) : { definitionPoint: at, textMiddle: at };
+  const picture = drawn ?? { definitionPoint: at, textPoint: at };
   g(0, "DIMENSION");
   g(5, handle);
   g(330, owner);
@@ -1126,10 +1153,11 @@ function writeDimension(
   g(100, "AcDbDimension");
   if (block !== undefined) g(2, block);
   point(g, 10, ...picture.definitionPoint);
-  point(g, 11, ...picture.textMiddle);
+  point(g, 11, ...picture.textPoint);
   // 32: the dimension has a picture of its own. 1: it is aligned.
   g(70, e.kind === "aligned-dimension" ? 33 : 32);
-  if (e.text !== undefined) g(1, dxfOnce(e.text));
+  const text = dimensionFileText(e);
+  if (text !== undefined) g(1, dxfOnce(text));
   g(71, 5); // the text is placed by its middle
   // What it reads, with 15 digits: the leading CAD app works it out only when it draws the picture
   // itself, and keeps the picture the file holds.
@@ -1171,30 +1199,41 @@ function writePicture(g: Group, { name, picture, handles, layer, textStyle }: Pi
     paper: false,
     anonymous: true,
     contents: () => {
-      const begin = (type: string, handle: string, subclass: string, lineweight: boolean) => {
+      const weights = picture.lineweights;
+      const begin = (type: string, handle: string, subclass: string, lineweight?: number) => {
         g(0, type);
         g(5, handle);
         g(330, owner);
         g(100, "AcDbEntity");
         g(8, layer);
         g(62, 0); // by block
-        if (lineweight) g(370, -2); // by block
+        if (lineweight !== undefined) g(370, lineweight);
         g(100, subclass);
       };
-      const lines: (readonly [readonly [number, number], readonly [number, number], string])[] = [
-        [...picture.extensionLines[0]!, handles.extensionLines[0]],
-        [...picture.extensionLines[1]!, handles.extensionLines[1]],
-        [...picture.dimensionLine, handles.dimensionLine],
+      const lines: (readonly [
+        readonly [number, number],
+        readonly [number, number],
+        string,
+        number,
+      ])[] = [
+        [...picture.extensionLines[0]!, handles.extensionLines[0], weights.extension],
+        [...picture.extensionLines[1]!, handles.extensionLines[1], weights.extension],
+        ...picture.dimensionLines.map(
+          ([from, to], i) => [from, to, handles.dimensionLines[i]!, weights.dimension] as const,
+        ),
+        ...picture.leader.map(
+          ([from, to], i) => [from, to, handles.leader[i]!, weights.dimension] as const,
+        ),
       ];
-      for (const [from, to, handle] of lines) {
-        begin("LINE", handle, "AcDbLine", true);
+      for (const [from, to, handle, lineweight] of lines) {
+        begin("LINE", handle, "AcDbLine", lineweight);
         point(g, 10, ...from);
         point(g, 11, ...to);
       }
       picture.arrowheadEntities.forEach((arrowhead, i) => {
         const handle = handles.arrowheads[i]!;
         if (arrowhead.kind === "solid") {
-          begin("SOLID", handle, "AcDbTrace", false);
+          begin("SOLID", handle, "AcDbTrace");
           const [left, right, tip] = arrowhead.corners;
           for (const [code, corner] of [
             [10, left],
@@ -1206,31 +1245,36 @@ function writePicture(g: Group, { name, picture, handles, layer, textStyle }: Pi
           }
           return;
         }
-        begin("INSERT", handle, "AcDbBlockReference", true);
+        begin("INSERT", handle, "AcDbBlockReference", weights.dimension);
         g(2, arrowhead.block);
         point(g, 10, ...arrowhead.at);
         for (const code of [41, 42, 43]) g(code, arrowhead.scale);
         if (written(arrowhead.rotation) !== 0) g(50, arrowhead.rotation);
       });
-      const { label } = picture;
-      begin("MTEXT", handles.text, "AcDbMText", false);
-      point(g, 10, ...picture.textMiddle);
-      g(40, label.height);
-      g(41, 0); // no width to wrap at
-      g(46, 0);
-      g(71, 5); // placed by its middle
-      g(72, 1); // left to right
-      // The leading CAD app writes the text with a code that centers what is stacked in it.
-      writeMtextValue(g, `\\A1;${label.value}`);
-      g(7, textStyle);
-      if (written(label.rotation) !== 0) {
-        // 15 digits of the direction: 6 decimals would turn the text off the leading CAD app's own.
-        g(11, fifteenDigits(label.direction[0]));
-        g(21, fifteenDigits(label.direction[1]));
-        g(31, 0);
+      const text = (label: DimensionLabel, middle: Point, handle: string, value: string) => {
+        begin("MTEXT", handle, "AcDbMText");
+        point(g, 10, ...middle);
+        g(40, label.height);
+        g(41, 0); // no width to wrap at
+        g(46, 0);
+        g(71, 5); // placed by its middle
+        g(72, 1); // left to right
+        writeMtextValue(g, value);
+        g(7, textStyle);
+        if (written(label.rotation) !== 0) {
+          // 15 digits of the direction: 6 decimals would turn the text off the leading CAD app's own.
+          g(11, fifteenDigits(label.direction[0]));
+          g(21, fifteenDigits(label.direction[1]));
+          g(31, 0);
+        }
+        g(73, 1); // line spacing at least as set
+        g(44, 1);
+      };
+      text(picture.label, picture.textMiddle, handles.text, mtextOfLabel(picture.label.value));
+      if (picture.below) {
+        const { label, middle } = picture.below;
+        text(label, middle, handles.belowText, label.value === "" ? "" : mtextOfLabel(label.value));
       }
-      g(73, 1); // line spacing at least as set
-      g(44, 1);
     },
   });
 }

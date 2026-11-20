@@ -8,7 +8,7 @@ import {
   type Referenced,
   type XrefDrawings,
 } from "./blocks.ts";
-import { dimensionPicture, type Dimension } from "./dimensions.ts";
+import { dimensionPicture, pictureTexts, type Dimension } from "./dimensions.ts";
 import {
   sweep,
   type DimensionStyle,
@@ -49,12 +49,14 @@ import { leaderPicture, type LeaderPicture } from "./leaders.ts";
 import { builtInLinetype, LINEWEIGHTS, lineweightCode } from "./linetypes.ts";
 import { drawnValue, inStyle, layoutText } from "./measure.ts";
 import {
+  layoutDimensionText,
   paragraphInStyle,
   paragraphMeasurer,
   paragraphTurn,
   placer,
   type ParagraphLayout,
 } from "./paragraphs.ts";
+import { arrowheadInfo, DEFAULT_ARROWHEAD } from "./arrowheads.ts";
 import { DEFAULT_PLOT_STYLE_TABLE, paperInfo } from "./papers.ts";
 import { shown as quoted, turning, viewportProblem } from "./rules.ts";
 import { filled } from "./shape.ts";
@@ -644,6 +646,10 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       const where = () => entityAt(i, e, space);
       drawingAt = where;
       if (e.kind !== "insert") {
+        // A dimension's texts are joined before it is drawn, so their length is paid for first.
+        if (e.kind === "linear-dimension" || e.kind === "aligned-dimension") {
+          if (!write((e.text?.length ?? 0) + (e.textBelow?.length ?? 0))) refuse(where());
+        }
         const element = drawn(e, marks(e, i), pen(look, styled(e), { name: e.layer }, where), look);
         if (!write(element.length + line)) refuse(where());
         return element;
@@ -1233,9 +1239,10 @@ function paragraphToSvg(
 }
 
 /**
- * A dimension as a group: its extension lines and its dimension line, which take the dashes
- * of its pen, its arrowheads, filled, and its text. A dimension whose style the drawing does
- * not have is an empty group.
+ * A dimension as a group: its extension lines, the pieces of its dimension line and the leader to
+ * a text moved out, which take the dashes of its pen and the lineweights its style gives them,
+ * its arrowheads, filled, or a tick with no width as a line, and each text as the paragraph its
+ * block holds. A dimension whose style the drawing does not have is an empty group.
  */
 function dimensionToSvg(
   e: Dimension,
@@ -1248,41 +1255,57 @@ function dimensionToSvg(
   room: number,
 ): string {
   if (style === undefined) return `<g ${mark}/>`;
-  const picture = dimensionPicture(e, style);
+  const picture = dimensionPicture(e, style, textStyle);
   const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
-  const line = (part: string, [from, to]: readonly [Point, Point]): string =>
+  // A style's lineweight, as group 370 holds it, over the dimension's own.
+  const weighed = (code: number): Pen => (code < 0 ? pen : { ...pen, lineweight: code });
+  const line = (part: string, [from, to]: readonly [Point, Point], drawn: Pen): string =>
     entityToSvg(
       { kind: "line", layer: e.layer, from, to },
       `data-part="${part}"`,
-      pen,
+      drawn,
       look,
       undefined,
       matrix,
       room,
     );
-  const { label } = picture;
-  const text: Text = {
-    kind: "text",
-    layer: e.layer,
-    at: label.at,
-    height: label.height,
-    value: label.value,
-    rotation: label.rotation,
-    align: "center",
-  };
+  const extension = weighed(picture.lineweights.extension);
+  const dimension = weighed(picture.lineweights.dimension);
+  const thin = arrowheadInfo(style.arrowhead ?? DEFAULT_ARROWHEAD)?.stroke?.width === 0;
   const parts = [
-    ...picture.extensionLines.map((ends) => line("extension-line", ends)),
-    line("dimension-line", picture.dimensionLine),
+    ...picture.extensionLines.map((ends) => line("extension-line", ends, extension)),
+    ...picture.dimensionLines.map((ends) => line("dimension-line", ends, dimension)),
+    ...picture.leader.map((ends) => line("leader", ends, dimension)),
     ...picture.arrowheads.map((corners) => {
+      if (thin) return line("arrowhead", [corners[0]!, corners[1]!], dimension);
       const points = corners
         .map(at)
         .map(([x, y]) => `${fmt(x)},${fmt(y)}`)
         .join(" ");
       return `<polygon points="${points}" fill="${pen.color}" stroke="none" data-part="arrowhead"/>`;
     }),
-    entityToSvg(text, `data-part="text"`, pen, look, textStyle, matrix, room),
+    ...pictureTexts(picture, textStyle).map((text) =>
+      paragraphToSvg(
+        {
+          kind: "paragraph",
+          layer: e.layer,
+          at: text.at!,
+          height: text.height,
+          value: text.value,
+          rotation: text.rotation ?? 0,
+          align: "center",
+          valign: "middle",
+        },
+        () => layoutDimensionText(text),
+        `data-part="text"`,
+        pen,
+        look,
+        matrix,
+        room,
+      ),
+    ),
   ];
-  return `<g ${mark} data-dimension="${esc(label.value)}">\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
+  return `<g ${mark} data-dimension="${esc(picture.label.value)}">\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
 }
 
 /**

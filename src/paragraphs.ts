@@ -206,6 +206,11 @@ interface Face {
   readonly rights: readonly number[];
   readonly tops: readonly number[];
   readonly bottoms: readonly number[];
+  /**
+   * How far a stack's top stands above its top part's baseline for each character alone, where
+   * the tables hold it: for a regular face.
+   */
+  readonly stackTops: readonly number[] | undefined;
   /** Where a text starts and ends to draw, as `layoutText` reads them: 0 for a bold face. */
   readonly heads: readonly number[] | undefined;
   readonly tails: readonly number[] | undefined;
@@ -214,6 +219,8 @@ interface Face {
   readonly afterStack: number;
   /** How far below the baseline a text of it reaches. */
   readonly below: number;
+  /** One unit of a TrueType font's design grid, in heights: how far its space reaches below the baseline. */
+  readonly unit: number;
 }
 
 /** A face of a font of `FONT_METRICS`, regular or bold. */
@@ -232,11 +239,14 @@ function faceOf(font: string, metrics: FontMetrics, bold: boolean): Face {
     rights: own?.rights ?? metrics.rights,
     tops: own?.tops ?? metrics.tops,
     bottoms: own?.bottoms ?? metrics.bottoms,
+    stackTops: own ? undefined : metrics.stackTops,
     heads: own ? undefined : metrics.heads,
     tails: own ? undefined : metrics.tails,
     underline: shx ? UNDERLINE_SHX : metrics.below * scale,
     afterStack: metrics.afterStack,
     below: metrics.below * scale,
+    // The fonts of `FONTS` have 2,048 units to the em.
+    unit: 1 / ((capHeightOf(font) ?? 1) * 2048),
   };
 }
 
@@ -281,10 +291,12 @@ function partOf(value: string, face: Face): Part {
     }
     left ??= face.lefts[index]!;
     ink = advance + face.rights[index]!;
-    // A space reaches neither up nor down: a part of spaces only stands as wide as they are.
+    // A space reaches neither up nor down: a part of spaces only stands as wide as they are. A
+    // stacked character reaches its own ink's top, which may be below a capital's.
     if (character !== " ") {
-      top = Math.max(top, face.tops[index]!);
-      bottom = Math.min(bottom, face.bottoms[index]!);
+      const below = face.bottoms[index]!;
+      top = Math.max(top, face.stackTops ? face.stackTops[index]! + below : face.tops[index]!);
+      bottom = Math.min(bottom, below);
     }
     advance += face.advances[index]!;
   }
@@ -309,6 +321,8 @@ interface StackShape {
   readonly top: number;
   readonly bottom: number;
   readonly advance: number;
+  /** The height its parts are drawn at. */
+  readonly size: number;
 }
 
 function stackShape(
@@ -328,12 +342,14 @@ function stackShape(
     // The top part's baseline at a digit's top, and the slash's middle at the bottom part's ink
     // top, or a digit's where it has none.
     const digit = face.tops[indexOf("0")]!;
-    const up = digit * size;
-    const after = (top.ink + SLASH_GAP) * across;
+    // The top part stands on the bottom part's ink, as tall as it is from top to bottom.
+    const up = (bottom.top > bottom.bottom ? bottom.top - bottom.bottom : digit) * size;
+    // The gap after the top part is not widened or narrowed with the letters.
+    const after = top.ink * across + SLASH_GAP * size;
     parts.push({ value: top.value, x: -top.left * across, up, top: top.top });
     parts.push({ value: bottom.value, x: after - bottom.left * across, up: 0, top: bottom.top });
     const middle: Point = [
-      (top.ink + SLASH_GAP / 2) * across,
+      top.ink * across + (SLASH_GAP / 2) * size,
       (bottom.top > 0 ? bottom.top : digit) * size,
     ];
     const turn = (SLASH_ANGLE * Math.PI) / 180;
@@ -346,7 +362,7 @@ function stackShape(
       [middle[0] + half[0], middle[1] + half[1]],
     ];
     ink = after + bottom.ink * across;
-    rise = up + top.top * size;
+    rise = up + (top.top - top.bottom) * size;
   } else {
     const wide = Math.max(top.ink, bottom.ink);
     const bar = (bottom.top - bottom.bottom + STACK_GAP) * size;
@@ -367,7 +383,7 @@ function stackShape(
       ];
     }
     ink = wide * across;
-    rise = up + top.top * size;
+    rise = up + (top.top - top.bottom) * size;
   }
   return {
     parts,
@@ -376,6 +392,19 @@ function stackShape(
     top: rise,
     bottom: bottom.bottom * size,
     advance: ink + face.afterStack * across,
+    size,
+  };
+}
+
+/** A stack moved down the line by `by`. */
+function lowered(shape: StackShape, by: number): StackShape {
+  const down = (p: Point): Point => [p[0], p[1] - by];
+  return {
+    ...shape,
+    parts: shape.parts.map((part) => ({ ...part, up: part.up - by })),
+    stroke: shape.stroke && [down(shape.stroke[0]), down(shape.stroke[1])],
+    top: shape.top - by,
+    bottom: shape.bottom - by,
   };
 }
 
@@ -466,6 +495,23 @@ export function layoutParagraph(paragraph: ParagraphToMeasure): ParagraphLayout 
   return layOut(settingsOf(paragraph), parseParagraph(paragraph.value));
 }
 
+/**
+ * Lays out the text of a dimension's picture as `layoutParagraph` lays out a paragraph, with the
+ * codes such a text holds: `\A1;`, which centers its stacks, and `\H` with a factor, which sizes
+ * a fraction.
+ */
+export function layoutDimensionText(paragraph: ParagraphToMeasure): ParagraphLayout {
+  return layOut(
+    { ...settingsOf(paragraph), dimension: true },
+    parseParagraph(paragraph.value, true),
+  );
+}
+
+/** The text of a dimension's picture where it plots, as `measureParagraph` gives a paragraph. */
+export function measureDimensionText(paragraph: ParagraphToMeasure): ParagraphMeasure {
+  return measured(paragraph, layoutDimensionText(paragraph));
+}
+
 /** What a paragraph's layout reads of it apart from its value, with each number as written. */
 interface Settings {
   readonly height: number;
@@ -479,6 +525,11 @@ interface Settings {
   readonly font: string | undefined;
   readonly align: ParagraphAlign | undefined;
   readonly valign: ParagraphVerticalAlign | undefined;
+  /**
+   * True for the text of a dimension's picture, whose box ends below the last line's characters
+   * and below where a stack sets its lowest part, and not at a stacked part's ink.
+   */
+  readonly dimension?: boolean;
 }
 
 /** A paragraph's settings, from its numbers as the writers write them, as a file holds them. */
@@ -710,12 +761,29 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
       if ((blank(top) && top.ink > bottom.ink) || (blank(bottom) && bottom.ink > top.ink)) {
         approximate = true;
       }
-      const shape = stackShape(top, bottom, piece.separator, face, height, widthFactor);
+      const stacked = stackShape(
+        top,
+        bottom,
+        piece.separator,
+        face,
+        height * piece.format.size,
+        widthFactor,
+      );
+      // A centered stack's bar, or the middle of its slash, is half a height above the line.
+      let shape = stacked;
+      if (piece.format.align !== 0) {
+        const stroke = stacked.stroke;
+        if (piece.format.align === 1 && stroke !== undefined && piece.separator !== "^") {
+          shape = lowered(stacked, Math.max(0, (stroke[0][1] + stroke[1][1]) / 2 - height / 2));
+        } else approximate = true;
+      }
       const value = `${piece.top}${piece.separator}${piece.bottom}`;
       word.items[word.count++] = { kind: "stack", shape, face, value };
       continue;
     }
     if (face.shx && piece.diameter) approximate = true;
+    // Characters at a size of their own are not laid out yet.
+    if (piece.format.size !== 1) approximate = true;
     const { format } = piece;
     const key = keyOf(format, face);
     let from = 0;
@@ -748,10 +816,15 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     /** How far the lean moves where the line starts: by its first character's bottom. */
     let startLean = 0;
     let end = 0;
+    // What the box of a dimension's text takes below the baseline: how far its characters reach,
+    // and how far below the line a stack sets its lowest part's baseline.
+    let runDown = 0;
+    let drop = 0;
     for (const item of built.items) {
       if (item.kind === "stack") {
         stackUp = Math.max(stackUp, item.shape.top);
         down = Math.min(down, item.shape.bottom);
+        for (const part of item.shape.parts) drop = Math.max(drop, -part.up);
         start ??= item.x;
         end = item.x + item.shape.ink;
         continue;
@@ -759,6 +832,13 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
       const run = item;
       up = Math.max(up, (run.format.overline ? Math.max(run.top, OVERLINE) : run.top) * height);
       down = Math.min(down, run.bottom * height);
+      runDown = Math.min(
+        runDown,
+        run.bottom * height,
+        settings.dimension && !run.face.shx && valueOf(run).includes(" ")
+          ? -run.face.unit * height
+          : 0,
+      );
       if (start === undefined) {
         let index = tableIndex(
           (run.head?.[0] ?? run.source.slice(run.from, run.to)).codePointAt(0) ?? 32,
@@ -780,7 +860,8 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
       built,
       top,
       below: stackUp > up ? 0 : AT_LEAST_BELOW * height,
-      down,
+      // A dimension's box reaches where a stack sets its lowest part only when the stack reaches highest.
+      down: settings.dimension ? runDown - (stackUp > up ? drop : 0) : down,
       start: start ?? 0,
       end,
       leanedStart: (start ?? 0) + startLean - shift,
@@ -877,7 +958,7 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
         add(item.value);
         const at = item.x + offset;
         for (const part of item.shape.parts) {
-          run(part.value, at + part.x, baseline + part.up, height, item.face, part.top);
+          run(part.value, at + part.x, baseline + part.up, item.shape.size, item.face, part.top);
         }
         const drawnStroke = item.shape.stroke;
         if (drawnStroke) {

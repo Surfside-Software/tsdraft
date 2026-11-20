@@ -445,7 +445,10 @@ class DxfReader {
   readonly layers: ReadLayer[] = [];
   readonly linetypes: ReadLinetype[] = [];
   readonly textStyles: ReadTextStyle[] = [];
-  readonly dimensionStyles: (ReadDimensionStyle & { textStyleHandle?: string })[] = [];
+  readonly dimensionStyles: (ReadDimensionStyle & {
+    textStyleHandle?: string;
+    arrowheadHandle?: string;
+  })[] = [];
   /** Each block record's name, by its handle. */
   readonly blockRecords = new Map<string, string>();
   readonly blocks: BlockDraft[] = [];
@@ -692,6 +695,13 @@ class DxfReader {
           ["lengthUnits", 277],
           ["precision", 271],
           ["lengthFactor", 144],
+          ["textVertical", 77],
+          ["textInside", 174],
+          ["textMove", 279],
+          ["fraction", 276],
+          ["fractionScale", 146],
+          ["dimensionLineweight", 371],
+          ["extensionLineweight", 372],
         ];
         const style: Record<string, unknown> = { handle, name: recordName };
         style.annotative = annotative(r);
@@ -703,6 +713,8 @@ class DxfReader {
         if (suffix !== undefined && suffix !== "") style.suffix = suffix;
         const textStyle = handleAt(r, 340);
         if (textStyle !== undefined) style.textStyleHandle = textStyle;
+        const arrowhead = handleAt(r, 342);
+        if (arrowhead !== undefined) style.arrowheadHandle = arrowhead;
         this.dimensionStyles.push(style as unknown as ReadDimensionStyle);
         return;
       }
@@ -1262,10 +1274,19 @@ class DxfReader {
     for (const style of this.textStyles) {
       if (style.handle !== undefined) styleNames.set(style.handle, style.name);
     }
-    const dimensionStyles = this.dimensionStyles.map(({ textStyleHandle, ...style }) => {
-      const textStyle = textStyleHandle === undefined ? undefined : styleNames.get(textStyleHandle);
-      return textStyle === undefined ? style : { ...style, textStyle };
-    });
+    const dimensionStyles = this.dimensionStyles.map(
+      ({ textStyleHandle, arrowheadHandle, ...style }) => {
+        const textStyle =
+          textStyleHandle === undefined ? undefined : styleNames.get(textStyleHandle);
+        const arrowheadBlock =
+          arrowheadHandle === undefined ? undefined : this.blockRecords.get(arrowheadHandle);
+        return {
+          ...style,
+          ...(textStyle !== undefined && { textStyle }),
+          ...(arrowheadBlock !== undefined && arrowheadBlock !== "" && { arrowheadBlock }),
+        };
+      },
+    );
     this.#startsOfTexts();
     this.#leaderStyles(styleNames);
     this.#blockHandles();

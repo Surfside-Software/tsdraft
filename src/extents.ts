@@ -9,7 +9,7 @@ import {
   type Matrix,
   type Referenced,
 } from "./blocks.ts";
-import { dimensionPicture, type Dimension } from "./dimensions.ts";
+import { dimensionPicture, pictureTexts, type Dimension } from "./dimensions.ts";
 import type {
   AttributeDefinition,
   Block,
@@ -27,7 +27,12 @@ import { layerKey, layerKeys } from "./layers.ts";
 import { hasArcsOrWidths, mayCurve, polylineBox, PolylineMemo } from "./polylines.ts";
 import { leaderPicture, leaderRepeats } from "./leaders.ts";
 import { inStyle, measurer } from "./measure.ts";
-import { paragraphInStyle, paragraphMeasurer } from "./paragraphs.ts";
+import {
+  layoutDimensionText,
+  measured,
+  paragraphInStyle,
+  paragraphMeasurer,
+} from "./paragraphs.ts";
 import { filled } from "./shape.ts";
 
 type Bounds = [number, number, number, number];
@@ -370,28 +375,26 @@ export function boxer(
     const style = from.dimensionStyles.get(key(e.style));
     if (style === undefined) return;
     // Its style's prefix and suffix are read for each dimension that has the style.
-    const reads = (style.prefix?.length ?? 0) + (style.suffix?.length ?? 0) + (e.text?.length ?? 0);
+    const reads =
+      (style.prefix?.length ?? 0) +
+      (style.suffix?.length ?? 0) +
+      (e.text?.length ?? 0) +
+      (e.textBelow?.length ?? 0);
     // The label is put together for each dimension, so it is paid for by its whole length.
     const cost = Math.floor(reads / 32);
     if (cost > 0 && !spend(cost)) return;
-    const picture = dimensionPicture(e, style);
-    for (const line of [...picture.extensionLines, picture.dimensionLine]) {
+    const font =
+      style.textStyle === undefined ? undefined : from.textStyles.get(key(style.textStyle));
+    const picture = dimensionPicture(e, style, font);
+    for (const line of [...picture.extensionLines, ...picture.dimensionLines, ...picture.leader]) {
       add(...line[0]);
       add(...line[1]);
     }
     for (const arrowhead of picture.arrowheads) for (const corner of arrowhead) add(...corner);
-    const { label } = picture;
-    const text: Text = {
-      kind: "text",
-      layer: e.layer,
-      at: label.at,
-      height: label.height,
-      value: label.value,
-      rotation: label.rotation,
-      align: "center",
-      ...(label.style === undefined ? {} : { style: label.style }),
-    };
-    shape(text, from, add);
+    // Each text by the box of what it draws, as its block's paragraph lays it out.
+    for (const text of pictureTexts(picture, font)) {
+      for (const corner of measured(text, layoutDimensionText(text)).corners ?? []) add(...corner);
+    }
   };
   /**
    * The box of what a leader draws, worked out once for each drawing: its shafts, its

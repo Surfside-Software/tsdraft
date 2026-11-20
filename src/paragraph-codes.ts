@@ -114,6 +114,10 @@ export interface RunFormat {
   readonly bold: boolean;
   /** The font of `FONTS` a `\f` or `\F` code set, or undefined for the paragraph's own. */
   readonly font: Font | undefined;
+  /** The height as a share of the paragraph's, which `\H` sets in a dimension's text. */
+  readonly size: number;
+  /** Where a stack sits up and down the line, which `\A` sets in a dimension's text: 0 on it, 1 centered. */
+  readonly align: 0 | 1 | 2;
 }
 
 /** A piece of a paragraph, in the order it is drawn. */
@@ -161,6 +165,8 @@ const PLAIN: RunFormat = {
   strikeThrough: false,
   bold: false,
   font: undefined,
+  size: 1,
+  align: 0,
 };
 
 /**
@@ -214,7 +220,9 @@ function sameFormat(a: RunFormat, b: RunFormat): boolean {
     a.overline === b.overline &&
     a.strikeThrough === b.strikeThrough &&
     a.bold === b.bold &&
-    a.font === b.font
+    a.font === b.font &&
+    a.size === b.size &&
+    a.align === b.align
   );
 }
 
@@ -222,9 +230,10 @@ function sameFormat(a: RunFormat, b: RunFormat): boolean {
  * Reads a paragraph's value in one pass, in time and memory in proportion to its length, with a
  * stack of its own for its braces that holds at most `PARAGRAPH_NESTING` formats: a brace past
  * that is counted and changes nothing. It never throws, and reads any string: what it refuses
- * is `problem`, the first it met.
+ * is `problem`, the first it met. With `dimension`, as for the text of a dimension's picture, it
+ * also reads `\A0;` to `\A2;` and `\H` with a factor, such as `\H0.75x;`.
  */
-export function parseParagraph(value: string): ParsedParagraph {
+export function parseParagraph(value: string, dimension = false): ParsedParagraph {
   const pieces: ParagraphPiece[] = [];
   let problem: string | undefined;
   const fail = (message: string): void => {
@@ -359,6 +368,17 @@ export function parseParagraph(value: string): ParsedParagraph {
       if (end < 0) {
         fail(paragraphNoSemicolon(letter));
         return n;
+      }
+      // The text of a dimension's picture centers its stacks and sizes its fractions.
+      const argument = value.slice(at + 1, end);
+      if (dimension && letter === "A" && /^[012]$/.test(argument)) {
+        set({ ...format, align: Number(argument) as 0 | 1 | 2 });
+        return end + 1;
+      }
+      const times = dimension && letter === "H" ? /^(\d+(?:\.\d+)?)x$/.exec(argument) : null;
+      if (times !== null && Number(times[1]) > 0) {
+        set({ ...format, size: format.size * Number(times[1]) });
+        return end + 1;
       }
       fail(paragraphNotLaidOut(letter as NotLaidOutCode));
       return end + 1;

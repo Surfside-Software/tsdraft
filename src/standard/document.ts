@@ -3,6 +3,9 @@
 // literal through `CheckDocument`, and every value when the code runs.
 import type {
   Arrowhead,
+  DIMENSION_FRACTIONS,
+  DIMENSION_TEXT_FITS,
+  DIMENSION_TEXT_PLACEMENTS,
   DIMENSION_UNITS,
   FEET_INCH_ZEROS,
   LeaderArrowhead,
@@ -170,6 +173,8 @@ export interface WritingDocument extends Commented {
   readonly suppressZeros?: string;
   readonly feetInchZeros?: string;
   readonly measurementScale?: number;
+  readonly fraction?: string;
+  readonly fractionScale?: number;
 }
 
 export interface DimensionStyleFieldsDocument extends Commented {
@@ -180,6 +185,10 @@ export interface DimensionStyleFieldsDocument extends Commented {
   readonly extensionOffset?: number;
   readonly extensionBeyond?: number;
   readonly textGap?: number;
+  readonly textPlacement?: string;
+  readonly textFit?: string;
+  readonly dimensionLineweight?: number;
+  readonly extensionLineweight?: number;
   readonly writing?: { readonly [U in Units]?: WritingDocument };
   readonly description?: string;
 }
@@ -338,6 +347,8 @@ export interface StandardWriting {
   readonly suffix?: string;
   readonly suppressZeros?: (typeof ZERO_SUPPRESSIONS)[number];
   readonly feetInchZeros?: (typeof FEET_INCH_ZEROS)[number];
+  readonly fraction: (typeof DIMENSION_FRACTIONS)[number];
+  readonly fractionScale: number;
   readonly measurementScale: number;
 }
 
@@ -348,6 +359,10 @@ export interface StandardDimensionStyleFields {
   readonly extensionOffset?: number;
   readonly extensionBeyond?: number;
   readonly textGap?: number;
+  readonly textPlacement?: (typeof DIMENSION_TEXT_PLACEMENTS)[number];
+  readonly textFit?: (typeof DIMENSION_TEXT_FITS)[number];
+  readonly dimensionLineweight?: number;
+  readonly extensionLineweight?: number;
   readonly writing?: { readonly [U in Units]?: StandardWriting };
   readonly description?: string;
 }
@@ -359,6 +374,10 @@ export interface StandardDimensionStyle {
   readonly extensionOffset: number;
   readonly extensionBeyond: number;
   readonly textGap: number;
+  readonly textPlacement: (typeof DIMENSION_TEXT_PLACEMENTS)[number];
+  readonly textFit: (typeof DIMENSION_TEXT_FITS)[number];
+  readonly dimensionLineweight?: number;
+  readonly extensionLineweight?: number;
   readonly writing: { readonly [U in Units]?: StandardWriting };
   /** Its name in the leading CAD app on a layout, when it is not its id in capitals. */
   readonly layoutName?: string;

@@ -3177,7 +3177,9 @@
       <line x1="16" y1="-9" x2="44" y2="-9" data-part="dimension-line"/>
       <polygon points="17.106066,-10.106066 19.106066,-8.106066 18.893934,-7.893934 16.893934,-9.893934" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
       <polygon points="41.106066,-10.106066 43.106066,-8.106066 42.893934,-7.893934 40.893934,-9.893934" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
-      <text transform="translate(30 -7) scale(1 -1) translate(-7.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">2'-0&quot;</text>
+      <g data-part="text" data-paragraph="\A1;2'-0&quot;">
+      <text transform="translate(22.666667 -7) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">2'-0&quot;</text>
+    </g>
     </g>
     <g data-dimension="3'-0&quot;">
       <line x1="45" y1="-1.5" x2="45" y2="-10.5" data-part="extension-line"/>
@@ -3185,7 +3187,9 @@
       <line x1="43" y1="-9" x2="83" y2="-9" data-part="dimension-line"/>
       <polygon points="44.106066,-10.106066 46.106066,-8.106066 45.893934,-7.893934 43.893934,-9.893934" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
       <polygon points="80.106066,-10.106066 82.106066,-8.106066 81.893934,-7.893934 79.893934,-9.893934" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
-      <text transform="translate(63 -7) scale(1 -1) translate(-7.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">3'-0&quot;</text>
+      <g data-part="text" data-paragraph="\A1;3'-0&quot;">
+      <text transform="translate(55.666667 -7) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">3'-0&quot;</text>
+    </g>
     </g>
     <g data-dimension="2'-6&quot;">
       <line x1="84" y1="-1.5" x2="84" y2="-10.5" data-part="extension-line"/>
@@ -3193,7 +3197,9 @@
       <line x1="82" y1="-9" x2="116" y2="-9" data-part="dimension-line"/>
       <polygon points="83.106066,-10.106066 85.106066,-8.106066 84.893934,-7.893934 82.893934,-9.893934" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
       <polygon points="113.106066,-10.106066 115.106066,-8.106066 114.893934,-7.893934 112.893934,-9.893934" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
-      <text transform="translate(99 -7) scale(1 -1) translate(-7.666667 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="15.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">2'-6&quot;</text>
+      <g data-part="text" data-paragraph="\A1;2'-6&quot;">
+      <text transform="translate(91.333333 -7) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="15.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">2'-6&quot;</text>
+    </g>
     </g>
     <g data-dimension="8'-0&quot;">
       <line x1="18" y1="-1.5" x2="18" y2="-24.5" data-part="extension-line"/>
@@ -3201,7 +3207,9 @@
       <line x1="16" y1="-23" x2="116" y2="-23" data-part="dimension-line"/>
       <polygon points="17.106066,-24.106066 19.106066,-22.106066 18.893934,-21.893934 16.893934,-23.893934" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
       <polygon points="113.106066,-24.106066 115.106066,-22.106066 114.893934,-21.893934 112.893934,-23.893934" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
-      <text transform="translate(66 -21) scale(1 -1) translate(-7.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">8'-0&quot;</text>
+      <g data-part="text" data-paragraph="\A1;8'-0&quot;">
+      <text transform="translate(58.666667 -21) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">8'-0&quot;</text>
+    </g>
     </g>
     <g data-dimension="3'-0&quot;">
       <line x1="-1.5" y1="0" x2="-9.5" y2="0" data-part="extension-line"/>
@@ -3209,7 +3217,9 @@
       <line x1="-8" y1="-2" x2="-8" y2="38" data-part="dimension-line"/>
       <polygon points="-6.893934,-0.893934 -8.893934,1.106066 -9.106066,0.893934 -7.106066,-1.106066" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
       <polygon points="-6.893934,35.106066 -8.893934,37.106066 -9.106066,36.893934 -7.106066,34.893934" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
-      <text transform="translate(-10 18) scale(1 -1) rotate(-90) translate(-7.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">3'-0&quot;</text>
+      <g data-part="text" data-paragraph="\A1;3'-0&quot;">
+      <text transform="translate(-10 10.666667) scale(1 -1) rotate(-90)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">3'-0&quot;</text>
+    </g>
     </g>
     <g data-dimension="3'-0&quot;">
       <line x1="-1.5" y1="36" x2="-9.5" y2="36" data-part="extension-line"/>
@@ -3217,7 +3227,9 @@
       <line x1="-8" y1="34" x2="-8" y2="74" data-part="dimension-line"/>
       <polygon points="-6.893934,35.106066 -8.893934,37.106066 -9.106066,36.893934 -7.106066,34.893934" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
       <polygon points="-6.893934,71.106066 -8.893934,73.106066 -9.106066,72.893934 -7.106066,70.893934" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
-      <text transform="translate(-10 54) scale(1 -1) rotate(-90) translate(-7.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">3'-0&quot;</text>
+      <g data-part="text" data-paragraph="\A1;3'-0&quot;">
+      <text transform="translate(-10 46.666667) scale(1 -1) rotate(-90)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">3'-0&quot;</text>
+    </g>
     </g>
     <g data-dimension="9'-0&quot;">
       <line x1="-1.5" y1="0" x2="-17.5" y2="0" data-part="extension-line"/>
@@ -3225,7 +3237,9 @@
       <line x1="-16" y1="-2" x2="-16" y2="110" data-part="dimension-line"/>
       <polygon points="-14.893934,-0.893934 -16.893934,1.106066 -17.106066,0.893934 -15.106066,-1.106066" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
       <polygon points="-14.893934,107.106066 -16.893934,109.106066 -17.106066,108.893934 -15.106066,106.893934" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
-      <text transform="translate(-18 54) scale(1 -1) rotate(-90) translate(-7.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">9'-0&quot;</text>
+      <g data-part="text" data-paragraph="\A1;9'-0&quot;">
+      <text transform="translate(-18 46.666667) scale(1 -1) rotate(-90)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">9'-0&quot;</text>
+    </g>
     </g>
     </g>
     <g stroke="#1f2328" stroke-width="0.283">
@@ -4087,7 +4101,9 @@
       <line x1="207" y1="56" x2="241" y2="56" data-part="dimension-line"/>
       <polygon points="208.106066,54.893934 210.106066,56.893934 209.893934,57.106066 207.893934,55.106066" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
       <polygon points="238.106066,54.893934 240.106066,56.893934 239.893934,57.106066 237.893934,55.106066" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
-      <text transform="translate(224 58) scale(1 -1) translate(-7.666667 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="15.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">2'-6&quot;</text>
+      <g data-part="text" data-paragraph="\A1;2'-6&quot;">
+      <text transform="translate(216.333333 58) scale(1 -1)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="15.333333" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">2'-6&quot;</text>
+    </g>
     </g>
     <g data-dimension="3'-0&quot;">
       <line x1="247.5" y1="0" x2="247.5" y2="0" data-part="extension-line"/>
@@ -4095,7 +4111,9 @@
       <line x1="249" y1="-2" x2="249" y2="38" data-part="dimension-line"/>
       <polygon points="250.106066,-0.893934 248.106066,1.106066 247.893934,0.893934 249.893934,-1.106066" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
       <polygon points="250.106066,35.106066 248.106066,37.106066 247.893934,36.893934 249.893934,34.893934" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
-      <text transform="translate(247 18) scale(1 -1) rotate(-90) translate(-7.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">3'-0&quot;</text>
+      <g data-part="text" data-paragraph="\A1;3'-0&quot;">
+      <text transform="translate(247 10.666667) scale(1 -1) rotate(-90)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">3'-0&quot;</text>
+    </g>
     </g>
     <g data-dimension="3'-0&quot;">
       <line x1="240.5" y1="36" x2="250.5" y2="36" data-part="extension-line"/>
@@ -4103,7 +4121,9 @@
       <line x1="249" y1="34" x2="249" y2="74" data-part="dimension-line"/>
       <polygon points="250.106066,35.106066 248.106066,37.106066 247.893934,36.893934 249.893934,34.893934" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
       <polygon points="250.106066,71.106066 248.106066,73.106066 247.893934,72.893934 249.893934,70.893934" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
-      <text transform="translate(247 54) scale(1 -1) rotate(-90) translate(-7.333333 0)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">3'-0&quot;</text>
+      <g data-part="text" data-paragraph="\A1;3'-0&quot;">
+      <text transform="translate(247 46.666667) scale(1 -1) rotate(-90)" font-size="5.714286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" data-height="4" textLength="14.666667" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="txt.shx" data-part="text">3'-0&quot;</text>
+    </g>
     </g>
     </g>
     <g stroke="#1f2328" stroke-width="0.283">

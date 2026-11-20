@@ -23,7 +23,7 @@ const architectural = (id: string, label: string, inches: number) =>
 
 export const BUILT_IN_DOCUMENT = {
   id: "tsdraft",
-  version: "1",
+  version: "2",
   paperUnits: "in",
   minTextHeight: 0.0625,
   linetypeScale: 0.5,
@@ -116,6 +116,21 @@ export const BUILT_IN_DOCUMENT = {
         in: { units: "architectural", precision: 4 },
       },
       description: 'Feet and inches to the nearest 1/16", as 4\'-1 7/16"',
+    },
+    arrows: {
+      role: "dimension",
+      arrowhead: "closed-filled",
+      arrowSize: 0.125,
+      extensionOffset: 0.0625,
+      extensionBeyond: 0.125,
+      textGap: 0.0625,
+      textPlacement: "centered",
+      writing: {
+        ft: { precision: 2, suffix: "'" },
+        in: { precision: 0, suffix: '"' },
+        mm: { precision: 0 },
+      },
+      description: "Closed filled arrows, with the text centered in a break of the line",
     },
   },
   titleBlocks: {

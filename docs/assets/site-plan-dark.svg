@@ -64,7 +64,9 @@
           <line x1="-1.25" y1="82.75" x2="25.25" y2="82.75" stroke="#1aafc8" stroke-width="0.1885" data-part="dimension-line"/>
           <polygon points="-0.558709,82.058709 0.691291,83.308709 0.558709,83.441291 -0.691291,82.191291" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
           <polygon points="23.441291,82.058709 24.691291,83.308709 24.558709,83.441291 23.308709,82.191291" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(12 83.375) scale(1 -1) translate(-1.399535 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-font="Arial" data-part="text">24.0'</text>
+          <g data-part="text" data-paragraph="\A1;24.0'">
+          <text transform="translate(10.611976 83.390987) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-font="Arial" data-part="text">24.0'</text>
+        </g>
         </g>
         <g data-dimension="52.0'">
           <line x1="24" y1="79.625" x2="24" y2="84" stroke="#1aafc8" stroke-width="0.1885" data-part="extension-line"/>
@@ -72,7 +74,9 @@
           <line x1="22.75" y1="82.75" x2="77.25" y2="82.75" stroke="#1aafc8" stroke-width="0.1885" data-part="dimension-line"/>
           <polygon points="23.441291,82.058709 24.691291,83.308709 24.558709,83.441291 23.308709,82.191291" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
           <polygon points="75.441291,82.058709 76.691291,83.308709 76.558709,83.441291 75.308709,82.191291" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(50 83.375) scale(1 -1) translate(-1.399535 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-font="Arial" data-part="text">52.0'</text>
+          <g data-part="text" data-paragraph="\A1;52.0'">
+          <text transform="translate(48.603982 83.390987) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-font="Arial" data-part="text">52.0'</text>
+        </g>
         </g>
         <g data-dimension="24.0'">
           <line x1="76" y1="79.625" x2="76" y2="84" stroke="#1aafc8" stroke-width="0.1885" data-part="extension-line"/>
@@ -80,7 +84,9 @@
           <line x1="74.75" y1="82.75" x2="101.25" y2="82.75" stroke="#1aafc8" stroke-width="0.1885" data-part="dimension-line"/>
           <polygon points="75.441291,82.058709 76.691291,83.308709 76.558709,83.441291 75.308709,82.191291" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
           <polygon points="99.441291,82.058709 100.691291,83.308709 100.558709,83.441291 99.308709,82.191291" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(88 83.375) scale(1 -1) translate(-1.399535 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-font="Arial" data-part="text">24.0'</text>
+          <g data-part="text" data-paragraph="\A1;24.0'">
+          <text transform="translate(86.611976 83.390987) scale(1 -1)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-font="Arial" data-part="text">24.0'</text>
+        </g>
         </g>
         <g data-dimension="30.0'">
           <line x1="100.625" y1="0" x2="107.5" y2="0" stroke="#1aafc8" stroke-width="0.1885" data-part="extension-line"/>
@@ -88,7 +94,9 @@
           <line x1="106.25" y1="-1.25" x2="106.25" y2="31.25" stroke="#1aafc8" stroke-width="0.1885" data-part="dimension-line"/>
           <polygon points="106.941291,-0.558709 105.691291,0.691291 105.558709,0.558709 106.808709,-0.691291" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
           <polygon points="106.941291,29.441291 105.691291,30.691291 105.558709,30.558709 106.808709,29.308709" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(105.625 15) scale(1 -1) rotate(-90) translate(-1.399535 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-font="Arial" data-part="text">30.0'</text>
+          <g data-part="text" data-paragraph="\A1;30.0'">
+          <text transform="translate(105.608373 13.603662) scale(1 -1) rotate(-90)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-font="Arial" data-part="text">30.0'</text>
+        </g>
         </g>
         <g data-dimension="49.0'">
           <line x1="76.625" y1="30" x2="107.5" y2="30" stroke="#1aafc8" stroke-width="0.1885" data-part="extension-line"/>
@@ -96,7 +104,9 @@
           <line x1="106.25" y1="28.75" x2="106.25" y2="80.25" stroke="#1aafc8" stroke-width="0.1885" data-part="dimension-line"/>
           <polygon points="106.941291,29.441291 105.691291,30.691291 105.558709,30.558709 106.808709,29.308709" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
           <polygon points="106.941291,78.441291 105.691291,79.691291 105.558709,79.558709 106.808709,78.308709" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(105.625 54.5) scale(1 -1) rotate(-90) translate(-1.399535 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-font="Arial" data-part="text">49.0'</text>
+          <g data-part="text" data-paragraph="\A1;49.0'">
+          <text transform="translate(105.609013 53.122847) scale(1 -1) rotate(-90)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-font="Arial" data-part="text">49.0'</text>
+        </g>
         </g>
         <g data-dimension="61.0'">
           <line x1="76.625" y1="79" x2="107.5" y2="79" stroke="#1aafc8" stroke-width="0.1885" data-part="extension-line"/>
@@ -104,7 +114,9 @@
           <line x1="106.25" y1="77.75" x2="106.25" y2="141.25" stroke="#1aafc8" stroke-width="0.1885" data-part="dimension-line"/>
           <polygon points="106.941291,78.441291 105.691291,79.691291 105.558709,79.558709 106.808709,78.308709" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
           <polygon points="106.941291,139.441291 105.691291,140.691291 105.558709,140.558709 106.808709,139.308709" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(105.625 109.5) scale(1 -1) rotate(-90) translate(-1.399535 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-font="Arial" data-part="text">61.0'</text>
+          <g data-part="text" data-paragraph="\A1;61.0'">
+          <text transform="translate(105.609013 108.10654) scale(1 -1) rotate(-90)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="2.799071" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-font="Arial" data-part="text">61.0'</text>
+        </g>
         </g>
         <g data-dimension="44'-0&quot;">
           <line x1="23.375" y1="35" x2="19" y2="35" stroke="#1aafc8" stroke-width="0.1885" data-part="extension-line"/>
@@ -112,7 +124,12 @@
           <line x1="20.25" y1="33.75" x2="20.25" y2="80.25" stroke="#1aafc8" stroke-width="0.1885" data-part="dimension-line"/>
           <polygon points="20.941291,34.441291 19.691291,35.691291 19.558709,35.558709 20.808709,34.308709" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
           <polygon points="20.941291,78.441291 19.691291,79.691291 19.558709,79.558709 20.808709,78.308709" fill="#1aafc8" stroke="none" data-part="arrowhead"/>
-          <text transform="translate(19.625 57) scale(1 -1) rotate(-90) translate(-1.668123 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="3.336247" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-font="Arial" data-part="text">44'-0&quot;</text>
+          <g data-part="text" data-paragraph="\A1;44'-0&quot;">
+          <text transform="translate(19.609013 55.354259) scale(1 -1) rotate(-90)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="3.336247" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-font="Arial" data-part="text">44'-0&quot;</text>
+        </g>
+          <g data-part="text" data-paragraph="\A1;BUILDING">
+          <text transform="translate(21.828487 53.900047) scale(1 -1) rotate(-90)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="6.185837" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1aafc8" stroke="none" data-font="Arial" data-part="text">BUILDING</text>
+        </g>
         </g>
         <text transform="translate(50 141.25) scale(1 -1) translate(-6.569854 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="13.139708" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">N 90°00'00&quot; E  100.00'</text>
         <text transform="translate(102.1875 111.375) scale(1 -1) rotate(-90) translate(-6.533723 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="13.067445" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">S 00°00'00&quot; E  140.00'</text>
@@ -217,8 +234,8 @@
       <text transform="matrix(1 0 0 1 0 0) translate(31.0625 2.99375) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="2.756054" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">RESIDENCE AT LOT 12, BLOCK 3</text>
       <text transform="matrix(1 0 0 1 0 0) translate(31.0625 2.19375) scale(1 -1)" font-size="0.261872" font-family="Arial, Helvetica, sans-serif" data-height="0.1875" textLength="1.339231" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">SITE PLAN</text>
       <text transform="matrix(1 0 0 1 0 0) translate(31.0625 1.39375) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.893247" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">2026-11-11</text>
-      <text transform="matrix(1 0 0 1 0 0) translate(32.4375 1.39375) scale(1 -1) translate(-0.000256 0)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.892906" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">AS NOTED</text>
-      <text transform="matrix(1 0 0 1 0 0) translate(31.0625 0.59375) scale(1 -1) translate(-0.000256 0)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.233203" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">AB</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(32.4375 1.39375) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.89265" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">AS NOTED</text>
+      <text transform="matrix(1 0 0 1 0 0) translate(31.0625 0.59375) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.232947" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">AB</text>
       <text transform="matrix(1 0 0 1 0 0) translate(32.4375 0.59375) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.252217" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">CD</text>
       <text transform="matrix(1 0 0 1 0 0) translate(34.625 1.2375) scale(1 -1) translate(-0.594517 0.15625)" font-size="0.436453" font-family="Arial, Helvetica, sans-serif" data-height="0.3125" textLength="1.189035" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">C-101</text>
     </g>
@@ -253,13 +270,13 @@
     <text transform="translate(5.660641 1.1875) scale(1 -1) translate(-0.072839 0)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.145677" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">10</text>
     <text transform="translate(6.660641 1.1875) scale(1 -1) translate(-0.072839 0)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.145677" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">20</text>
     <text transform="translate(6.785641 1) scale(1 -1)" font-size="0.130936" font-family="Arial, Helvetica, sans-serif" data-height="0.09375" textLength="0.334712" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">FEET</text>
-    <text transform="translate(28.5 23.0625) scale(1 -1)" font-size="0.261872" font-family="Arial, Helvetica, sans-serif" data-height="0.1875" textLength="1.353939" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">SITE DATA</text>
+    <text transform="translate(28.5 23.0625) scale(1 -1)" font-size="0.261872" font-family="Arial, Helvetica, sans-serif" data-height="0.1875" textLength="1.353556" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">SITE DATA</text>
     <line x1="28.5" y1="23" x2="35.25" y2="23" stroke="#f2f2f3" stroke-width="0.052361"/>
     <text transform="translate(28.5 22.73) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.698755" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">PARCEL</text>
     <text transform="translate(30.882162 22.73) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="1.417036" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">LOT 12, BLOCK 3</text>
     <text transform="translate(28.5 22.505) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.679059" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">ZONING</text>
     <text transform="translate(30.882162 22.505) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="1.659277" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">R-1 SINGLE-FAMILY</text>
-    <text transform="translate(28.5 22.28) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.863915" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">LOT AREA</text>
+    <text transform="translate(28.5 22.28) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.86366" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">LOT AREA</text>
     <text transform="translate(30.882162 22.28) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="1.601552" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">14,000 SF (0.32 AC)</text>
     <text transform="translate(28.5 22.055) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="1.882162" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">BUILDING FOOTPRINT</text>
     <text transform="translate(30.882162 22.055) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.708646" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">2,398 SF</text>
@@ -332,7 +349,7 @@
     <path d="M 28.5 13.626698 L 29.1875 13.626698 M 29.3125 13.626698 L 29.4375 13.626698 M 29.5625 13.626698 L 29.6875 13.626698 M 29.8125 13.626698 L 30.5 13.626698" stroke="#f2f2f3" stroke-width="0.073306"/>
     <text transform="translate(30.875 13.564198) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="1.39734" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">PROPERTY LINE</text>
     <path d="M 28.5 13.289198 L 29.1875 13.289198 M 29.3125 13.289198 L 29.4375 13.289198 M 29.5625 13.289198 L 29.6875 13.289198 M 29.8125 13.289198 L 30.5 13.289198" stroke="#8b8b92" stroke-width="0.01885"/>
-    <text transform="translate(30.875 13.226698) scale(1 -1) translate(-0.000256 0)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="1.775921" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">ADJOINING LOT LINE</text>
+    <text transform="translate(30.875 13.226698) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="1.775665" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">ADJOINING LOT LINE</text>
     <path d="M 28.5 12.951698 L 28.6875 12.951698 M 28.8125 12.951698 L 29.0625 12.951698 M 29.1875 12.951698 L 29.4375 12.951698 M 29.5625 12.951698 L 29.8125 12.951698 M 29.9375 12.951698 L 30.1875 12.951698 M 30.3125 12.951698 L 30.5 12.951698" stroke="#8b8b92"/>
     <text transform="translate(30.875 12.889198) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="2.125171" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">BUILDING SETBACK LINE</text>
     <line x1="28.5" y1="12.614198" x2="30.5" y2="12.614198" stroke="#1aafc8" stroke-width="0.073306"/>
@@ -351,10 +368,10 @@
       <line x1="29.5" y1="11.123573" x2="29.5" y2="11.179823" stroke="#8b8b92" stroke-width="0.01885"/>
     </g>
     <text transform="translate(30.875 11.089198) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="2.347971" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">EXISTING TREE TO REMAIN</text>
-    <text transform="translate(28.5 9.814198) scale(1 -1) translate(-0.000384 0)" font-size="0.261872" font-family="Arial, Helvetica, sans-serif" data-height="0.1875" textLength="2.110974" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">ABBREVIATIONS</text>
+    <text transform="translate(28.5 9.814198) scale(1 -1)" font-size="0.261872" font-family="Arial, Helvetica, sans-serif" data-height="0.1875" textLength="2.11059" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">ABBREVIATIONS</text>
     <line x1="28.5" y1="9.751698" x2="35.25" y2="9.751698" stroke="#f2f2f3" stroke-width="0.052361"/>
-    <text transform="translate(28.5 9.481698) scale(1 -1) translate(-0.000256 0)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.242838" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">AC</text>
-    <text transform="translate(29.475358 9.481698) scale(1 -1) translate(-0.000256 0)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.601893" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">ACRES</text>
+    <text transform="translate(28.5 9.481698) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.242582" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">AC</text>
+    <text transform="translate(29.475358 9.481698) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.601637" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">ACRES</text>
     <text transform="translate(28.5 9.256698) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.562671" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">CONC.</text>
     <text transform="translate(29.475358 9.256698) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.979877" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">CONCRETE</text>
     <text transform="translate(28.5 9.031698) scale(1 -1)" font-size="0.174581" font-family="Arial, Helvetica, sans-serif" data-height="0.125" textLength="0.495055" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#f2f2f3" stroke="none" data-font="Arial">ELEV.</text>

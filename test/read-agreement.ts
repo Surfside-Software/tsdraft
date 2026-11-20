@@ -367,8 +367,13 @@ export function readProblems(
         if ((got.text ?? undefined) !== (want.text === undefined ? undefined : once(want.text))) {
           say(`${label}: text ${JSON.stringify(got.text)}`);
         }
+        const below = want.textBelow === undefined ? undefined : once(want.textBelow);
+        if ((got.textBelow ?? undefined) !== below) {
+          say(`${label}: text below ${JSON.stringify(got.textBelow)}`);
+        }
         if (!style) return;
-        const picture = dimensionPicture(want, style);
+        const font = drawing.textStyles?.find((t) => sameName(t.name, style.textStyle ?? ""));
+        const picture = dimensionPicture(want, style, font);
         // The leading CAD app works the point of the dimension line out again as it draws the
         // picture, and places the text by its letters, so a read by that
         // app is held to where the line is.
@@ -377,8 +382,8 @@ export function readProblems(
             `${label}: its line meets the second extension line at ${got.line}, expected ${picture.definitionPoint}`,
           );
         }
-        if (by === "tsdraft" && !nearPoint(got.textAt, picture.textMiddle)) {
-          say(`${label}: its text at ${got.textAt}, expected ${picture.textMiddle}`);
+        if (by === "tsdraft" && !nearPoint(got.textAt, point(picture.textPoint))) {
+          say(`${label}: its text at ${got.textAt}, expected ${picture.textPoint}`);
         }
         const measurement =
           dimensionMeasure(want).measurement * written(style.measurementScale ?? 1);

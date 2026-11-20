@@ -17,10 +17,20 @@ import {
   type Arrowhead,
 } from "./arrowheads.ts";
 import { blockHandles } from "./blocks.ts";
+import { STANDARD_FONT } from "./fonts.ts";
+import {
+  layoutDimensionText,
+  type ParagraphLayout,
+  type ParagraphToMeasure,
+} from "./paragraphs.ts";
 import { written } from "./format.ts";
 import { keyHandle } from "./handles.ts";
 import { layerKey } from "./layers.ts";
 import {
+  arrowRoomProblem,
+  DIMENSION_CENTERED_WIDE,
+  DIMENSION_LEADER_ARROWS,
+  DIMENSION_LEADER_BELOW,
   dimensionMeasureProblem,
   dimensionStyleNameProblem,
   idKey,
@@ -73,6 +83,12 @@ export interface DimensionPictureHandles {
   readonly dimensionLine: string;
   readonly arrowheads: readonly [string, string];
   readonly text: string;
+  /** The pieces of the dimension line: the first is `dimensionLine`. */
+  readonly dimensionLines: readonly [string, string, string, string];
+  /** The lines of the leader to a text moved outside. */
+  readonly leader: readonly [string, string];
+  /** The text below the dimension line. */
+  readonly belowText: string;
 }
 
 /** Where a dimension is: its id, or else its place among the entities of its space. */
@@ -100,6 +116,14 @@ export function validDimensionPictureHandles(place: DimensionPlace): DimensionPi
     dimensionLine: handle("dimension-line"),
     arrowheads: [handle("arrowhead-1"), handle("arrowhead-2")],
     text: handle("text"),
+    dimensionLines: [
+      handle("dimension-line"),
+      handle("dimension-line-2"),
+      handle("dimension-line-3"),
+      handle("dimension-line-4"),
+    ],
+    leader: [handle("leader-1"), handle("leader-2")],
+    belowText: handle("text-below"),
   };
 }
 
@@ -123,6 +147,9 @@ export function pictureHandleList(handles: DimensionPictureHandles): string[] {
     handles.dimensionLine,
     ...handles.arrowheads,
     handles.text,
+    ...handles.dimensionLines.slice(1),
+    ...handles.leader,
+    handles.belowText,
   ];
 }
 
@@ -208,6 +235,8 @@ export type MeasurementFormat = Pick<
   | "suppressZeros"
   | "feetInchZeros"
   | "measurementScale"
+  | "fraction"
+  | "fractionScale"
 >;
 
 /**
@@ -301,11 +330,22 @@ export function feetAndInches(length: number, format: MeasurementFormat): string
   const zeros = format.feetInchZeros ?? "inches";
   const zeroFeet = zeros === "feet" || zeros === "both";
   const zeroInches = zeros === "inches" || zeros === "both";
-  const fraction = numerator > 0 ? `${numerator}/${denominator}` : "";
+  const stacked = format.fraction === "stacked" || format.fraction === "diagonal";
+  // A stack is written at the style's share of the height, and follows the inches with no space.
+  const fraction =
+    numerator === 0
+      ? ""
+      : stacked
+        ? `{\\H${written(format.fractionScale ?? 1)}x;\\S${numerator}${format.fraction === "stacked" ? "/" : "#"}${denominator};}`
+        : `${numerator}/${denominator}`;
   const showFeet = feet > 0 || zeroFeet;
   const showInches = rest > 0 || zeroInches || !showFeet;
   const inchText =
-    fraction === "" ? String(inches) : inches > 0 || showFeet ? `${inches} ${fraction}` : fraction;
+    fraction === ""
+      ? String(inches)
+      : inches > 0 || showFeet
+        ? `${inches}${stacked ? "" : " "}${fraction}`
+        : fraction;
   if (!showFeet) return `${inchText}"`;
   return showInches ? `${feet}'-${inchText}"` : `${feet}'`;
 }
@@ -324,8 +364,42 @@ export function measurementText(length: number, format: MeasurementFormat, text?
   return at < 0 ? text : `${text.slice(0, at)}${measured}${text.slice(at + 2)}`;
 }
 
+/**
+ * The text a dimension holds in its file: its own text, and the words below its line after `\\X`,
+ * which the leading CAD app reads as the start of the part below.
+ */
+export function dimensionFileText(
+  dimension: Pick<LinearDimension, "text" | "textBelow">,
+): string | undefined {
+  if (dimension.textBelow === undefined) return dimension.text;
+  return `${dimension.text ?? "<>"}\\X${dimension.textBelow}`;
+}
+
+/**
+ * What a dimension draws above its line and below it: its text with the first `<>` standing for
+ * the measurement, cut at the first `\\X`. Undefined below when it has no words there.
+ */
+export function dimensionTexts(
+  dimension: Pick<LinearDimension, "text" | "textBelow">,
+  length: number,
+  format: MeasurementFormat,
+): readonly [above: string, below: string | undefined] {
+  const drawn = measurementText(length, format, dimensionFileText(dimension));
+  const at = drawn.indexOf("\\X");
+  return at < 0 ? [drawn, undefined] : [drawn.slice(0, at), drawn.slice(at + 2)];
+}
+
+/**
+ * The value of the MTEXT a dimension's picture draws for a text: with the code that centers what
+ * is stacked in it, as the leading CAD app writes it.
+ */
+export function mtextOfLabel(value: string): string {
+  return `\\A1;${value}`;
+}
+
 /** The text of a dimension as the leading CAD app draws it, and where. */
 export interface DimensionLabel {
+  /** What it reads, with the codes of a paragraph's value, such as a stacked fraction's. */
   readonly value: string;
   /** The middle of the text's baseline. */
   readonly at: Point;
@@ -370,8 +444,15 @@ export interface DimensionPicture {
   readonly definitionPoint: Point;
   /** The two extension lines, each from near its point to past the dimension line. */
   readonly extensionLines: readonly (readonly [Point, Point])[];
-  /** The dimension line, between the arrowheads or through the ticks. */
+  /** The whole dimension line, between the arrowheads or through the ticks. */
   readonly dimensionLine: readonly [Point, Point];
+  /**
+   * The pieces of the dimension line it draws: the whole line, or one piece each side of a text
+   * centered in a break of it.
+   */
+  readonly dimensionLines: readonly (readonly [Point, Point])[];
+  /** The lines of the leader to a text moved outside the extension lines. Empty for none. */
+  readonly leader: readonly (readonly [Point, Point])[];
   /** The outline of each arrowhead, which is filled. None for an arrow size of 0. */
   readonly arrowheads: readonly (readonly Point[])[];
   /**
@@ -381,8 +462,65 @@ export interface DimensionPicture {
    */
   readonly arrowheadEntities: readonly ArrowheadEntity[];
   readonly label: DimensionLabel;
-  /** The middle of the text's box, which a file holds beside the dimension. */
+  /** The middle of the text's box. */
   readonly textMiddle: Point;
+  /**
+   * The point a file holds beside the dimension for its text: the middle of the text's box, or
+   * the middle of the dimension line where words stand below it.
+   */
+  readonly textPoint: Point;
+  /** How wide the text is drawn, the wider of the texts above and below the line. */
+  readonly textWidth: number;
+  /** The words below the dimension line, and the middle of their box. */
+  readonly below?: { readonly label: DimensionLabel; readonly middle: Point };
+  /**
+   * The lineweight of the dimension line, its arrowheads and its leader, and of the extension
+   * lines, as group 370 holds it: -2 ByBlock, or hundredths of a millimetre.
+   */
+  readonly lineweights: { readonly dimension: number; readonly extension: number };
+}
+
+/** A style's lineweight as group 370 holds it: ByBlock where it gives none. */
+function lineweightCode(weight: number | undefined): number {
+  if (weight === undefined) return -2;
+  return Math.round(weight * 100);
+}
+
+/** The font of a dimension's text style, `Standard` where it has none, as its text is laid out. */
+export type DimensionFont = Pick<TextStyle, "font" | "widthFactor" | "obliqueAngle">;
+
+/**
+ * Each text a dimension's picture draws, as the paragraph its block holds: the text over the line,
+ * and the words below it. Each is laid out by `layoutDimensionText`, centered on its point.
+ */
+export function pictureTexts(
+  picture: Pick<DimensionPicture, "label" | "textMiddle" | "below">,
+  font: DimensionFont | undefined,
+): ParagraphToMeasure[] {
+  const one = (label: DimensionLabel, at: Point, value: string): ParagraphToMeasure => ({
+    value,
+    height: label.height,
+    font: font?.font ?? STANDARD_FONT,
+    widthFactor: written(font?.widthFactor ?? 1),
+    obliqueAngle: written(font?.obliqueAngle ?? 0),
+    at,
+    rotation: label.rotation,
+    align: "center",
+    valign: "middle",
+  });
+  const below = picture.below;
+  return [
+    one(picture.label, picture.textMiddle, mtextOfLabel(picture.label.value)),
+    ...(below === undefined
+      ? []
+      : [
+          one(
+            below.label,
+            below.middle,
+            below.label.value === "" ? "" : mtextOfLabel(below.label.value),
+          ),
+        ]),
+  ];
 }
 
 const RADIANS = Math.PI / 180;
@@ -469,7 +607,11 @@ function direction(degrees: number): Point {
  *
  * @param style - The dimension's style.
  */
-export function dimensionPicture(dimension: Dimension, style: DimensionStyle): DimensionPicture {
+export function dimensionPicture(
+  dimension: Dimension,
+  style: DimensionStyle,
+  textStyle?: DimensionFont,
+): DimensionPicture {
   const from: Point = [written(dimension.from[0]), written(dimension.from[1])];
   const to: Point = [written(dimension.to[0]), written(dimension.to[1])];
   const { angle, measurement } = dimensionMeasure(dimension);
@@ -515,6 +657,54 @@ export function dimensionPicture(dimension: Dimension, style: DimensionStyle): D
   const info = arrowheadInfo(style.arrowhead ?? DEFAULT_ARROWHEAD);
   const stroke = info?.stroke;
   const tick = stroke !== undefined;
+
+  const rotation = readable(angle);
+  const up: Point = [-Math.sin(rotation * RADIANS), Math.cos(rotation * RADIANS)];
+  const quarter = direction(rotation);
+  const above: Point = rotation % 90 === 0 ? [-quarter[1], quarter[0]] : up;
+  const middle: Point = [(first[0] + second[0]) / 2, (first[1] + second[1]) / 2];
+  const [aboveText, belowText] = dimensionTexts(dimension, measurement, style);
+  // Each text is laid out as the paragraph the picture holds, centered on the middle of its box.
+  const font = textStyle?.font ?? STANDARD_FONT;
+  const lay = (value: string): ParagraphLayout =>
+    layoutDimensionText({
+      value,
+      height: sizes.textHeight,
+      font,
+      widthFactor: written(textStyle?.widthFactor ?? 1),
+      obliqueAngle: written(textStyle?.obliqueAngle ?? 0),
+      align: "center",
+      valign: "middle",
+    });
+  const boxHeight = (layout: ParagraphLayout): number => layout.frame[3] - layout.frame[1];
+  const widest = (layout: ParagraphLayout): number =>
+    layout.lines.reduce((most, line) => Math.max(most, line.end - line.start), 0);
+  const topLayout = lay(mtextOfLabel(aboveText));
+  const belowLayout =
+    belowText === undefined ? undefined : lay(belowText === "" ? "" : mtextOfLabel(belowText));
+  const centered = style.textPlacement === "centered";
+  const textWidth = Math.max(widest(topLayout), belowLayout ? widest(belowLayout) : 0);
+  // The arrowheads stay between the extension lines while they and the text fit there: a text in
+  // the line takes its room from theirs, and one above it needs only its own, beside arrows that
+  // need theirs and ticks that need none.
+  const fits = centered
+    ? span >= textWidth + 2 * size
+    : (tick || span > 2 * size + 2 * sizes.textGap) && textWidth <= span - 2 * sizes.textGap;
+  // With a leader, a text that has no room of its own between the extension lines moves out, and
+  // the ticks then turn outward only where the line is shorter than two gaps.
+  const leaderFit = style.textFit === "leader";
+  const textOut = leaderFit && textWidth + 2 * sizes.textGap > span;
+  // Ticks that do not fit turn outward, and the dimension line breaks at each of them. Where a
+  // text may move out, one that stays turns them only in the line, where they and it need room.
+  const outward =
+    tick &&
+    (textOut
+      ? // A line two gaps long, as its points are written, is taken as long as two gaps.
+        span + 1e-6 < 2 * sizes.textGap
+      : leaderFit
+        ? centered && (span < textWidth + 2 * size || span <= 2 * size + 2 * sizes.textGap)
+        : !fits);
+
   const arrowheads: Point[][] = [];
   const arrowheadEntities: ArrowheadEntity[] = [];
   // The direction of the dimension line, from the first foot to the second.
@@ -525,8 +715,9 @@ export function dimensionPicture(dimension: Dimension, style: DimensionStyle): D
       [second, -1],
     ] as const) {
       if (tick) {
-        // The block points along the line at the second end, and back along it at the first.
-        const turned = runAngle + (inward > 0 ? 180 : 0);
+        // The block points along the line at the second end, and back along it at the first,
+        // and the other way when the ticks turn outward.
+        const turned = runAngle + (inward > 0 !== outward ? 180 : 0);
         arrowheadEntities.push({
           kind: "insert",
           block: info!.block!,
@@ -559,28 +750,77 @@ export function dimensionPicture(dimension: Dimension, style: DimensionStyle): D
   const reach = tick ? size : -size;
   const dimensionLine: [Point, Point] = [move(first, run, -reach), move(second, run, reach)];
 
-  const rotation = readable(angle);
-  const up: Point = [-Math.sin(rotation * RADIANS), Math.cos(rotation * RADIANS)];
-  const quarter = direction(rotation);
-  const above: Point = rotation % 90 === 0 ? [-quarter[1], quarter[0]] : up;
-  const middle: Point = [(first[0] + second[0]) / 2, (first[1] + second[1]) / 2];
-  const textStyle = style.textStyle;
+  // A text centered in the line sits on it, unless words below take the other side: then each
+  // stands a gap off the line, as a text above it does.
+  let textMiddle =
+    centered && belowLayout === undefined
+      ? middle
+      : move(middle, above, sizes.textGap + boxHeight(topLayout) / 2);
+  let textPoint = belowLayout === undefined ? textMiddle : middle;
+  const belowMiddle =
+    belowLayout && move(middle, above, -(sizes.textGap + boxHeight(belowLayout) / 2));
+  // The inner part of the line: between the ticks that turned outward, or the whole line.
+  const inner: readonly [Point, Point] = outward ? [first, second] : dimensionLine;
+  const dimensionLines: (readonly [Point, Point])[] = outward
+    ? [
+        [first, dimensionLine[0]],
+        [second, dimensionLine[1]],
+      ]
+    : [];
+  const leader: (readonly [Point, Point])[] = [];
+  if (textOut) {
+    // The leader leaves the middle of the dimension line away from the points, leaning a tenth
+    // of three toward where the text reads, to an elbow past the extension lines' reach and a
+    // gap and a half, and the box of the text, more where the text reads from the other side.
+    const away = offsetTo(to, definitionPoint) >= 0 ? across : ([-across[0], -across[1]] as Point);
+    const half = boxHeight(topLayout) / 2;
+    const facing = above[0] * away[0] + above[1] * away[1] > 0;
+    const rise = sizes.extensionBeyond + 1.5 * sizes.textGap + (facing ? half : 3 * half);
+    const elbow = move(move(middle, away, rise), quarter, 0.3 * rise);
+    // Above the line the text stands over a landing as long as it and a gap each side; centered,
+    // it follows a landing two gaps long.
+    const landing = centered ? 2 * sizes.textGap : textWidth + 2 * sizes.textGap;
+    leader.push([middle, elbow], [elbow, move(elbow, quarter, landing)]);
+    const start = move(elbow, quarter, centered ? landing + sizes.textGap : sizes.textGap);
+    textPoint = centered ? start : move(start, above, sizes.textGap + half);
+    textMiddle = move(textPoint, quarter, textWidth / 2);
+    // The whole line between the ticks, which a line shorter than two gaps draws twice.
+    dimensionLines.push(inner, ...(outward ? [inner] : []));
+  } else if (centered) {
+    // The line breaks a gap either side of the wider text.
+    const half = sizes.textGap + textWidth / 2;
+    dimensionLines.push([inner[0], move(middle, run, -half)], [inner[1], move(middle, run, half)]);
+  } else dimensionLines.push(inner);
+  const textStyleName = style.textStyle;
+  const label = (value: string, at: Point, layout: ParagraphLayout): DimensionLabel => ({
+    value,
+    at: move(at, above, layout.lines[0]?.baseline ?? 0),
+    height: sizes.textHeight,
+    rotation,
+    direction: quarter,
+    ...(textStyleName === undefined ? {} : { style: textStyleName }),
+  });
   return {
     measurement,
     definitionPoint,
     extensionLines,
     dimensionLine,
+    dimensionLines,
+    leader,
     arrowheads,
     arrowheadEntities,
-    label: {
-      value: measurementText(measurement, style, dimension.text),
-      at: move(middle, above, sizes.textGap),
-      height: sizes.textHeight,
-      rotation,
-      direction: quarter,
-      ...(textStyle === undefined ? {} : { style: textStyle }),
+    label: label(aboveText, textMiddle, topLayout),
+    textMiddle,
+    textPoint,
+    textWidth,
+    ...(belowLayout &&
+      belowMiddle && {
+        below: { label: label(belowText!, belowMiddle, belowLayout), middle: belowMiddle },
+      }),
+    lineweights: {
+      dimension: lineweightCode(style.dimensionLineweight),
+      extension: lineweightCode(style.extensionLineweight),
     },
-    textMiddle: move(middle, above, sizes.textGap + sizes.textHeight / 2),
   };
 }
 
@@ -613,11 +853,11 @@ const WIDEST_CHARACTER = 2;
 /**
  * The least a dimension with closed filled arrowheads must measure for the leading CAD app to draw
  * its arrowheads between the extension lines, whatever the widths of its font: more than twice the
- * arrow size and twice the gap, and at least the widest its text can be and twice the gap. The
- * widest is each character's width from `WIDEST_CHARACTERS` times the height and the width
- * factor, and the lean of a slanted style once, the height times the tangent of its angle.
- * Undefined for a style whose picture does not depend on that: one with ticks, or with an
- * arrow size of 0.
+ * arrow size and twice the gap, and at least the widest its text can be and twice the gap. A text
+ * centered in the line breaks it, and needs the arrowheads' room as well as its own. The widest is
+ * each character's width from `WIDEST_CHARACTERS` times the height and the width factor, and the
+ * lean of a slanted style once, the height times the tangent of its angle. Undefined for a style
+ * whose picture does not depend on that: one with ticks, or with an arrow size of 0.
  *
  * @param text - The text of the dimension as that app draws it.
  * @param textStyle - The text style of the dimension's style, unless it is `Standard`.
@@ -634,8 +874,36 @@ export function arrowRoom(
   for (const character of text) widths += WIDEST_CHARACTERS[character] ?? WIDEST_CHARACTER;
   const lean =
     sizes.textHeight * Math.abs(Math.tan((written(textStyle?.obliqueAngle ?? 0) * Math.PI) / 180));
-  const widest = widths * sizes.textHeight * written(textStyle?.widthFactor ?? 1) + lean;
-  return Math.max(2 * sizes.arrowSize, widest) + 2 * sizes.textGap;
+  return roomBeside(style, widths * sizes.textHeight * written(textStyle?.widthFactor ?? 1) + lean);
+}
+
+/** The least a dimension with closed filled arrowheads must measure beside a text this wide. */
+function roomBeside(style: DimensionStyle, width: number): number {
+  const sizes = dimensionSizes(style);
+  const arrows = 2 * sizes.arrowSize;
+  const room = style.textPlacement === "centered" ? width + arrows : Math.max(arrows, width);
+  return room + 2 * sizes.textGap;
+}
+
+const STACK = /\{\\H[^;]*;\\S(\d+)([/#])(\d+);\}/g;
+
+/**
+ * A dimension's text as wide as it may draw, with the longer part for each fraction it stacks
+ * over a bar, and both parts and the slash for a diagonal one.
+ */
+function stackWidths(text: string): string {
+  return text.replace(STACK, (_, top: string, mark: string, bottom: string) =>
+    mark === "#" ? `${top}/${bottom}` : top.length > bottom.length ? top : bottom,
+  );
+}
+
+/** A dimension's text with each fraction it stacks written inline, as a message shows it. */
+function inlineFractions(text: string): string {
+  return text.replace(
+    STACK,
+    (_, top: string, _mark: string, bottom: string, at: number) =>
+      `${/\d/.test(text[at - 1] ?? "") ? " " : ""}${top}/${bottom}`,
+  );
 }
 
 /**
@@ -652,25 +920,54 @@ export function dimensionDrawnProblem(
   textStyle: TextStyle | undefined,
 ): string | undefined {
   const { measurement } = dimensionMeasure(dimension);
-  const drawn = measurementText(measurement, style, dimension.text);
+  // The arrowheads need room for the wider of the texts above and below the line.
+  const [above, below] = dimensionTexts(dimension, measurement, style);
+  let drawn = above;
+  let room = arrowRoom(style, stackWidths(above), textStyle);
+  if (below !== undefined) {
+    const needs = arrowRoom(style, stackWidths(below), textStyle);
+    if (needs !== undefined && needs > (room ?? 0)) [drawn, room] = [below, needs];
+  }
   const problem = dimensionMeasureProblem(
     measurement,
     measurement * written(style.measurementScale ?? 1),
     roundedMeasurement(measurement, style),
     dimension.kind === "aligned-dimension",
-    drawn,
-    arrowRoom(style, drawn, textStyle),
+    inlineFractions(drawn),
+    room,
   );
   if (problem) return problem;
-  const picture = dimensionPicture(dimension, style);
+  const picture = dimensionPicture(dimension, style, textStyle);
+  // The text as laid out may be wider still: a narrow font does not narrow a stack's gap.
+  const laid = room === undefined ? undefined : roomBeside(style, picture.textWidth);
+  if (laid !== undefined && measurement <= laid) {
+    return arrowRoomProblem(measurement, inlineFractions(drawn), laid);
+  }
+  const sizes = dimensionSizes(style);
+  if (picture.leader.length > 0 && dimension.textBelow !== undefined) return DIMENSION_LEADER_BELOW;
+  if (style.textFit === "leader" && sizes.arrowSize >= 2 * sizes.textHeight) {
+    return DIMENSION_LEADER_ARROWS;
+  }
+  if (
+    picture.leader.length === 0 &&
+    style.textPlacement === "centered" &&
+    // The extension lines stand as far apart as what the dimension measures.
+    picture.textWidth + 2 * sizes.textGap > picture.measurement
+  ) {
+    return DIMENSION_CENTERED_WIDE;
+  }
   const numbers = [
     ...picture.definitionPoint,
     ...picture.extensionLines.flat(2),
     ...picture.dimensionLine.flat(),
+    ...picture.dimensionLines.flat(2),
+    ...picture.leader.flat(2),
     ...picture.arrowheads.flat(2),
     ...picture.label.at,
     picture.label.height,
     ...picture.textMiddle,
+    ...picture.textPoint,
+    ...(picture.below ? [...picture.below.middle, ...picture.below.label.at] : []),
     ...picture.arrowheadEntities.flatMap((a) =>
       a.kind === "solid" ? a.corners.flat() : [...a.at, a.scale],
     ),

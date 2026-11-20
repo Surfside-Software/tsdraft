@@ -13,7 +13,9 @@ import {
   fromJSON,
   inspectText,
   measureText,
+  readDXF,
   fromPaper,
+  layoutDimensionText,
   idHandle,
   lint,
   toDXF,
@@ -474,7 +476,7 @@ test("a dimension is checked when it is drawn, and lint finds the same in a draw
     d.alignedDimension(from, [20, 0], -5, { style: "TICKS", id: "again", text: "<> TYP" });
     d.block("B", {}, () => d.line([0, 0], [1, 0]));
     // @ts-expect-error: the leading CAD app draws the architectural tick with the block of this name.
-    assert.throws(() => d.block("_archtick", {}, () => {}), /architectural tick/);
+    assert.throws(() => d.block("_archtick", {}, () => {}), /ticks of a dimension/);
   });
   assert.deepEqual(lint(made), []);
   assert.deepEqual(lint(fromJSON(toJSON(made))), []);
@@ -545,6 +547,72 @@ test("closed arrowheads need room for the widest the text can be, and for the le
   );
   d.linearDimension([0, 40], [15, 40], [0, 35], { style: "LEAN" });
   assert.deepEqual(lint(d.build()), []);
+});
+
+test("closed arrowheads need room for the wider text, and a stacked fraction for its longer part", () => {
+  const d = createDrawing({ units: "in" });
+  const stacked = {
+    textHeight: 3 / 32,
+    arrowSize: 1 / 8,
+    extensionOffset: 1 / 16,
+    extensionBeyond: 1 / 8,
+    textGap: 1 / 16,
+    scale: 12,
+    units: "architectural",
+    precision: 4,
+    fraction: "stacked",
+  } as const;
+  d.dimensionStyle({ ...stacked, name: "STACKED" });
+  d.linearDimension([0, 0], [7.4375, 0], [0, 5], { style: "STACKED" });
+  assert.throws(
+    () => d.linearDimension([0, 10], [6.4375, 10], [0, 15], { style: "STACKED" }),
+    /its text, "6 7\/16\\"", and its arrowheads may need 6\.45\b/,
+  );
+  assert.throws(
+    () =>
+      d.linearDimension([0, 20], [7.4375, 20], [0, 25], { style: "STACKED", textBelow: "TO STUD" }),
+    /its text, "TO STUD"/,
+  );
+  // A text centered in the line breaks it, and needs the arrowheads' room as well as its own.
+  d.dimensionStyle({ ...stacked, name: "CENTERED", textPlacement: "centered" });
+  d.linearDimension([0, 30], [6.5, 30], [0, 35], { style: "STACKED" });
+  assert.throws(
+    () => d.linearDimension([0, 40], [6.5, 40], [0, 45], { style: "CENTERED" }),
+    /may need 8\.2125\b/,
+  );
+  // A narrow font does not narrow a diagonal stack's gap, so the room is the text as laid out too.
+  d.textStyle({ name: "NARROW", font: "Courier New", widthFactor: 0.15 });
+  d.dimensionStyle({
+    ...stacked,
+    name: "NARROW",
+    textStyle: "NARROW",
+    textHeight: 1,
+    scale: 1,
+    measurementScale: 0.7,
+    feetInchZeros: "neither",
+    fraction: "diagonal",
+    textPlacement: "centered",
+  });
+  assert.throws(
+    () => d.linearDimension([0, 50], [1.06, 50], [0, 52], { style: "NARROW" }),
+    /its text, "3\/4\\"", and its arrowheads may need 1\.065897/,
+  );
+});
+
+test("a dimension's stack is lowered until its bar or its slash's middle is half a height up, never raised", () => {
+  // As the leading CAD app plots `\\A1;` before a stack: sheet dimension-looks of cad-plots.ts.
+  const laid = (stack: string, size: number, font: "Arial" | "Times New Roman" = "Arial") => {
+    const value = `\\A1;4{\\H${size}x;\\S${stack};}`;
+    const { lines, strokes } = layoutDimensionText({ value, height: 1, font, at: [0, 0] });
+    const { from, to } = strokes[0]!;
+    const { baseline, runs } = lines[0]!;
+    return { middle: (from[1] + to[1]) / 2 - baseline, below: runs.at(-1)!.baseline - baseline };
+  };
+  assert.ok(Math.abs(laid("1/2", 1).middle - 0.5) < 1e-9);
+  assert.ok(Math.abs(laid("1#2", 1).middle - 0.5) < 1e-9);
+  // A small one whose slash's middle is lower stays on the line (case STACK-100.03125-1-0.5-TR).
+  assert.ok(laid("1#32", 0.5, "Times New Roman").middle < 0.5);
+  assert.equal(laid("1#32", 0.5, "Times New Roman").below, 0);
 });
 
 test("every number a dimension draws is under 1e100, and its angle is less than a turn either way", () => {
@@ -736,6 +804,9 @@ test("a dimension is written with its style, its points and the block of its pic
     dimensionLine: "14E64A214426A5",
     arrowheads: ["14D80EF3992A9B", "14DB0EF39935B2"],
     text: "12C57C2A4861EF",
+    dimensionLines: ["14E64A214426A5", "1A23E71AA31D32", "1A22E71AA31F7D", "1A25E71AA31254"],
+    leader: ["1C6E99C485049E", "1C7199C48501B7"],
+    belowText: "1A5AD40549288F",
   });
   assert.equal(dimensionPictureHandles({ index: 1 }).record, "16DCBD6115A74B");
   assert.equal(dimensionPictureHandles({ index: 0, layout: "a-101" }).record, "1D645DAA891E34");
@@ -833,10 +904,12 @@ test("toSVG draws a dimension's lines, arrowheads and text, and the extents take
   assert.equal(group[1]!.match(/data-part="extension-line"/g)?.length, 2);
   assert.equal(group[1]!.match(/data-part="dimension-line"/g)?.length, 1);
   assert.equal(group[1]!.match(/<polygon [^>]*data-part="arrowhead"/g)?.length, 2);
-  // Centered on the middle of the dimension line, one gap above it, as long as it plots.
+  // The paragraph its block holds, centered on the middle of the dimension line one gap above it:
+  // an SHX text drawn from where its strokes start, as long as it plots.
+  assert.match(group[1]!, /<g data-part="text" data-paragraph="\\A1;52\.00">/);
   assert.match(
     group[1]!,
-    /<text transform="translate\(26 -9\.5\) [^"]*" [^>]*textLength="[^"]+"[^>]*data-part="text">52\.00<\/text>/,
+    /<text transform="translate\(24\.166667 -9\.5\) [^"]*" [^>]*textLength="3\.666667"[^>]*data-part="text">52\.00<\/text>/,
   );
   assert.match(group[1]!, /x1="-1" y1="-10" x2="53" y2="-10"/);
   // From the end of the dimension line past the first extension line to the top of the text.
@@ -892,4 +965,84 @@ test("two text styles lint refuses for their names are still written with a hand
   const handles = lines.filter((_, i) => i % 2 === 1 && lines[i - 1]!.trim() === "5");
   assert.ok(handles.length > 10);
   assert.equal(new Set(handles).size, handles.length);
+});
+
+test("what a style sets of how its dimensions look is checked as literals and when the code runs", () => {
+  const d = createDrawing({ units: "ft" });
+  const style = { name: "S", ...sizes } as const;
+  const feet = { ...style, units: "architectural", precision: 4 } as const;
+  // @ts-expect-error: a decimal measurement has no fraction to stack.
+  assert.throws(() => d.dimensionStyle({ ...style, fraction: "stacked" }), /architectural/);
+  // @ts-expect-error: and none to size.
+  assert.throws(() => d.dimensionStyle({ ...style, fractionScale: 0.75 }), /architectural/);
+  // @ts-expect-error: the leading CAD app stacks across or diagonally, or not at all.
+  assert.throws(() => d.dimensionStyle({ ...feet, fraction: "tall" }), /fraction must be/);
+  assert.throws(
+    () => d.dimensionStyle({ ...feet, fraction: "stacked", fractionScale: 0.1 }),
+    /0\.25/,
+  );
+  assert.throws(() => d.dimensionStyle({ ...feet, fractionScale: 0.75 }), /sizes a fraction/);
+  // @ts-expect-error: the text is above the line or centered in it.
+  assert.throws(() => d.dimensionStyle({ ...style, textPlacement: "below" }), /textPlacement/);
+  // @ts-expect-error: a short text stays inside or moves out on a leader.
+  assert.throws(() => d.dimensionStyle({ ...style, textFit: "beside" }), /textFit/);
+  assert.throws(() => d.dimensionStyle({ ...style, dimensionLineweight: 0.33 }), /lineweight/);
+  assert.throws(
+    () => d.dimensionStyle({ ...style, textFit: "leader", textPlacement: "centered" }),
+    /closed filled arrowheads/,
+  );
+  d.dimensionStyle({ ...feet, fraction: "inline", fractionScale: 1 });
+  // A text centered in a line needs its width and two gaps between the extension lines, whatever
+  // the ticks reach past them.
+  d.dimensionStyle({ ...style, name: "C", arrowhead: "oblique", textPlacement: "centered" });
+  assert.throws(
+    () => d.linearDimension([0, 0], [6, 0], [0, 2], { style: "C", text: "VERIFY" }),
+    /centered in its line/,
+  );
+  d.linearDimension([0, 0], [7, 0], [0, 2], { style: "C", text: "VERIFY" });
+});
+
+test("a stacked fraction, words below the line and a text moved out are drawn and read back", async () => {
+  const style = { ...sizes, textHeight: 0.125, arrowSize: 0.125, textGap: 0.0625 } as const;
+  const feet = { units: "architectural", precision: 4, measurementScale: 12 } as const;
+  assert.equal(
+    measurementText(4.119792, { ...feet, fraction: "stacked", fractionScale: 0.75 }),
+    `4'-1{\\H0.75x;\\S7/16;}"`,
+  );
+  assert.equal(
+    measurementText(4.119792, { ...feet, fraction: "diagonal" }),
+    `4'-1{\\H1x;\\S7#16;}"`,
+  );
+  const d = createDrawing({ units: "ft" });
+  d.textStyle({ name: "NOTES", font: "Arial" });
+  d.dimensionStyle({
+    ...style,
+    name: "S",
+    textStyle: "NOTES",
+    arrowhead: "oblique",
+    textFit: "leader",
+  });
+  d.linearDimension([0, 0], [10, 0], [0, 2], { style: "S", textBelow: "WINDOW HEAD HT." });
+  d.linearDimension([0, 5], [0.1, 5], [0, 7], { style: "S", id: "short" });
+  const drawing = d.build();
+  const [below, short] = drawing.entities.map((e) =>
+    dimensionPicture(e as never, drawing.dimensionStyles![0]!, drawing.textStyles![0]),
+  );
+  // The words stand a gap under the line, and the file holds the line's middle for the text.
+  assert.equal(below!.below?.label.value, "WINDOW HEAD HT.");
+  assert.ok(below!.below!.middle[1] < 2 && below!.textMiddle[1] > 2);
+  assert.deepEqual(below!.textPoint, [5, 2]);
+  // A text with no room moves out on a leader of two lines from the middle of the dimension line.
+  assert.equal(short!.leader.length, 2);
+  assert.deepEqual(short!.leader[0]![0], [0.05, 7]);
+  const dxf = toDXF(drawing);
+  assert.ok(dxf.includes("\r\n1\r\n<>\\XWINDOW HEAD HT.\r\n"));
+  const read = await readDXF(dxf, { geometry: true });
+  const [first] = read.model.entities as readonly {
+    readonly text?: string;
+    readonly textBelow?: string;
+  }[];
+  assert.deepEqual([first!.text, first!.textBelow], [undefined, "WINDOW HEAD HT."]);
+  assert.equal(read.dimensionStyles.find((s) => s.name === "S")?.textMove, 1);
+  assert.equal(read.dimensionStyles.find((s) => s.name === "S")?.arrowheadBlock, "_Oblique");
 });

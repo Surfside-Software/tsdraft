@@ -486,11 +486,11 @@ function shapes(all: boolean, typed = all): Shapes {
     ),
     "linear-dimension": fields<LinearDimension>(
       { kind, layer: string, style: ruled(string), from: point, to: point, line: point },
-      { id: ruled(string), angle: number, text: ruled(string) },
+      { id: ruled(string), angle: number, text: ruled(string), textBelow: ruled(string) },
     ),
     "aligned-dimension": fields<AlignedDimension>(
       { kind, layer: string, style: ruled(string), from: point, to: point, offset: number },
-      { id: ruled(string), text: ruled(string) },
+      { id: ruled(string), text: ruled(string), textBelow: ruled(string) },
     ),
     // A rule of `lint` reports the note, the shafts and the leader's own fields, whatever their type.
     leader: fields<Leader>(
@@ -596,6 +596,12 @@ function shapes(all: boolean, typed = all): Shapes {
         suppressZeros: ruled(string),
         feetInchZeros: ruled(string),
         measurementScale: ruled(number),
+        fraction: ruled(string),
+        fractionScale: ruled(number),
+        textPlacement: ruled(string),
+        textFit: ruled(string),
+        dimensionLineweight: ruled(numberOrName),
+        extensionLineweight: ruled(numberOrName),
       },
     ),
   );

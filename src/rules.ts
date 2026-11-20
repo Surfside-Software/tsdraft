@@ -10,6 +10,10 @@ import { paperInfo, PLOT_STYLE_TABLES, type Paper, type PlotStyleTable } from ".
 import {
   ARROWHEAD_BLOCKS,
   arrowheadInfo,
+  DEFAULT_ARROWHEAD,
+  DIMENSION_FRACTIONS,
+  DIMENSION_TEXT_FITS,
+  DIMENSION_TEXT_PLACEMENTS,
   DIMENSION_UNITS,
   FEET_INCH_ZEROS,
   MAX_PRECISION,
@@ -165,7 +169,7 @@ const POLYLINE_WIDTH =
   "A polyline's width cannot be less than 0. The leading CAD app reads a negative width of every side as 0, and keeps a negative width of one side with no AUDIT error";
 const DONUT_HOLE = "A donut's hole cannot be less than 0 across";
 const ARROWHEAD_BLOCK =
-  "Block names cannot be _ArchTick, _Open, _Dot or _None, in any case of their letters. The leading CAD app draws the architectural tick of a dimension and the arrowheads of a leader with the blocks of those names";
+  "Block names cannot be _ArchTick, _Oblique, _Open, _Dot or _None, in any case of their letters. The leading CAD app draws the ticks of a dimension and the arrowheads of a leader with the blocks of those names";
 const STANDARD_DIMENSION_STYLE_DEFINED =
   'The dimension style "Standard" is in every drawing and cannot be defined. The leading CAD app keeps the first style of a name and skips a second';
 const STANDARD_DIMENSION_STYLE_USED =
@@ -184,6 +188,15 @@ const PRECISION =
 const ZERO_SUPPRESSION = 'suppressZeros must be "leading", "trailing" or "both"';
 const DIMENSION_UNITS_MESSAGE = 'units must be "decimal" or "architectural"';
 const FEET_INCH_ZEROS_MESSAGE = 'feetInchZeros must be "inches", "feet", "both" or "neither"';
+const DIMENSION_FRACTION_MESSAGE = 'fraction must be "inline", "stacked" or "diagonal"';
+const FRACTION_SCALE_MESSAGE =
+  "fractionScale must be a number from 0.25 to 1: the height of a stacked fraction as a share of the text's";
+const FRACTION_OF_UNITS =
+  'fraction and fractionScale are for a style in "architectural" units, which writes a fraction of an inch';
+const FRACTION_SCALE_INLINE =
+  'fractionScale sizes a fraction that is "stacked" or "diagonal". A fraction on the line is as high as the text';
+const TEXT_PLACEMENT_MESSAGE = 'textPlacement must be "above" or "centered"';
+const TEXT_FIT_MESSAGE = 'textFit must be "inside" or "leader"';
 const ZEROS_OF_UNITS =
   'suppressZeros is for a style in decimal units, and feetInchZeros for one in "architectural" units, which writes feet and inches';
 const DIMENSION_FORMATTING =
@@ -481,7 +494,7 @@ export type BlockName<N extends string> = string extends N
     : NameCheck<N, typeof BLOCK_NAMES, N>;
 
 /** The blocks the leading CAD app draws arrowheads with. */
-type TickBlock = "_ArchTick" | "_Open" | "_Dot" | "_None";
+type TickBlock = "_ArchTick" | "_Oblique" | "_Open" | "_Dot" | "_None";
 
 /**
  * Resolves to `N` when it is a valid name for a dimension style to be used by, and to the error
@@ -2529,6 +2542,73 @@ export function dimensionStyleProblem(style: unknown): string | undefined {
     const problem = measurementScaleProblem(s.measurementScale);
     if (problem) return `measurementScale: ${problem}`;
   }
+  return dimensionStyleLookProblem(s);
+}
+
+/** Returns what is wrong with a dimension style's `fraction`, or undefined. */
+export function fractionProblem(value: unknown): string | undefined {
+  return (DIMENSION_FRACTIONS as readonly unknown[]).includes(value)
+    ? undefined
+    : DIMENSION_FRACTION_MESSAGE;
+}
+
+/** Returns what is wrong with a dimension style's `fractionScale`, or undefined. */
+export function fractionScaleProblem(value: unknown): string | undefined {
+  return typeof value === "number" && written(value) >= 0.25 && written(value) <= 1
+    ? undefined
+    : FRACTION_SCALE_MESSAGE;
+}
+
+/** Returns what is wrong with a dimension style's `textPlacement`, or undefined. */
+export function textPlacementProblem(value: unknown): string | undefined {
+  return (DIMENSION_TEXT_PLACEMENTS as readonly unknown[]).includes(value)
+    ? undefined
+    : TEXT_PLACEMENT_MESSAGE;
+}
+
+/** Returns what is wrong with a dimension style's `textFit`, or undefined. */
+export function textFitProblem(value: unknown): string | undefined {
+  return (DIMENSION_TEXT_FITS as readonly unknown[]).includes(value) ? undefined : TEXT_FIT_MESSAGE;
+}
+
+/**
+ * Returns what is wrong with what a dimension style sets of how its dimensions look, or undefined:
+ * its fraction and the fraction's height, where its text goes and its lineweights.
+ */
+export function dimensionStyleLookProblem(s: Record<string, unknown>): string | undefined {
+  if (s.fraction !== undefined) {
+    const problem = fractionProblem(s.fraction);
+    if (problem) return problem;
+  }
+  if (s.fractionScale !== undefined) {
+    const problem = fractionScaleProblem(s.fractionScale);
+    if (problem) return problem;
+  }
+  // A fraction on the line, at the text's own height, is what every style writes.
+  const stacked = s.fraction !== undefined && s.fraction !== "inline";
+  const scaled = s.fractionScale !== undefined && written(s.fractionScale as number) !== 1;
+  if ((stacked || scaled) && s.units !== "architectural") return FRACTION_OF_UNITS;
+  if (scaled && !stacked) return FRACTION_SCALE_INLINE;
+  if (s.textPlacement !== undefined) {
+    const problem = textPlacementProblem(s.textPlacement);
+    if (problem) return problem;
+  }
+  if (s.textFit !== undefined) {
+    const problem = textFitProblem(s.textFit);
+    if (problem) return problem;
+  }
+  if (
+    s.textFit === "leader" &&
+    s.textPlacement === "centered" &&
+    (s.arrowhead ?? DEFAULT_ARROWHEAD) === "closed-filled"
+  )
+    return LEADER_CENTERED_ARROWS;
+  for (const field of ["dimensionLineweight", "extensionLineweight"] as const) {
+    const value = s[field];
+    if (value === undefined) continue;
+    if (typeof value === "number" && (LINEWEIGHTS as readonly number[]).includes(value)) continue;
+    return `${field}: ${LINEWEIGHT}`;
+  }
   return undefined;
 }
 
@@ -2589,6 +2669,19 @@ export function dimensionTextProblem(text: unknown): string | undefined {
   if (problem) return problem;
   return text.includes("<>") && text.includes("[]") ? DIMENSION_TEXT_ALTERNATE : undefined;
 }
+
+/** What is wrong with words below a dimension's line whose text moves out on a leader. */
+export const DIMENSION_LEADER_BELOW =
+  "its text does not fit between its extension lines and moves out on a leader, and where words below the line then go is not laid out yet, so tsdraft refuses it. Give it more room, or leave textBelow out";
+/** What is wrong with a text that moves out on a leader beside arrowheads larger than it. */
+export const DIMENSION_LEADER_ARROWS =
+  "its style moves a text that does not fit out on a leader, and its arrowheads are twice as long as its text is high or longer, where the leading CAD app may keep the text and move the arrowheads instead, which is not laid out yet, so tsdraft refuses it. Use a smaller arrow size";
+/** What is wrong with a text centered in a dimension line it is wider than. */
+export const DIMENSION_CENTERED_WIDE =
+  "its text, centered in its line, needs more room than the line has between its extension lines, and where the line's pieces then go is not laid out yet, so tsdraft refuses it. Give it more room, a smaller text, or the text above the line";
+/** What is wrong with a style whose closed arrowheads may turn outward round a text it moves out. */
+const LEADER_CENTERED_ARROWS =
+  'textFit "leader" with closed filled arrowheads and the text "centered" turns the arrowheads outward where tsdraft does not know the room they need, which is not laid out yet, so tsdraft refuses it. Use a tick, or the text "above"';
 
 /** What is wrong with a dimension in a block. */
 export const DIMENSION_IN_BLOCK =
@@ -2687,10 +2780,16 @@ export function dimensionMeasureProblem(
   if (digits > MEASUREMENT_DIGITS) {
     return `it reads ${rounded}, which is ${digits} digits at a precision of ${decimals.length}. The leading CAD app works out the 16th digit of a measurement from its own arithmetic on the points, so it may end in another digit: it writes 99,999,999.5 at a precision of 8 as 99999999.50000002. Use a smaller precision or measurement scale`;
   }
-  if (room !== undefined && measurement <= room) {
-    return `its text may not fit between its extension lines: it measures ${written(measurement)}, and its text, ${JSON.stringify(text)}, and its arrowheads may need ${written(room)}. The leading CAD app then turns closed filled arrowheads outward, by the width of the text in its font, which tsdraft does not hold. Give it more room, a smaller text or arrow size, or the arrowhead "architectural-tick", which is drawn the same either way`;
-  }
+  if (room !== undefined && measurement <= room) return arrowRoomProblem(measurement, text, room);
   return undefined;
+}
+
+/**
+ * What is wrong with a dimension that measures no more than its closed filled arrowheads and its
+ * text need, as `arrowRoom` gives the room.
+ */
+export function arrowRoomProblem(measurement: number, text: string, room: number): string {
+  return `its text may not fit between its extension lines: it measures ${written(measurement)}, and its text, ${JSON.stringify(text)}, and its arrowheads may need ${written(room)}. The leading CAD app then turns closed filled arrowheads outward, by the width of the text in its font, which tsdraft does not hold. Give it more room, a smaller text or arrow size, or the arrowhead "architectural-tick", which is drawn the same either way`;
 }
 
 // Leaders.

@@ -144,9 +144,11 @@ drawing has.
 is written, at most 64 characters, and `ratio` is above 0.
 
 **`dimensionStyles`**: `role` names the text role of a dimension's text, `arrowhead`,
-`arrowSize`, `extensionOffset`, `extensionBeyond` and `textGap` are paper sizes, and `writing`
-says how a length is written in each unit of a drawing, with `precision`, `prefix`, `suffix`,
-`suppressZeros` and `measurementScale`. A drawing in a unit `writing` does not list draws no
+`arrowSize`, `extensionOffset`, `extensionBeyond` and `textGap` are paper sizes,
+`textPlacement`, `textFit`, `dimensionLineweight` and `extensionLineweight` set where the text
+goes and the pens, and `writing` says how a length is written in each unit of a drawing, with
+`precision`, `prefix`, `suffix`, `suppressZeros`, `measurementScale`, and for feet and inches
+`fraction` and `fractionScale`. A drawing in a unit `writing` does not list draws no
 dimension in that style. The style's name in the leading CAD app is the id in capitals, `DIMS` on a
 layout, and with a scale's id after it in model space: `DIMS-1in-10ft`. No dimension style is named
 `standard`, and two names among every style at every scale that that app takes for one are an error.
@@ -226,7 +228,10 @@ the library exports: `DASHED`, `HIDDEN`, `CENTER`, `PHANTOM`, `DASHDOT` and `DOT
 roles are `note` and `dimension`, 3/32 in, `label`, 1/8 in, `heading`, 3/16 in, and `title`,
 1/4 in, each in Arial. The scales are `1in-10ft` to `1in-100ft`, labelled `1" = 10'` and so on,
 and `1-8in-1ft` to `3in-1ft`, labelled `1/8" = 1'-0"` and so on. The dimension style `dims`
-writes feet to a tenth with `'`, inches whole with `"`, and millimetres whole. The title block
+writes feet to a tenth with `'`, inches whole with `"`, and millimetres whole, with
+architectural ticks and the text above the line. `feet-inches` writes feet and inches to the
+nearest 1/16". `arrows`, from version 2, has closed filled arrows with the text centered in a
+break of the line, as civil and structural sheets draw them, and writes feet to a hundredth. The title block
 `plain` and the sheet format `arch-d`, on ARCH D, are in [Title
 blocks](title-blocks.md#the-title-block-of-a-standard).
 

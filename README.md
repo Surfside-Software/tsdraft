@@ -194,7 +194,9 @@ d.linearDimension([34, 30], [86, 30], [0, 22], { style: "PLAN" }); // 52.0'
 ```
 
 `alignedDimension` measures along the two points, and a style with `units: "architectural"`
-writes feet and inches, as `4'-1 7/16"`. [Dimensions](docs/dimensions.md) has the rest.
+writes feet and inches, as `4'-1 7/16"`, with the fraction on the line or stacked. A style puts
+the text above the line or in a break of it and moves a text with no room out on a leader, and
+a dimension takes words below its line. [Dimensions](docs/dimensions.md) has the rest.
 
 A layout is a sheet of paper that a CAD program shows as a tab and plots as one page. What is drawn
 inside `layout` is on the sheet, in inches of paper, and a viewport shows the model on it at a
@@ -244,7 +246,7 @@ It draws layers, lines, polylines with arcs and widths, rectangles, revision clo
 circles, arcs, single-line text and paragraph text that wraps to a width, with
 linetypes and lineweights, text styles and justification, blocks with attributes and inserts
 of them, references to DWG files as xrefs, linear and aligned dimensions in decimal units or
-feet and inches, leaders, layouts with a page setup and viewports, which can freeze their own
+feet and inches with stacked fractions, words below the line and text on a leader, leaders, layouts with a page setup and viewports, which can freeze their own
 layers or twist the view, and layers that are off, frozen, locked or not plotted. A firm's
 [standard](docs/standard.md) sets its layers, pens, text and sheets. It writes DXF, not DWG.
 

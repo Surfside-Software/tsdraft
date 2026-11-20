@@ -12,7 +12,7 @@ import {
   type XrefDrawings,
 } from "./blocks.ts";
 import { callOf, type CallSite } from "./callsite.ts";
-import { dimensionPicture } from "./dimensions.ts";
+import { dimensionPicture, pictureTexts } from "./dimensions.ts";
 import { leaderPicture, leaderRepeats } from "./leaders.ts";
 import type {
   Block,
@@ -28,7 +28,12 @@ import type {
 import { written } from "./format.ts";
 import { layerKey } from "./layers.ts";
 import { inStyle, measurer } from "./measure.ts";
-import { measured, paragraphInStyle, paragraphMeasurer } from "./paragraphs.ts";
+import {
+  layoutDimensionText,
+  measured,
+  paragraphInStyle,
+  paragraphMeasurer,
+} from "./paragraphs.ts";
 import { paperInfo } from "./papers.ts";
 import { shown } from "./rules.ts";
 import { filled, Strings } from "./shape.ts";
@@ -302,20 +307,35 @@ export function inspectWithin(
         if (style === undefined) return;
         // Its style's prefix and suffix are read for each dimension that has the style.
         const reads =
-          (style.prefix?.length ?? 0) + (style.suffix?.length ?? 0) + (drawn.text?.length ?? 0);
+          (style.prefix?.length ?? 0) +
+          (style.suffix?.length ?? 0) +
+          (drawn.text?.length ?? 0) +
+          (drawn.textBelow?.length ?? 0);
         if (!walk(Math.floor(reads / 32))) return;
-        const { label } = dimensionPicture(drawn, style);
-        const text: Text = {
-          kind: "text",
-          layer: drawn.layer,
-          at: label.at,
-          height: label.height,
-          value: label.value,
-          rotation: label.rotation,
-          align: "center",
-          ...(label.style === undefined ? {} : { style: label.style }),
-        };
-        if (text.value.trim() !== "") keep(text, index, matrix, from, attribute);
+        const tables = tablesOf(from);
+        const font =
+          style.textStyle === undefined ? undefined : tables.textStyles.get(key(style.textStyle));
+        // Each line of its texts is a text where its block's paragraph lays it out.
+        for (const text of pictureTexts(dimensionPicture(drawn, style, font), font)) {
+          for (const line of measured(text, layoutDimensionText(text)).lines) {
+            if (line.value.trim() === "") continue;
+            const placed = matrix ? line.corners.map(place) : line.corners;
+            const inner = innerBox(placed);
+            if (!inner) continue;
+            texts.push({
+              entity: index,
+              attribute,
+              id,
+              layer,
+              value: line.value,
+              at: placed[0]!,
+              corners: placed,
+              inner: inner.corners,
+              height: inner.height,
+              box: boxOf(placed),
+            });
+          }
+        }
         return;
       }
       if (drawn.kind === "paragraph") {

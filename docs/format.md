@@ -57,10 +57,12 @@ layouts existed. [Layouts](layouts.md) describes them.
 A drawing lists its dimension styles in `dimensionStyles`, and leaves the field out when it
 has none. A style has a `name`, a `textHeight`, an `arrowSize`, an `extensionOffset`, an
 `extensionBeyond`, a `textGap` and a `precision`, and where they are set a `textStyle`, an
-`arrowhead`, a `scale`, a `prefix`, a `suffix`, `suppressZeros` and a `measurementScale`. A
+`arrowhead`, a `scale`, a `prefix`, a `suffix`, `suppressZeros`, `feetInchZeros`, a
+`measurementScale`, a `fraction`, a `fractionScale`, a `textPlacement`, a `textFit`, a
+`dimensionLineweight` and an `extensionLineweight`. A
 dimension is an entity of kind `"linear-dimension"` or `"aligned-dimension"`, in
 `drawing.entities` or in a layout's `entities`, with its `layer`, `style`, `from` and `to`,
-and a `text` where it has one. A linear one has `line`, a point of its dimension line, and an
+and a `text` and a `textBelow` where it has them. A linear one has `line`, a point of its dimension line, and an
 `angle` where it does not measure along X, from -360 to 360; the builder keeps it from 0 up to 360. An aligned one has `offset`. Neither has a
 linetype or a lineweight. A drawing with no dimension has the JSON it had before dimensions
 existed. [Dimensions](dimensions.md) describes them.

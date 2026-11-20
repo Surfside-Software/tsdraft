@@ -363,7 +363,12 @@ d.linearDimension([24, 30], [76, 30], [0, 20], { style: "PLAN" });
 - CAD writes the measurement. `text: "<> TYP"` adds to it.
 - `units: "architectural"` writes feet and inches, as `4'-1 7/16"`, from a length in inches
   times `measurementScale`, so give a drawing in feet `measurementScale: 12`. `precision` is
-  then the least fraction: 4 for 1/16". Never write feet and inches as a dimension's `text`.
+  then the least fraction: 4 for 1/16". `fraction: "stacked"` stacks the fraction, at
+  `fractionScale` of the text's height. Never write feet and inches as a dimension's `text`.
+- `textBelow: "WINDOW HEAD HT."` writes words under the line. `textPlacement: "centered"` puts
+  the text in a break of the line, `textFit: "leader"` moves a text with no room out on a
+  leader, `arrowhead: "oblique"` draws a thin tick, and `dimensionLineweight` and
+  `extensionLineweight` set the pens.
 - Never draw a dimension from lines and text.
   [docs/dimensions.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/dimensions.md)
   has the rest.
@@ -587,8 +592,7 @@ writeFileSync("plan.dxf", toDXF(drawing));
 
 ## What tsdraft cannot draw yet
 
-- Hatches, fills, and dimensions that are not linear or aligned. A fraction of an inch in a
-  dimension is on the line, as `1 7/16`, not stacked.
+- Hatches, fills, and dimensions that are not linear or aligned.
 - A leader with two roots, a curved shaft, a block in place of its note, or a note attached at
   its top or bottom.
 - A block read from another file. A block is drawn in the drawing that inserts it. An xref

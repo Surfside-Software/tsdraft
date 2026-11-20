@@ -2047,6 +2047,24 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
     // A dimension style whose prefix every dimension reads.
     if (random() < 0.3) (drawing.dimensionStyles as Data[])[0]!.prefix = long;
     if (random() < 0.2) (drawing.dimensionStyles as Data[])[0]!.arrowhead = "A".repeat(1_000_000);
+    // Dimensions whose long words below each reads again, short or not, in a style that may move
+    // a text out on a leader or center it in the line.
+    if (random() < 0.3) {
+      const style = (drawing.dimensionStyles as Data[])[0]!;
+      style.textFit = pick(["inside", "leader"]);
+      style.textPlacement = pick(["above", "centered"]);
+      (pick([drawing, layout]).entities as Data[]).push(
+        ...Array.from({ length: pick([1, 300]) }, (_, i) => ({
+          kind: "linear-dimension",
+          layer: "0",
+          style: style.name,
+          from: [0, i],
+          to: [pick([0.01, 10]), i],
+          line: [0, i + 1],
+          textBelow: pick([long, "A\\P".repeat(5_000)]),
+        })),
+      );
+    }
     // A leader style whose arrowhead or text style every leader reads.
     if (random() < 0.2) {
       const style = (drawing.leaderStyles as Data[])[0]!;

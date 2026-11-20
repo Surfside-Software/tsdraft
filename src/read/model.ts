@@ -165,6 +165,22 @@ export interface ReadDimensionStyle {
   readonly lengthFactor?: number;
   /** `DIMPOST`. */
   readonly suffix?: string;
+  /** `DIMTAD`: 0 centers the text in a break of the dimension line, 1 puts it above. */
+  readonly textVertical?: number;
+  /** `DIMTIX`: 1 keeps the text between the extension lines whatever fits. */
+  readonly textInside?: number;
+  /** `DIMTMOVE`: 1 hangs a text that does not fit on a leader. */
+  readonly textMove?: number;
+  /** `DIMFRAC`: 0 stacks a fraction across a bar, 1 diagonally, and 2 writes it on the line. */
+  readonly fraction?: number;
+  /** `DIMTFAC`: the height of a stacked fraction as a share of the text's. */
+  readonly fractionScale?: number;
+  /** `DIMLWD`, the dimension line's lineweight as group 370 holds one: -2 ByBlock. */
+  readonly dimensionLineweight?: number;
+  /** `DIMLWE`, the extension lines' lineweight, likewise. */
+  readonly extensionLineweight?: number;
+  /** The block `DIMBLK` draws each arrowhead with, such as `_ArchTick`. Missing for closed filled. */
+  readonly arrowheadBlock?: string;
 }
 
 /** An attribute definition of a block, placed as a text is. */
@@ -332,6 +348,20 @@ export interface ReadMtext extends ReadEntityBase {
   readonly lineSpacingStyle: "at-least" | "exactly";
 }
 
+/**
+ * A dimension's text as a file holds it, cut at its first `\\X` into what it draws over its line
+ * and below it. A text of `<>` alone over the line is the measurement, and is left out.
+ */
+export function dimensionTextParts(held: string): {
+  readonly text?: string;
+  readonly textBelow?: string;
+} {
+  const at = held.indexOf("\\X");
+  if (at < 0) return held === "" ? {} : { text: held };
+  const text = held.slice(0, at);
+  return { ...(text !== "<>" && { text }), textBelow: held.slice(at + 2) };
+}
+
 /** A linear or an aligned dimension. */
 export interface ReadDimension extends ReadEntityBase {
   readonly kind: "dimension";
@@ -353,6 +383,8 @@ export interface ReadDimension extends ReadEntityBase {
   readonly measurement?: number;
   /** The text it draws in place of its measurement, where `<>` stands for it. */
   readonly text?: string;
+  /** The words it draws below its line, which the file holds after `\\X` in its text. */
+  readonly textBelow?: string;
   /** Its dimension style, `Standard` when the file names none. */
   readonly style: string;
   /** The block of its picture, `*D` and a number, when it has one. */

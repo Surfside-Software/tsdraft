@@ -193,6 +193,8 @@ function sheetPicture(
   }
   const unitsPerPixel = w / width;
   const wider = (pen * unitsPerPixel) / base;
+  // The layer of each group open around a line: a dimension's text is a group inside its own.
+  const open: (string | undefined)[] = [];
   let entity: string | undefined;
   const out = svg.split("\n").map((line) => {
     if (line.startsWith("<svg ")) {
@@ -211,8 +213,12 @@ function sheetPicture(
       ].join("\n");
     }
     const layer = /data-layer="([^"]+)"/.exec(line)?.[1];
-    if (GROUPED.test(line)) entity = layer;
-    else if (line.trim() === "</g>") entity = undefined;
+    if (GROUPED.test(line)) open.push((entity = layer ?? entity));
+    else if (/^\s*<g [^>]*[^/]>$/.test(line)) open.push(entity);
+    else if (line.trim() === "</g>") {
+      open.pop();
+      entity = open.at(-1);
+    }
     const drawnOn = layer ?? entity;
     const role = drawnOn === undefined ? undefined : roles[drawnOn];
     if (drawnOn !== undefined && !role) throw new Error(`Layer ${drawnOn} of ${name} has no role`);
@@ -289,6 +295,8 @@ for (const picture of pictures) {
     let openGroup = "";
     // The parts of a dimension or a leader, and the end of its group, are drawn as the group is.
     let entity: { role: Role; tag: string } | undefined;
+    // The groups open inside the entity's own, such as a dimension's text.
+    let inner = 0;
     for (const line of lines) {
       const layer = /data-layer="([^"]+)"/.exec(line)?.[1];
       const own = layer === undefined ? undefined : roles[layer];
@@ -299,8 +307,12 @@ for (const picture of pictures) {
       const groupTag =
         entity?.tag ??
         (role ? `    <g stroke="${colors[role]}" stroke-width="${strokeWidth}">` : "");
-      if (role && GROUPED.test(line)) entity = { role, tag: groupTag };
-      else if (line.trim() === "</g>") entity = undefined;
+      if (entity && /^\s*<g [^>]*[^/]>$/.test(line)) inner++;
+      else if (role && GROUPED.test(line)) entity = { role, tag: groupTag };
+      else if (line.trim() === "</g>") {
+        if (inner > 0) inner--;
+        else entity = undefined;
+      }
       if (groupTag !== openGroup) {
         if (openGroup) body.push("    </g>");
         if (groupTag) body.push(groupTag);

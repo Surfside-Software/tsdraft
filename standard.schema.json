@@ -278,7 +278,7 @@
         },
         "arrowhead": {
           "type": "string",
-          "enum": ["closed-filled", "architectural-tick"],
+          "enum": ["closed-filled", "architectural-tick", "oblique"],
           "description": "One of ARROWHEADS",
           "default": "closed-filled"
         },
@@ -301,6 +301,34 @@
           "type": "number",
           "minimum": 0,
           "description": "The gap between the text and the dimension line, on paper"
+        },
+        "textPlacement": {
+          "type": "string",
+          "enum": ["above", "centered"],
+          "description": "The text above the dimension line, or centered in a break of it",
+          "default": "above"
+        },
+        "textFit": {
+          "type": "string",
+          "enum": ["inside", "leader"],
+          "description": "Where a text goes that does not fit between the extension lines: inside them all the same, or out on a leader",
+          "default": "inside"
+        },
+        "dimensionLineweight": {
+          "type": "number",
+          "enum": [
+            0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8,
+            0.9, 1, 1.06, 1.2, 1.4, 1.58, 2, 2.11
+          ],
+          "description": "The lineweight of the dimension line, its arrowheads and a leader to its text, in millimetres. Defaults to the dimension's own"
+        },
+        "extensionLineweight": {
+          "type": "number",
+          "enum": [
+            0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8,
+            0.9, 1, 1.06, 1.2, 1.4, 1.58, 2, 2.11
+          ],
+          "description": "The lineweight of the extension lines, in millimetres. Defaults to the dimension's own"
         },
         "writing": {
           "$ref": "#/$defs/writings",
@@ -360,7 +388,7 @@
         },
         "arrowhead": {
           "type": "string",
-          "enum": ["closed-filled", "architectural-tick"],
+          "enum": ["closed-filled", "architectural-tick", "oblique"],
           "description": "One of ARROWHEADS"
         },
         "arrowSize": {
@@ -382,6 +410,32 @@
           "type": "number",
           "minimum": 0,
           "description": "The gap between the text and the dimension line, on paper"
+        },
+        "textPlacement": {
+          "type": "string",
+          "enum": ["above", "centered"],
+          "description": "The text above the dimension line, or centered in a break of it"
+        },
+        "textFit": {
+          "type": "string",
+          "enum": ["inside", "leader"],
+          "description": "Where a text goes that does not fit between the extension lines: inside them all the same, or out on a leader"
+        },
+        "dimensionLineweight": {
+          "type": "number",
+          "enum": [
+            0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8,
+            0.9, 1, 1.06, 1.2, 1.4, 1.58, 2, 2.11
+          ],
+          "description": "The lineweight of the dimension line, its arrowheads and a leader to its text, in millimetres. Defaults to the dimension's own"
+        },
+        "extensionLineweight": {
+          "type": "number",
+          "enum": [
+            0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8,
+            0.9, 1, 1.06, 1.2, 1.4, 1.58, 2, 2.11
+          ],
+          "description": "The lineweight of the extension lines, in millimetres. Defaults to the dimension's own"
         },
         "writing": {
           "$ref": "#/$defs/writings",
@@ -916,7 +970,7 @@
         },
         "blockName": {
           "type": "string",
-          "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:_[Aa][Rr][Cc][Hh][Tt][Ii][Cc][Kk]|_[Oo][Pp][Ee][Nn]|_[Dd][Oo][Tt]|_[Nn][Oo][Nn][Ee])$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$",
+          "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:_[Aa][Rr][Cc][Hh][Tt][Ii][Cc][Kk]|_[Oo][Bb][Ll][Ii][Qq][Uu][Ee]|_[Oo][Pp][Ee][Nn]|_[Dd][Oo][Tt]|_[Nn][Oo][Nn][Ee])$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$",
           "description": "The block of block that the builder inserts at [0, 0] on each sheet"
         },
         "xref": {
@@ -1047,6 +1101,19 @@
           "exclusiveMinimum": 0,
           "description": "Each measurement is written times this",
           "default": 1
+        },
+        "fraction": {
+          "type": "string",
+          "enum": ["inline", "stacked", "diagonal"],
+          "description": "In architectural units, how the fraction of an inch is written: inline, as 4'-1 7/16\", stacked over a bar, or diagonal, beside a slash",
+          "default": "inline"
+        },
+        "fractionScale": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 1,
+          "description": "The height of a stacked fraction as a share of the text's, from 0.25 to 1",
+          "default": 1
         }
       },
       "required": ["precision"],
@@ -1093,7 +1160,7 @@
         },
         "name": {
           "type": "string",
-          "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:_[Aa][Rr][Cc][Hh][Tt][Ii][Cc][Kk]|_[Oo][Pp][Ee][Nn]|_[Dd][Oo][Tt]|_[Nn][Oo][Nn][Ee])$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$",
+          "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:_[Aa][Rr][Cc][Hh][Tt][Ii][Cc][Kk]|_[Oo][Bb][Ll][Ii][Qq][Uu][Ee]|_[Oo][Pp][Ee][Nn]|_[Dd][Oo][Tt]|_[Nn][Oo][Nn][Ee])$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$",
           "description": "The xref's name"
         },
         "path": {

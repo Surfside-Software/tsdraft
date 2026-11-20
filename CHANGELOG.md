@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- What a dimension style sets of how its dimensions look. In architectural units, `fraction`
+  stacks the fraction of an inch over a bar, `"stacked"`, or beside a slash, `"diagonal"`, at
+  `fractionScale` of the text's height, as `4'-1` and a stacked `7/16`. `textPlacement:
+  "centered"` puts the text in a break of the dimension line, and `textFit: "leader"` moves a text
+  with no room between the extension lines out on a leader. `dimensionLineweight` and
+  `extensionLineweight` set the pens of the dimension line and of the extension lines, and the
+  arrowhead `"oblique"` is a thin tick. A dimension's `textBelow` writes words under its line, as
+  `WINDOW HEAD HT.` under `6'-8"`. `dimensionPicture` draws each as the leading CAD app does: the
+  text's box from the top of its tallest letter or stack to the foot of its lowest, ticks that
+  turn outward where the text does not fit, the line in pieces, and the leader. It takes the
+  dimension style's text style. `lint` and the builder refuse a value outside each field's list,
+  a stacked fraction outside architectural units, and what is not laid out yet: a text centered
+  in a line it is wider than, words below a text that moves out, a leader beside arrowheads twice
+  the text's height, and closed filled arrowheads round a centered text with a leader.
+  `readDXF` reads a dimension's words below into `textBelow`, and a dimension style's
+  `textVertical`, `textInside`, `textMove`, `fraction`, `fractionScale`, lineweights and
+  arrowheads' block. The built-in standard, version 2, adds the dimension style `arrows`, with
+  closed filled arrows and the text centered, and a standard's dimension style takes the new
+  fields, with `fraction` and `fractionScale` in its writing.
+- A stacked part of a paragraph stands by its own ink, top less bottom, as the leading CAD app sets
+  it, from the font tables' new column `stackTops`: a 7 over a 16 stands lower than a capital.
+  A slash stack stands its top part on its bottom part's ink, and its gap is not widened with
+  the letters. Every other number of the tables is as it was.
+
 - `readDXF` leaves out of a block's and a space's `entities` an entity the file marks invisible,
   group 60, and counts it under `other` as `invisible`. A dynamic block's definition and each `*U`
   block that holds one of its states keep the entities of every state, with those of the states

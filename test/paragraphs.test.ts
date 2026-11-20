@@ -64,6 +64,8 @@ test("a paragraph's codes draw what the DXF Reference gives them", () => {
     strikeThrough: false,
     bold: false,
     font: undefined,
+    size: 1,
+    align: 0,
   };
   assert.deepEqual(formats, [
     ["U", { ...plainFormat, underline: true }],
@@ -243,16 +245,16 @@ test("a paragraph is laid out where the leading CAD app sets its lines and runs"
       [-0.15208, 0.61968, 0.58392, 1.354],
     ),
   );
-  // A slash stack raises its top part a digit's top, and centers the slash at its bottom part's.
+  // A slash stack stands its top part on its bottom part's ink, and centers the slash at its top.
   const slash = layoutParagraph({ value: "\\S1#A;", height: 1, ...arial });
   assert.ok(
     near(
       slash.lines[0]!.runs.map((run) => run.baseline),
-      [-1.00409, -2.00819],
+      [-1.00409, -2.00409],
     ),
   );
   const [from, to] = [slash.strokes[0]!.from, slash.strokes[0]!.to];
-  assert.ok(near([(from[1] + to[1]) / 2], [-1.00819]));
+  assert.ok(near([(from[1] + to[1]) / 2], [-1.00409]));
   // An underline lies at the descent of a TrueType font and a fifth of a height in an SHX font.
   for (const [font, below] of [
     ["Arial", -0.29604],

@@ -196,8 +196,11 @@ it would take `1e+100` for `1e+10` and report nothing.
 - A linear dimension measures along an angle from -360 to 360, by tsdraft's own rule, so that
   one direction has one angle.
 - A dimension is not in a block. The leading CAD app draws nothing for it when it opens the file.
-- A block is not named `_ArchTick`, in any case. The leading CAD app draws a dimension's
-  architectural tick with the block of that name.
+- A block is not named `_ArchTick` or `_Oblique`, in any case. The leading CAD app draws a
+  dimension's ticks with the blocks of those names.
+- What a dimension style sets of how it looks is one of its lists, a stacked fraction is in
+  feet and inches, and a dimension leaves out what [Dimensions](dimensions.md#what-lint-reports)
+  says is not laid out yet.
 - An R12 drawing has no dimensions.
 - A leader names a leader style the drawing defines, and not `Standard`, which is the leading CAD
   app's own. A leader style's name follows the rules of a dimension style's name. Its text style,

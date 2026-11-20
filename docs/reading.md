@@ -53,7 +53,7 @@ states and keeps each object's handle, and it keeps going past what it does not 
   `$LTSCALE`, `$PSLTSCALE`, `$MSLTSCALE`, `$DIMSCALE` and the current styles.
 - The tables: `layers` with their state, `linetypes`, `textStyles` and `dimensionStyles`, each
   style with whether it is annotative, and a dimension style with the units it writes lengths
-  in. Two entries of one name are both kept, in the order of the file.
+  in, where its text goes, how it writes a fraction, its lineweights and its arrowheads' block. Two entries of one name are both kept, in the order of the file.
 - `blocks`: each with its base point, its attribute definitions and its entities, below. What
   else a block draws is counted under `other` by kind, such as `HATCH` or `LWPOLYLINE in 3D`,
   and so is what stands in another plane than the block's. An entity the file marks invisible,
@@ -113,7 +113,8 @@ A space and a block hold one type, `ReadEntity`, of the kinds tsdraft's writers 
   `measureMtext` lay it out as tsdraft lays out a paragraph: [Paragraphs](paragraphs.md#reading).
 - `dimension`: a linear or aligned dimension, with its two points, the point where its dimension
   line meets its second extension line, its direction, the middle of its text, what it measures,
-  its text, its style and the block of its picture. The other kinds of dimension are counted
+  its text and the words below its line, which the file holds after `\X`, its style and the
+  block of its picture. The other kinds of dimension are counted
   under `other`.
 - `multileader`: one with straight shafts, one root and a note, with its style, each shaft from
   its tip, the point where the shafts meet, the landing's direction and length, its note, where

@@ -146,7 +146,7 @@ const plainDrawing = (): Drawing => (plain ??= remember(frozen(plainTitleBlock()
  * standard. A change to what it states needs a new version, which the CHANGELOG gives, and then
  * this hash.
  */
-const BUILT_IN_HASH = "6594f10d73a998d20b826bf3eb76bb0a7dad8cd367f69d4afb67062c30787947";
+const BUILT_IN_HASH = "1362b9bbdeb7f2e7ef79c87edb2e234329d86488513561beb27c351ffd9b214c";
 
 let builtIn: Standard | undefined;
 /** The built-in standard, made once. */
