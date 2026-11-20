@@ -22,6 +22,7 @@ import {
   type Layer,
   type Layout,
   type LeaderStyle,
+  type Hatch,
   type HatchPattern,
   type Linetype,
   type PatternLine,
@@ -39,14 +40,16 @@ const justified = { style: "NOTES", align: "center", valign: "middle" } as const
 /**
  * Each kind of entity with every field it can have: a field left out is a compile error. A
  * polyline has a width or widths for each side, and `wide` has the other. A leader has a note,
- * and `keyed` a block in its place.
+ * and `keyed` a block in its place. A hatch has a pattern, and `shaded` and `tinted` a gradient.
  */
 const kinds: {
   readonly [K in Entity["kind"]]: K extends "polyline"
     ? Required<Omit<Polyline, "width">>
     : K extends "leader"
       ? Required<Omit<Leader, "block" | "attributes">>
-      : Required<Extract<Entity, { kind: K }>>;
+      : K extends "hatch"
+        ? Required<Omit<Hatch, "gradient">>
+        : Required<Extract<Entity, { kind: K }>>;
 } = {
   line: { kind: "line", layer: "WALL", from: [0, 0], to: [10, 0], id: "a", ...styled },
   polyline: {
@@ -289,6 +292,40 @@ const wide: Required<Omit<Polyline, "widths">> = {
   ...styled,
 };
 
+/** A hatch with a gradient of two colors, with every field the hatch of `kinds` leaves out. */
+const shaded: Required<Omit<Hatch, "pattern">> = {
+  kind: "hatch",
+  layer: "0",
+  loops: kinds.hatch.loops,
+  gradient: {
+    name: "spherical",
+    angle: 30,
+    centered: false,
+    colors: [
+      [200, 40, 30],
+      [20, 90, 180],
+    ],
+  },
+  id: "w3",
+  ...styled,
+};
+
+/** A hatch with a gradient of one color and its tint. */
+const tinted: Required<Omit<Hatch, "pattern">> = {
+  kind: "hatch",
+  layer: "0",
+  loops: kinds.hatch.loops,
+  gradient: {
+    name: "inverted-curved",
+    angle: 200,
+    centered: true,
+    color: [30, 120, 200],
+    tint: 0.4,
+  },
+  id: "w4",
+  ...styled,
+};
+
 const keyed: Required<
   Omit<
     Leader,
@@ -501,6 +538,8 @@ const full: Required<Drawing> & {
     { kind: "insert", layer: "0", block: "BASE", at: [0, 0] },
     wide,
     keyed,
+    shaded,
+    tinted,
   ],
   layouts: [
     {

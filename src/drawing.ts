@@ -227,8 +227,12 @@ import {
   type LEADER_VERTICAL_ATTACHMENTS,
   HATCH_LOOP_POINTS,
   HATCH_NO_LOOPS,
+  GRADIENT_WITH_PATTERN,
+  type GRADIENT_KINDS,
+  readGradient,
   hatchPatternChoiceProblem,
   hatchPatternProblem,
+  type GradientOf,
   shown,
   undefinedHatchPatternProblem,
   textMaskProblem,
@@ -874,18 +878,48 @@ export type HatchPatternChoice =
       readonly origin?: Point;
     };
 
+/** A true color: its red, green and blue, each a whole number from 0 to 255. */
+export type Rgb = readonly [red: number, green: number, blue: number];
+
 /**
- * A hatch: an area filled solid in its pen's color, or with a pattern's lines in its pen, which
- * the leading CAD app holds as one entity a drafter edits and measures as one. The area inside an
- * odd number of its loops is filled, so a loop inside another is a hole, and a loop inside a hole
- * fills again. R2018 only.
+ * How a gradient runs from its first color to its second. `linear` runs across the box of the
+ * loops; `cylinder` from the first color at both sides to the second along the middle; `spherical`
+ * from a spot of the second color out to the first; `hemispherical` from a spot half the box's
+ * larger side below its middle; `curved` from an oval along the bottom. Each `inverted-` name swaps
+ * its pair's colors.
+ */
+export type GradientName = (typeof GRADIENT_KINDS)[number];
+
+/**
+ * A hatch's gradient: two colors, or one color and its tint, which gives the second as the color
+ * with its lightness set to the tint, from 0 for black to 1 for white. It is turned by `angle`
+ * about the middle of the box of the loops, and moved off the middle unless `centered`. CAD programs plot a gradient in its own colors, whatever the plot style table.
+ */
+export type HatchGradient = {
+  readonly name: GradientName;
+  /** Degrees counterclockwise. Defaults to 0. */
+  readonly angle?: number;
+  /** Defaults to true. */
+  readonly centered?: boolean;
+} & (
+  | { readonly colors: readonly [Rgb, Rgb]; readonly color?: never; readonly tint?: never }
+  | { readonly color: Rgb; readonly tint: number; readonly colors?: never }
+);
+
+/**
+ * A hatch: an area filled solid in its pen's color, with a pattern's lines in its pen, or with a
+ * gradient, which the leading CAD app holds as one entity a drafter edits and measures as one. The
+ * area inside an odd number of its loops is filled, so a loop inside another is a hole, and a loop
+ * inside a hole fills again. R2018 only.
  */
 export interface Hatch extends EntityBase {
   readonly kind: "hatch";
   /** Its loops, in any order and either way round. */
   readonly loops: readonly HatchLoop[];
-  /** Its pattern. Missing, it is solid. */
+  /** Its pattern. Missing, it is solid or a gradient. */
   readonly pattern?: HatchPatternChoice;
+  /** Its gradient, never with a pattern. Missing, it is solid or a pattern. */
+  readonly gradient?: HatchGradient;
 }
 
 /**
@@ -1479,6 +1513,13 @@ export interface EntityOptions<
   readonly pen?: Z extends Standard ? PenOfStandard<P, Z> : PenWithoutStandard;
 }
 
+/** Checks a hatch's gradient as `lint` does, and returns the copy it checked. */
+function hatchGradientCopy(given: unknown): HatchGradient {
+  const read = readGradient(given);
+  if ("problem" in read) return refuse("hatch-gradient", capitalized(read.problem));
+  return read.gradient;
+}
+
 /**
  * A hatch's pattern as `hatch()` takes it: a `HatchPatternChoice` whose scale or spacing is greater
  * than 0 and not written as 0, with no field of the other kind.
@@ -1506,11 +1547,12 @@ export type HatchPatternOf<S extends number = number> =
     };
 
 /**
- * The options of `hatch()`: its pattern, and the options of every entity.
+ * The options of `hatch()`: its pattern or its gradient, and the options of every entity.
  *
  * @typeParam S - The pattern's scale or spacing as written.
+ * @typeParam G - The gradient as written.
  */
-export interface HatchOptions<
+export type HatchOptions<
   V extends DxfVersion = "R2018",
   T extends string = string,
   W extends number = number,
@@ -1519,13 +1561,27 @@ export interface HatchOptions<
   Z extends Standard | undefined = undefined,
   P extends string = string,
   S extends number = number,
-> extends EntityOptions<V, T, W, L, I, Z, P> {
-  /**
-   * The lines it is drawn with in its pen: a pattern that `patterns()` added, by its name, with its
-   * `scale`, `angle` and `origin`, or lines of its own, `spacing` apart. Solid when left out.
-   */
-  readonly pattern?: HatchPatternOf<S>;
-}
+  G extends HatchGradient = HatchGradient,
+> = EntityOptions<V, T, W, L, I, Z, P> &
+  (
+    | {
+        /**
+         * The lines it is drawn with in its pen: a pattern that `patterns()` added, by its name,
+         * with its `scale`, `angle` and `origin`, or lines of its own, `spacing` apart. Solid when
+         * left out.
+         */
+        readonly pattern?: HatchPatternOf<S>;
+        readonly gradient?: never;
+      }
+    | {
+        /**
+         * Its gradient: two colors, or one color and its tint, never with a pattern. Each color
+         * is `[red, green, blue]`, each a whole number from 0 to 255.
+         */
+        readonly gradient: GradientOf<G>;
+        readonly pattern?: never;
+      }
+  );
 
 /**
  * How wide a polyline is drawn: the width of every side, in drawing units, 0 or more. CAD
@@ -3257,6 +3313,15 @@ export class DrawingBuilder<
    * });
    * d.hatch([[10, 1], [12, 1], [12, 3], [10, 3]], { pattern: { spacing: 0.125, crossed: true } });
    * ```
+   *
+   * With `gradient`, it is filled from one color to another: two colors, or one color and its
+   * tint, `linear` across the loops or in one of the other kinds, turned by `angle`.
+   *
+   * ```ts
+   * d.hatch([[0, 4], [8, 4], [8, 6], [0, 6]], {
+   *   gradient: { name: "linear", angle: 90, colors: [[30, 120, 200], [255, 255, 255]] },
+   * });
+   * ```
    */
   hatch<
     T extends string = string,
@@ -3265,9 +3330,10 @@ export class DrawingBuilder<
     I extends string = string,
     P extends string = string,
     S extends number = number,
+    const G extends HatchGradient = HatchGradient,
   >(
     boundary: readonly Point[] | readonly HatchLoop[],
-    options: HatchOptions<V, T, W, L, I, Z, P, S> = {},
+    options: HatchOptions<V, T, W, L, I, Z, P, S, G> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.hatch, options, () => {
       if (this.dxf === "R12") refuse("hatch", R12_ONLY.hatches);
@@ -3293,11 +3359,15 @@ export class DrawingBuilder<
         return { points, ...(bulges === undefined ? {} : { bulges: [...bulges] }) };
       });
       const choice: unknown = options.pattern;
+      const shade: unknown = options.gradient;
+      if (choice !== undefined && shade !== undefined)
+        refuse("hatch-gradient", capitalized(GRADIENT_WITH_PATTERN));
       return {
         kind: "hatch",
         layer: this.#current,
         loops,
         ...(choice === undefined ? {} : { pattern: this.#hatchPattern(choice, loops) }),
+        ...(shade === undefined ? {} : { gradient: hatchGradientCopy(shade) }),
       };
     });
   }

@@ -1217,3 +1217,40 @@ test("a definition of paragraph text pays for its style's name against the block
   assert.equal(block.attributeDefinitions.length, 0);
   assert.equal(block.other["past the limit"], 1);
 });
+
+test("a gradient whose angle or tint is past the doubles once read is counted, not read as Infinity", async () => {
+  const d = createDrawing({ units: "in" });
+  d.hatch(
+    [
+      [0, 0],
+      [1, 0],
+      [1, 1],
+    ],
+    {
+      gradient: {
+        name: "linear",
+        colors: [
+          [0, 0, 255],
+          [255, 255, 0],
+        ],
+      },
+    },
+  );
+  d.hatch(
+    [
+      [2, 0],
+      [3, 0],
+      [3, 1],
+    ],
+    { gradient: { name: "linear", color: [0, 0, 255], tint: 0.5 } },
+  );
+  const dxf = toDXF(d.build());
+  // The first's angle in radians, past the doubles in degrees, and the second's tint, past
+  // single precision.
+  const bent = dxf
+    .replace(/\r\n460\r\n[^\r]*\r\n/, "\r\n460\r\n1e307\r\n")
+    .replace(/\r\n462\r\n0\.5\r\n/, "\r\n462\r\n1e39\r\n");
+  assert.ok(bent.includes("\r\n460\r\n1e307\r\n") && bent.includes("\r\n462\r\n1e39\r\n"));
+  const read = await readDXF(bent, { geometry: true });
+  assert.deepEqual(plain(read.unread.malformed), { "HATCH with a number past the doubles": 2 });
+});

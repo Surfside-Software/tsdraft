@@ -1,5 +1,6 @@
 import {
   blocksByKey,
+  compose,
   eachDrawn,
   mapPoint,
   referencedByKey,
@@ -33,6 +34,9 @@ import {
 import {
   dimensionMask,
   drawnLoops,
+  gradientBoxer,
+  type GradientPicture,
+  gradientWritten,
   hatchLines,
   type HatchLines,
   hatchSpread,
@@ -43,6 +47,7 @@ import {
   patternDrawnProblem,
   patternSizes,
   type PatternSizes,
+  writtenPoint,
 } from "./fills.ts";
 import { patternPieces } from "./patterns.ts";
 import {
@@ -206,6 +211,22 @@ const VIRTUAL_PENS: readonly string[] = [
   .split(" ");
 
 /**
+ * The index nearest a true color, which a file holds beside it: index 7 counted as white, which
+ * the leading CAD app holds it as. The first of two as near.
+ */
+export function nearestColorIndex([r, g, b]: readonly [number, number, number]): number {
+  let best = 1;
+  let nearest = Infinity;
+  for (let i = 0; i < ACI.length; i++) {
+    const hex = i === 6 ? "ffffff" : ACI[i]!;
+    const [pr, pg, pb] = [0, 2, 4].map((k) => Number.parseInt(hex.slice(k, k + 2), 16));
+    const distance = (pr! - r) ** 2 + (pg! - g) ** 2 + (pb! - b) ** 2;
+    if (distance < nearest) [best, nearest] = [i + 1, distance];
+  }
+  return best;
+}
+
+/**
  * The color a plot style table plots an ACI index in, on paper, where index 7 is black. Under a
  * table that gives each pen a color of its own, an index outside 1 to 255 plots as 7 does.
  */
@@ -262,7 +283,7 @@ const JOINED = 1024;
  * The format of a picture of a layout, which `svgToPDF` reads: it goes up whenever an element or
  * an attribute of such a picture changes what it means.
  */
-export const SHEET_PICTURE = 1;
+export const SHEET_PICTURE = 2;
 
 /** The mark of a line drawn as the thinnest the printer draws: a lineweight of 0, or a border. */
 const THINNEST = ` data-thinnest=""`;
@@ -571,6 +592,26 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
   const clipsChecked = new WeakMap<object, boolean>();
   const defs: string[] = [];
   let clips = 0;
+  let gradients = 0;
+  /**
+   * The id of a gradient's picture where `matrix` puts it, held in the definitions, or undefined
+   * when the picture has no room for it.
+   */
+  const shade = (picture: GradientPicture, matrix: Matrix | undefined): string | undefined => {
+    const id = `tsdraft-gradient-${gradients++}`;
+    const frame = (matrix ? compose(matrix, picture.frame) : picture.frame).map(precise).join(" ");
+    const stops = picture.stops
+      .map(({ offset, color }) => `<stop offset="${precise(offset)}" stop-color="${hex(color)}"/>`)
+      .join("");
+    const shape =
+      picture.kind === "linear"
+        ? `linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="1" y2="0"`
+        : `radialGradient id="${id}" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1"`;
+    const def = `<${shape} spreadMethod="pad" gradientTransform="matrix(${frame})">${stops}</${picture.kind}Gradient>`;
+    if (!write(def.length)) return undefined;
+    defs.push(def);
+    return id;
+  };
   /**
    * The raster file of an image's path, read once for the picture, or null for none it draws. An
    * image of a referenced drawing, `from`, takes its file from that drawing's files alone.
@@ -751,7 +792,9 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         if (sizes !== undefined) step(Math.floor(sizes.items / 16));
         return sizes;
       };
-      return hatchToSvg(e, mark, drawnPen, look, matrix, room, patternOf, placing, step);
+      return hatchToSvg(e, mark, drawnPen, look, matrix, room, patternOf, placing, step, (p) =>
+        shade(p, matrix),
+      );
     }
     if (e.kind === "wipeout") {
       const frame = (from?.drawing ?? drawing).wipeoutFrame !== false;
@@ -1554,9 +1597,11 @@ function maskToSvg(
 }
 
 /**
- * A hatch: its loops as one path, filled in its pen's color by the parity of the loops around each
- * point, as the leading CAD app fills them, with no outline. Its arcs are drawn as `matrix` puts
- * them, and it stops once it passes the room left in the picture.
+ * A hatch: its loops as one path, filled by the parity of the loops around each point, as the
+ * leading CAD app fills them, with no outline: in its pen's color, or with its gradient, which
+ * `shade` holds in the picture's definitions, in its own colors whatever the plot style table. Its
+ * arcs are drawn as `matrix` puts them, and it stops once it passes the room left in the picture.
+ * A gradient the rules refuse, or whose loops' box has no width or height, draws nothing.
  */
 function hatchToSvg(
   e: Hatch,
@@ -1568,6 +1613,7 @@ function hatchToSvg(
   patternOf: (name: string) => HatchPattern | undefined,
   sizesOf: (pattern: HatchPattern) => PatternSizes | undefined,
   step: (cost: number) => boolean,
+  shade: (picture: GradientPicture) => string | undefined,
 ): string {
   const spread = hatchSpread(e, patternOf, sizesOf);
   if (spread !== undefined) {
@@ -1581,19 +1627,29 @@ function hatchToSvg(
     const [px, py] = matrix ? mapPoint(matrix, [x, y]) : [x, y];
     return `${fmt(px)} ${fmt(py)}`;
   };
+  const gradient = e.gradient === undefined ? undefined : gradientWritten(e.gradient);
+  if (e.gradient !== undefined && gradient === undefined) return `<g ${mark}/>`;
+  const boxer = gradient && gradientBoxer(gradient);
   // Each loop is one string once made, and each side is paid for from the room, so that what the
   // hatch holds stays near what it writes: the loop that passes the room ends there. The loops are
   // added on, not joined, so that a path past the room is not copied before `write` refuses it.
+  // Each loop is paid for before the walk as an item that may draw nothing, since many hatches can
+  // share one list of loops, and the sides of a path that is not drawn where it is left out.
+  const loops = filled(e.loops);
+  step(loops.length);
   let d = "";
   let left = room;
-  for (const loop of drawnLoops(e.loops)) {
+  let walked = 0;
+  for (const loop of drawnLoops(loops)) {
     if (left < 0) break;
     const sides = loopSides(loop);
+    walked += sides.length;
     if (sides.length === 0) continue;
     const parts = [`M ${place(...sides[0]!.from)}`];
     let used = parts[0]!.length;
     for (const side of sides) {
       if (used > left) break;
+      boxer?.side(writtenPoint(side.from), writtenPoint(side.to), written(side.bulge));
       const arc = sideArc(side.from, side.to, side.bulge);
       if (!arc) parts.push(`L ${place(...side.to)}`);
       else {
@@ -1616,8 +1672,21 @@ function hatchToSvg(
     left -= path.length + 1;
   }
   if (d === "") return `<g ${mark}/>`;
+  if (boxer) {
+    const picture = boxer.picture();
+    const id = picture && shade(picture);
+    if (id === undefined) {
+      step(walked);
+      return `<g ${mark}/>`;
+    }
+    return `<path d="${d}" fill="url(#${id})" fill-rule="evenodd" stroke="none" ${mark} data-hatch="" data-gradient=""/>`;
+  }
   return `<path d="${d}" fill="${pen.color}" fill-rule="evenodd" stroke="none" ${mark} data-hatch=""/>`;
 }
+
+/** A true color as `#rrggbb`. */
+const hex = (color: readonly number[]): string =>
+  `#${color.map((c) => c.toString(16).padStart(2, "0")).join("")}`;
 
 /**
  * A hatch's pattern: each dash and dot its lines draw inside its loops, as one path in its pen,

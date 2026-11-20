@@ -73,6 +73,10 @@ it would take `1e+100` for `1e+10` and report nothing.
   alone, and its `angle` and `origin` are finite. The lines it places hold no number of 1e100 or
   more, and it draws at most 1,000,000 lines across the box of its loops. The rule of these is
   `hatch-pattern`. [Patterns](fills.md#patterns) has the rest.
+- A hatch's `gradient` goes with no `pattern`. Its `name` is one of `GRADIENT_KINDS`, its `angle`
+  a finite number under 1e100 and `centered` true or false, and it has two `colors` or a `color`
+  and a `tint` from 0 to 1, each color three whole numbers from 0 to 255, and no other field. The rule of these is
+  `hatch-gradient`. [Gradients](fills.md#gradients) has the rest.
 - Arc angles are stored from 0 up to 360, so -90 becomes 270. An arc cannot come
   within 0.000001 degrees of a full turn, because its two angles would be
   written the same and the leading CAD app holds such an arc as having no length. Draw a

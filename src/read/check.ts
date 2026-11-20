@@ -339,6 +339,15 @@ const ENTITY: Readonly<Record<string, Fields>> = {
         fields: { angle: "number", base: "point", offset: "point", "dashes?": { list: "number" } },
       },
     },
+    "gradient?": {
+      fields: {
+        name: "string",
+        angle: "number",
+        centered: "boolean",
+        colors: { list: "number" },
+        "tint?": "number",
+      },
+    },
   },
   wipeout: { ...BASE, kind: { oneOf: ["wipeout"] }, points: { list: "point" } },
 };

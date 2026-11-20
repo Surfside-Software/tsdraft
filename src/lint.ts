@@ -188,6 +188,8 @@ import {
   WIPEOUT_FLAT,
   WIPEOUT_FRAME,
   WIPEOUT_POINTS,
+  GRADIENT_WITH_PATTERN,
+  hatchGradientProblem,
   hatchPatternChoiceProblem,
   hatchPatternNameProblem,
   PATTERN_ITEMS,
@@ -250,6 +252,7 @@ export type LintRule =
   | "image"
   | "hatch"
   | "hatch-pattern"
+  | "hatch-gradient"
   | "duplicate-hatch-pattern"
   | "wipeout"
   | "zero-length"
@@ -969,6 +972,20 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     );
     const drawn = box && spread ? patternDrawnProblem(box, spread) : undefined;
     if (drawn) add("hatch-pattern", "error", drawn);
+  };
+
+  /** What is wrong with each object a hatch gives as its gradient, worked out once. */
+  const gradients = new WeakMap<object, string | undefined>();
+  /** Checks a hatch's gradient: its fields, and that the hatch has no pattern beside it. */
+  const lintHatchGradient = (hatch: Hatch, add: Add): void => {
+    if (hatch.pattern !== undefined) return add("hatch-gradient", "error", GRADIENT_WITH_PATTERN);
+    const gradient: unknown = hatch.gradient;
+    let problem: string | undefined;
+    if (typeof gradient === "object" && gradient !== null) {
+      if (gradients.has(gradient)) problem = gradients.get(gradient);
+      else gradients.set(gradient, (problem = hatchGradientProblem(gradient)));
+    } else problem = hatchGradientProblem(gradient);
+    if (problem) add("hatch-gradient", "error", problem);
   };
 
   /** What is wrong with a reference to a linetype, which the leading CAD app discards a drawing over. */
@@ -2068,6 +2085,9 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         }
         if (entity.kind === "hatch" && entity.pattern !== undefined) {
           lintHatchPattern(entity, add, problems.length === 0, here);
+        }
+        if (entity.kind === "hatch" && entity.gradient !== undefined) {
+          lintHatchGradient(entity, add);
         }
         // Each side against each other one, paid for by the pairs past the first 4,096.
         if (entity.kind === "wipeout" && entity.points.length > 3 && problems.length === 0) {

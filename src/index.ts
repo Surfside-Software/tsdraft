@@ -79,7 +79,9 @@ export {
   type DxfVersion,
   type Entity,
   type EntityOptions,
+  type GradientName,
   type Hatch,
+  type HatchGradient,
   type HatchLoop,
   type HatchOptions,
   type HatchPattern,
@@ -122,6 +124,7 @@ export {
   type ParagraphOptions,
   type ParagraphVerticalAlign,
   type Point,
+  type Rgb,
   type Polyline,
   type PolylineOptions,
   type RadiusDimension,
@@ -178,10 +181,15 @@ export {
 } from "./images.ts";
 export {
   dimensionMask,
+  GRADIENT_NAMES,
+  gradientPicture,
+  gradientWritten,
   hatchLines,
   loopBulged,
   maskOf,
   patternFinder,
+  rgbNumber,
+  tintColor,
   variableDictionaryHandle,
   WIPEOUT_APPLICATION,
   wipeoutClip,
@@ -189,6 +197,9 @@ export {
   wipeoutFrameVariableHandle,
   wipeoutPicture,
   wipeoutVariablesHandle,
+  type GradientPicture,
+  type GradientStop,
+  type GradientWritten,
 } from "./fills.ts";
 export { bulgeThrough, polylineBox, type PolylineBox } from "./polylines.ts";
 export { FONT_METRICS, FONT_METRICS_RANGES, type FontMetrics } from "./font-metrics.ts";
@@ -321,6 +332,7 @@ export type {
   ObliqueAngle,
   PaperLength,
   PaperOf,
+  GradientOf,
   LineSpacing,
   ParagraphValue,
   Pattern,
@@ -334,6 +346,7 @@ export type {
   XrefPath,
 } from "./rules.ts";
 export {
+  GRADIENT_KINDS,
   LEADER_ATTACHMENTS,
   LEADER_DIRECTIONS,
   LEADER_SHAFT_KINDS,
@@ -375,6 +388,7 @@ export {
   BLOCK_ITEMS,
   CENSUS_LIMIT,
   dimensionTextParts,
+  gradientDegrees,
   GEOMETRY_ITEMS,
   READ_FORMAT,
   type DrawingRead,
@@ -398,6 +412,7 @@ export {
   type ReadEntityBase,
   type ReadField,
   type ReadHatch,
+  type ReadGradient,
   type ReadHatchLoop,
   type ReadHeader,
   type ReadImage,

@@ -3,6 +3,7 @@
 // drawing: it turns the elements of that picture into the operators of a page.
 import type { XrefDrawings } from "./blocks.ts";
 import type { Drawing } from "./drawing.ts";
+import { GRADIENT_STOPS } from "./fills.ts";
 import { FONT_METRICS, FONT_METRICS_RANGES, type FontMetrics } from "./font-metrics.ts";
 import { FONTS, fontInfo, type Font, capHeightOf } from "./fonts.ts";
 import { paperInfo } from "./papers.ts";
@@ -253,6 +254,9 @@ const ELEMENTS = new Set([
   "defs",
   "image",
   "use",
+  "linearGradient",
+  "radialGradient",
+  "stop",
 ]);
 
 /** The attributes it writes on them, apart from `data-` ones, which say what an element is. */
@@ -293,7 +297,40 @@ const ATTRIBUTES = new Set([
   "preserveAspectRatio",
   "clip-rule",
   "fill-rule",
+  "gradientUnits",
+  "gradientTransform",
+  "spreadMethod",
+  "offset",
+  "stop-color",
 ]);
+
+/** A gradient a picture holds in its definitions: its kind, its frame and its colors. */
+interface Gradient {
+  readonly kind: "linear" | "radial";
+  readonly frame: Matrix;
+  readonly stops: { readonly offset: number; readonly color: readonly number[] }[];
+}
+
+/** Where a gradient's stop lies, as its function's bounds are written. */
+const stopOffset = (offset: number): string => real(offset, 9);
+
+/**
+ * A gradient's colors as a PDF function of 0 to 1: one linear function between each two stops,
+ * stitched. The stops run from 0 to 1, each past the last.
+ */
+function gradientFunction(stops: Gradient["stops"]): string {
+  const rgb = (color: readonly number[]) => color.map((c) => real(c / 255, 5)).join(" ");
+  const parts = stops
+    .slice(1)
+    .map(
+      (stop, i) =>
+        `<< /FunctionType 2 /Domain [0 1] /C0 [${rgb(stops[i]!.color)}] /C1 [${rgb(stop.color)}] /N 1 >>`,
+    );
+  if (parts.length === 1) return parts[0]!;
+  const bounds = stops.slice(1, -1).map((stop) => stopOffset(stop.offset));
+  const encode = parts.map(() => "0 1").join(" ");
+  return `<< /FunctionType 3 /Domain [0 1] /Functions [${parts.join(" ")}] /Bounds [${bounds.join(" ")}] /Encode [${encode}] >>`;
+}
 
 /**
  * Text with the four entities `toSVG` escapes with, and the line feed and the tab it writes as
@@ -1175,6 +1212,12 @@ class PdfWriter {
     >();
     /** Each raster file the picture holds, by its id. */
     const rasters = new Map<string, Uint8Array>();
+    /** Each gradient the picture holds, by its id, and the one being read. */
+    const gradients = new Map<string, Gradient>();
+    let gradient: { id: string; tag: string; held: Gradient } | undefined;
+    /** The shadings the page paints, by their names in its resources, and the name of each gradient's. */
+    const shadings = new Map<string, number>();
+    const shaded = new Map<string, string>();
     /** The clip path being read, whose rectangles are kept and not drawn. */
     let inClip: string | undefined;
     /** The layer of the marked content open, and the pen last set at this depth of `q`. */
@@ -1264,7 +1307,9 @@ class PdfWriter {
           : text === undefined &&
             (tag === "clipPath"
               ? inClip !== undefined
-              : inClip === undefined && names.at(-1) === tag);
+              : tag === "linearGradient" || tag === "radialGradient"
+                ? gradient?.tag === tag
+                : inClip === undefined && gradient === undefined && names.at(-1) === tag);
       // What the picture holds in its definitions is kept there, and drawn where a use names it.
       const inDefs = names.includes("defs");
       if (
@@ -1294,7 +1339,21 @@ class PdfWriter {
           }
           text = undefined;
         } else if (tag === "clipPath") inClip = undefined;
-        else if (tag === "defs") names.pop();
+        else if (gradient !== undefined) {
+          const { stops } = gradient.held;
+          // The stops run from 0 to 1, each past the last as the function's bounds are written.
+          const at = stops.map((stop) => Number(stopOffset(stop.offset)));
+          if (
+            stops.length < 2 ||
+            at[0] !== 0 ||
+            at.at(-1) !== 1 ||
+            at.some((offset, i) => i > 0 && !(offset > at[i - 1]!))
+          ) {
+            throw refuse(`the stops of the gradient ${JSON.stringify(gradient.id)}`, where(tag));
+          }
+          gradients.set(gradient.id, gradient.held);
+          gradient = undefined;
+        } else if (tag === "defs") names.pop();
         else if (tag === "g" || tag === "svg") {
           names.pop();
           ended = names.length === 0;
@@ -1377,6 +1436,56 @@ class PdfWriter {
           throw refuse("<defs> where it is", where(tag));
         }
         if (!selfClosing) names.push("defs");
+        continue;
+      }
+      if (inDefs && gradient !== undefined) {
+        if (tag !== "stop" || !selfClosing || gradient.held.stops.length === GRADIENT_STOPS)
+          throw refuse(`<${tag}> in a gradient`, where(tag));
+        const extra = Object.keys(element).find(
+          (name) => name !== "offset" && name !== "stop-color",
+        );
+        if (extra !== undefined) throw refuse(`the attribute ${extra} of a stop`, where(tag));
+        const color = /^#([0-9a-f]{6})$/.exec(element["stop-color"] ?? "")?.[1];
+        if (color === undefined)
+          throw refuse(`the stop-color ${JSON.stringify(element["stop-color"])}`, where(tag));
+        gradient.held.stops.push({
+          offset: number("offset"),
+          color: [0, 2, 4].map((k) => Number.parseInt(color.slice(k, k + 2), 16)),
+        });
+        continue;
+      }
+      if (inDefs && (tag === "linearGradient" || tag === "radialGradient")) {
+        const linear = tag === "linearGradient";
+        // The unit frame of `gradientPicture`, which the gradient's transform maps.
+        const own = linear ? { x1: "0", y1: "0", x2: "1", y2: "0" } : { cx: "0", cy: "0", r: "1" };
+        const expected = { ...own, gradientUnits: "userSpaceOnUse", spreadMethod: "pad" };
+        const extra = Object.keys(element).find(
+          (name) =>
+            name !== "id" &&
+            name !== "gradientTransform" &&
+            element[name] !== expected[name as keyof typeof expected],
+        );
+        // One matrix, as `toSVG` writes it: an empty list would be read as no transform.
+        const transform = element.gradientTransform ?? "";
+        if (
+          selfClosing ||
+          element.id === undefined ||
+          !/^matrix\([^()]*\)$/.test(transform) ||
+          gradients.has(element.id) ||
+          extra !== undefined ||
+          Object.keys(expected).some((name) => element[name] === undefined)
+        ) {
+          throw refuse("a gradient that is not one of gradientPicture's", where(tag));
+        }
+        gradient = {
+          id: element.id,
+          tag,
+          held: {
+            kind: linear ? "linear" : "radial",
+            frame: transformOf(transform, where(tag)),
+            stops: [],
+          },
+        };
         continue;
       }
       if (inDefs) {
@@ -1508,6 +1617,47 @@ class PdfWriter {
       }
       // The hidden rectangle of a view, and the white of the paper, put no ink on the page.
       if (element.visibility === "hidden" || element["data-paper-sheet"] !== undefined) continue;
+      const named = /^url\(#([^)]+)\)$/.exec(element.fill ?? "")?.[1];
+      if (named !== undefined) {
+        // A hatch's gradient: its shading, one for each gradient, painted inside its loops.
+        const held = gradients.get(named);
+        if (tag !== "path" || held === undefined || element.stroke !== "none") {
+          throw refuse(`the fill ${JSON.stringify(element.fill)}`, where(tag));
+        }
+        const rule = element["fill-rule"];
+        if (rule !== undefined && rule !== "evenodd")
+          throw refuse(`the fill rule ${JSON.stringify(rule)}`, where(tag));
+        const m = compose(inherited.matrix, held.frame);
+        if (!(m[0] * m[3] - m[1] * m[2] !== 0) || !m.every(Number.isFinite)) continue;
+        let key = shaded.get(named);
+        if (key === undefined) {
+          key = `Sh${shadings.size + 1}`;
+          const object = this.reserve();
+          shadings.set(key, object);
+          shaded.set(named, key);
+          const coords = held.kind === "linear" ? "[0 0 1 0]" : "[0 0 0 0 0 1]";
+          this.object(
+            object,
+            `<< /ShadingType ${held.kind === "linear" ? 2 : 3} /ColorSpace /DeviceRGB /Coords ${coords} /Function ${gradientFunction(held.stops)} /Extend [true true] >>`,
+          );
+        }
+        mark(inherited.layer);
+        content.add("q");
+        const p = (point: readonly [number, number]) =>
+          apply(inherited.matrix, point[0], point[1]).map(num).join(" ");
+        for (const piece of pathPieces(element.d ?? "", where(tag), stretchOf(inherited.matrix))) {
+          if (piece.kind === "move") content.add(`${p(piece.to)} m`);
+          else if (piece.kind === "line") content.add(`${p(piece.to)} l`);
+          else if (piece.kind === "curve")
+            content.add(`${p(piece.c1)} ${p(piece.c2)} ${p(piece.to)} c`);
+          else content.add("h");
+        }
+        content.add(rule === "evenodd" ? "W* n" : "W n");
+        content.add(`${m.map((v, i) => (i < 4 ? real(v, 9) : num(v))).join(" ")} cm`);
+        content.add(`/${key} sh`);
+        content.add("Q");
+        continue;
+      }
       const stroke = colorOf(inherited.stroke, where(tag));
       const fill = colorOf(inherited.fill, where(tag));
       // The thinnest line, which `toSVG` marks, plots 0 wide: the thinnest the printer draws.
@@ -1577,7 +1727,7 @@ class PdfWriter {
       }
       paint(pieces, inherited.matrix, state);
     }
-    if (!paper || stack.length > 0 || text || inClip !== undefined) {
+    if (!paper || stack.length > 0 || text || inClip !== undefined || gradient !== undefined) {
       throw refuse("a picture that ends before its last element closes", `picture ${page}`);
     }
     close();
@@ -1600,10 +1750,12 @@ class PdfWriter {
     );
     const layerList = [...marks].map(([layer, key]) => `/${key} ${this.layers.get(layer)} 0 R`);
     const imageList = [...images].map((key) => `/${key} ${this.images.get(key)!.object} 0 R`);
+    const shadingList = [...shadings].map(([key, object]) => `/${key} ${object} 0 R`);
     const resources = [
       fontList.length > 0 ? `/Font << ${fontList.join(" ")} >>` : "",
       layerList.length > 0 ? `/Properties << ${layerList.join(" ")} >>` : "",
       imageList.length > 0 ? `/XObject << ${imageList.join(" ")} >>` : "",
+      shadingList.length > 0 ? `/Shading << ${shadingList.join(" ")} >>` : "",
     ]
       .filter(Boolean)
       .join(" ");

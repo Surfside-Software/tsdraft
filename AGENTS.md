@@ -387,7 +387,11 @@
   a name, and `patternDrawnProblem` is the one check of what its lines draw, which `lint`, the
   builder and `toSVG` share: a pattern that would draw more than `HATCH_LINES` lines across the
   box of its loops, or place a number of 1e100 or more, is refused, and `toSVG` draws none of its
-  lines.
+  lines. A gradient is `gradientPicture`, from its loops and numbers as written: colors along a
+  line or out from a point in a frame mapped onto the hatch, which `toSVG` writes as a
+  `linearGradient` or `radialGradient` in the picture's definitions and `toPDF` as a shading in the
+  loops' clip. It plots in its own colors whatever the plot style table, and black is written as
+  `0,0,1`, since the leading CAD app reads a 421 of 0 as no color.
 - `src/pdf.ts` plots layouts to PDF from the pictures `toSVG` draws of them, and decides
   nothing about a drawing: every rule of what a sheet plots stays in `toSVG`, so the preview
   and the plot cannot part. It reads the closed set of elements and attributes `toSVG` writes

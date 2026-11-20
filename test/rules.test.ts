@@ -1573,3 +1573,193 @@ test("an attribute of paragraph text and each insert's value of it are checked a
   // An insert that scales its block so unevenly that its width factor leaves the range is refused.
   assert.throws(() => d.insert("NOTE", [0, 0], { scale: [1000, 0.001] }), /times as wide/);
 });
+
+test("a hatch's gradient is checked by the builder and by lint", () => {
+  const box: Point[] = [
+    [0, 0],
+    [8, 0],
+    [8, 4],
+    [0, 4],
+  ];
+  const d = createDrawing({ units: "in" });
+  d.hatch(box, {
+    gradient: {
+      name: "linear",
+      angle: 30,
+      colors: [
+        [200, 40, 30],
+        [20, 90, 180],
+      ],
+    },
+  });
+  d.hatch(box, {
+    gradient: { name: "inverted-spherical", centered: false, color: [0, 0, 0], tint: 0.5 },
+  });
+  const built = d.build();
+  assert.deepEqual(built.entities[1], {
+    kind: "hatch",
+    layer: "0",
+    loops: [{ points: box }],
+    gradient: { name: "inverted-spherical", centered: false, color: [0, 0, 0], tint: 0.5 },
+  });
+  assert.deepEqual(lint(built), []);
+  assert.deepEqual(fromJSON(toJSON(built)), built);
+
+  const shaded = (gradient: unknown, pattern?: unknown): Drawing => ({
+    ...built,
+    entities: [
+      {
+        kind: "hatch",
+        layer: "0",
+        loops: [{ points: box }],
+        gradient: gradient as never,
+        ...(pattern ? { pattern: pattern as never } : {}),
+      },
+    ],
+  });
+  const both = (gradient: unknown, expected: RegExp) => {
+    assert.throws(() => d.hatch(box, { gradient: gradient as never }), expected);
+    const found = lint(shaded(gradient)).map((x) => `${x.rule}: ${x.message}`);
+    assert.equal(found.length, 1, found.join("\n"));
+    assert.match(found[0]!, /^hatch-gradient: hatch #0: /);
+    assert.match(found[0]!, expected);
+  };
+  both(
+    {
+      name: "radial",
+      colors: [
+        [0, 0, 0],
+        [1, 1, 1],
+      ],
+    },
+    /name must be one of "linear"/,
+  );
+  both(
+    {
+      name: "linear",
+      colors: [
+        [0, 0, 256],
+        [1, 1, 1],
+      ],
+    },
+    /whole number from 0 to 255/,
+  );
+  both(
+    {
+      name: "linear",
+      colors: [
+        [0, 0.5, 0],
+        [1, 1, 1],
+      ],
+    },
+    /whole number from 0 to 255/,
+  );
+  both({ name: "linear", color: [0, 0, 0], tint: 1.5 }, /tint must be a number from 0/);
+  both({ name: "linear", color: [0, 0, 0] }, /radient must be \{ name/);
+  both(
+    {
+      name: "linear",
+      colors: [
+        [0, 0, 0],
+        [1, 1, 1],
+      ],
+      tint: 0.5,
+    },
+    /radient must be \{ name/,
+  );
+  both({ name: "linear", angle: NaN, color: [0, 0, 0], tint: 0 }, /angle must be a finite number/);
+  both(
+    { name: "linear", centered: 1, color: [0, 0, 0], tint: 0 },
+    /centered must be true or false/,
+  );
+  const found = lint(shaded({ name: "linear", color: [0, 0, 0], tint: 0 }, { spacing: 1 }));
+  assert.deepEqual(
+    found.map((x) => x.rule),
+    ["hatch-gradient"],
+  );
+  // The literal mistakes are compile errors too.
+  assert.throws(
+    () =>
+      d.hatch(box, {
+        // @ts-expect-error: a channel is a whole number from 0 to 255.
+        gradient: {
+          name: "linear",
+          colors: [
+            [0, 0, 300],
+            [0, 0, 0],
+          ],
+        },
+      }),
+    /0 to 255/,
+  );
+  assert.throws(
+    () =>
+      d.hatch(box, {
+        // @ts-expect-error: and a tint from 0 to 1.
+        gradient: { name: "linear", color: [0, 0, 0], tint: 2 },
+      }),
+    /tint/,
+  );
+  assert.throws(
+    () =>
+      d.hatch(box, {
+        gradient: { name: "linear", color: [0, 0, 0], tint: 0 },
+        // @ts-expect-error: a gradient never goes with a pattern.
+        pattern: { spacing: 1 },
+      }),
+    /not both/,
+  );
+  assert.throws(
+    () =>
+      d.hatch(box, {
+        // @ts-expect-error: and is one of nine.
+        gradient: { name: "radial", color: [0, 0, 0], tint: 0 },
+      }),
+    /one of/,
+  );
+  assert.throws(
+    () =>
+      d.hatch(box, {
+        // @ts-expect-error: a field it does not know.
+        gradient: { name: "linear", color: [0, 0, 0], tint: 1, tnit: 0 },
+      }),
+    /radient must be \{ name/,
+  );
+  assert.throws(
+    () =>
+      d.hatch(box, {
+        // @ts-expect-error: an angle of 1e100 or more.
+        gradient: { name: "linear", angle: 1e100, color: [0, 0, 0], tint: 1 },
+      }),
+    /angle: .*1e100/,
+  );
+  // A member of a union is checked as a literal is.
+  const large = (huge: boolean) => (huge ? 1e100 : 0);
+  assert.throws(
+    () =>
+      d.hatch(box, {
+        // @ts-expect-error: one member's angle is 1e100.
+        gradient: { name: "linear", angle: large(true) as 0 | 1e100, color: [0, 0, 0], tint: 1 },
+      }),
+    /angle: .*1e100/,
+  );
+  const either = (odd: boolean) =>
+    odd
+      ? ({ name: "linear", color: [0, 0, 0], tint: 1, tnit: 0 } as const)
+      : ({ name: "linear", color: [0, 0, 0], tint: 1 } as const);
+  assert.throws(
+    () =>
+      d.hatch(box, {
+        // @ts-expect-error: one member has a field a gradient does not.
+        gradient: either(true),
+      }),
+    /radient must be \{ name/,
+  );
+  assert.throws(
+    () =>
+      createDrawing({ dxf: "R12" }).hatch(box, {
+        gradient: { name: "linear", color: [0, 0, 0], tint: 0 },
+      } as never),
+    /R2018/,
+  );
+});

@@ -97,12 +97,14 @@ A drawing with no image has the JSON it had before images existed. [Images](imag
 them.
 
 A hatch is an entity of kind `"hatch"`, with its `layer` and its `loops`, each `{ points }` and
-where a side is an arc its `bulges`, one for each side, its `pattern` where it is not solid, and
-the `linetype` and `lineweight` of every entity. A pattern is `{ name }` of one of the drawing's
+where a side is an arc its `bulges`, one for each side, its `pattern` or its `gradient` where it
+is not solid, and the `linetype` and `lineweight` of every entity. A pattern is `{ name }` of one of the drawing's
 `patterns`, with its `scale`, `angle` and `origin` where they are set, or `{ spacing }` of lines
 of its own, with its `angle`, `crossed` and `origin`. `patterns` on the drawing holds its hatch
 patterns, each `{ name, description, lines }` and each line `{ angle, base, offset, dashes }`, the
-dashes where it has them. A wipeout is an entity of kind `"wipeout"`, with its `layer` and its `points`.
+dashes where it has them. A gradient is `{ name, angle, centered }` where they are set, with its
+`colors`, two `[red, green, blue]`, or its `color` and `tint`. A wipeout is an entity of kind
+`"wipeout"`, with its `layer` and its `points`.
 `wipeoutFrame: false` on the drawing hides every wipeout's frame. A paragraph's `mask` and a
 dimension style's `textMask` are written where they are set. A drawing with none of them has the
 JSON it had before they existed. [Fills, wipeouts and masks](fills.md) describes them.

@@ -4,7 +4,7 @@
 //
 // That app discards the whole drawing over most names that break the name rules.
 import type { XrefProblem } from "./blocks.ts";
-import type { DxfVersion, Point, Units } from "./drawing.ts";
+import type { DxfVersion, HatchGradient, Point, Rgb, Units } from "./drawing.ts";
 import type { PaperUnit } from "./paper.ts";
 import { paperInfo, PLOT_STYLE_TABLES, type Paper, type PlotStyleTable } from "./papers.ts";
 import {
@@ -1829,6 +1829,158 @@ export function hatchPatternChoiceProblem(value: unknown): string | undefined {
   }
   return c.origin === undefined ? undefined : finitePointProblem(c.origin, "pattern's origin");
 }
+
+/** The gradients a hatch can have, by name. */
+export const GRADIENT_KINDS = [
+  "linear",
+  "cylinder",
+  "inverted-cylinder",
+  "spherical",
+  "inverted-spherical",
+  "hemispherical",
+  "inverted-hemispherical",
+  "curved",
+  "inverted-curved",
+] as const;
+
+const GRADIENT_CHOICE =
+  "gradient must be { name, angle?, centered?, colors } for two colors, or { name, angle?, centered?, color, tint } for one color and its tint";
+const GRADIENT_NAME = `gradient's name must be one of ${GRADIENT_KINDS.map((k) => `"${k}"`).join(", ")}`;
+const GRADIENT_COLOR =
+  "a gradient's color must be [red, green, blue], each a whole number from 0 to 255";
+const GRADIENT_TINT = "a gradient's tint must be a number from 0, for black, to 1, for white";
+/** What is wrong with a hatch that has a pattern and a gradient. */
+export const GRADIENT_WITH_PATTERN = "a hatch has a pattern or a gradient, not both";
+
+/** The fields a gradient may have. */
+const GRADIENT_KEYS = ["name", "angle", "centered", "colors", "color", "tint"] as const;
+
+/**
+ * A true color copied from `value`, each channel read once, or undefined where it is not three
+ * whole numbers from 0 to 255.
+ */
+export function rgbOf(value: unknown): Rgb | undefined {
+  if (!Array.isArray(value) || value.length !== 3) return undefined;
+  const rgb: [unknown, unknown, unknown] = [value[0], value[1], value[2]];
+  for (const c of rgb) if (!Number.isInteger(c) || (c as number) < 0 || (c as number) > 255) return;
+  return rgb as unknown as Rgb;
+}
+
+/**
+ * A hatch's gradient read once: what is wrong with it, or a copy of it in plain data. Each field
+ * and each channel is read once, so what is checked is what is kept.
+ */
+export function readGradient(
+  value: unknown,
+): { readonly problem: string } | { readonly gradient: HatchGradient } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return { problem: GRADIENT_CHOICE };
+  }
+  for (const key of Object.keys(value)) {
+    if (!(GRADIENT_KEYS as readonly string[]).includes(key)) return { problem: GRADIENT_CHOICE };
+  }
+  const { name, angle, centered, colors, color, tint } = value as Record<string, unknown>;
+  if (!(GRADIENT_KINDS as readonly unknown[]).includes(name)) return { problem: GRADIENT_NAME };
+  if (angle !== undefined) {
+    const problem = finiteAngleProblem(angle, "gradient's angle");
+    if (problem) return { problem };
+  }
+  if (centered !== undefined && typeof centered !== "boolean") {
+    return { problem: "gradient's centered must be true or false" };
+  }
+  const base = {
+    name: name as HatchGradient["name"],
+    ...(angle === undefined ? {} : { angle: angle as number }),
+    ...(centered === undefined ? {} : { centered }),
+  };
+  if (colors !== undefined) {
+    if (color !== undefined || tint !== undefined) return { problem: GRADIENT_CHOICE };
+    if (!Array.isArray(colors) || colors.length !== 2) return { problem: GRADIENT_CHOICE };
+    const [first, second] = [rgbOf(colors[0]), rgbOf(colors[1])];
+    if (!first || !second) return { problem: GRADIENT_COLOR };
+    return { gradient: { ...base, colors: [first, second] } };
+  }
+  if (color === undefined || tint === undefined) return { problem: GRADIENT_CHOICE };
+  const one = rgbOf(color);
+  if (!one) return { problem: GRADIENT_COLOR };
+  if (!(typeof tint === "number" && tint >= 0 && tint <= 1)) return { problem: GRADIENT_TINT };
+  return { gradient: { ...base, color: one, tint } };
+}
+
+/** Returns what is wrong with a hatch's gradient, or undefined. */
+export function hatchGradientProblem(value: unknown): string | undefined {
+  const read = readGradient(value);
+  return "problem" in read ? read.problem : undefined;
+}
+
+/** True for a channel of a true color as a literal: a whole number from 0 to 255. */
+type Channel<N extends number> = number extends N ? true : N extends Enumerate<256> ? true : false;
+
+/** True for a true color whose literal channels are each a whole number from 0 to 255. */
+type ColorChecked<C> = C extends readonly [
+  infer R extends number,
+  infer G extends number,
+  infer B extends number,
+]
+  ? [Channel<R>, Channel<G>, Channel<B>] extends [true, true, true]
+    ? true
+    : false
+  : true;
+
+/** True for a tint whose literal is a number from 0 to 1. */
+type TintChecked<T> = T extends number
+  ? number extends T
+    ? true
+    : `${T}` extends `-${string}`
+      ? false
+      : `${T}` extends "0" | "1" | `0.${string}` | `${string}e-${string}`
+        ? true
+        : false
+  : true;
+
+/** The fields of any member of `G` that a gradient does not have. */
+type UnknownKeys<G> = G extends unknown ? Exclude<keyof G, (typeof GRADIENT_KEYS)[number]> : never;
+
+/** True for a member of an angle's literal of 1e100 or more, where the compiler prints a third exponent digit. */
+type LargeAngle<A> = A extends number
+  ? `${A}` extends `${string}e+${Digit}${Digit}${Digit}`
+    ? true
+    : never
+  : never;
+
+/** True when no member of `G` has an angle of 1e100 or more. */
+type AngleChecked<G> = [G extends { readonly angle?: infer A } ? LargeAngle<A> : never] extends [
+  never,
+]
+  ? true
+  : false;
+
+type CheckedGradient<G> = [UnknownKeys<G>] extends [never]
+  ? AngleChecked<G> extends true
+    ? CheckedColors<G>
+    : typeof TOO_LARGE
+  : typeof GRADIENT_CHOICE;
+
+type CheckedColors<G> = G extends { readonly colors: readonly [infer A, infer B] }
+  ? [ColorChecked<A>, ColorChecked<B>] extends [true, true]
+    ? G
+    : typeof GRADIENT_COLOR
+  : G extends { readonly color: infer C; readonly tint: infer T }
+    ? ColorChecked<C> extends true
+      ? TintChecked<T> extends true
+        ? G
+        : typeof GRADIENT_TINT
+      : typeof GRADIENT_COLOR
+    : G;
+
+/**
+ * Resolves to `G` when it is a hatch's gradient whose fields, angle, colors and tint are written as
+ * they may be, and to the error message otherwise. The false branch is never taken: it is there so that the
+ * compiler infers `G` from the literal.
+ */
+export type GradientOf<G extends HatchGradient> = [G] extends [HatchGradient]
+  ? CheckedGradient<G>
+  : G;
 
 /**
  * Returns what is wrong with a hatch that names a pattern the drawing does not have. tsdraft has

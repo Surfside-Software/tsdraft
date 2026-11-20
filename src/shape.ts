@@ -628,10 +628,10 @@ function shapes(all: boolean, typed = all): Shapes {
         transparent: ruled(boolean),
       },
     ),
-    // A rule of `lint` reports the pattern, whatever its type.
+    // A rule of `lint` reports the pattern and the gradient, whatever their types.
     hatch: fields<Hatch>(
       { kind, layer: string, loops: list(record(loop)) },
-      { ...shared, pattern: LEFT },
+      { ...shared, pattern: LEFT, gradient: LEFT },
     ),
     wipeout: fields<Wipeout>({ kind, layer: string, points: list(point) }, shared),
   } satisfies Record<Entity["kind"], FieldsCheck>;

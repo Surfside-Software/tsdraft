@@ -179,7 +179,16 @@ leader:
   `patternLines`, each `{ angle, base, offset, dashes? }` as the file holds it: placed in the
   drawing, with the pattern's angle added, the base point scaled, turned and moved to the origin,
   and the offset and dashes scaled, the offset turned to the line. [Patterns](fills.md#patterns)
-  says how a firm's patterns are read back this way.
+  says how a firm's patterns are read back this way. A hatch with a gradient holds `gradient`, left
+  out where group 450 is 0: its `name` as the file holds it, such as `LINEAR`, a name tsdraft does
+  not know included, its `angle` in degrees, `centered` where group 461 is 0, the first two
+  `colors`, each group 421 as `0xRRGGBB`, and, where it has one color, its `tint` as single
+  precision holds it. To build a `Hatch.gradient` from one, find the name whose `GRADIENT_NAMES`
+  entry is the file's `name`, and take each color apart as `[c >> 16, (c >> 8) & 255, c & 255]`; a
+  name with no entry is one tsdraft does not write. A hatch seen from below reads its gradient's
+  angle as 180 less the file's, as a pattern line's is; where that gradient is not centered, the
+  angle and `centered: false` do not give its mirror image, because its shift does not mirror with
+  the angle.
 - `wipeout`: its `points` in the world's coordinates, without the first again at the end.
 - An `mtext` with a background holds `mask`: its `offsetFactor`, and its `color` or `trueColor`
   where it is not in the drawing's background.

@@ -57,8 +57,12 @@ import type {
   HatchPattern,
 } from "./drawing.ts";
 import { boxer, type Boxer } from "./extents.ts";
+import { nearestColorIndex } from "./svg.ts";
 import {
   dimensionMask,
+  GRADIENT_NAMES,
+  gradientWritten,
+  rgbNumber,
   hatchLines,
   patternFinder,
   loopBulged,
@@ -1359,6 +1363,22 @@ function writeEntity(
       g(98, 1);
       g(10, 0);
       g(20, 0);
+      const gradient = gradientWritten(e.gradient);
+      if (gradient !== undefined) {
+        g(450, 1);
+        g(451, 0);
+        g(460, fifteenDigits(gradient.angle));
+        g(461, gradient.centered ? 0 : 1);
+        g(452, gradient.single ? 1 : 0);
+        g(462, gradient.tint);
+        g(453, 2);
+        gradient.colors.forEach((color, k) => {
+          g(463, k);
+          g(63, nearestColorIndex(color));
+          g(421, rgbNumber(color));
+        });
+        g(470, GRADIENT_NAMES[gradient.name]);
+      }
       return;
     }
     case "wipeout": {

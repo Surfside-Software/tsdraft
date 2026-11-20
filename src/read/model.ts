@@ -730,7 +730,33 @@ export interface ReadHatch extends ReadEntityBase {
    * scaled. A firm's patterns can be read back from its drawings this way.
    */
   readonly patternLines?: readonly ReadPatternLine[];
+  /** Its gradient, groups 450 to 470. Left out when group 450 is 0. */
+  readonly gradient?: ReadGradient;
 }
+
+/** A hatch's gradient, as the file holds it. */
+export interface ReadGradient {
+  /** Group 470, such as `LINEAR`, a name tsdraft does not know included. */
+  readonly name: string;
+  /** Group 460, in degrees counterclockwise. */
+  readonly angle: number;
+  /** True when group 461 is 0. */
+  readonly centered: boolean;
+  /**
+   * Group 421 of its first two colors, each `0xRRGGBB`. The leading CAD app plots the first two
+   * whatever the count, and from blue to white with fewer.
+   */
+  readonly colors: readonly number[];
+  /** Group 462, as single precision holds it, where group 452 says one color and its tint. */
+  readonly tint?: number;
+}
+
+/**
+ * A gradient's angle in degrees, with 12 significant digits, from its radians: a DXF holds them as
+ * written, and a DWG as the leading CAD app parsed them, which can differ in the last bit.
+ */
+export const gradientDegrees = (radians: number): number =>
+  Number((radians * (180 / Math.PI)).toPrecision(12));
 
 /** A line of a hatch's pattern, as `ReadHatch.patternLines` holds it. */
 export interface ReadPatternLine {

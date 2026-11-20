@@ -7,23 +7,32 @@
 // lower-left corner the polygon's least X and Y and its side the larger of the polygon's width and
 // height, clipped by the polygon in that pixel's axes, y down from its top. It plots a text's mask
 // as the text's box grown by the mask's factor less one times its height, each side.
+import type { Matrix } from "./blocks.ts";
 import type {
   Drawing,
   Entity,
+  GradientName,
   Hatch,
   HatchLoop,
   HatchPattern,
   PatternLine,
   Point,
   Polyline,
+  Rgb,
 } from "./drawing.ts";
 import { placedLines, userLines, type PlacedLine } from "./patterns.ts";
-import { written } from "./format.ts";
+import { fifteenDigits, written } from "./format.ts";
 import { keyHandle } from "./handles.ts";
 import { layerKey } from "./layers.ts";
 import { placer, type ParagraphLayout, type ParagraphToMeasure } from "./paragraphs.ts";
-import { direction, polylineSides, type PolylineSide } from "./polylines.ts";
-import { HATCH_LINES, PATTERN_ITEMS, PATTERN_REACH, patternDensityProblem } from "./rules.ts";
+import { direction, polylineSides, sideArc, type PolylineSide } from "./polylines.ts";
+import {
+  HATCH_LINES,
+  PATTERN_ITEMS,
+  PATTERN_REACH,
+  patternDensityProblem,
+  rgbOf,
+} from "./rules.ts";
 import { filled } from "./shape.ts";
 
 /**
@@ -309,6 +318,348 @@ export function patternDrawnProblem(box: LoopsBox, spread: PatternSpread): strin
   const count = linesAcross(box, spread.families);
   return count <= HATCH_LINES ? undefined : patternDensityProblem(count);
 }
+
+/** The name a file holds for each gradient, group 470. */
+export const GRADIENT_NAMES: Readonly<Record<GradientName, string>> = {
+  linear: "LINEAR",
+  cylinder: "CYLINDER",
+  "inverted-cylinder": "INVCYLINDER",
+  spherical: "SPHERICAL",
+  "inverted-spherical": "INVSPHERICAL",
+  hemispherical: "HEMISPHERICAL",
+  "inverted-hemispherical": "INVHEMISPHERICAL",
+  curved: "CURVED",
+  "inverted-curved": "INVCURVED",
+};
+
+/** A gradient as both writers write it, from its numbers as written. */
+export interface GradientWritten {
+  readonly name: GradientName;
+  /** Group 460: radians, as `fifteenDigits` writes them. */
+  readonly angle: number;
+  readonly centered: boolean;
+  /** Group 452: true for one color and its tint. */
+  readonly single: boolean;
+  /** Group 462: the tint as written for one color, and 1 for two. */
+  readonly tint: number;
+  /** The two colors of groups 421: for one color, the color and `tintColor` of it. */
+  readonly colors: readonly [Rgb, Rgb];
+}
+
+/**
+ * A hatch's gradient as written, or undefined for none and for one whose name, colors or tint the
+ * rules refuse. An angle that is not finite is taken as 0, and a centering other than false as true.
+ */
+export function gradientWritten(gradient: unknown): GradientWritten | undefined {
+  if (typeof gradient !== "object" || gradient === null || Array.isArray(gradient)) return;
+  // Each field is read once, and each color copied, so what is checked is what is written.
+  const { name, angle, centered, colors, color, tint } = gradient as Record<string, unknown>;
+  if (typeof name !== "string" || !Object.hasOwn(GRADIENT_NAMES, name)) return;
+  const degrees = typeof angle === "number" && Number.isFinite(angle) ? written(angle) : 0;
+  const base = {
+    name: name as GradientName,
+    angle: Number(fifteenDigits((degrees * Math.PI) / 180)),
+    centered: centered !== false,
+  };
+  if (colors !== undefined) {
+    if (!Array.isArray(colors) || colors.length !== 2) return;
+    const [first, second] = [rgbOf(colors[0]), rgbOf(colors[1])];
+    if (!first || !second) return;
+    return { ...base, single: false, tint: 1, colors: [held(first), held(second)] };
+  }
+  const one = rgbOf(color);
+  if (!one || typeof tint !== "number" || !(tint >= 0 && tint <= 1)) return;
+  const shade = written(tint);
+  return {
+    ...base,
+    single: true,
+    tint: shade,
+    colors: [held(one), held(tintColor(one, shade))],
+  };
+}
+
+/**
+ * A gradient's color as a file holds it: black as 0,0,1, since the leading CAD app reads a true
+ * color of 0 as none and takes the index's color in its place.
+ */
+const held = (color: Rgb): Rgb =>
+  color[0] === 0 && color[1] === 0 && color[2] === 0 ? [0, 0, 1] : [color[0], color[1], color[2]];
+
+/** A true color as one number, `0xRRGGBB`, as group 421 holds it. */
+export const rgbNumber = ([r, g, b]: Rgb): number => (r << 16) | (g << 8) | b;
+
+/**
+ * The second color of a gradient of one color, as the leading CAD app stores it for a tint: the
+ * color with its lightness, in hue, lightness and saturation, set to the tint, its hue in whole
+ * degrees and its saturation in whole hundredths.
+ */
+export function tintColor([r, g, b]: Rgb, tint: number): Rgb {
+  const [max, min] = [Math.max(r, g, b), Math.min(r, g, b)];
+  const lightness = (max + min) / 510;
+  const spread =
+    max === min
+      ? 0
+      : lightness <= 0.5
+        ? (max - min) / (max + min)
+        : (max - min) / (510 - max - min);
+  const saturation = Math.round(spread * 100) / 100;
+  let hue = 0;
+  if (max !== min) {
+    if (max === r) hue = (g - b) / (max - min);
+    else if (max === g) hue = 2 + (b - r) / (max - min);
+    else hue = 4 + (r - g) / (max - min);
+  }
+  hue = ((Math.round(hue * 60) % 360) + 360) % 360;
+  const high = tint <= 0.5 ? tint * (1 + saturation) : tint + saturation - tint * saturation;
+  const low = 2 * tint - high;
+  const channel = (at: number): number => {
+    const x = ((at % 360) + 360) % 360;
+    const v =
+      x < 60
+        ? low + ((high - low) * x) / 60
+        : x < 180
+          ? high
+          : x < 240
+            ? low + ((high - low) * (240 - x)) / 60
+            : low;
+    return Math.round(v * 255);
+  };
+  return [channel(hue + 120), channel(hue), channel(hue - 120)];
+}
+
+/** A color of a gradient's picture, where it lies from 0 to 1 along the picture. */
+export interface GradientStop {
+  readonly offset: number;
+  readonly color: Rgb;
+}
+
+/**
+ * What a gradient draws, as the leading CAD app plots it: its colors along a line, `linear`, or
+ * out from a point, `radial`, each in a frame that `frame` maps onto the hatch's coordinates. A
+ * linear picture runs from x 0 to x 1 of its frame, and a radial one from its frame's origin to the
+ * circle of radius 1 about it; past either end it keeps the end's color. The colors between two
+ * stops run straight from one to the other.
+ */
+export interface GradientPicture {
+  readonly kind: "linear" | "radial";
+  readonly frame: Matrix;
+  readonly stops: readonly GradientStop[];
+}
+
+const translate = (x: number, y: number): Matrix => [1, 0, 0, 1, x, y];
+const scale = (x: number, y: number): Matrix => [x, 0, 0, y, 0, 0];
+const turn = (a: number): Matrix => [Math.cos(a), Math.sin(a), -Math.sin(a), Math.cos(a), 0, 0];
+const times = (...ms: Matrix[]): Matrix =>
+  ms.reduce((m, n): Matrix => [
+    m[0] * n[0] + m[2] * n[1],
+    m[1] * n[0] + m[3] * n[1],
+    m[0] * n[2] + m[2] * n[3],
+    m[1] * n[2] + m[3] * n[3],
+    m[0] * n[4] + m[2] * n[5] + m[4],
+    m[1] * n[4] + m[3] * n[5] + m[5],
+  ]);
+
+/**
+ * How many colors a curve's picture holds, each rounded to a whole level: enough that it strays
+ * less than a level from the curve.
+ */
+const FALLOFF_STOPS = 33;
+const CYLINDER_STOPS = 33;
+/** The most colors a gradient's picture holds, which `svgToPDF` reads no more than. */
+export const GRADIENT_STOPS = Math.max(FALLOFF_STOPS, CYLINDER_STOPS);
+/** Where a gradient that is not centered is half way along t, and where its spots move. */
+const SHIFTED_MIDDLE = 0.3;
+const SPOT_SHIFT = 0.25;
+/** How much a curved gradient's oval is squeezed across, centered and not. */
+const CURVED_ACROSS = { centered: 2 / 3, shifted: 4 / 5 } as const;
+
+/**
+ * Walks a gradient hatch's sides and gives its picture. The leading CAD app works a gradient out
+ * in two frames, each a unit square about the middle of the box of the loops, its arcs at their
+ * full extent, turned by the gradient's angle a: the box frame scaled by W and H, the sides of the
+ * box of the loops turned by minus a reduced by quarter turns to -45 to 45 degrees; and the square
+ * frame scaled by L both ways, the box's larger side, or the turned box's at an odd multiple of 45
+ * degrees. A box with no width or height draws nothing.
+ */
+export function gradientBoxer(g: GradientWritten): {
+  side(from: Point, to: Point, bulge: number): void;
+  picture(): GradientPicture | undefined;
+} {
+  const quarter = Math.PI / 2;
+  const reduced = g.angle - quarter * Math.round(g.angle / quarter);
+  const [c, s] = [Math.cos(reduced), Math.sin(reduced)];
+  // Across, up, and the two of the turned box.
+  const axes: readonly Point[] = [
+    [1, 0],
+    [0, 1],
+    [c, s],
+    [-s, c],
+  ];
+  const low = [Infinity, Infinity, Infinity, Infinity];
+  const high = [-Infinity, -Infinity, -Infinity, -Infinity];
+  const include = (p: Point) => {
+    for (let k = 0; k < 4; k++) {
+      const along = p[0] * axes[k]![0] + p[1] * axes[k]![1];
+      if (along < low[k]!) low[k] = along;
+      if (along > high[k]!) high[k] = along;
+    }
+  };
+  return {
+    side(from, to, bulge) {
+      include(from);
+      include(to);
+      const arc = sideArc(from, to, bulge);
+      if (!arc) return;
+      // The arc's farthest point along each axis, either way, where it lies inside its sweep.
+      const span = Math.abs(arc.sweep);
+      for (const [x, y] of axes)
+        for (const sign of [1, -1]) {
+          const at = Math.atan2(sign * y, sign * x);
+          const gone = arc.sweep > 0 ? at - arc.start : arc.start - at;
+          const turned = ((gone % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+          if (turned <= span)
+            include([arc.center[0] + sign * x * arc.radius, arc.center[1] + sign * y * arc.radius]);
+        }
+    },
+    picture() {
+      const [w, h, W, H] = [0, 1, 2, 3].map((k) => high[k]! - low[k]!) as [
+        number,
+        number,
+        number,
+        number,
+      ];
+      if (!(w > 0 && h > 0 && W > 0 && H > 0) || !Number.isFinite(w + h + W + H)) return;
+      const middle: Point = [(low[0]! + high[0]!) / 2, (low[1]! + high[1]!) / 2];
+      const diagonal = Math.abs(Math.abs(reduced) - Math.PI / 4) < 1e-9;
+      const side = diagonal ? Math.max(W, H) : Math.max(w, h);
+      const box = times(translate(...middle), scale(W, H), turn(g.angle));
+      const square = times(translate(...middle), scale(side, side), turn(g.angle));
+      return pictured(g, { box, square, middle, w, h, W, H });
+    },
+  };
+}
+
+/** The frames of a gradient's box, and the sides they are made from. */
+interface Frames {
+  readonly box: Matrix;
+  readonly square: Matrix;
+  readonly middle: Point;
+  readonly w: number;
+  readonly h: number;
+  readonly W: number;
+  readonly H: number;
+}
+
+/** A gradient's picture in its frames. */
+function pictured(g: GradientWritten, f: Frames): GradientPicture {
+  const inverted = g.name.startsWith("inverted-");
+  const [from, to] = inverted ? [g.colors[1], g.colors[0]] : g.colors;
+  const mix = (t: number): Rgb =>
+    [0, 1, 2].map((k) => Math.round(from[k]! + (to[k]! - from[k]!) * t)) as unknown as Rgb;
+  const shift = g.centered ? 0 : 1;
+  // A falloff from the second color at the middle of a spot, r 0, to the first at its edge, r 1.
+  const falloff = (): GradientStop[] =>
+    Array.from({ length: FALLOFF_STOPS }, (_, k) => {
+      const r = k / (FALLOFF_STOPS - 1);
+      return { offset: r, color: mix(Math.cos((Math.PI / 2) * r)) };
+    });
+  // Where t falls for a fraction of the way along a gradient that is not centered.
+  const unbent = (t: number): number =>
+    g.centered
+      ? t
+      : t <= 0.5
+        ? 2 * SHIFTED_MIDDLE * t
+        : SHIFTED_MIDDLE + 2 * (1 - SHIFTED_MIDDLE) * (t - 0.5);
+  const across = times(f.box, translate(-0.5, 0));
+  switch (g.name) {
+    case "linear": {
+      if (!g.centered) {
+        return {
+          kind: "linear",
+          frame: across,
+          stops: [
+            { offset: 0, color: mix(0) },
+            { offset: SHIFTED_MIDDLE, color: mix(0.5) },
+            { offset: 1, color: mix(1) },
+          ],
+        };
+      }
+      // The plane through the middle and the box's corners, each held to 0 to 1: the gradient
+      // itself unless a corner falls past an end of it.
+      const u = (x: number, y: number) =>
+        Math.min(
+          1,
+          Math.max(0, 0.5 + (Math.cos(g.angle) * x) / f.W + (Math.sin(g.angle) * y) / f.H),
+        ) - 0.5;
+      const [a, b] = [u(f.w / 2, f.h / 2), u(-f.w / 2, f.h / 2)];
+      const [gx, gy] = [(a - b) / f.w, (a + b) / f.h];
+      const size = gx * gx + gy * gy;
+      const [ex, ey] = [gx / size, gy / size];
+      return {
+        kind: "linear",
+        frame: [ex, ey, -ey, ex, f.middle[0] - ex / 2, f.middle[1] - ey / 2],
+        stops: [
+          { offset: 0, color: mix(0) },
+          { offset: 1, color: mix(1) },
+        ],
+      };
+    }
+    case "cylinder":
+    case "inverted-cylinder":
+      return {
+        kind: "linear",
+        frame: across,
+        stops: Array.from({ length: CYLINDER_STOPS }, (_, k) => {
+          const t = k / (CYLINDER_STOPS - 1);
+          return { offset: unbent(t), color: mix(Math.sin(Math.PI * t)) };
+        }),
+      };
+    case "spherical":
+    case "inverted-spherical":
+      return {
+        kind: "radial",
+        frame: times(f.square, translate(-SPOT_SHIFT * shift, SPOT_SHIFT * shift), scale(0.5, 0.5)),
+        stops: falloff(),
+      };
+    case "hemispherical":
+    case "inverted-hemispherical":
+      return {
+        kind: "radial",
+        frame: times(f.square, translate(-2 * SPOT_SHIFT * shift, -0.5)),
+        stops: falloff(),
+      };
+    case "curved":
+    case "inverted-curved": {
+      const k = g.centered ? CURVED_ACROSS.centered : CURVED_ACROSS.shifted;
+      return {
+        kind: "radial",
+        frame: times(f.box, translate(-SPOT_SHIFT * shift, -0.5), scale(1 / k, 1)),
+        stops: falloff(),
+      };
+    }
+  }
+}
+
+/**
+ * The picture of a hatch's gradient, from its loops and gradient as written: undefined for a hatch
+ * with no gradient, for one the rules refuse, and for loops whose box has no width or height.
+ */
+export function gradientPicture(
+  hatch: Pick<Hatch, "loops" | "gradient">,
+): GradientPicture | undefined {
+  const g = gradientWritten(hatch.gradient);
+  if (g === undefined) return undefined;
+  const boxer = gradientBoxer(g);
+  for (const loop of drawnLoops(hatch.loops)) {
+    for (const side of loopSides(loop)) {
+      boxer.side(writtenPoint(side.from), writtenPoint(side.to), written(side.bulge));
+    }
+  }
+  return boxer.picture();
+}
+
+/** A point as the writers write it. */
+export const writtenPoint = ([x, y]: Point): Point => [written(x), written(y)];
 
 /** The sides of a hatch's loop, as a closed polyline's. */
 export function loopSides(loop: HatchLoop): PolylineSide[] {

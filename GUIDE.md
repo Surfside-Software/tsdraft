@@ -69,7 +69,7 @@ folder for the pictures, and warns of one that is missing.
 [docs/images.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/images.md) has them.
 `hatch` fills one outline, or a list of loops `{ points, bulges? }` where a loop inside another is
 a hole, solid in the layer's color, or with `pattern` draws a pattern `patterns()` added from the
-firm's pattern file, or lines `spacing` apart; `wipeout` hides what is drawn before it behind a polygon; and
+firm's pattern file, or lines `spacing` apart, or with `gradient` runs from one color to another; `wipeout` hides what is drawn before it behind a polygon; and
 a paragraph's `mask: true` hides what is drawn before it behind its text. Draw a fill before the
 lines over it.
 [docs/fills.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/fills.md) has them.
@@ -623,7 +623,7 @@ writeFileSync("plan.dxf", toDXF(drawing));
 
 ## What tsdraft cannot draw yet
 
-- Gradient fills, and angular, arc length and ordinate dimensions.
+- Arc length and ordinate dimensions.
 - A block read from another file. A block is drawn in the drawing that inserts it. An xref
   references a whole DWG file, as an overlay, and the pictures draw it only from a drawing you
   give.

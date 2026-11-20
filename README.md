@@ -198,8 +198,8 @@ toPDF(drawing, { images: { "aerial.png": readFileSync("aerial.png") } });
 
 [Images](docs/images.md) has clips, frames and transparency, and what `lint` refuses.
 
-A hatch fills the area inside its loops solid, a loop inside another a hole, or draws a pattern
-of the firm's pattern file there. A wipeout hides what is drawn before it, and a paragraph's mask
+A hatch fills the area inside its loops solid, a loop inside another a hole, draws a pattern
+of the firm's pattern file there, or runs from one color to another as a gradient. A wipeout hides what is drawn before it, and a paragraph's mask
 hides it behind the text:
 
 ```ts
@@ -224,7 +224,7 @@ d.hatch([
 d.paragraph("VERIFY IN FIELD", { at: [40, 20], height: 3, mask: true });
 ```
 
-[Fills, wipeouts and masks](docs/fills.md) has holes and arcs, patterns, wipeouts' frames, a
+[Fills, wipeouts and masks](docs/fills.md) has holes and arcs, patterns, gradients, wipeouts' frames, a
 dimension style's mask and the draw order.
 
 A dimension measures between two points and writes what it measures. In the file it is a
@@ -303,7 +303,7 @@ feet and inches with stacked fractions, words below the line and text on a leade
 layers or twist the view, and layers that are off, frozen, locked or not plotted. A firm's
 [standard](docs/standard.md) sets its layers, pens, text and sheets. It writes DXF, not DWG.
 
-It does not yet have overlines in paragraph text, ellipses, splines or points, gradients, tables, color or transparency set on one
+It does not yet have overlines in paragraph text, ellipses, splines or points, tables, color or transparency set on one
 entity, linetypes with text or shapes, PDF underlays, or the other kinds of dimension.
 
 `readDXF` reads an ASCII DXF into a model to inspect, which is not a drawing tsdraft can edit
@@ -409,8 +409,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   value takes, the helpers that write them, how it is laid out, and what `lint` refuses.
 - [Images](docs/images.md) covers raster images: the path and the pixels, clips, frames,
   transparency, how the plot draws one, and what `lint` refuses.
-- [Fills, wipeouts and masks](docs/fills.md) covers hatches with holes, solid or of a pattern
-  file's patterns, wipeouts, the masks of paragraphs, leaders and dimensions, the draw order, and
+- [Fills, wipeouts and masks](docs/fills.md) covers hatches with holes, solid, of a pattern
+  file's patterns or of a gradient, wipeouts, the masks of paragraphs, leaders and dimensions, the draw order, and
   what `lint` refuses.
 - [Dimensions](docs/dimensions.md) covers dimension styles, linear and aligned
   dimensions, how a measurement is written, and what `lint` refuses.

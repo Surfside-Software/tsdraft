@@ -13,6 +13,7 @@ import type {
   ReadArcLengthDimension,
   ReadEntity,
   ReadEntityBase,
+  ReadGradient,
   ReadHatchLoop,
   ReadImage,
   ReadPatternLine,
@@ -21,7 +22,7 @@ import type {
   ReadPolyline,
   ReadTextPlacement,
 } from "./model.ts";
-import { dimensionTextParts } from "./model.ts";
+import { dimensionTextParts, gradientDegrees } from "./model.ts";
 import {
   facing,
   first,
@@ -73,9 +74,15 @@ export function baseOf(r: Rec, layer: string, handle: string | undefined): ReadE
   };
 }
 
-/** The group codes of the doubles an entity holds: its points, sizes, angles and direction. */
+/**
+ * The group codes of the doubles an entity holds: its points, sizes, angles and direction, and a
+ * hatch's gradient.
+ */
 const isDouble = (code: number): boolean =>
-  (code >= 10 && code <= 59) || (code >= 110 && code <= 149) || (code >= 210 && code <= 239);
+  (code >= 10 && code <= 59) ||
+  (code >= 110 && code <= 149) ||
+  (code >= 210 && code <= 239) ||
+  (code >= 460 && code <= 469);
 
 /** True when a double of the record does not read as a finite number. */
 export function brokenNumber(r: Rec): boolean {
@@ -456,6 +463,11 @@ function hatch(r: Rec, base: ReadEntityBase, face: Facing): Reading {
     };
   }
   if (broken) return { malformed: "HATCH with a number that is not finite" };
+  const gradient = hatchGradient(codes, values, i, face);
+  // A finite angle in radians can be past the doubles in degrees, and a tint in single
+  // precision, as readDWG counts them too.
+  if (gradient && !(Number.isFinite(gradient.angle) && Number.isFinite(gradient.tint ?? 0)))
+    return { malformed: "HATCH with a number past the doubles" };
   return {
     entity: {
       ...base,
@@ -466,7 +478,55 @@ function hatch(r: Rec, base: ReadEntityBase, face: Facing): Reading {
       ...(num(s, 71) === 1 && { associative: true as const }),
       loops,
       ...pattern,
+      ...(gradient && { gradient }),
     },
+  };
+}
+
+/**
+ * A hatch's gradient, from its group 450 on, after its loops: undefined where 450 is missing or 0.
+ * Seen from below, its angle is mirrored as a pattern line's is.
+ */
+function hatchGradient(
+  codes: readonly number[],
+  values: readonly string[],
+  from: number,
+  face: Facing,
+): ReadGradient | undefined {
+  const at = codes.indexOf(450, from);
+  if (at < 0 || !(Number(values[at]) !== 0)) return undefined;
+  let [label, radians, shift, single, tint] = ["", 0, 0, 0, 0];
+  const colors: number[] = [];
+  for (let k = at + 1; k < codes.length; k++) {
+    const value = values[k]!;
+    switch (codes[k]) {
+      case 460:
+        radians = Number(value) || 0;
+        break;
+      case 461:
+        shift = Number(value) || 0;
+        break;
+      case 452:
+        single = Number(value) || 0;
+        break;
+      case 462:
+        tint = Number(value) || 0;
+        break;
+      case 421:
+        if (colors.length < 2) colors.push((Number(value) || 0) & 0xffffff);
+        break;
+      case 470:
+        label = value;
+        break;
+    }
+  }
+  const angle = gradientDegrees(radians);
+  return {
+    name: label,
+    angle: face === -1 ? 180 - angle : angle,
+    centered: shift === 0,
+    colors,
+    ...(single === 1 && { tint: Math.fround(tint) }),
   };
 }
 
@@ -1172,6 +1232,7 @@ export function costOf(e: ReadEntity): number {
       let points = 0;
       for (const loop of e.loops) points += 1 + loop.points.length + (loop.bulges?.length ?? 0);
       for (const line of e.patternLines ?? []) points += 3 + (line.dashes?.length ?? 0);
+      if (e.gradient) points += 4 + e.gradient.colors.length + chars(e.gradient.name);
       return own + points + chars(e.pattern);
     }
     case "wipeout":

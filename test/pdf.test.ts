@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { deflateSync, inflateSync } from "node:zlib";
 import { createDrawing, pdfFace, svgToPDF, toPDF, toSVG } from "../src/index.ts";
+import { GRADIENT_STOPS } from "../src/fills.ts";
 import { readTrueType, type TrueType } from "../src/truetype.ts";
 import exampleSheet from "../examples/site-plan.ts";
 import set, { xrefs } from "../examples/plan-set/set.ts";
@@ -66,7 +67,7 @@ test("svgToPDF refuses what toSVG does not draw of a layout", () => {
   const d = createDrawing().line([0, 0], [1, 1]).build();
   assert.throws(
     () => svgToPDF([toSVG(d)]),
-    /a picture of format null, where this copy of tsdraft reads format 1/,
+    /a picture of format null, where this copy of tsdraft reads format 2/,
   );
   assert.throws(() => svgToPDF([]), RangeError);
   const sheet = toSVG(exampleSheet, { layout: exampleSheet.layouts![0]!.name });
@@ -81,6 +82,64 @@ test("svgToPDF refuses what toSVG does not draw of a layout", () => {
   ]) {
     assert.throws(() => svgToPDF([changed]), RangeError);
   }
+});
+
+test("a gradient is a shading painted inside its loops, and a gradient toSVG does not draw is refused", () => {
+  const d = createDrawing({ units: "in" });
+  d.layout("G", { paper: "ANSI B" }, () =>
+    d.hatch(
+      [
+        [1, 1],
+        [5, 1],
+        [5, 3],
+        [1, 3],
+      ],
+      {
+        gradient: {
+          name: "spherical",
+          colors: [
+            [0, 0, 255],
+            [255, 255, 0],
+          ],
+        },
+      },
+    ),
+  );
+  const drawing = d.build();
+  const pdf = latin1(toPDF(drawing));
+  holdsTogether(pdf);
+  assert.match(
+    pdf,
+    /\/ShadingType 3 \/ColorSpace \/DeviceRGB \/Coords \[0 0 0 0 0 1\] \/Function << \/FunctionType 3/,
+  );
+  assert.match(pdf, /h\nW\* n\n[-\d. ]+ cm\n\/Sh1 sh\nQ/);
+  const sheet = toSVG(drawing, { layout: "G" });
+  const path = /<path [^>]*data-gradient=""\/>/.exec(sheet)![0];
+  // Stops from 0 to 1, as many as toSVG writes at most, and one more.
+  const stops = (n: number) =>
+    sheet.replace(
+      /(<radialGradient [^>]*>).*?(<\/radialGradient>)/,
+      `$1${Array.from({ length: n }, (_, k) => `<stop offset="${k / (n - 1)}" stop-color="#000000"/>`).join("")}$2`,
+    );
+  svgToPDF([stops(GRADIENT_STOPS)]);
+  for (const changed of [
+    sheet.replace('spreadMethod="pad"', 'spreadMethod="reflect"'),
+    sheet.replace('<stop offset="0"', '<stop offset="0.1"'),
+    sheet.replace('fill-rule="evenodd" stroke="none"', 'fill-rule="evenodd" stroke="#000000"'),
+    sheet.replace(/ gradientTransform="[^"]*"/, ""),
+    sheet.replace(/ gradientTransform="[^"]*"/, ' gradientTransform=""'),
+    sheet.replace(
+      /(<radialGradient [^>]*>).*?(<\/radialGradient>)/,
+      `$1${[0, 0.5, 0.5000000001, 1].map((k) => `<stop offset="${k}" stop-color="#000000"/>`).join("")}$2`,
+    ),
+    stops(GRADIENT_STOPS + 1),
+  ]) {
+    assert.throws(() => svgToPDF([changed]), RangeError);
+  }
+  // A gradient that many paths fill with is one shading.
+  const many = latin1(svgToPDF([sheet.replace(path, path.repeat(50))]));
+  assert.equal(many.match(/\/ShadingType/g)?.length, 1);
+  assert.equal(many.match(/\/Sh1 sh/g)?.length, 50);
 });
 
 test("a page sets the thinnest pen 0 wide, turns ARCH E as the plotter holds it, and says what it lacks", () => {

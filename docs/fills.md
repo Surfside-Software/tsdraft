@@ -3,7 +3,8 @@
 A solid fill is a hatch: an area filled in its pen's color, which CAD programs hold as one entity a
 drafter selects, edits and measures as one. Wall poché, filled arrowheads, bar dots and the filled
 parts of symbols are hatches. A hatch with a pattern draws the pattern's lines inside its loops
-instead, as for concrete, earth or brick. A wipeout is a polygon filled with the paper's color, which hides
+instead, as for concrete, earth or brick, and a hatch with a gradient runs from one color to
+another, as for a sky or a shaded roof. A wipeout is a polygon filled with the paper's color, which hides
 what is drawn before it. A mask hides what is drawn before a text, behind the text's box: a
 paragraph, a leader's note and a dimension's text each take one.
 
@@ -62,7 +63,7 @@ A hatch is filled in its layer's color, with no outline whatever its lineweight.
 as a polyline of its own where the sheet shows one. In a block, an insert's scale and rotation place a hatch as they place the rest of the
 block, and a negative scale mirrors it.
 
-Gradients come later.
+A hatch can also be filled with a gradient: see [Gradients](#gradients).
 
 ## Patterns
 
@@ -131,6 +132,80 @@ angle with the pattern's added, its base point scaled, turned and moved to the o
 scaled and turned to the line, and its dashes scaled. A firm's patterns can be read back from its
 drawings this way.
 
+## Gradients
+
+A hatch with a `gradient` is filled from one color to another in place of its pen's color: a
+sky behind an elevation, a shaded roof or a lawn on a site plan. Each color is a true color,
+`[red, green, blue]`, each a whole number from 0 to 255. Give two colors, or one color and its
+`tint`, from 0 for black to 1 for white, which gives the second as the color with its lightness set
+to the tint, as CAD programs do:
+
+```ts
+const d = createDrawing({ units: "ft" });
+d.hatch(
+  [
+    [0, 10],
+    [40, 10],
+    [40, 20],
+    [0, 20],
+  ],
+  {
+    gradient: {
+      name: "linear",
+      angle: 90,
+      colors: [
+        [255, 255, 255],
+        [30, 120, 200],
+      ],
+    },
+  },
+);
+d.hatch(
+  [
+    [0, 0],
+    [40, 0],
+    [40, 8],
+    [0, 8],
+  ],
+  { gradient: { name: "spherical", color: [60, 160, 60], tint: 0.8 } },
+);
+```
+
+`name` is one of nine. `linear` runs from the first color to the second across the box of the
+loops. `cylinder` runs from the first color at both sides to the second along the middle.
+`spherical` runs from a spot of the second color out to the first, `hemispherical` from a spot half
+the box's larger side below its middle, and `curved` from an oval along the bottom. Each `inverted-` name,
+`inverted-cylinder`, `inverted-spherical`, `inverted-hemispherical` and `inverted-curved`, swaps its
+pair's colors. `angle` turns the gradient about the middle of the box, in degrees counterclockwise,
+and `centered: false` moves it off the middle, in the gradient's own directions before `angle` turns
+it: a linear gradient or a cylinder then reaches half way at 0.3 of the way across, a spherical spot
+moves left and up by a quarter of the box's larger side, a hemispherical one left by half of it, and
+a curved oval left by a quarter of the box's width. They are 0 and `true` unless given.
+
+A gradient is worked out on the box of the loops, its arcs at their full extent, as CAD programs
+work it out. At an angle that is not a quarter turn, a linear, cylinder or curved gradient spans the
+box turned back by the angle; a spot keeps the size of the box's larger side, and the turned box's
+at an odd multiple of 45 degrees. A box with no width or height draws nothing.
+
+A gradient plots in its own colors whatever the plot style table, `monochrome.ctb` included: `toSVG`
+and `toPDF` draw it so. `toSVG` fills the loops with a `linearGradient` or a `radialGradient` and
+`toPDF` with a shading, each with enough colors along a curve that it strays less than a level from
+the gradient. The leading CAD app plots a gradient as a picture made of triangles between points it
+chooses, so its colors stray from the gradient's between them, a few levels for most gradients and
+more where a spot meets the corner of a box turned at an angle that is not a quarter turn.
+
+A file cannot hold pure black as a gradient's color: the leading CAD app reads it as no color and
+takes another in its place. tsdraft writes black as `[0, 0, 1]`, and draws it so.
+
+`lint` and the builder refuse a gradient with a pattern, a name not of the nine, a field it does not
+know, a color that is not three whole numbers from 0 to 255, a tint outside 0 to 1, two colors with
+a tint, and an angle that is not a finite number under 1e100. A literal one of these is a compile
+error, but for an angle of `NaN` or `Infinity`, which TypeScript types as any number.
+
+`readDXF` and `readDWG` read a hatch's gradient back as `gradient`: its `name` as the file holds
+it, such as `LINEAR` or `INVSPHERICAL`, its `angle` in degrees, `centered`, the first two `colors`,
+each `0xRRGGBB`, and for one color its `tint`, as single precision holds it.
+
 ## Wipeouts
 
 `d.wipeout(points)` draws a polygon of three or more corners in the paper's color, which hides
@@ -198,7 +273,12 @@ for lines of its own, 70 0, 76 its type, 2 for a pattern of the drawing's and 0 
 own, 52 its angle, 41 its scale or its spacing, 77 1 where its lines are crossed, and 78 the
 number of its lines. Each line follows, placed in the drawing: 53 its angle, 43 and 44 its base
 point, 45 and 46 its offset, 79 the number of its dashes and a 49 for each dash, with 15
-significant digits. A wipeout is a `WIPEOUT`, a square picture of one pixel clipped by its polygon, and
+significant digits. A gradient is groups 450 to 470 after the seed point: 450 1, 451 0, 460 its angle in radians
+with 15 significant digits, 461 0 when centered and 1 when not, 452 1 for one color, 462 its tint,
+or 1 for two colors, 453 2, then for each color 463 0 or 1, 63 the index nearest it and 421 the
+color, and 470 its name in capitals with no hyphen, such as `INVSPHERICAL`. For one color the second
+is the color its tint gives. A wipeout is a `WIPEOUT`, a square picture of one pixel clipped by its
+polygon, and
 the drawing holds `WIPEOUTVARIABLES` and the dictionary variable `WIPEOUTFRAME`, which is what CAD
 programs read of whether frames show. A mask is the background of an `MTEXT`, and a dimension
 style's is its `DIMTFILL` and `DIMTFILLCLR` and the background of the `MTEXT` of its picture.

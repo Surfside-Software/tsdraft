@@ -25,6 +25,18 @@
   that names a pattern the drawing does not have, a scale or spacing not greater than 0, a
   pattern's definition that cannot be written, and a hatch whose pattern would draw more than
   1,000,000 lines across its loops; two patterns of one name are a `duplicate-hatch-pattern`.
+- Gradient hatches, in R2018 drawings. A hatch's `gradient` fills it from one color to another:
+  `linear`, `cylinder`, `spherical`, `hemispherical` or `curved`, or the `inverted-` form of the
+  last four, turned by `angle` and moved off the middle unless `centered`, with two `colors` or one
+  `color` and its `tint`. A color is an `Rgb`, `[red, green, blue]`, each a whole number from 0
+  to 255. Both writers write it as CAD programs hold it, black as `[0, 0, 1]`, which a file can
+  hold, and `toSVG` and `toPDF` draw it as CAD programs plot it, in its own colors whatever the plot
+  style table: a `linearGradient` or `radialGradient`, and a shading. `gradientPicture` gives what
+  a gradient draws. `readDXF` and `readDWG` read a hatch's `gradient`. `lint` and the builder
+  refuse, under the rule `hatch-gradient`, a gradient with a pattern, a name of another kind, a
+  field it does not know, an angle that is not a finite number under 1e100, a color that is not
+  three whole numbers from 0 to 255 and a tint outside 0 to 1. `toSVG`'s pictures
+  of layouts are now of format 2, which `svgToPDF` reads.
 - `readDXF` and `readDWG` read a hatch, its loops of polylines or of lines and arcs as points and
   bulges, its pattern and its island style; a wipeout; an `MTEXT`'s background mask; the order a
   file's sort table draws a space or a block in, `drawOrder`; and whether wipeouts' frames show,

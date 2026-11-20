@@ -2659,3 +2659,144 @@ test("a long paragraph value many places share is laid out once in each of its s
   const [paid] = within(1000, () => inspectWithin(wrapped, {}, words.length + 1000));
   assert.match(paid!.message, /stopped short at entity #1 of model space/);
 });
+
+test("gradients that many hatches share, and a gradient of many fields, are checked and drawn in a bounded time", () => {
+  const loops = [
+    {
+      points: [
+        [0, 0],
+        [10, 0],
+        [10, 5],
+      ] as Point[],
+    },
+  ];
+  // One gradient of many fields, which lint reads once however many hatches give it.
+  const crowded: Record<string, unknown> = { name: "linear", color: [1, 2, 3], tint: 0.5 };
+  for (let k = 0; k < 100_000; k++) crowded[`f${k}`] = k;
+  const shared = {
+    name: "spherical",
+    centered: false,
+    colors: [
+      [1, 2, 3],
+      [4, 5, 6],
+    ],
+  };
+  const drawing: Drawing = {
+    format: 0,
+    units: "in",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    entities: Array.from({ length: 20_000 }, (_, k) => ({
+      kind: "hatch",
+      layer: "0",
+      loops,
+      gradient: (k % 2 === 0 ? crowded : shared) as never,
+    })),
+  };
+  const found = within(3000, () => lint(drawing));
+  assert.equal(found.filter((d) => d.rule === "hatch-gradient").length, 10_000);
+  const drawn = settled(3000, () => svgWithin(drawing, {}, 50_000));
+  assert.ok(typeof drawn === "string" || drawn instanceof RangeError, String(drawn));
+});
+
+test("a gradient that draws nothing pays for the sides it walked, and a gradient whose fields change as they are read is read once", () => {
+  // A long flat loop, whose box has no height, that many hatches of a sheet share.
+  const flat = [{ points: Array.from({ length: 10_000 }, (_, k): Point => [k, 0]) }];
+  const gradient = { name: "linear", color: [1, 2, 3], tint: 0.5 } as const;
+  const sheet: Drawing = {
+    format: 0,
+    units: "in",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    entities: [],
+    layouts: [
+      {
+        name: "S",
+        paper: "ANSI B",
+        viewports: [],
+        entities: Array.from({ length: 25 }, () => ({
+          kind: "hatch" as const,
+          layer: "0",
+          loops: flat,
+          gradient,
+        })),
+      },
+    ],
+  };
+  assert.ok(settled(3000, () => svgWithin(sheet, { layout: "S" }, 5000)) instanceof RangeError);
+  // As many empty loops, which draw nothing, are paid for too.
+  const empty = Array.from({ length: 10_000 }, () => ({ points: [] as Point[] }));
+  const hollow: Drawing = {
+    ...sheet,
+    layouts: [
+      {
+        ...sheet.layouts![0]!,
+        entities: sheet.layouts![0]!.entities.map((h) => ({ ...h, loops: empty })),
+      },
+    ],
+  };
+  assert.ok(settled(3000, () => svgWithin(hollow, { layout: "S" }, 5000)) instanceof RangeError);
+  // Colors that are two colors the first three times they are read, and nothing after.
+  let reads = 0;
+  const changing = new Proxy(
+    { name: "linear" },
+    {
+      get: (target, key, receiver) =>
+        key === "colors"
+          ? reads++ < 3
+            ? [
+                [1, 2, 3],
+                [4, 5, 6],
+              ]
+            : undefined
+          : Reflect.get(target, key, receiver),
+      ownKeys: () => ["name", "colors"],
+      getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }),
+    },
+  );
+  const drawing: Drawing = {
+    ...sheet,
+    layouts: [],
+    entities: [
+      {
+        kind: "hatch",
+        layer: "0",
+        loops: [
+          {
+            points: [
+              [0, 0],
+              [1, 0],
+              [1, 1],
+            ],
+          },
+        ],
+        gradient: changing as never,
+      },
+    ],
+  };
+  assert.deepEqual(
+    within(1000, () => lint(drawing)),
+    [],
+  );
+  const drawn = settled(1000, () => toSVG(drawing));
+  assert.ok(typeof drawn === "string", String(drawn));
+  // The builder keeps the copy it checked.
+  reads = 0;
+  const built = createDrawing({ units: "in" })
+    .hatch(
+      [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+      ],
+      { gradient: changing as never },
+    )
+    .build();
+  assert.deepEqual((built.entities[0] as Extract<Entity, { kind: "hatch" }>).gradient, {
+    name: "linear",
+    colors: [
+      [1, 2, 3],
+      [4, 5, 6],
+    ],
+  });
+});
