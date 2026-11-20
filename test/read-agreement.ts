@@ -7,6 +7,7 @@
 import { placeAttribute } from "../src/blocks.ts";
 import {
   dimensionAngle,
+  arcLengthArc,
   dimensionMeasure,
   dimensionPicture,
   isDimension,
@@ -435,6 +436,37 @@ export function readProblems(
         if (by === "tsdraft" && !nearPoint(got.textAt, point(picture.textPoint))) {
           say(`${label}: its text at ${got.textAt}, expected ${picture.textPoint}`);
         }
+        const measurement =
+          dimensionMeasure(want).measurement * written(style.measurementScale ?? 1);
+        if (
+          got.measurement === undefined ||
+          Math.abs(got.measurement - measurement) > 1e-9 * Math.max(1, Math.abs(measurement))
+        ) {
+          say(`${label}: measures ${got.measurement}, expected ${measurement}`);
+        }
+        return;
+      }
+      case "arc-length-dimension": {
+        if (!kind("arc-length-dimension") || got.kind !== "arc-length-dimension") return;
+        if (!sameName(got.style, want.style)) say(`${label}: style ${got.style}`);
+        const arc = arcLengthArc(want);
+        const turn = (a: number, b: number): number =>
+          Math.abs(((((a - b) % 360) + 540) % 360) - 180);
+        if (
+          !nearPoint(got.center, arc.center) ||
+          Math.abs(got.radius - arc.radius) > 1e-6 ||
+          turn(got.startAngle, arc.start) > 1e-6 ||
+          turn(got.endAngle, arc.start + arc.sweep) > 1e-6
+        ) {
+          say(
+            `${label}: about ${got.center} of ${got.radius}, ${got.startAngle} to ${got.endAngle}`,
+          );
+        }
+        if ((got.text ?? undefined) !== (want.text === undefined ? undefined : once(want.text))) {
+          say(`${label}: text ${JSON.stringify(got.text)}`);
+        }
+        const style = dimensionStyles.get(layerKey(want.style));
+        if (!style) return;
         const measurement =
           dimensionMeasure(want).measurement * written(style.measurementScale ?? 1);
         if (

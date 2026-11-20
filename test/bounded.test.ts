@@ -2100,6 +2100,22 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
           textBelow: pick([long, "A\\P".repeat(5_000)]),
         })),
       );
+      // Arc length ones: a sliver of an arc or most of a turn, its own arc near or far.
+      (pick([drawing, layout]).entities as Data[]).push(
+        ...Array.from({ length: pick([1, 300]) }, (_, i): Data => ({
+          kind: "arc-length-dimension",
+          layer: "0",
+          style: style.name,
+          center: [0, i],
+          radius: pick([0.01, 10, 1e9]),
+          startAngle: pick([0, 30, 359.9999]),
+          endAngle: pick([0.0001, 120, 359]),
+          at: [pick([0.02, 15, 1e9]), i + pick([0.0001, 3, -2])],
+          text: pick(["<>", long]),
+          textBelow: pick([long, "A\\P".repeat(5_000)]),
+        })),
+      );
+      style.arcSymbol = pick(["before", "above", "none"]);
       style.radialText = pick(["aligned", "horizontal"]);
       style.jogAngle = pick([5, 45, 90]);
       style.angleUnits = pick(["degrees", "degrees-minutes-seconds", "grads", "radians"]);

@@ -339,6 +339,12 @@
           "enum": ["leading", "trailing", "both"],
           "description": "The zeros an angle leaves out. Defaults to none"
         },
+        "arcSymbol": {
+          "type": "string",
+          "enum": ["before", "above", "none"],
+          "description": "Where an arc length dimension draws the arc symbol: before its text, above it, or nowhere",
+          "default": "before"
+        },
         "textFit": {
           "type": "string",
           "enum": ["inside", "leader"],
@@ -473,6 +479,11 @@
           "type": "string",
           "enum": ["leading", "trailing", "both"],
           "description": "The zeros an angle leaves out. Defaults to none"
+        },
+        "arcSymbol": {
+          "type": "string",
+          "enum": ["before", "above", "none"],
+          "description": "Where an arc length dimension draws the arc symbol: before its text, above it, or nowhere"
         },
         "textFit": {
           "type": "string",

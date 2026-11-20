@@ -19,6 +19,7 @@ import {
   type DIMENSION_TEXT_FITS,
   type DIMENSION_RADIAL_TEXTS,
   type DIMENSION_ANGLE_UNITS,
+  type DIMENSION_ARC_SYMBOLS,
   type FEET_INCH_ZEROS,
   type LeaderArrowhead,
   type ZERO_SUPPRESSIONS,
@@ -657,6 +658,28 @@ export interface AngularDimension extends Placed {
   readonly textBelow?: string;
 }
 
+/**
+ * An arc length dimension: the length of the arc about `center` of `radius`, counterclockwise from
+ * `startAngle` to `endAngle` in degrees, as `d.arc` takes them, its own arc through `at`. Under a
+ * right angle its extension lines run parallel to the arc's bisector; from one up they run along
+ * radii. The arc symbol stands before its text, above it or nowhere, as its style says.
+ */
+export interface ArcLengthDimension extends Placed {
+  readonly kind: "arc-length-dimension";
+  /** A dimension style of the drawing. */
+  readonly style: string;
+  readonly center: Point;
+  readonly radius: number;
+  readonly startAngle: number;
+  readonly endAngle: number;
+  /** A point the dimension's own arc passes through. */
+  readonly at: Point;
+  /** A text to draw in place of the measurement, as a linear dimension's `text`. */
+  readonly text?: string;
+  /** Words drawn under its arc, opposite the text, as a linear dimension's `textBelow`. */
+  readonly textBelow?: string;
+}
+
 /** Which side of the point where its shafts meet a leader's note is on. */
 export type LeaderSide = (typeof LEADER_SIDES)[number];
 
@@ -827,6 +850,7 @@ export type Entity =
   | DiameterDimension
   | JoggedRadiusDimension
   | AngularDimension
+  | ArcLengthDimension
   | Leader
   | Image
   | Hatch
@@ -993,6 +1017,11 @@ export interface DimensionStyle {
    * the text's box grown by a quarter of its height. Defaults to none.
    */
   readonly textMask?: boolean | { readonly color: number };
+  /**
+   * Where an arc length dimension draws the arc symbol: `"before"` its text, the default,
+   * `"above"` it, or `"none"`.
+   */
+  readonly arcSymbol?: (typeof DIMENSION_ARC_SYMBOLS)[number];
 }
 
 /**
@@ -1856,6 +1885,11 @@ export interface DimensionStyleDefinition<
    * the text's box grown by a quarter of its height. Defaults to none.
    */
   readonly textMask?: boolean | { readonly color: number };
+  /**
+   * Where an arc length dimension draws the arc symbol: `"before"` its text, the default,
+   * `"above"` it, or `"none"`.
+   */
+  readonly arcSymbol?: (typeof DIMENSION_ARC_SYMBOLS)[number];
 }
 
 /** What every dimension is drawn with. */
@@ -1920,6 +1954,13 @@ export type DiameterDimensionOptions<
   T extends string = string,
   I extends string = string,
 > = RadiusDimensionOptions<S, T, I>;
+
+/** The options of `arcLengthDimension()`. */
+export type ArcLengthDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+> = DimensionOptions<S, T, I>;
 
 /** The options of `angularDimension()`. */
 export type AngularDimensionOptions<
@@ -3802,7 +3843,7 @@ export class DrawingBuilder<
     const { prefix, suffix, suppressZeros, feetInchZeros } = definition;
     const { fraction, fractionScale, textPlacement, textFit } = definition;
     const { dimensionLineweight, extensionLineweight, radialText, jogAngle, textMask } = definition;
-    const { angleUnits, anglePrecision, suppressAngleZeros } = definition;
+    const { angleUnits, anglePrecision, suppressAngleZeros, arcSymbol } = definition;
     const units = definition.units ?? "decimal";
     const scale = definition.scale ?? 1;
     const measurementScale = definition.measurementScale ?? 1;
@@ -3837,6 +3878,7 @@ export class DrawingBuilder<
       ...(textMask === undefined || textMask === false
         ? {}
         : { textMask: textMask === true ? true : { color: textMask.color } }),
+      ...(arcSymbol === undefined || arcSymbol === "before" ? {} : { arcSymbol }),
     });
     this.#dimensionStylesAudited.set(layerAuditKey(named), named);
   }
@@ -4010,6 +4052,41 @@ export class DrawingBuilder<
     );
   }
 
+  /**
+   * Draws an arc length dimension on the current layer: the length of the arc about `center` of
+   * `radius`, counterclockwise from `startAngle` to `endAngle` in degrees, as `arc` takes them,
+   * with its own arc through `at`.
+   */
+  arcLengthDimension<S extends string, T extends string = string, I extends string = string>(
+    center: Point,
+    radius: number,
+    startAngle: number,
+    endAngle: number,
+    at: Point,
+    options: Z extends Standard
+      ? StandardAlignedDimensionOptions<S, T, I, Z>
+      : V extends "R12"
+        ? R12Dimensions
+        : ArcLengthDimensionOptions<S, T, I>,
+  ): this {
+    return this.#add(DrawingBuilder.prototype.arcLengthDimension, idOf(options), () =>
+      this.#dimension(
+        options as unknown as ArcLengthDimensionOptions | undefined,
+        (style, text) => ({
+          kind: "arc-length-dimension",
+          layer: this.#current,
+          style,
+          center: pt(center),
+          radius: kept(radius, "radius"),
+          startAngle: kept(startAngle, "startAngle"),
+          endAngle: kept(endAngle, "endAngle"),
+          at: pt(at),
+          ...text,
+        }),
+      ),
+    );
+  }
+
   /** A radius or a diameter dimension, with its text where `options.textFromCenter` says. */
   #radial<K extends "radius-dimension" | "diameter-dimension">(
     kind: K,
@@ -4179,6 +4256,7 @@ export class DrawingBuilder<
       ...(fields.suppressAngleZeros === undefined
         ? {}
         : { suppressAngleZeros: fields.suppressAngleZeros }),
+      ...(fields.arcSymbol === "before" ? {} : { arcSymbol: fields.arcSymbol }),
     });
     return this.#dimensionStyles.get(layerKey(name))!;
   }

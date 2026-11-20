@@ -11,6 +11,7 @@ import {
   DIMENSION_TEXT_FITS,
   DIMENSION_RADIAL_TEXTS,
   DIMENSION_ANGLE_UNITS,
+  DIMENSION_ARC_SYMBOLS,
   MAX_ANGLE_PRECISION,
   JOG_ANGLE,
   DIMENSION_TEXT_PLACEMENTS,
@@ -35,6 +36,7 @@ import {
   angleUnitsProblem,
   anglePrecisionProblem,
   angleZerosProblem,
+  arcSymbolProblem,
   textPlacementProblem,
   blockNameProblem,
   dimensionPrefixProblem,
@@ -559,6 +561,12 @@ const STYLE_FIELDS = {
   suppressAngleZeros: {
     node: string({ enum: ZERO_SUPPRESSIONS }, angleZerosProblem),
     description: "The zeros an angle leaves out. Defaults to none",
+  },
+  arcSymbol: {
+    node: string({ enum: DIMENSION_ARC_SYMBOLS }, arcSymbolProblem),
+    description:
+      "Where an arc length dimension draws the arc symbol: before its text, above it, or nowhere",
+    default: "before",
   },
   textFit: {
     node: string({ enum: DIMENSION_TEXT_FITS }, textFitProblem),

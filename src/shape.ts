@@ -24,6 +24,7 @@ import type {
   DiameterDimension,
   JoggedRadiusDimension,
   AngularDimension,
+  ArcLengthDimension,
   Linetype,
   Paragraph,
   Polyline,
@@ -544,6 +545,19 @@ function shapes(all: boolean, typed = all): Shapes {
       { kind, layer: string, style: ruled(string), center: point, point, start: point, jog: point },
       { id: ruled(string), text: ruled(string), textBelow: ruled(string) },
     ),
+    "arc-length-dimension": fields<ArcLengthDimension>(
+      {
+        kind,
+        layer: string,
+        style: ruled(string),
+        center: point,
+        radius: number,
+        startAngle: number,
+        endAngle: number,
+        at: point,
+      },
+      { id: ruled(string), text: ruled(string), textBelow: ruled(string) },
+    ),
     "angular-dimension": fields<AngularDimension>(
       {
         kind,
@@ -703,6 +717,7 @@ function shapes(all: boolean, typed = all): Shapes {
         suppressAngleZeros: ruled(string),
         // true, false or an object: the rule reports any other.
         textMask: LEFT,
+        arcSymbol: ruled(string),
       },
     ),
   );

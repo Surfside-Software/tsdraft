@@ -9,6 +9,7 @@ import type {
   ReadDimension,
   ReadRadialDimension,
   ReadAngularDimension,
+  ReadArcLengthDimension,
   ReadEntity,
   ReadEntityBase,
   ReadHatchLoop,
@@ -229,6 +230,8 @@ export function readingOf(
     case "DIMENSION":
     case "LARGE_RADIAL_DIMENSION":
       return dimension(r, base, face, r12);
+    case "ARC_DIMENSION":
+      return arcLengthDimension(r, base, face);
     case "MULTILEADER":
       return multileader(r, base, later);
     case "LEADER":
@@ -705,6 +708,49 @@ function radialDimension(r: Rec, base: ReadEntityBase, kind: number, r12: boolea
 }
 
 /**
+ * An arc length dimension: its center (group 15), the radius to the arc's first end (13), the arc's
+ * angles (40 and 41, after the common group 70, in radians), a point of its own arc (10), and
+ * whether it measures part of the arc (the second group 70).
+ */
+function arcLengthDimension(r: Rec, base: ReadEntityBase, face: Facing): Reading {
+  if (face !== 1)
+    return { other: face === -1 ? "ARC_DIMENSION seen from below" : "ARC_DIMENSION in 3D" };
+  const center = point(r, 15);
+  const end = point(r, 13);
+  // The arc's own groups follow its subclass marker: the common part holds a 41 and a 70 too.
+  const marker = r.codes.findIndex((code, i) => code === 100 && r.values[i] === "AcDbArcDimension");
+  const after = (code: number): string | undefined => {
+    const at = marker < 0 ? -1 : r.codes.indexOf(code, marker);
+    return at < 0 ? undefined : r.values[at];
+  };
+  const partial = after(70);
+  const degrees = (code: number): number => {
+    const value = Number(after(code) ?? 0) * (180 / Math.PI);
+    return Number.isFinite(value) ? value : 0;
+  };
+  const text = first(r, 1);
+  const block = name(r, 2);
+  const parts = text === undefined ? {} : dimensionTextParts(textOnce(text));
+  const entity: ReadArcLengthDimension = {
+    ...base,
+    kind: "arc-length-dimension",
+    center,
+    radius: Math.hypot(end[0] - center[0], end[1] - center[1]),
+    startAngle: degrees(40),
+    endAngle: degrees(41),
+    at: point(r, 10),
+    textAt: point(r, 11),
+    ...(((num(r, 70) ?? 0) & 128) !== 0 && { placed: true }),
+    ...(partial !== undefined && Number(partial) !== 0 && { partial: true }),
+    measurement: num(r, 42) ?? 1,
+    ...parts,
+    style: name(r, 3) ?? "Standard",
+    ...(block !== undefined && block !== "" && { block }),
+  };
+  return { entity };
+}
+
+/**
  * An angular dimension by two lines (group 70's kind 2), 13 to 14 and 15 to 10, its arc through
  * 16, or by three points (5), its vertex 15, its lines through 13 and 14, its arc through 10.
  */
@@ -964,6 +1010,7 @@ export function costOf(e: ReadEntity): number {
     case "radial-dimension":
       return own + 5 + chars(e.text) + chars(e.textBelow) + chars(e.style) + chars(e.block);
     case "angular-dimension":
+    case "arc-length-dimension":
       return own + 6 + chars(e.text) + chars(e.textBelow) + chars(e.style) + chars(e.block);
     case "multileader": {
       let points = 3;

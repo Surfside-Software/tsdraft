@@ -237,6 +237,34 @@ one whose centered text leaves its arc no room each side; one whose closed arrow
 as its arc is wide; one whose arc runs all but a whole turn, which its 6 decimals write with one
 angle at both ends; and words below in a style that centers its text.
 
+### Arc length
+
+`d.arcLengthDimension(center, radius, startAngle, endAngle, at, options)` measures the length of the
+arc about `center` of `radius`, counterclockwise from `startAngle` to `endAngle` in degrees, as
+`d.arc` takes them, with its own arc through `at`. The measurement is written as a length is, in the
+style's units.
+
+```ts
+d.arc([0, 0], 10, 30, 120);
+d.arcLengthDimension([0, 0], 10, 30, 120, [0, 13], { style: "DIMS" }); // ⌒15.71
+```
+
+From a right angle up, its own arc runs about the center through `at`, and its extension lines run
+along radii. Under one, its extension lines run parallel to the arc's bisector, and its own arc runs
+about the center through `at`, which must be outside the arc. The marks, the text and its break are
+an angular dimension's, with the text on the arc's bisector.
+
+A dimension style's `arcSymbol` says where the arc symbol goes: `"before"` the text, the default, a
+half circle as high as the text; `"above"` it, an arc over the text; or `"none"`. A centered text
+leaves room on its arc for the symbol before it, on both sides of the text, and its break reaches
+past the symbol.
+
+`lint` refuses an arc length dimension that measures no arc, whose radius is 0 or less, whose point
+is its center or on the arc, or that is inside an arc under a right angle, where the leading CAD
+app's own arc stops short of an extension line; one whose centered text leaves its own arc no room
+each side; one whose measurement takes more digits than a length's writing holds; and words below
+with the arc symbol.
+
 ## How a measurement is written
 
 A measurement is the length between the points as the file holds them, with 6 decimals,
@@ -411,7 +439,8 @@ no dimension style holds nothing else for dimensions.
 
 ## What is not drawn yet
 
-Arc length and ordinate dimensions, an angular dimension by two lines, and an angular dimension's
+Ordinate dimensions, an arc length dimension of part of an arc or with a leader, or inside an arc
+under a right angle, an angular dimension by two lines, and an angular dimension's
 level text or text a drafter placed. A radial dimension's center mark, which the leading
 CAD app draws only without the line to the center, and a level text placed along its line. Tolerances and alternate
 units, and the unit formats but decimal and feet and inches. The other fits of a text, such as

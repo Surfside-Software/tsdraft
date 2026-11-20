@@ -190,6 +190,7 @@ const BLOCK_READS = new Set([
   "IMAGE",
   "INSERT",
   "LARGE_RADIAL_DIMENSION",
+  "ARC_DIMENSION",
   "LEADER",
   "LINE",
   "LWPOLYLINE",
@@ -210,6 +211,7 @@ const SPACE_READS = new Set([
   "IMAGE",
   "INSERT",
   "LARGE_RADIAL_DIMENSION",
+  "ARC_DIMENSION",
   "MTEXT",
   "POLYLINE",
   "SEQEND",
@@ -1123,7 +1125,8 @@ class DxfReader {
         return;
       }
       case "DIMENSION":
-      case "LARGE_RADIAL_DIMENSION": {
+      case "LARGE_RADIAL_DIMENSION":
+      case "ARC_DIMENSION": {
         if (!space) return;
         const style = name(r, 3) ?? "Standard";
         const dstyle = xdata(r, "ACAD");
@@ -1775,7 +1778,8 @@ class DxfReader {
           entity.kind !== "insert" &&
           entity.kind !== "dimension" &&
           entity.kind !== "radial-dimension" &&
-          entity.kind !== "angular-dimension"
+          entity.kind !== "angular-dimension" &&
+          entity.kind !== "arc-length-dimension"
         )
           continue;
         const block = entity.block;

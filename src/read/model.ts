@@ -482,6 +482,33 @@ export interface ReadAngularDimension extends ReadEntityBase {
   readonly blockHandle?: string;
 }
 
+/**
+ * An arc length dimension: the length of the arc about `center` of `radius` from `startAngle` to
+ * `endAngle`, counterclockwise in degrees, as the file holds the arc.
+ */
+export interface ReadArcLengthDimension extends ReadEntityBase {
+  readonly kind: "arc-length-dimension";
+  readonly center: Point;
+  readonly radius: number;
+  readonly startAngle: number;
+  readonly endAngle: number;
+  /** A point its own arc passes through. */
+  readonly at: Point;
+  /** The middle of its text. */
+  readonly textAt: Point;
+  /** True where the file holds its text where it was placed, not where the leading CAD app puts it. */
+  readonly placed?: boolean;
+  /** True where it measures part of the arc, from points of its own. */
+  readonly partial?: boolean;
+  /** What it measures, as the file states it, as `ReadDimension`'s. */
+  readonly measurement?: number;
+  readonly text?: string;
+  readonly textBelow?: string;
+  readonly style: string;
+  readonly block?: string;
+  readonly blockHandle?: string;
+}
+
 /** One root of a multileader: where some of its shafts meet, and the landing from there. */
 export interface ReadLeaderRoot {
   /** Where its shafts meet and its landing starts. */
@@ -676,6 +703,7 @@ export type ReadEntity =
   | ReadDimension
   | ReadRadialDimension
   | ReadAngularDimension
+  | ReadArcLengthDimension
   | ReadMultileader
   | ReadLeader
   | ReadSolid

@@ -1554,6 +1554,7 @@ const SUMMARY_KINDS = {
   "diameter-dimension": "diameter",
   "jogged-radius-dimension": "jogged-radius",
   "angular-dimension": "angular",
+  "arc-length-dimension": "arc-length",
 } as const;
 
 /** Each dimension among some entities, with what the library the drawing loaded says it reads. */

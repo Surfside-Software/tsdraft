@@ -372,6 +372,7 @@ export function lintStandard(
         style.suppressAngleZeros ?? "none",
         fields.suppressAngleZeros ?? "none",
       ],
+      ["arcSymbol", style.arcSymbol ?? "before", fields.arcSymbol],
       ["dimensionLineweight", style.dimensionLineweight, fields.dimensionLineweight],
       ["extensionLineweight", style.extensionLineweight, fields.extensionLineweight],
     ];

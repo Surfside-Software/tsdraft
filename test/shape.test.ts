@@ -246,6 +246,19 @@ const kinds: {
     textBelow: "CURB",
     id: "h-j",
   },
+  "arc-length-dimension": {
+    kind: "arc-length-dimension",
+    layer: "0",
+    style: "ARCH",
+    center: [0, 0],
+    radius: 10,
+    startAngle: 30,
+    endAngle: 120,
+    at: [0, 12],
+    text: "<> TYP",
+    textBelow: "MIN.",
+    id: "h-l",
+  },
   "angular-dimension": {
     kind: "angular-dimension",
     layer: "0",
@@ -357,6 +370,7 @@ const full: Required<Drawing> & {
       anglePrecision: 4,
       suppressAngleZeros: "leading",
       textMask: { color: 3 },
+      arcSymbol: "above",
     },
     {
       name: "ARCH",
@@ -386,6 +400,7 @@ const full: Required<Drawing> & {
       anglePrecision: 0,
       suppressAngleZeros: "both",
       textMask: true,
+      arcSymbol: "none",
     },
   ],
   leaderStyles: [
@@ -673,7 +688,7 @@ test("a value of the wrong shape is reported in these words, once", () => {
       { toString: 0 },
       [
         "xref: Xref a value of type object: A block's name must be a string",
-        `undefined-block: insert #17: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
+        `undefined-block: insert #18: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
       ],
     ],
     [

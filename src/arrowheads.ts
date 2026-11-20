@@ -220,3 +220,6 @@ export const DIMENSION_ANGLE_UNITS = [
 
 /** The most decimals an angle takes, as `DIMADEC` holds them. */
 export const MAX_ANGLE_PRECISION = 8;
+
+/** Where an arc length dimension draws the arc symbol: before its text, above it, or nowhere. */
+export const DIMENSION_ARC_SYMBOLS = ["before", "above", "none"] as const;

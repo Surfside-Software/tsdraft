@@ -807,7 +807,7 @@ test("a dimension is written with its style, its points and the block of its pic
     dimensionLines: ["14E64A214426A5", "1A23E71AA31D32", "1A22E71AA31F7D", "1A25E71AA31254"],
     leader: ["1C6E99C485049E", "1C7199C48501B7"],
     belowText: "1A5AD40549288F",
-    dimensionArcs: ["1FAB45DF867869", "1FAC45DF867AA4", "1FAD45DF867CF3"],
+    dimensionArcs: ["1FAB45DF867869", "1FAC45DF867AA4", "1FAD45DF867CF3", "1FA645DF8670D6"],
   });
   assert.equal(dimensionPictureHandles({ index: 1 }).record, "16DCBD6115A74B");
   assert.equal(dimensionPictureHandles({ index: 0, layout: "a-101" }).record, "1D645DAA891E34");
@@ -1263,4 +1263,136 @@ test("a style's text mask is kept by the builder, written, plotted and boxed", (
       drawing.dimensionStyles,
     )[3];
   assert.ok(top(masked(true)) > top(masked()), `${top(masked(true))} ${top(masked())}`);
+});
+
+test("an arc length dimension is built, written and read back, with the arc symbol before its text", async () => {
+  const d = createDrawing({ units: "in" });
+  d.dimensionStyle({ ...sizes, name: "S" });
+  d.dimensionStyle({ ...sizes, name: "BARE", arcSymbol: "none" });
+  d.arcLengthDimension([0, 0], 10, 30, 120, [0, 13], { style: "S", id: "l" });
+  d.arcLengthDimension(
+    [20, 0],
+    10,
+    30,
+    60,
+    [20 + 13 * Math.cos(Math.PI / 4), 13 * Math.sin(Math.PI / 4)],
+    {
+      style: "BARE",
+      text: "<> TYP.",
+    },
+  );
+  const drawing = d.build();
+  assert.deepEqual(lint(drawing), []);
+  assert.deepEqual(fromJSON(toJSON(drawing)), drawing);
+  const style = drawing.dimensionStyles![0]!;
+  const picture = dimensionPicture(drawing.entities[0] as never, style);
+  assert.equal(picture.label.value, "15.71");
+  // The symbol is a half circle before the text, the last of its arcs.
+  assert.equal(picture.dimensionArcs.length, 2);
+  const read = await readDXF(toDXF(drawing), { geometry: true });
+  const arcs = (read.model.entities ?? []).filter((e) => e.kind === "arc-length-dimension");
+  assert.deepEqual(
+    arcs.map((e) => [
+      e.center,
+      Number(e.radius.toFixed(6)),
+      Math.round(e.startAngle),
+      Math.round(e.endAngle),
+    ]),
+    [
+      [[0, 0], 10, 30, 120],
+      [[20, 0], 10, 30, 60],
+    ],
+  );
+  assert.equal(Number(arcs[0]!.measurement!.toFixed(6)), Number(((10 * Math.PI) / 2).toFixed(6)));
+  assert.equal(arcs[1]!.text, "<> TYP.");
+  // A right angle about a far center, whose ends' decimals put it a hair under, runs along radii.
+  const far = createDrawing({ units: "in" });
+  far.dimensionStyle({ ...sizes, name: "S" });
+  far.arcLengthDimension([1000, 2000], 10, 2, 92, [1000, 2013], { style: "S" });
+  const farDrawing = far.build();
+  const [from, to] = dimensionPicture(farDrawing.entities[0] as never, style).extensionLines[0]!;
+  const [cx, cy] = [1000, 2000];
+  assert.ok(
+    Math.abs((from[0] - cx) * (to[1] - from[1]) - (from[1] - cy) * (to[0] - from[0])) < 1e-6,
+  );
+});
+
+test("an arc length dimension is refused where the leading CAD app would draw what tsdraft does not", () => {
+  const d = createDrawing({ units: "in" });
+  d.dimensionStyle({ ...sizes, name: "S" });
+  assert.throws(
+    () => d.arcLengthDimension([0, 0], 10, 30, 30, [0, 13], { style: "S" }),
+    /measures no arc/,
+  );
+  assert.throws(
+    () => d.arcLengthDimension([0, 0], 10, 30, 120, [0, 0], { style: "S" }),
+    /no radius/,
+  );
+  assert.throws(
+    () => d.arcLengthDimension([0, 0], 10, 30, 120, [0, 10], { style: "S" }),
+    /on the arc it measures/,
+  );
+  // Inside an arc under a right angle.
+  assert.throws(
+    () => d.arcLengthDimension([0, 0], 10, 30, 60, [5, 5], { style: "S" }),
+    /inside an arc under a right angle/,
+  );
+  // Words below with the symbol.
+  assert.throws(
+    () => d.arcLengthDimension([0, 0], 10, 30, 120, [0, 13], { style: "S", textBelow: "MIN." }),
+    /with the arc symbol/,
+  );
+  assert.throws(
+    () => d.arcLengthDimension([0, 0], -10, 0, 90, [0, 13], { style: "S" }),
+    /0 or less/,
+  );
+  // A centered text too wide for its arc, with no marks to turn.
+  d.dimensionStyle({
+    ...sizes,
+    name: "BARE",
+    arrowSize: 0,
+    textPlacement: "centered",
+    arcSymbol: "none",
+  });
+  assert.throws(
+    () => d.arcLengthDimension([0, 0], 1, 0, 10, [1.3, 0.11], { style: "BARE", text: "VERIFY" }),
+    /too short for its text "centered"/,
+  );
+  // A text too wide for its own arc, which "leader" moves outside.
+  d.dimensionStyle({
+    ...sizes,
+    name: "OUT",
+    textFit: "leader",
+    textHeight: 0.125,
+    arcSymbol: "none",
+  });
+  assert.throws(
+    () =>
+      d.arcLengthDimension([0, 0], 10, 0, 5, [25, 1], { style: "OUT", text: "VERIFY IN FIELD" }),
+    /too short for its text/,
+  );
+  // Ticks longer than the arc is wide, turned outward, whose tails would meet round the back.
+  d.dimensionStyle({
+    ...sizes,
+    name: "TICKS",
+    arrowhead: "architectural-tick",
+    textPlacement: "centered",
+    textHeight: 0.125,
+    arrowSize: 0.25,
+    textGap: 0.04,
+  });
+  assert.throws(
+    () => d.arcLengthDimension([0, 0], 0.25, 0, 270, [0.1, 0], { style: "TICKS", text: "VERIFY" }),
+    /meet round the back/,
+  );
+  // More digits than a measurement's writing holds.
+  d.dimensionStyle({ ...sizes, name: "LONG", precision: 8, measurementScale: 304.8 });
+  assert.throws(
+    () => d.arcLengthDimension([0, 0], 25000, 0, 90, [0, 26000], { style: "LONG" }),
+    /16 digits/,
+  );
+  assert.throws(
+    () => d.dimensionStyle({ ...sizes, name: "BAD", arcSymbol: "after" as never }),
+    /arcSymbol must be "before", "above" or "none"/,
+  );
 });

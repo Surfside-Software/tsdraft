@@ -391,6 +391,9 @@ d.linearDimension([24, 30], [76, 30], [0, 20], { style: "PLAN" });
   lines to `from` and `to`, its arc through `at`, which picks the angle. A style's `angleUnits`,
   `anglePrecision` and `suppressAngleZeros` write it, as `37°15'30"` in
   `"degrees-minutes-seconds"`.
+- `arcLengthDimension(center, radius, startAngle, endAngle, at, options)` dimensions the length of
+  an arc, as `arc` takes it, with its own arc through `at`; a style's `arcSymbol` puts the arc
+  symbol `"before"` the text, `"above"` it, or `"none"`.
 - Never draw a dimension from lines and text.
   [docs/dimensions.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/dimensions.md)
   has the rest.

@@ -93,6 +93,12 @@
   coordinates, and lists the file's image definitions in `images`, with how many images name each,
   one that none names among them. The example sheet has a vicinity map above its key plan.
   [docs/images.md](docs/images.md) describes them.
+- Arc length dimensions: `arcLengthDimension(center, radius, startAngle, endAngle, at, options)`
+  measures the length of an arc, as `arc` takes it, with its own arc through `at`, drawn as the
+  leading CAD app draws it: from a right angle up about the center with extension lines along radii,
+  and under one with extension lines parallel to the arc's bisector. A dimension style's
+  `arcSymbol` puts the arc symbol `"before"` the text, `"above"` it, or `"none"`. `toDXF` writes
+  them, and `readDXF` reads them as `arc-length-dimension`.
 - Angular dimensions: `angularDimension(vertex, from, to, at, options)` measures the angle at
   `vertex` between the lines to `from` and `to`, its arc through `at`, which picks the angle as the
   leading CAD app does: the one between the lines that holds `at`, or the rest of the turn. Drawn as

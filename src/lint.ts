@@ -532,6 +532,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       case "diameter-dimension":
       case "jogged-radius-dimension":
       case "angular-dimension":
+      case "arc-length-dimension":
         cost += long1(e.style) + long1(e.text) + long1(e.textBelow);
         break;
       case "leader":
@@ -2345,7 +2346,8 @@ function costsBoxes(e: Readonly<Record<string, unknown>>): boolean {
     kind === "radius-dimension" ||
     kind === "diameter-dimension" ||
     kind === "jogged-radius-dimension" ||
-    kind === "angular-dimension"
+    kind === "angular-dimension" ||
+    kind === "arc-length-dimension"
   );
 }
 
@@ -2437,6 +2439,16 @@ function geometryProblems(e: Entity): string[] {
       break;
     case "angular-dimension":
       finite("its points", ...e.vertex, ...e.from, ...e.to, ...e.at);
+      break;
+    case "arc-length-dimension":
+      finite(
+        "its points, radius and angles",
+        ...e.center,
+        e.radius,
+        e.startAngle,
+        e.endAngle,
+        ...e.at,
+      );
       break;
     case "leader":
       finite("its point", ...e.at);

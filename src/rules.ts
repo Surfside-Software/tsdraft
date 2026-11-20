@@ -15,6 +15,7 @@ import {
   DIMENSION_TEXT_FITS,
   DIMENSION_RADIAL_TEXTS,
   DIMENSION_ANGLE_UNITS,
+  DIMENSION_ARC_SYMBOLS,
   MAX_ANGLE_PRECISION,
   JOG_ANGLE,
   DIMENSION_TEXT_PLACEMENTS,
@@ -3064,6 +3065,13 @@ export function radialTextProblem(value: unknown): string | undefined {
     : RADIAL_TEXT_MESSAGE;
 }
 
+/** Returns what is wrong with a dimension style's `arcSymbol`, or undefined. */
+export function arcSymbolProblem(value: unknown): string | undefined {
+  return (DIMENSION_ARC_SYMBOLS as readonly unknown[]).includes(value)
+    ? undefined
+    : 'arcSymbol must be "before", "above" or "none"';
+}
+
 /** Returns what is wrong with a dimension style's `angleUnits`, or undefined. */
 export function angleUnitsProblem(value: unknown): string | undefined {
   return (DIMENSION_ANGLE_UNITS as readonly unknown[]).includes(value)
@@ -3137,6 +3145,7 @@ export function dimensionStyleLookProblem(s: Record<string, unknown>): string | 
     if (problem) return problem;
   }
   for (const [field, problemOf] of [
+    ["arcSymbol", arcSymbolProblem],
     ["angleUnits", angleUnitsProblem],
     ["anglePrecision", anglePrecisionProblem],
     ["suppressAngleZeros", angleZerosProblem],
@@ -3256,6 +3265,26 @@ export const ANGULAR_NO_ARC =
 export const ANGULAR_ARC_ON_POINT =
   "its arc passes through one of its two points, where the leading CAD app runs that point's extension line toward the vertex or away from it by a rounding, which is not laid out yet, so tsdraft refuses it. Move the arc's point nearer the vertex or further from it";
 
+/** An arc length dimension with no arc to measure. */
+export const ARC_LENGTH_NO_ARC =
+  "it measures no arc: its radius is 0 or less, or its two angles are one once its ends are written with the 6 decimals tsdraft writes";
+
+/** An arc length dimension whose own arc's point is its center. */
+export const ARC_LENGTH_NO_REACH =
+  "its arc's point is its center once they are written with the 6 decimals tsdraft writes, so its own arc has no radius";
+
+/** An arc length dimension whose own arc runs on the arc it measures. */
+export const ARC_LENGTH_ON_ARC =
+  "its own arc's point is on the arc it measures, where the leading CAD app runs its extension lines toward the center or away from it by a rounding, which is not laid out yet, so tsdraft refuses it. Move the point further from the arc";
+
+/** An arc length dimension inside an arc under a right angle. */
+export const ARC_LENGTH_INSIDE_SHORT =
+  "its own arc inside an arc under a right angle is not laid out yet, so tsdraft refuses it. Put its point outside the arc";
+
+/** An arc length dimension with words below and its arc symbol. */
+export const ARC_LENGTH_SYMBOL_BELOW =
+  'its words below the arc with the arc symbol is not laid out yet, so tsdraft refuses it. Use a style with arcSymbol "none"';
+
 /** An angular dimension whose arc, or a piece of it, is all but a whole turn. */
 export const ANGULAR_ARC_LOST =
   "its arc, or a piece of it, runs all but a whole turn, so its two angles are one once they are written with the 6 decimals tsdraft writes, and the leading CAD app draws such an arc as nothing";
@@ -3263,6 +3292,10 @@ export const ANGULAR_ARC_LOST =
 /** An angular dimension whose closed arrowheads are longer than its arc is wide. */
 export const ANGULAR_ARROWS_LONG =
   "its closed arrowheads are as long as its arc is wide or longer, which is not laid out yet, so tsdraft refuses it. Move the arc's point further from the vertex, or use a smaller arrow size";
+
+/** A dimension whose marks, turned outward, and their tails would meet round the back of its arc. */
+export const ANGULAR_TAILS_MEET =
+  "its marks turn outward where its arc is too short for its text, and they and their tails would meet round the back of the arc, which is not laid out yet, so tsdraft refuses it. Use a smaller arrow size, or move the arc's point further out";
 
 /** An angular dimension whose arc's point lies on one of its lines. */
 export const ANGULAR_ARC_ON_LINE =

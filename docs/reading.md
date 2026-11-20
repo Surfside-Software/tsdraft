@@ -126,6 +126,10 @@ leader:
   middle of its text, `placed` where the file holds the text where it was placed, what it
   measures, its text, its style and the block of its picture. A file holds a diameter's far
   point, and the center is halfway to the point.
+- `arc-length-dimension`: an arc length dimension, with the `center`, `radius`, `startAngle` and
+  `endAngle` of the arc it measures, a point its own arc passes through, `at`, the middle of its
+  text, `placed`, `partial` where it measures part of the arc, what it measures, its text, its style
+  and the block of its picture.
 - `angular-dimension`: an angular dimension, its `type`, `"three-point"` with its `vertex` and
   a point of each line, `from` and `to`, or `"two-line"` with its `first` and `second` lines, each
   two points; a point its arc passes through, `at`, the middle of its text, `placed`, the angle it

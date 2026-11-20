@@ -602,6 +602,7 @@ function looked(
       case "diameter-dimension":
       case "jogged-radius-dimension":
       case "angular-dimension":
+      case "arc-length-dimension":
       case "leader":
         return true;
       default:

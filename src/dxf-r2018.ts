@@ -11,6 +11,7 @@ import {
   DEFAULT_ARROWHEAD,
   DEFAULT_LEADER_ARROWHEAD,
   DIMENSION_ANGLE_UNITS,
+  DIMENSION_ARC_SYMBOLS,
   JOG_ANGLE,
   leaderArrowheadInfo,
   type LeaderArrowheadStroke,
@@ -18,6 +19,7 @@ import {
 import {
   arrowheadEntityHandle,
   arrowheadsWithBlocks,
+  arcLengthArc,
   dimensionAngle,
   dimensionFileText,
   dimensionMeasure,
@@ -225,6 +227,16 @@ export function toDXFR2018(
   if (jogged > 0) {
     writeClass(g, "LARGE_RADIAL_DIMENSION", "AcDbRadialDimensionLarge", "ObjectDBX Classes", 1025, {
       count: jogged,
+      entity: true,
+    });
+  }
+  // So is an arc length dimension.
+  const arcLengths = [drawing.entities, ...sheets.map((sheet) => sheet.layout.entities)]
+    .flat()
+    .filter((e) => e.kind === "arc-length-dimension").length;
+  if (arcLengths > 0) {
+    writeClass(g, "ARC_DIMENSION", "AcDbArcDimension", "ObjectDBX Classes", 1025, {
+      count: arcLengths,
       entity: true,
     });
   }
@@ -1328,6 +1340,8 @@ function writeDimensionStyle(g: Group, style: DimensionStyle, textStyle: string)
   ); // DIMZIN
   const angleZeros = style.suppressAngleZeros;
   if (angleZeros !== undefined) g(79, ANGLE_ZERO_CODES[angleZeros]); // DIMAZIN
+  const arcSymbol = style.arcSymbol ?? "before";
+  if (arcSymbol !== "before") g(90, DIMENSION_ARC_SYMBOLS.indexOf(arcSymbol)); // DIMARCSYM
   g(140, style.textHeight); // DIMTXT
   g(144, style.measurementScale ?? 1); // DIMLFAC
   if (style.fractionScale !== undefined) g(146, style.fractionScale); // DIMTFAC
@@ -1376,12 +1390,19 @@ function writeDimension(
     ? e.center
     : e.kind === "linear-dimension"
       ? e.line
-      : e.kind === "angular-dimension"
+      : e.kind === "angular-dimension" || e.kind === "arc-length-dimension"
         ? e.at
         : e.to;
   const picture = drawn ?? { definitionPoint: at, textPoint: at };
   const jogged = e.kind === "jogged-radius-dimension";
-  g(0, jogged ? "LARGE_RADIAL_DIMENSION" : "DIMENSION");
+  g(
+    0,
+    jogged
+      ? "LARGE_RADIAL_DIMENSION"
+      : e.kind === "arc-length-dimension"
+        ? "ARC_DIMENSION"
+        : "DIMENSION",
+  );
   g(5, handle);
   g(330, owner);
   g(100, "AcDbEntity");
@@ -1401,6 +1422,21 @@ function writeDimension(
   // itself, and keeps the picture the file holds.
   if (style) g(42, measurementValue(e, style));
   g(3, style?.name ?? e.style);
+  if (e.kind === "arc-length-dimension") {
+    // The arc's ends, its center, no part of it alone, its angles in radians, and no leader.
+    const { center, first, second, start, sweep } = arcLengthArc(e);
+    g(100, "AcDbArcDimension");
+    point(g, 13, ...first);
+    point(g, 14, ...second);
+    point(g, 15, ...center);
+    g(70, 0);
+    g(40, fifteenDigits((start * Math.PI) / 180));
+    g(41, fifteenDigits((((start + sweep) % 360) * Math.PI) / 180));
+    g(71, 0);
+    point(g, 16, ...first);
+    point(g, 17, ...second);
+    return;
+  }
   if (e.kind === "angular-dimension") {
     g(100, "AcDb3PointAngularDimension");
     point(g, 13, ...e.from);
@@ -1475,6 +1511,7 @@ const DIMENSION_TYPES = {
   "radius-dimension": 4,
   "jogged-radius-dimension": 9,
   "angular-dimension": 5,
+  "arc-length-dimension": 5,
 } as const;
 
 /** The block of a dimension's picture, with what the writer needs for it. */

@@ -339,6 +339,7 @@ export function boxer(
       case "diameter-dimension":
       case "jogged-radius-dimension":
       case "angular-dimension":
+      case "arc-length-dimension":
         dimension(e, from, add);
         break;
       case "leader": {

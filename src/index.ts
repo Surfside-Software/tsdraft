@@ -15,6 +15,7 @@ export {
   ARROWHEADS,
   DEFAULT_LEADER_ARROWHEAD,
   DIMENSION_ANGLE_UNITS,
+  DIMENSION_ARC_SYMBOLS,
   DIMENSION_FRACTIONS,
   DIMENSION_RADIAL_TEXTS,
   DIMENSION_TEXT_FITS,
@@ -30,6 +31,7 @@ export {
 export type { CallSite } from "./callsite.ts";
 export {
   angleNumber,
+  arcLengthArc,
   arrowheadHandles,
   dimensionArcPoints,
   dimensionAngle,
@@ -82,6 +84,8 @@ export {
   type JoggedRadiusDimensionOptions,
   type AngularDimension,
   type AngularDimensionOptions,
+  type ArcLengthDimension,
+  type ArcLengthDimensionOptions,
   type InsertOptions,
   type Layer,
   type LayerOptions,
@@ -373,6 +377,7 @@ export {
   type ReadDimension,
   type ReadRadialDimension,
   type ReadAngularDimension,
+  type ReadArcLengthDimension,
   type ReadDimensionStyle,
   type ReadDrawingFile,
   type ReadEntity,

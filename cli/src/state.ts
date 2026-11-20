@@ -356,9 +356,16 @@ export interface DimensionSummary {
   readonly layer: string;
   /**
    * `linear` measures along one direction, `aligned` from point to point, `radius`, `diameter`
-   * and `jogged-radius` a circle or an arc, and `angular` the angle between two lines.
+   * and `jogged-radius` a circle or an arc, `angular` the angle between two lines, and `arc-length` the length of an arc.
    */
-  readonly kind: "linear" | "aligned" | "radius" | "diameter" | "jogged-radius" | "angular";
+  readonly kind:
+    | "linear"
+    | "aligned"
+    | "radius"
+    | "diameter"
+    | "jogged-radius"
+    | "angular"
+    | "arc-length";
   /** The dimension style as the dimension names it. */
   readonly style: string;
   /**
