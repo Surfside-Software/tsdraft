@@ -398,6 +398,30 @@ export interface ReadDimension extends ReadEntityBase {
   readonly blockHandle?: string;
 }
 
+/** A radius, a diameter or a jogged radius dimension. */
+export interface ReadRadialDimension extends ReadEntityBase {
+  readonly kind: "radial-dimension";
+  readonly type: "radius" | "diameter" | "jogged-radius";
+  /** The center of the circle or arc it measures. */
+  readonly center: Point;
+  /** The point of the circle or arc its line meets. */
+  readonly point: Point;
+  /** A jogged radius dimension's: where its line starts, and the middle of its jog. */
+  readonly start?: Point;
+  readonly jog?: Point;
+  /** The middle of its text. */
+  readonly textAt: Point;
+  /** True where the file holds its text where it was placed, not where the leading CAD app puts it. */
+  readonly placed?: boolean;
+  /** What it measures, as the file states it, as `ReadDimension`'s. */
+  readonly measurement?: number;
+  readonly text?: string;
+  readonly textBelow?: string;
+  readonly style: string;
+  readonly block?: string;
+  readonly blockHandle?: string;
+}
+
 /** A multileader with one note and straight shafts that meet at one landing. */
 export interface ReadMultileader extends ReadEntityBase {
   readonly kind: "multileader";
@@ -482,6 +506,7 @@ export type ReadEntity =
   | ReadInsert
   | ReadMtext
   | ReadDimension
+  | ReadRadialDimension
   | ReadMultileader
   | ReadSolid
   | ReadImage;

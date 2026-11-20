@@ -6,6 +6,7 @@ import { wholeImageClip } from "../images.ts";
 import type {
   ReadAttribute,
   ReadDimension,
+  ReadRadialDimension,
   ReadEntity,
   ReadEntityBase,
   ReadImage,
@@ -209,6 +210,7 @@ export function readingOf(
     case "MTEXT":
       return mtext(r, base);
     case "DIMENSION":
+    case "LARGE_RADIAL_DIMENSION":
       return dimension(r, base, face, r12);
     case "MULTILEADER":
       return multileader(r, base, later);
@@ -399,7 +401,9 @@ function mtext(record: Rec, base: ReadEntityBase): Reading {
 
 function dimension(r: Rec, base: ReadEntityBase, face: Facing, r12: boolean): Reading {
   if (face !== 1) return { other: face === -1 ? "DIMENSION seen from below" : "DIMENSION in 3D" };
-  const kind = (num(r, 70) ?? 0) & 7;
+  // The kind is group 70's low four bits, 9 for a jogged radius: 32, 64 and 128 are flags.
+  const kind = (num(r, 70) ?? 0) & 15;
+  if (kind === 3 || kind === 4 || kind === 9) return radialDimension(r, base, kind, r12);
   if (kind > 1) return { other: `DIMENSION ${DIMENSION_KINDS[kind] ?? "of another kind"}` };
   const angle = kind === 0 ? (num(r, 50) ?? 0) : 0;
   // The leading CAD app leaves the measurement out when it is 1. An R12 file holds none.
@@ -416,6 +420,38 @@ function dimension(r: Rec, base: ReadEntityBase, face: Facing, r12: boolean): Re
     line: point(r, 10),
     ...(angle !== 0 && { angle }),
     textAt: point(r, 11),
+    ...(measurement !== undefined && { measurement }),
+    ...parts,
+    style: name(r, 3) ?? "Standard",
+    ...(block !== undefined && block !== "" && { block }),
+  };
+  return { entity };
+}
+
+/**
+ * A radius (group 70's kind 4), a diameter (3) or a jogged radius (9) dimension. A diameter holds
+ * the far end of its line in group 10 and its center halfway to group 15.
+ */
+function radialDimension(r: Rec, base: ReadEntityBase, kind: number, r12: boolean): Reading {
+  const measurement = num(r, 42) ?? (r12 ? undefined : 1);
+  const text = first(r, 1);
+  const block = name(r, 2);
+  const parts = text === undefined ? {} : dimensionTextParts(textOnce(text));
+  const onCircle = point(r, 15);
+  const definition = point(r, 10);
+  const center: Point =
+    kind === 3
+      ? [(definition[0] + onCircle[0]) / 2, (definition[1] + onCircle[1]) / 2]
+      : definition;
+  const entity: ReadRadialDimension = {
+    ...base,
+    kind: "radial-dimension",
+    type: kind === 4 ? "radius" : kind === 3 ? "diameter" : "jogged-radius",
+    center,
+    point: onCircle,
+    ...(kind === 9 && { start: point(r, 13), jog: point(r, 14) }),
+    textAt: point(r, 11),
+    ...(((num(r, 70) ?? 0) & 128) !== 0 && { placed: true }),
     ...(measurement !== undefined && { measurement }),
     ...parts,
     style: name(r, 3) ?? "Standard",
@@ -563,6 +599,8 @@ export function costOf(e: ReadEntity): number {
       return own + 1 + chars(e.value) + chars(e.style);
     case "dimension":
       return own + 4 + chars(e.text) + chars(e.textBelow) + chars(e.style) + chars(e.block);
+    case "radial-dimension":
+      return own + 5 + chars(e.text) + chars(e.textBelow) + chars(e.style) + chars(e.block);
     case "multileader": {
       let points = 3;
       for (const shaft of e.shafts) points += shaft.length;

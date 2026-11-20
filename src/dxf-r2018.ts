@@ -10,6 +10,7 @@ import {
   arrowheadInfo,
   DEFAULT_ARROWHEAD,
   DEFAULT_LEADER_ARROWHEAD,
+  JOG_ANGLE,
   leaderArrowheadInfo,
   type LeaderArrowheadStroke,
 } from "./arrowheads.ts";
@@ -28,6 +29,8 @@ import {
   type DimensionPicture,
   type DimensionPictureHandles,
   type Dimension,
+  isDimension,
+  isRadial,
 } from "./dimensions.ts";
 import type {
   AttributeDefinition,
@@ -191,6 +194,16 @@ export function toDXFR2018(
 
   g(0, "SECTION");
   g(2, "CLASSES");
+  // A jogged radius dimension is an entity of a class, which a drawing that has one lists.
+  const jogged = [drawing.entities, ...sheets.map((sheet) => sheet.layout.entities)]
+    .flat()
+    .filter((e) => e.kind === "jogged-radius-dimension").length;
+  if (jogged > 0) {
+    writeClass(g, "LARGE_RADIAL_DIMENSION", "AcDbRadialDimensionLarge", "ObjectDBX Classes", 1025, {
+      count: jogged,
+      entity: true,
+    });
+  }
   // A multileader and its style are objects of classes, which a drawing that has them lists.
   if (leaderStyles.length > 0) {
     writeClass(g, "MLEADERSTYLE", "AcDbMLeaderStyle", "ACDB_MLEADERSTYLE_CLASS", 4095, {
@@ -370,7 +383,7 @@ export function toDXFR2018(
   const pictures = new Map<string, Picture>();
   [drawing.entities, ...sheets.map((sheet) => sheet.layout.entities)].forEach((entities, space) => {
     entities.forEach((entity, index) => {
-      if (entity.kind !== "linear-dimension" && entity.kind !== "aligned-dimension") return;
+      if (!isDimension(entity)) return;
       const style = dimensionStylesByKey.get(layerKey(entity.style));
       if (style === undefined) return;
       const layout = space === 0 ? undefined : sheets[space - 1]!.layout.name;
@@ -498,7 +511,7 @@ export function toDXFR2018(
         });
         return;
       }
-      if (entity.kind === "linear-dimension" || entity.kind === "aligned-dimension") {
+      if (isDimension(entity)) {
         const picture = space === undefined ? undefined : pictures.get(`${space}/${index}`);
         writeDimension(
           g,
@@ -1199,9 +1212,10 @@ function writeDimension(
   drawn: DimensionPicture | undefined,
 ): void {
   // `lint` refuses a dimension in a style the drawing does not have, which has no picture.
-  const at = e.kind === "linear-dimension" ? e.line : e.to;
+  const at = isRadial(e) ? e.center : e.kind === "linear-dimension" ? e.line : e.to;
   const picture = drawn ?? { definitionPoint: at, textPoint: at };
-  g(0, "DIMENSION");
+  const jogged = e.kind === "jogged-radius-dimension";
+  g(0, jogged ? "LARGE_RADIAL_DIMENSION" : "DIMENSION");
   g(5, handle);
   g(330, owner);
   g(100, "AcDbEntity");
@@ -1211,8 +1225,9 @@ function writeDimension(
   if (block !== undefined) g(2, block);
   point(g, 10, ...picture.definitionPoint);
   point(g, 11, ...picture.textPoint);
-  // 32: the dimension has a picture of its own. 1: it is aligned.
-  g(70, e.kind === "aligned-dimension" ? 33 : 32);
+  // The kind, and 32: the dimension has a picture of its own; 128: its text is where it was placed.
+  const placed = "textFromCenter" in e && e.textFromCenter !== undefined ? 128 : 0;
+  g(70, DIMENSION_TYPES[e.kind] + 32 + placed);
   const text = dimensionFileText(e);
   if (text !== undefined) g(1, dxfOnce(text));
   g(71, 5); // the text is placed by its middle
@@ -1220,6 +1235,32 @@ function writeDimension(
   // itself, and keeps the picture the file holds.
   if (style) g(42, measurementValue(e, style));
   g(3, style?.name ?? e.style);
+  if (isRadial(e)) {
+    if (e.kind === "jogged-radius-dimension") {
+      g(100, "AcDbRadialDimensionLarge");
+      point(g, 13, ...e.start);
+      point(g, 14, ...e.jog);
+    } else {
+      g(100, e.kind === "radius-dimension" ? "AcDbRadialDimension" : "AcDbDiametricDimension");
+    }
+    point(g, 15, ...e.point);
+    g(40, 0); // no leader length: the text's place is group 11
+    // What the style sets of a radial dimension alone is the dimension's override: a jog angle
+    // other than the leading CAD app's own, and a level text.
+    const overrides = radialOverrides(e, style);
+    if (overrides.length > 0) {
+      g(1001, "ACAD");
+      g(1000, "DSTYLE");
+      g(1002, "{");
+      for (const [code, value] of overrides) {
+        g(1070, code);
+        if (code === 50) g(1040, value);
+        else g(1070, value);
+      }
+      g(1002, "}");
+    }
+    return;
+  }
   g(100, "AcDbAlignedDimension");
   point(g, 13, ...e.from);
   point(g, 14, ...e.to);
@@ -1229,6 +1270,38 @@ function writeDimension(
     g(100, "AcDbRotatedDimension");
   }
 }
+
+/**
+ * The overrides a radial dimension holds of what its style sets of it alone, by the group each
+ * has in a dimension style: DIMJOGANG (50) in radians, and DIMTIH (73) and DIMTOH (74) for a level
+ * text. A linear or an aligned dimension holds none.
+ */
+export function radialOverrides(
+  e: Dimension,
+  style: DimensionStyle | undefined,
+): (readonly [code: number, value: number])[] {
+  if (!isRadial(e) || style === undefined) return [];
+  const out: [number, number][] = [];
+  const jog = style.jogAngle;
+  if (
+    e.kind === "jogged-radius-dimension" &&
+    jog !== undefined &&
+    written(jog) !== JOG_ANGLE.default
+  ) {
+    out.push([50, (written(jog) * Math.PI) / 180]);
+  }
+  if (style.radialText === "horizontal") out.push([73, 1], [74, 1]);
+  return out;
+}
+
+/** Group 70's kind of each dimension. */
+const DIMENSION_TYPES = {
+  "linear-dimension": 0,
+  "aligned-dimension": 1,
+  "diameter-dimension": 3,
+  "radius-dimension": 4,
+  "jogged-radius-dimension": 9,
+} as const;
 
 /** The block of a dimension's picture, with what the writer needs for it. */
 interface Picture {
@@ -1273,8 +1346,9 @@ function writePicture(g: Group, { name, picture, handles, layer, textStyle }: Pi
         string,
         number,
       ])[] = [
-        [...picture.extensionLines[0]!, handles.extensionLines[0], weights.extension],
-        [...picture.extensionLines[1]!, handles.extensionLines[1], weights.extension],
+        ...picture.extensionLines.map(
+          ([from, to], i) => [from, to, handles.extensionLines[i]!, weights.extension] as const,
+        ),
         ...picture.dimensionLines.map(
           ([from, to], i) => [from, to, handles.dimensionLines[i]!, weights.dimension] as const,
         ),

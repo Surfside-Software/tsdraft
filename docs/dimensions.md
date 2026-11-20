@@ -129,7 +129,7 @@ long. The ticks stay inward unless the line is shorter than two gaps. `lint` ref
 not laid out yet: words below the line of a text that moves out, arrowheads twice the text's
 height or longer in such a style, and closed filled arrowheads with the text centered.
 
-## The two kinds
+## The kinds
 
 `d.linearDimension(from, to, line, options)` measures the distance from `from` to `to` along
 one direction: along X unless `options.along` is `"y"` or an angle in degrees counterclockwise
@@ -155,6 +155,38 @@ Both take `style`, the name of the dimension style, and optionally:
 A dimension is on the current layer, and is drawn in that layer's color and lineweight. It
 takes no linetype or lineweight of its own. It goes in model space or on a
 [layout](layouts.md), and not in a block.
+
+### Radius, diameter and jogged radius
+
+`d.radiusDimension(center, point, options)` measures the radius of a circle or an arc: the
+distance from `center` to `point`, a point of the circle its line meets. The leading CAD app writes
+an R before the measurement, and `<>` in `text` stands for both: `"<> TYP."` reads `R2.50 TYP.`.
+Its line runs from the center through `point`. The line to the center is always drawn.
+
+`d.diameterDimension(center, point, options)` measures twice that, read with a diameter sign:
+`∅5.00`. Its line runs across the circle through the center, with an arrowhead at `point` and
+one at the point opposite, and its text stands at `point`'s end.
+
+The text of both stands outside the circle, past the arrowhead, which points in at the circle
+from outside, unless `options.textFromCenter` places it: the distance of the middle of the text
+from the center along the line, inside the circle, outside it, or past the center for less than 0. The leading CAD app keeps a placed text two arrow sizes and a gap clear of the circle. Inside,
+the arrowhead points out at the circle, and the line runs from beyond the text to it.
+
+`d.joggedRadiusDimension(center, point, start, jog, options)` measures the radius of an arc
+whose center is too far off to draw to. Its line starts at `start`, standing in for the center,
+crosses over at a jog centered on `jog`, and runs on toward the center to `point`, with the
+arrowhead pointing out at the arc and the text along the last stretch, inside the arc.
+
+A dimension style sets two things of these kinds alone:
+
+- `radialText: "horizontal"` levels their text: outside a circle on a short level landing, and
+  across a jogged one's line, which breaks round it. `"aligned"`, the default, keeps it along the
+  line. Linear and aligned dimensions take no notice of it.
+- `jogAngle`, the angle of the jog to the line, in degrees from 5 to 90. Defaults to 45.
+
+`lint` refuses a style with a `prefix` for them, which the leading CAD app may put in place of its R
+or its diameter sign; a placed text in a style that levels the text or centers it in the line; a
+jogged one in a style that centers its text; and a radius of 0.
 
 ## How a measurement is written
 
@@ -330,7 +362,8 @@ no dimension style holds nothing else for dimensions.
 
 ## What is not drawn yet
 
-Angular, radial, diameter, arc length and ordinate dimensions. Tolerances and alternate
+Angular, arc length and ordinate dimensions. A radial dimension's center mark, which the leading
+CAD app draws only without the line to the center, and a level text placed along its line. Tolerances and alternate
 units, and the unit formats but decimal and feet and inches. The other fits of a text, such as
 moving the arrowheads first, and a text a drafter placed. A dimension tied to an entity, which
 follows it when it moves: a dimension's points are the ones the code gives it.

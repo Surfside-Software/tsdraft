@@ -132,6 +132,14 @@
           <text transform="translate(21.828487 53.900047) scale(1 -1) rotate(-90)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="6.185837" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="Arial" data-part="text">BUILDING</text>
         </g>
         </g>
+        <g data-dimension="R5.0' TYP.">
+          <line x1="58.412283" y1="-20.83845" x2="53.5" y2="-12.330127" stroke="#0d7a8c" stroke-width="0.1885" data-part="dimension-line"/>
+          <line x1="51" y1="-8" x2="53.5" y2="-12.330127" stroke="#0d7a8c" stroke-width="0.1885" data-part="dimension-line"/>
+          <polygon points="54.37803,-12.468337 52.670498,-12.010806 52.62197,-12.191917 54.329502,-12.649448" fill="#0d7a8c" stroke="none" data-part="arrowhead"/>
+          <g data-part="text" data-paragraph="\A1;R5.0' TYP.">
+          <text transform="translate(55.566132 -14.626798) scale(1 -1) rotate(-300)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="6.291354" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#0d7a8c" stroke="none" data-font="Arial" data-part="text">R5.0' TYP.</text>
+        </g>
+        </g>
         <text transform="translate(50 141.25) scale(1 -1) translate(-6.569854 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="13.139708" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial">N 90°00'00&quot; E  100.00'</text>
         <text transform="translate(102.1875 111.375) scale(1 -1) rotate(-90) translate(-6.533723 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="13.067445" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial">S 00°00'00&quot; E  140.00'</text>
         <text transform="translate(28 1.25) scale(1 -1) translate(-6.71502 0)" font-size="1.309358" font-family="Arial, Helvetica, sans-serif" data-height="0.9375" textLength="13.430039" lengthAdjust="spacingAndGlyphs" xml:space="preserve" fill="#1f2328" stroke="none" data-font="Arial">S 90°00'00&quot; W  100.00'</text>

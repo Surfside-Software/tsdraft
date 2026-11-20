@@ -26,6 +26,7 @@ import {
   validDimensionStyleHandle,
   type Dimension,
   type DimensionPlace,
+  isDimension,
 } from "./dimensions.ts";
 import type {
   AttributeDefinition,
@@ -506,6 +507,9 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         break;
       case "linear-dimension":
       case "aligned-dimension":
+      case "radius-dimension":
+      case "diameter-dimension":
+      case "jogged-radius-dimension":
         cost += long1(e.style) + long1(e.text) + long1(e.textBelow);
         break;
       case "leader":
@@ -1697,7 +1701,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         }
         lintImage(entity, add, problems.length === 0, named, here);
       }
-      if (entity.kind === "linear-dimension" || entity.kind === "aligned-dimension") {
+      if (isDimension(entity)) {
         lintDimension(entity, add, problems.length === 0, block !== undefined, here);
         // The block of its picture takes handles from its id, or else from its place.
         if (!r12 && !block && (id === undefined || named)) {
@@ -2214,7 +2218,10 @@ function costsBoxes(e: Readonly<Record<string, unknown>>): boolean {
     kind === "insert" ||
     kind === "leader" ||
     kind === "linear-dimension" ||
-    kind === "aligned-dimension"
+    kind === "aligned-dimension" ||
+    kind === "radius-dimension" ||
+    kind === "diameter-dimension" ||
+    kind === "jogged-radius-dimension"
   );
 }
 
@@ -2296,6 +2303,13 @@ function geometryProblems(e: Entity): string[] {
       break;
     case "aligned-dimension":
       finite("its points and its offset", ...e.from, ...e.to, e.offset);
+      break;
+    case "radius-dimension":
+    case "diameter-dimension":
+      finite("its points and its text's distance", ...e.center, ...e.point, e.textFromCenter ?? 0);
+      break;
+    case "jogged-radius-dimension":
+      finite("its points", ...e.center, ...e.point, ...e.start, ...e.jog);
       break;
     case "leader":
       finite("its point", ...e.at);

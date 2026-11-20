@@ -89,7 +89,7 @@ test("a page sets the thinnest pen 0 wide, turns ARCH E as the plotter holds it,
   d.layer("HAIR", { lineweight: 0 });
   d.layout("E", { paper: "ARCH E" }, () => {
     d.layer("HAIR", {}, () => d.line([1, 1], [2, 1]));
-    d.text([1, 2], "A ≥ B", { height: 0.25, style: "NOTE" });
+    d.text([1, 2], "A ≥ B ∅", { height: 0.25, style: "NOTE" });
   });
   const missing: [string, string, number][] = [];
   const pdf = latin1(toPDF(d.build(), { missing: (...said) => missing.push(said), title: "E" }));
@@ -97,7 +97,8 @@ test("a page sets the thinnest pen 0 wide, turns ARCH E as the plotter holds it,
   // The medium is upright, 36 by 48 inches, and the layout's point (1, 1) is at (1, 47) on it.
   assert.match(pdf, /\/MediaBox \[0 0 2592 3456\] \/Rotate 270/);
   assert.match(pdf, /^0 w\n72 3384 m\n72 3312 l\nS$/m);
-  assert.match(pdf, /<41203F2042> Tj/);
+  // The diameter sign, which the font lacks, is plotted as Ø, as the leading CAD app plots it.
+  assert.match(pdf, /<41203F204220D8> Tj/);
   assert.deepEqual(missing, [["E", "≥", 0]]);
   assert.match(pdf, /\/Title <FEFF0045>/);
   assert.match(pdf, /\/ID \[<[0-9A-F]{32}> <[0-9A-F]{32}>\]/);

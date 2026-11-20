@@ -1046,3 +1046,62 @@ test("a stacked fraction, words below the line and a text moved out are drawn an
   assert.equal(read.dimensionStyles.find((s) => s.name === "S")?.textMove, 1);
   assert.equal(read.dimensionStyles.find((s) => s.name === "S")?.arrowheadBlock, "_Oblique");
 });
+
+test("a radius, a diameter and a jogged radius dimension are built, written and read back", async () => {
+  const d = createDrawing({ units: "in" });
+  d.dimensionStyle({ ...sizes, name: "S" });
+  d.dimensionStyle({ ...sizes, name: "JOG", jogAngle: 30 });
+  d.radiusDimension([0, 0], [3, 4], { style: "S", id: "r" });
+  d.diameterDimension([10, 0], [10, 2], { style: "S", text: "<> TYP.", textFromCenter: 1 });
+  d.joggedRadiusDimension([0, 0], [30, 40], [20, 20], [24, 30], { style: "JOG" });
+  const drawing = d.build();
+  assert.deepEqual(lint(drawing), []);
+  assert.deepEqual(fromJSON(toJSON(drawing)), drawing);
+  const read = await readDXF(toDXF(drawing), { geometry: true });
+  const radial = (read.model.entities ?? []).filter((e) => e.kind === "radial-dimension");
+  assert.deepEqual(
+    radial.map((e) => [e.type, e.center, e.point, e.measurement]),
+    [
+      ["radius", [0, 0], [3, 4], 5],
+      ["diameter", [10, 0], [10, 2], 4],
+      ["jogged-radius", [0, 0], [30, 40], 50],
+    ],
+  );
+  assert.equal(radial[1]!.text, "<> TYP.");
+  assert.equal(radial[1]!.placed, true);
+  assert.deepEqual(
+    [radial[2]!.start, radial[2]!.jog],
+    [
+      [20, 20],
+      [24, 30],
+    ],
+  );
+  // The leading CAD app writes R and the diameter sign before the measurement itself.
+  const style = drawing.dimensionStyles![0]!;
+  assert.equal(dimensionPicture(drawing.entities[0] as never, style).label.value, "R5.00");
+});
+
+test("a radial dimension is refused where the leading CAD app would draw what tsdraft does not", () => {
+  const d = createDrawing({ units: "in" });
+  d.dimensionStyle({ ...sizes, name: "S" });
+  d.dimensionStyle({ ...sizes, name: "PRE", prefix: "L=" });
+  // A style's prefix may stand in place of the R the app writes.
+  assert.throws(
+    () => d.radiusDimension([0, 0], [3, 4], { style: "PRE" }),
+    /its style has a prefix/,
+  );
+  assert.throws(() => d.radiusDimension([0, 0], [0, 0.0000001], { style: "S" }), /no radius/);
+  assert.throws(
+    () => d.dimensionStyle({ ...sizes, name: "STEEP", jogAngle: 95 }),
+    /jogAngle must be a number of degrees from 5 to 90/,
+  );
+  assert.throws(
+    () => d.radiusDimension([0, 0], [3, 4], { style: "S", textFromCenter: Number.NaN }),
+    /textFromCenter/,
+  );
+  // A jog so near the arc that its last stretch cannot hold the text.
+  assert.throws(
+    () => d.joggedRadiusDimension([0, 0], [120, 0], [118, 0.5], [119.7, 0.1], { style: "S" }),
+    /shorter than its text/,
+  );
+});

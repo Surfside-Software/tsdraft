@@ -5,6 +5,7 @@ import type {
   Arrowhead,
   DIMENSION_FRACTIONS,
   DIMENSION_TEXT_FITS,
+  DIMENSION_RADIAL_TEXTS,
   DIMENSION_TEXT_PLACEMENTS,
   DIMENSION_UNITS,
   FEET_INCH_ZEROS,
@@ -189,6 +190,8 @@ export interface DimensionStyleFieldsDocument extends Commented {
   readonly textFit?: string;
   readonly dimensionLineweight?: number;
   readonly extensionLineweight?: number;
+  readonly radialText?: string;
+  readonly jogAngle?: number;
   readonly writing?: { readonly [U in Units]?: WritingDocument };
   readonly description?: string;
 }
@@ -363,6 +366,8 @@ export interface StandardDimensionStyleFields {
   readonly textFit?: (typeof DIMENSION_TEXT_FITS)[number];
   readonly dimensionLineweight?: number;
   readonly extensionLineweight?: number;
+  readonly radialText?: (typeof DIMENSION_RADIAL_TEXTS)[number];
+  readonly jogAngle?: number;
   readonly writing?: { readonly [U in Units]?: StandardWriting };
   readonly description?: string;
 }
@@ -378,6 +383,8 @@ export interface StandardDimensionStyle {
   readonly textFit: (typeof DIMENSION_TEXT_FITS)[number];
   readonly dimensionLineweight?: number;
   readonly extensionLineweight?: number;
+  readonly radialText: (typeof DIMENSION_RADIAL_TEXTS)[number];
+  readonly jogAngle: number;
   readonly writing: { readonly [U in Units]?: StandardWriting };
   /** Its name in the leading CAD app on a layout, when it is not its id in capitals. */
   readonly layoutName?: string;

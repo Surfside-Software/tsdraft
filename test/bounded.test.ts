@@ -2063,7 +2063,25 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
           line: [0, i + 1],
           textBelow: pick([long, "A\\P".repeat(5_000)]),
         })),
+        // Radial ones, with long words, a text placed far off or past the center, and a jog.
+        ...Array.from({ length: pick([1, 300]) }, (_, i): Data => {
+          const kind = pick(["radius-dimension", "diameter-dimension", "jogged-radius-dimension"]);
+          return {
+            kind,
+            layer: "0",
+            style: style.name,
+            center: [0, i],
+            point: [pick([0.01, 10, 1e9]), i],
+            text: pick(["<>", long]),
+            textBelow: pick([long, "A\\P".repeat(5_000)]),
+            ...(kind === "jogged-radius-dimension"
+              ? { start: [5, i - 5], jog: [pick([5, -1e9]), i] }
+              : { textFromCenter: pick([-1e9, 0, 5, 1e12]) }),
+          };
+        }),
       );
+      style.radialText = pick(["aligned", "horizontal"]);
+      style.jogAngle = pick([5, 45, 90]);
     }
     // A leader style whose arrowhead or text style every leader reads.
     if (random() < 0.2) {

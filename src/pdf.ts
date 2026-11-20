@@ -497,6 +497,12 @@ const WIN_ANSI_HIGH: Readonly<Record<number, number>> = {
 
 const QUESTION = 0x3f;
 
+/**
+ * The character a font that lacks one is plotted with instead, as the leading CAD app plots it:
+ * the diameter sign as Ø.
+ */
+const PLOTTED_AS: Readonly<Record<string, string>> = { "\u2205": "\u00d8" };
+
 /** A control character, which no face sets: U+0000 to U+001F and U+007F to U+009F. */
 function control(code: number): boolean {
   return code < 0x20 || (code >= 0x7f && code <= 0x9f);
@@ -505,7 +511,8 @@ function control(code: number): boolean {
 /** A character's code in Windows-1252, the encoding of the page's fonts, or `?` for one it lacks. */
 function winAnsi(code: number): number {
   if ((code >= 0x20 && code <= 0x7e) || (code >= 0xa0 && code <= 0xff)) return code;
-  return WIN_ANSI_HIGH[code] ?? QUESTION;
+  const instead = PLOTTED_AS[String.fromCodePoint(code)];
+  return WIN_ANSI_HIGH[code] ?? (instead === undefined ? QUESTION : instead.codePointAt(0)!);
 }
 
 /**
@@ -584,8 +591,9 @@ class Embedded {
 
   /**
    * The code of a character, given one when it is first set. A character the font has no glyph
-   * for, and a control character, is added to `missing` and set as `?`, as `measureText`
-   * measures it, or as the font's empty glyph, code 0, when it has no `?` either.
+   * for is set as the character `PLOTTED_AS` gives it, if the font has that one. Otherwise it,
+   * and a control character, is added to `missing` and set as `?`, as `measureText` measures it,
+   * or as the font's empty glyph, code 0, when it has no `?` either.
    */
   code(character: string, missing: Set<string>): number {
     const known = this.codes.get(character);
@@ -596,6 +604,10 @@ class Embedded {
       this.glyphs.push(glyph);
       this.codes.set(character, this.glyphs.length);
       return this.glyphs.length;
+    }
+    const instead = PLOTTED_AS[character];
+    if (glyph === 0 && instead !== undefined && this.font.glyph(instead.codePointAt(0)!) !== 0) {
+      return this.code(instead, missing);
     }
     missing.add(character);
     if (character === "?") return 0;

@@ -2,6 +2,8 @@
 // refuses under a standard, for a drawing made by other code or read from JSON, under the same
 // rules, and what only the whole drawing shows, such as the height a text plots at in each
 // viewport that shows it. The leading CAD app opens a drawing that breaks them: they are the firm's.
+import { JOG_ANGLE } from "../arrowheads.ts";
+import { isDimension } from "../dimensions.ts";
 import { DEFAULT_ARROWHEAD, DEFAULT_LEADER_ARROWHEAD } from "../arrowheads.ts";
 import {
   blocksByKey,
@@ -361,6 +363,8 @@ export function lintStandard(
       ["fractionScale", style.fractionScale ?? 1, writing.fractionScale],
       ["textPlacement", style.textPlacement ?? "above", fields.textPlacement],
       ["textFit", style.textFit ?? "inside", fields.textFit],
+      ["radialText", style.radialText ?? "aligned", fields.radialText],
+      ["jogAngle", style.jogAngle ?? JOG_ANGLE.default, fields.jogAngle],
       ["dimensionLineweight", style.dimensionLineweight, fields.dimensionLineweight],
       ["extensionLineweight", style.extensionLineweight, fields.extensionLineweight],
     ];
@@ -1065,7 +1069,7 @@ export function lintStandard(
         });
       };
       try {
-        if (entity.kind === "linear-dimension" || entity.kind === "aligned-dimension") {
+        if (isDimension(entity)) {
           const style = styleRatio.get(walk.key(entity.style));
           if (!style || hidden({ name: walk.layer(entity.layer) })) return;
           // Its box reads its style's name, its own text and what its style gives every label.

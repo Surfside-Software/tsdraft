@@ -192,6 +192,12 @@ export const DIMENSION_TEXT_PLACEMENTS = ["above", "centered"] as const;
  */
 export const DIMENSION_TEXT_FITS = ["inside", "leader"] as const;
 
+/** How a radius, a diameter or a jogged radius dimension's text reads: along its line, or level. */
+export const DIMENSION_RADIAL_TEXTS = ["aligned", "horizontal"] as const;
+
+/** The angle of a jogged radius dimension's jog to its line, in degrees, by default and at most. */
+export const JOG_ANGLE = { default: 45, least: 5, most: 90 } as const;
+
 /** The most decimals the leading CAD app writes a measurement with. */
 export const MAX_PRECISION = 8;
 

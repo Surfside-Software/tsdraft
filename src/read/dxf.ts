@@ -189,6 +189,7 @@ const BLOCK_READS = new Set([
   "DIMENSION",
   "IMAGE",
   "INSERT",
+  "LARGE_RADIAL_DIMENSION",
   "LINE",
   "LWPOLYLINE",
   "MTEXT",
@@ -206,6 +207,7 @@ const SPACE_READS = new Set([
   "DIMENSION",
   "IMAGE",
   "INSERT",
+  "LARGE_RADIAL_DIMENSION",
   "MTEXT",
   "POLYLINE",
   "SEQEND",
@@ -1073,7 +1075,8 @@ class DxfReader {
         }
         return;
       }
-      case "DIMENSION": {
+      case "DIMENSION":
+      case "LARGE_RADIAL_DIMENSION": {
         if (!space) return;
         const style = name(r, 3) ?? "Standard";
         const dstyle = xdata(r, "ACAD");
@@ -1618,7 +1621,12 @@ class DxfReader {
     if (records.size === 0) return;
     const named = (entities: readonly ReadEntity[]): void => {
       for (const entity of entities) {
-        if (entity.kind !== "insert" && entity.kind !== "dimension") continue;
+        if (
+          entity.kind !== "insert" &&
+          entity.kind !== "dimension" &&
+          entity.kind !== "radial-dimension"
+        )
+          continue;
         const block = entity.block;
         if (block === undefined || block.length > LONGEST_NAME) continue;
         const handle = records.get(layerKey(block));

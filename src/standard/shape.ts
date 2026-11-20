@@ -9,6 +9,8 @@ import {
   DEFAULT_LEADER_ARROWHEAD,
   DIMENSION_FRACTIONS,
   DIMENSION_TEXT_FITS,
+  DIMENSION_RADIAL_TEXTS,
+  JOG_ANGLE,
   DIMENSION_TEXT_PLACEMENTS,
   DIMENSION_UNITS,
   FEET_INCH_ZEROS,
@@ -26,6 +28,8 @@ import {
   fractionProblem,
   fractionScaleProblem,
   textFitProblem,
+  radialTextProblem,
+  jogAngleProblem,
   textPlacementProblem,
   blockNameProblem,
   dimensionPrefixProblem,
@@ -517,6 +521,17 @@ const STYLE_FIELDS = {
     node: string({ enum: DIMENSION_TEXT_PLACEMENTS }, textPlacementProblem),
     description: "The text above the dimension line, or centered in a break of it",
     default: "above",
+  },
+  radialText: {
+    node: string({ enum: DIMENSION_RADIAL_TEXTS }, radialTextProblem),
+    description:
+      "How a radius, a diameter or a jogged radius dimension's text reads: along its line, or level",
+    default: "aligned",
+  },
+  jogAngle: {
+    node: number({ minimum: JOG_ANGLE.least, maximum: JOG_ANGLE.most }, jogAngleProblem),
+    description: "The angle of a jogged radius dimension's jog to its line, in degrees",
+    default: JOG_ANGLE.default,
   },
   textFit: {
     node: string({ enum: DIMENSION_TEXT_FITS }, textFitProblem),

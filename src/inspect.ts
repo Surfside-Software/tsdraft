@@ -12,7 +12,7 @@ import {
   type XrefDrawings,
 } from "./blocks.ts";
 import { callOf, type CallSite } from "./callsite.ts";
-import { dimensionPicture, pictureTexts } from "./dimensions.ts";
+import { dimensionPicture, pictureTexts, isDimension } from "./dimensions.ts";
 import { leaderPicture, leaderRepeats } from "./leaders.ts";
 import type {
   Block,
@@ -301,7 +301,7 @@ export function inspectWithin(
         for (const text of note.texts) keep(text, index, matrix, from, attribute);
         return;
       }
-      if (drawn.kind === "linear-dimension" || drawn.kind === "aligned-dimension") {
+      if (isDimension(drawn)) {
         // A dimension's text is a text where its picture puts it.
         const style = tablesOf(from).dimensionStyles.get(key(drawn.style));
         if (style === undefined) return;
@@ -404,8 +404,7 @@ export function inspectWithin(
     const wanted = (e: Exclude<Entity, Insert>): boolean =>
       e.kind === "text" || e.kind === "paragraph"
         ? !blank(e.value)
-        : e.kind === "linear-dimension" ||
-          e.kind === "aligned-dimension" ||
+        : isDimension(e) ||
           e.kind === "leader" ||
           (e.kind === "polyline" && e.closed && Array.isArray(e.points) && e.points.length > 2);
     const where = layout === undefined ? "model space" : `layout ${shown(layout)}`;
@@ -617,6 +616,9 @@ function looked(
         return Boolean(e.closed) && Array.isArray(e.points) && e.points.length > 2;
       case "linear-dimension":
       case "aligned-dimension":
+      case "radius-dimension":
+      case "diameter-dimension":
+      case "jogged-radius-dimension":
       case "leader":
         return true;
       default:

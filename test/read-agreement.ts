@@ -5,7 +5,12 @@
 // held to the doubles that app holds, within the rounding of 6 decimals for what it works out
 // again, and each text to what its DXF reader makes of the text it wrote.
 import { placeAttribute } from "../src/blocks.ts";
-import { dimensionAngle, dimensionMeasure, dimensionPicture } from "../src/dimensions.ts";
+import {
+  dimensionAngle,
+  dimensionMeasure,
+  dimensionPicture,
+  isDimension,
+} from "../src/dimensions.ts";
 import type {
   AttributeDefinition,
   Block,
@@ -199,12 +204,7 @@ export function readProblems(
     }
     if (got.color !== undefined || got.trueColor !== undefined)
       say(`${label}: has a color of its own`);
-    if (
-      want.kind !== "insert" &&
-      want.kind !== "leader" &&
-      want.kind !== "linear-dimension" &&
-      want.kind !== "aligned-dimension"
-    ) {
+    if (want.kind !== "insert" && want.kind !== "leader" && !isDimension(want)) {
       const linetype = entityLinetype(want);
       if (linetype === undefined ? got.linetype !== undefined : !sameName(got.linetype, linetype)) {
         say(`${label}: linetype ${got.linetype}, expected ${linetype}`);
@@ -397,6 +397,52 @@ export function readProblems(
         if (by === "tsdraft" && !got.block?.startsWith("*D"))
           say(`${label}: drawn by ${got.block}`);
         if (got.block !== undefined && !got.blockHandle) say(`${label}: names no block record`);
+        return;
+      }
+      case "radius-dimension":
+      case "diameter-dimension":
+      case "jogged-radius-dimension": {
+        if (!kind("radial-dimension") || got.kind !== "radial-dimension") return;
+        const type =
+          { "radius-dimension": "radius", "diameter-dimension": "diameter" }[
+            want.kind as "radius-dimension"
+          ] ?? "jogged-radius";
+        if (got.type !== type) say(`${label}: ${got.type}, expected ${type}`);
+        if (!sameName(got.style, want.style)) say(`${label}: style ${got.style}`);
+        if (
+          !nearPoint(got.center, point(want.center)) ||
+          !nearPoint(got.point, point(want.point))
+        ) {
+          say(`${label}: center ${got.center}, point ${got.point}`);
+        }
+        if (
+          want.kind === "jogged-radius-dimension" &&
+          (!nearPoint(got.start ?? [NaN, NaN], point(want.start)) ||
+            !nearPoint(got.jog ?? [NaN, NaN], point(want.jog)))
+        )
+          say(`${label}: starts at ${got.start}, jogs at ${got.jog}`);
+        if ((got.text ?? undefined) !== (want.text === undefined ? undefined : once(want.text))) {
+          say(`${label}: text ${JSON.stringify(got.text)}`);
+        }
+        const below = want.textBelow === undefined ? undefined : once(want.textBelow);
+        if ((got.textBelow ?? undefined) !== below) {
+          say(`${label}: text below ${JSON.stringify(got.textBelow)}`);
+        }
+        const style = dimensionStyles.get(layerKey(want.style));
+        if (!style) return;
+        const font = drawing.textStyles?.find((t) => sameName(t.name, style.textStyle ?? ""));
+        const picture = dimensionPicture(want, style, font);
+        if (by === "tsdraft" && !nearPoint(got.textAt, point(picture.textPoint))) {
+          say(`${label}: its text at ${got.textAt}, expected ${picture.textPoint}`);
+        }
+        const measurement =
+          dimensionMeasure(want).measurement * written(style.measurementScale ?? 1);
+        if (
+          got.measurement === undefined ||
+          Math.abs(got.measurement - measurement) > 1e-9 * Math.max(1, Math.abs(measurement))
+        ) {
+          say(`${label}: measures ${got.measurement}, expected ${measurement}`);
+        }
         return;
       }
       case "leader": {

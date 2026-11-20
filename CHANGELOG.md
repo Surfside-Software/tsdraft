@@ -31,6 +31,15 @@
   coordinates, and lists the file's image definitions in `images`, with how many images name each,
   one that none names among them. The example sheet has a vicinity map above its key plan.
   [docs/images.md](docs/images.md) describes them.
+- Radius, diameter and jogged radius dimensions: `radiusDimension(center, point, options)`,
+  `diameterDimension(center, point, options)` and `joggedRadiusDimension(center, point, start,
+  jog, options)`, drawn as the leading CAD app draws them, with the R and the diameter sign it
+  writes before the measurement. The text stands outside the circle past the arrowhead, or along
+  the line where `textFromCenter` places it. A dimension style's `radialText: "horizontal"` levels
+  their text, and `jogAngle` sets the jog's angle. `toDXF` writes them, and `readDXF` reads them
+  as `radial-dimension`. The font tables hold the diameter sign, with the advance a paragraph
+  gives it in a font that lacks it; every other number is as it was. `toPDF` plots the diameter
+  sign as Ø in a font that lacks it, as the leading CAD app plots it.
 - What a dimension style sets of how its dimensions look. In architectural units, `fraction`
   stacks the fraction of an inch over a bar, `"stacked"`, or beside a slash, `"diagonal"`, at
   `fractionScale` of the text's height, as `4'-1` and a stacked `7/16`. `textPlacement:

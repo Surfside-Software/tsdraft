@@ -117,8 +117,12 @@ A space and a block hold one type, `ReadEntity`, of the kinds tsdraft's writers 
 - `dimension`: a linear or aligned dimension, with its two points, the point where its dimension
   line meets its second extension line, its direction, the middle of its text, what it measures,
   its text and the words below its line, which the file holds after `\X`, its style and the
-  block of its picture. The other kinds of dimension are counted
-  under `other`.
+  block of its picture. Angular and ordinate dimensions are counted under `other`.
+- `radial-dimension`: a radius, a diameter or a jogged radius dimension, its `type`, with its
+  center, the point of the circle or arc its line meets, a jogged one's start and jog, the
+  middle of its text, `placed` where the file holds the text where it was placed, what it
+  measures, its text, its style and the block of its picture. A file holds a diameter's far
+  point, and the center is halfway to the point.
 - `multileader`: one with straight shafts, one root and a note, with its style, each shaft from
   its tip, the point where the shafts meet, the landing's direction and length, its note, where
   the note is held, and the note's height and style. Any other is counted under `other`.

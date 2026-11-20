@@ -8,7 +8,7 @@ import {
   type Referenced,
   type XrefDrawings,
 } from "./blocks.ts";
-import { dimensionPicture, pictureTexts, type Dimension } from "./dimensions.ts";
+import { dimensionPicture, pictureTexts, type Dimension, isDimension } from "./dimensions.ts";
 import {
   sweep,
   type DimensionStyle,
@@ -717,7 +717,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         ? imageElement(e, mark, drawnPen, look, from, matrix, room)
         : "";
     }
-    if (e.kind !== "linear-dimension" && e.kind !== "aligned-dimension") {
+    if (!isDimension(e)) {
       return entityToSvg(e, mark, drawnPen, look, styleOf(e, from), matrix, room, sides);
     }
     const tables = tablesOf(from);
@@ -842,7 +842,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       drawingAt = where;
       if (e.kind !== "insert") {
         // A dimension's texts are joined before it is drawn, so their length is paid for first.
-        if (e.kind === "linear-dimension" || e.kind === "aligned-dimension") {
+        if (isDimension(e)) {
           if (!write((e.text?.length ?? 0) + (e.textBelow?.length ?? 0))) refuse(where());
         }
         const element = drawn(e, marks(e, i), pen(look, styled(e), { name: e.layer }, where), look);
@@ -929,8 +929,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
           shown[1].kind === "text" ||
           shown[1].kind === "paragraph" ||
           shown[1].kind === "insert" ||
-          shown[1].kind === "linear-dimension" ||
-          shown[1].kind === "aligned-dimension" ||
+          isDimension(shown[1]) ||
           shown[1].kind === "leader";
         const slack = lettered ? Math.max(box[2] - box[0], box[3] - box[1]) : 0;
         return [{ shown, box, slack }];
@@ -1292,9 +1291,7 @@ type Shape = Exclude<Drawn, Dimension | Leader | Paragraph | Image>;
 
 /** The linetype and the lineweight an entity has of its own. A dimension and a leader draw ByLayer. */
 function styled(e: Drawn): Pick<Line, "linetype" | "lineweight"> {
-  return e.kind === "linear-dimension" || e.kind === "aligned-dimension" || e.kind === "leader"
-    ? {}
-    : e;
+  return isDimension(e) || e.kind === "leader" ? {} : e;
 }
 
 /**

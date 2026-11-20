@@ -3,16 +3,20 @@
 // for a measurement, and the lines, arrowheads and text that app draws for a dimension.
 import type {
   AlignedDimension,
+  DiameterDimension,
   DimensionStyle,
   Drawing,
+  JoggedRadiusDimension,
   LinearDimension,
   Point,
+  RadiusDimension,
   TextStyle,
 } from "./drawing.ts";
 import {
   arrowheadInfo,
   ARROWHEADS,
   DEFAULT_ARROWHEAD,
+  JOG_ANGLE,
   MAX_PRECISION,
   type Arrowhead,
 } from "./arrowheads.ts";
@@ -32,6 +36,11 @@ import {
   DIMENSION_LEADER_ARROWS,
   DIMENSION_LEADER_BELOW,
   dimensionMeasureProblem,
+  RADIAL_CENTERED,
+  RADIAL_JOG_SHORT,
+  RADIAL_NO_RADIUS,
+  RADIAL_PLACED_LEVEL,
+  RADIAL_PREFIX,
   dimensionStyleNameProblem,
   idKey,
   idProblem,
@@ -40,8 +49,32 @@ import {
   pictureNumberProblem,
 } from "./rules.ts";
 
-/** A dimension of either kind. */
-export type Dimension = LinearDimension | AlignedDimension;
+/** A dimension along a line: linear or aligned. */
+export type StraightDimension = LinearDimension | AlignedDimension;
+
+/** A dimension of a circle or an arc: a radius, a diameter or a jogged radius. */
+export type RadialDimension = RadiusDimension | DiameterDimension | JoggedRadiusDimension;
+
+/** A dimension of any kind. */
+export type Dimension = StraightDimension | RadialDimension;
+
+/** Whether an entity is a dimension. */
+export function isDimension<E extends { readonly kind: string }>(
+  entity: E,
+): entity is Extract<E, Dimension> {
+  return (
+    entity.kind === "linear-dimension" || entity.kind === "aligned-dimension" || isRadial(entity)
+  );
+}
+
+/** Whether a dimension measures a circle or an arc. */
+export function isRadial(dimension: { readonly kind: string }): dimension is RadialDimension {
+  return (
+    dimension.kind === "radius-dimension" ||
+    dimension.kind === "diameter-dimension" ||
+    dimension.kind === "jogged-radius-dimension"
+  );
+}
 
 /**
  * A dimension style's name as its handle is keyed: A to Z in lower case and nothing else
@@ -572,6 +605,15 @@ export function dimensionMeasure(dimension: Dimension): {
   readonly angle: number;
   readonly measurement: number;
 } {
+  if (isRadial(dimension)) {
+    const [x1, y1] = [written(dimension.center[0]), written(dimension.center[1])];
+    const [x2, y2] = [written(dimension.point[0]), written(dimension.point[1])];
+    const radius = Math.hypot(x2 - x1, y2 - y1);
+    return {
+      angle: Math.atan2(y2 - y1, x2 - x1) / RADIANS,
+      measurement: dimension.kind === "diameter-dimension" ? 2 * radius : radius,
+    };
+  }
   const [x1, y1] = [written(dimension.from[0]), written(dimension.from[1])];
   const [x2, y2] = [written(dimension.to[0]), written(dimension.to[1])];
   if (dimension.kind === "aligned-dimension") {
@@ -612,6 +654,7 @@ export function dimensionPicture(
   style: DimensionStyle,
   textStyle?: DimensionFont,
 ): DimensionPicture {
+  if (isRadial(dimension)) return radialPicture(dimension, style, textStyle);
   const from: Point = [written(dimension.from[0]), written(dimension.from[1])];
   const to: Point = [written(dimension.to[0]), written(dimension.to[1])];
   const { angle, measurement } = dimensionMeasure(dimension);
@@ -824,6 +867,271 @@ export function dimensionPicture(
   };
 }
 
+/** What the leading CAD app writes before a radial dimension's measurement. */
+export const RADIAL_PREFIXES = {
+  "radius-dimension": "R",
+  "diameter-dimension": "\u2205",
+  "jogged-radius-dimension": "R",
+} as const;
+
+/** A style's way of writing a radial dimension's measurement: with the prefix of its kind. */
+export function radialFormat(
+  dimension: Pick<RadialDimension, "kind">,
+  style: DimensionStyle,
+): MeasurementFormat {
+  // The fields a measurement's writing reads, and no others: a style may hold any number.
+  const { units, precision, suffix, suppressZeros, feetInchZeros, measurementScale } = style;
+  const { fraction, fractionScale } = style;
+  return {
+    units,
+    precision,
+    prefix: `${RADIAL_PREFIXES[dimension.kind]}${style.prefix ?? ""}`,
+    suffix,
+    suppressZeros,
+    feetInchZeros,
+    measurementScale,
+    fraction,
+    fractionScale,
+  } as MeasurementFormat;
+}
+
+/**
+ * What the leading CAD app draws for a radius, a diameter or a jogged radius dimension in a style.
+ * Its line runs from the center through the point of the circle, and on through the center to the
+ * point opposite for a diameter. Its text stands outside the circle past the arrowhead, along the
+ * line or level on a landing, unless the dimension places it along the line; a jogged one's stands
+ * along the last stretch, inside the arc. The arrowhead points at the circle from the side the text
+ * is on.
+ */
+function radialPicture(
+  dimension: RadialDimension,
+  style: DimensionStyle,
+  textStyle: DimensionFont | undefined,
+): DimensionPicture {
+  const center: Point = [written(dimension.center[0]), written(dimension.center[1])];
+  const point: Point = [written(dimension.point[0]), written(dimension.point[1])];
+  const { angle, measurement } = dimensionMeasure(dimension);
+  const radius = Math.hypot(point[0] - center[0], point[1] - center[1]);
+  const u: Point =
+    radius > 0 ? [(point[0] - center[0]) / radius, (point[1] - center[1]) / radius] : [1, 0];
+  const left: Point = [-u[1], u[0]];
+  const move = (from: Point, by: Point, distance: number): Point => [
+    from[0] + by[0] * distance,
+    from[1] + by[1] * distance,
+  ];
+  const at = (distance: number): Point => move(center, u, distance);
+  const sizes = dimensionSizes(style);
+  const size = sizes.arrowSize;
+  const gap = sizes.textGap;
+  const info = arrowheadInfo(style.arrowhead ?? DEFAULT_ARROWHEAD);
+  const stroke = info?.stroke;
+  const tick = stroke !== undefined;
+
+  const [aboveText, belowText] = dimensionTexts(
+    dimension,
+    measurement,
+    radialFormat(dimension, style),
+  );
+  const font = textStyle?.font ?? STANDARD_FONT;
+  const lay = (value: string): ParagraphLayout =>
+    layoutDimensionText({
+      value,
+      height: sizes.textHeight,
+      font,
+      widthFactor: written(textStyle?.widthFactor ?? 1),
+      obliqueAngle: written(textStyle?.obliqueAngle ?? 0),
+      align: "center",
+      valign: "middle",
+    });
+  const boxHeight = (layout: ParagraphLayout): number => layout.frame[3] - layout.frame[1];
+  const widest = (layout: ParagraphLayout): number =>
+    layout.lines.reduce((most, line) => Math.max(most, line.end - line.start), 0);
+  const topLayout = lay(mtextOfLabel(aboveText));
+  const belowLayout =
+    belowText === undefined ? undefined : lay(belowText === "" ? "" : mtextOfLabel(belowText));
+  const textWidth = Math.max(widest(topLayout), belowLayout ? widest(belowLayout) : 0);
+  const centered = style.textPlacement === "centered";
+
+  const lines: (readonly [Point, Point])[] = [];
+  const arrowheads: Point[][] = [];
+  const arrowheadEntities: ArrowheadEntity[] = [];
+  /** An arrowhead with its tip on `tip`, pointing `inward` toward the center or away from it. */
+  const arrow = (tip: Point, inward: boolean): void => {
+    if (!(size > 0)) return;
+    const way: Point = inward ? [-u[0], -u[1]] : u;
+    if (tick) {
+      const rotation = (((angle + (inward ? 180 : 0)) % 360) + 360) % 360;
+      arrowheadEntities.push({
+        kind: "insert",
+        block: info!.block!,
+        at: tip,
+        rotation,
+        scale: size,
+      });
+      const half = move(
+        move([0, 0], way, stroke.to[0] * size),
+        [-way[1], way[0]],
+        stroke.to[1] * size,
+      );
+      const wide = (stroke.width * size) / 2 / Math.SQRT2;
+      const edge: Point = [(way[0] + way[1]) * wide, (way[1] - way[0]) * wide];
+      arrowheads.push([
+        [tip[0] - half[0] + edge[0], tip[1] - half[1] + edge[1]],
+        [tip[0] + half[0] + edge[0], tip[1] + half[1] + edge[1]],
+        [tip[0] + half[0] - edge[0], tip[1] + half[1] - edge[1]],
+        [tip[0] - half[0] - edge[0], tip[1] - half[1] - edge[1]],
+      ]);
+      return;
+    }
+    const base = move(tip, way, -size);
+    arrowheads.push([tip, move(base, left, size / 6), move(base, left, -size / 6)]);
+    // The leading CAD app gives the corner to the left of the way out from the center first.
+    arrowheadEntities.push({
+      kind: "solid",
+      corners: [move(base, left, size / 6), move(base, left, -size / 6), tip],
+    });
+  };
+
+  // The text along the line reads from below or from the right; level, it reads along X.
+  const along = readable(angle);
+  const alongUp: Point = [-Math.sin(along * RADIANS), Math.cos(along * RADIANS)];
+  const alongQuarter = direction(along);
+  const alongAbove: Point = along % 90 === 0 ? [-alongQuarter[1], alongQuarter[0]] : alongUp;
+  const horizontal = style.radialText === "horizontal";
+  let rotation = along;
+  let quarter = alongQuarter;
+  let above = alongAbove;
+  let textMiddle: Point;
+  let lineMiddle: Point;
+  const half = boxHeight(topLayout) / 2;
+  const reach = tick ? 0 : size;
+  const placed =
+    dimension.kind === "jogged-radius-dimension" ? undefined : dimension.textFromCenter;
+  const inside = placed !== undefined && written(placed) < radius;
+  if (dimension.kind === "jogged-radius-dimension") {
+    const start: Point = [written(dimension.start[0]), written(dimension.start[1])];
+    const jog: Point = [written(dimension.jog[0]), written(dimension.jog[1])];
+    // The jog crosses the line at the style's angle, centered on its point, from where it meets
+    // the way to the center to the same distance on the other side.
+    const jogAngle = written(style.jogAngle ?? JOG_ANGLE.default);
+    const across = direction(angle + 180 - jogAngle);
+    const denominator = across[0] * u[1] - across[1] * u[0];
+    const t =
+      denominator === 0
+        ? 0
+        : ((center[0] - jog[0]) * u[1] - (center[1] - jog[1]) * u[0]) / denominator;
+    const near = move(jog, across, t);
+    const far = move(jog, across, -t);
+    const end = at(radius - reach);
+    // A tick's line runs on past the arc by the style's DIMDLE, one arrow size as tsdraft writes
+    // it, and a level text's break widens by as much toward the center. The text keeps its place.
+    const beyond = tick ? size : 0;
+    lines.push([start, far], [far, near]);
+    arrow(point, false);
+    lineMiddle = [(near[0] + end[0]) / 2, (near[1] + end[1]) / 2];
+    if (horizontal) {
+      // A level text sits on the last stretch, which breaks where it meets the text's box and a
+      // gap round it.
+      rotation = 0;
+      quarter = [1, 0];
+      above = [0, 1];
+      textMiddle = lineMiddle;
+      const middle = (lineMiddle[0] - center[0]) * u[0] + (lineMiddle[1] - center[1]) * u[1];
+      const wide = Math.abs(u[0]) > 0 ? (gap + textWidth / 2) / Math.abs(u[0]) : Infinity;
+      const high = Math.abs(u[1]) > 0 ? (gap + half) / Math.abs(u[1]) : Infinity;
+      const out = Math.min(wide, high);
+      lines.push(
+        [at(middle - out - beyond), near],
+        [at(radius - reach + beyond), at(middle + out)],
+      );
+    } else {
+      lines.push([near, at(radius - reach + beyond)]);
+      textMiddle = move(lineMiddle, above, gap + half);
+    }
+  } else if (inside) {
+    // A text placed inside: one line from beyond it to the arrowhead, which points out. The text
+    // stays two arrow sizes and a gap clear of the circle.
+    const middle = Math.min(written(placed!), radius - 2 * size - gap - textWidth / 2);
+    lineMiddle = at(middle);
+    const ends = [at(middle - textWidth / 2 - gap), at(radius - reach)] as const;
+    // A diameter's placed text inside takes one arrowhead too, at its point.
+    lines.push(ends);
+    arrow(point, false);
+    textMiddle = centered ? lineMiddle : move(lineMiddle, above, gap + half);
+  } else {
+    // Outside: the arrowhead points in at the circle, and the line runs out past the text.
+    const out = placed === undefined ? radius + 2 * size + gap + textWidth / 2 : written(placed);
+    const opposite = at(-radius);
+    // A level line takes its text along it, as if it were not level.
+    if (horizontal && u[1] !== 0) {
+      // Above a line that runs down, the elbow stands a box further out.
+      const lower = !centered && u[1] < 0 ? 2 * half : 0;
+      const elbow = at(radius + 2 * size + lower);
+      const level: Point = u[0] < 0 ? [-1, 0] : [1, 0];
+      const landing = move(elbow, level, size);
+      lines.push([landing, elbow], [elbow, at(radius + reach)]);
+      rotation = 0;
+      quarter = [1, 0];
+      above = [0, 1];
+      lineMiddle = move(landing, level, gap + textWidth / 2);
+      textMiddle = lineMiddle;
+    } else if (centered) {
+      lines.push([at(radius + 2 * size), at(radius + reach)]);
+      lineMiddle = at(out);
+      textMiddle = lineMiddle;
+    } else {
+      lines.push([at(out + textWidth / 2 + gap), at(radius + reach)]);
+      lineMiddle = at(out);
+      textMiddle = move(lineMiddle, above, gap + half);
+    }
+    // A diameter's line runs across, with a tail past an arrowhead at the far point, and none
+    // past a tick.
+    if (dimension.kind === "diameter-dimension") {
+      lines.push(
+        [opposite, point],
+        ...(tick ? [] : [[at(-radius - reach), at(-radius - reach - size)] as const]),
+      );
+    } else lines.push([center, point]);
+    arrow(point, true);
+    if (dimension.kind === "diameter-dimension") arrow(opposite, false);
+  }
+  const belowMiddle = belowLayout && move(lineMiddle, above, -(gap + boxHeight(belowLayout) / 2));
+  // A placed text, and one with words below, is held by its point on the line.
+  const textPoint = belowLayout === undefined && placed === undefined ? textMiddle : lineMiddle;
+  const textStyleName = style.textStyle;
+  const label = (value: string, middle: Point, layout: ParagraphLayout): DimensionLabel => ({
+    value,
+    at: move(middle, above, layout.lines[0]?.baseline ?? 0),
+    height: sizes.textHeight,
+    rotation,
+    direction: quarter,
+    ...(textStyleName === undefined ? {} : { style: textStyleName }),
+  });
+  const definition = dimension.kind === "diameter-dimension" ? at(-radius) : center;
+  return {
+    measurement,
+    definitionPoint: [written(definition[0]), written(definition[1])],
+    extensionLines: [],
+    dimensionLine: [center, point],
+    dimensionLines: lines,
+    leader: [],
+    arrowheads,
+    arrowheadEntities,
+    label: label(aboveText, textMiddle, topLayout),
+    textMiddle,
+    textPoint,
+    textWidth,
+    ...(belowLayout &&
+      belowMiddle && {
+        below: { label: label(belowText!, belowMiddle, belowLayout), middle: belowMiddle },
+      }),
+    lineweights: {
+      dimension: lineweightCode(style.dimensionLineweight),
+      extension: lineweightCode(style.extensionLineweight),
+    },
+  };
+}
+
 /**
  * The widest a character of any font in `FONTS` is drawn, as a share of the text's height,
  * before its style's width factor: for the characters of a measurement, the widest the leading CAD
@@ -920,6 +1228,7 @@ export function dimensionDrawnProblem(
   textStyle: TextStyle | undefined,
 ): string | undefined {
   const { measurement } = dimensionMeasure(dimension);
+  if (isRadial(dimension)) return radialDrawnProblem(dimension, measurement, style, textStyle);
   // The arrowheads need room for the wider of the texts above and below the line.
   const [above, below] = dimensionTexts(dimension, measurement, style);
   let drawn = above;
@@ -956,6 +1265,78 @@ export function dimensionDrawnProblem(
   ) {
     return DIMENSION_CENTERED_WIDE;
   }
+  return pictureNumbersProblem(picture);
+}
+
+/** What is wrong with a radius, a diameter or a jogged radius dimension in its style, or undefined. */
+function radialDrawnProblem(
+  dimension: RadialDimension,
+  measurement: number,
+  style: DimensionStyle,
+  textStyle: TextStyle | undefined,
+): string | undefined {
+  if (written(measurement) === 0) return RADIAL_NO_RADIUS;
+  if ((style.prefix ?? "") !== "") return RADIAL_PREFIX;
+  if (
+    style.radialText === "horizontal" &&
+    dimension.kind !== "jogged-radius-dimension" &&
+    dimension.textFromCenter !== undefined
+  )
+    return RADIAL_PLACED_LEVEL;
+  if (
+    style.textPlacement === "centered" &&
+    (dimension.kind === "jogged-radius-dimension" || dimension.textFromCenter !== undefined)
+  )
+    return RADIAL_CENTERED;
+  const format = radialFormat(dimension, style);
+  const problem = dimensionMeasureProblem(
+    measurement,
+    measurement * written(style.measurementScale ?? 1),
+    roundedMeasurement(measurement, format),
+    false,
+    measurementText(measurement, format, dimension.text),
+    undefined,
+  );
+  if (problem) return problem;
+  const picture = dimensionPicture(dimension, style, textStyle);
+  if (
+    dimension.kind === "jogged-radius-dimension" &&
+    !joggedStretchFits(dimension, style, picture)
+  ) {
+    return RADIAL_JOG_SHORT;
+  }
+  return pictureNumbersProblem(picture);
+}
+
+/**
+ * Whether a jogged radius dimension's last stretch, from its jog to its arrowhead, holds its text:
+ * the text and a gap each side along it, or a level text's break within it.
+ */
+function joggedStretchFits(
+  dimension: JoggedRadiusDimension,
+  style: DimensionStyle,
+  picture: DimensionPicture,
+): boolean {
+  const center: Point = [written(dimension.center[0]), written(dimension.center[1])];
+  const point: Point = [written(dimension.point[0]), written(dimension.point[1])];
+  const radius = Math.hypot(point[0] - center[0], point[1] - center[1]);
+  const u: Point = [(point[0] - center[0]) / radius, (point[1] - center[1]) / radius];
+  const along = (p: Point): number => (p[0] - center[0]) * u[0] + (p[1] - center[1]) * u[1];
+  const lines = picture.dimensionLines;
+  const near = along(lines[1]![1]);
+  if (lines.length > 3) {
+    // A level text: the stretch is broken on each side of it, from the jog and from the arrowhead.
+    return along(lines[2]![0]) >= near && along(lines[3]![1]) <= along(lines[3]![0]);
+  }
+  // The text is centered short of a tick's line past the arc.
+  const sizes = dimensionSizes(style);
+  const tick = arrowheadInfo(style.arrowhead ?? DEFAULT_ARROWHEAD)?.stroke !== undefined;
+  const end = along(lines[2]![1]) - (tick ? sizes.arrowSize : 0);
+  return end - near >= picture.textWidth + 2 * sizes.textGap;
+}
+
+/** What is wrong with the numbers of a dimension's picture, each of which must be under 1e100. */
+function pictureNumbersProblem(picture: DimensionPicture): string | undefined {
   const numbers = [
     ...picture.definitionPoint,
     ...picture.extensionLines.flat(2),

@@ -13,6 +13,8 @@ import {
   DEFAULT_ARROWHEAD,
   DIMENSION_FRACTIONS,
   DIMENSION_TEXT_FITS,
+  DIMENSION_RADIAL_TEXTS,
+  JOG_ANGLE,
   DIMENSION_TEXT_PLACEMENTS,
   DIMENSION_UNITS,
   FEET_INCH_ZEROS,
@@ -222,6 +224,8 @@ const FRACTION_SCALE_INLINE =
   'fractionScale sizes a fraction that is "stacked" or "diagonal". A fraction on the line is as high as the text';
 const TEXT_PLACEMENT_MESSAGE = 'textPlacement must be "above" or "centered"';
 const TEXT_FIT_MESSAGE = 'textFit must be "inside" or "leader"';
+const RADIAL_TEXT_MESSAGE = 'radialText must be "aligned" or "horizontal"';
+const JOG_ANGLE_MESSAGE = "jogAngle must be a number of degrees from 5 to 90";
 const ZEROS_OF_UNITS =
   'suppressZeros is for a style in decimal units, and feetInchZeros for one in "architectural" units, which writes feet and inches';
 const DIMENSION_FORMATTING =
@@ -2811,6 +2815,22 @@ export function textFitProblem(value: unknown): string | undefined {
   return (DIMENSION_TEXT_FITS as readonly unknown[]).includes(value) ? undefined : TEXT_FIT_MESSAGE;
 }
 
+/** Returns what is wrong with a dimension style's `radialText`, or undefined. */
+export function radialTextProblem(value: unknown): string | undefined {
+  return (DIMENSION_RADIAL_TEXTS as readonly unknown[]).includes(value)
+    ? undefined
+    : RADIAL_TEXT_MESSAGE;
+}
+
+/** Returns what is wrong with a dimension style's `jogAngle`, or undefined. */
+export function jogAngleProblem(value: unknown): string | undefined {
+  return typeof value === "number" &&
+    written(value) >= JOG_ANGLE.least &&
+    written(value) <= JOG_ANGLE.most
+    ? undefined
+    : JOG_ANGLE_MESSAGE;
+}
+
 /**
  * Returns what is wrong with what a dimension style sets of how its dimensions look, or undefined:
  * its fraction and the fraction's height, where its text goes and its lineweights.
@@ -2843,6 +2863,14 @@ export function dimensionStyleLookProblem(s: Record<string, unknown>): string | 
     (s.arrowhead ?? DEFAULT_ARROWHEAD) === "closed-filled"
   )
     return LEADER_CENTERED_ARROWS;
+  if (s.radialText !== undefined) {
+    const problem = radialTextProblem(s.radialText);
+    if (problem) return problem;
+  }
+  if (s.jogAngle !== undefined) {
+    const problem = jogAngleProblem(s.jogAngle);
+    if (problem) return problem;
+  }
   for (const field of ["dimensionLineweight", "extensionLineweight"] as const) {
     const value = s[field];
     if (value === undefined) continue;
@@ -2922,6 +2950,22 @@ export const DIMENSION_CENTERED_WIDE =
 /** What is wrong with a style whose closed arrowheads may turn outward round a text it moves out. */
 const LEADER_CENTERED_ARROWS =
   'textFit "leader" with closed filled arrowheads and the text "centered" turns the arrowheads outward where tsdraft does not know the room they need, which is not laid out yet, so tsdraft refuses it. Use a tick, or the text "above"';
+
+/** What is wrong with a radius or a diameter dimension in a style with a prefix. */
+export const RADIAL_PREFIX =
+  "its style has a prefix, which the leading CAD app may put in place of the R or the diameter sign it writes before a radius or a diameter, and which is not laid out yet, so tsdraft refuses it. Use a style without a prefix, or put the words in text";
+/** What is wrong with a placed text in a style that levels a radial dimension's text. */
+export const RADIAL_PLACED_LEVEL =
+  'its text is placed along its line in a style with radialText "horizontal", and where the leading CAD app levels a placed text is not laid out yet, so tsdraft refuses it. Leave textFromCenter out, or use a style with radialText "aligned"';
+/** What is wrong with a radial dimension whose text is centered where that is not laid out. */
+export const RADIAL_CENTERED =
+  'its style centers its text in its line, and where the leading CAD app breaks the line of a jogged radius dimension, or of one whose text is placed, is not laid out yet, so tsdraft refuses it. Use a style with the text "above"';
+/** What is wrong with a jogged radius dimension whose last stretch is shorter than its text. */
+export const RADIAL_JOG_SHORT =
+  "its jog leaves the stretch from the jog to the arc shorter than its text and a gap each side, and where the leading CAD app then puts the text is not laid out yet, so tsdraft refuses it. Move the jog toward the center";
+/** What is wrong with a radius or a diameter dimension that measures nothing. */
+export const RADIAL_NO_RADIUS =
+  "its point is its center once they are written with the 6 decimals tsdraft writes, so it has no radius";
 
 /** What is wrong with a dimension in a block. */
 export const DIMENSION_IN_BLOCK =

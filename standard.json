@@ -263,6 +263,8 @@
       "extensionBeyond": 0.125,
       "textGap": 0.0625,
       "textPlacement": "centered",
+      "radialText": "aligned",
+      "jogAngle": 45,
       "textFit": "inside",
       "writing": {
         "in": {
@@ -299,6 +301,8 @@
       "extensionBeyond": 0.125,
       "textGap": 0.0625,
       "textPlacement": "above",
+      "radialText": "aligned",
+      "jogAngle": 45,
       "textFit": "inside",
       "writing": {
         "in": {
@@ -334,6 +338,8 @@
       "extensionBeyond": 0.125,
       "textGap": 0.0625,
       "textPlacement": "above",
+      "radialText": "aligned",
+      "jogAngle": 45,
       "textFit": "inside",
       "writing": {
         "in": {

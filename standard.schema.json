@@ -308,6 +308,19 @@
           "description": "The text above the dimension line, or centered in a break of it",
           "default": "above"
         },
+        "radialText": {
+          "type": "string",
+          "enum": ["aligned", "horizontal"],
+          "description": "How a radius, a diameter or a jogged radius dimension's text reads: along its line, or level",
+          "default": "aligned"
+        },
+        "jogAngle": {
+          "type": "number",
+          "minimum": 5,
+          "maximum": 90,
+          "description": "The angle of a jogged radius dimension's jog to its line, in degrees",
+          "default": 45
+        },
         "textFit": {
           "type": "string",
           "enum": ["inside", "leader"],
@@ -415,6 +428,17 @@
           "type": "string",
           "enum": ["above", "centered"],
           "description": "The text above the dimension line, or centered in a break of it"
+        },
+        "radialText": {
+          "type": "string",
+          "enum": ["aligned", "horizontal"],
+          "description": "How a radius, a diameter or a jogged radius dimension's text reads: along its line, or level"
+        },
+        "jogAngle": {
+          "type": "number",
+          "minimum": 5,
+          "maximum": 90,
+          "description": "The angle of a jogged radius dimension's jog to its line, in degrees"
         },
         "textFit": {
           "type": "string",

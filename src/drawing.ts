@@ -9,12 +9,14 @@ import {
   arrowheadInfo,
   DEFAULT_ARROWHEAD,
   DEFAULT_LEADER_ARROWHEAD,
+  JOG_ANGLE,
   STANDARD_LEADER_STYLE,
   type Arrowhead,
   type DIMENSION_UNITS,
   type DIMENSION_FRACTIONS,
   type DIMENSION_TEXT_PLACEMENTS,
   type DIMENSION_TEXT_FITS,
+  type DIMENSION_RADIAL_TEXTS,
   type FEET_INCH_ZEROS,
   type LeaderArrowhead,
   type ZERO_SUPPRESSIONS,
@@ -28,6 +30,7 @@ import {
   pictureOwner,
   validDimensionPictureHandles,
   validDimensionStyleHandle,
+  type Dimension,
   type DimensionPlace,
 } from "./dimensions.ts";
 import { STANDARD_FONT, STANDARD_TEXT_STYLE } from "./fonts.ts";
@@ -557,6 +560,59 @@ export interface AlignedDimension extends DimensionBase {
   readonly offset: number;
 }
 
+/** What a radius, a diameter and a jogged radius dimension have. */
+interface RadialDimensionBase extends Placed {
+  /** A dimension style of the drawing. */
+  readonly style: string;
+  /** The center of the circle or arc it measures. */
+  readonly center: Point;
+  /** The point of the circle or arc its line meets, which the radius reaches. */
+  readonly point: Point;
+  /** A text to draw in place of the measurement, as a linear dimension's `text`. */
+  readonly text?: string;
+  /** Words drawn under its line, opposite the text, as a linear dimension's `textBelow`. */
+  readonly textBelow?: string;
+}
+
+/**
+ * A radius dimension: the distance from the center of a circle or an arc to `point`, read with
+ * an R before it. Its line runs from the center through `point`, and its arrowhead points at the
+ * circle there from outside. The line to the center is always drawn.
+ */
+export interface RadiusDimension extends RadialDimensionBase {
+  readonly kind: "radius-dimension";
+  /**
+   * How far the middle of its text is from the center, along its line: inside the circle, outside
+   * it, or past the center for less than 0. Left out, the text stands outside the circle, past the
+   * arrowhead, as the leading CAD app places it.
+   */
+  readonly textFromCenter?: number;
+}
+
+/**
+ * A diameter dimension: twice the distance from the center of a circle to `point`, read with a
+ * diameter sign before it. Its line runs through the center from `point` to the point opposite,
+ * with an arrowhead at each, and its text stands at `point`'s end.
+ */
+export interface DiameterDimension extends RadialDimensionBase {
+  readonly kind: "diameter-dimension";
+  /** How far the middle of its text is from the center, as a radius dimension's. */
+  readonly textFromCenter?: number;
+}
+
+/**
+ * A jogged radius dimension: the radius of an arc whose center is far off, read with an R before
+ * it. Its line starts at `start` instead of the center, runs to a jog across the line at `jog`,
+ * and goes on toward the center to `point`, with its text along the last stretch, inside the arc.
+ */
+export interface JoggedRadiusDimension extends RadialDimensionBase {
+  readonly kind: "jogged-radius-dimension";
+  /** Where its line starts, standing in for the center. */
+  readonly start: Point;
+  /** The middle of the jog. */
+  readonly jog: Point;
+}
+
 /** Which side of the point where its shafts meet a leader's note is on. */
 export type LeaderSide = (typeof LEADER_SIDES)[number];
 
@@ -651,6 +707,9 @@ export type Entity =
   | Insert
   | LinearDimension
   | AlignedDimension
+  | RadiusDimension
+  | DiameterDimension
+  | JoggedRadiusDimension
   | Leader
   | Image;
 
@@ -769,6 +828,14 @@ export interface DimensionStyle {
   readonly dimensionLineweight?: number;
   /** The same for the extension lines. Defaults to the dimension's own. */
   readonly extensionLineweight?: number;
+  /**
+   * How the text of a radius, a diameter or a jogged radius dimension reads: `"aligned"` along its
+   * line, the default, or level, `"horizontal"`: on a short level landing outside a circle, and
+   * across a jogged one's line. Linear and aligned dimensions take no notice of it.
+   */
+  readonly radialText?: (typeof DIMENSION_RADIAL_TEXTS)[number];
+  /** The angle of a jogged radius dimension's jog to its line, in degrees from 5 to 90. Defaults to 45. */
+  readonly jogAngle?: number;
 }
 
 /**
@@ -1594,6 +1661,10 @@ export interface DimensionStyleDefinition<
   readonly dimensionLineweight?: number;
   /** The lineweight of the extension lines, in millimetres, one of `Lineweight`. */
   readonly extensionLineweight?: number;
+  /** A radial dimension's text `"aligned"` along its line, the default, or `"horizontal"`. */
+  readonly radialText?: (typeof DIMENSION_RADIAL_TEXTS)[number];
+  /** The angle of a jogged radius dimension's jog to its line, in degrees from 5 to 90. Defaults to 45. */
+  readonly jogAngle?: number;
 }
 
 /** What every dimension is drawn with. */
@@ -1639,6 +1710,33 @@ export type AlignedDimensionOptions<
   I extends string = string,
 > = DimensionOptions<S, T, I>;
 
+/** The options of `radiusDimension()`. */
+export interface RadiusDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+> extends DimensionOptions<S, T, I> {
+  /**
+   * How far the middle of its text is from the center, along its line, past the center for less
+   * than 0. Left out, the text stands outside the circle, past the arrowhead.
+   */
+  readonly textFromCenter?: number;
+}
+
+/** The options of `diameterDimension()`. */
+export type DiameterDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+> = RadiusDimensionOptions<S, T, I>;
+
+/** The options of `joggedRadiusDimension()`. */
+export type JoggedRadiusDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+> = DimensionOptions<S, T, I>;
+
 /**
  * What a dimension is drawn with under the standard `Z`: a dimension style of the standard by its
  * id, and in model space the view it is read in. The builder defines the drawing's own dimension
@@ -1666,6 +1764,17 @@ export interface StandardAlignedDimensionOptions<
   readonly textBelow?: DimensionText<string>;
   /** A name for the dimension that no other entity of the drawing has. */
   readonly id?: EntityId<I>;
+}
+
+/** The options of `radiusDimension()` and `diameterDimension()` under the standard `Z`. */
+export interface StandardRadiusDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+  Z extends Standard = Standard,
+> extends StandardAlignedDimensionOptions<S, T, I, Z> {
+  /** How far the middle of its text is from the center, as `RadiusDimensionOptions` says. */
+  readonly textFromCenter?: number;
 }
 
 /** The options of `linearDimension()` under the standard `Z`. */
@@ -3352,7 +3461,7 @@ export class DrawingBuilder<
     if (block !== undefined) this.#arrowheadBlocks.add(block);
     const { prefix, suffix, suppressZeros, feetInchZeros } = definition;
     const { fraction, fractionScale, textPlacement, textFit } = definition;
-    const { dimensionLineweight, extensionLineweight } = definition;
+    const { dimensionLineweight, extensionLineweight, radialText, jogAngle } = definition;
     const units = definition.units ?? "decimal";
     const scale = definition.scale ?? 1;
     const measurementScale = definition.measurementScale ?? 1;
@@ -3379,6 +3488,8 @@ export class DrawingBuilder<
       ...(textFit === undefined || textFit === "inside" ? {} : { textFit }),
       ...(dimensionLineweight === undefined ? {} : { dimensionLineweight }),
       ...(extensionLineweight === undefined ? {} : { extensionLineweight }),
+      ...(radialText === undefined || radialText === "aligned" ? {} : { radialText }),
+      ...(jogAngle === undefined || written(jogAngle) === JOG_ANGLE.default ? {} : { jogAngle }),
     });
     this.#dimensionStylesAudited.set(layerAuditKey(named), named);
   }
@@ -3450,8 +3561,106 @@ export class DrawingBuilder<
     );
   }
 
+  /**
+   * Draws a radius dimension on the current layer: the distance from `center` to `point`, a point
+   * of the circle or arc it measures, read with an R. Its line runs from the center through
+   * `point`, and its text stands outside the circle unless `options.textFromCenter` places it.
+   */
+  radiusDimension<S extends string, T extends string = string, I extends string = string>(
+    center: Point,
+    point: Point,
+    options: Z extends Standard
+      ? StandardRadiusDimensionOptions<S, T, I, Z>
+      : V extends "R12"
+        ? R12Dimensions
+        : RadiusDimensionOptions<S, T, I>,
+  ): this {
+    return this.#add(DrawingBuilder.prototype.radiusDimension, idOf(options), () =>
+      this.#radial("radius-dimension", center, point, options),
+    );
+  }
+
+  /**
+   * Draws a diameter dimension on the current layer: twice the distance from `center` to `point`,
+   * read with a diameter sign. Its line runs through the center from `point` to the point
+   * opposite, and its text stands at `point`'s end, outside the circle unless
+   * `options.textFromCenter` places it.
+   */
+  diameterDimension<S extends string, T extends string = string, I extends string = string>(
+    center: Point,
+    point: Point,
+    options: Z extends Standard
+      ? StandardRadiusDimensionOptions<S, T, I, Z>
+      : V extends "R12"
+        ? R12Dimensions
+        : DiameterDimensionOptions<S, T, I>,
+  ): this {
+    return this.#add(DrawingBuilder.prototype.diameterDimension, idOf(options), () =>
+      this.#radial("diameter-dimension", center, point, options),
+    );
+  }
+
+  /**
+   * Draws a jogged radius dimension on the current layer: the distance from `center` to `point`,
+   * for an arc whose center is far off. Its line starts at `start`, jogs across at `jog`, and runs
+   * on toward the center to `point`, with its text along the last stretch.
+   */
+  joggedRadiusDimension<S extends string, T extends string = string, I extends string = string>(
+    center: Point,
+    point: Point,
+    start: Point,
+    jog: Point,
+    options: Z extends Standard
+      ? StandardAlignedDimensionOptions<S, T, I, Z>
+      : V extends "R12"
+        ? R12Dimensions
+        : JoggedRadiusDimensionOptions<S, T, I>,
+  ): this {
+    return this.#add(DrawingBuilder.prototype.joggedRadiusDimension, idOf(options), () =>
+      this.#dimension(
+        options as unknown as JoggedRadiusDimensionOptions | undefined,
+        (style, text) => ({
+          kind: "jogged-radius-dimension",
+          layer: this.#current,
+          style,
+          center: pt(center),
+          point: pt(point),
+          start: pt(start),
+          jog: pt(jog),
+          ...text,
+        }),
+      ),
+    );
+  }
+
+  /** A radius or a diameter dimension, with its text where `options.textFromCenter` says. */
+  #radial<K extends "radius-dimension" | "diameter-dimension">(
+    kind: K,
+    center: Point,
+    point: Point,
+    options: unknown,
+  ): RadiusDimension | DiameterDimension {
+    const o = options as RadiusDimensionOptions | undefined;
+    const along: unknown = o?.textFromCenter;
+    return this.#dimension(
+      o,
+      (style, text) =>
+        ({
+          kind,
+          layer: this.#current,
+          style,
+          center: pt(center),
+          point: pt(point),
+          ...(along === undefined
+            ? {}
+            : { textFromCenter: kept(along as number, "textFromCenter") }),
+          ...text,
+        }) as RadiusDimension | DiameterDimension,
+    );
+  }
+
   /** Checks what a dimension names and what it measures, and returns the dimension `make` gives. */
-  #dimension<D extends LinearDimension | AlignedDimension>(
+  #dimension<D extends Dimension>(
     options:
       | {
           readonly style?: unknown;
@@ -3586,6 +3795,8 @@ export class DrawingBuilder<
       ...(fields.textFit === "inside" ? {} : { textFit: fields.textFit }),
       ...(dimensionLineweight === undefined ? {} : { dimensionLineweight }),
       ...(extensionLineweight === undefined ? {} : { extensionLineweight }),
+      ...(fields.radialText === "aligned" ? {} : { radialText: fields.radialText }),
+      ...(fields.jogAngle === JOG_ANGLE.default ? {} : { jogAngle: fields.jogAngle }),
     });
     return this.#dimensionStyles.get(layerKey(name))!;
   }

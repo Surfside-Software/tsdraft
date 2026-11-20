@@ -22,7 +22,7 @@ const same = (corners: readonly Point[], expected: readonly Point[]): void => {
 test("the width table holds every font, with a number for each character of its ranges", () => {
   assert.deepEqual(Object.keys(FONT_METRICS), Object.keys(FONTS));
   const count = FONT_METRICS_RANGES.reduce((sum, [first, last]) => sum + last - first + 1, 0);
-  assert.equal(count, 191);
+  assert.equal(count, 192);
   for (const [font, metrics] of Object.entries(FONT_METRICS)) {
     const { bold } = metrics;
     for (const table of [

@@ -410,6 +410,14 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
       [houseX - plan.paper(3 / 8), 0],
       { view: plan, along: "y", style: "feet-inches", textBelow: "BUILDING" },
     );
+    // The radius of the driveway's flares, on the west one, which the east one repeats, its text
+    // clear of the sidewalk.
+    const flareCenter: Point = [driveX - driveway.flare, pavement.near + driveway.flare];
+    const flarePoint: Point = [
+      flareCenter[0] + driveway.flare / 2,
+      flareCenter[1] - (driveway.flare * Math.sqrt(3)) / 2,
+    ];
+    d.radiusDimension(flareCenter, flarePoint, { view: plan, text: "<> TYP." });
   });
 
   d.layer("C-ANNO-TEXT", () => {

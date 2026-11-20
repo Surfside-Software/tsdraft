@@ -18,6 +18,9 @@ import type {
   LeaderStyle,
   Line,
   LinearDimension,
+  RadiusDimension,
+  DiameterDimension,
+  JoggedRadiusDimension,
   Linetype,
   Paragraph,
   Polyline,
@@ -494,6 +497,28 @@ function shapes(all: boolean, typed = all): Shapes {
       { kind, layer: string, style: ruled(string), from: point, to: point, offset: number },
       { id: ruled(string), text: ruled(string), textBelow: ruled(string) },
     ),
+    "radius-dimension": fields<RadiusDimension>(
+      { kind, layer: string, style: ruled(string), center: point, point },
+      {
+        id: ruled(string),
+        text: ruled(string),
+        textBelow: ruled(string),
+        textFromCenter: number,
+      },
+    ),
+    "diameter-dimension": fields<DiameterDimension>(
+      { kind, layer: string, style: ruled(string), center: point, point },
+      {
+        id: ruled(string),
+        text: ruled(string),
+        textBelow: ruled(string),
+        textFromCenter: number,
+      },
+    ),
+    "jogged-radius-dimension": fields<JoggedRadiusDimension>(
+      { kind, layer: string, style: ruled(string), center: point, point, start: point, jog: point },
+      { id: ruled(string), text: ruled(string), textBelow: ruled(string) },
+    ),
     // A rule of `lint` reports the note, the shafts and the leader's own fields, whatever their type.
     leader: fields<Leader>(
       {
@@ -623,6 +648,8 @@ function shapes(all: boolean, typed = all): Shapes {
         textFit: ruled(string),
         dimensionLineweight: ruled(numberOrName),
         extensionLineweight: ruled(numberOrName),
+        radialText: ruled(string),
+        jogAngle: ruled(number),
       },
     ),
   );

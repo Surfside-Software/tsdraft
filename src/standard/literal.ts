@@ -3,6 +3,7 @@
 import type {
   DIMENSION_FRACTIONS,
   DIMENSION_TEXT_FITS,
+  DIMENSION_RADIAL_TEXTS,
   DIMENSION_TEXT_PLACEMENTS,
 } from "../arrowheads.ts";
 import type {
@@ -335,11 +336,13 @@ type StyleFields<E, N extends StandardNames> = {
             ? Str<E[F], OneOf<E[F] & string, (typeof DIMENSION_TEXT_PLACEMENTS)[number]>>
             : F extends "textFit"
               ? Str<E[F], OneOf<E[F] & string, (typeof DIMENSION_TEXT_FITS)[number]>>
-              : F extends "writing"
-                ? { readonly [U in keyof E[F]]: Writing<E[F][U]> }
-                : F extends "discipline"
-                  ? Discipline<E[F], N>
-                  : unknown;
+              : F extends "radialText"
+                ? Str<E[F], OneOf<E[F] & string, (typeof DIMENSION_RADIAL_TEXTS)[number]>>
+                : F extends "writing"
+                  ? { readonly [U in keyof E[F]]: Writing<E[F][U]> }
+                  : F extends "discipline"
+                    ? Discipline<E[F], N>
+                    : unknown;
 };
 
 type DimensionStyle<E, N extends StandardNames> = {

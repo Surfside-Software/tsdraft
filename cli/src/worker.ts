@@ -16,7 +16,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { types } from "node:util";
 import { Worker } from "node:worker_threads";
 import type {
-  AlignedDimension,
   Block,
   Diagnostic,
   DimensionPicture,
@@ -26,7 +25,6 @@ import type {
   Intent,
   IntentWarning,
   Layout,
-  LinearDimension,
   PaperInfo,
   PaperUnit,
   TextWarning,
@@ -189,8 +187,9 @@ interface Library {
   readonly drawnXrefs?: (drawing: Drawing, xrefs: GivenXrefs) => GivenXrefs;
   /** A dimension's style and what it draws. A copy of tsdraft from before dimensions has neither. */
   readonly findDimensionStyle?: (drawing: Drawing, name: string) => DimensionStyle | undefined;
+  /** An older copy throws for a kind of dimension it does not know, which the caller catches. */
   readonly dimensionPicture?: (
-    dimension: LinearDimension | AlignedDimension,
+    dimension: Extract<Entity, { readonly kind: `${string}-dimension` }>,
     style: DimensionStyle,
   ) => DimensionPicture;
 }
@@ -1547,6 +1546,15 @@ function insertSummaries(
   });
 }
 
+/** The kind a dimension summary names for each kind of dimension. */
+const SUMMARY_KINDS = {
+  "linear-dimension": "linear",
+  "aligned-dimension": "aligned",
+  "radius-dimension": "radius",
+  "diameter-dimension": "diameter",
+  "jogged-radius-dimension": "jogged-radius",
+} as const;
+
 /** Each dimension among some entities, with what the library the drawing loaded says it reads. */
 function dimensionSummaries(
   library: Library,
@@ -1554,12 +1562,15 @@ function dimensionSummaries(
   entities: readonly Entity[] = drawing.entities,
 ): DimensionSummary[] {
   return entities.flatMap((e, entity): DimensionSummary[] => {
-    if (e.kind !== "linear-dimension" && e.kind !== "aligned-dimension") return [];
+    if (!Object.hasOwn(SUMMARY_KINDS, e.kind)) return [];
+    const dimension = e as Extract<Entity, { readonly kind: `${string}-dimension` }>;
     let read: { measurement: number; text: string } | undefined;
     try {
       const style =
-        typeof e.style === "string" ? library.findDimensionStyle?.(drawing, e.style) : undefined;
-      const picture = style && library.dimensionPicture?.(e, style);
+        typeof dimension.style === "string"
+          ? library.findDimensionStyle?.(drawing, dimension.style)
+          : undefined;
+      const picture = style && library.dimensionPicture?.(dimension, style);
       if (picture && Number.isFinite(picture.measurement)) {
         read = { measurement: picture.measurement, text: picture.label.value };
       }
@@ -1570,9 +1581,9 @@ function dimensionSummaries(
       {
         entity,
         id: e.id ?? null,
-        layer: e.layer,
-        kind: e.kind === "linear-dimension" ? "linear" : "aligned",
-        style: e.style,
+        layer: dimension.layer,
+        kind: SUMMARY_KINDS[dimension.kind],
+        style: dimension.style,
         measurement: read?.measurement ?? null,
         text: read?.text ?? null,
       },

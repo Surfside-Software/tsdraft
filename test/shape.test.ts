@@ -172,6 +172,40 @@ const kinds: {
     id: "m",
     ...styled,
   },
+  "radius-dimension": {
+    kind: "radius-dimension",
+    layer: "0",
+    style: "ARCH",
+    center: [0, 0],
+    point: [3, 4],
+    text: "<> TYP",
+    textBelow: "MIN.",
+    textFromCenter: 2,
+    id: "h-r",
+  },
+  "diameter-dimension": {
+    kind: "diameter-dimension",
+    layer: "0",
+    style: "ARCH",
+    center: [0, 0],
+    point: [-3, 4],
+    text: "<> BOLT",
+    textBelow: "EQ.",
+    textFromCenter: -1,
+    id: "h-d",
+  },
+  "jogged-radius-dimension": {
+    kind: "jogged-radius-dimension",
+    layer: "0",
+    style: "ARCH",
+    center: [0, 0],
+    point: [30, 40],
+    start: [25, 20],
+    jog: [27, 30],
+    text: "<> CL",
+    textBelow: "CURB",
+    id: "h-j",
+  },
 };
 
 /** A polyline of one width, with every field the polyline of `kinds` leaves out. */
@@ -235,6 +269,8 @@ const full: Required<Drawing> & {
       textFit: "leader",
       dimensionLineweight: 0.5,
       extensionLineweight: 0.25,
+      radialText: "horizontal",
+      jogAngle: 30,
     },
     {
       name: "ARCH",
@@ -258,6 +294,8 @@ const full: Required<Drawing> & {
       textFit: "inside",
       dimensionLineweight: 0.35,
       extensionLineweight: 0.18,
+      radialText: "aligned",
+      jogAngle: 45,
     },
   ],
   leaderStyles: [
@@ -537,7 +575,7 @@ test("a value of the wrong shape is reported in these words, once", () => {
       { toString: 0 },
       [
         "xref: Xref a value of type object: A block's name must be a string",
-        `undefined-block: insert #11: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
+        `undefined-block: insert #14: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
       ],
     ],
     [

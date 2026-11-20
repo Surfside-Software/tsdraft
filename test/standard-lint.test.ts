@@ -175,8 +175,8 @@ test("a text plots at its role's height in each viewport that shows it, and at l
   assert.deepEqual(
     lint(half, { standard }).map((d) => d.message),
     [
-      `text #51: This text of the role "note" plots 0.047 in tall in viewport "plan" at 1" = 10', and the role is 0.094 in: it was sized for another scale. Draw it in the view of the viewport that shows it`,
-      `text #51: This text plots 0.047 in tall in viewport "plan" at 1" = 10', below the standard's least height of 0.0625 in`,
+      `text #52: This text of the role "note" plots 0.047 in tall in viewport "plan" at 1" = 10', and the role is 0.094 in: it was sized for another scale. Draw it in the view of the viewport that shows it`,
+      `text #52: This text plots 0.047 in tall in viewport "plan" at 1" = 10', below the standard's least height of 0.0625 in`,
     ],
   );
   // The model of the sheet at 1" = 10', shown at 1" = 20': every text and dimension is off.

@@ -376,6 +376,10 @@ d.linearDimension([24, 30], [76, 30], [0, 20], { style: "PLAN" });
   the text in a break of the line, `textFit: "leader"` moves a text with no room out on a
   leader, `arrowhead: "oblique"` draws a thin tick, and `dimensionLineweight` and
   `extensionLineweight` set the pens.
+- `radiusDimension(center, point, options)`, `diameterDimension(center, point, options)` and
+  `joggedRadiusDimension(center, point, start, jog, options)` dimension circles and arcs; CAD
+  writes the R and the diameter sign. `textFromCenter` places the text along the line, and a
+  style's `radialText: "horizontal"` levels it.
 - Never draw a dimension from lines and text.
   [docs/dimensions.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/dimensions.md)
   has the rest.
@@ -599,7 +603,7 @@ writeFileSync("plan.dxf", toDXF(drawing));
 
 ## What tsdraft cannot draw yet
 
-- Hatches, fills, and dimensions that are not linear or aligned.
+- Hatches, fills, and angular, arc length and ordinate dimensions.
 - A leader with two roots, a curved shaft, a block in place of its note, or a note attached at
   its top or bottom.
 - A block read from another file. A block is drawn in the drawing that inserts it. An xref

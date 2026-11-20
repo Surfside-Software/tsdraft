@@ -354,8 +354,11 @@ export interface DimensionSummary {
   /** The dimension's id, or `null`. */
   readonly id: string | null;
   readonly layer: string;
-  /** `linear` measures along one direction, and `aligned` from point to point. */
-  readonly kind: "linear" | "aligned";
+  /**
+   * `linear` measures along one direction, `aligned` from point to point, and `radius`,
+   * `diameter` and `jogged-radius` a circle or an arc.
+   */
+  readonly kind: "linear" | "aligned" | "radius" | "diameter" | "jogged-radius";
   /** The dimension style as the dimension names it. */
   readonly style: string;
   /**
