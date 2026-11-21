@@ -50,6 +50,7 @@ import type {
   Leader,
   LeaderStyle,
   Linetype,
+  LinetypeMark,
   Point,
   Text,
   TextStyle,
@@ -152,7 +153,7 @@ import {
   validLeaderStyleHandle,
 } from "./leaders.ts";
 import { entityLinetype, layerLinetype, lineweightCode, patternLength } from "./linetypes.ts";
-import { idKey, shown, TEXT_ALIGNS, TEXT_VERTICAL_ALIGNS } from "./rules.ts";
+import { idKey, isStandardTextStyle, shown, TEXT_ALIGNS, TEXT_VERTICAL_ALIGNS } from "./rules.ts";
 
 /** `$INSUNITS` codes from the DXF Reference. */
 const INSUNITS: Record<Units, number> = { in: 1, ft: 2, mm: 4, cm: 5, m: 6 };
@@ -318,6 +319,33 @@ export function toDXFR2018(
   const linetypeHandles = linetypes.map(() => handle());
   // A leader style draws its shafts in the linetype ByBlock, which it holds by its handle.
   const linetypeByBlock = linetypeHandles[0]!;
+  const textStyles = drawing.textStyles ?? [];
+  // A linetype's mark holds its text style, or its shape file's, by its handle. The shape files
+  // are styles of their own after the text styles, one for each file, in the order first named.
+  const shapeFiles = [
+    ...new Map(
+      linetypes.flatMap((t) =>
+        (t.marks ?? []).flatMap((m) => ("shape" in m ? [[m.file.toLowerCase(), m.file]] : [])),
+      ) as [string, string][],
+    ).values(),
+  ];
+  let styleHandles: { standard: string; list: string[]; shapes: string[] } | undefined;
+  const allocateStyles = () => ({
+    standard: handle(),
+    list: textStyles.map(() => handle()),
+    shapes: shapeFiles.map(() => handle()),
+  });
+  // A drawing whose linetypes have no marks numbers its styles after its linetypes' table.
+  if (linetypes.some((t) => (t.marks?.length ?? 0) > 0)) styleHandles = allocateStyles();
+  const markStyle = (m: LinetypeMark): string => {
+    const handles = styleHandles!;
+    if ("shape" in m)
+      return handles.shapes[shapeFiles.findIndex((f) => f.toLowerCase() === m.file.toLowerCase())]!;
+    const name = m.style ?? STANDARD_TEXT_STYLE;
+    if (isStandardTextStyle(name)) return handles.standard;
+    const key = layerKey(name);
+    return handles.list[textStyles.findIndex((t) => layerKey(t.name) === key)] ?? handles.standard;
+  };
   writeTable(
     g,
     handle,
@@ -332,10 +360,25 @@ export function toDXFR2018(
         g(72, 65); // alignment: "A"
         g(73, linetype.pattern.length);
         g(40, patternLength(linetype.pattern.map(written)));
-        for (const length of linetype.pattern) {
+        const marks = linetype.marks ?? [];
+        linetype.pattern.forEach((length, i) => {
           g(49, length);
-          g(74, 0); // a plain dash, gap or dot
-        }
+          const m = marks.find((mark) => mark.after === i);
+          if (m === undefined) {
+            g(74, 0); // a plain dash, gap or dot
+            return;
+          }
+          const text = "text" in m;
+          const orient = m.orient ?? "relative";
+          g(74, (text ? 2 : 4) | (orient === "absolute" ? 1 : 0) | (orient === "upright" ? 8 : 0));
+          g(75, text ? 0 : (m.shape as number));
+          g(340, markStyle(m));
+          g(46, text ? m.height : m.scale);
+          g(50, m.rotation ?? 0);
+          g(44, m.offset?.[0] ?? 0);
+          g(45, m.offset?.[1] ?? 0);
+          if (text) g(9, dxfOnce(m.text));
+        });
       },
     })),
   );
@@ -362,10 +405,10 @@ export function toDXFR2018(
       },
     })),
   );
-  const textStyles = drawing.textStyles ?? [];
-  const standardStyle = handle();
+  styleHandles ??= allocateStyles();
+  const standardStyle = styleHandles.standard;
   // Each text style has a handle of its own. A dimension style holds the first of a name.
-  const textStyleHandleList = textStyles.map(() => handle());
+  const textStyleHandleList = styleHandles.list;
   const textStyleHandles = new Map(
     textStyles.map((style, i) => [layerKey(style.name), textStyleHandleList[i]!]).reverse() as [
       string,
@@ -409,6 +452,24 @@ export function toDXFR2018(
           g(1000, style.font);
           g(1071, font.pitchAndFamily);
         }
+      },
+    })),
+    // A shape file is a style with no name and flag 1, which the leading CAD app makes for a
+    // linetype's shapes.
+    ...shapeFiles.map((file, i) => ({
+      type: "STYLE",
+      subclass: "AcDbTextStyleTableRecord",
+      name: "",
+      handle: styleHandles!.shapes[i]!,
+      flags: 1,
+      fields: (g: Group) => {
+        g(40, 0);
+        g(41, 1);
+        g(50, 0);
+        g(71, 0);
+        g(42, 0.2);
+        g(3, dxfOnce(file));
+        g(4, "");
       },
     })),
   ]);
@@ -1323,7 +1384,8 @@ function writeEntity(
     case "polyline": {
       begin("LWPOLYLINE", "AcDbPolyline");
       g(90, e.points.length);
-      g(70, e.closed ? 1 : 0);
+      // Flag 128 runs the linetype's pattern on past each vertex.
+      g(70, (e.closed ? 1 : 0) | (e.linetypeGeneration ? 128 : 0));
       // A width for each side is written at each point, and a constant width once.
       if (e.widths === undefined) g(43, e.width ?? 0);
       e.points.forEach(([x, y], i) => {

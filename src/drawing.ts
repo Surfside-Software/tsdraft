@@ -112,6 +112,7 @@ import {
   lineweightProblem,
   linetypeNameProblem,
   linetypeProblem,
+  marksProblem,
   linetypeScaleProblem,
   magnitudeProblem,
   layerNameProblem,
@@ -214,6 +215,7 @@ import {
   type Positive,
   type R12Layouts,
   type Ratio,
+  type MARK_ORIENTS,
   type TEXT_ALIGNS,
   type TEXT_VERTICAL_ALIGNS,
   type LINE_SPACING_STYLES,
@@ -362,7 +364,58 @@ export interface Linetype {
   readonly description: string;
   /** A dash is a positive length, a gap a negative one, and a dot 0. Empty for a solid line. */
   readonly pattern: readonly number[];
+  /**
+   * What the pattern draws besides its dashes: a text, such as a pipe's letters, or a shape of a
+   * shape file, each at the end of a length of the pattern. In order of `after`, one a length.
+   * R2018 only.
+   */
+  readonly marks?: readonly LinetypeMark[];
 }
+
+/**
+ * How a linetype's mark is turned: `"relative"` to the line, `"absolute"` to the drawing's X
+ * axis, or `"upright"`, along the line and turned half a turn where the line runs leftward, from
+ * just past straight up to just short of straight down, so that it reads from the left.
+ */
+export type MarkOrient = (typeof MARK_ORIENTS)[number];
+
+interface MarkBase {
+  /** The index of the length of the pattern the mark is drawn at the end of, from 0. */
+  readonly after: number;
+  /** In degrees counterclockwise, from the line or the X axis as `orient` says. Defaults to 0. */
+  readonly rotation?: number;
+  /** Defaults to `"relative"`. */
+  readonly orient?: MarkOrient;
+  /**
+   * Where the mark is from the end of its length: along the line, and to its left. In the
+   * pattern's units, scaled as its lengths are. Defaults to `[0, 0]`.
+   */
+  readonly offset?: Point;
+}
+
+/** A text a linetype draws, such as the letters along a pipe. */
+export interface LinetypeText extends MarkBase {
+  readonly text: string;
+  /** A text style of the drawing. Defaults to `"Standard"`. */
+  readonly style?: string;
+  /** The height of its capitals, in the pattern's units, scaled as its lengths are. */
+  readonly height: number;
+}
+
+/**
+ * A shape of a shape file a linetype draws, by its number in the file. tsdraft's plot leaves a
+ * gap where it goes.
+ */
+export interface LinetypeShape extends MarkBase {
+  /** Its number in its shape file. A name, as a linetype file gives it, is not written. */
+  readonly shape: number | string;
+  /** The shape file, as the drawing names it, such as `"shapes.shx"`. */
+  readonly file: string;
+  /** Its size, as a multiple of the shape's own, scaled as the pattern's lengths are. */
+  readonly scale: number;
+}
+
+export type LinetypeMark = LinetypeText | LinetypeShape;
 
 /**
  * The lineweights the leading CAD app offers, in millimetres. A lineweight is how wide a line
@@ -437,6 +490,13 @@ export interface Polyline extends EntityBase {
   readonly width?: number;
   /** The width of each side at its start and at its end, one pair for each side. R2018 only. */
   readonly widths?: readonly (readonly [start: number, end: number])[];
+  /**
+   * Runs the linetype's pattern on past each vertex, as one stretch along the whole polyline,
+   * where it otherwise starts again on each side, so that a side shorter than the pattern is not
+   * drawn solid. Around a closed polyline the pattern is stretched to a whole number of times.
+   * R2018 only.
+   */
+  readonly linetypeGeneration?: boolean;
 }
 
 export interface Circle extends EntityBase {
@@ -1481,6 +1541,11 @@ export interface LinetypeDefinition<
   readonly description?: Description<D>;
   /** A dash is a positive length, a gap a negative one, and a dot 0. Empty for a solid line. */
   readonly pattern: Pattern<P>;
+  /**
+   * Texts and shapes the pattern draws, each at the end of a length of it, in order: see
+   * `Linetype.marks`. A text's style is one of the drawing's.
+   */
+  readonly marks?: readonly LinetypeMark[];
 }
 
 /** What a layer or an entity may be given as its linetype: a name, or a definition. */
@@ -1795,6 +1860,8 @@ export interface PolylineOptions<
   readonly bulges?: V extends "R12" ? R12Polylines : readonly number[];
   /** The width of each side at its start and at its end, one pair for each side. R2018 only. */
   readonly widths?: V extends "R12" ? R12Polylines : readonly (readonly [number, number])[];
+  /** Runs the linetype's pattern on past each vertex: see `Polyline.linetypeGeneration`. R2018 only. */
+  readonly linetypeGeneration?: V extends "R12" ? R12Polylines : boolean;
   /**
    * Rounds every corner with an arc of this radius, tangent to both sides, as a bar's bend or a
    * duct's turn is drawn. The polyline then holds the arcs' ends in place of its corners. With
@@ -3717,9 +3784,15 @@ export class DrawingBuilder<
       readonly width?: unknown;
       readonly widths?: unknown;
       readonly radius?: unknown;
+      readonly linetypeGeneration?: unknown;
     },
   ): Polyline {
-    const { width, widths, radius } = given;
+    const { width, widths, radius, linetypeGeneration } = given;
+    if (linetypeGeneration !== undefined) {
+      if (this.dxf === "R12") refuse("geometry", R12_ONLY.polylines);
+      if (typeof linetypeGeneration !== "boolean")
+        refuse("geometry", "linetypeGeneration must be true or false");
+    }
     let { bulges } = given;
     if (
       this.dxf === "R12" &&
@@ -3757,6 +3830,7 @@ export class DrawingBuilder<
               ([start, end]) => [start, end] as const,
             ),
           }),
+      ...(linetypeGeneration === true ? { linetypeGeneration } : {}),
     };
   }
 
@@ -6392,12 +6466,11 @@ export class DrawingBuilder<
    */
   #define(definition: LinetypeDefinition, inline = false): string {
     const label = `Linetype ${JSON.stringify(definition.name)}`;
-    const problem = linetypeProblem(
-      definition.name,
-      definition.description ?? "",
-      definition.pattern,
-    );
+    const problem =
+      linetypeProblem(definition.name, definition.description ?? "", definition.pattern) ??
+      marksProblem(definition.marks, definition.pattern as readonly number[]);
     if (problem) refuse("linetype", `${label}: ${problem}`);
+    const marks = definition.marks?.map((m) => ({ ...m })) ?? [];
     // linetypeProblem has checked the types.
     const name = definition.name as string;
     const description = (definition.description ?? "") as string;
@@ -6411,7 +6484,8 @@ export class DrawingBuilder<
       const same =
         existing.description === description &&
         existing.pattern.length === lengths.length &&
-        existing.pattern.every((length, i) => length === lengths[i]);
+        existing.pattern.every((length, i) => length === lengths[i]) &&
+        JSON.stringify(existing.marks ?? []) === JSON.stringify(marks);
       if (!same) {
         refuse(
           "linetype",
@@ -6425,6 +6499,7 @@ export class DrawingBuilder<
       name: stored,
       description,
       pattern: [...lengths],
+      ...(marks.length === 0 ? {} : { marks }),
     });
     if (!this.#linetypesAudited.has(auditKey)) this.#linetypesAudited.set(auditKey, name);
     return stored;

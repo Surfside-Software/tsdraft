@@ -727,7 +727,8 @@ function lwpolyline(r: Rec, base: ReadEntityBase, face: Facing): Reading {
     else if (code === 40 || code === 41) vertex.widths[code - 40] = value;
   }
   close();
-  const closed = ((num(r, 70) ?? 0) & 1) !== 0;
+  const flags = num(r, 70) ?? 0;
+  const closed = (flags & 1) !== 0;
   return {
     entity: {
       ...base,
@@ -735,6 +736,7 @@ function lwpolyline(r: Rec, base: ReadEntityBase, face: Facing): Reading {
       points,
       closed,
       ...sidesOf(points.length, closed, bulges, widths, num(r, 43) ?? 0, face),
+      ...((flags & 128) !== 0 && { linetypeGeneration: true as const }),
     },
   };
 }

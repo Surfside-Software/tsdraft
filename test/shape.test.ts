@@ -68,6 +68,7 @@ const kinds: {
       [1, 1],
       [0.5, 0],
     ],
+    linetypeGeneration: true,
     id: "b",
     ...styled,
   },
@@ -327,6 +328,7 @@ const wide: Required<Omit<Polyline, "widths">> = {
   closed: false,
   bulges: [0.25, 0],
   width: 0.25,
+  linetypeGeneration: true,
   id: "j",
   ...styled,
 };
@@ -411,7 +413,7 @@ const keyed: Required<
 
 /** One of everything an R2018 drawing can hold, with every field of every object. */
 const full: Required<Drawing> & {
-  readonly linetypes: readonly [Required<Linetype>];
+  readonly linetypes: readonly [Required<Linetype>, Required<Linetype>];
   readonly patterns: readonly [
     Required<HatchPattern> & { readonly lines: readonly [Required<PatternLine>] },
   ];
@@ -444,7 +446,41 @@ const full: Required<Drawing> & {
   linetypeScale: 2,
   imageFrame: false,
   wipeoutFrame: false,
-  linetypes: [{ name: "DD", description: "Dash dot", pattern: [0.5, -0.25, 0, -0.25] }],
+  linetypes: [
+    {
+      name: "DD",
+      description: "Dash dot",
+      pattern: [0.5, -0.25, 0, -0.25],
+      marks: [
+        {
+          after: 1,
+          text: "W",
+          style: "Standard",
+          height: 0.1,
+          rotation: 0,
+          orient: "upright",
+          offset: [0, -0.05],
+        },
+      ],
+    },
+    // A linetype of shapes that nothing draws in, which lint does not warn of.
+    {
+      name: "SHAPES",
+      description: "Shapes",
+      pattern: [0.5, -0.25],
+      marks: [
+        {
+          after: 1,
+          shape: 3,
+          file: "shapes.shx",
+          scale: 0.1,
+          rotation: 0,
+          orient: "relative",
+          offset: [0, 0],
+        },
+      ],
+    },
+  ],
   patterns: [
     {
       name: "STRIPES",

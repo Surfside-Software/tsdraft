@@ -51,7 +51,9 @@ states and keeps each object's handle, and it keeps going past what it does not 
 
 - `sha256` and `bytes` of the file, its `version`, and `header`: `$INSUNITS`, `$MEASUREMENT`,
   `$LTSCALE`, `$PSLTSCALE`, `$MSLTSCALE`, `$DIMSCALE` and the current styles.
-- The tables: `layers` with their state, `linetypes`, `textStyles` and `dimensionStyles`, each
+- The tables: `layers` with their state, `linetypes`, each with the `marks` it draws as a
+  `Linetype` holds them, a text's `style` by name and its `height` times its style's fixed height,
+  a shape by its number and its `file`, `textStyles` and `dimensionStyles`, each
   style with whether it is annotative, and a dimension style with the units it writes lengths
   in, where its text goes, how it writes a fraction, its lineweights and its arrowheads' block. Two entries of one name are both kept, in the order of the file.
 - `blocks`: each with its base point, its attribute definitions and its entities, below. What
@@ -104,7 +106,8 @@ leader:
 - `line`, `circle` and `arc`, and `polyline` for a lightweight polyline or a 2D one, open or
   closed, with `bulges`, one for each side, when a side is an arc, and `width`, one width for
   every side, or `widths`, each side's width at its start and its end, when a side is wide, as
-  a `Polyline` holds them. A 2D polyline's vertex with no width of its own has the polyline's.
+  a `Polyline` holds them, and `linetypeGeneration` when its pattern runs on past its vertices.
+  A 2D polyline's vertex with no width of its own has the polyline's.
 - `text`: a text of one line, with its `value`.
 - `insert`: its block, by name and by the handle of its record in `blockHandle`, its point,
   scale and rotation, `tags`, and with `geometry` its `attributes`: each a text with its `tag`

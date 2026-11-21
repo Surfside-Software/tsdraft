@@ -102,7 +102,9 @@ Entities go on layer `0` unless they are drawn inside a `layer()` callback.
 Linetypes and lineweights are set on a layer, and an entity draws ByLayer unless
 it is given its own. `DASHED`, `HIDDEN`, `CENTER`, `PHANTOM`, `DASHDOT` and `DOT`
 are the leading CAD app's own definitions; `d.linetype({ name, pattern })` defines another,
-with dashes as positive lengths, gaps as negative ones and dots as 0. A
+with dashes as positive lengths, gaps as negative ones and dots as 0. Its `marks` draw texts
+along the line, such as a water main's letters, and `parseLinetypes` reads a firm's linetype file. A
+polyline's `linetypeGeneration` runs the pattern on past its vertices. A
 lineweight is in millimetres.
 
 A text is in the style `Standard` unless it names another. `d.textStyle({ name,
@@ -317,7 +319,7 @@ layers or twist the view, and layers that are off, frozen, locked or not plotted
 [standard](docs/standard.md) sets its layers, pens, text and sheets. It writes DXF, not DWG.
 
 It does not yet have overlines in paragraph text, ellipses, splines or points, tables, color or transparency set on one
-entity, linetypes with text or shapes, PDF underlays, or the other kinds of dimension.
+entity, the shapes of a linetype in its plot, PDF underlays, or the other kinds of dimension.
 
 `readDXF` reads an ASCII DXF into a model to inspect, which is not a drawing tsdraft can edit
 and write again. [Reading drawing files](docs/reading.md) has what it reads.

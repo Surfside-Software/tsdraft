@@ -135,7 +135,33 @@ export interface ReadLinetype {
   readonly pattern: readonly number[];
   /** True when an element holds a text or a shape. */
   readonly complex: boolean;
+  /**
+   * The texts and shapes it draws, as `Linetype.marks` holds them: a text's style by its name,
+   * and a shape by its number and its file. Left out when it has none.
+   */
+  readonly marks?: readonly ReadLinetypeMark[];
 }
+
+/** A mark of a linetype as a file holds it. */
+export type ReadLinetypeMark =
+  | {
+      readonly after: number;
+      readonly rotation?: number;
+      readonly orient?: "absolute" | "upright";
+      readonly offset?: Point;
+      readonly text: string;
+      readonly style: string;
+      readonly height: number;
+    }
+  | {
+      readonly after: number;
+      readonly rotation?: number;
+      readonly orient?: "absolute" | "upright";
+      readonly offset?: Point;
+      readonly shape: number;
+      readonly file: string;
+      readonly scale: number;
+    };
 
 export interface ReadTextStyle {
   readonly handle?: string | undefined;
@@ -323,6 +349,8 @@ export interface ReadPolyline extends ReadEntityBase {
   readonly width?: number;
   /** The width at the start and the end of each side, one pair for each. Left out when none is not 0. */
   readonly widths?: readonly (readonly [start: number, end: number])[];
+  /** True when the linetype's pattern runs on past each vertex, group 70's 128. Left out when not. */
+  readonly linetypeGeneration?: true;
 }
 
 export interface ReadCircle extends ReadEntityBase {

@@ -24,6 +24,9 @@ import {
   type Leader,
   type LeaderStyle,
   type Line,
+  type Linetype,
+  type LinetypeMark,
+  type LinetypeText,
   type Paragraph,
   type Point,
   type Polyline,
@@ -114,6 +117,7 @@ import { arrowheadInfo, DEFAULT_ARROWHEAD } from "./arrowheads.ts";
 import { DEFAULT_PLOT_STYLE_TABLE, paperInfo } from "./papers.ts";
 import {
   drawnEllipse,
+  MARK_ORIENTS,
   shown as quoted,
   SplineMemo,
   turning,
@@ -354,6 +358,33 @@ interface Dashes {
   readonly total: number;
   /** True when one has no length: a dot, which draws as a round cap. */
   readonly dot: boolean;
+  /** The texts and shapes the pattern draws, where each is along it. */
+  readonly marks?: readonly ScaledMark[];
+}
+
+/** A linetype's pattern as `alternating` gives it, with where along it each mark is drawn. */
+interface LinePattern {
+  readonly runs: readonly number[];
+  /** Each mark, `at` its distance from the start of `runs`, in the pattern's units. */
+  readonly marks: readonly {
+    readonly at: number;
+    /** True for a mark at the end of the pattern's last length. */
+    readonly end: boolean;
+    readonly mark: LinetypeMark;
+  }[];
+}
+
+/** A mark of a pattern scaled for a space. */
+interface ScaledMark {
+  /** Its distance from the start of the scaled pattern, in the units the pattern is cut in. */
+  readonly at: number;
+  /** True for a mark at the end of the pattern's last length. */
+  readonly end: boolean;
+  readonly mark: LinetypeMark;
+  /** A text's style, as the drawing has it. */
+  readonly style: TextStyle | undefined;
+  /** What its offset and its height are multiplied by, in the units of the space it is drawn in. */
+  readonly size: number;
 }
 
 /**
@@ -990,19 +1021,49 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
   });
 
   /** Each pattern scaled for each space, worked out when first drawn with. */
-  const scaled = new Map<readonly number[], Map<number, Dashes>>();
-  const dashesOf = (pattern: readonly number[], scale: number, where: () => string): Dashes => {
+  const scaled = new Map<LinePattern, Map<number, Dashes>>();
+  /** Each pattern's marks scaled for a space, by its scale and size. */
+  const marked = new Map<LinePattern, Map<string, Dashes>>();
+  const dashesOf = (
+    pattern: LinePattern,
+    scale: number,
+    where: () => string,
+    size: number,
+    styles: ReadonlyMap<string, TextStyle>,
+  ): Dashes => {
     let byScale = scaled.get(pattern);
     if (!byScale) scaled.set(pattern, (byScale = new Map()));
     let found = byScale.get(scale);
     if (!found) {
       // A pattern the leading CAD app takes has at most 12 lengths, but one given as data may hold any number.
-      if (!spend(Math.floor(pattern.length / 32))) refuse(where());
-      const lengths = pattern.map((length) => length * scale);
+      if (!spend(Math.floor((pattern.runs.length + pattern.marks.length) / 32))) refuse(where());
+      const lengths = pattern.runs.map((length) => length * scale);
       found = { lengths, total: lengths.reduce((a, b) => a + b, 0), dot: lengths.includes(0) };
       byScale.set(scale, found);
     }
-    return found;
+    if (pattern.marks.length === 0) return found;
+    let bySpace = marked.get(pattern);
+    if (!bySpace) marked.set(pattern, (bySpace = new Map()));
+    const space = `${scale} ${size}`;
+    const known = bySpace.get(space);
+    if (known) return known;
+    if (!spend(Math.floor(pattern.marks.length / 32))) refuse(where());
+    const made: Dashes = {
+      ...found,
+      marks: pattern.marks.map(({ at, end, mark }) => ({
+        at: at * scale,
+        end,
+        mark,
+        style: fontOnly(
+          "text" in mark && typeof mark.style === "string"
+            ? styles.get(key(mark.style))
+            : undefined,
+        ),
+        size,
+      })),
+    };
+    bySpace.set(space, made);
+    return made;
   };
 
   /**
@@ -1054,7 +1115,13 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       // the block's own units shrunk by the insert's scale.
       dashes:
         pattern && Number.isFinite(look.dashScale / placed) && placed > 0
-          ? dashesOf(pattern, look.dashScale / placed, where)
+          ? dashesOf(
+              pattern,
+              look.dashScale / placed,
+              where,
+              look.dashScale,
+              tablesOf(named).textStyles,
+            )
           : undefined,
       lineweight: code < 0 ? DEFAULT_LINEWEIGHT : code,
     };
@@ -1239,6 +1306,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     const plotted = (scale: number, indent: string): Look => ({
       color,
       dashScale: linetypeScale / scale,
+      chord: (paper.units === "in" ? 1 : 25.4) / 1200 / scale,
       indent,
       stroke: (lineweight) =>
         pen !== undefined || lineweight === DEFAULT_LINEWEIGHT
@@ -1438,6 +1506,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
   const onScreen: Look = {
     color: aciColor,
     dashScale: linetypeScale,
+    chord: 1 / 1200,
     indent: "    ",
     stroke: (lineweight) =>
       `${
@@ -1471,6 +1540,12 @@ interface Look {
   readonly color: (index: number) => string;
   /** What a linetype's pattern is multiplied by, to give dashes in the space's own units. */
   readonly dashScale: number;
+  /**
+   * How far, in the space's own units, a curve in a linetype may stray from the straight pieces
+   * the leading CAD app cuts it into before its pattern, which its texts follow: 1/1200 inch on
+   * the paper.
+   */
+  readonly chord: number;
   /** The attributes that set an element's stroke width, for a lineweight in hundredths of a millimetre. */
   readonly stroke: (lineweight: number) => string;
   /** The white space before an element, which what an insert holds is set in from. */
@@ -1481,7 +1556,7 @@ interface Look {
 interface Tables {
   /** Keyed as the leading CAD app looks layers up, so an entity on `wall` takes the color of layer `WALL`. */
   readonly layers: ReadonlyMap<string, Layer>;
-  readonly patterns: ReadonlyMap<string, number[] | undefined>;
+  readonly patterns: ReadonlyMap<string, LinePattern | undefined>;
   readonly textStyles: ReadonlyMap<string, TextStyle>;
   readonly dimensionStyles: ReadonlyMap<string, DimensionStyle>;
   readonly leaderStyles: ReadonlyMap<string, LeaderStyle>;
@@ -1498,9 +1573,7 @@ function tablesFor(drawing: Drawing): Tables {
   }
   return {
     layers: new Map(filled(drawing.layers).map((l) => [layerKey(l.name), l])),
-    patterns: new Map(
-      filled(drawing.linetypes).map((t) => [layerKey(t.name), alternating(filled(t.pattern))]),
-    ),
+    patterns: new Map(filled(drawing.linetypes).map((t) => [layerKey(t.name), linePattern(t)])),
     textStyles: new Map(filled(drawing.textStyles).map((t) => [layerKey(t.name), t])),
     dimensionStyles: new Map(filled(drawing.dimensionStyles).map((t) => [layerKey(t.name), t])),
     leaderStyles: new Map(filled(drawing.leaderStyles).map((t) => [layerKey(t.name), t])),
@@ -2052,10 +2125,17 @@ function entityToSvg(
     return polylineToSvg(e, plan, mark, pen, look, matrix, room, sides);
   }
   if (e.kind !== "text" && pen.dashes) {
-    const d = dashedPath(e, pen.dashes, matrix, room, sides);
+    const letters = lettersOf(pen, look);
+    const d = dashedPath(e, pen.dashes, matrix, room, sides, undefined, letters, look.chord);
     // A pattern with a dot draws it as a round cap on a path of no length.
     const cap = pen.dashes.dot ? ` stroke-linecap="round"` : "";
-    if (d !== undefined) return `<path d="${d}"${cap} ${s}/>`;
+    if (d !== undefined) {
+      if (!letters?.out.length) return `<path d="${d}"${cap} ${s}/>`;
+      // The texts of its linetype are drawn after its dashes, in a group with them.
+      const stroked = `stroke="${pen.color}"${look.stroke(pen.lineweight)}`;
+      const parts = [`<path d="${d}"${cap} ${stroked}/>`, ...letters.out];
+      return `<g ${mark}>\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
+    }
   }
   switch (e.kind) {
     case "line": {
@@ -2177,6 +2257,59 @@ function roundToSvg(center: Point, round: ReturnType<typeof rounded>, s: string)
  * is turned to start with the dash after it. Undefined for a pattern with no gap, with no dash
  * or dot, or with no length, and the caller then draws the entity solid.
  */
+/** True for a mark whose fields a text can be drawn from, as `lint` holds them. */
+function drawable(mark: unknown): mark is LinetypeText {
+  if (typeof mark !== "object" || mark === null || !("text" in mark)) return false;
+  const m = mark as Record<string, unknown>;
+  const finite = (v: unknown) => typeof v === "number" && Number.isFinite(v);
+  const offset = m.offset;
+  return (
+    typeof m.text === "string" &&
+    Number.isInteger(m.after) &&
+    finite(m.height) &&
+    (m.height as number) > 0 &&
+    (m.rotation === undefined || finite(m.rotation)) &&
+    (m.orient === undefined || (MARK_ORIENTS as readonly unknown[]).includes(m.orient)) &&
+    (m.style === undefined || typeof m.style === "string") &&
+    (offset === undefined ||
+      (Array.isArray(offset) && offset.length === 2 && finite(offset[0]) && finite(offset[1])))
+  );
+}
+
+/**
+ * A linetype's pattern as `alternating` gives it, with each of its marks at the end of its length,
+ * measured from where the runs start. Undefined where `alternating` gives none.
+ */
+function linePattern(t: Linetype): LinePattern | undefined {
+  const pattern = filled(t.pattern);
+  const runs = alternating(pattern);
+  if (runs === undefined) return undefined;
+  const total = runs.reduce((a, b) => a + b, 0);
+  const first = pattern.findIndex((length) => length >= 0);
+  const ends: number[] = [];
+  let sum = 0;
+  for (const length of pattern) ends.push((sum += Math.abs(length)));
+  const shift = first > 0 ? ends[first - 1]! : 0;
+  const marks: readonly LinetypeMark[] = Array.isArray(t.marks) ? filled(t.marks) : [];
+  // A shape draws nothing, and of two marks at one length only the first is drawn, so a pattern
+  // has no more marks than lengths.
+  const seen = new Set<number>();
+  return {
+    runs,
+    marks: marks.flatMap((mark) => {
+      if (!drawable(mark)) return [];
+      const end = ends[mark.after];
+      if (end === undefined || seen.has(mark.after)) return [];
+      seen.add(mark.after);
+      // A mark on the length the pattern ends with, which a pattern that starts with a gap ends
+      // where its runs start, is at the end of the pattern, whatever its lengths add up to.
+      const last = mark.after === (first > 0 ? first - 1 : pattern.length - 1) && end > 0;
+      const at = last ? 0 : (((end - shift) % total) + total) % total;
+      return [{ at, end: last, mark }];
+    }),
+  };
+}
+
 function alternating(pattern: readonly number[]): number[] | undefined {
   const first = pattern.findIndex((length) => length >= 0);
   if (first < 0) return undefined;
@@ -2203,12 +2336,15 @@ function alternating(pattern: readonly number[]): number[] | undefined {
  */
 function dashedPath(
   e: Exclude<Shape, { kind: "text" }>,
-  { lengths: dashes, total }: Dashes,
+  pattern: Dashes,
   matrix: Matrix | undefined,
   room: number,
   known: Known,
   wide?: { readonly fills: string[]; readonly ends: string[] },
+  letters?: Letters,
+  spaceChord = 0,
 ): string | undefined {
+  const { lengths: dashes, total } = pattern;
   // Dashes that add up to no length would never reach the end of a stretch.
   if (!(total > 0)) return undefined;
   const place = (px: number, py: number): string => {
@@ -2267,11 +2403,47 @@ function dashedPath(
     if (fitted && size <= room) dash(draw, dotted ? length : last, length);
     return true;
   };
-  const straight = (a: Point, b: Point): boolean => {
+  /** Draws the marks of a stretch, each where `frame` puts its point and its direction. */
+  const markAlong = (
+    length: number,
+    frame: (s: number) => readonly [Point, Point],
+    fitted: boolean,
+    stretch = 1,
+  ): void => {
+    if (letters === undefined || pattern.marks === undefined) return;
+    for (const { s, mark } of markSpots(length, pattern, fitted, stretch)) {
+      if (size > room) return;
+      const [p, t] = frame(s);
+      const drawn = letterAt(mark, p, t, matrix, letters.text);
+      if (drawn === undefined) continue;
+      size += drawn.length + 1;
+      letters.out.push(drawn);
+    }
+  };
+  // An insert that scales one way more than the other draws a straight side longer or shorter
+  // than the pattern's shrink allows for, and the pattern is fitted to it as it is drawn.
+  const shrink = matrix ? Math.sqrt(Math.abs(matrix[0] * matrix[3] - matrix[1] * matrix[2])) : 1;
+  // `Look.chord` in the entity's own units.
+  const chord = shrink > 0 && Number.isFinite(spaceChord / shrink) ? spaceChord / shrink : 0;
+  const gauge = (a: Point, b: Point, length: number): number => {
+    if (!matrix || !(shrink > 0)) return 1;
+    const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+    const drawn = Math.hypot(matrix[0] * dx + matrix[2] * dy, matrix[1] * dx + matrix[3] * dy);
+    const g = drawn / (length * shrink);
+    return Number.isFinite(g) && g > 0 && Math.abs(g - 1) > 1e-9 ? g : 1;
+  };
+  /** Cuts a straight stretch; a side of a polyline too fine for its pattern as drawn is drawn solid. */
+  const straight = (a: Point, b: Point, side = false): boolean => {
     const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (length === 0) return true;
+    const g = gauge(a, b, length);
     const along = (t: number) =>
-      place(a[0] + ((b[0] - a[0]) * t) / length, a[1] + ((b[1] - a[1]) * t) / length);
-    return length === 0 || cut(length, (from, to) => `M ${along(from)} L ${along(to)}`, true);
+      place(a[0] + ((b[0] - a[0]) * t) / g / length, a[1] + ((b[1] - a[1]) * t) / g / length);
+    const draw = (from: number, to: number) => `M ${along(from)} L ${along(to)}`;
+    const done = cut(length * g, draw, true) || (side && (dash(draw, 0, length * g), true));
+    const frame = sideFrame({ from: a, to: b }, undefined, length);
+    markAlong(length * g, (at) => frame(at / g), true);
+    return done;
   };
   const round = (
     center: Point,
@@ -2280,15 +2452,25 @@ function dashedPath(
     turn: number,
     fitted: boolean,
     stretch = 1,
+    marked = true,
   ): boolean => {
     const along = (t: number) => {
       const angle = rad(start) + t / radius;
       return place(center[0] + radius * Math.cos(angle), center[1] + radius * Math.sin(angle));
     };
+    // The pattern is fitted to the straight pieces the arc is cut into, and drawn along the arc.
+    const length = radius * rad(turn);
+    const pieces = piecesLength(radius, rad(turn), chord);
+    const k = pieces > 0 ? length / pieces : 1;
+    if (marked) {
+      const frame = arcFrame(center, radius, rad(start), rad(turn), length, chord);
+      markAlong(pieces, (at) => frame(at * k), fitted, stretch);
+    }
     const shape = rounded(radius, matrix);
     return cut(
-      radius * rad(turn),
-      (from, to) => {
+      pieces,
+      (a, b) => {
+        const [from, to] = [a * k, b * k];
         // SVG draws no arc between two equal points, so a dot is a line of no length.
         if (to === from) return `M ${along(from)} L ${along(to)}`;
         const arc = `A ${fmt(shape.rx)} ${fmt(shape.ry)} ${fmt(shape.turn)}`;
@@ -2310,6 +2492,92 @@ function dashedPath(
       break;
     case "polyline": {
       const plan = planOf(e, known);
+      // A polyline with a side whose width changes along it starts the pattern again at each
+      // vertex whatever its flag says, as the leading CAD app does.
+      const tapered = plan?.parts.some(({ side }) => side.startWidth !== side.endWidth) ?? false;
+      if (e.linetypeGeneration === true && !tapered) {
+        const course = courseOf(e, plan, known).map((piece) => {
+          const { arc } = piece;
+          const local = arc ? piecesLength(arc.radius, Math.abs(arc.sweep), chord) : piece.length;
+          const g = arc ? 1 : gauge(piece.side.from, piece.side.to, piece.length);
+          return { ...piece, local, length: local * g, gauge: g };
+        });
+        if (course.length === 0) return undefined;
+        const ends: number[] = [];
+        let length = 0;
+        for (const piece of course) ends.push((length += piece.length));
+        if (length / total > MAX_DASHES) return undefined;
+        // Around a closed polyline the pattern goes a whole number of times, stretched alike,
+        // and the course starts at its second point.
+        const patterns = Math.round(length / total);
+        if (e.closed && patterns < 1) return undefined;
+        const stretch = e.closed ? length / (patterns * total) : 1;
+        /** The piece that holds `at` along the course, and how far into it. */
+        const locate = (at: number): readonly [number, number] => {
+          // The first piece that ends at or past `at`, found by halving.
+          let [lo, hi] = [0, course.length - 1];
+          while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (at > ends[mid]!) lo = mid + 1;
+            else hi = mid;
+          }
+          return [lo, at - (ends[lo]! - course[lo]!.length)];
+        };
+        const strokes = out;
+        const piece = (i: number, from: number, to: number): string => {
+          const { side, arc, length: l } = course[i]!;
+          if (isWide(side)) {
+            wide?.fills.push(bandPiece(side, arc, from / l, to / l, place, matrix));
+            return "";
+          }
+          return pieceTrace(side, arc, from / l, to / l, place, matrix);
+        };
+        cut(
+          length,
+          (from, to) => {
+            const [i] = locate(from);
+            const [j] = locate(to);
+            const drawn: string[] = [];
+            // Whether the last piece drawn was a line, which the next runs on from.
+            let joined = false;
+            for (let k = i; k <= j; k++) {
+              const start = ends[k]! - course[k]!.length;
+              const a = Math.max(from, start) - start;
+              const b = Math.min(to, ends[k]!) - start;
+              const traced = piece(k, a, Math.max(a, b));
+              if (traced === "") joined = false;
+              else {
+                drawn.push(joined ? traced.replace(/^M \S+ \S+ /, "") : traced);
+                joined = true;
+              }
+            }
+            return drawn.join(" ");
+          },
+          !e.closed,
+          stretch,
+        );
+        out = strokes.filter((d) => d !== "");
+        // An open course that ends on a wide straight side ends in the thinnest line across it.
+        const end = course.at(-1)!;
+        if (!e.closed && isWide(end.side) && !end.arc && length >= total * (1 - 1e-9)) {
+          const ended = bandPiece(end.side, undefined, 1, 1, place, matrix).split(" L ");
+          const across = `${ended[0]!} L ${ended[2]!}`;
+          size += across.length + 1;
+          wide?.ends.push(across);
+        }
+        markAlong(
+          length,
+          (at) => {
+            const [i, into] = locate(at);
+            const { side, arc, local, gauge: g } = course[i]!;
+            return sideFrame(side, arc, local, chord)(into / g);
+          },
+          !e.closed,
+          stretch,
+        );
+        ok = true;
+        break;
+      }
       if (plan) {
         // A side the pattern is too fine for draws the whole polyline solid.
         if (plan.longest / total > MAX_DASHES) return undefined;
@@ -2317,17 +2585,28 @@ function dashedPath(
         for (const { side, arc, fit } of plan.parts) {
           if (size > room) break;
           if (!isWide(side)) {
-            if (!arc) straight(side.from, side.to);
+            if (!arc) straight(side.from, side.to, true);
             else {
-              // An arc that turns clockwise is cut from its end, which fits the same dashes.
+              // An arc that turns clockwise is cut from its end, which fits the same dashes, and
+              // its marks from its start.
               const from = arc.sweep > 0 ? arc.start : arc.start + arc.sweep;
-              round(arc.center, arc.radius, degrees(from), degrees(Math.abs(arc.sweep)), true);
+              const turn = degrees(Math.abs(arc.sweep));
+              round(arc.center, arc.radius, degrees(from), turn, true, 1, false);
+              const pieces = piecesLength(arc.radius, Math.abs(arc.sweep), chord);
+              markAlong(pieces, sideFrame(side, arc, pieces, chord), true);
             }
             continue;
           }
-          // Each dash of a wide side is filled, square at both ends.
+          // Each dash of a wide side is filled, square at both ends, fitted to the side as drawn.
           out = [];
-          cut(fit, (from, to) => bandPiece(side, arc, from / fit, to / fit, place, matrix), true);
+          const g = arc ? 1 : gauge(side.from, side.to, fit);
+          const drawn = fit * g;
+          const band = (from: number, to: number) =>
+            bandPiece(side, arc, from / drawn, to / drawn, place, matrix);
+          // A side too fine for its pattern as it is drawn is filled whole.
+          if (!cut(drawn, band, true)) dash(band, 0, drawn);
+          const frame = sideFrame(side, arc, fit, chord);
+          markAlong(drawn, (at) => frame(at / g), true);
           if (out.length > 0) wide?.fills.push(out.join(" "));
           out = strokes;
           // A straight side cut into dashes ends in the thinnest line across its end, and so does
@@ -2355,9 +2634,9 @@ function dashedPath(
       if ((closing > longest ? closing : longest) / total > MAX_DASHES) return undefined;
       for (const end of ends) {
         if (size > room) break;
-        straight(points[end - 1]!, points[end]!);
+        straight(points[end - 1]!, points[end]!, true);
       }
-      if (closing > 0) straight(last!, first!);
+      if (closing > 0) straight(last!, first!, true);
       ok = true;
       break;
     }
@@ -2365,7 +2644,7 @@ function dashedPath(
       // A circle holds the whole number of patterns nearest its length, each stretched or
       // shrunk alike to go round it exactly, from a dash at its angle 0. One shorter than its
       // pattern is solid.
-      const around = 2 * Math.PI * e.radius;
+      const around = piecesLength(e.radius, 2 * Math.PI, chord);
       if (!(around >= total)) return undefined;
       ok = round(e.center, e.radius, 0, 360, false, around / (Math.round(around / total) * total));
       break;
@@ -2440,6 +2719,237 @@ function dashedPath(
     }
   }
   return ok && (out.length > 0 || (wide?.fills.length ?? 0) > 0) ? out.join(" ") : undefined;
+}
+
+/** A style's font alone: the leading CAD app draws a linetype's text in neither its width nor its slant. */
+function fontOnly(style: TextStyle | undefined): TextStyle | undefined {
+  return style === undefined ? undefined : { name: style.name, font: style.font };
+}
+
+/** Where the texts of a pen's linetype go, when it has any: drawn in its color, with no mark. */
+function lettersOf(pen: Pen, look: Look): Letters | undefined {
+  if (!pen.dashes?.marks?.some((m) => "text" in m.mark)) return undefined;
+  void look;
+  return { out: [], text: (t, style) => textToSvg(t, style, pen, "", undefined, false) };
+}
+
+/** Where the texts of a linetype go, and how a text is drawn: as the entity's own text. */
+interface Letters {
+  readonly out: string[];
+  readonly text: (t: Text, style: TextStyle | undefined) => string;
+}
+
+/**
+ * Where along a stretch of `length` each mark of a pattern is drawn, from the stretch's start.
+ * A fitted stretch draws them in each of its whole patterns, from where its first dash's pattern
+ * would start, one at the end of the pattern at the end of each and at the end of the stretch,
+ * and one shorter than its pattern none. One that is not fitted draws them in each
+ * time its stretched pattern goes along it.
+ */
+function* markSpots(
+  length: number,
+  dashes: Dashes,
+  fitted: boolean,
+  stretch: number,
+): Generator<{ readonly s: number; readonly mark: ScaledMark }> {
+  const { marks, total, lengths } = dashes;
+  if (marks === undefined || !(total > 0) || length / total > MAX_DASHES) return;
+  if (fitted) {
+    if (length < total * (1 - 1e-9)) return;
+    const first = lengths[0]!;
+    const count = Math.floor(length / total + 1e-9);
+    const start = (length + first - count * total) / 2 - first;
+    for (let k = 0; k < count; k++)
+      for (const mark of marks) yield { s: start + k * total + (mark.end ? total : mark.at), mark };
+    // A mark at the end of the pattern comes once more at the end of the stretch.
+    for (const mark of marks) if (mark.end) yield { s: length, mark };
+    return;
+  }
+  const count = Math.round(length / (total * stretch));
+  // Round a closed course, a mark at the end of the pattern comes at the end of each but the last,
+  // where the course closes.
+  for (let k = 0; k < count; k++) {
+    for (const mark of marks) {
+      if (mark.end && k === count - 1) continue;
+      yield { s: (k * total + (mark.end ? total : mark.at)) * stretch, mark };
+    }
+  }
+}
+
+/**
+ * A point of a side `length` long, `s` along it from its start, and the way it runs there, in
+ * the side's own coordinates. Past either end of a straight side it runs on along it.
+ */
+function sideFrame(
+  side: Pick<PolylineSide, "from" | "to">,
+  arc: SideArc | undefined,
+  length: number,
+  chord = 0,
+): (s: number) => readonly [Point, Point] {
+  if (!arc) {
+    const [dx, dy] = [(side.to[0] - side.from[0]) / length, (side.to[1] - side.from[1]) / length];
+    return (s) => [
+      [side.from[0] + dx * s, side.from[1] + dy * s],
+      [dx, dy],
+    ];
+  }
+  return arcFrame(arc.center, arc.radius, arc.start, arc.sweep, length, chord);
+}
+
+/** How many straight pieces the leading CAD app cuts an arc turning `sweep` radians into. */
+function pieceCount(radius: number, sweep: number, chord: number): number {
+  const most = chord > 0 && chord < radius ? 2 * Math.acos(1 - chord / radius) : Math.PI;
+  const step = Math.min(most, (2 * Math.PI) / 32);
+  const count = Math.ceil(sweep / step - 1e-9);
+  return Number.isFinite(count) ? Math.max(1, Math.min(MAX_DASHES, count)) : 1;
+}
+
+/** How long those pieces are together, which a pattern is fitted to. The arc's own length with no chord. */
+function piecesLength(radius: number, sweep: number, chord: number): number {
+  if (!(chord > 0)) return radius * sweep;
+  const count = pieceCount(radius, sweep, chord);
+  return 2 * radius * count * Math.sin(sweep / (2 * count));
+}
+
+/**
+ * A point of an arc `length` long, `s` along it from its start, and the way it runs there: on
+ * the straight pieces the leading CAD app cuts it into, of equal turns from its start, each
+ * straying at most `chord` from it, and a whole circle into 32 at least.
+ */
+function arcFrame(
+  center: Point,
+  radius: number,
+  start: number,
+  sweep: number,
+  length: number,
+  chord: number,
+): (s: number) => readonly [Point, Point] {
+  const pieces = pieceCount(radius, Math.abs(sweep), chord);
+  const at = (k: number): Point => {
+    const angle = start + (sweep * k) / pieces;
+    return [center[0] + radius * Math.cos(angle), center[1] + radius * Math.sin(angle)];
+  };
+  return (s) => {
+    const t = Math.min(Math.max((s / length) * pieces, 0), pieces);
+    const k = Math.min(pieces - 1, Math.floor(t));
+    const [a, b] = [at(k), at(k + 1)];
+    const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+    const l = Math.hypot(dx, dy);
+    const u = t - k;
+    return [
+      [a[0] + dx * u, a[1] + dy * u],
+      l > 0 ? [dx / l, dy / l] : [-Math.sin(start), Math.cos(start)],
+    ];
+  };
+}
+
+/**
+ * The sides of a polyline that have a length, in order, as one course for a pattern that runs on
+ * past each vertex. A closed one's course starts at its second point, where the leading CAD app
+ * starts it.
+ */
+function courseOf(
+  e: Polyline,
+  plan: Plan | undefined,
+  known: Known,
+): { readonly side: PolylineSide; readonly arc: SideArc | undefined; readonly length: number }[] {
+  let course: { side: PolylineSide; arc: SideArc | undefined; length: number }[];
+  if (plan) {
+    course = plan.parts.map(({ side, arc }) => ({ side, arc, length: sideLength(side, arc) }));
+  } else {
+    const { points, ends } = sidesOf(e.points, known);
+    const straight = (from: Point, to: Point) => ({
+      side: { from, to, bulge: 0, startWidth: 0, endWidth: 0 },
+      arc: undefined,
+      length: Math.hypot(to[0] - from[0], to[1] - from[1]),
+    });
+    course = ends.map((end) => straight(points[end - 1]!, points[end]!));
+    const [first, last] = [points[0], points.at(-1)];
+    if (e.closed && first && last) {
+      const closing = straight(last, first);
+      if (closing.length > 0) course.push(closing);
+    }
+  }
+  if (e.closed && course.length > 1) course = [...course.slice(1), course[0]!];
+  return course.filter((piece) => piece.length > 0);
+}
+
+/** The path of a side of no width from `t0` to `t1` of the way along it, where `matrix` puts it. */
+function pieceTrace(
+  side: PolylineSide,
+  arc: SideArc | undefined,
+  t0: number,
+  t1: number,
+  place: (x: number, y: number) => string,
+  matrix: Matrix | undefined,
+): string {
+  if (!arc) {
+    const at = (t: number) =>
+      place(
+        side.from[0] + (side.to[0] - side.from[0]) * t,
+        side.from[1] + (side.to[1] - side.from[1]) * t,
+      );
+    return `M ${at(t0)} L ${at(t1)}`;
+  }
+  const at = (t: number) => {
+    const [x, y] = arcPoint(arc, t);
+    return place(x, y);
+  };
+  if (t1 === t0) return `M ${at(t0)} L ${at(t1)}`;
+  const round = rounded(arc.radius, matrix);
+  const flag = arc.sweep > 0 ? round.sweep : 1 - round.sweep;
+  const a = `A ${fmt(round.rx)} ${fmt(round.ry)} ${fmt(round.turn)} 0 ${flag}`;
+  // An arc of more than half a turn is drawn as two halves.
+  if (Math.abs(arc.sweep * (t1 - t0)) > Math.PI) {
+    return `M ${at(t0)} ${a} ${at((t0 + t1) / 2)} ${a} ${at(t1)}`;
+  }
+  return `M ${at(t0)} ${a} ${at(t1)}`;
+}
+
+/**
+ * A linetype's text at a point of its line where the line runs along `t`, both in the entity's
+ * own coordinates, drawn where `matrix` puts it. Its offset is along the line and to its left as
+ * the line is drawn, and an upright text turns half a turn about the middle of its box where the
+ * line runs leftward in its own coordinates. A shape draws nothing.
+ */
+function letterAt(
+  m: ScaledMark,
+  p: Point,
+  t: Point,
+  matrix: Matrix | undefined,
+  draw: Letters["text"],
+): string | undefined {
+  const mark = m.mark;
+  if (!("text" in mark) || typeof mark.text !== "string") return undefined;
+  const [px, py] = matrix ? mapPoint(matrix, p) : p;
+  let [tx, ty] = matrix
+    ? [matrix[0] * t[0] + matrix[2] * t[1], matrix[1] * t[0] + matrix[3] * t[1]]
+    : t;
+  const along = Math.hypot(tx, ty);
+  if (!(along > 0)) return undefined;
+  [tx, ty] = [tx / along, ty / along];
+  const offset = mark.offset;
+  const [ox, oy] = offset === undefined ? [0, 0] : [offset[0], offset[1]];
+  const k = m.size;
+  let x = px + (ox * tx - oy * ty) * k;
+  let y = py + (ox * ty + oy * tx) * k;
+  const height = mark.height * k;
+  const orient = mark.orient ?? "relative";
+  let rotation = (orient === "absolute" ? 0 : degrees(Math.atan2(ty, tx))) + (mark.rotation ?? 0);
+  const text: Text = { kind: "text", layer: "0", at: [x, y], height, value: mark.text, rotation };
+  if (orient === "upright") {
+    const local = ((degrees(Math.atan2(t[1], t[0])) % 360) + 360) % 360;
+    if (local > 90 + 1e-9 && local < 270 - 1e-9) {
+      const laid = layoutText(inStyle(text, m.style));
+      const trueType = fontInfo(m.style?.font ?? STANDARD_FONT)?.pitchAndFamily !== undefined;
+      const w = trueType ? laid.advances : laid.end - laid.start;
+      const r = rad(rotation);
+      x += w * Math.cos(r) - height * Math.sin(r);
+      y += w * Math.sin(r) + height * Math.cos(r);
+      rotation += 180;
+    }
+  }
+  return draw({ ...text, at: [x, y], rotation }, m.style);
 }
 
 /**
@@ -2523,7 +3033,9 @@ function polylineToSvg(
   const dashed = pen.dashes
     ? { fills: [] as string[], ends: [] as string[], d: undefined as string | undefined }
     : undefined;
-  if (pen.dashes && dashed) dashed.d = dashedPath(e, pen.dashes, matrix, room, known, dashed);
+  const letters = lettersOf(pen, look);
+  if (pen.dashes && dashed)
+    dashed.d = dashedPath(e, pen.dashes, matrix, room, known, dashed, letters, look.chord);
   if (dashed && (dashed.d !== undefined || dashed.fills.length > 0)) {
     const cap = pen.dashes?.dot ? ` stroke-linecap="round"` : "";
     if (dashed.d) parts.push(`<path d="${dashed.d}"${cap} ${stroked}/>`);
@@ -2531,6 +3043,7 @@ function polylineToSvg(
     if (dashed.ends.length > 0) {
       parts.push(`<path d="${dashed.ends.join(" ")}" stroke="${pen.color}"${look.stroke(0)}/>`);
     }
+    parts.push(...(letters?.out ?? []));
   } else {
     let run: string[] = [];
     let used = 0;

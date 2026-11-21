@@ -23,6 +23,14 @@ type Type =
 type Fields = Readonly<Record<string, Type>>;
 
 const counts: Type = { map: "count" };
+
+/** What a linetype's mark of either kind holds. */
+const MARK: Fields = {
+  after: "number",
+  "rotation?": "number",
+  "orient?": { oneOf: ["absolute", "upright"] },
+  "offset?": "point",
+};
 const strings: Type = { list: "string" };
 
 const LAYER_CENSUS: Fields = {
@@ -145,6 +153,7 @@ const ENTITY: Readonly<Record<string, Fields>> = {
     "bulges?": { list: "number" },
     "width?": "number",
     "widths?": { list: "point" },
+    "linetypeGeneration?": "boolean",
   },
   circle: { ...BASE, kind: { oneOf: ["circle"] }, center: "point", radius: "number" },
   arc: {
@@ -444,6 +453,15 @@ const DRAWING_READ: Fields = {
         "description?": "string",
         pattern: { list: "number" },
         complex: "boolean",
+        "marks?": {
+          list: {
+            either: [
+              { ...MARK, text: "string", style: "string", height: "number" },
+              { ...MARK, shape: "number", file: "string", scale: "number" },
+            ],
+            named: "a linetype's mark",
+          },
+        },
       },
     },
   },

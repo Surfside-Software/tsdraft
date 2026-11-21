@@ -510,6 +510,10 @@ d.layout("C-101", { paper: "ARCH D" }, (sheet) => {
 - In a drawing with a layout, `linetypeScale` is a length of paper: dashes plot as long as the
   pattern times it, in every viewport. The picture of model space draws the same dashes that
   many drawing units long, often too short to see, so judge linetypes on the sheet's picture.
+- Letter a pipe with its linetype, not with texts beside it: `parseLinetypes(text)` reads the
+  firm's linetype file, a linetype's `marks` draw its letters at each repeat of its pattern, and a
+  polyline drawn with `linetypeGeneration: true` runs the pattern on past its vertices, so short
+  runs between bends still get their letters. The letters' text style must be one of the drawing's.
 - The sheet plots in black with `monochrome.ctb`. Pass `plotStyle: "acad.ctb"` to plot each
   layer in its color, or `"Grayscale.ctb"` in grays. `PLOT_STYLE_TABLES` lists them.
 - Define blocks outside `layout`, and insert them inside it. An `id` is unique across model

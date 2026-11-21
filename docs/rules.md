@@ -107,6 +107,14 @@ it would take `1e+100` for `1e+10` and report nothing.
   or gap would become a dot: use 0.000001 or more in size, or 0 for a dot. The
   lengths, added up without their signs, must be under 1e100, because the total
   is written too.
+- A linetype's `marks` are each at the end of a length of its pattern, by `after`, in order, at
+  most one at a length. A text is a string of at least one character in one of the drawing's text
+  styles, `Standard` unless it names one, and its height is greater than 0 as written. A shape is a
+  whole number from 1 to 65535 in a named shape file, and its scale is greater than 0: a shape by
+  its name, as a linetype file gives it, is refused, since a drawing holds a shape by its number.
+  `orient` is `relative`, `absolute` or `upright`. A linetype's texts may take 256 characters
+  together, counting one more for each, since a DWG holds them in 512 bytes. R2018 only, as is a
+  polyline's `linetypeGeneration`.
 - A description is a single line, with no characters text cannot hold, and is at
   most 249 characters, where the leading CAD app cuts it.
 - A text style has one of the fonts in `FONTS`: an SHX font by its file name,
@@ -304,6 +312,9 @@ it would take `1e+100` for `1e+10` and report nothing.
 - A viewport that reaches past its layout's paper. The leading CAD app plots a layout as far as its
   paper goes.
 - A viewport that shows none of the drawing: nothing in model space lies in the box it shows.
+- `linetype-shape`: a linetype that a layer or an entity draws in, with shapes of a shape file.
+  CAD programs draw a shape from its file, which the drawing names and does not hold, and
+  tsdraft's plot leaves a gap where each goes.
 - `check-capped`: where `lint` stopped the checks it makes again for what a drawing repeats:
   each attribute an insert places and each handle it takes past its first 64, a tag of 256
   characters or more each time an insert's values are searched for it, what each

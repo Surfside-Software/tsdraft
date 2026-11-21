@@ -181,6 +181,13 @@ export const LAYERS = {
   pAnno: "P-ANNO-TEXT",
 } as const;
 
+/** The linetypes of the site's utilities: each name, its letters, and where they start in its gap. */
+export const UTILITY_LINETYPES = [
+  ["UTIL-WATER", "W", -0.105],
+  ["UTIL-SEWER", "SS", -0.15],
+  ["UTIL-ELEC", "UE", -0.155],
+] as const;
+
 /** Defines every layer of the set, with its color, linetype and pen. */
 export function defineLayers(d: D): void {
   const L = LAYERS;
@@ -190,6 +197,15 @@ export function defineLayers(d: D): void {
   d.linetype(HIDDEN);
   d.linetype(CENTER);
   d.linetype(PHANTOM);
+  // The site's utilities, each lettered along its run in the notes' style.
+  for (const [name, letters, along] of UTILITY_LINETYPES) {
+    d.linetype({
+      name,
+      description: `${letters} ---- ${letters} ----`,
+      pattern: [1.5, -0.2, -0.2],
+      marks: [{ after: 1, text: letters, style: NOTES, height: 0.16, offset: [along, -0.08] }],
+    });
+  }
   layer(L.ttlb, 7, 0.35);
   layer(L.text, 7, 0.25);
   d.layer(L.vport, { color: 8, plot: false });

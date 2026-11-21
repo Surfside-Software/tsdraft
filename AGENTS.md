@@ -227,7 +227,12 @@
   are each half of the first dash and of what is left over, and a stretch shorter than its
   pattern is solid. A circle holds the whole number of patterns nearest its length, stretched
   alike to go round it, from a dash at angle 0. `cut` in `dashedPath` is the one place that
-  does it. `toSVG` draws a layout with `elements`, the
+  does it. A linetype's `marks` are placed by `markSpots`, with each whole pattern of a fitted
+  stretch, and `letterAt` sets each text in the frame of the side it lands on, the line's
+  direction in its own coordinates deciding `upright`; on an arc that frame is the straight piece
+  the leading CAD app cuts the arc into, `arcFrame`, 1/1200 inch from it on the paper, which
+  `Look.chord` holds. A polyline's `linetypeGeneration` cuts its sides as one course, `courseOf`,
+  from its second point when it is closed. `toSVG` draws a layout with `elements`, the
   walk it draws model space with, under a `Look` that says how wide and what color a pen is.
 - A rule the leading CAD app enforces lives in `src/rules.ts` twice: as a type, so a wrong
   literal is a compile error, and as a runtime check with the same message. The

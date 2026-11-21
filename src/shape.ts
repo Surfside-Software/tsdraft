@@ -32,6 +32,8 @@ import type {
   ArcLengthDimension,
   OrdinateDimension,
   Linetype,
+  LinetypeShape,
+  LinetypeText,
   Paragraph,
   PatternLine,
   Polyline,
@@ -512,7 +514,13 @@ function shapes(all: boolean, typed = all): Shapes {
     line: fields<Line>({ kind, layer: string, from: point, to: point }, shared),
     polyline: fields<Polyline>(
       { kind, layer: string, points: list(point), closed: boolean },
-      { ...shared, bulges: list(number), width: number, widths: list(sideWidths) },
+      {
+        ...shared,
+        bulges: list(number),
+        width: number,
+        widths: list(sideWidths),
+        linetypeGeneration: boolean,
+      },
     ),
     circle: fields<Circle>({ kind, layer: string, center: point, radius: number }, shared),
     arc: fields<Arc>(
@@ -737,10 +745,28 @@ function shapes(all: boolean, typed = all): Shapes {
       { description: ruled(string) },
     ),
   );
+  const markFields = {
+    rotation: ruled(number),
+    orient: ruled(string),
+    offset: ruled(point),
+  } as const;
+  const textMark = fields<LinetypeText>(
+    { after: ruled(number), text: ruled(string), height: ruled(number) },
+    { ...markFields, style: ruled(string) },
+  );
+  const shapeMark = fields<LinetypeShape>(
+    { after: ruled(number), shape: ruled(numberOrName), file: ruled(string), scale: ruled(number) },
+    markFields,
+  );
+  // A mark with a shape is a shape, and any other a text.
+  const mark: Check = (value, at, problems, extra) => {
+    if (!object(value)) problems.push(`${at} ${PLAIN_OBJECT}`);
+    else ("shape" in value ? shapeMark : textMark)(value, at, problems, extra);
+  };
   const linetype = record(
     fields<Linetype>(
       { name: ruled(string), description: ruled(string), pattern: ruled(list(number)) },
-      {},
+      { marks: ruled(list(mark)) },
     ),
   );
   const textStyle = record(

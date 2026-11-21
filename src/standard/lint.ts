@@ -242,6 +242,14 @@ export function lintStandard(
         about,
       );
     }
+    // A standard's linetype draws no text or shape, so one with marks is not the standard's.
+    if (Array.isArray(linetype.marks) && linetype.marks.length > 0) {
+      error(
+        "linetype-differs-from-standard",
+        `${label} draws texts or shapes, and the standard's linetype of its name draws none`,
+        about,
+      );
+    }
     if (linetype.description !== own.description) {
       error(
         "linetype-differs-from-standard",

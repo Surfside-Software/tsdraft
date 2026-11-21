@@ -66,6 +66,7 @@ import {
   type ReadLayerCensus,
   type ReadLayout,
   type ReadLinetype,
+  type ReadLinetypeMark,
   type ReadMultileader,
   type ReadOptions,
   type ReadTextStyle,
@@ -484,6 +485,10 @@ class DxfReader {
   readonly header: Record<string, string> = map();
   readonly layers: ReadLayer[] = [];
   readonly linetypes: ReadLinetype[] = [];
+  /** The marks of each linetype that has them, by its index, whose styles are named last. */
+  readonly #marked: [number, PendingMark[]][] = [];
+  /** Each style's name and file, by its handle, for the marks of linetypes. */
+  readonly #stylesByHandle = new Map<string, { name: string; file: string; height: number }>();
   readonly textStyles: ReadTextStyle[] = [];
   readonly dimensionStyles: (ReadDimensionStyle & {
     textStyleHandle?: string;
@@ -720,21 +725,46 @@ class DxfReader {
       case "LTYPE": {
         const pattern: number[] = [];
         let complex = false;
+        // Each mark's groups follow the 49 and 74 of its length, its style by its handle, which
+        // the styles' table, after this one, names.
+        const marks: PendingMark[] = [];
+        let mark: PendingMark | undefined;
         for (let i = 0; i < r.codes.length; i++) {
-          if (r.codes[i] === 49) pattern.push(Number(r.values[i]));
-          if (r.codes[i] === 74 && Number(r.values[i]) !== 0) complex = true;
+          const [code, value] = [r.codes[i], r.values[i]!];
+          if (code === 49) {
+            const length = Number(value);
+            mark = undefined;
+            if (!Number.isFinite(length)) continue;
+            pattern.push(length);
+          } else if (code === 74 && pattern.length > 0) {
+            const flags = Number(value);
+            if (flags !== 0) complex = true;
+            if ((flags & 6) === 0 || !Number.isFinite(flags)) continue;
+            mark = { after: pattern.length - 1, flags, values: new Map() };
+            marks.push(mark);
+          } else if (mark !== undefined && MARK_CODES.has(code!)) {
+            if (!mark.values.has(code!)) mark.values.set(code!, value);
+          }
         }
         const description = name(r, 3);
-        this.linetypes.push({
+        const linetype = {
           handle,
           name: recordName,
           ...(description !== undefined && { description }),
-          pattern: pattern.filter(Number.isFinite),
+          pattern,
           complex,
-        });
+        };
+        this.linetypes.push(linetype);
+        if (marks.length > 0) this.#marked.push([this.linetypes.length - 1, marks]);
         return;
       }
       case "STYLE": {
+        if (handle !== undefined)
+          this.#stylesByHandle.set(normalHandle(handle), {
+            name: recordName,
+            file: name(r, 3) ?? "",
+            height: num(r, 40) ?? 0,
+          });
         // A style with flag 1 holds a shape file; one with no name is the font of a complex
         // linetype's shapes.
         if (recordName === "" && (flags & 1) !== 0) return;
@@ -1266,6 +1296,7 @@ class DxfReader {
         points: owner.face === -1 ? owner.points.map((p) => placed(p, -1)) : owner.points,
         closed,
         ...sidesOf(owner.points.length, closed, owner.bulges, owner.widths, 0, owner.face),
+        ...((flags & 128) !== 0 && { linetypeGeneration: true }),
       });
     }
   }
@@ -1635,7 +1666,7 @@ class DxfReader {
       encoding: groups.encoding,
       header: header as ReadHeader,
       layers: this.layers,
-      linetypes: this.linetypes,
+      linetypes: withMarks(this.linetypes, this.#marked, this.#stylesByHandle),
       textStyles: this.textStyles,
       dimensionStyles,
       blocks: this.blocks.map((draft): ReadBlock => {
@@ -1900,4 +1931,64 @@ function fieldKind(code: string): string | undefined {
 function kept(code: string): boolean {
   if (/^\s*\\AcVar\s+(Filename|ctab|Date)\b/i.test(code)) return true;
   return /^\s*\\AcDiesel\b/i.test(code) && /\bctab\b/i.test(code);
+}
+
+/** A linetype's mark as its groups give it, before the styles' table names its style. */
+interface PendingMark {
+  readonly after: number;
+  readonly flags: number;
+  readonly values: Map<number, string>;
+}
+
+/** What a linetype's text height is multiplied by: a style's fixed height, or 1 for none. */
+const fixed = (height: number): number => (Number.isFinite(height) && height > 0 ? height : 1);
+
+/** A handle as a key: its digits in capitals. */
+const normalHandle = (handle: string): string => handle.trim().toUpperCase();
+
+/** The groups of a mark after its 74: shape number, style, scale, rotation, offsets, text. */
+const MARK_CODES = new Set([75, 340, 46, 50, 44, 45, 9]);
+
+/**
+ * The linetypes with their marks, each text's style and each shape's file named from the style
+ * its handle finds. A mark whose numbers are not finite, or whose style is not found, is left out.
+ * A text is as high as its style's fixed height times its own, as the leading CAD app draws it.
+ */
+function withMarks(
+  linetypes: readonly ReadLinetype[],
+  marked: readonly (readonly [number, readonly PendingMark[]])[],
+  styles: ReadonlyMap<string, { name: string; file: string; height: number }>,
+): ReadLinetype[] {
+  const out = [...linetypes];
+  for (const [index, pending] of marked) {
+    const marks: ReadLinetypeMark[] = [];
+    for (const m of pending) {
+      const number = (code: number, fallback: number): number => {
+        const v = m.values.get(code);
+        return v === undefined ? fallback : Number(v);
+      };
+      const [size, rotation, x, y] = [number(46, 1), number(50, 0), number(44, 0), number(45, 0)];
+      if (![size, rotation, x, y].every(Number.isFinite)) continue;
+      const style = styles.get(normalHandle(m.values.get(340) ?? ""));
+      if (style === undefined) continue;
+      const orient: "absolute" | "upright" | undefined =
+        (m.flags & 1) !== 0 ? "absolute" : (m.flags & 8) !== 0 ? "upright" : undefined;
+      const common = {
+        after: m.after,
+        ...(rotation !== 0 && { rotation }),
+        ...(orient !== undefined && { orient }),
+        ...((x !== 0 || y !== 0) && { offset: [x, y] as const }),
+      };
+      if ((m.flags & 2) !== 0) {
+        const text = unescaped(m.values.get(9) ?? "");
+        marks.push({ ...common, text, style: style.name, height: size * fixed(style.height) });
+      } else {
+        const shape = number(75, 0);
+        if (!Number.isInteger(shape)) continue;
+        marks.push({ ...common, shape, file: style.file, scale: size });
+      }
+    }
+    if (marks.length > 0) out[index] = { ...out[index]!, marks };
+  }
+  return out;
 }

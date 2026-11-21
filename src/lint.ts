@@ -141,6 +141,7 @@ import {
   lineweightProblem,
   linetypeNameProblem,
   linetypeProblem,
+  marksProblem,
   linetypeScaleProblem,
   R12_ONLY,
   controlSplineProblems,
@@ -291,6 +292,7 @@ export type LintRule =
   | "title-block-field-unset"
   | "title-block-field-overflow"
   | "standard-check-capped"
+  | "linetype-shape"
   | "check-capped";
 
 export interface Diagnostic {
@@ -804,6 +806,10 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   const linetypesAudited = new Map<string, string>(
     BUILT_IN_LINETYPES.map((name) => [layerAuditKey(name), name]),
   );
+  /** Each linetype with marks that are valid, whose texts' styles are checked once styles are known. */
+  const marked: Linetype[] = [];
+  /** Each linetype a layer or an entity draws in, by `layerKey`. */
+  const used = new Set<string>();
   const linetypeList = listed<Linetype>("linetypes", "linetype");
   each(linetypeList, "linetypes", "linetype", TYPED.linetype, (linetype, i) => {
     if (malformed(WALKABLE.linetype, linetype, `linetypes[${i}]`, "linetype")) return;
@@ -814,8 +820,11 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       error("linetype", `${label}: ${R12_ONLY.linetypes}`);
       return;
     }
-    const problem = linetypeProblem(linetype.name, linetype.description, linetype.pattern);
+    const problem =
+      linetypeProblem(linetype.name, linetype.description, linetype.pattern) ??
+      marksProblem(linetype.marks, linetype.pattern);
     if (problem) error("linetype", `${label}: ${problem}`);
+    else if (linetype.marks !== undefined) marked.push(linetype);
     if (typeof linetype.name !== "string") return;
     const key = layerKey(linetype.name);
     const auditKey = layerAuditKey(linetype.name);
@@ -1001,9 +1010,11 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     if (typeof name !== "string") return "a linetype is named by a string";
     const problem = linetypeNameProblem(name);
     if (problem) return `Linetype ${shown(name)}: ${problem}`;
-    return builtInLinetype(name) || linetypes.has(layerKey(name))
-      ? undefined
-      : undefinedLinetypeProblem(name);
+    if (builtInLinetype(name)) return undefined;
+    const key = layerKey(name);
+    if (!linetypes.has(key)) return undefinedLinetypeProblem(name);
+    used.add(key);
+    return undefined;
   };
 
   // The leading CAD app compares text style names as it compares layer names.
@@ -1061,6 +1072,19 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     textStyles.add(key);
     if (!textStylesAudited.has(auditKey)) textStylesAudited.set(auditKey, style.name);
   });
+  for (const linetype of marked) {
+    for (const mark of linetype.marks ?? []) {
+      if (!("text" in mark) || mark.style === undefined || isStandardTextStyle(mark.style))
+        continue;
+      if (textStyles.has(layerKey(mark.style))) continue;
+      out.push({
+        rule: "undefined-text-style",
+        severity: "error",
+        message: `Linetype ${shown(linetype.name)}: ${undefinedTextStyleProblem(mark.style)}`,
+        ...named("linetype", linetype.name),
+      });
+    }
+  }
   /** What is wrong with a text's style, justification or both, each with its rule. */
   const textProblems = (
     text: Pick<AttributeDefinition, "style" | "align" | "valign">,
@@ -1975,7 +1999,10 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       if (
         r12 &&
         entity.kind === "polyline" &&
-        (entity.bulges !== undefined || entity.width !== undefined || entity.widths !== undefined)
+        (entity.bulges !== undefined ||
+          entity.width !== undefined ||
+          entity.widths !== undefined ||
+          entity.linetypeGeneration !== undefined)
       ) {
         add("geometry", "error", R12_ONLY.polylines);
       }
@@ -2451,6 +2478,18 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     const path = names && spend(Math.floor(length / 32), where) ? names : [block.name];
     const message = blockCycleProblem(path);
     out.push({ rule: "block-cycle", severity: "error", message, block: block.name });
+  }
+
+  // A shape is drawn from its shape file, which a drawing does not hold.
+  for (const linetype of marked) {
+    if (!used.has(layerKey(linetype.name))) continue;
+    if (!(linetype.marks ?? []).some((m) => "shape" in m)) continue;
+    out.push({
+      rule: "linetype-shape",
+      severity: "warning",
+      message: `Linetype ${shown(linetype.name)} draws shapes of a shape file, where tsdraft's plot leaves a gap: CAD programs draw them from the file, which the drawing names and does not hold`,
+      ...named("linetype", linetype.name),
+    });
   }
 
   if (stopped !== undefined) {

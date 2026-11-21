@@ -1749,6 +1749,113 @@ export function linetypeProblem(
   return undefined;
 }
 
+const MARK_FIELDS = ["after", "rotation", "orient", "offset"];
+const TEXT_MARK_FIELDS: readonly string[] = [...MARK_FIELDS, "text", "style", "height"];
+const SHAPE_MARK_FIELDS: readonly string[] = [...MARK_FIELDS, "shape", "file", "scale"];
+
+/** What is wrong with marks that are not a list of objects. */
+export const MARKS_TYPE = "A linetype's marks must be an array of objects, each a text or a shape";
+
+/** What is wrong with marks out of order, or two at one length. */
+export const MARKS_ORDER =
+  "A linetype's marks must be in order of after, at most one at each length of the pattern";
+
+/** What is wrong with a linetype's texts past the room a drawing has for them. */
+export const MARK_TEXT_ROOM =
+  "A linetype's texts, each with one character more, may take 256 characters together: a DWG holds them in 512 bytes";
+
+/** What is wrong with a shape given by name. */
+export const MARK_SHAPE_NAME =
+  "a shape by its name needs its shape file to number it: give the shape's number in the file";
+
+/**
+ * Returns what is wrong with a linetype's marks, or undefined when they are valid. It takes
+ * `unknown` so that `lint` can report marks of the wrong type. Whether a text's style is one of
+ * the drawing's depends on the drawing, and is checked by the caller.
+ *
+ * @param pattern - The linetype's pattern, already checked.
+ */
+export function marksProblem(marks: unknown, pattern: readonly number[]): string | undefined {
+  if (marks === undefined) return undefined;
+  if (!Array.isArray(marks) || !(marks instanceof Array)) return MARKS_TYPE;
+  let last = -1;
+  let room = 0;
+  const list = marks as unknown[];
+  for (let i = 0; i < list.length; i++) {
+    const mark = list[i];
+    if (typeof mark !== "object" || mark === null || Array.isArray(mark)) return MARKS_TYPE;
+    const m = mark as Record<string, unknown>;
+    const label = `its mark ${i}`;
+    const after = m.after;
+    if (
+      typeof after !== "number" ||
+      !Number.isInteger(after) ||
+      after < 0 ||
+      after >= pattern.length
+    )
+      return `${label}: after must be the index of a length of the pattern, from 0 to ${pattern.length - 1}`;
+    if (after <= last) return MARKS_ORDER;
+    last = after;
+    const isText = "text" in m;
+    if (isText === "shape" in m) return `${label}: a mark is a text or a shape, with text or shape`;
+    const known = isText ? TEXT_MARK_FIELDS : SHAPE_MARK_FIELDS;
+    for (const key of Object.keys(m)) {
+      if (!known.includes(key))
+        return `${label}: ${shown(key)} is not a field of a ${isText ? "text" : "shape"}`;
+    }
+    for (const key of ["rotation"] as const) {
+      const v = m[key];
+      if (v === undefined) continue;
+      if (typeof v !== "number" || !Number.isFinite(v))
+        return `${label}: ${key} must be a finite number`;
+      const problem = magnitudeProblem(v);
+      if (problem) return `${label}: ${key}: ${problem}`;
+    }
+    if (m.orient !== undefined && !(MARK_ORIENTS as readonly unknown[]).includes(m.orient))
+      return `${label}: orient must be one of ${MARK_ORIENTS.map((o) => `"${o}"`).join(", ")}`;
+    if (m.offset !== undefined) {
+      const o = m.offset;
+      const finite = (v: unknown) => typeof v === "number" && Number.isFinite(v);
+      if (!Array.isArray(o) || o.length !== 2 || !finite(o[0]) || !finite(o[1]))
+        return `${label}: offset must be [along, left], two finite numbers`;
+      const problem = magnitudeProblem(o[0]) ?? magnitudeProblem(o[1]);
+      if (problem) return `${label}: offset: ${problem}`;
+    }
+    const size = isText ? "height" : "scale";
+    const v = m[size];
+    if (typeof v !== "number" || !Number.isFinite(v) || !(v > 0) || written(v) === 0)
+      return `${label}: ${size} must be a number greater than 0 as written`;
+    const big = magnitudeProblem(v);
+    if (big) return `${label}: ${size}: ${big}`;
+    if (isText) {
+      const text = m.text;
+      if (typeof text !== "string" || text === "")
+        return `${label}: text must be a string with a character`;
+      if (text.length >= 256) return MARK_TEXT_ROOM;
+      const problem = textProblem(text);
+      if (problem) return `${label}: ${problem}`;
+      room += text.length + 1;
+      if (m.style !== undefined && typeof m.style !== "string")
+        return `${label}: style must be a string`;
+      if (typeof m.style === "string" && m.style.length > 255)
+        return `${label}: a text style's name has at most 255 characters`;
+    } else {
+      const shape = m.shape;
+      if (typeof shape === "string") return `${label}: ${MARK_SHAPE_NAME}`;
+      if (typeof shape !== "number" || !Number.isInteger(shape) || shape < 1 || shape > 65535)
+        return `${label}: shape must be a whole number from 1 to 65535`;
+      const file = m.file;
+      if (typeof file !== "string") return `${label}: file must name a shape file`;
+      if (file.length > 255) return `${label}: a shape file's name has at most 255 characters`;
+      if (file.trim() === "") return `${label}: file must name a shape file`;
+      const problem = textProblem(file);
+      if (problem) return `${label}: file: ${problem}`;
+    }
+  }
+  if (room > 256) return MARK_TEXT_ROOM;
+  return undefined;
+}
+
 /**
  * Returns what is wrong with a layer or an entity that names a linetype the
  * drawing does not have. The rule depends on the drawing, so it has no type.
@@ -2692,6 +2799,9 @@ export function polylineSidesProblems(
 
 /** How a text is justified across its line, and up and down it. The first of each is the default. */
 export const TEXT_ALIGNS = ["left", "center", "right"] as const;
+
+/** How a linetype's mark may be turned. */
+export const MARK_ORIENTS = ["relative", "absolute", "upright"] as const;
 export const TEXT_VERTICAL_ALIGNS = ["baseline", "bottom", "middle", "top"] as const;
 
 /**

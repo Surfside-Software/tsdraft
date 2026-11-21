@@ -128,6 +128,10 @@ export {
   type Linetype,
   type LinetypeChoice,
   type LinetypeDefinition,
+  type LinetypeMark,
+  type LinetypeShape,
+  type LinetypeText,
+  type MarkOrient,
   type Lineweight,
   type Paragraph,
   type ParagraphAlign,
@@ -268,7 +272,17 @@ export {
   type LeaderSizes,
 } from "./leaders.ts";
 export { DrawingError, lint, type Diagnostic, type LintOptions, type LintRule } from "./lint.ts";
-export { CENTER, DASHDOT, DASHED, DOT, HIDDEN, LINEWEIGHTS, PHANTOM } from "./linetypes.ts";
+export {
+  CENTER,
+  DASHDOT,
+  DASHED,
+  DOT,
+  HIDDEN,
+  LINETYPE_FILE_LENGTH,
+  LINEWEIGHTS,
+  parseLinetypes,
+  PHANTOM,
+} from "./linetypes.ts";
 export { lineSpacing, measureText, type TextMeasure, type TextToMeasure } from "./measure.ts";
 export {
   bold,
@@ -459,6 +473,7 @@ export {
   type ReadLayout,
   type ReadLine,
   type ReadLinetype,
+  type ReadLinetypeMark,
   type ReadMask,
   type ReadMtext,
   type ReadPatternLine,

@@ -138,19 +138,33 @@ function site(d: D): void {
   });
   d.layer(LAYERS.util, {}, () => {
     // Water service from the meter, sewer lateral to its cleanout, underground electric.
+    // Each is lettered along its run, and the pattern runs on past its bends.
+    const run = (linetype: string) => ({ linetype, linetypeGeneration: true });
     const meter: Point = [LOT.width - 60, -18];
-    d.polyline([meter, [meter[0], HOUSE_AT[1] + 200], [HOUSE_AT[0] + W, HOUSE_AT[1] + 200]]);
-    d.polyline([
-      [120, cl],
-      [120, -12],
-      [120, HOUSE_AT[1] + 340],
-      [HOUSE_AT[0], HOUSE_AT[1] + 340],
-    ]);
-    d.polyline([
-      [60, cl - 60],
-      [60, HOUSE_AT[1] + 240],
-      [HOUSE_AT[0], HOUSE_AT[1] + 240],
-    ]);
+    d.polyline(
+      [meter, [meter[0], HOUSE_AT[1] + 200], [HOUSE_AT[0] + W, HOUSE_AT[1] + 200]],
+      false,
+      run("UTIL-WATER"),
+    );
+    d.polyline(
+      [
+        [120, cl],
+        [120, -12],
+        [120, HOUSE_AT[1] + 340],
+        [HOUSE_AT[0], HOUSE_AT[1] + 340],
+      ],
+      false,
+      run("UTIL-SEWER"),
+    );
+    d.polyline(
+      [
+        [60, cl - 60],
+        [60, HOUSE_AT[1] + 240],
+        [HOUSE_AT[0], HOUSE_AT[1] + 240],
+      ],
+      false,
+      run("UTIL-ELEC"),
+    );
   });
   d.layer(LAYERS.util, {}, () => {
     d.rect([LOT.width - 72, -30], 24, 24);

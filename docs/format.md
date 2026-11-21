@@ -33,6 +33,9 @@ A drawing lists its text styles in `textStyles`, and leaves the field out when i
 `"left"` and `"baseline"`, so a drawing that uses none of them has the JSON it had before they
 existed.
 
+A linetype has `marks` only where it draws a text or a shape, and a polyline `linetypeGeneration`
+only where it is `true`, so a drawing with neither has the JSON it had before they existed.
+
 A drawing lists its blocks in `blocks`, and leaves the field out when it has none. A block has
 a `name`, its `entities`, and where they differ from their defaults a `base` point and its
 `attributes`: each a `tag`, a `value`, a `layer` and the fields of a text, with a `prompt`

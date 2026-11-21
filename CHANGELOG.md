@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Linetypes with text, in R2018 drawings: a pipe with its letters along it. A linetype's `marks`
+  draw a text, such as `W`, at the end of a length of its pattern, by `after`, in one of the
+  drawing's text styles, turned with the line, from the X axis, or `upright` so it reads from the
+  left, and moved by `offset` along the line and to its left. `parseLinetypes(text)` reads a firm's
+  linetype file. A polyline's `linetypeGeneration` runs the pattern on past its vertices as one
+  stretch, so a side shorter than the pattern is not drawn solid without its letters. Both
+  writers write them, `readDXF` and `readDWG` read them back, and `toSVG` and `toPDF` draw the
+  letters where CAD programs plot them: with each whole pattern, along the side they land on, at
+  the size of the paper in a viewport or an insert. A linetype's shapes are written and read as
+  their numbers in a shape file, and the plot leaves a gap for each, with the warning
+  `linetype-shape` where one is drawn.
+
 - Ellipses and splines, in R2018 drawings. `d.ellipse(center, majorAxis, ratio)` draws an
   ellipse, or an arc of one with `startParameter` and `endParameter`. `d.spline(fitPoints)` draws
   the cubic CAD programs fit through the points, with `startTangent`, `endTangent` or `closed`,
