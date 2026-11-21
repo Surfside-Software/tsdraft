@@ -1,4 +1,5 @@
 import {
+  attributeTextStart,
   definitionHandle,
   insertAttributeHandle,
   insertEndHandle,
@@ -109,11 +110,10 @@ import {
   PLOTTER,
   type PaperInfo,
 } from "./papers.ts";
-import { fontInfo, STANDARD_FONT, STANDARD_TEXT_STYLE } from "./fonts.ts";
+import { fontInfo, STANDARD_TEXT_STYLE } from "./fonts.ts";
 import { ID_HANDLE_SEED, validIdHandle } from "./handles.ts";
 import { dxfOnce, dxfText, fifteenDigits, fmt, readable, written, writtenAngle } from "./format.ts";
 import { layerKey, layerZeroFirst } from "./layers.ts";
-import { layoutText } from "./measure.ts";
 import {
   layoutParagraph,
   lineSpacingStyleCode,
@@ -1149,16 +1149,8 @@ function writeParagraphAttribute(
   const height = placed?.height ?? definition.height;
   const rotation = placed?.rotation ?? definition.rotation;
   const valign = TEXT_VALIGN_OF[definition.valign ?? "top"];
-  // The leading CAD app holds the text where a text of no value starts, worked out from its point
-  // as written, and keeps that point from a DXF: the height below it at the top, half of it in the
-  // middle, and the font's descent above it at the bottom.
-  const font = style?.font ?? STANDARD_FONT;
-  const up = layoutText({ value: "", height: written(height), font, valign }).baseline;
-  const turn = written(rotation) / (180 / Math.PI);
-  const start = [
-    fifteenDigits(written(at[0]) - up * Math.sin(turn)),
-    fifteenDigits(written(at[1]) + up * Math.cos(turn)),
-  ] as const;
+  const [sx, sy] = attributeTextStart(definition, style, placed);
+  const start = [fifteenDigits(sx), fifteenDigits(sy)] as const;
   writeTextFields(
     g,
     { at, height, value: "", rotation, align: definition.align ?? "left", valign },

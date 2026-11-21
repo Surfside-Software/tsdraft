@@ -41,6 +41,17 @@ const TOO_LARGE = 1e100;
 /** The largest number under `TOO_LARGE`. */
 const LARGEST = 9.999999999999998e99;
 
+/** The largest number of 15 digits under `TOO_LARGE`, which `fifteenDigits` keeps under it. */
+const LARGEST_FIFTEEN_DIGITS = 9.99999999999999e99;
+
+/**
+ * A number a writer works out for itself as `fifteenDigits` writes it, brought into the range the
+ * leading CAD app reads as `readable` brings one.
+ */
+export function readableFifteenDigits(value: number): string {
+  return fifteenDigits(Math.max(-LARGEST_FIFTEEN_DIGITS, Math.min(LARGEST_FIFTEEN_DIGITS, value)));
+}
+
 /**
  * True for a number the leading CAD app would misread from DXF, because it is 1e100 or
  * more in size. `lint` refuses these wherever a drawing holds one.

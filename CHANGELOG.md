@@ -51,8 +51,9 @@
   programs' own insert does: at its height in the insert, wrapped at the width times the same
   share, and, where the insert scales its block unevenly, with its characters widened by a code
   of the attribute's width factor before its value, in place of the style's. `placeAttribute`
-  gives that paragraph in `paragraph`, and `attributeParagraph` the `Paragraph` drawn. The R2018
-  DXF writes it, `readDXF` reads it back as `ReadAttributeParagraph`, and `toSVG`, `toPDF`,
+  gives that paragraph in `paragraph`, `attributeParagraph` the `Paragraph` drawn, and
+  `attributeTextStart` where the attribute's text of no value starts, which CAD programs hold
+  with it and keep from a DXF. The R2018 DXF writes it, `readDXF` reads it back as `ReadAttributeParagraph`, and `toSVG`, `toPDF`,
   `inspectText`, the extents and `lint` lay it out where CAD programs plot it. `lint` and the
   builder refuse a width, a line spacing or a style of paragraph text on a definition of one
   line, and R12 holds no blocks.

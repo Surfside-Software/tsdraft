@@ -103,6 +103,12 @@ style's width factor. It keeps the style's oblique angle, and slants no letter b
 `Paragraph` drawn, which `toSVG`, `toPDF`, `inspectText` and the extents lay out as a paragraph
 where the insert holds it.
 
+Each attribute of paragraph text, and its definition, also holds the text it would be as one line,
+with no value. CAD programs keep that text where a text of no value starts: the height below the
+attribute's point at the top, half of it in the middle, and the font's descent above it at the
+bottom. `attributeTextStart(definition, style, placed)` gives that point as the DXF writes it,
+with 15 significant digits, for an insert's attribute or, without `placed`, for the definition.
+
 ## Inserting a block
 
 `d.insert(block, at, options)` places a block with its base point at `at`, on the current

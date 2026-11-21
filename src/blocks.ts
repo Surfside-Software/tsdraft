@@ -15,7 +15,9 @@ import type {
 } from "./drawing.ts";
 import { keyHandle } from "./handles.ts";
 import { layerKey } from "./layers.ts";
-import { written } from "./format.ts";
+import { STANDARD_FONT } from "./fonts.ts";
+import { readableFifteenDigits, written } from "./format.ts";
+import { layoutText } from "./measure.ts";
 import {
   attributeTagProblem,
   blockNameProblem,
@@ -336,6 +338,31 @@ export function attributeParagraph(placed: PlacedAttribute): Paragraph | undefin
   if (placed.paragraph.width === undefined) delete paragraph["width"];
   else paragraph["width"] = placed.paragraph.width;
   return paragraph as unknown as Paragraph;
+}
+
+/**
+ * Where the text of a definition of paragraph text starts, or with `placed` the text of an
+ * insert's attribute of one, in the coordinates `placeAttribute` gives, as the writers write it:
+ * with 15 significant digits, and under 1e100, which the leading CAD app reads. That app holds
+ * the text where a text of no value starts, worked out from the attribute's point as written,
+ * and keeps that point from a DXF: the height below the point at the top, half of it in the
+ * middle, and the font's descent above it at the bottom.
+ *
+ * @param style - The definition's text style, unless it is `Standard`.
+ */
+export function attributeTextStart(
+  definition: ParagraphAttributeDefinition,
+  style: TextStyle | undefined,
+  placed?: PlacedAttribute,
+): Point {
+  const at = placed?.at ?? definition.at;
+  const height = written(placed?.height ?? definition.height);
+  const turn = written(placed?.rotation ?? definition.rotation) / (180 / Math.PI);
+  const valign = definition.valign ?? "top";
+  const up = layoutText({ value: "", height, font: style?.font ?? STANDARD_FONT, valign }).baseline;
+  // Each part of the sum is under 1e100, but the sum need not be.
+  const held = (n: number): number => Number(readableFifteenDigits(n));
+  return [held(written(at[0]) - up * Math.sin(turn)), held(written(at[1]) + up * Math.cos(turn))];
 }
 
 /** The fields of a paragraph that a definition of paragraph text gives the one an insert draws. */

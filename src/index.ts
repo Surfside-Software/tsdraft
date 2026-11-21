@@ -1,5 +1,6 @@
 export {
   attributeParagraph,
+  attributeTextStart,
   attributeDefinitionHandle,
   attributeHandle,
   attributesEndHandle,

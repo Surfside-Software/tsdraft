@@ -4,7 +4,7 @@
 // written. The other reader's read is of a DXF that the leading CAD app wrote of the same drawing,
 // held to the doubles that app holds, within the rounding of 6 decimals for what it works out
 // again, and each text to what its DXF reader makes of the text it wrote.
-import { placeAttribute } from "../src/blocks.ts";
+import { attributeTextStart, placeAttribute } from "../src/blocks.ts";
 import {
   dimensionAngle,
   arcLengthArc,
@@ -105,8 +105,8 @@ export function readProblems(
       readonly widthFactor: number;
       readonly obliqueAngle: number;
       readonly mirrored: boolean;
-      /** True for the text of an attribute of paragraph text, whose file holds where it starts. */
-      readonly paragraph?: boolean;
+      /** For the text of an attribute of paragraph text, where its file holds that it starts. */
+      readonly start?: Point;
     },
     label: string,
   ): void => {
@@ -121,8 +121,11 @@ export function readProblems(
     const at = justified ? got.alignAt : got.at;
     if (!nearPoint(at, want.at)) say(`${label}: placed at ${at}, expected ${want.at}`);
     if (!justified && got.startFrom !== "file") say(`${label}: starts from ${got.startFrom}`);
-    if (justified && by === "tsdraft" && got.startFrom === "file" && !want.paragraph) {
+    if (justified && by === "tsdraft" && got.startFrom === "file" && !want.start) {
       say(`${label}: starts from the file, which holds its alignment point there`);
+    }
+    if (want.start && !nearPoint(got.stored, want.start)) {
+      say(`${label}: starts at ${got.stored}, expected ${want.start}`);
     }
     if (!near(got.height, want.height))
       say(`${label}: height ${got.height}, expected ${want.height}`);
@@ -177,7 +180,7 @@ export function readProblems(
       say(`${label}: reads ${JSON.stringify(got.value)}`);
     if (!sameName(got.layer, definition.layer)) say(`${label}: on layer ${got.layer}`);
     // The file holds a mirrored insert's attribute seen from below, which mirrors X.
-    const at: Point = placed.mirrored ? [-placed.at[0], placed.at[1]] : placed.at;
+    const at = mirroredBack(placed.at, placed.mirrored);
     const uneven = placed.paragraph?.uneven ?? true;
     placement(
       got,
@@ -189,7 +192,9 @@ export function readProblems(
         widthFactor: uneven ? written(placed.widthFactor) : 1,
         obliqueAngle: uneven ? written(placed.obliqueAngle) : 0,
         mirrored: placed.mirrored,
-        paragraph: placed.paragraph !== undefined,
+        ...(definition.kind === "paragraph" && {
+          start: mirroredBack(attributeTextStart(definition, style, placed), placed.mirrored),
+        }),
       },
       label,
     );
@@ -207,6 +212,8 @@ export function readProblems(
     }
     start(got, mine, got.value, label);
   };
+
+  const mirroredBack = (p: Point, mirrored: boolean): Point => (mirrored ? [-p[0], p[1]] : p);
 
   /** A paragraph's value as a reader holds it: a DWG keeps a `\U+XXXX` as written. */
   const paragraphValue = (got: string, want: string): boolean => got === once(want) || got === want;
@@ -736,7 +743,9 @@ export function readProblems(
           widthFactor: paragraph ? 1 : written(style?.widthFactor ?? 1),
           obliqueAngle: paragraph ? 0 : written(style?.obliqueAngle ?? 0),
           mirrored: false,
-          paragraph,
+          ...(definition.kind === "paragraph" && {
+            start: attributeTextStart(definition, style),
+          }),
         },
         label,
       );

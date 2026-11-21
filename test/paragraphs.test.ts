@@ -740,6 +740,24 @@ test("a paragraph is placed in the direction the DXF holds: its rotation within 
   assert.deepEqual(readProblems(drawing, read, "tsdraft"), []);
 });
 
+test("an attribute's text starts under 1e100 when its point and height together reach it", () => {
+  for (const [at, rotation] of [
+    [[0, -9e99], 0],
+    [[9e99, 0], 90],
+  ] as const) {
+    const d = createDrawing({ units: "in" });
+    d.block("B", {}, () =>
+      d.attribute("N", at, { kind: "paragraph", value: "A", width: 10, height: 9e99, rotation }),
+    );
+    d.insert("B", [0, 0]);
+    const numbers = toDXF(d.build()).split("\r\n").map(Number).filter(Number.isFinite);
+    assert.ok(
+      numbers.every((n) => Math.abs(n) < 1e100),
+      String(rotation),
+    );
+  }
+});
+
 test("an attribute of paragraph text is written and read as the leading CAD app's -INSERT makes it", async () => {
   const d = createDrawing({ units: "in" });
   d.textStyle({ name: "NOTES", font: "Arial", widthFactor: 0.8 });
@@ -787,6 +805,22 @@ test("an attribute of paragraph text is written and read as the leading CAD app'
   const mirrored = inserts[2]!.kind === "insert" ? inserts[2]!.attributes![0]! : undefined;
   assert.equal(mirrored?.paragraph?.mirrored, true);
   assert.equal(mirrored?.value, "ALL WORK SHALL COMPLY\\PWITH THE CODES");
+});
+
+test("a read of an attribute of paragraph text is held to where its text starts", async () => {
+  const d = createDrawing({ units: "in" });
+  d.block("B", {}, () => d.attribute("N", [1, 2], { kind: "paragraph", value: "A", height: 0.25 }));
+  d.insert("B", [10, 5]);
+  const drawing = d.build();
+  const dxf = toDXF(drawing);
+  // The height below the attribute's point, at 11, 7.
+  const start = "\r\n10\r\n11\r\n20\r\n6.75\r\n";
+  assert.equal(dxf.split(start).length, 2);
+  assert.deepEqual(readProblems(drawing, await readDXF(dxf, { geometry: true }), "tsdraft"), []);
+  const moved = dxf.replace(start, "\r\n10\r\n11\r\n20\r\n123\r\n");
+  assert.deepEqual(readProblems(drawing, await readDXF(moved, { geometry: true }), "tsdraft"), [
+    "model space insert #0 attribute N: starts at 11,123, expected 11,6.75",
+  ]);
 });
 
 test("a run and a text in a TrueType font are plotted from their first point at their advances", () => {
