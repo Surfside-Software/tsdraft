@@ -37,7 +37,7 @@ import {
 } from "../src/index.ts";
 import { timeLimit } from "./time-limit.ts";
 
-const styled = { linetype: "DD", lineweight: 0.25 } as const;
+const styled = { linetype: "DD", lineweight: 0.25, color: [10, 200, 30] } as const;
 const justified = { style: "NOTES", align: "center", valign: "middle" } as const;
 
 /**
@@ -117,6 +117,7 @@ const kinds: {
   },
   insert: {
     kind: "insert",
+    color: "ByBlock",
     layer: "0",
     block: "TREE",
     at: [20, 0],
@@ -127,6 +128,7 @@ const kinds: {
   },
   "linear-dimension": {
     kind: "linear-dimension",
+    color: 1,
     layer: "0",
     style: "DIMS",
     from: [0, 0],
@@ -139,6 +141,7 @@ const kinds: {
   },
   "aligned-dimension": {
     kind: "aligned-dimension",
+    color: [200, 100, 50],
     layer: "0",
     style: "DIMS",
     from: [0, 0],
@@ -150,6 +153,7 @@ const kinds: {
   },
   leader: {
     kind: "leader",
+    color: 255,
     layer: "0",
     style: "NOTE",
     text: ["NOTE", "SECOND LINE"],
@@ -251,6 +255,7 @@ const kinds: {
   },
   "radius-dimension": {
     kind: "radius-dimension",
+    color: 7,
     layer: "0",
     style: "ARCH",
     center: [0, 0],
@@ -262,6 +267,7 @@ const kinds: {
   },
   "diameter-dimension": {
     kind: "diameter-dimension",
+    color: [0, 0, 0],
     layer: "0",
     style: "ARCH",
     center: [0, 0],
@@ -273,6 +279,7 @@ const kinds: {
   },
   "jogged-radius-dimension": {
     kind: "jogged-radius-dimension",
+    color: 8,
     layer: "0",
     style: "ARCH",
     center: [0, 0],
@@ -285,6 +292,7 @@ const kinds: {
   },
   "arc-length-dimension": {
     kind: "arc-length-dimension",
+    color: "ByLayer",
     layer: "0",
     style: "ARCH",
     center: [0, 0],
@@ -298,6 +306,7 @@ const kinds: {
   },
   "angular-dimension": {
     kind: "angular-dimension",
+    color: 250,
     layer: "0",
     style: "ARCH",
     vertex: [0, 0],
@@ -310,6 +319,7 @@ const kinds: {
   },
   table: {
     kind: "table",
+    color: "ByLayer",
     layer: "0",
     style: "SCHEDULE",
     at: [100, 20],
@@ -331,6 +341,7 @@ const kinds: {
   },
   "ordinate-dimension": {
     kind: "ordinate-dimension",
+    color: [40, 160, 220],
     layer: "0",
     style: "ARCH",
     axis: "x",
@@ -419,6 +430,7 @@ const keyed: Required<
   >
 > = {
   kind: "leader",
+  color: "ByBlock",
   layer: "0",
   style: "NOTE",
   block: "TREE",

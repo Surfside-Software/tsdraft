@@ -147,6 +147,7 @@ export {
   type Point,
   type Rgb,
   type Polyline,
+  type EntityColor,
   type PolylineOptions,
   type RadiusDimension,
   type RadiusDimensionOptions,
@@ -175,6 +176,7 @@ export {
   type Xref,
   type Zone,
 } from "./drawing.ts";
+export { heldColor, storedColor } from "./colors.ts";
 export { toDXF, type DxfOptions } from "./dxf.ts";
 export { parsePatterns, PATTERN_FILE_LENGTH } from "./patterns.ts";
 export { fifteenDigits } from "./format.ts";
@@ -478,6 +480,7 @@ export {
   type ReadDimensionStyle,
   type ReadDrawingFile,
   type ReadEntity,
+  type ReadColorBook,
   type ReadEntityBase,
   type ReadField,
   type ReadHatch,

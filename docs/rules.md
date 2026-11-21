@@ -143,12 +143,15 @@ it would take `1e+100` for `1e+10` and report nothing.
 - A lineweight is one of the leading CAD app's: 0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25,
   0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8, 0.9, 1, 1.06, 1.2, 1.4, 1.58, 2 or
   2.11 millimetres. That app discards a drawing with an entity of any other.
+- An entity's color is an index from 1 to 255, `"ByLayer"`, `"ByBlock"` or a true color of
+  three whole numbers from 0 to 255. CAD programs store 0 for ByBlock and 256 for ByLayer, which
+  tsdraft takes only by those names.
 - Layer `0` cannot be frozen. It is the current layer, and the leading CAD app does not
   freeze the current layer.
 - The linetype scale is a size, like a radius. The leading CAD app reads 0 or less as 1.
 - An R12 drawing has no linetypes but `Continuous`, no linetype scale, no
-  lineweights and no layer states. Its entities take no linetype or lineweight
-  of their own, and draw ByLayer. Its texts are in `Standard`, left on the
+  lineweights and no layer states. Its entities take no color, linetype or
+  lineweight of their own, and draw ByLayer. Its texts are in `Standard`, left on the
   baseline, and it defines no text style.
 - Block names follow the rules of layer names. The leading CAD app discards a drawing over a block
   name it refuses. It keeps names that start with `*` for the blocks it makes itself, and its

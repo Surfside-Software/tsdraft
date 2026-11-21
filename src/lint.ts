@@ -1,3 +1,4 @@
+import { entityColorProblem } from "./colors.ts";
 import {
   definitionHandle,
   insertAttributeHandle,
@@ -144,6 +145,7 @@ import {
   leaderStyleTwinProblem,
   isStandardTableStyle,
   standardTableStyleProblem,
+  TABLE_COLOR,
   TABLE_IN_BLOCK,
   tableColumnsProblem,
   tableTextsProblem,
@@ -250,6 +252,7 @@ export type LintRule =
   | "duplicate-linetype"
   | "undefined-linetype"
   | "lineweight"
+  | "entity-color"
   | "layer-state"
   | "geometry"
   | "text"
@@ -2195,6 +2198,14 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       if (layer) add("undefined-layer", "error", layer);
       const problems = geometryProblems(entity);
       for (const problem of problems) add("geometry", "error", problem);
+      const color: unknown = entity.color;
+      if (color !== undefined) {
+        const problem =
+          entityColorProblem(color) ??
+          (r12 && color !== "ByLayer" ? R12_ONLY.entityColor : undefined) ??
+          (entity.kind === "table" && color !== "ByLayer" ? TABLE_COLOR : undefined);
+        if (problem) add("entity-color", "error", problem);
+      }
       if (
         r12 &&
         entity.kind === "polyline" &&

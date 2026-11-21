@@ -9,10 +9,12 @@ import type {
   Paragraph,
   ParagraphAttributeDefinition,
   Point,
+  Rgb,
   Text,
   TextStyle,
   Xref,
 } from "./drawing.ts";
+import { isRgb } from "./colors.ts";
 import { keyHandle } from "./handles.ts";
 import { layerKey } from "./layers.ts";
 import { STANDARD_FONT } from "./fonts.ts";
@@ -719,6 +721,24 @@ export function referencedTree(
   return { xrefs: top, problems, unreported, unreportedShapes: shapes };
 }
 
+/** The color of an insert that its entities set ByBlock take: its own, or its layer's. */
+export type BlockColor = { readonly color: number | Rgb } | { readonly layer: LayerRef };
+
+/**
+ * The color an insert gives what its block sets ByBlock: its own index or true color, its layer's
+ * when it is ByLayer, and the color of the insert that holds it when it is ByBlock.
+ */
+function insertColor(
+  insert: Insert,
+  layer: LayerRef,
+  outer: BlockColor | undefined,
+): BlockColor | undefined {
+  const color: unknown = insert.color;
+  if (color === "ByBlock") return outer;
+  if (typeof color === "number" || isRgb(color)) return { color };
+  return { layer };
+}
+
 /** Where one entity is drawn. */
 export interface Placement {
   /** The matrix from the entity's coordinates to the drawing's, or undefined in model space. */
@@ -735,6 +755,11 @@ export interface Placement {
    * names. Undefined for an entity of the drawing itself.
    */
   readonly from: Referenced | undefined;
+  /**
+   * The color an entity set `"ByBlock"` takes: the color of the insert that holds it, or its
+   * layer's where the insert is ByLayer. Undefined in model space, where ByBlock draws as index 7.
+   */
+  readonly byBlock?: BlockColor | undefined;
   /** For the text of an insert's attribute, the attribute's tag. */
   readonly attribute?: string;
   /**
@@ -756,6 +781,8 @@ interface Entered {
   /** The block's base point. */
   readonly base: Point | undefined;
   readonly layer: LayerRef;
+  /** The color what the block sets ByBlock takes. */
+  readonly byBlock: BlockColor | undefined;
   readonly inside: Referenced | undefined;
   /** The blocks its inserts find theirs among. */
   readonly inner: ReadonlyMap<string, Block>;
@@ -825,6 +852,7 @@ export function eachDrawn(
     from: Referenced | undefined,
     outer: Matrix | undefined,
     layer: LayerRef,
+    byBlock: BlockColor | undefined,
   ): boolean => {
     if (isFrozen(layer)) return true;
     const name = key(insert.block);
@@ -846,6 +874,7 @@ export function eachDrawn(
       outer,
       base: block?.base,
       layer,
+      byBlock: insertColor(insert, layer, byBlock),
       // What the insert holds names the layers, linetypes and text styles of this drawing.
       inside: referenced ?? from,
       inner: referenced ? referenced.blocks : within,
@@ -854,7 +883,7 @@ export function eachDrawn(
     });
     return true;
   };
-  if (!enter(entity, blocks, undefined, undefined, { name: entity.layer })) return false;
+  if (!enter(entity, blocks, undefined, undefined, { name: entity.layer }, undefined)) return false;
   while (stack.length > 0) {
     const at = stack.at(-1)!;
     const { inside } = at;
@@ -863,7 +892,9 @@ export function eachDrawn(
     // One at a time, so two that place one block do not find it open.
     if (at.queued !== undefined && at.queued.next < at.queued.inserts.length) {
       const insert = at.queued.inserts[at.queued.next++]!;
-      if (!enter(insert, at.inner, inside, at.matrix, layerOf(insert.layer))) return false;
+      if (!enter(insert, at.inner, inside, at.matrix, layerOf(insert.layer), at.byBlock)) {
+        return false;
+      }
       continue;
     }
     if (at.entities && !holds(at.items, at.next)) [at.entities, at.next] = [false, 0];
@@ -876,13 +907,16 @@ export function eachDrawn(
           layer: layerOf(item.layer),
           insertLayer: at.layer,
           from: inside,
+          byBlock: at.byBlock,
         };
         draw(item, placement);
         if (inside !== undefined && holding !== undefined) {
           const inserts = holding(item, placement);
           at.queued = inserts.length > 0 ? { inserts, next: 0 } : undefined;
         }
-      } else if (!enter(item, at.inner, inside, at.matrix, layerOf(item.layer))) return false;
+      } else if (!enter(item, at.inner, inside, at.matrix, layerOf(item.layer), at.byBlock)) {
+        return false;
+      }
       continue;
     }
     if (holds(at.definitions, at.next)) {
@@ -905,6 +939,7 @@ export function eachDrawn(
           layer: layerOf(definition.layer),
           insertLayer: at.layer,
           from: inside,
+          byBlock: at.byBlock,
           attribute: definition.tag,
           made: placed.paragraph!.uneven,
         });
@@ -915,6 +950,7 @@ export function eachDrawn(
         layer: layerOf(definition.layer),
         insertLayer: at.layer,
         from: inside,
+        byBlock: at.byBlock,
         attribute: definition.tag,
       });
       continue;

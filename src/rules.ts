@@ -4,7 +4,7 @@
 //
 // That app discards the whole drawing over most names that break the name rules.
 import type { XrefProblem } from "./blocks.ts";
-import type { DxfVersion, HatchGradient, Point, Rgb, Units } from "./drawing.ts";
+import type { DxfVersion, EntityColor, HatchGradient, Point, Rgb, Units } from "./drawing.ts";
 import { clamped, fitSpline, type FittedSpline } from "./curves.ts";
 import type { PaperUnit } from "./paper.ts";
 import { paperInfo, PLOT_STYLE_TABLES, type Paper, type PlotStyleTable } from "./papers.ts";
@@ -160,6 +160,8 @@ const NAME_R12_CHARS =
 const NAME_R12_LENGTH =
   'R12 layer names cannot be longer than 31 characters. Use DXF version "R2018" for longer names';
 const COLOR = "A layer color must be a color index, an integer from 1 to 255";
+export const ENTITY_COLOR =
+  'An entity\'s color is a color index, a whole number from 1 to 255, "ByLayer", "ByBlock", or a true color: its red, green and blue, each a whole number from 0 to 255';
 const POSITIVE = "This value must be greater than 0";
 const WRITTEN_AS_ZERO =
   "This value is written as 0, because tsdraft writes 6 decimals. Use 0.000001 or more";
@@ -177,6 +179,8 @@ const R12_LINETYPES =
 const R12_LINEWEIGHTS = 'R12 drawings have no lineweights. Use DXF version "R2018" for lineweights';
 const R12_ENTITY_STYLE =
   'R12 entities take no linetype or lineweight of their own. Use DXF version "R2018" for an entity linetype or lineweight';
+const R12_ENTITY_COLOR =
+  'R12 entities take no color of their own. Use DXF version "R2018" for an entity color';
 const R12_LAYER_STATES =
   'tsdraft writes no layer states to R12 drawings. Use DXF version "R2018" for layers that are off, frozen, locked or not plotted';
 const R12_BLOCKS =
@@ -451,6 +455,33 @@ export type Aci = Exclude<Enumerate<256>, 0>;
 
 /** Resolves to `C` when it is a valid layer color, and to the error message otherwise. */
 export type LayerColor<C extends number> = number extends C ? C : C extends Aci ? C : typeof COLOR;
+
+/** What an entity's color may be written as, which `EntityColorOf` then checks. */
+export type EntityColorGiven = EntityColor | readonly number[];
+
+type ColorCheck<C extends EntityColorGiven> = C extends "ByLayer" | "ByBlock"
+  ? C
+  : C extends number
+    ? number extends C
+      ? C
+      : C extends Aci
+        ? C
+        : typeof ENTITY_COLOR
+    : C extends readonly [infer R extends number, infer G extends number, infer B extends number]
+      ? [Channel<R>, Channel<G>, Channel<B>] extends [true, true, true]
+        ? C
+        : typeof ENTITY_COLOR
+      : typeof ENTITY_COLOR;
+
+/**
+ * Resolves to `C` when it is a valid entity color, and to the error message otherwise: an index
+ * from 1 to 255, `"ByLayer"`, `"ByBlock"`, or three channels from 0 to 255. A `number` or an
+ * `Rgb` that is not a literal passes. The false branch is never taken: it keeps `const C` from
+ * widening a tuple, as in `LinetypeChoice`.
+ */
+export type EntityColorOf<C extends EntityColorGiven> = [C] extends [EntityColorGiven]
+  ? ColorCheck<C>
+  : C;
 
 /**
  * True for a number the writers round to 0, given as the compiler prints it.
@@ -1107,6 +1138,7 @@ export type LineweightOf<W extends number> = number extends W
 export type R12Linetypes = typeof R12_LINETYPES;
 export type R12Lineweights = typeof R12_LINEWEIGHTS;
 export type R12EntityStyle = typeof R12_ENTITY_STYLE;
+export type R12EntityColor = typeof R12_ENTITY_COLOR;
 export type R12LayerStates = typeof R12_LAYER_STATES;
 export type FrozenCurrent = typeof FROZEN_CURRENT;
 export type R12Text = typeof R12_TEXT;
@@ -1174,7 +1206,7 @@ type ParagraphPercent<S extends string> = S extends `${string}%${infer R}` ? ["%
 type ParagraphPlainCode = "P" | "N" | "~" | "\\" | "{" | "}" | "o";
 
 /** The codes that set what the characters after them are and end with a `;`. */
-type ParagraphEndedCode = "H" | "W" | "Q" | "A" | "C";
+type ParagraphEndedCode = "H" | "W" | "Q" | "A" | "C" | "c";
 
 /** True for all zeros. */
 type AllZeros<S extends string> = S extends `0${infer R}`
@@ -1260,9 +1292,15 @@ type CodeArgument<C extends ParagraphEndedCode, S extends string> = C extends "H
         ? S extends "0" | "1" | "2"
           ? true
           : false
-        : S extends Below258
-          ? true
-          : false;
+        : C extends "c"
+          ? S extends `${bigint}`
+            ? S extends `${"-" | "+"}${string}`
+              ? false
+              : true
+            : false
+          : S extends Below258
+            ? true
+            : false;
 
 /**
  * Whether the characters are underlined, `L`, struck through, `K`, both or neither, as the codes
@@ -1391,7 +1429,7 @@ type ParagraphCode<
                     [...N, 0]
                   >
               : ReturnType<typeof paragraphNoSemicolon<C>>
-            : C extends "T" | "c"
+            : C extends "T"
               ? After extends `${string};${string}`
                 ? ReturnType<typeof paragraphNotLaidOut<C>>
                 : ReturnType<typeof paragraphNoSemicolon<C>>
@@ -1938,6 +1976,7 @@ export const R12_ONLY = {
   lineweights: R12_LINEWEIGHTS,
   layerStates: R12_LAYER_STATES,
   entityStyle: R12_ENTITY_STYLE,
+  entityColor: R12_ENTITY_COLOR,
   text: R12_TEXT,
   blocks: R12_BLOCKS,
   xrefs: R12_XREFS,
@@ -5006,6 +5045,9 @@ const STANDARD_TABLE_STYLE_DEFINED =
   "The table style \"Standard\" is the leading CAD app's own, which tsdraft writes beside a drawing's table styles, and cannot be defined. That app keeps the first style of a name and skips a second";
 const STANDARD_TABLE_STYLE_USED =
   'tsdraft draws no table in the table style "Standard", which is the leading CAD app\'s own. Define a style with tableStyle() and name it';
+/** What is wrong with a table given a color of its own. */
+export const TABLE_COLOR =
+  'A table has no color of its own: its style and its cells give its colors. Leave out "color", or give "ByLayer"';
 /** What is wrong with a table inside a block. */
 export const TABLE_IN_BLOCK =
   "A table cannot be drawn in a block. Draw it in model space or on a layout, where the leading CAD app edits it";

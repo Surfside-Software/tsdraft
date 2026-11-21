@@ -1,3 +1,4 @@
+import { heldColor, matchedIndex, storedColor } from "./colors.ts";
 import {
   attributeTextStart,
   definitionHandle,
@@ -44,6 +45,7 @@ import type {
   DimensionStyle,
   Drawing,
   Entity,
+  EntityColor,
   Image,
   Insert,
   Layout,
@@ -67,7 +69,6 @@ import { isFitSpline } from "./drawing.ts";
 import { boxer, type Boxer } from "./extents.ts";
 import { drawingTables } from "./table-pictures.ts";
 import { clamped, fitSpline } from "./curves.ts";
-import { nearestColorIndex } from "./svg.ts";
 import {
   dimensionMask,
   GRADIENT_NAMES,
@@ -1258,6 +1259,7 @@ function writeInsert(
   g(100, "AcDbEntity");
   if (paper) g(67, 1);
   g(8, e.layer);
+  writeColor(g, e.color);
   g(100, "AcDbBlockReference");
   if (hasAttributes) g(66, 1); // attributes follow
   g(2, e.block);
@@ -1465,6 +1467,14 @@ function writeSpline(g: Group, e: Spline, begin: () => void): void {
 /** The vertical justification of the text a paragraph attribute would be as a line. */
 const TEXT_VALIGN_OF = { top: "top", middle: "middle", bottom: "bottom" } as const;
 
+/** An entity's own color, after its linetype: group 62, and 420 for a true color. */
+function writeColor(g: Group, color: EntityColor | undefined): void {
+  const stored = storedColor(color);
+  if (stored === undefined) return;
+  g(62, stored.index);
+  if (stored.rgb !== undefined) g(420, stored.rgb);
+}
+
 /**
  * Writes an entity. `style` is the text style of a text that is not in `Standard`, and `paper`
  * is true for an entity of a layout.
@@ -1487,6 +1497,7 @@ function writeEntity(
     g(8, e.layer);
     const linetype = entityLinetype(e);
     if (linetype !== undefined) g(6, linetype);
+    writeColor(g, e.color);
     if (e.lineweight !== undefined && e.lineweight !== "ByLayer") {
       g(370, lineweightCode(e.lineweight));
     }
@@ -1654,7 +1665,7 @@ function writeEntity(
         g(453, 2);
         gradient.colors.forEach((color, k) => {
           g(463, k);
-          g(63, nearestColorIndex(color));
+          g(63, matchedIndex(color));
           g(421, rgbNumber(color));
         });
         g(470, GRADIENT_NAMES[gradient.name]);
@@ -1826,6 +1837,7 @@ function writeDimension(
   g(100, "AcDbEntity");
   if (paper) g(67, 1);
   g(8, e.layer);
+  writeColor(g, e.color);
   g(100, "AcDbDimension");
   if (block !== undefined) g(2, block);
   point(g, 10, ...picture.definitionPoint);
@@ -2472,6 +2484,7 @@ function writeImage(g: Group, e: Image, place: ImagePlace): void {
   g(8, e.layer);
   const linetype = entityLinetype(e);
   if (linetype !== undefined) g(6, linetype);
+  writeColor(g, e.color);
   if (e.lineweight !== undefined && e.lineweight !== "ByLayer") {
     g(370, lineweightCode(e.lineweight));
   }
@@ -2727,6 +2740,7 @@ function writeLeader(
   g(100, "AcDbEntity");
   if (where.paper) g(67, 1);
   g(8, e.layer);
+  writeColor(g, e.color);
   g(100, "AcDbMLeader");
   g(270, 2); // version
   g(300, "CONTEXT_DATA{");
@@ -2783,7 +2797,7 @@ function writeLeader(
     g(44, 0);
     g(45, 1); // line spacing
     g(170, 1); // at least as set
-    g(90, COLOR_BY_LAYER);
+    g(90, heldColor(e.color)); // the note's color, the leader's own
     g(171, picture.noteAttachment); // held by its top left, top center or top right
     g(172, 5); // flow
     // A mask in the drawing's background, or in a color of its own.

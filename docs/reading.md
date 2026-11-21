@@ -244,8 +244,10 @@ handle where the table gives none. Without a sort table they draw in the order o
 order of `entities`.
 
 Each keeps the pen it sets for itself, each part left out when it is ByLayer: `color`, an index
-with 0 for ByBlock, `trueColor` as `0xRRGGBB`, `linetype`, `lineweight` in hundredths of a
-millimeter with -2 for ByBlock and -3 for the default, and `linetypeScale`.
+with 0 for ByBlock, and with a true color the index CAD programs match it to; `trueColor` as
+`0xRRGGBB`; `colorBook`, the `book` and the `name` of a color of a color book, whose true color
+`trueColor` holds; `linetype`, `lineweight` in hundredths of a millimeter with -2 for ByBlock and
+-3 for the default, and `linetypeScale`.
 
 A text, an attribute and an attribute definition say where they are and how they are justified:
 `align` and `valign` as a `Text` has them, or `aligned`, `fit` or `middle`; `alignAt`, the point

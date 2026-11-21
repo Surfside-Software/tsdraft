@@ -82,7 +82,8 @@ these:
 | `\W0.8;`             | Their width factor, in the place of the style's                             |
 | `\Q15;`              | Their oblique angle in degrees, -85 to 85, in the place of the style's      |
 | `\A0;` to `\A2;`     | Where they sit on the line: on the baseline, centered or at the top         |
-| `\C1;`               | A color by its index, which moves nothing and which the preview draws       |
+| `\C1;`               | A color by its index, `\C0;` ByBlock and `\C256;` ByLayer: see colors.md    |
+| `\c255;`             | A true color, its blue first, so 255 is red, which moves nothing            |
 | `\fArial\|b1;`       | A TrueType font of `FONTS`, in bold with `b1`: `i0`, `c` and `p` pass       |
 | `\Fromans.shx;`      | An SHX font of `FONTS`                                                      |
 | `\S1/2;`             | A fraction stacked over a level bar                                         |
@@ -183,10 +184,9 @@ message names the code.
   lay out.
 - A code of the table above whose number is not one it takes: a height or width factor of 0 or
   of more than 15 digits before its point, an oblique angle past 85, `\A` other than 0, 1 or 2, a
-  color number past 257.
+  color number past 257, and a true color past 16777215.
 - The codes tsdraft does not lay out yet: `\T` the spacing of the characters after it, which the
-  leading CAD app plots as a spacing of its own between characters; `\c`, a true color, which
-  the preview cannot draw as the plot does yet; `\O`, an overline, which sits
+  leading CAD app plots as a spacing of its own between characters; `\O`, an overline, which sits
   at a TrueType font's ascent, which tsdraft's tables do not hold; `\X`, which only a dimension's
   text holds; and `\M+NXXXX`, a character of a code page. A paragraph that held one would plot
   otherwise than tsdraft draws it.

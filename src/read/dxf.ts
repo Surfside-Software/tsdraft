@@ -1357,8 +1357,11 @@ class DxfReader {
       at: insert.at,
       scale: insert.scale,
     }));
-    if (this.#spaceName !== MODEL && space.inserts.length < this.#limits.census)
-      space.inserts.push(insert);
+    if (this.#spaceName !== MODEL && space.inserts.length < this.#limits.census) {
+      // Without geometry a read keeps no text, a color book's names among it.
+      const { colorBook: _book, ...kept } = insert;
+      space.inserts.push(this.#geometry ? insert : kept);
+    }
   }
 
   #closeOwner(): void {

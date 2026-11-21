@@ -488,9 +488,18 @@ function shapes(all: boolean, typed = all): Shapes {
     };
 
   const kind: Check = LEFT;
+  // An index or a name, or a true color's three numbers, which the rule of an entity's color reads.
+  const entityColor: Check = (value, at, problems) => {
+    if (typeof value === "number" || typeof value === "string") return;
+    // Only a list of three is read, so a long list costs no more than three.
+    if (!Array.isArray(value) || value.length !== 3) {
+      problems.push(`${at} must be a number, a string or a list of three numbers`);
+    } else list(number)(value, at, problems);
+  };
   const loop = fields<HatchLoop>({ points: list(point) }, { bulges: list(number) });
   const shared = {
     id: ruled(string),
+    color: ruled(entityColor),
     linetype: ruled(string),
     lineweight: ruled(numberOrName),
   } as const;
@@ -561,20 +570,38 @@ function shapes(all: boolean, typed = all): Shapes {
     ),
     insert: fields<Insert>(
       { kind, layer: string, block: ruled(string), at: point },
-      { id: ruled(string), scale: ruled(scale), rotation: number, attributes: ruled(map(string)) },
+      {
+        id: ruled(string),
+        color: ruled(entityColor),
+        scale: ruled(scale),
+        rotation: number,
+        attributes: ruled(map(string)),
+      },
     ),
     "linear-dimension": fields<LinearDimension>(
       { kind, layer: string, style: ruled(string), from: point, to: point, line: point },
-      { id: ruled(string), angle: number, text: ruled(string), textBelow: ruled(string) },
+      {
+        id: ruled(string),
+        color: ruled(entityColor),
+        angle: number,
+        text: ruled(string),
+        textBelow: ruled(string),
+      },
     ),
     "aligned-dimension": fields<AlignedDimension>(
       { kind, layer: string, style: ruled(string), from: point, to: point, offset: number },
-      { id: ruled(string), text: ruled(string), textBelow: ruled(string) },
+      {
+        id: ruled(string),
+        color: ruled(entityColor),
+        text: ruled(string),
+        textBelow: ruled(string),
+      },
     ),
     "radius-dimension": fields<RadiusDimension>(
       { kind, layer: string, style: ruled(string), center: point, point },
       {
         id: ruled(string),
+        color: ruled(entityColor),
         text: ruled(string),
         textBelow: ruled(string),
         textFromCenter: number,
@@ -584,6 +611,7 @@ function shapes(all: boolean, typed = all): Shapes {
       { kind, layer: string, style: ruled(string), center: point, point },
       {
         id: ruled(string),
+        color: ruled(entityColor),
         text: ruled(string),
         textBelow: ruled(string),
         textFromCenter: number,
@@ -591,7 +619,12 @@ function shapes(all: boolean, typed = all): Shapes {
     ),
     "jogged-radius-dimension": fields<JoggedRadiusDimension>(
       { kind, layer: string, style: ruled(string), center: point, point, start: point, jog: point },
-      { id: ruled(string), text: ruled(string), textBelow: ruled(string) },
+      {
+        id: ruled(string),
+        color: ruled(entityColor),
+        text: ruled(string),
+        textBelow: ruled(string),
+      },
     ),
     "arc-length-dimension": fields<ArcLengthDimension>(
       {
@@ -604,7 +637,12 @@ function shapes(all: boolean, typed = all): Shapes {
         endAngle: number,
         at: point,
       },
-      { id: ruled(string), text: ruled(string), textBelow: ruled(string) },
+      {
+        id: ruled(string),
+        color: ruled(entityColor),
+        text: ruled(string),
+        textBelow: ruled(string),
+      },
     ),
     "ordinate-dimension": fields<OrdinateDimension>(
       {
@@ -616,7 +654,12 @@ function shapes(all: boolean, typed = all): Shapes {
         feature: point,
         leaderEnd: point,
       },
-      { id: ruled(string), text: ruled(string), textBelow: ruled(string) },
+      {
+        id: ruled(string),
+        color: ruled(entityColor),
+        text: ruled(string),
+        textBelow: ruled(string),
+      },
     ),
     "angular-dimension": fields<AngularDimension>(
       {
@@ -628,7 +671,12 @@ function shapes(all: boolean, typed = all): Shapes {
         to: point,
         at: point,
       },
-      { id: ruled(string), text: ruled(string), textBelow: ruled(string) },
+      {
+        id: ruled(string),
+        color: ruled(entityColor),
+        text: ruled(string),
+        textBelow: ruled(string),
+      },
     ),
     // A rule of `lint` reports the note, the shafts and the leader's own fields, whatever their type.
     leader: fields<Leader>(
@@ -641,6 +689,7 @@ function shapes(all: boolean, typed = all): Shapes {
       },
       {
         id: ruled(string),
+        color: ruled(entityColor),
         text: ruled(list(string)),
         block: ruled(string),
         attributes: ruled(map(string)),
@@ -690,6 +739,7 @@ function shapes(all: boolean, typed = all): Shapes {
       { kind, layer: string, style: ruled(string), at: point, columns: LEFT, rows: LEFT },
       {
         id: ruled(string),
+        color: ruled(entityColor),
         rotation: number,
         title: LEFT,
         titleHeight: ruled(number),

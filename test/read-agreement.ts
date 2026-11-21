@@ -22,6 +22,7 @@ import type {
   TextStyle,
 } from "../src/drawing.ts";
 import { isFitSpline } from "../src/drawing.ts";
+import { storedColor } from "../src/colors.ts";
 import { written, writtenAngle } from "../src/format.ts";
 import { clamped } from "../src/curves.ts";
 import { idHandle } from "../src/handles.ts";
@@ -318,8 +319,12 @@ export function readProblems(
     if (want.id !== undefined && got.handle !== idHandle(want.id)) {
       say(`${label}: handle ${got.handle}, expected ${idHandle(want.id)}`);
     }
-    if (got.color !== undefined || got.trueColor !== undefined)
-      say(`${label}: has a color of its own`);
+    const stored = storedColor(want.color);
+    if (got.color !== stored?.index || got.trueColor !== stored?.rgb) {
+      say(
+        `${label}: color ${got.color} and ${got.trueColor}, expected ${stored?.index} and ${stored?.rgb}`,
+      );
+    }
     if (
       want.kind !== "insert" &&
       want.kind !== "leader" &&

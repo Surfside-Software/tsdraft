@@ -58,6 +58,16 @@
   knots of the wrong count or that decrease, weights not above 0, and more than 32,767 knots.
   `ellipsePoint`, `ellipseBox`, `splinePoint`, `splineBox`, `fitSpline` and `clamped` give their
   geometry.
+- An entity's own color, in R2018 drawings. Every entity but a table, an insert, a dimension and a
+  leader included, takes `color`: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a
+  true color `[red, green, blue]`. `toDXF` writes an index in group 62, and a true color in
+  group 420 with the index the leading CAD app matches it to in group 62. `toSVG` and `toPDF` plot an index
+  through the layout's plot style table and a true color as it is under each table, and an
+  entity of a block set ByBlock in its insert's color. A paragraph's `\c` code sets a true color,
+  with its blue first, and `\C0;` and `\C256;` plot ByBlock and in the layer's color. `lint` and
+  the builder refuse any other color under the rule `entity-color`, and a color in an R12
+  drawing. `readDXF` and `readDWG` read a color of a color book as `colorBook`, with its true
+  color in `trueColor`.
 - Solid fills, wipeouts and masks, in R2018 drawings. `d.hatch(boundary)` fills the area inside
   one outline, or inside a list of loops `{ points, bulges? }`, solid in its layer's color: the
   area inside an odd number of loops is filled, so a loop inside another is a hole, whichever

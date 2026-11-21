@@ -36,6 +36,10 @@ existed.
 A linetype has `marks` only where it draws a text or a shape, and a polyline `linetypeGeneration`
 only where it is `true`, so a drawing with neither has the JSON it had before they existed.
 
+Every entity but a table, an insert, a dimension and a leader included, has a `color` where it has
+one of its own: an index from 1 to 255, `"ByBlock"`, or a true color `[red, green, blue]`. A drawing whose
+entities draw ByLayer has the JSON it had before colors existed. [Colors](colors.md) describes them.
+
 A drawing lists its blocks in `blocks`, and leaves the field out when it has none. A block has
 a `name`, its `entities`, and where they differ from their defaults a `base` point and its
 `attributes`: each a `tag`, a `value`, a `layer` and the fields of a text, with a `prompt`

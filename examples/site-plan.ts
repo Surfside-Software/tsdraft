@@ -364,9 +364,12 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     d.line([view.left, pavement.near], [open.from, pavement.near]);
     d.line([open.to, pavement.near], [view.right, pavement.near]);
     d.line([view.left, pavement.far], [view.right, pavement.far]);
+    // The existing sidewalk plots gray among the black: a true color plots as it is, whatever the
+    // sheet's plot style table, where an index plots black under the standard's monochrome.ctb.
+    const existing = { color: [128, 128, 128] } as const;
     for (const y of [-sidewalk.fromLot, -sidewalk.fromLot - sidewalk.width]) {
-      d.line([view.left, y], [driveX, y]);
-      d.line([driveX + driveway.width, y], [view.right, y]);
+      d.line([view.left, y], [driveX, y], existing);
+      d.line([driveX + driveway.width, y], [view.right, y], existing);
     }
   });
   d.layer("C-ROAD-CNTR", () => d.line([view.left, centerline], [view.right, centerline]));

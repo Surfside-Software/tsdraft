@@ -33,7 +33,6 @@ export const PARAGRAPH_STACK_PART =
 /** What each code a paragraph may hold but tsdraft does not lay out yet does. */
 export const PARAGRAPH_NOT_LAID_OUT = {
   T: "sets the spacing of the characters after it",
-  c: "sets the true color of the characters after it",
   X: "starts the part of a dimension's text below its line",
   M: "holds a character of a code page",
   m: "holds a character of a code page",
@@ -132,7 +131,10 @@ export interface RunFormat {
   readonly obliqueAngle: number | undefined;
   /** Where the characters and stacks sit up and down the line, `\A`: 0 on it, 1 centered, 2 at its top. */
   readonly align: 0 | 1 | 2;
-  /** The color by its index, 0 to 257, that a `\C` code sets, or undefined for the entity's. */
+  /**
+   * The color a `\C` code sets by its index, 0 to 257, or a `\c` code as a true color, `TRUE_COLOR`
+   * plus 0xRRGGBB; undefined for the entity's.
+   */
   readonly color: number | undefined;
 }
 
@@ -258,6 +260,7 @@ const ARGUMENTS: Readonly<Record<string, RegExp>> = {
   Q: /^-?(?:(?:\d|[1-7]\d|8[0-4])(?:\.\d{1,64})?|85(?:\.0{1,64})?)$/,
   A: /^[012]$/,
   C: /^(?:\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-7])$/,
+  c: /^\d{1,8}$/,
 };
 
 /**
@@ -281,7 +284,17 @@ const CODE_SETS: Readonly<
   Q: (argument, format) => ({ ...format, obliqueAngle: Number(argument) }),
   A: (argument, format) => ({ ...format, align: Number(argument) as 0 | 1 | 2 }),
   C: (argument, format) => ({ ...format, color: Number(argument) }),
+  // A true color, with its blue first: 255 is red.
+  c: (argument, format) => {
+    const bgr = Number(argument);
+    if (bgr > 0xffffff) return undefined;
+    const rgb = ((bgr & 0xff) << 16) | (bgr & 0xff00) | ((bgr >> 16) & 0xff);
+    return { ...format, color: TRUE_COLOR + rgb };
+  },
 };
+
+/** What a run's color holds for a true color: this, plus the color as 0xRRGGBB. */
+export const TRUE_COLOR = 0x1000000;
 
 /** The codes before a `;` that take an argument, and what each takes. */
 export const PARAGRAPH_CODE_ARGUMENTS = {
@@ -290,6 +303,7 @@ export const PARAGRAPH_CODE_ARGUMENTS = {
   Q: "an oblique angle in degrees, from -85 to 85",
   A: "0, 1 or 2: on the baseline, centered or at the top",
   C: "a color number from 0 to 257",
+  c: "a true color, a whole number from 0 to 16777215 with its blue first",
 } as const;
 
 export type ArgumentCode = keyof typeof PARAGRAPH_CODE_ARGUMENTS;
@@ -497,7 +511,7 @@ export function parseParagraph(value: string): ParsedParagraph {
         fail(paragraphNoSemicolon(letter));
         return n;
       }
-      if (letter === "T" || letter === "c") {
+      if (letter === "T") {
         fail(paragraphNotLaidOut(letter));
         return end + 1;
       }

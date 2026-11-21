@@ -650,6 +650,77 @@ test("linetype, lineweight and layer state mistakes are compile errors and runti
   assert.deepEqual(lint(built), []);
 });
 
+test("entity color mistakes are compile errors and runtime errors", () => {
+  const r12 = createDrawing({ dxf: "R12" });
+  const d = createDrawing();
+  d.block("B", {}, () => d.circle([0, 0], 1));
+  d.dimensionStyle({
+    name: "DIMS",
+    textHeight: 1,
+    arrowSize: 1,
+    extensionOffset: 0.5,
+    extensionBeyond: 1,
+    textGap: 0.5,
+    precision: 2,
+  });
+  d.leaderStyle({ name: "NOTES", textHeight: 0.1, arrowSize: 0.12, landing: 0.2, gap: 0.05 });
+
+  // @ts-expect-error: no color has index 0.
+  assert.throws(() => d.line([0, 0], [1, 1], { color: 0 }), /An entity's color is/);
+  // @ts-expect-error: nor 256.
+  assert.throws(() => d.circle([0, 0], 1, { color: 256 }), /An entity's color is/);
+  // @ts-expect-error: an index is a whole number.
+  assert.throws(() => d.insert("B", [0, 0], { color: 1.5 }), /An entity's color is/);
+  // @ts-expect-error: a channel is at most 255.
+  assert.throws(() => d.line([0, 0], [1, 1], { color: [256, 0, 0] }), /An entity's color is/);
+  // @ts-expect-error: a true color has three channels.
+  assert.throws(() => d.line([0, 0], [1, 1], { color: [1, 2] }), /An entity's color is/);
+  // @ts-expect-error: an R12 entity takes its layer's color.
+  assert.throws(() => r12.line([0, 0], [1, 1], { color: 1 }), /R12 entities take no color/);
+  r12.line([0, 0], [1, 1], { color: "ByLayer" });
+  const fit: Point[] = [
+    [0, 0],
+    [1, 1],
+    [2, 0],
+  ];
+  const control: Point[] = [
+    [0, 0],
+    [1, 1],
+    [2, 0],
+    [3, 1],
+  ];
+  // @ts-expect-error: a curve's color is checked as any entity's.
+  assert.throws(() => d.ellipse([0, 0], [2, 0], 0.5, { color: 0 }), /An entity's color is/);
+  // @ts-expect-error: a spline's too.
+  assert.throws(() => d.spline(fit, { color: [1, 2, 300] }), /An entity's color is/);
+  // @ts-expect-error: and one by control points.
+  assert.throws(() => d.controlSpline(control, { color: 256 }), /An entity's color is/);
+  const colored = createDrawing();
+  colored.ellipse([0, 0], [2, 0], 0.5, { color: 3 });
+  colored.spline(fit, { color: [1, 2, 3] });
+  colored.controlSpline(control, { color: "ByBlock" });
+  const curveColors = colored.build().entities.map((e) => e.color);
+  assert.deepEqual(curveColors, [3, [1, 2, 3], "ByBlock"]);
+
+  d.line([0, 0], [1, 1], { color: 1 });
+  d.line([0, 0], [1, 1], { color: "ByBlock" });
+  d.line([0, 0], [1, 1], { color: "ByLayer" });
+  d.line([0, 0], [1, 1], { color: [10, 200, 30] });
+  d.insert("B", [0, 0], { color: 255 });
+  d.linearDimension([0, 0], [10, 0], [5, 2], { style: "DIMS", color: [0, 0, 255] });
+  d.leader("NOTE", { style: "NOTES", at: [4, 4], to: [2, 2], color: "ByBlock" });
+  const ordinate = { style: "DIMS", axis: "x" } as const;
+  // @ts-expect-error: an ordinate dimension's color is checked as any dimension's.
+  assert.throws(() => d.ordinateDimension([1, 1], [1, 4], { ...ordinate, color: 0 }), /color is/);
+  d.ordinateDimension([1, 1], [1, 4], { ...ordinate, color: 4 });
+  const built = d.build();
+  assert.deepEqual(
+    built.entities.map((e) => e.color),
+    [1, "ByBlock", undefined, [10, 200, 30], 255, [0, 0, 255], "ByBlock", 4],
+  );
+  assert.deepEqual(lint(built), []);
+});
+
 test("linetype mistakes the compiler cannot see are checked when the code runs", () => {
   const d = createDrawing();
   const weight: number = 0.33;
@@ -1280,9 +1351,9 @@ test("a paragraph's height, width, line spacing and codes are checked twice", ()
   assert.throws(() => d.paragraph("{\\LNOTE", { at }), /never closed/);
   // @ts-expect-error: a brace closes nothing.
   assert.throws(() => d.paragraph("NOTE}", { at }), /closes no \{/);
-  d.paragraph("\\H2x;NOTE\\W0.8;\\Q15;\\A1;\\C1;", { at });
-  // @ts-expect-error: a true color is not drawn yet.
-  assert.throws(() => d.paragraph("\\c255;NOTE", { at }), /code \\c, which sets the true color/);
+  d.paragraph("\\H2x;NOTE\\W0.8;\\Q15;\\A1;\\C1;\\c255;", { at });
+  // @ts-expect-error: a true color is a whole number.
+  assert.throws(() => d.paragraph("\\c-1;NOTE", { at }), /code \\c takes a true color/);
   assert.throws(
     () =>
       // @ts-expect-error: more than 64 digits after the point.

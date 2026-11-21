@@ -57,10 +57,25 @@ export function handleAt(r: Rec, code: number): string | undefined {
 /** The most tags of one insert, and labels of one multileader's block, that are kept. */
 export const MAX_TAGS = 1000;
 
+/**
+ * A color of a book as DXF group 430 holds it, the book's name and the color's with a `$` between
+ * them, or undefined for none.
+ */
+export function colorBookOf(
+  value: string | undefined,
+): { readonly book: string; readonly name: string } | undefined {
+  if (value === undefined || value === "") return undefined;
+  const at = value.indexOf("$");
+  return at < 0
+    ? { book: "", name: value }
+    : { book: value.slice(0, at), name: value.slice(at + 1) };
+}
+
 /** The pen an entity sets for itself, with each part left out at ByLayer. */
 export function baseOf(r: Rec, layer: string, handle: string | undefined): ReadEntityBase {
   const color = num(r, 62);
   const trueColor = num(r, 420);
+  const book = colorBookOf(name(r, 430));
   const linetype = name(r, 6);
   const lineweight = num(r, 370);
   const linetypeScale = num(r, 48);
@@ -69,6 +84,7 @@ export function baseOf(r: Rec, layer: string, handle: string | undefined): ReadE
     layer,
     ...(color !== undefined && color !== 256 && { color }),
     ...(trueColor !== undefined && { trueColor }),
+    ...(book !== undefined && { colorBook: book }),
     ...(linetype !== undefined && !/^bylayer$/i.test(linetype.trim()) && { linetype }),
     ...(lineweight !== undefined && lineweight !== -1 && { lineweight }),
     ...(linetypeScale !== undefined && linetypeScale !== 1 && { linetypeScale }),
@@ -1319,6 +1335,7 @@ export const attributeCost = (a: ReadAttribute): number =>
   chars(a.value) +
   chars(a.layer) +
   chars(a.linetype) +
+  (a.colorBook ? chars(a.colorBook.book) + chars(a.colorBook.name) : 0) +
   (a.paragraph ? 2 + chars(a.paragraph.style) : 0);
 
 /**
@@ -1327,7 +1344,11 @@ export const attributeCost = (a: ReadAttribute): number =>
  * names and its text.
  */
 export function costOf(e: ReadEntity): number {
-  const own = 1 + chars(e.layer) + chars(e.linetype);
+  const own =
+    1 +
+    chars(e.layer) +
+    chars(e.linetype) +
+    (e.colorBook ? chars(e.colorBook.book) + chars(e.colorBook.name) : 0);
   switch (e.kind) {
     case "line":
       return own + 2;

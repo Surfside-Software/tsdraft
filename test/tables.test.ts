@@ -14,6 +14,7 @@ import {
 } from "../src/index.ts";
 import { referencedByKey } from "../src/blocks.ts";
 import { extents } from "../src/extents.ts";
+import { TABLE_COLOR } from "../src/rules.ts";
 import { tableCost, tableRepeats } from "../src/tables.ts";
 import { timeLimit } from "./time-limit.ts";
 
@@ -230,4 +231,19 @@ test("a table whose style the drawing lacks draws nothing and throws nothing", (
   } as never;
   assert.doesNotThrow(() => toSVG(drawing));
   assert.doesNotThrow(() => inspectText(drawing));
+});
+
+test("a table takes no color of its own, from the builder or from lint", () => {
+  const d = createDrawing({ units: "in" });
+  d.tableStyle({ name: "S", textHeight: 1 });
+  const table = { style: "S", at: [0, 0], columns: [4], rows: [[{ text: "A" }]] } as const;
+  // @ts-expect-error: its style and its cells give its colors.
+  assert.throws(() => d.table({ ...table, color: 1 }), /A table has no color of its own/);
+  d.table({ ...table, color: "ByLayer" });
+  const built = d.build();
+  const colored = { ...built, entities: [{ ...built.entities[0]!, color: 3 }] } as Drawing;
+  assert.deepEqual(
+    lint(colored).map((p) => [p.rule, p.message]),
+    [["entity-color", `table #0: ${TABLE_COLOR}`]],
+  );
 });

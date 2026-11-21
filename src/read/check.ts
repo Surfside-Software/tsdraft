@@ -87,6 +87,7 @@ const BASE = {
   layer: "string",
   "color?": "number",
   "trueColor?": "number",
+  "colorBook?": { fields: { book: "string", name: "string" } },
   "linetype?": "string",
   "lineweight?": "number",
   "linetypeScale?": "number",

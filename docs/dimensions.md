@@ -152,8 +152,8 @@ Both take `style`, the name of the dimension style, and optionally:
   gap above the line too, and the line breaks for the wider of the two.
 - `id`, as any entity takes one: see [Ids](format.md#ids).
 
-A dimension is on the current layer, and is drawn in that layer's color and lineweight. It
-takes no linetype or lineweight of its own. It goes in model space or on a
+A dimension is on the current layer, and is drawn in that layer's color and lineweight, or in a
+`color` of its own, as [Colors](colors.md) says. It takes no linetype or lineweight of its own. It goes in model space or on a
 [layout](layouts.md), and not in a block.
 
 ### Radius, diameter and jogged radius

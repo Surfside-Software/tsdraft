@@ -313,13 +313,13 @@ starts each breaking change with `Breaking:`.
 
 It draws layers, lines, polylines with arcs and widths, rectangles, revision clouds, donuts,
 circles, arcs, single-line text and paragraph text that wraps to a width, with lists, tab
-stops and columns, linetypes and lineweights, text styles and justification, blocks with attributes and inserts
+stops and columns, linetypes and lineweights, an entity's own color by index or as a true color, text styles and justification, blocks with attributes and inserts
 of them, references to DWG files as xrefs, linear and aligned dimensions in decimal units or
 feet and inches with stacked fractions, words below the line and text on a leader, leaders, layouts with a page setup and viewports, which can freeze their own
 layers or twist the view, and layers that are off, frozen, locked or not plotted. A firm's
 [standard](docs/standard.md) sets its layers, pens, text and sheets. It writes DXF, not DWG.
 
-It does not yet have overlines in paragraph text, ellipses, splines or points, tables, color or transparency set on one
+It does not yet have overlines in paragraph text, ellipses, splines or points, tables, transparency set on one
 entity, PDF underlays, or the other kinds of dimension.
 
 `readDXF` reads an ASCII DXF into a model to inspect, which is not a drawing tsdraft can edit
@@ -430,6 +430,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
 - [Fills, wipeouts and masks](docs/fills.md) covers hatches with holes, solid, of a pattern
   file's patterns or of a gradient, wipeouts, the masks of paragraphs, leaders and dimensions, the draw order, and
   what `lint` refuses.
+- [Colors](docs/colors.md) covers an entity's own color by index or as a true color, ByBlock in
+  a block, how each plots under a plot style table, and the color codes of paragraph text.
 - [Dimensions](docs/dimensions.md) covers dimension styles, linear and aligned
   dimensions, how a measurement is written, and what `lint` refuses.
 - [Xrefs](docs/xrefs.md) covers references to DWG files: the path, units, a

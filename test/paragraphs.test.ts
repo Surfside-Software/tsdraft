@@ -109,7 +109,7 @@ test("what tsdraft does not lay out is refused, and named", () => {
     ["\\T2;A", /code \\T, which sets the spacing/],
     ["\\A3;A", /code \\A takes 0, 1 or 2/],
     ["\\C258;A", /code \\C takes a color number from 0 to 257/],
-    ["\\c255;A", /code \\c, which sets the true color/],
+    ["\\c16777216;A", /code \\c takes a true color/],
     ["\\ptr3;A", /aligns text by its right/],
     ["\\psa1.2;A", /at least a size apart/],
     ["\\pi-;A", /option "i-"/],

@@ -1,9 +1,12 @@
+import { TRUE_COLOR } from "./paragraph-codes.ts";
+import { isRgb } from "./colors.ts";
 import {
   blocksByKey,
   compose,
   eachDrawn,
   mapPoint,
   referencedByKey,
+  type BlockColor,
   type LayerRef,
   type Matrix,
   type Referenced,
@@ -29,6 +32,7 @@ import {
   type Linetype,
   type LinetypeMark,
   type LinetypeShape,
+  type Rgb,
   type Paragraph,
   type Point,
   type Polyline,
@@ -240,22 +244,6 @@ const VIRTUAL_PENS: readonly string[] = [
   .split(" ");
 
 /**
- * The index nearest a true color, which a file holds beside it: index 7 counted as white, which
- * the leading CAD app holds it as. The first of two as near.
- */
-export function nearestColorIndex([r, g, b]: readonly [number, number, number]): number {
-  let best = 1;
-  let nearest = Infinity;
-  for (let i = 0; i < ACI.length; i++) {
-    const hex = i === 6 ? "ffffff" : ACI[i]!;
-    const [pr, pg, pb] = [0, 2, 4].map((k) => Number.parseInt(hex.slice(k, k + 2), 16));
-    const distance = (pr! - r) ** 2 + (pg! - g) ** 2 + (pb! - b) ** 2;
-    if (distance < nearest) [best, nearest] = [i + 1, distance];
-  }
-  return best;
-}
-
-/**
  * The color a plot style table plots an ACI index in, on paper, where index 7 is black. Under a
  * table that gives each pen a color of its own, an index outside 1 to 255 plots as 7 does.
  */
@@ -365,6 +353,10 @@ export interface SvgOptions {
 /** How an entity is drawn. */
 interface Pen {
   readonly color: string;
+  /** The color of the entity's layer, which a paragraph's `\C256;` gives the characters after it. */
+  readonly byLayer: string;
+  /** The color ByBlock takes where the entity is, which `\C0;` gives the characters after it. */
+  readonly byBlock: string;
   /** Undefined for a solid line. */
   readonly dashes: Dashes | undefined;
   /** In hundredths of a millimetre. */
@@ -1206,14 +1198,25 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
    */
   const pen = (
     look: Look,
-    e: Pick<Line, "linetype" | "lineweight">,
+    e: Pick<Line, "linetype" | "lineweight" | "color">,
     on: LayerRef,
     where: () => string,
     insertLayer?: LayerRef,
     from?: Referenced,
     placed = 1,
+    byBlock?: BlockColor,
   ): Pen => {
     const layer: Layer | undefined = layerOf(on);
+    const byLayer = layer?.color ?? 7;
+    const blockShade =
+      byBlock === undefined
+        ? 7
+        : "color" in byBlock
+          ? byBlock.color
+          : (layerOf(byBlock.layer)?.color ?? 7);
+    const own: unknown = e.color;
+    const shade =
+      own === "ByBlock" ? blockShade : typeof own === "number" || isRgb(own) ? own : byLayer;
     /**
      * The layer a linetype or a lineweight comes from, with the drawing whose layer it is, or
      * `"own"` for the entity's own.
@@ -1242,7 +1245,9 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         : (weightFrom.layer?.lineweight ?? "Default");
     const code = lineweightCode(weight);
     return {
-      color: look.color(layer?.color ?? 7),
+      color: drawnColor(look, shade),
+      byLayer: drawnColor(look, byLayer),
+      byBlock: drawnColor(look, blockShade),
       // A pattern keeps its length whatever size an insert draws its entity at, so it is cut in
       // the block's own units shrunk by the insert's scale.
       dashes:
@@ -1294,7 +1299,9 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     if (style === undefined || leaderBlock(e, style) === undefined) return undefined;
     const named = e.textStyle ?? style.textStyle;
     const textStyle = named === undefined ? undefined : tables.textStyles.get(key(named));
-    return pictureOf(e, style, textStyle).block;
+    const block = pictureOf(e, style, textStyle).block;
+    // The multileader holds its block ByBlock, so what the block sets ByBlock takes the leader's color.
+    return block === undefined || e.color === undefined ? block : { ...block, color: e.color };
   };
 
   /**
@@ -1351,6 +1358,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
             at.insertLayer,
             at.from,
             m ? Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) : 1,
+            at.byBlock,
           );
           const part = drawn(held, mark, heldPen, look, at.from, at.matrix);
           if (!write(part.length + line + 2)) return;
@@ -1684,6 +1692,29 @@ function precise(value: number): string {
   return String(Number(value.toPrecision(12)));
 }
 
+/**
+ * The color an index or a true color draws in: an index as `look` draws it, and a true color as it
+ * is, which CAD programs plot under every plot style table.
+ */
+function drawnColor(look: Look, shade: number | Rgb): string {
+  if (typeof shade === "number") return look.color(shade);
+  return `#${[shade[0], shade[1], shade[2]].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/**
+ * The color of a paragraph's run that a `\C` or `\c` code colors: 0 the color ByBlock takes where
+ * the paragraph is, 256 its layer's, 257 its own, an index as a layer's, and a true color as it is.
+ */
+function runColor(color: number, pen: Pen, look: Look): string {
+  if (color >= TRUE_COLOR) {
+    const rgb = color - TRUE_COLOR;
+    return drawnColor(look, [(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255]);
+  }
+  if (color === 0) return pen.byBlock;
+  if (color === 256) return pen.byLayer;
+  return color >= 1 && color <= 255 ? look.color(color) : pen.color;
+}
+
 /** How a space is drawn: on a screen, or as it plots on paper. */
 interface Look {
   /** The color of an ACI index. */
@@ -1796,8 +1827,9 @@ type Drawn = Exclude<Entity, Insert>;
 type Shape = Exclude<Drawn, Dimension | Leader | Paragraph | Image | Hatch | Wipeout | Table>;
 
 /** The linetype and the lineweight an entity has of its own. A dimension and a leader draw ByLayer. */
-function styled(e: Drawn): Pick<Line, "linetype" | "lineweight"> {
-  return isDimension(e) || e.kind === "leader" || e.kind === "table" ? {} : e;
+function styled(e: Drawn): Pick<Line, "linetype" | "lineweight" | "color"> {
+  if (!isDimension(e) && e.kind !== "leader" && e.kind !== "table") return e;
+  return e.color === undefined ? {} : { color: e.color };
 }
 
 /**
@@ -1840,7 +1872,7 @@ function leaderToSvg(
   // A mask hides what is drawn before the leader, and none of the leader's own parts.
   if (picture.mask) {
     const color = picture.mask.color;
-    const fill = color === undefined ? "#ffffff" : color === 256 ? pen.color : look.color(color);
+    const fill = color === undefined ? "#ffffff" : color === 256 ? pen.byLayer : look.color(color);
     // One in the drawing's background is marked, for a viewer whose background is not white.
     const background = color === undefined ? ` data-mask="background"` : "";
     add(
@@ -2022,10 +2054,8 @@ function paragraphToSvg(
         advance: run.advance,
         bold: run.bold,
       };
-      // A run a `\C` code colors is drawn in that color, as a layer's is: by block, by layer and
-      // by entity leave it the entity's.
-      const own = run.color !== undefined && run.color >= 1 && run.color <= 255;
-      const runPen = own ? { ...pen, color: look.color(run.color!) } : pen;
+      const runPen =
+        run.color === undefined ? pen : { ...pen, color: runColor(run.color, pen, look) };
       add(textToSvg(text, style, runPen, `data-part="text"`, matrix, false, drawn));
     }
   }
@@ -2052,7 +2082,7 @@ function maskToSvg(
   pen: Pen,
   look: Look,
 ): string {
-  const fill = color === undefined ? "#ffffff" : color === 256 ? pen.color : look.color(color);
+  const fill = color === undefined ? "#ffffff" : color === 256 ? pen.byLayer : look.color(color);
   // One in the drawing's background is marked, for a viewer whose background is not white.
   const background = color === undefined ? ` data-mask="background"` : "";
   const points = corners.map(([x, y]) => `${fmt(x)},${fmt(y)}`).join(" ");

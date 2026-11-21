@@ -294,6 +294,12 @@ export interface ReadAttributeParagraph {
   readonly mirrored?: boolean;
 }
 
+/** A color of a color book: the book's name and the color's, such as `RAL CLASSIC` and `RAL 5005`. */
+export interface ReadColorBook {
+  readonly book: string;
+  readonly name: string;
+}
+
 /**
  * What every entity keeps: its handle, its layer, and the pen it sets for itself. Each part of
  * the pen is left out when it is the default, ByLayer.
@@ -305,6 +311,8 @@ export interface ReadEntityBase {
   readonly color?: number;
   /** Group 420: a true color as 0xRRGGBB. */
   readonly trueColor?: number;
+  /** Group 430: a color of a color book, which `trueColor` holds as well. */
+  readonly colorBook?: ReadColorBook;
   /** Group 6: a linetype's name, or `ByBlock`. */
   readonly linetype?: string;
   /** Group 370: hundredths of a millimeter, or -2 for ByBlock and -3 for the default. */

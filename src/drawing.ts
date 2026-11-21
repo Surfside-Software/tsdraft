@@ -1,3 +1,4 @@
+import { entityColorProblem } from "./colors.ts";
 import type { ParagraphColumns } from "./paragraphs.ts";
 import {
   definitionHandle,
@@ -111,6 +112,7 @@ import {
   leaderStyleProblem,
   leaderStyleTwinProblem,
   standardTableStyleProblem,
+  TABLE_COLOR,
   TABLE_IN_BLOCK,
   tableColumnsProblem,
   tableTextsProblem,
@@ -223,6 +225,9 @@ import {
   type WidthFactor,
   type XrefPath,
   type LayerColor,
+  type EntityColorGiven,
+  type EntityColorOf,
+  type R12EntityColor,
   type LayerName,
   type LayoutName,
   type PaperLength,
@@ -462,6 +467,17 @@ export interface Layer {
   readonly plot?: boolean;
 }
 
+/** A true color: its red, green and blue, each a whole number from 0 to 255. */
+export type Rgb = readonly [red: number, green: number, blue: number];
+
+/**
+ * An entity's color: an index of the color index CAD programs share, from 1 to 255; `"ByLayer"`,
+ * its layer's; `"ByBlock"`, the color of the insert that places its block; or a true color. CAD
+ * programs plot an index through the layout's plot style table, and a true color as it is under
+ * every table.
+ */
+export type EntityColor = number | "ByLayer" | "ByBlock" | Rgb;
+
 interface Placed {
   /**
    * A name for this entity that stays the same when the drawing's code changes around it: 1 to
@@ -474,6 +490,8 @@ interface Placed {
    * places the block.
    */
   readonly layer: string;
+  /** Its own color. Defaults to `"ByLayer"`. R2018 only. */
+  readonly color?: EntityColor;
 }
 
 interface EntityBase extends Placed {
@@ -1057,9 +1075,6 @@ export type HatchPatternChoice =
       readonly crossed?: boolean;
       readonly origin?: Point;
     };
-
-/** A true color: its red, green and blue, each a whole number from 0 to 255. */
-export type Rgb = readonly [red: number, green: number, blue: number];
 
 /**
  * How a gradient runs from its first color to its second. `linear` runs across the box of the
@@ -1773,12 +1788,15 @@ export interface EntityOptions<
   I extends string = string,
   Z extends Standard | undefined = undefined,
   P extends string = string,
+  C extends EntityColorGiven = EntityColor,
 > {
   /**
    * A name for the entity that no other entity of the drawing has: 1 to 64 letters A to Z or a
    * to z, digits, `.`, `-` and `_`. Diagnostics and `toSVG` carry it.
    */
   readonly id?: EntityId<I>;
+  /** Its own color: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a true color. R2018 only. */
+  readonly color?: V extends "R12" ? "ByLayer" | R12EntityColor : EntityColorOf<C>;
   /**
    * A linetype of the drawing, `"Continuous"`, `"ByBlock"` or `"ByLayer"`. R2018 only. Under a
    * standard, a linetype of the standard by name, which the drawing then has.
@@ -1817,7 +1835,8 @@ export interface EllipseOptions<
   I extends string = string,
   Z extends Standard | undefined = undefined,
   P extends string = string,
-> extends EntityOptions<V, T, W, L, I, Z, P> {
+  O extends EntityColorGiven = EntityColor,
+> extends EntityOptions<V, T, W, L, I, Z, P, O> {
   /**
    * For an arc of the ellipse, the parameter it starts at, in degrees counterclockwise from the end
    * of the major axis. Given with `endParameter` or not at all. Brought into 0 up to 360.
@@ -1839,7 +1858,8 @@ export interface SplineOptions<
   S extends Point = Point,
   E extends Point = Point,
   C extends boolean = boolean,
-> extends EntityOptions<V, T, W, L, I, Z, P> {
+  O extends EntityColorGiven = EntityColor,
+> extends EntityOptions<V, T, W, L, I, Z, P, O> {
   /** The direction it leaves the first point in. Worked out from the points when left out. */
   readonly startTangent?: [C] extends [true] ? typeof SPLINE_CLOSED_TANGENT : Tangent<S>;
   /** The direction it arrives at the last point in. Worked out from the points when left out. */
@@ -1861,7 +1881,8 @@ export interface ControlSplineOptions<
   K extends readonly number[] = readonly number[],
   C extends readonly Point[] = readonly Point[],
   H extends readonly number[] = readonly number[],
-> extends EntityOptions<V, T, W, L, I, Z, P> {
+  O extends EntityColorGiven = EntityColor,
+> extends EntityOptions<V, T, W, L, I, Z, P, O> {
   /** From 1 up to `SPLINE_DEGREE_MOST`. Defaults to 3. */
   readonly degree?: SplineDegree<D>;
   /**
@@ -1921,7 +1942,8 @@ export type HatchOptions<
   P extends string = string,
   S extends number = number,
   G extends HatchGradient = HatchGradient,
-> = EntityOptions<V, T, W, L, I, Z, P> &
+  C extends EntityColorGiven = EntityColor,
+> = EntityOptions<V, T, W, L, I, Z, P, C> &
   (
     | {
         /**
@@ -1968,8 +1990,9 @@ export interface PolylineOptions<
   P extends string = string,
   N extends number = number,
   R extends number = number,
+  C extends EntityColorGiven = EntityColor,
 >
-  extends EntityOptions<V, T, W, L, I, Z, P>, Widened<V, N> {
+  extends EntityOptions<V, T, W, L, I, Z, P, C>, Widened<V, N> {
   /**
    * The bulge of each side, one for each: 0 for a straight side, and for an arc the tangent of a
    * quarter of the angle it turns through, greater than 0 when it turns counterclockwise.
@@ -2002,7 +2025,8 @@ export interface RectOptions<
   Z extends Standard | undefined = undefined,
   P extends string = string,
   R extends number = number,
-> extends EntityOptions<V, T, W, L, I, Z, P> {
+  C extends EntityColorGiven = EntityColor,
+> extends EntityOptions<V, T, W, L, I, Z, P, C> {
   /** Rounds each corner with a quarter circle of this radius, at most half the shorter side. R2018 only. */
   readonly radius?: V extends "R12" ? R12Polylines : Positive<R>;
 }
@@ -2022,8 +2046,9 @@ export interface CloudOptions<
   Z extends Standard | undefined = undefined,
   P extends string = string,
   N extends number = number,
+  C extends EntityColorGiven = EntityColor,
 >
-  extends EntityOptions<"R2018", T, W, L, I, Z, P>, Widened<"R2018", N> {
+  extends EntityOptions<"R2018", T, W, L, I, Z, P, C>, Widened<"R2018", N> {
   /**
    * About how far apart the ends of each arc are, in drawing units: each side of the outline
    * holds the whole number of arcs nearest its length over this, and at least one.
@@ -2044,7 +2069,8 @@ export interface DonutOptions<
   I extends string = string,
   Z extends Standard | undefined = undefined,
   P extends string = string,
-> extends EntityOptions<"R2018", T, W, L, I, Z, P> {
+  C extends EntityColorGiven = EntityColor,
+> extends EntityOptions<"R2018", T, W, L, I, Z, P, C> {
   /** The diameter of its hole, less than the outside diameter. Defaults to 0: a filled dot. */
   readonly inside?: DonutHole<H>;
 }
@@ -2065,7 +2091,8 @@ export interface ImageOptions<
   I extends string = string,
   Z extends Standard | undefined = undefined,
   P extends string = string,
-> extends EntityOptions<"R2018", T, W, L, I, Z, P> {
+  C extends EntityColorGiven = EntityColor,
+> extends EntityOptions<"R2018", T, W, L, I, Z, P, C> {
   /** The file's width and height in pixels, which `rasterSize` reads from its bytes. */
   readonly pixels: readonly [width: number, height: number];
   /** How wide the image is along its bottom edge, in drawing units. */
@@ -2148,7 +2175,8 @@ export type TextOptions<
   Z extends Standard | undefined = undefined,
   P extends string = string,
   R extends string = string,
-> = EntityOptions<V, T, W, L, I, Z, P> &
+  C extends EntityColorGiven = EntityColor,
+> = EntityOptions<V, T, W, L, I, Z, P, C> &
   TextPlacement<V, Z> &
   Sized<
     Z,
@@ -2189,7 +2217,8 @@ export type ParagraphOptions<
   R extends string = string,
   N extends number = number,
   F extends number = number,
-> = EntityOptions<"R2018", T, W, L, I, Z, P> &
+  C extends EntityColorGiven = EntityColor,
+> = EntityOptions<"R2018", T, W, L, I, Z, P, C> &
   ParagraphPlacement<Z, N, F> &
   Sized<Z, R, Positive<H>, TextStyleChoice<S, D>>;
 
@@ -2347,7 +2376,8 @@ export type InsertOptions<
   S extends number | readonly [number, number] = number,
   I extends string = string,
   Z extends Standard | undefined = undefined,
-> = InsertFields<I> &
+  C extends EntityColorGiven = EntityColor,
+> = InsertFields<I, C> &
   (Z extends Standard
     ?
         | (Scaled<View, InsertViewAndScale> & { readonly view: View })
@@ -2355,12 +2385,14 @@ export type InsertOptions<
     : Scaled<ViewWithoutStandard, InsertScale<S>>);
 
 /** What an insert holds besides its scale and its view. */
-interface InsertFields<I extends string> {
+interface InsertFields<I extends string, C extends EntityColorGiven = EntityColor> {
   /**
    * A name for the insert that no other entity of the drawing has. The insert's attributes
    * keep their handles with it.
    */
   readonly id?: EntityId<I>;
+  /** Its own color: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a true color. R2018 only. */
+  readonly color?: EntityColorOf<C>;
   /** Degrees counterclockwise, about the insert's point. Defaults to 0. */
   readonly rotation?: number;
   /** A value for each attribute to set, by its tag. The others have their default values. */
@@ -2496,6 +2528,7 @@ interface DimensionOptions<
   S extends string = string,
   T extends string = string,
   I extends string = string,
+  C extends EntityColorGiven = EntityColor,
 > {
   /** A dimension style of the drawing. */
   readonly style: DimensionStyleName<S>;
@@ -2511,6 +2544,8 @@ interface DimensionOptions<
   readonly textBelow?: DimensionText<string>;
   /** A name for the dimension that no other entity of the drawing has. */
   readonly id?: EntityId<I>;
+  /** Its own color: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a true color. R2018 only. */
+  readonly color?: EntityColorOf<C>;
   readonly view?: ViewWithoutStandard;
 }
 
@@ -2519,7 +2554,8 @@ export interface LinearDimensionOptions<
   S extends string = string,
   T extends string = string,
   I extends string = string,
-> extends DimensionOptions<S, T, I> {
+  C extends EntityColorGiven = EntityColor,
+> extends DimensionOptions<S, T, I, C> {
   /**
    * The direction it measures along: `"x"`, the default, `"y"`, or an angle in degrees
    * counterclockwise from +X.
@@ -2532,14 +2568,16 @@ export type AlignedDimensionOptions<
   S extends string = string,
   T extends string = string,
   I extends string = string,
-> = DimensionOptions<S, T, I>;
+  C extends EntityColorGiven = EntityColor,
+> = DimensionOptions<S, T, I, C>;
 
 /** The options of `radiusDimension()`. */
 export interface RadiusDimensionOptions<
   S extends string = string,
   T extends string = string,
   I extends string = string,
-> extends DimensionOptions<S, T, I> {
+  C extends EntityColorGiven = EntityColor,
+> extends DimensionOptions<S, T, I, C> {
   /**
    * How far the middle of its text is from the center, along its line, past the center for less
    * than 0. Left out, the text stands outside the circle, past the arrowhead.
@@ -2552,21 +2590,24 @@ export type DiameterDimensionOptions<
   S extends string = string,
   T extends string = string,
   I extends string = string,
-> = RadiusDimensionOptions<S, T, I>;
+  C extends EntityColorGiven = EntityColor,
+> = RadiusDimensionOptions<S, T, I, C>;
 
 /** The options of `arcLengthDimension()`. */
 export type ArcLengthDimensionOptions<
   S extends string = string,
   T extends string = string,
   I extends string = string,
-> = DimensionOptions<S, T, I>;
+  C extends EntityColorGiven = EntityColor,
+> = DimensionOptions<S, T, I, C>;
 
 /** The options of `ordinateDimension()`. */
 export interface OrdinateDimensionOptions<
   S extends string = string,
   T extends string = string,
   I extends string = string,
-> extends DimensionOptions<S, T, I> {
+  C extends EntityColorGiven = EntityColor,
+> extends DimensionOptions<S, T, I, C> {
   /** `"x"` gives the feature's X from the origin, with its leader along Y; `"y"` its Y. */
   readonly axis: "x" | "y";
   /** The point it measures from. Defaults to `[0, 0]`. */
@@ -2578,14 +2619,16 @@ export type AngularDimensionOptions<
   S extends string = string,
   T extends string = string,
   I extends string = string,
-> = DimensionOptions<S, T, I>;
+  C extends EntityColorGiven = EntityColor,
+> = DimensionOptions<S, T, I, C>;
 
 /** The options of `joggedRadiusDimension()`. */
 export type JoggedRadiusDimensionOptions<
   S extends string = string,
   T extends string = string,
   I extends string = string,
-> = DimensionOptions<S, T, I>;
+  C extends EntityColorGiven = EntityColor,
+> = DimensionOptions<S, T, I, C>;
 
 /**
  * What a dimension is drawn with under the standard `Z`: a dimension style of the standard by its
@@ -2600,6 +2643,7 @@ export interface StandardAlignedDimensionOptions<
   T extends string = string,
   I extends string = string,
   Z extends Standard = Standard,
+  C extends EntityColorGiven = EntityColor,
 > {
   /** A dimension style of the standard, by its id. Defaults to its `defaultDimensionStyle`. */
   readonly style?: DimensionStyleOfStandard<S, Z>;
@@ -2614,6 +2658,8 @@ export interface StandardAlignedDimensionOptions<
   readonly textBelow?: DimensionText<string>;
   /** A name for the dimension that no other entity of the drawing has. */
   readonly id?: EntityId<I>;
+  /** Its own color: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a true color. R2018 only. */
+  readonly color?: EntityColorOf<C>;
 }
 
 /** The options of `radiusDimension()` and `diameterDimension()` under the standard `Z`. */
@@ -2622,7 +2668,8 @@ export interface StandardRadiusDimensionOptions<
   T extends string = string,
   I extends string = string,
   Z extends Standard = Standard,
-> extends StandardAlignedDimensionOptions<S, T, I, Z> {
+  C extends EntityColorGiven = EntityColor,
+> extends StandardAlignedDimensionOptions<S, T, I, Z, C> {
   /** How far the middle of its text is from the center, as `RadiusDimensionOptions` says. */
   readonly textFromCenter?: number;
 }
@@ -2633,7 +2680,8 @@ export interface StandardOrdinateDimensionOptions<
   T extends string = string,
   I extends string = string,
   Z extends Standard = Standard,
-> extends StandardAlignedDimensionOptions<S, T, I, Z> {
+  C extends EntityColorGiven = EntityColor,
+> extends StandardAlignedDimensionOptions<S, T, I, Z, C> {
   /** `"x"` gives the feature's X from the origin, with its leader along Y; `"y"` its Y. */
   readonly axis: "x" | "y";
   /** The point it measures from. Defaults to `[0, 0]`. */
@@ -2646,7 +2694,8 @@ export interface StandardLinearDimensionOptions<
   T extends string = string,
   I extends string = string,
   Z extends Standard = Standard,
-> extends StandardAlignedDimensionOptions<S, T, I, Z> {
+  C extends EntityColorGiven = EntityColor,
+> extends StandardAlignedDimensionOptions<S, T, I, Z, C> {
   /**
    * The direction it measures along: `"x"`, the default, `"y"`, or an angle in degrees
    * counterclockwise from +X.
@@ -2757,6 +2806,7 @@ export interface LeaderOptions<
   G extends number = number,
   TO extends LeaderTargets = LeaderTargets,
   W extends number = number,
+  C extends EntityColorGiven = EntityColor,
 > extends LeaderPlacement<TO> {
   /** A leader style of the drawing. */
   readonly style: LeaderStyleName<S>;
@@ -2774,6 +2824,8 @@ export interface LeaderOptions<
   readonly gap?: LeaderSize<G>;
   /** A name for the leader that no other entity of the drawing has. */
   readonly id?: EntityId<I>;
+  /** Its own color: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a true color. R2018 only. */
+  readonly color?: EntityColorOf<C>;
   readonly view?: ViewWithoutStandard;
   readonly role?: RoleWithoutStandard;
 }
@@ -2796,6 +2848,7 @@ export interface StandardLeaderOptions<
   G extends number = number,
   TO extends LeaderTargets = LeaderTargets,
   W extends number = number,
+  C extends EntityColorGiven = EntityColor,
 > extends LeaderPlacement<TO> {
   /** A leader style of the standard, by its id. Defaults to its `defaultLeaderStyle`. */
   readonly style?: LeaderStyleOfStandard<S, Z>;
@@ -2813,13 +2866,18 @@ export interface StandardLeaderOptions<
   readonly gap?: LeaderSize<G>;
   /** A name for the leader that no other entity of the drawing has. */
   readonly id?: EntityId<I>;
+  /** Its own color: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a true color. R2018 only. */
+  readonly color?: EntityColorOf<C>;
   readonly textStyle?: LeaderRoleAndText;
   readonly textHeight?: LeaderRoleAndText;
 }
 
 /** What `layout()` sets on a layout. */
 /** The options of `table()`: the table, but for its kind and its layer, which is the current one. */
-export type TableOptions = Omit<Table, "kind" | "layer">;
+export type TableOptions = Omit<Table, "kind" | "layer" | "color"> & {
+  /** A table has no color of its own: its style and its cells give its colors. */
+  readonly color?: "ByLayer";
+};
 
 export interface LayoutOptions<P extends string = string> {
   /** One of `PAPERS`, such as `"ARCH D"`. */
@@ -3526,7 +3584,8 @@ export class DrawingBuilder<
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
     P extends string = string,
-  >(from: Point, to: Point, options: EntityOptions<V, T, W, L, I, Z, P> = {}): this {
+    const C extends EntityColorGiven = EntityColor,
+  >(from: Point, to: Point, options: EntityOptions<V, T, W, L, I, Z, P, C> = {}): this {
     return this.#add(DrawingBuilder.prototype.line, options, () => ({
       kind: "line",
       layer: this.#current,
@@ -3548,10 +3607,11 @@ export class DrawingBuilder<
     P extends string = string,
     N extends number = number,
     R extends number = number,
+    const C extends EntityColorGiven = EntityColor,
   >(
     points: readonly Point[],
     closed = false,
-    options: PolylineOptions<V, T, W, L, I, Z, P, N, R> = {},
+    options: PolylineOptions<V, T, W, L, I, Z, P, N, R, C> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.polyline, options, () => {
       if (points.length < 2) refuse("geometry", "A polyline needs at least 2 points");
@@ -3572,11 +3632,12 @@ export class DrawingBuilder<
     I extends string = string,
     P extends string = string,
     R extends number = number,
+    const C extends EntityColorGiven = EntityColor,
   >(
     corner: Point,
     width: Positive<W>,
     height: Positive<H>,
-    options: RectOptions<V, T, LW, L, I, Z, P, R> = {},
+    options: RectOptions<V, T, LW, L, I, Z, P, R, C> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.rect, options, () => {
       const [x, y] = pt(corner);
@@ -3611,9 +3672,10 @@ export class DrawingBuilder<
     I extends string = string,
     P extends string = string,
     N extends number = number,
+    const C extends EntityColorGiven = EntityColor,
   >(
     outline: readonly Point[],
-    options: V extends "R12" ? R12Polylines : CloudOptions<A, T, W, L, I, Z, P, N>,
+    options: V extends "R12" ? R12Polylines : CloudOptions<A, T, W, L, I, Z, P, N, C>,
   ): this {
     const o = options as unknown as CloudOptions;
     return this.#add(DrawingBuilder.prototype.cloud, o, () => {
@@ -3650,10 +3712,11 @@ export class DrawingBuilder<
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
     P extends string = string,
+    const C extends EntityColorGiven = EntityColor,
   >(
     center: Point,
     outside: V extends "R12" ? R12Polylines : Positive<D>,
-    options?: V extends "R12" ? R12Polylines : DonutOptions<H, T, W, L, I, Z, P>,
+    options?: V extends "R12" ? R12Polylines : DonutOptions<H, T, W, L, I, Z, P, C>,
   ): this {
     const o = (options ?? {}) as unknown as DonutOptions;
     return this.#add(DrawingBuilder.prototype.donut, o, () => {
@@ -3723,9 +3786,10 @@ export class DrawingBuilder<
     P extends string = string,
     S extends number = number,
     const G extends HatchGradient = HatchGradient,
+    const C extends EntityColorGiven = EntityColor,
   >(
     boundary: readonly Point[] | readonly HatchLoop[],
-    options: HatchOptions<V, T, W, L, I, Z, P, S, G> = {},
+    options: HatchOptions<V, T, W, L, I, Z, P, S, G, C> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.hatch, options, () => {
       if (this.dxf === "R12") refuse("hatch", R12_ONLY.hatches);
@@ -3811,7 +3875,8 @@ export class DrawingBuilder<
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
     P extends string = string,
-  >(points: readonly Point[], options: EntityOptions<V, T, W, L, I, Z, P> = {}): this {
+    const C extends EntityColorGiven = EntityColor,
+  >(points: readonly Point[], options: EntityOptions<V, T, W, L, I, Z, P, C> = {}): this {
     return this.#add(DrawingBuilder.prototype.wipeout, options, () => {
       if (this.dxf === "R12") refuse("wipeout", R12_ONLY.hatches);
       if (!Array.isArray(points) || points.length < 3)
@@ -3844,10 +3909,11 @@ export class DrawingBuilder<
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
     P extends string = string,
+    const C extends EntityColorGiven = EntityColor,
   >(
     path: V extends "R12" ? R12Images : ImagePath<F>,
     at: Point,
-    options: V extends "R12" ? R12Images : ImageOptions<IW, IH, T, W, L, I, Z, P>,
+    options: V extends "R12" ? R12Images : ImageOptions<IW, IH, T, W, L, I, Z, P, C>,
   ): this {
     const o = options as unknown as ImageOptions;
     return this.#add(DrawingBuilder.prototype.image, o, () => {
@@ -3965,7 +4031,8 @@ export class DrawingBuilder<
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
     P extends string = string,
-  >(center: Point, radius: Positive<R>, options: EntityOptions<V, T, W, L, I, Z, P> = {}): this {
+    const C extends EntityColorGiven = EntityColor,
+  >(center: Point, radius: Positive<R>, options: EntityOptions<V, T, W, L, I, Z, P, C> = {}): this {
     return this.#add(DrawingBuilder.prototype.circle, options, () => ({
       kind: "circle",
       layer: this.#current,
@@ -3990,12 +4057,13 @@ export class DrawingBuilder<
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
     P extends string = string,
+    const C extends EntityColorGiven = EntityColor,
   >(
     center: Point,
     radius: Positive<R>,
     startAngle: number,
     endAngle: number,
-    options: EntityOptions<V, T, W, L, I, Z, P> = {},
+    options: EntityOptions<V, T, W, L, I, Z, P, C> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.arc, options, () => {
       const start = turn(num(startAngle, "startAngle"));
@@ -4032,11 +4100,12 @@ export class DrawingBuilder<
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
     P extends string = string,
+    const O extends EntityColorGiven = EntityColor,
   >(
     center: Point,
     majorAxis: Point,
     ratio: EllipseRatio<R>,
-    options: EllipseOptions<V, T, W, L, I, Z, P> = {},
+    options: EllipseOptions<V, T, W, L, I, Z, P, O> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.ellipse, options, () => {
       if (this.dxf === "R12") refuse("geometry", R12_ONLY.curves);
@@ -4078,12 +4147,13 @@ export class DrawingBuilder<
     const S extends Point = Point,
     const E extends Point = Point,
     C extends boolean = false,
-  >(fitPoints: FitPoints<F>, options: SplineOptions<V, T, W, L, I, Z, P, S, E, C> = {}): this {
+    const O extends EntityColorGiven = EntityColor,
+  >(fitPoints: FitPoints<F>, options: SplineOptions<V, T, W, L, I, Z, P, S, E, C, O> = {}): this {
     return this.#add(DrawingBuilder.prototype.spline, options, () => {
       if (this.dxf === "R12") refuse("geometry", R12_ONLY.curves);
       if (!Array.isArray(fitPoints))
         refuse("geometry", "A spline's fit points are a list of points");
-      const o = options as SplineOptions;
+      const o = options as unknown as SplineOptions;
       const points = (fitPoints as readonly Point[]).map(pt);
       const startTangent = o.startTangent === undefined ? undefined : pt(o.startTangent as Point);
       const endTangent = o.endTangent === undefined ? undefined : pt(o.endTangent as Point);
@@ -4127,15 +4197,16 @@ export class DrawingBuilder<
     D extends number = 3,
     const K extends readonly number[] = readonly number[],
     const H extends readonly number[] = readonly number[],
+    const O extends EntityColorGiven = EntityColor,
   >(
     controlPoints: ControlPoints<C, D>,
-    options: ControlSplineOptions<V, T, W, L, I, Z, P, D, K, C, H> = {},
+    options: ControlSplineOptions<V, T, W, L, I, Z, P, D, K, C, H, O> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.controlSpline, options, () => {
       if (this.dxf === "R12") refuse("geometry", R12_ONLY.curves);
       if (!Array.isArray(controlPoints))
         refuse("geometry", "A spline's control points are a list of points");
-      const o = options as ControlSplineOptions;
+      const o = options as unknown as ControlSplineOptions;
       const degree: unknown = o.degree ?? 3;
       const given = (controlPoints as readonly Point[]).map(pt);
       const closed = o.closed === true;
@@ -4191,7 +4262,8 @@ export class DrawingBuilder<
     const D extends TextStyleValue = TextStyleDefinition,
     P extends string = string,
     R extends string = string,
-  >(at: Point, value: string, options: TextOptions<H, V, T, W, L, I, S, D, Z, P, R> = {}): this {
+    const C extends EntityColorGiven = EntityColor,
+  >(at: Point, value: string, options: TextOptions<H, V, T, W, L, I, S, D, Z, P, R, C> = {}): this {
     return this.#add(DrawingBuilder.prototype.text, options, () => ({
       kind: "text",
       layer: this.#current,
@@ -4227,9 +4299,12 @@ export class DrawingBuilder<
     R extends string = string,
     N extends number = number,
     F extends number = number,
+    const C extends EntityColorGiven = EntityColor,
   >(
     value: ParagraphValue<Q>,
-    options: V extends "R12" ? R12Paragraphs : ParagraphOptions<H, T, W, L, I, S, D, Z, P, R, N, F>,
+    options: V extends "R12"
+      ? R12Paragraphs
+      : ParagraphOptions<H, T, W, L, I, S, D, Z, P, R, N, F, C>,
   ): this {
     const o = options as unknown as ParagraphOptions;
     return this.#add(DrawingBuilder.prototype.paragraph, o, () => {
@@ -4575,10 +4650,11 @@ export class DrawingBuilder<
     N extends string,
     const S extends number | readonly [number, number] = number,
     I extends string = string,
+    const C extends EntityColorGiven = EntityColor,
   >(
     block: V extends "R12" ? R12Blocks : BlockName<N>,
     at: Point,
-    options: InsertOptions<S, I, Z> = {},
+    options: InsertOptions<S, I, Z, C> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.insert, options, () =>
       this.#placed(block, at, options),
@@ -4837,15 +4913,20 @@ export class DrawingBuilder<
    * or along `options.along`, with its dimension line through `line`. The leading CAD app holds it
    * as a dimension, which reads its length again when its points move.
    */
-  linearDimension<S extends string, T extends string = string, I extends string = string>(
+  linearDimension<
+    S extends string,
+    T extends string = string,
+    I extends string = string,
+    const C extends EntityColorGiven = EntityColor,
+  >(
     from: Point,
     to: Point,
     line: Point,
     options: Z extends Standard
-      ? StandardLinearDimensionOptions<S, T, I, Z>
+      ? StandardLinearDimensionOptions<S, T, I, Z, C>
       : V extends "R12"
         ? R12Dimensions
-        : LinearDimensionOptions<S, T, I>,
+        : LinearDimensionOptions<S, T, I, C>,
   ): this {
     return this.#add(DrawingBuilder.prototype.linearDimension, idOf(options), () => {
       const o = options as unknown as LinearDimensionOptions | undefined;
@@ -4876,15 +4957,20 @@ export class DrawingBuilder<
    * its dimension line `offset` to the left of the way from the first to the second, or to the
    * right for an offset less than 0.
    */
-  alignedDimension<S extends string, T extends string = string, I extends string = string>(
+  alignedDimension<
+    S extends string,
+    T extends string = string,
+    I extends string = string,
+    const C extends EntityColorGiven = EntityColor,
+  >(
     from: Point,
     to: Point,
     offset: number,
     options: Z extends Standard
-      ? StandardAlignedDimensionOptions<S, T, I, Z>
+      ? StandardAlignedDimensionOptions<S, T, I, Z, C>
       : V extends "R12"
         ? R12Dimensions
-        : AlignedDimensionOptions<S, T, I>,
+        : AlignedDimensionOptions<S, T, I, C>,
   ): this {
     return this.#add(DrawingBuilder.prototype.alignedDimension, idOf(options), () =>
       this.#dimension(options as unknown as AlignedDimensionOptions | undefined, (style, text) => ({
@@ -4904,14 +4990,19 @@ export class DrawingBuilder<
    * of the circle or arc it measures, read with an R. Its line runs from the center through
    * `point`, and its text stands outside the circle unless `options.textFromCenter` places it.
    */
-  radiusDimension<S extends string, T extends string = string, I extends string = string>(
+  radiusDimension<
+    S extends string,
+    T extends string = string,
+    I extends string = string,
+    const C extends EntityColorGiven = EntityColor,
+  >(
     center: Point,
     point: Point,
     options: Z extends Standard
-      ? StandardRadiusDimensionOptions<S, T, I, Z>
+      ? StandardRadiusDimensionOptions<S, T, I, Z, C>
       : V extends "R12"
         ? R12Dimensions
-        : RadiusDimensionOptions<S, T, I>,
+        : RadiusDimensionOptions<S, T, I, C>,
   ): this {
     return this.#add(DrawingBuilder.prototype.radiusDimension, idOf(options), () =>
       this.#radial("radius-dimension", center, point, options),
@@ -4924,14 +5015,19 @@ export class DrawingBuilder<
    * opposite, and its text stands at `point`'s end, outside the circle unless
    * `options.textFromCenter` places it.
    */
-  diameterDimension<S extends string, T extends string = string, I extends string = string>(
+  diameterDimension<
+    S extends string,
+    T extends string = string,
+    I extends string = string,
+    const C extends EntityColorGiven = EntityColor,
+  >(
     center: Point,
     point: Point,
     options: Z extends Standard
-      ? StandardRadiusDimensionOptions<S, T, I, Z>
+      ? StandardRadiusDimensionOptions<S, T, I, Z, C>
       : V extends "R12"
         ? R12Dimensions
-        : DiameterDimensionOptions<S, T, I>,
+        : DiameterDimensionOptions<S, T, I, C>,
   ): this {
     return this.#add(DrawingBuilder.prototype.diameterDimension, idOf(options), () =>
       this.#radial("diameter-dimension", center, point, options),
@@ -4943,16 +5039,21 @@ export class DrawingBuilder<
    * for an arc whose center is far off. Its line starts at `start`, jogs across at `jog`, and runs
    * on toward the center to `point`, with its text along the last stretch.
    */
-  joggedRadiusDimension<S extends string, T extends string = string, I extends string = string>(
+  joggedRadiusDimension<
+    S extends string,
+    T extends string = string,
+    I extends string = string,
+    const C extends EntityColorGiven = EntityColor,
+  >(
     center: Point,
     point: Point,
     start: Point,
     jog: Point,
     options: Z extends Standard
-      ? StandardAlignedDimensionOptions<S, T, I, Z>
+      ? StandardAlignedDimensionOptions<S, T, I, Z, C>
       : V extends "R12"
         ? R12Dimensions
-        : JoggedRadiusDimensionOptions<S, T, I>,
+        : JoggedRadiusDimensionOptions<S, T, I, C>,
   ): this {
     return this.#add(DrawingBuilder.prototype.joggedRadiusDimension, idOf(options), () =>
       this.#dimension(
@@ -4976,16 +5077,21 @@ export class DrawingBuilder<
    * `from` and to `to`, with its arc through `at`. The arc's point picks which angle, so the order
    * of `from` and `to` means nothing.
    */
-  angularDimension<S extends string, T extends string = string, I extends string = string>(
+  angularDimension<
+    S extends string,
+    T extends string = string,
+    I extends string = string,
+    const C extends EntityColorGiven = EntityColor,
+  >(
     vertex: Point,
     from: Point,
     to: Point,
     at: Point,
     options: Z extends Standard
-      ? StandardAlignedDimensionOptions<S, T, I, Z>
+      ? StandardAlignedDimensionOptions<S, T, I, Z, C>
       : V extends "R12"
         ? R12Dimensions
-        : AngularDimensionOptions<S, T, I>,
+        : AngularDimensionOptions<S, T, I, C>,
   ): this {
     return this.#add(DrawingBuilder.prototype.angularDimension, idOf(options), () =>
       this.#dimension(options as unknown as AngularDimensionOptions | undefined, (style, text) => ({
@@ -5006,17 +5112,22 @@ export class DrawingBuilder<
    * `radius`, counterclockwise from `startAngle` to `endAngle` in degrees, as `arc` takes them,
    * with its own arc through `at`.
    */
-  arcLengthDimension<S extends string, T extends string = string, I extends string = string>(
+  arcLengthDimension<
+    S extends string,
+    T extends string = string,
+    I extends string = string,
+    const C extends EntityColorGiven = EntityColor,
+  >(
     center: Point,
     radius: number,
     startAngle: number,
     endAngle: number,
     at: Point,
     options: Z extends Standard
-      ? StandardAlignedDimensionOptions<S, T, I, Z>
+      ? StandardAlignedDimensionOptions<S, T, I, Z, C>
       : V extends "R12"
         ? R12Dimensions
-        : ArcLengthDimensionOptions<S, T, I>,
+        : ArcLengthDimensionOptions<S, T, I, C>,
   ): this {
     return this.#add(DrawingBuilder.prototype.arcLengthDimension, idOf(options), () =>
       this.#dimension(
@@ -5040,14 +5151,19 @@ export class DrawingBuilder<
    * Draws an ordinate dimension on the current layer: the distance from `options.origin`, or from
    * `[0, 0]`, to `feature` along `options.axis`, on a leader from near `feature` to `leaderEnd`.
    */
-  ordinateDimension<S extends string, T extends string = string, I extends string = string>(
+  ordinateDimension<
+    S extends string,
+    T extends string = string,
+    I extends string = string,
+    const C extends EntityColorGiven = EntityColor,
+  >(
     feature: Point,
     leaderEnd: Point,
     options: Z extends Standard
-      ? StandardOrdinateDimensionOptions<S, T, I, Z>
+      ? StandardOrdinateDimensionOptions<S, T, I, Z, C>
       : V extends "R12"
         ? R12Dimensions
-        : OrdinateDimensionOptions<S, T, I>,
+        : OrdinateDimensionOptions<S, T, I, C>,
   ): this {
     return this.#add(DrawingBuilder.prototype.ordinateDimension, idOf(options), () => {
       const o = options as unknown as OrdinateDimensionOptions | undefined;
@@ -5494,6 +5610,7 @@ export class DrawingBuilder<
     if (this.dxf === "R12") refuse("table", R12_ONLY.tables);
     if (this.#open) refuse("table", TABLE_IN_BLOCK);
     const o = (typeof given === "object" && given !== null ? given : {}) as Record<string, unknown>;
+    if (o.color !== undefined && o.color !== "ByLayer") refuse("entity-color", TABLE_COLOR);
     const named = o.style;
     const nameProblem = tableStyleNameProblem(named);
     if (nameProblem) refuse("undefined-table-style", nameProblem);
@@ -5564,13 +5681,14 @@ export class DrawingBuilder<
     R extends string = string,
     TO extends LeaderTargets = LeaderTargets,
     W extends number = number,
+    const C extends EntityColorGiven = EntityColor,
   >(
     text: LeaderText<T> | LeaderBlockContent,
     options: Z extends Standard
-      ? StandardLeaderOptions<S, I, R, Z, AS, L, G, TO, W>
+      ? StandardLeaderOptions<S, I, R, Z, AS, L, G, TO, W, C>
       : V extends "R12"
         ? R12Leaders
-        : LeaderOptions<S, I, TS, H, AS, L, G, TO, W>,
+        : LeaderOptions<S, I, TS, H, AS, L, G, TO, W, C>,
   ): this {
     return this.#add(DrawingBuilder.prototype.leader, idOf(options), () =>
       this.#leader(text as unknown, options as unknown),
@@ -6609,7 +6727,9 @@ export class DrawingBuilder<
       const key = id === undefined ? undefined : this.#idKey(id);
       if (key !== undefined) this.#freeIdHandle(id as string);
       const named = id === undefined ? {} : { id: id as string };
-      const made = { ...make(), ...named, ...this.#style(o) } as Entity;
+      // Before `make`, which takes a dimension's handles.
+      const color = this.#color(o);
+      const made = { ...make(), ...named, ...this.#style(o), ...color } as Entity;
       (this.#open ?? this.#sheet ?? { entities: this.#entities }).entities.push(made);
       if (this.#open && this.#drawsRoles(made, o)) this.#open.roles = true;
       if (key !== undefined) {
@@ -6687,6 +6807,21 @@ export class DrawingBuilder<
         ? idHandleProblem(id, other.id, handle)
         : handleProblem(what, other.what, handle),
     );
+  }
+
+  /** The color an entity is stored with: none for ByLayer, and a true color as a copy. */
+  #color(options: object): { readonly color?: EntityColor } {
+    const color: unknown = (options as { readonly color?: unknown }).color;
+    if (color === undefined) return {};
+    const problem = entityColorProblem(color);
+    if (problem) refuse("entity-color", problem);
+    if (color === "ByLayer") return {};
+    if (this.dxf === "R12") refuse("entity-color", R12_ONLY.entityColor);
+    return {
+      color: Array.isArray(color)
+        ? ([color[0], color[1], color[2]] as const)
+        : (color as EntityColor),
+    };
   }
 
   /** The linetype and lineweight an entity is stored with. */
@@ -7037,10 +7172,10 @@ function titleBlockValues(
   return values;
 }
 
-/** The id among the options of a dimension, which have no linetype or lineweight to take. */
-function idOf(options: unknown): { readonly id?: unknown } {
-  const id: unknown = (options as { id?: unknown } | null | undefined)?.id;
-  return id === undefined ? {} : { id };
+/** The id and the color among the options of a dimension, which have no linetype or lineweight to take. */
+function idOf(options: unknown): { readonly id?: unknown; readonly color?: unknown } {
+  const { id, color } = (options ?? {}) as { id?: unknown; color?: unknown };
+  return { ...(id === undefined ? {} : { id }), ...(color === undefined ? {} : { color }) };
 }
 
 /**
