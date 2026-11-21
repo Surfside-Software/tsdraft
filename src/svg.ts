@@ -22,6 +22,8 @@ import {
   type Insert,
   type Layer,
   type Leader,
+  type Table,
+  type TableStyle,
   type LeaderStyle,
   type Line,
   type Linetype,
@@ -103,9 +105,19 @@ import { fifteenDigits, fmt, written } from "./format.ts";
 import { layerKey, layerKeys } from "./layers.ts";
 import { findLayout, validViewportView } from "./layouts.ts";
 import { leaderBlock, leaderPicture, type LeaderPicture } from "./leaders.ts";
+import {
+  tableCost,
+  tableInserts,
+  tableMatrix,
+  tableMeasures,
+  tableParagraph,
+  tablePicture,
+  type TablePicture,
+} from "./tables.ts";
 import { builtInLinetype, LINEWEIGHTS, lineweightCode } from "./linetypes.ts";
 import { drawnValue, inStyle, layoutText } from "./measure.ts";
 import {
+  layoutCellText,
   layoutDimensionText,
   paragraphInStyle,
   paragraphMeasurer,
@@ -120,6 +132,7 @@ import {
   MARK_ORIENTS,
   shown as quoted,
   SplineMemo,
+  tableProblem,
   turning,
   viewportProblem,
   type DrawnEllipse,
@@ -729,6 +742,8 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       drawing.dimensionStyles,
       drawing.leaderStyles,
       most,
+      most,
+      drawing.tableStyles,
     ));
   const boxOf = (entities: readonly Entity[], at: (e: Entity) => string) => {
     const boxes = boxesOf();
@@ -753,6 +768,71 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     if (known?.style === style && known.textStyle === textStyle) return known.picture;
     const picture = leaderPicture(e, style, textStyle, (name) => blocks.get(key(name)));
     pictures.set(e, { style, textStyle, picture });
+    return picture;
+  };
+  /** The picture of each table, worked out once for the picture. */
+  /**
+   * The box of each block a table's cell holds, by its drawing: of every entity of the block,
+   * hidden or not, as the writers box it, so a cell's block takes the scale the file holds.
+   */
+  const blockBoxes = new Map<
+    Drawing,
+    {
+      readonly box: Boxer;
+      readonly known: Map<string, readonly [number, number, number, number] | undefined>;
+    }
+  >();
+  const plainBoxOf = (of: Drawing, name: string) => {
+    let held = blockBoxes.get(of);
+    if (!held) {
+      held = {
+        box: boxer(
+          of.textStyles,
+          of.blocks,
+          undefined,
+          undefined,
+          undefined,
+          of.dimensionStyles,
+          of.leaderStyles,
+          most,
+          most,
+          of.tableStyles,
+        ),
+        known: new Map(),
+      };
+      blockBoxes.set(of, held);
+    }
+    const k = key(name);
+    if (!held.known.has(k)) {
+      const found = held.box([{ kind: "insert", layer: "0", block: name, at: [0, 0] }]);
+      if (held.box.capped) refuse(drawingAt?.() ?? "a table", true);
+      held.known.set(k, found);
+    }
+    return held.known.get(k);
+  };
+  /** The picture of each table, worked out once for each drawing it is drawn from. */
+  const tablePictures = new WeakMap<Table, Map<Referenced | undefined, TablePicture | undefined>>();
+  const tablePictureOf = (e: Table, from?: Referenced): TablePicture | undefined => {
+    let byFrom = tablePictures.get(e);
+    if (!byFrom) tablePictures.set(e, (byFrom = new Map()));
+    if (byFrom.has(from)) return byFrom.get(from);
+    byFrom.set(from, undefined);
+    // A table or a style the rules refuse draws nothing. Its cells are paid for before they are
+    // read, as the picture's other work is.
+    if (typeof e.style !== "string") return undefined;
+    if (!spend(tableCost(e))) refuse(drawingAt?.() ?? "a table");
+    const tables = tablesOf(from);
+    const style = tables.tableStyles.get(key(e.style));
+    if (style === undefined || tableProblem(e) !== undefined) return undefined;
+    const picture = tablePicture(
+      e,
+      style,
+      tableMeasures(
+        (name) => (name === undefined ? undefined : tables.textStyles.get(key(name))),
+        (name) => plainBoxOf(from?.drawing ?? drawing, name),
+      ),
+    );
+    byFrom.set(from, picture);
     return picture;
   };
   /** The layout of each paragraph, a long value laid out once for the picture. */
@@ -957,6 +1037,22 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       const layOut = () => paragraphs.layout(paragraphInStyle(picture!.note, textStyle));
       return leaderToSvg(e, picture, layOut, mark, drawnPen, look, matrix, room, sides);
     }
+    if (e.kind === "table") {
+      const tables = tablesOf(from);
+      const styleOf = (name: string | undefined) =>
+        name === undefined ? undefined : tables.textStyles.get(key(name));
+      return tableToSvg(
+        e,
+        tablePictureOf(e, from),
+        styleOf,
+        mark,
+        drawnPen,
+        look,
+        matrix,
+        room,
+        sides,
+      );
+    }
     if (e.kind === "image") {
       // One whose fields cannot be drawn, which `lint` refuses, draws nothing.
       return imageDrawable(e, clipsChecked)
@@ -1137,6 +1233,15 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         e.kind === "insert" ? !frozen({ name: e.layer }) : !hidden({ name: e.layer }),
       )
       .flatMap(([i, e]): [number, Entity][] => {
+        // A table draws the block of each of its cells as an insert of it, after itself.
+        if (e.kind === "table") {
+          const picture = tablePictureOf(e);
+          // Each insert a placement makes is paid for before it is made.
+          if (picture !== undefined && !spend(picture.blocks.length))
+            refuse(drawingAt?.() ?? "a table");
+          const inserts = picture === undefined ? [] : tableInserts(e, picture);
+          return [[i, e], ...inserts.map((insert): [number, Entity] => [i, insert])];
+        }
         // A leader whose content is a block draws the block as an insert of it, after itself.
         const content = e.kind === "leader" ? contentOf(e) : undefined;
         return content === undefined
@@ -1224,6 +1329,15 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         xrefs,
         (cost) => length <= longest && spend(cost),
         key,
+        // A referenced drawing's table draws the block of each of its cells, as one of this
+        // drawing's does, each insert paid for before it is made.
+        (held, at) => {
+          if (held.kind !== "table" || hidden(at.layer) || frozenHere?.(at.layer)) return [];
+          const picture = tablePictureOf(held, at.from);
+          if (picture === undefined || picture.blocks.length === 0) return [];
+          if (!spend(picture.blocks.length)) refuse(where());
+          return tableInserts(held, picture);
+        },
       );
       if (!walked || length > longest) refuse(where());
       const xref = blocks.has(key(e.block)) ? undefined : xrefPaths.get(key(e.block));
@@ -1560,6 +1674,7 @@ interface Tables {
   readonly textStyles: ReadonlyMap<string, TextStyle>;
   readonly dimensionStyles: ReadonlyMap<string, DimensionStyle>;
   readonly leaderStyles: ReadonlyMap<string, LeaderStyle>;
+  readonly tableStyles: ReadonlyMap<string, TableStyle>;
   /** The hatch patterns, by name as a linetype's is found: the first of a name. */
   readonly hatchPatterns: ReadonlyMap<string, HatchPattern>;
 }
@@ -1577,6 +1692,12 @@ function tablesFor(drawing: Drawing): Tables {
     textStyles: new Map(filled(drawing.textStyles).map((t) => [layerKey(t.name), t])),
     dimensionStyles: new Map(filled(drawing.dimensionStyles).map((t) => [layerKey(t.name), t])),
     leaderStyles: new Map(filled(drawing.leaderStyles).map((t) => [layerKey(t.name), t])),
+    // A style that is no object with a name, which `lint` refuses, is one the drawing lacks.
+    tableStyles: new Map(
+      filled(drawing.tableStyles)
+        .filter((t) => typeof (t as { name?: unknown } | null)?.name === "string")
+        .map((t) => [layerKey(t.name), t]),
+    ),
     hatchPatterns,
   };
 }
@@ -1636,11 +1757,11 @@ function viewOf(view: SvgOptions["view"]): [number, number, number, number] | un
 type Drawn = Exclude<Entity, Insert>;
 
 /** An entity that is one shape, with a linetype and a lineweight it may have of its own. */
-type Shape = Exclude<Drawn, Dimension | Leader | Paragraph | Image | Hatch | Wipeout>;
+type Shape = Exclude<Drawn, Dimension | Leader | Paragraph | Image | Hatch | Wipeout | Table>;
 
 /** The linetype and the lineweight an entity has of its own. A dimension and a leader draw ByLayer. */
 function styled(e: Drawn): Pick<Line, "linetype" | "lineweight"> {
-  return isDimension(e) || e.kind === "leader" ? {} : e;
+  return isDimension(e) || e.kind === "leader" || e.kind === "table" ? {} : e;
 }
 
 /**
@@ -1735,6 +1856,84 @@ function leaderToSvg(
  * the picture, longer than the room, which `write` then refuses, and lays nothing out when its
  * value alone passes it.
  */
+/**
+ * A table as a group: the fill of each cell that has one, its lines, each in its own lineweight
+ * or the table's, and the text of each cell, laid out as the leading CAD app lays out a cell's.
+ * The blocks its cells hold are drawn after it, as inserts.
+ */
+function tableToSvg(
+  e: Table,
+  picture: TablePicture | undefined,
+  styleOf: (name: string | undefined) => TextStyle | undefined,
+  mark: string,
+  pen: Pen,
+  look: Look,
+  matrix: Matrix | undefined,
+  room: number,
+  sides: Known,
+): string {
+  if (picture === undefined) return `<g ${mark}/>`;
+  const placed = matrix ? compose(matrix, tableMatrix(e)) : tableMatrix(e);
+  const own = tableMatrix(e);
+  const at = (p: Point): Point => mapPoint(placed, p);
+  const inSpace = (p: Point): Point => mapPoint(own, p);
+  const parts: string[] = [];
+  let left = room;
+  const add = (part: (left: number) => string): void => {
+    if (left < 0) return;
+    const drawn = part(left);
+    parts.push(drawn);
+    left -= drawn.length;
+  };
+  for (const fill of picture.fills) {
+    const [x0, y0, x1, y1] = fill.box;
+    const corners = (
+      [
+        [x0, y0],
+        [x1, y0],
+        [x1, y1],
+        [x0, y1],
+      ] as const
+    ).map(at);
+    add(
+      () =>
+        `<polygon points="${corners.map(([x, y]) => `${fmt(x)},${fmt(y)}`).join(" ")}" fill="${look.color(fill.color)}" stroke="none" data-part="fill"/>`,
+    );
+  }
+  for (const line of picture.lines) {
+    const weighed =
+      line.lineweight === undefined ? pen : { ...pen, lineweight: lineweightCode(line.lineweight) };
+    add((left) =>
+      entityToSvg(
+        { kind: "line", layer: e.layer, from: inSpace(line.from), to: inSpace(line.to) },
+        `data-part="line"`,
+        weighed,
+        look,
+        undefined,
+        matrix,
+        left,
+        sides,
+      ),
+    );
+  }
+  for (const text of picture.texts) {
+    const paragraph = tableParagraph(e, text);
+    const lettered = text.color === undefined ? pen : { ...pen, color: look.color(text.color) };
+    add((left) =>
+      paragraphToSvg(
+        paragraph,
+        () => layoutCellText(paragraphInStyle(paragraph, styleOf(text.textStyle))),
+        `data-part="text"`,
+        lettered,
+        look,
+        matrix,
+        left,
+      ),
+    );
+  }
+  return `<g ${mark} data-table="">\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
+}
+
 function paragraphToSvg(
   e: Paragraph,
   layOut: () => ParagraphLayout,

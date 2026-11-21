@@ -23,6 +23,8 @@ import type {
   Layout,
   Leader,
   LeaderStyle,
+  Table,
+  TableStyle,
   Line,
   LinearDimension,
   RadiusDimension,
@@ -319,6 +321,7 @@ export interface Shapes {
   readonly textStyle: Check;
   readonly dimensionStyle: Check;
   readonly leaderStyle: Check;
+  readonly tableStyle: Check;
   readonly block: Check;
   readonly attribute: Check;
   readonly xref: Check;
@@ -682,6 +685,19 @@ function shapes(all: boolean, typed = all): Shapes {
       { ...shared, pattern: LEFT, gradient: LEFT },
     ),
     wipeout: fields<Wipeout>({ kind, layer: string, points: list(point) }, shared),
+    // A rule of `lint` reports the columns, the cells and the heights, whatever their type.
+    table: fields<Table>(
+      { kind, layer: string, style: ruled(string), at: point, columns: LEFT, rows: LEFT },
+      {
+        id: ruled(string),
+        rotation: number,
+        title: LEFT,
+        titleHeight: ruled(number),
+        header: LEFT,
+        headerHeight: ruled(number),
+        rowHeights: LEFT,
+      },
+    ),
   } satisfies Record<Entity["kind"], FieldsCheck>;
 
   const entity: Check = (value, at, problems, extra) => {
@@ -839,6 +855,20 @@ function shapes(all: boolean, typed = all): Shapes {
       },
     ),
   );
+  // A rule of `lint` reports each cell style, whatever its type.
+  const tableStyle = record(
+    fields<TableStyle>(
+      { name: ruled(string), textHeight: ruled(number) },
+      {
+        textStyle: ruled(string),
+        horizontalMargin: ruled(number),
+        verticalMargin: ruled(number),
+        title: LEFT,
+        header: LEFT,
+        data: LEFT,
+      },
+    ),
+  );
   const attribute = record(
     fields<AttributeShape>(
       {
@@ -907,6 +937,7 @@ function shapes(all: boolean, typed = all): Shapes {
       layouts: ruled(table(layout)),
       dimensionStyles: ruled(table(dimensionStyle)),
       leaderStyles: ruled(table(leaderStyle)),
+      tableStyles: ruled(table(tableStyle)),
       imageFrame: ruled(boolean),
       wipeoutFrame: ruled(boolean),
       patterns: ruled(table(pattern)),
@@ -922,6 +953,7 @@ function shapes(all: boolean, typed = all): Shapes {
     textStyle,
     dimensionStyle,
     leaderStyle,
+    tableStyle,
     block,
     attribute,
     xref: record(xref),

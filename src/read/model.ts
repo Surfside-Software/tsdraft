@@ -37,9 +37,11 @@ export interface DrawingRead {
   readonly linetypes: readonly ReadLinetype[];
   readonly textStyles: readonly ReadTextStyle[];
   readonly dimensionStyles: readonly ReadDimensionStyle[];
+  /** The table styles the file's dictionary of table styles names. */
+  readonly tableStyles: readonly ReadTableStyle[];
   /**
-   * Each block that is not a space or an xref. The pictures of dimensions, the blocks `*D` and a
-   * number, are kept by a read with `geometry` alone.
+   * Each block that is not a space or an xref. The pictures of dimensions and tables, the blocks
+   * `*D` or `*T` and a number, are kept by a read with `geometry` alone.
    */
   readonly blocks: readonly ReadBlock[];
   readonly xrefs: readonly ReadXref[];
@@ -179,6 +181,31 @@ export interface ReadTextStyle {
   readonly annotative: boolean;
   /** True for a style that holds a shape file and no font. */
   readonly shapes: boolean;
+}
+
+/** A cell style of a table style, as its file holds it. */
+export interface ReadTableCellStyle {
+  readonly textStyle: string;
+  readonly textHeight: number;
+  /** Where its content is: 1 to 3 along the top, left to right, 4 to 6 the middle, 7 to 9 the bottom. */
+  readonly alignment: number;
+  /** The color index of its text, 0 for ByBlock. */
+  readonly color: number;
+  /** The color index its cells are filled with, when they are. */
+  readonly fill?: number;
+  /** Its borders' lineweight in hundredths of a millimeter, or -2 for ByBlock. */
+  readonly lineweight: number;
+}
+
+/** A table style. */
+export interface ReadTableStyle {
+  readonly handle?: string | undefined;
+  readonly name: string;
+  readonly horizontalMargin: number;
+  readonly verticalMargin: number;
+  readonly title: ReadTableCellStyle;
+  readonly header: ReadTableCellStyle;
+  readonly data: ReadTableCellStyle;
 }
 
 export interface ReadDimensionStyle {
@@ -688,6 +715,56 @@ export interface ReadLeader extends ReadEntityBase {
   readonly note?: string;
 }
 
+/** A cell of a table, as its file holds it: what it holds and what it changes of its cell style. */
+export interface ReadTableCell {
+  /** Where it starts, from 0 at the top left. */
+  readonly row: number;
+  readonly column: number;
+  /** How many rows and columns it spans: 1 and 1, or more for a cell merged with others. */
+  readonly rowSpan: number;
+  readonly columnSpan: number;
+  /** Its text, with a paragraph's codes, or undefined for none. */
+  readonly text?: string;
+  /** The block it holds, by its name. */
+  readonly block?: string;
+  /** The block's scale, or undefined where it is scaled to fit the cell. */
+  readonly blockScale?: number;
+  /** Its own alignment, 1 to 9 as a cell style's, where it has one. */
+  readonly alignment?: number;
+  readonly textHeight?: number;
+  /** The color index of its text, where it has one of its own. */
+  readonly color?: number;
+  /** The color index it is filled with, where it has one of its own. */
+  readonly fill?: number;
+}
+
+/**
+ * A table: its rows and columns, each cell that starts a span or stands alone, and the block that
+ * holds its picture, which the leading CAD app shows and plots.
+ */
+export interface ReadTable extends ReadEntityBase {
+  readonly kind: "table";
+  /** Its table style, when the file's dictionary of table styles names it. */
+  readonly style?: string;
+  /** Its upper left corner. */
+  readonly at: Point;
+  /** The way its rows run, one unit long. */
+  readonly direction: Point;
+  /** The height of each row, from the top. */
+  readonly rows: readonly number[];
+  /** The width of each column, from the left. */
+  readonly columns: readonly number[];
+  /** True where its first row is a title, and its next a header, as its style and its own say. */
+  readonly title: boolean;
+  readonly header: boolean;
+  /** Each cell that starts a span or stands alone, in reading order. */
+  readonly cells: readonly ReadTableCell[];
+  /** The block of its picture, `*T` and a number, when it has one. */
+  readonly block?: string;
+  /** The handle of that block's record. */
+  readonly blockHandle?: string;
+}
+
 /** A filled outline of three or four corners, as a dimension draws an arrowhead. */
 export interface ReadSolid extends ReadEntityBase {
   readonly kind: "solid";
@@ -887,7 +964,8 @@ export type ReadEntity =
   | ReadSolid
   | ReadImage
   | ReadHatch
-  | ReadWipeout;
+  | ReadWipeout
+  | ReadTable;
 
 export interface ReadBlock {
   /** The handle of the block's record, which an insert's block record points to. */

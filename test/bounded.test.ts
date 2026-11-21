@@ -2674,6 +2674,30 @@ test("a long paragraph value many places share is laid out once in each of its s
   assert.match(paid!.message, /stopped short at entity #1 of model space/);
 });
 
+test("lint pays for tables that share their rows or a long text, and stops where the writer would", () => {
+  const row = Array.from({ length: 1000 }, () => "CELL");
+  const rows = Array.from({ length: 10 }, () => row);
+  const long = "WORD ".repeat(20_000);
+  for (const shared of [
+    { columns: Array(1000).fill(0.5), rows },
+    { columns: [1], rows: [[long]] },
+  ]) {
+    const drawing = {
+      ...createDrawing({ units: "in" }).build(),
+      tableStyles: [{ name: "S", textHeight: 0.1 }],
+      entities: Array.from({ length: 2000 }, (_, i) => ({
+        kind: "table",
+        layer: "0",
+        style: "S",
+        at: [i, 0],
+        ...shared,
+      })),
+    } as Drawing;
+    const found = within(3000, () => lint(drawing));
+    assert.ok(found.some((d) => d.rule === "check-capped"));
+  }
+});
+
 test("gradients that many hatches share, and a gradient of many fields, are checked and drawn in a bounded time", () => {
   const loops = [
     {

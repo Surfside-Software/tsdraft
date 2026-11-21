@@ -2,7 +2,7 @@
 // front left property corner. The lot, setbacks, the house, the pool, the drive, utilities,
 // grades and drainage, with site data and notes on the sheet. `INTENT` holds the setbacks the
 // house and the pool keep, which every build checks.
-import type { Intent, Point } from "../../../src/index.ts";
+import type { Intent, Point, TableOptions } from "../../../src/index.ts";
 import { CRITERIA, PROJECT } from "../project.ts";
 import { DEPTH, ENTRY, FOOTPRINT, LANAI, LANAI_SLAB, ROOF, W } from "../model/house.ts";
 import { frame } from "../lib/frame.ts";
@@ -14,7 +14,9 @@ import {
   leaderNote,
   noteColumn,
   put,
-  table,
+  aligned,
+  SCHEDULE,
+  tableBottom,
   view,
   viewport,
   type D,
@@ -457,15 +459,13 @@ function sheet(d: D): void {
     const w = AREA.right - x;
     let y = AREA.top - 0.1;
     const sf = (n: number) => `${Math.round(n).toLocaleString("en-US")} SF`;
-    y = table(
-      dd,
-      [x, y],
-      "SITE DATA",
-      [
-        { name: "ITEM", width: 3.6 },
-        { name: "VALUE", width: w - 3.6 },
-      ],
-      [
+    const siteData: TableOptions = {
+      style: SCHEDULE,
+      at: [x, y],
+      columns: [3.6, w - 3.6],
+      title: "SITE DATA",
+      header: ["ITEM", "VALUE"],
+      rows: [
         ["PARCEL", PROJECT.parcel],
         ["PARCEL ID", PROJECT.parcelId],
         ["ZONING", CRITERIA.zoning.district],
@@ -491,27 +491,28 @@ function sheet(d: D): void {
           `${heightAboveDfe.toFixed(2)}' D.F.E. TO MEAN ROOF (${CRITERIA.zoning.maxHeight}' MAX.)`,
         ],
       ],
-    );
+    };
+    dd.layer(LAYERS.text, {}, () => dd.table(siteData));
+    y = tableBottom(siteData);
     y -= 0.25;
     const ft = (n: number) => `${n.toFixed(1)}'`;
     const z = CRITERIA.zoning;
-    y = table(
-      dd,
-      [x, y],
-      "SETBACKS",
-      [
-        { name: "SIDE", width: 1.6 },
-        { name: "REQUIRED", width: 1.4, align: "center" },
-        { name: "PROVIDED", width: 1.4, align: "center" },
-        { name: "POOL REQ.", width: w - 4.4, align: "center" },
-      ],
-      [
+    const center = { 1: "center", 2: "center", 3: "center" } as const;
+    const setbacks: TableOptions = {
+      style: SCHEDULE,
+      at: [x, y],
+      columns: [1.6, 1.4, 1.4, w - 4.4],
+      title: "SETBACKS",
+      header: aligned(["SIDE", "REQUIRED", "PROVIDED", "POOL REQ."], center),
+      rows: [
         ["FRONT (S)", ft(z.front), ft(provided.front), "-"],
         ["REAR (N)", ft(z.rear), ft(provided.rear), ft(z.poolRear)],
         ["SIDE (W)", ft(z.side), ft(provided.left), ft(z.poolSide)],
         ["SIDE (E)", ft(z.side), ft(provided.right), ft(z.poolSide)],
-      ],
-    );
+      ].map((row) => aligned(row, center)),
+    };
+    dd.layer(LAYERS.text, {}, () => dd.table(setbacks));
+    y = tableBottom(setbacks);
     y -= 0.25;
     y = noteColumn(dd, [x, y], w, "SITE NOTES", [
       "BOUNDARY, BEARINGS AND EXISTING GRADES FROM A SURVEY BY OTHERS (FICTIONAL), NAVD 88. VERIFY BEFORE CONSTRUCTION.",

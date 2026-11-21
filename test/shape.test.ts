@@ -22,6 +22,8 @@ import {
   type Layer,
   type Layout,
   type LeaderStyle,
+  type TableCellStyle,
+  type TableStyle,
   type Hatch,
   type HatchPattern,
   type Linetype,
@@ -306,6 +308,27 @@ const kinds: {
     textBelow: "MIN.",
     id: "h-a",
   },
+  table: {
+    kind: "table",
+    layer: "0",
+    style: "SCHEDULE",
+    at: [100, 20],
+    rotation: 0,
+    columns: [1, 2],
+    title: "DOORS",
+    titleHeight: 0.4,
+    header: [
+      { text: "MARK", align: "left", valign: "bottom", textHeight: 0.1, color: 1, fill: 2 },
+      "SIZE",
+    ],
+    headerHeight: 0.3,
+    rows: [
+      [{ block: "TREE", blockScale: 0.5, columnSpan: 2, rowSpan: 2 }, null],
+      [null, null],
+    ],
+    rowHeights: [0.5, null],
+    id: "tb",
+  },
   "ordinate-dimension": {
     kind: "ordinate-dimension",
     layer: "0",
@@ -424,6 +447,9 @@ const full: Required<Drawing> & {
     Required<Omit<DimensionStyle, "suppressZeros">>,
   ];
   readonly leaderStyles: readonly [Required<LeaderStyle>];
+  readonly tableStyles: readonly [
+    Required<TableStyle> & { readonly data: Required<TableCellStyle> },
+  ];
   readonly layers: readonly [Layer, Required<Layer>];
   readonly blocks: readonly [
     Block,
@@ -567,6 +593,26 @@ const full: Required<Drawing> & {
       blockConnection: "insertion",
       blockScale: 2,
       scale: 10,
+    },
+  ],
+  tableStyles: [
+    {
+      name: "SCHEDULE",
+      textStyle: "NOTES",
+      textHeight: 0.1,
+      horizontalMargin: 0.03,
+      verticalMargin: 0.02,
+      title: { textHeight: 0.15 },
+      header: { fill: 8 },
+      data: {
+        textStyle: "NOTES",
+        textHeight: 0.08,
+        align: "left",
+        valign: "middle",
+        color: 3,
+        fill: 9,
+        lineweight: 0.25,
+      },
     },
   ],
   layers: [
@@ -854,7 +900,7 @@ test("a value of the wrong shape is reported in these words, once", () => {
       { toString: 0 },
       [
         "xref: Xref a value of type object: A block's name must be a string",
-        `undefined-block: insert #21: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
+        `undefined-block: insert #22: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
       ],
     ],
     [

@@ -1,7 +1,7 @@
 // E-101: the power and lighting plans of both floors at 3/16" = 1'-0", over a screened base
 // plan, with the legend, the panel schedule, the load calculation and the notes, all from the
 // circuits and devices in `mep-power.ts`.
-import type { Point } from "../../../src/index.ts";
+import type { Point, TableOptions } from "../../../src/index.ts";
 import { L1, L2, type Level } from "../model/house.ts";
 import { frame } from "../lib/frame.ts";
 import { arrowhead } from "../../lib/drafting.ts";
@@ -11,7 +11,9 @@ import {
   LAYERS,
   noteColumn,
   put,
-  table,
+  aligned,
+  SCHEDULE,
+  tableBottom,
   view,
   viewport,
   width,
@@ -473,20 +475,20 @@ function panelSchedule(d: D, at: Point): { y: number; width: number } {
     phase[ph] += Number(left[4] || 0) + Number(right[4] || 0);
     rows.push([...left, ph, ...right.slice(1).reverse(), right[0]!]);
   }
-  const cols = [
-    { name: "CKT", width: 0.42, align: "center" as const },
-    { name: "DESCRIPTION", width: 2.75 },
-    { name: "BKR", width: 0.72, align: "center" as const },
-    { name: "WIRE", width: 0.5, align: "center" as const },
-    { name: "VA", width: 0.55, align: "right" as const },
-    { name: "PH", width: 0.36, align: "center" as const },
-    { name: "VA", width: 0.55, align: "right" as const },
-    { name: "WIRE", width: 0.5, align: "center" as const },
-    { name: "BKR", width: 0.72, align: "center" as const },
-    { name: "DESCRIPTION", width: 2.75, align: "right" as const },
-    { name: "CKT", width: 0.42, align: "center" as const },
-  ];
-  const total = cols.reduce((s, c) => s + c.width, 0);
+  const columns = [0.42, 2.75, 0.72, 0.5, 0.55, 0.36, 0.55, 0.5, 0.72, 2.75, 0.42];
+  const aligns = {
+    0: "center",
+    2: "center",
+    3: "center",
+    4: "right",
+    5: "center",
+    6: "right",
+    7: "center",
+    8: "center",
+    9: "right",
+    10: "center",
+  } as const;
+  const total = columns.reduce((s, w) => s + w, 0);
   let y = at[1];
   d.layer(LAYERS.text, {}, () => {
     put(d, [at[0], y], `PANEL "${PANEL.name}" SCHEDULE`, H.label, { valign: "top" });
@@ -495,7 +497,19 @@ function panelSchedule(d: D, at: Point): { y: number; width: number } {
     put(d, [at[0], y], info, H.note, { valign: "top" });
     y -= H.note + 0.1;
   });
-  y = table(d, [at[0], y], "", cols, rows, { height: H.note, rowHeight: 0.2 });
+  const panel: TableOptions = {
+    style: SCHEDULE,
+    at: [at[0], y],
+    columns,
+    header: aligned(
+      ["CKT", "DESCRIPTION", "BKR", "WIRE", "VA", "PH", "VA", "WIRE", "BKR", "DESCRIPTION", "CKT"],
+      aligns,
+    ),
+    rows: rows.map((row) => aligned(row, aligns)),
+    rowHeights: rows.map(() => 0.2),
+  };
+  d.layer(LAYERS.text, {}, () => d.table(panel));
+  y = tableBottom(panel);
   const connected = phase.A + phase.B;
   d.layer(LAYERS.text, {}, () => {
     y -= 0.2;
@@ -538,17 +552,18 @@ function loadCalcTable(d: D, at: Point, w: number): number {
     ["TOTAL DEMAND LOAD", f(lc.total)],
     [`SERVICE: ${f(lc.total)} VA / 240 V`, `${lc.amps.toFixed(0)} A`],
   ];
-  const y = table(
-    d,
+  const right = { 1: "right" } as const;
+  const calc: TableOptions = {
+    style: SCHEDULE,
     at,
-    "SERVICE LOAD CALCULATION (NEC 220.82)",
-    [
-      { name: "LOAD", width: w - 0.85 },
-      { name: "VA", width: 0.85, align: "right" },
-    ],
-    rows,
-    { height: H.note, rowHeight: 0.2 },
-  );
+    columns: [w - 0.85, 0.85],
+    title: "SERVICE LOAD CALCULATION (NEC 220.82)",
+    header: aligned(["LOAD", "VA"], right),
+    rows: rows.map((row) => aligned(row, right)),
+    rowHeights: rows.map(() => 0.2),
+  };
+  d.layer(LAYERS.text, {}, () => d.table(calc));
+  const y = tableBottom(calc);
   let yy = y - 0.18;
   d.layer(LAYERS.text, {}, () => {
     const ok = lc.amps <= PANEL.amps;
@@ -602,20 +617,18 @@ function fixtureSchedule(d: D, at: Point): number {
     mount,
     String(DEVICES.filter((x) => x.block === block).length),
   ]);
-  return table(
-    d,
+  const aligns = { 0: "center", 2: "right", 4: "right" } as const;
+  const schedule: TableOptions = {
+    style: SCHEDULE,
     at,
-    "LIGHTING FIXTURE SCHEDULE",
-    [
-      { name: "TYPE", width: 0.5, align: "center" },
-      { name: "DESCRIPTION", width: 5.6 },
-      { name: "VA", width: 0.5, align: "right" },
-      { name: "MOUNTING", width: 1.6 },
-      { name: "QTY", width: 0.5, align: "right" },
-    ],
-    rows,
-    { height: H.note, rowHeight: 0.22 },
-  );
+    columns: [0.5, 5.6, 0.5, 1.6, 0.5],
+    title: "LIGHTING FIXTURE SCHEDULE",
+    header: aligned(["TYPE", "DESCRIPTION", "VA", "MOUNTING", "QTY"], aligns),
+    rows: rows.map((row) => aligned(row, aligns)),
+    rowHeights: rows.map(() => 0.22),
+  };
+  d.layer(LAYERS.text, {}, () => d.table(schedule));
+  return tableBottom(schedule);
 }
 
 /** The service one-line diagram, not to scale, from the utility to panel A. */

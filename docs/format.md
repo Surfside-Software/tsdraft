@@ -83,6 +83,15 @@ of its own it has a `side`, an `attachment`, a `verticalAttachment`, a `width`, 
 or lineweight. A drawing with no leader has the JSON it had before leaders existed.
 [Leaders](leaders.md) describes them.
 
+A table is an entity of kind `"table"`, in `drawing.entities` or a layout's `entities`, never a
+block's, with its `layer`, `style`, `at` and `columns`, and `rows`, each a list of a cell for each
+column: a string, an object with the fields it sets, or `null` where another cell spans it. Where
+it has them it has a `rotation`, a `title`, a `titleHeight`, a `header`, a `headerHeight` and
+`rowHeights`. Its table style is in `drawing.tableStyles`, with its `name` and `textHeight` and
+where it sets them a `textStyle`, margins and the cell styles `title`, `header` and `data`. A
+drawing with no table has the JSON it had before tables existed. [Tables](tables.md) describes
+them.
+
 A paragraph is an entity of kind `"paragraph"`, in `drawing.entities`, a block's `entities` or a
 layout's `entities`, with its `layer`, `at`, `height`, `value` and `rotation`, as a text has them,
 and where they are set a `width`, a `style`, an `align` of `"center"` or `"right"`, a `valign` of

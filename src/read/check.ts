@@ -399,6 +399,47 @@ const ENTITY: Readonly<Record<string, Fields>> = {
     },
   },
   wipeout: { ...BASE, kind: { oneOf: ["wipeout"] }, points: { list: "point" } },
+  table: {
+    ...BASE,
+    kind: { oneOf: ["table"] },
+    "style?": "string",
+    at: "point",
+    direction: "point",
+    rows: { list: "number" },
+    columns: { list: "number" },
+    title: "boolean",
+    header: "boolean",
+    cells: {
+      list: {
+        fields: {
+          row: "count",
+          column: "count",
+          rowSpan: "count",
+          columnSpan: "count",
+          "text?": "string",
+          "block?": "string",
+          "blockScale?": "number",
+          "alignment?": "number",
+          "textHeight?": "number",
+          "color?": "number",
+          "fill?": "number",
+        },
+      },
+    },
+    "block?": "string",
+    "blockHandle?": "string",
+  },
+};
+
+const TABLE_CELL_STYLE: Type = {
+  fields: {
+    textStyle: "string",
+    textHeight: "number",
+    alignment: "number",
+    color: "number",
+    "fill?": "number",
+    lineweight: "number",
+  },
 };
 
 const SPACE: Fields = {
@@ -505,6 +546,19 @@ const DRAWING_READ: Fields = {
         "arrowheadBlock?": "string",
         "textFill?": "number",
         "textFillColor?": "number",
+      },
+    },
+  },
+  tableStyles: {
+    list: {
+      fields: {
+        "handle?": "string",
+        name: "string",
+        horizontalMargin: "number",
+        verticalMargin: "number",
+        title: TABLE_CELL_STYLE,
+        header: TABLE_CELL_STYLE,
+        data: TABLE_CELL_STYLE,
       },
     },
   },

@@ -857,6 +857,118 @@ test("readDXF with geometry gives back every entity of both examples", async () 
   assert.deepEqual(read.opensAt, { layout: "C-101", center: [18, 12], height: 26.4, width: 42.24 });
 });
 
+test("readDXF with geometry reads each table as its Table, with its style and its picture", async () => {
+  const d = createDrawing({ units: "in" });
+  d.textStyle({ name: "ARIALS", font: "Arial" });
+  d.block("TAG", {}, () => d.circle([0, 0], 0.2));
+  d.tableStyle({ name: "PLAIN", textHeight: 0.18, title: { textHeight: 0.25 } });
+  d.tableStyle({
+    name: "SCHED",
+    textStyle: "ARIALS",
+    textHeight: 0.1,
+    horizontalMargin: 0.05,
+    header: { fill: 8, lineweight: 0.35, color: 5 },
+    data: { align: "left", valign: "middle" },
+  });
+  d.table({
+    style: "PLAIN",
+    at: [1, 10],
+    columns: [0.6, 1.1, 1.6],
+    title: "DOOR SCHEDULE",
+    header: ["MARK", { text: "SIZE", columnSpan: 2 }, null],
+    rows: [
+      [{ text: "D1", rowSpan: 2 }, { block: "TAG" }, { block: "TAG", blockScale: 0.5 }],
+      [
+        null,
+        { text: "{\\C1;RED}", fill: 3, color: 2 },
+        { text: "", textHeight: 0.3, align: "right" },
+      ],
+    ],
+    rowHeights: [0.5, null],
+  });
+  d.table({ style: "SCHED", at: [6, 10], rotation: 30, columns: [1, 1], rows: [["A", "B"]] });
+  d.layout("SHEET", { paper: "ANSI B" }, () => {
+    d.table({ style: "SCHED", at: [1, 8], columns: [2], title: "LONE", header: ["H"], rows: [] });
+  });
+  const drawing = d.build();
+  const read = await readDXF(toDXF(drawing), { geometry: true });
+  assert.deepEqual(checkDrawingRead(plain(read)), []);
+  assert.deepEqual(readProblems(drawing, read, "tsdraft"), []);
+  assert.deepEqual(
+    read.tableStyles.map((s) => s.name),
+    ["Standard", "PLAIN", "SCHED"],
+  );
+  // Without geometry no table is kept, and neither is its picture.
+  const plainRead = await readDXF(toDXF(drawing));
+  assert.equal(plainRead.blocks.filter((b) => b.name.startsWith("*T")).length, 0);
+  assert.equal(plainRead.tableStyles.length, 3);
+});
+
+test("readDXF counts a table past the core's limits or a read's, and never lists it", async () => {
+  type Pairs = (readonly [number, string | number])[];
+  const cell = (text: string): Pairs => [
+    [171, 1],
+    [175, 1],
+    [176, 1],
+    [91, 0],
+    [301, "CELL_VALUE"],
+    [1, text],
+    [304, "ACVALUE_END"],
+  ];
+  const table = (rows: number, columns: number, cells: Pairs = [], heights = rows): Pairs => [
+    [0, "ACAD_TABLE"],
+    [8, "0"],
+    [100, "AcDbBlockReference"],
+    [2, "*T1"],
+    [100, "AcDbTable"],
+    [280, 0],
+    [91, rows],
+    [92, columns],
+    ...Array.from({ length: heights }, (): [number, number] => [141, 0.3]),
+    ...Array.from({ length: Math.min(columns, 2000) }, (): [number, number] => [142, 1]),
+    ...cells,
+  ];
+  const read = await readDXFWithin(
+    dxf([
+      ...section(
+        "ENTITIES",
+        table(1, 1001),
+        table(400, 400, [], 0),
+        table(2000, 0),
+        table(2, 1, cell("ONE")),
+        table(1, 1, cell("X".repeat(32 * 1100))),
+        table(1, 1, cell("A")),
+      ),
+      [0, "EOF"],
+    ]),
+    { geometry: true },
+    { ...READ_LIMITS, geometryItems: 1000 },
+  );
+  assert.deepEqual(plain(read.model.other), {
+    "ACAD_TABLE of more than 1000 columns": 1,
+    "ACAD_TABLE of more than 100000 cells": 1,
+    "ACAD_TABLE of more than 1000 rows": 1,
+    "past the limit": 1,
+  });
+  assert.deepEqual(plain(read.unread.malformed), {
+    "ACAD_TABLE whose rows, columns or cells are not as many as it says": 1,
+  });
+  assert.deepEqual(plain(read.model.entities), [
+    {
+      layer: "0",
+      kind: "table",
+      at: [0, 0],
+      direction: [1, 0],
+      rows: [0.3],
+      columns: [1],
+      title: true,
+      header: false,
+      cells: [{ row: 0, column: 0, rowSpan: 1, columnSpan: 1, text: "A" }],
+      block: "*T1",
+    },
+  ]);
+});
+
 test("readDXF gives back a text that holds the leading CAD app's escapes as toDXF wrote it", async () => {
   const d = createDrawing({ units: "in" });
   d.leaderStyle({ name: "NOTE", textHeight: 0.125, arrowSize: 0.125, landing: 0.125, gap: 0.0625 });

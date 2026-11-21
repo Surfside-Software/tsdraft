@@ -762,6 +762,8 @@ interface Entered {
   /** The next item to read: an entity until `entities` is false, then an attribute definition. */
   next: number;
   entities: boolean;
+  /** The inserts the last item drawn holds, as `holding` gives them, and the next to enter. */
+  queued?: { readonly inserts: readonly Insert[]; next: number } | undefined;
 }
 
 /** True for an index of a list that holds an item, which is not an empty slot or past its end. */
@@ -790,6 +792,9 @@ function holds(list: readonly unknown[], index: number): boolean {
  * @param spend - Asked for 1 before the walk enters a block and before it reads each item of
  *   one. The walk ends when it says no.
  * @param key - `layerKey`, which the walk finds a block by.
+ * @param holding - The inserts an entity a referenced drawing holds draws after itself, in that
+ *   drawing's coordinates, as a table draws the block of each of its cells. Each is entered as
+ *   any insert of that drawing is.
  * @returns False when `spend` ended the walk.
  */
 export function eachDrawn(
@@ -800,6 +805,7 @@ export function eachDrawn(
   xrefs?: ReadonlyMap<string, Referenced>,
   spend: (cost: number) => boolean = () => true,
   key: (name: string) => string = layerKey,
+  holding?: (entity: Exclude<Entity, Insert>, placement: Placement) => readonly Insert[],
 ): boolean {
   if (entity.kind !== "insert") {
     draw(entity, {
@@ -854,17 +860,28 @@ export function eachDrawn(
     const { inside } = at;
     const layerOf = (name: string): LayerRef =>
       name === "0" ? at.layer : inside ? { name, of: inside } : { name };
+    // One at a time, so two that place one block do not find it open.
+    if (at.queued !== undefined && at.queued.next < at.queued.inserts.length) {
+      const insert = at.queued.inserts[at.queued.next++]!;
+      if (!enter(insert, at.inner, inside, at.matrix, layerOf(insert.layer))) return false;
+      continue;
+    }
     if (at.entities && !holds(at.items, at.next)) [at.entities, at.next] = [false, 0];
     if (at.entities) {
       const item = at.items[at.next++]!;
       if (!spend(1)) return false;
       if (item.kind !== "insert") {
-        draw(item, {
+        const placement: Placement = {
           matrix: at.matrix,
           layer: layerOf(item.layer),
           insertLayer: at.layer,
           from: inside,
-        });
+        };
+        draw(item, placement);
+        if (inside !== undefined && holding !== undefined) {
+          const inserts = holding(item, placement);
+          at.queued = inserts.length > 0 ? { inserts, next: 0 } : undefined;
+        }
       } else if (!enter(item, at.inner, inside, at.matrix, layerOf(item.layer))) return false;
       continue;
     }

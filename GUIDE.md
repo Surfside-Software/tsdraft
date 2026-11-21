@@ -440,6 +440,37 @@ d.leader(["EXISTING TREE", "TO REMAIN"], { style: "NOTE", at: [62, 38], to: [52,
   [docs/leaders.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/leaders.md)
   has the rest.
 
+## Tables
+
+Define a table style, then draw a schedule as one table:
+
+```ts
+d.tableStyle({
+  name: "SCHEDULE",
+  textStyle: "NOTES",
+  textHeight: 0.1,
+  title: { textHeight: 0.15 },
+});
+d.table({
+  style: "SCHEDULE",
+  at: [1, 22],
+  columns: [0.6, 0.8, 0.8, 2.4],
+  title: "DOOR SCHEDULE",
+  header: ["MARK", { text: "SIZE", columnSpan: 2 }, null, "NOTES"],
+  rows: [["D1", "3'-0\"", "7'-0\"", "SOLID CORE"]],
+});
+```
+
+- Each row holds a cell for each column. A cell is a string, or an object with `text`, or with a
+  `block` in place of a text, and its own `columnSpan`, `rowSpan`, `align`, `valign`,
+  `textHeight`, `color` and `fill`. A cell another spans is `null`.
+- Rows grow to fit their text, which wraps at the column's width; `rowHeights` sets the least
+  height of each data row. `measureTable` gives the size a table takes, for what goes below it.
+- A `fill` makes a cell a color swatch, and a `block` a symbol in a legend.
+- Never draw a schedule from lines and text.
+  [docs/tables.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/tables.md) has
+  the rest.
+
 ## Blocks
 
 Draw a symbol that repeats once, as a block, and place it with inserts:

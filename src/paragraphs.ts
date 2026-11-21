@@ -30,7 +30,8 @@ import { Strings } from "./shape.ts";
 //   plus its ink, from the left of its first character's ink to the right of its last one's, come
 //   to no more than the width and `SLACK`. In a word that holds a stack, the characters after its
 //   last stack stand for it, or the stack where it ends the word. A line's first word stays, wider
-//   than the width or not.
+//   than the width or not, but in a table's cell, `layoutCellText`: there a word that reaches past
+//   the width on a line of its own breaks before each character whose ink would end past it.
 // - At-least spacing gives each line a slot of the factor times A + D + h/3 from its top, and the
 //   next line its top where the slot ends. A is the most its characters' `tops` or its stacks
 //   reach above its baseline, and at least h; D is h/3, or 0 where a stack reaches highest. Its
@@ -809,6 +810,14 @@ export function layoutDimensionText(paragraph: ParagraphToMeasure): ParagraphLay
   return layOut({ ...settingsOf(paragraph), dimension: true }, parseParagraph(paragraph.value));
 }
 
+/**
+ * Lays out the text of a table's cell as `layoutParagraph` lays out a paragraph, but for a word
+ * wider than the width, which breaks before each character whose ink would pass it.
+ */
+export function layoutCellText(paragraph: ParagraphToMeasure): ParagraphLayout {
+  return layOut({ ...settingsOf(paragraph), cell: true }, parseParagraph(paragraph.value));
+}
+
 /** The text of a dimension's picture where it plots, as `measureParagraph` gives a paragraph. */
 export function measureDimensionText(paragraph: ParagraphToMeasure): ParagraphMeasure {
   return measured(paragraph, layoutDimensionText(paragraph));
@@ -834,6 +843,8 @@ interface Settings {
    * and below where a stack sets its lowest part, and not at a stacked part's ink.
    */
   readonly dimension?: boolean;
+  /** True for the text of a table's cell, whose words wider than the width break. */
+  readonly cell?: boolean;
 }
 
 /** A paragraph's columns, read: how many at most, the height of each, and the gutter. */
@@ -1270,6 +1281,65 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
     started: false,
     tabbed: false,
   };
+  /** Copies the pen into `trial`. */
+  const copyPen = (): void => {
+    trial.x = pen.x;
+    trial.key = pen.key;
+    trial.ink = pen.ink;
+    trial.leaned = pen.leaned;
+    trial.tab = pen.tab;
+    trial.gap = pen.gap;
+    trial.started = pen.started;
+    trial.tabbed = pen.tabbed;
+  };
+  /** True when the word, placed where the pen stands, reaches past the width. */
+  const overflowsAlone = (): boolean => {
+    copyPen();
+    return overflows(place(word, trial) + 2 * trial.leaned, trial);
+  };
+  const one: Parts = { items: [], count: 1 };
+  /**
+   * Places a word wider than the width in a cell's text a character at a time: a character whose
+   * ink, from the left of the box, would end past the width starts a line, as long as the line
+   * holds a character of the word.
+   */
+  const breakWord = (): void => {
+    let held = false;
+    const fit = (): void => {
+      if (held && line.at !== undefined) {
+        copyPen();
+        place(one, trial);
+        // Where its ink ends, from the left of the box.
+        if (line.at + trial.ink > limit + SLACK * height) {
+          endLine();
+          restart(false);
+        }
+      }
+      place(one, pen, line);
+      held = true;
+    };
+    for (let p = 0; p < word.count; p++) {
+      const part = word.items[p]!;
+      if (part.kind === "stack") {
+        one.items[0] = part;
+        fit();
+        continue;
+      }
+      for (let k = part.from; k < part.to;) {
+        const code = part.source.charCodeAt(k);
+        const next =
+          code >= 0xd800 &&
+          code <= 0xdbff &&
+          k + 1 < part.to &&
+          part.source.charCodeAt(k + 1) >= 0xdc00
+            ? k + 2
+            : k + 1;
+        one.items[0] = { ...part, from: k, to: next };
+        fit();
+        k = next;
+      }
+    }
+  };
   const endWord = (): void => {
     if (word.count === 0) return;
     trial.x = pen.x;
@@ -1286,7 +1356,8 @@ function layOut(settings: Settings, parsed: ParsedParagraph): ParagraphLayout {
       endLine();
       restart(false);
     } else place(spaces, pen, line);
-    place(word, pen, line);
+    if (settings.cell && limit < Infinity && overflowsAlone()) breakWord();
+    else place(word, pen, line);
     words++;
     word.count = 0;
     spaces.count = 0;

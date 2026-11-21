@@ -2,11 +2,12 @@
 // room and the lanai, the owner's bath, closet and bedroom above) at 1/4" = 1'-0", and the
 // typical wall section through the first-floor CMU wall and the second-floor wood wall, from
 // the footing to the roof, at 1/2" = 1'-0".
-import type { Point } from "../../../src/index.ts";
+import type { Point, TableOptions } from "../../../src/index.ts";
 import { CRITERIA } from "../project.ts";
 import { DEPTH, HEIGHTS, L1, L2, LANAI, LANAI_SLAB, ROOF, W } from "../model/house.ts";
 import { frame } from "../lib/frame.ts";
 import {
+  aligned,
   AREA,
   dimString,
   ftIn,
@@ -14,8 +15,9 @@ import {
   LAYERS,
   noteColumn,
   put,
+  SCHEDULE,
   sectionCut,
-  table,
+  tableBottom,
   view,
   viewport,
   width,
@@ -710,17 +712,17 @@ function envelopeTable(d: D, at: Point, w: number): number {
     ["WINDOWS", "U-0.40", "SHGC 0.25, IMPACT"],
   ];
   const c2 = 0.8;
-  return table(
-    d,
+  const center = { 1: "center" } as const;
+  const envelope: TableOptions = {
+    style: SCHEDULE,
     at,
-    "ENVELOPE (FBC-ENERGY R402, CLIMATE ZONE 2)",
-    [
-      { name: "ASSEMBLY", width: (w - c2) * 0.48 },
-      { name: "R / U", width: c2, align: "center" },
-      { name: "MATERIAL", width: (w - c2) * 0.52 },
-    ],
-    rows,
-  );
+    columns: [(w - c2) * 0.48, c2, (w - c2) * 0.52],
+    title: "ENVELOPE (FBC-ENERGY R402, CLIMATE ZONE 2)",
+    header: aligned(["ASSEMBLY", "R / U", "MATERIAL"], center),
+    rows: rows.map((row) => aligned(row, center)),
+  };
+  d.layer(LAYERS.text, {}, () => d.table(envelope));
+  return tableBottom(envelope);
 }
 
 /**
@@ -738,17 +740,17 @@ function strapTable(d: D, at: Point, w: number): number {
   ];
   const c2 = 0.95;
   const c3 = 0.85;
-  return table(
-    d,
+  const center = { 1: "center", 2: "center" } as const;
+  const loadPath: TableOptions = {
+    style: SCHEDULE,
     at,
-    "UPLIFT LOAD PATH (SCHEDULE ON S-102)",
-    [
-      { name: "CONNECTION", width: w - c2 - c3 },
-      { name: "TAG", width: c2, align: "center" },
-      { name: "SEE", width: c3, align: "center" },
-    ],
-    rows,
-  );
+    columns: [w - c2 - c3, c2, c3],
+    title: "UPLIFT LOAD PATH (SCHEDULE ON S-102)",
+    header: aligned(["CONNECTION", "TAG", "SEE"], center),
+    rows: rows.map((row) => aligned(row, center)),
+  };
+  d.layer(LAYERS.text, {}, () => d.table(loadPath));
+  return tableBottom(loadPath);
 }
 
 function sectionSheet(d: D): void {

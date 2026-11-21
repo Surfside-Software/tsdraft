@@ -1397,5 +1397,14 @@ export function costOf(e: ReadEntity): number {
     }
     case "wipeout":
       return own + e.points.length;
+    case "table":
+      return (
+        own +
+        chars(e.style) +
+        chars(e.block) +
+        e.rows.length +
+        e.columns.length +
+        e.cells.reduce((sum, cell) => sum + 1 + chars(cell.text) + chars(cell.block), 0)
+      );
   }
 }

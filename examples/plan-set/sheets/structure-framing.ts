@@ -26,7 +26,8 @@ import {
   noteColumn,
   put,
   slopeArrow,
-  table,
+  aligned,
+  SCHEDULE,
   view,
   viewport,
   type D,
@@ -633,41 +634,34 @@ export function framingSheet(d: D): void {
     legend(dd, [x, y], AREA.right - x);
     // The schedules along the bottom.
     const ty = top - hgt - 1.1;
-    table(
-      dd,
-      [AREA.left, ty],
-      "UPLIFT CONNECTOR SCHEDULE",
-      [
-        { name: "MARK", width: 0.55, align: "center" },
-        { name: "LOCATION", width: 4.2 },
-        { name: "MIN. UPLIFT (LB)", width: 1.25, align: "center" },
-        { name: "TYPE", width: 1.5 },
-      ],
-      CONNECTORS,
-    );
-    table(
-      dd,
-      [AREA.left + 7.9, ty],
-      "LINTEL SCHEDULE",
-      [
-        { name: "MARK", width: 0.55, align: "center" },
-        { name: "OPENING", width: 0.95 },
-        { name: "LINTEL", width: 1.9 },
-        { name: "AT OPENINGS", width: 2.0 },
-      ],
-      LINTELS,
-    );
-    table(
-      dd,
-      [AREA.left + 13.7, ty],
-      "BEAM AND HEADER SCHEDULE",
-      [
-        { name: "MARK", width: 0.65, align: "center" },
-        { name: "MEMBER", width: 3.1 },
-        { name: "REINF. / NOTES", width: 2.35 },
-      ],
-      BEAMS,
-    );
+    const connectorAligns = { 0: "center", 2: "center" } as const;
+    const mark = { 0: "center" } as const;
+    dd.layer(LAYERS.text, {}, () => {
+      dd.table({
+        style: SCHEDULE,
+        at: [AREA.left, ty],
+        columns: [0.55, 4.2, 1.25, 1.5],
+        title: "UPLIFT CONNECTOR SCHEDULE",
+        header: aligned(["MARK", "LOCATION", "MIN. UPLIFT (LB)", "TYPE"], connectorAligns),
+        rows: CONNECTORS.map((row) => aligned(row, connectorAligns)),
+      });
+      dd.table({
+        style: SCHEDULE,
+        at: [AREA.left + 7.9, ty],
+        columns: [0.55, 0.95, 1.9, 2.0],
+        title: "LINTEL SCHEDULE",
+        header: aligned(["MARK", "OPENING", "LINTEL", "AT OPENINGS"], mark),
+        rows: LINTELS.map((row) => aligned(row, mark)),
+      });
+      dd.table({
+        style: SCHEDULE,
+        at: [AREA.left + 13.7, ty],
+        columns: [0.65, 3.1, 2.35],
+        title: "BEAM AND HEADER SCHEDULE",
+        header: aligned(["MARK", "MEMBER", "REINF. / NOTES"], mark),
+        rows: BEAMS.map((row) => aligned(row, mark)),
+      });
+    });
     const dw = 11.0;
     const dh = 4.9;
     const dc: Point = [AREA.left, AREA.bottom + 0.65];

@@ -48,6 +48,10 @@ import type {
   Insert,
   Layout,
   Leader,
+  ParagraphAlign,
+  ParagraphVerticalAlign,
+  Table,
+  TableStyle,
   LeaderStyle,
   Linetype,
   LinetypeMark,
@@ -61,6 +65,7 @@ import type {
 } from "./drawing.ts";
 import { isFitSpline } from "./drawing.ts";
 import { boxer, type Boxer } from "./extents.ts";
+import { drawingTables } from "./table-pictures.ts";
 import { clamped, fitSpline } from "./curves.ts";
 import { nearestColorIndex } from "./svg.ts";
 import {
@@ -97,6 +102,21 @@ import {
   writtenImagePath,
   type ImageDefinition,
 } from "./images.ts";
+import {
+  cellStyleOf,
+  gridCells,
+  STANDARD_TABLE_STYLE_SIZES,
+  TABLE_ROW_KINDS,
+  TABLE_STYLE_DICTIONARY,
+  tableMargins,
+  tablePictureHandle,
+  tableRows,
+  tableStyleDictionaryHandle,
+  validTableStyleHandle,
+  type GridCell,
+  type TablePicture,
+  type TablePlace,
+} from "./tables.ts";
 import { isUnits } from "./units.ts";
 import { checksLimit, DrawingError } from "./lint.ts";
 import {
@@ -217,6 +237,8 @@ export function toDXFR2018(
     drawing.dimensionStyles,
     drawing.leaderStyles,
     checksLimit(drawing),
+    undefined,
+    drawing.tableStyles,
   );
   const [left, bottom, right, top] = extentsOf(drawing.entities, boxOf, "model space");
   // Each layout is boxed once, after model space, as `lint` boxes them.
@@ -232,6 +254,7 @@ export function toDXFR2018(
   // Keyed as style names are compared, so a leader that names `notes` takes the style `NOTES`.
   const leaderStylesByKey = new Map(leaderStyles.map((style) => [layerKey(style.name), style]));
   const leaderArrowheads = leaderArrowheadsWithBlocks(leaderStyles);
+  const tableStyles = drawing.tableStyles ?? [];
   // Each file the images show is one definition, and each image has a reactor of its own.
   const images = [...drawingImages(drawing)];
   const definitions = imageDefinitions(images);
@@ -271,6 +294,20 @@ export function toDXFR2018(
     });
     writeClass(g, "MULTILEADER", "AcDbMLeader", "ACDB_MLEADER_CLASS", 1025, {
       count: leaderCount(drawing),
+      entity: true,
+    });
+  }
+  const tableCount = [drawing.entities, ...sheets.map((sheet) => sheet.layout.entities)]
+    .flat()
+    .filter((e) => e.kind === "table").length;
+  // A table and its style are objects of classes too.
+  if (tableStyles.length > 0) {
+    writeClass(g, "TABLESTYLE", "AcDbTableStyle", "ObjectDBX Classes", 4095, {
+      count: tableStyles.length + 1,
+      entity: false,
+    });
+    writeClass(g, "ACAD_TABLE", "AcDbTable", "ObjectDBX Classes", 1025, {
+      count: tableCount,
       entity: true,
     });
   }
@@ -536,6 +573,20 @@ export function toDXFR2018(
       });
     });
   });
+  // The block of each table's picture, by the table's space and place, as a dimension's.
+  const tableBlocks = new Map<string, TableBlockHeld>();
+  /** The handles of the tables that name each style, which the style lists as its reactors. */
+  const tablesOfStyle = new Map<string, string[]>();
+  for (const drawn of drawingTables(drawing, boxOf)) {
+    tableBlocks.set(`${drawn.space}/${drawn.index}`, {
+      name: drawn.name,
+      picture: drawn.picture,
+      place: drawn.place,
+      style: drawn.style,
+      layer: drawn.table.layer,
+      rotation: drawn.table.rotation,
+    });
+  }
   const blockRecordFields = (g: Group) => {
     g(280, 1); // explodable
     g(281, 0); // scale uniformly: no
@@ -603,10 +654,36 @@ export function toDXFR2018(
       handle: handles.record,
       fields: blockRecordFields,
     })),
+    ...[...tableBlocks.values()].map(({ name, place }) => ({
+      type: "BLOCK_RECORD",
+      subclass: "AcDbBlockTableRecord",
+      name,
+      handle: tablePictureHandle(place, "record"),
+      fields: blockRecordFields,
+    })),
   ]);
   g(0, "ENDSEC");
 
   const blocksByName = blocksByKey(blocks);
+  /** The handle each table was written with. */
+  const tableHandles = new Map<TableBlockHeld, string>();
+  /** Writes a table entity, which a style the drawing does not have leaves out. */
+  const writeTableEntity = (
+    table: Table,
+    handle: string,
+    owner: string,
+    paper: boolean,
+    space: number | undefined,
+    index: number,
+  ): void => {
+    const held = space === undefined ? undefined : tableBlocks.get(`${space}/${index}`);
+    if (held === undefined) return;
+    tableHandles.set(held, handle);
+    writeTableGroups(g, table, held, { handle, owner, paper }, (name) => {
+      const block = blocksByName.get(layerKey(name));
+      return block === undefined ? undefined : blockHandles(block.name).record;
+    });
+  };
   /**
    * Writes the entities of model space, of a block or of a layout, each owned by `owner`.
    * `paper` marks the entities of a layout as being in paper space.
@@ -646,6 +723,10 @@ export function toDXFR2018(
             textStyleHandles.get(layerKey(named ?? STANDARD_TEXT_STYLE)) ?? standardStyle,
           linetype: linetypeByBlock,
         });
+        return;
+      }
+      if (entity.kind === "table") {
+        writeTableEntity(entity, own, owner, paper, space, index);
         return;
       }
       if (isDimension(entity)) {
@@ -813,6 +894,9 @@ export function toDXFR2018(
     });
   }
   for (const picture of pictures.values()) writePicture(g, picture);
+  for (const held of tableBlocks.values()) {
+    writeTablePicture(g, held, styleOf, (name) => blocksByName.get(layerKey(name))?.name);
+  }
   g(0, "ENDSEC");
 
   g(0, "SECTION");
@@ -847,6 +931,11 @@ export function toDXFR2018(
   }
   g(3, "ACAD_PLOTSTYLENAME");
   g(350, plotStyleDictionary);
+  const tableDictionary = tableStyleDictionaryHandle();
+  if (tableStyles.length > 0) {
+    g(3, TABLE_STYLE_DICTIONARY);
+    g(350, tableDictionary);
+  }
   if (wipeouts > 0) {
     g(3, "ACAD_WIPEOUT_VARS");
     g(350, wipeoutVariablesHandle());
@@ -889,6 +978,35 @@ export function toDXFR2018(
       const content =
         style.block === undefined ? undefined : blocksByName.get(layerKey(style.block))?.name;
       writeLeaderStyle(g, style, leaderDictionary, textStyle, linetypeByBlock, content);
+    }
+  }
+  if (tableStyles.length > 0) {
+    // Each table names its style's handle, and the style lists the tables that name it, through
+    // which the leading CAD app draws each table again when the style changes.
+    for (const held of tableBlocks.values()) {
+      const key = layerKey(held.style.name);
+      const list = tablesOfStyle.get(key) ?? [];
+      const written = tableHandles.get(held);
+      if (written !== undefined) list.push(written);
+      tablesOfStyle.set(key, list);
+    }
+    const styles = [STANDARD_TABLE_STYLE_SIZES, ...tableStyles];
+    g(0, "DICTIONARY");
+    ownedBy(g, tableDictionary, rootDictionary);
+    g(100, "AcDbDictionary");
+    g(281, 1);
+    for (const style of styles) {
+      g(3, dxfOnce(style.name));
+      g(350, validTableStyleHandle(style.name));
+    }
+    for (const style of styles) {
+      writeTableStyle(
+        g,
+        style,
+        validTableStyleHandle(style.name),
+        tableDictionary,
+        tablesOfStyle.get(layerKey(style.name)) ?? [],
+      );
     }
   }
   if (images.length > 0) {
@@ -1354,7 +1472,7 @@ const TEXT_VALIGN_OF = { top: "top", middle: "middle", bottom: "bottom" } as con
  */
 function writeEntity(
   g: Group,
-  e: Exclude<Entity, Insert | Dimension | Leader>,
+  e: Exclude<Entity, Insert | Dimension | Leader | Table>,
   handle: string,
   owner: string,
   style: TextStyle | undefined,
@@ -2805,4 +2923,285 @@ function writeArrowheadStroke(
     g(20, y);
     g(42, stroke.bulges[i]!);
   });
+}
+
+/** Group 170's code of each place in a cell: 1 to 3 along the top, 4 to 6 the middle, 7 to 9 the bottom. */
+function cellAlignment(align: ParagraphAlign, valign: ParagraphVerticalAlign): number {
+  return paragraphAttachment({ align, valign });
+}
+
+/** Writes a table style as the leading CAD app saves one: its margins, then a cell style for each kind of row. */
+function writeTableStyle(
+  g: Group,
+  style: TableStyle,
+  handle: string,
+  owner: string,
+  tables: readonly string[],
+): void {
+  g(0, "TABLESTYLE");
+  g(5, handle);
+  g(102, "{ACAD_REACTORS");
+  g(330, owner);
+  for (const table of tables) g(330, table);
+  g(102, "}");
+  g(330, owner);
+  g(100, "AcDbTableStyle");
+  g(280, 0); // the version of its data
+  g(3, dxfOnce(style.name));
+  g(70, 0); // its rows run down
+  g(71, 0);
+  const [horizontal, vertical] = tableMargins(style);
+  g(40, horizontal);
+  g(41, vertical);
+  g(280, 0); // its title is shown
+  g(281, 0); // its header is shown
+  for (const kind of TABLE_ROW_KINDS) {
+    const cell = cellStyleOf(style, kind);
+    g(7, dxfOnce(cell.textStyle ?? STANDARD_TEXT_STYLE));
+    g(140, cell.textHeight);
+    g(170, cellAlignment(cell.align, cell.valign));
+    g(62, cell.color ?? 0); // by block
+    g(63, cell.fill ?? 7);
+    g(283, cell.fill === undefined ? 0 : 1);
+    g(90, 512); // its data are of no one kind
+    g(91, 0);
+    g(1, "");
+    const weight = cell.lineweight === undefined ? -2 : lineweightCode(cell.lineweight);
+    // Each of its six borders: its lineweight, whether it shows and its color.
+    for (let border = 0; border < 6; border++) {
+      g(274 + border, weight);
+      g(284 + border, 1);
+      g(64 + border, 0);
+    }
+  }
+}
+
+/** A table's picture and what the writer needs to write it. */
+interface TableBlockHeld {
+  /** The block's name, `*T` and a number. */
+  readonly name: string;
+  readonly picture: TablePicture;
+  readonly place: TablePlace;
+  readonly style: TableStyle;
+  readonly layer: string;
+  /** The table's rotation, which the block holds its picture turned by. */
+  readonly rotation: number | undefined;
+}
+
+/** Writes the block of a table's picture: its fills, its lines, then each cell's text and block. */
+function writeTablePicture(
+  g: Group,
+  { name, picture, place, layer, rotation }: TableBlockHeld,
+  styleOf: (name: string | undefined) => TextStyle | undefined,
+  blockName: (name: string) => string | undefined,
+): void {
+  const record = tablePictureHandle(place, "record");
+  writeBlock(
+    g,
+    tablePictureHandle(place, "begin"),
+    tablePictureHandle(place, "end"),
+    name,
+    record,
+    {
+      paper: false,
+      anonymous: true,
+      contents: () => {
+        const begin = (
+          type: string,
+          part: string,
+          subclass: string,
+          o: { readonly lineweight?: number; readonly color?: number | undefined } = {},
+        ) => {
+          g(0, type);
+          g(5, tablePictureHandle(place, part));
+          g(330, record);
+          g(100, "AcDbEntity");
+          g(8, layer);
+          g(6, "ByBlock");
+          g(62, o.color ?? 0);
+          if (o.lineweight !== undefined) g(370, o.lineweight);
+          g(100, subclass);
+        };
+        // The block holds the picture turned as the table is, and its insert is not turned.
+        const [cos, sin] = paragraphDirection(rotation);
+        const turned = (x: number, y: number): [number, number] =>
+          cos === 1 && sin === 0 ? [x, y] : [x * cos - y * sin, x * sin + y * cos];
+        const at = (code: number, x: number, y: number) => point(g, code, ...turned(x, y));
+        for (const fill of picture.fills) {
+          const [x0, y0, x1, y1] = fill.box;
+          begin("SOLID", `fill-${fill.row}-${fill.column}`, "AcDbTrace", { color: fill.color });
+          // Its corners as the leading CAD app holds them: the left side down, then the right.
+          at(10, x0, y1);
+          at(11, x0, y0);
+          at(12, x1, y1);
+          at(13, x1, y0);
+        }
+        picture.lines.forEach((line, i) => {
+          begin("LINE", `line-${i}`, "AcDbLine", {
+            lineweight: line.lineweight === undefined ? -2 : lineweightCode(line.lineweight),
+          });
+          at(10, ...line.from);
+          at(11, ...line.to);
+        });
+        for (const text of picture.texts) {
+          begin("MTEXT", `text-${text.row}-${text.column}`, "AcDbMText", { color: text.color });
+          at(10, ...text.at);
+          g(40, text.height);
+          g(41, text.width);
+          g(46, 0);
+          g(71, paragraphAttachment(text));
+          g(72, 1);
+          writeMtextValue(g, text.value);
+          g(7, styleOf(text.textStyle)?.name ?? STANDARD_TEXT_STYLE);
+          if (cos !== 1 || sin !== 0) {
+            g(11, fifteenDigits(cos));
+            g(21, fifteenDigits(sin));
+            g(31, 0);
+          }
+          g(73, 1);
+          g(44, 1);
+        }
+        for (const block of picture.blocks) {
+          const named = blockName(block.block);
+          if (named === undefined) continue;
+          begin("INSERT", `block-${block.row}-${block.column}`, "AcDbBlockReference");
+          g(2, named);
+          at(10, ...block.at);
+          g(41, block.scale);
+          g(42, block.scale);
+          g(43, block.scale);
+          if (rotation !== undefined && rotation !== 0) g(50, writtenAngle(rotation));
+        }
+      },
+    },
+  );
+}
+
+/** Writes a table: the insert of its picture's block, then its rows, its columns and each cell. */
+function writeTableGroups(
+  g: Group,
+  table: Table,
+  held: TableBlockHeld,
+  own: { readonly handle: string; readonly owner: string; readonly paper: boolean },
+  blockRecord: (name: string) => string | undefined,
+): void {
+  g(0, "ACAD_TABLE");
+  g(5, own.handle);
+  g(330, own.owner);
+  g(100, "AcDbEntity");
+  if (own.paper) g(67, 1);
+  g(8, table.layer);
+  g(100, "AcDbBlockReference");
+  g(2, held.name);
+  point(g, 10, ...table.at);
+  g(100, "AcDbTable");
+  g(280, 0);
+  g(342, validTableStyleHandle(held.style.name));
+  g(343, tablePictureHandle(held.place, "record"));
+  const [cos, sin] = paragraphDirection(table.rotation);
+  g(11, cos === 1 ? 1 : fifteenDigits(cos));
+  g(21, sin === 0 ? 0 : fifteenDigits(sin));
+  g(31, 0);
+  g(90, 22);
+  const picture = held.picture;
+  g(91, picture.rows.length);
+  g(92, picture.columns.length);
+  g(93, 0);
+  g(94, 0);
+  g(95, 0);
+  g(96, 0);
+  // Without a title or a header, the table says so, since its style shows both.
+  if (table.title === undefined) g(280, 1);
+  if (table.header === undefined) g(281, 1);
+  for (const height of picture.rows) g(141, height);
+  for (const width of picture.columns) g(142, width);
+  const rows = tableRows(table);
+  const starts = new Map<string, GridCell>();
+  for (const cell of gridCells(table)) starts.set(`${cell.row}/${cell.column}`, cell);
+  rows.forEach(({ cells }, r) => {
+    cells.forEach((_, c) => {
+      const cell = starts.get(`${r}/${c}`);
+      const content = cell?.content ?? {};
+      const block = content.block === undefined ? undefined : blockRecord(content.block);
+      g(171, block === undefined ? 1 : 2);
+      g(172, 0);
+      g(173, cell === undefined ? 1 : 0); // merged into another
+      g(174, block !== undefined && content.blockScale === undefined ? 1 : 0); // fit to the cell
+      g(175, cell?.columns ?? 1);
+      g(176, cell?.rows ?? 1);
+      let flags = 0;
+      const overrides: [number, number | string][] = [];
+      if (content.align !== undefined || content.valign !== undefined) {
+        const own = cellStyleOf(held.style, rows[r]!.kind);
+        flags |= CELL_ALIGNMENT;
+        overrides.push([
+          170,
+          cellAlignment(content.align ?? own.align, content.valign ?? own.valign),
+        ]);
+      }
+      if (content.fill !== undefined) {
+        flags |= CELL_FILL;
+        // A cell's 283 says it has no fill, where a cell style's says it has one.
+        overrides.push([63, content.fill], [283, 0]);
+      }
+      if (content.color !== undefined) {
+        flags |= CELL_COLOR;
+        overrides.push([64, content.color]);
+      }
+      if (content.textHeight !== undefined) {
+        flags |= CELL_TEXT_HEIGHT;
+        overrides.push([140, content.textHeight]);
+      }
+      g(91, flags);
+      g(178, 0);
+      g(145, 0);
+      if (block !== undefined) {
+        g(340, block);
+        g(144, content.blockScale ?? 1);
+        g(179, 0);
+      }
+      for (const [code, value] of overrides) g(code, value);
+      g(92, 0);
+      g(301, "CELL_VALUE");
+      const text = block === undefined ? content.text : undefined;
+      if (text === undefined || text === "") {
+        g(93, block === undefined ? 3 : 1);
+        g(90, block === undefined ? 0 : 4);
+        g(94, 0);
+        g(300, "");
+        g(302, "");
+      } else {
+        g(93, 4);
+        g(90, 4); // a string
+        writeCellText(g, 1, 2, text);
+        g(94, 0);
+        g(300, "");
+        writeCellText(g, 302, 303, text);
+      }
+      g(304, "ACVALUE_END");
+    });
+  });
+}
+
+/** The bits of a cell's group 91 that say which of its style's fields it changes. */
+const CELL_ALIGNMENT = 0x1;
+/** A fill of its own: its color, 0x4, and whether it has one, 0x2. */
+const CELL_FILL = 0x6;
+const CELL_COLOR = 0x8;
+const CELL_TEXT_HEIGHT = 0x20;
+
+/**
+ * Writes a cell's text as an MTEXT's is written, its carets and tabs escaped: whole in `last` up
+ * to 250 characters, and in pieces of 250 in `more` before it past that, a caret kept with what it
+ * escapes.
+ */
+function writeCellText(g: Group, last: number, more: number, value: string): void {
+  const text = dxfOnce(value).replaceAll("\t", "^I");
+  let at = 0;
+  while (text.length - at > TEXT_CHUNK) {
+    const end = text[at + TEXT_CHUNK - 1] === "^" ? at + TEXT_CHUNK - 1 : at + TEXT_CHUNK;
+    g(more, text.slice(at, end));
+    at = end;
+  }
+  g(last, text.slice(at));
 }

@@ -44,6 +44,13 @@ import {
   leaderStyleDictionaryHandle,
   validLeaderStyleHandle,
 } from "./leaders.ts";
+import {
+  STANDARD_TABLE_STYLE,
+  tableMargins,
+  tableStyleDictionaryHandle,
+  tableTexts,
+  validTableStyleHandle,
+} from "./tables.ts";
 import { fmt, written } from "./format.ts";
 import { validIdHandle } from "./handles.ts";
 import { layerAuditKey, layerKey, layoutNameKey } from "./layers.ts";
@@ -103,6 +110,14 @@ import {
   leaderStyleNameProblem,
   leaderStyleProblem,
   leaderStyleTwinProblem,
+  standardTableStyleProblem,
+  TABLE_IN_BLOCK,
+  tableColumnsProblem,
+  tableTextsProblem,
+  tableProblem,
+  tableStyleNameProblem,
+  tableStyleProblem,
+  tableStyleTwinProblem,
   leaderTextProblem,
   placedAttributeProblem,
   layerColorProblem,
@@ -1095,6 +1110,67 @@ export interface Wipeout extends EntityBase {
   readonly points: readonly Point[];
 }
 
+/**
+ * A cell of a table: its text, or an object with what it holds and what it changes of its row's
+ * cell style. A text is paragraph text, with a paragraph's codes, which wraps at the column's width
+ * less the margins and makes its row as tall as it needs.
+ */
+export type TableCell = string | TableCellContent;
+
+/** What a cell holds, and what it changes of its row's cell style. */
+export interface TableCellContent {
+  /** Its text, as a paragraph's value with its codes. `\P` breaks a line. */
+  readonly text?: string;
+  /** A block of the drawing, in place of a text. It takes no attribute values. */
+  readonly block?: string;
+  /** The block's scale. Missing, the block is scaled to fit the cell, less its margins. */
+  readonly blockScale?: number;
+  /** How many columns it spans, from its own to the right. Defaults to 1. */
+  readonly columnSpan?: number;
+  /** How many rows it spans, from its own down. Defaults to 1. */
+  readonly rowSpan?: number;
+  readonly align?: ParagraphAlign;
+  readonly valign?: ParagraphVerticalAlign;
+  /** The height of its text's capitals. */
+  readonly textHeight?: number;
+  /** The color index of its text. */
+  readonly color?: number;
+  /** The color index it is filled with, as a swatch. */
+  readonly fill?: number;
+}
+
+/**
+ * A table: a title row, a header row and data rows, in columns, which the leading CAD app holds as
+ * one table entity a drafter adds a row to, resizes and edits cell by cell. Each row is as tall as
+ * its tallest cell needs, and no less than the height given for it. R2018 only.
+ */
+export interface Table extends Placed {
+  readonly kind: "table";
+  /** A table style of the drawing. */
+  readonly style: string;
+  /** Its upper left corner. */
+  readonly at: Point;
+  /** Degrees counterclockwise. Defaults to 0. */
+  readonly rotation?: number;
+  /** The width of each column, from the left. */
+  readonly columns: readonly number[];
+  /** The title, in one cell across every column. Missing, the table has no title row. */
+  readonly title?: TableCell;
+  /** The least height of the title row. */
+  readonly titleHeight?: number;
+  /**
+   * The header row, a cell for each column. Missing, the table has no header row. A cell that
+   * another spans is `null`.
+   */
+  readonly header?: readonly (TableCell | null)[];
+  /** The least height of the header row. */
+  readonly headerHeight?: number;
+  /** The data rows, from the top, each with a cell for each column. A cell that another spans is `null`. */
+  readonly rows: readonly (readonly (TableCell | null)[])[];
+  /** The least height of each data row, or `null` for as tall as its cells need. */
+  readonly rowHeights?: readonly (number | null)[];
+}
+
 export type Entity =
   | Line
   | Polyline
@@ -1116,7 +1192,44 @@ export type Entity =
   | Leader
   | Image
   | Hatch
-  | Wipeout;
+  | Wipeout
+  | Table;
+
+/** How the cells of one kind of row are drawn. Each size missing is its table style's. */
+export interface TableCellStyle {
+  /** The text style of its cells. Defaults to its table style's. */
+  readonly textStyle?: string;
+  /** The height of its text's capitals. Defaults to its table style's. */
+  readonly textHeight?: number;
+  readonly align?: ParagraphAlign;
+  readonly valign?: ParagraphVerticalAlign;
+  /** The color index of its text. Missing, its table's. */
+  readonly color?: number;
+  /** The color index its cells are filled with. Missing, they are not filled. */
+  readonly fill?: number;
+  /** The lineweight of its cells' borders, in millimetres. Missing, its table's. */
+  readonly lineweight?: number;
+}
+
+/**
+ * A table style: how the tables that name it are drawn. Its title row's cells are centered
+ * across and up and down, as are its header's, and its data cells' are centered across at the
+ * top, unless a cell style says otherwise.
+ */
+export interface TableStyle {
+  readonly name: string;
+  /** The text style of its cells. Defaults to `"Standard"`. */
+  readonly textStyle?: string;
+  /** The height of its text's capitals, for each kind of row that gives none of its own. */
+  readonly textHeight: number;
+  /** The room between a cell's sides and its content. Defaults to a third of `textHeight`. */
+  readonly horizontalMargin?: number;
+  /** The room between a cell's top and bottom and its content. Defaults to a third of `textHeight`. */
+  readonly verticalMargin?: number;
+  readonly title?: TableCellStyle;
+  readonly header?: TableCellStyle;
+  readonly data?: TableCellStyle;
+}
 
 /**
  * A leader style: how the leaders that name it are drawn. Its sizes are the sizes its leaders
@@ -1460,6 +1573,8 @@ export interface Drawing {
   readonly dimensionStyles?: readonly DimensionStyle[];
   /** The leader styles that leaders name. */
   readonly leaderStyles?: readonly LeaderStyle[];
+  /** The table styles that tables name. */
+  readonly tableStyles?: readonly TableStyle[];
   /**
    * Whether each image's frame shows and plots: its outline, or its clip's, in its pen. Defaults
    * to true, as the leading CAD app has it. A sheet with a logo or an aerial wants false.
@@ -2700,6 +2815,9 @@ export interface StandardLeaderOptions<
 }
 
 /** What `layout()` sets on a layout. */
+/** The options of `table()`: the table, but for its kind and its layer, which is the current one. */
+export type TableOptions = Omit<Table, "kind" | "layer">;
+
 export interface LayoutOptions<P extends string = string> {
   /** One of `PAPERS`, such as `"ARCH D"`. */
   readonly paper: PaperOf<P>;
@@ -2939,6 +3057,7 @@ function located(
     | "textStyle"
     | "dimensionStyle"
     | "leaderStyle"
+    | "tableStyle"
     | "block"
     | "attribute"
     | "xref"
@@ -3048,6 +3167,8 @@ export class DrawingBuilder<
   /** Keyed by `layerKey`: leader style names are compared as dimension style names are. */
   readonly #leaderStyles = new Map<string, LeaderStyle>();
   readonly #leaderStylesAudited = new Map<string, string>();
+  readonly #tableStyles = new Map<string, TableStyle>();
+  readonly #tableStylesAudited = new Map<string, string>();
   /** The blocks of the arrowheads the leader styles use, whose handles are taken. */
   readonly #leaderArrowheadBlocks = new Set<string>();
   /** The views `view()` declared, by `idKey` of their ids. */
@@ -5242,6 +5363,182 @@ export class DrawingBuilder<
   }
 
   /**
+   * Defines a table style: the text height of its cells, its margins, and the cell style of its
+   * title, its header and its data rows. A table names it by `style`. R2018 only.
+   *
+   * ```ts
+   * d.tableStyle({ name: "SCHEDULE", textHeight: 0.1, title: { textHeight: 0.15 } });
+   * ```
+   */
+  tableStyle(style: TableStyle): this {
+    const definition = style as unknown as TableStyle;
+    try {
+      if (this.dxf === "R12") refuse("table-style", R12_ONLY.tables);
+      this.#defineTableStyle(definition);
+    } catch (thrown) {
+      const name: unknown = (definition as { name?: unknown } | null)?.name;
+      const about = typeof name === "string" ? { tableStyle: name } : {};
+      throw located(thrown, DrawingBuilder.prototype.tableStyle, about);
+    }
+    return this;
+  }
+
+  /** Checks a table style and stores it. */
+  #defineTableStyle(definition: TableStyle): void {
+    const name: unknown = (definition as { name?: unknown } | null)?.name;
+    const fail = (rule: LintRule, problem: string): never =>
+      refuse(
+        rule,
+        `Table style ${typeof name === "string" ? JSON.stringify(name) : "with no name"}: ${problem}`,
+      );
+    const problem = tableStyleProblem(definition);
+    if (problem) fail("table-style", problem);
+    const named = name as string;
+    const first = this.#tableStylesAudited.get(layerAuditKey(named));
+    if (first !== undefined) fail("duplicate-table-style", tableStyleTwinProblem(named, first)!);
+    // Each text style it names is the drawing's, under the name the drawing has it by.
+    const textStyleOf = (given: string | undefined, field: string): string | undefined => {
+      if (given === undefined || isStandardTextStyle(given)) return undefined;
+      const found = this.#textStyles.get(layerKey(given))?.name;
+      if (found === undefined) {
+        fail(
+          "undefined-text-style",
+          `${field}: text style ${JSON.stringify(given)} is not defined. Define it with textStyle() first`,
+        );
+      }
+      return found;
+    };
+    const textStyle = textStyleOf(definition.textStyle, "textStyle");
+    const cells: Partial<Record<"title" | "header" | "data", TableCellStyle>> = {};
+    for (const kind of ["title", "header", "data"] as const) {
+      const own = definition[kind];
+      if (own === undefined) continue;
+      // A row's own `Standard` stays, since it differs from a style's other text style.
+      const ownText =
+        own.textStyle !== undefined && isStandardTextStyle(own.textStyle)
+          ? STANDARD_TEXT_STYLE
+          : textStyleOf(own.textStyle, `${kind}.textStyle`);
+      const { textStyle: _given, ...rest } = own;
+      cells[kind] = { ...(ownText === undefined ? {} : { textStyle: ownText }), ...rest };
+    }
+    const taken: string[] = [];
+    try {
+      this.#claim(
+        validTableStyleHandle(named),
+        `the table style ${JSON.stringify(named)}`,
+        undefined,
+        taken,
+      );
+      // The first style brings the leading CAD app's own and the dictionary that holds them.
+      if (this.#tableStyles.size === 0) {
+        this.#claim(
+          validTableStyleHandle(STANDARD_TABLE_STYLE),
+          'the table style "Standard"',
+          undefined,
+          taken,
+        );
+        this.#claim(
+          tableStyleDictionaryHandle(),
+          "the dictionary of table styles",
+          undefined,
+          taken,
+        );
+      }
+    } catch (thrown) {
+      for (const handle of taken) this.#handles.delete(handle);
+      throw thrown;
+    }
+    this.#tableStyles.set(layerKey(named), {
+      name: named,
+      ...(textStyle === undefined ? {} : { textStyle }),
+      textHeight: definition.textHeight,
+      ...(definition.horizontalMargin === undefined
+        ? {}
+        : { horizontalMargin: definition.horizontalMargin }),
+      ...(definition.verticalMargin === undefined
+        ? {}
+        : { verticalMargin: definition.verticalMargin }),
+      ...cells,
+    });
+    this.#tableStylesAudited.set(layerAuditKey(named), named);
+  }
+
+  /**
+   * Draws a table on the current layer, its upper left corner at `at`: a title in one cell across
+   * its columns, a header row and data rows, each row a list of cells, one for each column, with
+   * `null` for a cell that another spans. The leading CAD app holds it as one table a drafter adds
+   * a row to, resizes and edits cell by cell. R2018 only.
+   *
+   * ```ts
+   * d.table({
+   *   style: "SCHEDULE",
+   *   at: [1, 10],
+   *   columns: [0.6, 1.2, 2.4],
+   *   title: "DOOR SCHEDULE",
+   *   header: ["MARK", "SIZE", "NOTES"],
+   *   rows: [["D1", "3'-0\" x 7'-0\"", "SOLID CORE"]],
+   * });
+   * ```
+   */
+  table(options: TableOptions): this {
+    return this.#add(DrawingBuilder.prototype.table, options as object, () =>
+      this.#table(options as unknown),
+    );
+  }
+
+  /** Checks a table and what it names, and returns it. */
+  #table(given: unknown): Table {
+    if (this.dxf === "R12") refuse("table", R12_ONLY.tables);
+    if (this.#open) refuse("table", TABLE_IN_BLOCK);
+    const o = (typeof given === "object" && given !== null ? given : {}) as Record<string, unknown>;
+    const named = o.style;
+    const nameProblem = tableStyleNameProblem(named);
+    if (nameProblem) refuse("undefined-table-style", nameProblem);
+    const standard = standardTableStyleProblem(named as string);
+    if (standard) refuse("undefined-table-style", standard);
+    const style = this.#tableStyles.get(layerKey(named as string));
+    if (style === undefined) {
+      refuse(
+        "undefined-table-style",
+        `Table style ${JSON.stringify(named)} is not defined. Define it with tableStyle() first`,
+      );
+    }
+    const problem = tableProblem(o, (name) => this.#blocks.has(layerKey(name)));
+    if (problem) refuse("table", problem);
+    const narrow = tableColumnsProblem(o.columns as number[], tableMargins(style!)[0]);
+    if (narrow) refuse("table", narrow);
+    const fontOf = (name: string | undefined) =>
+      name === undefined || isStandardTextStyle(name)
+        ? STANDARD_FONT
+        : this.#textStyles.get(layerKey(name))?.font;
+    const lettered = tableTextsProblem(tableTexts(o as unknown as Table, style!), fontOf);
+    if (lettered) refuse("table", lettered);
+    const blockName = (cell: unknown): unknown => {
+      if (typeof cell !== "object" || cell === null) return cell;
+      const content = cell as TableCellContent;
+      if (content.block === undefined) return { ...content };
+      return { ...content, block: this.#blocks.get(layerKey(content.block))!.name };
+    };
+    const row = (cells: readonly unknown[]) => cells.map(blockName) as (TableCell | null)[];
+    return {
+      kind: "table",
+      layer: this.#current,
+      style: style!.name,
+      at: pt(o.at as Point),
+      ...(o.rotation === undefined || o.rotation === 0 ? {} : { rotation: o.rotation as number }),
+      columns: [...(o.columns as number[])],
+      ...(o.title === undefined ? {} : { title: blockName(o.title) as TableCell }),
+      ...(o.titleHeight === undefined ? {} : { titleHeight: o.titleHeight as number }),
+      ...(o.header === undefined ? {} : { header: row(o.header as unknown[]) }),
+      ...(o.headerHeight === undefined ? {} : { headerHeight: o.headerHeight as number }),
+      rows: (o.rows as unknown[][]).map(row),
+      ...(o.rowHeights === undefined
+        ? {}
+        : { rowHeights: [...(o.rowHeights as (number | null)[])] }),
+    };
+  }
+
+  /**
    * Draws a leader on the current layer: the note `text`, one line or a list of lines from the
    * top, joined by a shaft to each point `options.to` names. The shafts meet at `options.at`,
    * where the landing starts, and the note is a gap past the landing's end. The leading CAD app
@@ -6092,6 +6389,7 @@ export class DrawingBuilder<
         ? { dimensionStyles: [...this.#dimensionStyles.values()] }
         : {}),
       ...(this.#leaderStyles.size > 0 ? { leaderStyles: [...this.#leaderStyles.values()] } : {}),
+      ...(this.#tableStyles.size > 0 ? { tableStyles: [...this.#tableStyles.values()] } : {}),
       ...(this.#patterns.size > 0
         ? { patterns: [...this.#patterns.values()].map(([pattern]) => pattern) }
         : {}),

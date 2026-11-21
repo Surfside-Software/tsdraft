@@ -25,6 +25,7 @@ import {
   type PendingStart,
 } from "./entities.ts";
 import { GroupReader, textTwice, unescaped } from "./groups.ts";
+import { TableGroups, tableStyleOf, type TableStyleHeld } from "./table.ts";
 import {
   add,
   facing,
@@ -69,6 +70,8 @@ import {
   type ReadLinetypeMark,
   type ReadMultileader,
   type ReadOptions,
+  type ReadTable,
+  type ReadTableStyle,
   type ReadTextStyle,
   type ReadView,
   type ReadViewport,
@@ -183,6 +186,7 @@ const CENSUS: ReadonlySet<number> = new Set([5, 6, 8, 60, 62, 67, 102, 330, 370,
 const VISIBILITY: ReadonlySet<number> = new Set([60]);
 /** The kinds a block's definition reads whole, and a space's with `geometry`. */
 const BLOCK_READS = new Set([
+  "ACAD_TABLE",
   "ARC",
   "ATTDEF",
   "ATTRIB",
@@ -267,7 +271,8 @@ const HOUSEKEEPING = new Set([
   "RASTERVARIABLES",
   "SCALE",
   "SUN",
-  "TABLESTYLE",
+  "TABLECONTENT",
+  "TABLEGEOMETRY",
   "VISUALSTYLE",
   "WIPEOUTVARIABLES",
   "XRECORD",
@@ -451,6 +456,15 @@ interface PendingLeader extends LeaderNames {
   readonly target?: Target;
 }
 
+/** A table whose style is named by handle, until the file is read. */
+interface PendingTable {
+  readonly entity: ReadTable;
+  readonly target: Target;
+  readonly style: string | undefined;
+  readonly noTitle: boolean | undefined;
+  readonly noHeader: boolean | undefined;
+}
+
 /** A polyline whose vertices follow it, up to its `SEQEND`. */
 interface PolylineOwner {
   readonly kind: "polyline";
@@ -511,6 +525,15 @@ class DxfReader {
   #leaderStyleDictionary: string | undefined;
   /** Each leader style's name, by its handle. */
   readonly leaderStyles = new Map<string, string>();
+  /** The dictionary of table styles, which the root dictionary names, and its entries in its order. */
+  #tableStyleDictionary: string | undefined;
+  readonly #tableStyleEntries: (readonly [name: string, handle: string])[] = [];
+  /** Each table style read, by its handle in capitals. */
+  readonly #tableStyleObjects = new Map<string, TableStyleHeld>();
+  /** The groups of the table read now, from its `AcDbTable` on, and whether they have begun. */
+  #table: TableGroups | undefined;
+  #inTable = false;
+  readonly #tables: PendingTable[] = [];
   /** The view of the first `*Active` record of the viewport table. */
   #activeView: Omit<ReadView, "layout"> | undefined;
   readonly unread = {
@@ -597,6 +620,8 @@ class DxfReader {
   group(code: number, value: string): void {
     if (code === 0) {
       this.#end();
+      this.#table = undefined;
+      this.#inTable = false;
       if (value === "SECTION") this.#section = "?";
       else if (value === "ENDSEC") this.#section = "";
       else if (value === "EOF") this.#section = "";
@@ -619,6 +644,16 @@ class DxfReader {
       return;
     }
     const r = this.#rec;
+    // A table's own groups are read as they arrive, and its record keeps those before them.
+    if (r?.type === "ACAD_TABLE") {
+      if (this.#inTable) return this.#table?.group(code, value);
+      if (code === 100 && value.trim() === "AcDbTable") {
+        this.#inTable = true;
+        const room = this.#tableRoom();
+        if (room !== undefined) this.#table = new TableGroups(room, this.#limits.geometryItems);
+        return;
+      }
+    }
     const keep = this.#keep;
     if (!r || keep === NOTHING || DROPPED.has(code) || (keep !== ALL && !keep.has(code))) return;
     if (r.codes.length >= MAX_GROUPS) {
@@ -650,7 +685,8 @@ class DxfReader {
           type === "LAYOUT" ||
           type === "IMAGEDEF" ||
           type === "DICTIONARYVAR" ||
-          type === "SORTENTSTABLE"
+          type === "SORTENTSTABLE" ||
+          type === "TABLESTYLE"
           ? ALL
           : NOTHING;
       case "BLOCKS":
@@ -861,7 +897,7 @@ class DxfReader {
         });
         // An xref's block holds nothing of its own in the host.
         this.#inDimensionPicture = true;
-      } else if (!this.#geometry && /^\*D\d*$/i.test(blockName)) {
+      } else if (!this.#geometry && /^\*[DT]\d*$/i.test(blockName)) {
         this.#inDimensionPicture = true;
       } else {
         this.#block = {
@@ -926,6 +962,19 @@ class DxfReader {
       this.spaces.set(spaceName, space);
     }
     return space;
+  }
+
+  /**
+   * How many items the table whose groups arrive now may hold: what its block or the spaces may
+   * still keep, or undefined where the read keeps no table. The space of a table of the section
+   * `ENTITIES` is known at its end, and every space shares one budget.
+   */
+  #tableRoom(): number | undefined {
+    if (this.#section === "ENTITIES")
+      return this.#geometry ? this.#limits.geometryItems - this.#geometryItems : undefined;
+    if (this.#section !== "BLOCKS" || this.#inDimensionPicture) return undefined;
+    const target = this.#target();
+    return target === undefined ? undefined : this.#room(target);
   }
 
   /** Where the entity read now is kept: its block, or its space when the read keeps geometry. */
@@ -1075,6 +1124,8 @@ class DxfReader {
         block.attributeDefinitions.push(definition);
         return;
       }
+      case "ACAD_TABLE":
+        return this.#tableEntity(r, layer, handle, face, target);
       case "VIEWPORT": {
         if (!space) {
           if (block) add(block.other, "VIEWPORT");
@@ -1106,6 +1157,45 @@ class DxfReader {
     if (reading === undefined) add(target.other, r.type);
     else if ("other" in reading) add(target.other, reading.other);
     else if ("malformed" in reading) add(this.unread.malformed, reading.malformed);
+  }
+
+  /** A table, whose style and rows of title and header are named once the file is read. */
+  #tableEntity(
+    r: Rec,
+    layer: string,
+    handle: string | undefined,
+    face: Facing,
+    target: Target | undefined,
+  ): void {
+    const groups = this.#table;
+    this.#table = undefined;
+    if (!target) return;
+    if (hidden(r)) return add(target.other, "invisible");
+    if (face !== 1)
+      return add(target.other, face === 0 ? "ACAD_TABLE in 3D" : "ACAD_TABLE seen from below");
+    if (brokenNumber(r) || groups === undefined) {
+      const why = groups === undefined ? "with no AcDbTable" : "with a number that is not finite";
+      return add(this.unread.malformed, `ACAD_TABLE ${why}`);
+    }
+    const read = groups.end(
+      (record) => this.blockRecords.get(record) ?? this.blockRecords.get(record.toUpperCase()),
+    );
+    if ("other" in read) return add(target.other, read.other);
+    if ("malformed" in read) return add(this.unread.malformed, read.malformed);
+    const { styleHandle, blockHandle, noTitle, noHeader, ...parts } = read.table;
+    const block = name(r, 2);
+    const entity: ReadTable = {
+      ...baseOf(r, layer, handle),
+      kind: "table",
+      at: point(r, 10),
+      ...parts,
+      title: false,
+      header: false,
+      ...(block !== undefined && block !== "" && { block }),
+      ...(blockHandle !== undefined && { blockHandle }),
+    };
+    if (this.#kept(target, entity))
+      this.#tables.push({ entity, target, style: styleHandle, noTitle, noHeader });
   }
 
   /** What a space's census lists of a text, an `MTEXT` or a dimension, and the fields' MTEXTs. */
@@ -1317,10 +1407,15 @@ class DxfReader {
           const value = r.values[i + 1]!;
           // An entry keys a map by the handle it holds, which is 1 to 16 hexadecimal digits.
           if (!/^[0-9A-Fa-f]{1,16}$/.test(value)) continue;
-          if (key === "ACAD_FIELD" || key === "TEXT") {
+          // The dictionary of table styles names each by its name, whatever the name is.
+          if (handle === this.#tableStyleDictionary) {
+            if (key.length <= LONGEST_NAME && this.#tableStyleEntries.length < this.#limits.census)
+              this.#tableStyleEntries.push([unescaped(key), value]);
+          } else if (key === "ACAD_FIELD" || key === "TEXT") {
             entries ??= {};
             entries[key] = value;
           } else if (key === "ACAD_MLEADERSTYLE") this.#leaderStyleDictionary ??= value;
+          else if (key === "ACAD_TABLESTYLE") this.#tableStyleDictionary ??= value;
           else if (key === "ACAD_IMAGE_DICT") this.#imageDictionary ??= value;
           else if (key === "AcDbVariableDictionary") this.#variableDictionary ??= value;
           else if (handle === this.#variableDictionary && key === "WIPEOUTFRAME")
@@ -1374,6 +1469,13 @@ class DxfReader {
           this.#sortEntries++;
           entries.set(entity.toUpperCase(), sort.toUpperCase());
         }
+        return;
+      }
+      case "TABLESTYLE": {
+        const handle = handleAt(r, 5);
+        if (handle === undefined || this.#tableStyleObjects.size >= this.#limits.census) return;
+        const key = handle.toUpperCase();
+        if (!this.#tableStyleObjects.has(key)) this.#tableStyleObjects.set(key, tableStyleOf(r));
         return;
       }
       case "IMAGEDEF": {
@@ -1479,6 +1581,7 @@ class DxfReader {
     );
     this.#startsOfTexts();
     this.#leaderStyles(styleNames);
+    const tableStyles = this.#tableStyles();
     this.#blockHandles();
 
     // A file before the R2000 format (AC1015) has one paper space and no LAYOUT: the leading CAD
@@ -1661,6 +1764,7 @@ class DxfReader {
       sha256,
       bytes,
       images,
+      tableStyles,
       ...(groups.version !== undefined && { version: groups.version }),
       ...(groups.codepage !== undefined && { codepage: groups.codepage }),
       encoding: groups.encoding,
@@ -1797,6 +1901,47 @@ class DxfReader {
     for (const target of targets) target.entities = target.entities.filter((e) => !left.has(e));
   }
 
+  /**
+   * The table styles the dictionary of them names, in its order, and the style of each table and
+   * whether its first rows are a title and a header, from its style and its own groups. A style's
+   * name is charged to the budget its table was kept in, and a table it does not fit is counted as
+   * past the limit and left out.
+   */
+  #tableStyles(): ReadTableStyle[] {
+    const styles: ReadTableStyle[] = [];
+    const named = new Map<string, { readonly name: string; readonly held: TableStyleHeld }>();
+    for (const [styleName, handle] of this.#tableStyleEntries) {
+      const key = handle.toUpperCase();
+      const held = this.#tableStyleObjects.get(key);
+      if (held === undefined || named.has(key)) continue;
+      named.set(key, { name: styleName, held });
+      styles.push({ handle, name: styleName, ...held.style });
+    }
+    const left = new Set<ReadEntity>();
+    const targets = new Set<Target>();
+    for (const { entity, target, style, noTitle, noHeader } of this.#tables) {
+      const found = style === undefined ? undefined : named.get(style.toUpperCase());
+      const cost = nameCost(found?.name);
+      if (cost > this.#room(target)) {
+        add(target.other, "past the limit");
+        left.add(entity);
+        targets.add(target);
+        continue;
+      }
+      if (target.block) this.#blockItems += cost;
+      else this.#geometryItems += cost;
+      const rows = entity.rows.length;
+      const title = !(noTitle ?? found?.held.noTitle ?? false) && rows > 0;
+      const header = !(noHeader ?? found?.held.noHeader ?? false) && rows > (title ? 1 : 0);
+      const mutable = entity as { style?: string; title: boolean; header: boolean };
+      if (found !== undefined) mutable.style = found.name;
+      mutable.title = title;
+      mutable.header = header;
+    }
+    for (const target of targets) target.entities = target.entities.filter((e) => !left.has(e));
+    return styles;
+  }
+
   /** The tag of each attribute definition the blocks read hold, by its handle in capitals. */
   #definitionTags(): Map<string, string> {
     const tags = new Map<string, string>();
@@ -1824,7 +1969,8 @@ class DxfReader {
           entity.kind !== "radial-dimension" &&
           entity.kind !== "angular-dimension" &&
           entity.kind !== "arc-length-dimension" &&
-          entity.kind !== "ordinate-dimension"
+          entity.kind !== "ordinate-dimension" &&
+          !(entity.kind === "table" && entity.blockHandle === undefined)
         )
           continue;
         const block = entity.block;

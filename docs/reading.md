@@ -56,6 +56,12 @@ states and keeps each object's handle, and it keeps going past what it does not 
   a shape by its number and its `file`, `textStyles` and `dimensionStyles`, each
   style with whether it is annotative, and a dimension style with the units it writes lengths
   in, where its text goes, how it writes a fraction, its lineweights and its arrowheads' block. Two entries of one name are both kept, in the order of the file.
+- `tableStyles`: each table style the file's dictionary of them, `ACAD_TABLESTYLE`, names, in the
+  dictionary's order, by its name there: its `horizontalMargin` and `verticalMargin`, and a cell
+  style for its `title`, its `header` and its `data` rows. A cell style has its `textStyle`, its
+  `textHeight`, its `alignment`, 1 to 3 along the top from the left, 4 to 6 the middle and 7 to 9
+  the bottom, its text's `color`, 0 for ByBlock, its `fill` where its cells are filled, and its
+  borders' `lineweight`, -2 for ByBlock. A field a style leaves out is the leading CAD app's own.
 - `blocks`: each with its base point, its attribute definitions and its entities, below. What
   else a block draws is counted under `other` by kind, such as `HATCH` or `LWPOLYLINE in 3D`,
   and so is what stands in another plane than the block's. An entity the file marks invisible,
@@ -66,8 +72,8 @@ states and keeps each object's handle, and it keeps going past what it does not 
   is `invisible`, as one whose own flag hides it is, and a space counts such a definition under
   `other`. The blocks keep `BLOCK_ITEMS`, 400,000 items in all, counted as below, and count what
   comes past that under `past the limit`.
-  The pictures the leading CAD app makes for dimensions, the blocks named `*D` and a number, are
-  kept by a read with `geometry` alone.
+  The pictures the leading CAD app makes for dimensions and tables, the blocks named `*D` or `*T`
+  and a number, are kept by a read with `geometry` alone.
 - `xrefs`: each with its name, its path as the file holds it, and whether it is an overlay.
 - `images`: each image definition of the file's dictionary of them, with its name, its path as
   the file holds it, the pixels it states, whether it is loaded, and how many images name it. One
@@ -210,6 +216,21 @@ leader:
   `fitPoints`. One whose counts disagree with its groups, whose degree is not a whole number from
   1 to 11, or whose knots do not fit its control points is counted under `unread.malformed`, and
   one with a point off the plane under `other`.
+- `table`: its `style`, where the dictionary of table styles names it, its upper left corner
+  `at`, the `direction` its rows run, one unit long, the height of each of its `rows` from the top
+  and the width of each of its `columns` from the left, and whether its first row is a `title`
+  and its next a `header`, as its style and its own groups say. `cells` holds each cell that
+  starts a span or stands alone, in reading order: its `row` and `column` from 0 at the top left,
+  its `rowSpan` and `columnSpan`, its `text` with a paragraph's codes or its `block` by name, with
+  `blockScale` where the block is not scaled to fit the cell, and what it changes of its row's
+  cell style where its flags say so: `alignment`, `textHeight`, its text's `color` and its
+  `fill`. `block` and `blockHandle` name the block of its picture, which CAD programs show and
+  plot, and which a read with `geometry` keeps among `blocks`. A table is read from its own
+  groups, which every file holds; the objects of its dictionary, which hold the same content
+  again, are not read. A table of more than 1,000 columns or 100,000 cells, the core's
+  limits, or of more rows or items than the read may still keep, is counted under `other`, and
+  one whose rows, columns or cells are not as many as it says under `unread.malformed`. One out
+  of the plane is counted under `other`.
 - An `mtext` with a background holds `mask`: its `offsetFactor`, and its `color` or `trueColor`
   where it is not in the drawing's background.
 

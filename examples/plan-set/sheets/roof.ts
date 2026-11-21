@@ -1,7 +1,7 @@
 // A-103: the roof plan at 1/4" = 1'-0": the hip roof from `ROOF`, the lanai's shed roof, slopes,
 // gutters and downspouts, the walls below dashed, and the attic ventilation worked out from the
 // attic's area.
-import type { Point } from "../../../src/index.ts";
+import type { Point, TableOptions } from "../../../src/index.ts";
 import { DEPTH, HEIGHTS, LANAI, ROOF, ROOF_VENTS, W } from "../model/house.ts";
 import { frame } from "../lib/frame.ts";
 import {
@@ -14,7 +14,9 @@ import {
   put,
   revisionCloud,
   slopeArrow,
-  table,
+  aligned,
+  SCHEDULE,
+  tableBottom,
   view,
   viewport,
   type D,
@@ -185,15 +187,14 @@ function sheet(d: D): void {
       "DOWNSPOUTS DISCHARGE TO SPLASH BLOCKS DIRECTED TO THE SIDE SWALES. SEE C-101.",
     ]);
     y -= 0.3;
-    y = table(
-      dd,
-      [x, y],
-      "ATTIC VENTILATION (FBC-R R806.2)",
-      [
-        { name: "ITEM", width: 4.0 },
-        { name: "SQ. FT.", width: w - 4.0, align: "right" },
-      ],
-      [
+    const right = { 1: "right" } as const;
+    const vents: TableOptions = {
+      style: SCHEDULE,
+      at: [x, y],
+      columns: [4.0, w - 4.0],
+      title: "ATTIC VENTILATION (FBC-R R806.2)",
+      header: aligned(["ITEM", "SQ. FT."], right),
+      rows: [
         ["ATTIC FLOOR AREA", attic.toFixed(0)],
         ["NET FREE AREA REQ. AT 1/150", required150.toFixed(2)],
         ["NET FREE AREA REQ. AT 1/300 (BALANCED)", required.toFixed(2)],
@@ -208,8 +209,10 @@ function sheet(d: D): void {
         ],
         [`SOFFIT VENT, ${soffitLength.toFixed(0)} LF AT 9 SQ. IN./FT.`, soffitVent.toFixed(2)],
         ["TOTAL PROVIDED", (upper + soffitVent).toFixed(2)],
-      ],
-    );
+      ].map((row) => aligned(row, right)),
+    };
+    dd.layer(LAYERS.text, {}, () => dd.table(vents));
+    y = tableBottom(vents);
     noteColumn(
       dd,
       [x, y - 0.25],

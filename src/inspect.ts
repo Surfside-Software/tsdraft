@@ -14,6 +14,14 @@ import {
 import { callOf, type CallSite } from "./callsite.ts";
 import { dimensionPicture, pictureTexts, isDimension } from "./dimensions.ts";
 import { leaderPicture, leaderRepeats } from "./leaders.ts";
+import { boxer, type Boxer } from "./extents.ts";
+import {
+  tableCost,
+  tableMeasures,
+  tableParagraph,
+  tablePicture,
+  type TablePicture,
+} from "./tables.ts";
 import type {
   Block,
   Drawing,
@@ -23,6 +31,7 @@ import type {
   LeaderStyle,
   Paragraph,
   Point,
+  Table,
   TextStyle,
 } from "./drawing.ts";
 import { written } from "./format.ts";
@@ -35,7 +44,7 @@ import {
   paragraphMeasurer,
 } from "./paragraphs.ts";
 import { paperInfo } from "./papers.ts";
-import { shown } from "./rules.ts";
+import { shown, tableProblem } from "./rules.ts";
 import { filled, Strings } from "./shape.ts";
 import { visibility } from "./svg.ts";
 
@@ -243,6 +252,63 @@ export function inspectWithin(
     Leader,
     { style: LeaderStyle; textStyle: TextStyle | undefined; texts: Paragraph[]; cost: number }
   >();
+  /** The box of each block a table's cell holds, by its drawing, boxed once for the call. */
+  const blockBoxes = new Map<
+    Drawing,
+    {
+      readonly box: Boxer;
+      readonly known: Map<string, readonly [number, number, number, number] | undefined>;
+    }
+  >();
+  const blockBoxOf = (
+    of: Drawing,
+    name: string,
+  ): readonly [number, number, number, number] | undefined => {
+    let held = blockBoxes.get(of);
+    if (!held) {
+      held = {
+        box: boxer(
+          of.textStyles,
+          of.blocks,
+          undefined,
+          undefined,
+          undefined,
+          of.dimensionStyles,
+          of.leaderStyles,
+        ),
+        known: new Map(),
+      };
+      blockBoxes.set(of, held);
+    }
+    const k = key(name);
+    if (held.known.has(k)) return held.known.get(k);
+    const found = held.box([{ kind: "insert", layer: "0", block: name, at: [0, 0] }]);
+    held.known.set(k, found);
+    return found;
+  };
+  /** The picture of each table, worked out once, with each cell paid for as it is read. */
+  const tablePictures = new WeakMap<Table, TablePicture | undefined>();
+  const tableOf = (table: Table, from: Referenced | undefined): TablePicture | undefined => {
+    if (tablePictures.has(table)) return tablePictures.get(table);
+    tablePictures.set(table, undefined);
+    // Its cells are paid for before they are read. A table or a style the rules refuse draws
+    // nothing, and is not read.
+    if (typeof table.style !== "string" || !walk(tableCost(table))) return undefined;
+    const tables = tablesOf(from);
+    const style = tables.tableStyles.get(key(table.style));
+    if (style === undefined || tableProblem(table) !== undefined) return undefined;
+    const drawingOf = from?.drawing ?? drawing;
+    const picture = tablePicture(
+      table,
+      style,
+      tableMeasures(
+        (name) => (name === undefined ? undefined : tables.textStyles.get(key(name))),
+        (name) => blockBoxOf(drawingOf, name),
+      ),
+    );
+    tablePictures.set(table, picture);
+    return picture;
+  };
   /** A leader's note, as the paragraph it is laid out as, where its picture holds it. */
   const noteOf = (leader: Leader, style: LeaderStyle, textStyle: TextStyle | undefined) => {
     const known = notes.get(leader);
@@ -282,6 +348,14 @@ export function inspectWithin(
         // The note is read again for each place it is drawn.
         if (!walk(note.cost)) return;
         for (const text of note.texts) keep(text, index, matrix, from, attribute);
+        return;
+      }
+      if (drawn.kind === "table") {
+        // Each cell's text is a paragraph where the table's picture puts it.
+        const picture = tableOf(drawn, from);
+        if (picture === undefined) return;
+        for (const text of picture.texts)
+          keep(tableParagraph(drawn, text), index, matrix, from, attribute);
         return;
       }
       if (isDimension(drawn)) {
@@ -391,6 +465,7 @@ export function inspectWithin(
         ? !blank(e.value)
         : isDimension(e) ||
           e.kind === "leader" ||
+          e.kind === "table" ||
           (e.kind === "polyline" && e.closed && Array.isArray(e.points) && e.points.length > 2);
     const where = layout === undefined ? "model space" : `layout ${shown(layout)}`;
     filled(entities).forEach((entity, index) => {

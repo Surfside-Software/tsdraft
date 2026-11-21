@@ -130,6 +130,14 @@ const LEADER_STYLE_NAMES = {
   length:
     "Leader style names cannot be longer than 255 characters, as dimension style names cannot",
 } as const;
+const TABLE_STYLE_NAMES = {
+  empty: "Table style names cannot be empty",
+  chars: 'Table style names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
+  rejected:
+    "Table style names cannot contain a character the leading CAD app rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
+  edge: "Table style names cannot start or end with a space",
+  length: "Table style names cannot be longer than 255 characters, as dimension style names cannot",
+} as const;
 const HATCH_PATTERN_NAMES = {
   empty: "Hatch pattern names cannot be empty",
   chars: 'Hatch pattern names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
@@ -145,7 +153,8 @@ type NameMessages =
   | typeof BLOCK_NAMES
   | typeof DIMENSION_STYLE_NAMES
   | typeof LEADER_STYLE_NAMES
-  | typeof HATCH_PATTERN_NAMES;
+  | typeof HATCH_PATTERN_NAMES
+  | typeof TABLE_STYLE_NAMES;
 const NAME_R12_CHARS =
   'R12 layer names can only use letters, digits, $, - and _. Use DXF version "R2018" for other characters';
 const NAME_R12_LENGTH =
@@ -183,6 +192,7 @@ const R12_PARAGRAPHS =
   'tsdraft writes no paragraphs to R12 drawings. Use DXF version "R2018" for a paragraph';
 const LINE_SPACING = "A paragraph's line spacing is a factor from 0.25 to 4";
 const R12_IMAGES = 'tsdraft writes no images to R12 drawings. Use DXF version "R2018" for an image';
+const R12_TABLES = 'tsdraft writes no tables to R12 drawings. Use DXF version "R2018" for a table';
 const R12_HATCHES =
   'tsdraft writes no hatches or wipeouts to R12 drawings. Use DXF version "R2018" for a fill';
 const R12_CURVES =
@@ -1930,6 +1940,7 @@ export const R12_ONLY = {
   paragraphs: R12_PARAGRAPHS,
   images: R12_IMAGES,
   hatches: R12_HATCHES,
+  tables: R12_TABLES,
   curves: R12_CURVES,
 } as const;
 
@@ -4977,4 +4988,374 @@ export function leaderOwnProblem(given: object, scale: number): string | undefin
     if (problem) return `${field}: ${problem}`;
   }
   return leaderScaledProblem(leader, scale);
+}
+
+/** The most columns a table may have, and the most cells: rows times columns. */
+export const TABLE_COLUMNS = 1000;
+export const TABLE_CELLS = 100_000;
+
+const STANDARD_TABLE_STYLE_DEFINED =
+  "The table style \"Standard\" is the leading CAD app's own, which tsdraft writes beside a drawing's table styles, and cannot be defined. That app keeps the first style of a name and skips a second";
+const STANDARD_TABLE_STYLE_USED =
+  'tsdraft draws no table in the table style "Standard", which is the leading CAD app\'s own. Define a style with tableStyle() and name it';
+/** What is wrong with a table inside a block. */
+export const TABLE_IN_BLOCK =
+  "A table cannot be drawn in a block. Draw it in model space or on a layout, where the leading CAD app edits it";
+const CELL_COLOR = "a color is a color index, an integer from 1 to 255";
+
+/** Returns what is wrong with a table style's name, or undefined. */
+export function tableStyleNameProblem(name: unknown): string | undefined {
+  if (typeof name !== "string") return "A table style's name must be a string";
+  return nameProblem(name, TABLE_STYLE_NAMES);
+}
+
+/** True for `Standard`, the leading CAD app's own table style, in any case. */
+export function isStandardTableStyle(name: string): boolean {
+  return layerKey(name) === layerKey("Standard");
+}
+
+/** Returns what is wrong with a table that names `Standard`, or undefined. */
+export function standardTableStyleProblem(name: string): string | undefined {
+  return isStandardTableStyle(name) ? STANDARD_TABLE_STYLE_USED : undefined;
+}
+
+/** Returns what is wrong with an optional size: a finite number greater than 0 as written. */
+function optionalSizeProblem(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value))
+    return `${field} must be a finite number`;
+  const problem = sizeProblem(value);
+  return problem ? `${field}: ${problem}` : undefined;
+}
+
+/** Returns what is wrong with a color index of a cell or a cell style, or undefined. */
+function cellColorProblem(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 255
+    ? undefined
+    : `${field}: ${CELL_COLOR}`;
+}
+
+/** Returns what is wrong with an `align` and a `valign`, or undefined. */
+function cellPlaceProblem(o: Record<string, unknown>, at: string): string | undefined {
+  if (o.align !== undefined && !(PARAGRAPH_ALIGNS as readonly unknown[]).includes(o.align)) {
+    return `${at}align must be "left", "center" or "right"`;
+  }
+  if (
+    o.valign !== undefined &&
+    !(PARAGRAPH_VERTICAL_ALIGNS as readonly unknown[]).includes(o.valign)
+  ) {
+    return `${at}valign must be "top", "middle" or "bottom"`;
+  }
+  return undefined;
+}
+
+/** The fields of a cell style, and of a cell given as an object. */
+const CELL_STYLE_FIELDS = new Set([
+  "textStyle",
+  "textHeight",
+  "align",
+  "valign",
+  "color",
+  "fill",
+  "lineweight",
+]);
+const CELL_FIELDS = new Set([
+  "text",
+  "block",
+  "blockScale",
+  "columnSpan",
+  "rowSpan",
+  "align",
+  "valign",
+  "textHeight",
+  "color",
+  "fill",
+]);
+
+/** Returns what is wrong with a field an object does not have, or undefined. */
+function unknownFieldProblem(
+  o: object,
+  known: ReadonlySet<string>,
+  at: string,
+): string | undefined {
+  for (const field of Object.keys(o)) {
+    if (!known.has(field)) return `${at} has no field ${shown(field)}`;
+    if ((o as Record<string, unknown>)[field] === undefined) {
+      return `${at}.${field} is undefined: leave a field out rather than set it to undefined`;
+    }
+  }
+  return undefined;
+}
+
+/** Returns what is wrong with a cell style of a table style, or undefined. */
+function cellStyleProblem(value: unknown, kind: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return `${kind} must be an object, the cell style of its rows`;
+  }
+  const o = value as Record<string, unknown>;
+  const unknown = unknownFieldProblem(o, CELL_STYLE_FIELDS, kind);
+  if (unknown) return unknown;
+  const at = `${kind}.`;
+  if (o.textStyle !== undefined) {
+    if (typeof o.textStyle !== "string") return `${at}textStyle: a text style is named by a string`;
+    const problem = textStyleNameProblem(o.textStyle);
+    if (problem) return `${at}textStyle: ${problem}`;
+  }
+  return (
+    optionalSizeProblem(o.textHeight, `${at}textHeight`) ??
+    cellPlaceProblem(o, at) ??
+    cellColorProblem(o.color, `${at}color`) ??
+    cellColorProblem(o.fill, `${at}fill`) ??
+    (o.lineweight === undefined ||
+    (typeof o.lineweight === "number" && (LINEWEIGHTS as readonly number[]).includes(o.lineweight))
+      ? undefined
+      : `${at}lineweight must be one of LINEWEIGHTS, in millimetres`)
+  );
+}
+
+/** Returns what is wrong with a table style, or undefined. */
+export function tableStyleProblem(style: unknown): string | undefined {
+  if (typeof style !== "object" || style === null || Array.isArray(style)) {
+    return "A table style must be an object with a name and a text height";
+  }
+  const s = style as Record<string, unknown>;
+  const nameError = tableStyleNameProblem(s.name);
+  if (nameError) return nameError;
+  if (isStandardTableStyle(s.name as string)) return STANDARD_TABLE_STYLE_DEFINED;
+  if (s.textStyle !== undefined) {
+    if (typeof s.textStyle !== "string") return "textStyle: a text style is named by a string";
+    const problem = textStyleNameProblem(s.textStyle);
+    if (problem) return `textStyle: ${problem}`;
+  }
+  if (typeof s.textHeight !== "number" || !Number.isFinite(s.textHeight)) {
+    return "textHeight must be a finite number";
+  }
+  const height = sizeProblem(s.textHeight);
+  if (height) return `textHeight: ${height}`;
+  for (const field of ["horizontalMargin", "verticalMargin"] as const) {
+    const value = s[field];
+    if (value === undefined) continue;
+    if (typeof value !== "number" || !Number.isFinite(value) || !(value >= 0)) {
+      return `${field} must be a finite number, 0 or more`;
+    }
+    const problem = magnitudeProblem(value);
+    if (problem) return `${field}: ${problem}`;
+  }
+  for (const kind of ["title", "header", "data"] as const) {
+    const problem = cellStyleProblem(s[kind], kind);
+    if (problem) return problem;
+  }
+  return undefined;
+}
+
+/**
+ * Returns what is wrong with a table style twin of the drawing's, as `leaderStyleTwinProblem`
+ * says of leader styles.
+ */
+export function tableStyleTwinProblem(name: string, other: string): string | undefined {
+  if (layerAuditKey(name) !== layerAuditKey(other)) return undefined;
+  if (layerKey(name) === layerKey(other)) {
+    return "The drawing already has a table style of this name. CAD ignores case in table style names and keeps the first";
+  }
+  return `The drawing already has a table style of this name, as ${JSON.stringify(other)}. tsdraft holds table style names to the rules of dimension style names, which the leading CAD app's AUDIT takes for one name`;
+}
+
+/** Returns what is wrong with one cell, given as a string, an object or `null`, or undefined. */
+function cellProblem(
+  cell: unknown,
+  at: string,
+  hasBlock: (name: string) => boolean | undefined,
+): string | undefined {
+  if (typeof cell === "string")
+    return (
+      paragraphValueProblem(cell, undefined) && `${at}: ${paragraphValueProblem(cell, undefined)}`
+    );
+  if (typeof cell !== "object" || cell === null || Array.isArray(cell)) {
+    return `${at} must be a string, an object or null`;
+  }
+  const o = cell as Record<string, unknown>;
+  const unknown = unknownFieldProblem(o, CELL_FIELDS, at);
+  if (unknown) return unknown;
+  if (o.text !== undefined) {
+    if (typeof o.text !== "string") return `${at}.text must be a string`;
+    const problem = paragraphValueProblem(o.text, undefined);
+    if (problem) return `${at}.text: ${problem}`;
+  }
+  if (o.block !== undefined) {
+    if (typeof o.block !== "string") return `${at}.block: a block is named by a string`;
+    if (o.text !== undefined) return `${at} holds a text or a block, not both`;
+    const problem = blockNameProblem(o.block);
+    if (problem) return `${at}.block: ${problem}`;
+    if (hasBlock(o.block) === false)
+      return `${at}.block: the block ${JSON.stringify(o.block)} is not defined`;
+  }
+  if (o.blockScale !== undefined) {
+    if (o.block === undefined) return `${at}.blockScale is for a cell that holds a block`;
+    const problem = optionalSizeProblem(o.blockScale, `${at}.blockScale`);
+    if (problem) return problem;
+  }
+  for (const field of ["columnSpan", "rowSpan"] as const) {
+    const value = o[field];
+    if (value !== undefined && !(Number.isInteger(value) && (value as number) >= 1)) {
+      return `${at}.${field} must be a whole number, 1 or more`;
+    }
+  }
+  return (
+    cellPlaceProblem(o, `${at}.`) ??
+    optionalSizeProblem(o.textHeight, `${at}.textHeight`) ??
+    cellColorProblem(o.color, `${at}.color`) ??
+    cellColorProblem(o.fill, `${at}.fill`)
+  );
+}
+
+/**
+ * Returns what is wrong with a table's columns, rows, cells and heights, or undefined. `hasBlock`
+ * says whether the drawing has a block, or undefined where that is not known.
+ */
+export function tableProblem(
+  table: unknown,
+  hasBlock: (name: string) => boolean | undefined = () => undefined,
+): string | undefined {
+  if (typeof table !== "object" || table === null) return "A table must be an object";
+  const t = table as Record<string, unknown>;
+  const at = t.at;
+  if (
+    !Array.isArray(at) ||
+    at.length !== 2 ||
+    !at.every((n) => typeof n === "number" && Number.isFinite(n))
+  ) {
+    return "at must be a point, [x, y], the table's upper left corner";
+  }
+  if (
+    t.rotation !== undefined &&
+    (typeof t.rotation !== "number" || !Number.isFinite(t.rotation))
+  ) {
+    return "rotation must be a finite number of degrees";
+  }
+  const columns = t.columns;
+  if (!Array.isArray(columns) || columns.length === 0)
+    return "columns must list the width of each column, one or more";
+  if (columns.length > TABLE_COLUMNS) return `A table has at most ${TABLE_COLUMNS} columns`;
+  for (let c = 0; c < columns.length; c++) {
+    const width = columns[c];
+    if (typeof width !== "number" || !Number.isFinite(width))
+      return `columns[${c}] must be a finite number`;
+    const problem = sizeProblem(width);
+    if (problem) return `columns[${c}]: ${problem}`;
+  }
+  const count = columns.length;
+  const rows = t.rows;
+  if (!Array.isArray(rows)) return "rows must be a list of rows, each a list of cells";
+  const all = (t.title === undefined ? 0 : 1) + (t.header === undefined ? 0 : 1) + rows.length;
+  if (all === 0) return "A table needs a row: a title, a header or a data row";
+  if (all * count > TABLE_CELLS)
+    return `A table has at most ${TABLE_CELLS} cells, its rows times its columns`;
+  for (const field of ["titleHeight", "headerHeight"] as const) {
+    const problem = optionalSizeProblem(t[field], field);
+    if (problem) return problem;
+  }
+  if (t.titleHeight !== undefined && t.title === undefined)
+    return "titleHeight is for a table with a title";
+  if (t.headerHeight !== undefined && t.header === undefined)
+    return "headerHeight is for a table with a header";
+  if (t.rowHeights !== undefined) {
+    const heights = t.rowHeights;
+    if (!Array.isArray(heights) || heights.length !== rows.length) {
+      return "rowHeights must give a height or null for each data row";
+    }
+    for (let r = 0; r < heights.length; r++) {
+      const height: unknown = heights[r];
+      if (height === null) continue;
+      if (height === undefined) return `rowHeights[${r}] must be a height or null`;
+      const problem = optionalSizeProblem(height, `rowHeights[${r}]`);
+      if (problem) return problem;
+    }
+  }
+  if (t.title !== undefined) {
+    if (t.title === null) return "title must be a string or an object";
+    const problem = cellProblem(t.title, "title", hasBlock);
+    if (problem) return problem;
+    const o = t.title as Record<string, unknown>;
+    if (typeof o === "object" && (o.columnSpan !== undefined || o.rowSpan !== undefined)) {
+      return "title spans every column and one row of its own, so it takes no columnSpan or rowSpan";
+    }
+  }
+  // The rows below the title, header first: each cell in its place, and what each span covers.
+  const lists: { readonly name: string; readonly cells: unknown; readonly header: boolean }[] = [];
+  if (t.header !== undefined) lists.push({ name: "header", cells: t.header, header: true });
+  for (let r = 0; r < rows.length; r++) {
+    lists.push({ name: `rows[${r}]`, cells: rows[r], header: false });
+  }
+  const covered: Uint8Array = new Uint8Array(lists.length * count);
+  for (let r = 0; r < lists.length; r++) {
+    const { name, cells, header } = lists[r]!;
+    if (!Array.isArray(cells) || cells.length !== count) {
+      return `${name} must hold a cell for each of the ${count} columns, null for one another spans`;
+    }
+    for (let c = 0; c < count; c++) {
+      const cell = cells[c];
+      const here = `${name}[${c}]`;
+      if (cell === null) {
+        if (covered[r * count + c] !== 1)
+          return `${here} is null, but no cell above or to its left spans it`;
+        continue;
+      }
+      if (covered[r * count + c] === 1)
+        return `${here} is spanned by a cell above or to its left, so it must be null`;
+      const problem = cellProblem(cell, here, hasBlock);
+      if (problem) return problem;
+      const o = typeof cell === "object" ? (cell as Record<string, unknown>) : {};
+      const across = (o.columnSpan as number | undefined) ?? 1;
+      const down = (o.rowSpan as number | undefined) ?? 1;
+      if (c + across > count) return `${here} spans past the table's last column`;
+      if (r + down > lists.length) return `${here} spans past the table's last row`;
+      if (header && down > 1) return `${here} spans from the header into the data rows`;
+      for (let rr = r; rr < r + down; rr++) {
+        for (let cc = c; cc < c + across; cc++) {
+          if (rr === r && cc === c) continue;
+          if (covered[rr * count + cc] === 1) return `${here} spans a cell another already spans`;
+          covered[rr * count + cc] = 1;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Returns what is wrong with a table's columns in its style, or undefined: a column must be wider
+ * than its two horizontal margins, which a cell's text is narrower than its column by.
+ */
+export function tableColumnsProblem(
+  columns: readonly number[],
+  margin: number,
+): string | undefined {
+  for (let c = 0; c < columns.length; c++) {
+    if (!(written(columns[c]! - 2 * margin) > 0)) {
+      return `columns[${c}] is ${shown(columns[c])} wide, no wider than its two margins of ${shown(margin)}, which leave its text no width`;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Returns what is wrong with a table's texts in the fonts of their rows, or undefined: the rules
+ * a paragraph's value is held to in its font. `fontOf` gives the font of a text style, or of
+ * `Standard` for undefined.
+ */
+export function tableTextsProblem(
+  cells: readonly {
+    readonly text: string;
+    readonly textStyle: string | undefined;
+    readonly at: string;
+  }[],
+  fontOf: (textStyle: string | undefined) => string | undefined,
+): string | undefined {
+  for (const { text, textStyle, at } of cells) {
+    const problem = paragraphValueProblem(text, fontOf(textStyle));
+    if (problem) return `${at}: ${problem}`;
+  }
+  return undefined;
 }

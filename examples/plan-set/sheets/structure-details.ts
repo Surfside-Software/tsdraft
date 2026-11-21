@@ -1,6 +1,6 @@
 // S-501: four structural details, each in its own viewport at its own scale, with the
 // structural general notes and the design criteria table on the paper.
-import type { Point } from "../../../src/index.ts";
+import type { Point, TableOptions } from "../../../src/index.ts";
 import { CRITERIA } from "../project.ts";
 import { HEIGHTS } from "../model/house.ts";
 import { endZone, meanRoofHeight, qh, roofAngle, roofPressures } from "../model/structure-wind.ts";
@@ -12,7 +12,9 @@ import {
   LAYERS,
   leaderNote,
   noteColumn,
-  table,
+  aligned,
+  SCHEDULE,
+  tableBottom,
   view,
   viewport,
   type D,
@@ -496,31 +498,30 @@ export function detailsSheet(d: D): void {
     const x = AREA.left + 2 * w + 0.6;
     const cw = AREA.right - x;
     let y = AREA.top - 0.1;
-    y = table(
-      dd,
-      [x, y],
-      "DESIGN CRITERIA",
-      [
-        { name: "ITEM", width: 2.9 },
-        { name: "VALUE", width: cw - 2.9 },
-      ],
-      CRITERIA_ROWS,
-    );
+    const criteria: TableOptions = {
+      style: SCHEDULE,
+      at: [x, y],
+      columns: [2.9, cw - 2.9],
+      title: "DESIGN CRITERIA",
+      header: ["ITEM", "VALUE"],
+      rows: CRITERIA_ROWS,
+    };
+    dd.layer(LAYERS.text, {}, () => dd.table(criteria));
+    y = tableBottom(criteria);
     y -= 0.35;
     y = noteColumn(dd, [x, y], cw, "STRUCTURAL GENERAL NOTES", GENERAL);
     y -= 0.25;
-    y = table(
-      dd,
-      [x, y],
-      "ROOF COMPONENT AND CLADDING PRESSURES (ASD)",
-      [
-        { name: "ZONE", width: 0.8, align: "center" },
-        { name: "LOCATION", width: 2.9 },
-        { name: "GCP (+ / -)", width: 1.1, align: "center" },
-        { name: "PSF (+ / -)", width: cw - 4.8, align: "center" },
-      ],
-      ROOF_CC_ROWS,
-    );
+    const center = { 0: "center", 2: "center", 3: "center" } as const;
+    const pressures: TableOptions = {
+      style: SCHEDULE,
+      at: [x, y],
+      columns: [0.8, 2.9, 1.1, cw - 4.8],
+      title: "ROOF COMPONENT AND CLADDING PRESSURES (ASD)",
+      header: aligned(["ZONE", "LOCATION", "GCP (+ / -)", "PSF (+ / -)"], center),
+      rows: ROOF_CC_ROWS.map((row) => aligned(row, center)),
+    };
+    dd.layer(LAYERS.text, {}, () => dd.table(pressures));
+    y = tableBottom(pressures);
     y -= 0.25;
     noteColumn(dd, [x, y], cw, "ROOF PRESSURE NOTES", ROOF_CC_NOTES);
   });

@@ -27,6 +27,8 @@ import type {
   Entity,
   Insert,
   Leader,
+  Table,
+  TableStyle,
   LeaderStyle,
   Point,
   Polyline,
@@ -37,6 +39,7 @@ import type {
 import { layerKey, layerKeys } from "./layers.ts";
 import { hasArcsOrWidths, mayCurve, polylineBox, PolylineMemo } from "./polylines.ts";
 import { leaderPicture, leaderRepeats } from "./leaders.ts";
+import { tableCost, tableBox, tableMeasures, tablePicture } from "./tables.ts";
 import { inStyle, measurer } from "./measure.ts";
 import {
   layoutDimensionText,
@@ -45,11 +48,18 @@ import {
   paragraphMeasurer,
   placer,
 } from "./paragraphs.ts";
+import { tableProblem } from "./rules.ts";
 import { filled } from "./shape.ts";
 import { ellipseBox, splineBox } from "./curves.ts";
 import { drawnEllipse, SplineMemo } from "./rules.ts";
 
 type Bounds = [number, number, number, number];
+
+/** A boxer of a drawing's blocks, with the box of each block it has boxed by its key. */
+interface BlockBoxer {
+  readonly box: Boxer;
+  readonly known: Map<string, Bounds | undefined>;
+}
 
 const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
 
@@ -110,6 +120,7 @@ export function extents(
   dimensionStyles: readonly DimensionStyle[] = [],
   leaderStyles: readonly LeaderStyle[] = [],
   most = MAX_WORK,
+  tableStyles: readonly TableStyle[] = [],
 ): [number, number, number, number] {
   const boxOf = boxer(
     textStyles,
@@ -120,6 +131,8 @@ export function extents(
     dimensionStyles,
     leaderStyles,
     most,
+    most,
+    tableStyles,
   );
   const box = boxOf(entities);
   const at = boxOf.capped;
@@ -221,6 +234,7 @@ export function boxer(
   leaderStyles: readonly LeaderStyle[] = [],
   most = MAX_WORK,
   walking = most,
+  tableStyles: readonly TableStyle[] = [],
 ): Boxer {
   const key = layerKeys();
   const { measure, again: readAgain } = measurer();
@@ -229,21 +243,40 @@ export function boxer(
     readonly textStyles: ReadonlyMap<string, TextStyle>;
     readonly dimensionStyles: ReadonlyMap<string, DimensionStyle>;
     readonly leaderStyles: ReadonlyMap<string, LeaderStyle>;
+    readonly tableStyles: ReadonlyMap<string, TableStyle>;
+    /** The lists it was made from, for boxing a table's blocks as the writers do. */
+    readonly lists: {
+      readonly textStyles: readonly TextStyle[] | undefined;
+      readonly blocks: readonly Block[] | undefined;
+      readonly dimensionStyles: readonly DimensionStyle[] | undefined;
+      readonly leaderStyles: readonly LeaderStyle[] | undefined;
+    };
     /** The blocks a leader's content names. */
     readonly blocks: ReadonlyMap<string, Block>;
+    /** The drawings its xrefs stand for, which a table's cell's block may insert. */
+    readonly xrefs: ReadonlyMap<string, Referenced> | undefined;
   }
   const namesOf = (
     text: readonly TextStyle[] | undefined,
     dimensions: readonly DimensionStyle[] | undefined,
     leaders: readonly LeaderStyle[] | undefined,
     blocks: readonly Block[] | undefined,
+    tables: readonly TableStyle[] | undefined,
+    attached: ReadonlyMap<string, Referenced> | undefined,
   ): Names => ({
+    xrefs: attached,
+    lists: { textStyles: text, blocks, dimensionStyles: dimensions, leaderStyles: leaders },
+    tableStyles: new Map(
+      filled(tables)
+        .filter((style) => typeof (style as { name?: unknown } | null)?.name === "string")
+        .map((style) => [layerKey(style.name), style]),
+    ),
     textStyles: new Map(filled(text).map((t) => [layerKey(t.name), t])),
     dimensionStyles: new Map(filled(dimensions).map((style) => [layerKey(style.name), style])),
     leaderStyles: new Map(filled(leaders).map((style) => [layerKey(style.name), style])),
     blocks: new Map(filled(blocks).map((block) => [layerKey(block.name), block])),
   });
-  const own = namesOf(textStyles, dimensionStyles, leaderStyles, blocks);
+  const own = namesOf(textStyles, dimensionStyles, leaderStyles, blocks, tableStyles, xrefs);
   // The names of each referenced drawing, worked out when one of its entities is first met.
   const referenced = new Map<Referenced, Names>();
   const byDrawing = new Map<Referenced["drawing"], Names>();
@@ -252,9 +285,10 @@ export function boxer(
     let found = referenced.get(from);
     if (!found) {
       found = byDrawing.get(from.drawing);
-      if (!found) {
-        const { textStyles, dimensionStyles, leaderStyles, blocks } = from.drawing;
-        found = namesOf(textStyles, dimensionStyles, leaderStyles, blocks);
+      // A drawing given with other attachments has names of its own, for its tables' blocks.
+      if (!found || found.xrefs !== from.xrefs) {
+        const { textStyles, dimensionStyles, leaderStyles, blocks, tableStyles } = from.drawing;
+        found = namesOf(textStyles, dimensionStyles, leaderStyles, blocks, tableStyles, from.xrefs);
         byDrawing.set(from.drawing, found);
       }
       referenced.set(from, found);
@@ -368,6 +402,13 @@ export function boxer(
       case "ordinate-dimension":
         dimension(e, from, add);
         break;
+      case "table": {
+        const box = tableOf(e, from);
+        if (box === undefined) break;
+        add(box[0], box[1]);
+        add(box[2], box[3]);
+        break;
+      }
       case "leader": {
         const box = leaderBox(e, from);
         if (box[0] === Infinity) break;
@@ -533,6 +574,76 @@ export function boxer(
       for (const corner of measured(text, layout).corners ?? []) add(...corner);
       if (mask) for (const corner of paragraphMaskCorners(text, layout, mask)) add(...corner);
     }
+  };
+  /** The box of each table, worked out once for each drawing's names. */
+  const tables = new WeakMap<Table, Map<Names, Bounds | undefined>>();
+  /** A boxer of each drawing's blocks that hides nothing, as the writers box a cell's block. */
+  const plainBoxers = new Map<Names, BlockBoxer>();
+  /** The same with the drawing's xrefs, for what a cell's block draws through one of them. */
+  const attachedBoxers = new Map<Names, BlockBoxer>();
+  /** Boxes a block at an insert of it at the origin, once for each name, with one boxer per names. */
+  const blockBoxBy = (
+    boxers: Map<Names, BlockBoxer>,
+    from: Names,
+    attached: ReadonlyMap<string, Referenced> | undefined,
+    name: string,
+  ): Bounds | undefined => {
+    let held = boxers.get(from);
+    if (!held) {
+      const { textStyles, blocks, dimensionStyles, leaderStyles } = from.lists;
+      held = {
+        box: boxer(
+          textStyles,
+          blocks,
+          undefined,
+          undefined,
+          attached,
+          dimensionStyles,
+          leaderStyles,
+          most,
+          walking,
+        ),
+        known: new Map(),
+      };
+      boxers.set(from, held);
+    }
+    const k = key(name);
+    if (held.known.has(k)) return held.known.get(k);
+    const found = held.box([{ kind: "insert", layer: "0", block: name, at: [0, 0] }]);
+    if (held.box.capped) stop();
+    held.known.set(k, found);
+    return found;
+  };
+  const tableOf = (e: Table, from: Names) => {
+    let byNames = tables.get(e);
+    if (!byNames) tables.set(e, (byNames = new Map()));
+    if (byNames.has(from)) return byNames.get(from);
+    byNames.set(from, undefined);
+    // Its cells are paid for before they are read, a unit each and one for each 32 characters.
+    if (typeof e.style !== "string" || !spend(tableCost(e))) return undefined;
+    const style = from.tableStyles.get(key(e.style));
+    // A table or a style the rules refuse draws nothing, and is not read.
+    if (style === undefined || tableProblem(e) !== undefined) return undefined;
+    const styleOf = (name: string | undefined) =>
+      name === undefined ? undefined : from.textStyles.get(key(name));
+    const picture = tablePicture(
+      e,
+      style,
+      tableMeasures(styleOf, (name) => blockBoxBy(plainBoxers, from, undefined, name)),
+    );
+    // Its box, worked out once however many places draw it, its cells' blocks in it. A block is
+    // fitted as the writers fit it, which know no xrefs, and draws what its xrefs hold too.
+    const attached = from.xrefs;
+    const box = tableBox(
+      e,
+      picture,
+      styleOf,
+      attached && attached.size > 0
+        ? (name) => blockBoxBy(attachedBoxers, from, attached, name)
+        : undefined,
+    );
+    byNames.set(from, box);
+    return box;
   };
   /**
    * The box of what a leader draws, worked out once for each drawing: its shafts, its

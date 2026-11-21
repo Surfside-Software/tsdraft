@@ -84,6 +84,25 @@ export function seedFiles(): Uint8Array[] {
     });
     images.insert("LOGO", [0, 10]);
   });
+  // Tables of two styles, with spans, blocks, fills and a cell's own sizes.
+  const tables = createDrawing({ units: "in" });
+  tables.block("TAG", {}, () => tables.circle([0, 0], 0.2));
+  tables.tableStyle({ name: "PLAIN", textHeight: 0.18, header: { fill: 8, lineweight: 0.35 } });
+  tables.table({
+    style: "PLAIN",
+    at: [0, 10],
+    rotation: 30,
+    columns: [0.6, 1.1],
+    title: "SCHEDULE",
+    header: ["MARK", { block: "TAG" }],
+    rows: [
+      [
+        { text: "D1", rowSpan: 2, align: "left" },
+        { block: "TAG", blockScale: 0.5 },
+      ],
+      [null, { text: "A LONG NOTE\\PTWO", fill: 3, color: 1, textHeight: 0.1 }],
+    ],
+  });
   // Ellipses and splines of each kind, in model space and in a block.
   const curves = createDrawing({ units: "ft" });
   curves.block("CURVE", {}, () => curves.layer("0", {}, () => curves.ellipse([0, 0], [2, 1], 0.5)));
@@ -134,6 +153,7 @@ export function seedFiles(): Uint8Array[] {
       toDXF(kitchen),
       toDXF(d.build(), { version: "R12" }),
       toDXF(images.build()),
+      toDXF(tables.build()),
       toDXF(curves.build()),
     ].map((t) => encoder.encode(t)),
     leaderFile(),

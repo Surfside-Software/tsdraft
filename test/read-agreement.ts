@@ -28,14 +28,25 @@ import { idHandle } from "../src/handles.ts";
 import { findLeaderStyle, leaderPicture } from "../src/leaders.ts";
 import { fromImagePixels, imageClip, imageVectors, writtenImagePath } from "../src/images.ts";
 import { layerKey } from "../src/layers.ts";
+import { boxer } from "../src/extents.ts";
 import { entityLinetype, lineweightCode } from "../src/linetypes.ts";
 import { paragraphAttachment, paragraphDirection, paragraphTurn } from "../src/paragraphs.ts";
 import { textOnce, textTwice } from "../src/read/groups.ts";
+import {
+  cellStyleOf,
+  gridCells,
+  tableMargins,
+  tableMeasures,
+  tablePicture,
+  TABLE_ROW_KINDS,
+  tableRows,
+} from "../src/tables.ts";
 import type {
   DrawingRead,
   ReadAttribute,
   ReadAttributeParagraph,
   ReadEntity,
+  ReadTableCellStyle,
   ReadTextPlacement,
 } from "../src/read/model.ts";
 
@@ -98,6 +109,28 @@ export function readProblems(
   const dimensionStyles = new Map(
     (drawing.dimensionStyles ?? []).map((s) => [layerKey(s.name), s]),
   );
+  const tableStyles = new Map((drawing.tableStyles ?? []).map((s) => [layerKey(s.name), s]));
+  let measures: ReturnType<typeof tableMeasures> | undefined;
+  /** The measures the writer lays a table out by: each block's box, and each text's. */
+  const tableMeasuresOf = (): ReturnType<typeof tableMeasures> => {
+    if (measures) return measures;
+    const boxOf = boxer(
+      drawing.textStyles,
+      drawing.blocks,
+      undefined,
+      undefined,
+      undefined,
+      drawing.dimensionStyles,
+      drawing.leaderStyles,
+    );
+    measures = tableMeasures(styleOf, (name) => {
+      const block = blocks.get(layerKey(name));
+      return block === undefined
+        ? undefined
+        : boxOf([{ kind: "insert", layer: "0", block: block.name, at: [0, 0] }]);
+    });
+    return measures;
+  };
 
   /** A text's place: where its file puts it, and what it is justified to. */
   const placement = (
@@ -287,7 +320,12 @@ export function readProblems(
     }
     if (got.color !== undefined || got.trueColor !== undefined)
       say(`${label}: has a color of its own`);
-    if (want.kind !== "insert" && want.kind !== "leader" && !isDimension(want)) {
+    if (
+      want.kind !== "insert" &&
+      want.kind !== "leader" &&
+      want.kind !== "table" &&
+      !isDimension(want)
+    ) {
       const linetype = entityLinetype(want);
       if (linetype === undefined ? got.linetype !== undefined : !sameName(got.linetype, linetype)) {
         say(`${label}: linetype ${got.linetype}, expected ${linetype}`);
@@ -727,6 +765,97 @@ export function readProblems(
         }
         return;
       }
+      case "table": {
+        if (!kind("table") || got.kind !== "table") return;
+        const style = tableStyles.get(layerKey(want.style));
+        if (!sameName(got.style, want.style)) say(`${label}: style ${got.style}`);
+        if (!style) return;
+        if (!nearPoint(got.at, point(want.at))) say(`${label}: at ${got.at}`);
+        // Its direction is written with 15 digits.
+        const [cos, sin] = paragraphDirection(want.rotation);
+        if (Math.abs(got.direction[0] - cos) > 1e-12 || Math.abs(got.direction[1] - sin) > 1e-12)
+          say(`${label}: runs along ${got.direction}`);
+        if (got.title !== (want.title !== undefined)) say(`${label}: title ${got.title}`);
+        if (got.header !== (want.header !== undefined)) say(`${label}: header ${got.header}`);
+        // The leading CAD app lays the table out again, within the rounding of 6 decimals.
+        const picture = tablePicture(want, style, tableMeasuresOf());
+        for (const [what, a, b] of [
+          ["rows", got.rows, picture.rows],
+          ["columns", got.columns, picture.columns],
+        ] as const) {
+          if (a.length !== b.length || a.some((n, i) => !near(n, written(b[i]!), by === "cad")))
+            say(`${label}: ${what} ${a.join(", ")}, expected ${b.map(written).join(", ")}`);
+        }
+        const rows = tableRows(want);
+        const cells = gridCells(want);
+        if (got.cells.length !== cells.length) {
+          say(`${label}: ${got.cells.length} cells, expected ${cells.length}`);
+        }
+        cells.forEach((cell, i) => {
+          const read = got.cells[i];
+          const at = `${label} cell ${cell.row}/${cell.column}`;
+          if (!read) return say(`${at}: missing`);
+          const { content } = cell;
+          if (
+            read.row !== cell.row ||
+            read.column !== cell.column ||
+            read.rowSpan !== cell.rows ||
+            read.columnSpan !== cell.columns
+          )
+            say(`${at}: at ${read.row}/${read.column} over ${read.rowSpan} by ${read.columnSpan}`);
+          const block =
+            content.block === undefined ? undefined : blocks.get(layerKey(content.block));
+          const text = block === undefined && content.text !== "" ? content.text : undefined;
+          if (read.text !== (text === undefined ? undefined : once(text)))
+            say(`${at}: reads ${JSON.stringify(read.text)}`);
+          if (block ? !sameName(read.block, block.name) : read.block !== undefined)
+            say(`${at}: holds the block ${read.block}`);
+          const scale = block === undefined ? undefined : content.blockScale;
+          if (
+            (read.blockScale === undefined) !== (scale === undefined) ||
+            (scale !== undefined && !near(read.blockScale!, written(scale)))
+          )
+            say(`${at}: block scale ${read.blockScale}`);
+          const own = cellStyleOf(style, rows[cell.row]!.kind);
+          const alignment =
+            content.align === undefined && content.valign === undefined
+              ? undefined
+              : paragraphAttachment({
+                  align: content.align ?? own.align,
+                  valign: content.valign ?? own.valign,
+                });
+          for (const [what, a, b] of [
+            ["alignment", read.alignment, alignment],
+            [
+              "text height",
+              read.textHeight,
+              content.textHeight === undefined ? undefined : written(content.textHeight),
+            ],
+            ["color", read.color, content.color],
+            ["fill", read.fill, content.fill],
+          ] as const) {
+            if ((a === undefined) !== (b === undefined) || (a !== undefined && !near(a, b!)))
+              say(`${at}: ${what} ${a}, expected ${b}`);
+          }
+        });
+        if (got.block === undefined || !got.blockHandle) {
+          say(`${label}: names no block of its picture`);
+          return;
+        }
+        if (by === "tsdraft" && !/^\*T\d+$/.test(got.block)) say(`${label}: drawn by ${got.block}`);
+        const drawn = read.blocks.find((b) => b.handle === got.blockHandle);
+        if (!drawn || !sameName(drawn.name, got.block)) say(`${label}: its block is not read`);
+        else if (by === "tsdraft") {
+          const count =
+            picture.fills.length +
+            picture.lines.length +
+            picture.texts.length +
+            picture.blocks.filter((b) => blocks.has(layerKey(b.block))).length;
+          if (drawn.entities.length !== count)
+            say(`${label}: its block draws ${drawn.entities.length}, expected ${count}`);
+        }
+        return;
+      }
       case "image": {
         if (!kind("image") || got.kind !== "image") return;
         if (got.path !== writtenImagePath(want.path))
@@ -861,6 +990,41 @@ export function readProblems(
         });
       } else start(read, mine?.attributeDefinitions[i], read.default ?? "", label);
     });
+  }
+  /** A cell style as the read holds it, against the style's of that kind of row. */
+  const cellStyle = (
+    got: ReadTableCellStyle,
+    want: ReturnType<typeof cellStyleOf>,
+    label: string,
+  ): void => {
+    if (!sameName(got.textStyle, want.textStyle ?? "Standard"))
+      say(`${label}: text style ${got.textStyle}`);
+    const weight = want.lineweight === undefined ? -2 : lineweightCode(want.lineweight);
+    for (const [what, a, b] of [
+      ["text height", got.textHeight, written(want.textHeight)],
+      ["alignment", got.alignment, paragraphAttachment(want)],
+      ["color", got.color, want.color ?? 0],
+      ["lineweight", got.lineweight, weight],
+    ] as const) {
+      if (!near(a, b)) say(`${label}: ${what} ${a}, expected ${b}`);
+    }
+    if (got.fill !== want.fill) say(`${label}: fill ${got.fill}, expected ${want.fill}`);
+  };
+  for (const style of drawing.tableStyles ?? []) {
+    const label = `table style ${style.name}`;
+    const got = read.tableStyles.find((s) => sameName(s.name, style.name));
+    if (!got) {
+      say(`${label}: missing`);
+      continue;
+    }
+    const [horizontal, vertical] = tableMargins(style);
+    if (
+      !near(got.horizontalMargin, written(horizontal)) ||
+      !near(got.verticalMargin, written(vertical))
+    )
+      say(`${label}: margins ${got.horizontalMargin} and ${got.verticalMargin}`);
+    for (const kind of TABLE_ROW_KINDS)
+      cellStyle(got[kind], cellStyleOf(style, kind), `${label} ${kind}`);
   }
   if (Object.keys(read.unread.malformed).length > 0) {
     say(`malformed: ${JSON.stringify(read.unread.malformed)}`);

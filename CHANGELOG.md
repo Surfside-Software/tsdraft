@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Tables, in R2018 drawings. `d.tableStyle(style)` defines a table style: the text style and
+  height of its cells, its margins, and the cell style of its title, header and data rows, each
+  with its own text style, height, alignment, text color, fill and border lineweight.
+  `d.table(options)` draws a table at its upper left corner: `columns` gives each column's width,
+  `title` a cell across them all, `header` and `rows` a cell for each column, each a string or an
+  object with `text`, a `block` scaled to fit or by `blockScale`, `columnSpan` and `rowSpan`, and
+  its own `align`, `valign`, `textHeight`, `color` and `fill`; a cell another spans is `null`.
+  Both writers write one table entity and its style as CAD programs hold them, so a drafter adds
+  a row, resizes a column and edits a cell, with the picture CAD programs draw for it: text
+  wrapped at its column, a word too long for it broken, each row as tall as its cells need,
+  fills, borders and blocks. Each style lists its tables, so a change to the style in a CAD
+  program reaches them. `toSVG`, `toPDF` and `inspectText` draw and check it as it plots, and
+  `measureTable` gives the size it takes. `readDXF` and `readDWG` read a table's rows, columns and
+  cells and each table style into `tableStyles`, which every read now holds, so a reader the
+  command runs answers with it too. `lint` and the builder refuse, under the rules
+  `table-style`, `duplicate-table-style`, `undefined-table-style` and `table`, a style or a table
+  that cannot be written, a row of the wrong length, a span past the table or over another cell, a
+  `null` that nothing spans, a block its fit would scale to 0, a table in a block and more than
+  100,000 cells. `tableBox` gives the box of what a table draws, its cells' blocks included.
 - Linetypes with text, in R2018 drawings: a pipe with its letters along it. A linetype's `marks`
   draw a text, such as `W`, at the end of a length of its pattern, by `after`, in one of the
   drawing's text styles, turned with the line, from the X axis, or `upright` so it reads from the

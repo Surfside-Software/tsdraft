@@ -45,6 +45,8 @@ import type {
   Layer,
   Leader,
   LeaderStyle,
+  Table,
+  TableStyle,
   Linetype,
   PatternLine,
   Point,
@@ -85,6 +87,17 @@ import {
 } from "./shape.ts";
 import { layerAuditKey, layerKey, layoutNameKey } from "./layers.ts";
 import { STANDARD_FONT, STANDARD_TEXT_STYLE } from "./fonts.ts";
+import {
+  STANDARD_TABLE_STYLE,
+  tableCost,
+  tableMargins,
+  tableMeasures,
+  tablePicture,
+  tableRepeats,
+  tableTexts,
+  tableStyleDictionaryHandle,
+  validTableStyleHandle,
+} from "./tables.ts";
 import { parseParagraph, type ParsedParagraph } from "./paragraph-codes.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import {
@@ -128,6 +141,15 @@ import {
   leaderStyleNameProblem,
   leaderStyleProblem,
   leaderStyleTwinProblem,
+  isStandardTableStyle,
+  standardTableStyleProblem,
+  TABLE_IN_BLOCK,
+  tableColumnsProblem,
+  tableTextsProblem,
+  tableProblem,
+  tableStyleNameProblem,
+  tableStyleProblem,
+  tableStyleTwinProblem,
   leaderBlockContentProblem,
   leaderTextProblem,
   layerColorProblem,
@@ -256,6 +278,10 @@ export type LintRule =
   | "duplicate-leader-style"
   | "undefined-leader-style"
   | "leader"
+  | "table-style"
+  | "duplicate-table-style"
+  | "undefined-table-style"
+  | "table"
   | "paragraph"
   | "image"
   | "hatch"
@@ -314,6 +340,8 @@ export interface Diagnostic {
   readonly dimensionStyle?: string;
   /** The leader style the problem is in, when it is a problem with its definition. */
   readonly leaderStyle?: string;
+  /** The table style the problem is in, when it is a problem with its definition. */
+  readonly tableStyle?: string;
   /**
    * The block the problem is in: a problem with the block's definition, with one of its
    * attribute definitions, or with one of its entities.
@@ -613,6 +641,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     long1(d.align) +
     long1(d.valign);
   const leaderAgain = leaderRepeats();
+  const tableAgain = tableRepeats();
   /** What is wrong with a dimension's own text, worked out once for a long one. */
   const dimensionTexts = new Strings<readonly [string | undefined]>();
   const checkDimensionText = (text: unknown): string | undefined => {
@@ -747,6 +776,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       | "layouts"
       | "dimensionStyles"
       | "leaderStyles"
+      | "tableStyles"
       | "patterns",
     rule: LintRule,
   ): readonly T[] => {
@@ -1427,6 +1457,165 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       if (!problem && lettered) leaderStyles.set(key, style);
     },
   );
+  // Table style names are compared as leader style names are, and only a style with nothing wrong
+  // with it is drawn with.
+  const tableStyleNames = new Set<string>();
+  const tableStyles = new Map<string, TableStyle>();
+  const tableStylesAudited = new Map<string, string>();
+  each(
+    listed<TableStyle>("tableStyles", "table-style"),
+    "tableStyles",
+    "table-style",
+    TYPED.tableStyle,
+    (style, i) => {
+      if (malformed(WALKABLE.tableStyle, style, `tableStyles[${i}]`, "table-style")) return;
+      const error = (rule: LintRule, message: string) =>
+        out.push({
+          rule,
+          severity: "error",
+          message: `Table style ${shown(style.name)}: ${message}`,
+          ...(typeof style.name === "string" ? { tableStyle: style.name } : {}),
+        });
+      if (r12) {
+        error("table-style", R12_ONLY.tables);
+        return;
+      }
+      const problem = tableStyleProblem(style);
+      if (problem) error("table-style", problem);
+      const name: unknown = style.name;
+      if (tableStyleNameProblem(name) || isStandardTableStyle(name as string)) return;
+      const auditKey = layerAuditKey(style.name);
+      const first = tableStylesAudited.get(auditKey);
+      if (first !== undefined) {
+        error("duplicate-table-style", tableStyleTwinProblem(style.name, first)!);
+        return;
+      }
+      if (tableStylesAudited.size === 0) {
+        for (const [handle, what] of [
+          [validTableStyleHandle(STANDARD_TABLE_STYLE), 'the table style "Standard"'],
+          [tableStyleDictionaryHandle(), "the dictionary of table styles"],
+        ] as const) {
+          const taken = claim(handle, what);
+          if (taken) error("id-handle", taken);
+        }
+      }
+      tableStylesAudited.set(auditKey, style.name);
+      const key = layerKey(style.name);
+      tableStyleNames.add(key);
+      let lettered = true;
+      for (const textStyle of [
+        style.textStyle,
+        style.title?.textStyle,
+        style.header?.textStyle,
+        style.data?.textStyle,
+      ] as unknown[]) {
+        if (
+          typeof textStyle !== "string" ||
+          textStyleNameProblem(textStyle) ||
+          isStandardTextStyle(textStyle)
+        ) {
+          continue;
+        }
+        if (!textStyles.has(layerKey(textStyle))) {
+          error("undefined-text-style", `Text style ${shown(textStyle)} is not defined`);
+          lettered = false;
+        } else if (unreadStyles.has(layerKey(textStyle))) lettered = false;
+      }
+      const clash = claim(
+        validTableStyleHandle(style.name),
+        `the table style ${shown(style.name)}`,
+      );
+      if (clash) error("id-handle", clash);
+      if (!problem && lettered) tableStyles.set(key, style);
+    },
+  );
+  /** A boxer of the drawing's blocks that hides nothing, as the writers fit a cell's block. */
+  let fitBoxer: Boxer | undefined;
+  const fitBoxes = new Map<string, readonly [number, number, number, number] | undefined>();
+  /** Checks what a table names, and its columns, rows and cells. */
+  const lintTable = (
+    table: Table,
+    add: (rule: LintRule, severity: Diagnostic["severity"], problem: string) => void,
+    inBlock: boolean,
+    here: () => string,
+  ): void => {
+    if (inBlock) add("table", "error", TABLE_IN_BLOCK);
+    const name: unknown = table.style;
+    const nameProblem = tableStyleNameProblem(name);
+    if (nameProblem) add("undefined-table-style", "error", nameProblem);
+    else if (isStandardTableStyle(name as string)) {
+      add("undefined-table-style", "error", standardTableStyleProblem(name as string)!);
+    } else if (!tableStyleNames.has(layerKey(name as string))) {
+      add("undefined-table-style", "error", `Table style ${shown(name)} is not defined`);
+    }
+    const problem = tableProblem(table, (block) => blocks.has(layerKey(block)));
+    if (problem) add("table", "error", problem);
+    const style = typeof name === "string" ? tableStyles.get(layerKey(name)) : undefined;
+    if (!problem && style) {
+      const narrow = tableColumnsProblem(table.columns, tableMargins(style)[0]);
+      if (narrow) add("table", "error", narrow);
+      const fontOf = (name: string | undefined) =>
+        name === undefined || isStandardTextStyle(name)
+          ? STANDARD_FONT
+          : stylesByKey.get(layerKey(name))?.font;
+      const lettered = tableTextsProblem(tableTexts(table, style), fontOf);
+      if (lettered) add("table", "error", lettered);
+      if (!narrow && !lettered) lintTableBlocks(table, style, add, here);
+    }
+  };
+  /** Checks the scale each block a table's cells hold is drawn at, as the writers write it. */
+  const lintTableBlocks = (
+    table: Table,
+    style: TableStyle,
+    add: (rule: LintRule, severity: Diagnostic["severity"], problem: string) => void,
+    here: () => string,
+  ): void => {
+    const holds = table.rows.some((row) => row.some((cell) => isObject(cell) && cell.block));
+    if (!holds || !spend(tableCost(table), here)) return;
+    const styleOf = (name: string | undefined) =>
+      name === undefined ? undefined : stylesByKey.get(layerKey(name));
+    let capped = false;
+    const picture = tablePicture(
+      table,
+      style,
+      tableMeasures(styleOf, (name) => {
+        const k = layerKey(name);
+        if (fitBoxes.has(k)) return fitBoxes.get(k);
+        fitBoxer ??= boxer(
+          [...stylesByKey.values()],
+          [...blocks.values()],
+          undefined,
+          undefined,
+          undefined,
+          [...dimensionStyles.values()],
+          [...leaderStyles.values()],
+          most,
+          most,
+        );
+        const before = fitBoxer.spent;
+        let found: readonly [number, number, number, number] | undefined;
+        try {
+          found = fitBoxer([{ kind: "insert", layer: "0", block: name, at: [0, 0] }]);
+        } catch {
+          found = undefined;
+        }
+        if (fitBoxer.capped || !spend(fitBoxer.spent - before, here)) capped = true;
+        fitBoxes.set(k, found);
+        return found;
+      }),
+    );
+    if (capped) return;
+    for (const placed of picture.blocks) {
+      const problem = scaleProblem(placed.scale);
+      if (problem === undefined) continue;
+      add(
+        "table",
+        "error",
+        `The block ${shown(placed.block)} in row ${placed.row}, column ${placed.column} of its grid is drawn at a scale of ${placed.scale}. ${problem}`,
+      );
+      return;
+    }
+  };
   /** The tags of each block a leader holds in place of its note, worked out once. */
   const tagsOf = new WeakMap<Block, ReadonlySet<unknown>>();
   /** Checks what a leader names, its note and its shafts. `sound` is false for one no rule can read. */
@@ -1964,7 +2153,11 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       if (isObject(entity) && !boxable) boxable = costsBoxes(entity);
       // So are a leader that shares its shafts or its note with another and a long string.
       const shared = isObject(entity)
-        ? (entity.kind === "leader" ? leaderAgain(entity) : 0) + repeatedIn(entity)
+        ? (entity.kind === "leader"
+            ? leaderAgain(entity)
+            : entity.kind === "table"
+              ? tableAgain(entity)
+              : 0) + repeatedIn(entity)
         : 0;
       if (shared > 0 && !spend(shared, here)) return;
       if (metUnsound(WALKABLE.entity, entity) || !isSound(WALKABLE.entity, entity)) {
@@ -2122,6 +2315,14 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         if (problems.length === 0) lintLeader(entity, add, block !== undefined);
         return;
       }
+      if (entity.kind === "table") {
+        if (r12) {
+          add("table", "error", R12_ONLY.tables);
+          return;
+        }
+        if (problems.length === 0) lintTable(entity, add, block !== undefined, here);
+        return;
+      }
       if (entity.kind === "image") {
         if (r12) {
           add("image", "error", R12_ONLY.images);
@@ -2276,6 +2477,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         most - work,
         // The writer's walks have the whole limit, and so have these, so the two take one path.
         most,
+        [...tableStyles.values()],
       );
     } catch {
       return modelBox;
@@ -2690,6 +2892,7 @@ function costsBoxes(e: Readonly<Record<string, unknown>>): boolean {
     kind === "insert" ||
     kind === "spline" ||
     kind === "leader" ||
+    kind === "table" ||
     kind === "linear-dimension" ||
     kind === "aligned-dimension" ||
     kind === "radius-dimension" ||
