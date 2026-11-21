@@ -17,8 +17,9 @@ writeFileSync("A-101.pdf", toPDF(drawing, { layouts: ["A-101"], xrefs, deflate }
 
 - `layouts` names the layouts to plot, in the order of the pages. Without it, every layout is
   plotted in the drawing's order, which is the order of its tabs.
-- `xrefs` gives the drawing each xref stands for, by the xref's name, as `toSVG` takes them. An
-  xref with no drawing given plots nothing.
+- `xrefs` gives the drawing each xref stands for, by the xref's name, as `toSVG` takes them: a
+  `Drawing`, or `{ drawing, xrefs }` with the drawings its own xrefs stand for, so that it plots
+  its attachments. An xref with no drawing given plots nothing.
 - `deflate` compresses each page: a function that gives the zlib form of its bytes, such as
   Node's `zlib.deflateSync`. The library imports nothing, so without it the pages are written as
   they are, and the file is several times larger. It is called as the PDF is written, so it
@@ -51,14 +52,25 @@ preview shows it:
   `monochrome.ctb`, and as wide as its lineweight on the paper, with round ends and joins.
   `DWF Virtual Pens.ctb` plots every line 0.254 mm wide.
 - A layer that is off, frozen or set not to plot is left out, and so is everything an insert or
-  an xref places on such a layer. An xref of a drawing an xref places is not drawn: a drawing's
-  overlays are its own. A viewport leaves out the layers frozen in it alone, and turns its view
+  an xref places on such a layer. A drawing an xref places plots its attachments, from the
+  drawings given with it, and not its overlays, as [Nested xrefs](xrefs.md#nested-xrefs) says:
+  a drawing's overlays are its own. A viewport leaves out the layers frozen in it alone, and turns its view
   by its twist, as [Frozen layers and a twist](layouts.md#frozen-layers-and-a-twist) says.
 - A curve strays from its arc by at most 1/1000 inch on the paper.
 - A dash pattern is sized on the paper and fitted to each line, side of a polyline, arc and
-  circle, as [Linetypes on a sheet](layouts.md#linetypes-on-a-sheet) says.
+  circle, as [Linetypes on a sheet](layouts.md#linetypes-on-a-sheet) says, and along the whole
+  of an ellipse or a spline, as [How it plots](curves.md#how-it-plots) says.
+- An ellipse, an arc of one and a spline of degree 3 or less are drawn exactly; a rational spline
+  or one of a higher degree in 32 straight steps to each span of its knots.
 - A line of lineweight 0 plots as the thinnest line the printer draws, as a viewport's border
   does.
+- A wide side of a polyline is filled, at its width whatever its pen, with its joins and its
+  dashes as [How it plots](polylines.md#how-it-plots) says.
+- An image is drawn from its file's bytes, given as `images`, clipped to its clip, with its frame
+  in its pen, and the PDF holds each file once, as [Plotting](images.md#plotting) says.
+- A hatch is filled by the parity of its loops, or draws its pattern's lines and dashes cut to
+  them, a wipeout and a mask in the paper's white or a mask's color, each over what is drawn
+  before it, as [Fills, wipeouts and masks](fills.md) says.
 - Each layer is a layer of the PDF too, by the name the picture gives it, `XREF|LAYER` for a
   layer of an xref, so a PDF viewer lists the layers and can hide one.
 - Each page has a bookmark and a page label with its layout's name.
@@ -75,6 +87,10 @@ length the length it plots.
 const fonts = { Arial: readFileSync("arial.ttf"), "Times New Roman": readFileSync("times.ttf") };
 writeFileSync("set.pdf", toPDF(drawing, { xrefs, deflate, fonts }));
 ```
+
+A bold run of a paragraph is set in the file given under its font's name and ` Bold`, which
+`boldFontKey` gives: `{ "Arial Bold": readFileSync("arialbd.ttf") }`. `FONTS` names each bold
+file.
 
 The PDF embeds each file, cut to the glyphs of the characters its pages set, so every character
 plots in the letters of the file: `°`, `±`, `½` and `≥` as `A` does. A set embeds each font once,

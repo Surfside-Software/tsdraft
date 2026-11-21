@@ -8,6 +8,7 @@ import {
   leaderPicture,
   lineSpacing,
   lint,
+  readDXF,
   toDXF,
   toSVG,
   type Drawing,
@@ -43,7 +44,20 @@ test("a leader style and a leader are checked as literals and when the code runs
   assert.throws(() => d.leaderStyle({ ...STYLE, name: "A", textHeight: 0 }), /textHeight/);
   // @ts-expect-error: a scale is above 0.
   assert.throws(() => d.leaderStyle({ ...STYLE, name: "A", scale: 0 }), /scale: .*greater than 0/);
+  // @ts-expect-error: an attachment is one of LEADER_ATTACHMENTS.
+  assert.throws(() => d.leaderStyle({ ...STYLE, name: "A", attachment: "top" }), /LEADER_ATT/);
+  // @ts-expect-error: a direction is horizontal or vertical.
+  assert.throws(() => d.leaderStyle({ ...STYLE, name: "A", direction: "up" }), /direction/);
+  // @ts-expect-error: a vertical attachment is center or line.
+  assert.throws(() => d.leaderStyle({ ...STYLE, name: "A", verticalAttachment: "top" }), /center/);
   d.leaderStyle({ ...STYLE, name: "NOTES", arrowhead: "dot", attachment: "last-line" });
+  d.leaderStyle({
+    ...STYLE,
+    name: "UP",
+    direction: "vertical",
+    verticalAttachment: "line",
+    frame: true,
+  });
   assert.throws(() => d.leaderStyle({ ...STYLE, name: "notes" }), /already has a leader style/);
 
   const at = [1, 1] as const;
@@ -62,6 +76,46 @@ test("a leader style and a leader are checked as literals and when the code runs
   assert.throws(() => d.leader("A", { style: "NOTES", at, to: [] }), /needs a shaft/);
   assert.throws(() => d.leader("A", { style: "NOTES", at, to: [1, 1] }), /one point/);
   assert.throws(() => d.leader("A", { style: "NOTES", at, to: [0, 0], textStyle: "NONE" }), /NONE/);
+  // @ts-expect-error: a note wraps at a width greater than 0.
+  assert.throws(() => d.leader("A", { style: "NOTES", at, to: [0, 0], width: 0 }), /width/);
+  // @ts-expect-error: a side is one of LEADER_SIDES.
+  assert.throws(() => d.leader("A", { style: "NOTES", at, to: [0, 0], side: "up" }), /side/);
+  const offsetFactor = 9;
+  assert.throws(
+    () => d.leader("A", { style: "NOTES", at, to: [0, 0], mask: { offsetFactor } }),
+    /mask/,
+  );
+  d.leader("A", { style: "UP", at, to: [0, 0], width: 2, mask: { color: 1 } });
+  // A block in place of the note is one the drawing defines, and takes nothing only a note has.
+  d.block("TAG", {}, () => d.circle([0, 0], 0.1));
+  assert.throws(() => d.leader({ block: "NONE" }, { style: "NOTES", at, to: [0, 0] }), /NONE/);
+  assert.throws(
+    () => d.leader({ block: "TAG" }, { style: "NOTES", at, to: [0, 0], width: 1 }),
+    /width/,
+  );
+  d.leader(
+    { block: "TAG" },
+    { style: "NOTES", at, to: [0, 0], toFarSide: [3, 0], shaft: "curved" },
+  );
+  // @ts-expect-error: a kind of shaft is straight or curved.
+  assert.throws(() => d.leader("A", { style: "NOTES", at, to: [0, 0], shaft: "bent" }), /shaft/);
+  assert.throws(
+    () => d.leader("A", { style: "NOTES", at, to: [0, 0], toFarSide: [] }),
+    /needs a shaft/,
+  );
+  // A value names an attribute of the block, and a style's block is one the drawing defines.
+  assert.throws(
+    () => d.leader({ block: "TAG", attributes: { NUM: "7" } }, { style: "NOTES", at, to: [0, 0] }),
+    /no attribute with the tag "NUM"/,
+  );
+  d.leaderStyle({ ...STYLE, name: "KEYS", block: "NONE" });
+  assert.match(
+    lint(d.build())
+      .map((x) => x.message)
+      .join("\n"),
+    /Leader style "KEYS": Block "NONE"/,
+  );
+  d.leader("A", { style: "NOTES", at, to: [0, 0], side: "below", frame: true, mask: true });
   d.leader("A", {
     style: "notes",
     at,
@@ -112,6 +166,31 @@ test("lint finds what the builder refuses, in a drawing built by hand", () => {
     "leader-style",
     "undefined-leader-style",
   ]);
+  // A block in place of the note whose polyline has a side with no point is reported, not read.
+  const side = { kind: "polyline", layer: "0", points: [null, [2, 0]], bulges: [1] } as never;
+  assert.deepEqual(
+    rules(
+      [{ kind: "leader", layer: "0", style: "NOTES", block: "B", at: [1, 1], shafts: [[[0, 0]]] }],
+      {
+        blocks: [{ name: "B", entities: [side] }],
+      },
+    ),
+    ["format", "format"],
+  );
+});
+
+test("a block's label comes back from a DXF as an attribute's value does", async () => {
+  const d = createDrawing();
+  d.leaderStyle({ name: "NOTES", ...STYLE });
+  d.block("KEY", {}, () => d.circle([0, 0], 0.1).attribute("NUM", [0, 0], { height: 0.1 }));
+  const value = "\\U+0000 ^J";
+  d.leader(
+    { block: "KEY", attributes: { NUM: value } },
+    { style: "NOTES", at: [0, 1], to: [0, 0] },
+  );
+  const read = await readDXF(toDXF(d.build()), { geometry: true });
+  const [leader] = read.model.entities ?? [];
+  assert.equal(leader?.kind === "multileader" && leader.block?.attributes?.NUM, value);
 });
 
 test("a leader is drawn where the leading CAD app draws it", () => {
@@ -154,25 +233,17 @@ test("a leader is drawn where the leading CAD app draws it", () => {
     [9, 1],
     [10, 5],
   ]);
-  // The middle of the first line's capitals is level with `at`, the lines 5/3 of the height apart.
-  const pitch = lineSpacing(0.2);
-  assert.deepEqual(right.location, [10.5, 5.1]);
-  assert.deepEqual(
-    right.lines.map((line) => [line.align, line.at[0], Number((line.at[1] - 5).toFixed(12))]),
-    [
-      ["left", 10.5, -0.1],
-      ["left", 10.5, Number((-0.1 - pitch).toFixed(12))],
-      ["left", 10.5, Number((-0.1 - 2 * pitch).toFixed(12))],
-    ],
-  );
-  // On the left, held by its last line, the note is justified right.
+  // The note is a paragraph held by its top left a gap past the landing, with the middle of its
+  // first line, from its top to its baseline, level with `at`.
+  const first = right.lines[0]!;
+  assert.deepEqual([right.noteAttachment, right.note.align, right.location[0]], [1, "left", 10.5]);
+  assert.ok(Math.abs((right.location[1] + first.at[1]) / 2 - 5) < 1e-12);
+  // On the left, held by its last line, the note is held by its top right and justified right,
+  // and the middle of its last line is level with `at`.
   const left = leaderPicture({ ...leader, side: "left", attachment: "last-line" }, style);
   assert.equal(left.direction, -1);
-  assert.ok(Math.abs(left.lines.at(-1)!.at[1] - 4.9) < 1e-12);
-  assert.deepEqual(
-    left.lines.map((line) => [line.align, line.at[0]]),
-    left.lines.map(() => ["right", 9.5]),
-  );
+  assert.deepEqual([left.noteAttachment, left.note.align, left.location[0]], [3, "right", 9.5]);
+  assert.ok(left.location[1] > right.location[1]);
   // A dot is a disk as wide as the arrow size, and with no arrowhead the shaft runs to the tip.
   const dot = leaderPicture(leader, { ...style, arrowhead: "dot" }).arrowheads[0]!;
   assert.deepEqual(

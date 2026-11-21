@@ -12,7 +12,8 @@ import {
   toDXF,
   toJSON,
   toSVG,
-  type AttributeDefinition,
+  type ParagraphAttributeDefinition,
+  type TextAttributeDefinition,
   type Block,
   type Diagnostic,
   type DimensionStyle,
@@ -21,18 +22,38 @@ import {
   type Layer,
   type Layout,
   type LeaderStyle,
+  type TableCellStyle,
+  type TableStyle,
+  type Hatch,
+  type HatchPattern,
   type Linetype,
+  type PatternLine,
+  type Leader,
+  type Polyline,
   type TextStyle,
   type Viewport,
   type Xref,
+  type FitSpline,
 } from "../src/index.ts";
 import { timeLimit } from "./time-limit.ts";
 
-const styled = { linetype: "DD", lineweight: 0.25 } as const;
+const styled = { linetype: "DD", lineweight: 0.25, color: [10, 200, 30] } as const;
 const justified = { style: "NOTES", align: "center", valign: "middle" } as const;
 
-/** Each kind of entity with every field it can have: a field left out is a compile error. */
-const kinds: { readonly [K in Entity["kind"]]: Required<Extract<Entity, { kind: K }>> } = {
+/**
+ * Each kind of entity with every field it can have: a field left out is a compile error. A
+ * polyline has a width or widths for each side, and `wide` has the other. A leader has a note,
+ * and `keyed` a block in its place. A hatch has a pattern, and `shaded` and `tinted` a gradient.
+ */
+const kinds: {
+  readonly [K in Entity["kind"]]: K extends "polyline"
+    ? Required<Omit<Polyline, "width">>
+    : K extends "leader"
+      ? Required<Omit<Leader, "block" | "attributes">>
+      : K extends "hatch"
+        ? Required<Omit<Hatch, "gradient">>
+        : Required<Extract<Entity, { kind: K }>>;
+} = {
   line: { kind: "line", layer: "WALL", from: [0, 0], to: [10, 0], id: "a", ...styled },
   polyline: {
     kind: "polyline",
@@ -43,6 +64,13 @@ const kinds: { readonly [K in Entity["kind"]]: Required<Extract<Entity, { kind: 
       [10, 5],
     ],
     closed: true,
+    bulges: [0, 0.5, -1],
+    widths: [
+      [0, 1],
+      [1, 1],
+      [0.5, 0],
+    ],
+    linetypeGeneration: true,
     id: "b",
     ...styled,
   },
@@ -68,8 +96,28 @@ const kinds: { readonly [K in Entity["kind"]]: Required<Extract<Entity, { kind: 
     ...styled,
     ...justified,
   },
+  paragraph: {
+    kind: "paragraph",
+    layer: "0",
+    at: [0, 8],
+    height: 0.5,
+    rotation: 15,
+    value: 'ALL WORK SHALL {\\LCOMPLY}\\P3\\S1/2;" GAP',
+    width: 6,
+    style: "NOTES",
+    align: "center",
+    valign: "bottom",
+    lineSpacing: 1.5,
+    lineSpacingStyle: "exactly",
+    columns: { height: 4, count: 2, gutter: 0.5 },
+    // A paragraph in columns takes no mask; a leader's note has one of every field.
+    mask: false,
+    id: "k",
+    ...styled,
+  },
   insert: {
     kind: "insert",
+    color: "ByBlock",
     layer: "0",
     block: "TREE",
     at: [20, 0],
@@ -80,6 +128,7 @@ const kinds: { readonly [K in Entity["kind"]]: Required<Extract<Entity, { kind: 
   },
   "linear-dimension": {
     kind: "linear-dimension",
+    color: 1,
     layer: "0",
     style: "DIMS",
     from: [0, 0],
@@ -87,20 +136,24 @@ const kinds: { readonly [K in Entity["kind"]]: Required<Extract<Entity, { kind: 
     line: [0, -6],
     angle: 15,
     text: "<> TYP",
+    textBelow: "CLR.",
     id: "g",
   },
   "aligned-dimension": {
     kind: "aligned-dimension",
+    color: [200, 100, 50],
     layer: "0",
     style: "DIMS",
     from: [0, 0],
     to: [30, 10],
     offset: 8,
     text: "VARIES",
+    textBelow: "<> O.C.",
     id: "h",
   },
   leader: {
     kind: "leader",
+    color: 255,
     layer: "0",
     style: "NOTE",
     text: ["NOTE", "SECOND LINE"],
@@ -114,6 +167,12 @@ const kinds: { readonly [K in Entity["kind"]]: Required<Extract<Entity, { kind: 
     ],
     side: "right",
     attachment: "last-line",
+    verticalAttachment: "line",
+    width: 2,
+    frame: true,
+    mask: { color: 1, offsetFactor: 1.25 },
+    shaft: "curved",
+    farShafts: [[[45, 5]]],
     textStyle: "NOTES",
     textHeight: 0.08,
     arrowSize: 0.05,
@@ -121,22 +180,297 @@ const kinds: { readonly [K in Entity["kind"]]: Required<Extract<Entity, { kind: 
     gap: 0.02,
     id: "i",
   },
+  image: {
+    kind: "image",
+    layer: "0",
+    path: "images/aerial.png",
+    pixels: [400, 200],
+    at: [50, 0],
+    width: 20,
+    height: 10,
+    rotation: 15,
+    clip: [
+      [52, 2],
+      [60, 1],
+      [58, 8],
+    ],
+    invertClip: true,
+    transparent: true,
+    id: "m",
+    ...styled,
+  },
+  hatch: {
+    kind: "hatch",
+    layer: "0",
+    loops: [
+      {
+        points: [
+          [70, 0],
+          [80, 0],
+          [80, 10],
+        ],
+        bulges: [0, 0.5, 0],
+      },
+    ],
+    pattern: { name: "STRIPES", scale: 2, angle: 30, origin: [1, 1] },
+    id: "w1",
+    ...styled,
+  },
+  wipeout: {
+    kind: "wipeout",
+    layer: "0",
+    points: [
+      [90, 0],
+      [95, 0],
+      [92, 4],
+    ],
+    id: "w2",
+    ...styled,
+  },
+  ellipse: {
+    kind: "ellipse",
+    layer: "0",
+    center: [100, 5],
+    majorAxis: [4, 1],
+    ratio: 0.5,
+    startParameter: 30,
+    endParameter: 270,
+    id: "w6",
+    ...styled,
+  },
+  // A spline by its control points; `fitted` is one through fit points.
+  spline: {
+    kind: "spline",
+    layer: "0",
+    controlPoints: [
+      [110, 0],
+      [112, 4],
+    ],
+    degree: 1,
+    knots: [0, 0, 1, 1],
+    weights: [1, 2],
+    closed: false,
+    id: "w7",
+    ...styled,
+  },
+  "radius-dimension": {
+    kind: "radius-dimension",
+    color: 7,
+    layer: "0",
+    style: "ARCH",
+    center: [0, 0],
+    point: [3, 4],
+    text: "<> TYP",
+    textBelow: "MIN.",
+    textFromCenter: 2,
+    id: "h-r",
+  },
+  "diameter-dimension": {
+    kind: "diameter-dimension",
+    color: [0, 0, 0],
+    layer: "0",
+    style: "ARCH",
+    center: [0, 0],
+    point: [-3, 4],
+    text: "<> BOLT",
+    textBelow: "EQ.",
+    textFromCenter: -1,
+    id: "h-d",
+  },
+  "jogged-radius-dimension": {
+    kind: "jogged-radius-dimension",
+    color: 8,
+    layer: "0",
+    style: "ARCH",
+    center: [0, 0],
+    point: [30, 40],
+    start: [25, 20],
+    jog: [27, 30],
+    text: "<> CL",
+    textBelow: "CURB",
+    id: "h-j",
+  },
+  "arc-length-dimension": {
+    kind: "arc-length-dimension",
+    color: "ByLayer",
+    layer: "0",
+    style: "ARCH",
+    center: [0, 0],
+    radius: 10,
+    startAngle: 30,
+    endAngle: 120,
+    at: [0, 12],
+    text: "<> TYP",
+    textBelow: "MIN.",
+    id: "h-l",
+  },
+  "angular-dimension": {
+    kind: "angular-dimension",
+    color: 250,
+    layer: "0",
+    style: "ARCH",
+    vertex: [0, 0],
+    from: [10, 0],
+    to: [0, 10],
+    at: [7, 7],
+    text: "<> TYP",
+    textBelow: "MIN.",
+    id: "h-a",
+  },
+  table: {
+    kind: "table",
+    color: "ByLayer",
+    layer: "0",
+    style: "SCHEDULE",
+    at: [100, 20],
+    rotation: 0,
+    columns: [1, 2],
+    title: "DOORS",
+    titleHeight: 0.4,
+    header: [
+      { text: "MARK", align: "left", valign: "bottom", textHeight: 0.1, color: 1, fill: 2 },
+      "SIZE",
+    ],
+    headerHeight: 0.3,
+    rows: [
+      [{ block: "TREE", blockScale: 0.5, columnSpan: 2, rowSpan: 2 }, null],
+      [null, null],
+    ],
+    rowHeights: [0.5, null],
+    id: "tb",
+  },
+  "ordinate-dimension": {
+    kind: "ordinate-dimension",
+    color: [40, 160, 220],
+    layer: "0",
+    style: "ARCH",
+    axis: "x",
+    origin: [1, 2],
+    feature: [10, 5],
+    leaderEnd: [10, 15],
+    text: "<> TYP",
+    textBelow: "MIN.",
+    id: "h-o",
+  },
+};
+
+/** A polyline of one width, with every field the polyline of `kinds` leaves out. */
+const wide: Required<Omit<Polyline, "widths">> = {
+  kind: "polyline",
+  layer: "0",
+  points: kinds.polyline.points,
+  closed: false,
+  bulges: [0.25, 0],
+  width: 0.25,
+  linetypeGeneration: true,
+  id: "j",
+  ...styled,
+};
+
+/** A hatch with a gradient of two colors, with every field the hatch of `kinds` leaves out. */
+const shaded: Required<Omit<Hatch, "pattern">> = {
+  kind: "hatch",
+  layer: "0",
+  loops: kinds.hatch.loops,
+  gradient: {
+    name: "spherical",
+    angle: 30,
+    centered: false,
+    colors: [
+      [200, 40, 30],
+      [20, 90, 180],
+    ],
+  },
+  id: "w3",
+  ...styled,
+};
+
+/** A hatch with a gradient of one color and its tint. */
+const tinted: Required<Omit<Hatch, "pattern">> = {
+  kind: "hatch",
+  layer: "0",
+  loops: kinds.hatch.loops,
+  gradient: {
+    name: "inverted-curved",
+    angle: 200,
+    centered: true,
+    color: [30, 120, 200],
+    tint: 0.4,
+  },
+  id: "w4",
+  ...styled,
+};
+
+/** A spline through fit points, with every field one can have. */
+const fitted: Required<FitSpline> = {
+  kind: "spline",
+  layer: "0",
+  fitPoints: [
+    [120, 0],
+    [124, 3],
+  ],
+  startTangent: [0, 1],
+  endTangent: [1, 0],
+  closed: false,
+  id: "w5",
+  ...styled,
+};
+
+const keyed: Required<
+  Omit<
+    Leader,
+    | "text"
+    | "attachment"
+    | "verticalAttachment"
+    | "width"
+    | "frame"
+    | "mask"
+    | "textStyle"
+    | "textHeight"
+  >
+> = {
+  kind: "leader",
+  color: "ByBlock",
+  layer: "0",
+  style: "NOTE",
+  block: "TREE",
+  attributes: { TAG: "T-2" },
+  at: [60, 10],
+  shafts: [[[55, 5]]],
+  side: "right",
+  shaft: "straight",
+  farShafts: [[[65, 5]]],
+  arrowSize: 0.05,
+  landing: 0.1,
+  gap: 0.02,
+  id: "keyed",
 };
 
 /** One of everything an R2018 drawing can hold, with every field of every object. */
 const full: Required<Drawing> & {
-  readonly linetypes: readonly [Required<Linetype>];
+  readonly linetypes: readonly [Required<Linetype>, Required<Linetype>];
+  readonly patterns: readonly [
+    Required<HatchPattern> & { readonly lines: readonly [Required<PatternLine>] },
+  ];
   readonly textStyles: readonly [Required<TextStyle>];
   // A style in decimal units leaves zeros out, and one in architectural units writes them.
   readonly dimensionStyles: readonly [
-    Required<Omit<DimensionStyle, "feetInchZeros">>,
+    Required<Omit<DimensionStyle, "feetInchZeros" | "fraction" | "fractionScale">>,
     Required<Omit<DimensionStyle, "suppressZeros">>,
   ];
   readonly leaderStyles: readonly [Required<LeaderStyle>];
+  readonly tableStyles: readonly [
+    Required<TableStyle> & { readonly data: Required<TableCellStyle> },
+  ];
   readonly layers: readonly [Layer, Required<Layer>];
   readonly blocks: readonly [
     Block,
-    Required<Block> & { readonly attributes: readonly [Required<AttributeDefinition>] },
+    Required<Block> & {
+      readonly attributes: readonly [
+        Required<TextAttributeDefinition>,
+        Required<ParagraphAttributeDefinition>,
+      ];
+    },
   ];
   readonly xrefs: readonly [Required<Xref>];
   readonly layouts: readonly [
@@ -148,7 +482,50 @@ const full: Required<Drawing> & {
   units: "ft",
   dxf: "R2018",
   linetypeScale: 2,
-  linetypes: [{ name: "DD", description: "Dash dot", pattern: [0.5, -0.25, 0, -0.25] }],
+  imageFrame: false,
+  wipeoutFrame: false,
+  linetypes: [
+    {
+      name: "DD",
+      description: "Dash dot",
+      pattern: [0.5, -0.25, 0, -0.25],
+      marks: [
+        {
+          after: 1,
+          text: "W",
+          style: "Standard",
+          height: 0.1,
+          rotation: 0,
+          orient: "upright",
+          offset: [0, -0.05],
+        },
+      ],
+    },
+    // A linetype of shapes that nothing draws in, which lint does not warn of.
+    {
+      name: "SHAPES",
+      description: "Shapes",
+      pattern: [0.5, -0.25],
+      marks: [
+        {
+          after: 1,
+          shape: 3,
+          file: "shapes.shx",
+          scale: 0.1,
+          rotation: 0,
+          orient: "relative",
+          offset: [0, 0],
+        },
+      ],
+    },
+  ],
+  patterns: [
+    {
+      name: "STRIPES",
+      description: "Dashed stripes",
+      lines: [{ angle: 45, base: [0, 0], offset: [0, 0.25], dashes: [0.5, -0.25, 0, -0.25] }],
+    },
+  ],
   textStyles: [{ name: "NOTES", font: "Arial", widthFactor: 0.9, obliqueAngle: 10 }],
   dimensionStyles: [
     {
@@ -167,6 +544,17 @@ const full: Required<Drawing> & {
       units: "decimal",
       suppressZeros: "trailing",
       measurementScale: 2,
+      textPlacement: "centered",
+      textFit: "leader",
+      dimensionLineweight: 0.5,
+      extensionLineweight: 0.25,
+      radialText: "horizontal",
+      jogAngle: 30,
+      angleUnits: "degrees-minutes-seconds",
+      anglePrecision: 4,
+      suppressAngleZeros: "leading",
+      textMask: { color: 3 },
+      arcSymbol: "above",
     },
     {
       name: "ARCH",
@@ -184,6 +572,19 @@ const full: Required<Drawing> & {
       units: "architectural",
       feetInchZeros: "both",
       measurementScale: 12,
+      fraction: "stacked",
+      fractionScale: 0.75,
+      textPlacement: "above",
+      textFit: "inside",
+      dimensionLineweight: 0.35,
+      extensionLineweight: 0.18,
+      radialText: "aligned",
+      jogAngle: 45,
+      angleUnits: "degrees",
+      anglePrecision: 0,
+      suppressAngleZeros: "both",
+      textMask: true,
+      arcSymbol: "none",
     },
   ],
   leaderStyles: [
@@ -196,7 +597,34 @@ const full: Required<Drawing> & {
       landing: 0.1,
       gap: 0.05,
       attachment: "first-line",
+      direction: "vertical",
+      verticalAttachment: "line",
+      frame: true,
+      shaft: "curved",
+      block: "TREE",
+      blockConnection: "insertion",
+      blockScale: 2,
       scale: 10,
+    },
+  ],
+  tableStyles: [
+    {
+      name: "SCHEDULE",
+      textStyle: "NOTES",
+      textHeight: 0.1,
+      horizontalMargin: 0.03,
+      verticalMargin: 0.02,
+      title: { textHeight: 0.15 },
+      header: { fill: 8 },
+      data: {
+        textStyle: "NOTES",
+        textHeight: 0.08,
+        align: "left",
+        valign: "middle",
+        color: 3,
+        fill: 9,
+        lineweight: 0.25,
+      },
     },
   ],
   layers: [
@@ -219,6 +647,7 @@ const full: Required<Drawing> & {
       base: [1, 2],
       attributes: [
         {
+          kind: "text",
           tag: "TAG",
           prompt: "Tree tag",
           value: "T-0",
@@ -228,6 +657,22 @@ const full: Required<Drawing> & {
           rotation: 0,
           ...justified,
         },
+        {
+          kind: "paragraph",
+          tag: "NOTE",
+          prompt: "Note",
+          value: "PLANT IN\\PSPRING",
+          layer: "0",
+          at: [0, -4],
+          height: 0.5,
+          rotation: 0,
+          style: "NOTES",
+          width: 6,
+          align: "center",
+          valign: "middle",
+          lineSpacing: 1.5,
+          lineSpacingStyle: "exactly",
+        },
       ],
       entities: [
         { kind: "arc", layer: "0", center: [0, 0], radius: 3, startAngle: 0, endAngle: 90 },
@@ -235,8 +680,16 @@ const full: Required<Drawing> & {
       ],
     },
   ],
-  xrefs: [{ name: "BASE", path: "base.dwg" }],
-  entities: [...Object.values(kinds), { kind: "insert", layer: "0", block: "BASE", at: [0, 0] }],
+  xrefs: [{ name: "BASE", path: "base.dwg", attach: true }],
+  entities: [
+    ...Object.values(kinds),
+    { kind: "insert", layer: "0", block: "BASE", at: [0, 0] },
+    wide,
+    keyed,
+    fitted,
+    shaded,
+    tinted,
+  ],
   layouts: [
     {
       name: "C-101",
@@ -270,7 +723,15 @@ const r12: Drawing = {
   layers: [{ name: "0", color: 7 }],
   entities: [
     { kind: "line", layer: "0", from: [0, 0], to: [10, 0], id: "a" },
-    { ...kinds.polyline, linetype: "ByLayer", lineweight: "ByLayer" },
+    {
+      kind: "polyline",
+      layer: "0",
+      points: kinds.polyline.points,
+      closed: true,
+      id: "b",
+      linetype: "ByLayer",
+      lineweight: "ByLayer",
+    },
     { kind: "circle", layer: "0", center: [5, 5], radius: 2 },
     { kind: "arc", layer: "0", center: [5, 5], radius: 3, startAngle: 0, endAngle: 90 },
     { kind: "text", layer: "0", at: [0, 4], height: 1, rotation: 0, value: "T-0" },
@@ -451,7 +912,7 @@ test("a value of the wrong shape is reported in these words, once", () => {
       { toString: 0 },
       [
         "xref: Xref a value of type object: A block's name must be a string",
-        `undefined-block: insert #9: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
+        `undefined-block: insert #22: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
       ],
     ],
     [

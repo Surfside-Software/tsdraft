@@ -4,24 +4,45 @@
 import type {
   AlignedDimension,
   Arc,
-  AttributeDefinition,
+  ParagraphAttributeDefinition,
+  TextAttributeDefinition,
   Block,
   Circle,
+  ControlSpline,
   DimensionStyle,
+  Ellipse,
+  FitSpline,
   Drawing,
   Entity,
+  Hatch,
+  HatchLoop,
+  HatchPattern,
+  Image,
   Insert,
   Layer,
   Layout,
   Leader,
   LeaderStyle,
+  Table,
+  TableStyle,
   Line,
   LinearDimension,
+  RadiusDimension,
+  DiameterDimension,
+  JoggedRadiusDimension,
+  AngularDimension,
+  ArcLengthDimension,
+  OrdinateDimension,
   Linetype,
+  LinetypeShape,
+  LinetypeText,
+  Paragraph,
+  PatternLine,
   Polyline,
   Text,
   TextStyle,
   Viewport,
+  Wipeout,
   Xref,
 } from "./drawing.ts";
 import { shown, XREF_REFUSED_FIELDS, xrefFieldProblem } from "./rules.ts";
@@ -51,11 +72,17 @@ const KINDS = [
   "polyline",
   "circle",
   "arc",
+  "ellipse",
+  "spline",
   "text",
+  "paragraph",
   "insert",
   "linear-dimension",
   "aligned-dimension",
   "leader",
+  "image",
+  "hatch",
+  "wipeout",
 ] as const satisfies readonly Entity["kind"][];
 
 /** What is wrong with an entity whose kind tsdraft does not know. */
@@ -289,15 +316,30 @@ export interface Shapes {
   readonly point: Check;
   readonly layer: Check;
   readonly linetype: Check;
+  readonly pattern: Check;
+  readonly patternLine: Check;
   readonly textStyle: Check;
   readonly dimensionStyle: Check;
   readonly leaderStyle: Check;
+  readonly tableStyle: Check;
   readonly block: Check;
   readonly attribute: Check;
   readonly xref: Check;
   readonly layout: Check;
   readonly viewport: Check;
   readonly entity: Check;
+}
+
+/** An attribute definition, every field of each kind at once, as its shape is checked. */
+type AttributeShape = Omit<TextAttributeDefinition, "kind"> &
+  Omit<ParagraphAttributeDefinition, "kind" | "align" | "valign"> & { readonly kind?: string };
+
+/** A paragraph's columns, every field of each kind at once, as their shape is checked. */
+interface ColumnsShape {
+  readonly height?: number;
+  readonly heights?: readonly number[];
+  readonly count?: number;
+  readonly gutter?: number;
 }
 
 /**
@@ -335,11 +377,12 @@ function shapes(all: boolean, typed = all): Shapes {
     (value, at, problems) => {
       const items = value as readonly unknown[];
       if (array(value, at) || items.length !== 2 || !isNumber(items[0]) || !isNumber(items[1])) {
-        problems.push(`${at} must be ${what}, [x, y]`);
+        problems.push(`${at} must be ${what}`);
       }
     };
-  const point = pair("a point");
-  const scale = pair("a scale along each axis");
+  const point = pair("a point, [x, y]");
+  const scale = pair("a scale along each axis, [x, y]");
+  const sideWidths = pair("the widths at a side's start and end, [start, end]");
   const oneOf =
     (...values: readonly string[]): Check =>
     (value, at, problems) => {
@@ -445,39 +488,195 @@ function shapes(all: boolean, typed = all): Shapes {
     };
 
   const kind: Check = LEFT;
+  // An index or a name, or a true color's three numbers, which the rule of an entity's color reads.
+  const entityColor: Check = (value, at, problems) => {
+    if (typeof value === "number" || typeof value === "string") return;
+    // Only a list of three is read, so a long list costs no more than three.
+    if (!Array.isArray(value) || value.length !== 3) {
+      problems.push(`${at} must be a number, a string or a list of three numbers`);
+    } else list(number)(value, at, problems);
+  };
+  const loop = fields<HatchLoop>({ points: list(point) }, { bulges: list(number) });
   const shared = {
     id: ruled(string),
+    color: ruled(entityColor),
     linetype: ruled(string),
     lineweight: ruled(numberOrName),
   } as const;
   const justified = { style: ruled(string), align: ruled(string), valign: ruled(string) } as const;
 
+  const fitSpline = fields<FitSpline>(
+    { kind, layer: string, fitPoints: list(point) },
+    {
+      ...shared,
+      startTangent: point,
+      endTangent: point,
+      closed: boolean,
+    },
+  );
+  const controlSpline = fields<ControlSpline>(
+    { kind, layer: string, controlPoints: list(point), degree: number, knots: list(number) },
+    { ...shared, weights: list(number), closed: boolean },
+  );
+  /** A spline is through fit points when it has them, and by its control points otherwise. */
+  const splineFields: FieldsCheck = (value, at, problems, extra) =>
+    (value.fitPoints === undefined ? controlSpline : fitSpline)(value, at, problems, extra);
+
   const ENTITIES = {
     line: fields<Line>({ kind, layer: string, from: point, to: point }, shared),
     polyline: fields<Polyline>(
       { kind, layer: string, points: list(point), closed: boolean },
-      shared,
+      {
+        ...shared,
+        bulges: list(number),
+        width: number,
+        widths: list(sideWidths),
+        linetypeGeneration: boolean,
+      },
     ),
     circle: fields<Circle>({ kind, layer: string, center: point, radius: number }, shared),
     arc: fields<Arc>(
       { kind, layer: string, center: point, radius: number, startAngle: number, endAngle: number },
       shared,
     ),
+    ellipse: fields<Ellipse>(
+      { kind, layer: string, center: point, majorAxis: point, ratio: number },
+      { ...shared, startParameter: number, endParameter: number },
+    ),
+    spline: splineFields,
     text: fields<Text>(
       { kind, layer: string, at: point, height: number, value: string, rotation: number },
       { ...shared, ...justified },
     ),
+    paragraph: fields<Paragraph>(
+      { kind, layer: string, at: point, height: number, value: string, rotation: number },
+      {
+        ...shared,
+        ...justified,
+        width: number,
+        lineSpacing: number,
+        lineSpacingStyle: ruled(string),
+        columns: ruled(
+          record(
+            fields<ColumnsShape>(
+              {},
+              { height: number, heights: list(number), count: number, gutter: number },
+            ),
+          ),
+        ),
+        // true, false or an object: the rule reports any other.
+        mask: LEFT,
+      },
+    ),
     insert: fields<Insert>(
       { kind, layer: string, block: ruled(string), at: point },
-      { id: ruled(string), scale: ruled(scale), rotation: number, attributes: ruled(map(string)) },
+      {
+        id: ruled(string),
+        color: ruled(entityColor),
+        scale: ruled(scale),
+        rotation: number,
+        attributes: ruled(map(string)),
+      },
     ),
     "linear-dimension": fields<LinearDimension>(
       { kind, layer: string, style: ruled(string), from: point, to: point, line: point },
-      { id: ruled(string), angle: number, text: ruled(string) },
+      {
+        id: ruled(string),
+        color: ruled(entityColor),
+        angle: number,
+        text: ruled(string),
+        textBelow: ruled(string),
+      },
     ),
     "aligned-dimension": fields<AlignedDimension>(
       { kind, layer: string, style: ruled(string), from: point, to: point, offset: number },
-      { id: ruled(string), text: ruled(string) },
+      {
+        id: ruled(string),
+        color: ruled(entityColor),
+        text: ruled(string),
+        textBelow: ruled(string),
+      },
+    ),
+    "radius-dimension": fields<RadiusDimension>(
+      { kind, layer: string, style: ruled(string), center: point, point },
+      {
+        id: ruled(string),
+        color: ruled(entityColor),
+        text: ruled(string),
+        textBelow: ruled(string),
+        textFromCenter: number,
+      },
+    ),
+    "diameter-dimension": fields<DiameterDimension>(
+      { kind, layer: string, style: ruled(string), center: point, point },
+      {
+        id: ruled(string),
+        color: ruled(entityColor),
+        text: ruled(string),
+        textBelow: ruled(string),
+        textFromCenter: number,
+      },
+    ),
+    "jogged-radius-dimension": fields<JoggedRadiusDimension>(
+      { kind, layer: string, style: ruled(string), center: point, point, start: point, jog: point },
+      {
+        id: ruled(string),
+        color: ruled(entityColor),
+        text: ruled(string),
+        textBelow: ruled(string),
+      },
+    ),
+    "arc-length-dimension": fields<ArcLengthDimension>(
+      {
+        kind,
+        layer: string,
+        style: ruled(string),
+        center: point,
+        radius: number,
+        startAngle: number,
+        endAngle: number,
+        at: point,
+      },
+      {
+        id: ruled(string),
+        color: ruled(entityColor),
+        text: ruled(string),
+        textBelow: ruled(string),
+      },
+    ),
+    "ordinate-dimension": fields<OrdinateDimension>(
+      {
+        kind,
+        layer: string,
+        style: ruled(string),
+        axis: ruled(string),
+        origin: point,
+        feature: point,
+        leaderEnd: point,
+      },
+      {
+        id: ruled(string),
+        color: ruled(entityColor),
+        text: ruled(string),
+        textBelow: ruled(string),
+      },
+    ),
+    "angular-dimension": fields<AngularDimension>(
+      {
+        kind,
+        layer: string,
+        style: ruled(string),
+        vertex: point,
+        from: point,
+        to: point,
+        at: point,
+      },
+      {
+        id: ruled(string),
+        color: ruled(entityColor),
+        text: ruled(string),
+        textBelow: ruled(string),
+      },
     ),
     // A rule of `lint` reports the note, the shafts and the leader's own fields, whatever their type.
     leader: fields<Leader>(
@@ -485,19 +684,68 @@ function shapes(all: boolean, typed = all): Shapes {
         kind,
         layer: string,
         style: ruled(string),
-        text: ruled(list(string)),
         at: point,
         shafts: ruled(list(list(point))),
       },
       {
         id: ruled(string),
+        color: ruled(entityColor),
+        text: ruled(list(string)),
+        block: ruled(string),
+        attributes: ruled(map(string)),
         side: ruled(string),
         attachment: ruled(string),
+        verticalAttachment: ruled(string),
+        width: ruled(number),
+        frame: ruled(boolean),
+        // true, false or an object: the rule reports any other.
+        mask: LEFT,
+        shaft: ruled(string),
+        farShafts: ruled(list(list(point))),
         textStyle: ruled(string),
         textHeight: ruled(number),
         arrowSize: ruled(number),
         landing: ruled(number),
         gap: ruled(number),
+      },
+    ),
+    // A rule of `lint` reports the path, the pixels, the clip and the flags, whatever their type.
+    image: fields<Image>(
+      {
+        kind,
+        layer: string,
+        path: ruled(string),
+        pixels: ruled(point),
+        at: point,
+        width: number,
+        height: number,
+      },
+      {
+        ...shared,
+        rotation: number,
+        clip: ruled(list(point)),
+        invertClip: ruled(boolean),
+        transparent: ruled(boolean),
+      },
+    ),
+    // A rule of `lint` reports the pattern and the gradient, whatever their types.
+    hatch: fields<Hatch>(
+      { kind, layer: string, loops: list(record(loop)) },
+      { ...shared, pattern: LEFT, gradient: LEFT },
+    ),
+    wipeout: fields<Wipeout>({ kind, layer: string, points: list(point) }, shared),
+    // A rule of `lint` reports the columns, the cells and the heights, whatever their type.
+    table: fields<Table>(
+      { kind, layer: string, style: ruled(string), at: point, columns: LEFT, rows: LEFT },
+      {
+        id: ruled(string),
+        color: ruled(entityColor),
+        rotation: number,
+        title: LEFT,
+        titleHeight: ruled(number),
+        header: LEFT,
+        headerHeight: ruled(number),
+        rowHeights: LEFT,
       },
     ),
   } satisfies Record<Entity["kind"], FieldsCheck>;
@@ -515,7 +763,7 @@ function shapes(all: boolean, typed = all): Shapes {
     }
   };
 
-  const xrefFields = fields<Xref>({ name: string, path: string }, {});
+  const xrefFields = fields<Xref>({ name: string, path: string }, { attach: boolean });
 
   /**
    * An xref, which is told why it cannot have a field of a block. `lint` has a rule for each of
@@ -533,7 +781,7 @@ function shapes(all: boolean, typed = all): Shapes {
       }
     : fields<Xref & { [F in (typeof XREF_REFUSED_FIELDS)[number]]?: unknown }>(
         { name: ruled(string), path: ruled(string) },
-        { entities: LEFT, base: LEFT, attributes: LEFT },
+        { attach: boolean, entities: LEFT, base: LEFT, attributes: LEFT },
       );
 
   const layer = record(
@@ -549,10 +797,42 @@ function shapes(all: boolean, typed = all): Shapes {
       },
     ),
   );
+  // A rule of `lint` reports every field of a hatch pattern and of its lines, whatever its type,
+  // and reads at most as many lines and dashes as a file holds.
+  const patternLine = record(
+    fields<PatternLine>(
+      { angle: ruled(number), base: ruled(point), offset: ruled(point) },
+      { dashes: ruled(list(number)) },
+    ),
+  );
+  const pattern = record(
+    fields<HatchPattern>(
+      { name: ruled(string), lines: ruled(list(patternLine)) },
+      { description: ruled(string) },
+    ),
+  );
+  const markFields = {
+    rotation: ruled(number),
+    orient: ruled(string),
+    offset: ruled(point),
+  } as const;
+  const textMark = fields<LinetypeText>(
+    { after: ruled(number), text: ruled(string), height: ruled(number) },
+    { ...markFields, style: ruled(string) },
+  );
+  const shapeMark = fields<LinetypeShape>(
+    { after: ruled(number), shape: ruled(numberOrName), file: ruled(string), scale: ruled(number) },
+    markFields,
+  );
+  // A mark with a shape is a shape, and any other a text.
+  const mark: Check = (value, at, problems, extra) => {
+    if (!object(value)) problems.push(`${at} ${PLAIN_OBJECT}`);
+    else ("shape" in value ? shapeMark : textMark)(value, at, problems, extra);
+  };
   const linetype = record(
     fields<Linetype>(
       { name: ruled(string), description: ruled(string), pattern: ruled(list(number)) },
-      {},
+      { marks: ruled(list(mark)) },
     ),
   );
   const textStyle = record(
@@ -583,6 +863,20 @@ function shapes(all: boolean, typed = all): Shapes {
         suppressZeros: ruled(string),
         feetInchZeros: ruled(string),
         measurementScale: ruled(number),
+        fraction: ruled(string),
+        fractionScale: ruled(number),
+        textPlacement: ruled(string),
+        textFit: ruled(string),
+        dimensionLineweight: ruled(numberOrName),
+        extensionLineweight: ruled(numberOrName),
+        radialText: ruled(string),
+        jogAngle: ruled(number),
+        angleUnits: ruled(string),
+        anglePrecision: ruled(number),
+        suppressAngleZeros: ruled(string),
+        // true, false or an object: the rule reports any other.
+        textMask: LEFT,
+        arcSymbol: ruled(string),
       },
     ),
   );
@@ -600,12 +894,33 @@ function shapes(all: boolean, typed = all): Shapes {
         textStyle: ruled(string),
         arrowhead: ruled(string),
         attachment: ruled(string),
+        direction: ruled(string),
+        verticalAttachment: ruled(string),
+        frame: ruled(boolean),
+        shaft: ruled(string),
+        block: ruled(string),
+        blockConnection: ruled(string),
+        blockScale: ruled(number),
         scale: ruled(number),
       },
     ),
   );
+  // A rule of `lint` reports each cell style, whatever its type.
+  const tableStyle = record(
+    fields<TableStyle>(
+      { name: ruled(string), textHeight: ruled(number) },
+      {
+        textStyle: ruled(string),
+        horizontalMargin: ruled(number),
+        verticalMargin: ruled(number),
+        title: LEFT,
+        header: LEFT,
+        data: LEFT,
+      },
+    ),
+  );
   const attribute = record(
-    fields<AttributeDefinition>(
+    fields<AttributeShape>(
       {
         tag: ruled(string),
         value: ruled(string),
@@ -614,7 +929,14 @@ function shapes(all: boolean, typed = all): Shapes {
         height: number,
         rotation: number,
       },
-      { prompt: string, ...justified },
+      {
+        prompt: string,
+        ...justified,
+        kind: ruled(string),
+        width: number,
+        lineSpacing: number,
+        lineSpacingStyle: ruled(string),
+      },
     ),
   );
   const block = record(
@@ -665,6 +987,10 @@ function shapes(all: boolean, typed = all): Shapes {
       layouts: ruled(table(layout)),
       dimensionStyles: ruled(table(dimensionStyle)),
       leaderStyles: ruled(table(leaderStyle)),
+      tableStyles: ruled(table(tableStyle)),
+      imageFrame: ruled(boolean),
+      wipeoutFrame: ruled(boolean),
+      patterns: ruled(table(pattern)),
     },
   );
   return {
@@ -672,9 +998,12 @@ function shapes(all: boolean, typed = all): Shapes {
     point,
     layer,
     linetype,
+    pattern,
+    patternLine,
     textStyle,
     dimensionStyle,
     leaderStyle,
+    tableStyle,
     block,
     attribute,
     xref: record(xref),

@@ -1,6 +1,6 @@
 // A permit-style site plan: a lot from its plat dimensions, with setbacks, a building footprint,
-// the street, labels, dimensions, leaders, site data and notes, on a sheet with a border and a
-// title block. Copy this file to start a drawing.
+// the street, labels, dimensions, leaders, a revision cloud, site data and notes, on a sheet with
+// a border and a title block. Copy this file to start a drawing.
 //
 // The drawing has two spaces, as a drafter keeps them:
 //
@@ -41,7 +41,7 @@
 // - What belongs to the site is drawn in model space, in feet. What belongs to the paper is
 //   drawn inside `d.layout(...)`, in inches, at the size it plots.
 // - The drawing is drawn to a standard, `standard`, which extends the built-in one with the
-//   layer `V-TREE`. A layer is named, and its color, linetype, pen and plot flag are the
+//   layers `V-TREE` and `C-ANNO-REVS`. A layer is named, and its color, linetype, pen and plot flag are the
 //   standard's. Its entities draw ByLayer, and one that plots heavier than its layer names a
 //   pen of the standard.
 // - The plan is the view `plan`, at a scale of the standard, which the viewport shows. An
@@ -52,12 +52,18 @@
 //   as a gap, into feet at the view's ratio. So the same code draws the sheet at another scale:
 //   the plan changes size in its viewport and its text keeps its plotted height.
 // - A text names a role of the standard, which gives its text style and height, and is
-//   justified to its point with `align` and `valign`. Columns and line breaks are laid out by
-//   the length `measureText` gives a text in its role. The title block's texts, below, are the
-//   one exception.
+//   justified to its point with `align` and `valign`. Columns are laid out by the length
+//   `measureText` gives a text in its role. The title block's texts, below, are the one
+//   exception.
+// - The general notes are one paragraph, a numbered list whose items hang under their numbers and
+//   wrap at the width of the column of notes, which a drafter edits as one. `layoutParagraph`
+//   gives its lines, so its first line sits on the row and the next block starts under its last.
 // - A symbol is a block, drawn once and inserted where it is needed. The tree and the property
 //   corner are in the plan and in the legend, so each is inserted in model space and on the
 //   layout. A block's entities are on layer 0, so each insert draws on its own layer.
+// - A revision is a cloud around what it changed, one polyline of arcs that bulge out of its
+//   outline, with a delta that holds its number. A polyline can also be drawn wide: the north
+//   arrow's head is one side that widens from nothing at its tip, which CAD programs fill.
 // - The key plan is a second view of the same model space, at a smaller scale and turned, in a
 //   viewport of its own. That viewport freezes the layers of the plan's annotation, which is
 //   sized for the plan's scale, and of the lines that run to the plan's edges, so it shows the
@@ -71,35 +77,50 @@
 //   call, the project, the date and who drew and checked it from `createDrawing`'s `fields`, the
 //   number from the layout's name and the scale from the viewport. In CAD each field stays an
 //   attribute.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import {
   BUILT_IN_STANDARD,
   checkIntent,
   createDrawing,
   defineStandard,
+  layoutParagraph,
+  list,
   measureText,
+  paragraphFormat,
+  rasterSize,
   toDXF,
   toSVG,
   type Drawing,
   type Intent,
   type Point,
 } from "../src/index.ts";
-import { arrowhead } from "./lib/drafting.ts";
 
 /**
- * The standard the sheet is drawn to: the built-in one, with a layer for the trees and a leader
- * style for the notes. Its layers give the plan its colors, linetypes and pens, its linetype
- * scale sizes the dashes, and its leader style gives every leader its arrowhead, its landing and
- * the role of its note.
+ * The standard the sheet is drawn to: the built-in one, with layers for the trees and the
+ * revision. Its layers give the plan its colors, linetypes and pens, its linetype scale sizes the
+ * dashes, and its leader style `notes` gives every leader its arrowhead, its landing and the role
+ * of its note.
  */
 export const standard = defineStandard({
   id: "site-plan-example",
   version: "1",
   extends: BUILT_IN_STANDARD,
-  layers: { "V-TREE": { color: 3, pen: "fine", discipline: "V" } },
-  leaderStyles: { notes: { role: "note", arrowSize: 1 / 8, landing: 1 / 8, gap: 1 / 16 } },
-  defaultLeaderStyle: "notes",
+  layers: {
+    "V-TREE": { color: 3, pen: "fine", discipline: "V" },
+    "C-ANNO-REVS": { color: 1, pen: "medium", discipline: "C" },
+    "C-ANNO-IMAG": { color: 8, pen: "fine", discipline: "C" },
+    "C-TOPO-BANK": { color: 30, linetype: "HIDDEN", pen: "fine", discipline: "C" },
+  },
 });
+
+/**
+ * The raster files the sheet's images show, by the path each image gives, from this file's
+ * folder: the vicinity map, a PNG. `rasterSize` reads its pixels, which the image must state.
+ */
+export const images = {
+  "vicinity-map.png": new Uint8Array(readFileSync(new URL("./vicinity-map.png", import.meta.url))),
+};
+const vicinityPixels = rasterSize(images["vicinity-map.png"])!;
 
 /** A text role of the standard, which gives a text its text style and the height it plots at. */
 type Role = keyof typeof standard.textRoles;
@@ -135,6 +156,16 @@ const trees: { at: Point; radius: number }[] = [
   { at: [50, 130], radius: 6 },
   { at: [85, 111], radius: 5 },
   { at: [28, 12], radius: 5 },
+];
+// The top of the bank of a drainage swale in the adjoining lot, where the survey located it.
+const bank: Point[] = [
+  [-34, 146],
+  [-28, 124],
+  [-35, 98],
+  [-27, 72],
+  [-33, 48],
+  [-26, 26],
+  [-31, 6],
 ];
 
 // Positions worked out from the site.
@@ -271,8 +302,13 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     // North is up the block. Its base point is the middle of the circle.
     d.text([0, arrowRadius + gap], "N", { role: "heading", align: "center" });
     d.circle([0, 0], arrowRadius);
-    d.line([0, -arrowRadius], [0, arrowRadius * 0.4]);
-    arrowhead(d, [0, arrowRadius], [0, 0], arrowRadius * 0.9);
+    d.line([0, -arrowRadius], [0, arrowRadius * 0.2]);
+    // The arrowhead: its outline from the tip, notched at the shaft, and its east half filled.
+    const head = arrowRadius * 0.9;
+    const tip: Point = [0, arrowRadius];
+    const notch: Point = [0, arrowRadius - head * 0.8];
+    d.polyline([tip, [-head / 3, arrowRadius - head], notch, [head / 3, arrowRadius - head]], true);
+    d.hatch([tip, notch, [head / 3, arrowRadius - head]]);
   });
   // The view title: the title over a line and the scale under it. Its base point is the left
   // end of the line. The line has one fixed length, long enough for the sheet's view title,
@@ -328,15 +364,20 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     d.line([view.left, pavement.near], [open.from, pavement.near]);
     d.line([open.to, pavement.near], [view.right, pavement.near]);
     d.line([view.left, pavement.far], [view.right, pavement.far]);
+    // The existing sidewalk plots gray among the black: a true color plots as it is, whatever the
+    // sheet's plot style table, where an index plots black under the standard's monochrome.ctb.
+    const existing = { color: [128, 128, 128] } as const;
     for (const y of [-sidewalk.fromLot, -sidewalk.fromLot - sidewalk.width]) {
-      d.line([view.left, y], [driveX, y]);
-      d.line([driveX + driveway.width, y], [view.right, y]);
+      d.line([view.left, y], [driveX, y], existing);
+      d.line([driveX + driveway.width, y], [view.right, y], existing);
     }
   });
   d.layer("C-ROAD-CNTR", () => d.line([view.left, centerline], [view.right, centerline]));
   d.layer("V-TREE", () => {
     for (const tree of trees) d.insert("TREE", tree.at, { scale: tree.radius });
   });
+  // A line that bends with the ground is a spline through the points located on it.
+  d.layer("C-TOPO-BANK", () => d.spline(bank));
 
   // The plan's annotation, in model space with what it describes. A text names the view it is
   // read in, which sizes it to plot at its role's height. Gaps and offsets are lengths on paper,
@@ -372,13 +413,21 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
       d.linearDimension(upLot[i - 1]!, upLot[i]!, [up, 0], { view: plan, along: "y" });
     }
     // The building in feet and inches, as an architect dimensions it, in the standard's style
-    // for that: its west wall, outside it.
+    // for that: its west wall, outside it, with what it measures written under the line.
     d.linearDimension(
       [houseX, houseY],
       [houseX, houseY + house.depth],
       [houseX - plan.paper(3 / 8), 0],
-      { view: plan, along: "y", style: "feet-inches" },
+      { view: plan, along: "y", style: "feet-inches", textBelow: "BUILDING" },
     );
+    // The radius of the driveway's flares, on the west one, which the east one repeats, its text
+    // clear of the sidewalk.
+    const flareCenter: Point = [driveX - driveway.flare, pavement.near + driveway.flare];
+    const flarePoint: Point = [
+      flareCenter[0] + driveway.flare / 2,
+      flareCenter[1] - (driveway.flare * Math.sqrt(3)) / 2,
+    ];
+    d.radiusDimension(flareCenter, flarePoint, { view: plan, text: "<> TYP." });
   });
 
   d.layer("C-ANNO-TEXT", () => {
@@ -474,6 +523,14 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
       align: "right",
     });
 
+    // The bank, beside it on the side away from the lot.
+    d.text([-38, 60], "TOP OF BANK", {
+      role: "note",
+      view: plan,
+      align: "center",
+      rotation: 90,
+    });
+
     // The adjoining lots, each an inch outside its lot line and reading along it.
     d.text([-plan.paper(1), lot.depth / 2], "LOT 11", {
       role: "label",
@@ -512,6 +569,34 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
       to: canopyEdge(frontYard!, oakNote),
       attachment: "last-line",
     });
+  });
+
+  // A revision: a cloud around the driveway, which it changed, and a delta with its number beside
+  // the cloud. Each arc of the cloud is about 3/8 in on paper, and every arc bulges out
+  // of the outline, so the cloud crosses none of what it wraps.
+  d.layer("C-ANNO-REVS", () => {
+    const margin = plan.paper(1 / 8);
+    const left = driveX - driveway.flare - margin;
+    const right = driveX + driveway.width + driveway.flare + margin;
+    const bottom = pavement.near - margin;
+    const top = bounds.front - plan.paper(1 / 4);
+    const outline: Point[] = [
+      [left, bottom],
+      [right, bottom],
+      [right, top],
+      [left, top],
+    ];
+    d.cloud(outline, { arc: plan.paper(3 / 8) });
+    // The delta: a triangle 3/8 in on a side, pointing up, with the number at its middle.
+    const side = plan.paper(3 / 8);
+    const middle: Point = [right + side, (bottom + top) / 2];
+    const reach = side / Math.sqrt(3);
+    const corners = [90, 210, 330].map((angle): Point => {
+      const a = (angle * Math.PI) / 180;
+      return [middle[0] + reach * Math.cos(a), middle[1] + reach * Math.sin(a)];
+    });
+    d.polyline(corners, true);
+    d.text(middle, "1", { role: "label", view: plan, align: "center", valign: "middle" });
   });
 
   /** The point of a tree's canopy that faces `toward`, where a leader points at the tree. */
@@ -554,6 +639,7 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
         frozenLayers: [
           "C-ANNO-DIMS",
           "C-ANNO-TEXT",
+          "C-ANNO-REVS",
           "C-PROP-MONU",
           "C-PROP-ADJC",
           "C-PAVE",
@@ -577,6 +663,25 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
         attributes: { VIEW_TITLE: "KEY PLAN", VIEW_SCALE: `SCALE: ${keyView.label}` },
       });
     });
+
+    // The vicinity map, a raster image above the key plan, as wide as it and at the image's own
+    // proportions, with its title under it. CAD programs load the file each time they open the
+    // drawing, by its path from the drawing's folder.
+    const mapWidth = keySide;
+    const mapHeight = (mapWidth * vicinityPixels[1]) / vicinityPixels[0];
+    const mapTitle = keyPlan.top + 1;
+    d.layer("C-ANNO-IMAG", () =>
+      d.image("vicinity-map.png", [keyPlan.left, mapTitle + 3 / 4], {
+        pixels: vicinityPixels,
+        width: mapWidth,
+        height: mapHeight,
+      }),
+    );
+    d.layer("C-ANNO-TITL", () =>
+      d.insert("VIEW TITLE", [keyTitleX, mapTitle], {
+        attributes: { VIEW_TITLE: "VICINITY MAP", VIEW_SCALE: "NOT TO SCALE" },
+      }),
+    );
     d.layer("C-ANNO-SYMB", () => {
       // The plan's viewport is not turned, so its north is up the sheet. The key plan's north
       // arrow is turned as far as its view.
@@ -637,22 +742,6 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
       }
     }
 
-    /** Breaks a sentence into lines no longer than `width`, by the length each plots at. */
-    function wrap(sentence: string, role: Role, width: number): string[] {
-      const lines: string[] = [];
-      let line = "";
-      for (const word of sentence.split(" ")) {
-        const longer = line ? `${line} ${word}` : word;
-        if (line && widthOf(longer, role) > width) {
-          lines.push(line);
-          line = word;
-        } else {
-          line = longer;
-        }
-      }
-      return [...lines, line];
-    }
-
     columnHeading("SITE DATA");
     d.layer("C-ANNO-TEXT", () => {
       const coverage = (footprintArea / lotArea) * 100;
@@ -696,15 +785,13 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
         "WORK IN THE PUBLIC RIGHT-OF-WAY NEEDS ITS OWN PERMIT.",
         "REPLACE ANY SIDEWALK OR PAVEMENT DAMAGED DURING CONSTRUCTION.",
       ];
-      const indent = widthOf("00. ", "label");
-      notes.forEach((note, i) => {
-        d.text([column.left, row], `${i + 1}.`, { role: "label" });
-        for (const line of wrap(note, "label", column.width - indent)) {
-          d.text([column.left + indent, row], line, { role: "label" });
-          row -= leading;
-        }
-        row -= leading / 3;
-      });
+      // One paragraph, a numbered list whose items hang under their numbers, a third of a line
+      // apart. Its first baseline is on the row, and the next block starts under its last.
+      const value = `${paragraphFormat({ after: 1 / 3 })}${list(notes)}`;
+      const { lines } = layoutParagraph({ value, ...roles.label, width: column.width });
+      const [first, last] = [lines[0]!.baseline, lines.at(-1)!.baseline];
+      d.paragraph(value, { role: "label", at: [column.left, row - first], width: column.width });
+      row += last - first - leading;
     });
 
     // The legend shows each line of the plan on its own layer, and each symbol as the block
@@ -732,6 +819,7 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     legendRow("C-BLDG", "BUILDING FOOTPRINT", sampleLine);
     legendRow("C-PAVE", "EDGE OF PAVEMENT OR CONCRETE", sampleLine);
     legendRow("C-ROAD-CNTR", "STREET CENTERLINE", sampleLine);
+    legendRow("C-TOPO-BANK", "TOP OF BANK", sampleLine);
     legendRow("C-PROP-MONU", "PROPERTY CORNER", () => d.insert("PROPERTY CORNER", sampleCenter()));
     row -= leading / 2;
     // The tree is one foot in radius in its block, and 3/16 in on the paper.
@@ -796,8 +884,11 @@ if (import.meta.main) {
   const outDir = new URL("./out/", import.meta.url);
   mkdirSync(outDir, { recursive: true });
   writeFileSync(new URL("site-plan.dxf", outDir), toDXF(drawing));
-  writeFileSync(new URL("site-plan.svg", outDir), toSVG(drawing));
-  writeFileSync(new URL("site-plan-sheet.svg", outDir), toSVG(drawing, { layout: example.layout }));
+  writeFileSync(new URL("site-plan.svg", outDir), toSVG(drawing, { images }));
+  writeFileSync(
+    new URL("site-plan-sheet.svg", outDir),
+    toSVG(drawing, { layout: example.layout, images }),
+  );
   const onSheet = drawing.layouts?.[0]?.entities.length ?? 0;
   console.log(
     `Wrote ${drawing.entities.length} entities in model space and ${onSheet} on the sheet, ` +

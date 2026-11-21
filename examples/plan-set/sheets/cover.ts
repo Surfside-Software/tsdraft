@@ -1,17 +1,19 @@
 // G-001: the cover. Everything here is on the paper: the project, the index read from the sheet
 // list, the code data and design criteria read from `project.ts`, the areas worked out from the
 // house, a vicinity map and the legend of the set's symbols.
-import type { Point } from "../../../src/index.ts";
+import type { Point, TableOptions } from "../../../src/index.ts";
 import { CRITERIA, FIRM, PROJECT, SHEETS as SHEET_LIST } from "../project.ts";
 import { areas, ROOF } from "../model/house.ts";
 import { frame } from "../lib/frame.ts";
 import {
+  aligned,
   AREA,
   H,
   LAYERS,
   noteColumn,
   put,
-  table,
+  SCHEDULE,
+  tableBottom,
   TITLE,
   type D,
   type SheetDraw,
@@ -43,15 +45,14 @@ function cover(d: D): void {
 
     // Column 1: project data, criteria, areas.
     const c1 = AREA.left + 0.2;
-    let y = table(
-      dd,
-      [c1, colTop],
-      "PROJECT DATA",
-      [
-        { name: "ITEM", width: 2.6 },
-        { name: "VALUE", width: 4.6 },
-      ],
-      [
+    const draw = (t: TableOptions) => dd.layer(LAYERS.text, {}, () => dd.table(t));
+    const projectData: TableOptions = {
+      style: SCHEDULE,
+      at: [c1, colTop],
+      columns: [2.6, 4.6],
+      title: "PROJECT DATA",
+      header: ["ITEM", "VALUE"],
+      rows: [
         ["SCOPE", "NEW SINGLE-FAMILY DWELLING"],
         ["OCCUPANCY", "R-3 / FBC-R DWELLING"],
         ["CONSTRUCTION TYPE", CRITERIA.construction],
@@ -69,17 +70,16 @@ function cover(d: D): void {
         ["HEIGHT LIMIT", `${CRITERIA.zoning.maxHeight}'-0" (D.F.E. TO MEAN ROOF)`],
         ["PLATE HEIGHTS", `1ST 10'-0", 2ND 9'-1 1/8"`],
       ],
-    );
-    y -= 0.3;
-    y = table(
-      dd,
-      [c1, y],
-      "AREA TABULATION (GROSS, TO OUTSIDE FACE)",
-      [
-        { name: "AREA", width: 4.2 },
-        { name: "SQ. FT.", width: 3.0, align: "right" },
-      ],
-      [
+    };
+    draw(projectData);
+    const right = { 1: "right" } as const;
+    const areaTable: TableOptions = {
+      style: SCHEDULE,
+      at: [c1, tableBottom(projectData) - 0.3],
+      columns: [4.2, 3.0],
+      title: "AREA TABULATION (GROSS, TO OUTSIDE FACE)",
+      header: aligned(["AREA", "SQ. FT."], right),
+      rows: [
         ["FIRST FLOOR, CONDITIONED", sf(a.l1)],
         ["SECOND FLOOR, CONDITIONED", sf(a.l2)],
         ["TOTAL CONDITIONED", sf(a.living)],
@@ -87,19 +87,17 @@ function cover(d: D): void {
         ["ENTRY PORCH", sf(a.porch)],
         ["COVERED LANAI", sf(a.lanai)],
         ["TOTAL UNDER ROOF", sf(a.total)],
-      ],
-    );
-    y -= 0.3;
+      ].map((row) => aligned(row, right)),
+    };
+    draw(areaTable);
     const w = CRITERIA.wind;
-    table(
-      dd,
-      [c1, y],
-      "DESIGN CRITERIA (ASCE 7-22)",
-      [
-        { name: "ITEM", width: 3.6 },
-        { name: "VALUE", width: 3.6 },
-      ],
-      [
+    draw({
+      style: SCHEDULE,
+      at: [c1, tableBottom(areaTable) - 0.3],
+      columns: [3.6, 3.6],
+      title: "DESIGN CRITERIA (ASCE 7-22)",
+      header: ["ITEM", "VALUE"],
+      rows: [
         ["ULTIMATE WIND SPEED, VULT", `${w.vult} MPH`],
         ["NOMINAL WIND SPEED, VASD", `${w.vasd} MPH`],
         ["RISK CATEGORY", w.risk],
@@ -111,11 +109,11 @@ function cover(d: D): void {
         ["ROOF LIVE / DEAD LOAD", `${CRITERIA.live.roof} / ${CRITERIA.dead.roof} PSF`],
         ["SOIL BEARING (ASSUMED)", `${CRITERIA.soil.toLocaleString("en-US")} PSF`],
       ],
-    );
+    });
 
     // Column 2: code data and general notes.
     const c2 = AREA.left + 7.9;
-    y = noteColumn(dd, [c2, colTop], 7.4, "APPLICABLE CODES", [...CRITERIA.codes], {
+    let y = noteColumn(dd, [c2, colTop], 7.4, "APPLICABLE CODES", [...CRITERIA.codes], {
       numbered: false,
     });
     y -= 0.25;
@@ -134,45 +132,39 @@ function cover(d: D): void {
 
     // Column 3: the index, read from the sheet list.
     const c3 = AREA.left + 15.8;
-    y = table(
-      dd,
-      [c3, colTop],
-      "SHEET INDEX",
-      [
-        { name: "SHEET", width: 1.0 },
-        { name: "TITLE", width: 5.6 },
-      ],
-      SHEET_LIST.map((s) => [
+    const index: TableOptions = {
+      style: SCHEDULE,
+      at: [c3, colTop],
+      columns: [1.0, 5.6],
+      title: "SHEET INDEX",
+      header: ["SHEET", "TITLE"],
+      rows: SHEET_LIST.map((s) => [
         s.number,
         [s.title, s.title2].filter(Boolean).join(" ").replace(", ", " ") +
           (s.number === "M-101" ? "  (ADDED, REV. 1)" : ""),
       ]),
-      { rowHeight: 0.26 },
-    );
-    y -= 0.3;
-    table(
-      dd,
-      [c3, y],
-      "ABBREVIATIONS",
-      [
-        { name: "", width: 1.0 },
-        { name: "", width: 2.3 },
-        { name: "", width: 1.0 },
-        { name: "", width: 2.3 },
-      ],
-      [
-        ["A.F.F.", "ABOVE FINISH FLOOR", "GWB", "GYPSUM WALLBOARD"],
-        ["BFE", "BASE FLOOD ELEVATION", "MAX.", "MAXIMUM"],
-        ["CLG.", "CEILING", "MIN.", "MINIMUM"],
-        ["CMU", "CONCRETE MASONRY UNIT", "NAVD", "N. AMER. VERT. DATUM"],
-        ["CONC.", "CONCRETE", "O.C.", "ON CENTER"],
-        ["DFE", "DESIGN FLOOD ELEV.", "OSB", "ORIENTED STRAND BD."],
-        ["EL.", "ELEVATION", "P.T.", "PRESSURE TREATED"],
-        ["F.F.E.", "FINISH FLOOR ELEV.", "T.O.", "TOP OF"],
-        ["FTG.", "FOOTING", "TYP.", "TYPICAL"],
-      ],
-      { rowHeight: 0.24 },
-    );
+      rowHeights: SHEET_LIST.map(() => 0.26),
+    };
+    draw(index);
+    const abbreviations = [
+      ["A.F.F.", "ABOVE FINISH FLOOR", "GWB", "GYPSUM WALLBOARD"],
+      ["BFE", "BASE FLOOD ELEVATION", "MAX.", "MAXIMUM"],
+      ["CLG.", "CEILING", "MIN.", "MINIMUM"],
+      ["CMU", "CONCRETE MASONRY UNIT", "NAVD", "N. AMER. VERT. DATUM"],
+      ["CONC.", "CONCRETE", "O.C.", "ON CENTER"],
+      ["DFE", "DESIGN FLOOD ELEV.", "OSB", "ORIENTED STRAND BD."],
+      ["EL.", "ELEVATION", "P.T.", "PRESSURE TREATED"],
+      ["F.F.E.", "FINISH FLOOR ELEV.", "T.O.", "TOP OF"],
+      ["FTG.", "FOOTING", "TYP.", "TYPICAL"],
+    ];
+    draw({
+      style: SCHEDULE,
+      at: [c3, tableBottom(index) - 0.3],
+      columns: [1.0, 2.3, 1.0, 2.3],
+      title: "ABBREVIATIONS",
+      rows: abbreviations,
+      rowHeights: abbreviations.map(() => 0.24),
+    });
 
     // Column 4: vicinity map, legend and the team.
     const c4 = AREA.left + 23.0;

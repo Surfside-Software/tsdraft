@@ -3,12 +3,26 @@
 // literal through `CheckDocument`, and every value when the code runs.
 import type {
   Arrowhead,
+  DIMENSION_FRACTIONS,
+  DIMENSION_TEXT_FITS,
+  DIMENSION_RADIAL_TEXTS,
+  DIMENSION_ANGLE_UNITS,
+  DIMENSION_ARC_SYMBOLS,
+  DIMENSION_TEXT_PLACEMENTS,
   DIMENSION_UNITS,
   FEET_INCH_ZEROS,
   LeaderArrowhead,
   ZERO_SUPPRESSIONS,
 } from "../arrowheads.ts";
-import type { Drawing, LeaderAttachment, Point, Units } from "../drawing.ts";
+import type {
+  Drawing,
+  LeaderAttachment,
+  LeaderDirection,
+  LeaderShaftKind,
+  LeaderVerticalAttachment,
+  Point,
+  Units,
+} from "../drawing.ts";
 import type { Font } from "../fonts.ts";
 import type { PaperUnit } from "../paper.ts";
 import type { Paper, PlotStyleTable } from "../papers.ts";
@@ -170,6 +184,8 @@ export interface WritingDocument extends Commented {
   readonly suppressZeros?: string;
   readonly feetInchZeros?: string;
   readonly measurementScale?: number;
+  readonly fraction?: string;
+  readonly fractionScale?: number;
 }
 
 export interface DimensionStyleFieldsDocument extends Commented {
@@ -180,6 +196,16 @@ export interface DimensionStyleFieldsDocument extends Commented {
   readonly extensionOffset?: number;
   readonly extensionBeyond?: number;
   readonly textGap?: number;
+  readonly textPlacement?: string;
+  readonly textFit?: string;
+  readonly dimensionLineweight?: number;
+  readonly extensionLineweight?: number;
+  readonly radialText?: string;
+  readonly jogAngle?: number;
+  readonly angleUnits?: string;
+  readonly anglePrecision?: number;
+  readonly suppressAngleZeros?: string;
+  readonly arcSymbol?: string;
   readonly writing?: { readonly [U in Units]?: WritingDocument };
   readonly description?: string;
 }
@@ -206,6 +232,10 @@ export interface LeaderStyleFieldsDocument extends Commented {
   readonly landing?: number;
   readonly gap?: number;
   readonly attachment?: string;
+  readonly direction?: string;
+  readonly verticalAttachment?: string;
+  readonly frame?: boolean;
+  readonly shaft?: string;
   readonly description?: string;
 }
 
@@ -338,6 +368,8 @@ export interface StandardWriting {
   readonly suffix?: string;
   readonly suppressZeros?: (typeof ZERO_SUPPRESSIONS)[number];
   readonly feetInchZeros?: (typeof FEET_INCH_ZEROS)[number];
+  readonly fraction: (typeof DIMENSION_FRACTIONS)[number];
+  readonly fractionScale: number;
   readonly measurementScale: number;
 }
 
@@ -348,6 +380,16 @@ export interface StandardDimensionStyleFields {
   readonly extensionOffset?: number;
   readonly extensionBeyond?: number;
   readonly textGap?: number;
+  readonly textPlacement?: (typeof DIMENSION_TEXT_PLACEMENTS)[number];
+  readonly textFit?: (typeof DIMENSION_TEXT_FITS)[number];
+  readonly dimensionLineweight?: number;
+  readonly extensionLineweight?: number;
+  readonly radialText?: (typeof DIMENSION_RADIAL_TEXTS)[number];
+  readonly jogAngle?: number;
+  readonly angleUnits?: (typeof DIMENSION_ANGLE_UNITS)[number];
+  readonly anglePrecision?: number;
+  readonly suppressAngleZeros?: (typeof ZERO_SUPPRESSIONS)[number];
+  readonly arcSymbol?: (typeof DIMENSION_ARC_SYMBOLS)[number];
   readonly writing?: { readonly [U in Units]?: StandardWriting };
   readonly description?: string;
 }
@@ -359,6 +401,16 @@ export interface StandardDimensionStyle {
   readonly extensionOffset: number;
   readonly extensionBeyond: number;
   readonly textGap: number;
+  readonly textPlacement: (typeof DIMENSION_TEXT_PLACEMENTS)[number];
+  readonly textFit: (typeof DIMENSION_TEXT_FITS)[number];
+  readonly dimensionLineweight?: number;
+  readonly extensionLineweight?: number;
+  readonly radialText: (typeof DIMENSION_RADIAL_TEXTS)[number];
+  readonly jogAngle: number;
+  readonly angleUnits: (typeof DIMENSION_ANGLE_UNITS)[number];
+  readonly anglePrecision: number;
+  readonly suppressAngleZeros?: (typeof ZERO_SUPPRESSIONS)[number];
+  readonly arcSymbol: (typeof DIMENSION_ARC_SYMBOLS)[number];
   readonly writing: { readonly [U in Units]?: StandardWriting };
   /** Its name in the leading CAD app on a layout, when it is not its id in capitals. */
   readonly layoutName?: string;
@@ -379,6 +431,10 @@ export interface StandardLeaderStyleFields {
   readonly landing?: number;
   readonly gap?: number;
   readonly attachment?: LeaderAttachment;
+  readonly direction?: LeaderDirection;
+  readonly verticalAttachment?: LeaderVerticalAttachment;
+  readonly frame?: boolean;
+  readonly shaft?: LeaderShaftKind;
   readonly description?: string;
 }
 
@@ -389,6 +445,10 @@ export interface StandardLeaderStyle {
   readonly landing: number;
   readonly gap: number;
   readonly attachment: LeaderAttachment;
+  readonly direction: LeaderDirection;
+  readonly verticalAttachment: LeaderVerticalAttachment;
+  readonly frame: boolean;
+  readonly shaft: LeaderShaftKind;
   readonly discipline?: string;
   readonly description?: string;
   readonly byDiscipline?: { readonly [discipline: string]: StandardLeaderStyleFields };

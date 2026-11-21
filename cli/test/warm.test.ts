@@ -140,8 +140,8 @@ test("a build after another reads the drawing's files alone, and answers as the 
   assert.equal(cold!.ok, true);
   assert.equal(cold!.modules.ahead, 0);
   assert.ok(cold!.modules.read > 2, "the first build reads the library");
-  // The sheet and its helpers: the library is neither read nor run again.
-  assert.equal(warm!.modules.read, 2);
+  // The sheet alone: the library is neither read nor run again.
+  assert.equal(warm!.modules.read, 1);
   assert.ok(warm!.modules.ahead > 0);
   assert.deepEqual(answer(warm!), answer(cold!));
 });

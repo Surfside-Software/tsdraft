@@ -45,8 +45,10 @@ export async function readDrawingFile(chunks, name) {
     linetypes: [],
     textStyles: [],
     dimensionStyles: [],
+    tableStyles: [],
     blocks: [],
     xrefs: [],
+    images: [],
     model: {
       census: {
         layers: {},

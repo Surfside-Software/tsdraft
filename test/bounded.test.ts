@@ -9,6 +9,7 @@ import {
   fromJSON,
   inspectText,
   lint,
+  polylineBox,
   toDXF,
   toSVG,
   type Block,
@@ -195,6 +196,65 @@ test("lint pays for what inserts repeat, and toDXF refuses what it stopped short
   );
 });
 
+/** The example sheet with a hatch pattern, and a hatch of it in model space. */
+const patterned = (pattern: object): Drawing => ({
+  ...sheet,
+  patterns: [pattern as never],
+  entities: [
+    ...sheet.entities,
+    {
+      kind: "hatch",
+      layer: "0",
+      loops: [
+        {
+          points: [
+            [0, 0],
+            [10, 0],
+            [10, 10],
+          ],
+        },
+      ],
+      pattern: { name: "HOLE" },
+    },
+  ],
+});
+
+test("lint and toSVG pay for the lines of hatch patterns that many places share", () => {
+  const dashes = Array.from({ length: 30_000 }, (_, i) => (i % 2 === 0 ? 1 : -1));
+  const lines = Array.from({ length: 30_000 }, (_, i) => ({
+    angle: i,
+    base: [0, 0] as Point,
+    offset: [0, 1] as Point,
+    dashes,
+  }));
+  const loops = [
+    {
+      points: [
+        [0, 0],
+        [1e5, 0],
+        [1e5, 1e5],
+      ] as Point[],
+    },
+  ];
+  const drawing: Drawing = {
+    ...createDrawing({ units: "ft" }).build(),
+    patterns: Array.from({ length: 1000 }, (_, i) => ({ name: `P${i}`, lines })),
+    entities: Array.from({ length: 10_000 }, (_, i) => ({
+      kind: "hatch",
+      layer: "0",
+      loops,
+      pattern: pick(i),
+    })),
+  };
+  function pick(i: number) {
+    return i % 2 === 0 ? { name: `P${i % 1000}` } : { spacing: 1e-6, crossed: true };
+  }
+  const found = within(3000, () => lint(drawing));
+  assert.ok(found.some((d) => d.rule === "check-capped"));
+  const drawn = settled(3000, () => toSVG(drawing));
+  assert.ok(typeof drawn === "string" || drawn instanceof RangeError, String(drawn));
+});
+
 test("every walk stops at the first empty slot of a list", () => {
   // oxlint-disable-next-line unicorn/no-new-array
   const slots = () => new Array(2 ** 32 - 1);
@@ -228,10 +288,22 @@ test("every walk stops at the first empty slot of a list", () => {
         { kind: "polyline", layer: "0", points: slots(), closed: true },
       ],
     },
+    { ...sheet, entities: [...sheet.entities, { kind: "hatch", layer: "0", loops: slots() }] },
+    {
+      ...sheet,
+      entities: [...sheet.entities, { kind: "hatch", layer: "0", loops: [{ points: slots() }] }],
+    },
+    { ...sheet, entities: [...sheet.entities, { kind: "wipeout", layer: "0", points: slots() }] },
     {
       ...sheet,
       linetypes: [...sheet.linetypes!, { name: "HOLE", description: "", pattern: slots() }],
     },
+    { ...sheet, patterns: slots() },
+    patterned({ name: "HOLE", lines: slots() }),
+    patterned({
+      name: "HOLE",
+      lines: [{ angle: 0, base: [0, 0], offset: [0, 1], dashes: slots() }],
+    }),
   ] as Drawing[]) {
     assert.ok(within(1000, () => lint(drawing)).length > 0);
     for (const fn of [
@@ -263,7 +335,20 @@ function walkedExtents(
       box[3] = Math.max(box[3]!, py);
     };
     if (e.kind === "line") [e.from, e.to].forEach((p) => add(...p));
-    if (e.kind === "polyline") e.points.forEach((p) => add(...p));
+    if (e.kind === "polyline") {
+      // Its arcs and its wide sides, by the corners of their box.
+      const [x0, y0, x1, y1] = polylineBox(e) ?? [Infinity, Infinity, -Infinity, -Infinity];
+      if (x0 !== Infinity) {
+        for (const [x, y] of [
+          [x0, y0],
+          [x1, y0],
+          [x1, y1],
+          [x0, y1],
+        ] as const) {
+          add(x, y);
+        }
+      }
+    }
     if (e.kind === "circle") {
       for (const [i, j] of [
         [-1, -1],
@@ -318,6 +403,7 @@ const holds = (outer: readonly number[], inner: readonly number[]): boolean =>
 
 test("a block's box holds a walk's, and is a walk's where no insert is turned", () => {
   const random = seeded(7);
+  const curving = seeded(11);
   const pick = <T>(items: readonly T[]): T => items[Math.floor(random() * items.length)]!;
   const point = (): Point => [random() * 100 - 50, random() * 100 - 50];
   const none = [Infinity, Infinity, -Infinity, -Infinity];
@@ -345,6 +431,19 @@ test("a block's box holds a walk's, and is a walk's where no insert is turned", 
             () => ({ kind: "polyline", layer, points: [point(), point(), point()], closed: true }),
           ])(),
         );
+      }
+      // A polyline with arcs and a width, from a stream of its own, which leaves the drawings
+      // above as they were.
+      if (curving() < 0.3) {
+        const at = (): Point => [curving() * 100 - 50, curving() * 100 - 50];
+        entities.push({
+          kind: "polyline",
+          layer: "A",
+          points: [at(), at(), at()],
+          closed: false,
+          bulges: [curving() * 4 - 2, curving() < 0.5 ? 0 : -3],
+          width: curving() < 0.5 ? 0 : curving() * 5,
+        });
       }
       for (let k = 0; i > 0 && k < 1 + Math.floor(random() * 3); k++) {
         entities.push({
@@ -1775,6 +1874,16 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
       shafts: [[[0, 0]]],
       ...fields,
     }) as unknown as Entity;
+  const paragraph = (fields: Data): Entity =>
+    ({
+      kind: "paragraph",
+      layer: "0",
+      at: [0, 0],
+      height: 1,
+      value: "N",
+      rotation: 0,
+      ...fields,
+    }) as unknown as Entity;
   for (let n = 0; n < 16; n++) {
     const blocks = copies(sheet.blocks);
     const layout: Data = {
@@ -1814,6 +1923,15 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
         ),
       }),
       leader({ textStyle: long }),
+      // A paragraph of many lines, of many runs, of one long word, of deep braces, or of numbers
+      // past what can be drawn.
+      paragraph({ value: "WORD ".repeat(20_000), width: 1 }),
+      paragraph({ value: "\\La\\l\\S1/2;".repeat(10_000), width: 0 }),
+      paragraph({ value: long, width: 0.5, style: "HEADING" }),
+      paragraph({ value: `${"{".repeat(50_000)}x`, width: 1e99, height: 1e99, rotation: 1e99 }),
+      // And of a run for each character and of stacks that each end a line.
+      paragraph({ value: "\\fArial|b1;a\\fArial|b0;b".repeat(4_000), width: 1e-6 }),
+      paragraph({ value: "\\S1/2; X\\S2^ ; X\\S^2; ".repeat(2_000), width: 1e-6 }),
     ]);
     const tree = nested(leaf, depth, width, "T");
     // Many lines that no check reads beside one label.
@@ -1875,6 +1993,42 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
       (tree.blocks[0]!.entities as unknown as Entity[]).push(pointed);
       (drawing.entities as Entity[]).push(pointed);
     }
+    // A polyline of many sides that are arcs and wide, dashed or solid, with lists of bulges
+    // and widths that many polylines share: bulges of nearly a whole turn and of none, and
+    // widths far wider than the polyline.
+    if (random() < 0.3) {
+      (drawing.linetypes as Data[]).push({ name: "BANDS", description: "", pattern: [0.5, -0.25] });
+      const count = 20_000;
+      const curved = {
+        kind: "polyline",
+        layer: "0",
+        linetype: pick(["BANDS", "ByLayer"]),
+        closed: random() < 0.5,
+        points: Array.from({ length: count }, (_, i) => [i % 7, i % 2 === 0 ? 0 : 3]),
+        bulges: Array.from({ length: count }, () => pick([0, 1, -1e9, 1e-7, 0.5])),
+        widths: Array.from({ length: count }, () => [pick([0, 0.1, 1e6]), random()]),
+      };
+      if (!curved.closed) {
+        curved.bulges.pop();
+        curved.widths.pop();
+      }
+      (tree.blocks[0]!.entities as unknown as Data[]).push(curved);
+      // Polylines of their own that share its lists, some closed the other way, and one whose
+      // bulges are a list as long as a list can be, with nothing in it.
+      (drawing.entities as Data[]).push(
+        ...Array.from({ length: 50 }, (_, i) => ({ ...curved, closed: i % 3 === 0 })),
+        // oxlint-disable-next-line unicorn/no-new-array
+        {
+          ...curved,
+          points: [
+            [0, 0],
+            [1, 1],
+          ],
+          bulges: new Array(2 ** 32 - 1),
+          widths: undefined,
+        },
+      );
+    }
     // A large block placed once.
     if (random() < 0.2) {
       blocks.push({
@@ -1914,27 +2068,48 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
       (drawing.entities as Data[]).push({ ...tree.top, block: `T${Math.floor(depth / 2)}` });
     }
     if (random() < 0.4) {
+      // Of one line, or of paragraph text: long, of many lines, of deep braces, or wrapped at a
+      // width past what can be drawn, one definition shared by every place or each its own.
+      const paragraphs = random() < 0.5;
+      const shared = {
+        kind: "paragraph",
+        tag: "P",
+        value: pick([long, "WORD\\P".repeat(20_000), `${"{".repeat(50_000)}x`, "A B C"]),
+        layer: "0",
+        at: [0, 0] as Point,
+        height: 1,
+        rotation: 30,
+        width: pick([1e-6, 2, 1e90]),
+        lineSpacing: 4,
+      };
       (tree.blocks[0] as { attributes?: unknown }).attributes = Array.from(
         { length: pick([1, 100, 300]) },
-        (_, i) => ({
-          tag: i === 0 && random() < 0.5 ? "T".repeat(2_000_000) : `A${i}`,
-          value: pick(["V", long]),
-          layer: "0",
-          at: [0, 0] as Point,
-          height: 1,
-          rotation: 0,
-          ...(i === 0 && random() < 0.2 ? fields() : {}),
-        }),
+        (_, i) =>
+          paragraphs && random() < 0.5
+            ? { ...shared, tag: `P${i}` }
+            : {
+                tag: i === 0 && random() < 0.5 ? "T".repeat(2_000_000) : `A${i}`,
+                value: pick(["V", long]),
+                layer: "0",
+                at: [0, 0] as Point,
+                height: 1,
+                rotation: 0,
+                ...(paragraphs ? { kind: "paragraph", width: 3 } : {}),
+                ...(i === 0 && random() < 0.2 ? fields() : {}),
+              },
       );
     }
     blocks.push(...(tree.blocks as unknown as Data[]));
     // Values each insert holds, long or not.
     const values = random() < 0.3 ? { A0: pick(["V", long]), A1: long } : undefined;
+    // Scaled unevenly or mirrored, which places an attribute of paragraph text again in each.
+    const scale = pick([undefined, [2, 0.5], [-1, 1], [1e-6, 1e6]]);
     const inserts = Array.from({ length: pick([1, 300]) }, (_, i) => ({
       ...tree.top,
       at: [i, 0],
       ...(random() < 0.5 ? { id: `I${i}` } : {}),
       ...(values ? { attributes: values } : {}),
+      ...(scale ? { scale } : {}),
       rotation: random() * 360,
     }));
     (random() < 0.5 ? (drawing.entities as Data[]) : (layout.entities as Data[])).push(...inserts);
@@ -1964,6 +2139,88 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
     // A dimension style whose prefix every dimension reads.
     if (random() < 0.3) (drawing.dimensionStyles as Data[])[0]!.prefix = long;
     if (random() < 0.2) (drawing.dimensionStyles as Data[])[0]!.arrowhead = "A".repeat(1_000_000);
+    // Dimensions whose long words below each reads again, short or not, in a style that may move
+    // a text out on a leader or center it in the line.
+    if (random() < 0.3) {
+      const style = (drawing.dimensionStyles as Data[])[0]!;
+      style.textFit = pick(["inside", "leader"]);
+      style.textPlacement = pick(["above", "centered"]);
+      (pick([drawing, layout]).entities as Data[]).push(
+        ...Array.from({ length: pick([1, 300]) }, (_, i) => ({
+          kind: "linear-dimension",
+          layer: "0",
+          style: style.name,
+          from: [0, i],
+          to: [pick([0.01, 10]), i],
+          line: [0, i + 1],
+          textBelow: pick([long, "A\\P".repeat(5_000)]),
+        })),
+        // Radial ones, with long words, a text placed far off or past the center, and a jog.
+        ...Array.from({ length: pick([1, 300]) }, (_, i): Data => {
+          const kind = pick(["radius-dimension", "diameter-dimension", "jogged-radius-dimension"]);
+          return {
+            kind,
+            layer: "0",
+            style: style.name,
+            center: [0, i],
+            point: [pick([0.01, 10, 1e9]), i],
+            text: pick(["<>", long]),
+            textBelow: pick([long, "A\\P".repeat(5_000)]),
+            ...(kind === "jogged-radius-dimension"
+              ? { start: [5, i - 5], jog: [pick([5, -1e9]), i] }
+              : { textFromCenter: pick([-1e9, 0, 5, 1e12]) }),
+          };
+        }),
+      );
+      // Angular ones: an arc near the vertex or far, a sliver of an angle or most of a turn.
+      (pick([drawing, layout]).entities as Data[]).push(
+        ...Array.from({ length: pick([1, 300]) }, (_, i): Data => ({
+          kind: "angular-dimension",
+          layer: "0",
+          style: style.name,
+          vertex: [0, i],
+          from: [10, i],
+          to: [pick([10, -10, 1e9]), i + pick([0.001, 10, -1e9])],
+          at: [pick([0.01, 5, 1e9]), i + pick([0.0001, 3, -2])],
+          text: pick(["<>", long]),
+          textBelow: pick([long, "A\\P".repeat(5_000)]),
+        })),
+      );
+      // Arc length ones: a sliver of an arc or most of a turn, its own arc near or far.
+      (pick([drawing, layout]).entities as Data[]).push(
+        ...Array.from({ length: pick([1, 300]) }, (_, i): Data => ({
+          kind: "arc-length-dimension",
+          layer: "0",
+          style: style.name,
+          center: [0, i],
+          radius: pick([0.01, 10, 1e9]),
+          startAngle: pick([0, 30, 359.9999]),
+          endAngle: pick([0.0001, 120, 359]),
+          at: [pick([0.02, 15, 1e9]), i + pick([0.0001, 3, -2])],
+          text: pick(["<>", long]),
+          textBelow: pick([long, "A\\P".repeat(5_000)]),
+        })),
+      );
+      // Ordinate ones: straight, jogged or level, near the origin or far out.
+      (pick([drawing, layout]).entities as Data[]).push(
+        ...Array.from({ length: pick([1, 300]) }, (_, i): Data => ({
+          kind: "ordinate-dimension",
+          layer: "0",
+          style: style.name,
+          axis: pick(["x", "y"]),
+          origin: [pick([0, -1e9]), 0],
+          feature: [pick([0.5, 1e6, 1e9]), i],
+          leaderEnd: [pick([0.5, 1e6 + 0.00001, -1e9]), i + pick([0, 3, -1e9])],
+          text: pick(["<>", long]),
+          textBelow: pick([long, "A\\P".repeat(5_000)]),
+        })),
+      );
+      style.arcSymbol = pick(["before", "above", "none"]);
+      style.radialText = pick(["aligned", "horizontal"]);
+      style.jogAngle = pick([5, 45, 90]);
+      style.angleUnits = pick(["degrees", "degrees-minutes-seconds", "grads", "radians"]);
+      style.anglePrecision = pick([0, 4, 8]);
+    }
     // A leader style whose arrowhead or text style every leader reads.
     if (random() < 0.2) {
       const style = (drawing.leaderStyles as Data[])[0]!;
@@ -2067,4 +2324,668 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
       }
     }
   }
+});
+
+test("a chain of references ends however the drawings given share, circle or nest", () => {
+  const random = seeded(23);
+  const pick = <T>(items: readonly T[]): T => items[Math.floor(random() * items.length)]!;
+  /** A drawing that attaches, or now and then overlays, each name, placed once each. */
+  const link = (names: readonly string[], own: readonly Entity[]): Drawing => ({
+    format: 0,
+    units: "ft",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    entities: [
+      ...own,
+      ...names.map((name, i): Entity => ({ kind: "insert", layer: "0", block: name, at: [i, 0] })),
+    ],
+    xrefs: names.map((name) => ({ name, path: `${name}.dwg`, attach: random() < 0.9 })),
+  });
+  for (let n = 0; n < 12; n++) {
+    const names = Array.from({ length: pick([1, 2, 8, 64]) }, (_, i) => `X${i}`);
+    const depth = pick([3, 17, 40, 2000]);
+    const own = random() < 0.3 ? Array.from({ length: 20_000 }, () => line) : [line, text("A")];
+    // Each level gives one value for every name, shared, which a walk of every path would follow
+    // names ** depth times.
+    let below: unknown = link([], own);
+    const levels: Record<string, unknown>[] = [];
+    for (let i = 0; i < depth; i++) {
+      const given: Record<string, unknown> = Object.fromEntries(names.map((name) => [name, below]));
+      levels.push(given);
+      below = { drawing: link(names, own), xrefs: given };
+    }
+    // The values circle back to the top.
+    if (random() < 0.5) levels[0]![names[0]!] = below;
+    // A value that is no drawing, or whose xrefs are none.
+    if (random() < 0.4) {
+      levels[depth - 1]![names[0]!] = pick<unknown>([
+        5,
+        null,
+        [],
+        { drawing: 5 },
+        { drawing: link([], own), xrefs: "X" },
+      ]);
+    }
+    const host = link(names, []);
+    const options = { xrefs: Object.fromEntries(names.map((name) => [name, below])) as never };
+    const fns: [string, () => unknown][] = [
+      ["lint", () => lintWithin(host, options, 20_000)],
+      ["inspectText", () => inspectWithin(host, options, 200_000)],
+      [
+        "extents",
+        () =>
+          boxer(
+            [],
+            [],
+            undefined,
+            undefined,
+            referencedByKey(host, options.xrefs),
+            [],
+            [],
+            20_000,
+          )(host.entities),
+      ],
+      ["toSVG", () => svgWithin(host, options, 20_000)],
+    ];
+    for (const [name, fn] of fns) {
+      const result = settled(2000, fn);
+      assert.ok(
+        !(result instanceof Error) || result instanceof RangeError,
+        `case ${n}, ${name}: ${String(result)}`,
+      );
+      if (name === "lint")
+        assert.ok(Array.isArray(result), `case ${n}: lint threw ${String(result)}`);
+    }
+  }
+  // Long names that differ only at their ends, given and declared, which no map of lint's
+  // reading of what is given is keyed by.
+  const tail = (i: number) => `${"L".repeat(20_000)}${i}`;
+  const longs = Array.from({ length: 2000 }, (_, i) => tail(i));
+  const holder = link(longs, [line]);
+  const given = Object.fromEntries(longs.map((name) => [name, holder]));
+  const deepXrefs = { X: { drawing: holder, xrefs: given } } as never;
+  assert.ok(Array.isArray(within(1000, () => lint(link(["X"], []), { xrefs: deepXrefs }))));
+  // One model at many places, each giving its attachment, whose block places it 1,000 times: the
+  // block's inserts read again at each place are paid for.
+  const many = Array.from({ length: 1000 }, (_, i): Entity => ({
+    kind: "insert",
+    layer: "0",
+    block: "IN",
+    at: [i, 0],
+  }));
+  const placing: Drawing = {
+    ...link(["IN"], []),
+    entities: [{ kind: "insert", layer: "0", block: "HOLD", at: [0, 0] }],
+    blocks: [{ name: "HOLD", entities: many }],
+  };
+  const places = Array.from({ length: 48 }, (_, i) => `P${i}`);
+  const placed = Object.fromEntries(
+    places.map((name) => [name, { drawing: placing, xrefs: { IN: link([], [line]) } }]),
+  ) as never;
+  const paid = settled(1000, () => svgWithin(link(places, []), { xrefs: placed }, 5000));
+  assert.ok(paid instanceof RangeError && /extents/.test(paid.message), String(paid));
+  // Copies of one drawing with many xrefs, one list shared, under many names: the list is
+  // read once, and not at all where nothing is given inside the drawing.
+  const declared = link(
+    Array.from({ length: 4096 }, (_, i) => `D${i}`),
+    [line],
+  );
+  const hosts = Array.from({ length: 256 }, (_, i) => `H${i}`);
+  const host = link(hosts, []);
+  for (const inner of [{}, { D0: link([], [line]) }]) {
+    const xrefs = Object.fromEntries(
+      hosts.map((name) => [name, { drawing: { ...declared }, xrefs: inner }]),
+    ) as never;
+    assert.ok(Array.isArray(within(1000, () => lint(host, { xrefs }))));
+    const drawn = settled(1000, () => svgWithin(host, { xrefs }, 20_000));
+    assert.ok(typeof drawn === "string" || drawn instanceof RangeError, String(drawn));
+  }
+});
+
+test("polylines that share a long list of points, each with lists or a width of its own, are boxed in a bounded time", () => {
+  const points = Array.from({ length: 1_000_000 }, (_, i): Point => [i, i % 2]);
+  const bulges = Array.from({ length: 999_999 }, (_, i) => (i === 7 ? 0.5 : 0));
+  const own = [
+    (k: number) => ({ width: -k }),
+    () => ({ bulges: [] }),
+    () => ({ widths: [[0, 0] as const] }),
+    (k: number) => ({ bulges, width: -k }),
+    (k: number) => ({ bulges, closed: k % 2 === 0 }),
+  ];
+  for (const fields of own) {
+    const entities = Array.from({ length: 2000 }, (_, k): Entity => ({
+      kind: "polyline",
+      layer: "0",
+      points,
+      closed: false,
+      ...fields(k),
+    }));
+    // Telling whether each has an arc reads no point, and a list read again is paid for.
+    const found = settled(2000, () =>
+      extents(entities, [], [], undefined, undefined, undefined, [], [], 20_000),
+    );
+    assert.ok(Array.isArray(found) || found instanceof RangeError, String(found));
+  }
+});
+
+test("hatches that share their loops, and loops that share one list of points, are drawn in a bounded time", () => {
+  const points = Array.from({ length: 10_000 }, (_, k): Point => [
+    10 * Math.cos(k / 1591.5),
+    10 * Math.sin(k / 1591.5),
+  ]);
+  const shared = Array.from({ length: 512 }, () => ({
+    points: [
+      [0, 0],
+      [1, 0],
+      [0, 1],
+    ] as Point[],
+  }));
+  for (const entities of [
+    // One hatch whose loops all hold one long list: its picture is refused before it is held.
+    [{ kind: "hatch", layer: "0", loops: Array.from({ length: 20_000 }, () => ({ points })) }],
+    // Many hatches that hold one list of loops: its box is worked out once.
+    Array.from({ length: 512 }, () => ({ kind: "hatch", layer: "0", loops: shared })),
+  ] as Entity[][]) {
+    const drawing: Drawing = {
+      format: 0,
+      units: "in",
+      dxf: "R2018",
+      layers: [{ name: "0", color: 7 }],
+      entities,
+    };
+    const found = settled(5000, () => svgWithin(drawing, {}, 50_000));
+    assert.ok(typeof found === "string" || found instanceof RangeError, String(found));
+  }
+});
+
+test("masked paragraphs that share a long value read its mask's box once", () => {
+  const value = Array.from({ length: 20_000 }, () => "I").join("\\P");
+  const entities = Array.from({ length: 100_000 }, (_, k): Entity => ({
+    kind: "paragraph",
+    layer: "0",
+    value,
+    at: [k, 0],
+    rotation: 0,
+    height: 1,
+    mask: true,
+  }));
+  const found = settled(2000, () => extents(entities));
+  assert.ok(Array.isArray(found), String(found));
+});
+
+test("a paragraph of many lines, runs or braces, a long word and numbers past drawing stay bounded", () => {
+  const paragraph = (fields: Record<string, unknown>): Entity =>
+    ({
+      kind: "paragraph",
+      layer: "0",
+      at: [0, 0],
+      height: 1,
+      value: "N",
+      rotation: 0,
+      ...fields,
+    }) as unknown as Entity;
+  const hostile = [
+    paragraph({ value: "WORD ".repeat(100_000), width: 1 }),
+    paragraph({ value: "\\La\\l\\S1/2;".repeat(50_000) }),
+    paragraph({ value: "W".repeat(500_000), width: 0.5 }),
+    paragraph({ value: `${"{".repeat(250_000)}x`, width: 1e99, height: 1e99, rotation: 1e99 }),
+    paragraph({ value: "\\".repeat(500_000) }),
+    paragraph({ value: "\\S".repeat(250_000) }),
+    paragraph({ value: "A B ".repeat(100_000), width: -1, lineSpacing: 1e300 }),
+    // A run for each character, bold on and off, and stacks of every kind, of long parts, and
+    // each ending a line where the spaces after it are dropped.
+    paragraph({ value: "{\\La}{\\Kb}".repeat(50_000), width: 1e-6 }),
+    paragraph({ value: "\\fArial|b1;a\\fArial|b0;b".repeat(20_000), width: 2 }),
+    paragraph({ value: "\\S1/2; X\\S2^ ; X\\S^2; 1\\S1#2; ".repeat(10_000), width: 1e-6 }),
+    paragraph({ value: `\\S${"1".repeat(200_000)}/${"2".repeat(200_000)};`, width: 1 }),
+    paragraph({ value: "%".repeat(500_000), lineSpacingStyle: "exactly" }),
+    paragraph({ value: `\\fArial${"|b0".repeat(200_000)};X` }),
+    // Tabs to stops of their own and by default, indents, stretched lines and a right indent,
+    // which lays the lines out twice.
+    paragraph({ value: "H\t".repeat(200_000), width: 3 }),
+    paragraph({ value: `\\pxt${"1,".repeat(100_000)}2;${"H\t".repeat(100_000)}`, width: 1e6 }),
+    paragraph({ value: "\\pxi-3,l3,t3;1.\tA B\\P".repeat(40_000), width: 4 }),
+    paragraph({ value: "\\pxqd;AB CD ".repeat(50_000), width: 1e-6 }),
+    paragraph({ value: "\\pxqj;AB CD ".repeat(50_000), width: 20 }),
+    paragraph({ value: `\\pxi1,l2,r3;${"W ".repeat(200_000)}`, width: 6 }),
+    paragraph({ value: "\\pl99999999999999999999,r-1e9;A".repeat(1_000), width: 1 }),
+    paragraph({ value: "\\pxsm4,se0.0001,b1000,a-1000;A\\P".repeat(50_000), width: 1 }),
+    // Columns: a line each, a break each, heights past the most, and numbers past drawing.
+    paragraph({ value: "A\\P".repeat(100_000), width: 1, columns: { height: 1e-9 } }),
+    paragraph({ value: "A\\N".repeat(100_000), width: 1, columns: { count: 1e9, height: 1 } }),
+    paragraph({
+      value: "WORD ".repeat(100_000),
+      width: 1,
+      columns: { heights: Array.from({ length: 5_000 }, () => 1e-3), gutter: 1e300 },
+    }),
+    paragraph({ value: "A B ".repeat(50_000), width: 1e99, columns: { height: 1e99, gutter: -1 } }),
+    paragraph({ value: "A B ".repeat(50_000), width: 1, columns: null }),
+    // The codes of the characters: heights past drawing, a run each, and nested groups of them.
+    paragraph({ value: "\\H999999999999999;W ".repeat(20_000), width: 1 }),
+    paragraph({ value: "{\\H0.5x;\\W3;\\Q-85;\\A2;\\C7;A}".repeat(20_000), width: 2 }),
+    paragraph({ value: `${"{\\H2x;".repeat(16)}A${"}".repeat(16)} B`.repeat(5_000), width: 1 }),
+    // Heights many paragraphs share, under a value long enough to be kept.
+    paragraph({
+      value: "X".repeat(256),
+      width: 2,
+      columns: { heights: Array.from({ length: 1_000 }, () => 1.2345678901234567e70) },
+    }),
+  ];
+  for (const [i, leaf] of hostile.entries()) {
+    const d: Drawing = {
+      ...withModel(nested(leaf, 20, 2)),
+      entities: [...sheet.entities, leaf, nested(leaf, 20, 2).top],
+      layouts: [{ ...sheet.layouts![0]!, entities: [...sheet.layouts![0]!.entities, leaf] }],
+    };
+    const fns: [string, () => unknown][] = [
+      ["lint", () => lintWithin(d, {}, 20_000)],
+      ["inspectText", () => inspectWithin(d, {}, 200_000)],
+      [
+        "extents",
+        () =>
+          boxer(
+            d.textStyles,
+            d.blocks,
+            undefined,
+            undefined,
+            undefined,
+            d.dimensionStyles,
+            d.leaderStyles,
+            20_000,
+          )(d.entities),
+      ],
+      ["toSVG", () => svgWithin(d, {}, 20_000)],
+      [
+        "the PDF of the layout",
+        () => svgToPDF([svgWithin(d, { layout: "C-101" }, 20_000)], { fonts: embedded }),
+      ],
+    ];
+    for (const [name, fn] of fns) {
+      const result = settled(3000, fn);
+      assert.ok(
+        !(result instanceof Error) || result instanceof RangeError,
+        `paragraph ${i}, ${name}: ${String(result)}`,
+      );
+    }
+  }
+});
+
+test("a long paragraph value many places share is laid out once in each of its settings, and each other place pays", () => {
+  const paragraph = (value: string, fields: Record<string, unknown> = {}): Entity =>
+    ({
+      kind: "paragraph",
+      layer: "0",
+      at: [0, 0],
+      height: 1,
+      value,
+      rotation: 0,
+      ...fields,
+    }) as unknown as Entity;
+  const lines = "AB\\P".repeat(20_000);
+  // The extents map the box of its one layout at each place, whatever its lines.
+  const boxes = boxer([], [], undefined, undefined, undefined, [], [], 0);
+  const many = Array.from({ length: 10_000 }, () => paragraph(lines));
+  assert.ok(within(1000, () => boxes(many)));
+  assert.equal(boxes.capped, undefined);
+  // A layout in other settings lays it out again, and is paid for before it is.
+  const wide = "HHHH ".repeat(16_000);
+  for (const settings of [
+    (i: number) => ({ height: 1 + i / 1000 }),
+    (i: number) => ({ width: 10 + i }),
+  ]) {
+    const each = Array.from({ length: 200 }, (_, i) => paragraph(wide, settings(i)));
+    const paying = boxer([], [], undefined, undefined, undefined, [], [], 0);
+    within(1000, () => paying(each));
+    assert.equal(paying.capped, each[1]);
+  }
+  // The text checks read its lines again at each place after the first, and pay for them first.
+  const shared: Drawing = {
+    ...createDrawing({ units: "ft" }).build(),
+    entities: Array.from({ length: 128 }, () => paragraph("H\\P".repeat(2000))),
+  };
+  const [stop, ...rest] = within(1000, () => inspectWithin(shared, {}, 1));
+  assert.equal(rest.length, 0);
+  assert.match(stop!.message, /stopped short at entity #1 of model space/);
+  // One long value at many widths is laid out again at each, and each place after the first
+  // pays first, by the value's length and by its lines.
+  for (const value of ["AB ".repeat(12_000), "\\S1/2;".repeat(6_000)]) {
+    const d: Drawing = {
+      ...createDrawing({ units: "ft" }).build(),
+      entities: Array.from({ length: 1000 }, (_, i) =>
+        paragraph(value, { at: [i * 1e5, 0], height: 0.1, width: 1 + i / 1000 }),
+      ),
+    };
+    const [first] = within(1000, () => inspectWithin(d, {}, value.length - 1));
+    assert.match(first!.message, /stopped short at entity #1 of model space/);
+    const capped = within(1000, () => inspectWithin(d, {}, 300_000));
+    assert.equal(capped.at(-1)?.rule, "text-check-capped");
+    const boxes = boxer([], [], undefined, undefined, undefined, [], [], value.length - 1);
+    within(1000, () => boxes(d.entities));
+    assert.equal(boxes.capped, d.entities[1]);
+    assert.ok(settled(1000, () => svgWithin(d, {}, 300_000)) instanceof RangeError);
+  }
+  // The lines of a value at a new width are paid for besides its length.
+  const words = "AB ".repeat(12_000);
+  const wrapped: Drawing = {
+    ...createDrawing({ units: "ft" }).build(),
+    entities: [1, 2].map((width) => paragraph(words, { height: 0.1, width })),
+  };
+  const [paid] = within(1000, () => inspectWithin(wrapped, {}, words.length + 1000));
+  assert.match(paid!.message, /stopped short at entity #1 of model space/);
+});
+
+test("lint pays for tables that share their rows or a long text, and stops where the writer would", () => {
+  const row = Array.from({ length: 1000 }, () => "CELL");
+  const rows = Array.from({ length: 10 }, () => row);
+  const long = "WORD ".repeat(20_000);
+  for (const shared of [
+    { columns: Array(1000).fill(0.5), rows },
+    { columns: [1], rows: [[long]] },
+  ]) {
+    const drawing = {
+      ...createDrawing({ units: "in" }).build(),
+      tableStyles: [{ name: "S", textHeight: 0.1 }],
+      entities: Array.from({ length: 2000 }, (_, i) => ({
+        kind: "table",
+        layer: "0",
+        style: "S",
+        at: [i, 0],
+        ...shared,
+      })),
+    } as Drawing;
+    const found = within(3000, () => lint(drawing));
+    assert.ok(found.some((d) => d.rule === "check-capped"));
+  }
+});
+
+test("gradients that many hatches share, and a gradient of many fields, are checked and drawn in a bounded time", () => {
+  const loops = [
+    {
+      points: [
+        [0, 0],
+        [10, 0],
+        [10, 5],
+      ] as Point[],
+    },
+  ];
+  // One gradient of many fields, which lint reads once however many hatches give it.
+  const crowded: Record<string, unknown> = { name: "linear", color: [1, 2, 3], tint: 0.5 };
+  for (let k = 0; k < 100_000; k++) crowded[`f${k}`] = k;
+  const shared = {
+    name: "spherical",
+    centered: false,
+    colors: [
+      [1, 2, 3],
+      [4, 5, 6],
+    ],
+  };
+  const drawing: Drawing = {
+    format: 0,
+    units: "in",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    entities: Array.from({ length: 20_000 }, (_, k) => ({
+      kind: "hatch",
+      layer: "0",
+      loops,
+      gradient: (k % 2 === 0 ? crowded : shared) as never,
+    })),
+  };
+  const found = within(3000, () => lint(drawing));
+  assert.equal(found.filter((d) => d.rule === "hatch-gradient").length, 10_000);
+  const drawn = settled(3000, () => svgWithin(drawing, {}, 50_000));
+  assert.ok(typeof drawn === "string" || drawn instanceof RangeError, String(drawn));
+});
+
+test("a gradient that draws nothing pays for the sides it walked, and a gradient whose fields change as they are read is read once", () => {
+  // A long flat loop, whose box has no height, that many hatches of a sheet share.
+  const flat = [{ points: Array.from({ length: 10_000 }, (_, k): Point => [k, 0]) }];
+  const gradient = { name: "linear", color: [1, 2, 3], tint: 0.5 } as const;
+  const sheet: Drawing = {
+    format: 0,
+    units: "in",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    entities: [],
+    layouts: [
+      {
+        name: "S",
+        paper: "ANSI B",
+        viewports: [],
+        entities: Array.from({ length: 25 }, () => ({
+          kind: "hatch" as const,
+          layer: "0",
+          loops: flat,
+          gradient,
+        })),
+      },
+    ],
+  };
+  assert.ok(settled(3000, () => svgWithin(sheet, { layout: "S" }, 5000)) instanceof RangeError);
+  // As many empty loops, which draw nothing, are paid for too.
+  const empty = Array.from({ length: 10_000 }, () => ({ points: [] as Point[] }));
+  const hollow: Drawing = {
+    ...sheet,
+    layouts: [
+      {
+        ...sheet.layouts![0]!,
+        entities: sheet.layouts![0]!.entities.map((h) => ({ ...h, loops: empty })),
+      },
+    ],
+  };
+  assert.ok(settled(3000, () => svgWithin(hollow, { layout: "S" }, 5000)) instanceof RangeError);
+  // Colors that are two colors the first three times they are read, and nothing after.
+  let reads = 0;
+  const changing = new Proxy(
+    { name: "linear" },
+    {
+      get: (target, key, receiver) =>
+        key === "colors"
+          ? reads++ < 3
+            ? [
+                [1, 2, 3],
+                [4, 5, 6],
+              ]
+            : undefined
+          : Reflect.get(target, key, receiver),
+      ownKeys: () => ["name", "colors"],
+      getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }),
+    },
+  );
+  const drawing: Drawing = {
+    ...sheet,
+    layouts: [],
+    entities: [
+      {
+        kind: "hatch",
+        layer: "0",
+        loops: [
+          {
+            points: [
+              [0, 0],
+              [1, 0],
+              [1, 1],
+            ],
+          },
+        ],
+        gradient: changing as never,
+      },
+    ],
+  };
+  assert.deepEqual(
+    within(1000, () => lint(drawing)),
+    [],
+  );
+  const drawn = settled(1000, () => toSVG(drawing));
+  assert.ok(typeof drawn === "string", String(drawn));
+  // The builder keeps the copy it checked.
+  reads = 0;
+  const built = createDrawing({ units: "in" })
+    .hatch(
+      [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+      ],
+      { gradient: changing as never },
+    )
+    .build();
+  assert.deepEqual((built.entities[0] as Extract<Entity, { kind: "hatch" }>).gradient, {
+    name: "linear",
+    colors: [
+      [1, 2, 3],
+      [4, 5, 6],
+    ],
+  });
+});
+
+test("ellipses and splines of any size, count or shape are checked, boxed, drawn and written in a bounded time", () => {
+  const most = 32_767;
+  const zigzag = (count: number, size = 1): Point[] =>
+    Array.from({ length: count }, (_, i) => [i * size, (i % 2) * size]);
+  const fit = zigzag(most - 6);
+  // Of the highest degree, rational: each of its points is worked out from 12.
+  const controls = zigzag(4000);
+  const knots = Array.from({ length: 4012 }, (_, i) => Math.max(0, Math.min(i - 11, 3989)));
+  const weights = controls.map((_, i) => 1 + (i % 3));
+  const curves: Record<string, unknown>[] = [
+    // The longest spline through fit points a file holds, many times over with one list.
+    ...Array.from({ length: 3 }, () => ({ kind: "spline", layer: "0", fitPoints: fit })),
+    // One closed, one with tangents, and one past the count a file holds.
+    { kind: "spline", layer: "0", fitPoints: fit.slice(0, 20_000), closed: true },
+    { kind: "spline", layer: "0", fitPoints: fit, startTangent: [0, 1], endTangent: [1e99, 0] },
+    { kind: "spline", layer: "0", fitPoints: zigzag(1_000_000) },
+    // The highest degree, rational, dashed finely, and the same lists shared.
+    ...Array.from({ length: 2 }, () => ({
+      kind: "spline",
+      layer: "0",
+      linetype: "FINE",
+      controlPoints: controls,
+      degree: 11,
+      knots,
+      weights,
+    })),
+    // Lists that are all slots, numbers that are not finite or past what a file holds, sizes of
+    // none, and a degree past any.
+    // oxlint-disable-next-line unicorn/no-new-array
+    { kind: "spline", layer: "0", controlPoints: new Array(2 ** 32 - 1), degree: 3, knots },
+    {
+      kind: "spline",
+      layer: "0",
+      controlPoints: zigzag(4, 1e300),
+      degree: 3,
+      knots: [0, 0, 0, 0, 1, 1, 1, 1],
+    },
+    {
+      kind: "spline",
+      layer: "0",
+      controlPoints: zigzag(4, 0),
+      degree: 3,
+      knots: [0, 0, 0, 0, 1, 1, 1, 1],
+    },
+    {
+      kind: "spline",
+      layer: "0",
+      controlPoints: zigzag(4),
+      degree: 1e9,
+      knots: [NaN, 0, 0, 0, 1, 1, 1, 1],
+    },
+    {
+      kind: "spline",
+      layer: "0",
+      fitPoints: [
+        [NaN, 0],
+        [0, -0],
+      ],
+      startTangent: [0, 0],
+    },
+    { kind: "spline", layer: "0", fitPoints: zigzag(4, 4e99), closed: true },
+    {
+      kind: "ellipse",
+      layer: "0",
+      linetype: "FINE",
+      center: [0, 0],
+      majorAxis: [9e99, 9e99],
+      ratio: 1e-6,
+    },
+    {
+      kind: "ellipse",
+      layer: "0",
+      center: [0, 0],
+      majorAxis: [1, 0],
+      ratio: NaN,
+      startParameter: 1e99,
+    },
+    { kind: "ellipse", layer: "0", linetype: "FINE", center: [0, 0], majorAxis: [0, 0], ratio: -1 },
+    {
+      kind: "ellipse",
+      layer: "0",
+      linetype: "FINE",
+      center: [0, 0],
+      majorAxis: [1e6, 0],
+      ratio: 1,
+      startParameter: 0,
+      endParameter: 359.99999,
+    },
+  ];
+  // Each in a chain of blocks deeper than the stack, and in model space.
+  const tree = nested({ kind: "spline", layer: "0", fitPoints: fit } as Entity, 7000, 1, "C");
+  const drawing = {
+    format: 0,
+    units: "in",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    linetypes: [{ name: "FINE", description: "", pattern: [1e-3, -1e-3] }],
+    blocks: tree.blocks,
+    entities: [...curves, tree.top],
+  } as unknown as Drawing;
+  const found = settled(20_000, () => lintWithin(drawing, {}, 500_000));
+  assert.ok(Array.isArray(found), String(found));
+  for (const walk of [
+    () => svgWithin(drawing, {}, 2_000_000),
+    () => inspectWithin(drawing, {}, 500_000),
+    () => extents(drawing.entities, [], drawing.blocks),
+  ]) {
+    const done = settled(20_000, walk);
+    assert.ok(!(done instanceof Error) || done instanceof RangeError, String(done));
+  }
+  // What lint passes is written in a bounded time.
+  const sound = {
+    ...drawing,
+    blocks: [],
+    entities: [...curves.slice(0, 5), ...curves.slice(6, 8)],
+  } as unknown as Drawing;
+  assert.deepEqual(
+    within(20_000, () => lint(sound)),
+    [],
+  );
+  const written = settled(20_000, () => toDXFR2018(sound));
+  assert.equal(typeof written, "string", String(written));
+});
+
+test("a dashed spline a block holds is placed by each insert in time in proportion to what it writes", () => {
+  const fitPoints = Array.from({ length: 2000 }, (_, i): Point => [i * 100, (i % 2) * 100]);
+  const drawing = (scale: [number, number]): Drawing => ({
+    format: 0,
+    units: "in",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    linetypes: [{ name: "DOTS", description: "", pattern: [0, -10_000] }],
+    blocks: [
+      { name: "B", entities: [{ kind: "spline", layer: "0", linetype: "DOTS", fitPoints }] },
+    ],
+    entities: Array.from({ length: 1000 }, (_, k) => ({
+      kind: "insert" as const,
+      layer: "0",
+      block: "B",
+      at: [0, k * 300] as Point,
+      scale,
+      rotation: k,
+    })),
+  });
+  // Turned and scaled alike, an insert places only the dots it writes.
+  assert.equal(typeof within(3000, () => toSVG(drawing([1.5, 1.5]))), "string");
+  // Scaled unevenly, it places the whole curve, which each insert after the first pays for.
+  const uneven = settled(3000, () => svgWithin(drawing([2, 1]), {}, 200_000));
+  assert.ok(typeof uneven === "string" || uneven instanceof RangeError, String(uneven));
 });

@@ -24,13 +24,18 @@ export interface ArrowheadInfo {
  * Every arrowhead a dimension style may have, by the name the leading CAD app's dimension style
  * dialog gives it. `"closed-filled"` is a solid arrow as long as the arrow size and a third as
  * wide. `"architectural-tick"` is a heavy stroke through the end of the dimension line, at 45
- * degrees to it, as long as the arrow size times the square root of 2.
+ * degrees to it, as long as the arrow size times the square root of 2. `"oblique"` is the same
+ * tick drawn as a line, as heavy as the dimension line.
  */
 export const ARROWHEADS = {
   "closed-filled": {},
   "architectural-tick": {
     block: "_ArchTick",
     stroke: { from: [-0.5, -0.5], to: [0.5, 0.5], width: 0.15 },
+  },
+  oblique: {
+    block: "_Oblique",
+    stroke: { from: [-0.5, -0.5], to: [0.5, 0.5], width: 0 },
   },
 } as const satisfies Readonly<Record<string, ArrowheadInfo>>;
 
@@ -151,6 +156,7 @@ export function leaderArrowheadInfo(name: unknown): LeaderArrowheadInfo | undefi
 /** The blocks of every arrowhead that has one, of dimensions and of leaders. */
 export const ARROWHEAD_BLOCKS: readonly string[] = [
   ARROWHEADS["architectural-tick"].block,
+  ARROWHEADS.oblique.block,
   LEADER_ARROWHEADS.open.block,
   LEADER_ARROWHEADS.dot.block,
   LEADER_ARROWHEADS.none.block,
@@ -171,6 +177,27 @@ export const DIMENSION_UNITS = ["decimal", "architectural"] as const;
  */
 export const FEET_INCH_ZEROS = ["inches", "feet", "both", "neither"] as const;
 
+/**
+ * How a measurement in feet and inches writes its fraction: on the line, as 4'-1 7/16"; stacked
+ * over a bar; or stacked diagonally, beside a slash.
+ */
+export const DIMENSION_FRACTIONS = ["inline", "stacked", "diagonal"] as const;
+
+/** Where a dimension's text is: above its line, or centered in a break of it. */
+export const DIMENSION_TEXT_PLACEMENTS = ["above", "centered"] as const;
+
+/**
+ * Where a dimension's text goes when it does not fit between the extension lines: between them
+ * all the same, or outside, on a leader.
+ */
+export const DIMENSION_TEXT_FITS = ["inside", "leader"] as const;
+
+/** How a radius, a diameter or a jogged radius dimension's text reads: along its line, or level. */
+export const DIMENSION_RADIAL_TEXTS = ["aligned", "horizontal"] as const;
+
+/** The angle of a jogged radius dimension's jog to its line, in degrees, by default and at most. */
+export const JOG_ANGLE = { default: 45, least: 5, most: 90 } as const;
+
 /** The most decimals the leading CAD app writes a measurement with. */
 export const MAX_PRECISION = 8;
 
@@ -179,3 +206,20 @@ export const STANDARD_DIMENSION_STYLE = "Standard";
 
 /** The leader style a drawing with leaders has beside its own, in the spelling the leading CAD app gives it. */
 export const STANDARD_LEADER_STYLE = "Standard";
+
+/**
+ * The units an angular dimension writes its angle in, as `DIMAUNIT` 0 to 3: decimal degrees,
+ * degrees, minutes and seconds, grads and radians.
+ */
+export const DIMENSION_ANGLE_UNITS = [
+  "degrees",
+  "degrees-minutes-seconds",
+  "grads",
+  "radians",
+] as const;
+
+/** The most decimals an angle takes, as `DIMADEC` holds them. */
+export const MAX_ANGLE_PRECISION = 8;
+
+/** Where an arc length dimension draws the arc symbol: before its text, above it, or nowhere. */
+export const DIMENSION_ARC_SYMBOLS = ["before", "above", "none"] as const;

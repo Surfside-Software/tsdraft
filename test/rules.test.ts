@@ -7,17 +7,20 @@ import {
   DASHED,
   DrawingBuilder,
   DrawingError,
+  fromJSON,
   fromPaper,
   HIDDEN,
   inspectText,
   lint,
   measureText,
   toDXF,
+  toJSON,
   toSVG,
   viewportView,
   type Drawing,
   type Entity,
   type Insert,
+  type Point,
   type Text,
 } from "../src/index.ts";
 import sheet, { sitePlan, type Box } from "../examples/site-plan.ts";
@@ -647,6 +650,77 @@ test("linetype, lineweight and layer state mistakes are compile errors and runti
   assert.deepEqual(lint(built), []);
 });
 
+test("entity color mistakes are compile errors and runtime errors", () => {
+  const r12 = createDrawing({ dxf: "R12" });
+  const d = createDrawing();
+  d.block("B", {}, () => d.circle([0, 0], 1));
+  d.dimensionStyle({
+    name: "DIMS",
+    textHeight: 1,
+    arrowSize: 1,
+    extensionOffset: 0.5,
+    extensionBeyond: 1,
+    textGap: 0.5,
+    precision: 2,
+  });
+  d.leaderStyle({ name: "NOTES", textHeight: 0.1, arrowSize: 0.12, landing: 0.2, gap: 0.05 });
+
+  // @ts-expect-error: no color has index 0.
+  assert.throws(() => d.line([0, 0], [1, 1], { color: 0 }), /An entity's color is/);
+  // @ts-expect-error: nor 256.
+  assert.throws(() => d.circle([0, 0], 1, { color: 256 }), /An entity's color is/);
+  // @ts-expect-error: an index is a whole number.
+  assert.throws(() => d.insert("B", [0, 0], { color: 1.5 }), /An entity's color is/);
+  // @ts-expect-error: a channel is at most 255.
+  assert.throws(() => d.line([0, 0], [1, 1], { color: [256, 0, 0] }), /An entity's color is/);
+  // @ts-expect-error: a true color has three channels.
+  assert.throws(() => d.line([0, 0], [1, 1], { color: [1, 2] }), /An entity's color is/);
+  // @ts-expect-error: an R12 entity takes its layer's color.
+  assert.throws(() => r12.line([0, 0], [1, 1], { color: 1 }), /R12 entities take no color/);
+  r12.line([0, 0], [1, 1], { color: "ByLayer" });
+  const fit: Point[] = [
+    [0, 0],
+    [1, 1],
+    [2, 0],
+  ];
+  const control: Point[] = [
+    [0, 0],
+    [1, 1],
+    [2, 0],
+    [3, 1],
+  ];
+  // @ts-expect-error: a curve's color is checked as any entity's.
+  assert.throws(() => d.ellipse([0, 0], [2, 0], 0.5, { color: 0 }), /An entity's color is/);
+  // @ts-expect-error: a spline's too.
+  assert.throws(() => d.spline(fit, { color: [1, 2, 300] }), /An entity's color is/);
+  // @ts-expect-error: and one by control points.
+  assert.throws(() => d.controlSpline(control, { color: 256 }), /An entity's color is/);
+  const colored = createDrawing();
+  colored.ellipse([0, 0], [2, 0], 0.5, { color: 3 });
+  colored.spline(fit, { color: [1, 2, 3] });
+  colored.controlSpline(control, { color: "ByBlock" });
+  const curveColors = colored.build().entities.map((e) => e.color);
+  assert.deepEqual(curveColors, [3, [1, 2, 3], "ByBlock"]);
+
+  d.line([0, 0], [1, 1], { color: 1 });
+  d.line([0, 0], [1, 1], { color: "ByBlock" });
+  d.line([0, 0], [1, 1], { color: "ByLayer" });
+  d.line([0, 0], [1, 1], { color: [10, 200, 30] });
+  d.insert("B", [0, 0], { color: 255 });
+  d.linearDimension([0, 0], [10, 0], [5, 2], { style: "DIMS", color: [0, 0, 255] });
+  d.leader("NOTE", { style: "NOTES", at: [4, 4], to: [2, 2], color: "ByBlock" });
+  const ordinate = { style: "DIMS", axis: "x" } as const;
+  // @ts-expect-error: an ordinate dimension's color is checked as any dimension's.
+  assert.throws(() => d.ordinateDimension([1, 1], [1, 4], { ...ordinate, color: 0 }), /color is/);
+  d.ordinateDimension([1, 1], [1, 4], { ...ordinate, color: 4 });
+  const built = d.build();
+  assert.deepEqual(
+    built.entities.map((e) => e.color),
+    [1, "ByBlock", undefined, [10, 200, 30], 255, [0, 0, 255], "ByBlock", 4],
+  );
+  assert.deepEqual(lint(built), []);
+});
+
 test("linetype mistakes the compiler cannot see are checked when the code runs", () => {
   const d = createDrawing();
   const weight: number = 0.33;
@@ -1224,4 +1298,751 @@ test("the extents of a turned text reach its far corner", () => {
   // The box holds the corner above the text's end, one height up from the end of its line.
   assert.ok(Math.abs(top - (along + 2) / Math.SQRT2) < 1e-9);
   assert.ok(Math.abs(left + 2 / Math.SQRT2) < 1e-9);
+});
+
+test("a polyline's width, radius and arcs, a cloud's arc and a donut's hole are checked twice", () => {
+  const d = createDrawing();
+  const r12 = createDrawing({ dxf: "R12" });
+  const corner: Point[] = [
+    [0, 0],
+    [1, 0],
+    [1, 1],
+  ];
+  // @ts-expect-error: a width cannot be less than 0.
+  assert.throws(() => d.polyline(corner, false, { width: -1 }), /width cannot be less than 0/);
+  // @ts-expect-error: a radius must be greater than 0.
+  assert.throws(() => d.polyline(corner, false, { radius: 0 }), /greater than 0/);
+  // @ts-expect-error: a radius must be greater than 0.
+  assert.throws(() => d.rect([0, 0], 2, 2, { radius: -1 }), /greater than 0/);
+  // @ts-expect-error: a cloud's arc must be greater than 0.
+  assert.throws(() => d.cloud(corner, { arc: 0 }), /greater than 0/);
+  // @ts-expect-error: a donut's hole cannot be less than 0 across.
+  assert.throws(() => d.donut([0, 0], 1, { inside: -0.5 }), /hole cannot be less than 0/);
+  // @ts-expect-error: R12 holds no arc of a polyline.
+  assert.throws(() => r12.polyline(corner, false, { bulges: [0, 1] }), /no arcs or widths/);
+  // @ts-expect-error: R12 holds no width.
+  assert.throws(() => r12.polyline(corner, false, { width: 1 }), /no arcs or widths/);
+  // @ts-expect-error: R12 holds no cloud, which is a polyline of arcs.
+  assert.throws(() => r12.cloud(corner, { arc: 1 }), /no arcs or widths/);
+  // @ts-expect-error: R12 holds no donut, which is a polyline of arcs.
+  assert.throws(() => r12.donut([0, 0], 1), /no arcs or widths/);
+});
+
+test("a paragraph's height, width, line spacing and codes are checked twice", () => {
+  const d = createDrawing();
+  const r12 = createDrawing({ dxf: "R12" });
+  const at: Point = [0, 0];
+  // @ts-expect-error: a height must be greater than 0.
+  assert.throws(() => d.paragraph("NOTE", { at, height: 0 }), /greater than 0/);
+  // @ts-expect-error: a width must be greater than 0.
+  assert.throws(() => d.paragraph("NOTE", { at, width: -1 }), /greater than 0/);
+  // @ts-expect-error: a width that rounds to 0 is written as 0, which wraps nothing.
+  assert.throws(() => d.paragraph("NOTE", { at, width: 1e-7 }), /written as 0/);
+  // @ts-expect-error: the leading CAD app takes a line spacing from 0.25 to 4.
+  assert.throws(() => d.paragraph("NOTE", { at, lineSpacing: 0.2 }), /from 0.25 to 4/);
+  // @ts-expect-error: the leading CAD app takes a line spacing from 0.25 to 4.
+  assert.throws(() => d.paragraph("NOTE", { at, lineSpacing: 4.5 }), /from 0.25 to 4/);
+  // @ts-expect-error: a factor is held to the range as given, so none rounds into it when written.
+  assert.throws(() => d.paragraph("NOTE", { at, lineSpacing: 0.2499999 }), /from 0.25 to 4/);
+  // @ts-expect-error: nor out of it.
+  assert.throws(() => d.paragraph("NOTE", { at, lineSpacing: 4.0000004 }), /from 0.25 to 4/);
+  d.paragraph("NOTE", { at, lineSpacing: 0.25 }).paragraph("NOTE", { at, lineSpacing: 4 });
+  // @ts-expect-error: a brace is never closed.
+  assert.throws(() => d.paragraph("{\\LNOTE", { at }), /never closed/);
+  // @ts-expect-error: a brace closes nothing.
+  assert.throws(() => d.paragraph("NOTE}", { at }), /closes no \{/);
+  d.paragraph("\\H2x;NOTE\\W0.8;\\Q15;\\A1;\\C1;\\c255;", { at });
+  // @ts-expect-error: a true color is a whole number.
+  assert.throws(() => d.paragraph("\\c-1;NOTE", { at }), /code \\c takes a true color/);
+  assert.throws(
+    () =>
+      // @ts-expect-error: more than 64 digits after the point.
+      d.paragraph("\\W1.00000000000000000000000000000000000000000000000000000000000000001;NOTE", {
+        at,
+      }),
+    /code \\W takes a width factor above 0/,
+  );
+  // @ts-expect-error: a height of 0.
+  assert.throws(() => d.paragraph("\\H0x;NOTE", { at }), /code \\H takes a height above 0/);
+  // @ts-expect-error: the spacing of the characters is not laid out yet.
+  assert.throws(() => d.paragraph("\\T1.5;NOTE", { at }), /code \\T, which sets the spacing/);
+  d.paragraph("\\pxi-3,l3,t3;1.\tNOTE", { at });
+  // @ts-expect-error: a tab stop that aligns by its right is not laid out yet.
+  assert.throws(() => d.paragraph("\\pxtr3;1.\tNOTE", { at }), /aligns text by its right/);
+  // @ts-expect-error: nor is spacing at least a size.
+  assert.throws(() => d.paragraph("\\psa1;NOTE", { at }), /at least a size apart/);
+  // @ts-expect-error: an option \p does not know.
+  assert.throws(() => d.paragraph("\\pz3;NOTE", { at }), /option "z3"/);
+  d.paragraph("ONE\\NTWO", { at, width: 2, columns: { count: 2, height: 1 } });
+  assert.throws(
+    // @ts-expect-error: a height and heights both.
+    () => d.paragraph("ONE", { at, width: 2, columns: { height: 1, heights: [1] } }),
+    /\{ heights, gutter\? \}/,
+  );
+  assert.throws(
+    // @ts-expect-error: a count with heights.
+    () => d.paragraph("ONE", { at, width: 2, columns: { heights: [1], count: 2 } }),
+    /\{ heights, gutter\? \}/,
+  );
+  assert.throws(() => d.paragraph("ONE", { at, columns: { height: 1 } }), /needs a width/);
+  // @ts-expect-error: a code tsdraft does not know.
+  assert.throws(() => d.paragraph("\\ZNOTE", { at }), /code \\Z is not one tsdraft knows/);
+  // @ts-expect-error: a font with no ; to end it.
+  assert.throws(() => d.paragraph("\\fArial|b1NOTE", { at }), /no ; to end it/);
+  // @ts-expect-error: a font that is not one of FONTS.
+  assert.throws(() => d.paragraph("\\fHelvetica;NOTE", { at }), /not one of FONTS/);
+  // @ts-expect-error: tsdraft has no widths for italic.
+  assert.throws(() => d.paragraph("\\fArial|b0|i1;NOTE", { at }), /sets italic/);
+  // @ts-expect-error: a font's option has digits alone after its letter, as the parser reads it.
+  assert.throws(() => d.paragraph("\\fArial|c-1;NOTE", { at }), /option "c-1"/);
+  // @ts-expect-error: and gives each option once.
+  assert.throws(() => d.paragraph("\\fArial|b1|b0;NOTE", { at }), /option b twice/);
+  d.paragraph("\\fArial|b0|c01|p34;NOTE", { at });
+  // @ts-expect-error: an SHX font has no bold.
+  assert.throws(() => d.paragraph("\\ftxt.shx|b1;NOTE", { at }), /SHX font, which has no bold/);
+  // @ts-expect-error: a stack needs a divider.
+  assert.throws(() => d.paragraph("3\\S12;", { at }), /needs a \/, # or \^/);
+  // @ts-expect-error: nor is an overline.
+  assert.throws(() => d.paragraph("\\ONOTE", { at }), /code \\O, which draws a line over/);
+  // @ts-expect-error: nor is a stacked part of letters whose tops the tables do not hold.
+  assert.throws(() => d.paragraph("\\Sx/y;", { at }), /stacked part/);
+  // @ts-expect-error: nor is a stack in underlined text.
+  assert.throws(() => d.paragraph("{\\L1\\S1/2;}", { at }), /stack in underlined/);
+  // @ts-expect-error: and a slash after the divider is a character of the bottom part.
+  assert.throws(() => d.paragraph("\\S1/2/3;", { at }), /stacked part/);
+  const deep = "{{{{{{{{{{{{{{{{{x}}}}}}}}}}}}}}}}}";
+  // @ts-expect-error: braces nest at most 16 deep.
+  assert.throws(() => d.paragraph(deep, { at }), /nest more than 16 deep/);
+  // An SHX font draws %%c as a sign of its own, which is not laid out yet. The type does not know
+  // the style's font.
+  assert.throws(() => d.paragraph("%%c6", { at }), /%%c in an SHX font/);
+  d.textStyle({ name: "NOTES", font: "Arial" });
+  // @ts-expect-error: but it knows one a code names, as far as its group reaches.
+  assert.throws(() => d.paragraph("\\fromans.shx;%%c6", { at }), /%%c in an SHX font/);
+  // @ts-expect-error: a group inside it in another font closes back to the SHX one.
+  assert.throws(() => d.paragraph("\\Fromans.shx;{\\fArial;x}%%C6", { at }), /%%c in an SHX/);
+  d.paragraph("{\\fromans.shx;x}%%c6 {\\fromans.shx;{\\fArial;%%c6}}", { at, style: "NOTES" });
+  // @ts-expect-error: a backslash before a line feed would escape the paragraph break.
+  assert.throws(() => d.paragraph("A\\\nB", { at }), /code \\\n is not one tsdraft knows/);
+  d.paragraph("A\\\\\nB", { at, style: "NOTES" });
+  // A line feed is a paragraph break, and the codes tsdraft lays out pass.
+  const laid =
+    "{\\fArial|b1;NOTES}\n1. {\\LALL} WORK\\~%%d %%c %%% 100%% \\S1/2; \\S+0.01^-0.02; \\S2^ ; \\S^2; \\U+00B0 \\\\";
+  d.paragraph(laid, { at, width: 2, style: "NOTES" });
+  // @ts-expect-error: R12 holds no paragraph.
+  assert.throws(() => r12.paragraph("NOTE", { at }), /no paragraphs to R12/);
+});
+
+test("hatch patterns and a hatch's pattern are checked by the builder and by lint", () => {
+  const file = "*STRIPES, Dashed stripes\n45, 0,0, 0,0.25, 0.5,-0.25\n*STRIPES\n0, 0,0, 0,1\n";
+  const box: Point[] = [
+    [0, 0],
+    [8, 0],
+    [8, 4],
+    [0, 4],
+  ];
+  const d = createDrawing({ units: "in" }).patterns(file);
+  d.hatch(box, { pattern: { name: "stripes", scale: 2, angle: 30, origin: [1, 1] } });
+  d.hatch(box, { pattern: { spacing: 0.5, crossed: true } });
+  const built = d.build();
+  // The first of a name in one file is added, and a hatch holds the name as the drawing has it.
+  assert.deepEqual(built.patterns, [
+    {
+      name: "STRIPES",
+      description: "Dashed stripes",
+      lines: [{ angle: 45, base: [0, 0], offset: [0, 0.25], dashes: [0.5, -0.25] }],
+    },
+  ]);
+  assert.deepEqual(built.entities[0], {
+    kind: "hatch",
+    layer: "0",
+    loops: [{ points: box }],
+    pattern: { name: "STRIPES", scale: 2, angle: 30, origin: [1, 1] },
+  });
+  assert.deepEqual(lint(built), []);
+  assert.deepEqual(fromJSON(toJSON(built)), built);
+  assert.equal("patterns" in createDrawing().build(), false);
+  // A later call replaces a pattern of the name, and keeps its spelling.
+  d.patterns([{ name: "Stripes", lines: [{ angle: 0, base: [0, 0], offset: [0, 1] }] }]);
+  assert.deepEqual(d.build().patterns, [
+    { name: "STRIPES", lines: [{ angle: 0, base: [0, 0], offset: [0, 1] }] },
+  ]);
+
+  // The builder refuses what lint refuses, in its words.
+  const hatched = (pattern: unknown, patterns = built.patterns): Drawing => ({
+    ...built,
+    ...(patterns ? { patterns } : {}),
+    entities: [{ kind: "hatch", layer: "0", loops: [{ points: box }], pattern: pattern as never }],
+  });
+  const both = (pattern: unknown, expected: RegExp) => {
+    assert.throws(() => d.hatch(box, { pattern: pattern as never }), expected);
+    const found = lint(hatched(pattern)).map((x) => `${x.rule}: ${x.message}`);
+    assert.equal(found.length, 1, found.join("\n"));
+    assert.match(found[0]!, /^hatch-pattern: hatch #0: /);
+    assert.match(found[0]!, expected);
+  };
+  both({ name: "BRICK" }, /"BRICK" is not defined\. tsdraft has no patterns of its own/);
+  both({ spacing: 0 }, /spacing must be a finite number greater than 0/);
+  both({ name: "STRIPES", scale: 1e-7 }, /scale: This value is written as 0/);
+  both({ name: "STRIPES", spacing: 1 }, /a name or a spacing, not both/);
+  both({ name: "STRIPES", crossed: true }, /crossed is for lines of the hatch's own/);
+  both({ spacing: 1, origin: [0, NaN] }, /origin must be a point/);
+  both({ spacing: 1, scale: 2 }, /scale is for a pattern by its name/);
+  both({ spacing: 1, zz: 1 }, /attern must be \{ name, scale\?/);
+  // The literal mistakes are compile errors too.
+  // @ts-expect-error: a spacing is greater than 0.
+  assert.throws(() => d.hatch(box, { pattern: { spacing: -1 } }), /greater than 0/);
+  // @ts-expect-error: and is not written as 0.
+  assert.throws(() => d.hatch(box, { pattern: { name: "STRIPES", scale: 1e-7 } }), /written as 0/);
+  // @ts-expect-error: a pattern has a name or a spacing.
+  assert.throws(() => d.hatch(box, { pattern: { name: "STRIPES", spacing: 1 } }), /not both/);
+  // @ts-expect-error: crossed goes with a spacing, and a scale with a name.
+  assert.throws(() => d.hatch(box, { pattern: { spacing: 1, scale: 2 } }), /scale is for/);
+  both({ spacing: 1e-6 }, /draws 4,000,001 lines .*more than the 1,000,000 tsdraft draws/);
+  // A line's base point at 10, scaled by 1e99, is placed at 1e100.
+  const big = [
+    { name: "BIG", lines: [{ angle: 0, base: [10, 0] as Point, offset: [0, 1] as Point }] },
+  ];
+  const placed = { name: "BIG", scale: 1e99 };
+  assert.throws(
+    () => createDrawing().patterns(big).hatch(box, { pattern: placed }),
+    /1e100 or more/,
+  );
+  assert.match(lint(hatched(placed, big))[0]!.message, /1e100 or more/);
+  assert.deepEqual(lint(hatched({ name: "BIG", scale: 9e98 }, big)), []);
+  assert.match(lint(hatched({ name: "BRICK" }))[0]!.message, /through parsePatterns into/);
+  assert.throws(() => d.hatch(box, { pattern: { name: "BRICK" } }), /with patterns\(\) first/);
+
+  // A definition of the drawing's patterns, by the builder and by lint.
+  const defined = (patterns: unknown[]) =>
+    lint(hatched({ name: "STRIPES" }, patterns as never)).map((x) => `${x.rule}: ${x.message}`);
+  const line = { angle: 0, base: [0, 0], offset: [0, 1] };
+  for (const [pattern, expected] of [
+    [{ name: "", lines: [line] }, /Hatch pattern names cannot be empty/],
+    [{ name: "A*", lines: [line] }, /Hatch pattern names cannot contain/],
+    [{ name: "STRIPES", lines: [] }, /needs at least one line/],
+    [{ name: "STRIPES", lines: [{ ...line, offset: [1, 1e-7] }] }, /line 0: its offset across/],
+    [{ name: "STRIPES", lines: [{ ...line, dashes: [0, 0] }] }, /line 0: its dashes cannot all/],
+    [{ name: "STRIPES", lines: [{ ...line, angle: Infinity }] }, /line 0: its angle must be/],
+    [{ name: "STRIPES", lines: [{ ...line, base: [1e100, 0] }] }, /line 0: its base: .*1e100/],
+  ] as const) {
+    assert.throws(() => d.patterns([pattern as never]), expected);
+    const found = defined([pattern]);
+    assert.ok(
+      found.length >= 1 && found.every((x) => x.startsWith("hatch-pattern: ")),
+      String(found),
+    );
+    assert.match(found[0]!, expected);
+  }
+  // Of two of a name, a hatch takes the first.
+  assert.deepEqual(defined([built.patterns![0], { ...built.patterns![0], name: "stripes" }]), [
+    'duplicate-hatch-pattern: Hatch pattern "stripes" is defined twice. A hatch finds its pattern by name whatever the case of its letters, as CAD programs do, and takes the first',
+  ]);
+  // A pattern file a line of which cannot be read, and R12, which has no hatches.
+  assert.throws(() => d.patterns("45, 0,0, 0,1"), /line 1 of the pattern file: a line before/);
+  assert.throws(
+    () => createDrawing({ dxf: "R12" }).patterns(file),
+    /no hatches or wipeouts to R12/,
+  );
+  assert.match(
+    lint({ ...hatched(undefined), dxf: "R12", entities: [] })[0]!.message,
+    /^patterns: /,
+  );
+});
+
+test("a hatch's pattern named SOLID is refused: a solid hatch has none", () => {
+  const d = createDrawing({ units: "in" });
+  d.patterns("*SOLID, Solid fill\n45, 0,0, 0,.125\n");
+  assert.throws(
+    () =>
+      d.hatch(
+        [
+          [0, 0],
+          [1, 0],
+          [1, 1],
+        ],
+        { pattern: { name: "Solid" } },
+      ),
+    /SOLID is the name/,
+  );
+});
+
+test("an attribute of paragraph text and each insert's value of it are checked as a paragraph", () => {
+  const d = createDrawing();
+  const at: Point = [0, 0];
+  d.textStyle({ name: "HAND", font: "romans.shx" });
+  d.block("NOTE", {}, () => {
+    d.attribute("NOTE", at, { kind: "paragraph", value: "ONE\nTWO \LTHREE\l", width: 2 });
+    d.attribute("HAND", at, { kind: "paragraph", style: "HAND", valign: "bottom" });
+    // @ts-expect-error: a brace is never closed.
+    assert.throws(() => d.attribute("A", at, { kind: "paragraph", value: "{\LA" }), /never closed/);
+    // @ts-expect-error: a width must be greater than 0.
+    assert.throws(() => d.attribute("B", at, { kind: "paragraph", width: 0 }), /greater than 0/);
+    assert.throws(
+      // @ts-expect-error: the leading CAD app takes a line spacing from 0.25 to 4.
+      () => d.attribute("C", at, { kind: "paragraph", lineSpacing: 5 }),
+      /from 0.25 to 4/,
+    );
+    // @ts-expect-error: a paragraph is not set on its baseline.
+    assert.throws(() => d.attribute("D", at, { kind: "paragraph", valign: "baseline" }), /valign/);
+    // @ts-expect-error: nor is a width one of a line of text's.
+    assert.throws(() => d.attribute("E", at, { width: 2 }), Error);
+    // Nor beside a field a line of text has, nor in options held apart from the call.
+    // @ts-expect-error: a width beside a value.
+    assert.throws(() => d.attribute("F", at, { value: "x", width: 2 }), /width belongs/);
+    // @ts-expect-error: a line spacing beside a prompt.
+    assert.throws(() => d.attribute("G", at, { prompt: "p", lineSpacing: 2 }), /lineSpacing/);
+    const options = { kind: "text" as const, width: 12 };
+    // @ts-expect-error: a width on options of one line.
+    assert.throws(() => d.attribute("H", at, options), /width belongs/);
+  });
+  d.insert("NOTE", [0, 0], { attributes: { NOTE: "A\nB", HAND: "%%d" } });
+  assert.deepEqual(d.build().entities[0], {
+    kind: "insert",
+    layer: "0",
+    block: "NOTE",
+    at: [0, 0],
+    attributes: { NOTE: "A\\PB", HAND: "%%d" },
+  });
+  // An insert's value is read in the definition's font, which the type does not know.
+  assert.throws(
+    () => d.insert("NOTE", [0, 0], { attributes: { HAND: "%%c6" } }),
+    /attribute "HAND": .*%%c in an SHX font/,
+  );
+  assert.throws(
+    () => d.insert("NOTE", [0, 0], { attributes: { NOTE: "{x" } }),
+    /attribute "NOTE": .*never closed/,
+  );
+  // lint holds a drawing written by hand to the same rules, and R12, which holds no block.
+  const drawing = d.build();
+  const block = drawing.blocks![0]!;
+  const definition = block.attributes![0]!;
+  const broken = (changed: Record<string, unknown>, values?: Record<string, string>) =>
+    lint({
+      ...drawing,
+      blocks: [
+        { ...block, attributes: [{ ...definition, ...changed } as never, block.attributes![1]!] },
+      ],
+      entities: [{ ...drawing.entities[0]!, ...(values ? { attributes: values } : {}) } as never],
+    }).map((diagnostic) => diagnostic.message);
+  assert.deepEqual(broken({}), []);
+  assert.match(broken({ value: "\\Zx" }).join(), /code \\Z is not one tsdraft knows/);
+  assert.match(broken({ width: -1 }).join(), /width: .*greater than 0/);
+  assert.match(broken({ align: "fit" }).join(), /align must be/);
+  assert.match(broken({ kind: "lines" }).join(), /kind must be "text" or "paragraph"/);
+  assert.match(
+    broken({ kind: "text" }).join(),
+    /width belongs to an attribute definition of paragraph text/,
+  );
+  assert.match(broken({}, { NOTE: "{x" }).join(), /attribute "NOTE": .*never closed/);
+  assert.match(
+    lint({ ...drawing, dxf: "R12" })
+      .map((x) => x.message)
+      .join(),
+    /no blocks to R12/,
+  );
+  // An insert that scales its block so unevenly that its width factor leaves the range is refused.
+  assert.throws(() => d.insert("NOTE", [0, 0], { scale: [1000, 0.001] }), /times as wide/);
+});
+
+test("a hatch's gradient is checked by the builder and by lint", () => {
+  const box: Point[] = [
+    [0, 0],
+    [8, 0],
+    [8, 4],
+    [0, 4],
+  ];
+  const d = createDrawing({ units: "in" });
+  d.hatch(box, {
+    gradient: {
+      name: "linear",
+      angle: 30,
+      colors: [
+        [200, 40, 30],
+        [20, 90, 180],
+      ],
+    },
+  });
+  d.hatch(box, {
+    gradient: { name: "inverted-spherical", centered: false, color: [0, 0, 0], tint: 0.5 },
+  });
+  const built = d.build();
+  assert.deepEqual(built.entities[1], {
+    kind: "hatch",
+    layer: "0",
+    loops: [{ points: box }],
+    gradient: { name: "inverted-spherical", centered: false, color: [0, 0, 0], tint: 0.5 },
+  });
+  assert.deepEqual(lint(built), []);
+  assert.deepEqual(fromJSON(toJSON(built)), built);
+
+  const shaded = (gradient: unknown, pattern?: unknown): Drawing => ({
+    ...built,
+    entities: [
+      {
+        kind: "hatch",
+        layer: "0",
+        loops: [{ points: box }],
+        gradient: gradient as never,
+        ...(pattern ? { pattern: pattern as never } : {}),
+      },
+    ],
+  });
+  const both = (gradient: unknown, expected: RegExp) => {
+    assert.throws(() => d.hatch(box, { gradient: gradient as never }), expected);
+    const found = lint(shaded(gradient)).map((x) => `${x.rule}: ${x.message}`);
+    assert.equal(found.length, 1, found.join("\n"));
+    assert.match(found[0]!, /^hatch-gradient: hatch #0: /);
+    assert.match(found[0]!, expected);
+  };
+  both(
+    {
+      name: "radial",
+      colors: [
+        [0, 0, 0],
+        [1, 1, 1],
+      ],
+    },
+    /name must be one of "linear"/,
+  );
+  both(
+    {
+      name: "linear",
+      colors: [
+        [0, 0, 256],
+        [1, 1, 1],
+      ],
+    },
+    /whole number from 0 to 255/,
+  );
+  both(
+    {
+      name: "linear",
+      colors: [
+        [0, 0.5, 0],
+        [1, 1, 1],
+      ],
+    },
+    /whole number from 0 to 255/,
+  );
+  both({ name: "linear", color: [0, 0, 0], tint: 1.5 }, /tint must be a number from 0/);
+  both({ name: "linear", color: [0, 0, 0] }, /radient must be \{ name/);
+  both(
+    {
+      name: "linear",
+      colors: [
+        [0, 0, 0],
+        [1, 1, 1],
+      ],
+      tint: 0.5,
+    },
+    /radient must be \{ name/,
+  );
+  both({ name: "linear", angle: NaN, color: [0, 0, 0], tint: 0 }, /angle must be a finite number/);
+  both(
+    { name: "linear", centered: 1, color: [0, 0, 0], tint: 0 },
+    /centered must be true or false/,
+  );
+  const found = lint(shaded({ name: "linear", color: [0, 0, 0], tint: 0 }, { spacing: 1 }));
+  assert.deepEqual(
+    found.map((x) => x.rule),
+    ["hatch-gradient"],
+  );
+  // The literal mistakes are compile errors too.
+  assert.throws(
+    () =>
+      d.hatch(box, {
+        // @ts-expect-error: a channel is a whole number from 0 to 255.
+        gradient: {
+          name: "linear",
+          colors: [
+            [0, 0, 300],
+            [0, 0, 0],
+          ],
+        },
+      }),
+    /0 to 255/,
+  );
+  assert.throws(
+    () =>
+      d.hatch(box, {
+        // @ts-expect-error: and a tint from 0 to 1.
+        gradient: { name: "linear", color: [0, 0, 0], tint: 2 },
+      }),
+    /tint/,
+  );
+  assert.throws(
+    () =>
+      d.hatch(box, {
+        gradient: { name: "linear", color: [0, 0, 0], tint: 0 },
+        // @ts-expect-error: a gradient never goes with a pattern.
+        pattern: { spacing: 1 },
+      }),
+    /not both/,
+  );
+  assert.throws(
+    () =>
+      d.hatch(box, {
+        // @ts-expect-error: and is one of nine.
+        gradient: { name: "radial", color: [0, 0, 0], tint: 0 },
+      }),
+    /one of/,
+  );
+  assert.throws(
+    () =>
+      d.hatch(box, {
+        // @ts-expect-error: a field it does not know.
+        gradient: { name: "linear", color: [0, 0, 0], tint: 1, tnit: 0 },
+      }),
+    /radient must be \{ name/,
+  );
+  assert.throws(
+    () =>
+      d.hatch(box, {
+        // @ts-expect-error: an angle of 1e100 or more.
+        gradient: { name: "linear", angle: 1e100, color: [0, 0, 0], tint: 1 },
+      }),
+    /angle: .*1e100/,
+  );
+  // A member of a union is checked as a literal is.
+  const large = (huge: boolean) => (huge ? 1e100 : 0);
+  assert.throws(
+    () =>
+      d.hatch(box, {
+        // @ts-expect-error: one member's angle is 1e100.
+        gradient: { name: "linear", angle: large(true) as 0 | 1e100, color: [0, 0, 0], tint: 1 },
+      }),
+    /angle: .*1e100/,
+  );
+  const either = (odd: boolean) =>
+    odd
+      ? ({ name: "linear", color: [0, 0, 0], tint: 1, tnit: 0 } as const)
+      : ({ name: "linear", color: [0, 0, 0], tint: 1 } as const);
+  assert.throws(
+    () =>
+      d.hatch(box, {
+        // @ts-expect-error: one member has a field a gradient does not.
+        gradient: either(true),
+      }),
+    /radient must be \{ name/,
+  );
+  assert.throws(
+    () =>
+      createDrawing({ dxf: "R12" }).hatch(box, {
+        gradient: { name: "linear", color: [0, 0, 0], tint: 0 },
+      } as never),
+    /R2018/,
+  );
+});
+
+test("ellipses and splines are checked by the builder and by lint", () => {
+  const d = createDrawing();
+  const zigzag: Point[] = [
+    [0, 0],
+    [1, 2],
+    [2, 0],
+  ];
+  // Literals the compiler reads.
+  const three = [
+    [0, 0],
+    [1, 2],
+    [2, 0],
+  ] as const;
+  const twice = [
+    [0, 0],
+    [1, 1],
+    [1, 1],
+  ] as const;
+  // @ts-expect-error: a ratio is above 0.
+  assert.throws(() => d.ellipse([0, 0], [2, 0], 0), /ratio/);
+  // @ts-expect-error: a ratio is at most 1.
+  assert.throws(() => d.ellipse([0, 0], [2, 0], 1.5), /ratio/);
+  // @ts-expect-error: a ratio written as 0.
+  assert.throws(() => d.ellipse([0, 0], [2, 0], 4e-7), /ratio/);
+  d.ellipse([0, 0], [2, 0], 1.0000004);
+  assert.throws(() => d.ellipse([0, 0], [4e-7, 0], 0.5), /major axis/);
+  assert.throws(() => d.ellipse([0, 0], [2, 0], 0.5, { startParameter: 10 }), /together/);
+  assert.throws(
+    () => d.ellipse([0, 0], [2, 0], 0.5, { startParameter: 10, endParameter: 370.0000001 }),
+    /must differ/,
+  );
+
+  // @ts-expect-error: a spline passes through 2 points or more.
+  assert.throws(() => d.spline([[0, 0]]), /at least 2/);
+  // @ts-expect-error: two points side by side are one.
+  assert.throws(() => d.spline(twice), /side by side/);
+  assert.throws(
+    () =>
+      d.spline([
+        [0, 0],
+        [1, 1],
+        [1.0000001, 1],
+      ]),
+    /side by side/,
+  );
+  // @ts-expect-error: a tangent of no direction.
+  assert.throws(() => d.spline(zigzag, { startTangent: [0, 0] }), /no direction/);
+  // @ts-expect-error: a closed spline takes no tangent.
+  assert.throws(() => d.spline(zigzag, { closed: true, endTangent: [1, 0] }), /closed spline/);
+  assert.throws(() => d.spline(zigzag.slice(0, 2), { closed: true }), /3 when it is closed/);
+
+  // @ts-expect-error: a degree from 1 to SPLINE_DEGREE_MOST.
+  assert.throws(() => d.controlSpline(zigzag, { degree: 12 }), /degree/);
+  // @ts-expect-error: a cubic needs 4 control points.
+  assert.throws(() => d.controlSpline(three), /one more control point/);
+  // @ts-expect-error: 3 control points of degree 2 take 6 knots.
+  assert.throws(() => d.controlSpline(three, { degree: 2, knots: [0, 0, 0, 1, 1] }), /knots/);
+  // @ts-expect-error: one weight for each control point.
+  assert.throws(() => d.controlSpline(three, { degree: 2, weights: [1, 1] }), /weight/);
+  // @ts-expect-error: a weight above 0.
+  assert.throws(() => d.controlSpline(three, { degree: 2, weights: [1, -1, 1] }), /weight/);
+  assert.throws(
+    () => d.controlSpline(zigzag, { degree: 2, knots: [0, 0, 0, 2, 1, 1] }),
+    /never decrease/,
+  );
+  assert.throws(
+    () => d.controlSpline(zigzag, { degree: 2, knots: [0, 0, 0, 0, 0, 0] }),
+    /never decrease/,
+  );
+  // Closed without knots, its first control points come again, with uniform knots.
+  d.controlSpline(zigzag, { degree: 2, closed: true });
+  const closed = d.build().entities.at(-1)!;
+  assert.ok(closed.kind === "spline" && !("fitPoints" in closed));
+  assert.deepEqual(closed.knots, [0, 1, 2, 3, 4, 5, 6, 7]);
+  assert.equal(closed.controlPoints.length, 5);
+
+  // lint holds a drawing made another way to the same rules, and R12 to none of them.
+  const one = (entity: object, dxf: "R12" | "R2018" = "R2018") =>
+    lint({ ...createDrawing().build(), dxf, entities: [{ layer: "0", ...entity } as Entity] }).map(
+      (x) => `${x.rule}: ${x.message}`,
+    );
+  assert.deepEqual(one({ kind: "ellipse", center: [0, 0], majorAxis: [1, 0], ratio: 2 }), [
+    "geometry: ellipse #0: an ellipse's ratio, its minor radius over its major, must be above 0 and at most 1 once rounded to the 6 decimals tsdraft writes",
+  ]);
+  assert.match(
+    one({
+      kind: "ellipse",
+      center: [0, 0],
+      majorAxis: [1, 0],
+      ratio: 1,
+      startParameter: 400,
+      endParameter: 3,
+    })[0]!,
+    /from 0 up to 360/,
+  );
+  assert.match(
+    one({ kind: "spline", fitPoints: zigzag, startTangent: [0, 1], closed: true })[0]!,
+    /closed spline takes no tangents/,
+  );
+  assert.match(
+    one({
+      kind: "spline",
+      controlPoints: zigzag,
+      degree: 2,
+      knots: [0, 0, 0, 1, 1, 1],
+      weights: [1, 0, 1],
+    })[0]!,
+    /weight/,
+  );
+  assert.match(
+    one({ kind: "spline", controlPoints: zigzag, degree: 2.5, knots: [0, 0, 0, 1, 1, 1] })[0]!,
+    /degree is a whole number/,
+  );
+  assert.match(
+    one({
+      kind: "spline",
+      fitPoints: [
+        [0, 0],
+        [9e99, 0],
+        [0, 1e-6],
+        [-9e99, 0],
+      ],
+    })[0]!,
+    /fitted through its points/,
+  );
+  assert.match(
+    one({ kind: "ellipse", center: [0, 0], majorAxis: [1, 0], ratio: 0.5 }, "R12")[0]!,
+    /no ellipses or splines to R12/,
+  );
+  assert.throws(() => createDrawing({ dxf: "R12" }).spline(zigzag), /no ellipses or splines/);
+  // Clamped knots make an open curve, which a closed spline's flag would not close.
+  assert.throws(
+    () =>
+      d.controlSpline(
+        [
+          [10, 0],
+          [20, 15],
+          [50, 15],
+          [60, 0],
+        ],
+        { closed: true, knots: [0, 0, 0, 0, 1, 1, 1, 1] },
+      ),
+    /end where it starts/,
+  );
+  d.controlSpline(
+    [
+      [10, 0],
+      [20, 15],
+      [50, 15],
+      [60, 0],
+    ],
+    { closed: true },
+  );
+  // Knots that differ by less than the 16 digits tsdraft writes would print as one.
+  const b = 1 + Number.EPSILON;
+  assert.throws(
+    () =>
+      d.controlSpline(
+        [
+          [0, 0],
+          [10, 0],
+          [10, 10],
+          [0, 10],
+        ],
+        { knots: [1, 1, 1, 1, b, b, b, b] },
+      ),
+    /16 digits/,
+  );
+  assert.throws(
+    () =>
+      d.controlSpline(
+        [
+          [0, 0],
+          [10, 0],
+          [10, 10],
+          [0, 10],
+        ],
+        { knots: [0, 0, 0, 0, 1e-21, 1e-21, 1e-21, 1e-21] },
+      ),
+    /16 digits/,
+  );
+  // A knot repeated inside, as the leading CAD app's own splines hold one, is kept.
+  d.controlSpline(
+    [
+      [0, 0],
+      [1, 2],
+      [2, 0],
+      [3, 2],
+      [4, 0],
+      [5, 2],
+    ],
+    { knots: [0, 0, 0, 0, 1, 1, 2, 2, 2, 2] },
+  );
+  // A polygon closes with a corner, and a small closed outline far from the origin closes too.
+  d.controlSpline(
+    [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+      [0, 10],
+    ],
+    { closed: true, degree: 1 },
+  );
+  d.controlSpline(
+    Array.from({ length: 7 }, (_, i): Point => [
+      612345.25 + 0.5 * Math.cos(i * 0.9),
+      1298765.5 + 0.35 * Math.sin(i * 0.9),
+    ]),
+    { closed: true },
+  );
 });

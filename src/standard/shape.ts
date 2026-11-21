@@ -7,6 +7,14 @@ import {
   ARROWHEADS,
   DEFAULT_ARROWHEAD,
   DEFAULT_LEADER_ARROWHEAD,
+  DIMENSION_FRACTIONS,
+  DIMENSION_TEXT_FITS,
+  DIMENSION_RADIAL_TEXTS,
+  DIMENSION_ANGLE_UNITS,
+  DIMENSION_ARC_SYMBOLS,
+  MAX_ANGLE_PRECISION,
+  JOG_ANGLE,
+  DIMENSION_TEXT_PLACEMENTS,
   DIMENSION_UNITS,
   FEET_INCH_ZEROS,
   LEADER_ARROWHEADS,
@@ -19,6 +27,17 @@ import { DEFAULT_PLOT_STYLE_TABLE, PAPERS, PLOT_STYLE_TABLES } from "../papers.t
 import {
   arrowheadProblem,
   attributeTagProblem,
+  dimensionStyleLookProblem,
+  fractionProblem,
+  fractionScaleProblem,
+  textFitProblem,
+  radialTextProblem,
+  jogAngleProblem,
+  angleUnitsProblem,
+  anglePrecisionProblem,
+  angleZerosProblem,
+  arcSymbolProblem,
+  textPlacementProblem,
   blockNameProblem,
   dimensionPrefixProblem,
   dimensionStyleNameProblem,
@@ -29,9 +48,15 @@ import {
   layerColorProblem,
   layerNameProblem,
   LEADER_ATTACHMENTS,
+  LEADER_DIRECTIONS,
+  LEADER_SHAFT_KINDS,
+  LEADER_VERTICAL_ATTACHMENTS,
   leaderArrowheadProblem,
   leaderAttachmentProblem,
+  leaderDirectionProblem,
+  leaderShaftKindProblem,
   leaderSizeProblem,
+  leaderVerticalAttachmentProblem,
   lineweightValueProblem,
   linetypeProblem,
   linetypeScaleProblem,
@@ -451,8 +476,25 @@ const WRITING = record<WritingDocument>(
       description: "Each measurement is written times this",
       default: 1,
     },
+    fraction: {
+      node: string({ enum: DIMENSION_FRACTIONS }, fractionProblem),
+      description:
+        "In architectural units, how the fraction of an inch is written: inline, as 4'-1 7/16\", stacked over a bar, or diagonal, beside a slash",
+      default: "inline",
+    },
+    fractionScale: {
+      node: number({ minimum: 0.25, maximum: 1 }, fractionScaleProblem),
+      description: "The height of a stacked fraction as a share of the text's, from 0.25 to 1",
+      default: 1,
+    },
   },
-  (value) => zerosOfUnitsProblem(value.units, value.suppressZeros, value.feetInchZeros),
+  (value) =>
+    zerosOfUnitsProblem(value.units, value.suppressZeros, value.feetInchZeros) ??
+    dimensionStyleLookProblem({
+      units: value.units,
+      fraction: value.fraction,
+      fractionScale: value.fractionScale,
+    }),
 );
 
 const unitsOf = (what: string): Node =>
@@ -488,6 +530,60 @@ const STYLE_FIELDS = {
     "How far an extension line runs past the dimension line",
   ),
   textGap: size(textGapProblem, "The gap between the text and the dimension line"),
+  textPlacement: {
+    node: string({ enum: DIMENSION_TEXT_PLACEMENTS }, textPlacementProblem),
+    description: "The text above the dimension line, or centered in a break of it",
+    default: "above",
+  },
+  radialText: {
+    node: string({ enum: DIMENSION_RADIAL_TEXTS }, radialTextProblem),
+    description:
+      "How a radius, a diameter or a jogged radius dimension's text reads: along its line, or level",
+    default: "aligned",
+  },
+  jogAngle: {
+    node: number({ minimum: JOG_ANGLE.least, maximum: JOG_ANGLE.most }, jogAngleProblem),
+    description: "The angle of a jogged radius dimension's jog to its line, in degrees",
+    default: JOG_ANGLE.default,
+  },
+  angleUnits: {
+    node: string({ enum: DIMENSION_ANGLE_UNITS }, angleUnitsProblem),
+    description:
+      "The units an angular dimension writes its angle in: degrees, degrees, minutes and seconds, grads or radians",
+    default: "degrees",
+  },
+  anglePrecision: {
+    node: number({ minimum: 0, maximum: MAX_ANGLE_PRECISION }, anglePrecisionProblem),
+    description:
+      "How many decimals an angle takes; in degrees, minutes and seconds, 0 writes the degrees, 1 and 2 the minutes too, and 3 and 4 the seconds",
+    default: 0,
+  },
+  suppressAngleZeros: {
+    node: string({ enum: ZERO_SUPPRESSIONS }, angleZerosProblem),
+    description: "The zeros an angle leaves out. Defaults to none",
+  },
+  arcSymbol: {
+    node: string({ enum: DIMENSION_ARC_SYMBOLS }, arcSymbolProblem),
+    description:
+      "Where an arc length dimension draws the arc symbol: before its text, above it, or nowhere",
+    default: "before",
+  },
+  textFit: {
+    node: string({ enum: DIMENSION_TEXT_FITS }, textFitProblem),
+    description:
+      "Where a text goes that does not fit between the extension lines: inside them all the same, or out on a leader",
+    default: "inside",
+  },
+  dimensionLineweight: {
+    node: number({ enum: LINEWEIGHTS }, lineweightValueProblem),
+    description:
+      "The lineweight of the dimension line, its arrowheads and a leader to its text, in millimetres. Defaults to the dimension's own",
+  },
+  extensionLineweight: {
+    node: number({ enum: LINEWEIGHTS }, lineweightValueProblem),
+    description:
+      "The lineweight of the extension lines, in millimetres. Defaults to the dimension's own",
+  },
   writing: {
     node: unitsOf("a dimension style's writing"),
     description:
@@ -541,8 +637,30 @@ const LEADER_FIELDS = {
   gap: size(leaderSizeProblem, "The gap between the end of the landing and the note"),
   attachment: {
     node: string({ enum: LEADER_ATTACHMENTS }, leaderAttachmentProblem),
-    description: "Which line of the note the landing meets, at the middle of its capitals",
+    description: "Where the landing meets the side of the note: one of LEADER_ATTACHMENTS",
     default: "first-line",
+  },
+  direction: {
+    node: string({ enum: LEADER_DIRECTIONS }, leaderDirectionProblem),
+    description:
+      'Whether the landing meets the side of the note, "horizontal", or its top or bottom, "vertical"',
+    default: "horizontal",
+  },
+  verticalAttachment: {
+    node: string({ enum: LEADER_VERTICAL_ATTACHMENTS }, leaderVerticalAttachmentProblem),
+    description:
+      'Where the landing meets a note above or below it: "center", or "line" with a line as wide as the note',
+    default: "center",
+  },
+  frame: {
+    node: boolean,
+    description: "True for a frame around each note, one gap outside it",
+    default: false,
+  },
+  shaft: {
+    node: string({ enum: LEADER_SHAFT_KINDS }, leaderShaftKindProblem),
+    description: 'How the shafts run through their points: "straight", or "curved"',
+    default: "straight",
   },
   description,
 } as const satisfies FieldsOf<LeaderStyleFieldsDocument>;

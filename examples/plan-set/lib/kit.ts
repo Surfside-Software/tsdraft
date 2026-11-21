@@ -6,11 +6,17 @@ import {
   DASHED,
   fromPaper,
   HIDDEN,
+  measureTable,
   measureText,
   PHANTOM,
   type DrawingBuilder,
+  type ParagraphAlign,
   type Point,
+  type TableCell,
+  type TableOptions,
+  type TableStyle,
   type TextAlign,
+  type TextStyle,
   type TextVerticalAlign,
 } from "../../../src/index.ts";
 import { arrowhead, feetInches } from "../../lib/drafting.ts";
@@ -19,6 +25,8 @@ export type D = DrawingBuilder;
 export const FONT = "Arial" as const;
 export const NOTES = "NOTES";
 export const TITLE = "TITLE";
+/** The table style of the set's schedules. */
+export const SCHEDULE = "SCHEDULE";
 
 /** Text heights on paper, in inches. */
 export const H = {
@@ -29,6 +37,33 @@ export const H = {
   head: 3 / 16,
   title: 1 / 4,
 };
+
+const NOTES_STYLE: TextStyle = { name: NOTES, font: FONT };
+
+const SCHEDULE_STYLE: TableStyle = {
+  name: SCHEDULE,
+  textStyle: NOTES,
+  textHeight: H.note,
+  horizontalMargin: 0.05,
+  verticalMargin: 0.04,
+  title: { textHeight: H.label, align: "left", lineweight: 0.35 },
+  header: { align: "left", valign: "middle", lineweight: 0.35 },
+  data: { align: "left", valign: "middle", lineweight: 0.13 },
+};
+
+/** A row's cells, each aligned as `aligns` says for its column, or as the style says. */
+export const aligned = (
+  cells: readonly string[],
+  aligns: Readonly<Record<number, ParagraphAlign>>,
+): TableCell[] =>
+  cells.map((text, c) => {
+    const align = aligns[c];
+    return align ? { text, align } : text;
+  });
+
+/** The y of a schedule's bottom edge, for stacking what goes under it. */
+export const tableBottom = (table: TableOptions): number =>
+  table.at[1] - measureTable(table, SCHEDULE_STYLE, [NOTES_STYLE]).height;
 
 /** A view: its ratio and the paper-to-model helper for it. */
 export interface View {
@@ -181,6 +216,13 @@ export const LAYERS = {
   pAnno: "P-ANNO-TEXT",
 } as const;
 
+/** The linetypes of the site's utilities: each name, its letters, and where they start in its gap. */
+export const UTILITY_LINETYPES = [
+  ["UTIL-WATER", "W", -0.105],
+  ["UTIL-SEWER", "SS", -0.15],
+  ["UTIL-ELEC", "UE", -0.155],
+] as const;
+
 /** Defines every layer of the set, with its color, linetype and pen. */
 export function defineLayers(d: D): void {
   const L = LAYERS;
@@ -190,6 +232,15 @@ export function defineLayers(d: D): void {
   d.linetype(HIDDEN);
   d.linetype(CENTER);
   d.linetype(PHANTOM);
+  // The site's utilities, each lettered along its run in the notes' style.
+  for (const [name, letters, along] of UTILITY_LINETYPES) {
+    d.linetype({
+      name,
+      description: `${letters} ---- ${letters} ----`,
+      pattern: [1.5, -0.2, -0.2],
+      marks: [{ after: 1, text: letters, style: NOTES, height: 0.16, offset: [along, -0.08] }],
+    });
+  }
   layer(L.ttlb, 7, 0.35);
   layer(L.text, 7, 0.25);
   d.layer(L.vport, { color: 8, plot: false });
@@ -251,6 +302,7 @@ export function defineLayers(d: D): void {
 export function defineSymbols(d: D): void {
   d.textStyle({ name: NOTES, font: FONT });
   d.textStyle({ name: TITLE, font: FONT, widthFactor: 0.9 });
+  d.tableStyle(SCHEDULE_STYLE);
 
   // Symbols are drawn in paper inches. In model space they are inserted at `view.p(1)`.
   d.block("NORTH ARROW", {}, () => {
@@ -692,63 +744,6 @@ export function noteColumn(
       }
       y -= h * 0.5;
     });
-  });
-  return y;
-}
-
-/**
- * A table on the sheet: a heading, a header row and rows, in columns of the given widths. Each
- * cell is checked to fit; a value too long for its cell throws, so the table is fixed in code.
- */
-export function table(
-  d: D,
-  at: Point,
-  heading: string,
-  columns: readonly { name: string; width: number; align?: TextAlign }[],
-  rows: readonly (readonly string[])[],
-  o: { height?: number; rowHeight?: number } = {},
-): number {
-  const h = o.height ?? H.note;
-  const rh = o.rowHeight ?? h * 2.4;
-  const total = columns.reduce((s, c) => s + c.width, 0);
-  let y = at[1];
-  d.layer(LAYERS.text, {}, () => {
-    if (heading) {
-      put(d, [at[0], y], heading, H.label, { valign: "top" });
-      y -= H.label + 0.1;
-    }
-    const top = y;
-    const all = [columns.map((c) => c.name), ...rows];
-    all.forEach((cells, r) => {
-      let x = at[0];
-      cells.forEach((cell, c) => {
-        const col = columns[c]!;
-        const pad = 0.05;
-        const textWidth = width(cell, h);
-        if (textWidth > col.width - 2 * pad) {
-          throw new Error(
-            `Table "${heading}": "${cell}" is ${textWidth.toFixed(2)} in long for a cell ${col.width} in wide`,
-          );
-        }
-        const align = col.align ?? "left";
-        const tx =
-          align === "center"
-            ? x + col.width / 2
-            : align === "right"
-              ? x + col.width - pad
-              : x + pad;
-        put(d, [tx, y - rh / 2], cell, h, { align, valign: "middle" });
-        x += col.width;
-      });
-      y -= rh;
-      d.line([at[0], y], [at[0] + total, y], { lineweight: r === 0 ? 0.35 : 0.13 });
-    });
-    d.rect([at[0], y], total, top - y, { lineweight: 0.35 });
-    let x = at[0];
-    for (const col of columns.slice(0, -1)) {
-      x += col.width;
-      d.line([x, y], [x, top]);
-    }
   });
   return y;
 }

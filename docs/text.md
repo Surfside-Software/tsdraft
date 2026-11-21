@@ -127,9 +127,12 @@ drawing's extents, `toSVG` and `inspectText` all take a text's box from it.
 
 ## Text as it plots
 
-`toSVG` starts each text where `measureText` says it plots, sets its `textLength` to the length
-it plots at, and keeps its spaces, so a text is as long in the picture as on paper, in any
-font. It draws the text in a CSS font family for its font, ending in a generic family for a
+`toSVG` starts each text where `measureText` places it, sets its `textLength`, and keeps its
+spaces, so a text is as long in the picture as on paper, in any font. A text in a TrueType font
+starts at its first point and is held to its characters' advances, where the leading CAD app's
+PDF sets its glyphs, so a last letter whose ink reaches past its advance, as an `f` does,
+stretches nothing. A text in an SHX font, which plots as strokes, starts where it starts to draw
+and is held to the length it plots at. It draws the text in a CSS font family for its font, ending in a generic family for a
 screen that lacks the font, at a size that makes that font's capitals the text's height: the
 height itself is in the element's `data-height`. An SHX font is drawn in a generic family, as
 a font whose capitals are 0.7 of its size, so on a screen an SHX text's letters have other

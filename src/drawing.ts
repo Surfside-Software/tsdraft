@@ -1,3 +1,5 @@
+import { entityColorProblem } from "./colors.ts";
+import type { ParagraphColumns } from "./paragraphs.ts";
 import {
   definitionHandle,
   insertAttributeHandle,
@@ -9,9 +11,16 @@ import {
   arrowheadInfo,
   DEFAULT_ARROWHEAD,
   DEFAULT_LEADER_ARROWHEAD,
+  JOG_ANGLE,
   STANDARD_LEADER_STYLE,
   type Arrowhead,
   type DIMENSION_UNITS,
+  type DIMENSION_FRACTIONS,
+  type DIMENSION_TEXT_PLACEMENTS,
+  type DIMENSION_TEXT_FITS,
+  type DIMENSION_RADIAL_TEXTS,
+  type DIMENSION_ANGLE_UNITS,
+  type DIMENSION_ARC_SYMBOLS,
   type FEET_INCH_ZEROS,
   type LeaderArrowhead,
   type ZERO_SUPPRESSIONS,
@@ -25,15 +34,24 @@ import {
   pictureOwner,
   validDimensionPictureHandles,
   validDimensionStyleHandle,
+  type Dimension,
   type DimensionPlace,
 } from "./dimensions.ts";
-import { STANDARD_TEXT_STYLE } from "./fonts.ts";
+import { STANDARD_FONT, STANDARD_TEXT_STYLE } from "./fonts.ts";
+import { paragraphUnknownCode, parseParagraph } from "./paragraph-codes.ts";
 import {
   leaderArrowheadHandles,
   leaderDrawnProblem,
   leaderStyleDictionaryHandle,
   validLeaderStyleHandle,
 } from "./leaders.ts";
+import {
+  STANDARD_TABLE_STYLE,
+  tableMargins,
+  tableStyleDictionaryHandle,
+  tableTexts,
+  validTableStyleHandle,
+} from "./tables.ts";
 import { fmt, written } from "./format.ts";
 import { validIdHandle } from "./handles.ts";
 import { layerAuditKey, layerKey, layoutNameKey } from "./layers.ts";
@@ -47,11 +65,26 @@ import {
   type PlotStyleTable,
 } from "./papers.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
+import { arcsAlong, cloud, donut, MAX_CLOUD_ARCS, rounded } from "./polylines.ts";
+import {
+  hatchSpread,
+  loopsBox,
+  onOneLine,
+  patternDrawnProblem,
+  patternSizes,
+  polygonCrosses,
+  type PatternSizes,
+} from "./fills.ts";
+import { parsePatterns } from "./patterns.ts";
+import { imageVectors } from "./images.ts";
 import { canonical } from "./json.ts";
 import { DrawingError, type Diagnostic, type LintRule } from "./lint.ts";
 import {
   arcProblem,
+  ATTRIBUTE_KIND,
   ATTRIBUTES_SHAPE,
+  PARAGRAPH_ONLY,
+  paragraphOnlyProblem,
   attributeTagProblem,
   blockCycleProblem,
   blockNameProblem,
@@ -62,6 +95,7 @@ import {
   dimensionStyleTwinProblem,
   dimensionAngleProblem,
   dimensionTextProblem,
+  donutHoleProblem,
   duplicateAttributeProblem,
   duplicateIdProblem,
   handleProblem,
@@ -77,6 +111,15 @@ import {
   leaderStyleNameProblem,
   leaderStyleProblem,
   leaderStyleTwinProblem,
+  standardTableStyleProblem,
+  TABLE_COLOR,
+  TABLE_IN_BLOCK,
+  tableColumnsProblem,
+  tableTextsProblem,
+  tableProblem,
+  tableStyleNameProblem,
+  tableStyleProblem,
+  tableStyleTwinProblem,
   leaderTextProblem,
   placedAttributeProblem,
   layerColorProblem,
@@ -86,6 +129,7 @@ import {
   lineweightProblem,
   linetypeNameProblem,
   linetypeProblem,
+  marksProblem,
   linetypeScaleProblem,
   magnitudeProblem,
   layerNameProblem,
@@ -94,16 +138,22 @@ import {
   layoutTwinProblem,
   paperProblem,
   plotStyleProblem,
+  polylineSidesProblems,
   R12_ONLY,
   scaleProblem,
   sheetNumberProblem,
   sizeProblem,
   textAlignProblem,
   textProblem,
+  lineSpacingProblem,
+  paragraphColumnsProblem,
+  paragraphChoiceProblem,
+  paragraphProblemIn,
   textStyleNameProblem,
   textStyleProblem,
   undefinedAttributeProblem,
   undefinedBlockProblem,
+  leaderBlockContentProblem,
   undefinedDimensionStyleProblem,
   undefinedDimensionTextStyleProblem,
   undefinedLeaderStyleProblem,
@@ -138,7 +188,19 @@ import {
   type LeaderTargetsOf,
   type LeaderText,
   type NewLeaderStyleName,
+  type DonutHole,
+  type PolylineWidth,
   type R12Leaders,
+  type R12Polylines,
+  type R12Images,
+  type ImagePath,
+  imageClipProblem,
+  imagePathProblem,
+  imagePixelsProblem,
+  IMAGE_INVERT_WITHOUT_CLIP,
+  type R12Paragraphs,
+  type LineSpacing,
+  type ParagraphValue,
   type LineweightMm,
   type LineweightOf,
   type LinetypeName,
@@ -163,6 +225,9 @@ import {
   type WidthFactor,
   type XrefPath,
   type LayerColor,
+  type EntityColorGiven,
+  type EntityColorOf,
+  type R12EntityColor,
   type LayerName,
   type LayoutName,
   type PaperLength,
@@ -170,10 +235,45 @@ import {
   type Positive,
   type R12Layouts,
   type Ratio,
+  type MARK_ORIENTS,
   type TEXT_ALIGNS,
   type TEXT_VERTICAL_ALIGNS,
+  type LINE_SPACING_STYLES,
+  type PARAGRAPH_ALIGNS,
+  type PARAGRAPH_VERTICAL_ALIGNS,
   type LEADER_ATTACHMENTS,
+  type LEADER_DIRECTIONS,
+  type LEADER_BLOCK_CONNECTIONS,
+  type LEADER_SHAFT_KINDS,
   type LEADER_SIDES,
+  type LEADER_VERTICAL_ATTACHMENTS,
+  HATCH_LOOP_POINTS,
+  controlSplineProblems,
+  ellipseProblems,
+  fitSplineProblems,
+  type ControlPoints,
+  type EllipseRatio,
+  type FitPoints,
+  type Knots,
+  type SPLINE_CLOSED_TANGENT,
+  type SplineDegree,
+  type Tangent,
+  type Weights,
+  HATCH_NO_LOOPS,
+  GRADIENT_WITH_PATTERN,
+  type GRADIENT_KINDS,
+  readGradient,
+  hatchPatternChoiceProblem,
+  hatchPatternProblem,
+  type GradientOf,
+  shown,
+  undefinedHatchPatternProblem,
+  textMaskProblem,
+  PARAGRAPH_MASK_COLUMNS,
+  WIPEOUT_CROSSES,
+  WIPEOUT_FLAT,
+  WIPEOUT_POINTS,
+  ORDINATE_AXIS,
 } from "./rules.ts";
 import type {
   Standard,
@@ -284,7 +384,61 @@ export interface Linetype {
   readonly description: string;
   /** A dash is a positive length, a gap a negative one, and a dot 0. Empty for a solid line. */
   readonly pattern: readonly number[];
+  /**
+   * What the pattern draws besides its dashes: a text, such as a pipe's letters, or a shape of a
+   * shape file, each at the end of a length of the pattern. In order of `after`, one a length.
+   * R2018 only.
+   */
+  readonly marks?: readonly LinetypeMark[];
 }
+
+/**
+ * How a linetype's mark is turned: `"relative"` to the line, `"absolute"` to the drawing's X
+ * axis, or `"upright"`, along the line and turned half a turn where the line runs leftward, from
+ * just past straight up to just short of straight down, so that it reads from the left.
+ */
+export type MarkOrient = (typeof MARK_ORIENTS)[number];
+
+interface MarkBase {
+  /** The index of the length of the pattern the mark is drawn at the end of, from 0. */
+  readonly after: number;
+  /** In degrees counterclockwise, from the line or the X axis as `orient` says. Defaults to 0. */
+  readonly rotation?: number;
+  /** Defaults to `"relative"`. */
+  readonly orient?: MarkOrient;
+  /**
+   * Where the mark is from the end of its length: along the line, and to its left. In the
+   * pattern's units, scaled as its lengths are. Defaults to `[0, 0]`.
+   */
+  readonly offset?: Point;
+}
+
+/** A text a linetype draws, such as the letters along a pipe. */
+export interface LinetypeText extends MarkBase {
+  readonly text: string;
+  /** A text style of the drawing. Defaults to `"Standard"`. */
+  readonly style?: string;
+  /** The height of its capitals, in the pattern's units, scaled as its lengths are. */
+  readonly height: number;
+}
+
+/**
+ * A shape of a shape file a linetype draws, by its number in the file. tsdraft's plot draws it
+ * from the file given as `shapes`, which `parseShapes` reads, and leaves a gap without it.
+ */
+export interface LinetypeShape extends MarkBase {
+  /** Its number in its shape file. A name, as a linetype file gives it, is not written. */
+  readonly shape: number | string;
+  /** The shape file, as the drawing names it, such as `"shapes.shx"`. */
+  readonly file: string;
+  /**
+   * Its size, as a multiple of the shape's own, scaled as the pattern's lengths are. A negative
+   * scale turns it half a turn.
+   */
+  readonly scale: number;
+}
+
+export type LinetypeMark = LinetypeText | LinetypeShape;
 
 /**
  * The lineweights the leading CAD app offers, in millimetres. A lineweight is how wide a line
@@ -313,6 +467,17 @@ export interface Layer {
   readonly plot?: boolean;
 }
 
+/** A true color: its red, green and blue, each a whole number from 0 to 255. */
+export type Rgb = readonly [red: number, green: number, blue: number];
+
+/**
+ * An entity's color: an index of the color index CAD programs share, from 1 to 255; `"ByLayer"`,
+ * its layer's; `"ByBlock"`, the color of the insert that places its block; or a true color. CAD
+ * programs plot an index through the layout's plot style table, and a true color as it is under
+ * every table.
+ */
+export type EntityColor = number | "ByLayer" | "ByBlock" | Rgb;
+
 interface Placed {
   /**
    * A name for this entity that stays the same when the drawing's code changes around it: 1 to
@@ -325,6 +490,8 @@ interface Placed {
    * places the block.
    */
   readonly layer: string;
+  /** Its own color. Defaults to `"ByLayer"`. R2018 only. */
+  readonly color?: EntityColor;
 }
 
 interface EntityBase extends Placed {
@@ -340,10 +507,32 @@ export interface Line extends EntityBase {
   readonly to: Point;
 }
 
+/**
+ * A polyline: sides from each point to the next and, when it is closed, from the last back to
+ * the first. A side is straight, or an arc by its bulge, and may be drawn wide: CAD programs fill
+ * a side that has a width, and draw one of width 0 with its pen.
+ */
 export interface Polyline extends EntityBase {
   readonly kind: "polyline";
   readonly points: readonly Point[];
   readonly closed: boolean;
+  /**
+   * The bulge of each side, one for each: 0 for a straight side, and for an arc the tangent of a
+   * quarter of the angle it turns through, greater than 0 when it turns counterclockwise. 1 is a
+   * half circle. Defaults to every side straight. R2018 only.
+   */
+  readonly bulges?: readonly number[];
+  /** The width of every side, in drawing units, 0 or more. R2018 only. */
+  readonly width?: number;
+  /** The width of each side at its start and at its end, one pair for each side. R2018 only. */
+  readonly widths?: readonly (readonly [start: number, end: number])[];
+  /**
+   * Runs the linetype's pattern on past each vertex, as one stretch along the whole polyline,
+   * where it otherwise starts again on each side, so that a side shorter than the pattern is not
+   * drawn solid. Around a closed polyline the pattern is stretched to a whole number of times.
+   * R2018 only.
+   */
+  readonly linetypeGeneration?: boolean;
 }
 
 export interface Circle extends EntityBase {
@@ -359,6 +548,72 @@ export interface Arc extends EntityBase {
   readonly radius: number;
   readonly startAngle: number;
   readonly endAngle: number;
+}
+
+/**
+ * An ellipse, or an arc of one. Its points are `center + cos(t) * majorAxis + sin(t) * ratio *
+ * minor` for each parameter `t`, where `minor` is `majorAxis` turned a quarter turn
+ * counterclockwise. A parameter is not the angle a point is at from the center, except at
+ * multiples of 90 degrees: on an ellipse of ratio 0.5, the parameter 45 is the point at about
+ * 26.6 degrees. R2018 only.
+ */
+export interface Ellipse extends EntityBase {
+  readonly kind: "ellipse";
+  readonly center: Point;
+  /** From the center to one end of the major axis: the major radius and its direction. */
+  readonly majorAxis: Point;
+  /** The minor radius over the major: above 0, and at most 1. */
+  readonly ratio: number;
+  /**
+   * For an arc, the parameter it starts at, in degrees from 0 up to 360, counterclockwise from
+   * the end of `majorAxis`. Given with `endParameter` or not at all, for a whole ellipse.
+   */
+  readonly startParameter?: number;
+  /** For an arc, the parameter it ends at, in degrees from 0 up to 360. */
+  readonly endParameter?: number;
+}
+
+/**
+ * A spline through fit points: the cubic the leading CAD app's `SPLINE` fits through them, with
+ * its knots spaced by the chords between the points, which the writers work out and write beside
+ * the points. A DXF holds no other spacing: that app fits every spline it reads through fit points
+ * by chord. R2018 only.
+ */
+export interface FitSpline extends EntityBase {
+  readonly kind: "spline";
+  /** The points it passes through, in order: 2 or more, 3 or more when it is closed. */
+  readonly fitPoints: readonly Point[];
+  /** The direction it leaves the first point in. Worked out from the points by default. */
+  readonly startTangent?: Point;
+  /** The direction it arrives at the last point in. Worked out from the points by default. */
+  readonly endTangent?: Point;
+  /**
+   * Whether it runs from the last point back to the first, smooth through it. It then takes no
+   * tangents. Defaults to false.
+   */
+  readonly closed?: boolean;
+}
+
+/** A spline by its control points: a B-spline of its degree, rational when it has weights. R2018 only. */
+export interface ControlSpline extends EntityBase {
+  readonly kind: "spline";
+  readonly controlPoints: readonly Point[];
+  /** From 1 up to `SPLINE_DEGREE_MOST`. */
+  readonly degree: number;
+  /** One more than the control points and the degree together, none less than the one before. */
+  readonly knots: readonly number[];
+  /** One for each control point, each above 0. Every weight is 1 when left out. */
+  readonly weights?: readonly number[];
+  /** Whether it is periodic, joined smooth where it starts. Defaults to false. */
+  readonly closed?: boolean;
+}
+
+/** A spline: through fit points, or by its control points. `isFitSpline` tells the two apart. */
+export type Spline = FitSpline | ControlSpline;
+
+/** True for a spline through fit points. */
+export function isFitSpline(spline: Spline): spline is FitSpline {
+  return (spline as { readonly fitPoints?: unknown }).fitPoints !== undefined;
 }
 
 /**
@@ -403,6 +658,52 @@ export interface Text extends EntityBase {
   readonly valign?: TextVerticalAlign;
 }
 
+/** Where a paragraph's `at` point is across its box, and how its lines are set in it. */
+export type ParagraphAlign = (typeof PARAGRAPH_ALIGNS)[number];
+
+/** Where a paragraph's `at` point is up and down its box. */
+export type ParagraphVerticalAlign = (typeof PARAGRAPH_VERTICAL_ALIGNS)[number];
+
+/**
+ * How a paragraph's line spacing is taken: as the least its lines are apart, so a line whose
+ * letters reach further pushes the next one down, or as exactly that.
+ */
+export type LineSpacingStyle = (typeof LINE_SPACING_STYLES)[number];
+
+/**
+ * Paragraph text: one entity whose lines wrap at a width and break at each `\P`, which the
+ * leading CAD app holds as one multi-line text and a drafter edits as one. Its value holds that
+ * app's inline codes, such as `\L` for an underline and `\S1/2;` for a stacked fraction, which
+ * `parseParagraph` reads. R2018 only.
+ */
+export interface Paragraph extends EntityBase {
+  readonly kind: "paragraph";
+  /** The point of its box `align` and `valign` name: with their defaults, its upper left corner. */
+  readonly at: Point;
+  /** The height of a capital, where no code sets another. */
+  readonly height: number;
+  /** The value, with its codes. `\P` breaks a paragraph. */
+  readonly value: string;
+  /** Degrees counterclockwise. */
+  readonly rotation: number;
+  /** The width its lines wrap at. Missing, its lines break only at `\P`. */
+  readonly width?: number;
+  /** A text style of the drawing. Defaults to `"Standard"`. */
+  readonly style?: string;
+  /** Defaults to `"left"`. */
+  readonly align?: ParagraphAlign;
+  /** Defaults to `"top"`. */
+  readonly valign?: ParagraphVerticalAlign;
+  /** A factor of the spacing of its lines, from 0.25 to 4. Defaults to 1. */
+  readonly lineSpacing?: number;
+  /** Defaults to `"at-least"`. */
+  readonly lineSpacingStyle?: LineSpacingStyle;
+  /** Columns its lines flow through, each `width` wide. Missing, one column. */
+  readonly columns?: ParagraphColumns;
+  /** A mask behind it, over its box: as wide as its width, or its widest line where that is wider. */
+  readonly mask?: TextMask;
+}
+
 /**
  * A block placed at a point. It draws the block's entities there, scaled and turned about the
  * block's base point, and carries a value for each of the block's attribute definitions. An
@@ -438,6 +739,11 @@ interface DimensionBase extends Placed {
    * style writes it, so `"<> TYP"` adds to it and `"VARIES"` replaces it.
    */
   readonly text?: string;
+  /**
+   * Words drawn under the dimension line, opposite the measurement, such as `"WINDOW HEAD HT."`.
+   * `<>` in them stands for the measurement as it does in `text`.
+   */
+  readonly textBelow?: string;
 }
 
 /**
@@ -469,14 +775,153 @@ export interface AlignedDimension extends DimensionBase {
   readonly offset: number;
 }
 
+/** What a radius, a diameter and a jogged radius dimension have. */
+interface RadialDimensionBase extends Placed {
+  /** A dimension style of the drawing. */
+  readonly style: string;
+  /** The center of the circle or arc it measures. */
+  readonly center: Point;
+  /** The point of the circle or arc its line meets, which the radius reaches. */
+  readonly point: Point;
+  /** A text to draw in place of the measurement, as a linear dimension's `text`. */
+  readonly text?: string;
+  /** Words drawn under its line, opposite the text, as a linear dimension's `textBelow`. */
+  readonly textBelow?: string;
+}
+
+/**
+ * A radius dimension: the distance from the center of a circle or an arc to `point`, read with
+ * an R before it. Its line runs from the center through `point`, and its arrowhead points at the
+ * circle there from outside. The line to the center is always drawn.
+ */
+export interface RadiusDimension extends RadialDimensionBase {
+  readonly kind: "radius-dimension";
+  /**
+   * How far the middle of its text is from the center, along its line: inside the circle, outside
+   * it, or past the center for less than 0. Left out, the text stands outside the circle, past the
+   * arrowhead, as the leading CAD app places it.
+   */
+  readonly textFromCenter?: number;
+}
+
+/**
+ * A diameter dimension: twice the distance from the center of a circle to `point`, read with a
+ * diameter sign before it. Its line runs through the center from `point` to the point opposite,
+ * with an arrowhead at each, and its text stands at `point`'s end.
+ */
+export interface DiameterDimension extends RadialDimensionBase {
+  readonly kind: "diameter-dimension";
+  /** How far the middle of its text is from the center, as a radius dimension's. */
+  readonly textFromCenter?: number;
+}
+
+/**
+ * A jogged radius dimension: the radius of an arc whose center is far off, read with an R before
+ * it. Its line starts at `start` instead of the center, runs to a jog across the line at `jog`,
+ * and goes on toward the center to `point`, with its text along the last stretch, inside the arc.
+ */
+export interface JoggedRadiusDimension extends RadialDimensionBase {
+  readonly kind: "jogged-radius-dimension";
+  /** Where its line starts, standing in for the center. */
+  readonly start: Point;
+  /** The middle of the jog. */
+  readonly jog: Point;
+}
+
+/**
+ * An angular dimension: the angle at `vertex` between the line to `from` and the line to `to`, its
+ * arc through `at`. The arc's point picks the angle, as the leading CAD app picks it: the one
+ * between the two lines that holds `at`, or the rest of the turn, so the order of `from` and `to`
+ * means nothing. Its extension lines run from near `from` and `to` along their lines to past the
+ * arc, and its text stands at the middle of the arc.
+ */
+export interface AngularDimension extends Placed {
+  readonly kind: "angular-dimension";
+  /** A dimension style of the drawing. */
+  readonly style: string;
+  /** Where the two lines meet. */
+  readonly vertex: Point;
+  /** A point of each line, which its extension line starts near. */
+  readonly from: Point;
+  readonly to: Point;
+  /** A point the dimension's arc passes through, about the vertex. */
+  readonly at: Point;
+  /** A text to draw in place of the measurement, as a linear dimension's `text`. */
+  readonly text?: string;
+  /** Words drawn under its arc, opposite the text, as a linear dimension's `textBelow`. */
+  readonly textBelow?: string;
+}
+
+/**
+ * An arc length dimension: the length of the arc about `center` of `radius`, counterclockwise from
+ * `startAngle` to `endAngle` in degrees, as `d.arc` takes them, its own arc through `at`. Under a
+ * right angle its extension lines run parallel to the arc's bisector; from one up they run along
+ * radii. The arc symbol stands before its text, above it or nowhere, as its style says.
+ */
+export interface ArcLengthDimension extends Placed {
+  readonly kind: "arc-length-dimension";
+  /** A dimension style of the drawing. */
+  readonly style: string;
+  readonly center: Point;
+  readonly radius: number;
+  readonly startAngle: number;
+  readonly endAngle: number;
+  /** A point the dimension's own arc passes through. */
+  readonly at: Point;
+  /** A text to draw in place of the measurement, as a linear dimension's `text`. */
+  readonly text?: string;
+  /** Words drawn under its arc, opposite the text, as a linear dimension's `textBelow`. */
+  readonly textBelow?: string;
+}
+
+/**
+ * An ordinate dimension: the distance from `origin` to `feature` along X or along Y, as `axis`
+ * says, on a leader from near `feature` to `leaderEnd` with its text beyond. The leader runs along
+ * Y for `"x"` and along X for `"y"`, and jogs where `leaderEnd` is off that line. The distance has
+ * no sign, so features either side of the origin read alike.
+ */
+export interface OrdinateDimension extends Placed {
+  readonly kind: "ordinate-dimension";
+  /** A dimension style of the drawing. */
+  readonly style: string;
+  /** `"x"` gives the feature's X from the origin, with its leader along Y; `"y"` its Y. */
+  readonly axis: "x" | "y";
+  /** The point it measures from. */
+  readonly origin: Point;
+  /** The point it gives the coordinate of. */
+  readonly feature: Point;
+  /** Where its leader ends; its text stands beyond. */
+  readonly leaderEnd: Point;
+  /** A text to draw in place of the measurement, as a linear dimension's `text`. */
+  readonly text?: string;
+  /** Words drawn under its leader, opposite the text, as a linear dimension's `textBelow`. */
+  readonly textBelow?: string;
+}
+
 /** Which side of the point where its shafts meet a leader's note is on. */
 export type LeaderSide = (typeof LEADER_SIDES)[number];
 
-/**
- * Which line of a leader's note its landing meets, at the middle of that line's capitals: the
- * first, which is the leading CAD app's own choice, or the last.
- */
+/** Where a leader's landing meets the side of its note: one of `LEADER_ATTACHMENTS`. */
 export type LeaderAttachment = (typeof LEADER_ATTACHMENTS)[number];
+
+/** Whether a leader style's landings meet the side of its notes or their top or bottom. */
+export type LeaderDirection = (typeof LEADER_DIRECTIONS)[number];
+
+/** How a leader's shafts run through their points: straight, or as a curve. */
+export type LeaderShaftKind = (typeof LEADER_SHAFT_KINDS)[number];
+
+/** How a block in place of a leader's note meets its landing. */
+export type LeaderBlockConnection = (typeof LEADER_BLOCK_CONNECTIONS)[number];
+
+/** Where a landing meets a note above or below it: at its middle, or with a line as wide as it. */
+export type LeaderVerticalAttachment = (typeof LEADER_VERTICAL_ATTACHMENTS)[number];
+
+/**
+ * A mask behind a text, which hides what is drawn before it there: `true` for the drawing's
+ * background, or a color index of its own, over the text's box grown by `offsetFactor` times its
+ * text height less one, from 1 to 5 and 1.5 unless given.
+ */
+export type TextMask = boolean | { readonly color?: number; readonly offsetFactor?: number };
 
 /**
  * A leader: a note joined to what it names by one or more shafts. The leading CAD app holds it as
@@ -489,8 +934,15 @@ export interface Leader extends Placed {
   readonly kind: "leader";
   /** A leader style of the drawing. */
   readonly style: string;
-  /** The lines of the note, from the top. */
-  readonly text: readonly string[];
+  /**
+   * The paragraphs of the note, from the top. Each is one line unless `width` wraps it. A leader
+   * whose content is a block has none.
+   */
+  readonly text?: readonly string[];
+  /** A block of the drawing in place of the note. Defaults to its style's. */
+  readonly block?: string;
+  /** The value of each attribute of the block, by its tag, where it is not its definition's. */
+  readonly attributes?: Readonly<Record<string, string>>;
   /** Where the shafts meet and the landing starts. */
   readonly at: Point;
   /**
@@ -499,12 +951,29 @@ export interface Leader extends Placed {
    */
   readonly shafts: readonly (readonly Point[])[];
   /**
-   * Which side of `at` the note is on. Defaults to the side away from the first shaft: right
-   * when `at` is not to the left of the shaft's last point before it, its last bend or its tip.
+   * Which side of `at` the note is on. Defaults to the side away from the first shaft: in a style
+   * whose `direction` is horizontal, right when `at` is not to the left of the shaft's last point
+   * before it, its last bend or its tip, and in a vertical one above when `at` is not below it.
+   * Above or below, the landing meets the note at its bottom or top.
    */
   readonly side?: LeaderSide;
-  /** Which line of the note the landing meets. Defaults to its style's. */
+  /** Where the landing meets the side of the note. Defaults to its style's. */
   readonly attachment?: LeaderAttachment;
+  /** Where the landing meets a note above or below it. Defaults to its style's. */
+  readonly verticalAttachment?: LeaderVerticalAttachment;
+  /** The width the note wraps at, in the same units as its sizes: times its style's scale. */
+  readonly width?: number;
+  /** True for a frame around the note. Defaults to its style's. */
+  readonly frame?: boolean;
+  /** A mask behind the note. */
+  readonly mask?: TextMask;
+  /** How its shafts run through their points. Defaults to its style's. */
+  readonly shaft?: LeaderShaftKind;
+  /**
+   * The shafts of a second root, on the note's far side: each its tip, then each point it bends
+   * at on its way to that root, whose point is worked out from the note.
+   */
+  readonly farShafts?: readonly (readonly Point[])[];
   /** The leader's own text style, in place of its style's. */
   readonly textStyle?: string;
   /** The leader's own sizes, in place of its style's, in the same units: each times its scale. */
@@ -514,16 +983,271 @@ export interface Leader extends Placed {
   readonly gap?: number;
 }
 
+/**
+ * A raster image: a PNG or a JPEG file, which the leading CAD app loads each time it opens the
+ * drawing and draws at its size in drawing units. The drawing holds the file's path and its size
+ * in pixels, and nothing of what it shows. Each file the drawing's images name is written as one
+ * definition of it. R2018 only.
+ */
+export interface Image extends EntityBase {
+  readonly kind: "image";
+  /**
+   * The file's path from the folder of this drawing's file, with `\` or `/` between folders, such
+   * as `"aerial.png"` or `"..\\images\\aerial.png"`.
+   */
+  readonly path: string;
+  /**
+   * The file's width and height in pixels, as the file holds them, which `rasterSize` reads. The
+   * leading CAD app draws the file's own pixels at the size each pixel has here, so an image of a
+   * file with other pixels plots at the wrong size.
+   */
+  readonly pixels: readonly [width: number, height: number];
+  /** Where its lower-left corner goes. */
+  readonly at: Point;
+  /** How wide it is along its bottom edge, in drawing units. */
+  readonly width: number;
+  /** How high it is up its side, in drawing units. */
+  readonly height: number;
+  /** Degrees counterclockwise. Defaults to 0. */
+  readonly rotation?: number;
+  /**
+   * The outline that clips it, in the drawing's coordinates: two opposite corners of a rectangle
+   * along its sides, or the points of a polygon, three or more. What lies outside the clip or
+   * outside the image is not shown.
+   */
+  readonly clip?: readonly Point[];
+  /** True to show the image outside its clip and hide what the clip holds. */
+  readonly invertClip?: boolean;
+  /** True to show what is behind the transparent pixels of a PNG. Otherwise it is opaque. */
+  readonly transparent?: boolean;
+}
+
+/**
+ * A closed outline of a hatch: from each point to the next and from the last back to the first,
+ * each side straight or an arc by its bulge, as a closed `Polyline`'s sides are.
+ */
+export interface HatchLoop {
+  readonly points: readonly Point[];
+  /** The bulge of each side, one for each, as `Polyline.bulges`. Defaults to every side straight. */
+  readonly bulges?: readonly number[];
+}
+
+/** One line of a pattern's definition, in its file's units. */
+export interface PatternLine {
+  /** Degrees counterclockwise. */
+  readonly angle: number;
+  /** A point the line runs through. */
+  readonly base: Point;
+  /** Where the next line of the family lies from this one: along the line, then across it. */
+  readonly offset: Point;
+  /** Its dashes: a length drawn, a negative length left out, 0 a dot. Missing for a solid line. */
+  readonly dashes?: readonly number[];
+}
+
+/**
+ * A hatch pattern's definition: families of parallel lines, each through its base point at its
+ * angle, the next one over moved by its offset, its dashes repeating from the base point.
+ * `parsePatterns` reads the patterns of a pattern file.
+ */
+export interface HatchPattern {
+  readonly name: string;
+  readonly description?: string;
+  readonly lines: readonly PatternLine[];
+}
+
+/**
+ * How a hatch is drawn when it is not solid: a pattern of the drawing's `patterns`, by its name,
+ * scaled and turned; or lines of its own, `spacing` apart at `angle`, crossed by as many square
+ * to them when `crossed`. `origin` is where the pattern's lines start, `[0, 0]` unless given.
+ */
+export type HatchPatternChoice =
+  | {
+      readonly name: string;
+      readonly scale?: number;
+      /** Degrees counterclockwise. */
+      readonly angle?: number;
+      readonly origin?: Point;
+    }
+  | {
+      readonly spacing: number;
+      /** Degrees counterclockwise. */
+      readonly angle?: number;
+      readonly crossed?: boolean;
+      readonly origin?: Point;
+    };
+
+/**
+ * How a gradient runs from its first color to its second. `linear` runs across the box of the
+ * loops; `cylinder` from the first color at both sides to the second along the middle; `spherical`
+ * from a spot of the second color out to the first; `hemispherical` from a spot half the box's
+ * larger side below its middle; `curved` from an oval along the bottom. Each `inverted-` name swaps
+ * its pair's colors.
+ */
+export type GradientName = (typeof GRADIENT_KINDS)[number];
+
+/**
+ * A hatch's gradient: two colors, or one color and its tint, which gives the second as the color
+ * with its lightness set to the tint, from 0 for black to 1 for white. It is turned by `angle`
+ * about the middle of the box of the loops, and moved off the middle unless `centered`. CAD programs plot a gradient in its own colors, whatever the plot style table.
+ */
+export type HatchGradient = {
+  readonly name: GradientName;
+  /** Degrees counterclockwise. Defaults to 0. */
+  readonly angle?: number;
+  /** Defaults to true. */
+  readonly centered?: boolean;
+} & (
+  | { readonly colors: readonly [Rgb, Rgb]; readonly color?: never; readonly tint?: never }
+  | { readonly color: Rgb; readonly tint: number; readonly colors?: never }
+);
+
+/**
+ * A hatch: an area filled solid in its pen's color, with a pattern's lines in its pen, or with a
+ * gradient, which the leading CAD app holds as one entity a drafter edits and measures as one. The
+ * area inside an odd number of its loops is filled, so a loop inside another is a hole, and a loop
+ * inside a hole fills again. R2018 only.
+ */
+export interface Hatch extends EntityBase {
+  readonly kind: "hatch";
+  /** Its loops, in any order and either way round. */
+  readonly loops: readonly HatchLoop[];
+  /** Its pattern. Missing, it is solid or a gradient. */
+  readonly pattern?: HatchPatternChoice;
+  /** Its gradient, never with a pattern. Missing, it is solid or a pattern. */
+  readonly gradient?: HatchGradient;
+}
+
+/**
+ * A wipeout: a polygon filled with the paper's color, which hides what is drawn before it, such
+ * as the lines behind a note. Its frame, the polygon drawn in its pen, shows as
+ * `Drawing.wipeoutFrame` says. R2018 only.
+ */
+export interface Wipeout extends EntityBase {
+  readonly kind: "wipeout";
+  /** Its corners, three or more, in order. It closes back to the first. */
+  readonly points: readonly Point[];
+}
+
+/**
+ * A cell of a table: its text, or an object with what it holds and what it changes of its row's
+ * cell style. A text is paragraph text, with a paragraph's codes, which wraps at the column's width
+ * less the margins and makes its row as tall as it needs.
+ */
+export type TableCell = string | TableCellContent;
+
+/** What a cell holds, and what it changes of its row's cell style. */
+export interface TableCellContent {
+  /** Its text, as a paragraph's value with its codes. `\P` breaks a line. */
+  readonly text?: string;
+  /** A block of the drawing, in place of a text. It takes no attribute values. */
+  readonly block?: string;
+  /** The block's scale. Missing, the block is scaled to fit the cell, less its margins. */
+  readonly blockScale?: number;
+  /** How many columns it spans, from its own to the right. Defaults to 1. */
+  readonly columnSpan?: number;
+  /** How many rows it spans, from its own down. Defaults to 1. */
+  readonly rowSpan?: number;
+  readonly align?: ParagraphAlign;
+  readonly valign?: ParagraphVerticalAlign;
+  /** The height of its text's capitals. */
+  readonly textHeight?: number;
+  /** The color index of its text. */
+  readonly color?: number;
+  /** The color index it is filled with, as a swatch. */
+  readonly fill?: number;
+}
+
+/**
+ * A table: a title row, a header row and data rows, in columns, which the leading CAD app holds as
+ * one table entity a drafter adds a row to, resizes and edits cell by cell. Each row is as tall as
+ * its tallest cell needs, and no less than the height given for it. R2018 only.
+ */
+export interface Table extends Placed {
+  readonly kind: "table";
+  /** A table style of the drawing. */
+  readonly style: string;
+  /** Its upper left corner. */
+  readonly at: Point;
+  /** Degrees counterclockwise. Defaults to 0. */
+  readonly rotation?: number;
+  /** The width of each column, from the left. */
+  readonly columns: readonly number[];
+  /** The title, in one cell across every column. Missing, the table has no title row. */
+  readonly title?: TableCell;
+  /** The least height of the title row. */
+  readonly titleHeight?: number;
+  /**
+   * The header row, a cell for each column. Missing, the table has no header row. A cell that
+   * another spans is `null`.
+   */
+  readonly header?: readonly (TableCell | null)[];
+  /** The least height of the header row. */
+  readonly headerHeight?: number;
+  /** The data rows, from the top, each with a cell for each column. A cell that another spans is `null`. */
+  readonly rows: readonly (readonly (TableCell | null)[])[];
+  /** The least height of each data row, or `null` for as tall as its cells need. */
+  readonly rowHeights?: readonly (number | null)[];
+}
+
 export type Entity =
   | Line
   | Polyline
   | Circle
   | Arc
+  | Ellipse
+  | Spline
   | Text
+  | Paragraph
   | Insert
   | LinearDimension
   | AlignedDimension
-  | Leader;
+  | RadiusDimension
+  | DiameterDimension
+  | JoggedRadiusDimension
+  | AngularDimension
+  | ArcLengthDimension
+  | OrdinateDimension
+  | Leader
+  | Image
+  | Hatch
+  | Wipeout
+  | Table;
+
+/** How the cells of one kind of row are drawn. Each size missing is its table style's. */
+export interface TableCellStyle {
+  /** The text style of its cells. Defaults to its table style's. */
+  readonly textStyle?: string;
+  /** The height of its text's capitals. Defaults to its table style's. */
+  readonly textHeight?: number;
+  readonly align?: ParagraphAlign;
+  readonly valign?: ParagraphVerticalAlign;
+  /** The color index of its text. Missing, its table's. */
+  readonly color?: number;
+  /** The color index its cells are filled with. Missing, they are not filled. */
+  readonly fill?: number;
+  /** The lineweight of its cells' borders, in millimetres. Missing, its table's. */
+  readonly lineweight?: number;
+}
+
+/**
+ * A table style: how the tables that name it are drawn. Its title row's cells are centered
+ * across and up and down, as are its header's, and its data cells' are centered across at the
+ * top, unless a cell style says otherwise.
+ */
+export interface TableStyle {
+  readonly name: string;
+  /** The text style of its cells. Defaults to `"Standard"`. */
+  readonly textStyle?: string;
+  /** The height of its text's capitals, for each kind of row that gives none of its own. */
+  readonly textHeight: number;
+  /** The room between a cell's sides and its content. Defaults to a third of `textHeight`. */
+  readonly horizontalMargin?: number;
+  /** The room between a cell's top and bottom and its content. Defaults to a third of `textHeight`. */
+  readonly verticalMargin?: number;
+  readonly title?: TableCellStyle;
+  readonly header?: TableCellStyle;
+  readonly data?: TableCellStyle;
+}
 
 /**
  * A leader style: how the leaders that name it are drawn. Its sizes are the sizes its leaders
@@ -531,7 +1255,7 @@ export type Entity =
  * another scale.
  *
  * tsdraft draws every leader the same way where a style has no choice: straight shafts, a level
- * landing, and a note of lines that do not wrap, set `lineSpacing` apart.
+ * landing, and a note laid out as paragraph text, its lines spaced at least as far as they need.
  */
 export interface LeaderStyle {
   readonly name: string;
@@ -547,8 +1271,28 @@ export interface LeaderStyle {
   readonly landing: number;
   /** The gap between the end of the landing and the note. */
   readonly gap: number;
-  /** Which line of the note the landing meets. Defaults to `"first-line"`. */
+  /** Where the landing meets the side of the note. Defaults to `"first-line"`. */
   readonly attachment?: LeaderAttachment;
+  /**
+   * Whether the landing meets the side of the note, `"horizontal"`, the default, or its top or
+   * bottom, `"vertical"`, which also sets the side a leader's note takes by default.
+   */
+  readonly direction?: LeaderDirection;
+  /** Where the landing meets a note above or below it. Defaults to `"center"`. */
+  readonly verticalAttachment?: LeaderVerticalAttachment;
+  /** True for a frame around each note, one gap outside it. Defaults to false. */
+  readonly frame?: boolean;
+  /** How its leaders' shafts run through their points: `"straight"`, the default, or `"curved"`. */
+  readonly shaft?: LeaderShaftKind;
+  /** A block of the drawing its leaders hold in place of a note. */
+  readonly block?: string;
+  /**
+   * How a block meets the landing: by its extents, `"extents"`, the default, or by its outline on
+   * the line through its insertion point, `"insertion"`.
+   */
+  readonly blockConnection?: LeaderBlockConnection;
+  /** What the block is scaled by, times `scale`. Defaults to 1. */
+  readonly blockScale?: number;
   /**
    * What every size of the style is multiplied by: how many units of the leader's space one
    * unit of the sizes is. Defaults to 1.
@@ -616,14 +1360,72 @@ export interface DimensionStyle {
   readonly feetInchZeros?: (typeof FEET_INCH_ZEROS)[number];
   /** What a length is multiplied by before it is written. Defaults to 1. */
   readonly measurementScale?: number;
+  /**
+   * How a measurement in architectural units writes its fraction of an inch: `"inline"`, the
+   * default, as `4'-1 7/16"`; `"stacked"`, over a bar; or `"diagonal"`, beside a slash.
+   */
+  readonly fraction?: (typeof DIMENSION_FRACTIONS)[number];
+  /** The height of a stacked fraction as a share of the text's height, from 0.25 to 1. Defaults to 1. */
+  readonly fractionScale?: number;
+  /**
+   * Where the text is: `"above"` the dimension line, the default, or `"centered"` in a break of
+   * it.
+   */
+  readonly textPlacement?: (typeof DIMENSION_TEXT_PLACEMENTS)[number];
+  /**
+   * Where the text goes when it does not fit between the extension lines: `"inside"` them all the
+   * same, the default, or outside on a `"leader"` from the middle of the dimension line.
+   */
+  readonly textFit?: (typeof DIMENSION_TEXT_FITS)[number];
+  /**
+   * In millimetres, one of `Lineweight`: how heavy the dimension line, its arrowheads and ticks
+   * and a leader to its text plot. Defaults to the dimension's own.
+   */
+  readonly dimensionLineweight?: number;
+  /** The same for the extension lines. Defaults to the dimension's own. */
+  readonly extensionLineweight?: number;
+  /**
+   * How the text of a radius, a diameter or a jogged radius dimension reads: `"aligned"` along its
+   * line, the default, or level, `"horizontal"`: on a short level landing outside a circle, and
+   * across a jogged one's line. Linear and aligned dimensions take no notice of it.
+   */
+  readonly radialText?: (typeof DIMENSION_RADIAL_TEXTS)[number];
+  /** The angle of a jogged radius dimension's jog to its line, in degrees from 5 to 90. Defaults to 45. */
+  readonly jogAngle?: number;
+  /**
+   * The units an angular dimension writes its angle in: `"degrees"`, the default, as `45.5°`,
+   * `"degrees-minutes-seconds"`, as `45°30'`, `"grads"`, as `50.56g`, or `"radians"`, as `0.79r`.
+   */
+  readonly angleUnits?: (typeof DIMENSION_ANGLE_UNITS)[number];
+  /**
+   * How many decimals an angle takes, from 0, the default, to 8. In degrees, minutes and seconds,
+   * 0 writes the degrees, 1 and 2 the minutes too, 3 and 4 the seconds, and more the seconds'
+   * decimals.
+   */
+  readonly anglePrecision?: number;
+  /** The zeros an angle leaves out, as `suppressZeros` does for a length. */
+  readonly suppressAngleZeros?: "leading" | "trailing" | "both";
+  /**
+   * A mask behind the text: `true` for the drawing's background, or a color index of its own, over
+   * the text's box grown by a quarter of its height. Defaults to none.
+   */
+  readonly textMask?: boolean | { readonly color: number };
+  /**
+   * Where an arc length dimension draws the arc symbol: `"before"` its text, the default,
+   * `"above"` it, or `"none"`.
+   */
+  readonly arcSymbol?: (typeof DIMENSION_ARC_SYMBOLS)[number];
 }
 
 /**
  * An attribute definition of a block: a text that each insert of the block carries with a
- * value of its own, under a tag. It is placed and justified as a `Text` is, in the block's
- * coordinates.
+ * value of its own, under a tag, in the block's coordinates. One of one line is placed and
+ * justified as a `Text` is, and one of paragraph text as a `Paragraph` is.
  */
-export interface AttributeDefinition {
+export type AttributeDefinition = TextAttributeDefinition | ParagraphAttributeDefinition;
+
+/** What an attribute definition of one line and one of paragraph text share. */
+interface AttributeDefinitionBase {
   /** The name of the attribute in its block, with no lower-case letter a to z. */
   readonly tag: string;
   /** What CAD asks for when the block is inserted by hand. Defaults to the tag. */
@@ -633,15 +1435,41 @@ export interface AttributeDefinition {
   /** The layer of the attribute on each insert. `"0"` stands for the insert's layer. */
   readonly layer: string;
   readonly at: Point;
+  /** The height of a capital. */
   readonly height: number;
   /** Degrees counterclockwise. */
   readonly rotation: number;
   /** A text style of the drawing. Defaults to `"Standard"`. */
   readonly style?: string;
+}
+
+/** An attribute definition of one line, placed and justified as a `Text` is. */
+export interface TextAttributeDefinition extends AttributeDefinitionBase {
+  /** Defaults to `"text"`. */
+  readonly kind?: "text";
   /** Defaults to `"left"`. */
   readonly align?: TextAlign;
   /** Defaults to `"baseline"`. */
   readonly valign?: TextVerticalAlign;
+}
+
+/**
+ * An attribute definition of paragraph text: its value, and each insert's, holds the codes of a
+ * `Paragraph`'s, wraps at `width` and breaks at each `\P`, and its box is placed by `at`, `align`
+ * and `valign` as a paragraph's is. R2018 only.
+ */
+export interface ParagraphAttributeDefinition extends AttributeDefinitionBase {
+  readonly kind: "paragraph";
+  /** The width its lines wrap at. Missing, its lines break only at `\P`. */
+  readonly width?: number;
+  /** Defaults to `"left"`. */
+  readonly align?: ParagraphAlign;
+  /** Defaults to `"top"`. */
+  readonly valign?: ParagraphVerticalAlign;
+  /** A factor of the spacing of its lines, from 0.25 to 4. Defaults to 1. */
+  readonly lineSpacing?: number;
+  /** Defaults to `"at-least"`. */
+  readonly lineSpacingStyle?: LineSpacingStyle;
 }
 
 /**
@@ -671,6 +1499,11 @@ export interface Xref {
    * folders, such as `"base.dwg"` or `"..\\survey\\base.dwg"`.
    */
   readonly path: string;
+  /**
+   * True for an attachment: a drawing that references this one draws the file too. An overlay,
+   * the default, is drawn only by the drawing that references it.
+   */
+  readonly attach?: boolean;
 }
 
 /**
@@ -758,6 +1591,20 @@ export interface Drawing {
   readonly dimensionStyles?: readonly DimensionStyle[];
   /** The leader styles that leaders name. */
   readonly leaderStyles?: readonly LeaderStyle[];
+  /** The table styles that tables name. */
+  readonly tableStyles?: readonly TableStyle[];
+  /**
+   * Whether each image's frame shows and plots: its outline, or its clip's, in its pen. Defaults
+   * to true, as the leading CAD app has it. A sheet with a logo or an aerial wants false.
+   */
+  readonly imageFrame?: boolean;
+  /**
+   * Whether each wipeout's frame shows and plots: its polygon, in its pen. Defaults to true, as
+   * the leading CAD app has it. A mask behind notes wants false.
+   */
+  readonly wipeoutFrame?: boolean;
+  /** The hatch patterns that hatches name, such as a firm's pattern file's from `parsePatterns`. */
+  readonly patterns?: readonly HatchPattern[];
 }
 
 /**
@@ -827,6 +1674,11 @@ export interface LinetypeDefinition<
   readonly description?: Description<D>;
   /** A dash is a positive length, a gap a negative one, and a dot 0. Empty for a solid line. */
   readonly pattern: Pattern<P>;
+  /**
+   * Texts and shapes the pattern draws, each at the end of a length of it, in order: see
+   * `Linetype.marks`. A text's style is one of the drawing's.
+   */
+  readonly marks?: readonly LinetypeMark[];
 }
 
 /** What a layer or an entity may be given as its linetype: a name, or a definition. */
@@ -936,12 +1788,15 @@ export interface EntityOptions<
   I extends string = string,
   Z extends Standard | undefined = undefined,
   P extends string = string,
+  C extends EntityColorGiven = EntityColor,
 > {
   /**
    * A name for the entity that no other entity of the drawing has: 1 to 64 letters A to Z or a
    * to z, digits, `.`, `-` and `_`. Diagnostics and `toSVG` carry it.
    */
   readonly id?: EntityId<I>;
+  /** Its own color: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a true color. R2018 only. */
+  readonly color?: V extends "R12" ? "ByLayer" | R12EntityColor : EntityColorOf<C>;
   /**
    * A linetype of the drawing, `"Continuous"`, `"ByBlock"` or `"ByLayer"`. R2018 only. Under a
    * standard, a linetype of the standard by name, which the drawing then has.
@@ -962,6 +1817,299 @@ export interface EntityOptions<
       : LineweightOf<W> | "ByLayer" | "ByBlock" | "Default";
   /** A pen of the drawing's standard, whose lineweight the entity takes. */
   readonly pen?: Z extends Standard ? PenOfStandard<P, Z> : PenWithoutStandard;
+}
+
+/** Checks a hatch's gradient as `lint` does, and returns the copy it checked. */
+function hatchGradientCopy(given: unknown): HatchGradient {
+  const read = readGradient(given);
+  if ("problem" in read) return refuse("hatch-gradient", capitalized(read.problem));
+  return read.gradient;
+}
+
+/** What `ellipse()` takes besides what every entity does. */
+export interface EllipseOptions<
+  V extends DxfVersion = "R2018",
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+  O extends EntityColorGiven = EntityColor,
+> extends EntityOptions<V, T, W, L, I, Z, P, O> {
+  /**
+   * For an arc of the ellipse, the parameter it starts at, in degrees counterclockwise from the end
+   * of the major axis. Given with `endParameter` or not at all. Brought into 0 up to 360.
+   */
+  readonly startParameter?: number;
+  /** For an arc of the ellipse, the parameter it ends at, in degrees. */
+  readonly endParameter?: number;
+}
+
+/** What `spline()` takes besides what every entity does. */
+export interface SplineOptions<
+  V extends DxfVersion = "R2018",
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+  S extends Point = Point,
+  E extends Point = Point,
+  C extends boolean = boolean,
+  O extends EntityColorGiven = EntityColor,
+> extends EntityOptions<V, T, W, L, I, Z, P, O> {
+  /** The direction it leaves the first point in. Worked out from the points when left out. */
+  readonly startTangent?: [C] extends [true] ? typeof SPLINE_CLOSED_TANGENT : Tangent<S>;
+  /** The direction it arrives at the last point in. Worked out from the points when left out. */
+  readonly endTangent?: [C] extends [true] ? typeof SPLINE_CLOSED_TANGENT : Tangent<E>;
+  /** True to run from the last point back to the first, smooth through it. */
+  readonly closed?: C;
+}
+
+/** What `controlSpline()` takes besides what every entity does. */
+export interface ControlSplineOptions<
+  V extends DxfVersion = "R2018",
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+  D extends number = number,
+  K extends readonly number[] = readonly number[],
+  C extends readonly Point[] = readonly Point[],
+  H extends readonly number[] = readonly number[],
+  O extends EntityColorGiven = EntityColor,
+> extends EntityOptions<V, T, W, L, I, Z, P, O> {
+  /** From 1 up to `SPLINE_DEGREE_MOST`. Defaults to 3. */
+  readonly degree?: SplineDegree<D>;
+  /**
+   * As many as the control points and the degree together, and one more, none less than the one
+   * before. Defaults to clamped uniform knots: the degree and one more of 0, then 1, 2 and on,
+   * and the degree and one more of the last.
+   */
+  readonly knots?: Knots<K, C, D>;
+  /** One for each control point, each above 0, for a rational spline. */
+  readonly weights?: Weights<H, C>;
+  /**
+   * True for a periodic spline, smooth where it joins. Without `knots`, the first `degree`
+   * control points are added again at the end, with uniform knots, so the curve closes on them.
+   */
+  readonly closed?: boolean;
+}
+
+/**
+ * A hatch's pattern as `hatch()` takes it: a `HatchPatternChoice` whose scale or spacing is greater
+ * than 0 and not written as 0, with no field of the other kind.
+ *
+ * @typeParam S - The scale or the spacing as written.
+ */
+export type HatchPatternOf<S extends number = number> =
+  | {
+      readonly name: string;
+      readonly scale?: Positive<S>;
+      /** Degrees counterclockwise. */
+      readonly angle?: number;
+      readonly origin?: Point;
+      readonly spacing?: never;
+      readonly crossed?: never;
+    }
+  | {
+      readonly spacing: Positive<S>;
+      /** Degrees counterclockwise. */
+      readonly angle?: number;
+      readonly crossed?: boolean;
+      readonly origin?: Point;
+      readonly name?: never;
+      readonly scale?: never;
+    };
+
+/**
+ * The options of `hatch()`: its pattern or its gradient, and the options of every entity.
+ *
+ * @typeParam S - The pattern's scale or spacing as written.
+ * @typeParam G - The gradient as written.
+ */
+export type HatchOptions<
+  V extends DxfVersion = "R2018",
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+  S extends number = number,
+  G extends HatchGradient = HatchGradient,
+  C extends EntityColorGiven = EntityColor,
+> = EntityOptions<V, T, W, L, I, Z, P, C> &
+  (
+    | {
+        /**
+         * The lines it is drawn with in its pen: a pattern that `patterns()` added, by its name,
+         * with its `scale`, `angle` and `origin`, or lines of its own, `spacing` apart. Solid when
+         * left out.
+         */
+        readonly pattern?: HatchPatternOf<S>;
+        readonly gradient?: never;
+      }
+    | {
+        /**
+         * Its gradient: two colors, or one color and its tint, never with a pattern. Each color
+         * is `[red, green, blue]`, each a whole number from 0 to 255.
+         */
+        readonly gradient: GradientOf<G>;
+        readonly pattern?: never;
+      }
+  );
+
+/**
+ * How wide a polyline is drawn: the width of every side, in drawing units, 0 or more. CAD
+ * programs fill a side that has a width, at that width whatever its pen, and draw one of width 0
+ * with its pen. R2018 only.
+ */
+interface Widened<V extends DxfVersion, N extends number> {
+  readonly width?: V extends "R12" ? R12Polylines : PolylineWidth<N>;
+}
+
+/**
+ * The options of `polyline()`: the bulge and the width of its sides, or a radius that rounds its
+ * corners, and the options of every entity.
+ *
+ * @typeParam N - The width as written.
+ * @typeParam R - The radius as written.
+ */
+export interface PolylineOptions<
+  V extends DxfVersion = "R2018",
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+  N extends number = number,
+  R extends number = number,
+  C extends EntityColorGiven = EntityColor,
+>
+  extends EntityOptions<V, T, W, L, I, Z, P, C>, Widened<V, N> {
+  /**
+   * The bulge of each side, one for each: 0 for a straight side, and for an arc the tangent of a
+   * quarter of the angle it turns through, greater than 0 when it turns counterclockwise.
+   * `bulgeThrough` gives the bulge of the arc through a third point. R2018 only.
+   */
+  readonly bulges?: V extends "R12" ? R12Polylines : readonly number[];
+  /** The width of each side at its start and at its end, one pair for each side. R2018 only. */
+  readonly widths?: V extends "R12" ? R12Polylines : readonly (readonly [number, number])[];
+  /** Runs the linetype's pattern on past each vertex: see `Polyline.linetypeGeneration`. R2018 only. */
+  readonly linetypeGeneration?: V extends "R12" ? R12Polylines : boolean;
+  /**
+   * Rounds every corner with an arc of this radius, tangent to both sides, as a bar's bend or a
+   * duct's turn is drawn. The polyline then holds the arcs' ends in place of its corners. With
+   * `width` only, not `bulges` or `widths`. R2018 only.
+   */
+  readonly radius?: V extends "R12" ? R12Polylines : Positive<R>;
+}
+
+/**
+ * The options of `rect()`: a radius that rounds its corners, and the options of every entity.
+ *
+ * @typeParam R - The radius as written.
+ */
+export interface RectOptions<
+  V extends DxfVersion = "R2018",
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+  R extends number = number,
+  C extends EntityColorGiven = EntityColor,
+> extends EntityOptions<V, T, W, L, I, Z, P, C> {
+  /** Rounds each corner with a quarter circle of this radius, at most half the shorter side. R2018 only. */
+  readonly radius?: V extends "R12" ? R12Polylines : Positive<R>;
+}
+
+/**
+ * The options of `cloud()`: the length of its arcs, its width, and the options of every entity.
+ *
+ * @typeParam A - The length of an arc as written.
+ * @typeParam N - The width as written.
+ */
+export interface CloudOptions<
+  A extends number = number,
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+  N extends number = number,
+  C extends EntityColorGiven = EntityColor,
+>
+  extends EntityOptions<"R2018", T, W, L, I, Z, P, C>, Widened<"R2018", N> {
+  /**
+   * About how far apart the ends of each arc are, in drawing units: each side of the outline
+   * holds the whole number of arcs nearest its length over this, and at least one.
+   */
+  readonly arc: Positive<A>;
+}
+
+/**
+ * The options of `donut()`: the diameter of its hole, and the options of every entity.
+ *
+ * @typeParam H - The diameter of the hole as written.
+ */
+export interface DonutOptions<
+  H extends number = number,
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+  C extends EntityColorGiven = EntityColor,
+> extends EntityOptions<"R2018", T, W, L, I, Z, P, C> {
+  /** The diameter of its hole, less than the outside diameter. Defaults to 0: a filled dot. */
+  readonly inside?: DonutHole<H>;
+}
+
+/**
+ * The options of `image()`: the file's pixels, the image's size and turn, its clip, and the
+ * options of every entity.
+ *
+ * @typeParam IW - The width as written.
+ * @typeParam IH - The height as written.
+ */
+export interface ImageOptions<
+  IW extends number = number,
+  IH extends number = number,
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+  C extends EntityColorGiven = EntityColor,
+> extends EntityOptions<"R2018", T, W, L, I, Z, P, C> {
+  /** The file's width and height in pixels, which `rasterSize` reads from its bytes. */
+  readonly pixels: readonly [width: number, height: number];
+  /** How wide the image is along its bottom edge, in drawing units. */
+  readonly width: Positive<IW>;
+  /** How high it is. Defaults to the width times the file's height over its width. */
+  readonly height?: Positive<IH>;
+  /** Degrees counterclockwise. Defaults to 0. */
+  readonly rotation?: number;
+  /**
+   * The outline that clips it, in the drawing's coordinates: two opposite corners of a rectangle
+   * along its sides, or the points of a polygon, three or more.
+   */
+  readonly clip?: readonly Point[];
+  /** True to show the image outside its clip and hide what the clip holds. */
+  readonly invertClip?: boolean;
+  /** True to show what is behind the transparent pixels of a PNG. */
+  readonly transparent?: boolean;
 }
 
 /** A text style to define: a `TextStyle`, checked. */
@@ -1027,7 +2175,8 @@ export type TextOptions<
   Z extends Standard | undefined = undefined,
   P extends string = string,
   R extends string = string,
-> = EntityOptions<V, T, W, L, I, Z, P> &
+  C extends EntityColorGiven = EntityColor,
+> = EntityOptions<V, T, W, L, I, Z, P, C> &
   TextPlacement<V, Z> &
   Sized<
     Z,
@@ -1046,6 +2195,62 @@ interface TextPlacement<V extends DxfVersion, Z extends Standard | undefined> {
   readonly align?: V extends "R12" ? "left" | R12Text : TextAlign;
   /** Where `at` is up and down the text's line. Defaults to `"baseline"`. R2018 only. */
   readonly valign?: V extends "R12" ? "baseline" | R12Text : TextVerticalAlign;
+}
+
+/**
+ * The options of `paragraph()`: where its box is, its width, height, rotation, style,
+ * justification and line spacing, and the options of every entity.
+ *
+ * @typeParam N - The width as written.
+ * @typeParam F - The line spacing factor as written.
+ */
+export type ParagraphOptions<
+  H extends number = number,
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  S extends string = string,
+  D extends TextStyleValue = TextStyleDefinition,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+  R extends string = string,
+  N extends number = number,
+  F extends number = number,
+  C extends EntityColorGiven = EntityColor,
+> = EntityOptions<"R2018", T, W, L, I, Z, P, C> &
+  ParagraphPlacement<Z, N, F> &
+  Sized<Z, R, Positive<H>, TextStyleChoice<S, D>>;
+
+/** Where a paragraph is, how wide, turned and justified, how its lines are spaced, and the view it is read in. */
+interface ParagraphPlacement<Z extends Standard | undefined, N extends number, F extends number> {
+  /** The point of the paragraph's box `align` and `valign` name. */
+  readonly at: Point;
+  /** The width its lines wrap at. Missing, its lines break only at a line feed. */
+  readonly width?: Positive<N>;
+  /** Degrees counterclockwise. */
+  readonly rotation?: number;
+  /** In model space, the view a paragraph with a role is read in, which `view()` returns. */
+  readonly view?: Z extends Standard ? View : ViewWithoutStandard;
+  /** Where `at` is across the box, and how the lines are set in it. Defaults to `"left"`. */
+  readonly align?: ParagraphAlign;
+  /** Where `at` is up and down the box. Defaults to `"top"`. */
+  readonly valign?: ParagraphVerticalAlign;
+  /** A factor of the spacing of its lines, from 0.25 to 4. Defaults to 1. */
+  readonly lineSpacing?: LineSpacing<F>;
+  /** Defaults to `"at-least"`. */
+  readonly lineSpacingStyle?: LineSpacingStyle;
+  /**
+   * Columns its lines flow through, each `width` wide, in drawing units: `{ count, height }` for
+   * that many, `{ height }` for as many as it takes, or `{ heights }` for one of each height.
+   */
+  readonly columns?: ParagraphColumns;
+  /**
+   * A mask behind it, which hides what is drawn before it there: `true` for the drawing's
+   * background, or `{ color, offsetFactor }`, over its box grown by the factor less one times its
+   * height, 1.5 unless given.
+   */
+  readonly mask?: TextMask;
 }
 
 /**
@@ -1094,10 +2299,12 @@ export interface BlockOptions {
 
 /**
  * The options of `attribute()`: the definition's default value and prompt, and its height,
- * rotation, style and justification, which are a text's.
+ * rotation, style and justification, which are a text's, or with `kind: "paragraph"` a
+ * paragraph's.
  *
  * @typeParam D - The text style as written, a name or a definition, checked as a text's is.
  * @typeParam R - The role as written.
+ * @typeParam Q - The default value of paragraph text as written, checked as a paragraph's is.
  */
 export type AttributeOptions<
   H extends number = number,
@@ -1105,20 +2312,58 @@ export type AttributeOptions<
   D extends TextStyleValue = TextStyleDefinition,
   Z extends Standard | undefined = undefined,
   R extends string = string,
-> = AttributeFields & Sized<Z, R, Positive<H>, TextStyleChoice<S, D>>;
+  Q extends string = string,
+  N extends number = number,
+  F extends number = number,
+> = (TextAttributeFields | ParagraphAttributeFields<Q, N, F>) &
+  Sized<Z, R, Positive<H>, TextStyleChoice<S, D>>;
 
 /** What an attribute definition holds besides its role, height and style. */
 interface AttributeFields {
-  /** The value of an insert that does not set the attribute. Defaults to `""`. */
-  readonly value?: string;
   /** What CAD asks for when the block is inserted by hand. Defaults to the tag. */
   readonly prompt?: string;
   /** Degrees counterclockwise. */
   readonly rotation?: number;
+}
+
+/** What a definition of one line holds besides its role, height and style. */
+interface TextAttributeFields extends AttributeFields {
+  /** Defaults to `"text"`. */
+  readonly kind?: "text";
+  /** The value of an insert that does not set the attribute. Defaults to `""`. */
+  readonly value?: string;
   /** Where `at` is along the text's line. Defaults to `"left"`. */
   readonly align?: TextAlign;
   /** Where `at` is up and down the text's line. Defaults to `"baseline"`. */
   readonly valign?: TextVerticalAlign;
+  /** Fields of paragraph text alone, which an attribute of one line never has. */
+  readonly width?: never;
+  readonly lineSpacing?: never;
+  readonly lineSpacingStyle?: never;
+}
+
+/** What a definition of paragraph text holds besides its role, height and style. R2018 only. */
+interface ParagraphAttributeFields<
+  Q extends string,
+  N extends number,
+  F extends number,
+> extends AttributeFields {
+  readonly kind: "paragraph";
+  /**
+   * The value of an insert that does not set the attribute, with a paragraph's codes: a line
+   * feed in it is written as `\P`. Defaults to `""`.
+   */
+  readonly value?: ParagraphValue<Q>;
+  /** The width its lines wrap at. Missing, its lines break only at a line feed. */
+  readonly width?: Positive<N>;
+  /** Where `at` is across the box, and how the lines are set in it. Defaults to `"left"`. */
+  readonly align?: ParagraphAlign;
+  /** Where `at` is up and down the box. Defaults to `"top"`. */
+  readonly valign?: ParagraphVerticalAlign;
+  /** A factor of the spacing of its lines, from 0.25 to 4. Defaults to 1. */
+  readonly lineSpacing?: LineSpacing<F>;
+  /** Defaults to `"at-least"`. */
+  readonly lineSpacingStyle?: LineSpacingStyle;
 }
 
 /**
@@ -1131,7 +2376,8 @@ export type InsertOptions<
   S extends number | readonly [number, number] = number,
   I extends string = string,
   Z extends Standard | undefined = undefined,
-> = InsertFields<I> &
+  C extends EntityColorGiven = EntityColor,
+> = InsertFields<I, C> &
   (Z extends Standard
     ?
         | (Scaled<View, InsertViewAndScale> & { readonly view: View })
@@ -1139,12 +2385,14 @@ export type InsertOptions<
     : Scaled<ViewWithoutStandard, InsertScale<S>>);
 
 /** What an insert holds besides its scale and its view. */
-interface InsertFields<I extends string> {
+interface InsertFields<I extends string, C extends EntityColorGiven = EntityColor> {
   /**
    * A name for the insert that no other entity of the drawing has. The insert's attributes
    * keep their handles with it.
    */
   readonly id?: EntityId<I>;
+  /** Its own color: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a true color. R2018 only. */
+  readonly color?: EntityColorOf<C>;
   /** Degrees counterclockwise, about the insert's point. Defaults to 0. */
   readonly rotation?: number;
   /** A value for each attribute to set, by its tag. The others have their default values. */
@@ -1228,6 +2476,51 @@ export interface DimensionStyleDefinition<
   readonly feetInchZeros?: FeetInchZerosIn<U>;
   /** What a length is multiplied by before it is written, greater than 0. Defaults to 1. */
   readonly measurementScale?: MeasurementScale<MS>;
+  /**
+   * In architectural units, how the fraction of an inch is written: `"inline"`, the default, as
+   * `4'-1 7/16"`, `"stacked"` over a bar, or `"diagonal"` beside a slash.
+   */
+  readonly fraction?: U extends "architectural" ? (typeof DIMENSION_FRACTIONS)[number] : never;
+  /** A stacked fraction's height as a share of the text's, from 0.25 to 1. Defaults to 1. */
+  readonly fractionScale?: U extends "architectural" ? number : never;
+  /** The text `"above"` the dimension line, the default, or `"centered"` in a break of it. */
+  readonly textPlacement?: (typeof DIMENSION_TEXT_PLACEMENTS)[number];
+  /**
+   * Where the text goes when it does not fit between the extension lines: `"inside"` them, the
+   * default, or outside on a `"leader"`.
+   */
+  readonly textFit?: (typeof DIMENSION_TEXT_FITS)[number];
+  /** The lineweight of the dimension line and its arrowheads, in millimetres, one of `Lineweight`. */
+  readonly dimensionLineweight?: number;
+  /** The lineweight of the extension lines, in millimetres, one of `Lineweight`. */
+  readonly extensionLineweight?: number;
+  /** A radial dimension's text `"aligned"` along its line, the default, or `"horizontal"`. */
+  readonly radialText?: (typeof DIMENSION_RADIAL_TEXTS)[number];
+  /** The angle of a jogged radius dimension's jog to its line, in degrees from 5 to 90. Defaults to 45. */
+  readonly jogAngle?: number;
+  /**
+   * The units an angular dimension writes its angle in: `"degrees"`, the default, as `45.5°`,
+   * `"degrees-minutes-seconds"`, as `45°30'`, `"grads"`, as `50.56g`, or `"radians"`, as `0.79r`.
+   */
+  readonly angleUnits?: (typeof DIMENSION_ANGLE_UNITS)[number];
+  /**
+   * How many decimals an angle takes, from 0, the default, to 8. In degrees, minutes and seconds,
+   * 0 writes the degrees, 1 and 2 the minutes too, 3 and 4 the seconds, and more the seconds'
+   * decimals.
+   */
+  readonly anglePrecision?: number;
+  /** The zeros an angle leaves out, as `suppressZeros` does for a length. */
+  readonly suppressAngleZeros?: "leading" | "trailing" | "both";
+  /**
+   * A mask behind the text: `true` for the drawing's background, or a color index of its own, over
+   * the text's box grown by a quarter of its height. Defaults to none.
+   */
+  readonly textMask?: boolean | { readonly color: number };
+  /**
+   * Where an arc length dimension draws the arc symbol: `"before"` its text, the default,
+   * `"above"` it, or `"none"`.
+   */
+  readonly arcSymbol?: (typeof DIMENSION_ARC_SYMBOLS)[number];
 }
 
 /** What every dimension is drawn with. */
@@ -1235,6 +2528,7 @@ interface DimensionOptions<
   S extends string = string,
   T extends string = string,
   I extends string = string,
+  C extends EntityColorGiven = EntityColor,
 > {
   /** A dimension style of the drawing. */
   readonly style: DimensionStyleName<S>;
@@ -1243,8 +2537,15 @@ interface DimensionOptions<
    * `"<> TYP"`, or `"VARIES"`.
    */
   readonly text?: DimensionText<T>;
+  /**
+   * Words under the dimension line, opposite its text: `"WINDOW HEAD HT."`. `<>` in them stands
+   * for the measurement where `text` holds none.
+   */
+  readonly textBelow?: DimensionText<string>;
   /** A name for the dimension that no other entity of the drawing has. */
   readonly id?: EntityId<I>;
+  /** Its own color: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a true color. R2018 only. */
+  readonly color?: EntityColorOf<C>;
   readonly view?: ViewWithoutStandard;
 }
 
@@ -1253,7 +2554,8 @@ export interface LinearDimensionOptions<
   S extends string = string,
   T extends string = string,
   I extends string = string,
-> extends DimensionOptions<S, T, I> {
+  C extends EntityColorGiven = EntityColor,
+> extends DimensionOptions<S, T, I, C> {
   /**
    * The direction it measures along: `"x"`, the default, `"y"`, or an angle in degrees
    * counterclockwise from +X.
@@ -1266,7 +2568,67 @@ export type AlignedDimensionOptions<
   S extends string = string,
   T extends string = string,
   I extends string = string,
-> = DimensionOptions<S, T, I>;
+  C extends EntityColorGiven = EntityColor,
+> = DimensionOptions<S, T, I, C>;
+
+/** The options of `radiusDimension()`. */
+export interface RadiusDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+  C extends EntityColorGiven = EntityColor,
+> extends DimensionOptions<S, T, I, C> {
+  /**
+   * How far the middle of its text is from the center, along its line, past the center for less
+   * than 0. Left out, the text stands outside the circle, past the arrowhead.
+   */
+  readonly textFromCenter?: number;
+}
+
+/** The options of `diameterDimension()`. */
+export type DiameterDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+  C extends EntityColorGiven = EntityColor,
+> = RadiusDimensionOptions<S, T, I, C>;
+
+/** The options of `arcLengthDimension()`. */
+export type ArcLengthDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+  C extends EntityColorGiven = EntityColor,
+> = DimensionOptions<S, T, I, C>;
+
+/** The options of `ordinateDimension()`. */
+export interface OrdinateDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+  C extends EntityColorGiven = EntityColor,
+> extends DimensionOptions<S, T, I, C> {
+  /** `"x"` gives the feature's X from the origin, with its leader along Y; `"y"` its Y. */
+  readonly axis: "x" | "y";
+  /** The point it measures from. Defaults to `[0, 0]`. */
+  readonly origin?: Point;
+}
+
+/** The options of `angularDimension()`. */
+export type AngularDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+  C extends EntityColorGiven = EntityColor,
+> = DimensionOptions<S, T, I, C>;
+
+/** The options of `joggedRadiusDimension()`. */
+export type JoggedRadiusDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+  C extends EntityColorGiven = EntityColor,
+> = DimensionOptions<S, T, I, C>;
 
 /**
  * What a dimension is drawn with under the standard `Z`: a dimension style of the standard by its
@@ -1281,6 +2643,7 @@ export interface StandardAlignedDimensionOptions<
   T extends string = string,
   I extends string = string,
   Z extends Standard = Standard,
+  C extends EntityColorGiven = EntityColor,
 > {
   /** A dimension style of the standard, by its id. Defaults to its `defaultDimensionStyle`. */
   readonly style?: DimensionStyleOfStandard<S, Z>;
@@ -1291,8 +2654,38 @@ export interface StandardAlignedDimensionOptions<
    * `"<> TYP"`, or `"VARIES"`.
    */
   readonly text?: DimensionText<T>;
+  /** Words under the dimension line, opposite its text, as `textBelow` of a drawing's own style. */
+  readonly textBelow?: DimensionText<string>;
   /** A name for the dimension that no other entity of the drawing has. */
   readonly id?: EntityId<I>;
+  /** Its own color: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a true color. R2018 only. */
+  readonly color?: EntityColorOf<C>;
+}
+
+/** The options of `radiusDimension()` and `diameterDimension()` under the standard `Z`. */
+export interface StandardRadiusDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+  Z extends Standard = Standard,
+  C extends EntityColorGiven = EntityColor,
+> extends StandardAlignedDimensionOptions<S, T, I, Z, C> {
+  /** How far the middle of its text is from the center, as `RadiusDimensionOptions` says. */
+  readonly textFromCenter?: number;
+}
+
+/** The options of `ordinateDimension()` under the standard `Z`. */
+export interface StandardOrdinateDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+  Z extends Standard = Standard,
+  C extends EntityColorGiven = EntityColor,
+> extends StandardAlignedDimensionOptions<S, T, I, Z, C> {
+  /** `"x"` gives the feature's X from the origin, with its leader along Y; `"y"` its Y. */
+  readonly axis: "x" | "y";
+  /** The point it measures from. Defaults to `[0, 0]`. */
+  readonly origin?: Point;
 }
 
 /** The options of `linearDimension()` under the standard `Z`. */
@@ -1301,7 +2694,8 @@ export interface StandardLinearDimensionOptions<
   T extends string = string,
   I extends string = string,
   Z extends Standard = Standard,
-> extends StandardAlignedDimensionOptions<S, T, I, Z> {
+  C extends EntityColorGiven = EntityColor,
+> extends StandardAlignedDimensionOptions<S, T, I, Z, C> {
   /**
    * The direction it measures along: `"x"`, the default, `"y"`, or an angle in degrees
    * counterclockwise from +X.
@@ -1337,8 +2731,22 @@ export interface LeaderStyleDefinition<
   readonly landing: LeaderSize<L>;
   /** The gap between the end of the landing and the note. */
   readonly gap: LeaderSize<G>;
-  /** Which line of the note the landing meets. Defaults to `"first-line"`. */
+  /** Where the landing meets the side of the note. Defaults to `"first-line"`. */
   readonly attachment?: LeaderAttachment;
+  /** `"horizontal"`, the default, or `"vertical"`: the landing meets the note's top or bottom. */
+  readonly direction?: LeaderDirection;
+  /** Where the landing meets a note above or below it. Defaults to `"center"`. */
+  readonly verticalAttachment?: LeaderVerticalAttachment;
+  /** True for a frame around each note, one gap outside it. Defaults to false. */
+  readonly frame?: boolean;
+  /** `"straight"`, the default, or `"curved"`: a curve through the tip, each bend and the landing. */
+  readonly shaft?: LeaderShaftKind;
+  /** A block of the drawing its leaders hold in place of a note, as `{ block }` gives one. */
+  readonly block?: string;
+  /** `"extents"`, the default, or `"insertion"`: how a block meets the landing. */
+  readonly blockConnection?: LeaderBlockConnection;
+  /** What the block is scaled by, times `scale`, greater than 0. Defaults to 1. */
+  readonly blockScale?: number;
   /** What every size is multiplied by, greater than 0. Defaults to 1. */
   readonly scale?: LeaderScale<SC>;
 }
@@ -1349,6 +2757,15 @@ export interface LeaderStyleDefinition<
  */
 export type LeaderTargets = Point | readonly (Point | readonly Point[])[];
 
+/**
+ * A block of the drawing in place of a leader's note, and the value of each of its attributes
+ * that is not its definition's, by its tag. The note's own options, such as `width`, do not apply.
+ */
+export interface LeaderBlockContent {
+  readonly block: string;
+  readonly attributes?: Readonly<Record<string, string>>;
+}
+
 /** What every leader is drawn with: where its shafts meet, what they point to and how. */
 interface LeaderPlacement<TO extends LeaderTargets = LeaderTargets> {
   /** Where the shafts meet and the landing starts. */
@@ -1357,11 +2774,25 @@ interface LeaderPlacement<TO extends LeaderTargets = LeaderTargets> {
   readonly to: LeaderTargetsOf<TO>;
   /**
    * Which side of `at` the note is on. Defaults to the side away from the first shaft: right when
-   * `at` is not to the left of the shaft's last point before it.
+   * `at` is not to the left of the shaft's last point before it, or in a vertical style above
+   * when `at` is not below it.
    */
   readonly side?: LeaderSide;
-  /** Which line of the note the landing meets. Defaults to its style's. */
+  /** Where the landing meets the side of the note. Defaults to its style's. */
   readonly attachment?: LeaderAttachment;
+  /** Where the landing meets a note above or below it. Defaults to its style's. */
+  readonly verticalAttachment?: LeaderVerticalAttachment;
+  /** True for a frame around the note. Defaults to its style's. */
+  readonly frame?: boolean;
+  /** A mask behind the note: `true` for the drawing's background, or `{ color, offsetFactor }`. */
+  readonly mask?: TextMask;
+  /** How its shafts run through their points. Defaults to its style's. */
+  readonly shaft?: LeaderShaftKind;
+  /**
+   * The shafts of a second root on the note's far side, as `to` gives shafts: its point is worked
+   * out from the note, on its other side, or above or below it.
+   */
+  readonly toFarSide?: LeaderTargets;
 }
 
 /** The options of `leader()`. Each size of its own replaces its style's, and is multiplied by the style's scale. */
@@ -1374,9 +2805,13 @@ export interface LeaderOptions<
   L extends number = number,
   G extends number = number,
   TO extends LeaderTargets = LeaderTargets,
+  W extends number = number,
+  C extends EntityColorGiven = EntityColor,
 > extends LeaderPlacement<TO> {
   /** A leader style of the drawing. */
   readonly style: LeaderStyleName<S>;
+  /** The width the note wraps at, greater than 0, in place of none: times the style's scale. */
+  readonly width?: Positive<W>;
   /** A text style of the drawing for the note, in place of its style's. */
   readonly textStyle?: TextStyleName<TS>;
   /** The height of the note's capitals, in place of its style's. */
@@ -1389,6 +2824,8 @@ export interface LeaderOptions<
   readonly gap?: LeaderSize<G>;
   /** A name for the leader that no other entity of the drawing has. */
   readonly id?: EntityId<I>;
+  /** Its own color: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a true color. R2018 only. */
+  readonly color?: EntityColorOf<C>;
   readonly view?: ViewWithoutStandard;
   readonly role?: RoleWithoutStandard;
 }
@@ -1410,9 +2847,13 @@ export interface StandardLeaderOptions<
   L extends number = number,
   G extends number = number,
   TO extends LeaderTargets = LeaderTargets,
+  W extends number = number,
+  C extends EntityColorGiven = EntityColor,
 > extends LeaderPlacement<TO> {
   /** A leader style of the standard, by its id. Defaults to its `defaultLeaderStyle`. */
   readonly style?: LeaderStyleOfStandard<S, Z>;
+  /** The width the note wraps at on paper, greater than 0. */
+  readonly width?: Positive<W>;
   /** In model space, the view the leader is read in, which `view()` returns. */
   readonly view?: View;
   /** A text role of the standard for the note, in place of its style's. */
@@ -1425,11 +2866,19 @@ export interface StandardLeaderOptions<
   readonly gap?: LeaderSize<G>;
   /** A name for the leader that no other entity of the drawing has. */
   readonly id?: EntityId<I>;
+  /** Its own color: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a true color. R2018 only. */
+  readonly color?: EntityColorOf<C>;
   readonly textStyle?: LeaderRoleAndText;
   readonly textHeight?: LeaderRoleAndText;
 }
 
 /** What `layout()` sets on a layout. */
+/** The options of `table()`: the table, but for its kind and its layer, which is the current one. */
+export type TableOptions = Omit<Table, "kind" | "layer" | "color"> & {
+  /** A table has no color of its own: its style and its cells give its colors. */
+  readonly color?: "ByLayer";
+};
+
 export interface LayoutOptions<P extends string = string> {
   /** One of `PAPERS`, such as `"ARCH D"`. */
   readonly paper: PaperOf<P>;
@@ -1669,6 +3118,7 @@ function located(
     | "textStyle"
     | "dimensionStyle"
     | "leaderStyle"
+    | "tableStyle"
     | "block"
     | "attribute"
     | "xref"
@@ -1743,6 +3193,8 @@ export class DrawingBuilder<
   );
   /** Keyed by `layerKey`: the leading CAD app compares text style names as it compares layer names. */
   readonly #textStyles = new Map<string, TextStyle>();
+  /** Keyed by `layerKey`, with the sizes a hatch's check reads: a hatch finds its pattern so. */
+  readonly #patterns = new Map<string, readonly [HatchPattern, PatternSizes]>();
   readonly #textStylesAudited = new Map<string, string>([
     [layerAuditKey(STANDARD_TEXT_STYLE), STANDARD_TEXT_STYLE],
   ]);
@@ -1776,6 +3228,8 @@ export class DrawingBuilder<
   /** Keyed by `layerKey`: leader style names are compared as dimension style names are. */
   readonly #leaderStyles = new Map<string, LeaderStyle>();
   readonly #leaderStylesAudited = new Map<string, string>();
+  readonly #tableStyles = new Map<string, TableStyle>();
+  readonly #tableStylesAudited = new Map<string, string>();
   /** The blocks of the arrowheads the leader styles use, whose handles are taken. */
   readonly #leaderArrowheadBlocks = new Set<string>();
   /** The views `view()` declared, by `idKey` of their ids. */
@@ -1833,6 +3287,62 @@ export class DrawingBuilder<
       const name: unknown = definition?.name;
       const about = typeof name === "string" ? { linetype: name } : {};
       throw located(thrown, DrawingBuilder.prototype.linetype, about);
+    }
+    return this;
+  }
+
+  /**
+   * Adds hatch patterns, which a hatch names in its `pattern`: the text of a pattern file, which
+   * `parsePatterns` reads, or definitions. tsdraft has no patterns of its own, so pass the firm's
+   * file. A pattern of a name the drawing has replaces it and keeps the first spelling, as
+   * `linetype()` does, and of two of one name in one call the first is added, as CAD programs read
+   * a pattern file. Nothing is added when one is refused. A hatch is checked against its pattern
+   * when it is drawn; one a later pattern of its name makes too dense is left to `lint`.
+   *
+   * ```ts
+   * d.patterns(readFileSync("firm.pat", "utf8"));
+   * d.hatch(slab, { pattern: { name: "AR-CONC", scale: 0.5 } });
+   * ```
+   */
+  patterns(file: string | readonly HatchPattern[]): this {
+    try {
+      if (this.dxf === "R12") refuse("hatch-pattern", R12_ONLY.hatches);
+      let given: unknown = file;
+      if (typeof file === "string") {
+        try {
+          given = parsePatterns(file);
+        } catch (thrown) {
+          refuse("hatch-pattern", thrown instanceof Error ? thrown.message : String(thrown));
+        }
+      }
+      if (!Array.isArray(given)) {
+        refuse(
+          "hatch-pattern",
+          "patterns() takes a pattern file's text or a list of hatch patterns",
+        );
+      }
+      const added = new Map<string, readonly [HatchPattern, PatternSizes]>();
+      for (const definition of given as readonly unknown[]) {
+        const problem = hatchPatternProblem(definition);
+        const { name, description, lines } = (definition ?? {}) as HatchPattern;
+        if (problem) refuse("hatch-pattern", `Hatch pattern ${shown(name)}: ${problem}`);
+        const key = layerKey(name);
+        if (added.has(key)) continue;
+        const copy: HatchPattern = {
+          name: this.#patterns.get(key)?.[0].name ?? name,
+          ...(description === undefined ? {} : { description }),
+          lines: lines.map(({ angle, base, offset, dashes }) => ({
+            angle,
+            base: [base[0], base[1]],
+            offset: [offset[0], offset[1]],
+            ...(dashes === undefined ? {} : { dashes: [...dashes] }),
+          })),
+        };
+        added.set(key, [copy, patternSizes(copy.lines, new WeakMap())!]);
+      }
+      for (const [key, pattern] of added) this.#patterns.set(key, pattern);
+    } catch (thrown) {
+      throw located(thrown, DrawingBuilder.prototype.patterns, {});
     }
     return this;
   }
@@ -2074,7 +3584,8 @@ export class DrawingBuilder<
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
     P extends string = string,
-  >(from: Point, to: Point, options: EntityOptions<V, T, W, L, I, Z, P> = {}): this {
+    const C extends EntityColorGiven = EntityColor,
+  >(from: Point, to: Point, options: EntityOptions<V, T, W, L, I, Z, P, C> = {}): this {
     return this.#add(DrawingBuilder.prototype.line, options, () => ({
       kind: "line",
       layer: this.#current,
@@ -2083,24 +3594,35 @@ export class DrawingBuilder<
     }));
   }
 
+  /**
+   * A polyline through `points`, and back to the first when `closed`. `bulges` makes a side an
+   * arc, `width` or `widths` draws the sides wide, and `radius` rounds every corner with an arc,
+   * as a bar's hook is bent: `d.polyline(hook, false, { radius: bend, width: bar })`.
+   */
   polyline<
     T extends string = string,
     W extends number = number,
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
     P extends string = string,
+    N extends number = number,
+    R extends number = number,
+    const C extends EntityColorGiven = EntityColor,
   >(
     points: readonly Point[],
     closed = false,
-    options: EntityOptions<V, T, W, L, I, Z, P> = {},
+    options: PolylineOptions<V, T, W, L, I, Z, P, N, R, C> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.polyline, options, () => {
       if (points.length < 2) refuse("geometry", "A polyline needs at least 2 points");
-      return { kind: "polyline", layer: this.#current, points: points.map(pt), closed };
+      return this.#polyline(points.map(pt), closed, options);
     });
   }
 
-  /** Closed rectangle from its lower-left corner. */
+  /**
+   * A closed rectangle from its lower-left corner, `width` along X and `height` along Y. `radius`
+   * rounds its corners.
+   */
   rect<
     W extends number,
     H extends number,
@@ -2109,11 +3631,13 @@ export class DrawingBuilder<
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
     P extends string = string,
+    R extends number = number,
+    const C extends EntityColorGiven = EntityColor,
   >(
     corner: Point,
     width: Positive<W>,
     height: Positive<H>,
-    options: EntityOptions<V, T, LW, L, I, Z, P> = {},
+    options: RectOptions<V, T, LW, L, I, Z, P, R, C> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.rect, options, () => {
       const [x, y] = pt(corner);
@@ -2128,8 +3652,376 @@ export class DrawingBuilder<
         [x + w, y + h],
         [x, y + h],
       ];
-      return { kind: "polyline", layer: this.#current, points: corners.map(pt), closed: true };
+      const { radius } = options as { readonly radius?: unknown };
+      return this.#polyline(corners.map(pt), true, radius === undefined ? {} : { radius });
     });
+  }
+
+  /**
+   * A revision cloud along a closed outline: the corners of a rectangle, or an outline drawn
+   * around what changed. It is one closed polyline of arcs from point to point along each side,
+   * each bulging out of the outline, so the cloud crosses nothing inside it. `arc` is about how
+   * far apart each arc's ends are, and `width` draws it wide. An arc that would reach across the
+   * outline, in a notch narrower than it bulges, is refused. R2018 only.
+   */
+  cloud<
+    A extends number,
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    P extends string = string,
+    N extends number = number,
+    const C extends EntityColorGiven = EntityColor,
+  >(
+    outline: readonly Point[],
+    options: V extends "R12" ? R12Polylines : CloudOptions<A, T, W, L, I, Z, P, N, C>,
+  ): this {
+    const o = options as unknown as CloudOptions;
+    return this.#add(DrawingBuilder.prototype.cloud, o, () => {
+      if (this.dxf === "R12") refuse("geometry", R12_ONLY.polylines);
+      if (outline.length < 3) refuse("geometry", "A cloud's outline needs at least 3 points");
+      const corners = outline.map(pt);
+      const arc = positive(o.arc, "arc");
+      const count = arcsAlong(corners, arc);
+      if (count > MAX_CLOUD_ARCS) {
+        refuse(
+          "geometry",
+          `arc: the cloud would have ${count} arcs, and has at most ${MAX_CLOUD_ARCS}. Give a longer arc`,
+        );
+      }
+      const made = cloud(corners, arc);
+      if (typeof made === "string") refuse("geometry", capitalized(made));
+      return this.#polyline(made.points, true, {
+        bulges: made.bulges,
+        ...(o.width === undefined ? {} : { width: o.width }),
+      });
+    });
+  }
+
+  /**
+   * A donut: a filled ring `outside` across about `center`, with a hole `inside` across, which
+   * defaults to 0 for a filled dot, such as a bar cut in a section. It is one closed polyline of
+   * two half circles, as wide as the ring. R2018 only.
+   */
+  donut<
+    D extends number,
+    H extends number = number,
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    P extends string = string,
+    const C extends EntityColorGiven = EntityColor,
+  >(
+    center: Point,
+    outside: V extends "R12" ? R12Polylines : Positive<D>,
+    options?: V extends "R12" ? R12Polylines : DonutOptions<H, T, W, L, I, Z, P, C>,
+  ): this {
+    const o = (options ?? {}) as unknown as DonutOptions;
+    return this.#add(DrawingBuilder.prototype.donut, o, () => {
+      if (this.dxf === "R12") refuse("geometry", R12_ONLY.polylines);
+      const [x, y] = pt(center);
+      const across = positive(outside, "outside");
+      const inside: unknown = o.inside ?? 0;
+      const problem = donutHoleProblem(inside);
+      if (problem) refuse("geometry", `inside: ${problem}`);
+      if (!((inside as number) < across)) {
+        refuse("geometry", "inside: A donut's hole must be less across than the donut");
+      }
+      const made = donut([x, y], across, inside as number);
+      // Its middle, between its two points, and its ring are written within 1% of what they are.
+      const middle = (across + (inside as number)) / 2;
+      const chord = written(made.points[1]![0]) - written(made.points[0]![0]);
+      const off = (wrote: number, is: number): boolean => !(Math.abs(wrote - is) <= is / 100);
+      if (off(chord, middle) || off(written(made.width), made.width)) {
+        refuse(
+          "geometry",
+          "outside: The donut is too small for the 6 decimals tsdraft writes: its ring or its middle would be written more than 1% off. Give a larger donut, or a hole further from its size",
+        );
+      }
+      return this.#polyline(made.points.map(pt), true, {
+        bulges: made.bulges,
+        width: made.width,
+      });
+    });
+  }
+
+  /**
+   * A hatch, filled solid in the current layer's color: one outline's points, or a list of loops.
+   * The area inside an odd number of loops is filled, so a loop inside another is a hole and one
+   * inside a hole fills again, whichever way each runs. A loop's `bulges` make its sides arcs, as
+   * a polyline's do. R2018 only.
+   *
+   * With `pattern`, it draws a pattern's lines in its pen instead: a pattern `patterns()` added,
+   * by its name, or lines of its own `spacing` apart, crossed by as many square to them when
+   * `crossed`. A pattern that would draw more than 1,000,000 lines across the loops is refused.
+   *
+   * ```ts
+   * d.hatch([
+   *   { points: [[0, 0], [8, 0], [8, 0.5], [0, 0.5]] },
+   *   { points: [[3, 0], [3.5, 0], [3.5, 0.5]] },
+   * ]);
+   * d.patterns(readFileSync("firm.pat", "utf8"));
+   * d.hatch([[0, 1], [8, 1], [8, 3], [0, 3]], {
+   *   pattern: { name: "AR-CONC", scale: 0.25, angle: 45, origin: [0, 1] },
+   * });
+   * d.hatch([[10, 1], [12, 1], [12, 3], [10, 3]], { pattern: { spacing: 0.125, crossed: true } });
+   * ```
+   *
+   * With `gradient`, it is filled from one color to another: two colors, or one color and its
+   * tint, `linear` across the loops or in one of the other kinds, turned by `angle`.
+   *
+   * ```ts
+   * d.hatch([[0, 4], [8, 4], [8, 6], [0, 6]], {
+   *   gradient: { name: "linear", angle: 90, colors: [[30, 120, 200], [255, 255, 255]] },
+   * });
+   * ```
+   */
+  hatch<
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    P extends string = string,
+    S extends number = number,
+    const G extends HatchGradient = HatchGradient,
+    const C extends EntityColorGiven = EntityColor,
+  >(
+    boundary: readonly Point[] | readonly HatchLoop[],
+    options: HatchOptions<V, T, W, L, I, Z, P, S, G, C> = {},
+  ): this {
+    return this.#add(DrawingBuilder.prototype.hatch, options, () => {
+      if (this.dxf === "R12") refuse("hatch", R12_ONLY.hatches);
+      if (!Array.isArray(boundary))
+        refuse("geometry", "A hatch's boundary is a list of points or of loops");
+      const first: unknown = boundary[0];
+      const outline = Array.isArray(first) || first === undefined;
+      const given = (outline ? [{ points: boundary }] : boundary) as readonly HatchLoop[];
+      if (given.length === 0 || (outline && boundary.length === 0))
+        refuse("geometry", capitalized(HATCH_NO_LOOPS));
+      const loops = given.map((loop, k): HatchLoop => {
+        if (typeof loop !== "object" || loop === null || !Array.isArray(loop.points))
+          return refuse("geometry", `Loop ${k} must be { points, bulges? }`);
+        const points = loop.points.map(pt);
+        const bulges = loop.bulges;
+        const problem =
+          polylineSidesProblems(points.length, bulges, undefined, undefined)[0] ??
+          (points.length < 2 ||
+          (points.length === 2 && !(bulges ?? []).some((b) => written(b) !== 0))
+            ? HATCH_LOOP_POINTS
+            : undefined);
+        if (problem) refuse("geometry", `Loop ${k}: ${problem}`);
+        return { points, ...(bulges === undefined ? {} : { bulges: [...bulges] }) };
+      });
+      const choice: unknown = options.pattern;
+      const shade: unknown = options.gradient;
+      if (choice !== undefined && shade !== undefined)
+        refuse("hatch-gradient", capitalized(GRADIENT_WITH_PATTERN));
+      return {
+        kind: "hatch",
+        layer: this.#current,
+        loops,
+        ...(choice === undefined ? {} : { pattern: this.#hatchPattern(choice, loops) }),
+        ...(shade === undefined ? {} : { gradient: hatchGradientCopy(shade) }),
+      };
+    });
+  }
+
+  /**
+   * Checks a hatch's pattern as `lint` does, with the name in the drawing's spelling, and returns
+   * a copy of it.
+   */
+  #hatchPattern(choice: unknown, loops: readonly HatchLoop[]): HatchPatternChoice {
+    const problem = hatchPatternChoiceProblem(choice);
+    if (problem) refuse("hatch-pattern", capitalized(problem));
+    const c = choice as Record<string, unknown>;
+    const angle = c.angle === undefined ? {} : { angle: c.angle as number };
+    const at = c.origin as Point | undefined;
+    const origin = at === undefined ? {} : { origin: [at[0], at[1]] as Point };
+    let found: readonly [HatchPattern, PatternSizes] | undefined;
+    let copy: HatchPatternChoice;
+    if (typeof c.name === "string") {
+      found = this.#patterns.get(layerKey(c.name));
+      if (found === undefined) refuse("hatch-pattern", undefinedHatchPatternProblem(c.name, true));
+      const scale = c.scale === undefined ? {} : { scale: c.scale as number };
+      copy = { name: found![0].name, ...scale, ...angle, ...origin };
+    } else {
+      const crossed = c.crossed === undefined ? {} : { crossed: c.crossed as boolean };
+      copy = { spacing: c.spacing as number, ...angle, ...crossed, ...origin };
+    }
+    const box = loopsBox(loops);
+    const spread = hatchSpread(
+      { pattern: copy },
+      () => found?.[0],
+      () => found?.[1],
+    );
+    const drawn = box && spread ? patternDrawnProblem(box, spread) : undefined;
+    if (drawn) refuse("hatch-pattern", capitalized(drawn));
+    return copy;
+  }
+
+  /**
+   * A wipeout: a polygon filled with the paper's color, which hides what is drawn before it, such
+   * as the lines behind a note. Its frame shows as `Drawing.wipeoutFrame` says. R2018 only.
+   *
+   * ```ts
+   * d.wipeout([[2, 2], [5, 2], [5, 3], [2, 3]]);
+   * ```
+   */
+  wipeout<
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    P extends string = string,
+    const C extends EntityColorGiven = EntityColor,
+  >(points: readonly Point[], options: EntityOptions<V, T, W, L, I, Z, P, C> = {}): this {
+    return this.#add(DrawingBuilder.prototype.wipeout, options, () => {
+      if (this.dxf === "R12") refuse("wipeout", R12_ONLY.hatches);
+      if (!Array.isArray(points) || points.length < 3)
+        refuse("geometry", capitalized(WIPEOUT_POINTS));
+      const corners = points.map(pt);
+      if (onOneLine(corners)) refuse("geometry", capitalized(WIPEOUT_FLAT));
+      if (corners.length <= 4096 && polygonCrosses(corners))
+        refuse("wipeout", capitalized(WIPEOUT_CROSSES));
+      return { kind: "wipeout", layer: this.#current, points: corners };
+    });
+  }
+
+  /**
+   * A raster image: the PNG or JPEG file at `path`, from the folder of this drawing's file, with
+   * its lower-left corner at `at`, `width` drawing units wide. `pixels` are the file's own, which
+   * `rasterSize` reads, and its height defaults to the width times the file's height over its
+   * width. `clip` hides what lies outside two corners of a rectangle along its sides or a
+   * polygon, in the drawing's coordinates. R2018 only.
+   *
+   * ```ts
+   * d.image("aerial.png", [0, 0], { pixels: [4000, 3000], width: 400 });
+   * ```
+   */
+  image<
+    const F extends string,
+    IW extends number,
+    IH extends number = number,
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    P extends string = string,
+    const C extends EntityColorGiven = EntityColor,
+  >(
+    path: V extends "R12" ? R12Images : ImagePath<F>,
+    at: Point,
+    options: V extends "R12" ? R12Images : ImageOptions<IW, IH, T, W, L, I, Z, P, C>,
+  ): this {
+    const o = options as unknown as ImageOptions;
+    return this.#add(DrawingBuilder.prototype.image, o, () => {
+      if (this.dxf === "R12") refuse("image", R12_ONLY.images);
+      const pathProblem = imagePathProblem(path);
+      if (pathProblem) refuse("image", pathProblem);
+      const pixelsProblem = imagePixelsProblem(o.pixels);
+      if (pixelsProblem) refuse("image", `pixels: ${pixelsProblem}`);
+      const [w, h] = o.pixels;
+      const width = positive(o.width, "width");
+      const height = o.height === undefined ? width * (h / w) : positive(o.height, "height");
+      if (o.height === undefined && sizeProblem(height)) {
+        refuse("geometry", `height: ${sizeProblem(height)}`);
+      }
+      const rotation =
+        o.rotation === undefined ? undefined : kept(num(o.rotation, "rotation"), "rotation");
+      const image: Image = {
+        kind: "image",
+        layer: this.#current,
+        path: path as string,
+        pixels: [w, h],
+        at: pt(at),
+        width,
+        height,
+        ...(rotation === undefined ? {} : { rotation }),
+      };
+      if (o.clip !== undefined) {
+        const [u, v] = imageVectors(image);
+        const clipProblem = imageClipProblem(o.clip, image.at, u, v);
+        if (clipProblem) refuse("image", `clip: ${clipProblem}`);
+      } else if (o.invertClip === true) refuse("image", IMAGE_INVERT_WITHOUT_CLIP);
+      for (const [field, value] of [
+        ["invertClip", o.invertClip],
+        ["transparent", o.transparent],
+      ] as const) {
+        if (value !== undefined && typeof value !== "boolean") {
+          refuse("image", `${field} must be true or false`);
+        }
+      }
+      return {
+        ...image,
+        ...(o.clip === undefined ? {} : { clip: o.clip.map(pt) }),
+        ...(o.invertClip === true ? { invertClip: true } : {}),
+        ...(o.transparent === true ? { transparent: true } : {}),
+      };
+    });
+  }
+
+  /**
+   * A polyline of the current layer through `points`, with what `given` says of its sides, once
+   * the sides are checked. A radius rounds the corners first.
+   */
+  #polyline(
+    points: readonly Point[],
+    closed: boolean,
+    given: {
+      readonly bulges?: unknown;
+      readonly width?: unknown;
+      readonly widths?: unknown;
+      readonly radius?: unknown;
+      readonly linetypeGeneration?: unknown;
+    },
+  ): Polyline {
+    const { width, widths, radius, linetypeGeneration } = given;
+    if (linetypeGeneration !== undefined) {
+      if (this.dxf === "R12") refuse("geometry", R12_ONLY.polylines);
+      if (typeof linetypeGeneration !== "boolean")
+        refuse("geometry", "linetypeGeneration must be true or false");
+    }
+    let { bulges } = given;
+    if (
+      this.dxf === "R12" &&
+      (bulges !== undefined || width !== undefined || widths !== undefined || radius !== undefined)
+    ) {
+      refuse("geometry", R12_ONLY.polylines);
+    }
+    let shape = points;
+    if (radius !== undefined) {
+      if (bulges !== undefined || widths !== undefined) {
+        refuse(
+          "geometry",
+          "radius: A polyline whose corners a radius rounds takes no bulges or widths of its own, since its sides are made anew. Give it width alone",
+        );
+      }
+      const made = rounded(points, closed, positive(radius, "radius"));
+      if (typeof made === "string") refuse("geometry", `radius: ${capitalized(made)}`);
+      shape = made.points.map(pt);
+      if (made.bulges.some((bulge) => bulge !== 0)) bulges = made.bulges;
+    }
+    const sides = closed ? shape.length : shape.length - 1;
+    const [problem] = polylineSidesProblems(sides, bulges, width, widths);
+    if (problem) refuse("geometry", capitalized(problem));
+    return {
+      kind: "polyline",
+      layer: this.#current,
+      points: shape,
+      closed,
+      ...(bulges === undefined ? {} : { bulges: [...(bulges as readonly number[])] }),
+      ...(width === undefined ? {} : { width: width as number }),
+      ...(widths === undefined
+        ? {}
+        : {
+            widths: (widths as readonly (readonly [number, number])[]).map(
+              ([start, end]) => [start, end] as const,
+            ),
+          }),
+      ...(linetypeGeneration === true ? { linetypeGeneration } : {}),
+    };
   }
 
   circle<
@@ -2139,7 +4031,8 @@ export class DrawingBuilder<
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
     P extends string = string,
-  >(center: Point, radius: Positive<R>, options: EntityOptions<V, T, W, L, I, Z, P> = {}): this {
+    const C extends EntityColorGiven = EntityColor,
+  >(center: Point, radius: Positive<R>, options: EntityOptions<V, T, W, L, I, Z, P, C> = {}): this {
     return this.#add(DrawingBuilder.prototype.circle, options, () => ({
       kind: "circle",
       layer: this.#current,
@@ -2164,12 +4057,13 @@ export class DrawingBuilder<
     const L extends LinetypeValue = LinetypeDefinition,
     I extends string = string,
     P extends string = string,
+    const C extends EntityColorGiven = EntityColor,
   >(
     center: Point,
     radius: Positive<R>,
     startAngle: number,
     endAngle: number,
-    options: EntityOptions<V, T, W, L, I, Z, P> = {},
+    options: EntityOptions<V, T, W, L, I, Z, P, C> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.arc, options, () => {
       const start = turn(num(startAngle, "startAngle"));
@@ -2188,6 +4082,176 @@ export class DrawingBuilder<
     });
   }
 
+  /**
+   * An ellipse about `center`, with `majorAxis` from the center to one end of its major axis and
+   * `ratio` its minor radius over its major, above 0 and at most 1. With `startParameter` and
+   * `endParameter`, an arc of it, counterclockwise from one to the other. A parameter is not the
+   * angle a point is at, except at multiples of 90 degrees: see `Ellipse`. R2018 only.
+   *
+   * ```ts
+   * d.ellipse([10, 5], [4, 0], 0.5);
+   * d.ellipse([10, 5], [0, 3], 0.6, { startParameter: 0, endParameter: 180 });
+   * ```
+   */
+  ellipse<
+    R extends number,
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    P extends string = string,
+    const O extends EntityColorGiven = EntityColor,
+  >(
+    center: Point,
+    majorAxis: Point,
+    ratio: EllipseRatio<R>,
+    options: EllipseOptions<V, T, W, L, I, Z, P, O> = {},
+  ): this {
+    return this.#add(DrawingBuilder.prototype.ellipse, options, () => {
+      if (this.dxf === "R12") refuse("geometry", R12_ONLY.curves);
+      const axis = pt(majorAxis);
+      const { startParameter, endParameter } = options;
+      const arc = startParameter !== undefined && endParameter !== undefined;
+      const start = arc ? turn(num(startParameter, "startParameter")) : startParameter;
+      const end = arc ? turn(num(endParameter, "endParameter")) : endParameter;
+      const [problem] = ellipseProblems(axis, ratio, start, end);
+      if (problem) refuse("geometry", capitalized(problem));
+      return {
+        kind: "ellipse",
+        layer: this.#current,
+        center: pt(center),
+        majorAxis: axis,
+        ratio: ratio as number,
+        ...(arc ? { startParameter: start!, endParameter: end! } : {}),
+      };
+    });
+  }
+
+  /**
+   * A spline through `fitPoints`: the cubic the leading CAD app's `SPLINE` fits through them, its
+   * knots spaced by the chords, with the tangents given at its ends or worked out from the points. `closed` runs it from the last
+   * point back to the first, smooth through it. R2018 only.
+   *
+   * ```ts
+   * d.spline([[0, 0], [10, 4], [20, 2], [30, 6]]);
+   * d.spline([[0, 0], [10, 4], [20, 2]], { startTangent: [0, 1] });
+   * ```
+   */
+  spline<
+    const F extends readonly Point[],
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    P extends string = string,
+    const S extends Point = Point,
+    const E extends Point = Point,
+    C extends boolean = false,
+    const O extends EntityColorGiven = EntityColor,
+  >(fitPoints: FitPoints<F>, options: SplineOptions<V, T, W, L, I, Z, P, S, E, C, O> = {}): this {
+    return this.#add(DrawingBuilder.prototype.spline, options, () => {
+      if (this.dxf === "R12") refuse("geometry", R12_ONLY.curves);
+      if (!Array.isArray(fitPoints))
+        refuse("geometry", "A spline's fit points are a list of points");
+      const o = options as unknown as SplineOptions;
+      const points = (fitPoints as readonly Point[]).map(pt);
+      const startTangent = o.startTangent === undefined ? undefined : pt(o.startTangent as Point);
+      const endTangent = o.endTangent === undefined ? undefined : pt(o.endTangent as Point);
+      const closed = o.closed === true;
+      const [problem] = fitSplineProblems({
+        fitPoints: points,
+        startTangent,
+        endTangent,
+        closed,
+      });
+      if (problem) refuse("geometry", capitalized(problem));
+      return {
+        kind: "spline",
+        layer: this.#current,
+        fitPoints: points,
+        ...(startTangent ? { startTangent } : {}),
+        ...(endTangent ? { endTangent } : {}),
+        ...(closed ? { closed } : {}),
+      };
+    });
+  }
+
+  /**
+   * A spline by its control points: a B-spline of `degree`, 3 unless given, with clamped uniform
+   * knots unless `knots` are given, rational with `weights`. `closed` makes it periodic: without
+   * `knots`, its first `degree` control points are added again at the end, with uniform knots, so
+   * it closes smooth on them. R2018 only.
+   *
+   * ```ts
+   * d.controlSpline([[0, 0], [5, 8], [10, 0], [15, 8]]);
+   * d.controlSpline([[0, 0], [0, 5], [5, 5]], { degree: 2, weights: [1, Math.SQRT1_2, 1] });
+   * ```
+   */
+  controlSpline<
+    const C extends readonly Point[],
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    P extends string = string,
+    D extends number = 3,
+    const K extends readonly number[] = readonly number[],
+    const H extends readonly number[] = readonly number[],
+    const O extends EntityColorGiven = EntityColor,
+  >(
+    controlPoints: ControlPoints<C, D>,
+    options: ControlSplineOptions<V, T, W, L, I, Z, P, D, K, C, H, O> = {},
+  ): this {
+    return this.#add(DrawingBuilder.prototype.controlSpline, options, () => {
+      if (this.dxf === "R12") refuse("geometry", R12_ONLY.curves);
+      if (!Array.isArray(controlPoints))
+        refuse("geometry", "A spline's control points are a list of points");
+      const o = options as unknown as ControlSplineOptions;
+      const degree: unknown = o.degree ?? 3;
+      const given = (controlPoints as readonly Point[]).map(pt);
+      const closed = o.closed === true;
+      const p = typeof degree === "number" ? degree : 0;
+      if (Number.isInteger(p) && p >= 1 && given.length < p + 1)
+        refuse(
+          "geometry",
+          capitalized(controlSplineProblems({ controlPoints: given, degree, knots: [] })[0]!),
+        );
+      const wrapped = closed && o.knots === undefined;
+      const points = wrapped ? [...given, ...given.slice(0, p)] : given;
+      const knots: readonly number[] =
+        (o.knots as readonly number[] | undefined) ??
+        (wrapped
+          ? Array.from({ length: points.length + p + 1 }, (_, i) => i)
+          : Array.from({ length: points.length + p + 1 }, (_, i) =>
+              Math.min(Math.max(i - p, 0), points.length - p),
+            ));
+      const givenWeights = o.weights as readonly number[] | undefined;
+      const weights =
+        givenWeights === undefined
+          ? undefined
+          : wrapped
+            ? [...givenWeights, ...givenWeights.slice(0, p)]
+            : givenWeights;
+      const [problem] = controlSplineProblems({
+        controlPoints: points,
+        degree,
+        knots,
+        weights,
+        closed,
+      });
+      if (problem) refuse("geometry", capitalized(problem));
+      return {
+        kind: "spline",
+        layer: this.#current,
+        controlPoints: points,
+        degree: degree as number,
+        knots: [...knots],
+        ...(weights === undefined ? {} : { weights: [...weights] }),
+        ...(closed ? { closed } : {}),
+      };
+    });
+  }
+
   text<
     H extends number = number,
     T extends string = string,
@@ -2198,12 +4262,148 @@ export class DrawingBuilder<
     const D extends TextStyleValue = TextStyleDefinition,
     P extends string = string,
     R extends string = string,
-  >(at: Point, value: string, options: TextOptions<H, V, T, W, L, I, S, D, Z, P, R> = {}): this {
+    const C extends EntityColorGiven = EntityColor,
+  >(at: Point, value: string, options: TextOptions<H, V, T, W, L, I, S, D, Z, P, R, C> = {}): this {
     return this.#add(DrawingBuilder.prototype.text, options, () => ({
       kind: "text",
       layer: this.#current,
       ...this.#textFields(at, value, options as unknown as TextOptions),
     }));
+  }
+
+  /**
+   * Paragraph text: one entity whose lines wrap at `width` and break at each line feed, held as
+   * the leading CAD app's multi-line text. Its box is placed by `at`, which `align` and `valign`
+   * name a point of, its upper left corner by default. The value may hold that app's inline
+   * codes, which `underline`, `bold`, `stack`, `superscript`, `subscript` and `plain` write, and
+   * a line feed in it is written as `\P`. R2018 only.
+   *
+   * ```ts
+   * d.paragraph(`GENERAL NOTES\n1. ALL WORK SHALL COMPLY WITH ${underline("THE CODES")}.`, {
+   *   at: [1, 10],
+   *   width: 4,
+   *   height: 0.1,
+   * });
+   * ```
+   */
+  paragraph<
+    Q extends string,
+    H extends number = number,
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    S extends string = string,
+    const D extends TextStyleValue = TextStyleDefinition,
+    P extends string = string,
+    R extends string = string,
+    N extends number = number,
+    F extends number = number,
+    const C extends EntityColorGiven = EntityColor,
+  >(
+    value: ParagraphValue<Q>,
+    options: V extends "R12"
+      ? R12Paragraphs
+      : ParagraphOptions<H, T, W, L, I, S, D, Z, P, R, N, F, C>,
+  ): this {
+    const o = options as unknown as ParagraphOptions;
+    return this.#add(DrawingBuilder.prototype.paragraph, o, () => {
+      if (this.dxf === "R12") refuse("paragraph", R12_ONLY.paragraphs);
+      return this.#paragraph(value, o);
+    });
+  }
+
+  /** Checks a paragraph and returns it on the current layer. */
+  #paragraph(given: unknown, o: ParagraphOptions): Paragraph {
+    if (typeof given !== "string")
+      return refuse("paragraph", "A paragraph's value must be a string");
+    // A backslash would escape the `\` of the `\P` a line feed becomes, as the type refuses it.
+    let backslashes = 0;
+    for (let i = 0; i < given.length; i++) {
+      const code = given.charCodeAt(i);
+      if (code === 92) backslashes++;
+      else {
+        if (code === 10 && backslashes % 2 === 1) {
+          return refuse("paragraph", paragraphUnknownCode("\n"));
+        }
+        backslashes = 0;
+      }
+    }
+    const value = given.replaceAll("\n", "\\P");
+    const parsed = parseParagraph(value);
+    if (parsed.problem) refuse("paragraph", parsed.problem);
+    const at: unknown = o?.at;
+    if (!Array.isArray(at) || at.length !== 2) {
+      return refuse("geometry", "at must be a point, [x, y], of the paragraph's box");
+    }
+    const role = this.#role(o as unknown as TextOptions);
+    const paragraph: { -readonly [K in keyof Paragraph]?: Paragraph[K] } & Pick<
+      Paragraph,
+      "kind" | "layer" | "at" | "value" | "height" | "rotation"
+    > = {
+      kind: "paragraph",
+      layer: this.#current,
+      at: pt(at as unknown as Point),
+      value,
+      height: positive(role ? role.height : (o.height ?? 0.125), "height"),
+      rotation: kept(o.rotation ?? 0, "rotation"),
+    };
+    if (o.width !== undefined) paragraph.width = positive(o.width, "width");
+    if (role) paragraph.style = role.style;
+    else if (o.style !== undefined) {
+      const style = this.#textStyleName(o.style);
+      if (style !== STANDARD_TEXT_STYLE) paragraph.style = style;
+    }
+    // A value is checked in its style's font, which decides what `%%c` draws.
+    const font =
+      paragraph.style === undefined
+        ? STANDARD_FONT
+        : (this.#textStyles.get(layerKey(paragraph.style))?.font ?? STANDARD_FONT);
+    const problem = paragraphProblemIn(parsed, font);
+    if (problem) refuse("paragraph", problem);
+    const { align, valign, lineSpacing, lineSpacingStyle } = o as unknown as Record<
+      string,
+      unknown
+    >;
+    for (const [field, chosen, plain] of [
+      ["align", align, "left"],
+      ["valign", valign, "top"],
+      ["lineSpacingStyle", lineSpacingStyle, "at-least"],
+    ] as const) {
+      if (chosen === undefined) continue;
+      const choiceProblem = paragraphChoiceProblem(field, chosen);
+      if (choiceProblem)
+        refuse(field === "lineSpacingStyle" ? "paragraph" : "text-align", choiceProblem);
+      if (chosen !== plain) (paragraph as Record<string, unknown>)[field] = chosen;
+    }
+    if (lineSpacing !== undefined) {
+      const spacingProblem = lineSpacingProblem(lineSpacing);
+      if (spacingProblem) refuse("paragraph", spacingProblem);
+      if (lineSpacing !== 1) paragraph.lineSpacing = lineSpacing as number;
+    }
+    const columns: unknown = (o as { columns?: unknown }).columns;
+    if (columns !== undefined) {
+      const columnsProblem = paragraphColumnsProblem(columns, paragraph.width, paragraph.height);
+      if (columnsProblem) refuse("paragraph", columnsProblem);
+      const c = columns as ParagraphColumns;
+      const heights = c.heights;
+      paragraph.columns = {
+        ...(heights
+          ? { heights: Array.from({ length: heights.length }, (_, i) => heights[i]!) }
+          : { height: c.height! }),
+        ...(c.count !== undefined && { count: c.count }),
+        ...(c.gutter !== undefined && { gutter: c.gutter }),
+      } as ParagraphColumns;
+    }
+    const mask: unknown = (o as { mask?: unknown }).mask;
+    if (mask !== undefined) {
+      const maskProblem = textMaskProblem(mask);
+      if (maskProblem) refuse("paragraph", maskProblem);
+      if (mask !== false && paragraph.columns !== undefined)
+        refuse("paragraph", capitalized(PARAGRAPH_MASK_COLUMNS));
+      if (mask !== false) paragraph.mask = mask === true ? true : { ...(mask as object) };
+    }
+    return paragraph as Paragraph;
   }
 
   /**
@@ -2305,15 +4505,18 @@ export class DrawingBuilder<
    * xref has. `insert(name, at)` then places it, as it places a block, and the leading CAD app
    * loads the file and draws it there each time it opens this drawing. `path` leads from the folder
    * of this drawing's file to the DWG file, such as `"base.dwg"` or `"../survey/base.dwg"`.
+   * The xref is an overlay unless `attach` is true: a drawing that references this one draws an
+   * attachment too, and never an overlay.
    */
   xref<N extends string, P extends string>(
     name: V extends "R12" ? R12Xrefs : BlockName<N>,
     path: V extends "R12" ? R12Xrefs : XrefPath<P>,
+    options: { readonly attach?: boolean } = {},
   ): this {
     // The parameter type is the error message when a literal is wrong, so read it as a string.
     const requested = name as string;
     try {
-      this.#defineXref(requested, path);
+      this.#defineXref(requested, path, false, options?.attach);
     } catch (thrown) {
       throw located(thrown, DrawingBuilder.prototype.xref, { xref: requested });
     }
@@ -2324,12 +4527,15 @@ export class DrawingBuilder<
    * Checks an xref and stores it. With `shared`, an xref the drawing has of the same name and
    * path is the one it keeps, as a title block's border on each layout is.
    */
-  #defineXref(requested: string, path: unknown, shared = false): void {
+  #defineXref(requested: string, path: unknown, shared = false, attach?: unknown): void {
     const fail = (rule: LintRule, problem: string): never =>
       refuse(rule, `Xref ${JSON.stringify(requested)}: ${problem}`);
     if (this.dxf === "R12") fail("xref", R12_ONLY.xrefs);
     const nameProblem = blockNameProblem(requested);
     if (nameProblem) fail("xref", nameProblem);
+    if (attach !== undefined && typeof attach !== "boolean") {
+      fail("xref", "attach must be true or false");
+    }
     if (shared && this.#xrefs.get(layerKey(requested))?.path === path) return;
     const first = this.#blocksAudited.get(layerAuditKey(requested));
     if (first !== undefined) {
@@ -2346,14 +4552,19 @@ export class DrawingBuilder<
     for (const handle of [handles.record, handles.begin, handles.end]) {
       this.#claim(handle, what, undefined, []);
     }
-    this.#xrefs.set(layerKey(requested), { name: requested, path: path as string });
+    this.#xrefs.set(layerKey(requested), {
+      name: requested,
+      path: path as string,
+      ...(attach === true ? { attach: true } : {}),
+    });
     this.#blocksAudited.set(layerAuditKey(requested), { name: requested, xref: true });
   }
 
   /**
    * Adds an attribute definition to the block being drawn: a text that each insert of the
    * block carries with a value of its own, under `tag`. It is placed and justified as `text()`
-   * places a text, and goes on the current layer.
+   * places a text, or with `kind: "paragraph"` as `paragraph()` places a paragraph, whose value
+   * and each insert's hold a paragraph's codes, and goes on the current layer.
    */
   attribute<
     T extends string,
@@ -2361,10 +4572,13 @@ export class DrawingBuilder<
     S extends string = string,
     const D extends TextStyleValue = TextStyleDefinition,
     R extends string = string,
+    Q extends string = string,
+    N extends number = number,
+    F extends number = number,
   >(
     tag: V extends "R12" ? R12Blocks : AttributeTag<T>,
     at: Point,
-    options: AttributeOptions<H, S, D, Z, R> = {},
+    options: AttributeOptions<H, S, D, Z, R, Q, N, F> = {},
   ): this {
     const requested: unknown = tag;
     const open = this.#open;
@@ -2387,7 +4601,23 @@ export class DrawingBuilder<
         const problem = typeof prompt === "string" ? textProblem(prompt) : "must be a string";
         if (problem) refuse("text", `prompt: ${problem}`);
       }
-      const fields = this.#textFields(at, options.value ?? "", options as unknown as TextOptions);
+      const kind: unknown = options.kind;
+      if (kind !== undefined && kind !== "text" && kind !== "paragraph") {
+        refuse("attribute", ATTRIBUTE_KIND);
+      }
+      if (kind !== "paragraph") {
+        const given = options as unknown as Readonly<Record<string, unknown>>;
+        for (const field of PARAGRAPH_ONLY) {
+          if (given[field] !== undefined) refuse("attribute", paragraphOnlyProblem(field));
+        }
+      }
+      const fields =
+        kind === "paragraph"
+          ? this.#paragraphFields(
+              at,
+              options as unknown as ParagraphAttributeFields<string, number, number> & TextOptions,
+            )
+          : this.#textFields(at, options.value ?? "", options as unknown as TextOptions);
       this.#claim(
         definitionHandle(open.name, named),
         `the attribute ${JSON.stringify(named)} of the block ${JSON.stringify(open.name)}`,
@@ -2397,7 +4627,7 @@ export class DrawingBuilder<
         ...(prompt === undefined ? {} : { prompt: prompt as string }),
         layer: this.#current,
         ...fields,
-      });
+      } as AttributeDefinition);
       if (options.role !== undefined) open.roles = true;
     } catch (thrown) {
       const about = typeof requested === "string" ? { attribute: requested } : {};
@@ -2420,10 +4650,11 @@ export class DrawingBuilder<
     N extends string,
     const S extends number | readonly [number, number] = number,
     I extends string = string,
+    const C extends EntityColorGiven = EntityColor,
   >(
     block: V extends "R12" ? R12Blocks : BlockName<N>,
     at: Point,
-    options: InsertOptions<S, I, Z> = {},
+    options: InsertOptions<S, I, Z, C> = {},
   ): this {
     return this.#add(DrawingBuilder.prototype.insert, options, () =>
       this.#placed(block, at, options),
@@ -2502,8 +4733,12 @@ export class DrawingBuilder<
     if (set !== undefined) {
       const values: Record<string, string> = {};
       for (const [tag, value] of Object.entries(set as Record<string, unknown>)) {
-        if (!definitions.some((definition) => definition.tag === tag)) {
-          refuse("undefined-attribute", undefinedAttributeProblem(tag, placed.name));
+        const definition = definitions.find((d) => d.tag === tag);
+        if (!definition) refuse("undefined-attribute", undefinedAttributeProblem(tag, placed.name));
+        if (definition!.kind === "paragraph") {
+          const about = `attribute ${JSON.stringify(tag)}: `;
+          values[tag] = this.#paragraphValue(value, definition!.style, "paragraph", about);
+          continue;
         }
         const problem = typeof value === "string" ? textProblem(value) : "must be a string";
         if (problem) refuse("text", `attribute ${JSON.stringify(tag)}: ${problem}`);
@@ -2631,6 +4866,9 @@ export class DrawingBuilder<
     }
     if (block !== undefined) this.#arrowheadBlocks.add(block);
     const { prefix, suffix, suppressZeros, feetInchZeros } = definition;
+    const { fraction, fractionScale, textPlacement, textFit } = definition;
+    const { dimensionLineweight, extensionLineweight, radialText, jogAngle, textMask } = definition;
+    const { angleUnits, anglePrecision, suppressAngleZeros, arcSymbol } = definition;
     const units = definition.units ?? "decimal";
     const scale = definition.scale ?? 1;
     const measurementScale = definition.measurementScale ?? 1;
@@ -2651,6 +4889,21 @@ export class DrawingBuilder<
       ...(suppressZeros === undefined ? {} : { suppressZeros }),
       ...(feetInchZeros === undefined ? {} : { feetInchZeros }),
       ...(measurementScale === 1 ? {} : { measurementScale }),
+      ...(fraction === undefined || fraction === "inline" ? {} : { fraction }),
+      ...(fractionScale === undefined || fractionScale === 1 ? {} : { fractionScale }),
+      ...(textPlacement === undefined || textPlacement === "above" ? {} : { textPlacement }),
+      ...(textFit === undefined || textFit === "inside" ? {} : { textFit }),
+      ...(dimensionLineweight === undefined ? {} : { dimensionLineweight }),
+      ...(extensionLineweight === undefined ? {} : { extensionLineweight }),
+      ...(radialText === undefined || radialText === "aligned" ? {} : { radialText }),
+      ...(jogAngle === undefined || written(jogAngle) === JOG_ANGLE.default ? {} : { jogAngle }),
+      ...(angleUnits === undefined || angleUnits === "degrees" ? {} : { angleUnits }),
+      ...(anglePrecision === undefined || anglePrecision === 0 ? {} : { anglePrecision }),
+      ...(suppressAngleZeros === undefined ? {} : { suppressAngleZeros }),
+      ...(textMask === undefined || textMask === false
+        ? {}
+        : { textMask: textMask === true ? true : { color: textMask.color } }),
+      ...(arcSymbol === undefined || arcSymbol === "before" ? {} : { arcSymbol }),
     });
     this.#dimensionStylesAudited.set(layerAuditKey(named), named);
   }
@@ -2660,15 +4913,20 @@ export class DrawingBuilder<
    * or along `options.along`, with its dimension line through `line`. The leading CAD app holds it
    * as a dimension, which reads its length again when its points move.
    */
-  linearDimension<S extends string, T extends string = string, I extends string = string>(
+  linearDimension<
+    S extends string,
+    T extends string = string,
+    I extends string = string,
+    const C extends EntityColorGiven = EntityColor,
+  >(
     from: Point,
     to: Point,
     line: Point,
     options: Z extends Standard
-      ? StandardLinearDimensionOptions<S, T, I, Z>
+      ? StandardLinearDimensionOptions<S, T, I, Z, C>
       : V extends "R12"
         ? R12Dimensions
-        : LinearDimensionOptions<S, T, I>,
+        : LinearDimensionOptions<S, T, I, C>,
   ): this {
     return this.#add(DrawingBuilder.prototype.linearDimension, idOf(options), () => {
       const o = options as unknown as LinearDimensionOptions | undefined;
@@ -2699,15 +4957,20 @@ export class DrawingBuilder<
    * its dimension line `offset` to the left of the way from the first to the second, or to the
    * right for an offset less than 0.
    */
-  alignedDimension<S extends string, T extends string = string, I extends string = string>(
+  alignedDimension<
+    S extends string,
+    T extends string = string,
+    I extends string = string,
+    const C extends EntityColorGiven = EntityColor,
+  >(
     from: Point,
     to: Point,
     offset: number,
     options: Z extends Standard
-      ? StandardAlignedDimensionOptions<S, T, I, Z>
+      ? StandardAlignedDimensionOptions<S, T, I, Z, C>
       : V extends "R12"
         ? R12Dimensions
-        : AlignedDimensionOptions<S, T, I>,
+        : AlignedDimensionOptions<S, T, I, C>,
   ): this {
     return this.#add(DrawingBuilder.prototype.alignedDimension, idOf(options), () =>
       this.#dimension(options as unknown as AlignedDimensionOptions | undefined, (style, text) => ({
@@ -2722,12 +4985,241 @@ export class DrawingBuilder<
     );
   }
 
+  /**
+   * Draws a radius dimension on the current layer: the distance from `center` to `point`, a point
+   * of the circle or arc it measures, read with an R. Its line runs from the center through
+   * `point`, and its text stands outside the circle unless `options.textFromCenter` places it.
+   */
+  radiusDimension<
+    S extends string,
+    T extends string = string,
+    I extends string = string,
+    const C extends EntityColorGiven = EntityColor,
+  >(
+    center: Point,
+    point: Point,
+    options: Z extends Standard
+      ? StandardRadiusDimensionOptions<S, T, I, Z, C>
+      : V extends "R12"
+        ? R12Dimensions
+        : RadiusDimensionOptions<S, T, I, C>,
+  ): this {
+    return this.#add(DrawingBuilder.prototype.radiusDimension, idOf(options), () =>
+      this.#radial("radius-dimension", center, point, options),
+    );
+  }
+
+  /**
+   * Draws a diameter dimension on the current layer: twice the distance from `center` to `point`,
+   * read with a diameter sign. Its line runs through the center from `point` to the point
+   * opposite, and its text stands at `point`'s end, outside the circle unless
+   * `options.textFromCenter` places it.
+   */
+  diameterDimension<
+    S extends string,
+    T extends string = string,
+    I extends string = string,
+    const C extends EntityColorGiven = EntityColor,
+  >(
+    center: Point,
+    point: Point,
+    options: Z extends Standard
+      ? StandardRadiusDimensionOptions<S, T, I, Z, C>
+      : V extends "R12"
+        ? R12Dimensions
+        : DiameterDimensionOptions<S, T, I, C>,
+  ): this {
+    return this.#add(DrawingBuilder.prototype.diameterDimension, idOf(options), () =>
+      this.#radial("diameter-dimension", center, point, options),
+    );
+  }
+
+  /**
+   * Draws a jogged radius dimension on the current layer: the distance from `center` to `point`,
+   * for an arc whose center is far off. Its line starts at `start`, jogs across at `jog`, and runs
+   * on toward the center to `point`, with its text along the last stretch.
+   */
+  joggedRadiusDimension<
+    S extends string,
+    T extends string = string,
+    I extends string = string,
+    const C extends EntityColorGiven = EntityColor,
+  >(
+    center: Point,
+    point: Point,
+    start: Point,
+    jog: Point,
+    options: Z extends Standard
+      ? StandardAlignedDimensionOptions<S, T, I, Z, C>
+      : V extends "R12"
+        ? R12Dimensions
+        : JoggedRadiusDimensionOptions<S, T, I, C>,
+  ): this {
+    return this.#add(DrawingBuilder.prototype.joggedRadiusDimension, idOf(options), () =>
+      this.#dimension(
+        options as unknown as JoggedRadiusDimensionOptions | undefined,
+        (style, text) => ({
+          kind: "jogged-radius-dimension",
+          layer: this.#current,
+          style,
+          center: pt(center),
+          point: pt(point),
+          start: pt(start),
+          jog: pt(jog),
+          ...text,
+        }),
+      ),
+    );
+  }
+
+  /**
+   * Draws an angular dimension on the current layer: the angle at `vertex` between the lines to
+   * `from` and to `to`, with its arc through `at`. The arc's point picks which angle, so the order
+   * of `from` and `to` means nothing.
+   */
+  angularDimension<
+    S extends string,
+    T extends string = string,
+    I extends string = string,
+    const C extends EntityColorGiven = EntityColor,
+  >(
+    vertex: Point,
+    from: Point,
+    to: Point,
+    at: Point,
+    options: Z extends Standard
+      ? StandardAlignedDimensionOptions<S, T, I, Z, C>
+      : V extends "R12"
+        ? R12Dimensions
+        : AngularDimensionOptions<S, T, I, C>,
+  ): this {
+    return this.#add(DrawingBuilder.prototype.angularDimension, idOf(options), () =>
+      this.#dimension(options as unknown as AngularDimensionOptions | undefined, (style, text) => ({
+        kind: "angular-dimension",
+        layer: this.#current,
+        style,
+        vertex: pt(vertex),
+        from: pt(from),
+        to: pt(to),
+        at: pt(at),
+        ...text,
+      })),
+    );
+  }
+
+  /**
+   * Draws an arc length dimension on the current layer: the length of the arc about `center` of
+   * `radius`, counterclockwise from `startAngle` to `endAngle` in degrees, as `arc` takes them,
+   * with its own arc through `at`.
+   */
+  arcLengthDimension<
+    S extends string,
+    T extends string = string,
+    I extends string = string,
+    const C extends EntityColorGiven = EntityColor,
+  >(
+    center: Point,
+    radius: number,
+    startAngle: number,
+    endAngle: number,
+    at: Point,
+    options: Z extends Standard
+      ? StandardAlignedDimensionOptions<S, T, I, Z, C>
+      : V extends "R12"
+        ? R12Dimensions
+        : ArcLengthDimensionOptions<S, T, I, C>,
+  ): this {
+    return this.#add(DrawingBuilder.prototype.arcLengthDimension, idOf(options), () =>
+      this.#dimension(
+        options as unknown as ArcLengthDimensionOptions | undefined,
+        (style, text) => ({
+          kind: "arc-length-dimension",
+          layer: this.#current,
+          style,
+          center: pt(center),
+          radius: kept(radius, "radius"),
+          startAngle: kept(startAngle, "startAngle"),
+          endAngle: kept(endAngle, "endAngle"),
+          at: pt(at),
+          ...text,
+        }),
+      ),
+    );
+  }
+
+  /**
+   * Draws an ordinate dimension on the current layer: the distance from `options.origin`, or from
+   * `[0, 0]`, to `feature` along `options.axis`, on a leader from near `feature` to `leaderEnd`.
+   */
+  ordinateDimension<
+    S extends string,
+    T extends string = string,
+    I extends string = string,
+    const C extends EntityColorGiven = EntityColor,
+  >(
+    feature: Point,
+    leaderEnd: Point,
+    options: Z extends Standard
+      ? StandardOrdinateDimensionOptions<S, T, I, Z, C>
+      : V extends "R12"
+        ? R12Dimensions
+        : OrdinateDimensionOptions<S, T, I, C>,
+  ): this {
+    return this.#add(DrawingBuilder.prototype.ordinateDimension, idOf(options), () => {
+      const o = options as unknown as OrdinateDimensionOptions | undefined;
+      const axis: unknown = o?.axis;
+      if (axis !== "x" && axis !== "y") refuse("dimension", ORDINATE_AXIS);
+      const origin: unknown = o?.origin ?? [0, 0];
+      return this.#dimension(o, (style, text) => ({
+        kind: "ordinate-dimension",
+        layer: this.#current,
+        style,
+        axis,
+        origin: pt(origin as Point),
+        feature: pt(feature),
+        leaderEnd: pt(leaderEnd),
+        ...text,
+      }));
+    });
+  }
+
+  /** A radius or a diameter dimension, with its text where `options.textFromCenter` says. */
+  #radial<K extends "radius-dimension" | "diameter-dimension">(
+    kind: K,
+    center: Point,
+    point: Point,
+    options: unknown,
+  ): RadiusDimension | DiameterDimension {
+    const o = options as RadiusDimensionOptions | undefined;
+    const along: unknown = o?.textFromCenter;
+    return this.#dimension(
+      o,
+      (style, text) =>
+        ({
+          kind,
+          layer: this.#current,
+          style,
+          center: pt(center),
+          point: pt(point),
+          ...(along === undefined
+            ? {}
+            : { textFromCenter: kept(along as number, "textFromCenter") }),
+          ...text,
+        }) as RadiusDimension | DiameterDimension,
+    );
+  }
+
   /** Checks what a dimension names and what it measures, and returns the dimension `make` gives. */
-  #dimension<D extends LinearDimension | AlignedDimension>(
+  #dimension<D extends Dimension>(
     options:
-      | { readonly style?: unknown; readonly text?: unknown; readonly view?: unknown }
+      | {
+          readonly style?: unknown;
+          readonly text?: unknown;
+          readonly textBelow?: unknown;
+          readonly view?: unknown;
+        }
       | undefined,
-    make: (style: string, text: { readonly text?: string }) => D,
+    make: (style: string, text: { readonly text?: string; readonly textBelow?: string }) => D,
   ): D {
     if (this.dxf === "R12") refuse("dimension", R12_ONLY.dimensions);
     if (this.#open) refuse("dimension", DIMENSION_IN_BLOCK);
@@ -2750,11 +5242,16 @@ export class DrawingBuilder<
       }
     }
     const text: unknown = options?.text;
-    if (text !== undefined) {
-      const problem = dimensionTextProblem(text);
+    const below: unknown = options?.textBelow;
+    for (const words of [text, below]) {
+      if (words === undefined) continue;
+      const problem = dimensionTextProblem(words);
       if (problem) refuse("dimension", problem);
     }
-    const made = make(style!.name, text === undefined ? {} : { text: text as string });
+    const made = make(style!.name, {
+      ...(text === undefined ? {} : { text: text as string }),
+      ...(below === undefined ? {} : { textBelow: below as string }),
+    });
     const textStyle =
       style!.textStyle === undefined ? undefined : this.#textStyles.get(layerKey(style!.textStyle));
     const problem = dimensionDrawnProblem(made, style!, textStyle);
@@ -2823,6 +5320,8 @@ export class DrawingBuilder<
     if (existing !== undefined) return existing;
     const role = drawn.textRoles.get(idKey(fields.role))!;
     const { units: writes, precision, prefix, suffix, suppressZeros, feetInchZeros } = writing!;
+    const { fraction, fractionScale } = writing!;
+    const { dimensionLineweight, extensionLineweight } = fields;
     this.#defineDimensionStyle({
       name,
       textStyle: this.#roleStyle(role),
@@ -2840,6 +5339,20 @@ export class DrawingBuilder<
       ...(suppressZeros === undefined ? {} : { suppressZeros }),
       ...(feetInchZeros === undefined ? {} : { feetInchZeros }),
       measurementScale: writing!.measurementScale,
+      ...(fraction === "inline" ? {} : { fraction }),
+      ...(fractionScale === 1 ? {} : { fractionScale }),
+      ...(fields.textPlacement === "above" ? {} : { textPlacement: fields.textPlacement }),
+      ...(fields.textFit === "inside" ? {} : { textFit: fields.textFit }),
+      ...(dimensionLineweight === undefined ? {} : { dimensionLineweight }),
+      ...(extensionLineweight === undefined ? {} : { extensionLineweight }),
+      ...(fields.radialText === "aligned" ? {} : { radialText: fields.radialText }),
+      ...(fields.jogAngle === JOG_ANGLE.default ? {} : { jogAngle: fields.jogAngle }),
+      ...(fields.angleUnits === "degrees" ? {} : { angleUnits: fields.angleUnits }),
+      ...(fields.anglePrecision === 0 ? {} : { anglePrecision: fields.anglePrecision }),
+      ...(fields.suppressAngleZeros === undefined
+        ? {}
+        : { suppressAngleZeros: fields.suppressAngleZeros }),
+      ...(fields.arcSymbol === "before" ? {} : { arcSymbol: fields.arcSymbol }),
     });
     return this.#dimensionStyles.get(layerKey(name))!;
   }
@@ -2946,9 +5459,203 @@ export class DrawingBuilder<
       landing: definition.landing,
       gap: definition.gap,
       ...(attachment === "first-line" ? {} : { attachment }),
+      ...(definition.direction === undefined || definition.direction === "horizontal"
+        ? {}
+        : { direction: definition.direction }),
+      ...(definition.verticalAttachment === undefined || definition.verticalAttachment === "center"
+        ? {}
+        : { verticalAttachment: definition.verticalAttachment }),
+      ...(definition.frame === true ? { frame: true } : {}),
+      ...(definition.shaft === undefined || definition.shaft === "straight"
+        ? {}
+        : { shaft: definition.shaft }),
+      ...(definition.block === undefined ? {} : { block: definition.block }),
+      ...(definition.blockConnection === undefined || definition.blockConnection === "extents"
+        ? {}
+        : { blockConnection: definition.blockConnection }),
+      ...(definition.blockScale === undefined || definition.blockScale === 1
+        ? {}
+        : { blockScale: definition.blockScale }),
       ...(scale === 1 ? {} : { scale }),
     });
     this.#leaderStylesAudited.set(layerAuditKey(named), named);
+  }
+
+  /**
+   * Defines a table style: the text height of its cells, its margins, and the cell style of its
+   * title, its header and its data rows. A table names it by `style`. R2018 only.
+   *
+   * ```ts
+   * d.tableStyle({ name: "SCHEDULE", textHeight: 0.1, title: { textHeight: 0.15 } });
+   * ```
+   */
+  tableStyle(style: TableStyle): this {
+    const definition = style as unknown as TableStyle;
+    try {
+      if (this.dxf === "R12") refuse("table-style", R12_ONLY.tables);
+      this.#defineTableStyle(definition);
+    } catch (thrown) {
+      const name: unknown = (definition as { name?: unknown } | null)?.name;
+      const about = typeof name === "string" ? { tableStyle: name } : {};
+      throw located(thrown, DrawingBuilder.prototype.tableStyle, about);
+    }
+    return this;
+  }
+
+  /** Checks a table style and stores it. */
+  #defineTableStyle(definition: TableStyle): void {
+    const name: unknown = (definition as { name?: unknown } | null)?.name;
+    const fail = (rule: LintRule, problem: string): never =>
+      refuse(
+        rule,
+        `Table style ${typeof name === "string" ? JSON.stringify(name) : "with no name"}: ${problem}`,
+      );
+    const problem = tableStyleProblem(definition);
+    if (problem) fail("table-style", problem);
+    const named = name as string;
+    const first = this.#tableStylesAudited.get(layerAuditKey(named));
+    if (first !== undefined) fail("duplicate-table-style", tableStyleTwinProblem(named, first)!);
+    // Each text style it names is the drawing's, under the name the drawing has it by.
+    const textStyleOf = (given: string | undefined, field: string): string | undefined => {
+      if (given === undefined || isStandardTextStyle(given)) return undefined;
+      const found = this.#textStyles.get(layerKey(given))?.name;
+      if (found === undefined) {
+        fail(
+          "undefined-text-style",
+          `${field}: text style ${JSON.stringify(given)} is not defined. Define it with textStyle() first`,
+        );
+      }
+      return found;
+    };
+    const textStyle = textStyleOf(definition.textStyle, "textStyle");
+    const cells: Partial<Record<"title" | "header" | "data", TableCellStyle>> = {};
+    for (const kind of ["title", "header", "data"] as const) {
+      const own = definition[kind];
+      if (own === undefined) continue;
+      // A row's own `Standard` stays, since it differs from a style's other text style.
+      const ownText =
+        own.textStyle !== undefined && isStandardTextStyle(own.textStyle)
+          ? STANDARD_TEXT_STYLE
+          : textStyleOf(own.textStyle, `${kind}.textStyle`);
+      const { textStyle: _given, ...rest } = own;
+      cells[kind] = { ...(ownText === undefined ? {} : { textStyle: ownText }), ...rest };
+    }
+    const taken: string[] = [];
+    try {
+      this.#claim(
+        validTableStyleHandle(named),
+        `the table style ${JSON.stringify(named)}`,
+        undefined,
+        taken,
+      );
+      // The first style brings the leading CAD app's own and the dictionary that holds them.
+      if (this.#tableStyles.size === 0) {
+        this.#claim(
+          validTableStyleHandle(STANDARD_TABLE_STYLE),
+          'the table style "Standard"',
+          undefined,
+          taken,
+        );
+        this.#claim(
+          tableStyleDictionaryHandle(),
+          "the dictionary of table styles",
+          undefined,
+          taken,
+        );
+      }
+    } catch (thrown) {
+      for (const handle of taken) this.#handles.delete(handle);
+      throw thrown;
+    }
+    this.#tableStyles.set(layerKey(named), {
+      name: named,
+      ...(textStyle === undefined ? {} : { textStyle }),
+      textHeight: definition.textHeight,
+      ...(definition.horizontalMargin === undefined
+        ? {}
+        : { horizontalMargin: definition.horizontalMargin }),
+      ...(definition.verticalMargin === undefined
+        ? {}
+        : { verticalMargin: definition.verticalMargin }),
+      ...cells,
+    });
+    this.#tableStylesAudited.set(layerAuditKey(named), named);
+  }
+
+  /**
+   * Draws a table on the current layer, its upper left corner at `at`: a title in one cell across
+   * its columns, a header row and data rows, each row a list of cells, one for each column, with
+   * `null` for a cell that another spans. The leading CAD app holds it as one table a drafter adds
+   * a row to, resizes and edits cell by cell. R2018 only.
+   *
+   * ```ts
+   * d.table({
+   *   style: "SCHEDULE",
+   *   at: [1, 10],
+   *   columns: [0.6, 1.2, 2.4],
+   *   title: "DOOR SCHEDULE",
+   *   header: ["MARK", "SIZE", "NOTES"],
+   *   rows: [["D1", "3'-0\" x 7'-0\"", "SOLID CORE"]],
+   * });
+   * ```
+   */
+  table(options: TableOptions): this {
+    return this.#add(DrawingBuilder.prototype.table, options as object, () =>
+      this.#table(options as unknown),
+    );
+  }
+
+  /** Checks a table and what it names, and returns it. */
+  #table(given: unknown): Table {
+    if (this.dxf === "R12") refuse("table", R12_ONLY.tables);
+    if (this.#open) refuse("table", TABLE_IN_BLOCK);
+    const o = (typeof given === "object" && given !== null ? given : {}) as Record<string, unknown>;
+    if (o.color !== undefined && o.color !== "ByLayer") refuse("entity-color", TABLE_COLOR);
+    const named = o.style;
+    const nameProblem = tableStyleNameProblem(named);
+    if (nameProblem) refuse("undefined-table-style", nameProblem);
+    const standard = standardTableStyleProblem(named as string);
+    if (standard) refuse("undefined-table-style", standard);
+    const style = this.#tableStyles.get(layerKey(named as string));
+    if (style === undefined) {
+      refuse(
+        "undefined-table-style",
+        `Table style ${JSON.stringify(named)} is not defined. Define it with tableStyle() first`,
+      );
+    }
+    const problem = tableProblem(o, (name) => this.#blocks.has(layerKey(name)));
+    if (problem) refuse("table", problem);
+    const narrow = tableColumnsProblem(o.columns as number[], tableMargins(style!)[0]);
+    if (narrow) refuse("table", narrow);
+    const fontOf = (name: string | undefined) =>
+      name === undefined || isStandardTextStyle(name)
+        ? STANDARD_FONT
+        : this.#textStyles.get(layerKey(name))?.font;
+    const lettered = tableTextsProblem(tableTexts(o as unknown as Table, style!), fontOf);
+    if (lettered) refuse("table", lettered);
+    const blockName = (cell: unknown): unknown => {
+      if (typeof cell !== "object" || cell === null) return cell;
+      const content = cell as TableCellContent;
+      if (content.block === undefined) return { ...content };
+      return { ...content, block: this.#blocks.get(layerKey(content.block))!.name };
+    };
+    const row = (cells: readonly unknown[]) => cells.map(blockName) as (TableCell | null)[];
+    return {
+      kind: "table",
+      layer: this.#current,
+      style: style!.name,
+      at: pt(o.at as Point),
+      ...(o.rotation === undefined || o.rotation === 0 ? {} : { rotation: o.rotation as number }),
+      columns: [...(o.columns as number[])],
+      ...(o.title === undefined ? {} : { title: blockName(o.title) as TableCell }),
+      ...(o.titleHeight === undefined ? {} : { titleHeight: o.titleHeight as number }),
+      ...(o.header === undefined ? {} : { header: row(o.header as unknown[]) }),
+      ...(o.headerHeight === undefined ? {} : { headerHeight: o.headerHeight as number }),
+      rows: (o.rows as unknown[][]).map(row),
+      ...(o.rowHeights === undefined
+        ? {}
+        : { rowHeights: [...(o.rowHeights as (number | null)[])] }),
+    };
   }
 
   /**
@@ -2973,13 +5680,15 @@ export class DrawingBuilder<
     G extends number = number,
     R extends string = string,
     TO extends LeaderTargets = LeaderTargets,
+    W extends number = number,
+    const C extends EntityColorGiven = EntityColor,
   >(
-    text: LeaderText<T>,
+    text: LeaderText<T> | LeaderBlockContent,
     options: Z extends Standard
-      ? StandardLeaderOptions<S, I, R, Z, AS, L, G, TO>
+      ? StandardLeaderOptions<S, I, R, Z, AS, L, G, TO, W, C>
       : V extends "R12"
         ? R12Leaders
-        : LeaderOptions<S, I, TS, H, AS, L, G, TO>,
+        : LeaderOptions<S, I, TS, H, AS, L, G, TO, W, C>,
   ): this {
     return this.#add(DrawingBuilder.prototype.leader, idOf(options), () =>
       this.#leader(text as unknown, options as unknown),
@@ -2991,9 +5700,34 @@ export class DrawingBuilder<
     if (this.dxf === "R12") refuse("leader", R12_ONLY.leaders);
     if (this.#open) refuse("leader", LEADER_IN_BLOCK);
     const o = (typeof given === "object" && given !== null ? given : {}) as Record<string, unknown>;
+    // A block in place of the note: `{ block, attributes }`.
+    const content =
+      typeof text === "object" && text !== null && !Array.isArray(text)
+        ? (text as { readonly block?: unknown; readonly attributes?: unknown })
+        : undefined;
     const lines: unknown = typeof text === "string" ? [text] : text;
-    const textProblem = leaderTextProblem(lines);
-    if (textProblem) refuse("leader", textProblem);
+    if (content === undefined) {
+      const textProblem = leaderTextProblem(lines);
+      if (textProblem) refuse("leader", textProblem);
+    } else {
+      if (typeof content.block !== "string")
+        refuse("undefined-block", "a block is named by a string");
+      const placed = this.#blocks.get(layerKey(content.block as string));
+      if (placed === undefined) {
+        refuse(
+          "undefined-block",
+          `${undefinedBlockProblem(content.block as string)}. Define it with block() first`,
+        );
+      }
+      const problem = leaderBlockContentProblem({ ...o, attributes: content.attributes });
+      if (problem) refuse("leader", problem);
+      // Each value names an attribute of the block, as an insert's does.
+      const tags = new Set((placed!.attributes ?? []).map((d) => d.tag));
+      for (const tag of Object.keys((content.attributes as object | undefined) ?? {})) {
+        if (!tags.has(tag))
+          refuse("undefined-attribute", undefinedAttributeProblem(tag, placed!.name));
+      }
+    }
     // Its point and its shafts first: under a standard, finding its style defines the style.
     const at = o.at;
     if (
@@ -3007,6 +5741,8 @@ export class DrawingBuilder<
     const shafts = shaftsOf(o.to);
     const shaftProblem = leaderShaftsProblem(shafts, point);
     if (shaftProblem) refuse("leader", shaftProblem);
+    // The far root's point is the note's, so its shafts are checked as a leader's once it is made.
+    const far = o.toFarSide === undefined ? undefined : shaftsOf(o.toFarSide);
     let style: LeaderStyle;
     let own: Partial<Pick<Leader, "textStyle" | "textHeight">> = {};
     if (this.#standard) {
@@ -3045,22 +5781,41 @@ export class DrawingBuilder<
       kind: "leader",
       layer: this.#current,
       style: style.name,
-      text: [...(lines as readonly string[])],
+      ...(content === undefined
+        ? { text: [...(lines as readonly string[])] }
+        : {
+            block: this.#blocks.get(layerKey(content.block as string))!.name,
+            ...(content.attributes === undefined
+              ? {}
+              : { attributes: { ...(content.attributes as Record<string, string>) } }),
+          }),
       at: point,
       shafts: (shafts as readonly (readonly Point[])[]).map((shaft) => shaft.map(pt)),
       ...(o.side === undefined ? {} : { side: o.side as LeaderSide }),
       ...(o.attachment === undefined ? {} : { attachment: o.attachment as LeaderAttachment }),
+      ...(o.verticalAttachment === undefined
+        ? {}
+        : { verticalAttachment: o.verticalAttachment as LeaderVerticalAttachment }),
       ...own,
       ...(o.arrowSize === undefined ? {} : { arrowSize: o.arrowSize as number }),
       ...(o.landing === undefined ? {} : { landing: o.landing as number }),
       ...(o.gap === undefined ? {} : { gap: o.gap as number }),
+      ...(o.width === undefined ? {} : { width: o.width as number }),
+      ...(o.frame === undefined ? {} : { frame: o.frame as boolean }),
+      ...(o.mask === undefined ? {} : { mask: o.mask as TextMask }),
+      ...(o.shaft === undefined ? {} : { shaft: o.shaft as LeaderShaftKind }),
+      ...(far === undefined
+        ? {}
+        : { farShafts: (far as readonly (readonly Point[])[]).map((shaft) => shaft.map(pt)) }),
     };
     const ownProblem = leaderOwnProblem(made, written(style.scale ?? 1));
     if (ownProblem) refuse("leader", ownProblem);
     const styleName = made.textStyle ?? style.textStyle;
     const textStyle =
       styleName === undefined ? undefined : this.#textStyles.get(layerKey(styleName));
-    const drawn = leaderDrawnProblem(made, style, textStyle);
+    const drawn = leaderDrawnProblem(made, style, textStyle, (name) =>
+      this.#blocks.get(layerKey(name)),
+    );
     if (drawn) refuse("leader", drawn);
     return made;
   }
@@ -3110,6 +5865,10 @@ export class DrawingBuilder<
       landing: fields.landing,
       gap: fields.gap,
       attachment: fields.attachment,
+      direction: fields.direction,
+      verticalAttachment: fields.verticalAttachment,
+      frame: fields.frame,
+      shaft: fields.shaft,
       scale,
     });
     return this.#leaderStyles.get(layerKey(name))!;
@@ -3526,7 +6285,7 @@ export class DrawingBuilder<
     const styles = new Set<string>();
     for (const block of closure) {
       for (const e of block.entities)
-        if (e.kind === "text" && e.style) styles.add(layerKey(e.style));
+        if ((e.kind === "text" || e.kind === "paragraph") && e.style) styles.add(layerKey(e.style));
       for (const a of block.attributes ?? []) if (a.style) styles.add(layerKey(a.style));
     }
     // Every refusal comes before the drawing takes a text style, block, id or handle, and
@@ -3751,6 +6510,10 @@ export class DrawingBuilder<
         ? { dimensionStyles: [...this.#dimensionStyles.values()] }
         : {}),
       ...(this.#leaderStyles.size > 0 ? { leaderStyles: [...this.#leaderStyles.values()] } : {}),
+      ...(this.#tableStyles.size > 0 ? { tableStyles: [...this.#tableStyles.values()] } : {}),
+      ...(this.#patterns.size > 0
+        ? { patterns: [...this.#patterns.values()].map(([pattern]) => pattern) }
+        : {}),
     };
   }
 
@@ -3805,6 +6568,75 @@ export class DrawingBuilder<
       }
     }
     return text;
+  }
+
+  /**
+   * The fields of a definition of paragraph text: its point and value, and the height, rotation,
+   * style, width, justification and line spacing its options give, each checked as a
+   * paragraph's.
+   */
+  #paragraphFields(
+    at: Point,
+    options: ParagraphAttributeFields<string, number, number> & TextOptions,
+  ): Omit<ParagraphAttributeDefinition, "tag" | "prompt" | "layer"> {
+    const { align, valign, ...rest } = options as unknown as Record<string, unknown>;
+    const placed = this.#textFields(at, "", rest as unknown as TextOptions);
+    const definition: Record<string, unknown> = {
+      kind: "paragraph",
+      at: placed.at,
+      height: placed.height,
+      rotation: placed.rotation,
+      ...(placed.style === undefined ? {} : { style: placed.style }),
+      value: this.#paragraphValue(options.value ?? "", placed.style, "attribute"),
+    };
+    if (options.width !== undefined) definition["width"] = positive(options.width, "width");
+    const { lineSpacing, lineSpacingStyle } = options as unknown as Record<string, unknown>;
+    for (const [field, chosen, plain] of [
+      ["align", align, "left"],
+      ["valign", valign, "top"],
+      ["lineSpacingStyle", lineSpacingStyle, "at-least"],
+    ] as const) {
+      if (chosen === undefined) continue;
+      const choiceProblem = paragraphChoiceProblem(field, chosen);
+      if (choiceProblem)
+        refuse(field === "lineSpacingStyle" ? "paragraph" : "text-align", choiceProblem);
+      if (chosen !== plain) definition[field] = chosen;
+    }
+    if (lineSpacing !== undefined) {
+      const spacingProblem = lineSpacingProblem(lineSpacing);
+      if (spacingProblem) refuse("paragraph", spacingProblem);
+      if (lineSpacing !== 1) definition["lineSpacing"] = lineSpacing;
+    }
+    return definition as unknown as Omit<ParagraphAttributeDefinition, "tag" | "prompt" | "layer">;
+  }
+
+  /**
+   * A value of paragraph text as the drawing holds it, with each line feed as `\P`, checked as a
+   * paragraph's in the font of `style`, or refused under `rule`.
+   */
+  #paragraphValue(given: unknown, style: string | undefined, rule: LintRule, about = ""): string {
+    if (typeof given !== "string")
+      return refuse(rule, `${about}A paragraph's value must be a string`);
+    // A backslash would escape the `\` of the `\P` a line feed becomes, as the type refuses it.
+    let backslashes = 0;
+    for (let i = 0; i < given.length; i++) {
+      const code = given.charCodeAt(i);
+      if (code === 92) backslashes++;
+      else {
+        if (code === 10 && backslashes % 2 === 1) {
+          return refuse(rule, `${about}${paragraphUnknownCode("\n")}`);
+        }
+        backslashes = 0;
+      }
+    }
+    const value = given.replaceAll("\n", "\\P");
+    const font =
+      style === undefined
+        ? STANDARD_FONT
+        : (this.#textStyles.get(layerKey(style))?.font ?? STANDARD_FONT);
+    const problem = paragraphProblemIn(parseParagraph(value), font);
+    if (problem) refuse(rule, `${about}${problem}`);
+    return value;
   }
 
   /**
@@ -3895,7 +6727,9 @@ export class DrawingBuilder<
       const key = id === undefined ? undefined : this.#idKey(id);
       if (key !== undefined) this.#freeIdHandle(id as string);
       const named = id === undefined ? {} : { id: id as string };
-      const made = { ...make(), ...named, ...this.#style(o) } as Entity;
+      // Before `make`, which takes a dimension's handles.
+      const color = this.#color(o);
+      const made = { ...make(), ...named, ...this.#style(o), ...color } as Entity;
       (this.#open ?? this.#sheet ?? { entities: this.#entities }).entities.push(made);
       if (this.#open && this.#drawsRoles(made, o)) this.#open.roles = true;
       if (key !== undefined) {
@@ -3917,7 +6751,9 @@ export class DrawingBuilder<
 
   /** True for a text with a role, and for an insert of a block that holds one. */
   #drawsRoles(made: Entity, options: object): boolean {
-    if (made.kind === "text") return (options as { readonly role?: unknown }).role !== undefined;
+    if (made.kind === "text" || made.kind === "paragraph") {
+      return (options as { readonly role?: unknown }).role !== undefined;
+    }
     return made.kind === "insert" && this.#roleBlocks.has(layerKey(made.block));
   }
 
@@ -3971,6 +6807,21 @@ export class DrawingBuilder<
         ? idHandleProblem(id, other.id, handle)
         : handleProblem(what, other.what, handle),
     );
+  }
+
+  /** The color an entity is stored with: none for ByLayer, and a true color as a copy. */
+  #color(options: object): { readonly color?: EntityColor } {
+    const color: unknown = (options as { readonly color?: unknown }).color;
+    if (color === undefined) return {};
+    const problem = entityColorProblem(color);
+    if (problem) refuse("entity-color", problem);
+    if (color === "ByLayer") return {};
+    if (this.dxf === "R12") refuse("entity-color", R12_ONLY.entityColor);
+    return {
+      color: Array.isArray(color)
+        ? ([color[0], color[1], color[2]] as const)
+        : (color as EntityColor),
+    };
   }
 
   /** The linetype and lineweight an entity is stored with. */
@@ -4051,12 +6902,11 @@ export class DrawingBuilder<
    */
   #define(definition: LinetypeDefinition, inline = false): string {
     const label = `Linetype ${JSON.stringify(definition.name)}`;
-    const problem = linetypeProblem(
-      definition.name,
-      definition.description ?? "",
-      definition.pattern,
-    );
+    const problem =
+      linetypeProblem(definition.name, definition.description ?? "", definition.pattern) ??
+      marksProblem(definition.marks, definition.pattern as readonly number[]);
     if (problem) refuse("linetype", `${label}: ${problem}`);
+    const marks = definition.marks?.map((m) => ({ ...m })) ?? [];
     // linetypeProblem has checked the types.
     const name = definition.name as string;
     const description = (definition.description ?? "") as string;
@@ -4070,7 +6920,8 @@ export class DrawingBuilder<
       const same =
         existing.description === description &&
         existing.pattern.length === lengths.length &&
-        existing.pattern.every((length, i) => length === lengths[i]);
+        existing.pattern.every((length, i) => length === lengths[i]) &&
+        JSON.stringify(existing.marks ?? []) === JSON.stringify(marks);
       if (!same) {
         refuse(
           "linetype",
@@ -4084,6 +6935,7 @@ export class DrawingBuilder<
       name: stored,
       description,
       pattern: [...lengths],
+      ...(marks.length === 0 ? {} : { marks }),
     });
     if (!this.#linetypesAudited.has(auditKey)) this.#linetypesAudited.set(auditKey, name);
     return stored;
@@ -4320,10 +7172,10 @@ function titleBlockValues(
   return values;
 }
 
-/** The id among the options of a dimension, which have no linetype or lineweight to take. */
-function idOf(options: unknown): { readonly id?: unknown } {
-  const id: unknown = (options as { id?: unknown } | null | undefined)?.id;
-  return id === undefined ? {} : { id };
+/** The id and the color among the options of a dimension, which have no linetype or lineweight to take. */
+function idOf(options: unknown): { readonly id?: unknown; readonly color?: unknown } {
+  const { id, color } = (options ?? {}) as { id?: unknown; color?: unknown };
+  return { ...(id === undefined ? {} : { id }), ...(color === undefined ? {} : { color }) };
 }
 
 /**
@@ -4369,6 +7221,11 @@ function positive(value: unknown, label: string): number {
   const problem = sizeProblem(value);
   if (problem) refuse("geometry", `${label}: ${problem}`);
   return value;
+}
+
+/** A problem as a sentence of its own. */
+function capitalized(problem: string): string {
+  return problem.charAt(0).toUpperCase() + problem.slice(1);
 }
 
 function lostSide(size: string, axis: string, at: number): string {

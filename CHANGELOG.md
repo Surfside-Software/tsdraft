@@ -2,6 +2,370 @@
 
 ## Unreleased
 
+- Linetypes with shapes: a fence with its circles along it, and batt insulation. `parseShapes`
+  reads a firm's compiled shape file (`.shx`) into each shape's outlines, and `toSVG`, `toPDF`
+  and `lint` take the files' bytes as `shapes`, found by name as CAD programs find them, without
+  regard to case and with or without `.shx`. The plot draws each shape where it draws a text,
+  turned and scaled alike, in the line's pen, and a shape of a negative scale turned half a turn;
+  `lint` warns `linetype-shape` only of a shape it cannot draw from the files given.
+  `parseLinetypes(text, { shapes })` numbers a shape given by its name. The `tsdraft` command
+  reads each shape file from the drawing file's folder. A pattern that ends with a dash is now
+  fitted to its own first dash, which runs on from that last one, and a pattern of dashes alone
+  draws its marks along a solid line, as CAD programs plot them.
+
+- Tables, in R2018 drawings. `d.tableStyle(style)` defines a table style: the text style and
+  height of its cells, its margins, and the cell style of its title, header and data rows, each
+  with its own text style, height, alignment, text color, fill and border lineweight.
+  `d.table(options)` draws a table at its upper left corner: `columns` gives each column's width,
+  `title` a cell across them all, `header` and `rows` a cell for each column, each a string or an
+  object with `text`, a `block` scaled to fit or by `blockScale`, `columnSpan` and `rowSpan`, and
+  its own `align`, `valign`, `textHeight`, `color` and `fill`; a cell another spans is `null`.
+  Both writers write one table entity and its style as CAD programs hold them, so a drafter adds
+  a row, resizes a column and edits a cell, with the picture CAD programs draw for it: text
+  wrapped at its column, a word too long for it broken, each row as tall as its cells need,
+  fills, borders and blocks. Each style lists its tables, so a change to the style in a CAD
+  program reaches them. `toSVG`, `toPDF` and `inspectText` draw and check it as it plots, and
+  `measureTable` gives the size it takes. `readDXF` and `readDWG` read a table's rows, columns and
+  cells and each table style into `tableStyles`, which every read now holds, so a reader the
+  command runs answers with it too. `lint` and the builder refuse, under the rules
+  `table-style`, `duplicate-table-style`, `undefined-table-style` and `table`, a style or a table
+  that cannot be written, a row of the wrong length, a span past the table or over another cell, a
+  `null` that nothing spans, a block its fit would scale to 0, a table in a block and more than
+  100,000 cells. `tableBox` gives the box of what a table draws, its cells' blocks included.
+
+- Linetypes with text, in R2018 drawings: a pipe with its letters along it. A linetype's `marks`
+  draw a text, such as `W`, at the end of a length of its pattern, by `after`, in one of the
+  drawing's text styles, turned with the line, from the X axis, or `upright` so it reads from the
+  left, and moved by `offset` along the line and to its left. `parseLinetypes(text)` reads a firm's
+  linetype file. A polyline's `linetypeGeneration` runs the pattern on past its vertices as one
+  stretch, so a side shorter than the pattern is not drawn solid without its letters. Both
+  writers write them, `readDXF` and `readDWG` read them back, and `toSVG` and `toPDF` draw the
+  letters where CAD programs plot them: with each whole pattern, along the side they land on, at
+  the size of the paper in a viewport or an insert. A linetype's shapes are written and read as
+  their numbers in a shape file.
+
+- Ellipses and splines, in R2018 drawings. `d.ellipse(center, majorAxis, ratio)` draws an
+  ellipse, or an arc of one with `startParameter` and `endParameter`. `d.spline(fitPoints)` draws
+  the cubic CAD programs fit through the points, with `startTangent`, `endTangent` or `closed`,
+  and `d.controlSpline(controlPoints)` a B-spline of its `degree`, from 1 to 11, `knots`, which
+  default to clamped uniform ones, and `weights`, or periodic with `closed`. `toDXF` writes each
+  as CAD programs save it, a spline through fit points with the knots and control points
+  `fitSpline` gives and one by control points clamped, and `toSVG` and `toPDF` draw them, with
+  dashes along the whole curve. The extents hold the curve, not its control points. `readDXF`
+  reads both. `lint` and the builder refuse a ratio outside 0 to 1, an axis of no length, one
+  parameter without the other, fewer than 2 fit points or two side by side that are one, a
+  tangent of no direction or on a closed spline, a degree out of range, too few control points,
+  knots of the wrong count or that decrease, weights not above 0, and more than 32,767 knots.
+  `ellipsePoint`, `ellipseBox`, `splinePoint`, `splineBox`, `fitSpline` and `clamped` give their
+  geometry.
+- An entity's own color, in R2018 drawings. Every entity but a table, an insert, a dimension and a
+  leader included, takes `color`: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a
+  true color `[red, green, blue]`. `toDXF` writes an index in group 62, and a true color in
+  group 420 with the index the leading CAD app matches it to in group 62. `toSVG` and `toPDF` plot an index
+  through the layout's plot style table and a true color as it is under each table, and an
+  entity of a block set ByBlock in its insert's color. A paragraph's `\c` code sets a true color,
+  with its blue first, and `\C0;` and `\C256;` plot ByBlock and in the layer's color. `lint` and
+  the builder refuse any other color under the rule `entity-color`, and a color in an R12
+  drawing. `readDXF` and `readDWG` read a color of a color book as `colorBook`, with its true
+  color in `trueColor`.
+- Solid fills, wipeouts and masks, in R2018 drawings. `d.hatch(boundary)` fills the area inside
+  one outline, or inside a list of loops `{ points, bulges? }`, solid in its layer's color: the
+  area inside an odd number of loops is filled, so a loop inside another is a hole, whichever
+  way each runs, as CAD programs fill one. `d.wipeout(points)` draws a polygon in the paper's
+  color, which hides what is drawn before it, with its frame in its pen unless
+  `Drawing.wipeoutFrame` is `false`. A paragraph's `mask` hides what is drawn before it behind its
+  box grown by `offsetFactor`, and a dimension style's `textMask` masks every dimension's text, its
+  box grown by a quarter of the text's height. Both writers write each as CAD programs hold it, and
+  `toSVG` and `toPDF` draw it where it plots. `lint` and the builder refuse a hatch with no loop
+  or a loop of fewer than 3 points, or 2 joined by an arc; a wipeout of fewer than 3 points, on
+  one line or with sides that cross; and a mask of another shape. `LeaderMask` is now
+  `TextMask`, which a leader's and a paragraph's mask share.
+- Hatch patterns, in R2018 drawings. tsdraft has no patterns of its own: `parsePatterns(text)`
+  reads a firm's pattern file, and `d.patterns()` adds its patterns, or definitions given as data,
+  to the drawing's `patterns`. A hatch's `pattern` names one, with its `scale`, `angle` and
+  `origin`, or draws lines of its own `spacing` apart at its `angle`, `crossed` by as many more.
+  `toDXF` writes the lines each hatch draws, and `toSVG` and `toPDF` draw them and their dashes cut
+  to its loops, as CAD programs plot them. `readDXF` and `readDWG` read a hatch's `patternType`,
+  `patternAngle`, `patternScale`, `crossed` and `patternLines`, so a firm's patterns can be read
+  back from its drawings. `lint` and the builder refuse, under the rule `hatch-pattern`, a hatch
+  that names a pattern the drawing does not have, a scale or spacing not greater than 0, a
+  pattern's definition that cannot be written, and a hatch whose pattern would draw more than
+  1,000,000 lines across its loops; two patterns of one name are a `duplicate-hatch-pattern`.
+- Gradient hatches, in R2018 drawings. A hatch's `gradient` fills it from one color to another:
+  `linear`, `cylinder`, `spherical`, `hemispherical` or `curved`, or the `inverted-` form of the
+  last four, turned by `angle` and moved off the middle unless `centered`, with two `colors` or one
+  `color` and its `tint`. A color is an `Rgb`, `[red, green, blue]`, each a whole number from 0
+  to 255. Both writers write it as CAD programs hold it, black as `[0, 0, 1]`, which a file can
+  hold, and `toSVG` and `toPDF` draw it as CAD programs plot it, in its own colors whatever the plot
+  style table: a `linearGradient` or `radialGradient`, and a shading. `gradientPicture` gives what
+  a gradient draws. `readDXF` and `readDWG` read a hatch's `gradient`. `lint` and the builder
+  refuse, under the rule `hatch-gradient`, a gradient with a pattern, a name of another kind, a
+  field it does not know, an angle that is not a finite number under 1e100, a color that is not
+  three whole numbers from 0 to 255 and a tint outside 0 to 1. `toSVG`'s pictures
+  of layouts are now of format 2, which `svgToPDF` reads.
+- `readDXF` and `readDWG` read a hatch, its loops of polylines or of lines and arcs as points and
+  bulges, its pattern and its island style; a wipeout; an `MTEXT`'s background mask; the order a
+  file's sort table draws a space or a block in, `drawOrder`; and whether wipeouts' frames show,
+  `header.wipeoutFrame`.
+
+- Attributes of paragraph text. `d.attribute(tag, at, { kind: "paragraph", width, ... })` defines
+  one, as CAD programs' multiple-line attributes: its value and each insert's hold the codes of
+  paragraph text, checked as a paragraph's value is, wrap at its width and break at each line
+  feed, and its box is placed by `align`, `valign`, `lineSpacing` and `lineSpacingStyle` as a
+  paragraph's is. `AttributeDefinition` is `TextAttributeDefinition` or
+  `ParagraphAttributeDefinition`, told apart by `kind`. Each insert holds the attribute as CAD
+  programs' own insert does: at its height in the insert, wrapped at the width times the same
+  share, and, where the insert scales its block unevenly, with its characters widened by a code
+  of the attribute's width factor before its value, in place of the style's. `placeAttribute`
+  gives that paragraph in `paragraph`, `attributeParagraph` the `Paragraph` drawn, and
+  `attributeTextStart` where the attribute's text of no value starts, which CAD programs hold
+  with it and keep from a DXF. The R2018 DXF writes it, `readDXF` reads it back as `ReadAttributeParagraph`, and `toSVG`, `toPDF`,
+  `inspectText`, the extents and `lint` lay it out where CAD programs plot it. `lint` and the
+  builder refuse a width, a line spacing or a style of paragraph text on a definition of one
+  line, and R12 holds no blocks.
+- A leaned line of paragraph text wraps a word as CAD programs do: as if its ink reached twice its
+  last character's lean further, whatever its width factor. A line in a style with an oblique
+  angle, or after `\Q`, may wrap a word earlier than before.
+- `lint` no longer throws on an attribute definition whose value is not a string when an insert
+  of its block sets no value for it.
+
+- Leaders' notes, as CAD programs draw them. A note is laid out as paragraph text is, each line
+  set by the ink of its letters, so its lines move where they plot by up to a quarter of their
+  height from where earlier versions drew them. `attachment` takes every place CAD programs
+  attach a landing, `LEADER_ATTACHMENTS`: `"top-of-first"`, `"first-line"`, `"middle"`,
+  `"last-line"`, `"bottom-of-last"`, `"underline-last"`, `"underline-first"`, `"bottom-of-first"`
+  and `"underline-all"`, which underline the line they meet by running the landing on under it.
+  The middle of a line runs from its top as far down as its capitals and the last line's letters
+  below the baseline, as CAD programs measure it, so `"first-line"` and `"last-line"` notes sit a
+  little higher than before. A leader style's `direction: "vertical"` puts the note above or
+  below its point, `side` takes `"above"` and `"below"`, and `verticalAttachment` is `"center"` or
+  `"line"`, a line as wide as the note through the point. A leader's `width` wraps its note, each
+  item of its text a paragraph; `frame` on a style or a leader draws a frame one gap outside the
+  note; and a leader's `mask` hides what is drawn before it behind its note, `true` for the
+  drawing's background or `{ color, offsetFactor }`. Both writers write each of these as the
+  multileader CAD programs make, and `toSVG` and `toPDF` draw them where they plot. `lint` and
+  the builder refuse a width not greater than 0, a mask of another shape, and a value of
+  `attachment`, `side`, `direction` or `verticalAttachment` not in its list.
+- Leaders with two roots, curved shafts and a block in place of the note. `toFarSide` gives the
+  shafts of a second root on the note's far side, whose point tsdraft works out from the note as
+  CAD programs do. `shaft: "curved"`, on a style or a leader, draws each shaft as the cubic CAD
+  programs draw through its tip, its bends and the end of its landing. `d.leader({ block,
+  attributes }, options)` holds a block of the drawing in place of the note, such as a keynote
+  bubble; a style may name the `block`, and `blockConnection` and `blockScale` say how it meets
+  the landing and how large it is. `Leader.text` is optional, since a leader whose content is a
+  block has none, and `leaderPicture` takes a fourth argument that finds a block by its name.
+  `lint` and the builder refuse a block the drawing lacks, a leader whose content is a block
+  that sets an option only a note has, and far shafts that are no shafts.
+- The built-in standard, version 3, has the leader style `notes`, its `defaultLeaderStyle`: the
+  role `note`, a closed filled arrow 1/8 inch long, a landing of 1/8 and a gap of 1/16. A
+  standard's leader style takes a `direction`, a `verticalAttachment`, a `frame` and a `shaft`.
+- `readDXF` and `readDWG` read a multileader whole: each of its roots, its kind of shaft, the
+  attachment of each side, its note's width and where it is held, its frame, its mask, and a
+  block in place of its note with its attributes; and the old `LEADER`, as the read model's
+  `leader`.
+
+- Paragraph text lays out the codes that change the characters after them, as the leading CAD
+  app does: `\H` a height in drawing units or, with `x`, times the last; `\W` a width factor and
+  `\Q` an oblique angle, each in the place of the style's; `\A` the characters on the baseline,
+  centered on the line's tallest run, or at its top; and `\C` a color by its index, which moves
+  nothing. A line's spacing grows with its tallest run. `lint`, the builder and a literal value's
+  type refuse a number a code does not take, with one grammar for each. Each run of a laid-out
+  line gives its `widthFactor`, `obliqueAngle` and `color`, which the preview draws it in, and
+  `RunFormat` gains `height`, `widthFactor`, `obliqueAngle` and `color`. `\T`, the spacing of the
+  characters, `\c`, a true color, and `\O`, an overline, are still refused.
+
+- Raster images, in R2018 drawings: `d.image(path, at, { pixels, width })` draws a PNG or a JPEG
+  with its lower-left corner at `at`, `width` drawing units wide, and `height`, `rotation`,
+  `clip`, `invertClip` and `transparent` where given; its height defaults to the file's
+  proportions. `path` starts from the drawing file's folder and the writers write it with `\`.
+  `pixels` are the file's, which the new `rasterSize` reads from a PNG's or a JPEG's header, and
+  two images of one file must give it the same. `clip` is two corners of a rectangle along the
+  image's sides, or a polygon of three points or more, in the drawing's coordinates, and may reach
+  past the image. Both writers write each file once as an image definition, with its reactor, the
+  dictionary of images and the drawing's image variables, and the four classes counted, without
+  which CAD programs draw nothing of an image. `imageFrame: false` on a drawing hides every
+  image's frame. `lint` and the builder refuse an image in an R12 drawing, an empty or absolute
+  path or one with `* ? < > | : "`, pixels that are not two whole numbers from 1 to 2^31-1, a
+  width or height not greater than 0, a clip of fewer than 2 points or more than 10,000, a
+  rectangle of no size along the image's sides, a polygon of fewer than 3 points that differ,
+  and `invertClip` with no clip; a literal path is a compile error. `toSVG` and `toPDF` take the
+  files' bytes as `images`, by the image's path as the drawing gives it, and draw each image as
+  CAD programs plot it: the file's pixels mapped onto its corners, cut to its clip, opaque unless
+  it is `transparent`, then its frame, its outline or its clip's, in its pen. The picture holds
+  each file once, a JPEG without its EXIF and a PNG that plots opaque without its transparency
+  up to 4,194,304 pixels, and the PDF holds a JPEG and a PNG of no transparency
+  to show as their own data and decodes any other PNG. An image whose file is not given is its
+  frame with its path inside it, and one whose file has other pixels is refused with a
+  `RangeError`. An xref's images take their files from `{ drawing, images }` among `xrefs`,
+  never from the sheet's. `tsdraft render` and `tsdraft dev` read each image's file from the drawing file's
+  folder, warn of one missing, and report an error for one of other pixels. `readDXF` reads each
+  image, with `u` and `v`, the vectors of one of its pixels, and its clip in the world's
+  coordinates, and lists the file's image definitions in `images`, with how many images name each,
+  one that none names among them. The example sheet has a vicinity map above its key plan.
+  [docs/images.md](docs/images.md) describes them.
+- Ordinate dimensions: `ordinateDimension(feature, leaderEnd, { axis, origin })` gives the X or the
+  Y of a feature from an origin, `[0, 0]` unless given, without its sign, on a leader to
+  `leaderEnd` with its text beyond, drawn as the leading CAD app draws it: the leader jogs where
+  the end is off the feature's line, except by no more than 1e-10 of the feature's X or Y in the
+  drawing, which it draws straight. `toDXF` writes them, and `readDXF` reads them as `ordinate-dimension`.
+- Arc length dimensions: `arcLengthDimension(center, radius, startAngle, endAngle, at, options)`
+  measures the length of an arc, as `arc` takes it, with its own arc through `at`, drawn as the
+  leading CAD app draws it: from a right angle up about the center with extension lines along radii,
+  and under one with extension lines parallel to the arc's bisector. A dimension style's
+  `arcSymbol` puts the arc symbol `"before"` the text, `"above"` it, or `"none"`. `toDXF` writes
+  them, and `readDXF` reads them as `arc-length-dimension`.
+- Angular dimensions: `angularDimension(vertex, from, to, at, options)` measures the angle at
+  `vertex` between the lines to `from` and `to`, its arc through `at`, which picks the angle as the
+  leading CAD app does: the one between the lines that holds `at`, or the rest of the turn. Drawn as
+  that app draws them, with the text above the arc or centered in it, words below as a second
+  line, and the marks turned outward where a centered text leaves them no room. A dimension style's
+  `angleUnits` (`"degrees"`, `"degrees-minutes-seconds"`, `"grads"` or `"radians"`),
+  `anglePrecision` and `suppressAngleZeros` write the angle. `toDXF` writes them, and `readDXF`
+  reads them as `angular-dimension`, by three points or by two lines, with the angle in degrees.
+- Radius, diameter and jogged radius dimensions: `radiusDimension(center, point, options)`,
+  `diameterDimension(center, point, options)` and `joggedRadiusDimension(center, point, start,
+  jog, options)`, drawn as the leading CAD app draws them, with the R and the diameter sign it
+  writes before the measurement. The text stands outside the circle past the arrowhead, or along
+  the line where `textFromCenter` places it. A dimension style's `radialText: "horizontal"` levels
+  their text, and `jogAngle` sets the jog's angle. `toDXF` writes them, and `readDXF` reads them
+  as `radial-dimension`. The font tables hold the diameter sign, with the advance a paragraph
+  gives it in a font that lacks it; every other number is as it was. `toPDF` plots the diameter
+  sign as Ø in a font that lacks it, as the leading CAD app plots it.
+- Columns in paragraph text. `columns: { count, height }` flows a paragraph's lines through that
+  many columns, the last taking what the others leave; `{ height }` through as many as the text
+  takes; and `{ heights }` through a column of each height, then one for the rest. Each column is
+  the paragraph's `width` wide and `gutter` apart, five heights by default, and `\N` in the value
+  starts the next column. `layoutParagraph` lays them out where the leading CAD app plots them: a
+  line starts the next column when its box reaches below the height, and the attachment places
+  each column on its own. Its layout gives each line's `column` and each column's box in
+  `columns`, and `measureParagraph` each line's column. `lint` and the builder refuse columns that
+  are not one of those, and `lint` warns of a `\N` in a paragraph without columns. Both writers
+  write columns as the leading CAD app saves them, and `readDXF` reads them back with each
+  column's width. A distributed line wider than its room is no longer squeezed, and stands
+  centered. `ParagraphColumns`, `ParagraphColumnsHeld`, `paragraphColumnsHeld` and
+  `paragraphGutter` are new.
+- What a dimension style sets of how its dimensions look. In architectural units, `fraction`
+  stacks the fraction of an inch over a bar, `"stacked"`, or beside a slash, `"diagonal"`, at
+  `fractionScale` of the text's height, as `4'-1` and a stacked `7/16`. `textPlacement:
+  "centered"` puts the text in a break of the dimension line, and `textFit: "leader"` moves a text
+  with no room between the extension lines out on a leader. `dimensionLineweight` and
+  `extensionLineweight` set the pens of the dimension line and of the extension lines, and the
+  arrowhead `"oblique"` is a thin tick. A dimension's `textBelow` writes words under its line, as
+  `WINDOW HEAD HT.` under `6'-8"`. `dimensionPicture` draws each as the leading CAD app does: the
+  text's box from the top of its tallest letter or stack to the foot of its lowest, ticks that
+  turn outward where the text does not fit, the line in pieces, and the leader. It takes the
+  dimension style's text style. `lint` and the builder refuse a value outside each field's list,
+  a stacked fraction outside architectural units, and what is not laid out yet: a text centered
+  in a line it is wider than, words below a text that moves out, a leader beside arrowheads twice
+  the text's height, and closed filled arrowheads round a centered text with a leader.
+  `readDXF` reads a dimension's words below into `textBelow`, and a dimension style's
+  `textVertical`, `textInside`, `textMove`, `fraction`, `fractionScale`, lineweights and
+  arrowheads' block. The built-in standard, version 2, adds the dimension style `arrows`, with
+  closed filled arrows and the text centered, and a standard's dimension style takes the new
+  fields, with `fraction` and `fractionScale` in its writing.
+- A stacked part of a paragraph stands by its own ink, top less bottom, as the leading CAD app sets
+  it, from the font tables' new column `stackTops`: a 7 over a 16 stands lower than a capital.
+  A slash stack stands its top part on its bottom part's ink, and its gap is not widened with
+  the letters. Every other number of the tables is as it was.
+- Lists, tab stops and a paragraph's own format in paragraph text. `list(items, options)` writes a
+  numbered or lettered list in two levels, each item hanging under its mark as CAD programs write
+  one, and `paragraphFormat(properties)` a `\p` code: a paragraph's first-line, left and right
+  indents, tab stops, justification left, centered, right, justified or distributed, room before
+  and after it, and its own line spacing, by a factor or exactly. A value may hold a tab and
+  `\p` codes, in heights after `x` and in drawing units without, as a firm's drawing holds them;
+  a code sets the paragraph it stands in and each after it until another changes it.
+  `layoutParagraph` lays them out as the leading CAD app does: indents, tab stops from the left
+  of the box and every four heights past the last, the next letter's ink on its stop and the words
+  after it wrapped as a line that starts there, justified lines grown at each space and
+  distributed ones at each gap, each word and space or letter then a run of its own, and the
+  spacing, the room and the box of a paragraph's own. `lint` and the builder refuse a `\p` option they do not
+  know, a tab stop that aligns by its right, its center or a decimal point, and spacing at least
+  a size, `sa`, as the type of a literal value does. Both writers write a tab, as `^I` in DXF,
+  and `readDXF` reads it back. `ParagraphPiece` gains a `properties` piece, which
+  `ParagraphProperties` describes. The example sheet's general notes are one numbered list.
+- `readDXF` leaves out of a block's and a space's `entities` an entity the file marks invisible,
+  group 60, and counts it under `other` as `invisible`. A dynamic block's definition and each `*U`
+  block that holds one of its states keep the entities of every state, with those of the states
+  it does not show marked invisible, so an insert of one now reads as the state it shows. An
+  attribute or attribute definition marked so is `invisible`, as one whose own flag hides it is,
+  and a space counts such a definition under `other`.
+- Paragraph text, in R2018 drawings: `d.paragraph(value, options)` draws one text whose lines wrap
+  at `width` and break at each line feed, held as an `MTEXT` that a CAD user edits as one. Its
+  box is placed by `at`, the point `align` and `valign` name, its upper left corner by default,
+  and it takes a `height`, a `rotation`, a `style`, a `lineSpacing` factor from 0.25 to 4 and a
+  `lineSpacingStyle`, and under a standard a `role` and a `view`, as a text does. Its value holds
+  the inline codes of an `MTEXT`: underline, strike-through, bold in a TrueType font, stacked
+  fractions, slash stacks and tolerances, a superscript and a subscript, `%%d`, `%%p`, `%%c`,
+  `\U+XXXX` and the escapes; `underline`, `bold`, `stack`, `superscript`, `subscript` and `plain`
+  write them, and `parseParagraph` reads them. `lint` and the builder refuse a value with a brace
+  never closed, a code it does not know or does not lay out yet, such as a tab, a list's indents,
+  columns, a change of height or an overline, a stacked part of lower-case letters, a stack in
+  underlined text, a font that is not one of `FONTS`, italic, bold in an SHX font, a font option
+  other than `b0`, `b1`, `i0`, and `c` or `p` with digits, or one given twice, and a paragraph in
+  an R12 drawing; a literal value with one of these is a compile error. They also refuse `%%c` in
+  an SHX font, which draws a diameter sign of its own that is not laid out yet; a literal value's
+  type refuses it in a font a `\f` or `\F` code sets, and leaves a character above U+FFFF to them.
+  `layoutParagraph` and `measureParagraph` lay a paragraph out as the leading CAD app does: each
+  line set by the ink of its first and last letters, broken where the next word's ink would pass
+  the width, spaced by what its letters and stacks reach, with each run, bold face, underline,
+  bar and stack part where that app draws it, from the font tables' new columns and the numbers as
+  the writers write them. The extents, `toSVG`, `toPDF` and `inspectText` take a paragraph's lines
+  and its box from them, and a long value many paragraphs share is laid out once in each of its
+  settings. A paragraph's rotation is taken within a turn and to 6 decimals, and
+  `paragraphDirection` gives the one direction both writers write and its layout is placed by.
+  `FONTS` names
+  each TrueType font's bold file, `capHeightOf` gives the height of a face's capital `A`, `toPDF`
+  sets a bold run in the file `fonts` gives under the font's name and ` Bold`, and `tsdraft render`
+  and `tsdraft dev` find the bold files as they find the regular ones. `readDXF` reads an
+  `MTEXT`'s line spacing as `lineSpacing` and `lineSpacingStyle`, and its group 50 in degrees, and
+  `layoutMtext` and `measureMtext` lay a read one out. [docs/paragraphs.md](docs/paragraphs.md)
+  describes them.
+- `toSVG` draws a text in a TrueType font from its first point, held to its characters' advances,
+  and `toPDF` sets it at 100 `Tz` there, as the leading CAD app plots it: a text that ended in a
+  letter whose ink passes its advance, as an `f` does, was stretched to its ink. `layoutText`
+  gives the advances alone as `advances`.
+- `measureText` turns a text by its rotation as the writers write it, to 6 decimals, so a tall
+  text turned by less than a millionth of a degree is measured as the file draws it.
+- `FONT_METRICS` holds, for each character of each font, where its ink starts and ends, how far
+  it reaches above and below the baseline, the room each font leaves after a stack, and for each
+  TrueType font its bold face's own numbers.
+- The example sheet's general notes are paragraphs that wrap at the width of its column of notes.
+- Attachments, and the xrefs of a referenced drawing in the preview and the plot.
+  `d.xref(name, path, { attach: true })` writes an attachment, which a drawing that references
+  this one draws too, where an xref is an overlay by default, and `Xref` holds `attach`. `toSVG`
+  and `toPDF` take a drawing in `xrefs` as `{ drawing, xrefs }`, with the drawings its own xrefs
+  stand for, and draw its attachments, and none of its overlays, as the leading CAD app draws
+  them, 16 drawings down at most, `XREF_DEPTH`; a drawing given alone draws no xref of
+  its own, as before. A circular reference is broken where the chain would draw a drawing it
+  already draws, and past 4,096 names given inside referenced drawings none is drawn.
+  `lint(drawing, { xrefs })` warns of each drawing given there that is not drawn, and why, and
+  `drawnXrefs(drawing, xrefs)` gives what a picture draws of them. `inspectText` takes the same
+  `xrefs`, and checks the texts of the drawings given for the drawing's own xrefs, not of their
+  attachments. `tsdraft render` and
+  `tsdraft dev` take the same in the export `xrefs`, lint each drawing given that they draw, at
+  any depth, and `drawing.xrefs` gives each xref's `attach` and, for one shown, the `xrefs` of
+  the drawing drawn for it. [docs/xrefs.md](docs/xrefs.md) describes them.
+- Polyline arcs and widths, in R2018 drawings. A `Polyline` holds `bulges`, one for each side,
+  where 0 is straight and 1 a half circle, and `width`, one width for every side, or `widths`,
+  the width at each side's start and end. `d.polyline(points, closed, options)` takes all three,
+  and `radius`, which rounds each corner with an arc tangent to both sides, as a bar's hook is
+  bent; `d.rect` takes `radius` too. `d.cloud(outline, { arc })` draws a revision cloud along an
+  outline, one closed polyline of arcs that each turn 110 degrees and bulge out of it, so a cloud
+  drawn around a note crosses none of it; an outline with a notch narrower than an arc bulges is
+  refused. `d.donut(center, outside, { inside })` draws a filled
+  ring, or a dot. `bulgeThrough(from, through, to)` gives the bulge of the arc through a point,
+  and `polylineBox` the box a polyline covers. `toDXF` writes them, `readDXF` reads them from a
+  lightweight polyline and from a 2D one, and `lint` refuses a list of bulges or widths that does
+  not have one for each side, a bulge or a width that is not a number, a negative width, `width`
+  and `widths` together, and either in an R12 drawing. `toSVG`, `toPDF` and `tsdraft render` draw
+  a side of width 0 with its pen and fill a wide one with no pen, as the leading CAD app plots
+  them: two straight sides meet in a miter up to a turn of 151 degrees, a straight side meets an
+  arc along the line from the arc's center, two arcs each end square, and each dash of a wide
+  side is filled. `checkIntent` leaves a footprint or a property line with an arc unchecked, and
+  says so. [docs/polylines.md](docs/polylines.md) describes them.
+- The example sheet has a revision cloud around the driveway, with a delta, on the layer
+  `C-ANNO-REVS` of its standard, and its north arrow's head is one polyline that widens from its
+  tip, which CAD programs fill.
 - The README lists a viewport's own frozen layers and its twist with what tsdraft draws, and no
   longer with what it does not have yet.
 - The README and the package's description name what tsdraft does now: plotting to PDF,

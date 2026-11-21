@@ -2,7 +2,9 @@
 // drawing file states about its tables, its blocks, its xrefs and its layouts, a census of what
 // each space draws and, for a read that asks for it, what each space draws, and is never
 // written back.
+import type { ParagraphColumns } from "../paragraphs.ts";
 import type { Point } from "../drawing.ts";
+import type { KnotSpacing } from "../curves.ts";
 
 /** The format of a `DrawingRead`. A reader gives the format it was built for. */
 export const READ_FORMAT = 0;
@@ -35,12 +37,19 @@ export interface DrawingRead {
   readonly linetypes: readonly ReadLinetype[];
   readonly textStyles: readonly ReadTextStyle[];
   readonly dimensionStyles: readonly ReadDimensionStyle[];
+  /** The table styles the file's dictionary of table styles names. */
+  readonly tableStyles: readonly ReadTableStyle[];
   /**
-   * Each block that is not a space or an xref. The pictures of dimensions, the blocks `*D` and a
-   * number, are kept by a read with `geometry` alone.
+   * Each block that is not a space or an xref. The pictures of dimensions and tables, the blocks
+   * `*D` or `*T` and a number, are kept by a read with `geometry` alone.
    */
   readonly blocks: readonly ReadBlock[];
   readonly xrefs: readonly ReadXref[];
+  /**
+   * Each image definition of the file's dictionary of them, in the order of the dictionary, those
+   * no image uses among them: the leading CAD app keeps one through a save and a purge.
+   */
+  readonly images: readonly ReadImageDefinition[];
   /** Model space: its census, and with `geometry` what it draws. */
   readonly model: ReadSpace;
   /** Each layout of paper space, in the order of its tab. */
@@ -93,6 +102,12 @@ export interface ReadHeader {
   readonly dimstyle?: string;
   /** `$TEXTSTYLE`, the current text style. */
   readonly textstyle?: string;
+  /**
+   * The dictionary variable `WIPEOUTFRAME`, which the leading CAD app reads of whether wipeouts'
+   * frames show: 0 neither shown nor plotted, 1 both, 2 shown and not plotted. A file without it
+   * shows and plots them.
+   */
+  readonly wipeoutFrame?: number;
 }
 
 /** A layer of the file's table, with its state as the file holds it. */
@@ -122,7 +137,33 @@ export interface ReadLinetype {
   readonly pattern: readonly number[];
   /** True when an element holds a text or a shape. */
   readonly complex: boolean;
+  /**
+   * The texts and shapes it draws, as `Linetype.marks` holds them: a text's style by its name,
+   * and a shape by its number and its file. Left out when it has none.
+   */
+  readonly marks?: readonly ReadLinetypeMark[];
 }
+
+/** A mark of a linetype as a file holds it. */
+export type ReadLinetypeMark =
+  | {
+      readonly after: number;
+      readonly rotation?: number;
+      readonly orient?: "absolute" | "upright";
+      readonly offset?: Point;
+      readonly text: string;
+      readonly style: string;
+      readonly height: number;
+    }
+  | {
+      readonly after: number;
+      readonly rotation?: number;
+      readonly orient?: "absolute" | "upright";
+      readonly offset?: Point;
+      readonly shape: number;
+      readonly file: string;
+      readonly scale: number;
+    };
 
 export interface ReadTextStyle {
   readonly handle?: string | undefined;
@@ -140,6 +181,31 @@ export interface ReadTextStyle {
   readonly annotative: boolean;
   /** True for a style that holds a shape file and no font. */
   readonly shapes: boolean;
+}
+
+/** A cell style of a table style, as its file holds it. */
+export interface ReadTableCellStyle {
+  readonly textStyle: string;
+  readonly textHeight: number;
+  /** Where its content is: 1 to 3 along the top, left to right, 4 to 6 the middle, 7 to 9 the bottom. */
+  readonly alignment: number;
+  /** The color index of its text, 0 for ByBlock. */
+  readonly color: number;
+  /** The color index its cells are filled with, when they are. */
+  readonly fill?: number;
+  /** Its borders' lineweight in hundredths of a millimeter, or -2 for ByBlock. */
+  readonly lineweight: number;
+}
+
+/** A table style. */
+export interface ReadTableStyle {
+  readonly handle?: string | undefined;
+  readonly name: string;
+  readonly horizontalMargin: number;
+  readonly verticalMargin: number;
+  readonly title: ReadTableCellStyle;
+  readonly header: ReadTableCellStyle;
+  readonly data: ReadTableCellStyle;
 }
 
 export interface ReadDimensionStyle {
@@ -165,6 +231,26 @@ export interface ReadDimensionStyle {
   readonly lengthFactor?: number;
   /** `DIMPOST`. */
   readonly suffix?: string;
+  /** `DIMTAD`: 0 centers the text in a break of the dimension line, 1 puts it above. */
+  readonly textVertical?: number;
+  /** `DIMTIX`: 1 keeps the text between the extension lines whatever fits. */
+  readonly textInside?: number;
+  /** `DIMTMOVE`: 1 hangs a text that does not fit on a leader. */
+  readonly textMove?: number;
+  /** `DIMFRAC`: 0 stacks a fraction across a bar, 1 diagonally, and 2 writes it on the line. */
+  readonly fraction?: number;
+  /** `DIMTFAC`: the height of a stacked fraction as a share of the text's. */
+  readonly fractionScale?: number;
+  /** `DIMLWD`, the dimension line's lineweight as group 370 holds one: -2 ByBlock. */
+  readonly dimensionLineweight?: number;
+  /** `DIMLWE`, the extension lines' lineweight, likewise. */
+  readonly extensionLineweight?: number;
+  /** The block `DIMBLK` draws each arrowhead with, such as `_ArchTick`. Missing for closed filled. */
+  readonly arrowheadBlock?: string;
+  /** `DIMTFILL`: 0 no mask behind the text, 1 one in the drawing's background, 2 one in `textFillColor`. */
+  readonly textFill?: number;
+  /** `DIMTFILLCLR`, the color index of the mask, for a `textFill` of 2. */
+  readonly textFillColor?: number;
 }
 
 /** An attribute definition of a block, placed as a text is. */
@@ -172,10 +258,46 @@ export interface ReadAttributeDefinition extends ReadTextPlacement {
   readonly handle?: string | undefined;
   readonly tag: string;
   readonly prompt?: string;
+  /** Of one of paragraph text, its paragraph's value, with its codes. */
   readonly default?: string;
   readonly layer: string;
   readonly invisible: boolean;
   readonly constant: boolean;
+  /** The paragraph of a definition of paragraph text, which the leading CAD app draws. */
+  readonly paragraph?: ReadAttributeParagraph;
+}
+
+/**
+ * The paragraph text an attribute or a definition of more than one line holds, which the leading
+ * CAD app draws in the place of its text: an MTEXT of its own, whose value is the attribute's.
+ */
+export interface ReadAttributeParagraph {
+  /** The point of its box that `attachment` names, in the world's coordinates. */
+  readonly at: Point;
+  /** The height its text starts at. */
+  readonly height: number;
+  /** The width it wraps at, or 0 when it does not wrap. */
+  readonly width: number;
+  /** 1 top left, 2 top center, 3 top right, 4 to 6 the middle, 7 to 9 the bottom. */
+  readonly attachment: number;
+  /** The direction of its lines, in degrees counterclockwise. */
+  readonly rotation: number;
+  /** Its text style, `Standard` when the file names none. */
+  readonly style: string;
+  /** The factor of its line spacing, 1 when the file states none. */
+  readonly lineSpacing: number;
+  readonly lineSpacingStyle: "at-least" | "exactly";
+  /**
+   * True when it is seen from below, as an insert that mirrors its block holds it: its lines run
+   * along `rotation` with their tops to its right.
+   */
+  readonly mirrored?: boolean;
+}
+
+/** A color of a color book: the book's name and the color's, such as `RAL CLASSIC` and `RAL 5005`. */
+export interface ReadColorBook {
+  readonly book: string;
+  readonly name: string;
 }
 
 /**
@@ -189,6 +311,8 @@ export interface ReadEntityBase {
   readonly color?: number;
   /** Group 420: a true color as 0xRRGGBB. */
   readonly trueColor?: number;
+  /** Group 430: a color of a color book, which `trueColor` holds as well. */
+  readonly colorBook?: ReadColorBook;
   /** Group 6: a linetype's name, or `ByBlock`. */
   readonly linetype?: string;
   /** Group 370: hundredths of a millimeter, or -2 for ByBlock and -3 for the default. */
@@ -243,11 +367,25 @@ export interface ReadLine extends ReadEntityBase {
   readonly to: Point;
 }
 
-/** A polyline of straight segments. */
+/**
+ * A polyline in its plane: a lightweight one, or a 2D one with its vertices. Its sides are
+ * straight or arcs, and may be wide, as a `Polyline`'s are.
+ */
 export interface ReadPolyline extends ReadEntityBase {
   readonly kind: "polyline";
   readonly points: readonly Point[];
   readonly closed: boolean;
+  /**
+   * The bulge of each side, one for each, as a `Polyline` holds them, in the world's coordinates:
+   * greater than 0 for an arc that turns counterclockwise. Left out when every side is straight.
+   */
+  readonly bulges?: readonly number[];
+  /** The width of every side. Left out at 0, and when the file gives each side its own. */
+  readonly width?: number;
+  /** The width at the start and the end of each side, one pair for each. Left out when none is not 0. */
+  readonly widths?: readonly (readonly [start: number, end: number])[];
+  /** True when the linetype's pattern runs on past each vertex, group 70's 128. Left out when not. */
+  readonly linetypeGeneration?: true;
 }
 
 export interface ReadCircle extends ReadEntityBase {
@@ -275,9 +413,12 @@ export interface ReadText extends ReadEntityBase, ReadTextPlacement {
 /** An attribute of an insert, where the file places it. */
 export interface ReadAttribute extends ReadEntityBase, ReadTextPlacement {
   readonly tag: string;
+  /** Of one of paragraph text, its paragraph's value, with its codes. */
   readonly value: string;
   /** True for an attribute that does not show. */
   readonly invisible?: boolean;
+  /** The paragraph of an attribute of paragraph text, which the leading CAD app draws. */
+  readonly paragraph?: ReadAttributeParagraph;
 }
 
 export interface ReadInsert extends ReadEntityBase {
@@ -296,7 +437,7 @@ export interface ReadInsert extends ReadEntityBase {
 
 /**
  * A paragraph text. Its value keeps its formatting codes, such as `\P` between paragraphs, and
- * it is not laid out.
+ * `layoutMtext` lays it out.
  */
 export interface ReadMtext extends ReadEntityBase {
   readonly kind: "mtext";
@@ -314,6 +455,44 @@ export interface ReadMtext extends ReadEntityBase {
   readonly style: string;
   /** As the leading CAD app holds it. */
   readonly value: string;
+  /** The factor of its line spacing, 1 when the file states none. */
+  readonly lineSpacing: number;
+  /** How its line spacing is taken: as the least, or exactly. */
+  readonly lineSpacingStyle: "at-least" | "exactly";
+  /**
+   * Its columns, each `width` wide, as a paragraph's: a count for static ones, none for dynamic
+   * ones, and heights for dynamic ones of a height each, up to the first of 0.
+   */
+  readonly columns?: ParagraphColumns;
+  /**
+   * The mask behind it, over its box grown by `offsetFactor` times its height less one: in the
+   * drawing's background where `color` and `trueColor` are left out, or in a color of its own.
+   */
+  readonly mask?: ReadMask;
+}
+
+/** A text's background mask, as an MTEXT holds it. */
+export interface ReadMask {
+  /** Group 63: a color index, when the mask is not in the drawing's background. */
+  readonly color?: number;
+  /** Group 421: a true color as 0xRRGGBB, when it is not in the background. */
+  readonly trueColor?: number;
+  /** Group 45. */
+  readonly offsetFactor: number;
+}
+
+/**
+ * A dimension's text as a file holds it, cut at its first `\\X` into what it draws over its line
+ * and below it. A text of `<>` alone over the line is the measurement, and is left out.
+ */
+export function dimensionTextParts(held: string): {
+  readonly text?: string;
+  readonly textBelow?: string;
+} {
+  const at = held.indexOf("\\X");
+  if (at < 0) return held === "" ? {} : { text: held };
+  const text = held.slice(0, at);
+  return { ...(text !== "<>" && { text }), textBelow: held.slice(at + 2) };
 }
 
 /** A linear or an aligned dimension. */
@@ -337,6 +516,8 @@ export interface ReadDimension extends ReadEntityBase {
   readonly measurement?: number;
   /** The text it draws in place of its measurement, where `<>` stands for it. */
   readonly text?: string;
+  /** The words it draws below its line, which the file holds after `\\X` in its text. */
+  readonly textBelow?: string;
   /** Its dimension style, `Standard` when the file names none. */
   readonly style: string;
   /** The block of its picture, `*D` and a number, when it has one. */
@@ -345,29 +526,251 @@ export interface ReadDimension extends ReadEntityBase {
   readonly blockHandle?: string;
 }
 
-/** A multileader with one note and straight shafts that meet at one landing. */
+/** A radius, a diameter or a jogged radius dimension. */
+export interface ReadRadialDimension extends ReadEntityBase {
+  readonly kind: "radial-dimension";
+  readonly type: "radius" | "diameter" | "jogged-radius";
+  /** The center of the circle or arc it measures. */
+  readonly center: Point;
+  /** The point of the circle or arc its line meets. */
+  readonly point: Point;
+  /** A jogged radius dimension's: where its line starts, and the middle of its jog. */
+  readonly start?: Point;
+  readonly jog?: Point;
+  /** The middle of its text. */
+  readonly textAt: Point;
+  /** True where the file holds its text where it was placed, not where the leading CAD app puts it. */
+  readonly placed?: boolean;
+  /** What it measures, as the file states it, as `ReadDimension`'s. */
+  readonly measurement?: number;
+  readonly text?: string;
+  readonly textBelow?: string;
+  readonly style: string;
+  readonly block?: string;
+  readonly blockHandle?: string;
+}
+
+/**
+ * An angular dimension: by three points, its vertex and a point of each line, or by two lines,
+ * each by two points, which need not meet.
+ */
+export interface ReadAngularDimension extends ReadEntityBase {
+  readonly kind: "angular-dimension";
+  readonly type: "three-point" | "two-line";
+  /** By three points: where the lines meet, and a point of each. */
+  readonly vertex?: Point;
+  readonly from?: Point;
+  readonly to?: Point;
+  /** By two lines: each line, by two of its points. */
+  readonly first?: readonly [Point, Point];
+  readonly second?: readonly [Point, Point];
+  /** A point its arc passes through. */
+  readonly at: Point;
+  /** The middle of its text. */
+  readonly textAt: Point;
+  /** True where the file holds its text where it was placed, not where the leading CAD app puts it. */
+  readonly placed?: boolean;
+  /** The angle it measures, in degrees, as the file states it; -1 where the file says -1. */
+  readonly measurement?: number;
+  readonly text?: string;
+  readonly textBelow?: string;
+  readonly style: string;
+  readonly block?: string;
+  readonly blockHandle?: string;
+}
+
+/**
+ * An ordinate dimension: the distance from `origin` to `feature` along X or Y, as `axis` says, on
+ * a leader to `leaderEnd`. One drawn in a turned coordinate system is left out, as an entity
+ * of another kind.
+ */
+export interface ReadOrdinateDimension extends ReadEntityBase {
+  readonly kind: "ordinate-dimension";
+  readonly axis: "x" | "y";
+  readonly origin: Point;
+  readonly feature: Point;
+  readonly leaderEnd: Point;
+  /** The middle of its text. */
+  readonly textAt: Point;
+  /** True where the file holds its text where it was placed, not where the leading CAD app puts it. */
+  readonly placed?: boolean;
+  /** What it measures, as the file states it, as `ReadDimension`'s. */
+  readonly measurement?: number;
+  readonly text?: string;
+  readonly textBelow?: string;
+  readonly style: string;
+  readonly block?: string;
+  readonly blockHandle?: string;
+}
+
+/**
+ * An arc length dimension: the length of the arc about `center` of `radius` from `startAngle` to
+ * `endAngle`, counterclockwise in degrees, as the file holds the arc.
+ */
+export interface ReadArcLengthDimension extends ReadEntityBase {
+  readonly kind: "arc-length-dimension";
+  readonly center: Point;
+  readonly radius: number;
+  readonly startAngle: number;
+  readonly endAngle: number;
+  /** A point its own arc passes through. */
+  readonly at: Point;
+  /** The middle of its text. */
+  readonly textAt: Point;
+  /** True where the file holds its text where it was placed, not where the leading CAD app puts it. */
+  readonly placed?: boolean;
+  /** True where it measures part of the arc, from points of its own. */
+  readonly partial?: boolean;
+  /** What it measures, as the file states it, as `ReadDimension`'s. */
+  readonly measurement?: number;
+  readonly text?: string;
+  readonly textBelow?: string;
+  readonly style: string;
+  readonly block?: string;
+  readonly blockHandle?: string;
+}
+
+/** One root of a multileader: where some of its shafts meet, and the landing from there. */
+export interface ReadLeaderRoot {
+  /** Where its shafts meet and its landing starts. */
+  readonly at: Point;
+  /** The way its landing runs from `at`, one unit long. */
+  readonly direction: Point;
+  /** How long its landing is. */
+  readonly landing: number;
+  /** Each shaft: its tip, then each point it bends at on its way to `at`. */
+  readonly shafts: readonly (readonly Point[])[];
+}
+
+/**
+ * A multileader: a note or a block, with shafts from one root, or from two on either side of it.
+ * `shafts`, `at`, `direction` and `landing` are its first root's, and for one with no root none,
+ * `textAt` and no landing.
+ */
 export interface ReadMultileader extends ReadEntityBase {
   readonly kind: "multileader";
   /** Its leader style, when the file's dictionary of leader styles names it. */
   readonly style?: string;
-  /** Each shaft: its tip, then each point it bends at on its way to `at`. */
+  /** Each shaft of its first root: its tip, then each point it bends at on its way to `at`. */
   readonly shafts: readonly (readonly Point[])[];
-  /** Where the shafts meet and the landing starts. */
+  /** Where its first root's shafts meet and its landing starts. */
   readonly at: Point;
-  /** The way the landing runs from `at`, one unit long. */
+  /** The way the first root's landing runs from `at`, one unit long. */
   readonly direction: Point;
-  /** How long the landing is. */
+  /** How long the first root's landing is. */
   readonly landing: number;
-  /** Its note as the leading CAD app holds it, with `\P` between lines. */
+  /** Each root, the first among them, in the order of the file. */
+  readonly roots: readonly ReadLeaderRoot[];
+  /** How its shafts are drawn: straight, as a curve through their points, or not at all. */
+  readonly shaft: "straight" | "curved" | "none";
+  /** Its note as the leading CAD app holds it, with `\P` between lines, or `""` for a block. */
   readonly text: string;
-  /** The corner of the note's box that holds it. */
+  /** The point of the note's box that `textAttachment` names, or a block's `at`. */
   readonly textAt: Point;
+  /** Where `textAt` is on the note's box: 1 top left, 2 top center, 3 top right, as an MTEXT's. */
+  readonly textAttachment: number;
+  /** The width the note wraps at, or 0 when it does not wrap. */
+  readonly width: number;
   /** The height of the note's text. */
   readonly textHeight: number;
   /** The note's text style. */
   readonly textStyle: string;
   /** The length of an arrowhead. */
   readonly arrowSize: number;
+  /**
+   * Where a landing meets the note, by the side of the note it meets: 0 to 8 at its left or right,
+   * from the top of its first line to an underline of every line, and 9, at the middle, or 10,
+   * with a line as wide as the note, at its top or bottom.
+   */
+  readonly attachments: {
+    readonly left: number;
+    readonly right: number;
+    readonly top: number;
+    readonly bottom: number;
+  };
+  /** True when its landings meet the note at its top or bottom, not its sides. */
+  readonly vertical?: true;
+  /** True for a frame around the note. */
+  readonly frame?: true;
+  /**
+   * The mask behind the note: the drawing's background, or a color index, over the note's box
+   * grown by `offsetFactor` times its text height less one.
+   */
+  readonly mask?: { readonly offsetFactor: number; readonly color?: number };
+  /** The block that is its content in place of a note, where it is placed, and its tags' values. */
+  readonly block?: {
+    readonly name: string;
+    readonly at: Point;
+    readonly scale: number;
+    /** Degrees counterclockwise. */
+    readonly rotation: number;
+    readonly attributes?: Readonly<Record<string, string>>;
+  };
+}
+
+/** The old leader: a line of points from its arrowhead, its note an entity of its own. */
+export interface ReadLeader extends ReadEntityBase {
+  readonly kind: "leader";
+  /** Its dimension style, whose sizes it is drawn with. */
+  readonly style: string;
+  /** Its points from its tip. */
+  readonly points: readonly Point[];
+  /** How it runs through its points: straight, or as a curve. */
+  readonly shaft: "straight" | "curved";
+  /** True when it draws an arrowhead at its tip. */
+  readonly arrowhead: boolean;
+  /** The handle of its note, an `MTEXT`, a tolerance or an insert, when it has one. */
+  readonly note?: string;
+}
+
+/** A cell of a table, as its file holds it: what it holds and what it changes of its cell style. */
+export interface ReadTableCell {
+  /** Where it starts, from 0 at the top left. */
+  readonly row: number;
+  readonly column: number;
+  /** How many rows and columns it spans: 1 and 1, or more for a cell merged with others. */
+  readonly rowSpan: number;
+  readonly columnSpan: number;
+  /** Its text, with a paragraph's codes, or undefined for none. */
+  readonly text?: string;
+  /** The block it holds, by its name. */
+  readonly block?: string;
+  /** The block's scale, or undefined where it is scaled to fit the cell. */
+  readonly blockScale?: number;
+  /** Its own alignment, 1 to 9 as a cell style's, where it has one. */
+  readonly alignment?: number;
+  readonly textHeight?: number;
+  /** The color index of its text, where it has one of its own. */
+  readonly color?: number;
+  /** The color index it is filled with, where it has one of its own. */
+  readonly fill?: number;
+}
+
+/**
+ * A table: its rows and columns, each cell that starts a span or stands alone, and the block that
+ * holds its picture, which the leading CAD app shows and plots.
+ */
+export interface ReadTable extends ReadEntityBase {
+  readonly kind: "table";
+  /** Its table style, when the file's dictionary of table styles names it. */
+  readonly style?: string;
+  /** Its upper left corner. */
+  readonly at: Point;
+  /** The way its rows run, one unit long. */
+  readonly direction: Point;
+  /** The height of each row, from the top. */
+  readonly rows: readonly number[];
+  /** The width of each column, from the left. */
+  readonly columns: readonly number[];
+  /** True where its first row is a title, and its next a header, as its style and its own say. */
+  readonly title: boolean;
+  readonly header: boolean;
+  /** Each cell that starts a span or stands alone, in reading order. */
+  readonly cells: readonly ReadTableCell[];
+  /** The block of its picture, `*T` and a number, when it has one. */
+  readonly block?: string;
+  /** The handle of that block's record. */
+  readonly blockHandle?: string;
 }
 
 /** A filled outline of three or four corners, as a dimension draws an arrowhead. */
@@ -377,18 +780,200 @@ export interface ReadSolid extends ReadEntityBase {
   readonly points: readonly Point[];
 }
 
+/**
+ * A raster image, as the file places it: its lower-left corner and the vectors of one of its
+ * pixels along its bottom and up its side, which a mirrored or slanted image has too.
+ */
+export interface ReadImage extends ReadEntityBase {
+  readonly kind: "image";
+  /** The path of its definition as the file holds it, or `""` when it names none. */
+  readonly path: string;
+  /** The handle of its definition, when it names one. */
+  readonly definition?: string;
+  /** The pixels the image states, group 13. */
+  readonly pixels: readonly [width: number, height: number];
+  readonly at: Point;
+  /** The vector of one pixel along the image's bottom edge, and up its side. */
+  readonly u: Point;
+  readonly v: Point;
+  /**
+   * The clip's boundary, in the world's coordinates: two opposite corners of a rectangle along the
+   * image's sides, or a polygon, without its first point again at its end. Left out when the file
+   * holds the whole image's boundary with the clip off and not inverted, as the leading CAD app
+   * saves an image it does not clip; `unclipped` says when the image is shown whole anyway.
+   */
+  readonly clip?: readonly Point[];
+  /** True when the image shows outside its clip, and the clip is a hole. */
+  readonly invertClip?: boolean;
+  /** True when the transparent pixels of a PNG show what is behind. */
+  readonly transparent?: boolean;
+  /** True when the file says not to show the image, which then shows its frame alone. */
+  readonly hidden?: boolean;
+  /**
+   * True when the file says not to clip the image, so it all shows, whatever `clip` says. Its
+   * frame still follows `clip`.
+   */
+  readonly unclipped?: boolean;
+  /** Group 281, from 0 to 100. Left out at 50. */
+  readonly brightness?: number;
+  /** Group 282, from 0 to 100. Left out at 50. */
+  readonly contrast?: number;
+  /** Group 283, from 0 to 100. Left out at 0. */
+  readonly fade?: number;
+}
+
+/** A loop of a hatch, as a closed polyline holds its points and the bulge of each side. */
+export interface ReadHatchLoop {
+  readonly points: readonly Point[];
+  /** Left out when every side is straight. */
+  readonly bulges?: readonly number[];
+  /**
+   * Group 92, as the file holds it: 1 external, 2 a polyline, 4 derived from what it bounds, 8 a
+   * text's box, 16 outermost.
+   */
+  readonly flags: number;
+}
+
+/**
+ * A hatch: its loops, its pattern and how it takes islands. The leading CAD app fills one of style
+ * `normal` by the parity of all its loops around a point; one of style `outer` by the parity of
+ * its loops marked external or outermost alone, and one of style `ignore` by its external ones.
+ */
+export interface ReadHatch extends ReadEntityBase {
+  readonly kind: "hatch";
+  /** Group 2, such as `SOLID` or `ANSI31`. */
+  readonly pattern: string;
+  /** True for a solid fill, group 70. */
+  readonly solid: boolean;
+  /** Group 75. */
+  readonly style: "normal" | "outer" | "ignore";
+  /** True when the file ties it to the entities it bounds, group 71. */
+  readonly associative?: true;
+  /**
+   * Its loops, in the order of the file, each a polyline or a loop of lines and arcs read as one.
+   * A hatch with a loop of an ellipse or a spline is counted instead.
+   */
+  readonly loops: readonly ReadHatchLoop[];
+  /** Group 76 of one that is not solid: 0 user-defined lines, 1 a pattern the app ships, 2 a pattern of a file. */
+  readonly patternType?: number;
+  /** Group 52: the pattern's angle, in degrees, as the file holds it: not mirrored for a hatch seen from below, though its lines are. */
+  readonly patternAngle?: number;
+  /** Group 41: the pattern's scale, or the user-defined lines' spacing. */
+  readonly patternScale?: number;
+  /** Group 77: true for user-defined lines crossed by as many more. */
+  readonly crossed?: true;
+  /**
+   * The lines its pattern draws, as the file holds them: in the world's coordinates, each angle
+   * with the pattern's added, its base point placed and its offset turned to the line, its dashes
+   * scaled. A firm's patterns can be read back from its drawings this way.
+   */
+  readonly patternLines?: readonly ReadPatternLine[];
+  /** Its gradient, groups 450 to 470. Left out when group 450 is 0. */
+  readonly gradient?: ReadGradient;
+}
+
+/** A hatch's gradient, as the file holds it. */
+export interface ReadGradient {
+  /** Group 470, such as `LINEAR`, a name tsdraft does not know included. */
+  readonly name: string;
+  /** Group 460, in degrees counterclockwise. */
+  readonly angle: number;
+  /** True when group 461 is 0. */
+  readonly centered: boolean;
+  /**
+   * Group 421 of its first two colors, each `0xRRGGBB`. The leading CAD app plots the first two
+   * whatever the count, and from blue to white with fewer.
+   */
+  readonly colors: readonly number[];
+  /** Group 462, as single precision holds it, where group 452 says one color and its tint. */
+  readonly tint?: number;
+}
+
+/**
+ * A gradient's angle in degrees, with 12 significant digits, from its radians: a DXF holds them as
+ * written, and a DWG as the leading CAD app parsed them, which can differ in the last bit.
+ */
+export const gradientDegrees = (radians: number): number =>
+  Number((radians * (180 / Math.PI)).toPrecision(12));
+
+/** A line of a hatch's pattern, as `ReadHatch.patternLines` holds it. */
+export interface ReadPatternLine {
+  readonly angle: number;
+  readonly base: Point;
+  readonly offset: Point;
+  /** Left out for a solid line. */
+  readonly dashes?: readonly number[];
+}
+
+/** A wipeout: its polygon in the world's coordinates, without its first point again at its end. */
+export interface ReadWipeout extends ReadEntityBase {
+  readonly kind: "wipeout";
+  readonly points: readonly Point[];
+}
+
+/**
+ * An ellipse, or an arc of one, as `Ellipse` holds it: in the world's coordinates, with its
+ * parameters in degrees counterclockwise. One the file holds seen from below, which runs its
+ * parameters clockwise, is read as the ellipse it draws seen from above.
+ */
+export interface ReadEllipse extends ReadEntityBase {
+  readonly kind: "ellipse";
+  readonly center: Point;
+  readonly majorAxis: Point;
+  readonly ratio: number;
+  /** For an arc, from 0 up to 360. Left out, with `endParameter`, for a whole ellipse. */
+  readonly startParameter?: number;
+  readonly endParameter?: number;
+}
+
+/**
+ * A spline as the file holds it: its B-spline, and the fit points and what the fit took where the
+ * file holds them. A spline through fit points that the file closes by repeating its first fit
+ * point is `closed`, and its fit points leave the repeat out.
+ */
+export interface ReadSpline extends ReadEntityBase {
+  readonly kind: "spline";
+  readonly degree: number;
+  readonly knots: readonly number[];
+  /** In the world's coordinates, as the file holds them. None for one held by fit points alone. */
+  readonly controlPoints: readonly Point[];
+  /** One for each control point, for a rational spline. */
+  readonly weights?: readonly number[];
+  /** Group 70's closed bit, or for fit points, a first point repeated at the end. */
+  readonly closed: boolean;
+  /** Group 70's periodic bit, where it is set. */
+  readonly periodic?: true;
+  readonly fitPoints?: readonly Point[];
+  readonly startTangent?: Point;
+  readonly endTangent?: Point;
+  readonly fitTolerance?: number;
+  /** How the knots of a fit are spaced, where the file says. */
+  readonly knotSpacing?: KnotSpacing;
+}
+
 /** What a space or a block draws, of the kinds the writers write. */
 export type ReadEntity =
   | ReadLine
   | ReadPolyline
   | ReadCircle
   | ReadArc
+  | ReadEllipse
+  | ReadSpline
   | ReadText
   | ReadInsert
   | ReadMtext
   | ReadDimension
+  | ReadRadialDimension
+  | ReadAngularDimension
+  | ReadArcLengthDimension
+  | ReadOrdinateDimension
   | ReadMultileader
-  | ReadSolid;
+  | ReadLeader
+  | ReadSolid
+  | ReadImage
+  | ReadHatch
+  | ReadWipeout
+  | ReadTable;
 
 export interface ReadBlock {
   /** The handle of the block's record, which an insert's block record points to. */
@@ -400,6 +985,8 @@ export interface ReadBlock {
   readonly attributeDefinitions: readonly ReadAttributeDefinition[];
   /** What it draws of the kinds `ReadEntity` holds, in the order of the file. */
   readonly entities: readonly ReadEntity[];
+  /** The order the leading CAD app draws them in, as `ReadSpace.drawOrder` says. */
+  readonly drawOrder?: readonly string[];
   /**
    * What else it draws, counted by kind, such as `HATCH` or a polyline with an arc, and under
    * `past the limit` what it holds past `BLOCK_ITEMS`.
@@ -414,6 +1001,21 @@ export interface ReadXref {
   /** The path as the file holds it, relative or absolute. */
   readonly path: string;
   readonly overlay: boolean;
+}
+
+/** An image definition: the file an image shows. */
+export interface ReadImageDefinition {
+  readonly handle?: string | undefined;
+  /** Its name in the dictionary of image definitions. */
+  readonly name: string;
+  /** The path as the file holds it, relative or absolute. */
+  readonly path: string;
+  /** The pixels it states the file has. */
+  readonly pixels: readonly [width: number, height: number];
+  /** False when the file marks it not loaded, which the leading CAD app draws as a frame alone. */
+  readonly loaded: boolean;
+  /** How many images of the file name it. */
+  readonly images: number;
 }
 
 export interface ReadViewport {
@@ -465,6 +1067,8 @@ export interface ReadLayout {
   readonly census: ReadCensus;
   /** With `geometry`, what it draws on its paper, as model space's are. Its viewports are above. */
   readonly entities?: readonly ReadEntity[];
+  /** With `geometry`, the order the leading CAD app draws them in, as `ReadSpace.drawOrder` says. */
+  readonly drawOrder?: readonly string[];
   readonly other?: Readonly<Record<string, number>>;
 }
 
@@ -473,6 +1077,12 @@ export interface ReadSpace {
   readonly census: ReadCensus;
   /** With `geometry`, what it draws, in the order of the file. */
   readonly entities?: readonly ReadEntity[];
+  /**
+   * With `geometry`, and when the file holds a sort table for the space, the handles of
+   * `entities` in the order the leading CAD app draws them: by each one's sort handle, its own
+   * handle where the table gives none. Without a table it draws them in the order of the file.
+   */
+  readonly drawOrder?: readonly string[];
   /**
    * With `geometry`, what it draws that `entities` leaves out, counted by kind: a kind it does not
    * read, such as `HATCH`, one in another plane, such as `CIRCLE in 3D`, and under `past the

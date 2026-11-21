@@ -10,10 +10,57 @@ export function written(value: number): number {
   return Object.is(rounded, -0) ? 0 : rounded;
 }
 
+/** A number as the writers print it: digits, perhaps a point and more, perhaps `e+` and more. */
+const PRINTED = /^(-?)(\d+)(?:\.(\d+))?(?:e\+(\d+))?$/;
+
+/**
+ * The double the leading CAD app holds for a number as the writers print it, which is not always
+ * the nearest double to the decimal: it sums the digits, without the point, as a whole number one
+ * digit at a time, then applies the power of ten left over a bit at a time, lowest first, each
+ * power the square of the one before, and reads only two digits of an exponent. About one 6-decimal
+ * value in six comes out one unit in the last place from the nearest double.
+ */
+export function heldNumber(value: number): number {
+  const match = PRINTED.exec(fmt(value));
+  if (!match) return written(value);
+  const [, sign, whole = "", fraction = "", exponent = ""] = match;
+  let held = 0;
+  for (const digit of whole + fraction) held = held * 10 + (digit.charCodeAt(0) - 48);
+  const power = Number(exponent.slice(0, 2)) - fraction.length;
+  let step = 10;
+  for (let bits = Math.abs(power); bits > 0; bits >>= 1) {
+    if (bits & 1) held = power < 0 ? held / step : held * step;
+    step *= step;
+  }
+  return sign ? -held : held;
+}
+
+/**
+ * A number with 15 significant digits and no exponent, which JavaScript writes for a number
+ * under a millionth. Summed as a whole number, 15 digits stay under 2^53, so the double
+ * the leading CAD app reads from them can be worked out exactly, where a 16th may move it a unit in
+ * the last place.
+ */
+export function fifteenDigits(value: number): string {
+  const kept = Number(value.toPrecision(15));
+  return Math.abs(kept) < 1e-6 ? kept.toFixed(20) : String(kept);
+}
+
 /**
  * An arc angle in degrees as the DXF writers print it: rounded to 6 decimals,
  * with 0 in place of an angle that rounds up to 360.
  */
+/**
+ * A number the writers work out, such as a knot or a fitted point, as they print it: 16
+ * significant digits, and below a millionth 20 decimals, never with an exponent.
+ */
+export function sixteenDigits(value: number): string {
+  const kept = Number(value.toPrecision(16));
+  return Math.abs(kept) < 1e-6
+    ? kept.toFixed(20).replace(/0+$/, "").replace(/\.$/, "")
+    : String(kept);
+}
+
 export function writtenAngle(degrees: number): number {
   const rounded = written(degrees);
   return rounded >= 360 ? rounded - 360 : rounded;
@@ -29,6 +76,17 @@ const TOO_LARGE = 1e100;
 
 /** The largest number under `TOO_LARGE`. */
 const LARGEST = 9.999999999999998e99;
+
+/** The largest number of 15 digits under `TOO_LARGE`, which `fifteenDigits` keeps under it. */
+const LARGEST_FIFTEEN_DIGITS = 9.99999999999999e99;
+
+/**
+ * A number a writer works out for itself as `fifteenDigits` writes it, brought into the range the
+ * leading CAD app reads as `readable` brings one.
+ */
+export function readableFifteenDigits(value: number): string {
+  return fifteenDigits(Math.max(-LARGEST_FIFTEEN_DIGITS, Math.min(LARGEST_FIFTEEN_DIGITS, value)));
+}
 
 /**
  * True for a number the leading CAD app would misread from DXF, because it is 1e100 or

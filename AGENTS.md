@@ -62,17 +62,30 @@
   depends on a block of a cycle being open is not kept for another way in. What many places share is read once a boxer: the box of a list of entities,
   of a long list of points and of a leader, a long value's measure, and the inserts of a list.
   An insert's attributes are written as texts in the insert's
-  own coordinates, which `placeAttribute` works out from the numbers as they are written. An
+  own coordinates, which `placeAttribute` works out from the numbers as they are written. One of
+  paragraph text is the paragraph `attributeParagraph` gives in those coordinates, mirrored where
+  X runs the other way, which `eachDrawn` draws with the matrix of the space the insert is in, and
+  the boxer keeps apart from a block's other attributes, in the coordinates of its insert's
+  space, since an uneven scale lays it out again rather than stretching it. An
   attribute is stored on its definition's layer, and one on layer `0` draws as its insert's
   layer does. An insert on a frozen layer, or in a plot on a layer that does not plot, draws
   nothing of its block.
 - An xref is a block record with a path: `Drawing.xrefs` holds a name and a path, and an
   insert places one by its name. It shares the blocks' names and the keys of their handles,
-  `block:KEY` and the two beside it, and is written as an overlay, which cannot make a cycle
-  the leading CAD app has to break. That app reads the path of a BLOCK once, so the DXF writes it
-  with `dxfOnce`. `eachDrawn` walks the drawing a caller gives for an xref as it walks a block,
-  with each layer as a `LayerRef` that says which drawing's layer it is. `src/` opens no
-  file: `toSVG` draws only the drawings it is given.
+  `block:KEY` and the two beside it, and is written as an overlay, unless `attach` is true. That
+  app reads the path of a BLOCK once, so the DXF writes it with `dxfOnce`. `eachDrawn` walks the
+  drawing a caller gives for an xref as it walks a block, with each layer as a `LayerRef` that
+  says which drawing's layer it is. `src/` opens no file: `toSVG` draws only the drawings it is
+  given. `referencedTree` in `src/blocks.ts` is the one reading of what is given in `xrefs`: a
+  tree of `Referenced`, one for each place, each with the drawings of its own attachments,
+  never of an overlay, cut where a drawing on the chain above comes again and past `XREF_DEPTH`
+  drawings down, with why in its problems, which `lint` reports with `xrefs`. Past `XREF_LOOKS`
+  names looked for inside referenced drawings it follows none, so the same given with drawings
+  left out cuts nothing the whole did not, which the command relies on; `drawnXrefs` gives the
+  tree in the form given. `eachDrawn` and the boxer read that tree, the boxer keeping a block's
+  box for each drawing and the drawings given for its attachments. `inspectText` reads the
+  drawings given for the drawing's own xrefs alone, once each, and checks no text of their
+  attachments: a cut for each place cost work outside its limit.
 - A layout is a sheet: `Drawing.layouts` holds each with its paper, its viewports and the
   entities drawn on it in paper units. `src/papers.ts` is the one list of papers and of plot
   style tables, with the name the leading CAD app stores for each paper. Add a paper only when
@@ -102,8 +115,14 @@
   refused inside a block, where that app draws nothing for it.
 - A leader holds its note, its point, its shafts and its own sizes, and the R2018 writer writes it
   as a multileader with no picture. `src/leaders.ts` is the one place that says what the leading CAD
-  app draws, `leaderPicture`, which the writers, `toSVG`, the extents and `inspectText` all read,
-  and `lineSpacing` in `src/measure.ts` the one rule for the pitch of a note's lines. A style's
+  app draws, `leaderPicture`, which the writers, `toSVG`, the extents and `inspectText` all read.
+  Its note is a `Paragraph`, laid out by `layoutParagraph` and held where the multileader holds it,
+  so the note's lines follow every rule of a paragraph's. A mask is drawn first in the leader's
+  group, so it hides what is drawn before the leader and none of the leader. A block in place of
+  the note is placed from its own outline, read once for each list of a block's entities and cut
+  at `OUTLINE_ITEMS`; `toSVG` draws it as an insert after the leader, so the insert walk draws it
+  and its attributes. A curved shaft is solved as three diagonals, in time in proportion to its
+  points. A style's
   sizes are paper sizes times its `scale`, and the file holds them multiplied out with a scale of 1.
   The writers add that app's own `Standard` and the dictionary `ACAD_MLEADERSTYLE` with the first
   style. The keys of the handles are `leader-style:NAME`, with A to Z in lower case,
@@ -153,9 +172,23 @@
   anywhere else. `src/font-metrics.ts` holds, for each font of `FONTS` and each character
   from U+0020 to U+007E and U+00A0 to U+00FF, the numbers of a text of height 1. It is data:
   never edit a number by hand, and keep its header to what the numbers are.
-- `toSVG` draws a text from where `measureText` starts it, with no `text-anchor`, and holds
-  it to its length with `textLength` and `lengthAdjust="spacingAndGlyphs"`, so every renderer
-  draws it as long as it plots in whatever typeface it has. `xml:space="preserve"` keeps its
+- `src/paragraphs.ts` is the one layout of a paragraph, `layoutParagraph` and `measureParagraph`:
+  where each line and each run sits, its strokes and its box, from the font tables' advances and
+  their paragraph columns, each letter's ink and each bold face.
+  The extents, `toSVG`, `inspectText`, the writers' boxes and `src/read/mtext.ts` all take a
+  paragraph from it, and every rule of where a line goes is in the block at its top. Its value is
+  read only by `parseParagraph` in `src/paragraph-codes.ts`, in one pass with a stack of its own
+  and at most `PARAGRAPH_NESTING` formats, and `ParagraphValue` in `src/rules.ts` is the same
+  grammar as a type, which gives up past a fixed number of steps and leaves the rest to the
+  runtime check. Two rules only the runtime check holds: `%%c` in the style's font, which the type
+  does not know, and a character above U+FFFF, since TypeScript never splits the surrogate pair
+  that holds one. A code it does not lay out is refused by `lint`, never drawn as a guess.
+- `toSVG` draws a text with no `text-anchor`, and holds it to a length with `textLength` and
+  `lengthAdjust="spacingAndGlyphs"`, so every renderer draws it as long in whatever typeface it
+  has. A text or a paragraph's run in a TrueType font is drawn from its first point and held to
+  its characters' advances, which the leading CAD app's PDF sets at `100 Tz`; one in an SHX
+  font, which plots as strokes, from where `measureText` starts it and held to the length it
+  plots. `xml:space="preserve"` keeps its
   spaces. `data-height` follows `font-family` directly, and `font-size` comes before both:
   the command finds the three together to size a text for the typeface it draws.
 - `inspectText` in `src/inspect.ts` warns about text as it plots. It is not `lint`: its rules
@@ -194,7 +227,14 @@
   are each half of the first dash and of what is left over, and a stretch shorter than its
   pattern is solid. A circle holds the whole number of patterns nearest its length, stretched
   alike to go round it, from a dash at angle 0. `cut` in `dashedPath` is the one place that
-  does it. `toSVG` draws a layout with `elements`, the
+  does it. A linetype's `marks` are placed by `markSpots`, with each whole pattern of a fitted
+  stretch, and `letterAt` sets each text in the frame of the side it lands on, the line's
+  direction in its own coordinates deciding `upright`; on an arc that frame is the straight piece
+  the leading CAD app cuts the arc into, `arcFrame`, 1/1200 inch from it on the paper, which
+  `Look.chord` holds. `shapeAt` draws a shape the same way, from the outlines `parseShapes` reads
+  of its file, found by `shapeFinder`, which `lint` shares. A pattern that ends with a dash runs
+  it into its first, `Dashes.trail`, and is fitted to its own first dash, `Dashes.lead`. A polyline's `linetypeGeneration` cuts its sides as one course, `courseOf`,
+  from its second point when it is closed. `toSVG` draws a layout with `elements`, the
   walk it draws model space with, under a `Look` that says how wide and what color a pen is.
 - A rule the leading CAD app enforces lives in `src/rules.ts` twice: as a type, so a wrong
   literal is a compile error, and as a runtime check with the same message. The
@@ -333,6 +373,32 @@
   internal. `checkDrawingRead` holds a reader's answer to the model's fields: change both
   together, and the reading page, `docs/reading.md`. `test/read-fuzz.ts` fuzzes the reader from
   a seed, and `test/read-agreement.ts` holds a read with geometry to the `Drawing` it came from.
+- `src/images.ts` is the one place of where an image's pixels go, its clip as the file holds it
+  and its frame: the writers, the plots, the extents and the readers all take an image from it.
+  A file is keyed by its path with `exactKey`, never `Strings`, since a lost key writes a file
+  twice. A file's bytes are untrusted input: `src/raster.ts` reads them as `src/truetype.ts` reads
+  a font, and decodes a PNG only up to `RASTER_PIXELS`. A browser drops the colors of a pixel of
+  no alpha, which the leading CAD app plots for an image not marked transparent, so `toSVG` holds
+  such a PNG again without its transparency, up to `OPAQUE_PIXELS`; past them it holds the file
+  as it is and marks the `<use>` `data-opaque`, which `toPDF` reads. That is the one place the
+  preview and the plot part. A PNG the plot must decode and cannot is drawn by neither, as a file
+  not given.
+- `src/fills.ts` is the one place of what a hatch, a wipeout and a text's mask draw: a hatch's loops
+  and their sides, filled by parity, which the writers make the leading CAD app's rule too by island
+  style normal and polyline loops; a wipeout's square picture of one pixel and its clip; a mask's box
+  and factor, a paragraph's and a dimension style's. The writers, `toSVG`, the extents, `lint` and
+  the readers take them from it. The wipeout frame is the dictionary variable `WIPEOUTFRAME`, which is
+  what that app reads, beside `WIPEOUTVARIABLES`, which it does not. A hatch is drawn as one path
+  with `fill-rule="evenodd"`, which `toPDF` writes as `f*`. tsdraft ships no hatch pattern: a
+  firm's pattern file gives them. A hatch finds its pattern by `layerKey` of its name, the first of
+  a name, and `patternDrawnProblem` is the one check of what its lines draw, which `lint`, the
+  builder and `toSVG` share: a pattern that would draw more than `HATCH_LINES` lines across the
+  box of its loops, or place a number of 1e100 or more, is refused, and `toSVG` draws none of its
+  lines. A gradient is `gradientPicture`, from its loops and numbers as written: colors along a
+  line or out from a point in a frame mapped onto the hatch, which `toSVG` writes as a
+  `linearGradient` or `radialGradient` in the picture's definitions and `toPDF` as a shading in the
+  loops' clip. It plots in its own colors whatever the plot style table, and black is written as
+  `0,0,1`, since the leading CAD app reads a 421 of 0 as no color.
 - `src/pdf.ts` plots layouts to PDF from the pictures `toSVG` draws of them, and decides
   nothing about a drawing: every rule of what a sheet plots stays in `toSVG`, so the preview
   and the plot cannot part. It reads the closed set of elements and attributes `toSVG` writes
@@ -355,7 +421,10 @@
   seed.
 - The writers print numbers with 6 decimals. `written` in `src/format.ts` is that
   rounding, and `lint` judges sizes, points and arc angles as written. A new
-  check on a number must do the same.
+  check on a number must do the same. One exception: a paragraph's line-spacing factor is judged
+  as given, from 0.25 to 4, as its type holds a literal, which cannot round. Both ends have 6
+  decimals, so no factor in the range rounds out of it when written, and the type and the runtime
+  check agree.
 - The leading CAD app reads two exponent digits from DXF, so no number may be written as
   1e100 or more. `lint` refuses those in a drawing. A number a writer works out
   for itself, such as an extent, must go through `readable` in `src/format.ts`.

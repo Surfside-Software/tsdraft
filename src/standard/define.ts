@@ -146,7 +146,7 @@ const plainDrawing = (): Drawing => (plain ??= remember(frozen(plainTitleBlock()
  * standard. A change to what it states needs a new version, which the CHANGELOG gives, and then
  * this hash.
  */
-const BUILT_IN_HASH = "6594f10d73a998d20b826bf3eb76bb0a7dad8cd367f69d4afb67062c30787947";
+const BUILT_IN_HASH = "8b06bfddcddd73c7256c66c35f94a2446709c22939b303a0e6daaf19ba2e05ae";
 
 let builtIn: Standard | undefined;
 /** The built-in standard, made once. */
@@ -835,7 +835,9 @@ function titleBlockDrawing(
       }
     }
     for (const e of block.entities) {
-      if (e.kind === "text" && e.style !== undefined) styleNames.add(layerKey(e.style));
+      if ((e.kind === "text" || e.kind === "paragraph") && e.style !== undefined) {
+        styleNames.add(layerKey(e.style));
+      }
       if (e.kind !== "insert") continue;
       const inserted = byName.get(layerKey(e.block));
       if (inserted && !blocks.includes(inserted)) blocks.push(inserted);

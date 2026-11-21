@@ -1,15 +1,25 @@
 import {
+  attributeParagraph,
   attributeText,
   blocksByKey,
   compose,
   insertMatrix,
   isDefinition,
   lookupCost,
+  placeAttribute,
+  placeable,
   type LayerRef,
   type Matrix,
   type Referenced,
 } from "./blocks.ts";
-import { dimensionPicture, type Dimension } from "./dimensions.ts";
+import { dimensionMask, drawnLoops, loopOutline, maskOf, paragraphMaskCorners } from "./fills.ts";
+import { imageCorners, imageDrawable, imageFrame } from "./images.ts";
+import {
+  dimensionArcPoints,
+  dimensionPicture,
+  pictureTexts,
+  type Dimension,
+} from "./dimensions.ts";
 import type {
   AttributeDefinition,
   Block,
@@ -17,17 +27,41 @@ import type {
   Entity,
   Insert,
   Leader,
+  Table,
+  TableStyle,
   LeaderStyle,
   Point,
+  Polyline,
+  Spline,
   Text,
   TextStyle,
 } from "./drawing.ts";
 import { layerKey, layerKeys } from "./layers.ts";
+import { hasArcsOrWidths, mayCurve, polylineBox, PolylineMemo } from "./polylines.ts";
 import { leaderPicture, leaderRepeats } from "./leaders.ts";
+import { tableCost, tableBox, tableMeasures, tablePicture } from "./tables.ts";
 import { inStyle, measurer } from "./measure.ts";
+import {
+  layoutDimensionText,
+  measured,
+  paragraphInStyle,
+  paragraphMeasurer,
+  placer,
+} from "./paragraphs.ts";
+import { tableProblem } from "./rules.ts";
 import { filled } from "./shape.ts";
+import { ellipseBox, splineBox } from "./curves.ts";
+import { drawnEllipse, SplineMemo } from "./rules.ts";
 
 type Bounds = [number, number, number, number];
+
+/** A boxer of a drawing's blocks, with the box of each block it has boxed by its key. */
+interface BlockBoxer {
+  readonly box: Boxer;
+  readonly known: Map<string, Bounds | undefined>;
+}
+
+const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
 
 /**
  * The most work one boxer does again for what a drawing repeats: each attribute an insert places
@@ -58,9 +92,11 @@ const SHARED = 64;
 const LONG = 256;
 
 /**
- * Approximate extents. Arcs use their full circle. A text counts for the box `measureText`
+ * Approximate extents. Arcs use their full circle, and a polyline counts for its points, the
+ * arcs of its sides and its wide sides with their joins. A text counts for the box `measureText`
  * gives it, its capitals as long as the text plots, justified, turned and leaned as it is,
- * and for what its font draws below the baseline. An insert counts for the box of what its block
+ * and for what its font draws below the baseline, and a paragraph for the box of all it draws,
+ * as `measureParagraph` gives it. An insert counts for the box of what its block
  * draws, in the block's coordinates, where the insert puts the box's corners, so a turned insert
  * may count for more than it draws. An insert of an xref counts for the drawing given for it in
  * `xrefs`, and for nothing without one. A dimension counts for its lines, its arrowheads and its
@@ -84,6 +120,7 @@ export function extents(
   dimensionStyles: readonly DimensionStyle[] = [],
   leaderStyles: readonly LeaderStyle[] = [],
   most = MAX_WORK,
+  tableStyles: readonly TableStyle[] = [],
 ): [number, number, number, number] {
   const boxOf = boxer(
     textStyles,
@@ -94,6 +131,8 @@ export function extents(
     dimensionStyles,
     leaderStyles,
     most,
+    most,
+    tableStyles,
   );
   const box = boxOf(entities);
   const at = boxOf.capped;
@@ -150,8 +189,10 @@ interface Child {
   readonly held: Held;
   /** From the inserted block's coordinates to the block's that holds the insert. */
   readonly matrix: Matrix;
-  /** The box of the insert's attributes, in the inserted block's coordinates. */
+  /** The box of the insert's attributes of one line, in the inserted block's coordinates. */
   readonly attributes: Bounds;
+  /** The box of its attributes of paragraph text, in the coordinates of the block that holds it. */
+  readonly paragraphs: Bounds;
 }
 
 /**
@@ -193,28 +234,49 @@ export function boxer(
   leaderStyles: readonly LeaderStyle[] = [],
   most = MAX_WORK,
   walking = most,
+  tableStyles: readonly TableStyle[] = [],
 ): Boxer {
   const key = layerKeys();
   const { measure, again: readAgain } = measurer();
+  const paragraphs = paragraphMeasurer();
   interface Names {
     readonly textStyles: ReadonlyMap<string, TextStyle>;
     readonly dimensionStyles: ReadonlyMap<string, DimensionStyle>;
     readonly leaderStyles: ReadonlyMap<string, LeaderStyle>;
-    /** Counts the drawings, from 0 for the drawing itself. */
-    readonly index: number;
+    readonly tableStyles: ReadonlyMap<string, TableStyle>;
+    /** The lists it was made from, for boxing a table's blocks as the writers do. */
+    readonly lists: {
+      readonly textStyles: readonly TextStyle[] | undefined;
+      readonly blocks: readonly Block[] | undefined;
+      readonly dimensionStyles: readonly DimensionStyle[] | undefined;
+      readonly leaderStyles: readonly LeaderStyle[] | undefined;
+    };
+    /** The blocks a leader's content names. */
+    readonly blocks: ReadonlyMap<string, Block>;
+    /** The drawings its xrefs stand for, which a table's cell's block may insert. */
+    readonly xrefs: ReadonlyMap<string, Referenced> | undefined;
   }
   const namesOf = (
     text: readonly TextStyle[] | undefined,
     dimensions: readonly DimensionStyle[] | undefined,
     leaders: readonly LeaderStyle[] | undefined,
-    index: number,
+    blocks: readonly Block[] | undefined,
+    tables: readonly TableStyle[] | undefined,
+    attached: ReadonlyMap<string, Referenced> | undefined,
   ): Names => ({
+    xrefs: attached,
+    lists: { textStyles: text, blocks, dimensionStyles: dimensions, leaderStyles: leaders },
+    tableStyles: new Map(
+      filled(tables)
+        .filter((style) => typeof (style as { name?: unknown } | null)?.name === "string")
+        .map((style) => [layerKey(style.name), style]),
+    ),
     textStyles: new Map(filled(text).map((t) => [layerKey(t.name), t])),
     dimensionStyles: new Map(filled(dimensions).map((style) => [layerKey(style.name), style])),
     leaderStyles: new Map(filled(leaders).map((style) => [layerKey(style.name), style])),
-    index,
+    blocks: new Map(filled(blocks).map((block) => [layerKey(block.name), block])),
   });
-  const own = namesOf(textStyles, dimensionStyles, leaderStyles, 0);
+  const own = namesOf(textStyles, dimensionStyles, leaderStyles, blocks, tableStyles, xrefs);
   // The names of each referenced drawing, worked out when one of its entities is first met.
   const referenced = new Map<Referenced, Names>();
   const byDrawing = new Map<Referenced["drawing"], Names>();
@@ -223,9 +285,10 @@ export function boxer(
     let found = referenced.get(from);
     if (!found) {
       found = byDrawing.get(from.drawing);
-      if (!found) {
-        const { textStyles, dimensionStyles, leaderStyles } = from.drawing;
-        found = namesOf(textStyles, dimensionStyles, leaderStyles, byDrawing.size + 1);
+      // A drawing given with other attachments has names of its own, for its tables' blocks.
+      if (!found || found.xrefs !== from.xrefs) {
+        const { textStyles, dimensionStyles, leaderStyles, blocks, tableStyles } = from.drawing;
+        found = namesOf(textStyles, dimensionStyles, leaderStyles, blocks, tableStyles, from.xrefs);
         byDrawing.set(from.drawing, found);
       }
       referenced.set(from, found);
@@ -257,14 +320,14 @@ export function boxer(
 
   type Add = (x: number, y: number) => void;
   /** The points that bound what an entity that is no insert draws, given to `add`. */
-  const shape = (e: Exclude<Entity, Insert>, from: Names, add: Add): void => {
+  const shape = (e: Exclude<Entity, Insert>, from: Names, add: Add, made = false): void => {
     switch (e.kind) {
       case "line":
         add(...e.from);
         add(...e.to);
         break;
       case "polyline": {
-        const box = pointsBox(e.points);
+        const box = curvedBox(e) ?? pointsBox(e.points);
         if (box[0] === Infinity) break;
         add(box[0], box[1]);
         add(box[2], box[3]);
@@ -275,6 +338,21 @@ export function boxer(
         add(e.center[0] - e.radius, e.center[1] - e.radius);
         add(e.center[0] + e.radius, e.center[1] + e.radius);
         break;
+      case "ellipse": {
+        const drawn = drawnEllipse(e);
+        if (!drawn) break;
+        const box = ellipseBox(drawn.center, drawn.majorAxis, drawn.ratio, drawn.start, drawn.end);
+        add(box[0], box[1]);
+        add(box[2], box[3]);
+        break;
+      }
+      case "spline": {
+        const box = splineBoxOf(e);
+        if (box === undefined) break;
+        add(box[0], box[1]);
+        add(box[2], box[3]);
+        break;
+      }
       case "text": {
         // A long value that took the place of another of its length is read again, and paid for.
         const again = typeof e.value === "string" && readAgain(e.value);
@@ -289,10 +367,48 @@ export function boxer(
         add(c1[0] - (c2[0] - c1[0]) * below, c1[1] - (c2[1] - c1[1]) * below);
         break;
       }
+      case "paragraph": {
+        const style = e.style === undefined ? undefined : from.textStyles.get(key(e.style));
+        const paragraph = paragraphInStyle(e, style);
+        const mask = maskOf(e.mask);
+        if (mask === undefined) {
+          // A long value laid out again is paid for first; a box already kept is mapped alone.
+          const again = made ? paragraphs.boxMade(paragraph) : paragraphs.boxAgain(paragraph);
+          if (again > 0 && !spend(again)) break;
+          for (const [x, y] of paragraphs.box(paragraph) ?? []) add(x, y);
+          break;
+        }
+        // A mask reaches past the ink, and hides what is drawn before it there. Both boxes come
+        // from one layout, kept for a long value, whose mask's box is read once.
+        const again = made ? paragraphs.made(paragraph) : paragraphs.again(paragraph);
+        if (again > 0 && !spend(again)) break;
+        const layout = paragraphs.layout(paragraph);
+        if (layout.ink) {
+          const place = placer(paragraph);
+          const [x0, y0, x1, y1] = layout.ink;
+          for (const [x, y] of [place(x0, y0), place(x1, y0), place(x1, y1), place(x0, y1)])
+            add(x, y);
+        }
+        for (const [x, y] of paragraphMaskCorners(e, layout, mask)) add(x, y);
+        break;
+      }
       case "linear-dimension":
       case "aligned-dimension":
+      case "radius-dimension":
+      case "diameter-dimension":
+      case "jogged-radius-dimension":
+      case "angular-dimension":
+      case "arc-length-dimension":
+      case "ordinate-dimension":
         dimension(e, from, add);
         break;
+      case "table": {
+        const box = tableOf(e, from);
+        if (box === undefined) break;
+        add(box[0], box[1]);
+        add(box[2], box[3]);
+        break;
+      }
       case "leader": {
         const box = leaderBox(e, from);
         if (box[0] === Infinity) break;
@@ -300,10 +416,83 @@ export function boxer(
         add(box[2], box[3]);
         break;
       }
+      case "hatch": {
+        const box = loopsBox(e.loops, e.layer);
+        if (box[0] === Infinity) break;
+        add(box[0], box[1]);
+        add(box[2], box[3]);
+        break;
+      }
+      case "wipeout": {
+        const box = pointsBox(e.points);
+        if (box[0] === Infinity) break;
+        add(box[0], box[1]);
+        add(box[2], box[3]);
+        break;
+      }
+      case "image": {
+        // The image, and the frame of a clip that reaches past it: a rectangle's four corners
+        // along the image's sides, or a polygon's points. One the plots cannot draw has none.
+        if (!imageDrawable(e, clipsChecked)) break;
+        for (const [x, y] of imageCorners(e)) add(x, y);
+        if (e.clip === undefined) break;
+        if (e.clip.length === 2) {
+          for (const [x, y] of imageFrame(e)) add(x, y);
+          break;
+        }
+        const box = pointsBox(e.clip);
+        if (box[0] === Infinity) break;
+        add(box[0], box[1]);
+        add(box[2], box[3]);
+        break;
+      }
     }
+  };
+  /**
+   * The box of a spline, from its curve, worked out once for every spline of the same lists and
+   * fields: within a ten-millionth of a unit, or less than a writer's rounding moves a number, of
+   * the curve, and never inside it. One worked out again from lists another spline read is paid for
+   * by the work its fit and its pieces take.
+   */
+  const splines = new SplineMemo();
+  const splineBoxes = new WeakMap<object, Bounds | null>();
+  const splineBoxOf = (e: Spline): Bounds | undefined => {
+    const fields = e as unknown as Readonly<Record<string, unknown>>;
+    const drawn = splines.get(fields, (lists) => {
+      let cost = 0;
+      for (const list of lists) if (Array.isArray(list)) cost += list.length * 2;
+      return spend(cost);
+    });
+    if (!drawn) return undefined;
+    const known = splineBoxes.get(drawn);
+    if (known !== undefined) return known ?? undefined;
+    const { degree, knots, controlPoints, weights } = drawn;
+    let reach = 0;
+    for (const [x, y] of controlPoints) reach = Math.max(reach, Math.abs(x), Math.abs(y));
+    const box = splineBox(degree, knots, controlPoints, weights, 1e-7 + reach * 2 ** -44) ?? null;
+    splineBoxes.set(drawn, box);
+    return box ?? undefined;
   };
   /** The box of a list of points, worked out once for a long list however many hold it. */
   const pointBoxes = new WeakMap<object, Bounds>();
+  /** The box of a hatch's list of loops, worked out once however many hatches hold the list. */
+  const loopBoxes = new WeakMap<object, Bounds>();
+  const loopsBox = (loops: unknown, layer: string): Bounds => {
+    const shared = typeof loops === "object" && loops !== null;
+    const known = shared ? loopBoxes.get(loops) : undefined;
+    if (known) return known;
+    const box = empty();
+    for (const loop of drawnLoops(loops)) {
+      const found = curvedBox(loopOutline(loop, layer)) ?? pointsBox(loop.points);
+      if (found[0] === Infinity) continue;
+      include(box, found[0], found[1]);
+      include(box, found[2], found[3]);
+    }
+    if (shared) loopBoxes.set(loops, box);
+    return box;
+  };
+  /** Whether each clip an image gives can be drawn, read once however many images share it. */
+  const clipsChecked = new WeakMap<object, boolean>();
   const pointsBox = (points: readonly Point[]): Bounds => {
     const long = Array.isArray(points) && points.length >= SHARED;
     const known = long ? pointBoxes.get(points) : undefined;
@@ -313,33 +502,148 @@ export function boxer(
     if (long) pointBoxes.set(points, box);
     return box;
   };
+  /**
+   * The box of a polyline with an arc or a width, or undefined for one with neither, worked out
+   * once for every polyline that holds the same lists: its points, its arcs and its filled sides.
+   * A long list read again for another polyline is paid for, as `lint` pays for it.
+   */
+  const curvedBoxes = new PolylineMemo<Bounds | null>();
+  const curvedLists = new WeakSet<object>();
+  const curvedBox = (e: Polyline): Bounds | undefined => {
+    if (!mayCurve(e)) return undefined;
+    const known = curvedBoxes.get(e);
+    if (known !== undefined) return known ?? undefined;
+    /**
+     * Pays for reading long lists again, a unit for each `per` items, and says whether there was
+     * room to.
+     */
+    const paid = (lists: readonly unknown[], per: number): boolean => {
+      let cost = 0;
+      for (const list of lists) {
+        if (!Array.isArray(list) || list.length < SHARED) continue;
+        if (curvedLists.has(list)) cost += Math.floor(list.length / per);
+        else curvedLists.add(list);
+      }
+      return cost === 0 || spend(cost);
+    };
+    // Telling whether it has an arc or a width reads its bulges and widths. Boxing it reads its
+    // points and works out each side's arc, filled shape and join, which costs more for each.
+    if (!paid([e.bulges, e.widths], 8)) return empty();
+    if (!hasArcsOrWidths(e)) {
+      curvedBoxes.set(e, null);
+      return undefined;
+    }
+    if (!paid([e.points], 2)) return empty();
+    const box = empty();
+    const found = polylineBox(e);
+    if (found) {
+      include(box, found[0], found[1]);
+      include(box, found[2], found[3]);
+    }
+    curvedBoxes.set(e, box);
+    return box;
+  };
   /** What a dimension draws: its lines, its arrowheads, and its text as any text is boxed. */
   const dimension = (e: Dimension, from: Names, add: Add): void => {
     const style = from.dimensionStyles.get(key(e.style));
     if (style === undefined) return;
     // Its style's prefix and suffix are read for each dimension that has the style.
-    const reads = (style.prefix?.length ?? 0) + (style.suffix?.length ?? 0) + (e.text?.length ?? 0);
+    const reads =
+      (style.prefix?.length ?? 0) +
+      (style.suffix?.length ?? 0) +
+      (e.text?.length ?? 0) +
+      (e.textBelow?.length ?? 0);
     // The label is put together for each dimension, so it is paid for by its whole length.
     const cost = Math.floor(reads / 32);
     if (cost > 0 && !spend(cost)) return;
-    const picture = dimensionPicture(e, style);
-    for (const line of [...picture.extensionLines, picture.dimensionLine]) {
+    const font =
+      style.textStyle === undefined ? undefined : from.textStyles.get(key(style.textStyle));
+    const picture = dimensionPicture(e, style, font);
+    for (const line of [...picture.extensionLines, ...picture.dimensionLines, ...picture.leader]) {
       add(...line[0]);
       add(...line[1]);
     }
+    for (const arc of picture.dimensionArcs)
+      for (const p of dimensionArcPoints(arc)) add(p[0], p[1]);
     for (const arrowhead of picture.arrowheads) for (const corner of arrowhead) add(...corner);
-    const { label } = picture;
-    const text: Text = {
-      kind: "text",
-      layer: e.layer,
-      at: label.at,
-      height: label.height,
-      value: label.value,
-      rotation: label.rotation,
-      align: "center",
-      ...(label.style === undefined ? {} : { style: label.style }),
-    };
-    shape(text, from, add);
+    // Each text by the box of what it draws, as its block's paragraph lays it out, and by its
+    // mask where the style masks it.
+    const mask = dimensionMask(style);
+    for (const text of pictureTexts(picture, font)) {
+      const layout = layoutDimensionText(text);
+      for (const corner of measured(text, layout).corners ?? []) add(...corner);
+      if (mask) for (const corner of paragraphMaskCorners(text, layout, mask)) add(...corner);
+    }
+  };
+  /** The box of each table, worked out once for each drawing's names. */
+  const tables = new WeakMap<Table, Map<Names, Bounds | undefined>>();
+  /** A boxer of each drawing's blocks that hides nothing, as the writers box a cell's block. */
+  const plainBoxers = new Map<Names, BlockBoxer>();
+  /** The same with the drawing's xrefs, for what a cell's block draws through one of them. */
+  const attachedBoxers = new Map<Names, BlockBoxer>();
+  /** Boxes a block at an insert of it at the origin, once for each name, with one boxer per names. */
+  const blockBoxBy = (
+    boxers: Map<Names, BlockBoxer>,
+    from: Names,
+    attached: ReadonlyMap<string, Referenced> | undefined,
+    name: string,
+  ): Bounds | undefined => {
+    let held = boxers.get(from);
+    if (!held) {
+      const { textStyles, blocks, dimensionStyles, leaderStyles } = from.lists;
+      held = {
+        box: boxer(
+          textStyles,
+          blocks,
+          undefined,
+          undefined,
+          attached,
+          dimensionStyles,
+          leaderStyles,
+          most,
+          walking,
+        ),
+        known: new Map(),
+      };
+      boxers.set(from, held);
+    }
+    const k = key(name);
+    if (held.known.has(k)) return held.known.get(k);
+    const found = held.box([{ kind: "insert", layer: "0", block: name, at: [0, 0] }]);
+    if (held.box.capped) stop();
+    held.known.set(k, found);
+    return found;
+  };
+  const tableOf = (e: Table, from: Names) => {
+    let byNames = tables.get(e);
+    if (!byNames) tables.set(e, (byNames = new Map()));
+    if (byNames.has(from)) return byNames.get(from);
+    byNames.set(from, undefined);
+    // Its cells are paid for before they are read, a unit each and one for each 32 characters.
+    if (typeof e.style !== "string" || !spend(tableCost(e))) return undefined;
+    const style = from.tableStyles.get(key(e.style));
+    // A table or a style the rules refuse draws nothing, and is not read.
+    if (style === undefined || tableProblem(e) !== undefined) return undefined;
+    const styleOf = (name: string | undefined) =>
+      name === undefined ? undefined : from.textStyles.get(key(name));
+    const picture = tablePicture(
+      e,
+      style,
+      tableMeasures(styleOf, (name) => blockBoxBy(plainBoxers, from, undefined, name)),
+    );
+    // Its box, worked out once however many places draw it, its cells' blocks in it. A block is
+    // fitted as the writers fit it, which know no xrefs, and draws what its xrefs hold too.
+    const attached = from.xrefs;
+    const box = tableBox(
+      e,
+      picture,
+      styleOf,
+      attached && attached.size > 0
+        ? (name) => blockBoxBy(attachedBoxers, from, attached, name)
+        : undefined,
+    );
+    byNames.set(from, box);
+    return box;
   };
   /**
    * The box of what a leader draws, worked out once for each drawing: its shafts, its
@@ -362,7 +666,7 @@ export function boxer(
     if (style === undefined) return box;
     const named = e.textStyle ?? style.textStyle;
     const textStyle = named === undefined ? undefined : from.textStyles.get(key(named));
-    const picture = leaderPicture(e, style, textStyle);
+    const picture = leaderPicture(e, style, textStyle, (name) => from.blocks.get(key(name)));
     for (const shaft of picture.shafts) for (const p of shaft) add(...p);
     for (const arrowhead of picture.arrowheads) {
       for (const p of arrowhead.filled) add(...p);
@@ -375,20 +679,19 @@ export function boxer(
         add(center[0] + radius, center[1] + radius);
       }
     }
-    for (const p of picture.landing ?? []) add(...p);
-    for (const line of picture.lines) {
-      const text: Text = {
-        kind: "text",
-        layer: e.layer,
-        at: line.at,
-        height: line.height,
-        value: line.value,
-        rotation: 0,
-        ...(line.align === "right" ? { align: "right" as const } : {}),
-        ...(named === undefined ? {} : { style: named }),
-      };
-      shape(text, from, add);
+    for (const p of [...(picture.landing ?? []), ...(picture.farLanding ?? [])]) add(...p);
+    for (const [a, b] of picture.underlines) {
+      add(...a);
+      add(...b);
     }
+    for (const p of picture.frame ?? []) add(...p);
+    for (const p of picture.mask?.corners ?? []) add(...p);
+    // A block in place of the note: the box of its outline, as the picture places it.
+    if (picture.block !== undefined) {
+      add(picture.box[0], picture.box[1]);
+      add(picture.box[2], picture.box[3]);
+    }
+    shape(picture.note, from, add);
     return box;
   };
 
@@ -402,12 +705,13 @@ export function boxer(
     return found;
   };
   /**
-   * Gives `add` the points of the attributes an insert places, in its block's coordinates, the
-   * first `FREE` of them free of the limit. A value the insert holds is read once for each time
-   * the insert is, so only a definition's value, which each insert without one repeats, is paid
-   * for by its length. False when the limit stopped it.
+   * Gives `add` the points of the attributes an insert places, those of one line in its block's
+   * coordinates and those of paragraph text to `addPlaced`, in the coordinates of the space the
+   * insert is in, the first `FREE` of them free of the limit. A value the insert holds is read
+   * once for each time the insert is, so only a definition's value, which each insert without one
+   * repeats, is paid for by its length. False when the limit stopped it.
    */
-  const attributes = (insert: Insert, held: Held, add: Add): boolean => {
+  const attributes = (insert: Insert, held: Held, add: Add, addPlaced: Add): boolean => {
     if (!held.block) return true;
     const from = names(held.inside);
     const listed = definitionsOf(held.block);
@@ -419,16 +723,48 @@ export function boxer(
       const cost =
         (i < FREE ? 0 : 1) +
         lookupCost(insert, definition) +
-        (repeated ? Math.floor(Math.min(value.value.length, LONG) / 32) : 0);
+        (repeated && typeof value.value === "string"
+          ? Math.floor(Math.min(value.value.length, LONG) / 32)
+          : 0);
       if (cost > 0 && !spend(cost)) return false;
       const layer = definition.layer;
       const hidden = layer === "0" ? held.hidden : isHidden(layerOf(layer, held.inside));
-      if (!hidden) shape(value, from, add);
+      if (hidden) continue;
+      if (definition.kind !== "paragraph") {
+        shape(value, from, add);
+        continue;
+      }
+      // Laid out where the insert puts it, and mirrored back where the insert mirrors it.
+      if (!placeable(definition, insert)) continue;
+      const placed = placeAttribute(definition, undefined, insert, held.block.base);
+      const flip = placed.mirrored ? -1 : 1;
+      // Under an uneven scale its value is one the drawing does not hold.
+      shape(
+        attributeParagraph(placed)!,
+        from,
+        (x, y) => addPlaced(flip * x, y),
+        placed.paragraph!.uneven,
+      );
     }
     return true;
   };
 
-  /** Each block in each drawing, by the drawing and whether its layer `0` is hidden. */
+  /**
+   * The places a block is held in, from 1: each referenced drawing with the drawings given for
+   * its attachments, which two places that give one drawing may give apart. The drawing itself
+   * is 0.
+   */
+  const places = new Map<Referenced["drawing"], Map<Referenced["xrefs"], number>>();
+  let counted = 0;
+  const placeOf = (inside: Referenced | undefined): number => {
+    if (inside === undefined) return 0;
+    let byXrefs = places.get(inside.drawing);
+    if (!byXrefs) places.set(inside.drawing, (byXrefs = new Map()));
+    let place = byXrefs.get(inside.xrefs);
+    if (place === undefined) byXrefs.set(inside.xrefs, (place = ++counted));
+    return place;
+  };
+  /** Each block in each place, by the place and whether its layer `0` is hidden. */
   const helds = new Map<Block | Referenced, Held[]>();
   const heldOf = (
     held: Block | Referenced,
@@ -437,7 +773,7 @@ export function boxer(
     inner: ReadonlyMap<string, Block>,
     hidden: boolean,
   ): Held => {
-    const slot = names(inside).index * 2 + (hidden ? 1 : 0);
+    const slot = placeOf(inside) * 2 + (hidden ? 1 : 0);
     let all = helds.get(held);
     if (!all) helds.set(held, (all = []));
     return (all[slot] ??= {
@@ -469,7 +805,7 @@ export function boxer(
     if (!zero && isFrozen(layer)) return undefined;
     const name = key(insert.block);
     const block = within.inner.get(name);
-    const xref = block || inside ? undefined : xrefs?.get(name);
+    const xref = block ? undefined : (inside ? inside.xrefs : xrefs)?.get(name);
     const held = block ?? xref;
     if (!held) return undefined;
     const hidden = zero ? within.hidden : isHidden(layer);
@@ -510,21 +846,25 @@ export function boxer(
     }
     return (slots[slot] = box);
   };
-  /** The inserts of a list, found once, and the block or xref that first read them. */
-  const insertLists = new WeakMap<object, { inserts: readonly Insert[]; by: Block | Referenced }>();
-  /** Reads the inserts a block holds, once, and pays for a list read for another block. */
+  /** The inserts of a list, found once, and the block or xref and the place that first read them. */
+  const insertLists = new WeakMap<
+    object,
+    { inserts: readonly Insert[]; by: Block | Referenced; place: number }
+  >();
+  /** Reads the inserts a block holds, once, and pays for a list read for another block or place. */
   const fill = (held: Held): void => {
     if (held.filled) return;
     held.filled = true;
     const list = listOf(held);
+    const place = placeOf(held.inside);
     let found = insertLists.get(list);
     if (!found) {
       const inserts = filled(list).filter((item): item is Insert => item.kind === "insert");
-      insertLists.set(list, (found = { inserts, by: held.held }));
+      insertLists.set(list, (found = { inserts, by: held.held, place }));
     }
     const { inserts } = found;
     held.inserts = inserts.length;
-    if (found.by !== held.held && inserts.length > 0) {
+    if ((found.by !== held.held || found.place !== place) && inserts.length > 0) {
       if (!spend(1 + Math.floor(inserts.length / 8))) return;
     }
     const children: Child[] = [];
@@ -532,11 +872,18 @@ export function boxer(
       const inner = placedBy(item, held, false);
       if (!inner) continue;
       const box = empty();
-      attributes(item, inner, (x, y) => include(box, x, y));
+      const placed = empty();
+      attributes(
+        item,
+        inner,
+        (x, y) => include(box, x, y),
+        (x, y) => include(placed, x, y),
+      );
       children.push({
         held: inner,
         matrix: insertMatrix(item, inner.block?.base),
         attributes: box,
+        paragraphs: placed,
       });
     }
     held.children = children;
@@ -618,6 +965,7 @@ export function boxer(
         }
         if (frame.again && !spend(1)) return undefined;
         add(frame, child.attributes, child.matrix, sizeOf(child.attributes), 1);
+        add(frame, child.paragraphs, IDENTITY, sizeOf(child.paragraphs), 0);
         const inner = flats.get(child.held);
         if (inner) add(frame, inner.box, child.matrix, inner.size, inner.depth + 1, inner.rough);
         else {
@@ -689,6 +1037,7 @@ export function boxer(
         if (open.has(child.held.held)) continue;
         const m = compose(at.m, child.matrix);
         if (child.attributes[0] !== Infinity) mapCorners(into, child.attributes, m);
+        if (child.paragraphs[0] !== Infinity) mapCorners(into, child.paragraphs, at.m);
         if (!pay(1)) return false;
         walkInto(child.held, m, into);
         continue;
@@ -807,7 +1156,12 @@ export function boxer(
       const matrix = insertMatrix(e, held.block?.base);
       place(held, matrix, box);
       const [a, b, c, d, x0, y0] = matrix;
-      attributes(e, held, (x, y) => include(box, a * x + c * y + x0, b * x + d * y + y0));
+      attributes(
+        e,
+        held,
+        (x, y) => include(box, a * x + c * y + x0, b * x + d * y + y0),
+        (x, y) => include(box, x, y),
+      );
     }
     boxing = undefined;
     return box[0] === Infinity ? undefined : box;

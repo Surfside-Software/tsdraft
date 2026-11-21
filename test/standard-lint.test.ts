@@ -175,8 +175,8 @@ test("a text plots at its role's height in each viewport that shows it, and at l
   assert.deepEqual(
     lint(half, { standard }).map((d) => d.message),
     [
-      `text #51: This text of the role "note" plots 0.047 in tall in viewport "plan" at 1" = 10', and the role is 0.094 in: it was sized for another scale. Draw it in the view of the viewport that shows it`,
-      `text #51: This text plots 0.047 in tall in viewport "plan" at 1" = 10', below the standard's least height of 0.0625 in`,
+      `text #53: This text of the role "note" plots 0.047 in tall in viewport "plan" at 1" = 10', and the role is 0.094 in: it was sized for another scale. Draw it in the view of the viewport that shows it`,
+      `text #53: This text plots 0.047 in tall in viewport "plan" at 1" = 10', below the standard's least height of 0.0625 in`,
     ],
   );
   // The model of the sheet at 1" = 10', shown at 1" = 20': every text and dimension is off.
@@ -259,7 +259,7 @@ test("a dimension is shown at its style's scale", () => {
   assert.equal(found.length, 7);
   assert.match(
     found[0]!.message,
-    /^linear-dimension #28: It is in the dimension style "DIMS-1in-20ft", for 1" = 20', and is shown in viewport "plan" at 1" = 10'/,
+    /^linear-dimension #29: It is in the dimension style "DIMS-1in-20ft", for 1" = 20', and is shown in viewport "plan" at 1" = 10'/,
   );
 });
 
@@ -714,7 +714,12 @@ test("the checks of a standard stay bounded on any data, and never throw", () =>
     }
     // A field of something in the drawing: a long name, a value of the wrong type, or a field
     // nobody knows that is large written out.
-    const records: Data[] = [drawing, sheetLayout, ...lists.flatMap(([o, f]) => o[f] as Data[])];
+    // A list the sheet does not have, such as its xrefs, holds no record.
+    const records: Data[] = [
+      drawing,
+      sheetLayout,
+      ...lists.flatMap(([o, f]) => (o[f] as Data[] | undefined) ?? []),
+    ];
     for (const e of [...sheetLayout.entities, ...(drawing.entities as Data[])]) {
       if (e.attributes) records.push((e.attributes = { ...(e.attributes as Data) }));
     }

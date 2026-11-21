@@ -1,3 +1,4 @@
+import { entityColorProblem } from "./colors.ts";
 import {
   definitionHandle,
   insertAttributeHandle,
@@ -5,6 +6,8 @@ import {
   blockHandles,
   lookupCost,
   placeAttribute,
+  referencedTree,
+  type XrefDrawings,
 } from "./blocks.ts";
 import {
   arrowheadInfo,
@@ -18,12 +21,14 @@ import { callOf, type CallSite } from "./callsite.ts";
 import {
   arrowheadEntityHandle,
   dimensionDrawnProblem,
+  ordinateLeader,
   pictureHandleList,
   pictureOwner,
   validDimensionPictureHandles,
   validDimensionStyleHandle,
   type Dimension,
   type DimensionPlace,
+  isDimension,
 } from "./dimensions.ts";
 import type {
   AttributeDefinition,
@@ -32,24 +37,33 @@ import type {
   Drawing,
   DxfVersion,
   Entity,
+  Hatch,
+  HatchPattern,
+  Image,
   Layout,
   Viewport,
   Insert,
   Layer,
   Leader,
   LeaderStyle,
+  Table,
+  TableStyle,
   Linetype,
+  PatternLine,
   Point,
   Text,
   TextStyle,
   Xref,
 } from "./drawing.ts";
+import { isFitSpline } from "./drawing.ts";
 import { boxer, type Boxer } from "./extents.ts";
+import { exactKey, imagePathKey, imageReactorHandle, imageVectors } from "./images.ts";
 import { written } from "./format.ts";
 import { validIdHandle } from "./handles.ts";
 import { validLayoutHandles, validViewportView, viewReaches } from "./layouts.ts";
 import {
   leaderArrowheadHandles,
+  leaderBlock,
   leaderDrawnProblem,
   leaderRepeats,
   leaderStyleDictionaryHandle,
@@ -72,13 +86,36 @@ import {
   Strings,
   type Check,
 } from "./shape.ts";
+import { shapeFinder, type ShapeFiles } from "./shapes.ts";
 import { layerAuditKey, layerKey, layoutNameKey } from "./layers.ts";
-import { STANDARD_TEXT_STYLE } from "./fonts.ts";
+import { STANDARD_FONT, STANDARD_TEXT_STYLE } from "./fonts.ts";
+import {
+  STANDARD_TABLE_STYLE,
+  tableCost,
+  tableMargins,
+  tableMeasures,
+  tablePicture,
+  tableRepeats,
+  tableTexts,
+  tableStyleDictionaryHandle,
+  validTableStyleHandle,
+} from "./tables.ts";
+import { parseParagraph, type ParsedParagraph } from "./paragraph-codes.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import {
+  IMAGE_CLIP_MOST,
+  IMAGE_CLIP_MOST_PROBLEM,
+  IMAGE_INVERT_WITHOUT_CLIP,
+  IMAGE_PIXELS_SAME,
+  imageClipProblem,
+  imagePathProblem,
+  imagePixelsProblem,
   arcIsWrittenAsPoint,
   arcProblem,
+  ATTRIBUTE_KIND,
   ATTRIBUTES_SHAPE,
+  PARAGRAPH_ONLY,
+  paragraphOnlyProblem,
   attributeTagProblem,
   blockCycleProblem,
   blockNameProblem,
@@ -106,6 +143,17 @@ import {
   leaderStyleNameProblem,
   leaderStyleProblem,
   leaderStyleTwinProblem,
+  isStandardTableStyle,
+  standardTableStyleProblem,
+  TABLE_COLOR,
+  TABLE_IN_BLOCK,
+  tableColumnsProblem,
+  tableTextsProblem,
+  tableProblem,
+  tableStyleNameProblem,
+  tableStyleProblem,
+  tableStyleTwinProblem,
+  leaderBlockContentProblem,
   leaderTextProblem,
   layerColorProblem,
   layerFlagProblem,
@@ -118,9 +166,14 @@ import {
   lineweightProblem,
   linetypeNameProblem,
   linetypeProblem,
+  marksProblem,
   linetypeScaleProblem,
   R12_ONLY,
+  controlSplineProblems,
+  ellipseProblems,
+  fitSplineProblems,
   magnitudeProblem,
+  polylineSidesProblems,
   paperProblem,
   placedAttributeProblem,
   plotStyleProblem,
@@ -129,6 +182,13 @@ import {
   sizeProblem,
   textAlignProblem,
   textProblem,
+  lineSpacingProblem,
+  paragraphChoiceProblem,
+  paragraphColumnsShapeProblem,
+  paragraphColumnsSizeProblem,
+  PARAGRAPH_COLUMN_BREAK,
+  paragraphProblemIn,
+  paragraphValueProblem,
   textStyleNameProblem,
   textStyleProblem,
   textWarning,
@@ -145,11 +205,41 @@ import {
   viewportProblem,
   XREF_ATTRIBUTES,
   XREF_REFUSED_FIELDS,
+  XREFS_GIVEN,
+  xrefChainProblem,
   XREF_UNPLACED,
   xrefFieldProblem,
   xrefPathProblem,
   xrefTwinProblem,
+  HATCH_LOOP_POINTS,
+  HATCH_NO_LOOPS,
+  textMaskProblem,
+  PARAGRAPH_MASK_COLUMNS,
+  WIPEOUT_CROSSES,
+  WIPEOUT_FLAT,
+  WIPEOUT_FRAME,
+  WIPEOUT_POINTS,
+  GRADIENT_WITH_PATTERN,
+  hatchGradientProblem,
+  hatchPatternChoiceProblem,
+  hatchPatternNameProblem,
+  PATTERN_ITEMS,
+  patternLineProblem,
+  patternLinesProblem,
+  undefinedHatchPatternProblem,
+  ORDINATE_ACROSS,
+  ORDINATE_AXIS,
 } from "./rules.ts";
+import {
+  hatchSpread,
+  lineSizes,
+  loopBulged,
+  loopsBox,
+  onOneLine,
+  patternDrawnProblem,
+  polygonCrosses,
+  type PatternSizes,
+} from "./fills.ts";
 
 export type LintRule =
   | "format"
@@ -162,6 +252,7 @@ export type LintRule =
   | "duplicate-linetype"
   | "undefined-linetype"
   | "lineweight"
+  | "entity-color"
   | "layer-state"
   | "geometry"
   | "text"
@@ -191,6 +282,17 @@ export type LintRule =
   | "duplicate-leader-style"
   | "undefined-leader-style"
   | "leader"
+  | "table-style"
+  | "duplicate-table-style"
+  | "undefined-table-style"
+  | "table"
+  | "paragraph"
+  | "image"
+  | "hatch"
+  | "hatch-pattern"
+  | "hatch-gradient"
+  | "duplicate-hatch-pattern"
+  | "wipeout"
   | "zero-length"
   | "standard"
   | "layer-outside-standard"
@@ -220,6 +322,7 @@ export type LintRule =
   | "title-block-field-unset"
   | "title-block-field-overflow"
   | "standard-check-capped"
+  | "linetype-shape"
   | "check-capped";
 
 export interface Diagnostic {
@@ -241,6 +344,8 @@ export interface Diagnostic {
   readonly dimensionStyle?: string;
   /** The leader style the problem is in, when it is a problem with its definition. */
   readonly leaderStyle?: string;
+  /** The table style the problem is in, when it is a problem with its definition. */
+  readonly tableStyle?: string;
   /**
    * The block the problem is in: a problem with the block's definition, with one of its
    * attribute definitions, or with one of its entities.
@@ -282,7 +387,18 @@ export interface Diagnostic {
  * What `lint` checks a drawing against: its DXF version, and the standard it is drawn to, with
  * the drawing's discipline.
  */
-export type LintOptions =
+export type LintOptions = {
+  /**
+   * The drawings the xrefs stand for, as `toSVG` takes them. `lint` then says why any drawing
+   * given there is not drawn. It does not check those drawings: lint each on its own.
+   */
+  readonly xrefs?: XrefDrawings;
+  /**
+   * The bytes of each shape file the drawing's linetypes name, as `toSVG` takes them. `lint` then
+   * warns only of a shape the plot cannot draw from them.
+   */
+  readonly shapes?: ShapeFiles;
+} & (
   | {
       /** The DXF version to check against. Defaults to the drawing's own. */
       readonly version?: DxfVersion;
@@ -302,7 +418,8 @@ export type LintOptions =
        * fields by discipline.
        */
       readonly discipline?: string;
-    };
+    }
+);
 
 /**
  * The most work the checks do again for what a drawing repeats, beside `REPEATS` for each
@@ -320,6 +437,25 @@ const REPEATS = 16;
 
 /** The attributes of each insert that are placed, and take handles, free of the limit. */
 const FREE = 64;
+
+/** A check of no type, for a list whose items' types a rule reports with the item's path. */
+const UNTYPED: Check = () => {};
+
+/**
+ * True for a line of a hatch pattern whose fields all have their types: a rule refused it for a
+ * value, not for a type. A list of more dashes than a pattern holds is refused for its length.
+ */
+function lineTyped(line: Readonly<Record<string, unknown>>): boolean {
+  const pair = (p: unknown): boolean =>
+    Array.isArray(p) && p.length === 2 && typeof p[0] === "number" && typeof p[1] === "number";
+  if (typeof line.angle !== "number" || !pair(line.base) || !pair(line.offset)) return false;
+  const dashes: unknown = line.dashes;
+  if (dashes === undefined) return true;
+  if (!Array.isArray(dashes)) return false;
+  if (dashes.length > PATTERN_ITEMS) return true;
+  for (let i = 0; i < dashes.length; i++) if (typeof dashes[i] !== "number") return false;
+  return true;
+}
 
 /** The values of an insert that gives none. */
 const NO_VALUES: Readonly<Record<string, string>> = Object.freeze({});
@@ -421,6 +557,22 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     if (!found) textChecks.set(value, (found = [textProblem(value), textWarning(value)]));
     return found;
   };
+  /** What is wrong with a paragraph's value in its style's font, read once for a long one. */
+  const paragraphChecks = new Strings<
+    Pick<ParsedParagraph, "problem" | "ownDiameter" | "columnBreak">
+  >();
+  /** What is wrong with a paragraph's value, and whether it holds a `\N`. */
+  const checkParagraph = (value: string, font: unknown): [string | undefined, boolean] => {
+    let found = value.length < LONG ? undefined : paragraphChecks.get(value);
+    if (!found) {
+      const { problem, ownDiameter, columnBreak } = parseParagraph(value);
+      found = { problem, ownDiameter, columnBreak };
+      if (value.length >= LONG) paragraphChecks.set(value, found);
+    }
+    return [paragraphProblemIn(found, font), found.columnBreak];
+  };
+  /** What is wrong with each columns object a paragraph gives, apart from its width. */
+  const columnShapes = new WeakMap<object, string | undefined>();
   /** The strings of `LONG` characters or more the checks have read. */
   const long = new Strings<true>();
   /**
@@ -454,15 +606,36 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       case "text":
         cost += long1(e.value) + long1(e.style) + long1(e.align) + long1(e.valign);
         break;
+      case "paragraph":
+        cost +=
+          long1(e.value) +
+          long1(e.style) +
+          long1(e.align) +
+          long1(e.valign) +
+          long1(e.lineSpacingStyle);
+        break;
       case "insert":
         cost += long1(e.block);
         break;
       case "linear-dimension":
       case "aligned-dimension":
-        cost += long1(e.style) + long1(e.text);
+      case "radius-dimension":
+      case "diameter-dimension":
+      case "jogged-radius-dimension":
+      case "angular-dimension":
+      case "arc-length-dimension":
+      case "ordinate-dimension":
+        cost += long1(e.style) + long1(e.text) + long1(e.textBelow);
         break;
       case "leader":
         cost += long1(e.style) + long1(e.textStyle);
+        break;
+      case "image":
+        cost += long1(e.path);
+        break;
+      case "hatch":
+        // A message quotes the name of a pattern the drawing does not have.
+        cost += long1(isObject(e.pattern) ? e.pattern.name : undefined);
         break;
     }
     return cost;
@@ -477,6 +650,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     long1(d.align) +
     long1(d.valign);
   const leaderAgain = leaderRepeats();
+  const tableAgain = tableRepeats();
   /** What is wrong with a dimension's own text, worked out once for a long one. */
   const dimensionTexts = new Strings<readonly [string | undefined]>();
   const checkDimensionText = (text: unknown): string | undefined => {
@@ -610,7 +784,9 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       | "xrefs"
       | "layouts"
       | "dimensionStyles"
-      | "leaderStyles",
+      | "leaderStyles"
+      | "tableStyles"
+      | "patterns",
     rule: LintRule,
   ): readonly T[] => {
     const value: unknown = drawing[field];
@@ -649,12 +825,30 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     });
   }
 
+  const frame: unknown = drawing.imageFrame;
+  if (frame !== undefined && typeof frame !== "boolean") {
+    out.push({
+      rule: "image",
+      severity: "error",
+      message: "imageFrame must be true or false",
+      item: "imageFrame",
+    });
+  }
+  const wipeoutFrame: unknown = drawing.wipeoutFrame;
+  if (wipeoutFrame !== undefined && typeof wipeoutFrame !== "boolean") {
+    out.push({ rule: "wipeout", severity: "error", message: WIPEOUT_FRAME, item: "wipeoutFrame" });
+  }
+
   // The leading CAD app compares linetype names as it compares layer names, and AUDIT reports a
   // twin of a built-in linetype as it reports any other.
   const linetypes = new Set<string>();
   const linetypesAudited = new Map<string, string>(
     BUILT_IN_LINETYPES.map((name) => [layerAuditKey(name), name]),
   );
+  /** Each linetype with marks that are valid, whose texts' styles are checked once styles are known. */
+  const marked: Linetype[] = [];
+  /** Each linetype a layer or an entity draws in, by `layerKey`. */
+  const used = new Set<string>();
   const linetypeList = listed<Linetype>("linetypes", "linetype");
   each(linetypeList, "linetypes", "linetype", TYPED.linetype, (linetype, i) => {
     if (malformed(WALKABLE.linetype, linetype, `linetypes[${i}]`, "linetype")) return;
@@ -665,8 +859,11 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       error("linetype", `${label}: ${R12_ONLY.linetypes}`);
       return;
     }
-    const problem = linetypeProblem(linetype.name, linetype.description, linetype.pattern);
+    const problem =
+      linetypeProblem(linetype.name, linetype.description, linetype.pattern) ??
+      marksProblem(linetype.marks, linetype.pattern);
     if (problem) error("linetype", `${label}: ${problem}`);
+    else if (linetype.marks !== undefined) marked.push(linetype);
     if (typeof linetype.name !== "string") return;
     const key = layerKey(linetype.name);
     const auditKey = layerAuditKey(linetype.name);
@@ -686,19 +883,193 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     linetypes.add(key);
     if (!linetypesAudited.has(auditKey)) linetypesAudited.set(auditKey, linetype.name);
   });
+  // A hatch finds its pattern by name as a linetype is found, whatever the case of its letters,
+  // and takes the first of a name. A pattern's lines are read up to `PATTERN_ITEMS` of them, and a
+  // list of lines or of dashes that many definitions share is paid for each time it is read again.
+  /** Each pattern a hatch can find, with its sizes, by `layerKey`: undefined for one refused. */
+  const patternsByKey = new Map<string, readonly [HatchPattern, PatternSizes] | undefined>();
+  const patternList = listed<HatchPattern>("patterns", "hatch-pattern");
+  if (r12 && patternList.length > 0) {
+    out.push({
+      rule: "hatch-pattern",
+      severity: "error",
+      message: `patterns: ${R12_ONLY.hatches}`,
+    });
+  } else {
+    each(patternList, "patterns", "hatch-pattern", UNTYPED, (pattern, i) => {
+      const at = `patterns[${i}]`;
+      const where = () => at;
+      const from = out.length;
+      const name: unknown = isObject(pattern) ? pattern.name : undefined;
+      const long = long1(name) + long1(isObject(pattern) ? pattern.description : undefined);
+      if (long > 0 && !spend(long, where)) return;
+      const key = typeof name === "string" && name.length <= 255 ? layerKey(name) : undefined;
+      /** Names the pattern, which a reader leaves out, where an error names a part of it. */
+      const whole = (): void => {
+        for (let k = from; k < out.length; k++) {
+          const found = out[k]!;
+          if (found.item?.startsWith(`${at}.`)) out[k] = { ...found, item: at };
+        }
+      };
+      if (malformed(WALKABLE.pattern, pattern, at, "hatch-pattern")) {
+        // A hatch that names it gets no second error.
+        if (key !== undefined && !patternsByKey.has(key)) patternsByKey.set(key, undefined);
+        return;
+      }
+      const label = `Hatch pattern ${shown(name)}`;
+      const error = (message: string, typed: boolean): void => {
+        out.push({
+          rule: "hatch-pattern",
+          severity: "error",
+          message: `${label}: ${message}`,
+          ...(typed ? { item: at } : {}),
+        });
+      };
+      const description: unknown = pattern.description;
+      let sound = true;
+      const head = hatchPatternNameProblem(name, description);
+      if (head) {
+        error(
+          head,
+          typeof name !== "string" || !["string", "undefined"].includes(typeof description),
+        );
+        sound = false;
+      }
+      const lines: unknown = pattern.lines;
+      const listProblem = patternLinesProblem(lines);
+      const sizes = { items: 0, angle: 0, base: 0, reach: 0 };
+      if (listProblem) {
+        error(listProblem, !Array.isArray(lines));
+        sound = false;
+      } else {
+        const list = lines as readonly unknown[];
+        // A list read again pays for its lines and for the dashes of each.
+        const repeated = list.length >= FREE && again(list);
+        if (repeated && !spend(Math.floor(list.length / 8), where)) return;
+        sizes.items = list.length;
+        for (let j = 0; j < list.length; j++) {
+          if (!(j in list)) {
+            error(slotProblem(`${at}.lines`, j), true);
+            sound = false;
+            break;
+          }
+          const line: unknown = list[j];
+          if (malformed(WALKABLE.patternLine, line, `${at}.lines[${j}]`, "hatch-pattern")) {
+            sound = false;
+            break;
+          }
+          const dashes: unknown = (line as Record<string, unknown>).dashes;
+          const shared =
+            Array.isArray(dashes) &&
+            dashes.length <= PATTERN_ITEMS &&
+            (repeated || (dashes.length >= FREE && again(dashes)));
+          if (shared && !spend(Math.floor(dashes.length / 8), where)) return;
+          const problem = patternLineProblem(line);
+          if (problem) {
+            error(`line ${j}: ${problem}`, !lineTyped(line as Record<string, unknown>));
+            sound = false;
+            break;
+          }
+          const { angle, base, reach } = lineSizes(line as PatternLine);
+          sizes.angle = Math.max(sizes.angle, angle);
+          sizes.base = Math.max(sizes.base, base);
+          sizes.reach = Math.max(sizes.reach, reach);
+          sizes.items += Array.isArray(dashes) ? dashes.length : 0;
+        }
+      }
+      whole();
+      if (key === undefined) return;
+      if (patternsByKey.has(key)) {
+        out.push({
+          rule: "duplicate-hatch-pattern",
+          severity: "error",
+          message: `${label} is defined twice. A hatch finds its pattern by name whatever the case of its letters, as CAD programs do, and takes the first`,
+        });
+      } else patternsByKey.set(key, sound ? [pattern, sizes] : undefined);
+    });
+  }
+  /** The key of each name a hatch gives its pattern, worked out once. */
+  const patternKeys = new Map<string, string>();
+  /** What is wrong with each object a hatch gives as its pattern, worked out once. */
+  const choices = new WeakMap<object, string | undefined>();
+  /**
+   * Checks a hatch's pattern: its fields, the definition it names, and, for a hatch whose loops are
+   * sound, what its lines draw.
+   */
+  const lintHatchPattern = (hatch: Hatch, add: Add, sound: boolean, here: () => string): void => {
+    const choice: unknown = hatch.pattern;
+    let problem: string | undefined;
+    if (typeof choice === "object" && choice !== null) {
+      if (choices.has(choice)) problem = choices.get(choice);
+      else choices.set(choice, (problem = hatchPatternChoiceProblem(choice)));
+    } else problem = hatchPatternChoiceProblem(choice);
+    if (problem) return add("hatch-pattern", "error", problem);
+    const name: unknown = (choice as Record<string, unknown>).name;
+    let found: readonly [HatchPattern, PatternSizes] | undefined;
+    if (typeof name === "string") {
+      let key = name.length <= 255 ? patternKeys.get(name) : undefined;
+      if (key === undefined && name.length <= 255) patternKeys.set(name, (key = layerKey(name)));
+      if (key === undefined || !patternsByKey.has(key)) {
+        return add("hatch-pattern", "error", undefinedHatchPatternProblem(name));
+      }
+      found = patternsByKey.get(key);
+      // A definition the rules refused has its errors, and draws nothing that can be checked.
+      if (found === undefined) return;
+    }
+    if (!sound) return;
+    // The writers place every line and dash of the pattern again for each hatch that names it.
+    const items = found?.[1].items ?? 0;
+    if (items >= FREE && !spend(Math.floor(items / 8), here)) return;
+    const box = loopsBox(hatch.loops);
+    const spread = hatchSpread(
+      hatch,
+      () => found?.[0],
+      () => found?.[1],
+    );
+    const drawn = box && spread ? patternDrawnProblem(box, spread) : undefined;
+    if (drawn) add("hatch-pattern", "error", drawn);
+  };
+
+  /** What is wrong with each object a hatch gives as its gradient, worked out once. */
+  const gradients = new WeakMap<object, string | undefined>();
+  /** Checks a hatch's gradient: its fields, and that the hatch has no pattern beside it. */
+  const lintHatchGradient = (hatch: Hatch, add: Add): void => {
+    if (hatch.pattern !== undefined) return add("hatch-gradient", "error", GRADIENT_WITH_PATTERN);
+    const gradient: unknown = hatch.gradient;
+    let problem: string | undefined;
+    if (typeof gradient === "object" && gradient !== null) {
+      if (gradients.has(gradient)) problem = gradients.get(gradient);
+      else gradients.set(gradient, (problem = hatchGradientProblem(gradient)));
+    } else problem = hatchGradientProblem(gradient);
+    if (problem) add("hatch-gradient", "error", problem);
+  };
+
   /** What is wrong with a reference to a linetype, which the leading CAD app discards a drawing over. */
   const missing = (name: unknown): string | undefined => {
     if (typeof name !== "string") return "a linetype is named by a string";
     const problem = linetypeNameProblem(name);
     if (problem) return `Linetype ${shown(name)}: ${problem}`;
-    return builtInLinetype(name) || linetypes.has(layerKey(name))
-      ? undefined
-      : undefinedLinetypeProblem(name);
+    if (builtInLinetype(name)) return undefined;
+    const key = layerKey(name);
+    if (!linetypes.has(key)) return undefinedLinetypeProblem(name);
+    used.add(key);
+    return undefined;
   };
 
   // The leading CAD app compares text style names as it compares layer names.
   const textStyles = new Set<string>();
   const stylesByKey = new Map<string, TextStyle>();
+  /**
+   * The font a paragraph's value is checked in: its style's, which decides what `%%c` draws. A
+   * style that is not found has an error of its own.
+   */
+  const fontOf = (style: unknown): unknown =>
+    style === undefined
+      ? STANDARD_FONT
+      : typeof style === "string"
+        ? (stylesByKey.get(layerKey(style))?.font ??
+          (isStandardTextStyle(style) ? STANDARD_FONT : undefined))
+        : undefined;
   const unreadStyles = new Set<string>();
   const textStylesAudited = new Map<string, string>([
     [layerAuditKey(STANDARD_TEXT_STYLE), STANDARD_TEXT_STYLE],
@@ -740,6 +1111,19 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     textStyles.add(key);
     if (!textStylesAudited.has(auditKey)) textStylesAudited.set(auditKey, style.name);
   });
+  for (const linetype of marked) {
+    for (const mark of linetype.marks ?? []) {
+      if (!("text" in mark) || mark.style === undefined || isStandardTextStyle(mark.style))
+        continue;
+      if (textStyles.has(layerKey(mark.style))) continue;
+      out.push({
+        rule: "undefined-text-style",
+        severity: "error",
+        message: `Linetype ${shown(linetype.name)}: ${undefinedTextStyleProblem(mark.style)}`,
+        ...named("linetype", linetype.name),
+      });
+    }
+  }
   /** What is wrong with a text's style, justification or both, each with its rule. */
   const textProblems = (
     text: Pick<AttributeDefinition, "style" | "align" | "valign">,
@@ -959,8 +1343,8 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     else if (!dimensionStyleNames.has(layerKey(name as string))) {
       add("undefined-dimension-style", "error", undefinedDimensionStyleProblem(name as string));
     } else style = dimensionStyles.get(layerKey(name as string));
-    const text: unknown = dimension.text;
-    if (text !== undefined) {
+    for (const text of [dimension.text, dimension.textBelow] as unknown[]) {
+      if (text === undefined) continue;
       const problem = checkDimensionText(text);
       if (problem) {
         add("dimension", "error", problem);
@@ -976,10 +1360,24 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         return;
       }
     }
+    if (dimension.kind === "ordinate-dimension") {
+      const axis: unknown = dimension.axis;
+      if (axis !== "x" && axis !== "y") {
+        add("dimension", "error", ORDINATE_AXIS);
+        return;
+      }
+      if (sound) {
+        const { length, across } = ordinateLeader(dimension);
+        if (Math.abs(across) > length) add("dimension", "warning", ORDINATE_ACROSS);
+      }
+    }
     if (!style || !sound) return;
     // Its style's prefix and suffix are read again for each dimension that has the style.
     const reads =
-      (style.prefix?.length ?? 0) + (style.suffix?.length ?? 0) + ((text as string)?.length ?? 0);
+      (style.prefix?.length ?? 0) +
+      (style.suffix?.length ?? 0) +
+      ((dimension.text as string | undefined)?.length ?? 0) +
+      ((dimension.textBelow as string | undefined)?.length ?? 0);
     if (!spend(Math.floor(reads / 32), where)) return;
     const textStyle =
       style.textStyle === undefined ? undefined : stylesByKey.get(layerKey(style.textStyle));
@@ -1068,6 +1466,167 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       if (!problem && lettered) leaderStyles.set(key, style);
     },
   );
+  // Table style names are compared as leader style names are, and only a style with nothing wrong
+  // with it is drawn with.
+  const tableStyleNames = new Set<string>();
+  const tableStyles = new Map<string, TableStyle>();
+  const tableStylesAudited = new Map<string, string>();
+  each(
+    listed<TableStyle>("tableStyles", "table-style"),
+    "tableStyles",
+    "table-style",
+    TYPED.tableStyle,
+    (style, i) => {
+      if (malformed(WALKABLE.tableStyle, style, `tableStyles[${i}]`, "table-style")) return;
+      const error = (rule: LintRule, message: string) =>
+        out.push({
+          rule,
+          severity: "error",
+          message: `Table style ${shown(style.name)}: ${message}`,
+          ...(typeof style.name === "string" ? { tableStyle: style.name } : {}),
+        });
+      if (r12) {
+        error("table-style", R12_ONLY.tables);
+        return;
+      }
+      const problem = tableStyleProblem(style);
+      if (problem) error("table-style", problem);
+      const name: unknown = style.name;
+      if (tableStyleNameProblem(name) || isStandardTableStyle(name as string)) return;
+      const auditKey = layerAuditKey(style.name);
+      const first = tableStylesAudited.get(auditKey);
+      if (first !== undefined) {
+        error("duplicate-table-style", tableStyleTwinProblem(style.name, first)!);
+        return;
+      }
+      if (tableStylesAudited.size === 0) {
+        for (const [handle, what] of [
+          [validTableStyleHandle(STANDARD_TABLE_STYLE), 'the table style "Standard"'],
+          [tableStyleDictionaryHandle(), "the dictionary of table styles"],
+        ] as const) {
+          const taken = claim(handle, what);
+          if (taken) error("id-handle", taken);
+        }
+      }
+      tableStylesAudited.set(auditKey, style.name);
+      const key = layerKey(style.name);
+      tableStyleNames.add(key);
+      let lettered = true;
+      for (const textStyle of [
+        style.textStyle,
+        style.title?.textStyle,
+        style.header?.textStyle,
+        style.data?.textStyle,
+      ] as unknown[]) {
+        if (
+          typeof textStyle !== "string" ||
+          textStyleNameProblem(textStyle) ||
+          isStandardTextStyle(textStyle)
+        ) {
+          continue;
+        }
+        if (!textStyles.has(layerKey(textStyle))) {
+          error("undefined-text-style", `Text style ${shown(textStyle)} is not defined`);
+          lettered = false;
+        } else if (unreadStyles.has(layerKey(textStyle))) lettered = false;
+      }
+      const clash = claim(
+        validTableStyleHandle(style.name),
+        `the table style ${shown(style.name)}`,
+      );
+      if (clash) error("id-handle", clash);
+      if (!problem && lettered) tableStyles.set(key, style);
+    },
+  );
+  /** A boxer of the drawing's blocks that hides nothing, as the writers fit a cell's block. */
+  let fitBoxer: Boxer | undefined;
+  const fitBoxes = new Map<string, readonly [number, number, number, number] | undefined>();
+  /** Checks what a table names, and its columns, rows and cells. */
+  const lintTable = (
+    table: Table,
+    add: (rule: LintRule, severity: Diagnostic["severity"], problem: string) => void,
+    inBlock: boolean,
+    here: () => string,
+  ): void => {
+    if (inBlock) add("table", "error", TABLE_IN_BLOCK);
+    const name: unknown = table.style;
+    const nameProblem = tableStyleNameProblem(name);
+    if (nameProblem) add("undefined-table-style", "error", nameProblem);
+    else if (isStandardTableStyle(name as string)) {
+      add("undefined-table-style", "error", standardTableStyleProblem(name as string)!);
+    } else if (!tableStyleNames.has(layerKey(name as string))) {
+      add("undefined-table-style", "error", `Table style ${shown(name)} is not defined`);
+    }
+    const problem = tableProblem(table, (block) => blocks.has(layerKey(block)));
+    if (problem) add("table", "error", problem);
+    const style = typeof name === "string" ? tableStyles.get(layerKey(name)) : undefined;
+    if (!problem && style) {
+      const narrow = tableColumnsProblem(table.columns, tableMargins(style)[0]);
+      if (narrow) add("table", "error", narrow);
+      const fontOf = (name: string | undefined) =>
+        name === undefined || isStandardTextStyle(name)
+          ? STANDARD_FONT
+          : stylesByKey.get(layerKey(name))?.font;
+      const lettered = tableTextsProblem(tableTexts(table, style), fontOf);
+      if (lettered) add("table", "error", lettered);
+      if (!narrow && !lettered) lintTableBlocks(table, style, add, here);
+    }
+  };
+  /** Checks the scale each block a table's cells hold is drawn at, as the writers write it. */
+  const lintTableBlocks = (
+    table: Table,
+    style: TableStyle,
+    add: (rule: LintRule, severity: Diagnostic["severity"], problem: string) => void,
+    here: () => string,
+  ): void => {
+    const holds = table.rows.some((row) => row.some((cell) => isObject(cell) && cell.block));
+    if (!holds || !spend(tableCost(table), here)) return;
+    const styleOf = (name: string | undefined) =>
+      name === undefined ? undefined : stylesByKey.get(layerKey(name));
+    let capped = false;
+    const picture = tablePicture(
+      table,
+      style,
+      tableMeasures(styleOf, (name) => {
+        const k = layerKey(name);
+        if (fitBoxes.has(k)) return fitBoxes.get(k);
+        fitBoxer ??= boxer(
+          [...stylesByKey.values()],
+          [...blocks.values()],
+          undefined,
+          undefined,
+          undefined,
+          [...dimensionStyles.values()],
+          [...leaderStyles.values()],
+          most,
+          most,
+        );
+        const before = fitBoxer.spent;
+        let found: readonly [number, number, number, number] | undefined;
+        try {
+          found = fitBoxer([{ kind: "insert", layer: "0", block: name, at: [0, 0] }]);
+        } catch {
+          found = undefined;
+        }
+        if (fitBoxer.capped || !spend(fitBoxer.spent - before, here)) capped = true;
+        fitBoxes.set(k, found);
+        return found;
+      }),
+    );
+    if (capped) return;
+    for (const placed of picture.blocks) {
+      const problem = scaleProblem(placed.scale);
+      if (problem === undefined) continue;
+      add(
+        "table",
+        "error",
+        `The block ${shown(placed.block)} in row ${placed.row}, column ${placed.column} of its grid is drawn at a scale of ${placed.scale}. ${problem}`,
+      );
+      return;
+    }
+  };
+  /** The tags of each block a leader holds in place of its note, worked out once. */
+  const tagsOf = new WeakMap<Block, ReadonlySet<unknown>>();
   /** Checks what a leader names, its note and its shafts. `sound` is false for one no rule can read. */
   const lintLeader = (
     leader: Leader,
@@ -1086,13 +1645,41 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     else if (!leaderStyleNames.has(layerKey(name as string))) {
       add("undefined-leader-style", "error", undefinedLeaderStyleProblem(name as string));
     } else style = leaderStyles.get(layerKey(name as string));
-    const textProblem = leaderTextProblem(leader.text);
-    if (textProblem) add("leader", "error", textProblem);
-    else {
-      for (const line of leader.text) {
-        const warning = textWarning(line);
-        if (warning) {
-          add("text", "warning", warning);
+    const content = leaderBlock(leader, style);
+    let noteProblem: string | undefined;
+    const ownBlock: unknown = leader.block;
+    if (ownBlock !== undefined && typeof ownBlock !== "string") {
+      noteProblem = "a block is named by a string";
+      add("undefined-block", "error", noteProblem);
+    } else if (content === undefined) {
+      noteProblem = leaderTextProblem(leader.text);
+      if (noteProblem) add("leader", "error", noteProblem);
+      else {
+        for (const line of leader.text ?? []) {
+          const warning = textWarning(line);
+          if (warning) {
+            add("text", "warning", warning);
+            break;
+          }
+        }
+      }
+    } else {
+      if (typeof content !== "string") noteProblem = "a block is named by a string";
+      else if (!blocks.has(layerKey(content))) noteProblem = undefinedBlockProblem(content);
+      if (noteProblem) add("undefined-block", "error", noteProblem);
+      const problem = leaderBlockContentProblem(leader);
+      if (problem) add("leader", "error", problem);
+      noteProblem ??= problem;
+      // Each value names an attribute of the block, as an insert's does.
+      const held = typeof content === "string" ? blocks.get(layerKey(content)) : undefined;
+      const set: unknown = leader.attributes;
+      if (!problem && held && typeof set === "object" && set !== null) {
+        let tags = tagsOf.get(held);
+        if (!tags) tagsOf.set(held, (tags = new Set(filled(held.attributes).map((d) => d?.tag))));
+        for (const tag of Object.keys(set)) {
+          if (tags.has(tag)) continue;
+          noteProblem = undefinedAttributeProblem(tag, held.name);
+          add("undefined-attribute", "error", noteProblem);
           break;
         }
       }
@@ -1111,11 +1698,13 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     }
     const ownProblem = leaderOwnProblem(leader, written(style?.scale ?? 1));
     if (ownProblem) add("leader", "error", ownProblem);
-    if (!style || textProblem || shaftProblem || ownProblem || !lettered) return;
+    if (!style || noteProblem || shaftProblem || ownProblem || !lettered) return;
     if (own === undefined && style.textStyle !== undefined) {
       textStyle = stylesByKey.get(layerKey(style.textStyle));
     }
-    const problem = leaderDrawnProblem(leader, style, textStyle);
+    const problem = leaderDrawnProblem(leader, style, textStyle, (name) =>
+      blocks.get(layerKey(name)),
+    );
     if (problem) add("leader", "error", problem);
   };
 
@@ -1150,6 +1739,8 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         TextStyle | undefined,
         string,
       ][];
+      /** The font of each definition of paragraph text, by its tag. */
+      readonly paragraphs: ReadonlyMap<string, unknown>;
     }
   >();
   const placingOf = (block: Block) => {
@@ -1159,7 +1750,12 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     const tags = new Set<string>();
     for (const tag of read.tags) if (tag !== undefined) tags.add(tag);
     const placed: [AttributeDefinition & { tag: string }, TextStyle | undefined, string][] = [];
+    /** The font of each definition of paragraph text, by its tag, which its values are read in. */
+    const paragraphs = new Map<string, unknown>();
     for (const definition of read.definitions) {
+      if (definition?.kind === "paragraph" && typeof definition.tag === "string") {
+        paragraphs.set(definition.tag, fontOf(definition.style));
+      }
       if (
         !definition ||
         typeof definition.tag !== "string" ||
@@ -1177,7 +1773,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         JSON.stringify(definition.tag),
       ]);
     }
-    placing.set(block, (found = { tags, placed }));
+    placing.set(block, (found = { tags, placed, paragraphs }));
     return found;
   };
   each(listed<Block>("blocks", "block"), "blocks", "block", TYPED.block, (block, i) => {
@@ -1254,6 +1850,18 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       if (clash) error("id-handle", clash);
     }
   });
+  // A style's block is written by its record's handle, so it is one the drawing defines.
+  for (const style of leaderStyles.values()) {
+    const block: unknown = style.block;
+    if (typeof block === "string" && !blocks.has(layerKey(block))) {
+      out.push({
+        rule: "undefined-block",
+        severity: "error",
+        message: `Leader style ${shown(style.name)}: ${undefinedBlockProblem(block)}`,
+        ...named("leaderStyle", style.name),
+      });
+    }
+  }
 
   // An xref is a block to the leading CAD app, so it shares the blocks' names, and an insert finds
   // it as it finds a block.
@@ -1338,8 +1946,19 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         if (clash) add("id-handle", "error", clash);
       }
       if (!definition) return;
+      const kind: unknown = definition.kind;
+      const paragraph = kind === "paragraph";
+      if (kind !== undefined && kind !== "text" && !paragraph)
+        add("attribute", "error", ATTRIBUTE_KIND);
+      if (paragraph && r12) add("paragraph", "error", R12_ONLY.paragraphs);
+      const given = definition as unknown as Readonly<Record<string, unknown>>;
+      if (!paragraph) {
+        for (const field of PARAGRAPH_ONLY) {
+          if (given[field] !== undefined) add("attribute", "error", paragraphOnlyProblem(field));
+        }
+      }
       for (const [field, value] of [
-        ["its value", definition.value],
+        ["its value", paragraph ? "" : definition.value],
         ["its prompt", definition.prompt ?? ""],
       ] as const) {
         const [problem, warning] =
@@ -1352,12 +1971,105 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       for (const problem of geometryProblems(asText(definition))) {
         add("geometry", "error", problem);
       }
-      for (const [rule, found] of textProblems(definition)) add(rule, "error", found);
+      if (paragraph) {
+        const value: unknown = definition.value;
+        const font = fontOf(definition.style);
+        const [problem, columnBreak] =
+          typeof value === "string"
+            ? checkParagraph(value, font)
+            : [paragraphValueProblem(value, font), false];
+        if (problem) add("paragraph", "error", `its value: ${problem}`);
+        else if (columnBreak) add("paragraph", "warning", `its value: ${PARAGRAPH_COLUMN_BREAK}`);
+        const width: unknown = given["width"];
+        if (width !== undefined) {
+          const size =
+            typeof width === "number" && Number.isFinite(width)
+              ? sizeProblem(width)
+              : "This value must be finite";
+          if (size) add("geometry", "error", `width: ${size}`);
+        }
+        for (const [rule, field, chosen] of [
+          ["text-align", "align", given["align"]],
+          ["text-align", "valign", given["valign"]],
+          ["paragraph", "lineSpacingStyle", given["lineSpacingStyle"]],
+        ] as const) {
+          const choice = chosen === undefined ? undefined : paragraphChoiceProblem(field, chosen);
+          if (choice) add(rule, "error", choice);
+        }
+        const spacing = given["lineSpacing"];
+        const spaced = spacing === undefined ? undefined : lineSpacingProblem(spacing);
+        if (spaced) add("paragraph", "error", spaced);
+        const styled = definition.style === undefined ? {} : { style: definition.style };
+        for (const [rule, found] of textProblems(styled)) add(rule, "error", found);
+      } else for (const [rule, found] of textProblems(definition)) add(rule, "error", found);
       mark(TYPED.attribute, definition, `${at}.attributes[${index}]`, from);
     });
   };
 
   type Add = (rule: LintRule, severity: Diagnostic["severity"], problem: string) => void;
+  /** The pixels the first image of each file gives it, by its path with \ and / as one. */
+  // Keyed exactly, since a path may be long.
+  const imagePixels = new Map<string, readonly [number, number]>();
+  /**
+   * Checks what an image holds beyond the fields every entity has: its path, its pixels, its clip
+   * and its flags, and that each file has one size, and takes its reactor's handle from its id.
+   */
+  const lintImage = (
+    image: Image,
+    add: Add,
+    sound: boolean,
+    named: boolean,
+    here: () => string,
+  ): void => {
+    const pathProblem = imagePathProblem(image.path);
+    if (pathProblem) add("image", "error", pathProblem);
+    const pixelsProblem = imagePixelsProblem(image.pixels);
+    if (pixelsProblem) add("image", "error", `pixels: ${pixelsProblem}`);
+    for (const [field, value] of [
+      ["invertClip", image.invertClip],
+      ["transparent", image.transparent],
+    ] as const) {
+      if (value !== undefined && typeof value !== "boolean") {
+        add("image", "error", `${field} must be true or false`);
+      }
+    }
+    if (image.clip === undefined && image.invertClip === true) {
+      add("image", "error", IMAGE_INVERT_WITHOUT_CLIP);
+    }
+    if (pathProblem === undefined && pixelsProblem === undefined) {
+      const key = exactKey(imagePathKey(image.path));
+      const first = imagePixels.get(key);
+      // A long path many images share is read again for each, which `repeatedIn` paid for.
+      if (first === undefined) imagePixels.set(key, [image.pixels[0], image.pixels[1]]);
+      else if (first[0] !== image.pixels[0] || first[1] !== image.pixels[1]) {
+        add("image", "error", IMAGE_PIXELS_SAME);
+      }
+    }
+    if (sound && pixelsProblem === undefined && image.clip !== undefined) {
+      const list: unknown = image.clip;
+      if (Array.isArray(list) && list.length > IMAGE_CLIP_MOST) {
+        add("image", "error", `clip: ${IMAGE_CLIP_MOST_PROBLEM}`);
+      } else if (
+        Array.isArray(list) &&
+        list.length > 64 &&
+        !spend(Math.floor(list.length / 8), here)
+      ) {
+        return;
+      } else {
+        const [u, v] = imageVectors(image);
+        const at: Point = [written(image.at[0]), written(image.at[1])];
+        const problem = imageClipProblem(image.clip, at, u, v);
+        if (problem) add("image", "error", `clip: ${problem}`);
+      }
+    }
+    if (named) {
+      const clash = claim(
+        imageReactorHandle(idKey(image.id as string)),
+        `the reactor of the image ${shown(image.id)}`,
+      );
+      if (clash) add("id-handle", "error", clash);
+    }
+  };
   /** Checks the id of an entity or a viewport and takes its handle. True for an id that is new. */
   const lintId = (id: unknown, add: Add): boolean => {
     if (id === undefined) return false;
@@ -1406,23 +2118,55 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       // there may be unreported, and toDXF refuses the drawing.
       if (stopped !== undefined) return;
       const here = () => `${entity.kind} #${index} of ${space}`;
-      // A long list of points that many polylines share is read again for each, and paid for.
-      const points: unknown =
-        isObject(entity) && entity.kind === "polyline" ? entity.points : undefined;
+      // A long list of points, bulges, widths or column heights that many entities share is read
+      // again for each, and paid for.
       if (
-        Array.isArray(points) &&
-        points.length >= FREE &&
-        again(points) &&
-        !spend(Math.floor(points.length / 8), here)
+        isObject(entity) &&
+        (entity.kind === "polyline" ||
+          entity.kind === "image" ||
+          entity.kind === "paragraph" ||
+          entity.kind === "hatch" ||
+          entity.kind === "wipeout" ||
+          entity.kind === "spline")
       ) {
-        return;
+        let cost = 0;
+        const columns: unknown = entity.kind === "paragraph" ? entity.columns : undefined;
+        const loops = entity.kind === "hatch" ? filled(entity.loops as unknown) : [];
+        const lists =
+          entity.kind === "image"
+            ? [entity.clip]
+            : entity.kind === "paragraph"
+              ? [isObject(columns) ? columns.heights : undefined]
+              : entity.kind === "wipeout"
+                ? [entity.points]
+                : entity.kind === "spline"
+                  ? [entity.fitPoints, entity.controlPoints, entity.knots, entity.weights]
+                  : entity.kind === "hatch"
+                    ? [
+                        entity.loops,
+                        ...loops.flatMap((loop) =>
+                          isObject(loop) ? [loop.points, loop.bulges] : [],
+                        ),
+                      ]
+                    : [entity.points, entity.bulges, entity.widths];
+        // A spline's fit is worked out again from its lists, which takes more for each point.
+        const per = entity.kind === "spline" ? 2 : 8;
+        for (const list of lists) {
+          if (Array.isArray(list) && list.length >= FREE && again(list))
+            cost += Math.floor(list.length / per);
+        }
+        if (cost > 0 && !spend(cost, here)) return;
       }
       // What the extents would do again is paid for there, so a drawing that can cost them
       // anything is boxed below.
       if (isObject(entity) && !boxable) boxable = costsBoxes(entity);
       // So are a leader that shares its shafts or its note with another and a long string.
       const shared = isObject(entity)
-        ? (entity.kind === "leader" ? leaderAgain(entity) : 0) + repeatedIn(entity)
+        ? (entity.kind === "leader"
+            ? leaderAgain(entity)
+            : entity.kind === "table"
+              ? tableAgain(entity)
+              : 0) + repeatedIn(entity)
         : 0;
       if (shared > 0 && !spend(shared, here)) return;
       if (metUnsound(WALKABLE.entity, entity) || !isSound(WALKABLE.entity, entity)) {
@@ -1454,6 +2198,24 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       if (layer) add("undefined-layer", "error", layer);
       const problems = geometryProblems(entity);
       for (const problem of problems) add("geometry", "error", problem);
+      const color: unknown = entity.color;
+      if (color !== undefined) {
+        const problem =
+          entityColorProblem(color) ??
+          (r12 && color !== "ByLayer" ? R12_ONLY.entityColor : undefined) ??
+          (entity.kind === "table" && color !== "ByLayer" ? TABLE_COLOR : undefined);
+        if (problem) add("entity-color", "error", problem);
+      }
+      if (
+        r12 &&
+        entity.kind === "polyline" &&
+        (entity.bulges !== undefined ||
+          entity.width !== undefined ||
+          entity.widths !== undefined ||
+          entity.linetypeGeneration !== undefined)
+      ) {
+        add("geometry", "error", R12_ONLY.polylines);
+      }
       if (entity.kind === "insert") {
         if (r12) {
           add("block", "error", R12_ONLY.blocks);
@@ -1511,7 +2273,9 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
             const cost =
               (count++ >= FREE ? 1 : 0) +
               lookupCost(entity, definition) +
-              (repeated ? Math.floor(definition.value.length / 32) : 0);
+              (repeated && typeof definition.value === "string"
+                ? Math.floor(definition.value.length / 32)
+                : 0);
             if (cost > 0 && !spend(cost, here)) break;
             const problem = placedAttributeProblem(
               definition.tag,
@@ -1524,6 +2288,18 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         for (const [tag, value] of values) {
           if (placed && !tags.has(tag) && !unreadDefinitions.has(placed)) {
             add("undefined-attribute", "error", undefinedAttributeProblem(tag, placed.name));
+          }
+          if (read?.paragraphs.has(tag)) {
+            const font = read.paragraphs.get(tag);
+            const [problem, columnBreak] =
+              typeof value === "string"
+                ? checkParagraph(value, font)
+                : [paragraphValueProblem(value, font), false];
+            const about = `attribute ${shown(tag)}`;
+            if (problem) add("paragraph", "error", `${about}: ${problem}`);
+            else if (columnBreak)
+              add("paragraph", "warning", `${about}: ${PARAGRAPH_COLUMN_BREAK}`);
+            continue;
           }
           const [problem, warning] =
             typeof value === "string" ? checkText(value) : ["must be a string", undefined];
@@ -1556,7 +2332,45 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         if (problems.length === 0) lintLeader(entity, add, block !== undefined);
         return;
       }
-      if (entity.kind === "linear-dimension" || entity.kind === "aligned-dimension") {
+      if (entity.kind === "table") {
+        if (r12) {
+          add("table", "error", R12_ONLY.tables);
+          return;
+        }
+        if (problems.length === 0) lintTable(entity, add, block !== undefined, here);
+        return;
+      }
+      if (entity.kind === "image") {
+        if (r12) {
+          add("image", "error", R12_ONLY.images);
+          return;
+        }
+        lintImage(entity, add, problems.length === 0, named, here);
+      }
+      if (r12 && (entity.kind === "ellipse" || entity.kind === "spline")) {
+        add("geometry", "error", R12_ONLY.curves);
+        return;
+      }
+      if (entity.kind === "hatch" || entity.kind === "wipeout") {
+        if (r12) {
+          add(entity.kind, "error", R12_ONLY.hatches);
+          return;
+        }
+        if (entity.kind === "hatch" && entity.pattern !== undefined) {
+          lintHatchPattern(entity, add, problems.length === 0, here);
+        }
+        if (entity.kind === "hatch" && entity.gradient !== undefined) {
+          lintHatchGradient(entity, add);
+        }
+        // Each side against each other one, paid for by the pairs past the first 4,096.
+        if (entity.kind === "wipeout" && entity.points.length > 3 && problems.length === 0) {
+          const n = entity.points.length;
+          const pairs = Math.floor((n * n) / 2);
+          if (pairs > 4096 && !spend(Math.floor(pairs / 64), here)) return;
+          if (polygonCrosses(entity.points)) add("wipeout", "error", WIPEOUT_CROSSES);
+        }
+      }
+      if (isDimension(entity)) {
         lintDimension(entity, add, problems.length === 0, block !== undefined, here);
         // The block of its picture takes handles from its id, or else from its place.
         if (!r12 && !block && (id === undefined || named)) {
@@ -1596,6 +2410,46 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         if (problem) add("text", "error", problem);
         for (const [rule, found] of textProblems(entity)) add(rule, "error", found);
         if (warning) add("text", "warning", warning);
+      }
+      if (entity.kind === "paragraph") {
+        if (r12) {
+          add("paragraph", "error", R12_ONLY.paragraphs);
+          return;
+        }
+        const font = fontOf(entity.style);
+        const [problem, columnBreak] =
+          typeof entity.value === "string"
+            ? checkParagraph(entity.value, font)
+            : [paragraphValueProblem(entity.value, font), false];
+        if (problem) add("paragraph", "error", problem);
+        if (entity.columns !== undefined) {
+          // Columns many paragraphs share are checked once.
+          const given: unknown = entity.columns;
+          let shape: string | undefined;
+          if (typeof given === "object" && given !== null) {
+            if (columnShapes.has(given)) shape = columnShapes.get(given);
+            else columnShapes.set(given, (shape = paragraphColumnsShapeProblem(given)));
+          } else shape = paragraphColumnsShapeProblem(given);
+          const columns = shape ?? paragraphColumnsSizeProblem(given, entity.width, entity.height);
+          if (columns) add("paragraph", "error", columns);
+        } else if (columnBreak) add("paragraph", "warning", PARAGRAPH_COLUMN_BREAK);
+        const { align, valign, lineSpacing, lineSpacingStyle } = entity;
+        for (const [rule, field, value] of [
+          ["text-align", "align", align],
+          ["text-align", "valign", valign],
+          ["paragraph", "lineSpacingStyle", lineSpacingStyle],
+        ] as const) {
+          const choice = value === undefined ? undefined : paragraphChoiceProblem(field, value);
+          if (choice) add(rule, "error", choice);
+        }
+        const spacing = lineSpacing === undefined ? undefined : lineSpacingProblem(lineSpacing);
+        if (spacing) add("paragraph", "error", spacing);
+        const mask = entity.mask === undefined ? undefined : textMaskProblem(entity.mask);
+        if (mask) add("paragraph", "error", mask);
+        else if (entity.mask !== undefined && entity.mask !== false && entity.columns !== undefined)
+          add("paragraph", "error", PARAGRAPH_MASK_COLUMNS);
+        const styled = entity.style === undefined ? {} : { style: entity.style };
+        for (const [rule, found] of textProblems(styled)) add(rule, "error", found);
       }
       // A shape with a geometry error has no length worth a second message.
       const collapsed = problems.length === 0 ? zeroLength(entity) : undefined;
@@ -1640,6 +2494,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         most - work,
         // The writer's walks have the whole limit, and so have these, so the two take one path.
         most,
+        [...tableStyles.values()],
       );
     } catch {
       return modelBox;
@@ -1844,6 +2699,38 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     out.push({ rule: "block-cycle", severity: "error", message, block: block.name });
   }
 
+  // A shape is drawn from its shape file, which a drawing does not hold: the plot finds it in the
+  // files it is given, as here.
+  let findShape: ReturnType<typeof shapeFinder> | undefined;
+  try {
+    findShape = shapeFinder(options?.shapes);
+  } catch (error) {
+    // `shapeFinder` throws only a RangeError, but `lint` never throws whatever it is given.
+    const message =
+      error instanceof RangeError ? error.message : "The shape files given do not read";
+    out.push({ rule: "linetype-shape", severity: "warning", message });
+  }
+  const gaps = {
+    file: "its file is not given",
+    unread: "its file does not read",
+    shape: "its file has no such shape",
+  };
+  for (const linetype of marked) {
+    if (!used.has(layerKey(linetype.name))) continue;
+    for (const m of linetype.marks ?? []) {
+      if (!("shape" in m) || typeof m.shape !== "number" || typeof m.file !== "string") continue;
+      const found = findShape?.(m.file, m.shape) ?? { missing: "file" as const };
+      if ("shape" in found) continue;
+      out.push({
+        rule: "linetype-shape",
+        severity: "warning",
+        message: `Linetype ${shown(linetype.name)} draws shape ${m.shape} of ${shown(m.file)}, where tsdraft's plot leaves a gap because ${gaps[found.missing]}: CAD programs draw it only where they find the file`,
+        ...named("linetype", linetype.name),
+      });
+      break;
+    }
+  }
+
   if (stopped !== undefined) {
     out.push({
       rule: "check-capped",
@@ -1854,7 +2741,50 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
 
   const given: unknown = options?.standard;
   if (given !== undefined) lintStandard(drawing, given, options?.discipline, version, out);
+  const referenced: unknown = options?.xrefs;
+  if (referenced !== undefined) lintReferenced(drawing, referenced, out);
   return out;
+}
+
+/** The blocks `lintReferenced` reads of a drawing given: none. */
+const NO_BLOCKS: ReadonlyMap<string, Block> = new Map();
+
+/**
+ * Why a drawing given in `xrefs` is not drawn, as `referencedTree` finds it: a warning of the
+ * xref of the drawing it is under, or an error for a value that is no drawing.
+ */
+function lintReferenced(drawing: Drawing, xrefs: unknown, out: Diagnostic[]): void {
+  if (typeof xrefs !== "object" || xrefs === null || Array.isArray(xrefs)) {
+    out.push({ rule: "xref", severity: "error", message: XREFS_GIVEN });
+    return;
+  }
+  const { problems, unreported, unreportedShapes } = referencedTree(
+    drawing,
+    xrefs,
+    () => NO_BLOCKS,
+  );
+  for (const { kind, chain } of problems) {
+    out.push({
+      rule: "xref",
+      severity: kind === "shape" ? "error" : "warning",
+      message: xrefChainProblem(kind, chain),
+      ...(chain[0] === undefined ? {} : { xref: chain[0] }),
+    });
+  }
+  if (unreportedShapes > 0) {
+    out.push({
+      rule: "xref",
+      severity: "error",
+      message: `${unreportedShapes} more values given in xrefs are neither a Drawing nor { drawing, xrefs }, so nothing is drawn for them`,
+    });
+  }
+  if (unreported > unreportedShapes) {
+    out.push({
+      rule: "xref",
+      severity: "warning",
+      message: `${unreported - unreportedShapes} more drawings given in xrefs are not drawn, for the reasons above`,
+    });
+  }
 }
 
 /**
@@ -1983,17 +2913,31 @@ function asText(definition: AttributeDefinition): Text {
 }
 
 /**
- * True for an entity whose box can cost anything: an insert, a dimension, a leader, and a text
- * too long for a table of strings to keep.
+ * True for an entity whose box can cost anything: an insert, a dimension, a leader, a spline, a
+ * text too long for a table of strings to keep, and a polyline that may have an arc or a width,
+ * whose box pays for a long list read again.
  */
 function costsBoxes(e: Readonly<Record<string, unknown>>): boolean {
   const kind = e.kind;
   if (kind === "text") return typeof e.value === "string" && e.value.length > KEYED;
+  // A paragraph's layout reads its value again for each place, as a long text's measure does.
+  if (kind === "paragraph") return typeof e.value === "string" && e.value.length >= LONG;
+  if (kind === "polyline") {
+    return Array.isArray(e.bulges) || Array.isArray(e.widths) || typeof e.width === "number";
+  }
   return (
     kind === "insert" ||
+    kind === "spline" ||
     kind === "leader" ||
+    kind === "table" ||
     kind === "linear-dimension" ||
-    kind === "aligned-dimension"
+    kind === "aligned-dimension" ||
+    kind === "radius-dimension" ||
+    kind === "diameter-dimension" ||
+    kind === "jogged-radius-dimension" ||
+    kind === "angular-dimension" ||
+    kind === "arc-length-dimension" ||
+    kind === "ordinate-dimension"
   );
 }
 
@@ -2028,6 +2972,10 @@ function geometryProblems(e: Entity): string[] {
           break;
         }
       }
+      if (e.points.length >= 2) {
+        const sides = e.closed ? e.points.length : e.points.length - 1;
+        out.push(...polylineSidesProblems(sides, e.bulges, e.width, e.widths));
+      }
       break;
     case "circle":
       finite("its center", ...e.center);
@@ -2049,6 +2997,11 @@ function geometryProblems(e: Entity): string[] {
       finite("its position and rotation", ...e.at, e.rotation);
       size("height", e.height);
       break;
+    case "paragraph":
+      finite("its position and rotation", ...e.at, e.rotation);
+      size("height", e.height);
+      if (e.width !== undefined) size("width", e.width);
+      break;
     case "insert": {
       finite("its position and rotation", ...e.at, e.rotation ?? 0);
       const scale: unknown = e.scale;
@@ -2067,8 +3020,87 @@ function geometryProblems(e: Entity): string[] {
     case "aligned-dimension":
       finite("its points and its offset", ...e.from, ...e.to, e.offset);
       break;
+    case "radius-dimension":
+    case "diameter-dimension":
+      finite("its points and its text's distance", ...e.center, ...e.point, e.textFromCenter ?? 0);
+      break;
+    case "jogged-radius-dimension":
+      finite("its points", ...e.center, ...e.point, ...e.start, ...e.jog);
+      break;
+    case "angular-dimension":
+      finite("its points", ...e.vertex, ...e.from, ...e.to, ...e.at);
+      break;
+    case "ordinate-dimension":
+      finite("its points", ...e.origin, ...e.feature, ...e.leaderEnd);
+      break;
+    case "arc-length-dimension":
+      finite(
+        "its points, radius and angles",
+        ...e.center,
+        e.radius,
+        e.startAngle,
+        e.endAngle,
+        ...e.at,
+      );
+      break;
     case "leader":
       finite("its point", ...e.at);
+      break;
+    case "image":
+      finite("its position and rotation", ...e.at, e.rotation ?? 0);
+      size("width", e.width);
+      size("height", e.height);
+      break;
+    case "hatch": {
+      if (e.loops.length === 0) out.push(HATCH_NO_LOOPS);
+      // One message of each kind for the hatch, with the first loop it is about.
+      const found = new Set<string>();
+      e.loops.forEach((loop, k) => {
+        const say = (problem: string) => {
+          if (found.has(problem)) return;
+          found.add(problem);
+          out.push(`loop ${k}: ${problem}`);
+        };
+        const n = loop.points.length;
+        if (!loop.points.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]))) {
+          say("its points must be finite numbers");
+          return;
+        }
+        for (const [x, y] of loop.points) {
+          const problem = magnitudeProblem(x) ?? magnitudeProblem(y);
+          if (problem) {
+            say(`its points: ${problem}`);
+            break;
+          }
+        }
+        if (n >= 2)
+          for (const problem of polylineSidesProblems(n, loop.bulges, undefined, undefined))
+            say(problem);
+        if (n < 2 || (n === 2 && !loopBulged(loop))) say(HATCH_LOOP_POINTS);
+      });
+      break;
+    }
+    case "ellipse":
+      finite("its center and major axis", ...e.center, ...e.majorAxis);
+      if (out.length > 0) break;
+      out.push(...ellipseProblems(e.majorAxis, e.ratio, e.startParameter, e.endParameter));
+      break;
+    case "spline":
+      out.push(...(isFitSpline(e) ? fitSplineProblems(e) : controlSplineProblems(e)));
+      break;
+    case "wipeout":
+      if (e.points.length < 3) out.push(WIPEOUT_POINTS);
+      if (!e.points.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]))) {
+        out.push("its points must be finite numbers");
+        break;
+      }
+      for (const [x, y] of e.points) {
+        const problem = magnitudeProblem(x) ?? magnitudeProblem(y);
+        if (!problem) continue;
+        out.push(`its points: ${problem}`);
+        return out;
+      }
+      if (e.points.length >= 3 && onOneLine(e.points)) out.push(WIPEOUT_FLAT);
       break;
   }
   return out;
@@ -2095,10 +3127,12 @@ function zeroLength(e: Entity): string | undefined {
         : undefined;
     case "circle":
     case "text":
+    case "paragraph":
     case "insert":
     case "linear-dimension":
     case "aligned-dimension":
     case "leader":
+    case "image":
       return undefined;
   }
 }

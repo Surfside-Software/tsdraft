@@ -31,6 +31,62 @@ it would take `1e+100` for `1e+10` and report nothing.
   characters U+E800 to U+E8FF, which that app replaces.
 - Coordinates, sizes and text rotations are under 1e100 in size, because
   the leading CAD app reads only two exponent digits from DXF.
+- A polyline has a bulge for each side and a pair of widths for each side when it has them:
+  a closed polyline has a side for each point, an open one a side fewer. A width is 0 or more,
+  since the leading CAD app reads a negative width of every side as 0 and keeps a negative width
+  of one side with no `AUDIT` error, and a polyline has one width for every side or one for each,
+  not both. [Polylines](polylines.md#checks) has the rest.
+- A paragraph is R2018 only. Its height, and its width where it has one, are greater than 0 as
+  written, its line spacing is a factor from 0.25 to 4 as written, and its value holds only the
+  codes tsdraft lays out: its braces close, each code is one tsdraft knows and ends with its `;`
+  where it takes one, a font is one of `FONTS`, in bold only for a TrueType font and never in
+  italic, and braces nest at most 16 deep. The codes of the height, width, slant, place and color of
+  characters take the numbers the leading CAD app does, and the spacing of characters and an
+  overline are refused until tsdraft lays them out, since a paragraph that held one would plot
+  otherwise than tsdraft draws it. So are a stacked part of other characters than digits and
+  capitals with `.`, `,`, `+` or `-`, or spaces, and a stack in underlined or struck-through
+  characters. Its columns are a count and a height, a height, or heights, with a width to be as wide
+  as, and a `\N` without them is a warning.
+  [Paragraphs](paragraphs.md#what-lint-refuses) has the rest.
+- An image is R2018 only. Its path is not empty, starts from the folder of the drawing's file and
+  holds no `* ? < > | : "`, since the leading CAD app finds the file of an absolute path only
+  there, its `pixels` are the file's, two whole numbers from 1 to 2,147,483,647, and two images of
+  one file give it the same pixels. Its width and height are greater than 0 as written. A clip is
+  two corners of a rectangle of some width and height along the image's sides, or a polygon of 3
+  points that differ, at most 10,000 in all, and `invertClip` needs a clip.
+  [Images](images.md#what-lint-refuses) has the rest.
+- A hatch and a wipeout are R2018 only. A hatch has at least one loop, and each loop at least 3
+  points, or 2 joined by an arc, with a bulge for each side where it has bulges. A wipeout has at
+  least 3 points, which do not lie on one line as written, and sides that do not cross.
+  `wipeoutFrame` is `true` or `false`. A paragraph's mask is `true`, `false` or
+  `{ color?, offsetFactor? }`, a color from 1 to 256 and a factor from 1 to 5, as a leader's is,
+  on a paragraph without columns, and a dimension style's `textMask` is `true`, `false` or `{ color }`.
+  [Fills, wipeouts and masks](fills.md) has the rest.
+- A hatch pattern of the drawing's `patterns` has a name that follows the rules of a linetype's
+  name, a description of one line, and 1 to 32,767 lines, each with an angle, a base point and an
+  offset of finite numbers under 1e100, an offset across the line that does not round to 0 at 6
+  decimals, and at most 32,767 dashes under 1e100, not all 0. Two patterns of one name, whatever
+  the case of its letters, are a `duplicate-hatch-pattern` error, and a hatch takes the first. A
+  hatch's `pattern` names one of them other than `SOLID`, which a solid hatch leaves the pattern
+  out for, or gives a `spacing` for lines of its own, not both; its
+  `scale` and `spacing` are greater than 0 and not written as 0, `crossed` goes with a spacing
+  alone, and its `angle` and `origin` are finite. The lines it places hold no number of 1e100 or
+  more, and it draws at most 1,000,000 lines across the box of its loops. The rule of these is
+  `hatch-pattern`. [Patterns](fills.md#patterns) has the rest.
+- An ellipse and a spline are R2018 only. An ellipse's ratio is above 0 and at most 1 as
+  written, its major axis is not `[0, 0]` as written, and an arc of it has both parameters, from
+  0 up to 360 and not equal as written. A spline through fit points has 2 or more, 3 when it is
+  closed, none side by side the same as written, and tangents that are not `[0, 0]`, none on a
+  closed one. A spline by control points has a whole degree from 1 to `SPLINE_DEGREE_MOST`, at
+  least one more control point than its degree, as many knots as its control points and its
+  degree and one, never decreasing and not all one over what it draws, and a weight above 0 for
+  each control point where it has weights. A closed one ends where it starts, the way it
+  arrives. A spline holds at most `SPLINE_ITEMS`, 32,767, knots.
+  [Ellipses and splines](curves.md#checks) has the rest.
+- A hatch's `gradient` goes with no `pattern`. Its `name` is one of `GRADIENT_KINDS`, its `angle`
+  a finite number under 1e100 and `centered` true or false, and it has two `colors` or a `color`
+  and a `tint` from 0 to 1, each color three whole numbers from 0 to 255, and no other field. The rule of these is
+  `hatch-gradient`. [Gradients](fills.md#gradients) has the rest.
 - Arc angles are stored from 0 up to 360, so -90 becomes 270. An arc cannot come
   within 0.000001 degrees of a full turn, because its two angles would be
   written the same and the leading CAD app holds such an arc as having no length. Draw a
@@ -51,6 +107,15 @@ it would take `1e+100` for `1e+10` and report nothing.
   or gap would become a dot: use 0.000001 or more in size, or 0 for a dot. The
   lengths, added up without their signs, must be under 1e100, because the total
   is written too.
+- A linetype's `marks` are each at the end of a length of its pattern, by `after`, in order, at
+  most one at a length. A text is a string of at least one character in one of the drawing's text
+  styles, `Standard` unless it names one, and its height is greater than 0 as written. A shape is a
+  whole number from 1 to 65535 in a named shape file, and its scale is not 0 as written: one of a
+  negative scale is drawn turned half a turn. A shape by its name, as a linetype file gives it, is
+  refused, since a drawing holds a shape by its number: `parseLinetypes` given the file numbers it.
+  `orient` is `relative`, `absolute` or `upright`. A linetype's texts may take 256 characters
+  together, counting one more for each, since a DWG holds them in 512 bytes. R2018 only, as is a
+  polyline's `linetypeGeneration`.
 - A description is a single line, with no characters text cannot hold, and is at
   most 249 characters, where the leading CAD app cuts it.
 - A text style has one of the fonts in `FONTS`: an SHX font by its file name,
@@ -78,12 +143,15 @@ it would take `1e+100` for `1e+10` and report nothing.
 - A lineweight is one of the leading CAD app's: 0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25,
   0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8, 0.9, 1, 1.06, 1.2, 1.4, 1.58, 2 or
   2.11 millimetres. That app discards a drawing with an entity of any other.
+- An entity's color is an index from 1 to 255, `"ByLayer"`, `"ByBlock"` or a true color of
+  three whole numbers from 0 to 255. CAD programs store 0 for ByBlock and 256 for ByLayer, which
+  tsdraft takes only by those names.
 - Layer `0` cannot be frozen. It is the current layer, and the leading CAD app does not
   freeze the current layer.
 - The linetype scale is a size, like a radius. The leading CAD app reads 0 or less as 1.
 - An R12 drawing has no linetypes but `Continuous`, no linetype scale, no
-  lineweights and no layer states. Its entities take no linetype or lineweight
-  of their own, and draw ByLayer. Its texts are in `Standard`, left on the
+  lineweights and no layer states. Its entities take no color, linetype or
+  lineweight of their own, and draw ByLayer. Its texts are in `Standard`, left on the
   baseline, and it defines no text style.
 - Block names follow the rules of layer names. The leading CAD app discards a drawing over a block
   name it refuses. It keeps names that start with `*` for the blocks it makes itself, and its
@@ -181,15 +249,21 @@ it would take `1e+100` for `1e+10` and report nothing.
 - A linear dimension measures along an angle from -360 to 360, by tsdraft's own rule, so that
   one direction has one angle.
 - A dimension is not in a block. The leading CAD app draws nothing for it when it opens the file.
-- A block is not named `_ArchTick`, in any case. The leading CAD app draws a dimension's
-  architectural tick with the block of that name.
+- A block is not named `_ArchTick` or `_Oblique`, in any case. The leading CAD app draws a
+  dimension's ticks with the blocks of those names.
+- What a dimension style sets of how it looks is one of its lists, a stacked fraction is in
+  feet and inches, and a dimension leaves out what [Dimensions](dimensions.md#what-lint-reports)
+  says is not laid out yet.
 - An R12 drawing has no dimensions.
 - A leader names a leader style the drawing defines, and not `Standard`, which is the leading CAD
   app's own. A leader style's name follows the rules of a dimension style's name. Its text style,
   and a leader's own, is one the drawing defines. Its text height is greater than 0, its arrow
-  size, landing and gap are 0 or more, its scale is greater than 0, and its arrowhead is one of
-  `LEADER_ARROWHEADS`. [Leaders](leaders.md#what-lint-reports) says why.
-- A leader's note is lines of text with none of `\`, `{` and `}`, and one line that is not
+  size, landing and gap are 0 or more, its scale is greater than 0, its arrowhead is one of
+  `LEADER_ARROWHEADS` and its attachment one of `LEADER_ATTACHMENTS`. A leader's width is greater
+  than 0, and its mask `true`, `false` or a color index and a factor from 1 to 5. A leader whose
+  content is a block names a block of the drawing and sets nothing only a note has.
+  [Leaders](leaders.md#what-lint-reports) says why.
+- A leader's note is paragraphs of text with none of `\`, `{` and `}`, and one that is not
   empty or all spaces. A leader has a shaft, and the first segment of each has a length once it
   is written with 6 decimals. Every number a leader draws is under 1e100.
 - A leader is not in a block, and an R12 drawing has no leaders.
@@ -211,7 +285,8 @@ it would take `1e+100` for `1e+10` and report nothing.
   field and a field of the wrong type, it gives an error with the path to the value, such as
   `entities[3].from must be a point, [x, y]`. The rule is `linetype`, `text-style`, `block` or
   `attribute` for a value in that list, `xref` for one in `xrefs`, `dimension-style` for one
-  in `dimensionStyles`, `leader-style` for one in `leaderStyles`, `layout` for a layout,
+  in `dimensionStyles`, `leader-style` for one in `leaderStyles`, `hatch-pattern` for one in
+  `patterns`, `layout` for a layout,
   `viewport` for a viewport, and `format` for the rest, which an entity of a sheet is.
   No other rule is checked on an object of the wrong shape, and what names it gets no error
   for that. An object that a drawing made in code shares among many places is reported where it
@@ -241,6 +316,10 @@ it would take `1e+100` for `1e+10` and report nothing.
 - A viewport that reaches past its layout's paper. The leading CAD app plots a layout as far as its
   paper goes.
 - A viewport that shows none of the drawing: nothing in model space lies in the box it shows.
+- `linetype-shape`: a linetype that a layer or an entity draws in, with a shape the plot cannot
+  draw from the `shapes` given: its file is not given, does not read, or has no such shape. CAD
+  programs draw a shape from its file, which the drawing names and does not hold, and tsdraft's
+  plot leaves a gap where such a shape goes.
 - `check-capped`: where `lint` stopped the checks it makes again for what a drawing repeats:
   each attribute an insert places and each handle it takes past its first 64, a tag of 256
   characters or more each time an insert's values are searched for it, what each

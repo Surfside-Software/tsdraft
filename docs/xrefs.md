@@ -38,9 +38,18 @@ toSVG(sheet, { xrefs: { BASE: base } }); // draws the base under the notes
 - An xref has no entities, no base point and no attribute definitions of its own. Its file
   has them.
 
-tsdraft writes every xref as an overlay. The leading CAD app loads an overlay for the drawing that
-references it and not for a third drawing that references that one, so two drawings can
-overlay each other.
+An xref is an overlay unless you attach it:
+
+```ts
+d.xref("SURVEY", "survey.dwg"); // an overlay
+d.xref("BASE", "base.dwg", { attach: true }); // an attachment
+```
+
+The leading CAD app loads an overlay for the drawing that references it and not for a third
+drawing that references that one, so two drawings can overlay each other. It loads an
+attachment for every drawing above it too: a sheet that references a model draws the base the
+model attaches, and not the survey the model overlays. Attach what every sheet of a model must
+show, and overlay what only the model needs.
 
 The leading CAD app draws the model space of the file and nothing of its layouts.
 
@@ -159,10 +168,11 @@ An insert with an id has the handle `idHandle(id)`. A drawing that has an xref h
 
 ## Cycles
 
-Two drawings that reference each other cannot be seen from one of them, so `lint` has no rule
-for it. With overlays, which is all tsdraft writes, the leading CAD app loads the other drawing and
-not that drawing's own overlays, and reports nothing. A drafter who changes an overlay to an
-attachment in CAD can make a cycle, which that app breaks and reports as a circular reference.
+Two drawings that reference each other cannot be seen from one of them, so `lint` of a drawing
+alone has no rule for it. With overlays the leading CAD app loads the other drawing and not
+that drawing's own overlays, and reports nothing. Two drawings that attach each other make a
+circular reference, which that app breaks where it would load a drawing a second time, and
+reports. `lint` with the drawings given, below, reports it too.
 
 ## The preview
 
@@ -179,8 +189,36 @@ toSVG(sheet, { xrefs: { BASE: base } });
 - The extents take in the box of what each insert draws, as they do for a block.
 - An xref with no drawing given draws nothing: its group is empty, and the extents leave it
   out.
-- The xrefs of the drawing you gave are not drawn, as the leading CAD app loads no overlay of an
-  overlay.
+- The xrefs of a drawing you gave alone are not drawn.
+
+### Nested xrefs
+
+Give a drawing as `{ drawing, xrefs }` to draw what it attaches, with the drawings its own
+xrefs stand for, and so on down:
+
+```ts
+toSVG(sheet, {
+  xrefs: { MODEL: { drawing: model, xrefs: { BASE: base, SURVEY: survey } } },
+});
+```
+
+- An attachment of the model draws its drawing inside the model's group, where the model's
+  insert puts it. An element on one of its layers has `data-layer="BASE|C-BLDG"`, by the
+  attachment's own name.
+- An overlay of the model draws nothing, though a drawing is given for it, as the leading CAD app
+  loads no overlay of a referenced drawing.
+- A drawing that the chain above already draws, your own included, is a circular reference. It
+  is not drawn again there, as the leading CAD app breaks the circle there.
+- A chain is drawn `XREF_DEPTH`, 16, drawings down, and no further.
+- Past 4,096 names given inside referenced drawings, none of them is drawn: only the drawings
+  given for your drawing's own xrefs are.
+- `toPDF` takes the same `xrefs`. `inspectText` takes them too, and checks the texts of the
+  drawings given for your drawing's own xrefs, not of what those attach.
+- `drawnXrefs(sheet, xrefs)` gives what the picture draws of what you gave, in the same form.
+
+`lint(sheet, { xrefs })` warns of each drawing given that is not drawn for one of these reasons,
+with the chain of names, such as `Xref "MODEL" > "SURVEY"`, and the first name in `xref`. It does
+not check the drawings given: lint each on its own.
 
 `findXref(drawing, name)` returns the xref an insert of a name places.
 
@@ -193,8 +231,11 @@ export const xrefs = { BASE: base };
 export default d.build();
 ```
 
+Give a drawing as `{ drawing, xrefs }` there too, to draw what it attaches.
+
 The pictures then draw the base, and `drawing.xrefs` in the JSON says so with `shown: true`,
-beside the `units` of the drawing you gave. `shown` is about the pictures: the command does
-not read DWG files, so it cannot tell whether the drawing you exported is what the file at the
-path holds. It runs `lint` on each drawing you give, and one with an error is reported and not
-drawn. See [The tsdraft command](command.md).
+beside the `units` of the drawing you gave, and its own xrefs in `xrefs`. `shown` is about the
+pictures: the command does not read DWG files, so it cannot tell whether the drawing you
+exported is what the file at the path holds. It runs `lint` on each drawing you give that it
+draws, at any depth, and one with an error is reported and not drawn. See
+[The tsdraft command](command.md).

@@ -102,7 +102,10 @@ Entities go on layer `0` unless they are drawn inside a `layer()` callback.
 Linetypes and lineweights are set on a layer, and an entity draws ByLayer unless
 it is given its own. `DASHED`, `HIDDEN`, `CENTER`, `PHANTOM`, `DASHDOT` and `DOT`
 are the leading CAD app's own definitions; `d.linetype({ name, pattern })` defines another,
-with dashes as positive lengths, gaps as negative ones and dots as 0. A
+with dashes as positive lengths, gaps as negative ones and dots as 0. Its `marks` draw texts
+along the line, such as a water main's letters, and shapes of a firm's shape file, such as a
+fence's circles, which `parseShapes` reads and the plot takes as `shapes`. `parseLinetypes` reads
+a firm's linetype file. A polyline's `linetypeGeneration` runs the pattern on past its vertices. A
 lineweight is in millimetres.
 
 A text is in the style `Standard` unless it names another. `d.textStyle({ name,
@@ -145,6 +148,101 @@ The path leads from the folder of the drawing's file. `toSVG` draws the referenc
 when it is given one, as `toSVG(drawing, { xrefs: { BASE: base } })`. [Xrefs](docs/xrefs.md)
 has the rest.
 
+A polyline's sides can be arcs and can be drawn wide, and the builder makes a few shapes of
+them, each one polyline in the file:
+
+```ts
+d.polyline(hook, false, { radius: 1.5, width: 0.625 }); // a bar's hook with its bend
+d.cloud(outline, { arc: 3.75 }); // a revision cloud that bulges out of its outline
+d.donut([10, 10], 0.5); // a filled dot
+```
+
+`bulges` makes any side an arc, and `widths` gives each side a width at each end.
+[Polylines](docs/polylines.md) has the rest.
+
+An ellipse is drawn by its center, the end of its major axis and the ratio of its axes, and a
+spline through fit points, as a top of bank or a tree line is drawn through located shots, or by
+its control points:
+
+```ts
+d.ellipse([10, 5], [4, 0], 0.5);
+d.spline(bank); // the cubic CAD programs fit through the points
+d.controlSpline(controlPoints, { degree: 3 });
+```
+
+[Ellipses and splines](docs/curves.md) has arcs of an ellipse, tangents, closed splines, knots
+and weights.
+
+A paragraph is one text whose lines wrap at a width, which a CAD user edits as one. A line feed
+starts a new paragraph, and small helpers write the codes for a numbered list, an underline,
+bold, a stacked fraction and a superscript:
+
+```ts
+import { list, stack, underline } from "tsdraft";
+
+d.paragraph(
+  `GENERAL NOTES\n${list([`${underline("VERIFY")} ALL DIMENSIONS.`, `GAP 3${stack("1", "2")}"`])}`,
+  {
+    at: [1, 20], // the upper left corner of its box
+    width: 4,
+    height: 0.1,
+  },
+);
+```
+
+`measureParagraph` gives its lines and its box. [Paragraphs](docs/paragraphs.md) has the codes
+it takes and what it refuses.
+
+An image is a PNG or a JPEG drawn at a size in drawing units, such as an aerial under a plan or
+a vicinity map on a sheet. The drawing holds the file's path and its pixels, which `rasterSize`
+reads, and the plot draws the file from the bytes it is given:
+
+```ts
+import { rasterSize } from "tsdraft";
+
+const pixels = rasterSize(readFileSync("aerial.png"))!;
+d.image("aerial.png", [0, 0], {
+  pixels,
+  width: 400,
+  clip: [
+    [20, 20],
+    [380, 260],
+  ],
+});
+toPDF(drawing, { images: { "aerial.png": readFileSync("aerial.png") } });
+```
+
+[Images](docs/images.md) has clips, frames and transparency, and what `lint` refuses.
+
+A hatch fills the area inside its loops solid, a loop inside another a hole, draws a pattern
+of the firm's pattern file there, or runs from one color to another as a gradient. A wipeout hides what is drawn before it, and a paragraph's mask
+hides it behind the text:
+
+```ts
+d.hatch([
+  {
+    points: [
+      [0, 0],
+      [96, 0],
+      [96, 8],
+      [0, 8],
+    ],
+  },
+  {
+    points: [
+      [36, 0],
+      [72, 0],
+      [72, 8],
+      [36, 8],
+    ],
+  },
+]);
+d.paragraph("VERIFY IN FIELD", { at: [40, 20], height: 3, mask: true });
+```
+
+[Fills, wipeouts and masks](docs/fills.md) has holes and arcs, patterns, gradients, wipeouts' frames, a
+dimension style's mask and the draw order.
+
 A dimension measures between two points and writes what it measures. In the file it is a
 dimension, which a CAD program measures again when its points move, and a dimension style says how
 it is drawn:
@@ -165,7 +263,9 @@ d.linearDimension([34, 30], [86, 30], [0, 22], { style: "PLAN" }); // 52.0'
 ```
 
 `alignedDimension` measures along the two points, and a style with `units: "architectural"`
-writes feet and inches, as `4'-1 7/16"`. [Dimensions](docs/dimensions.md) has the rest.
+writes feet and inches, as `4'-1 7/16"`, with the fraction on the line or stacked. A style puts
+the text above the line or in a break of it and moves a text with no room out on a leader, and
+a dimension takes words below its line. [Dimensions](docs/dimensions.md) has the rest.
 
 A layout is a sheet of paper that a CAD program shows as a tab and plots as one page. What is drawn
 inside `layout` is on the sheet, in inches of paper, and a viewport shows the model on it at a
@@ -211,16 +311,16 @@ tsdraft is early, and its API still changes. Until 1.0 any release, a patch
 included, can break code written for the one before. [CHANGELOG.md](CHANGELOG.md)
 starts each breaking change with `Breaking:`.
 
-It draws layers, lines, polylines, rectangles, circles, arcs and single-line text, with
-linetypes and lineweights, text styles and justification, blocks with attributes and inserts
+It draws layers, lines, polylines with arcs and widths, rectangles, revision clouds, donuts,
+circles, arcs, single-line text and paragraph text that wraps to a width, with lists, tab
+stops and columns, linetypes and lineweights, an entity's own color by index or as a true color, text styles and justification, blocks with attributes and inserts
 of them, references to DWG files as xrefs, linear and aligned dimensions in decimal units or
-feet and inches, leaders, layouts with a page setup and viewports, which can freeze their own
+feet and inches with stacked fractions, words below the line and text on a leader, leaders, layouts with a page setup and viewports, which can freeze their own
 layers or twist the view, and layers that are off, frozen, locked or not plotted. A firm's
 [standard](docs/standard.md) sets its layers, pens, text and sheets. It writes DXF, not DWG.
 
-It does not yet have paragraph text, arcs or widths in a polyline, ellipses, splines or
-points, hatches, solid fills or masks, images, tables, color or transparency set on one
-entity, linetypes with text or shapes, PDF underlays, or the other kinds of dimension.
+It does not yet have overlines in paragraph text, ellipses, splines or points, tables, transparency set on one
+entity, PDF underlays, or the other kinds of dimension.
 
 `readDXF` reads an ASCII DXF into a model to inspect, which is not a drawing tsdraft can edit
 and write again. [Reading drawing files](docs/reading.md) has what it reads.
@@ -270,6 +370,8 @@ the drawing's version, and `toDXF(drawing, { version })` writes another one.
 | Format code               | AC1032                                                                  | AC1009                                             |
 | Drawing units             | Stored in `$INSUNITS`.                                                  | Not stored. Set them in CAD with `UNITS`.          |
 | Polylines                 | `LWPOLYLINE`                                                            | `POLYLINE` with `VERTEX` records                   |
+| Polyline arcs and widths  | Yes                                                                     | No                                                 |
+| Paragraph text            | `MTEXT`                                                                 | No                                                 |
 | Text                      | UTF-8                                                                   | ASCII, with `\U+XXXX` escapes for other characters |
 | Layer names               | Up to 255 characters, except those in [the rules](docs/rules.md#errors) | Up to 31 letters, digits, `$`, `-` and `_`         |
 | Linetypes, lineweights    | Yes                                                                     | No: only `Continuous`, and no lineweights          |
@@ -317,6 +419,19 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   characters it refuses.
 - [Blocks](docs/blocks.md) covers blocks, inserts and attributes: layers in a
   block, names, handles and what the preview draws.
+- [Polylines](docs/polylines.md) covers arcs by their bulge, rounded corners, revision clouds,
+  widths and donuts, how a wide polyline plots, and what `lint` refuses of them.
+- [Ellipses and splines](docs/curves.md) covers ellipses and their arcs, splines through fit
+  points and by control points, how they plot and dash, and what `lint` refuses of them.
+- [Paragraphs](docs/paragraphs.md) covers paragraph text: its width and box, the codes its
+  value takes, the helpers that write them, how it is laid out, and what `lint` refuses.
+- [Images](docs/images.md) covers raster images: the path and the pixels, clips, frames,
+  transparency, how the plot draws one, and what `lint` refuses.
+- [Fills, wipeouts and masks](docs/fills.md) covers hatches with holes, solid, of a pattern
+  file's patterns or of a gradient, wipeouts, the masks of paragraphs, leaders and dimensions, the draw order, and
+  what `lint` refuses.
+- [Colors](docs/colors.md) covers an entity's own color by index or as a true color, ByBlock in
+  a block, how each plots under a plot style table, and the color codes of paragraph text.
 - [Dimensions](docs/dimensions.md) covers dimension styles, linear and aligned
   dimensions, how a measurement is written, and what `lint` refuses.
 - [Xrefs](docs/xrefs.md) covers references to DWG files: the path, units, a

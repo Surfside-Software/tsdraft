@@ -6,7 +6,11 @@
   gained the inserts on layouts while layouts were unreleased.
 - The command opens no file an xref names. The worker draws an xref from the drawing file's
   named export `xrefs` alone, and `drawing.xrefs` says with `shown` which ones the pictures
-  have, so an agent knows what it is not seeing.
+  have, so an agent knows what it is not seeing, and for one shown, the same of its own `xrefs`.
+  A value given as `{ drawing, xrefs }` draws its attachments where the copy of tsdraft has
+  `drawnXrefs`. The worker takes from it what the pictures draw, lints each of those drawings
+  once, leaves out one with an error, which cuts nothing else, and passes the export to `lint`
+  for why a drawing given is not drawn.
 - `outputs.svg` and `outputs.png` are model space, with or without layouts, and
   `outputs.layouts` has each sheet. The worker draws a layout only with a copy of tsdraft that
   has `viewportView`, since an older one would draw model space for it. `without` leaves a
@@ -25,8 +29,9 @@
   there is no `prlimit`.
 - The renderer consults no system font by name. `src/fonts.ts` looks in the machine's font
   folders, once for the life of the command, for the file of each TrueType font of `FONTS`,
-  or of a font made to its widths, and takes a file only when the family name inside it is
-  the one expected. `src/png.ts` sends the renderer's process the files a picture needs, and
+  or of a font made to its widths, and of its bold beside it, and takes a file only when the
+  family name inside it is the one expected. A bold text's `font-weight` comes before the three
+  attributes `src/png-child.ts` sizes a text by, so it sizes one by its bold face's cap height. `src/png.ts` sends the renderer's process the files a picture needs, and
   the process sets the SVG's font family to the file's own. Every other font is drawn in the
   shipped JetBrains Mono. `outputs.pngFonts` and each layout's `pngFonts` say which, from
   `pictureFaces`, the one function that picks the files `toPNG` sends. A PDF embeds the same

@@ -19,6 +19,12 @@ export interface FontInfo {
    * Roman is taller than its `H`.
    */
   readonly capHeight?: number;
+  /**
+   * For a TrueType font, its bold face: the file Windows installs it as, and the top of its own
+   * capital `A` where it is not the regular face's. The leading CAD app makes the bold face's own
+   * `A` as tall as the text's height.
+   */
+  readonly bold?: { readonly file: string; readonly capHeight?: number };
 }
 
 /**
@@ -45,55 +51,70 @@ export const FONTS = {
     pitchAndFamily: 34,
     family: "Arial, Helvetica, sans-serif",
     capHeight: 0.716,
+    bold: { file: "arialbd.ttf" },
   },
   Calibri: {
     file: "calibri.ttf",
     pitchAndFamily: 34,
     family: "Calibri, Carlito, sans-serif",
     capHeight: 0.6348,
+    bold: { file: "calibrib.ttf" },
   },
   Consolas: {
     file: "consola.ttf",
     pitchAndFamily: 49,
     family: "Consolas, monospace",
     capHeight: 0.638,
+    bold: { file: "consolab.ttf" },
   },
   "Courier New": {
     file: "cour.ttf",
     pitchAndFamily: 49,
     family: '"Courier New", Courier, monospace',
     capHeight: 0.571,
+    bold: { file: "courbd.ttf", capHeight: 0.5923 },
   },
-  Georgia: { file: "georgia.ttf", pitchAndFamily: 18, family: "Georgia, serif", capHeight: 0.7026 },
+  Georgia: {
+    file: "georgia.ttf",
+    pitchAndFamily: 18,
+    family: "Georgia, serif",
+    capHeight: 0.7026,
+    bold: { file: "georgiab.ttf" },
+  },
   "Segoe UI": {
     file: "segoeui.ttf",
     pitchAndFamily: 34,
     family: '"Segoe UI", sans-serif',
     capHeight: 0.7,
+    bold: { file: "segoeuib.ttf" },
   },
   Tahoma: {
     file: "tahoma.ttf",
     pitchAndFamily: 34,
     family: "Tahoma, sans-serif",
     capHeight: 0.727,
+    bold: { file: "tahomabd.ttf" },
   },
   "Times New Roman": {
     file: "times.ttf",
     pitchAndFamily: 18,
     family: '"Times New Roman", Times, serif',
     capHeight: 0.6772,
+    bold: { file: "timesbd.ttf", capHeight: 0.6758 },
   },
   "Trebuchet MS": {
     file: "trebuc.ttf",
     pitchAndFamily: 34,
     family: '"Trebuchet MS", sans-serif',
     capHeight: 0.7251,
+    bold: { file: "trebucbd.ttf" },
   },
   Verdana: {
     file: "verdana.ttf",
     pitchAndFamily: 34,
     family: "Verdana, sans-serif",
     capHeight: 0.727,
+    bold: { file: "verdanab.ttf" },
   },
 } as const satisfies Readonly<Record<string, FontInfo>>;
 
@@ -117,6 +138,15 @@ export function fontInfo(name: string): FontInfo | undefined {
   return typeof name === "string" && name.length <= LONGEST_FONT && Object.hasOwn(FONTS, name)
     ? FONTS[name as Font]
     : undefined;
+}
+
+/**
+ * The top of a TrueType font's capital `A` as a share of its size, in its bold face for `bold`,
+ * which the leading CAD app makes as tall as a text's height. Undefined for an SHX font.
+ */
+export function capHeightOf(font: string, bold = false): number | undefined {
+  const info = fontInfo(font);
+  return (bold ? info?.bold?.capHeight : undefined) ?? info?.capHeight;
 }
 
 /** Each font of `FONTS` by its name, its file and its file without the extension, in lower case. */

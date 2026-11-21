@@ -125,6 +125,17 @@ Give `--view` the `bounds` of a diagnostic, a little larger, to see what the dia
 about, and read a sheet's title block and notes with it. `tsdraft dev` has no such flag: its
 page pans and zooms.
 
+## Images
+
+The pictures and the PDF draw each image from its file, which the command reads from the folder
+of the drawing file by the image's path, `\` and `/` alike, once a build, up to 1 GB in all. A
+file that is missing, or is not a PNG or a JPEG, gives an `image` warning, and the pictures draw
+the image's frame with its path inside it, as a CAD program draws an image whose file it cannot
+find. A file whose pixels are not the ones the image gives it is an `image` error, and its frame is
+drawn the same way. An xref's images are read from the folder of its file, which its path starts
+from the drawing file's. `tsdraft dev` builds again when an image's file changes.
+[Images](images.md#plotting) has what a picture holds of one.
+
 ## The JSON
 
 `BuildState` in [`cli/src/state.ts`](../cli/src/state.ts) documents each field, and `schema`,
@@ -153,22 +164,34 @@ it holds, the tags of its attributes and how many inserts place it. `drawing.ins
 insert in model space: its `entity` index, `block`, `layer`, `id`, `at`, `scale`, `rotation` and
 the value it shows for each attribute, and `xref`, which is true for an insert of an xref.
 `drawing.dimensions` gives each
-dimension in model space: its `entity` index, `id`, `layer`, `kind`, which is `linear` or
-`aligned`, `style`, `measurement`, the length it measures in drawing units, and `text`, the
-string the leading CAD app draws for it. The last two are `null` for a dimension whose style the
-drawing does not define. A layout's `dimensions` lists those on its sheet in the same way.
-`drawing.xrefs` gives each xref's `name`, its `path`, how many `inserts` place it, in model
-space, in blocks and on layouts, `shown` and `units`. The command opens no DWG file. It draws an xref when
+dimension in model space: its `entity` index, `id`, `layer`, `kind`, which is `linear`,
+`aligned`, `radius`, `diameter`, `jogged-radius`, `angular`, `arc-length` or `ordinate`, `style`,
+`measurement`, the length it measures in drawing units or an angular one's angle in degrees, and
+`text`, the string the leading CAD app draws for it. The last two are `null` for a dimension whose
+style the drawing does not define. A layout's `dimensions` lists those on its sheet in the same way.
+`drawing.xrefs` gives each xref's `name`, its `path`, whether it is an `attach`ment or an
+overlay, how many `inserts` place it, in model space, in blocks and on layouts, `shown`, `units`
+and `xrefs`. The command opens no DWG file. It draws an xref when
 the drawing file has a named export `xrefs`, an object that gives a `Drawing` under the xref's
 name, such as `export const xrefs = { BASE: base }`. `shown` says that the pictures drew that
-drawing. The command cannot tell whether it is what the file at `path` holds, so `shown` is
+drawing. Given as `{ drawing, xrefs }`, such as
+`export const xrefs = { MODEL: { drawing: model, xrefs: { SURVEY: survey } } }`, a drawing's own
+attachments are drawn too, from the drawings its `xrefs` gives, and so on down, and its
+overlays are not, as CAD loads them. An xref's `xrefs` then lists the xrefs of the drawing drawn
+for it, each in the same way, and is empty when it is not shown. There `inserts` counts only
+what the drawing's model space reaches, directly or through its blocks, since CAD draws nothing
+else of a referenced drawing. `lint` warns, with the `xref`
+under which it is, of a drawing given that is not drawn: an overlay inside a referenced
+drawing, a circular reference, which CAD breaks, or a chain more than `XREF_DEPTH`, 16,
+drawings down. The command cannot tell whether it is what the file at `path` holds, so `shown` is
 about the pictures and not about what CAD will load. When `xrefs` gives no drawing for an xref
 that is the border of a title block of the file's `standard`, and the command checked the
 standard and found no error, the pictures draw the title block's `preview` in its place, and `shown` is true. `units` is the units of the drawing drawn,
 or `null` when there is none: where they differ from the drawing's own, each insert needs the
-scale between the two. The command runs `lint` on each drawing it is given. One with an error
-is not drawn, its `shown` is false, and each error is in `diagnostics` with the `xref` it
-belongs to, counted in `counts.errors`. An xref that is not shown is left out of the pictures
+scale between the two. The command runs `lint` on each drawing it is given that it draws, at
+any depth. One with an error is not drawn, its `shown` is false, and each error is in `diagnostics` with the
+`xref` of the drawing it is under and the chain of xrefs in its message, counted in
+`counts.errors`. An xref that is not shown is left out of the pictures
 and of `drawing.extents`. `drawing.layouts` gives each layout: its `name`, its `paper`, its `paperUnits`, `width` and
 `height`, its `plotStyle`, how many `entities` are on its sheet, and each viewport, with its
 `id`, its `layer`, whether its `border` plots, its `rectangle` on the sheet, its `ratio`, the
@@ -303,6 +326,9 @@ set each TrueType font in:
 - the font's own file, such as `arial.ttf`, or
 - a font made to its widths, whose letters each take the room of the font's own: Liberation
   Sans for Arial, Liberation Serif for Times New Roman and Liberation Mono for Courier New.
+
+Beside each, it looks for the file of its bold, such as `arialbd.ttf`, the name `FONTS` gives
+it, or `LiberationSans-Bold.ttf`, for the bold runs of paragraphs, and a PDF embeds it too.
 
 A file counts only when the family name inside it is the one expected. An SHX font, and a
 TrueType font the machine has neither file for, is set in JetBrains Mono.
