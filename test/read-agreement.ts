@@ -21,7 +21,9 @@ import type {
   Point,
   TextStyle,
 } from "../src/drawing.ts";
+import { isFitSpline } from "../src/drawing.ts";
 import { written, writtenAngle } from "../src/format.ts";
+import { clamped } from "../src/curves.ts";
 import { idHandle } from "../src/handles.ts";
 import { findLeaderStyle, leaderPicture } from "../src/leaders.ts";
 import { fromImagePixels, imageClip, imageVectors, writtenImagePath } from "../src/images.ts";
@@ -348,6 +350,65 @@ export function readProblems(
           );
         }
         return;
+      case "ellipse": {
+        if (!kind("ellipse") || got.kind !== "ellipse") return;
+        // Its parameters are written in radians, and come back within rounding of the degrees.
+        const angle = (a: number | undefined, b: number | undefined): boolean => {
+          if (a === undefined || b === undefined) return a === b;
+          const turned = (((a - b) % 360) + 360) % 360;
+          return Math.min(turned, 360 - turned) <= 1e-9;
+        };
+        if (
+          !nearPoint(got.center, point(want.center)) ||
+          !nearPoint(got.majorAxis, point(want.majorAxis)) ||
+          !near(got.ratio, written(want.ratio)) ||
+          !angle(
+            got.startParameter,
+            want.startParameter === undefined ? undefined : writtenAngle(want.startParameter),
+          ) ||
+          !angle(
+            got.endParameter,
+            want.endParameter === undefined ? undefined : writtenAngle(want.endParameter),
+          )
+        ) {
+          say(`${label}: ${JSON.stringify({ ...got, handle: undefined })}`);
+        }
+        return;
+      }
+      case "spline": {
+        if (!kind("spline") || got.kind !== "spline") return;
+        if ((got.closed ?? false) !== (want.closed ?? false)) say(`${label}: closed ${got.closed}`);
+        if (isFitSpline(want)) {
+          // The leading CAD app fits its own control points: the fit points are what agree.
+          if (
+            got.fitPoints?.length !== want.fitPoints.length ||
+            got.fitPoints.some((p, i) => !nearPoint(p, point(want.fitPoints[i]!)))
+          ) {
+            say(`${label}: fit points ${JSON.stringify(got.fitPoints).slice(0, 200)}`);
+          }
+          return;
+        }
+        // A spline by its control points is written clamped, as that app saves it.
+        const held = clamped(want);
+        // Knots and points the clamp worked out are written with 16 digits, not as given.
+        const worked =
+          held.knots.length !== want.knots.length || held.knots.some((k, i) => k !== want.knots[i]);
+        const as = (v: number) => (worked ? v : written(v));
+        const at = (p: Point) => (worked ? p : point(p));
+        const loose = by !== "tsdraft" || worked;
+        if (
+          got.degree !== want.degree ||
+          got.knots.length !== held.knots.length ||
+          got.knots.some((k, i) => !near(k, as(held.knots[i]!), loose)) ||
+          got.controlPoints.length !== held.controlPoints.length ||
+          got.controlPoints.some((p, i) => !nearPoint(p, at(held.controlPoints[i]!), loose)) ||
+          (got.weights === undefined) !== (held.weights === undefined) ||
+          (got.weights ?? []).some((w, i) => !near(w, as(held.weights![i]!), loose))
+        ) {
+          say(`${label}: ${JSON.stringify({ ...got, handle: undefined }).slice(0, 300)}`);
+        }
+        return;
+      }
       case "text": {
         if (!kind("text") || got.kind !== "text") return;
         const style = styleOf(want.style);

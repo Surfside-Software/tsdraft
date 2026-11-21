@@ -157,6 +157,19 @@ d.donut([10, 10], 0.5); // a filled dot
 `bulges` makes any side an arc, and `widths` gives each side a width at each end.
 [Polylines](docs/polylines.md) has the rest.
 
+An ellipse is drawn by its center, the end of its major axis and the ratio of its axes, and a
+spline through fit points, as a top of bank or a tree line is drawn through located shots, or by
+its control points:
+
+```ts
+d.ellipse([10, 5], [4, 0], 0.5);
+d.spline(bank); // the cubic CAD programs fit through the points
+d.controlSpline(controlPoints, { degree: 3 });
+```
+
+[Ellipses and splines](docs/curves.md) has arcs of an ellipse, tangents, closed splines, knots
+and weights.
+
 A paragraph is one text whose lines wrap at a width, which a CAD user edits as one. A line feed
 starts a new paragraph, and small helpers write the codes for a numbered list, an underline,
 bold, a stacked fraction and a superscript:
@@ -405,6 +418,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   block, names, handles and what the preview draws.
 - [Polylines](docs/polylines.md) covers arcs by their bulge, rounded corners, revision clouds,
   widths and donuts, how a wide polyline plots, and what `lint` refuses of them.
+- [Ellipses and splines](docs/curves.md) covers ellipses and their arcs, splines through fit
+  points and by control points, how they plot and dash, and what `lint` refuses of them.
 - [Paragraphs](docs/paragraphs.md) covers paragraph text: its width and box, the codes its
   value takes, the helpers that write them, how it is laid out, and what `lint` refuses.
 - [Images](docs/images.md) covers raster images: the path and the pixels, clips, frames,

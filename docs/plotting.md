@@ -58,7 +58,10 @@ preview shows it:
   by its twist, as [Frozen layers and a twist](layouts.md#frozen-layers-and-a-twist) says.
 - A curve strays from its arc by at most 1/1000 inch on the paper.
 - A dash pattern is sized on the paper and fitted to each line, side of a polyline, arc and
-  circle, as [Linetypes on a sheet](layouts.md#linetypes-on-a-sheet) says.
+  circle, as [Linetypes on a sheet](layouts.md#linetypes-on-a-sheet) says, and along the whole
+  of an ellipse or a spline, as [How it plots](curves.md#how-it-plots) says.
+- An ellipse, an arc of one and a spline of degree 3 or less are drawn exactly; a rational spline
+  or one of a higher degree in 32 straight steps to each span of its knots.
 - A line of lineweight 0 plots as the thinnest line the printer draws, as a viewport's border
   does.
 - A wide side of a polyline is filled, at its width whatever its pen, with its joins and its

@@ -25,6 +25,17 @@ export function fifteenDigits(value: number): string {
  * An arc angle in degrees as the DXF writers print it: rounded to 6 decimals,
  * with 0 in place of an angle that rounds up to 360.
  */
+/**
+ * A number the writers work out, such as a knot or a fitted point, as they print it: 16
+ * significant digits, and below a millionth 20 decimals, never with an exponent.
+ */
+export function sixteenDigits(value: number): string {
+  const kept = Number(value.toPrecision(16));
+  return Math.abs(kept) < 1e-6
+    ? kept.toFixed(20).replace(/0+$/, "").replace(/\.$/, "")
+    : String(kept);
+}
+
 export function writtenAngle(degrees: number): number {
   const rounded = written(degrees);
   return rounded >= 360 ? rounded - 360 : rounded;

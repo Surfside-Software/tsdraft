@@ -30,6 +30,7 @@ import type {
   LeaderStyle,
   Point,
   Polyline,
+  Spline,
   Text,
   TextStyle,
 } from "./drawing.ts";
@@ -45,6 +46,8 @@ import {
   placer,
 } from "./paragraphs.ts";
 import { filled } from "./shape.ts";
+import { ellipseBox, splineBox } from "./curves.ts";
+import { drawnEllipse, SplineMemo } from "./rules.ts";
 
 type Bounds = [number, number, number, number];
 
@@ -301,6 +304,21 @@ export function boxer(
         add(e.center[0] - e.radius, e.center[1] - e.radius);
         add(e.center[0] + e.radius, e.center[1] + e.radius);
         break;
+      case "ellipse": {
+        const drawn = drawnEllipse(e);
+        if (!drawn) break;
+        const box = ellipseBox(drawn.center, drawn.majorAxis, drawn.ratio, drawn.start, drawn.end);
+        add(box[0], box[1]);
+        add(box[2], box[3]);
+        break;
+      }
+      case "spline": {
+        const box = splineBoxOf(e);
+        if (box === undefined) break;
+        add(box[0], box[1]);
+        add(box[2], box[3]);
+        break;
+      }
       case "text": {
         // A long value that took the place of another of its length is read again, and paid for.
         const again = typeof e.value === "string" && readAgain(e.value);
@@ -387,6 +405,31 @@ export function boxer(
         break;
       }
     }
+  };
+  /**
+   * The box of a spline, from its curve, worked out once for every spline of the same lists and
+   * fields: within a ten-millionth of a unit, or less than a writer's rounding moves a number, of
+   * the curve, and never inside it. One worked out again from lists another spline read is paid for
+   * by the work its fit and its pieces take.
+   */
+  const splines = new SplineMemo();
+  const splineBoxes = new WeakMap<object, Bounds | null>();
+  const splineBoxOf = (e: Spline): Bounds | undefined => {
+    const fields = e as unknown as Readonly<Record<string, unknown>>;
+    const drawn = splines.get(fields, (lists) => {
+      let cost = 0;
+      for (const list of lists) if (Array.isArray(list)) cost += list.length * 2;
+      return spend(cost);
+    });
+    if (!drawn) return undefined;
+    const known = splineBoxes.get(drawn);
+    if (known !== undefined) return known ?? undefined;
+    const { degree, knots, controlPoints, weights } = drawn;
+    let reach = 0;
+    for (const [x, y] of controlPoints) reach = Math.max(reach, Math.abs(x), Math.abs(y));
+    const box = splineBox(degree, knots, controlPoints, weights, 1e-7 + reach * 2 ** -44) ?? null;
+    splineBoxes.set(drawn, box);
+    return box ?? undefined;
   };
   /** The box of a list of points, worked out once for a long list however many hold it. */
   const pointBoxes = new WeakMap<object, Bounds>();

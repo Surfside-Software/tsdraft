@@ -84,6 +84,7 @@ const pictures: Picture[] = [
       "C-BLDG": "accent",
       "C-PAVE": "muted",
       "C-ROAD-CNTR": "muted",
+      "C-TOPO-BANK": "muted",
       "V-TREE": "muted",
       "C-ANNO-DIMS": "accent",
       "C-ANNO-REVS": "accent",

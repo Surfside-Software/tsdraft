@@ -84,12 +84,57 @@ export function seedFiles(): Uint8Array[] {
     });
     images.insert("LOGO", [0, 10]);
   });
+  // Ellipses and splines of each kind, in model space and in a block.
+  const curves = createDrawing({ units: "ft" });
+  curves.block("CURVE", {}, () => curves.layer("0", {}, () => curves.ellipse([0, 0], [2, 1], 0.5)));
+  curves.layer("C", { color: 3 }, () => {
+    curves.ellipse([0, 0], [3, 0], 0.4, { startParameter: 300, endParameter: 60 });
+    curves.spline([
+      [0, 0],
+      [4, 2],
+      [8, 1],
+    ]);
+    curves.spline(
+      [
+        [0, 5],
+        [3, 8],
+        [6, 5],
+      ],
+      { closed: true },
+    );
+    curves.spline(
+      [
+        [0, 9],
+        [4, 10],
+      ],
+      { startTangent: [0, 1], endTangent: [1, 0] },
+    );
+    curves.controlSpline(
+      [
+        [0, 0],
+        [0, 2],
+        [2, 2],
+      ],
+      { degree: 2, weights: [1, Math.SQRT1_2, 1] },
+    );
+    curves.controlSpline(
+      [
+        [5, 0],
+        [6, 2],
+        [7, 0],
+        [8, 2],
+      ],
+      { closed: true },
+    );
+    curves.insert("CURVE", [10, 10]);
+  });
   return [
     ...[
       toDXF(sheet),
       toDXF(kitchen),
       toDXF(d.build(), { version: "R12" }),
       toDXF(images.build()),
+      toDXF(curves.build()),
     ].map((t) => encoder.encode(t)),
     leaderFile(),
   ];

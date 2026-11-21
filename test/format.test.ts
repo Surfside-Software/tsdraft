@@ -39,7 +39,7 @@ function refusal(value: unknown): readonly Diagnostic[] {
   return assert.fail("fromJSON took the value");
 }
 
-const kinds = ` An entity's kind is "line", "polyline", "circle", "arc", "text", "paragraph", "insert", "linear-dimension", "aligned-dimension", "leader", "image", "hatch" or "wipeout"`;
+const kinds = ` An entity's kind is "line", "polyline", "circle", "arc", "ellipse", "spline", "text", "paragraph", "insert", "linear-dimension", "aligned-dimension", "leader", "image", "hatch" or "wipeout"`;
 
 test("a drawing goes to JSON and back unchanged", () => {
   const drawing = sample();
@@ -94,13 +94,13 @@ test("fromJSON names what it does not know, and runs lint", () => {
       layers: [{ name: "0", color: 7, colour: 1 }],
       entities: [
         { ...(base.entities![0] as object), layer: "0", thickness: 2 },
-        { kind: "ellipse", layer: "0" },
+        { kind: "xline", layer: "0" },
         { kind: "circle", layer: "0", center: [0, 0, 0] },
       ],
     }),
     [
       'format: entities[0]: unknown field "thickness"',
-      `format: entities[1]: unknown entity kind "ellipse".${kinds}`,
+      `format: entities[1]: unknown entity kind "xline".${kinds}`,
       'format: entities[2]: the field "radius" is missing',
       "format: entities[2].center must be a point, [x, y]",
       'format: layers[0]: unknown field "colour". Did you mean "color"?',

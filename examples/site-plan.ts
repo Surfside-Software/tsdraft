@@ -109,6 +109,7 @@ export const standard = defineStandard({
     "V-TREE": { color: 3, pen: "fine", discipline: "V" },
     "C-ANNO-REVS": { color: 1, pen: "medium", discipline: "C" },
     "C-ANNO-IMAG": { color: 8, pen: "fine", discipline: "C" },
+    "C-TOPO-BANK": { color: 30, linetype: "HIDDEN", pen: "fine", discipline: "C" },
   },
 });
 
@@ -155,6 +156,16 @@ const trees: { at: Point; radius: number }[] = [
   { at: [50, 130], radius: 6 },
   { at: [85, 111], radius: 5 },
   { at: [28, 12], radius: 5 },
+];
+// The top of the bank of a drainage swale in the adjoining lot, where the survey located it.
+const bank: Point[] = [
+  [-34, 146],
+  [-28, 124],
+  [-35, 98],
+  [-27, 72],
+  [-33, 48],
+  [-26, 26],
+  [-31, 6],
 ];
 
 // Positions worked out from the site.
@@ -362,6 +373,8 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
   d.layer("V-TREE", () => {
     for (const tree of trees) d.insert("TREE", tree.at, { scale: tree.radius });
   });
+  // A line that bends with the ground is a spline through the points located on it.
+  d.layer("C-TOPO-BANK", () => d.spline(bank));
 
   // The plan's annotation, in model space with what it describes. A text names the view it is
   // read in, which sizes it to plot at its role's height. Gaps and offsets are lengths on paper,
@@ -505,6 +518,14 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
       role: "note",
       view: plan,
       align: "right",
+    });
+
+    // The bank, beside it on the side away from the lot.
+    d.text([-38, 60], "TOP OF BANK", {
+      role: "note",
+      view: plan,
+      align: "center",
+      rotation: 90,
     });
 
     // The adjoining lots, each an inch outside its lot line and reading along it.
@@ -795,6 +816,7 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     legendRow("C-BLDG", "BUILDING FOOTPRINT", sampleLine);
     legendRow("C-PAVE", "EDGE OF PAVEMENT OR CONCRETE", sampleLine);
     legendRow("C-ROAD-CNTR", "STREET CENTERLINE", sampleLine);
+    legendRow("C-TOPO-BANK", "TOP OF BANK", sampleLine);
     legendRow("C-PROP-MONU", "PROPERTY CORNER", () => d.insert("PROPERTY CORNER", sampleCenter()));
     row -= leading / 2;
     // The tree is one foot in radius in its block, and 3/16 in on the paper.

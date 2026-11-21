@@ -31,6 +31,7 @@ import {
   type TextStyle,
   type Viewport,
   type Xref,
+  type FitSpline,
 } from "../src/index.ts";
 import { timeLimit } from "./time-limit.ts";
 
@@ -219,6 +220,32 @@ const kinds: {
     id: "w2",
     ...styled,
   },
+  ellipse: {
+    kind: "ellipse",
+    layer: "0",
+    center: [100, 5],
+    majorAxis: [4, 1],
+    ratio: 0.5,
+    startParameter: 30,
+    endParameter: 270,
+    id: "w6",
+    ...styled,
+  },
+  // A spline by its control points; `fitted` is one through fit points.
+  spline: {
+    kind: "spline",
+    layer: "0",
+    controlPoints: [
+      [110, 0],
+      [112, 4],
+    ],
+    degree: 1,
+    knots: [0, 0, 1, 1],
+    weights: [1, 2],
+    closed: false,
+    id: "w7",
+    ...styled,
+  },
   "radius-dimension": {
     kind: "radius-dimension",
     layer: "0",
@@ -323,6 +350,21 @@ const tinted: Required<Omit<Hatch, "pattern">> = {
     tint: 0.4,
   },
   id: "w4",
+  ...styled,
+};
+
+/** A spline through fit points, with every field one can have. */
+const fitted: Required<FitSpline> = {
+  kind: "spline",
+  layer: "0",
+  fitPoints: [
+    [120, 0],
+    [124, 3],
+  ],
+  startTangent: [0, 1],
+  endTangent: [1, 0],
+  closed: false,
+  id: "w5",
   ...styled,
 };
 
@@ -538,6 +580,7 @@ const full: Required<Drawing> & {
     { kind: "insert", layer: "0", block: "BASE", at: [0, 0] },
     wide,
     keyed,
+    fitted,
     shaded,
     tinted,
   ],
@@ -763,7 +806,7 @@ test("a value of the wrong shape is reported in these words, once", () => {
       { toString: 0 },
       [
         "xref: Xref a value of type object: A block's name must be a string",
-        `undefined-block: insert #18: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
+        `undefined-block: insert #20: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
       ],
     ],
     [

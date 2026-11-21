@@ -2800,3 +2800,154 @@ test("a gradient that draws nothing pays for the sides it walked, and a gradient
     ],
   });
 });
+
+test("ellipses and splines of any size, count or shape are checked, boxed, drawn and written in a bounded time", () => {
+  const most = 32_767;
+  const zigzag = (count: number, size = 1): Point[] =>
+    Array.from({ length: count }, (_, i) => [i * size, (i % 2) * size]);
+  const fit = zigzag(most - 6);
+  // Of the highest degree, rational: each of its points is worked out from 12.
+  const controls = zigzag(4000);
+  const knots = Array.from({ length: 4012 }, (_, i) => Math.max(0, Math.min(i - 11, 3989)));
+  const weights = controls.map((_, i) => 1 + (i % 3));
+  const curves: Record<string, unknown>[] = [
+    // The longest spline through fit points a file holds, many times over with one list.
+    ...Array.from({ length: 3 }, () => ({ kind: "spline", layer: "0", fitPoints: fit })),
+    // One closed, one with tangents, and one past the count a file holds.
+    { kind: "spline", layer: "0", fitPoints: fit.slice(0, 20_000), closed: true },
+    { kind: "spline", layer: "0", fitPoints: fit, startTangent: [0, 1], endTangent: [1e99, 0] },
+    { kind: "spline", layer: "0", fitPoints: zigzag(1_000_000) },
+    // The highest degree, rational, dashed finely, and the same lists shared.
+    ...Array.from({ length: 2 }, () => ({
+      kind: "spline",
+      layer: "0",
+      linetype: "FINE",
+      controlPoints: controls,
+      degree: 11,
+      knots,
+      weights,
+    })),
+    // Lists that are all slots, numbers that are not finite or past what a file holds, sizes of
+    // none, and a degree past any.
+    // oxlint-disable-next-line unicorn/no-new-array
+    { kind: "spline", layer: "0", controlPoints: new Array(2 ** 32 - 1), degree: 3, knots },
+    {
+      kind: "spline",
+      layer: "0",
+      controlPoints: zigzag(4, 1e300),
+      degree: 3,
+      knots: [0, 0, 0, 0, 1, 1, 1, 1],
+    },
+    {
+      kind: "spline",
+      layer: "0",
+      controlPoints: zigzag(4, 0),
+      degree: 3,
+      knots: [0, 0, 0, 0, 1, 1, 1, 1],
+    },
+    {
+      kind: "spline",
+      layer: "0",
+      controlPoints: zigzag(4),
+      degree: 1e9,
+      knots: [NaN, 0, 0, 0, 1, 1, 1, 1],
+    },
+    {
+      kind: "spline",
+      layer: "0",
+      fitPoints: [
+        [NaN, 0],
+        [0, -0],
+      ],
+      startTangent: [0, 0],
+    },
+    { kind: "spline", layer: "0", fitPoints: zigzag(4, 4e99), closed: true },
+    {
+      kind: "ellipse",
+      layer: "0",
+      linetype: "FINE",
+      center: [0, 0],
+      majorAxis: [9e99, 9e99],
+      ratio: 1e-6,
+    },
+    {
+      kind: "ellipse",
+      layer: "0",
+      center: [0, 0],
+      majorAxis: [1, 0],
+      ratio: NaN,
+      startParameter: 1e99,
+    },
+    { kind: "ellipse", layer: "0", linetype: "FINE", center: [0, 0], majorAxis: [0, 0], ratio: -1 },
+    {
+      kind: "ellipse",
+      layer: "0",
+      linetype: "FINE",
+      center: [0, 0],
+      majorAxis: [1e6, 0],
+      ratio: 1,
+      startParameter: 0,
+      endParameter: 359.99999,
+    },
+  ];
+  // Each in a chain of blocks deeper than the stack, and in model space.
+  const tree = nested({ kind: "spline", layer: "0", fitPoints: fit } as Entity, 7000, 1, "C");
+  const drawing = {
+    format: 0,
+    units: "in",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    linetypes: [{ name: "FINE", description: "", pattern: [1e-3, -1e-3] }],
+    blocks: tree.blocks,
+    entities: [...curves, tree.top],
+  } as unknown as Drawing;
+  const found = settled(20_000, () => lintWithin(drawing, {}, 500_000));
+  assert.ok(Array.isArray(found), String(found));
+  for (const walk of [
+    () => svgWithin(drawing, {}, 2_000_000),
+    () => inspectWithin(drawing, {}, 500_000),
+    () => extents(drawing.entities, [], drawing.blocks),
+  ]) {
+    const done = settled(20_000, walk);
+    assert.ok(!(done instanceof Error) || done instanceof RangeError, String(done));
+  }
+  // What lint passes is written in a bounded time.
+  const sound = {
+    ...drawing,
+    blocks: [],
+    entities: [...curves.slice(0, 5), ...curves.slice(6, 8)],
+  } as unknown as Drawing;
+  assert.deepEqual(
+    within(20_000, () => lint(sound)),
+    [],
+  );
+  const written = settled(20_000, () => toDXFR2018(sound));
+  assert.equal(typeof written, "string", String(written));
+});
+
+test("a dashed spline a block holds is placed by each insert in time in proportion to what it writes", () => {
+  const fitPoints = Array.from({ length: 2000 }, (_, i): Point => [i * 100, (i % 2) * 100]);
+  const drawing = (scale: [number, number]): Drawing => ({
+    format: 0,
+    units: "in",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    linetypes: [{ name: "DOTS", description: "", pattern: [0, -10_000] }],
+    blocks: [
+      { name: "B", entities: [{ kind: "spline", layer: "0", linetype: "DOTS", fitPoints }] },
+    ],
+    entities: Array.from({ length: 1000 }, (_, k) => ({
+      kind: "insert" as const,
+      layer: "0",
+      block: "B",
+      at: [0, k * 300] as Point,
+      scale,
+      rotation: k,
+    })),
+  });
+  // Turned and scaled alike, an insert places only the dots it writes.
+  assert.equal(typeof within(3000, () => toSVG(drawing([1.5, 1.5]))), "string");
+  // Scaled unevenly, it places the whole curve, which each insert after the first pays for.
+  const uneven = settled(3000, () => svgWithin(drawing([2, 1]), {}, 200_000));
+  assert.ok(typeof uneven === "string" || uneven instanceof RangeError, String(uneven));
+});

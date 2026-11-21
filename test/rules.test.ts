@@ -1763,3 +1763,215 @@ test("a hatch's gradient is checked by the builder and by lint", () => {
     /R2018/,
   );
 });
+
+test("ellipses and splines are checked by the builder and by lint", () => {
+  const d = createDrawing();
+  const zigzag: Point[] = [
+    [0, 0],
+    [1, 2],
+    [2, 0],
+  ];
+  // Literals the compiler reads.
+  const three = [
+    [0, 0],
+    [1, 2],
+    [2, 0],
+  ] as const;
+  const twice = [
+    [0, 0],
+    [1, 1],
+    [1, 1],
+  ] as const;
+  // @ts-expect-error: a ratio is above 0.
+  assert.throws(() => d.ellipse([0, 0], [2, 0], 0), /ratio/);
+  // @ts-expect-error: a ratio is at most 1.
+  assert.throws(() => d.ellipse([0, 0], [2, 0], 1.5), /ratio/);
+  // @ts-expect-error: a ratio written as 0.
+  assert.throws(() => d.ellipse([0, 0], [2, 0], 4e-7), /ratio/);
+  d.ellipse([0, 0], [2, 0], 1.0000004);
+  assert.throws(() => d.ellipse([0, 0], [4e-7, 0], 0.5), /major axis/);
+  assert.throws(() => d.ellipse([0, 0], [2, 0], 0.5, { startParameter: 10 }), /together/);
+  assert.throws(
+    () => d.ellipse([0, 0], [2, 0], 0.5, { startParameter: 10, endParameter: 370.0000001 }),
+    /must differ/,
+  );
+
+  // @ts-expect-error: a spline passes through 2 points or more.
+  assert.throws(() => d.spline([[0, 0]]), /at least 2/);
+  // @ts-expect-error: two points side by side are one.
+  assert.throws(() => d.spline(twice), /side by side/);
+  assert.throws(
+    () =>
+      d.spline([
+        [0, 0],
+        [1, 1],
+        [1.0000001, 1],
+      ]),
+    /side by side/,
+  );
+  // @ts-expect-error: a tangent of no direction.
+  assert.throws(() => d.spline(zigzag, { startTangent: [0, 0] }), /no direction/);
+  // @ts-expect-error: a closed spline takes no tangent.
+  assert.throws(() => d.spline(zigzag, { closed: true, endTangent: [1, 0] }), /closed spline/);
+  assert.throws(() => d.spline(zigzag.slice(0, 2), { closed: true }), /3 when it is closed/);
+
+  // @ts-expect-error: a degree from 1 to SPLINE_DEGREE_MOST.
+  assert.throws(() => d.controlSpline(zigzag, { degree: 12 }), /degree/);
+  // @ts-expect-error: a cubic needs 4 control points.
+  assert.throws(() => d.controlSpline(three), /one more control point/);
+  // @ts-expect-error: 3 control points of degree 2 take 6 knots.
+  assert.throws(() => d.controlSpline(three, { degree: 2, knots: [0, 0, 0, 1, 1] }), /knots/);
+  // @ts-expect-error: one weight for each control point.
+  assert.throws(() => d.controlSpline(three, { degree: 2, weights: [1, 1] }), /weight/);
+  // @ts-expect-error: a weight above 0.
+  assert.throws(() => d.controlSpline(three, { degree: 2, weights: [1, -1, 1] }), /weight/);
+  assert.throws(
+    () => d.controlSpline(zigzag, { degree: 2, knots: [0, 0, 0, 2, 1, 1] }),
+    /never decrease/,
+  );
+  assert.throws(
+    () => d.controlSpline(zigzag, { degree: 2, knots: [0, 0, 0, 0, 0, 0] }),
+    /never decrease/,
+  );
+  // Closed without knots, its first control points come again, with uniform knots.
+  d.controlSpline(zigzag, { degree: 2, closed: true });
+  const closed = d.build().entities.at(-1)!;
+  assert.ok(closed.kind === "spline" && !("fitPoints" in closed));
+  assert.deepEqual(closed.knots, [0, 1, 2, 3, 4, 5, 6, 7]);
+  assert.equal(closed.controlPoints.length, 5);
+
+  // lint holds a drawing made another way to the same rules, and R12 to none of them.
+  const one = (entity: object, dxf: "R12" | "R2018" = "R2018") =>
+    lint({ ...createDrawing().build(), dxf, entities: [{ layer: "0", ...entity } as Entity] }).map(
+      (x) => `${x.rule}: ${x.message}`,
+    );
+  assert.deepEqual(one({ kind: "ellipse", center: [0, 0], majorAxis: [1, 0], ratio: 2 }), [
+    "geometry: ellipse #0: an ellipse's ratio, its minor radius over its major, must be above 0 and at most 1 once rounded to the 6 decimals tsdraft writes",
+  ]);
+  assert.match(
+    one({
+      kind: "ellipse",
+      center: [0, 0],
+      majorAxis: [1, 0],
+      ratio: 1,
+      startParameter: 400,
+      endParameter: 3,
+    })[0]!,
+    /from 0 up to 360/,
+  );
+  assert.match(
+    one({ kind: "spline", fitPoints: zigzag, startTangent: [0, 1], closed: true })[0]!,
+    /closed spline takes no tangents/,
+  );
+  assert.match(
+    one({
+      kind: "spline",
+      controlPoints: zigzag,
+      degree: 2,
+      knots: [0, 0, 0, 1, 1, 1],
+      weights: [1, 0, 1],
+    })[0]!,
+    /weight/,
+  );
+  assert.match(
+    one({ kind: "spline", controlPoints: zigzag, degree: 2.5, knots: [0, 0, 0, 1, 1, 1] })[0]!,
+    /degree is a whole number/,
+  );
+  assert.match(
+    one({
+      kind: "spline",
+      fitPoints: [
+        [0, 0],
+        [9e99, 0],
+        [0, 1e-6],
+        [-9e99, 0],
+      ],
+    })[0]!,
+    /fitted through its points/,
+  );
+  assert.match(
+    one({ kind: "ellipse", center: [0, 0], majorAxis: [1, 0], ratio: 0.5 }, "R12")[0]!,
+    /no ellipses or splines to R12/,
+  );
+  assert.throws(() => createDrawing({ dxf: "R12" }).spline(zigzag), /no ellipses or splines/);
+  // Clamped knots make an open curve, which a closed spline's flag would not close.
+  assert.throws(
+    () =>
+      d.controlSpline(
+        [
+          [10, 0],
+          [20, 15],
+          [50, 15],
+          [60, 0],
+        ],
+        { closed: true, knots: [0, 0, 0, 0, 1, 1, 1, 1] },
+      ),
+    /end where it starts/,
+  );
+  d.controlSpline(
+    [
+      [10, 0],
+      [20, 15],
+      [50, 15],
+      [60, 0],
+    ],
+    { closed: true },
+  );
+  // Knots that differ by less than the 16 digits tsdraft writes would print as one.
+  const b = 1 + Number.EPSILON;
+  assert.throws(
+    () =>
+      d.controlSpline(
+        [
+          [0, 0],
+          [10, 0],
+          [10, 10],
+          [0, 10],
+        ],
+        { knots: [1, 1, 1, 1, b, b, b, b] },
+      ),
+    /16 digits/,
+  );
+  assert.throws(
+    () =>
+      d.controlSpline(
+        [
+          [0, 0],
+          [10, 0],
+          [10, 10],
+          [0, 10],
+        ],
+        { knots: [0, 0, 0, 0, 1e-21, 1e-21, 1e-21, 1e-21] },
+      ),
+    /16 digits/,
+  );
+  // A knot repeated inside, as the leading CAD app's own splines hold one, is kept.
+  d.controlSpline(
+    [
+      [0, 0],
+      [1, 2],
+      [2, 0],
+      [3, 2],
+      [4, 0],
+      [5, 2],
+    ],
+    { knots: [0, 0, 0, 0, 1, 1, 2, 2, 2, 2] },
+  );
+  // A polygon closes with a corner, and a small closed outline far from the origin closes too.
+  d.controlSpline(
+    [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+      [0, 10],
+    ],
+    { closed: true, degree: 1 },
+  );
+  d.controlSpline(
+    Array.from({ length: 7 }, (_, i): Point => [
+      612345.25 + 0.5 * Math.cos(i * 0.9),
+      1298765.5 + 0.35 * Math.sin(i * 0.9),
+    ]),
+    { closed: true },
+  );
+});

@@ -224,6 +224,10 @@ export function readingOf(
           end: turned(num(r, face === -1 ? 50 : 51) ?? 0, face),
         },
       };
+    case "ELLIPSE":
+      return ellipse(r, base, face);
+    case "SPLINE":
+      return spline(r, base, face);
     case "LWPOLYLINE":
       return lwpolyline(r, base, face);
     case "TEXT": {
@@ -527,6 +531,118 @@ function hatchGradient(
     centered: shift === 0,
     colors,
     ...(single === 1 && { tint: Math.fround(tint) }),
+  };
+}
+
+/**
+ * An ellipse: its center and axis are in the world's coordinates whatever its extrusion, and seen
+ * from below its parameters run clockwise, so its arc from s to e is the arc from -e to -s of the
+ * ellipse seen from above. One whose ratio is outside (0, 1] or whose axis has no length is broken.
+ */
+function ellipse(r: Rec, base: ReadEntityBase, face: Facing): Reading {
+  if (face === 0) return { other: "ELLIPSE in 3D" };
+  const s = inSubclass(r, "AcDbEllipse");
+  if (Math.abs(num(s, 30) ?? 0) > 1e-9 || Math.abs(num(s, 31) ?? 0) > 1e-9)
+    return { other: "ELLIPSE in 3D" };
+  const majorAxis = point(s, 11);
+  const ratio = num(s, 40) ?? 1;
+  if (!(ratio > 0 && ratio <= 1) || (majorAxis[0] === 0 && majorAxis[1] === 0))
+    return { malformed: "ELLIPSE with a ratio outside 0 to 1 or an axis of no length" };
+  const [s0, e0] = [num(s, 41) ?? 0, num(s, 42) ?? 2 * Math.PI];
+  const whole = Math.abs(e0 - s0) >= 2 * Math.PI - 1e-9 || s0 === e0;
+  const inDegrees = (t: number) => degrees((t * 180) / Math.PI);
+  const [start, end] = face === -1 ? [-e0, -s0] : [s0, e0];
+  return {
+    entity: {
+      ...base,
+      kind: "ellipse",
+      center: point(s, 10),
+      majorAxis,
+      ratio,
+      ...(whole ? {} : { startParameter: inDegrees(start), endParameter: inDegrees(end) }),
+    },
+  };
+}
+
+/** The highest degree of a spline read. */
+const SPLINE_DEGREE_READ = 11;
+
+/**
+ * A spline as the file holds it, in the world's coordinates whatever its extrusion. One whose
+ * counts disagree with its groups, whose degree is out of range, or whose knots do not fit its
+ * control points is broken; one with a point off the plane is counted.
+ */
+function spline(r: Rec, base: ReadEntityBase, face: Facing): Reading {
+  if (face === 0) return { other: "SPLINE in 3D" };
+  const s = inSubclass(r, "AcDbSpline");
+  const flags = num(s, 70) ?? 0;
+  const degree = num(s, 71) ?? 3;
+  const knots: number[] = [];
+  const weights: number[] = [];
+  const controlPoints: Point[] = [];
+  const fitPoints: Point[] = [];
+  let flat = true;
+  for (let i = 0; i < s.codes.length; i++) {
+    const code = s.codes[i]!;
+    const value = Number(s.values[i]);
+    if (code === 40) knots.push(value);
+    // Weights count only for a spline marked rational, as the leading CAD app reads them.
+    else if (code === 41 && (flags & 4) !== 0) weights.push(value);
+    else if (code === 10 || code === 11) {
+      const y = s.codes[i + 1] === code + 10 ? Number(s.values[i + 1]) : 0;
+      const z = s.codes[i + 2] === code + 20 ? Number(s.values[i + 2]) : 0;
+      if (Math.abs(z) > 1e-9) flat = false;
+      (code === 10 ? controlPoints : fitPoints).push([value, y]);
+    }
+  }
+  if (!flat) return { other: "SPLINE in 3D" };
+  const counted = (code: number, list: readonly unknown[]) => (num(s, code) ?? 0) === list.length;
+  const broken =
+    !Number.isInteger(degree) ||
+    degree < 1 ||
+    degree > SPLINE_DEGREE_READ ||
+    !counted(72, knots) ||
+    !counted(73, controlPoints) ||
+    !counted(74, fitPoints) ||
+    (weights.length > 0 && weights.length !== controlPoints.length) ||
+    (controlPoints.length > 0 && knots.length !== controlPoints.length + degree + 1) ||
+    (controlPoints.length === 0 && fitPoints.length < 2);
+  if (broken) return { malformed: "SPLINE whose counts disagree with its groups or its degree" };
+  // A fit closed by its first point again at its end gives that point once.
+  const [head, tail] = [fitPoints[0], fitPoints.at(-1)];
+  const repeated =
+    (flags & 1) !== 0 && fitPoints.length > 2 && head![0] === tail![0] && head![1] === tail![1];
+  const tangent = (code: number) =>
+    first(s, code) === undefined
+      ? {}
+      : { [code === 12 ? "startTangent" : "endTangent"]: point(s, code) };
+  const spacing =
+    (flags & 1024) === 0
+      ? undefined
+      : (flags & 64) !== 0
+        ? "square-root"
+        : (flags & 128) !== 0
+          ? "uniform"
+          : (flags & 32) !== 0
+            ? "chord"
+            : undefined;
+  const tolerance = num(s, 44);
+  return {
+    entity: {
+      ...base,
+      kind: "spline",
+      degree,
+      knots,
+      controlPoints,
+      ...(weights.length > 0 && { weights }),
+      closed: (flags & 1) !== 0,
+      ...((flags & 2) !== 0 && { periodic: true as const }),
+      ...(fitPoints.length > 0 && { fitPoints: repeated ? fitPoints.slice(0, -1) : fitPoints }),
+      ...tangent(12),
+      ...tangent(13),
+      ...(fitPoints.length > 0 && tolerance !== undefined && { fitTolerance: tolerance }),
+      ...(spacing !== undefined && { knotSpacing: spacing }),
+    },
   };
 }
 
@@ -1183,7 +1299,16 @@ export function costOf(e: ReadEntity): number {
       return own + 2;
     case "circle":
     case "arc":
+    case "ellipse":
       return own + 1;
+    case "spline":
+      return (
+        own +
+        e.knots.length +
+        e.controlPoints.length +
+        (e.weights?.length ?? 0) +
+        (e.fitPoints?.length ?? 0)
+      );
     case "polyline":
       return own + e.points.length + (e.bulges?.length ?? 0) + (e.widths?.length ?? 0);
     case "solid":

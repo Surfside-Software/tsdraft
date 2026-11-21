@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Ellipses and splines, in R2018 drawings. `d.ellipse(center, majorAxis, ratio)` draws an
+  ellipse, or an arc of one with `startParameter` and `endParameter`. `d.spline(fitPoints)` draws
+  the cubic CAD programs fit through the points, with `startTangent`, `endTangent` or `closed`,
+  and `d.controlSpline(controlPoints)` a B-spline of its `degree`, from 1 to 11, `knots`, which
+  default to clamped uniform ones, and `weights`, or periodic with `closed`. `toDXF` writes each
+  as CAD programs save it, a spline through fit points with the knots and control points
+  `fitSpline` gives and one by control points clamped, and `toSVG` and `toPDF` draw them, with
+  dashes along the whole curve. The extents hold the curve, not its control points. `readDXF`
+  reads both. `lint` and the builder refuse a ratio outside 0 to 1, an axis of no length, one
+  parameter without the other, fewer than 2 fit points or two side by side that are one, a
+  tangent of no direction or on a closed spline, a degree out of range, too few control points,
+  knots of the wrong count or that decrease, weights not above 0, and more than 32,767 knots.
+  `ellipsePoint`, `ellipseBox`, `splinePoint`, `splineBox`, `fitSpline` and `clamped` give their
+  geometry.
 - Solid fills, wipeouts and masks, in R2018 drawings. `d.hatch(boundary)` fills the area inside
   one outline, or inside a list of loops `{ points, bulges? }`, solid in its layer's color: the
   area inside an odd number of loops is filled, so a loop inside another is a hole, whichever

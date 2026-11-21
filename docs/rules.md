@@ -73,6 +73,16 @@ it would take `1e+100` for `1e+10` and report nothing.
   alone, and its `angle` and `origin` are finite. The lines it places hold no number of 1e100 or
   more, and it draws at most 1,000,000 lines across the box of its loops. The rule of these is
   `hatch-pattern`. [Patterns](fills.md#patterns) has the rest.
+- An ellipse and a spline are R2018 only. An ellipse's ratio is above 0 and at most 1 as
+  written, its major axis is not `[0, 0]` as written, and an arc of it has both parameters, from
+  0 up to 360 and not equal as written. A spline through fit points has 2 or more, 3 when it is
+  closed, none side by side the same as written, and tangents that are not `[0, 0]`, none on a
+  closed one. A spline by control points has a whole degree from 1 to `SPLINE_DEGREE_MOST`, at
+  least one more control point than its degree, as many knots as its control points and its
+  degree and one, never decreasing and not all one over what it draws, and a weight above 0 for
+  each control point where it has weights. A closed one ends where it starts, the way it
+  arrives. A spline holds at most `SPLINE_ITEMS`, 32,767, knots.
+  [Ellipses and splines](curves.md#checks) has the rest.
 - A hatch's `gradient` goes with no `pattern`. Its `name` is one of `GRADIENT_KINDS`, its `angle`
   a finite number under 1e100 and `centered` true or false, and it has two `colors` or a `color`
   and a `tint` from 0 to 1, each color three whole numbers from 0 to 255, and no other field. The rule of these is

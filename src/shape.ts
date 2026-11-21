@@ -8,7 +8,10 @@ import type {
   TextAttributeDefinition,
   Block,
   Circle,
+  ControlSpline,
   DimensionStyle,
+  Ellipse,
+  FitSpline,
   Drawing,
   Entity,
   Hatch,
@@ -64,6 +67,8 @@ const KINDS = [
   "polyline",
   "circle",
   "arc",
+  "ellipse",
+  "spline",
   "text",
   "paragraph",
   "insert",
@@ -485,6 +490,23 @@ function shapes(all: boolean, typed = all): Shapes {
   } as const;
   const justified = { style: ruled(string), align: ruled(string), valign: ruled(string) } as const;
 
+  const fitSpline = fields<FitSpline>(
+    { kind, layer: string, fitPoints: list(point) },
+    {
+      ...shared,
+      startTangent: point,
+      endTangent: point,
+      closed: boolean,
+    },
+  );
+  const controlSpline = fields<ControlSpline>(
+    { kind, layer: string, controlPoints: list(point), degree: number, knots: list(number) },
+    { ...shared, weights: list(number), closed: boolean },
+  );
+  /** A spline is through fit points when it has them, and by its control points otherwise. */
+  const splineFields: FieldsCheck = (value, at, problems, extra) =>
+    (value.fitPoints === undefined ? controlSpline : fitSpline)(value, at, problems, extra);
+
   const ENTITIES = {
     line: fields<Line>({ kind, layer: string, from: point, to: point }, shared),
     polyline: fields<Polyline>(
@@ -496,6 +518,11 @@ function shapes(all: boolean, typed = all): Shapes {
       { kind, layer: string, center: point, radius: number, startAngle: number, endAngle: number },
       shared,
     ),
+    ellipse: fields<Ellipse>(
+      { kind, layer: string, center: point, majorAxis: point, ratio: number },
+      { ...shared, startParameter: number, endParameter: number },
+    ),
+    spline: splineFields,
     text: fields<Text>(
       { kind, layer: string, at: point, height: number, value: string, rotation: number },
       { ...shared, ...justified },

@@ -5,6 +5,7 @@
 // That app discards the whole drawing over most names that break the name rules.
 import type { XrefProblem } from "./blocks.ts";
 import type { DxfVersion, HatchGradient, Point, Rgb, Units } from "./drawing.ts";
+import { clamped, fitSpline, type FittedSpline } from "./curves.ts";
 import type { PaperUnit } from "./paper.ts";
 import { paperInfo, PLOT_STYLE_TABLES, type Paper, type PlotStyleTable } from "./papers.ts";
 import {
@@ -30,7 +31,7 @@ import {
   type LeaderArrowhead,
 } from "./arrowheads.ts";
 import { isPaperUnit, isUnits, modelLength } from "./units.ts";
-import { isTooLarge, written, writtenAngle } from "./format.ts";
+import { isTooLarge, sixteenDigits, written, writtenAngle } from "./format.ts";
 import { fontInfo, STANDARD_TEXT_STYLE, type Font } from "./fonts.ts";
 import {
   parseParagraph,
@@ -184,6 +185,8 @@ const LINE_SPACING = "A paragraph's line spacing is a factor from 0.25 to 4";
 const R12_IMAGES = 'tsdraft writes no images to R12 drawings. Use DXF version "R2018" for an image';
 const R12_HATCHES =
   'tsdraft writes no hatches or wipeouts to R12 drawings. Use DXF version "R2018" for a fill';
+const R12_CURVES =
+  'tsdraft writes no ellipses or splines to R12 drawings. Use DXF version "R2018" for a curve';
 const IMAGE_PATH_EMPTY = "An image's path cannot be empty. The leading CAD app finds no file by it";
 const IMAGE_PATH_ABSOLUTE =
   'An image\'s path must start from the folder of the drawing\'s file, as "aerial.png" and "../images/aerial.png" do, and cannot start with /, \\ or a drive such as C:. The leading CAD app looks for the file of an absolute path in that folder alone, and on another machine finds none';
@@ -483,6 +486,130 @@ type AboveZero<N extends number, Message extends string> = number extends N
   : `${N}` extends `-${string}` | "0"
     ? Message
     : N;
+
+/**
+ * Resolves to `N` when it is an ellipse's ratio that is above 0 and at most 1 once written, and
+ * to the error message otherwise.
+ */
+export type EllipseRatio<N extends number> = number extends N
+  ? N
+  : `${N}` extends "1" | `1.000000${RoundsDown}${string}`
+    ? N
+    : `${N}` extends `-${string}` | "0"
+      ? typeof ELLIPSE_RATIO
+      : WrittenAsZero<`${N}`> extends true
+        ? typeof ELLIPSE_RATIO
+        : `${N}` extends `0.${string}` | `${string}e-${string}`
+          ? N
+          : typeof ELLIPSE_RATIO;
+
+type SplineDegrees = Exclude<Enumerate<typeof SPLINE_DEGREE_MOST>, 0> | typeof SPLINE_DEGREE_MOST;
+
+/** Resolves to `D` when it is a spline's degree, and to the error message otherwise. */
+export type SplineDegree<D extends number> = number extends D
+  ? D
+  : D extends SplineDegrees
+    ? D
+    : typeof SPLINE_DEGREE;
+
+/** True for two points whose coordinates are the same literals. */
+type SamePoint<A extends Point, B extends Point> = number extends A[0] | A[1] | B[0] | B[1]
+  ? false
+  : [A[0], A[1]] extends [B[0], B[1]]
+    ? true
+    : false;
+
+/** True when two points side by side are the same literals. */
+type SideBySide<P extends readonly Point[]> = P extends readonly [
+  infer A extends Point,
+  infer B extends Point,
+  ...infer Rest extends readonly Point[],
+]
+  ? SamePoint<A, B> extends true
+    ? true
+    : SideBySide<readonly [B, ...Rest]>
+  : false;
+
+/**
+ * Resolves to `P` when it is fit points a spline can pass through, and to the error message
+ * otherwise: 2 or more, no two side by side the same. Points the same once written but not as
+ * literals, and a closed spline's 3, are checked when the code runs.
+ */
+export type FitPoints<P extends readonly Point[]> = number extends P["length"]
+  ? P
+  : P["length"] extends 0 | 1
+    ? typeof SPLINE_FIT_POINTS
+    : SideBySide<P> extends true
+      ? typeof SPLINE_FIT_SAME
+      : P;
+
+/** Resolves to `T` when it is a tangent with a direction, and to the error message otherwise. */
+export type Tangent<T extends Point> = number extends T[0] | T[1]
+  ? T
+  : [T[0], T[1]] extends [0, 0]
+    ? typeof SPLINE_TANGENT_ZERO
+    : T;
+
+type Tuple<N extends number, A extends unknown[] = []> = A["length"] extends N
+  ? A
+  : Tuple<N, [...A, unknown]>;
+
+/**
+ * Resolves to `P` when a spline of degree `D` has enough control points, at least one more than
+ * its degree, and to the error message otherwise.
+ */
+export type ControlPoints<P extends readonly Point[], D extends number> = number extends
+  | P["length"]
+  | D
+  ? P
+  : D extends SplineDegrees
+    ? P extends readonly [...Tuple<D>, unknown, ...unknown[]]
+      ? P
+      : typeof SPLINE_CONTROL_POINTS
+    : P;
+
+/**
+ * Resolves to `K` when it is as many knots as a spline of the control points `P` and degree `D`
+ * takes, and to the error message otherwise. Whether they decrease is checked when the code runs.
+ */
+export type Knots<
+  K extends readonly number[],
+  P extends readonly Point[],
+  D extends number,
+> = number extends K["length"] | P["length"] | D
+  ? K
+  : D extends SplineDegrees
+    ? K["length"] extends [...Tuple<P["length"]>, ...Tuple<D>, unknown]["length"]
+      ? K
+      : typeof SPLINE_KNOT_COUNT
+    : K;
+
+/** True when no weight of `W` is a literal of 0 or less, or one written as 0. */
+type WeightsAbove0<W extends readonly number[]> = W extends readonly [
+  infer A extends number,
+  ...infer Rest extends readonly number[],
+]
+  ? number extends A
+    ? WeightsAbove0<Rest>
+    : `${A}` extends `-${string}` | "0"
+      ? false
+      : WrittenAsZero<`${A}`> extends true
+        ? false
+        : WeightsAbove0<Rest>
+  : true;
+
+/**
+ * Resolves to `W` when it is one weight above 0 for each control point of `P`, and to the error
+ * message otherwise.
+ */
+export type Weights<W extends readonly number[], P extends readonly Point[]> =
+  WeightsAbove0<W> extends true
+    ? number extends W["length"] | P["length"]
+      ? W
+      : W["length"] extends P["length"]
+        ? W
+        : typeof SPLINE_WEIGHTS
+    : typeof SPLINE_WEIGHTS;
 
 /** Resolves to `N` when it is a length on paper, and to the error message otherwise. */
 export type PaperLength<N extends number> = AboveZero<N, typeof PAPER_LENGTH>;
@@ -1696,7 +1823,413 @@ export const R12_ONLY = {
   paragraphs: R12_PARAGRAPHS,
   images: R12_IMAGES,
   hatches: R12_HATCHES,
+  curves: R12_CURVES,
 } as const;
+
+/** The highest degree of a spline by its control points. */
+export const SPLINE_DEGREE_MOST = 11;
+
+/** The most knots a spline holds, and so control points and fit points: a file holds each count as a 16-bit integer. */
+export const SPLINE_ITEMS = 32_767;
+
+/** What is wrong with an ellipse's ratio. */
+export const ELLIPSE_RATIO =
+  "an ellipse's ratio, its minor radius over its major, must be above 0 and at most 1 once rounded to the 6 decimals tsdraft writes";
+
+/** What is wrong with an ellipse whose major axis has no length. */
+export const ELLIPSE_AXIS =
+  "an ellipse's major axis must not be [0, 0] once rounded to the 6 decimals tsdraft writes";
+
+/** What is wrong with an ellipse that has one parameter of an arc and not the other. */
+export const ELLIPSE_PARAMETERS_PAIR =
+  "an ellipse takes startParameter and endParameter together, for an arc of it, or neither, for the whole ellipse";
+
+/** What is wrong with an arc of an ellipse whose parameters are out of range. */
+export const ELLIPSE_PARAMETERS_RANGE = "an ellipse's parameters must be from 0 up to 360";
+
+/** What is wrong with an arc of an ellipse whose parameters are one. */
+export const ELLIPSE_PARAMETERS_SAME =
+  "an ellipse's start and end parameters must differ once rounded to the 6 decimals tsdraft writes. Leave both out for the whole ellipse";
+
+/** What is wrong with a spline of too few fit points. */
+export const SPLINE_FIT_POINTS =
+  "a spline through fit points needs at least 2 of them, and 3 when it is closed";
+
+/** What is wrong with two fit points side by side that are one. */
+export const SPLINE_FIT_SAME =
+  "two fit points side by side, and the last and the first of a closed spline, must differ once rounded to the 6 decimals tsdraft writes";
+
+/** What is wrong with a tangent of no direction. */
+export const SPLINE_TANGENT_ZERO =
+  "a spline's tangent must not be [0, 0] once rounded to the 6 decimals tsdraft writes: it gives no direction";
+
+/** What is wrong with a closed spline given a tangent. */
+export const SPLINE_CLOSED_TANGENT =
+  "a closed spline takes no tangents: it is smooth where it joins";
+
+/** What is wrong with a spline's degree. */
+export const SPLINE_DEGREE = `a spline's degree is a whole number from 1 to ${SPLINE_DEGREE_MOST}`;
+
+/** What is wrong with a spline of too few control points for its degree. */
+export const SPLINE_CONTROL_POINTS =
+  "a spline needs at least one more control point than its degree";
+
+/** What is wrong with a spline of the wrong count of knots. */
+export const SPLINE_KNOT_COUNT =
+  "a spline has as many knots as its control points and its degree together, and one more";
+
+/** What is wrong with a spline's knots. */
+export const SPLINE_KNOTS =
+  "a spline's knots must never decrease, and the ones it runs over, from the knot at its degree to the knot at its count of control points, must not all be equal, and two that differ must still differ in the 16 digits tsdraft writes";
+
+/** What is wrong with a closed spline by its control points that does not close. */
+export const SPLINE_OPEN_CLOSED =
+  "a closed spline must end where it starts, leaving it the way it arrives: its knots and control points give a curve that does not, which CAD programs hold as closed all the same";
+
+/** What is wrong with a spline's weights. */
+export const SPLINE_WEIGHTS =
+  "a spline has one weight for each control point, each above 0 once rounded to the 6 decimals tsdraft writes";
+
+/** What is wrong with a spline of more knots, control points or fit points than a file holds. */
+export const SPLINE_MANY = `a spline holds at most ${SPLINE_ITEMS.toLocaleString("en-US")} knots, and a spline through fit points takes 6 more knots than it has points, 7 when it is closed: a file holds each count as a 16-bit integer`;
+
+/** What is wrong with a spline through fit points whose curve reaches past what a file holds. */
+export const SPLINE_FIT_DRAWN =
+  "the spline fitted through its points has a control point of 1e100 or more in size, which the leading CAD app reads wrongly from DXF. Give the points closer together";
+
+/**
+ * What is wrong with an ellipse's ratio, axis and parameters, each once. Its center and axis are
+ * checked as points apart.
+ */
+export function ellipseProblems(
+  majorAxis: Point,
+  ratio: unknown,
+  startParameter: unknown,
+  endParameter: unknown,
+): string[] {
+  const out: string[] = [];
+  if (typeof ratio !== "number" || !(ratio > 0) || written(ratio) === 0 || written(ratio) > 1) {
+    out.push(ELLIPSE_RATIO);
+  }
+  if (written(majorAxis[0]) === 0 && written(majorAxis[1]) === 0) out.push(ELLIPSE_AXIS);
+  if ((startParameter === undefined) !== (endParameter === undefined)) {
+    out.push(ELLIPSE_PARAMETERS_PAIR);
+  } else if (startParameter !== undefined) {
+    const inRange = (t: unknown): t is number =>
+      typeof t === "number" && Number.isFinite(t) && t >= 0 && t < 360;
+    if (!inRange(startParameter) || !inRange(endParameter)) out.push(ELLIPSE_PARAMETERS_RANGE);
+    else if (writtenAngle(startParameter) === writtenAngle(endParameter))
+      out.push(ELLIPSE_PARAMETERS_SAME);
+  }
+  return out;
+}
+
+/** An ellipse as it draws: its parameters in radians, for an arc of it. */
+export interface DrawnEllipse {
+  readonly center: Point;
+  readonly majorAxis: Point;
+  readonly ratio: number;
+  readonly start?: number;
+  readonly end?: number;
+}
+
+/** True for a point of two finite numbers under 1e100. */
+function isKeptPoint(value: unknown): value is Point {
+  if (!Array.isArray(value) || value.length !== 2) return false;
+  const [x, y]: unknown[] = value;
+  return (
+    typeof x === "number" &&
+    typeof y === "number" &&
+    Number.isFinite(x) &&
+    Number.isFinite(y) &&
+    !isTooLarge(x) &&
+    !isTooLarge(y)
+  );
+}
+
+/**
+ * What an ellipse draws, or undefined for one of the wrong shape or that `lint` refuses, which
+ * the pictures and the extents leave out.
+ */
+export function drawnEllipse(e: {
+  readonly center: unknown;
+  readonly majorAxis: unknown;
+  readonly ratio: unknown;
+  readonly startParameter?: unknown;
+  readonly endParameter?: unknown;
+}): DrawnEllipse | undefined {
+  const { center, majorAxis, ratio, startParameter: start, endParameter: end } = e;
+  if (!isKeptPoint(center) || !isKeptPoint(majorAxis)) return undefined;
+  if (ellipseProblems(majorAxis, ratio, start, end).length > 0) return undefined;
+  const radians = (t: number) => (writtenAngle(t) * Math.PI) / 180;
+  return {
+    center,
+    majorAxis,
+    ratio: ratio as number,
+    ...(start === undefined
+      ? {}
+      : { start: radians(start as number), end: radians(end as number) }),
+  };
+}
+
+/** A spline as the B-spline it draws. */
+export interface DrawnSpline {
+  readonly degree: number;
+  readonly knots: readonly number[];
+  readonly controlPoints: readonly Point[];
+  readonly weights?: readonly number[];
+  /** True for a spline that closes, which a pattern of dashes goes round as a circle's does. */
+  readonly closed: boolean;
+}
+
+/** The items of a list of at most `SPLINE_ITEMS` that each pass `is`, or undefined. */
+function listOf<T>(value: unknown, is: (item: unknown) => item is T): readonly T[] | undefined {
+  if (!Array.isArray(value) || value.length > SPLINE_ITEMS) return undefined;
+  for (let i = 0; i < value.length; i++) if (!is(value[i])) return undefined;
+  return value as readonly T[];
+}
+
+const isNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+/**
+ * The B-spline a spline draws, or undefined for one of the wrong shape or that `lint` refuses,
+ * which the pictures and the extents leave out. A spline through fit points is the one
+ * `fitSpline` fits. Each list is read once, and none past the count a file holds.
+ */
+export function drawnSpline(e: Readonly<Record<string, unknown>>): DrawnSpline | undefined {
+  const closed = e.closed === true;
+  if (e.fitPoints !== undefined) {
+    const fitPoints = listOf(e.fitPoints, isKeptPoint);
+    const tangent = (t: unknown) => (t === undefined || isKeptPoint(t) ? t : null);
+    const [startTangent, endTangent] = [tangent(e.startTangent), tangent(e.endTangent)];
+    if (fitPoints === undefined || startTangent === null || endTangent === null) return undefined;
+    const fields = { fitPoints, startTangent, endTangent, closed };
+    const { problems, fitted } = checkFit(fields);
+    if (problems.length > 0 || !fitted) return undefined;
+    return { degree: 3, knots: fitted.knots, controlPoints: fitted.controlPoints, closed };
+  }
+  const controlPoints = listOf(e.controlPoints, isKeptPoint);
+  const knots = listOf(e.knots, isNumber);
+  const weights = e.weights === undefined ? undefined : listOf(e.weights, isNumber);
+  if (controlPoints === undefined || knots === undefined) return undefined;
+  if (e.weights !== undefined && weights === undefined) return undefined;
+  const fields = { controlPoints, degree: e.degree, knots, weights, closed: e.closed };
+  if (controlSplineProblems(fields).length > 0) return undefined;
+  return {
+    degree: e.degree as number,
+    knots,
+    controlPoints,
+    ...(weights === undefined ? {} : { weights }),
+    closed,
+  };
+}
+
+/**
+ * The drawn spline of each spline a walk meets, worked out once for every spline that holds the
+ * same lists and the same other fields, however many objects hold them. `again` is told the lists
+ * of one worked out anew that another spline read before, for the walk to pay for them, and says
+ * whether there was room to: without it, the spline is not worked out.
+ */
+export class SplineMemo {
+  readonly #ids = new WeakMap<object, number>();
+  #next = 1;
+  readonly #byList = new WeakMap<object, Map<string, DrawnSpline | null>>();
+  readonly #read = new WeakSet<object>();
+
+  get(
+    e: Readonly<Record<string, unknown>>,
+    again: (lists: readonly object[]) => boolean,
+  ): DrawnSpline | undefined {
+    const fit = e.fitPoints !== undefined;
+    const list = fit ? e.fitPoints : e.controlPoints;
+    if (typeof list !== "object" || list === null) return undefined;
+    const id = (value: unknown): string => {
+      if (typeof value !== "object" || value === null) return typeof value;
+      let found = this.#ids.get(value);
+      if (found === undefined) this.#ids.set(value, (found = this.#next++));
+      return String(found);
+    };
+    const point = (t: unknown): string =>
+      t === undefined ? "-" : isKeptPoint(t) ? `${t[0]},${t[1]}` : "x";
+    const key = fit
+      ? `f ${e.closed === true} ${point(e.startTangent)} ${point(e.endTangent)}`
+      : `c ${e.closed === true} ${typeof e.degree === "number" ? e.degree : "x"} ${id(e.knots)} ${id(e.weights)}`;
+    let byKey = this.#byList.get(list);
+    if (!byKey) this.#byList.set(list, (byKey = new Map()));
+    const known = byKey.get(key);
+    if (known !== undefined) return known ?? undefined;
+    const lists = [list, e.knots, e.weights].filter(
+      (l): l is object => typeof l === "object" && l !== null,
+    );
+    const seen = lists.filter((l) => this.#read.has(l));
+    for (const l of lists) this.#read.add(l);
+    if (seen.length > 0 && !again(seen)) return undefined;
+    const drawn = drawnSpline(e) ?? null;
+    byKey.set(key, drawn);
+    return drawn ?? undefined;
+  }
+}
+
+/** What is wrong with a list of points of a curve, which the shape has found to be points. */
+function curvePointsProblem(points: readonly Point[], what: string): string | undefined {
+  for (const [x, y] of points) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return `its ${what} must be finite numbers`;
+  }
+  for (const [x, y] of points) {
+    const problem = magnitudeProblem(x) ?? magnitudeProblem(y);
+    if (problem) return `its ${what}: ${problem}`;
+  }
+  return undefined;
+}
+
+/** The fields of a spline through fit points, as the checks read them. */
+interface FitFields {
+  readonly fitPoints: readonly Point[];
+  readonly startTangent?: Point | undefined;
+  readonly endTangent?: Point | undefined;
+  readonly closed?: boolean | undefined;
+}
+
+/**
+ * What is wrong with a spline through fit points. Its points are read once, and never past the
+ * count a file holds.
+ */
+export function fitSplineProblems(spline: FitFields): string[] {
+  return checkFit(spline).problems;
+}
+
+/** What is wrong with a spline through fit points, and, when nothing is, its fit. */
+function checkFit(spline: FitFields): { problems: string[]; fitted?: FittedSpline } {
+  const { fitPoints: points, closed } = spline;
+  const n = points.length;
+  if (n + (closed ? 7 : 6) > SPLINE_ITEMS) return { problems: [SPLINE_MANY] };
+  const out: string[] = [];
+  if (n < (closed ? 3 : 2)) out.push(SPLINE_FIT_POINTS);
+  const problem = curvePointsProblem(points, "fit points");
+  if (problem) out.push(problem);
+  else {
+    // Two numbers more than a millionth apart are never one once written.
+    const same = (a: Point, b: Point) =>
+      Math.abs(a[0] - b[0]) <= 2e-6 &&
+      Math.abs(a[1] - b[1]) <= 2e-6 &&
+      written(a[0]) === written(b[0]) &&
+      written(a[1]) === written(b[1]);
+    let found = closed && n > 1 && same(points[0]!, points[n - 1]!);
+    for (let i = 1; i < n && !found; i++) found = same(points[i - 1]!, points[i]!);
+    if (found) out.push(SPLINE_FIT_SAME);
+  }
+  for (const tangent of [spline.startTangent, spline.endTangent]) {
+    if (tangent === undefined) continue;
+    if (closed) {
+      out.push(SPLINE_CLOSED_TANGENT);
+      break;
+    }
+    const wrong = curvePointsProblem([tangent], "tangents");
+    if (wrong) out.push(wrong);
+    else if (written(tangent[0]) === 0 && written(tangent[1]) === 0) out.push(SPLINE_TANGENT_ZERO);
+  }
+  if (out.length > 0) return { problems: out };
+  // Fitted through the points as written, as the writers and the readers of the file fit them.
+  const held = points.map((p): Point => [written(p[0]), written(p[1])]);
+  const fitted = fitSpline(held, "chord", spline.startTangent, spline.endTangent, closed);
+  if (fitted.controlPoints.some(([x, y]) => !(Math.abs(x) < 1e100 && Math.abs(y) < 1e100)))
+    return { problems: [SPLINE_FIT_DRAWN] };
+  return { problems: out, fitted };
+}
+
+/** The fields of a spline by its control points, as the checks read them. */
+interface ControlFields {
+  readonly controlPoints: readonly Point[];
+  readonly degree: unknown;
+  readonly knots: readonly number[];
+  readonly weights?: readonly number[] | undefined;
+  readonly closed?: unknown;
+}
+
+/**
+ * What is wrong with a spline by its control points. Its lists are read once, and never past the
+ * count a file holds.
+ */
+export function controlSplineProblems(spline: ControlFields): string[] {
+  const { controlPoints: points, degree, knots, weights } = spline;
+  if (
+    typeof degree !== "number" ||
+    !Number.isInteger(degree) ||
+    degree < 1 ||
+    degree > SPLINE_DEGREE_MOST
+  ) {
+    return [SPLINE_DEGREE];
+  }
+  const n = points.length;
+  if (
+    n + degree + 1 > SPLINE_ITEMS ||
+    knots.length > SPLINE_ITEMS ||
+    (weights !== undefined && weights.length > SPLINE_ITEMS)
+  ) {
+    return [SPLINE_MANY];
+  }
+  const out: string[] = [];
+  if (n < degree + 1) out.push(SPLINE_CONTROL_POINTS);
+  const problem = curvePointsProblem(points, "control points");
+  if (problem) out.push(problem);
+  if (knots.length !== n + degree + 1) out.push(SPLINE_KNOT_COUNT);
+  else if (!knots.every(Number.isFinite)) out.push("its knots must be finite numbers");
+  else {
+    const large = knots.map(magnitudeProblem).find((p) => p !== undefined);
+    if (large) out.push(`its knots: ${large}`);
+    else {
+      // Judged as the writers print them, with 16 digits: two knots that differ must print apart.
+      const printed = knots.map((k) => Number(sixteenDigits(k)));
+      let wrong = false;
+      for (let i = 1; i < knots.length && !wrong; i++)
+        wrong =
+          printed[i]! < printed[i - 1]! ||
+          (knots[i] !== knots[i - 1] && printed[i] === printed[i - 1]);
+      if (wrong || (n >= degree + 1 && printed[degree]! === printed[n]!)) out.push(SPLINE_KNOTS);
+    }
+  }
+  if (
+    weights !== undefined &&
+    (weights.length !== n ||
+      !weights.every((w) => Number.isFinite(w) && written(w) > 0 && !isTooLarge(w)))
+  ) {
+    out.push(SPLINE_WEIGHTS);
+  }
+  if (out.length === 0 && spline.closed === true && !closes(spline, degree))
+    out.push(SPLINE_OPEN_CLOSED);
+  return out;
+}
+
+/**
+ * True when a spline by its control points ends where it starts, in the direction it starts in, as
+ * it is written: the first and last control points of its clamped form are one, and, above
+ * degree 1, the sides beside them point the same way.
+ */
+function closes(spline: ControlFields, degree: number): boolean {
+  // Moved to its first point first, so the clamp's rounding is the curve's size and not how far
+  // it lies from the origin; a move changes nothing of the clamp.
+  const [ox, oy] = spline.controlPoints[0]!.map(written) as [number, number];
+  const held = clamped({
+    degree,
+    knots: spline.knots,
+    controlPoints: spline.controlPoints.map(([x, y]): Point => [written(x) - ox, written(y) - oy]),
+    ...(spline.weights === undefined ? {} : { weights: spline.weights.map(written) }),
+  });
+  const p = held.controlPoints;
+  const [first, second, before, last] = [p[0]!, p[1]!, p[p.length - 2]!, p[p.length - 1]!];
+  let reach = 0;
+  for (const [x, y] of p) reach = Math.max(reach, Math.abs(x), Math.abs(y));
+  const near = 1e-9 * Math.max(1, reach);
+  if (Math.abs(first[0] - last[0]) > near || Math.abs(first[1] - last[1]) > near) return false;
+  // A closed spline of degree 1 is a polygon, which turns a corner where it closes.
+  if (degree === 1) return true;
+  const [ax, ay] = [second[0] - first[0], second[1] - first[1]];
+  const [bx, by] = [last[0] - before[0], last[1] - before[1]];
+  const [la, lb] = [Math.hypot(ax, ay), Math.hypot(bx, by)];
+  if (!(la > near && lb > near)) return la <= near && lb <= near;
+  return Math.abs(ax * by - ay * bx) <= 1e-9 * la * lb && ax * bx + ay * by > 0;
+}
 
 /** What is wrong with a hatch with no loop. */
 export const HATCH_NO_LOOPS = "a hatch needs at least one loop";

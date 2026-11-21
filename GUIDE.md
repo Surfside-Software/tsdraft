@@ -59,10 +59,15 @@ export default d.build();
 Coordinates are in drawing units with Y pointing up. Angles are in degrees, counterclockwise
 from +X. A layer's color is a number from 1 to 255 in the color index CAD programs share, and a
 lineweight is in millimetres. Entities drawn inside a `layer()` callback go on that layer. The
-builder draws `line`, `polyline`, `rect`, `circle`, `arc`, `text` and dimensions. A polyline
+builder draws `line`, `polyline`, `rect`, `circle`, `arc`, `ellipse`, `spline`, `text` and
+dimensions. A polyline
 takes `bulges` to make a side an arc, `width` or `widths` to draw its sides wide, and `radius`
 to round its corners; `cloud` draws a revision cloud around an outline, which crosses nothing
 inside it, and `donut` a filled ring or dot. [docs/polylines.md](docs/polylines.md) has them.
+`ellipse` draws an ellipse or an arc of one by its center, the end of its major axis and the
+ratio of its axes; `spline` draws the cubic CAD programs fit through fit points, for a top of
+bank, a tree line or a contour, and `controlSpline` a spline by its control points.
+[docs/curves.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/curves.md) has them.
 `image` draws a PNG or a JPEG at a width in drawing units, with the file's `pixels`, which
 `rasterSize` reads, and an optional `clip`; the command reads the file from the drawing file's
 folder for the pictures, and warns of one that is missing.

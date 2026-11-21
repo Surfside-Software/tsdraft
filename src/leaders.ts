@@ -36,8 +36,11 @@ import {
   LEADER_SHAFT_LENGTH,
   leaderStyleNameProblem,
   pictureNumberProblem,
+  drawnEllipse,
+  drawnSpline,
 } from "./rules.ts";
 import { filled, Strings } from "./shape.ts";
+import { ellipsePoint, splinePolyline, unturned } from "./curves.ts";
 
 /** The shortest line of a note that `leaderRepeats` tells apart by its value. */
 const LONG = 256;
@@ -577,7 +580,30 @@ function outlineOf(block: Block, findBlock?: (name: string) => Block | undefined
         }
       } else if (e.kind === "circle") round(e.center, num(e.radius));
       else if (e.kind === "arc") round(e.center, num(e.radius), num(e.startAngle), num(e.endAngle));
-      else if (e.kind === "insert" && depth < OUTLINE_DEPTH && typeof e.block === "string") {
+      else if (e.kind === "ellipse" || e.kind === "spline") {
+        // A curve as the points of 32 steps a turn of an ellipse, or 8 a piece of a spline.
+        const fields = e as unknown as Readonly<Record<string, unknown>>;
+        const lists = [fields.fitPoints, fields.controlPoints, fields.knots, fields.weights];
+        read += lists.reduce((n: number, l) => n + (Array.isArray(l) ? l.length : 0), 0);
+        if (read > OUTLINE_ITEMS) break;
+        let points: Point[] = [];
+        if (e.kind === "ellipse") {
+          const d = drawnEllipse(e);
+          if (d) {
+            const from = d.start ?? 0;
+            const turn =
+              d.start === undefined ? 2 * Math.PI : unturned(d.end! - from) || 2 * Math.PI;
+            points = Array.from({ length: 33 }, (_, k) =>
+              ellipsePoint(d.center, d.majorAxis, d.ratio, from + (turn * k) / 32),
+            );
+          }
+        } else {
+          const d = drawnSpline(fields);
+          if (d) points = splinePolyline(d.degree, d.knots, d.controlPoints, d.weights, 8);
+        }
+        read += points.length;
+        for (let i = 1; i < points.length; i++) segment(map(points[i - 1]!), map(points[i]!));
+      } else if (e.kind === "insert" && depth < OUTLINE_DEPTH && typeof e.block === "string") {
         const nested = findBlock?.(e.block);
         if (nested === undefined || open.has(nested)) continue;
         const [sx, sy] = Array.isArray(e.scale) ? e.scale : [1, 1];

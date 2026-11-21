@@ -875,7 +875,7 @@ function arcCurves(
 }
 
 /**
- * The pieces of a path's `d`, which `toSVG` writes with `M`, `L` and `A` alone, on a page that
+ * The pieces of a path's `d`, which `toSVG` writes with `M`, `L`, `C`, `A` and `Z` alone, on a page that
  * draws one unit `scale` points long.
  */
 function pathPieces(d: string, where: string, scale: number): Piece[] {
@@ -901,6 +901,11 @@ function pathPieces(d: string, where: string, scale: number): Piece[] {
       // A hatch's loop closes back to where it started.
       pieces.push({ kind: "close" });
       at = start;
+    } else if (command === "C") {
+      // A spline's Bézier pieces.
+      const [x1, y1, x2, y2, x, y] = numbers(6) as number[];
+      at = [x!, y!];
+      pieces.push({ kind: "curve", c1: [x1!, y1!], c2: [x2!, y2!], to: at });
     } else if (command === "A") {
       const [rx, ry, turn, large, sweep, x, y] = numbers(7) as number[];
       const to: [number, number] = [x!, y!];

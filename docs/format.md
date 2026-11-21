@@ -109,6 +109,14 @@ dashes where it has them. A gradient is `{ name, angle, centered }` where they a
 dimension style's `textMask` are written where they are set. A drawing with none of them has the
 JSON it had before they existed. [Fills, wipeouts and masks](fills.md) describes them.
 
+An ellipse is an entity of kind `"ellipse"`, with its `layer`, `center`, `majorAxis` and `ratio`,
+and for an arc of it its `startParameter` and `endParameter`. A spline is an entity of kind
+`"spline"`: through fit points, with its `fitPoints` and where they are set its `startTangent`,
+`endTangent` and `closed`; or by its control points, with its `controlPoints`, `degree` and
+`knots`, and where they are set its `weights` and `closed`. Each has the `linetype` and
+`lineweight` of every entity. A drawing with neither has the JSON it had before they existed.
+[Ellipses and splines](curves.md) describes them.
+
 A drawing written by hand needs `format: 0` too. `lint` reports a drawing without it, or with
 another version, under the rule `format`, and `toDXF` refuses to write it. `lint` takes any
 plain data and never throws: a list that is not an array, an entity of an unknown `kind`, a

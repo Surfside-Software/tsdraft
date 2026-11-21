@@ -14,6 +14,7 @@ import {
   sweep,
   type DimensionStyle,
   type Drawing,
+  type Ellipse,
   type Entity,
   type Hatch,
   type HatchPattern,
@@ -26,6 +27,7 @@ import {
   type Paragraph,
   type Point,
   type Polyline,
+  type Spline,
   type Text,
   type TextStyle,
   type Viewport,
@@ -110,7 +112,16 @@ import {
 } from "./paragraphs.ts";
 import { arrowheadInfo, DEFAULT_ARROWHEAD } from "./arrowheads.ts";
 import { DEFAULT_PLOT_STYLE_TABLE, paperInfo } from "./papers.ts";
-import { shown as quoted, turning, viewportProblem } from "./rules.ts";
+import {
+  drawnEllipse,
+  shown as quoted,
+  SplineMemo,
+  turning,
+  viewportProblem,
+  type DrawnEllipse,
+  type DrawnSpline,
+} from "./rules.ts";
+import { ellipsePoint, splinePieces, splinePolyline, unturned } from "./curves.ts";
 import { filled, KEYED } from "./shape.ts";
 import { isUnits } from "./units.ts";
 
@@ -383,6 +394,9 @@ interface Plan {
 interface Known {
   readonly sides: WeakMap<object, Sides>;
   readonly plans: PolylineMemo<Plan | null>;
+  /** The curve each ellipse, and each spline's drawn spline, draws, and its flat. */
+  readonly curves: WeakMap<object, Curve | null>;
+  readonly splines: SplineMemo;
   /**
    * Pays for the lists a plan is about to read, when a list was read for another plan before,
    * or refuses the picture.
@@ -392,7 +406,148 @@ interface Known {
 
 /** A new `Known`, for one picture, which pays for lists read again with `readAgain`. */
 function knowing(readAgain: Known["readAgain"] = () => {}): Known {
-  return { sides: new WeakMap(), plans: new PolylineMemo(), readAgain };
+  return {
+    sides: new WeakMap(),
+    plans: new PolylineMemo(),
+    curves: new WeakMap(),
+    splines: new SplineMemo(),
+    readAgain,
+  };
+}
+
+/** What an ellipse or a spline draws, and the flat it is cut into dashes along. */
+interface Curve {
+  readonly ellipse?: DrawnEllipse;
+  readonly spline?: DrawnSpline;
+  /** Its points from start to end in its own coordinates, worked out when first dashed. */
+  flat?: Flat;
+}
+
+/** A curve as points close together, with the length along it to each. */
+interface Flat {
+  readonly points: readonly Point[];
+  readonly lengths: readonly number[];
+  /** True for one that closes, whose pattern goes round as a circle's does. */
+  readonly closed: boolean;
+}
+
+/** The steps an ellipse is cut into for a full turn, and each piece of a spline. */
+const ELLIPSE_STEPS = 512;
+const SPLINE_STEPS = 32;
+
+/**
+ * The curve of an ellipse or a spline, worked out once into `known` for each: none for one of
+ * the wrong shape or that `lint` refuses.
+ */
+function curveOf(e: Ellipse | Spline, known: Known): Curve | undefined {
+  let key: object = e;
+  let spline: DrawnSpline | undefined;
+  if (e.kind === "spline") {
+    const fields = e as unknown as Readonly<Record<string, unknown>>;
+    spline = known.splines.get(fields, (lists) => {
+      known.readAgain(lists);
+      return true;
+    });
+    if (!spline) return undefined;
+    key = spline;
+  }
+  const found = known.curves.get(key);
+  if (found !== undefined) return found ?? undefined;
+  let made: Curve | null = null;
+  if (spline) made = { spline };
+  else {
+    const ellipse = drawnEllipse(e as Ellipse);
+    if (ellipse) made = { ellipse };
+  }
+  known.curves.set(key, made);
+  return made ?? undefined;
+}
+
+/** The flat of a curve, in its own coordinates. */
+function flatOf(curve: Curve): Flat {
+  if (curve.flat) return curve.flat;
+  let points: Point[];
+  let closed: boolean;
+  if (curve.ellipse) {
+    const { center, majorAxis, ratio, start, end } = curve.ellipse;
+    const from = start ?? 0;
+    const turn = start === undefined ? 2 * Math.PI : unturned(end! - from) || 2 * Math.PI;
+    const steps = Math.max(8, Math.ceil((ELLIPSE_STEPS * turn) / (2 * Math.PI)));
+    points = Array.from({ length: steps + 1 }, (_, k) =>
+      ellipsePoint(center, majorAxis, ratio, from + (turn * k) / steps),
+    );
+    closed = start === undefined;
+  } else {
+    const { degree, knots, controlPoints, weights } = curve.spline!;
+    points = splinePolyline(degree, knots, controlPoints, weights, SPLINE_STEPS);
+    closed = curve.spline!.closed;
+  }
+  const lengths = [0];
+  for (let i = 1; i < points.length; i++) {
+    const [a, b] = [points[i - 1]!, points[i]!];
+    lengths.push(lengths[i - 1]! + Math.hypot(b[0] - a[0], b[1] - a[1]));
+  }
+  return (curve.flat = { points, lengths, closed });
+}
+
+/**
+ * An ellipse, or an arc of one, where `matrix` puts it: the image of an ellipse under the matrix
+ * is an ellipse, whose axes come from the images of its two semi-axes, as `rounded` finds them.
+ */
+function ellipseToSvg(d: DrawnEllipse, matrix: Matrix | undefined, s: string): string {
+  const [mx, my] = d.majorAxis;
+  const minor: Point = [-my * d.ratio, mx * d.ratio];
+  const linear = (v: Point): Point =>
+    matrix ? [matrix[0] * v[0] + matrix[2] * v[1], matrix[1] * v[0] + matrix[3] * v[1]] : v;
+  const [a, b] = [linear(d.majorAxis), linear(minor)];
+  const round = rounded(1, [a[0], a[1], b[0], b[1], 0, 0]);
+  const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
+  if (d.start === undefined) return roundToSvg(at(d.center), round, s);
+  const turn = unturned(d.end! - d.start);
+  const large = turn > Math.PI ? 1 : 0;
+  const [start, end] = [d.start, d.end!].map((t) => {
+    const [x, y] = at(ellipsePoint(d.center, d.majorAxis, d.ratio, t));
+    return `${fmt(x)} ${fmt(y)}`;
+  });
+  // SVG draws nothing for an arc that ends where it starts.
+  if (start === end && large === 1) return roundToSvg(at(d.center), round, s);
+  return `<path d="M ${start} A ${fmt(round.rx)} ${fmt(round.ry)} ${fmt(round.turn)} ${large} ${round.sweep} ${end}" ${s}/>`;
+}
+
+/**
+ * A spline as path data, where `matrix` puts it. One of degree 1 to 3 that is not rational is
+ * drawn exactly, as lines or cubic Bézier pieces, a quadratic piece raised to a cubic; any other
+ * as the points of its flat.
+ */
+function splinePath(curve: Curve, matrix: Matrix | undefined): string {
+  const spline = curve.spline!;
+  const place = ([x, y]: Point): string => {
+    const [px, py] = matrix ? mapPoint(matrix, [x, y]) : [x, y];
+    return `${fmt(px)} ${fmt(py)}`;
+  };
+  const parts: string[] = [];
+  if (spline.weights !== undefined || spline.degree > 3) {
+    flatOf(curve).points.forEach((p, i) => parts.push(`${i === 0 ? "M" : "L"} ${place(p)}`));
+    return parts.join(" ");
+  }
+  const { degree, knots, controlPoints } = spline;
+  let last = "";
+  for (const piece of splinePieces(degree, knots, controlPoints, undefined)) {
+    const q = piece.map(([x, y]): Point => [x, y]);
+    const first = place(q[0]!);
+    if (first !== last) parts.push(`M ${first}`);
+    const end = place(q[degree]!);
+    if (degree === 1) parts.push(`L ${end}`);
+    else if (degree === 2) {
+      const raised = (p: Point): Point => [
+        p[0] + ((q[1]![0] - p[0]) * 2) / 3,
+        p[1] + ((q[1]![1] - p[1]) * 2) / 3,
+      ];
+      parts.push(`C ${place(raised(q[0]!))} ${place(raised(q[2]!))} ${end}`);
+    } else parts.push(`C ${place(q[1]!)} ${place(q[2]!)} ${end}`);
+    last = end;
+  }
+  return parts.join(" ");
 }
 
 /**
@@ -1935,6 +2090,14 @@ function entityToSvg(
     }
     case "text":
       return textToSvg(e, style, pen, mark, matrix, true);
+    case "ellipse": {
+      const curve = curveOf(e, sides);
+      return curve ? ellipseToSvg(curve.ellipse!, matrix, s) : `<g ${mark}/>`;
+    }
+    case "spline": {
+      const curve = curveOf(e, sides);
+      return curve ? `<path d="${splinePath(curve, matrix)}" ${s}/>` : `<g ${mark}/>`;
+    }
   }
 }
 
@@ -2210,6 +2373,71 @@ function dashedPath(
     case "arc":
       ok = round(e.center, e.radius, e.startAngle, sweep(e.startAngle, e.endAngle), true);
       break;
+    case "ellipse":
+    case "spline": {
+      // A curve's pattern runs along its whole length: fitted as a line's is, or, for one that
+      // closes, as a circle's is, from its start.
+      const curve = curveOf(e, known);
+      if (!curve) return undefined;
+      const flat = flatOf(curve);
+      const closed = flat.closed;
+      // Under an insert the pattern runs along the curve as it plots, so the curve is placed first
+      // and measured there, in the block's units the pattern is shrunk to.
+      const grown = matrix ? Math.sqrt(Math.abs(matrix[0] * matrix[3] - matrix[1] * matrix[2])) : 1;
+      // A matrix that turns, mirrors and scales alike keeps the curve's lengths in the block's
+      // units, so only the points a dash writes are placed. Any other places the whole curve,
+      // which a curve drawn again pays for.
+      const [a, b, c, d] = matrix ?? [1, 0, 0, 1];
+      const alike = (x: number, y: number) => Math.abs(x - y) <= 1e-12 * grown;
+      const similar = (alike(a, d) && alike(b, -c)) || (alike(a, -d) && alike(b, c));
+      let points: readonly Point[] = flat.points;
+      let lengths: readonly number[] = flat.lengths;
+      if (matrix && !similar) {
+        known.readAgain([flat.points]);
+        const placed = flat.points.map((p) => mapPoint(matrix, p));
+        const measured = [0];
+        for (let i = 1; i < placed.length; i++) {
+          const [p, q] = [placed[i - 1]!, placed[i]!];
+          measured.push(measured[i - 1]! + Math.hypot(q[0] - p[0], q[1] - p[1]) / grown);
+        }
+        [points, lengths] = [placed, measured];
+      }
+      const put = (p: Point): string => {
+        const [x, y] = matrix && similar ? mapPoint(matrix, p) : p;
+        return `${fmt(x)} ${fmt(y)}`;
+      };
+      const length = lengths[lengths.length - 1]!;
+      const along = (from: number, to: number): string => {
+        const at = (t: number, i: number): Point => {
+          const [a, b] = [points[i]!, points[i + 1] ?? points[i]!];
+          const span = lengths[i + 1]! - lengths[i]!;
+          const f = span > 0 ? (t - lengths[i]!) / span : 0;
+          return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+        };
+        // The step that holds `t`: the last whose length is at most `t`.
+        const step = (t: number): number => {
+          let [lo, hi] = [0, lengths.length - 2];
+          while (lo < hi) {
+            const mid = (lo + hi + 1) >> 1;
+            if (lengths[mid]! <= t) lo = mid;
+            else hi = mid - 1;
+          }
+          return lo;
+        };
+        const [i, j] = [step(from), step(to)];
+        const drawn = [`M ${put(at(from, i))}`];
+        for (let k = i + 1; k <= j; k++) drawn.push(`L ${put(points[k]!)}`);
+        drawn.push(`L ${put(at(to, j))}`);
+        return drawn.join(" ");
+      };
+      if (!(length > 0) || !(grown > 0)) return undefined;
+      if (!closed) ok = cut(length, along, true);
+      else {
+        if (!(length >= total)) return undefined;
+        ok = cut(length, along, false, length / (Math.round(length / total) * total));
+      }
+      break;
+    }
   }
   return ok && (out.length > 0 || (wide?.fills.length ?? 0) > 0) ? out.join(" ") : undefined;
 }

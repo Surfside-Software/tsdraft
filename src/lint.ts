@@ -51,6 +51,7 @@ import type {
   TextStyle,
   Xref,
 } from "./drawing.ts";
+import { isFitSpline } from "./drawing.ts";
 import { boxer, type Boxer } from "./extents.ts";
 import { exactKey, imagePathKey, imageReactorHandle, imageVectors } from "./images.ts";
 import { written } from "./format.ts";
@@ -141,6 +142,9 @@ import {
   linetypeProblem,
   linetypeScaleProblem,
   R12_ONLY,
+  controlSplineProblems,
+  ellipseProblems,
+  fitSplineProblems,
   magnitudeProblem,
   polylineSidesProblems,
   paperProblem,
@@ -1885,7 +1889,8 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
           entity.kind === "image" ||
           entity.kind === "paragraph" ||
           entity.kind === "hatch" ||
-          entity.kind === "wipeout")
+          entity.kind === "wipeout" ||
+          entity.kind === "spline")
       ) {
         let cost = 0;
         const columns: unknown = entity.kind === "paragraph" ? entity.columns : undefined;
@@ -1897,17 +1902,21 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
               ? [isObject(columns) ? columns.heights : undefined]
               : entity.kind === "wipeout"
                 ? [entity.points]
-                : entity.kind === "hatch"
-                  ? [
-                      entity.loops,
-                      ...loops.flatMap((loop) =>
-                        isObject(loop) ? [loop.points, loop.bulges] : [],
-                      ),
-                    ]
-                  : [entity.points, entity.bulges, entity.widths];
+                : entity.kind === "spline"
+                  ? [entity.fitPoints, entity.controlPoints, entity.knots, entity.weights]
+                  : entity.kind === "hatch"
+                    ? [
+                        entity.loops,
+                        ...loops.flatMap((loop) =>
+                          isObject(loop) ? [loop.points, loop.bulges] : [],
+                        ),
+                      ]
+                    : [entity.points, entity.bulges, entity.widths];
+        // A spline's fit is worked out again from its lists, which takes more for each point.
+        const per = entity.kind === "spline" ? 2 : 8;
         for (const list of lists) {
           if (Array.isArray(list) && list.length >= FREE && again(list))
-            cost += Math.floor(list.length / 8);
+            cost += Math.floor(list.length / per);
         }
         if (cost > 0 && !spend(cost, here)) return;
       }
@@ -2077,6 +2086,10 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
           return;
         }
         lintImage(entity, add, problems.length === 0, named, here);
+      }
+      if (r12 && (entity.kind === "ellipse" || entity.kind === "spline")) {
+        add("geometry", "error", R12_ONLY.curves);
+        return;
       }
       if (entity.kind === "hatch" || entity.kind === "wipeout") {
         if (r12) {
@@ -2607,9 +2620,9 @@ function asText(definition: AttributeDefinition): Text {
 }
 
 /**
- * True for an entity whose box can cost anything: an insert, a dimension, a leader, a text too
- * long for a table of strings to keep, and a polyline that may have an arc or a width, whose box
- * pays for a long list read again.
+ * True for an entity whose box can cost anything: an insert, a dimension, a leader, a spline, a
+ * text too long for a table of strings to keep, and a polyline that may have an arc or a width,
+ * whose box pays for a long list read again.
  */
 function costsBoxes(e: Readonly<Record<string, unknown>>): boolean {
   const kind = e.kind;
@@ -2621,6 +2634,7 @@ function costsBoxes(e: Readonly<Record<string, unknown>>): boolean {
   }
   return (
     kind === "insert" ||
+    kind === "spline" ||
     kind === "leader" ||
     kind === "linear-dimension" ||
     kind === "aligned-dimension" ||
@@ -2768,6 +2782,14 @@ function geometryProblems(e: Entity): string[] {
       });
       break;
     }
+    case "ellipse":
+      finite("its center and major axis", ...e.center, ...e.majorAxis);
+      if (out.length > 0) break;
+      out.push(...ellipseProblems(e.majorAxis, e.ratio, e.startParameter, e.endParameter));
+      break;
+    case "spline":
+      out.push(...(isFitSpline(e) ? fitSplineProblems(e) : controlSplineProblems(e)));
+      break;
     case "wipeout":
       if (e.points.length < 3) out.push(WIPEOUT_POINTS);
       if (!e.points.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]))) {

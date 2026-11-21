@@ -56,8 +56,11 @@ import type {
   Units,
   Viewport,
   HatchPattern,
+  Spline,
 } from "./drawing.ts";
+import { isFitSpline } from "./drawing.ts";
 import { boxer, type Boxer } from "./extents.ts";
+import { clamped, fitSpline } from "./curves.ts";
 import { nearestColorIndex } from "./svg.ts";
 import {
   dimensionMask,
@@ -112,7 +115,16 @@ import {
 } from "./papers.ts";
 import { fontInfo, STANDARD_TEXT_STYLE } from "./fonts.ts";
 import { ID_HANDLE_SEED, validIdHandle } from "./handles.ts";
-import { dxfOnce, dxfText, fifteenDigits, fmt, readable, written, writtenAngle } from "./format.ts";
+import {
+  dxfOnce,
+  dxfText,
+  fifteenDigits,
+  fmt,
+  readable,
+  sixteenDigits,
+  written,
+  writtenAngle,
+} from "./format.ts";
 import { layerKey, layerZeroFirst } from "./layers.ts";
 import {
   layoutParagraph,
@@ -1194,6 +1206,84 @@ function writeParagraphAttribute(
   g(44, definition.lineSpacing ?? 1);
 }
 
+/** A number with the 16 significant digits the leading CAD app saves a parameter with, and no exponent. */
+/**
+ * Writes a spline as the leading CAD app saves one. Through fit points: the cubic `fitSpline`
+ * fits, then the points, a closed one with its first point again at the end and the tangent where
+ * it joins at both ends. By control points: clamped, as that app saves every spline.
+ */
+function writeSpline(g: Group, e: Spline, begin: () => void): void {
+  begin();
+  point3(g, 210, 0, 0, 1);
+  const tolerances = (fit: boolean) => {
+    g(42, "0.000000001");
+    g(43, "0.0000000001");
+    if (fit) g(44, "0.0000000001");
+  };
+  const unit = (code: number, [x, y]: Point) => {
+    const length = Math.hypot(x, y);
+    for (const [at, value] of [
+      [code, x / length],
+      [code + 10, y / length],
+    ] as const)
+      g(at, value === 0 ? "0" : fifteenDigits(value));
+    g(code + 20, 0);
+  };
+  // Numbers the writer works out, as the leading CAD app saves them, with 16 digits.
+  const exactPoint = (code: number, x: number, y: number) => {
+    g(code, sixteenDigits(x));
+    g(code + 10, sixteenDigits(y));
+    g(code + 20, 0);
+  };
+  if (isFitSpline(e)) {
+    const closed = e.closed === true;
+    // Fitted through the points as written, which a reader of the file fits through again.
+    const asWritten = (p: Point): Point => [written(p[0]), written(p[1])];
+    const points = e.fitPoints.map(asWritten);
+    const fitted = fitSpline(points, "chord", e.startTangent, e.endTangent, closed);
+    const fit = closed ? [...points, points[0]!] : points;
+    const startTangent = closed ? fitted.tangent : e.startTangent;
+    const endTangent = closed ? fitted.tangent : e.endTangent;
+    // Fit by chord (32), planar (8), and 16 more for a line between two points with no tangent;
+    // a closed one is periodic (2) and closed (1).
+    const line = fit.length === 2 && !startTangent && !endTangent;
+    g(70, 1024 + 32 + 8 + (line ? 16 : 0) + (closed ? 3 : 0));
+    g(71, 3);
+    g(72, fitted.knots.length);
+    g(73, fitted.controlPoints.length);
+    g(74, fit.length);
+    tolerances(true);
+    if (startTangent) unit(12, startTangent);
+    if (endTangent) unit(13, endTangent);
+    for (const knot of fitted.knots) g(40, sixteenDigits(knot));
+    for (const [x, y] of fitted.controlPoints) exactPoint(10, x, y);
+    for (const [x, y] of fit) point(g, 11, x, y);
+    return;
+  }
+  // Knots are written with 16 digits, as a span may be smaller than 6 decimals hold; the control
+  // points and weights as written, or with 16 digits where the clamp worked them out.
+  const held = clamped({
+    degree: e.degree,
+    knots: e.knots,
+    controlPoints: e.controlPoints.map(([x, y]): Point => [written(x), written(y)]),
+    ...(e.weights === undefined ? {} : { weights: e.weights.map(written) }),
+  });
+  const worked =
+    held.knots.length !== e.knots.length || held.knots.some((k, i) => k !== e.knots[i]);
+  g(70, 8 + (held.weights ? 4 : 0) + (e.closed ? 3 : 0));
+  g(71, held.degree);
+  g(72, held.knots.length);
+  g(73, held.controlPoints.length);
+  g(74, 0);
+  tolerances(false);
+  for (const knot of held.knots) g(40, sixteenDigits(knot));
+  held.controlPoints.forEach(([x, y], i) => {
+    if (worked) exactPoint(10, x, y);
+    else point(g, 10, x, y);
+    if (held.weights) g(41, worked ? sixteenDigits(held.weights[i]!) : held.weights[i]!);
+  });
+}
+
 /** The vertical justification of the text a paragraph attribute would be as a line. */
 const TEXT_VALIGN_OF = { top: "top", middle: "middle", bottom: "bottom" } as const;
 
@@ -1261,6 +1351,25 @@ function writeEntity(
       g(100, "AcDbArc");
       g(50, writtenAngle(e.startAngle));
       g(51, writtenAngle(e.endAngle));
+      return;
+    case "ellipse": {
+      begin("ELLIPSE", "AcDbEllipse");
+      point(g, 10, ...e.center);
+      point(g, 11, ...e.majorAxis);
+      point3(g, 210, 0, 0, 1);
+      g(40, e.ratio);
+      // The end is always past the start, by up to a turn, as the leading CAD app saves it.
+      const radians = (t: number) => (writtenAngle(t) * Math.PI) / 180;
+      const start = e.startParameter === undefined ? 0 : radians(e.startParameter);
+      let end = e.endParameter === undefined ? 2 * Math.PI : radians(e.endParameter);
+      if (end <= start) end += 2 * Math.PI;
+      // With 15 digits, which the app reads back as written: from 16 it keeps one a bit off.
+      g(41, start === 0 ? 0 : fifteenDigits(start));
+      g(42, fifteenDigits(end));
+      return;
+    }
+    case "spline":
+      writeSpline(g, e, () => begin("SPLINE", "AcDbSpline"));
       return;
     case "paragraph": {
       begin("MTEXT", "AcDbMText");

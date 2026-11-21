@@ -190,6 +190,19 @@ leader:
   angle and `centered: false` do not give its mirror image, because its shift does not mirror with
   the angle.
 - `wipeout`: its `points` in the world's coordinates, without the first again at the end.
+- `ellipse`: its `center` and `majorAxis`, which the file holds in the world's coordinates, its
+  `ratio`, and for an arc its `startParameter` and `endParameter` in degrees, as `Ellipse` holds
+  them. One the file holds seen from below runs its parameters the other way round, and is read as
+  the ellipse it draws seen from above: its arc from s to e is the arc from 360 less e to 360 less
+  s. One whose ratio is outside 0 to 1, or whose axis has no length, is counted under
+  `unread.malformed`, and one out of the plane under `other`.
+- `spline`: its `degree`, `knots`, `controlPoints` and, for a rational one, `weights`, as the file
+  holds them; `closed` and `periodic` from its flags; and where the file holds them its
+  `fitPoints`, `startTangent`, `endTangent`, `fitTolerance` and the `knotSpacing` its flags give.
+  One closed by its first fit point again at its end is `closed`, with that point once in
+  `fitPoints`. One whose counts disagree with its groups, whose degree is not a whole number from
+  1 to 11, or whose knots do not fit its control points is counted under `unread.malformed`, and
+  one with a point off the plane under `other`.
 - An `mtext` with a background holds `mask`: its `offsetFactor`, and its `color` or `trueColor`
   where it is not in the drawing's background.
 

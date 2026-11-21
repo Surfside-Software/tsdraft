@@ -4,6 +4,7 @@
 // written back.
 import type { ParagraphColumns } from "../paragraphs.ts";
 import type { Point } from "../drawing.ts";
+import type { KnotSpacing } from "../curves.ts";
 
 /** The format of a `DrawingRead`. A reader gives the format it was built for. */
 export const READ_FORMAT = 0;
@@ -773,12 +774,54 @@ export interface ReadWipeout extends ReadEntityBase {
   readonly points: readonly Point[];
 }
 
+/**
+ * An ellipse, or an arc of one, as `Ellipse` holds it: in the world's coordinates, with its
+ * parameters in degrees counterclockwise. One the file holds seen from below, which runs its
+ * parameters clockwise, is read as the ellipse it draws seen from above.
+ */
+export interface ReadEllipse extends ReadEntityBase {
+  readonly kind: "ellipse";
+  readonly center: Point;
+  readonly majorAxis: Point;
+  readonly ratio: number;
+  /** For an arc, from 0 up to 360. Left out, with `endParameter`, for a whole ellipse. */
+  readonly startParameter?: number;
+  readonly endParameter?: number;
+}
+
+/**
+ * A spline as the file holds it: its B-spline, and the fit points and what the fit took where the
+ * file holds them. A spline through fit points that the file closes by repeating its first fit
+ * point is `closed`, and its fit points leave the repeat out.
+ */
+export interface ReadSpline extends ReadEntityBase {
+  readonly kind: "spline";
+  readonly degree: number;
+  readonly knots: readonly number[];
+  /** In the world's coordinates, as the file holds them. None for one held by fit points alone. */
+  readonly controlPoints: readonly Point[];
+  /** One for each control point, for a rational spline. */
+  readonly weights?: readonly number[];
+  /** Group 70's closed bit, or for fit points, a first point repeated at the end. */
+  readonly closed: boolean;
+  /** Group 70's periodic bit, where it is set. */
+  readonly periodic?: true;
+  readonly fitPoints?: readonly Point[];
+  readonly startTangent?: Point;
+  readonly endTangent?: Point;
+  readonly fitTolerance?: number;
+  /** How the knots of a fit are spaced, where the file says. */
+  readonly knotSpacing?: KnotSpacing;
+}
+
 /** What a space or a block draws, of the kinds the writers write. */
 export type ReadEntity =
   | ReadLine
   | ReadPolyline
   | ReadCircle
   | ReadArc
+  | ReadEllipse
+  | ReadSpline
   | ReadText
   | ReadInsert
   | ReadMtext

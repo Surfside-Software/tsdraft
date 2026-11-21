@@ -303,7 +303,7 @@ test("readDXF keeps fields, the heights MTEXT sets, and counts what it does not 
     ownLineweight: 1,
     lineweights: { "35": 1 },
   });
-  assert.deepEqual(plain(read.unread.entities), { SPLINE: 1, OLE2FRAME: 1 });
+  assert.deepEqual(plain(read.unread.entities), { OLE2FRAME: 1 });
   assert.deepEqual(plain(read.unread.objects), { ACAD_PROXY_OBJECT: 1 });
   // No text value of model space is kept.
   assert.ok(!JSON.stringify(read).includes("big"));

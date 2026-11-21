@@ -226,6 +226,17 @@ import {
   type LEADER_SIDES,
   type LEADER_VERTICAL_ATTACHMENTS,
   HATCH_LOOP_POINTS,
+  controlSplineProblems,
+  ellipseProblems,
+  fitSplineProblems,
+  type ControlPoints,
+  type EllipseRatio,
+  type FitPoints,
+  type Knots,
+  type SPLINE_CLOSED_TANGENT,
+  type SplineDegree,
+  type Tangent,
+  type Weights,
   HATCH_NO_LOOPS,
   GRADIENT_WITH_PATTERN,
   type GRADIENT_KINDS,
@@ -440,6 +451,72 @@ export interface Arc extends EntityBase {
   readonly radius: number;
   readonly startAngle: number;
   readonly endAngle: number;
+}
+
+/**
+ * An ellipse, or an arc of one. Its points are `center + cos(t) * majorAxis + sin(t) * ratio *
+ * minor` for each parameter `t`, where `minor` is `majorAxis` turned a quarter turn
+ * counterclockwise. A parameter is not the angle a point is at from the center, except at
+ * multiples of 90 degrees: on an ellipse of ratio 0.5, the parameter 45 is the point at about
+ * 26.6 degrees. R2018 only.
+ */
+export interface Ellipse extends EntityBase {
+  readonly kind: "ellipse";
+  readonly center: Point;
+  /** From the center to one end of the major axis: the major radius and its direction. */
+  readonly majorAxis: Point;
+  /** The minor radius over the major: above 0, and at most 1. */
+  readonly ratio: number;
+  /**
+   * For an arc, the parameter it starts at, in degrees from 0 up to 360, counterclockwise from
+   * the end of `majorAxis`. Given with `endParameter` or not at all, for a whole ellipse.
+   */
+  readonly startParameter?: number;
+  /** For an arc, the parameter it ends at, in degrees from 0 up to 360. */
+  readonly endParameter?: number;
+}
+
+/**
+ * A spline through fit points: the cubic the leading CAD app's `SPLINE` fits through them, with
+ * its knots spaced by the chords between the points, which the writers work out and write beside
+ * the points. A DXF holds no other spacing: that app fits every spline it reads through fit points
+ * by chord. R2018 only.
+ */
+export interface FitSpline extends EntityBase {
+  readonly kind: "spline";
+  /** The points it passes through, in order: 2 or more, 3 or more when it is closed. */
+  readonly fitPoints: readonly Point[];
+  /** The direction it leaves the first point in. Worked out from the points by default. */
+  readonly startTangent?: Point;
+  /** The direction it arrives at the last point in. Worked out from the points by default. */
+  readonly endTangent?: Point;
+  /**
+   * Whether it runs from the last point back to the first, smooth through it. It then takes no
+   * tangents. Defaults to false.
+   */
+  readonly closed?: boolean;
+}
+
+/** A spline by its control points: a B-spline of its degree, rational when it has weights. R2018 only. */
+export interface ControlSpline extends EntityBase {
+  readonly kind: "spline";
+  readonly controlPoints: readonly Point[];
+  /** From 1 up to `SPLINE_DEGREE_MOST`. */
+  readonly degree: number;
+  /** One more than the control points and the degree together, none less than the one before. */
+  readonly knots: readonly number[];
+  /** One for each control point, each above 0. Every weight is 1 when left out. */
+  readonly weights?: readonly number[];
+  /** Whether it is periodic, joined smooth where it starts. Defaults to false. */
+  readonly closed?: boolean;
+}
+
+/** A spline: through fit points, or by its control points. `isFitSpline` tells the two apart. */
+export type Spline = FitSpline | ControlSpline;
+
+/** True for a spline through fit points. */
+export function isFitSpline(spline: Spline): spline is FitSpline {
+  return (spline as { readonly fitPoints?: unknown }).fitPoints !== undefined;
 }
 
 /**
@@ -938,6 +1015,8 @@ export type Entity =
   | Polyline
   | Circle
   | Arc
+  | Ellipse
+  | Spline
   | Text
   | Paragraph
   | Insert
@@ -1518,6 +1597,77 @@ function hatchGradientCopy(given: unknown): HatchGradient {
   const read = readGradient(given);
   if ("problem" in read) return refuse("hatch-gradient", capitalized(read.problem));
   return read.gradient;
+}
+
+/** What `ellipse()` takes besides what every entity does. */
+export interface EllipseOptions<
+  V extends DxfVersion = "R2018",
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+> extends EntityOptions<V, T, W, L, I, Z, P> {
+  /**
+   * For an arc of the ellipse, the parameter it starts at, in degrees counterclockwise from the end
+   * of the major axis. Given with `endParameter` or not at all. Brought into 0 up to 360.
+   */
+  readonly startParameter?: number;
+  /** For an arc of the ellipse, the parameter it ends at, in degrees. */
+  readonly endParameter?: number;
+}
+
+/** What `spline()` takes besides what every entity does. */
+export interface SplineOptions<
+  V extends DxfVersion = "R2018",
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+  S extends Point = Point,
+  E extends Point = Point,
+  C extends boolean = boolean,
+> extends EntityOptions<V, T, W, L, I, Z, P> {
+  /** The direction it leaves the first point in. Worked out from the points when left out. */
+  readonly startTangent?: [C] extends [true] ? typeof SPLINE_CLOSED_TANGENT : Tangent<S>;
+  /** The direction it arrives at the last point in. Worked out from the points when left out. */
+  readonly endTangent?: [C] extends [true] ? typeof SPLINE_CLOSED_TANGENT : Tangent<E>;
+  /** True to run from the last point back to the first, smooth through it. */
+  readonly closed?: C;
+}
+
+/** What `controlSpline()` takes besides what every entity does. */
+export interface ControlSplineOptions<
+  V extends DxfVersion = "R2018",
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+  D extends number = number,
+  K extends readonly number[] = readonly number[],
+  C extends readonly Point[] = readonly Point[],
+  H extends readonly number[] = readonly number[],
+> extends EntityOptions<V, T, W, L, I, Z, P> {
+  /** From 1 up to `SPLINE_DEGREE_MOST`. Defaults to 3. */
+  readonly degree?: SplineDegree<D>;
+  /**
+   * As many as the control points and the degree together, and one more, none less than the one
+   * before. Defaults to clamped uniform knots: the degree and one more of 0, then 1, 2 and on,
+   * and the degree and one more of the last.
+   */
+  readonly knots?: Knots<K, C, D>;
+  /** One for each control point, each above 0, for a rational spline. */
+  readonly weights?: Weights<H, C>;
+  /**
+   * True for a periodic spline, smooth where it joins. Without `knots`, the first `degree`
+   * control points are added again at the end, with uniform knots, so the curve closes on them.
+   */
+  readonly closed?: boolean;
 }
 
 /**
@@ -3611,6 +3761,173 @@ export class DrawingBuilder<
         radius: positive(radius, "radius"),
         startAngle: start,
         endAngle: end,
+      };
+    });
+  }
+
+  /**
+   * An ellipse about `center`, with `majorAxis` from the center to one end of its major axis and
+   * `ratio` its minor radius over its major, above 0 and at most 1. With `startParameter` and
+   * `endParameter`, an arc of it, counterclockwise from one to the other. A parameter is not the
+   * angle a point is at, except at multiples of 90 degrees: see `Ellipse`. R2018 only.
+   *
+   * ```ts
+   * d.ellipse([10, 5], [4, 0], 0.5);
+   * d.ellipse([10, 5], [0, 3], 0.6, { startParameter: 0, endParameter: 180 });
+   * ```
+   */
+  ellipse<
+    R extends number,
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    P extends string = string,
+  >(
+    center: Point,
+    majorAxis: Point,
+    ratio: EllipseRatio<R>,
+    options: EllipseOptions<V, T, W, L, I, Z, P> = {},
+  ): this {
+    return this.#add(DrawingBuilder.prototype.ellipse, options, () => {
+      if (this.dxf === "R12") refuse("geometry", R12_ONLY.curves);
+      const axis = pt(majorAxis);
+      const { startParameter, endParameter } = options;
+      const arc = startParameter !== undefined && endParameter !== undefined;
+      const start = arc ? turn(num(startParameter, "startParameter")) : startParameter;
+      const end = arc ? turn(num(endParameter, "endParameter")) : endParameter;
+      const [problem] = ellipseProblems(axis, ratio, start, end);
+      if (problem) refuse("geometry", capitalized(problem));
+      return {
+        kind: "ellipse",
+        layer: this.#current,
+        center: pt(center),
+        majorAxis: axis,
+        ratio: ratio as number,
+        ...(arc ? { startParameter: start!, endParameter: end! } : {}),
+      };
+    });
+  }
+
+  /**
+   * A spline through `fitPoints`: the cubic the leading CAD app's `SPLINE` fits through them, its
+   * knots spaced by the chords, with the tangents given at its ends or worked out from the points. `closed` runs it from the last
+   * point back to the first, smooth through it. R2018 only.
+   *
+   * ```ts
+   * d.spline([[0, 0], [10, 4], [20, 2], [30, 6]]);
+   * d.spline([[0, 0], [10, 4], [20, 2]], { startTangent: [0, 1] });
+   * ```
+   */
+  spline<
+    const F extends readonly Point[],
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    P extends string = string,
+    const S extends Point = Point,
+    const E extends Point = Point,
+    C extends boolean = false,
+  >(fitPoints: FitPoints<F>, options: SplineOptions<V, T, W, L, I, Z, P, S, E, C> = {}): this {
+    return this.#add(DrawingBuilder.prototype.spline, options, () => {
+      if (this.dxf === "R12") refuse("geometry", R12_ONLY.curves);
+      if (!Array.isArray(fitPoints))
+        refuse("geometry", "A spline's fit points are a list of points");
+      const o = options as SplineOptions;
+      const points = (fitPoints as readonly Point[]).map(pt);
+      const startTangent = o.startTangent === undefined ? undefined : pt(o.startTangent as Point);
+      const endTangent = o.endTangent === undefined ? undefined : pt(o.endTangent as Point);
+      const closed = o.closed === true;
+      const [problem] = fitSplineProblems({
+        fitPoints: points,
+        startTangent,
+        endTangent,
+        closed,
+      });
+      if (problem) refuse("geometry", capitalized(problem));
+      return {
+        kind: "spline",
+        layer: this.#current,
+        fitPoints: points,
+        ...(startTangent ? { startTangent } : {}),
+        ...(endTangent ? { endTangent } : {}),
+        ...(closed ? { closed } : {}),
+      };
+    });
+  }
+
+  /**
+   * A spline by its control points: a B-spline of `degree`, 3 unless given, with clamped uniform
+   * knots unless `knots` are given, rational with `weights`. `closed` makes it periodic: without
+   * `knots`, its first `degree` control points are added again at the end, with uniform knots, so
+   * it closes smooth on them. R2018 only.
+   *
+   * ```ts
+   * d.controlSpline([[0, 0], [5, 8], [10, 0], [15, 8]]);
+   * d.controlSpline([[0, 0], [0, 5], [5, 5]], { degree: 2, weights: [1, Math.SQRT1_2, 1] });
+   * ```
+   */
+  controlSpline<
+    const C extends readonly Point[],
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    P extends string = string,
+    D extends number = 3,
+    const K extends readonly number[] = readonly number[],
+    const H extends readonly number[] = readonly number[],
+  >(
+    controlPoints: ControlPoints<C, D>,
+    options: ControlSplineOptions<V, T, W, L, I, Z, P, D, K, C, H> = {},
+  ): this {
+    return this.#add(DrawingBuilder.prototype.controlSpline, options, () => {
+      if (this.dxf === "R12") refuse("geometry", R12_ONLY.curves);
+      if (!Array.isArray(controlPoints))
+        refuse("geometry", "A spline's control points are a list of points");
+      const o = options as ControlSplineOptions;
+      const degree: unknown = o.degree ?? 3;
+      const given = (controlPoints as readonly Point[]).map(pt);
+      const closed = o.closed === true;
+      const p = typeof degree === "number" ? degree : 0;
+      if (Number.isInteger(p) && p >= 1 && given.length < p + 1)
+        refuse(
+          "geometry",
+          capitalized(controlSplineProblems({ controlPoints: given, degree, knots: [] })[0]!),
+        );
+      const wrapped = closed && o.knots === undefined;
+      const points = wrapped ? [...given, ...given.slice(0, p)] : given;
+      const knots: readonly number[] =
+        (o.knots as readonly number[] | undefined) ??
+        (wrapped
+          ? Array.from({ length: points.length + p + 1 }, (_, i) => i)
+          : Array.from({ length: points.length + p + 1 }, (_, i) =>
+              Math.min(Math.max(i - p, 0), points.length - p),
+            ));
+      const givenWeights = o.weights as readonly number[] | undefined;
+      const weights =
+        givenWeights === undefined
+          ? undefined
+          : wrapped
+            ? [...givenWeights, ...givenWeights.slice(0, p)]
+            : givenWeights;
+      const [problem] = controlSplineProblems({
+        controlPoints: points,
+        degree,
+        knots,
+        weights,
+        closed,
+      });
+      if (problem) refuse("geometry", capitalized(problem));
+      return {
+        kind: "spline",
+        layer: this.#current,
+        controlPoints: points,
+        degree: degree as number,
+        knots: [...knots],
+        ...(weights === undefined ? {} : { weights: [...weights] }),
+        ...(closed ? { closed } : {}),
       };
     });
   }
