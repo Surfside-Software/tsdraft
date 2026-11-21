@@ -427,6 +427,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   value takes, the helpers that write them, how it is laid out, and what `lint` refuses.
 - [Images](docs/images.md) covers raster images: the path and the pixels, clips, frames,
   transparency, how the plot draws one, and what `lint` refuses.
+- [Underlays](docs/underlays.md) covers `pdfPageSize`, which reads a PDF page's size for an
+  underlay. Underlays themselves are coming.
 - [Fills, wipeouts and masks](docs/fills.md) covers hatches with holes, solid, of a pattern
   file's patterns or of a gradient, wipeouts, the masks of paragraphs, leaders and dimensions, the draw order, and
   what `lint` refuses.

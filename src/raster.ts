@@ -220,6 +220,10 @@ class Inflater {
     this.#out = new Uint8Array(Math.min(limit, Math.max(1024, input.length * 4)));
   }
 
+  get written(): number {
+    return this.#length;
+  }
+
   bits(n: number): number {
     while (this.#bits < n) {
       if (this.#at >= this.input.length) {
@@ -373,6 +377,16 @@ class Inflater {
 /** The bytes of a zlib stream, or undefined when it is broken or holds more than `limit`. */
 export function inflate(bytes: Uint8Array, limit: number): Uint8Array | undefined {
   return new Inflater(bytes, limit).run();
+}
+
+/** As `inflate`, with the count of bytes it wrote before it ended, broken or not. */
+export function inflateCounted(
+  bytes: Uint8Array,
+  limit: number,
+): { readonly bytes: Uint8Array | undefined; readonly written: number } {
+  const inflater = new Inflater(bytes, limit);
+  const out = inflater.run();
+  return { bytes: out, written: inflater.written };
 }
 
 /** A PNG's pixels at 8 bits a sample, rows from the top, in its own samples: gray, RGB and alpha. */

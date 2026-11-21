@@ -212,6 +212,13 @@
   coordinates, and lists the file's image definitions in `images`, with how many images name each,
   one that none names among them. The example sheet has a vicinity map above its key plan.
   [docs/images.md](docs/images.md) describes them.
+- `pdfPageSize(bytes, page)` reads a PDF page's size in inches, the first part of PDF underlays,
+  which are coming: the page's CropBox cut to its MediaBox, from the page tree where the page has
+  none, times its `UserUnit`, and turned where its `Rotate` is 90 or 270. `page` is its number from
+  1, as `"2"` or `2`. It reads cross-reference tables and streams, incremental updates, object
+  streams and FlateDecode with or without a predictor, scans a file whose cross-reference is broken,
+  and gives undefined for anything else, never a throw. [Underlays](docs/underlays.md) has the
+  rules.
 - Ordinate dimensions: `ordinateDimension(feature, leaderEnd, { axis, origin })` gives the X or the
   Y of a feature from an origin, `[0, 0]` unless given, without its sign, on a leader to
   `leaderEnd` with its text beyond, drawn as the leading CAD app draws it: the leader jogs where

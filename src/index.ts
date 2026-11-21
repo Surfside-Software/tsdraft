@@ -180,6 +180,7 @@ export { heldColor, storedColor } from "./colors.ts";
 export { toDXF, type DxfOptions } from "./dxf.ts";
 export { parsePatterns, PATTERN_FILE_LENGTH } from "./patterns.ts";
 export { fifteenDigits } from "./format.ts";
+export { pdfPageSize } from "./pdf-pages.ts";
 export { rasterSize } from "./raster.ts";
 export {
   drawingImages,
