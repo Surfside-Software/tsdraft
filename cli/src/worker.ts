@@ -9,7 +9,7 @@
 // module loaded ahead only when every file loaded ahead, every link on the way to one and
 // every package.json above one is on disk as it was read. Otherwise the process answers
 // `stale` and the parent builds in one that loaded nothing.
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createRequire, isBuiltin, registerHooks } from "node:module";
 import { dirname, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -147,7 +147,11 @@ type GivenXrefs = Readonly<Record<string, unknown>>;
 interface Library {
   readonly lint: (
     drawing: Drawing,
-    options?: { standard?: unknown; xrefs?: GivenXrefs },
+    options?: {
+      standard?: unknown;
+      xrefs?: GivenXrefs;
+      shapes?: Readonly<Record<string, Uint8Array>>;
+    },
   ) => Diagnostic[];
   /** A copy of tsdraft from before standards has none, and its `lint` takes no standard. */
   readonly defineStandard?: unknown;
@@ -160,8 +164,11 @@ interface Library {
       layout?: string;
       view?: readonly [number, number, number, number];
       images?: Readonly<Record<string, Uint8Array>>;
+      shapes?: Readonly<Record<string, Uint8Array>>;
     },
   ) => string;
+  /** The key a shape file is found by. A copy of tsdraft from before shapes has none. */
+  readonly shapeFileKey?: (file: string) => string;
   /** A raster file's pixels. A copy of tsdraft from before images has none. */
   readonly rasterSize?: (bytes: Uint8Array) => [number, number] | undefined;
   /** What is wrong with the text as it plots. A copy of tsdraft from before it has none. */
@@ -570,7 +577,13 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
     const exported = exportedXrefs(library, drawing, referenced);
     // A copy that draws attachments says why a drawing the export gives is not drawn.
     const chains = typeof library.drawnXrefs === "function" ? { xrefs: exported } : {};
-    const found = library.lint(drawing, checked ? { standard, ...chains } : chains);
+    // The shape files the linetypes name, read from the drawing file's folder, which lint and the
+    // pictures both take.
+    const shaped = shapeFiles(library, drawing, file);
+    const found = library.lint(
+      drawing,
+      checked ? { standard, ...chains, ...shaped } : { ...chains, ...shaped },
+    );
     const unchecked: BuildDiagnostic[] =
       standard !== undefined && !checked
         ? [
@@ -631,6 +644,7 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
           drawNoPlot: drawNoPlot === true,
           xrefs: pictured,
           ...images,
+          ...shaped,
         }),
       );
       // Each layout's sheet. A copy of tsdraft from before layouts would draw model space for
@@ -647,6 +661,7 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
                 drawNoPlot: drawNoPlot === true,
                 xrefs: pictured,
                 ...images,
+                ...shaped,
               };
               const sheet = library.toSVG(shown, options);
               return [{ name: layout.name, svg: sheet, fonts: fontsOf(sheet) }];
@@ -665,6 +680,7 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
           drawNoPlot: drawNoPlot === true,
           xrefs: pictured,
           ...images,
+          ...shaped,
         });
         viewed = { layout: view.layout ?? null, svg: one, fonts: fontsOf(one) };
       }
@@ -1237,6 +1253,79 @@ function flatOf(library: Library, drawing: Drawing, offered: GivenXrefs): GivenX
       return xrefNamed(library, drawing, name) && other !== drawing ? [[name, other]] : [];
     }),
   );
+}
+
+/** The most bytes a shape file is read to, and the shape files of a drawing all told. */
+const SHAPE_FILE_BYTES = 4_000_000;
+const SHAPE_BYTES = 64 << 20;
+
+/**
+ * The shape files a drawing's linetypes name, by the name a mark gives, each read once from the
+ * folder of the drawing's file, where its name is found as the library's `shapeFileKey` finds it.
+ * Each is tracked where it is or would be, so `tsdraft dev` builds again when one is copied
+ * there or changes. A file not there, or too long, is left out, and `lint` warns of its shapes.
+ * Empty for a copy of tsdraft from before shapes.
+ */
+function shapeFiles(
+  library: Library,
+  drawing: Drawing,
+  file: string,
+): { shapes?: Record<string, Uint8Array> } {
+  const key = library.shapeFileKey;
+  if (typeof key !== "function") return {};
+  const names: string[] = [];
+  for (const linetype of Array.isArray(drawing.linetypes) ? drawing.linetypes : []) {
+    const marks: unknown = (linetype as { marks?: unknown } | undefined)?.marks;
+    for (const m of Array.isArray(marks) ? marks : []) {
+      const named = (m as { file?: unknown } | undefined)?.file;
+      if (typeof m === "object" && m !== null && "shape" in m && typeof named === "string")
+        names.push(named);
+    }
+  }
+  if (names.length === 0) return {};
+  const folder = dirname(file);
+  // The folder's shape files, each by its key, folded once.
+  const found = new Map<string, string>();
+  try {
+    for (const entry of readdirSync(folder))
+      if (/\.shx$/i.test(entry) && !found.has(key(entry))) found.set(key(entry), entry);
+  } catch {
+    // A folder that cannot be read has no shape files.
+  }
+  // A record of no prototype, so a file named `__proto__` is a name like any other.
+  const shapes: Record<string, Uint8Array> = Object.create(null);
+  // Each spelling a mark gives has an entry, and each file is read once.
+  const bytesOf = new Map<string, Uint8Array | undefined>();
+  const given = new Set<string>();
+  let total = 0;
+  for (const name of names) {
+    if (given.has(key(name))) continue;
+    given.add(key(name));
+    const base = name.replaceAll("\\", "/").split("/").at(-1) ?? "";
+    const k = key(base);
+    if (base === "") continue;
+    if (!bytesOf.has(k)) {
+      const entry = found.get(k);
+      const at = join(folder, entry ?? (/\.shx$/i.test(base) ? base : `${base}.shx`));
+      track(at, fileVersion(at));
+      let bytes: Uint8Array | undefined;
+      if (entry !== undefined) {
+        try {
+          const size = statSync(at).size;
+          if (size <= SHAPE_FILE_BYTES && total + size <= SHAPE_BYTES) {
+            total += size;
+            bytes = new Uint8Array(readFileSync(at));
+          }
+        } catch {
+          // A file that cannot be read is left out.
+        }
+      }
+      bytesOf.set(k, bytes);
+    }
+    const bytes = bytesOf.get(k);
+    if (bytes !== undefined) shapes[name] = bytes;
+  }
+  return { shapes };
 }
 
 /** The most bytes the files of a drawing's images are read to, all told. */

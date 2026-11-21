@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Linetypes with shapes: a fence with its circles along it, and batt insulation. `parseShapes`
+  reads a firm's compiled shape file (`.shx`) into each shape's outlines, and `toSVG`, `toPDF`
+  and `lint` take the files' bytes as `shapes`, found by name as CAD programs find them, without
+  regard to case and with or without `.shx`. The plot draws each shape where it draws a text,
+  turned and scaled alike, in the line's pen, and a shape of a negative scale turned half a turn;
+  `lint` warns `linetype-shape` only of a shape it cannot draw from the files given.
+  `parseLinetypes(text, { shapes })` numbers a shape given by its name. The `tsdraft` command
+  reads each shape file from the drawing file's folder. A pattern that ends with a dash is now
+  fitted to its own first dash, which runs on from that last one, and a pattern of dashes alone
+  draws its marks along a solid line, as CAD programs plot them.
+
 - Tables, in R2018 drawings. `d.tableStyle(style)` defines a table style: the text style and
   height of its cells, its margins, and the cell style of its title, header and data rows, each
   with its own text style, height, alignment, text color, fill and border lineweight.
@@ -21,6 +32,7 @@
   that cannot be written, a row of the wrong length, a span past the table or over another cell, a
   `null` that nothing spans, a block its fit would scale to 0, a table in a block and more than
   100,000 cells. `tableBox` gives the box of what a table draws, its cells' blocks included.
+
 - Linetypes with text, in R2018 drawings: a pipe with its letters along it. A linetype's `marks`
   draw a text, such as `W`, at the end of a length of its pattern, by `after`, in one of the
   drawing's text styles, turned with the line, from the X axis, or `upright` so it reads from the
@@ -30,8 +42,7 @@
   writers write them, `readDXF` and `readDWG` read them back, and `toSVG` and `toPDF` draw the
   letters where CAD programs plot them: with each whole pattern, along the side they land on, at
   the size of the paper in a viewport or an insert. A linetype's shapes are written and read as
-  their numbers in a shape file, and the plot leaves a gap for each, with the warning
-  `linetype-shape` where one is drawn.
+  their numbers in a shape file.
 
 - Ellipses and splines, in R2018 drawings. `d.ellipse(center, majorAxis, ratio)` draws an
   ellipse, or an arc of one with `startParameter` and `endParameter`. `d.spline(fitPoints)` draws

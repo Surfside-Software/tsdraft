@@ -85,6 +85,7 @@ import {
   Strings,
   type Check,
 } from "./shape.ts";
+import { shapeFinder, type ShapeFiles } from "./shapes.ts";
 import { layerAuditKey, layerKey, layoutNameKey } from "./layers.ts";
 import { STANDARD_FONT, STANDARD_TEXT_STYLE } from "./fonts.ts";
 import {
@@ -389,6 +390,11 @@ export type LintOptions = {
    * given there is not drawn. It does not check those drawings: lint each on its own.
    */
   readonly xrefs?: XrefDrawings;
+  /**
+   * The bytes of each shape file the drawing's linetypes name, as `toSVG` takes them. `lint` then
+   * warns only of a shape the plot cannot draw from them.
+   */
+  readonly shapes?: ShapeFiles;
 } & (
   | {
       /** The DXF version to check against. Defaults to the drawing's own. */
@@ -2682,16 +2688,36 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     out.push({ rule: "block-cycle", severity: "error", message, block: block.name });
   }
 
-  // A shape is drawn from its shape file, which a drawing does not hold.
+  // A shape is drawn from its shape file, which a drawing does not hold: the plot finds it in the
+  // files it is given, as here.
+  let findShape: ReturnType<typeof shapeFinder> | undefined;
+  try {
+    findShape = shapeFinder(options?.shapes);
+  } catch (error) {
+    // `shapeFinder` throws only a RangeError, but `lint` never throws whatever it is given.
+    const message =
+      error instanceof RangeError ? error.message : "The shape files given do not read";
+    out.push({ rule: "linetype-shape", severity: "warning", message });
+  }
+  const gaps = {
+    file: "its file is not given",
+    unread: "its file does not read",
+    shape: "its file has no such shape",
+  };
   for (const linetype of marked) {
     if (!used.has(layerKey(linetype.name))) continue;
-    if (!(linetype.marks ?? []).some((m) => "shape" in m)) continue;
-    out.push({
-      rule: "linetype-shape",
-      severity: "warning",
-      message: `Linetype ${shown(linetype.name)} draws shapes of a shape file, where tsdraft's plot leaves a gap: CAD programs draw them from the file, which the drawing names and does not hold`,
-      ...named("linetype", linetype.name),
-    });
+    for (const m of linetype.marks ?? []) {
+      if (!("shape" in m) || typeof m.shape !== "number" || typeof m.file !== "string") continue;
+      const found = findShape?.(m.file, m.shape) ?? { missing: "file" as const };
+      if ("shape" in found) continue;
+      out.push({
+        rule: "linetype-shape",
+        severity: "warning",
+        message: `Linetype ${shown(linetype.name)} draws shape ${m.shape} of ${shown(m.file)}, where tsdraft's plot leaves a gap because ${gaps[found.missing]}: CAD programs draw it only where they find the file`,
+        ...named("linetype", linetype.name),
+      });
+      break;
+    }
   }
 
   if (stopped !== undefined) {

@@ -9,6 +9,7 @@ import { FONTS, fontInfo, type Font, capHeightOf } from "./fonts.ts";
 import { paperInfo } from "./papers.ts";
 import { Sha256 } from "./sha256.ts";
 import { filled } from "./shape.ts";
+import type { ShapeFiles } from "./shapes.ts";
 import { SHEET_PICTURE, toSVG } from "./svg.ts";
 import { fromBase64, plotDecodes, pngPixels, rasterInfo, uncompressed } from "./raster.ts";
 import { readTrueType, type TrueType } from "./truetype.ts";
@@ -51,6 +52,8 @@ export interface PdfOptions {
    * JPEG and a PNG of no transparency as the file holds them, and any other PNG decoded.
    */
   readonly images?: Readonly<Record<string, Uint8Array>>;
+  /** The bytes of each shape file the drawing's linetypes name, as `toSVG` takes them, for every sheet. */
+  readonly shapes?: ShapeFiles;
 }
 
 /** One sheet of a set whose sheets are drawings of their own. */
@@ -118,7 +121,12 @@ export function toPDF(given: Drawing | readonly PdfSheet[], options: PdfOptions 
     const { drawing, layout, xrefs } = sheet;
     const own = sheet.images ?? images;
     pdf.page(
-      toSVG(drawing, { layout, ...(xrefs ? { xrefs } : {}), ...(own ? { images: own } : {}) }),
+      toSVG(drawing, {
+        layout,
+        ...(xrefs ? { xrefs } : {}),
+        ...(own ? { images: own } : {}),
+        ...(options.shapes ? { shapes: options.shapes } : {}),
+      }),
     );
   }
   return pdf.finish();

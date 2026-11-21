@@ -110,8 +110,9 @@ it would take `1e+100` for `1e+10` and report nothing.
 - A linetype's `marks` are each at the end of a length of its pattern, by `after`, in order, at
   most one at a length. A text is a string of at least one character in one of the drawing's text
   styles, `Standard` unless it names one, and its height is greater than 0 as written. A shape is a
-  whole number from 1 to 65535 in a named shape file, and its scale is greater than 0: a shape by
-  its name, as a linetype file gives it, is refused, since a drawing holds a shape by its number.
+  whole number from 1 to 65535 in a named shape file, and its scale is not 0 as written: one of a
+  negative scale is drawn turned half a turn. A shape by its name, as a linetype file gives it, is
+  refused, since a drawing holds a shape by its number: `parseLinetypes` given the file numbers it.
   `orient` is `relative`, `absolute` or `upright`. A linetype's texts may take 256 characters
   together, counting one more for each, since a DWG holds them in 512 bytes. R2018 only, as is a
   polyline's `linetypeGeneration`.
@@ -312,9 +313,10 @@ it would take `1e+100` for `1e+10` and report nothing.
 - A viewport that reaches past its layout's paper. The leading CAD app plots a layout as far as its
   paper goes.
 - A viewport that shows none of the drawing: nothing in model space lies in the box it shows.
-- `linetype-shape`: a linetype that a layer or an entity draws in, with shapes of a shape file.
-  CAD programs draw a shape from its file, which the drawing names and does not hold, and
-  tsdraft's plot leaves a gap where each goes.
+- `linetype-shape`: a linetype that a layer or an entity draws in, with a shape the plot cannot
+  draw from the `shapes` given: its file is not given, does not read, or has no such shape. CAD
+  programs draw a shape from its file, which the drawing names and does not hold, and tsdraft's
+  plot leaves a gap where such a shape goes.
 - `check-capped`: where `lint` stopped the checks it makes again for what a drawing repeats:
   each attribute an insert places and each handle it takes past its first 64, a tag of 256
   characters or more each time an insert's values are searched for it, what each

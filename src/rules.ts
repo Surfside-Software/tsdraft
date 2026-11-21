@@ -1776,7 +1776,7 @@ export const MARK_TEXT_ROOM =
 
 /** What is wrong with a shape given by name. */
 export const MARK_SHAPE_NAME =
-  "a shape by its name needs its shape file to number it: give the shape's number in the file";
+  "a shape by its name needs its shape file to number it: give the shape's number in the file, or give parseLinetypes the file";
 
 /**
  * Returns what is wrong with a linetype's marks, or undefined when they are valid. It takes
@@ -1833,8 +1833,16 @@ export function marksProblem(marks: unknown, pattern: readonly number[]): string
     }
     const size = isText ? "height" : "scale";
     const v = m[size];
-    if (typeof v !== "number" || !Number.isFinite(v) || !(v > 0) || written(v) === 0)
-      return `${label}: ${size} must be a number greater than 0 as written`;
+    // A shape of a negative scale is drawn turned half a turn, as a linetype file may give it.
+    if (
+      typeof v !== "number" ||
+      !Number.isFinite(v) ||
+      !(isText ? v > 0 : v !== 0) ||
+      written(v) === 0
+    )
+      return isText
+        ? `${label}: height must be a number greater than 0 as written`
+        : `${label}: scale must be a number other than 0 as written`;
     const big = magnitudeProblem(v);
     if (big) return `${label}: ${size}: ${big}`;
     if (isText) {

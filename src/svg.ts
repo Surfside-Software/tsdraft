@@ -28,7 +28,7 @@ import {
   type Line,
   type Linetype,
   type LinetypeMark,
-  type LinetypeText,
+  type LinetypeShape,
   type Paragraph,
   type Point,
   type Polyline,
@@ -140,6 +140,7 @@ import {
 } from "./rules.ts";
 import { ellipsePoint, splinePieces, splinePolyline, unturned } from "./curves.ts";
 import { filled, KEYED } from "./shape.ts";
+import { shapeFinder, type ShapeDefinition, type ShapeFiles } from "./shapes.ts";
 import { isUnits } from "./units.ts";
 
 /**
@@ -352,6 +353,13 @@ export interface SvgOptions {
    * `margin` then defaults to 0.
    */
   readonly view?: readonly [x0: number, y0: number, x1: number, y1: number];
+  /**
+   * The bytes of each shape file the drawing's linetypes name, by the file's name, found without
+   * regard to case and with or without `.shx`, as `shapeFileKey` finds it. A linetype's shape
+   * whose file is not here, does not read, or lacks the shape, leaves its gap, as `lint` warns.
+   * The drawing's xrefs find their shapes here too.
+   */
+  readonly shapes?: ShapeFiles;
 }
 
 /** How an entity is drawn. */
@@ -371,6 +379,13 @@ interface Dashes {
   readonly total: number;
   /** True when one has no length: a dot, which draws as a round cap. */
   readonly dot: boolean;
+  /**
+   * The pattern's last dash, which the first of `lengths` starts with when the pattern ends with
+   * a dash, and the pattern's own first dash after it, which a line is fitted to. The dashes after
+   * that one up to the first gap are the rest of the first of `lengths`.
+   */
+  readonly trail: number;
+  readonly lead: number;
   /** The texts and shapes the pattern draws, where each is along it. */
   readonly marks?: readonly ScaledMark[];
 }
@@ -378,6 +393,9 @@ interface Dashes {
 /** A linetype's pattern as `alternating` gives it, with where along it each mark is drawn. */
 interface LinePattern {
   readonly runs: readonly number[];
+  /** The pattern's last dash, joined to the start of its first, and its first, as `Dashes` has them. */
+  readonly trail: number;
+  readonly lead: number;
   /** Each mark, `at` its distance from the start of `runs`, in the pattern's units. */
   readonly marks: readonly {
     readonly at: number;
@@ -396,6 +414,8 @@ interface ScaledMark {
   readonly mark: LinetypeMark;
   /** A text's style, as the drawing has it. */
   readonly style: TextStyle | undefined;
+  /** A shape's outlines, as its file holds them. */
+  readonly shape?: ShapeDefinition;
   /** What its offset and its height are multiplied by, in the units of the space it is drawn in. */
   readonly size: number;
 }
@@ -1118,6 +1138,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
 
   /** Each pattern scaled for each space, worked out when first drawn with. */
   const scaled = new Map<LinePattern, Map<number, Dashes>>();
+  const findShape = shapeFinder(options.shapes);
   /** Each pattern's marks scaled for a space, by its scale and size. */
   const marked = new Map<LinePattern, Map<string, Dashes>>();
   const dashesOf = (
@@ -1134,7 +1155,14 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       // A pattern the leading CAD app takes has at most 12 lengths, but one given as data may hold any number.
       if (!spend(Math.floor((pattern.runs.length + pattern.marks.length) / 32))) refuse(where());
       const lengths = pattern.runs.map((length) => length * scale);
-      found = { lengths, total: lengths.reduce((a, b) => a + b, 0), dot: lengths.includes(0) };
+      found = {
+        lengths,
+        total: lengths.reduce((a, b) => a + b, 0),
+        // A gap of 0 is a pattern's of dashes alone.
+        dot: lengths.some((length, i) => i % 2 === 0 && length === 0),
+        trail: pattern.trail * scale,
+        lead: pattern.lead * scale,
+      };
       byScale.set(scale, found);
     }
     if (pattern.marks.length === 0) return found;
@@ -1146,17 +1174,25 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     if (!spend(Math.floor(pattern.marks.length / 32))) refuse(where());
     const made: Dashes = {
       ...found,
-      marks: pattern.marks.map(({ at, end, mark }) => ({
-        at: at * scale,
-        end,
-        mark,
-        style: fontOnly(
-          "text" in mark && typeof mark.style === "string"
-            ? styles.get(key(mark.style))
-            : undefined,
-        ),
-        size,
-      })),
+      // A shape its file does not give leaves its gap.
+      marks: pattern.marks.flatMap(({ at, end, mark }): ScaledMark[] => {
+        const found = "shape" in mark ? findShape(mark.file, mark.shape as number) : undefined;
+        if (found !== undefined && !("shape" in found)) return [];
+        return [
+          {
+            at: at * scale,
+            end,
+            mark,
+            style: fontOnly(
+              "text" in mark && typeof mark.style === "string"
+                ? styles.get(key(mark.style))
+                : undefined,
+            ),
+            ...(found === undefined ? {} : { shape: found.shape }),
+            size,
+          },
+        ];
+      }),
     };
     bySpace.set(space, made);
     return made;
@@ -2456,17 +2492,23 @@ function roundToSvg(center: Point, round: ReturnType<typeof rounded>, s: string)
  * is turned to start with the dash after it. Undefined for a pattern with no gap, with no dash
  * or dot, or with no length, and the caller then draws the entity solid.
  */
-/** True for a mark whose fields a text can be drawn from, as `lint` holds them. */
-function drawable(mark: unknown): mark is LinetypeText {
-  if (typeof mark !== "object" || mark === null || !("text" in mark)) return false;
+/** True for a mark whose fields a text or a shape can be drawn from, as `lint` holds them. */
+function drawable(mark: unknown): mark is LinetypeMark {
+  if (typeof mark !== "object" || mark === null) return false;
   const m = mark as Record<string, unknown>;
   const finite = (v: unknown) => typeof v === "number" && Number.isFinite(v);
   const offset = m.offset;
+  const what =
+    "text" in m
+      ? typeof m.text === "string" && finite(m.height) && (m.height as number) > 0
+      : "shape" in m &&
+        Number.isInteger(m.shape) &&
+        typeof m.file === "string" &&
+        finite(m.scale) &&
+        m.scale !== 0;
   return (
-    typeof m.text === "string" &&
+    what &&
     Number.isInteger(m.after) &&
-    finite(m.height) &&
-    (m.height as number) > 0 &&
     (m.rotation === undefined || finite(m.rotation)) &&
     (m.orient === undefined || (MARK_ORIENTS as readonly unknown[]).includes(m.orient)) &&
     (m.style === undefined || typeof m.style === "string") &&
@@ -2481,20 +2523,26 @@ function drawable(mark: unknown): mark is LinetypeText {
  */
 function linePattern(t: Linetype): LinePattern | undefined {
   const pattern = filled(t.pattern);
-  const runs = alternating(pattern);
-  if (runs === undefined) return undefined;
+  const marks: readonly LinetypeMark[] = Array.isArray(t.marks) ? filled(t.marks) : [];
+  // A pattern of dashes alone with marks draws them along a solid line, as one of no gap.
+  const solid = pattern.length > 0 && pattern.every((length) => length >= 0);
+  const whole = pattern.reduce((a, b) => a + Math.abs(b), 0);
+  const alternated =
+    solid && marks.length > 0 && whole > 0 ? { runs: [whole, 0], trail: 0 } : alternating(pattern);
+  if (alternated === undefined) return undefined;
+  const { runs, trail } = alternated;
   const total = runs.reduce((a, b) => a + b, 0);
   const first = pattern.findIndex((length) => length >= 0);
   const ends: number[] = [];
   let sum = 0;
   for (const length of pattern) ends.push((sum += Math.abs(length)));
   const shift = first > 0 ? ends[first - 1]! : 0;
-  const marks: readonly LinetypeMark[] = Array.isArray(t.marks) ? filled(t.marks) : [];
-  // A shape draws nothing, and of two marks at one length only the first is drawn, so a pattern
-  // has no more marks than lengths.
+  // Of two marks at one length only the first is drawn, so a pattern has no more marks than lengths.
   const seen = new Set<number>();
   return {
     runs,
+    trail,
+    lead: Math.abs(pattern[first]!),
     marks: marks.flatMap((mark) => {
       if (!drawable(mark)) return [];
       const end = ends[mark.after];
@@ -2509,7 +2557,7 @@ function linePattern(t: Linetype): LinePattern | undefined {
   };
 }
 
-function alternating(pattern: readonly number[]): number[] | undefined {
+function alternating(pattern: readonly number[]): { runs: number[]; trail: number } | undefined {
   const first = pattern.findIndex((length) => length >= 0);
   if (first < 0) return undefined;
   const runs: number[] = [];
@@ -2519,8 +2567,10 @@ function alternating(pattern: readonly number[]): number[] | undefined {
     else runs.push(Math.abs(length));
   }
   if (runs.length < 2) return undefined;
-  if (runs.length % 2 === 1) runs[0]! += runs.pop()!;
-  return runs.reduce((a, b) => a + b, 0) > 0 ? runs : undefined;
+  // A pattern that ends with a dash runs it into its first.
+  const trail = runs.length % 2 === 1 ? runs.pop()! : 0;
+  runs[0]! += trail;
+  return runs.reduce((a, b) => a + b, 0) > 0 ? { runs, trail } : undefined;
 }
 
 /**
@@ -2574,8 +2624,13 @@ function dashedPath(
     if (size > room) return true;
     if (length / total > MAX_DASHES) return false;
     const first = dashes[0]! * stretch;
+    // The first run starts with the pattern's last dash when it ends with one, and runs on into
+    // the dashes after its own first: a stretch starts with the pattern's own first dash, and is
+    // fitted to it.
+    const lead = pattern.lead * stretch;
+    const after = first - pattern.trail * stretch - lead;
     let i = 0;
-    let at = 0;
+    let at = -pattern.trail * stretch;
     let last = length;
     // A stretch shorter than its pattern is solid, whatever the pattern starts with.
     if (fitted && length < total * (1 - 1e-9)) {
@@ -2587,15 +2642,15 @@ function dashedPath(
     const dotted = first === 0;
     if (fitted) {
       const k = Math.floor(length / total + 1e-9);
-      const end = (length + first - k * total) / 2;
-      dash(draw, 0, dotted ? 0 : end);
-      [i, at, last] = [1, end, length - end];
+      const end = (length + lead - k * total) / 2;
+      dash(draw, 0, dotted ? 0 : end + after);
+      [i, at, last] = [1, end + after, length - end];
     }
     // The pattern ends where the last dash starts, or where the stretch ends, to within what
     // rounding moves a number.
     const stop = last - total * stretch * 1e-9;
     for (; at < stop && size <= room; i = (i + 1) % dashes.length) {
-      if (i % 2 === 0) dash(draw, at, Math.min(at + dashes[i]! * stretch, last));
+      if (i % 2 === 0) dash(draw, Math.max(at, 0), Math.min(at + dashes[i]! * stretch, last));
       at += dashes[i]! * stretch;
     }
     // A fitted stretch ends with its last dash, or a dot at its end.
@@ -2613,7 +2668,7 @@ function dashedPath(
     for (const { s, mark } of markSpots(length, pattern, fitted, stretch)) {
       if (size > room) return;
       const [p, t] = frame(s);
-      const drawn = letterAt(mark, p, t, matrix, letters.text);
+      const drawn = letterAt(mark, p, t, matrix, letters);
       if (drawn === undefined) continue;
       size += drawn.length + 1;
       letters.out.push(drawn);
@@ -2653,19 +2708,22 @@ function dashedPath(
     stretch = 1,
     marked = true,
   ): boolean => {
+    // A negative turn runs clockwise, and its pattern runs that way from `start`.
+    const way = turn < 0 ? -1 : 1;
     const along = (t: number) => {
-      const angle = rad(start) + t / radius;
+      const angle = rad(start) + (way * t) / radius;
       return place(center[0] + radius * Math.cos(angle), center[1] + radius * Math.sin(angle));
     };
     // The pattern is fitted to the straight pieces the arc is cut into, and drawn along the arc.
-    const length = radius * rad(turn);
-    const pieces = piecesLength(radius, rad(turn), chord);
+    const length = radius * rad(Math.abs(turn));
+    const pieces = piecesLength(radius, rad(Math.abs(turn)), chord);
     const k = pieces > 0 ? length / pieces : 1;
     if (marked) {
       const frame = arcFrame(center, radius, rad(start), rad(turn), length, chord);
       markAlong(pieces, (at) => frame(at * k), fitted, stretch);
     }
     const shape = rounded(radius, matrix);
+    const sweep = way > 0 ? shape.sweep : 1 - shape.sweep;
     return cut(
       pieces,
       (a, b) => {
@@ -2675,10 +2733,10 @@ function dashedPath(
         const arc = `A ${fmt(shape.rx)} ${fmt(shape.ry)} ${fmt(shape.turn)}`;
         // A dash of a full turn ends where it starts, so it is drawn as two halves.
         if ((to - from) / radius > Math.PI && along(from) === along(to)) {
-          return `M ${along(from)} ${arc} 0 ${shape.sweep} ${along((from + to) / 2)} ${arc} 0 ${shape.sweep} ${along(to)}`;
+          return `M ${along(from)} ${arc} 0 ${sweep} ${along((from + to) / 2)} ${arc} 0 ${sweep} ${along(to)}`;
         }
         const large = (to - from) / radius > Math.PI ? 1 : 0;
-        return `M ${along(from)} ${arc} ${large} ${shape.sweep} ${along(to)}`;
+        return `M ${along(from)} ${arc} ${large} ${sweep} ${along(to)}`;
       },
       fitted,
       stretch,
@@ -2786,11 +2844,8 @@ function dashedPath(
           if (!isWide(side)) {
             if (!arc) straight(side.from, side.to, true);
             else {
-              // An arc that turns clockwise is cut from its end, which fits the same dashes, and
-              // its marks from its start.
-              const from = arc.sweep > 0 ? arc.start : arc.start + arc.sweep;
-              const turn = degrees(Math.abs(arc.sweep));
-              round(arc.center, arc.radius, degrees(from), turn, true, 1, false);
+              // An arc is cut the way the polyline runs, clockwise or not.
+              round(arc.center, arc.radius, degrees(arc.start), degrees(arc.sweep), true, 1, false);
               const pieces = piecesLength(arc.radius, Math.abs(arc.sweep), chord);
               markAlong(pieces, sideFrame(side, arc, pieces, chord), true);
             }
@@ -2925,17 +2980,25 @@ function fontOnly(style: TextStyle | undefined): TextStyle | undefined {
   return style === undefined ? undefined : { name: style.name, font: style.font };
 }
 
-/** Where the texts of a pen's linetype go, when it has any: drawn in its color, with no mark. */
+/** Where the texts and shapes of a pen's linetype go, when it has any: drawn in its pen, with no mark. */
 function lettersOf(pen: Pen, look: Look): Letters | undefined {
-  if (!pen.dashes?.marks?.some((m) => "text" in m.mark)) return undefined;
-  void look;
-  return { out: [], text: (t, style) => textToSvg(t, style, pen, "", undefined, false) };
+  if (!pen.dashes?.marks?.length) return undefined;
+  const stroked = `stroke="${pen.color}"${look.stroke(pen.lineweight)}`;
+  return {
+    out: [],
+    text: (t, style) => textToSvg(t, style, pen, "", undefined, false),
+    shape: (d) => `<path d="${d}" ${stroked}/>`,
+  };
 }
 
-/** Where the texts of a linetype go, and how a text is drawn: as the entity's own text. */
+/**
+ * Where the texts and shapes of a linetype go, and how each is drawn: a text as the entity's own
+ * text, and a shape's outlines as the path `d`, in the entity's pen and never dashed.
+ */
 interface Letters {
   readonly out: string[];
   readonly text: (t: Text, style: TextStyle | undefined) => string;
+  readonly shape: (d: string) => string;
 }
 
 /**
@@ -2955,9 +3018,10 @@ function* markSpots(
   if (marks === undefined || !(total > 0) || length / total > MAX_DASHES) return;
   if (fitted) {
     if (length < total * (1 - 1e-9)) return;
-    const first = lengths[0]!;
+    // Each pattern starts with its own first dash, after the last dash the first run starts with.
+    const lead = dashes.lead;
     const count = Math.floor(length / total + 1e-9);
-    const start = (length + first - count * total) / 2 - first;
+    const start = (length + lead - count * total) / 2 - lead;
     for (let k = 0; k < count; k++)
       for (const mark of marks) yield { s: start + k * total + (mark.end ? total : mark.at), mark };
     // A mark at the end of the pattern comes once more at the end of the stretch.
@@ -3109,16 +3173,18 @@ function pieceTrace(
  * A linetype's text at a point of its line where the line runs along `t`, both in the entity's
  * own coordinates, drawn where `matrix` puts it. Its offset is along the line and to its left as
  * the line is drawn, and an upright text turns half a turn about the middle of its box where the
- * line runs leftward in its own coordinates. A shape draws nothing.
+ * line runs leftward in its own coordinates. A shape is drawn from its file's outlines, from the
+ * same point, turned and scaled alike.
  */
 function letterAt(
   m: ScaledMark,
   p: Point,
   t: Point,
   matrix: Matrix | undefined,
-  draw: Letters["text"],
+  letters: Letters,
 ): string | undefined {
   const mark = m.mark;
+  if (m.shape !== undefined && "shape" in mark) return shapeAt(m, m.shape, p, t, matrix, letters);
   if (!("text" in mark) || typeof mark.text !== "string") return undefined;
   const [px, py] = matrix ? mapPoint(matrix, p) : p;
   let [tx, ty] = matrix
@@ -3148,7 +3214,58 @@ function letterAt(
       rotation += 180;
     }
   }
-  return draw({ ...text, at: [x, y], rotation }, m.style);
+  return letters.text({ ...text, at: [x, y], rotation }, m.style);
+}
+
+/** A linetype's shape at a point of its line, as `letterAt` places a text, as one path. */
+function shapeAt(
+  m: ScaledMark,
+  shape: ShapeDefinition,
+  p: Point,
+  t: Point,
+  matrix: Matrix | undefined,
+  letters: Letters,
+): string | undefined {
+  const mark = m.mark as LinetypeShape;
+  if (shape.outlines.length === 0) return undefined;
+  const [px, py] = matrix ? mapPoint(matrix, p) : p;
+  let [tx, ty] = matrix
+    ? [matrix[0] * t[0] + matrix[2] * t[1], matrix[1] * t[0] + matrix[3] * t[1]]
+    : t;
+  const along = Math.hypot(tx, ty);
+  if (!(along > 0)) return undefined;
+  [tx, ty] = [tx / along, ty / along];
+  const [ox, oy] = mark.offset === undefined ? [0, 0] : [mark.offset[0], mark.offset[1]];
+  const k = m.size;
+  const x = px + (ox * tx - oy * ty) * k;
+  const y = py + (ox * ty + oy * tx) * k;
+  const orient = mark.orient ?? "relative";
+  let rotation = (orient === "absolute" ? 0 : Math.atan2(ty, tx)) + rad(mark.rotation ?? 0);
+  if (orient === "upright") {
+    const local = ((degrees(Math.atan2(t[1], t[0])) % 360) + 360) % 360;
+    if (local > 90 + 1e-9 && local < 270 - 1e-9) rotation += Math.PI;
+  }
+  const size = mark.scale * k;
+  const [c, s] = [Math.cos(rotation) * size, Math.sin(rotation) * size];
+  const place = ([u, v]: Point): string => `${fmt(x + u * c - v * s)} ${fmt(y + u * s + v * c)}`;
+  const parts: string[] = [];
+  for (const { points, bulges } of shape.outlines) {
+    parts.push(`M ${place(points[0]!)}`);
+    for (let i = 1; i < points.length; i++) {
+      const bulge = bulges?.[i - 1] ?? 0;
+      if (bulge === 0) {
+        parts.push(`L ${place(points[i]!)}`);
+        continue;
+      }
+      const [a, b] = [points[i - 1]!, points[i]!];
+      const turn = 4 * Math.atan(Math.abs(bulge));
+      const radius =
+        (Math.hypot(b[0] - a[0], b[1] - a[1]) * Math.abs(size)) / (2 * Math.sin(turn / 2));
+      const large = turn > Math.PI ? 1 : 0;
+      parts.push(`A ${fmt(radius)} ${fmt(radius)} 0 ${large} ${bulge > 0 ? 1 : 0} ${place(b)}`);
+    }
+  }
+  return letters.shape(parts.join(" "));
 }
 
 /**

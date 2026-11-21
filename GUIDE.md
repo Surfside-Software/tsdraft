@@ -545,6 +545,10 @@ d.layout("C-101", { paper: "ARCH D" }, (sheet) => {
   firm's linetype file, a linetype's `marks` draw its letters at each repeat of its pattern, and a
   polyline drawn with `linetypeGeneration: true` runs the pattern on past its vertices, so short
   runs between bends still get their letters. The letters' text style must be one of the drawing's.
+- A fence's circles or batt insulation's loops are shapes of the firm's shape file. Copy the file
+  beside the drawing: the command reads it there, and `toSVG`, `toPDF` and `lint` take its bytes
+  as `shapes`. Without it the plot leaves a gap where each shape goes, and `lint` warns
+  `linetype-shape`.
 - The sheet plots in black with `monochrome.ctb`. Pass `plotStyle: "acad.ctb"` to plot each
   layer in its color, or `"Grayscale.ctb"` in grays. `PLOT_STYLE_TABLES` lists them.
 - Define blocks outside `layout`, and insert them inside it. An `id` is unique across model

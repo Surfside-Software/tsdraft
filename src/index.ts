@@ -410,6 +410,17 @@ export {
   SPLINE_ITEMS,
   XREF_DEPTH,
 } from "./rules.ts";
+export {
+  parseShapes,
+  shapeFileKey,
+  SHAPE_FILE_LENGTH,
+  SHAPE_POINTS,
+  SHAPE_STEPS,
+  type ShapeDefinition,
+  type ShapeFile,
+  type ShapeFiles,
+  type ShapeOutline,
+} from "./shapes.ts";
 export { BUILT_IN_STANDARD, defineStandard, type BuiltInStandard } from "./standard/define.ts";
 export type {
   Box,

@@ -174,6 +174,7 @@ import {
 } from "./leaders.ts";
 import { entityLinetype, layerLinetype, lineweightCode, patternLength } from "./linetypes.ts";
 import { idKey, isStandardTextStyle, shown, TEXT_ALIGNS, TEXT_VERTICAL_ALIGNS } from "./rules.ts";
+import { shapeFileKey } from "./shapes.ts";
 
 /** `$INSUNITS` codes from the DXF Reference. */
 const INSUNITS: Record<Units, number> = { in: 1, ft: 2, mm: 4, cm: 5, m: 6 };
@@ -359,13 +360,12 @@ export function toDXFR2018(
   const textStyles = drawing.textStyles ?? [];
   // A linetype's mark holds its text style, or its shape file's, by its handle. The shape files
   // are styles of their own after the text styles, one for each file, in the order first named.
-  const shapeFiles = [
-    ...new Map(
-      linetypes.flatMap((t) =>
-        (t.marks ?? []).flatMap((m) => ("shape" in m ? [[m.file.toLowerCase(), m.file]] : [])),
-      ) as [string, string][],
-    ).values(),
-  ];
+  const shapeKeys = new Map<string, string>();
+  for (const t of linetypes)
+    for (const m of t.marks ?? [])
+      if ("shape" in m && !shapeKeys.has(shapeFileKey(m.file)))
+        shapeKeys.set(shapeFileKey(m.file), m.file);
+  const shapeFiles = [...shapeKeys.values()];
   let styleHandles: { standard: string; list: string[]; shapes: string[] } | undefined;
   const allocateStyles = () => ({
     standard: handle(),
@@ -376,8 +376,7 @@ export function toDXFR2018(
   if (linetypes.some((t) => (t.marks?.length ?? 0) > 0)) styleHandles = allocateStyles();
   const markStyle = (m: LinetypeMark): string => {
     const handles = styleHandles!;
-    if ("shape" in m)
-      return handles.shapes[shapeFiles.findIndex((f) => f.toLowerCase() === m.file.toLowerCase())]!;
+    if ("shape" in m) return handles.shapes[[...shapeKeys.keys()].indexOf(shapeFileKey(m.file))]!;
     const name = m.style ?? STANDARD_TEXT_STYLE;
     if (isStandardTextStyle(name)) return handles.standard;
     const key = layerKey(name);

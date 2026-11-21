@@ -418,15 +418,18 @@ export interface LinetypeText extends MarkBase {
 }
 
 /**
- * A shape of a shape file a linetype draws, by its number in the file. tsdraft's plot leaves a
- * gap where it goes.
+ * A shape of a shape file a linetype draws, by its number in the file. tsdraft's plot draws it
+ * from the file given as `shapes`, which `parseShapes` reads, and leaves a gap without it.
  */
 export interface LinetypeShape extends MarkBase {
   /** Its number in its shape file. A name, as a linetype file gives it, is not written. */
   readonly shape: number | string;
   /** The shape file, as the drawing names it, such as `"shapes.shx"`. */
   readonly file: string;
-  /** Its size, as a multiple of the shape's own, scaled as the pattern's lengths are. */
+  /**
+   * Its size, as a multiple of the shape's own, scaled as the pattern's lengths are. A negative
+   * scale turns it half a turn.
+   */
   readonly scale: number;
 }
 
