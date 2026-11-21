@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `readDWG` reads drawings saved in the 2004, 2010 and 2013 formats as well as 2018's, into the
+  same read model, as CAD programs read them when they open the file: a 2004 file's text in its
+  code page, each `\U+XXXX` in it as its character, and what a newer format holds that an older
+  one cannot, such as attributes of paragraph text, paragraph text in columns, a strike-through,
+  an image's inverted clip and a multileader's attachments, from the data an older save keeps for
+  it. A read names the file's `version`, and for 2004 its `codepage`. A table of the 2004 format
+  is counted under `unread.entities` and not read yet, and a drawing of the 2007 format is refused
+  with a `ReadError` that names it; both come next.
+
 - Linetypes with shapes: a fence with its circles along it, and batt insulation. `parseShapes`
   reads a firm's compiled shape file (`.shx`) into each shape's outlines, and `toSVG`, `toPDF`
   and `lint` take the files' bytes as `shapes`, found by name as CAD programs find them, without
