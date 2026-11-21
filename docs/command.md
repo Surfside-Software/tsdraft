@@ -164,10 +164,11 @@ it holds, the tags of its attributes and how many inserts place it. `drawing.ins
 insert in model space: its `entity` index, `block`, `layer`, `id`, `at`, `scale`, `rotation` and
 the value it shows for each attribute, and `xref`, which is true for an insert of an xref.
 `drawing.dimensions` gives each
-dimension in model space: its `entity` index, `id`, `layer`, `kind`, which is `linear` or
-`aligned`, `style`, `measurement`, the length it measures in drawing units, and `text`, the
-string the leading CAD app draws for it. The last two are `null` for a dimension whose style the
-drawing does not define. A layout's `dimensions` lists those on its sheet in the same way.
+dimension in model space: its `entity` index, `id`, `layer`, `kind`, which is `linear`,
+`aligned`, `radius`, `diameter`, `jogged-radius`, `angular`, `arc-length` or `ordinate`, `style`,
+`measurement`, the length it measures in drawing units or an angular one's angle in degrees, and
+`text`, the string the leading CAD app draws for it. The last two are `null` for a dimension whose
+style the drawing does not define. A layout's `dimensions` lists those on its sheet in the same way.
 `drawing.xrefs` gives each xref's `name`, its `path`, whether it is an `attach`ment or an
 overlay, how many `inserts` place it, in model space, in blocks and on layouts, `shown`, `units`
 and `xrefs`. The command opens no DWG file. It draws an xref when

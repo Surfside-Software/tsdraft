@@ -83,6 +83,11 @@ export function readProblems(
   const point = (p: Point): Point => [written(p[0]), written(p[1])];
   const twice = (value: string): string => (by === "tsdraft" ? value : textTwice(exported(value)));
   const once = (value: string): string => (by === "tsdraft" ? value : textOnce(exported(value)));
+  // A dimension's text as a read holds it, which leaves out `<>` alone above words below.
+  const dimensionText = (want: { readonly text?: string; readonly textBelow?: string }) =>
+    want.text === undefined || (want.text === "<>" && want.textBelow !== undefined)
+      ? undefined
+      : once(want.text);
   const sameName = (a: string | undefined, b: string): boolean =>
     a !== undefined && layerKey(a) === layerKey(b);
 
@@ -502,7 +507,7 @@ export function readProblems(
         const angle = want.kind === "linear-dimension" ? written(dimensionAngle(want)) : 0;
         if (!nearAngle(got.angle ?? 0, angle))
           say(`${label}: along ${got.angle}, expected ${angle}`);
-        if ((got.text ?? undefined) !== (want.text === undefined ? undefined : once(want.text))) {
+        if ((got.text ?? undefined) !== dimensionText(want)) {
           say(`${label}: text ${JSON.stringify(got.text)}`);
         }
         const below = want.textBelow === undefined ? undefined : once(want.textBelow);
@@ -558,7 +563,42 @@ export function readProblems(
             !nearPoint(got.jog ?? [NaN, NaN], point(want.jog)))
         )
           say(`${label}: starts at ${got.start}, jogs at ${got.jog}`);
-        if ((got.text ?? undefined) !== (want.text === undefined ? undefined : once(want.text))) {
+        if ((got.text ?? undefined) !== dimensionText(want)) {
+          say(`${label}: text ${JSON.stringify(got.text)}`);
+        }
+        const below = want.textBelow === undefined ? undefined : once(want.textBelow);
+        if ((got.textBelow ?? undefined) !== below) {
+          say(`${label}: text below ${JSON.stringify(got.textBelow)}`);
+        }
+        const style = dimensionStyles.get(layerKey(want.style));
+        if (!style) return;
+        const font = drawing.textStyles?.find((t) => sameName(t.name, style.textStyle ?? ""));
+        const picture = dimensionPicture(want, style, font);
+        if (by === "tsdraft" && !nearPoint(got.textAt, point(picture.textPoint))) {
+          say(`${label}: its text at ${got.textAt}, expected ${picture.textPoint}`);
+        }
+        const measurement =
+          dimensionMeasure(want).measurement * written(style.measurementScale ?? 1);
+        if (
+          got.measurement === undefined ||
+          Math.abs(got.measurement - measurement) > 1e-9 * Math.max(1, Math.abs(measurement))
+        ) {
+          say(`${label}: measures ${got.measurement}, expected ${measurement}`);
+        }
+        return;
+      }
+      case "ordinate-dimension": {
+        if (!kind("ordinate-dimension") || got.kind !== "ordinate-dimension") return;
+        if (!sameName(got.style, want.style)) say(`${label}: style ${got.style}`);
+        if (
+          got.axis !== want.axis ||
+          !nearPoint(got.origin, point(want.origin)) ||
+          !nearPoint(got.feature, point(want.feature)) ||
+          !nearPoint(got.leaderEnd, point(want.leaderEnd))
+        ) {
+          say(`${label}: ${got.axis} of ${got.feature} from ${got.origin}, to ${got.leaderEnd}`);
+        }
+        if ((got.text ?? undefined) !== dimensionText(want)) {
           say(`${label}: text ${JSON.stringify(got.text)}`);
         }
         const below = want.textBelow === undefined ? undefined : once(want.textBelow);
@@ -598,7 +638,7 @@ export function readProblems(
             `${label}: about ${got.center} of ${got.radius}, ${got.startAngle} to ${got.endAngle}`,
           );
         }
-        if ((got.text ?? undefined) !== (want.text === undefined ? undefined : once(want.text))) {
+        if ((got.text ?? undefined) !== dimensionText(want)) {
           say(`${label}: text ${JSON.stringify(got.text)}`);
         }
         const style = dimensionStyles.get(layerKey(want.style));
@@ -627,7 +667,7 @@ export function readProblems(
         // The leading CAD app keeps a point of the arc of its own choosing.
         if (by === "tsdraft" && !nearPoint(got.at, point(want.at)))
           say(`${label}: arc at ${got.at}`);
-        if ((got.text ?? undefined) !== (want.text === undefined ? undefined : once(want.text))) {
+        if ((got.text ?? undefined) !== dimensionText(want)) {
           say(`${label}: text ${JSON.stringify(got.text)}`);
         }
         const below = want.textBelow === undefined ? undefined : once(want.textBelow);

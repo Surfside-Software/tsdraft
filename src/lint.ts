@@ -20,6 +20,7 @@ import { callOf, type CallSite } from "./callsite.ts";
 import {
   arrowheadEntityHandle,
   dimensionDrawnProblem,
+  ordinateLeader,
   pictureHandleList,
   pictureOwner,
   validDimensionPictureHandles,
@@ -200,6 +201,8 @@ import {
   patternLineProblem,
   patternLinesProblem,
   undefinedHatchPatternProblem,
+  ORDINATE_ACROSS,
+  ORDINATE_AXIS,
 } from "./rules.ts";
 import {
   hatchSpread,
@@ -582,6 +585,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       case "jogged-radius-dimension":
       case "angular-dimension":
       case "arc-length-dimension":
+      case "ordinate-dimension":
         cost += long1(e.style) + long1(e.text) + long1(e.textBelow);
         break;
       case "leader":
@@ -1291,6 +1295,17 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       if (problem) {
         add("dimension", "error", problem);
         return;
+      }
+    }
+    if (dimension.kind === "ordinate-dimension") {
+      const axis: unknown = dimension.axis;
+      if (axis !== "x" && axis !== "y") {
+        add("dimension", "error", ORDINATE_AXIS);
+        return;
+      }
+      if (sound) {
+        const { length, across } = ordinateLeader(dimension);
+        if (Math.abs(across) > length) add("dimension", "warning", ORDINATE_ACROSS);
       }
     }
     if (!style || !sound) return;
@@ -2642,7 +2657,8 @@ function costsBoxes(e: Readonly<Record<string, unknown>>): boolean {
     kind === "diameter-dimension" ||
     kind === "jogged-radius-dimension" ||
     kind === "angular-dimension" ||
-    kind === "arc-length-dimension"
+    kind === "arc-length-dimension" ||
+    kind === "ordinate-dimension"
   );
 }
 
@@ -2734,6 +2750,9 @@ function geometryProblems(e: Entity): string[] {
       break;
     case "angular-dimension":
       finite("its points", ...e.vertex, ...e.from, ...e.to, ...e.at);
+      break;
+    case "ordinate-dimension":
+      finite("its points", ...e.origin, ...e.feature, ...e.leaderEnd);
       break;
     case "arc-length-dimension":
       finite(

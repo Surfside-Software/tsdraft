@@ -151,6 +151,11 @@
   coordinates, and lists the file's image definitions in `images`, with how many images name each,
   one that none names among them. The example sheet has a vicinity map above its key plan.
   [docs/images.md](docs/images.md) describes them.
+- Ordinate dimensions: `ordinateDimension(feature, leaderEnd, { axis, origin })` gives the X or the
+  Y of a feature from an origin, `[0, 0]` unless given, without its sign, on a leader to
+  `leaderEnd` with its text beyond, drawn as the leading CAD app draws it: the leader jogs where
+  the end is off the feature's line, except by no more than 1e-10 of the feature's X or Y in the
+  drawing, which it draws straight. `toDXF` writes them, and `readDXF` reads them as `ordinate-dimension`.
 - Arc length dimensions: `arcLengthDimension(center, radius, startAngle, endAngle, at, options)`
   measures the length of an arc, as `arc` takes it, with its own arc through `at`, drawn as the
   leading CAD app draws it: from a right angle up about the center with extension lines along radii,

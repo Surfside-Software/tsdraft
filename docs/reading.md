@@ -121,7 +121,7 @@ leader:
 - `dimension`: a linear or aligned dimension, with its two points, the point where its dimension
   line meets its second extension line, its direction, the middle of its text, what it measures,
   its text and the words below its line, which the file holds after `\X`, its style and the
-  block of its picture. Ordinate dimensions are counted under `other`.
+  block of its picture.
 - `radial-dimension`: a radius, a diameter or a jogged radius dimension, its `type`, with its
   center, the point of the circle or arc its line meets, a jogged one's start and jog, the
   middle of its text, `placed` where the file holds the text where it was placed, what it
@@ -131,6 +131,10 @@ leader:
   `endAngle` of the arc it measures, a point its own arc passes through, `at`, the middle of its
   text, `placed`, `partial` where it measures part of the arc, what it measures, its text, its style
   and the block of its picture.
+- `ordinate-dimension`: an ordinate dimension, with its `axis`, `"x"` or `"y"`, the `origin` it
+  measures from, its `feature`, its `leaderEnd`, the middle of its text, `textAt`, `placed`, what it
+  measures, its text, its style and the block of its picture. One drawn in a turned coordinate
+  system is counted under `other`.
 - `angular-dimension`: an angular dimension, its `type`, `"three-point"` with its `vertex` and
   a point of each line, `from` and `to`, or `"two-line"` with its `first` and `second` lines, each
   two points; a point its arc passes through, `at`, the middle of its text, `placed`, the angle it

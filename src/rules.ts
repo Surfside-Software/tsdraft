@@ -4198,6 +4198,17 @@ export const ARC_LENGTH_INSIDE_SHORT =
 export const ARC_LENGTH_SYMBOL_BELOW =
   'its words below the arc with the arc symbol is not laid out yet, so tsdraft refuses it. Use a style with arcSymbol "none"';
 
+/** An ordinate dimension without an axis. */
+export const ORDINATE_AXIS = 'axis must be "x" or "y": the coordinate it gives';
+
+/** An ordinate dimension whose leader runs further across its axis than along it. */
+export const ORDINATE_ACROSS =
+  'its leader runs further across than along: axis "x" gives the X coordinate, with its leader along Y, and "y" the Y, with its leader along X. Check that its axis is the one meant';
+
+/** An ordinate dimension whose leader ends at its feature. */
+export const ORDINATE_NO_LEADER =
+  "its leader ends at its feature once they are written with the 6 decimals tsdraft writes and read as the leading CAD app reads them, so it has no leader";
+
 /** An angular dimension whose arc, or a piece of it, is all but a whole turn. */
 export const ANGULAR_ARC_LOST =
   "its arc, or a piece of it, runs all but a whole turn, so its two angles are one once they are written with the 6 decimals tsdraft writes, and the leading CAD app draws such an arc as nothing";

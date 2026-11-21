@@ -11,6 +11,7 @@ import type {
   ReadRadialDimension,
   ReadAngularDimension,
   ReadArcLengthDimension,
+  ReadOrdinateDimension,
   ReadEntity,
   ReadEntityBase,
   ReadGradient,
@@ -873,6 +874,7 @@ function dimension(r: Rec, base: ReadEntityBase, face: Facing, r12: boolean): Re
   const kind = (num(r, 70) ?? 0) & 15;
   if (kind === 3 || kind === 4 || kind === 9) return radialDimension(r, base, kind, r12);
   if (kind === 2 || kind === 5) return angularDimension(r, base, kind, r12);
+  if (kind === 6) return ordinateDimension(r, base, r12);
   if (kind > 1) return { other: `DIMENSION ${DIMENSION_KINDS[kind] ?? "of another kind"}` };
   const angle = kind === 0 ? (num(r, 50) ?? 0) : 0;
   // The leading CAD app leaves the measurement out when it is 1. An R12 file holds none.
@@ -927,6 +929,36 @@ function radialDimension(r: Rec, base: ReadEntityBase, kind: number, r12: boolea
     ...(kind === 9 && { start: point(r, 13), jog: point(r, 14) }),
     textAt: point(r, 11),
     ...(((num(r, 70) ?? 0) & 128) !== 0 && { placed: true }),
+    ...(measurement !== undefined && { measurement }),
+    ...parts,
+    style: name(r, 3) ?? "Standard",
+    ...(block !== undefined && block !== "" && { block }),
+  };
+  return { entity };
+}
+
+/**
+ * An ordinate dimension (group 70's kind 6): its origin (10), its feature (13) and its leader's
+ * end (14), giving X where group 70 holds 64 and Y where not. One drawn in a turned coordinate
+ * system, whose axes group 51 turns, is left out.
+ */
+function ordinateDimension(r: Rec, base: ReadEntityBase, r12: boolean): Reading {
+  const turned = num(r, 51) ?? 0;
+  if (turned !== 0) return { other: "DIMENSION ordinate in a turned coordinate system" };
+  const measurement = num(r, 42) ?? (r12 ? undefined : 1);
+  const text = first(r, 1);
+  const block = name(r, 2);
+  const parts = text === undefined ? {} : dimensionTextParts(textOnce(text));
+  const flags = num(r, 70) ?? 0;
+  const entity: ReadOrdinateDimension = {
+    ...base,
+    kind: "ordinate-dimension",
+    axis: (flags & 64) !== 0 ? "x" : "y",
+    origin: point(r, 10),
+    feature: point(r, 13),
+    leaderEnd: point(r, 14),
+    textAt: point(r, 11),
+    ...((flags & 128) !== 0 && { placed: true }),
     ...(measurement !== undefined && { measurement }),
     ...parts,
     style: name(r, 3) ?? "Standard",
@@ -1323,6 +1355,7 @@ export function costOf(e: ReadEntity): number {
       return own + 5 + chars(e.text) + chars(e.textBelow) + chars(e.style) + chars(e.block);
     case "angular-dimension":
     case "arc-length-dimension":
+    case "ordinate-dimension":
       return own + 6 + chars(e.text) + chars(e.textBelow) + chars(e.style) + chars(e.block);
     case "multileader": {
       let points = 3;

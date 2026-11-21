@@ -27,6 +27,7 @@ import {
 } from "../src/index.ts";
 import { angleNumber, arrowRoom, measurementText, WIDEST_CHARACTERS } from "../src/dimensions.ts";
 import { toDXFR2018 } from "../src/dxf-r2018.ts";
+import { heldNumber } from "../src/format.ts";
 import { extents } from "../src/extents.ts";
 
 const rule = (name: string) => (thrown: unknown) =>
@@ -1394,5 +1395,136 @@ test("an arc length dimension is refused where the leading CAD app would draw wh
   assert.throws(
     () => d.dimensionStyle({ ...sizes, name: "BAD", arcSymbol: "after" as never }),
     /arcSymbol must be "before", "above" or "none"/,
+  );
+});
+
+test("an ordinate dimension is built, written and read back, its leader jogged or straight", async () => {
+  const d = createDrawing({ units: "in" });
+  d.dimensionStyle({ ...sizes, name: "S" });
+  d.ordinateDimension([3, 2], [3, 12], { style: "S", axis: "x" });
+  d.ordinateDimension([-3, 2], [-13, -1], { style: "S", axis: "y", origin: [1, 1], id: "o" });
+  // A jog of a hundred-thousandth at a million out is drawn straight, and one of a ten-thousandth
+  // jogs, and so do jogs of exactly 1e-10 of the coordinate in decimals.
+  d.ordinateDimension([1000000, 2], [1000000.00001, 12], { style: "S", axis: "x" });
+  d.ordinateDimension([1000000, 2], [1000000.0002, 12], { style: "S", axis: "x" });
+  d.ordinateDimension([2, 100000], [12, 100000.00001], { style: "S", axis: "y" });
+  d.ordinateDimension([10000, 2], [10000.000001, 12], { style: "S", axis: "x" });
+  // As the leading CAD app reads the written numbers, a jog of 1e-10 of the coordinate is a hair
+  // under at 30000, which a correctly rounded reading puts a hair over, and a hair over at 70000.
+  d.ordinateDimension([30000, 2], [30000.000003, 12], { style: "S", axis: "x" });
+  d.ordinateDimension([70000, 2], [70000.000007, 12], { style: "S", axis: "x" });
+  const drawing = d.build();
+  assert.deepEqual(lint(drawing), []);
+  assert.deepEqual(fromJSON(toJSON(drawing)), drawing);
+  const style = drawing.dimensionStyles![0]!;
+  const [up, left, straight, jogged, ...edges] = drawing.entities.map((e) =>
+    dimensionPicture(e as never, style),
+  );
+  assert.equal(up!.label.value, "3.00");
+  assert.deepEqual(up!.extensionLines, [
+    [
+      [3, 2.5],
+      [3, 12 + 0.5 + up!.textWidth],
+    ],
+  ]);
+  // Left from the feature, 3 below the line: a jog from 4 arrow sizes short of the end to 2.
+  assert.equal(left!.label.value, "1.00");
+  assert.deepEqual(
+    left!.extensionLines.map(([a, b]) => [a, b]),
+    [
+      [
+        [-3.5, 2],
+        [-9, 2],
+      ],
+      [
+        [-9, 2],
+        [-11, -1],
+      ],
+      [
+        [-11, -1],
+        [-13 - 0.5 - left!.textWidth, -1],
+      ],
+    ],
+  );
+  assert.deepEqual(straight!.extensionLines[0]![1], [
+    heldNumber(1000000.00001),
+    12 + 0.5 + straight!.textWidth,
+  ]);
+  assert.equal(straight!.extensionLines.length, 1);
+  assert.equal(jogged!.extensionLines.length, 3);
+  assert.deepEqual(
+    edges.map((picture) => picture.extensionLines.length),
+    [3, 3, 1, 3],
+  );
+  // Two numbers written a ten-thousandth apart at 1e12 are one as the leading CAD app reads them,
+  // so the leader is level with its feature and runs back, down.
+  const level = { ...drawing.entities[0]!, feature: [3, 1e12], leaderEnd: [3.0001, 1e12 + 0.0001] };
+  const [start, stop] = dimensionPicture(level as never, style).extensionLines[0]!;
+  assert.ok(start[1] < 1e12 && stop[1] < start[1], `${start} to ${stop}`);
+  // Each point is placed in the numbers the leading CAD app holds, so no line of a leader comes
+  // out of no length as that app reads it back, even where an arrow size is a hair at 1e12.
+  const hair = { ...style, arrowSize: 0.00014, extensionOffset: 0 };
+  const thin = { ...drawing.entities[0]!, feature: [3, 1e12], leaderEnd: [4, 1e12 + 0.0007] };
+  const lines = dimensionPicture(thin as never, hair).extensionLines;
+  assert.equal(lines.length, 3);
+  for (const [from, to] of lines) {
+    assert.notDeepEqual(from.map(heldNumber), to.map(heldNumber), `${from} to ${to}`);
+  }
+  // The end's side of the leader is placed from the end, however far out the feature is.
+  const far = { ...drawing.entities[0]!, feature: [3, 1e16], leaderEnd: [3, 1] };
+  const centered = { ...style, textPlacement: "centered" } as const;
+  assert.deepEqual(dimensionPicture(far as never, centered).extensionLines.at(-1)![1], [3, 1]);
+  const above = dimensionPicture(far as never, style);
+  assert.deepEqual(above.extensionLines.at(-1)![1], [3, 1 - 0.5 - above.textWidth]);
+  const farJog = dimensionPicture({ ...far, leaderEnd: [4, 1] } as never, style);
+  assert.deepEqual(
+    farJog.extensionLines.slice(1).map(([from, to]) => [from, to]),
+    [
+      [
+        [3, 5],
+        [4, 3],
+      ],
+      [
+        [4, 3],
+        [4, 1 - 0.5 - farJog.textWidth],
+      ],
+    ],
+  );
+  const read = await readDXF(toDXF(drawing), { geometry: true });
+  const ordinates = (read.model.entities ?? []).filter((e) => e.kind === "ordinate-dimension");
+  assert.deepEqual(
+    ordinates.slice(0, 2).map((e) => [e.axis, e.origin, e.feature, e.leaderEnd, e.measurement]),
+    [
+      ["x", [0, 0], [3, 2], [3, 12], 3],
+      ["y", [1, 1], [-3, 2], [-13, -1], 1],
+    ],
+  );
+});
+
+test("an ordinate dimension needs an axis and a leader, and lint warns of one whose leader runs across", () => {
+  const d = createDrawing({ units: "in" });
+  d.dimensionStyle({ ...sizes, name: "S" });
+  assert.throws(
+    // @ts-expect-error: an ordinate dimension's axis is "x" or "y".
+    () => d.ordinateDimension([0, 0], [0, 5], { style: "S", axis: "z" }),
+    /axis must be "x" or "y"/,
+  );
+  assert.throws(
+    // @ts-expect-error: an ordinate dimension has an axis.
+    () => d.ordinateDimension([0, 0], [0, 5], { style: "S" }),
+    /axis must be "x" or "y"/,
+  );
+  assert.throws(
+    () => d.ordinateDimension([2, 3], [2.0000001, 3], { style: "S", axis: "x" }),
+    /has no leader/,
+  );
+  assert.throws(
+    () => d.ordinateDimension([3, 1e12], [3, 1e12 + 0.0001], { style: "S", axis: "x" }),
+    /has no leader/,
+  );
+  d.ordinateDimension([2, 3], [9, 4], { style: "S", axis: "x" });
+  assert.deepEqual(
+    lint(d.build()).map((x) => [x.rule, x.severity]),
+    [["dimension", "warning"]],
   );
 });

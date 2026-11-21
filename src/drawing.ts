@@ -251,6 +251,7 @@ import {
   WIPEOUT_CROSSES,
   WIPEOUT_FLAT,
   WIPEOUT_POINTS,
+  ORDINATE_AXIS,
 } from "./rules.ts";
 import type {
   Standard,
@@ -777,6 +778,30 @@ export interface ArcLengthDimension extends Placed {
   readonly textBelow?: string;
 }
 
+/**
+ * An ordinate dimension: the distance from `origin` to `feature` along X or along Y, as `axis`
+ * says, on a leader from near `feature` to `leaderEnd` with its text beyond. The leader runs along
+ * Y for `"x"` and along X for `"y"`, and jogs where `leaderEnd` is off that line. The distance has
+ * no sign, so features either side of the origin read alike.
+ */
+export interface OrdinateDimension extends Placed {
+  readonly kind: "ordinate-dimension";
+  /** A dimension style of the drawing. */
+  readonly style: string;
+  /** `"x"` gives the feature's X from the origin, with its leader along Y; `"y"` its Y. */
+  readonly axis: "x" | "y";
+  /** The point it measures from. */
+  readonly origin: Point;
+  /** The point it gives the coordinate of. */
+  readonly feature: Point;
+  /** Where its leader ends; its text stands beyond. */
+  readonly leaderEnd: Point;
+  /** A text to draw in place of the measurement, as a linear dimension's `text`. */
+  readonly text?: string;
+  /** Words drawn under its leader, opposite the text, as a linear dimension's `textBelow`. */
+  readonly textBelow?: string;
+}
+
 /** Which side of the point where its shafts meet a leader's note is on. */
 export type LeaderSide = (typeof LEADER_SIDES)[number];
 
@@ -1027,6 +1052,7 @@ export type Entity =
   | JoggedRadiusDimension
   | AngularDimension
   | ArcLengthDimension
+  | OrdinateDimension
   | Leader
   | Image
   | Hatch
@@ -2350,6 +2376,18 @@ export type ArcLengthDimensionOptions<
   I extends string = string,
 > = DimensionOptions<S, T, I>;
 
+/** The options of `ordinateDimension()`. */
+export interface OrdinateDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+> extends DimensionOptions<S, T, I> {
+  /** `"x"` gives the feature's X from the origin, with its leader along Y; `"y"` its Y. */
+  readonly axis: "x" | "y";
+  /** The point it measures from. Defaults to `[0, 0]`. */
+  readonly origin?: Point;
+}
+
 /** The options of `angularDimension()`. */
 export type AngularDimensionOptions<
   S extends string = string,
@@ -2402,6 +2440,19 @@ export interface StandardRadiusDimensionOptions<
 > extends StandardAlignedDimensionOptions<S, T, I, Z> {
   /** How far the middle of its text is from the center, as `RadiusDimensionOptions` says. */
   readonly textFromCenter?: number;
+}
+
+/** The options of `ordinateDimension()` under the standard `Z`. */
+export interface StandardOrdinateDimensionOptions<
+  S extends string = string,
+  T extends string = string,
+  I extends string = string,
+  Z extends Standard = Standard,
+> extends StandardAlignedDimensionOptions<S, T, I, Z> {
+  /** `"x"` gives the feature's X from the origin, with its leader along Y; `"y"` its Y. */
+  readonly axis: "x" | "y";
+  /** The point it measures from. Defaults to `[0, 0]`. */
+  readonly origin?: Point;
 }
 
 /** The options of `linearDimension()` under the standard `Z`. */
@@ -4785,6 +4836,37 @@ export class DrawingBuilder<
         }),
       ),
     );
+  }
+
+  /**
+   * Draws an ordinate dimension on the current layer: the distance from `options.origin`, or from
+   * `[0, 0]`, to `feature` along `options.axis`, on a leader from near `feature` to `leaderEnd`.
+   */
+  ordinateDimension<S extends string, T extends string = string, I extends string = string>(
+    feature: Point,
+    leaderEnd: Point,
+    options: Z extends Standard
+      ? StandardOrdinateDimensionOptions<S, T, I, Z>
+      : V extends "R12"
+        ? R12Dimensions
+        : OrdinateDimensionOptions<S, T, I>,
+  ): this {
+    return this.#add(DrawingBuilder.prototype.ordinateDimension, idOf(options), () => {
+      const o = options as unknown as OrdinateDimensionOptions | undefined;
+      const axis: unknown = o?.axis;
+      if (axis !== "x" && axis !== "y") refuse("dimension", ORDINATE_AXIS);
+      const origin: unknown = o?.origin ?? [0, 0];
+      return this.#dimension(o, (style, text) => ({
+        kind: "ordinate-dimension",
+        layer: this.#current,
+        style,
+        axis,
+        origin: pt(origin as Point),
+        feature: pt(feature),
+        leaderEnd: pt(leaderEnd),
+        ...text,
+      }));
+    });
   }
 
   /** A radius or a diameter dimension, with its text where `options.textFromCenter` says. */

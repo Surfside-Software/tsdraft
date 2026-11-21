@@ -400,6 +400,9 @@ d.linearDimension([24, 30], [76, 30], [0, 20], { style: "PLAN" });
 - `arcLengthDimension(center, radius, startAngle, endAngle, at, options)` dimensions the length of
   an arc, as `arc` takes it, with its own arc through `at`; a style's `arcSymbol` puts the arc
   symbol `"before"` the text, `"above"` it, or `"none"`.
+- `ordinateDimension(feature, leaderEnd, { axis, origin })` gives the X (`axis: "x"`) or the Y of
+  `feature` from `origin`, `[0, 0]` unless given, on a leader to `leaderEnd`, which jogs where the
+  end is off the feature's line.
 - Never draw a dimension from lines and text.
   [docs/dimensions.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/dimensions.md)
   has the rest.
@@ -628,7 +631,6 @@ writeFileSync("plan.dxf", toDXF(drawing));
 
 ## What tsdraft cannot draw yet
 
-- Arc length and ordinate dimensions.
 - A block read from another file. A block is drawn in the drawing that inserts it. An xref
   references a whole DWG file, as an overlay, and the pictures draw it only from a drawing you
   give.

@@ -5,6 +5,7 @@ import type {
   AlignedDimension,
   AngularDimension,
   ArcLengthDimension,
+  OrdinateDimension,
   DiameterDimension,
   DimensionStyle,
   Drawing,
@@ -30,7 +31,7 @@ import {
   type ParagraphLayout,
   type ParagraphToMeasure,
 } from "./paragraphs.ts";
-import { written } from "./format.ts";
+import { heldNumber, written } from "./format.ts";
 import { keyHandle } from "./handles.ts";
 import { layerKey } from "./layers.ts";
 import { direction } from "./polylines.ts";
@@ -45,6 +46,7 @@ import {
   ARC_LENGTH_NO_ARC,
   ARC_LENGTH_NO_REACH,
   ARC_LENGTH_ON_ARC,
+  ORDINATE_NO_LEADER,
   ARC_LENGTH_SYMBOL_BELOW,
   ANGULAR_ARC_ON_LINE,
   ANGULAR_ARROWS_LONG,
@@ -77,7 +79,12 @@ export type StraightDimension = LinearDimension | AlignedDimension;
 export type RadialDimension = RadiusDimension | DiameterDimension | JoggedRadiusDimension;
 
 /** A dimension of any kind. */
-export type Dimension = StraightDimension | RadialDimension | AngularDimension | ArcLengthDimension;
+export type Dimension =
+  | StraightDimension
+  | RadialDimension
+  | AngularDimension
+  | ArcLengthDimension
+  | OrdinateDimension;
 
 /** Whether an entity is a dimension. */
 export function isDimension<E extends { readonly kind: string }>(
@@ -88,6 +95,7 @@ export function isDimension<E extends { readonly kind: string }>(
     entity.kind === "aligned-dimension" ||
     entity.kind === "angular-dimension" ||
     entity.kind === "arc-length-dimension" ||
+    entity.kind === "ordinate-dimension" ||
     isRadial(entity)
   );
 }
@@ -131,7 +139,8 @@ export function dimensionStyleHandle(name: string): string {
 /**
  * The handles of the block that holds a dimension's picture in an R2018 drawing, and of each
  * object in it: the block's record, the two objects that open and close its definition in a
- * DXF, the two extension lines, the dimension line, the two arrowheads and the text.
+ * DXF, the two extension lines, the dimension line, the two arrowheads and the text. An ordinate
+ * dimension, which has no dimension line, takes its handle for the third line of a jogged leader.
  */
 export interface DimensionPictureHandles {
   readonly record: string;
@@ -651,7 +660,8 @@ export function dimensionAngle(dimension: Pick<LinearDimension, "angle">): numbe
 /**
  * The direction a dimension measures along, in degrees, and what it measures: for a linear
  * dimension the distance between its two points along its angle, and for an aligned one the
- * distance between them. Every number is taken as the writers write it.
+ * distance between them; for an ordinate one its axis, 0 for X and 90 for Y, and the distance
+ * along it from its origin, without its sign. Every number is taken as the writers write it.
  */
 export function dimensionMeasure(dimension: Dimension): {
   readonly angle: number;
@@ -664,6 +674,14 @@ export function dimensionMeasure(dimension: Dimension): {
   if (dimension.kind === "arc-length-dimension") {
     const { start, sweep, radius } = arcLengthArc(dimension);
     return { angle: start + sweep / 2, measurement: radius * sweep * RADIANS };
+  }
+  if (dimension.kind === "ordinate-dimension") {
+    // Along its axis, and the distance along it from the origin, without its sign.
+    const i = dimension.axis === "x" ? 0 : 1;
+    return {
+      angle: i === 0 ? 0 : 90,
+      measurement: Math.abs(written(dimension.feature[i]) - written(dimension.origin[i])),
+    };
   }
   if (isRadial(dimension)) {
     const [x1, y1] = [written(dimension.center[0]), written(dimension.center[1])];
@@ -708,6 +726,7 @@ export function dimensionPicture(
   if (dimension.kind === "angular-dimension") return angularPicture(dimension, style, textStyle);
   if (dimension.kind === "arc-length-dimension")
     return arcLengthPicture(dimension, style, textStyle);
+  if (dimension.kind === "ordinate-dimension") return ordinatePicture(dimension, style, textStyle);
   const from: Point = [written(dimension.from[0]), written(dimension.from[1])];
   const to: Point = [written(dimension.to[0]), written(dimension.to[1])];
   const { angle, measurement } = dimensionMeasure(dimension);
@@ -909,6 +928,153 @@ export function dimensionPicture(
     label: label(aboveText, textMiddle, topLayout),
     textMiddle,
     textPoint,
+    textWidth,
+    ...(belowLayout &&
+      belowMiddle && {
+        below: { label: label(belowText!, belowMiddle, belowLayout), middle: belowMiddle },
+      }),
+    lineweights: {
+      dimension: lineweightCode(style.dimensionLineweight),
+      extension: lineweightCode(style.extensionLineweight),
+    },
+  };
+}
+
+/**
+ * Where an ordinate dimension's feature and leader end are, how far along its leader the end is
+ * from the feature, the direction from one to the other along it, how far across the end is, and
+ * whether the leader jogs, each in the numbers the leading CAD app holds for the written
+ * coordinates, as `heldNumber` reads them: two that are written apart may be held as one. A leader whose end is held level with its feature runs
+ * back, and one held across by no more than 1e-10 of the feature's coordinate that the dimension
+ * gives, in the drawing and not from the dimension's origin, is drawn straight. At exactly that in
+ * decimals the difference falls a hair to either side: 0.00001 at 100000 jogs, and 0.0001 at
+ * 1000000 and 0.000003 at 30000 are straight.
+ */
+export function ordinateLeader(dimension: OrdinateDimension): {
+  readonly feature: Point;
+  readonly end: Point;
+  readonly length: number;
+  readonly along: Point;
+  readonly across: number;
+  readonly jogged: boolean;
+} {
+  // The leader is laid out in the numbers that app holds, so each point it places is one that
+  // app would place, and each choice is made from the numbers the point is placed from.
+  const feature: Point = [heldNumber(dimension.feature[0]), heldNumber(dimension.feature[1])];
+  const end: Point = [heldNumber(dimension.leaderEnd[0]), heldNumber(dimension.leaderEnd[1])];
+  const x = dimension.axis === "x";
+  const run = x ? end[1] - feature[1] : end[0] - feature[0];
+  const across = x ? end[0] - feature[0] : end[1] - feature[1];
+  // A leader's end level with its feature runs the leader back: down, or to the left.
+  const way = run > 0 ? 1 : -1;
+  return {
+    feature,
+    end,
+    length: Math.abs(run),
+    along: x ? [0, way] : [way, 0],
+    across,
+    jogged: Math.abs(across) > 1e-10 * Math.abs(x ? feature[0] : feature[1]),
+  };
+}
+
+/**
+ * The picture of an ordinate dimension: its leader from the style's offset off the feature, and
+ * where it jogs a jog across, from twice the arrow size along the leader, or from four arrow sizes
+ * short of the end where that is further, to two arrow sizes short of the end; then on past the
+ * end under the text, which stands a gap beyond the end along the leader, read along it, a gap
+ * above it. A leader that does not jog is one line, from the feature's side to the end's. Centered,
+ * the leader stops at the end and the text stands on its line. The leader's lines take the
+ * extension lines' lineweight.
+ */
+function ordinatePicture(
+  dimension: OrdinateDimension,
+  style: DimensionStyle,
+  textStyle: DimensionFont | undefined,
+): DimensionPicture {
+  const { measurement } = dimensionMeasure(dimension);
+  const sizes = dimensionSizes(style);
+  const { feature, end, length, along, jogged } = ordinateLeader(dimension);
+  const x = dimension.axis === "x";
+  // A point `t` along the leader from the feature and `off` across it.
+  const at = (t: number, off: number): Point =>
+    x
+      ? [feature[0] + off, feature[1] + along[1] * t]
+      : [feature[0] + along[0] * t, feature[1] + off];
+  const move = (point: Point, by: Point, distance: number): Point => [
+    point[0] + by[0] * distance,
+    point[1] + by[1] * distance,
+  ];
+  const rotation = x ? 90 : 0;
+  const direction: Point = x ? [0, 1] : [1, 0];
+  const above: Point = x ? [-1, 0] : [0, 1];
+  const [aboveText, belowText] = dimensionTexts(dimension, measurement, style);
+  const font = textStyle?.font ?? STANDARD_FONT;
+  const lay = (value: string): ParagraphLayout =>
+    layoutDimensionText({
+      value,
+      height: sizes.textHeight,
+      font,
+      widthFactor: written(textStyle?.widthFactor ?? 1),
+      obliqueAngle: written(textStyle?.obliqueAngle ?? 0),
+      align: "center",
+      valign: "middle",
+    });
+  const boxHeight = (layout: ParagraphLayout): number => layout.frame[3] - layout.frame[1];
+  const widest = (layout: ParagraphLayout): number =>
+    layout.lines.reduce((most, line) => Math.max(most, line.end - line.start), 0);
+  const topLayout = lay(mtextOfLabel(aboveText));
+  const belowLayout =
+    belowText === undefined ? undefined : lay(belowText === "" ? "" : mtextOfLabel(belowText));
+  const textWidth = Math.max(widest(topLayout), belowLayout ? widest(belowLayout) : 0);
+  const centered = style.textPlacement === "centered";
+  const gap = sizes.textGap;
+  // The leader's line through the text, beyond its end.
+  const point = move(end, along, gap + textWidth / 2);
+  const offset = sizes.extensionOffset;
+  const size = sizes.arrowSize;
+  // A point that lies a distance from the end is placed from the end, and one on the feature's
+  // line from where the end stands across from it, which a far feature's arithmetic could lose.
+  const past = move(end, along, centered ? 0 : gap + textWidth);
+  const jogEnd = move(end, along, -2 * size);
+  const jogStart =
+    length - 4 * size >= 2 * size
+      ? move(x ? [feature[0], end[1]] : [end[0], feature[1]], along, -4 * size)
+      : at(2 * size, 0);
+  const extensionLines: (readonly [Point, Point])[] = !jogged
+    ? [[at(offset, 0), past]]
+    : [
+        [at(offset, 0), jogStart],
+        [jogStart, jogEnd],
+        [jogEnd, past],
+      ];
+  const textMiddle =
+    centered && belowLayout === undefined
+      ? point
+      : move(point, above, gap + boxHeight(topLayout) / 2);
+  const belowMiddle = belowLayout && move(point, above, -(gap + boxHeight(belowLayout) / 2));
+  const textStyleName = style.textStyle;
+  const label = (value: string, middle: Point, layout: ParagraphLayout): DimensionLabel => ({
+    value,
+    at: move(middle, above, layout.lines[0]?.baseline ?? 0),
+    height: sizes.textHeight,
+    rotation,
+    direction,
+    ...(textStyleName === undefined ? {} : { style: textStyleName }),
+  });
+  const last = extensionLines[extensionLines.length - 1]!;
+  return {
+    measurement,
+    definitionPoint: [written(dimension.origin[0]), written(dimension.origin[1])],
+    extensionLines,
+    dimensionLine: [last[0], last[1]],
+    dimensionLines: [],
+    leader: [],
+    dimensionArcs: [],
+    arrowheads: [],
+    arrowheadEntities: [],
+    label: label(aboveText, textMiddle, topLayout),
+    textMiddle,
+    textPoint: belowLayout === undefined ? textMiddle : point,
     textWidth,
     ...(belowLayout &&
       belowMiddle && {
@@ -1913,6 +2079,38 @@ function arcLengthDrawnProblem(
   return pictureNumbersProblem(picture);
 }
 
+/**
+ * What is wrong with an ordinate dimension in its style, or undefined: a leader that ends at its
+ * feature, and what it reads past the digits a length's writing holds. A feature at the origin
+ * reads 0, as the leading CAD app draws it.
+ */
+function ordinateDrawnProblem(
+  dimension: OrdinateDimension,
+  style: DimensionStyle,
+  textStyle: TextStyle | undefined,
+): string | undefined {
+  const { length, across } = ordinateLeader(dimension);
+  if (length === 0 && across === 0) return ORDINATE_NO_LEADER;
+  const picture = dimensionPicture(dimension, style, textStyle);
+  const measurement = picture.measurement;
+  const scaled = measurement * written(style.measurementScale ?? 1);
+  if (!Number.isFinite(measurement) || !Number.isFinite(scaled)) {
+    return "it measures no finite length";
+  }
+  if (written(measurement) !== 0) {
+    const digits = dimensionMeasureProblem(
+      measurement,
+      scaled,
+      roundedMeasurement(measurement, style),
+      true,
+      picture.label.value,
+      undefined,
+    );
+    if (digits) return digits;
+  }
+  return pictureNumbersProblem(picture);
+}
+
 /** What an arc length dimension draws above its arc and below it, as `dimensionTexts` for a line. */
 function arcLengthTexts(
   dimension: ArcLengthDimension,
@@ -2023,6 +2221,8 @@ export function dimensionDrawnProblem(
     return angularDrawnProblem(dimension, style, textStyle);
   if (dimension.kind === "arc-length-dimension")
     return arcLengthDrawnProblem(dimension, style, textStyle);
+  if (dimension.kind === "ordinate-dimension")
+    return ordinateDrawnProblem(dimension, style, textStyle);
   // The arrowheads need room for the wider of the texts above and below the line.
   const [above, below] = dimensionTexts(dimension, measurement, style);
   let drawn = above;

@@ -517,6 +517,30 @@ export interface ReadAngularDimension extends ReadEntityBase {
 }
 
 /**
+ * An ordinate dimension: the distance from `origin` to `feature` along X or Y, as `axis` says, on
+ * a leader to `leaderEnd`. One drawn in a turned coordinate system is left out, as an entity
+ * of another kind.
+ */
+export interface ReadOrdinateDimension extends ReadEntityBase {
+  readonly kind: "ordinate-dimension";
+  readonly axis: "x" | "y";
+  readonly origin: Point;
+  readonly feature: Point;
+  readonly leaderEnd: Point;
+  /** The middle of its text. */
+  readonly textAt: Point;
+  /** True where the file holds its text where it was placed, not where the leading CAD app puts it. */
+  readonly placed?: boolean;
+  /** What it measures, as the file states it, as `ReadDimension`'s. */
+  readonly measurement?: number;
+  readonly text?: string;
+  readonly textBelow?: string;
+  readonly style: string;
+  readonly block?: string;
+  readonly blockHandle?: string;
+}
+
+/**
  * An arc length dimension: the length of the arc about `center` of `radius` from `startAngle` to
  * `endAngle`, counterclockwise in degrees, as the file holds the arc.
  */
@@ -829,6 +853,7 @@ export type ReadEntity =
   | ReadRadialDimension
   | ReadAngularDimension
   | ReadArcLengthDimension
+  | ReadOrdinateDimension
   | ReadMultileader
   | ReadLeader
   | ReadSolid

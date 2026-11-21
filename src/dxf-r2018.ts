@@ -1629,7 +1629,9 @@ function writeDimension(
       ? e.line
       : e.kind === "angular-dimension" || e.kind === "arc-length-dimension"
         ? e.at
-        : e.to;
+        : e.kind === "ordinate-dimension"
+          ? e.origin
+          : e.to;
   const picture = drawn ?? { definitionPoint: at, textPoint: at };
   const jogged = e.kind === "jogged-radius-dimension";
   g(
@@ -1649,9 +1651,11 @@ function writeDimension(
   if (block !== undefined) g(2, block);
   point(g, 10, ...picture.definitionPoint);
   point(g, 11, ...picture.textPoint);
-  // The kind, and 32: the dimension has a picture of its own; 128: its text is where it was placed.
+  // The kind, and 32: the dimension has a picture of its own; 64: an ordinate gives X; 128: its
+  // text is where it was placed.
   const placed = "textFromCenter" in e && e.textFromCenter !== undefined ? 128 : 0;
-  g(70, DIMENSION_TYPES[e.kind] + 32 + placed);
+  const alongX = e.kind === "ordinate-dimension" && e.axis === "x" ? 64 : 0;
+  g(70, DIMENSION_TYPES[e.kind] + 32 + alongX + placed);
   const text = dimensionFileText(e);
   if (text !== undefined) g(1, dxfOnce(text));
   g(71, 5); // the text is placed by its middle
@@ -1672,6 +1676,12 @@ function writeDimension(
     g(71, 0);
     point(g, 16, ...first);
     point(g, 17, ...second);
+    return;
+  }
+  if (e.kind === "ordinate-dimension") {
+    g(100, "AcDbOrdinateDimension");
+    point(g, 13, ...e.feature);
+    point(g, 14, ...e.leaderEnd);
     return;
   }
   if (e.kind === "angular-dimension") {
@@ -1749,6 +1759,7 @@ const DIMENSION_TYPES = {
   "jogged-radius-dimension": 9,
   "angular-dimension": 5,
   "arc-length-dimension": 5,
+  "ordinate-dimension": 6,
 } as const;
 
 /** The block of a dimension's picture, with what the writer needs for it. */
@@ -1796,8 +1807,16 @@ function writePicture(g: Group, { name, picture, handles, layer, textStyle, mask
         string,
         number,
       ])[] = [
+        // An ordinate's jogged leader, which has no dimension line, takes its handle for its third
+        // line.
         ...picture.extensionLines.map(
-          ([from, to], i) => [from, to, handles.extensionLines[i]!, weights.extension] as const,
+          ([from, to], i) =>
+            [
+              from,
+              to,
+              [...handles.extensionLines, handles.dimensionLine][i]!,
+              weights.extension,
+            ] as const,
         ),
         ...picture.dimensionLines.map(
           ([from, to], i) => [from, to, handles.dimensionLines[i]!, weights.dimension] as const,

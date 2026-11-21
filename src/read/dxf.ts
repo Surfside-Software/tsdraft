@@ -1792,7 +1792,8 @@ class DxfReader {
           entity.kind !== "dimension" &&
           entity.kind !== "radial-dimension" &&
           entity.kind !== "angular-dimension" &&
-          entity.kind !== "arc-length-dimension"
+          entity.kind !== "arc-length-dimension" &&
+          entity.kind !== "ordinate-dimension"
         )
           continue;
         const block = entity.block;

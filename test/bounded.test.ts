@@ -2201,6 +2201,20 @@ test("lint, inspectText, extents and toSVG stay bounded on any drawing, and lint
           textBelow: pick([long, "A\\P".repeat(5_000)]),
         })),
       );
+      // Ordinate ones: straight, jogged or level, near the origin or far out.
+      (pick([drawing, layout]).entities as Data[]).push(
+        ...Array.from({ length: pick([1, 300]) }, (_, i): Data => ({
+          kind: "ordinate-dimension",
+          layer: "0",
+          style: style.name,
+          axis: pick(["x", "y"]),
+          origin: [pick([0, -1e9]), 0],
+          feature: [pick([0.5, 1e6, 1e9]), i],
+          leaderEnd: [pick([0.5, 1e6 + 0.00001, -1e9]), i + pick([0, 3, -1e9])],
+          text: pick(["<>", long]),
+          textBelow: pick([long, "A\\P".repeat(5_000)]),
+        })),
+      );
       style.arcSymbol = pick(["before", "above", "none"]);
       style.radialText = pick(["aligned", "horizontal"]);
       style.jogAngle = pick([5, 45, 90]);

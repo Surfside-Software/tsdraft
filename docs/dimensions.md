@@ -265,6 +265,46 @@ app's own arc stops short of an extension line; one whose centered text leaves i
 each side; one whose measurement takes more digits than a length's writing holds; and words below
 with the arc symbol.
 
+### Ordinate
+
+`d.ordinateDimension(feature, leaderEnd, options)` gives the distance from `options.origin`, or from
+`[0, 0]`, to `feature` along X when `options.axis` is `"x"` and along Y when it is `"y"`, on a
+leader from near `feature` to `leaderEnd`, with its text beyond. The distance has no sign, so a
+feature on either side of the origin reads alike, and one at the origin reads 0.
+
+```ts
+const datum = { style: "DIMS", origin: [4, 16] } as const;
+d.ordinateDimension([7, 13], [7, 17.5], { ...datum, axis: "x" }); // 3.00
+d.ordinateDimension([7, 7.5], [2.5, 8.25], { ...datum, axis: "y" }); // 8.50
+```
+
+An X ordinate's leader runs along Y and a Y ordinate's along X, from the style's offset off the
+feature to `leaderEnd`, then on past it under the text. The text stands a gap beyond the end, reads
+along the leader and stands a gap above it, or on it in a style that centers its text, where the
+leader stops at the end. Words below stand under the leader. A leader whose end is off the
+feature's line jogs across: from twice the arrow size along it, or from four arrow sizes short of
+the end where that is further, to two arrow sizes short of the end. A leader that ends level with
+its feature runs back, down or to the left. The leader takes the style's `extensionLineweight`,
+and no arrowhead.
+
+The leading CAD app draws a jog straight, as one line from the feature's side to the end's, where
+the end is across by no more than 1e-10 of the feature's X, for an X ordinate, or its Y, as the
+drawing holds it and not as measured from `origin`, taken as the difference of the two numbers that
+app holds for them once it has read the file: a jog of a hundred-thousandth at an X of a million is
+a straight line, and so is a jog of a millionth at 100,000. That app reads a decimal in a way of its
+own, which can come out a unit in the last place from the nearest number, so at exactly 1e-10 of
+the coordinate the difference comes out a hair to one side or the other: 0.00001 at 100,000 and
+0.000007 at 70,000 are a hair more, and are drawn, and 0.0001 at 1,000,000 and 0.000003 at 30,000 a
+hair less, and are straight. The same reading decides whether the end is level with the feature:
+that app holds 1,000,000,000,000 and 1,000,000,000,000.0001 as one number, so a leader that ends
+that far along runs back, and one that also ends there across has no leader. tsdraft lays the
+leader out in the numbers that app holds.
+
+`lint` refuses an ordinate dimension whose axis is neither `"x"` nor `"y"`, whose leader ends at
+its feature, or whose measurement takes more digits than a length's writing holds, and warns of
+one whose leader runs further across than along, which is most often an ordinate given the
+other axis.
+
 ## How a measurement is written
 
 A measurement is the length between the points as the file holds them, with 6 decimals,
@@ -439,8 +479,9 @@ no dimension style holds nothing else for dimensions.
 
 ## What is not drawn yet
 
-Ordinate dimensions, an arc length dimension of part of an arc or with a leader, or inside an arc
-under a right angle, an angular dimension by two lines, and an angular dimension's
+An ordinate dimension in a turned coordinate system or with a text a drafter placed, an arc length
+dimension of part of an arc or with a leader, or inside an arc under a right angle, an angular
+dimension by two lines, and an angular dimension's
 level text or text a drafter placed. A radial dimension's center mark, which the leading
 CAD app draws only without the line to the center, and a level text placed along its line. Tolerances and alternate
 units, and the unit formats but decimal and feet and inches. The other fits of a text, such as

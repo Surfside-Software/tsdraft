@@ -10,6 +10,31 @@ export function written(value: number): number {
   return Object.is(rounded, -0) ? 0 : rounded;
 }
 
+/** A number as the writers print it: digits, perhaps a point and more, perhaps `e+` and more. */
+const PRINTED = /^(-?)(\d+)(?:\.(\d+))?(?:e\+(\d+))?$/;
+
+/**
+ * The double the leading CAD app holds for a number as the writers print it, which is not always
+ * the nearest double to the decimal: it sums the digits, without the point, as a whole number one
+ * digit at a time, then applies the power of ten left over a bit at a time, lowest first, each
+ * power the square of the one before, and reads only two digits of an exponent. About one 6-decimal
+ * value in six comes out one unit in the last place from the nearest double.
+ */
+export function heldNumber(value: number): number {
+  const match = PRINTED.exec(fmt(value));
+  if (!match) return written(value);
+  const [, sign, whole = "", fraction = "", exponent = ""] = match;
+  let held = 0;
+  for (const digit of whole + fraction) held = held * 10 + (digit.charCodeAt(0) - 48);
+  const power = Number(exponent.slice(0, 2)) - fraction.length;
+  let step = 10;
+  for (let bits = Math.abs(power); bits > 0; bits >>= 1) {
+    if (bits & 1) held = power < 0 ? held / step : held * step;
+    step *= step;
+  }
+  return sign ? -held : held;
+}
+
 /**
  * A number with 15 significant digits and no exponent, which JavaScript writes for a number
  * under a millionth. Summed as a whole number, 15 digits stay under 2^53, so the double

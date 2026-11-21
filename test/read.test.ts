@@ -1009,10 +1009,12 @@ test("readDXF keeps the pen an entity sets itself, and counts what it reads only
           [370, -1],
           [48, 1],
         ]),
+        // An ordinate drawn in a turned coordinate system.
         [
           [0, "DIMENSION"],
           [8, "A"],
           [70, 38],
+          [51, 330],
         ],
         [
           [0, "MULTILEADER"],
@@ -1064,7 +1066,7 @@ test("readDXF keeps the pen an entity sets itself, and counts what it reads only
   );
   assert.deepEqual(Object.keys(plain(plainLine) as object).sort(), ["from", "kind", "layer", "to"]);
   assert.deepEqual(plain(read.model.other), {
-    "DIMENSION ordinate": 1,
+    "DIMENSION ordinate in a turned coordinate system": 1,
     "MULTILEADER in 3D": 1,
   });
   assert.deepEqual(plain(read.unread.malformed), { "LINE with a number that is not finite": 1 });

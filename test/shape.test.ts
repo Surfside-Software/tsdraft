@@ -305,6 +305,18 @@ const kinds: {
     textBelow: "MIN.",
     id: "h-a",
   },
+  "ordinate-dimension": {
+    kind: "ordinate-dimension",
+    layer: "0",
+    style: "ARCH",
+    axis: "x",
+    origin: [1, 2],
+    feature: [10, 5],
+    leaderEnd: [10, 15],
+    text: "<> TYP",
+    textBelow: "MIN.",
+    id: "h-o",
+  },
 };
 
 /** A polyline of one width, with every field the polyline of `kinds` leaves out. */
@@ -806,7 +818,7 @@ test("a value of the wrong shape is reported in these words, once", () => {
       { toString: 0 },
       [
         "xref: Xref a value of type object: A block's name must be a string",
-        `undefined-block: insert #20: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
+        `undefined-block: insert #21: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
       ],
     ],
     [
