@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { deflateSync } from "node:zlib";
 import { after, test } from "node:test";
+import { inScratch } from "./scratch.ts";
 import { BUILT_IN_STANDARD, pdfFace } from "tsdraft";
 import { faces } from "../src/fonts.ts";
 import type { BuildState } from "../src/state.ts";
@@ -141,13 +142,10 @@ export default createDrawing().line([0, 0], [1, 1], { lineweight: weight as 0.5 
 test("a build that fails leaves no picture from an earlier run in the default folder", () => {
   const dir = realpathSync(tempDir());
   const plan = join(dir, "plan.ts");
-  writeFileSync(
-    plan,
-    `export default { format: 0, units: "ft", dxf: "R2018", layers: [{ name: "0", color: 7 }],
-  entities: [{ kind: "line", layer: "0", from: [0, 0], to: [1, 0] }] };\n`,
-  );
-  const { outputs } = render(plan).state;
-  assert.deepEqual([existsSync(outputs.svg!), existsSync(outputs.png!)], [true, true]);
+  const out = join(dir, "out");
+  mkdirSync(out);
+  const stale = ["plan.svg", "plan.png"].map((name) => join(out, name));
+  for (const path of stale) writeFileSync(path, "stale");
   // In a folder the user named, a picture this run did not write may be theirs, and stays.
   const theirs = join(dir, "kept");
   mkdirSync(theirs);
@@ -165,7 +163,10 @@ test("a build that fails leaves no picture from an earlier run in the default fo
     pdf: null,
     pdfError: null,
   });
-  assert.deepEqual([existsSync(outputs.svg!), existsSync(outputs.png!)], [false, false]);
+  assert.deepEqual(
+    stale.map((path) => existsSync(path)),
+    [false, false],
+  );
 });
 
 test("the state says which blocks a drawing has and where each is inserted", () => {
@@ -657,17 +658,6 @@ async function withDev(
     await use(base);
   } finally {
     server.kill();
-  }
-}
-
-/** A folder under examples/out, removed after `use`. A project in it links tsdraft itself. */
-async function inScratch(use: (dir: string) => Promise<void>): Promise<void> {
-  mkdirSync(join(root, "examples/out"), { recursive: true });
-  const dir = mkdtempSync(join(root, "examples/out/test-"));
-  try {
-    await use(dir);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -1477,11 +1467,6 @@ test("render --view draws one rectangle of model space or of a layout, and nothi
   assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [700, 100]);
   assert.ok(!existsSync(join(out, "crowded.svg")) && !existsSync(join(out, "crowded.png")));
 
-  // A rectangle that starts with a negative number, given as the next argument.
-  const negative = render(crowded, "--out", out, "--view", "-1,-1,18.5,7", "--width", "700");
-  assert.equal(negative.status, 0);
-  assert.deepEqual(negative.state.outputs.view?.box, { min: [-1, -1], max: [18.5, 7] });
-
   // A corner of the sheet that misses its viewport: the tag is drawn, and no view.
   const sheet = render(crowded, "--out", out, "--layout", "S-1", "--view=10,7.5,11,8.5");
   assert.equal(sheet.status, 0);
@@ -1513,25 +1498,27 @@ test("render --view draws one rectangle of model space or of a layout, and nothi
   }
 });
 
-test("in the default folder a view replaces the whole pictures, and they replace it", () => {
-  mkdirSync(join(root, "examples/out"), { recursive: true });
-  const scratch = mkdtempSync(join(root, "examples/out/test-"));
-  const file = join(scratch, "crowded.ts");
-  writeFileSync(file, readFileSync(join(root, "test/fixtures/crowded.ts")));
-  const names = ["crowded.svg", "crowded.png", "crowded.layout-S-1.svg", "crowded.layout-S-1.png"];
-  const views = ["crowded.view.svg", "crowded.view.png"];
-  const there = (list: readonly string[]) => list.map((n) => existsSync(join(scratch, "out", n)));
-  try {
+test("in the default folder a view replaces the whole pictures, and they replace it", () =>
+  inScratch((scratch) => {
+    const file = join(scratch, "crowded.ts");
+    writeFileSync(file, readFileSync(join(root, "test/fixtures/crowded.ts")));
+    const names = [
+      "crowded.svg",
+      "crowded.png",
+      "crowded.layout-S-1.svg",
+      "crowded.layout-S-1.png",
+    ];
+    const views = ["crowded.view.svg", "crowded.view.png"];
+    const there = (list: readonly string[]) => list.map((n) => existsSync(join(scratch, "out", n)));
     assert.equal(render(file).status, 0);
     assert.deepEqual([...there(names), ...there(views)], [true, true, true, true, false, false]);
-    assert.equal(render(file, "--view", "0,0,5,5").status, 0);
+    const view = render(file, "--view", "-1,-1,5,5");
+    assert.equal(view.status, 0);
+    assert.deepEqual(view.state.outputs.view?.box, { min: [-1, -1], max: [5, 5] });
     assert.deepEqual([...there(names), ...there(views)], [false, false, false, false, true, true]);
     assert.equal(render(file).status, 0);
     assert.deepEqual([...there(names), ...there(views)], [true, true, true, true, false, false]);
-  } finally {
-    rmSync(scratch, { recursive: true, force: true });
-  }
-});
+  }));
 
 const prlimit = spawnSync("prlimit", ["--version"]).status === 0;
 

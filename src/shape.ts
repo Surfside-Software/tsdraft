@@ -39,6 +39,7 @@ import type {
   LinetypeText,
   Paragraph,
   PatternLine,
+  Point,
   PointEntity,
   Polyline,
   Text,
@@ -138,6 +139,36 @@ function plainArrayProblem(value: unknown, at: string): string | undefined {
 /** What is wrong with `value` as an array with the methods of `Array`, whatever it holds. */
 export function arrayProblem(value: unknown, at: string): string | undefined {
   return Array.isArray(value) && value instanceof Array ? undefined : `${at} must be an array`;
+}
+
+/** A pair of finite coordinates with no extra keys or indexed getters. */
+export function isFinitePoint(value: unknown): value is Point {
+  if (!Array.isArray(value) || value.length !== 2 || Reflect.ownKeys(value).length !== 3)
+    return false;
+  for (let i = 0; i < 2; i++) {
+    const item = Object.getOwnPropertyDescriptor(value, i);
+    if (!item || !("value" in item) || !Number.isFinite(item.value)) return false;
+  }
+  return true;
+}
+
+/**
+ * Whether an image's or an underlay's clip can be drawn: absent, or a plain array of two points or
+ * more. Many entities may share one list, so a call that passes `checked` reads each list once and
+ * keeps the answer, `false` included.
+ */
+export function drawableClip(clip: unknown, checked?: WeakMap<object, boolean>): boolean {
+  if (clip === undefined) return true;
+  if (!Array.isArray(clip) || clip.length < 2) return false;
+  const known = checked?.get(clip);
+  if (known !== undefined) return known;
+  let sound = Reflect.ownKeys(clip).length === clip.length + 1;
+  for (let i = 0; sound && i < clip.length; i++) {
+    const item = Object.getOwnPropertyDescriptor(clip, i);
+    sound = item !== undefined && "value" in item && isFinitePoint(item.value);
+  }
+  checked?.set(clip, sound);
+  return sound;
 }
 
 /**

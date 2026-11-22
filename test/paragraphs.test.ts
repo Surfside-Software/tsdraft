@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { Script } from "node:vm";
 import {
   bold,
   createDrawing,
@@ -35,14 +34,7 @@ import {
 } from "../src/index.ts";
 import { paragraphMeasurer } from "../src/paragraphs.ts";
 import { readProblems } from "./read-agreement.ts";
-import { timeLimit } from "./time-limit.ts";
-
-const running = new Script("running()");
-/** What `fn` gives, stopped after `ms`, so a run that never ends fails. */
-const within = <T>(ms: number, fn: () => T): T => {
-  Object.assign(globalThis, { running: fn });
-  return running.runInThisContext({ timeout: timeLimit(ms) }) as T;
-};
+import { within } from "./time-limit.ts";
 
 /** What a value draws, a piece at a time: characters, `[top, divider, bottom]` and `|` for a break. */
 const drawn = (value: string) =>

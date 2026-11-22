@@ -7,7 +7,7 @@ import { keyHandle } from "./handles.ts";
 import { layerKey } from "./layers.ts";
 import { imagePixelsProblem } from "./rules.ts";
 import { sha256Text } from "./sha256.ts";
-import { filled, KEYED } from "./shape.ts";
+import { drawableClip, filled, isFinitePoint, KEYED } from "./shape.ts";
 
 /**
  * A key of a `Map` for a string of any length, which no other string has: the string itself, or
@@ -15,22 +15,6 @@ import { filled, KEYED } from "./shape.ts";
  */
 export function exactKey(text: string): string {
   return text.length <= KEYED ? `=${text}` : `#${sha256Text(text)}`;
-}
-
-/** A plain array of `count` finite numbers or more, read without running a getter. */
-function finiteNumbers(value: unknown, count: number): boolean {
-  if (
-    !Array.isArray(value) ||
-    value.length !== count ||
-    Reflect.ownKeys(value).length !== count + 1
-  )
-    return false;
-  for (let i = 0; i < count; i++) {
-    const item = Object.getOwnPropertyDescriptor(value, i);
-    if (!item || !("value" in item) || typeof item.value !== "number") return false;
-    if (!Number.isFinite(item.value)) return false;
-  }
-  return true;
 }
 
 /**
@@ -44,21 +28,10 @@ export function imageDrawable(image: Image, checked?: WeakMap<object, boolean>):
   >;
   const size = (n: unknown) => typeof n === "number" && Number.isFinite(n) && n !== 0;
   if (typeof path !== "string" || imagePixelsProblem(pixels) !== undefined) return false;
-  if (!finiteNumbers(at, 2) || !size(width) || !size(height)) return false;
+  if (!isFinitePoint(at) || !size(width) || !size(height)) return false;
   if (rotation !== undefined && !(typeof rotation === "number" && Number.isFinite(rotation)))
     return false;
-  if (clip === undefined) return true;
-  if (!Array.isArray(clip) || clip.length < 2) return false;
-  // A list many images share is read once a call that keeps what it found in `checked`.
-  const known = checked?.get(clip);
-  if (known !== undefined) return known;
-  let sound = Reflect.ownKeys(clip).length === clip.length + 1;
-  for (let i = 0; sound && i < clip.length; i++) {
-    const item = Object.getOwnPropertyDescriptor(clip, i);
-    sound = item !== undefined && "value" in item && finiteNumbers(item.value, 2);
-  }
-  checked?.set(clip, sound);
-  return sound;
+  return drawableClip(clip, checked);
 }
 
 /** The vectors of one pixel of an image: along its bottom edge, and up its side. */
@@ -269,7 +242,6 @@ export function imageDefinitions(images: Iterable<Image>): ImageDefinition[] {
   // The next number to try after each name taken, so that many files of one name are named in
   // time in proportion to their count.
   const next = new Map<string, number>();
-  const found: ImageDefinition[] = [];
   for (const image of images) {
     const path = imagePathKey(image.path);
     const key = exactKey(path);
@@ -287,16 +259,14 @@ export function imageDefinitions(images: Iterable<Image>): ImageDefinition[] {
       next.set(baseKey, n + 1);
     }
     taken.add(exactKey(layerKey(name)));
-    const definition: ImageDefinition = {
+    byPath.set(key, {
       name,
       path: image.path,
       pixels: [image.pixels[0], image.pixels[1]],
       handle: imageDefinitionHandle(image.path),
-    };
-    byPath.set(key, definition);
-    found.push(definition);
+    });
   }
-  return found;
+  return [...byPath.values()];
 }
 
 /**

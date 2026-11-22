@@ -783,12 +783,16 @@ export const r12: Drawing = {
 
 export type Path = readonly (string | number)[];
 
-/** Every path to a value in `value`, at every depth. */
-function paths(value: unknown, at: Path = []): Path[] {
-  if (typeof value !== "object" || value === null) return [];
+/**
+ * Visit each field once. structuredClone preserves shared objects, so changing a field
+ * through any path to its parent produces the same mutated drawing.
+ */
+function paths(value: unknown, at: Path = [], seen = new WeakSet<object>()): Path[] {
+  if (typeof value !== "object" || value === null || seen.has(value)) return [];
+  seen.add(value);
   return Object.keys(value).flatMap((key) => {
     const step = [...at, Array.isArray(value) ? Number(key) : key];
-    return [step, ...paths((value as Record<string, unknown>)[key], step)];
+    return [step, ...paths((value as Record<string, unknown>)[key], step, seen)];
   });
 }
 
@@ -965,8 +969,10 @@ export function sweep(file: string): void {
     for (const { drawing, path, value, count } of cases()) {
       if (count % SHARES !== share - 1) continue;
       const found = failure(replaced(drawing, path, value));
-      const shown = inspect(value, { depth: 0, breakLength: Infinity });
-      if (found) failures.push(`${drawing.dxf} ${path.join(".")} = ${shown}: ${found}`);
+      if (found) {
+        const shown = inspect(value, { depth: 0, breakLength: Infinity });
+        failures.push(`${drawing.dxf} ${path.join(".")} = ${shown}: ${found}`);
+      }
     }
     assert.deepEqual(failures, []);
   });

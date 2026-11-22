@@ -9,7 +9,7 @@ import { Builder, projectRoot, round, toState } from "./build.ts";
 import { faces, pdfFonts, pngFonts } from "./fonts.ts";
 import { plot } from "./pdf.ts";
 import { pngUnavailable, RendererCrashed, startRenderer, toPNG } from "./png.ts";
-import type { BuildError, BuildState, LayoutOutput } from "./state.ts";
+import type { BuildError, BuildState, LayoutOutput, ViewOutput } from "./state.ts";
 
 // A drawing file is TypeScript, which Node runs by stripping its types: from 22.18, or 23.6.
 const [major = 0, minor = 0] = process.versions.node.split(".").map(Number);
@@ -151,7 +151,8 @@ if (command === "dev") {
   // The machine's fonts are looked for while the drawing is built.
   faces();
   const outcome = (await building)!;
-  const layouts: { -readonly [K in keyof LayoutOutput]: LayoutOutput[K] }[] = [];
+  type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+  const layouts: Mutable<LayoutOutput>[] = [];
   /**
    * Draws a picture's PNG and writes it. When the renderer dies on the picture, gives the
    * reason, and the rest of the run goes on: the SVG is written, and so is every other picture.
@@ -170,7 +171,7 @@ if (command === "dev") {
       pngMs = (pngMs ?? 0) + performance.now() - t;
     }
   };
-  const outputs: { -readonly [K in keyof BuildState["outputs"]]: BuildState["outputs"][K] } = {
+  const outputs: Mutable<BuildState["outputs"]> = {
     svg: null,
     png: null,
     pngError: null,
@@ -191,14 +192,14 @@ if (command === "dev") {
       path = join(dir, `${name}.view.svg`);
       writeFileSync(path, outcome.view.svg);
       const unavailable = pngUnavailable();
-      const made = {
+      const made: ViewOutput = {
         layout: outcome.view.layout,
         box: { min: [view[0], view[1]], max: [view[2], view[3]] },
         svg: path,
-        png: null as string | null,
+        png: null,
         pngError: unavailable,
         pngFonts: pngFonts(outcome.view.fonts, outcome.view.svg),
-      } as const;
+      };
       outputs.view = made;
       if (unavailable === null) {
         path = join(dir, `${name}.view.png`);
@@ -230,16 +231,16 @@ if (command === "dev") {
         const stem = layoutFile(name, sheet.name, taken);
         path = join(dir, `${stem}.svg`);
         writeFileSync(path, sheet.svg);
-        const made = {
+        const made: Mutable<LayoutOutput> = {
           name: sheet.name,
           svg: path,
-          png: null as string | null,
+          png: null,
           pngError: unavailable,
           pngFonts: pngFonts(sheet.fonts, sheet.svg),
-          pdf: null as string | null,
-          pdfError: null as string | null,
+          pdf: null,
+          pdfError: null,
           pdfFonts: pdfFonts(sheet.fonts),
-          pdfMissing: null as string | null,
+          pdfMissing: null,
         };
         if (unavailable === null) {
           path = join(dir, `${stem}.png`);
@@ -286,40 +287,30 @@ if (command === "dev") {
   } catch (error) {
     failed = outputError(`Could not write ${path}`, error);
   }
-  // A picture this run did not write is not left behind from an earlier run, where it would
-  // pass for the drawing as it is now. Only in the default folder, which is this command's: a
-  // file in a folder the user named may be theirs.
-  for (const [kind, written] of Object.entries({
-    svg: outputs.svg,
-    png: outputs.png,
-    "view.svg": outputs.view?.svg ?? null,
-    "view.png": outputs.view?.png ?? null,
-    pdf: outputs.pdf,
-  })) {
-    if (written !== null || values.out !== undefined) continue;
-    const old = join(dir, `${name}.${kind}`);
-    try {
-      rmSync(old, { force: true });
-    } catch (error) {
-      if (outcome.ok) failed ??= outputError(`Could not remove the old ${old}`, error);
-    }
-  }
-  // The same for the picture of a layout the drawing no longer has.
-  if (values.out === undefined && existsSync(dir)) {
-    const kept = new Set(layouts.flatMap((made) => [made.svg, made.png, made.pdf]));
-    for (const entry of readdirSync(dir)) {
-      const old = join(dir, entry);
-      if (
-        !entry.startsWith(`${name}.layout-`) ||
-        !/\.(svg|png|pdf)$/.test(entry) ||
-        kept.has(old)
-      ) {
-        continue;
-      }
+  // Only the default folder belongs to the command. A file in --out may be the user's.
+  if (values.out === undefined) {
+    const removeOld = (old: string): void => {
       try {
         rmSync(old, { force: true });
       } catch (error) {
         if (outcome.ok) failed ??= outputError(`Could not remove the old ${old}`, error);
+      }
+    };
+    for (const [kind, written] of Object.entries({
+      svg: outputs.svg,
+      png: outputs.png,
+      "view.svg": outputs.view?.svg ?? null,
+      "view.png": outputs.view?.png ?? null,
+      pdf: outputs.pdf,
+    })) {
+      if (written === null) removeOld(join(dir, `${name}.${kind}`));
+    }
+    if (existsSync(dir)) {
+      const kept = new Set(layouts.flatMap((made) => [made.svg, made.png, made.pdf]));
+      for (const entry of readdirSync(dir)) {
+        if (!entry.startsWith(`${name}.layout-`) || !/\.(svg|png|pdf)$/.test(entry)) continue;
+        const old = join(dir, entry);
+        if (!kept.has(old)) removeOld(old);
       }
     }
   }

@@ -15,22 +15,7 @@ import { clamped, ellipsePoint, splinePoint } from "../src/curves.ts";
 import { extents } from "../src/extents.ts";
 import { readProblems } from "./read-agreement.ts";
 
-/** The groups of the `n`th record of `type` in a DXF, as `code=value`. */
-function record(dxf: string, type: string, n = 0): string[] {
-  const lines = dxf.split("\r\n");
-  let at = -1;
-  for (let k = 0; k <= n; k++) {
-    at = lines.findIndex((line, i) => i > at && line === type && lines[i - 1]!.trim() === "0");
-  }
-  const out: string[] = [];
-  for (let i = at + 1; i + 1 < lines.length && lines[i]!.trim() !== "0"; i += 2)
-    out.push(`${lines[i]!.trim()}=${lines[i + 1]}`);
-  return out;
-}
-
-/** The groups of a record from its subclass on, without its handle and owner. */
-const own = (groups: readonly string[], subclass: string) =>
-  groups.slice(groups.indexOf(`100=${subclass}`) + 1);
+import { recordFields } from "./dxf-groups.ts";
 
 const drawing = (entities: Entity[]): Drawing => ({ ...createDrawing().build(), entities });
 
@@ -97,22 +82,22 @@ test("toDXF writes an ellipse and a spline as the leading CAD app saves them", (
       },
     ]),
   );
-  assert.deepEqual(own(record(dxf, "ELLIPSE"), "AcDbEllipse"), [
+  assert.deepEqual(recordFields(dxf, "ELLIPSE", "AcDbEllipse"), [
     ...["10=1", "20=2", "30=0", "11=3", "21=0", "31=0", "210=0", "220=0", "230=1", "40=0.5"],
     ...["41=0", "42=6.28318530717959"],
   ]);
-  assert.deepEqual(own(record(dxf, "ELLIPSE", 1), "AcDbEllipse").slice(-2), [
+  assert.deepEqual(recordFields(dxf, "ELLIPSE", "AcDbEllipse", 1).slice(-2), [
     "41=5.23598775598299",
     "42=7.33038285837618",
   ]);
-  assert.deepEqual(own(record(dxf, "SPLINE"), "AcDbSpline"), [
+  assert.deepEqual(recordFields(dxf, "SPLINE", "AcDbSpline"), [
     ...["210=0", "220=0", "230=1", "70=12", "71=2", "72=6", "73=3", "74=0"],
     ...["42=0.000000001", "43=0.0000000001"],
     ...["40=0", "40=0", "40=0", "40=1", "40=1", "40=1"],
     ...["10=0", "20=0", "30=0", "41=1", "10=0", "20=1", "30=0", "41=0.5"],
     ...["10=1", "20=1", "30=0", "41=1"],
   ]);
-  const periodic = own(record(dxf, "SPLINE", 1), "AcDbSpline");
+  const periodic = recordFields(dxf, "SPLINE", "AcDbSpline", 1);
   assert.deepEqual(periodic.slice(3, 8), ["70=11", "71=3", "72=11", "73=7", "74=0"]);
   assert.deepEqual(
     periodic.filter((g) => g.startsWith("40=")).map((g) => Number(g.slice(3))),
@@ -121,7 +106,7 @@ test("toDXF writes an ellipse and a spline as the leading CAD app saves them", (
   const points = periodic.filter((g) => /^[12]0=/.test(g));
   assert.deepEqual(points.slice(0, 2), points.slice(-2));
   // Through two points: a line, its four control points a third of the way apart.
-  const two = own(record(dxf, "SPLINE", 2), "AcDbSpline");
+  const two = recordFields(dxf, "SPLINE", "AcDbSpline", 2);
   assert.deepEqual(two.slice(3, 15), [
     ...["70=1080", "71=3", "72=8", "73=4", "74=2"],
     ...["42=0.000000001", "43=0.0000000001", "44=0.0000000001"],
@@ -141,7 +126,7 @@ test("toDXF writes an ellipse and a spline as the leading CAD app saves them", (
     ],
   );
   // Closed: its first fit point again at the end, and one tangent at both ends.
-  const ring = own(record(dxf, "SPLINE", 3), "AcDbSpline");
+  const ring = recordFields(dxf, "SPLINE", "AcDbSpline", 3);
   assert.deepEqual(ring.slice(3, 8), ["70=1067", "71=3", "72=10", "73=6", "74=4"]);
   const tangent = (codes: readonly number[]) =>
     codes.map((code) => ring.find((g) => g.startsWith(`${code}=`))!.split("=")[1]);

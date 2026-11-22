@@ -6,23 +6,7 @@ import { written } from "./format.ts";
 import { keyHandle } from "./handles.ts";
 import { exactKey } from "./images.ts";
 import { layerKey } from "./layers.ts";
-import { filled } from "./shape.ts";
-
-/** A plain array of `count` finite numbers, read without running a getter. */
-function finiteNumbers(value: unknown, count: number): boolean {
-  if (
-    !Array.isArray(value) ||
-    value.length !== count ||
-    Reflect.ownKeys(value).length !== count + 1
-  )
-    return false;
-  for (let i = 0; i < count; i++) {
-    const item = Object.getOwnPropertyDescriptor(value, i);
-    if (!item || !("value" in item) || typeof item.value !== "number") return false;
-    if (!Number.isFinite(item.value)) return false;
-  }
-  return true;
-}
+import { drawableClip, filled, isFinitePoint } from "./shape.ts";
 
 /**
  * Whether an underlay's fields can be drawn: a path and a page, a page size of two numbers above
@@ -34,24 +18,14 @@ export function underlayDrawable(underlay: Underlay, checked?: WeakMap<object, b
     Record<keyof Underlay, unknown>
   >;
   if (typeof path !== "string" || (page !== undefined && typeof page !== "string")) return false;
-  if (!finiteNumbers(pageSize, 2) || !finiteNumbers(at, 2)) return false;
-  const [w, h] = pageSize as [number, number];
+  if (!isFinitePoint(pageSize) || !isFinitePoint(at)) return false;
+  const [w, h] = pageSize;
   if (!(w > 0 && h > 0)) return false;
   if (scale !== undefined && !(typeof scale === "number" && Number.isFinite(scale) && scale !== 0))
     return false;
   if (rotation !== undefined && !(typeof rotation === "number" && Number.isFinite(rotation)))
     return false;
-  if (clip === undefined) return true;
-  if (!Array.isArray(clip) || clip.length < 2) return false;
-  const known = checked?.get(clip);
-  if (known !== undefined) return known;
-  let sound = Reflect.ownKeys(clip).length === clip.length + 1;
-  for (let i = 0; sound && i < clip.length; i++) {
-    const item = Object.getOwnPropertyDescriptor(clip, i);
-    sound = item !== undefined && "value" in item && finiteNumbers(item.value, 2);
-  }
-  checked?.set(clip, sound);
-  return sound;
+  return drawableClip(clip, checked);
 }
 
 /** The page's name an underlay shows: its number from 1, `"1"` when it gives none. */
@@ -74,7 +48,7 @@ export function underlayVectors(underlay: Underlay): [u: Point, v: Point] {
 }
 
 /** The lower-left corner as written, and the vectors of one inch of the page. */
-function placed(underlay: Underlay): { at: Point; u: Point; v: Point } {
+export function underlayPlacement(underlay: Underlay): { at: Point; u: Point; v: Point } {
   const [u, v] = underlayVectors(underlay);
   return { at: [written(underlay.at[0]), written(underlay.at[1])], u, v };
 }
@@ -93,7 +67,7 @@ export function fromPage(at: Point, u: Point, v: Point, [x, y]: Point): Point {
 
 /** The corners of an underlay's page in the drawing, from its lower-left round counterclockwise. */
 export function underlayCorners(underlay: Underlay): [Point, Point, Point, Point] {
-  const { at, u, v } = placed(underlay);
+  const { at, u, v } = underlayPlacement(underlay);
   const [w, h] = underlay.pageSize;
   return [at, fromPage(at, u, v, [w, 0]), fromPage(at, u, v, [w, h]), fromPage(at, u, v, [0, h])];
 }
@@ -105,7 +79,7 @@ export function underlayCorners(underlay: Underlay): [Point, Point, Point, Point
  */
 export function underlayClip(underlay: Underlay): Point[] {
   if (underlay.clip === undefined) return [];
-  const { at, u, v } = placed(underlay);
+  const { at, u, v } = underlayPlacement(underlay);
   const points = underlay.clip.map(([x, y]) => toPage(at, u, v, [written(x), written(y)]));
   if (points.length !== 2) return points;
   const [[x0, y0], [x1, y1]] = points as [Point, Point];
@@ -122,7 +96,7 @@ export function underlayClip(underlay: Underlay): Point[] {
  */
 export function underlayFrame(underlay: Underlay): Point[] {
   if (underlay.clip === undefined) return underlayCorners(underlay);
-  const { at, u, v } = placed(underlay);
+  const { at, u, v } = underlayPlacement(underlay);
   const clip = underlayClip(underlay);
   const back = (p: Point) => fromPage(at, u, v, p);
   if (clip.length === 2) {
@@ -233,7 +207,6 @@ export function underlayFrameValue(frame: Drawing["underlayFrame"]): 0 | 1 | 2 {
 export function underlayDefinitions(underlays: Iterable<Underlay>): UnderlayDefinition[] {
   const byKey = new Map<string, UnderlayDefinition>();
   const taken = new Set<string>();
-  const found: UnderlayDefinition[] = [];
   // The next number to try after each name taken, so many files of one name are named in time.
   const next = new Map<string, number>();
   for (const underlay of underlays) {
@@ -254,16 +227,14 @@ export function underlayDefinitions(underlays: Iterable<Underlay>): UnderlayDefi
       next.set(baseKey, n + 1);
     }
     taken.add(exactKey(layerKey(name)));
-    const definition: UnderlayDefinition = {
+    byKey.set(key, {
       name,
       path: underlay.path,
       page,
       handle: underlayDefinitionHandle(underlay.path, page),
-    };
-    byKey.set(key, definition);
-    found.push(definition);
+    });
   }
-  return found;
+  return [...byKey.values()];
 }
 
 /**
@@ -318,17 +289,11 @@ export function underlayLook(underlay: Underlay): {
   monochrome: boolean;
 } {
   const { fade, contrast } = underlay as { fade?: unknown; contrast?: unknown };
+  const within = (n: unknown, least: number, most: number): n is number =>
+    Number.isInteger(n) && (n as number) >= least && (n as number) <= most;
   return {
-    fade:
-      Number.isInteger(fade) && (fade as number) >= 0 && (fade as number) <= UNDERLAY_FADE_MOST
-        ? (fade as number)
-        : 0,
-    contrast:
-      Number.isInteger(contrast) &&
-      (contrast as number) >= UNDERLAY_CONTRAST_LEAST &&
-      (contrast as number) <= 100
-        ? (contrast as number)
-        : 100,
+    fade: within(fade, 0, UNDERLAY_FADE_MOST) ? fade : 0,
+    contrast: within(contrast, UNDERLAY_CONTRAST_LEAST, 100) ? contrast : 100,
     monochrome: underlay.monochrome === true,
   };
 }
@@ -364,9 +329,4 @@ export function missingReach(underlay: Underlay): number {
     "Sheet: ".length + pageOf(underlay).length,
   );
   return (longest + 1) * MISSING_HEIGHT * Math.abs(written(underlay.scale ?? 1));
-}
-
-/** Where `placed` puts the page, for the plot: its corner as written and its vectors. */
-export function underlayPlacement(underlay: Underlay): { at: Point; u: Point; v: Point } {
-  return placed(underlay);
 }

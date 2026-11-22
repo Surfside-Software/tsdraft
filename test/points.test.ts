@@ -13,17 +13,7 @@ import {
 import { extents } from "../src/extents.ts";
 import { readProblems } from "./read-agreement.ts";
 
-/** The groups of the `n`th record of `type` in a DXF from its subclass on, as `code=value`. */
-function point(dxf: string, n = 0): string[] {
-  const lines = dxf.split("\r\n");
-  let at = -1;
-  for (let k = 0; k <= n; k++)
-    at = lines.findIndex((line, i) => i > at && line === "POINT" && lines[i - 1]!.trim() === "0");
-  const out: string[] = [];
-  for (let i = at + 1; i + 1 < lines.length && lines[i]!.trim() !== "0"; i += 2)
-    out.push(`${lines[i]!.trim()}=${lines[i + 1]}`);
-  return out.slice(out.indexOf("100=AcDbPoint") + 1);
-}
+import { recordFields } from "./dxf-groups.ts";
 
 const header = (dxf: string, name: string): string | undefined => {
   const lines = dxf.split("\r\n");
@@ -52,9 +42,9 @@ test("toDXF writes a point and the point style as the leading CAD app saves them
   d.point([1, 2]);
   d.point([3, 4], { rotation: 30 });
   const dxf = toDXF(d.build());
-  assert.deepEqual(point(dxf), ["10=1", "20=2", "30=0"]);
+  assert.deepEqual(recordFields(dxf, "POINT", "AcDbPoint"), ["10=1", "20=2", "30=0"]);
   // The file holds the angle the figure turns clockwise by.
-  assert.deepEqual(point(dxf, 1), ["10=3", "20=4", "30=0", "50=330"]);
+  assert.deepEqual(recordFields(dxf, "POINT", "AcDbPoint", 1), ["10=3", "20=4", "30=0", "50=330"]);
   assert.equal(header(dxf, "$PDMODE"), "35");
   assert.equal(header(dxf, "$PDSIZE"), "-10");
   assert.equal(header(toDXF(createDrawing().build()), "$PDMODE"), undefined);

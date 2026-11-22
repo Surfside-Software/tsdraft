@@ -337,6 +337,23 @@ export function inspectWithin(
     ): void => {
       const { id, layer } = entities[index]!;
       const place = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
+      const keepText = (value: string, corners: readonly Point[], anchor?: () => Point): void => {
+        const placed = matrix ? corners.map(place) : corners;
+        const inner = innerBox(placed);
+        if (!inner) return;
+        texts.push({
+          entity: index,
+          attribute,
+          id,
+          layer,
+          value,
+          at: anchor ? anchor() : placed[0]!,
+          corners: placed,
+          inner: inner.corners,
+          height: inner.height,
+          box: boxOf(placed),
+        });
+      };
       if (drawn.kind === "leader") {
         // Each line of a leader's note is a text where its picture puts it.
         const tables = tablesOf(from);
@@ -376,21 +393,7 @@ export function inspectWithin(
         for (const text of pictureTexts(dimensionPicture(drawn, style, font), font)) {
           for (const line of measured(text, layoutDimensionText(text)).lines) {
             if (line.value.trim() === "") continue;
-            const placed = matrix ? line.corners.map(place) : line.corners;
-            const inner = innerBox(placed);
-            if (!inner) continue;
-            texts.push({
-              entity: index,
-              attribute,
-              id,
-              layer,
-              value: line.value,
-              at: placed[0]!,
-              corners: placed,
-              inner: inner.corners,
-              height: inner.height,
-              box: boxOf(placed),
-            });
+            keepText(line.value, line.corners);
           }
         }
         return;
@@ -411,42 +414,14 @@ export function inspectWithin(
         expanded.add(layout);
         if (repeated && !walk(layout.lines.length)) return;
         for (const line of measured(paragraph, layout).lines) {
-          const placed = matrix ? line.corners.map(place) : line.corners;
-          const inner = innerBox(placed);
-          if (!inner) continue;
-          texts.push({
-            entity: index,
-            attribute,
-            id,
-            layer,
-            value: line.value,
-            at: placed[0]!,
-            corners: placed,
-            inner: inner.corners,
-            height: inner.height,
-            box: boxOf(placed),
-          });
+          keepText(line.value, line.corners);
         }
         return;
       }
       if (drawn.kind === "text") {
         const style = styleOf(drawn, from);
         const { corners } = measure(inStyle(drawn, style));
-        const placed = matrix ? corners.map(place) : corners;
-        const inner = innerBox(placed);
-        if (!inner) return;
-        texts.push({
-          entity: index,
-          attribute,
-          id,
-          layer,
-          value: drawn.value,
-          at: place(drawn.at),
-          corners: placed,
-          inner: inner.corners,
-          height: inner.height,
-          box: boxOf(placed),
-        });
+        keepText(drawn.value, corners, () => place(drawn.at));
       } else if (drawn.kind === "polyline") {
         if (matrix && !spend(Math.floor(drawn.points.length / 8))) return;
         const long = !matrix && drawn.points.length >= LONG;

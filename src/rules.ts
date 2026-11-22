@@ -816,13 +816,6 @@ export type ZeroSuppressionOf<Z extends string> = string extends Z
     ? Z
     : typeof ZERO_SUPPRESSION;
 
-/** Resolves to `U` when it is a dimension style's `units`, and to the error message otherwise. */
-export type DimensionUnitsOf<U extends string> = string extends U
-  ? U
-  : U extends (typeof DIMENSION_UNITS)[number]
-    ? U
-    : typeof DIMENSION_UNITS_MESSAGE;
-
 /** Resolves to `Z` when it is a `feetInchZeros`, and to the error message otherwise. */
 export type FeetInchZerosOf<Z extends string> = string extends Z
   ? Z

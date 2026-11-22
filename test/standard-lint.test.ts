@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Script } from "node:vm";
 import sheet, { sitePlan, standard } from "../examples/site-plan.ts";
 import {
   BUILT_IN_STANDARD,
@@ -20,7 +19,7 @@ import {
   type Text,
 } from "../src/index.ts";
 import { lintStandard } from "../src/standard/lint.ts";
-import { timeLimit } from "./time-limit.ts";
+import { within } from "./time-limit.ts";
 
 const layout = sheet.layouts![0]!;
 const titleBlock = layout.entities[0] as Insert;
@@ -34,13 +33,8 @@ const withSheet = (change: Partial<typeof layout>): Drawing => ({
 });
 const only = (found: readonly Diagnostic[], rule: string) => found.filter((d) => d.rule === rule);
 
-const linting = new Script("linting()");
-const checking = new Script("checking()");
-/** The rules `lint` reports with `options`, stopped after `ms`, so a run that never ends fails. */
-const within = (ms: number, drawing: unknown, options: LintOptions = { standard }): string[] => {
-  Object.assign(globalThis, { linting: () => rules(drawing as Drawing, options) });
-  return linting.runInThisContext({ timeout: timeLimit(ms) }) as string[];
-};
+const rulesWithin = (ms: number, drawing: unknown, options: LintOptions = { standard }): string[] =>
+  within(ms, () => rules(drawing as Drawing, options));
 
 test("the example sheet breaks no rule of its standard at either scale, nor from JSON", () => {
   for (const scale of ["1in-10ft", "1in-20ft"] as const) {
@@ -357,7 +351,7 @@ test("a title block is the standard's when its block, text styles and linetypes 
       ...sheet,
       blocks: sheet.blocks!.map((b) => (b.name === "TITLE BLOCK" ? { ...b, ...change } : b)),
     };
-    assert.ok(within(1000, changed).includes("title-block-differs-from-standard"));
+    assert.ok(rulesWithin(1000, changed).includes("title-block-differs-from-standard"));
   }
 });
 
@@ -519,7 +513,7 @@ test("the walk of an insert enters what can draw a text, and pays for each item 
     ...withSheet({ entities: [...layout.entities, lines.top, twice] }),
     blocks: lines.blocks,
   };
-  assert.deepEqual(within(3000, sheetTree), ["height-off-role"]);
+  assert.deepEqual(rulesWithin(3000, sheetTree), ["height-off-role"]);
   // No layout, whose viewports have the other rules walk the inserts of model space.
   const long = "A".repeat(10_000);
   const text = (value: string): Entity => ({
@@ -532,7 +526,7 @@ test("the walk of an insert enters what can draw a text, and pays for each item 
     style: "NOTE",
   });
   for (const { blocks, top } of [tree(text(long)), tree(text("A"), long, `L-${long}`)]) {
-    const found = within(3000, { ...sheet, entities: [top], blocks, layouts: [] });
+    const found = rulesWithin(3000, { ...sheet, entities: [top], blocks, layouts: [] });
     assert.equal(found.at(-1), "standard-check-capped");
   }
 });
@@ -550,10 +544,12 @@ test("lint stops at the first empty slot of a list, as the other rules do", () =
     withSheet({ entities: slots() }),
     withSheet({ viewports: slots() }),
   ]) {
-    assert.ok(within(1000, drawing).length > 0);
+    assert.ok(rulesWithin(1000, drawing).length > 0);
   }
   const data = JSON.parse(JSON.stringify(standard)) as Standard;
-  assert.deepEqual(within(1000, sheet, { standard: { ...data, chain: slots() } }), ["standard"]);
+  assert.deepEqual(rulesWithin(1000, sheet, { standard: { ...data, chain: slots() } }), [
+    "standard",
+  ]);
 });
 
 /** Numbers from 0 up to 1, the same from one seed on every run. */
@@ -757,12 +753,10 @@ test("the checks of a standard stay bounded on any data, and never throw", () =>
     const discipline = pick([undefined, undefined, "C", long, 5]);
 
     const out: Diagnostic[] = [];
-    Object.assign(globalThis, {
-      checking: () =>
-        lintStandard(checked as unknown as Drawing, given, discipline, undefined, out, 20_000),
-    });
     try {
-      checking.runInThisContext({ timeout: timeLimit(1000) });
+      within(1000, () =>
+        lintStandard(checked as unknown as Drawing, given, discipline, undefined, out, 20_000),
+      );
     } catch (thrown) {
       assert.fail(`case ${n}: ${String((thrown as Error)?.message ?? thrown)}`);
     }

@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { Script } from "node:vm";
 import sheet, { standard } from "../examples/site-plan.ts";
 import {
   createDrawing,
@@ -29,7 +28,7 @@ import { Strings } from "../src/shape.ts";
 import { svgToPDF } from "../src/pdf.ts";
 import { svgWithin } from "../src/svg.ts";
 import { toDXFR2018 } from "../src/dxf-r2018.ts";
-import { timeLimit } from "./time-limit.ts";
+import { within } from "./time-limit.ts";
 
 /** The command's own font, given to the PDF as the file of every TrueType font, to embed. */
 const shipped = new Uint8Array(
@@ -37,12 +36,6 @@ const shipped = new Uint8Array(
 );
 const embedded = { Arial: shipped, Calibri: shipped, "Times New Roman": shipped };
 
-const running = new Script("running()");
-/** What `fn` gives, stopped after `ms`, so a run that never ends fails. */
-const within = <T>(ms: number, fn: () => T): T => {
-  Object.assign(globalThis, { running: fn });
-  return running.runInThisContext({ timeout: timeLimit(ms) }) as T;
-};
 /** What `fn` gives or throws, stopped after `ms`. */
 const settled = (ms: number, fn: () => unknown): unknown =>
   within(ms, () => {

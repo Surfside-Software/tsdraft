@@ -2,7 +2,6 @@
 // smallest drawing that shows it.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Script } from "node:vm";
 import {
   createDrawing,
   inspectText,
@@ -16,14 +15,8 @@ import { referencedByKey } from "../src/blocks.ts";
 import { extents } from "../src/extents.ts";
 import { TABLE_COLOR } from "../src/rules.ts";
 import { tableCost, tableRepeats } from "../src/tables.ts";
-import { timeLimit } from "./time-limit.ts";
+import { within } from "./time-limit.ts";
 
-const running = new Script("running()");
-/** What `fn` gives, stopped after `ms`, so a run that never ends fails. */
-const within = <T>(ms: number, fn: () => T): T => {
-  Object.assign(globalThis, { running: fn });
-  return running.runInThisContext({ timeout: timeLimit(ms) }) as T;
-};
 const boxOf = (d: Drawing, xrefs?: Parameters<typeof referencedByKey>[1]) =>
   extents(
     d.entities,
