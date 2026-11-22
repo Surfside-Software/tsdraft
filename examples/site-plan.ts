@@ -110,6 +110,7 @@ export const standard = defineStandard({
     "C-ANNO-REVS": { color: 1, pen: "medium", discipline: "C" },
     "C-ANNO-IMAG": { color: 8, pen: "fine", discipline: "C" },
     "C-TOPO-BANK": { color: 30, linetype: "HIDDEN", pen: "fine", discipline: "C" },
+    "V-SURV-SHOT": { color: 30, pen: "fine", discipline: "V" },
   },
 });
 
@@ -241,6 +242,8 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
   const d = createDrawing({
     units: "ft",
     standard,
+    // Every point plots as a × a foot across each arm, 1/10 in at 1" = 10'.
+    pointStyle: { figure: "cross", size: 1 },
     fields: {
       project: project.name,
       date: project.date,
@@ -378,6 +381,10 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
   });
   // A line that bends with the ground is a spline through the points located on it.
   d.layer("C-TOPO-BANK", () => d.spline(bank));
+  // Each shot the survey located it by, as a point.
+  d.layer("V-SURV-SHOT", () => {
+    for (const shot of bank) d.point(shot);
+  });
 
   // The plan's annotation, in model space with what it describes. A text names the view it is
   // read in, which sizes it to plot at its role's height. Gaps and offsets are lengths on paper,

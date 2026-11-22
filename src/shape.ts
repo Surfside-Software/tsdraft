@@ -39,6 +39,7 @@ import type {
   LinetypeText,
   Paragraph,
   PatternLine,
+  PointEntity,
   Polyline,
   Text,
   TextStyle,
@@ -72,6 +73,7 @@ const KINDS = [
   "line",
   "polyline",
   "circle",
+  "point",
   "arc",
   "ellipse",
   "spline",
@@ -538,6 +540,7 @@ function shapes(all: boolean, typed = all): Shapes {
       },
     ),
     circle: fields<Circle>({ kind, layer: string, center: point, radius: number }, shared),
+    point: fields<PointEntity>({ kind, layer: string, at: point }, { ...shared, rotation: number }),
     arc: fields<Arc>(
       { kind, layer: string, center: point, radius: number, startAngle: number, endAngle: number },
       shared,
@@ -1029,6 +1032,8 @@ function shapes(all: boolean, typed = all): Shapes {
       underlayFrame: LEFT,
       wipeoutFrame: ruled(boolean),
       patterns: ruled(table(pattern)),
+      // lint judges the style whole, as the builder does.
+      pointStyle: LEFT,
     },
   );
   return {

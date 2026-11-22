@@ -245,6 +245,7 @@ import {
   ORDINATE_ACROSS,
   ORDINATE_AXIS,
 } from "./rules.ts";
+import { pointStyleProblems } from "./points.ts";
 import {
   hatchSpread,
   lineSizes,
@@ -852,6 +853,11 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       message: "imageFrame must be true or false",
       item: "imageFrame",
     });
+  }
+  const pointStyle: unknown = drawing.pointStyle;
+  if (pointStyle !== undefined) {
+    for (const problem of r12 ? [R12_ONLY.points] : pointStyleProblems(pointStyle))
+      out.push({ rule: "geometry", severity: "error", message: problem, item: "pointStyle" });
   }
   const underlayFrame: unknown = drawing.underlayFrame;
   if (
@@ -2463,6 +2469,10 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         add("geometry", "error", R12_ONLY.curves);
         return;
       }
+      if (r12 && entity.kind === "point") {
+        add("geometry", "error", R12_ONLY.points);
+        return;
+      }
       if (entity.kind === "hatch" || entity.kind === "wipeout") {
         if (r12) {
           add(entity.kind, "error", R12_ONLY.hatches);
@@ -3093,6 +3103,14 @@ function geometryProblems(e: Entity): string[] {
       finite("its center", ...e.center);
       size("radius", e.radius);
       break;
+    case "point":
+      finite("its point", ...e.at);
+      if (
+        e.rotation !== undefined &&
+        !(Number.isFinite(e.rotation) && e.rotation >= 0 && e.rotation < 360)
+      )
+        out.push("its rotation must be from 0 up to 360");
+      break;
     case "arc":
       finite("its center", ...e.center);
       size("radius", e.radius);
@@ -3241,6 +3259,7 @@ function zeroLength(e: Entity): string | undefined {
         ? `the arc has no length ${rounded}`
         : undefined;
     case "circle":
+    case "point":
     case "text":
     case "paragraph":
     case "insert":

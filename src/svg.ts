@@ -37,6 +37,8 @@ import {
   type Rgb,
   type Paragraph,
   type Point,
+  type PointEntity,
+  type PointStyle,
   type Polyline,
   type Spline,
   type Text,
@@ -63,6 +65,7 @@ import {
   writtenPoint,
 } from "./fills.ts";
 import { patternPieces } from "./patterns.ts";
+import { pointFigure, pointReach, pointStyleProblems } from "./points.ts";
 import {
   arcPoint,
   hasArcsOrWidths,
@@ -1646,15 +1649,26 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
    * block.
    */
   let boxed:
-    | { shown: [number, Entity]; box: readonly [number, number, number, number]; slack: number }[]
+    | {
+        shown: [number, Entity];
+        box: readonly [number, number, number, number];
+        slack: number;
+        figure: FigureReach;
+      }[]
     | undefined;
+  const figures = figureReaches(drawing);
   /** How many times model space has been looked through. */
   let views = 0;
   /**
    * The entities of model space that may reach into a rectangle of it, `[x0, y0, x1, y1]`, with
    * a pen that reaches `pen` past an entity's box. The test errs on the side of drawing.
    */
-  const reaching = (rect: readonly number[], pen: number, where: string): [number, Entity][] => {
+  const reaching = (
+    rect: readonly number[],
+    pen: number,
+    where: string,
+    height: number,
+  ): [number, Entity][] => {
     if (!boxed) {
       boxed = shownOf(drawing.entities).flatMap((shown) => {
         const box = boxOf([shown[1]], (e) => entityAt(shown[0], e, "model space"));
@@ -1671,13 +1685,16 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
             shown[1].kind === "underlay"
             ? missingReach(shown[1])
             : 0;
-        return [{ shown, box, slack }];
+        return [{ shown, box, slack, figure: figures(shown[1]) }];
       });
     }
     if (++views > FREE_VIEWS && !spend(Math.floor(boxed.length / 64))) refuse(where);
+    // A point's figure reaches past its point, by a share of the view for a relative size.
+    const reach = pointReach(pointStyle, height) ?? 0;
+    const relative = typeof pointStyle.size !== "number";
     return boxed
-      .filter(({ box: b, slack }) => {
-        const by = pen + slack;
+      .filter(({ box: b, slack, figure }) => {
+        const by = pen + slack + reach * (relative ? figure.relative : figure.absolute);
         return (
           b[0] - by <= rect[2]! &&
           b[2] + by >= rect[0]! &&
@@ -1693,6 +1710,11 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
   // That app reads a scale of 0 or less as 1, and so is one that is not a finite number here.
   const stated = drawing.linetypeScale ?? 1;
   const linetypeScale = stated > 0 && Number.isFinite(stated) ? stated : 1;
+  // A style `lint` refuses plots each point as a dot.
+  const pointStyle: PointStyle =
+    drawing.pointStyle !== undefined && pointStyleProblems(drawing.pointStyle).length === 0
+      ? drawing.pointStyle
+      : { figure: "dot" };
   if (options.layout !== undefined) {
     const layout = findLayout(drawing, options.layout);
     const paper = layout && paperInfo(layout.paper);
@@ -1708,17 +1730,18 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     // Hundredths of a millimetre in paper units.
     const perHundredth = paper.units === "in" ? 1 / 2540 : 1 / 100;
     /** A look whose lines are as wide as they plot, in a space `scale` paper units to one. */
-    const plotted = (scale: number, indent: string): Look => ({
+    const plotted = (scale: number, indent: string, points: PointLook): Look => ({
       color,
       dashScale: linetypeScale / scale,
       chord: (paper.units === "in" ? 1 : 25.4) / 1200 / scale,
       indent,
+      points,
       stroke: (lineweight) =>
         pen !== undefined || lineweight === DEFAULT_LINEWEIGHT
           ? ""
           : ` stroke-width="${precise((Math.max(lineweight, 5) * perHundredth) / scale)}"${lineweight === 0 ? THINNEST : ""}`,
     });
-    const onPaper = plotted(1, "    ");
+    const onPaper = plotted(1, "    ", { style: pointStyle, height: paper.height, up: [0, 1] });
     // A viewport's border plots as the thinnest line, or as the one pen a table gives every line.
     const thin = fmt((pen ?? 5) * perHundredth);
     const thinnest = pen === undefined ? THINNEST : "";
@@ -1826,11 +1849,17 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       // Only what may reach into it is drawn: an entity's box, which for an arc is its
       // circle's, with the widest pen there is and the slack of its letters around it.
       const widest = (LINEWEIGHTS.at(-1)! * 100 * perHundredth) / view.scale;
-      const reached = visible ? reaching(shows, widest, at) : [];
+      const reached = visible ? reaching(shows, widest, at, view.height / view.scale) : [];
       const near = frozenHere ? reached.filter(([, e]) => !frozenHere({ name: e.layer })) : reached;
       const inside = elements(
         near,
-        plotted(view.scale, "        "),
+        plotted(view.scale, "        ", {
+          style: pointStyle,
+          height: view.height / view.scale,
+          // Up the sheet, in model space: the view's twist turned back.
+          up: [Math.sin((view.twist * Math.PI) / 180), Math.cos((view.twist * Math.PI) / 180)],
+          dot: ` stroke-width="${precise((perHundredth * (2540 / 600)) / view.scale)}"`,
+        }),
         `model space in ${at}`,
         frozenHere,
       );
@@ -1904,6 +1933,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         [x, -(y + h), x + w, -y],
         Math.max(w, h) * Math.max(1, stroke),
         "the view of model space",
+        h,
       )
     : all;
   // On a screen each layer draws in its own color, and every line keeps its width in pixels
@@ -1913,6 +1943,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     dashScale: linetypeScale,
     chord: 1 / 1200,
     indent: "    ",
+    points: { style: pointStyle, height: h, up: [0, 1] },
     stroke: (lineweight) =>
       `${
         lineweight === DEFAULT_LINEWEIGHT
@@ -1978,6 +2009,23 @@ interface Look {
   readonly stroke: (lineweight: number) => string;
   /** The white space before an element, which what an insert holds is set in from. */
   readonly indent: string;
+  /** How the space's points plot: the drawing's style, and the view they are seen in. */
+  readonly points: PointLook;
+}
+
+/**
+ * A space's points: the drawing's point style, the height of the view they are seen in and the
+ * direction up that view, in the space's units, which a relative size is measured by.
+ */
+interface PointLook {
+  readonly style: PointStyle;
+  readonly height: number;
+  readonly up: Point;
+  /**
+   * The stroke of a point drawn as a dot alone, where it is not the thinnest line: through a
+   * viewport the leading CAD app plots one a device pixel wide, 1/600 inch.
+   */
+  readonly dot?: string;
 }
 
 /** What a drawing's entities name: its layers, its dash patterns and its text styles. */
@@ -2641,6 +2689,153 @@ function rounded(
 }
 
 /**
+ * How many times its figure's reach a point's figure may reach past an entity's box: 1 for a
+ * point, and for an insert what the points of its block reach once placed. A size in drawing units
+ * grows with each insert's larger scale; a relative one is not scaled but skewed, which stretches
+ * it by at most the larger scale over the smaller. Each block is walked once.
+ */
+interface FigureReach {
+  readonly absolute: number;
+  readonly relative: number;
+}
+
+function figureReaches(drawing: Drawing): (e: Entity) => FigureReach {
+  const NONE: FigureReach = { absolute: 0, relative: 0 };
+  const blocks = blocksByKey(drawing.blocks);
+  const key = layerKeys();
+  // By each block's list of entities, so that blocks sharing one walk it once.
+  const known = new Map<unknown, FigureReach>();
+  /** The larger scale of an insert and the larger over the smaller, or undefined for none. */
+  const scaleOf = (e: Insert): readonly [number, number] | undefined => {
+    const scale: unknown = e.scale ?? [1, 1];
+    if (!Array.isArray(scale)) return undefined;
+    const [x, y]: unknown[] = [scale[0], scale[1]];
+    if (typeof x !== "number" || typeof y !== "number") return undefined;
+    const [most, least] = [Math.max(Math.abs(x), Math.abs(y)), Math.min(Math.abs(x), Math.abs(y))];
+    return least > 0 && Number.isFinite(most) ? [most, most / least] : undefined;
+  };
+  interface Walk {
+    readonly list: unknown;
+    readonly items: readonly unknown[];
+    readonly scale: readonly [number, number];
+    i: number;
+    absolute: number;
+    relative: number;
+  }
+  const into = (
+    to: { absolute: number; relative: number },
+    r: FigureReach,
+    by: readonly number[],
+  ) => {
+    to.absolute = Math.max(to.absolute, r.absolute * by[0]!);
+    to.relative = Math.max(to.relative, r.relative * by[1]!);
+  };
+  // A stack of its own, so that blocks nested however deep do not run out of the call stack.
+  const ofInsert = (e: Insert): FigureReach => {
+    const out = { absolute: 0, relative: 0 };
+    const stack: Walk[] = [];
+    let at: { absolute: number; relative: number } = out;
+    let insert: Insert | undefined = e;
+    for (;;) {
+      if (insert !== undefined) {
+        const scale = scaleOf(insert);
+        const name = insert.block;
+        const list =
+          scale && typeof name === "string" ? blocks.get(key(name))?.entities : undefined;
+        const had = list === undefined ? NONE : known.get(list);
+        if (had) into(at, had, scale ?? [0, 0]);
+        else {
+          // A block inside itself reaches nothing more.
+          known.set(list, NONE);
+          const walk = { list, items: filled(list), scale: scale!, i: 0, absolute: 0, relative: 0 };
+          stack.push(walk);
+          at = walk;
+        }
+        insert = undefined;
+      }
+      const top = stack.at(-1);
+      if (!top) return out;
+      if (top.i >= top.items.length) {
+        const found = { absolute: top.absolute, relative: top.relative };
+        known.set(top.list, found);
+        stack.pop();
+        at = stack.at(-1) ?? out;
+        into(at, found, top.scale);
+        continue;
+      }
+      const item = top.items[top.i++];
+      if (typeof item !== "object" || item === null) continue;
+      const kind = (item as Entity).kind;
+      if (kind === "point") into(top, { absolute: 1, relative: 1 }, [1, 1]);
+      else if (kind === "insert") insert = item as Insert;
+    }
+  };
+  const of = (e: Entity): FigureReach =>
+    typeof e !== "object" || e === null
+      ? NONE
+      : e.kind === "point"
+        ? { absolute: 1, relative: 1 }
+        : e.kind === "insert"
+          ? ofInsert(e)
+          : NONE;
+  return of;
+}
+
+/**
+ * A point's figure, in the thinnest line and solid, whatever its pen's lineweight and linetype.
+ * Under an insert it is placed as the block's lines are, and a relative size is measured in the
+ * block's units along the view's up direction taken back through the insert, so the insert's
+ * scale does not change it.
+ */
+function pointToSvg(
+  e: PointEntity,
+  mark: string,
+  pen: Pen,
+  look: Look,
+  matrix: Matrix | undefined,
+): string {
+  const { style, height, up } = look.points;
+  // A point `lint` refuses draws nothing.
+  const [x0, y0] = Array.isArray(e.at) ? e.at : [NaN, NaN];
+  const turn = e.rotation ?? 0;
+  if (![x0, y0, turn].every((n) => typeof n === "number" && Number.isFinite(n)))
+    return `<g ${mark}/>`;
+  let reach = pointReach(style, height);
+  if (reach !== undefined && typeof style.size !== "number" && matrix) {
+    const [a, b, c, d] = matrix;
+    const det = a * d - b * c;
+    const back = Math.hypot(d * up[0] - c * up[1], a * up[1] - b * up[0]) / Math.abs(det);
+    reach = Number.isFinite(back) && back > 0 ? reach * back : undefined;
+  }
+  const parts = pointFigure(style, reach);
+  if (parts.length === 0) return `<g ${mark}/>`;
+  const turned = rad(e.rotation ?? 0);
+  const [cos, sin] = [Math.cos(turned), Math.sin(turned)];
+  const at = ([x, y]: Point): string => {
+    const local: Point = [e.at[0] + x * cos - y * sin, e.at[1] + x * sin + y * cos];
+    const [px, py] = matrix ? mapPoint(matrix, local) : local;
+    return `${fmt(px)} ${fmt(py)}`;
+  };
+  const alone = style.figure === "dot" && !style.circle && !style.square;
+  const s = `stroke="${pen.color}"${(alone && look.points.dot) || look.stroke(0)} data-part="figure"`;
+  const paths = parts.map((part) => {
+    if ("radius" in part) {
+      // Two halves, from the point the figure's turn puts at 0 degrees, as the circle plots.
+      const r = part.radius;
+      const round = rounded(r, matrix);
+      const arc = `A ${fmt(round.rx)} ${fmt(round.ry)} ${fmt(round.turn)} 0 ${round.sweep}`;
+      return `<path d="M ${at([r, 0])} ${arc} ${at([-r, 0])} ${arc} ${at([r, 0])}" ${s}/>`;
+    }
+    const [first, ...rest] = part.points;
+    // A dot is a path of no length, which a round cap draws.
+    if (rest.length === 0)
+      return `<path d="M ${at(first!)} L ${at(first!)}" stroke-linecap="round" ${s}/>`;
+    return `<path d="M ${at(first!)} ${rest.map((p) => `L ${at(p)}`).join(" ")}" ${s}/>`;
+  });
+  return `<g ${mark} data-point="">\n${look.indent}  ${paths.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
+}
+
+/**
  * @param mark - The data attributes of the element.
  * @param matrix - Where an insert puts the entity, for one that a block holds.
  * @param room - The characters left in the picture. Dashes stop once they pass it.
@@ -2659,6 +2854,7 @@ function entityToSvg(
   // A lineweight of 0 draws as the thinnest line, as in the leading CAD app.
   const s = `stroke="${pen.color}"${look.stroke(pen.lineweight)} ${mark}`;
   const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
+  if (e.kind === "point") return pointToSvg(e, mark, pen, look, matrix);
   const plan = e.kind === "polyline" ? planOf(e, sides) : undefined;
   if (e.kind === "polyline" && plan) {
     return polylineToSvg(e, plan, mark, pen, look, matrix, room, sides);
@@ -3198,6 +3394,8 @@ function dashedPath(
       ok = true;
       break;
     }
+    case "point":
+      return undefined;
     case "circle": {
       // A circle holds the whole number of patterns nearest its length, each stretched or
       // shrunk alike to go round it exactly, from a dash at its angle 0. One shorter than its

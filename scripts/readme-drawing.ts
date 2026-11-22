@@ -85,6 +85,7 @@ const pictures: Picture[] = [
       "C-PAVE": "muted",
       "C-ROAD-CNTR": "muted",
       "C-TOPO-BANK": "muted",
+      "V-SURV-SHOT": "muted",
       "V-TREE": "muted",
       "C-ANNO-DIMS": "accent",
       "C-ANNO-REVS": "accent",
@@ -164,7 +165,7 @@ const PAPER = 'fill="#ffffff" data-paper-sheet=""/>';
  * A dimension, a leader or a paragraph is a group that names the layer, and its parts are the
  * lines after it.
  */
-const GROUPED = / data-(dimension|leader|paragraph)="/;
+const GROUPED = / data-(dimension|leader|paragraph|point)="/;
 
 /** A line one pixel wide just inside the edge of the picture, which is the sheet's edge. */
 function sheetOutline(x: number, y: number, w: number, h: number, pixel: number, color: string) {

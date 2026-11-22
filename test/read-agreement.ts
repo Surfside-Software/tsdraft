@@ -388,6 +388,18 @@ export function readProblems(
           say(`${label}: center ${got.center}, radius ${got.radius}`);
         }
         return;
+      case "point":
+        if (!kind("point") || got.kind !== "point") return;
+        if (
+          !nearPoint(got.at, point(want.at)) ||
+          // The file holds the turn the other way, as 360 less it, which comes back within bits.
+          Math.abs(
+            (((((got.rotation ?? 0) - written(want.rotation ?? 0)) % 360) + 540) % 360) - 180,
+          ) > 1e-9
+        ) {
+          say(`${label}: at ${got.at}, turned ${got.rotation ?? 0}`);
+        }
+        return;
       case "arc":
         if (!kind("arc") || got.kind !== "arc") return;
         if (

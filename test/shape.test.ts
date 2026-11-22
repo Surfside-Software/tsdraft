@@ -24,7 +24,7 @@ test("a value of the wrong shape is reported in these words, once", () => {
       { toString: 0 },
       [
         "xref: Xref a value of type object: A block's name must be a string",
-        `undefined-block: insert #23: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
+        `undefined-block: insert #24: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
       ],
     ],
     [

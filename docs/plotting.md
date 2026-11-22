@@ -67,6 +67,8 @@ preview shows it:
   or one of a higher degree in 32 straight steps to each span of its knots.
 - A line of lineweight 0 plots as the thinnest line the printer draws, as a viewport's border
   does.
+- A point plots as the figure of the drawing's point style, in the thinnest line and solid, as
+  [How it plots](points.md#how-it-plots) says.
 - A wide side of a polyline is filled, at its width whatever its pen, with its joins and its
   dashes as [How it plots](polylines.md#how-it-plots) says.
 - An image is drawn from its file's bytes, given as `images`, clipped to its clip, with its frame

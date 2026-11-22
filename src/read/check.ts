@@ -160,6 +160,7 @@ const ENTITY: Readonly<Record<string, Fields>> = {
     "linetypeGeneration?": "boolean",
   },
   circle: { ...BASE, kind: { oneOf: ["circle"] }, center: "point", radius: "number" },
+  point: { ...BASE, kind: { oneOf: ["point"] }, at: "point", "rotation?": "number" },
   arc: {
     ...BASE,
     kind: { oneOf: ["arc"] },
@@ -485,6 +486,8 @@ const DRAWING_READ: Fields = {
       "psltscale?": "number",
       "msltscale?": "number",
       "dimscale?": "number",
+      "pdmode?": "number",
+      "pdsize?": "number",
       "dimstyle?": "string",
       "textstyle?": "string",
       "wipeoutFrame?": "number",

@@ -391,6 +391,7 @@ export const kinds: {
     textBelow: "MIN.",
     id: "h-o",
   },
+  point: { kind: "point", layer: "0", at: [6, 5], rotation: 30, id: "w8", ...styled },
 };
 
 /** A polyline of one width, with every field the polyline of `kinds` leaves out. */
@@ -525,6 +526,7 @@ export const full: Required<Drawing> & {
   imageFrame: false,
   underlayFrame: "screen",
   wipeoutFrame: false,
+  pointStyle: { figure: "cross", circle: true, square: true, size: { percent: 10 } },
   linetypes: [
     {
       name: "DD",

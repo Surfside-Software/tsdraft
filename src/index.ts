@@ -72,6 +72,10 @@ export {
   type CloudOptions,
   type ControlSplineOptions,
   type EllipseOptions,
+  type PointOptions,
+  type PointEntity,
+  type PointStyle,
+  type PointFigure,
   type SplineOptions,
   type ControlSpline,
   type Ellipse,
@@ -253,6 +257,7 @@ export {
   type GradientWritten,
 } from "./fills.ts";
 export { bulgeThrough, polylineBox, type PolylineBox } from "./polylines.ts";
+export { pointStyleOf } from "./points.ts";
 export {
   clamped,
   ellipseBox,
@@ -491,6 +496,7 @@ export {
   type DrawingRead,
   type ReadArc,
   type ReadEllipse,
+  type ReadPoint,
   type ReadSpline,
   type ReadAttribute,
   type ReadAttributeDefinition,

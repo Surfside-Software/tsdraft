@@ -87,6 +87,9 @@ it would take `1e+100` for `1e+10` and report nothing.
   each control point where it has weights. A closed one ends where it starts, the way it
   arrives. A spline holds at most `SPLINE_ITEMS`, 32,767, knots.
   [Ellipses and splines](curves.md#checks) has the rest.
+- A point and a point style are R2018 only. A point is at finite numbers and turned from 0 up to 360. A point style's figure is one of `"dot"`, `"none"`, `"plus"`, `"cross"` and `"tick"`, and
+  its size or percent is above 0, not written as 0, and under 1e100. [Points](points.md#checks)
+  has the rest.
 - A hatch's `gradient` goes with no `pattern`. Its `name` is one of `GRADIENT_KINDS`, its `angle`
   a finite number under 1e100 and `centered` true or false, and it has two `colors` or a `color`
   and a `tint` from 0 to 1, each color three whole numbers from 0 to 255, and no other field. The rule of these is

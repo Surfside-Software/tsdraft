@@ -290,6 +290,7 @@ import {
   WIPEOUT_POINTS,
   ORDINATE_AXIS,
 } from "./rules.ts";
+import { pointStyleProblems } from "./points.ts";
 import type {
   Standard,
   StandardDimensionStyle,
@@ -559,6 +560,17 @@ export interface Circle extends EntityBase {
   readonly kind: "circle";
   readonly center: Point;
   readonly radius: number;
+}
+
+/**
+ * A point, which plots as the figure the drawing's `pointStyle` gives every point, turned by
+ * `rotation`. R2018 only.
+ */
+export interface PointEntity extends EntityBase {
+  readonly kind: "point";
+  readonly at: Point;
+  /** How far its figure is turned, in degrees counterclockwise, from 0 up to 360. Defaults to 0. */
+  readonly rotation?: number;
 }
 
 /** Angles are in degrees from 0 up to 360, counterclockwise from +X, as in DXF. */
@@ -1257,6 +1269,7 @@ export type Entity =
   | Line
   | Polyline
   | Circle
+  | PointEntity
   | Arc
   | Ellipse
   | Spline
@@ -1677,6 +1690,37 @@ export interface Drawing {
   readonly wipeoutFrame?: boolean;
   /** The hatch patterns that hatches name, such as a firm's pattern file's from `parsePatterns`. */
   readonly patterns?: readonly HatchPattern[];
+  /** What figure every point plots as, and how big. Defaults to a dot. */
+  readonly pointStyle?: PointStyle;
+}
+
+/** The figure a point plots as: a dot, nothing, a +, a ×, or a tick up from the point. */
+export type PointFigure = "dot" | "none" | "plus" | "cross" | "tick";
+
+/**
+ * What figure every point of a drawing plots as, and how big: the file's PDMODE and PDSIZE. A
+ * figure's size is how far an arm of its + or × reaches from the point. The tick is half as long,
+ * and the circle and the square are as wide as the size. The figure plots in the thinnest line,
+ * solid, whatever the point's lineweight and linetype.
+ *
+ * ```ts
+ * { figure: "cross", circle: true, size: 0.25 }
+ * { figure: "plus", size: { percent: 5 } }
+ * ```
+ */
+export interface PointStyle<S extends number = number, P extends number = number> {
+  readonly figure: PointFigure;
+  /** A circle around the figure. */
+  readonly circle?: boolean;
+  /** A square around the figure. */
+  readonly square?: boolean;
+  /**
+   * In drawing units, or `{ percent }` of half the height of the view the point is seen in: the
+   * sheet's height on a layout, the viewport's view through one, the picture's in model space. In
+   * a block, a size in drawing units is scaled with the insert and a relative one is not.
+   * Defaults to `{ percent: 5 }`.
+   */
+  readonly size?: Positive<S> | { readonly percent: Positive<P> };
 }
 
 /**
@@ -1733,6 +1777,8 @@ export interface DrawingOptions<
    * before it runs them.
    */
   readonly recordCalls?: boolean;
+  /** What figure every point plots as, and how big. Defaults to a dot. R2018 only. */
+  readonly pointStyle?: PointStyle;
 }
 
 /** A linetype to define: a `Linetype`, whose description may be left out. */
@@ -1901,6 +1947,20 @@ function hatchGradientCopy(given: unknown): HatchGradient {
 }
 
 /** What `ellipse()` takes besides what every entity does. */
+/** What `point` takes beside the point. */
+export interface PointOptions<
+  V extends DxfVersion = "R2018",
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+> extends EntityOptions<V, T, W, L, I, Z, P> {
+  /** How far the figure is turned, in degrees counterclockwise. Brought into 0 up to 360. */
+  readonly rotation?: number;
+}
+
 export interface EllipseOptions<
   V extends DxfVersion = "R2018",
   T extends string = string,
@@ -3302,6 +3362,7 @@ export class DrawingBuilder<
   readonly units: Units;
   readonly dxf: V;
   readonly linetypeScale: number;
+  readonly #pointStyle: PointStyle | undefined;
   /** The standard the drawing is drawn to, with its entries by name as the leading CAD app compares them. */
   readonly #standard: Drawn | undefined;
   /** Keyed by `layerKey`, because the leading CAD app ignores case in layer names. */
@@ -3382,6 +3443,22 @@ export class DrawingBuilder<
       if (dxf === "R12" && scale !== 1) throw new Error(`linetypeScale: ${R12_ONLY.linetypes}`);
       const problem = linetypeScaleProblem(scale);
       if (problem) throw new Error(`linetypeScale: ${problem}`);
+    }
+    const pointStyle: unknown = options.pointStyle;
+    if (pointStyle !== undefined) {
+      if (dxf === "R12") throw new Error(`pointStyle: ${R12_ONLY.points}`);
+      const [problem] = pointStyleProblems(pointStyle);
+      if (problem) throw new Error(capitalized(problem));
+      // Only the fields a style has, so that what the writers hash is plain data.
+      const { figure, circle, square, size } = pointStyle as PointStyle;
+      this.#pointStyle = {
+        figure,
+        ...(circle === undefined ? {} : { circle }),
+        ...(square === undefined ? {} : { square }),
+        ...(size === undefined
+          ? {}
+          : { size: typeof size === "number" ? size : { percent: size.percent } }),
+      };
     }
     this.units = units;
     this.dxf = dxf as V;
@@ -4245,6 +4322,35 @@ export class DrawingBuilder<
       center: pt(center),
       radius: positive(radius, "radius"),
     }));
+  }
+
+  /**
+   * A point at `at`, which plots as the figure the drawing's `pointStyle` gives, turned by
+   * `rotation` degrees counterclockwise. R2018 only.
+   *
+   * ```ts
+   * const d = createDrawing({ pointStyle: { figure: "cross", circle: true, size: 0.25 } });
+   * d.point([10, 5]);
+   * d.point([12, 5], { rotation: 30 });
+   * ```
+   */
+  point<
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    P extends string = string,
+  >(at: Point, options: PointOptions<V, T, W, L, I, Z, P> = {}): this {
+    return this.#add(DrawingBuilder.prototype.point, options, () => {
+      if (this.dxf === "R12") refuse("geometry", R12_ONLY.points);
+      const rotation = options.rotation === undefined ? 0 : turn(num(options.rotation, "rotation"));
+      return {
+        kind: "point",
+        layer: this.#current,
+        at: pt(at),
+        ...(rotation === 0 ? {} : { rotation }),
+      };
+    });
   }
 
   /**
@@ -6729,6 +6835,7 @@ export class DrawingBuilder<
       ...(this.#patterns.size > 0
         ? { patterns: [...this.#patterns.values()].map(([pattern]) => pattern) }
         : {}),
+      ...(this.#pointStyle ? { pointStyle: this.#pointStyle } : {}),
     };
   }
 

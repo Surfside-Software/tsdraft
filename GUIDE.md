@@ -68,6 +68,8 @@ inside it, and `donut` a filled ring or dot. [docs/polylines.md](docs/polylines.
 ratio of its axes; `spline` draws the cubic CAD programs fit through fit points, for a top of
 bank, a tree line or a contour, and `controlSpline` a spline by its control points.
 [docs/curves.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/curves.md) has them.
+`point` marks a location, which plots as the figure `createDrawing`'s `pointStyle` gives every
+point. [docs/points.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/points.md) has it.
 `image` draws a PNG or a JPEG at a width in drawing units, with the file's `pixels`, which
 `rasterSize` reads, and an optional `clip`; the command reads the file from the drawing file's
 folder for the pictures, and warns of one that is missing.

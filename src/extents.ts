@@ -334,6 +334,11 @@ export function boxer(
         add(box[2], box[3]);
         break;
       }
+      case "point":
+        // Its figure is not counted: a relative size takes the view, which the extents give.
+        if (Array.isArray(e.at) && Number.isFinite(e.at[0]) && Number.isFinite(e.at[1]))
+          add(e.at[0], e.at[1]);
+        break;
       case "circle":
       case "arc":
         add(e.center[0] - e.radius, e.center[1] - e.radius);

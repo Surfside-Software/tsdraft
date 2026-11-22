@@ -223,6 +223,18 @@ export function readingOf(
   switch (r.type) {
     case "LINE":
       return { entity: { ...base, kind: "line", from: point(r, 10), to: point(r, 11) } };
+    case "POINT": {
+      // Group 50 is the angle the figure is turned clockwise by.
+      const rotation = degrees(-(num(r, 50) ?? 0));
+      return {
+        entity: {
+          ...base,
+          kind: "point",
+          at: point(r, 10),
+          ...(rotation === 0 ? {} : { rotation }),
+        },
+      };
+    }
     case "CIRCLE":
       if (face === 0) return { other: "CIRCLE in 3D" };
       return {
@@ -1424,6 +1436,7 @@ export function costOf(e: ReadEntity): number {
   switch (e.kind) {
     case "line":
       return own + 2;
+    case "point":
     case "circle":
     case "arc":
     case "ellipse":

@@ -141,6 +141,11 @@ and for an arc of it its `startParameter` and `endParameter`. A spline is an ent
 `lineweight` of every entity. A drawing with neither has the JSON it had before they existed.
 [Ellipses and splines](curves.md) describes them.
 
+A point is an entity of kind `"point"`, with its `layer` and `at`, and where it is set its
+`rotation`, with the `linetype` and `lineweight` of every entity. The drawing's `pointStyle` gives
+the figure every point plots as. A drawing with neither has the JSON it had before they existed.
+[Points](points.md) describes them.
+
 A drawing written by hand needs `format: 0` too. `lint` reports a drawing without it, or with
 another version, under the rule `format`, and `toDXF` refuses to write it. `lint` takes any
 plain data and never throws: a list that is not an array, an entity of an unknown `kind`, a

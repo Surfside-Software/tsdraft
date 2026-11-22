@@ -207,6 +207,7 @@ const BLOCK_READS = new Set([
   "MTEXT",
   "MULTILEADER",
   "PDFUNDERLAY",
+  "POINT",
   "POLYLINE",
   "SEQEND",
   "SOLID",
@@ -430,6 +431,8 @@ const HEADER = new Set([
   "$PSLTSCALE",
   "$MSLTSCALE",
   "$DIMSCALE",
+  "$PDMODE",
+  "$PDSIZE",
   "$DIMSTYLE",
   "$TEXTSTYLE",
   "$TILEMODE",
@@ -1597,6 +1600,8 @@ class DxfReader {
       ["psltscale", "$PSLTSCALE"],
       ["msltscale", "$MSLTSCALE"],
       ["dimscale", "$DIMSCALE"],
+      ["pdmode", "$PDMODE"],
+      ["pdsize", "$PDSIZE"],
     ] as const) {
       const n = numberOf(key);
       if (n !== undefined) header[field] = n;

@@ -50,7 +50,8 @@ A `DrawingRead` is not a `Drawing`, and nothing writes it back to a file. It hol
 states and keeps each object's handle, and it keeps going past what it does not understand:
 
 - `sha256` and `bytes` of the file, its `version`, and `header`: `$INSUNITS`, `$MEASUREMENT`,
-  `$LTSCALE`, `$PSLTSCALE`, `$MSLTSCALE`, `$DIMSCALE` and the current styles.
+  `$LTSCALE`, `$PSLTSCALE`, `$MSLTSCALE`, `$DIMSCALE`, `$PDMODE`, `$PDSIZE` and the current
+  styles. `pointStyleOf` gives the point style the last two plot as.
 - The tables: `layers` with their state, `linetypes`, each with the `marks` it draws as a
   `Linetype` holds them, a text's `style` by name and its `height` times its style's fixed height,
   a shape by its number and its `file`, `textStyles` and `dimensionStyles`, each
@@ -215,6 +216,8 @@ leader:
   angle and `centered: false` do not give its mirror image, because its shift does not mirror with
   the angle.
 - `wipeout`: its `points` in the world's coordinates, without the first again at the end.
+- `point`: its `at`, and its `rotation`, the turn of its figure counterclockwise from 0 up to 360,
+  which the file holds the other way round in group 50.
 - `ellipse`: its `center` and `majorAxis`, which the file holds in the world's coordinates, its
   `ratio`, and for an arc its `startParameter` and `endParameter` in degrees, as `Ellipse` holds
   them. One the file holds seen from below runs its parameters the other way round, and is read as

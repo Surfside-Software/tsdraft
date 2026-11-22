@@ -173,6 +173,16 @@ d.controlSpline(controlPoints, { degree: 3 });
 [Ellipses and splines](docs/curves.md) has arcs of an ellipse, tangents, closed splines, knots
 and weights.
 
+A point marks a survey shot or a benchmark. Every point plots as the figure the drawing's point
+style gives, at a size in drawing units or as a share of the view:
+
+```ts
+const d = createDrawing({ pointStyle: { figure: "cross", circle: true, size: 0.25 } });
+d.point([10, 5]);
+```
+
+[Points](docs/points.md) has the figures and their sizes.
+
 A paragraph is one text whose lines wrap at a width, which a CAD user edits as one. A line feed
 starts a new paragraph, and small helpers write the codes for a numbered list, an underline,
 bold, a stacked fraction and a superscript:
@@ -427,6 +437,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   widths and donuts, how a wide polyline plots, and what `lint` refuses of them.
 - [Ellipses and splines](docs/curves.md) covers ellipses and their arcs, splines through fit
   points and by control points, how they plot and dash, and what `lint` refuses of them.
+- [Points](docs/points.md) covers points and the point style, how a figure plots and how big, and
+  what `lint` refuses of them.
 - [Paragraphs](docs/paragraphs.md) covers paragraph text: its width and box, the codes its
   value takes, the helpers that write them, how it is laid out, and what `lint` refuses.
 - [Images](docs/images.md) covers raster images: the path and the pixels, clips, frames,

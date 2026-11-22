@@ -226,6 +226,7 @@ const UNDERLAY_PLACED =
 const R12_TABLES = 'tsdraft writes no tables to R12 drawings. Use DXF version "R2018" for a table';
 const R12_HATCHES =
   'tsdraft writes no hatches or wipeouts to R12 drawings. Use DXF version "R2018" for a fill';
+const R12_POINTS = 'tsdraft writes no points to R12 drawings. Use DXF version "R2018" for a point';
 const R12_CURVES =
   'tsdraft writes no ellipses or splines to R12 drawings. Use DXF version "R2018" for a curve';
 const IMAGE_PATH_EMPTY = "An image's path cannot be empty. The leading CAD app finds no file by it";
@@ -2039,6 +2040,7 @@ export const R12_ONLY = {
   hatches: R12_HATCHES,
   tables: R12_TABLES,
   curves: R12_CURVES,
+  points: R12_POINTS,
 } as const;
 
 /** The highest degree of a spline by its control points. */

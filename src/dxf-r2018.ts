@@ -197,6 +197,7 @@ import {
 } from "./leaders.ts";
 import { entityLinetype, layerLinetype, lineweightCode, patternLength } from "./linetypes.ts";
 import { idKey, isStandardTextStyle, shown, TEXT_ALIGNS, TEXT_VERTICAL_ALIGNS } from "./rules.ts";
+import { pointMode, pointSize } from "./points.ts";
 import { shapeFileKey } from "./shapes.ts";
 
 /** `$INSUNITS` codes from the DXF Reference. */
@@ -1127,6 +1128,12 @@ export function toDXFR2018(
     h(9, "$LTSCALE");
     h(40, drawing.linetypeScale);
   }
+  if (drawing.pointStyle !== undefined) {
+    h(9, "$PDMODE");
+    h(70, pointMode(drawing.pointStyle));
+    h(9, "$PDSIZE");
+    h(40, pointSize(drawing.pointStyle));
+  }
   // A drawing saved from this file then refuses in-place editing through a reference to it.
   h(9, "$XEDIT");
   h(290, 0);
@@ -1617,6 +1624,14 @@ function writeEntity(
       point(g, 10, ...e.center);
       g(40, e.radius);
       return;
+    case "point": {
+      begin("POINT", "AcDbPoint");
+      point(g, 10, ...e.at);
+      // The file holds the angle the figure is turned clockwise by.
+      const turned = written(e.rotation ?? 0) % 360;
+      if (turned !== 0) g(50, 360 - turned);
+      return;
+    }
     case "arc":
       begin("ARC", "AcDbCircle");
       point(g, 10, ...e.center);

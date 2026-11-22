@@ -21,6 +21,15 @@
   `readDWG` read it as `alpha`, from 0 to 255, or `"ByBlock"`. A block a leader places holds
   every entity ByBlock, as CAD programs read it, and the writers write it so; the leader draws
   it opaque.
+- Points, in R2018 drawings. `d.point(at, { rotation })` marks a location, and
+  `createDrawing({ pointStyle })` gives the figure every point plots as: a dot, nothing, a +, a ×
+  or a tick, with a circle or a square around it, at a `size` in drawing units or a `{ percent }`
+  of half the view it is seen in, as CAD programs plot it. `toDXF` writes each point and the style
+  as `$PDMODE` and `$PDSIZE`, and `toSVG` and `toPDF` draw the figure in the thinnest line, solid,
+  turned with the point, and under an insert placed as the block's lines are. The extents hold a
+  point's location. `readDXF` reads points and the two header variables, and `pointStyleOf` gives
+  the style they plot as. `lint` and the builder refuse a figure that is not one of the five, a
+  size not above 0, a rotation outside 0 to 360, and a point or a point style in an R12 drawing.
 
 - Linetypes with shapes: a fence with its circles along it, and batt insulation. `parseShapes`
   reads a firm's compiled shape file (`.shx`) into each shape's outlines, and `toSVG`, `toPDF`

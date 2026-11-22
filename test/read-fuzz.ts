@@ -177,6 +177,13 @@ export function seedFiles(): Uint8Array[] {
     });
     underlays.insert("SEAL", [0, 10], { scale: [2, 1] });
   });
+  const points = createDrawing({
+    pointStyle: { figure: "plus", circle: true, size: { percent: 5 } },
+  });
+  points.block("MARK", {}, () => points.point([0, 0]));
+  points.point([1, 2]);
+  points.point([3, 4], { rotation: 30 });
+  points.insert("MARK", [5, 5], { scale: 2 });
   return [
     ...[
       toDXF(sheet),
@@ -186,6 +193,7 @@ export function seedFiles(): Uint8Array[] {
       toDXF(tables.build()),
       toDXF(curves.build()),
       toDXF({ ...underlays.build(), underlayFrame: "screen" }),
+      toDXF(points.build()),
     ].map((t) => encoder.encode(t)),
     leaderFile(),
   ];

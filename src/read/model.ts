@@ -108,6 +108,10 @@ export interface ReadHeader {
   readonly psltscale?: number;
   readonly msltscale?: number;
   readonly dimscale?: number;
+  /** `$PDMODE`, the figure points plot as. `pointStyleOf` says what it and `pdsize` draw. */
+  readonly pdmode?: number;
+  /** `$PDSIZE`, the size of a point's figure: in drawing units above 0, a share of the view below. */
+  readonly pdsize?: number;
   /** `$DIMSTYLE`, the current dimension style. */
   readonly dimstyle?: string;
   /** `$TEXTSTYLE`, the current text style. */
@@ -963,6 +967,13 @@ export interface ReadWipeout extends ReadEntityBase {
   readonly points: readonly Point[];
 }
 
+/** A point, as `PointEntity` holds it: its figure's turn counterclockwise, from 0 up to 360. */
+export interface ReadPoint extends ReadEntityBase {
+  readonly kind: "point";
+  readonly at: Point;
+  readonly rotation?: number;
+}
+
 /**
  * An ellipse, or an arc of one, as `Ellipse` holds it: in the world's coordinates, with its
  * parameters in degrees counterclockwise. One the file holds seen from below, which runs its
@@ -1008,6 +1019,7 @@ export type ReadEntity =
   | ReadLine
   | ReadPolyline
   | ReadCircle
+  | ReadPoint
   | ReadArc
   | ReadEllipse
   | ReadSpline
