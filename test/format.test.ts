@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { callerInStack, parseStack } from "../src/callsite.ts";
+import { written } from "../src/format.ts";
 import {
   createDrawing,
   DASHED,
@@ -13,6 +14,26 @@ import {
   type Diagnostic,
   type Drawing,
 } from "../src/index.ts";
+
+test("coordinates round to six decimal places on both sides of a half-millionth", () => {
+  // 1.2345678 is rounded by arithmetic, not as a tie. 6846209353.3203125 and 22673844301.198742
+  // are past 2 ** 52 / 1e6, where scaling stops being exact, and must not take the fast path.
+  for (const value of [
+    0,
+    0.0000005,
+    0.0000025,
+    1 / 128,
+    1.2345678,
+    4_000_000_000.0000005,
+    6846209353.3203125,
+    22673844301.198742,
+    1e20,
+  ]) {
+    for (const signed of [value, -value]) {
+      assert.equal(written(signed), Number(signed.toFixed(6)) || 0);
+    }
+  }
+});
 
 function sample(): Drawing {
   const d = createDrawing({ units: "ft", linetypeScale: 2 });

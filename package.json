@@ -59,6 +59,7 @@
     "example": "node examples/site-plan.ts && node examples/outdoor-kitchen.ts && node examples/plan-set/set.ts",
     "readme:drawing": "node scripts/readme-drawing.ts",
     "bench": "pnpm build:lib && node cli/scripts/bench.ts",
+    "bench:io": "node scripts/bench-io.ts",
     "standard:files": "node scripts/standard-files.ts",
     "verify": "pnpm fmt:check && pnpm lint && pnpm check && pnpm test && pnpm test:package"
   },

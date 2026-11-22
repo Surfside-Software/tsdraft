@@ -44,6 +44,7 @@ export default d.build();
 // It is copied with its helpers, importing the library by name as the other two do.
 const sheet = `${dir}/site-plan.ts`;
 mkdirSync(`${dir}/lib`, { recursive: true });
+copyFileSync(`${root}../examples/vicinity-map.png`, `${dir}/vicinity-map.png`);
 for (const file of ["site-plan.ts", "lib/drafting.ts"]) {
   const source = readFileSync(`${root}../examples/${file}`, "utf8");
   writeFileSync(`${dir}/${file}`, source.replace(/"(\.\.\/)+src\/index\.ts"/, '"tsdraft"'));

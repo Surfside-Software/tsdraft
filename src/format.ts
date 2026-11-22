@@ -1,11 +1,19 @@
 /** The number of decimals the writers keep. */
 const DECIMALS = 6;
+const SCALE = 10 ** DECIMALS;
 
 /**
  * A number as the writers print it: rounded to 6 decimals. Two values that are
  * equal here are the same number in the file, whatever they were in the drawing.
  */
 export function written(value: number): number {
+  if (typeof value === "number" && Math.abs(value) < 2 ** 52 / SCALE) {
+    const scaled = value * SCALE;
+    const nearest = Math.round(scaled);
+    // Every half-integer in this range is representable. Multiplication can land on a
+    // half from either side, but cannot cross one, so leave those ties to toFixed.
+    if (Math.abs(scaled - nearest) !== 0.5) return nearest === 0 ? 0 : nearest / SCALE;
+  }
   const rounded = Number(value.toFixed(DECIMALS));
   return Object.is(rounded, -0) ? 0 : rounded;
 }

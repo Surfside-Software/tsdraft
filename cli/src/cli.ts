@@ -7,7 +7,6 @@ import { basename, extname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { Builder, projectRoot, round, toState } from "./build.ts";
 import { faces, pdfFonts, pngFonts } from "./fonts.ts";
-import { plot } from "./pdf.ts";
 import { pngUnavailable, RendererCrashed, startRenderer, toPNG } from "./png.ts";
 import type { BuildError, BuildState, LayoutOutput, ViewOutput } from "./state.ts";
 
@@ -144,7 +143,11 @@ if (command === "dev") {
     drawNoPlot: values["draw-no-plot"] === true,
     view: view && { box: view, ...(values.layout === undefined ? {} : { layout: values.layout }) },
   });
-  // The renderer's process starts while the drawing is built.
+  // The plotter loads only for --pdf, and before anything is built or written, as a static
+  // import would: a plotter that fails to load stops the command first.
+  const pdf = values.pdf ? await import("./pdf.ts") : undefined;
+  // The renderer's process starts while the drawing is built. Its modules load before the
+  // build starts, so their load time never counts against the drawing's --timeout.
   startRenderer();
   let pngMs: number | undefined;
   const building = builder.build(file, projectRoot(file));
@@ -252,6 +255,7 @@ if (command === "dev") {
       }
       // Each sheet, then the set: a page for each sheet, in the order of the layouts.
       if (values.pdf && sheets.length > 0) {
+        const { plot } = pdf!;
         const omitted = outcome.drawing?.omitted?.length ?? 0;
         if (omitted > 0) {
           outputs.pdfError =

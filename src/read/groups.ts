@@ -216,7 +216,7 @@ export class GroupReader {
 function latin1(bytes: Uint8Array): string {
   let text = "";
   for (let i = 0; i < bytes.length; i += 8192) {
-    text += String.fromCharCode(...bytes.subarray(i, i + 8192));
+    text += Reflect.apply(String.fromCharCode, undefined, bytes.subarray(i, i + 8192));
   }
   return text;
 }
