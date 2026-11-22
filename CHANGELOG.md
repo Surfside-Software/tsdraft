@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+## 0.5.4
+
+This release has breaking changes, though its number is a patch's. A project that depends on
+`^0.5.0` gets them on its next install. Most are new members of unions that code may switch over
+in full. It adds every 2D kind of entity CAD programs draw that tsdraft lacked, and the DWG
+reader's formats from 2004 to 2013.
+
+- Breaking: `LintRule` gained `entity-color`, `entity-transparency`, `paragraph`, `image`,
+  `underlay`, `hatch`, `hatch-pattern`, `hatch-gradient`, `duplicate-hatch-pattern`, `wipeout`,
+  `table`, `table-style`, `duplicate-table-style`, `undefined-table-style` and `linetype-shape`.
+  Code that switches over every rule needs them.
+- Breaking: `Entity` gained `PointEntity`, `Ellipse`, `Spline`, `Paragraph`, `RadiusDimension`,
+  `DiameterDimension`, `JoggedRadiusDimension`, `AngularDimension`, `ArcLengthDimension`,
+  `OrdinateDimension`, `Image`, `Underlay`, `Hatch`, `Wipeout` and `Table`. Code that switches
+  over every kind needs them.
+- Breaking: `ReadEntity` gained `point`, `ellipse`, `spline`, `mtext`, `dimension`,
+  `radial-dimension`, `angular-dimension`, `arc-length-dimension`, `ordinate-dimension`,
+  `multileader`, `leader`, `solid`, `image`, `underlay`, `hatch`, `wipeout`, `table` and the
+  modeler kinds `3dsolid`, `region` and `body`, which a block now keeps where it counted them
+  under `other`, and `unread.entities` no longer counts a `MULTILEADER` or a `SOLID`. Code that
+  switches over every kind needs them.
+- Breaking: a text, an attribute definition and an attribute have `at`, where the text starts to
+  draw, beside `stored`, `alignAt`, `align`, `valign`, `startFrom`, its width factor and oblique
+  angle, and `backward` and `upsideDown`. For a justified text of tsdraft's own DXF, `at` was its
+  alignment point and is now its start. A text of a block seen from below is read as backward,
+  where it was counted.
+- The built-in standard is version 3, with the leader style `notes`, so a drawing to it writes
+  that style.
+
 - 3D solids, regions and bodies are read. `readDXF` and `readDWG` read each as a `3dsolid`,
   `region` or `body` with its `edges` in 3D, from the modeler data a file before 2013 holds in the
   entity, as text or binary; a file of 2013 or later keeps the data apart from the entity, and a
@@ -465,14 +494,6 @@ What changes for a read of a DXF, whose model is format 0 and not settled:
   `entities` beside each space's census, with `other` for what it leaves out, and the attributes
   of each insert. A read without it keeps what it kept. `readDrawingFile` takes the same
   `ReadOptions` as a third argument.
-- Breaking: `ReadEntity` gained `mtext`, `dimension`, `multileader` and `solid`, which a block now
-  keeps where it counted them under `other`, and `unread.entities` no longer counts a
-  `MULTILEADER` or a `SOLID`. Code that switches over every kind needs them.
-- Breaking: a text, an attribute definition and an attribute have `at`, where the text starts to
-  draw, beside `stored`, `alignAt`, `align`, `valign`, `startFrom`, its width factor and oblique
-  angle, and `backward` and `upsideDown`. For a justified text of tsdraft's own DXF, `at` was its
-  alignment point and is now its start. A text of a block seen from below is read as backward,
-  where it was counted.
 - An entity keeps the color, true color, linetype, lineweight and linetype scale it sets itself,
   an insert and a dimension name their block's record by `blockHandle`, and `opensAt` gives the
   tab and the view a file opens at. `GEOMETRY_ITEMS`, 400,000, bounds what the spaces keep.

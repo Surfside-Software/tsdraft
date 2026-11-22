@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cdn.jsdelivr.net/npm/tsdraft@0.5.3/standard.schema.json",
+  "$id": "https://cdn.jsdelivr.net/npm/tsdraft@0.5.4/standard.schema.json",
   "title": "A tsdraft standard",
   "type": "object",
   "description": "A firm's CAD standard: its layers, pens, linetypes, text roles, scales, dimension styles, leader styles, title blocks and sheet formats. What a schema cannot hold, such as a name that refers to another entry, is checked by defineStandard",
