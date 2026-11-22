@@ -49,6 +49,7 @@ export async function readDrawingFile(chunks, name) {
     blocks: [],
     xrefs: [],
     images: [],
+    underlays: [],
     model: {
       census: {
         layers: {},

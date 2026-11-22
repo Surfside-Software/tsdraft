@@ -136,6 +136,13 @@ drawn the same way. An xref's images are read from the folder of its file, which
 from the drawing file's. `tsdraft dev` builds again when an image's file changes.
 [Images](images.md#plotting) has what a picture holds of one.
 
+The pictures and the PDF draw each underlay from a picture of its page, `<file>.page<N>.png`
+beside its PDF, which the command reads once a build. A PDF that is missing gives an `underlay`
+warning, and a page with no picture one that gives the `pdftocairo` command that draws it; the
+pictures then write that the file is missing, as a CAD program does. A `pageSize` that is not the
+page's in the PDF, and a picture not of the page's shape, are `underlay` errors. `tsdraft dev`
+builds again when a PDF or a picture changes. [Underlays](underlays.md#plotting) has the rest.
+
 ## The JSON
 
 `BuildState` in [`cli/src/state.ts`](../cli/src/state.ts) documents each field, and `schema`,

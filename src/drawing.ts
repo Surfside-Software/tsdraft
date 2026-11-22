@@ -78,6 +78,7 @@ import {
 } from "./fills.ts";
 import { parsePatterns } from "./patterns.ts";
 import { imageVectors } from "./images.ts";
+import { underlayVectors } from "./underlays.ts";
 import { canonical } from "./json.ts";
 import { DrawingError, type Diagnostic, type LintRule } from "./lint.ts";
 import {
@@ -196,6 +197,17 @@ import {
   type R12Leaders,
   type R12Polylines,
   type R12Images,
+  type R12Underlays,
+  type UnderlayPath,
+  underlayClipProblem,
+  underlayContrastProblem,
+  underlayFadeProblem,
+  underlayPageProblem,
+  underlayPageSizeProblem,
+  underlayPathProblem,
+  underlayPlacedProblem,
+  underlayScaleProblem,
+  UNDERLAY_INVERT_WITHOUT_CLIP,
   type ImagePath,
   imageClipProblem,
   imagePathProblem,
@@ -1031,6 +1043,50 @@ export interface Image extends EntityBase {
 }
 
 /**
+ * A page of a PDF file under the drawing, such as an architect's plan, which the leading CAD app
+ * loads each time it opens the drawing and draws at one drawing unit to an inch of the page, times
+ * its scale. The drawing holds the file's path, the page and its size, and nothing of what it
+ * shows. Each page the drawing's underlays name is written as one definition, which every
+ * underlay of that page shares. R2018 only.
+ */
+export interface Underlay extends EntityBase {
+  readonly kind: "underlay";
+  /**
+   * The file's path from the folder of this drawing's file, with `\` or `/` between folders, such
+   * as `"arch.pdf"` or `"../arch/A-101.pdf"`.
+   */
+  readonly path: string;
+  /** The page's number from 1, as a string. Defaults to `"1"`. */
+  readonly page?: string;
+  /**
+   * The page's width and height in inches, as the file gives them and `pdfPageSize` reads them:
+   * its crop box, turned as the page is turned.
+   */
+  readonly pageSize: readonly [width: number, height: number];
+  /** Where the page's lower-left corner goes. */
+  readonly at: Point;
+  /** Drawing units to an inch of the page. Defaults to 1. */
+  readonly scale?: number;
+  /** Degrees counterclockwise. Defaults to 0. */
+  readonly rotation?: number;
+  /**
+   * The outline that clips it, in the drawing's coordinates: two opposite corners of a rectangle
+   * along the page's sides, or the points of a polygon, three or more.
+   */
+  readonly clip?: readonly Point[];
+  /** True to show the page outside its clip and hide what the clip holds. */
+  readonly invertClip?: boolean;
+  /** How far its colors are mixed toward white, from 0 to 80. Defaults to 0. */
+  readonly fade?: number;
+  /** How far its lightness keeps from a middle gray, from 20 to 100. Defaults to 100. */
+  readonly contrast?: number;
+  /** True to plot it in grays. */
+  readonly monochrome?: boolean;
+  /** False to show its frame alone. Defaults to true. */
+  readonly on?: boolean;
+}
+
+/**
  * A closed outline of a hatch: from each point to the next and from the last back to the first,
  * each side straight or an arc by its bulge, as a closed `Polyline`'s sides are.
  */
@@ -1217,6 +1273,7 @@ export type Entity =
   | OrdinateDimension
   | Leader
   | Image
+  | Underlay
   | Hatch
   | Wipeout
   | Table;
@@ -1606,6 +1663,13 @@ export interface Drawing {
    * to true, as the leading CAD app has it. A sheet with a logo or an aerial wants false.
    */
   readonly imageFrame?: boolean;
+  /**
+   * Whether each underlay's frame shows and plots: its page's outline, or its clip's, in its pen.
+   * `true`, the default, as the leading CAD app has it; `false` neither; `"screen"` shows it in a
+   * CAD program and does not plot it. `toSVG`, `toPDF` and the preview are plots, so they draw no
+   * frame for `"screen"`.
+   */
+  readonly underlayFrame?: boolean | "screen";
   /**
    * Whether each wipeout's frame shows and plots: its polygon, in its pen. Defaults to true, as
    * the leading CAD app has it. A mask behind notes wants false.
@@ -2120,6 +2184,43 @@ export interface ImageOptions<
   readonly invertClip?: boolean;
   /** True to show what is behind the transparent pixels of a PNG. */
   readonly transparent?: boolean;
+}
+
+/**
+ * The options of `underlay()`: the page, its size, scale and turn, its clip, how it plots, and the
+ * options of every entity.
+ */
+export interface UnderlayOptions<
+  T extends string = string,
+  W extends number = number,
+  L extends LinetypeValue = LinetypeDefinition,
+  I extends string = string,
+  Z extends Standard | undefined = undefined,
+  P extends string = string,
+> extends EntityOptions<"R2018", T, W, L, I, Z, P> {
+  /** The page's number from 1, as a string. Defaults to `"1"`. */
+  readonly page?: string;
+  /** The page's width and height in inches, which `pdfPageSize` reads from the file. */
+  readonly pageSize: readonly [width: number, height: number];
+  /** Drawing units to an inch of the page. Defaults to 1. */
+  readonly scale?: number;
+  /** Degrees counterclockwise. Defaults to 0. */
+  readonly rotation?: number;
+  /**
+   * The outline that clips it, in the drawing's coordinates: two opposite corners of a rectangle
+   * along the page's sides, or the points of a polygon, three or more.
+   */
+  readonly clip?: readonly Point[];
+  /** True to show the page outside its clip and hide what the clip holds. */
+  readonly invertClip?: boolean;
+  /** How far its colors are mixed toward white, a whole number from 0 to 80. Defaults to 0. */
+  readonly fade?: number;
+  /** How far its lightness keeps from a middle gray, a whole number from 20 to 100. Defaults to 100. */
+  readonly contrast?: number;
+  /** True to plot it in grays. */
+  readonly monochrome?: boolean;
+  /** False to show its frame alone. Defaults to true. */
+  readonly on?: boolean;
 }
 
 /** A text style to define: a `TextStyle`, checked. */
@@ -3982,6 +4083,87 @@ export class DrawingBuilder<
         ...(o.clip === undefined ? {} : { clip: o.clip.map(pt) }),
         ...(o.invertClip === true ? { invertClip: true } : {}),
         ...(o.transparent === true ? { transparent: true } : {}),
+      };
+    });
+  }
+
+  /**
+   * A page of the PDF file at `path`, from the folder of this drawing's file, with its lower-left
+   * corner at `at` and one drawing unit to an inch of the page, times `scale`. `pageSize` is the
+   * page's own, which `pdfPageSize` reads. `clip` hides what lies outside two corners of a
+   * rectangle along its sides or a polygon, in the drawing's coordinates. R2018 only.
+   *
+   * ```ts
+   * d.underlay("arch.pdf", [0, 0], { page: "2", pageSize: [36, 24], scale: 48 });
+   * ```
+   */
+  underlay<
+    const F extends string,
+    T extends string = string,
+    W extends number = number,
+    const L extends LinetypeValue = LinetypeDefinition,
+    I extends string = string,
+    P extends string = string,
+  >(
+    path: V extends "R12" ? R12Underlays : UnderlayPath<F>,
+    at: Point,
+    options: V extends "R12" ? R12Underlays : UnderlayOptions<T, W, L, I, Z, P>,
+  ): this {
+    const o = options as unknown as UnderlayOptions;
+    return this.#add(DrawingBuilder.prototype.underlay, o, () => {
+      if (this.dxf === "R12") refuse("underlay", R12_ONLY.underlays);
+      const pathProblem = underlayPathProblem(path);
+      if (pathProblem) refuse("underlay", pathProblem);
+      if (o.page !== undefined) {
+        const pageProblem = underlayPageProblem(o.page);
+        if (pageProblem) refuse("underlay", pageProblem);
+      }
+      const sizeProblem = underlayPageSizeProblem(o.pageSize);
+      if (sizeProblem) refuse("underlay", sizeProblem);
+      if (o.scale !== undefined) {
+        const scaleProblem = underlayScaleProblem(o.scale);
+        if (scaleProblem) refuse("underlay", scaleProblem);
+      }
+      const placed = underlayPlacedProblem(o.pageSize, o.scale ?? 1, pt(at));
+      if (placed) refuse("underlay", placed);
+      if (o.fade !== undefined && underlayFadeProblem(o.fade))
+        refuse("underlay", underlayFadeProblem(o.fade)!);
+      if (o.contrast !== undefined && underlayContrastProblem(o.contrast))
+        refuse("underlay", underlayContrastProblem(o.contrast)!);
+      const rotation =
+        o.rotation === undefined ? undefined : kept(num(o.rotation, "rotation"), "rotation");
+      for (const [field, value] of [
+        ["invertClip", o.invertClip],
+        ["monochrome", o.monochrome],
+        ["on", o.on],
+      ] as const) {
+        if (value !== undefined && typeof value !== "boolean") {
+          refuse("underlay", `${field} must be true or false`);
+        }
+      }
+      const underlay: Underlay = {
+        kind: "underlay",
+        layer: this.#current,
+        path: path as string,
+        ...(o.page === undefined ? {} : { page: o.page }),
+        pageSize: [o.pageSize[0], o.pageSize[1]],
+        at: pt(at),
+        ...(o.scale === undefined ? {} : { scale: o.scale }),
+        ...(rotation === undefined ? {} : { rotation }),
+      };
+      if (o.clip !== undefined) {
+        const [u, v] = underlayVectors(underlay);
+        const clipProblem = underlayClipProblem(o.clip, underlay.at, u, v);
+        if (clipProblem) refuse("underlay", `clip: ${clipProblem}`);
+      } else if (o.invertClip === true) refuse("underlay", UNDERLAY_INVERT_WITHOUT_CLIP);
+      return {
+        ...underlay,
+        ...(o.clip === undefined ? {} : { clip: o.clip.map(pt) }),
+        ...(o.invertClip === true ? { invertClip: true } : {}),
+        ...(o.fade === undefined || o.fade === 0 ? {} : { fade: o.fade }),
+        ...(o.contrast === undefined || o.contrast === 100 ? {} : { contrast: o.contrast }),
+        ...(o.monochrome === true ? { monochrome: true } : {}),
+        ...(o.on === false ? { on: false } : {}),
       };
     });
   }

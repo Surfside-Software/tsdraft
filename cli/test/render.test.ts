@@ -1679,3 +1679,39 @@ test("render reads each image's file beside its drawing, an xref's beside the xr
   assert.match(svg, /data-pixels="2 2"/);
   assert.match(svg, /data-pixels="3 3"/);
 });
+
+test("render checks each underlay's page size against its PDF, and draws no page the PDF lacks", () => {
+  const dir = realpathSync(tempDir());
+  // A PDF of one page 11 by 8.5 inches, whose objects the reader finds by their headers.
+  writeFileSync(
+    join(dir, "arch.pdf"),
+    "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 792 612] >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n",
+  );
+  writeFileSync(join(dir, "arch.pdf.page1.png"), grayPng(110, 85));
+  // A picture left from a page the file no longer has.
+  writeFileSync(join(dir, "arch.pdf.page9.png"), grayPng(110, 85));
+  const underlay = { kind: "underlay", layer: "0", path: "arch.pdf", at: [0, 0] };
+  const drawing = {
+    format: 0,
+    units: "in",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    entities: [
+      { ...underlay, pageSize: [11, 8.5] },
+      { ...underlay, at: [20, 0], pageSize: [8.5, 11] },
+      { ...underlay, at: [50, 0], page: "9", pageSize: [11, 8.5] },
+    ],
+  };
+  const plan = join(dir, "plan.ts");
+  writeFileSync(plan, `export default ${JSON.stringify(drawing)};\n`);
+  const { state } = render(plan);
+  const said = state.diagnostics.map((d) => `${d.severity}: ${d.message}`);
+  assert.equal(said.length, 2, said.join("\n"));
+  assert.match(
+    said[0]!,
+    /^error: Page 1 of the underlay "arch.pdf" is 11 by 8.5 inches.*\[8\.5,11\]/,
+  );
+  assert.match(said[1]!, /^warning: The file of the underlay "arch.pdf" has no page 9,/);
+  // The page is drawn as missing at each placement, since one of them is refused.
+  assert.doesNotMatch(readFileSync(state.outputs.svg!, "utf8"), /<use/);
+});

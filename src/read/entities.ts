@@ -5,6 +5,7 @@ import type { Point } from "../drawing.ts";
 import { textOnce, textTwice } from "./groups.ts";
 import { readAlpha } from "../transparency.ts";
 import { wholeImageClip } from "../images.ts";
+import { UNDERLAY_CONTRAST_DEFAULT, UNDERLAY_FADE_DEFAULT } from "../underlays.ts";
 import type {
   ReadAttribute,
   ReadAttributeParagraph,
@@ -18,6 +19,7 @@ import type {
   ReadGradient,
   ReadHatchLoop,
   ReadImage,
+  ReadUnderlay,
   ReadPatternLine,
   ReadMtext,
   ReadMultileader,
@@ -271,6 +273,8 @@ export function readingOf(
       return leader(r, base, face);
     case "IMAGE":
       return image(r, base);
+    case "PDFUNDERLAY":
+      return underlay(r, base);
     case "HATCH":
       return hatch(r, base, face);
     case "WIPEOUT":
@@ -702,6 +706,71 @@ function wipeout(r: Rec, base: ReadEntityBase): Reading {
     return [at[0] + a * u[0] + b * v[0], at[1] + a * u[1] + b * v[1]];
   });
   return { entity: { ...base, kind: "wipeout", points } };
+}
+
+/**
+ * An underlay as its file places it, its clip in the world's coordinates. Its path and page are
+ * the definition's, which the reader fills in once it has read the definitions:
+ * `underlayInWorld` finishes it.
+ */
+function underlay(r: Rec, base: ReadEntityBase): Reading {
+  const s = inSubclass(r, "AcDbUnderlayReference");
+  const normal = [num(s, 210) ?? 0, num(s, 220) ?? 0, num(s, 230) ?? 1];
+  if (Math.abs(normal[0]!) > 1e-9 || Math.abs(normal[1]!) > 1e-9 || normal[2]! <= 0)
+    return { other: "PDFUNDERLAY in 3D" };
+  const flags = num(s, 280) ?? 2;
+  const points: Point[] = [];
+  for (let i = 0; i < s.codes.length; i++) {
+    if (s.codes[i] !== 11) continue;
+    const y = s.codes[i + 1] === 21 ? Number(s.values[i + 1]) : 0;
+    points.push([Number(s.values[i]), y]);
+  }
+  const definition = handleAt(s, 340);
+  const contrast = num(s, 281) ?? UNDERLAY_CONTRAST_DEFAULT;
+  // The leading CAD app saves no contrast of 75 and no fade of 25, which a file without one means.
+  const fade = num(s, 282) ?? UNDERLAY_FADE_DEFAULT;
+  const turn = num(s, 50) ?? 0;
+  const rotation = ((turn % 360) + 360) % 360;
+  const at = point(s, 10);
+  const scale: [number, number] = [num(s, 41) ?? 1, num(s, 42) ?? 1];
+  // The clip, from the page's inches into the world's coordinates.
+  const [cos, sin] = [Math.cos((rotation * Math.PI) / 180), Math.sin((rotation * Math.PI) / 180)];
+  const clip = points.map(([x, y]): Point => {
+    const [sx, sy] = [x * scale[0], y * scale[1]];
+    return [at[0] + sx * cos - sy * sin, at[1] + sx * sin + sy * cos];
+  });
+  if (!clip.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y))) {
+    return { malformed: "PDFUNDERLAY whose clip is past the doubles" };
+  }
+  return {
+    entity: {
+      ...base,
+      kind: "underlay",
+      path: "",
+      page: "",
+      ...(definition !== undefined && { definition }),
+      at,
+      scale,
+      rotation,
+      ...(points.length >= 2 && { clip }),
+      ...(points.length >= 2 && (flags & 1) === 0 && { unclipped: true }),
+      ...((flags & 16) !== 0 && points.length >= 2 && { invertClip: true }),
+      ...((flags & 4) !== 0 && { monochrome: true }),
+      ...((flags & 2) === 0 && { hidden: true }),
+      ...(fade !== 0 && { fade }),
+      ...(contrast !== 100 && { contrast }),
+    },
+  };
+}
+
+/** Finishes an underlay the reader kept: its definition's path and page. */
+export function underlayInWorld(
+  underlay: ReadUnderlay,
+  definition: { readonly path: string; readonly page: string } | undefined,
+): void {
+  const mutable = underlay as Mutable<ReadUnderlay>;
+  mutable.path = definition?.path ?? "";
+  mutable.page = definition?.page ?? "";
 }
 
 /**
@@ -1411,6 +1480,8 @@ export function costOf(e: ReadEntity): number {
       return own + more;
     }
     case "image":
+      return own + 4 + (e.clip?.length ?? 0) + chars(e.definition);
+    case "underlay":
       return own + 4 + (e.clip?.length ?? 0) + chars(e.definition);
     case "hatch": {
       let points = 0;

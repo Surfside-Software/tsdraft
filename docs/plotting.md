@@ -71,6 +71,9 @@ preview shows it:
   dashes as [How it plots](polylines.md#how-it-plots) says.
 - An image is drawn from its file's bytes, given as `images`, clipped to its clip, with its frame
   in its pen, and the PDF holds each file once, as [Plotting](images.md#plotting) says.
+- An underlay is drawn from a picture of its page, given as `underlays`, in its fade, contrast and
+  monochrome and in its own colors whatever the plot style table, clipped to its clip, with its
+  frame unless `underlayFrame` says otherwise, as [Plotting](underlays.md#plotting) says.
 - A hatch is filled by the parity of its loops, or draws its pattern's lines and dashes cut to
   them, a wipeout and a mask in the paper's white or a mask's color, each over what is drawn
   before it, as [Fills, wipeouts and masks](fills.md) says.

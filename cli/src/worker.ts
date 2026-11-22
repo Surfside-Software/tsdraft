@@ -151,6 +151,7 @@ interface Library {
       standard?: unknown;
       xrefs?: GivenXrefs;
       shapes?: Readonly<Record<string, Uint8Array>>;
+      underlays?: Readonly<Record<string, Readonly<Record<string, Uint8Array>>>>;
     },
   ) => Diagnostic[];
   /** A copy of tsdraft from before standards has none, and its `lint` takes no standard. */
@@ -165,10 +166,18 @@ interface Library {
       view?: readonly [number, number, number, number];
       images?: Readonly<Record<string, Uint8Array>>;
       shapes?: Readonly<Record<string, Uint8Array>>;
+      underlays?: Readonly<Record<string, Readonly<Record<string, Uint8Array>>>>;
     },
   ) => string;
   /** The key a shape file is found by. A copy of tsdraft from before shapes has none. */
   readonly shapeFileKey?: (file: string) => string;
+  /** Where an underlay's page goes. A copy of tsdraft from before underlays has none. */
+  readonly underlayCorners?: unknown;
+  /** A PDF page's size in inches. A copy of tsdraft from before it has none. */
+  readonly pdfPageSize?: (
+    bytes: Uint8Array,
+    page: string | number,
+  ) => readonly [number, number] | undefined;
   /** A raster file's pixels. A copy of tsdraft from before images has none. */
   readonly rasterSize?: (bytes: Uint8Array) => [number, number] | undefined;
   /** What is wrong with the text as it plots. A copy of tsdraft from before it has none. */
@@ -628,7 +637,12 @@ async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<Wo
       const budget = { total: 0 };
       const rasters = rasterFiles(library, shown, file, budget);
       diagnostics.push(...rasters.diagnostics);
-      const images = rasters.images === undefined ? {} : { images: rasters.images };
+      const pages = pageFiles(library, shown, file, budget);
+      diagnostics.push(...pages.diagnostics);
+      const images = {
+        ...(rasters.images === undefined ? {} : { images: rasters.images }),
+        ...(pages.underlays === undefined ? {} : { underlays: pages.underlays }),
+      };
       const pictured =
         rasters.images === undefined
           ? drawn
@@ -1422,6 +1436,184 @@ function rasterFiles(
     }
   }
   return { images, diagnostics };
+}
+
+/**
+ * The pictures of the pages a drawing's underlays show, by each underlay's path as the drawing
+ * gives it, then by its page: `<file>.page<N>.png` beside the PDF, which `pdftocairo` draws, read
+ * from the folder of the drawing's file, with what is wrong with each. A page with no picture is
+ * drawn as the leading CAD app draws an underlay whose file it cannot find, and the warning gives
+ * the command that draws one. Where the library reads a PDF's page sizes, an underlay whose
+ * `pageSize` is not its page's is an error. Each file is tracked, so `tsdraft dev` builds again
+ * when one changes. Undefined for a copy of tsdraft from before underlays.
+ */
+function pageFiles(
+  library: Library,
+  drawing: Drawing,
+  file: string,
+  budget: { total: number },
+): {
+  underlays: Record<string, Record<string, Uint8Array>> | undefined;
+  diagnostics: BuildDiagnostic[];
+} {
+  if (library.underlayCorners === undefined || typeof library.rasterSize !== "function")
+    return { underlays: undefined, diagnostics: [] };
+  // Objects of no prototype, so a path or page such as `__proto__` is a key like any other.
+  const underlays: Record<string, Record<string, Uint8Array>> = Object.create(null);
+  const diagnostics: BuildDiagnostic[] = [];
+  const pdfs = new Map<string, Uint8Array | null>();
+  const lists: unknown[] = [
+    drawing.entities,
+    ...(Array.isArray(drawing.layouts) ? drawing.layouts.map((l) => l?.entities) : []),
+    ...(Array.isArray(drawing.blocks) ? drawing.blocks.map((b) => b?.entities) : []),
+  ];
+  const read = (at: string): Uint8Array | null => {
+    track(at, fileVersion(at));
+    try {
+      const real = realpathSync(at);
+      if (real !== at) track(real, fileVersion(real));
+    } catch {
+      // A missing file has no file behind it.
+    }
+    try {
+      return new Uint8Array(readFileSync(at));
+    } catch {
+      return null;
+    }
+  };
+  /** Each page's files, read once: its PDF's size of it, and its picture's pixels. */
+  const pagesRead = new Map<
+    string,
+    {
+      pdfAt: string;
+      /** The page's size in the PDF; undefined where it cannot be read, null with no PDF. */
+      size: readonly [number, number] | undefined | null;
+      /** Whether the PDF is read but has no such page. */
+      absent: boolean;
+      picture: Uint8Array | null;
+      pixels: readonly [number, number] | undefined;
+      command: string;
+    }
+  >();
+  /** The pages a placement was refused for: the pictures draw none of their placements. */
+  const refused: [path: string, page: string][] = [];
+  /** Whether pdfPageSize reads each PDF's first page: if so, a page it cannot read is absent. */
+  const firstPages = new Map<Uint8Array, boolean>();
+  const said = new Set<string>();
+  const say = (severity: "warning" | "error", message: string): void => {
+    if (said.has(message)) return;
+    said.add(message);
+    diagnostics.push({ rule: "underlay", severity, message });
+  };
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const e of list) {
+      if (typeof e !== "object" || e === null || e.kind !== "underlay") continue;
+      const {
+        path,
+        page: given,
+        pageSize,
+      } = e as {
+        path?: unknown;
+        page?: unknown;
+        pageSize?: unknown;
+      };
+      const page = given === undefined ? "1" : given;
+      if (typeof path !== "string" || typeof page !== "string") continue;
+      if (isAbsolute(path) || /^[A-Za-z]:/.test(path)) continue;
+      const key = `${page}|${path}`;
+      let files = pagesRead.get(key);
+      if (files === undefined) {
+        if (budget.total > RASTER_BYTES) continue;
+        const pdfAt = join(dirname(file), path.replaceAll("\\", "/"));
+        let pdf = pdfs.get(pdfAt);
+        if (pdf === undefined) pdfs.set(pdfAt, (pdf = read(pdfAt)));
+        const sizeOf = typeof library.pdfPageSize === "function" ? library.pdfPageSize : undefined;
+        const size = pdf === null ? null : sizeOf?.(pdf, page);
+        let readable = pdf === null ? undefined : firstPages.get(pdf);
+        if (pdf !== null && readable === undefined) {
+          firstPages.set(pdf, (readable = sizeOf?.(pdf, 1) !== undefined));
+        }
+        const absent = size === undefined && readable === true;
+        const pictureAt = `${pdfAt}.page${page}.png`;
+        const picture = pdf === null || absent ? null : read(pictureAt);
+        if (picture !== null) budget.total += picture.length;
+        const pixels =
+          picture === null || picture[0] !== 0x89 ? undefined : library.rasterSize(picture);
+        const command = `pdftocairo -png -transp -cropbox -r 150 -f ${page} -l ${page} -singlefile ${JSON.stringify(pdfAt)} ${JSON.stringify(`${pdfAt}.page${page}`)}`;
+        pagesRead.set(key, (files = { pdfAt, size, absent, picture, pixels, command }));
+      }
+      const { pdfAt, size, absent, picture, pixels, command } = files;
+      const pictureAt = `${pdfAt}.page${page}.png`;
+      if (size === null) {
+        say(
+          "warning",
+          `The file of the underlay ${JSON.stringify(path)} is not at ${pdfAt}, so the pictures write that it is missing, as the leading CAD app does`,
+        );
+        continue;
+      }
+      if (absent) {
+        say(
+          "warning",
+          `The file of the underlay ${JSON.stringify(path)} has no page ${page}, so the pictures write that it is missing`,
+        );
+        continue;
+      }
+      const [w, h] = Array.isArray(pageSize) ? (pageSize as unknown[]) : [];
+      if (size === undefined && typeof library.pdfPageSize === "function") {
+        say(
+          "warning",
+          `The file of the underlay ${JSON.stringify(path)} has no page ${page} that pdfPageSize can read, so its size is not checked`,
+        );
+      } else if (
+        size !== undefined &&
+        (typeof w !== "number" ||
+          typeof h !== "number" ||
+          !(Math.abs(w - size[0]) <= 1e-6 * Math.max(1, size[0])) ||
+          !(Math.abs(h - size[1]) <= 1e-6 * Math.max(1, size[1])))
+      ) {
+        say(
+          "error",
+          `Page ${page} of the underlay ${JSON.stringify(path)} is ${size[0]} by ${size[1]} inches, and the drawing gives it ${JSON.stringify(pageSize)}: the leading CAD app would place it at another size. Give it the page's size, which pdfPageSize reads. Until then the pictures write that the file of each underlay of the page is missing`,
+        );
+        refused.push([path, page]);
+        continue;
+      }
+      if (picture === null) {
+        say(
+          "warning",
+          `Page ${page} of the underlay ${JSON.stringify(path)} has no picture at ${pictureAt}, so the pictures write that its file is missing. Draw one with: ${command}`,
+        );
+        continue;
+      }
+      if (pixels === undefined) {
+        say(
+          "warning",
+          `The picture ${pictureAt} of page ${page} of the underlay ${JSON.stringify(path)} is not a PNG the pictures can draw, so they write that its file is missing. Draw one with: ${command}`,
+        );
+        continue;
+      }
+      // Some one resolution draws both sides of the page within a pixel of the picture's.
+      const [px, py] = pixels;
+      if (
+        typeof w === "number" &&
+        typeof h === "number" &&
+        w > 0 &&
+        h > 0 &&
+        !(Math.max((px - 1) / w, (py - 1) / h) <= Math.min((px + 1) / w, (py + 1) / h))
+      ) {
+        say(
+          "error",
+          `The picture ${pictureAt} is ${px} by ${py} pixels, and page ${page} of the underlay ${JSON.stringify(path)} is ${w} by ${h} inches: the picture must have the page's shape. Draw it from the page's crop box with: ${command}. Until then the pictures write that the file of each underlay of the page is missing`,
+        );
+        refused.push([path, page]);
+        continue;
+      }
+      (underlays[path] ??= Object.create(null) as Record<string, Uint8Array>)[page] = picture;
+    }
+  }
+  for (const [path, page] of refused) delete underlays[path]?.[page];
+  return { underlays, diagnostics };
 }
 
 /**

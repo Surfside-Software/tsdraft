@@ -640,15 +640,28 @@ export function opaquePng(info: PngInfo, bytes: Uint8Array): Uint8Array | undefi
   if (pixels === undefined) return undefined;
   const { width, height, channels, samples } = pixels;
   const colors = channels >= 3 ? 3 : 1;
-  const row = width * colors + 1;
+  const kept = new Uint8Array(width * height * colors);
+  for (let i = 0; i < width * height; i++) {
+    for (let k = 0; k < colors; k++) kept[i * colors + k] = samples[i * channels + k]!;
+  }
+  return storedPng(width, height, colors, kept);
+}
+
+/**
+ * A PNG of 8-bit samples, `channels` to a pixel: 1 gray, 2 gray and alpha, 3 RGB, 4 RGB and alpha,
+ * rows from the top, written in deflate's stored blocks, which need no compressor.
+ */
+export function storedPng(
+  width: number,
+  height: number,
+  channels: 1 | 2 | 3 | 4,
+  samples: Uint8Array,
+): Uint8Array {
+  const row = width * channels + 1;
   const raw = new Uint8Array(row * height);
   for (let y = 0; y < height; y++) {
     // Filter 0 on every row: the samples as they are.
-    for (let x = 0; x < width; x++) {
-      for (let k = 0; k < colors; k++) {
-        raw[y * row + 1 + x * colors + k] = samples[(y * width + x) * channels + k]!;
-      }
-    }
+    raw.set(samples.subarray(y * width * channels, (y + 1) * width * channels), y * row + 1);
   }
   const blocks = Math.max(1, Math.ceil(raw.length / 65_535));
   const zlib = new Uint8Array(2 + raw.length + 5 * blocks + 4);
@@ -676,7 +689,7 @@ export function opaquePng(info: PngInfo, bytes: Uint8Array): Uint8Array | undefi
   const header = new Uint8Array(13);
   header.set([width >>> 24, (width >>> 16) & 255, (width >>> 8) & 255, width & 255]);
   header.set([height >>> 24, (height >>> 16) & 255, (height >>> 8) & 255, height & 255], 4);
-  header.set([8, colors === 3 ? 2 : 0, 0, 0, 0], 8);
+  header.set([8, ({ 1: 0, 2: 4, 3: 2, 4: 6 } as const)[channels], 0, 0, 0], 8);
   return concat([
     new Uint8Array(PNG_SIGNATURE),
     chunk("IHDR", header),

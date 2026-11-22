@@ -50,6 +50,16 @@ export interface DrawingRead {
    * no image uses among them: the leading CAD app keeps one through a save and a purge.
    */
   readonly images: readonly ReadImageDefinition[];
+  /**
+   * Each PDF definition of the file's dictionary of them, in the order of the dictionary, those no
+   * underlay uses among them: the leading CAD app keeps one through a save and a purge.
+   */
+  readonly underlays: readonly ReadUnderlayDefinition[];
+  /**
+   * The dictionary variable `PDFFRAME`: `false` when underlays' frames neither show nor plot,
+   * `"screen"` when they show and do not plot. Left out when they show and plot, as with none.
+   */
+  readonly underlayFrame?: false | "screen";
   /** Model space: its census, and with `geometry` what it draws. */
   readonly model: ReadSpace;
   /** Each layout of paper space, in the order of its tab. */
@@ -787,6 +797,42 @@ export interface ReadSolid extends ReadEntityBase {
 }
 
 /**
+ * A page of a PDF file under the drawing, as the file places it: the page's lower-left corner, its
+ * scale each way, which takes one inch of the page to drawing units, and its turn.
+ */
+export interface ReadUnderlay extends ReadEntityBase {
+  readonly kind: "underlay";
+  /** The path of its definition as the file holds it, or `""` when it names none. */
+  readonly path: string;
+  /** The page its definition names, or `""` when it names none. */
+  readonly page: string;
+  /** The handle of its definition, when it names one. */
+  readonly definition?: string;
+  readonly at: Point;
+  /** Drawing units to an inch of the page, across and up. */
+  readonly scale: readonly [x: number, y: number];
+  /** Degrees counterclockwise, from 0 up to 360. */
+  readonly rotation: number;
+  /**
+   * The clip's boundary in the world's coordinates: a rectangle's top-left and bottom-right
+   * corners along the page's sides, or a polygon. Left out when the file holds none.
+   */
+  readonly clip?: readonly Point[];
+  /** True when the file holds a clip and says not to clip by it. */
+  readonly unclipped?: boolean;
+  /** True when the page shows outside its clip, and the clip is a hole. */
+  readonly invertClip?: boolean;
+  /** True when it plots in grays. */
+  readonly monochrome?: boolean;
+  /** True when the file says not to show the page, which then shows its frame alone. */
+  readonly hidden?: boolean;
+  /** Group 282, from 0 to 100. Left out at 0. */
+  readonly fade?: number;
+  /** Group 281, from 0 to 100. Left out at 100. */
+  readonly contrast?: number;
+}
+
+/**
  * A raster image, as the file places it: its lower-left corner and the vectors of one of its
  * pixels along its bottom and up its side, which a mirrored or slanted image has too.
  */
@@ -977,6 +1023,7 @@ export type ReadEntity =
   | ReadLeader
   | ReadSolid
   | ReadImage
+  | ReadUnderlay
   | ReadHatch
   | ReadWipeout
   | ReadTable;
@@ -1007,6 +1054,19 @@ export interface ReadXref {
   /** The path as the file holds it, relative or absolute. */
   readonly path: string;
   readonly overlay: boolean;
+}
+
+/** A PDF definition: the page of a file an underlay shows. */
+export interface ReadUnderlayDefinition {
+  readonly handle?: string | undefined;
+  /** Its name in the dictionary of PDF definitions. */
+  readonly name: string;
+  /** The path as the file holds it, relative or absolute. */
+  readonly path: string;
+  /** The page as the file names it. */
+  readonly page: string;
+  /** How many underlays of the page name it. */
+  readonly underlays: number;
 }
 
 /** An image definition: the file an image shows. */

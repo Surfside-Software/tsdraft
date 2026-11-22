@@ -78,6 +78,10 @@ states and keeps each object's handle, and it keeps going past what it does not 
 - `images`: each image definition of the file's dictionary of them, with its name, its path as
   the file holds it, the pixels it states, whether it is loaded, and how many images name it. One
   no image uses is kept, as CAD programs keep it through a save and a purge.
+- `underlays`: each PDF definition of the file's dictionary of them, with its name, its path as the
+  file holds it, its page, and how many underlays name it, one no underlay uses among them.
+  `underlayFrame` is `false` where the file says underlays' frames neither show nor plot, and
+  `"screen"` where they show and do not plot.
 - `layouts`: each with its paper, its plotter, its plot style table, its plot's rotation, its
   viewports and its inserts. A viewport has its rectangle on the paper, the center and height
   of the model space it shows, `ratio`, which is paper units per model unit, its twist, and
@@ -178,6 +182,14 @@ leader:
   file says not to show and `unclipped` for one it says not to clip say so, and `brightness`,
   `contrast` and `fade` are left out at 50, 50 and 0. An image out of the plane is counted under
   `other`.
+- `underlay`: a page of a PDF, with its definition's `path` and `page` and the handle of the
+  `definition`, its lower-left corner `at`, its `scale` across and up, which takes an inch of the
+  page to drawing units, and its `rotation` from 0 up to 360. `clip` is its clip boundary where the
+  file holds one, in the world's coordinates: a rectangle's top-left and bottom-right corners along
+  the page, as CAD programs save them, or a polygon. `invertClip`, `monochrome`, `hidden` for one
+  the file says not to show and `unclipped` for one whose clip it says not to use say so, and
+  `fade` and `contrast` are left out at 0 and 100. A file without them means 25 and 75. It holds
+  no page size, which only the PDF gives. An underlay out of the plane is counted under `other`.
 - `hatch`: its `pattern`, such as `SOLID` or `ANSI31`, whether it is `solid`, its island `style`,
   `normal`, `outer` or `ignore`, `associative` where the file ties it to what it bounds, and its
   `loops`, each its `points`, its `bulges` where a side is an arc, and its `flags` as the file

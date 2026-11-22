@@ -41,6 +41,7 @@ import type {
   Hatch,
   HatchPattern,
   Image,
+  Underlay,
   Layout,
   Viewport,
   Insert,
@@ -59,6 +60,7 @@ import type {
 import { isFitSpline } from "./drawing.ts";
 import { boxer, type Boxer } from "./extents.ts";
 import { exactKey, imagePathKey, imageReactorHandle, imageVectors } from "./images.ts";
+import { underlayVectors } from "./underlays.ts";
 import { written } from "./format.ts";
 import { validIdHandle } from "./handles.ts";
 import { validLayoutHandles, validViewportView, viewReaches } from "./layouts.ts";
@@ -106,6 +108,15 @@ import { parseParagraph, type ParsedParagraph } from "./paragraph-codes.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype } from "./linetypes.ts";
 import {
   IMAGE_CLIP_MOST,
+  underlayClipProblem,
+  underlayContrastProblem,
+  underlayFadeProblem,
+  underlayPageProblem,
+  underlayPageSizeProblem,
+  underlayPathProblem,
+  underlayPlacedProblem,
+  underlayScaleProblem,
+  UNDERLAY_INVERT_WITHOUT_CLIP,
   IMAGE_CLIP_MOST_PROBLEM,
   IMAGE_INVERT_WITHOUT_CLIP,
   IMAGE_PIXELS_SAME,
@@ -293,6 +304,7 @@ export type LintRule =
   | "table"
   | "paragraph"
   | "image"
+  | "underlay"
   | "hatch"
   | "hatch-pattern"
   | "hatch-gradient"
@@ -636,6 +648,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         cost += long1(e.style) + long1(e.textStyle);
         break;
       case "image":
+      case "underlay":
         cost += long1(e.path);
         break;
       case "hatch":
@@ -838,6 +851,20 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       severity: "error",
       message: "imageFrame must be true or false",
       item: "imageFrame",
+    });
+  }
+  const underlayFrame: unknown = drawing.underlayFrame;
+  if (
+    underlayFrame !== undefined &&
+    underlayFrame !== true &&
+    underlayFrame !== false &&
+    underlayFrame !== "screen"
+  ) {
+    out.push({
+      rule: "underlay",
+      severity: "error",
+      message: 'underlayFrame must be true, false or "screen"',
+      item: "underlayFrame",
     });
   }
   const wipeoutFrame: unknown = drawing.wipeoutFrame;
@@ -2076,6 +2103,61 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       if (clash) add("id-handle", "error", clash);
     }
   };
+  /** Checks what an underlay holds beyond the fields every entity has. */
+  const lintUnderlay = (underlay: Underlay, add: Add, sound: boolean, here: () => string): void => {
+    const pathProblem = underlayPathProblem(underlay.path);
+    if (pathProblem) add("underlay", "error", pathProblem);
+    if (underlay.page !== undefined) {
+      const pageProblem = underlayPageProblem(underlay.page);
+      if (pageProblem) add("underlay", "error", pageProblem);
+    }
+    const sizeProblem = underlayPageSizeProblem(underlay.pageSize);
+    if (sizeProblem) add("underlay", "error", sizeProblem);
+    const scaleProblem =
+      underlay.scale === undefined ? undefined : underlayScaleProblem(underlay.scale);
+    if (scaleProblem) add("underlay", "error", scaleProblem);
+    if (sizeProblem === undefined && scaleProblem === undefined && sound) {
+      const placed = underlayPlacedProblem(underlay.pageSize, underlay.scale ?? 1, underlay.at);
+      if (placed) add("underlay", "error", placed);
+    }
+    if (underlay.fade !== undefined && underlayFadeProblem(underlay.fade))
+      add("underlay", "error", underlayFadeProblem(underlay.fade)!);
+    if (underlay.contrast !== undefined && underlayContrastProblem(underlay.contrast))
+      add("underlay", "error", underlayContrastProblem(underlay.contrast)!);
+    for (const [field, value] of [
+      ["invertClip", underlay.invertClip],
+      ["monochrome", underlay.monochrome],
+      ["on", underlay.on],
+    ] as const) {
+      if (value !== undefined && typeof value !== "boolean") {
+        add("underlay", "error", `${field} must be true or false`);
+      }
+    }
+    if (underlay.clip === undefined && underlay.invertClip === true) {
+      add("underlay", "error", UNDERLAY_INVERT_WITHOUT_CLIP);
+    }
+    if (sound && scaleProblem === undefined && underlay.clip !== undefined) {
+      const list: unknown = underlay.clip;
+      if (Array.isArray(list) && list.length > IMAGE_CLIP_MOST) {
+        add(
+          "underlay",
+          "error",
+          `clip: ${IMAGE_CLIP_MOST_PROBLEM.replace("An image's", "An underlay's")}`,
+        );
+      } else if (
+        Array.isArray(list) &&
+        list.length > 64 &&
+        !spend(Math.floor(list.length / 8), here)
+      ) {
+        return;
+      } else {
+        const [u, v] = underlayVectors(underlay);
+        const at: Point = [written(underlay.at[0]), written(underlay.at[1])];
+        const problem = underlayClipProblem(underlay.clip, at, u, v);
+        if (problem) add("underlay", "error", `clip: ${problem}`);
+      }
+    }
+  };
   /** Checks the id of an entity or a viewport and takes its handle. True for an id that is new. */
   const lintId = (id: unknown, add: Add): boolean => {
     if (id === undefined) return false;
@@ -2133,6 +2215,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         isObject(entity) &&
         (entity.kind === "polyline" ||
           entity.kind === "image" ||
+          entity.kind === "underlay" ||
           entity.kind === "paragraph" ||
           entity.kind === "hatch" ||
           entity.kind === "wipeout" ||
@@ -2142,7 +2225,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         const columns: unknown = entity.kind === "paragraph" ? entity.columns : undefined;
         const loops = entity.kind === "hatch" ? filled(entity.loops as unknown) : [];
         const lists =
-          entity.kind === "image"
+          entity.kind === "image" || entity.kind === "underlay"
             ? [entity.clip]
             : entity.kind === "paragraph"
               ? [isObject(columns) ? columns.heights : undefined]
@@ -2368,6 +2451,13 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
           return;
         }
         lintImage(entity, add, problems.length === 0, named, here);
+      }
+      if (entity.kind === "underlay") {
+        if (r12) {
+          add("underlay", "error", R12_ONLY.underlays);
+          return;
+        }
+        lintUnderlay(entity, add, problems.length === 0, here);
       }
       if (r12 && (entity.kind === "ellipse" || entity.kind === "spline")) {
         add("geometry", "error", R12_ONLY.curves);
@@ -3073,6 +3163,9 @@ function geometryProblems(e: Entity): string[] {
       size("width", e.width);
       size("height", e.height);
       break;
+    case "underlay":
+      finite("its position and rotation", ...e.at, e.rotation ?? 0);
+      break;
     case "hatch": {
       if (e.loops.length === 0) out.push(HATCH_NO_LOOPS);
       // One message of each kind for the hatch, with the first loop it is about.
@@ -3155,6 +3248,7 @@ function zeroLength(e: Entity): string | undefined {
     case "aligned-dimension":
     case "leader":
     case "image":
+    case "underlay":
       return undefined;
   }
 }

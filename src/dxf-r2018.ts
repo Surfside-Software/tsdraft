@@ -49,6 +49,7 @@ import type {
   EntityColor,
   EntityTransparency,
   Image,
+  Underlay,
   Insert,
   Layout,
   Leader,
@@ -105,6 +106,23 @@ import {
   writtenImagePath,
   type ImageDefinition,
 } from "./images.ts";
+import {
+  drawingUnderlays,
+  pageOf,
+  UNDERLAY_DICTIONARY,
+  underlayClip,
+  underlayDefinitions,
+  underlayDictionaryHandle,
+  underlayFlags,
+  underlayFrameValue,
+  underlayFrameVariableHandle,
+  underlayPathKey,
+  type UnderlayDefinition,
+} from "./underlays.ts";
+
+/** The key of a page's definition: its page, and its path with \ and / as one. */
+const underlayKey = (path: string, page: string): string =>
+  exactKey(`${page}|${underlayPathKey(path)}`);
 import {
   cellStyleOf,
   gridCells,
@@ -269,6 +287,14 @@ export function toDXFR2018(
   for (const definition of definitions)
     definitionOf.set(exactKey(imagePathKey(definition.path)), definition);
   const reactors: { readonly image: string; readonly reactor: string; readonly of: string }[] = [];
+  // Each page the underlays show is one definition, which lists the underlays of it.
+  const underlays = [...drawingUnderlays(drawing)];
+  const pageDefinitions = underlayDefinitions(underlays);
+  const pageDefinitionOf = new Map<string, UnderlayDefinition>();
+  for (const definition of pageDefinitions)
+    pageDefinitionOf.set(underlayKey(definition.path, definition.page), definition);
+  const underlayUsers = new Map<string, string[]>();
+  const pdfFrame = underlayFrameValue(drawing.underlayFrame);
 
   g(0, "SECTION");
   g(2, "CLASSES");
@@ -331,6 +357,22 @@ export function toDXFR2018(
       count: 1,
       entity: false,
     });
+  }
+  if (underlays.length > 0) {
+    writeClass(g, "PDFDEFINITION", "AcDbPdfDefinition", "ObjectDBX Classes", 1153, {
+      count: pageDefinitions.length,
+      entity: false,
+    });
+    writeClass(g, "PDFUNDERLAY", "AcDbPdfReference", "ObjectDBX Classes", 4095, {
+      count: underlays.length,
+      entity: true,
+    });
+    if (wipeouts === 0 && pdfFrame !== 1) {
+      writeClass(g, "DICTIONARYVAR", "AcDbDictionaryVar", "ObjectDBX Classes", 0, {
+        count: 1,
+        entity: false,
+      });
+    }
   }
   // The leading CAD app draws nothing of an image whose class it holds no count of.
   if (images.length > 0) {
@@ -713,6 +755,14 @@ export function toDXFR2018(
         });
         return;
       }
+      if (entity.kind === "underlay") {
+        const definition = pageDefinitionOf.get(underlayKey(entity.path, pageOf(entity)))!;
+        const users = underlayUsers.get(definition.handle);
+        if (users) users.push(own);
+        else underlayUsers.set(definition.handle, [own]);
+        writeUnderlay(g, entity, { handle: own, owner, paper, definition: definition.handle });
+        return;
+      }
       if (entity.kind === "leader") {
         const style = leaderStylesByKey.get(layerKey(entity.style));
         if (style === undefined) return;
@@ -944,9 +994,16 @@ export function toDXFR2018(
     g(3, TABLE_STYLE_DICTIONARY);
     g(350, tableDictionary);
   }
+  if (underlays.length > 0) {
+    g(3, UNDERLAY_DICTIONARY);
+    g(350, underlayDictionaryHandle());
+  }
   if (wipeouts > 0) {
     g(3, "ACAD_WIPEOUT_VARS");
     g(350, wipeoutVariablesHandle());
+  }
+  const pdfFrameWritten = underlays.length > 0 && pdfFrame !== 1;
+  if (wipeouts > 0 || pdfFrameWritten) {
     g(3, "AcDbVariableDictionary");
     g(350, variableDictionaryHandle());
   }
@@ -1020,7 +1077,14 @@ export function toDXFR2018(
   if (images.length > 0) {
     writeImageObjects(g, definitions, reactors, rootDictionary, drawing);
   }
+  if (underlays.length > 0) writeUnderlayObjects(g, pageDefinitions, underlayUsers, rootDictionary);
   if (wipeouts > 0) writeWipeoutObjects(g, rootDictionary, drawing);
+  if (wipeouts > 0 || pdfFrameWritten) {
+    writeVariables(g, rootDictionary, {
+      ...(pdfFrameWritten ? { PDFFRAME: pdfFrame } : {}),
+      ...(wipeouts > 0 ? { WIPEOUTFRAME: drawing.wipeoutFrame === false ? 0 : 1 } : {}),
+    });
+  }
   if (sheets.length > 0) {
     g(0, "DICTIONARY");
     ownedBy(g, layoutDictionary, rootDictionary);
@@ -1096,6 +1160,7 @@ export function toDXFR2018(
     dimensionStyles.length > 0 ||
     leaderStyles.length > 0 ||
     images.length > 0 ||
+    underlays.length > 0 ||
     wipeoutCount(drawing) > 0 ||
     drawing.entities.some((entity) => entity.id !== undefined);
   h(5, named ? ID_HANDLE_SEED : handle());
@@ -2616,23 +2681,122 @@ function writeImageObjects(
  * frames show.
  */
 function writeWipeoutObjects(g: Group, root: string, drawing: Drawing): void {
-  const frame = drawing.wipeoutFrame === false ? 0 : 1;
   g(0, "WIPEOUTVARIABLES");
   ownedBy(g, wipeoutVariablesHandle(), root);
   g(100, "AcDbWipeoutVariables");
-  g(70, frame);
+  g(70, drawing.wipeoutFrame === false ? 0 : 1);
+}
+
+/**
+ * The dictionary of the drawing's variables and each variable in it, by name in the order of
+ * their names: `PDFFRAME` and `WIPEOUTFRAME`, which is what the leading CAD app reads of whether
+ * the frames of underlays and wipeouts show.
+ */
+function writeVariables(g: Group, root: string, values: Readonly<Record<string, number>>): void {
   const variables = variableDictionaryHandle();
+  const handles: Record<string, string> = {
+    PDFFRAME: underlayFrameVariableHandle(),
+    WIPEOUTFRAME: wipeoutFrameVariableHandle(),
+  };
+  const names = Object.keys(values).sort();
   g(0, "DICTIONARY");
   ownedBy(g, variables, root);
   g(100, "AcDbDictionary");
   g(281, 1);
-  g(3, "WIPEOUTFRAME");
-  g(350, wipeoutFrameVariableHandle());
-  g(0, "DICTIONARYVAR");
-  ownedBy(g, wipeoutFrameVariableHandle(), variables);
-  g(100, "DictionaryVariables");
-  g(280, 0);
-  g(1, String(frame));
+  for (const name of names) {
+    g(3, name);
+    g(350, handles[name]!);
+  }
+  for (const name of names) {
+    g(0, "DICTIONARYVAR");
+    ownedBy(g, handles[name]!, variables);
+    g(100, "DictionaryVariables");
+    g(280, 0);
+    g(1, String(values[name]));
+  }
+}
+
+/** Where an underlay's PDFUNDERLAY goes, and what it points to. */
+interface UnderlayPlace {
+  readonly handle: string;
+  readonly owner: string;
+  readonly paper: boolean;
+  readonly definition: string;
+}
+
+/**
+ * A PDFUNDERLAY, as the leading CAD app saves one: its corner, its scale both ways, its turn when
+ * it has one, its flags, contrast and fade, and its clip in the page's inches.
+ */
+function writeUnderlay(g: Group, e: Underlay, place: UnderlayPlace): void {
+  g(0, "PDFUNDERLAY");
+  g(5, place.handle);
+  g(330, place.owner);
+  g(100, "AcDbEntity");
+  if (place.paper) g(67, 1);
+  g(8, e.layer);
+  const linetype = entityLinetype(e);
+  if (linetype !== undefined) g(6, linetype);
+  if (e.lineweight !== undefined && e.lineweight !== "ByLayer") {
+    g(370, lineweightCode(e.lineweight));
+  }
+  g(100, "AcDbUnderlayReference");
+  g(340, place.definition);
+  point(g, 10, ...e.at);
+  // The leading CAD app leaves out a scale of 1 and no turn.
+  const scale = written(e.scale ?? 1);
+  if (scale !== 1) {
+    g(41, scale);
+    g(42, scale);
+  }
+  const turn = writtenAngle((((e.rotation ?? 0) % 360) + 360) % 360);
+  if (turn !== 0) g(50, turn);
+  g(280, underlayFlags(e));
+  // Written whatever their values: the leading CAD app saves no contrast of 75 and no fade of 25,
+  // but reads a file without them as other values.
+  g(281, e.contrast ?? 100);
+  g(282, e.fade ?? 0);
+  for (const [x, y] of underlayClip(e)) {
+    g(11, fifteenDigits(x));
+    g(21, fifteenDigits(y));
+  }
+}
+
+/**
+ * The objects of a drawing's underlays: the dictionary of their pages' definitions, and each
+ * definition with the underlays of it among its reactors.
+ */
+function writeUnderlayObjects(
+  g: Group,
+  definitions: readonly UnderlayDefinition[],
+  users: ReadonlyMap<string, readonly string[]>,
+  root: string,
+): void {
+  const dictionary = underlayDictionaryHandle();
+  g(0, "DICTIONARY");
+  ownedBy(g, dictionary, root);
+  g(100, "AcDbDictionary");
+  g(281, 1);
+  const sorted = definitions
+    .map((definition) => ({ definition, key: layerKey(definition.name) }))
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+    .map(({ definition }) => definition);
+  for (const definition of sorted) {
+    g(3, dxfOnce(definition.name));
+    g(350, definition.handle);
+  }
+  for (const definition of definitions) {
+    g(0, "PDFDEFINITION");
+    g(5, definition.handle);
+    g(102, "{ACAD_REACTORS");
+    g(330, dictionary);
+    for (const user of users.get(definition.handle) ?? []) g(330, user);
+    g(102, "}");
+    g(330, dictionary);
+    g(100, "AcDbUnderlayDefinition");
+    g(1, dxfOnce(definition.path.replaceAll("/", "\\")));
+    g(2, definition.page);
+  }
 }
 
 /** A color the leading CAD app holds as ByLayer and as ByBlock, as a multileader and its style write one. */

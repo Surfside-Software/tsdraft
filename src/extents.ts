@@ -14,6 +14,7 @@ import {
 } from "./blocks.ts";
 import { dimensionMask, drawnLoops, loopOutline, maskOf, paragraphMaskCorners } from "./fills.ts";
 import { imageCorners, imageDrawable, imageFrame } from "./images.ts";
+import { underlayCorners, underlayDrawable, underlayFrame } from "./underlays.ts";
 import {
   dimensionArcPoints,
   dimensionPicture,
@@ -438,6 +439,21 @@ export function boxer(
         if (e.clip === undefined) break;
         if (e.clip.length === 2) {
           for (const [x, y] of imageFrame(e)) add(x, y);
+          break;
+        }
+        const box = pointsBox(e.clip);
+        if (box[0] === Infinity) break;
+        add(box[0], box[1]);
+        add(box[2], box[3]);
+        break;
+      }
+      case "underlay": {
+        // The page, and the frame of a clip that reaches past it, as for an image.
+        if (!underlayDrawable(e, clipsChecked)) break;
+        for (const [x, y] of underlayCorners(e)) add(x, y);
+        if (e.clip === undefined) break;
+        if (e.clip.length === 2) {
+          for (const [x, y] of underlayFrame(e)) add(x, y);
           break;
         }
         const box = pointsBox(e.clip);

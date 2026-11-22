@@ -200,6 +200,29 @@ const R12_PARAGRAPHS =
   'tsdraft writes no paragraphs to R12 drawings. Use DXF version "R2018" for a paragraph';
 const LINE_SPACING = "A paragraph's line spacing is a factor from 0.25 to 4";
 const R12_IMAGES = 'tsdraft writes no images to R12 drawings. Use DXF version "R2018" for an image';
+const R12_UNDERLAYS =
+  'tsdraft writes no PDF underlays to R12 drawings. Use DXF version "R2018" for an underlay';
+const UNDERLAY_PATH_EMPTY =
+  "An underlay's path cannot be empty. The leading CAD app finds no file by it";
+const UNDERLAY_PATH_ABSOLUTE =
+  'An underlay\'s path must start from the folder of the drawing\'s file, as "arch.pdf" and "../arch/A-101.pdf" do, and cannot start with /, \\ or a drive such as C:. The leading CAD app looks for the file of an absolute path in that folder alone, and on another machine finds none';
+const UNDERLAY_PATH_CHARS =
+  "An underlay's path cannot hold * ? < > | : or \". The leading CAD app finds no file whose name holds one of them";
+const UNDERLAY_PATH_LENGTH =
+  "An underlay's path cannot be longer than 32,000 characters. The leading CAD app finds no file by a path that comes to more than 32,767 characters with the folder of the drawing";
+const UNDERLAY_PATH_MULTIBYTE =
+  "An underlay's path cannot hold a backslash before M+, a digit from 1 to 5 and four hex digits, such as \\M+10041. The leading CAD app reads those as one character, and looks for another file. Write / there";
+const UNDERLAY_PAGE =
+  'An underlay\'s page is its number from 1, written as a string of digits with no leading 0, such as "1" or "12", up to "2147483647"';
+const UNDERLAY_PAGE_SIZE =
+  "An underlay's pageSize is its page's width and height in inches, two numbers greater than 0 as written and below 1e100, which pdfPageSize reads from the file";
+const UNDERLAY_FADE =
+  "An underlay's fade is a whole number from 0 to 80, as the leading CAD app sets it";
+const UNDERLAY_CONTRAST =
+  "An underlay's contrast is a whole number from 20 to 100, as the leading CAD app sets it";
+const UNDERLAY_SCALE = "An underlay's scale must be greater than 0 as written, and below 1e100";
+const UNDERLAY_PLACED =
+  "An underlay's page at its scale must come to less than 1e100 drawing units each way, which a file can write";
 const R12_TABLES = 'tsdraft writes no tables to R12 drawings. Use DXF version "R2018" for a table';
 const R12_HATCHES =
   'tsdraft writes no hatches or wipeouts to R12 drawings. Use DXF version "R2018" for a fill';
@@ -1154,6 +1177,27 @@ export type R12Leaders = typeof R12_LEADERS;
 export type R12Polylines = typeof R12_POLYLINES;
 export type R12Paragraphs = typeof R12_PARAGRAPHS;
 export type R12Images = typeof R12_IMAGES;
+export type R12Underlays = typeof R12_UNDERLAYS;
+
+/**
+ * Resolves to `P` when it is a path an underlay can have, and to the error message otherwise: a
+ * path is not empty, starts from the folder of the drawing's file, and holds no `* ? < > | : "`,
+ * no multibyte escape and no character a text cannot hold. Its length is checked when the code
+ * runs.
+ */
+export type UnderlayPath<P extends string> = string extends P
+  ? P
+  : P extends ""
+    ? typeof UNDERLAY_PATH_EMPTY
+    : P extends `/${string}` | `\\${string}`
+      ? typeof UNDERLAY_PATH_ABSOLUTE
+      : Lowercase<P> extends `${LowerLetter}:${string}`
+        ? typeof UNDERLAY_PATH_ABSOLUTE
+        : P extends `${string}${Chars<'*?<>|:"'>}${string}`
+          ? typeof UNDERLAY_PATH_CHARS
+          : HasMultibyteEscape<Lowercase<P>> extends true
+            ? typeof UNDERLAY_PATH_MULTIBYTE
+            : Description<P>;
 
 /** Resolves to `N` when it is a width a polyline can have, and to the error message otherwise. */
 export type PolylineWidth<N extends number> = NotNegative<N, typeof POLYLINE_WIDTH>;
@@ -1991,6 +2035,7 @@ export const R12_ONLY = {
   polylines: R12_POLYLINES,
   paragraphs: R12_PARAGRAPHS,
   images: R12_IMAGES,
+  underlays: R12_UNDERLAYS,
   hatches: R12_HATCHES,
   tables: R12_TABLES,
   curves: R12_CURVES,
@@ -3424,6 +3469,91 @@ export function imageClipProblem(
   const distinct = new Set(written2.map(([x, y]) => `${x},${y}`));
   return distinct.size >= 3 ? undefined : IMAGE_CLIP_POLYGON;
 }
+
+/** Returns what is wrong with an underlay's path, or undefined when it is valid. */
+export function underlayPathProblem(path: unknown): string | undefined {
+  if (typeof path !== "string") return "An underlay's path must be a string";
+  if (path.length === 0) return UNDERLAY_PATH_EMPTY;
+  if (/^(?:[/\\]|[A-Za-z]:)/.test(path)) return UNDERLAY_PATH_ABSOLUTE;
+  if (/[*?<>|:"]/.test(path)) return UNDERLAY_PATH_CHARS;
+  if (path.length > 32000) return UNDERLAY_PATH_LENGTH;
+  if (/\\[Mm]\+[1-5][0-9A-Fa-f]{4}/.test(path)) return UNDERLAY_PATH_MULTIBYTE;
+  return textProblem(path);
+}
+
+/** Returns what is wrong with an underlay's page, or undefined when it is valid. */
+export function underlayPageProblem(page: unknown): string | undefined {
+  if (typeof page !== "string" || !/^[1-9][0-9]{0,9}$/.test(page) || Number(page) > 2_147_483_647)
+    return UNDERLAY_PAGE;
+  return undefined;
+}
+
+/** Returns what is wrong with an underlay's page size, or undefined when it is valid. */
+export function underlayPageSizeProblem(size: unknown): string | undefined {
+  if (!Array.isArray(size) || size.length !== 2 || Reflect.ownKeys(size).length !== 3)
+    return UNDERLAY_PAGE_SIZE;
+  for (let i = 0; i < 2; i++) {
+    const item = Object.getOwnPropertyDescriptor(size, i);
+    const n: unknown = item && "value" in item ? item.value : undefined;
+    if (typeof n !== "number" || !Number.isFinite(n) || !(written(n) > 0) || n >= 1e100)
+      return UNDERLAY_PAGE_SIZE;
+  }
+  return undefined;
+}
+
+/** Returns what is wrong with an underlay's scale, or undefined when it is valid. */
+export function underlayScaleProblem(scale: unknown): string | undefined {
+  return typeof scale === "number" && Number.isFinite(scale) && written(scale) > 0 && scale < 1e100
+    ? undefined
+    : UNDERLAY_SCALE;
+}
+
+/** Returns what is wrong with an underlay's page at its scale, or undefined when it is valid. */
+export function underlayPlacedProblem(
+  size: readonly [number, number],
+  scale: number,
+  at: readonly [number, number],
+): string | undefined {
+  const reach = Math.hypot(size[0], size[1]) * written(scale);
+  return Math.abs(at[0]) + reach < 1e100 && Math.abs(at[1]) + reach < 1e100
+    ? undefined
+    : UNDERLAY_PLACED;
+}
+
+/** Returns what is wrong with an underlay's fade, or undefined when it is valid. */
+export function underlayFadeProblem(fade: unknown): string | undefined {
+  return Number.isInteger(fade) && (fade as number) >= 0 && (fade as number) <= 80
+    ? undefined
+    : UNDERLAY_FADE;
+}
+
+/** Returns what is wrong with an underlay's contrast, or undefined when it is valid. */
+export function underlayContrastProblem(contrast: unknown): string | undefined {
+  return Number.isInteger(contrast) && (contrast as number) >= 20 && (contrast as number) <= 100
+    ? undefined
+    : UNDERLAY_CONTRAST;
+}
+
+/**
+ * Returns what is wrong with an underlay's clip, or undefined when it is valid: the rules of an
+ * image's clip, judged in the page's axes, the vectors of one inch of it, `u` and `v`.
+ */
+export function underlayClipProblem(
+  clip: unknown,
+  at: readonly [number, number],
+  u: readonly [number, number],
+  v: readonly [number, number],
+): string | undefined {
+  return imageClipProblem(clip, at, u, v)
+    ?.replaceAll("An image's", "An underlay's")
+    .replaceAll("the image's sides", "the page's sides")
+    .replaceAll("the image's width", "the page's width")
+    .replaceAll("the image's", "the underlay's");
+}
+
+/** What is wrong with `invertClip` on an underlay with no clip. */
+export const UNDERLAY_INVERT_WITHOUT_CLIP =
+  "invertClip needs a clip: it shows the page outside the clip, and with no clip there is no outside";
 
 /** The most points an image's clip may have. */
 export const IMAGE_CLIP_MOST = 10_000;

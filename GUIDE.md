@@ -72,6 +72,12 @@ bank, a tree line or a contour, and `controlSpline` a spline by its control poin
 `rasterSize` reads, and an optional `clip`; the command reads the file from the drawing file's
 folder for the pictures, and warns of one that is missing.
 [docs/images.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/images.md) has them.
+`underlay` places a page of a PDF, such as an architect's plan, by its path, its `page` and its
+`pageSize` in inches, which `pdfPageSize` reads, at one drawing unit to an inch of the page times
+`scale`; the command draws it from `<file>.page<N>.png` beside the PDF and gives the `pdftocairo`
+command that draws one.
+[docs/underlays.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/underlays.md) has
+them.
 `hatch` fills one outline, or a list of loops `{ points, bulges? }` where a loop inside another is
 a hole, solid in the layer's color, or with `pattern` draws a pattern `patterns()` added from the
 firm's pattern file, or lines `spacing` apart, or with `gradient` runs from one color to another; `wipeout` hides what is drawn before it behind a polygon; and

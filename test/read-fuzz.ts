@@ -147,6 +147,36 @@ export function seedFiles(): Uint8Array[] {
     );
     curves.insert("CURVE", [10, 10]);
   });
+  // Underlays in model space and in a block, clipped both ways, faded, with their definitions.
+  const underlays = createDrawing({ units: "in" });
+  underlays.block("SEAL", {}, () =>
+    underlays.underlay("seal.pdf", [0, 0], { pageSize: [2, 2], scale: 0.5, fade: 40 }),
+  );
+  underlays.layer("A", { color: 1 }, () => {
+    underlays.underlay("a.pdf", [0, 0], {
+      pageSize: [11, 8.5],
+      page: "2",
+      scale: 0.25,
+      rotation: 30,
+      clip: [
+        [0.5, 0.5],
+        [2, 1.5],
+      ],
+    });
+    underlays.underlay("b/a.pdf", [5, 0], {
+      pageSize: [17, 11],
+      scale: 0.2,
+      invertClip: true,
+      monochrome: true,
+      contrast: 50,
+      clip: [
+        [5.5, 0.5],
+        [7, 0.5],
+        [6, 2],
+      ],
+    });
+    underlays.insert("SEAL", [0, 10], { scale: [2, 1] });
+  });
   return [
     ...[
       toDXF(sheet),
@@ -155,6 +185,7 @@ export function seedFiles(): Uint8Array[] {
       toDXF(images.build()),
       toDXF(tables.build()),
       toDXF(curves.build()),
+      toDXF({ ...underlays.build(), underlayFrame: "screen" }),
     ].map((t) => encoder.encode(t)),
     leaderFile(),
   ];

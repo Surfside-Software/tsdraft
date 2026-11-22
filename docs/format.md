@@ -114,6 +114,12 @@ entity, which its frame is drawn in. `imageFrame: false` on the drawing hides ev
 A drawing with no image has the JSON it had before images existed. [Images](images.md) describes
 them.
 
+An underlay is `{ "kind": "underlay" }` in `entities`, with its `layer`, its file's `path`, its
+`pageSize` in inches and its lower-left corner `at`, and where they are set its `page`, `scale`,
+`rotation`, `clip`, `invertClip`, `fade`, `contrast`, `monochrome` and `on`, and the `linetype`
+and `lineweight` of every entity. `underlayFrame` on the drawing is `false` or `"screen"` where it
+is set. [Underlays](underlays.md) describes them.
+
 A hatch is an entity of kind `"hatch"`, with its `layer` and its `loops`, each `{ points }` and
 where a side is an arc its `bulges`, one for each side, its `pattern` or its `gradient` where it
 is not solid, and the `linetype` and `lineweight` of every entity. A pattern is `{ name }` of one of the drawing's

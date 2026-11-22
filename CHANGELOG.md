@@ -33,6 +33,20 @@
   fitted to its own first dash, which runs on from that last one, and a pattern of dashes alone
   draws its marks along a solid line, as CAD programs plot them.
 
+- PDF underlays, in R2018 drawings: an architect's plan under a sheet. `d.underlay(path, at,
+  options)` places a page of a PDF by its path from the drawing's folder, its `page` and its
+  `pageSize` in inches, which `pdfPageSize` reads, at one drawing unit to an inch of the page
+  times `scale`, turned by `rotation`, with a `clip` of a rectangle or a polygon, `invertClip`,
+  `fade`, `contrast`, `monochrome` and `on`. `underlayFrame` on the drawing shows and plots every
+  underlay's frame, hides it, or with `"screen"` shows it and does not plot it. Both writers write
+  each page once as a definition every underlay of it shares, and `readDXF` and `readDWG` read
+  underlays back and list every definition in `underlays`, which every read now holds, so a reader
+  the command runs answers with it too. `toSVG` and `toPDF` draw an underlay from a picture of its
+  page given as `underlays`, in its fade, contrast and monochrome and in its own colors whatever
+  the plot style, and write that the file is missing where no picture is given, as CAD programs
+  do. The `tsdraft` command reads each page's picture from `<file>.page<N>.png` beside its PDF and
+  gives the `pdftocairo` command that draws one. `lint` and the builder refuse, under the rule
+  `underlay`, a path, page, page size, scale, fade, contrast or clip that cannot be written.
 - Tables, in R2018 drawings. `d.tableStyle(style)` defines a table style: the text style and
   height of its cells, its margins, and the cell style of its title, header and data rows, each
   with its own text style, height, alignment, text color, fill and border lineweight.

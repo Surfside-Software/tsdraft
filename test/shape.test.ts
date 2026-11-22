@@ -208,6 +208,28 @@ const kinds: {
     id: "m",
     ...styled,
   },
+  underlay: {
+    kind: "underlay",
+    layer: "0",
+    path: "refs/arch.pdf",
+    page: "2",
+    pageSize: [17, 11],
+    at: [80, 0],
+    scale: 0.5,
+    rotation: 10,
+    clip: [
+      [81, 1],
+      [86, 1],
+      [84, 4],
+    ],
+    invertClip: true,
+    fade: 25,
+    contrast: 60,
+    monochrome: true,
+    on: true,
+    id: "u",
+    ...styled,
+  },
   hatch: {
     kind: "hatch",
     layer: "0",
@@ -500,6 +522,7 @@ const full: Required<Drawing> & {
   dxf: "R2018",
   linetypeScale: 2,
   imageFrame: false,
+  underlayFrame: "screen",
   wipeoutFrame: false,
   linetypes: [
     {
@@ -929,7 +952,7 @@ test("a value of the wrong shape is reported in these words, once", () => {
       { toString: 0 },
       [
         "xref: Xref a value of type object: A block's name must be a string",
-        `undefined-block: insert #22: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
+        `undefined-block: insert #23: Block "BASE" is not defined. The leading CAD app's AUDIT reports an insert of a block the drawing does not have, and that app cannot save the drawing as DXF`,
       ],
     ],
     [

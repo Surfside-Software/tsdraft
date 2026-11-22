@@ -18,6 +18,7 @@ import type {
   HatchLoop,
   HatchPattern,
   Image,
+  Underlay,
   Insert,
   Layer,
   Layout,
@@ -81,6 +82,7 @@ const KINDS = [
   "aligned-dimension",
   "leader",
   "image",
+  "underlay",
   "hatch",
   "wipeout",
 ] as const satisfies readonly Entity["kind"][];
@@ -739,6 +741,29 @@ function shapes(all: boolean, typed = all): Shapes {
         transparent: ruled(boolean),
       },
     ),
+    // A rule of `lint` reports the path, the page, its size, the clip and the settings, whatever
+    // their type.
+    underlay: fields<Underlay>(
+      {
+        kind,
+        layer: string,
+        path: ruled(string),
+        pageSize: ruled(point),
+        at: point,
+      },
+      {
+        ...shared,
+        page: ruled(string),
+        scale: ruled(number),
+        rotation: number,
+        clip: ruled(list(point)),
+        invertClip: ruled(boolean),
+        fade: ruled(number),
+        contrast: ruled(number),
+        monochrome: ruled(boolean),
+        on: ruled(boolean),
+      },
+    ),
     // A rule of `lint` reports the pattern and the gradient, whatever their types.
     hatch: fields<Hatch>(
       { kind, layer: string, loops: list(record(loop)) },
@@ -1001,6 +1026,7 @@ function shapes(all: boolean, typed = all): Shapes {
       leaderStyles: ruled(table(leaderStyle)),
       tableStyles: ruled(table(tableStyle)),
       imageFrame: ruled(boolean),
+      underlayFrame: LEFT,
       wipeoutFrame: ruled(boolean),
       patterns: ruled(table(pattern)),
     },

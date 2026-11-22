@@ -214,6 +214,10 @@ toPDF(drawing, { images: { "aerial.png": readFileSync("aerial.png") } });
 
 [Images](docs/images.md) has clips, frames and transparency, and what `lint` refuses.
 
+An underlay places a page of a PDF under the sheet, such as an architect's plan, by its path,
+its page and the page's size, which `pdfPageSize` reads. The plot draws it from a picture of the
+page you give it, since tsdraft draws no PDF. [Underlays](docs/underlays.md) has the rest.
+
 A hatch fills the area inside its loops solid, a loop inside another a hole, draws a pattern
 of the firm's pattern file there, or runs from one color to another as a gradient. A wipeout hides what is drawn before it, and a paragraph's mask
 hides it behind the text:
@@ -427,8 +431,9 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   value takes, the helpers that write them, how it is laid out, and what `lint` refuses.
 - [Images](docs/images.md) covers raster images: the path and the pixels, clips, frames,
   transparency, how the plot draws one, and what `lint` refuses.
-- [Underlays](docs/underlays.md) covers `pdfPageSize`, which reads a PDF page's size for an
-  underlay. Underlays themselves are coming.
+- [Underlays](docs/underlays.md) covers PDF underlays: the path, the page and its size, scale,
+  clips, fade, contrast and monochrome, frames, the page's picture the plot draws, and what `lint`
+  refuses.
 - [Fills, wipeouts and masks](docs/fills.md) covers hatches with holes, solid, of a pattern
   file's patterns or of a gradient, wipeouts, the masks of paragraphs, leaders and dimensions, the draw order, and
   what `lint` refuses.

@@ -59,6 +59,11 @@ export interface PdfOptions {
   readonly images?: Readonly<Record<string, Uint8Array>>;
   /** The bytes of each shape file the drawing's linetypes name, as `toSVG` takes them, for every sheet. */
   readonly shapes?: ShapeFiles;
+  /**
+   * The picture of each page the drawing's underlays show, by the underlay's path exactly as the
+   * drawing gives it, then by its page, as `toSVG` takes them. The PDF holds each once.
+   */
+  readonly underlays?: Readonly<Record<string, Readonly<Record<string, Uint8Array>>>>;
 }
 
 /** One sheet of a set whose sheets are drawings of their own. */
@@ -70,6 +75,8 @@ export interface PdfSheet {
   readonly xrefs?: XrefDrawings;
   /** The raster files of its images, as `toPDF` takes them, in place of those of the options. */
   readonly images?: Readonly<Record<string, Uint8Array>>;
+  /** The pictures of its underlays' pages, as `toPDF` takes them, in place of those of the options. */
+  readonly underlays?: Readonly<Record<string, Readonly<Record<string, Uint8Array>>>>;
 }
 
 /**
@@ -109,6 +116,7 @@ export function toPDF(given: Drawing | readonly PdfSheet[], options: PdfOptions 
         ...(options.xrefs ? { xrefs: options.xrefs } : {}),
       }));
   const images = options.images;
+  const underlays = options.underlays;
   if (sheets.length === 0) throw new RangeError("There is no layout to plot");
   sheets.forEach((sheet, i) => {
     if (
@@ -125,6 +133,7 @@ export function toPDF(given: Drawing | readonly PdfSheet[], options: PdfOptions 
   for (const sheet of sheets) {
     const { drawing, layout, xrefs } = sheet;
     const own = sheet.images ?? images;
+    const ownPages = sheet.underlays ?? underlays;
     pdf.page(
       toSVG(drawing, {
         layout,
@@ -132,6 +141,7 @@ export function toPDF(given: Drawing | readonly PdfSheet[], options: PdfOptions 
         ...(own ? { images: own } : {}),
         ...(options.shapes ? { shapes: options.shapes } : {}),
         ...(options.plotTransparency === true ? { plotTransparency: true } : {}),
+        ...(ownPages ? { underlays: ownPages } : {}),
       }),
     );
   }

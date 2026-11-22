@@ -55,6 +55,10 @@ it would take `1e+100` for `1e+10` and report nothing.
   two corners of a rectangle of some width and height along the image's sides, or a polygon of 3
   points that differ, at most 10,000 in all, and `invertClip` needs a clip.
   [Images](images.md#what-lint-refuses) has the rest.
+- An underlay is R2018 only. Its path follows an image's rules, its page is a string of digits
+  from `"1"`, its `pageSize` two numbers above 0 as written, its fade a whole number from 0 to 80
+  and its contrast from 20 to 100. Its clip follows an image's, along the page's sides.
+  [Underlays](underlays.md#what-lint-refuses) has the rest.
 - A hatch and a wipeout are R2018 only. A hatch has at least one loop, and each loop at least 3
   points, or 2 joined by an arc, with a bulge for each side where it has bulges. A wipeout has at
   least 3 points, which do not lie on one line as written, and sides that do not cross.

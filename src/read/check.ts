@@ -17,7 +17,7 @@ type Type =
   | { readonly fields: Fields }
   | { readonly list: Type }
   | { readonly map: Type }
-  | { readonly oneOf: readonly string[] }
+  | { readonly oneOf: readonly (string | false)[] }
   /** The fields of one of these, named in a message as `named`. */
   | { readonly either: readonly Fields[]; readonly named: string };
 
@@ -371,6 +371,23 @@ const ENTITY: Readonly<Record<string, Fields>> = {
     "contrast?": "number",
     "fade?": "number",
   },
+  underlay: {
+    ...BASE,
+    kind: { oneOf: ["underlay"] },
+    path: "string",
+    page: "string",
+    "definition?": "string",
+    at: "point",
+    scale: "point",
+    rotation: "number",
+    "clip?": { list: "point" },
+    "unclipped?": "boolean",
+    "invertClip?": "boolean",
+    "monochrome?": "boolean",
+    "hidden?": "boolean",
+    "fade?": "number",
+    "contrast?": "number",
+  },
   hatch: {
     ...BASE,
     kind: { oneOf: ["hatch"] },
@@ -609,6 +626,18 @@ const DRAWING_READ: Fields = {
       },
     },
   },
+  underlays: {
+    list: {
+      fields: {
+        "handle?": "string",
+        name: "string",
+        path: "string",
+        page: "string",
+        underlays: "count",
+      },
+    },
+  },
+  "underlayFrame?": { oneOf: [false, "screen"] },
   model: { fields: SPACE },
   layouts: {
     list: {
@@ -761,7 +790,7 @@ export function checkDrawingRead(value: unknown): string[] {
       }
     }
     if ("oneOf" in type) {
-      if (typeof v !== "string" || !type.oneOf.includes(v)) {
+      if ((typeof v !== "string" && v !== false) || !type.oneOf.includes(v)) {
         say(at, `must be ${type.oneOf.map(shown).join(" or ")}`);
       }
     } else if ("list" in type) {

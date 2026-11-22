@@ -23,6 +23,7 @@ import {
   type Hatch,
   type HatchPattern,
   type Image,
+  type Underlay,
   type Insert,
   type Layer,
   type Leader,
@@ -79,11 +80,28 @@ import {
 import { boxer, type Boxer } from "./extents.ts";
 import { exactKey, imageCorners, imageDrawable, imageFrame, writtenImagePath } from "./images.ts";
 import {
+  MISSING_HEIGHT,
+  missingLines,
+  pageOf,
+  missingReach,
+  pictureFits,
+  underlayAdjusted,
+  underlayLook,
+  underlayColor,
+  underlayCorners,
+  underlayDrawable,
+  underlayFrame,
+  underlayPlacement,
+  fromPage,
+} from "./underlays.ts";
+import {
   base64,
   base64Length,
   hasAlpha,
   opaquePng,
   plotDecodes,
+  pngPixels,
+  storedPng,
   RASTER_PIXELS,
   rasterInfo,
   withoutExif,
@@ -323,6 +341,14 @@ export interface SvgOptions {
    * its frame, with its path written inside.
    */
   readonly images?: Readonly<Record<string, Uint8Array>>;
+  /**
+   * The picture of each page the drawing's underlays show, by the underlay's path exactly as the
+   * drawing gives it, then by its page: a PNG of the page with a clear background, as
+   * `pdftocairo -png -transp -cropbox` draws one, which the picture holds. Its width over its
+   * height must be the page's, to a pixel. An underlay whose page is not given here is drawn as
+   * the leading CAD app draws one whose file it cannot find: three lines that say so.
+   */
+  readonly underlays?: Readonly<Record<string, Readonly<Record<string, Uint8Array>>>>;
   /**
    * The drawing each xref stands for, by the xref's name. An insert of an xref draws the model
    * space of the drawing given here, and nothing when none is given. Given as
@@ -1042,6 +1068,148 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     return `<g ${mark} data-image="">${parts.join("")}</g>`;
   };
   /**
+   * What each page's picture given is, read once, and the id of its image the picture holds in
+   * each set of colors.
+   */
+  const pages = new WeakMap<
+    object,
+    { info: ReturnType<typeof rasterInfo>; ids: Map<string, string | null> }
+  >();
+  /**
+   * The id of the picture's image of an underlay's page, in the colors it plots in, written the
+   * first time an underlay shows it, or null for a page not given or not a PNG it can draw.
+   */
+  const pageId = (e: Underlay, from: Referenced | undefined): string | null => {
+    const given: unknown = from === undefined ? options.underlays : undefined;
+    if (typeof given !== "object" || given === null) return null;
+    const pagesOf = Object.getOwnPropertyDescriptor(given, e.path)?.value as unknown;
+    if (typeof pagesOf !== "object" || pagesOf === null) return null;
+    const item = Object.getOwnPropertyDescriptor(pagesOf, pageOf(e));
+    const bytes = item && item.value instanceof Uint8Array ? item.value : undefined;
+    if (bytes === undefined) return null;
+    let read = pages.get(bytes);
+    if (!read) pages.set(bytes, (read = { info: rasterInfo(bytes), ids: new Map() }));
+    const { info, ids: held } = read;
+    const adjust = underlayLook(e);
+    const key = underlayAdjusted(e) ? `${adjust.fade},${adjust.contrast},${adjust.monochrome}` : "";
+    // The page's picture is held to the page's shape, to a pixel.
+    if (
+      info !== undefined &&
+      info.kind === "png" &&
+      !pictureFits(info.width, info.height, e.pageSize)
+    ) {
+      const [w, h] = e.pageSize;
+      throw new RangeError(
+        `The picture of page ${pageOf(e)} of ${quoted(e.path)} is ${info.width} by ${info.height} pixels, and the page is ${w} by ${h} inches: the picture must have the page's shape. Draw it from the page's crop box`,
+      );
+    }
+    const known = held.get(key);
+    if (known !== undefined) return known;
+    let id: string | null = null;
+    if (info !== undefined && info.kind === "png" && info.width * info.height <= RASTER_PIXELS) {
+      let png: Uint8Array | undefined = bytes;
+      if (key !== "") {
+        // The colored picture is stored, four bytes a pixel: refused before it is drawn.
+        const stored = base64Length(info.width * info.height * 4);
+        if (length + stored > longest) {
+          length += stored;
+          refuse(`the picture of ${quoted(e.path)}`);
+        }
+        const pixels = pngPixels(info);
+        png = undefined;
+        if (pixels !== undefined) {
+          const { width, height, channels, samples } = pixels;
+          const out = new Uint8Array(width * height * 4);
+          for (let i = 0; i < width * height; i++) {
+            const gray = channels <= 2;
+            const at = i * channels;
+            const rgb = underlayColor(
+              gray
+                ? [samples[at]!, samples[at]!, samples[at]!]
+                : [samples[at]!, samples[at + 1]!, samples[at + 2]!],
+              adjust,
+            );
+            out.set(rgb, i * 4);
+            out[i * 4 + 3] = channels === 2 || channels === 4 ? samples[at + channels - 1]! : 255;
+          }
+          png = storedPng(width, height, 4, out);
+        }
+      }
+      if (png !== undefined) {
+        id = `tsdraft-image-${rastersHeld++}`;
+        const head = `<image id="${id}" width="1" height="1" preserveAspectRatio="none" data-pixels="${info.width} ${info.height}" href="data:image/png;base64,`;
+        if (!write(head.length + base64Length(png.length) + 11))
+          refuse(`the picture of ${quoted(e.path)}`);
+        defs.push(`${head}${base64(png)}"/>`);
+      }
+    }
+    held.set(key, id);
+    return id;
+  };
+  /**
+   * An underlay: its page's picture mapped onto its corners and cut to its clip, then its frame in
+   * its pen. One turned off is its frame alone. One whose page is not given is three lines at its
+   * insertion point that say its file is missing, as the leading CAD app writes them, and no
+   * frame.
+   */
+  const underlayElement = (
+    e: Underlay,
+    mark: string,
+    pen: Pen,
+    look: Look,
+    from: Referenced | undefined,
+    matrix: Matrix | undefined,
+    room: number,
+  ): string => {
+    const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
+    const ring = (points: readonly Point[]) =>
+      [...points, points[0]!]
+        .map(at)
+        .map(([x, y], i) => `${i === 0 ? "M" : "L"} ${precise(x)} ${precise(y)}`)
+        .join(" ");
+    const parts: string[] = [];
+    const on = e.on !== false;
+    const shown = on ? pageId(e, from) : null;
+    if (shown !== null) {
+      const [p0, p1, , p3] = underlayCorners(e).map(at) as [Point, Point, Point, Point];
+      const place = [p1[0] - p0[0], p1[1] - p0[1], p0[0] - p3[0], p0[1] - p3[1], p3[0], p3[1]]
+        .map(precise)
+        .join(" ");
+      const use = `<use href="#${shown}" transform="matrix(${place})"/>`;
+      if (e.clip === undefined) parts.push(use);
+      else {
+        const id = `tsdraft-image-clip-${clips++}`;
+        const outline = ring(underlayFrame(e));
+        const d = e.invertClip ? `${ring(underlayCorners(e))} ${outline}` : outline;
+        const rule = e.invertClip ? ` clip-rule="evenodd"` : "";
+        parts.push(
+          `<clipPath id="${id}"><path d="${d}"${rule}/></clipPath>`,
+          `<g clip-path="url(#${id})">${use}</g>`,
+        );
+      }
+    } else if (on) {
+      const { at: corner, u, v } = underlayPlacement(e);
+      const scale = Math.hypot(u[0], u[1]);
+      for (const line of missingLines(e)) {
+        const text: Text = {
+          kind: "text",
+          layer: e.layer,
+          at: fromPage(corner, u, v, line.at),
+          height: MISSING_HEIGHT * scale,
+          value: line.value,
+          rotation: e.rotation ?? 0,
+        };
+        parts.push(entityToSvg(text, "", pen, look, undefined, matrix, room));
+      }
+    }
+    if ((shown !== null || !on) && (drawing.underlayFrame ?? true) === true) {
+      parts.push(
+        `<path d="${ring(underlayFrame(e))}" stroke="${pen.color}"${look.stroke(pen.lineweight)}/>`,
+      );
+    }
+    return `<g ${mark} data-image="">${parts.join("")}</g>`;
+  };
+  /**
    * The element of an entity that draws something of its own, where `matrix` puts it. Its
    * dashes stop once they pass the room left in the picture, and `write` then refuses it.
    */
@@ -1088,6 +1256,11 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       // One whose fields cannot be drawn, which `lint` refuses, draws nothing.
       return imageDrawable(e, clipsChecked)
         ? imageElement(e, mark, drawnPen, look, from, matrix, room)
+        : "";
+    }
+    if (e.kind === "underlay") {
+      return underlayDrawable(e, clipsChecked)
+        ? underlayElement(e, mark, drawnPen, look, from, matrix, room)
         : "";
     }
     if (e.kind === "hatch") {
@@ -1492,7 +1665,12 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
           shown[1].kind === "insert" ||
           isDimension(shown[1]) ||
           shown[1].kind === "leader";
-        const slack = lettered ? Math.max(box[2] - box[0], box[3] - box[1]) : 0;
+        const slack = lettered
+          ? Math.max(box[2] - box[0], box[3] - box[1])
+          : // The lines of a missing file reach from the page's corner past its box.
+            shown[1].kind === "underlay"
+            ? missingReach(shown[1])
+            : 0;
         return [{ shown, box, slack }];
       });
     }
@@ -1893,7 +2071,10 @@ function viewOf(view: SvgOptions["view"]): [number, number, number, number] | un
 type Drawn = Exclude<Entity, Insert>;
 
 /** An entity that is one shape, with a linetype and a lineweight it may have of its own. */
-type Shape = Exclude<Drawn, Dimension | Leader | Paragraph | Image | Hatch | Wipeout | Table>;
+type Shape = Exclude<
+  Drawn,
+  Dimension | Leader | Paragraph | Image | Underlay | Hatch | Wipeout | Table
+>;
 
 /** The linetype and the lineweight an entity has of its own. A dimension and a leader draw ByLayer. */
 function styled(e: Drawn): Pick<Line, "linetype" | "lineweight" | "color"> {

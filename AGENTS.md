@@ -383,6 +383,15 @@
   as it is and marks the `<use>` `data-opaque`, which `toPDF` reads. That is the one place the
   preview and the plot part. A PNG the plot must decode and cannot is drawn by neither, as a file
   not given.
+- `src/underlays.ts` is the one place of where an underlay's page goes, its clip as the file holds
+  it, its frame, its colors and its definitions: the writers, the plots, the extents and the
+  readers all take an underlay from it. A page is one drawing unit to an inch of it at scale 1,
+  whatever the units. `src/` draws no PDF: `toSVG` draws a page from the PNG the caller gives in
+  `underlays`, its colors changed by `underlayColor` and held again in stored deflate blocks, and
+  `pdfPageSize` in `src/pdf-pages.ts` reads only a page's size, from untrusted bytes. The DXF
+  leaves out a scale of 1, as the leading CAD app saves it, and always writes the contrast and the
+  fade: that app saves no contrast of 75 and no fade of 25, but reads a file without them as other
+  values, so a reader takes a file without them as 75 and 25 and the writers never leave them out.
 - `src/fills.ts` is the one place of what a hatch, a wipeout and a text's mask draw: a hatch's loops
   and their sides, filled by parity, which the writers make the leading CAD app's rule too by island
   style normal and polyline loops; a wipeout's square picture of one pixel and its clip; a mask's box

@@ -15,6 +15,7 @@ import {
   costOf,
   handleAt,
   imageInWorld,
+  underlayInWorld,
   MAX_TAGS,
   nameCost,
   placementOf,
@@ -62,6 +63,8 @@ import {
   type ReadHeader,
   type ReadImage,
   type ReadImageDefinition,
+  type ReadUnderlay,
+  type ReadUnderlayDefinition,
   type ReadInsert,
   type ReadLayer,
   type ReadLayerCensus,
@@ -203,6 +206,7 @@ const BLOCK_READS = new Set([
   "LWPOLYLINE",
   "MTEXT",
   "MULTILEADER",
+  "PDFUNDERLAY",
   "POLYLINE",
   "SEQEND",
   "SOLID",
@@ -221,6 +225,7 @@ const SPACE_READS = new Set([
   "LARGE_RADIAL_DIMENSION",
   "ARC_DIMENSION",
   "MTEXT",
+  "PDFUNDERLAY",
   "POLYLINE",
   "SEQEND",
   "TEXT",
@@ -574,6 +579,21 @@ class DxfReader {
   readonly #imageUses = new Map<string, number>();
   /** The handle of the dictionary of image definitions, from the root dictionary. */
   #imageDictionary: string | undefined;
+  /** The underlays kept, to finish once the definitions are read. */
+  readonly #underlays: ReadUnderlay[] = [];
+  /** How many underlays name each definition, by its handle. */
+  readonly #underlayUses = new Map<string, number>();
+  /** The handle of the dictionary of PDF definitions, from the root dictionary. */
+  #underlayDictionary: string | undefined;
+  /** The dictionary's entries, in its order: each definition's name and handle. */
+  readonly #underlayEntries: (readonly [name: string, handle: string])[] = [];
+  /** Each PDF definition, by its handle. */
+  readonly #underlayDefinitions = new Map<
+    string,
+    { readonly path: string; readonly page: string }
+  >();
+  /** The variable PDFFRAME's handle in the dictionary of variables. */
+  #pdfFrameVariable: string | undefined;
   /** The dictionary of the drawing's variables, and the variable WIPEOUTFRAME's handle in it. */
   #variableDictionary: string | undefined;
   #wipeoutFrameVariable: string | undefined;
@@ -684,6 +704,7 @@ class DxfReader {
           type === "FIELD" ||
           type === "LAYOUT" ||
           type === "IMAGEDEF" ||
+          type === "PDFDEFINITION" ||
           type === "DICTIONARYVAR" ||
           type === "SORTENTSTABLE" ||
           type === "TABLESTYLE"
@@ -1148,11 +1169,19 @@ class DxfReader {
       else if (definition !== undefined && this.#imageUses.size < this.#limits.census)
         this.#imageUses.set(definition, 1);
     }
+    if (r.type === "PDFUNDERLAY") {
+      const definition = handleAt(r, 340);
+      const uses = definition === undefined ? undefined : this.#underlayUses.get(definition);
+      if (uses !== undefined) this.#underlayUses.set(definition!, uses + 1);
+      else if (definition !== undefined && this.#underlayUses.size < this.#limits.census)
+        this.#underlayUses.set(definition, 1);
+    }
     if (!target) return;
     if (hidden(r)) return add(target.other, "invisible");
     const reading = readingOf(r, baseOf(r, layer, handle), face, this.#later, this.#r12);
     const kept = reading !== undefined && "entity" in reading && this.#kept(target, reading.entity);
     if (kept && reading.entity.kind === "image") this.#images.push(reading.entity);
+    if (kept && reading.entity.kind === "underlay") this.#underlays.push(reading.entity);
     for (const pending of this.#settle(kept, target)) this.#starts.push(pending);
     if (reading === undefined) add(target.other, r.type);
     else if ("other" in reading) add(target.other, reading.other);
@@ -1420,6 +1449,15 @@ class DxfReader {
           } else if (key === "ACAD_MLEADERSTYLE") this.#leaderStyleDictionary ??= value;
           else if (key === "ACAD_TABLESTYLE") this.#tableStyleDictionary ??= value;
           else if (key === "ACAD_IMAGE_DICT") this.#imageDictionary ??= value;
+          else if (key === "ACAD_PDFDEFINITIONS") this.#underlayDictionary ??= value;
+          else if (handle === this.#variableDictionary && key === "PDFFRAME")
+            this.#pdfFrameVariable ??= value;
+          else if (
+            handle === this.#underlayDictionary &&
+            key.length <= LONGEST_NAME &&
+            this.#underlayEntries.length < this.#limits.census
+          )
+            this.#underlayEntries.push([unescaped(key), value]);
           else if (key === "AcDbVariableDictionary") this.#variableDictionary ??= value;
           else if (handle === this.#variableDictionary && key === "WIPEOUTFRAME")
             this.#wipeoutFrameVariable ??= value;
@@ -1489,6 +1527,16 @@ class DxfReader {
           path: name(definition, 1) ?? "",
           pixels: [num(definition, 10) ?? 0, num(definition, 20) ?? 0],
           loaded: (num(definition, 280) ?? 1) !== 0,
+        });
+        return;
+      }
+      case "PDFDEFINITION": {
+        const handle = handleAt(r, 5);
+        if (handle === undefined || this.#underlayDefinitions.size >= this.#limits.census) return;
+        const definition = inSubclass(r, "AcDbUnderlayDefinition");
+        this.#underlayDefinitions.set(handle, {
+          path: name(definition, 1) ?? "",
+          page: name(definition, 2) ?? "",
         });
         return;
       }
@@ -1750,6 +1798,32 @@ class DxfReader {
         image.definition === undefined ? undefined : this.#imageDefinitions.get(image.definition);
       imageInWorld(image, definition?.path);
     }
+    for (const underlay of this.#underlays) {
+      const definition =
+        underlay.definition === undefined
+          ? undefined
+          : this.#underlayDefinitions.get(underlay.definition);
+      underlayInWorld(underlay, definition);
+    }
+    const underlaysListed = new Set<string>();
+    const underlays: ReadUnderlayDefinition[] = [];
+    const listUnderlay = (handle: string, name: string): void => {
+      const definition = this.#underlayDefinitions.get(handle);
+      if (definition === undefined || underlaysListed.has(handle)) return;
+      underlaysListed.add(handle);
+      underlays.push({
+        handle,
+        name,
+        ...definition,
+        underlays: this.#underlayUses.get(handle) ?? 0,
+      });
+    };
+    for (const [name, handle] of this.#underlayEntries) listUnderlay(handle, name);
+    for (const handle of this.#underlayDefinitions.keys()) listUnderlay(handle, "");
+    const pdfFrame =
+      this.#pdfFrameVariable === undefined
+        ? undefined
+        : Number(this.#variables.get(this.#pdfFrameVariable));
     // The dictionary's definitions in its order, then any it does not list.
     const listed = new Set<string>();
     const images: ReadImageDefinition[] = [];
@@ -1767,6 +1841,9 @@ class DxfReader {
       sha256,
       bytes,
       images,
+      underlays,
+      ...(pdfFrame === 0 ? { underlayFrame: false as const } : {}),
+      ...(pdfFrame === 2 ? { underlayFrame: "screen" as const } : {}),
       tableStyles,
       ...(groups.version !== undefined && { version: groups.version }),
       ...(groups.codepage !== undefined && { codepage: groups.codepage }),
