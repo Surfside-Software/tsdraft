@@ -6,7 +6,11 @@
   gained the inserts on layouts while layouts were unreleased.
 - The command opens no file an xref names. The worker draws an xref from the drawing file's
   named export `xrefs` alone, and `drawing.xrefs` says with `shown` which ones the pictures
-  have, so an agent knows what it is not seeing.
+  have, so an agent knows what it is not seeing, and for one shown, the same of its own `xrefs`.
+  A value given as `{ drawing, xrefs }` draws its attachments where the copy of tsdraft has
+  `drawnXrefs`. The worker takes from it what the pictures draw, lints each of those drawings
+  once, leaves out one with an error, which cuts nothing else, and passes the export to `lint`
+  for why a drawing given is not drawn.
 - `outputs.svg` and `outputs.png` are model space, with or without layouts, and
   `outputs.layouts` has each sheet. The worker draws a layout only with a copy of tsdraft that
   has `viewportView`, since an older one would draw model space for it. `without` leaves a
@@ -25,8 +29,9 @@
   there is no `prlimit`.
 - The renderer consults no system font by name. `src/fonts.ts` looks in the machine's font
   folders, once for the life of the command, for the file of each TrueType font of `FONTS`,
-  or of a font made to its widths, and takes a file only when the family name inside it is
-  the one expected. `src/png.ts` sends the renderer's process the files a picture needs, and
+  or of a font made to its widths, and of its bold beside it, and takes a file only when the
+  family name inside it is the one expected. A bold text's `font-weight` comes before the three
+  attributes `src/png-child.ts` sizes a text by, so it sizes one by its bold face's cap height. `src/png.ts` sends the renderer's process the files a picture needs, and
   the process sets the SVG's font family to the file's own. Every other font is drawn in the
   shipped JetBrains Mono. `outputs.pngFonts` and each layout's `pngFonts` say which, from
   `pictureFaces`, the one function that picks the files `toPNG` sends. A PDF embeds the same
@@ -75,7 +80,7 @@
   for an entity so the others keep their indexes. `drawing.omitted` lists what was left out,
   and the counts are the real drawing's. If that throws too, the build fails with `lint`'s
   diagnostics kept and exit code 2. A throw with no lint error is a failed build as before.
-  `test/shape.test.ts` in the package proves `without` gives a drawing `toSVG` draws.
+  `test/shape-sweep.ts` in the package proves `without` gives a drawing `toSVG` draws.
 - `tsdraft dev` must never present a stale or mismatched answer as current. Every file a build
   loads whose real path has no `node_modules` folder is watched and version-checked, wherever it
   is; `inProject` only places errors. A build that read a file changed since, or one file at two

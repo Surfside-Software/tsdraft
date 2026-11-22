@@ -33,6 +33,15 @@ A drawing lists its text styles in `textStyles`, and leaves the field out when i
 `"left"` and `"baseline"`, so a drawing that uses none of them has the JSON it had before they
 existed.
 
+A linetype has `marks` only where it draws a text or a shape, and a polyline `linetypeGeneration`
+only where it is `true`, so a drawing with neither has the JSON it had before they existed.
+
+Every entity but a table, an insert, a dimension and a leader included, has a `color` where it has
+one of its own: an index from 1 to 255, `"ByBlock"`, or a true color `[red, green, blue]`. A drawing whose
+entities draw ByLayer has the JSON it had before colors existed. [Colors](colors.md) describes them.
+Every entity but a table has a `transparency` where it has one of its own: a whole percent from 0 to
+90, or `"ByBlock"`, as [Transparency](transparency.md) describes.
+
 A drawing lists its blocks in `blocks`, and leaves the field out when it has none. A block has
 a `name`, its `entities`, and where they differ from their defaults a `base` point and its
 `attributes`: each a `tag`, a `value`, a `layer` and the fields of a text, with a `prompt`
@@ -57,23 +66,85 @@ layouts existed. [Layouts](layouts.md) describes them.
 A drawing lists its dimension styles in `dimensionStyles`, and leaves the field out when it
 has none. A style has a `name`, a `textHeight`, an `arrowSize`, an `extensionOffset`, an
 `extensionBeyond`, a `textGap` and a `precision`, and where they are set a `textStyle`, an
-`arrowhead`, a `scale`, a `prefix`, a `suffix`, `suppressZeros` and a `measurementScale`. A
+`arrowhead`, a `scale`, a `prefix`, a `suffix`, `suppressZeros`, `feetInchZeros`, a
+`measurementScale`, a `fraction`, a `fractionScale`, a `textPlacement`, a `textFit`, a
+`dimensionLineweight` and an `extensionLineweight`. A
 dimension is an entity of kind `"linear-dimension"` or `"aligned-dimension"`, in
 `drawing.entities` or in a layout's `entities`, with its `layer`, `style`, `from` and `to`,
-and a `text` where it has one. A linear one has `line`, a point of its dimension line, and an
+and a `text` and a `textBelow` where it has them. A linear one has `line`, a point of its dimension line, and an
 `angle` where it does not measure along X, from -360 to 360; the builder keeps it from 0 up to 360. An aligned one has `offset`. Neither has a
 linetype or a lineweight. A drawing with no dimension has the JSON it had before dimensions
 existed. [Dimensions](dimensions.md) describes them.
 
 A drawing lists its leader styles in `leaderStyles`, and leaves the field out when it has none.
 A style has a `name`, a `textHeight`, an `arrowSize`, a `landing` and a `gap`, and where they
-are set a `textStyle`, an `arrowhead`, an `attachment` and a `scale`. A leader is an entity of
-kind `"leader"`, in `drawing.entities` or in a layout's `entities`, with its `layer`, `style`,
-`text`, the lines of its note from the top, `at`, where its shafts meet, and `shafts`, each a
-list of points from its tip. Where it has them of its own it has a `side`, an `attachment`, a
-`textStyle`, a `textHeight`, an `arrowSize`, a `landing` and a `gap`. It has no linetype or
-lineweight. A drawing with no leader has the JSON it had before leaders existed.
+are set a `textStyle`, an `arrowhead`, an `attachment`, a `direction`, a `verticalAttachment`, a
+`frame`, a `shaft`, a `block`, a `blockConnection`, a `blockScale` and a `scale`. A leader is an entity of kind `"leader"`, in `drawing.entities` or in a
+layout's `entities`, with its `layer`, `style`, `text`, the paragraphs of its note from the top,
+`at`, where its shafts meet, and `shafts`, each a list of points from its tip. Where it has them
+of its own it has a `side`, an `attachment`, a `verticalAttachment`, a `width`, a `frame`, a
+`mask`, a `shaft`, `farShafts`, the shafts of a root on the note's far side, a `textStyle`, a
+`textHeight`, an `arrowSize`, a `landing` and a `gap`. A leader whose content is a block has no
+`text`, and a `block` and, where it sets them, `attributes`. It has no linetype
+or lineweight. A drawing with no leader has the JSON it had before leaders existed.
 [Leaders](leaders.md) describes them.
+
+A table is an entity of kind `"table"`, in `drawing.entities` or a layout's `entities`, never a
+block's, with its `layer`, `style`, `at` and `columns`, and `rows`, each a list of a cell for each
+column: a string, an object with the fields it sets, or `null` where another cell spans it. Where
+it has them it has a `rotation`, a `title`, a `titleHeight`, a `header`, a `headerHeight` and
+`rowHeights`. Its table style is in `drawing.tableStyles`, with its `name` and `textHeight` and
+where it sets them a `textStyle`, margins and the cell styles `title`, `header` and `data`. A
+drawing with no table has the JSON it had before tables existed. [Tables](tables.md) describes
+them.
+
+A paragraph is an entity of kind `"paragraph"`, in `drawing.entities`, a block's `entities` or a
+layout's `entities`, with its `layer`, `at`, `height`, `value` and `rotation`, as a text has them,
+and where they are set a `width`, a `style`, an `align` of `"center"` or `"right"`, a `valign` of
+`"middle"` or `"bottom"`, a `lineSpacing` other than 1, a `lineSpacingStyle` of `"exactly"`, and
+the `linetype` and `lineweight` of every entity. Its value holds `\P` for each paragraph break.
+A drawing with no paragraph has the JSON it had before paragraphs existed.
+[Paragraphs](paragraphs.md) describes them.
+
+An image is an entity of kind `"image"`, in `drawing.entities`, a block's `entities` or a layout's
+`entities`, with its `layer`, its file's `path` and `pixels`, its lower-left corner `at`, its
+`width` and `height` in drawing units, and where they are set a `rotation`, a `clip`, a list of
+points, `invertClip` and `transparent`, each `true`, and the `linetype` and `lineweight` of every
+entity, which its frame is drawn in. `imageFrame: false` on the drawing hides every image's frame.
+A drawing with no image has the JSON it had before images existed. [Images](images.md) describes
+them.
+
+An underlay is `{ "kind": "underlay" }` in `entities`, with its `layer`, its file's `path`, its
+`pageSize` in inches and its lower-left corner `at`, and where they are set its `page`, `scale`,
+`rotation`, `clip`, `invertClip`, `fade`, `contrast`, `monochrome` and `on`, and the `linetype`
+and `lineweight` of every entity. `underlayFrame` on the drawing is `false` or `"screen"` where it
+is set. [Underlays](underlays.md) describes them.
+
+A hatch is an entity of kind `"hatch"`, with its `layer` and its `loops`, each `{ points }` and
+where a side is an arc its `bulges`, one for each side, its `pattern` or its `gradient` where it
+is not solid, and the `linetype` and `lineweight` of every entity. A pattern is `{ name }` of one of the drawing's
+`patterns`, with its `scale`, `angle` and `origin` where they are set, or `{ spacing }` of lines
+of its own, with its `angle`, `crossed` and `origin`. `patterns` on the drawing holds its hatch
+patterns, each `{ name, description, lines }` and each line `{ angle, base, offset, dashes }`, the
+dashes where it has them. A gradient is `{ name, angle, centered }` where they are set, with its
+`colors`, two `[red, green, blue]`, or its `color` and `tint`. A wipeout is an entity of kind
+`"wipeout"`, with its `layer` and its `points`.
+`wipeoutFrame: false` on the drawing hides every wipeout's frame. A paragraph's `mask` and a
+dimension style's `textMask` are written where they are set. A drawing with none of them has the
+JSON it had before they existed. [Fills, wipeouts and masks](fills.md) describes them.
+
+An ellipse is an entity of kind `"ellipse"`, with its `layer`, `center`, `majorAxis` and `ratio`,
+and for an arc of it its `startParameter` and `endParameter`. A spline is an entity of kind
+`"spline"`: through fit points, with its `fitPoints` and where they are set its `startTangent`,
+`endTangent` and `closed`; or by its control points, with its `controlPoints`, `degree` and
+`knots`, and where they are set its `weights` and `closed`. Each has the `linetype` and
+`lineweight` of every entity. A drawing with neither has the JSON it had before they existed.
+[Ellipses and splines](curves.md) describes them.
+
+A point is an entity of kind `"point"`, with its `layer` and `at`, and where it is set its
+`rotation`, with the `linetype` and `lineweight` of every entity. The drawing's `pointStyle` gives
+the figure every point plots as. A drawing with neither has the JSON it had before they existed.
+[Points](points.md) describes them.
 
 A drawing written by hand needs `format: 0` too. `lint` reports a drawing without it, or with
 another version, under the rule `format`, and `toDXF` refuses to write it. `lint` takes any

@@ -1,6 +1,6 @@
 // M-101: the mechanical plans of both floors at 3/16" = 1'-0" over a screened base plan, with the
 // equipment, fan and room airflow schedules and the notes, all from `mep-hvac.ts`.
-import type { Point } from "../../../src/index.ts";
+import type { Point, TableOptions } from "../../../src/index.ts";
 import { ATTIC_ACCESS, L1, L2, type Level, type Rect } from "../model/house.ts";
 import { CRITERIA } from "../project.ts";
 import { frame } from "../lib/frame.ts";
@@ -13,7 +13,9 @@ import {
   leaderNote,
   noteColumn,
   put,
-  table,
+  aligned,
+  SCHEDULE,
+  tableBottom,
   view,
   viewport,
   width,
@@ -548,26 +550,40 @@ function equipmentSchedule(d: D, at: Point): number {
       "AHRI MATCHED W/ AHU-2; LOCKING CAPS",
     ),
   ];
-  return table(
-    d,
+  const aligns = {
+    3: "center",
+    4: "right",
+    5: "right",
+    6: "center",
+    7: "center",
+    9: "center",
+  } as const;
+  const schedule: TableOptions = {
+    style: SCHEDULE,
     at,
-    "MECHANICAL EQUIPMENT SCHEDULE",
-    [
-      { name: "TAG", width: 0.55 },
-      { name: "TYPE", width: 2.85 },
-      { name: "LOCATION", width: 2.75 },
-      { name: "TONS", width: 0.5, align: "center" },
-      { name: "CFM", width: 0.55, align: "right" },
-      { name: "COOL BTUH", width: 0.95, align: "right" },
-      { name: "HEAT", width: 1.25, align: "center" },
-      { name: "SEER2/HSPF2", width: 1.15, align: "center" },
-      { name: "ELECTRICAL", width: 2.4 },
-      { name: "CKT", width: 0.75, align: "center" },
-      { name: "REMARKS", width: 3.5 },
-    ],
-    rows,
-    { height: H.note, rowHeight: 0.22 },
-  );
+    columns: [0.55, 2.85, 2.75, 0.5, 0.55, 0.95, 1.25, 1.15, 2.4, 0.75, 3.5],
+    title: "MECHANICAL EQUIPMENT SCHEDULE",
+    header: aligned(
+      [
+        "TAG",
+        "TYPE",
+        "LOCATION",
+        "TONS",
+        "CFM",
+        "COOL BTUH",
+        "HEAT",
+        "SEER2/HSPF2",
+        "ELECTRICAL",
+        "CKT",
+        "REMARKS",
+      ],
+      aligns,
+    ),
+    rows: rows.map((row) => aligned(row, aligns)),
+    rowHeights: rows.map(() => 0.22),
+  };
+  d.layer(LAYERS.text, {}, () => d.table(schedule));
+  return tableBottom(schedule);
 }
 
 function fanSchedule(d: D, at: Point): number {
@@ -579,21 +595,21 @@ function fanSchedule(d: D, at: Point): number {
     x.capNote,
     circuit(x.ckt).label,
   ]);
-  const y = table(
-    d,
+  const aligns = { 2: "right", 5: "center" } as const;
+  const schedule: TableOptions = {
+    style: SCHEDULE,
     at,
-    "EXHAUST SCHEDULE",
-    [
-      { name: "TAG", width: 0.55 },
-      { name: "SERVES", width: 1.85 },
-      { name: "CFM", width: 0.5, align: "right" },
-      { name: "DUCT", width: 1.45 },
-      { name: "TERMINATION, BACKDRAFT DAMPER", width: 2.65 },
-      { name: "CKT", width: 0.7, align: "center" },
-    ],
-    rows,
-    { height: H.note, rowHeight: 0.22 },
-  );
+    columns: [0.55, 1.85, 0.5, 1.45, 2.65, 0.7],
+    title: "EXHAUST SCHEDULE",
+    header: aligned(
+      ["TAG", "SERVES", "CFM", "DUCT", "TERMINATION, BACKDRAFT DAMPER", "CKT"],
+      aligns,
+    ),
+    rows: rows.map((row) => aligned(row, aligns)),
+    rowHeights: rows.map(() => 0.22),
+  };
+  d.layer(LAYERS.text, {}, () => d.table(schedule));
+  const y = tableBottom(schedule);
   const dl = dryerLength();
   let yy = y - 0.2;
   d.layer(LAYERS.text, {}, () => {
@@ -630,20 +646,17 @@ function airSchedule(d: D, at: Point): number {
         s.cfm.toLocaleString("en-US"),
       ]);
   }
-  return table(
-    d,
+  const aligns = { 1: "center", 2: "center", 3: "center", 4: "right" } as const;
+  const schedule: TableOptions = {
+    style: SCHEDULE,
     at,
-    "SUPPLY AND RETURN AIR BY ROOM",
-    [
-      { name: "ROOM", width: 2.4 },
-      { name: "UNIT", width: 0.7, align: "center" },
-      { name: "OUTLETS", width: 0.75, align: "center" },
-      { name: "NECK", width: 0.6, align: "center" },
-      { name: "CFM", width: 0.65, align: "right" },
-    ],
-    rows,
-    { height: H.note, rowHeight: 0.19 },
-  );
+    columns: [2.4, 0.7, 0.75, 0.6, 0.65],
+    title: "SUPPLY AND RETURN AIR BY ROOM",
+    header: aligned(["ROOM", "UNIT", "OUTLETS", "NECK", "CFM"], aligns),
+    rows: rows.map((row) => aligned(row, aligns)),
+  };
+  d.layer(LAYERS.text, {}, () => d.table(schedule));
+  return tableBottom(schedule);
 }
 
 const NOTES = (): string[] => {

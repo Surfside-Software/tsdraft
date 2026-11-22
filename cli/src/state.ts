@@ -181,8 +181,11 @@ export interface PngFont {
  * leaves out, by itself or with its block or list, has no `kind`, `layer` or `bounds`, since
  * the entity was not drawn.
  *
- * With `xref`, the problem is in that xref, or in the drawing the file gives for it: an error
- * `lint` finds there is reported once for each, with its rule, and that xref is not drawn.
+ * With `xref`, the problem is in that xref, or in the drawing the file gives for it or for an
+ * attachment inside that drawing: an error `lint` finds there is reported once for each place,
+ * with its rule and the chain of xrefs in its message, and that drawing is not drawn there. A
+ * warning with `xref` may say why a drawing the file gives is not drawn: an overlay inside a
+ * referenced drawing, a circular reference, or a chain deeper than the pictures follow.
  *
  * With `layout`, the problem is on that layout: `entity` then counts the layout's entities,
  * `viewport` its viewports, and `bounds` is on the sheet, in paper units. A viewport has no
@@ -351,12 +354,25 @@ export interface DimensionSummary {
   /** The dimension's id, or `null`. */
   readonly id: string | null;
   readonly layer: string;
-  /** `linear` measures along one direction, and `aligned` from point to point. */
-  readonly kind: "linear" | "aligned";
+  /**
+   * `linear` measures along one direction, `aligned` from point to point, `radius`, `diameter`
+   * and `jogged-radius` a circle or an arc, `angular` the angle between two lines, `arc-length`
+   * the length of an arc, and `ordinate` the X or the Y of a point from an origin.
+   */
+  readonly kind:
+    | "linear"
+    | "aligned"
+    | "radius"
+    | "diameter"
+    | "jogged-radius"
+    | "angular"
+    | "arc-length"
+    | "ordinate";
   /** The dimension style as the dimension names it. */
   readonly style: string;
   /**
-   * The length it measures, in the units of its space, before its style's measurement scale.
+   * The length it measures, in the units of its space, before its style's measurement scale, or
+   * an angular dimension's angle in degrees.
    * `null` when it cannot be worked out: its style is not defined, or the copy of tsdraft
    * the drawing loaded is from before dimensions.
    */
@@ -394,7 +410,16 @@ export interface XrefSummary {
   readonly name: string;
   /** The path of the DWG file, from the folder of the file this drawing is written to. */
   readonly path: string;
-  /** How many inserts place the xref, in model space, in blocks and on layouts. */
+  /**
+   * True for an attachment, which a drawing that references this one draws too, and false for
+   * an overlay, which it does not.
+   */
+  readonly attach: boolean;
+  /**
+   * How many inserts place the xref, in model space, in blocks and on layouts. For an xref of a
+   * drawing given for another, only those its model space reaches, directly or through its
+   * blocks: CAD draws nothing else of a referenced drawing.
+   */
   readonly inserts: number;
   /**
    * Whether the pictures draw a drawing for the xref. The command opens no DWG file: it draws
@@ -403,7 +428,10 @@ export interface XrefSummary {
    * `standard` has the xref as its border and a `preview`, it draws the preview. It cannot tell
    * whether that drawing is what the file at `path` holds, so `true` says what the pictures
    * drew and not what CAD will load. When this is false, the pictures and the extents have
-   * nothing of the xref, and CAD will still draw it.
+   * nothing of the xref, and CAD will still draw it, unless it is an overlay of a drawing given
+   * for another, which CAD does not draw either. It means the same at every depth: the pictures
+   * draw the drawing at each insert that draws, so one with no `inserts`, or only on a layer
+   * that is frozen or does not plot, draws nothing.
    */
   readonly shown: boolean;
   /**
@@ -413,6 +441,12 @@ export interface XrefSummary {
    * `drawing.units` each insert needs the scale between the two.
    */
   readonly units: Units | null;
+  /**
+   * The xrefs of the drawing given for this one, when `shown`, each as this one is: the file's
+   * `xrefs` export gives their drawings as `{ drawing, xrefs }`. The pictures draw an attachment
+   * among them, and never an overlay, as CAD loads them. Empty when it is not shown.
+   */
+  readonly xrefs: readonly XrefSummary[];
 }
 
 export interface BlockSummary {

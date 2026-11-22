@@ -232,7 +232,7 @@ function fieldsFile(): string {
         [1, "%<\\_FldIdx 0>%"],
       ],
       [
-        [0, "HATCH"],
+        [0, "SPLINE"],
         [5, "A2"],
         [8, "NOTES"],
       ],
@@ -297,13 +297,13 @@ test("readDXF keeps fields, the heights MTEXT sets, and counts what it does not 
   const [text] = read.model.census.texts;
   assert.deepEqual(text?.inlineHeights, [0.2, 0.30000000000000004]);
   assert.deepEqual(plain(read.model.census.layers.NOTES), {
-    kinds: { MTEXT: 1, HATCH: 1, OLE2FRAME: 1 },
+    kinds: { MTEXT: 1, SPLINE: 1, OLE2FRAME: 1 },
     ownColor: 1,
     ownLinetype: 0,
     ownLineweight: 1,
     lineweights: { "35": 1 },
   });
-  assert.deepEqual(plain(read.unread.entities), { HATCH: 1, OLE2FRAME: 1 });
+  assert.deepEqual(plain(read.unread.entities), { OLE2FRAME: 1 });
   assert.deepEqual(plain(read.unread.objects), { ACAD_PROXY_OBJECT: 1 });
   // No text value of model space is kept.
   assert.ok(!JSON.stringify(read).includes("big"));
@@ -671,7 +671,7 @@ test("readDXF decodes the DOS code pages, and keeps MTEXT heights to their scope
   assert.deepEqual(inlineHeights("\\H1e308x;\\H2x;\\H0.5;", 1), [1e308, 0.5]);
 });
 
-test("readDXF keeps a polyline with widths of 0, and counts one with widths", async () => {
+test("readDXF reads the widths of a polyline's sides, and leaves out widths of 0", async () => {
   const polyline = (widths: [number, number | string][]) => [
     [0, "LWPOLYLINE"] as const,
     [8, "0"] as const,
@@ -699,8 +699,84 @@ test("readDXF keeps a polyline with widths of 0, and counts one with widths", as
       [0, "EOF"],
     ]),
   );
-  assert.equal(read.blocks[0]?.entities.length, 1);
-  assert.deepEqual(plain(read.blocks[0]?.other), { "LWPOLYLINE with widths": 1 });
+  const [zero, wide] = read.blocks[0]?.entities ?? [];
+  assert.equal(zero?.kind === "polyline" && zero.widths, undefined);
+  assert.deepEqual(wide?.kind === "polyline" && wide.widths, [[0, 0.5]]);
+  assert.deepEqual(plain(read.blocks[0]?.other), {});
+});
+
+test("readDXF counts an entity the file marks invisible, in a block and in a space, and hides such an attribute", async () => {
+  const hidden = (type: string): (readonly [number, string | number])[] => [
+    [0, type],
+    [8, "0"],
+    [60, 1],
+    [10, 0],
+    [20, 0],
+    [11, 1],
+    [21, 0],
+  ];
+  const read = await readDXF(
+    dxf([
+      ...section(
+        "BLOCKS",
+        [
+          [0, "BLOCK"],
+          [2, "B"],
+        ],
+        hidden("LINE"),
+        hidden("HATCH"),
+        [[0, "ENDBLK"]],
+      ),
+      ...section(
+        "ENTITIES",
+        hidden("LINE"),
+        [
+          [0, "INSERT"],
+          [8, "0"],
+          [60, 1],
+          [2, "B"],
+        ],
+        [
+          [0, "INSERT"],
+          [8, "0"],
+          [2, "B"],
+          [66, 1],
+        ],
+        [
+          [0, "ATTRIB"],
+          [8, "0"],
+          [60, 1],
+          [10, 0],
+          [20, 0],
+          [40, 1],
+          [1, "V"],
+          [2, "TAG"],
+          [70, 0],
+        ],
+        [[0, "SEQEND"]],
+        [
+          [0, "ATTDEF"],
+          [8, "0"],
+          [60, 1],
+          [10, 0],
+          [20, 0],
+          [40, 1],
+          [1, ""],
+          [2, "TAG"],
+          [70, 0],
+        ],
+      ),
+      [0, "EOF"],
+    ]),
+    { geometry: true },
+  );
+  assert.deepEqual(read.blocks[0]?.entities, []);
+  assert.deepEqual(plain(read.blocks[0]?.other), { invisible: 2 });
+  const [insert] = read.model.entities ?? [];
+  assert.equal(insert?.kind === "insert" && insert.attributes?.[0]?.invisible, true);
+  assert.equal(read.model.entities?.length, 1);
+  assert.deepEqual(plain(read.model.other), { invisible: 3 });
+  assert.deepEqual(plain(read.model.census.layers["0"]?.kinds), { LINE: 1, INSERT: 2, ATTDEF: 1 });
 });
 
 test("checkDrawingRead takes no hole or getter for a value", async () => {
@@ -779,6 +855,118 @@ test("readDXF with geometry gives back every entity of both examples", async () 
     assert.ok(kinds.has("line") && kinds.has("mtext"), [...kinds].join());
   }
   assert.deepEqual(read.opensAt, { layout: "C-101", center: [18, 12], height: 26.4, width: 42.24 });
+});
+
+test("readDXF with geometry reads each table as its Table, with its style and its picture", async () => {
+  const d = createDrawing({ units: "in" });
+  d.textStyle({ name: "ARIALS", font: "Arial" });
+  d.block("TAG", {}, () => d.circle([0, 0], 0.2));
+  d.tableStyle({ name: "PLAIN", textHeight: 0.18, title: { textHeight: 0.25 } });
+  d.tableStyle({
+    name: "SCHED",
+    textStyle: "ARIALS",
+    textHeight: 0.1,
+    horizontalMargin: 0.05,
+    header: { fill: 8, lineweight: 0.35, color: 5 },
+    data: { align: "left", valign: "middle" },
+  });
+  d.table({
+    style: "PLAIN",
+    at: [1, 10],
+    columns: [0.6, 1.1, 1.6],
+    title: "DOOR SCHEDULE",
+    header: ["MARK", { text: "SIZE", columnSpan: 2 }, null],
+    rows: [
+      [{ text: "D1", rowSpan: 2 }, { block: "TAG" }, { block: "TAG", blockScale: 0.5 }],
+      [
+        null,
+        { text: "{\\C1;RED}", fill: 3, color: 2 },
+        { text: "", textHeight: 0.3, align: "right" },
+      ],
+    ],
+    rowHeights: [0.5, null],
+  });
+  d.table({ style: "SCHED", at: [6, 10], rotation: 30, columns: [1, 1], rows: [["A", "B"]] });
+  d.layout("SHEET", { paper: "ANSI B" }, () => {
+    d.table({ style: "SCHED", at: [1, 8], columns: [2], title: "LONE", header: ["H"], rows: [] });
+  });
+  const drawing = d.build();
+  const read = await readDXF(toDXF(drawing), { geometry: true });
+  assert.deepEqual(checkDrawingRead(plain(read)), []);
+  assert.deepEqual(readProblems(drawing, read, "tsdraft"), []);
+  assert.deepEqual(
+    read.tableStyles.map((s) => s.name),
+    ["Standard", "PLAIN", "SCHED"],
+  );
+  // Without geometry no table is kept, and neither is its picture.
+  const plainRead = await readDXF(toDXF(drawing));
+  assert.equal(plainRead.blocks.filter((b) => b.name.startsWith("*T")).length, 0);
+  assert.equal(plainRead.tableStyles.length, 3);
+});
+
+test("readDXF counts a table past the core's limits or a read's, and never lists it", async () => {
+  type Pairs = (readonly [number, string | number])[];
+  const cell = (text: string): Pairs => [
+    [171, 1],
+    [175, 1],
+    [176, 1],
+    [91, 0],
+    [301, "CELL_VALUE"],
+    [1, text],
+    [304, "ACVALUE_END"],
+  ];
+  const table = (rows: number, columns: number, cells: Pairs = [], heights = rows): Pairs => [
+    [0, "ACAD_TABLE"],
+    [8, "0"],
+    [100, "AcDbBlockReference"],
+    [2, "*T1"],
+    [100, "AcDbTable"],
+    [280, 0],
+    [91, rows],
+    [92, columns],
+    ...Array.from({ length: heights }, (): [number, number] => [141, 0.3]),
+    ...Array.from({ length: Math.min(columns, 2000) }, (): [number, number] => [142, 1]),
+    ...cells,
+  ];
+  const read = await readDXFWithin(
+    dxf([
+      ...section(
+        "ENTITIES",
+        table(1, 1001),
+        table(400, 400, [], 0),
+        table(2000, 0),
+        table(2, 1, cell("ONE")),
+        table(1, 1, cell("X".repeat(32 * 1100))),
+        table(1, 1, cell("A")),
+      ),
+      [0, "EOF"],
+    ]),
+    { geometry: true },
+    { ...READ_LIMITS, geometryItems: 1000 },
+  );
+  assert.deepEqual(plain(read.model.other), {
+    "ACAD_TABLE of more than 1000 columns": 1,
+    "ACAD_TABLE of more than 100000 cells": 1,
+    "ACAD_TABLE of more than 1000 rows": 1,
+    "past the limit": 1,
+  });
+  assert.deepEqual(plain(read.unread.malformed), {
+    "ACAD_TABLE whose rows, columns or cells are not as many as it says": 1,
+  });
+  assert.deepEqual(plain(read.model.entities), [
+    {
+      layer: "0",
+      kind: "table",
+      at: [0, 0],
+      direction: [1, 0],
+      rows: [0.3],
+      columns: [1],
+      title: true,
+      header: false,
+      cells: [{ row: 0, column: 0, rowSpan: 1, columnSpan: 1, text: "A" }],
+      block: "*T1",
+    },
+  ]);
 });
 
 test("readDXF gives back a text that holds the leading CAD app's escapes as toDXF wrote it", async () => {
@@ -933,24 +1121,30 @@ test("readDXF keeps the pen an entity sets itself, and counts what it reads only
           [370, -1],
           [48, 1],
         ]),
+        // An ordinate drawn in a turned coordinate system.
         [
           [0, "DIMENSION"],
           [8, "A"],
-          [70, 34],
+          [70, 38],
+          [51, 330],
         ],
         [
           [0, "MULTILEADER"],
           [8, "A"],
           [300, "CONTEXT_DATA{"],
+          [290, 1],
+          [11, 1],
+          [21, 0],
+          [31, 0],
           [301, "}"],
-          [172, 1],
         ],
         [
           [0, "LINE"],
           [8, "A"],
           [10, "1e999"],
         ],
-        // The leading CAD app leaves out a measurement of 1, and a rotation in radians may be any number.
+        // The leading CAD app leaves out a measurement of 1, and a rotation may be any number. It
+        // reads an MTEXT's group 50 as degrees.
         [
           [0, "DIMENSION"],
           [8, "A"],
@@ -962,23 +1156,30 @@ test("readDXF keeps the pen an entity sets itself, and counts what it reads only
           [50, "1e308"],
           [1, "M"],
         ],
+        [
+          [0, "MTEXT"],
+          [8, "A"],
+          [50, "390"],
+          [1, "M"],
+        ],
       ),
       [0, "EOF"],
     ]),
     { geometry: true },
   );
   assert.deepEqual(checkDrawingRead(plain(read)), []);
-  const [own, plainLine, dimension, mtext] = read.model.entities!;
+  const [own, plainLine, dimension, mtext, turned] = read.model.entities!;
   assert.equal(dimension?.kind === "dimension" && dimension.measurement, 1);
   assert.ok(mtext?.kind === "mtext" && mtext.rotation >= 0 && mtext.rotation < 360);
+  assert.equal(turned?.kind === "mtext" && turned.rotation, 30);
   assert.deepEqual(
     [own?.linetype, own?.color, own?.trueColor, own?.lineweight, own?.linetypeScale],
     ["DASHED", 0, 0xff0000, 35, 2.5],
   );
   assert.deepEqual(Object.keys(plain(plainLine) as object).sort(), ["from", "kind", "layer", "to"]);
   assert.deepEqual(plain(read.model.other), {
-    "DIMENSION angular": 1,
-    "MULTILEADER with a block": 1,
+    "DIMENSION ordinate in a turned coordinate system": 1,
+    "MULTILEADER in 3D": 1,
   });
   assert.deepEqual(plain(read.unread.malformed), { "LINE with a number that is not finite": 1 });
   assert.deepEqual(read.opensAt, { center: [6, 7], height: 10, width: 15 });
@@ -1090,4 +1291,80 @@ test("A DXF comes back byte for byte from its document", async () => {
   assert.ok(document.references(layer).some((r) => r.code === 330 && r.handle === table));
   assert.ok(document.references(layer).some((r) => r.code === 390));
   assert.equal(document.names[document.sections[layer]!], "TABLES");
+});
+
+test("a hatch with a group that is not a number is counted, not read as NaN", async () => {
+  const d = createDrawing({ units: "in" });
+  d.hatch([
+    [0, 0],
+    [1, 0],
+    [1, 1],
+  ]);
+  d.hatch(
+    [
+      [2, 0],
+      [3, 0],
+      [3, 1],
+    ],
+    { pattern: { spacing: 0.1 } },
+  );
+  const dxf = toDXF(d.build());
+  // The first hatch's loop flags, and the second's pattern type.
+  const second = dxf.lastIndexOf("AcDbHatch");
+  for (const bent of [
+    dxf.replace("91\r\n1\r\n92\r\n2\r\n", "91\r\n1\r\n92\r\nx\r\n"),
+    dxf.slice(0, second) + dxf.slice(second).replace("76\r\n0\r\n", "76\r\n1e999\r\n"),
+  ]) {
+    assert.notEqual(bent, dxf);
+    const read = await readDXF(bent, { geometry: true });
+    assert.deepEqual(plain(read.unread.malformed), { "HATCH with a number that is not finite": 1 });
+  }
+});
+
+test("a definition of paragraph text pays for its style's name against the block's items", async () => {
+  const d = createDrawing({ units: "in" });
+  const style = "A" + "X".repeat(199);
+  d.textStyle({ name: style, font: "Arial" });
+  d.block("B", {}, () => d.attribute("A", [0, 0], { kind: "paragraph", value: "A", style }));
+  const read = await readDXFWithin(toDXF(d.build()), {}, { ...READ_LIMITS, blockItems: 8 });
+  const block = read.blocks.find((b) => b.name === "B")!;
+  assert.equal(block.attributeDefinitions.length, 0);
+  assert.equal(block.other["past the limit"], 1);
+});
+
+test("a gradient whose angle or tint is past the doubles once read is counted, not read as Infinity", async () => {
+  const d = createDrawing({ units: "in" });
+  d.hatch(
+    [
+      [0, 0],
+      [1, 0],
+      [1, 1],
+    ],
+    {
+      gradient: {
+        name: "linear",
+        colors: [
+          [0, 0, 255],
+          [255, 255, 0],
+        ],
+      },
+    },
+  );
+  d.hatch(
+    [
+      [2, 0],
+      [3, 0],
+      [3, 1],
+    ],
+    { gradient: { name: "linear", color: [0, 0, 255], tint: 0.5 } },
+  );
+  const dxf = toDXF(d.build());
+  // The first's angle in radians, past the doubles in degrees, and the second's tint, past
+  // single precision.
+  const bent = dxf
+    .replace(/\r\n460\r\n[^\r]*\r\n/, "\r\n460\r\n1e307\r\n")
+    .replace(/\r\n462\r\n0\.5\r\n/, "\r\n462\r\n1e39\r\n");
+  assert.ok(bent.includes("\r\n460\r\n1e307\r\n") && bent.includes("\r\n462\r\n1e39\r\n"));
+  const read = await readDXF(bent, { geometry: true });
+  assert.deepEqual(plain(read.unread.malformed), { "HATCH with a number past the doubles": 2 });
 });

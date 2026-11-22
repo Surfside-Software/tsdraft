@@ -37,7 +37,7 @@ so a CAD program opens them as plain geometry.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="../docs/assets/site-plan-dark.svg">
-  <img src="../docs/assets/site-plan-light.svg" alt="A landscape sheet, 3 wide to 2 tall, inside a border. At the left, a permit-style site plan at 1 inch to 10 feet: a lot with its bearings, setback lines, a building footprint with dimension strings, a driveway, a sidewalk, trees and the street, with a north arrow, the view title and a graphic scale under it. To its lower right, a key plan at 1 inch to 40 feet: the lot, its setbacks, the building and the trees, turned 30 degrees, with its own turned north arrow and title. At the right, a column of site data, general notes, a legend and abbreviations, and in the lower right corner a title block with the project, the sheet title, the date, the scale and the sheet number C-101" width="100%">
+  <img src="../docs/assets/site-plan-light.svg" alt="A landscape sheet, 3 wide to 2 tall, inside a border. At the left, a permit-style site plan at 1 inch to 10 feet: a lot with its bearings, setback lines, a building footprint with dimension strings, a driveway, a sidewalk, trees and the street, a revision cloud around the driveway, with a north arrow, the view title and a graphic scale under it. To its lower right, a key plan at 1 inch to 40 feet: the lot, its setbacks, the building and the trees, turned 30 degrees, with its own turned north arrow and title. At the right, a column of site data, general notes, a legend and abbreviations, and in the lower right corner a title block with the project, the sheet title, the date, the scale and the sheet number C-101" width="100%">
 </picture>
 
 The example sheet: a permit-style site plan on an ARCH D sheet, 36 by 24 inches,
@@ -52,7 +52,9 @@ at 1" = 10'. It is the file to copy to start a drawing.
   `plan`, which sizes it by how large it plots at the view's scale. The
   dimensions are dimension objects in the standard's dimension style at that
   scale, so CAD measures them, and the leaders are leader objects in its
-  leader style, one with two shafts.
+  leader style, one with two shafts. A revision cloud wraps the driveway and
+  its label, one polyline of arcs that bulge out of its outline so that it
+  crosses neither, with a delta that holds the revision's number.
 - **The layout `C-101`** holds the sheet, in inches of paper: the border, the
   title block, a column of site data, general notes, a legend and
   abbreviations, and under each view its north arrow and its title, and under
@@ -61,8 +63,8 @@ at 1" = 10'. It is the file to copy to start a drawing.
 One viewport shows the view on the layout at its scale. A second shows the
 view `key-plan` of the same model space, at 1" = 40' and turned 30 degrees with
 `twist`, and freezes the layers that are sized for the plan or run to its
-edges with `frozenLayers`: the dimensions, the text, the property corners, the
-adjoining lot lines, the pavement and the centerline. So the key plan shows the
+edges with `frozenLayers`: the dimensions, the text, the revision, the property
+corners, the adjoining lot lines, the pavement and the centerline. So the key plan shows the
 lot, its setbacks, the building and the trees, and the plan's viewport still
 shows everything. The key plan's north arrow is turned as far as its view. Both
 viewports are on a layer that does not plot, so their borders stay off the
@@ -101,12 +103,13 @@ their own, `VIEW_TITLE` and `VIEW_SCALE`, so no tag names two fields.
 own border.
 
 The trees, the property corners, the north arrow and the view title are blocks
-too. The tree and the property corner are in the plan and in the legend, so
+too. The north arrow's head is one polyline that widens from nothing at its tip,
+which CAD programs fill. The tree and the property corner are in the plan and in the legend, so
 each is inserted in model space and on the layout: the tree at each tree's
 radius in the plan and at 3/16 inch in the legend.
 
 The sheet is drawn to a standard of its own, `standard`, which extends
-`BUILT_IN_STANDARD` with the layer `V-TREE`. Each layer is named, and its color,
+`BUILT_IN_STANDARD` with the layers `V-TREE` and `C-ANNO-REVS`. Each layer is named, and its color,
 linetype, pen and plot flag are the standard's. The standard's linetype scale
 is a length of paper, 1/2. Each text names a role of the standard, which gives
 its text style and the height it plots at; the title block's texts are in a

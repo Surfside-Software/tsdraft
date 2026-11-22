@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { callerInStack, parseStack } from "../src/callsite.ts";
+import { written } from "../src/format.ts";
 import {
   createDrawing,
   DASHED,
@@ -13,6 +14,26 @@ import {
   type Diagnostic,
   type Drawing,
 } from "../src/index.ts";
+
+test("coordinates round to six decimal places on both sides of a half-millionth", () => {
+  // 1.2345678 is rounded by arithmetic, not as a tie. 6846209353.3203125 and 22673844301.198742
+  // are past 2 ** 52 / 1e6, where scaling stops being exact, and must not take the fast path.
+  for (const value of [
+    0,
+    0.0000005,
+    0.0000025,
+    1 / 128,
+    1.2345678,
+    4_000_000_000.0000005,
+    6846209353.3203125,
+    22673844301.198742,
+    1e20,
+  ]) {
+    for (const signed of [value, -value]) {
+      assert.equal(written(signed), Number(signed.toFixed(6)) || 0);
+    }
+  }
+});
 
 function sample(): Drawing {
   const d = createDrawing({ units: "ft", linetypeScale: 2 });
@@ -39,7 +60,7 @@ function refusal(value: unknown): readonly Diagnostic[] {
   return assert.fail("fromJSON took the value");
 }
 
-const kinds = ` An entity's kind is "line", "polyline", "circle", "arc", "text", "insert", "linear-dimension", "aligned-dimension" or "leader"`;
+const kinds = ` An entity's kind is "line", "polyline", "circle", "point", "arc", "ellipse", "spline", "text", "paragraph", "insert", "linear-dimension", "aligned-dimension", "leader", "image", "underlay", "hatch" or "wipeout"`;
 
 test("a drawing goes to JSON and back unchanged", () => {
   const drawing = sample();
@@ -94,13 +115,13 @@ test("fromJSON names what it does not know, and runs lint", () => {
       layers: [{ name: "0", color: 7, colour: 1 }],
       entities: [
         { ...(base.entities![0] as object), layer: "0", thickness: 2 },
-        { kind: "ellipse", layer: "0" },
+        { kind: "xline", layer: "0" },
         { kind: "circle", layer: "0", center: [0, 0, 0] },
       ],
     }),
     [
       'format: entities[0]: unknown field "thickness"',
-      `format: entities[1]: unknown entity kind "ellipse".${kinds}`,
+      `format: entities[1]: unknown entity kind "xline".${kinds}`,
       'format: entities[2]: the field "radius" is missing',
       "format: entities[2].center must be a point, [x, y]",
       'format: layers[0]: unknown field "colour". Did you mean "color"?',

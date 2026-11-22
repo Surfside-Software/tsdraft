@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cdn.jsdelivr.net/npm/tsdraft@0.5.3/standard.schema.json",
+  "$id": "https://cdn.jsdelivr.net/npm/tsdraft@0.5.4/standard.schema.json",
   "title": "A tsdraft standard",
   "type": "object",
   "description": "A firm's CAD standard: its layers, pens, linetypes, text roles, scales, dimension styles, leader styles, title blocks and sheet formats. What a schema cannot hold, such as a name that refers to another entry, is checked by defineStandard",
@@ -278,7 +278,7 @@
         },
         "arrowhead": {
           "type": "string",
-          "enum": ["closed-filled", "architectural-tick"],
+          "enum": ["closed-filled", "architectural-tick", "oblique"],
           "description": "One of ARROWHEADS",
           "default": "closed-filled"
         },
@@ -301,6 +301,71 @@
           "type": "number",
           "minimum": 0,
           "description": "The gap between the text and the dimension line, on paper"
+        },
+        "textPlacement": {
+          "type": "string",
+          "enum": ["above", "centered"],
+          "description": "The text above the dimension line, or centered in a break of it",
+          "default": "above"
+        },
+        "radialText": {
+          "type": "string",
+          "enum": ["aligned", "horizontal"],
+          "description": "How a radius, a diameter or a jogged radius dimension's text reads: along its line, or level",
+          "default": "aligned"
+        },
+        "jogAngle": {
+          "type": "number",
+          "minimum": 5,
+          "maximum": 90,
+          "description": "The angle of a jogged radius dimension's jog to its line, in degrees",
+          "default": 45
+        },
+        "angleUnits": {
+          "type": "string",
+          "enum": ["degrees", "degrees-minutes-seconds", "grads", "radians"],
+          "description": "The units an angular dimension writes its angle in: degrees, degrees, minutes and seconds, grads or radians",
+          "default": "degrees"
+        },
+        "anglePrecision": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 8,
+          "description": "How many decimals an angle takes; in degrees, minutes and seconds, 0 writes the degrees, 1 and 2 the minutes too, and 3 and 4 the seconds",
+          "default": 0
+        },
+        "suppressAngleZeros": {
+          "type": "string",
+          "enum": ["leading", "trailing", "both"],
+          "description": "The zeros an angle leaves out. Defaults to none"
+        },
+        "arcSymbol": {
+          "type": "string",
+          "enum": ["before", "above", "none"],
+          "description": "Where an arc length dimension draws the arc symbol: before its text, above it, or nowhere",
+          "default": "before"
+        },
+        "textFit": {
+          "type": "string",
+          "enum": ["inside", "leader"],
+          "description": "Where a text goes that does not fit between the extension lines: inside them all the same, or out on a leader",
+          "default": "inside"
+        },
+        "dimensionLineweight": {
+          "type": "number",
+          "enum": [
+            0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8,
+            0.9, 1, 1.06, 1.2, 1.4, 1.58, 2, 2.11
+          ],
+          "description": "The lineweight of the dimension line, its arrowheads and a leader to its text, in millimetres. Defaults to the dimension's own"
+        },
+        "extensionLineweight": {
+          "type": "number",
+          "enum": [
+            0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8,
+            0.9, 1, 1.06, 1.2, 1.4, 1.58, 2, 2.11
+          ],
+          "description": "The lineweight of the extension lines, in millimetres. Defaults to the dimension's own"
         },
         "writing": {
           "$ref": "#/$defs/writings",
@@ -360,7 +425,7 @@
         },
         "arrowhead": {
           "type": "string",
-          "enum": ["closed-filled", "architectural-tick"],
+          "enum": ["closed-filled", "architectural-tick", "oblique"],
           "description": "One of ARROWHEADS"
         },
         "arrowSize": {
@@ -382,6 +447,64 @@
           "type": "number",
           "minimum": 0,
           "description": "The gap between the text and the dimension line, on paper"
+        },
+        "textPlacement": {
+          "type": "string",
+          "enum": ["above", "centered"],
+          "description": "The text above the dimension line, or centered in a break of it"
+        },
+        "radialText": {
+          "type": "string",
+          "enum": ["aligned", "horizontal"],
+          "description": "How a radius, a diameter or a jogged radius dimension's text reads: along its line, or level"
+        },
+        "jogAngle": {
+          "type": "number",
+          "minimum": 5,
+          "maximum": 90,
+          "description": "The angle of a jogged radius dimension's jog to its line, in degrees"
+        },
+        "angleUnits": {
+          "type": "string",
+          "enum": ["degrees", "degrees-minutes-seconds", "grads", "radians"],
+          "description": "The units an angular dimension writes its angle in: degrees, degrees, minutes and seconds, grads or radians"
+        },
+        "anglePrecision": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 8,
+          "description": "How many decimals an angle takes; in degrees, minutes and seconds, 0 writes the degrees, 1 and 2 the minutes too, and 3 and 4 the seconds"
+        },
+        "suppressAngleZeros": {
+          "type": "string",
+          "enum": ["leading", "trailing", "both"],
+          "description": "The zeros an angle leaves out. Defaults to none"
+        },
+        "arcSymbol": {
+          "type": "string",
+          "enum": ["before", "above", "none"],
+          "description": "Where an arc length dimension draws the arc symbol: before its text, above it, or nowhere"
+        },
+        "textFit": {
+          "type": "string",
+          "enum": ["inside", "leader"],
+          "description": "Where a text goes that does not fit between the extension lines: inside them all the same, or out on a leader"
+        },
+        "dimensionLineweight": {
+          "type": "number",
+          "enum": [
+            0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8,
+            0.9, 1, 1.06, 1.2, 1.4, 1.58, 2, 2.11
+          ],
+          "description": "The lineweight of the dimension line, its arrowheads and a leader to its text, in millimetres. Defaults to the dimension's own"
+        },
+        "extensionLineweight": {
+          "type": "number",
+          "enum": [
+            0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8,
+            0.9, 1, 1.06, 1.2, 1.4, 1.58, 2, 2.11
+          ],
+          "description": "The lineweight of the extension lines, in millimetres. Defaults to the dimension's own"
         },
         "writing": {
           "$ref": "#/$defs/writings",
@@ -532,9 +655,42 @@
         },
         "attachment": {
           "type": "string",
-          "enum": ["first-line", "last-line"],
-          "description": "Which line of the note the landing meets, at the middle of its capitals",
+          "enum": [
+            "top-of-first",
+            "first-line",
+            "middle",
+            "last-line",
+            "bottom-of-last",
+            "underline-last",
+            "underline-first",
+            "bottom-of-first",
+            "underline-all"
+          ],
+          "description": "Where the landing meets the side of the note: one of LEADER_ATTACHMENTS",
           "default": "first-line"
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["horizontal", "vertical"],
+          "description": "Whether the landing meets the side of the note, \"horizontal\", or its top or bottom, \"vertical\"",
+          "default": "horizontal"
+        },
+        "verticalAttachment": {
+          "type": "string",
+          "enum": ["center", "line"],
+          "description": "Where the landing meets a note above or below it: \"center\", or \"line\" with a line as wide as the note",
+          "default": "center"
+        },
+        "frame": {
+          "type": "boolean",
+          "description": "True for a frame around each note, one gap outside it",
+          "default": false
+        },
+        "shaft": {
+          "type": "string",
+          "enum": ["straight", "curved"],
+          "description": "How the shafts run through their points: \"straight\", or \"curved\"",
+          "default": "straight"
         },
         "description": {
           "type": "string",
@@ -593,8 +749,37 @@
         },
         "attachment": {
           "type": "string",
-          "enum": ["first-line", "last-line"],
-          "description": "Which line of the note the landing meets, at the middle of its capitals"
+          "enum": [
+            "top-of-first",
+            "first-line",
+            "middle",
+            "last-line",
+            "bottom-of-last",
+            "underline-last",
+            "underline-first",
+            "bottom-of-first",
+            "underline-all"
+          ],
+          "description": "Where the landing meets the side of the note: one of LEADER_ATTACHMENTS"
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["horizontal", "vertical"],
+          "description": "Whether the landing meets the side of the note, \"horizontal\", or its top or bottom, \"vertical\""
+        },
+        "verticalAttachment": {
+          "type": "string",
+          "enum": ["center", "line"],
+          "description": "Where the landing meets a note above or below it: \"center\", or \"line\" with a line as wide as the note"
+        },
+        "frame": {
+          "type": "boolean",
+          "description": "True for a frame around each note, one gap outside it"
+        },
+        "shaft": {
+          "type": "string",
+          "enum": ["straight", "curved"],
+          "description": "How the shafts run through their points: \"straight\", or \"curved\""
         },
         "description": {
           "type": "string",
@@ -916,7 +1101,7 @@
         },
         "blockName": {
           "type": "string",
-          "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:_[Aa][Rr][Cc][Hh][Tt][Ii][Cc][Kk]|_[Oo][Pp][Ee][Nn]|_[Dd][Oo][Tt]|_[Nn][Oo][Nn][Ee])$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$",
+          "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:_[Aa][Rr][Cc][Hh][Tt][Ii][Cc][Kk]|_[Oo][Bb][Ll][Ii][Qq][Uu][Ee]|_[Oo][Pp][Ee][Nn]|_[Dd][Oo][Tt]|_[Nn][Oo][Nn][Ee])$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$",
           "description": "The block of block that the builder inserts at [0, 0] on each sheet"
         },
         "xref": {
@@ -1047,6 +1232,19 @@
           "exclusiveMinimum": 0,
           "description": "Each measurement is written times this",
           "default": 1
+        },
+        "fraction": {
+          "type": "string",
+          "enum": ["inline", "stacked", "diagonal"],
+          "description": "In architectural units, how the fraction of an inch is written: inline, as 4'-1 7/16\", stacked over a bar, or diagonal, beside a slash",
+          "default": "inline"
+        },
+        "fractionScale": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 1,
+          "description": "The height of a stacked fraction as a share of the text's, from 0.25 to 1",
+          "default": 1
         }
       },
       "required": ["precision"],
@@ -1093,7 +1291,7 @@
         },
         "name": {
           "type": "string",
-          "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:_[Aa][Rr][Cc][Hh][Tt][Ii][Cc][Kk]|_[Oo][Pp][Ee][Nn]|_[Dd][Oo][Tt]|_[Nn][Oo][Nn][Ee])$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$",
+          "pattern": "^(?! )(?![\\s\\S]* $)(?!(?:_[Aa][Rr][Cc][Hh][Tt][Ii][Cc][Kk]|_[Oo][Bb][Ll][Ii][Qq][Uu][Ee]|_[Oo][Pp][Ee][Nn]|_[Dd][Oo][Tt]|_[Nn][Oo][Nn][Ee])$)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$",
           "description": "The xref's name"
         },
         "path": {

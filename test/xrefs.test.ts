@@ -3,10 +3,12 @@ import { test } from "node:test";
 import {
   blockHandle,
   createDrawing,
+  drawnXrefs,
   DrawingError,
   findXref,
   fromJSON,
   idHandle,
+  inspectText,
   lint,
   toDXF,
   toJSON,
@@ -198,6 +200,9 @@ test("R2018 DXF holds an xref as a block with a path, and its inserts", () => {
   const [block] = of("BLOCK");
   // 12 is an xref that is an overlay, and a path is escaped for one pass of the leading CAD app's reader.
   assert.ok(block?.includes("70=12") && block.includes(`330=${record}`));
+  // 4 alone is an attachment.
+  const attached = createDrawing().xref("A", "a.dwg", { attach: true }).insert("A", [0, 0]);
+  assert.match(toDXF(attached.build()), /\r\n2\r\nA\r\n70\r\n4\r\n/);
   assert.equal(block?.at(-1), "1=..\\base\\base.dwg");
   const inserts = of("INSERT");
   assert.equal(inserts.length, 2);
@@ -216,13 +221,15 @@ test("a drawing with xrefs goes to JSON and back, and the parser says why an xre
   assert.deepEqual(findXref(drawing, "base"), { name: "BASE", path: "..\\base\\base.dwg" });
   const broken = JSON.parse(toJSON(drawing)) as { xrefs: Record<string, unknown>[] };
   broken.xrefs[0]!.entities = [];
-  broken.xrefs[0]!.attach = true;
+  broken.xrefs[0]!.overlay = true;
+  broken.xrefs[0]!.attach = "yes";
   assert.throws(
     () => fromJSON(broken),
     (thrown: unknown) =>
       thrown instanceof DrawingError &&
       /xrefs\[0\]: An xref cannot have entities of its own/.test(thrown.message) &&
-      /xrefs\[0\]: unknown field "attach"/.test(thrown.message),
+      /xrefs\[0\]: unknown field "overlay"/.test(thrown.message) &&
+      /xrefs\[0\]\.attach must be true or false/.test(thrown.message),
   );
 });
 
@@ -282,4 +289,153 @@ test("SVG draws the drawing given for an xref where each insert puts it, as the 
   // A referenced drawing's own xrefs are not drawn, so two that reference each other end.
   const loop = createDrawing().xref("BASE", "host.dwg").insert("BASE", [0, 0]).line([0, 0], [1, 1]);
   assert.equal(toSVG(drawing, { xrefs: { BASE: loop.build() } }).match(/<line/g)?.length, 2);
+});
+
+test("a drawing given with its own xrefs draws its attachments and none of its overlays, as the leading CAD app does", () => {
+  const detail = createDrawing({ units: "ft" });
+  detail.layer("D", { color: 3 }, () => detail.circle([0, 0], 1));
+  const base = createDrawing({ units: "ft" }).xref("DETAIL", "detail.dwg", { attach: true });
+  base.layer("B", { color: 2 }, () => base.line([0, 0], [5, 0]).insert("DETAIL", [5, 0]));
+  const survey = createDrawing({ units: "ft" });
+  survey.layer("S", { color: 4 }, () => survey.line([0, 0], [0, 5]));
+  const model = createDrawing({ units: "ft" });
+  model.xref("BASE", "base.dwg", { attach: true }).xref("SURVEY", "survey.dwg");
+  model.layer("M", { color: 1 }, () =>
+    model.rect([0, 0], 2, 2).insert("BASE", [10, 0]).insert("SURVEY", [0, 10]),
+  );
+  const sheet = createDrawing({ units: "ft" }).xref("MODEL", "model.dwg");
+  sheet.insert("MODEL", [100, 0]);
+  const drawn = sheet.build();
+  const xrefs = {
+    MODEL: {
+      drawing: model.build(),
+      xrefs: {
+        BASE: { drawing: base.build(), xrefs: { DETAIL: detail.build() } },
+        SURVEY: survey.build(),
+      },
+    },
+  };
+  const svg = toSVG(drawn, { xrefs });
+  // A layer of an attached drawing is named by the attachment's name, wherever it is attached.
+  assert.match(svg, /<line x1="110" y1="0" x2="115" y2="0" [^>]*data-layer="BASE\|B"\/>/);
+  assert.match(svg, /<circle cx="115" cy="0" r="1" [^>]*data-layer="DETAIL\|D"\/>/);
+  assert.match(svg, /data-layer="MODEL\|M"/);
+  // The model's overlay is not drawn, though a drawing is given for it, and lint says why.
+  assert.doesNotMatch(svg, /SURVEY/);
+  assert.deepEqual(
+    lint(drawn, { xrefs }).map((d) => `${d.severity} ${d.rule} ${d.xref}: ${d.message}`),
+    [
+      'warning xref MODEL: Xref "MODEL" > "SURVEY": "SURVEY" is an overlay of the drawing given for "MODEL", and the leading CAD app draws no overlay of a referenced drawing, so the drawing given for it is not drawn',
+    ],
+  );
+  // The model given alone draws none of its own xrefs.
+  assert.doesNotMatch(toSVG(drawn, { xrefs: { MODEL: xrefs.MODEL.drawing } }), /BASE|DETAIL/);
+
+  // Two drawings that attach each other: the circle is broken where the model would be drawn
+  // inside itself, and the base inside the model is drawn once.
+  const back = createDrawing({ units: "ft" }).xref("MODEL", "model.dwg", { attach: true });
+  back.layer("B", {}, () => back.line([0, 0], [1, 0]).insert("MODEL", [0, 0]));
+  const ring: { drawing: Drawing; xrefs: Record<string, unknown> } = {
+    drawing: xrefs.MODEL.drawing,
+    xrefs: {},
+  };
+  ring.xrefs["BASE"] = { drawing: back.build(), xrefs: { MODEL: ring } };
+  const circled = toSVG(drawn, { xrefs: { MODEL: ring as never } });
+  assert.equal(circled.match(/data-layer="MODEL\|M"/g)?.length, 1);
+  assert.equal(circled.match(/data-layer="BASE\|B"/g)?.length, 1);
+  assert.match(
+    lint(drawn, { xrefs: { MODEL: ring as never } })[0]?.message ?? "",
+    /^Xref "MODEL" > "BASE" > "MODEL": a circular reference/,
+  );
+  // The sheet given for its own xref is a circle too.
+  assert.doesNotMatch(toSVG(drawn, { xrefs: { MODEL: drawn } }), /data-layer="MODEL\|/);
+
+  // A chain is followed 16 drawings down, and no further.
+  let deepest: { drawing: Drawing } | Drawing = createDrawing().line([0, 0], [1, 0]).build();
+  for (let i = 0; i < 20; i++) {
+    const link = createDrawing().xref("NEXT", "next.dwg", { attach: true });
+    link.line([0, 0], [1, 0]).insert("NEXT", [1, 0]);
+    deepest = { drawing: link.build(), xrefs: { NEXT: deepest } } as never;
+  }
+  const top = createDrawing().xref("NEXT", "next.dwg").insert("NEXT", [0, 0]).build();
+  assert.equal(toSVG(top, { xrefs: { NEXT: deepest as never } }).match(/<line/g)?.length, 16);
+  const [deep] = lint(top, { xrefs: { NEXT: deepest as never } });
+  assert.equal(deep?.severity, "warning");
+  assert.match(deep?.message ?? "", /drawn 16 drawings down and no further/);
+
+  // Past 4,096 names given inside referenced drawings, none of them is drawn.
+  const wide = createDrawing({ units: "ft" });
+  const names = Array.from({ length: 4097 }, (_, i) => `N${i}`);
+  for (const name of names) wide.xref(name, `${name}.dwg`, { attach: true }).insert(name, [0, 0]);
+  const many = {
+    MODEL: {
+      drawing: wide.build(),
+      xrefs: Object.fromEntries(names.map((name) => [name, detail.build()])),
+    },
+  };
+  assert.doesNotMatch(toSVG(drawn, { xrefs: many }), /\|D"/);
+  assert.deepEqual(
+    lint(drawn, { xrefs: many }).map((d) => [d.severity, d.xref, d.message.slice(0, 50)]),
+    [["warning", undefined, "The drawings given in xrefs name more than 4096 xr"]],
+  );
+
+  // What a picture draws of what is given, which draws the same when given again.
+  const kept = drawnXrefs(drawn, xrefs);
+  assert.deepEqual(Object.keys(kept), ["MODEL"]);
+  assert.deepEqual(Object.keys((kept["MODEL"] as { xrefs: object }).xrefs), ["BASE"]);
+  assert.equal(toSVG(drawn, { xrefs: kept }), svg);
+  // A value that is no drawing is an error, and draws nothing.
+  const odd = { MODEL: { drawing: xrefs.MODEL.drawing, xrefs: { BASE: { blocks: [{}] } } } };
+  const [shape] = lint(drawn, { xrefs: odd as never });
+  assert.deepEqual([shape?.severity, shape?.xref], ["error", "MODEL"]);
+  assert.match(
+    shape?.message ?? "",
+    /^Xref "MODEL" > "BASE": the value given for "BASE" is neither/,
+  );
+  assert.doesNotMatch(toSVG(drawn, { xrefs: odd as never }), /BASE\|/);
+});
+
+test("inspectText walks no insert of an attachment given no drawing", () => {
+  // A model whose blocks place an attachment 4^11 times, given alone: nothing draws there, and
+  // the two labels of the sheet that overlap are still found.
+  const model = createDrawing({ units: "ft" }).xref("DEEP", "deep.dwg", { attach: true });
+  model.block("B0", {}, () => model.insert("DEEP", [0, 0]));
+  for (let i = 1; i <= 11; i++) {
+    model.block(`B${i}`, {}, () => {
+      for (let j = 0; j < 4; j++) model.insert(`B${i - 1}`, [j, 0]);
+    });
+  }
+  model.insert("B11", [0, 0]);
+  const sheet = createDrawing({ units: "ft" }).xref("MODEL", "model.dwg").insert("MODEL", [0, 0]);
+  sheet.text([0, 0], "LABEL ONE", { height: 1 }).text([0.2, 0], "LABEL TWO", { height: 1 });
+  const warnings = inspectText(sheet.build(), { xrefs: { MODEL: model.build() } });
+  assert.deepEqual(
+    warnings.map((w) => w.rule),
+    ["text-overlaps-text"],
+  );
+});
+
+test("one drawing given at two places draws what each place gives for its attachments", () => {
+  const model = createDrawing({ units: "ft" }).xref("DETAIL", "detail.dwg", { attach: true });
+  model.block("HOLDER", {}, () => model.insert("DETAIL", [0, 0]));
+  model.insert("HOLDER", [0, 0]);
+  const at = (x: number) => {
+    const d = createDrawing({ units: "ft" });
+    d.layer("D", { color: 3 }, () => d.line([x, 0], [x + 1, 0]));
+    return d.build();
+  };
+  const sheet = createDrawing({ units: "ft" }).xref("A", "a.dwg").xref("B", "b.dwg");
+  sheet.insert("A", [0, 0]).insert("B", [0, 0]);
+  const shared = model.build();
+  const xrefs = {
+    A: { drawing: shared, xrefs: { DETAIL: at(0) } },
+    B: { drawing: shared, xrefs: { DETAIL: at(1000) } },
+  };
+  const svg = toSVG(sheet.build(), { xrefs, margin: 0 });
+  assert.match(svg, /viewBox="0 0 1001 0"/);
+  assert.match(svg, /<line x1="1000" y1="0" x2="1001" y2="0" /);
+  assert.match(
+    toSVG(sheet.build(), { xrefs, view: [990, -5, 1010, 5] }),
+    /<line x1="1000" y1="0" x2="1001" y2="0" /,
+  );
 });

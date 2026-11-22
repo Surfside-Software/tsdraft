@@ -2,7 +2,7 @@
 // an isometric of the pipes at the fixtures' real places in the plans; the DWV diagram is an
 // elevation of the stacks along the house, west to east. The fixture schedule adds up the
 // drainage and water supply fixture units of the same fixtures.
-import type { Point } from "../../../src/index.ts";
+import type { Point, TableOptions } from "../../../src/index.ts";
 import { HEIGHTS } from "../model/house.ts";
 import { HOUSE_AT, LOT } from "./site.ts";
 import { frame } from "../lib/frame.ts";
@@ -16,7 +16,9 @@ import {
   leaderNote,
   noteColumn,
   put,
-  table,
+  aligned,
+  SCHEDULE,
+  tableBottom,
   view,
   viewport,
   viewTitle,
@@ -874,25 +876,29 @@ function fixtureSchedule(d: D, at: Point): number {
     num(f.wsfu[0]),
   ]);
   rows.push(["", "TOTAL", "", "", "", "", num(t.dfu), num(t.cold), num(t.hot), num(t.wsfu)]);
-  return table(
-    d,
+  const aligns = {
+    3: "center",
+    4: "center",
+    5: "center",
+    6: "right",
+    7: "right",
+    8: "right",
+    9: "right",
+  } as const;
+  const schedule: TableOptions = {
+    style: SCHEDULE,
     at,
-    "PLUMBING FIXTURE SCHEDULE",
-    [
-      { name: "TAG", width: 0.6 },
-      { name: "FIXTURE", width: 2.75 },
-      { name: "LOCATION", width: 1.45 },
-      { name: "TRAP", width: 0.9, align: "center" },
-      { name: "CW", width: 0.5, align: "center" },
-      { name: "HW", width: 0.5, align: "center" },
-      { name: "DFU", width: 0.5, align: "right" },
-      { name: "WSFU CW", width: 0.8, align: "right" },
-      { name: "WSFU HW", width: 0.8, align: "right" },
-      { name: "WSFU TOT.", width: 0.85, align: "right" },
-    ],
-    rows,
-    { height: H.note, rowHeight: 0.21 },
-  );
+    columns: [0.6, 2.75, 1.45, 0.9, 0.5, 0.5, 0.5, 0.8, 0.8, 0.85],
+    title: "PLUMBING FIXTURE SCHEDULE",
+    header: aligned(
+      ["TAG", "FIXTURE", "LOCATION", "TRAP", "CW", "HW", "DFU", "WSFU CW", "WSFU HW", "WSFU TOT."],
+      aligns,
+    ),
+    rows: rows.map((row) => aligned(row, aligns)),
+    rowHeights: rows.map(() => 0.21),
+  };
+  d.layer(LAYERS.text, {}, () => d.table(schedule));
+  return tableBottom(schedule);
 }
 
 function sizing(d: D, at: Point, w: number): number {
@@ -925,17 +931,18 @@ function sizing(d: D, at: Point, w: number): number {
     [`BUILDING SEWER, 4" AT 1/8" PER FT., INV. AT P.L. C.O.`, `${sw.cleanout.toFixed(2)}' NAVD`],
   ];
   if (t.dfu > 180) throw new Error(`The building drain carries ${t.dfu} DFU, more than 180`);
-  return table(
-    d,
+  const right = { 1: "right" } as const;
+  const basis: TableOptions = {
+    style: SCHEDULE,
     at,
-    "PIPE SIZING BASIS (FBC-R P2903.7)",
-    [
-      { name: "ITEM", width: w - 1.8 },
-      { name: "VALUE", width: 1.8, align: "right" },
-    ],
-    rows,
-    { height: H.note, rowHeight: 0.2 },
-  );
+    columns: [w - 1.8, 1.8],
+    title: "PIPE SIZING BASIS (FBC-R P2903.7)",
+    header: aligned(["ITEM", "VALUE"], right),
+    rows: rows.map((row) => aligned(row, right)),
+    rowHeights: rows.map(() => 0.2),
+  };
+  d.layer(LAYERS.text, {}, () => d.table(basis));
+  return tableBottom(basis);
 }
 
 /**
@@ -965,7 +972,7 @@ function heaterDetail(d: D, v: View): void {
       seed: 7,
       margin: 0.4,
     });
-    earth(d, [ox - 24, oy - 16, 88, 12], [], v.p(0.12));
+    earth(d, [ox - 24, oy - 12, 88, 8], [], v.p(0.12));
     hatch(d, [ox - 8, oy, 8, 124], v.p(0.06), 1);
     hatch(d, [ox - 8, oy, 8, 124], v.p(0.06), -1);
   });
@@ -1039,34 +1046,35 @@ const WIRE_OF = (amps: number) =>
 
 /** The water heater schedule. */
 function heaterSchedule(d: D, at: Point): number {
-  return table(
-    d,
+  const aligns = { 2: "center", 3: "center", 4: "center", 5: "center", 6: "center" } as const;
+  const schedule: TableOptions = {
+    style: SCHEDULE,
     at,
-    "WATER HEATER SCHEDULE",
-    [
-      { name: "TAG", width: 0.6 },
-      { name: "TYPE", width: 2.4 },
-      { name: "CAP.", width: 0.75, align: "center" },
-      { name: "ELEMENTS", width: 1.3, align: "center" },
-      { name: "ELECTRICAL", width: 1.9, align: "center" },
-      { name: "RECOVERY", width: 1.6, align: "center" },
-      { name: "UEF", width: 0.6, align: "center" },
-      { name: "LOCATION", width: 2.6 },
+    columns: [0.6, 2.4, 0.75, 1.3, 1.9, 1.6, 0.6, 2.6],
+    title: "WATER HEATER SCHEDULE",
+    header: aligned(
+      ["TAG", "TYPE", "CAP.", "ELEMENTS", "ELECTRICAL", "RECOVERY", "UEF", "LOCATION"],
+      aligns,
+    ),
+    rows: [
+      aligned(
+        [
+          "WH-1",
+          "ELECTRIC STORAGE, LISTED",
+          "50 GAL.",
+          "2 X 4500 W",
+          "240 V, 30 A/2P (E-101)",
+          "21 GPH AT 90 F",
+          "0.92",
+          "GARAGE NE CORNER, PLATFORM",
+        ],
+        aligns,
+      ),
     ],
-    [
-      [
-        "WH-1",
-        "ELECTRIC STORAGE, LISTED",
-        "50 GAL.",
-        "2 X 4500 W",
-        "240 V, 30 A/2P (E-101)",
-        "21 GPH AT 90 F",
-        "0.92",
-        "GARAGE NE CORNER, PLATFORM",
-      ],
-    ],
-    { height: H.note, rowHeight: 0.21 },
-  );
+    rowHeights: [0.21],
+  };
+  d.layer(LAYERS.text, {}, () => d.table(schedule));
+  return tableBottom(schedule);
 }
 
 function legend(d: D, at: Point, w: number): number {
@@ -1134,21 +1142,22 @@ function p101(d: D): void {
       { numbered: false },
     );
     const hs = heaterSchedule(dd, [rx, Math.min(n1, n2) - 0.4]);
-    // The water heater detail, through a viewport, under the schedules.
+    // The water heater detail, through a viewport, under the schedules. The view holds the whole
+    // detail, from the earth under the slab to the top of the wall, so no pattern is cut at its edge.
     const vd = view(dd, 16);
-    const vpTop = hs - 0.5;
-    const vpH = vpTop - 2.0;
+    const vpTop = hs - 0.3;
+    const vpH = vpTop - 1.9;
     const vpW = AREA.right - rx - 0.1;
     viewport(dd, sheet, {
-      corner: [rx, 2.0],
+      corner: [rx, 1.9],
       size: [vpW, vpH],
-      center: [WH_ORIGIN[0] + 28, WH_ORIGIN[1] + 58],
+      center: [WH_ORIGIN[0] + 28, WH_ORIGIN[1] + 56],
       v: vd,
       id: "vp-P-101-wh",
       number: "3",
       sheetNo: "P-101",
       title: "WATER HEATER INSTALLATION",
-      titleAt: [rx + 0.1, 1.5],
+      titleAt: [rx + 0.1, 1.4],
     });
     void width;
   });

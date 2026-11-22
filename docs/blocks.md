@@ -70,6 +70,45 @@ default. Each insert carries one attribute for every definition of its block.
 An attribute stays a field in CAD, in model space and on a layout: the leading CAD app's `-ATTEDIT`
 command changes its value, and the drawing keeps the new value when it is saved.
 
+### Attributes of paragraph text
+
+With `kind: "paragraph"`, a definition holds paragraph text, as CAD programs' multiple-line
+attributes do: its value and each insert's hold a [paragraph's](paragraphs.md) codes, a line feed
+in either is written as `\P`, and the value wraps at `width` when it has one. It is placed as
+`paragraph()` places a paragraph: `align` is `"left"`, `"center"` or `"right"`, `valign` is
+`"top"`, the default, `"middle"` or `"bottom"`, and `lineSpacing` and `lineSpacingStyle` space its
+lines. It has no columns, so a `\N` breaks the line as `\P` does, and `lint` warns of it. R2018
+only.
+
+```ts
+d.block("NOTE", {}, () =>
+  d.attribute("NOTE", [0, 0], {
+    kind: "paragraph",
+    value: "ALL WORK SHALL COMPLY\nWITH THE CODES",
+    width: 3,
+    height: 0.1,
+    valign: "middle",
+  }),
+);
+d.insert("NOTE", [10, 5], { attributes: { NOTE: "VERIFY IN THE FIELD" } });
+```
+
+An insert holds each such attribute as a paragraph of its own, in its own coordinates: at its
+point, turned with it, and as high and as wide as its scale makes the definition's. One that
+scales its block unevenly sets the paragraph at the height a text attribute would have and wraps
+it at the definition's width times the same share, and widens its characters by the code
+`\W` of the attribute's width factor, to four decimals, before its value, in place of the
+style's width factor. It keeps the style's oblique angle, and slants no letter by the insert.
+`placeAttribute` gives that paragraph in `paragraph`, and `attributeParagraph(placed)` the
+`Paragraph` drawn, which `toSVG`, `toPDF`, `inspectText` and the extents lay out as a paragraph
+where the insert holds it.
+
+Each attribute of paragraph text, and its definition, also holds the text it would be as one line,
+with no value. CAD programs keep that text where a text of no value starts: the height below the
+attribute's point at the top, half of it in the middle, and the font's descent above it at the
+bottom. `attributeTextStart(definition, style, placed)` gives that point as the DXF writes it,
+with 15 significant digits, for an insert's attribute or, without `placed`, for the definition.
+
 ## Inserting a block
 
 `d.insert(block, at, options)` places a block with its base point at `at`, on the current

@@ -10,17 +10,31 @@ type Type =
   | "number"
   | "boolean"
   | "point"
+  /** A point in space: three finite numbers. */
+  | "point3"
   | "count"
+  /** An entity's opacity: a whole number from 0 to 255, or `"ByBlock"`. */
+  | "alpha"
   | "entity"
   | { readonly fields: Fields }
   | { readonly list: Type }
   | { readonly map: Type }
-  | { readonly oneOf: readonly string[] };
+  | { readonly oneOf: readonly (string | false)[] }
+  /** The fields of one of these, named in a message as `named`. */
+  | { readonly either: readonly Fields[]; readonly named: string };
 
 /** Each field and its type. A field whose name ends in `?` may be left out. */
 type Fields = Readonly<Record<string, Type>>;
 
 const counts: Type = { map: "count" };
+
+/** What a linetype's mark of either kind holds. */
+const MARK: Fields = {
+  after: "number",
+  "rotation?": "number",
+  "orient?": { oneOf: ["absolute", "upright"] },
+  "offset?": "point",
+};
 const strings: Type = { list: "string" };
 
 const LAYER_CENSUS: Fields = {
@@ -77,6 +91,8 @@ const BASE = {
   layer: "string",
   "color?": "number",
   "trueColor?": "number",
+  "colorBook?": { fields: { book: "string", name: "string" } },
+  "alpha?": "alpha",
   "linetype?": "string",
   "lineweight?": "number",
   "linetypeScale?": "number",
@@ -98,12 +114,27 @@ const PLACEMENT: Fields = {
   "upsideDown?": "boolean",
 };
 
+const ATTRIBUTE_PARAGRAPH: Type = {
+  fields: {
+    at: "point",
+    height: "number",
+    width: "number",
+    attachment: "number",
+    rotation: "number",
+    style: "string",
+    lineSpacing: "number",
+    lineSpacingStyle: { oneOf: ["at-least", "exactly"] },
+    "mirrored?": "boolean",
+  },
+};
+
 const ATTRIBUTE: Fields = {
   ...BASE,
   ...PLACEMENT,
   tag: "string",
   value: "string",
   "invisible?": "boolean",
+  "paragraph?": ATTRIBUTE_PARAGRAPH,
 };
 
 const INSERT: Fields = {
@@ -118,15 +149,56 @@ const INSERT: Fields = {
   "attributes?": { list: { fields: ATTRIBUTE } },
 };
 
+/** An edge of a solid, a region or a body. */
+const EDGE: Type = {
+  either: [
+    { kind: { oneOf: ["line"] }, from: "point3", to: "point3" },
+    {
+      kind: { oneOf: ["ellipse"] },
+      center: "point3",
+      normal: "point3",
+      majorAxis: "point3",
+      ratio: "number",
+      "startParameter?": "number",
+      "endParameter?": "number",
+    },
+    {
+      kind: { oneOf: ["spline"] },
+      degree: "count",
+      knots: { list: "number" },
+      controlPoints: { list: "point3" },
+      "weights?": { list: "number" },
+    },
+  ],
+  named: "a line, an ellipse or a spline edge",
+};
+
+/** A solid, a region or a body, by its kind. */
+const MODELER = (kind: string): Fields => ({
+  ...BASE,
+  kind: { oneOf: [kind] },
+  edges: { list: EDGE },
+  "edgesUnread?": "count",
+  "dataUnread?": "boolean",
+});
+
 const ENTITY: Readonly<Record<string, Fields>> = {
+  "3dsolid": MODELER("3dsolid"),
+  region: MODELER("region"),
+  body: MODELER("body"),
   line: { ...BASE, kind: { oneOf: ["line"] }, from: "point", to: "point" },
   polyline: {
     ...BASE,
     kind: { oneOf: ["polyline"] },
     points: { list: "point" },
     closed: "boolean",
+    "bulges?": { list: "number" },
+    "width?": "number",
+    "widths?": { list: "point" },
+    "linetypeGeneration?": "boolean",
   },
   circle: { ...BASE, kind: { oneOf: ["circle"] }, center: "point", radius: "number" },
+  point: { ...BASE, kind: { oneOf: ["point"] }, at: "point", "rotation?": "number" },
   arc: {
     ...BASE,
     kind: { oneOf: ["arc"] },
@@ -134,6 +206,30 @@ const ENTITY: Readonly<Record<string, Fields>> = {
     radius: "number",
     start: "number",
     end: "number",
+  },
+  ellipse: {
+    ...BASE,
+    kind: { oneOf: ["ellipse"] },
+    center: "point",
+    majorAxis: "point",
+    ratio: "number",
+    "startParameter?": "number",
+    "endParameter?": "number",
+  },
+  spline: {
+    ...BASE,
+    kind: { oneOf: ["spline"] },
+    degree: "count",
+    knots: { list: "number" },
+    controlPoints: { list: "point" },
+    "weights?": { list: "number" },
+    closed: "boolean",
+    "periodic?": "boolean",
+    "fitPoints?": { list: "point" },
+    "startTangent?": "point",
+    "endTangent?": "point",
+    "fitTolerance?": "number",
+    "knotSpacing?": { oneOf: ["chord", "square-root", "uniform"] },
   },
   text: { ...BASE, ...PLACEMENT, kind: { oneOf: ["text"] }, value: "string" },
   insert: INSERT,
@@ -147,6 +243,18 @@ const ENTITY: Readonly<Record<string, Fields>> = {
     rotation: "number",
     style: "string",
     value: "string",
+    lineSpacing: "number",
+    lineSpacingStyle: { oneOf: ["at-least", "exactly"] },
+    "columns?": {
+      either: [
+        { height: "number", "count?": "count", "gutter?": "number" },
+        { heights: { list: "number" }, "gutter?": "number" },
+      ],
+      named: "{ height, count?, gutter? } or { heights, gutter? }",
+    },
+    "mask?": {
+      fields: { "color?": "number", "trueColor?": "number", offsetFactor: "number" },
+    },
   },
   dimension: {
     ...BASE,
@@ -159,6 +267,77 @@ const ENTITY: Readonly<Record<string, Fields>> = {
     textAt: "point",
     "measurement?": "number",
     "text?": "string",
+    "textBelow?": "string",
+    style: "string",
+    "block?": "string",
+    "blockHandle?": "string",
+  },
+  "radial-dimension": {
+    ...BASE,
+    kind: { oneOf: ["radial-dimension"] },
+    type: { oneOf: ["radius", "diameter", "jogged-radius"] },
+    center: "point",
+    point: "point",
+    "start?": "point",
+    "jog?": "point",
+    textAt: "point",
+    "placed?": "boolean",
+    "measurement?": "number",
+    "text?": "string",
+    "textBelow?": "string",
+    style: "string",
+    "block?": "string",
+    "blockHandle?": "string",
+  },
+  "arc-length-dimension": {
+    ...BASE,
+    kind: { oneOf: ["arc-length-dimension"] },
+    center: "point",
+    radius: "number",
+    startAngle: "number",
+    endAngle: "number",
+    at: "point",
+    textAt: "point",
+    "placed?": "boolean",
+    "partial?": "boolean",
+    "measurement?": "number",
+    "text?": "string",
+    "textBelow?": "string",
+    style: "string",
+    "block?": "string",
+    "blockHandle?": "string",
+  },
+  "ordinate-dimension": {
+    ...BASE,
+    kind: { oneOf: ["ordinate-dimension"] },
+    axis: { oneOf: ["x", "y"] },
+    origin: "point",
+    feature: "point",
+    leaderEnd: "point",
+    textAt: "point",
+    "placed?": "boolean",
+    "measurement?": "number",
+    "text?": "string",
+    "textBelow?": "string",
+    style: "string",
+    "block?": "string",
+    "blockHandle?": "string",
+  },
+  "angular-dimension": {
+    ...BASE,
+    kind: { oneOf: ["angular-dimension"] },
+    type: { oneOf: ["three-point", "two-line"] },
+    "vertex?": "point",
+    "from?": "point",
+    "to?": "point",
+    "first?": { list: "point" },
+    "second?": { list: "point" },
+    at: "point",
+    textAt: "point",
+    "placed?": "boolean",
+    "measurement?": "number",
+    "text?": "string",
+    "textBelow?": "string",
     style: "string",
     "block?": "string",
     "blockHandle?": "string",
@@ -171,19 +350,163 @@ const ENTITY: Readonly<Record<string, Fields>> = {
     at: "point",
     direction: "point",
     landing: "number",
+    roots: {
+      list: {
+        fields: {
+          at: "point",
+          direction: "point",
+          landing: "number",
+          shafts: { list: { list: "point" } },
+        },
+      },
+    },
+    shaft: { oneOf: ["straight", "curved", "none"] },
     text: "string",
     textAt: "point",
+    textAttachment: "number",
+    width: "number",
     textHeight: "number",
     textStyle: "string",
     arrowSize: "number",
+    attachments: { fields: { left: "number", right: "number", top: "number", bottom: "number" } },
+    "vertical?": "boolean",
+    "frame?": "boolean",
+    "mask?": { fields: { offsetFactor: "number", "color?": "number" } },
+    "block?": {
+      fields: {
+        name: "string",
+        at: "point",
+        scale: "number",
+        rotation: "number",
+        "attributes?": { map: "string" },
+      },
+    },
+  },
+  leader: {
+    ...BASE,
+    kind: { oneOf: ["leader"] },
+    style: "string",
+    points: { list: "point" },
+    shaft: { oneOf: ["straight", "curved"] },
+    arrowhead: "boolean",
+    "note?": "string",
   },
   solid: { ...BASE, kind: { oneOf: ["solid"] }, points: { list: "point" } },
+  image: {
+    ...BASE,
+    kind: { oneOf: ["image"] },
+    path: "string",
+    "definition?": "string",
+    pixels: "point",
+    at: "point",
+    u: "point",
+    v: "point",
+    "clip?": { list: "point" },
+    "invertClip?": "boolean",
+    "transparent?": "boolean",
+    "hidden?": "boolean",
+    "unclipped?": "boolean",
+    "brightness?": "number",
+    "contrast?": "number",
+    "fade?": "number",
+  },
+  underlay: {
+    ...BASE,
+    kind: { oneOf: ["underlay"] },
+    path: "string",
+    page: "string",
+    "definition?": "string",
+    at: "point",
+    scale: "point",
+    rotation: "number",
+    "clip?": { list: "point" },
+    "unclipped?": "boolean",
+    "invertClip?": "boolean",
+    "monochrome?": "boolean",
+    "hidden?": "boolean",
+    "fade?": "number",
+    "contrast?": "number",
+  },
+  hatch: {
+    ...BASE,
+    kind: { oneOf: ["hatch"] },
+    pattern: "string",
+    solid: "boolean",
+    style: { oneOf: ["normal", "outer", "ignore"] },
+    "associative?": "boolean",
+    loops: {
+      list: {
+        fields: { points: { list: "point" }, "bulges?": { list: "number" }, flags: "number" },
+      },
+    },
+    "patternType?": "number",
+    "patternAngle?": "number",
+    "patternScale?": "number",
+    "crossed?": "boolean",
+    "patternLines?": {
+      list: {
+        fields: { angle: "number", base: "point", offset: "point", "dashes?": { list: "number" } },
+      },
+    },
+    "gradient?": {
+      fields: {
+        name: "string",
+        angle: "number",
+        centered: "boolean",
+        colors: { list: "number" },
+        "tint?": "number",
+      },
+    },
+  },
+  wipeout: { ...BASE, kind: { oneOf: ["wipeout"] }, points: { list: "point" } },
+  table: {
+    ...BASE,
+    kind: { oneOf: ["table"] },
+    "style?": "string",
+    at: "point",
+    direction: "point",
+    rows: { list: "number" },
+    columns: { list: "number" },
+    title: "boolean",
+    header: "boolean",
+    cells: {
+      list: {
+        fields: {
+          row: "count",
+          column: "count",
+          rowSpan: "count",
+          columnSpan: "count",
+          "text?": "string",
+          "block?": "string",
+          "blockScale?": "number",
+          "alignment?": "number",
+          "textHeight?": "number",
+          "color?": "number",
+          "fill?": "number",
+        },
+      },
+    },
+    "block?": "string",
+    "blockHandle?": "string",
+  },
+};
+
+const TABLE_CELL_STYLE: Type = {
+  fields: {
+    textStyle: "string",
+    textHeight: "number",
+    alignment: "number",
+    color: "number",
+    "fill?": "number",
+    lineweight: "number",
+  },
 };
 
 const SPACE: Fields = {
   census: { fields: CENSUS },
   "entities?": { list: "entity" },
   "other?": counts,
+  "drawOrder?": strings,
 };
 
 const DRAWING_READ: Fields = {
@@ -201,8 +524,11 @@ const DRAWING_READ: Fields = {
       "psltscale?": "number",
       "msltscale?": "number",
       "dimscale?": "number",
+      "pdmode?": "number",
+      "pdsize?": "number",
       "dimstyle?": "string",
       "textstyle?": "string",
+      "wipeoutFrame?": "number",
     },
   },
   layers: {
@@ -230,6 +556,15 @@ const DRAWING_READ: Fields = {
         "description?": "string",
         pattern: { list: "number" },
         complex: "boolean",
+        "marks?": {
+          list: {
+            either: [
+              { ...MARK, text: "string", style: "string", height: "number" },
+              { ...MARK, shape: "number", file: "string", scale: "number" },
+            ],
+            named: "a linetype's mark",
+          },
+        },
       },
     },
   },
@@ -263,6 +598,29 @@ const DRAWING_READ: Fields = {
         "precision?": "number",
         "lengthFactor?": "number",
         "suffix?": "string",
+        "textVertical?": "number",
+        "textInside?": "number",
+        "textMove?": "number",
+        "fraction?": "number",
+        "fractionScale?": "number",
+        "dimensionLineweight?": "number",
+        "extensionLineweight?": "number",
+        "arrowheadBlock?": "string",
+        "textFill?": "number",
+        "textFillColor?": "number",
+      },
+    },
+  },
+  tableStyles: {
+    list: {
+      fields: {
+        "handle?": "string",
+        name: "string",
+        horizontalMargin: "number",
+        verticalMargin: "number",
+        title: TABLE_CELL_STYLE,
+        header: TABLE_CELL_STYLE,
+        data: TABLE_CELL_STYLE,
       },
     },
   },
@@ -284,10 +642,12 @@ const DRAWING_READ: Fields = {
               layer: "string",
               invisible: "boolean",
               constant: "boolean",
+              "paragraph?": ATTRIBUTE_PARAGRAPH,
             },
           },
         },
         entities: { list: "entity" },
+        "drawOrder?": strings,
         other: counts,
       },
     },
@@ -295,6 +655,30 @@ const DRAWING_READ: Fields = {
   xrefs: {
     list: { fields: { "handle?": "string", name: "string", path: "string", overlay: "boolean" } },
   },
+  images: {
+    list: {
+      fields: {
+        "handle?": "string",
+        name: "string",
+        path: "string",
+        pixels: "point",
+        loaded: "boolean",
+        images: "count",
+      },
+    },
+  },
+  underlays: {
+    list: {
+      fields: {
+        "handle?": "string",
+        name: "string",
+        path: "string",
+        page: "string",
+        underlays: "count",
+      },
+    },
+  },
+  "underlayFrame?": { oneOf: [false, "screen"] },
   model: { fields: SPACE },
   layouts: {
     list: {
@@ -370,14 +754,14 @@ function onlyItems(v: unknown[]): boolean {
 }
 
 /**
- * The items of a plain list whose every slot holds a value, read without running a getter, or
- * `undefined` for anything else.
+ * The items of a plain list of at most `most` whose every slot holds a value, read without running
+ * a getter, or `undefined` for anything else.
  */
-function plainList(v: unknown): unknown[] | undefined {
+function plainList(v: unknown, most = 2): unknown[] | undefined {
   if (
     !Array.isArray(v) ||
     Object.getPrototypeOf(v) !== Array.prototype ||
-    v.length > 2 ||
+    v.length > most ||
     !onlyItems(v)
   ) {
     return undefined;
@@ -429,6 +813,22 @@ export function checkDrawingRead(value: unknown): string[] {
           say(at, "must be a whole number, 0 or more");
         }
         return;
+      case "alpha":
+        if (v !== "ByBlock" && (!Number.isInteger(v) || (v as number) < 0 || (v as number) > 255)) {
+          say(at, 'must be a whole number from 0 to 255, or "ByBlock"');
+        }
+        return;
+      case "point3": {
+        const xyz = plainList(v, 3);
+        if (
+          xyz === undefined ||
+          xyz.length !== 3 ||
+          !xyz.every((n) => typeof n === "number" && Number.isFinite(n))
+        ) {
+          say(at, "must be three finite numbers");
+        }
+        return;
+      }
       case "point": {
         const xy = plainList(v);
         if (
@@ -442,7 +842,7 @@ export function checkDrawingRead(value: unknown): string[] {
       }
     }
     if ("oneOf" in type) {
-      if (typeof v !== "string" || !type.oneOf.includes(v)) {
+      if ((typeof v !== "string" && v !== false) || !type.oneOf.includes(v)) {
         say(at, `must be ${type.oneOf.map(shown).join(" or ")}`);
       }
     } else if ("list" in type) {
@@ -464,6 +864,15 @@ export function checkDrawingRead(value: unknown): string[] {
         if (problems.length >= MAX_PROBLEMS) return;
         check(v[key], type.map, `${at}[${JSON.stringify(key).slice(0, 80)}]`);
       }
+    } else if ("either" in type) {
+      // The first of them it holds to, with what that one finds wrong taken back from the others.
+      const before = problems.length;
+      for (const fields of type.either) {
+        checkFields(v, fields, at);
+        if (problems.length === before) return;
+        problems.length = before;
+      }
+      say(at, `must be ${type.named}`);
     } else checkFields(v, type.fields, at);
   };
 

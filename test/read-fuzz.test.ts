@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Script } from "node:vm";
 import { READ_LIMITS, readDXFWithin } from "../src/read/dxf.ts";
 import { fuzz, seedFiles } from "./read-fuzz.ts";
-import { timeLimit } from "./time-limit.ts";
+import { within } from "./time-limit.ts";
 
 test("readDXF gives a sound read or a ReadError for each bent file, within its time", async () => {
   const files = seedFiles();
@@ -15,8 +14,6 @@ test("readDXF gives a sound read or a ReadError for each bent file, within its t
     );
   }
 });
-
-const running = new Script("running()");
 
 test("readDXF stays linear in names longer than a DXF holds", async () => {
   // Many names of one length past 16,383 characters, which V8 hashes by their length alone.
@@ -31,12 +28,7 @@ test("readDXF stays linear in names longer than a DXF holds", async () => {
   lines.push("  0", "SEQEND");
   lines.push("  0", "ENDSEC", "  0", "EOF", "");
   const bytes = new TextEncoder().encode(lines.join("\n"));
-  Object.assign(globalThis, {
-    running: () => readDXFWithin(bytes, { geometry: true }, READ_LIMITS),
-  });
-  const read = await (running.runInThisContext({ timeout: timeLimit(5_000) }) as ReturnType<
-    typeof readDXFWithin
-  >);
+  const read = await within(5_000, () => readDXFWithin(bytes, { geometry: true }, READ_LIMITS));
   assert.deepEqual(JSON.parse(JSON.stringify(read.unread.malformed)), {
     "LINE on a layer longer than 2049 characters": 1500,
     "ATTRIB with a tag longer than 2049 characters": 1000,
@@ -64,12 +56,7 @@ test("readDXF stays linear in long values where a dictionary holds a handle", as
   }
   lines.push("  0", "ENDSEC", "  0", "EOF", "");
   const bytes = new TextEncoder().encode(lines.join("\n"));
-  Object.assign(globalThis, {
-    running: () => readDXFWithin(bytes, { geometry: true }, READ_LIMITS),
-  });
-  const read = await (running.runInThisContext({ timeout: timeLimit(4_000) }) as ReturnType<
-    typeof readDXFWithin
-  >);
+  const read = await within(4_000, () => readDXFWithin(bytes, { geometry: true }, READ_LIMITS));
   assert.equal(read.model.entities!.length, 2000);
   assert.deepEqual(read.fields, []);
 });
@@ -89,11 +76,6 @@ test("readDXF reads a header's value once, however many entities follow", async 
   for (let i = 0; i < 50_000; i++) lines.push("  0", "LINE", "  8", "0", " 10", "0", " 20", "0");
   lines.push("  0", "ENDSEC", "  0", "EOF", "");
   const bytes = new TextEncoder().encode(lines.join("\n"));
-  Object.assign(globalThis, {
-    running: () => readDXFWithin(bytes, { geometry: true }, READ_LIMITS),
-  });
-  const read = await (running.runInThisContext({ timeout: timeLimit(2_000) }) as ReturnType<
-    typeof readDXFWithin
-  >);
+  const read = await within(2_000, () => readDXFWithin(bytes, { geometry: true }, READ_LIMITS));
   assert.equal(read.model.entities!.length, 50_000);
 });

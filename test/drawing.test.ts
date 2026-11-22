@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createDrawing, sweep } from "../src/index.ts";
+import { createDrawing, lint, sweep, type Drawing } from "../src/index.ts";
+import { extents } from "../src/extents.ts";
 
 test("layer() scopes entities and restores the previous layer", () => {
   const d = createDrawing().layer("A-WALL", { color: 1 }).build();
@@ -74,4 +75,40 @@ test("sweep() measures counterclockwise", () => {
   assert.equal(sweep(0, 90), 90);
   assert.equal(sweep(270, 90), 180);
   assert.equal(sweep(90, 0), 270);
+});
+
+test("a paragraph's mask counts in its box, and a paragraph in columns takes none", () => {
+  const d = createDrawing({ units: "in" });
+  assert.throws(
+    () =>
+      d.paragraph("ONE\\NTWO", {
+        at: [0, 5],
+        width: 2,
+        height: 0.125,
+        columns: { count: 2, height: 1, gutter: 1 },
+        mask: true,
+      }),
+    /in columns takes no mask/,
+  );
+  d.paragraph("I", { at: [0, 0], height: 1, mask: { offsetFactor: 5 } });
+  const [left, bottom] = extents(d.build().entities);
+  // The mask reaches 4 heights past the letter's box.
+  assert.ok(left < -3 && bottom < -3, `${left} ${bottom}`);
+  const columns = {
+    ...d.build(),
+    entities: [
+      {
+        kind: "paragraph",
+        layer: "0",
+        value: "ONE",
+        at: [0, 0],
+        rotation: 0,
+        height: 0.125,
+        width: 2,
+        columns: { count: 2, height: 1 },
+        mask: true,
+      },
+    ],
+  } as unknown as Drawing;
+  assert.ok(lint(columns).some((found) => /in columns takes no mask/.test(found.message)));
 });

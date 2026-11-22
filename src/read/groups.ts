@@ -216,7 +216,7 @@ export class GroupReader {
 function latin1(bytes: Uint8Array): string {
   let text = "";
   for (let i = 0; i < bytes.length; i += 8192) {
-    text += String.fromCharCode(...bytes.subarray(i, i + 8192));
+    text += Reflect.apply(String.fromCharCode, undefined, bytes.subarray(i, i + 8192));
   }
   return text;
 }
@@ -225,7 +225,7 @@ function latin1(bytes: Uint8Array): string {
  * A value with its carets worked out: a caret and a space is a caret, and a caret before a
  * character from `@` on is the control character 64 below it, so `^J` is a line feed.
  */
-function carets(value: string): string {
+export function carets(value: string): string {
   if (!value.includes("^")) return value;
   return value.replace(/\^([\s\S])/g, (whole, c: string) => {
     if (c === " ") return "^";

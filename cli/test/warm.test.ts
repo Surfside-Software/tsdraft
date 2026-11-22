@@ -6,7 +6,6 @@ import { spawn, spawnSync } from "node:child_process";
 import {
   cpSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -16,6 +15,7 @@ import {
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
+import { inScratch } from "./scratch.ts";
 import { Builder, type Outcome } from "../src/build.ts";
 import { librarySteps } from "../src/warmup.ts";
 
@@ -72,16 +72,6 @@ const answer = ({ ms: _ms, timings: _timings, modules: _modules, files, ...rest 
   ...rest,
   files: [...files].sort(),
 });
-
-async function inScratch(use: (dir: string) => Promise<void>): Promise<void> {
-  mkdirSync(join(root, "examples/out"), { recursive: true });
-  const dir = mkdtempSync(join(root, "examples/out/test-"));
-  try {
-    await use(dir);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
 
 const LOT =
   'import { createDrawing } from "tsdraft";\nconst d = createDrawing({ units: "ft" });\n' +
@@ -140,8 +130,8 @@ test("a build after another reads the drawing's files alone, and answers as the 
   assert.equal(cold!.ok, true);
   assert.equal(cold!.modules.ahead, 0);
   assert.ok(cold!.modules.read > 2, "the first build reads the library");
-  // The sheet and its helpers: the library is neither read nor run again.
-  assert.equal(warm!.modules.read, 2);
+  // The sheet alone: the library is neither read nor run again.
+  assert.equal(warm!.modules.read, 1);
   assert.ok(warm!.modules.ahead > 0);
   assert.deepEqual(answer(warm!), answer(cold!));
 });

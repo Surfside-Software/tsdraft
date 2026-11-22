@@ -19,6 +19,7 @@ import {
 } from "../src/index.ts";
 import { layoutNameKey } from "../src/layers.ts";
 import { findLayout } from "../src/layouts.ts";
+import { pairs, records } from "./dxf-groups.ts";
 
 /** A plan in feet with one sheet: a border and a note on the paper, and a view at 1" = 10'. */
 function sheet(): Drawing {
@@ -35,23 +36,6 @@ function sheet(): Drawing {
     d.insert("TAG", [30, 2], { id: "tag", attributes: { NO: "A-101" } });
   });
   return d.build();
-}
-
-function pairs(dxf: string): [number, string][] {
-  const lines = dxf.split("\r\n");
-  const out: [number, string][] = [];
-  for (let i = 0; i + 1 < lines.length; i += 2) out.push([Number(lines[i]), lines[i + 1]!]);
-  return out;
-}
-
-/** The records of a DXF: each from one group 0 to the next. */
-function records(dxf: string): [number, string][][] {
-  const out: [number, string][][] = [];
-  for (const pair of pairs(dxf)) {
-    if (pair[0] === 0) out.push([]);
-    out.at(-1)?.push(pair);
-  }
-  return out;
 }
 
 test("layout() puts what is drawn inside it on a sheet, and the drawing round-trips as JSON", () => {

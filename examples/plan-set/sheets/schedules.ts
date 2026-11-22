@@ -1,7 +1,7 @@
 // A-601: the door and window schedules, read from the openings of `model/house.ts`, with each
 // window's wind zone and design pressure worked out, the egress check of each bedroom window,
 // and elevations of the window types drawn on the sheet.
-import type { Point } from "../../../src/index.ts";
+import type { Point, TableOptions } from "../../../src/index.ts";
 import {
   L1,
   L2,
@@ -15,13 +15,15 @@ import { alongXOf, widthOf } from "../model/geometry.ts";
 import { designPressure, endZone, meanRoofHeight, psf, qh } from "../model/wind.ts";
 import { frame } from "../lib/frame.ts";
 import {
+  aligned,
   AREA,
   ftIn,
   H,
   LAYERS,
   noteColumn,
   put,
-  table,
+  SCHEDULE,
+  tableBottom,
   type D,
   type SheetDraw,
 } from "../lib/kit.ts";
@@ -100,24 +102,29 @@ function sheet(d: D): void {
         ]);
       }
     }
-    let y = table(
-      dd,
-      [x0, AREA.top - 0.1],
-      "DOOR SCHEDULE",
-      [
-        { name: "NO.", width: 0.55, align: "center" },
-        { name: "ROOM", width: 2.0 },
-        { name: "TYPE", width: 0.6, align: "center" },
-        { name: "WIDTH", width: 0.8, align: "center" },
-        { name: "HEIGHT", width: 0.8, align: "center" },
-        { name: "THICK.", width: 0.7, align: "center" },
-        { name: "MATERIAL", width: 2.2 },
-        { name: "DP (PSF)", width: 1.3, align: "center" },
-        { name: "REMARKS", width: 3.6 },
-      ],
-      doors,
-      { rowHeight: 0.24 },
-    );
+    const draw = (t: TableOptions) => dd.layer(LAYERS.text, {}, () => dd.table(t));
+    const doorAligns = {
+      0: "center",
+      2: "center",
+      3: "center",
+      4: "center",
+      5: "center",
+      7: "center",
+    } as const;
+    const doorSchedule: TableOptions = {
+      style: SCHEDULE,
+      at: [x0, AREA.top - 0.1],
+      columns: [0.55, 2.0, 0.6, 0.8, 0.8, 0.7, 2.2, 1.3, 3.6],
+      title: "DOOR SCHEDULE",
+      header: aligned(
+        ["NO.", "ROOM", "TYPE", "WIDTH", "HEIGHT", "THICK.", "MATERIAL", "DP (PSF)", "REMARKS"],
+        doorAligns,
+      ),
+      rows: doors.map((row) => aligned(row, doorAligns)),
+      rowHeights: doors.map(() => 0.24),
+    };
+    draw(doorSchedule);
+    let y = tableBottom(doorSchedule);
 
     // The door types, drawn at 1/4" = 1'-0".
     y -= 0.3;
@@ -186,40 +193,27 @@ function sheet(d: D): void {
     }
     y -= 0.35;
     const listTop = y;
-    table(
-      dd,
-      [x0, y],
-      "WINDOW LIST",
-      [
-        { name: "MARK", width: 0.7, align: "center" },
-        { name: "TYPE", width: 0.6, align: "center" },
-        { name: "ROOM", width: 2.2 },
-        { name: "WIND ZONE", width: 1.1, align: "center" },
-        { name: "DP (PSF, ASD)", width: 1.6, align: "center" },
-        { name: "EGRESS (5.7 SF)", width: 1.6, align: "center" },
-      ],
-      windows,
-      { rowHeight: 0.22 },
-    );
+    const listAligns = { 0: "center", 1: "center", 3: "center", 4: "center", 5: "center" } as const;
+    draw({
+      style: SCHEDULE,
+      at: [x0, y],
+      columns: [0.7, 0.6, 2.2, 1.1, 1.6, 1.6],
+      title: "WINDOW LIST",
+      header: aligned(
+        ["MARK", "TYPE", "ROOM", "WIND ZONE", "DP (PSF, ASD)", "EGRESS (5.7 SF)"],
+        listAligns,
+      ),
+      rows: windows.map((row) => aligned(row, listAligns)),
+      rowHeights: windows.map(() => 0.22),
+    });
 
     // The window types, with an elevation of each at 1/2" = 1'-0".
     const x2 = x0 + 8.4;
-    y = table(
-      dd,
-      [x2, listTop],
-      "WINDOW TYPES",
-      [
-        { name: "TYPE", width: 0.6, align: "center" },
-        { name: "QTY.", width: 0.6, align: "center" },
-        { name: "SIZE (W X H)", width: 1.4, align: "center" },
-        { name: "OPERATION", width: 1.7 },
-        { name: "HEAD", width: 0.8, align: "center" },
-        { name: "CLEAR OPENING", width: 1.3, align: "center" },
-        { name: "GLAZING", width: 3.2 },
-      ],
-      Object.entries(WINDOW_TYPES).map(([tag, t]) => {
-        const e = egress(tag);
-        return [
+    const typeAligns = { 0: "center", 1: "center", 2: "center", 4: "center", 5: "center" } as const;
+    const typeRows = Object.entries(WINDOW_TYPES).map(([tag, t]) => {
+      const e = egress(tag);
+      return aligned(
+        [
           tag,
           String(count[tag] ?? 0),
           `${ftIn(t.width)} X ${ftIn(t.height)}`,
@@ -227,10 +221,24 @@ function sheet(d: D): void {
           `7'-2"/8'-0"`,
           `${e.w}" X ${e.h}"`,
           t.note,
-        ];
-      }),
-      { rowHeight: 0.24 },
-    );
+        ],
+        typeAligns,
+      );
+    });
+    const windowTypes: TableOptions = {
+      style: SCHEDULE,
+      at: [x2, listTop],
+      columns: [0.6, 0.6, 1.4, 1.7, 0.8, 1.3, 3.2],
+      title: "WINDOW TYPES",
+      header: aligned(
+        ["TYPE", "QTY.", "SIZE (W X H)", "OPERATION", "HEAD", "CLEAR OPENING", "GLAZING"],
+        typeAligns,
+      ),
+      rows: typeRows,
+      rowHeights: typeRows.map(() => 0.24),
+    };
+    draw(windowTypes);
+    y = tableBottom(windowTypes);
     y -= 0.5;
     dd.layer(LAYERS.text, {}, () => {
       put(dd, [x2, y], "WINDOW TYPE ELEVATIONS", H.label, { valign: "top" });

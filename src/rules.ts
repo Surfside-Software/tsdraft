@@ -3,12 +3,23 @@
 // runtime check, for values the compiler can't see. The messages are shared.
 //
 // That app discards the whole drawing over most names that break the name rules.
-import type { DxfVersion, Point, Units } from "./drawing.ts";
+import type { XrefProblem } from "./blocks.ts";
+import type { DxfVersion, EntityColor, HatchGradient, Point, Rgb, Units } from "./drawing.ts";
+import { clamped, fitSpline, type FittedSpline } from "./curves.ts";
 import type { PaperUnit } from "./paper.ts";
 import { paperInfo, PLOT_STYLE_TABLES, type Paper, type PlotStyleTable } from "./papers.ts";
 import {
   ARROWHEAD_BLOCKS,
   arrowheadInfo,
+  DEFAULT_ARROWHEAD,
+  DIMENSION_FRACTIONS,
+  DIMENSION_TEXT_FITS,
+  DIMENSION_RADIAL_TEXTS,
+  DIMENSION_ANGLE_UNITS,
+  DIMENSION_ARC_SYMBOLS,
+  MAX_ANGLE_PRECISION,
+  JOG_ANGLE,
+  DIMENSION_TEXT_PLACEMENTS,
   DIMENSION_UNITS,
   FEET_INCH_ZEROS,
   MAX_PRECISION,
@@ -20,8 +31,37 @@ import {
   type LeaderArrowhead,
 } from "./arrowheads.ts";
 import { isPaperUnit, isUnits, modelLength } from "./units.ts";
-import { isTooLarge, written, writtenAngle } from "./format.ts";
+import { isTooLarge, sixteenDigits, written, writtenAngle } from "./format.ts";
 import { fontInfo, STANDARD_TEXT_STYLE, type Font } from "./fonts.ts";
+import {
+  parseParagraph,
+  PARAGRAPH_CONTROL,
+  PARAGRAPH_ASTRAL,
+  PARAGRAPH_NESTING,
+  PARAGRAPH_NEVER_CLOSED,
+  PARAGRAPH_NEVER_OPENED,
+  PARAGRAPH_PRIVATE_USE,
+  PARAGRAPH_SHX_DIAMETER,
+  PARAGRAPH_STACK_LINED,
+  PARAGRAPH_STACK_PART,
+  PARAGRAPH_STACK_SEPARATOR,
+  PARAGRAPH_SPACING_AT_LEAST,
+  PARAGRAPH_TAB_KIND,
+  PARAGRAPH_TOO_DEEP,
+  PARAGRAPH_TRAILING,
+  type BoldFont,
+  type ParsedParagraph,
+  type paragraphFontOption,
+  type paragraphFontOptionTwice,
+  type paragraphItalic,
+  type paragraphNoSemicolon,
+  type paragraphNotLaidOut,
+  type paragraphCodeArgument,
+  type paragraphPropertyUnknown,
+  type paragraphShxBold,
+  type paragraphUnknownCode,
+  type paragraphUnknownFont,
+} from "./paragraph-codes.ts";
 import { BUILT_IN_LINETYPES, builtInLinetype, LINEWEIGHTS, patternLength } from "./linetypes.ts";
 import {
   layerAuditKey,
@@ -90,18 +130,40 @@ const LEADER_STYLE_NAMES = {
   length:
     "Leader style names cannot be longer than 255 characters, as dimension style names cannot",
 } as const;
+const TABLE_STYLE_NAMES = {
+  empty: "Table style names cannot be empty",
+  chars: 'Table style names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
+  rejected:
+    "Table style names cannot contain a character the leading CAD app rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
+  edge: "Table style names cannot start or end with a space",
+  length: "Table style names cannot be longer than 255 characters, as dimension style names cannot",
+} as const;
+const HATCH_PATTERN_NAMES = {
+  empty: "Hatch pattern names cannot be empty",
+  chars: 'Hatch pattern names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
+  rejected:
+    "Hatch pattern names cannot contain a character the leading CAD app rejects or replaces in names, such as a zero-width space or the ohm sign U+2126. docs/layer-names.md in the tsdraft repository lists them",
+  edge: "Hatch pattern names cannot start or end with a space",
+  length: "Hatch pattern names cannot be longer than 255 characters",
+} as const;
 type NameMessages =
   | typeof LAYER_NAMES
   | typeof LINETYPE_NAMES
   | typeof TEXT_STYLE_NAMES
   | typeof BLOCK_NAMES
   | typeof DIMENSION_STYLE_NAMES
-  | typeof LEADER_STYLE_NAMES;
+  | typeof LEADER_STYLE_NAMES
+  | typeof HATCH_PATTERN_NAMES
+  | typeof TABLE_STYLE_NAMES;
 const NAME_R12_CHARS =
   'R12 layer names can only use letters, digits, $, - and _. Use DXF version "R2018" for other characters';
 const NAME_R12_LENGTH =
   'R12 layer names cannot be longer than 31 characters. Use DXF version "R2018" for longer names';
 const COLOR = "A layer color must be a color index, an integer from 1 to 255";
+export const ENTITY_TRANSPARENCY =
+  'An entity\'s transparency is a whole percent from 0 to 90, "ByLayer" or "ByBlock": 50 for half, not 0.5';
+export const ENTITY_COLOR =
+  'An entity\'s color is a color index, a whole number from 1 to 255, "ByLayer", "ByBlock", or a true color: its red, green and blue, each a whole number from 0 to 255';
 const POSITIVE = "This value must be greater than 0";
 const WRITTEN_AS_ZERO =
   "This value is written as 0, because tsdraft writes 6 decimals. Use 0.000001 or more";
@@ -119,6 +181,10 @@ const R12_LINETYPES =
 const R12_LINEWEIGHTS = 'R12 drawings have no lineweights. Use DXF version "R2018" for lineweights';
 const R12_ENTITY_STYLE =
   'R12 entities take no linetype or lineweight of their own. Use DXF version "R2018" for an entity linetype or lineweight';
+const R12_ENTITY_TRANSPARENCY =
+  'R12 entities take no transparency of their own. Use DXF version "R2018" for an entity transparency';
+const R12_ENTITY_COLOR =
+  'R12 entities take no color of their own. Use DXF version "R2018" for an entity color';
 const R12_LAYER_STATES =
   'tsdraft writes no layer states to R12 drawings. Use DXF version "R2018" for layers that are off, frozen, locked or not plotted';
 const R12_BLOCKS =
@@ -130,8 +196,67 @@ const R12_DIMENSIONS =
   'tsdraft writes no dimensions to R12 drawings. Use DXF version "R2018" for a dimension';
 const R12_LEADERS =
   'tsdraft writes no leaders to R12 drawings. Use DXF version "R2018" for a leader';
+const R12_PARAGRAPHS =
+  'tsdraft writes no paragraphs to R12 drawings. Use DXF version "R2018" for a paragraph';
+const LINE_SPACING = "A paragraph's line spacing is a factor from 0.25 to 4";
+const R12_IMAGES = 'tsdraft writes no images to R12 drawings. Use DXF version "R2018" for an image';
+const R12_UNDERLAYS =
+  'tsdraft writes no PDF underlays to R12 drawings. Use DXF version "R2018" for an underlay';
+const UNDERLAY_PATH_EMPTY =
+  "An underlay's path cannot be empty. The leading CAD app finds no file by it";
+const UNDERLAY_PATH_ABSOLUTE =
+  'An underlay\'s path must start from the folder of the drawing\'s file, as "arch.pdf" and "../arch/A-101.pdf" do, and cannot start with /, \\ or a drive such as C:. The leading CAD app looks for the file of an absolute path in that folder alone, and on another machine finds none';
+const UNDERLAY_PATH_CHARS =
+  "An underlay's path cannot hold * ? < > | : or \". The leading CAD app finds no file whose name holds one of them";
+const UNDERLAY_PATH_LENGTH =
+  "An underlay's path cannot be longer than 32,000 characters. The leading CAD app finds no file by a path that comes to more than 32,767 characters with the folder of the drawing";
+const UNDERLAY_PATH_MULTIBYTE =
+  "An underlay's path cannot hold a backslash before M+, a digit from 1 to 5 and four hex digits, such as \\M+10041. The leading CAD app reads those as one character, and looks for another file. Write / there";
+const UNDERLAY_PAGE =
+  'An underlay\'s page is its number from 1, written as a string of digits with no leading 0, such as "1" or "12", up to "2147483647"';
+const UNDERLAY_PAGE_SIZE =
+  "An underlay's pageSize is its page's width and height in inches, two numbers greater than 0 as written and below 1e100, which pdfPageSize reads from the file";
+const UNDERLAY_FADE =
+  "An underlay's fade is a whole number from 0 to 80, as the leading CAD app sets it";
+const UNDERLAY_CONTRAST =
+  "An underlay's contrast is a whole number from 20 to 100, as the leading CAD app sets it";
+const UNDERLAY_SCALE = "An underlay's scale must be greater than 0 as written, and below 1e100";
+const UNDERLAY_PLACED =
+  "An underlay's page at its scale must come to less than 1e100 drawing units each way, which a file can write";
+const R12_TABLES = 'tsdraft writes no tables to R12 drawings. Use DXF version "R2018" for a table';
+const R12_HATCHES =
+  'tsdraft writes no hatches or wipeouts to R12 drawings. Use DXF version "R2018" for a fill';
+const R12_POINTS = 'tsdraft writes no points to R12 drawings. Use DXF version "R2018" for a point';
+const R12_CURVES =
+  'tsdraft writes no ellipses or splines to R12 drawings. Use DXF version "R2018" for a curve';
+const IMAGE_PATH_EMPTY = "An image's path cannot be empty. The leading CAD app finds no file by it";
+const IMAGE_PATH_ABSOLUTE =
+  'An image\'s path must start from the folder of the drawing\'s file, as "aerial.png" and "../images/aerial.png" do, and cannot start with /, \\ or a drive such as C:. The leading CAD app looks for the file of an absolute path in that folder alone, and on another machine finds none';
+const IMAGE_PATH_CHARS =
+  "An image's path cannot hold * ? < > | : or \". The leading CAD app finds no file whose name holds one of them";
+const IMAGE_PATH_LENGTH =
+  "An image's path cannot be longer than 32,000 characters. The leading CAD app finds no file by a path that comes to more than 32,767 characters with the folder of the drawing";
+const IMAGE_PATH_MULTIBYTE =
+  "An image's path cannot hold a backslash before M+, a digit from 1 to 5 and four hex digits, such as \\M+10041. The leading CAD app reads those as one character, and looks for another file. Write / there";
+const IMAGE_PIXELS =
+  "An image's pixels are its file's width and height in pixels, each a whole number from 1 to 2,147,483,647, which rasterSize reads from the file. The leading CAD app draws the file's own pixels at the size each has in the drawing, so pixels other than the file's plot it at the wrong size";
+const IMAGE_CLIP_POINTS =
+  "An image's clip is two opposite corners of a rectangle along its sides, or a polygon of at least 3 points";
+const IMAGE_CLIP_RECTANGLE =
+  "An image's clip of two corners must have its corners apart along the image's width and up its height, as written: it is a rectangle along the image's sides, and one of no width or height shows nothing";
+const IMAGE_CLIP_POLYGON =
+  "An image's clip of a polygon needs at least 3 points that differ, as written";
+const IMAGE_INVERT_CLIP =
+  "invertClip needs a clip: it shows the image outside the clip, and with no clip there is no outside";
+const IMAGE_PIXELS_DIFFER =
+  "Two images of one file must give it the same pixels: the file is written once, as one definition, with its pixels";
+const R12_POLYLINES =
+  'tsdraft writes no arcs or widths of a polyline to R12 drawings. Use DXF version "R2018" for a polyline with bulges or a width';
+const POLYLINE_WIDTH =
+  "A polyline's width cannot be less than 0. The leading CAD app reads a negative width of every side as 0, and keeps a negative width of one side with no AUDIT error";
+const DONUT_HOLE = "A donut's hole cannot be less than 0 across";
 const ARROWHEAD_BLOCK =
-  "Block names cannot be _ArchTick, _Open, _Dot or _None, in any case of their letters. The leading CAD app draws the architectural tick of a dimension and the arrowheads of a leader with the blocks of those names";
+  "Block names cannot be _ArchTick, _Oblique, _Open, _Dot or _None, in any case of their letters. The leading CAD app draws the ticks of a dimension and the arrowheads of a leader with the blocks of those names";
 const STANDARD_DIMENSION_STYLE_DEFINED =
   'The dimension style "Standard" is in every drawing and cannot be defined. The leading CAD app keeps the first style of a name and skips a second';
 const STANDARD_DIMENSION_STYLE_USED =
@@ -150,6 +275,21 @@ const PRECISION =
 const ZERO_SUPPRESSION = 'suppressZeros must be "leading", "trailing" or "both"';
 const DIMENSION_UNITS_MESSAGE = 'units must be "decimal" or "architectural"';
 const FEET_INCH_ZEROS_MESSAGE = 'feetInchZeros must be "inches", "feet", "both" or "neither"';
+const DIMENSION_FRACTION_MESSAGE = 'fraction must be "inline", "stacked" or "diagonal"';
+const FRACTION_SCALE_MESSAGE =
+  "fractionScale must be a number from 0.25 to 1: the height of a stacked fraction as a share of the text's";
+const FRACTION_OF_UNITS =
+  'fraction and fractionScale are for a style in "architectural" units, which writes a fraction of an inch';
+const FRACTION_SCALE_INLINE =
+  'fractionScale sizes a fraction that is "stacked" or "diagonal". A fraction on the line is as high as the text';
+const TEXT_PLACEMENT_MESSAGE = 'textPlacement must be "above" or "centered"';
+const TEXT_FIT_MESSAGE = 'textFit must be "inside" or "leader"';
+const RADIAL_TEXT_MESSAGE = 'radialText must be "aligned" or "horizontal"';
+const JOG_ANGLE_MESSAGE = "jogAngle must be a number of degrees from 5 to 90";
+const ANGLE_UNITS_MESSAGE =
+  'angleUnits must be "degrees", "degrees-minutes-seconds", "grads" or "radians"';
+const ANGLE_PRECISION_MESSAGE = `anglePrecision must be a whole number from 0 to ${MAX_ANGLE_PRECISION}`;
+const ANGLE_ZEROS_MESSAGE = 'suppressAngleZeros must be "leading", "trailing" or "both"';
 const ZEROS_OF_UNITS =
   'suppressZeros is for a style in decimal units, and feetInchZeros for one in "architectural" units, which writes feet and inches';
 const DIMENSION_FORMATTING =
@@ -344,6 +484,33 @@ export type Aci = Exclude<Enumerate<256>, 0>;
 /** Resolves to `C` when it is a valid layer color, and to the error message otherwise. */
 export type LayerColor<C extends number> = number extends C ? C : C extends Aci ? C : typeof COLOR;
 
+/** What an entity's color may be written as, which `EntityColorOf` then checks. */
+export type EntityColorGiven = EntityColor | readonly number[];
+
+type ColorCheck<C extends EntityColorGiven> = C extends "ByLayer" | "ByBlock"
+  ? C
+  : C extends number
+    ? number extends C
+      ? C
+      : C extends Aci
+        ? C
+        : typeof ENTITY_COLOR
+    : C extends readonly [infer R extends number, infer G extends number, infer B extends number]
+      ? [Channel<R>, Channel<G>, Channel<B>] extends [true, true, true]
+        ? C
+        : typeof ENTITY_COLOR
+      : typeof ENTITY_COLOR;
+
+/**
+ * Resolves to `C` when it is a valid entity color, and to the error message otherwise: an index
+ * from 1 to 255, `"ByLayer"`, `"ByBlock"`, or three channels from 0 to 255. A `number` or an
+ * `Rgb` that is not a literal passes. The false branch is never taken: it keeps `const C` from
+ * widening a tuple, as in `LinetypeChoice`.
+ */
+export type EntityColorOf<C extends EntityColorGiven> = [C] extends [EntityColorGiven]
+  ? ColorCheck<C>
+  : C;
+
 /**
  * True for a number the writers round to 0, given as the compiler prints it.
  * A number under 0.000001 prints in exponent form, such as `4e-7`, and those
@@ -388,6 +555,130 @@ type AboveZero<N extends number, Message extends string> = number extends N
   : `${N}` extends `-${string}` | "0"
     ? Message
     : N;
+
+/**
+ * Resolves to `N` when it is an ellipse's ratio that is above 0 and at most 1 once written, and
+ * to the error message otherwise.
+ */
+export type EllipseRatio<N extends number> = number extends N
+  ? N
+  : `${N}` extends "1" | `1.000000${RoundsDown}${string}`
+    ? N
+    : `${N}` extends `-${string}` | "0"
+      ? typeof ELLIPSE_RATIO
+      : WrittenAsZero<`${N}`> extends true
+        ? typeof ELLIPSE_RATIO
+        : `${N}` extends `0.${string}` | `${string}e-${string}`
+          ? N
+          : typeof ELLIPSE_RATIO;
+
+type SplineDegrees = Exclude<Enumerate<typeof SPLINE_DEGREE_MOST>, 0> | typeof SPLINE_DEGREE_MOST;
+
+/** Resolves to `D` when it is a spline's degree, and to the error message otherwise. */
+export type SplineDegree<D extends number> = number extends D
+  ? D
+  : D extends SplineDegrees
+    ? D
+    : typeof SPLINE_DEGREE;
+
+/** True for two points whose coordinates are the same literals. */
+type SamePoint<A extends Point, B extends Point> = number extends A[0] | A[1] | B[0] | B[1]
+  ? false
+  : [A[0], A[1]] extends [B[0], B[1]]
+    ? true
+    : false;
+
+/** True when two points side by side are the same literals. */
+type SideBySide<P extends readonly Point[]> = P extends readonly [
+  infer A extends Point,
+  infer B extends Point,
+  ...infer Rest extends readonly Point[],
+]
+  ? SamePoint<A, B> extends true
+    ? true
+    : SideBySide<readonly [B, ...Rest]>
+  : false;
+
+/**
+ * Resolves to `P` when it is fit points a spline can pass through, and to the error message
+ * otherwise: 2 or more, no two side by side the same. Points the same once written but not as
+ * literals, and a closed spline's 3, are checked when the code runs.
+ */
+export type FitPoints<P extends readonly Point[]> = number extends P["length"]
+  ? P
+  : P["length"] extends 0 | 1
+    ? typeof SPLINE_FIT_POINTS
+    : SideBySide<P> extends true
+      ? typeof SPLINE_FIT_SAME
+      : P;
+
+/** Resolves to `T` when it is a tangent with a direction, and to the error message otherwise. */
+export type Tangent<T extends Point> = number extends T[0] | T[1]
+  ? T
+  : [T[0], T[1]] extends [0, 0]
+    ? typeof SPLINE_TANGENT_ZERO
+    : T;
+
+type Tuple<N extends number, A extends unknown[] = []> = A["length"] extends N
+  ? A
+  : Tuple<N, [...A, unknown]>;
+
+/**
+ * Resolves to `P` when a spline of degree `D` has enough control points, at least one more than
+ * its degree, and to the error message otherwise.
+ */
+export type ControlPoints<P extends readonly Point[], D extends number> = number extends
+  | P["length"]
+  | D
+  ? P
+  : D extends SplineDegrees
+    ? P extends readonly [...Tuple<D>, unknown, ...unknown[]]
+      ? P
+      : typeof SPLINE_CONTROL_POINTS
+    : P;
+
+/**
+ * Resolves to `K` when it is as many knots as a spline of the control points `P` and degree `D`
+ * takes, and to the error message otherwise. Whether they decrease is checked when the code runs.
+ */
+export type Knots<
+  K extends readonly number[],
+  P extends readonly Point[],
+  D extends number,
+> = number extends K["length"] | P["length"] | D
+  ? K
+  : D extends SplineDegrees
+    ? K["length"] extends [...Tuple<P["length"]>, ...Tuple<D>, unknown]["length"]
+      ? K
+      : typeof SPLINE_KNOT_COUNT
+    : K;
+
+/** True when no weight of `W` is a literal of 0 or less, or one written as 0. */
+type WeightsAbove0<W extends readonly number[]> = W extends readonly [
+  infer A extends number,
+  ...infer Rest extends readonly number[],
+]
+  ? number extends A
+    ? WeightsAbove0<Rest>
+    : `${A}` extends `-${string}` | "0"
+      ? false
+      : WrittenAsZero<`${A}`> extends true
+        ? false
+        : WeightsAbove0<Rest>
+  : true;
+
+/**
+ * Resolves to `W` when it is one weight above 0 for each control point of `P`, and to the error
+ * message otherwise.
+ */
+export type Weights<W extends readonly number[], P extends readonly Point[]> =
+  WeightsAbove0<W> extends true
+    ? number extends W["length"] | P["length"]
+      ? W
+      : W["length"] extends P["length"]
+        ? W
+        : typeof SPLINE_WEIGHTS
+    : typeof SPLINE_WEIGHTS;
 
 /** Resolves to `N` when it is a length on paper, and to the error message otherwise. */
 export type PaperLength<N extends number> = AboveZero<N, typeof PAPER_LENGTH>;
@@ -447,7 +738,7 @@ export type BlockName<N extends string> = string extends N
     : NameCheck<N, typeof BLOCK_NAMES, N>;
 
 /** The blocks the leading CAD app draws arrowheads with. */
-type TickBlock = "_ArchTick" | "_Open" | "_Dot" | "_None";
+type TickBlock = "_ArchTick" | "_Oblique" | "_Open" | "_Dot" | "_None";
 
 /**
  * Resolves to `N` when it is a valid name for a dimension style to be used by, and to the error
@@ -524,13 +815,6 @@ export type ZeroSuppressionOf<Z extends string> = string extends Z
   : Z extends (typeof ZERO_SUPPRESSIONS)[number]
     ? Z
     : typeof ZERO_SUPPRESSION;
-
-/** Resolves to `U` when it is a dimension style's `units`, and to the error message otherwise. */
-export type DimensionUnitsOf<U extends string> = string extends U
-  ? U
-  : U extends (typeof DIMENSION_UNITS)[number]
-    ? U
-    : typeof DIMENSION_UNITS_MESSAGE;
 
 /** Resolves to `Z` when it is a `feetInchZeros`, and to the error message otherwise. */
 export type FeetInchZerosOf<Z extends string> = string extends Z
@@ -634,6 +918,25 @@ export type XrefPath<P extends string> = string extends P
               : HasMultibyteEscape<Lowercase<P>> extends true
                 ? typeof XREF_PATH_MULTIBYTE
                 : Description<P>;
+
+/**
+ * Resolves to `P` when it is a path an image can have, and to the error message otherwise: a path
+ * is not empty, starts from the folder of the drawing's file, and holds no `* ? < > | : "`, no
+ * multibyte escape and no character a text cannot hold. Its length is checked when the code runs.
+ */
+export type ImagePath<P extends string> = string extends P
+  ? P
+  : P extends ""
+    ? typeof IMAGE_PATH_EMPTY
+    : P extends `/${string}` | `\\${string}`
+      ? typeof IMAGE_PATH_ABSOLUTE
+      : Lowercase<P> extends `${LowerLetter}:${string}`
+        ? typeof IMAGE_PATH_ABSOLUTE
+        : P extends `${string}${Chars<'*?<>|:"'>}${string}`
+          ? typeof IMAGE_PATH_CHARS
+          : HasMultibyteEscape<Lowercase<P>> extends true
+            ? typeof IMAGE_PATH_MULTIBYTE
+            : Description<P>;
 
 /**
  * Resolves to `N` when it is a name a layout can have, and to the error message otherwise: a
@@ -856,6 +1159,7 @@ export type LineweightOf<W extends number> = number extends W
 export type R12Linetypes = typeof R12_LINETYPES;
 export type R12Lineweights = typeof R12_LINEWEIGHTS;
 export type R12EntityStyle = typeof R12_ENTITY_STYLE;
+export type R12EntityColor = typeof R12_ENTITY_COLOR;
 export type R12LayerStates = typeof R12_LAYER_STATES;
 export type FrozenCurrent = typeof FROZEN_CURRENT;
 export type R12Text = typeof R12_TEXT;
@@ -864,6 +1168,585 @@ export type R12Xrefs = typeof R12_XREFS;
 export type R12Layouts = typeof R12_LAYOUTS;
 export type R12Dimensions = typeof R12_DIMENSIONS;
 export type R12Leaders = typeof R12_LEADERS;
+export type R12Polylines = typeof R12_POLYLINES;
+export type R12Paragraphs = typeof R12_PARAGRAPHS;
+export type R12Images = typeof R12_IMAGES;
+export type R12Underlays = typeof R12_UNDERLAYS;
+
+/**
+ * Resolves to `P` when it is a path an underlay can have, and to the error message otherwise: a
+ * path is not empty, starts from the folder of the drawing's file, and holds no `* ? < > | : "`,
+ * no multibyte escape and no character a text cannot hold. Its length is checked when the code
+ * runs.
+ */
+export type UnderlayPath<P extends string> = string extends P
+  ? P
+  : P extends ""
+    ? typeof UNDERLAY_PATH_EMPTY
+    : P extends `/${string}` | `\\${string}`
+      ? typeof UNDERLAY_PATH_ABSOLUTE
+      : Lowercase<P> extends `${LowerLetter}:${string}`
+        ? typeof UNDERLAY_PATH_ABSOLUTE
+        : P extends `${string}${Chars<'*?<>|:"'>}${string}`
+          ? typeof UNDERLAY_PATH_CHARS
+          : HasMultibyteEscape<Lowercase<P>> extends true
+            ? typeof UNDERLAY_PATH_MULTIBYTE
+            : Description<P>;
+
+/** Resolves to `N` when it is a width a polyline can have, and to the error message otherwise. */
+export type PolylineWidth<N extends number> = NotNegative<N, typeof POLYLINE_WIDTH>;
+
+/** Resolves to `N` when it is a donut's hole, and to the error message otherwise. */
+export type DonutHole<N extends number> = NotNegative<N, typeof DONUT_HOLE>;
+
+/**
+ * Resolves to `N` when it is a line spacing factor a paragraph can have, from 0.25 to 4, and to
+ * the error message otherwise.
+ */
+export type LineSpacing<N extends number> = number extends N
+  ? N
+  : `${N}` extends
+        | `0.${"0" | "1"}${string}`
+        | `0.2${"0" | "1" | "2" | "3" | "4"}${string}`
+        | `0.${"0" | "1" | "2"}`
+        | `-${string}`
+        | `${string}e${string}`
+        | "0"
+    ? typeof LINE_SPACING
+    : `${N}` extends `0.${string}` | `${"1" | "2" | "3"}` | `${"1" | "2" | "3"}.${string}` | "4"
+      ? N
+      : typeof LINE_SPACING;
+
+/** A digit of a hexadecimal number, in either case. */
+type HexDigit = Chars<"0123456789abcdefABCDEF">;
+
+/**
+ * The first of `\`, `{`, `}` and `%` in `S`, and what follows it, or `undefined` for none: a
+ * delimiter is the first when what comes before it holds none of the others.
+ */
+type ParagraphStep<S extends string> = S extends `${infer A}\\${infer R}`
+  ? A extends `${string}${"{" | "}" | "%"}${string}`
+    ? ParagraphBrace<S>
+    : ["\\", R]
+  : ParagraphBrace<S>;
+
+type ParagraphBrace<S extends string> = S extends `${infer A}{${infer R}`
+  ? A extends `${string}${"}" | "%" | "\\"}${string}`
+    ? ParagraphClose<S>
+    : ["{", R]
+  : ParagraphClose<S>;
+
+type ParagraphClose<S extends string> = S extends `${infer A}}${infer R}`
+  ? A extends `${string}${"%" | "\\" | "{"}${string}`
+    ? ParagraphPercent<S>
+    : ["}", R]
+  : ParagraphPercent<S>;
+
+type ParagraphPercent<S extends string> = S extends `${string}%${infer R}` ? ["%", R] : undefined;
+
+/** The codes of a paragraph that draw a character, and need nothing after them. */
+type ParagraphPlainCode = "P" | "N" | "~" | "\\" | "{" | "}" | "o";
+
+/** The codes that set what the characters after them are and end with a `;`. */
+type ParagraphEndedCode = "H" | "W" | "Q" | "A" | "C" | "c";
+
+/** True for all zeros. */
+type AllZeros<S extends string> = S extends `0${infer R}`
+  ? R extends ""
+    ? true
+    : AllZeros<R>
+  : false;
+
+/** True for one to `M` digits, as many as `Most` holds. */
+type FewDigits<
+  S extends string,
+  Most extends 0[],
+  K extends 0[] = [0],
+> = S extends `${Digit}${infer R}`
+  ? R extends ""
+    ? true
+    : K["length"] extends Most["length"]
+      ? false
+      : FewDigits<R, Most, [...K, 0]>
+  : false;
+
+type Fifteen = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+type SixtyFour = [...Fifteen, ...Fifteen, ...Fifteen, ...Fifteen, 0, 0, 0, 0];
+
+/** True for nothing, or a point and digits. */
+type Fraction<S extends string> = S extends ""
+  ? true
+  : S extends `.${infer F}`
+    ? AllDigits<F>
+    : false;
+
+/** True for a number of at most 15 digits before its point and 64 after, above 0, as `\H` and `\W` take. */
+type CodeAmount<S extends string> = S extends `${infer I}.${infer F}`
+  ? FewDigits<I, Fifteen> extends true
+    ? FewDigits<F, SixtyFour> extends true
+      ? AllZeros<`${I}${F}`> extends true
+        ? false
+        : true
+      : false
+    : false
+  : FewDigits<S, Fifteen> extends true
+    ? AllZeros<S> extends true
+      ? false
+      : true
+    : false;
+
+type Below85 =
+  | Digit
+  | `${"1" | "2" | "3" | "4" | "5" | "6" | "7"}${Digit}`
+  | `8${"0" | "1" | "2" | "3" | "4"}`;
+
+/** True for an angle from -85 to 85, as `\Q` takes. */
+type CodeOblique<S extends string> = S extends `-${infer R}` ? CodeOblique85<R> : CodeOblique85<S>;
+type CodeOblique85<S extends string> = S extends `${infer I}.${infer F}`
+  ? FewDigits<F, SixtyFour> extends true
+    ? I extends Below85
+      ? true
+      : I extends "85"
+        ? AllZeros<F>
+        : false
+    : false
+  : S extends Below85 | "85"
+    ? true
+    : false;
+
+type Below258 =
+  | Digit
+  | `${"1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"}${Digit}`
+  | `1${Digit}${Digit}`
+  | `2${"0" | "1" | "2" | "3" | "4"}${Digit}`
+  | `25${"0" | "1" | "2" | "3" | "4" | "5" | "6" | "7"}`;
+
+/** True for the argument code `C` takes, as `ARGUMENTS` in `src/paragraph-codes.ts` reads it. */
+type CodeArgument<C extends ParagraphEndedCode, S extends string> = C extends "H"
+  ? S extends `${infer A}x`
+    ? CodeAmount<A>
+    : CodeAmount<S>
+  : C extends "W"
+    ? CodeAmount<S>
+    : C extends "Q"
+      ? CodeOblique<S>
+      : C extends "A"
+        ? S extends "0" | "1" | "2"
+          ? true
+          : false
+        : C extends "c"
+          ? S extends `${bigint}`
+            ? S extends `${"-" | "+"}${string}`
+              ? false
+              : true
+            : false
+          : S extends Below258
+            ? true
+            : false;
+
+/**
+ * Whether the characters are underlined, `L`, struck through, `K`, both or neither, as the codes
+ * `\L`, `\l`, `\K` and `\k` set it and each `}` puts it back.
+ */
+type Lined = "" | "L" | "K" | "LK";
+
+/**
+ * The format the walk keeps of the characters, as each `{` saves it and its `}` puts it back:
+ * their lines, and whether a `\f` or `\F` has set them in an SHX font.
+ */
+interface Format {
+  readonly lined: Lined;
+  readonly shx: boolean;
+}
+
+/** The format of a value's first character. */
+interface PlainFormat extends Format {
+  readonly lined: "";
+  readonly shx: false;
+}
+
+/** What `\L`, `\l`, `\K` and `\k` make of `F`. */
+type Relined<F extends Lined, C extends "L" | "l" | "K" | "k"> = C extends "L"
+  ? F extends "K" | "LK"
+    ? "LK"
+    : "L"
+  : C extends "l"
+    ? F extends "K" | "LK"
+      ? "K"
+      : ""
+    : C extends "K"
+      ? F extends "L" | "LK"
+        ? "LK"
+        : "K"
+      : F extends "L" | "LK"
+        ? "L"
+        : "";
+
+/**
+ * Resolves to `T` when it is a value a paragraph can be given, and to the error message
+ * otherwise: no control character but a line feed, which is a paragraph break, and no character a
+ * text cannot hold, and the codes `parseParagraph` reads, each as tsdraft lays it out, with `%%c`
+ * refused in an SHX font that a `\f` or `\F` names. Two checks are left to the code when it
+ * runs: `%%c` in the paragraph's own font, which only the style knows, and a character above
+ * U+FFFF, since TypeScript reads a template literal type by code points and never splits the
+ * surrogate pair that holds one, so no pattern of a type can find it.
+ */
+export type ParagraphValue<T extends string> = string extends T
+  ? T
+  : T extends `${string}${Exclude<ControlChar, "\n" | "\t">}${string}`
+    ? typeof PARAGRAPH_CONTROL
+    : T extends `${string}${Chars<typeof REJECTED_PRIVATE>}${string}`
+      ? typeof PARAGRAPH_PRIVATE_USE
+      : ParagraphCodes<T, T, [], [], PlainFormat>;
+
+/**
+ * The most steps the walk of a literal value takes. A value that needs more passes as it is, and
+ * is checked when the code runs, so the compiler never gives up on a long one.
+ */
+type ParagraphTypeSteps = 250;
+
+/**
+ * Walks `S`, the rest of the value `T`, from one special character to the next, with what each
+ * open brace saved in `D`, a mark in `N` for each step, and the format of the characters in `F`.
+ */
+type ParagraphCodes<
+  T extends string,
+  S extends string,
+  D extends Format[],
+  N extends 0[],
+  F extends Format,
+> = N["length"] extends ParagraphTypeSteps
+  ? T
+  : ParagraphStep<S> extends [infer M, infer R extends string]
+    ? M extends "{"
+      ? D["length"] extends typeof PARAGRAPH_NESTING
+        ? typeof PARAGRAPH_TOO_DEEP
+        : ParagraphCodes<T, R, [...D, F], [...N, 0], F>
+      : M extends "}"
+        ? D extends [...infer E extends Format[], infer Saved extends Format]
+          ? ParagraphCodes<T, R, E, [...N, 0], Saved>
+          : typeof PARAGRAPH_NEVER_OPENED
+        : M extends "%"
+          ? R extends `%${"c" | "C"}${infer After}`
+            ? F["shx"] extends true
+              ? typeof PARAGRAPH_SHX_DIAMETER
+              : ParagraphCodes<T, After, D, [...N, 0], F>
+            : R extends `%${"d" | "D" | "p" | "P"}${infer After}`
+              ? ParagraphCodes<T, After, D, [...N, 0], F>
+              : ParagraphCodes<T, R, D, [...N, 0], F>
+          : ParagraphCode<T, R, D, N, F>
+    : D extends []
+      ? T
+      : typeof PARAGRAPH_NEVER_CLOSED;
+
+/** Reads the code after a backslash, `R` and what follows it. */
+type ParagraphCode<
+  T extends string,
+  R extends string,
+  D extends Format[],
+  N extends 0[],
+  F extends Format,
+> = R extends `${infer C}${infer After}`
+  ? C extends ParagraphPlainCode
+    ? ParagraphCodes<T, After, D, [...N, 0], F>
+    : C extends "L" | "l" | "K" | "k"
+      ? ParagraphCodes<T, After, D, [...N, 0], { lined: Relined<F["lined"], C>; shx: F["shx"] }>
+      : C extends "f" | "F"
+        ? After extends `${infer Body};${infer Next}`
+          ? ParagraphFont<T, C, Body, Next, D, N, F>
+          : ReturnType<typeof paragraphNoSemicolon<C>>
+        : C extends "S"
+          ? ParagraphStack<T, After, D, false, N, F, "", true>
+          : C extends "p"
+            ? After extends `${infer Body};${infer Next}`
+              ? ParagraphProperties<
+                  Body extends `x${infer Rest}` ? Rest : Body,
+                  "option",
+                  [...N, 0]
+                > extends true
+                ? ParagraphCodes<T, Next, D, [...N, 0], F>
+                : ParagraphProperties<
+                    Body extends `x${infer Rest}` ? Rest : Body,
+                    "option",
+                    [...N, 0]
+                  >
+              : ReturnType<typeof paragraphNoSemicolon<C>>
+            : C extends "T"
+              ? After extends `${string};${string}`
+                ? ReturnType<typeof paragraphNotLaidOut<C>>
+                : ReturnType<typeof paragraphNoSemicolon<C>>
+              : C extends ParagraphEndedCode
+                ? After extends `${infer Argument};${infer Next}`
+                  ? CodeArgument<C, Argument> extends true
+                    ? ParagraphCodes<T, Next, D, [...N, 0], F>
+                    : ReturnType<typeof paragraphCodeArgument<C>>
+                  : ReturnType<typeof paragraphNoSemicolon<C>>
+                : C extends "X" | "O"
+                  ? ReturnType<typeof paragraphNotLaidOut<C>>
+                  : C extends "U" | "u"
+                    ? After extends `+${infer H1}${infer H2}${infer H3}${infer H4}${infer Next}`
+                      ? [H1, H2, H3, H4] extends [HexDigit, HexDigit, HexDigit, HexDigit]
+                        ? ParagraphUnicode<T, Lowercase<`${H1}${H2}${H3}${H4}`>, Next, D, N, F>
+                        : ReturnType<typeof paragraphUnknownCode<C>>
+                      : ReturnType<typeof paragraphUnknownCode<C>>
+                    : C extends "M" | "m"
+                      ? After extends `+${"1" | "2" | "3" | "4" | "5"}${infer H1}${infer H2}${infer H3}${infer H4}${string}`
+                        ? [H1, H2, H3, H4] extends [HexDigit, HexDigit, HexDigit, HexDigit]
+                          ? ReturnType<typeof paragraphNotLaidOut<C>>
+                          : ReturnType<typeof paragraphUnknownCode<C>>
+                        : ReturnType<typeof paragraphUnknownCode<C>>
+                      : ReturnType<typeof paragraphUnknownCode<C>>
+  : typeof PARAGRAPH_TRAILING;
+
+/**
+ * Where the walk of a `\p` code's options stands: before an option, where a number starts, after
+ * its sign, after its point with no digit yet, among its digits, or among a tab stop's, where a
+ * comma may start another stop.
+ */
+type PropertyState = "option" | "number" | "signed" | "point" | "digits" | "decimals";
+
+/**
+ * True for the options of a `\p` code after its `x`, as `readProperties` in
+ * `src/paragraph-codes.ts` reads them, and the message otherwise, which quotes an option by its
+ * letter and the character after it, `O`. `Stops` is true inside a list of tab stops. Past the
+ * walk's steps it gives up and leaves the rest to the runtime check.
+ */
+type ParagraphProperties<
+  S extends string,
+  State extends PropertyState,
+  N extends 0[],
+  O extends string = "",
+  Stops extends boolean = false,
+> = N["length"] extends ParagraphTypeSteps
+  ? true
+  : State extends "option"
+    ? S extends `${infer C}${infer R}`
+      ? C extends ","
+        ? ParagraphProperties<R, "option", [...N, 0]>
+        : C extends "i" | "l" | "r" | "b" | "a"
+          ? ParagraphProperties<R, "number", [...N, 0], PropertyOption<S>>
+          : C extends "q"
+            ? R extends `${"l" | "c" | "r" | "j" | "d"}${infer After}`
+              ? ParagraphProperties<After, "option", [...N, 0]>
+              : ReturnType<typeof paragraphPropertyUnknown<PropertyOption<S>>>
+            : C extends "s"
+              ? R extends `${"m" | "e"}${infer After}`
+                ? ParagraphProperties<After, "number", [...N, 0], PropertyOption<S>>
+                : R extends `a${string}`
+                  ? typeof PARAGRAPH_SPACING_AT_LEAST
+                  : ReturnType<typeof paragraphPropertyUnknown<PropertyOption<S>>>
+              : C extends "t"
+                ? R extends `z${infer After}`
+                  ? ParagraphProperties<After, "option", [...N, 0]>
+                  : R extends `${"r" | "c" | "d"}${string}`
+                    ? typeof PARAGRAPH_TAB_KIND
+                    : ParagraphProperties<R, "number", [...N, 0], PropertyOption<S>, true>
+                : ReturnType<typeof paragraphPropertyUnknown<PropertyOption<S>>>
+      : true
+    : State extends "number" | "signed" | "point"
+      ? S extends `${infer C}${infer R}`
+        ? C extends Digit
+          ? ParagraphProperties<
+              R,
+              State extends "point" ? "decimals" : "digits",
+              [...N, 0],
+              O,
+              Stops
+            >
+          : [State, C] extends ["number", "-"]
+            ? ParagraphProperties<R, "signed", [...N, 0], O, Stops>
+            : [State, C] extends ["number" | "signed", "."]
+              ? ParagraphProperties<R, "point", [...N, 0], O, Stops>
+              : ReturnType<typeof paragraphPropertyUnknown<O>>
+        : ReturnType<typeof paragraphPropertyUnknown<O>>
+      : S extends `${Digit}${infer R}`
+        ? ParagraphProperties<R, State, [...N, 0], O, Stops>
+        : [State, S] extends ["digits", `.${infer R}`]
+          ? ParagraphProperties<R, "decimals", [...N, 0], O, Stops>
+          : Stops extends true
+            ? S extends `,${infer R}`
+              ? R extends `${"r" | "c" | "d"}${string}`
+                ? typeof PARAGRAPH_TAB_KIND
+                : R extends `${Digit | "." | "-"}${string}`
+                  ? ParagraphProperties<R, "number", [...N, 0], O, true>
+                  : ParagraphProperties<S, "option", [...N, 0]>
+              : ParagraphProperties<S, "option", [...N, 0]>
+            : ParagraphProperties<S, "option", [...N, 0]>;
+
+/**
+ * The option a message quotes: its letter and the character after it, as the builder holds them, a
+ * line feed as the `\P` it becomes.
+ */
+type PropertyOption<S extends string> = S extends `\n${string}`
+  ? "\\P"
+  : S extends `${infer A}${infer B}${string}`
+    ? `${A}${B extends "\n" ? "\\" : B}`
+    : S;
+
+/** A `\U+XXXX` code, with its four digits in lower case. */
+type ParagraphUnicode<
+  T extends string,
+  X extends string,
+  Next extends string,
+  D extends Format[],
+  N extends 0[],
+  F extends Format,
+> = X extends `00${"0" | "1"}${string}` | "007f"
+  ? typeof PARAGRAPH_CONTROL
+  : X extends `d${"8" | "9" | "a" | "b" | "c" | "d" | "e" | "f"}${string}`
+    ? typeof PARAGRAPH_ASTRAL
+    : X extends `e8${string}`
+      ? typeof PARAGRAPH_PRIVATE_USE
+      : ParagraphCodes<T, Next, D, [...N, 0], F>;
+
+/** A `\f` or `\F` code: a font of `FONTS`, then its options. */
+type ParagraphFont<
+  T extends string,
+  C extends "f" | "F",
+  Body extends string,
+  Next extends string,
+  D extends Format[],
+  N extends 0[],
+  F extends Format,
+> = Body extends `${infer Name}|${infer Options}`
+  ? Name extends Font
+    ? ParagraphFontOptions<T, C, Name, Options, Next, D, [...N, 0], InFont<F, Name>>
+    : ReturnType<typeof paragraphUnknownFont<C, Name>>
+  : Body extends Font
+    ? ParagraphCodes<T, Next, D, [...N, 0], InFont<F, Body>>
+    : ReturnType<typeof paragraphUnknownFont<C, Body>>;
+
+/** `F` in the font `Name`, which is an SHX font when it has no bold face. */
+type InFont<F extends Format, Name extends Font> = {
+  lined: F["lined"];
+  shx: Name extends BoldFont ? false : true;
+};
+
+/** The options of a font code, with the letters of those given so far in `Given`. */
+type ParagraphFontOptions<
+  T extends string,
+  C extends "f" | "F",
+  Name extends Font,
+  O extends string,
+  Next extends string,
+  D extends Format[],
+  N extends 0[],
+  F extends Format,
+  Given extends string = never,
+> = N["length"] extends ParagraphTypeSteps
+  ? T
+  : O extends `${infer First}|${infer More}`
+    ? ParagraphFontOnce<C, Name, First, Given> extends true
+      ? ParagraphFontOptions<T, C, Name, More, Next, D, [...N, 0], F, Given | OptionLetter<First>>
+      : ParagraphFontOnce<C, Name, First, Given>
+    : ParagraphFontOnce<C, Name, O, Given> extends true
+      ? ParagraphCodes<T, Next, D, [...N, 0], F>
+      : ParagraphFontOnce<C, Name, O, Given>;
+
+/** The letter of a font option. */
+type OptionLetter<O extends string> = O extends `${infer L}${string}` ? L : never;
+
+/** True for an option a font may have whose letter `Given` does not hold, and the message otherwise. */
+type ParagraphFontOnce<
+  C extends string,
+  Name extends Font,
+  O extends string,
+  Given extends string,
+> =
+  ParagraphFontOption<C, Name, O> extends true
+    ? O extends `${Given}${string}`
+      ? ReturnType<typeof paragraphFontOptionTwice<C, OptionLetter<O>>>
+      : true
+    : ParagraphFontOption<C, Name, O>;
+
+/**
+ * True for one or more digits, as `isNumbered` in `src/paragraph-codes.ts` reads a font option's
+ * number. Past 64 it gives up and leaves the rest to the runtime check.
+ */
+type AllDigits<S extends string, K extends 0[] = []> = K["length"] extends 64
+  ? true
+  : S extends `${Digit}${infer R}`
+    ? R extends ""
+      ? true
+      : AllDigits<R, [...K, 0]>
+    : false;
+
+/** True for an option a font may have, and the message otherwise. */
+type ParagraphFontOption<C extends string, Name extends Font, O extends string> = O extends
+  | "b0"
+  | "i0"
+  ? true
+  : O extends `${"c" | "p"}${infer Count}`
+    ? AllDigits<Count> extends true
+      ? true
+      : ReturnType<typeof paragraphFontOption<C, O>>
+    : O extends "b1"
+      ? Name extends BoldFont
+        ? true
+        : ReturnType<typeof paragraphShxBold<C, Name>>
+      : O extends "i1"
+        ? ReturnType<typeof paragraphItalic<C>>
+        : ReturnType<typeof paragraphFontOption<C, O>>;
+
+/** A digit or a capital, which a stacked part may hold. */
+type Tall = Chars<"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ">;
+
+/**
+ * What a stacked part holds so far: nothing, `""`; spaces only, `"s"`; signs only, `"o"`; digits or
+ * capitals with signs or not, `"t"`; or something it may not hold, `"x"`.
+ */
+type PartHolds = "" | "s" | "o" | "t" | "x";
+
+/** What a part holds after the character `C`. */
+type PartStep<P extends PartHolds, C extends string> = C extends " "
+  ? P extends "" | "s"
+    ? "s"
+    : "x"
+  : C extends Tall
+    ? P extends "" | "o" | "t"
+      ? "t"
+      : "x"
+    : C extends "." | "," | "+" | "-"
+      ? P extends "" | "o"
+        ? "o"
+        : P extends "t"
+          ? "t"
+          : "x"
+      : "x";
+
+/**
+ * A `\S` code from after its letter: its parts, divided by the first `/`, `#` or `^`, up to its
+ * `;`, with what the part being read holds in `P` and whether the top part may be stacked in
+ * `Top`. It is refused in underlined or struck-through characters.
+ */
+type ParagraphStack<
+  T extends string,
+  S extends string,
+  D extends Format[],
+  Divided extends boolean,
+  N extends 0[],
+  F extends Format,
+  P extends PartHolds,
+  Top extends boolean,
+> = N["length"] extends ParagraphTypeSteps
+  ? T
+  : S extends `\\${infer C}${infer R}`
+    ? ParagraphStack<T, R, D, Divided, [...N, 0], F, PartStep<P, C>, Top>
+    : S extends `;${infer R}`
+      ? Divided extends true
+        ? F["lined"] extends ""
+          ? [Top, P extends "" | "s" | "t" ? true : false] extends [true, true]
+            ? ParagraphCodes<T, R, D, [...N, 0], F>
+            : typeof PARAGRAPH_STACK_PART
+          : typeof PARAGRAPH_STACK_LINED
+        : typeof PARAGRAPH_STACK_SEPARATOR
+      : S extends `${"/" | "#" | "^"}${infer R}`
+        ? Divided extends true
+          ? ParagraphStack<T, R, D, true, [...N, 0], F, "x", Top>
+          : ParagraphStack<T, R, D, true, [...N, 0], F, "", P extends "" | "s" | "t" ? true : false>
+        : S extends `${infer C}${infer R}`
+          ? ParagraphStack<T, R, D, Divided, [...N, 0], F, PartStep<P, C>, Top>
+          : ReturnType<typeof paragraphNoSemicolon<"S">>;
 
 /** Returns what is wrong with a layer name for a DXF version, or undefined when it is valid. */
 export function layerNameProblem(name: string, version: DxfVersion): string | undefined {
@@ -956,6 +1839,121 @@ export function linetypeProblem(
   return undefined;
 }
 
+const MARK_FIELDS = ["after", "rotation", "orient", "offset"];
+const TEXT_MARK_FIELDS: readonly string[] = [...MARK_FIELDS, "text", "style", "height"];
+const SHAPE_MARK_FIELDS: readonly string[] = [...MARK_FIELDS, "shape", "file", "scale"];
+
+/** What is wrong with marks that are not a list of objects. */
+export const MARKS_TYPE = "A linetype's marks must be an array of objects, each a text or a shape";
+
+/** What is wrong with marks out of order, or two at one length. */
+export const MARKS_ORDER =
+  "A linetype's marks must be in order of after, at most one at each length of the pattern";
+
+/** What is wrong with a linetype's texts past the room a drawing has for them. */
+export const MARK_TEXT_ROOM =
+  "A linetype's texts, each with one character more, may take 256 characters together: a DWG holds them in 512 bytes";
+
+/** What is wrong with a shape given by name. */
+export const MARK_SHAPE_NAME =
+  "a shape by its name needs its shape file to number it: give the shape's number in the file, or give parseLinetypes the file";
+
+/**
+ * Returns what is wrong with a linetype's marks, or undefined when they are valid. It takes
+ * `unknown` so that `lint` can report marks of the wrong type. Whether a text's style is one of
+ * the drawing's depends on the drawing, and is checked by the caller.
+ *
+ * @param pattern - The linetype's pattern, already checked.
+ */
+export function marksProblem(marks: unknown, pattern: readonly number[]): string | undefined {
+  if (marks === undefined) return undefined;
+  if (!Array.isArray(marks) || !(marks instanceof Array)) return MARKS_TYPE;
+  let last = -1;
+  let room = 0;
+  const list = marks as unknown[];
+  for (let i = 0; i < list.length; i++) {
+    const mark = list[i];
+    if (typeof mark !== "object" || mark === null || Array.isArray(mark)) return MARKS_TYPE;
+    const m = mark as Record<string, unknown>;
+    const label = `its mark ${i}`;
+    const after = m.after;
+    if (
+      typeof after !== "number" ||
+      !Number.isInteger(after) ||
+      after < 0 ||
+      after >= pattern.length
+    )
+      return `${label}: after must be the index of a length of the pattern, from 0 to ${pattern.length - 1}`;
+    if (after <= last) return MARKS_ORDER;
+    last = after;
+    const isText = "text" in m;
+    if (isText === "shape" in m) return `${label}: a mark is a text or a shape, with text or shape`;
+    const known = isText ? TEXT_MARK_FIELDS : SHAPE_MARK_FIELDS;
+    for (const key of Object.keys(m)) {
+      if (!known.includes(key))
+        return `${label}: ${shown(key)} is not a field of a ${isText ? "text" : "shape"}`;
+    }
+    for (const key of ["rotation"] as const) {
+      const v = m[key];
+      if (v === undefined) continue;
+      if (typeof v !== "number" || !Number.isFinite(v))
+        return `${label}: ${key} must be a finite number`;
+      const problem = magnitudeProblem(v);
+      if (problem) return `${label}: ${key}: ${problem}`;
+    }
+    if (m.orient !== undefined && !(MARK_ORIENTS as readonly unknown[]).includes(m.orient))
+      return `${label}: orient must be one of ${MARK_ORIENTS.map((o) => `"${o}"`).join(", ")}`;
+    if (m.offset !== undefined) {
+      const o = m.offset;
+      const finite = (v: unknown) => typeof v === "number" && Number.isFinite(v);
+      if (!Array.isArray(o) || o.length !== 2 || !finite(o[0]) || !finite(o[1]))
+        return `${label}: offset must be [along, left], two finite numbers`;
+      const problem = magnitudeProblem(o[0]) ?? magnitudeProblem(o[1]);
+      if (problem) return `${label}: offset: ${problem}`;
+    }
+    const size = isText ? "height" : "scale";
+    const v = m[size];
+    // A shape of a negative scale is drawn turned half a turn, as a linetype file may give it.
+    if (
+      typeof v !== "number" ||
+      !Number.isFinite(v) ||
+      !(isText ? v > 0 : v !== 0) ||
+      written(v) === 0
+    )
+      return isText
+        ? `${label}: height must be a number greater than 0 as written`
+        : `${label}: scale must be a number other than 0 as written`;
+    const big = magnitudeProblem(v);
+    if (big) return `${label}: ${size}: ${big}`;
+    if (isText) {
+      const text = m.text;
+      if (typeof text !== "string" || text === "")
+        return `${label}: text must be a string with a character`;
+      if (text.length >= 256) return MARK_TEXT_ROOM;
+      const problem = textProblem(text);
+      if (problem) return `${label}: ${problem}`;
+      room += text.length + 1;
+      if (m.style !== undefined && typeof m.style !== "string")
+        return `${label}: style must be a string`;
+      if (typeof m.style === "string" && m.style.length > 255)
+        return `${label}: a text style's name has at most 255 characters`;
+    } else {
+      const shape = m.shape;
+      if (typeof shape === "string") return `${label}: ${MARK_SHAPE_NAME}`;
+      if (typeof shape !== "number" || !Number.isInteger(shape) || shape < 1 || shape > 65535)
+        return `${label}: shape must be a whole number from 1 to 65535`;
+      const file = m.file;
+      if (typeof file !== "string") return `${label}: file must name a shape file`;
+      if (file.length > 255) return `${label}: a shape file's name has at most 255 characters`;
+      if (file.trim() === "") return `${label}: file must name a shape file`;
+      const problem = textProblem(file);
+      if (problem) return `${label}: file: ${problem}`;
+    }
+  }
+  if (room > 256) return MARK_TEXT_ROOM;
+  return undefined;
+}
+
 /**
  * Returns what is wrong with a layer or an entity that names a linetype the
  * drawing does not have. The rule depends on the drawing, so it has no type.
@@ -1020,16 +2018,893 @@ export const R12_ONLY = {
   lineweights: R12_LINEWEIGHTS,
   layerStates: R12_LAYER_STATES,
   entityStyle: R12_ENTITY_STYLE,
+  entityColor: R12_ENTITY_COLOR,
+  entityTransparency: R12_ENTITY_TRANSPARENCY,
   text: R12_TEXT,
   blocks: R12_BLOCKS,
   xrefs: R12_XREFS,
   layouts: R12_LAYOUTS,
   dimensions: R12_DIMENSIONS,
   leaders: R12_LEADERS,
+  polylines: R12_POLYLINES,
+  paragraphs: R12_PARAGRAPHS,
+  images: R12_IMAGES,
+  underlays: R12_UNDERLAYS,
+  hatches: R12_HATCHES,
+  tables: R12_TABLES,
+  curves: R12_CURVES,
+  points: R12_POINTS,
 } as const;
+
+/** The highest degree of a spline by its control points. */
+export const SPLINE_DEGREE_MOST = 11;
+
+/** The most knots a spline holds, and so control points and fit points: a file holds each count as a 16-bit integer. */
+export const SPLINE_ITEMS = 32_767;
+
+/** What is wrong with an ellipse's ratio. */
+export const ELLIPSE_RATIO =
+  "an ellipse's ratio, its minor radius over its major, must be above 0 and at most 1 once rounded to the 6 decimals tsdraft writes";
+
+/** What is wrong with an ellipse whose major axis has no length. */
+export const ELLIPSE_AXIS =
+  "an ellipse's major axis must not be [0, 0] once rounded to the 6 decimals tsdraft writes";
+
+/** What is wrong with an ellipse that has one parameter of an arc and not the other. */
+export const ELLIPSE_PARAMETERS_PAIR =
+  "an ellipse takes startParameter and endParameter together, for an arc of it, or neither, for the whole ellipse";
+
+/** What is wrong with an arc of an ellipse whose parameters are out of range. */
+export const ELLIPSE_PARAMETERS_RANGE = "an ellipse's parameters must be from 0 up to 360";
+
+/** What is wrong with an arc of an ellipse whose parameters are one. */
+export const ELLIPSE_PARAMETERS_SAME =
+  "an ellipse's start and end parameters must differ once rounded to the 6 decimals tsdraft writes. Leave both out for the whole ellipse";
+
+/** What is wrong with a spline of too few fit points. */
+export const SPLINE_FIT_POINTS =
+  "a spline through fit points needs at least 2 of them, and 3 when it is closed";
+
+/** What is wrong with two fit points side by side that are one. */
+export const SPLINE_FIT_SAME =
+  "two fit points side by side, and the last and the first of a closed spline, must differ once rounded to the 6 decimals tsdraft writes";
+
+/** What is wrong with a tangent of no direction. */
+export const SPLINE_TANGENT_ZERO =
+  "a spline's tangent must not be [0, 0] once rounded to the 6 decimals tsdraft writes: it gives no direction";
+
+/** What is wrong with a closed spline given a tangent. */
+export const SPLINE_CLOSED_TANGENT =
+  "a closed spline takes no tangents: it is smooth where it joins";
+
+/** What is wrong with a spline's degree. */
+export const SPLINE_DEGREE = `a spline's degree is a whole number from 1 to ${SPLINE_DEGREE_MOST}`;
+
+/** What is wrong with a spline of too few control points for its degree. */
+export const SPLINE_CONTROL_POINTS =
+  "a spline needs at least one more control point than its degree";
+
+/** What is wrong with a spline of the wrong count of knots. */
+export const SPLINE_KNOT_COUNT =
+  "a spline has as many knots as its control points and its degree together, and one more";
+
+/** What is wrong with a spline's knots. */
+export const SPLINE_KNOTS =
+  "a spline's knots must never decrease, and the ones it runs over, from the knot at its degree to the knot at its count of control points, must not all be equal, and two that differ must still differ in the 16 digits tsdraft writes";
+
+/** What is wrong with a closed spline by its control points that does not close. */
+export const SPLINE_OPEN_CLOSED =
+  "a closed spline must end where it starts, leaving it the way it arrives: its knots and control points give a curve that does not, which CAD programs hold as closed all the same";
+
+/** What is wrong with a spline's weights. */
+export const SPLINE_WEIGHTS =
+  "a spline has one weight for each control point, each above 0 once rounded to the 6 decimals tsdraft writes";
+
+/** What is wrong with a spline of more knots, control points or fit points than a file holds. */
+export const SPLINE_MANY = `a spline holds at most ${SPLINE_ITEMS.toLocaleString("en-US")} knots, and a spline through fit points takes 6 more knots than it has points, 7 when it is closed: a file holds each count as a 16-bit integer`;
+
+/** What is wrong with a spline through fit points whose curve reaches past what a file holds. */
+export const SPLINE_FIT_DRAWN =
+  "the spline fitted through its points has a control point of 1e100 or more in size, which the leading CAD app reads wrongly from DXF. Give the points closer together";
+
+/**
+ * What is wrong with an ellipse's ratio, axis and parameters, each once. Its center and axis are
+ * checked as points apart.
+ */
+export function ellipseProblems(
+  majorAxis: Point,
+  ratio: unknown,
+  startParameter: unknown,
+  endParameter: unknown,
+): string[] {
+  const out: string[] = [];
+  if (typeof ratio !== "number" || !(ratio > 0) || written(ratio) === 0 || written(ratio) > 1) {
+    out.push(ELLIPSE_RATIO);
+  }
+  if (written(majorAxis[0]) === 0 && written(majorAxis[1]) === 0) out.push(ELLIPSE_AXIS);
+  if ((startParameter === undefined) !== (endParameter === undefined)) {
+    out.push(ELLIPSE_PARAMETERS_PAIR);
+  } else if (startParameter !== undefined) {
+    const inRange = (t: unknown): t is number =>
+      typeof t === "number" && Number.isFinite(t) && t >= 0 && t < 360;
+    if (!inRange(startParameter) || !inRange(endParameter)) out.push(ELLIPSE_PARAMETERS_RANGE);
+    else if (writtenAngle(startParameter) === writtenAngle(endParameter))
+      out.push(ELLIPSE_PARAMETERS_SAME);
+  }
+  return out;
+}
+
+/** An ellipse as it draws: its parameters in radians, for an arc of it. */
+export interface DrawnEllipse {
+  readonly center: Point;
+  readonly majorAxis: Point;
+  readonly ratio: number;
+  readonly start?: number;
+  readonly end?: number;
+}
+
+/** True for a point of two finite numbers under 1e100. */
+function isKeptPoint(value: unknown): value is Point {
+  if (!Array.isArray(value) || value.length !== 2) return false;
+  const [x, y]: unknown[] = value;
+  return (
+    typeof x === "number" &&
+    typeof y === "number" &&
+    Number.isFinite(x) &&
+    Number.isFinite(y) &&
+    !isTooLarge(x) &&
+    !isTooLarge(y)
+  );
+}
+
+/**
+ * What an ellipse draws, or undefined for one of the wrong shape or that `lint` refuses, which
+ * the pictures and the extents leave out.
+ */
+export function drawnEllipse(e: {
+  readonly center: unknown;
+  readonly majorAxis: unknown;
+  readonly ratio: unknown;
+  readonly startParameter?: unknown;
+  readonly endParameter?: unknown;
+}): DrawnEllipse | undefined {
+  const { center, majorAxis, ratio, startParameter: start, endParameter: end } = e;
+  if (!isKeptPoint(center) || !isKeptPoint(majorAxis)) return undefined;
+  if (ellipseProblems(majorAxis, ratio, start, end).length > 0) return undefined;
+  const radians = (t: number) => (writtenAngle(t) * Math.PI) / 180;
+  return {
+    center,
+    majorAxis,
+    ratio: ratio as number,
+    ...(start === undefined
+      ? {}
+      : { start: radians(start as number), end: radians(end as number) }),
+  };
+}
+
+/** A spline as the B-spline it draws. */
+export interface DrawnSpline {
+  readonly degree: number;
+  readonly knots: readonly number[];
+  readonly controlPoints: readonly Point[];
+  readonly weights?: readonly number[];
+  /** True for a spline that closes, which a pattern of dashes goes round as a circle's does. */
+  readonly closed: boolean;
+}
+
+/** The items of a list of at most `SPLINE_ITEMS` that each pass `is`, or undefined. */
+function listOf<T>(value: unknown, is: (item: unknown) => item is T): readonly T[] | undefined {
+  if (!Array.isArray(value) || value.length > SPLINE_ITEMS) return undefined;
+  for (let i = 0; i < value.length; i++) if (!is(value[i])) return undefined;
+  return value as readonly T[];
+}
+
+const isNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+/**
+ * The B-spline a spline draws, or undefined for one of the wrong shape or that `lint` refuses,
+ * which the pictures and the extents leave out. A spline through fit points is the one
+ * `fitSpline` fits. Each list is read once, and none past the count a file holds.
+ */
+export function drawnSpline(e: Readonly<Record<string, unknown>>): DrawnSpline | undefined {
+  const closed = e.closed === true;
+  if (e.fitPoints !== undefined) {
+    const fitPoints = listOf(e.fitPoints, isKeptPoint);
+    const tangent = (t: unknown) => (t === undefined || isKeptPoint(t) ? t : null);
+    const [startTangent, endTangent] = [tangent(e.startTangent), tangent(e.endTangent)];
+    if (fitPoints === undefined || startTangent === null || endTangent === null) return undefined;
+    const fields = { fitPoints, startTangent, endTangent, closed };
+    const { problems, fitted } = checkFit(fields);
+    if (problems.length > 0 || !fitted) return undefined;
+    return { degree: 3, knots: fitted.knots, controlPoints: fitted.controlPoints, closed };
+  }
+  const controlPoints = listOf(e.controlPoints, isKeptPoint);
+  const knots = listOf(e.knots, isNumber);
+  const weights = e.weights === undefined ? undefined : listOf(e.weights, isNumber);
+  if (controlPoints === undefined || knots === undefined) return undefined;
+  if (e.weights !== undefined && weights === undefined) return undefined;
+  const fields = { controlPoints, degree: e.degree, knots, weights, closed: e.closed };
+  if (controlSplineProblems(fields).length > 0) return undefined;
+  return {
+    degree: e.degree as number,
+    knots,
+    controlPoints,
+    ...(weights === undefined ? {} : { weights }),
+    closed,
+  };
+}
+
+/**
+ * The drawn spline of each spline a walk meets, worked out once for every spline that holds the
+ * same lists and the same other fields, however many objects hold them. `again` is told the lists
+ * of one worked out anew that another spline read before, for the walk to pay for them, and says
+ * whether there was room to: without it, the spline is not worked out.
+ */
+export class SplineMemo {
+  readonly #ids = new WeakMap<object, number>();
+  #next = 1;
+  readonly #byList = new WeakMap<object, Map<string, DrawnSpline | null>>();
+  readonly #read = new WeakSet<object>();
+
+  get(
+    e: Readonly<Record<string, unknown>>,
+    again: (lists: readonly object[]) => boolean,
+  ): DrawnSpline | undefined {
+    const fit = e.fitPoints !== undefined;
+    const list = fit ? e.fitPoints : e.controlPoints;
+    if (typeof list !== "object" || list === null) return undefined;
+    const id = (value: unknown): string => {
+      if (typeof value !== "object" || value === null) return typeof value;
+      let found = this.#ids.get(value);
+      if (found === undefined) this.#ids.set(value, (found = this.#next++));
+      return String(found);
+    };
+    const point = (t: unknown): string =>
+      t === undefined ? "-" : isKeptPoint(t) ? `${t[0]},${t[1]}` : "x";
+    const key = fit
+      ? `f ${e.closed === true} ${point(e.startTangent)} ${point(e.endTangent)}`
+      : `c ${e.closed === true} ${typeof e.degree === "number" ? e.degree : "x"} ${id(e.knots)} ${id(e.weights)}`;
+    let byKey = this.#byList.get(list);
+    if (!byKey) this.#byList.set(list, (byKey = new Map()));
+    const known = byKey.get(key);
+    if (known !== undefined) return known ?? undefined;
+    const lists = [list, e.knots, e.weights].filter(
+      (l): l is object => typeof l === "object" && l !== null,
+    );
+    const seen = lists.filter((l) => this.#read.has(l));
+    for (const l of lists) this.#read.add(l);
+    if (seen.length > 0 && !again(seen)) return undefined;
+    const drawn = drawnSpline(e) ?? null;
+    byKey.set(key, drawn);
+    return drawn ?? undefined;
+  }
+}
+
+/** What is wrong with a list of points of a curve, which the shape has found to be points. */
+function curvePointsProblem(points: readonly Point[], what: string): string | undefined {
+  for (const [x, y] of points) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return `its ${what} must be finite numbers`;
+  }
+  for (const [x, y] of points) {
+    const problem = magnitudeProblem(x) ?? magnitudeProblem(y);
+    if (problem) return `its ${what}: ${problem}`;
+  }
+  return undefined;
+}
+
+/** The fields of a spline through fit points, as the checks read them. */
+interface FitFields {
+  readonly fitPoints: readonly Point[];
+  readonly startTangent?: Point | undefined;
+  readonly endTangent?: Point | undefined;
+  readonly closed?: boolean | undefined;
+}
+
+/**
+ * What is wrong with a spline through fit points. Its points are read once, and never past the
+ * count a file holds.
+ */
+export function fitSplineProblems(spline: FitFields): string[] {
+  return checkFit(spline).problems;
+}
+
+/** What is wrong with a spline through fit points, and, when nothing is, its fit. */
+function checkFit(spline: FitFields): { problems: string[]; fitted?: FittedSpline } {
+  const { fitPoints: points, closed } = spline;
+  const n = points.length;
+  if (n + (closed ? 7 : 6) > SPLINE_ITEMS) return { problems: [SPLINE_MANY] };
+  const out: string[] = [];
+  if (n < (closed ? 3 : 2)) out.push(SPLINE_FIT_POINTS);
+  const problem = curvePointsProblem(points, "fit points");
+  if (problem) out.push(problem);
+  else {
+    // Two numbers more than a millionth apart are never one once written.
+    const same = (a: Point, b: Point) =>
+      Math.abs(a[0] - b[0]) <= 2e-6 &&
+      Math.abs(a[1] - b[1]) <= 2e-6 &&
+      written(a[0]) === written(b[0]) &&
+      written(a[1]) === written(b[1]);
+    let found = closed && n > 1 && same(points[0]!, points[n - 1]!);
+    for (let i = 1; i < n && !found; i++) found = same(points[i - 1]!, points[i]!);
+    if (found) out.push(SPLINE_FIT_SAME);
+  }
+  for (const tangent of [spline.startTangent, spline.endTangent]) {
+    if (tangent === undefined) continue;
+    if (closed) {
+      out.push(SPLINE_CLOSED_TANGENT);
+      break;
+    }
+    const wrong = curvePointsProblem([tangent], "tangents");
+    if (wrong) out.push(wrong);
+    else if (written(tangent[0]) === 0 && written(tangent[1]) === 0) out.push(SPLINE_TANGENT_ZERO);
+  }
+  if (out.length > 0) return { problems: out };
+  // Fitted through the points as written, as the writers and the readers of the file fit them.
+  const held = points.map((p): Point => [written(p[0]), written(p[1])]);
+  const fitted = fitSpline(held, "chord", spline.startTangent, spline.endTangent, closed);
+  if (fitted.controlPoints.some(([x, y]) => !(Math.abs(x) < 1e100 && Math.abs(y) < 1e100)))
+    return { problems: [SPLINE_FIT_DRAWN] };
+  return { problems: out, fitted };
+}
+
+/** The fields of a spline by its control points, as the checks read them. */
+interface ControlFields {
+  readonly controlPoints: readonly Point[];
+  readonly degree: unknown;
+  readonly knots: readonly number[];
+  readonly weights?: readonly number[] | undefined;
+  readonly closed?: unknown;
+}
+
+/**
+ * What is wrong with a spline by its control points. Its lists are read once, and never past the
+ * count a file holds.
+ */
+export function controlSplineProblems(spline: ControlFields): string[] {
+  const { controlPoints: points, degree, knots, weights } = spline;
+  if (
+    typeof degree !== "number" ||
+    !Number.isInteger(degree) ||
+    degree < 1 ||
+    degree > SPLINE_DEGREE_MOST
+  ) {
+    return [SPLINE_DEGREE];
+  }
+  const n = points.length;
+  if (
+    n + degree + 1 > SPLINE_ITEMS ||
+    knots.length > SPLINE_ITEMS ||
+    (weights !== undefined && weights.length > SPLINE_ITEMS)
+  ) {
+    return [SPLINE_MANY];
+  }
+  const out: string[] = [];
+  if (n < degree + 1) out.push(SPLINE_CONTROL_POINTS);
+  const problem = curvePointsProblem(points, "control points");
+  if (problem) out.push(problem);
+  if (knots.length !== n + degree + 1) out.push(SPLINE_KNOT_COUNT);
+  else if (!knots.every(Number.isFinite)) out.push("its knots must be finite numbers");
+  else {
+    const large = knots.map(magnitudeProblem).find((p) => p !== undefined);
+    if (large) out.push(`its knots: ${large}`);
+    else {
+      // Judged as the writers print them, with 16 digits: two knots that differ must print apart.
+      const printed = knots.map((k) => Number(sixteenDigits(k)));
+      let wrong = false;
+      for (let i = 1; i < knots.length && !wrong; i++)
+        wrong =
+          printed[i]! < printed[i - 1]! ||
+          (knots[i] !== knots[i - 1] && printed[i] === printed[i - 1]);
+      if (wrong || (n >= degree + 1 && printed[degree]! === printed[n]!)) out.push(SPLINE_KNOTS);
+    }
+  }
+  if (
+    weights !== undefined &&
+    (weights.length !== n ||
+      !weights.every((w) => Number.isFinite(w) && written(w) > 0 && !isTooLarge(w)))
+  ) {
+    out.push(SPLINE_WEIGHTS);
+  }
+  if (out.length === 0 && spline.closed === true && !closes(spline, degree))
+    out.push(SPLINE_OPEN_CLOSED);
+  return out;
+}
+
+/**
+ * True when a spline by its control points ends where it starts, in the direction it starts in, as
+ * it is written: the first and last control points of its clamped form are one, and, above
+ * degree 1, the sides beside them point the same way.
+ */
+function closes(spline: ControlFields, degree: number): boolean {
+  // Moved to its first point first, so the clamp's rounding is the curve's size and not how far
+  // it lies from the origin; a move changes nothing of the clamp.
+  const [ox, oy] = spline.controlPoints[0]!.map(written) as [number, number];
+  const held = clamped({
+    degree,
+    knots: spline.knots,
+    controlPoints: spline.controlPoints.map(([x, y]): Point => [written(x) - ox, written(y) - oy]),
+    ...(spline.weights === undefined ? {} : { weights: spline.weights.map(written) }),
+  });
+  const p = held.controlPoints;
+  const [first, second, before, last] = [p[0]!, p[1]!, p[p.length - 2]!, p[p.length - 1]!];
+  let reach = 0;
+  for (const [x, y] of p) reach = Math.max(reach, Math.abs(x), Math.abs(y));
+  const near = 1e-9 * Math.max(1, reach);
+  if (Math.abs(first[0] - last[0]) > near || Math.abs(first[1] - last[1]) > near) return false;
+  // A closed spline of degree 1 is a polygon, which turns a corner where it closes.
+  if (degree === 1) return true;
+  const [ax, ay] = [second[0] - first[0], second[1] - first[1]];
+  const [bx, by] = [last[0] - before[0], last[1] - before[1]];
+  const [la, lb] = [Math.hypot(ax, ay), Math.hypot(bx, by)];
+  if (!(la > near && lb > near)) return la <= near && lb <= near;
+  return Math.abs(ax * by - ay * bx) <= 1e-9 * la * lb && ax * bx + ay * by > 0;
+}
+
+/** What is wrong with a hatch with no loop. */
+export const HATCH_NO_LOOPS = "a hatch needs at least one loop";
+
+/** What is wrong with a loop of too few points. */
+export const HATCH_LOOP_POINTS =
+  "a loop needs at least 3 points, or 2 joined by an arc, so that it closes around an area";
+
+/** What is wrong with a wipeout of too few points. */
+export const WIPEOUT_POINTS = "a wipeout needs at least 3 points";
+
+/** What is wrong with a wipeout whose polygon has no area as written. */
+export const WIPEOUT_FLAT =
+  "a wipeout's points must not lie on one line once rounded to the 6 decimals tsdraft writes: the leading CAD app hides nothing behind it";
+
+/** What is wrong with a wipeout whose sides cross. */
+export const WIPEOUT_CROSSES =
+  "a wipeout's sides must not cross each other: the leading CAD app hides nothing behind one that does. Give its corners in order around it";
+
+/** What is wrong with a value of `wipeoutFrame`. */
+export const WIPEOUT_FRAME = "wipeoutFrame must be true or false";
+
+/**
+ * The most lines a hatch pattern has, and the most dashes one of its lines has: a file holds each
+ * count as a 16-bit integer.
+ */
+export const PATTERN_ITEMS = 32_767;
+
+/** The most lines tsdraft draws for one hatch's pattern, across the box of its loops. */
+export const HATCH_LINES = 1_000_000;
+
+const PATTERN_CHOICE =
+  "pattern must be { name, scale?, angle?, origin? } for a pattern of the drawing's patterns, or { spacing, angle?, crossed?, origin? } for lines of the hatch's own";
+const PATTERN_NAME_AND_SPACING =
+  "pattern has a name or a spacing, not both: a name for a pattern of the drawing's patterns, a spacing for lines of the hatch's own";
+const PATTERN_SCALE_WITH_SPACING =
+  "pattern's scale is for a pattern by its name: lines of the hatch's own are spaced by spacing";
+const PATTERN_CROSSED_WITH_NAME =
+  "pattern's crossed is for lines of the hatch's own, with spacing: a pattern by its name has the lines its definition gives";
+const PATTERN_POINT = "must be a point, [x, y], of finite numbers";
+const PATTERN_LINES =
+  "A hatch pattern's lines must be a list of lines, each { angle, base, offset, dashes? }";
+const PATTERN_NO_LINES = "A hatch pattern needs at least one line";
+const PATTERN_MANY_LINES = `A hatch pattern has at most ${PATTERN_ITEMS} lines: a file holds their count as a 16-bit integer`;
+const PATTERN_DASHES = "its dashes must be a list of finite numbers";
+const PATTERN_MANY_DASHES = `a line of a hatch pattern has at most ${PATTERN_ITEMS} dashes: a file holds their count as a 16-bit integer`;
+const PATTERN_ZERO_DASHES =
+  "its dashes cannot all be 0: dots with no gap between them repeat over no length. Give each gap as a negative length";
+const PATTERN_NO_SPACING =
+  "its offset across the line, the second number of offset, rounds to 0 at the 6 decimals tsdraft writes, and at 0 all its lines would lie on one. Use 0.000001 or more";
+
+/**
+ * What is wrong with a hatch's lines placed by its pattern: a number of 1e100 or more, which the
+ * file holds for each line.
+ */
+export const PATTERN_REACH =
+  "its pattern's lines, scaled, turned and moved to its origin, hold a number of 1e100 or more, and the leading CAD app reads only two exponent digits from DXF: give it a smaller scale, or an angle or origin nearer 0";
+
+/** What is wrong with a size of a hatch's pattern, its `scale` or its `spacing`, or undefined. */
+function patternSizeProblem(field: "scale" | "spacing", value: unknown): string | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || !(value > 0)) {
+    return `pattern's ${field} must be a finite number greater than 0`;
+  }
+  if (written(value) === 0) return `pattern's ${field}: ${WRITTEN_AS_ZERO}`;
+  const large = magnitudeProblem(value);
+  return large ? `pattern's ${field}: ${large}` : undefined;
+}
+
+/** What is wrong with a value that must be a point of finite numbers, or undefined. */
+function finitePointProblem(value: unknown, what: string): string | undefined {
+  if (!Array.isArray(value) || value.length !== 2) return `${what} ${PATTERN_POINT}`;
+  for (let i = 0; i < 2; i++) {
+    const n: unknown = value[i];
+    if (typeof n !== "number" || !Number.isFinite(n)) return `${what} ${PATTERN_POINT}`;
+  }
+  const large = magnitudeProblem(value[0] as number) ?? magnitudeProblem(value[1] as number);
+  return large ? `${what}: ${large}` : undefined;
+}
+
+/** What is wrong with a value that must be a finite angle, or undefined. */
+function finiteAngleProblem(value: unknown, what: string): string | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return `${what} must be a finite number`;
+  }
+  const large = magnitudeProblem(value);
+  return large ? `${what}: ${large}` : undefined;
+}
+
+/** What is wrong with a hatch whose pattern is named SOLID. */
+export const PATTERN_SOLID =
+  "pattern SOLID is the name CAD programs give a solid fill: leave the pattern out for a solid hatch";
+
+/**
+ * Returns what is wrong with a hatch's `pattern`, or undefined: an object with a `name` of the
+ * drawing's patterns and its `scale`, `angle` and `origin`, or a `spacing` of lines of the hatch's
+ * own with their `angle`, `crossed` and `origin`. Whether the drawing has a pattern of the name
+ * depends on the drawing, so it is checked apart.
+ */
+export function hatchPatternChoiceProblem(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return PATTERN_CHOICE;
+  const c = value as Record<string, unknown>;
+  for (const key of Object.keys(c)) {
+    if (!["name", "scale", "angle", "origin", "spacing", "crossed"].includes(key)) {
+      return PATTERN_CHOICE;
+    }
+  }
+  const named = c.name !== undefined;
+  const spaced = c.spacing !== undefined;
+  if (named && spaced) return PATTERN_NAME_AND_SPACING;
+  if (!named && !spaced) return PATTERN_CHOICE;
+  if (named) {
+    if (typeof c.name !== "string") return "pattern's name must be a string";
+    if (c.name.toUpperCase() === "SOLID") return PATTERN_SOLID;
+    if (c.crossed !== undefined) return PATTERN_CROSSED_WITH_NAME;
+    if (c.scale !== undefined) {
+      const problem = patternSizeProblem("scale", c.scale);
+      if (problem) return problem;
+    }
+  } else {
+    if (c.scale !== undefined) return PATTERN_SCALE_WITH_SPACING;
+    const problem = patternSizeProblem("spacing", c.spacing);
+    if (problem) return problem;
+    if (c.crossed !== undefined && typeof c.crossed !== "boolean") {
+      return "pattern's crossed must be true or false";
+    }
+  }
+  if (c.angle !== undefined) {
+    const problem = finiteAngleProblem(c.angle, "pattern's angle");
+    if (problem) return problem;
+  }
+  return c.origin === undefined ? undefined : finitePointProblem(c.origin, "pattern's origin");
+}
+
+/** The gradients a hatch can have, by name. */
+export const GRADIENT_KINDS = [
+  "linear",
+  "cylinder",
+  "inverted-cylinder",
+  "spherical",
+  "inverted-spherical",
+  "hemispherical",
+  "inverted-hemispherical",
+  "curved",
+  "inverted-curved",
+] as const;
+
+const GRADIENT_CHOICE =
+  "gradient must be { name, angle?, centered?, colors } for two colors, or { name, angle?, centered?, color, tint } for one color and its tint";
+const GRADIENT_NAME = `gradient's name must be one of ${GRADIENT_KINDS.map((k) => `"${k}"`).join(", ")}`;
+const GRADIENT_COLOR =
+  "a gradient's color must be [red, green, blue], each a whole number from 0 to 255";
+const GRADIENT_TINT = "a gradient's tint must be a number from 0, for black, to 1, for white";
+/** What is wrong with a hatch that has a pattern and a gradient. */
+export const GRADIENT_WITH_PATTERN = "a hatch has a pattern or a gradient, not both";
+
+/** The fields a gradient may have. */
+const GRADIENT_KEYS = ["name", "angle", "centered", "colors", "color", "tint"] as const;
+
+/**
+ * A true color copied from `value`, each channel read once, or undefined where it is not three
+ * whole numbers from 0 to 255.
+ */
+export function rgbOf(value: unknown): Rgb | undefined {
+  if (!Array.isArray(value) || value.length !== 3) return undefined;
+  const rgb: [unknown, unknown, unknown] = [value[0], value[1], value[2]];
+  for (const c of rgb) if (!Number.isInteger(c) || (c as number) < 0 || (c as number) > 255) return;
+  return rgb as unknown as Rgb;
+}
+
+/**
+ * A hatch's gradient read once: what is wrong with it, or a copy of it in plain data. Each field
+ * and each channel is read once, so what is checked is what is kept.
+ */
+export function readGradient(
+  value: unknown,
+): { readonly problem: string } | { readonly gradient: HatchGradient } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return { problem: GRADIENT_CHOICE };
+  }
+  for (const key of Object.keys(value)) {
+    if (!(GRADIENT_KEYS as readonly string[]).includes(key)) return { problem: GRADIENT_CHOICE };
+  }
+  const { name, angle, centered, colors, color, tint } = value as Record<string, unknown>;
+  if (!(GRADIENT_KINDS as readonly unknown[]).includes(name)) return { problem: GRADIENT_NAME };
+  if (angle !== undefined) {
+    const problem = finiteAngleProblem(angle, "gradient's angle");
+    if (problem) return { problem };
+  }
+  if (centered !== undefined && typeof centered !== "boolean") {
+    return { problem: "gradient's centered must be true or false" };
+  }
+  const base = {
+    name: name as HatchGradient["name"],
+    ...(angle === undefined ? {} : { angle: angle as number }),
+    ...(centered === undefined ? {} : { centered }),
+  };
+  if (colors !== undefined) {
+    if (color !== undefined || tint !== undefined) return { problem: GRADIENT_CHOICE };
+    if (!Array.isArray(colors) || colors.length !== 2) return { problem: GRADIENT_CHOICE };
+    const [first, second] = [rgbOf(colors[0]), rgbOf(colors[1])];
+    if (!first || !second) return { problem: GRADIENT_COLOR };
+    return { gradient: { ...base, colors: [first, second] } };
+  }
+  if (color === undefined || tint === undefined) return { problem: GRADIENT_CHOICE };
+  const one = rgbOf(color);
+  if (!one) return { problem: GRADIENT_COLOR };
+  if (!(typeof tint === "number" && tint >= 0 && tint <= 1)) return { problem: GRADIENT_TINT };
+  return { gradient: { ...base, color: one, tint } };
+}
+
+/** Returns what is wrong with a hatch's gradient, or undefined. */
+export function hatchGradientProblem(value: unknown): string | undefined {
+  const read = readGradient(value);
+  return "problem" in read ? read.problem : undefined;
+}
+
+/** True for a channel of a true color as a literal: a whole number from 0 to 255. */
+type Channel<N extends number> = number extends N ? true : N extends Enumerate<256> ? true : false;
+
+/** True for a true color whose literal channels are each a whole number from 0 to 255. */
+type ColorChecked<C> = C extends readonly [
+  infer R extends number,
+  infer G extends number,
+  infer B extends number,
+]
+  ? [Channel<R>, Channel<G>, Channel<B>] extends [true, true, true]
+    ? true
+    : false
+  : true;
+
+/** True for a tint whose literal is a number from 0 to 1. */
+type TintChecked<T> = T extends number
+  ? number extends T
+    ? true
+    : `${T}` extends `-${string}`
+      ? false
+      : `${T}` extends "0" | "1" | `0.${string}` | `${string}e-${string}`
+        ? true
+        : false
+  : true;
+
+/** The fields of any member of `G` that a gradient does not have. */
+type UnknownKeys<G> = G extends unknown ? Exclude<keyof G, (typeof GRADIENT_KEYS)[number]> : never;
+
+/** True for a member of an angle's literal of 1e100 or more, where the compiler prints a third exponent digit. */
+type LargeAngle<A> = A extends number
+  ? `${A}` extends `${string}e+${Digit}${Digit}${Digit}`
+    ? true
+    : never
+  : never;
+
+/** True when no member of `G` has an angle of 1e100 or more. */
+type AngleChecked<G> = [G extends { readonly angle?: infer A } ? LargeAngle<A> : never] extends [
+  never,
+]
+  ? true
+  : false;
+
+type CheckedGradient<G> = [UnknownKeys<G>] extends [never]
+  ? AngleChecked<G> extends true
+    ? CheckedColors<G>
+    : typeof TOO_LARGE
+  : typeof GRADIENT_CHOICE;
+
+type CheckedColors<G> = G extends { readonly colors: readonly [infer A, infer B] }
+  ? [ColorChecked<A>, ColorChecked<B>] extends [true, true]
+    ? G
+    : typeof GRADIENT_COLOR
+  : G extends { readonly color: infer C; readonly tint: infer T }
+    ? ColorChecked<C> extends true
+      ? TintChecked<T> extends true
+        ? G
+        : typeof GRADIENT_TINT
+      : typeof GRADIENT_COLOR
+    : G;
+
+/**
+ * Resolves to `G` when it is a hatch's gradient whose fields, angle, colors and tint are written as
+ * they may be, and to the error message otherwise. The false branch is never taken: it is there so that the
+ * compiler infers `G` from the literal.
+ */
+export type GradientOf<G extends HatchGradient> = [G] extends [HatchGradient]
+  ? CheckedGradient<G>
+  : G;
+
+/**
+ * Returns what is wrong with a hatch that names a pattern the drawing does not have. tsdraft has
+ * none of its own, so the message says where a firm's come from. The rule depends on the drawing,
+ * so it has no type.
+ */
+export function undefinedHatchPatternProblem(name: string, builder = false): string {
+  const fix = builder
+    ? "add the firm's pattern file with patterns() first"
+    : "pass the firm's pattern file through parsePatterns into the drawing's patterns";
+  return `Hatch pattern ${shown(name)} is not defined. tsdraft has no patterns of its own: ${fix}`;
+}
+
+/** What is wrong with a hatch whose pattern draws more lines than `HATCH_LINES`. */
+export function patternDensityProblem(lines: number): string {
+  const count = lines < 1e15 ? Math.ceil(lines).toLocaleString("en-US") : "1e15 or more";
+  return `its pattern draws ${count} lines across its loops, more than the ${HATCH_LINES.toLocaleString("en-US")} tsdraft draws for one hatch: give it a larger scale or spacing`;
+}
+
+/**
+ * Returns what is wrong with a hatch pattern's name and description, or undefined. The name is
+ * held to the rules of a linetype's.
+ */
+export function hatchPatternNameProblem(name: unknown, description: unknown): string | undefined {
+  if (typeof name !== "string") return "A hatch pattern's name must be a string";
+  const problem = nameProblem(name, HATCH_PATTERN_NAMES);
+  if (problem) return problem;
+  if (description === undefined) return undefined;
+  if (typeof description !== "string") return "A hatch pattern's description must be a string";
+  const text = textProblem(description);
+  return text ? `its description: ${text}` : undefined;
+}
+
+/**
+ * Returns what is wrong with a hatch pattern's list of lines as a list, or undefined: from 1 to
+ * `PATTERN_ITEMS` of them. No line is read.
+ */
+export function patternLinesProblem(lines: unknown): string | undefined {
+  if (!Array.isArray(lines)) return PATTERN_LINES;
+  if (lines.length === 0) return PATTERN_NO_LINES;
+  return lines.length > PATTERN_ITEMS ? PATTERN_MANY_LINES : undefined;
+}
+
+/**
+ * Returns what is wrong with a line of a hatch pattern, or undefined: its angle, base and offset
+ * finite and under 1e100, its offset across the line not 0 as written, and its dashes at most
+ * `PATTERN_ITEMS` finite numbers under 1e100, not all 0.
+ */
+export function patternLineProblem(line: unknown): string | undefined {
+  if (typeof line !== "object" || line === null || Array.isArray(line)) {
+    return "a line must be { angle, base, offset, dashes? }";
+  }
+  const l = line as Record<string, unknown>;
+  const problem =
+    finiteAngleProblem(l.angle, "its angle") ??
+    finitePointProblem(l.base, "its base") ??
+    finitePointProblem(l.offset, "its offset");
+  if (problem) return problem;
+  if (written((l.offset as readonly number[])[1]!) === 0) return PATTERN_NO_SPACING;
+  const dashes: unknown = l.dashes;
+  if (dashes === undefined) return undefined;
+  if (!Array.isArray(dashes)) return PATTERN_DASHES;
+  if (dashes.length > PATTERN_ITEMS) return PATTERN_MANY_DASHES;
+  let drawn = dashes.length === 0;
+  for (let i = 0; i < dashes.length; i++) {
+    const length: unknown = dashes[i];
+    if (typeof length !== "number" || !Number.isFinite(length)) return PATTERN_DASHES;
+    const large = magnitudeProblem(length);
+    if (large) return `its dashes: ${large}`;
+    if (length !== 0) drawn = true;
+  }
+  return drawn ? undefined : PATTERN_ZERO_DASHES;
+}
+
+/**
+ * Returns what is wrong with a hatch pattern's definition, or undefined: its name, its
+ * description and each of its lines. It reads at most `PATTERN_ITEMS` lines and as many dashes of
+ * each.
+ */
+export function hatchPatternProblem(definition: unknown): string | undefined {
+  if (typeof definition !== "object" || definition === null || Array.isArray(definition)) {
+    return "A hatch pattern must be { name, description?, lines }";
+  }
+  const { name, description, lines } = definition as Record<string, unknown>;
+  const problem = hatchPatternNameProblem(name, description) ?? patternLinesProblem(lines);
+  if (problem) return problem;
+  const list = lines as readonly unknown[];
+  for (let i = 0; i < list.length; i++) {
+    const found = patternLineProblem(list[i]);
+    if (found) return `line ${i}: ${found}`;
+  }
+  return undefined;
+}
+
+/** What is wrong with a dimension style's mask. */
+export const DIMENSION_TEXT_MASK =
+  "textMask must be true, false, or { color }: a color index from 1 to 256, where 256 is the layer's";
+
+/** Returns what is wrong with a dimension style's mask, or undefined. */
+export function dimensionTextMaskProblem(value: unknown): string | undefined {
+  if (typeof value === "boolean") return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return DIMENSION_TEXT_MASK;
+  const m = value as Record<string, unknown>;
+  for (const key of Object.keys(m)) if (key !== "color") return DIMENSION_TEXT_MASK;
+  return Number.isInteger(m.color) && (m.color as number) >= 1 && (m.color as number) <= 256
+    ? undefined
+    : DIMENSION_TEXT_MASK;
+}
+
+/** What is wrong with a donut's hole, of `inside` across, or undefined. */
+export function donutHoleProblem(inside: unknown): string | undefined {
+  return notNegativeProblem(inside, DONUT_HOLE);
+}
+
+/**
+ * What is wrong with the bulges and the widths of a polyline of `sides` sides, or undefined for
+ * each that is sound. It takes `unknown`s so that `lint` can report a drawing built by hand. A
+ * bulge and a width are judged as written: a width written as 0 is 0, and a bulge written as 0
+ * is a straight side.
+ */
+export function polylineSidesProblems(
+  sides: number,
+  bulges: unknown,
+  width: unknown,
+  widths: unknown,
+): string[] {
+  const out: string[] = [];
+  const counted = (list: readonly unknown[], what: string): boolean => {
+    if (list.length === sides) return true;
+    out.push(
+      `its ${what} must have one for each side, ${sides}, and it has ${list.length}. A closed polyline has a side for each point, and an open one a side fewer`,
+    );
+    return false;
+  };
+  if (bulges !== undefined) {
+    if (!Array.isArray(bulges)) out.push("its bulges must be an array of numbers");
+    else if (counted(bulges, "bulges")) {
+      for (let i = 0; i < bulges.length; i++) {
+        const bulge: unknown = bulges[i];
+        const problem =
+          typeof bulge !== "number" || !Number.isFinite(bulge)
+            ? "must be a finite number"
+            : magnitudeProblem(bulge);
+        if (!problem) continue;
+        out.push(`its bulge ${i}: ${problem}`);
+        break;
+      }
+    }
+  }
+  if (width !== undefined && widths !== undefined) {
+    out.push("it has a width and widths for each side: give one or the other");
+  }
+  if (width !== undefined) {
+    const problem = notNegativeProblem(width, POLYLINE_WIDTH);
+    if (problem) out.push(`its width: ${problem}`);
+  }
+  if (widths !== undefined) {
+    if (!Array.isArray(widths)) out.push("its widths must be an array of pairs of numbers");
+    else if (counted(widths, "widths")) {
+      for (let i = 0; i < widths.length; i++) {
+        const pair: unknown = widths[i];
+        const problem =
+          !Array.isArray(pair) || pair.length !== 2
+            ? "must be a pair of numbers, [start, end]"
+            : (notNegativeProblem(pair[0], POLYLINE_WIDTH) ??
+              notNegativeProblem(pair[1], POLYLINE_WIDTH));
+        if (!problem) continue;
+        out.push(`its widths ${i}: ${problem}`);
+        break;
+      }
+    }
+  }
+  return out;
+}
 
 /** How a text is justified across its line, and up and down it. The first of each is the default. */
 export const TEXT_ALIGNS = ["left", "center", "right"] as const;
+
+/** How a linetype's mark may be turned. */
+export const MARK_ORIENTS = ["relative", "absolute", "upright"] as const;
 export const TEXT_VERTICAL_ALIGNS = ["baseline", "bottom", "middle", "top"] as const;
 
 /**
@@ -1130,6 +3005,171 @@ export function textAlignProblem(field: "align" | "valign", value: unknown): str
         .map((v) => JSON.stringify(v))
         .join(", ")
         .replace(/, ([^,]*)$/, " or $1")}`;
+}
+
+/** How a paragraph is justified across its box, and up and down it, and how its lines are spaced. The first of each is the default. */
+export const PARAGRAPH_ALIGNS = ["left", "center", "right"] as const;
+export const PARAGRAPH_VERTICAL_ALIGNS = ["top", "middle", "bottom"] as const;
+export const LINE_SPACING_STYLES = ["at-least", "exactly"] as const;
+
+/** The least and the most line spacing factor the leading CAD app takes. */
+export const LINE_SPACING_RANGE = [0.25, 4] as const;
+
+/** Returns what is wrong with a paragraph's `align`, `valign` or `lineSpacingStyle`, or undefined. */
+export function paragraphChoiceProblem(
+  field: "align" | "valign" | "lineSpacingStyle",
+  value: unknown,
+): string | undefined {
+  const values: readonly string[] =
+    field === "align"
+      ? PARAGRAPH_ALIGNS
+      : field === "valign"
+        ? PARAGRAPH_VERTICAL_ALIGNS
+        : LINE_SPACING_STYLES;
+  return values.includes(value as string)
+    ? undefined
+    : `${field} must be ${values
+        .map((v) => JSON.stringify(v))
+        .join(", ")
+        .replace(/, ([^,]*)$/, " or $1")}`;
+}
+
+/**
+ * Returns what is wrong with a paragraph's line spacing factor, or undefined. The factor as given
+ * is held to the range, as the type holds it, so none that passes rounds out of it when written.
+ */
+export function lineSpacingProblem(value: unknown): string | undefined {
+  return typeof value === "number" &&
+    value >= LINE_SPACING_RANGE[0] &&
+    value <= LINE_SPACING_RANGE[1]
+    ? undefined
+    : LINE_SPACING;
+}
+
+/** The most columns a paragraph has, and the most heights it gives one by one. */
+export const PARAGRAPH_COLUMNS_MOST = 1000;
+
+/** The message for a paragraph's columns that are not as `ParagraphColumns` gives them. */
+export const PARAGRAPH_COLUMNS =
+  "A paragraph's columns are { height, count?, gutter? } or { heights, gutter? }, in drawing units: a height above 0 as written, a whole count from 1 to 1000, from 1 to 1000 heights above 0 as written, and a gutter of 0 or more";
+
+/** The message for columns wider than a file holds. */
+export const PARAGRAPH_COLUMNS_WIDE =
+  "A paragraph's columns, their widths and gutters, are too wide to write: as many as the count gives, or 1000 of them without one";
+
+/** The message for columns on a paragraph with no width. */
+export const PARAGRAPH_COLUMNS_WIDTH =
+  "A paragraph with columns needs a width, which each of its columns is as wide as";
+
+/** The warning for a `\N` in a paragraph with no columns. */
+export const PARAGRAPH_COLUMN_BREAK =
+  "The paragraph code \\N starts the next column, and this paragraph has no columns: it breaks the line, as \\P does";
+
+/** A number above 0 as the writers write it, and not too large to write. */
+const writtenPositive = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && written(value) > 0 && !isTooLarge(value);
+
+const COLUMN_FIELDS = new Set(["height", "heights", "count", "gutter"]);
+
+/**
+ * Returns what is wrong with a paragraph's columns apart from its width, or undefined. It reads a
+ * list of heights by its items alone, and stops at the first field it does not know.
+ */
+export function paragraphColumnsShapeProblem(columns: unknown): string | undefined {
+  if (typeof columns !== "object" || columns === null || Array.isArray(columns)) {
+    return PARAGRAPH_COLUMNS;
+  }
+  for (const key in columns) if (!COLUMN_FIELDS.has(key)) return PARAGRAPH_COLUMNS;
+  const { height, heights, count, gutter } = columns as Record<string, unknown>;
+  if (
+    gutter !== undefined &&
+    !(
+      typeof gutter === "number" &&
+      Number.isFinite(gutter) &&
+      written(gutter) >= 0 &&
+      !isTooLarge(gutter)
+    )
+  ) {
+    return PARAGRAPH_COLUMNS;
+  }
+  if (heights !== undefined) {
+    if (height !== undefined || count !== undefined || !Array.isArray(heights)) {
+      return PARAGRAPH_COLUMNS;
+    }
+    const list = heights as readonly unknown[];
+    if (list.length < 1 || list.length > PARAGRAPH_COLUMNS_MOST) return PARAGRAPH_COLUMNS;
+    for (let i = 0; i < list.length; i++) if (!writtenPositive(list[i])) return PARAGRAPH_COLUMNS;
+    return undefined;
+  }
+  if (!writtenPositive(height)) return PARAGRAPH_COLUMNS;
+  if (
+    count !== undefined &&
+    !(
+      Number.isInteger(count) &&
+      (count as number) >= 1 &&
+      (count as number) <= PARAGRAPH_COLUMNS_MOST
+    )
+  ) {
+    return PARAGRAPH_COLUMNS;
+  }
+  return undefined;
+}
+
+/**
+ * Returns what is wrong with a paragraph's columns beside its width, or undefined: their shape,
+ * no width, and columns too wide to write, as many as static ones give or as dynamic ones may
+ * take, at the gutter given or the one of `height`.
+ */
+export function paragraphColumnsProblem(
+  columns: unknown,
+  width: unknown,
+  height: unknown = 0,
+): string | undefined {
+  return (
+    paragraphColumnsShapeProblem(columns) ?? paragraphColumnsSizeProblem(columns, width, height)
+  );
+}
+
+/** What is wrong with columns of a sound shape beside the paragraph's width, or undefined. */
+export function paragraphColumnsSizeProblem(
+  columns: unknown,
+  width: unknown,
+  height: unknown,
+): string | undefined {
+  if (!positiveNumber(width)) return PARAGRAPH_COLUMNS_WIDTH;
+  const c = columns as { readonly count?: number; readonly gutter?: number };
+  const gutter =
+    c.gutter ?? 5 * (typeof height === "number" && Number.isFinite(height) ? height : 0);
+  const count = c.count ?? PARAGRAPH_COLUMNS_MOST;
+  return isTooLarge(count * ((width as number) + gutter)) ? PARAGRAPH_COLUMNS_WIDE : undefined;
+}
+
+const positiveNumber = (value: unknown): boolean =>
+  typeof value === "number" && Number.isFinite(value) && value > 0;
+
+/**
+ * Returns what is wrong with a paragraph's value in its style's font, or undefined: a code
+ * tsdraft does not know or does not lay out, a brace that is never closed or never opened, a code
+ * with no `;` to end it, a font that is not one of `FONTS`, italic, bold or `%%c` in an SHX font,
+ * braces nested past `PARAGRAPH_NESTING`, a control character, and the characters a text cannot
+ * hold.
+ */
+export function paragraphValueProblem(value: unknown, font: unknown): string | undefined {
+  if (typeof value !== "string") return "A paragraph's value must be a string";
+  return paragraphProblemIn(parseParagraph(value), font);
+}
+
+/**
+ * What `paragraphValueProblem` gives for a value already read, in its style's font. A font that
+ * is not one of `FONTS` has an error of its own, and is not checked here.
+ */
+export function paragraphProblemIn(
+  parsed: Pick<ParsedParagraph, "problem" | "ownDiameter">,
+  font: unknown,
+): string | undefined {
+  if (parsed.problem !== undefined) return parsed.problem;
+  const shx = typeof font === "string" && fontInfo(font)?.file.endsWith(".shx") === true;
+  return parsed.ownDiameter && shx ? PARAGRAPH_SHX_DIAMETER : undefined;
 }
 
 /** Returns what is wrong with a layer color, or undefined when it is valid. */
@@ -1342,6 +3382,186 @@ export function xrefPathProblem(path: unknown): string | undefined {
   return textProblem(path);
 }
 
+/** Returns what is wrong with an image's path, or undefined when it is valid. */
+export function imagePathProblem(path: unknown): string | undefined {
+  if (typeof path !== "string") return "An image's path must be a string";
+  if (path.length === 0) return IMAGE_PATH_EMPTY;
+  if (/^(?:[/\\]|[A-Za-z]:)/.test(path)) return IMAGE_PATH_ABSOLUTE;
+  if (/[*?<>|:"]/.test(path)) return IMAGE_PATH_CHARS;
+  if (path.length > 32000) return IMAGE_PATH_LENGTH;
+  if (/\\[Mm]\+[1-5][0-9A-Fa-f]{4}/.test(path)) return IMAGE_PATH_MULTIBYTE;
+  return textProblem(path);
+}
+
+/** The most pixels an image's side may have: PNG's own most. */
+export const IMAGE_SIDE = 2_147_483_647;
+
+/** Returns what is wrong with an image's pixels, or undefined when they are valid. */
+export function imagePixelsProblem(pixels: unknown): string | undefined {
+  // A plain array of two, with no key but its indexes and its length.
+  if (!Array.isArray(pixels) || pixels.length !== 2 || Reflect.ownKeys(pixels).length !== 3)
+    return IMAGE_PIXELS;
+  // Each side read as a plain value, without a getter or the array's iterator.
+  const side = (i: number) => {
+    const item = Object.getOwnPropertyDescriptor(pixels, i);
+    const n: unknown = item && "value" in item ? item.value : undefined;
+    return Number.isInteger(n) && (n as number) >= 1 && (n as number) <= IMAGE_SIDE;
+  };
+  return side(0) && side(1) ? undefined : IMAGE_PIXELS;
+}
+
+/**
+ * Returns what is wrong with an image's clip, or undefined when it is valid. It is judged in the
+ * image's own axes, the vectors of one of its pixels `u` and `v`, from its corner `at`, with its
+ * points as written.
+ */
+export function imageClipProblem(
+  clip: unknown,
+  at: readonly [number, number],
+  u: readonly [number, number],
+  v: readonly [number, number],
+): string | undefined {
+  if (!Array.isArray(clip) || clip.length < 2) return IMAGE_CLIP_POINTS;
+  if (Reflect.ownKeys(clip).length !== clip.length + 1) {
+    return "An image's clip must be a plain array of points, with no key but its indexes";
+  }
+  const written2: (readonly [number, number])[] = [];
+  // Read by index as plain values, so an empty slot or a getter is a point that is missing.
+  const item = (list: unknown[], i: number): unknown => {
+    const found = Object.getOwnPropertyDescriptor(list, i);
+    return found && "value" in found ? found.value : undefined;
+  };
+  for (let i = 0; i < clip.length; i++) {
+    const point = item(clip, i);
+    const [x, y]: unknown[] =
+      Array.isArray(point) && point.length === 2 && Reflect.ownKeys(point).length === 3
+        ? [item(point, 0), item(point, 1)]
+        : [];
+    if (
+      typeof x !== "number" ||
+      typeof y !== "number" ||
+      !Number.isFinite(x) ||
+      !Number.isFinite(y)
+    ) {
+      return "Each point of an image's clip must be a point, [x, y], of finite numbers";
+    }
+    const problem = magnitudeProblem(x) ?? magnitudeProblem(y);
+    if (problem) return problem;
+    written2.push([written(x), written(y)]);
+  }
+  if (written2.length === 2) {
+    const det = u[0] * v[1] - u[1] * v[0];
+    const along = ([x, y]: readonly [number, number]) => {
+      const [dx, dy] = [x - at[0], y - at[1]];
+      return [(dx * v[1] - dy * v[0]) / det, (u[0] * dy - u[1] * dx) / det] as const;
+    };
+    const [a, b] = [along(written2[0]!), along(written2[1]!)];
+    // Apart by a millionth of a pixel at least, which the 15 digits a clip is written with keep.
+    const apart = (p: number, q: number) =>
+      Math.abs(p - q) > 1e-6 * Math.max(1, Math.abs(p), Math.abs(q));
+    return apart(a[0], b[0]) && apart(a[1], b[1]) ? undefined : IMAGE_CLIP_RECTANGLE;
+  }
+  const distinct = new Set(written2.map(([x, y]) => `${x},${y}`));
+  return distinct.size >= 3 ? undefined : IMAGE_CLIP_POLYGON;
+}
+
+/** Returns what is wrong with an underlay's path, or undefined when it is valid. */
+export function underlayPathProblem(path: unknown): string | undefined {
+  if (typeof path !== "string") return "An underlay's path must be a string";
+  if (path.length === 0) return UNDERLAY_PATH_EMPTY;
+  if (/^(?:[/\\]|[A-Za-z]:)/.test(path)) return UNDERLAY_PATH_ABSOLUTE;
+  if (/[*?<>|:"]/.test(path)) return UNDERLAY_PATH_CHARS;
+  if (path.length > 32000) return UNDERLAY_PATH_LENGTH;
+  if (/\\[Mm]\+[1-5][0-9A-Fa-f]{4}/.test(path)) return UNDERLAY_PATH_MULTIBYTE;
+  return textProblem(path);
+}
+
+/** Returns what is wrong with an underlay's page, or undefined when it is valid. */
+export function underlayPageProblem(page: unknown): string | undefined {
+  if (typeof page !== "string" || !/^[1-9][0-9]{0,9}$/.test(page) || Number(page) > 2_147_483_647)
+    return UNDERLAY_PAGE;
+  return undefined;
+}
+
+/** Returns what is wrong with an underlay's page size, or undefined when it is valid. */
+export function underlayPageSizeProblem(size: unknown): string | undefined {
+  if (!Array.isArray(size) || size.length !== 2 || Reflect.ownKeys(size).length !== 3)
+    return UNDERLAY_PAGE_SIZE;
+  for (let i = 0; i < 2; i++) {
+    const item = Object.getOwnPropertyDescriptor(size, i);
+    const n: unknown = item && "value" in item ? item.value : undefined;
+    if (typeof n !== "number" || !Number.isFinite(n) || !(written(n) > 0) || n >= 1e100)
+      return UNDERLAY_PAGE_SIZE;
+  }
+  return undefined;
+}
+
+/** Returns what is wrong with an underlay's scale, or undefined when it is valid. */
+export function underlayScaleProblem(scale: unknown): string | undefined {
+  return typeof scale === "number" && Number.isFinite(scale) && written(scale) > 0 && scale < 1e100
+    ? undefined
+    : UNDERLAY_SCALE;
+}
+
+/** Returns what is wrong with an underlay's page at its scale, or undefined when it is valid. */
+export function underlayPlacedProblem(
+  size: readonly [number, number],
+  scale: number,
+  at: readonly [number, number],
+): string | undefined {
+  const reach = Math.hypot(size[0], size[1]) * written(scale);
+  return Math.abs(at[0]) + reach < 1e100 && Math.abs(at[1]) + reach < 1e100
+    ? undefined
+    : UNDERLAY_PLACED;
+}
+
+/** Returns what is wrong with an underlay's fade, or undefined when it is valid. */
+export function underlayFadeProblem(fade: unknown): string | undefined {
+  return Number.isInteger(fade) && (fade as number) >= 0 && (fade as number) <= 80
+    ? undefined
+    : UNDERLAY_FADE;
+}
+
+/** Returns what is wrong with an underlay's contrast, or undefined when it is valid. */
+export function underlayContrastProblem(contrast: unknown): string | undefined {
+  return Number.isInteger(contrast) && (contrast as number) >= 20 && (contrast as number) <= 100
+    ? undefined
+    : UNDERLAY_CONTRAST;
+}
+
+/**
+ * Returns what is wrong with an underlay's clip, or undefined when it is valid: the rules of an
+ * image's clip, judged in the page's axes, the vectors of one inch of it, `u` and `v`.
+ */
+export function underlayClipProblem(
+  clip: unknown,
+  at: readonly [number, number],
+  u: readonly [number, number],
+  v: readonly [number, number],
+): string | undefined {
+  return imageClipProblem(clip, at, u, v)
+    ?.replaceAll("An image's", "An underlay's")
+    .replaceAll("the image's sides", "the page's sides")
+    .replaceAll("the image's width", "the page's width")
+    .replaceAll("the image's", "the underlay's");
+}
+
+/** What is wrong with `invertClip` on an underlay with no clip. */
+export const UNDERLAY_INVERT_WITHOUT_CLIP =
+  "invertClip needs a clip: it shows the page outside the clip, and with no clip there is no outside";
+
+/** The most points an image's clip may have. */
+export const IMAGE_CLIP_MOST = 10_000;
+
+/** What is wrong with a clip of more points than `IMAGE_CLIP_MOST`. */
+export const IMAGE_CLIP_MOST_PROBLEM = `An image's clip has at most ${IMAGE_CLIP_MOST} points`;
+
+/** What is wrong with `invertClip` on an image with no clip. */
+export const IMAGE_INVERT_WITHOUT_CLIP = IMAGE_INVERT_CLIP;
+
+/** What is wrong with two images of one file that give it other pixels. */
+export const IMAGE_PIXELS_SAME = IMAGE_PIXELS_DIFFER;
+
 /** The fields of a block that an xref cannot have, since its file holds what it draws. */
 export const XREF_REFUSED_FIELDS = ["entities", "base", "attributes"] as const;
 
@@ -1362,6 +3582,48 @@ export function xrefFieldProblem(field: (typeof XREF_REFUSED_FIELDS)[number]): s
 /** What is wrong with an insert of an xref that sets attributes. */
 export const XREF_ATTRIBUTES =
   "An insert of an xref cannot set attributes. An insert gives a value to an attribute its block defines, and an xref defines none in this drawing";
+
+/**
+ * The most drawings a chain of references is drawn through in a picture: the drawing given for
+ * an xref, the drawing given for one of its attachments, and so on down.
+ */
+export const XREF_DEPTH = 16;
+
+/** The most names the drawings given for xrefs are looked through for, in one picture. */
+export const XREF_LOOKS = 4096;
+
+/** What is wrong with `xrefs` given to `lint` that is no object. */
+export const XREFS_GIVEN =
+  "xrefs must be an object that gives, for an xref's name, a Drawing or { drawing, xrefs }";
+
+/** The names of a chain of xrefs, each cut to the 255 characters a block's name may have. */
+function chainOf(chain: readonly string[]): string {
+  return chain
+    .map((name) => JSON.stringify(name.length > 255 ? `${name.slice(0, 255)}…` : name))
+    .join(" > ");
+}
+
+/**
+ * Why the drawing given in `xrefs` for the last xref of a chain is not drawn, the chain running
+ * from an xref of the drawing down through the attachments of the drawings given.
+ */
+export function xrefChainProblem(kind: XrefProblem["kind"], chain: readonly string[]): string {
+  const at = `Xref ${chainOf(chain)}`;
+  const last = chainOf(chain.slice(-1));
+  const above = chainOf(chain.slice(-2, -1));
+  switch (kind) {
+    case "overlay":
+      return `${at}: ${last} is an overlay of the drawing given for ${above}, and the leading CAD app draws no overlay of a referenced drawing, so the drawing given for it is not drawn`;
+    case "cycle":
+      return `${at}: a circular reference. The drawing given for ${last} is drawn above it on this chain already, and the leading CAD app breaks the circle there, so it is not drawn again`;
+    case "deep":
+      return `${at}: a chain of references is drawn ${XREF_DEPTH} drawings down and no further, so the drawing given for ${last} is not drawn`;
+    case "many":
+      return `The drawings given in xrefs name more than ${XREF_LOOKS} xrefs inside referenced drawings, past which tsdraft draws none of them: only the drawings given for this drawing's own xrefs are drawn`;
+    case "shape":
+      return `${at}: the value given for ${last} is neither a Drawing nor { drawing, xrefs }, so nothing is drawn for it`;
+  }
+}
 
 /** The warning for an xref that no insert places. */
 export const XREF_UNPLACED =
@@ -1435,6 +3697,7 @@ export function placedAttributeProblem(
     readonly height: number;
     readonly widthFactor: number;
     readonly obliqueAngle: number;
+    readonly paragraph?: { readonly width: number | undefined };
   },
   quoted?: string,
 ): string | undefined {
@@ -1448,6 +3711,9 @@ export function placedAttributeProblem(
   }
   const height = sizeProblem(placed.height);
   if (height) return `${about()} ${placed.height} high. ${height}`;
+  const width = placed.paragraph?.width;
+  const wide = width === undefined ? undefined : sizeProblem(width);
+  if (wide) return `${about()} wrap at a width of ${width}. ${wide}`;
   if (Math.abs(written(placed.obliqueAngle)) > 85) {
     return `${about()} slant by ${written(placed.obliqueAngle)} degrees. ${OBLIQUE}. Scale the insert more evenly`;
   }
@@ -1465,6 +3731,17 @@ export function placedAttributeProblem(
  */
 export function duplicateAttributeProblem(tag: string): string {
   return `The block already has an attribute with the tag ${JSON.stringify(tag)}. An insert sets an attribute by its tag, and the tag gives the definition its handle: the leading CAD app discards a drawing in which two objects have one handle`;
+}
+
+/** What an attribute definition's `kind` must be. */
+export const ATTRIBUTE_KIND = 'An attribute definition\'s kind must be "text" or "paragraph"';
+
+/** The fields only an attribute definition of paragraph text has. */
+export const PARAGRAPH_ONLY = ["width", "lineSpacing", "lineSpacingStyle"] as const;
+
+/** What is wrong with a field of paragraph text on an attribute definition of one line. */
+export function paragraphOnlyProblem(field: (typeof PARAGRAPH_ONLY)[number]): string {
+  return `${field} belongs to an attribute definition of paragraph text, which has kind "paragraph"`;
 }
 
 /** What an insert's `attributes` must be. */
@@ -1963,6 +4240,140 @@ export function dimensionStyleProblem(style: unknown): string | undefined {
     const problem = measurementScaleProblem(s.measurementScale);
     if (problem) return `measurementScale: ${problem}`;
   }
+  return dimensionStyleLookProblem(s);
+}
+
+/** Returns what is wrong with a dimension style's `fraction`, or undefined. */
+export function fractionProblem(value: unknown): string | undefined {
+  return (DIMENSION_FRACTIONS as readonly unknown[]).includes(value)
+    ? undefined
+    : DIMENSION_FRACTION_MESSAGE;
+}
+
+/** Returns what is wrong with a dimension style's `fractionScale`, or undefined. */
+export function fractionScaleProblem(value: unknown): string | undefined {
+  return typeof value === "number" && written(value) >= 0.25 && written(value) <= 1
+    ? undefined
+    : FRACTION_SCALE_MESSAGE;
+}
+
+/** Returns what is wrong with a dimension style's `textPlacement`, or undefined. */
+export function textPlacementProblem(value: unknown): string | undefined {
+  return (DIMENSION_TEXT_PLACEMENTS as readonly unknown[]).includes(value)
+    ? undefined
+    : TEXT_PLACEMENT_MESSAGE;
+}
+
+/** Returns what is wrong with a dimension style's `textFit`, or undefined. */
+export function textFitProblem(value: unknown): string | undefined {
+  return (DIMENSION_TEXT_FITS as readonly unknown[]).includes(value) ? undefined : TEXT_FIT_MESSAGE;
+}
+
+/** Returns what is wrong with a dimension style's `radialText`, or undefined. */
+export function radialTextProblem(value: unknown): string | undefined {
+  return (DIMENSION_RADIAL_TEXTS as readonly unknown[]).includes(value)
+    ? undefined
+    : RADIAL_TEXT_MESSAGE;
+}
+
+/** Returns what is wrong with a dimension style's `arcSymbol`, or undefined. */
+export function arcSymbolProblem(value: unknown): string | undefined {
+  return (DIMENSION_ARC_SYMBOLS as readonly unknown[]).includes(value)
+    ? undefined
+    : 'arcSymbol must be "before", "above" or "none"';
+}
+
+/** Returns what is wrong with a dimension style's `angleUnits`, or undefined. */
+export function angleUnitsProblem(value: unknown): string | undefined {
+  return (DIMENSION_ANGLE_UNITS as readonly unknown[]).includes(value)
+    ? undefined
+    : ANGLE_UNITS_MESSAGE;
+}
+
+/** Returns what is wrong with a dimension style's `anglePrecision`, or undefined. */
+export function anglePrecisionProblem(value: unknown): string | undefined {
+  return Number.isInteger(value) &&
+    (value as number) >= 0 &&
+    (value as number) <= MAX_ANGLE_PRECISION
+    ? undefined
+    : ANGLE_PRECISION_MESSAGE;
+}
+
+/** Returns what is wrong with a dimension style's `suppressAngleZeros`, or undefined. */
+export function angleZerosProblem(value: unknown): string | undefined {
+  return (ZERO_SUPPRESSIONS as readonly unknown[]).includes(value)
+    ? undefined
+    : ANGLE_ZEROS_MESSAGE;
+}
+
+/** Returns what is wrong with a dimension style's `jogAngle`, or undefined. */
+export function jogAngleProblem(value: unknown): string | undefined {
+  return typeof value === "number" &&
+    written(value) >= JOG_ANGLE.least &&
+    written(value) <= JOG_ANGLE.most
+    ? undefined
+    : JOG_ANGLE_MESSAGE;
+}
+
+/**
+ * Returns what is wrong with what a dimension style sets of how its dimensions look, or undefined:
+ * its fraction and the fraction's height, where its text goes and its lineweights.
+ */
+export function dimensionStyleLookProblem(s: Record<string, unknown>): string | undefined {
+  if (s.fraction !== undefined) {
+    const problem = fractionProblem(s.fraction);
+    if (problem) return problem;
+  }
+  if (s.fractionScale !== undefined) {
+    const problem = fractionScaleProblem(s.fractionScale);
+    if (problem) return problem;
+  }
+  // A fraction on the line, at the text's own height, is what every style writes.
+  const stacked = s.fraction !== undefined && s.fraction !== "inline";
+  const scaled = s.fractionScale !== undefined && written(s.fractionScale as number) !== 1;
+  if ((stacked || scaled) && s.units !== "architectural") return FRACTION_OF_UNITS;
+  if (scaled && !stacked) return FRACTION_SCALE_INLINE;
+  if (s.textPlacement !== undefined) {
+    const problem = textPlacementProblem(s.textPlacement);
+    if (problem) return problem;
+  }
+  if (s.textFit !== undefined) {
+    const problem = textFitProblem(s.textFit);
+    if (problem) return problem;
+  }
+  if (
+    s.textFit === "leader" &&
+    s.textPlacement === "centered" &&
+    (s.arrowhead ?? DEFAULT_ARROWHEAD) === "closed-filled"
+  )
+    return LEADER_CENTERED_ARROWS;
+  if (s.radialText !== undefined) {
+    const problem = radialTextProblem(s.radialText);
+    if (problem) return problem;
+  }
+  if (s.jogAngle !== undefined) {
+    const problem = jogAngleProblem(s.jogAngle);
+    if (problem) return problem;
+  }
+  for (const [field, problemOf] of [
+    ["arcSymbol", arcSymbolProblem],
+    ["angleUnits", angleUnitsProblem],
+    ["anglePrecision", anglePrecisionProblem],
+    ["suppressAngleZeros", angleZerosProblem],
+  ] as const) {
+    const problem = s[field] === undefined ? undefined : problemOf(s[field]);
+    if (problem) return problem;
+  }
+  if (s.textMask !== undefined) {
+    const problem = dimensionTextMaskProblem(s.textMask);
+    if (problem) return problem;
+  }
+  for (const field of ["dimensionLineweight", "extensionLineweight"] as const) {
+    const value = s[field];
+    if (value === undefined) continue;
+    if (typeof value === "number" && (LINEWEIGHTS as readonly number[]).includes(value)) continue;
+    return `${field}: ${LINEWEIGHT}`;
+  }
   return undefined;
 }
 
@@ -2023,6 +4434,110 @@ export function dimensionTextProblem(text: unknown): string | undefined {
   if (problem) return problem;
   return text.includes("<>") && text.includes("[]") ? DIMENSION_TEXT_ALTERNATE : undefined;
 }
+
+/** What is wrong with words below a dimension's line whose text moves out on a leader. */
+export const DIMENSION_LEADER_BELOW =
+  "its text does not fit between its extension lines and moves out on a leader, and where words below the line then go is not laid out yet, so tsdraft refuses it. Give it more room, or leave textBelow out";
+/** What is wrong with a text that moves out on a leader beside arrowheads larger than it. */
+export const DIMENSION_LEADER_ARROWS =
+  "its style moves a text that does not fit out on a leader, and its arrowheads are twice as long as its text is high or longer, where the leading CAD app may keep the text and move the arrowheads instead, which is not laid out yet, so tsdraft refuses it. Use a smaller arrow size";
+/** What is wrong with a text centered in a dimension line it is wider than. */
+export const DIMENSION_CENTERED_WIDE =
+  "its text, centered in its line, needs more room than the line has between its extension lines, and where the line's pieces then go is not laid out yet, so tsdraft refuses it. Give it more room, a smaller text, or the text above the line";
+/** What is wrong with a style whose closed arrowheads may turn outward round a text it moves out. */
+const LEADER_CENTERED_ARROWS =
+  'textFit "leader" with closed filled arrowheads and the text "centered" turns the arrowheads outward where tsdraft does not know the room they need, which is not laid out yet, so tsdraft refuses it. Use a tick, or the text "above"';
+
+/** What is wrong with a radius or a diameter dimension in a style with a prefix. */
+export const RADIAL_PREFIX =
+  "its style has a prefix, which the leading CAD app may put in place of the R or the diameter sign it writes before a radius or a diameter, and which is not laid out yet, so tsdraft refuses it. Use a style without a prefix, or put the words in text";
+/** What is wrong with a placed text in a style that levels a radial dimension's text. */
+export const RADIAL_PLACED_LEVEL =
+  'its text is placed along its line in a style with radialText "horizontal", and where the leading CAD app levels a placed text is not laid out yet, so tsdraft refuses it. Leave textFromCenter out, or use a style with radialText "aligned"';
+/** What is wrong with a radial dimension whose text is centered where that is not laid out. */
+export const RADIAL_CENTERED =
+  'its style centers its text in its line, and where the leading CAD app breaks the line of a jogged radius dimension, or of one whose text is placed, is not laid out yet, so tsdraft refuses it. Use a style with the text "above"';
+/** What is wrong with a jogged radius dimension whose last stretch is shorter than its text. */
+export const RADIAL_JOG_SHORT =
+  "its jog leaves the stretch from the jog to the arc shorter than its text and a gap each side, and where the leading CAD app then puts the text is not laid out yet, so tsdraft refuses it. Move the jog toward the center";
+/** What is wrong with a radius or a diameter dimension that measures nothing. */
+export const RADIAL_NO_RADIUS =
+  "its point is its center once they are written with the 6 decimals tsdraft writes, so it has no radius";
+
+/** An angular dimension with a line of no length. */
+export const ANGULAR_NO_SIDE =
+  "its vertex is one of its two points once they are written with the 6 decimals tsdraft writes, so that line has no direction";
+
+/** An angular dimension whose arc has no radius. */
+export const ANGULAR_NO_ARC =
+  "its arc's point is its vertex once they are written with the 6 decimals tsdraft writes, so the arc has no radius";
+
+/** An angular dimension whose arc passes through one of its points. */
+export const ANGULAR_ARC_ON_POINT =
+  "its arc passes through one of its two points, where the leading CAD app runs that point's extension line toward the vertex or away from it by a rounding, which is not laid out yet, so tsdraft refuses it. Move the arc's point nearer the vertex or further from it";
+
+/** An arc length dimension with no arc to measure. */
+export const ARC_LENGTH_NO_ARC =
+  "it measures no arc: its radius is 0 or less, or its two angles are one once its ends are written with the 6 decimals tsdraft writes";
+
+/** An arc length dimension whose own arc's point is its center. */
+export const ARC_LENGTH_NO_REACH =
+  "its arc's point is its center once they are written with the 6 decimals tsdraft writes, so its own arc has no radius";
+
+/** An arc length dimension whose own arc runs on the arc it measures. */
+export const ARC_LENGTH_ON_ARC =
+  "its own arc's point is on the arc it measures, where the leading CAD app runs its extension lines toward the center or away from it by a rounding, which is not laid out yet, so tsdraft refuses it. Move the point further from the arc";
+
+/** An arc length dimension inside an arc under a right angle. */
+export const ARC_LENGTH_INSIDE_SHORT =
+  "its own arc inside an arc under a right angle is not laid out yet, so tsdraft refuses it. Put its point outside the arc";
+
+/** An arc length dimension with words below and its arc symbol. */
+export const ARC_LENGTH_SYMBOL_BELOW =
+  'its words below the arc with the arc symbol is not laid out yet, so tsdraft refuses it. Use a style with arcSymbol "none"';
+
+/** An ordinate dimension without an axis. */
+export const ORDINATE_AXIS = 'axis must be "x" or "y": the coordinate it gives';
+
+/** An ordinate dimension whose leader runs further across its axis than along it. */
+export const ORDINATE_ACROSS =
+  'its leader runs further across than along: axis "x" gives the X coordinate, with its leader along Y, and "y" the Y, with its leader along X. Check that its axis is the one meant';
+
+/** An ordinate dimension whose leader ends at its feature. */
+export const ORDINATE_NO_LEADER =
+  "its leader ends at its feature once they are written with the 6 decimals tsdraft writes and read as the leading CAD app reads them, so it has no leader";
+
+/** An angular dimension whose arc, or a piece of it, is all but a whole turn. */
+export const ANGULAR_ARC_LOST =
+  "its arc, or a piece of it, runs all but a whole turn, so its two angles are one once they are written with the 6 decimals tsdraft writes, and the leading CAD app draws such an arc as nothing";
+
+/** An angular dimension whose closed arrowheads are longer than its arc is wide. */
+export const ANGULAR_ARROWS_LONG =
+  "its closed arrowheads are as long as its arc is wide or longer, which is not laid out yet, so tsdraft refuses it. Move the arc's point further from the vertex, or use a smaller arrow size";
+
+/** A dimension whose marks, turned outward, and their tails would meet round the back of its arc. */
+export const ANGULAR_TAILS_MEET =
+  "its marks turn outward where its arc is too short for its text, and they and their tails would meet round the back of the arc, which is not laid out yet, so tsdraft refuses it. Use a smaller arrow size, or move the arc's point further out";
+
+/** An angular dimension whose arc's point lies on one of its lines. */
+export const ANGULAR_ARC_ON_LINE =
+  "its arc's point is on one of its two lines, where the leading CAD app takes the angle between them or the rest of the turn by a rounding, which is not laid out yet, so tsdraft refuses it. Move the arc's point into the angle it measures";
+
+/** An angular dimension whose centered text leaves its arc no room each side. */
+export const ANGULAR_CENTERED_SHORT =
+  'its arc is too short for its text "centered" in it and its arrowheads, where the leading CAD app may turn the arrowheads outward, which is not laid out yet, so tsdraft refuses it. Move the arc\'s point further from the vertex, or put the text "above"';
+
+/** An angular dimension whose text would move out on a leader. */
+export const ANGULAR_TEXT_OUT =
+  'its arc is too short for its text, which the style\'s textFit "leader" moves outside, and that is not laid out yet, so tsdraft refuses it. Move the arc\'s point further from the vertex, or use textFit "inside"';
+
+/** An angular dimension with words below and its text centered in its arc. */
+export const ANGULAR_CENTERED_BELOW =
+  'its words below the arc with its text "centered" in the arc is not laid out yet, so tsdraft refuses it';
+
+/** An angular dimension whose two lines run one way. */
+export const ANGULAR_NO_ANGLE =
+  "its two lines run the same way once their points are written with the 6 decimals tsdraft writes, so there is no angle between them";
 
 /** What is wrong with a dimension in a block. */
 export const DIMENSION_IN_BLOCK =
@@ -2121,10 +4636,16 @@ export function dimensionMeasureProblem(
   if (digits > MEASUREMENT_DIGITS) {
     return `it reads ${rounded}, which is ${digits} digits at a precision of ${decimals.length}. The leading CAD app works out the 16th digit of a measurement from its own arithmetic on the points, so it may end in another digit: it writes 99,999,999.5 at a precision of 8 as 99999999.50000002. Use a smaller precision or measurement scale`;
   }
-  if (room !== undefined && measurement <= room) {
-    return `its text may not fit between its extension lines: it measures ${written(measurement)}, and its text, ${JSON.stringify(text)}, and its arrowheads may need ${written(room)}. The leading CAD app then turns closed filled arrowheads outward, by the width of the text in its font, which tsdraft does not hold. Give it more room, a smaller text or arrow size, or the arrowhead "architectural-tick", which is drawn the same either way`;
-  }
+  if (room !== undefined && measurement <= room) return arrowRoomProblem(measurement, text, room);
   return undefined;
+}
+
+/**
+ * What is wrong with a dimension that measures no more than its closed filled arrowheads and its
+ * text need, as `arrowRoom` gives the room.
+ */
+export function arrowRoomProblem(measurement: number, text: string, room: number): string {
+  return `its text may not fit between its extension lines: it measures ${written(measurement)}, and its text, ${JSON.stringify(text)}, and its arrowheads may need ${written(room)}. The leading CAD app then turns closed filled arrowheads outward, by the width of the text in its font, which tsdraft does not hold. Give it more room, a smaller text or arrow size, or the arrowhead "architectural-tick", which is drawn the same either way`;
 }
 
 // Leaders.
@@ -2146,16 +4667,56 @@ const LEADER_TEXT_LINES =
   "A leader's text is a string, one line, or an array of the lines of its note from the top";
 const LEADER_SHAFTS =
   "A leader needs a shaft: to is a point, the tip of its one shaft, or a list of shafts, each its tip or its tip and the points it bends at on its way to the landing";
-const LEADER_SHAFT_LENGTH =
+export const LEADER_SHAFT_LENGTH =
   "The tip of a shaft and the point after it are one point once they are written with the 6 decimals tsdraft writes, which leaves the leading CAD app no direction to point the arrowhead in. Move the tip, or the point after it";
-const LEADER_ATTACHMENT = 'attachment must be "first-line" or "last-line"';
-const LEADER_SIDE = 'side must be "left" or "right"';
-
-/** Which line of its note a leader's landing meets: the first is the leading CAD app's own choice. */
-export const LEADER_ATTACHMENTS = ["first-line", "last-line"] as const;
+/**
+ * Where a leader's landing meets the side of its note, in the order the leading CAD app numbers
+ * them: the top of the first line, the middle of the first line, which is that app's own choice,
+ * the middle of the note, the middle of the last line, the bottom of the last line, the bottom of
+ * the last line with the landing drawn on under it, the bottom of the first line with the landing
+ * under it, the bottom of the first line, and the bottom of the first line with every line
+ * underlined.
+ */
+export const LEADER_ATTACHMENTS = [
+  "top-of-first",
+  "first-line",
+  "middle",
+  "last-line",
+  "bottom-of-last",
+  "underline-last",
+  "underline-first",
+  "bottom-of-first",
+  "underline-all",
+] as const;
 
 /** Which side of the point where its shafts meet a leader's note is on. */
-export const LEADER_SIDES = ["left", "right"] as const;
+export const LEADER_SIDES = ["left", "right", "above", "below"] as const;
+
+/** Whether a style's landings meet the side of its notes, or their top or bottom. */
+export const LEADER_DIRECTIONS = ["horizontal", "vertical"] as const;
+
+/**
+ * Where a landing meets a note above or below it: at the middle of its bottom or top, or there
+ * with a line as wide as the note.
+ */
+export const LEADER_VERTICAL_ATTACHMENTS = ["center", "line"] as const;
+
+/** How a leader's shafts run through their points: straight, or as a curve. */
+export const LEADER_SHAFT_KINDS = ["straight", "curved"] as const;
+
+/** How a block in place of a leader's note meets its landing: by its extents or its insertion point. */
+export const LEADER_BLOCK_CONNECTIONS = ["extents", "insertion"] as const;
+
+const LEADER_ATTACHMENT = `attachment must be one of LEADER_ATTACHMENTS: ${LEADER_ATTACHMENTS.map((a) => JSON.stringify(a)).join(", ")}`;
+const LEADER_SIDE = 'side must be "left", "right", "above" or "below"';
+const LEADER_DIRECTION = 'direction must be "horizontal" or "vertical"';
+const LEADER_VERTICAL_ATTACHMENT = 'verticalAttachment must be "center" or "line"';
+const LEADER_SHAFT_KIND = 'shaft must be "straight" or "curved"';
+const LEADER_FRAME = "frame must be true or false";
+const LEADER_WIDTH =
+  "width must be greater than 0. It is the width the note wraps at; leave it out for a note that does not wrap";
+const TEXT_MASK =
+  "mask must be true, false, or { color?, offsetFactor? }: a color index from 1 to 256, where 256 is the layer's, and a factor of the text height from 1 to 5";
 
 /** What is wrong with a leader in a block. */
 export const LEADER_IN_BLOCK =
@@ -2281,6 +4842,95 @@ export function leaderSideProblem(value: unknown): string | undefined {
   return (LEADER_SIDES as readonly unknown[]).includes(value) ? undefined : LEADER_SIDE;
 }
 
+/** Returns what is wrong with a leader style's direction, or undefined. */
+export function leaderDirectionProblem(value: unknown): string | undefined {
+  return (LEADER_DIRECTIONS as readonly unknown[]).includes(value) ? undefined : LEADER_DIRECTION;
+}
+
+/** Returns what is wrong with a leader's vertical attachment, or undefined. */
+export function leaderVerticalAttachmentProblem(value: unknown): string | undefined {
+  return (LEADER_VERTICAL_ATTACHMENTS as readonly unknown[]).includes(value)
+    ? undefined
+    : LEADER_VERTICAL_ATTACHMENT;
+}
+
+/** Returns what is wrong with a leader's kind of shaft, or undefined. */
+export function leaderShaftKindProblem(value: unknown): string | undefined {
+  return (LEADER_SHAFT_KINDS as readonly unknown[]).includes(value) ? undefined : LEADER_SHAFT_KIND;
+}
+
+/** What is wrong with a mask on a paragraph in columns. */
+export const PARAGRAPH_MASK_COLUMNS =
+  "a paragraph in columns takes no mask yet: tsdraft would draw one mask across the columns and the gaps between them. Give the mask to a paragraph without columns";
+
+/** Returns what is wrong with a mask behind a leader's note or a paragraph, or undefined. */
+export function textMaskProblem(value: unknown): string | undefined {
+  if (typeof value === "boolean") return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return TEXT_MASK;
+  const m = value as Record<string, unknown>;
+  for (const key of Object.keys(m)) if (key !== "color" && key !== "offsetFactor") return TEXT_MASK;
+  if (
+    m.color !== undefined &&
+    !(Number.isInteger(m.color) && (m.color as number) >= 1 && (m.color as number) <= 256)
+  ) {
+    return TEXT_MASK;
+  }
+  if (
+    m.offsetFactor !== undefined &&
+    !(
+      typeof m.offsetFactor === "number" &&
+      written(m.offsetFactor) >= 1 &&
+      written(m.offsetFactor) <= 5
+    )
+  ) {
+    return TEXT_MASK;
+  }
+  return undefined;
+}
+
+/** The fields of a leader that only a note has, which a leader whose content is a block may not set. */
+const NOTE_ONLY = [
+  "text",
+  "attachment",
+  "verticalAttachment",
+  "width",
+  "frame",
+  "mask",
+  "textStyle",
+  "textHeight",
+] as const;
+
+/**
+ * Returns what is wrong with a leader whose content is a block, or undefined: it sets none of
+ * what only a note has, and its attributes are strings by their tags.
+ */
+export function leaderBlockContentProblem(leader: object): string | undefined {
+  const l = leader as Readonly<Record<string, unknown>>;
+  for (const field of NOTE_ONLY) {
+    if (l[field] !== undefined) {
+      return `${field}: a leader whose content is a block has no note to give it to. Leave it out, or give the leader a note instead`;
+    }
+  }
+  const set = l.attributes;
+  if (set === undefined) return undefined;
+  if (typeof set !== "object" || set === null || Array.isArray(set)) {
+    return "attributes must be an object of values by their tags";
+  }
+  for (const value of Object.values(set)) {
+    if (typeof value !== "string") return "each value of attributes must be a string";
+    const problem = textProblem(value);
+    if (problem) return `attributes: ${problem}`;
+  }
+  return undefined;
+}
+
+/** Returns what is wrong with a leader's width, or undefined: a finite length greater than 0. */
+export function leaderWidthProblem(value: unknown): string | undefined {
+  return typeof value === "number" && Number.isFinite(value) && written(value) > 0
+    ? magnitudeProblem(value)
+    : LEADER_WIDTH;
+}
+
 /**
  * Returns what is wrong with sizes a leader is drawn with, times the scale of its style, or
  * undefined: each must be under 1e100, and a text height or an arrow size above 0 must not be
@@ -2290,14 +4940,14 @@ function leaderScaledProblem(
   sizes: Readonly<Record<string, unknown>>,
   scale: number,
 ): string | undefined {
-  for (const field of ["textHeight", "arrowSize", "landing", "gap"] as const) {
+  for (const field of ["textHeight", "arrowSize", "landing", "gap", "width"] as const) {
     if (sizes[field] === undefined) continue;
     const size = written(sizes[field] as number);
     const scaled = size * scale;
     if (!(Math.abs(scaled) < 1e100)) {
       return `${field}: times the scale it is ${scaled}, and the leading CAD app reads only two exponent digits from DXF, so every size of a leader must be under 1e100. Use a smaller size or scale`;
     }
-    if ((field === "textHeight" || field === "arrowSize") && size > 0 && written(scaled) === 0) {
+    if (field !== "landing" && field !== "gap" && size > 0 && written(scaled) === 0) {
       return `${field}: times the scale it is ${scaled}, which is written as 0 with the 6 decimals tsdraft writes. Use a larger size or scale${field === "arrowSize" ? ", or an arrow size of 0" : ""}`;
     }
   }
@@ -2335,6 +4985,34 @@ export function leaderStyleProblem(style: unknown): string | undefined {
   if (s.attachment !== undefined) {
     const problem = leaderAttachmentProblem(s.attachment);
     if (problem) return problem;
+  }
+  if (s.direction !== undefined) {
+    const problem = leaderDirectionProblem(s.direction);
+    if (problem) return problem;
+  }
+  if (s.verticalAttachment !== undefined) {
+    const problem = leaderVerticalAttachmentProblem(s.verticalAttachment);
+    if (problem) return problem;
+  }
+  if (s.frame !== undefined && typeof s.frame !== "boolean") return LEADER_FRAME;
+  if (s.shaft !== undefined) {
+    const problem = leaderShaftKindProblem(s.shaft);
+    if (problem) return problem;
+  }
+  if (s.block !== undefined) {
+    if (typeof s.block !== "string") return "block: a block is named by a string";
+    const problem = blockNameProblem(s.block);
+    if (problem) return `block: ${problem}`;
+  }
+  if (
+    s.blockConnection !== undefined &&
+    !(LEADER_BLOCK_CONNECTIONS as readonly unknown[]).includes(s.blockConnection)
+  ) {
+    return 'blockConnection must be "extents" or "insertion"';
+  }
+  if (s.blockScale !== undefined) {
+    const problem = styleScaleProblem(s.blockScale, LEADER_SCALE);
+    if (problem) return `blockScale: ${problem}`;
   }
   if (s.scale !== undefined) {
     const problem = styleScaleProblem(s.scale, LEADER_SCALE);
@@ -2447,6 +5125,28 @@ export function leaderOwnProblem(given: object, scale: number): string | undefin
     const problem = leaderAttachmentProblem(leader.attachment);
     if (problem) return problem;
   }
+  if (leader.verticalAttachment !== undefined) {
+    const problem = leaderVerticalAttachmentProblem(leader.verticalAttachment);
+    if (problem) return problem;
+  }
+  if (leader.frame !== undefined && typeof leader.frame !== "boolean") return LEADER_FRAME;
+  if (leader.shaft !== undefined) {
+    const problem = leaderShaftKindProblem(leader.shaft);
+    if (problem) return problem;
+  }
+  if (leader.mask !== undefined) {
+    const problem = textMaskProblem(leader.mask);
+    if (problem) return problem;
+  }
+  if (leader.width !== undefined) {
+    const problem = leaderWidthProblem(leader.width);
+    if (problem) return `width: ${problem}`;
+  }
+  if (leader.farShafts !== undefined) {
+    // The far root's point comes from the note, so a shaft of one point is held to it once drawn.
+    const problem = leaderShaftsProblem(leader.farShafts, [Number.NaN, Number.NaN]);
+    if (problem) return `farShafts: ${problem}`;
+  }
   if (leader.textStyle !== undefined) {
     if (typeof leader.textStyle !== "string") return "textStyle: a text style is named by a string";
     const problem = textStyleNameProblem(leader.textStyle);
@@ -2465,4 +5165,383 @@ export function leaderOwnProblem(given: object, scale: number): string | undefin
     if (problem) return `${field}: ${problem}`;
   }
   return leaderScaledProblem(leader, scale);
+}
+
+/** The most columns a table may have, and the most cells: rows times columns. */
+export const TABLE_COLUMNS = 1000;
+export const TABLE_CELLS = 100_000;
+
+const STANDARD_TABLE_STYLE_DEFINED =
+  "The table style \"Standard\" is the leading CAD app's own, which tsdraft writes beside a drawing's table styles, and cannot be defined. That app keeps the first style of a name and skips a second";
+const STANDARD_TABLE_STYLE_USED =
+  'tsdraft draws no table in the table style "Standard", which is the leading CAD app\'s own. Define a style with tableStyle() and name it';
+/** What is wrong with a table given a color of its own. */
+export const TABLE_COLOR =
+  'A table has no color of its own: its style and its cells give its colors. Leave out "color", or give "ByLayer"';
+/** What is wrong with a table given a transparency of its own. */
+export const TABLE_TRANSPARENCY =
+  'A table has no transparency of its own: CAD programs plot its grid opaque. Leave out "transparency", or give "ByLayer"';
+/** What is wrong with a percent on an entity of a block a leader places. */
+export const LEADER_BLOCK_TRANSPARENCY =
+  'CAD programs make every entity of a block a leader places transparent ByBlock, and drop a percent of its own. Give "ByBlock" or "ByLayer", or leave out "transparency"';
+/** What is wrong with a table inside a block. */
+export const TABLE_IN_BLOCK =
+  "A table cannot be drawn in a block. Draw it in model space or on a layout, where the leading CAD app edits it";
+const CELL_COLOR = "a color is a color index, an integer from 1 to 255";
+
+/** Returns what is wrong with a table style's name, or undefined. */
+export function tableStyleNameProblem(name: unknown): string | undefined {
+  if (typeof name !== "string") return "A table style's name must be a string";
+  return nameProblem(name, TABLE_STYLE_NAMES);
+}
+
+/** True for `Standard`, the leading CAD app's own table style, in any case. */
+export function isStandardTableStyle(name: string): boolean {
+  return layerKey(name) === layerKey("Standard");
+}
+
+/** Returns what is wrong with a table that names `Standard`, or undefined. */
+export function standardTableStyleProblem(name: string): string | undefined {
+  return isStandardTableStyle(name) ? STANDARD_TABLE_STYLE_USED : undefined;
+}
+
+/** Returns what is wrong with an optional size: a finite number greater than 0 as written. */
+function optionalSizeProblem(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value))
+    return `${field} must be a finite number`;
+  const problem = sizeProblem(value);
+  return problem ? `${field}: ${problem}` : undefined;
+}
+
+/** Returns what is wrong with a color index of a cell or a cell style, or undefined. */
+function cellColorProblem(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 255
+    ? undefined
+    : `${field}: ${CELL_COLOR}`;
+}
+
+/** Returns what is wrong with an `align` and a `valign`, or undefined. */
+function cellPlaceProblem(o: Record<string, unknown>, at: string): string | undefined {
+  if (o.align !== undefined && !(PARAGRAPH_ALIGNS as readonly unknown[]).includes(o.align)) {
+    return `${at}align must be "left", "center" or "right"`;
+  }
+  if (
+    o.valign !== undefined &&
+    !(PARAGRAPH_VERTICAL_ALIGNS as readonly unknown[]).includes(o.valign)
+  ) {
+    return `${at}valign must be "top", "middle" or "bottom"`;
+  }
+  return undefined;
+}
+
+/** The fields of a cell style, and of a cell given as an object. */
+const CELL_STYLE_FIELDS = new Set([
+  "textStyle",
+  "textHeight",
+  "align",
+  "valign",
+  "color",
+  "fill",
+  "lineweight",
+]);
+const CELL_FIELDS = new Set([
+  "text",
+  "block",
+  "blockScale",
+  "columnSpan",
+  "rowSpan",
+  "align",
+  "valign",
+  "textHeight",
+  "color",
+  "fill",
+]);
+
+/** Returns what is wrong with a field an object does not have, or undefined. */
+function unknownFieldProblem(
+  o: object,
+  known: ReadonlySet<string>,
+  at: string,
+): string | undefined {
+  for (const field of Object.keys(o)) {
+    if (!known.has(field)) return `${at} has no field ${shown(field)}`;
+    if ((o as Record<string, unknown>)[field] === undefined) {
+      return `${at}.${field} is undefined: leave a field out rather than set it to undefined`;
+    }
+  }
+  return undefined;
+}
+
+/** Returns what is wrong with a cell style of a table style, or undefined. */
+function cellStyleProblem(value: unknown, kind: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return `${kind} must be an object, the cell style of its rows`;
+  }
+  const o = value as Record<string, unknown>;
+  const unknown = unknownFieldProblem(o, CELL_STYLE_FIELDS, kind);
+  if (unknown) return unknown;
+  const at = `${kind}.`;
+  if (o.textStyle !== undefined) {
+    if (typeof o.textStyle !== "string") return `${at}textStyle: a text style is named by a string`;
+    const problem = textStyleNameProblem(o.textStyle);
+    if (problem) return `${at}textStyle: ${problem}`;
+  }
+  return (
+    optionalSizeProblem(o.textHeight, `${at}textHeight`) ??
+    cellPlaceProblem(o, at) ??
+    cellColorProblem(o.color, `${at}color`) ??
+    cellColorProblem(o.fill, `${at}fill`) ??
+    (o.lineweight === undefined ||
+    (typeof o.lineweight === "number" && (LINEWEIGHTS as readonly number[]).includes(o.lineweight))
+      ? undefined
+      : `${at}lineweight must be one of LINEWEIGHTS, in millimetres`)
+  );
+}
+
+/** Returns what is wrong with a table style, or undefined. */
+export function tableStyleProblem(style: unknown): string | undefined {
+  if (typeof style !== "object" || style === null || Array.isArray(style)) {
+    return "A table style must be an object with a name and a text height";
+  }
+  const s = style as Record<string, unknown>;
+  const nameError = tableStyleNameProblem(s.name);
+  if (nameError) return nameError;
+  if (isStandardTableStyle(s.name as string)) return STANDARD_TABLE_STYLE_DEFINED;
+  if (s.textStyle !== undefined) {
+    if (typeof s.textStyle !== "string") return "textStyle: a text style is named by a string";
+    const problem = textStyleNameProblem(s.textStyle);
+    if (problem) return `textStyle: ${problem}`;
+  }
+  if (typeof s.textHeight !== "number" || !Number.isFinite(s.textHeight)) {
+    return "textHeight must be a finite number";
+  }
+  const height = sizeProblem(s.textHeight);
+  if (height) return `textHeight: ${height}`;
+  for (const field of ["horizontalMargin", "verticalMargin"] as const) {
+    const value = s[field];
+    if (value === undefined) continue;
+    if (typeof value !== "number" || !Number.isFinite(value) || !(value >= 0)) {
+      return `${field} must be a finite number, 0 or more`;
+    }
+    const problem = magnitudeProblem(value);
+    if (problem) return `${field}: ${problem}`;
+  }
+  for (const kind of ["title", "header", "data"] as const) {
+    const problem = cellStyleProblem(s[kind], kind);
+    if (problem) return problem;
+  }
+  return undefined;
+}
+
+/**
+ * Returns what is wrong with a table style twin of the drawing's, as `leaderStyleTwinProblem`
+ * says of leader styles.
+ */
+export function tableStyleTwinProblem(name: string, other: string): string | undefined {
+  if (layerAuditKey(name) !== layerAuditKey(other)) return undefined;
+  if (layerKey(name) === layerKey(other)) {
+    return "The drawing already has a table style of this name. CAD ignores case in table style names and keeps the first";
+  }
+  return `The drawing already has a table style of this name, as ${JSON.stringify(other)}. tsdraft holds table style names to the rules of dimension style names, which the leading CAD app's AUDIT takes for one name`;
+}
+
+/** Returns what is wrong with one cell, given as a string, an object or `null`, or undefined. */
+function cellProblem(
+  cell: unknown,
+  at: string,
+  hasBlock: (name: string) => boolean | undefined,
+): string | undefined {
+  if (typeof cell === "string")
+    return (
+      paragraphValueProblem(cell, undefined) && `${at}: ${paragraphValueProblem(cell, undefined)}`
+    );
+  if (typeof cell !== "object" || cell === null || Array.isArray(cell)) {
+    return `${at} must be a string, an object or null`;
+  }
+  const o = cell as Record<string, unknown>;
+  const unknown = unknownFieldProblem(o, CELL_FIELDS, at);
+  if (unknown) return unknown;
+  if (o.text !== undefined) {
+    if (typeof o.text !== "string") return `${at}.text must be a string`;
+    const problem = paragraphValueProblem(o.text, undefined);
+    if (problem) return `${at}.text: ${problem}`;
+  }
+  if (o.block !== undefined) {
+    if (typeof o.block !== "string") return `${at}.block: a block is named by a string`;
+    if (o.text !== undefined) return `${at} holds a text or a block, not both`;
+    const problem = blockNameProblem(o.block);
+    if (problem) return `${at}.block: ${problem}`;
+    if (hasBlock(o.block) === false)
+      return `${at}.block: the block ${JSON.stringify(o.block)} is not defined`;
+  }
+  if (o.blockScale !== undefined) {
+    if (o.block === undefined) return `${at}.blockScale is for a cell that holds a block`;
+    const problem = optionalSizeProblem(o.blockScale, `${at}.blockScale`);
+    if (problem) return problem;
+  }
+  for (const field of ["columnSpan", "rowSpan"] as const) {
+    const value = o[field];
+    if (value !== undefined && !(Number.isInteger(value) && (value as number) >= 1)) {
+      return `${at}.${field} must be a whole number, 1 or more`;
+    }
+  }
+  return (
+    cellPlaceProblem(o, `${at}.`) ??
+    optionalSizeProblem(o.textHeight, `${at}.textHeight`) ??
+    cellColorProblem(o.color, `${at}.color`) ??
+    cellColorProblem(o.fill, `${at}.fill`)
+  );
+}
+
+/**
+ * Returns what is wrong with a table's columns, rows, cells and heights, or undefined. `hasBlock`
+ * says whether the drawing has a block, or undefined where that is not known.
+ */
+export function tableProblem(
+  table: unknown,
+  hasBlock: (name: string) => boolean | undefined = () => undefined,
+): string | undefined {
+  if (typeof table !== "object" || table === null) return "A table must be an object";
+  const t = table as Record<string, unknown>;
+  const at = t.at;
+  if (
+    !Array.isArray(at) ||
+    at.length !== 2 ||
+    !at.every((n) => typeof n === "number" && Number.isFinite(n))
+  ) {
+    return "at must be a point, [x, y], the table's upper left corner";
+  }
+  if (
+    t.rotation !== undefined &&
+    (typeof t.rotation !== "number" || !Number.isFinite(t.rotation))
+  ) {
+    return "rotation must be a finite number of degrees";
+  }
+  const columns = t.columns;
+  if (!Array.isArray(columns) || columns.length === 0)
+    return "columns must list the width of each column, one or more";
+  if (columns.length > TABLE_COLUMNS) return `A table has at most ${TABLE_COLUMNS} columns`;
+  for (let c = 0; c < columns.length; c++) {
+    const width = columns[c];
+    if (typeof width !== "number" || !Number.isFinite(width))
+      return `columns[${c}] must be a finite number`;
+    const problem = sizeProblem(width);
+    if (problem) return `columns[${c}]: ${problem}`;
+  }
+  const count = columns.length;
+  const rows = t.rows;
+  if (!Array.isArray(rows)) return "rows must be a list of rows, each a list of cells";
+  const all = (t.title === undefined ? 0 : 1) + (t.header === undefined ? 0 : 1) + rows.length;
+  if (all === 0) return "A table needs a row: a title, a header or a data row";
+  if (all * count > TABLE_CELLS)
+    return `A table has at most ${TABLE_CELLS} cells, its rows times its columns`;
+  for (const field of ["titleHeight", "headerHeight"] as const) {
+    const problem = optionalSizeProblem(t[field], field);
+    if (problem) return problem;
+  }
+  if (t.titleHeight !== undefined && t.title === undefined)
+    return "titleHeight is for a table with a title";
+  if (t.headerHeight !== undefined && t.header === undefined)
+    return "headerHeight is for a table with a header";
+  if (t.rowHeights !== undefined) {
+    const heights = t.rowHeights;
+    if (!Array.isArray(heights) || heights.length !== rows.length) {
+      return "rowHeights must give a height or null for each data row";
+    }
+    for (let r = 0; r < heights.length; r++) {
+      const height: unknown = heights[r];
+      if (height === null) continue;
+      if (height === undefined) return `rowHeights[${r}] must be a height or null`;
+      const problem = optionalSizeProblem(height, `rowHeights[${r}]`);
+      if (problem) return problem;
+    }
+  }
+  if (t.title !== undefined) {
+    if (t.title === null) return "title must be a string or an object";
+    const problem = cellProblem(t.title, "title", hasBlock);
+    if (problem) return problem;
+    const o = t.title as Record<string, unknown>;
+    if (typeof o === "object" && (o.columnSpan !== undefined || o.rowSpan !== undefined)) {
+      return "title spans every column and one row of its own, so it takes no columnSpan or rowSpan";
+    }
+  }
+  // The rows below the title, header first: each cell in its place, and what each span covers.
+  const lists: { readonly name: string; readonly cells: unknown; readonly header: boolean }[] = [];
+  if (t.header !== undefined) lists.push({ name: "header", cells: t.header, header: true });
+  for (let r = 0; r < rows.length; r++) {
+    lists.push({ name: `rows[${r}]`, cells: rows[r], header: false });
+  }
+  const covered: Uint8Array = new Uint8Array(lists.length * count);
+  for (let r = 0; r < lists.length; r++) {
+    const { name, cells, header } = lists[r]!;
+    if (!Array.isArray(cells) || cells.length !== count) {
+      return `${name} must hold a cell for each of the ${count} columns, null for one another spans`;
+    }
+    for (let c = 0; c < count; c++) {
+      const cell = cells[c];
+      const here = `${name}[${c}]`;
+      if (cell === null) {
+        if (covered[r * count + c] !== 1)
+          return `${here} is null, but no cell above or to its left spans it`;
+        continue;
+      }
+      if (covered[r * count + c] === 1)
+        return `${here} is spanned by a cell above or to its left, so it must be null`;
+      const problem = cellProblem(cell, here, hasBlock);
+      if (problem) return problem;
+      const o = typeof cell === "object" ? (cell as Record<string, unknown>) : {};
+      const across = (o.columnSpan as number | undefined) ?? 1;
+      const down = (o.rowSpan as number | undefined) ?? 1;
+      if (c + across > count) return `${here} spans past the table's last column`;
+      if (r + down > lists.length) return `${here} spans past the table's last row`;
+      if (header && down > 1) return `${here} spans from the header into the data rows`;
+      for (let rr = r; rr < r + down; rr++) {
+        for (let cc = c; cc < c + across; cc++) {
+          if (rr === r && cc === c) continue;
+          if (covered[rr * count + cc] === 1) return `${here} spans a cell another already spans`;
+          covered[rr * count + cc] = 1;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Returns what is wrong with a table's columns in its style, or undefined: a column must be wider
+ * than its two horizontal margins, which a cell's text is narrower than its column by.
+ */
+export function tableColumnsProblem(
+  columns: readonly number[],
+  margin: number,
+): string | undefined {
+  for (let c = 0; c < columns.length; c++) {
+    if (!(written(columns[c]! - 2 * margin) > 0)) {
+      return `columns[${c}] is ${shown(columns[c])} wide, no wider than its two margins of ${shown(margin)}, which leave its text no width`;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Returns what is wrong with a table's texts in the fonts of their rows, or undefined: the rules
+ * a paragraph's value is held to in its font. `fontOf` gives the font of a text style, or of
+ * `Standard` for undefined.
+ */
+export function tableTextsProblem(
+  cells: readonly {
+    readonly text: string;
+    readonly textStyle: string | undefined;
+    readonly at: string;
+  }[],
+  fontOf: (textStyle: string | undefined) => string | undefined,
+): string | undefined {
+  for (const { text, textStyle, at } of cells) {
+    const problem = paragraphValueProblem(text, fontOf(textStyle));
+    if (problem) return `${at}: ${problem}`;
+  }
+  return undefined;
 }

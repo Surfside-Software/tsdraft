@@ -41,17 +41,31 @@ Every leader names a leader style, which says how it is drawn. `d.leaderStyle(de
 defines one. A style is defined once, under a name no other style has, and before the first
 leader that names it.
 
-| Field        | What it sets                                                                                                       |
-| ------------ | ------------------------------------------------------------------------------------------------------------------ |
-| `name`       | The style's name, held to the rules of a dimension style's name.                                                   |
-| `textStyle`  | The text style of the note. `"Standard"` unless given.                                                             |
-| `textHeight` | The height of the note's capitals. Greater than 0.                                                                 |
-| `arrowhead`  | `"closed-filled"`, the default, `"open"`, `"dot"` or `"none"`. `LEADER_ARROWHEADS` lists them.                     |
-| `arrowSize`  | The length of an arrowhead. 0 draws none.                                                                          |
-| `landing`    | The length of the level line from where the shafts meet toward the note. 0 draws none.                             |
-| `gap`        | The gap between the end of the landing and the note.                                                               |
-| `attachment` | `"first-line"`, the default, has the landing meet the middle of the note's first line, and `"last-line"` its last. |
-| `scale`      | What every size above is multiplied by. 1 unless given.                                                            |
+| Field                | What it sets                                                                                      |
+| -------------------- | ------------------------------------------------------------------------------------------------- |
+| `name`               | The style's name, held to the rules of a dimension style's name.                                  |
+| `textStyle`          | The text style of the note. `"Standard"` unless given.                                            |
+| `textHeight`         | The height of the note's capitals. Greater than 0.                                                |
+| `arrowhead`          | `"closed-filled"`, the default, `"open"`, `"dot"` or `"none"`. `LEADER_ARROWHEADS` lists them.    |
+| `arrowSize`          | The length of an arrowhead. 0 draws none.                                                         |
+| `landing`            | The length of the level line from where the shafts meet toward the note. 0 draws none.            |
+| `gap`                | The gap between the end of the landing and the note.                                              |
+| `attachment`         | Where the landing meets the side of the note: one of `LEADER_ATTACHMENTS`, below.                 |
+| `direction`          | `"horizontal"`, the default, or `"vertical"`: the landing meets the note's top or bottom.         |
+| `verticalAttachment` | Where it meets a note above or below: `"center"`, the default, or `"line"`, with a line under it. |
+| `frame`              | `true` for a frame around each note, one gap outside it. `false` unless given.                    |
+| `shaft`              | `"straight"`, the default, or `"curved"`: each shaft a curve through its points.                  |
+| `block`              | A block of the drawing its leaders hold in place of a note.                                       |
+| `blockConnection`    | How the block meets the landing: `"extents"`, the default, or `"insertion"`.                      |
+| `blockScale`         | What the block is scaled by, times `scale`. 1 unless given.                                       |
+| `scale`              | What every size above is multiplied by. 1 unless given.                                           |
+
+`LEADER_ATTACHMENTS` are, in order: `"top-of-first"`, the top of the note; `"first-line"`, the
+default, the middle of its first line; `"middle"`, the middle of the note; `"last-line"`, the
+middle of its last line; `"bottom-of-last"`, its bottom; `"underline-last"`, the bottom of its last
+line, with the landing drawn on under that line; `"underline-first"`, the same under its first
+line; `"bottom-of-first"`, the bottom of its first line; and `"underline-all"`, which underlines
+every line.
 
 Give the sizes as they plot, and let `scale` carry the view, as for a
 [dimension style](dimensions.md#sizes-and-the-scale). A leader in model space that a viewport
@@ -62,16 +76,35 @@ scale of 1, so CAD draws the sizes the style works out.
 ## A leader
 
 `d.leader(text, options)` draws one. `text` is the note: a string for one line, or an array of
-its lines from the top. CAD draws the lines as they are given and does not wrap them.
+its paragraphs from the top. Each is one line, unless `width` wraps it. In place of a note it may
+be `{ block, attributes }`: a block of the drawing, such as a tag or a keynote bubble, and the
+value of each of its attributes, by its tag, where it is not its definition's.
+
+```ts
+d.leader(
+  { block: "KEYNOTE", attributes: { NUM: "7" } },
+  { style: "KEYNOTES", at: [62, 38], to: [52, 26] },
+);
+```
 
 - `style` names the leader style.
 - `at` is where the shafts meet and the landing starts.
 - `to` is what the note names. A point is the tip of one straight shaft. A list has a shaft for
   each item: a point is a straight shaft from that tip, and a list of points is a shaft from its
   first point, the tip, through each point after it, where it bends, to `at`.
-- `side` is the side of `at` the note is on, `"left"` or `"right"`. Unless given, it is the side
-  away from the first shaft: right when `at` is not to the left of the last point before it.
-- `attachment` replaces the style's.
+- `side` is the side of `at` the note is on: `"left"`, `"right"`, `"above"` or `"below"`. Unless
+  given, it is the side away from the first shaft: in a horizontal style right when `at` is not to
+  the left of the last point before it, and in a vertical one above when `at` is not below it.
+- `attachment` and `verticalAttachment` replace the style's.
+- `width` is the width the note wraps at, greater than 0, times the style's scale.
+- `frame` and `shaft` replace the style's.
+- `toFarSide` gives the shafts of a second root, on the note's far side, as `to` does. Its point
+  is worked out from the note: past its far end, as far out as `at` is on the near side, or above
+  or below a note that is below or above `at`. A drafter moves the note and both roots follow.
+- `mask` hides what is drawn before the leader behind its note: `true` for the drawing's
+  background, or `{ color, offsetFactor }`, with a color index from 1 to 255, or 256 for the
+  layer's, and how far the mask reaches past the note, as a factor of its text height from 1 to
+  5, 1.5 unless given.
 - `textStyle`, `textHeight`, `arrowSize`, `landing` and `gap` replace the style's, each times the
   style's scale. The file holds each as the leader's own, so CAD keeps it when the style
   changes.
@@ -90,23 +123,38 @@ in a block.
   radius of half the arrow size. `"none"` draws no arrowhead. The shaft reaches the tip either
   way: with an arrowhead, the arrowhead draws the last arrow size of it.
 - The landing runs level from `at`, as long as `landing`, toward the note's side.
-- The note starts `gap` past the end of the landing. On the right it is justified left, and on
-  the left justified right. The middle of the capitals of its first line, or of its last line,
-  is level with `at`.
-- Its lines are `lineSpacing(textHeight)` apart, 5/3 of the height. `lineSpacing` is the one
-  rule for that, which the picture, the extents and `inspectText` use.
+- The note is a paragraph, laid out as [paragraph text](paragraphs.md) is: each line set by the
+  ink of its letters, and wrapped at `width`. On the right it starts `gap` past the end of the
+  landing, justified left, and on the left it ends there, justified right. Its attachment puts it
+  as high as CAD does: for `"first-line"`, the middle of its first line, which runs from its top
+  as far down as its capitals and the last line's letters below the baseline, is level with `at`.
+- The underline attachments run the landing on under the line they meet, as far as the note
+  reaches, but not into a frame.
+- Above or below `at`, the note is a gap away from it and centered on it, and no landing is drawn.
+  With `"line"`, a line as wide as the note runs through `at`.
+- A frame runs around the note's box one gap outside it, and a mask fills the note's box grown by
+  its factor of the text height less one, each side, before the rest of the leader is drawn.
+- A curved shaft is the cubic CAD programs draw through the arrowhead's base, each bend and the end
+  of the landing, which it meets level, with no landing drawn apart. A curve whose first stretch
+  is shorter than the arrowhead draws none and runs to its tip.
+- A block in place of the note is level with `at`. By its extents, the side of its box meets the
+  end of the landing; by its insertion point, it is slid along the line through `at` until its
+  outline meets the end of the landing.
 
 `leaderPicture(leader, style, textStyle)` gives what CAD draws for a leader: each shaft as drawn,
-its arrowheads, its landing and each line of its note with where it is, and the numbers the file
-holds for it. `leaderSizes(leader, style)` gives the sizes it is drawn with, and
+its arrowheads, its landing, its note as a paragraph and where it is held, its underlines, its
+frame and its mask, and the numbers the file holds for it. `leaderSizes(leader, style)` gives the sizes it is drawn with, and
 `findLeaderStyle(drawing, name)` the style a leader names.
 
 ## Under a standard
 
 A standard lists its leader styles in `leaderStyles`, by an id, each with a `role`, which gives
 the note its text style and height, and an `arrowSize`, a `landing` and a `gap` on paper, and
-optionally an `arrowhead` and an `attachment`. `defaultLeaderStyle` names the one a leader with
-no `style` is drawn in.
+optionally an `arrowhead`, an `attachment`, a `direction`, a `verticalAttachment`, a `frame` and a
+`shaft`.
+`defaultLeaderStyle` names the one a leader with no `style` is drawn in. The built-in standard's
+is `notes`: the role `note`, a closed filled arrowhead 1/8 inch long, a landing of 1/8 inch, a gap
+of 1/16 and the landing at the middle of the first line.
 
 ```ts
 const standard = defineStandard({
@@ -133,8 +181,10 @@ style and height of another role, and a size of its own is a length on paper.
 `toSVG` draws each leader as CAD does, in model space, through a viewport and on a sheet, in
 its layer's color and lineweight. A leader is a `<g>` with `data-layer`, `data-entity`,
 `data-id` and `data-leader`, its note with a line break between its lines. Its children have a
-`data-part`: `shaft`, `landing`, `arrowhead` or `text`. A drawing's extents take its leaders
-in, notes included.
+`data-part`: `mask`, `shaft`, `landing`, `arrowhead`, `underline`, `frame` or `text`. A mask in
+the drawing's background is filled white and marked `data-mask="background"`, for a viewer whose
+background is another color. A drawing's extents take its leaders in, notes, frames and masks
+included.
 
 `inspectText` takes each line of a leader's note for a text where the picture puts it, so it
 warns of a note that plots over another text.
@@ -152,10 +202,15 @@ Each of these is an error, at the builder's call and in `lint`. The rule is `lea
   handle, which would lead to no style.
 - A text height is greater than 0. The arrow size, the landing and the gap are 0 or more, and
   the scale is greater than 0.
-- An arrowhead is one of `LEADER_ARROWHEADS`, an attachment `"first-line"` or `"last-line"`,
-  and a side `"left"` or `"right"`.
-- Every line of a note is a single line of text with none of `\`, `{` and `}`, which the leading CAD
-  app reads as the formatting of the note. One line is not empty or all spaces.
+- A leader whose content is a block names a block of the drawing, and sets none of `text`,
+  `attachment`, `verticalAttachment`, `width`, `frame`, `mask`, `textStyle` and `textHeight`.
+  Its attributes are strings.
+- An arrowhead is one of `LEADER_ARROWHEADS`, an attachment one of `LEADER_ATTACHMENTS`, a side
+  one of `LEADER_SIDES`, a direction one of `LEADER_DIRECTIONS`, a vertical attachment one of
+  `LEADER_VERTICAL_ATTACHMENTS`, a frame `true` or `false`, a width greater than 0 and a mask as
+  above.
+- Every paragraph of a note is text with none of `\`, `{` and `}`, which the leading CAD app reads
+  as the formatting of the note. One is not empty or all spaces.
 - A leader has a shaft, and each shaft starts with its tip. Its tip and the point after it, or
   `at` for a straight shaft, are not one point once they are written with 6 decimals: CAD would
   have no direction to point the arrowhead in.
@@ -196,10 +251,12 @@ tsdraft.
 For a drawing with a leader style, tsdraft writes the leading CAD app's own leader style `Standard`
 and each style of the drawing, in the dictionary `ACAD_MLEADERSTYLE`, the blocks `_Open`, `_Dot` and
 `_None` that its styles draw arrowheads with, and each leader as a multileader: one leader root
-where its shafts meet, a leader line for each shaft, and its note as a multiline text. The file
-holds no picture of a leader. CAD draws it from what the multileader holds.
+where its shafts meet and a second on the note's far side, a leader line for each shaft, and its
+note as a multiline text with its width, its mask and where it is held, or its block with where
+it is placed and its attributes as the multileader's labels. The file holds no picture of a leader. CAD draws it from
+what the multileader holds.
 
 ## What is not drawn yet
 
-A leader with two roots, a curved shaft, a block in place of the note, a note attached at its
-top or bottom, a frame around the note, and a note that wraps at a width.
+A block in place of the note draws its attributes centered by their ink, where CAD programs center
+a label of a multileader's block by its advances: 0.0055 inch apart for a `1` 0.1 inch high.

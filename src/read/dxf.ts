@@ -9,17 +9,24 @@ import { DxfDocumentReader, type DxfDocument } from "./document.ts";
 import {
   attributeCost,
   attributeOf,
+  attributeParts,
   baseOf,
   brokenNumber,
   costOf,
   handleAt,
+  imageInWorld,
+  underlayInWorld,
+  MAX_TAGS,
   nameCost,
   placementOf,
   readingOf,
+  sidesOf,
+  type LeaderNames,
   type Later,
   type PendingStart,
 } from "./entities.ts";
 import { GroupReader, textTwice, unescaped } from "./groups.ts";
+import { TableGroups, tableStyleOf, type TableStyleHeld } from "./table.ts";
 import {
   add,
   facing,
@@ -54,13 +61,20 @@ import {
   type ReadEntityBase,
   type ReadField,
   type ReadHeader,
+  type ReadImage,
+  type ReadImageDefinition,
+  type ReadUnderlay,
+  type ReadUnderlayDefinition,
   type ReadInsert,
   type ReadLayer,
   type ReadLayerCensus,
   type ReadLayout,
   type ReadLinetype,
+  type ReadLinetypeMark,
   type ReadMultileader,
   type ReadOptions,
+  type ReadTable,
+  type ReadTableStyle,
   type ReadTextStyle,
   type ReadView,
   type ReadViewport,
@@ -163,9 +177,6 @@ const FIELD_WORK = 1_000_000;
 /** The most heights of one MTEXT's text that are kept. */
 const MAX_INLINE_HEIGHTS = 64;
 
-/** The most tags of one insert that are kept. */
-const MAX_TAGS = 1000;
-
 /** The most groups one record keeps. */
 const MAX_GROUPS = 1_000_000;
 
@@ -173,37 +184,84 @@ const ALL: ReadonlySet<number> = new Set();
 const NOTHING: ReadonlySet<number> = new Set();
 /** What the census of a space reads of an entity it only counts. */
 // 102 too, so that the owner is told from the handles of an application's group.
-const CENSUS: ReadonlySet<number> = new Set([5, 6, 8, 62, 67, 102, 330, 370, 420]);
+const CENSUS: ReadonlySet<number> = new Set([5, 6, 8, 60, 62, 67, 102, 330, 370, 420]);
+/** What a block reads of an entity of a kind it counts: whether it shows. */
+const VISIBILITY: ReadonlySet<number> = new Set([60]);
 /** The kinds a block's definition reads whole, and a space's with `geometry`. */
 const BLOCK_READS = new Set([
+  "3DSOLID",
+  "ACAD_TABLE",
   "ARC",
   "ATTDEF",
   "ATTRIB",
+  "BODY",
   "CIRCLE",
   "DIMENSION",
+  "ELLIPSE",
+  "HATCH",
+  "IMAGE",
   "INSERT",
+  "LARGE_RADIAL_DIMENSION",
+  "ARC_DIMENSION",
+  "LEADER",
   "LINE",
   "LWPOLYLINE",
   "MTEXT",
   "MULTILEADER",
+  "PDFUNDERLAY",
+  "POINT",
   "POLYLINE",
+  "REGION",
   "SEQEND",
   "SOLID",
+  "SPLINE",
   "TEXT",
   "VERTEX",
   "VIEWPORT",
+  "WIPEOUT",
 ]);
 /** The kinds a space reads whole without `geometry`. */
 const SPACE_READS = new Set([
   "ATTRIB",
   "DIMENSION",
+  "IMAGE",
   "INSERT",
+  "LARGE_RADIAL_DIMENSION",
+  "ARC_DIMENSION",
   "MTEXT",
+  "PDFUNDERLAY",
   "POLYLINE",
   "SEQEND",
   "TEXT",
   "VIEWPORT",
 ]);
+
+const HANDLE = /^[0-9A-Fa-f]{1,16}$/;
+
+/** Two handles' order as numbers: by their digits once leading zeros are left out. */
+function handleOrder(a: string, b: string): number {
+  const [x, y] = [a.replace(/^0+/, ""), b.replace(/^0+/, "")];
+  return x.length - y.length || (x < y ? -1 : x > y ? 1 : 0);
+}
+
+/**
+ * The handles of a space's entities in the order the leading CAD app draws them by its sort table:
+ * by each one's sort handle, or its own where the table gives none, and in the order of the file
+ * between two of one sort handle.
+ */
+function sortedOrder(
+  entities: readonly ReadEntity[],
+  table: ReadonlyMap<string, string>,
+): readonly string[] {
+  const keyed: { handle: string; sort: string; at: number }[] = [];
+  entities.forEach((e, at) => {
+    if (e.handle === undefined) return;
+    const own = e.handle.toUpperCase();
+    keyed.push({ handle: e.handle, sort: table.get(own) ?? own, at });
+  });
+  keyed.sort((a, b) => handleOrder(a.sort, b.sort) || a.at - b.at);
+  return keyed.map((k) => k.handle);
+}
 
 /** Object kinds every file holds and that say nothing the read model keeps. */
 const HOUSEKEEPING = new Set([
@@ -214,6 +272,7 @@ const HOUSEKEEPING = new Set([
   "CELLSTYLEMAP",
   "DICTIONARYVAR",
   "FIELDLIST",
+  "IMAGEDEF_REACTOR",
   "MATERIAL",
   "MLEADERSTYLE",
   "MLINESTYLE",
@@ -221,7 +280,8 @@ const HOUSEKEEPING = new Set([
   "RASTERVARIABLES",
   "SCALE",
   "SUN",
-  "TABLESTYLE",
+  "TABLECONTENT",
+  "TABLEGEOMETRY",
   "VISUALSTYLE",
   "WIPEOUTVARIABLES",
   "XRECORD",
@@ -374,6 +434,8 @@ const HEADER = new Set([
   "$PSLTSCALE",
   "$MSLTSCALE",
   "$DIMSCALE",
+  "$PDMODE",
+  "$PDSIZE",
   "$DIMSTYLE",
   "$TEXTSTYLE",
   "$TILEMODE",
@@ -398,13 +460,20 @@ interface InsertOwner {
   readonly starts: PendingStart[];
 }
 
-/** A multileader whose styles are named by handle, until the file is read. */
-interface PendingLeader {
+/** A multileader whose styles and block are named by handle, until the file is read. */
+interface PendingLeader extends LeaderNames {
   readonly entity: ReadMultileader;
-  readonly style?: string;
-  readonly textStyle?: string;
-  /** Where it was kept, which its styles' names are charged to. */
+  /** Where it was kept, which its names are charged to. */
   readonly target?: Target;
+}
+
+/** A table whose style is named by handle, until the file is read. */
+interface PendingTable {
+  readonly entity: ReadTable;
+  readonly target: Target;
+  readonly style: string | undefined;
+  readonly noTitle: boolean | undefined;
+  readonly noHeader: boolean | undefined;
 }
 
 /** A polyline whose vertices follow it, up to its `SEQEND`. */
@@ -412,8 +481,11 @@ interface PolylineOwner {
   readonly kind: "polyline";
   readonly rec: Rec;
   points: Point[];
-  arcs: boolean;
-  wide: boolean;
+  /** The bulge and the widths each vertex gives the side from it to the next. */
+  bulges: number[];
+  widths: [number, number][];
+  /** The widths of a vertex that gives none, the polyline's own. */
+  readonly widthsAt: readonly [number, number];
   over: boolean;
   broken: boolean;
   readonly face: Facing;
@@ -421,6 +493,12 @@ interface PolylineOwner {
 
 /** The longest name a map of the file's names is keyed by: the most a DXF string holds. */
 const LONGEST_NAME = 2049;
+
+/**
+ * True for an entity the file marks invisible, group 60, which draws nothing. A dynamic block's
+ * record holds the entities of every state, with those of the states it does not show marked so.
+ */
+const hidden = (r: Rec): boolean => num(r, 60) === 1;
 
 class DxfReader {
   #section = "";
@@ -432,8 +510,15 @@ class DxfReader {
   readonly header: Record<string, string> = map();
   readonly layers: ReadLayer[] = [];
   readonly linetypes: ReadLinetype[] = [];
+  /** The marks of each linetype that has them, by its index, whose styles are named last. */
+  readonly #marked: [number, PendingMark[]][] = [];
+  /** Each style's name and file, by its handle, for the marks of linetypes. */
+  readonly #stylesByHandle = new Map<string, { name: string; file: string; height: number }>();
   readonly textStyles: ReadTextStyle[] = [];
-  readonly dimensionStyles: (ReadDimensionStyle & { textStyleHandle?: string })[] = [];
+  readonly dimensionStyles: (ReadDimensionStyle & {
+    textStyleHandle?: string;
+    arrowheadHandle?: string;
+  })[] = [];
   /** Each block record's name, by its handle. */
   readonly blockRecords = new Map<string, string>();
   readonly blocks: BlockDraft[] = [];
@@ -451,6 +536,15 @@ class DxfReader {
   #leaderStyleDictionary: string | undefined;
   /** Each leader style's name, by its handle. */
   readonly leaderStyles = new Map<string, string>();
+  /** The dictionary of table styles, which the root dictionary names, and its entries in its order. */
+  #tableStyleDictionary: string | undefined;
+  readonly #tableStyleEntries: (readonly [name: string, handle: string])[] = [];
+  /** Each table style read, by its handle in capitals. */
+  readonly #tableStyleObjects = new Map<string, TableStyleHeld>();
+  /** The groups of the table read now, from its `AcDbTable` on, and whether they have begun. */
+  #table: TableGroups | undefined;
+  #inTable = false;
+  readonly #tables: PendingTable[] = [];
   /** The view of the first `*Active` record of the viewport table. */
   #activeView: Omit<ReadView, "layout"> | undefined;
   readonly unread = {
@@ -485,14 +579,48 @@ class DxfReader {
     starts: [],
     leaders: [],
   };
+  /** The images kept, to finish once the definitions are read. */
+  readonly #images: ReadImage[] = [];
+  /** How many images name each definition, by its handle. */
+  readonly #imageUses = new Map<string, number>();
+  /** The handle of the dictionary of image definitions, from the root dictionary. */
+  #imageDictionary: string | undefined;
+  /** The underlays kept, to finish once the definitions are read. */
+  readonly #underlays: ReadUnderlay[] = [];
+  /** How many underlays name each definition, by its handle. */
+  readonly #underlayUses = new Map<string, number>();
+  /** The handle of the dictionary of PDF definitions, from the root dictionary. */
+  #underlayDictionary: string | undefined;
+  /** The dictionary's entries, in its order: each definition's name and handle. */
+  readonly #underlayEntries: (readonly [name: string, handle: string])[] = [];
+  /** Each PDF definition, by its handle. */
+  readonly #underlayDefinitions = new Map<
+    string,
+    { readonly path: string; readonly page: string }
+  >();
+  /** The variable PDFFRAME's handle in the dictionary of variables. */
+  #pdfFrameVariable: string | undefined;
+  /** The dictionary of the drawing's variables, and the variable WIPEOUTFRAME's handle in it. */
+  #variableDictionary: string | undefined;
+  #wipeoutFrameVariable: string | undefined;
+  /** The value of each DICTIONARYVAR read, by its handle, up to the census's limit. */
+  readonly #variables = new Map<string, string>();
+  /**
+   * Each sort table, by the handle of the block record it orders, with each entity's sort
+   * handle, up to as many entries as the geometry's items.
+   */
+  readonly #sortTables = new Map<string, Map<string, string>>();
+  #sortEntries = 0;
+  /** The dictionary's entries, in its order: each definition's name and handle. */
+  readonly #imageEntries: (readonly [name: string, handle: string])[] = [];
+  /** Each image definition, by its handle. */
+  readonly #imageDefinitions = new Map<
+    string,
+    { readonly path: string; readonly pixels: readonly [number, number]; readonly loaded: boolean }
+  >();
   readonly #later: Later = {
     start: (pending) => this.#staged.starts.push(pending),
-    leader: (entity, style, textStyle) =>
-      this.#staged.leaders.push({
-        entity,
-        ...(style !== undefined && { style }),
-        ...(textStyle !== undefined && { textStyle }),
-      }),
+    leader: (entity, names) => this.#staged.leaders.push({ entity, ...names }),
   };
 
   /**
@@ -518,6 +646,8 @@ class DxfReader {
   group(code: number, value: string): void {
     if (code === 0) {
       this.#end();
+      this.#table = undefined;
+      this.#inTable = false;
       if (value === "SECTION") this.#section = "?";
       else if (value === "ENDSEC") this.#section = "";
       else if (value === "EOF") this.#section = "";
@@ -540,6 +670,16 @@ class DxfReader {
       return;
     }
     const r = this.#rec;
+    // A table's own groups are read as they arrive, and its record keeps those before them.
+    if (r?.type === "ACAD_TABLE") {
+      if (this.#inTable) return this.#table?.group(code, value);
+      if (code === 100 && value.trim() === "AcDbTable") {
+        this.#inTable = true;
+        const room = this.#tableRoom();
+        if (room !== undefined) this.#table = new TableGroups(room, this.#limits.geometryItems);
+        return;
+      }
+    }
     const keep = this.#keep;
     if (!r || keep === NOTHING || DROPPED.has(code) || (keep !== ALL && !keep.has(code))) return;
     if (r.codes.length >= MAX_GROUPS) {
@@ -566,11 +706,20 @@ class DxfReader {
       case "TABLES":
         return ALL;
       case "OBJECTS":
-        return type === "DICTIONARY" || type === "FIELD" || type === "LAYOUT" ? ALL : NOTHING;
+        return type === "DICTIONARY" ||
+          type === "FIELD" ||
+          type === "LAYOUT" ||
+          type === "IMAGEDEF" ||
+          type === "PDFDEFINITION" ||
+          type === "DICTIONARYVAR" ||
+          type === "SORTENTSTABLE" ||
+          type === "TABLESTYLE"
+          ? ALL
+          : NOTHING;
       case "BLOCKS":
         if (type === "BLOCK" || type === "ENDBLK") return ALL;
         if (this.#inDimensionPicture) return NOTHING;
-        if (this.#block) return BLOCK_READS.has(type) ? ALL : NOTHING;
+        if (this.#block) return BLOCK_READS.has(type) ? ALL : VISIBILITY;
         return inSpace();
       case "ENTITIES":
         return inSpace();
@@ -639,21 +788,46 @@ class DxfReader {
       case "LTYPE": {
         const pattern: number[] = [];
         let complex = false;
+        // Each mark's groups follow the 49 and 74 of its length, its style by its handle, which
+        // the styles' table, after this one, names.
+        const marks: PendingMark[] = [];
+        let mark: PendingMark | undefined;
         for (let i = 0; i < r.codes.length; i++) {
-          if (r.codes[i] === 49) pattern.push(Number(r.values[i]));
-          if (r.codes[i] === 74 && Number(r.values[i]) !== 0) complex = true;
+          const [code, value] = [r.codes[i], r.values[i]!];
+          if (code === 49) {
+            const length = Number(value);
+            mark = undefined;
+            if (!Number.isFinite(length)) continue;
+            pattern.push(length);
+          } else if (code === 74 && pattern.length > 0) {
+            const flags = Number(value);
+            if (flags !== 0) complex = true;
+            if ((flags & 6) === 0 || !Number.isFinite(flags)) continue;
+            mark = { after: pattern.length - 1, flags, values: new Map() };
+            marks.push(mark);
+          } else if (mark !== undefined && MARK_CODES.has(code!)) {
+            if (!mark.values.has(code!)) mark.values.set(code!, value);
+          }
         }
         const description = name(r, 3);
-        this.linetypes.push({
+        const linetype = {
           handle,
           name: recordName,
           ...(description !== undefined && { description }),
-          pattern: pattern.filter(Number.isFinite),
+          pattern,
           complex,
-        });
+        };
+        this.linetypes.push(linetype);
+        if (marks.length > 0) this.#marked.push([this.linetypes.length - 1, marks]);
         return;
       }
       case "STYLE": {
+        if (handle !== undefined)
+          this.#stylesByHandle.set(normalHandle(handle), {
+            name: recordName,
+            file: name(r, 3) ?? "",
+            height: num(r, 40) ?? 0,
+          });
         // A style with flag 1 holds a shape file; one with no name is the font of a complex
         // linetype's shapes.
         if (recordName === "" && (flags & 1) !== 0) return;
@@ -680,6 +854,13 @@ class DxfReader {
           ["lengthUnits", 277],
           ["precision", 271],
           ["lengthFactor", 144],
+          ["textVertical", 77],
+          ["textInside", 174],
+          ["textMove", 279],
+          ["fraction", 276],
+          ["fractionScale", 146],
+          ["dimensionLineweight", 371],
+          ["extensionLineweight", 372],
         ];
         const style: Record<string, unknown> = { handle, name: recordName };
         style.annotative = annotative(r);
@@ -691,6 +872,17 @@ class DxfReader {
         if (suffix !== undefined && suffix !== "") style.suffix = suffix;
         const textStyle = handleAt(r, 340);
         if (textStyle !== undefined) style.textStyleHandle = textStyle;
+        const arrowhead = handleAt(r, 342);
+        if (arrowhead !== undefined) style.arrowheadHandle = arrowhead;
+        // DIMTFILL, and DIMTFILLCLR after it, a 70 of its own past the record's flags.
+        const fill = r.codes.indexOf(69);
+        if (fill >= 0) {
+          const n = Number(r.values[fill]);
+          if (Number.isFinite(n) && n !== 0) style.textFill = n;
+          const color = r.codes.indexOf(70, fill);
+          const index = color < 0 ? NaN : Number(r.values[color]);
+          if (n === 2 && Number.isFinite(index)) style.textFillColor = index;
+        }
         this.dimensionStyles.push(style as unknown as ReadDimensionStyle);
         return;
       }
@@ -732,7 +924,7 @@ class DxfReader {
         });
         // An xref's block holds nothing of its own in the host.
         this.#inDimensionPicture = true;
-      } else if (!this.#geometry && /^\*D\d*$/i.test(blockName)) {
+      } else if (!this.#geometry && /^\*[DT]\d*$/i.test(blockName)) {
         this.#inDimensionPicture = true;
       } else {
         this.#block = {
@@ -799,6 +991,19 @@ class DxfReader {
     return space;
   }
 
+  /**
+   * How many items the table whose groups arrive now may hold: what its block or the spaces may
+   * still keep, or undefined where the read keeps no table. The space of a table of the section
+   * `ENTITIES` is known at its end, and every space shares one budget.
+   */
+  #tableRoom(): number | undefined {
+    if (this.#section === "ENTITIES")
+      return this.#geometry ? this.#limits.geometryItems - this.#geometryItems : undefined;
+    if (this.#section !== "BLOCKS" || this.#inDimensionPicture) return undefined;
+    const target = this.#target();
+    return target === undefined ? undefined : this.#room(target);
+  }
+
   /** Where the entity read now is kept: its block, or its space when the read keeps geometry. */
   #target(): Target | undefined {
     return this.#block ?? (this.#geometry ? this.#space : undefined);
@@ -860,8 +1065,9 @@ class DxfReader {
           kind: "polyline",
           rec: r,
           points: [],
-          arcs: false,
-          wide: (num(r, 40) ?? 0) !== 0 || (num(r, 41) ?? 0) !== 0,
+          bulges: [],
+          widths: [],
+          widthsAt: [num(r, 40) ?? 0, num(r, 41) ?? 0],
           over: false,
           broken: brokenNumber(r),
           face,
@@ -872,7 +1078,10 @@ class DxfReader {
         // A space lists an insert in any plane, as its census does; a block keeps it flat.
         const place = face !== 0 || !block;
         let keep = target !== undefined;
-        if (target && face === 0) {
+        if (target && hidden(r)) {
+          add(target.other, "invisible");
+          keep = false;
+        } else if (target && face === 0) {
           add(target.other, "INSERT in 3D");
           keep = false;
         } else if (target && ((num(r, 70) ?? 1) > 1 || (num(r, 71) ?? 1) > 1)) {
@@ -898,7 +1107,8 @@ class DxfReader {
         return;
       }
       case "ATTDEF": {
-        if (!block) return;
+        // A space keeps no attribute definition, but counts one that does not show.
+        if (!block) return target && hidden(r) ? add(target.other, "invisible") : undefined;
         if (face === 0) {
           add(block.other, "ATTDEF in 3D");
           return;
@@ -907,17 +1117,25 @@ class DxfReader {
           add(this.unread.malformed, "ATTDEF with a number that is not finite");
           return;
         }
-        const flags = num(r, 70) ?? 0;
-        const prompt = name(r, 3) === undefined ? undefined : textTwice(first(r, 3)!);
-        const value = textTwice(first(r, 1) ?? "");
-        const tag = textTwice(first(r, 2) ?? "");
-        const cost = 4 + Math.floor((tag.length + value.length + (prompt?.length ?? 0)) / 32);
+        const { text, paragraph } = attributeParts(r);
+        if (paragraph === null) {
+          add(block.other, "ATTDEF of paragraph text in 3D");
+          return;
+        }
+        const flags = num(text, 70) ?? 0;
+        const prompt = name(text, 3) === undefined ? undefined : textTwice(first(text, 3)!);
+        const value = paragraph ? paragraph.value : textTwice(first(text, 1) ?? "");
+        const tag = textTwice(first(text, 2) ?? "");
+        const cost =
+          4 +
+          (paragraph ? 2 + nameCost(paragraph.paragraph.style) : 0) +
+          Math.floor((tag.length + value.length + (prompt?.length ?? 0)) / 32);
         if (cost > this.#room(block)) {
           add(block.other, "past the limit");
           return;
         }
         this.#blockItems += cost;
-        const { placement, pending } = placementOf(r, face, value, 74);
+        const { placement, pending } = placementOf(text, face, value, 74);
         const definition = {
           handle,
           ...placement,
@@ -925,13 +1143,16 @@ class DxfReader {
           ...(prompt !== undefined && { prompt }),
           default: value,
           layer,
-          invisible: (flags & 1) !== 0,
+          invisible: (flags & 1) !== 0 || hidden(r),
           constant: (flags & 2) !== 0,
+          ...(paragraph && { paragraph: paragraph.paragraph }),
         };
-        if (pending) this.#starts.push({ ...pending, placement: definition });
+        if (pending && !paragraph) this.#starts.push({ ...pending, placement: definition });
         block.attributeDefinitions.push(definition);
         return;
       }
+      case "ACAD_TABLE":
+        return this.#tableEntity(r, layer, handle, face, target);
       case "VIEWPORT": {
         if (!space) {
           if (block) add(block.other, "VIEWPORT");
@@ -945,13 +1166,71 @@ class DxfReader {
         return;
       }
     }
+    // How many images name each definition, whatever the read keeps of them, for as many
+    // definitions as the census holds.
+    if (r.type === "IMAGE") {
+      const definition = handleAt(r, 340);
+      const uses = definition === undefined ? undefined : this.#imageUses.get(definition);
+      if (uses !== undefined) this.#imageUses.set(definition!, uses + 1);
+      else if (definition !== undefined && this.#imageUses.size < this.#limits.census)
+        this.#imageUses.set(definition, 1);
+    }
+    if (r.type === "PDFUNDERLAY") {
+      const definition = handleAt(r, 340);
+      const uses = definition === undefined ? undefined : this.#underlayUses.get(definition);
+      if (uses !== undefined) this.#underlayUses.set(definition!, uses + 1);
+      else if (definition !== undefined && this.#underlayUses.size < this.#limits.census)
+        this.#underlayUses.set(definition, 1);
+    }
     if (!target) return;
+    if (hidden(r)) return add(target.other, "invisible");
     const reading = readingOf(r, baseOf(r, layer, handle), face, this.#later, this.#r12);
     const kept = reading !== undefined && "entity" in reading && this.#kept(target, reading.entity);
+    if (kept && reading.entity.kind === "image") this.#images.push(reading.entity);
+    if (kept && reading.entity.kind === "underlay") this.#underlays.push(reading.entity);
     for (const pending of this.#settle(kept, target)) this.#starts.push(pending);
     if (reading === undefined) add(target.other, r.type);
     else if ("other" in reading) add(target.other, reading.other);
     else if ("malformed" in reading) add(this.unread.malformed, reading.malformed);
+  }
+
+  /** A table, whose style and rows of title and header are named once the file is read. */
+  #tableEntity(
+    r: Rec,
+    layer: string,
+    handle: string | undefined,
+    face: Facing,
+    target: Target | undefined,
+  ): void {
+    const groups = this.#table;
+    this.#table = undefined;
+    if (!target) return;
+    if (hidden(r)) return add(target.other, "invisible");
+    if (face !== 1)
+      return add(target.other, face === 0 ? "ACAD_TABLE in 3D" : "ACAD_TABLE seen from below");
+    if (brokenNumber(r) || groups === undefined) {
+      const why = groups === undefined ? "with no AcDbTable" : "with a number that is not finite";
+      return add(this.unread.malformed, `ACAD_TABLE ${why}`);
+    }
+    const read = groups.end(
+      (record) => this.blockRecords.get(record) ?? this.blockRecords.get(record.toUpperCase()),
+    );
+    if ("other" in read) return add(target.other, read.other);
+    if ("malformed" in read) return add(this.unread.malformed, read.malformed);
+    const { styleHandle, blockHandle, noTitle, noHeader, ...parts } = read.table;
+    const block = name(r, 2);
+    const entity: ReadTable = {
+      ...baseOf(r, layer, handle),
+      kind: "table",
+      at: point(r, 10),
+      ...parts,
+      title: false,
+      header: false,
+      ...(block !== undefined && block !== "" && { block }),
+      ...(blockHandle !== undefined && { blockHandle }),
+    };
+    if (this.#kept(target, entity))
+      this.#tables.push({ entity, target, style: styleHandle, noTitle, noHeader });
   }
 
   /** What a space's census lists of a text, an `MTEXT` or a dimension, and the fields' MTEXTs. */
@@ -1012,7 +1291,9 @@ class DxfReader {
         }
         return;
       }
-      case "DIMENSION": {
+      case "DIMENSION":
+      case "LARGE_RADIAL_DIMENSION":
+      case "ARC_DIMENSION": {
         if (!space) return;
         const style = name(r, 3) ?? "Standard";
         const dstyle = xdata(r, "ACAD");
@@ -1042,7 +1323,8 @@ class DxfReader {
         owner.tags++;
         owner.cost += 1 + Math.floor(tag.length / 32);
       }
-      owner.insert.tags[tag] = (first(r, 1) ?? "") !== "";
+      const { text, paragraph } = attributeParts(r);
+      owner.insert.tags[tag] = paragraph ? paragraph.value !== "" : (first(text, 1) ?? "") !== "";
     }
     const target = this.#target();
     if (!owner.attributes || owner.over || !target) return;
@@ -1074,14 +1356,20 @@ class DxfReader {
     if (brokenNumber(r)) owner.broken = true;
     // A spline's frame point is not a point of the polyline.
     if ((flags & 16) === 0 && target && !owner.over) {
-      // A polyline that cannot fit what its target may still keep holds no more points.
+      // A polyline that cannot fit what its target may still keep holds no more points, nor
+      // the bulge and the pair of widths of each.
       if (owner.points.length >= this.#room(target)) {
         owner.over = true;
         owner.points = [];
-      } else owner.points.push(point(r, 10));
+        owner.bulges = [];
+        owner.widths = [];
+      } else {
+        owner.points.push(point(r, 10));
+        owner.bulges.push(num(r, 42) ?? 0);
+        // A vertex with no width of its own has the polyline's.
+        owner.widths.push([num(r, 40) ?? owner.widthsAt[0], num(r, 41) ?? owner.widthsAt[1]]);
+      }
     }
-    if ((num(r, 42) ?? 0) !== 0) owner.arcs = true;
-    if ((num(r, 40) ?? 0) !== 0 || (num(r, 41) ?? 0) !== 0) owner.wide = true;
   }
 
   #placeInsert(owner: InsertOwner): void {
@@ -1104,8 +1392,11 @@ class DxfReader {
       at: insert.at,
       scale: insert.scale,
     }));
-    if (this.#spaceName !== MODEL && space.inserts.length < this.#limits.census)
-      space.inserts.push(insert);
+    if (this.#spaceName !== MODEL && space.inserts.length < this.#limits.census) {
+      // Without geometry a read keeps no text, a color book's names among it.
+      const { colorBook: _book, ...kept } = insert;
+      space.inserts.push(this.#geometry ? insert : kept);
+    }
   }
 
   #closeOwner(): void {
@@ -1121,17 +1412,19 @@ class DxfReader {
     const r = owner.rec;
     const flags = num(r, 70) ?? 0;
     // 8 is a 3D polyline, 16 a mesh and 64 a face mesh.
-    if ((flags & (8 | 16 | 64)) !== 0 || owner.face === 0) add(target.other, "POLYLINE in 3D");
+    if (hidden(r)) add(target.other, "invisible");
+    else if ((flags & (8 | 16 | 64)) !== 0 || owner.face === 0) add(target.other, "POLYLINE in 3D");
     else if (owner.broken) add(this.unread.malformed, "POLYLINE with a number that is not finite");
-    else if (owner.arcs) add(target.other, "POLYLINE with arcs");
-    else if (owner.wide) add(target.other, "POLYLINE with widths");
     else if (owner.over) add(target.other, "past the limit");
     else {
+      const closed = (flags & 1) !== 0;
       this.#kept(target, {
         ...baseOf(r, name(r, 8) ?? "0", handleAt(r, 5)),
         kind: "polyline",
         points: owner.face === -1 ? owner.points.map((p) => placed(p, -1)) : owner.points,
-        closed: (flags & 1) !== 0,
+        closed,
+        ...sidesOf(owner.points.length, closed, owner.bulges, owner.widths, 0, owner.face),
+        ...((flags & 128) !== 0 && { linetypeGeneration: true }),
       });
     }
   }
@@ -1152,17 +1445,105 @@ class DxfReader {
           const value = r.values[i + 1]!;
           // An entry keys a map by the handle it holds, which is 1 to 16 hexadecimal digits.
           if (!/^[0-9A-Fa-f]{1,16}$/.test(value)) continue;
-          if (key === "ACAD_FIELD" || key === "TEXT") {
+          // The dictionary of table styles names each by its name, whatever the name is.
+          if (handle === this.#tableStyleDictionary) {
+            if (key.length <= LONGEST_NAME && this.#tableStyleEntries.length < this.#limits.census)
+              this.#tableStyleEntries.push([unescaped(key), value]);
+          } else if (key === "ACAD_FIELD" || key === "TEXT") {
             entries ??= {};
             entries[key] = value;
           } else if (key === "ACAD_MLEADERSTYLE") this.#leaderStyleDictionary ??= value;
-          else if (styles && key.length <= LONGEST_NAME && !this.leaderStyles.has(value)) {
+          else if (key === "ACAD_TABLESTYLE") this.#tableStyleDictionary ??= value;
+          else if (key === "ACAD_IMAGE_DICT") this.#imageDictionary ??= value;
+          else if (key === "ACAD_PDFDEFINITIONS") this.#underlayDictionary ??= value;
+          else if (handle === this.#variableDictionary && key === "PDFFRAME")
+            this.#pdfFrameVariable ??= value;
+          else if (
+            handle === this.#underlayDictionary &&
+            key.length <= LONGEST_NAME &&
+            this.#underlayEntries.length < this.#limits.census
+          )
+            this.#underlayEntries.push([unescaped(key), value]);
+          else if (key === "AcDbVariableDictionary") this.#variableDictionary ??= value;
+          else if (handle === this.#variableDictionary && key === "WIPEOUTFRAME")
+            this.#wipeoutFrameVariable ??= value;
+          else if (
+            handle === this.#imageDictionary &&
+            key.length <= LONGEST_NAME &&
+            this.#imageEntries.length < this.#limits.census
+          ) {
+            this.#imageEntries.push([unescaped(key), value]);
+          } else if (styles && key.length <= LONGEST_NAME && !this.leaderStyles.has(value)) {
             this.leaderStyles.set(value, unescaped(key));
           }
         }
         if (entries && this.dictionaries.size < 2 * this.#limits.census) {
           this.dictionaries.set(handle, entries);
         }
+        return;
+      }
+      case "DICTIONARYVAR": {
+        const handle = handleAt(r, 5);
+        const value = first(inSubclass(r, "DictionaryVariables"), 1);
+        if (handle === undefined || value === undefined) return;
+        if (this.#variables.size < this.#limits.census) this.#variables.set(handle, value);
+        return;
+      }
+      case "SORTENTSTABLE": {
+        // The block record it orders, the 330 after its subclass.
+        const table = inSubclass(r, "AcDbSortentsTable");
+        const at = table.codes.indexOf(330);
+        const named = at < 0 ? undefined : table.values[at]!.trim();
+        const owner = named !== undefined && HANDLE.test(named) ? named.toUpperCase() : undefined;
+        // One no block record of the file holds is not read, and counted, as readDWG counts it.
+        if (
+          owner === undefined ||
+          !(this.blockRecords.has(owner) || this.blockRecords.has(named!))
+        ) {
+          add(this.unread.objects, r.type);
+          return;
+        }
+        let entries = this.#sortTables.get(owner);
+        if (entries === undefined) {
+          if (this.#sortTables.size >= this.#limits.census) return;
+          this.#sortTables.set(owner, (entries = new Map()));
+        }
+        for (let i = 0; i + 1 < table.codes.length; i++) {
+          if (table.codes[i] !== 331 || table.codes[i + 1] !== 5) continue;
+          const [entity, sort] = [table.values[i]!.trim(), table.values[i + 1]!.trim()];
+          if (!HANDLE.test(entity) || !HANDLE.test(sort)) continue;
+          if (this.#sortEntries >= this.#limits.geometryItems) break;
+          this.#sortEntries++;
+          entries.set(entity.toUpperCase(), sort.toUpperCase());
+        }
+        return;
+      }
+      case "TABLESTYLE": {
+        const handle = handleAt(r, 5);
+        if (handle === undefined || this.#tableStyleObjects.size >= this.#limits.census) return;
+        const key = handle.toUpperCase();
+        if (!this.#tableStyleObjects.has(key)) this.#tableStyleObjects.set(key, tableStyleOf(r));
+        return;
+      }
+      case "IMAGEDEF": {
+        const handle = handleAt(r, 5);
+        if (handle === undefined || this.#imageDefinitions.size >= this.#limits.census) return;
+        const definition = inSubclass(r, "AcDbRasterImageDef");
+        this.#imageDefinitions.set(handle, {
+          path: name(definition, 1) ?? "",
+          pixels: [num(definition, 10) ?? 0, num(definition, 20) ?? 0],
+          loaded: (num(definition, 280) ?? 1) !== 0,
+        });
+        return;
+      }
+      case "PDFDEFINITION": {
+        const handle = handleAt(r, 5);
+        if (handle === undefined || this.#underlayDefinitions.size >= this.#limits.census) return;
+        const definition = inSubclass(r, "AcDbUnderlayDefinition");
+        this.#underlayDefinitions.set(handle, {
+          path: name(definition, 1) ?? "",
+          page: name(definition, 2) ?? "",
+        });
         return;
       }
       case "FIELD": {
@@ -1222,12 +1603,19 @@ class DxfReader {
       ["psltscale", "$PSLTSCALE"],
       ["msltscale", "$MSLTSCALE"],
       ["dimscale", "$DIMSCALE"],
+      ["pdmode", "$PDMODE"],
+      ["pdsize", "$PDSIZE"],
     ] as const) {
       const n = numberOf(key);
       if (n !== undefined) header[field] = n;
     }
     if (h.$DIMSTYLE !== undefined) header.dimstyle = unescaped(h.$DIMSTYLE);
     if (h.$TEXTSTYLE !== undefined) header.textstyle = unescaped(h.$TEXTSTYLE);
+    const frame =
+      this.#wipeoutFrameVariable === undefined
+        ? undefined
+        : Number(this.#variables.get(this.#wipeoutFrameVariable));
+    if (frame !== undefined && Number.isInteger(frame)) header.wipeoutFrame = frame;
 
     const layerNames = new Map<string, string>();
     for (const layer of this.layers) {
@@ -1237,12 +1625,22 @@ class DxfReader {
     for (const style of this.textStyles) {
       if (style.handle !== undefined) styleNames.set(style.handle, style.name);
     }
-    const dimensionStyles = this.dimensionStyles.map(({ textStyleHandle, ...style }) => {
-      const textStyle = textStyleHandle === undefined ? undefined : styleNames.get(textStyleHandle);
-      return textStyle === undefined ? style : { ...style, textStyle };
-    });
+    const dimensionStyles = this.dimensionStyles.map(
+      ({ textStyleHandle, arrowheadHandle, ...style }) => {
+        const textStyle =
+          textStyleHandle === undefined ? undefined : styleNames.get(textStyleHandle);
+        const arrowheadBlock =
+          arrowheadHandle === undefined ? undefined : this.blockRecords.get(arrowheadHandle);
+        return {
+          ...style,
+          ...(textStyle !== undefined && { textStyle }),
+          ...(arrowheadBlock !== undefined && arrowheadBlock !== "" && { arrowheadBlock }),
+        };
+      },
+    );
     this.#startsOfTexts();
     this.#leaderStyles(styleNames);
+    const tableStyles = this.#tableStyles();
     this.#blockHandles();
 
     // A file before the R2000 format (AC1015) has one paper space and no LAYOUT: the leading CAD
@@ -1263,6 +1661,31 @@ class DxfReader {
         ? ""
         : (this.blockRecords.get(draft.blockRecord) ?? "")
       ).toUpperCase();
+    // The handle of each block's record by its name in capitals, and the order of what a space
+    // or a block draws, when the file holds a sort table for it.
+    const recordOf = new Map<string, string>();
+    for (const [handle, recordName] of this.blockRecords) {
+      if (recordName.length <= LONGEST_NAME && !recordOf.has(recordName.toUpperCase()))
+        recordOf.set(recordName.toUpperCase(), handle.toUpperCase());
+    }
+    // A block's entities are read with geometry and without, and a space's with it alone.
+    const order = (
+      entities: readonly ReadEntity[] | undefined,
+      recordName: string,
+    ): readonly string[] | undefined => {
+      if (entities === undefined) return undefined;
+      const record = recordOf.get(recordName.toUpperCase());
+      const table = record === undefined ? undefined : this.#sortTables.get(record);
+      return table === undefined ? undefined : sortedOrder(entities, table);
+    };
+    /** A space's draw order as a field of its read, which a read without geometry leaves out. */
+    const ordered = (
+      entities: readonly ReadEntity[] | undefined,
+      recordName: string,
+    ): { drawOrder?: readonly string[] } => {
+      const sorted = this.#geometry ? order(entities, recordName) : undefined;
+      return sorted === undefined ? {} : { drawOrder: sorted };
+    };
     const layouts: ReadLayout[] = [];
     for (const draft of this.layouts.toSorted((a, b) => a.tab - b.tab)) {
       const recordName = spaceOf(draft);
@@ -1286,6 +1709,7 @@ class DxfReader {
           entities: space?.entities ?? [],
           other: space?.other ?? map<number>(),
         }),
+        ...ordered(space?.entities, recordName),
       });
     }
     // The first layout of each space, by the space's block in capitals.
@@ -1377,21 +1801,70 @@ class DxfReader {
     }
     if (this.#fieldsPast > 0) add(otherFields, "past the limit", this.#fieldsPast);
 
+    for (const image of this.#images) {
+      const definition =
+        image.definition === undefined ? undefined : this.#imageDefinitions.get(image.definition);
+      imageInWorld(image, definition?.path);
+    }
+    for (const underlay of this.#underlays) {
+      const definition =
+        underlay.definition === undefined
+          ? undefined
+          : this.#underlayDefinitions.get(underlay.definition);
+      underlayInWorld(underlay, definition);
+    }
+    const underlaysListed = new Set<string>();
+    const underlays: ReadUnderlayDefinition[] = [];
+    const listUnderlay = (handle: string, name: string): void => {
+      const definition = this.#underlayDefinitions.get(handle);
+      if (definition === undefined || underlaysListed.has(handle)) return;
+      underlaysListed.add(handle);
+      underlays.push({
+        handle,
+        name,
+        ...definition,
+        underlays: this.#underlayUses.get(handle) ?? 0,
+      });
+    };
+    for (const [name, handle] of this.#underlayEntries) listUnderlay(handle, name);
+    for (const handle of this.#underlayDefinitions.keys()) listUnderlay(handle, "");
+    const pdfFrame =
+      this.#pdfFrameVariable === undefined
+        ? undefined
+        : Number(this.#variables.get(this.#pdfFrameVariable));
+    // The dictionary's definitions in its order, then any it does not list.
+    const listed = new Set<string>();
+    const images: ReadImageDefinition[] = [];
+    const listDefinition = (handle: string, name: string): void => {
+      const definition = this.#imageDefinitions.get(handle);
+      if (definition === undefined || listed.has(handle)) return;
+      listed.add(handle);
+      images.push({ handle, name, ...definition, images: this.#imageUses.get(handle) ?? 0 });
+    };
+    for (const [name, handle] of this.#imageEntries) listDefinition(handle, name);
+    for (const handle of this.#imageDefinitions.keys()) listDefinition(handle, "");
+
     return {
       format: READ_FORMAT,
       sha256,
       bytes,
+      images,
+      underlays,
+      ...(pdfFrame === 0 ? { underlayFrame: false as const } : {}),
+      ...(pdfFrame === 2 ? { underlayFrame: "screen" as const } : {}),
+      tableStyles,
       ...(groups.version !== undefined && { version: groups.version }),
       ...(groups.codepage !== undefined && { codepage: groups.codepage }),
       encoding: groups.encoding,
       header: header as ReadHeader,
       layers: this.layers,
-      linetypes: this.linetypes,
+      linetypes: withMarks(this.linetypes, this.#marked, this.#stylesByHandle),
       textStyles: this.textStyles,
       dimensionStyles,
       blocks: this.blocks.map((draft): ReadBlock => {
         const { block: _, ...block } = draft;
-        return block;
+        const sorted = order(block.entities, block.name);
+        return sorted === undefined ? block : { ...block, drawOrder: sorted };
       }),
       xrefs: this.xrefs,
       model: {
@@ -1400,6 +1873,7 @@ class DxfReader {
           entities: model?.entities ?? [],
           other: model?.other ?? map<number>(),
         }),
+        ...ordered(model?.entities, MODEL),
       },
       layouts,
       fields,
@@ -1468,17 +1942,34 @@ class DxfReader {
   }
 
   /**
-   * Names each multileader's style and its note's style, which the file names by handle. The
-   * names are charged to the budget the leader was kept in, and a leader they do not fit is
-   * counted as past the limit and left out.
+   * Names each multileader's style, its note's style and its block, which the file names by
+   * handle, and keys its block's labels by the tags of the definitions they fill, which the blocks
+   * read hold. The names are charged to the budget the leader was kept in, and a leader they do
+   * not fit is counted as past the limit and left out.
    */
   #leaderStyles(styleNames: ReadonlyMap<string, string>): void {
     const left = new Set<ReadEntity>();
     const targets = new Set<Target>();
-    for (const { entity, style, textStyle, target } of this.#leaders) {
+    let tags: Map<string, string> | undefined;
+    for (const { entity, style, textStyle, block, target } of this.#leaders) {
       const named = style === undefined ? undefined : this.leaderStyles.get(style);
       const note = (textStyle === undefined ? undefined : styleNames.get(textStyle)) ?? "Standard";
-      const cost = nameCost(named) + nameCost(note) - nameCost(entity.textStyle);
+      const blockName = block === undefined ? "" : (this.blockRecords.get(block) ?? "");
+      let cost = nameCost(named) + nameCost(note) - nameCost(entity.textStyle);
+      if (entity.block) cost += nameCost(blockName) - nameCost(entity.block.name);
+      const held = entity.block?.attributes;
+      let attributes: Record<string, string> | undefined;
+      if (held) {
+        tags ??= this.#definitionTags();
+        for (const definition in held) {
+          const tag = tags.get(definition);
+          if (tag === undefined || tag.length > LONGEST_NAME || (attributes && tag in attributes))
+            continue;
+          attributes ??= map<string>();
+          attributes[tag] = held[definition]!;
+          cost += nameCost(tag) - nameCost(definition);
+        }
+      }
       if (target && cost > this.#room(target)) {
         add(target.other, "past the limit");
         left.add(entity);
@@ -1487,11 +1978,66 @@ class DxfReader {
       }
       if (target?.block) this.#blockItems += cost;
       else if (target) this.#geometryItems += cost;
-      const mutable = entity as { style?: string; textStyle: string };
+      const mutable = entity as { style?: string; textStyle: string; block?: object };
       if (named !== undefined) mutable.style = named;
       mutable.textStyle = note;
+      if (entity.block) {
+        const { attributes: _, ...rest } = entity.block;
+        mutable.block = { ...rest, name: blockName, ...(attributes && { attributes }) };
+      }
     }
     for (const target of targets) target.entities = target.entities.filter((e) => !left.has(e));
+  }
+
+  /**
+   * The table styles the dictionary of them names, in its order, and the style of each table and
+   * whether its first rows are a title and a header, from its style and its own groups. A style's
+   * name is charged to the budget its table was kept in, and a table it does not fit is counted as
+   * past the limit and left out.
+   */
+  #tableStyles(): ReadTableStyle[] {
+    const styles: ReadTableStyle[] = [];
+    const named = new Map<string, { readonly name: string; readonly held: TableStyleHeld }>();
+    for (const [styleName, handle] of this.#tableStyleEntries) {
+      const key = handle.toUpperCase();
+      const held = this.#tableStyleObjects.get(key);
+      if (held === undefined || named.has(key)) continue;
+      named.set(key, { name: styleName, held });
+      styles.push({ handle, name: styleName, ...held.style });
+    }
+    const left = new Set<ReadEntity>();
+    const targets = new Set<Target>();
+    for (const { entity, target, style, noTitle, noHeader } of this.#tables) {
+      const found = style === undefined ? undefined : named.get(style.toUpperCase());
+      const cost = nameCost(found?.name);
+      if (cost > this.#room(target)) {
+        add(target.other, "past the limit");
+        left.add(entity);
+        targets.add(target);
+        continue;
+      }
+      if (target.block) this.#blockItems += cost;
+      else this.#geometryItems += cost;
+      const rows = entity.rows.length;
+      const title = !(noTitle ?? found?.held.noTitle ?? false) && rows > 0;
+      const header = !(noHeader ?? found?.held.noHeader ?? false) && rows > (title ? 1 : 0);
+      const mutable = entity as { style?: string; title: boolean; header: boolean };
+      if (found !== undefined) mutable.style = found.name;
+      mutable.title = title;
+      mutable.header = header;
+    }
+    for (const target of targets) target.entities = target.entities.filter((e) => !left.has(e));
+    return styles;
+  }
+
+  /** The tag of each attribute definition the blocks read hold, by its handle in capitals. */
+  #definitionTags(): Map<string, string> {
+    const tags = new Map<string, string>();
+    for (const block of this.blocks)
+      for (const { handle, tag } of block.attributeDefinitions)
+        if (handle !== undefined && !tags.has(handle.toUpperCase()))
+          tags.set(handle.toUpperCase(), tag);
+    return tags;
   }
 
   /** Gives each insert and dimension the handle of its block's record, found as the leading CAD app finds it. */
@@ -1505,7 +2051,16 @@ class DxfReader {
     if (records.size === 0) return;
     const named = (entities: readonly ReadEntity[]): void => {
       for (const entity of entities) {
-        if (entity.kind !== "insert" && entity.kind !== "dimension") continue;
+        if (
+          entity.kind !== "insert" &&
+          entity.kind !== "dimension" &&
+          entity.kind !== "radial-dimension" &&
+          entity.kind !== "angular-dimension" &&
+          entity.kind !== "arc-length-dimension" &&
+          entity.kind !== "ordinate-dimension" &&
+          !(entity.kind === "table" && entity.blockHandle === undefined)
+        )
+          continue;
         const block = entity.block;
         if (block === undefined || block.length > LONGEST_NAME) continue;
         const handle = records.get(layerKey(block));
@@ -1610,4 +2165,64 @@ function fieldKind(code: string): string | undefined {
 function kept(code: string): boolean {
   if (/^\s*\\AcVar\s+(Filename|ctab|Date)\b/i.test(code)) return true;
   return /^\s*\\AcDiesel\b/i.test(code) && /\bctab\b/i.test(code);
+}
+
+/** A linetype's mark as its groups give it, before the styles' table names its style. */
+interface PendingMark {
+  readonly after: number;
+  readonly flags: number;
+  readonly values: Map<number, string>;
+}
+
+/** What a linetype's text height is multiplied by: a style's fixed height, or 1 for none. */
+const fixed = (height: number): number => (Number.isFinite(height) && height > 0 ? height : 1);
+
+/** A handle as a key: its digits in capitals. */
+const normalHandle = (handle: string): string => handle.trim().toUpperCase();
+
+/** The groups of a mark after its 74: shape number, style, scale, rotation, offsets, text. */
+const MARK_CODES = new Set([75, 340, 46, 50, 44, 45, 9]);
+
+/**
+ * The linetypes with their marks, each text's style and each shape's file named from the style
+ * its handle finds. A mark whose numbers are not finite, or whose style is not found, is left out.
+ * A text is as high as its style's fixed height times its own, as the leading CAD app draws it.
+ */
+function withMarks(
+  linetypes: readonly ReadLinetype[],
+  marked: readonly (readonly [number, readonly PendingMark[]])[],
+  styles: ReadonlyMap<string, { name: string; file: string; height: number }>,
+): ReadLinetype[] {
+  const out = [...linetypes];
+  for (const [index, pending] of marked) {
+    const marks: ReadLinetypeMark[] = [];
+    for (const m of pending) {
+      const number = (code: number, fallback: number): number => {
+        const v = m.values.get(code);
+        return v === undefined ? fallback : Number(v);
+      };
+      const [size, rotation, x, y] = [number(46, 1), number(50, 0), number(44, 0), number(45, 0)];
+      if (![size, rotation, x, y].every(Number.isFinite)) continue;
+      const style = styles.get(normalHandle(m.values.get(340) ?? ""));
+      if (style === undefined) continue;
+      const orient: "absolute" | "upright" | undefined =
+        (m.flags & 1) !== 0 ? "absolute" : (m.flags & 8) !== 0 ? "upright" : undefined;
+      const common = {
+        after: m.after,
+        ...(rotation !== 0 && { rotation }),
+        ...(orient !== undefined && { orient }),
+        ...((x !== 0 || y !== 0) && { offset: [x, y] as const }),
+      };
+      if ((m.flags & 2) !== 0) {
+        const text = unescaped(m.values.get(9) ?? "");
+        marks.push({ ...common, text, style: style.name, height: size * fixed(style.height) });
+      } else {
+        const shape = number(75, 0);
+        if (!Number.isInteger(shape)) continue;
+        marks.push({ ...common, shape, file: style.file, scale: size });
+      }
+    }
+    if (marks.length > 0) out[index] = { ...out[index]!, marks };
+  }
+  return out;
 }

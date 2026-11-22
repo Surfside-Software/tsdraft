@@ -9,10 +9,19 @@ import {
   type LayerRef,
   type Matrix,
   type Referenced,
+  type XrefDrawings,
 } from "./blocks.ts";
 import { callOf, type CallSite } from "./callsite.ts";
-import { dimensionPicture } from "./dimensions.ts";
+import { dimensionPicture, pictureTexts, isDimension } from "./dimensions.ts";
 import { leaderPicture, leaderRepeats } from "./leaders.ts";
+import { boxer, type Boxer } from "./extents.ts";
+import {
+  tableCost,
+  tableMeasures,
+  tableParagraph,
+  tablePicture,
+  type TablePicture,
+} from "./tables.ts";
 import type {
   Block,
   Drawing,
@@ -20,15 +29,22 @@ import type {
   Insert,
   Leader,
   LeaderStyle,
+  Paragraph,
   Point,
-  Text,
+  Table,
   TextStyle,
 } from "./drawing.ts";
 import { written } from "./format.ts";
 import { layerKey } from "./layers.ts";
 import { inStyle, measurer } from "./measure.ts";
+import {
+  layoutDimensionText,
+  measured,
+  paragraphInStyle,
+  paragraphMeasurer,
+} from "./paragraphs.ts";
 import { paperInfo } from "./papers.ts";
-import { shown } from "./rules.ts";
+import { shown, tableProblem } from "./rules.ts";
 import { filled, Strings } from "./shape.ts";
 import { visibility } from "./svg.ts";
 
@@ -72,8 +88,11 @@ export interface TextWarning extends Partial<TextOccurrence> {
 export interface InspectOptions {
   /** Counts the layers whose `plot` is false too, as `toSVG` draws them with the same option. */
   readonly drawNoPlot?: boolean;
-  /** The drawing each xref stands for, by the xref's name, as `toSVG` takes them. */
-  readonly xrefs?: Readonly<Record<string, Drawing>>;
+  /**
+   * The drawing each xref stands for, by the xref's name, as `toSVG` takes them. The texts of the
+   * drawings given for the drawing's own xrefs are checked, and not those of their attachments.
+   */
+  readonly xrefs?: XrefDrawings;
 }
 
 /** How far a text may reach into another, or past an outline, as a share of its height. */
@@ -184,6 +203,9 @@ export function inspectWithin(
   };
   const walk = (cost: number): boolean => spend(cost * WALKED);
   const { measure, again: readAgain } = measurer();
+  const paragraphs = paragraphMeasurer();
+  /** The paragraphs, and the layouts of long values, whose lines a place has read. */
+  const expanded = new WeakSet<object>();
   /**
    * Whether each value of `LONG` characters or more holds only spaces, read once. One that took
    * the place of another, as `Strings` keeps them, is read again and paid for by its length,
@@ -228,38 +250,77 @@ export function inspectWithin(
   const repeats = leaderRepeats();
   const notes = new WeakMap<
     Leader,
-    { style: LeaderStyle; textStyle: TextStyle | undefined; texts: Text[]; cost: number }
+    { style: LeaderStyle; textStyle: TextStyle | undefined; texts: Paragraph[]; cost: number }
   >();
-  const noteOf = (
-    leader: Leader,
-    style: LeaderStyle,
-    named: string | undefined,
-    textStyle: TextStyle | undefined,
-  ) => {
+  /** The box of each block a table's cell holds, by its drawing, boxed once for the call. */
+  const blockBoxes = new Map<
+    Drawing,
+    {
+      readonly box: Boxer;
+      readonly known: Map<string, readonly [number, number, number, number] | undefined>;
+    }
+  >();
+  const blockBoxOf = (
+    of: Drawing,
+    name: string,
+  ): readonly [number, number, number, number] | undefined => {
+    let held = blockBoxes.get(of);
+    if (!held) {
+      held = {
+        box: boxer(
+          of.textStyles,
+          of.blocks,
+          undefined,
+          undefined,
+          undefined,
+          of.dimensionStyles,
+          of.leaderStyles,
+        ),
+        known: new Map(),
+      };
+      blockBoxes.set(of, held);
+    }
+    const k = key(name);
+    if (held.known.has(k)) return held.known.get(k);
+    const found = held.box([{ kind: "insert", layer: "0", block: name, at: [0, 0] }]);
+    held.known.set(k, found);
+    return found;
+  };
+  /** The picture of each table, worked out once, with each cell paid for as it is read. */
+  const tablePictures = new WeakMap<Table, TablePicture | undefined>();
+  const tableOf = (table: Table, from: Referenced | undefined): TablePicture | undefined => {
+    if (tablePictures.has(table)) return tablePictures.get(table);
+    tablePictures.set(table, undefined);
+    // Its cells are paid for before they are read. A table or a style the rules refuse draws
+    // nothing, and is not read.
+    if (typeof table.style !== "string" || !walk(tableCost(table))) return undefined;
+    const tables = tablesOf(from);
+    const style = tables.tableStyles.get(key(table.style));
+    if (style === undefined || tableProblem(table) !== undefined) return undefined;
+    const drawingOf = from?.drawing ?? drawing;
+    const picture = tablePicture(
+      table,
+      style,
+      tableMeasures(
+        (name) => (name === undefined ? undefined : tables.textStyles.get(key(name))),
+        (name) => blockBoxOf(drawingOf, name),
+      ),
+    );
+    tablePictures.set(table, picture);
+    return picture;
+  };
+  /** A leader's note, as the paragraph it is laid out as, where its picture holds it. */
+  const noteOf = (leader: Leader, style: LeaderStyle, textStyle: TextStyle | undefined) => {
     const known = notes.get(leader);
     if (known?.style === style && known.textStyle === textStyle) return known;
-    const texts: Text[] = [];
     // A leader that shares its shafts or its note with another is read again, and paid for.
     const again = repeats(leader);
-    if (again > 0 && !walk(again)) return { style, textStyle, texts, cost: 0 };
-    let characters = 0;
-    for (const line of leaderPicture(leader, style, textStyle).lines) {
-      if (line.value.trim() === "") continue;
-      characters += line.value.length;
-      texts.push({
-        kind: "text",
-        layer: leader.layer,
-        at: line.at,
-        height: line.height,
-        value: line.value,
-        rotation: 0,
-        ...(line.align === "right" ? { align: "right" as const } : {}),
-        ...(named === undefined ? {} : { style: named }),
-      });
-    }
-    const note = { style, textStyle, texts, cost: Math.floor((texts.length + characters) / 32) };
-    notes.set(leader, note);
-    return note;
+    if (again > 0 && !walk(again)) return { style, textStyle, texts: [], cost: 0 };
+    const note = leaderPicture(leader, style, textStyle).note;
+    const texts = note.value.trim() === "" ? [] : [note];
+    const result = { style, textStyle, texts, cost: Math.floor(note.value.length / 32) };
+    notes.set(leader, result);
+    return result;
   };
 
   const space = (entities: readonly Entity[], layout?: string, paper?: Box): void => {
@@ -272,47 +333,11 @@ export function inspectWithin(
       matrix?: Matrix,
       from?: Referenced,
       attribute?: string,
+      made?: boolean,
     ): void => {
       const { id, layer } = entities[index]!;
       const place = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
-      if (drawn.kind === "leader") {
-        // Each line of a leader's note is a text where its picture puts it.
-        const tables = tablesOf(from);
-        const style = tables.leaderStyles.get(key(drawn.style));
-        if (style === undefined) return;
-        const named = drawn.textStyle ?? style.textStyle;
-        const textStyle = named === undefined ? undefined : tables.textStyles.get(key(named));
-        const note = noteOf(drawn, style, named, textStyle);
-        // The note is read again for each place it is drawn.
-        if (!walk(note.cost)) return;
-        for (const text of note.texts) keep(text, index, matrix, from, attribute);
-        return;
-      }
-      if (drawn.kind === "linear-dimension" || drawn.kind === "aligned-dimension") {
-        // A dimension's text is a text where its picture puts it.
-        const style = tablesOf(from).dimensionStyles.get(key(drawn.style));
-        if (style === undefined) return;
-        // Its style's prefix and suffix are read for each dimension that has the style.
-        const reads =
-          (style.prefix?.length ?? 0) + (style.suffix?.length ?? 0) + (drawn.text?.length ?? 0);
-        if (!walk(Math.floor(reads / 32))) return;
-        const { label } = dimensionPicture(drawn, style);
-        const text: Text = {
-          kind: "text",
-          layer: drawn.layer,
-          at: label.at,
-          height: label.height,
-          value: label.value,
-          rotation: label.rotation,
-          align: "center",
-          ...(label.style === undefined ? {} : { style: label.style }),
-        };
-        if (text.value.trim() !== "") keep(text, index, matrix, from, attribute);
-        return;
-      }
-      if (drawn.kind === "text") {
-        const style = styleOf(drawn, from);
-        const { corners } = measure(inStyle(drawn, style));
+      const keepText = (value: string, corners: readonly Point[], anchor?: () => Point): void => {
         const placed = matrix ? corners.map(place) : corners;
         const inner = innerBox(placed);
         if (!inner) return;
@@ -321,13 +346,82 @@ export function inspectWithin(
           attribute,
           id,
           layer,
-          value: drawn.value,
-          at: place(drawn.at),
+          value,
+          at: anchor ? anchor() : placed[0]!,
           corners: placed,
           inner: inner.corners,
           height: inner.height,
           box: boxOf(placed),
         });
+      };
+      if (drawn.kind === "leader") {
+        // Each line of a leader's note is a text where its picture puts it.
+        const tables = tablesOf(from);
+        const style = tables.leaderStyles.get(key(drawn.style));
+        if (style === undefined) return;
+        const named = drawn.textStyle ?? style.textStyle;
+        const textStyle = named === undefined ? undefined : tables.textStyles.get(key(named));
+        const note = noteOf(drawn, style, textStyle);
+        // The note is read again for each place it is drawn.
+        if (!walk(note.cost)) return;
+        for (const text of note.texts) keep(text, index, matrix, from, attribute);
+        return;
+      }
+      if (drawn.kind === "table") {
+        // Each cell's text is a paragraph where the table's picture puts it.
+        const picture = tableOf(drawn, from);
+        if (picture === undefined) return;
+        for (const text of picture.texts)
+          keep(tableParagraph(drawn, text), index, matrix, from, attribute);
+        return;
+      }
+      if (isDimension(drawn)) {
+        // A dimension's text is a text where its picture puts it.
+        const style = tablesOf(from).dimensionStyles.get(key(drawn.style));
+        if (style === undefined) return;
+        // Its style's prefix and suffix are read for each dimension that has the style.
+        const reads =
+          (style.prefix?.length ?? 0) +
+          (style.suffix?.length ?? 0) +
+          (drawn.text?.length ?? 0) +
+          (drawn.textBelow?.length ?? 0);
+        if (!walk(Math.floor(reads / 32))) return;
+        const tables = tablesOf(from);
+        const font =
+          style.textStyle === undefined ? undefined : tables.textStyles.get(key(style.textStyle));
+        // Each line of its texts is a text where its block's paragraph lays it out.
+        for (const text of pictureTexts(dimensionPicture(drawn, style, font), font)) {
+          for (const line of measured(text, layoutDimensionText(text)).lines) {
+            if (line.value.trim() === "") continue;
+            keepText(line.value, line.corners);
+          }
+        }
+        return;
+      }
+      if (drawn.kind === "paragraph") {
+        // Each line of a paragraph that draws a character is a text where its layout puts it.
+        // Only the first place of a paragraph, of a value not laid out before, is free. Any other
+        // pays first: by its value's length to lay a long value out again, and by its lines to
+        // read them again.
+        const paragraph = paragraphInStyle(drawn, styleOf(drawn, from));
+        // A value the drawing does not hold, as an uneven insert makes of an attribute, is no
+        // first place of anything.
+        const again = made ? paragraphs.made(paragraph) : paragraphs.again(paragraph);
+        if (again > 0 && !spend(again)) return;
+        const layout = paragraphs.layout(paragraph);
+        const repeated = again > 0 || made === true || expanded.has(drawn) || expanded.has(layout);
+        expanded.add(drawn);
+        expanded.add(layout);
+        if (repeated && !walk(layout.lines.length)) return;
+        for (const line of measured(paragraph, layout).lines) {
+          keepText(line.value, line.corners);
+        }
+        return;
+      }
+      if (drawn.kind === "text") {
+        const style = styleOf(drawn, from);
+        const { corners } = measure(inStyle(drawn, style));
+        keepText(drawn.value, corners, () => place(drawn.at));
       } else if (drawn.kind === "polyline") {
         if (matrix && !spend(Math.floor(drawn.points.length / 8))) return;
         const long = !matrix && drawn.points.length >= LONG;
@@ -342,11 +436,11 @@ export function inspectWithin(
       }
     };
     const wanted = (e: Exclude<Entity, Insert>): boolean =>
-      e.kind === "text"
+      e.kind === "text" || e.kind === "paragraph"
         ? !blank(e.value)
-        : e.kind === "linear-dimension" ||
-          e.kind === "aligned-dimension" ||
+        : isDimension(e) ||
           e.kind === "leader" ||
+          e.kind === "table" ||
           (e.kind === "polyline" && e.closed && Array.isArray(e.points) && e.points.length > 2);
     const where = layout === undefined ? "model space" : `layout ${shown(layout)}`;
     filled(entities).forEach((entity, index) => {
@@ -356,7 +450,8 @@ export function inspectWithin(
       at.index = index;
       at.space = where;
       // Most entities are no insert, and are looked at without the walk an insert needs. A long
-      // value that took the place of another of its length is read again, and paid for.
+      // text that took the place of another of its length is read again, and paid for; `keep`
+      // pays for a paragraph's.
       if (entity.kind !== "insert") {
         const value: unknown = entity.kind === "text" ? entity.value : undefined;
         if (typeof value === "string" && value.length >= LONG && readAgain(value)) {
@@ -381,9 +476,14 @@ export function inspectWithin(
         frozen,
         (drawn, placement) => {
           // A text is read for each place it is drawn, blank or not, so it is paid for first.
-          if (drawn.kind === "text" && !step(Math.floor(drawn.value.length / 32))) return;
+          if (
+            (drawn.kind === "text" || drawn.kind === "paragraph") &&
+            !step(Math.floor(drawn.value.length / 32))
+          ) {
+            return;
+          }
           if (!wanted(drawn) || hidden(placement.layer)) return;
-          keep(drawn, index, placement.matrix, placement.from, placement.attribute);
+          keep(drawn, index, placement.matrix, placement.from, placement.attribute, placement.made);
         },
         xrefs,
         step,
@@ -544,12 +644,19 @@ function looked(
   const kept = (e: Exclude<Entity, Insert>): boolean => {
     switch (e.kind) {
       case "text":
+      case "paragraph":
         // A value that is not a string is left for the walk to read as it did.
         return typeof e.value !== "string" || !blank(e.value);
       case "polyline":
         return Boolean(e.closed) && Array.isArray(e.points) && e.points.length > 2;
       case "linear-dimension":
       case "aligned-dimension":
+      case "radius-dimension":
+      case "diameter-dimension":
+      case "jogged-radius-dimension":
+      case "angular-dimension":
+      case "arc-length-dimension":
+      case "ordinate-dimension":
       case "leader":
         return true;
       default:
@@ -675,7 +782,8 @@ function looked(
     }
     return out;
   };
-  // An xref's model space, read once for each drawing given, and walked without xrefs of its own.
+  // An xref's model space, read once for each drawing given, and walked without xrefs of its own:
+  // the checks read the drawings given for the drawing's own xrefs, and none they attach.
   const done = new Map<Drawing, Referenced | undefined>();
   const outXrefs = new Map<string, Referenced>();
   for (const [key, xref] of xrefs) {
@@ -685,6 +793,7 @@ function looked(
         name: xref.name,
         drawing: { ...xref.drawing, entities },
         blocks: xref.blocks,
+        xrefs: new Map(),
       };
       const inner = settle(xref.blocks, of, () => false);
       const space = read(xref.drawing.entities, of);
@@ -706,7 +815,9 @@ function looked(
 function characters(entities: readonly Entity[]): number {
   let steps = 0;
   for (const e of entities) {
-    if (e?.kind === "text" && typeof e.value === "string") steps += Math.floor(e.value.length / 32);
+    if ((e?.kind === "text" || e?.kind === "paragraph") && typeof e.value === "string") {
+      steps += Math.floor(e.value.length / 32);
+    }
   }
   return steps;
 }

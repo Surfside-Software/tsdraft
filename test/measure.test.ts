@@ -9,6 +9,7 @@ import {
   type Point,
 } from "../src/index.ts";
 import { extents } from "../src/extents.ts";
+import { fontInfo } from "../src/fonts.ts";
 
 const near = (a: number, b: number): boolean => Math.abs(a - b) < 1e-9;
 const same = (corners: readonly Point[], expected: readonly Point[]): void => {
@@ -21,13 +22,29 @@ const same = (corners: readonly Point[], expected: readonly Point[]): void => {
 test("the width table holds every font, with a number for each character of its ranges", () => {
   assert.deepEqual(Object.keys(FONT_METRICS), Object.keys(FONTS));
   const count = FONT_METRICS_RANGES.reduce((sum, [first, last]) => sum + last - first + 1, 0);
-  assert.equal(count, 191);
+  assert.equal(count, 192);
   for (const [font, metrics] of Object.entries(FONT_METRICS)) {
-    for (const table of [metrics.advances, metrics.tails, metrics.heads]) {
+    const { bold } = metrics;
+    for (const table of [
+      metrics.advances,
+      metrics.tails,
+      metrics.heads,
+      metrics.lefts,
+      metrics.rights,
+      metrics.tops,
+      metrics.bottoms,
+      ...(bold ? [bold.advances, bold.lefts, bold.rights, bold.tops, bold.bottoms] : []),
+    ]) {
       assert.equal(table.length, count, font);
       assert.ok(table.every(Number.isFinite), font);
     }
     assert.ok(metrics.below > 0 && metrics.below < 1, font);
+    assert.ok(metrics.afterStack > 0 && metrics.afterStack < 1, font);
+    // A line of paragraph text rises at least a height above its baseline and its box never
+    // ends above the baseline.
+    assert.ok(metrics.tops.every((top) => top >= 1) && metrics.bottoms.every((b) => b <= 0), font);
+    // Only a TrueType font has a bold face.
+    assert.equal(bold !== undefined, fontInfo(font)?.pitchAndFamily !== undefined, font);
   }
 });
 
@@ -132,6 +149,12 @@ test("a text's box is turned about its point and leans with its oblique angle", 
     [13 + 2 * long, 23],
     [13, 23],
   ]);
+  // It is turned by its rotation as written: one under a millionth of a degree is no turn.
+  const tall = { value: "HHHH", height: 1e9, font: "Arial" } as const;
+  assert.deepEqual(
+    measureText({ ...tall, rotation: 4e-7 }).corners,
+    measureText({ ...tall, rotation: 0 }).corners,
+  );
 });
 
 test("the extents hold a text's box and what its font draws below the baseline", () => {

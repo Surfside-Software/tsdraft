@@ -11,15 +11,7 @@ import {
   type Drawing,
 } from "../src/index.ts";
 
-/** Parses DXF text into [code, value] pairs. */
-function pairs(dxf: string): [number, string][] {
-  const lines = dxf.split("\r\n");
-  assert.equal(lines.pop(), "", "DXF ends with CRLF");
-  assert.equal(lines.length % 2, 0, "DXF has whole group-code pairs");
-  const out: [number, string][] = [];
-  for (let i = 0; i < lines.length; i += 2) out.push([Number(lines[i]), lines[i + 1] ?? ""]);
-  return out;
-}
+import { pairs } from "./dxf-groups.ts";
 
 function sample() {
   const b = createDrawing({ units: "ft", dxf: "R12" });
@@ -58,7 +50,9 @@ test("SVG flips Y, escapes text and colors by layer", () => {
 
 test("empty drawing still exports", () => {
   const d = createDrawing().build();
-  assert.deepEqual(pairs(toDXF(d)).at(-1), [0, "EOF"]);
+  const groups = pairs(toDXF(d));
+  assert.deepEqual(groups.at(-1), [0, "EOF"]);
+  assert.ok(groups.some(([code, value]) => code === 1 && value === "AC1032"));
   assert.match(toSVG(d), /^<svg /);
 });
 
@@ -69,6 +63,8 @@ test("R2018 DXF has AC1032 sections, units and valid handles", () => {
 
   assert.deepEqual(p.at(-1), [0, "EOF"]);
   assert.equal(after("$ACADVER"), "AC1032");
+  const xedit = p.findIndex(([code, name]) => code === 9 && name === "$XEDIT");
+  assert.deepEqual(p[xedit + 1], [290, "0"]);
   assert.equal(after("$INSUNITS"), "2", "feet");
   assert.equal(after("$MEASUREMENT"), "0", "imperial");
   const sections = p.flatMap(([c, v], i) => (c === 0 && v === "SECTION" ? [p[i + 1]?.[1]] : []));
@@ -115,19 +111,11 @@ test("R2018 DXF records metric units and keeps UTF-8 text", () => {
   assert.match(dxf, /\$INSUNITS\r\n70\r\n4\r\n/);
   assert.match(dxf, /\$MEASUREMENT\r\n70\r\n1\r\n/);
   assert.match(dxf, /\r\nØ 25 – café\r\n/);
-  assert.deepEqual(pairs(toDXF(createDrawing().build(), { version: "R2018" })).at(-1), [0, "EOF"]);
 });
 
 test("toDXF rejects unknown versions", () => {
   // @ts-expect-error: checks the runtime guard for JavaScript callers.
   assert.throws(() => toDXF(sample(), { version: "R14" }), /Unsupported DXF version/);
-});
-
-test("text is escaped for each DXF version", () => {
-  const b = createDrawing({ dxf: "R12" }).text([0, 0], "Ø 25 – café x^2");
-  // R12 predates Unicode DXF. The leading CAD app discards a drawing with a bare caret in either version.
-  assert.match(toDXF(b.build()), /\r\n\\U\+00D8 25 \\U\+2013 caf\\U\+00E9 x\^ 2\r\n/);
-  assert.match(toDXF(b.build(), { version: "R2018" }), /\r\nØ 25 – café x\^ 2\r\n/);
 });
 
 test("toDXF writes the version the drawing was created for, R2018 unless it names R12", () => {
@@ -138,10 +126,16 @@ test("toDXF writes the version the drawing was created for, R2018 unless it name
 });
 
 test("an R2018 drawing has $XEDIT 0, and an R12 drawing does not state it", () => {
-  const dxf = (version: "R12" | "R2018"): string =>
-    toDXF(createDrawing({ units: "ft", dxf: version }).build());
+  const dxf = (version: "R12" | "R2018"): string => toDXF(createDrawing({ dxf: version }).build());
   assert.match(dxf("R2018"), /\r\n9\r\n\$XEDIT\r\n290\r\n0\r\n/);
   assert.doesNotMatch(dxf("R12"), /XEDIT/);
+});
+
+test("text is escaped for each DXF version", () => {
+  const b = createDrawing({ dxf: "R12" }).text([0, 0], "Ø 25 – café x^2");
+  // R12 predates Unicode DXF. The leading CAD app discards a drawing with a bare caret in either version.
+  assert.match(toDXF(b.build()), /\r\n\\U\+00D8 25 \\U\+2013 caf\\U\+00E9 x\^ 2\r\n/);
+  assert.match(toDXF(b.build(), { version: "R2018" }), /\r\nØ 25 – café x\^ 2\r\n/);
 });
 
 test("text that looks like a DXF escape is written so the leading CAD app keeps it", () => {

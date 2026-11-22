@@ -15,7 +15,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { deflateSync } from "node:zlib";
 import { after, test } from "node:test";
+import { inScratch } from "./scratch.ts";
 import { BUILT_IN_STANDARD, pdfFace } from "tsdraft";
 import { faces } from "../src/fonts.ts";
 import type { BuildState } from "../src/state.ts";
@@ -140,13 +142,10 @@ export default createDrawing().line([0, 0], [1, 1], { lineweight: weight as 0.5 
 test("a build that fails leaves no picture from an earlier run in the default folder", () => {
   const dir = realpathSync(tempDir());
   const plan = join(dir, "plan.ts");
-  writeFileSync(
-    plan,
-    `export default { format: 0, units: "ft", dxf: "R2018", layers: [{ name: "0", color: 7 }],
-  entities: [{ kind: "line", layer: "0", from: [0, 0], to: [1, 0] }] };\n`,
-  );
-  const { outputs } = render(plan).state;
-  assert.deepEqual([existsSync(outputs.svg!), existsSync(outputs.png!)], [true, true]);
+  const out = join(dir, "out");
+  mkdirSync(out);
+  const stale = ["plan.svg", "plan.png"].map((name) => join(out, name));
+  for (const path of stale) writeFileSync(path, "stale");
   // In a folder the user named, a picture this run did not write may be theirs, and stays.
   const theirs = join(dir, "kept");
   mkdirSync(theirs);
@@ -164,7 +163,10 @@ test("a build that fails leaves no picture from an earlier run in the default fo
     pdf: null,
     pdfError: null,
   });
-  assert.deepEqual([existsSync(outputs.svg!), existsSync(outputs.png!)], [false, false]);
+  assert.deepEqual(
+    stale.map((path) => existsSync(path)),
+    [false, false],
+  );
 });
 
 test("the state says which blocks a drawing has and where each is inserted", () => {
@@ -303,9 +305,33 @@ test("the state lists each xref, and the pictures draw the ones the file gives a
   const { state } = render(plan);
   assert.equal(state.drawing?.counts.xrefs, 3);
   assert.deepEqual(state.drawing?.xrefs, [
-    { name: "BASE", path: "../civil/base.dwg", inserts: 2, shown: true, units: "ft" },
-    { name: "SURVEY", path: "survey.dwg", inserts: 1, shown: false, units: null },
-    { name: "SPARE", path: "spare.dwg", inserts: 0, shown: false, units: null },
+    {
+      name: "BASE",
+      path: "../civil/base.dwg",
+      attach: false,
+      inserts: 2,
+      shown: true,
+      units: "ft",
+      xrefs: [],
+    },
+    {
+      name: "SURVEY",
+      path: "survey.dwg",
+      attach: false,
+      inserts: 1,
+      shown: false,
+      units: null,
+      xrefs: [],
+    },
+    {
+      name: "SPARE",
+      path: "spare.dwg",
+      attach: false,
+      inserts: 0,
+      shown: false,
+      units: null,
+      xrefs: [],
+    },
   ]);
   assert.deepEqual(
     state.drawing?.inserts.map((i) => [i.block, i.xref]),
@@ -389,6 +415,123 @@ test("the state lists each xref, and the pictures draw the ones the file gives a
 
   file("export const xrefs = { BASE: 5 };");
   assert.match(render(plan).state.error!.message, /The export `xrefs` must be an object/);
+  file("export const xrefs = { BASE: { drawing: 5 } };");
+  assert.match(render(plan).state.error!.message, /Its "BASE" is not a Drawing$/);
+});
+
+test("the pictures draw an attachment inside a drawing the file gives with its xrefs, and no overlay there", () => {
+  const dir = realpathSync(tempDir());
+  const drawing = (layer: string, entities: unknown[], xrefs?: unknown[]) => ({
+    format: 0,
+    units: "ft",
+    dxf: "R2018",
+    layers: [
+      { name: "0", color: 7 },
+      { name: layer, color: 1 },
+    ],
+    entities,
+    ...(xrefs ? { xrefs } : {}),
+  });
+  const line = (layer: string) => ({ kind: "line", layer, from: [0, 0], to: [1, 0] });
+  const insert = (block: string, x: number) => ({ kind: "insert", layer: "0", block, at: [x, 0] });
+  const detail = drawing("D", [line("D")]);
+  const survey = drawing("S", [line("S")]);
+  const model = drawing(
+    "M",
+    [line("M"), insert("DETAIL", 10), insert("SURVEY", 20)],
+    [
+      { name: "DETAIL", path: "detail.dwg", attach: true },
+      { name: "SURVEY", path: "survey.dwg" },
+    ],
+  );
+  const sheet = drawing("X", [insert("MODEL", 100)], [{ name: "MODEL", path: "model.dwg" }]);
+  const plan = join(dir, "plan.ts");
+  const file = (detailGiven: unknown): void =>
+    writeFileSync(
+      plan,
+      `export const xrefs = { MODEL: { drawing: ${JSON.stringify(model)}, xrefs: { DETAIL: ${JSON.stringify(detailGiven)}, SURVEY: ${JSON.stringify(survey)} } } };\nexport default ${JSON.stringify(sheet)};\n`,
+    );
+  file(detail);
+  const { state, status } = render(plan, "--out", dir);
+  assert.equal(status, 0);
+  const svg = readFileSync(state.outputs.svg!, "utf8");
+  assert.match(svg, /<line x1="110" y1="0" x2="111" y2="0" [^>]*data-layer="DETAIL\|D"\/>/);
+  assert.doesNotMatch(svg, /SURVEY/);
+  const summary = (name: string, path: string, attach: boolean, shown: boolean) => ({
+    name,
+    path,
+    attach,
+    inserts: 1,
+    shown,
+    units: shown ? "ft" : null,
+    xrefs: [],
+  });
+  assert.deepEqual(state.drawing?.xrefs, [
+    {
+      ...summary("MODEL", "model.dwg", false, true),
+      xrefs: [
+        summary("DETAIL", "detail.dwg", true, true),
+        summary("SURVEY", "survey.dwg", false, false),
+      ],
+    },
+  ]);
+  assert.deepEqual(
+    state.diagnostics.map((d) => [d.rule, d.severity, d.xref, d.message]),
+    [
+      [
+        "xref",
+        "warning",
+        "MODEL",
+        'Xref "MODEL" > "SURVEY": "SURVEY" is an overlay of the drawing given for "MODEL", and the leading CAD app draws no overlay of a referenced drawing, so the drawing given for it is not drawn',
+      ],
+    ],
+  );
+  // An attachment the model places only on a sheet of its own is placed nowhere drawn: CAD draws
+  // a referenced drawing's model space alone.
+  const sheetOnly = {
+    ...model,
+    entities: [line("M"), insert("SURVEY", 20)],
+    layouts: [{ name: "M-1", paper: "ANSI B", viewports: [], entities: [insert("DETAIL", 1)] }],
+  };
+  writeFileSync(
+    plan,
+    `export const xrefs = { MODEL: { drawing: ${JSON.stringify(sheetOnly)}, xrefs: { DETAIL: ${JSON.stringify(detail)} } } };\nexport default ${JSON.stringify(sheet)};\n`,
+  );
+  const onSheet = render(plan, "--out", dir);
+  assert.deepEqual(
+    onSheet.state.drawing?.xrefs[0]?.xrefs.map((x) => [x.name, x.inserts, x.shown]),
+    [
+      ["DETAIL", 0, true],
+      ["SURVEY", 1, false],
+    ],
+  );
+  assert.doesNotMatch(readFileSync(onSheet.state.outputs.svg!, "utf8"), /DETAIL\|/);
+  // The export's first name for an xref is the one drawn and checked, and an xref may be named
+  // `__proto__`.
+  writeFileSync(
+    plan,
+    `export const xrefs = { MODEL: { drawing: ${JSON.stringify(model)}, xrefs: { DETAIL: ${JSON.stringify(detail)}, SURVEY: ${JSON.stringify(survey)} } }, model: ${JSON.stringify(model)}, ["__proto__"]: ${JSON.stringify(detail)} };\nexport default ${JSON.stringify({ ...sheet, entities: [...sheet.entities, insert("__proto__", 200)], xrefs: [...sheet.xrefs!, { name: "__proto__", path: "proto.dwg" }] })};\n`,
+  );
+  const aliased = render(plan, "--out", dir);
+  const aliasedSvg = readFileSync(aliased.state.outputs.svg!, "utf8");
+  assert.match(aliasedSvg, /data-layer="DETAIL\|D"/);
+  assert.match(aliasedSvg, /data-layer="__proto__\|D"/);
+  assert.deepEqual(
+    aliased.state.diagnostics.map((d) => d.message.slice(0, 26)),
+    ['Xref "MODEL" > "SURVEY": "'],
+  );
+  // A drawing given inside another is checked too, and one with an error is not drawn.
+  file(drawing("D", [{ kind: "circle", layer: "D", center: [0, 0], radius: -5 }]));
+  const broken = render(plan, "--out", dir);
+  assert.equal(broken.status, 2);
+  assert.equal(broken.state.drawing?.xrefs[0]?.xrefs[0]?.shown, false);
+  const error = broken.state.diagnostics.find((d) => d.severity === "error");
+  assert.match(
+    error?.message ?? "",
+    /^Xref "MODEL" > "DETAIL": the drawing given for it has an error, so it is not drawn\./,
+  );
+  assert.equal(error?.xref, "MODEL");
+  assert.doesNotMatch(readFileSync(broken.state.outputs.svg!, "utf8"), /DETAIL\|/);
 });
 
 test("a drawing file Node reads as CommonJS says how to make it a module", () => {
@@ -515,17 +658,6 @@ async function withDev(
     await use(base);
   } finally {
     server.kill();
-  }
-}
-
-/** A folder under examples/out, removed after `use`. A project in it links tsdraft itself. */
-async function inScratch(use: (dir: string) => Promise<void>): Promise<void> {
-  mkdirSync(join(root, "examples/out"), { recursive: true });
-  const dir = mkdtempSync(join(root, "examples/out/test-"));
-  try {
-    await use(dir);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -767,7 +899,15 @@ test("a drawing with a layout gets a picture of its sheet, and the state says wh
     { name: "TITLE BLOCK", entities: 0, attributes: ["SHEET", "DATE"], inserts: 1 },
   ]);
   assert.deepEqual(state.drawing?.xrefs, [
-    { name: "BORDER", path: "border.dwg", inserts: 1, shown: false, units: null },
+    {
+      name: "BORDER",
+      path: "border.dwg",
+      attach: false,
+      inserts: 1,
+      shown: false,
+      units: null,
+      xrefs: [],
+    },
   ]);
   // Model space has no text. The sheet has text in both fonts, and the PNG sets an SHX font
   // in the renderer's own face.
@@ -1213,7 +1353,15 @@ ${exported}\n`,
     };
     const preview = sheet("");
     assert.deepEqual(preview.xrefs, [
-      { name: "BORDER", path: "border.dwg", inserts: 1, shown: true, units: "in" },
+      {
+        name: "BORDER",
+        path: "border.dwg",
+        attach: false,
+        inserts: 1,
+        shown: true,
+        units: "in",
+        xrefs: [],
+      },
     ]);
     assert.ok(preview.layers.has("BORDER|PREVIEW"));
     // The file's own drawing for the xref, by any case of its name, is drawn in its place.
@@ -1319,11 +1467,6 @@ test("render --view draws one rectangle of model space or of a layout, and nothi
   assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [700, 100]);
   assert.ok(!existsSync(join(out, "crowded.svg")) && !existsSync(join(out, "crowded.png")));
 
-  // A rectangle that starts with a negative number, given as the next argument.
-  const negative = render(crowded, "--out", out, "--view", "-1,-1,18.5,7", "--width", "700");
-  assert.equal(negative.status, 0);
-  assert.deepEqual(negative.state.outputs.view?.box, { min: [-1, -1], max: [18.5, 7] });
-
   // A corner of the sheet that misses its viewport: the tag is drawn, and no view.
   const sheet = render(crowded, "--out", out, "--layout", "S-1", "--view=10,7.5,11,8.5");
   assert.equal(sheet.status, 0);
@@ -1355,25 +1498,27 @@ test("render --view draws one rectangle of model space or of a layout, and nothi
   }
 });
 
-test("in the default folder a view replaces the whole pictures, and they replace it", () => {
-  mkdirSync(join(root, "examples/out"), { recursive: true });
-  const scratch = mkdtempSync(join(root, "examples/out/test-"));
-  const file = join(scratch, "crowded.ts");
-  writeFileSync(file, readFileSync(join(root, "test/fixtures/crowded.ts")));
-  const names = ["crowded.svg", "crowded.png", "crowded.layout-S-1.svg", "crowded.layout-S-1.png"];
-  const views = ["crowded.view.svg", "crowded.view.png"];
-  const there = (list: readonly string[]) => list.map((n) => existsSync(join(scratch, "out", n)));
-  try {
+test("in the default folder a view replaces the whole pictures, and they replace it", () =>
+  inScratch((scratch) => {
+    const file = join(scratch, "crowded.ts");
+    writeFileSync(file, readFileSync(join(root, "test/fixtures/crowded.ts")));
+    const names = [
+      "crowded.svg",
+      "crowded.png",
+      "crowded.layout-S-1.svg",
+      "crowded.layout-S-1.png",
+    ];
+    const views = ["crowded.view.svg", "crowded.view.png"];
+    const there = (list: readonly string[]) => list.map((n) => existsSync(join(scratch, "out", n)));
     assert.equal(render(file).status, 0);
     assert.deepEqual([...there(names), ...there(views)], [true, true, true, true, false, false]);
-    assert.equal(render(file, "--view", "0,0,5,5").status, 0);
+    const view = render(file, "--view", "-1,-1,5,5");
+    assert.equal(view.status, 0);
+    assert.deepEqual(view.state.outputs.view?.box, { min: [-1, -1], max: [5, 5] });
     assert.deepEqual([...there(names), ...there(views)], [false, false, false, false, true, true]);
     assert.equal(render(file).status, 0);
     assert.deepEqual([...there(names), ...there(views)], [true, true, true, true, false, false]);
-  } finally {
-    rmSync(scratch, { recursive: true, force: true });
-  }
-});
+  }));
 
 const prlimit = spawnSync("prlimit", ["--version"]).status === 0;
 
@@ -1445,4 +1590,115 @@ test("dev plots the set and a sheet on request, and no picture that draws what d
     },
     ["--draw-no-plot"],
   );
+});
+
+/** A PNG of one gray, `width` by `height`. */
+function grayPng(width: number, height: number): Uint8Array {
+  const crc = (bytes: Uint8Array): number => {
+    let c = 0xffffffff;
+    for (const b of bytes) {
+      c ^= b;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    }
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type: string, data: Uint8Array): Buffer => {
+    const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
+    const out = Buffer.alloc(body.length + 8);
+    out.writeUInt32BE(data.length, 0);
+    body.copy(out, 4);
+    out.writeUInt32BE(crc(body), body.length + 4);
+    return out;
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header.set([8, 0, 0, 0, 0], 8);
+  const rows = Buffer.alloc((width + 1) * height, 128);
+  for (let y = 0; y < height; y++) rows[y * (width + 1)] = 0;
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(rows)),
+    chunk("IEND", new Uint8Array()),
+  ]);
+}
+
+test("render reads each image's file beside its drawing, an xref's beside the xref's file", () => {
+  const dir = realpathSync(tempDir());
+  mkdirSync(join(dir, "sheets"));
+  mkdirSync(join(dir, "civil"));
+  // One name in both folders, of other sizes: each drawing draws its own.
+  writeFileSync(join(dir, "sheets", "aerial.png"), grayPng(2, 2));
+  writeFileSync(join(dir, "civil", "aerial.png"), grayPng(3, 3));
+  const image = {
+    kind: "image",
+    layer: "0",
+    path: "aerial.png",
+    at: [0, 0],
+    width: 10,
+    height: 10,
+  };
+  const drawing = (pixels: number, more: object = {}) => ({
+    format: 0,
+    units: "ft",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    entities: [{ ...image, pixels: [pixels, pixels] }],
+    ...more,
+  });
+  const base = drawing(3);
+  const sheet = drawing(2, {
+    xrefs: [{ name: "BASE", path: "../civil/base.dwg" }],
+    entities: [
+      { ...image, pixels: [2, 2] },
+      { kind: "insert", layer: "0", block: "BASE", at: [20, 0] },
+    ],
+  });
+  const plan = join(dir, "sheets", "plan.ts");
+  writeFileSync(
+    plan,
+    `export const xrefs = { BASE: ${JSON.stringify(base)} };\nexport default ${JSON.stringify(sheet)};\n`,
+  );
+  const { state } = render(plan);
+  assert.deepEqual(state.diagnostics, []);
+  const svg = readFileSync(state.outputs.svg!, "utf8");
+  assert.match(svg, /data-pixels="2 2"/);
+  assert.match(svg, /data-pixels="3 3"/);
+});
+
+test("render checks each underlay's page size against its PDF, and draws no page the PDF lacks", () => {
+  const dir = realpathSync(tempDir());
+  // A PDF of one page 11 by 8.5 inches, whose objects the reader finds by their headers.
+  writeFileSync(
+    join(dir, "arch.pdf"),
+    "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 792 612] >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n",
+  );
+  writeFileSync(join(dir, "arch.pdf.page1.png"), grayPng(110, 85));
+  // A picture left from a page the file no longer has.
+  writeFileSync(join(dir, "arch.pdf.page9.png"), grayPng(110, 85));
+  const underlay = { kind: "underlay", layer: "0", path: "arch.pdf", at: [0, 0] };
+  const drawing = {
+    format: 0,
+    units: "in",
+    dxf: "R2018",
+    layers: [{ name: "0", color: 7 }],
+    entities: [
+      { ...underlay, pageSize: [11, 8.5] },
+      { ...underlay, at: [20, 0], pageSize: [8.5, 11] },
+      { ...underlay, at: [50, 0], page: "9", pageSize: [11, 8.5] },
+    ],
+  };
+  const plan = join(dir, "plan.ts");
+  writeFileSync(plan, `export default ${JSON.stringify(drawing)};\n`);
+  const { state } = render(plan);
+  const said = state.diagnostics.map((d) => `${d.severity}: ${d.message}`);
+  assert.equal(said.length, 2, said.join("\n"));
+  assert.match(
+    said[0]!,
+    /^error: Page 1 of the underlay "arch.pdf" is 11 by 8.5 inches.*\[8\.5,11\]/,
+  );
+  assert.match(said[1]!, /^warning: The file of the underlay "arch.pdf" has no page 9,/);
+  // The page is drawn as missing at each placement, since one of them is refused.
+  assert.doesNotMatch(readFileSync(state.outputs.svg!, "utf8"), /<use/);
 });

@@ -28,7 +28,8 @@ route for type-checking drawings in a browser playground.
 
 ## Releasing
 
-Bump `version` in `package.json` and add a CHANGELOG entry. After the export
+Bump `version` in `package.json`, run `pnpm standard:files`, which writes the version into
+`src/version.ts` and into the `$id` of `standard.schema.json`, and add a CHANGELOG entry. After the export
 pull request that carries them merges, publish a GitHub release tagged
 `v<version>` on the commit it made. The Release workflow checks that the tag
 matches the version, runs `pnpm verify` and publishes to npm through

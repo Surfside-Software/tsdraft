@@ -4,6 +4,7 @@
 import type { Point, TextAlign, TextVerticalAlign } from "./drawing.ts";
 import { FONT_METRICS, FONT_METRICS_RANGES, type FontMetrics } from "./font-metrics.ts";
 import { fontInfo, STANDARD_FONT } from "./fonts.ts";
+import { written } from "./format.ts";
 import { Strings } from "./shape.ts";
 
 /** A text to measure. A `Text` and its `TextStyle` spread into one object are one. */
@@ -61,7 +62,7 @@ export function drawnValue(value: string): string {
 }
 
 /** Where a character's numbers are in a font's tables, or -1 for one they do not hold. */
-function tableIndex(code: number): number {
+export function tableIndex(code: number): number {
   let before = 0;
   for (const [first, last] of FONT_METRICS_RANGES) {
     if (code >= first && code <= last) return before + code - first;
@@ -70,7 +71,21 @@ function tableIndex(code: number): number {
   return -1;
 }
 
-const UNKNOWN = tableIndex("?".charCodeAt(0));
+/** Where the numbers of "?" are, which stand for a character the tables do not hold. */
+export const UNKNOWN = tableIndex("?".charCodeAt(0));
+
+/**
+ * The numbers of a font, and whether they are its own: a font that is not one of `FONTS` is
+ * measured in `txt.shx`.
+ */
+export function fontMetrics(font: string | undefined): {
+  readonly metrics: FontMetrics;
+  readonly known: boolean;
+} {
+  const name = font ?? STANDARD_FONT;
+  const known = fontInfo(name) !== undefined && Object.hasOwn(FONT_METRICS, name);
+  return { metrics: known ? FONT_METRICS[name]! : FONT_METRICS[STANDARD_FONT]!, known };
+}
 
 /** A text before it is turned and moved to its point: X along its baseline, Y up it. */
 export interface TextLayout {
@@ -82,6 +97,11 @@ export interface TextLayout {
    * the last one adds or takes off. Its first point is `end - advance` along it from its point.
    */
   readonly advance: number;
+  /**
+   * How far its characters' advances alone take it from its first point: what a TrueType font's
+   * glyphs span as the leading CAD app plots them.
+   */
+  readonly advances: number;
   /** How far the baseline is above the point. */
   readonly baseline: number;
   /** How far along the text the top of a capital lies from its foot. */
@@ -96,6 +116,8 @@ interface Read {
   readonly head: number | undefined;
   /** The advances of the characters and what the last one adds, at height 1. */
   readonly width: number;
+  /** The advances of the characters alone, at height 1. */
+  readonly advances: number;
   /** True when it holds `%%` or a character the font's numbers do not cover. */
   readonly odd: boolean;
   /** True when it starts or ends with a space as it is drawn. */
@@ -119,7 +141,13 @@ function read(value: string, metrics: FontMetrics): Read {
     width += metrics.advances[index]!;
     tail = metrics.tails[index]!;
   }
-  return { head, width: width + tail, odd, spaced: /^[ \u00a0]|[ \u00a0]$/.test(drawn) };
+  return {
+    head,
+    width: width + tail,
+    advances: width,
+    odd,
+    spaced: /^[ \u00a0]|[ \u00a0]$/.test(drawn),
+  };
 }
 
 /**
@@ -137,14 +165,11 @@ function layOut(
   text: TextToMeasure,
   reading: (value: string, metrics: FontMetrics) => Read,
 ): TextLayout {
-  const font = text.font ?? STANDARD_FONT;
-  const known: FontMetrics | undefined =
-    fontInfo(font) && Object.hasOwn(FONT_METRICS, font) ? FONT_METRICS[font] : undefined;
-  const metrics = known ?? FONT_METRICS[STANDARD_FONT]!;
-  const { head, width, odd, spaced } = reading(text.value, metrics);
+  const { metrics, known } = fontMetrics(text.font);
+  const { head, width, advances, odd, spaced } = reading(text.value, metrics);
   // A centered or right-justified text placed by a space at either end may plot elsewhere.
   const approximate =
-    known === undefined || odd || ((text.align === "center" || text.align === "right") && spaced);
+    !known || odd || ((text.align === "center" || text.align === "right") && spaced);
   const along = text.height * (text.widthFactor ?? 1);
   const [from, to] = [(head ?? 0) * along, width * along];
   // The text's first point, which its first character is drawn from.
@@ -155,6 +180,7 @@ function layOut(
     start: first + from,
     end: first + to,
     advance: to,
+    advances: advances * along,
     baseline:
       text.valign === "top"
         ? -text.height
@@ -265,7 +291,10 @@ export function measureText(text: TextToMeasure): TextMeasure {
 /** A text's measure from its layout. */
 function placed(text: TextToMeasure, layout: TextLayout): TextMeasure {
   const { start, end, baseline, lean, descent, approximate } = layout;
-  const turn = ((text.rotation ?? 0) * Math.PI) / 180;
+  // Turned by its rotation as the writers write it, group 50 with 6 decimals, which leave a whole
+  // number as it is.
+  const rotation = text.rotation ?? 0;
+  const turn = ((Number.isInteger(rotation) ? rotation : written(rotation)) * Math.PI) / 180;
   const [cos, sin] = [Math.cos(turn), Math.sin(turn)];
   const [x, y] = text.at ?? [0, 0];
   const place = (along: number, up: number): Point => [

@@ -59,7 +59,33 @@ export default d.build();
 Coordinates are in drawing units with Y pointing up. Angles are in degrees, counterclockwise
 from +X. A layer's color is a number from 1 to 255 in the color index CAD programs share, and a
 lineweight is in millimetres. Entities drawn inside a `layer()` callback go on that layer. The
-builder draws `line`, `polyline`, `rect`, `circle`, `arc`, `text` and dimensions.
+builder draws `line`, `polyline`, `rect`, `circle`, `arc`, `ellipse`, `spline`, `text` and
+dimensions. A polyline
+takes `bulges` to make a side an arc, `width` or `widths` to draw its sides wide, and `radius`
+to round its corners; `cloud` draws a revision cloud around an outline, which crosses nothing
+inside it, and `donut` a filled ring or dot. [docs/polylines.md](docs/polylines.md) has them.
+`ellipse` draws an ellipse or an arc of one by its center, the end of its major axis and the
+ratio of its axes; `spline` draws the cubic CAD programs fit through fit points, for a top of
+bank, a tree line or a contour, and `controlSpline` a spline by its control points.
+[docs/curves.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/curves.md) has them.
+`point` marks a location, which plots as the figure `createDrawing`'s `pointStyle` gives every
+point. [docs/points.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/points.md) has it.
+`image` draws a PNG or a JPEG at a width in drawing units, with the file's `pixels`, which
+`rasterSize` reads, and an optional `clip`; the command reads the file from the drawing file's
+folder for the pictures, and warns of one that is missing.
+[docs/images.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/images.md) has them.
+`underlay` places a page of a PDF, such as an architect's plan, by its path, its `page` and its
+`pageSize` in inches, which `pdfPageSize` reads, at one drawing unit to an inch of the page times
+`scale`; the command draws it from `<file>.page<N>.png` beside the PDF and gives the `pdftocairo`
+command that draws one.
+[docs/underlays.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/underlays.md) has
+them.
+`hatch` fills one outline, or a list of loops `{ points, bulges? }` where a loop inside another is
+a hole, solid in the layer's color, or with `pattern` draws a pattern `patterns()` added from the
+firm's pattern file, or lines `spacing` apart, or with `gradient` runs from one color to another; `wipeout` hides what is drawn before it behind a polygon; and
+a paragraph's `mask: true` hides what is drawn before it behind its text. Draw a fill before the
+lines over it.
+[docs/fills.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/fills.md) has them.
 
 Give an entity an `id` when you will want to find it again: 1 to 64 letters, digits, `.`, `-`
 and `_`, each used once in a drawing. A diagnostic about the entity carries the id.
@@ -220,24 +246,37 @@ measureText({ value: "GENERAL NOTES", height: 0.125, font: "Arial" }).length; //
 
 `font` is the font of the text's style, and `txt.shx`, the font of `Standard`, when left out.
 A capital of `txt.shx` takes a whole text height of the line, far more than most screen fonts
-do, so a note sized by eye runs long. Pass the style's `widthFactor` too when it has one.
-Break a note into lines with it, and check that a value fits its cell before you draw it:
+do, so a note sized by eye runs long. Pass the style's `widthFactor` too when it has one, and
+check that a value fits its cell before you draw it.
+
+A note of more than one line is a paragraph, which wraps at its width and which a drafter edits
+as one. Never break a note into texts of one line:
 
 ```ts
-/** Breaks a sentence into lines that plot no longer than `width`. */
-function wrap(sentence: string, height: number, width: number): string[] {
-  const lines: string[] = [];
-  for (const word of sentence.split(" ")) {
-    const longer = lines.length > 0 ? `${lines.at(-1)} ${word}` : word;
-    const fits = measureText({ value: longer, height }).length <= width;
-    if (lines.length > 0 && fits) lines[lines.length - 1] = longer;
-    else lines.push(word);
-  }
-  return lines;
-}
+import { layoutParagraph, list, underline } from "tsdraft";
+
+const notes = list([`${underline("VERIFY")} ALL DIMENSIONS IN THE FIELD.`, "DO NOT SCALE."]);
+d.paragraph(notes, {
+  at: [1, 20], // the upper left corner of its box
+  width: 4,
+  height: 0.1,
+});
+layoutParagraph({ value: notes, height: 0.1, width: 4 }).lines.length; // how many lines it takes
 ```
 
-Space lines one and a half text heights apart or more. Given `at`, `align`, `valign` and
+A line feed starts a new paragraph. `list` writes numbered or lettered notes in two levels, each
+hanging under its mark as CAD programs set a list, and `paragraphFormat` a paragraph's indents,
+tab stops, justification and spacing. `columns: { count: 2, height: 6 }` flows the notes into
+columns side by side, each `width` wide. `measureParagraph` gives its lines and its box, from the
+widths `measureText` uses, and `inspectText` checks each line as a text. `underline`, `bold`,
+`stack`, `superscript` and `subscript` write the codes for what they name, and `plain(text)`
+escapes text from elsewhere. The codes `\H`, `\W`, `\Q`, `\A` and `\C` change the height, width,
+slant, place and color of the characters after them, and `lint` refuses a code tsdraft does not
+lay out, such as `\T`, and names it.
+[docs/paragraphs.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/paragraphs.md)
+has the codes.
+
+Space the lines of a column of texts one and a half text heights apart or more. Given `at`, `align`, `valign` and
 `rotation` as well, `measureText` returns `corners`, the box the text's capitals fill, which
 is the box the `text-` warnings and their `bounds` use. A character outside Latin-1 is measured
 as a `?`, and the result then has `approximate: true`.
@@ -276,18 +315,18 @@ the built-in standard and the rest.
 
 [`examples/site-plan.ts`](https://github.com/Surfside-Software/tsdraft/blob/main/examples/site-plan.ts)
 in the tsdraft repository is a whole sheet: a permit-style site plan at 1" = 10' with property
-lines, setbacks, a building, dimensions, leaders and labels in model space, and on a landscape
+lines, setbacks, a building, dimensions, leaders, labels and a revision cloud in model space,
+and on a landscape
 ARCH D layout, 36 by 24 inches, its border, a title block whose fields are attributes, notes,
 a legend, the view's title and a graphic scale. Start a new drawing from it. It is not in the npm package. Copy it and
-[`examples/lib/drafting.ts`](https://github.com/Surfside-Software/tsdraft/blob/main/examples/lib/drafting.ts),
-keeping `drafting.ts` in a `lib` folder beside it. Change two import strings to `"tsdraft"`:
-`"../src/index.ts"` in `site-plan.ts`, and `"../../src/index.ts"` in `lib/drafting.ts`.
+change its import string `"../src/index.ts"` to `"tsdraft"`.
 
-Its parameters come first and every position is worked out from them. Its columns and line
-breaks are laid out with `measureText`. Its symbols are blocks.
+Its parameters come first and every position is worked out from them. Its columns are laid
+out with `measureText`, and each general note is a paragraph that wraps at the width of the
+column of notes. Its symbols are blocks.
 
-It is drawn to a standard of its own, which extends `BUILT_IN_STANDARD` with the layer
-`V-TREE`, as the section above shows, and a leader style. A text names a `role` of the standard,
+It is drawn to a standard of its own, which extends `BUILT_IN_STANDARD` with the layers
+`V-TREE` and `C-ANNO-REVS`, as the section above shows, and a leader style. A text names a `role` of the standard,
 which gives its text style and the height it plots at. The plan is a view at one of the
 standard's scales, `const plan = d.view("plan", { scale: "1in-10ft" })`, and what model space
 draws to be read in it names the view: `d.text(at, "LOT 27", { role: "label", view: plan })`,
@@ -352,7 +391,26 @@ d.linearDimension([24, 30], [76, 30], [0, 20], { style: "PLAN" });
 - CAD writes the measurement. `text: "<> TYP"` adds to it.
 - `units: "architectural"` writes feet and inches, as `4'-1 7/16"`, from a length in inches
   times `measurementScale`, so give a drawing in feet `measurementScale: 12`. `precision` is
-  then the least fraction: 4 for 1/16". Never write feet and inches as a dimension's `text`.
+  then the least fraction: 4 for 1/16". `fraction: "stacked"` stacks the fraction, at
+  `fractionScale` of the text's height. Never write feet and inches as a dimension's `text`.
+- `textBelow: "WINDOW HEAD HT."` writes words under the line. `textPlacement: "centered"` puts
+  the text in a break of the line, `textFit: "leader"` moves a text with no room out on a
+  leader, `arrowhead: "oblique"` draws a thin tick, and `dimensionLineweight` and
+  `extensionLineweight` set the pens.
+- `radiusDimension(center, point, options)`, `diameterDimension(center, point, options)` and
+  `joggedRadiusDimension(center, point, start, jog, options)` dimension circles and arcs; CAD
+  writes the R and the diameter sign. `textFromCenter` places the text along the line, and a
+  style's `radialText: "horizontal"` levels it.
+- `angularDimension(vertex, from, to, at, options)` dimensions the angle at `vertex` between the
+  lines to `from` and `to`, its arc through `at`, which picks the angle. A style's `angleUnits`,
+  `anglePrecision` and `suppressAngleZeros` write it, as `37°15'30"` in
+  `"degrees-minutes-seconds"`.
+- `arcLengthDimension(center, radius, startAngle, endAngle, at, options)` dimensions the length of
+  an arc, as `arc` takes it, with its own arc through `at`; a style's `arcSymbol` puts the arc
+  symbol `"before"` the text, `"above"` it, or `"none"`.
+- `ordinateDimension(feature, leaderEnd, { axis, origin })` gives the X (`axis: "x"`) or the Y of
+  `feature` from `origin`, `[0, 0]` unless given, on a leader to `leaderEnd`, which jogs where the
+  end is off the feature's line.
 - Never draw a dimension from lines and text.
   [docs/dimensions.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/dimensions.md)
   has the rest.
@@ -378,12 +436,48 @@ d.leader(["EXISTING TREE", "TO REMAIN"], { style: "NOTE", at: [62, 38], to: [52,
 - `at` is where the shafts meet. `to` is a point, or a list with a shaft for each item: a point,
   or a list of points from the tip through each bend. The note goes on the side away from the
   first shaft unless `side` says otherwise.
-- A string is a one-line note, and an array its lines from the top. The note does not wrap.
-- `arrowhead` is `"closed-filled"`, `"open"`, `"dot"` or `"none"`, and `attachment` has the
-  landing meet the `"first-line"` or the `"last-line"`.
+- A string is a one-line note, and an array its paragraphs from the top. `width` wraps them.
+- `arrowhead` is `"closed-filled"`, `"open"`, `"dot"` or `"none"`, and `attachment` is where the
+  landing meets the note, one of `LEADER_ATTACHMENTS`, such as `"first-line"` or
+  `"underline-last"`. A style with `direction: "vertical"` puts the note above or below its point.
+- `frame: true` draws a frame around the note, and `mask: true` hides what is behind it.
+- `shaft: "curved"` draws each shaft as a curve, `toFarSide` adds shafts from the note's other
+  side, and `d.leader({ block: "TAG", attributes: { NUM: "3" } }, options)` points a block, such
+  as a keynote bubble, at what it names.
 - Never draw a leader from lines and text.
   [docs/leaders.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/leaders.md)
   has the rest.
+
+## Tables
+
+Define a table style, then draw a schedule as one table:
+
+```ts
+d.tableStyle({
+  name: "SCHEDULE",
+  textStyle: "NOTES",
+  textHeight: 0.1,
+  title: { textHeight: 0.15 },
+});
+d.table({
+  style: "SCHEDULE",
+  at: [1, 22],
+  columns: [0.6, 0.8, 0.8, 2.4],
+  title: "DOOR SCHEDULE",
+  header: ["MARK", { text: "SIZE", columnSpan: 2 }, null, "NOTES"],
+  rows: [["D1", "3'-0\"", "7'-0\"", "SOLID CORE"]],
+});
+```
+
+- Each row holds a cell for each column. A cell is a string, or an object with `text`, or with a
+  `block` in place of a text, and its own `columnSpan`, `rowSpan`, `align`, `valign`,
+  `textHeight`, `color` and `fill`. A cell another spans is `null`.
+- Rows grow to fit their text, which wraps at the column's width; `rowHeights` sets the least
+  height of each data row. `measureTable` gives the size a table takes, for what goes below it.
+- A `fill` makes a cell a color swatch, and a `block` a symbol in a legend.
+- Never draw a schedule from lines and text.
+  [docs/tables.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/tables.md) has
+  the rest.
 
 ## Blocks
 
@@ -455,6 +549,14 @@ d.layout("C-101", { paper: "ARCH D" }, (sheet) => {
 - In a drawing with a layout, `linetypeScale` is a length of paper: dashes plot as long as the
   pattern times it, in every viewport. The picture of model space draws the same dashes that
   many drawing units long, often too short to see, so judge linetypes on the sheet's picture.
+- Letter a pipe with its linetype, not with texts beside it: `parseLinetypes(text)` reads the
+  firm's linetype file, a linetype's `marks` draw its letters at each repeat of its pattern, and a
+  polyline drawn with `linetypeGeneration: true` runs the pattern on past its vertices, so short
+  runs between bends still get their letters. The letters' text style must be one of the drawing's.
+- A fence's circles or batt insulation's loops are shapes of the firm's shape file. Copy the file
+  beside the drawing: the command reads it there, and `toSVG`, `toPDF` and `lint` take its bytes
+  as `shapes`. Without it the plot leaves a gap where each shape goes, and `lint` warns
+  `linetype-shape`.
 - The sheet plots in black with `monochrome.ctb`. Pass `plotStyle: "acad.ctb"` to plot each
   layer in its color, or `"Grayscale.ctb"` in grays. `PLOT_STYLE_TABLES` lists them.
 - Define blocks outside `layout`, and insert them inside it. An `id` is unique across model
@@ -493,6 +595,8 @@ d.layer("X-BASE", { color: 8 }, () => d.insert("BASE", [0, 0]));
 - Layer `0` of the referenced file draws as the insert's layer does, and its other layers as
   themselves.
 - Place every xref at least once. `lint` warns of one that no insert places, which CAD drops.
+- An xref is an overlay unless you write `d.xref("BASE", "base.dwg", { attach: true })`. A
+  drawing that references yours draws your attachments too, and never your overlays.
 
 The command opens no DWG, so the pictures leave an xref out unless the drawing file gives the
 drawing it stands for. When that drawing is a tsdraft file too, import it and export it under
@@ -507,6 +611,14 @@ export default d.build();
 
 The command checks each drawing you give as it checks yours. One with a `lint` error is not
 drawn: `shown` is false, and each error is a diagnostic that names the `xref`.
+
+To draw what a referenced drawing attaches, give it as `{ drawing, xrefs }`, with the drawings
+of its own xrefs. Its attachments are drawn and its overlays are not, as CAD draws them, and
+`drawing.xrefs[].xrefs` lists them with their own `shown`:
+
+```ts
+export const xrefs = { MODEL: { drawing: model, xrefs: { SURVEY: survey } } };
+```
 
 Read `drawing.xrefs` in the JSON before you trust a picture of a drawing with xrefs. A picture
 with `shown: true` shows the drawing you exported, which is only as current as the DWG file CAD
@@ -566,10 +678,6 @@ writeFileSync("plan.dxf", toDXF(drawing));
 
 ## What tsdraft cannot draw yet
 
-- Hatches, fills, and dimensions that are not linear or aligned. A fraction of an inch in a
-  dimension is on the line, as `1 7/16`, not stacked.
-- A leader with two roots, a curved shaft, a block in place of its note, or a note attached at
-  its top or bottom.
 - A block read from another file. A block is drawn in the drawing that inserts it. An xref
   references a whole DWG file, as an overlay, and the pictures draw it only from a drawing you
   give.
@@ -578,12 +686,10 @@ writeFileSync("plan.dxf", toDXF(drawing));
   viewport is a locked rectangle that shows every layer at one scale.
 - A paper outside the list in the section on layouts, a paper in portrait, and a page setup
   for another plotter.
-- Multiline text, but a leader's note. A text is a single line: break a note into lines with
-  `measureText`. A text
-  takes a text style with a font, and `align` and `valign` to justify it to its point, as the
-  example sheet does.
-- Ellipses, splines, and curved segments in a polyline.
-- A color on a single entity. Color comes from the layer.
+- The spacing of characters inside a paragraph, `\T`, and an overline, `\O`.
+- Ellipses and splines.
+- A color of a color book. A color of an entity is an index or a true color: see
+  [docs/colors.md](docs/colors.md), and an entity's transparency [docs/transparency.md](docs/transparency.md).
 - DWG files. tsdraft writes DXF.
 - An existing drawing as a background or a base to edit. `readDXF` reads a DXF's tables, blocks,
   layouts and a census of what it draws, and with `geometry` what each space draws, as

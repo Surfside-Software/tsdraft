@@ -13,7 +13,9 @@ import {
   fromJSON,
   inspectText,
   measureText,
+  readDXF,
   fromPaper,
+  layoutDimensionText,
   idHandle,
   lint,
   toDXF,
@@ -23,8 +25,9 @@ import {
   type Drawing,
   type Entity,
 } from "../src/index.ts";
-import { arrowRoom, measurementText, WIDEST_CHARACTERS } from "../src/dimensions.ts";
+import { angleNumber, arrowRoom, measurementText, WIDEST_CHARACTERS } from "../src/dimensions.ts";
 import { toDXFR2018 } from "../src/dxf-r2018.ts";
+import { heldNumber } from "../src/format.ts";
 import { extents } from "../src/extents.ts";
 
 const rule = (name: string) => (thrown: unknown) =>
@@ -474,7 +477,7 @@ test("a dimension is checked when it is drawn, and lint finds the same in a draw
     d.alignedDimension(from, [20, 0], -5, { style: "TICKS", id: "again", text: "<> TYP" });
     d.block("B", {}, () => d.line([0, 0], [1, 0]));
     // @ts-expect-error: the leading CAD app draws the architectural tick with the block of this name.
-    assert.throws(() => d.block("_archtick", {}, () => {}), /architectural tick/);
+    assert.throws(() => d.block("_archtick", {}, () => {}), /ticks of a dimension/);
   });
   assert.deepEqual(lint(made), []);
   assert.deepEqual(lint(fromJSON(toJSON(made))), []);
@@ -545,6 +548,72 @@ test("closed arrowheads need room for the widest the text can be, and for the le
   );
   d.linearDimension([0, 40], [15, 40], [0, 35], { style: "LEAN" });
   assert.deepEqual(lint(d.build()), []);
+});
+
+test("closed arrowheads need room for the wider text, and a stacked fraction for its longer part", () => {
+  const d = createDrawing({ units: "in" });
+  const stacked = {
+    textHeight: 3 / 32,
+    arrowSize: 1 / 8,
+    extensionOffset: 1 / 16,
+    extensionBeyond: 1 / 8,
+    textGap: 1 / 16,
+    scale: 12,
+    units: "architectural",
+    precision: 4,
+    fraction: "stacked",
+  } as const;
+  d.dimensionStyle({ ...stacked, name: "STACKED" });
+  d.linearDimension([0, 0], [7.4375, 0], [0, 5], { style: "STACKED" });
+  assert.throws(
+    () => d.linearDimension([0, 10], [6.4375, 10], [0, 15], { style: "STACKED" }),
+    /its text, "6 7\/16\\"", and its arrowheads may need 6\.45\b/,
+  );
+  assert.throws(
+    () =>
+      d.linearDimension([0, 20], [7.4375, 20], [0, 25], { style: "STACKED", textBelow: "TO STUD" }),
+    /its text, "TO STUD"/,
+  );
+  // A text centered in the line breaks it, and needs the arrowheads' room as well as its own.
+  d.dimensionStyle({ ...stacked, name: "CENTERED", textPlacement: "centered" });
+  d.linearDimension([0, 30], [6.5, 30], [0, 35], { style: "STACKED" });
+  assert.throws(
+    () => d.linearDimension([0, 40], [6.5, 40], [0, 45], { style: "CENTERED" }),
+    /may need 8\.2125\b/,
+  );
+  // A narrow font does not narrow a diagonal stack's gap, so the room is the text as laid out too.
+  d.textStyle({ name: "NARROW", font: "Courier New", widthFactor: 0.15 });
+  d.dimensionStyle({
+    ...stacked,
+    name: "NARROW",
+    textStyle: "NARROW",
+    textHeight: 1,
+    scale: 1,
+    measurementScale: 0.7,
+    feetInchZeros: "neither",
+    fraction: "diagonal",
+    textPlacement: "centered",
+  });
+  assert.throws(
+    () => d.linearDimension([0, 50], [1.06, 50], [0, 52], { style: "NARROW" }),
+    /its text, "3\/4\\"", and its arrowheads may need 1\.065897/,
+  );
+});
+
+test("a dimension's stack is lowered until its bar or its slash's middle is half a height up, never raised", () => {
+  // As the leading CAD app plots `\\A1;` before a stack: sheet dimension-looks of cad-plots.ts.
+  const laid = (stack: string, size: number, font: "Arial" | "Times New Roman" = "Arial") => {
+    const value = `\\A1;4{\\H${size}x;\\S${stack};}`;
+    const { lines, strokes } = layoutDimensionText({ value, height: 1, font, at: [0, 0] });
+    const { from, to } = strokes[0]!;
+    const { baseline, runs } = lines[0]!;
+    return { middle: (from[1] + to[1]) / 2 - baseline, below: runs.at(-1)!.baseline - baseline };
+  };
+  assert.ok(Math.abs(laid("1/2", 1).middle - 0.5) < 1e-9);
+  assert.ok(Math.abs(laid("1#2", 1).middle - 0.5) < 1e-9);
+  // A small one whose slash's middle is lower stays on the line (case STACK-100.03125-1-0.5-TR).
+  assert.ok(laid("1#32", 0.5, "Times New Roman").middle < 0.5);
+  assert.equal(laid("1#32", 0.5, "Times New Roman").below, 0);
 });
 
 test("every number a dimension draws is under 1e100, and its angle is less than a turn either way", () => {
@@ -736,6 +805,10 @@ test("a dimension is written with its style, its points and the block of its pic
     dimensionLine: "14E64A214426A5",
     arrowheads: ["14D80EF3992A9B", "14DB0EF39935B2"],
     text: "12C57C2A4861EF",
+    dimensionLines: ["14E64A214426A5", "1A23E71AA31D32", "1A22E71AA31F7D", "1A25E71AA31254"],
+    leader: ["1C6E99C485049E", "1C7199C48501B7"],
+    belowText: "1A5AD40549288F",
+    dimensionArcs: ["1FAB45DF867869", "1FAC45DF867AA4", "1FAD45DF867CF3", "1FA645DF8670D6"],
   });
   assert.equal(dimensionPictureHandles({ index: 1 }).record, "16DCBD6115A74B");
   assert.equal(dimensionPictureHandles({ index: 0, layout: "a-101" }).record, "1D645DAA891E34");
@@ -833,10 +906,12 @@ test("toSVG draws a dimension's lines, arrowheads and text, and the extents take
   assert.equal(group[1]!.match(/data-part="extension-line"/g)?.length, 2);
   assert.equal(group[1]!.match(/data-part="dimension-line"/g)?.length, 1);
   assert.equal(group[1]!.match(/<polygon [^>]*data-part="arrowhead"/g)?.length, 2);
-  // Centered on the middle of the dimension line, one gap above it, as long as it plots.
+  // The paragraph its block holds, centered on the middle of the dimension line one gap above it:
+  // an SHX text drawn from where its strokes start, as long as it plots.
+  assert.match(group[1]!, /<g data-part="text" data-paragraph="\\A1;52\.00">/);
   assert.match(
     group[1]!,
-    /<text transform="translate\(26 -9\.5\) [^"]*" [^>]*textLength="[^"]+"[^>]*data-part="text">52\.00<\/text>/,
+    /<text transform="translate\(24\.166667 -9\.5\) [^"]*" [^>]*textLength="3\.666667"[^>]*data-part="text">52\.00<\/text>/,
   );
   assert.match(group[1]!, /x1="-1" y1="-10" x2="53" y2="-10"/);
   // From the end of the dimension line past the first extension line to the top of the text.
@@ -892,4 +967,564 @@ test("two text styles lint refuses for their names are still written with a hand
   const handles = lines.filter((_, i) => i % 2 === 1 && lines[i - 1]!.trim() === "5");
   assert.ok(handles.length > 10);
   assert.equal(new Set(handles).size, handles.length);
+});
+
+test("what a style sets of how its dimensions look is checked as literals and when the code runs", () => {
+  const d = createDrawing({ units: "ft" });
+  const style = { name: "S", ...sizes } as const;
+  const feet = { ...style, units: "architectural", precision: 4 } as const;
+  // @ts-expect-error: a decimal measurement has no fraction to stack.
+  assert.throws(() => d.dimensionStyle({ ...style, fraction: "stacked" }), /architectural/);
+  // @ts-expect-error: and none to size.
+  assert.throws(() => d.dimensionStyle({ ...style, fractionScale: 0.75 }), /architectural/);
+  // @ts-expect-error: the leading CAD app stacks across or diagonally, or not at all.
+  assert.throws(() => d.dimensionStyle({ ...feet, fraction: "tall" }), /fraction must be/);
+  assert.throws(
+    () => d.dimensionStyle({ ...feet, fraction: "stacked", fractionScale: 0.1 }),
+    /0\.25/,
+  );
+  assert.throws(() => d.dimensionStyle({ ...feet, fractionScale: 0.75 }), /sizes a fraction/);
+  // @ts-expect-error: the text is above the line or centered in it.
+  assert.throws(() => d.dimensionStyle({ ...style, textPlacement: "below" }), /textPlacement/);
+  // @ts-expect-error: a short text stays inside or moves out on a leader.
+  assert.throws(() => d.dimensionStyle({ ...style, textFit: "beside" }), /textFit/);
+  assert.throws(() => d.dimensionStyle({ ...style, dimensionLineweight: 0.33 }), /lineweight/);
+  assert.throws(
+    () => d.dimensionStyle({ ...style, textFit: "leader", textPlacement: "centered" }),
+    /closed filled arrowheads/,
+  );
+  d.dimensionStyle({ ...feet, fraction: "inline", fractionScale: 1 });
+  // A text centered in a line needs its width and two gaps between the extension lines, whatever
+  // the ticks reach past them.
+  d.dimensionStyle({ ...style, name: "C", arrowhead: "oblique", textPlacement: "centered" });
+  assert.throws(
+    () => d.linearDimension([0, 0], [6, 0], [0, 2], { style: "C", text: "VERIFY" }),
+    /centered in its line/,
+  );
+  d.linearDimension([0, 0], [7, 0], [0, 2], { style: "C", text: "VERIFY" });
+});
+
+test("a stacked fraction, words below the line and a text moved out are drawn and read back", async () => {
+  const style = { ...sizes, textHeight: 0.125, arrowSize: 0.125, textGap: 0.0625 } as const;
+  const feet = { units: "architectural", precision: 4, measurementScale: 12 } as const;
+  assert.equal(
+    measurementText(4.119792, { ...feet, fraction: "stacked", fractionScale: 0.75 }),
+    `4'-1{\\H0.75x;\\S7/16;}"`,
+  );
+  assert.equal(
+    measurementText(4.119792, { ...feet, fraction: "diagonal" }),
+    `4'-1{\\H1x;\\S7#16;}"`,
+  );
+  const d = createDrawing({ units: "ft" });
+  d.textStyle({ name: "NOTES", font: "Arial" });
+  d.dimensionStyle({
+    ...style,
+    name: "S",
+    textStyle: "NOTES",
+    arrowhead: "oblique",
+    textFit: "leader",
+  });
+  d.linearDimension([0, 0], [10, 0], [0, 2], { style: "S", textBelow: "WINDOW HEAD HT." });
+  d.linearDimension([0, 5], [0.1, 5], [0, 7], { style: "S", id: "short" });
+  const drawing = d.build();
+  const [below, short] = drawing.entities.map((e) =>
+    dimensionPicture(e as never, drawing.dimensionStyles![0]!, drawing.textStyles![0]),
+  );
+  // The words stand a gap under the line, and the file holds the line's middle for the text.
+  assert.equal(below!.below?.label.value, "WINDOW HEAD HT.");
+  assert.ok(below!.below!.middle[1] < 2 && below!.textMiddle[1] > 2);
+  assert.deepEqual(below!.textPoint, [5, 2]);
+  // A text with no room moves out on a leader of two lines from the middle of the dimension line.
+  assert.equal(short!.leader.length, 2);
+  assert.deepEqual(short!.leader[0]![0], [0.05, 7]);
+  const dxf = toDXF(drawing);
+  assert.ok(dxf.includes("\r\n1\r\n<>\\XWINDOW HEAD HT.\r\n"));
+  const read = await readDXF(dxf, { geometry: true });
+  const [first] = read.model.entities as readonly {
+    readonly text?: string;
+    readonly textBelow?: string;
+  }[];
+  assert.deepEqual([first!.text, first!.textBelow], [undefined, "WINDOW HEAD HT."]);
+  assert.equal(read.dimensionStyles.find((s) => s.name === "S")?.textMove, 1);
+  assert.equal(read.dimensionStyles.find((s) => s.name === "S")?.arrowheadBlock, "_Oblique");
+});
+
+test("a radius, a diameter and a jogged radius dimension are built, written and read back", async () => {
+  const d = createDrawing({ units: "in" });
+  d.dimensionStyle({ ...sizes, name: "S" });
+  d.dimensionStyle({ ...sizes, name: "JOG", jogAngle: 30 });
+  d.radiusDimension([0, 0], [3, 4], { style: "S", id: "r" });
+  d.diameterDimension([10, 0], [10, 2], { style: "S", text: "<> TYP.", textFromCenter: 1 });
+  d.joggedRadiusDimension([0, 0], [30, 40], [20, 20], [24, 30], { style: "JOG" });
+  const drawing = d.build();
+  assert.deepEqual(lint(drawing), []);
+  assert.deepEqual(fromJSON(toJSON(drawing)), drawing);
+  const read = await readDXF(toDXF(drawing), { geometry: true });
+  const radial = (read.model.entities ?? []).filter((e) => e.kind === "radial-dimension");
+  assert.deepEqual(
+    radial.map((e) => [e.type, e.center, e.point, e.measurement]),
+    [
+      ["radius", [0, 0], [3, 4], 5],
+      ["diameter", [10, 0], [10, 2], 4],
+      ["jogged-radius", [0, 0], [30, 40], 50],
+    ],
+  );
+  assert.equal(radial[1]!.text, "<> TYP.");
+  assert.equal(radial[1]!.placed, true);
+  assert.deepEqual(
+    [radial[2]!.start, radial[2]!.jog],
+    [
+      [20, 20],
+      [24, 30],
+    ],
+  );
+  // The leading CAD app writes R and the diameter sign before the measurement itself.
+  const style = drawing.dimensionStyles![0]!;
+  assert.equal(dimensionPicture(drawing.entities[0] as never, style).label.value, "R5.00");
+});
+
+test("a radial dimension is refused where the leading CAD app would draw what tsdraft does not", () => {
+  const d = createDrawing({ units: "in" });
+  d.dimensionStyle({ ...sizes, name: "S" });
+  d.dimensionStyle({ ...sizes, name: "PRE", prefix: "L=" });
+  // A style's prefix may stand in place of the R the app writes.
+  assert.throws(
+    () => d.radiusDimension([0, 0], [3, 4], { style: "PRE" }),
+    /its style has a prefix/,
+  );
+  assert.throws(() => d.radiusDimension([0, 0], [0, 0.0000001], { style: "S" }), /no radius/);
+  assert.throws(
+    () => d.dimensionStyle({ ...sizes, name: "STEEP", jogAngle: 95 }),
+    /jogAngle must be a number of degrees from 5 to 90/,
+  );
+  assert.throws(
+    () => d.radiusDimension([0, 0], [3, 4], { style: "S", textFromCenter: Number.NaN }),
+    /textFromCenter/,
+  );
+  // A jog so near the arc that its last stretch cannot hold the text.
+  assert.throws(
+    () => d.joggedRadiusDimension([0, 0], [120, 0], [118, 0.5], [119.7, 0.1], { style: "S" }),
+    /shorter than its text/,
+  );
+});
+
+test("an angular dimension is built, written and read back, its arc's point picking the angle", async () => {
+  const d = createDrawing({ units: "in" });
+  d.dimensionStyle({ ...sizes, name: "S" });
+  d.angularDimension([0, 0], [2, 0], [0, 2], [3, 3], { style: "S", id: "a" });
+  // Its point on the far side of the vertex picks the rest of the turn.
+  d.angularDimension([0, 0], [2, 0], [0, 2], [-3, -3], { style: "S", text: "<> TYP." });
+  const drawing = d.build();
+  assert.deepEqual(lint(drawing), []);
+  assert.deepEqual(fromJSON(toJSON(drawing)), drawing);
+  const style = drawing.dimensionStyles![0]!;
+  assert.deepEqual(
+    drawing.entities.map((e) => dimensionPicture(e as never, style).label.value),
+    ["90°", "270° TYP."],
+  );
+  const read = await readDXF(toDXF(drawing), { geometry: true });
+  const angular = (read.model.entities ?? []).filter((e) => e.kind === "angular-dimension");
+  assert.deepEqual(
+    angular.map((e) => [e.type, e.vertex, e.from, e.to, e.at, Math.round(e.measurement!)]),
+    [
+      ["three-point", [0, 0], [2, 0], [0, 2], [3, 3], 90],
+      ["three-point", [0, 0], [2, 0], [0, 2], [-3, -3], 270],
+    ],
+  );
+  // An angle too large for degrees reads as no angle.
+  const huge = toDXF(drawing).replace("42\r\n1.5707963267949\r\n", "42\r\n1e308\r\n");
+  const hugeRead = await readDXF(huge, { geometry: true });
+  assert.equal((hugeRead.model.entities![0] as { measurement?: number }).measurement, undefined);
+});
+
+test("an angle is written in each unit and precision as the leading CAD app writes it", () => {
+  const at = (degrees: number, style: Parameters<typeof angleNumber>[1]): string =>
+    angleNumber((degrees * Math.PI) / 180, style);
+  const dms = { angleUnits: "degrees-minutes-seconds" } as const;
+  // Each from a case the app drew, of the angle its points make.
+  assert.deepEqual(
+    [0, 1, 2, 3, 4, 5, 6, 8].map((places) => at(123.456705888, { ...dms, anglePrecision: places })),
+    [
+      "123°",
+      "123°27'",
+      "123°27'",
+      `123°27'24"`,
+      `123°27'24"`,
+      `123°27'24.1"`,
+      `123°27'24.14"`,
+      `123°27'24.1412"`,
+    ],
+  );
+  // Rounding carries into the minutes and the degrees.
+  assert.equal(at(45.999993816, { ...dms, anglePrecision: 5 }), `46°0'0.0"`);
+  assert.equal(at(45.999993816, { ...dms, anglePrecision: 6 }), `45°59'59.98"`);
+  assert.equal(at(123.456705888, { anglePrecision: 2 }), "123.46°");
+  assert.equal(at(89.995007537, { anglePrecision: 2 }), "90.00°");
+  assert.equal(at(45.000007829, { angleUnits: "grads", anglePrecision: 2 }), "50.00g");
+  assert.equal(at(20.000009666, { angleUnits: "radians", anglePrecision: 3 }), "0.349r");
+  assert.deepEqual(
+    (["leading", "trailing", "both"] as const).map((zeros) =>
+      at(0.5, { anglePrecision: 2, suppressAngleZeros: zeros }),
+    ),
+    [".50°", "0.5°", ".5°"],
+  );
+});
+
+test("an angular dimension is refused where the leading CAD app would draw what tsdraft does not", () => {
+  const d = createDrawing({ units: "in" });
+  d.dimensionStyle({ ...sizes, name: "S" });
+  d.dimensionStyle({ ...sizes, name: "OUT", textFit: "leader" });
+  assert.throws(
+    () => d.angularDimension([0, 0], [0, 0], [0, 2], [3, 3], { style: "S" }),
+    /no direction/,
+  );
+  assert.throws(
+    () => d.angularDimension([0, 0], [2, 0], [0, 2], [0, 0], { style: "S" }),
+    /no radius/,
+  );
+  assert.throws(
+    () => d.angularDimension([0, 0], [2, 0], [4, 0], [3, 3], { style: "S" }),
+    /no angle/,
+  );
+  // The arc through one of its points, whose extension line runs either way by a rounding.
+  assert.throws(
+    () => d.angularDimension([0, 0], [2, 0], [0, 2], [1.2, 1.6], { style: "S" }),
+    /passes through one of its two points/,
+  );
+  // The arc's point on one of the lines, where a rounding picks the angle or the rest of the turn.
+  assert.throws(
+    () => d.angularDimension([1.1, 2.3], [1.2, 2.37], [1.03, 2.4], [1.3, 2.44], { style: "S" }),
+    /on one of its two lines/,
+  );
+  // A centered text that leaves the arc no room each side, with no marks to turn.
+  d.dimensionStyle({ ...sizes, name: "BARE", arrowSize: 0, textPlacement: "centered" });
+  assert.throws(
+    () => d.angularDimension([0, 0], [2, 0], [2, 0.05], [1, 0.01], { style: "BARE" }),
+    /too short for its text "centered"/,
+  );
+  // The rest of the turn, its centered text and arrowheads too wide for each half of it.
+  d.dimensionStyle({
+    ...sizes,
+    name: "WIDE",
+    textPlacement: "centered",
+    textHeight: 0.25,
+    textGap: 0.1,
+    extensionOffset: 0,
+    extensionBeyond: 0,
+  });
+  assert.throws(
+    () => d.angularDimension([0, 0], [2, 0], [2, -0.2], [-0.55, 0], { style: "WIDE" }),
+    /too short for its text "centered"/,
+  );
+  // An arc of all but a whole turn, which its 6 decimals write with one angle at both ends.
+  d.dimensionStyle({ ...sizes, name: "THIN", arrowSize: 0 });
+  assert.throws(
+    () => d.angularDimension([0, 0], [1000, 0], [1000, 0.000007], [-2000, 0], { style: "THIN" }),
+    /all but a whole turn/,
+  );
+  // Closed arrowheads longer than the arc is wide.
+  assert.throws(
+    () => d.angularDimension([0, 0], [2, 0], [0, 2], [0.04, 0.04], { style: "S" }),
+    /as long as its arc is wide/,
+  );
+  // A text too wide for the arc, which "leader" moves outside.
+  assert.throws(
+    () => d.angularDimension([0, 0], [2, 0], [2, 0.1], [0.5, 0.01], { style: "OUT" }),
+    /too short for its text/,
+  );
+  assert.throws(
+    () => d.dimensionStyle({ ...sizes, name: "BAD", anglePrecision: 9 }),
+    /anglePrecision must be a whole number from 0 to 8/,
+  );
+});
+
+test("a style's text mask is kept by the builder, written, plotted and boxed", () => {
+  const masked = (textMask?: boolean | { color: number }) => {
+    const d = createDrawing({ units: "ft" });
+    d.textStyle({ name: "NOTES", font: "Arial" });
+    d.dimensionStyle({ ...sizes, name: "MASKED", ...(textMask === undefined ? {} : { textMask }) });
+    d.linearDimension([0, 0], [100, 0], [50, 20], { style: "MASKED" });
+    return d.build();
+  };
+  assert.deepEqual(masked(true).dimensionStyles?.[0]?.textMask, true);
+  assert.deepEqual(masked({ color: 3 }).dimensionStyles?.[0]?.textMask, { color: 3 });
+  assert.equal(masked(false).dimensionStyles?.[0]?.textMask, undefined);
+  assert.match(toDXF(masked(true)), /\r\n *69\r\n *1\r\n/);
+  assert.match(toSVG(masked(true)), /data-part="mask"/);
+  assert.doesNotMatch(toSVG(masked()), /data-part="mask"/);
+  // The mask grows the text's box by a quarter of its height each side, past the dimension's top.
+  const top = (drawing: Drawing) =>
+    extents(
+      drawing.entities,
+      drawing.textStyles,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      drawing.dimensionStyles,
+    )[3];
+  assert.ok(top(masked(true)) > top(masked()), `${top(masked(true))} ${top(masked())}`);
+});
+
+test("an arc length dimension is built, written and read back, with the arc symbol before its text", async () => {
+  const d = createDrawing({ units: "in" });
+  d.dimensionStyle({ ...sizes, name: "S" });
+  d.dimensionStyle({ ...sizes, name: "BARE", arcSymbol: "none" });
+  d.arcLengthDimension([0, 0], 10, 30, 120, [0, 13], { style: "S", id: "l" });
+  d.arcLengthDimension(
+    [20, 0],
+    10,
+    30,
+    60,
+    [20 + 13 * Math.cos(Math.PI / 4), 13 * Math.sin(Math.PI / 4)],
+    {
+      style: "BARE",
+      text: "<> TYP.",
+    },
+  );
+  const drawing = d.build();
+  assert.deepEqual(lint(drawing), []);
+  assert.deepEqual(fromJSON(toJSON(drawing)), drawing);
+  const style = drawing.dimensionStyles![0]!;
+  const picture = dimensionPicture(drawing.entities[0] as never, style);
+  assert.equal(picture.label.value, "15.71");
+  // The symbol is a half circle before the text, the last of its arcs.
+  assert.equal(picture.dimensionArcs.length, 2);
+  const read = await readDXF(toDXF(drawing), { geometry: true });
+  const arcs = (read.model.entities ?? []).filter((e) => e.kind === "arc-length-dimension");
+  assert.deepEqual(
+    arcs.map((e) => [
+      e.center,
+      Number(e.radius.toFixed(6)),
+      Math.round(e.startAngle),
+      Math.round(e.endAngle),
+    ]),
+    [
+      [[0, 0], 10, 30, 120],
+      [[20, 0], 10, 30, 60],
+    ],
+  );
+  assert.equal(Number(arcs[0]!.measurement!.toFixed(6)), Number(((10 * Math.PI) / 2).toFixed(6)));
+  assert.equal(arcs[1]!.text, "<> TYP.");
+  // A right angle about a far center, whose ends' decimals put it a hair under, runs along radii.
+  const far = createDrawing({ units: "in" });
+  far.dimensionStyle({ ...sizes, name: "S" });
+  far.arcLengthDimension([1000, 2000], 10, 2, 92, [1000, 2013], { style: "S" });
+  const farDrawing = far.build();
+  const [from, to] = dimensionPicture(farDrawing.entities[0] as never, style).extensionLines[0]!;
+  const [cx, cy] = [1000, 2000];
+  assert.ok(
+    Math.abs((from[0] - cx) * (to[1] - from[1]) - (from[1] - cy) * (to[0] - from[0])) < 1e-6,
+  );
+});
+
+test("an arc length dimension is refused where the leading CAD app would draw what tsdraft does not", () => {
+  const d = createDrawing({ units: "in" });
+  d.dimensionStyle({ ...sizes, name: "S" });
+  assert.throws(
+    () => d.arcLengthDimension([0, 0], 10, 30, 30, [0, 13], { style: "S" }),
+    /measures no arc/,
+  );
+  assert.throws(
+    () => d.arcLengthDimension([0, 0], 10, 30, 120, [0, 0], { style: "S" }),
+    /no radius/,
+  );
+  assert.throws(
+    () => d.arcLengthDimension([0, 0], 10, 30, 120, [0, 10], { style: "S" }),
+    /on the arc it measures/,
+  );
+  // Inside an arc under a right angle.
+  assert.throws(
+    () => d.arcLengthDimension([0, 0], 10, 30, 60, [5, 5], { style: "S" }),
+    /inside an arc under a right angle/,
+  );
+  // Words below with the symbol.
+  assert.throws(
+    () => d.arcLengthDimension([0, 0], 10, 30, 120, [0, 13], { style: "S", textBelow: "MIN." }),
+    /with the arc symbol/,
+  );
+  assert.throws(
+    () => d.arcLengthDimension([0, 0], -10, 0, 90, [0, 13], { style: "S" }),
+    /0 or less/,
+  );
+  // A centered text too wide for its arc, with no marks to turn.
+  d.dimensionStyle({
+    ...sizes,
+    name: "BARE",
+    arrowSize: 0,
+    textPlacement: "centered",
+    arcSymbol: "none",
+  });
+  assert.throws(
+    () => d.arcLengthDimension([0, 0], 1, 0, 10, [1.3, 0.11], { style: "BARE", text: "VERIFY" }),
+    /too short for its text "centered"/,
+  );
+  // A text too wide for its own arc, which "leader" moves outside.
+  d.dimensionStyle({
+    ...sizes,
+    name: "OUT",
+    textFit: "leader",
+    textHeight: 0.125,
+    arcSymbol: "none",
+  });
+  assert.throws(
+    () =>
+      d.arcLengthDimension([0, 0], 10, 0, 5, [25, 1], { style: "OUT", text: "VERIFY IN FIELD" }),
+    /too short for its text/,
+  );
+  // Ticks longer than the arc is wide, turned outward, whose tails would meet round the back.
+  d.dimensionStyle({
+    ...sizes,
+    name: "TICKS",
+    arrowhead: "architectural-tick",
+    textPlacement: "centered",
+    textHeight: 0.125,
+    arrowSize: 0.25,
+    textGap: 0.04,
+  });
+  assert.throws(
+    () => d.arcLengthDimension([0, 0], 0.25, 0, 270, [0.1, 0], { style: "TICKS", text: "VERIFY" }),
+    /meet round the back/,
+  );
+  // More digits than a measurement's writing holds.
+  d.dimensionStyle({ ...sizes, name: "LONG", precision: 8, measurementScale: 304.8 });
+  assert.throws(
+    () => d.arcLengthDimension([0, 0], 25000, 0, 90, [0, 26000], { style: "LONG" }),
+    /16 digits/,
+  );
+  assert.throws(
+    () => d.dimensionStyle({ ...sizes, name: "BAD", arcSymbol: "after" as never }),
+    /arcSymbol must be "before", "above" or "none"/,
+  );
+});
+
+test("an ordinate dimension is built, written and read back, its leader jogged or straight", async () => {
+  const d = createDrawing({ units: "in" });
+  d.dimensionStyle({ ...sizes, name: "S" });
+  d.ordinateDimension([3, 2], [3, 12], { style: "S", axis: "x" });
+  d.ordinateDimension([-3, 2], [-13, -1], { style: "S", axis: "y", origin: [1, 1], id: "o" });
+  // A jog of a hundred-thousandth at a million out is drawn straight, and one of a ten-thousandth
+  // jogs, and so do jogs of exactly 1e-10 of the coordinate in decimals.
+  d.ordinateDimension([1000000, 2], [1000000.00001, 12], { style: "S", axis: "x" });
+  d.ordinateDimension([1000000, 2], [1000000.0002, 12], { style: "S", axis: "x" });
+  d.ordinateDimension([2, 100000], [12, 100000.00001], { style: "S", axis: "y" });
+  d.ordinateDimension([10000, 2], [10000.000001, 12], { style: "S", axis: "x" });
+  // As the leading CAD app reads the written numbers, a jog of 1e-10 of the coordinate is a hair
+  // under at 30000, which a correctly rounded reading puts a hair over, and a hair over at 70000.
+  d.ordinateDimension([30000, 2], [30000.000003, 12], { style: "S", axis: "x" });
+  d.ordinateDimension([70000, 2], [70000.000007, 12], { style: "S", axis: "x" });
+  const drawing = d.build();
+  assert.deepEqual(lint(drawing), []);
+  assert.deepEqual(fromJSON(toJSON(drawing)), drawing);
+  const style = drawing.dimensionStyles![0]!;
+  const [up, left, straight, jogged, ...edges] = drawing.entities.map((e) =>
+    dimensionPicture(e as never, style),
+  );
+  assert.equal(up!.label.value, "3.00");
+  assert.deepEqual(up!.extensionLines, [
+    [
+      [3, 2.5],
+      [3, 12 + 0.5 + up!.textWidth],
+    ],
+  ]);
+  // Left from the feature, 3 below the line: a jog from 4 arrow sizes short of the end to 2.
+  assert.equal(left!.label.value, "1.00");
+  assert.deepEqual(
+    left!.extensionLines.map(([a, b]) => [a, b]),
+    [
+      [
+        [-3.5, 2],
+        [-9, 2],
+      ],
+      [
+        [-9, 2],
+        [-11, -1],
+      ],
+      [
+        [-11, -1],
+        [-13 - 0.5 - left!.textWidth, -1],
+      ],
+    ],
+  );
+  assert.deepEqual(straight!.extensionLines[0]![1], [
+    heldNumber(1000000.00001),
+    12 + 0.5 + straight!.textWidth,
+  ]);
+  assert.equal(straight!.extensionLines.length, 1);
+  assert.equal(jogged!.extensionLines.length, 3);
+  assert.deepEqual(
+    edges.map((picture) => picture.extensionLines.length),
+    [3, 3, 1, 3],
+  );
+  // Two numbers written a ten-thousandth apart at 1e12 are one as the leading CAD app reads them,
+  // so the leader is level with its feature and runs back, down.
+  const level = { ...drawing.entities[0]!, feature: [3, 1e12], leaderEnd: [3.0001, 1e12 + 0.0001] };
+  const [start, stop] = dimensionPicture(level as never, style).extensionLines[0]!;
+  assert.ok(start[1] < 1e12 && stop[1] < start[1], `${start} to ${stop}`);
+  // Each point is placed in the numbers the leading CAD app holds, so no line of a leader comes
+  // out of no length as that app reads it back, even where an arrow size is a hair at 1e12.
+  const hair = { ...style, arrowSize: 0.00014, extensionOffset: 0 };
+  const thin = { ...drawing.entities[0]!, feature: [3, 1e12], leaderEnd: [4, 1e12 + 0.0007] };
+  const lines = dimensionPicture(thin as never, hair).extensionLines;
+  assert.equal(lines.length, 3);
+  for (const [from, to] of lines) {
+    assert.notDeepEqual(from.map(heldNumber), to.map(heldNumber), `${from} to ${to}`);
+  }
+  // The end's side of the leader is placed from the end, however far out the feature is.
+  const far = { ...drawing.entities[0]!, feature: [3, 1e16], leaderEnd: [3, 1] };
+  const centered = { ...style, textPlacement: "centered" } as const;
+  assert.deepEqual(dimensionPicture(far as never, centered).extensionLines.at(-1)![1], [3, 1]);
+  const above = dimensionPicture(far as never, style);
+  assert.deepEqual(above.extensionLines.at(-1)![1], [3, 1 - 0.5 - above.textWidth]);
+  const farJog = dimensionPicture({ ...far, leaderEnd: [4, 1] } as never, style);
+  assert.deepEqual(
+    farJog.extensionLines.slice(1).map(([from, to]) => [from, to]),
+    [
+      [
+        [3, 5],
+        [4, 3],
+      ],
+      [
+        [4, 3],
+        [4, 1 - 0.5 - farJog.textWidth],
+      ],
+    ],
+  );
+  const read = await readDXF(toDXF(drawing), { geometry: true });
+  const ordinates = (read.model.entities ?? []).filter((e) => e.kind === "ordinate-dimension");
+  assert.deepEqual(
+    ordinates.slice(0, 2).map((e) => [e.axis, e.origin, e.feature, e.leaderEnd, e.measurement]),
+    [
+      ["x", [0, 0], [3, 2], [3, 12], 3],
+      ["y", [1, 1], [-3, 2], [-13, -1], 1],
+    ],
+  );
+});
+
+test("an ordinate dimension needs an axis and a leader, and lint warns of one whose leader runs across", () => {
+  const d = createDrawing({ units: "in" });
+  d.dimensionStyle({ ...sizes, name: "S" });
+  assert.throws(
+    // @ts-expect-error: an ordinate dimension's axis is "x" or "y".
+    () => d.ordinateDimension([0, 0], [0, 5], { style: "S", axis: "z" }),
+    /axis must be "x" or "y"/,
+  );
+  assert.throws(
+    // @ts-expect-error: an ordinate dimension has an axis.
+    () => d.ordinateDimension([0, 0], [0, 5], { style: "S" }),
+    /axis must be "x" or "y"/,
+  );
+  assert.throws(
+    () => d.ordinateDimension([2, 3], [2.0000001, 3], { style: "S", axis: "x" }),
+    /has no leader/,
+  );
+  assert.throws(
+    () => d.ordinateDimension([3, 1e12], [3, 1e12 + 0.0001], { style: "S", axis: "x" }),
+    /has no leader/,
+  );
+  d.ordinateDimension([2, 3], [9, 4], { style: "S", axis: "x" });
+  assert.deepEqual(
+    lint(d.build()).map((x) => [x.rule, x.severity]),
+    [["dimension", "warning"]],
+  );
 });

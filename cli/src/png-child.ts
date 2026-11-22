@@ -33,6 +33,8 @@ export interface PngRequest {
     readonly face: string;
     readonly file: string;
     readonly capHeight: number;
+    /** The file of its bold, of the same family name, and the height of a capital in it. */
+    readonly bold?: { readonly file: string; readonly capHeight: number };
   }[];
   /** The height of a capital of this process's own font, as a share of its size. */
   readonly capHeight: number;
@@ -59,14 +61,16 @@ async function draw({ svg, width: fitted, faces, capHeight }: PngRequest): Promi
     ? Math.max(1, 1 / (base * (fitted / w)))
     : Math.max(1, fitted / 1200) / (fitted / w) / base;
   // `toSVG` gives each text the height of its capitals, and sizes it for the font it names.
-  // Here it is sized for the face it is drawn in, so that its capitals are that tall.
+  // Here it is sized for the face it is drawn in, so that its capitals are that tall, in bold where
+  // the text is bold and the face has one.
   const byFamily = new Map(faces.map((face) => [attribute(face.family), face]));
   let set = svg.replace(
-    / font-size="[^"]*" font-family="([^"]*)" data-height="([^"]*)"/g,
-    (_, family: string, height: string) => {
+    /( font-weight="bold")? font-size="[^"]*" font-family="([^"]*)" data-height="([^"]*)"/g,
+    (_, bold: string | undefined, family: string, height: string) => {
       const face = byFamily.get(family);
-      const size = Number(height) / (face?.capHeight ?? capHeight);
-      return ` font-size="${size}" font-family="${face ? attribute(face.face) : family}"`;
+      const cap = (bold ? face?.bold?.capHeight : undefined) ?? face?.capHeight ?? capHeight;
+      const size = Number(height) / cap;
+      return `${bold ?? ""} font-size="${size}" font-family="${face ? attribute(face.face) : family}"`;
     },
   );
   // A picture from a copy of tsdraft that gives no height keeps its sizes.
@@ -86,7 +90,10 @@ async function draw({ svg, width: fitted, faces, capHeight }: PngRequest): Promi
     fitTo: { mode: "width", value: fitted },
     background: BACKGROUND,
     font: {
-      fontFiles: [FONT, ...faces.map((face) => face.file)],
+      fontFiles: [
+        FONT,
+        ...faces.flatMap((face) => [face.file, ...(face.bold ? [face.bold.file] : [])]),
+      ],
       loadSystemFonts: false,
       defaultFontFamily: "JetBrains Mono",
       monospaceFamily: "JetBrains Mono",

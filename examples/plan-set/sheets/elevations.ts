@@ -1,7 +1,7 @@
 // A-201 and A-202: the four exterior elevations at 1/4" = 1'-0", drawn from the model: the
 // walls, the openings at their real positions and heights, the hip roof, the lanai, the grade
 // and the flood levels. A-301, the building and wall sections, is in elevations-section.ts.
-import type { Point } from "../../../src/index.ts";
+import type { Point, TableOptions } from "../../../src/index.ts";
 import { CRITERIA } from "../project.ts";
 import {
   DEPTH,
@@ -20,6 +20,7 @@ import {
 } from "../model/house.ts";
 import { frame } from "../lib/frame.ts";
 import {
+  aligned,
   AREA,
   dimString,
   ftIn,
@@ -27,7 +28,8 @@ import {
   LAYERS,
   noteColumn,
   put,
-  table,
+  SCHEDULE,
+  tableBottom,
   view,
   viewport,
   width,
@@ -738,17 +740,19 @@ function levelTable(d: D, at: Point, w: number): number {
   ];
   const c2 = 1.0;
   const c3 = 0.9;
-  return table(
-    d,
+  const right = { 1: "right", 2: "right" } as const;
+  const levels: TableOptions = {
+    style: SCHEDULE,
     at,
-    "LEVELS",
-    [
-      { name: "LEVEL", width: w - c2 - c3 },
-      { name: "ABOVE F.F.", width: c2, align: "right" },
-      { name: "NAVD 88", width: c3, align: "right" },
-    ],
-    rows.map(([name, z]) => [name, z >= 0 ? ftIn(z) : `-${ftIn(-z)}`, `${navd(z).toFixed(2)}'`]),
-  );
+    columns: [w - c2 - c3, c2, c3],
+    title: "LEVELS",
+    header: aligned(["LEVEL", "ABOVE F.F.", "NAVD 88"], right),
+    rows: rows.map(([name, z]) =>
+      aligned([name, z >= 0 ? ftIn(z) : `-${ftIn(-z)}`, `${navd(z).toFixed(2)}'`], right),
+    ),
+  };
+  d.layer(LAYERS.text, {}, () => d.table(levels));
+  return tableBottom(levels);
 }
 
 const VP = { h: 10.25 };

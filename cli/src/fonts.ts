@@ -8,7 +8,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { FONTS, pdfFace } from "tsdraft";
+import { boldFontKey, capHeightOf, FONTS, pdfFace } from "tsdraft";
 import type { PngFont } from "./state.ts";
 
 /** The font the command ships: JetBrains Mono, under the OFL in assets/fonts/OFL.txt. */
@@ -28,10 +28,30 @@ export function shippedCap(): number {
  * Fonts made to the widths of another: each has, letter for letter, the advance widths of the
  * font it stands in for. The Liberation fonts are installed on most Linux machines.
  */
-const SAME_WIDTHS: Readonly<Record<string, readonly { face: string; file: string }[]>> = {
-  Arial: [{ face: "Liberation Sans", file: "LiberationSans-Regular.ttf" }],
-  "Courier New": [{ face: "Liberation Mono", file: "LiberationMono-Regular.ttf" }],
-  "Times New Roman": [{ face: "Liberation Serif", file: "LiberationSerif-Regular.ttf" }],
+const SAME_WIDTHS: Readonly<
+  Record<string, readonly { face: string; file: string; bold: string }[]>
+> = {
+  Arial: [
+    {
+      face: "Liberation Sans",
+      file: "LiberationSans-Regular.ttf",
+      bold: "LiberationSans-Bold.ttf",
+    },
+  ],
+  "Courier New": [
+    {
+      face: "Liberation Mono",
+      file: "LiberationMono-Regular.ttf",
+      bold: "LiberationMono-Bold.ttf",
+    },
+  ],
+  "Times New Roman": [
+    {
+      face: "Liberation Serif",
+      file: "LiberationSerif-Regular.ttf",
+      bold: "LiberationSerif-Bold.ttf",
+    },
+  ],
 };
 
 /** A font file the renderer loads, and what the SVG's `font-family` becomes for it. */
@@ -43,6 +63,8 @@ export interface Face {
   readonly file: string;
   /** The height of a capital in the file, as a share of the font's size. */
   readonly capHeight: number;
+  /** The file of the face's bold, of the same family, and the height of a capital in it. */
+  readonly bold?: { readonly file: string; readonly capHeight: number };
 }
 
 /** The folders an operating system keeps its fonts in. */
@@ -160,30 +182,57 @@ export function capHeight(bytes: Uint8Array): number | undefined {
  * @param folders - Where to look. The operating system's font folders unless given.
  */
 export function findFaces(folders: readonly string[] = fontFolders()): Map<string, Face> {
-  const wanted: { font: string; face: string; file: string }[] = [];
+  const wanted: { font: string; face: string; file: string; bold: readonly string[] }[] = [];
   for (const [font, info] of Object.entries(FONTS)) {
     if (!("capHeight" in info)) continue;
     // Windows names the file as `FONTS` does, and macOS by the typeface.
-    for (const file of [info.file, `${font}.ttf`]) wanted.push({ font, face: font, file });
-    for (const same of SAME_WIDTHS[font] ?? []) wanted.push({ font, ...same });
+    const bold = "bold" in info ? [info.bold.file, `${font} Bold.ttf`] : [];
+    for (const file of [info.file, `${font}.ttf`]) wanted.push({ font, face: font, file, bold });
+    for (const same of SAME_WIDTHS[font] ?? []) wanted.push({ font, ...same, bold: [same.bold] });
   }
-  const files = findFiles(folders, new Set(wanted.map((w) => w.file.toLowerCase())));
-  const faces = new Map<string, Face>();
-  for (const { font, face, file } of wanted) {
+  const files = findFiles(
+    folders,
+    new Set(wanted.flatMap((w) => [w.file, ...w.bold]).map((file) => file.toLowerCase())),
+  );
+  /** The bytes of a file found, of the family `face`, or undefined. */
+  const read = (file: string, face: string): Uint8Array | undefined => {
     const path = files.get(file.toLowerCase());
-    if (faces.has(font) || path === undefined) continue;
-    let bytes;
+    if (path === undefined) return undefined;
     try {
-      bytes = readFileSync(path);
+      const bytes = readFileSync(path);
+      return familyName(bytes) === face ? bytes : undefined;
     } catch {
-      continue;
+      return undefined;
     }
-    if (familyName(bytes) !== face) continue;
+  };
+  const faces = new Map<string, Face>();
+  for (const { font, face, file, bold } of wanted) {
+    if (faces.has(font)) continue;
+    const bytes = read(file, face);
+    if (bytes === undefined) continue;
     const info: { family: string; capHeight?: number } = FONTS[font as keyof typeof FONTS];
     // The font's own file is sized as `FONTS` says the leading CAD app sizes the font. A font that
     // stands in for it is sized by its own capitals, and one that states no cap height as the font.
-    const cap = (face === font ? undefined : capHeight(bytes)) ?? info.capHeight ?? shippedCap();
-    faces.set(font, { family: info.family, face, file: path, capHeight: cap });
+    const own = face === font;
+    const cap = (own ? undefined : capHeight(bytes)) ?? info.capHeight ?? shippedCap();
+    const found: Face = {
+      family: info.family,
+      face,
+      file: files.get(file.toLowerCase())!,
+      capHeight: cap,
+    };
+    const boldFile = bold.find((name) => read(name, face) !== undefined);
+    if (boldFile === undefined) {
+      faces.set(font, found);
+      continue;
+    }
+    const boldBytes = read(boldFile, face)!;
+    const boldCap =
+      (own ? capHeightOf(font, true) : capHeight(boldBytes)) ?? info.capHeight ?? shippedCap();
+    faces.set(font, {
+      ...found,
+      bold: { file: files.get(boldFile.toLowerCase())!, capHeight: boldCap },
+    });
   }
   return faces;
 }
@@ -228,9 +277,17 @@ export function pngFonts(
   });
 }
 
-/** The files a PDF embeds, by the font each sets: the faces the machine has. */
+/**
+ * The files a PDF embeds, by the font each sets: the faces the machine has, and the bold of each
+ * by `boldFontKey` of its font.
+ */
 export function pdfFiles(known: ReadonlyMap<string, Face> = faces()): Record<string, string> {
-  return Object.fromEntries([...known].map(([font, face]) => [font, face.file]));
+  return Object.fromEntries(
+    [...known].flatMap(([font, face]) => [
+      [font, face.file],
+      ...(face.bold ? [[boldFontKey(font), face.bold.file]] : []),
+    ]),
+  );
 }
 
 /** The face a PDF sets a font in with a file, by the font and the file's path, read once. */
