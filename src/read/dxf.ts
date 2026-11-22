@@ -189,10 +189,12 @@ const CENSUS: ReadonlySet<number> = new Set([5, 6, 8, 60, 62, 67, 102, 330, 370,
 const VISIBILITY: ReadonlySet<number> = new Set([60]);
 /** The kinds a block's definition reads whole, and a space's with `geometry`. */
 const BLOCK_READS = new Set([
+  "3DSOLID",
   "ACAD_TABLE",
   "ARC",
   "ATTDEF",
   "ATTRIB",
+  "BODY",
   "CIRCLE",
   "DIMENSION",
   "ELLIPSE",
@@ -209,6 +211,7 @@ const BLOCK_READS = new Set([
   "PDFUNDERLAY",
   "POINT",
   "POLYLINE",
+  "REGION",
   "SEQEND",
   "SOLID",
   "SPLINE",

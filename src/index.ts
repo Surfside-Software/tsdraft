@@ -486,6 +486,8 @@ export { checkDrawingRead } from "./read/check.ts";
 export { readDXF } from "./read/dxf.ts";
 export { ReadError } from "./read/groups.ts";
 export { layoutMtext, measureMtext } from "./read/mtext.ts";
+export { decipherSat, sabEdges, satEdges, type ModelerEdges } from "./read/modeler.ts";
+export { edgesInPlan, type PlanEdge } from "./read/plan.ts";
 export {
   BLOCK_ITEMS,
   CENSUS_LIMIT,
@@ -514,6 +516,10 @@ export {
   type ReadOrdinateDimension,
   type ReadDimensionStyle,
   type ReadDrawingFile,
+  type ReadEdge,
+  type ReadEdgeEllipse,
+  type ReadEdgeLine,
+  type ReadEdgeSpline,
   type ReadEntity,
   type ReadColorBook,
   type ReadEntityBase,
@@ -534,10 +540,12 @@ export {
   type ReadLinetype,
   type ReadLinetypeMark,
   type ReadMask,
+  type ReadModelerGeometry,
   type ReadMtext,
   type ReadPatternLine,
   type ReadMultileader,
   type ReadOptions,
+  type Point3,
   type ReadPolyline,
   type ReadSolid,
   type ReadSpace,

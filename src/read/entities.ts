@@ -2,7 +2,8 @@
 // coordinates with the pen it sets for itself.
 import type { ParagraphColumns } from "../paragraphs.ts";
 import type { Point } from "../drawing.ts";
-import { textOnce, textTwice } from "./groups.ts";
+import { carets, textOnce, textTwice } from "./groups.ts";
+import { decipherSat, satEdges } from "./modeler.ts";
 import { readAlpha } from "../transparency.ts";
 import { wholeImageClip } from "../images.ts";
 import { UNDERLAY_CONTRAST_DEFAULT, UNDERLAY_FADE_DEFAULT } from "../underlays.ts";
@@ -10,6 +11,7 @@ import type {
   ReadAttribute,
   ReadAttributeParagraph,
   ReadDimension,
+  ReadEdge,
   ReadRadialDimension,
   ReadAngularDimension,
   ReadArcLengthDimension,
@@ -291,6 +293,10 @@ export function readingOf(
       return hatch(r, base, face);
     case "WIPEOUT":
       return wipeout(r, base);
+    case "3DSOLID":
+    case "REGION":
+    case "BODY":
+      return modeler(r, base);
     case "SOLID": {
       if (face === 0) return { other: "SOLID in 3D" };
       const corner = (code: number): Point =>
@@ -300,6 +306,34 @@ export function readingOf(
     default:
       return undefined;
   }
+}
+
+/**
+ * A solid, a region or a body by the edges of its modeler data. A file before 2013 holds the data
+ * in its record, as lines of groups 1 and 3 in a cipher with DXF's carets; a later one holds it in
+ * the file's data storage, which is not read, and says so with group 290.
+ */
+function modeler(r: Rec, base: ReadEntityBase): Reading {
+  const kind = r.type === "3DSOLID" ? "3dsolid" : r.type === "REGION" ? "region" : "body";
+  const s = inSubclass(r, "AcDbModelerGeometry");
+  // A long line is held as groups 3, its first parts, and then a group 1, its end.
+  const lines: string[] = [];
+  let start = "";
+  for (let i = 0; i < s.codes.length && s.codes[i] !== 1001; i++) {
+    const code = s.codes[i];
+    if (code === 3) start += decipherSat(carets(s.values[i]!));
+    else if (code === 1) {
+      lines.push(start + decipherSat(carets(s.values[i]!)));
+      start = "";
+    }
+  }
+  if (lines.length === 0) {
+    const stored = s.codes.includes(290);
+    return { entity: { ...base, kind, edges: [], ...(stored && { dataUnread: true as const }) } };
+  }
+  const { edges, unread } = satEdges(lines.join("\n") + "\n");
+  if (unread < 0) return { entity: { ...base, kind, edges: [], dataUnread: true } };
+  return { entity: { ...base, kind, edges, ...(unread > 0 && { edgesUnread: unread }) } };
 }
 
 /**
@@ -1422,6 +1456,18 @@ export const attributeCost = (a: ReadAttribute): number =>
   (a.colorBook ? chars(a.colorBook.book) + chars(a.colorBook.name) : 0) +
   (a.paragraph ? 2 + chars(a.paragraph.style) : 0);
 
+/** What an edge of a solid costs: one for each point or vector it holds, and each knot and weight. */
+function edgeCost(e: ReadEdge): number {
+  switch (e.kind) {
+    case "line":
+      return 2;
+    case "ellipse":
+      return 4;
+    case "spline":
+      return 1 + e.knots.length + e.controlPoints.length + (e.weights?.length ?? 0);
+  }
+}
+
 /**
  * What an entity costs against `BLOCK_ITEMS` or `GEOMETRY_ITEMS`: one, and one more for each of
  * its points, bulges and pairs of widths, each attribute or tag, and each 32 characters of its
@@ -1505,6 +1551,10 @@ export function costOf(e: ReadEntity): number {
     }
     case "wipeout":
       return own + e.points.length;
+    case "3dsolid":
+    case "region":
+    case "body":
+      return own + e.edges.reduce((sum, edge) => sum + edgeCost(edge), 0);
     case "table":
       return (
         own +

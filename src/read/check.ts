@@ -10,6 +10,8 @@ type Type =
   | "number"
   | "boolean"
   | "point"
+  /** A point in space: three finite numbers. */
+  | "point3"
   | "count"
   /** An entity's opacity: a whole number from 0 to 255, or `"ByBlock"`. */
   | "alpha"
@@ -147,7 +149,43 @@ const INSERT: Fields = {
   "attributes?": { list: { fields: ATTRIBUTE } },
 };
 
+/** An edge of a solid, a region or a body. */
+const EDGE: Type = {
+  either: [
+    { kind: { oneOf: ["line"] }, from: "point3", to: "point3" },
+    {
+      kind: { oneOf: ["ellipse"] },
+      center: "point3",
+      normal: "point3",
+      majorAxis: "point3",
+      ratio: "number",
+      "startParameter?": "number",
+      "endParameter?": "number",
+    },
+    {
+      kind: { oneOf: ["spline"] },
+      degree: "count",
+      knots: { list: "number" },
+      controlPoints: { list: "point3" },
+      "weights?": { list: "number" },
+    },
+  ],
+  named: "a line, an ellipse or a spline edge",
+};
+
+/** A solid, a region or a body, by its kind. */
+const MODELER = (kind: string): Fields => ({
+  ...BASE,
+  kind: { oneOf: [kind] },
+  edges: { list: EDGE },
+  "edgesUnread?": "count",
+  "dataUnread?": "boolean",
+});
+
 const ENTITY: Readonly<Record<string, Fields>> = {
+  "3dsolid": MODELER("3dsolid"),
+  region: MODELER("region"),
+  body: MODELER("body"),
   line: { ...BASE, kind: { oneOf: ["line"] }, from: "point", to: "point" },
   polyline: {
     ...BASE,
@@ -716,14 +754,14 @@ function onlyItems(v: unknown[]): boolean {
 }
 
 /**
- * The items of a plain list whose every slot holds a value, read without running a getter, or
- * `undefined` for anything else.
+ * The items of a plain list of at most `most` whose every slot holds a value, read without running
+ * a getter, or `undefined` for anything else.
  */
-function plainList(v: unknown): unknown[] | undefined {
+function plainList(v: unknown, most = 2): unknown[] | undefined {
   if (
     !Array.isArray(v) ||
     Object.getPrototypeOf(v) !== Array.prototype ||
-    v.length > 2 ||
+    v.length > most ||
     !onlyItems(v)
   ) {
     return undefined;
@@ -780,6 +818,17 @@ export function checkDrawingRead(value: unknown): string[] {
           say(at, 'must be a whole number from 0 to 255, or "ByBlock"');
         }
         return;
+      case "point3": {
+        const xyz = plainList(v, 3);
+        if (
+          xyz === undefined ||
+          xyz.length !== 3 ||
+          !xyz.every((n) => typeof n === "number" && Number.isFinite(n))
+        ) {
+          say(at, "must be three finite numbers");
+        }
+        return;
+      }
       case "point": {
         const xy = plainList(v);
         if (

@@ -1014,6 +1014,68 @@ export interface ReadSpline extends ReadEntityBase {
   readonly knotSpacing?: KnotSpacing;
 }
 
+/** A point in space: x, y and z, in the world's coordinates. */
+export type Point3 = readonly [x: number, y: number, z: number];
+
+/** A straight edge from one point to another. */
+export interface ReadEdgeLine {
+  readonly kind: "line";
+  readonly from: Point3;
+  readonly to: Point3;
+}
+
+/**
+ * An edge on an ellipse or a circle in any plane: the point at a parameter t is
+ * `center + cos(t) * majorAxis + sin(t) * ratio * (normal × majorAxis)`.
+ */
+export interface ReadEdgeEllipse {
+  readonly kind: "ellipse";
+  readonly center: Point3;
+  /** Of length 1. Seen from its tip, the parameters run counterclockwise. */
+  readonly normal: Point3;
+  /** From the center to the end of the longer axis. */
+  readonly majorAxis: Point3;
+  /** The shorter axis over the longer, above 0 and at most 1: 1 for a circle. */
+  readonly ratio: number;
+  /**
+   * For an arc, in degrees from 0 up to 360, and the end a turn at most past the start. Left out,
+   * with `endParameter`, for a whole ellipse.
+   */
+  readonly startParameter?: number;
+  readonly endParameter?: number;
+}
+
+/** An edge on a B-spline in space, cut to the edge: clamped at both its ends. */
+export interface ReadEdgeSpline {
+  readonly kind: "spline";
+  readonly degree: number;
+  readonly knots: readonly number[];
+  readonly controlPoints: readonly Point3[];
+  /** One for each control point, for a rational spline. */
+  readonly weights?: readonly number[];
+}
+
+/** An edge of a solid, a region or a body. */
+export type ReadEdge = ReadEdgeLine | ReadEdgeEllipse | ReadEdgeSpline;
+
+/**
+ * A 3D solid, a region or a body: the entities CAD programs keep as modeler data. It reads as its
+ * edges, in the world's coordinates and in 3D, which `edgesInPlan` turns into the lines, arcs,
+ * ellipses and splines it shows from above.
+ */
+export interface ReadModelerGeometry extends ReadEntityBase {
+  readonly kind: "3dsolid" | "region" | "body";
+  /** Its edges, in the order its data holds them. None for one whose data holds no body. */
+  readonly edges: readonly ReadEdge[];
+  /**
+   * How many edges its data holds that the reader does not follow, such as one on a curve of a
+   * kind it does not know. Left out at 0.
+   */
+  readonly edgesUnread?: number;
+  /** True when the reader does not read its data at all, so `edges` is empty whatever it holds. */
+  readonly dataUnread?: true;
+}
+
 /** What a space or a block draws, of the kinds the writers write. */
 export type ReadEntity =
   | ReadLine
@@ -1038,7 +1100,8 @@ export type ReadEntity =
   | ReadUnderlay
   | ReadHatch
   | ReadWipeout
-  | ReadTable;
+  | ReadTable
+  | ReadModelerGeometry;
 
 export interface ReadBlock {
   /** The handle of the block's record, which an insert's block record points to. */

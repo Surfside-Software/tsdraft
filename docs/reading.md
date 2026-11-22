@@ -248,6 +248,22 @@ leader:
   of the plane is counted under `other`.
 - An `mtext` with a background holds `mask`: its `offsetFactor`, and its `color` or `trueColor`
   where it is not in the drawing's background.
+- `3dsolid`, `region` and `body`, which CAD programs keep as modeler data: their `edges`, in the
+  order the data holds them, in the world's coordinates and in 3D, each a `line` from one point to
+  another, an `ellipse` with its `center`, `normal`, `majorAxis`, `ratio` and, for an arc of one,
+  its `startParameter` and `endParameter` in degrees, or a `spline` cut to the edge, with its
+  `degree`, `knots`, `controlPoints` and `weights`. An edge on no curve, such as a cone's apex,
+  and a seam, where a face meets itself, are left out, as CAD programs show neither. A solid with
+  no body has no edges. `edgesUnread` counts the edges on a curve the reader does not follow, and
+  `dataUnread` says the reader does not read the data at all, which a file of 2013 or later keeps
+  apart from the entity. `satEdges` and `sabEdges` read the data's text and binary forms, and
+  `decipherSat` the cipher a file before 2013 keeps the text in.
+  `edgesInPlan` turns one into the lines, circles, arcs, ellipses and splines it shows from above,
+  with its pen, for a drawing that `toSVG` and `toPDF` draw: a circle seen at an angle is an
+  ellipse, one seen edge on a line, and an edge that shows as one point, such as a vertical line,
+  is left out. CAD programs also draw lines along a solid's curved faces, which tsdraft does not
+  draw yet. Adding the result to a drawing you write gives plain linework: neither writer writes
+  a solid.
 
 `header.wipeoutFrame` is the file's dictionary variable `WIPEOUTFRAME`, which CAD programs read of
 whether wipeouts' frames show: 0 neither shown nor plotted, 1 both, 2 shown and not plotted. A

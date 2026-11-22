@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- 3D solids, regions and bodies are read. `readDXF` and `readDWG` read each as a `3dsolid`,
+  `region` or `body` with its `edges` in 3D, from the modeler data a file before 2013 holds in the
+  entity, as text or binary; a file of 2013 or later keeps the data apart from the entity, and a
+  read of one says `dataUnread` until a later release reads it. `edgesInPlan` turns a read solid
+  into the lines, arcs, ellipses and splines it shows from above, which `toSVG` and `toPDF` draw.
+  `satEdges`, `sabEdges` and `decipherSat` read the data on its own. Neither writer writes a
+  solid, and the lines CAD programs draw along curved faces are not drawn yet.
 - `readDWG` reads drawings saved in the 2004, 2007, 2010 and 2013 formats as well as 2018's, into
   the same read model, as CAD programs read them when they open the file: a 2004 file's text in its
   code page, each `\U+XXXX` in it as its character, a table of the 2004 or 2007 format as one of
