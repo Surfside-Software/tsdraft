@@ -10,7 +10,18 @@
   it. A read names the file's `version`, and for 2004 its `codepage`. A table of the 2004 format
   is counted under `unread.entities` and not read yet, and a drawing of the 2007 format is refused
   with a `ReadError` that names it; both come next.
-
+- An entity's own transparency, in R2018 drawings. Every entity but a table takes
+  `transparency`: a whole percent from 0 to 90, `"ByLayer"`, the default, or `"ByBlock"`, which
+  an entity of a block takes from its insert. `toDXF` writes it in group 440 as CAD programs store
+  it, and a dimension's picture holds every part transparent ByBlock. `toSVG` and `toPDF` draw
+  every entity opaque, as CAD programs plot the page setups tsdraft writes, and with
+  `plotTransparency: true` each entity at its transparency, composed first so its overlapping
+  parts are no darker, in a group with an `opacity` and a PDF transparency group. `lint` and the
+  builder refuse any other value under the rule `entity-transparency`, a transparency on a table,
+  a percent on an entity of a block a leader places, and one in an R12 drawing. `readDXF` and
+  `readDWG` read it as `alpha`, from 0 to 255, or `"ByBlock"`. A block a leader places holds
+  every entity ByBlock, as CAD programs read it, and the writers write it so; the leader draws
+  it opaque.
 - Linetypes with shapes: a fence with its circles along it, and batt insulation. `parseShapes`
   reads a firm's compiled shape file (`.shx`) into each shape's outlines, and `toSVG`, `toPDF`
   and `lint` take the files' bytes as `shapes`, found by name as CAD programs find them, without

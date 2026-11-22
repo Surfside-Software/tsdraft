@@ -3,6 +3,7 @@
 import type { ParagraphColumns } from "../paragraphs.ts";
 import type { Point } from "../drawing.ts";
 import { textOnce, textTwice } from "./groups.ts";
+import { readAlpha } from "../transparency.ts";
 import { wholeImageClip } from "../images.ts";
 import type {
   ReadAttribute,
@@ -76,6 +77,7 @@ export function baseOf(r: Rec, layer: string, handle: string | undefined): ReadE
   const color = num(r, 62);
   const trueColor = num(r, 420);
   const book = colorBookOf(name(r, 430));
+  const alpha = readAlpha(num(r, 440));
   const linetype = name(r, 6);
   const lineweight = num(r, 370);
   const linetypeScale = num(r, 48);
@@ -85,6 +87,7 @@ export function baseOf(r: Rec, layer: string, handle: string | undefined): ReadE
     ...(color !== undefined && color !== 256 && { color }),
     ...(trueColor !== undefined && { trueColor }),
     ...(book !== undefined && { colorBook: book }),
+    ...(alpha !== undefined && { alpha }),
     ...(linetype !== undefined && !/^bylayer$/i.test(linetype.trim()) && { linetype }),
     ...(lineweight !== undefined && lineweight !== -1 && { lineweight }),
     ...(linetypeScale !== undefined && linetypeScale !== 1 && { linetypeScale }),

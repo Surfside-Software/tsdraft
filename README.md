@@ -319,8 +319,8 @@ feet and inches with stacked fractions, words below the line and text on a leade
 layers or twist the view, and layers that are off, frozen, locked or not plotted. A firm's
 [standard](docs/standard.md) sets its layers, pens, text and sheets. It writes DXF, not DWG.
 
-It does not yet have overlines in paragraph text, ellipses, splines or points, tables, transparency set on one
-entity, PDF underlays, or the other kinds of dimension.
+It does not yet have overlines in paragraph text, ellipses, splines or points, tables, PDF underlays,
+or the other kinds of dimension.
 
 `readDXF` reads an ASCII DXF into a model to inspect, which is not a drawing tsdraft can edit
 and write again. [Reading drawing files](docs/reading.md) has what it reads.
@@ -434,6 +434,8 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   what `lint` refuses.
 - [Colors](docs/colors.md) covers an entity's own color by index or as a true color, ByBlock in
   a block, how each plots under a plot style table, and the color codes of paragraph text.
+- [Transparency](docs/transparency.md) covers an entity's own transparency, ByBlock in a block,
+  and how it plots when the plot asks for it.
 - [Dimensions](docs/dimensions.md) covers dimension styles, linear and aligned
   dimensions, how a measurement is written, and what `lint` refuses.
 - [Xrefs](docs/xrefs.md) covers references to DWG files: the path, units, a

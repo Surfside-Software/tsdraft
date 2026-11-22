@@ -11,6 +11,8 @@ type Type =
   | "boolean"
   | "point"
   | "count"
+  /** An entity's opacity: a whole number from 0 to 255, or `"ByBlock"`. */
+  | "alpha"
   | "entity"
   | { readonly fields: Fields }
   | { readonly list: Type }
@@ -88,6 +90,7 @@ const BASE = {
   "color?": "number",
   "trueColor?": "number",
   "colorBook?": { fields: { book: "string", name: "string" } },
+  "alpha?": "alpha",
   "linetype?": "string",
   "lineweight?": "number",
   "linetypeScale?": "number",
@@ -738,6 +741,11 @@ export function checkDrawingRead(value: unknown): string[] {
       case "count":
         if (typeof v !== "number" || !Number.isSafeInteger(v) || v < 0) {
           say(at, "must be a whole number, 0 or more");
+        }
+        return;
+      case "alpha":
+        if (v !== "ByBlock" && (!Number.isInteger(v) || (v as number) < 0 || (v as number) > 255)) {
+          say(at, 'must be a whole number from 0 to 255, or "ByBlock"');
         }
         return;
       case "point": {

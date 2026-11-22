@@ -67,7 +67,7 @@ test("svgToPDF refuses what toSVG does not draw of a layout", () => {
   const d = createDrawing().line([0, 0], [1, 1]).build();
   assert.throws(
     () => svgToPDF([toSVG(d)]),
-    /a picture of format null, where this copy of tsdraft reads format 2/,
+    /a picture of format null, where this copy of tsdraft reads format 3/,
   );
   assert.throws(() => svgToPDF([]), RangeError);
   const sheet = toSVG(exampleSheet, { layout: exampleSheet.layouts![0]!.name });
@@ -329,4 +329,133 @@ test("a TrueType font given a file is embedded, cut to the characters set, each 
   assert.match(pdf, /\/BaseFont \/Courier /);
   assert.equal(plot(), pdf);
   assert.ok(file.equals(before));
+});
+
+test("with plotTransparency an entity plots in a transparency group at its opacity, and opaque without", () => {
+  const d = createDrawing({ units: "in" });
+  d.block("B", {}, () => d.line([0, 0], [1, 0], { transparency: "ByBlock" }));
+  d.layout("A-1", { paper: "ANSI B" }, () => {
+    d.line([1, 1], [5, 1], { transparency: 50 });
+    d.insert("B", [1, 3], { transparency: 75 });
+  });
+  const drawing = d.build();
+  const opaque = latin1(toPDF(drawing));
+  assert.doesNotMatch(opaque, /\/Group|\/ExtGState/);
+  const pdf = latin1(toPDF(drawing, { plotTransparency: true }));
+  holdsTogether(pdf);
+  // The line at 127 of 255, and the block's line ByBlock at its insert's 63, each a form of its own.
+  assert.equal(pdf.match(/\/Subtype \/Form .*\/Group << \/S \/Transparency >>/g)?.length, 2);
+  assert.match(pdf, /<< \/Type \/ExtGState \/CA 0\.49804 \/ca 0\.49804 >>/);
+  assert.match(pdf, /<< \/Type \/ExtGState \/CA 0\.24706 \/ca 0\.24706 >>/);
+  assert.match(pdf, /^q\n\/Gs\d gs\n\/Fm\d Do\nQ$/m);
+  // Each form's box is what it paints, not the sheet, so a reader composes no more than that.
+  const boxes = [...pdf.matchAll(/\/BBox \[([^\]]*)\]/g)].map(([, b]) => b!.split(" ").map(Number));
+  assert.equal(boxes.length, 2);
+  for (const [x0, y0, x1, y1] of boxes) assert.ok((x1! - x0!) * (y1! - y0!) < 1224 * 792 * 0.05);
+  const svg = toSVG(drawing, { layout: "A-1", plotTransparency: true });
+  assert.match(svg, /<g opacity="0\.49804"><line /);
+  // A block a leader places holds all it draws ByBlock, as CAD programs read it: the leader's block
+  // draws opaque, an insert of it fades it all, and a block inside it keeps its own.
+  const tagged = createDrawing({ units: "in" });
+  tagged.leaderStyle({ name: "S", textHeight: 0.125, arrowSize: 0.125, landing: 0.125, gap: 0.06 });
+  tagged.block("INNER", {}, () => tagged.line([0, 0], [0.1, 0], { transparency: 50 }));
+  tagged.block("TAG", {}, () => {
+    tagged.circle([0, 0], 0.2);
+    tagged.insert("INNER", [0, 0]);
+  });
+  tagged.layout("A-1", { paper: "ANSI B" }, () => {
+    tagged.leader({ block: "TAG" }, { style: "S", at: [3, 5], to: [2, 4], transparency: 50 });
+    tagged.insert("TAG", [6, 5], { transparency: 50 });
+  });
+  const plotted = toSVG(tagged.build(), { layout: "A-1", plotTransparency: true });
+  assert.equal(plotted.match(/<circle /g)?.length, 2);
+  assert.equal(plotted.match(/<g opacity="0\.49804"><circle /g)?.length, 1);
+  assert.equal(plotted.match(/<g opacity="0\.49804"><line /g)?.length, 2);
+  // So does a block a referenced drawing's leader places, drawn through the xref.
+  const base = createDrawing({ units: "in" });
+  base.leaderStyle({ name: "S", textHeight: 0.125, arrowSize: 0.125, landing: 0.125, gap: 0.06 });
+  base.block("TAG", {}, () => base.circle([0, 0], 0.2));
+  base.insert("TAG", [5, 5], { transparency: 50 });
+  base.layout("A-1", { paper: "ANSI B" }, () =>
+    base.leader({ block: "TAG" }, { style: "S", at: [3, 5], to: [2, 4] }),
+  );
+  const host = createDrawing({ units: "in" }).xref("BASE", "base.dwg");
+  host.insert("BASE", [0, 0]);
+  const through = toSVG(host.build(), {
+    xrefs: { BASE: { drawing: base.build() } },
+    plotTransparency: true,
+  });
+  assert.match(through, /<g opacity="0\.49804"><circle /);
+  // A form sets its own pen, even one the page has just set, since some readers carry none in.
+  const pens = createDrawing({ units: "in" });
+  pens.layout("A-1", { paper: "ANSI B" }, () => {
+    pens.line([1, 1], [5, 1], { lineweight: 2.11 });
+    pens.line([1, 2], [5, 2], { lineweight: 2.11, transparency: 50 });
+  });
+  const form = /\/Subtype \/Form [^]*?stream\n([^]*?)endstream/.exec(
+    latin1(toPDF(pens.build(), { plotTransparency: true })),
+  )![1]!;
+  for (const set of [/^1 J$/m, /^1 j$/m, / RG$/m, / w$/m]) assert.match(form, set);
+  // A faded text's box holds its letters at the size it is set, whatever its font-size says.
+  const lettered = createDrawing({ units: "in" });
+  lettered.layout("A-1", { paper: "ANSI B" }, () =>
+    lettered.text([1, 1], "WWWW", { height: 0.5, transparency: 50 }),
+  );
+  const letters = toSVG(lettered.build(), { layout: "A-1", plotTransparency: true });
+  for (const picture of [letters, letters.replace(/ font-size="[^"]*"/, "")]) {
+    const [x0, y0, x1, y1] = latin1(svgToPDF([picture]))
+      .match(/\/BBox \[([^\]]*)\]/)![1]!
+      .split(" ")
+      .map(Number);
+    // From the text's start at an inch to past four capitals of half an inch, cap to baseline.
+    assert.ok(
+      x0! <= 72 && x1! >= 72 + 4 * 36 && y0! <= 72 && y1! >= 72 + 36,
+      `${[x0, y0, x1, y1]}`,
+    );
+  }
+  // In a font given a file and stretched to the length the text plots, the box holds the
+  // font's box around every glyph, stretched alike, past each end.
+  const file = readFileSync(
+    new URL("../cli/assets/fonts/JetBrainsMono-Regular.ttf", import.meta.url),
+  );
+  const styled = createDrawing({ units: "in" });
+  styled.textStyle({ name: "NOTE", font: "Arial" });
+  styled.layout("A-1", { paper: "ANSI B" }, () =>
+    styled.text([1, 1], "WW", { height: 0.5, style: "NOTE", transparency: 50 }),
+  );
+  const set = latin1(toPDF(styled.build(), { fonts: { Arial: file }, plotTransparency: true }));
+  const numbers = (pattern: RegExp) => pattern.exec(set)![1]!.split(" ").map(Number);
+  const [bx0, by0, bx1, by1] = numbers(/\/BBox \[([^\]]*)\]/);
+  const [gx0, gy0, gx1, gy1] = numbers(/\/FontBBox \[([^\]]*)\] \/ItalicAngle/);
+  const [size] = numbers(/ ([\d.]+) Tf\n/);
+  const [stretch] = numbers(/\n([\d.]+) Tz\n/);
+  const s = stretch! / 100;
+  assert.ok(s > 1, "Arial's W is wider than the file's");
+  const em = size! / 1000;
+  // The box is cut to the page, which this file's box reaches past on the left.
+  assert.ok(bx0! <= Math.max(0, 72 + s * em * gx0!), `${[bx0, by0, bx1, by1]}`);
+  assert.ok(by0! <= 72 + em * gy0! && by1! >= 72 + em * gy1!, `${[bx0, by0, bx1, by1]}`);
+  assert.ok(bx1! >= 72 + s * em * gx1!, `${[bx0, by0, bx1, by1]}`);
+  // A dimension's ticks are a block's, which CAD programs plot opaque: they are drawn after its
+  // faded group, outside it.
+  const ticked = createDrawing({ units: "in" });
+  ticked.dimensionStyle({
+    name: "TICKS",
+    textHeight: 0.125,
+    arrowSize: 0.125,
+    extensionOffset: 0.0625,
+    extensionBeyond: 0.125,
+    textGap: 0.0625,
+    precision: 2,
+    arrowhead: "architectural-tick",
+  });
+  ticked.layout("A-1", { paper: "ANSI B" }, () =>
+    ticked.linearDimension([1, 1], [4, 1], [2.5, 1.5], { style: "TICKS", transparency: 50 }),
+  );
+  const ticks = toSVG(ticked.build(), { layout: "A-1", plotTransparency: true });
+  assert.match(ticks, /<g opacity="0\.49804">[^]*?<\/g>\s*<polygon [^>]*data-part="arrowhead"/);
+  assert.throws(
+    () => svgToPDF([svg.replace('opacity="0.49804"', 'opacity="half"')]),
+    /the opacity "half"/,
+  );
 });

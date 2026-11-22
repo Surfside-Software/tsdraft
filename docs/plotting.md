@@ -24,6 +24,9 @@ writeFileSync("A-101.pdf", toPDF(drawing, { layouts: ["A-101"], xrefs, deflate }
   Node's `zlib.deflateSync`. The library imports nothing, so without it the pages are written as
   they are, and the file is several times larger. It is called as the PDF is written, so it
   cannot be an asynchronous one, such as a browser's `CompressionStream`.
+- `plotTransparency` draws each entity at its transparency, as CAD programs plot it when told to
+  plot transparency always. Without it every entity plots opaque, as they plot the page setups
+  tsdraft writes. [Transparency](transparency.md) says how.
 - `fonts` gives the TrueType file of each font the texts are set in, by its name in `FONTS`, as
   [Text](#text) says. The PDF embeds each, cut to the letters it uses.
 - `missing` is told, for each sheet that has any, its layout's name, the characters of its texts

@@ -23,10 +23,11 @@ import type {
 } from "../src/drawing.ts";
 import { isFitSpline } from "../src/drawing.ts";
 import { storedColor } from "../src/colors.ts";
+import { readAlpha, storedTransparency } from "../src/transparency.ts";
 import { written, writtenAngle } from "../src/format.ts";
 import { clamped } from "../src/curves.ts";
 import { idHandle } from "../src/handles.ts";
-import { findLeaderStyle, leaderPicture } from "../src/leaders.ts";
+import { findLeaderStyle, heldByBlock, leaderPicture, leaderPlacesBlock } from "../src/leaders.ts";
 import { fromImagePixels, imageClip, imageVectors, writtenImagePath } from "../src/images.ts";
 import { layerKey } from "../src/layers.ts";
 import { boxer } from "../src/extents.ts";
@@ -325,6 +326,8 @@ export function readProblems(
         `${label}: color ${got.color} and ${got.trueColor}, expected ${stored?.index} and ${stored?.rgb}`,
       );
     }
+    const alpha = readAlpha(storedTransparency(want.transparency));
+    if (got.alpha !== alpha) say(`${label}: alpha ${got.alpha}, expected ${alpha}`);
     if (
       want.kind !== "insert" &&
       want.kind !== "leader" &&
@@ -940,6 +943,8 @@ export function readProblems(
       `layout ${layout.name} #${i}`,
     );
   });
+  // A block a leader places is written with every entity ByBlock, as CAD programs hold it.
+  const placedByLeader = leaderPlacesBlock(drawing);
   for (const block of drawing.blocks ?? []) {
     const got = read.blocks.find((b) => sameName(b.name, block.name));
     if (!got) {
@@ -947,7 +952,8 @@ export function readProblems(
       continue;
     }
     const mine = own?.blocks.find((b) => sameName(b.name, block.name));
-    entities(got.entities, mine?.entities, got.other, block.entities, `block ${block.name}`);
+    const held = placedByLeader(block.name) ? heldByBlock(block.entities) : block.entities;
+    entities(got.entities, mine?.entities, got.other, held, `block ${block.name}`);
     const definitions = block.attributes ?? [];
     if (got.attributeDefinitions.length !== definitions.length) {
       say(`block ${block.name}: ${got.attributeDefinitions.length} attribute definitions`);

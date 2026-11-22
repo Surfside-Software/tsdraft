@@ -500,6 +500,7 @@ function shapes(all: boolean, typed = all): Shapes {
   const shared = {
     id: ruled(string),
     color: ruled(entityColor),
+    transparency: ruled(numberOrName),
     linetype: ruled(string),
     lineweight: ruled(numberOrName),
   } as const;
@@ -573,6 +574,7 @@ function shapes(all: boolean, typed = all): Shapes {
       {
         id: ruled(string),
         color: ruled(entityColor),
+        transparency: ruled(numberOrName),
         scale: ruled(scale),
         rotation: number,
         attributes: ruled(map(string)),
@@ -583,6 +585,7 @@ function shapes(all: boolean, typed = all): Shapes {
       {
         id: ruled(string),
         color: ruled(entityColor),
+        transparency: ruled(numberOrName),
         angle: number,
         text: ruled(string),
         textBelow: ruled(string),
@@ -593,6 +596,7 @@ function shapes(all: boolean, typed = all): Shapes {
       {
         id: ruled(string),
         color: ruled(entityColor),
+        transparency: ruled(numberOrName),
         text: ruled(string),
         textBelow: ruled(string),
       },
@@ -602,6 +606,7 @@ function shapes(all: boolean, typed = all): Shapes {
       {
         id: ruled(string),
         color: ruled(entityColor),
+        transparency: ruled(numberOrName),
         text: ruled(string),
         textBelow: ruled(string),
         textFromCenter: number,
@@ -612,6 +617,7 @@ function shapes(all: boolean, typed = all): Shapes {
       {
         id: ruled(string),
         color: ruled(entityColor),
+        transparency: ruled(numberOrName),
         text: ruled(string),
         textBelow: ruled(string),
         textFromCenter: number,
@@ -622,6 +628,7 @@ function shapes(all: boolean, typed = all): Shapes {
       {
         id: ruled(string),
         color: ruled(entityColor),
+        transparency: ruled(numberOrName),
         text: ruled(string),
         textBelow: ruled(string),
       },
@@ -640,6 +647,7 @@ function shapes(all: boolean, typed = all): Shapes {
       {
         id: ruled(string),
         color: ruled(entityColor),
+        transparency: ruled(numberOrName),
         text: ruled(string),
         textBelow: ruled(string),
       },
@@ -657,6 +665,7 @@ function shapes(all: boolean, typed = all): Shapes {
       {
         id: ruled(string),
         color: ruled(entityColor),
+        transparency: ruled(numberOrName),
         text: ruled(string),
         textBelow: ruled(string),
       },
@@ -674,6 +683,7 @@ function shapes(all: boolean, typed = all): Shapes {
       {
         id: ruled(string),
         color: ruled(entityColor),
+        transparency: ruled(numberOrName),
         text: ruled(string),
         textBelow: ruled(string),
       },
@@ -690,6 +700,7 @@ function shapes(all: boolean, typed = all): Shapes {
       {
         id: ruled(string),
         color: ruled(entityColor),
+        transparency: ruled(numberOrName),
         text: ruled(list(string)),
         block: ruled(string),
         attributes: ruled(map(string)),
@@ -740,6 +751,7 @@ function shapes(all: boolean, typed = all): Shapes {
       {
         id: ruled(string),
         color: ruled(entityColor),
+        transparency: ruled(numberOrName),
         rotation: number,
         title: LEFT,
         titleHeight: ruled(number),

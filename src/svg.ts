@@ -1,3 +1,4 @@
+import { alphaOf, entityTransparencyProblem } from "./transparency.ts";
 import { TRUE_COLOR } from "./paragraph-codes.ts";
 import { isRgb } from "./colors.ts";
 import {
@@ -108,7 +109,7 @@ import { fontInfo, STANDARD_FONT, capHeightOf } from "./fonts.ts";
 import { fifteenDigits, fmt, written } from "./format.ts";
 import { layerKey, layerKeys } from "./layers.ts";
 import { findLayout, validViewportView } from "./layouts.ts";
-import { leaderBlock, leaderPicture, type LeaderPicture } from "./leaders.ts";
+import { leaderBlock, leaderBlockKeys, leaderPicture, type LeaderPicture } from "./leaders.ts";
 import {
   tableCost,
   tableInserts,
@@ -300,7 +301,7 @@ const JOINED = 1024;
  * The format of a picture of a layout, which `svgToPDF` reads: it goes up whenever an element or
  * an attribute of such a picture changes what it means.
  */
-export const SHEET_PICTURE = 2;
+export const SHEET_PICTURE = 3;
 
 /** The mark of a line drawn as the thinnest the printer draws: a lineweight of 0, or a border. */
 const THINNEST = ` data-thinnest=""`;
@@ -348,6 +349,11 @@ export interface SvgOptions {
    * The drawing's xrefs find their shapes here too.
    */
   readonly shapes?: ShapeFiles;
+  /**
+   * Draws each entity's transparency, as CAD programs plot it when told to plot transparency
+   * always. Left out, every entity draws opaque, as they plot the page setups tsdraft writes.
+   */
+  readonly plotTransparency?: boolean;
 }
 
 /** How an entity is drawn. */
@@ -361,6 +367,19 @@ interface Pen {
   readonly dashes: Dashes | undefined;
   /** In hundredths of a millimetre. */
   readonly lineweight: number;
+  /**
+   * The opacity, from 0 to 255, a dimension or a leader draws its picture at, which it fades in a
+   * group of its own: the arrowheads of a block stay opaque, as CAD programs plot them.
+   */
+  readonly alpha?: number;
+}
+
+/**
+ * Parts of an entity at an opacity from 0 to 255: in a group, so that where they overlap they are
+ * no darker, as CAD programs compose a transparent entity before they fade it.
+ */
+function fadedGroup(parts: string, alpha: number): string {
+  return alpha >= 255 ? parts : `<g opacity="${Number((alpha / 255).toFixed(5))}">${parts}</g>`;
 }
 
 /** A dash pattern scaled for a space, worked out once for each entity drawn with it. */
@@ -1131,6 +1150,43 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
   /** Each pattern scaled for each space, worked out when first drawn with. */
   const scaled = new Map<LinePattern, Map<number, Dashes>>();
   const findShape = shapeFinder(options.shapes);
+  const fading = options.plotTransparency === true;
+  /**
+   * The blocks a leader places, of the drawing and of each it references, worked out once each:
+   * they hold all they draw ByBlock, as CAD programs read them.
+   */
+  const leaderKeys = new Map<Drawing, ReadonlySet<string>>();
+  const leaderHeld = fading
+    ? (from: Referenced | undefined): ReadonlySet<string> => {
+        const of = from?.drawing ?? drawing;
+        let keys = leaderKeys.get(of);
+        if (keys === undefined) leaderKeys.set(of, (keys = leaderBlockKeys(of)));
+        return keys;
+      }
+    : undefined;
+  /**
+   * The opacity an entity draws at, from 0 to 255: its own, the insert's that holds it for
+   * ByBlock, and opaque for ByLayer, since a layer has no transparency. Opaque unless asked.
+   */
+  const alphaFor = (own: unknown, byBlock: number | undefined, kind?: string): number => {
+    // CAD programs plot a table's grid opaque, and the writers write it none.
+    if (!fading || kind === "table") return 255;
+    if (own === "ByBlock") return byBlock ?? 255;
+    return typeof own === "number" && entityTransparencyProblem(own) === undefined
+      ? alphaOf(own)
+      : 255;
+  };
+  /**
+   * An entity's element at its opacity: in a group, so that where its parts overlap it is no
+   * darker, as CAD programs compose a transparent entity before they fade it.
+   */
+  const faded = (element: string, alpha: number): string => fadedGroup(element, alpha);
+  /** The pen of an entity at `alpha`: a dimension and a leader fade their own pictures. */
+  const fadedPen = (e: Entity, pen: Pen, alpha: number): Pen =>
+    alpha < 255 && (isDimension(e) || e.kind === "leader") ? { ...pen, alpha } : pen;
+  /** The opacity of the group around an entity: none for one that fades its own picture. */
+  const groupAlpha = (e: Entity, alpha: number): number =>
+    isDimension(e) || e.kind === "leader" ? 255 : alpha;
   /** Each pattern's marks scaled for a space, by its scale and size. */
   const marked = new Map<LinePattern, Map<string, Dashes>>();
   const dashesOf = (
@@ -1300,8 +1356,10 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     const named = e.textStyle ?? style.textStyle;
     const textStyle = named === undefined ? undefined : tables.textStyles.get(key(named));
     const block = pictureOf(e, style, textStyle).block;
-    // The multileader holds its block ByBlock, so what the block sets ByBlock takes the leader's color.
-    return block === undefined || e.color === undefined ? block : { ...block, color: e.color };
+    // The multileader holds its block ByBlock, so what the block sets ByBlock takes the leader's
+    // color. CAD programs draw the block opaque whatever the leader's transparency.
+    if (block === undefined) return block;
+    return e.color === undefined ? block : { ...block, color: e.color };
   };
 
   /**
@@ -1327,7 +1385,9 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         if (isDimension(e)) {
           if (!write((e.text?.length ?? 0) + (e.textBelow?.length ?? 0))) refuse(where());
         }
-        const element = drawn(e, marks(e, i), pen(look, styled(e), { name: e.layer }, where), look);
+        const alpha = alphaFor(e.transparency, undefined, e.kind);
+        const own = fadedPen(e, pen(look, styled(e), { name: e.layer }, where), alpha);
+        const element = faded(drawn(e, marks(e, i), own, look), groupAlpha(e, alpha));
         if (!write(element.length + line)) refuse(where());
         return element;
       }
@@ -1360,7 +1420,15 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
             m ? Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) : 1,
             at.byBlock,
           );
-          const part = drawn(held, mark, heldPen, look, at.from, at.matrix);
+          const alpha = alphaFor(
+            at.byBlockHeld ? "ByBlock" : held.transparency,
+            at.byBlockAlpha,
+            held.kind,
+          );
+          const part = faded(
+            drawn(held, mark, fadedPen(held, heldPen, alpha), look, at.from, at.matrix),
+            groupAlpha(held, alpha),
+          );
           if (!write(part.length + line + 2)) return;
           parts.push(part);
           if (parts.length === JOINED) {
@@ -1382,6 +1450,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
           if (!spend(picture.blocks.length)) refuse(where());
           return tableInserts(held, picture);
         },
+        leaderHeld,
       );
       if (!walked || length > longest) refuse(where());
       const xref = blocks.has(key(e.block)) ? undefined : xrefPaths.get(key(e.block));
@@ -1850,7 +1919,9 @@ function leaderToSvg(
 ): string {
   if (picture === undefined) return `<g ${mark}/>`;
   const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
-  const parts: string[] = [];
+  let parts: string[] = [];
+  /** The parts that stay opaque when the leader fades. */
+  const solid: string[] = [];
   // The parts share the picture's room: one that passes what is left ends the leader there,
   // longer than the room, which `write` then refuses.
   let left = room;
@@ -1894,6 +1965,9 @@ function leaderToSvg(
           `<polygon points="${points(arrowhead.filled)}" fill="${pen.color}" stroke="none" data-part="arrowhead"/>`,
       );
     }
+    // An open or a dot arrowhead is a block's, which CAD programs plot opaque.
+    const fading = parts;
+    if (pen.alpha !== undefined) parts = solid;
     for (const [from, to] of arrowhead.lines) {
       shape("arrowhead", { kind: "line", layer: e.layer, from, to });
     }
@@ -1906,6 +1980,7 @@ function leaderToSvg(
         ),
       );
     }
+    parts = fading;
   }
   for (const [from, to] of picture.underlines) {
     shape("underline", { kind: "line", layer: e.layer, from, to });
@@ -1914,7 +1989,12 @@ function leaderToSvg(
     shape("frame", { kind: "polyline", layer: e.layer, points: picture.frame, closed: true });
   }
   add((left) => paragraphToSvg(picture.note, layOut, `data-part="text"`, pen, look, matrix, left));
-  return `<g ${mark} data-leader="${filled(e.text).map(esc).join("&#10;")}">\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
+  const between = `\n${look.indent}  `;
+  const drawnParts =
+    pen.alpha === undefined
+      ? [...parts, ...solid]
+      : [fadedGroup(parts.join(between), pen.alpha), ...solid];
+  return `<g ${mark} data-leader="${filled(e.text).map(esc).join("&#10;")}">${between}${drawnParts.join(between)}\n${look.indent}</g>`;
 }
 
 /**
@@ -2314,14 +2394,21 @@ function dimensionToSvg(
       ),
     ),
     ...picture.leader.map((ends) => line("leader", ends, dimension)),
-    ...picture.arrowheads.map((corners) => {
-      if (thin) return line("arrowhead", [corners[0]!, corners[1]!], dimension);
-      const points = corners
-        .map(at)
-        .map(([x, y]) => `${fmt(x)},${fmt(y)}`)
-        .join(" ");
-      return `<polygon points="${points}" fill="${pen.color}" stroke="none" data-part="arrowhead"/>`;
-    }),
+  ];
+  // A tick or an oblique stroke is a block's, which CAD programs plot opaque.
+  const blocked = arrowheadInfo(style.arrowhead ?? DEFAULT_ARROWHEAD)?.block !== undefined;
+  const heads = picture.arrowheads.map((corners) => {
+    if (thin) return line("arrowhead", [corners[0]!, corners[1]!], dimension);
+    const points = corners
+      .map(at)
+      .map(([x, y]) => `${fmt(x)},${fmt(y)}`)
+      .join(" ");
+    return `<polygon points="${points}" fill="${pen.color}" stroke="none" data-part="arrowhead"/>`;
+  });
+  // Moved out of the faded group only when the dimension fades, so an opaque one is as it was.
+  const apart = blocked && pen.alpha !== undefined;
+  parts.push(
+    ...(apart ? [] : heads),
     ...pictureTexts(picture, textStyle).map((text) =>
       paragraphToSvg(
         {
@@ -2343,8 +2430,14 @@ function dimensionToSvg(
         room,
       ),
     ),
-  ];
-  return `<g ${mark} data-dimension="${esc(picture.label.value)}">\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
+  );
+  const between = `\n${look.indent}  `;
+  const solid = apart ? heads : [];
+  const drawnParts =
+    pen.alpha === undefined
+      ? [...parts, ...solid]
+      : [fadedGroup(parts.join(between), pen.alpha), ...solid];
+  return `<g ${mark} data-dimension="${esc(picture.label.value)}">${between}${drawnParts.join(between)}\n${look.indent}</g>`;
 }
 
 /**

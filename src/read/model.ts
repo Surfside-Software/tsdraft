@@ -313,6 +313,12 @@ export interface ReadEntityBase {
   readonly trueColor?: number;
   /** Group 430: a color of a color book, which `trueColor` holds as well. */
   readonly colorBook?: ReadColorBook;
+  /**
+   * Group 440: how opaque the entity is, from 0 to 255 with 255 opaque, or `"ByBlock"`. A percent
+   * of transparency is `Math.round(100 - alpha / 2.55)`, from 0 to 90 for every alpha CAD
+   * programs' own commands make; a file may hold another, which gives more than 90 below 25.
+   */
+  readonly alpha?: number | "ByBlock";
   /** Group 6: a linetype's name, or `ByBlock`. */
   readonly linetype?: string;
   /** Group 370: hundredths of a millimeter, or -2 for ByBlock and -3 for the default. */

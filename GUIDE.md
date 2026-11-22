@@ -680,8 +680,8 @@ writeFileSync("plan.dxf", toDXF(drawing));
   for another plotter.
 - The spacing of characters inside a paragraph, `\T`, and an overline, `\O`.
 - Ellipses and splines.
-- Transparency on a single entity, and a color of a color book. A color of an entity is an index
-  or a true color: see [docs/colors.md](docs/colors.md).
+- A color of a color book. A color of an entity is an index or a true color: see
+  [docs/colors.md](docs/colors.md), and an entity's transparency [docs/transparency.md](docs/transparency.md).
 - DWG files. tsdraft writes DXF.
 - An existing drawing as a background or a base to edit. `readDXF` reads a DXF's tables, blocks,
   layouts and a census of what it draws, and with `geometry` what each space draws, as

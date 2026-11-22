@@ -24,6 +24,11 @@ export interface PdfOptions {
    */
   readonly xrefs?: XrefDrawings;
   /**
+   * Plots each entity's transparency, as CAD programs plot it when told to plot transparency
+   * always. Left out, every entity plots opaque, as they plot the page setups tsdraft writes.
+   */
+  readonly plotTransparency?: boolean;
+  /**
    * Compresses each page's content: a function that gives the zlib form of its bytes, such as
    * Node's `zlib.deflateSync`. Without it the content is written as it is.
    */
@@ -126,6 +131,7 @@ export function toPDF(given: Drawing | readonly PdfSheet[], options: PdfOptions 
         ...(xrefs ? { xrefs } : {}),
         ...(own ? { images: own } : {}),
         ...(options.shapes ? { shapes: options.shapes } : {}),
+        ...(options.plotTransparency === true ? { plotTransparency: true } : {}),
       }),
     );
   }
@@ -302,6 +308,7 @@ const ATTRIBUTES = new Set([
   "xml:space",
   "font-weight",
   "href",
+  "opacity",
   "preserveAspectRatio",
   "clip-rule",
   "fill-rule",
@@ -756,6 +763,8 @@ interface Inherited {
   readonly layer: string | undefined;
   /** True when the group around it opened a `q` that its end closes. */
   readonly saved: boolean;
+  /** For a group with an opacity: the content around it, and the opacity it is painted at. */
+  readonly faded?: { readonly outer: Content; readonly opacity: string };
 }
 
 /** A color as `#rrggbb`, as three parts from 0 to 1, or undefined for `none`. */
@@ -1203,7 +1212,51 @@ class PdfWriter {
 
   /** Adds a page drawn from a picture `toSVG` made of a layout. */
   page(svg: string): void {
-    const content = new Content();
+    let content = new Content();
+    /** The forms of the groups with an opacity, and the graphics states that paint them. */
+    const forms = new Map<string, number>();
+    const opacities = new Map<string, string>();
+    let formBytes = 0;
+    /**
+     * The box, in points, of what each transparency group open has painted, the innermost last:
+     * its form's `/BBox`, so a reader composes no more of the page than the group paints.
+     */
+    const boxes: [number, number, number, number][] = [];
+    /** The box of each clip open, in points, each within the one before: nothing paints past it. */
+    const clipBoxes: (readonly [number, number, number, number])[] = [];
+    const grow = (x: number, y: number, pad = 0): void => {
+      const box = boxes.at(-1);
+      if (box === undefined) return;
+      const [cx0, cy0, cx1, cy1] = clipBoxes.at(-1) ?? [-Infinity, -Infinity, Infinity, Infinity];
+      const within = (v: number, low: number, high: number) => Math.min(Math.max(v, low), high);
+      box[0] = Math.min(box[0], within(x - pad, cx0, cx1));
+      box[1] = Math.min(box[1], within(y - pad, cy0, cy1));
+      box[2] = Math.max(box[2], within(x + pad, cx0, cx1));
+      box[3] = Math.max(box[3], within(y + pad, cy0, cy1));
+    };
+    /** Opens a clip whose outline passes through these points, or within them for a curve's. */
+    const openClip = (points: readonly (readonly [number, number])[]): void => {
+      const box = [Infinity, Infinity, -Infinity, -Infinity];
+      for (const [x, y] of points) {
+        box[0] = Math.min(box[0]!, x);
+        box[1] = Math.min(box[1]!, y);
+        box[2] = Math.max(box[2]!, x);
+        box[3] = Math.max(box[3]!, y);
+      }
+      const outer = clipBoxes.at(-1) ?? [-Infinity, -Infinity, Infinity, Infinity];
+      // A side that is NaN leaves the clip as wide as the one outside, and a point past each side
+      // holds what the outline, written to three decimals, lets through.
+      const [x0, y0, x1, y1] = box.map((v, i) =>
+        Number.isNaN(v) ? outer[i]! : v + (i < 2 ? -1 : 1),
+      );
+      clipBoxes.push([
+        Math.max(x0!, outer[0]),
+        Math.max(y0!, outer[1]),
+        Math.min(x1!, outer[2]),
+        Math.min(y1!, outer[3]),
+      ]);
+    };
+    const resourcesObject = this.reserve();
     const fonts = new Map<Face | Embedded, string>();
     const missing = new Set<string>();
     const marks = new Map<string, string>();
@@ -1276,9 +1329,14 @@ class PdfWriter {
         pen.width = width;
       }
       if (pieces.length === 0) return;
+      // Half the pen and a point more, for its joins and caps.
+      const pad = state.stroke === undefined ? 1 : state.width / 2 + 1;
       // Each piece is a line of its own, so no string grows with the path.
-      const p = (point: readonly [number, number]) =>
-        apply(m, point[0], point[1]).map(num).join(" ");
+      const p = (point: readonly [number, number]) => {
+        const [x, y] = apply(m, point[0], point[1]);
+        grow(x, y, pad);
+        return [x, y].map(num).join(" ");
+      };
       for (const piece of pieces) {
         if (piece.kind === "move") content.add(`${p(piece.to)} m`);
         else if (piece.kind === "line") content.add(`${p(piece.to)} l`);
@@ -1343,6 +1401,24 @@ class PdfWriter {
             where(tag),
           );
           if (set) {
+            // The box of a text, in the coordinates it is set in: the length it is set at, with
+            // the font's box around every glyph, stretched as its letters are, past each end, and
+            // that box above and below its baseline, which is Y down.
+            const { size, length, stretch, ink } = set;
+            const [left, right] = [
+              stretch * size * Math.min(ink[0], 0),
+              length + stretch * size * Math.max(ink[2], 0),
+            ];
+            const [top, bottom] = [-size * Math.max(ink[3], 0), -size * Math.min(ink[1], 0)];
+            for (const [cx, cy] of [
+              [left, top],
+              [right, top],
+              [left, bottom],
+              [right, bottom],
+            ] as const) {
+              const [x, y] = apply(text.inherited.matrix, cx, cy);
+              grow(x, y, 1);
+            }
             mark(text.inherited.layer);
             if (set.fill !== pen.fill) {
               content.add(`${set.fill} rg`);
@@ -1370,9 +1446,55 @@ class PdfWriter {
         else if (tag === "g" || tag === "svg") {
           names.pop();
           ended = names.length === 0;
-          if (stack.pop()?.saved) {
+          const group = stack.pop();
+          if (group?.saved) {
             close();
             content.add("Q");
+            pen = pens.pop() ?? {};
+            clipBoxes.pop();
+          }
+          if (group?.faded) {
+            // A group with an opacity is a transparency group: its content is drawn whole, then
+            // painted at its opacity, so where its parts overlap it is no darker.
+            close();
+            const raw = content.bytes();
+            formBytes += raw.length;
+            // The page's limit holds its forms and its content together, as each form is made.
+            if (formBytes + group.faded.outer.length + group.faded.outer.pending > MAX_PAGE) {
+              throw new RangeError(
+                `The page of picture ${page} would be longer than svgToPDF writes, ${MAX_PAGE} bytes`,
+              );
+            }
+            content = group.faded.outer;
+            const key = `Fm${forms.size + 1}`;
+            const object = this.reserve();
+            forms.set(key, object);
+            const stream = this.deflate ? this.deflate(raw) : raw;
+            // What it painted, cut to the page: an empty box for a group that painted nothing.
+            const [w, h] = paper?.size ?? [0, 0];
+            const painted = boxes.pop()!;
+            const box = [
+              Math.max(painted[0], 0),
+              Math.max(painted[1], 0),
+              Math.min(painted[2], w),
+              Math.min(painted[3], h),
+            ];
+            const bbox = box[0]! < box[2]! && box[1]! < box[3]! ? box : [0, 0, 0, 0];
+            // A group inside another paints inside its box too.
+            if (bbox[2]! > bbox[0]!) {
+              grow(bbox[0]!, bbox[1]!);
+              grow(bbox[2]!, bbox[3]!);
+            }
+            this.object(
+              object,
+              `<< /Type /XObject /Subtype /Form /BBox [${bbox.map(num).join(" ")}] /Group << /S /Transparency >> /Resources ${resourcesObject} 0 R /Length ${stream.length}${this.deflate ? " /Filter /FlateDecode" : ""} >>`,
+              stream,
+            );
+            let state = opacities.get(group.faded.opacity);
+            if (state === undefined) {
+              opacities.set(group.faded.opacity, (state = `Gs${opacities.size + 1}`));
+            }
+            content.add(`q\n/${state} gs\n/${key} Do\nQ`);
             pen = pens.pop() ?? {};
           }
         }
@@ -1384,6 +1506,10 @@ class PdfWriter {
           throw refuse(`the attribute ${name}`, where(tag));
         }
         element[name!] = unescape(value!, where(tag));
+      }
+      // Only a group is drawn at an opacity: `toSVG` puts a faded entity in one.
+      if (element.opacity !== undefined && tag !== "g") {
+        throw refuse(`the opacity of <${tag}>`, where(tag));
       }
       const number = (name: string): number => {
         const value = Number(element[name]);
@@ -1571,6 +1697,10 @@ class PdfWriter {
         if (selfClosing) continue;
         let saved = false;
         const clip = element["clip-path"];
+        // `toSVG` fades an entity in a group of its own, which is never a clip's.
+        if (clip !== undefined && element.opacity !== undefined) {
+          throw refuse("a group with both a clip and an opacity", where(tag));
+        }
         if (clip !== undefined) {
           const id = /^url\(#([^)]+)\)$/.exec(clip)?.[1];
           const rect = id === undefined ? undefined : clips.get(id);
@@ -1581,8 +1711,12 @@ class PdfWriter {
           if ("pieces" in rect) {
             // An image's clip: its outline, or the image's with the hole inside it.
             content.add("q");
-            const p = (point: readonly [number, number]) =>
-              apply(matrix, point[0], point[1]).map(num).join(" ");
+            const outline: (readonly [number, number])[] = [];
+            const p = (point: readonly [number, number]) => {
+              const placed = apply(matrix, point[0], point[1]);
+              outline.push(placed);
+              return placed.map(num).join(" ");
+            };
             for (const piece of rect.pieces) {
               if (piece.kind === "move") content.add(`${p(piece.to)} m`);
               else if (piece.kind === "line") content.add(`${p(piece.to)} l`);
@@ -1591,18 +1725,38 @@ class PdfWriter {
               else content.add("h");
             }
             content.add(rect.evenOdd ? "W* n" : "W n");
+            openClip(outline);
           } else {
-            const corners = [
+            const placed = [
               [rect.x, rect.y],
               [rect.x + rect.width, rect.y],
               [rect.x + rect.width, rect.y + rect.height],
               [rect.x, rect.y + rect.height],
-            ].map(([cx, cy]) => apply(matrix, cx!, cy!).map(num).join(" "));
+            ].map(([cx, cy]) => apply(matrix, cx!, cy!));
+            openClip(placed);
+            const corners = placed.map((corner) => corner.map(num).join(" "));
             content.add(
               `q\n${corners[0]} m\n${corners[1]} l\n${corners[2]} l\n${corners[3]} l\nh W n`,
             );
           }
           saved = true;
+        }
+        const opacity = element.opacity;
+        if (opacity !== undefined) {
+          const value = Number(opacity);
+          if (!(value >= 0 && value <= 1) || !/^(?:0|1|0?\.\d{1,5})$/.test(opacity)) {
+            throw refuse(`the opacity ${JSON.stringify(opacity)}`, where(tag));
+          }
+          close();
+          pens.push(pen);
+          // A form sets its own pen: some readers carry no width, cap or join into one.
+          pen = {};
+          stack.push({ ...inherited, saved, faded: { outer: content, opacity } });
+          content = new Content();
+          content.add("1 J\n1 j");
+          boxes.push([Infinity, Infinity, -Infinity, -Infinity]);
+          names.push("g");
+          continue;
         }
         stack.push({ ...inherited, saved });
         names.push("g");
@@ -1624,7 +1778,17 @@ class PdfWriter {
         mark(inherited.layer);
         images.add(key);
         // The picture's image holds its top row at y 0, and a PDF's at y 1.
-        const m = compose(matrix, [1, 0, 0, -1, 0, 1]).map(num).join(" ");
+        const placed = compose(matrix, [1, 0, 0, -1, 0, 1]);
+        for (const [cx, cy] of [
+          [0, 0],
+          [1, 0],
+          [0, 1],
+          [1, 1],
+        ] as const) {
+          const [x, y] = apply(placed, cx, cy);
+          grow(x, y, 1);
+        }
+        const m = placed.map(num).join(" ");
         content.add(`q\n${m} cm\n/${key} Do\nQ`);
         continue;
       }
@@ -1656,8 +1820,11 @@ class PdfWriter {
         }
         mark(inherited.layer);
         content.add("q");
-        const p = (point: readonly [number, number]) =>
-          apply(inherited.matrix, point[0], point[1]).map(num).join(" ");
+        const p = (point: readonly [number, number]) => {
+          const [x, y] = apply(inherited.matrix, point[0], point[1]);
+          grow(x, y, 1);
+          return [x, y].map(num).join(" ");
+        };
         for (const piece of pathPieces(element.d ?? "", where(tag), stretchOf(inherited.matrix))) {
           if (piece.kind === "move") content.add(`${p(piece.to)} m`);
           else if (piece.kind === "line") content.add(`${p(piece.to)} l`);
@@ -1744,7 +1911,7 @@ class PdfWriter {
       throw refuse("a picture that ends before its last element closes", `picture ${page}`);
     }
     close();
-    if (content.length + content.pending > MAX_PAGE) {
+    if (content.length + content.pending + formBytes > MAX_PAGE) {
       throw new RangeError(
         `The page of picture ${page} would be longer than svgToPDF writes, ${MAX_PAGE} bytes`,
       );
@@ -1762,19 +1929,30 @@ class PdfWriter {
       ([face, key]) => `/${key} ${"codes" in face ? face.object : this.faceObject(face)} 0 R`,
     );
     const layerList = [...marks].map(([layer, key]) => `/${key} ${this.layers.get(layer)} 0 R`);
-    const imageList = [...images].map((key) => `/${key} ${this.images.get(key)!.object} 0 R`);
+    const imageList = [
+      ...[...images].map((key) => `/${key} ${this.images.get(key)!.object} 0 R`),
+      ...[...forms].map(([key, object]) => `/${key} ${object} 0 R`),
+    ];
     const shadingList = [...shadings].map(([key, object]) => `/${key} ${object} 0 R`);
+    const stateList = [...opacities].map(([opacity, key]) => {
+      const object = this.reserve();
+      this.object(object, `<< /Type /ExtGState /CA ${opacity} /ca ${opacity} >>`);
+      return `/${key} ${object} 0 R`;
+    });
     const resources = [
       fontList.length > 0 ? `/Font << ${fontList.join(" ")} >>` : "",
       layerList.length > 0 ? `/Properties << ${layerList.join(" ")} >>` : "",
       imageList.length > 0 ? `/XObject << ${imageList.join(" ")} >>` : "",
       shadingList.length > 0 ? `/Shading << ${shadingList.join(" ")} >>` : "",
+      stateList.length > 0 ? `/ExtGState << ${stateList.join(" ")} >>` : "",
     ]
       .filter(Boolean)
       .join(" ");
+    // One dictionary of resources, which the page and each of its forms name.
+    this.object(resourcesObject, `<< ${resources} >>`);
     this.object(
       pageObject,
-      `<< /Type /Page /Parent ${this.tree} 0 R /MediaBox [0 0 ${num(paper.size[0])} ${num(paper.size[1])}]${paper.rotate ? " /Rotate 270" : ""} /Resources << ${resources} >> /Contents ${contentObject} 0 R >>`,
+      `<< /Type /Page /Parent ${this.tree} 0 R /MediaBox [0 0 ${num(paper.size[0])} ${num(paper.size[1])}]${paper.rotate ? " /Rotate 270" : ""} /Resources ${resourcesObject} 0 R /Contents ${contentObject} 0 R >>`,
     );
     this.pages.push({ object: pageObject, name: paper.layout });
     if (missing.size > 0) this.missing?.(paper.layout, [...missing].join(""), page - 1);
@@ -1782,7 +1960,8 @@ class PdfWriter {
 
   /**
    * The operators that set a text: its face and size, its place and turn, and the stretch that
-   * holds it to its length. Undefined for a text that shows nothing.
+   * holds it to its length, and the size, length, stretch and font box it is set with.
+   * Undefined for a text that shows nothing.
    */
   private text(
     element: Record<string, string>,
@@ -1791,7 +1970,16 @@ class PdfWriter {
     fonts: Map<Face | Embedded, string>,
     missing: Set<string>,
     where: string,
-  ): { fill: string; operators: readonly string[] } | undefined {
+  ):
+    | {
+        fill: string;
+        operators: readonly string[];
+        size: number;
+        length: number;
+        stretch: number;
+        ink: readonly [number, number, number, number];
+      }
+    | undefined {
     const fill = colorOf(inherited.fill, where);
     if (fill === undefined) return undefined;
     const font = element["data-font"];
@@ -1869,7 +2057,19 @@ class PdfWriter {
       ...shown,
       "ET",
     ];
-    return { fill, operators };
+    // The box around every glyph of the font, as a share of the size.
+    const [x0, y0, x1, y1] = embedded
+      ? embedded.font.box.map((value) => value / embedded.font.unitsPerEm)
+      : face.box.split(" ").map((value) => Number(value) / 1000);
+    const ink = [x0!, y0!, x1!, y1!] as const;
+    return {
+      fill,
+      operators,
+      size,
+      length: (natural * stretch) / 100,
+      stretch: stretch / 100,
+      ink,
+    };
   }
 
   /** Writes the fonts, the layers, the bookmarks, the page tree and the catalog. */

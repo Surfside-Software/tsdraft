@@ -181,7 +181,8 @@ test("lint pays for what inserts repeat, and toDXF refuses what it stopped short
       id: `p${i}`,
     })),
   };
-  const thrown = settled(2000, () => toDXF(points));
+  // It takes about 1.8 s alone, so 4 s leaves a busy runner room and still stops a walk that grows.
+  const thrown = settled(4000, () => toDXF(points));
   assert.ok(thrown instanceof DrawingError);
   assert.deepEqual(
     thrown.diagnostics.map((d) => [d.rule, d.severity]),

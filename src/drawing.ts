@@ -1,4 +1,5 @@
 import { entityColorProblem } from "./colors.ts";
+import { entityTransparencyProblem } from "./transparency.ts";
 import type { ParagraphColumns } from "./paragraphs.ts";
 import {
   definitionHandle,
@@ -113,6 +114,8 @@ import {
   leaderStyleTwinProblem,
   standardTableStyleProblem,
   TABLE_COLOR,
+  TABLE_TRANSPARENCY,
+  LEADER_BLOCK_TRANSPARENCY,
   TABLE_IN_BLOCK,
   tableColumnsProblem,
   tableTextsProblem,
@@ -478,6 +481,9 @@ export type Rgb = readonly [red: number, green: number, blue: number];
  */
 export type EntityColor = number | "ByLayer" | "ByBlock" | Rgb;
 
+/** An entity's own transparency: a whole percent from 0 to 90, `"ByLayer"` or `"ByBlock"`. */
+export type EntityTransparency = number | "ByLayer" | "ByBlock";
+
 interface Placed {
   /**
    * A name for this entity that stays the same when the drawing's code changes around it: 1 to
@@ -492,6 +498,8 @@ interface Placed {
   readonly layer: string;
   /** Its own color. Defaults to `"ByLayer"`. R2018 only. */
   readonly color?: EntityColor;
+  /** Its own transparency, in percent. Defaults to `"ByLayer"`. R2018 only. */
+  readonly transparency?: EntityTransparency;
 }
 
 interface EntityBase extends Placed {
@@ -1797,6 +1805,8 @@ export interface EntityOptions<
   readonly id?: EntityId<I>;
   /** Its own color: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a true color. R2018 only. */
   readonly color?: V extends "R12" ? "ByLayer" | R12EntityColor : EntityColorOf<C>;
+  /** Its own transparency: a whole percent from 0 to 90, `"ByLayer"`, the default, or `"ByBlock"`. R2018 only. */
+  readonly transparency?: V extends "R12" ? "ByLayer" : EntityTransparency;
   /**
    * A linetype of the drawing, `"Continuous"`, `"ByBlock"` or `"ByLayer"`. R2018 only. Under a
    * standard, a linetype of the standard by name, which the drawing then has.
@@ -2393,6 +2403,8 @@ interface InsertFields<I extends string, C extends EntityColorGiven = EntityColo
   readonly id?: EntityId<I>;
   /** Its own color: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a true color. R2018 only. */
   readonly color?: EntityColorOf<C>;
+  /** Its own transparency: a whole percent from 0 to 90, `"ByLayer"`, the default, or `"ByBlock"`. R2018 only. */
+  readonly transparency?: EntityTransparency;
   /** Degrees counterclockwise, about the insert's point. Defaults to 0. */
   readonly rotation?: number;
   /** A value for each attribute to set, by its tag. The others have their default values. */
@@ -2546,6 +2558,8 @@ interface DimensionOptions<
   readonly id?: EntityId<I>;
   /** Its own color: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a true color. R2018 only. */
   readonly color?: EntityColorOf<C>;
+  /** Its own transparency: a whole percent from 0 to 90, `"ByLayer"`, the default, or `"ByBlock"`. R2018 only. */
+  readonly transparency?: EntityTransparency;
   readonly view?: ViewWithoutStandard;
 }
 
@@ -2660,6 +2674,8 @@ export interface StandardAlignedDimensionOptions<
   readonly id?: EntityId<I>;
   /** Its own color: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a true color. R2018 only. */
   readonly color?: EntityColorOf<C>;
+  /** Its own transparency: a whole percent from 0 to 90, `"ByLayer"`, the default, or `"ByBlock"`. R2018 only. */
+  readonly transparency?: EntityTransparency;
 }
 
 /** The options of `radiusDimension()` and `diameterDimension()` under the standard `Z`. */
@@ -2826,6 +2842,8 @@ export interface LeaderOptions<
   readonly id?: EntityId<I>;
   /** Its own color: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a true color. R2018 only. */
   readonly color?: EntityColorOf<C>;
+  /** Its own transparency: a whole percent from 0 to 90, `"ByLayer"`, the default, or `"ByBlock"`. R2018 only. */
+  readonly transparency?: EntityTransparency;
   readonly view?: ViewWithoutStandard;
   readonly role?: RoleWithoutStandard;
 }
@@ -2868,15 +2886,19 @@ export interface StandardLeaderOptions<
   readonly id?: EntityId<I>;
   /** Its own color: an index from 1 to 255, `"ByLayer"`, the default, `"ByBlock"`, or a true color. R2018 only. */
   readonly color?: EntityColorOf<C>;
+  /** Its own transparency: a whole percent from 0 to 90, `"ByLayer"`, the default, or `"ByBlock"`. R2018 only. */
+  readonly transparency?: EntityTransparency;
   readonly textStyle?: LeaderRoleAndText;
   readonly textHeight?: LeaderRoleAndText;
 }
 
 /** What `layout()` sets on a layout. */
 /** The options of `table()`: the table, but for its kind and its layer, which is the current one. */
-export type TableOptions = Omit<Table, "kind" | "layer" | "color"> & {
+export type TableOptions = Omit<Table, "kind" | "layer" | "color" | "transparency"> & {
   /** A table has no color of its own: its style and its cells give its colors. */
   readonly color?: "ByLayer";
+  /** A table has no transparency of its own: CAD programs plot its grid opaque. */
+  readonly transparency?: "ByLayer";
 };
 
 export interface LayoutOptions<P extends string = string> {
@@ -3227,6 +3249,8 @@ export class DrawingBuilder<
   readonly #arrowheadBlocks = new Set<string>();
   /** Keyed by `layerKey`: leader style names are compared as dimension style names are. */
   readonly #leaderStyles = new Map<string, LeaderStyle>();
+  /** Whether each block a leader places holds a percent of its own, looked through once. */
+  readonly #leaderPlaced = new Map<Block, boolean>();
   readonly #leaderStylesAudited = new Map<string, string>();
   readonly #tableStyles = new Map<string, TableStyle>();
   readonly #tableStylesAudited = new Map<string, string>();
@@ -5611,6 +5635,8 @@ export class DrawingBuilder<
     if (this.#open) refuse("table", TABLE_IN_BLOCK);
     const o = (typeof given === "object" && given !== null ? given : {}) as Record<string, unknown>;
     if (o.color !== undefined && o.color !== "ByLayer") refuse("entity-color", TABLE_COLOR);
+    if (o.transparency !== undefined && o.transparency !== "ByLayer")
+      refuse("entity-transparency", TABLE_TRANSPARENCY);
     const named = o.style;
     const nameProblem = tableStyleNameProblem(named);
     if (nameProblem) refuse("undefined-table-style", nameProblem);
@@ -5721,6 +5747,13 @@ export class DrawingBuilder<
       }
       const problem = leaderBlockContentProblem({ ...o, attributes: content.attributes });
       if (problem) refuse("leader", problem);
+      // Each block is looked through once, however many leaders place it.
+      let percent = this.#leaderPlaced.get(placed!);
+      if (percent === undefined) {
+        percent = placed!.entities.some((e) => typeof e.transparency === "number");
+        this.#leaderPlaced.set(placed!, percent);
+      }
+      if (percent) refuse("entity-transparency", LEADER_BLOCK_TRANSPARENCY);
       // Each value names an attribute of the block, as an insert's does.
       const tags = new Set((placed!.attributes ?? []).map((d) => d.tag));
       for (const tag of Object.keys((content.attributes as object | undefined) ?? {})) {
@@ -6729,7 +6762,8 @@ export class DrawingBuilder<
       const named = id === undefined ? {} : { id: id as string };
       // Before `make`, which takes a dimension's handles.
       const color = this.#color(o);
-      const made = { ...make(), ...named, ...this.#style(o), ...color } as Entity;
+      const transparency = this.#transparency(o);
+      const made = { ...make(), ...named, ...this.#style(o), ...color, ...transparency } as Entity;
       (this.#open ?? this.#sheet ?? { entities: this.#entities }).entities.push(made);
       if (this.#open && this.#drawsRoles(made, o)) this.#open.roles = true;
       if (key !== undefined) {
@@ -6822,6 +6856,17 @@ export class DrawingBuilder<
         ? ([color[0], color[1], color[2]] as const)
         : (color as EntityColor),
     };
+  }
+
+  /** The transparency an entity is stored with: none for ByLayer. */
+  #transparency(options: object): { readonly transparency?: EntityTransparency } {
+    const transparency: unknown = (options as { readonly transparency?: unknown }).transparency;
+    if (transparency === undefined) return {};
+    const problem = entityTransparencyProblem(transparency);
+    if (problem) refuse("entity-transparency", problem);
+    if (transparency === "ByLayer") return {};
+    if (this.dxf === "R12") refuse("entity-transparency", R12_ONLY.entityTransparency);
+    return { transparency: transparency as EntityTransparency };
   }
 
   /** The linetype and lineweight an entity is stored with. */
@@ -7173,9 +7218,21 @@ function titleBlockValues(
 }
 
 /** The id and the color among the options of a dimension, which have no linetype or lineweight to take. */
-function idOf(options: unknown): { readonly id?: unknown; readonly color?: unknown } {
-  const { id, color } = (options ?? {}) as { id?: unknown; color?: unknown };
-  return { ...(id === undefined ? {} : { id }), ...(color === undefined ? {} : { color }) };
+function idOf(options: unknown): {
+  readonly id?: unknown;
+  readonly color?: unknown;
+  readonly transparency?: unknown;
+} {
+  const { id, color, transparency } = (options ?? {}) as {
+    id?: unknown;
+    color?: unknown;
+    transparency?: unknown;
+  };
+  return {
+    ...(id === undefined ? {} : { id }),
+    ...(color === undefined ? {} : { color }),
+    ...(transparency === undefined ? {} : { transparency }),
+  };
 }
 
 /**

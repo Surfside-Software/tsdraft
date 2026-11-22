@@ -786,6 +786,63 @@ export function leaderBlock(
   return leader.block ?? (leader.text === undefined ? style?.block : undefined);
 }
 
+/** The longest name a block may have: no longer name finds one. */
+const BLOCK_NAME_MOST = 255;
+
+/**
+ * Whether a block, by its name, is placed by a leader of the drawing in place of its note. As the
+ * leading CAD app reads a file, it makes every entity directly in such a block transparent
+ * ByBlock, whatever it held, and draws the leader's block opaque. A leader is refused inside a
+ * block, so this reads model space and the layouts, each list up to its first empty slot, and
+ * keys each name once.
+ */
+export function leaderPlacesBlock(drawing: unknown): (block: string) => boolean {
+  const placed = leaderBlockKeys(drawing);
+  return (block) =>
+    placed.size > 0 && block.length <= BLOCK_NAME_MOST && placed.has(layerKey(block));
+}
+
+/** The `layerKey` of each block a leader of the drawing places, as `leaderPlacesBlock` finds them. */
+export function leaderBlockKeys(drawing: unknown): ReadonlySet<string> {
+  const d = drawing as { entities?: unknown; layouts?: unknown; leaderStyles?: unknown } | null;
+  const each = (list: unknown, at: (item: Record<string, unknown>) => void): void => {
+    if (!Array.isArray(list)) return;
+    for (let i = 0; i < list.length; i++) {
+      const item: unknown = list[i];
+      if (item === undefined) break;
+      if (typeof item === "object" && item !== null) at(item as Record<string, unknown>);
+    }
+  };
+  const named = (name: unknown): string | undefined =>
+    typeof name === "string" && name.length <= BLOCK_NAME_MOST ? layerKey(name) : undefined;
+  const styles = new Map<string, Pick<LeaderStyle, "block">>();
+  each(d?.leaderStyles, (style) => {
+    const key = named(style.name);
+    if (key !== undefined && !styles.has(key)) styles.set(key, style);
+  });
+  const placed = new Set<string>();
+  // A list many layouts share is read once.
+  const seen = new Set<unknown>();
+  const read = (entities: unknown): void => {
+    if (seen.has(entities)) return;
+    seen.add(entities);
+    each(entities, (e) => {
+      if (e.kind !== "leader") return;
+      const style = styles.get(named(e.style) ?? "");
+      const key = named(leaderBlock(e as Pick<Leader, "block" | "text">, style));
+      if (key !== undefined) placed.add(key);
+    });
+  };
+  read(d?.entities);
+  each(d?.layouts, (layout) => read(layout.entities));
+  return placed;
+}
+
+/** The entities of a block a leader places, as the leading CAD app holds them: all ByBlock. */
+export function heldByBlock(entities: readonly Entity[]): readonly Entity[] {
+  return entities.map((e) => (e.kind === "table" ? e : { ...e, transparency: "ByBlock" }));
+}
+
 /** The note of a leader as the paragraph it is laid out as, before it is placed. */
 export function leaderNote(
   leader: Pick<Leader, "text" | "width" | "layer">,

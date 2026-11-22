@@ -1,5 +1,6 @@
 // Where an insert puts its block: the matrix that places the block's entities, the text each
 // attribute of an insert is, and a walk over everything a drawing draws through its inserts.
+import { alphaOf, entityTransparencyProblem } from "./transparency.ts";
 import type {
   AttributeDefinition,
   Block,
@@ -739,6 +740,18 @@ function insertColor(
   return { layer };
 }
 
+/**
+ * The opacity an insert gives what its block sets ByBlock: its own, that of the insert that holds
+ * it when it is ByBlock, and opaque when it is ByLayer, since a layer has no transparency.
+ */
+function insertAlpha(insert: Insert, outer: number | undefined): number | undefined {
+  const own: unknown = insert.transparency;
+  if (own === "ByBlock") return outer;
+  return entityTransparencyProblem(own) === undefined && typeof own === "number"
+    ? alphaOf(own)
+    : undefined;
+}
+
 /** Where one entity is drawn. */
 export interface Placement {
   /** The matrix from the entity's coordinates to the drawing's, or undefined in model space. */
@@ -760,6 +773,16 @@ export interface Placement {
    * layer's where the insert is ByLayer. Undefined in model space, where ByBlock draws as index 7.
    */
   readonly byBlock?: BlockColor | undefined;
+  /**
+   * The opacity, from 0 to 255, an entity set `"ByBlock"` takes: that of the insert that holds it.
+   * Undefined in model space, where ByBlock draws opaque.
+   */
+  readonly byBlockAlpha?: number | undefined;
+  /**
+   * True in a block a leader places, which holds every entity ByBlock whatever it sets, as the
+   * leading CAD app reads it.
+   */
+  readonly byBlockHeld?: boolean;
   /** For the text of an insert's attribute, the attribute's tag. */
   readonly attribute?: string;
   /**
@@ -781,8 +804,10 @@ interface Entered {
   /** The block's base point. */
   readonly base: Point | undefined;
   readonly layer: LayerRef;
-  /** The color what the block sets ByBlock takes. */
+  /** The color what the block sets ByBlock takes, and its opacity. */
   readonly byBlock: BlockColor | undefined;
+  readonly byBlockAlpha: number | undefined;
+  readonly byBlockHeld: boolean;
   readonly inside: Referenced | undefined;
   /** The blocks its inserts find theirs among. */
   readonly inner: ReadonlyMap<string, Block>;
@@ -833,6 +858,7 @@ export function eachDrawn(
   spend: (cost: number) => boolean = () => true,
   key: (name: string) => string = layerKey,
   holding?: (entity: Exclude<Entity, Insert>, placement: Placement) => readonly Insert[],
+  heldByBlock?: (from: Referenced | undefined) => ReadonlySet<string>,
 ): boolean {
   if (entity.kind !== "insert") {
     draw(entity, {
@@ -853,6 +879,8 @@ export function eachDrawn(
     outer: Matrix | undefined,
     layer: LayerRef,
     byBlock: BlockColor | undefined,
+    byBlockAlpha: number | undefined,
+    byBlockHeld = false,
   ): boolean => {
     if (isFrozen(layer)) return true;
     const name = key(insert.block);
@@ -875,6 +903,9 @@ export function eachDrawn(
       base: block?.base,
       layer,
       byBlock: insertColor(insert, layer, byBlock),
+      // An insert in a block a leader places is ByBlock, whatever it sets.
+      byBlockAlpha: byBlockHeld ? byBlockAlpha : insertAlpha(insert, byBlockAlpha),
+      byBlockHeld: block !== undefined && heldByBlock?.(from).has(name) === true,
       // What the insert holds names the layers, linetypes and text styles of this drawing.
       inside: referenced ?? from,
       inner: referenced ? referenced.blocks : within,
@@ -883,7 +914,9 @@ export function eachDrawn(
     });
     return true;
   };
-  if (!enter(entity, blocks, undefined, undefined, { name: entity.layer }, undefined)) return false;
+  if (!enter(entity, blocks, undefined, undefined, { name: entity.layer }, undefined, undefined)) {
+    return false;
+  }
   while (stack.length > 0) {
     const at = stack.at(-1)!;
     const { inside } = at;
@@ -892,7 +925,18 @@ export function eachDrawn(
     // One at a time, so two that place one block do not find it open.
     if (at.queued !== undefined && at.queued.next < at.queued.inserts.length) {
       const insert = at.queued.inserts[at.queued.next++]!;
-      if (!enter(insert, at.inner, inside, at.matrix, layerOf(insert.layer), at.byBlock)) {
+      if (
+        !enter(
+          insert,
+          at.inner,
+          inside,
+          at.matrix,
+          layerOf(insert.layer),
+          at.byBlock,
+          at.byBlockAlpha,
+          at.byBlockHeld,
+        )
+      ) {
         return false;
       }
       continue;
@@ -908,13 +952,26 @@ export function eachDrawn(
           insertLayer: at.layer,
           from: inside,
           byBlock: at.byBlock,
+          byBlockAlpha: at.byBlockAlpha,
+          ...(at.byBlockHeld ? { byBlockHeld: true } : {}),
         };
         draw(item, placement);
         if (inside !== undefined && holding !== undefined) {
           const inserts = holding(item, placement);
           at.queued = inserts.length > 0 ? { inserts, next: 0 } : undefined;
         }
-      } else if (!enter(item, at.inner, inside, at.matrix, layerOf(item.layer), at.byBlock)) {
+      } else if (
+        !enter(
+          item,
+          at.inner,
+          inside,
+          at.matrix,
+          layerOf(item.layer),
+          at.byBlock,
+          at.byBlockAlpha,
+          at.byBlockHeld,
+        )
+      ) {
         return false;
       }
       continue;
@@ -940,6 +997,7 @@ export function eachDrawn(
           insertLayer: at.layer,
           from: inside,
           byBlock: at.byBlock,
+          byBlockAlpha: at.byBlockAlpha,
           attribute: definition.tag,
           made: placed.paragraph!.uneven,
         });
@@ -951,6 +1009,7 @@ export function eachDrawn(
         insertLayer: at.layer,
         from: inside,
         byBlock: at.byBlock,
+        byBlockAlpha: at.byBlockAlpha,
         attribute: definition.tag,
       });
       continue;

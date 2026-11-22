@@ -1,4 +1,5 @@
 import { entityColorProblem } from "./colors.ts";
+import { entityTransparencyProblem } from "./transparency.ts";
 import {
   definitionHandle,
   insertAttributeHandle,
@@ -68,6 +69,7 @@ import {
   leaderRepeats,
   leaderStyleDictionaryHandle,
   validLeaderStyleHandle,
+  leaderPlacesBlock,
 } from "./leaders.ts";
 import { paperInfo } from "./papers.ts";
 import { isUnits } from "./units.ts";
@@ -146,6 +148,8 @@ import {
   isStandardTableStyle,
   standardTableStyleProblem,
   TABLE_COLOR,
+  TABLE_TRANSPARENCY,
+  LEADER_BLOCK_TRANSPARENCY,
   TABLE_IN_BLOCK,
   tableColumnsProblem,
   tableTextsProblem,
@@ -253,6 +257,7 @@ export type LintRule =
   | "undefined-linetype"
   | "lineweight"
   | "entity-color"
+  | "entity-transparency"
   | "layer-state"
   | "geometry"
   | "text"
@@ -814,6 +819,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   }
 
   const r12 = version === "R12";
+  const leaderPlaces = leaderPlacesBlock(drawing);
   const scale = drawing.linetypeScale;
   if (scale !== undefined && (r12 ? scale !== 1 : linetypeScaleProblem(scale))) {
     const problem = r12 ? R12_ONLY.linetypes : linetypeScaleProblem(scale);
@@ -2108,6 +2114,9 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         ? `${sheet.at}.entities`
         : "entities";
     const inBlock = block ? { block: block.name } : sheet ? { layout: sheet.name } : {};
+    // A block a leader places holds every entity ByBlock in CAD programs, which drop a percent.
+    const placedByLeader =
+      block !== undefined && typeof block.name === "string" && leaderPlaces(block.name);
     const space = block
       ? `block ${shown(block.name)}`
       : sheet
@@ -2205,6 +2214,19 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
           (r12 && color !== "ByLayer" ? R12_ONLY.entityColor : undefined) ??
           (entity.kind === "table" && color !== "ByLayer" ? TABLE_COLOR : undefined);
         if (problem) add("entity-color", "error", problem);
+      }
+      const transparency: unknown = entity.transparency;
+      if (transparency !== undefined) {
+        const problem =
+          entityTransparencyProblem(transparency) ??
+          (r12 && transparency !== "ByLayer" ? R12_ONLY.entityTransparency : undefined) ??
+          (entity.kind === "table" && transparency !== "ByLayer"
+            ? TABLE_TRANSPARENCY
+            : undefined) ??
+          (placedByLeader && typeof transparency === "number"
+            ? LEADER_BLOCK_TRANSPARENCY
+            : undefined);
+        if (problem) add("entity-transparency", "error", problem);
       }
       if (
         r12 &&

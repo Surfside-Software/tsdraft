@@ -1,4 +1,5 @@
 import { heldColor, matchedIndex, storedColor } from "./colors.ts";
+import { storedTransparency } from "./transparency.ts";
 import {
   attributeTextStart,
   definitionHandle,
@@ -46,6 +47,7 @@ import type {
   Drawing,
   Entity,
   EntityColor,
+  EntityTransparency,
   Image,
   Insert,
   Layout,
@@ -172,6 +174,8 @@ import {
   verticalAttachmentCode,
   STANDARD_LEADER_STYLE_SIZES,
   validLeaderStyleHandle,
+  heldByBlock,
+  leaderPlacesBlock,
 } from "./leaders.ts";
 import { entityLinetype, layerLinetype, lineweightCode, patternLength } from "./linetypes.ts";
 import { idKey, isStandardTextStyle, shown, TEXT_ALIGNS, TEXT_VERTICAL_ALIGNS } from "./rules.ts";
@@ -813,20 +817,24 @@ export function toDXFR2018(
       ...(index === 0 ? {} : { contents: () => writeSheet(sheet, index + 1) }),
     });
   });
+  const placedByLeader = leaderPlacesBlock(drawing);
   for (const block of blocks) {
     const handles = blockHandles(block.name);
+    // A block a leader places holds all it draws ByBlock, as the leading CAD app reads it.
+    const byBlock = placedByLeader(block.name);
     writeBlock(g, handles.begin, handles.end, block.name, handles.record, {
       paper: false,
       base: block.base,
       hasAttributes: (block.attributes ?? []).length > 0,
       contents: () => {
-        writeEntities(block.entities, handles.record);
+        writeEntities(byBlock ? heldByBlock(block.entities) : block.entities, handles.record);
         for (const definition of block.attributes ?? []) {
           g(0, "ATTDEF");
           g(5, definitionHandle(block.name, definition.tag));
           g(330, handles.record);
           g(100, "AcDbEntity");
           g(8, definition.layer);
+          if (byBlock) writeColor(g, undefined, "ByBlock");
           g(100, "AcDbText");
           if (definition.kind === "paragraph") {
             const prompt = definition.prompt ?? definition.tag;
@@ -1259,7 +1267,7 @@ function writeInsert(
   g(100, "AcDbEntity");
   if (paper) g(67, 1);
   g(8, e.layer);
-  writeColor(g, e.color);
+  writeColor(g, e.color, e.transparency);
   g(100, "AcDbBlockReference");
   if (hasAttributes) g(66, 1); // attributes follow
   g(2, e.block);
@@ -1467,12 +1475,22 @@ function writeSpline(g: Group, e: Spline, begin: () => void): void {
 /** The vertical justification of the text a paragraph attribute would be as a line. */
 const TEXT_VALIGN_OF = { top: "top", middle: "middle", bottom: "bottom" } as const;
 
-/** An entity's own color, after its linetype: group 62, and 420 for a true color. */
-function writeColor(g: Group, color: EntityColor | undefined): void {
+/**
+ * An entity's own color, after its linetype: group 62, and 420 for a true color; and its
+ * transparency, group 440, which follows them.
+ */
+function writeColor(
+  g: Group,
+  color: EntityColor | undefined,
+  transparency: EntityTransparency | undefined,
+): void {
   const stored = storedColor(color);
-  if (stored === undefined) return;
-  g(62, stored.index);
-  if (stored.rgb !== undefined) g(420, stored.rgb);
+  if (stored !== undefined) {
+    g(62, stored.index);
+    if (stored.rgb !== undefined) g(420, stored.rgb);
+  }
+  const value = storedTransparency(transparency);
+  if (value !== undefined) g(440, value);
 }
 
 /**
@@ -1497,7 +1515,7 @@ function writeEntity(
     g(8, e.layer);
     const linetype = entityLinetype(e);
     if (linetype !== undefined) g(6, linetype);
-    writeColor(g, e.color);
+    writeColor(g, e.color, e.transparency);
     if (e.lineweight !== undefined && e.lineweight !== "ByLayer") {
       g(370, lineweightCode(e.lineweight));
     }
@@ -1837,7 +1855,7 @@ function writeDimension(
   g(100, "AcDbEntity");
   if (paper) g(67, 1);
   g(8, e.layer);
-  writeColor(g, e.color);
+  writeColor(g, e.color, e.transparency);
   g(100, "AcDbDimension");
   if (block !== undefined) g(2, block);
   point(g, 10, ...picture.definitionPoint);
@@ -1989,6 +2007,7 @@ function writePicture(g: Group, { name, picture, handles, layer, textStyle, mask
         g(100, "AcDbEntity");
         g(8, layer);
         g(62, 0); // by block
+        g(440, 0x01000000); // transparent by block, as the leading CAD app saves a picture
         if (lineweight !== undefined) g(370, lineweight);
         g(100, subclass);
       };
@@ -2484,7 +2503,7 @@ function writeImage(g: Group, e: Image, place: ImagePlace): void {
   g(8, e.layer);
   const linetype = entityLinetype(e);
   if (linetype !== undefined) g(6, linetype);
-  writeColor(g, e.color);
+  writeColor(g, e.color, e.transparency);
   if (e.lineweight !== undefined && e.lineweight !== "ByLayer") {
     g(370, lineweightCode(e.lineweight));
   }
@@ -2740,7 +2759,7 @@ function writeLeader(
   g(100, "AcDbEntity");
   if (where.paper) g(67, 1);
   g(8, e.layer);
-  writeColor(g, e.color);
+  writeColor(g, e.color, e.transparency);
   g(100, "AcDbMLeader");
   g(270, 2); // version
   g(300, "CONTEXT_DATA{");

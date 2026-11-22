@@ -24,6 +24,7 @@ arrowheads included, and so does a leader. A wipeout's color is its frame's; it 
 behind it in the paper's color.
 
 Colors are R2018 only. The builder and `lint` refuse a color but `"ByLayer"` in an R12 drawing.
+An entity's transparency is on a page of its own, [Transparency](transparency.md).
 
 ## How a color plots
 

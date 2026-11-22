@@ -148,6 +148,7 @@ export {
   type Rgb,
   type Polyline,
   type EntityColor,
+  type EntityTransparency,
   type PolylineOptions,
   type RadiusDimension,
   type RadiusDimensionOptions,
@@ -177,6 +178,7 @@ export {
   type Zone,
 } from "./drawing.ts";
 export { heldColor, storedColor } from "./colors.ts";
+export { readAlpha, storedTransparency } from "./transparency.ts";
 export { toDXF, type DxfOptions } from "./dxf.ts";
 export { parsePatterns, PATTERN_FILE_LENGTH } from "./patterns.ts";
 export { fifteenDigits } from "./format.ts";
@@ -262,11 +264,13 @@ export { layoutHandles, viewportView, type LayoutHandles, type ViewportView } fr
 export {
   attachmentCode,
   findLeaderStyle,
+  heldByBlock,
   leaderArrowheadHandles,
   leaderAttachment,
   leaderCount,
   leaderOwnFlags,
   leaderPicture,
+  leaderPlacesBlock,
   leaderSide,
   leaderSizes,
   leaderStyleDictionaryHandle,

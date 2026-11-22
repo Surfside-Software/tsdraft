@@ -160,6 +160,8 @@ const NAME_R12_CHARS =
 const NAME_R12_LENGTH =
   'R12 layer names cannot be longer than 31 characters. Use DXF version "R2018" for longer names';
 const COLOR = "A layer color must be a color index, an integer from 1 to 255";
+export const ENTITY_TRANSPARENCY =
+  'An entity\'s transparency is a whole percent from 0 to 90, "ByLayer" or "ByBlock": 50 for half, not 0.5';
 export const ENTITY_COLOR =
   'An entity\'s color is a color index, a whole number from 1 to 255, "ByLayer", "ByBlock", or a true color: its red, green and blue, each a whole number from 0 to 255';
 const POSITIVE = "This value must be greater than 0";
@@ -179,6 +181,8 @@ const R12_LINETYPES =
 const R12_LINEWEIGHTS = 'R12 drawings have no lineweights. Use DXF version "R2018" for lineweights';
 const R12_ENTITY_STYLE =
   'R12 entities take no linetype or lineweight of their own. Use DXF version "R2018" for an entity linetype or lineweight';
+const R12_ENTITY_TRANSPARENCY =
+  'R12 entities take no transparency of their own. Use DXF version "R2018" for an entity transparency';
 const R12_ENTITY_COLOR =
   'R12 entities take no color of their own. Use DXF version "R2018" for an entity color';
 const R12_LAYER_STATES =
@@ -1977,6 +1981,7 @@ export const R12_ONLY = {
   layerStates: R12_LAYER_STATES,
   entityStyle: R12_ENTITY_STYLE,
   entityColor: R12_ENTITY_COLOR,
+  entityTransparency: R12_ENTITY_TRANSPARENCY,
   text: R12_TEXT,
   blocks: R12_BLOCKS,
   xrefs: R12_XREFS,
@@ -5048,6 +5053,12 @@ const STANDARD_TABLE_STYLE_USED =
 /** What is wrong with a table given a color of its own. */
 export const TABLE_COLOR =
   'A table has no color of its own: its style and its cells give its colors. Leave out "color", or give "ByLayer"';
+/** What is wrong with a table given a transparency of its own. */
+export const TABLE_TRANSPARENCY =
+  'A table has no transparency of its own: CAD programs plot its grid opaque. Leave out "transparency", or give "ByLayer"';
+/** What is wrong with a percent on an entity of a block a leader places. */
+export const LEADER_BLOCK_TRANSPARENCY =
+  'CAD programs make every entity of a block a leader places transparent ByBlock, and drop a percent of its own. Give "ByBlock" or "ByLayer", or leave out "transparency"';
 /** What is wrong with a table inside a block. */
 export const TABLE_IN_BLOCK =
   "A table cannot be drawn in a block. Draw it in model space or on a layout, where the leading CAD app edits it";

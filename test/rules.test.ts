@@ -26,6 +26,7 @@ import {
 import sheet, { sitePlan, type Box } from "../examples/site-plan.ts";
 import { blocksByKey, eachDrawn, mapPoint } from "../src/blocks.ts";
 import { extents } from "../src/extents.ts";
+import { leaderBlockKeys } from "../src/leaders.ts";
 
 // Each `@ts-expect-error` below proves the compiler rejects the literal. The
 // `assert.throws` around it proves the same mistake is caught when the code runs.
@@ -648,6 +649,107 @@ test("linetype, lineweight and layer state mistakes are compile errors and runti
     lineweight: 0.3,
   });
   assert.deepEqual(lint(built), []);
+});
+
+test("an entity's transparency is a whole percent from 0 to 90, ByLayer or ByBlock", () => {
+  const d = createDrawing();
+  const r12 = createDrawing({ dxf: "R12" });
+  d.block("B", {}, () => d.circle([0, 0], 1, { transparency: "ByBlock" }));
+  d.tableStyle({ name: "S", textHeight: 1 });
+  const table = { style: "S", at: [0, 0], columns: [4], rows: [[{ text: "A" }]] } as const;
+  assert.throws(() => d.line([0, 0], [1, 1], { transparency: 0.5 }), /50 for half, not 0\.5/);
+  assert.throws(() => d.line([0, 0], [1, 1], { transparency: 91 }), /from 0 to 90/);
+  assert.throws(() => d.line([0, 0], [1, 1], { transparency: -1 }), /from 0 to 90/);
+  // @ts-expect-error: a transparency is a number or one of two names.
+  assert.throws(() => d.line([0, 0], [1, 1], { transparency: "50%" }), /from 0 to 90/);
+  // @ts-expect-error: an R12 entity takes its layer's.
+  assert.throws(() => r12.line([0, 0], [1, 1], { transparency: 50 }), /R12 entities take no/);
+  r12.line([0, 0], [1, 1], { transparency: "ByLayer" });
+  // @ts-expect-error: a table's grid plots opaque in CAD programs.
+  assert.throws(() => d.table({ ...table, transparency: 50 }), /A table has no transparency/);
+  d.table({ ...table, transparency: "ByLayer" });
+
+  d.line([0, 0], [1, 1], { transparency: 0 });
+  d.line([0, 0], [1, 1], { transparency: 90 });
+  d.line([0, 0], [1, 1], { transparency: "ByLayer" });
+  d.insert("B", [0, 0], { transparency: "ByBlock" });
+  d.hatch(
+    [
+      {
+        points: [
+          [0, 0],
+          [1, 0],
+          [1, 1],
+        ],
+      },
+    ],
+    { transparency: 50 },
+  );
+  const built = d.build();
+  assert.deepEqual(
+    built.entities.map((e) => e.transparency),
+    [undefined, 0, 90, undefined, "ByBlock", 50],
+  );
+  assert.deepEqual(lint(built), []);
+  const faded = { ...built, entities: [{ ...built.entities[1]!, transparency: 0.5 }] };
+  assert.deepEqual(
+    lint(faded as Drawing).map((p) => p.rule),
+    ["entity-transparency"],
+  );
+});
+
+test("the blocks leaders place are found reading a list many layouts share once", () => {
+  let reads = 0;
+  const lines = new Proxy(
+    Array.from({ length: 1000 }, () => ({ kind: "line", layer: "0", from: [0, 0], to: [1, 1] })),
+    {
+      get: (target, key, receiver) => {
+        if (typeof key === "string" && /^\d+$/.test(key)) reads++;
+        return Reflect.get(target, key, receiver);
+      },
+    },
+  );
+  const layouts = Array.from({ length: 1000 }, (_, i) => ({ name: `S${i}`, entities: lines }));
+  assert.equal(leaderBlockKeys({ entities: [], layouts }).size, 0);
+  assert.equal(reads, 1000);
+});
+
+test("a block a leader places takes no percent of its own, which CAD programs drop", () => {
+  const d = createDrawing({ units: "in" });
+  d.leaderStyle({ name: "NOTES", textHeight: 0.1, arrowSize: 0.12, landing: 0.2, gap: 0.05 });
+  d.block("FADED", {}, () => d.circle([0, 0], 1, { transparency: 0 }));
+  d.block("TAG", {}, () => {
+    d.circle([0, 0], 1, { transparency: "ByBlock" });
+    d.line([0, 0], [1, 0], { transparency: "ByLayer" });
+    d.insert("FADED", [0, 0]);
+    d.attribute("NO", [0, -1], { value: "1", height: 0.1 });
+  });
+  const leader = { style: "NOTES", at: [3, 3], to: [2, 2] } as const;
+  assert.throws(
+    () => d.leader({ block: "FADED" }, leader),
+    /CAD programs make every entity of a block a leader places transparent ByBlock/,
+  );
+  // An insert in it may place a block with one: CAD programs keep that.
+  d.leader({ block: "TAG" }, leader);
+  d.insert("FADED", [5, 5]);
+  const built = d.build();
+  assert.deepEqual(lint(built), []);
+  // Its file holds all it draws ByBlock, and its attribute definition, as CAD programs read it.
+  const dxf = toDXF(built);
+  const block = (name: string): string => {
+    const at = dxf.indexOf(`AcDbBlockBegin\r\n2\r\n${name}\r\n`);
+    return dxf.slice(at, dxf.indexOf("ENDBLK", at));
+  };
+  assert.equal(block("TAG").match(/\r\n440\r\n16777216\r\n/g)?.length, 4);
+  assert.match(block("FADED"), /\r\n440\r\n33554687\r\n/);
+  const placed = {
+    ...built,
+    entities: [...built.entities, { ...built.entities[0]!, block: "FADED" }],
+  };
+  assert.deepEqual(
+    lint(placed as Drawing).map((p) => [p.rule, p.block]),
+    [["entity-transparency", "FADED"]],
+  );
 });
 
 test("entity color mistakes are compile errors and runtime errors", () => {

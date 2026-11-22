@@ -379,6 +379,32 @@ test("toPDF reads a file once however many times a sheet places it", () => {
   assert.equal(new TextDecoder("latin1").decode(pdf).match(/\/Subtype \/Image/g)?.length, 1);
 });
 
+test("a faded image's transparency group is as large as its clip, not its picture", () => {
+  const d = createDrawing({ units: "in", dxf: "R2018" });
+  d.layout("S", { paper: "ARCH E" }, () => {
+    d.image("dot.png", [0, 0], {
+      pixels: [1, 1],
+      width: 48,
+      height: 36,
+      clip: [
+        [10, 10],
+        [10.25, 10.25],
+      ],
+      transparency: 50,
+    });
+  });
+  const pdf = new TextDecoder("latin1").decode(
+    toPDF(d.build(), {
+      images: { "dot.png": png(1, 1, 2, () => [255, 0, 0]) },
+      plotTransparency: true,
+    }),
+  );
+  const [x0, y0, x1, y1] = /\/BBox \[([^\]]*)\]/.exec(pdf)![1]!.split(" ").map(Number);
+  // The clip is a quarter inch, 18 points, and a point wider each way for its rounding.
+  for (const side of [x1! - x0!, y1! - y0!])
+    assert.ok(side >= 18 && side <= 21, `${[x0, y0, x1, y1]}`);
+});
+
 test("an xref's images take their files from the xref's own, never the sheet's", () => {
   const sheetFile = png(4, 4, 2, () => [255, 0, 0]);
   const baseFile = png(8, 8, 2, () => [0, 0, 255]);
