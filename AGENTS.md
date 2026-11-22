@@ -354,8 +354,15 @@
   of its own. A message shows a value from the drawing only through `shown` in `src/rules.ts`,
   and a diagnostic's field holds a name only when it is a string. An error about a value of
   the wrong type carries `item`, the path of what a reader has to leave out.
-  `test/shape.test.ts` replaces every field of a full drawing with values of other types, and
-  its drawing is typed so that a new field or entity kind is a compile error there.
+  `test/shape-sweep.ts` replaces every field of a full drawing with values of other types, and
+  its drawing is typed so that a new field or entity kind is a compile error there. Each value
+  runs every check on the whole drawing, so the work grows with the square of the drawing: the
+  test files `test/shape-sweep/share-1.test.ts` and on share the cases, and `node --test` runs
+  one file fewer at once than the machine has cores. `pnpm test` runs them after every other
+  test, in a run of their own: beside the others they fill every core for a minute, and a test
+  with a time limit, as in `test/bounded.test.ts`, then fails at a limit tuned to a machine
+  with room. Raise `SHARES` and add a file only where the machines that run the tests have the
+  cores for one more.
 - `src/read/` reads a file into a `DrawingRead`, the read model, which is not a `Drawing` and is
   never written back. `readDXF` reads as the bytes arrive and must never hold the whole file or
   a list that grows with entities past its limits, `CENSUS_LIMIT`, `BLOCK_ITEMS` and
