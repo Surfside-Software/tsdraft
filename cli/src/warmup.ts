@@ -4,7 +4,7 @@
 // of a build before. No step runs another copy of the library.
 import * as nodeModule from "node:module";
 
-type Library = Partial<typeof import("tsdraft")>;
+export type Library = Partial<typeof import("tsdraft")>;
 
 /** A drawing file in small: the syntax Node has to strip from one. */
 const SOURCE = `import { createDrawing, type Point, type TextAlign } from "tsdraft";
@@ -30,8 +30,9 @@ export default plan(lot);
 /** Stripping the types of a drawing file, which is slow the first time. */
 export const stripSteps: readonly (() => void)[] = [
   () => {
-    const strip = (nodeModule as { stripTypeScriptTypes?: (source: string) => string })
-      .stripTypeScriptTypes;
+    // A Node from before 22.13 has none.
+    const strip: ((source: string) => string) | undefined = nodeModule.stripTypeScriptTypes;
+
     for (let i = 0; i < 8; i++) strip?.(SOURCE);
   },
 ];
@@ -52,9 +53,11 @@ export function librarySteps(library: Library): readonly (() => void)[] {
   let drawing: ReturnType<typeof sheet> | undefined;
   let standard: ReturnType<typeof extended> | undefined;
   let drawn: ReturnType<typeof sheetToStandard> | undefined;
+
   const sheets = (d: ReturnType<typeof sheet> | undefined) => {
     for (const layout of d?.layouts ?? []) library.toSVG?.(d!, { layout: layout.name });
   };
+
   return [
     () => (drawing = sheet(library)),
     () => drawing && library.lint?.(drawing),
@@ -97,6 +100,7 @@ function sheetToStandard(library: Library, standard: NonNullable<ReturnType<type
     standard,
     fields: { project: "A HOUSE", date: "2026-01-01", drawnBy: "AB", checkedBy: "CD" },
   });
+
   const plan = d.view("plan", { scale: "1in-10ft" });
   d.block("TREE", {}, () => d.circle([0, 0], 1));
   d.layer("C-PROP", () => d.rect([0, 0], 80, 120));
@@ -112,6 +116,7 @@ function sheetToStandard(library: Library, standard: NonNullable<ReturnType<type
     });
     d.layer("C-ANNO-TEXT", () => d.text([29, 22.5], "GENERAL NOTES", { role: "heading" }));
   });
+
   return d.build();
 }
 
@@ -184,5 +189,6 @@ function sheet(library: Library) {
       d.insert("TREE", [30, 10], { scale: 3 / 16 });
     });
   });
+
   return d.build();
 }

@@ -9,10 +9,11 @@ import { FONTS, fontInfo, type Font, capHeightOf } from "./fonts.ts";
 import { paperInfo } from "./papers.ts";
 import { Sha256 } from "./sha256.ts";
 import { filled } from "./shape.ts";
-import type { ShapeFiles } from "./shapes.ts";
-import { SHEET_PICTURE, toSVG } from "./svg.ts";
+import type { ShxFiles } from "./shapes.ts";
+import { SHEET_PICTURE, toSVG, type SvgOptions } from "./svg.ts";
 import { fromBase64, plotDecodes, pngPixels, rasterInfo, uncompressed } from "./raster.ts";
 import { readTrueType, type TrueType } from "./truetype.ts";
+import { isObjectOrArray, isString } from "./guards.ts";
 
 export interface PdfOptions {
   /** The layouts to plot, in this order. Defaults to every layout, in the drawing's order. */
@@ -58,7 +59,7 @@ export interface PdfOptions {
    */
   readonly images?: Readonly<Record<string, Uint8Array>>;
   /** The bytes of each shape file the drawing's linetypes name, as `toSVG` takes them, for every sheet. */
-  readonly shapes?: ShapeFiles;
+  readonly shx?: ShxFiles;
   /**
    * The picture of each page the drawing's underlays show, by the underlay's path exactly as the
    * drawing gives it, then by its page, as `toSVG` takes them. The PDF holds each once.
@@ -77,6 +78,15 @@ export interface PdfSheet {
   readonly images?: Readonly<Record<string, Uint8Array>>;
   /** The pictures of its underlays' pages, as `toPDF` takes them, in place of those of the options. */
   readonly underlays?: Readonly<Record<string, Readonly<Record<string, Uint8Array>>>>;
+}
+
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+
+/** The pen a picture's element sets, which its children take. */
+interface Pen {
+  stroke?: string;
+  fill?: string;
+  width?: string;
 }
 
 /**
@@ -105,46 +115,48 @@ export function toPDF(
 ): Uint8Array;
 export function toPDF(given: Drawing | readonly PdfSheet[], options: PdfOptions = {}): Uint8Array {
   // A list is read up to its first empty slot, as every list of the library is.
-  const sheets: readonly PdfSheet[] = Array.isArray(given)
-    ? filled(given as readonly PdfSheet[])
+  const sheets: readonly PdfSheet[] = isSheets(given)
+    ? filled(given)
     : (options.layouts === undefined
-        ? filled((given as Drawing).layouts).map((layout) => layout?.name)
+        ? filled(given.layouts).map((layout) => layout?.name)
         : filled(options.layouts)
-      ).map((layout) => ({
-        drawing: given as Drawing,
-        layout: layout!,
-        ...(options.xrefs ? { xrefs: options.xrefs } : {}),
-      }));
+      ).map((layout): PdfSheet =>
+        options.xrefs
+          ? { drawing: given, layout: layout!, xrefs: options.xrefs }
+          : { drawing: given, layout: layout! },
+      );
+
   const images = options.images;
   const underlays = options.underlays;
+
   if (sheets.length === 0) throw new RangeError("There is no layout to plot");
   sheets.forEach((sheet, i) => {
-    if (
-      typeof sheet !== "object" ||
-      sheet === null ||
-      typeof sheet.layout !== "string" ||
-      typeof sheet.drawing !== "object" ||
-      sheet.drawing === null
-    ) {
+    // A caller in plain JavaScript may give a sheet of another shape.
+    if (!isObjectOrArray(sheet) || !isString(sheet.layout) || !isObjectOrArray(sheet.drawing)) {
       throw new RangeError(`Sheet ${i} to plot is not a drawing and the name of its layout`);
     }
   });
   const pdf = new PdfWriter(options);
+
   for (const sheet of sheets) {
     const { drawing, layout, xrefs } = sheet;
     const own = sheet.images ?? images;
     const ownPages = sheet.underlays ?? underlays;
-    pdf.page(
-      toSVG(drawing, {
-        layout,
-        ...(xrefs ? { xrefs } : {}),
-        ...(own ? { images: own } : {}),
-        ...(options.shapes ? { shapes: options.shapes } : {}),
-        ...(options.plotTransparency === true ? { plotTransparency: true } : {}),
-        ...(ownPages ? { underlays: ownPages } : {}),
-      }),
-    );
+    const asked: Mutable<SvgOptions> = {};
+    asked.layout = layout;
+
+    if (xrefs) asked.xrefs = xrefs;
+
+    if (own) asked.images = own;
+
+    if (options.shx) asked.shx = options.shx;
+
+    if (options.plotTransparency === true) asked.plotTransparency = true;
+
+    if (ownPages) asked.underlays = ownPages;
+    pdf.page(toSVG(drawing, asked));
   }
+
   return pdf.finish();
 }
 
@@ -162,7 +174,9 @@ export function svgToPDF(
 ): Uint8Array {
   if (pictures.length === 0) throw new RangeError("A PDF needs at least one picture");
   const pdf = new PdfWriter(options);
+
   for (const picture of pictures) pdf.page(picture);
+
   return pdf.finish();
 }
 
@@ -197,6 +211,7 @@ function stretchOf(m: Matrix): number {
   const [a, b, c, d] = m;
   const half = (a * a + b * b + c * c + d * d) / 2;
   const gap = Math.hypot((a * a + b * b - c * c - d * d) / 2, a * c + b * d);
+
   return Math.sqrt(half + gap);
 }
 
@@ -209,8 +224,11 @@ function real(value: number, decimals: number): string {
   if (!(Math.abs(value) < 1e15)) {
     throw new RangeError(`svgToPDF cannot write ${value}: a page holds numbers under 10^15`);
   }
+
   let text = value.toFixed(decimals);
+
   if (text.includes(".")) text = text.replace(/0+$/, "").replace(/\.$/, "");
+
   return text === "-0" ? "0" : text;
 }
 
@@ -225,11 +243,14 @@ function transformOf(list: string, where: string): Matrix {
   // Read with a cursor, each function and the space around it in turn, so a long list costs
   // what it holds; anything between two that is not space is refused.
   const pattern = /\s*([a-zA-Z]+)\(([^)]*)\)\s*/y;
+
   while (pattern.lastIndex < list.length) {
     const match = pattern.exec(list);
+
     if (!match || match[2]!.trim() === "") {
       throw refuse(`the transform ${JSON.stringify(list)}`, where);
     }
+
     const [name, args] = [
       match[1]!,
       match[2]!
@@ -237,9 +258,11 @@ function transformOf(list: string, where: string): Matrix {
         .split(/[\s,]+/)
         .map(Number),
     ];
+
     if (!args.every(Number.isFinite)) throw refuse(`the transform ${match[0].trim()}`, where);
     const [a = 0, b, c, d, e, f] = args;
     let step: Matrix;
+
     if (name === "translate" && args.length <= 2) step = [1, 0, 0, 1, a, b ?? 0];
     else if (name === "scale" && args.length <= 2) step = [a, 0, 0, b ?? a, 0, 0];
     else if (name === "rotate" && (args.length === 1 || args.length === 3)) {
@@ -253,6 +276,7 @@ function transformOf(list: string, where: string): Matrix {
     else throw refuse(`the transform ${match[0].trim()}`, where);
     m = compose(m, step);
   }
+
   return m;
 }
 
@@ -345,15 +369,18 @@ const stopOffset = (offset: number): string => real(offset, 9);
  */
 function gradientFunction(stops: Gradient["stops"]): string {
   const rgb = (color: readonly number[]) => color.map((c) => real(c / 255, 5)).join(" ");
+
   const parts = stops
     .slice(1)
     .map(
       (stop, i) =>
         `<< /FunctionType 2 /Domain [0 1] /C0 [${rgb(stops[i]!.color)}] /C1 [${rgb(stop.color)}] /N 1 >>`,
     );
+
   if (parts.length === 1) return parts[0]!;
   const bounds = stops.slice(1, -1).map((stop) => stopOffset(stop.offset));
   const encode = parts.map(() => "0 1").join(" ");
+
   return `<< /FunctionType 3 /Domain [0 1] /Functions [${parts.join(" ")}] /Bounds [${bounds.join(" ")}] /Encode [${encode}] >>`;
 }
 
@@ -363,13 +390,23 @@ function gradientFunction(stops: Gradient["stops"]): string {
  */
 function unescape(text: string, where: string): string {
   if (!text.includes("&")) return text;
+
   return text.replace(/&(amp;|lt;|gt;|quot;|#10;|#9;)?/g, (_, name: string | undefined) => {
     if (name === undefined) throw refuse("an & that is not one toSVG writes", where);
-    return (
-      { "amp;": "&", "lt;": "<", "gt;": ">", "quot;": '"', "#10;": "\n", "#9;": "\t" } as const
-    )[name as "amp;"];
+
+    return ESCAPED.get(name)!;
   });
 }
+
+/** The character each escape that `toSVG` writes stands for. */
+const ESCAPED: ReadonlyMap<string, string> = new Map([
+  ["amp;", "&"],
+  ["lt;", "<"],
+  ["gt;", ">"],
+  ["quot;", '"'],
+  ["#10;", "\n"],
+  ["#9;", "\t"],
+]);
 
 /** One of the three faces every PDF reader has without a file, as a font of the page. */
 interface Face {
@@ -469,6 +506,7 @@ const FACES = {
 const FACE_OF_FONT: ReadonlyMap<string, Face> = new Map(
   Object.entries(FONTS).map(([font, info]) => {
     const generic = info.family.split(",").at(-1)!.trim();
+
     const face =
       font === "Arial"
         ? FACES.sans
@@ -481,6 +519,7 @@ const FACE_OF_FONT: ReadonlyMap<string, Face> = new Map(
               : generic === "monospace"
                 ? FACES.mono
                 : FACES.sans;
+
     return [font, face];
   }),
 );
@@ -509,54 +548,58 @@ export function boldFontKey(font: string): string {
  */
 export function pdfFace(font: string, file?: Uint8Array, bold = false): string {
   const read = file === undefined ? undefined : embeddable(font, file);
+
   return read === undefined ? standIn(font, bold).name : read.name;
 }
 
 /** The standard face a font is set in when it is not embedded, in bold or not. */
 function standIn(font: string | undefined, bold = false): Face {
   const face =
-    (typeof font === "string" && Object.hasOwn(FONTS, font) ? FACE_OF_FONT.get(font) : undefined) ??
+    (isString(font) && Object.hasOwn(FONTS, font) ? FACE_OF_FONT.get(font) : undefined) ??
     FACES.mono;
+
   return bold ? BOLD_OF.get(face)! : face;
 }
 
 /** The font of a file, when it is a TrueType font for a TrueType font of `FONTS` a PDF can embed. */
-function embeddable(font: string, file: unknown): TrueType | undefined {
+function embeddable(font: string, file: Uint8Array): TrueType | undefined {
+  // A caller in plain JavaScript may give a file that is no bytes.
   if (fontInfo(font)?.capHeight === undefined || !(file instanceof Uint8Array)) return undefined;
   const read = readTrueType(file);
-  return typeof read === "string" ? undefined : read;
+
+  return isString(read) ? undefined : read;
 }
 
 /** The characters Windows-1252 puts at 0x80 to 0x9F, by their code there. */
-const WIN_ANSI_HIGH: Readonly<Record<number, number>> = {
-  0x20ac: 0x80,
-  0x201a: 0x82,
-  0x0192: 0x83,
-  0x201e: 0x84,
-  0x2026: 0x85,
-  0x2020: 0x86,
-  0x2021: 0x87,
-  0x02c6: 0x88,
-  0x2030: 0x89,
-  0x0160: 0x8a,
-  0x2039: 0x8b,
-  0x0152: 0x8c,
-  0x017d: 0x8e,
-  0x2018: 0x91,
-  0x2019: 0x92,
-  0x201c: 0x93,
-  0x201d: 0x94,
-  0x2022: 0x95,
-  0x2013: 0x96,
-  0x2014: 0x97,
-  0x02dc: 0x98,
-  0x2122: 0x99,
-  0x0161: 0x9a,
-  0x203a: 0x9b,
-  0x0153: 0x9c,
-  0x017e: 0x9e,
-  0x0178: 0x9f,
-};
+const WIN_ANSI_HIGH: ReadonlyMap<number, number> = new Map([
+  [0x20ac, 0x80],
+  [0x201a, 0x82],
+  [0x0192, 0x83],
+  [0x201e, 0x84],
+  [0x2026, 0x85],
+  [0x2020, 0x86],
+  [0x2021, 0x87],
+  [0x02c6, 0x88],
+  [0x2030, 0x89],
+  [0x0160, 0x8a],
+  [0x2039, 0x8b],
+  [0x0152, 0x8c],
+  [0x017d, 0x8e],
+  [0x2018, 0x91],
+  [0x2019, 0x92],
+  [0x201c, 0x93],
+  [0x201d, 0x94],
+  [0x2022, 0x95],
+  [0x2013, 0x96],
+  [0x2014, 0x97],
+  [0x02dc, 0x98],
+  [0x2122, 0x99],
+  [0x0161, 0x9a],
+  [0x203a, 0x9b],
+  [0x0153, 0x9c],
+  [0x017e, 0x9e],
+  [0x0178, 0x9f],
+]);
 
 const QUESTION = 0x3f;
 
@@ -564,7 +607,7 @@ const QUESTION = 0x3f;
  * The character a font that lacks one is plotted with instead, as the leading CAD app plots it:
  * the diameter sign as Ø.
  */
-const PLOTTED_AS: Readonly<Record<string, string>> = { "\u2205": "\u00d8" };
+const PLOTTED_AS: ReadonlyMap<string, string> = new Map([["\u2205", "\u00d8"]]);
 
 /** A control character, which no face sets: U+0000 to U+001F and U+007F to U+009F. */
 function control(code: number): boolean {
@@ -574,8 +617,9 @@ function control(code: number): boolean {
 /** A character's code in Windows-1252, the encoding of the page's fonts, or `?` for one it lacks. */
 function winAnsi(code: number): number {
   if ((code >= 0x20 && code <= 0x7e) || (code >= 0xa0 && code <= 0xff)) return code;
-  const instead = PLOTTED_AS[String.fromCodePoint(code)];
-  return WIN_ANSI_HIGH[code] ?? (instead === undefined ? QUESTION : instead.codePointAt(0)!);
+  const instead = PLOTTED_AS.get(String.fromCodePoint(code));
+
+  return WIN_ANSI_HIGH.get(code) ?? (instead === undefined ? QUESTION : instead.codePointAt(0)!);
 }
 
 /**
@@ -585,30 +629,38 @@ function winAnsi(code: number): number {
  */
 function faceWidths(face: Face): number[] {
   const metrics: FontMetrics = FONT_METRICS[face.widthsOf]!;
+
   const index = (code: number): number => {
     let before = 0;
+
     for (const [first, last] of FONT_METRICS_RANGES) {
       if (code >= first && code <= last) return before + code - first;
       before += last - first + 1;
     }
+
     return -1;
   };
+
   const unknown = metrics.advances[index(QUESTION)]!;
   const widths: number[] = [];
+
   for (let code = 32; code <= 255; code++) {
     const at = index(code);
     const advance = at < 0 ? unknown : metrics.advances[at]!;
     widths.push(Math.round(advance * face.capHeight * 1_000_000) / 1000);
   }
+
   return widths;
 }
 
 /** A string as a PDF holds a text string: UTF-16 with its byte order mark, in hex. */
 function textString(value: string): string {
   let hex = "<FEFF";
+
   for (let i = 0; i < value.length; i++) {
     hex += value.charCodeAt(i).toString(16).padStart(4, "0").toUpperCase();
   }
+
   return `${hex}>`;
 }
 
@@ -660,20 +712,28 @@ class Embedded {
    */
   code(character: string, missing: Set<string>): number {
     const known = this.codes.get(character);
+
     if (known !== undefined) return known;
     const point = character.codePointAt(0)!;
     const glyph = control(point) ? 0 : this.font.glyph(point);
+
     if (glyph !== 0 && (this.codes.size < MAX_CODES || character === "?")) {
       this.glyphs.push(glyph);
       this.codes.set(character, this.glyphs.length);
+
       return this.glyphs.length;
     }
-    const instead = PLOTTED_AS[character];
+
+    const instead = PLOTTED_AS.get(character);
+
     if (glyph === 0 && instead !== undefined && this.font.glyph(instead.codePointAt(0)!) !== 0) {
       return this.code(instead, missing);
     }
+
     missing.add(character);
+
     if (character === "?") return 0;
+
     return this.codes.get("?") ?? (this.font.glyph(QUESTION) === 0 ? 0 : this.code("?", missing));
   }
 }
@@ -682,15 +742,18 @@ class Embedded {
 function subsetTag(program: Uint8Array): string {
   const hex = new Sha256().update(program).digest();
   let tag = "";
+
   for (let i = 0; i < 6; i++) {
     tag += String.fromCharCode(65 + (Number.parseInt(hex.slice(2 * i, 2 * i + 2), 16) % 26));
   }
+
   return tag;
 }
 
 /** A map from codes to the characters they set, as a PDF's `ToUnicode` CMap holds one. */
 function toUnicode(codes: ReadonlyMap<string, number>): string {
   const hex = (value: number) => value.toString(16).padStart(4, "0").toUpperCase();
+
   const lines = [
     "/CIDInit /ProcSet findresource begin",
     "12 dict begin",
@@ -702,26 +765,35 @@ function toUnicode(codes: ReadonlyMap<string, number>): string {
     "<0000> <FFFF>",
     "endcodespacerange",
   ];
+
   const entries = [...codes];
+
   // A CMap holds at most 100 entries in each block.
   for (let at = 0; at < entries.length; at += 100) {
     const block = entries.slice(at, at + 100);
     lines.push(`${block.length} beginbfchar`);
+
     for (const [character, code] of block) {
       let units = "";
+
       for (let i = 0; i < character.length; i++) units += hex(character.charCodeAt(i));
       lines.push(`<${hex(code)}> <${units}>`);
     }
+
     lines.push("endbfchar");
   }
+
   lines.push("endcmap", "CMapName currentdict /CMap defineresource pop", "end", "end");
+
   return `${lines.join("\n")}\n`;
 }
 
 /** Bytes of ASCII text, which is all a PDF's structure and content hold here. */
 function ascii(text: string): Uint8Array {
   const bytes = new Uint8Array(text.length);
+
   for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i);
+
   return bytes;
 }
 
@@ -737,7 +809,9 @@ class Content {
   add(line: string): void {
     this.lines.push(line);
     this.pending += line.length + 1;
+
     if (this.pending > 1 << 20) this.flush();
+
     if (this.length + this.pending > MAX_PAGE) {
       throw new RangeError(`A page would be longer than svgToPDF writes, ${MAX_PAGE} bytes`);
     }
@@ -756,10 +830,12 @@ class Content {
     this.flush();
     const out = new Uint8Array(this.length);
     let at = 0;
+
     for (const chunk of this.chunks) {
       out.set(chunk, at);
       at += chunk.length;
     }
+
     return out;
   }
 }
@@ -780,10 +856,13 @@ interface Inherited {
 /** A color as `#rrggbb`, as three parts from 0 to 1, or undefined for `none`. */
 function colorOf(value: string | undefined, where: string): string | undefined {
   if (value === undefined || value === "none") return undefined;
+
   // `toSVG` draws an index a table has no color for in `currentColor`, which a page plots black.
   if (value === "currentColor") return "0 0 0";
   const hex = /^#([0-9a-fA-F]{6})$/.exec(value)?.[1];
+
   if (hex === undefined) throw refuse(`the color ${JSON.stringify(value)}`, where);
+
   return [0, 2, 4]
     .map((at) => String(Math.round((Number.parseInt(hex.slice(at, at + 2), 16) / 255) * 1e4) / 1e4))
     .join(" ");
@@ -825,19 +904,24 @@ function ellipseCurves(
   const room = CURVE_ERROR - 0.001;
   const turn = (Math.PI / 2) * Math.min(1, (room / reach) ** (1 / 6));
   const count = Math.max(1, Math.ceil(Math.abs(sweep) / (turn > 0 ? turn : Math.PI / 2) - 1e-9));
+
   if (!(count <= MAX_CURVES)) {
     throw new RangeError(
       `An arc of radius ${Math.max(Math.abs(rx), Math.abs(ry)) * scale} points needs more than ${MAX_CURVES} curves to stay within ${CURVE_ERROR} points of it`,
     );
   }
+
   const step = sweep / count;
   const k = (4 / 3) * Math.tan(step / 4);
   const [cos, sin] = [Math.cos(phi), Math.sin(phi)];
+
   const at = (x: number, y: number): [number, number] => [
     center[0] + rx * x * cos - ry * y * sin,
     center[1] + rx * x * sin + ry * y * cos,
   ];
+
   const pieces: Piece[] = [];
+
   for (let i = 0; i < count; i++) {
     const [a, b] = [from + step * i, from + step * (i + 1)];
     pieces.push({
@@ -847,6 +931,7 @@ function ellipseCurves(
       to: at(Math.cos(b), Math.sin(b)),
     });
   }
+
   return pieces;
 }
 
@@ -868,36 +953,46 @@ function arcCurves(
   if (p0[0] === p1[0] && p0[1] === p1[1]) return [];
   rx = Math.abs(rx);
   ry = Math.abs(ry);
+
   if (rx === 0 || ry === 0) return [{ kind: "line", to: p1 }];
   const phi = (turn * Math.PI) / 180;
   const [cos, sin] = [Math.cos(phi), Math.sin(phi)];
   const [dx, dy] = [(p0[0] - p1[0]) / 2, (p0[1] - p1[1]) / 2];
   const [x1, y1] = [cos * dx + sin * dy, -sin * dx + cos * dy];
   const reach = (x1 * x1) / (rx * rx) + (y1 * y1) / (ry * ry);
+
   if (reach > 1) {
     rx *= Math.sqrt(reach);
     ry *= Math.sqrt(reach);
   }
+
   const numerator = rx * rx * ry * ry - rx * rx * y1 * y1 - ry * ry * x1 * x1;
   const denominator = rx * rx * y1 * y1 + ry * ry * x1 * x1;
   const root = Math.sqrt(Math.max(0, numerator / denominator)) * (large === sweep ? -1 : 1);
   const [cx1, cy1] = [(root * rx * y1) / ry, (-root * ry * x1) / rx];
+
   const center: [number, number] = [
     cos * cx1 - sin * cy1 + (p0[0] + p1[0]) / 2,
     sin * cx1 + cos * cy1 + (p0[1] + p1[1]) / 2,
   ];
+
   const angle = (ux: number, uy: number, vx: number, vy: number): number =>
     Math.atan2(ux * vy - uy * vx, ux * vx + uy * vy);
+
   const [ux, uy] = [(x1 - cx1) / rx, (y1 - cy1) / ry];
   const [vx, vy] = [(-x1 - cx1) / rx, (-y1 - cy1) / ry];
   const from = angle(1, 0, ux, uy);
   let delta = angle(ux, uy, vx, vy);
+
   if (!sweep && delta > 0) delta -= 2 * Math.PI;
+
   if (sweep && delta < 0) delta += 2 * Math.PI;
   const pieces = ellipseCurves(center, rx, ry, phi, from, delta, scale);
   // The last curve ends exactly at the point the path names.
   const last = pieces.at(-1);
+
   if (last?.kind === "curve") pieces[pieces.length - 1] = { ...last, to: p1 };
+
   return pieces;
 }
 
@@ -911,17 +1006,23 @@ function pathPieces(d: string, where: string, scale: number): Piece[] {
   let at: [number, number] = [0, 0];
   let start: [number, number] = [0, 0];
   let i = 0;
+
   const numbers = (count: number): number[] => {
     const out = tokens.slice(i, i + count).map(Number);
+
     if (out.length !== count || !out.every(Number.isFinite)) throw refuse(`the path ${d}`, where);
     i += count;
+
     return out;
   };
+
   while (i < tokens.length) {
     const command = tokens[i++];
+
     if (command === "M" || command === "L") {
-      const [x, y] = numbers(2) as [number, number];
-      at = [x, y];
+      const [x, y] = numbers(2);
+      at = [x!, y!];
+
       if (command === "M") start = at;
       pieces.push({ kind: command === "M" ? "move" : "line", to: at });
     } else if (command === "Z") {
@@ -930,16 +1031,17 @@ function pathPieces(d: string, where: string, scale: number): Piece[] {
       at = start;
     } else if (command === "C") {
       // A spline's Bézier pieces.
-      const [x1, y1, x2, y2, x, y] = numbers(6) as number[];
+      const [x1, y1, x2, y2, x, y] = numbers(6);
       at = [x!, y!];
       pieces.push({ kind: "curve", c1: [x1!, y1!], c2: [x2!, y2!], to: at });
     } else if (command === "A") {
-      const [rx, ry, turn, large, sweep, x, y] = numbers(7) as number[];
+      const [rx, ry, turn, large, sweep, x, y] = numbers(7);
       const to: [number, number] = [x!, y!];
       pieces.push(...arcCurves(at, to, rx!, ry!, turn!, large === 1, sweep === 1, scale));
       at = to;
     } else throw refuse(`the path command ${JSON.stringify(command)}`, where);
   }
+
   return pieces;
 }
 
@@ -952,11 +1054,15 @@ function pointsOf(value: string, where: string): [number, number][] {
           .trim()
           .split(/[\s,]+/)
           .map(Number);
+
   if (numbers.length % 2 !== 0 || !numbers.every(Number.isFinite)) {
     throw refuse(`the points ${JSON.stringify(value)}`, where);
   }
+
   const out: [number, number][] = [];
+
   for (let i = 0; i < numbers.length; i += 2) out.push([numbers[i]!, numbers[i + 1]!]);
+
   return out;
 }
 
@@ -990,8 +1096,8 @@ class PdfWriter {
   constructor({ deflate, missing, title, fonts }: Omit<PdfOptions, "layouts" | "xrefs">) {
     this.deflate = deflate;
     this.missing = missing;
-    this.files = typeof fonts === "object" && fonts !== null ? fonts : undefined;
-    this.title = typeof title === "string" ? title : undefined;
+    this.files = isObjectOrArray(fonts) ? fonts : undefined;
+    this.title = isString(title) ? title : undefined;
     // A comment of bytes above 127 on the second line tells a reader the file is binary.
     this.write(ascii("%PDF-1.7\n"));
     this.write(new Uint8Array([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]));
@@ -1007,6 +1113,7 @@ class PdfWriter {
         `The PDF would be longer than svgToPDF writes, ${MAX_FILE} bytes, at page ${this.pages.length + 1}`,
       );
     }
+
     this.parts.push(bytes);
     this.offset += bytes.length;
     this.hash.update(bytes);
@@ -1015,10 +1122,13 @@ class PdfWriter {
   /** Writes an object with the number reserved for it. */
   private object(number: number, body: string, stream?: Uint8Array): void {
     this.offsets[number] = this.offset;
+
     if (stream === undefined) {
       this.write(ascii(`${number} 0 obj\n${body}\nendobj\n`));
+
       return;
     }
+
     this.write(ascii(`${number} 0 obj\n${body}\nstream\n`));
     this.write(stream);
     this.write(ascii("\nendstream\nendobj\n"));
@@ -1026,7 +1136,9 @@ class PdfWriter {
 
   private faceObject(face: Face): number {
     let number = this.faces.get(face);
+
     if (number === undefined) this.faces.set(face, (number = this.reserve()));
+
     return number;
   }
 
@@ -1037,12 +1149,15 @@ class PdfWriter {
   private embeddedOf(font: string, bold: boolean): Embedded | null {
     const named = bold ? boldFontKey(font) : font;
     let found = this.embedded.get(named);
+
     if (found === undefined) {
       const own = capHeightOf(font, bold);
+
       const file =
         this.files !== undefined && own !== undefined && Object.hasOwn(this.files, named)
           ? this.files[named]
           : undefined;
+
       const read = file === undefined ? undefined : embeddable(font, file);
       // The leading CAD app makes the capital `A` of a font as tall as the text, by the number
       // `FONTS` holds for the font's own file. A file that stands in is sized by the cap height it
@@ -1054,6 +1169,7 @@ class PdfWriter {
           : new Embedded(read, capital, this.reserve());
       this.embedded.set(named, found);
     }
+
     return found;
   }
 
@@ -1063,18 +1179,25 @@ class PdfWriter {
     // The glyphs of the subset: the empty glyph first, then each glyph set, once.
     const order = [0];
     const place = new Map<number, number>([[0, 0]]);
+
     for (const glyph of embedded.glyphs) {
       if (!place.has(glyph)) {
         place.set(glyph, order.length);
         order.push(glyph);
       }
     }
+
     const program = font.subset(order);
     const name = `${subsetTag(program)}+${font.name}`;
     const per = 1000 / font.unitsPerEm;
-    const [descendant, descriptor, file, unicode, glyphMap, list] = [1, 2, 3, 4, 5, 6].map(() =>
-      this.reserve(),
-    ) as [number, number, number, number, number, number];
+
+    const descendant = this.reserve();
+    const descriptor = this.reserve();
+    const file = this.reserve();
+    const unicode = this.reserve();
+    const glyphMap = this.reserve();
+    const list = this.reserve();
+
     const glyphs = [0, ...embedded.glyphs];
     const widths = glyphs.map((glyph) => real(font.advance(glyph) * per, 3));
     this.object(
@@ -1116,7 +1239,9 @@ class PdfWriter {
 
   private widthsOf(face: Face): number[] {
     let widths = this.widths.get(face);
+
     if (!widths) this.widths.set(face, (widths = faceWidths(face)));
+
     return widths;
   }
 
@@ -1133,15 +1258,19 @@ class PdfWriter {
    */
   private imageObject(bytes: Uint8Array, opaque: boolean): string | undefined {
     let digest = this.digests.get(bytes);
+
     if (digest === undefined)
       this.digests.set(bytes, (digest = new Sha256().update(bytes).digest()));
     const key = `${digest}${opaque ? "/opaque" : ""}`;
     const known = this.imageNames.get(key);
+
     if (known !== undefined) return known ?? undefined;
     const written = this.writeImage(bytes, opaque);
     const name = written === undefined ? null : `Im${this.images.size}`;
+
     if (name !== null) this.images.set(name, { object: written! });
     this.imageNames.set(key, name);
+
     return name ?? undefined;
   }
 
@@ -1151,8 +1280,10 @@ class PdfWriter {
    */
   private writeImage(bytes: Uint8Array, opaque: boolean): number | undefined {
     const info = rasterInfo(bytes);
+
     if (info === undefined) return undefined;
     const size = `/Type /XObject /Subtype /Image /Width ${info.width} /Height ${info.height}`;
+
     if (info.kind === "jpeg") {
       const space = ["", "/DeviceGray", "", "/DeviceRGB", "/DeviceCMYK"][info.components]!;
       // An Adobe CMYK JPEG holds each part inverted.
@@ -1163,17 +1294,21 @@ class PdfWriter {
         `<< ${size} /ColorSpace ${space} /BitsPerComponent 8${decode} /Filter /DCTDecode /Length ${bytes.length} >>`,
         bytes,
       );
+
       return object;
     }
+
     const palette =
       info.palette === undefined
         ? undefined
         : `[/Indexed /DeviceRGB ${info.palette.length / 3 - 1} <${[...info.palette].map((b) => b.toString(16).padStart(2, "0")).join("")}>]`;
+
     // A PNG of no transparency is its own data, which a PDF undoes the filters of as a PNG's.
     // One stored without compression, as a picture holds a file to plot opaque, is decoded and
     // compressed, and kept as it is when it does not decode.
     const own = !plotDecodes(info);
     const pixels = own && !uncompressed(info) ? undefined : pngPixels(info);
+
     if (own && pixels === undefined) {
       const colors = info.color === 2 ? 3 : 1;
       const space = palette ?? (colors === 3 ? "/DeviceRGB" : "/DeviceGray");
@@ -1183,20 +1318,26 @@ class PdfWriter {
         `<< ${size} /ColorSpace ${space} /BitsPerComponent ${info.depth} /Filter /FlateDecode /DecodeParms << /Predictor 15 /Colors ${colors} /BitsPerComponent ${info.depth} /Columns ${info.width} >> /Length ${info.data.length} >>`,
         info.data,
       );
+
       return object;
     }
+
     if (pixels === undefined) return undefined;
     const { width, height, channels, samples } = pixels;
     const colors = channels >= 3 ? 3 : 1;
     const alpha = channels === 2 || channels === 4;
     const color = new Uint8Array(width * height * colors);
     const mask = alpha && !opaque ? new Uint8Array(width * height) : undefined;
+
     for (let i = 0; i < width * height; i++) {
       for (let k = 0; k < colors; k++) color[i * colors + k] = samples[i * channels + k]!;
+
       if (mask) mask[i] = samples[i * channels + channels - 1]!;
     }
+
     const object = this.reserve();
     let soft = "";
+
     if (mask) {
       const maskObject = this.reserve();
       this.stream(
@@ -1206,17 +1347,21 @@ class PdfWriter {
       );
       soft = ` /SMask ${maskObject} 0 R`;
     }
+
     this.stream(
       object,
       color,
       ` ${size} /ColorSpace ${colors === 3 ? "/DeviceRGB" : "/DeviceGray"} /BitsPerComponent 8${soft}`,
     );
+
     return object;
   }
 
   private layerObject(name: string): number {
     let number = this.layers.get(name);
+
     if (number === undefined) this.layers.set(name, (number = this.reserve()));
+
     return number;
   }
 
@@ -1234,8 +1379,10 @@ class PdfWriter {
     const boxes: [number, number, number, number][] = [];
     /** The box of each clip open, in points, each within the one before: nothing paints past it. */
     const clipBoxes: (readonly [number, number, number, number])[] = [];
+
     const grow = (x: number, y: number, pad = 0): void => {
       const box = boxes.at(-1);
+
       if (box === undefined) return;
       const [cx0, cy0, cx1, cy1] = clipBoxes.at(-1) ?? [-Infinity, -Infinity, Infinity, Infinity];
       const within = (v: number, low: number, high: number) => Math.min(Math.max(v, low), high);
@@ -1244,21 +1391,26 @@ class PdfWriter {
       box[2] = Math.max(box[2], within(x + pad, cx0, cx1));
       box[3] = Math.max(box[3], within(y + pad, cy0, cy1));
     };
+
     /** Opens a clip whose outline passes through these points, or within them for a curve's. */
     const openClip = (points: readonly (readonly [number, number])[]): void => {
       const box = [Infinity, Infinity, -Infinity, -Infinity];
+
       for (const [x, y] of points) {
         box[0] = Math.min(box[0]!, x);
         box[1] = Math.min(box[1]!, y);
         box[2] = Math.max(box[2]!, x);
         box[3] = Math.max(box[3]!, y);
       }
+
       const outer = clipBoxes.at(-1) ?? [-Infinity, -Infinity, Infinity, Infinity];
+
       // A side that is NaN leaves the clip as wide as the one outside, and a point past each side
       // holds what the outline, written to three decimals, lets through.
       const [x0, y0, x1, y1] = box.map((v, i) =>
         Number.isNaN(v) ? outer[i]! : v + (i < 2 ? -1 : 1),
       );
+
       clipBoxes.push([
         Math.max(x0!, outer[0]),
         Math.max(y0!, outer[1]),
@@ -1266,6 +1418,7 @@ class PdfWriter {
         Math.min(y1!, outer[3]),
       ]);
     };
+
     const resourcesObject = this.reserve();
     const fonts = new Map<Face | Embedded, string>();
     const missing = new Set<string>();
@@ -1274,18 +1427,22 @@ class PdfWriter {
     const images = new Set<string>();
     const page = this.pages.length + 1;
     const where = (tag: string) => `the element <${tag}> of picture ${page}`;
+
     let paper:
       | { name: string; layout: string; size: [number, number]; rotate: boolean }
       | undefined;
+
     const stack: Inherited[] = [];
     /** The tag of each group open, the root's first, and whether the root has closed. */
     const names: ("svg" | "g" | "defs")[] = [];
     let ended = false;
+
     const clips = new Map<
       string,
       | { x: number; y: number; width: number; height: number }
       | { pieces: readonly Piece[]; evenOdd: boolean }
     >();
+
     /** Each raster file the picture holds, by its id. */
     const rasters = new Map<string, Uint8Array>();
     /** Each gradient the picture holds, by its id, and the one being read. */
@@ -1298,21 +1455,26 @@ class PdfWriter {
     let inClip: string | undefined;
     /** The layer of the marked content open, and the pen last set at this depth of `q`. */
     let open: string | undefined;
-    let pen: { stroke?: string; fill?: string; width?: string } = {};
+    let pen: Pen = {};
     const pens: (typeof pen)[] = [];
+
     const close = (): void => {
       if (open !== undefined) content.add("EMC");
       open = undefined;
     };
+
     const mark = (layer: string | undefined): void => {
       if (layer === open) return;
       close();
+
       if (layer === undefined) return;
       let key = marks.get(layer);
+
       if (key === undefined) marks.set(layer, (key = `oc${this.layerObject(layer)}`));
       content.add(`/OC /${key} BDC`);
       open = layer;
     };
+
     /** Writes the operators of a path through `m`, and paints it. */
     const paint = (
       pieces: readonly Piece[],
@@ -1325,28 +1487,36 @@ class PdfWriter {
       },
     ): void => {
       if (state.stroke === undefined && state.fill === undefined) return;
+
       if (state.stroke !== undefined && state.stroke !== pen.stroke) {
         content.add(`${state.stroke} RG`);
         pen.stroke = state.stroke;
       }
+
       if (state.fill !== undefined && state.fill !== pen.fill) {
         content.add(`${state.fill} rg`);
         pen.fill = state.fill;
       }
+
       const width = num(state.width);
+
       if (state.stroke !== undefined && width !== pen.width) {
         content.add(`${width} w`);
         pen.width = width;
       }
+
       if (pieces.length === 0) return;
       // Half the pen and a point more, for its joins and caps.
       const pad = state.stroke === undefined ? 1 : state.width / 2 + 1;
+
       // Each piece is a line of its own, so no string grows with the path.
       const p = (point: readonly [number, number]) => {
         const [x, y] = apply(m, point[0], point[1]);
         grow(x, y, pad);
+
         return [x, y].map(num).join(" ");
       };
+
       for (const piece of pieces) {
         if (piece.kind === "move") content.add(`${p(piece.to)} m`);
         else if (piece.kind === "line") content.add(`${p(piece.to)} l`);
@@ -1354,6 +1524,7 @@ class PdfWriter {
           content.add(`${p(piece.c1)} ${p(piece.c2)} ${p(piece.to)} c`);
         } else content.add("h");
       }
+
       const rule = state.evenOdd ? "*" : "";
       content.add(
         state.fill === undefined ? "S" : state.stroke === undefined ? `f${rule}` : `B${rule}`,
@@ -1364,22 +1535,28 @@ class PdfWriter {
     // skipped, and no match is looked for further on.
     const tags = /<(\/?)([a-zA-Z][\w:-]*)((?:\s+[\w:-]+="[^"]*")*)\s*(\/?)>|([^<]+)/y;
     let text: { element: Record<string, string>; inherited: Inherited; value: string } | undefined;
+
     for (;;) {
       const from = tags.lastIndex;
       const match = tags.exec(svg);
+
       if (!match) {
         if (from < svg.length)
           throw refuse(`what it reads at character ${from}`, `picture ${page}`);
         break;
       }
+
       const [, closing, tag, attributeText, selfClosing, between] = match;
+
       if (tag === undefined) {
         if (text) text.value += unescape(between ?? "", `picture ${page}`);
         else if ((between ?? "").trim() !== "")
           throw refuse("text outside a text element", `picture ${page}`);
         continue;
       }
+
       if (!ELEMENTS.has(tag)) throw refuse(`the element <${tag}>`, `picture ${page}`);
+
       // A text holds its value and nothing else, every end closes the element open, and
       // nothing follows the end of the picture.
       const ends =
@@ -1391,8 +1568,10 @@ class PdfWriter {
               : tag === "linearGradient" || tag === "radialGradient"
                 ? gradient?.tag === tag
                 : inClip === undefined && gradient === undefined && names.at(-1) === tag);
+
       // What the picture holds in its definitions is kept there, and drawn where a use names it.
       const inDefs = names.includes("defs");
+
       if (
         ended ||
         (closing && (!ends || attributeText!.trim() !== "")) ||
@@ -1400,6 +1579,7 @@ class PdfWriter {
       ) {
         throw refuse(`<${closing}${tag}> where it is`, `picture ${page}`);
       }
+
       if (closing) {
         if (tag === "text" && text) {
           const set = this.text(
@@ -1410,16 +1590,20 @@ class PdfWriter {
             missing,
             where(tag),
           );
+
           if (set) {
             // The box of a text, in the coordinates it is set in: the length it is set at, with
             // the font's box around every glyph, stretched as its letters are, past each end, and
             // that box above and below its baseline, which is Y down.
             const { size, length, stretch, ink } = set;
+
             const [left, right] = [
               stretch * size * Math.min(ink[0], 0),
               length + stretch * size * Math.max(ink[2], 0),
             ];
+
             const [top, bottom] = [-size * Math.max(ink[3], 0), -size * Math.min(ink[1], 0)];
+
             for (const [cx, cy] of [
               [left, top],
               [right, top],
@@ -1429,19 +1613,24 @@ class PdfWriter {
               const [x, y] = apply(text.inherited.matrix, cx, cy);
               grow(x, y, 1);
             }
+
             mark(text.inherited.layer);
+
             if (set.fill !== pen.fill) {
               content.add(`${set.fill} rg`);
               pen.fill = set.fill;
             }
+
             for (const operator of set.operators) content.add(operator);
           }
+
           text = undefined;
         } else if (tag === "clipPath") inClip = undefined;
         else if (gradient !== undefined) {
           const { stops } = gradient.held;
           // The stops run from 0 to 1, each past the last as the function's bounds are written.
           const at = stops.map((stop) => Number(stopOffset(stop.offset)));
+
           if (
             stops.length < 2 ||
             at[0] !== 0 ||
@@ -1450,6 +1639,7 @@ class PdfWriter {
           ) {
             throw refuse(`the stops of the gradient ${JSON.stringify(gradient.id)}`, where(tag));
           }
+
           gradients.set(gradient.id, gradient.held);
           gradient = undefined;
         } else if (tag === "defs") names.pop();
@@ -1457,24 +1647,28 @@ class PdfWriter {
           names.pop();
           ended = names.length === 0;
           const group = stack.pop();
+
           if (group?.saved) {
             close();
             content.add("Q");
             pen = pens.pop() ?? {};
             clipBoxes.pop();
           }
+
           if (group?.faded) {
             // A group with an opacity is a transparency group: its content is drawn whole, then
             // painted at its opacity, so where its parts overlap it is no darker.
             close();
             const raw = content.bytes();
             formBytes += raw.length;
+
             // The page's limit holds its forms and its content together, as each form is made.
             if (formBytes + group.faded.outer.length + group.faded.outer.pending > MAX_PAGE) {
               throw new RangeError(
                 `The page of picture ${page} would be longer than svgToPDF writes, ${MAX_PAGE} bytes`,
               );
             }
+
             content = group.faded.outer;
             const key = `Fm${forms.size + 1}`;
             const object = this.reserve();
@@ -1483,61 +1677,79 @@ class PdfWriter {
             // What it painted, cut to the page: an empty box for a group that painted nothing.
             const [w, h] = paper?.size ?? [0, 0];
             const painted = boxes.pop()!;
+
             const box = [
               Math.max(painted[0], 0),
               Math.max(painted[1], 0),
               Math.min(painted[2], w),
               Math.min(painted[3], h),
             ];
+
             const bbox = box[0]! < box[2]! && box[1]! < box[3]! ? box : [0, 0, 0, 0];
+
             // A group inside another paints inside its box too.
             if (bbox[2]! > bbox[0]!) {
               grow(bbox[0]!, bbox[1]!);
               grow(bbox[2]!, bbox[3]!);
             }
+
             this.object(
               object,
               `<< /Type /XObject /Subtype /Form /BBox [${bbox.map(num).join(" ")}] /Group << /S /Transparency >> /Resources ${resourcesObject} 0 R /Length ${stream.length}${this.deflate ? " /Filter /FlateDecode" : ""} >>`,
               stream,
             );
             let state = opacities.get(group.faded.opacity);
+
             if (state === undefined) {
               opacities.set(group.faded.opacity, (state = `Gs${opacities.size + 1}`));
             }
+
             content.add(`q\n/${state} gs\n/${key} Do\nQ`);
             pen = pens.pop() ?? {};
           }
         }
+
         continue;
       }
+
       const element: Record<string, string> = {};
+
       for (const [, name, value] of attributeText!.matchAll(/([\w:-]+)="([^"]*)"/g)) {
         if (!ATTRIBUTES.has(name!) && !name!.startsWith("data-")) {
           throw refuse(`the attribute ${name}`, where(tag));
         }
+
         element[name!] = unescape(value!, where(tag));
       }
+
       // Only a group is drawn at an opacity: `toSVG` puts a faded entity in one.
       if (element.opacity !== undefined && tag !== "g") {
         throw refuse(`the opacity of <${tag}>`, where(tag));
       }
+
       const number = (name: string): number => {
         const value = Number(element[name]);
+
         if (element[name] === undefined || !Number.isFinite(value)) {
           throw refuse(`the ${name} ${JSON.stringify(element[name])}`, where(tag));
         }
+
         return value;
       };
+
       if (tag === "svg") {
         const box = (element.viewBox ?? "").trim().split(/\s+/).map(Number);
+
         const info =
           element["data-paper"] === undefined ? undefined : paperInfo(element["data-paper"]);
+
         if (element["data-picture"] !== String(SHEET_PICTURE)) {
           throw refuse(
             `a picture of format ${JSON.stringify(element["data-picture"] ?? null)}, where this copy of tsdraft reads format ${SHEET_PICTURE}`,
             `picture ${page}`,
           );
         }
+
         if (
           stack.length > 0 ||
           paper ||
@@ -1549,11 +1761,13 @@ class PdfWriter {
         ) {
           throw refuse("a picture that is not one of a layout", `picture ${page}`);
         }
+
         // Paper units to points, with Y turned up and the picture's top-left corner at the
         // page's top-left corner. A paper the plotter holds upright is its medium, turned a
         // quarter turn for a viewer to show it as the layout is.
         const k = info.units === "in" ? 72 : 72 / 25.4;
-        const [x, y, w, h] = box as [number, number, number, number];
+        // Four numbers, as the view box was read.
+        const [x, y, w, h] = [box[0]!, box[1]!, box[2]!, box[3]!];
         const upright = info.medium.rotation === 1;
         paper = {
           name: element["data-paper"]!,
@@ -1572,29 +1786,38 @@ class PdfWriter {
         });
         // Every pen of a plot ends and joins round.
         content.add("1 J\n1 j");
+
         if (selfClosing) {
           stack.pop();
           ended = true;
         } else names.push("svg");
         continue;
       }
+
       const parent = stack.at(-1);
+
       if (!parent) throw refuse(`<${tag}> outside the picture`, `picture ${page}`);
+
       if (tag === "defs") {
         if (inDefs || inClip !== undefined || Object.keys(element).length > 0) {
           throw refuse("<defs> where it is", where(tag));
         }
+
         if (!selfClosing) names.push("defs");
         continue;
       }
+
       if (inDefs && gradient !== undefined) {
         if (tag !== "stop" || !selfClosing || gradient.held.stops.length === GRADIENT_STOPS)
           throw refuse(`<${tag}> in a gradient`, where(tag));
+
         const extra = Object.keys(element).find(
           (name) => name !== "offset" && name !== "stop-color",
         );
+
         if (extra !== undefined) throw refuse(`the attribute ${extra} of a stop`, where(tag));
         const color = /^#([0-9a-f]{6})$/.exec(element["stop-color"] ?? "")?.[1];
+
         if (color === undefined)
           throw refuse(`the stop-color ${JSON.stringify(element["stop-color"])}`, where(tag));
         gradient.held.stops.push({
@@ -1603,19 +1826,24 @@ class PdfWriter {
         });
         continue;
       }
+
       if (inDefs && (tag === "linearGradient" || tag === "radialGradient")) {
         const linear = tag === "linearGradient";
         // The unit frame of `gradientPicture`, which the gradient's transform maps.
         const own = linear ? { x1: "0", y1: "0", x2: "1", y2: "0" } : { cx: "0", cy: "0", r: "1" };
-        const expected = { ...own, gradientUnits: "userSpaceOnUse", spreadMethod: "pad" };
+
+        const expected = new Map(
+          Object.entries({ ...own, gradientUnits: "userSpaceOnUse", spreadMethod: "pad" }),
+        );
+
         const extra = Object.keys(element).find(
           (name) =>
-            name !== "id" &&
-            name !== "gradientTransform" &&
-            element[name] !== expected[name as keyof typeof expected],
+            name !== "id" && name !== "gradientTransform" && element[name] !== expected.get(name),
         );
+
         // One matrix, as `toSVG` writes it: an empty list would be read as no transform.
         const transform = element.gradientTransform ?? "";
+
         if (
           selfClosing ||
           element.id === undefined ||
@@ -1626,6 +1854,7 @@ class PdfWriter {
         ) {
           throw refuse("a gradient that is not one of gradientPicture's", where(tag));
         }
+
         gradient = {
           id: element.id,
           tag,
@@ -1637,12 +1866,15 @@ class PdfWriter {
         };
         continue;
       }
+
       if (inDefs) {
         if (tag !== "image" || !selfClosing || element.id === undefined) {
           throw refuse(`<${tag}> in the definitions`, where(tag));
         }
+
         const data = /^data:image\/(?:png|jpeg);base64,(.*)$/s.exec(element.href ?? "")?.[1];
         const bytes = data === undefined ? undefined : fromBase64(data);
+
         if (
           bytes === undefined ||
           element.width !== "1" ||
@@ -1651,14 +1883,18 @@ class PdfWriter {
         ) {
           throw refuse("an image that is not a PNG or a JPEG of the unit square", where(tag));
         }
+
         rasters.set(element.id, bytes);
         continue;
       }
+
       if (inClip !== undefined) {
         if (tag === "path") {
           const extra = Object.keys(element).find((name) => name !== "d" && name !== "clip-rule");
+
           if (extra !== undefined) throw refuse(`the attribute ${extra} of a clip`, where(tag));
           const rule = element["clip-rule"];
+
           if (rule !== undefined && rule !== "evenodd")
             throw refuse(`the clip-rule ${rule}`, where(tag));
           clips.set(inClip, {
@@ -1667,11 +1903,14 @@ class PdfWriter {
           });
           continue;
         }
+
         if (tag !== "rect") throw refuse(`<${tag}> in a clip path`, where(tag));
+
         // A clip is a rectangle of the group's space, and nothing turns or moves it.
         const extra = Object.keys(element).find(
           (name) => !["x", "y", "width", "height"].includes(name),
         );
+
         if (extra !== undefined) throw refuse(`the attribute ${extra} of a clip`, where(tag));
         clips.set(inClip, {
           x: number("x"),
@@ -1681,20 +1920,26 @@ class PdfWriter {
         });
         continue;
       }
+
       if (tag === "clipPath") {
         if (element.id === undefined) throw refuse("a clip path with no id", where(tag));
         const extra = Object.keys(element).find((name) => name !== "id");
+
         if (extra !== undefined) throw refuse(`the attribute ${extra} of a clip path`, where(tag));
         inClip = element.id;
+
         if (selfClosing) inClip = undefined;
         continue;
       }
+
       const matrix =
         element.transform === undefined
           ? parent.matrix
           : compose(parent.matrix, transformOf(element.transform, where(tag)));
+
       const width =
         element["stroke-width"] === undefined ? parent.strokeWidth : number("stroke-width");
+
       const inherited: Inherited = {
         matrix,
         stroke: element.stroke === undefined ? parent.stroke : element.stroke,
@@ -1703,30 +1948,38 @@ class PdfWriter {
         layer: element["data-layer"] ?? parent.layer,
         saved: false,
       };
+
       if (tag === "g") {
         if (selfClosing) continue;
         let saved = false;
         const clip = element["clip-path"];
+
         // `toSVG` fades an entity in a group of its own, which is never a clip's.
         if (clip !== undefined && element.opacity !== undefined) {
           throw refuse("a group with both a clip and an opacity", where(tag));
         }
+
         if (clip !== undefined) {
           const id = /^url\(#([^)]+)\)$/.exec(clip)?.[1];
           const rect = id === undefined ? undefined : clips.get(id);
+
           if (!rect) throw refuse(`the clip ${JSON.stringify(clip)}`, where(tag));
           close();
           pens.push(pen);
           pen = { ...pen };
+
           if ("pieces" in rect) {
             // An image's clip: its outline, or the image's with the hole inside it.
             content.add("q");
             const outline: (readonly [number, number])[] = [];
+
             const p = (point: readonly [number, number]) => {
               const placed = apply(matrix, point[0], point[1]);
               outline.push(placed);
+
               return placed.map(num).join(" ");
             };
+
             for (const piece of rect.pieces) {
               if (piece.kind === "move") content.add(`${p(piece.to)} m`);
               else if (piece.kind === "line") content.add(`${p(piece.to)} l`);
@@ -1734,6 +1987,7 @@ class PdfWriter {
                 content.add(`${p(piece.c1)} ${p(piece.c2)} ${p(piece.to)} c`);
               else content.add("h");
             }
+
             content.add(rect.evenOdd ? "W* n" : "W n");
             openClip(outline);
           } else {
@@ -1743,20 +1997,26 @@ class PdfWriter {
               [rect.x + rect.width, rect.y + rect.height],
               [rect.x, rect.y + rect.height],
             ].map(([cx, cy]) => apply(matrix, cx!, cy!));
+
             openClip(placed);
             const corners = placed.map((corner) => corner.map(num).join(" "));
             content.add(
               `q\n${corners[0]} m\n${corners[1]} l\n${corners[2]} l\n${corners[3]} l\nh W n`,
             );
           }
+
           saved = true;
         }
+
         const opacity = element.opacity;
+
         if (opacity !== undefined) {
           const value = Number(opacity);
+
           if (!(value >= 0 && value <= 1) || !/^(?:0|1|0?\.\d{1,5})$/.test(opacity)) {
             throw refuse(`the opacity ${JSON.stringify(opacity)}`, where(tag));
           }
+
           close();
           pens.push(pen);
           // A form sets its own pen: some readers carry no width, cap or join into one.
@@ -1768,27 +2028,34 @@ class PdfWriter {
           names.push("g");
           continue;
         }
+
         stack.push({ ...inherited, saved });
         names.push("g");
         continue;
       }
+
       if (tag === "text") {
         if (selfClosing) continue;
         text = { element, inherited, value: "" };
         continue;
       }
+
       if (!selfClosing) throw refuse(`<${tag}> with something inside it`, where(tag));
+
       if (tag === "use") {
         const id = /^#(.+)$/.exec(element.href ?? "")?.[1];
         const bytes = id === undefined ? undefined : rasters.get(id);
+
         if (bytes === undefined)
           throw refuse(`the use of ${JSON.stringify(element.href)}`, where(tag));
         const key = this.imageObject(bytes, element["data-opaque"] !== undefined);
+
         if (key === undefined) continue;
         mark(inherited.layer);
         images.add(key);
         // The picture's image holds its top row at y 0, and a PDF's at y 1.
         const placed = compose(matrix, [1, 0, 0, -1, 0, 1]);
+
         for (const [cx, cy] of [
           [0, 0],
           [1, 0],
@@ -1798,25 +2065,33 @@ class PdfWriter {
           const [x, y] = apply(placed, cx, cy);
           grow(x, y, 1);
         }
+
         const m = placed.map(num).join(" ");
         content.add(`q\n${m} cm\n/${key} Do\nQ`);
         continue;
       }
+
       // The hidden rectangle of a view, and the white of the paper, put no ink on the page.
       if (element.visibility === "hidden" || element["data-paper-sheet"] !== undefined) continue;
       const named = /^url\(#([^)]+)\)$/.exec(element.fill ?? "")?.[1];
+
       if (named !== undefined) {
         // A hatch's gradient: its shading, one for each gradient, painted inside its loops.
         const held = gradients.get(named);
+
         if (tag !== "path" || held === undefined || element.stroke !== "none") {
           throw refuse(`the fill ${JSON.stringify(element.fill)}`, where(tag));
         }
+
         const rule = element["fill-rule"];
+
         if (rule !== undefined && rule !== "evenodd")
           throw refuse(`the fill rule ${JSON.stringify(rule)}`, where(tag));
         const m = compose(inherited.matrix, held.frame);
+
         if (!(m[0] * m[3] - m[1] * m[2] !== 0) || !m.every(Number.isFinite)) continue;
         let key = shaded.get(named);
+
         if (key === undefined) {
           key = `Sh${shadings.size + 1}`;
           const object = this.reserve();
@@ -1828,13 +2103,17 @@ class PdfWriter {
             `<< /ShadingType ${held.kind === "linear" ? 2 : 3} /ColorSpace /DeviceRGB /Coords ${coords} /Function ${gradientFunction(held.stops)} /Extend [true true] >>`,
           );
         }
+
         mark(inherited.layer);
         content.add("q");
+
         const p = (point: readonly [number, number]) => {
           const [x, y] = apply(inherited.matrix, point[0], point[1]);
           grow(x, y, 1);
+
           return [x, y].map(num).join(" ");
         };
+
         for (const piece of pathPieces(element.d ?? "", where(tag), stretchOf(inherited.matrix))) {
           if (piece.kind === "move") content.add(`${p(piece.to)} m`);
           else if (piece.kind === "line") content.add(`${p(piece.to)} l`);
@@ -1842,27 +2121,33 @@ class PdfWriter {
             content.add(`${p(piece.c1)} ${p(piece.c2)} ${p(piece.to)} c`);
           else content.add("h");
         }
+
         content.add(rule === "evenodd" ? "W* n" : "W n");
         content.add(`${m.map((v, i) => (i < 4 ? real(v, 9) : num(v))).join(" ")} cm`);
         content.add(`/${key} sh`);
         content.add("Q");
         continue;
       }
+
       const stroke = colorOf(inherited.stroke, where(tag));
       const fill = colorOf(inherited.fill, where(tag));
       // The thinnest line, which `toSVG` marks, plots 0 wide: the thinnest the printer draws.
       const thinnest = element["data-thinnest"] !== undefined;
+
       const state = {
         stroke,
         fill,
         width: thinnest ? 0 : width * scaleOf(inherited.matrix),
         evenOdd: element["fill-rule"] === "evenodd",
       };
+
       if (element["fill-rule"] !== undefined && element["fill-rule"] !== "evenodd") {
         throw refuse(`the fill rule ${JSON.stringify(element["fill-rule"])}`, where(tag));
       }
+
       mark(inherited.layer);
       let pieces: Piece[];
+
       switch (tag) {
         case "line":
           pieces = [
@@ -1874,9 +2159,11 @@ class PdfWriter {
         case "polygon": {
           const points = pointsOf(element.points ?? "", where(tag));
           pieces = points.map((to, i) => ({ kind: i === 0 ? "move" : "line", to }));
+
           if (tag === "polygon" && points.length > 0) pieces.push({ kind: "close" });
           break;
         }
+
         case "rect": {
           const [x, y, w, h] = [number("x"), number("y"), number("width"), number("height")];
           pieces = [
@@ -1888,11 +2175,14 @@ class PdfWriter {
           ];
           break;
         }
+
         case "circle":
         case "ellipse": {
           const center: [number, number] = [number("cx"), number("cy")];
+
           const [rx, ry] =
             tag === "circle" ? [number("r"), number("r")] : [number("rx"), number("ry")];
+
           const curves = ellipseCurves(
             center,
             rx,
@@ -1902,6 +2192,7 @@ class PdfWriter {
             2 * Math.PI,
             stretchOf(inherited.matrix),
           );
+
           pieces = [
             { kind: "move", to: [center[0] + rx, center[1]] },
             ...curves,
@@ -1909,23 +2200,29 @@ class PdfWriter {
           ];
           break;
         }
+
         case "path":
           pieces = pathPieces(element.d ?? "", where(tag), stretchOf(inherited.matrix));
           break;
         default:
           throw refuse(`<${tag}> as a shape`, where(tag));
       }
+
       paint(pieces, inherited.matrix, state);
     }
+
     if (!paper || stack.length > 0 || text || inClip !== undefined || gradient !== undefined) {
       throw refuse("a picture that ends before its last element closes", `picture ${page}`);
     }
+
     close();
+
     if (content.length + content.pending + formBytes > MAX_PAGE) {
       throw new RangeError(
         `The page of picture ${page} would be longer than svgToPDF writes, ${MAX_PAGE} bytes`,
       );
     }
+
     const contentObject = this.reserve();
     const pageObject = this.reserve();
     const raw = content.bytes();
@@ -1935,20 +2232,27 @@ class PdfWriter {
       `<< /Length ${stream.length}${this.deflate ? " /Filter /FlateDecode" : ""} >>`,
       stream,
     );
+
     const fontList = [...fonts].map(
       ([face, key]) => `/${key} ${"codes" in face ? face.object : this.faceObject(face)} 0 R`,
     );
+
     const layerList = [...marks].map(([layer, key]) => `/${key} ${this.layers.get(layer)} 0 R`);
+
     const imageList = [
       ...[...images].map((key) => `/${key} ${this.images.get(key)!.object} 0 R`),
       ...[...forms].map(([key, object]) => `/${key} ${object} 0 R`),
     ];
+
     const shadingList = [...shadings].map(([key, object]) => `/${key} ${object} 0 R`);
+
     const stateList = [...opacities].map(([opacity, key]) => {
       const object = this.reserve();
       this.object(object, `<< /Type /ExtGState /CA ${opacity} /ca ${opacity} >>`);
+
       return `/${key} ${object} 0 R`;
     });
+
     const resources = [
       fontList.length > 0 ? `/Font << ${fontList.join(" ")} >>` : "",
       layerList.length > 0 ? `/Properties << ${layerList.join(" ")} >>` : "",
@@ -1958,6 +2262,7 @@ class PdfWriter {
     ]
       .filter(Boolean)
       .join(" ");
+
     // One dictionary of resources, which the page and each of its forms name.
     this.object(resourcesObject, `<< ${resources} >>`);
     this.object(
@@ -1965,6 +2270,7 @@ class PdfWriter {
       `<< /Type /Page /Parent ${this.tree} 0 R /MediaBox [0 0 ${num(paper.size[0])} ${num(paper.size[1])}]${paper.rotate ? " /Rotate 270" : ""} /Resources ${resourcesObject} 0 R /Contents ${contentObject} 0 R >>`,
     );
     this.pages.push({ object: pageObject, name: paper.layout });
+
     if (missing.size > 0) this.missing?.(paper.layout, [...missing].join(""), page - 1);
   }
 
@@ -1991,19 +2297,24 @@ class PdfWriter {
       }
     | undefined {
     const fill = colorOf(inherited.fill, where);
+
     if (fill === undefined) return undefined;
     const font = element["data-font"];
     const height = Number(element["data-height"]);
+
     if (font === undefined || !(height > 0) || !Number.isFinite(height)) {
       throw refuse(
         `a text in the font ${JSON.stringify(font)} of height ${JSON.stringify(element["data-height"])}`,
         where,
       );
     }
+
     const weight = element["font-weight"];
+
     if (weight !== undefined && weight !== "bold") {
       throw refuse(`the font-weight ${JSON.stringify(weight)}`, where);
     }
+
     const bold = weight === "bold";
     const embedded = this.embeddedOf(font, bold);
     // A font that is not one of `FONTS` is drawn as `toSVG` draws it, in the font of `Standard`.
@@ -2011,54 +2322,69 @@ class PdfWriter {
     let codes: number[];
     let natural: number;
     let size: number;
+
     if (embedded) {
       codes = [];
       let advance = 0;
+
       for (const character of value) {
         const code = embedded.code(character, missing);
         codes.push(code);
         advance += embedded.font.advance(code === 0 ? 0 : embedded.glyphs[code - 1]!);
       }
+
       size = height / embedded.capital;
       natural = (advance / embedded.font.unitsPerEm) * size;
     } else {
       codes = [];
+
       for (const character of value) {
         const code = winAnsi(character.codePointAt(0)!);
+
         if (code === QUESTION && character !== "?") missing.add(character);
         codes.push(code);
       }
+
       // The face's capitals are as tall as the text's height: by the cap height of the font the
       // face has the widths of, and by its own for any other font.
       size = height / (font === face.widthsOf ? face.capHeight : face.ownCapHeight);
       const widths = this.widthsOf(face);
       natural = codes.reduce((sum, code) => sum + widths[code - 32]!, 0) * (size / 1000);
     }
+
     if (codes.length === 0) return undefined;
     const used = embedded ?? face;
     let key = fonts.get(used);
+
     if (key === undefined) {
       fonts.set(used, (key = `F${embedded ? embedded.object : this.faceObject(face)}`));
     }
+
     const held = Number(element.textLength);
+
     const stretch =
       element.textLength !== undefined && held > 0 && natural > 0 ? (held / natural) * 100 : 100;
+
     // SVG sets a letter with Y down, and a page with Y up. The map's scale goes into the size,
     // in points, so the matrix written holds numbers near 1 whatever scale a view has.
     const m = compose(inherited.matrix, [1, 0, 0, -1, 0, 0]);
     const k = stretchOf(m);
+
     if (k === 0) return undefined;
+
     if (!Number.isFinite(k)) throw refuse(`a text under a map that stretches it by ${k}`, where);
     const matrix = m.map((part, i) => (i < 4 ? real(part / k, 9) : num(part)));
     // A long text is shown in pieces, each from where the last ended, so no string grows with it.
     const digits = embedded ? 4 : 2;
     const shown: string[] = [];
+
     for (let at = 0; at < codes.length; at += TEXT_PIECE) {
       const piece = codes.slice(at, at + TEXT_PIECE);
       shown.push(
         `<${piece.map((code) => code.toString(16).padStart(digits, "0").toUpperCase()).join("")}> Tj`,
       );
     }
+
     const operators = [
       "BT",
       `/${key} ${real(size * k, 6)} Tf`,
@@ -2067,11 +2393,14 @@ class PdfWriter {
       ...shown,
       "ET",
     ];
+
     // The box around every glyph of the font, as a share of the size.
     const [x0, y0, x1, y1] = embedded
       ? embedded.font.box.map((value) => value / embedded.font.unitsPerEm)
       : face.box.split(" ").map((value) => Number(value) / 1000);
+
     const ink = [x0!, y0!, x1!, y1!] as const;
+
     return {
       fill,
       operators,
@@ -2085,6 +2414,7 @@ class PdfWriter {
   /** Writes the fonts, the layers, the bookmarks, the page tree and the catalog. */
   finish(): Uint8Array {
     for (const embedded of this.embedded.values()) if (embedded) this.embed(embedded);
+
     for (const [face, number] of this.faces) {
       const descriptor = this.reserve();
       this.object(
@@ -2096,10 +2426,13 @@ class PdfWriter {
         `<< /Type /FontDescriptor /FontName /${face.name} /Flags ${face.flags} /FontBBox [${face.box}] /ItalicAngle 0 /Ascent ${face.ascent} /Descent ${face.descent} /CapHeight ${Math.round(face.capHeight * 1000)} /StemV ${face.stem} >>`,
       );
     }
+
     const layers = [...this.layers].toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+
     for (const [name, number] of layers) {
       this.object(number, `<< /Type /OCG /Name ${textString(name)} >>`);
     }
+
     // A bookmark for each sheet, by its layout's name.
     const outlines = this.reserve();
     const items = this.pages.map(() => this.reserve());
@@ -2108,6 +2441,7 @@ class PdfWriter {
         i > 0 ? `/Prev ${items[i - 1]} 0 R` : "",
         i + 1 < items.length ? `/Next ${items[i + 1]} 0 R` : "",
       ].join(" ");
+
       this.object(
         items[i]!,
         `<< /Title ${textString(page.name)} /Parent ${outlines} 0 R ${links} /Dest [${page.object} 0 R /Fit] >>`,
@@ -2123,10 +2457,12 @@ class PdfWriter {
     );
     const groups = layers.map(([, number]) => `${number} 0 R`).join(" ");
     const labels = this.pages.map((page, i) => `${i} << /P ${textString(page.name)} >>`).join(" ");
+
     const optional =
       layers.length > 0
         ? ` /OCProperties << /OCGs [${groups}] /D << /Order [${groups}] /OFF [] >> >>`
         : "";
+
     this.object(
       this.catalog,
       `<< /Type /Catalog /Pages ${this.tree} 0 R /Outlines ${outlines} 0 R /PageLabels << /Nums [${labels}] >>${optional} >>`,
@@ -2138,9 +2474,11 @@ class PdfWriter {
     const id = this.hash.digest().slice(0, 32).toUpperCase();
     const start = this.offset;
     const rows = [`xref\n0 ${this.next}\n0000000000 65535 f \n`];
+
     for (let number = 1; number < this.next; number++) {
       rows.push(`${String(this.offsets[number]).padStart(10, "0")} 00000 n \n`);
     }
+
     this.write(ascii(rows.join("")));
     this.write(
       ascii(
@@ -2149,10 +2487,17 @@ class PdfWriter {
     );
     const out = new Uint8Array(this.offset);
     let at = 0;
+
     for (const part of this.parts) {
       out.set(part, at);
       at += part.length;
     }
+
     return out;
   }
+}
+
+/** Whether `toPDF` is given the sheets of a set, rather than a drawing. */
+function isSheets(given: Drawing | readonly PdfSheet[]): given is readonly PdfSheet[] {
+  return Array.isArray(given);
 }

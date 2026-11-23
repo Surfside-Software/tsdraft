@@ -90,107 +90,142 @@ export class TableGroups {
 
   group(code: number, value: string): void {
     if (this.#refused) return;
+
     if (isDouble(code) && value.trim() !== "" && !Number.isFinite(Number(value))) {
       this.#broken = true;
+
       return;
     }
+
     if (code === 171) return this.#startCell(value);
+
     if (this.#stage === "head") return this.#head(code, value);
     const cell = this.#cell!;
+
     if (this.#stage === "value") {
       if (code === 1 || code === 2) this.#text(cell, "text", value);
       // The string its value shows, which a cell whose value holds no text gives.
       else if ((code === 302 || code === 303) && cell.text === "") this.#text(cell, "shown", value);
       else if (code === 304) this.#stage = "cell";
+
       return;
     }
+
     const n = Number(value);
+
     switch (code) {
       case 91:
         if (Number.isSafeInteger(n)) cell.flags = n;
+
         return;
       case 173:
         cell.merged = n !== 0;
+
         return;
       case 174:
         cell.fit = n !== 0;
+
         return;
       case 175:
         cell.columnSpan = Number.isSafeInteger(n) && n > 0 ? n : 1;
+
         return;
       case 176:
         cell.rowSpan = Number.isSafeInteger(n) && n > 0 ? n : 1;
+
         return;
       case 340:
         if (HANDLE.test(value.trim())) cell.blockRecord = value.trim();
+
         return;
       case 144:
         cell.blockScale = n;
+
         return;
       case 170:
         if (Number.isFinite(n)) cell.alignment = n;
+
         return;
       case 140:
         cell.textHeight = n;
+
         return;
       case 64:
         if (Number.isFinite(n)) cell.color = n;
+
         return;
       case 63:
         if (Number.isFinite(n)) cell.fill = n;
+
         return;
       // In a cell, 283 says it has no fill, where in a cell style it says it has one.
       case 283:
         cell.noFill = n === 1;
+
         return;
       // A file of the format before R2007 holds a cell's text among its own groups.
       case 1:
       case 2:
         this.#text(cell, "text", value);
+
         return;
       case 301:
         if (value.trim() === "CELL_VALUE") this.#stage = "value";
+
         return;
     }
   }
 
   #head(code: number, value: string): void {
     const n = Number(value);
+
     switch (code) {
       case 280:
         if (this.#versions++ > 0) this.#noTitle = n === 1;
+
         return;
       case 281:
         this.#noHeader = n === 1;
+
         return;
       case 342:
         if (HANDLE.test(value.trim())) this.#styleHandle = value.trim();
+
         return;
       case 343:
         if (HANDLE.test(value.trim())) this.#blockHandle = value.trim();
+
         return;
       case 11:
         this.#direction[0] = n;
+
         return;
       case 21:
         this.#direction[1] = n;
+
         return;
       case 91:
       case 92: {
         if (!Number.isSafeInteger(n) || n < 0) {
           this.#refused = { malformed: "ACAD_TABLE whose rows or columns are no whole number" };
+
           return;
         }
+
         if (code === 91) this.#rowCount = n;
         else this.#columnCount = n;
         this.#limit();
+
         return;
       }
+
       case 141:
         this.#size(this.#rows, this.#rowCount ?? this.#rowLimit, value);
+
         return;
       case 142:
         this.#size(this.#columns, this.#columnCount ?? TABLE_COLUMNS, value);
+
         return;
     }
   }
@@ -198,6 +233,7 @@ export class TableGroups {
   /** Refuses a table past the core's limits, or of more rows than a read keeps items. */
   #limit(): void {
     const [rows, columns] = [this.#rowCount ?? 0, this.#columnCount ?? 0];
+
     if (columns > TABLE_COLUMNS)
       this.#refused = { other: `ACAD_TABLE of more than ${TABLE_COLUMNS} columns` };
     else if (rows * columns > TABLE_CELLS)
@@ -210,8 +246,10 @@ export class TableGroups {
   #size(list: number[], most: number, value: string): void {
     if (list.length >= most) {
       this.#mismatched = true;
+
       return;
     }
+
     list.push(Number(value));
     this.#spend(1, 0);
   }
@@ -223,13 +261,17 @@ export class TableGroups {
         ? TABLE_CELLS
         : this.#rowCount * this.#columnCount,
     );
+
     this.#stage = "cell";
+
     if (this.#cells.length >= most) {
       // Its groups are read into a cell that is not kept.
       this.#mismatched = true;
       this.#cell = draft(value);
+
       return;
     }
+
     this.#cell = draft(value);
     this.#cells.push(this.#cell);
     this.#spend(1, 0);
@@ -243,6 +285,7 @@ export class TableGroups {
   #spend(items: number, characters: number): void {
     this.#items += items;
     this.#characters += characters;
+
     if (this.#items + Math.floor(this.#characters / 32) > this.#room) {
       this.#refused = { other: "past the limit" };
       this.#cells = [];
@@ -254,9 +297,11 @@ export class TableGroups {
   /** What the table reads as, with each cell's block named from its record's handle. */
   end(blockName: (record: string) => string | undefined): TableReading {
     if (this.#refused) return this.#refused;
+
     if (this.#broken) return { malformed: "ACAD_TABLE with a number that is not finite" };
     const rows = this.#rowCount ?? this.#rows.length;
     const columns = this.#columnCount ?? this.#columns.length;
+
     if (
       this.#mismatched ||
       this.#rows.length !== rows ||
@@ -265,6 +310,7 @@ export class TableGroups {
     ) {
       return { malformed: "ACAD_TABLE whose rows, columns or cells are not as many as it says" };
     }
+
     const cells: ReadTableCell[] = [];
     this.#cells.forEach((c, i) => {
       if (c.merged) return;
@@ -289,12 +335,14 @@ export class TableGroups {
     });
     const [dx, dy] = this.#direction;
     const length = Math.hypot(dx, dy);
+
     const direction: Point =
       !Number.isFinite(length) || length === 0
         ? [1, 0]
         : Math.abs(length - 1) > 1e-9
           ? [dx / length, dy / length]
           : [dx, dy];
+
     return {
       table: {
         styleHandle: this.#styleHandle,
@@ -365,34 +413,44 @@ export function tableStyleOf(r: Rec): TableStyleHeld {
   let versions = 0;
   const cells: Map<number, string>[] = [];
   let cell: Map<number, string> | undefined;
+
   for (let i = 0; i < own.codes.length; i++) {
     const code = own.codes[i]!;
     const value = own.values[i]!;
+
     if (CELL_CODES.has(code)) {
       if (cell === undefined || code === 7 || cell.has(code)) {
         if (cells.length === KINDS.length) break;
         cell = new Map();
         cells.push(cell);
       }
+
       cell.set(code, value);
       continue;
     }
+
     if (cell !== undefined) continue;
     const n = Number(value);
+
     if (code === 40 && Number.isFinite(n)) horizontal = n;
     else if (code === 41 && Number.isFinite(n)) vertical = n;
     else if (code === 280 && versions++ > 0) noTitle = n === 1;
     else if (code === 281) noHeader = n === 1;
   }
+
   const styleOf = (kind: (typeof KINDS)[number], at: number): ReadTableCellStyle => {
     const groups = cells[at];
+
     const number = (code: number, otherwise: number): number => {
       const value = groups?.get(code);
       const n = Number(value);
+
       return value !== undefined && value.trim() !== "" && Number.isFinite(n) ? n : otherwise;
     };
+
     const textStyle = groups?.get(7);
     const filled = number(283, 0) === 1;
+
     return {
       textStyle: textStyle === undefined || textStyle === "" ? "Standard" : unescaped(textStyle),
       textHeight: number(140, TEXT_HEIGHT[kind]),
@@ -402,6 +460,7 @@ export function tableStyleOf(r: Rec): TableStyleHeld {
       lineweight: number(274, -2),
     };
   };
+
   return {
     style: {
       horizontalMargin: horizontal,

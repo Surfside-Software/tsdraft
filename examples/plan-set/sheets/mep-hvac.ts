@@ -4,6 +4,7 @@
 import type { Point } from "../../../src/index.ts";
 import { L1, L2, type Level, type Rect } from "../model/house.ts";
 import { DEVICES, type Floor } from "./mep-power.ts";
+
 export { ATTIC, center, EQUIP, passageLength } from "./mep-equip.ts";
 
 // ---------------------------------------------------------------------------------------------
@@ -175,9 +176,12 @@ export const SYSTEMS: readonly DuctSystem[] = [
 ];
 
 const area = (r: Rect) => ((r[2] - r[0]) * (r[3] - r[1])) / 144;
+
 const roomRect = (level: Level, name: string): Rect => {
   const r = level.rooms.find((x) => x.name === name);
+
   if (!r) throw new Error(`No room ${name} on ${level.name}`);
+
   return r.rect;
 };
 
@@ -186,14 +190,19 @@ export function roomAir(
   s: DuctSystem,
 ): { room: string; outlets: number; cfm: number; each: number; neck: number }[] {
   const names = [...new Set(s.outlets.map((o) => o.room))];
+
   const areas = names.map((n) => {
     const room = s.level.rooms.find((x) => x.name === n)!;
+
     return room.area ?? area(roomRect(s.level, n));
   });
+
   const total = areas.reduce((a, b) => a + b, 0);
+
   return names.map((room, k) => {
     const outlets = s.outlets.filter((o) => o.room === room).length;
     const each = Math.round((s.cfm * areas[k]!) / total / outlets / 5) * 5;
+
     return { room, outlets, cfm: each * outlets, each, neck: flexSize(each) };
   });
 }
@@ -208,8 +217,11 @@ export function flexSize(cfm: number): number {
     [10, 320],
     [12, 500],
   ];
+
   const hit = sizes.find(([, max]) => cfm <= max);
+
   if (!hit) throw new Error(`No flex size for ${cfm} CFM`);
+
   return hit[0];
 }
 
@@ -221,10 +233,12 @@ export const trunkWidth = (cfm: number, depth: number): number =>
 export function project(p: Point, a: Point, b: Point): Point {
   const dx = b[0] - a[0];
   const dy = b[1] - a[1];
+
   const t = Math.max(
     0,
     Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy)),
   );
+
   return [a[0] + t * dx, a[1] + t * dy];
 }
 
@@ -233,14 +247,18 @@ export function trunkAir(
   s: DuctSystem,
 ): { from: string; to: string; cfm: number; width: number }[] {
   const each = new Map(roomAir(s).map((r) => [r.room, r.each]));
+
   const own = (e: readonly [string, string]) =>
     s.outlets
       .filter((o) => o.from[0] === e[0] && o.from[1] === e[1])
       .reduce((t, o) => t + each.get(o.room)!, 0);
+
   const below = (e: readonly [string, string]): number =>
     own(e) + s.trunks.filter((x) => x[0] === e[1]).reduce((t, x) => t + below(x), 0);
+
   return s.trunks.map((e) => {
     const cfm = below(e);
+
     return { from: e[0], to: e[1], cfm, width: trunkWidth(cfm, s.depth) };
   });
 }
@@ -268,7 +286,9 @@ const fan = (floor: Floor, at: Point) => {
   const dv = DEVICES.find(
     (x) => x.block === "E-EXHAUST" && x.floor === floor && x.at[0] === at[0] && x.at[1] === at[1],
   );
+
   if (!dv) throw new Error(`No exhaust fan on E-101 at ${floor} ${at.join(",")}`);
+
   return dv;
 };
 
@@ -277,6 +297,7 @@ export const EXHAUSTS: readonly Exhaust[] = (() => {
   const f2 = fan("L2", [96, 285]);
   const f3 = fan("L2", [570, 75]);
   const f4 = fan("L2", [596, 140]);
+
   return [
     {
       tag: "EF-1",
@@ -360,16 +381,20 @@ export const EXHAUSTS: readonly Exhaust[] = (() => {
 })();
 
 /** The dryer duct's developed length, FBC-R M1502.4.5.1: run plus 5 ft per 90 degree elbow. */
-export function dryerLength(): { run: number; elbows: number; total: number } {
+export function dryerLength() {
   const de = EXHAUSTS.find((x) => x.tag === "DE-1")!;
+
   const run =
     de.route
       .slice(1)
       .reduce((s, p, k) => s + Math.hypot(p[0] - de.route[k]![0], p[1] - de.route[k]![1]), 0) / 12;
+
   // One 90 at the dryer's outlet, turning along the wall; the wall cap is straight through.
   const elbows = 1;
   const total = run + 5 * elbows;
+
   if (total > 35) throw new Error(`The dryer duct is ${total.toFixed(1)} ft developed, past 35 ft`);
+
   return { run, elbows, total };
 }
 

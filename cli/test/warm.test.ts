@@ -30,6 +30,7 @@ async function builds(
   builder = new Builder({ timeout: 30_000, warm: true }),
 ) {
   const outcomes: Outcome[] = [];
+
   try {
     for (let n = 0; n < times; n++) {
       await settled(builder);
@@ -39,6 +40,7 @@ async function builds(
   } finally {
     builder.close();
   }
+
   return outcomes;
 }
 
@@ -48,9 +50,11 @@ async function builds(
  */
 function settled(builder: Builder): Promise<void> {
   let timer: NodeJS.Timeout | undefined;
+
   const stuck = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error("The spares never finished warming up")), 30_000);
   });
+
   return Promise.race([builder.warmed(), stuck]).finally(() => clearTimeout(timer));
 }
 
@@ -58,9 +62,11 @@ function settled(builder: Builder): Promise<void> {
 async function warmAndCold(file: string): Promise<[warm: Outcome, cold: Outcome]> {
   const waiting = new Builder({ timeout: 30_000, warm: true });
   const fresh = new Builder({ timeout: 30_000, warm: false });
+
   try {
     await waiting.build(join(root, "examples/lot.ts"), root);
     await settled(waiting);
+
     return [(await waiting.build(file, root))!, (await fresh.build(file, root))!];
   } finally {
     waiting.close();
@@ -107,14 +113,18 @@ async function ownCommand(dir: string, toSVG?: string) {
       'import { MARK } from "./mark.js";\n',
     ),
   );
+
   const mark = (value: string, more = "", file = "dist/mark.js") =>
     writeFileSync(join(dir, file), `${more}export const MARK = "${value}";\n`);
+
   mark("aaaa");
   const file = join(dir, "lot.ts");
   writeFileSync(file, LOT);
-  const copy = (await import(pathToFileURL(join(dir, "cli/src/build.ts")).href)) as {
-    Builder: typeof Builder;
-  };
+
+  const copy: typeof import("../src/build.ts") = await import(
+    pathToFileURL(join(dir, "cli/src/build.ts")).href
+  );
+
   return { Builder: copy.Builder, file, mark };
 }
 
@@ -148,11 +158,13 @@ test("a drawing that throws, and one lint refuses, answer warm as they do cold",
     );
     const linted = await warmAndCold(refused);
     const thrown = await warmAndCold(join(root, "test/fixtures/throws.ts"));
+
     for (const [warm, cold] of [linted, thrown]) {
       assert.ok(warm.modules.ahead > 0);
       assert.equal(cold.modules.ahead, 0);
       assert.deepEqual(answer(warm), answer(cold));
     }
+
     assert.equal(linted[0].diagnostics[0]?.severity, "error");
     assert.equal(thrown[0].error?.line, 7);
   }));
@@ -181,6 +193,7 @@ test("another copy of the library is never loaded ahead, and each build runs it 
     const [first, second, third] = await builds(file, 3);
     assert.match(first!.svg!, /data-call="1"/);
     assert.equal(first!.log, "the first call");
+
     for (const later of [second!, third!]) {
       assert.equal(later.modules.ahead, 0);
       assert.deepEqual(answer(later), answer(first!));
@@ -190,16 +203,20 @@ test("another copy of the library is never loaded ahead, and each build runs it 
 test("the command's own library, changed since a waiting process loaded it, is read again", () =>
   inScratch(async (dir) => {
     const own = await ownCommand(dir);
+
     const outcomes = await builds(
       own.file,
       8,
       (n) => {
         if (n === 2) own.mark("bbbb");
+
         if (n === 4) own.mark("cccc", 'import "node:os";\n');
+
         if (n === 6) own.mark("dddd");
       },
       new own.Builder({ timeout: 30_000, warm: true }),
     );
+
     const drawn = outcomes.map((o) => /data-copy="(\w+)"/.exec(o.svg!)?.[1]);
     assert.deepEqual(drawn, ["aaaa", "aaaa", "bbbb", "bbbb", "cccc", "cccc", "dddd", "dddd"]);
     // Warm wherever the library is as the waiting process loaded it, and holds to its own
@@ -208,6 +225,7 @@ test("the command's own library, changed since a waiting process loaded it, is r
       outcomes.map((o) => o.modules.ahead > 0),
       [false, true, false, true, false, false, false, true],
     );
+
     // What the library printed while a process warmed up is in no build's log.
     for (const outcome of outcomes) assert.equal(outcome.log, outcomes[0]!.log);
     assert.match(outcomes[0]!.log, /^drawing(\ndrawing)*$/);
@@ -218,17 +236,21 @@ test("a link in the command's own library that is pointed elsewhere is followed 
     const own = await ownCommand(dir);
     own.mark("aaaa", "", "dist/one.js");
     own.mark("bbbb", "", "dist/two.js");
+
     const point = (to: string) => {
       rmSync(join(dir, "dist/mark.js"));
       symlinkSync(to, join(dir, "dist/mark.js"));
     };
+
     point("one.js");
+
     const outcomes = await builds(
       own.file,
       4,
       (n) => n === 2 && point("two.js"),
       new own.Builder({ timeout: 30_000, warm: true }),
     );
+
     const drawn = outcomes.map((o) => /data-copy="(\w+)"/.exec(o.svg!)?.[1]);
     assert.deepEqual(drawn, ["aaaa", "aaaa", "bbbb", "bbbb"]);
     assert.deepEqual(
@@ -244,7 +266,9 @@ test("a warm-up that does not end costs no build, and its library is not loaded 
       dir,
       'while (given[0].layers.some((layer) => layer.name === "C-SETB")); return draw(...given);',
     );
+
     const builder = new own.Builder({ timeout: 30_000, warm: true, warmDeadline: 300 });
+
     try {
       const first = await builder.build(own.file, root);
       // At once: the process it is given may be the one that will not end.
@@ -280,6 +304,7 @@ test("a build's log is whole, however much the drawing writes before it answers"
   inScratch(async (dir) => {
     const file = join(dir, "loud.ts");
     writeFileSync(file, `console.log("x".repeat(300_000));\n${LOT}console.log("THE END");\n`);
+
     for (const outcome of await builds(file, 2)) {
       assert.equal(outcome.ok, true);
       assert.match(outcome.log, /^x{7000,}\nTHE END$/);
@@ -290,12 +315,14 @@ test("a drawing that replaces process.stdout.write builds, and its log is what i
   inScratch(async (dir) => {
     const silent = join(dir, "silent.ts");
     writeFileSync(silent, `process.stdout.write = () => true;\n${LOT}`);
+
     const run = spawnSync(process.execPath, [join(root, "src/cli.ts"), "render", silent], {
       encoding: "utf8",
       timeout: 60_000,
     });
+
     assert.equal(run.status, 0);
-    assert.equal((JSON.parse(run.stdout) as { ok: boolean }).ok, true);
+    assert.equal(JSON.parse(run.stdout).ok, true);
 
     const prefixed = join(dir, "prefixed.ts");
     writeFileSync(
@@ -355,15 +382,18 @@ test("a library whose folder was gone when a warm-up tried it is loaded ahead on
   inScratch(async (dir) => {
     const own = await ownCommand(dir);
     const [dist, away] = [join(dir, "dist"), join(dir, "dist-away")];
+
     const outcomes = await builds(
       own.file,
       5,
       (n) => {
         if (n === 2) renameSync(dist, away);
+
         if (n === 3) renameSync(away, dist);
       },
       new own.Builder({ timeout: 30_000, warm: true }),
     );
+
     assert.deepEqual(
       outcomes.map((o) => [o.ok, o.modules.ahead > 0]),
       [
@@ -380,12 +410,14 @@ test("a library that missed the warm-up's deadline once is tried again after the
   inScratch(async (dir) => {
     // Its warm-up does not end until the file `open` exists, outside the library's folder.
     const open = join(dir, "open");
+
     const own = await ownCommand(
       dir,
       `const { existsSync } = process.getBuiltinModule("node:fs");
 if (given[0].layers.some((layer) => layer.name === "C-SETB")) while (!existsSync(${JSON.stringify(open)}));
 return draw(...given);`,
     );
+
     const outcomes = await builds(
       own.file,
       3,
@@ -393,6 +425,7 @@ return draw(...given);`,
       (n) => n === 1 && writeFileSync(open, ""),
       new own.Builder({ timeout: 30_000, warm: true }),
     );
+
     assert.deepEqual(
       outcomes.map((o) => [o.ok, o.modules.ahead > 0]),
       [
@@ -414,6 +447,7 @@ test(
         dir,
         'while (given[0].layers.some((layer) => layer.name === "C-SETB")); return draw(...given);',
       );
+
       const parent = join(dir, "parent.mjs");
       const builder = pathToFileURL(join(dir, "cli/src/build.ts")).href;
       // A deadline far off, so that only the parent's going can end the warm-up in time.
@@ -426,33 +460,43 @@ setTimeout(() => console.log("looping"), 1_500);
 setInterval(() => {}, 1_000);
 `,
       );
+
       const command = spawn("prlimit", ["--core=1:1", "--", process.execPath, parent], {
         stdio: ["ignore", "pipe", "inherit"],
       });
+
       await new Promise<void>((resolve) =>
         command.stdout.on("data", (b: Buffer) => b.toString().includes("looping") && resolve()),
       );
+
       const children = spawnSync("ps", ["-o", "pid=", "--ppid", String(command.pid)], {
         encoding: "utf8",
       })
         .stdout.split("\n")
         .filter((line) => line.trim() !== "")
         .map(Number);
+
       assert.equal(children.length, 2);
       command.kill("SIGKILL");
+
       const alive = (pid: number) => {
         try {
           process.kill(pid, 0);
+
           return true;
         } catch {
           return false;
         }
       };
+
       const until = Date.now() + 3_000;
+
       while (children.some(alive) && Date.now() < until) {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
+
       const left = children.filter(alive);
+
       for (const pid of left) process.kill(pid, "SIGKILL");
       assert.deepEqual(left, []);
     }),

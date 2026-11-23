@@ -2,7 +2,7 @@
 // in PDMODE and PDSIZE and as the leading CAD app draws it.
 import type { Point, PointFigure, PointStyle } from "./drawing.ts";
 import { sizeProblem } from "./rules.ts";
-import { isRecord } from "./shape.ts";
+import { isBoolean, isNumber, isPlainRecord } from "./guards.ts";
 
 /** The figures, in the order PDMODE numbers them from 0. */
 export const POINT_FIGURES: readonly PointFigure[] = ["dot", "none", "plus", "cross", "tick"];
@@ -15,7 +15,10 @@ export function pointMode(style: PointStyle): number {
 /** The PDSIZE that holds a point style's size: a relative size is negative, and none is 0. */
 export function pointSize(style: PointStyle): number {
   const size = style.size;
-  return size === undefined ? 0 : typeof size === "number" ? size : -size.percent;
+
+  if (size === undefined) return 0;
+
+  return isNumber(size) ? size : -size.percent;
 }
 
 /**
@@ -32,43 +35,55 @@ export function pointStyleOf(pdmode?: number, pdsize?: number): PointStyle {
   const figure = mode & 31;
   const known = mode >= 0 && mode <= 100 && (mode & ~(31 | 32 | 64)) === 0 && figure <= 4;
   const size = Number.isFinite(pdsize) ? pdsize! : 0;
-  return {
-    figure: known ? POINT_FIGURES[figure]! : "dot",
-    ...(known && mode & 32 ? { circle: true } : {}),
-    ...(known && mode & 64 ? { square: true } : {}),
-    size: size > 0 ? size : { percent: size === 0 ? 5 : -size },
-  };
+
+  const figured: PointStyle = { figure: known ? POINT_FIGURES[figure]! : "dot" };
+  const circled: PointStyle = known && mode & 32 ? { ...figured, circle: true } : figured;
+  const squared: PointStyle = known && mode & 64 ? { ...circled, square: true } : circled;
+
+  return { ...squared, size: size > 0 ? size : { percent: size === 0 ? 5 : -size } };
 }
 
-/** What is wrong with a value given as a point style, each as a sentence. */
+/**
+ * What is wrong with a value given as a point style, each as a sentence. It takes any value, as a
+ * caller in plain JavaScript may give one.
+ */
 export function pointStyleProblems(style: unknown): string[] {
-  if (!isRecord(style)) return ["pointStyle must be a plain object"];
+  if (!isPlainRecord(style)) return ["pointStyle must be a plain object"];
   const s = style;
   const out: string[] = [];
   // The first field it does not know, cut short, keeps the message small whatever the key.
   const extra = Object.keys(s).find((key) => !["figure", "circle", "square", "size"].includes(key));
+
   if (extra !== undefined)
     out.push(
       `pointStyle has a field it does not know, ${JSON.stringify(extra.length > 40 ? `${extra.slice(0, 40)}…` : extra)}`,
     );
-  if (!POINT_FIGURES.includes(s.figure as PointFigure))
+
+  if (!POINT_FIGURES.some((figure) => figure === s.figure))
     out.push(`pointStyle's figure must be one of ${POINT_FIGURES.map((f) => `"${f}"`).join(", ")}`);
+
   for (const flag of ["circle", "square"])
-    if (s[flag] !== undefined && typeof s[flag] !== "boolean")
+    if (s[flag] !== undefined && !isBoolean(s[flag]))
       out.push(`pointStyle's ${flag} must be true or false`);
   const size = s.size;
+
   if (size === undefined) return out;
-  if (typeof size === "number") {
+
+  if (isNumber(size)) {
     const problem = Number.isFinite(size) ? sizeProblem(size) : "it must be a finite number";
+
     if (problem) out.push(`pointStyle's size: ${problem}`);
-  } else if (isRecord(size) && Object.keys(size).length === 1 && "percent" in size) {
+  } else if (isPlainRecord(size) && Object.keys(size).length === 1 && "percent" in size) {
     const percent = size.percent;
+
     const problem =
-      typeof percent === "number" && Number.isFinite(percent)
+      isNumber(percent) && Number.isFinite(percent)
         ? sizeProblem(percent)
         : "it must be a finite number";
+
     if (problem) out.push(`pointStyle's size in percent: ${problem}`);
   } else out.push("pointStyle's size must be a number, or { percent } of the view");
+
   return out;
 }
 
@@ -79,7 +94,8 @@ export function pointStyleProblems(style: unknown): string[] {
  */
 export function pointReach(style: PointStyle, height: number): number | undefined {
   const size = style.size ?? { percent: 5 };
-  const reach = typeof size === "number" ? size : (size.percent / 100) * (height / 2);
+  const reach = isNumber(size) ? size : (size.percent / 100) * (height / 2);
+
   return reach > 0 && Number.isFinite(reach) ? reach : undefined;
 }
 
@@ -95,7 +111,9 @@ export function pointFigure(style: PointStyle, reach: number | undefined): Point
   if (reach === undefined) return style.figure === "none" ? [] : [{ points: [[0, 0]] }];
   const h = reach / 2;
   const out: PointPart[] = [];
+
   if (style.circle) out.push({ radius: h });
+
   if (style.square)
     out.push({
       points: [
@@ -107,6 +125,7 @@ export function pointFigure(style: PointStyle, reach: number | undefined): Point
       ],
     });
   const a = reach / Math.SQRT2;
+
   switch (style.figure) {
     case "dot":
       out.push({ points: [[0, 0]] });
@@ -154,5 +173,6 @@ export function pointFigure(style: PointStyle, reach: number | undefined): Point
     case "none":
       break;
   }
+
   return out;
 }

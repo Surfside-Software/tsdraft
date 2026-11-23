@@ -1,5 +1,6 @@
 // `defineStandard`: a document checked against the table of its fields, merged with its parent,
 // checked as a whole, with every default filled in, and hashed.
+import { isObjectOrArray, isPlainRecord, isString } from "../guards.ts";
 import type { Block, Drawing, Entity, TextStyle } from "../drawing.ts";
 import { canonical, fromJSON } from "../json.ts";
 import { layerAuditKey, layerKey } from "../layers.ts";
@@ -7,7 +8,7 @@ import { DrawingError, type Diagnostic } from "../lint.ts";
 import { paperInfo } from "../papers.ts";
 import { written } from "../format.ts";
 import { idKey, layerTwinProblem, shown } from "../rules.ts";
-import { isRecord, PLAIN_OBJECT } from "../shape.ts";
+import { PLAIN_OBJECT } from "../shape.ts";
 import { sha256Text } from "../sha256.ts";
 import { BUILT_IN_DOCUMENT, BUILT_IN_SPECIFIER } from "./default.ts";
 import {
@@ -16,11 +17,15 @@ import {
   type Section,
   type Standard,
   type StandardDimensionStyle,
+  type StandardDiscipline,
   type StandardLeaderStyle,
+  type StandardLinetype,
   type StandardDocument,
   type StandardLayer,
   type StandardLink,
   type StandardOptions,
+  type StandardPen,
+  type StandardScale,
   type StandardSheetFormat,
   type StandardTextRole,
   type StandardTitleBlock,
@@ -35,9 +40,11 @@ import {
   readDocument,
   same,
   withDefaults,
+  type Fields,
   type MapNode,
   type Problem,
   type RecordNode,
+  type StandardValue,
 } from "./shape.ts";
 import { PLAIN_TITLE_BLOCK_SPECIFIER, plainTitleBlock } from "./title-block.ts";
 
@@ -66,22 +73,29 @@ export function defineStandard<
 ): Standard<NamesOf<D, ParentOf<D, F>>, D["id"], D["version"]> {
   const problems: Problem[] = [];
   const standard = resolve(document, options?.files ?? {}, problems);
+
   if (!standard || problems.length > 0) throw standardError(problems);
-  return standard as never;
+
+  // SAFETY: the standard holds the names of `document` and of its parent, and its id and
+  // version, which are the type's.
+  return standard as Standard<NamesOf<D, ParentOf<D, F>>, D["id"], D["version"]>;
 }
 
 function standardError(problems: readonly Problem[]): DrawingError {
-  const diagnostics = problems.map(({ item, message }): Diagnostic => ({
-    rule: "standard",
-    severity: "error",
-    message,
-    ...(item ? { item } : {}),
-  }));
+  const diagnostics = problems.map(({ item, message }): Diagnostic => {
+    const diagnostic: Diagnostic = { rule: "standard", severity: "error", message };
+
+    return item ? { ...diagnostic, item } : diagnostic;
+  });
+
   const count = problems.length === 1 ? "1 problem" : `${problems.length} problems`;
+
   const shownProblems = problems
     .slice(0, 10)
     .map(({ item, message }) => `- ${item ? `${item}: ` : ""}${message}`);
+
   const more = problems.length > 10 ? [`- and ${problems.length - 10} more`] : [];
+
   return new DrawingError(
     diagnostics,
     [`The standard has ${count}:`, ...shownProblems, ...more].join("\n"),
@@ -91,12 +105,20 @@ function standardError(problems: readonly Problem[]): DrawingError {
 /** `layerKey` of `Continuous`, the linetype every standard has. */
 const CONTINUOUS = layerKey("Continuous");
 
+/** The node of a section of the table, which is a map of its entries. */
+function sectionNode(section: Section): MapNode {
+  const node = DOCUMENT.fields[section]?.node;
+
+  if (node?.kind !== "map") throw new Error(`The table's ${section} is not a map`);
+
+  return node;
+}
+
 /** How the names of a section are compared: the leading CAD app's way for its names, and ids without case. */
-const foldOf = (section: Section): ((name: string) => string) =>
-  (DOCUMENT.fields[section]!.node as MapNode).fold!.key;
+const foldOf = (section: Section): ((name: string) => string) => sectionNode(section).fold!.key;
 
 /** The fields of an entry of each section that name an entry of another, and that section. */
-const REFERENCES: { readonly [S in Section]: readonly (readonly [string, Section])[] } = {
+const REFERENCES = {
   disciplines: [],
   pens: [],
   linetypes: [],
@@ -120,22 +142,34 @@ const REFERENCES: { readonly [S in Section]: readonly (readonly [string, Section
     ["titleBlock", "titleBlocks"],
     ["discipline", "disciplines"],
   ],
-};
+} as const satisfies { readonly [S in Section]: readonly (readonly [string, Section])[] };
 
 /** The entry of a section of the table. */
-const entryNode = (section: Section): RecordNode =>
-  (DOCUMENT.fields[section]!.node as MapNode).value as RecordNode;
+function entryNode(section: Section): RecordNode {
+  const node = sectionNode(section).value;
+
+  if (node.kind !== "record") throw new Error(`An entry of the table's ${section} is not a record`);
+
+  return node;
+}
 
 /** A copy of plain data, frozen through. */
 function frozen<T>(value: T): T {
-  if (Array.isArray(value)) return Object.freeze(value.map(frozen)) as T;
-  if (typeof value !== "object" || value === null) return value;
+  if (Array.isArray(value)) {
+    // SAFETY: a copy of an array of plain data, each item copied, has the array's type.
+    return Object.freeze(value.map(frozen)) as T;
+  }
+
+  if (!isObjectOrArray(value)) return value;
+
+  // SAFETY: a copy of a plain object, each field copied, has the object's type.
   return Object.freeze(
     entriesObject(Object.entries(value).map(([key, item]) => [key, frozen(item)])),
   ) as T;
 }
 
 let plain: Drawing | undefined;
+
 /** The plain title block's drawing, made once. The builder has checked each of its calls. */
 const plainDrawing = (): Drawing => (plain ??= remember(frozen(plainTitleBlock())));
 
@@ -149,18 +183,27 @@ const plainDrawing = (): Drawing => (plain ??= remember(frozen(plainTitleBlock()
 const BUILT_IN_HASH = "8b06bfddcddd73c7256c66c35f94a2446709c22939b303a0e6daaf19ba2e05ae";
 
 let builtIn: Standard | undefined;
+
 /** The built-in standard, made once. */
 function builtInStandard(): Standard {
   if (builtIn) return builtIn;
+
+  // SAFETY: the built-in document passes `readDocument`, as test/standard.test.ts holds, so with
+  // its defaults it has its id, its version and each section.
   const { id, version, ...rest } = withDefaults(DOCUMENT, BUILT_IN_DOCUMENT, plainDrawing, "") as {
     readonly id: string;
     readonly version: string;
-  } & Record<Section, Readonly<Record<string, unknown>>>;
+  } & Record<Section, Fields>;
+
   const sections = SECTIONS.map((section) => {
     const entries = rest[section];
     const names = Object.keys(entries).sort((a, b) => (layerKey(a) < layerKey(b) ? -1 : 1));
+
     return [section, Object.freeze(entriesObject(names.map((name) => [name, entries[name]])))];
   });
+
+  // SAFETY: the sections hold the built-in document's entries with their defaults, which are a
+  // standard's, as test/standard.test.ts holds.
   builtIn = Object.freeze({
     id,
     version,
@@ -169,21 +212,27 @@ function builtInStandard(): Standard {
     ...Object.fromEntries(sections),
     hash: BUILT_IN_HASH,
     chain: Object.freeze([]),
-  }) as unknown as Standard;
+  }) as Standard;
   MADE.add(builtIn);
+
   return builtIn;
 }
 
 /** The canonical JSON of each title block's drawing, which is frozen, worked out once. */
-const drawingJson = new WeakMap<object, string | undefined>();
-const writtenDrawing = (value: object): string | undefined => {
+const drawingJson = new WeakMap<WeakKey, string | undefined>();
+
+const writtenDrawing = (value: WeakKey): string | undefined => {
   if (!drawingJson.has(value)) return undefined;
   let json = drawingJson.get(value);
+
   if (json === undefined) drawingJson.set(value, (json = canonical(value, "A drawing")));
+
   return json;
 };
+
 const remember = (drawing: Drawing): Drawing => {
   drawingJson.set(drawing, undefined);
+
   return drawing;
 };
 
@@ -191,74 +240,98 @@ const remember = (drawing: Drawing): Drawing => {
  * Resolves a document, adding each problem to `problems`, or returns undefined when it cannot
  * get as far as a standard.
  */
-function resolve(
+function resolve<F extends Readonly<Record<string, unknown>>>(
   document: unknown,
-  files: Readonly<Record<string, unknown>>,
+  files: F,
   problems: Problem[],
 ): Standard | undefined {
   if (!readDocument(document, problems)) return undefined;
+  // SAFETY: `readDocument` has read each field of the document against the table, which holds
+  // the fields of StandardDocument.
   const doc = document as StandardDocument;
   const add = (item: string, message: string) => problems.push({ item, message });
 
   let parent: Standard | undefined;
+
   if (doc.extends !== undefined) {
     parent = parentOf(doc.extends, files, add);
+
     if (!parent) return undefined;
+
     const loop = [parent, ...parent.chain].find(
       (link) => link.id === doc.id && link.version === doc.version,
     );
+
     if (loop) {
       add("extends", `The standard ${shown(doc.id)} version ${shown(doc.version)} extends itself`);
+
       return undefined;
     }
   }
 
-  const fallback = <K extends keyof Standard>(field: K): Standard[K] =>
-    (doc[field as keyof StandardDocument] ??
-      parent?.[field] ??
-      DOCUMENT.fields[field]!.default) as Standard[K];
+  const fallback = <K extends keyof Standard & keyof StandardDocument>(field: K): Standard[K] =>
+    // SAFETY: `readDocument` has read the document's field against the table, and the table's
+    // default for the field is of the field's type in Standard.
+    (doc[field] ?? parent?.[field] ?? DOCUMENT.fields[field]!.default) as Standard[K];
+
   // A child keeps its parent's units, so the rest is checked in those.
   const paperUnits = parent ? parent.paperUnits : fallback("paperUnits");
+
   if (parent && doc.paperUnits !== undefined && doc.paperUnits !== parent.paperUnits) {
     add("paperUnits", `A standard keeps its parent's paperUnits, ${shown(parent.paperUnits)}`);
   }
 
   // A title block's drawing, from the document or from what a string names.
   const drawingOf = (value: unknown, path: string): Drawing | undefined => {
-    let given = value;
-    if (typeof value === "string") {
+    let given: unknown = value;
+
+    if (isString(value)) {
       if (value === PLAIN_TITLE_BLOCK_SPECIFIER) return plainDrawing();
+
       if (!Object.hasOwn(files, value)) {
         add(
           path,
           `${shown(value)} is not in options.files. The library reads no file: pass the value JSON.parse gives for it as files[${shown(value)}]`,
         );
+
         return undefined;
       }
+
       given = files[value];
     }
+
     try {
       return remember(frozen(fromJSON(given)));
     } catch (thrown) {
       if (!(thrown instanceof DrawingError)) throw thrown;
+
       for (const d of thrown.diagnostics) add(d.item ? `${path}.${d.item}` : path, d.message);
+
       return undefined;
     }
   };
 
   // Each section: the parent's entries, then the document's, by name as the leading CAD app compares names.
-  const merged = {} as Record<Section, Map<string, readonly [name: string, entry: unknown]>>;
+  // SAFETY: the loop sets each section.
+  const merged = {} as Record<
+    Section,
+    Map<string, readonly [name: string, entry: StandardValue | undefined]>
+  >;
+
   for (const section of SECTIONS) {
     const fold = foldOf(section);
-    const entries = new Map<string, readonly [string, unknown]>();
+    const entries = new Map<string, readonly [string, StandardValue | undefined]>();
+
     for (const [name, entry] of Object.entries(parent?.[section] ?? {})) {
       entries.set(fold(name), [name, entry]);
     }
+
     // `readDocument` has refused two names of one fold in the document.
     for (const [name, entry] of Object.entries(doc[section] ?? {})) {
       const key = fold(name);
       const path = `${section}[${JSON.stringify(name)}]`;
       const inherited = entries.get(key);
+
       if (entry === null) {
         if (inherited) entries.delete(key);
         else {
@@ -267,47 +340,66 @@ function resolve(
             `null removes the parent's entry of this name, and ${parent ? `the parent has no ${REFERENCE_WORDS[section]} of this name` : "the standard extends nothing"}`,
           );
         }
+
         continue;
       }
+
       entries.set(key, [
         inherited ? inherited[0] : name,
         withDefaults(entryNode(section), entry, drawingOf, path),
       ]);
     }
+
     merged[section] = entries;
   }
 
+  // SAFETY: each entry of a section has passed `readDocument` against the section's entry, and has
+  // its defaults, or is the parent's, so it is of the entry type T of the section.
   const lookup = <T>(section: Section, name: string): T | undefined =>
     merged[section].get(foldOf(section)(name))?.[1] as T | undefined;
+
   /** The name of the entry of `section` that `name` names, as the standard spells it. */
   const spelling = (section: Section, name: string): string | undefined =>
     section === "linetypes" && layerKey(name) === CONTINUOUS
       ? "Continuous"
       : merged[section].get(foldOf(section)(name))?.[0];
+
   /** The parent's entries, which the standard holds as they are unless the document wrote them. */
-  const kept = new Set(SECTIONS.flatMap((section) => Object.values(parent?.[section] ?? {})));
-  const refer = (section: Section, name: unknown, path: string, owner?: Section): void => {
-    if (typeof name === "string" && spelling(section, name) === undefined) {
+  const kept = new Set<object>(
+    SECTIONS.flatMap((section) => Object.values(parent?.[section] ?? {})),
+  );
+
+  const refer = (
+    section: Section,
+    name: StandardValue | undefined,
+    path: string,
+    owner?: Section,
+  ): void => {
+    if (isString(name) && spelling(section, name) === undefined) {
       add(path, referenceProblem(section, name, owner));
     }
   };
+
   /** The rule of each field of an entry of `section` that names another entry. */
-  const references = (
+  const references = <E extends object>(
     section: Section,
-    entry: object,
+    entry: E,
     path: string,
     inherited = kept.has(entry),
   ): void => {
     for (const [field, target] of REFERENCES[section]) {
-      const name = (entry as Record<string, unknown>)[field];
+      // SAFETY: an entry is plain data of the standard, by its fields.
+      const name = (entry as Fields)[field];
       refer(target, name, `${path}.${field}`, inherited ? section : undefined);
     }
   };
+
   const sheetFiles = fallback("sheetFiles");
   const minTextHeight = fallback("minTextHeight");
   const defaultSheetFormat = doc.defaultSheetFormat ?? parent?.defaultSheetFormat;
   const defaultDimensionStyle = doc.defaultDimensionStyle ?? parent?.defaultDimensionStyle;
   const defaultLeaderStyle = doc.defaultLeaderStyle ?? parent?.defaultLeaderStyle;
+
   for (const [field, section, name] of [
     ["defaultSheetFormat", "sheetFormats", defaultSheetFormat],
     ["defaultDimensionStyle", "dimensionStyles", defaultDimensionStyle],
@@ -325,13 +417,16 @@ function resolve(
   // Two names that AUDIT takes for one, which the merge, folding case as the leading CAD app does, keeps apart.
   for (const section of ["layers", "linetypes"] as const) {
     const seen = new Map<string, string>();
+
     for (const [name] of merged[section].values()) {
       const key = layerAuditKey(name);
       const other = seen.get(key);
+
       const problem =
         other === undefined
           ? undefined
           : layerTwinProblem(name, other, section === "layers" ? "layer" : "linetype");
+
       if (problem) add(`${section}[${JSON.stringify(name)}]`, problem);
       else seen.set(key, name);
     }
@@ -344,8 +439,10 @@ function resolve(
    */
   const each = <T>(section: Section) =>
     [...merged[section].values()].map(
+      // SAFETY: as for `lookup`, an entry of a section is of its entry type T.
       ([name, entry]) => [name, entry as T, `${section}["${name}"]`] as const,
     );
+
   /**
    * The rules of `byDiscipline` on an entry of `section`: each key a discipline, and each
    * discipline's fields as the entry's, through `check`.
@@ -358,9 +455,12 @@ function resolve(
   ): void => {
     if (entry.byDiscipline === undefined) return;
     const where = `${path}.byDiscipline`;
+
     if (sheetFiles === "one-drawing") add(where, BY_DISCIPLINE_ONE_DRAWING);
+
     if (entry.discipline !== undefined) add(where, BY_DISCIPLINE_OF_ONE);
     const inherited = kept.has(entry);
+
     for (const [discipline, fields] of Object.entries(entry.byDiscipline)) {
       const at = `${where}[${JSON.stringify(discipline)}]`;
       refer("disciplines", discipline, at, inherited ? section : undefined);
@@ -382,6 +482,7 @@ function resolve(
       );
     }
   };
+
   for (const [, role, path] of each<StandardTextRole>("textRoles")) {
     roleHeight(role, path);
     references("textRoles", role, path);
@@ -395,31 +496,43 @@ function resolve(
   // style's are made the same way, among the leader styles.
   const dimensionStyles = each<StandardDimensionStyle>("dimensionStyles");
   const scaleIds = [...merged.scales.values()].map(([name]) => name);
+
   const styleName = ([style, scale]: StyleName): string =>
     `the dimension style ${shown(dimensionStyles[style]![0])}${scale < 0 ? "" : ` at the scale ${shown(scaleIds[scale])}`}`;
+
   // A style's own name at a place, by its index among the scales, or -1 on a layout.
   const scaleAt = new Map(scaleIds.map((id, i) => [idKey(id), i]));
+
   const ownNames = dimensionStyles.map(([, style]) => {
     const own = new Map<number, string>();
+
     if (style.layoutName !== undefined) own.set(-1, style.layoutName);
+
     for (const [scale, name] of Object.entries(style.scaleNames ?? {})) {
       const at = scaleAt.get(idKey(scale));
+
       if (at !== undefined) own.set(at, name);
     }
+
     return own;
   });
+
   const named = ([style, scale]: StyleName): boolean => ownNames[style]!.has(scale);
+
   const shared = sharedStyleNames(
     dimensionStyles.map(([id]) => id),
     scaleIds,
     named,
   );
+
   dimensionStyles.forEach(([, style, path], i) => {
     references("dimensionStyles", style, path);
     byDiscipline("dimensionStyles", style, path);
+
     for (const scale of Object.keys(style.scaleNames ?? {})) {
       refer("scales", scale, `${path}.scaleNames[${JSON.stringify(scale)}]`);
     }
+
     for (const [name, other] of shared.get(i) ?? []) {
       add(
         path,
@@ -437,15 +550,19 @@ function resolve(
       const key = layerAuditKey(name);
       let other = given.get(key);
       const style = styleKeys.get(key);
+
       if (other === undefined && style !== undefined && !named([style, -1])) other = [style, -1];
+
       for (
         let at = key.indexOf("-");
         other === undefined && at >= 0;
         at = key.indexOf("-", at + 1)
       ) {
         const [head, tail] = [styleKeys.get(key.slice(0, at)), scaleKeys.get(key.slice(at + 1))];
+
         if (head !== undefined && tail !== undefined && !named([head, tail])) other = [head, tail];
       }
+
       if (other === undefined) given.set(key, where);
       else {
         const path = dimensionStyles[i]![2];
@@ -459,16 +576,20 @@ function resolve(
     }
   });
   const leaderStyles = each<StandardLeaderStyle>("leaderStyles");
+
   const leaderStyleName = ([style, scale]: StyleName): string =>
     `the leader style ${shown(leaderStyles[style]![0])}${scale < 0 ? "" : ` at the scale ${shown(scaleIds[scale])}`}`;
+
   const sharedLeaderNames = sharedStyleNames(
     leaderStyles.map(([id]) => id),
     scaleIds,
     () => false,
   );
+
   leaderStyles.forEach(([, style, path], i) => {
     references("leaderStyles", style, path);
     byDiscipline("leaderStyles", style, path);
+
     for (const [name, other] of sharedLeaderNames.get(i) ?? []) {
       add(
         path,
@@ -479,27 +600,37 @@ function resolve(
 
   const papers = (paper: string, path: string) => {
     const info = paperInfo(paper);
+
     if (info && info.units !== paperUnits) {
       add(
         path,
         `The paper ${shown(paper)} is in ${shown(info.units)}, and the standard's paperUnits are ${shown(paperUnits)}`,
       );
     }
+
     return info;
   };
+
   const roleStyles = new Map(
     [...merged.textRoles.values()].map(([id]) => [layerAuditKey(capitals(id)), id] as const),
   );
+
   const blocks = new Map<string, { name: string; json: string; owner: string }>();
   const textStyles = new Map<string, { name: string; json: string; owner: string }>();
   const xrefs = new Map<string, { name: string; path: string; owner: string }>();
+
   for (const [id, block, path] of each<StandardTitleBlock>("titleBlocks")) {
     const info = papers(block.paper, `${path}.paper`);
     references("titleBlocks", block, path);
+
     if (!block.block && !block.xref) add(path, TITLE_BLOCK_FORM);
+
     if (block.block && block.blockName === undefined) add(`${path}.blockName`, BLOCK_NAME_MISSING);
+
     if (!block.block && block.blockName !== undefined) add(`${path}.blockName`, BLOCK_NAME_ALONE);
+
     if (block.preview && !block.xref) add(`${path}.preview`, PREVIEW_ALONE);
+
     if (info) {
       boxIn(
         block.drawingArea,
@@ -509,24 +640,31 @@ function resolve(
         add,
       );
     }
+
     if (block.box) boxIn(block.box, block.drawingArea, "the drawing area", `${path}.box`, add);
+
     const drawn =
       block.block && block.blockName !== undefined
         ? titleBlockDrawing(block.block, block.blockName, `${path}.block`, paperUnits, lookup, add)
         : undefined;
+
     for (const [tag, field] of Object.entries(block.fields)) {
       const at = `${path}.fields[${JSON.stringify(tag)}]`;
+
       if (field.box && info) {
         boxIn(field.box, [0, 0, info.width, info.height], "the paper", `${at}.box`, add);
       }
+
       if (field.source !== "attribute" && !block.xref)
         add(`${at}.source`, filledByCad(field.source));
+
       if (
         (field.source === "fileName" || field.source === "layoutName") &&
         sheetFiles === "one-drawing"
       ) {
         add(`${at}.source`, READS_A_NAME);
       }
+
       if (field.source === "attribute") {
         if (!block.block) add(at, ATTRIBUTE_WITHOUT_BLOCK);
         else if (drawn && !drawn.block.attributes?.some((a) => a.tag === tag)) {
@@ -537,9 +675,11 @@ function resolve(
         }
       }
     }
+
     if (block.preview && block.preview.units !== paperUnits) {
       add(`${path}.preview`, unitsProblem(block.preview.units, paperUnits));
     }
+
     if (drawn) {
       const owned = (
         kind: "block" | "text style",
@@ -549,6 +689,7 @@ function resolve(
       ): void => {
         const key = layerAuditKey(name);
         const other = found.get(key);
+
         if (other === undefined) found.set(key, { name, json, owner: id });
         else if (other.json !== json) {
           add(
@@ -557,10 +698,13 @@ function resolve(
           );
         }
       };
+
       for (const b of drawn.blocks) owned("block", blocks, b.name, canonical(b));
+
       for (const style of drawn.textStyles) {
         owned("text style", textStyles, style.name, canonical(style));
         const role = roleStyles.get(layerAuditKey(style.name));
+
         if (role !== undefined) {
           add(
             `${path}.block`,
@@ -569,9 +713,11 @@ function resolve(
         }
       }
     }
+
     if (block.xref) {
       const key = layerAuditKey(block.xref.name);
       const other = xrefs.get(key);
+
       if (other === undefined) xrefs.set(key, { ...block.xref, owner: id });
       else if (other.path !== block.xref.path) {
         add(
@@ -581,8 +727,10 @@ function resolve(
       }
     }
   }
+
   for (const [key, xref] of xrefs) {
     const block = blocks.get(key);
+
     if (block) {
       add(
         `titleBlocks[${JSON.stringify(xref.owner)}].xref.name`,
@@ -595,13 +743,16 @@ function resolve(
     papers(format.paper, `${path}.paper`);
     references("sheetFormats", format, path);
     const block = lookup<StandardTitleBlock>("titleBlocks", format.titleBlock);
+
     if (!block) continue;
+
     if (block.paper !== format.paper) {
       add(
         `${path}.paper`,
         `The sheet format's paper, ${shown(format.paper)}, is not its title block's, ${shown(block.paper)}`,
       );
     }
+
     for (const [zone, box] of Object.entries(format.zones)) {
       boxIn(
         box,
@@ -619,39 +770,72 @@ function resolve(
    * `entry` with each field that names another entry, and each key of its `byDiscipline`, spelled
    * as that entry is, so that neither the standard nor its hash depends on how a name was written.
    */
-  const respelled = (section: Section, entry: Record<string, unknown>): unknown => {
-    let out: Record<string, unknown> | undefined;
+  const respelled = (section: Section, entry: Fields): Fields => {
+    let out: Record<string, StandardValue | undefined> | undefined;
+
     for (const [field, target] of REFERENCES[section]) {
       const name = entry[field];
-      if (typeof name !== "string") continue;
+
+      if (!isString(name)) continue;
       const spelled = spelling(target, name)!;
+
       if (spelled !== name) (out ??= { ...entry })[field] = spelled;
     }
-    const by = entry.byDiscipline as Readonly<Record<string, Record<string, unknown>>> | undefined;
+
+    // SAFETY: `readDocument` has read byDiscipline as a map of the section's entry's fields.
+    const by = entry.byDiscipline as { readonly [discipline: string]: Fields } | undefined;
+
     if (by) {
       let changed = false;
+
       const disciplines = Object.entries(by).map(([discipline, fields]) => {
         const name = spelling("disciplines", discipline)!;
         const own = respelled(section, fields);
         changed ||= name !== discipline || own !== fields;
+
         return [name, own] as const;
       });
+
       if (changed) (out ??= { ...entry }).byDiscipline = Object.freeze(entriesObject(disciplines));
     }
+
     return out ? Object.freeze(out) : entry;
   };
-  const sections = Object.fromEntries(
-    SECTIONS.map((section) => {
-      // An entry's key is `layerKey` of its name, or for an id its letters in lower case,
-      // which is the same.
-      const entries = merged[section];
-      const sorted = [...entries.keys()].sort().map((key) => {
-        const [name, entry] = entries.get(key)!;
-        return [name, respelled(section, entry as Record<string, unknown>)] as const;
-      });
-      return [section, Object.freeze(entriesObject(sorted))];
-    }),
-  );
+
+  /** The entries of a section, respelled and in order, each of the section's entry type T. */
+  const entriesOf = <T>(section: Section): { readonly [name: string]: T } => {
+    // An entry's key is `layerKey` of its name, or for an id its letters in lower case,
+    // which is the same.
+    const entries = merged[section];
+
+    const sorted = [...entries.keys()].sort().map((key) => {
+      const [name, entry] = entries.get(key)!;
+      // SAFETY: an entry of a section is a plain object.
+      const own = respelled(section, entry as Fields);
+
+      // SAFETY: as for `each`, an entry of a section is of its entry type T, which respelling a
+      // name keeps.
+      return [name, own as T] as const;
+    });
+
+    return Object.freeze(entriesObject(sorted));
+  };
+
+  // Each name the defaults give has passed its rule above, so it has a spelling.
+  const defaults: Defaults = {};
+
+  if (defaultSheetFormat !== undefined) {
+    defaults.defaultSheetFormat = spelling("sheetFormats", defaultSheetFormat)!;
+  }
+
+  if (defaultDimensionStyle !== undefined) {
+    defaults.defaultDimensionStyle = spelling("dimensionStyles", defaultDimensionStyle)!;
+  }
+
+  if (defaultLeaderStyle !== undefined) {
+    defaults.defaultLeaderStyle = spelling("leaderStyles", defaultLeaderStyle)!;
+  }
+
   const body = {
     id: doc.id,
     version: doc.version,
@@ -661,55 +845,74 @@ function resolve(
     linetypeScale: fallback("linetypeScale"),
     plotStyle: fallback("plotStyle"),
     sheetFiles,
-    ...(defaultSheetFormat === undefined
-      ? {}
-      : { defaultSheetFormat: spelling("sheetFormats", defaultSheetFormat) }),
-    ...(defaultDimensionStyle === undefined
-      ? {}
-      : { defaultDimensionStyle: spelling("dimensionStyles", defaultDimensionStyle) }),
-    ...(defaultLeaderStyle === undefined
-      ? {}
-      : { defaultLeaderStyle: spelling("leaderStyles", defaultLeaderStyle) }),
-    ...sections,
+    ...defaults,
+    disciplines: entriesOf<StandardDiscipline>("disciplines"),
+    pens: entriesOf<StandardPen>("pens"),
+    linetypes: entriesOf<StandardLinetype>("linetypes"),
+    layers: entriesOf<StandardLayer>("layers"),
+    textRoles: entriesOf<StandardTextRole>("textRoles"),
+    scales: entriesOf<StandardScale>("scales"),
+    dimensionStyles: entriesOf<StandardDimensionStyle>("dimensionStyles"),
+    leaderStyles: entriesOf<StandardLeaderStyle>("leaderStyles"),
+    titleBlocks: entriesOf<StandardTitleBlock>("titleBlocks"),
+    sheetFormats: entriesOf<StandardSheetFormat>("sheetFormats"),
   };
+
   const chain = parent
     ? [{ id: parent.id, version: parent.version, hash: parent.hash }, ...parent.chain]
     : [];
+
   // Each entry is frozen already, and a parent's entries are the parent's own.
-  const standard = Object.freeze({
+  const standard: Standard = Object.freeze({
     ...body,
     hash: sha256Text(hashedJson(body, writtenDrawing)),
     chain: frozen(chain),
-  }) as unknown as Standard;
+  });
+
   MADE.add(standard);
+
   return standard;
 }
 
+/** The default entries a standard names. */
+interface Defaults {
+  defaultSheetFormat?: string;
+  defaultDimensionStyle?: string;
+  defaultLeaderStyle?: string;
+}
+
 /** The parent a document's `extends` names, or undefined after adding the problem. */
-function parentOf(
+function parentOf<F extends Readonly<Record<string, unknown>>>(
   value: string | Standard,
-  files: Readonly<Record<string, unknown>>,
+  files: F,
   add: (item: string, message: string) => void,
 ): Standard | undefined {
   let given: unknown = value;
-  if (typeof value === "string") {
+
+  if (isString(value)) {
     if (value === BUILT_IN_SPECIFIER) return builtInStandard();
+
     if (!Object.hasOwn(files, value)) {
       add(
         "extends",
         `${shown(value)} is not in options.files. The library reads no file: pass the standard it names as files[${shown(value)}]`,
       );
+
       return undefined;
     }
+
     given = files[value];
   }
+
   const standard = adopted(given);
+
   if (!standard) {
     add(
       "extends",
       "The parent is not a standard: give extends a Standard that defineStandard made, unchanged, or a string that options.files gives one for",
     );
   }
+
   return standard;
 }
 
@@ -719,42 +922,65 @@ function parentOf(
  * `problems`, with its path in the standard.
  */
 function readAgain(given: unknown, problems: Problem[]): Standard | undefined {
-  if (!isRecord(given)) {
+  if (!isPlainRecord(given)) {
     problems.push({ item: "", message: `A standard ${PLAIN_OBJECT}` });
+
     return undefined;
   }
+
   const { hash, chain, ...rest } = given;
   const before = problems.length;
-  if (typeof hash !== "string") problems.push({ item: "hash", message: NO_HASH });
-  let links = Array.isArray(chain);
-  // An empty slot is no link. `every` would skip it, and read a list of empty slots to its end.
-  for (let i = 0; links && i < (chain as unknown[]).length; i++) {
-    const link: unknown = (chain as unknown[])[i];
-    links =
-      isRecord(link) &&
-      typeof link.id === "string" &&
-      typeof link.version === "string" &&
-      typeof link.hash === "string";
-  }
+
+  if (!isString(hash)) problems.push({ item: "hash", message: NO_HASH });
+  const links = isLinks(chain) ? chain : undefined;
+
   if (!links) problems.push({ item: "chain", message: CHAIN });
+
   if (rest.extends !== undefined) problems.push({ item: "extends", message: RESOLVED_EXTENDS });
-  if (problems.length > before) return undefined;
+
+  if (problems.length > before || !links) return undefined;
   const again = resolve(rest, {}, problems);
+
   if (!again) return undefined;
+
   if (again.hash !== hash) {
     problems.push({ item: "hash", message: hashProblem(again.hash) });
+
     return undefined;
   }
+
   // Its entries are `again`'s, whose drawings' JSON is known.
   const standard = Object.freeze({
     ...again,
-    chain: frozen(
-      (chain as StandardLink[]).map(({ id, version, hash }) => ({ id, version, hash })),
-    ),
-  }) as Standard;
+    chain: frozen(links.map(({ id, version, hash }) => ({ id, version, hash }))),
+  });
+
   MADE.add(standard);
+
   return standard;
 }
+
+/** True for a list of links of a chain, each with its id, version and hash. */
+function isLinks(value: unknown): value is readonly StandardLink[] {
+  if (!Array.isArray(value)) return false;
+
+  // An empty slot is no link. `every` would skip it, and read a list of empty slots to its end.
+  for (let i = 0; i < value.length; i++) {
+    const link: unknown = value[i];
+
+    if (
+      !isPlainRecord(link) ||
+      !isString(link.id) ||
+      !isString(link.version) ||
+      !isString(link.hash)
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 readStandardsWith(readAgain);
 
 /** The closure of a title block's block: what a drawing that inserts it has to hold. */
@@ -779,10 +1005,13 @@ function titleBlockDrawing(
   if (drawing.units !== paperUnits) add(path, unitsProblem(drawing.units, paperUnits));
   const byName = new Map((drawing.blocks ?? []).map((b) => [layerKey(b.name), b]));
   const start = byName.get(layerKey(blockName));
+
   if (!start) {
     add(path, `The title block's drawing has no block ${shown(blockName)}, which blockName names`);
+
     return undefined;
   }
+
   for (const [field, what] of [
     ["dimensionStyles", "a dimension style"],
     ["leaderStyles", "a leader style"],
@@ -791,18 +1020,23 @@ function titleBlockDrawing(
   ] as const) {
     if ((drawing[field]?.length ?? 0) > 0) add(path, `A title block's drawing cannot hold ${what}`);
   }
+
   const everything = [drawing.entities, ...(drawing.blocks ?? []).map((b) => b.entities)];
+
   if (everything.some((entities) => entities.some((e) => e.kind.endsWith("-dimension")))) {
     add(path, "A title block's drawing cannot hold a dimension");
   }
+
   if (everything.some((entities) => entities.some((e) => e.kind === "leader"))) {
     add(path, "A title block's drawing cannot hold a leader");
   }
+
   for (const linetype of drawing.linetypes ?? []) {
     const own = lookup<{ description: string; pattern: readonly number[] }>(
       "linetypes",
       linetype.name,
     );
+
     if (!own) {
       add(
         path,
@@ -820,12 +1054,15 @@ function titleBlockDrawing(
 
   const blocks = [start];
   const styleNames = new Set<string>();
+
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i]!;
+
     const layers = [
       ...block.entities.map((e: Entity) => e.layer),
       ...(block.attributes ?? []).map((a) => a.layer),
     ];
+
     for (const layer of new Set(layers)) {
       if (layer !== "0" && lookup("layers", layer) === undefined) {
         add(
@@ -834,18 +1071,24 @@ function titleBlockDrawing(
         );
       }
     }
+
     for (const e of block.entities) {
       if ((e.kind === "text" || e.kind === "paragraph") && e.style !== undefined) {
         styleNames.add(layerKey(e.style));
       }
+
       if (e.kind !== "insert") continue;
       const inserted = byName.get(layerKey(e.block));
+
       if (inserted && !blocks.includes(inserted)) blocks.push(inserted);
     }
+
     for (const a of block.attributes ?? [])
       if (a.style !== undefined) styleNames.add(layerKey(a.style));
   }
+
   const textStyles = (drawing.textStyles ?? []).filter((s) => styleNames.has(layerKey(s.name)));
+
   return { block: start, blocks, textStyles };
 }
 
@@ -857,15 +1100,24 @@ function boxIn(
   path: string,
   add: (item: string, message: string) => void,
 ): void {
-  const [left, bottom, right, top] = box.map(written) as unknown as Box;
+  const [left, bottom, right, top] = [
+    written(box[0]),
+    written(box[1]),
+    written(box[2]),
+    written(box[3]),
+  ];
+
   if (!(left < right && bottom < top)) {
     add(
       path,
       "A box is [left, bottom, right, top], with left less than right and bottom less than top",
     );
+
     return;
   }
-  const [l, b, r, t] = outer.map(written) as unknown as Box;
+
+  const [l, b, r, t] = [written(outer[0]), written(outer[1]), written(outer[2]), written(outer[3])];
+
   if (left < l || bottom < b || right > r || top > t) {
     add(path, `The box reaches past ${what}, [${outer.join(", ")}]`);
   }
@@ -899,17 +1151,20 @@ function sharedStyleNames(
   const scaleKeys = scales.map((id) => layerAuditKey(id));
   const styleAt = new Map(styleKeys.map((key, i) => [key, i]));
   const scaleAt = new Map(scaleKeys.map((key, i) => [key, i]));
+
   const splits = function* (key: string): Generator<readonly [string, string]> {
     for (let at = key.indexOf("-"); at >= 0; at = key.indexOf("-", at + 1)) {
       yield [key.slice(0, at), key.slice(at + 1)];
     }
   };
+
   /** Every name that is one with another name. */
   const names: StyleName[] = [];
   styleKeys.forEach((key, i) => {
     for (const [head, tail] of splits(key)) {
       const style = styleAt.get(head);
       const scale = scaleAt.get(tail);
+
       if (style !== undefined && scale !== undefined) names.push([i, -1], [style, scale]);
     }
   });
@@ -917,8 +1172,10 @@ function sharedStyleNames(
   scaleKeys.forEach((key, i) => {
     for (const [head, tail] of splits(key)) {
       const rest = scaleAt.get(tail);
+
       if (rest === undefined) continue;
       const found = byPart.get(head);
+
       if (found) found.push([i, rest]);
       else byPart.set(head, [[i, rest]]);
     }
@@ -926,7 +1183,9 @@ function sharedStyleNames(
   styleKeys.forEach((key, i) => {
     for (const [head, part] of splits(key)) {
       const style = styleAt.get(head);
+
       if (style === undefined) continue;
+
       for (const [scale, rest] of byPart.get(part) ?? []) names.push([style, scale], [i, rest]);
     }
   });
@@ -936,19 +1195,24 @@ function sharedStyleNames(
   const shared = new Map<number, [StyleName, StyleName][]>();
   names.forEach((name, n) => {
     const before = names[n - 1];
+
     if (before && before[0] === name[0] && before[1] === name[1]) return;
+
     // A place the standard gives another name has no name from the ids.
     if (renamed(name)) return;
     const [style, scale] = name;
     const key = scale < 0 ? styleKeys[style]! : `${styleKeys[style]}-${scaleKeys[scale]}`;
     const earlier = first.get(key);
+
     if (earlier === undefined) first.set(key, name);
     else {
       const found = shared.get(style);
+
       if (found) found.push([name, earlier]);
       else shared.set(style, [[name, earlier]]);
     }
   });
+
   return shared;
 }
 
@@ -960,10 +1224,13 @@ const filledByCad = (source: string): string =>
 
 const NO_HASH =
   "A standard holds its hash, the SHA-256 of what it states, as 64 hexadecimal digits. Give the standard as defineStandard returns it";
+
 const CHAIN =
   "A standard holds its chain, a list of the id, version and hash of each parent. Give the standard as defineStandard returns it";
+
 const RESOLVED_EXTENDS =
   "A standard is resolved, with its parent's entries in it, and has no extends. Give the standard as defineStandard returns it";
+
 const hashProblem = (hash: string): string =>
   `The standard's hash is not the hash of what it states, ${hash}: it changed after defineStandard made it. Give the standard as defineStandard returns it`;
 
@@ -982,17 +1249,23 @@ const REFERENCE_WORDS: Record<Section, string> = {
 
 const BY_DISCIPLINE_ONE_DRAWING =
   "byDiscipline holds only under sheetFiles \"sheet-per-file\", where each discipline's model is a drawing of its own. In one drawing a name has one set of properties, so give each discipline's entry a name of its own";
+
 const BY_DISCIPLINE_OF_ONE =
   "An entry of one discipline has one set of fields. byDiscipline is for an entry that every discipline shares";
+
 const TITLE_BLOCK_FORM =
   "A title block has a block that tsdraft draws, an xref of the firm's own drawing, or both";
+
 const BLOCK_NAME_MISSING = "A title block with a block names it with blockName";
 const BLOCK_NAME_ALONE = "blockName names the block of block, and this title block has no block";
 const PREVIEW_ALONE = "A preview is drawn in place of an xref, and this title block has no xref";
+
 const ATTRIBUTE_WITHOUT_BLOCK =
   'A field whose source is "attribute" is written in an attribute of the title block\'s block, and this title block has no block';
 
 /** The built-in standard: its layers, pens, roles, scales, dimension style and plain title block. */
+// SAFETY: the built-in standard is made from BUILT_IN_DOCUMENT, whose names, id and version are
+// the type's.
 export const BUILT_IN_STANDARD: BuiltInStandard = builtInStandard() as BuiltInStandard;
 
 export type BuiltInStandard = Standard<

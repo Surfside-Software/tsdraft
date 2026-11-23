@@ -116,9 +116,9 @@ it would take `1e+100` for `1e+10` and report nothing.
   is written too.
 - A linetype's `marks` are each at the end of a length of its pattern, by `after`, in order, at
   most one at a length. A text is a string of at least one character in one of the drawing's text
-  styles, `Standard` unless it names one, and its height is greater than 0 as written. A shape is a
-  whole number from 1 to 65535 in a named shape file, and its scale is not 0 as written: one of a
-  negative scale is drawn turned half a turn. A shape by its name, as a linetype file gives it, is
+  styles, `Standard` unless it names one, and its height is greater than 0 as written. A shape's
+  `glyph` is a whole number from 1 to 65535 in a named shape file, and its scale is not 0 as
+  written: one of a negative scale is drawn turned half a turn. A shape by its name, as a linetype file gives it, is
   refused, since a drawing holds a shape by its number: `parseLinetypes` given the file numbers it.
   `orient` is `relative`, `absolute` or `upright`. A linetype's texts may take 256 characters
   together, counting one more for each, since a DWG holds them in 512 bytes. R2018 only, as is a
@@ -324,7 +324,7 @@ it would take `1e+100` for `1e+10` and report nothing.
   paper goes.
 - A viewport that shows none of the drawing: nothing in model space lies in the box it shows.
 - `linetype-shape`: a linetype that a layer or an entity draws in, with a shape the plot cannot
-  draw from the `shapes` given: its file is not given, does not read, or has no such shape. CAD
+  draw from the `shx` given: its file is not given, does not read, or has no such shape. CAD
   programs draw a shape from its file, which the drawing names and does not hold, and tsdraft's
   plot leaves a gap where such a shape goes.
 - `check-capped`: where `lint` stopped the checks it makes again for what a drawing repeats:
@@ -419,6 +419,13 @@ Warnings:
   does not set, so it shows its attribute's default.
 - `title-block-field-overflow`: a field's value that runs past the field's box, as `measureText`
   measures it.
+- `viewport-shows-other-view`: a text, an insert, a dimension or a leader drawn for one view
+  that a viewport of another view shows at the same scale, once for each viewport. It plots at its
+  size there, so no check of scale finds it: two elevations at one scale whose drawings are too
+  close in model space, or a plan's notes in a furniture plan's viewport. The builder keeps the
+  view an annotation was drawn for in its `view`, and an entity without one is not checked. Keep
+  each view's drawing in its own part of model space, out of the other's viewport, or freeze the
+  layer in that viewport where it is meant to show there.
 - `discipline-unknown`: the entries with fields by discipline that `lint` checked in none of
   their forms, since it was not given the drawing's discipline.
 - `standard-check-capped`: where the checks of text heights and dimension scales, or of a list

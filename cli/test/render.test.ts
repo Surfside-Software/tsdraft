@@ -18,7 +18,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { deflateSync } from "node:zlib";
 import { after, test } from "node:test";
 import { inScratch } from "./scratch.ts";
-import { BUILT_IN_STANDARD, pdfFace } from "tsdraft";
+import { BUILT_IN_STANDARD, pdfFace, toDXF } from "tsdraft";
 import { faces } from "../src/fonts.ts";
 import type { BuildState } from "../src/state.ts";
 
@@ -26,15 +26,32 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 
 // Each test makes its folders in this one, which is removed when the file's tests end.
 const temp = mkdtempSync(join(tmpdir(), "tsdraft-render-"));
+
 after(() => rmSync(temp, { recursive: true, force: true }));
+
 const tempDir = (): string => mkdtempSync(join(temp, "case-"));
 
-function render(file: string, ...args: string[]): { state: BuildState; status: number | null } {
+/** The command's state, from the JSON it prints and serves. */
+function stateOf(json: string): BuildState {
+  // SAFETY: the command writes its state as the JSON of a BuildState.
+  return JSON.parse(json) as BuildState;
+}
+
+/** The state `render` printed and the status it ended with. */
+interface Rendered {
+  readonly state: BuildState;
+  readonly status: number | null;
+}
+
+function render(file: string, ...args: string[]): Rendered {
   const run = spawnSync(process.execPath, [join(root, "src/cli.ts"), "render", file, ...args], {
     encoding: "utf8",
   });
-  return { state: JSON.parse(run.stdout) as BuildState, status: run.status };
+
+  return { state: stateOf(run.stdout), status: run.status };
 }
+
+const isNumber = (value: unknown): value is number => typeof value === "number";
 
 test("render writes the example's SVG and PNG and prints its state", () => {
   const out = tempDir();
@@ -102,6 +119,7 @@ test("a file that throws gives the error, its file and line, and a non-zero exit
     view: null,
     pdf: null,
     pdfError: null,
+    changes: null,
   });
   assert.match(thrown.state.error!.message, /^radius: /);
   assert.equal(thrown.state.error!.file, thrower);
@@ -145,6 +163,7 @@ test("a build that fails leaves no picture from an earlier run in the default fo
   const out = join(dir, "out");
   mkdirSync(out);
   const stale = ["plan.svg", "plan.png"].map((name) => join(out, name));
+
   for (const path of stale) writeFileSync(path, "stale");
   // In a folder the user named, a picture this run did not write may be theirs, and stays.
   const theirs = join(dir, "kept");
@@ -162,6 +181,7 @@ test("a build that fails leaves no picture from an earlier run in the default fo
     view: null,
     pdf: null,
     pdfError: null,
+    changes: null,
   });
   assert.deepEqual(
     stale.map((path) => existsSync(path)),
@@ -173,6 +193,7 @@ test("the state says which blocks a drawing has and where each is inserted", () 
   const dir = realpathSync(tempDir());
   const plan = join(dir, "plan.ts");
   const text = { layer: "0", at: [0, 2], height: 1, rotation: 0 };
+
   const drawing = {
     format: 0,
     units: "ft",
@@ -213,6 +234,7 @@ test("the state says which blocks a drawing has and where each is inserted", () 
       { kind: "insert", layer: "0", block: "ÿ", at: [0, 0] },
     ],
   };
+
   writeFileSync(plan, `export default ${JSON.stringify(drawing)};\n`);
   const { state } = render(plan);
   assert.deepEqual(state.drawing?.counts, {
@@ -276,6 +298,7 @@ test("the state says which blocks a drawing has and where each is inserted", () 
 
 test("the state lists each xref, and the pictures draw the ones the file gives a drawing for", () => {
   const dir = realpathSync(tempDir());
+
   const base = {
     format: 0,
     units: "ft",
@@ -283,7 +306,9 @@ test("the state lists each xref, and the pictures draw the ones the file gives a
     layers: [{ name: "0", color: 7 }],
     entities: [{ kind: "line", layer: "0", from: [0, 0], to: [10, 4] }],
   };
+
   const insert = { kind: "insert", layer: "0", at: [100, 0] };
+
   const sheet = {
     ...base,
     entities: [
@@ -297,7 +322,9 @@ test("the state lists each xref, and the pictures draw the ones the file gives a
       { name: "SPARE", path: "spare.dwg" },
     ],
   };
+
   const plan = join(dir, "plan.ts");
+
   const file = (xrefs: string): void =>
     writeFileSync(plan, `${xrefs}\nexport default ${JSON.stringify(sheet)};\n`);
 
@@ -421,7 +448,8 @@ test("the state lists each xref, and the pictures draw the ones the file gives a
 
 test("the pictures draw an attachment inside a drawing the file gives with its xrefs, and no overlay there", () => {
   const dir = realpathSync(tempDir());
-  const drawing = (layer: string, entities: unknown[], xrefs?: unknown[]) => ({
+
+  const drawing = (layer: string, entities: unknown[]) => ({
     format: 0,
     units: "ft",
     dxf: "R2018",
@@ -430,13 +458,19 @@ test("the pictures draw an attachment inside a drawing the file gives with its x
       { name: layer, color: 1 },
     ],
     entities,
-    ...(xrefs ? { xrefs } : {}),
   });
+
+  const withXrefs = (layer: string, entities: unknown[], xrefs: unknown[]) => ({
+    ...drawing(layer, entities),
+    xrefs,
+  });
+
   const line = (layer: string) => ({ kind: "line", layer, from: [0, 0], to: [1, 0] });
   const insert = (block: string, x: number) => ({ kind: "insert", layer: "0", block, at: [x, 0] });
   const detail = drawing("D", [line("D")]);
   const survey = drawing("S", [line("S")]);
-  const model = drawing(
+
+  const model = withXrefs(
     "M",
     [line("M"), insert("DETAIL", 10), insert("SURVEY", 20)],
     [
@@ -444,19 +478,23 @@ test("the pictures draw an attachment inside a drawing the file gives with its x
       { name: "SURVEY", path: "survey.dwg" },
     ],
   );
-  const sheet = drawing("X", [insert("MODEL", 100)], [{ name: "MODEL", path: "model.dwg" }]);
+
+  const sheet = withXrefs("X", [insert("MODEL", 100)], [{ name: "MODEL", path: "model.dwg" }]);
   const plan = join(dir, "plan.ts");
-  const file = (detailGiven: unknown): void =>
+
+  const file = (detailGiven: ReturnType<typeof drawing>): void =>
     writeFileSync(
       plan,
       `export const xrefs = { MODEL: { drawing: ${JSON.stringify(model)}, xrefs: { DETAIL: ${JSON.stringify(detailGiven)}, SURVEY: ${JSON.stringify(survey)} } } };\nexport default ${JSON.stringify(sheet)};\n`,
     );
+
   file(detail);
   const { state, status } = render(plan, "--out", dir);
   assert.equal(status, 0);
   const svg = readFileSync(state.outputs.svg!, "utf8");
   assert.match(svg, /<line x1="110" y1="0" x2="111" y2="0" [^>]*data-layer="DETAIL\|D"\/>/);
   assert.doesNotMatch(svg, /SURVEY/);
+
   const summary = (name: string, path: string, attach: boolean, shown: boolean) => ({
     name,
     path,
@@ -466,6 +504,7 @@ test("the pictures draw an attachment inside a drawing the file gives with its x
     units: shown ? "ft" : null,
     xrefs: [],
   });
+
   assert.deepEqual(state.drawing?.xrefs, [
     {
       ...summary("MODEL", "model.dwg", false, true),
@@ -486,6 +525,7 @@ test("the pictures draw an attachment inside a drawing the file gives with its x
       ],
     ],
   );
+
   // An attachment the model places only on a sheet of its own is placed nowhere drawn: CAD draws
   // a referenced drawing's model space alone.
   const sheetOnly = {
@@ -493,6 +533,7 @@ test("the pictures draw an attachment inside a drawing the file gives with its x
     entities: [line("M"), insert("SURVEY", 20)],
     layouts: [{ name: "M-1", paper: "ANSI B", viewports: [], entities: [insert("DETAIL", 1)] }],
   };
+
   writeFileSync(
     plan,
     `export const xrefs = { MODEL: { drawing: ${JSON.stringify(sheetOnly)}, xrefs: { DETAIL: ${JSON.stringify(detail)} } } };\nexport default ${JSON.stringify(sheet)};\n`,
@@ -545,6 +586,7 @@ test("a drawing file Node reads as CommonJS says how to make it a module", () =>
 
 test("a drawing is checked and drawn by its project's copy of tsdraft", () => {
   const dir = realpathSync(tempDir());
+
   /** A stand-in for tsdraft that says who it is in its warning and in the size it draws. */
   const stub = (folder: string, who: string, size: number) => {
     mkdirSync(folder, { recursive: true });
@@ -562,6 +604,7 @@ export const toSVG = () => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0
 `,
     );
   };
+
   writeFileSync(join(dir, "package.json"), '{ "type": "module" }\n');
   stub(join(dir, "node_modules/tsdraft"), "the project's", 7);
   // A helper package with a copy of its own, which it loads before the drawing loads the project's.
@@ -569,10 +612,12 @@ export const toSVG = () => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0
   stub(join(helper, "node_modules/tsdraft"), "the helper's", 777);
   writeFileSync(join(helper, "package.json"), '{ "type": "module", "exports": "./index.js" }\n');
   writeFileSync(join(helper, "index.js"), 'export { drawing } from "tsdraft";\n');
+
   const by = (source: string) => {
     writeFileSync(join(dir, "plan.ts"), source);
     const { state, status } = render(join(dir, "plan.ts"));
     assert.equal(status, 0);
+
     return [state.diagnostics[0]?.message, state.drawing?.extents.max[0]];
   };
 
@@ -648,13 +693,16 @@ async function withDev(
   const server = spawn(process.execPath, [join(root, "src/cli.ts"), "dev", file, ...flags], {
     stdio: ["ignore", "pipe", "inherit"],
   });
+
   try {
     const base = await new Promise<string>((resolve) =>
       server.stdout.on("data", (b: Buffer) => {
         const url = /http:\/\/\S+/.exec(b.toString())?.[0];
+
         if (url) resolve(url);
       }),
     );
+
     await use(base);
   } finally {
     server.kill();
@@ -667,7 +715,7 @@ test("dev answers /state.json?after=<n> with the first build newer than n", () =
     const source = readFileSync(join(root, "examples/lot.ts"), "utf8");
     writeFileSync(file, source);
     await withDev(file, async (base) => {
-      const first = (await (await fetch(`${base}/state.json?after=0`)).json()) as BuildState;
+      const first = stateOf(await (await fetch(`${base}/state.json?after=0`)).text());
       assert.deepEqual([first.build, first.ok, first.pending], [1, true, null]);
       // Saved by a rename, as one change: a write in place is a truncate and then a write, which
       // a busy machine can report far enough apart that each starts a build.
@@ -675,7 +723,7 @@ test("dev answers /state.json?after=<n> with the first build newer than n", () =
       writeFileSync(edit, `${source}\n// an edit\n`);
       renameSync(edit, file);
       const next = await fetch(`${base}/state.json?after=1&session=${first.session}`);
-      const state = (await next.json()) as BuildState;
+      const state = stateOf(await next.text());
       assert.equal(next.status, 200);
       assert.equal(next.headers.get("x-tsdraft-session"), first.session);
       assert.deepEqual([state.build, state.ok, state.pending], [2, true, null]);
@@ -698,13 +746,13 @@ test("dev rebuilds when a file outside the project that the drawing imports chan
         "const d = createDrawing();\nd.line([0, 0], [width, 0]);\nexport default d.build();\n",
     );
     await withDev(file, async (base) => {
-      const first = (await (await fetch(`${base}/state.json?after=0`)).json()) as BuildState;
+      const first = stateOf(await (await fetch(`${base}/state.json?after=0`)).text());
       assert.deepEqual(first.drawing?.extents.max, [10, 0]);
       // Saved by a rename, as one change, for the reason the test above gives.
       writeFileSync(`${helper}.new`, "export const width = 20;\n");
       renameSync(`${helper}.new`, helper);
       const next = await fetch(`${base}/state.json?after=1&session=${first.session}`);
-      const state = (await next.json()) as BuildState;
+      const state = stateOf(await next.text());
       assert.equal(next.status, 200);
       assert.deepEqual(
         [state.build, state.pending, state.drawing?.extents.max],
@@ -726,6 +774,7 @@ test("dev rebuilds when a package link in node_modules is pointed at another fol
       );
       writeFileSync(join(dir, name, "index.js"), `export const width = ${width};\n`);
     }
+
     mkdirSync(join(dir, "project/node_modules"), { recursive: true });
     writeFileSync(join(dir, "project/package.json"), "{}\n");
     symlinkSync(join(root, ".."), join(dir, "project/node_modules/tsdraft"));
@@ -738,12 +787,12 @@ test("dev rebuilds when a package link in node_modules is pointed at another fol
         "const d = createDrawing();\nd.line([0, 0], [width, 0]);\nexport default d.build();\n",
     );
     await withDev(file, async (base) => {
-      const first = (await (await fetch(`${base}/state.json?after=0`)).json()) as BuildState;
+      const first = stateOf(await (await fetch(`${base}/state.json?after=0`)).text());
       assert.deepEqual(first.drawing?.extents.max, [10, 0]);
       symlinkSync("../../b", `${link}.new`);
       renameSync(`${link}.new`, link);
       const next = await fetch(`${base}/state.json?after=1&session=${first.session}`);
-      const state = (await next.json()) as BuildState;
+      const state = stateOf(await next.text());
       assert.equal(next.status, 200);
       assert.deepEqual(
         [state.build, state.pending, state.drawing?.extents.max],
@@ -755,6 +804,7 @@ test("dev rebuilds when a package link in node_modules is pointed at another fol
 test("a drawing with a layout gets a picture of its sheet, and the state says what each viewport shows", () => {
   const dir = realpathSync(tempDir());
   const plan = join(dir, "plan.ts");
+
   const drawing = {
     format: 0,
     units: "ft",
@@ -822,6 +872,7 @@ test("a drawing with a layout gets a picture of its sheet, and the state says wh
       },
     ],
   };
+
   writeFileSync(plan, `export default ${JSON.stringify(drawing)};\n`);
   const { state, status } = render(plan, "--width", "400");
   assert.equal(status, 2);
@@ -968,6 +1019,7 @@ test("a drawing with a layout gets a picture of its sheet, and the state says wh
 test("the state lists each dimension with the number it measures and the text the leading CAD app draws", () => {
   const dir = realpathSync(tempDir());
   const plan = join(dir, "plan.ts");
+
   const drawing = {
     format: 0,
     units: "ft",
@@ -1026,6 +1078,7 @@ test("the state lists each dimension with the number it measures and the text th
       },
     ],
   };
+
   writeFileSync(plan, `export default ${JSON.stringify(drawing)};\n`);
   const { state, status } = render(plan, "--width", "400");
   assert.equal(status, 2);
@@ -1067,6 +1120,7 @@ test("a malformed layout is reported and left out, and the rest of the drawing i
   const plan = join(dir, "plan.ts");
   const view = { layer: "0", corner: [1, 1], width: 10, height: 8, center: [5, 0], ratio: 12 };
   const line = { kind: "line", layer: "0", from: [0, 0], to: [10, 0] };
+
   const drawing = {
     format: 0,
     units: "ft",
@@ -1084,6 +1138,7 @@ test("a malformed layout is reported and left out, and the rest of the drawing i
       { name: "No paper", paper: 5, viewports: [], entities: [] },
     ],
   };
+
   writeFileSync(plan, `export default ${JSON.stringify(drawing)};\n`);
   const { state, status } = render(plan, "--width", "300");
   assert.deepEqual([status, state.ok, state.drawing?.counts.layouts], [2, true, 3]);
@@ -1122,7 +1177,7 @@ test("render warns of text that plots badly, after lint's diagnostics and with e
   assert.equal(state.schema, 3);
   assert.deepEqual(state.drawing?.counts.errors, 0);
   assert.deepEqual(state.drawing?.counts.warnings, 3);
-  assert.equal(typeof state.timings.inspect, "number");
+  assert.ok(isNumber(state.timings.inspect));
   const [past, over, off] = state.diagnostics;
   // Each names the entity of its space that draws the text, and brings its own box.
   assert.deepEqual(
@@ -1137,7 +1192,7 @@ test("render warns of text that plots badly, after lint's diagnostics and with e
       kind: "text",
       bounds: { min: [1, 6], max: [17.833333, 6.5] },
       other: { entity: 0, id: "border" },
-      call: { file: crowded, line: 8, column: 3 },
+      call: { file: crowded, line: 9, column: 3 },
     },
   );
   assert.match(past!.message, /^Text "THIS NOTE IS TOO LONG FOR ITS SHEET" starts inside/);
@@ -1160,7 +1215,7 @@ test("render warns where the drawing breaks the file's export intent, with exit 
   assert.equal(status, 0);
   assert.deepEqual(state.drawing?.counts.errors, 0);
   assert.deepEqual(state.drawing?.counts.warnings, 1);
-  assert.equal(typeof state.timings.intent, "number");
+  assert.ok(isNumber(state.timings.intent));
   const [warning] = state.diagnostics;
   assert.deepEqual(
     { ...warning, message: undefined },
@@ -1172,7 +1227,7 @@ test("render warns where the drawing breaks the file's export intent, with exit 
       entity: 1,
       id: "house",
       layer: "C-BLDG",
-      call: { file, line: 8, column: 41 },
+      call: { file, line: 9, column: 41 },
       side: 0,
       required: 25,
       provided: 15,
@@ -1193,6 +1248,7 @@ test("an intent that the drawing's copy of tsdraft cannot check is warned of, ne
     join(library, "package.json"),
     '{ "name": "tsdraft", "type": "module", "exports": "./index.js" }\n',
   );
+
   /** A stand-in for tsdraft, with the `checkIntent` given or none. */
   const stub = (checkIntent: string) =>
     writeFileSync(
@@ -1204,15 +1260,19 @@ export const lint = () => [];
 export const toSVG = () => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>';
 ${checkIntent}`,
     );
+
   writeFileSync(
     join(dir, "plan.ts"),
     'import { drawing } from "tsdraft";\nexport default drawing;\nexport const intent = { setbacks: [] };\n',
   );
+
   const warned = () => {
     const { state, status } = render(join(dir, "plan.ts"));
     assert.equal(status, 0);
+
     return state.diagnostics.map((d) => [d.rule, d.message]);
   };
+
   stub("");
   assert.deepEqual(warned(), [
     [
@@ -1229,9 +1289,62 @@ ${checkIntent}`,
   ]);
 });
 
+test("a copy of tsdraft from before the SHX names is given the shape files under its own names", () => {
+  const dir = realpathSync(tempDir());
+  writeFileSync(join(dir, "package.json"), '{ "type": "module" }\n');
+  writeFileSync(join(dir, "LTYPESHP.SHX"), "shapes");
+  const library = join(dir, "node_modules/tsdraft");
+  mkdirSync(library, { recursive: true });
+  writeFileSync(
+    join(library, "package.json"),
+    '{ "name": "tsdraft", "type": "module", "exports": "./index.js" }\n',
+  );
+
+  // Its marks say `shape`, its key is `shapeFileKey`, and lint and toSVG take `shapes`. Each says
+  // which files it was given, whether it was given `shx`, and how often the mark's file was read.
+  // The drawing, its linetype and its mark hide their fields from `in`, and the file is a getter.
+  writeFileSync(
+    join(library, "index.js"),
+    `let reads = 0;
+const hidden = (target, ...names) => new Proxy(target, { has: (t, k) => !names.includes(k) && k in t });
+const mark = hidden(
+  { after: 0, shape: 132, get file() { reads++; return reads === 1 ? "ltypeshp.shx" : 7; }, scale: 0.1 },
+  "file",
+);
+const linetype = hidden({ name: "FENCE", description: "", pattern: [0.5, -0.25], marks: [mark] }, "marks");
+export const drawing = hidden(
+  { format: 0, units: "ft", dxf: "R2018", layers: [], entities: [], linetypes: [linetype] },
+  "layers", "entities", "units", "linetypes",
+);
+export const createDrawing = () => {};
+export const toDXF = () => "";
+export const shapeFileKey = (file) => file.toLowerCase();
+const given = (options) =>
+  Object.keys(options?.shapes ?? {}).join() + " " + ("shx" in (options ?? {})) + " " + reads;
+export const lint = (_, options) => [
+  { rule: "linetype-shape", severity: "warning", message: given(options) },
+];
+export const toSVG = (_, options) =>
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><desc>' + given(options) + "</desc></svg>";
+`,
+  );
+  writeFileSync(
+    join(dir, "plan.ts"),
+    'import { drawing } from "tsdraft";\nexport default drawing;\nexport const xrefs = { BASE: drawing, NEXT: { drawing } };\n',
+  );
+  const { state, status } = render(join(dir, "plan.ts"));
+  assert.equal(status, 0);
+  assert.deepEqual(
+    state.diagnostics.map((d) => d.message),
+    ["ltypeshp.shx false 1"],
+  );
+  assert.match(readFileSync(state.outputs.svg!, "utf8"), /<desc>ltypeshp.shx false 1<\/desc>/);
+});
+
 test("lint holds the drawing to the file's export `standard`, whose errors exit 2", () =>
   inScratch(async (dir) => {
     const file = join(dir, "wall.ts");
+
     const write = (exported: string) =>
       writeFileSync(
         file,
@@ -1241,6 +1354,7 @@ d.layer("A-WALL", { color: 2 }, () => d.rect([0, 0], 10, 10));
 export default d.build();
 ${exported}\n`,
       );
+
     write("export { standard };");
     const held = render(file, "--out", join(dir, "out"));
     assert.equal(held.status, 2);
@@ -1311,6 +1425,7 @@ export const standard = { id: "acme", version: "2026.1", hash: "0d1f" };\n`,
 test("the pictures draw a title block's preview for its border, unless `xrefs` gives the border", () =>
   inScratch(async (dir) => {
     const file = join(dir, "sheet.ts");
+
     const write = (exported: string) =>
       writeFileSync(
         file,
@@ -1342,15 +1457,19 @@ d.layout("A-101", (sheet) => sheet.titleBlock());
 export default d.build();
 ${exported}\n`,
       );
+
     const sheet = (exported: string) => {
       write(exported);
       const { state, status } = render(file, "--out", join(dir, "out"));
       assert.equal(status, 0);
+
       const layers = readFileSync(state.outputs.layouts[0]!.svg, "utf8").matchAll(
         /data-layer="([^"]*)"/g,
       );
+
       return { xrefs: state.drawing?.xrefs, layers: new Set([...layers].map((m) => m[1])) };
     };
+
     const preview = sheet("");
     assert.deepEqual(preview.xrefs, [
       {
@@ -1373,6 +1492,7 @@ test("a getter in the export `standard` never runs: lint's error stands, with ex
   inScratch(async (dir) => {
     const file = join(dir, "wall.ts");
     const { id, version, hash } = BUILT_IN_STANDARD;
+
     for (const [field, body] of [
       ["titleBlocks", 'throw new Error("read")'],
       ["titleBlocks", "for (;;);"],
@@ -1405,6 +1525,7 @@ test("a refused standard gives no preview, and a proxy is never asked: exit 2, n
     const file = join(dir, "wall.ts");
     const { id, version, hash } = BUILT_IN_STANDARD;
     const looping = "{ for (;;); }";
+
     for (const [name, standard, summary] of [
       [
         "a getter in a preview",
@@ -1452,6 +1573,7 @@ test("render --view draws one rectangle of model space or of a layout, and nothi
     layouts: [],
     pdf: null,
     pdfError: null,
+    changes: null,
   });
   assert.deepEqual(view, {
     layout: null,
@@ -1483,6 +1605,7 @@ test("render --view draws one rectangle of model space or of a layout, and nothi
   assert.equal(missing.status, 1);
   assert.match(missing.state.error!.message, /no layout named "S-9"/);
   assert.equal(missing.state.outputs.view, null);
+
   for (const args of [
     ["render", crowded, "--view", "0,0,1"],
     ["render", crowded, "--view", "0,0,0,1"],
@@ -1493,6 +1616,7 @@ test("render --view draws one rectangle of model space or of a layout, and nothi
     const run = spawnSync(process.execPath, [join(root, "src/cli.ts"), ...args], {
       encoding: "utf8",
     });
+
     assert.deepEqual([run.status, run.stdout], [64, ""], args.join(" "));
     assert.match(run.stderr, /^--(view|layout) /);
   }
@@ -1502,12 +1626,14 @@ test("in the default folder a view replaces the whole pictures, and they replace
   inScratch((scratch) => {
     const file = join(scratch, "crowded.ts");
     writeFileSync(file, readFileSync(join(root, "test/fixtures/crowded.ts")));
+
     const names = [
       "crowded.svg",
       "crowded.png",
       "crowded.layout-S-1.svg",
       "crowded.layout-S-1.png",
     ];
+
     const views = ["crowded.view.svg", "crowded.view.png"];
     const there = (list: readonly string[]) => list.map((n) => existsSync(join(scratch, "out", n)));
     assert.equal(render(file).status, 0);
@@ -1529,11 +1655,13 @@ test(
   () => {
     const dir = tempDir();
     const library = pathToFileURL(join(root, "../dist/index.js")).href;
+
     // A clipped group whose only element is far outside the picture, which resvg aborts on.
     const aborts =
       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><clipPath id="c">` +
       `<rect width="5" height="5"/></clipPath><g clip-path="url(#c)">` +
       `<line x1="1000" y1="1000" x2="1001" y2="1001" stroke="#000000"/></g></svg>`;
+
     writeFileSync(
       join(dir, "kit.ts"),
       `export * from ${JSON.stringify(library)};
@@ -1552,12 +1680,14 @@ for (const name of ["BAD", "GOOD"]) d.layout(name, { paper: "ANSI A" }, () => d.
 export default d.build();
 `,
     );
+
     const run = spawnSync(
       "prlimit",
       ["--core=1:1", "--", process.execPath, join(root, "src/cli.ts"), "render", file],
       { encoding: "utf8", timeout: 60_000 },
     );
-    const state = JSON.parse(run.stdout) as BuildState;
+
+    const state = stateOf(run.stdout);
     assert.equal(run.status, 0);
     assert.equal(state.ok, true);
     assert.equal(state.outputs.pngError, null);
@@ -1574,7 +1704,7 @@ export default d.build();
 test("dev plots the set and a sheet on request, and no picture that draws what does not plot", async () => {
   const sheet = join(root, "../examples/site-plan.ts");
   await withDev(sheet, async (base) => {
-    const state = (await (await fetch(`${base}/state.json?after=0`)).json()) as BuildState;
+    const state = stateOf(await (await fetch(`${base}/state.json?after=0`)).text());
     const set = await fetch(state.outputs.pdf!);
     assert.equal(set.status, 200);
     assert.equal(Buffer.from(await set.arrayBuffer()).toString("latin1", 0, 8), "%PDF-1.7");
@@ -1583,7 +1713,7 @@ test("dev plots the set and a sheet on request, and no picture that draws what d
   await withDev(
     sheet,
     async (base) => {
-      const state = (await (await fetch(`${base}/state.json?after=0`)).json()) as BuildState;
+      const state = stateOf(await (await fetch(`${base}/state.json?after=0`)).text());
       assert.equal(state.outputs.pdf, null);
       assert.match(state.outputs.pdfError!, /--draw-no-plot/);
       assert.equal((await fetch(`${base}/drawing.pdf`)).status, 409);
@@ -1596,26 +1726,34 @@ test("dev plots the set and a sheet on request, and no picture that draws what d
 function grayPng(width: number, height: number): Uint8Array {
   const crc = (bytes: Uint8Array): number => {
     let c = 0xffffffff;
+
     for (const b of bytes) {
       c ^= b;
+
       for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
     }
+
     return (c ^ 0xffffffff) >>> 0;
   };
+
   const chunk = (type: string, data: Uint8Array): Buffer => {
     const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
     const out = Buffer.alloc(body.length + 8);
     out.writeUInt32BE(data.length, 0);
     body.copy(out, 4);
     out.writeUInt32BE(crc(body), body.length + 4);
+
     return out;
   };
+
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
   header.set([8, 0, 0, 0, 0], 8);
   const rows = Buffer.alloc((width + 1) * height, 128);
+
   for (let y = 0; y < height; y++) rows[y * (width + 1)] = 0;
+
   return Buffer.concat([
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
     chunk("IHDR", header),
@@ -1631,6 +1769,7 @@ test("render reads each image's file beside its drawing, an xref's beside the xr
   // One name in both folders, of other sizes: each drawing draws its own.
   writeFileSync(join(dir, "sheets", "aerial.png"), grayPng(2, 2));
   writeFileSync(join(dir, "civil", "aerial.png"), grayPng(3, 3));
+
   const image = {
     kind: "image",
     layer: "0",
@@ -1639,7 +1778,11 @@ test("render reads each image's file beside its drawing, an xref's beside the xr
     width: 10,
     height: 10,
   };
-  const drawing = (pixels: number, more: object = {}) => ({
+
+  const drawing = (
+    pixels: number,
+    more: { readonly xrefs?: unknown[]; readonly entities?: unknown[] } = {},
+  ) => ({
     format: 0,
     units: "ft",
     dxf: "R2018",
@@ -1647,7 +1790,9 @@ test("render reads each image's file beside its drawing, an xref's beside the xr
     entities: [{ ...image, pixels: [pixels, pixels] }],
     ...more,
   });
+
   const base = drawing(3);
+
   const sheet = drawing(2, {
     xrefs: [{ name: "BASE", path: "../civil/base.dwg" }],
     entities: [
@@ -1655,6 +1800,7 @@ test("render reads each image's file beside its drawing, an xref's beside the xr
       { kind: "insert", layer: "0", block: "BASE", at: [20, 0] },
     ],
   });
+
   const plan = join(dir, "sheets", "plan.ts");
   writeFileSync(
     plan,
@@ -1678,6 +1824,7 @@ test("render checks each underlay's page size against its PDF, and draws no page
   // A picture left from a page the file no longer has.
   writeFileSync(join(dir, "arch.pdf.page9.png"), grayPng(110, 85));
   const underlay = { kind: "underlay", layer: "0", path: "arch.pdf", at: [0, 0] };
+
   const drawing = {
     format: 0,
     units: "in",
@@ -1689,6 +1836,7 @@ test("render checks each underlay's page size against its PDF, and draws no page
       { ...underlay, at: [50, 0], page: "9", pageSize: [11, 8.5] },
     ],
   };
+
   const plan = join(dir, "plan.ts");
   writeFileSync(plan, `export default ${JSON.stringify(drawing)};\n`);
   const { state } = render(plan);
@@ -1701,4 +1849,29 @@ test("render checks each underlay's page size against its PDF, and draws no page
   assert.match(said[1]!, /^warning: The file of the underlay "arch.pdf" has no page 9,/);
   // The page is drawn as missing at each placement, since one of them is refused.
   assert.doesNotMatch(readFileSync(state.outputs.svg!, "utf8"), /<use/);
+});
+
+test("render draws a DXF as the file holds it: model space and each layout as it plots", async () => {
+  const out = tempDir();
+
+  const { default: sheet } = await import(
+    pathToFileURL(join(root, "../examples/site-plan.ts")).href
+  );
+
+  const file = join(out, "sheet.dxf");
+  writeFileSync(file, toDXF(sheet));
+  const { state, status } = render(file, "--out", out, "--width", "600");
+  assert.equal(status, 0, JSON.stringify(state.error));
+  assert.equal(state.ok, true);
+  assert.equal(state.outputs.svg, join(out, "sheet.svg"));
+  assert.deepEqual(
+    state.outputs.layouts.map((l) => [l.name, l.svg]),
+    [["C-101", join(out, "sheet.layout-C-101.svg")]],
+  );
+  assert.match(readFileSync(state.outputs.layouts[0]!.svg, "utf8"), /data-picture=/);
+  assert.equal(state.drawing?.counts.layouts, 1);
+  assert.ok(
+    state.diagnostics.every((d) => d.rule !== "read-picture"),
+    JSON.stringify(state.diagnostics),
+  );
 });

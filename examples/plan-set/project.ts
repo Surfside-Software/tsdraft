@@ -102,6 +102,8 @@ export const SHEETS: readonly SheetInfo[] = [
 
 export const sheetInfo = (number: string): SheetInfo => {
   const s = SHEETS.find((x) => x.number === number);
+
   if (!s) throw new Error(`No sheet ${number}`);
+
   return s;
 };

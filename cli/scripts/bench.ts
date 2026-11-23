@@ -15,11 +15,15 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const cli = `${root}src/cli.ts`;
 const dir = `${root}examples/out/bench`;
+
 mkdirSync(dir, { recursive: true });
 
 const small = `${dir}/small.ts`;
+
 copyFileSync(`${root}examples/lot.ts`, small);
+
 const large = `${dir}/large.ts`;
+
 writeFileSync(
   large,
   `import { createDrawing } from "tsdraft";
@@ -43,8 +47,11 @@ export default d.build();
 // The example sheet: model space and a layout, so two pictures a build.
 // It is copied with its helpers, importing the library by name as the other two do.
 const sheet = `${dir}/site-plan.ts`;
+
 mkdirSync(`${dir}/lib`, { recursive: true });
+
 copyFileSync(`${root}../examples/vicinity-map.png`, `${dir}/vicinity-map.png`);
+
 for (const file of ["site-plan.ts", "lib/drafting.ts"]) {
   const source = readFileSync(`${root}../examples/${file}`, "utf8");
   writeFileSync(`${dir}/${file}`, source.replace(/"(\.\.\/)+src\/index\.ts"/, '"tsdraft"'));
@@ -54,13 +61,16 @@ const median = (xs: number[]) => xs.sort((a, b) => a - b)[Math.floor(xs.length /
 
 function benchRender(file: string, runs: number) {
   const walls: number[] = [];
+
   let state: { ms: number; timings: Record<string, number>; drawing: { counts: object } } | null =
     null;
+
   for (let i = 0; i < runs; i++) {
     const t = performance.now();
     state = JSON.parse(execFileSync(process.execPath, [cli, "render", file], { encoding: "utf8" }));
     walls.push(performance.now() - t);
   }
+
   return { wall: median(walls), last: state! };
 }
 
@@ -68,6 +78,7 @@ async function benchDev(file: string, edits: number, pause: number) {
   const server = spawn(process.execPath, [cli, "dev", file, "--port", "4699"], {
     stdio: ["ignore", "pipe", "inherit"],
   });
+
   await new Promise<void>((resolve) =>
     server.stdout.on("data", (b: Buffer) => b.toString().includes("http") && resolve()),
   );
@@ -75,28 +86,37 @@ async function benchDev(file: string, edits: number, pause: number) {
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+
   const nextBuild = async (): Promise<{
     state: { build: number; ms: number; ok: boolean; timings: Record<string, number> };
   }> => {
     for (;;) {
       const end = buffer.indexOf("\n\n");
+
       if (end >= 0) {
         const block = buffer.slice(0, end);
         buffer = buffer.slice(end + 2);
+
         if (block.startsWith("event: build")) return JSON.parse(block.split("data: ")[1]!);
         continue;
       }
+
       const { value } = await reader.read();
       buffer += decoder.decode(value, { stream: true });
     }
   };
+
   await nextBuild();
   // Let the waiting children start and warm up, as they would between saves.
   await new Promise((r) => setTimeout(r, 300));
   const source = readFileSync(file, "utf8");
   const served: number[] = [];
   const builds: number[] = [];
-  const steps: Record<string, number[]> = { start: [], load: [], lint: [], svg: [], rest: [] };
+
+  const steps = new Map<string, number[]>(
+    ["start", "load", "lint", "svg", "rest"].map((step) => [step, []]),
+  );
+
   for (let i = 0; i < edits; i++) {
     const t = performance.now();
     writeFileSync(file, `${source}\n// edit ${i}\n`);
@@ -104,17 +124,21 @@ async function benchDev(file: string, edits: number, pause: number) {
     served.push(performance.now() - t);
     builds.push(event.state.ms);
     let rest = event.state.ms;
+
     for (const step of ["start", "load", "lint", "svg"]) {
-      steps[step]!.push(event.state.timings[step] ?? 0);
+      steps.get(step)!.push(event.state.timings[step] ?? 0);
       rest -= event.state.timings[step] ?? 0;
     }
-    steps.rest!.push(rest);
+
+    steps.get("rest")!.push(rest);
     await new Promise((r) => setTimeout(r, pause));
   }
+
   server.kill();
   writeFileSync(file, source);
   const [total, build] = [median(served), median(builds)];
-  const parts = Object.entries(steps).map(([step, ms]) => `${step} ${median(ms).toFixed(1)}`);
+  const parts = [...steps].map(([step, ms]) => `${step} ${median(ms).toFixed(1)}`);
+
   return `${total.toFixed(0)} ms (build ${build} ms: ${parts.join(", ")}; around ${(total - build).toFixed(0)} ms)`;
 }
 

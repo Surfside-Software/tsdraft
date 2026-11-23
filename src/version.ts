@@ -2,4 +2,4 @@
 // change to the version.
 
 /** The version of this copy of tsdraft. */
-export const VERSION = "0.5.4";
+export const VERSION = "0.6.0";

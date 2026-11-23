@@ -59,6 +59,7 @@ function inches<M extends string, W extends number, H extends number>(
 ) {
   const medium =
     rotation === 0 ? { width, height, rotation } : { width: height, height: width, rotation };
+
   return { media, units: "in", width, height, medium, printable: [0, 0, width, height] } as const;
 }
 
@@ -67,7 +68,11 @@ export type Paper = keyof typeof PAPERS;
 
 /** What tsdraft knows of a paper, or undefined for a name that is not in `PAPERS`. */
 export function paperInfo(name: string): PaperInfo | undefined {
-  return Object.hasOwn(PAPERS, name) ? PAPERS[name as Paper] : undefined;
+  return isPaper(name) ? PAPERS[name] : undefined;
+}
+
+function isPaper(name: string): name is Paper {
+  return Object.hasOwn(PAPERS, name);
 }
 
 /**
@@ -114,7 +119,9 @@ export function mediumMargins(
 ): readonly [left: number, bottom: number, right: number, top: number] {
   const [left, bottom, right, top] = paper.printable;
   const margins = [left, bottom, paper.width - right, paper.height - top] as const;
+
   if (paper.medium.rotation === 0) return margins;
+
   return [margins[1], margins[2], margins[3], margins[0]];
 }
 

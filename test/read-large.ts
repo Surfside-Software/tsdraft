@@ -14,19 +14,24 @@ async function* large(): AsyncGenerator<Uint8Array> {
   const end = text.indexOf("\n0\r\nENDSEC\r\n", start) + 1;
   const entities = encoder.encode(text.slice(start, end).repeat(200));
   yield encoder.encode(text.slice(0, start));
+
   for (let total = 0; total < 520e6; total += entities.length) {
     heap = Math.max(heap, process.memoryUsage().heapUsed);
     yield entities;
   }
+
   yield encoder.encode(text.slice(end));
 }
 
 const geometry = process.argv.includes("--geometry");
 const read = await readDXF(large(), { geometry });
+
 heap = Math.max(heap, process.memoryUsage().heapUsed);
+
 const answer = new TextEncoder().encode(JSON.stringify(read)).length;
 const kept = read.model.entities?.length ?? 0;
 const past = read.model.other?.["past the limit"] ?? 0;
+
 console.log(
   JSON.stringify({ bytes: read.bytes, capped: read.model.census.capped, heap, answer, kept, past }),
 );

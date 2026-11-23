@@ -1,3 +1,4 @@
+import { isBoolean, isNumber, isObjectOrArray, isRecord, isString } from "./guards.ts";
 import { entityColorProblem } from "./colors.ts";
 import { entityTransparencyProblem } from "./transparency.ts";
 import {
@@ -44,7 +45,6 @@ import type {
   Underlay,
   Layout,
   Viewport,
-  Insert,
   Layer,
   Leader,
   LeaderStyle,
@@ -80,7 +80,6 @@ import { lintStandard } from "./standard/lint.ts";
 import {
   arrayProblem,
   filled,
-  isObject,
   isSound,
   KEYED,
   PLAIN_OBJECT,
@@ -90,7 +89,7 @@ import {
   Strings,
   type Check,
 } from "./shape.ts";
-import { shapeFinder, type ShapeFiles } from "./shapes.ts";
+import { glyphFinder, type ShxFiles } from "./shapes.ts";
 import { layerAuditKey, layerKey, layoutNameKey } from "./layers.ts";
 import { STANDARD_FONT, STANDARD_TEXT_STYLE } from "./fonts.ts";
 import {
@@ -126,7 +125,7 @@ import {
   arcIsWrittenAsPoint,
   arcProblem,
   ATTRIBUTE_KIND,
-  ATTRIBUTES_SHAPE,
+  ATTRIBUTES_TYPE,
   PARAGRAPH_ONLY,
   paragraphOnlyProblem,
   attributeTagProblem,
@@ -199,7 +198,7 @@ import {
   textProblem,
   lineSpacingProblem,
   paragraphChoiceProblem,
-  paragraphColumnsShapeProblem,
+  paragraphColumnsTypeProblem,
   paragraphColumnsSizeProblem,
   PARAGRAPH_COLUMN_BREAK,
   paragraphProblemIn,
@@ -244,6 +243,7 @@ import {
   undefinedHatchPatternProblem,
   ORDINATE_ACROSS,
   ORDINATE_AXIS,
+  type PatternLineFields,
 } from "./rules.ts";
 import { pointStyleProblems } from "./points.ts";
 import {
@@ -261,6 +261,7 @@ export type LintRule =
   | "format"
   | "units"
   | "layer-name"
+  | "file-definition"
   | "duplicate-layer"
   | "layer-color"
   | "undefined-layer"
@@ -334,6 +335,7 @@ export type LintRule =
   | "height-off-role"
   | "dimension-off-scale"
   | "leader-off-scale"
+  | "viewport-shows-other-view"
   | "viewport-outside-drawing-area"
   | "title-block-missing"
   | "title-block-differs-from-standard"
@@ -402,6 +404,24 @@ export interface Diagnostic {
 }
 
 /**
+ * `about` with the id of what it is about and the call that made it after its own fields, each
+ * when it is known.
+ */
+export function aboutWith<A extends Partial<Diagnostic>>(
+  about: A,
+  id: string | undefined,
+  call: CallSite | undefined,
+): A {
+  let out = about;
+
+  if (id !== undefined) out = { ...out, id };
+
+  if (call) out = { ...out, call };
+
+  return out;
+}
+
+/**
  * What `lint` checks a drawing against: its DXF version, and the standard it is drawn to, with
  * the drawing's discipline.
  */
@@ -415,7 +435,7 @@ export type LintOptions = {
    * The bytes of each shape file the drawing's linetypes name, as `toSVG` takes them. `lint` then
    * warns only of a shape the plot cannot draw from them.
    */
-  readonly shapes?: ShapeFiles;
+  readonly shx?: ShxFiles;
 } & (
   | {
       /** The DXF version to check against. Defaults to the drawing's own. */
@@ -463,16 +483,55 @@ const UNTYPED: Check = () => {};
  * True for a line of a hatch pattern whose fields all have their types: a rule refused it for a
  * value, not for a type. A list of more dashes than a pattern holds is refused for its length.
  */
-function lineTyped(line: Readonly<Record<string, unknown>>): boolean {
+function lineTyped(line: PatternLineFields): boolean {
   const pair = (p: unknown): boolean =>
-    Array.isArray(p) && p.length === 2 && typeof p[0] === "number" && typeof p[1] === "number";
-  if (typeof line.angle !== "number" || !pair(line.base) || !pair(line.offset)) return false;
-  const dashes: unknown = line.dashes;
+    Array.isArray(p) && p.length === 2 && isNumber(p[0]) && isNumber(p[1]);
+
+  if (!isNumber(line.angle) || !pair(line.base) || !pair(line.offset)) return false;
+  const dashes = line.dashes;
+
   if (dashes === undefined) return true;
+
   if (!Array.isArray(dashes)) return false;
+
   if (dashes.length > PATTERN_ITEMS) return true;
-  for (let i = 0; i < dashes.length; i++) if (typeof dashes[i] !== "number") return false;
+
+  for (let i = 0; i < dashes.length; i++) if (!isNumber(dashes[i])) return false;
+
   return true;
+}
+
+/** The fields of an entity the costs of reading it again look at, each as given. */
+interface EntityFields {
+  readonly kind?: unknown;
+  readonly id?: unknown;
+  readonly layer?: unknown;
+  readonly linetype?: unknown;
+  readonly lineweight?: unknown;
+  readonly value?: unknown;
+  readonly style?: unknown;
+  readonly align?: unknown;
+  readonly valign?: unknown;
+  readonly lineSpacingStyle?: unknown;
+  readonly block?: unknown;
+  readonly text?: unknown;
+  readonly textBelow?: unknown;
+  readonly textStyle?: unknown;
+  readonly path?: unknown;
+  readonly pattern?: unknown;
+  readonly bulges?: unknown;
+  readonly widths?: unknown;
+  readonly width?: unknown;
+}
+
+/** The fields of an attribute definition that only one of paragraph text has, as given. */
+interface DefinitionFields {
+  readonly tag?: unknown;
+  readonly width?: unknown;
+  readonly lineSpacing?: unknown;
+  readonly lineSpacingStyle?: unknown;
+  readonly align?: unknown;
+  readonly valign?: unknown;
 }
 
 /** The values of an insert that gives none. */
@@ -480,6 +539,17 @@ const NO_VALUES: Readonly<Record<string, string>> = Object.freeze({});
 
 /** The shortest text value the checks read once, however many places share it. */
 const LONG = 256;
+
+/** The text fields of an attribute definition, which one made by hand may hold of any type. */
+interface DefinitionFields {
+  readonly tag?: unknown;
+  readonly value?: unknown;
+  readonly prompt?: unknown;
+  readonly layer?: unknown;
+  readonly style?: unknown;
+  readonly align?: unknown;
+  readonly valign?: unknown;
+}
 
 /**
  * Checks a drawing against the rules the leading CAD app enforces when it opens DXF.
@@ -515,29 +585,36 @@ export function checksLimit(drawing: Drawing): number {
 
 /** How many entities and attribute definitions a drawing's lists hold, up to their empty slots. */
 function itemsOf(drawing: Drawing): number {
-  if (!isObject(drawing)) return 0;
+  if (!isRecord(drawing)) return 0;
   // A list that many blocks share is counted once.
   const counted = new WeakSet<object>();
+
   const count = (list: unknown): number => {
-    if (typeof list !== "object" || list === null || counted.has(list)) return 0;
+    if (!isObjectOrArray(list) || counted.has(list)) return 0;
     counted.add(list);
+
     return filled(list).length;
   };
+
   let items = count(drawing.entities);
-  for (const block of filled(drawing.blocks as unknown)) {
-    if (isObject(block)) items += count(block.entities) + count(block.attributes);
+
+  for (const block of filled(drawing.blocks)) {
+    if (isRecord(block)) items += count(block.entities) + count(block.attributes);
   }
-  for (const layout of filled(drawing.layouts as unknown)) {
-    if (isObject(layout)) items += count(layout.entities);
+
+  for (const layout of filled(drawing.layouts)) {
+    if (isRecord(layout)) items += count(layout.entities);
   }
+
   return items;
 }
 
 /** `lint` with `most` units of work for what it does again. */
 export function lintWithin(drawing: Drawing, options: LintOptions, most: number): Diagnostic[] {
-  if (typeof drawing !== "object" || drawing === null || Array.isArray(drawing)) {
+  if (!isObjectOrArray(drawing) || Array.isArray(drawing)) {
     return [{ rule: "format", severity: "error", message: `The drawing ${PLAIN_OBJECT}` }];
   }
+
   const version = options?.version ?? drawing.dxf;
   const out: Diagnostic[] = [];
 
@@ -545,12 +622,15 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   // block of a cycle is paid for before it is done, and ends at a limit with one warning.
   let work = 0;
   let stopped: string | undefined;
+
   /** Counts the cost of a step at `where`, and says whether there is room left to take it. */
   const spend = (cost: number, where: () => string): boolean => {
     if (stopped !== undefined) return false;
     work += cost;
+
     if (work <= most) return true;
     stopped = where();
+
     return false;
   };
 
@@ -560,51 +640,67 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
    * for, by its size, before it is done.
    */
   const read = new WeakSet<object>();
+
   /** True for a list or an object the checks have read before, which it notes otherwise. */
   const again = (value: unknown): boolean => {
-    if (typeof value !== "object" || value === null) return false;
+    if (!isObjectOrArray(value)) return false;
+
     if (read.has(value)) return true;
     read.add(value);
+
     return false;
   };
+
   /** What is wrong with a text value and what it warns of, worked out once for a long one. */
   const textChecks = new Strings<readonly [string | undefined, string | undefined]>();
+
   const checkText = (value: string): readonly [string | undefined, string | undefined] => {
     if (value.length < LONG) return [textProblem(value), textWarning(value)];
     let found = textChecks.get(value);
+
     if (!found) textChecks.set(value, (found = [textProblem(value), textWarning(value)]));
+
     return found;
   };
+
   /** What is wrong with a paragraph's value in its style's font, read once for a long one. */
   const paragraphChecks = new Strings<
     Pick<ParsedParagraph, "problem" | "ownDiameter" | "columnBreak">
   >();
+
   /** What is wrong with a paragraph's value, and whether it holds a `\N`. */
   const checkParagraph = (value: string, font: unknown): [string | undefined, boolean] => {
     let found = value.length < LONG ? undefined : paragraphChecks.get(value);
+
     if (!found) {
       const { problem, ownDiameter, columnBreak } = parseParagraph(value);
       found = { problem, ownDiameter, columnBreak };
+
       if (value.length >= LONG) paragraphChecks.set(value, found);
     }
+
     return [paragraphProblemIn(found, font), found.columnBreak];
   };
+
   /** What is wrong with each columns object a paragraph gives, apart from its width. */
-  const columnShapes = new WeakMap<object, string | undefined>();
+  const columnForms = new WeakMap<object, string | undefined>();
   /** The strings of `LONG` characters or more the checks have read. */
   const long = new Strings<true>();
+
   /**
    * What reading a string again costs: one for each 32 characters of one of `LONG` or more that
    * the checks have read before, in another place. A long string that many places share is read,
    * quoted and written again for each.
    */
   const repeat = (value: unknown): number => {
-    if (typeof value !== "string" || value.length < LONG) return 0;
+    if (!isString(value) || value.length < LONG) return 0;
     // One that took the place of another of its length counts as read before.
     const again = long.get(value) !== undefined || long.clashes(value);
     long.set(value, true);
+
     return again ? Math.floor(value.length / 32) : 0;
   };
+
   /**
    * What reading the strings of an entity or a definition again costs, as `repeat` counts it,
    * for each field the checks read or quote. A field nobody knows, or a kind that is none, is
@@ -612,14 +708,12 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
    * is not looked up, which would compare it with another.
    */
   const long1 = (value: unknown): number =>
-    typeof value === "string" && value.length >= LONG
-      ? stopped === undefined
-        ? repeat(value)
-        : 1
-      : 0;
+    isString(value) && value.length >= LONG ? (stopped === undefined ? repeat(value) : 1) : 0;
+
   /** Of an entity: the fields every entity has, and those its kind adds. */
-  const repeatedIn = (e: Readonly<Record<string, unknown>>): number => {
+  const repeatedIn = (e: EntityFields): number => {
     let cost = long1(e.id) + long1(e.layer) + long1(e.linetype) + long1(e.lineweight);
+
     switch (e.kind) {
       case "text":
         cost += long1(e.value) + long1(e.style) + long1(e.align) + long1(e.valign);
@@ -654,13 +748,15 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         break;
       case "hatch":
         // A message quotes the name of a pattern the drawing does not have.
-        cost += long1(isObject(e.pattern) ? e.pattern.name : undefined);
+        cost += long1(isRecord(e.pattern) ? e.pattern.name : undefined);
         break;
     }
+
     return cost;
   };
+
   /** Of an attribute definition. */
-  const repeatedOf = (d: Readonly<Record<string, unknown>>): number =>
+  const repeatedOf = (d: DefinitionFields): number =>
     long1(d.tag) +
     long1(d.value) +
     long1(d.prompt) +
@@ -668,20 +764,26 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     long1(d.style) +
     long1(d.align) +
     long1(d.valign);
+
   const leaderAgain = leaderRepeats();
   const tableAgain = tableRepeats();
   /** What is wrong with a dimension's own text, worked out once for a long one. */
   const dimensionTexts = new Strings<readonly [string | undefined]>();
+
   const checkDimensionText = (text: unknown): string | undefined => {
-    if (typeof text !== "string" || text.length < LONG) return dimensionTextProblem(text);
+    if (!isString(text) || text.length < LONG) return dimensionTextProblem(text);
     let found = dimensionTexts.get(text);
+
     if (!found) dimensionTexts.set(text, (found = [dimensionTextProblem(text)]));
+
     return found[0];
   };
+
   /** Whether the drawing holds an entity whose box can cost anything against the limit. */
   let boxable = false;
   /** The blocks whose definitions were past the limit, which no insert's value is held to. */
   const unreadDefinitions = new Set<Block>();
+
   /** The values each object of an insert's values holds, read once, and what its long strings cost. */
   const valuesOf = new WeakMap<
     object,
@@ -689,7 +791,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   >();
 
   /** Whether a rule can read each object that is not sound, under each check it was met with. */
-  const shapes = new WeakMap<object, Map<Check, boolean>>();
+  const readability = new WeakMap<object, Map<Check, boolean>>();
   /** True once an object that is not sound has been met, before which none is looked up. */
   let unsound = false;
 
@@ -709,67 +811,88 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     // An object that is not sound is reported where it is first met. A drawing made in code may
     // share it among many places, which give no messages again and cost a unit each: the drawing
     // has an error there, so toDXF refuses it.
-    const object = typeof value === "object" && value !== null ? value : undefined;
-    const before = object && unsound ? shapes.get(object)?.get(check) : undefined;
+    const object = isObjectOrArray(value) ? value : undefined;
+    const before = object && unsound ? readability.get(object)?.get(check) : undefined;
+
     if (before !== undefined) {
       spend(1, () => at || "the drawing");
+
       return !before;
     }
+
     if (isSound(check, value)) return false;
+
     const remember = (readable: boolean): void => {
       if (!object) return;
       unsound = true;
-      let checks = shapes.get(object);
-      if (!checks) shapes.set(object, (checks = new Map()));
+      let checks = readability.get(object);
+
+      if (!checks) readability.set(object, (checks = new Map()));
       checks.set(check, readable);
     };
+
     // Past the limit a shape is only asked about, which builds no message.
     if (stopped !== undefined) {
       const readable = isSound(check, value, false);
       remember(readable);
+
       return !readable;
     }
+
     const problems: string[] = [];
     const extra: string[] = [];
     check(value, at, problems, extra);
     remember(problems.length === 0);
     // A message pays for what it quotes, such as a long key or kind that many objects share.
     let length = 0;
+
     for (const message of [...extra, ...problems]) length += message.length;
+
     if (!spend(Math.floor(length / 32), () => at || "the drawing")) return problems.length > 0;
+
     for (const message of extra) out.push({ rule, severity: "error", message, ...about });
+
     for (const message of problems) {
-      out.push({ rule, severity: "error", message, ...about, ...(at ? { item: at } : {}) });
+      const diagnostic: Diagnostic = { rule, severity: "error", message, ...about };
+      out.push(at ? { ...diagnostic, item: at } : diagnostic);
     }
+
     return problems.length > 0;
   };
+
   /** True for an object met before that was not sound under `check`, whose shape is not read again. */
   const metUnsound = (check: Check, value: unknown): boolean =>
-    unsound &&
-    typeof value === "object" &&
-    value !== null &&
-    shapes.get(value)?.has(check) === true;
+    unsound && isObjectOrArray(value) && readability.get(value)?.has(check) === true;
+
   /**
    * Names the item at `at` in the errors added since `from`, when a field of it has the wrong
    * type. A rule has then reported the field, and what draws the drawing cannot read the item.
    */
   /** Whether an object is sound under a check but for fields nobody knows, worked out once. */
   const typedSound = new WeakMap<object, Map<Check, boolean>>();
+
   const mark = (typed: Check, value: unknown, at: string, from: number): void => {
     if (out.length === from) return;
     let sound: boolean | undefined;
-    if (typeof value === "object" && value !== null) {
+
+    if (isObjectOrArray(value)) {
       let checks = typedSound.get(value);
+
       if (!checks) typedSound.set(value, (checks = new Map()));
       sound = checks.get(typed);
+
       if (sound === undefined) checks.set(typed, (sound = isSound(typed, value, false)));
     } else sound = isSound(typed, value, false);
+
     if (sound) return;
+
     for (let i = from; i < out.length; i++) {
       const found = out[i]!;
+
       if (found.severity === "error" && found.item === undefined) out[i] = { ...found, item: at };
     }
   };
+
   /**
    * Gives `visit` each item of the list at `at`, up to its first empty slot, which is an error,
    * and marks what it reports for an item that fails `typed`.
@@ -785,13 +908,16 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     for (let i = 0; i < list.length; i++) {
       if (list[i] === undefined && !(i in list)) {
         out.push({ rule, severity: "error", message: slotProblem(at, i), ...about, item: at });
+
         return;
       }
+
       const from = out.length;
       visit(list[i]!, i);
       mark(typed, list[i], `${at}[${i}]`, from);
     }
   };
+
   /** The items of one of the drawing's lists, or none, with an error, when it is not a list. */
   const listed = <T>(
     field:
@@ -809,19 +935,27 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     rule: LintRule,
   ): readonly T[] => {
     const value: unknown = drawing[field];
+
     if (value === undefined && field !== "layers" && field !== "entities") return [];
     const problem = arrayProblem(value, field);
+
     if (problem) out.push({ rule, severity: "error", message: problem, item: field });
+
+    // SAFETY: `arrayProblem` has found the field to be an array, and the caller names the type of
+    // the field's items, each of which is checked where it is read.
     return problem ? [] : (value as readonly T[]);
   };
+
   /** Names an entry of a list in a diagnostic, when its name is one. */
   const named = (
     field: "linetype" | "textStyle" | "dimensionStyle" | "leaderStyle" | "block" | "xref",
     name: unknown,
-  ) => (typeof name === "string" ? { [field]: name } : {});
+  ) => (isString(name) ? { [field]: name } : {});
 
   const format = formatProblem(drawing.format);
+
   if (format) out.push({ rule: "format", severity: "error", message: format });
+  // SAFETY: the drawing is an object that is not an array, which the check of its fields takes.
   malformed(WALKABLE.drawing as Check, drawing, "", "format");
 
   if (!["in", "ft", "mm", "cm", "m"].includes(drawing.units)) {
@@ -835,18 +969,22 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   const r12 = version === "R12";
   const leaderPlaces = leaderPlacesBlock(drawing);
   const scale = drawing.linetypeScale;
+
   if (scale !== undefined && (r12 ? scale !== 1 : linetypeScaleProblem(scale))) {
     const problem = r12 ? R12_ONLY.linetypes : linetypeScaleProblem(scale);
-    out.push({
+
+    const diagnostic: Diagnostic = {
       rule: "linetype",
       severity: "error",
       message: `linetypeScale: ${problem}`,
-      ...(typeof scale === "number" ? {} : { item: "linetypeScale" }),
-    });
+    };
+
+    out.push(isNumber(scale) ? diagnostic : { ...diagnostic, item: "linetypeScale" });
   }
 
   const frame: unknown = drawing.imageFrame;
-  if (frame !== undefined && typeof frame !== "boolean") {
+
+  if (frame !== undefined && !isBoolean(frame)) {
     out.push({
       rule: "image",
       severity: "error",
@@ -854,12 +992,16 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       item: "imageFrame",
     });
   }
+
   const pointStyle: unknown = drawing.pointStyle;
+
   if (pointStyle !== undefined) {
     for (const problem of r12 ? [R12_ONLY.points] : pointStyleProblems(pointStyle))
       out.push({ rule: "geometry", severity: "error", message: problem, item: "pointStyle" });
   }
+
   const underlayFrame: unknown = drawing.underlayFrame;
+
   if (
     underlayFrame !== undefined &&
     underlayFrame !== true &&
@@ -873,17 +1015,21 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       item: "underlayFrame",
     });
   }
+
   const wipeoutFrame: unknown = drawing.wipeoutFrame;
-  if (wipeoutFrame !== undefined && typeof wipeoutFrame !== "boolean") {
+
+  if (wipeoutFrame !== undefined && !isBoolean(wipeoutFrame)) {
     out.push({ rule: "wipeout", severity: "error", message: WIPEOUT_FRAME, item: "wipeoutFrame" });
   }
 
   // The leading CAD app compares linetype names as it compares layer names, and AUDIT reports a
   // twin of a built-in linetype as it reports any other.
   const linetypes = new Set<string>();
+
   const linetypesAudited = new Map<string, string>(
     BUILT_IN_LINETYPES.map((name) => [layerAuditKey(name), name]),
   );
+
   /** Each linetype with marks that are valid, whose texts' styles are checked once styles are known. */
   const marked: Linetype[] = [];
   /** Each linetype a layer or an entity draws in, by `layerKey`. */
@@ -891,26 +1037,35 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   const linetypeList = listed<Linetype>("linetypes", "linetype");
   each(linetypeList, "linetypes", "linetype", TYPED.linetype, (linetype, i) => {
     if (malformed(WALKABLE.linetype, linetype, `linetypes[${i}]`, "linetype")) return;
+
     const error = (rule: LintRule, message: string) =>
       out.push({ rule, severity: "error", message, ...named("linetype", linetype.name) });
+
     const label = `Linetype ${shown(linetype.name)}`;
+
     if (r12) {
       error("linetype", `${label}: ${R12_ONLY.linetypes}`);
+
       return;
     }
+
     const problem =
       linetypeProblem(linetype.name, linetype.description, linetype.pattern) ??
       marksProblem(linetype.marks, linetype.pattern);
+
     if (problem) error("linetype", `${label}: ${problem}`);
     else if (linetype.marks !== undefined) marked.push(linetype);
-    if (typeof linetype.name !== "string") return;
+
+    if (!isString(linetype.name)) return;
     const key = layerKey(linetype.name);
     const auditKey = layerAuditKey(linetype.name);
+
     const twin = layerTwinProblem(
       linetype.name,
       linetypesAudited.get(auditKey) ?? linetype.name,
       "linetype",
     );
+
     if (linetypes.has(key)) {
       error(
         "duplicate-linetype",
@@ -919,7 +1074,9 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     } else if (twin) {
       error("duplicate-linetype", `${label}: ${twin}`);
     }
+
     linetypes.add(key);
+
     if (!linetypesAudited.has(auditKey)) linetypesAudited.set(auditKey, linetype.name);
   });
   // A hatch finds its pattern by name as a linetype is found, whatever the case of its letters,
@@ -928,6 +1085,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   /** Each pattern a hatch can find, with its sizes, by `layerKey`: undefined for one refused. */
   const patternsByKey = new Map<string, readonly [HatchPattern, PatternSizes] | undefined>();
   const patternList = listed<HatchPattern>("patterns", "hatch-pattern");
+
   if (r12 && patternList.length > 0) {
     out.push({
       rule: "hatch-pattern",
@@ -939,76 +1097,97 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       const at = `patterns[${i}]`;
       const where = () => at;
       const from = out.length;
-      const name: unknown = isObject(pattern) ? pattern.name : undefined;
-      const long = long1(name) + long1(isObject(pattern) ? pattern.description : undefined);
+      const name: unknown = isRecord(pattern) ? pattern.name : undefined;
+      const long = long1(name) + long1(isRecord(pattern) ? pattern.description : undefined);
+
       if (long > 0 && !spend(long, where)) return;
-      const key = typeof name === "string" && name.length <= 255 ? layerKey(name) : undefined;
+      const key = isString(name) && name.length <= 255 ? layerKey(name) : undefined;
+
       /** Names the pattern, which a reader leaves out, where an error names a part of it. */
       const whole = (): void => {
         for (let k = from; k < out.length; k++) {
           const found = out[k]!;
+
           if (found.item?.startsWith(`${at}.`)) out[k] = { ...found, item: at };
         }
       };
+
       if (malformed(WALKABLE.pattern, pattern, at, "hatch-pattern")) {
         // A hatch that names it gets no second error.
         if (key !== undefined && !patternsByKey.has(key)) patternsByKey.set(key, undefined);
+
         return;
       }
+
       const label = `Hatch pattern ${shown(name)}`;
+
       const error = (message: string, typed: boolean): void => {
-        out.push({
+        const diagnostic: Diagnostic = {
           rule: "hatch-pattern",
           severity: "error",
           message: `${label}: ${message}`,
-          ...(typed ? { item: at } : {}),
-        });
+        };
+
+        out.push(typed ? { ...diagnostic, item: at } : diagnostic);
       };
+
       const description: unknown = pattern.description;
       let sound = true;
       const head = hatchPatternNameProblem(name, description);
+
       if (head) {
-        error(
-          head,
-          typeof name !== "string" || !["string", "undefined"].includes(typeof description),
-        );
+        error(head, !isString(name) || !(isString(description) || description === undefined));
         sound = false;
       }
+
       const lines: unknown = pattern.lines;
       const listProblem = patternLinesProblem(lines);
       const sizes = { items: 0, angle: 0, base: 0, reach: 0 };
+
       if (listProblem) {
         error(listProblem, !Array.isArray(lines));
         sound = false;
       } else {
-        const list = lines as readonly unknown[];
+        // `patternLinesProblem` has found the lines to be an array.
+        const list: readonly unknown[] = Array.isArray(lines) ? lines : [];
         // A list read again pays for its lines and for the dashes of each.
         const repeated = list.length >= FREE && again(list);
+
         if (repeated && !spend(Math.floor(list.length / 8), where)) return;
         sizes.items = list.length;
+
         for (let j = 0; j < list.length; j++) {
           if (!(j in list)) {
             error(slotProblem(`${at}.lines`, j), true);
             sound = false;
             break;
           }
+
           const line: unknown = list[j];
+
           if (malformed(WALKABLE.patternLine, line, `${at}.lines[${j}]`, "hatch-pattern")) {
             sound = false;
             break;
           }
-          const dashes: unknown = (line as Record<string, unknown>).dashes;
+
+          const fields: PatternLineFields = isObjectOrArray(line) ? line : {};
+          const dashes = fields.dashes;
+
           const shared =
             Array.isArray(dashes) &&
             dashes.length <= PATTERN_ITEMS &&
             (repeated || (dashes.length >= FREE && again(dashes)));
+
           if (shared && !spend(Math.floor(dashes.length / 8), where)) return;
           const problem = patternLineProblem(line);
+
           if (problem) {
-            error(`line ${j}: ${problem}`, !lineTyped(line as Record<string, unknown>));
+            error(`line ${j}: ${problem}`, !(isObjectOrArray(line) && lineTyped(line)));
             sound = false;
             break;
           }
+
+          // SAFETY: `patternLineProblem` has found the line to be a line of a pattern.
           const { angle, base, reach } = lineSizes(line as PatternLine);
           sizes.angle = Math.max(sizes.angle, angle);
           sizes.base = Math.max(sizes.base, base);
@@ -1016,8 +1195,11 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
           sizes.items += Array.isArray(dashes) ? dashes.length : 0;
         }
       }
+
       whole();
+
       if (key === undefined) return;
+
       if (patternsByKey.has(key)) {
         out.push({
           rule: "duplicate-hatch-pattern",
@@ -1027,10 +1209,12 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       } else patternsByKey.set(key, sound ? [pattern, sizes] : undefined);
     });
   }
+
   /** The key of each name a hatch gives its pattern, worked out once. */
   const patternKeys = new Map<string, string>();
   /** What is wrong with each object a hatch gives as its pattern, worked out once. */
   const choices = new WeakMap<object, string | undefined>();
+
   /**
    * Checks a hatch's pattern: its fields, the definition it names, and, for a hatch whose loops are
    * sound, what its lines draw.
@@ -1038,101 +1222,134 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   const lintHatchPattern = (hatch: Hatch, add: Add, sound: boolean, here: () => string): void => {
     const choice: unknown = hatch.pattern;
     let problem: string | undefined;
-    if (typeof choice === "object" && choice !== null) {
+
+    if (isObjectOrArray(choice)) {
       if (choices.has(choice)) problem = choices.get(choice);
       else choices.set(choice, (problem = hatchPatternChoiceProblem(choice)));
     } else problem = hatchPatternChoiceProblem(choice);
+
     if (problem) return add("hatch-pattern", "error", problem);
-    const name: unknown = (choice as Record<string, unknown>).name;
+    const named: { readonly name?: unknown } = isObjectOrArray(choice) ? choice : {};
+    const name = named.name;
     let found: readonly [HatchPattern, PatternSizes] | undefined;
-    if (typeof name === "string") {
+
+    if (isString(name)) {
       let key = name.length <= 255 ? patternKeys.get(name) : undefined;
+
       if (key === undefined && name.length <= 255) patternKeys.set(name, (key = layerKey(name)));
+
       if (key === undefined || !patternsByKey.has(key)) {
         return add("hatch-pattern", "error", undefinedHatchPatternProblem(name));
       }
+
       found = patternsByKey.get(key);
+
       // A definition the rules refused has its errors, and draws nothing that can be checked.
       if (found === undefined) return;
     }
+
     if (!sound) return;
     // The writers place every line and dash of the pattern again for each hatch that names it.
     const items = found?.[1].items ?? 0;
+
     if (items >= FREE && !spend(Math.floor(items / 8), here)) return;
     const box = loopsBox(hatch.loops);
+
     const spread = hatchSpread(
       hatch,
       () => found?.[0],
       () => found?.[1],
     );
+
     const drawn = box && spread ? patternDrawnProblem(box, spread) : undefined;
+
     if (drawn) add("hatch-pattern", "error", drawn);
   };
 
   /** What is wrong with each object a hatch gives as its gradient, worked out once. */
   const gradients = new WeakMap<object, string | undefined>();
+
   /** Checks a hatch's gradient: its fields, and that the hatch has no pattern beside it. */
   const lintHatchGradient = (hatch: Hatch, add: Add): void => {
     if (hatch.pattern !== undefined) return add("hatch-gradient", "error", GRADIENT_WITH_PATTERN);
     const gradient: unknown = hatch.gradient;
     let problem: string | undefined;
-    if (typeof gradient === "object" && gradient !== null) {
+
+    if (isObjectOrArray(gradient)) {
       if (gradients.has(gradient)) problem = gradients.get(gradient);
       else gradients.set(gradient, (problem = hatchGradientProblem(gradient)));
     } else problem = hatchGradientProblem(gradient);
+
     if (problem) add("hatch-gradient", "error", problem);
   };
 
   /** What is wrong with a reference to a linetype, which the leading CAD app discards a drawing over. */
   const missing = (name: unknown): string | undefined => {
-    if (typeof name !== "string") return "a linetype is named by a string";
+    if (!isString(name)) return "a linetype is named by a string";
     const problem = linetypeNameProblem(name);
+
     if (problem) return `Linetype ${shown(name)}: ${problem}`;
+
     if (builtInLinetype(name)) return undefined;
     const key = layerKey(name);
+
     if (!linetypes.has(key)) return undefinedLinetypeProblem(name);
     used.add(key);
+
     return undefined;
   };
 
   // The leading CAD app compares text style names as it compares layer names.
   const textStyles = new Set<string>();
   const stylesByKey = new Map<string, TextStyle>();
+
   /**
    * The font a paragraph's value is checked in: its style's, which decides what `%%c` draws. A
    * style that is not found has an error of its own.
    */
-  const fontOf = (style: unknown): unknown =>
+  const fontOf = (style: unknown): string | undefined =>
     style === undefined
       ? STANDARD_FONT
-      : typeof style === "string"
+      : isString(style)
         ? (stylesByKey.get(layerKey(style))?.font ??
           (isStandardTextStyle(style) ? STANDARD_FONT : undefined))
         : undefined;
+
   const unreadStyles = new Set<string>();
+
   const textStylesAudited = new Map<string, string>([
     [layerAuditKey(STANDARD_TEXT_STYLE), STANDARD_TEXT_STYLE],
   ]);
+
   const styleList = listed<TextStyle>("textStyles", "text-style");
   each(styleList, "textStyles", "text-style", TYPED.textStyle, (style, i) => {
     if (malformed(WALKABLE.textStyle, style, `textStyles[${i}]`, "text-style")) return;
+
     const error = (rule: LintRule, message: string) =>
       out.push({ rule, severity: "error", message, ...named("textStyle", style.name) });
+
     const label = `Text style ${shown(style.name)}`;
+
     if (r12) {
       error("text-style", `${label}: ${R12_ONLY.text}`);
+
       return;
     }
+
     const problem = textStyleProblem(style.name, style.font, style.widthFactor, style.obliqueAngle);
+
     if (problem) error("text-style", `${label}: ${problem}`);
-    if (typeof style.name !== "string") return;
+
+    if (!isString(style.name)) return;
     const key = layerKey(style.name);
     const auditKey = layerAuditKey(style.name);
+
     const twin = layerTwinProblem(
       style.name,
       textStylesAudited.get(auditKey) ?? style.name,
       "text style",
     );
+
     if (textStyles.has(key)) {
       error(
         "duplicate-text-style",
@@ -1141,19 +1358,25 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     } else if (twin) {
       error("duplicate-text-style", `${label}: ${twin}`);
     }
+
     if (!textStyles.has(key)) {
       // A style whose numbers are not numbers is known by its name, and places no attribute.
       const numbers = [style.widthFactor ?? 1, style.obliqueAngle ?? 0];
-      if (numbers.every((n) => typeof n === "number")) stylesByKey.set(key, style);
+
+      if (numbers.every((n) => isNumber(n))) stylesByKey.set(key, style);
       else unreadStyles.add(key);
     }
+
     textStyles.add(key);
+
     if (!textStylesAudited.has(auditKey)) textStylesAudited.set(auditKey, style.name);
   });
+
   for (const linetype of marked) {
     for (const mark of linetype.marks ?? []) {
       if (!("text" in mark) || mark.style === undefined || isStandardTextStyle(mark.style))
         continue;
+
       if (textStyles.has(layerKey(mark.style))) continue;
       out.push({
         rule: "undefined-text-style",
@@ -1163,14 +1386,16 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       });
     }
   }
+
   /** What is wrong with a text's style, justification or both, each with its rule. */
   const textProblems = (
     text: Pick<AttributeDefinition, "style" | "align" | "valign">,
   ): [LintRule, string][] => {
     const found: [LintRule, string][] = [];
     const name: unknown = text.style;
+
     if (name !== undefined) {
-      if (typeof name !== "string") {
+      if (!isString(name)) {
         found.push(["undefined-text-style", "a text style is named by a string"]);
       } else if (textStyleNameProblem(name)) {
         const problem = `Text style ${shown(name)}: ${textStyleNameProblem(name)}`;
@@ -1182,16 +1407,21 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         }
       }
     }
+
     for (const [field, plain] of [
       ["align", "left"],
       ["valign", "baseline"],
     ] as const) {
       const value: unknown = text[field];
+
       if (value === undefined) continue;
+
       const problem =
         textAlignProblem(field, value) ?? (r12 && value !== plain ? R12_ONLY.text : undefined);
+
       if (problem) found.push(["text-align", problem]);
     }
+
     return found;
   };
 
@@ -1200,43 +1430,59 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   const audited = new Map<string, string>();
   each(listed<Layer>("layers", "format"), "layers", "format", TYPED.layer, (layer, i) => {
     if (malformed(WALKABLE.layer, layer, `layers[${i}]`, "format")) return;
+
     const error = (rule: LintRule, message: string) =>
       out.push({ rule, severity: "error", message, layer: layer.name });
+
     const nameProblem = layerNameProblem(layer.name, version);
+
     if (nameProblem) error("layer-name", `Layer ${shown(layer.name)}: ${nameProblem}`);
     const colorProblem = layerColorProblem(layer.color);
+
     if (colorProblem) error("layer-color", `Layer ${shown(layer.name)}: ${colorProblem}`);
     const label = `Layer ${shown(layer.name)}`;
+
     if (layer.linetype !== undefined) {
       const name: unknown = layer.linetype;
+
       if (r12) {
-        if (typeof name !== "string" || builtInLinetype(name) !== "Continuous") {
+        if (!isString(name) || builtInLinetype(name) !== "Continuous") {
           error("linetype", `${label}: ${R12_ONLY.linetypes}`);
         }
       } else {
         const absent = missing(name);
+
         if (absent) error("undefined-linetype", `${label}: ${absent}`);
-        const problem = typeof name === "string" ? layerLinetypeProblem(name) : undefined;
+        const problem = isString(name) ? layerLinetypeProblem(name) : undefined;
+
         if (problem) error("linetype", `${label}: ${problem}`);
       }
     }
+
     if (layer.lineweight !== undefined) {
       const problem =
         lineweightProblem(layer.lineweight, "layer") ??
         (r12 && layer.lineweight !== "Default" ? R12_ONLY.lineweights : undefined);
+
       if (problem) error("lineweight", `${label}: ${problem}`);
     }
+
     for (const state of ["off", "frozen", "locked", "plot"] as const) {
       const flagProblem = layerFlagProblem(state, layer[state]);
+
       if (flagProblem) error("layer-state", `${label}: ${flagProblem}`);
     }
+
     const states = layer.off || layer.frozen || layer.locked || layer.plot === false;
+
     const stateProblem =
       r12 && states ? R12_ONLY.layerStates : layerStateProblem(layer.name, layer.frozen);
+
     if (stateProblem) error("layer-state", `${label}: ${stateProblem}`);
     const key = layerKey(layer.name);
     const auditKey = layerAuditKey(layer.name);
     const twinProblem = layerTwinProblem(layer.name, audited.get(auditKey) ?? layer.name);
+
     if (seen.has(key)) {
       error(
         "duplicate-layer",
@@ -1245,9 +1491,12 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     } else if (twinProblem) {
       error("duplicate-layer", `Layer ${shown(layer.name)}: ${twinProblem}`);
     }
+
     seen.add(key);
+
     if (!audited.has(auditKey)) audited.set(auditKey, layer.name);
   });
+
   if (!seen.has("0")) {
     out.push({ rule: "undefined-layer", severity: "error", message: 'Layer "0" is missing' });
   }
@@ -1256,25 +1505,32 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   const ids = new Map<string, string>();
   /** What took each handle that comes from a name: an id, or a description of anything else. */
   const handles = new Map<string, { readonly id?: string; readonly what: string }>();
+
   /** What is wrong with a second taker of a handle, or undefined when the handle is free. */
   const claim = (handle: string, what: string, id?: string): string | undefined => {
     const other = handles.get(handle);
+
     if (other === undefined) {
       handles.set(handle, id === undefined ? { what } : { id, what });
+
       return undefined;
     }
+
     return id !== undefined && other.id !== undefined
       ? idHandleProblem(id, other.id, handle)
       : handleProblem(what, other.what, handle);
   };
+
   const undefinedLayer = (layer: string): string | undefined => {
     if (seen.has(layerKey(layer))) return undefined;
     // The leading CAD app adds a layer for a name it does not know. When AUDIT takes that name for
     // a declared layer's, it then reports the new layer as a duplicate of it.
     const twin = audited.get(layerAuditKey(layer));
+
     const hint = twin
       ? `. The leading CAD app does not take it for layer ${shown(twin)}: it would add a layer, and its AUDIT would report a duplicate name`
       : "";
+
     return `layer ${shown(layer)} is not defined${hint}`;
   };
 
@@ -1294,6 +1550,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       if (malformed(WALKABLE.dimensionStyle, style, `dimensionStyles[${i}]`, "dimension-style")) {
         return;
       }
+
       const error = (rule: LintRule, message: string) =>
         out.push({
           rule,
@@ -1301,27 +1558,39 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
           message: `Dimension style ${shown(style.name)}: ${message}`,
           ...named("dimensionStyle", style.name),
         });
+
       if (r12) {
         error("dimension-style", R12_ONLY.dimensions);
+
         return;
       }
+
       const problem = dimensionStyleProblem(style);
+
       if (problem) error("dimension-style", problem);
       const name: unknown = style.name;
-      if (dimensionStyleNameProblem(name) || isStandardDimensionStyle(name as string)) return;
-      const auditKey = layerAuditKey(style.name);
-      const first = dimensionStylesAudited.get(auditKey);
-      if (first !== undefined) {
-        error("duplicate-dimension-style", dimensionStyleTwinProblem(style.name, first)!);
+
+      if (!isString(name) || dimensionStyleNameProblem(name) || isStandardDimensionStyle(name)) {
         return;
       }
+
+      const auditKey = layerAuditKey(style.name);
+      const first = dimensionStylesAudited.get(auditKey);
+
+      if (first !== undefined) {
+        error("duplicate-dimension-style", dimensionStyleTwinProblem(style.name, first)!);
+
+        return;
+      }
+
       dimensionStylesAudited.set(auditKey, style.name);
       const key = layerKey(style.name);
       dimensionStyleNames.add(key);
       const textStyle: unknown = style.textStyle;
       let lettered = true;
+
       if (
-        typeof textStyle === "string" &&
+        isString(textStyle) &&
         !textStyleNameProblem(textStyle) &&
         !isStandardTextStyle(textStyle)
       ) {
@@ -1330,7 +1599,9 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
           lettered = false;
         } else if (unreadStyles.has(layerKey(textStyle))) lettered = false;
       }
+
       const warning = dimensionStyleWarning(style);
+
       if (warning) {
         out.push({
           rule: "text",
@@ -1339,16 +1610,20 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
           dimensionStyle: style.name,
         });
       }
+
       const clash = claim(
         validDimensionStyleHandle(style.name),
         `the dimension style ${shown(style.name)}`,
       );
+
       if (clash) error("id-handle", clash);
       const arrowhead: unknown = style.arrowhead ?? DEFAULT_ARROWHEAD;
-      const block = arrowheadInfo(arrowhead)?.block;
+      const block = isString(arrowhead) ? arrowheadInfo(arrowhead)?.block : undefined;
+
       if (block !== undefined && !arrowheadBlocks.has(block)) {
         arrowheadBlocks.add(block);
         const handles = blockHandles(block);
+
         for (const handle of [
           handles.record,
           handles.begin,
@@ -1356,12 +1631,15 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
           arrowheadEntityHandle(block),
         ]) {
           const taken = claim(handle, `the arrowhead ${shown(arrowhead)}`);
+
           if (taken) error("id-handle", taken);
         }
       }
+
       if (!problem && lettered) dimensionStyles.set(key, style);
     },
   );
+
   /** Checks what a dimension names and what it measures. `sound` is false for one whose points no rule can measure. */
   const lintDimension = (
     dimension: Dimension,
@@ -1372,55 +1650,80 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   ): void => {
     if (r12) {
       add("dimension", "error", R12_ONLY.dimensions);
+
       return;
     }
+
     if (inBlock) add("dimension", "error", DIMENSION_IN_BLOCK);
     const name: unknown = dimension.style;
     const nameProblem = dimensionStyleNameProblem(name);
     let style: DimensionStyle | undefined;
+
+    // A name of no problem is a string.
     if (nameProblem) add("undefined-dimension-style", "error", nameProblem);
-    else if (!dimensionStyleNames.has(layerKey(name as string))) {
-      add("undefined-dimension-style", "error", undefinedDimensionStyleProblem(name as string));
-    } else style = dimensionStyles.get(layerKey(name as string));
-    for (const text of [dimension.text, dimension.textBelow] as unknown[]) {
+    else if (isString(name) && !dimensionStyleNames.has(layerKey(name))) {
+      add("undefined-dimension-style", "error", undefinedDimensionStyleProblem(name));
+    } else if (isString(name)) style = dimensionStyles.get(layerKey(name));
+    const texts: readonly unknown[] = [dimension.text, dimension.textBelow];
+
+    for (const text of texts) {
       if (text === undefined) continue;
       const problem = checkDimensionText(text);
+
       if (problem) {
         add("dimension", "error", problem);
+
         return;
       }
-      const warning = checkText(text as string)[1];
+
+      // A text of no problem is a string.
+      const warning = isString(text) ? checkText(text)[1] : undefined;
+
       if (warning) add("text", "warning", warning);
     }
+
     if (sound && dimension.kind === "linear-dimension" && dimension.angle !== undefined) {
       const problem = dimensionAngleProblem(dimension.angle);
+
       if (problem) {
         add("dimension", "error", problem);
+
         return;
       }
     }
+
     if (dimension.kind === "ordinate-dimension") {
       const axis: unknown = dimension.axis;
+
       if (axis !== "x" && axis !== "y") {
         add("dimension", "error", ORDINATE_AXIS);
+
         return;
       }
+
       if (sound) {
         const { length, across } = ordinateLeader(dimension);
+
         if (Math.abs(across) > length) add("dimension", "warning", ORDINATE_ACROSS);
       }
     }
+
     if (!style || !sound) return;
+
     // Its style's prefix and suffix are read again for each dimension that has the style.
     const reads =
       (style.prefix?.length ?? 0) +
       (style.suffix?.length ?? 0) +
-      ((dimension.text as string | undefined)?.length ?? 0) +
-      ((dimension.textBelow as string | undefined)?.length ?? 0);
+      (isString(dimension.text) ? dimension.text.length : 0) +
+      (isString(dimension.textBelow) ? dimension.textBelow.length : 0);
+
     if (!spend(Math.floor(reads / 32), where)) return;
+
     const textStyle =
       style.textStyle === undefined ? undefined : stylesByKey.get(layerKey(style.textStyle));
+
     const problem = dimensionDrawnProblem(dimension, style, textStyle);
+
     if (problem) add("dimension", "error", problem);
   };
 
@@ -1438,6 +1741,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     TYPED.leaderStyle,
     (style, i) => {
       if (malformed(WALKABLE.leaderStyle, style, `leaderStyles[${i}]`, "leader-style")) return;
+
       const error = (rule: LintRule, message: string) =>
         out.push({
           rule,
@@ -1445,20 +1749,28 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
           message: `Leader style ${shown(style.name)}: ${message}`,
           ...named("leaderStyle", style.name),
         });
+
       if (r12) {
         error("leader-style", R12_ONLY.leaders);
+
         return;
       }
+
       const problem = leaderStyleProblem(style);
+
       if (problem) error("leader-style", problem);
       const name: unknown = style.name;
-      if (leaderStyleNameProblem(name) || isStandardLeaderStyle(name as string)) return;
+
+      if (!isString(name) || leaderStyleNameProblem(name) || isStandardLeaderStyle(name)) return;
       const auditKey = layerAuditKey(style.name);
       const first = leaderStylesAudited.get(auditKey);
+
       if (first !== undefined) {
         error("duplicate-leader-style", leaderStyleTwinProblem(style.name, first)!);
+
         return;
       }
+
       // The first style brings the leading CAD app's own and the dictionary that holds them.
       if (leaderStylesAudited.size === 0) {
         for (const [handle, what] of [
@@ -1469,16 +1781,19 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
           [leaderStyleDictionaryHandle(), "the dictionary of leader styles"],
         ] as const) {
           const taken = claim(handle, what);
+
           if (taken) error("id-handle", taken);
         }
       }
+
       leaderStylesAudited.set(auditKey, style.name);
       const key = layerKey(style.name);
       leaderStyleNames.add(key);
       const textStyle: unknown = style.textStyle;
       let lettered = true;
+
       if (
-        typeof textStyle === "string" &&
+        isString(textStyle) &&
         !textStyleNameProblem(textStyle) &&
         !isStandardTextStyle(textStyle)
       ) {
@@ -1487,21 +1802,28 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
           lettered = false;
         } else if (unreadStyles.has(layerKey(textStyle))) lettered = false;
       }
+
       const clash = claim(
         validLeaderStyleHandle(style.name),
         `the leader style ${shown(style.name)}`,
       );
+
       if (clash) error("id-handle", clash);
       const arrowhead: unknown = style.arrowhead ?? DEFAULT_LEADER_ARROWHEAD;
-      const block = leaderArrowheadInfo(arrowhead)?.block;
+      const block = isString(arrowhead) ? leaderArrowheadInfo(arrowhead)?.block : undefined;
+
       if (block !== undefined && !leaderArrowheads.has(block)) {
         leaderArrowheads.add(block);
+        // SAFETY: `leaderArrowheadInfo` gives a block only for a name of LEADER_ARROWHEADS.
         const handles = leaderArrowheadHandles(arrowhead as LeaderArrowhead)!;
+
         for (const handle of [handles.record, handles.begin, handles.end, ...handles.strokes]) {
           const taken = claim(handle, `the arrowhead ${shown(arrowhead)}`);
+
           if (taken) error("id-handle", taken);
         }
       }
+
       if (!problem && lettered) leaderStyles.set(key, style);
     },
   );
@@ -1517,69 +1839,90 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     TYPED.tableStyle,
     (style, i) => {
       if (malformed(WALKABLE.tableStyle, style, `tableStyles[${i}]`, "table-style")) return;
-      const error = (rule: LintRule, message: string) =>
-        out.push({
+
+      const error = (rule: LintRule, message: string) => {
+        const diagnostic: Diagnostic = {
           rule,
           severity: "error",
           message: `Table style ${shown(style.name)}: ${message}`,
-          ...(typeof style.name === "string" ? { tableStyle: style.name } : {}),
-        });
+        };
+
+        out.push(isString(style.name) ? { ...diagnostic, tableStyle: style.name } : diagnostic);
+      };
+
       if (r12) {
         error("table-style", R12_ONLY.tables);
+
         return;
       }
+
       const problem = tableStyleProblem(style);
+
       if (problem) error("table-style", problem);
       const name: unknown = style.name;
-      if (tableStyleNameProblem(name) || isStandardTableStyle(name as string)) return;
+
+      if (!isString(name) || tableStyleNameProblem(name) || isStandardTableStyle(name)) return;
       const auditKey = layerAuditKey(style.name);
       const first = tableStylesAudited.get(auditKey);
+
       if (first !== undefined) {
         error("duplicate-table-style", tableStyleTwinProblem(style.name, first)!);
+
         return;
       }
+
       if (tableStylesAudited.size === 0) {
         for (const [handle, what] of [
           [validTableStyleHandle(STANDARD_TABLE_STYLE), 'the table style "Standard"'],
           [tableStyleDictionaryHandle(), "the dictionary of table styles"],
         ] as const) {
           const taken = claim(handle, what);
+
           if (taken) error("id-handle", taken);
         }
       }
+
       tableStylesAudited.set(auditKey, style.name);
       const key = layerKey(style.name);
       tableStyleNames.add(key);
       let lettered = true;
-      for (const textStyle of [
+
+      const named: readonly unknown[] = [
         style.textStyle,
         style.title?.textStyle,
         style.header?.textStyle,
         style.data?.textStyle,
-      ] as unknown[]) {
+      ];
+
+      for (const textStyle of named) {
         if (
-          typeof textStyle !== "string" ||
+          !isString(textStyle) ||
           textStyleNameProblem(textStyle) ||
           isStandardTextStyle(textStyle)
         ) {
           continue;
         }
+
         if (!textStyles.has(layerKey(textStyle))) {
           error("undefined-text-style", `Text style ${shown(textStyle)} is not defined`);
           lettered = false;
         } else if (unreadStyles.has(layerKey(textStyle))) lettered = false;
       }
+
       const clash = claim(
         validTableStyleHandle(style.name),
         `the table style ${shown(style.name)}`,
       );
+
       if (clash) error("id-handle", clash);
+
       if (!problem && lettered) tableStyles.set(key, style);
     },
   );
   /** A boxer of the drawing's blocks that hides nothing, as the writers fit a cell's block. */
   let fitBoxer: Boxer | undefined;
   const fitBoxes = new Map<string, readonly [number, number, number, number] | undefined>();
+
   /** Checks what a table names, and its columns, rows and cells. */
   const lintTable = (
     table: Table,
@@ -1590,27 +1933,38 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     if (inBlock) add("table", "error", TABLE_IN_BLOCK);
     const name: unknown = table.style;
     const nameProblem = tableStyleNameProblem(name);
+
+    // A name of no problem is a string.
     if (nameProblem) add("undefined-table-style", "error", nameProblem);
-    else if (isStandardTableStyle(name as string)) {
-      add("undefined-table-style", "error", standardTableStyleProblem(name as string)!);
-    } else if (!tableStyleNames.has(layerKey(name as string))) {
+    else if (isString(name) && isStandardTableStyle(name)) {
+      add("undefined-table-style", "error", standardTableStyleProblem(name)!);
+    } else if (isString(name) && !tableStyleNames.has(layerKey(name))) {
       add("undefined-table-style", "error", `Table style ${shown(name)} is not defined`);
     }
+
     const problem = tableProblem(table, (block) => blocks.has(layerKey(block)));
+
     if (problem) add("table", "error", problem);
-    const style = typeof name === "string" ? tableStyles.get(layerKey(name)) : undefined;
+    const style = isString(name) ? tableStyles.get(layerKey(name)) : undefined;
+
     if (!problem && style) {
       const narrow = tableColumnsProblem(table.columns, tableMargins(style)[0]);
+
       if (narrow) add("table", "error", narrow);
+
       const fontOf = (name: string | undefined) =>
         name === undefined || isStandardTextStyle(name)
           ? STANDARD_FONT
           : stylesByKey.get(layerKey(name))?.font;
+
       const lettered = tableTextsProblem(tableTexts(table, style), fontOf);
+
       if (lettered) add("table", "error", lettered);
+
       if (!narrow && !lettered) lintTableBlocks(table, style, add, here);
     }
   };
+
   /** Checks the scale each block a table's cells hold is drawn at, as the writers write it. */
   const lintTableBlocks = (
     table: Table,
@@ -1618,16 +1972,21 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     add: (rule: LintRule, severity: Diagnostic["severity"], problem: string) => void,
     here: () => string,
   ): void => {
-    const holds = table.rows.some((row) => row.some((cell) => isObject(cell) && cell.block));
+    const holds = table.rows.some((row) => row.some((cell) => isRecord(cell) && cell.block));
+
     if (!holds || !spend(tableCost(table), here)) return;
+
     const styleOf = (name: string | undefined) =>
       name === undefined ? undefined : stylesByKey.get(layerKey(name));
+
     let capped = false;
+
     const picture = tablePicture(
       table,
       style,
       tableMeasures(styleOf, (name) => {
         const k = layerKey(name);
+
         if (fitBoxes.has(k)) return fitBoxes.get(k);
         fitBoxer ??= boxer(
           [...stylesByKey.values()],
@@ -1642,30 +2001,39 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         );
         const before = fitBoxer.spent;
         let found: readonly [number, number, number, number] | undefined;
+
         try {
           found = fitBoxer([{ kind: "insert", layer: "0", block: name, at: [0, 0] }]);
         } catch {
           found = undefined;
         }
+
         if (fitBoxer.capped || !spend(fitBoxer.spent - before, here)) capped = true;
         fitBoxes.set(k, found);
+
         return found;
       }),
     );
+
     if (capped) return;
+
     for (const placed of picture.blocks) {
       const problem = scaleProblem(placed.scale);
+
       if (problem === undefined) continue;
       add(
         "table",
         "error",
         `The block ${shown(placed.block)} in row ${placed.row}, column ${placed.column} of its grid is drawn at a scale of ${placed.scale}. ${problem}`,
       );
+
       return;
     }
   };
+
   /** The tags of each block a leader holds in place of its note, worked out once. */
   const tagsOf = new WeakMap<Block, ReadonlySet<unknown>>();
+
   /** Checks what a leader names, its note and its shafts. `sound` is false for one no rule can read. */
   const lintLeader = (
     leader: Leader,
@@ -1674,28 +2042,35 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   ): void => {
     if (r12) {
       add("leader", "error", R12_ONLY.leaders);
+
       return;
     }
+
     if (inBlock) add("leader", "error", LEADER_IN_BLOCK);
     const name: unknown = leader.style;
     const nameProblem = leaderStyleNameProblem(name);
     let style: LeaderStyle | undefined;
+
+    // A name of no problem is a string.
     if (nameProblem) add("undefined-leader-style", "error", nameProblem);
-    else if (!leaderStyleNames.has(layerKey(name as string))) {
-      add("undefined-leader-style", "error", undefinedLeaderStyleProblem(name as string));
-    } else style = leaderStyles.get(layerKey(name as string));
+    else if (isString(name) && !leaderStyleNames.has(layerKey(name))) {
+      add("undefined-leader-style", "error", undefinedLeaderStyleProblem(name));
+    } else if (isString(name)) style = leaderStyles.get(layerKey(name));
     const content = leaderBlock(leader, style);
     let noteProblem: string | undefined;
     const ownBlock: unknown = leader.block;
-    if (ownBlock !== undefined && typeof ownBlock !== "string") {
+
+    if (ownBlock !== undefined && !isString(ownBlock)) {
       noteProblem = "a block is named by a string";
       add("undefined-block", "error", noteProblem);
     } else if (content === undefined) {
       noteProblem = leaderTextProblem(leader.text);
+
       if (noteProblem) add("leader", "error", noteProblem);
       else {
         for (const line of leader.text ?? []) {
           const warning = textWarning(line);
+
           if (warning) {
             add("text", "warning", warning);
             break;
@@ -1703,18 +2078,23 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         }
       }
     } else {
-      if (typeof content !== "string") noteProblem = "a block is named by a string";
+      if (!isString(content)) noteProblem = "a block is named by a string";
       else if (!blocks.has(layerKey(content))) noteProblem = undefinedBlockProblem(content);
+
       if (noteProblem) add("undefined-block", "error", noteProblem);
       const problem = leaderBlockContentProblem(leader);
+
       if (problem) add("leader", "error", problem);
       noteProblem ??= problem;
       // Each value names an attribute of the block, as an insert's does.
-      const held = typeof content === "string" ? blocks.get(layerKey(content)) : undefined;
+      const held = isString(content) ? blocks.get(layerKey(content)) : undefined;
       const set: unknown = leader.attributes;
-      if (!problem && held && typeof set === "object" && set !== null) {
+
+      if (!problem && held && isObjectOrArray(set)) {
         let tags = tagsOf.get(held);
+
         if (!tags) tagsOf.set(held, (tags = new Set(filled(held.attributes).map((d) => d?.tag))));
+
         for (const tag of Object.keys(set)) {
           if (tags.has(tag)) continue;
           noteProblem = undefinedAttributeProblem(tag, held.name);
@@ -1723,27 +2103,36 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         }
       }
     }
+
     const shaftProblem = leaderShaftsProblem(leader.shafts, leader.at);
+
     if (shaftProblem) add("leader", "error", shaftProblem);
     const own: unknown = leader.textStyle;
     let textStyle: TextStyle | undefined;
     let lettered = true;
-    if (typeof own === "string" && !textStyleNameProblem(own) && !isStandardTextStyle(own)) {
+
+    if (isString(own) && !textStyleNameProblem(own) && !isStandardTextStyle(own)) {
       if (!textStyles.has(layerKey(own))) {
         add("undefined-text-style", "error", undefinedLeaderTextStyleProblem(own));
         lettered = false;
       } else if (unreadStyles.has(layerKey(own))) lettered = false;
       else textStyle = stylesByKey.get(layerKey(own));
     }
+
     const ownProblem = leaderOwnProblem(leader, written(style?.scale ?? 1));
+
     if (ownProblem) add("leader", "error", ownProblem);
+
     if (!style || noteProblem || shaftProblem || ownProblem || !lettered) return;
+
     if (own === undefined && style.textStyle !== undefined) {
       textStyle = stylesByKey.get(layerKey(style.textStyle));
     }
+
     const problem = leaderDrawnProblem(leader, style, textStyle, (name) =>
       blocks.get(layerKey(name)),
     );
+
     if (problem) add("leader", "error", problem);
   };
 
@@ -1751,6 +2140,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   // duplicates, and an insert finds its block as an entity finds its layer.
   const blocks = new Map<string, Block>();
   const blocksAudited = new Map<string, string>();
+
   /** What the rules can read of each block that has a name, and where it is in the drawing. */
   const walked = new Map<
     Block,
@@ -1765,6 +2155,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       readonly based: boolean;
     }
   >();
+
   /**
    * The tags of a block's definitions, and those an insert places, with their text styles and
    * their tags as JSON, which a message about any insert of the block quotes.
@@ -1782,45 +2173,52 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       readonly paragraphs: ReadonlyMap<string, unknown>;
     }
   >();
+
   const placingOf = (block: Block) => {
     let found = placing.get(block);
+
     if (found) return found;
     const read = walked.get(block)!;
     const tags = new Set<string>();
+
     for (const tag of read.tags) if (tag !== undefined) tags.add(tag);
     const placed: [AttributeDefinition & { tag: string }, TextStyle | undefined, string][] = [];
     /** The font of each definition of paragraph text, by its tag, which its values are read in. */
     const paragraphs = new Map<string, unknown>();
+
     for (const definition of read.definitions) {
-      if (definition?.kind === "paragraph" && typeof definition.tag === "string") {
+      if (definition?.kind === "paragraph" && isString(definition.tag)) {
         paragraphs.set(definition.tag, fontOf(definition.style));
       }
+
       if (
         !definition ||
-        typeof definition.tag !== "string" ||
-        (typeof definition.style === "string" && unreadStyles.has(layerKey(definition.style))) ||
+        !isString(definition.tag) ||
+        (isString(definition.style) && unreadStyles.has(layerKey(definition.style))) ||
         geometryProblems(asText(definition)).length > 0
       )
         continue;
-      const style =
-        typeof definition.style === "string"
-          ? stylesByKey.get(layerKey(definition.style))
-          : undefined;
-      placed.push([
-        definition as AttributeDefinition & { tag: string },
-        style,
-        JSON.stringify(definition.tag),
-      ]);
+
+      const style = isString(definition.style)
+        ? stylesByKey.get(layerKey(definition.style))
+        : undefined;
+
+      placed.push([definition, style, JSON.stringify(definition.tag)]);
     }
+
     placing.set(block, (found = { tags, placed, paragraphs }));
+
     return found;
   };
+
   each(listed<Block>("blocks", "block"), "blocks", "block", TYPED.block, (block, i) => {
     const at = `blocks[${i}]`;
     // A block with a name stays one an insert can place, whatever else is wrong with it.
     const unread = malformed(WALKABLE.block, block, at, "block");
-    if (!isObject(block)) return;
+
+    if (!isRecord(block)) return;
     const label = `Block ${shown(block.name)}`;
+
     const error = (rule: LintRule, message: string) =>
       out.push({
         rule,
@@ -1828,32 +2226,44 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         message: `${label}: ${message}`,
         ...named("block", block.name),
       });
+
     if (r12) {
       error("block", R12_ONLY.blocks);
+
       return;
     }
+
     const nameProblem = blockNameProblem(block.name);
+
     if (nameProblem) {
       error("block", nameProblem);
+
       return;
     }
+
     const auditKey = layerAuditKey(block.name);
     const first = blocksAudited.get(auditKey);
+
     if (first !== undefined) {
       error("duplicate-block", blockTwinProblem(block.name, first)!);
+
       return;
     }
+
     blocksAudited.set(auditKey, block.name);
     blocks.set(layerKey(block.name), block);
     const isList = (value: unknown) => !unread || arrayProblem(value, "") === undefined;
     const definitions: (AttributeDefinition | undefined)[] = [];
     const tags: (string | undefined)[] = [];
+
     const attributes =
       block.attributes !== undefined && isList(block.attributes) ? block.attributes : [];
+
     // A list that many blocks share is read again for each, and paid for. Past the limit its
     // definitions are not read, and no value of an insert is held against them.
     const where = () => `the attributes of block ${shown(block.name)}`;
     const unpaid = again(attributes) && !spend(attributes.length, where);
+
     if (unpaid) unreadDefinitions.add(block);
     each(
       unpaid ? [] : attributes,
@@ -1865,8 +2275,8 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         const path = `${at}.attributes[${index}]`;
         const sound = !malformed(WALKABLE.attribute, definition, path, "attribute", about);
         definitions[index] = sound ? definition : undefined;
-        const tag: unknown = isObject(definition) ? definition.tag : undefined;
-        tags[index] = typeof tag === "string" ? tag : undefined;
+        const tag: unknown = isRecord(definition) ? definition.tag : undefined;
+        tags[index] = isString(tag) ? tag : undefined;
       },
       { block: block.name },
     );
@@ -1874,25 +2284,34 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     const based = !unread || base === undefined || isSound(WALKABLE.point, base);
     const entities = isList(block.entities) ? block.entities : [];
     walked.set(block, { at, entities, definitions, tags, based });
+
     if (based && base !== undefined) {
+      // SAFETY: the base is sound as a point.
       const [x, y] = base as Point;
+
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
         error("block", "its base point must be finite numbers");
       } else {
         const problem = magnitudeProblem(x) ?? magnitudeProblem(y);
+
         if (problem) error("block", `its base point: ${problem}`);
       }
     }
+
     const handles = blockHandles(block.name);
+
     for (const handle of [handles.record, handles.begin, handles.end]) {
       const clash = claim(handle, `the block ${shown(block.name)}`);
+
       if (clash) error("id-handle", clash);
     }
   });
+
   // A style's block is written by its record's handle, so it is one the drawing defines.
   for (const style of leaderStyles.values()) {
     const block: unknown = style.block;
-    if (typeof block === "string" && !blocks.has(layerKey(block))) {
+
+    if (isString(block) && !blocks.has(layerKey(block))) {
       out.push({
         rule: "undefined-block",
         severity: "error",
@@ -1908,44 +2327,69 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   const xrefsAudited = new Set<string>();
   const placedXrefs = new Set<Xref>();
   each(listed<Xref>("xrefs", "xref"), "xrefs", "xref", TYPED.xref, (xref, i) => {
-    const name: unknown = (xref as Xref | null)?.name;
+    const name: unknown = xref?.name;
     const about = named("xref", name);
+
     const error = (rule: LintRule, message: string) =>
       out.push({ rule, severity: "error", message: `Xref ${shown(name)}: ${message}`, ...about });
-    if (!isObject(xref)) {
+
+    if (!isRecord(xref)) {
       error("xref", "an xref must be an object with a name and a path");
+
       return;
     }
+
     malformed(WALKABLE.xref, xref, `xrefs[${i}]`, "xref", about);
+
     if (r12) {
       error("xref", R12_ONLY.xrefs);
+
       return;
     }
+
     const nameProblem = blockNameProblem(name);
+
     if (nameProblem) {
       error("xref", nameProblem);
+
       return;
     }
+
     const auditKey = layerAuditKey(xref.name);
     const first = blocksAudited.get(auditKey);
+
     if (first !== undefined) {
       const kind = xrefsAudited.has(auditKey) ? "xref" : "block";
       error("duplicate-block", xrefTwinProblem(xref.name, first, kind));
+
       return;
     }
+
     blocksAudited.set(auditKey, xref.name);
     xrefsAudited.add(auditKey);
     xrefs.set(layerKey(xref.name), xref);
     const pathProblem = xrefPathProblem(xref.path);
+
     if (pathProblem) error("xref", pathProblem);
+
+    const refused: {
+      readonly name?: unknown;
+      readonly entities?: unknown;
+      readonly base?: unknown;
+      readonly attributes?: unknown;
+    } = xref;
+
     for (const field of XREF_REFUSED_FIELDS) {
-      if ((xref as unknown as Record<string, unknown>)[field] !== undefined) {
+      if (refused[field] !== undefined) {
         error("xref", xrefFieldProblem(field));
       }
     }
+
     const handles = blockHandles(xref.name);
+
     for (const handle of [handles.record, handles.begin, handles.end]) {
       const clash = claim(handle, `the xref ${shown(xref.name)}`);
+
       if (clash) error("id-handle", clash);
     }
   });
@@ -1960,85 +2404,114 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       const from = out.length;
       const tag: unknown = definition ? definition.tag : kept[index];
       // A long string that another place holds too is read again, and paid for.
-      const shared = definition ? repeatedOf(definition as never) : 0;
+      const shared = definition ? repeatedOf(definition) : 0;
       const where = () => `the attribute ${shown(tag)} of block ${shown(block.name)}`;
+
       if (shared > 0 && !spend(shared, where)) return;
+
       const add = (rule: LintRule, severity: Diagnostic["severity"], problem: string) => {
         const call = block.attributes ? callOf(block.attributes, index) : undefined;
-        out.push({
+
+        let diagnostic: Diagnostic = {
           rule,
           severity,
           message: `Block ${shown(block.name)}, attribute ${shown(tag)}: ${problem}`,
           block: block.name,
-          ...(typeof tag === "string" ? { attribute: tag } : {}),
-          ...(call ? { call } : {}),
-        });
+        };
+
+        if (isString(tag)) diagnostic = { ...diagnostic, attribute: tag };
+
+        out.push(aboutWith(diagnostic, undefined, call));
       };
+
       const tagProblem = attributeTagProblem(tag);
+
+      // A tag of no problem is a string.
       if (tagProblem) add("attribute", "error", tagProblem);
-      else if (tags.has(tag as string)) {
-        add("duplicate-attribute", "error", duplicateAttributeProblem(tag as string));
-      } else {
-        tags.add(tag as string);
+      else if (isString(tag) && tags.has(tag)) {
+        add("duplicate-attribute", "error", duplicateAttributeProblem(tag));
+      } else if (isString(tag)) {
+        tags.add(tag);
         const what = `the attribute ${shown(tag)} of the block ${shown(block.name)}`;
-        const clash = claim(definitionHandle(block.name, tag as string), what);
+        const clash = claim(definitionHandle(block.name, tag), what);
+
         if (clash) add("id-handle", "error", clash);
       }
+
       if (!definition) return;
       const kind: unknown = definition.kind;
       const paragraph = kind === "paragraph";
+
       if (kind !== undefined && kind !== "text" && !paragraph)
         add("attribute", "error", ATTRIBUTE_KIND);
+
       if (paragraph && r12) add("paragraph", "error", R12_ONLY.paragraphs);
-      const given = definition as unknown as Readonly<Record<string, unknown>>;
+      const given: DefinitionFields = definition;
+
       if (!paragraph) {
         for (const field of PARAGRAPH_ONLY) {
           if (given[field] !== undefined) add("attribute", "error", paragraphOnlyProblem(field));
         }
       }
+
       for (const [field, value] of [
         ["its value", paragraph ? "" : definition.value],
         ["its prompt", definition.prompt ?? ""],
       ] as const) {
-        const [problem, warning] =
-          typeof value === "string" ? checkText(value) : ["must be a string", undefined];
+        const [problem, warning] = isString(value)
+          ? checkText(value)
+          : ["must be a string", undefined];
+
         if (problem) add("text", "error", `${field}: ${problem}`);
+
         if (warning) add("text", "warning", `${field}: ${warning}`);
       }
+
       const layer = undefinedLayer(definition.layer);
+
       if (layer) add("undefined-layer", "error", layer);
+
       for (const problem of geometryProblems(asText(definition))) {
         add("geometry", "error", problem);
       }
+
       if (paragraph) {
         const value: unknown = definition.value;
         const font = fontOf(definition.style);
-        const [problem, columnBreak] =
-          typeof value === "string"
-            ? checkParagraph(value, font)
-            : [paragraphValueProblem(value, font), false];
+
+        const [problem, columnBreak] = isString(value)
+          ? checkParagraph(value, font)
+          : [paragraphValueProblem(value, font), false];
+
         if (problem) add("paragraph", "error", `its value: ${problem}`);
         else if (columnBreak) add("paragraph", "warning", `its value: ${PARAGRAPH_COLUMN_BREAK}`);
         const width: unknown = given["width"];
+
         if (width !== undefined) {
           const size =
-            typeof width === "number" && Number.isFinite(width)
+            isNumber(width) && Number.isFinite(width)
               ? sizeProblem(width)
               : "This value must be finite";
+
           if (size) add("geometry", "error", `width: ${size}`);
         }
+
         for (const [rule, field, chosen] of [
           ["text-align", "align", given["align"]],
           ["text-align", "valign", given["valign"]],
           ["paragraph", "lineSpacingStyle", given["lineSpacingStyle"]],
         ] as const) {
           const choice = chosen === undefined ? undefined : paragraphChoiceProblem(field, chosen);
+
           if (choice) add(rule, "error", choice);
         }
+
         const spacing = given["lineSpacing"];
         const spaced = spacing === undefined ? undefined : lineSpacingProblem(spacing);
+
         if (spaced) add("paragraph", "error", spaced);
         const styled = definition.style === undefined ? {} : { style: definition.style };
+
         for (const [rule, found] of textProblems(styled)) add(rule, "error", found);
       } else for (const [rule, found] of textProblems(definition)) add(rule, "error", found);
       mark(TYPED.attribute, definition, `${at}.attributes[${index}]`, from);
@@ -2046,9 +2519,11 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   };
 
   type Add = (rule: LintRule, severity: Diagnostic["severity"], problem: string) => void;
+
   /** The pixels the first image of each file gives it, by its path with \ and / as one. */
   // Keyed exactly, since a path may be long.
   const imagePixels = new Map<string, readonly [number, number]>();
+
   /**
    * Checks what an image holds beyond the fields every entity has: its path, its pixels, its clip
    * and its flags, and that each file has one size, and takes its reactor's handle from its id.
@@ -2061,31 +2536,39 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     here: () => string,
   ): void => {
     const pathProblem = imagePathProblem(image.path);
+
     if (pathProblem) add("image", "error", pathProblem);
     const pixelsProblem = imagePixelsProblem(image.pixels);
+
     if (pixelsProblem) add("image", "error", `pixels: ${pixelsProblem}`);
+
     for (const [field, value] of [
       ["invertClip", image.invertClip],
       ["transparent", image.transparent],
     ] as const) {
-      if (value !== undefined && typeof value !== "boolean") {
+      if (value !== undefined && !isBoolean(value)) {
         add("image", "error", `${field} must be true or false`);
       }
     }
+
     if (image.clip === undefined && image.invertClip === true) {
       add("image", "error", IMAGE_INVERT_WITHOUT_CLIP);
     }
+
     if (pathProblem === undefined && pixelsProblem === undefined) {
       const key = exactKey(imagePathKey(image.path));
       const first = imagePixels.get(key);
+
       // A long path many images share is read again for each, which `repeatedIn` paid for.
       if (first === undefined) imagePixels.set(key, [image.pixels[0], image.pixels[1]]);
       else if (first[0] !== image.pixels[0] || first[1] !== image.pixels[1]) {
         add("image", "error", IMAGE_PIXELS_SAME);
       }
     }
+
     if (sound && pixelsProblem === undefined && image.clip !== undefined) {
       const list: unknown = image.clip;
+
       if (Array.isArray(list) && list.length > IMAGE_CLIP_MOST) {
         add("image", "error", `clip: ${IMAGE_CLIP_MOST_PROBLEM}`);
       } else if (
@@ -2098,52 +2581,72 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         const [u, v] = imageVectors(image);
         const at: Point = [written(image.at[0]), written(image.at[1])];
         const problem = imageClipProblem(image.clip, at, u, v);
+
         if (problem) add("image", "error", `clip: ${problem}`);
       }
     }
-    if (named) {
+
+    // A named image has an id that is a string.
+    if (named && isString(image.id)) {
       const clash = claim(
-        imageReactorHandle(idKey(image.id as string)),
+        imageReactorHandle(idKey(image.id)),
         `the reactor of the image ${shown(image.id)}`,
       );
+
       if (clash) add("id-handle", "error", clash);
     }
   };
+
   /** Checks what an underlay holds beyond the fields every entity has. */
   const lintUnderlay = (underlay: Underlay, add: Add, sound: boolean, here: () => string): void => {
     const pathProblem = underlayPathProblem(underlay.path);
+
     if (pathProblem) add("underlay", "error", pathProblem);
+
     if (underlay.page !== undefined) {
       const pageProblem = underlayPageProblem(underlay.page);
+
       if (pageProblem) add("underlay", "error", pageProblem);
     }
+
     const sizeProblem = underlayPageSizeProblem(underlay.pageSize);
+
     if (sizeProblem) add("underlay", "error", sizeProblem);
+
     const scaleProblem =
       underlay.scale === undefined ? undefined : underlayScaleProblem(underlay.scale);
+
     if (scaleProblem) add("underlay", "error", scaleProblem);
+
     if (sizeProblem === undefined && scaleProblem === undefined && sound) {
       const placed = underlayPlacedProblem(underlay.pageSize, underlay.scale ?? 1, underlay.at);
+
       if (placed) add("underlay", "error", placed);
     }
+
     if (underlay.fade !== undefined && underlayFadeProblem(underlay.fade))
       add("underlay", "error", underlayFadeProblem(underlay.fade)!);
+
     if (underlay.contrast !== undefined && underlayContrastProblem(underlay.contrast))
       add("underlay", "error", underlayContrastProblem(underlay.contrast)!);
+
     for (const [field, value] of [
       ["invertClip", underlay.invertClip],
       ["monochrome", underlay.monochrome],
       ["on", underlay.on],
     ] as const) {
-      if (value !== undefined && typeof value !== "boolean") {
+      if (value !== undefined && !isBoolean(value)) {
         add("underlay", "error", `${field} must be true or false`);
       }
     }
+
     if (underlay.clip === undefined && underlay.invertClip === true) {
       add("underlay", "error", UNDERLAY_INVERT_WITHOUT_CLIP);
     }
+
     if (sound && scaleProblem === undefined && underlay.clip !== undefined) {
       const list: unknown = underlay.clip;
+
       if (Array.isArray(list) && list.length > IMAGE_CLIP_MOST) {
         add(
           "underlay",
@@ -2160,26 +2663,40 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         const [u, v] = underlayVectors(underlay);
         const at: Point = [written(underlay.at[0]), written(underlay.at[1])];
         const problem = underlayClipProblem(underlay.clip, at, u, v);
+
         if (problem) add("underlay", "error", `clip: ${problem}`);
       }
     }
   };
+
   /** Checks the id of an entity or a viewport and takes its handle. True for an id that is new. */
   const lintId = (id: unknown, add: Add): boolean => {
     if (id === undefined) return false;
     const problem = idProblem(id);
-    const first = problem ? undefined : ids.get(idKey(id as string));
-    if (problem) add("id", "error", problem);
-    else if (first !== undefined) {
-      add("duplicate-id", "error", duplicateIdProblem(id as string, first));
-    } else {
-      ids.set(idKey(id as string), id as string);
-      const what = `the id ${shown(id)}`;
-      const clash = claim(validIdHandle(id as string), what, id as string);
-      if (clash) add("id-handle", "error", clash);
-      return true;
+
+    if (problem) {
+      add("id", "error", problem);
+
+      return false;
     }
-    return false;
+
+    // An id of no problem is a string.
+    if (!isString(id)) return false;
+    const first = ids.get(idKey(id));
+
+    if (first !== undefined) {
+      add("duplicate-id", "error", duplicateIdProblem(id, first));
+
+      return false;
+    }
+
+    ids.set(idKey(id), id);
+    const what = `the id ${shown(id)}`;
+    const clash = claim(validIdHandle(id), what, id);
+
+    if (clash) add("id-handle", "error", clash);
+
+    return true;
   };
 
   /**
@@ -2196,29 +2713,34 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       : sheet
         ? ` of layout ${shown(sheet.name)}`
         : "";
+
     const at = block
       ? `${walked.get(block)!.at}.entities`
       : sheet
         ? `${sheet.at}.entities`
         : "entities";
+
     const inBlock = block ? { block: block.name } : sheet ? { layout: sheet.name } : {};
+
     // A block a leader places holds every entity ByBlock in CAD programs, which drop a percent.
-    const placedByLeader =
-      block !== undefined && typeof block.name === "string" && leaderPlaces(block.name);
+    const placedByLeader = block !== undefined && isString(block.name) && leaderPlaces(block.name);
+
     const space = block
       ? `block ${shown(block.name)}`
       : sheet
         ? `layout ${shown(sheet.name)}`
         : "model space";
+
     const lintEntity = (entity: Entity, index: number): void => {
       // Once the checks have stopped, no entity is read again: `check-capped` says a problem past
       // there may be unreported, and toDXF refuses the drawing.
       if (stopped !== undefined) return;
       const here = () => `${entity.kind} #${index} of ${space}`;
+
       // A long list of points, bulges, widths or column heights that many entities share is read
       // again for each, and paid for.
       if (
-        isObject(entity) &&
+        isRecord(entity) &&
         (entity.kind === "polyline" ||
           entity.kind === "image" ||
           entity.kind === "underlay" ||
@@ -2229,12 +2751,13 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       ) {
         let cost = 0;
         const columns: unknown = entity.kind === "paragraph" ? entity.columns : undefined;
-        const loops = entity.kind === "hatch" ? filled(entity.loops as unknown) : [];
+        const loops: readonly unknown[] = entity.kind === "hatch" ? filled(entity.loops) : [];
+
         const lists =
           entity.kind === "image" || entity.kind === "underlay"
             ? [entity.clip]
             : entity.kind === "paragraph"
-              ? [isObject(columns) ? columns.heights : undefined]
+              ? [isRecord(columns) ? columns.heights : undefined]
               : entity.kind === "wipeout"
                 ? [entity.points]
                 : entity.kind === "spline"
@@ -2243,68 +2766,85 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
                     ? [
                         entity.loops,
                         ...loops.flatMap((loop) =>
-                          isObject(loop) ? [loop.points, loop.bulges] : [],
+                          isRecord(loop) ? [loop.points, loop.bulges] : [],
                         ),
                       ]
                     : [entity.points, entity.bulges, entity.widths];
+
         // A spline's fit is worked out again from its lists, which takes more for each point.
         const per = entity.kind === "spline" ? 2 : 8;
+
         for (const list of lists) {
           if (Array.isArray(list) && list.length >= FREE && again(list))
             cost += Math.floor(list.length / per);
         }
+
         if (cost > 0 && !spend(cost, here)) return;
       }
+
       // What the extents would do again is paid for there, so a drawing that can cost them
       // anything is boxed below.
-      if (isObject(entity) && !boxable) boxable = costsBoxes(entity);
+      if (isRecord(entity) && !boxable) boxable = costsBoxes(entity);
+
       // So are a leader that shares its shafts or its note with another and a long string.
-      const shared = isObject(entity)
-        ? (entity.kind === "leader"
-            ? leaderAgain(entity)
-            : entity.kind === "table"
-              ? tableAgain(entity)
-              : 0) + repeatedIn(entity)
-        : 0;
+      let shared = 0;
+
+      if (isRecord(entity)) {
+        if (entity.kind === "leader") shared = leaderAgain(entity);
+        else if (entity.kind === "table") shared = tableAgain(entity);
+        shared += repeatedIn(entity);
+      }
+
       if (shared > 0 && !spend(shared, here)) return;
+
       if (metUnsound(WALKABLE.entity, entity) || !isSound(WALKABLE.entity, entity)) {
-        const call = callOf(entities, index);
-        const about = { ...inBlock, entity: index, ...(call ? { call } : {}) };
+        const about = aboutWith({ ...inBlock, entity: index }, undefined, callOf(entities, index));
+
         if (malformed(WALKABLE.entity, entity, `${at}[${index}]`, "format", about)) {
           // An insert no rule can read still places the xref it names.
-          const name: unknown = isObject(entity) && entity.kind === "insert" && entity.block;
-          const xref = typeof name === "string" ? xrefs.get(layerKey(name)) : undefined;
-          if (xref && !blocks.has(layerKey(name as string))) placedXrefs.add(xref);
+          const name: unknown = isRecord(entity) && entity.kind === "insert" && entity.block;
+          const xref = isString(name) ? xrefs.get(layerKey(name)) : undefined;
+
+          if (xref && isString(name) && !blocks.has(layerKey(name))) placedXrefs.add(xref);
+
           return;
         }
       }
+
       const id: unknown = entity.id;
+
       const add = (rule: LintRule, severity: Diagnostic["severity"], problem: string) => {
-        const call = callOf(entities, index);
-        out.push({
+        const diagnostic: Diagnostic = {
           rule,
           severity,
           message: `${entity.kind} #${index}${where}: ${problem}`,
           ...inBlock,
           entity: index,
-          ...(typeof id === "string" ? { id } : {}),
-          ...(call ? { call } : {}),
-        });
+        };
+
+        out.push(aboutWith(diagnostic, isString(id) ? id : undefined, callOf(entities, index)));
       };
+
       const named = lintId(id, add);
       const layer = undefinedLayer(entity.layer);
+
       if (layer) add("undefined-layer", "error", layer);
       const problems = geometryProblems(entity);
+
       for (const problem of problems) add("geometry", "error", problem);
       const color: unknown = entity.color;
+
       if (color !== undefined) {
         const problem =
           entityColorProblem(color) ??
           (r12 && color !== "ByLayer" ? R12_ONLY.entityColor : undefined) ??
           (entity.kind === "table" && color !== "ByLayer" ? TABLE_COLOR : undefined);
+
         if (problem) add("entity-color", "error", problem);
       }
+
       const transparency: unknown = entity.transparency;
+
       if (transparency !== undefined) {
         const problem =
           entityTransparencyProblem(transparency) ??
@@ -2312,11 +2852,11 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
           (entity.kind === "table" && transparency !== "ByLayer"
             ? TABLE_TRANSPARENCY
             : undefined) ??
-          (placedByLeader && typeof transparency === "number"
-            ? LEADER_BLOCK_TRANSPARENCY
-            : undefined);
+          (placedByLeader && isNumber(transparency) ? LEADER_BLOCK_TRANSPARENCY : undefined);
+
         if (problem) add("entity-transparency", "error", problem);
       }
+
       if (
         r12 &&
         entity.kind === "polyline" &&
@@ -2327,264 +2867,379 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
       ) {
         add("geometry", "error", R12_ONLY.polylines);
       }
+
       if (entity.kind === "insert") {
         if (r12) {
           add("block", "error", R12_ONLY.blocks);
+
           return;
         }
+
         const name: unknown = entity.block;
-        const placed = typeof name === "string" ? blocks.get(layerKey(name)) : undefined;
-        const xref = typeof name === "string" && !placed ? xrefs.get(layerKey(name)) : undefined;
+        const placed = isString(name) ? blocks.get(layerKey(name)) : undefined;
+        const xref = isString(name) && !placed ? xrefs.get(layerKey(name)) : undefined;
+
         if (xref) placedXrefs.add(xref);
-        if (typeof name !== "string")
-          add("undefined-block", "error", "a block is named by a string");
+
+        if (!isString(name)) add("undefined-block", "error", "a block is named by a string");
         else if (!placed && !xref) {
           const twin = blocksAudited.get(layerAuditKey(name));
           const hint = twin ? `. Name it as the drawing does, ${shown(twin)}` : "";
           add("undefined-block", "error", `${undefinedBlockProblem(name)}${hint}`);
         }
+
         const set: unknown = entity.attributes === undefined ? NO_VALUES : entity.attributes;
-        if (typeof set !== "object" || set === null || Array.isArray(set)) {
-          add("undefined-attribute", "error", ATTRIBUTES_SHAPE);
+
+        if (!isObjectOrArray(set) || Array.isArray(set)) {
+          add("undefined-attribute", "error", ATTRIBUTES_TYPE);
+
           return;
         }
+
         // An object that many inserts share is read again for each, past the first `FREE`, and
         // so is a long tag or value. One that costs nothing to read again is not kept.
         let known = valuesOf.get(set);
         let cost: number;
+
         if (known) cost = Math.max(0, known.entries.length - FREE) + known.long;
         else {
-          const entries = Object.entries(set as Record<string, unknown>);
+          const entries: readonly (readonly [string, unknown])[] = Object.entries(set);
           let long = 0;
           cost = 0;
+
           for (const [tag, value] of entries) {
             cost += long1(tag) + long1(value);
+
             for (const text of [tag, value]) {
-              if (typeof text === "string" && text.length >= LONG)
-                long += Math.floor(text.length / 32);
+              if (isString(text) && text.length >= LONG) long += Math.floor(text.length / 32);
             }
           }
+
           known = { entries, long };
+
           if (entries.length > FREE || long > 0) valuesOf.set(set, known);
         }
+
         if (cost > 0 && !spend(cost, here)) return;
         const values = known.entries;
+
         if (xref) {
           if (values.length > 0) add("undefined-attribute", "error", XREF_ATTRIBUTES);
+
           return;
         }
+
         const read = placed ? placingOf(placed) : undefined;
         const tags = read?.tags ?? new Set<string>();
+
         // What the insert makes of each attribute, once the insert itself is sound.
         if (placed && walked.get(placed)!.based && problems.length === 0) {
           let count = 0;
+
           for (const [definition, style, quoted] of read!.placed) {
             // A definition's value that the insert does not hold is written again for it.
-            const repeated = !Object.hasOwn(set as object, definition.tag);
+            const repeated = !Object.hasOwn(set, definition.tag);
+
             const cost =
               (count++ >= FREE ? 1 : 0) +
               lookupCost(entity, definition) +
-              (repeated && typeof definition.value === "string"
+              (repeated && isString(definition.value)
                 ? Math.floor(definition.value.length / 32)
                 : 0);
+
             if (cost > 0 && !spend(cost, here)) break;
+
             const problem = placedAttributeProblem(
               definition.tag,
               placeAttribute(definition, style, entity, placed.base),
               quoted,
             );
+
             if (problem) add("geometry", "error", problem);
           }
         }
+
         for (const [tag, value] of values) {
           if (placed && !tags.has(tag) && !unreadDefinitions.has(placed)) {
             add("undefined-attribute", "error", undefinedAttributeProblem(tag, placed.name));
           }
+
           if (read?.paragraphs.has(tag)) {
             const font = read.paragraphs.get(tag);
-            const [problem, columnBreak] =
-              typeof value === "string"
-                ? checkParagraph(value, font)
-                : [paragraphValueProblem(value, font), false];
+
+            const [problem, columnBreak] = isString(value)
+              ? checkParagraph(value, font)
+              : [paragraphValueProblem(value, font), false];
+
             const about = `attribute ${shown(tag)}`;
+
             if (problem) add("paragraph", "error", `${about}: ${problem}`);
             else if (columnBreak)
               add("paragraph", "warning", `${about}: ${PARAGRAPH_COLUMN_BREAK}`);
             continue;
           }
-          const [problem, warning] =
-            typeof value === "string" ? checkText(value) : ["must be a string", undefined];
+
+          const [problem, warning] = isString(value)
+            ? checkText(value)
+            : ["must be a string", undefined];
+
           if (problem) add("text", "error", `attribute ${shown(tag)}: ${problem}`);
+
           if (warning) add("text", "warning", `attribute ${shown(tag)}: ${warning}`);
         }
-        if (named && tags.size > 0) {
+
+        // A named insert has an id that is a string.
+        if (named && isString(id) && tags.size > 0) {
           const insert = `the insert ${shown(id)}`;
           const taken: [string, string][] = [];
           let count = 0;
+
           for (const tag of tags) {
             // A sound id has at most 64 characters, so only the tag, which each insert of the
             // block repeats, is paid for by its length.
             const cost = (count++ >= FREE ? 1 : 0) + Math.floor(tag.length / 32);
+
             if (cost > 0 && !spend(cost, here)) break;
             taken.push([
-              insertAttributeHandle(id as string, tag),
+              insertAttributeHandle(id, tag),
               `the attribute ${shown(tag)} of ${insert}`,
             ]);
           }
-          taken.push([insertEndHandle(id as string), `the end of the attributes of ${insert}`]);
+
+          taken.push([insertEndHandle(id), `the end of the attributes of ${insert}`]);
+
           for (const [handle, what] of taken) {
             const clash = claim(handle, what);
+
             if (clash) add("id-handle", "error", clash);
           }
         }
+
         return;
       }
+
       if (entity.kind === "leader") {
         if (problems.length === 0) lintLeader(entity, add, block !== undefined);
+
         return;
       }
+
       if (entity.kind === "table") {
         if (r12) {
           add("table", "error", R12_ONLY.tables);
+
           return;
         }
+
         if (problems.length === 0) lintTable(entity, add, block !== undefined, here);
+
         return;
       }
+
       if (entity.kind === "image") {
         if (r12) {
           add("image", "error", R12_ONLY.images);
+
           return;
         }
+
         lintImage(entity, add, problems.length === 0, named, here);
       }
+
       if (entity.kind === "underlay") {
         if (r12) {
           add("underlay", "error", R12_ONLY.underlays);
+
           return;
         }
+
         lintUnderlay(entity, add, problems.length === 0, here);
       }
+
       if (r12 && (entity.kind === "ellipse" || entity.kind === "spline")) {
         add("geometry", "error", R12_ONLY.curves);
+
         return;
       }
+
       if (r12 && entity.kind === "point") {
         add("geometry", "error", R12_ONLY.points);
+
         return;
       }
+
       if (entity.kind === "hatch" || entity.kind === "wipeout") {
         if (r12) {
           add(entity.kind, "error", R12_ONLY.hatches);
+
           return;
         }
+
         if (entity.kind === "hatch" && entity.pattern !== undefined) {
           lintHatchPattern(entity, add, problems.length === 0, here);
         }
+
         if (entity.kind === "hatch" && entity.gradient !== undefined) {
           lintHatchGradient(entity, add);
         }
+
         // Each side against each other one, paid for by the pairs past the first 4,096.
         if (entity.kind === "wipeout" && entity.points.length > 3 && problems.length === 0) {
           const n = entity.points.length;
           const pairs = Math.floor((n * n) / 2);
+
           if (pairs > 4096 && !spend(Math.floor(pairs / 64), here)) return;
+
           if (polygonCrosses(entity.points)) add("wipeout", "error", WIPEOUT_CROSSES);
         }
       }
+
       if (isDimension(entity)) {
         lintDimension(entity, add, problems.length === 0, block !== undefined, here);
+        // Its own overall scale, its DIMSCALE override.
+        const scale: unknown = entity.scale;
+
+        if (scale !== undefined) {
+          const problem = isNumber(scale) ? sizeProblem(scale) : "it is not a finite number";
+
+          if (problem) add("dimension", "error", `scale: ${problem}`);
+        }
+
         // The block of its picture takes handles from its id, or else from its place.
         if (!r12 && !block && (id === undefined || named)) {
-          const place: DimensionPlace = {
-            index,
-            ...(id === undefined ? {} : { id: id as string }),
-            ...(sheet ? { layout: sheet.name } : {}),
-          };
+          let place: DimensionPlace = { index };
+
+          if (isString(id)) place = { ...place, id };
+
+          if (sheet) place = { ...place, layout: sheet.name };
+
           const what = pictureOwner(place, shown);
+
           for (const handle of pictureHandleList(validDimensionPictureHandles(place))) {
             const clash = claim(handle, what);
+
             if (clash) {
               add("id-handle", "error", clash);
               break;
             }
           }
         }
+
         return;
       }
+
       if (entity.linetype !== undefined) {
         const name: unknown = entity.linetype;
+
         const problem = r12
-          ? typeof name === "string" && builtInLinetype(name) === "ByLayer"
+          ? isString(name) && builtInLinetype(name) === "ByLayer"
             ? undefined
             : R12_ONLY.entityStyle
           : missing(name);
+
         if (problem) add(r12 ? "linetype" : "undefined-linetype", "error", problem);
       }
+
+      const ownScale = "linetypeScale" in entity ? entity.linetypeScale : undefined;
+
+      if (ownScale !== undefined) {
+        const problem = !isNumber(ownScale)
+          ? "An entity's linetypeScale is a finite number"
+          : (linetypeScaleProblem(ownScale) ??
+            (r12 && ownScale !== 1 ? R12_ONLY.entityStyle : undefined));
+
+        if (problem) add("linetype", "error", `linetypeScale: ${problem}`);
+      }
+
       if (entity.lineweight !== undefined) {
         const problem =
           lineweightProblem(entity.lineweight, "entity") ??
           (r12 && entity.lineweight !== "ByLayer" ? R12_ONLY.entityStyle : undefined);
+
         if (problem) add("lineweight", "error", problem);
       }
+
       if (entity.kind === "text") {
         const [problem, warning] = checkText(entity.value);
+
         if (problem) add("text", "error", problem);
+
         for (const [rule, found] of textProblems(entity)) add(rule, "error", found);
+
         if (warning) add("text", "warning", warning);
       }
+
       if (entity.kind === "paragraph") {
         if (r12) {
           add("paragraph", "error", R12_ONLY.paragraphs);
+
           return;
         }
+
         const font = fontOf(entity.style);
-        const [problem, columnBreak] =
-          typeof entity.value === "string"
-            ? checkParagraph(entity.value, font)
-            : [paragraphValueProblem(entity.value, font), false];
+
+        const [problem, columnBreak] = isString(entity.value)
+          ? checkParagraph(entity.value, font)
+          : [paragraphValueProblem(entity.value, font), false];
+
         if (problem) add("paragraph", "error", problem);
+
         if (entity.columns !== undefined) {
           // Columns many paragraphs share are checked once.
           const given: unknown = entity.columns;
-          let shape: string | undefined;
-          if (typeof given === "object" && given !== null) {
-            if (columnShapes.has(given)) shape = columnShapes.get(given);
-            else columnShapes.set(given, (shape = paragraphColumnsShapeProblem(given)));
-          } else shape = paragraphColumnsShapeProblem(given);
-          const columns = shape ?? paragraphColumnsSizeProblem(given, entity.width, entity.height);
+          let formProblem: string | undefined;
+
+          if (isObjectOrArray(given)) {
+            if (columnForms.has(given)) formProblem = columnForms.get(given);
+            else columnForms.set(given, (formProblem = paragraphColumnsTypeProblem(given)));
+          } else formProblem = paragraphColumnsTypeProblem(given);
+
+          const columns =
+            formProblem ?? paragraphColumnsSizeProblem(given, entity.width, entity.height);
+
           if (columns) add("paragraph", "error", columns);
         } else if (columnBreak) add("paragraph", "warning", PARAGRAPH_COLUMN_BREAK);
         const { align, valign, lineSpacing, lineSpacingStyle } = entity;
+
         for (const [rule, field, value] of [
           ["text-align", "align", align],
           ["text-align", "valign", valign],
           ["paragraph", "lineSpacingStyle", lineSpacingStyle],
         ] as const) {
           const choice = value === undefined ? undefined : paragraphChoiceProblem(field, value);
+
           if (choice) add(rule, "error", choice);
         }
+
         const spacing = lineSpacing === undefined ? undefined : lineSpacingProblem(lineSpacing);
+
         if (spacing) add("paragraph", "error", spacing);
         const mask = entity.mask === undefined ? undefined : textMaskProblem(entity.mask);
+
         if (mask) add("paragraph", "error", mask);
         else if (entity.mask !== undefined && entity.mask !== false && entity.columns !== undefined)
           add("paragraph", "error", PARAGRAPH_MASK_COLUMNS);
         const styled = entity.style === undefined ? {} : { style: entity.style };
+
         for (const [rule, found] of textProblems(styled)) add(rule, "error", found);
       }
+
       // A shape with a geometry error has no length worth a second message.
       const collapsed = problems.length === 0 ? zeroLength(entity) : undefined;
+
       if (collapsed) add("zero-length", "warning", collapsed);
     };
+
     // A list that many blocks share is read again for each, and paid for.
     if (again(entities) && !spend(entities.length, () => `the entities of ${space}`)) return;
     each(entities, at, "format", TYPED.entity, lintEntity, inBlock);
   };
+
   for (const block of blocks.values()) {
     lintAttributes(block);
     lintEntities(walked.get(block)!.entities, block);
   }
+
   lintEntities(listed<Entity>("entities", "format"), undefined);
 
   // The leading CAD app compares layout names by a table of its own, which `layoutNameKey` holds.
@@ -2596,13 +3251,16 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
    */
   let modelBox: readonly [number, number, number, number] | null | undefined;
   let boxed = false;
+
   const boxOfModel = (): readonly [number, number, number, number] | null | undefined => {
     if (boxed) return modelBox;
     boxed = true;
+
     if (stopped !== undefined) return undefined;
     // A drawing whose entities cannot be measured has errors of its own above.
     modelBox = null;
     let boxOf: Boxer;
+
     try {
       // What the boxes do again counts against the checks' limit.
       boxOf = boxer(
@@ -2621,37 +3279,50 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     } catch {
       return modelBox;
     }
+
     const spaces: [unknown, string][] = [[drawing.entities, "model space"]];
-    for (const layout of filled(drawing.layouts as unknown) as Partial<Layout>[]) {
+
+    for (const layout of filled(drawing.layouts)) {
       spaces.push([layout?.entities, `layout ${shown(layout?.name)}`]);
     }
+
     for (const [entities, space] of spaces) {
       if (!Array.isArray(entities)) continue;
       const model = space === "model space";
+
       try {
         const box = boxOf(entities);
+
         if (model && entities.length > 0) modelBox = box ?? [0, 0, 1, 1];
       } catch {
         continue;
       }
+
       const at = boxOf.capped;
+
       if (at !== undefined) {
         if (model) modelBox = undefined;
-        const index = (entities as readonly unknown[]).indexOf(at);
+        const list: readonly unknown[] = entities;
+        const index = list.indexOf(at);
         stopped ??= `${at.kind} #${index} of ${space}, in the box of what ${space} draws`;
         break;
       }
     }
+
     work += boxOf.spent;
+
     return modelBox;
   };
+
   each(listed<Layout>("layouts", "layout"), "layouts", "layout", TYPED.layout, (layout, i) => {
     const at = `layouts[${i}]`;
     // A layout with a name keeps it, whatever else is wrong with it.
     const unread = malformed(WALKABLE.layout, layout, at, "layout");
-    if (!isObject(layout)) return;
+
+    if (!isRecord(layout)) return;
     const { name } = layout;
-    const inLayout = typeof name === "string" ? { layout: name } : {};
+    const inLayout = isString(name) ? { layout: name } : {};
+
     const error = (rule: LintRule, message: string) =>
       out.push({
         rule,
@@ -2659,87 +3330,122 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         message: `Layout ${shown(name)}: ${message}`,
         ...inLayout,
       });
+
     if (r12) {
       error("layout", R12_ONLY.layouts);
+
       return;
     }
+
     const nameProblem = layoutNameProblem(name);
+
     if (nameProblem) {
       error("layout", nameProblem);
+
       return;
     }
+
     const first = layoutNames.get(layoutNameKey(name));
+
     if (first !== undefined) {
       error("duplicate-layout", layoutTwinProblem(name, first)!);
+
       return;
     }
+
     layoutNames.set(layoutNameKey(name), name);
     // A layout on no paper cannot be drawn, so the error names it as the item to leave out.
     const problem = paperProblem(layout.paper);
+
     if (problem) {
       const message = `Layout ${shown(name)}: ${problem}`;
       out.push({ rule: "layout", severity: "error", message, ...inLayout, item: at });
     }
+
     if (layout.plotStyle !== undefined) {
       const styleProblem = plotStyleProblem(layout.plotStyle);
+
       if (styleProblem) error("layout", styleProblem);
     }
+
     for (const handle of Object.values(validLayoutHandles(name))) {
       const clash = claim(handle, `the layout ${shown(name)}`);
+
       if (clash) error("id-handle", clash);
     }
+
     const paper = problem ? undefined : paperInfo(layout.paper);
     const isList = (value: unknown) => !unread || arrayProblem(value, "") === undefined;
     const viewports = isList(layout.viewports) ? layout.viewports : [];
+
     const lintViewport = (viewport: Viewport, index: number): void => {
       // A list of frozen layers that another viewport holds too is read again, and paid for by
       // its length, as each long name in it that another place holds is by its own. That comes
       // first, so that a viewport the limit stops reports nothing, and no check reads its list.
-      const frozenList: unknown =
-        typeof viewport === "object" && viewport !== null ? viewport.frozenLayers : undefined;
+      const frozenList: unknown = isObjectOrArray(viewport) ? viewport.frozenLayers : undefined;
+
       if (Array.isArray(frozenList)) {
         const where = () => `the frozen layers of viewport #${index} of layout ${shown(name)}`;
+
         if (again(frozenList) && !spend(frozenList.length, where)) return;
         let names = 0;
+
         for (const frozen of filled(frozenList)) names += repeat(frozen);
+
         if (names > 0 && !spend(names, where)) return;
       }
-      const call = callOf(viewports, index);
-      const about = { layout: name, viewport: index, ...(call ? { call } : {}) };
+
+      const about = aboutWith(
+        { layout: name, viewport: index },
+        undefined,
+        callOf(viewports, index),
+      );
+
       const path = `${at}.viewports[${index}]`;
+
       if (malformed(WALKABLE.viewport, viewport, path, "viewport", about)) return;
       const id: unknown = viewport.id;
+
       const add: Add = (rule, severity, found) => {
-        out.push({
+        const diagnostic: Diagnostic = {
           rule,
           severity,
           message: `viewport #${index} of layout ${shown(name)}: ${found}`,
           ...about,
-          ...(typeof id === "string" ? { id } : {}),
-        });
+        };
+
+        out.push(isString(id) ? { ...diagnostic, id } : diagnostic);
       };
+
       lintId(id, add);
       const layer: unknown = viewport.layer;
-      const absent =
-        typeof layer === "string" ? undefinedLayer(layer) : "a layer is named by a string";
+
+      const absent = isString(layer) ? undefinedLayer(layer) : "a layer is named by a string";
+
       if (absent) add("undefined-layer", "error", absent);
       // Without its paper a viewport is judged as one on a paper in inches.
       const units = isUnits(drawing.units) ? drawing.units : "in";
       const found = viewportProblem(viewport, paper?.units ?? "in", units);
+
       if (found) {
         // A viewport with no view cannot be drawn, so the error names it.
         add("viewport", "error", found);
         out[out.length - 1] = { ...out.at(-1)!, item: path };
+
         return;
       }
+
       // A file holds each layer a viewport freezes by its handle, which only a layer has.
       (viewport.frozenLayers ?? []).forEach((frozen, j) => {
         const absent = undefinedLayer(frozen);
+
         if (absent) add("undefined-layer", "error", `its frozenLayers[${j}]: ${absent}`);
       });
+
       if (!paper) return;
       const view = validViewportView(viewport, paper.units, units);
       const half = [view.width / 2, view.height / 2] as const;
+
       const offPaper = viewportOffPaperWarning(
         [
           view.paperCenter[0] - half[0],
@@ -2749,10 +3455,13 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         ],
         paper,
       );
+
       if (offPaper) add("viewport", "warning", offPaper);
       const model = boxOfModel();
       const [minX, minY, maxX, maxY] = view.box;
+
       if (model === undefined) return;
+
       const apart =
         !model ||
         model[0] > maxX ||
@@ -2760,6 +3469,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
         model[1] > maxY ||
         model[3] < minY ||
         !viewReaches(view, model);
+
       if (apart) {
         const turned = {
           width: view.width / view.scale,
@@ -2767,9 +3477,11 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
           center: view.center,
           twist: view.twist,
         };
+
         add("viewport", "warning", viewportEmptyWarning(view.box, turned));
       }
     };
+
     each(viewports, `${at}.viewports`, "viewport", TYPED.viewport, lintViewport, inLayout);
     lintEntities(isList(layout.entities) ? layout.entities : [], undefined, { name, at });
   });
@@ -2777,6 +3489,7 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   // The DXF writer works the extents out within the same limit, so a drawing whose extents can
   // cost anything is boxed here too.
   if (boxable) boxOfModel();
+
   // Past the limit, an insert that places an xref may not have been read.
   for (const xref of stopped === undefined ? xrefs.values() : []) {
     if (placedXrefs.has(xref)) continue;
@@ -2791,25 +3504,32 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
   // A block that holds an insert of itself, directly or through the blocks it inserts. The walk
   // above paid for each list and long name this reads again, and past the limit it reads none.
   const insertedBy = new Map<Block, Block[]>();
+
   for (const block of stopped === undefined ? blocks.values() : []) {
     const found: Block[] = [];
+
     for (const entity of filled(walked.get(block)!.entities)) {
-      const name: unknown =
-        (entity as Entity | null)?.kind === "insert" ? (entity as Insert).block : undefined;
-      const inner = typeof name === "string" ? blocks.get(layerKey(name)) : undefined;
+      const name: unknown = entity?.kind === "insert" ? entity.block : undefined;
+
+      const inner = isString(name) ? blocks.get(layerKey(name)) : undefined;
+
       if (inner) found.push(inner);
     }
+
     insertedBy.set(block, found);
   }
+
   const cyclic = inCycles([...insertedBy.keys()], (block) => insertedBy.get(block)!);
   // The way back from a block of a cycle stays among the blocks that reach each other.
   const grouped = new Map<Block, Block[]>();
+
   for (const [block, group] of cyclic) {
     grouped.set(
       block,
       insertedBy.get(block)!.filter((inner) => cyclic.get(inner) === group),
     );
   }
+
   for (const block of blocks.values()) {
     if (!cyclic.has(block)) continue;
     const where = () => `the cycle of block ${shown(block.name)}`;
@@ -2823,30 +3543,36 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
 
   // A shape is drawn from its shape file, which a drawing does not hold: the plot finds it in the
   // files it is given, as here.
-  let findShape: ReturnType<typeof shapeFinder> | undefined;
+  let findGlyph: ReturnType<typeof glyphFinder> | undefined;
+
   try {
-    findShape = shapeFinder(options?.shapes);
+    findGlyph = glyphFinder(options?.shx);
   } catch (error) {
-    // `shapeFinder` throws only a RangeError, but `lint` never throws whatever it is given.
+    // `glyphFinder` throws only a RangeError, but `lint` never throws whatever it is given.
     const message =
       error instanceof RangeError ? error.message : "The shape files given do not read";
+
     out.push({ rule: "linetype-shape", severity: "warning", message });
   }
+
   const gaps = {
     file: "its file is not given",
     unread: "its file does not read",
-    shape: "its file has no such shape",
+    glyph: "its file has no such shape",
   };
+
   for (const linetype of marked) {
     if (!used.has(layerKey(linetype.name))) continue;
+
     for (const m of linetype.marks ?? []) {
-      if (!("shape" in m) || typeof m.shape !== "number" || typeof m.file !== "string") continue;
-      const found = findShape?.(m.file, m.shape) ?? { missing: "file" as const };
-      if ("shape" in found) continue;
+      if (!("glyph" in m) || !isNumber(m.glyph) || !isString(m.file)) continue;
+      const found = findGlyph?.(m.file, m.glyph) ?? { missing: "file" as const };
+
+      if ("glyph" in found) continue;
       out.push({
         rule: "linetype-shape",
         severity: "warning",
-        message: `Linetype ${shown(linetype.name)} draws shape ${m.shape} of ${shown(m.file)}, where tsdraft's plot leaves a gap because ${gaps[found.missing]}: CAD programs draw it only where they find the file`,
+        message: `Linetype ${shown(linetype.name)} draws shape ${m.glyph} of ${shown(m.file)}, where tsdraft's plot leaves a gap because ${gaps[found.missing]}: CAD programs draw it only where they find the file`,
         ...named("linetype", linetype.name),
       });
       break;
@@ -2861,10 +3587,13 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
     });
   }
 
-  const given: unknown = options?.standard;
+  const given = options?.standard;
+
   if (given !== undefined) lintStandard(drawing, given, options?.discipline, version, out);
-  const referenced: unknown = options?.xrefs;
+  const referenced = options?.xrefs;
+
   if (referenced !== undefined) lintReferenced(drawing, referenced, out);
+
   return out;
 }
 
@@ -2875,36 +3604,42 @@ const NO_BLOCKS: ReadonlyMap<string, Block> = new Map();
  * Why a drawing given in `xrefs` is not drawn, as `referencedTree` finds it: a warning of the
  * xref of the drawing it is under, or an error for a value that is no drawing.
  */
-function lintReferenced(drawing: Drawing, xrefs: unknown, out: Diagnostic[]): void {
-  if (typeof xrefs !== "object" || xrefs === null || Array.isArray(xrefs)) {
+function lintReferenced(drawing: Drawing, xrefs: XrefDrawings, out: Diagnostic[]): void {
+  if (!isObjectOrArray(xrefs) || Array.isArray(xrefs)) {
     out.push({ rule: "xref", severity: "error", message: XREFS_GIVEN });
+
     return;
   }
-  const { problems, unreported, unreportedShapes } = referencedTree(
+
+  const { problems, unreported, unreportedNonDrawings } = referencedTree(
     drawing,
     xrefs,
     () => NO_BLOCKS,
   );
+
   for (const { kind, chain } of problems) {
-    out.push({
+    const diagnostic: Diagnostic = {
       rule: "xref",
       severity: kind === "shape" ? "error" : "warning",
       message: xrefChainProblem(kind, chain),
-      ...(chain[0] === undefined ? {} : { xref: chain[0] }),
-    });
+    };
+
+    out.push(chain[0] === undefined ? diagnostic : { ...diagnostic, xref: chain[0] });
   }
-  if (unreportedShapes > 0) {
+
+  if (unreportedNonDrawings > 0) {
     out.push({
       rule: "xref",
       severity: "error",
-      message: `${unreportedShapes} more values given in xrefs are neither a Drawing nor { drawing, xrefs }, so nothing is drawn for them`,
+      message: `${unreportedNonDrawings} more values given in xrefs are neither a Drawing nor { drawing, xrefs }, so nothing is drawn for them`,
     });
   }
-  if (unreported > unreportedShapes) {
+
+  if (unreported > unreportedNonDrawings) {
     out.push({
       rule: "xref",
       severity: "warning",
-      message: `${unreported - unreportedShapes} more drawings given in xrefs are not drawn, for the reasons above`,
+      message: `${unreported - unreportedNonDrawings} more drawings given in xrefs are not drawn, for the reasons above`,
     });
   }
 }
@@ -2947,23 +3682,30 @@ function pathBack<T>(
 ): T[] | undefined {
   const cameFrom = new Map<T, T>();
   const queue = [start];
+
   for (let i = 0; i < queue.length; i++) {
     const from = queue[i]!;
     const ahead = next(from);
+
     if (!spend(1 + ahead.length, where)) return undefined;
+
     for (const to of ahead) {
       if (to === start) {
         const back = [start];
+
         for (let at = from; at !== start; at = cameFrom.get(at)!) back.push(at);
         back.push(start);
+
         return back.reverse();
       }
+
       if (!cameFrom.has(to)) {
         cameFrom.set(to, from);
         queue.push(to);
       }
     }
   }
+
   return undefined;
 }
 
@@ -2979,6 +3721,7 @@ function inCycles<T>(nodes: readonly T[], next: (from: T) => readonly T[]): Map<
   const holding = new Set<T>();
   const out = new Map<T, number>();
   let groups = 0;
+
   for (const root of nodes) {
     if (order.has(root)) continue;
     const stack: [T, number][] = [[root, 0]];
@@ -2986,13 +3729,16 @@ function inCycles<T>(nodes: readonly T[], next: (from: T) => readonly T[]): Map<
     low.set(root, order.get(root)!);
     held.push(root);
     holding.add(root);
+
     while (stack.length > 0) {
       const top = stack.at(-1)!;
       const [node, at] = top;
       const after = next(node);
+
       if (at < after.length) {
         top[1]++;
         const to = after[at]!;
+
         if (!order.has(to)) {
           order.set(to, order.size);
           low.set(to, order.get(to)!);
@@ -3002,23 +3748,29 @@ function inCycles<T>(nodes: readonly T[], next: (from: T) => readonly T[]): Map<
         } else if (holding.has(to)) low.set(node, Math.min(low.get(node)!, order.get(to)!));
         continue;
       }
+
       stack.pop();
       const parent = stack.at(-1);
+
       if (parent) low.set(parent[0], Math.min(low.get(parent[0])!, low.get(node)!));
+
       if (low.get(node) !== order.get(node)) continue;
       const group: T[] = [];
       let member: T;
+
       do {
         member = held.pop()!;
         holding.delete(member);
         group.push(member);
       } while (member !== node);
+
       if (group.length > 1 || after.includes(node)) {
         for (const m of group) out.set(m, groups);
         groups++;
       }
     }
   }
+
   return out;
 }
 
@@ -3039,14 +3791,18 @@ function asText(definition: AttributeDefinition): Text {
  * text too long for a table of strings to keep, and a polyline that may have an arc or a width,
  * whose box pays for a long list read again.
  */
-function costsBoxes(e: Readonly<Record<string, unknown>>): boolean {
+function costsBoxes(e: EntityFields): boolean {
   const kind = e.kind;
-  if (kind === "text") return typeof e.value === "string" && e.value.length > KEYED;
+
+  if (kind === "text") return isString(e.value) && e.value.length > KEYED;
+
   // A paragraph's layout reads its value again for each place, as a long text's measure does.
-  if (kind === "paragraph") return typeof e.value === "string" && e.value.length >= LONG;
+  if (kind === "paragraph") return isString(e.value) && e.value.length >= LONG;
+
   if (kind === "polyline") {
-    return Array.isArray(e.bulges) || Array.isArray(e.widths) || typeof e.width === "number";
+    return Array.isArray(e.bulges) || Array.isArray(e.widths) || isNumber(e.width);
   }
+
   return (
     kind === "insert" ||
     kind === "spline" ||
@@ -3065,39 +3821,50 @@ function costsBoxes(e: Readonly<Record<string, unknown>>): boolean {
 
 function geometryProblems(e: Entity): string[] {
   const out: string[] = [];
+
   const finite = (label: string, ...values: number[]) => {
     if (!values.every(Number.isFinite)) {
       out.push(`${label} must be finite numbers`);
+
       return;
     }
+
     const problem = values.map(magnitudeProblem).find((p) => p !== undefined);
+
     if (problem) out.push(`${label}: ${problem}`);
   };
+
   const size = (label: string, value: number) => {
     const problem = Number.isFinite(value) ? sizeProblem(value) : "This value must be finite";
+
     if (problem) out.push(`${label}: ${problem}`);
   };
+
   switch (e.kind) {
     case "line":
       finite("its points", ...e.from, ...e.to);
       break;
     case "polyline":
       if (e.points.length < 2) out.push("a polyline needs at least 2 points");
+
       // A loop, because a polyline can have more points than a call can take arguments.
       if (!e.points.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]))) {
         out.push("its points must be finite numbers");
       } else {
         for (const [x, y] of e.points) {
           const problem = magnitudeProblem(x) ?? magnitudeProblem(y);
+
           if (!problem) continue;
           out.push(`its points: ${problem}`);
           break;
         }
       }
+
       if (e.points.length >= 2) {
         const sides = e.closed ? e.points.length : e.points.length - 1;
         out.push(...polylineSidesProblems(sides, e.bulges, e.width, e.widths));
       }
+
       break;
     case "circle":
       finite("its center", ...e.center);
@@ -3105,6 +3872,7 @@ function geometryProblems(e: Entity): string[] {
       break;
     case "point":
       finite("its point", ...e.at);
+
       if (
         e.rotation !== undefined &&
         !(Number.isFinite(e.rotation) && e.rotation >= 0 && e.rotation < 360)
@@ -3114,14 +3882,17 @@ function geometryProblems(e: Entity): string[] {
     case "arc":
       finite("its center", ...e.center);
       size("radius", e.radius);
+
       if (![e.startAngle, e.endAngle].every((a) => Number.isFinite(a) && a >= 0 && a < 360)) {
         out.push("its angles must be from 0 up to 360");
       } else if (e.startAngle === e.endAngle) {
         out.push("its start and end angles must differ");
       } else {
         const problem = arcProblem(e.startAngle, e.endAngle);
+
         if (problem) out.push(problem);
       }
+
       break;
     case "text":
       finite("its position and rotation", ...e.at, e.rotation);
@@ -3130,20 +3901,26 @@ function geometryProblems(e: Entity): string[] {
     case "paragraph":
       finite("its position and rotation", ...e.at, e.rotation);
       size("height", e.height);
+
       if (e.width !== undefined) size("width", e.width);
       break;
     case "insert": {
       finite("its position and rotation", ...e.at, e.rotation ?? 0);
       const scale: unknown = e.scale;
+
       if (scale === undefined) break;
+
       if (!Array.isArray(scale) || scale.length !== 2) {
         out.push("its scale must be [x, y]");
         break;
       }
+
       const problem = scaleProblem(scale[0]) ?? scaleProblem(scale[1]);
+
       if (problem) out.push(`its scale: ${problem}`);
       break;
     }
+
     case "linear-dimension":
       finite("its points and its angle", ...e.from, ...e.to, ...e.line, e.angle ?? 0);
       break;
@@ -3194,27 +3971,36 @@ function geometryProblems(e: Entity): string[] {
           found.add(problem);
           out.push(`loop ${k}: ${problem}`);
         };
+
         const n = loop.points.length;
+
         if (!loop.points.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]))) {
           say("its points must be finite numbers");
+
           return;
         }
+
         for (const [x, y] of loop.points) {
           const problem = magnitudeProblem(x) ?? magnitudeProblem(y);
+
           if (problem) {
             say(`its points: ${problem}`);
             break;
           }
         }
+
         if (n >= 2)
           for (const problem of polylineSidesProblems(n, loop.bulges, undefined, undefined))
             say(problem);
+
         if (n < 2 || (n === 2 && !loopBulged(loop))) say(HATCH_LOOP_POINTS);
       });
       break;
     }
+
     case "ellipse":
       finite("its center and major axis", ...e.center, ...e.majorAxis);
+
       if (out.length > 0) break;
       out.push(...ellipseProblems(e.majorAxis, e.ratio, e.startParameter, e.endParameter));
       break;
@@ -3223,37 +4009,49 @@ function geometryProblems(e: Entity): string[] {
       break;
     case "wipeout":
       if (e.points.length < 3) out.push(WIPEOUT_POINTS);
+
       if (!e.points.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]))) {
         out.push("its points must be finite numbers");
         break;
       }
+
       for (const [x, y] of e.points) {
         const problem = magnitudeProblem(x) ?? magnitudeProblem(y);
+
         if (!problem) continue;
         out.push(`its points: ${problem}`);
+
         return out;
       }
+
       if (e.points.length >= 3 && onOneLine(e.points)) out.push(WIPEOUT_FLAT);
       break;
   }
+
   return out;
 }
 
 /** Says how a valid entity ends up with no length in the file, or returns undefined when it has one. */
 function zeroLength(e: Entity): string | undefined {
   const rounded = "once it is rounded to the 6 decimals tsdraft writes";
+
   switch (e.kind) {
     case "line":
       if (same(e.from, e.to)) return "the line has no length";
+
       return sameWritten(e.from, e.to) ? `the line has no length ${rounded}` : undefined;
     case "polyline": {
       const [first] = e.points;
+
       if (!first) return undefined;
+
       if (e.points.every((p) => same(p, first))) return "the polyline has no length";
+
       return e.points.every((p) => sameWritten(p, first))
         ? `the polyline has no length ${rounded}`
         : undefined;
     }
+
     case "arc":
       return arcIsWrittenAsPoint(e.startAngle, e.endAngle)
         ? `the arc has no length ${rounded}`

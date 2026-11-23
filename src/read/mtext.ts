@@ -11,6 +11,12 @@ import {
 } from "../paragraphs.ts";
 import type { ReadMtext, ReadTextStyle } from "./model.ts";
 
+/** A read MTEXT as a paragraph to measure, and whether tsdraft knows its font and attachment. */
+export interface MtextToMeasure {
+  readonly paragraph: ParagraphToMeasure;
+  readonly exact: boolean;
+}
+
 /**
  * A read MTEXT as `layoutParagraph` takes it: in the font of `FONTS` nearest its style's, with
  * its style's width factor and oblique angle. `exact` is false when the font is not the
@@ -19,9 +25,10 @@ import type { ReadMtext, ReadTextStyle } from "./model.ts";
 export function mtextToMeasure(
   mtext: ReadMtext,
   style?: Pick<ReadTextStyle, "font" | "family" | "widthFactor" | "oblique">,
-): { readonly paragraph: ParagraphToMeasure; readonly exact: boolean } {
+): MtextToMeasure {
   const font = nearestFont(style?.family ?? style?.font ?? "");
   const place = attachmentPlace(mtext.attachment);
+
   const paragraph: ParagraphToMeasure = {
     value: mtext.value,
     height: mtext.height,
@@ -37,6 +44,7 @@ export function mtextToMeasure(
     lineSpacingStyle: mtext.lineSpacingStyle,
     ...(mtext.columns && { columns: mtext.columns }),
   };
+
   return { paragraph, exact: font.exact && place !== undefined };
 }
 
@@ -51,6 +59,7 @@ export function layoutMtext(
 ): ParagraphLayout {
   const { paragraph, exact } = mtextToMeasure(mtext, style);
   const layout = layoutParagraph(paragraph);
+
   return exact ? layout : { ...layout, approximate: true };
 }
 
@@ -61,5 +70,6 @@ export function measureMtext(
 ): ParagraphMeasure {
   const { paragraph, exact } = mtextToMeasure(mtext, style);
   const measure = measureParagraph(paragraph);
+
   return exact ? measure : { ...measure, approximate: true };
 }

@@ -36,7 +36,9 @@ a standard. [AGENTS.md](../../AGENTS.md) has the rules that hold for every chang
 - Under a standard, a role's text style and a dimension or leader style of the standard enter
   the drawing on first use, under `capitals` of the id, and in model space with the view's scale
   id after a dimension or leader style's: `DIMS-1in-10ft`. A view's id is taken when `view()` declares it, and the
-  one viewport that shows the view takes that id and no other.
+  one viewport that shows the view takes that id and no other. `#add` keeps the id of the view an
+  annotation of model space names in its `view`, which no writer writes and `lint` reads only to
+  warn of a viewport of another view that shows it at the same scale.
 - `lint(drawing, { standard })` runs the rules of a standard in `src/standard/lint.ts` after the
   others, and without `standard` runs none of them. It takes the standard through `adopted` in
   `src/standard/made.ts`, as the builder does, and reads only what `TYPED` in `src/shape.ts` finds

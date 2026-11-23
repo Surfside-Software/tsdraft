@@ -15,10 +15,12 @@ import {
   type Point,
   type Polyline,
 } from "../src/index.ts";
+import { wrong, type Data } from "./values.ts";
 import { polylineBands, polylineSides, sideArc } from "../src/polylines.ts";
 import { svgWithin } from "../src/svg.ts";
 
 const near = (a: number, b: number, tolerance = 1e-9): boolean => Math.abs(a - b) <= tolerance;
+
 const nearPoint = (a: Point, b: Point, tolerance = 1e-9): boolean =>
   near(a[0], b[0], tolerance) && near(a[1], b[1], tolerance);
 
@@ -51,12 +53,14 @@ test("a radius rounds each corner with an arc tangent to both sides, and refuses
   );
   d.rect([20, 0], 6, 4, { radius: 2 });
   const [hook, rect] = polylines(d.build());
+
   const corners: Point[] = [
     [0, 0],
     [8, 0],
     [10, 2],
     [10, 10],
   ];
+
   assert.ok(
     hook!.points.every((p, i) => nearPoint(p, corners[i]!)),
     `${hook!.points}`,
@@ -101,6 +105,7 @@ test("a cloud's arcs turn 110 degrees, bulge out of its outline, and stay beside
     [10, 10],
     [0, 10],
   ];
+
   const d = createDrawing();
   d.cloud(square, { arc: 2.4 });
   d.cloud([...square].reverse(), { arc: 2.4 });
@@ -108,16 +113,20 @@ test("a cloud's arcs turn 110 degrees, bulge out of its outline, and stay beside
   assert.equal(counterclockwise!.points.length, 16);
   assert.ok(counterclockwise!.bulges!.every((b) => near(b, Math.tan((27.5 * Math.PI) / 180))));
   assert.ok(clockwise!.bulges!.every((b) => near(b, -Math.tan((27.5 * Math.PI) / 180))));
+
   for (const cloud of [counterclockwise!, clockwise!]) {
     for (const side of polylineSides(cloud)) {
       const arc = sideArc(side.from, side.to, side.bulge)!;
+
       const [x, y] = [
         arc.center[0] + arc.radius * Math.cos(arc.start + arc.sweep / 2),
         arc.center[1] + arc.radius * Math.sin(arc.start + arc.sweep / 2),
       ];
+
       assert.ok(x < 0 || x > 10 || y < 0 || y > 10, `the arc from ${side.from} bulges out`);
     }
   }
+
   assert.throws(() => d.cloud(square, { arc: 0.001 }), /would have 40000 arcs/);
   assert.throws(
     () =>
@@ -163,13 +172,13 @@ test("a donut is two half circles as wide as its ring, and a dot has no hole", (
 });
 
 test("lint reports a malformed bulge or width, and an R12 drawing that has one", () => {
-  const drawing = (fields: object, dxf: "R12" | "R2018" = "R2018"): Drawing => ({
+  const drawing = (fields: Data, dxf: "R12" | "R2018" = "R2018"): Drawing => ({
     format: 0,
     units: "in",
     dxf,
     layers: [{ name: "0", color: 7 }],
     entities: [
-      {
+      wrong<Polyline>({
         kind: "polyline",
         layer: "0",
         points: [
@@ -179,11 +188,13 @@ test("lint reports a malformed bulge or width, and an R12 drawing that has one",
         ],
         closed: false,
         ...fields,
-      } as Polyline,
+      }),
     ],
   });
-  const problems = (fields: object, dxf?: "R12" | "R2018") =>
+
+  const problems = (fields: Data, dxf?: "R12" | "R2018") =>
     lint(drawing(fields, dxf)).map((d) => `${d.rule}: ${d.message}`);
+
   assert.deepEqual(problems({ bulges: [0.5, 0, 1] }), [
     "geometry: polyline #0: its bulges must have one for each side, 2, and it has 3. A closed polyline has a side for each point, and an open one a side fewer",
   ]);
@@ -218,7 +229,8 @@ test("lint reports a malformed bulge or width, and an R12 drawing that has one",
 function turned(turn: number, arc: boolean): Polyline {
   const radians = (degrees: number) => (degrees * Math.PI) / 180;
   const chord = radians(arc ? turn + 15 : turn);
-  return {
+
+  const polyline: Polyline = {
     kind: "polyline",
     layer: "0",
     points: [
@@ -228,20 +240,24 @@ function turned(turn: number, arc: boolean): Polyline {
     ],
     closed: false,
     width: 0.1,
-    ...(arc ? { bulges: [0, Math.tan(radians(30) / 4)] } : {}),
   };
+
+  return arc ? { ...polyline, bulges: [0, Math.tan(radians(30) / 4)] } : polyline;
 }
 
 test("wide sides join as the leading CAD app plots them: a miter to 151.04 degrees, an arc's line to 75.96", () => {
   const ends = (e: Polyline): Point[] => {
     const [first] = polylineBands(polylineSides(e), e.closed);
+
     return [first!.endLeft, first!.endRight];
   };
+
   // Square ends are a half width from the point, square to the first side.
   const square: Point[] = [
     [1, 0.05],
     [1, -0.05],
   ];
+
   // A miter at a turn of 150 degrees and of 151.0, and none at 151.1.
   const miter = ends(turned(150, false));
   assert.ok(
@@ -249,6 +265,7 @@ test("wide sides join as the leading CAD app plots them: a miter to 151.04 degre
   );
   assert.ok(!nearPoint(ends(turned(151, false))[1]!, square[1]!));
   assert.deepEqual(ends(turned(151.1, false)), square);
+
   // A straight side meets an arc on the arc's line through the point at 75 and 105 degrees, and
   // ends square at 76 and 104.
   for (const turn of [75, 105]) {
@@ -256,6 +273,7 @@ test("wide sides join as the leading CAD app plots them: a miter to 151.04 degre
     // The bulge is taken as written, to 6 decimals.
     assert.ok(near(left![0], 1 - 0.05 * Math.tan((turn * Math.PI) / 180), 1e-5), `${turn}`);
   }
+
   for (const turn of [76, 104]) assert.deepEqual(ends(turned(turn, true)), square, `${turn}`);
 });
 
@@ -282,6 +300,7 @@ test("toDXF writes each side's bulge and widths, and readDXF gives them back", a
   const dxf = toDXF(drawing);
   const lines = dxf.split(/\r?\n/).map((line) => line.trim());
   const pairs: string[] = [];
+
   for (let i = 0; i + 1 < lines.length; i += 2) pairs.push(`${lines[i]} ${lines[i + 1]}`);
   const start = pairs.indexOf("0 LWPOLYLINE");
   const end = pairs.indexOf("0 LWPOLYLINE", start + 1);
@@ -328,8 +347,10 @@ test("a polyline's box holds its arcs and its widths, and the picture fills a wi
     closed: false,
     bulges: [1],
   };
+
   const boxed = (e: Polyline, box: readonly number[]): boolean =>
     polylineBox(e)!.every((value, i) => near(value, box[i]!, 1e-12));
+
   assert.ok(boxed(half, [0, -1, 2, 0]));
   assert.ok(boxed({ ...half, width: 0.5 }, [-0.25, -1.25, 2.25, 0]));
   const d = createDrawing();
@@ -358,9 +379,11 @@ test("checkIntent does not take a footprint with an arc for its outline", () => 
   const d = createDrawing();
   d.rect([0, 0], 100, 100, { id: "lot" });
   d.rect([30, 30], 40, 40, { id: "house", radius: 5 });
+
   const [warning] = checkIntent(d.build(), {
     setbacks: [{ property: "lot", footprints: ["house"], distance: 10 }],
   });
+
   assert.equal(warning?.rule, "intent-unchecked");
   assert.match(warning?.message ?? "", /a side that is an arc/);
 });
@@ -378,6 +401,7 @@ test("each join reads the sides' own edges, so a short jog keeps both miters", (
     closed: false,
     width: 2,
   };
+
   const [, middle, last] = polylineBands(polylineSides(jog), false);
   assert.deepEqual(
     [middle!.startLeft, middle!.endLeft, last!.startLeft],
@@ -392,6 +416,7 @@ test("each join reads the sides' own edges, so a short jog keeps both miters", (
 test("a radius that fits as written is taken, and a cloud that would cross its outline is not", () => {
   const d = createDrawing();
   d.rect([0, 0], 0.9999999, 2, { radius: 0.5 });
+
   const notched: Point[] = [
     [0, 0],
     [12, 0],
@@ -402,6 +427,7 @@ test("a radius that fits as written is taken, and a cloud that would cross its o
     [5, 10],
     [0, 10],
   ];
+
   assert.throws(() => d.cloud(notched, { arc: 8 }), /reaches across the outline/);
   d.cloud(notched, { arc: 1 });
 });
@@ -457,6 +483,7 @@ test("readDXF takes a point's bulge and widths in any order up to the next point
     "EOF",
     "",
   ].join("\n");
+
   const [read] = (await readDXF(dxf, { geometry: true })).model.entities ?? [];
   assert.deepEqual(read?.kind === "polyline" && [read.bulges, read.widths], [[1], [[2, 3]]]);
 });
@@ -476,7 +503,9 @@ test("the box holds where a dash ends square, and an arc is worked out from its 
       [1, 1],
     ],
   };
+
   assert.ok(polylineBox(joined)![3] >= 0.5 * Math.SQRT1_2 - 1e-12);
+
   // The second point is written as 0.000001, which makes the arc nearly a whole circle, 0.5
   // across.
   const tiny: Polyline = {
@@ -489,17 +518,20 @@ test("the box holds where a dash ends square, and an arc is worked out from its 
     closed: false,
     bulges: [1e6],
   };
+
   assert.ok(near(polylineBox(tiny)![1], -0.5, 1e-6));
 });
 
 test("a cloud far from the origin is as a cloud at it, and arcs that meet keep one point as written", () => {
   const d = createDrawing();
+
   const square = (at: number): Point[] => [
     [at, at],
     [at + 1.1, at],
     [at + 1.1, at + 1.1],
     [at, at + 1.1],
   ];
+
   d.cloud(square(0), { arc: 0.22 });
   d.cloud(square(10_000_000), { arc: 0.22 });
   const [near0, far] = polylines(d.build());
@@ -513,6 +545,7 @@ test("a cloud far from the origin is as a cloud at it, and arcs that meet keep o
     ],
     { arc: 3 },
   );
+
   // A turned lot, at the origin and at a survey's coordinates, with several arcs on each side,
   // whose points between its corners are written off its slanted sides.
   for (const [x, y] of [
@@ -525,19 +558,23 @@ test("a cloud far from the origin is as a cloud at it, and arcs that meet keep o
       [30.1, 40.7],
       [-5.4, 28.9],
     ];
+
     d.cloud(
       lot.map(([px, py]): Point => [px + x!, py + y!]),
       { arc: 3 },
     );
   }
+
   // Arcs that meet exactly, or end a unit of the last decimal past each other as written, keep one
   // point where they meet, wherever the slot is: no side runs back.
   d.rect([0.0000004, 0], 1, 2, { radius: 0.5000002 });
   d.rect([897104.048729, 623613.643646], 16.362579, 2.210141, { radius: 2.210141 / 2 });
+
   for (const slot of polylines(d.build()).slice(-2)) {
     assert.equal(slot.bulges!.filter((bulge) => bulge !== 0).length, 4);
     assert.equal(slot.points.length, 6);
   }
+
   assert.throws(() => d.rect([0, 0], 1, 2, { radius: 0.6 }), /need 1.2 of the side/);
   assert.throws(() => d.donut([0, 0], 1, { inside: 0.9999991 }), /too small for the 6 decimals/);
   assert.throws(() => d.donut([0, 0], 0.0000024), /too small for the 6 decimals/);
@@ -546,6 +583,7 @@ test("a cloud far from the origin is as a cloud at it, and arcs that meet keep o
 test("toSVG pays for a long list that one polyline after another reads again", () => {
   // One list of points that draws nothing, each side of no length, which two polylines share.
   const points = Array.from({ length: 1000 }, (): Point => [1, 1]);
+
   const wide = (width: number): Polyline => ({
     kind: "polyline",
     layer: "0",
@@ -553,6 +591,7 @@ test("toSVG pays for a long list that one polyline after another reads again", (
     closed: false,
     width,
   });
+
   const sheet = (entities: Polyline[]): Drawing => ({
     format: 0,
     units: "in",
@@ -561,6 +600,7 @@ test("toSVG pays for a long list that one polyline after another reads again", (
     entities: [],
     layouts: [{ name: "SHEET", paper: "ANSI B", viewports: [], entities }],
   });
+
   assert.ok(svgWithin(sheet([wide(0.1)]), { layout: "SHEET" }, 20).length > 0);
   assert.throws(
     () => svgWithin(sheet([wide(0.1), wide(0.2)]), { layout: "SHEET" }, 20),
@@ -581,9 +621,11 @@ test("an arc of more than half a turn is drawn in two halves, so none vanishes",
     ),
   );
   d.insert("RING", [0, 0], { scale: 0.1 });
+
   const ring = toSVG(d.build())
     .split("\n")
     .find((line) => line.includes('fill="currentColor"'))!;
+
   // Each edge of the band is two arcs.
   assert.equal(ring.match(/ A /g)?.length, 4);
 });
@@ -618,6 +660,7 @@ test("readDXF gives a 2D polyline's vertex with no widths the polyline's own", a
   ]
     .flat()
     .join("\n");
+
   const [read] = (await readDXF(dxf, { geometry: true })).model.entities ?? [];
   assert.deepEqual(read?.kind === "polyline" && [read.bulges, read.widths], [
     [1, 0],
@@ -630,6 +673,7 @@ test("readDXF gives a 2D polyline's vertex with no widths the polyline's own", a
 
 test("lint stops where toDXF would, on polylines whose boxes pay for a list read again", () => {
   const points = Array.from({ length: 11_000 }, (_, i): Point => [i, i % 2]);
+
   const drawing: Drawing = {
     format: 0,
     units: "in",
@@ -643,17 +687,18 @@ test("lint stops where toDXF would, on polylines whose boxes pay for a list read
       width: k + 1,
     })),
   };
+
   const capped = lint(drawing).filter((d) => d.rule === "check-capped");
   assert.equal(capped.length, 1);
   assert.throws(
     () => toDXF(drawing),
-    (thrown: unknown) =>
+    (thrown) =>
       thrown instanceof DrawingError && thrown.diagnostics.some((d) => d.rule === "check-capped"),
   );
 });
 
 test("a side of a polyline too fine for its pattern as an uneven insert draws it is drawn solid", () => {
-  const drawing = {
+  const drawing = wrong<Drawing>({
     format: 0,
     units: "in",
     dxf: "R2018",
@@ -679,7 +724,8 @@ test("a side of a polyline too fine for its pattern as an uneven insert draws it
       },
     ],
     entities: [{ kind: "insert", layer: "0", block: "B", at: [0, 0], scale: [4, 1] }],
-  } as unknown as Drawing;
+  });
+
   // The long side, 1,920 long as drawn and too fine to dash, is filled whole beside the short one.s dashes.
   assert.ok(/<path d="M 0 0\.5 L 1920 0\.5 L 1920 -0\.5 L 0 -0\.5"/.test(toSVG(drawing)));
 });

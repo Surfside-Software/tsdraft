@@ -75,16 +75,19 @@ function supplySym(d: D, c: Point, s: number): void {
   d.line([c[0] - s / 2, c[1] - s / 2], [c[0] + s / 2, c[1] + s / 2]);
   d.line([c[0] - s / 2, c[1] + s / 2], [c[0] + s / 2, c[1] - s / 2]);
 }
+
 /** A return or transfer grille: its face with one diagonal. */
 function returnSym(d: D, c: Point, s: number): void {
   d.rect([c[0] - s / 2, c[1] - s / 2], s, s);
   d.line([c[0] - s / 2, c[1] - s / 2], [c[0] + s / 2, c[1] + s / 2]);
 }
+
 /** A thermostat: a circle with a T. */
 function tstatSym(d: D, c: Point, r: number): void {
   d.circle(c, r);
   put(d, c, "T", r * 1.1, { align: "center", valign: "middle" });
 }
+
 /** A termination: a wall cap as a box on the wall, a roof cap as a circle. */
 function capSym(d: D, c: Point, s: number, kind: "WALL" | "ROOF"): void {
   if (kind === "ROOF") {
@@ -99,11 +102,13 @@ function capSym(d: D, c: Point, s: number, kind: "WALL" | "ROOF"): void {
 /** A straight duct between two points as two lines `w` apart. */
 function doubleLine(d: D, a: Point, b: Point, w: number, extend = 0): void {
   const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+
   if (len < 1e-6) return;
   const ux = (b[0] - a[0]) / len;
   const uy = (b[1] - a[1]) / len;
   const a2: Point = [a[0] - ux * extend, a[1] - uy * extend];
   const b2: Point = [b[0] + ux * extend, b[1] + uy * extend];
+
   for (const k of [-1, 1]) {
     const nx = -uy * (w / 2) * k;
     const ny = ux * (w / 2) * k;
@@ -114,15 +119,15 @@ function doubleLine(d: D, a: Point, b: Point, w: number, extend = 0): void {
 // --- The plans. --------------------------------------------------------------------------------
 
 /** Where a room's name sits when the default spot is taken by ducts. */
-const ROOM_NAME_AT: Record<string, Point> = {
-  "L1/FOYER": [349, 230],
-  "L1/KITCHEN": [258, 505],
-  "L1/LAUNDRY": [70, 320],
-  "L2/BATH 2": [150, 220],
-  "L2/LOFT": [300, 505],
-  "L2/HALL": [300, 90],
-  "L2/OWNER'S CLOSET": [450, 250],
-};
+const ROOM_NAME_AT = new Map<string, Point>([
+  ["L1/FOYER", [349, 230]],
+  ["L1/KITCHEN", [258, 505]],
+  ["L1/LAUNDRY", [70, 320]],
+  ["L2/BATH 2", [150, 220]],
+  ["L2/LOFT", [300, 505]],
+  ["L2/HALL", [300, 90]],
+  ["L2/OWNER'S CLOSET", [450, 250]],
+]);
 
 function mechPlan(d: D, v: View, floor: Floor): void {
   const origin = M_ORIGIN[floor];
@@ -134,11 +139,13 @@ function mechPlan(d: D, v: View, floor: Floor): void {
   d.layer(LAYERS.base, {}, () => {
     for (const r of level.rooms) {
       const [x0, y0, x1] = r.rect;
-      const at = ROOM_NAME_AT[`${floor}/${r.name}`] ?? [(x0 + x1) / 2, y0 + v.p(0.12)];
+      const at = ROOM_NAME_AT.get(`${floor}/${r.name}`) ?? [(x0 + x1) / 2, y0 + v.p(0.12)];
+
       if (x1 - x0 < v.p(width(r.name, H.note) + 0.1)) continue;
       put(d, o(at), r.name, note, { align: "center" });
     }
   });
+
   const label = (
     at: Point,
     lines: string[],
@@ -191,15 +198,18 @@ function ductSystem(d: D, v: View, s: DuctSystem, o: (p: Point) => Point): void 
       const b = s.nodes[t.to]!;
       doubleLine(d, o(a), o(b), t.width, t.from === "R" ? 0 : t.width / 2);
     }
+
     // Each trunk's size, beside it, along it.
     for (const t of trunks) {
       const a = s.nodes[t.from]!;
       const b = s.nodes[t.to]!;
       const horizontal = Math.abs(b[1] - a[1]) < 1;
-      const mid: Point = TRUNK_LABEL_AT[`${s.unit}/${t.from}-${t.to}`] ?? [
+
+      const mid: Point = TRUNK_LABEL_AT.get(`${s.unit}/${t.from}-${t.to}`) ?? [
         (a[0] + b[0]) / 2,
         (a[1] + b[1]) / 2,
       ];
+
       const off = t.width / 2 + v.p(0.04);
       d.layer(ML.anno, {}, () =>
         horizontal
@@ -210,12 +220,14 @@ function ductSystem(d: D, v: View, s: DuctSystem, o: (p: Point) => Point): void 
             }),
       );
     }
+
     // Run-outs and outlets.
     for (const out of s.outlets) {
       const a = s.nodes[out.from[0]]!;
       const b = s.nodes[out.from[1]]!;
       const take = project(out.at, a, b);
       const len = Math.hypot(out.at[0] - take[0], out.at[1] - take[1]);
+
       if (len > face / 2) {
         const ux = (out.at[0] - take[0]) / len;
         const uy = (out.at[1] - take[1]) / len;
@@ -223,12 +235,15 @@ function ductSystem(d: D, v: View, s: DuctSystem, o: (p: Point) => Point): void 
         const k = face / 2 / Math.max(Math.abs(ux), Math.abs(uy));
         d.line(o(take), o([out.at[0] - ux * k, out.at[1] - uy * k]));
       }
+
       supplySym(d, o(out.at), face);
       const r = air.get(out.room)!;
-      const at = OUTLET_TAG_AT[`${s.floor}/${out.at[0]},${out.at[1]}`] ?? [
+
+      const at = OUTLET_TAG_AT.get(`${s.floor}/${out.at[0]},${out.at[1]}`) ?? [
         out.at[0] + face / 2 + v.p(0.03),
         out.at[1] + face / 2 + v.p(0.02),
       ];
+
       d.layer(ML.anno, {}, () =>
         put(d, o(at), `${r.neck}"Ø/${r.each}`, small, {
           align: at[0] < out.at[0] ? "right" : "left",
@@ -236,6 +251,7 @@ function ductSystem(d: D, v: View, s: DuctSystem, o: (p: Point) => Point): void 
       );
     }
   });
+
   // Returns: the grille, and its duct to the unit, dashed.
   for (const r of s.returns) {
     d.layer(ML.ret, {}, () => {
@@ -244,6 +260,7 @@ function ductSystem(d: D, v: View, s: DuctSystem, o: (p: Point) => Point): void 
     });
     d.layer(ML.sup, {}, () => returnSym(d, o(r.at), r.face));
   }
+
   // Jump ducts: a grille each side, a dashed line between.
   for (const [a, b] of s.jumps) {
     d.layer(ML.sup, {}, () => {
@@ -263,23 +280,24 @@ function ductSystem(d: D, v: View, s: DuctSystem, o: (p: Point) => Point): void 
 }
 
 /** Where an outlet's tag goes, by floor and outlet position, when the default spot is taken. */
-const OUTLET_TAG_AT: Record<string, Point> = {
-  "L1/349,140": [339, 152],
-  "L1/596,330": [588, 350],
-  "L1/560,48": [552, 64],
-  "L1/45,452": [36, 466],
-  "L2/40,160": [32, 176],
-  "L2/40,400": [32, 416],
-  "L2/596,448": [588, 466],
-  "L2/596,340": [588, 358],
-  "L2/562,218": [554, 232],
-  "L2/562,112": [554, 128],
-};
+const OUTLET_TAG_AT = new Map<string, Point>([
+  ["L1/349,140", [339, 152]],
+  ["L1/596,330", [588, 350]],
+  ["L1/560,48", [552, 64]],
+  ["L1/45,452", [36, 466]],
+  ["L2/40,160", [32, 176]],
+  ["L2/40,400", [32, 416]],
+  ["L2/596,448", [588, 466]],
+  ["L2/596,340", [588, 358]],
+  ["L2/562,218", [554, 232]],
+  ["L2/562,112", [554, 128]],
+]);
+
 /** Where a trunk's size goes, by unit and edge, when its middle is taken. */
-const TRUNK_LABEL_AT: Record<string, Point> = {
-  "AHU-1/R-a": [201, 350],
-  "AHU-2/R-m": [333, 260],
-};
+const TRUNK_LABEL_AT = new Map<string, Point>([
+  ["AHU-1/R-a", [201, 350]],
+  ["AHU-2/R-m", [333, 260]],
+]);
 
 type Label = (at: Point, lines: string[], align?: "left" | "right" | "center", h?: number) => void;
 
@@ -287,17 +305,21 @@ type Label = (at: Point, lines: string[], align?: "left" | "right" | "center", h
 function equipment(d: D, v: View, floor: Floor, o: (p: Point) => Point, label: Label): void {
   const box = (r: Rect, linetype?: string) =>
     d.rect(o([r[0], r[1]]), r[2] - r[0], r[3] - r[1], linetype ? { linetype } : {});
+
   const tag = (r: Rect, t: string) =>
     d.layer(ML.anno, {}, () =>
       put(d, o(center(r)), t, v.p(H.small), { align: "center", valign: "middle" }),
     );
+
   const dfe = CRITERIA.flood.dfe.toFixed(2);
+
   if (floor === "L1") {
     d.layer(ML.eqpm, {}, () => {
       box(EQUIP.ahu1);
       box(EQUIP.pad);
       box(EQUIP.hp1);
       box(EQUIP.hp2);
+
       for (const r of [EQUIP.hp1, EQUIP.hp2]) d.circle(o(center(r)), 14);
     });
     tag(EQUIP.ahu1, "AHU-1");
@@ -346,6 +368,7 @@ function equipment(d: D, v: View, floor: Floor, o: (p: Point) => Point, label: L
         [ATTIC.service[0], ATTIC.passage[1]![3]],
         [ATTIC.passage[0]![0], ATTIC.passage[0]![3]],
       ];
+
       d.polyline(outline.map(o), true);
     });
     d.layer(ML.eqpm, {}, () => {
@@ -353,6 +376,7 @@ function equipment(d: D, v: View, floor: Floor, o: (p: Point) => Point, label: L
       d.rect(o([a0, b0]), a1 - a0, b1 - b0);
     });
     const len = passageLength();
+
     if (len > 240) throw new Error(`The attic passageway is ${ftIn(len)}, past 20 ft`);
     d.layer(ML.anno, {}, () => {
       leaderNote(d, v, o([240, 40]), o([150, 40]), [
@@ -392,18 +416,19 @@ function exhausts(d: D, v: View, floor: Floor, o: (p: Point) => Point, label: La
       d.polyline(pts.map(o));
       capSym(d, o(x.route.at(-1)!), 8, x.cap);
     });
-    const at = EXH_TAG_AT[x.tag] ?? [x.at[0] + v.p(0.12), x.at[1] - v.p(0.2)];
+    const at = EXH_TAG_AT.get(x.tag) ?? [x.at[0] + v.p(0.12), x.at[1] - v.p(0.2)];
     label(at, [x.tag]);
   }
 }
-const EXH_TAG_AT: Record<string, Point> = {
-  "EF-1": [30, 505],
-  "KH-1": [158, 380],
-  "DE-1": [16, 393],
-  "EF-2": [78, 300],
-  "EF-3": [552, 84],
-  "EF-4": [574, 150],
-};
+
+const EXH_TAG_AT = new Map<string, Point>([
+  ["EF-1", [30, 505]],
+  ["KH-1", [158, 380]],
+  ["DE-1", [16, 393]],
+  ["EF-2", [78, 300]],
+  ["EF-3", [552, 84]],
+  ["EF-4", [574, 150]],
+]);
 
 // --- Paper space. ------------------------------------------------------------------------------
 
@@ -415,6 +440,7 @@ function legend(d: D, at: Point, w: number): number {
     d.line([at[0], y], [at[0] + w, y], { lineweight: 0.35 });
     y -= 0.22;
   });
+
   const rows: [string, string, (a: Point, b: Point) => void][] = [
     [
       "CEILING SUPPLY DIFFUSER, 4-WAY",
@@ -463,11 +489,13 @@ function legend(d: D, at: Point, w: number): number {
       (a, b) => d.rect([a[0], a[1] - 0.06], b[0] - a[0], 0.12),
     ],
   ];
+
   for (const [text, layer, draw] of rows) {
     d.layer(layer, {}, () => draw([at[0] + 0.05, y], [at[0] + 0.6, y]));
     d.layer(LAYERS.text, {}, () => put(d, [at[0] + 0.75, y], text, H.note, { valign: "middle" }));
     y -= 0.28;
   }
+
   return y;
 }
 
@@ -485,6 +513,7 @@ function equipmentSchedule(d: D, at: Point): number {
     remarks: string,
   ) => {
     const c = circuit(key);
+
     return [
       tag,
       type,
@@ -499,7 +528,9 @@ function equipmentSchedule(d: D, at: Point): number {
       remarks,
     ];
   };
+
   const dfe = `${CRITERIA.flood.dfe.toFixed(2)}'`;
+
   const rows = [
     row(
       "AHU-1",
@@ -550,6 +581,7 @@ function equipmentSchedule(d: D, at: Point): number {
       "AHRI MATCHED W/ AHU-2; LOCKING CAPS",
     ),
   ];
+
   const aligns = {
     3: "center",
     4: "right",
@@ -558,6 +590,7 @@ function equipmentSchedule(d: D, at: Point): number {
     7: "center",
     9: "center",
   } as const;
+
   const schedule: TableOptions = {
     style: SCHEDULE,
     at,
@@ -582,7 +615,9 @@ function equipmentSchedule(d: D, at: Point): number {
     rows: rows.map((row) => aligned(row, aligns)),
     rowHeights: rows.map(() => 0.22),
   };
+
   d.layer(LAYERS.text, {}, () => d.table(schedule));
+
   return tableBottom(schedule);
 }
 
@@ -595,7 +630,9 @@ function fanSchedule(d: D, at: Point): number {
     x.capNote,
     circuit(x.ckt).label,
   ]);
+
   const aligns = { 2: "right", 5: "center" } as const;
+
   const schedule: TableOptions = {
     style: SCHEDULE,
     at,
@@ -608,6 +645,7 @@ function fanSchedule(d: D, at: Point): number {
     rows: rows.map((row) => aligned(row, aligns)),
     rowHeights: rows.map(() => 0.22),
   };
+
   d.layer(LAYERS.text, {}, () => d.table(schedule));
   const y = tableBottom(schedule);
   const dl = dryerLength();
@@ -621,13 +659,16 @@ function fanSchedule(d: D, at: Point): number {
       yy -= 0.19;
     }
   });
+
   return yy;
 }
 
 function airSchedule(d: D, at: Point): number {
   const rows: string[][] = [];
+
   for (const s of SYSTEMS) {
     const rs = roomAir(s);
+
     for (const r of rs)
       rows.push([r.room, s.unit, String(r.outlets), `${r.neck}"Ø`, String(r.cfm)]);
     rows.push([
@@ -637,6 +678,7 @@ function airSchedule(d: D, at: Point): number {
       "",
       rs.reduce((t, r) => t + r.cfm, 0).toLocaleString("en-US"),
     ]);
+
     for (const g of s.returns)
       rows.push([
         `${g.tag} RETURN, ${g.room}`,
@@ -646,7 +688,9 @@ function airSchedule(d: D, at: Point): number {
         s.cfm.toLocaleString("en-US"),
       ]);
   }
+
   const aligns = { 1: "center", 2: "center", 3: "center", 4: "right" } as const;
+
   const schedule: TableOptions = {
     style: SCHEDULE,
     at,
@@ -655,12 +699,15 @@ function airSchedule(d: D, at: Point): number {
     header: aligned(["ROOM", "UNIT", "OUTLETS", "NECK", "CFM"], aligns),
     rows: rows.map((row) => aligned(row, aligns)),
   };
+
   d.layer(LAYERS.text, {}, () => d.table(schedule));
+
   return tableBottom(schedule);
 }
 
 const NOTES = (): string[] => {
   const len = passageLength();
+
   return [
     "CODES: 2023 FBC-R CHAPTERS 12 THROUGH 24 (MECHANICAL) GOVERN THIS ONE-FAMILY DWELLING, WITH THE 2023 FBC, ENERGY CONSERVATION (RESIDENTIAL). SECTIONS CITED ARE FBC-R UNLESS NOTED FBC-EC.",
     "SIZING: LOADS BY ACCA MANUAL J, EQUIPMENT BY MANUAL S (M1401.3, FBC-EC R403.7), DUCTS BY MANUAL D (M1601.1). THE REPORTS ARE SUBMITTED WITH THE PERMIT AND GOVERN; ROOM AIRFLOWS SHOWN ARE DESIGN VALUES TO BE BALANCED TO THEM.",
@@ -689,10 +736,12 @@ function m101(d: D): void {
     const top = AREA.top - 0.1;
     const vpY = top - vpH;
     const c: Point = [300, 318];
+
     const vps: [Floor, number, string][] = [
       ["L1", AREA.left + 0.1, "FIRST FLOOR MECHANICAL PLAN"],
       ["L2", AREA.left + 0.1 + vpW + 0.25, "SECOND FLOOR AND ATTIC MECHANICAL PLAN"],
     ];
+
     vps.forEach(([floor, x, title], k) => {
       viewport(dd, sheet, {
         corner: [x, vpY],

@@ -16,32 +16,47 @@ import {
   type Insert,
   type LintOptions,
   type Standard,
-  type Text,
 } from "../src/index.ts";
+import { isString } from "../src/guards.ts";
 import { lintStandard } from "../src/standard/lint.ts";
 import { within } from "./time-limit.ts";
+import {
+  copies,
+  dataOf,
+  isData,
+  ofKind,
+  recordsIn,
+  wrong,
+  type Data,
+  type Field,
+} from "./values.ts";
 
 const layout = sheet.layouts![0]!;
-const titleBlock = layout.entities[0] as Insert;
+const titleBlock = ofKind(layout.entities[0], "insert");
+
 const rules = (drawing: Drawing, options: LintOptions = { standard }): string[] =>
   lint(drawing, options).map((d) => d.rule);
+
 /** The example with model space or its sheet changed. */
 const withModel = (entities: readonly Entity[]): Drawing => ({ ...sheet, entities });
+
 const withSheet = (change: Partial<typeof layout>): Drawing => ({
   ...sheet,
   layouts: [{ ...layout, ...change }],
 });
+
 const only = (found: readonly Diagnostic[], rule: string) => found.filter((d) => d.rule === rule);
 
-const rulesWithin = (ms: number, drawing: unknown, options: LintOptions = { standard }): string[] =>
-  within(ms, () => rules(drawing as Drawing, options));
+const rulesWithin = (ms: number, drawing: Drawing, options: LintOptions = { standard }): string[] =>
+  within(ms, () => rules(drawing, options));
 
 test("the example sheet breaks no rule of its standard at either scale, nor from JSON", () => {
   for (const scale of ["1in-10ft", "1in-20ft"] as const) {
     assert.deepEqual(lint(sitePlan(scale).drawing, { standard }), []);
   }
-  const data = JSON.parse(JSON.stringify(standard)) as Standard;
-  assert.deepEqual(lint(fromJSON(toJSON(sheet)), { standard: data }), []);
+
+  const asData: Standard = JSON.parse(JSON.stringify(standard));
+  assert.deepEqual(lint(fromJSON(toJSON(sheet)), { standard: asData }), []);
 });
 
 test("a standard given as data is checked again, and one that does not check is one error", () => {
@@ -51,6 +66,7 @@ test("a standard given as data is checked again, and one that does not check is 
     { ...standard, extends: BUILT_IN_STANDARD },
     5,
   ]) {
+    // SAFETY: a standard of the wrong shape on purpose, which lint must report.
     const found = lint(sheet, { standard: given as Standard });
     assert.deepEqual(
       found.map((d) => d.rule),
@@ -58,6 +74,7 @@ test("a standard given as data is checked again, and one that does not check is 
     );
     assert.match(found[0]!.message, /^The standard given to lint does not check/);
   }
+
   assert.match(
     lint(sheet, { standard: { ...standard, minTextHeight: 0.07 } })[0]!.message,
     /: hash: The standard's hash is not the hash of what it states/,
@@ -84,6 +101,7 @@ test("lint reports what the builder refuses under a standard, under the same rul
     },
     { standard },
   );
+
   assert.deepEqual(
     found.map((d) => [d.rule, d.layer ?? d.textStyle ?? d.dimensionStyle ?? d.entity]),
     [
@@ -125,6 +143,7 @@ test("a layer, a linetype, a role's text style and a dimension style hold the st
     },
     { standard },
   );
+
   assert.deepEqual(
     found.map((d) => d.message),
     [
@@ -166,6 +185,7 @@ test("a text plots at its role's height in each viewport that shows it, and at l
       e.kind === "text" && e.value === "EDGE OF PAVEMENT" ? { ...e, height: e.height / 2 } : e,
     ),
   );
+
   assert.deepEqual(
     lint(half, { standard }).map((d) => d.message),
     [
@@ -180,6 +200,7 @@ test("a text plots at its role's height in each viewport that shows it, and at l
   // A viewport at a ratio of no scale of the standard.
   const odd = withSheet({ viewports: layout.viewports.map((v) => ({ ...v, ratio: 100 })) });
   assert.equal(rules(odd)[0], "scale-outside-standard");
+
   // On the sheet, a text an insert draws plots at the insert's scale. The title block's texts
   // have no role, and still plot at least the least height.
   const scaled = withSheet({
@@ -189,6 +210,7 @@ test("a text plots at its role's height in each viewport that shows it, and at l
         : e,
     ),
   });
+
   const found = lint(scaled, { standard });
   assert.equal(
     only(found, "height-off-role")
@@ -218,10 +240,12 @@ test("a viewport holds a text to its scale where the text reaches into it, turne
     value: "FAR",
     rotation: 0,
   });
+
   const found = (text: Entity) =>
     lint(withModel([...sheet.entities, text]), { standard })
       .filter((d) => d.rule === "height-below-standard")
       .map((d) => d.message);
+
   assert.match(found(far([170, 60])).join(), /in viewport "key-plan"/);
   assert.deepEqual(found(far([200, 230])), []);
   // A layer the key plan freezes shows nothing there.
@@ -230,14 +254,17 @@ test("a viewport holds a text to its scale where the text reaches into it, turne
 
 test("a viewport whose fields are inherited is checked as one that holds them", () => {
   const plain = withSheet({});
+
   const inherited = withSheet({
-    viewports: layout.viewports.map((v) => Object.create(v) as typeof v),
+    viewports: layout.viewports.map((v): typeof v => Object.create(v)),
   });
+
   assert.deepEqual(lint(inherited, { standard }), lint(plain, { standard }));
 });
 
 test("a dimension is shown at its style's scale", () => {
   const twenty = { ...sheet.dimensionStyles![0]!, name: "DIMS-1in-20ft", scale: 20 };
+
   const found = lint(
     {
       ...withModel(
@@ -249,6 +276,7 @@ test("a dimension is shown at its style's scale", () => {
     },
     { standard },
   );
+
   // Every one of the seven dimensions, each now in the style for 1" = 20'.
   assert.equal(found.length, 7);
   assert.match(
@@ -264,6 +292,7 @@ test("a dimension style whose id starts with a hyphen is found at each scale", (
     extends: BUILT_IN_STANDARD,
     dimensionStyles: { "-x": BUILT_IN_STANDARD.dimensionStyles.dims },
   });
+
   const d = createDrawing({ units: "ft", standard: dashed });
   const plan = d.view("plan", { scale: "1in-10ft" });
   d.linearDimension([0, 0], [10, 0], [0, 5], { style: "-x", view: plan });
@@ -288,6 +317,7 @@ test("a layout is on a sheet format of its paper, with its title block and insid
     "title-block-missing",
   ]);
   const { DATE: _, ...rest } = titleBlock.attributes!;
+
   const fields = lint(
     withSheet({
       entities: [
@@ -304,6 +334,7 @@ test("a layout is on a sheet format of its paper, with its title block and insid
     }),
     { standard },
   );
+
   assert.deepEqual(
     fields.map((d) => [d.rule, d.entity]),
     [
@@ -328,6 +359,7 @@ test("a title block is the standard's when its block, text styles and linetypes 
     },
     { standard },
   );
+
   assert.equal(found[0]!.rule, "title-block-differs-from-standard");
   assert.equal(
     found[0]!.message,
@@ -340,23 +372,27 @@ test("a title block is the standard's when its block, text styles and linetypes 
       .every((d) => d.rule === "text-style-outside-standard" && d.block === "TITLE BLOCK"),
   );
   // A field of no definition makes it another, however much the field holds when written out.
-  let extra: unknown = "A";
+  let extra: Field = "A";
+
   for (let i = 0; i < 40; i++) extra = [extra, extra];
   const [first, ...rest] = sheet.blocks!.find((b) => b.name === "TITLE BLOCK")!.entities;
+
   for (const change of [
     { extra },
-    { entities: [{ ...first!, extra } as unknown as Entity, ...rest] },
+    { entities: [wrong<Entity>({ ...dataOf(first!), extra }), ...rest] },
   ]) {
     const changed: Drawing = {
       ...sheet,
       blocks: sheet.blocks!.map((b) => (b.name === "TITLE BLOCK" ? { ...b, ...change } : b)),
     };
+
     assert.ok(rulesWithin(1000, changed).includes("title-block-differs-from-standard"));
   }
 });
 
 test("a layout's sheet format is the one on its paper whose title block it inserts", () => {
   const plain = BUILT_IN_STANDARD.titleBlocks.plain;
+
   const two = defineStandard({
     id: "two",
     version: "1",
@@ -373,6 +409,7 @@ test("a layout's sheet format is the one on its paper whose title block it inser
     },
     sheetFormats: { "arch-d-other": { paper: "ARCH D", titleBlock: "other" } },
   });
+
   assert.deepEqual(rules(sheet, { standard: two }), []);
   assert.deepEqual(rules(withSheet({ entities: layout.entities.slice(1) }), { standard: two }), [
     "sheet-format-ambiguous",
@@ -388,13 +425,16 @@ test("among sheet formats that share a title block, a layout's is told by its pl
       "arch-d-color": { paper: "ARCH D", titleBlock: "plain", plotStyle: "acad.ctb" },
     },
   });
+
   assert.deepEqual(rules(sheet, { standard: color }), []);
   assert.deepEqual(rules(withSheet({ plotStyle: "acad.ctb" }), { standard: color }), []);
   // A table of neither is reported, and the layout is still checked against the title block.
   const wide = { ...layout.viewports[0]!, corner: [0, 0] as const };
+
   const found = lint(withSheet({ plotStyle: "Grayscale.ctb", viewports: [wide] }), {
     standard: color,
   });
+
   assert.deepEqual(
     found.map((d) => d.rule),
     ["sheet-format-outside-standard", "viewport-outside-drawing-area"],
@@ -409,6 +449,7 @@ test("under sheet-per-file a drawing has one layout, and its number names a file
     extends: standard,
     sheetFiles: "sheet-per-file",
   });
+
   const second = {
     ...layout,
     name: "C-102",
@@ -421,9 +462,10 @@ test("under sheet-per-file a drawing has one layout, and its number names a file
       },
     ],
   };
+
   // A second layout is reported when the first cannot be read.
   assert.deepEqual(
-    lint({ ...sheet, layouts: [5 as never, layout] }, { standard: perFile })
+    lint({ ...sheet, layouts: [wrong(5), layout] }, { standard: perFile })
       .filter((d) => d.rule === "sheet-per-file")
       .map((d) => d.layout),
     [layout.name],
@@ -456,6 +498,7 @@ test("an entry with fields by discipline is checked in the drawing's discipline"
       "C-PROP": { color: 7, linetype: "PHANTOM", pen: "heavy", byDiscipline: { C: { color: 1 } } },
     },
   });
+
   assert.deepEqual(rules(sheet, { standard: perFile }), ["discipline-unknown"]);
   assert.deepEqual(rules(sheet, { standard: perFile, discipline: "c" }), [
     "layer-differs-from-standard",
@@ -478,13 +521,16 @@ test("the checks of heights stop at a limit, and say so", () => {
     rotation: 0,
     style: "NOTE",
   }));
+
   const { id: _, ...viewport } = layout.viewports[0]!;
   const viewports = Array.from({ length: 300 }, () => viewport);
   const started = performance.now();
+
   const found = rules({
     ...withModel([...sheet.entities, ...pile]),
     layouts: [{ ...layout, viewports }],
   });
+
   const ms = performance.now() - started;
   assert.ok(ms < 1000, `${ms} ms`);
   assert.deepEqual(found, ["standard-check-capped"]);
@@ -494,6 +540,7 @@ test("the walk of an insert enters what can draw a text, and pays for each item 
   /** 25 blocks that each insert the one below twice, so the last draws `leaf` 2^24 times. */
   const tree = (leaf: Entity, prefix = "", layer = "C-PROP") => {
     const blocks: Block[] = [{ name: `${prefix}B0`, base: [0, 0], entities: [leaf] }];
+
     for (let i = 1; i < 25; i++) {
       const insert: Insert = { kind: "insert", layer, block: `${prefix}B${i - 1}`, at: [0, 0] };
       blocks.push({
@@ -502,20 +549,31 @@ test("the walk of an insert enters what can draw a text, and pays for each item 
         entities: [insert, { ...insert, at: [1, 0] }],
       });
     }
+
     const top: Insert = { kind: "insert", layer: "C-PROP", block: `${prefix}B24`, at: [0, 0] };
+
     return { blocks: [...sheet.blocks!, ...blocks], top };
   };
+
   // A tree of lines draws no text, so the walk does not enter it, and the text after it is checked.
   const lines = tree({ kind: "line", layer: "0", from: [0, 0], to: [1, 1] });
-  const note = layout.entities.find((e) => e.kind === "text" && e.style === "NOTE") as Text;
+
+  const note = ofKind(
+    layout.entities.find((e) => e.kind === "text" && e.style === "NOTE"),
+    "text",
+  );
+
   const { id: _, ...twice } = { ...note, height: note.height * 2 };
+
   const sheetTree: Drawing = {
     ...withSheet({ entities: [...layout.entities, lines.top, twice] }),
     blocks: lines.blocks,
   };
+
   assert.deepEqual(rulesWithin(3000, sheetTree), ["height-off-role"]);
   // No layout, whose viewports have the other rules walk the inserts of model space.
   const long = "A".repeat(10_000);
+
   const text = (value: string): Entity => ({
     kind: "text",
     layer: "0",
@@ -525,6 +583,7 @@ test("the walk of an insert enters what can draw a text, and pays for each item 
     rotation: 0,
     style: "NOTE",
   });
+
   for (const { blocks, top } of [tree(text(long)), tree(text("A"), long, `L-${long}`)]) {
     const found = rulesWithin(3000, { ...sheet, entities: [top], blocks, layouts: [] });
     assert.equal(found.at(-1), "standard-check-capped");
@@ -535,6 +594,7 @@ test("lint stops at the first empty slot of a list, as the other rules do", () =
   // oxlint-disable-next-line unicorn/no-new-array
   const slots = () => new Array(2 ** 32 - 1);
   const holed: Block = { name: "HOLED", base: [0, 0], entities: [], attributes: slots() };
+
   for (const drawing of [
     { ...sheet, layers: slots() },
     { ...sheet, entities: slots() },
@@ -546,8 +606,9 @@ test("lint stops at the first empty slot of a list, as the other rules do", () =
   ]) {
     assert.ok(rulesWithin(1000, drawing).length > 0);
   }
-  const data = JSON.parse(JSON.stringify(standard)) as Standard;
-  assert.deepEqual(rulesWithin(1000, sheet, { standard: { ...data, chain: slots() } }), [
+
+  const asData: Standard = JSON.parse(JSON.stringify(standard));
+  assert.deepEqual(rulesWithin(1000, sheet, { standard: { ...asData, chain: slots() } }), [
     "standard",
   ]);
 });
@@ -558,6 +619,7 @@ function seeded(seed: number): () => number {
     seed = (seed + 0x6d2b79f5) | 0;
     let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
@@ -567,32 +629,39 @@ test("the checks of a standard stay bounded on any data, and never throw", () =>
   const pick = <T>(items: readonly T[]): T => items[Math.floor(random() * items.length)]!;
   const long = "W".repeat(20_000);
   const data = JSON.stringify(standard);
+
   /** A value that is small in memory and 2^40 times its size written out. */
-  const doubled = (): unknown => {
-    let value: unknown = pick([long, 0, null]);
+  const doubled = (): Field => {
+    let value: Field = pick([long, 0, null]);
+
     for (let i = 0; i < 40; i++) value = random() < 0.5 ? [value, value] : { a: value, b: value };
+
     return value;
   };
-  const cyclic = (): unknown => {
-    const value: Record<string, unknown> = { name: long };
+
+  const cyclic = (): Field => {
+    const value: Data = { name: long };
     value.self = value;
+
     return value;
   };
-  const hostile = (): unknown =>
+
+  const hostile = (): Field =>
     pick([doubled, cyclic, () => long, () => null, () => -1, () => NaN, () => ({}), () => []])();
+
   /** A list of `item` that is all empty slots, has a hole, or holds it many times. */
-  const listed = (item: unknown): unknown[] => {
+  const listed = (item: Field): Field[] => {
     const holed = [item, item, item];
     delete holed[1];
+
     // oxlint-disable-next-line unicorn/no-new-array
     return pick([() => new Array(2 ** 32 - 1), () => holed, () => new Array(500).fill(item)])();
   };
-  type Data = Record<string, unknown>;
-  const copies = (list: unknown): Data[] =>
-    ((list as readonly Data[] | undefined) ?? []).map((item) => ({ ...item }));
+
   const prefix = "P".repeat(400_000);
   // A standard with 800 dimension styles and 800 scales, which name 640,800 dimension styles.
   const dims = BUILT_IN_STANDARD.dimensionStyles.dims;
+
   const wide = JSON.stringify(
     defineStandard({
       id: "wide",
@@ -606,26 +675,34 @@ test("the checks of a standard stay bounded on any data, and never throw", () =>
   );
 
   for (let n = 0; n < 40; n++) {
-    const blocks = sheet.blocks!.map((b) => ({
-      ...b,
+    const blocks = sheet.blocks!.map((b): Data => ({
+      ...dataOf(b),
       entities: copies(b.entities),
       attributes: copies(b.attributes),
     }));
-    const sheetLayout = {
-      ...layout,
-      entities: copies(layout.entities),
+
+    const layoutEntities = copies(layout.entities);
+
+    const sheetLayout: Data = {
+      ...dataOf(layout),
+      entities: layoutEntities,
       viewports: copies(layout.viewports),
     };
+
+    const entities = copies(sheet.entities);
+    const dimensionStyles = copies(sheet.dimensionStyles);
+
     const drawing: Data = {
-      ...sheet,
+      ...dataOf(sheet),
       layers: copies(sheet.layers),
       linetypes: copies(sheet.linetypes),
       textStyles: copies(sheet.textStyles),
-      dimensionStyles: copies(sheet.dimensionStyles),
-      entities: copies(sheet.entities),
+      dimensionStyles,
+      entities,
       blocks,
       layouts: [sheetLayout],
     };
+
     const lists: [Data, string][] = [
       ...[
         "layers",
@@ -635,13 +712,13 @@ test("the checks of a standard stay bounded on any data, and never throw", () =>
         "blocks",
         "layouts",
         "entities",
-      ].map((field) => [drawing, field] as [Data, string]),
+      ].map((field): [Data, string] => [drawing, field]),
       [drawing, "xrefs"],
       [sheetLayout, "entities"],
       [sheetLayout, "viewports"],
-      ...blocks.flatMap((b) => [
-        [b, "entities"] as [Data, string],
-        [b, "attributes"] as [Data, string],
+      ...blocks.flatMap((b): [Data, string][] => [
+        [b, "entities"],
+        [b, "attributes"],
       ]),
     ];
 
@@ -651,9 +728,11 @@ test("the checks of a standard stay bounded on any data, and never throw", () =>
         [20 + Math.floor(random() * 20), pick([2, 3])],
         [5000, 1],
       ]);
+
       // Long names on a short tree: a long chain of them is a large drawing written out.
       const prefix = depth < 100 ? pick(["", long]) : "";
       const layer = pick(["0", "C-PROP", long]);
+
       const top: Data = {
         kind: "insert",
         layer: "C-PROP",
@@ -661,6 +740,7 @@ test("the checks of a standard stay bounded on any data, and never throw", () =>
         at: [0, 0],
         attributes: { [pick(["TAG", long])]: pick(["V", long]) },
       };
+
       const text = {
         kind: "text",
         layer: pick(["0", long]),
@@ -670,8 +750,10 @@ test("the checks of a standard stay bounded on any data, and never throw", () =>
         rotation: 0,
         style: pick(["NOTE", long]),
       };
+
       const definition = { tag: pick(["TAG", long]), value: pick(["V", long]), layer: "0" };
       const leaf = pick([text, { kind: "line", layer: "0", from: [0, 0], to: [1, 1] }, top]);
+
       const tree: Data[] = [
         {
           name: `${prefix}B0`,
@@ -680,6 +762,7 @@ test("the checks of a standard stay bounded on any data, and never throw", () =>
           attributes: [{ ...definition, at: [0, 0], height: 1, rotation: 0, style: "NOTE" }],
         },
       ];
+
       for (let i = 1; i < depth; i++) {
         const insert = { kind: "insert", layer, block: `${prefix}B${i - 1}` };
         tree.push({
@@ -688,47 +771,54 @@ test("the checks of a standard stay bounded on any data, and never throw", () =>
           entities: Array.from({ length: width }, (_, j) => ({ ...insert, at: [j, 0] })),
         });
       }
+
       tree.push({
         name: `${prefix}T`,
         base: [0, 0],
         entities: [{ kind: "insert", layer, block: `${prefix}B${depth - 1}`, at: [0, 0] }],
       });
-      blocks.push(...(tree as typeof blocks));
-      (random() < 0.5 ? (drawing.entities as Data[]) : sheetLayout.entities).push({ ...top });
+      blocks.push(...tree);
+      (random() < 0.5 ? entities : layoutEntities).push({ ...top });
     }
+
     // Many texts in many viewports.
     if (random() < 0.2) {
       const note = sheet.entities.find((e) => e.kind === "text")!;
-      (drawing.entities as Data[]).push(...copies(Array.from({ length: 3000 }, () => note)));
-      sheetLayout.viewports = copies(Array.from({ length: 300 }, () => layout.viewports[0]));
+      entities.push(...copies(Array.from({ length: 3000 }, () => note)));
+      sheetLayout.viewports = copies(Array.from({ length: 300 }, () => layout.viewports[0]!));
     }
+
     // Many dimensions in a style with a long prefix, which every label reads.
     if (random() < 0.15) {
       const dimension = sheet.entities.find((e) => e.kind === "linear-dimension")!;
-      (drawing.entities as Data[]).push(...copies(Array.from({ length: 400 }, () => dimension)));
-      (drawing.dimensionStyles as Data[])[0]!.prefix = prefix;
+      entities.push(...copies(Array.from({ length: 400 }, () => dimension)));
+      dimensionStyles[0]!.prefix = prefix;
     }
+
     // A field of something in the drawing: a long name, a value of the wrong type, or a field
     // nobody knows that is large written out.
     // A list the sheet does not have, such as its xrefs, holds no record.
-    const records: Data[] = [
-      drawing,
-      sheetLayout,
-      ...lists.flatMap(([o, f]) => (o[f] as Data[] | undefined) ?? []),
-    ];
-    for (const e of [...sheetLayout.entities, ...(drawing.entities as Data[])]) {
-      if (e.attributes) records.push((e.attributes = { ...(e.attributes as Data) }));
+    const records: Data[] = [drawing, sheetLayout, ...lists.flatMap(([o, f]) => recordsIn(o[f]))];
+
+    for (const e of [...layoutEntities, ...entities]) {
+      const { attributes } = e;
+
+      if (isData(attributes)) records.push((e.attributes = { ...attributes }));
     }
+
     for (let changes = Math.floor(random() * 5); changes > 0; changes--) {
       const record = pick(records);
       const known = Object.keys(record);
       const kind = random();
+
       if (kind < 0.4 && known.length > 0) {
         const field = pick(known);
-        record[field] = typeof record[field] === "string" ? `${long}${record[field]}` : long;
+        const value = record[field];
+        record[field] = isString(value) ? `${long}${value}` : long;
       } else if (kind < 0.7) record[pick(["extra", long])] = hostile();
       else if (known.length > 0) record[pick(known)] = hostile();
     }
+
     // A list that is all empty slots, has a hole, or holds one item many times.
     if (random() < 0.3) {
       const [owner, field] = pick(lists);
@@ -739,27 +829,132 @@ test("the checks of a standard stay bounded on any data, and never throw", () =>
     // The standard, as made or as data, or as data with a field changed, or the wide standard as
     // data, against the drawing or an empty one.
     const as = random();
-    const given = as < 0.4 ? standard : (JSON.parse(as < 0.5 ? wide : data) as Data);
+    const parsed: Data | undefined = as < 0.4 ? undefined : JSON.parse(as < 0.5 ? wide : data);
+    const given = parsed ?? standard;
+
     const checked =
       as >= 0.4 && as < 0.5 && random() < 0.5 ? { units: "ft", entities: [] } : drawing;
-    if (as >= 0.7) {
-      const copy = given as Data;
-      const section = pick(Object.keys(copy));
-      const value = copy[section];
-      if (random() < 0.5 && value && typeof value === "object" && !Array.isArray(value)) {
-        (value as Data)[pick(["extra", long, ...Object.keys(value)])] = hostile();
-      } else copy[section] = random() < 0.5 ? hostile() : listed(value);
+
+    if (as >= 0.7 && parsed) {
+      const section = pick(Object.keys(parsed));
+      const value = parsed[section];
+
+      if (random() < 0.5 && isData(value)) {
+        value[pick(["extra", long, ...Object.keys(value)])] = hostile();
+      } else parsed[section] = random() < 0.5 ? hostile() : listed(value);
     }
+
     const discipline = pick([undefined, undefined, "C", long, 5]);
 
     const out: Diagnostic[] = [];
+
     try {
-      within(1000, () =>
-        lintStandard(checked as unknown as Drawing, given, discipline, undefined, out, 20_000),
-      );
+      within(1000, () => lintStandard(wrong(checked), given, discipline, undefined, out, 20_000));
     } catch (thrown) {
-      assert.fail(`case ${n}: ${String((thrown as Error)?.message ?? thrown)}`);
+      assert.fail(`case ${n}: ${thrown instanceof Error ? thrown.message : String(thrown)}`);
     }
-    assert.ok(out.every((d) => typeof d.rule === "string" && typeof d.message === "string"));
+
+    assert.ok(out.every((d) => isString(d.rule) && isString(d.message)));
   }
+});
+
+test("a viewport that shows what another view of its scale draws is warned of, once an entity", () => {
+  /** Two elevations at 1/8" = 1'-0", the east one `apart` feet below the south one. */
+  const elevations = (apart: number, frozenLayers?: string[]) => {
+    const d = createDrawing({ units: "ft", standard: BUILT_IN_STANDARD });
+    const south = d.view("south", { scale: "1-8in-1ft" });
+    const east = d.view("east", { scale: "1-8in-1ft" });
+    const plan = d.view("plan", { scale: "1-4in-1ft" });
+    d.block("TAG", {}, () => {
+      d.circle([0, 0], 0.125);
+      d.text([0, 0], "1", { role: "note", align: "center", valign: "middle" });
+      d.text([0, -0.2], "A", { role: "note", align: "center", valign: "top" });
+    });
+    d.layer("C-BLDG", () => {
+      d.rect([0, 0], 40, 10);
+      d.rect([0, -apart], 25, 14);
+    });
+    d.layer("C-ANNO-TEXT", () => {
+      d.text([2, 2], "SOUTH", { role: "note", view: south, id: "south-text" });
+      d.leader("STEEL PANELS", { view: south, at: [30, 14], to: [28, 8] });
+      d.text([2, 2 - apart], "EAST", { role: "note", view: east });
+      // Drawn for a view at another scale: the checks of scale report it, and this check does not.
+      d.text([20, 4], "PLAN NOTE", { role: "note", view: plan });
+    });
+    d.layer("C-ANNO-SYMB", () => d.insert("TAG", [10, 5], { view: south }));
+    d.layer("C-ANNO-DIMS", () => d.linearDimension([0, 0], [40, 0], [0, -3], { view: south }));
+    d.layout("A-1", (sheet) => {
+      d.layer("G-ANNO-NPLT", () => {
+        sheet.viewport([1, 15], 8, 3, { view: south, center: [20, 5] });
+        sheet.viewport([1, 8], 8, 6, {
+          view: east,
+          center: [20, 7 - apart],
+          ...(frozenLayers && { frozenLayers }),
+        });
+      });
+    });
+
+    return d.build();
+  };
+
+  const near = elevations(20);
+  assert.deepEqual(
+    only(lint(near, { standard: BUILT_IN_STANDARD }), "viewport-shows-other-view").map((x) => [
+      x.severity,
+      x.message.split(":")[0],
+      x.id,
+    ]),
+    [
+      ["warning", "text #2", "south-text"],
+      ["warning", "insert #6", undefined],
+      ["warning", "leader #3", undefined],
+      ["warning", "linear-dimension #7", undefined],
+    ],
+  );
+  const found = lint(near, { standard: BUILT_IN_STANDARD });
+  assert.match(
+    only(found, "viewport-shows-other-view")[0]!.message,
+    /^text #2: It is drawn for the view "south", and is shown in viewport "east" at 1\/8" = 1'-0", which shows another view at its scale\./,
+  );
+  assert.ok(found.some((x) => x.rule === "height-off-role" && x.message.startsWith("text #5")));
+
+  // The elevations apart, or the layers of the south one's annotation frozen in the east viewport.
+  for (const drawing of [
+    elevations(60),
+    elevations(20, ["C-ANNO-TEXT", "C-ANNO-SYMB", "C-ANNO-DIMS"]),
+  ]) {
+    assert.deepEqual(
+      only(lint(drawing, { standard: BUILT_IN_STANDARD }), "viewport-shows-other-view"),
+      [],
+    );
+  }
+
+  // The builder keeps the view on the annotation it draws for one, and a reader of JSON keeps it.
+  const kept = near.entities.flatMap((e) => ("view" in e && e.view ? [`${e.kind}:${e.view}`] : []));
+  assert.deepEqual(kept, [
+    "text:south",
+    "leader:south",
+    "text:east",
+    "text:plan",
+    "insert:south",
+    "linear-dimension:south",
+  ]);
+  assert.deepEqual(fromJSON(toJSON(near)).entities, near.entities);
+
+  // Without the field, as a drawing built before it or by other code, nothing is warned of.
+  const bare = {
+    ...near,
+    entities: near.entities.map((e) => {
+      // SAFETY: the builder keeps the view an annotation was drawn for, which Entity does not name.
+      const { view: _, ...rest } = e as Entity & { view?: string };
+
+      // SAFETY: an entity without its view field is still an entity of its kind.
+      return rest as Entity;
+    }),
+  };
+
+  assert.deepEqual(
+    only(lint(bare, { standard: BUILT_IN_STANDARD }), "viewport-shows-other-view"),
+    [],
+  );
 });

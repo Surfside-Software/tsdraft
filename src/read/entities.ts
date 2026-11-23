@@ -3,6 +3,7 @@
 import type { ParagraphColumns } from "../paragraphs.ts";
 import type { Point } from "../drawing.ts";
 import { carets, textOnce, textTwice } from "./groups.ts";
+import { MARK_APP, markOf } from "./mark.ts";
 import { decipherSat, satEdges } from "./modeler.ts";
 import { readAlpha } from "../transparency.ts";
 import { wholeImageClip } from "../images.ts";
@@ -37,6 +38,7 @@ import {
   name,
   num,
   placed,
+  xdata,
   point,
   turned,
   type Facing,
@@ -56,6 +58,7 @@ const HANDLE = /^[0-9A-Fa-f]{1,16}$/;
 /** The handle a group holds: 1 to 16 hexadecimal digits, or undefined for anything else. */
 export function handleAt(r: Rec, code: number): string | undefined {
   const value = first(r, code);
+
   return value !== undefined && HANDLE.test(value) ? value : undefined;
 }
 
@@ -71,6 +74,7 @@ export function colorBookOf(
 ): { readonly book: string; readonly name: string } | undefined {
   if (value === undefined || value === "") return undefined;
   const at = value.indexOf("$");
+
   return at < 0
     ? { book: "", name: value }
     : { book: value.slice(0, at), name: value.slice(at + 1) };
@@ -85,6 +89,8 @@ export function baseOf(r: Rec, layer: string, handle: string | undefined): ReadE
   const linetype = name(r, 6);
   const lineweight = num(r, 370);
   const linetypeScale = num(r, 48);
+  const mark = markOf(xdata(r, MARK_APP).values);
+
   return {
     handle,
     layer,
@@ -95,6 +101,7 @@ export function baseOf(r: Rec, layer: string, handle: string | undefined): ReadE
     ...(linetype !== undefined && !/^bylayer$/i.test(linetype.trim()) && { linetype }),
     ...(lineweight !== undefined && lineweight !== -1 && { lineweight }),
     ...(linetypeScale !== undefined && linetypeScale !== 1 && { linetypeScale }),
+    ...(mark !== undefined && { mark }),
   };
 }
 
@@ -113,8 +120,10 @@ export function brokenNumber(r: Rec): boolean {
   for (let i = 0; i < r.codes.length; i++) {
     if (!isDouble(r.codes[i]!)) continue;
     const value = r.values[i]!;
+
     if (value.trim() !== "" && !Number.isFinite(Number(value))) return true;
   }
+
   return false;
 }
 
@@ -136,23 +145,26 @@ export interface PendingStart {
   readonly flags: number;
 }
 
+/** Where a text is placed, and the start the reader works out once it knows the font. */
+export interface Placed {
+  placement: Mutable<ReadTextPlacement>;
+  pending?: PendingStart;
+}
+
 /**
  * Where a text, an attribute or an attribute definition is. A justified text whose file holds
  * its alignment point as its first point too gets `alignment` and a pending start, which the
  * reader works out once it knows the text's font.
  */
-export function placementOf(
-  r: Rec,
-  face: Facing,
-  value: string,
-  valignCode: 73 | 74,
-): { placement: Mutable<ReadTextPlacement>; pending?: PendingStart } {
+export function placementOf(r: Rec, face: Facing, value: string, valignCode: 73 | 74): Placed {
   const align = ALIGNS[num(r, 72) ?? 0] ?? "left";
+
   // A text fitted or aligned between its points, or set on its middle, has no vertical one.
   const valign =
     align === "left" || align === "center" || align === "right"
       ? (VALIGNS[num(r, valignCode) ?? 0] ?? "baseline")
       : "baseline";
+
   const flags = num(r, 71) ?? 0;
   const own = point(r, 10);
   const ownAlign = first(r, 11) !== undefined ? point(r, 11) : own;
@@ -161,6 +173,7 @@ export function placementOf(
   const oblique = num(r, 51) ?? 0;
   const stored = placed(own, face);
   const justified = align !== "left" || valign !== "baseline";
+
   const placement: Mutable<ReadTextPlacement> = {
     at: stored,
     startFrom: "file",
@@ -177,15 +190,18 @@ export function placementOf(
     ...(((flags & 2) !== 0) !== (face === -1) && { backward: true }),
     ...((flags & 4) !== 0 && { upsideDown: true }),
   };
+
   if (!justified || own[0] !== ownAlign[0] || own[1] !== ownAlign[1]) return { placement };
   placement.at = placement.alignAt!;
   placement.startFrom = "alignment";
+
   return { placement, pending: { placement, value, own: ownAlign, rotation, face, flags } };
 }
 
 /** The groups of an `MTEXT` before its embedded object, group 101, which repeats some of them. */
 function ownGroups(r: Rec): Rec {
   const end = r.codes.indexOf(101);
+
   return end < 0
     ? r
     : { type: r.type, codes: r.codes.slice(0, end), values: r.values.slice(0, end) };
@@ -222,23 +238,25 @@ export function readingOf(
   r12 = false,
 ): Reading | undefined {
   if (brokenNumber(r)) return { malformed: `${r.type} with a number that is not finite` };
+
   switch (r.type) {
     case "LINE":
       return { entity: { ...base, kind: "line", from: point(r, 10), to: point(r, 11) } };
     case "POINT": {
       // Group 50 is the angle the figure is turned clockwise by.
       const rotation = degrees(-(num(r, 50) ?? 0));
+
       return {
-        entity: {
-          ...base,
-          kind: "point",
-          at: point(r, 10),
-          ...(rotation === 0 ? {} : { rotation }),
-        },
+        entity:
+          rotation === 0
+            ? { ...base, kind: "point", at: point(r, 10) }
+            : { ...base, kind: "point", at: point(r, 10), rotation },
       };
     }
+
     case "CIRCLE":
       if (face === 0) return { other: "CIRCLE in 3D" };
+
       return {
         entity: {
           ...base,
@@ -249,6 +267,7 @@ export function readingOf(
       };
     case "ARC":
       if (face === 0) return { other: "ARC in 3D" };
+
       // Seen from below, an arc runs the other way: its end is the world's start.
       return {
         entity: {
@@ -271,9 +290,12 @@ export function readingOf(
       const value = textTwice(first(r, 1) ?? "");
       const { placement, pending } = placementOf(r, face, value, 73);
       const entity = { ...base, kind: "text" as const, ...placement, value };
+
       if (pending) later.start({ ...pending, placement: entity });
+
       return { entity };
     }
+
     case "MTEXT":
       return mtext(r, base);
     case "DIMENSION":
@@ -299,10 +321,13 @@ export function readingOf(
       return modeler(r, base);
     case "SOLID": {
       if (face === 0) return { other: "SOLID in 3D" };
+
       const corner = (code: number): Point =>
         placed(first(r, code) === undefined ? point(r, 12) : point(r, code), face);
+
       return { entity: { ...base, kind: "solid", points: [10, 11, 13, 12].map(corner) } };
     }
+
     default:
       return undefined;
   }
@@ -313,26 +338,44 @@ export function readingOf(
  * in its record, as lines of groups 1 and 3 in a cipher with DXF's carets; a later one holds it in
  * the file's data storage, which is not read, and says so with group 290.
  */
+function modelerKind(type: string): "3dsolid" | "region" | "body" {
+  switch (type) {
+    case "3DSOLID":
+      return "3dsolid";
+    case "REGION":
+      return "region";
+    default:
+      return "body";
+  }
+}
+
 function modeler(r: Rec, base: ReadEntityBase): Reading {
-  const kind = r.type === "3DSOLID" ? "3dsolid" : r.type === "REGION" ? "region" : "body";
+  const kind = modelerKind(r.type);
   const s = inSubclass(r, "AcDbModelerGeometry");
   // A long line is held as groups 3, its first parts, and then a group 1, its end.
   const lines: string[] = [];
   let start = "";
+
   for (let i = 0; i < s.codes.length && s.codes[i] !== 1001; i++) {
     const code = s.codes[i];
+
     if (code === 3) start += decipherSat(carets(s.values[i]!));
     else if (code === 1) {
       lines.push(start + decipherSat(carets(s.values[i]!)));
       start = "";
     }
   }
+
   if (lines.length === 0) {
     const stored = s.codes.includes(290);
+
     return { entity: { ...base, kind, edges: [], ...(stored && { dataUnread: true as const }) } };
   }
+
   const { edges, unread } = satEdges(lines.join("\n") + "\n");
+
   if (unread < 0) return { entity: { ...base, kind, edges: [], dataUnread: true } };
+
   return { entity: { ...base, kind, edges, ...(unread > 0 && { edgesUnread: unread }) } };
 }
 
@@ -343,19 +386,24 @@ function modeler(r: Rec, base: ReadEntityBase): Reading {
  */
 function image(r: Rec, base: ReadEntityBase): Reading {
   const s = inSubclass(r, "AcDbRasterImage");
+
   // An image whose vectors leave the plane is one the read model does not hold.
   if ([31, 32, 30].some((code) => Math.abs(num(s, code) ?? 0) > 1e-9)) {
     return { other: "IMAGE in 3D" };
   }
+
   const flags = num(s, 70) ?? 0;
   const points: Point[] = [];
+
   for (let i = 0; i < s.codes.length; i++) {
     if (s.codes[i] !== 14) continue;
     const y = s.codes[i + 1] === 24 ? Number(s.values[i + 1]) : 0;
     points.push([Number(s.values[i]), y]);
   }
+
   const [head] = points;
   const tail = points.at(-1);
+
   if (
     (num(s, 71) ?? 1) !== 1 &&
     points.length > 1 &&
@@ -364,10 +412,22 @@ function image(r: Rec, base: ReadEntityBase): Reading {
   ) {
     points.pop();
   }
+
+  // `imageInWorld` takes the clip into the world's coordinates, which must hold every point.
+  const [at, u, v, height] = [point(s, 10), point(s, 11), point(s, 12), num(s, 23) ?? 0];
+
+  for (const [x, y] of points) {
+    const [ps, pt] = [x + 0.5, height - y - 0.5];
+    const world = [at[0] + ps * u[0] + pt * v[0], at[1] + ps * u[1] + pt * v[1]];
+
+    if (!world.every(Number.isFinite)) return { malformed: "IMAGE whose clip is past the doubles" };
+  }
+
   const definition = handleAt(s, 340);
   const brightness = num(s, 281) ?? 50;
   const contrast = num(s, 282) ?? 50;
   const fade = num(s, 283) ?? 0;
+
   return {
     entity: {
       ...base,
@@ -413,32 +473,43 @@ function hatch(r: Rec, base: ReadEntityBase, face: Facing): Reading {
   const s = inSubclass(r, "AcDbHatch");
   const { codes, values } = s;
   let i = codes.indexOf(91);
+
   if (i < 0) return { malformed: "HATCH with no count of loops" };
   // A group whose value is not a finite number makes the hatch malformed, once all is read.
   let broken = false;
+
   const value = (k: number) => {
     const text = values[k]!;
     const n = Number(text);
+
     if (text.trim() === "" || !Number.isFinite(n)) broken = true;
+
     return n;
   };
+
   // The next group of a code from `i` on, read by the order of the loop's groups.
   const take = (code: number): number | undefined => {
     if (codes[i] !== code) return undefined;
+
     return value(i++);
   };
+
   const count = value(i++);
   const loops: ReadHatchLoop[] = [];
   const mirror = (p: Point): Point => placed(p, face);
+
   for (let loop = 0; loop < count && i < codes.length; loop++) {
     const flags = take(92);
+
     if (flags === undefined) return { malformed: "HATCH whose loops do not follow its count" };
     const points: Point[] = [];
     const bulges: number[] = [];
+
     if ((flags & 2) !== 0) {
       const bulged = take(72) === 1;
       take(73);
       const n = take(93) ?? 0;
+
       for (let k = 0; k < n && codes[i] === 10; k++) {
         const x = value(i++);
         const y = take(20) ?? 0;
@@ -448,8 +519,10 @@ function hatch(r: Rec, base: ReadEntityBase, face: Facing): Reading {
       }
     } else {
       const n = take(93) ?? 0;
+
       for (let k = 0; k < n && codes[i] === 72; k++) {
         const type = take(72);
+
         if (type === 1) {
           const [x0, y0] = [take(10) ?? 0, take(20) ?? 0];
           take(11);
@@ -464,14 +537,19 @@ function hatch(r: Rec, base: ReadEntityBase, face: Facing): Reading {
           // A clockwise arc holds its angles as they turn clockwise: the world's are less 360.
           const [a0, a1] = ccw ? [start, end] : [360 - start, 360 - end];
           let sweep = ccw ? a1 - a0 : -(a0 - a1);
+
           if (ccw && sweep <= 0) sweep += 360;
+
           if (!ccw && sweep >= 0) sweep -= 360;
+
           const at = (angle: number): Point =>
             mirror([
               cx + radius * Math.cos((angle * Math.PI) / 180),
               cy + radius * Math.sin((angle * Math.PI) / 180),
             ]);
+
           const sign = face === -1 ? -1 : 1;
+
           // A whole circle is two halves, since one side cannot end where it starts.
           if (Math.abs(sweep) >= 360 - 1e-9) {
             points.push(at(a0), at(a0 + sweep / 2));
@@ -485,8 +563,10 @@ function hatch(r: Rec, base: ReadEntityBase, face: Facing): Reading {
         } else return { malformed: "HATCH with an edge of no known kind" };
       }
     }
+
     // The handles of the entities it bounds, which the read model does not hold.
     const objects = take(97) ?? 0;
+
     for (let k = 0; k < objects && codes[i] === 330; k++) i++;
     loops.push({
       points,
@@ -494,13 +574,16 @@ function hatch(r: Rec, base: ReadEntityBase, face: Facing): Reading {
       flags,
     });
   }
+
   const style = HATCH_STYLES[num(s, 75) ?? 0] ?? "normal";
   const solid = num(s, 70) === 1;
+
   // What a pattern holds after its loops: its kind, angle, scale, crossing and lines.
   let pattern: Partial<Record<"patternType" | "patternAngle" | "patternScale", number>> & {
     crossed?: true;
     patternLines?: ReadPatternLine[];
   } = {};
+
   if (!solid) {
     while (i < codes.length && codes[i] !== 76) i++;
     const type = take(76);
@@ -509,13 +592,16 @@ function hatch(r: Rec, base: ReadEntityBase, face: Facing): Reading {
     const crossed = take(77) === 1;
     const count = take(78) ?? 0;
     const lines: ReadPatternLine[] = [];
+
     for (let k = 0; k < count && codes[i] === 53; k++) {
       const angleOf = take(53) ?? 0;
       const placedBase = mirror([take(43) ?? 0, take(44) ?? 0]);
       const offset = mirror([take(45) ?? 0, take(46) ?? 0]);
       const dashCount = take(79) ?? 0;
       const dashes: number[] = [];
+
       for (let d = 0; d < dashCount && codes[i] === 49; d++) dashes.push(take(49) ?? 0);
+
       if (dashes.length !== dashCount || codes[i] === 49)
         return { malformed: "HATCH whose pattern lines do not follow their counts" };
       lines.push({
@@ -526,6 +612,7 @@ function hatch(r: Rec, base: ReadEntityBase, face: Facing): Reading {
         ...(dashes.length > 0 && { dashes }),
       });
     }
+
     if (lines.length !== count || codes[i] === 53)
       return { malformed: "HATCH whose pattern lines do not follow their counts" };
     pattern = {
@@ -536,12 +623,15 @@ function hatch(r: Rec, base: ReadEntityBase, face: Facing): Reading {
       patternLines: lines,
     };
   }
+
   if (broken) return { malformed: "HATCH with a number that is not finite" };
   const gradient = hatchGradient(codes, values, i, face);
+
   // A finite angle in radians can be past the doubles in degrees, and a tint in single
   // precision, as readDWG counts them too.
   if (gradient && !(Number.isFinite(gradient.angle) && Number.isFinite(gradient.tint ?? 0)))
     return { malformed: "HATCH with a number past the doubles" };
+
   return {
     entity: {
       ...base,
@@ -568,11 +658,14 @@ function hatchGradient(
   face: Facing,
 ): ReadGradient | undefined {
   const at = codes.indexOf(450, from);
+
   if (at < 0 || !(Number(values[at]) !== 0)) return undefined;
   let [label, radians, shift, single, tint] = ["", 0, 0, 0, 0];
   const colors: number[] = [];
+
   for (let k = at + 1; k < codes.length; k++) {
     const value = values[k]!;
+
     switch (codes[k]) {
       case 460:
         radians = Number(value) || 0;
@@ -594,7 +687,9 @@ function hatchGradient(
         break;
     }
   }
+
   const angle = gradientDegrees(radians);
+
   return {
     name: label,
     angle: face === -1 ? 180 - angle : angle,
@@ -612,25 +707,33 @@ function hatchGradient(
 function ellipse(r: Rec, base: ReadEntityBase, face: Facing): Reading {
   if (face === 0) return { other: "ELLIPSE in 3D" };
   const s = inSubclass(r, "AcDbEllipse");
+
   if (Math.abs(num(s, 30) ?? 0) > 1e-9 || Math.abs(num(s, 31) ?? 0) > 1e-9)
     return { other: "ELLIPSE in 3D" };
   const majorAxis = point(s, 11);
   const ratio = num(s, 40) ?? 1;
+
   if (!(ratio > 0 && ratio <= 1) || (majorAxis[0] === 0 && majorAxis[1] === 0))
     return { malformed: "ELLIPSE with a ratio outside 0 to 1 or an axis of no length" };
   const [s0, e0] = [num(s, 41) ?? 0, num(s, 42) ?? 2 * Math.PI];
   const whole = Math.abs(e0 - s0) >= 2 * Math.PI - 1e-9 || s0 === e0;
   const inDegrees = (t: number) => degrees((t * 180) / Math.PI);
   const [start, end] = face === -1 ? [-e0, -s0] : [s0, e0];
+
+  const center = point(s, 10);
+
   return {
-    entity: {
-      ...base,
-      kind: "ellipse",
-      center: point(s, 10),
-      majorAxis,
-      ratio,
-      ...(whole ? {} : { startParameter: inDegrees(start), endParameter: inDegrees(end) }),
-    },
+    entity: whole
+      ? { ...base, kind: "ellipse", center, majorAxis, ratio }
+      : {
+          ...base,
+          kind: "ellipse",
+          center,
+          majorAxis,
+          ratio,
+          startParameter: inDegrees(start),
+          endParameter: inDegrees(end),
+        },
   };
 }
 
@@ -652,21 +755,26 @@ function spline(r: Rec, base: ReadEntityBase, face: Facing): Reading {
   const controlPoints: Point[] = [];
   const fitPoints: Point[] = [];
   let flat = true;
+
   for (let i = 0; i < s.codes.length; i++) {
     const code = s.codes[i]!;
     const value = Number(s.values[i]);
+
     if (code === 40) knots.push(value);
     // Weights count only for a spline marked rational, as the leading CAD app reads them.
     else if (code === 41 && (flags & 4) !== 0) weights.push(value);
     else if (code === 10 || code === 11) {
       const y = s.codes[i + 1] === code + 10 ? Number(s.values[i + 1]) : 0;
       const z = s.codes[i + 2] === code + 20 ? Number(s.values[i + 2]) : 0;
+
       if (Math.abs(z) > 1e-9) flat = false;
       (code === 10 ? controlPoints : fitPoints).push([value, y]);
     }
   }
+
   if (!flat) return { other: "SPLINE in 3D" };
   const counted = (code: number, list: readonly unknown[]) => (num(s, code) ?? 0) === list.length;
+
   const broken =
     !Number.isInteger(degree) ||
     degree < 1 ||
@@ -677,15 +785,19 @@ function spline(r: Rec, base: ReadEntityBase, face: Facing): Reading {
     (weights.length > 0 && weights.length !== controlPoints.length) ||
     (controlPoints.length > 0 && knots.length !== controlPoints.length + degree + 1) ||
     (controlPoints.length === 0 && fitPoints.length < 2);
+
   if (broken) return { malformed: "SPLINE whose counts disagree with its groups or its degree" };
   // A fit closed by its first point again at its end gives that point once.
   const [head, tail] = [fitPoints[0], fitPoints.at(-1)];
+
   const repeated =
     (flags & 1) !== 0 && fitPoints.length > 2 && head![0] === tail![0] && head![1] === tail![1];
+
   const tangent = (code: number) =>
     first(s, code) === undefined
       ? {}
       : { [code === 12 ? "startTangent" : "endTangent"]: point(s, code) };
+
   const spacing =
     (flags & 1024) === 0
       ? undefined
@@ -696,7 +808,9 @@ function spline(r: Rec, base: ReadEntityBase, face: Facing): Reading {
           : (flags & 32) !== 0
             ? "chord"
             : undefined;
+
   const tolerance = num(s, 44);
+
   return {
     entity: {
       ...base,
@@ -723,20 +837,26 @@ function spline(r: Rec, base: ReadEntityBase, face: Facing): Reading {
  */
 function wipeout(r: Rec, base: ReadEntityBase): Reading {
   const s = inSubclass(r, "AcDbWipeout");
+
   if ([31, 32, 30].some((code) => Math.abs(num(s, code) ?? 0) > 1e-9)) {
     return { other: "WIPEOUT in 3D" };
   }
+
   const held: Point[] = [];
+
   for (let i = 0; i < s.codes.length; i++) {
     if (s.codes[i] !== 14) continue;
     const y = s.codes[i + 1] === 24 ? Number(s.values[i + 1]) : 0;
     held.push([Number(s.values[i]), y]);
   }
+
   const [at, u, v] = [point(s, 10), point(s, 11), point(s, 12)];
   const rectangle = (num(s, 71) ?? 2) === 1;
   let corners = held;
+
   if (rectangle && held.length === 2) {
-    const [[x0, y0], [x1, y1]] = held as [Point, Point];
+    const [x0, y0] = held[0]!;
+    const [x1, y1] = held[1]!;
     corners = [
       [x0, y0],
       [x1, y0],
@@ -745,12 +865,16 @@ function wipeout(r: Rec, base: ReadEntityBase): Reading {
     ];
   } else if (held.length > 1) {
     const [head, tail] = [held[0]!, held.at(-1)!];
+
     if (head[0] === tail[0] && head[1] === tail[1]) corners = held.slice(0, -1);
   }
+
   const points = corners.map(([x, y]): Point => {
     const [a, b] = [x + 0.5, 0.5 - y];
+
     return [at[0] + a * u[0] + b * v[0], at[1] + a * u[1] + b * v[1]];
   });
+
   return { entity: { ...base, kind: "wipeout", points } };
 }
 
@@ -762,15 +886,18 @@ function wipeout(r: Rec, base: ReadEntityBase): Reading {
 function underlay(r: Rec, base: ReadEntityBase): Reading {
   const s = inSubclass(r, "AcDbUnderlayReference");
   const normal = [num(s, 210) ?? 0, num(s, 220) ?? 0, num(s, 230) ?? 1];
+
   if (Math.abs(normal[0]!) > 1e-9 || Math.abs(normal[1]!) > 1e-9 || normal[2]! <= 0)
     return { other: "PDFUNDERLAY in 3D" };
   const flags = num(s, 280) ?? 2;
   const points: Point[] = [];
+
   for (let i = 0; i < s.codes.length; i++) {
     if (s.codes[i] !== 11) continue;
     const y = s.codes[i + 1] === 21 ? Number(s.values[i + 1]) : 0;
     points.push([Number(s.values[i]), y]);
   }
+
   const definition = handleAt(s, 340);
   const contrast = num(s, 281) ?? UNDERLAY_CONTRAST_DEFAULT;
   // The leading CAD app saves no contrast of 75 and no fade of 25, which a file without one means.
@@ -781,13 +908,17 @@ function underlay(r: Rec, base: ReadEntityBase): Reading {
   const scale: [number, number] = [num(s, 41) ?? 1, num(s, 42) ?? 1];
   // The clip, from the page's inches into the world's coordinates.
   const [cos, sin] = [Math.cos((rotation * Math.PI) / 180), Math.sin((rotation * Math.PI) / 180)];
+
   const clip = points.map(([x, y]): Point => {
     const [sx, sy] = [x * scale[0], y * scale[1]];
+
     return [at[0] + sx * cos - sy * sin, at[1] + sx * sin + sy * cos];
   });
+
   if (!clip.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y))) {
     return { malformed: "PDFUNDERLAY whose clip is past the doubles" };
   }
+
   return {
     entity: {
       ...base,
@@ -814,6 +945,7 @@ export function underlayInWorld(
   underlay: ReadUnderlay,
   definition: { readonly path: string; readonly page: string } | undefined,
 ): void {
+  // SAFETY: the reader made the underlay, and finishes it here before the read is given out.
   const mutable = underlay as Mutable<ReadUnderlay>;
   mutable.path = definition?.path ?? "";
   mutable.page = definition?.page ?? "";
@@ -824,13 +956,16 @@ export function underlayInWorld(
  * the world's coordinates.
  */
 export function imageInWorld(image: ReadImage, path: string | undefined): void {
+  // SAFETY: the reader made the image, and finishes it here before the read is given out.
   const mutable = image as Mutable<ReadImage>;
   mutable.path = path ?? "";
+
   if (image.clip === undefined) return;
   const { at, u, v } = image;
   const height = image.pixels[1];
   mutable.clip = image.clip.map(([x, y]) => {
     const [s, t] = [x + 0.5, height - y - 0.5];
+
     return [at[0] + s * u[0] + t * v[0], at[1] + s * u[1] + t * v[1]];
   });
 }
@@ -843,15 +978,18 @@ function lwpolyline(r: Rec, base: ReadEntityBase, face: Facing): Reading {
   const bulges: number[] = [];
   const widths: [number, number][] = [];
   let vertex: { x: number; y?: number; bulge: number; widths: [number, number] } | undefined;
+
   const close = (): void => {
     if (vertex?.y === undefined) return;
     points.push(placed([vertex.x, vertex.y], face));
     bulges.push(vertex.bulge);
     widths.push(vertex.widths);
   };
+
   for (let i = 0; i < r.codes.length; i++) {
     const code = r.codes[i];
     const value = Number(r.values[i]);
+
     if (code === 10) {
       close();
       vertex = { x: value, bulge: 0, widths: [0, 0] };
@@ -860,9 +998,11 @@ function lwpolyline(r: Rec, base: ReadEntityBase, face: Facing): Reading {
     else if (code === 42) vertex.bulge = value;
     else if (code === 40 || code === 41) vertex.widths[code - 40] = value;
   }
+
   close();
   const flags = num(r, 70) ?? 0;
   const closed = (flags & 1) !== 0;
+
   return {
     entity: {
       ...base,
@@ -893,32 +1033,42 @@ export function sidesOf(
   const bent = bulges.slice(0, sides).map((bulge) => (face === -1 ? -bulge : bulge));
   const own = widths.slice(0, sides);
   const wide = own.some(([start, end]) => start !== 0 || end !== 0);
-  return {
-    ...(bent.some((bulge) => bulge !== 0) ? { bulges: bent.map((bulge) => bulge + 0) } : {}),
-    ...(wide ? { widths: own.map(([start, end]) => [start, end] as const) } : {}),
-    ...(!wide && constant !== 0 ? { width: constant } : {}),
-  };
+
+  const parts: Mutable<Pick<ReadPolyline, "bulges" | "width" | "widths">> = {};
+
+  if (bent.some((bulge) => bulge !== 0)) parts.bulges = bent.map((bulge) => bulge + 0);
+
+  if (wide) parts.widths = own.map(([start, end]) => [start, end] as const);
+  else if (constant !== 0) parts.width = constant;
+
+  return parts;
 }
 
 function mtext(record: Rec, base: ReadEntityBase): Reading {
   const face = facing(record);
+
   if (face !== 1) return { other: face === -1 ? "MTEXT seen from below" : "MTEXT in 3D" };
   const r = ownGroups(record);
   let value = "";
+
   for (let i = 0; i < r.codes.length; i++) {
     if (r.codes[i] === 3 || r.codes[i] === 1) value += r.values[i];
   }
+
   const dx = num(r, 11);
   const dy = num(r, 21);
+
   // Its direction, groups 11 and 21, or else its rotation, group 50, which the leading CAD app
   // reads as degrees, though the DXF Reference gives radians.
   const rotation =
     dx !== undefined && dy !== undefined && (dx !== 0 || dy !== 0)
       ? degrees((Math.atan2(dy, dx) * 180) / Math.PI)
       : degrees(num(r, 50) ?? 0);
+
   const flags = num(r, 90) ?? 0;
   const color = num(r, 63);
   const trueColor = num(r, 421);
+
   // Bit 1 turns the mask on, and bit 2 fills it with the drawing's background.
   const mask =
     (flags & 1) === 0
@@ -929,6 +1079,7 @@ function mtext(record: Rec, base: ReadEntityBase): Reading {
           ...((flags & 2) === 0 && trueColor !== undefined && { trueColor }),
           offsetFactor: num(r, 45) ?? 1.5,
         };
+
   const entity: ReadMtext = {
     ...base,
     kind: "mtext",
@@ -943,27 +1094,36 @@ function mtext(record: Rec, base: ReadEntityBase): Reading {
     lineSpacingStyle: num(r, 73) === 2 ? "exactly" : "at-least",
     ...(mask !== undefined && { mask }),
   };
+
   // The embedded object's direction wins over the MTEXT's own, as the leading CAD app reads it.
   const embedded = embeddedDirection(record);
   const turned = embedded === undefined ? entity : { ...entity, rotation: embedded };
   const held = columnsOf(record);
+
   if (held) return { entity: { ...turned, width: held.width, columns: held.columns } };
+
   return { entity: turned };
 }
 
 /** The direction in an `MTEXT`'s embedded object, in degrees, or undefined where it has none. */
 function embeddedDirection(record: Rec): number | undefined {
   const from = record.codes.indexOf(101);
+
   if (from < 0) return undefined;
+
   const after: Rec = {
     type: record.type,
     codes: record.codes.slice(from + 1),
     values: record.values.slice(from + 1),
   };
+
   const dx = num(after, 10);
   const dy = num(after, 20);
+
   if (dx === undefined || dy === undefined || (dx === 0 && dy === 0)) return undefined;
+
   if (!Number.isFinite(dx) || !Number.isFinite(dy)) return undefined;
+
   return degrees((Math.atan2(dy, dx) * 180) / Math.PI);
 }
 
@@ -974,33 +1134,44 @@ function embeddedDirection(record: Rec): number | undefined {
  */
 function columnsOf(record: Rec): { width: number; columns: ParagraphColumns } | undefined {
   const from = record.codes.indexOf(101);
+
   if (from < 0) return undefined;
+
   const after: Rec = {
     type: record.type,
     codes: record.codes.slice(from + 1),
     values: record.values.slice(from + 1),
   };
+
   const type = num(after, 71);
   const width = num(after, 44);
   const height = num(after, 41);
   const gutter = num(after, 45) ?? 0;
   const good = (n: number | undefined): n is number => n !== undefined && Number.isFinite(n);
+
   if ((type !== 1 && type !== 2) || !good(width) || width <= 0 || !good(height) || gutter < 0) {
     return undefined;
   }
+
   if (type === 1) {
     const count = num(after, 72);
+
     if (!good(count) || count < 1) return undefined;
+
     return { width, columns: { count: Math.floor(count), height, gutter } };
   }
+
   if (num(after, 73) !== 0) return { width, columns: { height, gutter } };
   const heights: number[] = [];
+
   for (let i = 0; i < after.codes.length; i++) {
     if (after.codes[i] !== 46) continue;
     const tall = Number(after.values[i]);
+
     if (!(tall > 0)) break;
     heights.push(tall);
   }
+
   return heights.length > 0 ? { width, columns: { heights, gutter } } : undefined;
 }
 
@@ -1008,9 +1179,13 @@ function dimension(r: Rec, base: ReadEntityBase, face: Facing, r12: boolean): Re
   if (face !== 1) return { other: face === -1 ? "DIMENSION seen from below" : "DIMENSION in 3D" };
   // The kind is group 70's low four bits, 9 for a jogged radius: 32, 64 and 128 are flags.
   const kind = (num(r, 70) ?? 0) & 15;
+
   if (kind === 3 || kind === 4 || kind === 9) return radialDimension(r, base, kind, r12);
+
   if (kind === 2 || kind === 5) return angularDimension(r, base, kind, r12);
+
   if (kind === 6) return ordinateDimension(r, base, r12);
+
   if (kind > 1) return { other: `DIMENSION ${DIMENSION_KINDS[kind] ?? "of another kind"}` };
   const angle = kind === 0 ? (num(r, 50) ?? 0) : 0;
   // The leading CAD app leaves the measurement out when it is 1. An R12 file holds none.
@@ -1018,6 +1193,7 @@ function dimension(r: Rec, base: ReadEntityBase, face: Facing, r12: boolean): Re
   const text = first(r, 1);
   const block = name(r, 2);
   const parts = text === undefined ? {} : dimensionTextParts(textOnce(text));
+
   const entity: ReadDimension = {
     ...base,
     kind: "dimension",
@@ -1032,13 +1208,32 @@ function dimension(r: Rec, base: ReadEntityBase, face: Facing, r12: boolean): Re
     style: name(r, 3) ?? "Standard",
     ...(block !== undefined && block !== "" && { block }),
   };
+
   return { entity };
 }
 
 /** The color index of a mask's color from the 32 bits a file holds: ByBlock 0, an index, else 256. */
 export function maskColor(raw: number): number {
-  const method = raw >>> 24;
-  return method === 0xc1 ? 0 : method === 0xc3 ? raw & 0xff : 256;
+  switch (raw >>> 24) {
+    case 0xc1:
+      return 0;
+    case 0xc3:
+      return raw & 0xff;
+    default:
+      return 256;
+  }
+}
+
+/** The type of a radial dimension by group 70's kind: 4 a radius, 3 a diameter, else jogged. */
+function radialType(kind: number): ReadRadialDimension["type"] {
+  switch (kind) {
+    case 4:
+      return "radius";
+    case 3:
+      return "diameter";
+    default:
+      return "jogged-radius";
+  }
 }
 
 /**
@@ -1052,14 +1247,16 @@ function radialDimension(r: Rec, base: ReadEntityBase, kind: number, r12: boolea
   const parts = text === undefined ? {} : dimensionTextParts(textOnce(text));
   const onCircle = point(r, 15);
   const definition = point(r, 10);
+
   const center: Point =
     kind === 3
       ? [(definition[0] + onCircle[0]) / 2, (definition[1] + onCircle[1]) / 2]
       : definition;
+
   const entity: ReadRadialDimension = {
     ...base,
     kind: "radial-dimension",
-    type: kind === 4 ? "radius" : kind === 3 ? "diameter" : "jogged-radius",
+    type: radialType(kind),
     center,
     point: onCircle,
     ...(kind === 9 && { start: point(r, 13), jog: point(r, 14) }),
@@ -1070,6 +1267,7 @@ function radialDimension(r: Rec, base: ReadEntityBase, kind: number, r12: boolea
     style: name(r, 3) ?? "Standard",
     ...(block !== undefined && block !== "" && { block }),
   };
+
   return { entity };
 }
 
@@ -1080,12 +1278,14 @@ function radialDimension(r: Rec, base: ReadEntityBase, kind: number, r12: boolea
  */
 function ordinateDimension(r: Rec, base: ReadEntityBase, r12: boolean): Reading {
   const turned = num(r, 51) ?? 0;
+
   if (turned !== 0) return { other: "DIMENSION ordinate in a turned coordinate system" };
   const measurement = num(r, 42) ?? (r12 ? undefined : 1);
   const text = first(r, 1);
   const block = name(r, 2);
   const parts = text === undefined ? {} : dimensionTextParts(textOnce(text));
   const flags = num(r, 70) ?? 0;
+
   const entity: ReadOrdinateDimension = {
     ...base,
     kind: "ordinate-dimension",
@@ -1100,6 +1300,7 @@ function ordinateDimension(r: Rec, base: ReadEntityBase, r12: boolean): Reading 
     style: name(r, 3) ?? "Standard",
     ...(block !== undefined && block !== "" && { block }),
   };
+
   return { entity };
 }
 
@@ -1115,18 +1316,25 @@ function arcLengthDimension(r: Rec, base: ReadEntityBase, face: Facing): Reading
   const end = point(r, 13);
   // The arc's own groups follow its subclass marker: the common part holds a 41 and a 70 too.
   const marker = r.codes.findIndex((code, i) => code === 100 && r.values[i] === "AcDbArcDimension");
+
   const after = (code: number): string | undefined => {
     const at = marker < 0 ? -1 : r.codes.indexOf(code, marker);
+
     return at < 0 ? undefined : r.values[at];
   };
+
   const partial = after(70);
+
   const degrees = (code: number): number => {
     const value = Number(after(code) ?? 0) * (180 / Math.PI);
+
     return Number.isFinite(value) ? value : 0;
   };
+
   const text = first(r, 1);
   const block = name(r, 2);
   const parts = text === undefined ? {} : dimensionTextParts(textOnce(text));
+
   const entity: ReadArcLengthDimension = {
     ...base,
     kind: "arc-length-dimension",
@@ -1143,6 +1351,7 @@ function arcLengthDimension(r: Rec, base: ReadEntityBase, face: Facing): Reading
     style: name(r, 3) ?? "Standard",
     ...(block !== undefined && block !== "" && { block }),
   };
+
   return { entity };
 }
 
@@ -1152,13 +1361,16 @@ function arcLengthDimension(r: Rec, base: ReadEntityBase, face: Facing): Reading
  */
 function angularDimension(r: Rec, base: ReadEntityBase, kind: number, r12: boolean): Reading {
   const radians = num(r, 42) ?? (r12 ? undefined : 1);
+
   // An angle of radians too large for degrees is left out, as no angle.
   const degrees =
     radians === undefined ? undefined : radians === -1 ? -1 : radians * (180 / Math.PI);
+
   const measurement = degrees !== undefined && Number.isFinite(degrees) ? degrees : undefined;
   const text = first(r, 1);
   const block = name(r, 2);
   const parts = text === undefined ? {} : dimensionTextParts(textOnce(text));
+
   const entity: ReadAngularDimension = {
     ...base,
     kind: "angular-dimension",
@@ -1177,6 +1389,7 @@ function angularDimension(r: Rec, base: ReadEntityBase, kind: number, r12: boole
     style: name(r, 3) ?? "Standard",
     ...(block !== undefined && block !== "" && { block }),
   };
+
   return { entity };
 }
 
@@ -1196,11 +1409,13 @@ function multileader(r: Rec, base: ReadEntityBase, later: Later): Reading {
   const context: Record<number, string> = {};
   const after: Record<number, string> = {};
   const labels: { definition: string | undefined; text: string }[] = [];
+
   for (let i = 0; i < c.length; i++) {
     const code = c[i]!;
     const value = v[i]!;
     // The groups that open and close a part, as the leading CAD app writes them, may carry spaces.
     const mark = code >= 300 && code <= 305 ? value.trim() : value;
+
     if (where === "before") {
       if (code === 300 && mark === "CONTEXT_DATA{") where = "context";
     } else if (where === "context" && code === 301 && mark === "}") where = "after";
@@ -1223,37 +1438,50 @@ function multileader(r: Rec, base: ReadEntityBase, later: Later): Reading {
       labels.push({ definition: known ? handle.toUpperCase() : undefined, text: "" });
     } else if (where === "after" && code === 302 && labels.length > 0) labels.at(-1)!.text = value;
     else {
-      const groups =
-        where === "leader" ? roots.at(-1)!.groups : where === "context" ? context : after;
+      let groups = after;
+
+      if (where === "leader") groups = roots.at(-1)!.groups;
+      else if (where === "context") groups = context;
+
       if (!(code in groups)) groups[code] = value;
     }
   }
+
   const number = (groups: Record<number, string>, code: number, otherwise: number): number => {
     const value = Number(groups[code]);
+
     return groups[code] !== undefined && Number.isFinite(value) ? value : otherwise;
   };
+
   const pair = (groups: Record<number, string>, x: number): Point | undefined =>
     groups[x] === undefined ? undefined : [number(groups, x, 0), number(groups, x + 10, 0)];
+
   const up = (x: number): boolean =>
     Math.abs(number(context, x, 0)) <= 1e-9 &&
     Math.abs(number(context, x + 10, 0)) <= 1e-9 &&
     number(context, x + 20, 1) > 0;
+
   // Group 290 of the context says it holds a note, and 296 a block; group 172 after it says the
   // same, 2 a note and 1 a block, for a file that leaves the context's out.
   const content = number(after, 172, 2);
   const hasText = number(context, 290, content === 2 ? 1 : 0) === 1;
   const hasBlock = !hasText && number(context, 296, content === 1 ? 1 : 0) === 1;
+
   // The normal of the note is groups 11, 21 and 31 of the context, and of the block 14, 24 and 34.
   if ((hasText && !up(11)) || (hasBlock && !up(14))) return { other: "MULTILEADER in 3D" };
   // A block's labels are keyed by the handle of the definition each fills until the file is read.
   let attributes: Record<string, string> | undefined;
   let kept = 0;
+
   for (const { definition, text } of hasBlock ? labels : []) {
     attributes ??= map<string>();
+
     if (definition === undefined || definition in attributes) continue;
+
     if (kept++ >= MAX_TAGS) break;
     attributes[definition] = textTwice(text);
   }
+
   const block = hasBlock
     ? {
         name: "",
@@ -1263,15 +1491,21 @@ function multileader(r: Rec, base: ReadEntityBase, later: Later): Reading {
         ...(attributes && { attributes }),
       }
     : undefined;
+
   const textAt = (hasText && pair(context, 12)) || block?.at || pair(context, 10) || [0, 0];
+
+  const east = (): Point => [1, 0];
+
   const read = roots.map((root) => ({
     at: pair(root.groups, 10) ?? [0, 0],
-    direction: pair(root.groups, 11) ?? ([1, 0] as Point),
+    direction: pair(root.groups, 11) ?? east(),
     landing: number(root.groups, 40, 0),
     shafts: root.shafts,
   }));
+
   const [first] = read;
   const masked = hasText && number(context, 292, 0) === 1;
+
   const entity: ReadMultileader = {
     ...base,
     kind: "multileader",
@@ -1309,12 +1543,14 @@ function multileader(r: Rec, base: ReadEntityBase, later: Later): Reading {
     }),
     ...(block && { block }),
   };
+
   later.leader(entity, {
     style: after[340],
     // A note names its text style in the context, and the multileader its own after it.
     textStyle: hasText ? context[340] : after[343],
     ...(hasBlock && { block: context[341] ?? after[344] }),
   });
+
   return { entity };
 }
 
@@ -1326,11 +1562,14 @@ function multileader(r: Rec, base: ReadEntityBase, later: Later): Reading {
 function leader(r: Rec, base: ReadEntityBase, face: Facing): Reading {
   if (face === 0) return { other: "LEADER in 3D" };
   const points: Point[] = [];
+
   for (let i = 0; i < r.codes.length; i++) {
     if (r.codes[i] !== 10) continue;
     points.push([Number(r.values[i]), r.codes[i + 1] === 20 ? Number(r.values[i + 1]) : 0]);
   }
+
   const note = (num(r, 73) ?? 3) === 3 ? undefined : handleAt(r, 340);
+
   return {
     entity: {
       ...base,
@@ -1352,11 +1591,14 @@ export function attributeOf(
 ): ReadAttribute | { malformed: string } | { other: string } {
   if (brokenNumber(r)) return { malformed: "ATTRIB with a number that is not finite" };
   const face = facing(r);
+
   if (face === 0) return { other: "ATTRIB in 3D" };
   const { text, paragraph } = attributeParts(r);
+
   if (paragraph === null) return { other: "ATTRIB of paragraph text in 3D" };
   const value = paragraph ? paragraph.value : textTwice(first(text, 1) ?? "");
   const { placement, pending } = placementOf(text, face, value, 74);
+
   const attribute = {
     ...base,
     ...placement,
@@ -1366,8 +1608,19 @@ export function attributeOf(
     ...((((num(text, 70) ?? 0) & 1) !== 0 || num(text, 60) === 1) && { invisible: true }),
     ...(paragraph && { paragraph: paragraph.paragraph }),
   };
+
   if (pending && !paragraph) later.start({ ...pending, placement: attribute });
+
   return attribute;
+}
+
+/** An attribute's text, and its paragraph: undefined for one of a line, null off the plane. */
+export interface AttributeParts {
+  readonly text: Rec;
+  readonly paragraph:
+    | { readonly paragraph: ReadAttributeParagraph; readonly value: string }
+    | undefined
+    | null;
 }
 
 /**
@@ -1375,48 +1628,55 @@ export function attributeOf(
  * subclass holds, and for one of paragraph text the paragraph after group 101, its embedded
  * object, with its value. Its paragraph is null where it lies off the plane.
  */
-export function attributeParts(r: Rec): {
-  readonly text: Rec;
-  readonly paragraph:
-    | { readonly paragraph: ReadAttributeParagraph; readonly value: string }
-    | undefined
-    | null;
-} {
+export function attributeParts(r: Rec): AttributeParts {
   const from = r.codes.indexOf(101);
+
   if (from < 0) return { text: r, paragraph: undefined };
+
   // Groups 71 and 72 after the subclass of the attribute say it is of paragraph text.
   const subclass = r.codes.findIndex(
     (code, i) =>
       code === 100 &&
       (r.values[i] === "AcDbAttribute" || r.values[i] === "AcDbAttributeDefinition"),
   );
+
   const codes: number[] = [];
   const values: string[] = [];
+
   for (let i = 0; i < from; i++) {
     if (subclass >= 0 && i > subclass && (r.codes[i] === 71 || r.codes[i] === 72)) continue;
     codes.push(r.codes[i]!);
     values.push(r.values[i]!);
   }
+
   const text: Rec = { type: r.type, codes, values };
+
   const after: Rec = {
     type: r.type,
     codes: r.codes.slice(from + 1),
     values: r.values.slice(from + 1),
   };
+
   const z = num(after, 230) ?? 1;
+
   if (Math.abs(num(after, 210) ?? 0) > 1e-9 || Math.abs(num(after, 220) ?? 0) > 1e-9) {
     return { text, paragraph: null };
   }
+
   let value = "";
+
   for (let i = 0; i < after.codes.length; i++) {
     if (after.codes[i] === 3 || after.codes[i] === 1) value += after.values[i];
   }
+
   const dx = num(after, 11);
   const dy = num(after, 21);
+
   const rotation =
     dx !== undefined && dy !== undefined && (dx !== 0 || dy !== 0)
       ? degrees((Math.atan2(dy, dx) * 180) / Math.PI)
       : 0;
+
   return {
     text,
     paragraph: {
@@ -1439,6 +1699,7 @@ export function attributeParts(r: Rec): {
 /** The characters a string costs against a budget: one item for each 32. */
 export const nameCost = (value: string | undefined): number =>
   value === undefined ? 0 : Math.floor(value.length / 32);
+
 const chars = nameCost;
 
 /** What a text's place costs: one for each point it holds. */
@@ -1479,6 +1740,7 @@ export function costOf(e: ReadEntity): number {
     chars(e.layer) +
     chars(e.linetype) +
     (e.colorBook ? chars(e.colorBook.book) + chars(e.colorBook.name) : 0);
+
   switch (e.kind) {
     case "line":
       return own + 2;
@@ -1513,13 +1775,18 @@ export function costOf(e: ReadEntity): number {
       return own + 6 + chars(e.text) + chars(e.textBelow) + chars(e.style) + chars(e.block);
     case "multileader": {
       let points = 3;
+
       for (const root of e.roots) {
         points += 3;
+
         for (const shaft of root.shafts) points += 1 + shaft.length;
       }
+
       let labels = 0;
       const attributes = e.block?.attributes ?? {};
+
       for (const tag in attributes) labels += 1 + chars(tag) + chars(attributes[tag]);
+
       return (
         own +
         points +
@@ -1530,25 +1797,35 @@ export function costOf(e: ReadEntity): number {
         chars(e.block?.name)
       );
     }
+
     case "leader":
       return own + e.points.length + chars(e.style) + chars(e.note);
     case "insert": {
       let more = 2 + chars(e.block);
+
       for (const tag in e.tags) more += 1 + chars(tag);
+
       for (const a of e.attributes ?? []) more += attributeCost(a);
+
       return own + more;
     }
+
     case "image":
       return own + 4 + (e.clip?.length ?? 0) + chars(e.definition);
     case "underlay":
       return own + 4 + (e.clip?.length ?? 0) + chars(e.definition);
     case "hatch": {
       let points = 0;
+
       for (const loop of e.loops) points += 1 + loop.points.length + (loop.bulges?.length ?? 0);
+
       for (const line of e.patternLines ?? []) points += 3 + (line.dashes?.length ?? 0);
+
       if (e.gradient) points += 4 + e.gradient.colors.length + chars(e.gradient.name);
+
       return own + points + chars(e.pattern);
     }
+
     case "wipeout":
       return own + e.points.length;
     case "3dsolid":

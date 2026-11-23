@@ -40,12 +40,14 @@ function cover(d: D): void {
     const colTop = top - 2.45;
     const a = areas();
     const sf = (n: number) => `${Math.round(n).toLocaleString("en-US")} SF`;
+
     const heightAboveDfe =
       CRITERIA.flood.ffe + (ROOF.eaveHeight + ROOF.ridgeHeight) / 2 / 12 - CRITERIA.flood.dfe;
 
     // Column 1: project data, criteria, areas.
     const c1 = AREA.left + 0.2;
     const draw = (t: TableOptions) => dd.layer(LAYERS.text, {}, () => dd.table(t));
+
     const projectData: TableOptions = {
       style: SCHEDULE,
       at: [c1, colTop],
@@ -71,8 +73,10 @@ function cover(d: D): void {
         ["PLATE HEIGHTS", `1ST 10'-0", 2ND 9'-1 1/8"`],
       ],
     };
+
     draw(projectData);
     const right = { 1: "right" } as const;
+
     const areaTable: TableOptions = {
       style: SCHEDULE,
       at: [c1, tableBottom(projectData) - 0.3],
@@ -89,6 +93,7 @@ function cover(d: D): void {
         ["TOTAL UNDER ROOF", sf(a.total)],
       ].map((row) => aligned(row, right)),
     };
+
     draw(areaTable);
     const w = CRITERIA.wind;
     draw({
@@ -113,9 +118,11 @@ function cover(d: D): void {
 
     // Column 2: code data and general notes.
     const c2 = AREA.left + 7.9;
+
     let y = noteColumn(dd, [c2, colTop], 7.4, "APPLICABLE CODES", [...CRITERIA.codes], {
       numbered: false,
     });
+
     y -= 0.25;
     noteColumn(dd, [c2, y], 7.4, "GENERAL NOTES", [
       "THE CONTRACTOR SHALL VERIFY ALL DIMENSIONS AND CONDITIONS AT THE SITE AND REPORT ANY DISCREPANCY TO THE ENGINEER BEFORE STARTING WORK.",
@@ -132,6 +139,7 @@ function cover(d: D): void {
 
     // Column 3: the index, read from the sheet list.
     const c3 = AREA.left + 15.8;
+
     const index: TableOptions = {
       style: SCHEDULE,
       at: [c3, colTop],
@@ -145,7 +153,9 @@ function cover(d: D): void {
       ]),
       rowHeights: SHEET_LIST.map(() => 0.26),
     };
+
     draw(index);
+
     const abbreviations = [
       ["A.F.F.", "ABOVE FINISH FLOOR", "GWB", "GYPSUM WALLBOARD"],
       ["BFE", "BASE FLOOD ELEVATION", "MAX.", "MAXIMUM"],
@@ -157,6 +167,7 @@ function cover(d: D): void {
       ["F.F.E.", "FINISH FLOOR ELEV.", "T.O.", "TOP OF"],
       ["FTG.", "FOOTING", "TYP.", "TYPICAL"],
     ];
+
     draw({
       style: SCHEDULE,
       at: [c3, tableBottom(index) - 0.3],
@@ -193,18 +204,21 @@ function vicinity(d: D, at: Point, w: number, h: number): void {
     put(d, [x, y0], "VICINITY MAP", H.label, { valign: "top" });
     put(d, [x + w, y0], "NOT TO SCALE", H.small, { valign: "top", align: "right" });
     d.rect([x, y], w, h - 0.3, { lineweight: 0.35 });
+
     const roads: [Point, Point, string, number][] = [
       [[x, y + 1.2], [x + w, y + 1.2], "SANDPIPER COVE DR.", 0],
       [[x, y + 3.4], [x + w, y + 3.4], "HERON SOUND BLVD.", 0],
       [[x + 1.4, y], [x + 1.4, y + h - 0.3], "OSPREY WAY", 90],
       [[x + 5.0, y], [x + 5.0, y + h - 0.3], "COQUINA AVE.", 90],
     ];
+
     for (const [a, b, name, rot] of roads) {
       d.line(a, b, { lineweight: 0.5 });
       // Each name sits beside its road, clear of the crossing roads.
       const at: Point = rot ? [a[0] - 0.08, y + 0.15] : [x + 2.0, a[1] + 0.08];
       put(d, at, name, H.small, { rotation: rot });
     }
+
     // The canal, between the two streets, and the site on its south bank.
     d.line([x + 1.5, y + 2.1], [x + w, y + 2.1], { lineweight: 0.18 });
     d.line([x + 1.5, y + 2.5], [x + w, y + 2.5], { lineweight: 0.18 });
@@ -223,6 +237,7 @@ function legend(d: D, at: Point, w: number): void {
     d.line([at[0], y], [at[0] + w, y], { lineweight: 0.35 });
     y -= 0.35;
   });
+
   const row = (label: string, draw: (c: Point) => void) => {
     d.layer(LAYERS.text, {}, () => {
       draw([at[0] + 0.45, y + 0.04]);
@@ -230,6 +245,7 @@ function legend(d: D, at: Point, w: number): void {
     });
     y -= 0.5;
   };
+
   row("VIEW TITLE: VIEW NO. / SHEET", (c) =>
     d.insert("VIEW TITLE", [c[0] - 0.25, c[1]], {
       scale: 0.6,
@@ -248,4 +264,4 @@ function legend(d: D, at: Point, w: number): void {
   row("FLOOD VENT", (c) => d.insert("FLOOD VENT", c));
 }
 
-export const SHEETS: Record<string, SheetDraw> = { "G-001": cover };
+export const SHEETS = { "G-001": cover } satisfies Record<string, SheetDraw>;

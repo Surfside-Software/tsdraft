@@ -20,6 +20,17 @@ own, and each is as binding as these: before you change a part, read its page. A
 - Run `pnpm verify` before finishing a change. It checks formatting, lints,
   type checks, runs the tests and runs the package smoke test, which builds.
   Run `pnpm fmt` to fix formatting.
+- Lint runs the anti-slop rules in `tools/oxlint/anti-slop`, vendored verbatim from the revision
+  `provenance.json` names; `.oxlintrc.shared.json` configures them for every package, and
+  `.oxlintrc.json` adds this package's overrides. Add no disable comments.
+  - Check a value from outside the types with a guard from `src/guards.ts`, or a named guard of
+    your own: `typeof` may appear only in a type guard.
+  - `unknown` parameters, and records of `unknown`, are allowed only in the files
+    `.oxlintrc.json`'s `overrides` lists: the ones that decode outside input. Everywhere else,
+    take the type the value has once decoded, or an interface whose fields are `unknown`. Never
+    stand a type parameter in for `unknown`.
+  - Add a field only when it is present with `...(cond && { field })`, not `cond ? {...} : {}`.
+  - A type assertion that stays has a one-line `// SAFETY:` comment saying why it holds.
 - Source files import each other with `.ts` extensions. Node runs them directly,
   and `tsc` rewrites the extensions to `.js` when it builds `dist/`.
 - Keep syntax erasable: no enums, namespaces or parameter properties.

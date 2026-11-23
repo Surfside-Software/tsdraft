@@ -109,20 +109,26 @@ export const ORIGIN: Record<FaceKey, Point> = {
 };
 
 const GARAGE: Rect = [0, 0, 272, 296];
+
 const inGarage = (r: Rect) => {
   const cx = (r[0] + r[2]) / 2;
   const cy = (r[1] + r[3]) / 2;
+
   return cx > GARAGE[0] && cx < GARAGE[2] && cy > GARAGE[1] && cy < GARAGE[3];
 };
 
 /** The bottom and top of an opening, in inches above the first floor. */
 function heights(level: "L1" | "L2", o: Opening): [number, number] {
   const base = level === "L2" ? HEIGHTS.l2 : 0;
+
   if (o.kind === "window") {
     const head = base + (o.head ?? 96);
+
     return [head - (o.height ?? 48), head];
   }
+
   const floor = level === "L1" && inGarage(o.cut) ? Z.garage : base;
+
   return [floor, floor + (o.height ?? 80)];
 }
 
@@ -133,6 +139,7 @@ function heights(level: "L1" | "L2", o: Opening): [number, number] {
 const VENTS: { face: FaceKey; at: number }[] = FLOOD_VENTS.filter((x) => x.wall === "W").map(
   (x) => ({ face: "W", at: DEPTH - x.at[1] }),
 );
+
 const VENT = { w: 16, h: 8, bottom: Z.garage + 2 };
 
 // The lanai: 12" square columns at its outer corners, LB-1 (8" x 20") on them, mono trusses on
@@ -145,6 +152,7 @@ const LAN = (() => {
   const topAt = (y: number) => ROOF.lanai.high - (y - DEPTH) * slope;
   const postY: [number, number] = [LANAI[3] - 12, LANAI[3]];
   const beamTop = HEIGHTS.lanaiPlate;
+
   return { roof, thick, lowTop, topAt, postY, beamTop, beamBottom: beamTop - 20, slab: Z.lanai };
 })();
 
@@ -157,6 +165,7 @@ const inches1 = (x: number): string => `${x.toFixed(1)}"`;
 function roofOutline(f: Face): [number, number][] {
   const o = HEIGHTS.overhang;
   const run = (ROOF.eave[3] - ROOF.eave[1]) / 2;
+
   if (f.key === "S" || f.key === "N") {
     return [
       [-o, Z.eave],
@@ -165,6 +174,7 @@ function roofOutline(f: Face): [number, number][] {
       [W + o, Z.eave],
     ];
   }
+
   return [
     [-o, Z.eave],
     [DEPTH / 2, Z.ridge],
@@ -185,14 +195,17 @@ function seams(
     const zs: number[] = [];
     outline.forEach((a, k) => {
       const b = outline[(k + 1) % outline.length]!;
+
       if ((a[0] - h) * (b[0] - h) < 0 || (a[0] === h && b[0] !== h)) {
         const t = (h - a[0]) / (b[0] - a[0]);
         zs.push(a[1] + t * (b[1] - a[1]));
       }
     });
+
     if (zs.length >= 2) {
       const lo = Math.min(...zs);
       const hi = Math.max(...zs);
+
       if (hi - lo > 1) L.d.line(L.P(h, lo), L.P(h, hi));
     }
   }
@@ -208,7 +221,7 @@ function windowElev(
   z1: number,
   tag: string,
 ): void {
-  const kind = WINDOW_TYPES[tag]?.kind ?? "";
+  const kind = WINDOW_TYPES.get(tag)?.kind ?? "";
   const hm = (h0 + h1) / 2;
   const zm = (z0 + z1) / 2;
   L.d.layer(LAYERS.elevFine, {}, () => {
@@ -219,6 +232,7 @@ function windowElev(
   });
   L.d.layer(LAYERS.glaz, {}, () => {
     L.rect(h0, z0, h1, z1);
+
     if (kind === "TWIN SINGLE HUNG") {
       L.line(hm, z0, hm, z1);
       L.line(h0 + 2, zm, h1 - 2, zm);
@@ -256,17 +270,21 @@ function doorElev(
   L.d.layer(LAYERS.elevFine, {}, () => L.rect(h0 - 4, z0, h1 + 4, z1 + 4));
   L.d.layer(LAYERS.door, {}, () => {
     L.rect(h0, z0, h1, z1);
+
     if (o.kind === "overhead") {
       for (let k = 1; k < 4; k++)
         L.line(h0, z0 + ((z1 - z0) * k) / 4, h1, z0 + ((z1 - z0) * k) / 4);
       // A row of lites in the top section.
       const n = 8;
       const step = (h1 - h0) / n;
+
       for (let k = 0; k < n; k++)
         L.rect(h0 + k * step + 3, z1 - (z1 - z0) / 4 + 4, h0 + (k + 1) * step - 3, z1 - 5);
     } else if (o.kind === "slider") {
       const third = (h1 - h0) / 3;
+
       for (let k = 1; k < 3; k++) L.line(h0 + k * third, z0, h0 + k * third, z1);
+
       for (let k = 0; k < 3; k++)
         L.rect(h0 + k * third + 3, z0 + 4, h0 + (k + 1) * third - 3, z1 - 3);
     } else {
@@ -274,6 +292,7 @@ function doorElev(
       L.d.circle(L.P(o.hinge === "end" ? h0 + 4 : h1 - 4, z0 + 38), 1);
     }
   });
+
   if (o.tag) {
     L.d.layer(LAYERS.tags, {}, () => {
       L.d.insert("DOOR TAG", L.P((h0 + h1) / 2, (z0 + z1) / 2), {
@@ -374,11 +393,13 @@ function elevation(d: D, v: View, key: FaceKey): Extent {
       stairProfile(F, hy(LANAI[3]), dir, LAN.slab, Z.deck, s.risers, s.tread);
       const deckEnd = hy(LANAI[3]) + dir * ((s.risers - 1) * s.tread + 30);
       F.line(hy(LANAI[3]), Z.deck, deckEnd, Z.deck);
+
       if (key === "E") lanaiRight = Math.max(lanaiRight, y1, deckEnd);
       else lanaiLeft = Math.min(lanaiLeft, hy(y1), deckEnd);
       // The entry stair, south of the porch, in profile.
       const entryEnd = hy(0) - dir * ((ENTRY.risers - 1) * ENTRY.tread);
-      stairProfile(F, hy(0), -dir as 1 | -1, Z.porch, Z.grade, ENTRY.risers, ENTRY.tread);
+      stairProfile(F, hy(0), dir === 1 ? -1 : 1, Z.porch, Z.grade, ENTRY.risers, ENTRY.tread);
+
       if (key === "E") lanaiLeft = Math.min(lanaiLeft, entryEnd - 12);
       else lanaiRight = Math.max(lanaiRight, entryEnd + 12);
     }
@@ -387,17 +408,21 @@ function elevation(d: D, v: View, key: FaceKey): Extent {
   // The openings in this face, so the wall's lines stop at them.
   const openings: { level: "L1" | "L2"; op: Opening; h: [number, number]; z: [number, number] }[] =
     [];
+
   for (const [levelKey, level] of [
     ["L1", L1],
     ["L2", L2],
   ] as const) {
     for (const op of level.openings) {
       if (!op.exterior || !f.on(op.cut)) continue;
+
       if (key === "S" && op.tag === "101") continue;
       openings.push({ level: levelKey, op, h: f.span(op.cut), z: heights(levelKey, op) });
     }
   }
+
   const holes = openings.map((x) => box(x.h[0] - 4, x.z[0] - 3, x.h[1] + 4, x.z[1] + 4));
+
   if (key === "S") holes.push(box(272, Z.porch, 376, Z.tieBeam - 16));
   const L = local(d, o, front);
   const Lw = local(d, o, [...front, ...holes]);
@@ -458,6 +483,7 @@ function elevation(d: D, v: View, key: FaceKey): Extent {
       const h0 = vent.at - VENT.w / 2;
       const h1 = vent.at + VENT.w / 2;
       L.rect(h0, VENT.bottom, h1, VENT.bottom + VENT.h);
+
       for (let k = 1; k < 4; k++) L.line(h0 + 1, VENT.bottom + k * 2, h1 - 1, VENT.bottom + k * 2);
     }
   });
@@ -503,6 +529,7 @@ function elevation(d: D, v: View, key: FaceKey): Extent {
   const colA = left - v.p(1.05);
   const colB = colA - v.p(1.45);
   const garage = key === "S" || key === "W";
+
   const levels: { z: number; name: string; from: number; col: number }[] = [
     {
       z: Z.ridge,
@@ -518,13 +545,16 @@ function elevation(d: D, v: View, key: FaceKey): Extent {
     ...(garage ? [{ z: Z.garage, name: "GARAGE SLAB", from: 0, col: colA }] : []),
     { z: Z.grade, name: "FINISH GRADE", from: left - v.p(0.5), col: garage ? colB : colA },
   ];
+
   for (const lv of levels)
     levelLeft(L, v, lv.col, lv.z, lv.from, lv.name, `EL. ${navd(lv.z).toFixed(2)}' NAVD`);
   d.layer(LAYERS.dims, {}, () => {
     const at = o[0] + left - v.p(0.45);
+
     const pts = [Z.grade, Z.ff, Z.tieBeam, Z.l2, Z.plate].map((z): Point =>
       L.P(Math.min(0, left), z),
     );
+
     dimString(d, v, pts, "y", at);
     // The building height, from the design flood elevation to the mean roof height.
     const x2 = o[0] + right + v.p(0.45);
@@ -564,10 +594,12 @@ function elevation(d: D, v: View, key: FaceKey): Extent {
   // the viewport's height leaves no room for a second.
   const under = Z.grade - v.p(0.75);
   let deepest = under;
+
   const below = (n: Note): void => {
     notes.push(n);
     deepest = Math.min(deepest, n.elbow![1]);
   };
+
   const entryNote = [
     "ENTRY STAIR: " +
       ENTRY.risers +
@@ -578,14 +610,17 @@ function elevation(d: D, v: View, key: FaceKey): Extent {
       " TREADS",
     "AT " + ENTRY.tread + '", HANDRAILS BOTH SIDES AT 34"-38"',
   ];
+
   const stepsNote = [
     `LANAI STEPS: ${LANAI_SLAB.steps.risers} RISERS AT ${inches1(LANAI_RISER)}, ${LANAI_SLAB.steps.tread}" TREADS,`,
     `HANDRAILS BOTH SIDES, TO POOL DECK EL. ${LANAI_SLAB.deck.toFixed(2)}'`,
   ];
+
   const guardNote = (where: string) => [
     `${LANAI_SLAB.guard}" GUARD AT ${where},`,
     '4" SPHERE MAX. OPENING (R312.1)',
   ];
+
   if (vents.length) {
     const vent = vents[vents.length - 1]!;
     below({
@@ -597,6 +632,7 @@ function elevation(d: D, v: View, key: FaceKey): Extent {
       ],
     });
   }
+
   if (key === "W") {
     const door = L1.openings.find((x) => x.tag === "109")!;
     const [d0, d1] = f.span(door.cut);
@@ -620,11 +656,13 @@ function elevation(d: D, v: View, key: FaceKey): Extent {
     });
     notes.push({ at: [DEPTH + 30, Z.grade + 14], lines: entryNote });
   }
+
   if (key === "E") {
     below({ at: [-22, Z.grade + 10], elbow: [-22 - v.p(0.5), under], lines: entryNote });
     notes.push({ at: [LANAI[3] - 60, Z.lanai + 30], lines: guardNote("LANAI, 3 SIDES") });
     notes.push({ at: [LANAI[3] + 16, Z.deck + 10], lines: stepsNote });
   }
+
   if (key === "N") {
     const [t0, t1] = f.span([LANAI_SLAB.steps.x0, 0, LANAI_SLAB.steps.x1, 0]);
     below({
@@ -639,6 +677,7 @@ function elevation(d: D, v: View, key: FaceKey): Extent {
     });
     void t0;
   }
+
   if (key === "S") {
     below({
       at: [ENTRY.x1 - 4, Z.grade + ENTRY_RISER * 1.5],
@@ -651,19 +690,23 @@ function elevation(d: D, v: View, key: FaceKey): Extent {
       lines: guardNote("PORCH EDGE"),
     });
   }
+
   const w = [...L1.openings, ...L2.openings].find(
     (x) => x.kind === "window" && x.exterior && f.on(x.cut),
   );
+
   if (w) {
     const [h0] = f.span(w.cut);
     const [, z1] = heights(L2.openings.includes(w) ? "L2" : "L1", w);
     notes.push({ at: [h0, z1 - 4], lines: ["IMPACT RATED WINDOW,", "SEE A-601"] });
   }
+
   if (key === "N")
     notes.push({
       at: [f.span(LAN.roof)[1] - 30, (LAN.lowTop + ROOF.lanai.high) / 2],
       lines: ["LANAI ROOF, STANDING SEAM", "METAL AT 3:12, SEE S-102"],
     });
+
   if (key === "S")
     below({
       at: [40, Z.garage + 20],
@@ -685,7 +728,9 @@ function elevation(d: D, v: View, key: FaceKey): Extent {
     (garage ? colB : colA) -
     v.p(0.1) -
     v.p(Math.max(...levels.map((lv) => width(lv.name, H.note))));
+
   const noteRight = noteH + v.p(0.25) + v.p(Math.max(...notes.map((n) => noteWidth(n.lines))));
+
   return {
     left: textLeft,
     right: noteRight,
@@ -712,10 +757,12 @@ function headOf(level: typeof L1): number {
   const heads = level.openings
     .filter((o) => o.kind === "window" && !inGarage(o.cut))
     .map((o) => o.head ?? 96);
+
   return heads.sort(
     (a, b) => heads.filter((x) => x === b).length - heads.filter((x) => x === a).length,
   )[0]!;
 }
+
 /** The garage window's head above the garage slab. */
 function garageHead(): number {
   return (L1.openings.find((o) => o.kind === "window" && inGarage(o.cut))?.head ?? 96) - Z.garage;
@@ -738,9 +785,11 @@ function levelTable(d: D, at: Point, w: number): number {
     ["FINISH GRADE AT FOUNDATION", Z.grade],
     ["EXISTING GRADE", Z.existing],
   ];
+
   const c2 = 1.0;
   const c3 = 0.9;
   const right = { 1: "right", 2: "right" } as const;
+
   const levels: TableOptions = {
     style: SCHEDULE,
     at,
@@ -751,7 +800,9 @@ function levelTable(d: D, at: Point, w: number): number {
       aligned([name, z >= 0 ? ftIn(z) : `-${ftIn(-z)}`, `${navd(z).toFixed(2)}'`], right),
     ),
   };
+
   d.layer(LAYERS.text, {}, () => d.table(levels));
+
   return tableBottom(levels);
 }
 
@@ -795,8 +846,8 @@ function elevationSheet(d: D, number: string, keys: readonly [FaceKey, FaceKey])
   });
 }
 
-export const SHEETS: Record<string, SheetDraw> = {
+export const SHEETS = {
   "A-201": (d) => elevationSheet(d, "A-201", ["S", "N"]),
   "A-202": (d) => elevationSheet(d, "A-202", ["E", "W"]),
   ...SECTION_SHEETS,
-};
+} satisfies Record<string, SheetDraw>;

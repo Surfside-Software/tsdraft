@@ -5,6 +5,7 @@ import { createDrawing, type Intent } from "tsdraft";
 const d = createDrawing({ units: "ft" });
 
 d.layer("C-PROP", { color: 7 }, () => d.rect([0, 0], 100, 140, { id: "lot" }));
+
 d.layer("C-BLDG", { color: 5 }, () => d.rect([25, 15], 50, 40, { id: "house" }));
 
 export default d.build();

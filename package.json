@@ -1,6 +1,6 @@
 {
   "name": "tsdraft",
-  "version": "0.5.4",
+  "version": "0.6.0",
   "description": "2D CAD drawings as TypeScript: write the drawing in code, export DXF, plot sheets to PDF, read DXF, and preview it live with the tsdraft command.",
   "keywords": [
     "2d",
@@ -60,13 +60,15 @@
     "readme:drawing": "node scripts/readme-drawing.ts",
     "bench": "pnpm build:lib && node cli/scripts/bench.ts",
     "bench:io": "node scripts/bench-io.ts",
+    "bench:read": "pnpm build:lib && node cli/scripts/bench-read.ts",
     "standard:files": "node scripts/standard-files.ts",
     "verify": "pnpm fmt:check && pnpm lint && pnpm check && pnpm test && pnpm test:package"
   },
   "devDependencies": {
+    "@oxlint/plugins": "1.93.0",
     "@types/node": "^24.0.0",
     "oxfmt": "0.77.0",
-    "oxlint": "1.92.0",
+    "oxlint": "1.93.0",
     "tsrs": "0.23.0-ts7.1.0-beta",
     "typescript": "7.0.2"
   },
@@ -76,5 +78,5 @@
   "engines": {
     "node": ">=22"
   },
-  "packageManager": "pnpm@12.11.2"
+  "packageManager": "pnpm@12.18.0"
 }

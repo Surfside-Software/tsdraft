@@ -121,11 +121,14 @@ export const standard = defineStandard({
 export const images = {
   "vicinity-map.png": new Uint8Array(readFileSync(new URL("./vicinity-map.png", import.meta.url))),
 };
+
 const vicinityPixels = rasterSize(images["vicinity-map.png"])!;
 
 /** A text role of the standard, which gives a text its text style and the height it plots at. */
 type Role = keyof typeof standard.textRoles;
+
 const roles = standard.textRoles;
+
 /** How long a text plots in a role, in inches. */
 const widthOf = (value: string, role: Role) => measureText({ value, ...roles[role] }).length;
 
@@ -134,12 +137,14 @@ const widthOf = (value: string, role: Role) => measureText({ value, ...roles[rol
 // plotter keeps clear, so the border sets the edge of the drawing, and nothing is drawn outside
 // it.
 const sheet = { number: "C-101", title: "SITE PLAN", format: "arch-d" } as const;
+
 const project = {
   name: "RESIDENCE AT LOT 12, BLOCK 3",
   date: "2026-11-11",
   drawnBy: "AB",
   checkedBy: "CD",
 };
+
 // How far text and symbols keep from the edge of their zone.
 const clearOfEdge = 1 / 4;
 
@@ -152,12 +157,14 @@ const garage = { width: 22, projection: 5 }; // at the right end of the front wa
 const driveway = { width: 18, flare: 5 };
 const street = { name: "OAK STREET", rightOfWay: 50, pavement: 24 };
 const sidewalk = { width: 5, fromLot: 2 };
+
 const trees: { at: Point; radius: number }[] = [
   { at: [15, 112], radius: 5 },
   { at: [50, 130], radius: 6 },
   { at: [85, 111], radius: 5 },
   { at: [28, 12], radius: 5 },
 ];
+
 // The top of the bank of a drainage swale in the adjoining lot, where the survey located it.
 const bank: Point[] = [
   [-34, 146],
@@ -173,6 +180,7 @@ const bank: Point[] = [
 const houseX = (lot.width - house.width) / 2;
 const houseY = house.frontYard + garage.projection;
 const garageX = houseX + house.width - garage.width;
+
 const footprint: Point[] = [
   [houseX, houseY],
   [garageX, houseY],
@@ -181,17 +189,20 @@ const footprint: Point[] = [
   [houseX + house.width, houseY + house.depth],
   [houseX, houseY + house.depth],
 ];
+
 const bounds = {
   left: Math.min(...footprint.map((p) => p[0])),
   right: Math.max(...footprint.map((p) => p[0])),
   front: Math.min(...footprint.map((p) => p[1])),
   rear: Math.max(...footprint.map((p) => p[1])),
 };
+
 const provided = {
   front: bounds.front,
   side: Math.min(bounds.left, lot.width - bounds.right),
   rear: lot.depth - bounds.rear,
 };
+
 const footprintArea = house.width * house.depth + garage.width * garage.projection;
 const lotArea = lot.width * lot.depth;
 const centerline = -street.rightOfWay / 2;
@@ -251,6 +262,7 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
       checkedBy: project.checkedBy,
     },
   });
+
   // The view of the plan, at the scale. `plan.paper` turns inches on paper into feet at its
   // ratio: a foot is 12 inches, so an inch on paper is `ratio / 12` feet.
   const plan = d.view("plan", { scale });
@@ -264,24 +276,29 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
   // is drawn before the sheet, so it reads the zone's size from the standard: the plan's lines
   // run to the sides of its view.
   const format = standard.sheetFormats[sheet.format];
+
   const box = ([left, bottom, right, top]: readonly number[]): Box => ({
     left: left!,
     bottom: bottom!,
     right: right!,
     top: top!,
   });
+
   const zone = box(format.zones.views!);
   const keySide = 6.5;
+
   const keyPlan: Box = {
     left: zone.right - keySide,
     bottom: zone.bottom,
     right: zone.right,
     top: zone.bottom + keySide,
   };
+
   const viewport: Box = { ...zone, right: keyPlan.left - 1 / 2 };
   // The viewport is centered on the plan: the lot and the street's right-of-way. `view` is the
   // part of model space it shows, and the lot stays at the origin at every scale.
   const planCenter: Point = [lot.width / 2, (lot.depth - street.rightOfWay) / 2];
+
   const view: Box = {
     left: planCenter[0] - plan.paper(viewport.right - viewport.left) / 2,
     bottom: planCenter[1] - plan.paper(viewport.top - viewport.bottom) / 2,
@@ -341,6 +358,7 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
       d.line([view.left, y], [0, y]);
       d.line([lot.width, y], [view.right, y]);
     }
+
     // The far side of the street's right-of-way.
     d.line([view.left, -street.rightOfWay], [view.right, -street.rightOfWay]);
   });
@@ -370,6 +388,7 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     // The existing sidewalk plots gray among the black: a true color plots as it is, whatever the
     // sheet's plot style table, where an index plots black under the standard's monochrome.ctb.
     const existing = { color: [128, 128, 128] } as const;
+
     for (const y of [-sidewalk.fromLot, -sidewalk.fromLot - sidewalk.width]) {
       d.line([view.left, y], [driveX, y], existing);
       d.line([driveX + driveway.width, y], [view.right, y], existing);
@@ -407,18 +426,22 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
       [bounds.right, bounds.rear],
       [lot.width, across],
     ];
+
     const upLot: Point[] = [
       [lot.width, 0],
       [bounds.right, bounds.front],
       [bounds.right, bounds.rear],
       [lot.width, lot.depth],
     ];
+
     for (let i = 1; i < acrossLot.length; i++) {
       d.linearDimension(acrossLot[i - 1]!, acrossLot[i]!, [0, across], { view: plan });
     }
+
     for (let i = 1; i < upLot.length; i++) {
       d.linearDimension(upLot[i - 1]!, upLot[i]!, [up, 0], { view: plan, along: "y" });
     }
+
     // The building in feet and inches, as an architect dimensions it, in the standard's style
     // for that: its west wall, outside it, with what it measures written under the line.
     d.linearDimension(
@@ -430,10 +453,12 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     // The radius of the driveway's flares, on the west one, which the east one repeats, its text
     // clear of the sidewalk.
     const flareCenter: Point = [driveX - driveway.flare, pavement.near + driveway.flare];
+
     const flarePoint: Point = [
       flareCenter[0] + driveway.flare / 2,
       flareCenter[1] - (driveway.flare * Math.sqrt(3)) / 2,
     ];
+
     d.radiusDimension(flareCenter, flarePoint, { view: plan, text: "<> TYP." });
   });
 
@@ -474,6 +499,7 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     const inset = side + plan.paper(1 / 4);
     d.text([inset, front + near], `${front}' FRONT SETBACK`, { role: "note", view: plan });
     d.text([inset, lot.depth - rear + near], `${rear}' REAR SETBACK`, { role: "note", view: plan });
+
     for (const x of [side, lot.width - side]) {
       d.text([x - near, (front + bounds.rear) / 2], `${side}' SIDE SETBACK`, {
         role: "note",
@@ -587,21 +613,26 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     const right = driveX + driveway.width + driveway.flare + margin;
     const bottom = pavement.near - margin;
     const top = bounds.front - plan.paper(1 / 4);
+
     const outline: Point[] = [
       [left, bottom],
       [right, bottom],
       [right, top],
       [left, top],
     ];
+
     d.cloud(outline, { arc: plan.paper(3 / 8) });
     // The delta: a triangle 3/8 in on a side, pointing up, with the number at its middle.
     const side = plan.paper(3 / 8);
     const middle: Point = [right + side, (bottom + top) / 2];
     const reach = side / Math.sqrt(3);
+
     const corners = [90, 210, 330].map((angle): Point => {
       const a = (angle * Math.PI) / 180;
+
       return [middle[0] + reach * Math.cos(a), middle[1] + reach * Math.sin(a)];
     });
+
     d.polyline(corners, true);
     d.text(middle, "1", { role: "label", view: plan, align: "center", valign: "middle" });
   });
@@ -610,6 +641,7 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
   function canopyEdge(tree: (typeof trees)[number], toward: Point): Point {
     const [dx, dy] = [toward[0] - tree.at[0], toward[1] - tree.at[1]];
     const length = Math.hypot(dx, dy);
+
     return [tree.at[0] + (dx / length) * tree.radius, tree.at[1] + (dy / length) * tree.radius];
   }
 
@@ -703,14 +735,18 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
       const y = underline - bar.height;
       const stops = [0, 1 / 4, 1 / 2, 1]; // shares of the bar's length
       d.rect([bar.x, y], bar.length, bar.height);
+
       for (const stop of stops.slice(1, -1)) {
         d.line([bar.x + bar.length * stop, y], [bar.x + bar.length * stop, y + bar.height]);
       }
+
       d.line([bar.x, y + bar.height / 2], [bar.x + bar.length / 4, y + bar.height / 2]);
+
       for (const stop of stops) {
         const at: Point = [bar.x + bar.length * stop, y + bar.height + gap];
         d.text(at, String(stop * bar.length * feetPerInch), { role: "note", align: "center" });
       }
+
       d.text([bar.x + bar.length + 1 / 8, y], "FEET", { role: "note" });
     });
 
@@ -737,10 +773,12 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
      */
     function table(rows: readonly (readonly string[])[], first: number): void {
       const starts = [0, first];
+
       for (let i = 1; i < Math.max(...rows.map((cells) => cells.length)) - 1; i++) {
         const widest = Math.max(...rows.map((cells) => widthOf(cells[i] ?? "", "label")));
         starts.push((starts[i] ?? 0) + widest + 1 / 2);
       }
+
       for (const cells of rows) {
         cells.forEach((cell, i) => {
           d.text([column.left + (starts[i] ?? 0), row], cell, { role: "label" });
@@ -792,6 +830,7 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
         "WORK IN THE PUBLIC RIGHT-OF-WAY NEEDS ITS OWN PERMIT.",
         "REPLACE ANY SIDEWALK OR PAVEMENT DAMAGED DURING CONSTRUCTION.",
       ];
+
       // One paragraph, a numbered list whose items hang under their numbers, a third of a line
       // apart. Its first baseline is on the row, and the next block starts under its last.
       const value = `${paragraphFormat({ after: 1 / 3 })}${list(notes)}`;
@@ -807,6 +846,7 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
     row -= blockGap;
     columnHeading("LEGEND");
     const sample = 2; // the length of a legend line
+
     function legendRow(layer: keyof typeof standard.layers, name: string, draw: () => void): void {
       d.layer(layer, draw);
       d.layer("C-ANNO-TEXT", () => {
@@ -814,11 +854,13 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
       });
       row -= leading * 1.5;
     }
+
     const sampleLine = () =>
       d.line(
         [column.left, row + roles.label.height / 2],
         [column.left + sample, row + roles.label.height / 2],
       );
+
     const sampleCenter = (): Point => [column.left + sample / 2, row + roles.label.height / 2];
     legendRow("C-PROP", "PROPERTY LINE", sampleLine);
     legendRow("C-PROP-ADJC", "ADJOINING LOT LINE", sampleLine);
@@ -852,7 +894,8 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
   });
 
   // Where the title block's parts lie on the sheet, from the standard's title block.
-  const titleBlock = standard.titleBlocks[format.titleBlock as keyof typeof standard.titleBlocks];
+  const titleBlock = new Map(Object.entries(standard.titleBlocks)).get(format.titleBlock)!;
+
   return {
     drawing: d.build(),
     layout: sheet.number,
@@ -869,6 +912,7 @@ export function sitePlan(scale: keyof typeof standard.scales = "1in-10ft"): Shee
 
 const example = sitePlan();
 const drawing = example.drawing;
+
 export default drawing;
 
 /**

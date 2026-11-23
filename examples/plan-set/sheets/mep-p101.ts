@@ -299,18 +299,22 @@ const DEMAND: readonly [number, number][] = [
   [45, 27.7],
   [50, 29.1],
 ];
+
 export function demandGpm(wsfu: number): number {
   for (let k = 1; k < DEMAND.length; k++) {
     const [f0, g0] = DEMAND[k - 1]!;
     const [f1, g1] = DEMAND[k]!;
+
     if (wsfu <= f1) return g0 + ((Math.max(wsfu, f0) - f0) / (f1 - f0)) * (g1 - g0);
   }
+
   throw new Error(`WSFU ${wsfu} is past the table`);
 }
 
 export const totals = () => {
   const sum = (f: (x: Fixture) => number) =>
     Math.round(FIXTURES.reduce((s, x) => s + f(x), 0) * 10) / 10;
+
   return {
     dfu: sum((x) => x.dfu),
     wsfu: sum((x) => x.wsfu[0]),
@@ -323,19 +327,25 @@ export const totals = () => {
 // The sizing basis: FBC-R P2903.7 and Table P2903.7, from the pressure and the developed length.
 
 type P3 = readonly [number, number, number];
+
 const L2Z = HEIGHTS.l2;
+
 /** The trunks run in the floor truss space, over the first floor's ceiling. */
 const TZ = HEIGHTS.l1Plate + 8;
 const TY = 300; // along the line of the laundry and kitchen's south wall
+
 /** The water meter, where C-101 puts it at the street, in building inches. */
 const METER: Point = [LOT.width - 60 - HOUSE_AT[0], -18 - HOUSE_AT[1]];
+
 /** The service riser on the garage's front pier, west of the flood vent and the drains. */
 const RISER_X = 224;
+
 const WH: P3 = [
   240,
   262,
   -HEIGHTS.garageDrop + Math.round((CRITERIA.flood.dfe - CRITERIA.flood.garage) * 12),
 ];
+
 /** Pipe paths, shared by the isometric and the developed length. */
 const PATH = {
   service: [
@@ -345,31 +355,33 @@ const PATH = {
     [RISER_X, -6, -48],
     [RISER_X, -6, -6],
     [RISER_X, 8, -6],
-  ] as P3[],
+  ] satisfies P3[],
   main: [
     [RISER_X, 8, -6],
     [RISER_X, 8, 96],
     [RISER_X, 256, 96],
     [RISER_X, 256, TZ],
     [RISER_X, TY, TZ],
-  ] as P3[],
+  ] satisfies P3[],
   whIn: [
     [RISER_X, 256, 96],
     [246, 256, 96],
     [246, 256, WH[2] + 60],
-  ] as P3[],
+  ] satisfies P3[],
   whOut: [
     [234, 268, WH[2] + 60],
     [234, 268, TZ - 6],
     [234, TY, TZ - 6],
-  ] as P3[],
+  ] satisfies P3[],
 };
+
 /** The assumed minimum static pressure at the meter, until the utility gives it. */
 const STREET_PSI = 60;
 const GRADE_AT_METER = 7.2;
 
 /** FBC-R Table P2903.7, 40 to 60 psi: [meter and service, distribution, WSFU at each length]. */
 const LENGTHS = [40, 60, 80, 100, 150, 200, 250, 300, 400, 500];
+
 const TABLE_40_60: readonly [string, string, readonly number[]][] = [
   ['3/4"', '1/2"', [3, 2.5, 2, 1.5, 1.5, 1, 1, 0.5, 0.5, 0.5]],
   ['3/4"', '3/4"', [9.5, 9.5, 8.5, 7, 5.5, 4.5, 3.5, 3, 2.5, 2]],
@@ -393,6 +405,7 @@ const pathLength = (pts: readonly P3[]) =>
 export function waterSizing() {
   const shower = FIXTURES.find((f) => f.tag === "SH-3")!;
   const riser: Point = [501, 300];
+
   // The most remote outlet, SH-3, by way of the water heater: the hot path is the longer.
   const remote: P3[] = [
     ...PATH.service,
@@ -405,33 +418,45 @@ export function waterSizing() {
     [shower.at[0] + 8, shower.at[1], L2Z + 6],
     [shower.at[0] + 8, shower.at[1], L2Z + shower.z + 30],
   ];
+
   const length = pathLength(remote) / 12;
   const design = length * 1.2;
   const col = LENGTHS.findIndex((l) => l >= design);
+
   if (col < 0) throw new Error(`Developed length ${design.toFixed(0)} ft is past Table P2903.7`);
   const headEl = CRITERIA.flood.ffe + (L2Z + shower.z + 30) / 12;
   const lift = headEl - GRADE_AT_METER;
   const psi = STREET_PSI - lift * 0.5;
+
   if (psi < 40 || psi > 60)
     throw new Error(`Available pressure ${psi.toFixed(1)} psi is outside the 40 to 60 psi table`);
   const t = totals();
+
   const size = (wsfu: number) => {
     const row = TABLE_40_60.find((x) => x[2][col]! >= wsfu);
+
     if (!row)
       throw new Error(`No pipe in Table P2903.7 carries ${wsfu} WSFU at ${LENGTHS[col]} ft`);
+
     return row[1];
   };
+
   const meterRow = TABLE_40_60.find((x) => x[0] === '1"' && x[2][col]! >= t.wsfu);
+
   if (!meterRow) throw new Error("A 1 in. meter does not serve the house");
+
   const sum = (fs: Fixture[], k: 1 | 2) =>
     Math.round(fs.reduce((a, f) => a + f.wsfu[k], 0) * 10) / 10;
+
   const hb1 = FIXTURES.find((f) => f.tag === "HB-1")!;
   const cwTrunk = Math.round((t.cold - hb1.wsfu[1]) * 10) / 10;
   const bath = (room: string) => FIXTURES.filter((f) => f.room === room);
+
   const risers = {
     "BATH 2": { cw: sum(bath("BATH 2"), 1), hw: sum(bath("BATH 2"), 2) },
     "OWNER'S BATH": { cw: sum(bath("OWNER'S BATH"), 1), hw: sum(bath("OWNER'S BATH"), 2) },
   };
+
   return {
     length,
     design,
@@ -442,24 +467,27 @@ export function waterSizing() {
     main: meterRow[1],
     cwTrunk: { wsfu: cwTrunk, size: size(cwTrunk) },
     hw: { wsfu: t.hot, size: size(t.hot) },
-    risers: Object.fromEntries(
+    risers: new Map(
       Object.entries(risers).map(([k, x]) => [
         k,
         { cw: size(x.cw), hw: size(x.hw), cwWsfu: x.cw, hwWsfu: x.hw },
       ]),
-    ) as Record<string, { cw: string; hw: string; cwWsfu: number; hwWsfu: number }>,
+    ),
   };
 }
 
 /** The building sewer: 4" from the house to the public main, inverts at 1/8" per ft. */
 export function sewer() {
   const exit = 6.0; // invert leaving the house's west stem wall, under the laundry
+
   const toCleanout =
     (Math.abs(-30 - (120 - HOUSE_AT[0])) + Math.abs(400 - (-12 - HOUSE_AT[1]))) / 12;
+
   const toMain = 25; // half the right-of-way
   const slope = 1 / 8 / 12; // ft per ft
   const cleanout = exit - toCleanout * slope;
   const main = cleanout - toMain * slope;
+
   return { exit, toCleanout, cleanout, main };
 }
 
@@ -478,16 +506,20 @@ function iso(origin: Point, s: number, sz: number) {
 
 function waterIso(d: D, origin: Point): void {
   const P = iso(origin, 0.0116, 0.02);
+
   const pipe = (pts: P3[], hot: boolean) =>
     d.layer(hot ? HOT : LAYERS.plmb, {}, () => d.polyline(pts.map(P)));
+
   // A hot pipe runs beside its cold one: 8" east and 6" lower. An offset of equal x and y would
   // vanish in the isometric, where x - y sets the paper's horizontal.
   const off = (p: P3, hot: boolean): P3 => (hot ? [p[0] + 8, p[1], p[2] - 6] : p);
+
   const lbl = (p: P3, text: string, dx = 0.08, dy = 0.05, align: "left" | "right" = "left") =>
     d.layer(LAYERS.pAnno, {}, () => {
       const q = P(p);
       put(d, [q[0] + dx, q[1] + dy], text, H.note, { align });
     });
+
   // The two floors' outlines, for reference.
   d.layer(LAYERS.pAnno, {}, () => {
     for (const [z, name] of [
@@ -502,6 +534,7 @@ function waterIso(d: D, origin: Point): void {
           [0, 528],
         ] as const
       ).map(([x, y]) => P([x, y, z]));
+
       d.polyline(pts, true, { linetype: "PHANTOM", lineweight: 0.13 });
       put(d, [pts[1]![0] + 0.1, pts[1]![1]], name, H.note, { valign: "middle" });
     }
@@ -537,23 +570,32 @@ function waterIso(d: D, origin: Point): void {
     ],
     false,
   );
-  const eastHot = Math.max(...FIXTURES.filter((f) => f.hot).map((f) => f.at[0]));
-  const westHot = Math.min(...FIXTURES.filter((f) => f.hot).map((f) => f.at[0]));
+  const hotX = FIXTURES.flatMap((f) => (f.hot ? [f.at[0]] : []));
+  const eastHot = Math.max(...hotX);
+  const westHot = Math.min(...hotX);
   pipe([off([westHot, TY, TZ], true), off([eastHot, TY, TZ], true)], true);
   // The trunks' sizes lie on the pipes in the isometric's plane: turned 30 degrees along the
   // east axis and leaned the other way, as iso lettering is.
   isoText(d, P([300, TY, TZ]), `${sz.cwTrunk.size} CW TRUNK`, "east", 0.05);
   isoText(d, P(off([360, TY, TZ], true)), `${sz.hw.size} HW TRUNK`, "east", -0.17);
+
   // Each fixture: a branch off the trunk, along y to its place, up or down to its stop. The
   // second floor's fixtures share a riser per bathroom.
-  const risers: Record<string, Point> = { "BATH 2": [141, 300], "OWNER'S BATH": [501, 300] };
+  const risers = new Map<string, Point>([
+    ["BATH 2", [141, 300]],
+    ["OWNER'S BATH", [501, 300]],
+  ]);
+
   void east;
   const riserTop = (_room: string) => L2Z + 12;
   const drawn = new Set<string>();
+
   for (const f of FIXTURES) {
     if (f.tag === "HB-1") continue;
+
     for (const hot of f.hot ? [false, true] : [false]) {
       const [fx, fy] = f.at;
+
       if (f.floor === "L1") {
         const a = off([fx, TY, TZ], hot);
         const b = off([fx, fy, TZ], hot);
@@ -561,13 +603,15 @@ function waterIso(d: D, origin: Point): void {
         pipe([a, b, c], hot);
         continue;
       }
-      const r = risers[f.room]!;
+
+      const r = risers.get(f.room)!;
       const top = riserTop(f.room);
       const key = `${f.room}/${hot}`;
+
       if (!drawn.has(key)) {
         drawn.add(key);
         pipe([off([r[0], TY, TZ], hot), off([r[0], r[1], top], hot)], hot);
-        const rs = sz.risers[f.room]!;
+        const rs = sz.risers.get(f.room)!;
         lbl(
           off([r[0], r[1], (TZ + top) / 2], hot),
           hot ? `${rs.hw} HW` : `${rs.cw} CW`,
@@ -576,6 +620,7 @@ function waterIso(d: D, origin: Point): void {
           hot ? "left" : "right",
         );
       }
+
       pipe(
         [
           off([r[0], r[1], top], hot),
@@ -586,13 +631,14 @@ function waterIso(d: D, origin: Point): void {
         hot,
       );
     }
+
     // The fixture's label at its cold stop.
     const z = (f.floor === "L2" ? L2Z : 0) + f.z;
     d.layer(LAYERS.plmb, {}, () => {
       const q = P([f.at[0], f.at[1], z]);
       d.circle(q, 0.03);
     });
-    const [dx, dy, align] = LABEL_AT[f.tag] ?? [0.07, -0.04, "left"];
+    const [dx, dy, align] = LABEL_AT.get(f.tag) ?? [0.07, -0.04, "left"];
     lbl([f.at[0], f.at[1], z], `${f.tag} ${f.supply}`, dx, dy, align);
   }
 }
@@ -611,29 +657,34 @@ function isoText(d: D, at: Point, value: string, axis: "east" | "north", lift: n
     }),
   );
 }
+
 const ISO_EAST = "ISO-EAST";
 const ISO_NORTH = "ISO-NORTH";
 
 /** Where a fixture's label sits from its stop on the isometric, where the default is crowded. */
-const LABEL_AT: Record<string, [number, number, "left" | "right"]> = {
-  KS: [-0.07, 0.05, "right"],
-  DW: [0.07, -0.12, "left"],
-  "LAV-2": [0.07, 0.06, "left"],
-  "WC-2": [0.07, -0.14, "left"],
-  "HB-2": [0.07, -0.12, "left"],
-};
+const LABEL_AT = new Map<string, [number, number, "left" | "right"]>([
+  ["KS", [-0.07, 0.05, "right"]],
+  ["DW", [0.07, -0.12, "left"]],
+  ["LAV-2", [0.07, 0.06, "left"]],
+  ["WC-2", [0.07, -0.14, "left"]],
+  ["HB-2", [0.07, -0.12, "left"]],
+]);
 
 /** The water heater: a cylinder drawn as two ellipses and two sides, its T&P line to the floor. */
 function waterHeater(d: D, P: (p: P3) => Point, base: P3): void {
   const r = 11;
+
   const ring = (z: number): Point[] => {
     const pts: Point[] = [];
+
     for (let k = 0; k < 24; k++) {
       const a = (2 * Math.PI * k) / 24;
       pts.push(P([base[0] + r * Math.cos(a), base[1] + r * Math.sin(a), z]));
     }
+
     return pts;
   };
+
   d.layer(LAYERS.plmb, {}, () => {
     d.polyline(ring(base[2]), true);
     d.polyline(ring(base[2] + 60), true);
@@ -673,6 +724,7 @@ function waterHeater(d: D, P: (p: P3) => Point, base: P3): void {
       "OUTSIDE (P2801.6.1, M-101). EXPANSION",
       "TANK ON CW INLET (P2903.4)",
     ];
+
     const lx = q[0] - 1.0;
     const ly = q[1] - 0.55;
     lines.forEach((t, k) => put(d, [lx, ly - k * 0.15], t, H.note, { align: "right" }));
@@ -687,6 +739,7 @@ function waterHeater(d: D, P: (p: P3) => Point, base: P3): void {
 
 function dwvRiser(d: D, at: Point, w: number): void {
   const X = (x: number) => at[0] + 0.8 + ((x + 40) / 680) * (w - 1.4);
+
   const Z = {
     drain: at[1] + 0.6,
     f1: at[1] + 1.4,
@@ -694,16 +747,21 @@ function dwvRiser(d: D, at: Point, w: number): void {
     ceil2: at[1] + 7.3,
     roof: at[1] + 8.4,
   };
+
   const lbl = (p: Point, t: string, align: "left" | "right" | "center" = "left", h = H.small) =>
     d.layer(LAYERS.pAnno, {}, () => put(d, p, t, h, { align, valign: "middle" }));
+
   const san = (pts: Point[]) => d.layer(LAYERS.sanr, {}, () => d.polyline(pts));
   const vent = (pts: Point[]) => d.layer(VENT, {}, () => d.polyline(pts));
+
   const co = (p: Point, label = "CO") => {
     d.layer(LAYERS.sanr, {}, () => d.circle(p, 0.06));
     lbl([p[0], p[1] - 0.15], label, "center");
   };
+
   const trap = (x: number, y: number) =>
     d.layer(LAYERS.sanr, {}, () => d.arc([x, y], 0.06, 180, 360));
+
   // Floors and roof for reference.
   d.layer(LAYERS.pAnno, {}, () => {
     for (const [y, name] of [
@@ -757,6 +815,7 @@ function dwvRiser(d: D, at: Point, w: number): void {
     [X(s2 + 60), Z.drain + 0.12],
     [X(s2 + 60), Z.f1 - 0.21],
   ]);
+
   // Stacks, up through the roof.
   for (const [x, name] of [
     [s1, "STACK 1"],
@@ -779,6 +838,7 @@ function dwvRiser(d: D, at: Point, w: number): void {
       [xb + 0.25, Z.f1 + 0.19],
     ]);
   }
+
   // Each fixture: a trap, a drain to its stack or under the slab to the drain, and its vent.
   for (const f of FIXTURES) {
     if (f.dfu === 0 || f.tag === "DW") continue;
@@ -787,15 +847,16 @@ function dwvRiser(d: D, at: Point, w: number): void {
     const top = floor + 0.55;
     trap(x, top - 0.08);
     lbl([x - 0.05, top + 0.13], f.tag, "right", H.note);
-    const stackX = f.stack === 1 ? X(s1) : f.stack === 2 ? X(s2) : x;
+    const stackX = f.stack === 0 ? x : X(f.stack === 1 ? s1 : s2);
     const arm = floor - 0.25;
+
     if (f.floor === "L1") {
       // Down through the slab to the building drain, or to the stack's base.
       const into = f.stack === 0 ? Z.drain + (f.at[0] / 640) * 0.12 : arm;
       san([
         [x, top - 0.14],
         [x, arm],
-        ...(f.stack === 0 ? [[x, into] as Point] : [[stackX, arm] as Point]),
+        ...(f.stack === 0 ? [[x, into] satisfies Point] : [[stackX, arm] satisfies Point]),
       ]);
     } else {
       san([
@@ -804,6 +865,7 @@ function dwvRiser(d: D, at: Point, w: number): void {
         [stackX, arm - 0.04],
       ]);
     }
+
     lbl([x + 0.06, arm + 0.12], f.trap === "INTEGRAL" ? '3"' : f.trap, "left");
     // The fixture's vent: off its trap arm, up to a vent header. The first floor's vents join
     // a header under the second floor that rises in the west wall (WC-1's vent) to the attic,
@@ -819,6 +881,7 @@ function dwvRiser(d: D, at: Point, w: number): void {
       [x + 0.12, ventTop],
     ]);
   }
+
   // Vent headers, each sloping back to its stack's vent above the highest fixture.
   vent([
     [X(16) + 0.12, Z.f2 - 0.35],
@@ -863,6 +926,7 @@ const NOTES = [
 function fixtureSchedule(d: D, at: Point): number {
   const t = totals();
   const num = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+
   const rows = FIXTURES.map((f) => [
     f.tag,
     f.name,
@@ -875,7 +939,9 @@ function fixtureSchedule(d: D, at: Point): number {
     num(f.wsfu[2]),
     num(f.wsfu[0]),
   ]);
+
   rows.push(["", "TOTAL", "", "", "", "", num(t.dfu), num(t.cold), num(t.hot), num(t.wsfu)]);
+
   const aligns = {
     3: "center",
     4: "center",
@@ -885,6 +951,7 @@ function fixtureSchedule(d: D, at: Point): number {
     8: "right",
     9: "right",
   } as const;
+
   const schedule: TableOptions = {
     style: SCHEDULE,
     at,
@@ -897,7 +964,9 @@ function fixtureSchedule(d: D, at: Point): number {
     rows: rows.map((row) => aligned(row, aligns)),
     rowHeights: rows.map(() => 0.21),
   };
+
   d.layer(LAYERS.text, {}, () => d.table(schedule));
+
   return tableBottom(schedule);
 }
 
@@ -905,8 +974,9 @@ function sizing(d: D, at: Point, w: number): number {
   const t = totals();
   const z = waterSizing();
   const sw = sewer();
-  const r2 = z.risers["BATH 2"]!;
-  const r3 = z.risers["OWNER'S BATH"]!;
+  const r2 = z.risers.get("BATH 2")!;
+  const r3 = z.risers.get("OWNER'S BATH")!;
+
   const rows = [
     ["STATIC PRESSURE AT METER (ASSUMED; VERIFY W/ UTILITY)", `${STREET_PSI} PSI`],
     [
@@ -930,8 +1000,10 @@ function sizing(d: D, at: Point, w: number): number {
     ['STACKS, 3", TABLE P3005.4.1', "48 DFU MAX."],
     [`BUILDING SEWER, 4" AT 1/8" PER FT., INV. AT P.L. C.O.`, `${sw.cleanout.toFixed(2)}' NAVD`],
   ];
+
   if (t.dfu > 180) throw new Error(`The building drain carries ${t.dfu} DFU, more than 180`);
   const right = { 1: "right" } as const;
+
   const basis: TableOptions = {
     style: SCHEDULE,
     at,
@@ -941,7 +1013,9 @@ function sizing(d: D, at: Point, w: number): number {
     rows: rows.map((row) => aligned(row, right)),
     rowHeights: rows.map(() => 0.2),
   };
+
   d.layer(LAYERS.text, {}, () => d.table(basis));
+
   return tableBottom(basis);
 }
 
@@ -1018,7 +1092,7 @@ function heaterDetail(d: D, v: View): void {
     leaderNote(d, v, o(49, 86), o(70, 90), ["THERMAL EXPANSION TANK,", "2 GAL. (FBC-R P2903.4)"]);
     leaderNote(d, v, o(31, top - 30), o(70, 74), [
       "WH-1, 50 GAL. ELECTRIC, 240 V,",
-      `CKT. ${wh.label}, ${wh.amps} A/2P, ${WIRE_OF(wh.amps)} CU;`,
+      `CKT. ${wh.label}, ${wh.amps} A/2P, ${WIRE_OF.get(wh.amps) ?? ""} CU;`,
       "DISCONNECT WITHIN SIGHT",
     ]);
     leaderNote(d, v, o(42, 40), o(70, 50), [
@@ -1041,12 +1115,16 @@ function heaterDetail(d: D, v: View): void {
   });
 }
 
-const WIRE_OF = (amps: number) =>
-  ({ 30: "#10", 40: "#8", 50: "#6" } as Record<number, string>)[amps] ?? "";
+const WIRE_OF = new Map([
+  [30, "#10"],
+  [40, "#8"],
+  [50, "#6"],
+]);
 
 /** The water heater schedule. */
 function heaterSchedule(d: D, at: Point): number {
   const aligns = { 2: "center", 3: "center", 4: "center", 5: "center", 6: "center" } as const;
+
   const schedule: TableOptions = {
     style: SCHEDULE,
     at,
@@ -1073,7 +1151,9 @@ function heaterSchedule(d: D, at: Point): number {
     ],
     rowHeights: [0.21],
   };
+
   d.layer(LAYERS.text, {}, () => d.table(schedule));
+
   return tableBottom(schedule);
 }
 
@@ -1085,6 +1165,7 @@ function legend(d: D, at: Point, w: number): number {
     d.line([at[0], y], [at[0] + w, y], { lineweight: 0.35 });
     y -= 0.25;
   });
+
   const rows: [string, string, (a: Point, b: Point) => void][] = [
     ["COLD WATER (CW)", LAYERS.plmb, (a, b) => d.line(a, b)],
     ["HOT WATER (HW)", HOT, (a, b) => d.line(a, b)],
@@ -1098,11 +1179,13 @@ function legend(d: D, at: Point, w: number): number {
     ],
     ["FIXTURE STOP / CONNECTION", LAYERS.plmb, (a, b) => d.circle([(a[0] + b[0]) / 2, a[1]], 0.03)],
   ];
+
   for (const [label, layer, draw] of rows) {
     d.layer(layer, {}, () => draw([at[0] + 0.05, y], [at[0] + 0.65, y]));
     d.layer(LAYERS.text, {}, () => put(d, [at[0] + 0.85, y], label, H.note, { valign: "middle" }));
     y -= 0.28;
   }
+
   return y;
 }
 
@@ -1133,6 +1216,7 @@ function p101(d: D): void {
     const ny = Math.min(y, legendEnd) - 0.45;
     // noteColumn numbers from 1, so the second column writes its own numbers.
     const n1 = noteColumn(dd, [rx, ny], colW, "PLUMBING NOTES", NOTES.slice(0, half));
+
     const n2 = noteColumn(
       dd,
       [rx + colW + 0.4, ny],
@@ -1141,6 +1225,7 @@ function p101(d: D): void {
       NOTES.slice(half).map((n, k) => `${half + k + 1}. ${n}`),
       { numbered: false },
     );
+
     const hs = heaterSchedule(dd, [rx, Math.min(n1, n2) - 0.4]);
     // The water heater detail, through a viewport, under the schedules. The view holds the whole
     // detail, from the earth under the slab to the top of the wall, so no pattern is cut at its edge.

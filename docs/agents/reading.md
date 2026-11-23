@@ -20,3 +20,5 @@ that hold for every change.
   internal. `checkDrawingRead` holds a reader's answer to the model's fields: change both
   together, and the reading page, `docs/reading.md`. `test/read-fuzz.ts` fuzzes the reader from
   a seed, and `test/read-agreement.ts` holds a read with geometry to the `Drawing` it came from.
+  A read with `only` reads the file twice, and `src/read/part.ts` decides what it keeps: a box
+  there is never smaller than what the picture draws, and an entity it cannot box is kept.

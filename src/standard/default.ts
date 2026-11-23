@@ -18,6 +18,7 @@ const linetype = ({ description, pattern }: Linetype) => ({ description, pattern
 
 const engineering = (feet: number) =>
   [`1in-${feet}ft`, { label: `1" = ${feet}'`, ratio: feet * 12 }] as const;
+
 const architectural = (id: string, label: string, inches: number) =>
   [id, { label: `${label} = 1'-0"`, ratio: 12 / inches }] as const;
 
@@ -73,6 +74,7 @@ export const BUILT_IN_DOCUMENT = {
     title: { font: "Arial", height: 0.25 },
     dimension: { font: "Arial", height: 0.09375 },
   },
+  // SAFETY: the list has an entry for each BuiltInScale, and no other.
   scales: Object.fromEntries([
     engineering(10),
     engineering(20),

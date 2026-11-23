@@ -20,29 +20,33 @@ export function without(drawing: Drawing, items: ReadonlySet<string>): Drawing {
     items.has(at) || !Array.isArray(list)
       ? undefined
       : list.filter((_, i) => !items.has(`${at}[${i}]`));
+
   const entities = (list: readonly Entity[], at: string): Entity[] =>
     (kept(list, at) && list.map((e, i) => (items.has(`${at}[${i}]`) ? LEFT_OUT : e))) ?? [];
+
   const blocks =
     kept(drawing.blocks, "blocks") &&
     drawing.blocks!.flatMap((block, i) => {
       const at = `blocks[${i}]`;
+
       if (items.has(at)) return [];
+
       const attributes = items.has(`${at}.attributes`)
         ? []
         : kept(block.attributes, `${at}.attributes`);
-      return [
-        {
-          ...block,
-          entities: entities(block.entities, `${at}.entities`),
-          ...(attributes ? { attributes } : {}),
-        },
-      ];
+
+      const drawn = { ...block, entities: entities(block.entities, `${at}.entities`) };
+
+      return [attributes ? { ...drawn, attributes } : drawn];
     });
+
   const layouts =
     kept(drawing.layouts, "layouts") &&
     drawing.layouts!.flatMap((layout, i) => {
       const at = `layouts[${i}]`;
+
       if (items.has(at)) return [];
+
       return [
         {
           ...layout,
@@ -51,6 +55,7 @@ export function without(drawing: Drawing, items: ReadonlySet<string>): Drawing {
         },
       ];
     });
+
   const {
     linetypes,
     patterns,
@@ -63,17 +68,25 @@ export function without(drawing: Drawing, items: ReadonlySet<string>): Drawing {
     linetypeScale,
     ...rest
   } = drawing;
+
   const lists = { linetypes, patterns, textStyles, dimensionStyles, leaderStyles, xrefs };
-  return {
+
+  const listed = {
     ...rest,
     layers: kept(drawing.layers, "layers") ?? [],
     entities: entities(drawing.entities, "entities"),
-    ...(blocks ? { blocks } : {}),
-    ...(layouts ? { layouts } : {}),
-    ...(linetypeScale === undefined || items.has("linetypeScale") ? {} : { linetypeScale }),
+  };
+
+  const withBlocks = blocks ? { ...listed, blocks } : listed;
+  const withLayouts = layouts ? { ...withBlocks, layouts } : withBlocks;
+  const keepsScale = linetypeScale !== undefined && !items.has("linetypeScale");
+
+  return {
+    ...(keepsScale ? { ...withLayouts, linetypeScale } : withLayouts),
     ...Object.fromEntries(
       Object.entries(lists).flatMap(([field, list]) => {
         const sound = kept<unknown>(list, field);
+
         return sound ? [[field, sound]] : [];
       }),
     ),

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { checkIntent, createDrawing, type Drawing, type Intent, type Point } from "../src/index.ts";
 import sheet, { intent as sheetIntent } from "../examples/site-plan.ts";
+import { isString } from "../src/guards.ts";
+import { hasKey, wrong } from "./values.ts";
 
 /** Each warning as its rule, the side or the id it names, and the distance it measured. */
 const found = (drawing: Drawing, intent: Intent) =>
@@ -14,7 +16,9 @@ const found = (drawing: Drawing, intent: Intent) =>
 /** A drawing of a lot and footprints, each a closed polyline with its id. */
 function site(outlines: Readonly<Record<string, readonly Point[]>>): Drawing {
   const d = createDrawing();
+
   for (const [id, points] of Object.entries(outlines)) d.polyline(points, true, { id });
+
   return d.build();
 }
 
@@ -50,6 +54,7 @@ function moved(drawing: Drawing, id: string, by: Point): Drawing {
       ? { ...e, points: e.points.map(([x, y]): Point => [x + by[0], y + by[1]]) }
       : e,
   );
+
   return { ...drawing, entities };
 }
 
@@ -94,6 +99,7 @@ test("a setback is measured from the side itself, so a footprint past the end of
     [50, 140],
     [0, 140],
   ];
+
   // 5 from the line of side 3, but beyond its end, 15.8 from the side.
   const clear = rect(55, 10, 90, 45);
   // 8 below side 2, and 9.43 from the inner corner, which ends side 3.
@@ -118,9 +124,11 @@ test("a footprint across its property line or outside it is off the property, an
     ["footprint-off-property", "outside", undefined],
     ["footprint-in-setback", 3, 0],
   ]);
+
   const [, , on] = checkIntent(drawing, {
     setbacks: [{ property: "lot", footprints, distance: 5 }],
   });
+
   assert.match(on!.message, /^Footprint "on" touches side 3 of property line "lot"/);
   // A setback of 0 lets a footprint touch the line, and never lets it cross.
   assert.deepEqual(
@@ -138,12 +146,14 @@ test("a footprint whose sides run through the lot's corners is off it where it f
     [50, 140],
     [0, 140],
   ];
+
   // Its long side runs from one corner of the L to another, across the corner the L lacks.
   const corner: Point[] = [
     [50, 60],
     [100, 60],
     [50, 140],
   ];
+
   // The L's upright arm itself, which shares three of its sides and two of its corners.
   const arm: Point[] = [
     [0, 0],
@@ -151,6 +161,7 @@ test("a footprint whose sides run through the lot's corners is off it where it f
     [50, 140],
     [0, 140],
   ];
+
   const u: Point[] = [
     [0, 0],
     [30, 0],
@@ -161,6 +172,7 @@ test("a footprint whose sides run through the lot's corners is off it where it f
     [10, 30],
     [0, 30],
   ];
+
   // Its top lies along the tops of both arms of the U, and across the gap between them.
   const bridge: Point[] = [
     [5, 5],
@@ -168,14 +180,17 @@ test("a footprint whose sides run through the lot's corners is off it where it f
     [25, 30],
     [5, 30],
   ];
+
   const check = (lot: Point[], footprint: Point[], distance: number) =>
     found(site({ lot, footprint }), {
       setbacks: [{ property: "lot", footprints: ["footprint"], distance }],
     });
+
   assert.deepEqual(check(l, corner, 0), [["footprint-off-property", "footprint", undefined]]);
   assert.deepEqual(check(l, arm, 0), []);
   assert.deepEqual(check(u, bridge, 0), [["footprint-off-property", "footprint", undefined]]);
   assert.deepEqual(check(u, bridge, 1), [["footprint-off-property", "footprint", undefined]]);
+
   // A notch off the middle of the bridge, turned, where no side meets another exactly.
   const notched: Point[] = [
     [0, 0],
@@ -187,6 +202,7 @@ test("a footprint whose sides run through the lot's corners is off it where it f
     [20, 30],
     [0, 30],
   ];
+
   for (const origin of [
     [0, 0],
     [612345, 512345],
@@ -206,6 +222,7 @@ test("a footprint whose sides run through the lot's corners is off it where it f
 test("a footprint on its setback line passes at any angle up to 1e8 from the origin, and one short of it by a millionth warns", () => {
   const offsets = { front: 25, side: 7.5, rear: 20 };
   const distance = [offsets.front, offsets.side, offsets.rear, offsets.side];
+
   for (const origin of [
     [0, 0],
     [612345, 512345],
@@ -213,6 +230,7 @@ test("a footprint on its setback line passes at any angle up to 1e8 from the ori
   ] as const) {
     for (const angle of ANGLES) {
       const place = ([x, y]: Point): Point => turned([[x, y]], angle, origin)[0]!;
+
       const footprint = (rear: number): Point[] =>
         (
           [
@@ -220,16 +238,18 @@ test("a footprint on its setback line passes at any angle up to 1e8 from the ori
             [100 - offsets.side, offsets.front],
             [100 - offsets.side, 140 - rear],
             [offsets.side, 140 - rear],
-          ] as Point[]
+          ] satisfies Point[]
         ).map(place);
+
       const lot = (
         [
           [0, 0],
           [100, 0],
           [100, 140],
           [0, 140],
-        ] as Point[]
+        ] satisfies Point[]
       ).map(place);
+
       const setbacks = [{ property: "lot", footprints: ["footprint"], distance }];
       const on = found(site({ lot, footprint: footprint(offsets.rear) }), { setbacks });
       assert.deepEqual(on, [], `at ${angle} from ${origin}`);
@@ -239,6 +259,7 @@ test("a footprint on its setback line passes at any angle up to 1e8 from the ori
         [["footprint-in-setback", 2, 19.999999]],
         `at ${angle} from ${origin}`,
       );
+
       // At 1e8 a double's spacing is 2^-26: a shortfall past the tolerance and twice that warns.
       if (origin[0] !== 1e8) continue;
       const past = found(site({ lot, footprint: footprint(offsets.rear - 5.3e-7) }), { setbacks });
@@ -257,18 +278,22 @@ test("a footprint short of its setback by less than the sixth decimal shows warn
     [100, 0],
     [100, 100],
   ];
+
   const footprint: Point[] = [
     [50, 10],
     [60, 10],
     [60, 40],
     [50, 40],
   ];
+
   // Its corner at [50, 40] is 7.071067811865475 from the long side, as measured.
   const drawing = site({ lot, footprint });
+
   const check = (setback: number) =>
     checkIntent(drawing, {
       setbacks: [{ property: "lot", footprints: ["footprint"], distance: [0, 0, setback] }],
     });
+
   const [short, more] = check(7.071068);
   assert.equal(more, undefined);
   assert.deepEqual(
@@ -294,6 +319,7 @@ test("what cannot be checked is warned of with the reason, and the rest is check
   );
   d.line([0, 0], [10, 0], { id: "edge" });
   const drawing = d.build();
+
   const intent = {
     setbacks: [
       { property: "lot", footprints: ["shed"], distance: [5, 5, 5] },
@@ -306,8 +332,9 @@ test("what cannot be checked is warned of with the reason, and the rest is check
     ],
     setback: [],
   };
+
   assert.deepEqual(
-    checkIntent(drawing, intent as Intent).map((w) => [w.rule, w.item, w.message]),
+    checkIntent(drawing, wrong<Intent>(intent)).map((w) => [w.rule, w.item, w.message]),
     [
       [
         "intent-unchecked",
@@ -371,7 +398,7 @@ test("what cannot be checked is warned of with the reason, and the rest is check
       ],
     ],
   );
-  assert.deepEqual(found(drawing, null as unknown as Intent), [
+  assert.deepEqual(found(drawing, wrong<Intent>(null)), [
     ["intent-unchecked", undefined, undefined],
   ]);
 });
@@ -383,6 +410,7 @@ test("each outline is read once and paid for first, and past 200 warnings the ch
     [10, 10],
     [-10, 10],
   ];
+
   const drawing = site({ lot: circle(100, 10_000), house: circle(95, 10_000), small: square });
   // One footprint named 500 times is one footprint, too large to check, and the small one is
   // checked.
@@ -390,12 +418,14 @@ test("each outline is read once and paid for first, and past 200 warnings the ch
   assert.deepEqual(found(drawing, { setbacks: [{ property: "lot", footprints, distance: 10 }] }), [
     ["intent-unchecked", "house", undefined],
   ]);
+
   // A setback over and over, each past what is left to check.
   const setbacks = Array.from({ length: 2000 }, () => ({
     property: "lot",
     footprints: Array.from({ length: 50 }, () => "house"),
     distance: 10,
   }));
+
   const warnings = checkIntent(drawing, { setbacks });
   assert.equal(warnings.length, 201);
   assert.deepEqual(
@@ -420,19 +450,23 @@ test("a lot or a footprint whose outline crosses or touches itself is not checke
     [40, 40],
     [0, 0],
   ];
+
   const crossed: Point[] = [
     [30, 30],
     [50, 50],
     [50, 30],
     [30, 50],
   ];
+
   // A last point that repeats the first is the same corner, so the square has four sides.
   const square: Point[] = [...rect(0, 0, 100, 100), [0, 0]];
   const over = rect(20, 20, 80, 80);
   const drawing = site({ holed, crossed, square, over });
+
   const [hole] = checkIntent(drawing, {
     setbacks: [{ property: "holed", footprints: ["over"], distance: 0 }],
   });
+
   assert.equal(hole!.rule, "intent-unchecked");
   assert.match(
     hole!.message,
@@ -449,34 +483,43 @@ test("a lot or a footprint whose outline crosses or touches itself is not checke
 test("a property line's points are read a few times, however many setbacks name it", () => {
   const n = 1000;
   let reads = 0;
+
   const points = new Proxy(circle(100, n), {
-    get(target, key, receiver) {
-      if (typeof key === "string" && /^\d+$/.test(key)) reads++;
-      return Reflect.get(target, key, receiver) as unknown;
+    get(target, key) {
+      if (isString(key) && /^\d+$/.test(key)) reads++;
+
+      return hasKey(target, key) ? target[key] : undefined;
     },
   });
+
   const drawing: Drawing = {
     ...createDrawing().build(),
     entities: [{ kind: "polyline", layer: "0", id: "lot", closed: true, points }],
   };
+
   const setbacks = Array.from({ length: 199 }, () => ({
     property: "lot",
     footprints: ["missing"],
     distance: 0,
   }));
+
   assert.equal(checkIntent(drawing, { setbacks }).length, 199);
   assert.ok(reads <= 3 * n, `${reads} reads of ${n} points`);
 });
 
 test("what is more than the check takes is one warning for each setback, which leaves room for the rest", () => {
-  const outlines: Record<string, Point[]> = { lot: circle(1000, 800) };
+  const outlines = new Map([["lot", circle(1000, 800)]]);
+
   for (let i = 0; i < 2000; i++) {
-    outlines[`f${i}`] = circle(1, 3, [(i % 40) * 20 - 400, Math.floor(i / 40) * 15 - 400]);
+    outlines.set(`f${i}`, circle(1, 3, [(i % 40) * 20 - 400, Math.floor(i / 40) * 15 - 400]));
   }
-  const footprints = Object.keys(outlines).filter((id) => id !== "lot");
-  const warnings = checkIntent(site(outlines), {
+
+  const footprints = [...outlines.keys()].filter((id) => id !== "lot");
+
+  const warnings = checkIntent(site(Object.fromEntries(outlines)), {
     setbacks: [{ property: "lot", footprints, distance: 0 }],
   });
+
   assert.deepEqual(
     warnings.map((w) => w.rule),
     ["intent-unchecked"],
@@ -489,7 +532,8 @@ test("what is more than the check takes is one warning for each setback, which l
 
 test("an intent with more unknown fields than the check warns of stops with a warning that says so", () => {
   const fields = Object.fromEntries(Array.from({ length: 201 }, (_, i) => [`field${i}`, 0]));
-  const warnings = checkIntent(site({ lot: rect(0, 0, 10, 10) }), fields as Intent);
+  const warnings = checkIntent(site({ lot: rect(0, 0, 10, 10) }), wrong<Intent>(fields));
+
   assert.equal(warnings.length, 201);
   assert.match(warnings[200]!.message, /^checkIntent stopped after 200 warnings/);
 });
@@ -514,6 +558,7 @@ test("an acute corner whose two sides nearly meet is a corner, judged exactly fo
     [50, 50.050000000000004],
     [0, 100],
   ];
+
   const footprint = rect(1, 60, 10, 70);
   const setbacks = [{ property: "lot", footprints: ["footprint"], distance: 0 }];
   assert.deepEqual(found(site({ lot, footprint }), { setbacks }), []);
@@ -522,6 +567,7 @@ test("an acute corner whose two sides nearly meet is a corner, judged exactly fo
 test("a point that repeats the one before it is the same corner and makes no side", () => {
   const footprint = rect(5, 5, 25, 25);
   const setbacks = [{ property: "lot", footprints: ["footprint"], distance: [1, 1, 1, 1] }];
+
   const repeated: Point[] = [
     [0, 0],
     [30, 0],
@@ -529,6 +575,7 @@ test("a point that repeats the one before it is the same corner and makes no sid
     [30, 30],
     [0, 30],
   ];
+
   assert.deepEqual(found(site({ lot: repeated, footprint }), { setbacks }), []);
   const closedTwice: Point[] = [...rect(0, 0, 30, 30), [0, 0], [0, 0]];
   assert.deepEqual(found(site({ lot: closedTwice, footprint }), { setbacks }), []);
@@ -536,11 +583,13 @@ test("a point that repeats the one before it is the same corner and makes no sid
 
 test("what the work of a call could not take names the work, and what took most of it", () => {
   const drawing = site({ lot: circle(1000, 150_000), footprint: rect(-1, -1, 1, 1) });
+
   const setbacks = Array.from({ length: 2 }, () => ({
     property: "lot",
     footprints: ["footprint"],
     distance: 1,
   }));
+
   const warnings = checkIntent(drawing, { setbacks });
   assert.deepEqual(
     warnings.map((w) => w.message.replace(/\d+% of/, "N% of")),

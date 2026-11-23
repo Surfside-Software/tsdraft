@@ -7,7 +7,7 @@ import type { Point } from "../drawing.ts";
 import type { KnotSpacing } from "../curves.ts";
 
 /** The format of a `DrawingRead`. A reader gives the format it was built for. */
-export const READ_FORMAT = 0;
+export const READ_FORMAT = 1;
 
 /**
  * What a reader read from one drawing file. Its size grows with the file's tables, and with
@@ -37,6 +37,11 @@ export interface DrawingRead {
   readonly linetypes: readonly ReadLinetype[];
   readonly textStyles: readonly ReadTextStyle[];
   readonly dimensionStyles: readonly ReadDimensionStyle[];
+  /**
+   * The multileader styles the file's dictionary of them names, in its order. A reader built for
+   * an earlier tsdraft gives none.
+   */
+  readonly leaderStyles?: readonly ReadLeaderStyle[];
   /** The table styles the file's dictionary of table styles names. */
   readonly tableStyles: readonly ReadTableStyle[];
   /**
@@ -74,8 +79,20 @@ export interface DrawingRead {
   readonly otherFields: Readonly<Record<string, number>>;
   /** What the reader did not understand, counted by kind. */
   readonly unread: ReadUnread;
+  /**
+   * The record each edit of tsdraft's keeps of its additions, from the dictionary `TSDRAFT`. A
+   * reader built for an earlier tsdraft gives none.
+   */
+  readonly edits?: readonly ReadEditRecord[];
   /** The tab the file opens on and the view it shows there, when the file states one. */
   readonly opensAt?: ReadView;
+  /**
+   * The part of the file a read with `only` kept: each layout as the file spells it, and each area
+   * with its lower corner first. Model space counts what it left out under `outside what was read`.
+   */
+  readonly only?: ReadPart;
+  /** The blocks `ReadOptions.blocks` named, each handle in capitals without leading zeros. */
+  readonly blocksAsked?: readonly string[];
 }
 
 /** What a reader reads. */
@@ -85,6 +102,26 @@ export interface ReadOptions {
    * attributes of each insert. Without it a space holds its census alone.
    */
   readonly geometry?: boolean;
+  /**
+   * With `geometry`, keep of the spaces only what these show: each layout named, its paper whole
+   * and of model space what its viewports' windows meet, and of model space what each area meets.
+   */
+  readonly only?: ReadPart;
+  /**
+   * Blocks by handle, as `ReadBlock.handle` gives it, each kept in a room of its own, a second
+   * `BLOCK_ITEMS` apart from the one the other blocks spend in file order, so every other block is
+   * kept as it would be without them: the blocks an edit adds, which come after the file's own.
+   * At most `MOST_OWN_BLOCKS`.
+   */
+  readonly blocks?: readonly string[];
+}
+
+/** A part of a file a read keeps: layouts by name, and areas of model space. */
+export interface ReadPart {
+  /** Layouts of the file, by name, compared without regard to case. */
+  readonly layouts?: readonly string[];
+  /** Parts of model space, each two corners, such as what a sheet of another file shows of it. */
+  readonly areas?: readonly (readonly [Point, Point])[];
 }
 
 /** The view a file opens at: a piece of model space, or of a layout's paper. */
@@ -116,6 +153,10 @@ export interface ReadHeader {
   readonly dimstyle?: string;
   /** `$TEXTSTYLE`, the current text style. */
   readonly textstyle?: string;
+  /** `$HANDSEED`, past every handle the file holds, as hexadecimal digits in capitals. */
+  readonly handseed?: string;
+  /** `$CLAYER`, the current layer, which is never frozen. */
+  readonly clayer?: string;
   /**
    * The dictionary variable `WIPEOUTFRAME`, which the leading CAD app reads of whether wipeouts'
    * frames show: 0 neither shown nor plotted, 1 both, 2 shown and not plotted. A file without it
@@ -174,7 +215,7 @@ export type ReadLinetypeMark =
       readonly rotation?: number;
       readonly orient?: "absolute" | "upright";
       readonly offset?: Point;
-      readonly shape: number;
+      readonly glyph: number;
       readonly file: string;
       readonly scale: number;
     };
@@ -194,7 +235,7 @@ export interface ReadTextStyle {
   readonly oblique?: number;
   readonly annotative: boolean;
   /** True for a style that holds a shape file and no font. */
-  readonly shapes: boolean;
+  readonly glyphFile: boolean;
 }
 
 /** A cell style of a table style, as its file holds it. */
@@ -220,6 +261,33 @@ export interface ReadTableStyle {
   readonly title: ReadTableCellStyle;
   readonly header: ReadTableCellStyle;
   readonly data: ReadTableCellStyle;
+}
+
+/** A multileader style of the file's dictionary of them, as its record holds its sizes. */
+export interface ReadLeaderStyle {
+  readonly handle?: string | undefined;
+  /** Its name in the dictionary of multileader styles. */
+  readonly name: string;
+  /** The text style of its note, by name. */
+  readonly textStyle?: string;
+  /** The height of its note's text, before `scale`. */
+  readonly textHeight: number;
+  /** The size of its arrowhead, before `scale`. */
+  readonly arrowSize: number;
+  /** The block it draws each arrowhead with, such as `_Open`. Missing for closed filled. */
+  readonly arrowheadBlock?: string;
+  /** The length of its landing, before `scale`. */
+  readonly landing: number;
+  /** The room between the landing and the note, before `scale`. */
+  readonly gap: number;
+  /** Its overall scale, which multiplies each size. */
+  readonly scale: number;
+  /** Where its landing meets a note on its left, 0 to 8, as the file holds it. */
+  readonly attachment: number;
+  /** True when it frames its note. */
+  readonly frame: boolean;
+  /** 1 when it attaches its note above or below the landing, 0 at its side. */
+  readonly direction: number;
 }
 
 export interface ReadDimensionStyle {
@@ -265,6 +333,22 @@ export interface ReadDimensionStyle {
   readonly textFill?: number;
   /** `DIMTFILLCLR`, the color index of the mask, for a `textFill` of 2. */
   readonly textFillColor?: number;
+  /** `DIMEXO`: how far from what it measures an extension line starts. */
+  readonly extensionOffset?: number;
+  /** `DIMEXE`: how far an extension line runs past the dimension line. */
+  readonly extensionBeyond?: number;
+  /** `DIMGAP`: the room between the text and the dimension line. */
+  readonly textGap?: number;
+  /** `DIMDLE`: how far the dimension line runs past an extension line, where it ends in a tick. */
+  readonly lineExtension?: number;
+  /** `DIMZIN`: which zeros a measurement leaves out. */
+  readonly zeros?: number;
+  /** `DIMTIH`: 1 keeps the text level between the extension lines, 0 lays it along the line. */
+  readonly textLevelInside?: number;
+  /** `DIMTOH`: the same, outside them. */
+  readonly textLevelOutside?: number;
+  /** `DIMTOFL`: 1 draws the dimension line between the extension lines whatever fits. */
+  readonly lineInside?: number;
 }
 
 /** An attribute definition of a block, placed as a text is. */
@@ -339,6 +423,30 @@ export interface ReadEntityBase {
   readonly lineweight?: number;
   /** Group 48: the entity's own linetype scale. Left out at 1. */
   readonly linetypeScale?: number;
+  /** The mark an edit of tsdraft's gave the entity when it added it. */
+  readonly mark?: ReadMark;
+}
+
+/**
+ * The mark tsdraft gives what an edit adds, in its extended data under `TSDRAFT`: the mark's
+ * format, the edit's name, the addition's id, the handle it was written with, and a hash of what it
+ * held then.
+ */
+export interface ReadMark {
+  readonly format: string;
+  readonly name: string;
+  readonly id: string;
+  readonly handle: string;
+  readonly hash: string;
+}
+
+/** The record of one edit's additions: each id and the handle it was written with. */
+export interface ReadEditRecord {
+  /** The edit's name. */
+  readonly name: string;
+  /** The handle of the record's `XRECORD`. */
+  readonly handle?: string | undefined;
+  readonly additions: readonly { readonly id: string; readonly handle: string }[];
 }
 
 /**
@@ -406,6 +514,8 @@ export interface ReadPolyline extends ReadEntityBase {
   readonly widths?: readonly (readonly [start: number, end: number])[];
   /** True when the linetype's pattern runs on past each vertex, group 70's 128. Left out when not. */
   readonly linetypeGeneration?: true;
+  /** True for a 2D polyline, whose vertices are records of their own. Left out for a light one. */
+  readonly heavy?: true;
 }
 
 export interface ReadCircle extends ReadEntityBase {
@@ -453,6 +563,12 @@ export interface ReadInsert extends ReadEntityBase {
   readonly tags: Readonly<Record<string, boolean>>;
   /** Each attribute, in the order of the file, when the read asked for geometry. */
   readonly attributes?: readonly ReadAttribute[];
+  /**
+   * The clip of the block it places, as an xref's or a block's clip holds it: a polygon of three
+   * or more points in the block's coordinates. It shows only what lies inside, or with
+   * `inverted` only what lies outside.
+   */
+  readonly clip?: { readonly outline: readonly Point[]; readonly inverted?: boolean };
 }
 
 /**
@@ -501,17 +617,22 @@ export interface ReadMask {
   readonly offsetFactor: number;
 }
 
+/** What a dimension's text draws over its line and below it, each when it draws one. */
+export interface DimensionTextParts {
+  readonly text?: string;
+  readonly textBelow?: string;
+}
+
 /**
  * A dimension's text as a file holds it, cut at its first `\\X` into what it draws over its line
  * and below it. A text of `<>` alone over the line is the measurement, and is left out.
  */
-export function dimensionTextParts(held: string): {
-  readonly text?: string;
-  readonly textBelow?: string;
-} {
+export function dimensionTextParts(held: string): DimensionTextParts {
   const at = held.indexOf("\\X");
+
   if (at < 0) return held === "" ? {} : { text: held };
   const text = held.slice(0, at);
+
   return { ...(text !== "<>" && { text }), textBelow: held.slice(at + 2) };
 }
 
@@ -1180,6 +1301,11 @@ export interface ReadViewport {
   readonly frozenLayers: readonly string[];
   /** True when the view looks along another direction than straight down. */
   readonly turnedView: boolean;
+  /**
+   * The handle of the entity of the layout whose outline clips it, when one does: a closed
+   * polyline or a circle. The viewport shows only what lies inside it.
+   */
+  readonly clipBy?: string;
 }
 
 export interface ReadLayout {
@@ -1194,6 +1320,8 @@ export interface ReadLayout {
   readonly paperSize?: readonly [width: number, height: number];
   /** 0 inches, 1 millimeters, 2 pixels. */
   readonly paperUnits?: number;
+  /** The paper units it plots for each unit of its paper space, as its plot scale gives it: 0.5 at 1:2. */
+  readonly plotScale?: number;
   /** The plot style table, such as `monochrome.ctb`. */
   readonly plotStyleTable?: string;
   /** Quarter turns of the plot: 0 to 3. */
@@ -1211,6 +1339,20 @@ export interface ReadLayout {
   /** With `geometry`, the order the leading CAD app draws them in, as `ReadSpace.drawOrder` says. */
   readonly drawOrder?: readonly string[];
   readonly other?: Readonly<Record<string, number>>;
+  /** With `geometry`, what it draws of a kind the reader does not read, as model space's are. */
+  readonly unread?: readonly ReadUnreadEntity[];
+}
+
+/**
+ * An entity of a kind the reader does not read, such as an `OLE2FRAME`, so an edit can name it.
+ * Its kind is the one `unread.entities` counts it under.
+ */
+export interface ReadUnreadEntity {
+  readonly handle: string;
+  readonly kind: string;
+  readonly layer: string;
+  /** Two corners, where the reader has them. */
+  readonly box?: readonly [Point, Point];
 }
 
 /** Model space. */
@@ -1230,6 +1372,11 @@ export interface ReadSpace {
    * limit` what came past `GEOMETRY_ITEMS`.
    */
   readonly other?: Readonly<Record<string, number>>;
+  /**
+   * With `geometry`, each entity it draws of a kind the reader does not read, in the order of the
+   * file, within `GEOMETRY_ITEMS`; one past it is counted under `other` as past the limit.
+   */
+  readonly unread?: readonly ReadUnreadEntity[];
 }
 
 /** A field of an `MTEXT`, with the code the learner maps. */

@@ -25,6 +25,7 @@ export function structureSetup(d: D): void {
   // A vertical bar in a grouted cell, for plans: a dot in a square cell.
   d.block("S-VERT BAR", {}, () => {
     d.rect([-0.045, -0.045], 0.09, 0.09);
+
     for (const r of [0.03, 0.02, 0.01]) d.circle([0, 0], r);
   });
   // A connector tag: a mark in a diamond.
@@ -50,12 +51,14 @@ export function structureSetup(d: D): void {
 }
 
 export const grow = (r: Rect, by: number): Rect => [r[0] - by, r[1] - by, r[2] + by, r[3] + by];
+
 export const shift = (r: Rect, o: Point): Rect => [
   r[0] + o[0],
   r[1] + o[1],
   r[2] + o[0],
   r[3] + o[1],
 ];
+
 export const box = (x0: number, y0: number, x1: number, y1: number): Box => [
   x0,
   y0,
@@ -82,15 +85,18 @@ export function concrete(d: D, b: Box, seed: number, v: View, holes: readonly Bo
     let s = seed;
     const rnd = () => (s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296;
     const step = v.p(0.32);
+
     for (let y = b[1] + step / 2; y < b[1] + b[3] - step / 3; y += step) {
       for (let x = b[0] + step / 2; x < b[0] + b[2] - step / 3; x += step) {
         const c: Point = [x + (rnd() - 0.5) * step * 0.5, y + (rnd() - 0.5) * step * 0.5];
         const r = v.p(0.035);
         const a = rnd() * Math.PI;
+
         const pts: Point[] = [0, 1, 2].map((k) => [
           c[0] + r * Math.cos(a + (k * 2 * Math.PI) / 3),
           c[1] + r * Math.sin(a + (k * 2 * Math.PI) / 3),
         ]);
+
         if (
           holes.some(
             (h) =>
@@ -112,6 +118,7 @@ export function cmu(d: D, b: Box, v: View, jointsFrom = b[1]): void {
   d.layer(LAYERS.sect, {}, () => d.rect([b[0], b[1]], b[2], b[3]));
   d.layer(LAYERS.patt, {}, () => {
     hatch(d, b, v.p(0.06), 1);
+
     for (let y = jointsFrom + 8; y < b[1] + b[3] - 0.5; y += 8)
       if (y > b[1] + 0.5) d.line([b[0], y], [b[0] + b[2], y]);
   });
@@ -121,6 +128,7 @@ export function cmu(d: D, b: Box, v: View, jointsFrom = b[1]): void {
 export function soil(d: D, b: Box, holes: readonly Box[], v: View): void {
   d.layer(LAYERS.patt, {}, () => earth(d, b, holes, v.p(0.22)));
 }
+
 export function fill(d: D, b: Box, holes: readonly Box[], v: View, seed: number): void {
   d.layer(LAYERS.patt, {}, () =>
     stipple(d, b, holes, { spacing: v.p(0.16), stroke: v.p(0.08), seed }),
@@ -135,7 +143,9 @@ export function spanArrow(d: D, v: View, a: Point, b: Point, lines: readonly str
     arrowhead(d, b, a, v.p(0.14));
     const ang = (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
     let rot = ang;
+
     if (rot > 90) rot -= 180;
+
     if (rot <= -90) rot += 180;
     const m: Point = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
     const t = (rot * Math.PI) / 180;

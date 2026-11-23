@@ -126,6 +126,14 @@
   is lost.
   `test/warm.test.ts` holds all of this by counting what a build reads and by comparing a
   warm answer with a cold one, never by timing.
+- An edit file builds in two steps. Its own process, as any drawing file's, loads it, builds its
+  edit, with the source's read from the cache only when the edit asks for it, and answers with
+  the edit as data, `plan`. The process that keeps the reads, one for the life of a `Builder`,
+  then draws it: it keeps the source's read and its pictures before the edit as fragments, and
+  joins them for each edit with `editedPicture`. It loads no drawing file and no module of the
+  user's, only the command's own library and readers, so it may serve every build. What it
+  keeps is made again when the read or any file its context read is not as it was. `dev` asks it
+  for the pictures of changes only when one is fetched; `render` draws them with the build.
 - The page in `assets/page.html` has no framework and no build step. It finds an entity's element
   by `data-entity="<index>"`, which `toSVG` writes on each element. Position is no guide, since
   `toSVG` leaves out entities on layers that are off or frozen. The fallback to position among

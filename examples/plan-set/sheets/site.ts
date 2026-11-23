@@ -25,6 +25,7 @@ import {
 import { arrowhead } from "../../lib/drafting.ts";
 
 export const LOT = { width: 80 * 12, depth: 125 * 12 };
+
 /** The house's southwest corner on the lot. */
 export const HOUSE_AT: Point = [14 * 12, 30 * 12];
 const STREET = { name: "SANDPIPER COVE DRIVE", row: 50 * 12, pavement: 22 * 12 };
@@ -34,6 +35,7 @@ const DECK = 4 * 12;
 const DRIVE = { x0: HOUSE_AT[0] + 12, x1: HOUSE_AT[0] + 228, flare: 5 * 12 };
 
 const at = (p: Point): Point => [HOUSE_AT[0] + p[0], HOUSE_AT[1] + p[1]];
+
 const shoelace = (pts: readonly Point[]) =>
   Math.abs(
     pts.reduce(
@@ -43,6 +45,7 @@ const shoelace = (pts: readonly Point[]) =>
   ) / 2;
 
 export const footprintSite: Point[] = FOOTPRINT.map(at);
+
 const poolDeck: Point[] = [
   [POOL.x - DECK, HOUSE_AT[1] + LANAI[3]],
   [POOL.x + POOL.w + DECK, HOUSE_AT[1] + LANAI[3]],
@@ -110,7 +113,9 @@ function site(d: D): void {
     // The entry stair down from the porch, then the walk to the drive.
     const e = ENTRY;
     const foot = -(e.risers - 1) * e.tread;
+
     for (let k = 0; k < e.risers; k++) d.line(at([e.x0, -k * e.tread]), at([e.x1, -k * e.tread]));
+
     for (const x of [e.x0, e.x1]) d.line(at([x, 0]), at([x, foot]));
     d.polyline([at([e.x0, foot]), at([e.x0, foot - 24]), [DRIVE.x1, at([0, foot - 24])[1]]]);
     d.polyline([at([e.x1, foot]), at([e.x1, foot - 72]), [DRIVE.x1, at([0, foot - 72])[1]]]);
@@ -183,7 +188,7 @@ function site(d: D): void {
       [60, 1380],
       [900, 1420],
       [500, 60],
-    ] as Point[])
+    ] satisfies Point[])
       d.insert("PALM", p, { scale: 84 });
   });
 
@@ -298,6 +303,7 @@ function site(d: D): void {
       [-160, HOUSE_AT[1] + 160],
       ["U.G. ELECTRIC", "SERVICE"],
     );
+
     // Flow arrows, from the house to the swales and the street.
     for (const [a, b] of [
       [
@@ -320,7 +326,7 @@ function site(d: D): void {
         [POOL.x + POOL.w + DECK + 20, LOT.depth - 90],
         [LOT.width - 60, LOT.depth - 90],
       ],
-    ] as [Point, Point][]) {
+    ] satisfies [Point, Point][]) {
       d.line(a, b);
       arrowhead(d, b, a, v.p(0.12));
     }
@@ -328,8 +334,10 @@ function site(d: D): void {
   // Spot grades: existing in parentheses, proposed plain.
   d.layer(LAYERS.civAnno, {}, () => {
     const fg = CRITERIA.flood.finishGrade.toFixed(2);
+
     const spot = (p: Point, el: string) =>
       d.insert("SPOT", p, { scale: v.p(1), attributes: { EL: el } });
+
     spot([24, 24], "(7.20)");
     spot([LOT.width - 90, 24], "(7.15)");
     spot([24, LOT.depth - 30], "(7.70)");
@@ -412,15 +420,19 @@ function sheet(d: D): void {
   const v = view(d, 120);
   site(d);
   const lotArea = (LOT.width * LOT.depth) / 144;
+
   // One definition of height for the set: from the D.F.E. to the mean roof height.
   const heightAboveDfe =
     CRITERIA.flood.ffe + (ROOF.eaveHeight + ROOF.ridgeHeight) / 2 / 12 - CRITERIA.flood.dfe;
+
   // Coverage counts the entry porch under the second floor, which the setback outline leaves out.
   const porchArea = (112 * 72) / 144;
   const fpArea = shoelace(footprintSite) / 144 + porchArea;
   const roofArea = ((W + 48) * (DEPTH + 48)) / 144;
+
   const driveArea =
     ((DRIVE.x1 - DRIVE.x0) * (HOUSE_AT[1] + STREET.row / 2 - STREET.pavement / 2)) / 144;
+
   const walkArea = (48 * 180) / 144;
   const deckArea = shoelace(poolDeck) / 144 - (POOL.w * POOL.h) / 144;
   const pool = (POOL.w * POOL.h) / 144;
@@ -430,12 +442,14 @@ function sheet(d: D): void {
   const impervLot = fpArea + onLotDrive + walkArea + deckArea + pool + pads;
   const fpXs = footprintSite.map((p) => p[0]);
   const fpYs = footprintSite.map((p) => p[1]);
+
   const provided = {
     front: Math.min(...fpYs) / 12,
     rear: (LOT.depth - Math.max(...fpYs)) / 12,
     left: Math.min(...fpXs) / 12,
     right: (LOT.width - Math.max(...fpXs)) / 12,
   };
+
   void roofArea;
   void imperv;
   frame(d, "C-101", (dd, s) => {
@@ -459,6 +473,7 @@ function sheet(d: D): void {
     const w = AREA.right - x;
     let y = AREA.top - 0.1;
     const sf = (n: number) => `${Math.round(n).toLocaleString("en-US")} SF`;
+
     const siteData: TableOptions = {
       style: SCHEDULE,
       at: [x, y],
@@ -492,12 +507,14 @@ function sheet(d: D): void {
         ],
       ],
     };
+
     dd.layer(LAYERS.text, {}, () => dd.table(siteData));
     y = tableBottom(siteData);
     y -= 0.25;
     const ft = (n: number) => `${n.toFixed(1)}'`;
     const z = CRITERIA.zoning;
     const center = { 1: "center", 2: "center", 3: "center" } as const;
+
     const setbacks: TableOptions = {
       style: SCHEDULE,
       at: [x, y],
@@ -511,6 +528,7 @@ function sheet(d: D): void {
         ["SIDE (E)", ft(z.side), ft(provided.right), ft(z.poolSide)],
       ].map((row) => aligned(row, center)),
     };
+
     dd.layer(LAYERS.text, {}, () => dd.table(setbacks));
     y = tableBottom(setbacks);
     y -= 0.25;
@@ -537,6 +555,7 @@ function legend(d: D, at0: Point, w: number): void {
     d.line([at0[0], y], [at0[0] + w, y], { lineweight: 0.35 });
     y -= 0.22;
   });
+
   const row = (layer: string, label: string, draw?: (c: Point) => void) => {
     d.layer(layer, {}, () =>
       draw ? draw([at0[0] + 0.5, y + 0.04]) : d.line([at0[0], y + 0.04], [at0[0] + 1.0, y + 0.04]),
@@ -546,6 +565,7 @@ function legend(d: D, at0: Point, w: number): void {
     );
     y -= 0.27;
   };
+
   row(LAYERS.prop, "PROPERTY LINE");
   row(LAYERS.setb, "BUILDING SETBACK LINE");
   row(LAYERS.ovhd, "ROOF OVERHANG");
@@ -556,4 +576,4 @@ function legend(d: D, at0: Point, w: number): void {
   );
 }
 
-export const SHEETS: Record<string, SheetDraw> = { "C-101": sheet };
+export const SHEETS = { "C-101": sheet } satisfies Record<string, SheetDraw>;

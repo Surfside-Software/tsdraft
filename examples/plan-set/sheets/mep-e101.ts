@@ -55,6 +55,7 @@ function arcBetween(
   const dx = b[0] - a[0];
   const dy = b[1] - a[1];
   const c0 = Math.hypot(dx, dy);
+
   if (c0 - 2 * trim <= c0 * 0.05) return;
   const ux = dx / c0;
   const uy = dy / c0;
@@ -79,17 +80,22 @@ const JUMP = 300;
 function clusters<T extends { at: Point }>(items: readonly T[], jump: number): T[][] {
   const out: T[][] = [];
   const left = [...items];
+
   while (left.length) {
     const group = [left.shift()!];
+
     for (let k = 0; k < group.length; k++) {
       for (let j = left.length - 1; j >= 0; j--) {
         const a = group[k]!.at;
         const b = left[j]!.at;
+
         if (Math.hypot(a[0] - b[0], a[1] - b[1]) <= jump) group.push(...left.splice(j, 1));
       }
     }
+
     out.push(group);
   }
+
   return out;
 }
 
@@ -98,12 +104,14 @@ function spanningTree<T extends { at: Point }>(items: readonly T[], root: T): [P
   const inTree = [root];
   const left = items.filter((x) => x !== root);
   const edges: [Point, Point][] = [];
+
   while (left.length) {
     let best: [number, number] = [0, 0];
     let bestD = Infinity;
     inTree.forEach((a, i) =>
       left.forEach((b, j) => {
         const dd = Math.hypot(a.at[0] - b.at[0], a.at[1] - b.at[1]);
+
         if (dd < bestD) {
           bestD = dd;
           best = [i, j];
@@ -114,6 +122,7 @@ function spanningTree<T extends { at: Point }>(items: readonly T[], root: T): [P
     edges.push([inTree[best[0]]!.at, b.at]);
     inTree.push(b);
   }
+
   return edges;
 }
 
@@ -122,11 +131,13 @@ function chain<T extends { at: Point }>(items: readonly T[], from: Point): T[] {
   const left = [...items];
   const out: T[] = [];
   let here = from;
+
   while (left.length) {
     let best = 0;
     let bestD = Infinity;
     left.forEach((x, k) => {
       const dd = Math.hypot(x.at[0] - here[0], x.at[1] - here[1]);
+
       if (dd < bestD) {
         bestD = dd;
         best = k;
@@ -136,12 +147,18 @@ function chain<T extends { at: Point }>(items: readonly T[], from: Point): T[] {
     out.push(next);
     here = next.at;
   }
+
   return out;
 }
 
 /** A box in model space: x0, y0, x1, y1. */
 type Box = [number, number, number, number];
+
 const hits = (a: Box, b: Box) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+
+/** How much of a text's width lies left of its point, by its alignment. */
+const LEFT_OF = { left: 0, center: 0.5, right: 1 } as const;
+
 /** The box a text fills, from `measureText` by way of `width`. */
 const textBox = (
   at: Point,
@@ -151,7 +168,8 @@ const textBox = (
   align: "left" | "right" | "center",
 ): Box => {
   const w = (width(value, paperH) * h) / paperH;
-  const x0 = align === "left" ? at[0] : align === "right" ? at[0] - w : at[0] - w / 2;
+  const x0 = at[0] - w * LEFT_OF[align];
+
   return [x0, at[1], x0 + w, at[1] + h];
 };
 
@@ -161,7 +179,10 @@ const layerOf = (dv: Device) =>
     : LAYERS.lite;
 
 /** Where a room's name goes when the bottom of the room is taken by devices. */
-const ROOM_NAME_AT: Record<string, Point> = { "L1/FOYER": [349, 140], "L2/BATH 2": [110, 220] };
+const ROOM_NAME_AT = new Map<string, Point>([
+  ["L1/FOYER", [349, 140]],
+  ["L2/BATH 2", [110, 220]],
+]);
 
 /**
  * Low-voltage outlets, which the kit has no symbols for: a TV/data outlet (a triangle) and a
@@ -211,32 +232,39 @@ function powerPlan(d: D, v: View, floor: Floor): void {
   d.layer(LAYERS.base, {}, () => {
     for (const r of level.rooms) {
       const [x0, y0, x1] = r.rect;
-      const at: Point = ROOM_NAME_AT[`${floor}/${r.name}`] ?? [(x0 + x1) / 2, y0 + v.p(0.12)];
+      const at: Point = ROOM_NAME_AT.get(`${floor}/${r.name}`) ?? [(x0 + x1) / 2, y0 + v.p(0.12)];
+
       if (x1 - x0 < v.p(width(r.name, H.note) + 0.1)) continue;
       put(d, o(at), r.name, v.p(H.note), { align: "center" });
     }
   });
   const here = DEVICES.filter((x) => x.floor === floor);
+
   // What is already on the plan, for placing the home runs' labels clear of it.
   const taken: Box[] = here.map((dv) => {
     const r = v.p(dv.block === "E-FAN" ? 0.3 : 0.12);
+
     return [o(dv.at)[0] - r, o(dv.at)[1] - r, o(dv.at)[0] + r, o(dv.at)[1] + r];
   });
+
   for (const x of LOW_VOLTAGE.filter((y) => y.floor === floor)) {
     const [cx, cy] = o(x.at);
     taken.push([cx - v.p(0.12), cy - v.p(0.12), cx + v.p(0.12), cy + v.p(0.12)]);
   }
+
   for (const r of level.rooms) {
     const [x0, y0, x1] = r.rect;
-    const at = ROOM_NAME_AT[`${floor}/${r.name}`] ?? [(x0 + x1) / 2, y0 + v.p(0.12)];
+    const at = ROOM_NAME_AT.get(`${floor}/${r.name}`) ?? [(x0 + x1) / 2, y0 + v.p(0.12)];
     taken.push(textBox(o(at), r.name, v.p(H.note), H.note, "center"));
   }
+
   // The symbols.
   for (const dv of here) {
     d.layer(layerOf(dv), {}, () => {
       d.insert(dv.block, o(dv.at), { scale: v.p(1), rotation: dv.rot });
     });
   }
+
   // Low-voltage outlets.
   d.layer(LAYERS.eAnno, {}, () => {
     for (const x of LOW_VOLTAGE.filter((y) => y.floor === floor))
@@ -247,16 +275,20 @@ function powerPlan(d: D, v: View, floor: Floor): void {
     for (const dv of here) {
       if (!dv.tag) continue;
       const small = v.p(H.small);
+
       if (isSwitch(dv.block)) {
         put(d, o([dv.at[0] + v.p(0.07), dv.at[1] + v.p(0.03)]), dv.tag, small);
         continue;
       }
+
       const side =
         dv.rot === 90 || dv.rot === -90 ? [v.p(0.13), -v.p(0.03)] : [v.p(0.12), v.p(0.06)];
+
       const at = o([dv.at[0] + side[0]!, dv.at[1] + side[1]!]);
       put(d, at, dv.tag, small);
       taken.push(textBox(at, dv.tag, small, H.small, "left"));
     }
+
     // Every light's switch letter, beside the fixture, as an electrician reads a plan.
     for (const dv of here) {
       if (!isLight(dv.block) || !dv.group || dv.group.length > 2) continue;
@@ -268,19 +300,24 @@ function powerPlan(d: D, v: View, floor: Floor): void {
   // the switches of a three-way.
   d.layer(LAYERS.circ, {}, () => {
     const groups = new Map<string, Device[]>();
+
     for (const dv of here)
       if (dv.group)
         groups.set(`${dv.ckt}/${dv.group}`, [...(groups.get(`${dv.ckt}/${dv.group}`) ?? []), dv]);
+
     for (const g of groups.values()) {
       const switches = g.filter((x) => isSwitch(x.block));
       const fixtures = g.filter((x) => !isSwitch(x.block) && !isReceptacle(x.block));
       const first = switches[0];
+
       if (!first) continue;
       let prev = first.at;
+
       for (const f of chain(fixtures, first.at)) {
         arcBetween(d, o(prev), o(f.at), 0.18, trim, "HIDDEN", v.p(0.14));
         prev = f.at;
       }
+
       for (const s of switches.slice(1))
         arcBetween(d, o(first.at), o(s.at), 0.12, trim, "HIDDEN", v.p(0.14));
     }
@@ -291,16 +328,22 @@ function powerPlan(d: D, v: View, floor: Floor): void {
       const ds = here.filter((x) => x.ckt === c.key && x.block !== "E-PANEL");
       // A switch group joins the circuit at its first switch.
       const seen = new Set<string>();
+
       const nodes = ds.filter((x) => {
         if (!x.group) return true;
+
         if (!isSwitch(x.block) || seen.has(x.group)) return false;
         seen.add(x.group);
+
         return true;
       });
+
       if (!nodes.length) continue;
+
       // A circuit whose outlets lie far apart is drawn as clusters, each with its home run.
       for (const cluster of clusters(nodes, JUMP)) {
         const root = chain(cluster, PANEL_AT)[0]!;
+
         for (const [a, b] of spanningTree(cluster, root))
           arcBetween(d, o(a), o(b), 0.15, trim, undefined, v.p(0.12));
         homeRun(d, v, o(root.at), o(PANEL_AT), c.label, taken);
@@ -319,33 +362,41 @@ function homeRun(d: D, v: View, from: Point, panel: Point, label: string, taken:
   const dx = panel[0] - from[0];
   const dy = panel[1] - from[1];
   const len = Math.hypot(dx, dy);
+
   if (len < v.p(0.3)) return;
   const ux = dx / len;
   const uy = dy / len;
   const h = v.p(H.small);
   const g = v.p(0.04);
   let best: { tip: Point; at: Point; align: "left" | "right"; box: Box } | undefined;
+
   for (const reach of [0.42, 0.6, 0.8]) {
     const tip: Point = [from[0] + ux * v.p(reach), from[1] + uy * v.p(reach)];
+
     const tries: [Point, "left" | "right"][] = [
       [[tip[0] + g, tip[1] + g], "left"],
       [[tip[0] - g, tip[1] + g], "right"],
       [[tip[0] + g, tip[1] - g - h], "left"],
       [[tip[0] - g, tip[1] - g - h], "right"],
     ];
+
     if (ux < 0) tries.unshift(tries.splice(1, 1)[0]!);
+
     for (const [at, align] of tries) {
       const box = textBox(at, label, h, H.small, align);
       const candidate = { tip, at, align, box };
       best ??= candidate;
+
       if (!taken.some((t) => hits(t, box))) {
         best = candidate;
         break;
       }
     }
+
     if (best && !taken.some((t) => hits(t, best!.box))) break;
     best = reach === 0.8 ? best : undefined;
   }
+
   const { tip, at, align, box } = best!;
   const a: Point = [from[0] + ux * v.p(0.1), from[1] + uy * v.p(0.1)];
   d.line(a, tip);
@@ -362,8 +413,10 @@ function equipment(d: D, v: View, floor: Floor, o: (p: Point) => Point): void {
         put(d, o([at[0], at[1] - k * v.p(H.small * 1.7)]), t, v.p(H.small), { align }),
       ),
     );
+
   const box = (r: readonly [number, number, number, number], linetype?: string) =>
     d.rect(o([r[0], r[1]]), r[2] - r[0], r[3] - r[1], linetype ? { linetype } : {});
+
   d.layer(LAYERS.powr, {}, () => {
     if (floor === "L1") {
       box(EQUIP.hp1);
@@ -375,6 +428,7 @@ function equipment(d: D, v: View, floor: Floor, o: (p: Point) => Point): void {
       box(EQUIP.ahu2, "HIDDEN");
     }
   });
+
   if (floor === "L1") {
     d.layer(LAYERS.eAnno, {}, () =>
       put(d, o([-7, PANEL_AT[1]]), "M", v.p(H.small), { align: "center", valign: "middle" }),
@@ -400,6 +454,7 @@ function legend(d: D, at: Point, w: number): number {
     d.line([at[0], y], [at[0] + w, y], { lineweight: 0.35 });
     y -= 0.22;
   });
+
   const rows: [string, (c: Point) => void][] = [
     ["DUPLEX RECEPT., 20A, TR", (c) => d.insert("E-DUPLEX", c)],
     [
@@ -429,17 +484,20 @@ function legend(d: D, at: Point, w: number): number {
       },
     ],
   ];
+
   for (const [label, draw] of rows) {
     d.layer(LAYERS.eAnno, {}, () => draw([at[0] + 0.3, y + 0.035]));
     d.layer(LAYERS.text, {}, () => put(d, [at[0] + 0.7, y], label, H.note, { valign: "middle" }));
     y -= 0.3;
   }
+
   // The line types of the wiring.
   const lineRow = (label: string, draw: (a: Point, b: Point) => void) => {
     d.layer(LAYERS.circ, {}, () => draw([at[0] + 0.05, y], [at[0] + 0.55, y]));
     d.layer(LAYERS.text, {}, () => put(d, [at[0] + 0.7, y], label, H.note, { valign: "middle" }));
     y -= 0.3;
   };
+
   lineRow("BRANCH CIRCUIT, CONCEALED", (a, b) => arcBetween(d, a, b, 0.15, 0));
   lineRow("SWITCH LEG", (a, b) => arcBetween(d, a, b, 0.15, 0, "HIDDEN"));
   lineRow("HOME RUN TO PANEL A, CIRCUIT NO.", (a, b) => {
@@ -447,27 +505,35 @@ function legend(d: D, at: Point, w: number): number {
     arrowhead(d, b, a, 0.08);
     put(d, [b[0] - 0.4, b[1] + 0.04], "A-1", H.small);
   });
+
   return y;
 }
 
 /** The panel schedule: odd circuits on the left, even on the right, in breaker order. */
-function panelSchedule(d: D, at: Point): { y: number; width: number } {
+function panelSchedule(d: D, at: Point) {
   const loads = circuitLoads();
   const byPos = new Map<number, { c: (typeof loads)[number]; pole: number }>();
+
   for (const c of loads) c.positions.forEach((p, k) => byPos.set(p, { c, pole: k }));
+
   const half = (pos: number): string[] => {
     const hit = byPos.get(pos);
+
     if (!hit) return [String(pos), "SPACE", "", "", ""];
     const { c, pole } = hit;
     const per = Math.round(c.va / c.poles);
     const spare = c.desc === "SPARE";
     const bkr = `${c.amps}/${c.poles}${c.type ? ` ${c.type}` : ""}`;
+
     if (pole > 0) return [String(pos), "--", "", "", String(per)];
     const desc = c.count && !c.fixed ? `${c.desc} (${c.count})` : c.desc;
-    return [String(pos), desc, bkr, spare ? "" : WIRE[c.amps]!, spare ? "" : String(per)];
+
+    return [String(pos), desc, bkr, spare ? "" : WIRE.get(c.amps)!, spare ? "" : String(per)];
   };
+
   const rows: string[][] = [];
   const phase = { A: 0, B: 0 };
+
   for (let r = 0; r < PANEL.spaces / 2; r++) {
     const ph = r % 2 === 0 ? "A" : "B";
     const left = half(2 * r + 1);
@@ -475,7 +541,9 @@ function panelSchedule(d: D, at: Point): { y: number; width: number } {
     phase[ph] += Number(left[4] || 0) + Number(right[4] || 0);
     rows.push([...left, ph, ...right.slice(1).reverse(), right[0]!]);
   }
+
   const columns = [0.42, 2.75, 0.72, 0.5, 0.55, 0.36, 0.55, 0.5, 0.72, 2.75, 0.42];
+
   const aligns = {
     0: "center",
     2: "center",
@@ -488,6 +556,7 @@ function panelSchedule(d: D, at: Point): { y: number; width: number } {
     9: "right",
     10: "center",
   } as const;
+
   const total = columns.reduce((s, w) => s + w, 0);
   let y = at[1];
   d.layer(LAYERS.text, {}, () => {
@@ -497,6 +566,7 @@ function panelSchedule(d: D, at: Point): { y: number; width: number } {
     put(d, [at[0], y], info, H.note, { valign: "top" });
     y -= H.note + 0.1;
   });
+
   const panel: TableOptions = {
     style: SCHEDULE,
     at: [at[0], y],
@@ -508,6 +578,7 @@ function panelSchedule(d: D, at: Point): { y: number; width: number } {
     rows: rows.map((row) => aligned(row, aligns)),
     rowHeights: rows.map(() => 0.2),
   };
+
   d.layer(LAYERS.text, {}, () => d.table(panel));
   y = tableBottom(panel);
   const connected = phase.A + phase.B;
@@ -534,6 +605,7 @@ function panelSchedule(d: D, at: Point): { y: number; width: number } {
       H.note,
     );
   });
+
   return { y: y - 0.1, width: total };
 }
 
@@ -541,6 +613,7 @@ function panelSchedule(d: D, at: Point): { y: number; width: number } {
 function loadCalcTable(d: D, at: Point, w: number): number {
   const lc = loadCalc();
   const f = (n: number) => Math.round(n).toLocaleString("en-US");
+
   const rows: string[][] = [
     [`GENERAL LTG. + RECEPT., 3 VA/SF X ${f(lc.living)} SF`, f(lc.lighting)],
     [`SMALL APPLIANCE, ${lc.sabc / 1500} X 1,500 VA`, f(lc.sabc)],
@@ -552,7 +625,9 @@ function loadCalcTable(d: D, at: Point, w: number): number {
     ["TOTAL DEMAND LOAD", f(lc.total)],
     [`SERVICE: ${f(lc.total)} VA / 240 V`, `${lc.amps.toFixed(0)} A`],
   ];
+
   const right = { 1: "right" } as const;
+
   const calc: TableOptions = {
     style: SCHEDULE,
     at,
@@ -562,23 +637,28 @@ function loadCalcTable(d: D, at: Point, w: number): number {
     rows: rows.map((row) => aligned(row, right)),
     rowHeights: rows.map(() => 0.2),
   };
+
   d.layer(LAYERS.text, {}, () => d.table(calc));
   const y = tableBottom(calc);
   let yy = y - 0.18;
   d.layer(LAYERS.text, {}, () => {
     const ok = lc.amps <= PANEL.amps;
+
     const lines = [
       `${lc.amps.toFixed(0)} A ${ok ? "<=" : ">"} ${PANEL.amps} A SERVICE: ${ok ? "OK" : "TOO SMALL"}.`,
       "SERVICE CONDUCTORS 2/0 CU OR 4/0 AL (NEC 310.12).",
       "GEC #4 CU TO CONCRETE-ENCASED ELECTRODE (250.52(A)(3)).",
     ];
+
     for (const line of lines) {
       put(d, [at[0], yy], line, H.note);
       yy -= 0.19;
     }
   });
+
   if (lc.amps > PANEL.amps)
     throw new Error(`The load, ${lc.amps.toFixed(0)} A, is more than the ${PANEL.amps} A service`);
+
   return yy - 0.1;
 }
 
@@ -610,6 +690,7 @@ function fixtureSchedule(d: D, at: Point): number {
     ["E", "E-EXHAUST", "EXHAUST FAN, 50 CFM MIN., DUCTED OUTSIDE, ENERGY STAR", "50", "CEILING"],
     ["F", "E-SMOKE", "SMOKE / CO ALARM, 120 V, 10-YR BATTERY BACKUP", "5", "CEILING"],
   ];
+
   const rows = types.map(([t, block, desc, va, mount]) => [
     t,
     desc,
@@ -617,7 +698,9 @@ function fixtureSchedule(d: D, at: Point): number {
     mount,
     String(DEVICES.filter((x) => x.block === block).length),
   ]);
+
   const aligns = { 0: "center", 2: "right", 4: "right" } as const;
+
   const schedule: TableOptions = {
     style: SCHEDULE,
     at,
@@ -627,7 +710,9 @@ function fixtureSchedule(d: D, at: Point): number {
     rows: rows.map((row) => aligned(row, aligns)),
     rowHeights: rows.map(() => 0.22),
   };
+
   d.layer(LAYERS.text, {}, () => d.table(schedule));
+
   return tableBottom(schedule);
 }
 
@@ -669,6 +754,7 @@ function oneLine(d: D, at: Point, w: number): number {
     const gy0 = y - 0.27;
     d.line([cx - 0.25, gy0], [cx - 0.7, gy0]);
     d.line([cx - 0.7, gy0], [cx - 0.7, gy0 - 0.45]);
+
     for (let k = 0; k < 3; k++)
       d.line(
         [cx - 0.7 - 0.12 + 0.04 * k, gy0 - 0.45 - 0.07 * k],
@@ -680,10 +766,12 @@ function oneLine(d: D, at: Point, w: number): number {
     lbl([cx + 0.4, y - 0.48], "PIPE, IF ANY (250.104)");
     // The feeder to panel A: four wires, the fourth the equipment grounding conductor.
     d.line([cx, y], [cx, y - 1.3]);
+
     for (let k = 0; k < 4; k++) {
       const ty = y - 0.75 + k * 0.07;
       d.line([cx - 0.07, ty - 0.035], [cx + 0.07, ty + 0.035]);
     }
+
     put(d, [cx - 0.1, y - 0.62], "G", H.small, { align: "right", valign: "middle" });
     lbl([cx + 0.4, y - 0.7], "4-WIRE FEEDER: (3) 2/0 CU + #6 CU EGC,");
     lbl([cx + 0.4, y - 0.88], "OR (3) 4/0 AL + #4 AL EGC (215.6, 250.122),");
@@ -698,6 +786,7 @@ function oneLine(d: D, at: Point, w: number): number {
     const gy = y - 0.6;
     y = gy - 0.2;
   });
+
   return y;
 }
 
@@ -728,10 +817,12 @@ function e101(d: D): void {
     const vpY = top - vpH;
     // The views: the house, with the heat pumps outside its east wall and the lanai north.
     const middle: Point = [300, 318];
+
     const vps: [Floor, number, string][] = [
       ["L1", AREA.left + 0.1, "FIRST FLOOR POWER AND LIGHTING PLAN"],
       ["L2", AREA.left + 0.1 + vpW + 0.25, "SECOND FLOOR POWER AND LIGHTING PLAN"],
     ];
+
     vps.forEach(([floor, x, title], k) => {
       viewport(dd, sheet, {
         corner: [x, vpY],

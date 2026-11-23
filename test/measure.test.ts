@@ -12,6 +12,7 @@ import { extents } from "../src/extents.ts";
 import { fontInfo } from "../src/fonts.ts";
 
 const near = (a: number, b: number): boolean => Math.abs(a - b) < 1e-9;
+
 const same = (corners: readonly Point[], expected: readonly Point[]): void => {
   corners.forEach(([x, y], i) => {
     const [ex, ey] = expected[i]!;
@@ -23,8 +24,10 @@ test("the width table holds every font, with a number for each character of its 
   assert.deepEqual(Object.keys(FONT_METRICS), Object.keys(FONTS));
   const count = FONT_METRICS_RANGES.reduce((sum, [first, last]) => sum + last - first + 1, 0);
   assert.equal(count, 192);
+
   for (const [font, metrics] of Object.entries(FONT_METRICS)) {
     const { bold } = metrics;
+
     for (const table of [
       metrics.advances,
       metrics.tails,
@@ -38,6 +41,7 @@ test("the width table holds every font, with a number for each character of its 
       assert.equal(table.length, count, font);
       assert.ok(table.every(Number.isFinite), font);
     }
+
     assert.ok(metrics.below > 0 && metrics.below < 1, font);
     assert.ok(metrics.afterStack > 0 && metrics.afterStack < 1, font);
     // A line of paragraph text rises at least a height above its baseline and its box never
@@ -54,9 +58,11 @@ test("a text is as long as its characters' advances, less what its last one leav
   assert.ok(near(measureText({ value: "HELLO", height: 0.125 }).length, (5 - 1 / 3) / 8));
   assert.ok(near(measureText({ value: "H H", height: 2, widthFactor: 0.5 }).length, 3 - 1 / 3));
   assert.equal(measureText({ value: "", height: 1 }).length, 0);
+
   // Each font has its own widths, by the character's place in the table's two ranges.
   const at = (c: string): number =>
     c.charCodeAt(0) < 0x7f ? c.charCodeAt(0) - 0x20 : 95 + c.charCodeAt(0) - 0xa0;
+
   for (const [font, metrics] of Object.entries(FONT_METRICS)) {
     const value = "Aé 1";
     const advances = [...value].reduce((sum, c) => sum + metrics.advances[at(c)]!, 0);
@@ -66,9 +72,11 @@ test("a text is as long as its characters' advances, less what its last one leav
     assert.ok(near(measured.descent, metrics.below * 3), font);
     assert.equal(measured.approximate, false, font);
   }
+
   // Arial is narrower than txt.shx, and monotxt.shx moves on one height for every character.
   const length = (font: string): number =>
     measureText({ value: "ILLINOIS", height: 1, font }).length;
+
   assert.ok(length("Arial") < length("txt.shx"));
   const mono = FONT_METRICS["monotxt.shx"]!;
   assert.ok(near(length("monotxt.shx"), 8 + mono.tails[at("S")]! - mono.heads[at("I")]!));
@@ -81,6 +89,7 @@ test("a character outside the table is as wide as a question mark, and a code is
   assert.equal(kanji.approximate, true);
   // A character beyond U+FFFF is two code units of a string, and one character.
   assert.ok(near(length("A\u{1F600}B"), length("A?B")));
+
   for (const [code, drawn] of [
     ["45%%d", "45°"],
     ["%%P0.5", "±0.5"],
@@ -90,6 +99,7 @@ test("a character outside the table is as wide as a question mark, and a code is
     assert.ok(near(measured.length, length(drawn)), code);
     assert.equal(measured.approximate, true, code);
   }
+
   // Any other code is measured as written, and still called an estimate.
   assert.equal(measureText({ value: "100%%%", height: 1 }).approximate, true);
   assert.equal(measureText({ value: "x", height: 1, font: "nofont.shx" }).approximate, true);
@@ -100,12 +110,14 @@ test("a text's box follows its justification, with one rule for its baseline", (
   const text = { value: "HELLO", height: 3 } as const;
   const long = 3 * (5 - 1 / 3);
   const below = FONT_METRICS["txt.shx"]!.below * 3;
+
   const box = (x: number, y: number): Point[] => [
     [x, y],
     [x + long, y],
     [x + long, y + 3],
     [x, y + 3],
   ];
+
   same(measureText({ ...text, at: [10, 20] }).corners, box(10, 20));
   same(measureText({ ...text, at: [10, 20], align: "center" }).corners, box(10 - long / 2, 20));
   same(measureText({ ...text, at: [10, 20], align: "right" }).corners, box(10 - long, 20));
@@ -114,9 +126,11 @@ test("a text's box follows its justification, with one rule for its baseline", (
   // A text on its bottom stands as far above its point as its font draws below the baseline.
   same(measureText({ ...text, at: [10, 20], valign: "bottom" }).corners, box(10, 20 + below));
   assert.ok(near(measureText(text).descent, below));
+
   // A space at either end of a centered or right-justified text makes its place an estimate.
   const estimate = (value: string, align: "left" | "center" | "right" = "left"): boolean =>
     measureText({ value, height: 1, align }).approximate;
+
   assert.deepEqual(
     [estimate("A B", "center"), estimate("A ", "center"), estimate("\u00a0A", "right")],
     [false, true, true],
@@ -162,6 +176,7 @@ test("the extents hold a text's box and what its font draws below the baseline",
   d.textStyle({ name: "A", font: "Arial", widthFactor: 1.5 });
   d.text([4, 5], "Baggage", { height: 2, style: "A", align: "center", rotation: 30 });
   const drawing = d.build();
+
   const { corners, descent } = measureText({
     value: "Baggage",
     height: 2,
@@ -171,17 +186,21 @@ test("the extents hold a text's box and what its font draws below the baseline",
     align: "center",
     rotation: 30,
   });
+
   // Below each end of the baseline, straight down the turned text.
   const down: Point = [Math.sin(Math.PI / 6) * descent, -Math.cos(Math.PI / 6) * descent];
+
   const points = [
     ...corners,
     ...corners.slice(0, 2).map(([x, y]): Point => [x + down[0], y + down[1]]),
   ];
+
   const expected = [
     Math.min(...points.map((p) => p[0])),
     Math.min(...points.map((p) => p[1])),
     Math.max(...points.map((p) => p[0])),
     Math.max(...points.map((p) => p[1])),
   ];
+
   extents(drawing.entities, drawing.textStyles).forEach((n, i) => assert.ok(near(n, expected[i]!)));
 });

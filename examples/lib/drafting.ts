@@ -8,10 +8,10 @@ import type { Point, TextAlign, TextVerticalAlign } from "../../src/index.ts";
  * without one can be given.
  */
 export interface Pen {
-  line(from: Point, to: Point): unknown;
-  polyline(points: readonly Point[], closed?: boolean): unknown;
-  circle(center: Point, radius: number): unknown;
-  arc(center: Point, radius: number, startAngle: number, endAngle: number): unknown;
+  line(from: Point, to: Point): void;
+  polyline(points: readonly Point[], closed?: boolean): void;
+  circle(center: Point, radius: number): void;
+  arc(center: Point, radius: number, startAngle: number, endAngle: number): void;
   text(
     at: Point,
     value: string,
@@ -22,7 +22,7 @@ export interface Pen {
       readonly valign?: TextVerticalAlign;
       readonly rotation?: number;
     },
-  ): unknown;
+  ): void;
 }
 
 /** A rectangle as its lower-left corner, width and height. */
@@ -36,7 +36,9 @@ export function feetInches(inches: number): string {
   const whole = Math.floor(rest / 16);
   const fraction = reduce(rest % 16, 16);
   let inchText = String(whole);
+
   if (fraction) inchText = whole ? `${whole} ${fraction}` : fraction;
+
   return feet > 0 ? `${feet}'-${inchText}"` : `${inchText}"`;
 }
 
@@ -44,10 +46,12 @@ function reduce(numerator: number, denominator: number): string {
   if (numerator === 0) return "";
   let top = numerator;
   let bottom = denominator;
+
   while (top % 2 === 0 && bottom % 2 === 0) {
     top /= 2;
     bottom /= 2;
   }
+
   return `${top}/${bottom}`;
 }
 
@@ -74,26 +78,36 @@ export function lineOutside(d: Pen, from: Point, to: Point, holes: readonly Box[
   const across = 1 - along;
   const c = from[across] ?? 0;
   const point = (a: number): Point => (along === 0 ? [a, c] : [c, a]);
+
   const cuts = holes
-    .filter((h) => c > (h[across] ?? 0) && c < (h[across] ?? 0) + (h[across + 2] ?? 0))
-    .map((h) => [h[along] ?? 0, (h[along] ?? 0) + (h[along + 2] ?? 0)] as const)
+    .flatMap((h) =>
+      c > (h[across] ?? 0) && c < (h[across] ?? 0) + (h[across + 2] ?? 0)
+        ? [[h[along] ?? 0, (h[along] ?? 0) + (h[along + 2] ?? 0)] as const]
+        : [],
+    )
     .sort((p, q) => p[0] - q[0]);
+
   let start = Math.min(from[along], to[along]);
   const end = Math.max(from[along], to[along]);
+
   for (const [cutStart, cutEnd] of cuts) {
     if (cutStart > start) d.line(point(start), point(Math.min(cutStart, end)));
     start = Math.max(start, cutEnd);
+
     if (start >= end) return;
   }
+
   d.line(point(start), point(end));
 }
 
 /** The inside lines of a square grid over `area`, such as tile joints, leaving out `holes`. */
 export function gridLines(d: Pen, area: Box, size: number, holes: readonly Box[]): void {
   const [x0, y0, w, h] = area;
+
   for (let x = x0 + size; x < x0 + w - 0.01; x += size) {
     lineOutside(d, [x, y0], [x, y0 + h], holes);
   }
+
   for (let y = y0 + size; y < y0 + h - 0.01; y += size) {
     lineOutside(d, [x0, y], [x0 + w, y], holes);
   }
@@ -107,14 +121,17 @@ function round(p: Point): Point {
 /** A linear congruential generator: the same seed gives the same numbers on every run. */
 function seededRandom(seed: number): () => number {
   let state = seed;
+
   return () => {
     state = (state * 1664525 + 1013904223) % 4294967296;
+
     return state / 4294967296;
   };
 }
 
 function inside(p: Point, box: Box, margin: number): boolean {
   const [x, y, w, h] = box;
+
   return p[0] > x - margin && p[0] < x + w + margin && p[1] > y - margin && p[1] < y + h + margin;
 }
 
@@ -139,6 +156,7 @@ export function stipple(d: Pen, area: Box, holes: readonly Box[], options: Stipp
   const random = seededRandom(seed);
   const [x0, y0, w, h] = area;
   const inner: Box = [x0 + margin, y0 + margin, w - margin * 2, h - margin * 2];
+
   for (let y = y0; y < y0 + h; y += spacing) {
     for (let x = x0; x < x0 + w; x += spacing) {
       const center: Point = [x + random() * spacing, y + random() * spacing];
@@ -147,8 +165,10 @@ export function stipple(d: Pen, area: Box, holes: readonly Box[], options: Stipp
       const half: Point = [(Math.cos(angle) * length) / 2, (Math.sin(angle) * length) / 2];
       const a = round([center[0] - half[0], center[1] - half[1]]);
       const b = round([center[0] + half[0], center[1] + half[1]]);
+
       const clear = (p: Point) =>
         inside(p, inner, 0) && !holes.some((hole) => inside(p, hole, margin));
+
       if (clear(a) && clear(b)) d.line(a, b);
     }
   }
@@ -164,9 +184,11 @@ export function hatch(d: Pen, area: Box, spacing: number, slope: 1 | -1 = 1): vo
   // Each line is y = slope * x + c, and c steps so that the lines are `spacing` apart.
   const step = spacing * Math.SQRT2;
   const [cMin, cMax] = slope === 1 ? [y0 - x1, y1 - x0] : [y0 + x0, y1 + x1];
+
   for (let c = Math.ceil(cMin / step) * step; c < cMax; c += step) {
     const from = slope === 1 ? Math.max(x0, y0 - c) : Math.max(x0, c - y1);
     const to = slope === 1 ? Math.min(x1, y1 - c) : Math.min(x1, c - y0);
+
     if (to - from > 0.05) d.line(round([from, slope * from + c]), round([to, slope * to + c]));
   }
 }
@@ -184,18 +206,22 @@ export function earth(d: Pen, area: Box, holes: readonly Box[], size: number): v
   const uMax = (x0 + w + y0 + h) / Math.SQRT2;
   const vMin = (y0 - x0 - w) / Math.SQRT2;
   const vMax = (y0 + h - x0) / Math.SQRT2;
+
   const clear = (p: Point) =>
     inside(p, area, 0) && !holes.some((hole) => inside(p, hole, size * 0.2));
+
   for (let i = Math.floor(uMin / size); i * size < uMax; i++) {
     for (let j = Math.floor(vMin / size); j * size < vMax; j++) {
       const u = (i + 0.5) * size;
       const v = (j + 0.5) * size;
       const alongU = (i + j) % 2 === 0;
+
       for (const k of [-0.25, 0, 0.25]) {
         const [du, dv] = alongU ? [0.3 * size, 0] : [0, 0.3 * size];
         const [ou, ov] = alongU ? [0, k * size] : [k * size, 0];
         const from = round(toXY(u + ou - du, v + ov - dv));
         const to = round(toXY(u + ou + du, v + ov + dv));
+
         if (clear(from) && clear(to)) d.line(from, to);
       }
     }
@@ -214,11 +240,13 @@ export function insulation(d: Pen, area: Box): void {
   const loops = Math.max(1, Math.floor((w - across * 2) / advance));
   const start = x0 + (w - loops * advance) / 2;
   const points: Point[] = [];
+
   for (let i = 0; i <= loops * 24; i++) {
     const t = (i / 24) * 2 * Math.PI;
     const x = start + (advance * t) / (2 * Math.PI) - across * Math.sin(t);
     points.push(round([x, y0 + radius - radius * Math.cos(t)]));
   }
+
   d.polyline(points);
 }
 
@@ -227,10 +255,13 @@ export function dashedLine(d: Pen, from: Point, to: Point, dash: number, gap: nu
   const length = Math.hypot(to[0] - from[0], to[1] - from[1]);
   const count = Math.max(1, Math.round((length + gap) / (dash + gap)));
   const space = count > 1 ? (length - count * dash) / (count - 1) : 0;
+
   const along = (distance: number): Point => {
     const t = Math.min(distance / length, 1);
+
     return [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t];
   };
+
   for (let i = 0; i < count; i++) {
     const start = i * (dash + space);
     d.line(round(along(start)), round(along(count > 1 ? start + dash : length)));

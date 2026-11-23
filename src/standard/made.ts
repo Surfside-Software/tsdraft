@@ -1,11 +1,17 @@
 // The standards this copy of tsdraft made, and how it takes one that another copy made. The
 // builder and `lint` read this module and not `define.ts`, which draws the built-in title block
 // with the builder as it loads.
+import { isObjectOrArray } from "../guards.ts";
 import type { Standard } from "./document.ts";
 import type { Problem } from "./shape.ts";
 
 /** The standards this copy of tsdraft made, which need no second check. */
 export const MADE = new WeakSet<object>();
+
+/** True for a standard this copy of tsdraft made. */
+function isMade(value: unknown): value is Standard {
+  return isObjectOrArray(value) && MADE.has(value);
+}
 
 let readAgain: ((value: unknown, problems: Problem[]) => Standard | undefined) | undefined;
 
@@ -22,10 +28,13 @@ export function readStandardsWith(
  * problem that makes it none is added to `problems`.
  */
 export function adopted(value: unknown, problems: Problem[] = []): Standard | undefined {
-  if (typeof value === "object" && value !== null && MADE.has(value)) return value as Standard;
+  if (isMade(value)) return value;
+
   if (!readAgain) {
     problems.push({ item: "", message: "This copy of tsdraft has not loaded defineStandard" });
+
     return undefined;
   }
+
   return readAgain(value, problems);
 }

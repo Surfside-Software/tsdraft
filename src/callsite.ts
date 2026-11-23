@@ -1,6 +1,7 @@
 // Where in the caller's code a builder method was called. The location comes from the engine's
 // stack, so it holds a path of the machine the drawing was built on. It is kept beside the
 // drawing, never in it.
+import { isFunction, isNumber, isString } from "./guards.ts";
 
 /** A place in a source file, as the JavaScript engine names it in a stack. */
 export interface CallSite {
@@ -21,8 +22,9 @@ export interface HeldCall {
   readonly whole: boolean;
 }
 
-type Method = (...args: never[]) => unknown;
-type Capture = (target: object, above: Method) => void;
+type Method = (...args: never) => void;
+
+type Capture = (target: HeldCall, above: Method) => void;
 
 /** The calls that drew a drawing's entities, by its `entities` array and each entity's index. */
 const recorded = new WeakMap<object, readonly (HeldCall | undefined)[]>();
@@ -35,20 +37,26 @@ const recorded = new WeakMap<object, readonly (HeldCall | undefined)[]>();
  * caller's frame is captured. Without it, the whole stack of a new error is kept.
  */
 export function holdCall(method: Method): HeldCall | undefined {
+  // SAFETY: an engine may give Error neither, as a browser's may, which Node's types do not say.
   const errors = Error as { captureStackTrace?: Capture; stackTraceLimit?: unknown };
+
   try {
-    if (typeof errors.captureStackTrace !== "function") {
+    if (!isFunction(errors.captureStackTrace)) {
       return { stack: new Error().stack, whole: true };
     }
+
     const held: HeldCall = { whole: false };
     const limit = errors.stackTraceLimit;
-    const limited = typeof limit === "number";
+    const limited = isNumber(limit);
+
     if (limited) errors.stackTraceLimit = 1;
+
     try {
       errors.captureStackTrace(held, method);
     } finally {
       if (limited) errors.stackTraceLimit = limit;
     }
+
     return held;
   } catch {
     return undefined;
@@ -58,9 +66,12 @@ export function holdCall(method: Method): HeldCall | undefined {
 /** The location a held call names, or undefined when its stack has none. */
 export function readCall(held: HeldCall | undefined): CallSite | undefined {
   if (!held) return undefined;
+
   try {
     const stack = held.stack;
-    if (typeof stack !== "string") return undefined;
+
+    if (!isString(stack)) return undefined;
+
     return held.whole ? callerInStack(stack) : parseStack(stack)[0];
   } catch {
     return undefined;
@@ -76,6 +87,7 @@ export function readCall(held: HeldCall | undefined): CallSite | undefined {
  */
 export function callerInStack(stack: string): CallSite | undefined {
   const [capture, builder, ...rest] = parseStack(stack);
+
   return rest.find((frame) => frame.file !== capture?.file && frame.file !== builder?.file);
 }
 
@@ -103,6 +115,7 @@ export function parseStack(stack: string): CallSite[] {
       /^\s*at .*?\((.+):(\d+):(\d+)\)$/.exec(line) ??
       /^\s*at (.+):(\d+):(\d+)$/.exec(line) ??
       /^[^@]*@(.+):(\d+):(\d+)$/.exec(line);
+
     return frame ? [{ file: frame[1]!, line: Number(frame[2]), column: Number(frame[3]) }] : [];
   });
 }

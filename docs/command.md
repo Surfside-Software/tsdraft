@@ -58,6 +58,30 @@ as it plots: a layer that does not plot is left out, as one that is off or froze
 `--draw-no-plot` draws those layers too. `tsdraft dev` takes the same flag. The colors are the
 ones a plot gives each pen, so the darkest pens are faint on the dark preview.
 
+`render` and `dev` take a DXF, or a DWG a reader reads, as they take a drawing file: they read it
+with geometry, within the limits of [Reading drawing files](#reading-drawing-files), and draw
+model space and each layout as [the picture of a read file](reading.md#the-picture-of-a-read-file)
+draws them, with the images, the pages of the underlays and the shape files the file names from
+its own folder. `--reader <package or folder>` names the reader of a DWG where the project names
+none or more than one. Their `read-picture` warnings say what the pictures could not draw as the
+file holds it. A build of such a file may take as long as its read, at least 150 s.
+
+`render` and `dev` take an edit file, whose default export is `editDrawing(...)`, as they take a
+drawing file: they draw the file it edits as it will plot after the edit, model space and each
+layout, as they draw a DXF, from the read the file will hold, `editedRead`'s. The file is read
+through [the read cache](#the-read-cache), with the edit's `only`, and drawn at its own pens, with
+the xrefs, images and pages found beside it. A file of another format needs its reader, not its
+editor. The edit of a model file draws through each sheet its `sheets` names as well, with the
+edited read in place of the sheet's xref of the file: each such entry of `outputs.layouts` is named
+`<sheet's file name>/<layout>` and gives the sheet's `file`. A second picture of each, the picture of changes, draws every entity the edit does not
+reach faint, each it erases dashed in red where it was, and each it moves or stretches dashed in
+amber where it was and at full strength where it goes. `render` writes it as `<name>.changes.svg` and `.png`, and
+`<name>.layout-<layout>.changes.svg` and `.png` for each of the file's own sheets, in
+`outputs.changes`. `lintEdit`'s
+diagnostics come first in `diagnostics`, and its errors give exit code 2. A file whose SHA-256 is
+not the edit's is drawn as it is, without the edit, with an `edit-hash` error that says so. See
+[Editing a firm's drawing](editing.md#the-preview).
+
 With `--pdf`, `render` also plots the sheets of a drawing with layouts: `<name>.layout-<layout>.pdf`,
 each sheet alone, in `outputs.layouts[].pdf`, and `<name>.pdf`, the set, with a page for each
 layout in order, in `outputs.pdf`. Each is made from the picture of its sheet, as
@@ -92,12 +116,32 @@ entities are not drawn. Each diagnostic shows the call that drew its entity. Cli
 | `/drawing.svg?layout=<name>`         | The sheet of a layout as it plots. The PNG takes `layout` too             |
 | `/drawing.pdf`                       | The set: a page for each layout, in order, made when asked for            |
 | `/drawing.pdf?layout=<name>`         | The sheet of that layout alone, as a PDF                                  |
+| `/drawing.svg?changes=1`             | For an edit file, the picture of changes, drawn when asked for            |
 | `/events`                            | Server-Sent Events: `hello`, then `start` and `build` per build           |
 
 Each response has an `x-tsdraft-session` header, and each state or picture an `x-tsdraft-build`
 header that gives the build it came from. The page links the PDF of the sheet on screen and of
 the set, and `/state.json` gives their URLs in `outputs.pdf` and `outputs.layouts[].pdf`. A PNG is at most
 16 million pixels; a wider request is narrowed, and `x-tsdraft-width` gives the width used.
+
+`tsdraft shows <drawing file> [--sheet <layout> | --layout <layout>] [--near <x,y> [--within <d>]]
+[--xref <name>=<file>]... [--reader <package>]` reads a DXF, or a file of another format through
+its reader, and prints as JSON what it shows, as
+[What a sheet shows](reading.md#what-a-sheet-shows) says: with `--sheet`, the layout's paper and
+what each viewport that is on shows of model space, each box on the paper; with `--layout`, the
+layout's paper alone; with neither, model space. With `--near`, only what comes within `--within`
+of the point, nearest first, with its `distance`. An xref is followed only where `--xref` gives
+its file, at any depth by the xref's name, and inside an xref only its attachments, as CAD
+programs load no overlay of a referenced drawing. At most 64 reads of xrefs are given, counting
+each place a file is attached at, and past them the JSON says `xrefsCapped`. The JSON gives the file, its reader, `from`, which is
+`memory`, `disk` or `file` for where its read came from, the xrefs followed, `skipped` for an
+xref's file that could not be read, the `entities` and `capped`. It exits 0 with an answer, 1 for
+a file that could not be read or a layout the file does not have, and 64 for wrong usage.
+
+```sh
+tsdraft shows A-102.dwg --sheet A-102 --xref "FLOOR PLAN=../1_Model/FLOOR PLAN.dwg"
+tsdraft shows A-102.dwg --sheet A-102 --near 12.5,8 --within 0.25 --xref "FLOOR PLAN=../1_Model/FLOOR PLAN.dwg"
+```
 
 ## A closer look
 
@@ -299,6 +343,15 @@ the line of a helper when the helper threw, and your call when tsdraft threw. A 
 `call` does not skip to your project's code. It is the line that called the builder method,
 which is inside a helper function or a package when one of those drew the entity.
 
+For an edit file, `edit` gives the `source` it edits, the edit's `name` and `sha256`, `read`, the
+SHA-256 of the file as it is, `applied`, false when the two differ, how many entities the
+pictures draw `erased` and `moved`, and each of its `statements`: its `kind`, the `call` that made
+it, the `handles` it names, and its `box` in model space and on each sheet in `layouts`, where it
+was and, for a move, where it goes, which `--view` takes. A change's box is its entity's before
+the change. `lintEdit`'s diagnostics have a rule that starts
+with `edit-`, the `statement` and the `call` that made it, the `handle`, and `bounds` where the
+handle's entity draws. Any other drawing file has no `edit`, and `outputs.changes` is `null`.
+
 In `tsdraft dev`, `session` changes each time the server starts, and `pending` is the number of
 the build that is queued or running, or `null` when the state is the latest.
 
@@ -429,12 +482,21 @@ takes, in order:
 3. the first copy the build loaded, when it loaded several and the project has none;
 4. the library the command was installed with.
 
+## Writing an edited copy
+
+`tsdraft write <edit file>... [--out <dir>] [--root <dir>] [--reader <package>]` makes the edited
+copy of the file each edit file names, runs the checks of every job on it, and writes it only
+when they pass. The last check draws each sheet whose picture the job changes as a PNG and a PDF
+beside the copies, and lists them in the check's `sheets`. [Editing a firm's drawing](editing.md#tsdraft-write) says how, and gives its
+limits. It finds the editor of a file of another format in the package that reads it, by the
+rules below, where that package names an editor too.
+
 ## Reading drawing files
 
-No command reads a drawing file yet. One that does reads a DXF with the library's `readDXF`, and
-a file of another format, such as a DWG, with a reader: a package that names one in its
-`package.json`, as [Reading drawing files](reading.md#readers-of-other-formats) says. The rules
-below hold for every such command.
+`tsdraft shows` and `tsdraft write` read drawing files. It reads a DXF with the library's `readDXF`, and a file of
+another format, such as a DWG, with a reader: a package that names one in its `package.json`, as
+[Reading drawing files](reading.md#readers-of-other-formats) says. The rules below hold for every
+command that reads one.
 
 ### Which reader
 
@@ -477,6 +539,19 @@ hand. A command ended by SIGINT or SIGTERM ends its reading processes first. The
 back with no prototype on any of its objects, as `readDXF` gives its maps. Its answer is checked as plain data with `checkDrawingRead`, and its `bytes` and `sha256`
 must be the file's. A file that breaks a limit, makes the reader throw, ends the process or
 gives a malformed answer is skipped with the reason, and the next file is read.
+
+### The read cache
+
+A file is read once for each SHA-256 of its bytes, the reader and its version, tsdraft's version,
+and what is read.
+The read is kept in memory for as long as the command runs, and on disk in the project's
+`node_modules/.cache/tsdraft/reads`, or the user's cache folder where there is no project, so a
+second command reads none of it again. A file is watched by its size, its time and its inode,
+and hashed again only when one of them changes, or when it was saved within two seconds of being
+read, which a clock's tick may hide. A reader, or tsdraft, outside a `node_modules` folder, as in
+a checkout, is told apart by its files' sizes and times as well as its version. A kept read is checked as a
+reader's answer is, `checkDrawingRead` and the file's size and hash, and one that fails is
+removed and the file read again. The folder keeps the 64 reads used last, within 2 GB.
 
 ### What the limits do not enforce
 

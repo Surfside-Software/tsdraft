@@ -10,7 +10,7 @@ import {
   type Drawing,
   type LinetypeDefinition,
 } from "../src/index.ts";
-import { MARK_SHAPE_NAME, MARKS_ORDER } from "../src/rules.ts";
+import { MARK_GLYPH_NAME, MARKS_ORDER } from "../src/rules.ts";
 
 const WATER: LinetypeDefinition = {
   name: "WATER",
@@ -30,8 +30,11 @@ function pipe(length: number, linetypeGeneration?: boolean): Drawing {
       [length / 2, length / 2],
     ],
     false,
-    { linetype: "WATER", ...(linetypeGeneration === undefined ? {} : { linetypeGeneration }) },
+    linetypeGeneration === undefined
+      ? { linetype: "WATER" }
+      : { linetype: "WATER", linetypeGeneration },
   );
+
   return d.build();
 }
 
@@ -45,11 +48,13 @@ test("a pipe's letters run on past each vertex only with linetype generation", (
   const d = createDrawing({ units: "in" });
   d.textStyle({ name: "LT", font: "Arial" });
   d.linetype(WATER);
+
   const points = [
     [0, 0],
     [0.9, 0],
     [0.9, 0.9],
   ] as const;
+
   d.polyline(points, false, {
     linetype: "WATER",
     linetypeGeneration: true,
@@ -101,9 +106,9 @@ test("a mark's rules hold in the type and when the code runs", () => {
       d.linetype({
         name: "FENCE",
         pattern: [1, -0.1],
-        marks: [{ after: 1, shape: "CIRC1", file: "shapes.shx", scale: 0.1 }],
+        marks: [{ after: 1, glyph: "CIRC1", file: "shapes.shx", scale: 0.1 }],
       }),
-    (e: Error) => e.message.includes(MARK_SHAPE_NAME),
+    (e: Error) => e.message.includes(MARK_GLYPH_NAME),
   );
 });
 
@@ -120,12 +125,13 @@ test("lint finds a mark's text style, and warns of shapes it plots as gaps", () 
         pattern: [1, -0.1, -0.1],
         marks: [
           { after: 1, text: "F", style: "NONE", height: 0.1 },
-          { after: 2, shape: 133, file: "shapes.shx", scale: 0.1 },
+          { after: 2, glyph: 133, file: "shapes.shx", scale: 0.1 },
         ],
       },
     ],
     entities: [],
   };
+
   const rules = lint(drawing).map((d) => `${d.rule} ${d.severity}`);
   assert.ok(rules.includes("undefined-text-style error"));
   assert.ok(rules.includes("linetype-shape warning"));
@@ -141,6 +147,7 @@ test("parseLinetypes reads a linetype file's texts and shapes, each after its le
       "A,.25,-.1,[CIRC1,shapes.shx,x=-.1,s=.1,r=1.5708r],-.1,1",
     ].join("\r\n"),
   );
+
   assert.deepEqual(gas, {
     name: "GAS",
     description: "Gas line ---- GAS ----",
@@ -156,9 +163,15 @@ test("parseLinetypes reads a linetype file's texts and shapes, each after its le
       },
     ],
   });
-  const shape = fence?.marks?.[0];
-  assert.ok(shape && "shape" in shape && shape.shape === "CIRC1" && shape.file === "shapes.shx");
-  assert.ok(Math.abs((shape.rotation ?? 0) - 90) < 1e-3);
+  const glyphMark = fence?.marks?.[0];
+  assert.ok(
+    glyphMark &&
+      "glyph" in glyphMark &&
+      glyphMark.glyph === "CIRC1" &&
+      glyphMark.file === "shapes.shx",
+  );
+  assert.ok(Math.abs((glyphMark.rotation ?? 0) - 90) < 1e-3);
+
   for (const [text, message] of [
     ["A,1,-1", /before any \*NAME/],
     ['*X\nA,["T",S],1', /comes after the length/],

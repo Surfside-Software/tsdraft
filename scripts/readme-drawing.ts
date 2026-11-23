@@ -45,7 +45,7 @@ const sitePicture = toSVG(site.drawing, { layout: site.drawing.layouts![0]!.name
 const planSetSheet = (layout: string) => toSVG(planSet, { layout, xrefs: planSetXrefs });
 
 /** The layers every sheet of the permit set draws: the border, its fields and the revisions. */
-const planSetFrame: Record<string, Role> = {
+const planSetFrame = {
   "TB-ARCHD|G-TTLB-HEVY": "line",
   "TB-ARCHD|G-TTLB": "line",
   "TB-ARCHD|G-TTLB-FINE": "muted",
@@ -61,7 +61,7 @@ const planSetFrame: Record<string, Role> = {
   "A-ANNO-DIMS": "accent",
   "A-GLAZ": "line",
   "A-DOOR": "line",
-};
+} satisfies Record<string, Role>;
 
 const themes = {
   light: { bg: "#f6f8fa", line: "#1f2328", muted: "#818b98", accent: "#0d7a8c" },
@@ -170,6 +170,7 @@ const GROUPED = / data-(dimension|leader|paragraph|point)="/;
 /** A line one pixel wide just inside the edge of the picture, which is the sheet's edge. */
 function sheetOutline(x: number, y: number, w: number, h: number, pixel: number, color: string) {
   const at = [x + pixel / 2, y + pixel / 2, w - pixel, h - pixel].map((n) => Number(n.toFixed(3)));
+
   return `  <rect x="${at[0]}" y="${at[1]}" width="${at[2]}" height="${at[3]}" rx="2" fill="none" stroke="${color}" stroke-width="${Number(pixel.toFixed(3))}"/>`;
 }
 
@@ -186,19 +187,23 @@ function sheetPicture(
   const [x = 0, y = 0, w = 0, h = 0] = (/viewBox="([^"]+)"/.exec(svg)?.[1] ?? "")
     .split(" ")
     .map(Number);
+
   const base = Number(
     /<g transform="scale\(1 -1\)" fill="none" stroke-width="([^"]+)"/.exec(svg)?.[1],
   );
+
   if (!(w > 0) || !(base > 0) || !svg.includes(PAPER)) {
     throw new Error(
       "toSVG's picture of a layout changed shape, so the restyling no longer applies",
     );
   }
+
   const unitsPerPixel = w / width;
   const wider = (pen * unitsPerPixel) / base;
   // The layer of each group open around a line: a dimension's text is a group inside its own.
   const open: (string | undefined)[] = [];
   let entity: string | undefined;
+
   const out = svg.split("\n").map((line) => {
     if (line.startsWith("<svg ")) {
       return line.replace(
@@ -206,6 +211,7 @@ function sheetPicture(
         `viewBox="${x} ${y} ${w} ${h}" width="${width}" height="${Math.round((width * h) / w)}">`,
       );
     }
+
     if (line.includes(PAPER)) {
       return [
         `  <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${Number((2 * unitsPerPixel).toFixed(4))}" fill="${colors.bg}"/>`,
@@ -215,36 +221,47 @@ function sheetPicture(
         ),
       ].join("\n");
     }
+
     const layer = /data-layer="([^"]+)"/.exec(line)?.[1];
+
     if (GROUPED.test(line)) open.push((entity = layer ?? entity));
     else if (/^\s*<g [^>]*[^/]>$/.test(line)) open.push(entity);
     else if (line.trim() === "</g>") {
       open.pop();
       entity = open.at(-1);
     }
+
     const drawnOn = layer ?? entity;
     const role = drawnOn === undefined ? undefined : roles[drawnOn];
+
     if (drawnOn !== undefined && !role) throw new Error(`Layer ${drawnOn} of ${name} has no role`);
+
     const styled = line.replace(/stroke-width="([^"]+)"/, (_, value: string) => {
       return `stroke-width="${Number((Number(value) * wider).toPrecision(5))}"`;
     });
+
     // The hidden rectangle of a clipped view draws nothing, and has no layer.
     if (line.includes('visibility="hidden"')) {
       return styled.replace('stroke="#000000"', `stroke="${colors.muted}"`);
     }
+
     if (!role) return styled;
+
     return styled
       .replace(/ data-layer="[^"]*"/, "")
       .replace(/ data-entity="[^"]*"/, "")
       .replace(/stroke="#000000"/, `stroke="${colors[role]}"`)
       .replace(/fill="#000000"/, `fill="${colors[role]}"`);
   });
+
   const text = out.join("\n");
+
   if (!text.includes(colors.accent) || text.includes("data-layer") || text.includes("#000000")) {
     throw new Error(
       "toSVG's picture of a layout changed shape, so the restyling no longer applies",
     );
   }
+
   return text;
 }
 
@@ -254,6 +271,7 @@ for (const picture of pictures) {
     cwd: root,
     stdio: "inherit",
   });
+
   if (picture.sheetSvg !== undefined) {
     for (const [theme, colors] of Object.entries(themes)) {
       writeFileSync(
@@ -261,26 +279,38 @@ for (const picture of pictures) {
         sheetPicture(picture.sheetSvg, picture, colors),
       );
     }
+
     console.log(`Wrote docs/assets/${name}-light.svg and ${name}-dark.svg`);
     continue;
   }
+
   const svg = readFileSync(`${root}/examples/out/${name}.svg`, "utf8");
+
   if (!svg.includes(group)) {
     throw new Error("toSVG's output changed shape, so the restyling no longer applies");
   }
 
   for (const [theme, colors] of Object.entries(themes)) {
     let unitsPerPixel = 0;
+
     const lines = svg
       .replace(/viewBox="([^"]+)">/, (_, box: string) => {
         // The view box has Y pointing down, so the sheet's top edge is its least Y.
         const [x = 0, y = 0, w = 0, h = 0] = sheet
           ? [sheet.left, -sheet.top, sheet.right - sheet.left, sheet.top - sheet.bottom]
           : box.split(" ").map(Number);
-        const [vx, vy, vw, vh] = [x - pad, y - pad, w + pad * 2, h + pad * 2].map((n) =>
-          Number(n.toFixed(6)),
-        ) as [number, number, number, number];
+
+        const fixed = (n: number) => Number(n.toFixed(6));
+
+        const [vx, vy, vw, vh] = [
+          fixed(x - pad),
+          fixed(y - pad),
+          fixed(w + pad * 2),
+          fixed(h + pad * 2),
+        ];
+
         unitsPerPixel = vw / width;
+
         return [
           `viewBox="${vx} ${vy} ${vw} ${vh}" width="${width}" height="${Math.round((width * vh) / vw)}">`,
           `  <rect x="${vx}" y="${vy}" width="${vw}" height="${vh}" rx="2" fill="${colors.bg}"/>`,
@@ -292,6 +322,7 @@ for (const picture of pictures) {
         `<g transform="scale(1 -1)" fill="none"${roundCaps ? ' stroke-linecap="round"' : ""} stroke-linejoin="round">`,
       )
       .split("\n");
+
     // Entities drawn alike share one group that carries their color and width, which keeps the
     // file small.
     const body: string[] = [];
@@ -300,31 +331,39 @@ for (const picture of pictures) {
     let entity: { role: Role; tag: string } | undefined;
     // The groups open inside the entity's own, such as a dimension's text.
     let inner = 0;
+
     for (const line of lines) {
       const layer = /data-layer="([^"]+)"/.exec(line)?.[1];
       const own = layer === undefined ? undefined : roles[layer];
+
       if (layer !== undefined && !own) throw new Error(`Layer ${layer} of ${name} has no role`);
       const role = entity?.role ?? own;
       const relative = Number(/ stroke-width="([\d.]+)"/.exec(line)?.[1] ?? 1);
       const strokeWidth = Number((relative * pen * unitsPerPixel).toFixed(3));
+
       const groupTag =
         entity?.tag ??
         (role ? `    <g stroke="${colors[role]}" stroke-width="${strokeWidth}">` : "");
+
       if (entity && /^\s*<g [^>]*[^/]>$/.test(line)) inner++;
       else if (role && GROUPED.test(line)) entity = { role, tag: groupTag };
       else if (line.trim() === "</g>") {
         if (inner > 0) inner--;
         else entity = undefined;
       }
+
       if (groupTag !== openGroup) {
         if (openGroup) body.push("    </g>");
+
         if (groupTag) body.push(groupTag);
         openGroup = groupTag;
       }
+
       if (!role) {
         body.push(line);
         continue;
       }
+
       body.push(
         line
           .replace(/ vector-effect="non-scaling-stroke"/, "")
@@ -339,7 +378,9 @@ for (const picture of pictures) {
           ),
       );
     }
+
     const out = body.join("\n");
+
     if (
       !out.includes(colors.bg) ||
       !out.includes(colors.accent) ||
@@ -349,7 +390,9 @@ for (const picture of pictures) {
     ) {
       throw new Error("toSVG's output changed shape, so the restyling no longer applies");
     }
+
     writeFileSync(`${root}/docs/assets/${name}-${theme}.svg`, out);
   }
+
   console.log(`Wrote docs/assets/${name}-light.svg and ${name}-dark.svg`);
 }

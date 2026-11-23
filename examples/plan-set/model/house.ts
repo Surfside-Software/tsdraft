@@ -51,28 +51,33 @@ export interface Level {
 }
 
 /** Window types, by tag. Width and height in inches, head at 8'-0" unless noted. */
-export const WINDOW_TYPES: Record<
+export const WINDOW_TYPES = new Map<
   string,
   { width: number; height: number; kind: string; note: string }
-> = {
-  A: { width: 36, height: 60, kind: "SINGLE HUNG", note: "IMPACT LAMINATED, LOW-E" },
-  B: { width: 48, height: 42, kind: "CASEMENT", note: "IMPACT LAMINATED, LOW-E" },
-  C: { width: 24, height: 36, kind: "AWNING", note: "IMPACT, OBSCURE GLASS" },
-  D: { width: 36, height: 36, kind: "SINGLE HUNG", note: "IMPACT LAMINATED, LOW-E" },
-  E: { width: 72, height: 60, kind: "TWIN SINGLE HUNG", note: "IMPACT LAMINATED, LOW-E, MULLED" },
-};
+>([
+  ["A", { width: 36, height: 60, kind: "SINGLE HUNG", note: "IMPACT LAMINATED, LOW-E" }],
+  ["B", { width: 48, height: 42, kind: "CASEMENT", note: "IMPACT LAMINATED, LOW-E" }],
+  ["C", { width: 24, height: 36, kind: "AWNING", note: "IMPACT, OBSCURE GLASS" }],
+  ["D", { width: 36, height: 36, kind: "SINGLE HUNG", note: "IMPACT LAMINATED, LOW-E" }],
+  [
+    "E",
+    { width: 72, height: 60, kind: "TWIN SINGLE HUNG", note: "IMPACT LAMINATED, LOW-E, MULLED" },
+  ],
+]);
 
 /** A window. `head` is its head height above the level's floor: 8'-0" on the first floor. */
-const win = (tag: keyof typeof WINDOW_TYPES, cut: Rect, head = 96): Opening => ({
+const win = (tag: string, cut: Rect, head = 96): Opening => ({
   cut,
   kind: "window",
   tag,
-  height: WINDOW_TYPES[tag]!.height,
+  height: WINDOW_TYPES.get(tag)!.height,
   head,
   exterior: true,
 });
+
 /** Second-floor heads, 7'-2" so the trim clears the soffit and every sill is 24" or more. */
 const L2_HEAD = 86;
+
 /** Garage window heads: 8'-0" above the garage slab, which is 2'-6" below the first floor. */
 const GARAGE_HEAD = 66;
 
@@ -116,6 +121,7 @@ export const FLOOD_VENT_RATING = 200;
 
 /** The powder room's fixtures, by the y of their centerlines on the west wall. */
 export const POWDER = { wc: 500, vanity: 470, vanityWidth: 30 };
+
 export const FLOOD_VENTS: { at: Point; wall: "W" | "S" }[] = [
   { at: [4, 22], wall: "W" },
   { at: [4, 100], wall: "W" },
@@ -143,6 +149,7 @@ const L1_EXT: Rect[] = [
   [376, 0, 384, 80], // the porch's east side
   [8, 288, 272, 296], // garage to laundry, masonry
 ];
+
 const L1_INT: Rect[] = [
   [379.5, 80, 384, 292.5],
   [384, 192, 616, 196.5],
@@ -255,6 +262,7 @@ const L2_EXT: Rect[] = [
   [0, 522, 624, 528],
   [618, 0, 624, 528],
 ];
+
 const L2_INT: Rect[] = [
   [216, 6, 220.5, 522],
   [6, 204, 216, 208.5],
@@ -400,6 +408,7 @@ export function areas() {
   const l1Gross = (W * DEPTH) / 144 - porch - garage;
   const l2Gross = (W * DEPTH) / 144;
   const lanai = sf(LANAI);
+
   return {
     garage,
     porch,
@@ -422,21 +431,25 @@ export const ROOF = (() => {
   const eave: Rect = [-o, -o, W + o, DEPTH + o];
   const half = (eave[3] - eave[1]) / 2; // the run from the eave to the ridge
   const ridgeY = (eave[1] + eave[3]) / 2;
+
   const ridge: [Point, Point] = [
     [eave[0] + half, ridgeY],
     [eave[2] - half, ridgeY],
   ];
+
   // The roof plane is `heel` above the plate over the outside face of the wall.
   const atWall = HEIGHTS.l2Top + HEIGHTS.heel;
   const eaveHeight = atWall - (o * HEIGHTS.pitch) / 12;
   const ridgeHeight = eaveHeight + (half * HEIGHTS.pitch) / 12;
+
   const lanai = {
-    rect: [LANAI[0] - 12, DEPTH, LANAI[2] + 12, LANAI[3] + 18] as Rect,
+    rect: [LANAI[0] - 12, DEPTH, LANAI[2] + 12, LANAI[3] + 18] satisfies Rect,
     high: 150, // at the ledger on the house's wall
     get low() {
       return this.high - ((this.rect[3] - this.rect[1]) * HEIGHTS.lanaiPitch) / 12;
     },
   };
+
   return { eave, ridge, ridgeY, eaveHeight, ridgeHeight, lanai };
 })();
 
@@ -444,6 +457,7 @@ export const ROOF = (() => {
 export const WINDOW_MARKS: Map<Opening, string> = (() => {
   const marks = new Map<Opening, string>();
   let n = 0;
+
   for (const [level, prefix] of [
     [L1, "1"],
     [L2, "2"],
@@ -451,5 +465,6 @@ export const WINDOW_MARKS: Map<Opening, string> = (() => {
     for (const o of level.openings)
       if (o.kind === "window") marks.set(o, `${prefix}-${String(++n).padStart(2, "0")}`);
   }
+
   return marks;
 })();

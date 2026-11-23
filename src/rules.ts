@@ -3,8 +3,25 @@
 // runtime check, for values the compiler can't see. The messages are shared.
 //
 // That app discards the whole drawing over most names that break the name rules.
+import {
+  isBoolean,
+  isFunction,
+  isKeyed,
+  isNumber,
+  isObjectOrArray,
+  isRecord,
+  isString,
+} from "./guards.ts";
 import type { XrefProblem } from "./blocks.ts";
-import type { DxfVersion, EntityColor, HatchGradient, Point, Rgb, Units } from "./drawing.ts";
+import type {
+  DxfVersion,
+  EntityColor,
+  HatchGradient,
+  Leader,
+  Point,
+  Rgb,
+  Units,
+} from "./drawing.ts";
 import { clamped, fitSpline, type FittedSpline } from "./curves.ts";
 import type { PaperUnit } from "./paper.ts";
 import { paperInfo, PLOT_STYLE_TABLES, type Paper, type PlotStyleTable } from "./papers.ts";
@@ -86,6 +103,7 @@ const LAYER_NAMES = {
   edge: "Layer names cannot start or end with a space",
   length: "Layer names cannot be longer than 255 characters",
 } as const;
+
 const LINETYPE_NAMES = {
   empty: "Linetype names cannot be empty",
   chars: 'Linetype names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
@@ -94,6 +112,7 @@ const LINETYPE_NAMES = {
   edge: "Linetype names cannot start or end with a space",
   length: "Linetype names cannot be longer than 255 characters",
 } as const;
+
 const TEXT_STYLE_NAMES = {
   empty: "Text style names cannot be empty",
   chars: 'Text style names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
@@ -102,6 +121,7 @@ const TEXT_STYLE_NAMES = {
   edge: "Text style names cannot start or end with a space",
   length: "Text style names cannot be longer than 255 characters",
 } as const;
+
 const BLOCK_NAMES = {
   empty: "Block names cannot be empty",
   chars:
@@ -112,6 +132,7 @@ const BLOCK_NAMES = {
   length:
     "Block names cannot be longer than 255 characters. The leading CAD app's BLOCK command refuses a longer name",
 } as const;
+
 const DIMENSION_STYLE_NAMES = {
   empty: "Dimension style names cannot be empty",
   chars: 'Dimension style names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
@@ -121,6 +142,7 @@ const DIMENSION_STYLE_NAMES = {
   length:
     "Dimension style names cannot be longer than 255 characters. The leading CAD app's DIMSTYLE command refuses a longer name",
 } as const;
+
 const LEADER_STYLE_NAMES = {
   empty: "Leader style names cannot be empty",
   chars: 'Leader style names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
@@ -130,6 +152,7 @@ const LEADER_STYLE_NAMES = {
   length:
     "Leader style names cannot be longer than 255 characters, as dimension style names cannot",
 } as const;
+
 const TABLE_STYLE_NAMES = {
   empty: "Table style names cannot be empty",
   chars: 'Table style names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
@@ -138,6 +161,7 @@ const TABLE_STYLE_NAMES = {
   edge: "Table style names cannot start or end with a space",
   length: "Table style names cannot be longer than 255 characters, as dimension style names cannot",
 } as const;
+
 const HATCH_PATTERN_NAMES = {
   empty: "Hatch pattern names cannot be empty",
   chars: 'Hatch pattern names cannot contain < > / \\ " : ; ? * | = ` ^ , or line breaks',
@@ -146,6 +170,7 @@ const HATCH_PATTERN_NAMES = {
   edge: "Hatch pattern names cannot start or end with a space",
   length: "Hatch pattern names cannot be longer than 255 characters",
 } as const;
+
 type NameMessages =
   | typeof LAYER_NAMES
   | typeof LINETYPE_NAMES
@@ -155,224 +180,338 @@ type NameMessages =
   | typeof LEADER_STYLE_NAMES
   | typeof HATCH_PATTERN_NAMES
   | typeof TABLE_STYLE_NAMES;
+
 const NAME_R12_CHARS =
   'R12 layer names can only use letters, digits, $, - and _. Use DXF version "R2018" for other characters';
+
 const NAME_R12_LENGTH =
   'R12 layer names cannot be longer than 31 characters. Use DXF version "R2018" for longer names';
+
 const COLOR = "A layer color must be a color index, an integer from 1 to 255";
+
 export const ENTITY_TRANSPARENCY =
   'An entity\'s transparency is a whole percent from 0 to 90, "ByLayer" or "ByBlock": 50 for half, not 0.5';
+
 export const ENTITY_COLOR =
   'An entity\'s color is a color index, a whole number from 1 to 255, "ByLayer", "ByBlock", or a true color: its red, green and blue, each a whole number from 0 to 255';
+
 const POSITIVE = "This value must be greater than 0";
+
 const WRITTEN_AS_ZERO =
   "This value is written as 0, because tsdraft writes 6 decimals. Use 0.000001 or more";
+
 const TOO_LARGE =
   "This value must be under 1e100, because the leading CAD app reads only two exponent digits from DXF and would take 1e+100 for 1e+10";
+
 const PAPER_LENGTH = "The paper length must be greater than 0";
 const RATIO = "The ratio must be greater than 0";
+
 const ARC_LOST =
   "An arc of nearly a full turn cannot be written: its angles are the same once rounded to 6 decimals, so the leading CAD app would hold an arc of no length. Draw a circle instead";
+
 const TEXT_CONTROL = "Text must be a single line with no control characters";
+
 const TEXT_PRIVATE_USE =
   "Text cannot contain the private-use characters U+E800 to U+E8FF, because the leading CAD app replaces them when it reads DXF";
+
 const R12_LINETYPES =
   'R12 drawings have no linetypes but Continuous, and no linetype scale. Use DXF version "R2018" for linetypes';
+
 const R12_LINEWEIGHTS = 'R12 drawings have no lineweights. Use DXF version "R2018" for lineweights';
+
 const R12_ENTITY_STYLE =
   'R12 entities take no linetype or lineweight of their own. Use DXF version "R2018" for an entity linetype or lineweight';
+
 const R12_ENTITY_TRANSPARENCY =
   'R12 entities take no transparency of their own. Use DXF version "R2018" for an entity transparency';
+
 const R12_ENTITY_COLOR =
   'R12 entities take no color of their own. Use DXF version "R2018" for an entity color';
+
 const R12_LAYER_STATES =
   'tsdraft writes no layer states to R12 drawings. Use DXF version "R2018" for layers that are off, frozen, locked or not plotted';
+
 const R12_BLOCKS =
   'tsdraft writes no blocks to R12 drawings. Use DXF version "R2018" for blocks, inserts and attributes';
+
 const R12_XREFS = 'tsdraft writes no xrefs to R12 drawings. Use DXF version "R2018" for an xref';
+
 const R12_LAYOUTS =
   'tsdraft writes no layouts to R12 drawings. Use DXF version "R2018" for a layout';
+
 const R12_DIMENSIONS =
   'tsdraft writes no dimensions to R12 drawings. Use DXF version "R2018" for a dimension';
+
 const R12_LEADERS =
   'tsdraft writes no leaders to R12 drawings. Use DXF version "R2018" for a leader';
+
 const R12_PARAGRAPHS =
   'tsdraft writes no paragraphs to R12 drawings. Use DXF version "R2018" for a paragraph';
+
 const LINE_SPACING = "A paragraph's line spacing is a factor from 0.25 to 4";
 const R12_IMAGES = 'tsdraft writes no images to R12 drawings. Use DXF version "R2018" for an image';
+
 const R12_UNDERLAYS =
   'tsdraft writes no PDF underlays to R12 drawings. Use DXF version "R2018" for an underlay';
+
 const UNDERLAY_PATH_EMPTY =
   "An underlay's path cannot be empty. The leading CAD app finds no file by it";
+
 const UNDERLAY_PATH_ABSOLUTE =
   'An underlay\'s path must start from the folder of the drawing\'s file, as "arch.pdf" and "../arch/A-101.pdf" do, and cannot start with /, \\ or a drive such as C:. The leading CAD app looks for the file of an absolute path in that folder alone, and on another machine finds none';
+
 const UNDERLAY_PATH_CHARS =
   "An underlay's path cannot hold * ? < > | : or \". The leading CAD app finds no file whose name holds one of them";
+
 const UNDERLAY_PATH_LENGTH =
   "An underlay's path cannot be longer than 32,000 characters. The leading CAD app finds no file by a path that comes to more than 32,767 characters with the folder of the drawing";
+
 const UNDERLAY_PATH_MULTIBYTE =
   "An underlay's path cannot hold a backslash before M+, a digit from 1 to 5 and four hex digits, such as \\M+10041. The leading CAD app reads those as one character, and looks for another file. Write / there";
+
 const UNDERLAY_PAGE =
   'An underlay\'s page is its number from 1, written as a string of digits with no leading 0, such as "1" or "12", up to "2147483647"';
+
 const UNDERLAY_PAGE_SIZE =
   "An underlay's pageSize is its page's width and height in inches, two numbers greater than 0 as written and below 1e100, which pdfPageSize reads from the file";
+
 const UNDERLAY_FADE =
   "An underlay's fade is a whole number from 0 to 80, as the leading CAD app sets it";
+
 const UNDERLAY_CONTRAST =
   "An underlay's contrast is a whole number from 20 to 100, as the leading CAD app sets it";
+
 const UNDERLAY_SCALE = "An underlay's scale must be greater than 0 as written, and below 1e100";
+
 const UNDERLAY_PLACED =
   "An underlay's page at its scale must come to less than 1e100 drawing units each way, which a file can write";
+
 const R12_TABLES = 'tsdraft writes no tables to R12 drawings. Use DXF version "R2018" for a table';
+
 const R12_HATCHES =
   'tsdraft writes no hatches or wipeouts to R12 drawings. Use DXF version "R2018" for a fill';
+
 const R12_POINTS = 'tsdraft writes no points to R12 drawings. Use DXF version "R2018" for a point';
+
 const R12_CURVES =
   'tsdraft writes no ellipses or splines to R12 drawings. Use DXF version "R2018" for a curve';
+
 const IMAGE_PATH_EMPTY = "An image's path cannot be empty. The leading CAD app finds no file by it";
+
 const IMAGE_PATH_ABSOLUTE =
   'An image\'s path must start from the folder of the drawing\'s file, as "aerial.png" and "../images/aerial.png" do, and cannot start with /, \\ or a drive such as C:. The leading CAD app looks for the file of an absolute path in that folder alone, and on another machine finds none';
+
 const IMAGE_PATH_CHARS =
   "An image's path cannot hold * ? < > | : or \". The leading CAD app finds no file whose name holds one of them";
+
 const IMAGE_PATH_LENGTH =
   "An image's path cannot be longer than 32,000 characters. The leading CAD app finds no file by a path that comes to more than 32,767 characters with the folder of the drawing";
+
 const IMAGE_PATH_MULTIBYTE =
   "An image's path cannot hold a backslash before M+, a digit from 1 to 5 and four hex digits, such as \\M+10041. The leading CAD app reads those as one character, and looks for another file. Write / there";
+
 const IMAGE_PIXELS =
   "An image's pixels are its file's width and height in pixels, each a whole number from 1 to 2,147,483,647, which rasterSize reads from the file. The leading CAD app draws the file's own pixels at the size each has in the drawing, so pixels other than the file's plot it at the wrong size";
+
 const IMAGE_CLIP_POINTS =
   "An image's clip is two opposite corners of a rectangle along its sides, or a polygon of at least 3 points";
+
 const IMAGE_CLIP_RECTANGLE =
   "An image's clip of two corners must have its corners apart along the image's width and up its height, as written: it is a rectangle along the image's sides, and one of no width or height shows nothing";
+
 const IMAGE_CLIP_POLYGON =
   "An image's clip of a polygon needs at least 3 points that differ, as written";
+
 const IMAGE_INVERT_CLIP =
   "invertClip needs a clip: it shows the image outside the clip, and with no clip there is no outside";
+
 const IMAGE_PIXELS_DIFFER =
   "Two images of one file must give it the same pixels: the file is written once, as one definition, with its pixels";
+
 const R12_POLYLINES =
   'tsdraft writes no arcs or widths of a polyline to R12 drawings. Use DXF version "R2018" for a polyline with bulges or a width';
+
 const POLYLINE_WIDTH =
   "A polyline's width cannot be less than 0. The leading CAD app reads a negative width of every side as 0, and keeps a negative width of one side with no AUDIT error";
+
 const DONUT_HOLE = "A donut's hole cannot be less than 0 across";
+
 const ARROWHEAD_BLOCK =
   "Block names cannot be _ArchTick, _Oblique, _Open, _Dot or _None, in any case of their letters. The leading CAD app draws the ticks of a dimension and the arrowheads of a leader with the blocks of those names";
+
 const STANDARD_DIMENSION_STYLE_DEFINED =
   'The dimension style "Standard" is in every drawing and cannot be defined. The leading CAD app keeps the first style of a name and skips a second';
+
 const STANDARD_DIMENSION_STYLE_USED =
   'tsdraft draws no dimension in the dimension style "Standard", which is the leading CAD app\'s own. Define a style with dimensionStyle() and name it';
+
 const ARROWHEAD = 'An arrowhead must be one of ARROWHEADS: "closed-filled" or "architectural-tick"';
+
 const NOT_NEGATIVE =
   "This value cannot be less than 0. The leading CAD app's AUDIT reports a dimension style with a negative size";
+
 const TEXT_GAP =
   "The gap cannot be less than 0. The leading CAD app draws a box around the text of a dimension whose style has a negative gap";
+
 const DIMENSION_SCALE =
   "The scale must be greater than 0. The leading CAD app takes a scale of 0 for one it works out from a viewport, and its AUDIT reports a negative one";
+
 const MEASUREMENT_SCALE =
   "The measurement scale must be greater than 0. The leading CAD app's AUDIT reports a scale of 0, and that app applies a negative one only to a dimension on a layout";
+
 const PRECISION =
   "A precision is a whole number from 0 to 8: the decimals of a measurement, or in architectural units the least fraction of an inch, 1 over 2 to that power. The leading CAD app's AUDIT reports a dimension style with any other";
+
 const ZERO_SUPPRESSION = 'suppressZeros must be "leading", "trailing" or "both"';
 const DIMENSION_UNITS_MESSAGE = 'units must be "decimal" or "architectural"';
 const FEET_INCH_ZEROS_MESSAGE = 'feetInchZeros must be "inches", "feet", "both" or "neither"';
 const DIMENSION_FRACTION_MESSAGE = 'fraction must be "inline", "stacked" or "diagonal"';
+
 const FRACTION_SCALE_MESSAGE =
   "fractionScale must be a number from 0.25 to 1: the height of a stacked fraction as a share of the text's";
+
 const FRACTION_OF_UNITS =
   'fraction and fractionScale are for a style in "architectural" units, which writes a fraction of an inch';
+
 const FRACTION_SCALE_INLINE =
   'fractionScale sizes a fraction that is "stacked" or "diagonal". A fraction on the line is as high as the text';
+
 const TEXT_PLACEMENT_MESSAGE = 'textPlacement must be "above" or "centered"';
 const TEXT_FIT_MESSAGE = 'textFit must be "inside" or "leader"';
 const RADIAL_TEXT_MESSAGE = 'radialText must be "aligned" or "horizontal"';
 const JOG_ANGLE_MESSAGE = "jogAngle must be a number of degrees from 5 to 90";
+
 const ANGLE_UNITS_MESSAGE =
   'angleUnits must be "degrees", "degrees-minutes-seconds", "grads" or "radians"';
+
 const ANGLE_PRECISION_MESSAGE = `anglePrecision must be a whole number from 0 to ${MAX_ANGLE_PRECISION}`;
 const ANGLE_ZEROS_MESSAGE = 'suppressAngleZeros must be "leading", "trailing" or "both"';
+
 const ZEROS_OF_UNITS =
   'suppressZeros is for a style in decimal units, and feetInchZeros for one in "architectural" units, which writes feet and inches';
+
 const DIMENSION_FORMATTING =
   "The prefix, the suffix and the text of a dimension cannot contain \\ { or }. The leading CAD app reads them as the formatting of the text";
+
 const PREFIX_MEASUREMENT =
   "A prefix cannot contain <>, which the leading CAD app takes for the place of the measurement";
+
 const DIMENSION_TEXT_BLANK =
   "A dimension's text cannot be empty or all spaces. The leading CAD app draws a dimension whose text is a space with no text. Leave the text out to draw the measurement";
+
 const DIMENSION_TEXT_ALTERNATE =
   "A dimension's text cannot contain [] beside <>. The leading CAD app writes the measurement a second time for it, in alternate units";
+
 const LAYOUT_NAME_EMPTY =
   "A layout's name cannot be empty. The leading CAD app's commands take an empty answer for the current layout, so none of them can name such a layout";
+
 const LAYOUT_NAME_CHARS =
   "A layout's name cannot contain < > / \\ \" : ; ? * | , = or `. The leading CAD app's LAYOUT command refuses a name with one of them, and that app opens a file that holds such a layout without a word";
+
 const LAYOUT_NAME_EDGE =
   "A layout's name cannot start or end with a space. The leading CAD app's -PLOT command finds no layout by such a name";
+
 const LAYOUT_NAME_LENGTH =
   "A layout's name cannot be longer than 255 characters. The leading CAD app's LAYOUT command refuses a longer name";
+
 const LAYOUT_NAME_MODEL =
   "A layout cannot be named Model, in any case of its letters. The leading CAD app keeps that name for the model tab: it discards a drawing whose layout is named MODEL, takes a layout named model for the model tab's own and loses its sheet, and never finishes opening a drawing with a second layout named Model";
+
 const PAPER =
   'A paper must be one of PAPERS, the full-bleed sizes of the leading CAD app\'s DWG To PDF.pc3, such as "ARCH D", each laid out landscape. A page setup names its paper as the plotter does, and that app plots nothing for a layout whose paper the plotter knows neither by its name nor by its size';
+
 const PLOT_STYLE =
   'A plot style table must be "monochrome.ctb", "acad.ctb", "Grayscale.ctb" or "DWF Virtual Pens.ctb", which the leading CAD app installs. That app plots a layout whose plot style table it does not have with no table, each pen in its own color';
+
 const SHEET_NUMBER_LENGTH = "A sheet number has 1 to 64 characters";
+
 const SHEET_NUMBER_CHARS =
   'A sheet number cannot hold < > : " / \\ | ? *, a control character or a character above U+FFFF. Windows names no file with one of them';
+
 const SHEET_NUMBER_END =
   "A sheet number cannot end with a space or a dot. Windows drops them from the end of a file's name, so the file would not have the number's name";
+
 const SHEET_NUMBER_DEVICE =
   "A sheet number cannot be a name Windows keeps for a device: CON, PRN, AUX, NUL, COM1 to COM9 or LPT1 to LPT9, in any case and with any extension. Windows opens the device in place of a file of that name";
+
 const XREF_PATH_EMPTY =
   "An xref's path cannot be empty. The leading CAD app then looks for a DWG file named as the xref is";
+
 const XREF_PATH_DXF =
   "An xref's path cannot end in .dxf. The leading CAD app loads only a DWG file as an xref: it reports that it is unable to load a DXF, and draws nothing for it";
+
 const XREF_PATH_ABSOLUTE =
   'An xref\'s path must start from the folder of the drawing\'s file, as "base.dwg" and "../survey/base.dwg" do, and cannot start with /, \\ or a drive such as C:. The leading CAD app takes an absolute path, and where that folder is missing, as on another machine, it loads a file of the same name from the drawing\'s folder when there is one and reports the xref as loaded';
+
 const XREF_PATH_LENGTH =
   "An xref's path cannot be longer than 32,000 characters. The leading CAD app finds no file by a path that comes to more than 32,767 characters with the folder of the drawing";
+
 const XREF_PATH_CHARS =
   "An xref's path cannot hold * ? < > | : or \". The leading CAD app finds no file whose name holds one of them. It does read a path wrapped in a pair of quotes as the path inside, and tsdraft wants that path written without them";
+
 const XREF_PATH_DOT =
   "An xref's path cannot end in a dot. The leading CAD app adds .dwg after the dot, so for base. it looks for base..dwg and finds no file";
+
 const XREF_PATH_MULTIBYTE =
   "An xref's path cannot hold a backslash before M+, a digit from 1 to 5 and four hex digits, such as \\M+10041. Once the leading CAD app has saved the drawing it reads those as one character, and looks for another file. Write / there";
+
 const SCALE_ZERO =
   "A scale cannot be 0, or be written as 0, as tsdraft's 6 decimals write a scale under 0.0000005. The leading CAD app reads a scale of 0 as 1";
+
 const TAG_EMPTY =
   "An attribute's tag cannot be empty. The leading CAD app's AUDIT reports an attribute with an empty tag";
+
 const TAG_LOWER =
   "An attribute's tag cannot hold a lower-case letter a to z. The leading CAD app's ATTDEF command holds a tag in capitals, and its -ATTEDIT command finds no attribute whose tag has a lower-case letter";
+
 const R12_TEXT =
   'tsdraft writes no text styles and no text justification to R12 drawings. Use DXF version "R2018" for a text style or a justified text';
+
 const STANDARD_STYLE =
   "The text style Standard is in every drawing, with the font txt.shx, and cannot be defined. The leading CAD app keeps the first style of a name and skips a second";
+
 const FONT =
   'A font must be one of FONTS, the fonts the 2025 release of the leading CAD app or Windows installs: an SHX font by its file name, such as "txt.shx", or a TrueType font by its typeface, such as "Arial". That app draws text in a font it does not have in another font, and its AUDIT reports nothing';
+
 const OBLIQUE =
   "An oblique angle must be from -85 to 85 degrees. The leading CAD app's AUDIT reports a text style or a text slanted further";
+
 const WIDTH_FACTOR =
   "A width factor must be from 0.01 to 100, the range the leading CAD app's STYLE command takes. That app's AUDIT reports a text style with a width factor of 0 or less, of 0.0001 or of 1000000";
+
 const LINEWEIGHT =
   "A lineweight must be one of the leading CAD app's, in millimetres: 0, 0.05, 0.09, 0.13, 0.15, 0.18, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.53, 0.6, 0.7, 0.8, 0.9, 1, 1.06, 1.2, 1.4, 1.58, 2 or 2.11";
+
 const LAYER_LINEWEIGHT = `${LINEWEIGHT}, or "Default"`;
 const ENTITY_LINEWEIGHT = `${LINEWEIGHT}, or "ByLayer", "ByBlock" or "Default"`;
+
 const FROZEN_CURRENT =
   'Layer "0" cannot be frozen: it is the current layer, and the leading CAD app does not freeze the current layer';
+
 const LAYER_LINETYPE =
   "A layer's linetype cannot be ByLayer or ByBlock. The leading CAD app's AUDIT reports a layer with either";
+
 const BUILT_IN =
   "Continuous, ByLayer and ByBlock are in every drawing and cannot be defined. The leading CAD app keeps its own and drops the definition";
+
 const PATTERN_COUNT =
   "A linetype pattern has 2 to 12 lengths, or none for a solid line. The leading CAD app's AUDIT reports a pattern of one length, and that app discards a drawing with a pattern of more than 12";
+
 const PATTERN_WRITTEN_AS_ZERO =
   "A dash or gap of this length is written as 0, because tsdraft writes 6 decimals, and would draw as a dot. Use 0 for a dot, or a length of 0.000001 or more";
+
 const PATTERN_TOTAL =
   "A linetype pattern's lengths, added up without their signs, must be under 1e100. The total is written too, and the leading CAD app reads only two exponent digits from DXF";
+
 const PATTERN_TYPE = "A linetype's pattern must be an array of finite numbers";
+
 const DESCRIPTION_LENGTH =
   "A linetype description cannot be longer than 249 characters, because the leading CAD app cuts it there when it reads DXF";
+
 const ID_EMPTY = "An id cannot be empty";
 const ID_CHARS = "An id can only use the letters A to Z and a to z, digits, ., - and _";
 const ID_LENGTH = "An id cannot be longer than 64 characters";
+
 const TEXT_PERCENT =
   'The leading CAD app reads "%%" in text as the start of a control code: it draws "%%d" as a degree sign and "%%%" as one percent sign. The text is stored as written';
 
@@ -398,7 +537,9 @@ type ForbiddenChar =
 type Chars<S extends string, Found = never> = S extends `${infer C}${infer Rest}`
   ? Chars<Rest, Found | C>
   : Found;
+
 type R12Char = Chars<"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789$_-">;
+
 type RejectedChar =
   | Chars<typeof REJECTED_FORMAT>
   | Chars<typeof REJECTED_LETTERLIKE>
@@ -1157,20 +1298,35 @@ export type LineweightOf<W extends number> = number extends W
 
 /** The message for each feature an R12 drawing cannot have, as a type. */
 export type R12Linetypes = typeof R12_LINETYPES;
+
 export type R12Lineweights = typeof R12_LINEWEIGHTS;
+
 export type R12EntityStyle = typeof R12_ENTITY_STYLE;
+
 export type R12EntityColor = typeof R12_ENTITY_COLOR;
+
 export type R12LayerStates = typeof R12_LAYER_STATES;
+
 export type FrozenCurrent = typeof FROZEN_CURRENT;
+
 export type R12Text = typeof R12_TEXT;
+
 export type R12Blocks = typeof R12_BLOCKS;
+
 export type R12Xrefs = typeof R12_XREFS;
+
 export type R12Layouts = typeof R12_LAYOUTS;
+
 export type R12Dimensions = typeof R12_DIMENSIONS;
+
 export type R12Leaders = typeof R12_LEADERS;
+
 export type R12Polylines = typeof R12_POLYLINES;
+
 export type R12Paragraphs = typeof R12_PARAGRAPHS;
+
 export type R12Images = typeof R12_IMAGES;
+
 export type R12Underlays = typeof R12_UNDERLAYS;
 
 /**
@@ -1271,14 +1427,8 @@ type FewDigits<
   : false;
 
 type Fifteen = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-type SixtyFour = [...Fifteen, ...Fifteen, ...Fifteen, ...Fifteen, 0, 0, 0, 0];
 
-/** True for nothing, or a point and digits. */
-type Fraction<S extends string> = S extends ""
-  ? true
-  : S extends `.${infer F}`
-    ? AllDigits<F>
-    : false;
+type SixtyFour = [...Fifteen, ...Fifteen, ...Fifteen, ...Fifteen, 0, 0, 0, 0];
 
 /** True for a number of at most 15 digits before its point and 64 after, above 0, as `\H` and `\W` take. */
 type CodeAmount<S extends string> = S extends `${infer I}.${infer F}`
@@ -1302,6 +1452,7 @@ type Below85 =
 
 /** True for an angle from -85 to 85, as `\Q` takes. */
 type CodeOblique<S extends string> = S extends `-${infer R}` ? CodeOblique85<R> : CodeOblique85<S>;
+
 type CodeOblique85<S extends string> = S extends `${infer I}.${infer F}`
   ? FewDigits<F, SixtyFour> extends true
     ? I extends Below85
@@ -1751,11 +1902,15 @@ type ParagraphStack<
 /** Returns what is wrong with a layer name for a DXF version, or undefined when it is valid. */
 export function layerNameProblem(name: string, version: DxfVersion): string | undefined {
   const problem = nameProblem(name, LAYER_NAMES);
+
   if (problem) return problem;
+
   if (version === "R12") {
     if (!/^[A-Za-z0-9$_-]+$/.test(name)) return NAME_R12_CHARS;
+
     if (name.length > 31) return NAME_R12_LENGTH;
   }
+
   return undefined;
 }
 
@@ -1769,12 +1924,17 @@ export function linetypeNameProblem(name: string): string | undefined {
 
 function nameProblem(name: string, messages: NameMessages): string | undefined {
   if (name.length === 0) return messages.empty;
+
   if (/[<>/\\":;?*|=`^,]/.test(name) || hasControl(name) || hasAstral(name)) return messages.chars;
   const rejected = rejectedNameCharacter(name);
+
   if (rejected !== undefined) return `${messages.rejected}. This name has ${codePoint(rejected)}`;
+
   // Only the ASCII space: the leading CAD app takes a no-break space or any other at either end.
   if (name.startsWith(" ") || name.endsWith(" ")) return messages.edge;
+
   if (name.length > 255) return messages.length;
+
   return undefined;
 }
 
@@ -1803,12 +1963,13 @@ export function layerTwinProblem(
   if (layerKey(name) === layerKey(other) || layerAuditKey(name) !== layerAuditKey(other)) {
     return undefined;
   }
+
   return `The leading CAD app keeps this ${kind} and ${JSON.stringify(other)} as two ${kind}s, but its AUDIT reports them as one duplicate name`;
 }
 
 /**
  * Returns what is wrong with a linetype definition, or undefined when it is
- * valid. It takes `unknown`s so that `lint` can report a drawing built by hand
+ * valid. It takes values of any type so that `lint` can report a drawing built by hand
  * with a field of the wrong type.
  */
 export function linetypeProblem(
@@ -1816,32 +1977,44 @@ export function linetypeProblem(
   description: unknown,
   pattern: unknown,
 ): string | undefined {
-  if (typeof name !== "string") return "A linetype's name must be a string";
+  if (!isString(name)) return "A linetype's name must be a string";
   const nameError = linetypeNameProblem(name);
+
   if (nameError) return nameError;
+
   if (builtInLinetype(name)) return BUILT_IN;
-  if (typeof description !== "string") return "A linetype's description must be a string";
+
+  if (!isString(description)) return "A linetype's description must be a string";
   const descriptionError = textProblem(description);
+
   if (descriptionError) return `its description: ${descriptionError}`;
+
   if (description.length > 249) return DESCRIPTION_LENGTH;
+
   if (!Array.isArray(pattern) || !(pattern instanceof Array)) return PATTERN_TYPE;
+
   if (pattern.length === 1 || pattern.length > 12) return PATTERN_COUNT;
-  for (const length of pattern as unknown[]) {
-    if (typeof length !== "number" || !Number.isFinite(length)) return PATTERN_TYPE;
+
+  for (const length of pattern) {
+    if (!isNumber(length) || !Number.isFinite(length)) return PATTERN_TYPE;
+
     if (length !== 0 && written(length) === 0) return `its pattern: ${PATTERN_WRITTEN_AS_ZERO}`;
     const problem = magnitudeProblem(length);
+
     if (problem) return `its pattern: ${problem}`;
   }
+
   // The writers write the total of the lengths as they write each one, rounded.
-  if (isTooLarge(patternLength((pattern as number[]).map(written)))) {
+  if (isTooLarge(patternLength(pattern.map(written)))) {
     return `its pattern: ${PATTERN_TOTAL}`;
   }
+
   return undefined;
 }
 
 const MARK_FIELDS = ["after", "rotation", "orient", "offset"];
 const TEXT_MARK_FIELDS: readonly string[] = [...MARK_FIELDS, "text", "style", "height"];
-const SHAPE_MARK_FIELDS: readonly string[] = [...MARK_FIELDS, "shape", "file", "scale"];
+const GLYPH_MARK_FIELDS: readonly string[] = [...MARK_FIELDS, "glyph", "file", "scale"];
 
 /** What is wrong with marks that are not a list of objects. */
 export const MARKS_TYPE = "A linetype's marks must be an array of objects, each a text or a shape";
@@ -1855,102 +2028,119 @@ export const MARK_TEXT_ROOM =
   "A linetype's texts, each with one character more, may take 256 characters together: a DWG holds them in 512 bytes";
 
 /** What is wrong with a shape given by name. */
-export const MARK_SHAPE_NAME =
+export const MARK_GLYPH_NAME =
   "a shape by its name needs its shape file to number it: give the shape's number in the file, or give parseLinetypes the file";
 
 /**
- * Returns what is wrong with a linetype's marks, or undefined when they are valid. It takes
- * `unknown` so that `lint` can report marks of the wrong type. Whether a text's style is one of
- * the drawing's depends on the drawing, and is checked by the caller.
+ * Returns what is wrong with a linetype's marks, or undefined when they are valid. It checks
+ * the type of each field, so that `lint` can report marks of the wrong type. Whether a text's
+ * style is one of the drawing's depends on the drawing, and is checked by the caller.
  *
  * @param pattern - The linetype's pattern, already checked.
  */
 export function marksProblem(marks: unknown, pattern: readonly number[]): string | undefined {
   if (marks === undefined) return undefined;
+
   if (!Array.isArray(marks) || !(marks instanceof Array)) return MARKS_TYPE;
+  const list: readonly unknown[] = marks;
   let last = -1;
   let room = 0;
-  const list = marks as unknown[];
+
   for (let i = 0; i < list.length; i++) {
-    const mark = list[i];
-    if (typeof mark !== "object" || mark === null || Array.isArray(mark)) return MARKS_TYPE;
-    const m = mark as Record<string, unknown>;
+    const m = list[i];
+
+    if (!isRecord(m)) return MARKS_TYPE;
     const label = `its mark ${i}`;
     const after = m.after;
-    if (
-      typeof after !== "number" ||
-      !Number.isInteger(after) ||
-      after < 0 ||
-      after >= pattern.length
-    )
+
+    if (!isNumber(after) || !Number.isInteger(after) || after < 0 || after >= pattern.length)
       return `${label}: after must be the index of a length of the pattern, from 0 to ${pattern.length - 1}`;
+
     if (after <= last) return MARKS_ORDER;
     last = after;
     const isText = "text" in m;
-    if (isText === "shape" in m) return `${label}: a mark is a text or a shape, with text or shape`;
-    const known = isText ? TEXT_MARK_FIELDS : SHAPE_MARK_FIELDS;
+
+    if (isText === "glyph" in m) return `${label}: a mark is a text or a shape, with text or glyph`;
+    const known = isText ? TEXT_MARK_FIELDS : GLYPH_MARK_FIELDS;
+
     for (const key of Object.keys(m)) {
       if (!known.includes(key))
         return `${label}: ${shown(key)} is not a field of a ${isText ? "text" : "shape"}`;
     }
-    for (const key of ["rotation"] as const) {
-      const v = m[key];
-      if (v === undefined) continue;
-      if (typeof v !== "number" || !Number.isFinite(v))
-        return `${label}: ${key} must be a finite number`;
-      const problem = magnitudeProblem(v);
-      if (problem) return `${label}: ${key}: ${problem}`;
+
+    const rotation = m.rotation;
+
+    if (rotation !== undefined) {
+      if (!isNumber(rotation) || !Number.isFinite(rotation))
+        return `${label}: rotation must be a finite number`;
+      const problem = magnitudeProblem(rotation);
+
+      if (problem) return `${label}: rotation: ${problem}`;
     }
-    if (m.orient !== undefined && !(MARK_ORIENTS as readonly unknown[]).includes(m.orient))
+
+    if (m.orient !== undefined && !isOneOf(MARK_ORIENTS, m.orient))
       return `${label}: orient must be one of ${MARK_ORIENTS.map((o) => `"${o}"`).join(", ")}`;
+
     if (m.offset !== undefined) {
       const o = m.offset;
-      const finite = (v: unknown) => typeof v === "number" && Number.isFinite(v);
+      const finite = (v: unknown) => isNumber(v) && Number.isFinite(v);
+
       if (!Array.isArray(o) || o.length !== 2 || !finite(o[0]) || !finite(o[1]))
         return `${label}: offset must be [along, left], two finite numbers`;
       const problem = magnitudeProblem(o[0]) ?? magnitudeProblem(o[1]);
+
       if (problem) return `${label}: offset: ${problem}`;
     }
+
     const size = isText ? "height" : "scale";
-    const v = m[size];
+    const v = isText ? m.height : m.scale;
+
     // A shape of a negative scale is drawn turned half a turn, as a linetype file may give it.
-    if (
-      typeof v !== "number" ||
-      !Number.isFinite(v) ||
-      !(isText ? v > 0 : v !== 0) ||
-      written(v) === 0
-    )
+    if (!isNumber(v) || !Number.isFinite(v) || !(isText ? v > 0 : v !== 0) || written(v) === 0)
       return isText
         ? `${label}: height must be a number greater than 0 as written`
         : `${label}: scale must be a number other than 0 as written`;
     const big = magnitudeProblem(v);
+
     if (big) return `${label}: ${size}: ${big}`;
+
     if (isText) {
       const text = m.text;
-      if (typeof text !== "string" || text === "")
-        return `${label}: text must be a string with a character`;
+
+      if (!isString(text) || text === "") return `${label}: text must be a string with a character`;
+
       if (text.length >= 256) return MARK_TEXT_ROOM;
       const problem = textProblem(text);
+
       if (problem) return `${label}: ${problem}`;
       room += text.length + 1;
-      if (m.style !== undefined && typeof m.style !== "string")
-        return `${label}: style must be a string`;
-      if (typeof m.style === "string" && m.style.length > 255)
+
+      if (m.style !== undefined && !isString(m.style)) return `${label}: style must be a string`;
+
+      if (isString(m.style) && m.style.length > 255)
         return `${label}: a text style's name has at most 255 characters`;
     } else {
-      const shape = m.shape;
-      if (typeof shape === "string") return `${label}: ${MARK_SHAPE_NAME}`;
-      if (typeof shape !== "number" || !Number.isInteger(shape) || shape < 1 || shape > 65535)
-        return `${label}: shape must be a whole number from 1 to 65535`;
+      const glyph = m.glyph;
+
+      if (isString(glyph)) return `${label}: ${MARK_GLYPH_NAME}`;
+
+      if (!isNumber(glyph) || !Number.isInteger(glyph) || glyph < 1 || glyph > 65535)
+        return `${label}: glyph must be a whole number from 1 to 65535`;
       const file = m.file;
-      if (typeof file !== "string") return `${label}: file must name a shape file`;
+
+      if (!isString(file)) return `${label}: file must name a shape file`;
+
       if (file.length > 255) return `${label}: a shape file's name has at most 255 characters`;
+
       if (file.trim() === "") return `${label}: file must name a shape file`;
       const problem = textProblem(file);
+
       if (problem) return `${label}: file: ${problem}`;
     }
   }
+
   if (room > 256) return MARK_TEXT_ROOM;
+
   return undefined;
 }
 
@@ -1965,6 +2155,7 @@ export function undefinedLinetypeProblem(name: string): string {
 /** Returns what is wrong with the linetype a layer names, or undefined when it can be a layer's. */
 export function layerLinetypeProblem(name: string): string | undefined {
   const builtInName = builtInLinetype(name);
+
   return builtInName === "ByLayer" || builtInName === "ByBlock" ? LAYER_LINETYPE : undefined;
 }
 
@@ -1982,8 +2173,9 @@ export function lineweightProblem(value: unknown, of: "layer" | "entity"): strin
   if (value === "Default" || (of === "entity" && (value === "ByLayer" || value === "ByBlock"))) {
     return undefined;
   }
-  if (typeof value === "number" && (LINEWEIGHTS as readonly number[]).includes(value))
-    return undefined;
+
+  if (isNumber(value) && isOneOf(LINEWEIGHTS, value)) return undefined;
+
   return of === "layer" ? LAYER_LINEWEIGHT : ENTITY_LINEWEIGHT;
 }
 
@@ -1998,9 +2190,7 @@ export function layerStateProblem(name: string, frozen: boolean | undefined): st
 
 /** Returns what is wrong with the value of a layer's `off`, `frozen`, `locked` or `plot`. */
 export function layerFlagProblem(state: string, value: unknown): string | undefined {
-  return value === undefined || typeof value === "boolean"
-    ? undefined
-    : `${state} must be true or false`;
+  return value === undefined || isBoolean(value) ? undefined : `${state} must be true or false`;
 }
 
 /**
@@ -2009,6 +2199,7 @@ export function layerFlagProblem(state: string, value: unknown): string | undefi
  */
 export function linetypeScaleProblem(value: number): string | undefined {
   if (!Number.isFinite(value)) return "This value must be a finite number";
+
   return sizeProblem(value);
 }
 
@@ -2118,19 +2309,24 @@ export function ellipseProblems(
   endParameter: unknown,
 ): string[] {
   const out: string[] = [];
-  if (typeof ratio !== "number" || !(ratio > 0) || written(ratio) === 0 || written(ratio) > 1) {
+
+  if (!isNumber(ratio) || !(ratio > 0) || written(ratio) === 0 || written(ratio) > 1) {
     out.push(ELLIPSE_RATIO);
   }
+
   if (written(majorAxis[0]) === 0 && written(majorAxis[1]) === 0) out.push(ELLIPSE_AXIS);
+
   if ((startParameter === undefined) !== (endParameter === undefined)) {
     out.push(ELLIPSE_PARAMETERS_PAIR);
   } else if (startParameter !== undefined) {
     const inRange = (t: unknown): t is number =>
-      typeof t === "number" && Number.isFinite(t) && t >= 0 && t < 360;
+      isNumber(t) && Number.isFinite(t) && t >= 0 && t < 360;
+
     if (!inRange(startParameter) || !inRange(endParameter)) out.push(ELLIPSE_PARAMETERS_RANGE);
     else if (writtenAngle(startParameter) === writtenAngle(endParameter))
       out.push(ELLIPSE_PARAMETERS_SAME);
   }
+
   return out;
 }
 
@@ -2147,9 +2343,10 @@ export interface DrawnEllipse {
 function isKeptPoint(value: unknown): value is Point {
   if (!Array.isArray(value) || value.length !== 2) return false;
   const [x, y]: unknown[] = value;
+
   return (
-    typeof x === "number" &&
-    typeof y === "number" &&
+    isNumber(x) &&
+    isNumber(y) &&
     Number.isFinite(x) &&
     Number.isFinite(y) &&
     !isTooLarge(x) &&
@@ -2168,18 +2365,23 @@ export function drawnEllipse(e: {
   readonly startParameter?: unknown;
   readonly endParameter?: unknown;
 }): DrawnEllipse | undefined {
-  const { center, majorAxis, ratio, startParameter: start, endParameter: end } = e;
+  const center = e.center;
+  const majorAxis = e.majorAxis;
+  const ratio = e.ratio;
+  const start = e.startParameter;
+  const end = e.endParameter;
+
   if (!isKeptPoint(center) || !isKeptPoint(majorAxis)) return undefined;
+
   if (ellipseProblems(majorAxis, ratio, start, end).length > 0) return undefined;
+
+  // The checks have found the ratio and the parameters to be numbers.
+  if (!isNumber(ratio)) return undefined;
   const radians = (t: number) => (writtenAngle(t) * Math.PI) / 180;
-  return {
-    center,
-    majorAxis,
-    ratio: ratio as number,
-    ...(start === undefined
-      ? {}
-      : { start: radians(start as number), end: radians(end as number) }),
-  };
+
+  if (!isNumber(start) || !isNumber(end)) return { center, majorAxis, ratio };
+
+  return { center, majorAxis, ratio, start: radians(start), end: radians(end) };
 }
 
 /** A spline as the B-spline it draws. */
@@ -2195,44 +2397,74 @@ export interface DrawnSpline {
 /** The items of a list of at most `SPLINE_ITEMS` that each pass `is`, or undefined. */
 function listOf<T>(value: unknown, is: (item: unknown) => item is T): readonly T[] | undefined {
   if (!Array.isArray(value) || value.length > SPLINE_ITEMS) return undefined;
-  for (let i = 0; i < value.length; i++) if (!is(value[i])) return undefined;
-  return value as readonly T[];
+  const items: readonly unknown[] = value;
+
+  return each(items, is) ? items : undefined;
 }
 
-const isNumber = (value: unknown): value is number =>
-  typeof value === "number" && Number.isFinite(value);
+/** True for a list whose every item passes `is`. */
+function each<T>(
+  items: readonly unknown[],
+  is: (item: unknown) => item is T,
+): items is readonly T[] {
+  for (let i = 0; i < items.length; i++) if (!is(items[i])) return false;
+
+  return true;
+}
+
+const isFiniteNumber = (value: unknown): value is number =>
+  isNumber(value) && Number.isFinite(value);
 
 /**
  * The B-spline a spline draws, or undefined for one of the wrong shape or that `lint` refuses,
  * which the pictures and the extents leave out. A spline through fit points is the one
  * `fitSpline` fits. Each list is read once, and none past the count a file holds.
  */
-export function drawnSpline(e: Readonly<Record<string, unknown>>): DrawnSpline | undefined {
+export function drawnSpline(e: SplineFields): DrawnSpline | undefined {
   const closed = e.closed === true;
+
   if (e.fitPoints !== undefined) {
     const fitPoints = listOf(e.fitPoints, isKeptPoint);
-    const tangent = (t: unknown) => (t === undefined || isKeptPoint(t) ? t : null);
+    const tangent = (t: unknown) => (t === undefined ? undefined : isKeptPoint(t) ? t : null);
     const [startTangent, endTangent] = [tangent(e.startTangent), tangent(e.endTangent)];
+
     if (fitPoints === undefined || startTangent === null || endTangent === null) return undefined;
     const fields = { fitPoints, startTangent, endTangent, closed };
     const { problems, fitted } = checkFit(fields);
+
     if (problems.length > 0 || !fitted) return undefined;
+
     return { degree: 3, knots: fitted.knots, controlPoints: fitted.controlPoints, closed };
   }
+
   const controlPoints = listOf(e.controlPoints, isKeptPoint);
-  const knots = listOf(e.knots, isNumber);
-  const weights = e.weights === undefined ? undefined : listOf(e.weights, isNumber);
+  const knots = listOf(e.knots, isFiniteNumber);
+  const weights = e.weights === undefined ? undefined : listOf(e.weights, isFiniteNumber);
+
   if (controlPoints === undefined || knots === undefined) return undefined;
+
   if (e.weights !== undefined && weights === undefined) return undefined;
   const fields = { controlPoints, degree: e.degree, knots, weights, closed: e.closed };
+
   if (controlSplineProblems(fields).length > 0) return undefined;
-  return {
-    degree: e.degree as number,
-    knots,
-    controlPoints,
-    ...(weights === undefined ? {} : { weights }),
-    closed,
-  };
+  // The checks have found the degree to be a number.
+  const degree = e.degree;
+
+  if (!isNumber(degree)) return undefined;
+
+  return { degree, knots, controlPoints, ...(weights !== undefined && { weights }), closed };
+}
+
+/** A spline's fields, each as given. */
+interface SplineFields {
+  readonly closed?: unknown;
+  readonly fitPoints?: unknown;
+  readonly startTangent?: unknown;
+  readonly endTangent?: unknown;
+  readonly controlPoints?: unknown;
+  readonly knots?: unknown;
+  readonly weights?: unknown;
+  readonly degree?: unknown;
 }
 
 /**
@@ -2247,36 +2479,45 @@ export class SplineMemo {
   readonly #byList = new WeakMap<object, Map<string, DrawnSpline | null>>();
   readonly #read = new WeakSet<object>();
 
-  get(
-    e: Readonly<Record<string, unknown>>,
-    again: (lists: readonly object[]) => boolean,
-  ): DrawnSpline | undefined {
+  get(e: SplineFields, again: (lists: readonly object[]) => boolean): DrawnSpline | undefined {
     const fit = e.fitPoints !== undefined;
     const list = fit ? e.fitPoints : e.controlPoints;
-    if (typeof list !== "object" || list === null) return undefined;
+
+    if (!isObjectOrArray(list)) return undefined;
+
     const id = (value: unknown): string => {
-      if (typeof value !== "object" || value === null) return typeof value;
+      if (!isObjectOrArray(value)) return typeName(value);
       let found = this.#ids.get(value);
+
       if (found === undefined) this.#ids.set(value, (found = this.#next++));
+
       return String(found);
     };
+
     const point = (t: unknown): string =>
       t === undefined ? "-" : isKeptPoint(t) ? `${t[0]},${t[1]}` : "x";
+
     const key = fit
       ? `f ${e.closed === true} ${point(e.startTangent)} ${point(e.endTangent)}`
-      : `c ${e.closed === true} ${typeof e.degree === "number" ? e.degree : "x"} ${id(e.knots)} ${id(e.weights)}`;
+      : `c ${e.closed === true} ${isNumber(e.degree) ? e.degree : "x"} ${id(e.knots)} ${id(e.weights)}`;
+
     let byKey = this.#byList.get(list);
+
     if (!byKey) this.#byList.set(list, (byKey = new Map()));
     const known = byKey.get(key);
+
     if (known !== undefined) return known ?? undefined;
-    const lists = [list, e.knots, e.weights].filter(
-      (l): l is object => typeof l === "object" && l !== null,
-    );
+
+    const lists = [list, e.knots, e.weights].filter((l) => isObjectOrArray(l));
+
     const seen = lists.filter((l) => this.#read.has(l));
+
     for (const l of lists) this.#read.add(l);
+
     if (seen.length > 0 && !again(seen)) return undefined;
     const drawn = drawnSpline(e) ?? null;
     byKey.set(key, drawn);
+
     return drawn ?? undefined;
   }
 }
@@ -2286,10 +2527,13 @@ function curvePointsProblem(points: readonly Point[], what: string): string | un
   for (const [x, y] of points) {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return `its ${what} must be finite numbers`;
   }
+
   for (const [x, y] of points) {
     const problem = magnitudeProblem(x) ?? magnitudeProblem(y);
+
     if (problem) return `its ${what}: ${problem}`;
   }
+
   return undefined;
 }
 
@@ -2310,13 +2554,22 @@ export function fitSplineProblems(spline: FitFields): string[] {
 }
 
 /** What is wrong with a spline through fit points, and, when nothing is, its fit. */
-function checkFit(spline: FitFields): { problems: string[]; fitted?: FittedSpline } {
+/** What is wrong with a spline through fit points, and its fit when nothing is. */
+interface FitCheck {
+  readonly problems: string[];
+  readonly fitted?: FittedSpline;
+}
+
+function checkFit(spline: FitFields): FitCheck {
   const { fitPoints: points, closed } = spline;
   const n = points.length;
+
   if (n + (closed ? 7 : 6) > SPLINE_ITEMS) return { problems: [SPLINE_MANY] };
   const out: string[] = [];
+
   if (n < (closed ? 3 : 2)) out.push(SPLINE_FIT_POINTS);
   const problem = curvePointsProblem(points, "fit points");
+
   if (problem) out.push(problem);
   else {
     // Two numbers more than a millionth apart are never one once written.
@@ -2325,26 +2578,36 @@ function checkFit(spline: FitFields): { problems: string[]; fitted?: FittedSplin
       Math.abs(a[1] - b[1]) <= 2e-6 &&
       written(a[0]) === written(b[0]) &&
       written(a[1]) === written(b[1]);
+
     let found = closed && n > 1 && same(points[0]!, points[n - 1]!);
+
     for (let i = 1; i < n && !found; i++) found = same(points[i - 1]!, points[i]!);
+
     if (found) out.push(SPLINE_FIT_SAME);
   }
+
   for (const tangent of [spline.startTangent, spline.endTangent]) {
     if (tangent === undefined) continue;
+
     if (closed) {
       out.push(SPLINE_CLOSED_TANGENT);
       break;
     }
+
     const wrong = curvePointsProblem([tangent], "tangents");
+
     if (wrong) out.push(wrong);
     else if (written(tangent[0]) === 0 && written(tangent[1]) === 0) out.push(SPLINE_TANGENT_ZERO);
   }
+
   if (out.length > 0) return { problems: out };
   // Fitted through the points as written, as the writers and the readers of the file fit them.
   const held = points.map((p): Point => [written(p[0]), written(p[1])]);
   const fitted = fitSpline(held, "chord", spline.startTangent, spline.endTangent, closed);
+
   if (fitted.controlPoints.some(([x, y]) => !(Math.abs(x) < 1e100 && Math.abs(y) < 1e100)))
     return { problems: [SPLINE_FIT_DRAWN] };
+
   return { problems: out, fitted };
 }
 
@@ -2363,15 +2626,13 @@ interface ControlFields {
  */
 export function controlSplineProblems(spline: ControlFields): string[] {
   const { controlPoints: points, degree, knots, weights } = spline;
-  if (
-    typeof degree !== "number" ||
-    !Number.isInteger(degree) ||
-    degree < 1 ||
-    degree > SPLINE_DEGREE_MOST
-  ) {
+
+  if (!isNumber(degree) || !Number.isInteger(degree) || degree < 1 || degree > SPLINE_DEGREE_MOST) {
     return [SPLINE_DEGREE];
   }
+
   const n = points.length;
+
   if (
     n + degree + 1 > SPLINE_ITEMS ||
     knots.length > SPLINE_ITEMS ||
@@ -2379,26 +2640,34 @@ export function controlSplineProblems(spline: ControlFields): string[] {
   ) {
     return [SPLINE_MANY];
   }
+
   const out: string[] = [];
+
   if (n < degree + 1) out.push(SPLINE_CONTROL_POINTS);
   const problem = curvePointsProblem(points, "control points");
+
   if (problem) out.push(problem);
+
   if (knots.length !== n + degree + 1) out.push(SPLINE_KNOT_COUNT);
   else if (!knots.every(Number.isFinite)) out.push("its knots must be finite numbers");
   else {
     const large = knots.map(magnitudeProblem).find((p) => p !== undefined);
+
     if (large) out.push(`its knots: ${large}`);
     else {
       // Judged as the writers print them, with 16 digits: two knots that differ must print apart.
       const printed = knots.map((k) => Number(sixteenDigits(k)));
       let wrong = false;
+
       for (let i = 1; i < knots.length && !wrong; i++)
         wrong =
           printed[i]! < printed[i - 1]! ||
           (knots[i] !== knots[i - 1] && printed[i] === printed[i - 1]);
+
       if (wrong || (n >= degree + 1 && printed[degree]! === printed[n]!)) out.push(SPLINE_KNOTS);
     }
   }
+
   if (
     weights !== undefined &&
     (weights.length !== n ||
@@ -2406,8 +2675,10 @@ export function controlSplineProblems(spline: ControlFields): string[] {
   ) {
     out.push(SPLINE_WEIGHTS);
   }
+
   if (out.length === 0 && spline.closed === true && !closes(spline, degree))
     out.push(SPLINE_OPEN_CLOSED);
+
   return out;
 }
 
@@ -2419,25 +2690,38 @@ export function controlSplineProblems(spline: ControlFields): string[] {
 function closes(spline: ControlFields, degree: number): boolean {
   // Moved to its first point first, so the clamp's rounding is the curve's size and not how far
   // it lies from the origin; a move changes nothing of the clamp.
-  const [ox, oy] = spline.controlPoints[0]!.map(written) as [number, number];
-  const held = clamped({
-    degree,
-    knots: spline.knots,
-    controlPoints: spline.controlPoints.map(([x, y]): Point => [written(x) - ox, written(y) - oy]),
-    ...(spline.weights === undefined ? {} : { weights: spline.weights.map(written) }),
-  });
+  const [ox, oy] = spline.controlPoints[0]!;
+  const [x0, y0] = [written(ox), written(oy)];
+  const knots = spline.knots;
+
+  const controlPoints = spline.controlPoints.map(([x, y]): Point => [
+    written(x) - x0,
+    written(y) - y0,
+  ]);
+
+  const held = clamped(
+    spline.weights === undefined
+      ? { degree, knots, controlPoints }
+      : { degree, knots, controlPoints, weights: spline.weights.map(written) },
+  );
+
   const p = held.controlPoints;
   const [first, second, before, last] = [p[0]!, p[1]!, p[p.length - 2]!, p[p.length - 1]!];
   let reach = 0;
+
   for (const [x, y] of p) reach = Math.max(reach, Math.abs(x), Math.abs(y));
   const near = 1e-9 * Math.max(1, reach);
+
   if (Math.abs(first[0] - last[0]) > near || Math.abs(first[1] - last[1]) > near) return false;
+
   // A closed spline of degree 1 is a polygon, which turns a corner where it closes.
   if (degree === 1) return true;
   const [ax, ay] = [second[0] - first[0], second[1] - first[1]];
   const [bx, by] = [last[0] - before[0], last[1] - before[1]];
   const [la, lb] = [Math.hypot(ax, ay), Math.hypot(bx, by)];
+
   if (!(la > near && lb > near)) return la <= near && lb <= near;
+
   return Math.abs(ax * by - ay * bx) <= 1e-9 * la * lb && ax * bx + ay * by > 0;
 }
 
@@ -2473,21 +2757,29 @@ export const HATCH_LINES = 1_000_000;
 
 const PATTERN_CHOICE =
   "pattern must be { name, scale?, angle?, origin? } for a pattern of the drawing's patterns, or { spacing, angle?, crossed?, origin? } for lines of the hatch's own";
+
 const PATTERN_NAME_AND_SPACING =
   "pattern has a name or a spacing, not both: a name for a pattern of the drawing's patterns, a spacing for lines of the hatch's own";
+
 const PATTERN_SCALE_WITH_SPACING =
   "pattern's scale is for a pattern by its name: lines of the hatch's own are spaced by spacing";
+
 const PATTERN_CROSSED_WITH_NAME =
   "pattern's crossed is for lines of the hatch's own, with spacing: a pattern by its name has the lines its definition gives";
+
 const PATTERN_POINT = "must be a point, [x, y], of finite numbers";
+
 const PATTERN_LINES =
   "A hatch pattern's lines must be a list of lines, each { angle, base, offset, dashes? }";
+
 const PATTERN_NO_LINES = "A hatch pattern needs at least one line";
 const PATTERN_MANY_LINES = `A hatch pattern has at most ${PATTERN_ITEMS} lines: a file holds their count as a 16-bit integer`;
 const PATTERN_DASHES = "its dashes must be a list of finite numbers";
 const PATTERN_MANY_DASHES = `a line of a hatch pattern has at most ${PATTERN_ITEMS} dashes: a file holds their count as a 16-bit integer`;
+
 const PATTERN_ZERO_DASHES =
   "its dashes cannot all be 0: dots with no gap between them repeat over no length. Give each gap as a negative length";
+
 const PATTERN_NO_SPACING =
   "its offset across the line, the second number of offset, rounds to 0 at the 6 decimals tsdraft writes, and at 0 all its lines would lie on one. Use 0.000001 or more";
 
@@ -2500,31 +2792,39 @@ export const PATTERN_REACH =
 
 /** What is wrong with a size of a hatch's pattern, its `scale` or its `spacing`, or undefined. */
 function patternSizeProblem(field: "scale" | "spacing", value: unknown): string | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value) || !(value > 0)) {
+  if (!isNumber(value) || !Number.isFinite(value) || !(value > 0)) {
     return `pattern's ${field} must be a finite number greater than 0`;
   }
+
   if (written(value) === 0) return `pattern's ${field}: ${WRITTEN_AS_ZERO}`;
   const large = magnitudeProblem(value);
+
   return large ? `pattern's ${field}: ${large}` : undefined;
 }
 
 /** What is wrong with a value that must be a point of finite numbers, or undefined. */
 function finitePointProblem(value: unknown, what: string): string | undefined {
   if (!Array.isArray(value) || value.length !== 2) return `${what} ${PATTERN_POINT}`;
+
   for (let i = 0; i < 2; i++) {
     const n: unknown = value[i];
-    if (typeof n !== "number" || !Number.isFinite(n)) return `${what} ${PATTERN_POINT}`;
+
+    if (!isNumber(n) || !Number.isFinite(n)) return `${what} ${PATTERN_POINT}`;
   }
-  const large = magnitudeProblem(value[0] as number) ?? magnitudeProblem(value[1] as number);
+
+  const large = magnitudeProblem(value[0]) ?? magnitudeProblem(value[1]);
+
   return large ? `${what}: ${large}` : undefined;
 }
 
 /** What is wrong with a value that must be a finite angle, or undefined. */
 function finiteAngleProblem(value: unknown, what: string): string | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
+  if (!isNumber(value) || !Number.isFinite(value)) {
     return `${what} must be a finite number`;
   }
+
   const large = magnitudeProblem(value);
+
   return large ? `${what}: ${large}` : undefined;
 }
 
@@ -2539,37 +2839,52 @@ export const PATTERN_SOLID =
  * depends on the drawing, so it is checked apart.
  */
 export function hatchPatternChoiceProblem(value: unknown): string | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return PATTERN_CHOICE;
-  const c = value as Record<string, unknown>;
-  for (const key of Object.keys(c)) {
+  if (!isObjectOrArray(value) || Array.isArray(value)) return PATTERN_CHOICE;
+
+  const c: PatternChoiceFields = value;
+
+  for (const key of Object.keys(value)) {
     if (!["name", "scale", "angle", "origin", "spacing", "crossed"].includes(key)) {
       return PATTERN_CHOICE;
     }
   }
+
   const named = c.name !== undefined;
   const spaced = c.spacing !== undefined;
+
   if (named && spaced) return PATTERN_NAME_AND_SPACING;
+
   if (!named && !spaced) return PATTERN_CHOICE;
+
   if (named) {
-    if (typeof c.name !== "string") return "pattern's name must be a string";
+    if (!isString(c.name)) return "pattern's name must be a string";
+
     if (c.name.toUpperCase() === "SOLID") return PATTERN_SOLID;
+
     if (c.crossed !== undefined) return PATTERN_CROSSED_WITH_NAME;
+
     if (c.scale !== undefined) {
       const problem = patternSizeProblem("scale", c.scale);
+
       if (problem) return problem;
     }
   } else {
     if (c.scale !== undefined) return PATTERN_SCALE_WITH_SPACING;
     const problem = patternSizeProblem("spacing", c.spacing);
+
     if (problem) return problem;
-    if (c.crossed !== undefined && typeof c.crossed !== "boolean") {
+
+    if (c.crossed !== undefined && !isBoolean(c.crossed)) {
       return "pattern's crossed must be true or false";
     }
   }
+
   if (c.angle !== undefined) {
     const problem = finiteAngleProblem(c.angle, "pattern's angle");
+
     if (problem) return problem;
   }
+
   return c.origin === undefined ? undefined : finitePointProblem(c.origin, "pattern's origin");
 }
 
@@ -2588,10 +2903,14 @@ export const GRADIENT_KINDS = [
 
 const GRADIENT_CHOICE =
   "gradient must be { name, angle?, centered?, colors } for two colors, or { name, angle?, centered?, color, tint } for one color and its tint";
+
 const GRADIENT_NAME = `gradient's name must be one of ${GRADIENT_KINDS.map((k) => `"${k}"`).join(", ")}`;
+
 const GRADIENT_COLOR =
   "a gradient's color must be [red, green, blue], each a whole number from 0 to 255";
+
 const GRADIENT_TINT = "a gradient's tint must be a number from 0, for black, to 1, for white";
+
 /** What is wrong with a hatch that has a pattern and a gradient. */
 export const GRADIENT_WITH_PATTERN = "a hatch has a pattern or a gradient, not both";
 
@@ -2604,9 +2923,14 @@ const GRADIENT_KEYS = ["name", "angle", "centered", "colors", "color", "tint"] a
  */
 export function rgbOf(value: unknown): Rgb | undefined {
   if (!Array.isArray(value) || value.length !== 3) return undefined;
-  const rgb: [unknown, unknown, unknown] = [value[0], value[1], value[2]];
-  for (const c of rgb) if (!Number.isInteger(c) || (c as number) < 0 || (c as number) > 255) return;
-  return rgb as unknown as Rgb;
+  const red: unknown = value[0];
+  const green: unknown = value[1];
+  const blue: unknown = value[2];
+  const channel = (c: unknown): c is number => isWhole(c) && c >= 0 && c <= 255;
+
+  if (!channel(red) || !channel(green) || !channel(blue)) return undefined;
+
+  return [red, green, blue];
 }
 
 /**
@@ -2616,43 +2940,64 @@ export function rgbOf(value: unknown): Rgb | undefined {
 export function readGradient(
   value: unknown,
 ): { readonly problem: string } | { readonly gradient: HatchGradient } {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isObjectOrArray(value) || Array.isArray(value)) {
     return { problem: GRADIENT_CHOICE };
   }
+
   for (const key of Object.keys(value)) {
-    if (!(GRADIENT_KEYS as readonly string[]).includes(key)) return { problem: GRADIENT_CHOICE };
+    if (!isOneOf(GRADIENT_KEYS, key)) return { problem: GRADIENT_CHOICE };
   }
-  const { name, angle, centered, colors, color, tint } = value as Record<string, unknown>;
-  if (!(GRADIENT_KINDS as readonly unknown[]).includes(name)) return { problem: GRADIENT_NAME };
+
+  const fields: GradientFields = value;
+  const { name, angle, centered, colors, color, tint } = fields;
+
+  if (!isOneOf(GRADIENT_KINDS, name)) return { problem: GRADIENT_NAME };
+
   if (angle !== undefined) {
     const problem = finiteAngleProblem(angle, "gradient's angle");
+
     if (problem) return { problem };
   }
-  if (centered !== undefined && typeof centered !== "boolean") {
+
+  if (centered !== undefined && !isBoolean(centered)) {
     return { problem: "gradient's centered must be true or false" };
   }
-  const base = {
-    name: name as HatchGradient["name"],
-    ...(angle === undefined ? {} : { angle: angle as number }),
-    ...(centered === undefined ? {} : { centered }),
-  };
+
+  // `finiteAngleProblem` has found an angle given to be a number.
+  let base: GradientBase = { name };
+
+  if (isNumber(angle)) base = { ...base, angle };
+
+  if (centered !== undefined) base = { ...base, centered };
+
   if (colors !== undefined) {
     if (color !== undefined || tint !== undefined) return { problem: GRADIENT_CHOICE };
+
     if (!Array.isArray(colors) || colors.length !== 2) return { problem: GRADIENT_CHOICE };
     const [first, second] = [rgbOf(colors[0]), rgbOf(colors[1])];
+
     if (!first || !second) return { problem: GRADIENT_COLOR };
+
     return { gradient: { ...base, colors: [first, second] } };
   }
+
   if (color === undefined || tint === undefined) return { problem: GRADIENT_CHOICE };
   const one = rgbOf(color);
+
   if (!one) return { problem: GRADIENT_COLOR };
-  if (!(typeof tint === "number" && tint >= 0 && tint <= 1)) return { problem: GRADIENT_TINT };
+
+  if (!(isNumber(tint) && tint >= 0 && tint <= 1)) return { problem: GRADIENT_TINT };
+
   return { gradient: { ...base, color: one, tint } };
 }
+
+/** The fields every gradient has. */
+type GradientBase = Pick<HatchGradient, "name" | "angle" | "centered">;
 
 /** Returns what is wrong with a hatch's gradient, or undefined. */
 export function hatchGradientProblem(value: unknown): string | undefined {
   const read = readGradient(value);
+
   return "problem" in read ? read.problem : undefined;
 }
 
@@ -2734,12 +3079,14 @@ export function undefinedHatchPatternProblem(name: string, builder = false): str
   const fix = builder
     ? "add the firm's pattern file with patterns() first"
     : "pass the firm's pattern file through parsePatterns into the drawing's patterns";
+
   return `Hatch pattern ${shown(name)} is not defined. tsdraft has no patterns of its own: ${fix}`;
 }
 
 /** What is wrong with a hatch whose pattern draws more lines than `HATCH_LINES`. */
 export function patternDensityProblem(lines: number): string {
   const count = lines < 1e15 ? Math.ceil(lines).toLocaleString("en-US") : "1e15 or more";
+
   return `its pattern draws ${count} lines across its loops, more than the ${HATCH_LINES.toLocaleString("en-US")} tsdraft draws for one hatch: give it a larger scale or spacing`;
 }
 
@@ -2748,12 +3095,16 @@ export function patternDensityProblem(lines: number): string {
  * held to the rules of a linetype's.
  */
 export function hatchPatternNameProblem(name: unknown, description: unknown): string | undefined {
-  if (typeof name !== "string") return "A hatch pattern's name must be a string";
+  if (!isString(name)) return "A hatch pattern's name must be a string";
   const problem = nameProblem(name, HATCH_PATTERN_NAMES);
+
   if (problem) return problem;
+
   if (description === undefined) return undefined;
-  if (typeof description !== "string") return "A hatch pattern's description must be a string";
+
+  if (!isString(description)) return "A hatch pattern's description must be a string";
   const text = textProblem(description);
+
   return text ? `its description: ${text}` : undefined;
 }
 
@@ -2763,7 +3114,9 @@ export function hatchPatternNameProblem(name: unknown, description: unknown): st
  */
 export function patternLinesProblem(lines: unknown): string | undefined {
   if (!Array.isArray(lines)) return PATTERN_LINES;
+
   if (lines.length === 0) return PATTERN_NO_LINES;
+
   return lines.length > PATTERN_ITEMS ? PATTERN_MANY_LINES : undefined;
 }
 
@@ -2773,28 +3126,42 @@ export function patternLinesProblem(lines: unknown): string | undefined {
  * `PATTERN_ITEMS` finite numbers under 1e100, not all 0.
  */
 export function patternLineProblem(line: unknown): string | undefined {
-  if (typeof line !== "object" || line === null || Array.isArray(line)) {
+  if (!isObjectOrArray(line) || Array.isArray(line)) {
     return "a line must be { angle, base, offset, dashes? }";
   }
-  const l = line as Record<string, unknown>;
+
+  const l: PatternLineFields = line;
+
   const problem =
     finiteAngleProblem(l.angle, "its angle") ??
     finitePointProblem(l.base, "its base") ??
     finitePointProblem(l.offset, "its offset");
+
   if (problem) return problem;
-  if (written((l.offset as readonly number[])[1]!) === 0) return PATTERN_NO_SPACING;
-  const dashes: unknown = l.dashes;
+  const offset = l.offset;
+
+  // `finitePointProblem` has found the offset to be two finite numbers.
+  if (Array.isArray(offset) && written(offset[1]) === 0) return PATTERN_NO_SPACING;
+  const dashes = l.dashes;
+
   if (dashes === undefined) return undefined;
+
   if (!Array.isArray(dashes)) return PATTERN_DASHES;
+
   if (dashes.length > PATTERN_ITEMS) return PATTERN_MANY_DASHES;
   let drawn = dashes.length === 0;
+
   for (let i = 0; i < dashes.length; i++) {
     const length: unknown = dashes[i];
-    if (typeof length !== "number" || !Number.isFinite(length)) return PATTERN_DASHES;
+
+    if (!isNumber(length) || !Number.isFinite(length)) return PATTERN_DASHES;
     const large = magnitudeProblem(length);
+
     if (large) return `its dashes: ${large}`;
+
     if (length !== 0) drawn = true;
   }
+
   return drawn ? undefined : PATTERN_ZERO_DASHES;
 }
 
@@ -2804,17 +3171,25 @@ export function patternLineProblem(line: unknown): string | undefined {
  * each.
  */
 export function hatchPatternProblem(definition: unknown): string | undefined {
-  if (typeof definition !== "object" || definition === null || Array.isArray(definition)) {
+  if (!isObjectOrArray(definition) || Array.isArray(definition)) {
     return "A hatch pattern must be { name, description?, lines }";
   }
-  const { name, description, lines } = definition as Record<string, unknown>;
+
+  const fields: HatchPatternFields = definition;
+  const { name, description, lines } = fields;
   const problem = hatchPatternNameProblem(name, description) ?? patternLinesProblem(lines);
+
   if (problem) return problem;
-  const list = lines as readonly unknown[];
+
+  // `patternLinesProblem` has found the lines to be an array.
+  const list: readonly unknown[] = Array.isArray(lines) ? lines : [];
+
   for (let i = 0; i < list.length; i++) {
     const found = patternLineProblem(list[i]);
+
     if (found) return `line ${i}: ${found}`;
   }
+
   return undefined;
 }
 
@@ -2824,12 +3199,14 @@ export const DIMENSION_TEXT_MASK =
 
 /** Returns what is wrong with a dimension style's mask, or undefined. */
 export function dimensionTextMaskProblem(value: unknown): string | undefined {
-  if (typeof value === "boolean") return undefined;
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    return DIMENSION_TEXT_MASK;
-  const m = value as Record<string, unknown>;
-  for (const key of Object.keys(m)) if (key !== "color") return DIMENSION_TEXT_MASK;
-  return Number.isInteger(m.color) && (m.color as number) >= 1 && (m.color as number) <= 256
+  if (isBoolean(value)) return undefined;
+
+  if (!isObjectOrArray(value) || Array.isArray(value)) return DIMENSION_TEXT_MASK;
+
+  for (const key of Object.keys(value)) if (key !== "color") return DIMENSION_TEXT_MASK;
+  const mask: { readonly color?: unknown } = value;
+
+  return isWhole(mask.color) && mask.color >= 1 && mask.color <= 256
     ? undefined
     : DIMENSION_TEXT_MASK;
 }
@@ -2841,7 +3218,7 @@ export function donutHoleProblem(inside: unknown): string | undefined {
 
 /**
  * What is wrong with the bulges and the widths of a polyline of `sides` sides, or undefined for
- * each that is sound. It takes `unknown`s so that `lint` can report a drawing built by hand. A
+ * each that is sound. It takes values of any type so that `lint` can report a drawing built by hand. A
  * bulge and a width are judged as written: a width written as 0 is 0, and a bulge written as 0
  * is a straight side.
  */
@@ -2852,51 +3229,63 @@ export function polylineSidesProblems(
   widths: unknown,
 ): string[] {
   const out: string[] = [];
+
   const counted = (list: readonly unknown[], what: string): boolean => {
     if (list.length === sides) return true;
     out.push(
       `its ${what} must have one for each side, ${sides}, and it has ${list.length}. A closed polyline has a side for each point, and an open one a side fewer`,
     );
+
     return false;
   };
+
   if (bulges !== undefined) {
     if (!Array.isArray(bulges)) out.push("its bulges must be an array of numbers");
     else if (counted(bulges, "bulges")) {
       for (let i = 0; i < bulges.length; i++) {
         const bulge: unknown = bulges[i];
+
         const problem =
-          typeof bulge !== "number" || !Number.isFinite(bulge)
+          !isNumber(bulge) || !Number.isFinite(bulge)
             ? "must be a finite number"
             : magnitudeProblem(bulge);
+
         if (!problem) continue;
         out.push(`its bulge ${i}: ${problem}`);
         break;
       }
     }
   }
+
   if (width !== undefined && widths !== undefined) {
     out.push("it has a width and widths for each side: give one or the other");
   }
+
   if (width !== undefined) {
     const problem = notNegativeProblem(width, POLYLINE_WIDTH);
+
     if (problem) out.push(`its width: ${problem}`);
   }
+
   if (widths !== undefined) {
     if (!Array.isArray(widths)) out.push("its widths must be an array of pairs of numbers");
     else if (counted(widths, "widths")) {
       for (let i = 0; i < widths.length; i++) {
         const pair: unknown = widths[i];
+
         const problem =
           !Array.isArray(pair) || pair.length !== 2
             ? "must be a pair of numbers, [start, end]"
             : (notNegativeProblem(pair[0], POLYLINE_WIDTH) ??
               notNegativeProblem(pair[1], POLYLINE_WIDTH));
+
         if (!problem) continue;
         out.push(`its widths ${i}: ${problem}`);
         break;
       }
     }
   }
+
   return out;
 }
 
@@ -2922,7 +3311,7 @@ export function isStandardTextStyle(name: string): boolean {
 
 /**
  * Returns what is wrong with a text style definition, or undefined when it is
- * valid. It takes `unknown`s so that `lint` can report a drawing built by hand
+ * valid. It takes values of any type so that `lint` can report a drawing built by hand
  * with a field of the wrong type.
  *
  * @param name - The style's name.
@@ -2934,35 +3323,40 @@ export function isStandardTextStyle(name: string): boolean {
 export function textStyleProblem(
   name: unknown,
   font: unknown,
-  widthFactor: unknown = 1,
-  obliqueAngle: unknown = 0,
+  widthFactor: unknown | number = 1,
+  obliqueAngle: unknown | number = 0,
 ): string | undefined {
-  if (typeof name !== "string") return "A text style's name must be a string";
+  if (!isString(name)) return "A text style's name must be a string";
   const nameError = textStyleNameProblem(name);
+
   if (nameError) return nameError;
+
   if (isStandardTextStyle(name)) return STANDARD_STYLE;
+
   return fontProblem(font) ?? widthFactorProblem(widthFactor) ?? obliqueAngleProblem(obliqueAngle);
 }
 
 /** Returns what is wrong with a font, or undefined when it is one of `FONTS`. Its type is `FontOf`. */
 export function fontProblem(font: unknown): string | undefined {
-  return typeof font === "string" && fontInfo(font) ? undefined : FONT;
+  return isString(font) && fontInfo(font) ? undefined : FONT;
 }
 
 /** Returns what is wrong with a width factor, or undefined. Its type is `WidthFactor`. */
 export function widthFactorProblem(value: unknown): string | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
+  if (!isNumber(value) || !Number.isFinite(value)) {
     return "widthFactor must be a finite number";
   }
+
   // Judged as written, as every number is.
   return written(value) < 0.01 || written(value) > 100 ? WIDTH_FACTOR : undefined;
 }
 
 /** Returns what is wrong with an oblique angle, or undefined. Its type is `ObliqueAngle`. */
 export function obliqueAngleProblem(value: unknown): string | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
+  if (!isNumber(value) || !Number.isFinite(value)) {
     return "obliqueAngle must be a finite number";
   }
+
   // Judged as written: 85.0000001 is written as 85.
   return Math.abs(written(value)) > 85 ? OBLIQUE : undefined;
 }
@@ -2972,16 +3366,15 @@ export function obliqueAngleProblem(value: unknown): string | undefined {
  * the leading CAD app's. Its type is `LineweightOf`.
  */
 export function lineweightValueProblem(value: unknown): string | undefined {
-  return typeof value === "number" && (LINEWEIGHTS as readonly number[]).includes(value)
-    ? undefined
-    : LINEWEIGHT;
+  return isNumber(value) && isOneOf(LINEWEIGHTS, value) ? undefined : LINEWEIGHT;
 }
 
 /** Returns what is wrong with a scale ratio, or undefined. Its type is `Ratio`. */
 export function ratioProblem(value: unknown): string | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
+  if (!isNumber(value) || !Number.isFinite(value)) {
     return "The ratio must be a finite number";
   }
+
   return value > 0 ? magnitudeProblem(value) : RATIO;
 }
 
@@ -2999,7 +3392,8 @@ export function undefinedTextStyleProblem(name: string): string {
  */
 export function textAlignProblem(field: "align" | "valign", value: unknown): string | undefined {
   const values: readonly string[] = field === "align" ? TEXT_ALIGNS : TEXT_VERTICAL_ALIGNS;
-  return values.includes(value as string)
+
+  return isOneOf(values, value)
     ? undefined
     : `${field} must be ${values
         .map((v) => JSON.stringify(v))
@@ -3015,18 +3409,20 @@ export const LINE_SPACING_STYLES = ["at-least", "exactly"] as const;
 /** The least and the most line spacing factor the leading CAD app takes. */
 export const LINE_SPACING_RANGE = [0.25, 4] as const;
 
+const PARAGRAPH_CHOICES = {
+  align: PARAGRAPH_ALIGNS,
+  valign: PARAGRAPH_VERTICAL_ALIGNS,
+  lineSpacingStyle: LINE_SPACING_STYLES,
+} as const satisfies Record<"align" | "valign" | "lineSpacingStyle", readonly string[]>;
+
 /** Returns what is wrong with a paragraph's `align`, `valign` or `lineSpacingStyle`, or undefined. */
 export function paragraphChoiceProblem(
   field: "align" | "valign" | "lineSpacingStyle",
   value: unknown,
 ): string | undefined {
-  const values: readonly string[] =
-    field === "align"
-      ? PARAGRAPH_ALIGNS
-      : field === "valign"
-        ? PARAGRAPH_VERTICAL_ALIGNS
-        : LINE_SPACING_STYLES;
-  return values.includes(value as string)
+  const values: readonly string[] = PARAGRAPH_CHOICES[field];
+
+  return isOneOf(values, value)
     ? undefined
     : `${field} must be ${values
         .map((v) => JSON.stringify(v))
@@ -3039,9 +3435,7 @@ export function paragraphChoiceProblem(
  * is held to the range, as the type holds it, so none that passes rounds out of it when written.
  */
 export function lineSpacingProblem(value: unknown): string | undefined {
-  return typeof value === "number" &&
-    value >= LINE_SPACING_RANGE[0] &&
-    value <= LINE_SPACING_RANGE[1]
+  return isNumber(value) && value >= LINE_SPACING_RANGE[0] && value <= LINE_SPACING_RANGE[1]
     ? undefined
     : LINE_SPACING;
 }
@@ -3067,7 +3461,7 @@ export const PARAGRAPH_COLUMN_BREAK =
 
 /** A number above 0 as the writers write it, and not too large to write. */
 const writtenPositive = (value: unknown): value is number =>
-  typeof value === "number" && Number.isFinite(value) && written(value) > 0 && !isTooLarge(value);
+  isNumber(value) && Number.isFinite(value) && written(value) > 0 && !isTooLarge(value);
 
 const COLUMN_FIELDS = new Set(["height", "heights", "count", "gutter"]);
 
@@ -3075,43 +3469,41 @@ const COLUMN_FIELDS = new Set(["height", "heights", "count", "gutter"]);
  * Returns what is wrong with a paragraph's columns apart from its width, or undefined. It reads a
  * list of heights by its items alone, and stops at the first field it does not know.
  */
-export function paragraphColumnsShapeProblem(columns: unknown): string | undefined {
-  if (typeof columns !== "object" || columns === null || Array.isArray(columns)) {
+export function paragraphColumnsTypeProblem(columns: unknown): string | undefined {
+  if (!isObjectOrArray(columns) || Array.isArray(columns)) {
     return PARAGRAPH_COLUMNS;
   }
+
   for (const key in columns) if (!COLUMN_FIELDS.has(key)) return PARAGRAPH_COLUMNS;
-  const { height, heights, count, gutter } = columns as Record<string, unknown>;
+  const { height, heights, count, gutter }: ColumnsFields = columns;
+
   if (
     gutter !== undefined &&
-    !(
-      typeof gutter === "number" &&
-      Number.isFinite(gutter) &&
-      written(gutter) >= 0 &&
-      !isTooLarge(gutter)
-    )
+    !(isNumber(gutter) && Number.isFinite(gutter) && written(gutter) >= 0 && !isTooLarge(gutter))
   ) {
     return PARAGRAPH_COLUMNS;
   }
+
   if (heights !== undefined) {
     if (height !== undefined || count !== undefined || !Array.isArray(heights)) {
       return PARAGRAPH_COLUMNS;
     }
-    const list = heights as readonly unknown[];
+
+    const list: readonly unknown[] = heights;
+
     if (list.length < 1 || list.length > PARAGRAPH_COLUMNS_MOST) return PARAGRAPH_COLUMNS;
+
     for (let i = 0; i < list.length; i++) if (!writtenPositive(list[i])) return PARAGRAPH_COLUMNS;
+
     return undefined;
   }
+
   if (!writtenPositive(height)) return PARAGRAPH_COLUMNS;
-  if (
-    count !== undefined &&
-    !(
-      Number.isInteger(count) &&
-      (count as number) >= 1 &&
-      (count as number) <= PARAGRAPH_COLUMNS_MOST
-    )
-  ) {
+
+  if (count !== undefined && !(isWhole(count) && count >= 1 && count <= PARAGRAPH_COLUMNS_MOST)) {
     return PARAGRAPH_COLUMNS;
   }
+
   return undefined;
 }
 
@@ -3123,10 +3515,10 @@ export function paragraphColumnsShapeProblem(columns: unknown): string | undefin
 export function paragraphColumnsProblem(
   columns: unknown,
   width: unknown,
-  height: unknown = 0,
+  height: unknown | number = 0,
 ): string | undefined {
   return (
-    paragraphColumnsShapeProblem(columns) ?? paragraphColumnsSizeProblem(columns, width, height)
+    paragraphColumnsTypeProblem(columns) ?? paragraphColumnsSizeProblem(columns, width, height)
   );
 }
 
@@ -3137,15 +3529,22 @@ export function paragraphColumnsSizeProblem(
   height: unknown,
 ): string | undefined {
   if (!positiveNumber(width)) return PARAGRAPH_COLUMNS_WIDTH;
-  const c = columns as { readonly count?: number; readonly gutter?: number };
-  const gutter =
-    c.gutter ?? 5 * (typeof height === "number" && Number.isFinite(height) ? height : 0);
-  const count = c.count ?? PARAGRAPH_COLUMNS_MOST;
-  return isTooLarge(count * ((width as number) + gutter)) ? PARAGRAPH_COLUMNS_WIDE : undefined;
+  // `paragraphColumnsTypeProblem` has found a count and a gutter given to be numbers.
+  const fields: ColumnsFields = isObjectOrArray(columns) ? columns : {};
+  const given = fields.gutter;
+  const counted = fields.count;
+
+  const gutter = isNumber(given)
+    ? given
+    : 5 * (isNumber(height) && Number.isFinite(height) ? height : 0);
+
+  const count = isNumber(counted) ? counted : PARAGRAPH_COLUMNS_MOST;
+
+  return isTooLarge(count * (width + gutter)) ? PARAGRAPH_COLUMNS_WIDE : undefined;
 }
 
-const positiveNumber = (value: unknown): boolean =>
-  typeof value === "number" && Number.isFinite(value) && value > 0;
+const positiveNumber = (value: unknown): value is number =>
+  isNumber(value) && Number.isFinite(value) && value > 0;
 
 /**
  * Returns what is wrong with a paragraph's value in its style's font, or undefined: a code
@@ -3155,7 +3554,8 @@ const positiveNumber = (value: unknown): boolean =>
  * hold.
  */
 export function paragraphValueProblem(value: unknown, font: unknown): string | undefined {
-  if (typeof value !== "string") return "A paragraph's value must be a string";
+  if (!isString(value)) return "A paragraph's value must be a string";
+
   return paragraphProblemIn(parseParagraph(value), font);
 }
 
@@ -3168,7 +3568,8 @@ export function paragraphProblemIn(
   font: unknown,
 ): string | undefined {
   if (parsed.problem !== undefined) return parsed.problem;
-  const shx = typeof font === "string" && fontInfo(font)?.file.endsWith(".shx") === true;
+  const shx = isString(font) && fontInfo(font)?.file.endsWith(".shx") === true;
+
   return parsed.ownDiameter && shx ? PARAGRAPH_SHX_DIAMETER : undefined;
 }
 
@@ -3189,6 +3590,7 @@ export function layerColorProblem(color: number): string | undefined {
  */
 export function sizeProblem(value: number): string | undefined {
   if (!(value > 0)) return POSITIVE;
+
   return written(value) === 0 ? WRITTEN_AS_ZERO : magnitudeProblem(value);
 }
 
@@ -3208,13 +3610,17 @@ export function paperLengthProblem(
   result: number,
 ): string | undefined {
   if (!(length > 0)) return PAPER_LENGTH;
+
   if (!(ratio > 0)) return RATIO;
+
   if (written(result) === 0) {
     return `The result, ${result} drawing units, is written as 0, because tsdraft writes 6 decimals. Use a longer paper length or a larger ratio`;
   }
+
   if (isTooLarge(result)) {
     return "The result is 1e100 drawing units or more, and the leading CAD app reads only two exponent digits from DXF. Use a shorter paper length or a smaller ratio";
   }
+
   return undefined;
 }
 
@@ -3263,13 +3669,16 @@ export function arcIsWrittenAsPoint(startAngle: number, endAngle: number): boole
 }
 
 /**
- * Returns what is wrong with an entity id, or undefined when it is valid. It takes `unknown` so
+ * Returns what is wrong with an entity id, or undefined when it is valid. It takes a value of any type so
  * that `lint` can report a drawing built by hand with an id of the wrong type.
  */
 export function idProblem(id: unknown): string | undefined {
-  if (typeof id !== "string") return "An id must be a string";
+  if (!isString(id)) return "An id must be a string";
+
   if (id.length === 0) return ID_EMPTY;
+
   if (!/^[A-Za-z0-9._-]+$/.test(id)) return ID_CHARS;
+
   return id.length > 64 ? ID_LENGTH : undefined;
 }
 
@@ -3290,6 +3699,7 @@ export function idKey(id: string): string {
  */
 export function duplicateIdProblem(id: string, first: string): string {
   const spelled = first === id ? "" : `, as ${JSON.stringify(first)}`;
+
   return `The id ${JSON.stringify(id)} is already used${spelled}. An id names one entity, and ids are compared without regard to case`;
 }
 
@@ -3326,9 +3736,11 @@ export function handleProblem(what: string, first: string, handle: string): stri
  * discards a drawing over a block name that breaks the rules of layer names.
  */
 export function blockNameProblem(name: unknown): string | undefined {
-  if (typeof name !== "string") return "A block's name must be a string";
+  if (!isString(name)) return "A block's name must be a string";
   const problem = nameProblem(name, BLOCK_NAMES);
+
   if (problem) return problem;
+
   // The leading CAD app draws an arrowhead with whatever block has its name.
   return ARROWHEAD_BLOCKS.some((block) => layerKey(block) === layerKey(name))
     ? ARROWHEAD_BLOCK
@@ -3349,6 +3761,7 @@ export function blockNameProblem(name: unknown): string | undefined {
 export function blockTwinProblem(name: string, other: string): string | undefined {
   if (layerAuditKey(name) !== layerAuditKey(other)) return undefined;
   const spelled = name === other ? "" : `, as ${JSON.stringify(other)}`;
+
   return `The drawing already has a block of this name${spelled}. The leading CAD app takes the two for one block, puts the entities of both in it and reports nothing`;
 }
 
@@ -3363,33 +3776,48 @@ export function blockTwinProblem(name: string, other: string): string | undefine
  */
 export function xrefTwinProblem(name: string, other: string, kind: "block" | "xref"): string {
   const spelled = name === other ? "" : `, as ${JSON.stringify(other)}`;
+
   return `The drawing already has ${kind === "xref" ? "an xref" : "a block"} of this name${spelled}. An xref is a block to the leading CAD app, which takes the two names for one: it discards a drawing with two such names that differ in case, and makes one xref of any other two and reports nothing`;
 }
 
 /**
- * Returns what is wrong with an xref's path, or undefined when it is valid. It takes `unknown`
- * so that `lint` can report a drawing built by hand with a path of the wrong type.
+ * Returns what is wrong with an xref's path, or undefined when it is valid. It takes a value of
+ * any type so that `lint` can report a drawing built by hand with a path of the wrong type.
  */
 export function xrefPathProblem(path: unknown): string | undefined {
-  if (typeof path !== "string") return "An xref's path must be a string";
+  if (!isString(path)) return "An xref's path must be a string";
+
   if (path.length === 0) return XREF_PATH_EMPTY;
+
   if (/^(?:[/\\]|[A-Za-z]:)/.test(path)) return XREF_PATH_ABSOLUTE;
+
   if (/[*?<>|:"]/.test(path)) return XREF_PATH_CHARS;
+
   if (/\.dxf$/i.test(path)) return XREF_PATH_DXF;
+
   if (/\.$/.test(path) && !/\.dwg\.$/i.test(path)) return XREF_PATH_DOT;
+
   if (path.length > 32000) return XREF_PATH_LENGTH;
+
   if (/\\[Mm]\+[1-5][0-9A-Fa-f]{4}/.test(path)) return XREF_PATH_MULTIBYTE;
+
   return textProblem(path);
 }
 
 /** Returns what is wrong with an image's path, or undefined when it is valid. */
 export function imagePathProblem(path: unknown): string | undefined {
-  if (typeof path !== "string") return "An image's path must be a string";
+  if (!isString(path)) return "An image's path must be a string";
+
   if (path.length === 0) return IMAGE_PATH_EMPTY;
+
   if (/^(?:[/\\]|[A-Za-z]:)/.test(path)) return IMAGE_PATH_ABSOLUTE;
+
   if (/[*?<>|:"]/.test(path)) return IMAGE_PATH_CHARS;
+
   if (path.length > 32000) return IMAGE_PATH_LENGTH;
+
   if (/\\[Mm]\+[1-5][0-9A-Fa-f]{4}/.test(path)) return IMAGE_PATH_MULTIBYTE;
+
   return textProblem(path);
 }
 
@@ -3401,12 +3829,15 @@ export function imagePixelsProblem(pixels: unknown): string | undefined {
   // A plain array of two, with no key but its indexes and its length.
   if (!Array.isArray(pixels) || pixels.length !== 2 || Reflect.ownKeys(pixels).length !== 3)
     return IMAGE_PIXELS;
+
   // Each side read as a plain value, without a getter or the array's iterator.
   const side = (i: number) => {
     const item = Object.getOwnPropertyDescriptor(pixels, i);
     const n: unknown = item && "value" in item ? item.value : undefined;
-    return Number.isInteger(n) && (n as number) >= 1 && (n as number) <= IMAGE_SIDE;
+
+    return isWhole(n) && n >= 1 && n <= IMAGE_SIDE;
   };
+
   return side(0) && side(1) ? undefined : IMAGE_PIXELS;
 }
 
@@ -3422,64 +3853,84 @@ export function imageClipProblem(
   v: readonly [number, number],
 ): string | undefined {
   if (!Array.isArray(clip) || clip.length < 2) return IMAGE_CLIP_POINTS;
+
   if (Reflect.ownKeys(clip).length !== clip.length + 1) {
     return "An image's clip must be a plain array of points, with no key but its indexes";
   }
+
   const written2: (readonly [number, number])[] = [];
+
   // Read by index as plain values, so an empty slot or a getter is a point that is missing.
-  const item = (list: unknown[], i: number): unknown => {
+  const item = (list: unknown[], i: number) => {
     const found = Object.getOwnPropertyDescriptor(list, i);
-    return found && "value" in found ? found.value : undefined;
+    const value: unknown = found && "value" in found ? found.value : undefined;
+
+    return value;
   };
+
   for (let i = 0; i < clip.length; i++) {
     const point = item(clip, i);
+
     const [x, y]: unknown[] =
       Array.isArray(point) && point.length === 2 && Reflect.ownKeys(point).length === 3
         ? [item(point, 0), item(point, 1)]
         : [];
-    if (
-      typeof x !== "number" ||
-      typeof y !== "number" ||
-      !Number.isFinite(x) ||
-      !Number.isFinite(y)
-    ) {
+
+    if (!isNumber(x) || !isNumber(y) || !Number.isFinite(x) || !Number.isFinite(y)) {
       return "Each point of an image's clip must be a point, [x, y], of finite numbers";
     }
+
     const problem = magnitudeProblem(x) ?? magnitudeProblem(y);
+
     if (problem) return problem;
     written2.push([written(x), written(y)]);
   }
+
   if (written2.length === 2) {
     const det = u[0] * v[1] - u[1] * v[0];
+
     const along = ([x, y]: readonly [number, number]) => {
       const [dx, dy] = [x - at[0], y - at[1]];
+
       return [(dx * v[1] - dy * v[0]) / det, (u[0] * dy - u[1] * dx) / det] as const;
     };
+
     const [a, b] = [along(written2[0]!), along(written2[1]!)];
+
     // Apart by a millionth of a pixel at least, which the 15 digits a clip is written with keep.
     const apart = (p: number, q: number) =>
       Math.abs(p - q) > 1e-6 * Math.max(1, Math.abs(p), Math.abs(q));
+
     return apart(a[0], b[0]) && apart(a[1], b[1]) ? undefined : IMAGE_CLIP_RECTANGLE;
   }
+
   const distinct = new Set(written2.map(([x, y]) => `${x},${y}`));
+
   return distinct.size >= 3 ? undefined : IMAGE_CLIP_POLYGON;
 }
 
 /** Returns what is wrong with an underlay's path, or undefined when it is valid. */
 export function underlayPathProblem(path: unknown): string | undefined {
-  if (typeof path !== "string") return "An underlay's path must be a string";
+  if (!isString(path)) return "An underlay's path must be a string";
+
   if (path.length === 0) return UNDERLAY_PATH_EMPTY;
+
   if (/^(?:[/\\]|[A-Za-z]:)/.test(path)) return UNDERLAY_PATH_ABSOLUTE;
+
   if (/[*?<>|:"]/.test(path)) return UNDERLAY_PATH_CHARS;
+
   if (path.length > 32000) return UNDERLAY_PATH_LENGTH;
+
   if (/\\[Mm]\+[1-5][0-9A-Fa-f]{4}/.test(path)) return UNDERLAY_PATH_MULTIBYTE;
+
   return textProblem(path);
 }
 
 /** Returns what is wrong with an underlay's page, or undefined when it is valid. */
 export function underlayPageProblem(page: unknown): string | undefined {
-  if (typeof page !== "string" || !/^[1-9][0-9]{0,9}$/.test(page) || Number(page) > 2_147_483_647)
+  if (!isString(page) || !/^[1-9][0-9]{0,9}$/.test(page) || Number(page) > 2_147_483_647)
     return UNDERLAY_PAGE;
+
   return undefined;
 }
 
@@ -3487,18 +3938,21 @@ export function underlayPageProblem(page: unknown): string | undefined {
 export function underlayPageSizeProblem(size: unknown): string | undefined {
   if (!Array.isArray(size) || size.length !== 2 || Reflect.ownKeys(size).length !== 3)
     return UNDERLAY_PAGE_SIZE;
+
   for (let i = 0; i < 2; i++) {
     const item = Object.getOwnPropertyDescriptor(size, i);
     const n: unknown = item && "value" in item ? item.value : undefined;
-    if (typeof n !== "number" || !Number.isFinite(n) || !(written(n) > 0) || n >= 1e100)
+
+    if (!isNumber(n) || !Number.isFinite(n) || !(written(n) > 0) || n >= 1e100)
       return UNDERLAY_PAGE_SIZE;
   }
+
   return undefined;
 }
 
 /** Returns what is wrong with an underlay's scale, or undefined when it is valid. */
 export function underlayScaleProblem(scale: unknown): string | undefined {
-  return typeof scale === "number" && Number.isFinite(scale) && written(scale) > 0 && scale < 1e100
+  return isNumber(scale) && Number.isFinite(scale) && written(scale) > 0 && scale < 1e100
     ? undefined
     : UNDERLAY_SCALE;
 }
@@ -3510,6 +3964,7 @@ export function underlayPlacedProblem(
   at: readonly [number, number],
 ): string | undefined {
   const reach = Math.hypot(size[0], size[1]) * written(scale);
+
   return Math.abs(at[0]) + reach < 1e100 && Math.abs(at[1]) + reach < 1e100
     ? undefined
     : UNDERLAY_PLACED;
@@ -3517,16 +3972,12 @@ export function underlayPlacedProblem(
 
 /** Returns what is wrong with an underlay's fade, or undefined when it is valid. */
 export function underlayFadeProblem(fade: unknown): string | undefined {
-  return Number.isInteger(fade) && (fade as number) >= 0 && (fade as number) <= 80
-    ? undefined
-    : UNDERLAY_FADE;
+  return isWhole(fade) && fade >= 0 && fade <= 80 ? undefined : UNDERLAY_FADE;
 }
 
 /** Returns what is wrong with an underlay's contrast, or undefined when it is valid. */
 export function underlayContrastProblem(contrast: unknown): string | undefined {
-  return Number.isInteger(contrast) && (contrast as number) >= 20 && (contrast as number) <= 100
-    ? undefined
-    : UNDERLAY_CONTRAST;
+  return isWhole(contrast) && contrast >= 20 && contrast <= 100 ? undefined : UNDERLAY_CONTRAST;
 }
 
 /**
@@ -3576,6 +4027,7 @@ export function xrefFieldProblem(field: (typeof XREF_REFUSED_FIELDS)[number]): s
     attributes:
       "attribute definitions. A block of the drawing has them, and an xref draws what its file holds",
   }[field];
+
   return `An xref cannot have ${what}`;
 }
 
@@ -3611,6 +4063,7 @@ export function xrefChainProblem(kind: XrefProblem["kind"], chain: readonly stri
   const at = `Xref ${chainOf(chain)}`;
   const last = chainOf(chain.slice(-1));
   const above = chainOf(chain.slice(-2, -1));
+
   switch (kind) {
     case "overlay":
       return `${at}: ${last} is an overlay of the drawing given for ${above}, and the leading CAD app draws no overlay of a referenced drawing, so the drawing given for it is not drawn`;
@@ -3651,6 +4104,7 @@ export function blockCycleProblem(path: readonly string[]): string {
           .map((name) => JSON.stringify(name))
           .join(" and ")}`
       : "";
+
   return `Block ${JSON.stringify(path[0])} holds an insert of itself${through}. The leading CAD app's AUDIT reports such blocks as self referencing`;
 }
 
@@ -3660,20 +4114,24 @@ export function blockCycleProblem(path: readonly string[]): string {
  * @param value - The scale along X or along Y.
  */
 export function scaleProblem(value: unknown): string | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
+  if (!isNumber(value) || !Number.isFinite(value)) {
     return "A scale must be a finite number";
   }
+
   return written(value) === 0 ? SCALE_ZERO : magnitudeProblem(value);
 }
 
 /**
- * Returns what is wrong with an attribute's tag, or undefined when it is valid. It takes
- * `unknown` so that `lint` can report a drawing built by hand with a tag of the wrong type.
+ * Returns what is wrong with an attribute's tag, or undefined when it is valid. It takes a value
+ * of any type so that `lint` can report a drawing built by hand with a tag of the wrong type.
  */
 export function attributeTagProblem(tag: unknown): string | undefined {
-  if (typeof tag !== "string") return "An attribute's tag must be a string";
+  if (!isString(tag)) return "An attribute's tag must be a string";
+
   if (tag.length === 0) return TAG_EMPTY;
+
   if (/[a-z]/.test(tag)) return TAG_LOWER;
+
   return textProblem(tag);
 }
 
@@ -3703,23 +4161,32 @@ export function placedAttributeProblem(
 ): string | undefined {
   const name = (): string => quoted ?? JSON.stringify(tag);
   const about = (): string => `its scale makes the attribute ${name()}`;
+
   if (!placed.at.every(Number.isFinite)) return `it puts the attribute ${name()} at no point`;
   const far = magnitudeProblem(placed.at[0]) ?? magnitudeProblem(placed.at[1]);
+
   if (far) return `it puts the attribute ${name()} at ${placed.at.join(", ")}. ${far}`;
+
   if (![placed.height, placed.widthFactor, placed.obliqueAngle].every(Number.isFinite)) {
     return `${about()} a text of no size`;
   }
+
   const height = sizeProblem(placed.height);
+
   if (height) return `${about()} ${placed.height} high. ${height}`;
   const width = placed.paragraph?.width;
   const wide = width === undefined ? undefined : sizeProblem(width);
+
   if (wide) return `${about()} wrap at a width of ${width}. ${wide}`;
+
   if (Math.abs(written(placed.obliqueAngle)) > 85) {
     return `${about()} slant by ${written(placed.obliqueAngle)} degrees. ${OBLIQUE}. Scale the insert more evenly`;
   }
+
   if (written(placed.widthFactor) < 0.01 || written(placed.widthFactor) > 100) {
     return `${about()} ${written(placed.widthFactor)} times as wide as its font draws it. ${WIDTH_FACTOR}, and an attribute with one of 750000. Scale the insert more evenly`;
   }
+
   return undefined;
 }
 
@@ -3745,7 +4212,7 @@ export function paragraphOnlyProblem(field: (typeof PARAGRAPH_ONLY)[number]): st
 }
 
 /** What an insert's `attributes` must be. */
-export const ATTRIBUTES_SHAPE = "attributes must be an object of values by tag";
+export const ATTRIBUTES_TYPE = "attributes must be an object of values by tag";
 
 /**
  * Returns what is wrong with an insert that sets an attribute its block does not define. An
@@ -3757,9 +4224,10 @@ export function undefinedAttributeProblem(tag: string, block: string): string {
 }
 
 /** Returns what is wrong with a drawing's format version, or undefined when tsdraft reads it. */
-export function formatProblem(format: unknown): string | undefined {
+export function formatProblem(format?: unknown): string | undefined {
   // Negative zero is refused: it would be written as -0, and so change the drawing's JSON.
   if (Object.is(format, 0)) return undefined;
+
   return format === undefined
     ? "The drawing has no format version. A Drawing has format: 0"
     : `Unknown Drawing format ${shown(format)}. This version of tsdraft reads format 0`;
@@ -3767,21 +4235,125 @@ export function formatProblem(format: unknown): string | undefined {
 
 /** A value of any type for a message: a string quoted, a number as it is, anything else by kind. */
 export function shown(value: unknown): string {
-  if (typeof value === "string") return JSON.stringify(value);
+  if (isString(value)) return JSON.stringify(value);
+
   if (Object.is(value, -0)) return "-0";
-  if (typeof value === "number" || typeof value === "boolean" || value == null) {
+
+  if (isNumber(value) || isBoolean(value) || value == null) {
     return String(value);
   }
-  return Array.isArray(value) ? "an array" : `a value of type ${typeof value}`;
+
+  return Array.isArray(value) ? "an array" : `a value of type ${typeName(value)}`;
+}
+
+/** A hatch's pattern choice, each field as given. */
+interface PatternChoiceFields {
+  readonly name?: unknown;
+  readonly scale?: unknown;
+  readonly angle?: unknown;
+  readonly origin?: unknown;
+  readonly spacing?: unknown;
+  readonly crossed?: unknown;
+}
+
+/** A hatch's gradient, each field as given. */
+interface GradientFields {
+  readonly name?: unknown;
+  readonly angle?: unknown;
+  readonly centered?: unknown;
+  readonly colors?: unknown;
+  readonly color?: unknown;
+  readonly tint?: unknown;
+}
+
+/** A line of a hatch pattern, each field as given. */
+export interface PatternLineFields {
+  readonly angle?: unknown;
+  readonly base?: unknown;
+  readonly offset?: unknown;
+  readonly dashes?: unknown;
+}
+
+/** A hatch pattern's definition, each field as given. */
+interface HatchPatternFields {
+  readonly name?: unknown;
+  readonly description?: unknown;
+  readonly lines?: unknown;
+}
+
+/** A paragraph's columns, each field as given. */
+interface ColumnsFields {
+  readonly height?: unknown;
+  readonly heights?: unknown;
+  readonly count?: unknown;
+  readonly gutter?: unknown;
+}
+
+/** A viewport, each field as given. */
+interface ViewportFields {
+  readonly corner?: unknown;
+  readonly width?: unknown;
+  readonly height?: unknown;
+  readonly center?: unknown;
+  readonly ratio?: unknown;
+  readonly frozenLayers?: unknown;
+  readonly twist?: unknown;
+}
+
+/** True for a whole number. */
+export function isWhole(value: unknown): value is number {
+  return Number.isInteger(value);
+}
+
+/** True for an array of two finite numbers. */
+function isFinitePair(value: unknown): value is Point {
+  if (!Array.isArray(value) || value.length !== 2) return false;
+  const x: unknown = value[0];
+  const y: unknown = value[1];
+
+  return isNumber(x) && Number.isFinite(x) && isNumber(y) && Number.isFinite(y);
+}
+
+/** True for a value that is one of `values`. */
+export function isOneOf<T, V>(values: readonly T[], value: V): value is V & T {
+  const list: readonly (T | V)[] = values;
+
+  for (const one of list) if (one === value) return true;
+
+  return false;
+}
+
+/** The name `typeof` gives the type of a value. */
+export function typeName(value: unknown): string {
+  if (value === undefined) return "undefined";
+
+  if (isString(value)) return "string";
+
+  if (isNumber(value)) return "number";
+
+  if (isBoolean(value)) return "boolean";
+
+  if (isFunction(value)) return "function";
+
+  if (isObjectOrArray(value) || value === null) return "object";
+
+  return isSymbol(value) ? "symbol" : "bigint";
+}
+
+function isSymbol(value: unknown): value is symbol {
+  return typeof value === "symbol";
 }
 
 /** Returns what is wrong with a single-line text value, or undefined when it is valid. */
 export function textProblem(value: string): string | undefined {
   if (hasControl(value)) return TEXT_CONTROL;
+
   if (hasAstral(value)) {
     return "Text cannot contain emoji or other characters above U+FFFF, because the leading CAD app cannot read them from DXF";
   }
+
   if (/[\ue800-\ue8ff]/.test(value)) return TEXT_PRIVATE_USE;
+
   return undefined;
 }
 
@@ -3812,8 +4384,10 @@ function codePoint(character: string): string {
 function hasControl(value: string): boolean {
   for (let i = 0; i < value.length; i++) {
     const code = value.charCodeAt(i);
+
     if (code < 0x20 || code === 0x7f) return true;
   }
+
   return false;
 }
 
@@ -3821,22 +4395,30 @@ function hasControl(value: string): boolean {
 function hasAstral(value: string): boolean {
   for (let i = 0; i < value.length; i++) {
     const code = value.charCodeAt(i);
+
     if (code >= 0xd800 && code <= 0xdfff) return true;
   }
+
   return false;
 }
 
 /**
- * Returns what is wrong with a layout's name, or undefined when it is valid. It takes `unknown`
- * so that `lint` can report a drawing built by hand with a name of the wrong type.
+ * Returns what is wrong with a layout's name, or undefined when it is valid. It takes a value of
+ * any type so that `lint` can report a drawing built by hand with a name of the wrong type.
  */
 export function layoutNameProblem(name: unknown): string | undefined {
-  if (typeof name !== "string") return "A layout's name must be a string";
+  if (!isString(name)) return "A layout's name must be a string";
+
   if (name.length === 0) return LAYOUT_NAME_EMPTY;
+
   if (layoutNameKey(name) === "model") return LAYOUT_NAME_MODEL;
+
   if (/[<>/\\":;?*|,=`]/.test(name)) return LAYOUT_NAME_CHARS;
+
   if (name.startsWith(" ") || name.endsWith(" ")) return LAYOUT_NAME_EDGE;
+
   if (name.length > 255) return LAYOUT_NAME_LENGTH;
+
   return textProblem(name);
 }
 
@@ -3853,6 +4435,7 @@ export function layoutNameProblem(name: unknown): string | undefined {
 export function layoutTwinProblem(name: string, other: string): string | undefined {
   if (layoutNameKey(name) !== layoutNameKey(other)) return undefined;
   const spelled = name === other ? "" : `, as ${JSON.stringify(other)}`;
+
   return `The drawing already has a layout of this name${spelled}. The leading CAD app takes the two for one layout, keeps one, and its AUDIT reports the other as missing from the dictionary of layouts`;
 }
 
@@ -3861,39 +4444,46 @@ export function layoutTwinProblem(name: string, other: string): string | undefin
  * of Windows can have it as its name: `<number>.dwg`.
  */
 export function sheetNumberProblem(number: unknown): string | undefined {
-  if (typeof number !== "string") return "A sheet number is a string";
+  if (!isString(number)) return "A sheet number is a string";
+
   if (number.length < 1 || number.length > 64) return SHEET_NUMBER_LENGTH;
+
   for (let i = 0; i < number.length; i++) {
     const code = number.charCodeAt(i);
+
     if (code < 0x20 || code === 0x7f || (code >= 0xd800 && code <= 0xdfff)) {
       return SHEET_NUMBER_CHARS;
     }
   }
+
   if (/[<>:"/\\|?*]/.test(number)) return SHEET_NUMBER_CHARS;
+
   if (/[ .]$/.test(number)) return SHEET_NUMBER_END;
+
   if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(number)) return SHEET_NUMBER_DEVICE;
+
   return undefined;
 }
 
 /**
  * Returns what is wrong with a layout's paper, or undefined when it is one of `PAPERS`. It
- * takes `unknown` so that `lint` can report a drawing built by hand.
+ * takes a value of any type so that `lint` can report a drawing built by hand.
  */
 export function paperProblem(paper: unknown): string | undefined {
-  return typeof paper === "string" && paperInfo(paper) !== undefined ? undefined : PAPER;
+  return isString(paper) && paperInfo(paper) !== undefined ? undefined : PAPER;
 }
 
 /**
  * Returns what is wrong with a layout's plot style table, or undefined when it is one of
- * `PLOT_STYLE_TABLES`. It takes `unknown` so that `lint` can report a drawing built by hand.
+ * `PLOT_STYLE_TABLES`. It takes a value of any type so that `lint` can report a drawing built by hand.
  * The type of the option is the list itself, so the rule needs no type of its own.
  */
 export function plotStyleProblem(table: unknown): string | undefined {
-  return PLOT_STYLE_TABLES.includes(table as PlotStyleTable) ? undefined : PLOT_STYLE;
+  return isOneOf(PLOT_STYLE_TABLES, table) ? undefined : PLOT_STYLE;
 }
 
 /** What a viewport must be, for a drawing built without the builder. */
-export const VIEWPORT_SHAPE =
+export const VIEWPORT_TYPE =
   "a viewport must be an object with a layer, a corner, a width, a height, a center and a ratio";
 
 const FROZEN_LAYERS = "its frozenLayers must be a list of the names of layers";
@@ -3902,6 +4492,7 @@ const FROZEN_LAYERS = "its frozenLayers must be a list of the names of layers";
 export function turning(twist: number): readonly [cos: number, sin: number] {
   if (twist === 0) return [1, 0];
   const turn = (twist * Math.PI) / 180;
+
   return [Math.cos(turn), Math.sin(turn)];
 }
 
@@ -3913,8 +4504,10 @@ export function turning(twist: number): readonly [cos: number, sin: number] {
  */
 export function twistedCenter(center: Point, twist: number): Point {
   const [x, y] = [written(center[0]), written(center[1])];
+
   if (twist === 0) return [x, y];
   const [cos, sin] = turning(twist);
+
   return [written(x * cos - y * sin), written(x * sin + y * cos)];
 }
 
@@ -3932,8 +4525,8 @@ export function frozenLayerAbsent(name: string): string {
  * and gives a view the leading CAD app can hold. A file holds the height of model space the
  * viewport shows, in drawing units, where a scale would be, so that height is held to the rules of
  * any size: it is not written as 0 and is under 1e100. A twist is under a turn either way, and the
- * frozen layers a list of names, which `lint` holds to the drawing's layers. It takes
- * `unknown` so that `lint` can report a drawing built by hand. The ratio has the type `Ratio`.
+ * frozen layers a list of names, which `lint` holds to the drawing's layers. It takes a value of
+ * any type so that `lint` can report a drawing built by hand. The ratio has the type `Ratio`.
  *
  * @param viewport - The viewport, with or without its layer and id, which are not judged.
  * @param paperUnits - The units of the paper of the viewport's layout.
@@ -3944,69 +4537,76 @@ export function viewportProblem(
   paperUnits: PaperUnit,
   units: Units,
 ): string | undefined {
-  if (typeof viewport !== "object" || viewport === null || Array.isArray(viewport)) {
-    return VIEWPORT_SHAPE;
+  if (!isObjectOrArray(viewport) || Array.isArray(viewport)) {
+    return VIEWPORT_TYPE;
   }
+
   if (!isPaperUnit(paperUnits)) return `The paper unit must be "in" or "mm"`;
+
   if (!isUnits(units)) return `Unknown units: ${JSON.stringify(units)}`;
-  const { corner, width, height, center, ratio, frozenLayers, twist } = viewport as Record<
-    string,
-    unknown
-  >;
+
+  const { corner, width, height, center, ratio, frozenLayers, twist }: ViewportFields = viewport;
+
   if (twist !== undefined) {
     // The DXF holds degrees and the DWG radians, which part past a turn.
-    if (typeof twist !== "number" || !(Math.abs(twist) < 360)) {
+    if (!isNumber(twist) || !(Math.abs(twist) < 360)) {
       return "its twist must be a number of degrees more than -360 and less than 360";
     }
   }
+
   if (frozenLayers !== undefined) {
-    const names = Array.isArray(frozenLayers) ? (frozenLayers as unknown[]) : undefined;
+    const names: readonly unknown[] | undefined = Array.isArray(frozenLayers)
+      ? frozenLayers
+      : undefined;
+
     // Each slot is read by its index, so an empty one is a name that is not a string.
     for (let i = 0; names && i < names.length; i++) {
-      if (typeof names[i] !== "string") return FROZEN_LAYERS;
+      if (!isString(names[i])) return FROZEN_LAYERS;
     }
+
     if (!names) return FROZEN_LAYERS;
   }
-  for (const [label, point] of [
-    ["corner", corner],
-    ["center", center],
-  ] as const) {
-    // Each of the two is read by its index: `every` passes over an empty slot.
-    if (
-      !Array.isArray(point) ||
-      point.length !== 2 ||
-      !Number.isFinite(point[0]) ||
-      !Number.isFinite(point[1])
-    ) {
-      return `its ${label} must be a point of finite numbers, [x, y]`;
-    }
-    const far = magnitudeProblem(point[0] as number) ?? magnitudeProblem(point[1] as number);
-    if (far) return `its ${label}: ${far}`;
-  }
-  const turned = twistedCenter(center as Point, written((twist as number | undefined) ?? 0));
+
+  // Each of the two is read by its index: `every` passes over an empty slot.
+  if (!isFinitePair(corner)) return "its corner must be a point of finite numbers, [x, y]";
+  const cornerFar = magnitudeProblem(corner[0]) ?? magnitudeProblem(corner[1]);
+
+  if (cornerFar) return `its corner: ${cornerFar}`;
+
+  if (!isFinitePair(center)) return "its center must be a point of finite numbers, [x, y]";
+  const centerFar = magnitudeProblem(center[0]) ?? magnitudeProblem(center[1]);
+
+  if (centerFar) return `its center: ${centerFar}`;
+  const turned = twistedCenter(center, written(isNumber(twist) ? twist : 0));
   const far = magnitudeProblem(turned[0]) ?? magnitudeProblem(turned[1]);
+
   if (far) return `its center, turned by its twist as a file holds it: ${far}`;
-  for (const [label, size] of [
-    ["width", width],
-    ["height", height],
-  ] as const) {
-    if (typeof size !== "number" || !Number.isFinite(size)) {
-      return `${label} must be a finite number`;
-    }
-    const problem = sizeProblem(size);
-    if (problem) return `${label}: ${problem}`;
-  }
-  if (typeof ratio !== "number" || !Number.isFinite(ratio)) {
+
+  if (!isNumber(width) || !Number.isFinite(width)) return "width must be a finite number";
+  const widthProblem = sizeProblem(width);
+
+  if (widthProblem) return `width: ${widthProblem}`;
+
+  if (!isNumber(height) || !Number.isFinite(height)) return "height must be a finite number";
+  const heightProblem = sizeProblem(height);
+
+  if (heightProblem) return `height: ${heightProblem}`;
+
+  if (!isNumber(ratio) || !Number.isFinite(ratio)) {
     return "The ratio must be a finite number";
   }
+
   if (!(ratio > 0)) return RATIO;
-  const viewHeight = modelLength(written(height as number), paperUnits, ratio, units);
+  const viewHeight = modelLength(written(height), paperUnits, ratio, units);
+
   if (!Number.isFinite(viewHeight) || isTooLarge(viewHeight)) {
     return `At the ratio ${ratio} the viewport shows 1e100 drawing units or more, and the leading CAD app reads only two exponent digits from DXF. Use a smaller ratio`;
   }
+
   if (written(viewHeight) === 0) {
     return `At the ratio ${ratio} the viewport shows ${viewHeight} drawing units up and down, which is written as 0, because tsdraft writes 6 decimals. Use a larger ratio`;
   }
+
   return undefined;
 }
 
@@ -4021,6 +4621,7 @@ export function viewportOffPaperWarning(
   paper: { readonly width: number; readonly height: number },
 ): string | undefined {
   const [minX, minY, maxX, maxY] = rectangle;
+
   return minX < 0 || minY < 0 || maxX > paper.width || maxY > paper.height
     ? `the viewport reaches from ${minX}, ${minY} to ${maxX}, ${maxY}, past the paper, which is ${paper.width} by ${paper.height}. The leading CAD app plots a layout as far as its paper goes`
     : undefined;
@@ -4041,8 +4642,10 @@ export function viewportEmptyWarning(
 ): string {
   if (turned && turned.twist !== 0) {
     const { width, height, center, twist } = turned;
+
     return `the viewport shows none of the drawing: nothing in model space reaches into the rectangle it shows, ${written(width)} by ${written(height)} about ${written(center[0])}, ${written(center[1])}, turned ${twist} degrees`;
   }
+
   return `the viewport shows none of the drawing: nothing in model space lies in the box it shows, from ${written(box[0])}, ${written(box[1])} to ${written(box[2])}, ${written(box[3])}`;
 }
 
@@ -4051,7 +4654,8 @@ export function viewportEmptyWarning(
  * valid. `Standard` is a valid name, of a style tsdraft draws no dimension in.
  */
 export function dimensionStyleNameProblem(name: unknown): string | undefined {
-  if (typeof name !== "string") return "A dimension style's name must be a string";
+  if (!isString(name)) return "A dimension style's name must be a string";
+
   return nameProblem(name, DIMENSION_STYLE_NAMES);
 }
 
@@ -4069,7 +4673,8 @@ export function notNegativeProblem(
   value: unknown,
   message: string = NOT_NEGATIVE,
 ): string | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "must be a finite number";
+  if (!isNumber(value) || !Number.isFinite(value)) return "must be a finite number";
+
   // Judged as written: a size that is written as 0 is 0.
   return written(value) < 0 ? message : magnitudeProblem(value);
 }
@@ -4079,9 +4684,15 @@ export function textGapProblem(value: unknown): string | undefined {
   return notNegativeProblem(value, TEXT_GAP);
 }
 
+/** A size as written, of a field the checks before have found a finite number. */
+function checkedSize(value: unknown): number {
+  return isNumber(value) ? written(value) : Number.NaN;
+}
+
 /** Returns what is wrong with one of a dimension style's two scales, or undefined. */
 function styleScaleProblem(value: unknown, message: string): string | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "must be a finite number";
+  if (!isNumber(value) || !Number.isFinite(value)) return "must be a finite number";
+
   return value > 0 ? sizeProblem(value) : message;
 }
 
@@ -4092,36 +4703,29 @@ export function measurementScaleProblem(value: unknown): string | undefined {
 
 /** Returns what is wrong with an arrowhead, or undefined when it is one of `ARROWHEADS`. */
 export function arrowheadProblem(value: unknown): string | undefined {
-  return arrowheadInfo(value) ? undefined : ARROWHEAD;
+  return isString(value) && arrowheadInfo(value) ? undefined : ARROWHEAD;
 }
 
 /** Returns what is wrong with a precision, or undefined. Its type is `Precision`. */
 export function precisionProblem(value: unknown): string | undefined {
-  return typeof value === "number" &&
-    Number.isInteger(value) &&
-    value >= 0 &&
-    value <= MAX_PRECISION
+  return isNumber(value) && Number.isInteger(value) && value >= 0 && value <= MAX_PRECISION
     ? undefined
     : PRECISION;
 }
 
 /** Returns what is wrong with a `suppressZeros`, or undefined. */
 export function zeroSuppressionProblem(value: unknown): string | undefined {
-  return (ZERO_SUPPRESSIONS as readonly unknown[]).includes(value) ? undefined : ZERO_SUPPRESSION;
+  return isOneOf(ZERO_SUPPRESSIONS, value) ? undefined : ZERO_SUPPRESSION;
 }
 
 /** Returns what is wrong with a dimension style's `units`, or undefined. */
 export function dimensionUnitsProblem(value: unknown): string | undefined {
-  return (DIMENSION_UNITS as readonly unknown[]).includes(value)
-    ? undefined
-    : DIMENSION_UNITS_MESSAGE;
+  return isOneOf(DIMENSION_UNITS, value) ? undefined : DIMENSION_UNITS_MESSAGE;
 }
 
 /** Returns what is wrong with a `feetInchZeros`, or undefined. */
 export function feetInchZerosProblem(value: unknown): string | undefined {
-  return (FEET_INCH_ZEROS as readonly unknown[]).includes(value)
-    ? undefined
-    : FEET_INCH_ZEROS_MESSAGE;
+  return isOneOf(FEET_INCH_ZEROS, value) ? undefined : FEET_INCH_ZEROS_MESSAGE;
 }
 
 /**
@@ -4134,6 +4738,7 @@ export function zerosOfUnitsProblem(
   feetInchZeros: unknown,
 ): string | undefined {
   const architectural = units === "architectural";
+
   return (architectural ? suppressZeros : feetInchZeros) === undefined ? undefined : ZEROS_OF_UNITS;
 }
 
@@ -4143,13 +4748,15 @@ export function zerosOfUnitsProblem(
  * formatting. Its type, for a suffix, is `DimensionAffix`.
  */
 export function plainDimensionText(value: unknown): string | undefined {
-  if (typeof value !== "string") return "must be a string";
+  if (!isString(value)) return "must be a string";
+
   return textProblem(value) ?? (/[\\{}]/.test(value) ? DIMENSION_FORMATTING : undefined);
 }
 
 /** Returns what is wrong with a dimension style's prefix, or undefined. Its type is `DimensionPrefix`. */
 export function dimensionPrefixProblem(value: unknown): string | undefined {
-  if (typeof value === "string" && value.includes("<>")) return PREFIX_MEASUREMENT;
+  if (isString(value) && value.includes("<>")) return PREFIX_MEASUREMENT;
+
   return plainDimensionText(value);
 }
 
@@ -4165,36 +4772,59 @@ export function dimensionPrefixProblem(value: unknown): string | undefined {
  * less than 0 on a layout alone.
  */
 export function dimensionStyleProblem(style: unknown): string | undefined {
-  if (typeof style !== "object" || style === null || Array.isArray(style)) {
+  if (!isRecord(style)) {
     return "A dimension style must be an object with a name and its sizes";
   }
-  const s = style as Record<string, unknown>;
+
+  const s = style;
   const nameError = dimensionStyleNameProblem(s.name);
+
   if (nameError) return nameError;
-  if (isStandardDimensionStyle(s.name as string)) return STANDARD_DIMENSION_STYLE_DEFINED;
+
+  if (isString(s.name) && isStandardDimensionStyle(s.name)) return STANDARD_DIMENSION_STYLE_DEFINED;
+
   if (s.textStyle !== undefined) {
-    if (typeof s.textStyle !== "string") return "textStyle: a text style is named by a string";
+    if (!isString(s.textStyle)) return "textStyle: a text style is named by a string";
     const problem = textStyleNameProblem(s.textStyle);
+
     if (problem) return `textStyle: ${problem}`;
   }
-  if (typeof s.textHeight !== "number" || !Number.isFinite(s.textHeight)) {
+
+  if (!isNumber(s.textHeight) || !Number.isFinite(s.textHeight)) {
     return "textHeight must be a finite number";
   }
+
   const height = sizeProblem(s.textHeight);
+
   if (height) return `textHeight: ${height}`;
+
   if (s.arrowhead !== undefined && arrowheadProblem(s.arrowhead)) return ARROWHEAD;
+
   for (const field of ["arrowSize", "extensionOffset", "extensionBeyond"] as const) {
     const problem = notNegativeProblem(s[field]);
+
     if (problem) return `${field}: ${problem}`;
   }
+
+  if (s.lineExtension !== undefined) {
+    const problem = notNegativeProblem(s.lineExtension);
+
+    if (problem) return `lineExtension: ${problem}`;
+  }
+
   const gap = textGapProblem(s.textGap);
+
   if (gap) return `textGap: ${gap}`;
+
   if (s.scale !== undefined) {
     const problem = styleScaleProblem(s.scale, DIMENSION_SCALE);
+
     if (problem) return `scale: ${problem}`;
   }
+
   // A picture draws each size times the scale.
-  const scale = s.scale === undefined ? 1 : written(s.scale as number);
+  const scale = s.scale === undefined ? 1 : checkedSize(s.scale);
+
   for (const field of [
     "textHeight",
     "arrowSize",
@@ -4202,159 +4832,200 @@ export function dimensionStyleProblem(style: unknown): string | undefined {
     "extensionBeyond",
     "textGap",
   ] as const) {
-    const scaled = written(s[field] as number) * scale;
+    const scaled = checkedSize(s[field]) * scale;
+
     if (!(Math.abs(scaled) < 1e100)) {
       return `${field}: times the scale it is ${scaled}, and the leading CAD app reads only two exponent digits from DXF, so every size of a picture must be under 1e100. Use a smaller size or scale`;
     }
   }
+
   // The picture writes the text's height and an arrowhead's size with 6 decimals.
   for (const field of ["textHeight", "arrowSize"] as const) {
-    const size = written(s[field] as number);
+    const size = checkedSize(s[field]);
+
     if (size > 0 && written(size * scale) === 0) {
       return `${field}: times the scale it is ${size * scale}, which is written as 0 with the 6 decimals tsdraft writes, so the picture of a dimension would draw ${field === "textHeight" ? "its text" : "its arrowheads"} with no size. Use a larger size or scale${field === "arrowSize" ? ", or an arrow size of 0" : ""}`;
     }
   }
+
   const precision = precisionProblem(s.precision);
+
   if (precision) return precision;
+
   for (const field of ["prefix", "suffix"] as const) {
     if (s[field] === undefined) continue;
     const problem = plainDimensionText(s[field]);
+
     if (problem) return `${field}: ${problem}`;
   }
-  if (typeof s.prefix === "string" && s.prefix.includes("<>")) return PREFIX_MEASUREMENT;
+
+  if (isString(s.prefix) && s.prefix.includes("<>")) return PREFIX_MEASUREMENT;
+
   if (s.units !== undefined) {
     const problem = dimensionUnitsProblem(s.units);
+
     if (problem) return problem;
   }
+
   if (s.suppressZeros !== undefined) {
     const problem = zeroSuppressionProblem(s.suppressZeros);
+
     if (problem) return problem;
   }
+
   if (s.feetInchZeros !== undefined) {
     const problem = feetInchZerosProblem(s.feetInchZeros);
+
     if (problem) return problem;
   }
+
   const zeros = zerosOfUnitsProblem(s.units, s.suppressZeros, s.feetInchZeros);
+
   if (zeros) return zeros;
+
   if (s.measurementScale !== undefined) {
     const problem = measurementScaleProblem(s.measurementScale);
+
     if (problem) return `measurementScale: ${problem}`;
   }
+
   return dimensionStyleLookProblem(s);
 }
 
 /** Returns what is wrong with a dimension style's `fraction`, or undefined. */
 export function fractionProblem(value: unknown): string | undefined {
-  return (DIMENSION_FRACTIONS as readonly unknown[]).includes(value)
-    ? undefined
-    : DIMENSION_FRACTION_MESSAGE;
+  return isOneOf(DIMENSION_FRACTIONS, value) ? undefined : DIMENSION_FRACTION_MESSAGE;
 }
 
 /** Returns what is wrong with a dimension style's `fractionScale`, or undefined. */
 export function fractionScaleProblem(value: unknown): string | undefined {
-  return typeof value === "number" && written(value) >= 0.25 && written(value) <= 1
+  return isNumber(value) && written(value) >= 0.25 && written(value) <= 1
     ? undefined
     : FRACTION_SCALE_MESSAGE;
 }
 
 /** Returns what is wrong with a dimension style's `textPlacement`, or undefined. */
 export function textPlacementProblem(value: unknown): string | undefined {
-  return (DIMENSION_TEXT_PLACEMENTS as readonly unknown[]).includes(value)
-    ? undefined
-    : TEXT_PLACEMENT_MESSAGE;
+  return isOneOf(DIMENSION_TEXT_PLACEMENTS, value) ? undefined : TEXT_PLACEMENT_MESSAGE;
 }
 
 /** Returns what is wrong with a dimension style's `textFit`, or undefined. */
 export function textFitProblem(value: unknown): string | undefined {
-  return (DIMENSION_TEXT_FITS as readonly unknown[]).includes(value) ? undefined : TEXT_FIT_MESSAGE;
+  return isOneOf(DIMENSION_TEXT_FITS, value) ? undefined : TEXT_FIT_MESSAGE;
 }
 
 /** Returns what is wrong with a dimension style's `radialText`, or undefined. */
 export function radialTextProblem(value: unknown): string | undefined {
-  return (DIMENSION_RADIAL_TEXTS as readonly unknown[]).includes(value)
-    ? undefined
-    : RADIAL_TEXT_MESSAGE;
+  return isOneOf(DIMENSION_RADIAL_TEXTS, value) ? undefined : RADIAL_TEXT_MESSAGE;
 }
 
 /** Returns what is wrong with a dimension style's `arcSymbol`, or undefined. */
 export function arcSymbolProblem(value: unknown): string | undefined {
-  return (DIMENSION_ARC_SYMBOLS as readonly unknown[]).includes(value)
+  return isOneOf(DIMENSION_ARC_SYMBOLS, value)
     ? undefined
     : 'arcSymbol must be "before", "above" or "none"';
 }
 
 /** Returns what is wrong with a dimension style's `angleUnits`, or undefined. */
 export function angleUnitsProblem(value: unknown): string | undefined {
-  return (DIMENSION_ANGLE_UNITS as readonly unknown[]).includes(value)
-    ? undefined
-    : ANGLE_UNITS_MESSAGE;
+  return isOneOf(DIMENSION_ANGLE_UNITS, value) ? undefined : ANGLE_UNITS_MESSAGE;
 }
 
 /** Returns what is wrong with a dimension style's `anglePrecision`, or undefined. */
 export function anglePrecisionProblem(value: unknown): string | undefined {
-  return Number.isInteger(value) &&
-    (value as number) >= 0 &&
-    (value as number) <= MAX_ANGLE_PRECISION
+  return isWhole(value) && value >= 0 && value <= MAX_ANGLE_PRECISION
     ? undefined
     : ANGLE_PRECISION_MESSAGE;
 }
 
 /** Returns what is wrong with a dimension style's `suppressAngleZeros`, or undefined. */
 export function angleZerosProblem(value: unknown): string | undefined {
-  return (ZERO_SUPPRESSIONS as readonly unknown[]).includes(value)
-    ? undefined
-    : ANGLE_ZEROS_MESSAGE;
+  return isOneOf(ZERO_SUPPRESSIONS, value) ? undefined : ANGLE_ZEROS_MESSAGE;
 }
 
 /** Returns what is wrong with a dimension style's `jogAngle`, or undefined. */
 export function jogAngleProblem(value: unknown): string | undefined {
-  return typeof value === "number" &&
-    written(value) >= JOG_ANGLE.least &&
-    written(value) <= JOG_ANGLE.most
+  return isNumber(value) && written(value) >= JOG_ANGLE.least && written(value) <= JOG_ANGLE.most
     ? undefined
     : JOG_ANGLE_MESSAGE;
+}
+
+/** The fields of a dimension style that say how it writes and lays out its text, as given. */
+interface DimensionStyleLook {
+  readonly units?: unknown;
+  readonly fraction?: unknown;
+  readonly fractionScale?: unknown;
+  readonly textPlacement?: unknown;
+  readonly textFit?: unknown;
+  readonly radialText?: unknown;
+  readonly jogAngle?: unknown;
+  readonly arrowhead?: unknown;
+  readonly textMask?: unknown;
+  readonly dimensionLineweight?: unknown;
+  readonly extensionLineweight?: unknown;
+  readonly angleUnits?: unknown;
+  readonly anglePrecision?: unknown;
+  readonly suppressAngleZeros?: unknown;
+  readonly arcSymbol?: unknown;
 }
 
 /**
  * Returns what is wrong with what a dimension style sets of how its dimensions look, or undefined:
  * its fraction and the fraction's height, where its text goes and its lineweights.
  */
-export function dimensionStyleLookProblem(s: Record<string, unknown>): string | undefined {
+export function dimensionStyleLookProblem(s: DimensionStyleLook): string | undefined {
   if (s.fraction !== undefined) {
     const problem = fractionProblem(s.fraction);
+
     if (problem) return problem;
   }
+
   if (s.fractionScale !== undefined) {
     const problem = fractionScaleProblem(s.fractionScale);
+
     if (problem) return problem;
   }
+
   // A fraction on the line, at the text's own height, is what every style writes.
   const stacked = s.fraction !== undefined && s.fraction !== "inline";
-  const scaled = s.fractionScale !== undefined && written(s.fractionScale as number) !== 1;
+  // `fractionScaleProblem` has found a scale given to be a number.
+  const scaled = isNumber(s.fractionScale) && written(s.fractionScale) !== 1;
+
   if ((stacked || scaled) && s.units !== "architectural") return FRACTION_OF_UNITS;
+
   if (scaled && !stacked) return FRACTION_SCALE_INLINE;
+
   if (s.textPlacement !== undefined) {
     const problem = textPlacementProblem(s.textPlacement);
+
     if (problem) return problem;
   }
+
   if (s.textFit !== undefined) {
     const problem = textFitProblem(s.textFit);
+
     if (problem) return problem;
   }
+
   if (
     s.textFit === "leader" &&
     s.textPlacement === "centered" &&
     (s.arrowhead ?? DEFAULT_ARROWHEAD) === "closed-filled"
   )
     return LEADER_CENTERED_ARROWS;
+
   if (s.radialText !== undefined) {
     const problem = radialTextProblem(s.radialText);
+
     if (problem) return problem;
   }
+
   if (s.jogAngle !== undefined) {
     const problem = jogAngleProblem(s.jogAngle);
+
     if (problem) return problem;
   }
+
   for (const [field, problemOf] of [
     ["arcSymbol", arcSymbolProblem],
     ["angleUnits", angleUnitsProblem],
@@ -4362,18 +5033,26 @@ export function dimensionStyleLookProblem(s: Record<string, unknown>): string | 
     ["suppressAngleZeros", angleZerosProblem],
   ] as const) {
     const problem = s[field] === undefined ? undefined : problemOf(s[field]);
+
     if (problem) return problem;
   }
+
   if (s.textMask !== undefined) {
     const problem = dimensionTextMaskProblem(s.textMask);
+
     if (problem) return problem;
   }
+
   for (const field of ["dimensionLineweight", "extensionLineweight"] as const) {
     const value = s[field];
+
     if (value === undefined) continue;
-    if (typeof value === "number" && (LINEWEIGHTS as readonly number[]).includes(value)) continue;
+
+    if (isNumber(value) && isOneOf(LINEWEIGHTS, value)) continue;
+
     return `${field}: ${LINEWEIGHT}`;
   }
+
   return undefined;
 }
 
@@ -4387,9 +5066,11 @@ export function dimensionStyleWarning(style: {
 }): string | undefined {
   for (const field of ["prefix", "suffix"] as const) {
     const value = style[field];
-    const warning = typeof value === "string" ? textWarning(value) : undefined;
+    const warning = isString(value) ? textWarning(value) : undefined;
+
     if (warning) return `${field}: ${warning}`;
   }
+
   return undefined;
 }
 
@@ -4402,9 +5083,11 @@ export function dimensionStyleWarning(style: {
  */
 export function dimensionStyleTwinProblem(name: string, other: string): string | undefined {
   if (layerAuditKey(name) !== layerAuditKey(other)) return undefined;
+
   if (layerKey(name) === layerKey(other)) {
     return "The drawing already has a dimension style of this name. CAD ignores case in dimension style names and keeps the first";
   }
+
   return `The drawing already has a dimension style of this name, as ${JSON.stringify(other)}. The leading CAD app's AUDIT reports a duplicate name in the dimension style table`;
 }
 
@@ -4428,22 +5111,28 @@ export function undefinedDimensionStyleProblem(name: string): string {
 
 /** Returns what is wrong with a dimension's own text, or undefined when the leading CAD app draws it as it is. */
 export function dimensionTextProblem(text: unknown): string | undefined {
-  if (typeof text !== "string") return "its text must be a string";
+  if (!isString(text)) return "its text must be a string";
+
   if (text.trim() === "" && !/[^ ]/.test(text)) return DIMENSION_TEXT_BLANK;
   const problem = plainDimensionText(text);
+
   if (problem) return problem;
+
   return text.includes("<>") && text.includes("[]") ? DIMENSION_TEXT_ALTERNATE : undefined;
 }
 
 /** What is wrong with words below a dimension's line whose text moves out on a leader. */
 export const DIMENSION_LEADER_BELOW =
   "its text does not fit between its extension lines and moves out on a leader, and where words below the line then go is not laid out yet, so tsdraft refuses it. Give it more room, or leave textBelow out";
+
 /** What is wrong with a text that moves out on a leader beside arrowheads larger than it. */
 export const DIMENSION_LEADER_ARROWS =
   "its style moves a text that does not fit out on a leader, and its arrowheads are twice as long as its text is high or longer, where the leading CAD app may keep the text and move the arrowheads instead, which is not laid out yet, so tsdraft refuses it. Use a smaller arrow size";
+
 /** What is wrong with a text centered in a dimension line it is wider than. */
 export const DIMENSION_CENTERED_WIDE =
   "its text, centered in its line, needs more room than the line has between its extension lines, and where the line's pieces then go is not laid out yet, so tsdraft refuses it. Give it more room, a smaller text, or the text above the line";
+
 /** What is wrong with a style whose closed arrowheads may turn outward round a text it moves out. */
 const LEADER_CENTERED_ARROWS =
   'textFit "leader" with closed filled arrowheads and the text "centered" turns the arrowheads outward where tsdraft does not know the room they need, which is not laid out yet, so tsdraft refuses it. Use a tick, or the text "above"';
@@ -4451,15 +5140,19 @@ const LEADER_CENTERED_ARROWS =
 /** What is wrong with a radius or a diameter dimension in a style with a prefix. */
 export const RADIAL_PREFIX =
   "its style has a prefix, which the leading CAD app may put in place of the R or the diameter sign it writes before a radius or a diameter, and which is not laid out yet, so tsdraft refuses it. Use a style without a prefix, or put the words in text";
+
 /** What is wrong with a placed text in a style that levels a radial dimension's text. */
 export const RADIAL_PLACED_LEVEL =
   'its text is placed along its line in a style with radialText "horizontal", and where the leading CAD app levels a placed text is not laid out yet, so tsdraft refuses it. Leave textFromCenter out, or use a style with radialText "aligned"';
+
 /** What is wrong with a radial dimension whose text is centered where that is not laid out. */
 export const RADIAL_CENTERED =
   'its style centers its text in its line, and where the leading CAD app breaks the line of a jogged radius dimension, or of one whose text is placed, is not laid out yet, so tsdraft refuses it. Use a style with the text "above"';
+
 /** What is wrong with a jogged radius dimension whose last stretch is shorter than its text. */
 export const RADIAL_JOG_SHORT =
   "its jog leaves the stretch from the jog to the arc shorter than its text and a gap each side, and where the leading CAD app then puts the text is not laid out yet, so tsdraft refuses it. Move the jog toward the center";
+
 /** What is wrong with a radius or a diameter dimension that measures nothing. */
 export const RADIAL_NO_RADIUS =
   "its point is its center once they are written with the 6 decimals tsdraft writes, so it has no radius";
@@ -4556,8 +5249,11 @@ const MEASUREMENT_DIGITS = 15;
 export function integerDigits(value: number): number {
   if (!(value >= 1) || !Number.isFinite(value)) return 0;
   let digits = Math.floor(Math.log10(value)) + 1;
+
   if (10 ** (digits - 1) > value) digits--;
+
   if (10 ** digits <= value) digits++;
+
   return digits;
 }
 
@@ -4570,9 +5266,10 @@ const DIMENSION_TURN = 360;
  * takes is turned into the same direction a turn less than it gives, with no loss.
  */
 export function dimensionAngleProblem(angle: unknown): string | undefined {
-  if (typeof angle !== "number" || !Number.isFinite(angle)) {
+  if (!isNumber(angle) || !Number.isFinite(angle)) {
     return "The angle a dimension measures along must be a finite number of degrees";
   }
+
   return Math.abs(written(angle)) > DIMENSION_TURN
     ? `The angle a dimension measures along must be from -360 to 360 degrees, not ${written(angle)}. tsdraft takes no angle of more than a turn, so that one direction has one angle less than a turn. Give the same direction less a whole number of turns`
     : undefined;
@@ -4623,20 +5320,27 @@ export function dimensionMeasureProblem(
   if (!Number.isFinite(measurement) || !Number.isFinite(scaled)) {
     return "it measures no finite length";
   }
+
   if (written(measurement) === 0) {
     return aligned
       ? "it has no length: its two points are one point once they are written with the 6 decimals tsdraft writes. The leading CAD app draws such a dimension with the text 0 and its arrowheads turned outward"
       : "it measures nothing: its two points are as far along the direction it measures, once they are written with the 6 decimals tsdraft writes. The leading CAD app draws such a dimension with the text 0 and its arrowheads turned outward";
   }
+
   const [whole = "", decimals = ""] = rounded.split(".");
+
   if (!(Number(whole) < MEASUREMENT_LIMIT)) {
     return `it reads ${rounded}, and the leading CAD app writes 16 digits of a measurement: from 100,000,000 up it drops decimals at a precision of 8, and it writes 1e16 as 1.0E+16. Use a smaller measurement scale`;
   }
+
   const digits = whole.replace(/^0+/, "").length + decimals.length;
+
   if (digits > MEASUREMENT_DIGITS) {
     return `it reads ${rounded}, which is ${digits} digits at a precision of ${decimals.length}. The leading CAD app works out the 16th digit of a measurement from its own arithmetic on the points, so it may end in another digit: it writes 99,999,999.5 at a precision of 8 as 99999999.50000002. Use a smaller precision or measurement scale`;
   }
+
   if (room !== undefined && measurement <= room) return arrowRoomProblem(measurement, text, room);
+
   return undefined;
 }
 
@@ -4652,23 +5356,33 @@ export function arrowRoomProblem(measurement: number, text: string, room: number
 
 const STANDARD_LEADER_STYLE_DEFINED =
   "The leader style \"Standard\" is the leading CAD app's own, which tsdraft writes beside a drawing's leader styles, and cannot be defined. That app keeps the first style of a name and skips a second";
+
 const STANDARD_LEADER_STYLE_USED =
   'tsdraft draws no leader in the leader style "Standard", which is the leading CAD app\'s own. Define a style with leaderStyle() and name it';
+
 const LEADER_ARROWHEAD =
   'A leader\'s arrowhead must be one of LEADER_ARROWHEADS: "closed-filled", "open", "dot" or "none"';
+
 const LEADER_SIZE =
   "This value cannot be less than 0. A leader's arrow size, landing and gap are lengths, and 0 draws none";
+
 const LEADER_SCALE = "The scale must be greater than 0. It multiplies every size of the style";
+
 const LEADER_FORMATTING =
   "A leader's text cannot contain \\ { or }. The leading CAD app reads them as the formatting of the note";
+
 const LEADER_TEXT_BLANK =
   "A leader's note needs a line that is not empty or all spaces. tsdraft draws no leader without a note";
+
 const LEADER_TEXT_LINES =
   "A leader's text is a string, one line, or an array of the lines of its note from the top";
+
 const LEADER_SHAFTS =
   "A leader needs a shaft: to is a point, the tip of its one shaft, or a list of shafts, each its tip or its tip and the points it bends at on its way to the landing";
+
 export const LEADER_SHAFT_LENGTH =
   "The tip of a shaft and the point after it are one point once they are written with the 6 decimals tsdraft writes, which leaves the leading CAD app no direction to point the arrowhead in. Move the tip, or the point after it";
+
 /**
  * Where a leader's landing meets the side of its note, in the order the leading CAD app numbers
  * them: the top of the first line, the middle of the first line, which is that app's own choice,
@@ -4713,8 +5427,10 @@ const LEADER_DIRECTION = 'direction must be "horizontal" or "vertical"';
 const LEADER_VERTICAL_ATTACHMENT = 'verticalAttachment must be "center" or "line"';
 const LEADER_SHAFT_KIND = 'shaft must be "straight" or "curved"';
 const LEADER_FRAME = "frame must be true or false";
+
 const LEADER_WIDTH =
   "width must be greater than 0. It is the width the note wraps at; leave it out for a note that does not wrap";
+
 const TEXT_MASK =
   "mask must be true, false, or { color?, offsetFactor? }: a color index from 1 to 256, where 256 is the layer's, and a factor of the text height from 1 to 5";
 
@@ -4813,7 +5529,8 @@ type AllBlank<T extends readonly string[]> = T extends readonly [
  * valid. `Standard` is a valid name, of a style tsdraft draws no leader in.
  */
 export function leaderStyleNameProblem(name: unknown): string | undefined {
-  if (typeof name !== "string") return "A leader style's name must be a string";
+  if (!isString(name)) return "A leader style's name must be a string";
+
   return nameProblem(name, LEADER_STYLE_NAMES);
 }
 
@@ -4824,7 +5541,7 @@ export function isStandardLeaderStyle(name: string): boolean {
 
 /** Returns what is wrong with an arrowhead of a leader, or undefined when it is one of `LEADER_ARROWHEADS`. */
 export function leaderArrowheadProblem(value: unknown): string | undefined {
-  return leaderArrowheadInfo(value) ? undefined : LEADER_ARROWHEAD;
+  return isString(value) && leaderArrowheadInfo(value) ? undefined : LEADER_ARROWHEAD;
 }
 
 /** Returns what is wrong with an arrow size, a landing or a gap of a leader, or undefined. Its type is `LeaderSize`. */
@@ -4834,29 +5551,27 @@ export function leaderSizeProblem(value: unknown): string | undefined {
 
 /** Returns what is wrong with a leader's attachment, or undefined. */
 export function leaderAttachmentProblem(value: unknown): string | undefined {
-  return (LEADER_ATTACHMENTS as readonly unknown[]).includes(value) ? undefined : LEADER_ATTACHMENT;
+  return isOneOf(LEADER_ATTACHMENTS, value) ? undefined : LEADER_ATTACHMENT;
 }
 
 /** Returns what is wrong with a leader's side, or undefined. */
 export function leaderSideProblem(value: unknown): string | undefined {
-  return (LEADER_SIDES as readonly unknown[]).includes(value) ? undefined : LEADER_SIDE;
+  return isOneOf(LEADER_SIDES, value) ? undefined : LEADER_SIDE;
 }
 
 /** Returns what is wrong with a leader style's direction, or undefined. */
 export function leaderDirectionProblem(value: unknown): string | undefined {
-  return (LEADER_DIRECTIONS as readonly unknown[]).includes(value) ? undefined : LEADER_DIRECTION;
+  return isOneOf(LEADER_DIRECTIONS, value) ? undefined : LEADER_DIRECTION;
 }
 
 /** Returns what is wrong with a leader's vertical attachment, or undefined. */
 export function leaderVerticalAttachmentProblem(value: unknown): string | undefined {
-  return (LEADER_VERTICAL_ATTACHMENTS as readonly unknown[]).includes(value)
-    ? undefined
-    : LEADER_VERTICAL_ATTACHMENT;
+  return isOneOf(LEADER_VERTICAL_ATTACHMENTS, value) ? undefined : LEADER_VERTICAL_ATTACHMENT;
 }
 
 /** Returns what is wrong with a leader's kind of shaft, or undefined. */
 export function leaderShaftKindProblem(value: unknown): string | undefined {
-  return (LEADER_SHAFT_KINDS as readonly unknown[]).includes(value) ? undefined : LEADER_SHAFT_KIND;
+  return isOneOf(LEADER_SHAFT_KINDS, value) ? undefined : LEADER_SHAFT_KIND;
 }
 
 /** What is wrong with a mask on a paragraph in columns. */
@@ -4865,26 +5580,24 @@ export const PARAGRAPH_MASK_COLUMNS =
 
 /** Returns what is wrong with a mask behind a leader's note or a paragraph, or undefined. */
 export function textMaskProblem(value: unknown): string | undefined {
-  if (typeof value === "boolean") return undefined;
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return TEXT_MASK;
-  const m = value as Record<string, unknown>;
+  if (isBoolean(value)) return undefined;
+
+  if (!isRecord(value)) return TEXT_MASK;
+  const m = value;
+
   for (const key of Object.keys(m)) if (key !== "color" && key !== "offsetFactor") return TEXT_MASK;
-  if (
-    m.color !== undefined &&
-    !(Number.isInteger(m.color) && (m.color as number) >= 1 && (m.color as number) <= 256)
-  ) {
+
+  if (m.color !== undefined && !(isWhole(m.color) && m.color >= 1 && m.color <= 256)) {
     return TEXT_MASK;
   }
+
   if (
     m.offsetFactor !== undefined &&
-    !(
-      typeof m.offsetFactor === "number" &&
-      written(m.offsetFactor) >= 1 &&
-      written(m.offsetFactor) <= 5
-    )
+    !(isNumber(m.offsetFactor) && written(m.offsetFactor) >= 1 && written(m.offsetFactor) <= 5)
   ) {
     return TEXT_MASK;
   }
+
   return undefined;
 }
 
@@ -4898,59 +5611,86 @@ const NOTE_ONLY = [
   "mask",
   "textStyle",
   "textHeight",
-] as const;
+] as const satisfies readonly (keyof LeaderBlockFields)[];
+
+/** A leader whose content is a block, by the fields its check reads, each as given. */
+interface LeaderBlockFields {
+  readonly text?: unknown;
+  readonly attachment?: unknown;
+  readonly verticalAttachment?: unknown;
+  readonly width?: unknown;
+  readonly frame?: unknown;
+  readonly mask?: unknown;
+  readonly textStyle?: unknown;
+  readonly textHeight?: unknown;
+  readonly attributes?: unknown;
+}
 
 /**
  * Returns what is wrong with a leader whose content is a block, or undefined: it sets none of
  * what only a note has, and its attributes are strings by their tags.
  */
-export function leaderBlockContentProblem(leader: object): string | undefined {
-  const l = leader as Readonly<Record<string, unknown>>;
+export function leaderBlockContentProblem(leader: LeaderBlockFields): string | undefined {
+  const l = leader;
+
   for (const field of NOTE_ONLY) {
     if (l[field] !== undefined) {
       return `${field}: a leader whose content is a block has no note to give it to. Leave it out, or give the leader a note instead`;
     }
   }
+
   const set = l.attributes;
+
   if (set === undefined) return undefined;
-  if (typeof set !== "object" || set === null || Array.isArray(set)) {
+
+  if (!isObjectOrArray(set) || Array.isArray(set)) {
     return "attributes must be an object of values by their tags";
   }
+
   for (const value of Object.values(set)) {
-    if (typeof value !== "string") return "each value of attributes must be a string";
+    if (!isString(value)) return "each value of attributes must be a string";
     const problem = textProblem(value);
+
     if (problem) return `attributes: ${problem}`;
   }
+
   return undefined;
 }
 
 /** Returns what is wrong with a leader's width, or undefined: a finite length greater than 0. */
 export function leaderWidthProblem(value: unknown): string | undefined {
-  return typeof value === "number" && Number.isFinite(value) && written(value) > 0
+  return isNumber(value) && Number.isFinite(value) && written(value) > 0
     ? magnitudeProblem(value)
     : LEADER_WIDTH;
 }
+
+/** The sizes a leader or its style gives, each a number. */
+type LeaderSizes = {
+  readonly [F in "textHeight" | "arrowSize" | "landing" | "gap" | "width"]?: number;
+};
 
 /**
  * Returns what is wrong with sizes a leader is drawn with, times the scale of its style, or
  * undefined: each must be under 1e100, and a text height or an arrow size above 0 must not be
  * written as 0.
  */
-function leaderScaledProblem(
-  sizes: Readonly<Record<string, unknown>>,
-  scale: number,
-): string | undefined {
+function leaderScaledProblem(sizes: LeaderSizes, scale: number): string | undefined {
   for (const field of ["textHeight", "arrowSize", "landing", "gap", "width"] as const) {
-    if (sizes[field] === undefined) continue;
-    const size = written(sizes[field] as number);
+    const given = sizes[field];
+
+    if (given === undefined) continue;
+    const size = written(given);
     const scaled = size * scale;
+
     if (!(Math.abs(scaled) < 1e100)) {
       return `${field}: times the scale it is ${scaled}, and the leading CAD app reads only two exponent digits from DXF, so every size of a leader must be under 1e100. Use a smaller size or scale`;
     }
+
     if (field !== "landing" && field !== "gap" && size > 0 && written(scaled) === 0) {
       return `${field}: times the scale it is ${scaled}, which is written as 0 with the 6 decimals tsdraft writes. Use a larger size or scale${field === "arrowSize" ? ", or an arrow size of 0" : ""}`;
     }
   }
+
   return undefined;
 }
 
@@ -4960,65 +5700,90 @@ function leaderScaledProblem(
  * style's text style is the caller's to check, since it depends on the drawing.
  */
 export function leaderStyleProblem(style: unknown): string | undefined {
-  if (typeof style !== "object" || style === null || Array.isArray(style)) {
+  if (!isRecord(style)) {
     return "A leader style must be an object with a name and its sizes";
   }
-  const s = style as Record<string, unknown>;
+
+  const s = style;
   const nameError = leaderStyleNameProblem(s.name);
+
   if (nameError) return nameError;
-  if (isStandardLeaderStyle(s.name as string)) return STANDARD_LEADER_STYLE_DEFINED;
+
+  if (isString(s.name) && isStandardLeaderStyle(s.name)) return STANDARD_LEADER_STYLE_DEFINED;
+
   if (s.textStyle !== undefined) {
-    if (typeof s.textStyle !== "string") return "textStyle: a text style is named by a string";
+    if (!isString(s.textStyle)) return "textStyle: a text style is named by a string";
     const problem = textStyleNameProblem(s.textStyle);
+
     if (problem) return `textStyle: ${problem}`;
   }
-  if (typeof s.textHeight !== "number" || !Number.isFinite(s.textHeight)) {
+
+  if (!isNumber(s.textHeight) || !Number.isFinite(s.textHeight)) {
     return "textHeight must be a finite number";
   }
+
   const height = sizeProblem(s.textHeight);
+
   if (height) return `textHeight: ${height}`;
+
   if (s.arrowhead !== undefined && leaderArrowheadProblem(s.arrowhead)) return LEADER_ARROWHEAD;
+
   for (const field of ["arrowSize", "landing", "gap"] as const) {
     const problem = leaderSizeProblem(s[field]);
+
     if (problem) return `${field}: ${problem}`;
   }
+
   if (s.attachment !== undefined) {
     const problem = leaderAttachmentProblem(s.attachment);
+
     if (problem) return problem;
   }
+
   if (s.direction !== undefined) {
     const problem = leaderDirectionProblem(s.direction);
+
     if (problem) return problem;
   }
+
   if (s.verticalAttachment !== undefined) {
     const problem = leaderVerticalAttachmentProblem(s.verticalAttachment);
+
     if (problem) return problem;
   }
-  if (s.frame !== undefined && typeof s.frame !== "boolean") return LEADER_FRAME;
+
+  if (s.frame !== undefined && !isBoolean(s.frame)) return LEADER_FRAME;
+
   if (s.shaft !== undefined) {
     const problem = leaderShaftKindProblem(s.shaft);
+
     if (problem) return problem;
   }
+
   if (s.block !== undefined) {
-    if (typeof s.block !== "string") return "block: a block is named by a string";
+    if (!isString(s.block)) return "block: a block is named by a string";
     const problem = blockNameProblem(s.block);
+
     if (problem) return `block: ${problem}`;
   }
-  if (
-    s.blockConnection !== undefined &&
-    !(LEADER_BLOCK_CONNECTIONS as readonly unknown[]).includes(s.blockConnection)
-  ) {
+
+  if (s.blockConnection !== undefined && !isOneOf(LEADER_BLOCK_CONNECTIONS, s.blockConnection)) {
     return 'blockConnection must be "extents" or "insertion"';
   }
+
   if (s.blockScale !== undefined) {
     const problem = styleScaleProblem(s.blockScale, LEADER_SCALE);
+
     if (problem) return `blockScale: ${problem}`;
   }
+
   if (s.scale !== undefined) {
     const problem = styleScaleProblem(s.scale, LEADER_SCALE);
+
     if (problem) return `scale: ${problem}`;
   }
-  return leaderScaledProblem(s, s.scale === undefined ? 1 : written(s.scale as number));
+
+  return leaderScaledProblem(s, s.scale === undefined ? 1 : checkedSize(s.scale));
 }
 
 /**
@@ -5027,9 +5792,11 @@ export function leaderStyleProblem(style: unknown): string | undefined {
  */
 export function leaderStyleTwinProblem(name: string, other: string): string | undefined {
   if (layerAuditKey(name) !== layerAuditKey(other)) return undefined;
+
   if (layerKey(name) === layerKey(other)) {
     return "The drawing already has a leader style of this name. CAD ignores case in leader style names and keeps the first";
   }
+
   return `The drawing already has a leader style of this name, as ${JSON.stringify(other)}. tsdraft holds leader style names to the rules of dimension style names, which the leading CAD app's AUDIT takes for one name`;
 }
 
@@ -5056,7 +5823,8 @@ export function undefinedLeaderStyleProblem(name: string): string {
  * it as it is: a text, with none of the characters that app reads as formatting.
  */
 export function leaderLineProblem(value: unknown): string | undefined {
-  if (typeof value !== "string") return "each line of a leader's note must be a string";
+  if (!isString(value)) return "each line of a leader's note must be a string";
+
   return textProblem(value) ?? (/[\\{}]/.test(value) ? LEADER_FORMATTING : undefined);
 }
 
@@ -5066,13 +5834,17 @@ export function leaderLineProblem(value: unknown): string | undefined {
  */
 export function leaderTextProblem(text: unknown): string | undefined {
   if (!Array.isArray(text)) return LEADER_TEXT_LINES;
-  for (const line of text as readonly unknown[]) {
+
+  const lines: readonly unknown[] = text;
+
+  for (const line of lines) {
     const problem = leaderLineProblem(line);
+
     if (problem) return problem;
   }
-  return (text as readonly string[]).some((line) => /[^ ]/.test(line))
-    ? undefined
-    : LEADER_TEXT_BLANK;
+
+  // `leaderLineProblem` has found each line to be a string.
+  return lines.some((line) => isString(line) && /[^ ]/.test(line)) ? undefined : LEADER_TEXT_BLANK;
 }
 
 /**
@@ -5085,28 +5857,40 @@ export function leaderShaftsProblem(
   at: readonly [number, number],
 ): string | undefined {
   if (!Array.isArray(shafts) || shafts.length === 0) return LEADER_SHAFTS;
-  for (const shaft of shafts as readonly unknown[]) {
+
+  const list: readonly unknown[] = shafts;
+
+  for (const shaft of list) {
     if (!Array.isArray(shaft) || shaft.length === 0) return LEADER_SHAFTS;
-    for (const point of shaft as readonly unknown[]) {
+    const points: readonly unknown[] = shaft;
+
+    for (const point of points) {
       const [x, y]: unknown[] = Array.isArray(point) ? point : [];
+
       if (
         !Array.isArray(point) ||
         point.length !== 2 ||
-        typeof x !== "number" ||
-        typeof y !== "number" ||
+        !isNumber(x) ||
+        !isNumber(y) ||
         !Number.isFinite(x) ||
         !Number.isFinite(y)
       ) {
         return "each point of a shaft must be [x, y], two finite numbers";
       }
-      const far = magnitudeProblem(point[0] as number) ?? magnitudeProblem(point[1] as number);
+
+      const far = magnitudeProblem(point[0]) ?? magnitudeProblem(point[1]);
+
       if (far) return `a point of a shaft: ${far}`;
     }
-    const [tip, next = at] = shaft as readonly (readonly [number, number])[];
+
+    // The loop has found each point to be two finite numbers.
+    const [tip, next = at]: readonly (readonly [number, number])[] = shaft;
+
     if (written(tip![0]) === written(next[0]) && written(tip![1]) === written(next[1])) {
       return LEADER_SHAFT_LENGTH;
     }
   }
+
   return undefined;
 }
 
@@ -5115,55 +5899,76 @@ export function leaderShaftsProblem(
  * scale of its style. `textStyle` is checked by name: whether the drawing has it is the caller's
  * to check.
  */
-export function leaderOwnProblem(given: object, scale: number): string | undefined {
-  const leader = given as Readonly<Record<string, unknown>>;
+export function leaderOwnProblem(leader: Leader, scale: number): string | undefined {
   if (leader.side !== undefined) {
     const problem = leaderSideProblem(leader.side);
+
     if (problem) return problem;
   }
+
   if (leader.attachment !== undefined) {
     const problem = leaderAttachmentProblem(leader.attachment);
+
     if (problem) return problem;
   }
+
   if (leader.verticalAttachment !== undefined) {
     const problem = leaderVerticalAttachmentProblem(leader.verticalAttachment);
+
     if (problem) return problem;
   }
-  if (leader.frame !== undefined && typeof leader.frame !== "boolean") return LEADER_FRAME;
+
+  if (leader.frame !== undefined && !isBoolean(leader.frame)) return LEADER_FRAME;
+
   if (leader.shaft !== undefined) {
     const problem = leaderShaftKindProblem(leader.shaft);
+
     if (problem) return problem;
   }
+
   if (leader.mask !== undefined) {
     const problem = textMaskProblem(leader.mask);
+
     if (problem) return problem;
   }
+
   if (leader.width !== undefined) {
     const problem = leaderWidthProblem(leader.width);
+
     if (problem) return `width: ${problem}`;
   }
+
   if (leader.farShafts !== undefined) {
     // The far root's point comes from the note, so a shaft of one point is held to it once drawn.
     const problem = leaderShaftsProblem(leader.farShafts, [Number.NaN, Number.NaN]);
+
     if (problem) return `farShafts: ${problem}`;
   }
+
   if (leader.textStyle !== undefined) {
-    if (typeof leader.textStyle !== "string") return "textStyle: a text style is named by a string";
+    if (!isString(leader.textStyle)) return "textStyle: a text style is named by a string";
     const problem = textStyleNameProblem(leader.textStyle);
+
     if (problem) return `textStyle: ${problem}`;
   }
+
   if (leader.textHeight !== undefined) {
-    if (typeof leader.textHeight !== "number" || !Number.isFinite(leader.textHeight)) {
+    if (!isNumber(leader.textHeight) || !Number.isFinite(leader.textHeight)) {
       return "textHeight must be a finite number";
     }
+
     const problem = sizeProblem(leader.textHeight);
+
     if (problem) return `textHeight: ${problem}`;
   }
+
   for (const field of ["arrowSize", "landing", "gap"] as const) {
     if (leader[field] === undefined) continue;
     const problem = leaderSizeProblem(leader[field]);
+
     if (problem) return `${field}: ${problem}`;
   }
+
   return leaderScaledProblem(leader, scale);
 }
 
@@ -5173,25 +5978,32 @@ export const TABLE_CELLS = 100_000;
 
 const STANDARD_TABLE_STYLE_DEFINED =
   "The table style \"Standard\" is the leading CAD app's own, which tsdraft writes beside a drawing's table styles, and cannot be defined. That app keeps the first style of a name and skips a second";
+
 const STANDARD_TABLE_STYLE_USED =
   'tsdraft draws no table in the table style "Standard", which is the leading CAD app\'s own. Define a style with tableStyle() and name it';
+
 /** What is wrong with a table given a color of its own. */
 export const TABLE_COLOR =
   'A table has no color of its own: its style and its cells give its colors. Leave out "color", or give "ByLayer"';
+
 /** What is wrong with a table given a transparency of its own. */
 export const TABLE_TRANSPARENCY =
   'A table has no transparency of its own: CAD programs plot its grid opaque. Leave out "transparency", or give "ByLayer"';
+
 /** What is wrong with a percent on an entity of a block a leader places. */
 export const LEADER_BLOCK_TRANSPARENCY =
   'CAD programs make every entity of a block a leader places transparent ByBlock, and drop a percent of its own. Give "ByBlock" or "ByLayer", or leave out "transparency"';
+
 /** What is wrong with a table inside a block. */
 export const TABLE_IN_BLOCK =
   "A table cannot be drawn in a block. Draw it in model space or on a layout, where the leading CAD app edits it";
+
 const CELL_COLOR = "a color is a color index, an integer from 1 to 255";
 
 /** Returns what is wrong with a table style's name, or undefined. */
 export function tableStyleNameProblem(name: unknown): string | undefined {
-  if (typeof name !== "string") return "A table style's name must be a string";
+  if (!isString(name)) return "A table style's name must be a string";
+
   return nameProblem(name, TABLE_STYLE_NAMES);
 }
 
@@ -5208,36 +6020,56 @@ export function standardTableStyleProblem(name: string): string | undefined {
 /** Returns what is wrong with an optional size: a finite number greater than 0 as written. */
 function optionalSizeProblem(value: unknown, field: string): string | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== "number" || !Number.isFinite(value))
-    return `${field} must be a finite number`;
+
+  if (!isNumber(value) || !Number.isFinite(value)) return `${field} must be a finite number`;
   const problem = sizeProblem(value);
+
   return problem ? `${field}: ${problem}` : undefined;
 }
 
 /** Returns what is wrong with a color index of a cell or a cell style, or undefined. */
 function cellColorProblem(value: unknown, field: string): string | undefined {
   if (value === undefined) return undefined;
-  return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 255
-    ? undefined
-    : `${field}: ${CELL_COLOR}`;
+
+  return isWhole(value) && value >= 1 && value <= 255 ? undefined : `${field}: ${CELL_COLOR}`;
 }
 
 /** Returns what is wrong with an `align` and a `valign`, or undefined. */
-function cellPlaceProblem(o: Record<string, unknown>, at: string): string | undefined {
-  if (o.align !== undefined && !(PARAGRAPH_ALIGNS as readonly unknown[]).includes(o.align)) {
+/** A cell, or a cell style, given as an object: each field as given, until the checks read it. */
+interface CellFields {
+  readonly text?: unknown;
+  readonly block?: unknown;
+  readonly blockScale?: unknown;
+  readonly columnSpan?: unknown;
+  readonly rowSpan?: unknown;
+  readonly align?: unknown;
+  readonly valign?: unknown;
+  readonly textStyle?: unknown;
+  readonly textHeight?: unknown;
+  readonly color?: unknown;
+  readonly fill?: unknown;
+  readonly lineweight?: unknown;
+}
+
+/** True for an object that is not an array, which holds the fields of a cell as given. */
+function isCellFields(value: unknown): value is CellFields {
+  return isObjectOrArray(value) && !Array.isArray(value);
+}
+
+function cellPlaceProblem(o: CellFields, at: string): string | undefined {
+  if (o.align !== undefined && !isOneOf(PARAGRAPH_ALIGNS, o.align)) {
     return `${at}align must be "left", "center" or "right"`;
   }
-  if (
-    o.valign !== undefined &&
-    !(PARAGRAPH_VERTICAL_ALIGNS as readonly unknown[]).includes(o.valign)
-  ) {
+
+  if (o.valign !== undefined && !isOneOf(PARAGRAPH_VERTICAL_ALIGNS, o.valign)) {
     return `${at}valign must be "top", "middle" or "bottom"`;
   }
+
   return undefined;
 }
 
 /** The fields of a cell style, and of a cell given as an object. */
-const CELL_STYLE_FIELDS = new Set([
+const CELL_STYLE_FIELDS = [
   "textStyle",
   "textHeight",
   "align",
@@ -5245,8 +6077,9 @@ const CELL_STYLE_FIELDS = new Set([
   "color",
   "fill",
   "lineweight",
-]);
-const CELL_FIELDS = new Set([
+] as const satisfies readonly (keyof CellFields)[];
+
+const CELL_FIELDS = [
   "text",
   "block",
   "blockScale",
@@ -5257,45 +6090,49 @@ const CELL_FIELDS = new Set([
   "textHeight",
   "color",
   "fill",
-]);
+] as const satisfies readonly (keyof CellFields)[];
 
 /** Returns what is wrong with a field an object does not have, or undefined. */
 function unknownFieldProblem(
-  o: object,
-  known: ReadonlySet<string>,
+  o: CellFields,
+  known: readonly (keyof CellFields)[],
   at: string,
 ): string | undefined {
   for (const field of Object.keys(o)) {
-    if (!known.has(field)) return `${at} has no field ${shown(field)}`;
-    if ((o as Record<string, unknown>)[field] === undefined) {
+    if (!isOneOf(known, field)) return `${at} has no field ${shown(field)}`;
+
+    if (o[field] === undefined) {
       return `${at}.${field} is undefined: leave a field out rather than set it to undefined`;
     }
   }
+
   return undefined;
 }
 
 /** Returns what is wrong with a cell style of a table style, or undefined. */
 function cellStyleProblem(value: unknown, kind: string): string | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return `${kind} must be an object, the cell style of its rows`;
-  }
-  const o = value as Record<string, unknown>;
+
+  if (!isCellFields(value)) return `${kind} must be an object, the cell style of its rows`;
+  const o = value;
   const unknown = unknownFieldProblem(o, CELL_STYLE_FIELDS, kind);
+
   if (unknown) return unknown;
   const at = `${kind}.`;
+
   if (o.textStyle !== undefined) {
-    if (typeof o.textStyle !== "string") return `${at}textStyle: a text style is named by a string`;
+    if (!isString(o.textStyle)) return `${at}textStyle: a text style is named by a string`;
     const problem = textStyleNameProblem(o.textStyle);
+
     if (problem) return `${at}textStyle: ${problem}`;
   }
+
   return (
     optionalSizeProblem(o.textHeight, `${at}textHeight`) ??
     cellPlaceProblem(o, at) ??
     cellColorProblem(o.color, `${at}color`) ??
     cellColorProblem(o.fill, `${at}fill`) ??
-    (o.lineweight === undefined ||
-    (typeof o.lineweight === "number" && (LINEWEIGHTS as readonly number[]).includes(o.lineweight))
+    (o.lineweight === undefined || (isNumber(o.lineweight) && isOneOf(LINEWEIGHTS, o.lineweight))
       ? undefined
       : `${at}lineweight must be one of LINEWEIGHTS, in millimetres`)
   );
@@ -5303,36 +6140,52 @@ function cellStyleProblem(value: unknown, kind: string): string | undefined {
 
 /** Returns what is wrong with a table style, or undefined. */
 export function tableStyleProblem(style: unknown): string | undefined {
-  if (typeof style !== "object" || style === null || Array.isArray(style)) {
+  if (!isRecord(style)) {
     return "A table style must be an object with a name and a text height";
   }
-  const s = style as Record<string, unknown>;
+
+  const s = style;
   const nameError = tableStyleNameProblem(s.name);
+
   if (nameError) return nameError;
-  if (isStandardTableStyle(s.name as string)) return STANDARD_TABLE_STYLE_DEFINED;
+
+  if (isString(s.name) && isStandardTableStyle(s.name)) return STANDARD_TABLE_STYLE_DEFINED;
+
   if (s.textStyle !== undefined) {
-    if (typeof s.textStyle !== "string") return "textStyle: a text style is named by a string";
+    if (!isString(s.textStyle)) return "textStyle: a text style is named by a string";
     const problem = textStyleNameProblem(s.textStyle);
+
     if (problem) return `textStyle: ${problem}`;
   }
-  if (typeof s.textHeight !== "number" || !Number.isFinite(s.textHeight)) {
+
+  if (!isNumber(s.textHeight) || !Number.isFinite(s.textHeight)) {
     return "textHeight must be a finite number";
   }
+
   const height = sizeProblem(s.textHeight);
+
   if (height) return `textHeight: ${height}`;
+
   for (const field of ["horizontalMargin", "verticalMargin"] as const) {
     const value = s[field];
+
     if (value === undefined) continue;
-    if (typeof value !== "number" || !Number.isFinite(value) || !(value >= 0)) {
+
+    if (!isNumber(value) || !Number.isFinite(value) || !(value >= 0)) {
       return `${field} must be a finite number, 0 or more`;
     }
+
     const problem = magnitudeProblem(value);
+
     if (problem) return `${field}: ${problem}`;
   }
+
   for (const kind of ["title", "header", "data"] as const) {
     const problem = cellStyleProblem(s[kind], kind);
+
     if (problem) return problem;
   }
+
   return undefined;
 }
 
@@ -5342,9 +6195,11 @@ export function tableStyleProblem(style: unknown): string | undefined {
  */
 export function tableStyleTwinProblem(name: string, other: string): string | undefined {
   if (layerAuditKey(name) !== layerAuditKey(other)) return undefined;
+
   if (layerKey(name) === layerKey(other)) {
     return "The drawing already has a table style of this name. CAD ignores case in table style names and keeps the first";
   }
+
   return `The drawing already has a table style of this name, as ${JSON.stringify(other)}. tsdraft holds table style names to the rules of dimension style names, which the leading CAD app's AUDIT takes for one name`;
 }
 
@@ -5354,46 +6209,70 @@ function cellProblem(
   at: string,
   hasBlock: (name: string) => boolean | undefined,
 ): string | undefined {
-  if (typeof cell === "string")
+  if (isString(cell))
     return (
       paragraphValueProblem(cell, undefined) && `${at}: ${paragraphValueProblem(cell, undefined)}`
     );
-  if (typeof cell !== "object" || cell === null || Array.isArray(cell)) {
-    return `${at} must be a string, an object or null`;
-  }
-  const o = cell as Record<string, unknown>;
+
+  if (!isCellFields(cell)) return `${at} must be a string, an object or null`;
+  const o = cell;
   const unknown = unknownFieldProblem(o, CELL_FIELDS, at);
+
   if (unknown) return unknown;
+
   if (o.text !== undefined) {
-    if (typeof o.text !== "string") return `${at}.text must be a string`;
+    if (!isString(o.text)) return `${at}.text must be a string`;
     const problem = paragraphValueProblem(o.text, undefined);
+
     if (problem) return `${at}.text: ${problem}`;
   }
+
   if (o.block !== undefined) {
-    if (typeof o.block !== "string") return `${at}.block: a block is named by a string`;
+    if (!isString(o.block)) return `${at}.block: a block is named by a string`;
+
     if (o.text !== undefined) return `${at} holds a text or a block, not both`;
     const problem = blockNameProblem(o.block);
+
     if (problem) return `${at}.block: ${problem}`;
+
     if (hasBlock(o.block) === false)
       return `${at}.block: the block ${JSON.stringify(o.block)} is not defined`;
   }
+
   if (o.blockScale !== undefined) {
     if (o.block === undefined) return `${at}.blockScale is for a cell that holds a block`;
     const problem = optionalSizeProblem(o.blockScale, `${at}.blockScale`);
+
     if (problem) return problem;
   }
+
   for (const field of ["columnSpan", "rowSpan"] as const) {
     const value = o[field];
-    if (value !== undefined && !(Number.isInteger(value) && (value as number) >= 1)) {
+
+    if (value !== undefined && !(isWhole(value) && value >= 1)) {
       return `${at}.${field} must be a whole number, 1 or more`;
     }
   }
+
   return (
     cellPlaceProblem(o, `${at}.`) ??
     optionalSizeProblem(o.textHeight, `${at}.textHeight`) ??
     cellColorProblem(o.color, `${at}.color`) ??
     cellColorProblem(o.fill, `${at}.fill`)
   );
+}
+
+/** A table's fields as given, until `tableProblem` checks each. */
+interface TableFields {
+  readonly at?: unknown;
+  readonly rotation?: unknown;
+  readonly columns?: unknown;
+  readonly rows?: unknown;
+  readonly title?: unknown;
+  readonly header?: unknown;
+  readonly titleHeight?: unknown;
+  readonly headerHeight?: unknown;
+  readonly rowHeights?: unknown;
 }
 
 /**
@@ -5404,109 +6283,147 @@ export function tableProblem(
   table: unknown,
   hasBlock: (name: string) => boolean | undefined = () => undefined,
 ): string | undefined {
-  if (typeof table !== "object" || table === null) return "A table must be an object";
-  const t = table as Record<string, unknown>;
+  if (!isKeyed(table)) return "A table must be an object";
+  const t: TableFields = table;
   const at = t.at;
+
   if (
     !Array.isArray(at) ||
     at.length !== 2 ||
-    !at.every((n) => typeof n === "number" && Number.isFinite(n))
+    !at.every((n) => isNumber(n) && Number.isFinite(n))
   ) {
     return "at must be a point, [x, y], the table's upper left corner";
   }
-  if (
-    t.rotation !== undefined &&
-    (typeof t.rotation !== "number" || !Number.isFinite(t.rotation))
-  ) {
+
+  if (t.rotation !== undefined && (!isNumber(t.rotation) || !Number.isFinite(t.rotation))) {
     return "rotation must be a finite number of degrees";
   }
+
   const columns = t.columns;
+
   if (!Array.isArray(columns) || columns.length === 0)
     return "columns must list the width of each column, one or more";
+
   if (columns.length > TABLE_COLUMNS) return `A table has at most ${TABLE_COLUMNS} columns`;
+
   for (let c = 0; c < columns.length; c++) {
     const width = columns[c];
-    if (typeof width !== "number" || !Number.isFinite(width))
-      return `columns[${c}] must be a finite number`;
+
+    if (!isNumber(width) || !Number.isFinite(width)) return `columns[${c}] must be a finite number`;
     const problem = sizeProblem(width);
+
     if (problem) return `columns[${c}]: ${problem}`;
   }
+
   const count = columns.length;
   const rows = t.rows;
+
   if (!Array.isArray(rows)) return "rows must be a list of rows, each a list of cells";
   const all = (t.title === undefined ? 0 : 1) + (t.header === undefined ? 0 : 1) + rows.length;
+
   if (all === 0) return "A table needs a row: a title, a header or a data row";
+
   if (all * count > TABLE_CELLS)
     return `A table has at most ${TABLE_CELLS} cells, its rows times its columns`;
+
   for (const field of ["titleHeight", "headerHeight"] as const) {
     const problem = optionalSizeProblem(t[field], field);
+
     if (problem) return problem;
   }
+
   if (t.titleHeight !== undefined && t.title === undefined)
     return "titleHeight is for a table with a title";
+
   if (t.headerHeight !== undefined && t.header === undefined)
     return "headerHeight is for a table with a header";
+
   if (t.rowHeights !== undefined) {
     const heights = t.rowHeights;
+
     if (!Array.isArray(heights) || heights.length !== rows.length) {
       return "rowHeights must give a height or null for each data row";
     }
+
     for (let r = 0; r < heights.length; r++) {
       const height: unknown = heights[r];
+
       if (height === null) continue;
+
       if (height === undefined) return `rowHeights[${r}] must be a height or null`;
       const problem = optionalSizeProblem(height, `rowHeights[${r}]`);
+
       if (problem) return problem;
     }
   }
+
   if (t.title !== undefined) {
     if (t.title === null) return "title must be a string or an object";
-    const problem = cellProblem(t.title, "title", hasBlock);
+    const title = t.title;
+    const problem = cellProblem(title, "title", hasBlock);
+
     if (problem) return problem;
-    const o = t.title as Record<string, unknown>;
-    if (typeof o === "object" && (o.columnSpan !== undefined || o.rowSpan !== undefined)) {
+
+    if (isCellFields(title) && (title.columnSpan !== undefined || title.rowSpan !== undefined)) {
       return "title spans every column and one row of its own, so it takes no columnSpan or rowSpan";
     }
   }
+
   // The rows below the title, header first: each cell in its place, and what each span covers.
   const lists: { readonly name: string; readonly cells: unknown; readonly header: boolean }[] = [];
+
   if (t.header !== undefined) lists.push({ name: "header", cells: t.header, header: true });
+
   for (let r = 0; r < rows.length; r++) {
     lists.push({ name: `rows[${r}]`, cells: rows[r], header: false });
   }
+
   const covered: Uint8Array = new Uint8Array(lists.length * count);
+
   for (let r = 0; r < lists.length; r++) {
     const { name, cells, header } = lists[r]!;
+
     if (!Array.isArray(cells) || cells.length !== count) {
       return `${name} must hold a cell for each of the ${count} columns, null for one another spans`;
     }
+
     for (let c = 0; c < count; c++) {
       const cell = cells[c];
       const here = `${name}[${c}]`;
+
       if (cell === null) {
         if (covered[r * count + c] !== 1)
           return `${here} is null, but no cell above or to its left spans it`;
         continue;
       }
+
       if (covered[r * count + c] === 1)
         return `${here} is spanned by a cell above or to its left, so it must be null`;
       const problem = cellProblem(cell, here, hasBlock);
+
       if (problem) return problem;
-      const o = typeof cell === "object" ? (cell as Record<string, unknown>) : {};
-      const across = (o.columnSpan as number | undefined) ?? 1;
-      const down = (o.rowSpan as number | undefined) ?? 1;
+      // `cellProblem` has found a span given to be a whole number.
+      const spans = isCellFields(cell) ? cell : {};
+      const across = isNumber(spans.columnSpan) ? spans.columnSpan : 1;
+      const down = isNumber(spans.rowSpan) ? spans.rowSpan : 1;
+
       if (c + across > count) return `${here} spans past the table's last column`;
+
       if (r + down > lists.length) return `${here} spans past the table's last row`;
+
       if (header && down > 1) return `${here} spans from the header into the data rows`;
+
       for (let rr = r; rr < r + down; rr++) {
         for (let cc = c; cc < c + across; cc++) {
           if (rr === r && cc === c) continue;
+
           if (covered[rr * count + cc] === 1) return `${here} spans a cell another already spans`;
           covered[rr * count + cc] = 1;
         }
       }
     }
   }
+
   return undefined;
 }
 
@@ -5523,6 +6440,7 @@ export function tableColumnsProblem(
       return `columns[${c}] is ${shown(columns[c])} wide, no wider than its two margins of ${shown(margin)}, which leave its text no width`;
     }
   }
+
   return undefined;
 }
 
@@ -5541,7 +6459,9 @@ export function tableTextsProblem(
 ): string | undefined {
   for (const { text, textStyle, at } of cells) {
     const problem = paragraphValueProblem(text, fontOf(textStyle));
+
     if (problem) return `${at}: ${problem}`;
   }
+
   return undefined;
 }

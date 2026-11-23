@@ -25,10 +25,12 @@ let unavailable: string | null | undefined;
  */
 export function pngUnavailable(): string | null {
   if (unavailable !== undefined) return unavailable;
+
   try {
     require("@resvg/resvg-js");
     unavailable = null;
   } catch (error) {
+    // SAFETY: `require` fails with an Error, with a code when it finds no module.
     const { code, message } = error as NodeJS.ErrnoException;
     const cause = String(message).split("\n")[0];
     // The package itself is missing, or it is there and its native part is not.
@@ -39,6 +41,7 @@ export function pngUnavailable(): string | null {
         : `No PNG: the renderer @resvg/resvg-js has no build that loads on this platform, ` +
           `${process.platform} ${process.arch} (${cause}). Use the SVG`;
   }
+
   return unavailable;
 }
 
@@ -67,6 +70,7 @@ interface Waiting {
 }
 
 let child: ChildProcess | undefined;
+
 /** The pictures asked for, in order. The first is the one the process is drawing. */
 const queue: Waiting[] = [];
 let lastId = 0;
@@ -77,11 +81,13 @@ let lastId = 0;
  */
 export function startRenderer(): void {
   if (child || pngUnavailable() !== null) return;
+
   const started = fork(childPath, [], {
     serialization: "advanced",
     stdio: ["ignore", "ignore", "ignore", "ipc"],
     execArgv: [],
   });
+
   child = started;
   // The process must not keep the command from ending. It ends itself when the command does.
   started.unref();
@@ -90,12 +96,15 @@ export function startRenderer(): void {
   started.once("spawn", () => (running = true));
   started.on("message", (answer: PngAnswer) => {
     const waiting = queue[0];
+
     if (child !== started || !waiting || waiting.request.id !== answer.id) return;
     queue.shift();
+
     if ("png" in answer) waiting.done(answer.png);
     else waiting.failed(new RendererCrashed(answer.error, "answered"));
     next();
   });
+
   // Once only for a process, however many of its events say that it is gone.
   const ended = (how: string): void => {
     if (child !== started) return;
@@ -106,6 +115,7 @@ export function startRenderer(): void {
     queue.shift()?.failed(new RendererCrashed(how, running ? "drawing" : "starting"));
     next();
   };
+
   ends.set(started, ended);
   started.once("exit", (code, signal) => ended(signal ?? `exit code ${code}`));
   // Kept for the life of the process: an error with no listener would end the command.
@@ -118,21 +128,27 @@ const ends = new WeakMap<ChildProcess, (how: string) => void>();
 /** Sends the first waiting picture to the process, starting one when there is none. */
 function next(): void {
   const waiting = queue[0];
+
   if (!waiting) {
     child?.unref();
     child?.channel?.unref();
+
     return;
   }
+
   startRenderer();
   const to = child;
+
   if (!to) return;
   const gone = (error: Error): void => ends.get(to)?.(error.message);
   // While a picture is being drawn the command waits for the answer, or for the process to end.
   to.ref();
   to.channel?.ref();
+
   try {
     to.send(waiting.request, (error) => error && gone(error));
   } catch (error) {
+    // SAFETY: `send` throws an Error when the channel is closed or the message cannot be sent.
     gone(error as Error);
   }
 }
@@ -153,6 +169,7 @@ export async function toPNG(
   known: ReadonlyMap<string, Face> = faces(),
 ): Promise<{ png: Buffer; width: number }> {
   const reason = pngUnavailable();
+
   if (reason !== null) throw new Error(reason);
   const [, , w = 1, h = 1] = (/viewBox="([^"]+)"/.exec(svg)?.[1] ?? "").split(" ").map(Number);
   const aspect = Math.max(h, 1e-9) / Math.max(w, 1e-9);
@@ -160,9 +177,12 @@ export async function toPNG(
   // The font files this picture's text is set in, beside the renderer's own.
   const used = pictureFaces(svg, known);
   const request = { id: ++lastId, svg, width: fitted, faces: used, capHeight: shippedCap() };
+
   const png = await new Promise<Uint8Array>((done, failed) => {
     queue.push({ request, done, failed });
+
     if (queue.length === 1) next();
   });
+
   return { png: Buffer.from(png.buffer, png.byteOffset, png.byteLength), width: fitted };
 }

@@ -14,6 +14,9 @@ export {
   type XrefDrawing,
   type XrefDrawings,
 } from "./blocks.ts";
+
+export { layerKey } from "./layers.ts";
+
 export {
   ARROWHEADS,
   DEFAULT_LEADER_ARROWHEAD,
@@ -31,7 +34,9 @@ export {
   type LeaderArrowheadInfo,
   type LeaderArrowheadStroke,
 } from "./arrowheads.ts";
+
 export type { CallSite } from "./callsite.ts";
+
 export {
   angleNumber,
   arcLengthArc,
@@ -55,6 +60,7 @@ export {
   type DimensionPictureHandles,
   type DimensionPlace,
 } from "./dimensions.ts";
+
 export {
   createDrawing,
   DrawingBuilder,
@@ -140,8 +146,8 @@ export {
   type Linetype,
   type LinetypeChoice,
   type LinetypeDefinition,
+  type LinetypeGlyph,
   type LinetypeMark,
-  type LinetypeShape,
   type LinetypeText,
   type MarkOrient,
   type Lineweight,
@@ -183,13 +189,21 @@ export {
   type Xref,
   type Zone,
 } from "./drawing.ts";
-export { heldColor, storedColor } from "./colors.ts";
+
+export { heldColor, matchedIndex, storedColor } from "./colors.ts";
+
 export { readAlpha, storedTransparency } from "./transparency.ts";
+
 export { toDXF, type DxfOptions } from "./dxf.ts";
+
 export { parsePatterns, PATTERN_FILE_LENGTH } from "./patterns.ts";
+
 export { fifteenDigits } from "./format.ts";
+
 export { pdfPageSize } from "./pdf-pages.ts";
+
 export { rasterSize } from "./raster.ts";
+
 export {
   drawingImages,
   fromImagePixels,
@@ -212,6 +226,7 @@ export {
   type ImageClip,
   type ImageDefinition,
 } from "./images.ts";
+
 export {
   drawingUnderlays,
   fromPage,
@@ -234,6 +249,7 @@ export {
   underlayVectors,
   type UnderlayDefinition,
 } from "./underlays.ts";
+
 export {
   dimensionMask,
   GRADIENT_NAMES,
@@ -256,8 +272,11 @@ export {
   type GradientStop,
   type GradientWritten,
 } from "./fills.ts";
+
 export { bulgeThrough, polylineBox, type PolylineBox } from "./polylines.ts";
+
 export { pointStyleOf } from "./points.ts";
+
 export {
   clamped,
   ellipseBox,
@@ -270,9 +289,13 @@ export {
   type FittedSpline,
   type KnotSpacing,
 } from "./curves.ts";
+
 export { FONT_METRICS, FONT_METRICS_RANGES, type FontMetrics } from "./font-metrics.ts";
+
 export { capHeightOf, FONTS, type Font, type FontInfo } from "./fonts.ts";
+
 export { idHandle } from "./handles.ts";
+
 export {
   inspectText,
   type InspectOptions,
@@ -280,6 +303,7 @@ export {
   type TextRule,
   type TextWarning,
 } from "./inspect.ts";
+
 export {
   checkIntent,
   type Intent,
@@ -288,8 +312,11 @@ export {
   type IntentWarning,
   type Setback,
 } from "./intent.ts";
+
 export { fromJSON, toJSON } from "./json.ts";
+
 export { layoutHandles, viewportView, type LayoutHandles, type ViewportView } from "./layouts.ts";
+
 export {
   attachmentCode,
   findLeaderStyle,
@@ -313,7 +340,9 @@ export {
   type LeaderPicture,
   type LeaderSizes,
 } from "./leaders.ts";
+
 export { DrawingError, lint, type Diagnostic, type LintOptions, type LintRule } from "./lint.ts";
+
 export {
   CENTER,
   DASHDOT,
@@ -325,7 +354,9 @@ export {
   parseLinetypes,
   PHANTOM,
 } from "./linetypes.ts";
+
 export { lineSpacing, measureText, type TextMeasure, type TextToMeasure } from "./measure.ts";
+
 export {
   bold,
   list,
@@ -346,6 +377,7 @@ export {
   type ParsedParagraph,
   type RunFormat,
 } from "./paragraph-codes.ts";
+
 export {
   attachmentPlace,
   layoutDimensionText,
@@ -369,8 +401,11 @@ export {
   type ParagraphStroke,
   type ParagraphToMeasure,
 } from "./paragraphs.ts";
+
 export { fromPaper, type PaperScale, type PaperUnit } from "./paper.ts";
+
 export { boldFontKey, pdfFace, svgToPDF, toPDF, type PdfOptions, type PdfSheet } from "./pdf.ts";
+
 export {
   PAPERS,
   PLOT_STYLE_TABLES,
@@ -378,6 +413,7 @@ export {
   type PaperInfo,
   type PlotStyleTable,
 } from "./papers.ts";
+
 export type {
   Aci,
   ArrowheadOf,
@@ -434,6 +470,7 @@ export type {
   WidthFactor,
   XrefPath,
 } from "./rules.ts";
+
 export {
   GRADIENT_KINDS,
   LEADER_ATTACHMENTS,
@@ -446,18 +483,21 @@ export {
   SPLINE_ITEMS,
   XREF_DEPTH,
 } from "./rules.ts";
+
 export {
-  parseShapes,
-  shapeFileKey,
-  SHAPE_FILE_LENGTH,
-  SHAPE_POINTS,
-  SHAPE_STEPS,
-  type ShapeDefinition,
-  type ShapeFile,
-  type ShapeFiles,
-  type ShapeOutline,
+  parseShx,
+  shxFileKey,
+  SHX_FILE_LENGTH,
+  SHX_POINTS,
+  SHX_STEPS,
+  type ShxFile,
+  type ShxFiles,
+  type ShxGlyph,
+  type ShxOutline,
 } from "./shapes.ts";
+
 export { BUILT_IN_STANDARD, defineStandard, type BuiltInStandard } from "./standard/define.ts";
+
 export type {
   Box,
   FieldSource,
@@ -466,6 +506,7 @@ export type {
   StandardDimensionStyle,
   StandardDiscipline,
   StandardDocument,
+  StandardFile,
   StandardLayer,
   StandardLeaderStyle,
   StandardLinetype,
@@ -482,12 +523,194 @@ export type {
   StandardXref,
   TitleBlockFill,
 } from "./standard/document.ts";
+
 export { checkDrawingRead } from "./read/check.ts";
+
+export { editedPicture, type PictureChange, type PictureInPieces } from "./read/kept.ts";
+
+export {
+  nearPoint,
+  sheetShows,
+  spaceShows,
+  xrefAreas,
+  QUESTION_LIMITS,
+  type Near,
+  type QuestionLimits,
+  type QuestionOptions,
+  type Shown,
+  type ShownEntity,
+} from "./read/questions.ts";
+
 export { readDXF } from "./read/dxf.ts";
+
+export { MARK_APP, markOf, recordAdditions } from "./read/mark.ts";
+
+export { editDXF } from "./edit/dxf.ts";
+
+export {
+  addedBlocks,
+  checkEditedCopy,
+  dxfEditor,
+  type EditCheck,
+  type EditCheckName,
+  type EditSheet,
+  type EditorModule,
+  type FileEditor,
+  type RecordLinks,
+} from "./edit/checks.ts";
+
+export {
+  canonicalHandle,
+  addsNothing,
+  checkEdit,
+  EDIT_FORMAT,
+  MADE_KINDS,
+  statementCall,
+  transformProblem,
+  editDrawing,
+  EditError,
+  type Edit,
+  type EditAdditions,
+  type EditBuilder,
+  type EditDefinitions,
+  type EditDrawing,
+  type EditFile,
+  type EditSource,
+  type EditStatement,
+  type EntityChanges,
+  type LayerChanges,
+  type StretchBy,
+  type TextChange,
+  type Transform,
+  type Vertices,
+  type ViewportChanges,
+} from "./edit/model.ts";
+
+export {
+  sameRun,
+  stretchPlan,
+  stretchApplied,
+  stretchedEntity,
+  transformOf,
+  type StretchPlan,
+  type Stretched,
+} from "./edit/stretch.ts";
+
+export { dxfStructure, type StructureDefect, type StructureReport } from "./edit/structure.ts";
+
+export {
+  readSchedule,
+  SCHEDULE_LIMITS,
+  type ReadSchedule,
+  type ScheduleCell,
+  type ScheduleRow,
+  type ScheduleWhere,
+} from "./edit/schedule.ts";
+
+export {
+  drawnRecords,
+  planAdditions,
+  planRecord,
+  refersBy,
+  type AdditionsFile,
+  type AdditionsPlan,
+  type DrawnRecord,
+  type DrawnSpace,
+  type Patch,
+  type RecordPlan,
+  type Transplant,
+} from "./edit/additions.ts";
+
+export { addedOf, readAdditionsFile, type Added, type AddedSpace } from "./edit/added.ts";
+
+export {
+  additionIds,
+  placeId,
+  replacement,
+  writesAdditions,
+  withReplacement,
+  type Replacement,
+  type ReplacementProblem,
+} from "./edit/replaced.ts";
+
+export { MARK_FORMAT, markGroups, markHash, markUnchanged, type Marks } from "./edit/marks.ts";
+
+export { editedRead, fileKind } from "./edit/edited.ts";
+
+export {
+  changesPicture,
+  editPreview,
+  statementPlace,
+  type EditPlace,
+  type EditPreview,
+  type PictureChanges,
+} from "./edit/changes.ts";
+
+export { lintEdit, type EditDiagnostic, type EditRule, type LintEditOptions } from "./edit/lint.ts";
+
+export { movedEntity } from "./edit/moved.ts";
+
+export {
+  changedEntity,
+  changedLayer,
+  changedViewport,
+  layerNamed,
+  linetypeNamed,
+} from "./edit/changed.ts";
+
+export { changedParagraph, placedText, paragraphReads } from "./edit/text-change.ts";
+
+export {
+  editReach,
+  indexRead,
+  reachOf,
+  type EditReach,
+  type EditSpace,
+  type Located,
+  type ReadIndex,
+} from "./edit/reach.ts";
+
+export { applied, type Applied } from "./edit/transform.ts";
+
 export { ReadError } from "./read/groups.ts";
+
 export { layoutMtext, measureMtext } from "./read/mtext.ts";
+
 export { decipherSat, sabEdges, satEdges, type ModelerEdges } from "./read/modeler.ts";
+
 export { edgesInPlan, type PlanEdge } from "./read/plan.ts";
+
+export {
+  pictureDrawing,
+  readPicture,
+  type PictureDrawing,
+  type PictureDrawingOptions,
+  type ReadPicture,
+  type ReadPictureNotes,
+  type ReadSvgOptions,
+  type XrefReads,
+  type UnderlayPageSizes,
+} from "./read/picture.ts";
+
+export {
+  joinPicture,
+  type PictureFragment,
+  type PicturePiece,
+  type PictureRun,
+  type ReadSource,
+  type ReadSources,
+} from "./picture-marks.ts";
+
+export {
+  MOST_OWN_BLOCKS,
+  MOST_WINDOWS,
+  OUTSIDE_THE_READ,
+  ownBlocks,
+  partFilter,
+  viewportWindow,
+  type PartFilter,
+} from "./read/part.ts";
+
 export {
   BLOCK_ITEMS,
   CENSUS_LIMIT,
@@ -515,6 +738,9 @@ export {
   type ReadArcLengthDimension,
   type ReadOrdinateDimension,
   type ReadDimensionStyle,
+  type ReadLeaderStyle,
+  type ReadMark,
+  type ReadEditRecord,
   type ReadDrawingFile,
   type ReadEdge,
   type ReadEdgeEllipse,
@@ -545,10 +771,12 @@ export {
   type ReadPatternLine,
   type ReadMultileader,
   type ReadOptions,
+  type ReadPart,
   type Point3,
   type ReadPolyline,
   type ReadSolid,
   type ReadSpace,
+  type ReadUnreadEntity,
   type ReadTable,
   type ReadTableCell,
   type ReadTableCellStyle,
@@ -562,6 +790,7 @@ export {
   type ReadWipeout,
   type ReadXref,
 } from "./read/model.ts";
+
 export { toSVG, type SvgOptions } from "./svg.ts";
 
 export {
@@ -591,4 +820,7 @@ export {
   type TablePlace,
   type TableRowKind,
 } from "./tables.ts";
+
 export { drawingTables, type DrawnTable } from "./table-pictures.ts";
+
+export type { Json } from "./guards.ts";

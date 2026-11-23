@@ -7,6 +7,7 @@ import { keyHandle } from "./handles.ts";
 import { exactKey } from "./images.ts";
 import { layerKey } from "./layers.ts";
 import { drawableClip, filled, isFinitePoint } from "./shape.ts";
+import { isNumber, isString } from "./guards.ts";
 
 /**
  * Whether an underlay's fields can be drawn: a path and a page, a page size of two numbers above
@@ -14,17 +15,21 @@ import { drawableClip, filled, isFinitePoint } from "./shape.ts";
  * all. The plots and the extents leave out one that cannot, which `lint` refuses.
  */
 export function underlayDrawable(underlay: Underlay, checked?: WeakMap<object, boolean>): boolean {
-  const { path, page, pageSize, at, scale, rotation, clip } = underlay as Partial<
-    Record<keyof Underlay, unknown>
-  >;
-  if (typeof path !== "string" || (page !== undefined && typeof page !== "string")) return false;
+  // An underlay made by hand may hold a value of any type in any field.
+  const { path, page, pageSize, at, scale, rotation, clip } = underlay;
+
+  if (!isString(path) || (page !== undefined && !isString(page))) return false;
+
   if (!isFinitePoint(pageSize) || !isFinitePoint(at)) return false;
   const [w, h] = pageSize;
+
   if (!(w > 0 && h > 0)) return false;
-  if (scale !== undefined && !(typeof scale === "number" && Number.isFinite(scale) && scale !== 0))
+
+  if (scale !== undefined && !(isNumber(scale) && Number.isFinite(scale) && scale !== 0))
     return false;
-  if (rotation !== undefined && !(typeof rotation === "number" && Number.isFinite(rotation)))
-    return false;
+
+  if (rotation !== undefined && !(isNumber(rotation) && Number.isFinite(rotation))) return false;
+
   return drawableClip(clip, checked);
 }
 
@@ -41,15 +46,24 @@ export function underlayVectors(underlay: Underlay): [u: Point, v: Point] {
   const cos = quarter ? Math.round(Math.cos(turn)) : Math.cos(turn);
   const sin = quarter ? Math.round(Math.sin(turn)) : Math.sin(turn);
   const s = written(underlay.scale ?? 1);
+
   return [
     [s * cos + 0, s * sin + 0],
     [-s * sin + 0, s * cos + 0],
   ];
 }
 
+/** Where an underlay's page is: its lower-left corner as written, and one inch of it each way. */
+export interface UnderlayPlacement {
+  at: Point;
+  u: Point;
+  v: Point;
+}
+
 /** The lower-left corner as written, and the vectors of one inch of the page. */
-export function underlayPlacement(underlay: Underlay): { at: Point; u: Point; v: Point } {
+export function underlayPlacement(underlay: Underlay): UnderlayPlacement {
   const [u, v] = underlayVectors(underlay);
+
   return { at: [written(underlay.at[0]), written(underlay.at[1])], u, v };
 }
 
@@ -57,6 +71,7 @@ export function underlayPlacement(underlay: Underlay): { at: Point; u: Point; v:
 export function toPage(at: Point, u: Point, v: Point, [x, y]: Point): Point {
   const det = u[0] * v[1] - u[1] * v[0];
   const [dx, dy] = [x - at[0], y - at[1]];
+
   return [(dx * v[1] - dy * v[0]) / det, (u[0] * dy - u[1] * dx) / det];
 }
 
@@ -69,6 +84,7 @@ export function fromPage(at: Point, u: Point, v: Point, [x, y]: Point): Point {
 export function underlayCorners(underlay: Underlay): [Point, Point, Point, Point] {
   const { at, u, v } = underlayPlacement(underlay);
   const [w, h] = underlay.pageSize;
+
   return [at, fromPage(at, u, v, [w, 0]), fromPage(at, u, v, [w, h]), fromPage(at, u, v, [0, h])];
 }
 
@@ -81,8 +97,11 @@ export function underlayClip(underlay: Underlay): Point[] {
   if (underlay.clip === undefined) return [];
   const { at, u, v } = underlayPlacement(underlay);
   const points = underlay.clip.map(([x, y]) => toPage(at, u, v, [written(x), written(y)]));
+
   if (points.length !== 2) return points;
-  const [[x0, y0], [x1, y1]] = points as [Point, Point];
+  const [x0, y0] = points[0]!;
+  const [x1, y1] = points[1]!;
+
   return [
     [Math.min(x0, x1), Math.max(y0, y1)],
     [Math.max(x0, x1), Math.min(y0, y1)],
@@ -99,10 +118,14 @@ export function underlayFrame(underlay: Underlay): Point[] {
   const { at, u, v } = underlayPlacement(underlay);
   const clip = underlayClip(underlay);
   const back = (p: Point) => fromPage(at, u, v, p);
+
   if (clip.length === 2) {
-    const [[x0, y1], [x1, y0]] = clip as [Point, Point];
+    const [x0, y1] = clip[0]!;
+    const [x1, y0] = clip[1]!;
+
     return [back([x0, y0]), back([x1, y0]), back([x1, y1]), back([x0, y1])];
   }
+
   return clip.map(back);
 }
 
@@ -126,16 +149,19 @@ export function underlayColor(
   { fade, contrast, monochrome }: { fade: number; contrast: number; monochrome: boolean },
 ): [number, number, number] {
   let [r, g, b] = [rgb[0] / 255, rgb[1] / 255, rgb[2] / 255];
+
   if (monochrome) {
     const l = (Math.max(r, g, b) + Math.min(r, g, b)) / 2;
     [r, g, b] = [l, l, l];
   }
+
   if (contrast !== 100) {
     const k = contrast / 100;
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     const l = (max + min) / 2;
     const target = CONTRAST_GRAY + (l - CONTRAST_GRAY) * k;
+
     // The same hue and saturation at the new lightness.
     if (max === min) [r, g, b] = [target, target, target];
     else {
@@ -146,11 +172,14 @@ export function underlayColor(
       [r, g, b] = [part(r), part(g), part(b)];
     }
   }
+
   if (fade !== 0) {
     const f = fade / 100;
     [r, g, b] = [r + (1 - r) * f, g + (1 - g) * f, b + (1 - b) * f];
   }
+
   const out = (x: number) => Math.max(0, Math.min(255, Math.round(x * 255)));
+
   return [out(r), out(g), out(b)];
 }
 
@@ -195,7 +224,9 @@ export const UNDERLAY_DICTIONARY = "ACAD_PDFDEFINITIONS";
 
 /** `PDFFRAME` as the drawing's frame setting holds it: 1 shows and plots, 0 neither, 2 shows. */
 export function underlayFrameValue(frame: Drawing["underlayFrame"]): 0 | 1 | 2 {
-  return frame === false ? 0 : frame === "screen" ? 2 : 1;
+  if (frame === false) return 0;
+
+  return frame === "screen" ? 2 : 1;
 }
 
 /**
@@ -209,10 +240,12 @@ export function underlayDefinitions(underlays: Iterable<Underlay>): UnderlayDefi
   const taken = new Set<string>();
   // The next number to try after each name taken, so many files of one name are named in time.
   const next = new Map<string, number>();
+
   for (const underlay of underlays) {
     const path = underlayPathKey(underlay.path);
     const page = pageOf(underlay);
     const key = exactKey(`${page}|${path}`);
+
     if (byKey.has(key)) continue;
     const file = path.slice(path.lastIndexOf("/") + 1);
     const dot = file.lastIndexOf(".");
@@ -220,12 +253,15 @@ export function underlayDefinitions(underlays: Iterable<Underlay>): UnderlayDefi
     const nameOf = (stem: string) => `${stem} - ${page}`;
     const baseKey = exactKey(layerKey(nameOf(base)));
     let name = nameOf(base);
+
     if (taken.has(baseKey)) {
       let n = next.get(baseKey) ?? 2;
+
       while (taken.has(exactKey(layerKey(nameOf(`${base} (${n})`))))) n++;
       name = nameOf(`${base} (${n})`);
       next.set(baseKey, n + 1);
     }
+
     taken.add(exactKey(layerKey(name)));
     byKey.set(key, {
       name,
@@ -234,6 +270,7 @@ export function underlayDefinitions(underlays: Iterable<Underlay>): UnderlayDefi
       handle: underlayDefinitionHandle(underlay.path, page),
     });
   }
+
   return [...byKey.values()];
 }
 
@@ -247,6 +284,7 @@ export function* drawingUnderlays(drawing: Drawing): Generator<Underlay> {
     ...filled(drawing.layouts ?? []).map((layout) => layout.entities),
     ...filled(drawing.blocks ?? []).map((block) => block.entities),
   ];
+
   for (const list of lists) {
     for (const e of filled(list ?? [])) if (e.kind === "underlay") yield e;
   }
@@ -259,6 +297,7 @@ export function* drawingUnderlays(drawing: Drawing): Generator<Underlay> {
  */
 export function missingLines(underlay: Underlay): { value: string; at: Point }[] {
   const path = underlay.path.replaceAll("/", "\\");
+
   return [
     { value: "Missing or invalid reference", at: [0, 2 / 3] },
     { value: `File: ${path}`, at: [0, 1 / 3] },
@@ -279,18 +318,24 @@ export const UNDERLAY_CONTRAST_DEFAULT = 75;
 export const UNDERLAY_FADE_MOST = 80;
 export const UNDERLAY_CONTRAST_LEAST = 20;
 
+/** The fade, contrast and monochrome an underlay plots in. */
+export interface UnderlayLook {
+  fade: number;
+  contrast: number;
+  monochrome: boolean;
+}
+
 /**
  * The fade, contrast and monochrome an underlay plots in. A field that is not a whole number in
  * its range, which lint refuses, plots as none.
  */
-export function underlayLook(underlay: Underlay): {
-  fade: number;
-  contrast: number;
-  monochrome: boolean;
-} {
-  const { fade, contrast } = underlay as { fade?: unknown; contrast?: unknown };
-  const within = (n: unknown, least: number, most: number): n is number =>
-    Number.isInteger(n) && (n as number) >= least && (n as number) <= most;
+export function underlayLook(underlay: Underlay): UnderlayLook {
+  // An underlay made by hand may hold a value of any type in either field.
+  const { fade, contrast } = underlay;
+
+  const within = (n: number | undefined, least: number, most: number): n is number =>
+    n !== undefined && Number.isInteger(n) && n >= least && n <= most;
+
   return {
     fade: within(fade, 0, UNDERLAY_FADE_MOST) ? fade : 0,
     contrast: within(contrast, UNDERLAY_CONTRAST_LEAST, 100) ? contrast : 100,
@@ -301,6 +346,7 @@ export function underlayLook(underlay: Underlay): {
 /** Whether an underlay plots its page in colors other than the page's own. */
 export function underlayAdjusted(underlay: Underlay): boolean {
   const { fade, contrast, monochrome } = underlayLook(underlay);
+
   return fade !== 0 || contrast !== 100 || monochrome;
 }
 
@@ -314,7 +360,9 @@ export function pictureFits(
   size: readonly [number, number],
 ): boolean {
   const [w, h] = size;
+
   if (!(width > 0 && height > 0 && w > 0 && h > 0)) return false;
+
   return Math.max((width - 1) / w, (height - 1) / h) <= Math.min((width + 1) / w, (height + 1) / h);
 }
 
@@ -328,5 +376,6 @@ export function missingReach(underlay: Underlay): number {
     "File: ".length + underlay.path.length,
     "Sheet: ".length + pageOf(underlay).length,
   );
+
   return (longest + 1) * MISSING_HEIGHT * Math.abs(written(underlay.scale ?? 1));
 }

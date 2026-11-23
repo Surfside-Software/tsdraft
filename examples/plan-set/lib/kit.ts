@@ -22,9 +22,11 @@ import {
 import { arrowhead, feetInches } from "../../lib/drafting.ts";
 
 export type D = DrawingBuilder;
+
 export const FONT = "Arial" as const;
 export const NOTES = "NOTES";
 export const TITLE = "TITLE";
+
 /** The table style of the set's schedules. */
 export const SCHEDULE = "SCHEDULE";
 
@@ -58,6 +60,7 @@ export const aligned = (
 ): TableCell[] =>
   cells.map((text, c) => {
     const align = aligns[c];
+
     return align ? { text, align } : text;
   });
 
@@ -75,24 +78,25 @@ export interface View {
   readonly dim: string;
 }
 
-const LABELS: Record<number, string> = {
-  12: `1" = 1'-0"`,
-  16: `3/4" = 1'-0"`,
-  24: `1/2" = 1'-0"`,
-  32: `3/8" = 1'-0"`,
-  48: `1/4" = 1'-0"`,
-  64: `3/16" = 1'-0"`,
-  96: `1/8" = 1'-0"`,
-  192: `1/16" = 1'-0"`,
-  120: `1" = 10'-0"`,
-  240: `1" = 20'-0"`,
-};
+const LABELS = new Map([
+  [12, `1" = 1'-0"`],
+  [16, `3/4" = 1'-0"`],
+  [24, `1/2" = 1'-0"`],
+  [32, `3/8" = 1'-0"`],
+  [48, `1/4" = 1'-0"`],
+  [64, `3/16" = 1'-0"`],
+  [96, `1/8" = 1'-0"`],
+  [192, `1/16" = 1'-0"`],
+  [120, `1" = 10'-0"`],
+  [240, `1" = 20'-0"`],
+]);
 
 const views = new Map<number, View>();
 
 /** The view at `ratio`, with its dimension style, defined once per drawing. */
 export function view(d: D, ratio: number): View {
   const known = views.get(ratio);
+
   if (known) return known;
   const p = (inches: number) => fromPaper(inches, "in", { ratio, units: "in" });
   const dim = `DIM-${ratio}`;
@@ -113,8 +117,9 @@ export function view(d: D, ratio: number): View {
       ? { precision: 1, measurementScale: 1 / 12, suffix: "'" }
       : { units: "architectural", precision: 4 }),
   });
-  const v: View = { ratio, label: LABELS[ratio] ?? `1:${ratio}`, p, dim };
+  const v: View = { ratio, label: LABELS.get(ratio) ?? `1:${ratio}`, p, dim };
   views.set(ratio, v);
+
   return v;
 }
 
@@ -145,13 +150,16 @@ export function put(
 export function wrap(sentence: string, height: number, max: number): string[] {
   const lines: string[] = [];
   let line = "";
+
   for (const word of sentence.split(/\s+/)) {
     const longer = line ? `${line} ${word}` : word;
+
     if (line && width(longer, height) > max) {
       lines.push(line);
       line = word;
     } else line = longer;
   }
+
   return line ? [...lines, line] : lines;
 }
 
@@ -226,12 +234,15 @@ export const UTILITY_LINETYPES = [
 /** Defines every layer of the set, with its color, linetype and pen. */
 export function defineLayers(d: D): void {
   const L = LAYERS;
+
   const layer = (name: string, color: number, lineweight: number | "Default", linetype?: string) =>
-    d.layer(name, { color, lineweight, ...(linetype ? { linetype } : {}) });
+    d.layer(name, linetype ? { color, lineweight, linetype } : { color, lineweight });
+
   d.linetype(DASHED);
   d.linetype(HIDDEN);
   d.linetype(CENTER);
   d.linetype(PHANTOM);
+
   // The site's utilities, each lettered along its run in the notes' style.
   for (const [name, letters, along] of UTILITY_LINETYPES) {
     d.linetype({
@@ -241,11 +252,13 @@ export function defineLayers(d: D): void {
       marks: [{ after: 1, text: letters, style: NOTES, height: 0.16, offset: [along, -0.08] }],
     });
   }
+
   layer(L.ttlb, 7, 0.35);
   layer(L.text, 7, 0.25);
   d.layer(L.vport, { color: 8, plot: false });
   layer(L.revText, 7, 0.18);
   layer(L.revs, 7, 0.35);
+
   for (let i = 1; i <= 8; i++) layer(`Rev_${i}`, 7, 0.18);
   layer(L.wall, 7, 0.5);
   layer(L.wallLow, 7, 0.35);
@@ -335,6 +348,7 @@ export function defineSymbols(d: D): void {
   d.block("WINDOW TAG", {}, () => {
     const r = 0.13;
     const pts: Point[] = [];
+
     for (let i = 0; i < 6; i++)
       pts.push([r * Math.cos((Math.PI / 3) * i), r * Math.sin((Math.PI / 3) * i)]);
     d.polyline(pts, true);
@@ -423,6 +437,7 @@ export function defineSymbols(d: D): void {
   // A palm for the site plan, its fronds one unit in radius: insert it at the canopy's radius.
   d.block("PALM", {}, () => {
     d.circle([0, 0], 0.12);
+
     for (let i = 0; i < 8; i++) {
       const a = (Math.PI / 4) * i;
       d.line([Math.cos(a) * 0.12, Math.sin(a) * 0.12], [Math.cos(a + 0.25), Math.sin(a + 0.25)]);
@@ -490,6 +505,7 @@ export function defineSymbols(d: D): void {
   });
   d.block("E-FAN", {}, () => {
     d.circle([0, 0], 0.08);
+
     for (const a of [0, 90, 180, 270]) {
       const t = (a * Math.PI) / 180;
       d.polyline(
@@ -555,14 +571,12 @@ export function dimString(
   const i = axis === "x" ? 0 : 1;
   const sorted = [...points].sort((a, b) => a[i] - b[i]);
   const unique = sorted.filter((p, k) => k === 0 || Math.abs(p[i] - sorted[k - 1]![i]) > 0.01);
+
   for (let k = 1; k < unique.length; k++) {
     const a = unique[k - 1]!;
     const b = unique[k]!;
     const line: Point = axis === "x" ? [0, at] : [at, 0];
-    d.linearDimension(a, b, line, {
-      style: v.dim,
-      ...(axis === "y" ? { along: "y" as const } : {}),
-    });
+    d.linearDimension(a, b, line, axis === "y" ? { style: v.dim, along: "y" } : { style: v.dim });
   }
 }
 
@@ -592,7 +606,9 @@ const leaderStyles = new WeakMap<D, Set<number>>();
 function leaderStyle(d: D, v: View): string {
   const name = `NOTE-${v.ratio}`;
   let defined = leaderStyles.get(d);
+
   if (!defined) leaderStyles.set(d, (defined = new Set()));
+
   if (!defined.has(v.ratio)) {
     d.leaderStyle({
       name,
@@ -605,6 +621,7 @@ function leaderStyle(d: D, v: View): string {
     });
     defined.add(v.ratio);
   }
+
   return name;
 }
 
@@ -620,6 +637,7 @@ export function modelNote(
   const h = v.p(H.note);
   const lines = wrap(text, H.note, maxPaper);
   lines.forEach((line, k) => put(d, [at[0], at[1] - k * h * 1.6], line, h, { align }));
+
   return lines.length * h * 1.6;
 }
 
@@ -628,6 +646,7 @@ export function modelNote(
 
 /** The drawing area of every sheet, inside the border and left of the title strip. */
 export const AREA = { left: 2.0, bottom: 0.75, right: 31.75, top: 23.25 } as const;
+
 /** The title strip on the right of the sheet. */
 export const STRIP = { left: 32.0, right: 35.5, bottom: 0.5, top: 23.5 } as const;
 
@@ -640,7 +659,7 @@ export function viewport(
       w: number,
       h: number,
       o: { center: Point; ratio: number; id?: string },
-    ) => unknown;
+    ) => void;
   },
   o: {
     corner: Point;
@@ -685,10 +704,12 @@ export function viewTitle(
     d.insert("VIEW TITLE", at, {
       attributes: { VIEW_NO: number, VIEW_SHEET: sheetNo, VIEW_TITLE: title, VIEW_SCALE: scale },
     });
+
     const length = Math.max(
       measureText({ value: title, height: H.title, font: FONT, widthFactor: 0.9 }).length,
       width(scale, H.label),
     );
+
     d.line([at[0] + 0.5, at[1]], [at[0] + 0.62 + length + 0.15, at[1]], { lineweight: 0.5 });
   });
 }
@@ -700,6 +721,7 @@ export function graphicScale(d: D, at: Point, v: View, length = 2): void {
   const total = length * feetPerInch;
   const step = [1, 2, 4, 5, 8, 10, 20, 25, 40, 50, 100].find((s) => total / s <= 4) ?? 100;
   const stops: number[] = [];
+
   for (let f = 0; f <= total + 1e-9; f += step) stops.push(f);
   const bar = stops.at(-1)! / feetPerInch;
   const h = 0.08;
@@ -707,9 +729,11 @@ export function graphicScale(d: D, at: Point, v: View, length = 2): void {
     d.rect(at, bar, h);
     stops.forEach((f, k) => {
       const x = at[0] + f / feetPerInch;
+
       if (k > 0 && k < stops.length - 1) d.line([x, at[1]], [x, at[1] + h]);
       put(d, [x, at[1] + h + 0.05], `${f}'`, H.small, { align: "center" });
     });
+
     for (let k = 0; k + 1 < stops.length; k += 2) {
       const x0 = at[0] + stops[k]! / feetPerInch;
       const x1 = at[0] + stops[k + 1]! / feetPerInch;
@@ -738,13 +762,16 @@ export function noteColumn(
     const indent = o.numbered === false ? 0 : width("00. ", h);
     notes.forEach((note, k) => {
       if (o.numbered !== false) put(d, [at[0], y], `${k + 1}.`, h);
+
       for (const line of wrap(note, h, colWidth - indent)) {
         put(d, [at[0] + indent, y], line, h);
         y -= lead;
       }
+
       y -= h * 0.5;
     });
   });
+
   return y;
 }
 
@@ -757,7 +784,9 @@ export function slopeArrow(d: D, v: View, at: Point, angle: number, text: string
   d.line(tail, tip);
   arrowhead(d, tip, tail, v.p(0.1));
   let rot = angle;
+
   if (rot > 90) rot -= 180;
+
   if (rot <= -90) rot += 180;
   // The text stands on the side its own "up" points to, clear of the arrow.
   const r = (rot * Math.PI) / 180;
@@ -770,6 +799,14 @@ export function slopeArrow(d: D, v: View, at: Point, angle: number, text: string
 
 /** Draws one sheet: its model space and its layout. */
 export type SheetDraw = (d: D) => void;
+
+/** The way a section looks, as a unit vector. */
+const LOOKS = {
+  N: [0, 1],
+  S: [0, -1],
+  E: [1, 0],
+  W: [-1, 0],
+} as const satisfies Record<"N" | "S" | "E" | "W", Point>;
 
 /**
  * A section cut mark in model space for view `v`: the bubble upright at `at`, with its arrow
@@ -785,13 +822,16 @@ export function sectionCut(
 ): void {
   d.insert("SECTION BUBBLE", at, { scale: v.p(1), attributes: { SECT: sect, SHEET: sheet } });
   const r = v.p(0.22);
-  const dir: Point =
-    look === "N" ? [0, 1] : look === "S" ? [0, -1] : look === "E" ? [1, 0] : [-1, 0];
+
+  const dir = LOOKS[look];
+
   const across: Point = [-dir[1], dir[0]];
+
   const base = (k: number): Point => [
     at[0] + dir[0] * r * 0.7 + across[0] * r * 0.7 * k,
     at[1] + dir[1] * r * 0.7 + across[1] * r * 0.7 * k,
   ];
+
   d.polyline([base(1), [at[0] + dir[0] * r * 1.9, at[1] + dir[1] * r * 1.9], base(-1)], false);
 }
 
@@ -814,6 +854,7 @@ export function revisionCloud(
       const ux = (b[0] - a[0]) / len;
       const uy = (b[1] - a[1]) / len;
       const base = (Math.atan2(uy, ux) * 180) / Math.PI;
+
       for (let k = 0; k < n; k++) {
         const c: Point = [a[0] + ux * (len / n) * (k + 0.5), a[1] + uy * (len / n) * (k + 0.5)];
         const r = len / n / 2;
@@ -821,6 +862,7 @@ export function revisionCloud(
         d.arc(c, r, base + (outward > 0 ? 0 : 180), base + (outward > 0 ? 180 : 360));
       }
     };
+
     side([x0, y0], [x1, y0], -1);
     side([x1, y0], [x1, y1], -1);
     side([x1, y1], [x0, y1], -1);

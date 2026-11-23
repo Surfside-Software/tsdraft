@@ -8,6 +8,7 @@ import { layerKey } from "./layers.ts";
 import { imagePixelsProblem } from "./rules.ts";
 import { sha256Text } from "./sha256.ts";
 import { drawableClip, filled, isFinitePoint, KEYED } from "./shape.ts";
+import { isNumber, isString } from "./guards.ts";
 
 /**
  * A key of a `Map` for a string of any length, which no other string has: the string itself, or
@@ -23,14 +24,16 @@ export function exactKey(text: string): string {
  * out one that cannot, which `lint` refuses.
  */
 export function imageDrawable(image: Image, checked?: WeakMap<object, boolean>): boolean {
-  const { path, pixels, at, width, height, rotation, clip } = image as Partial<
-    Record<keyof Image, unknown>
-  >;
-  const size = (n: unknown) => typeof n === "number" && Number.isFinite(n) && n !== 0;
-  if (typeof path !== "string" || imagePixelsProblem(pixels) !== undefined) return false;
+  // An image made by hand may hold a value of any type in any field.
+  const { path, pixels, at, width, height, rotation, clip } = image;
+  const size = (n: number) => isNumber(n) && Number.isFinite(n) && n !== 0;
+
+  if (!isString(path) || imagePixelsProblem(pixels) !== undefined) return false;
+
   if (!isFinitePoint(at) || !size(width) || !size(height)) return false;
-  if (rotation !== undefined && !(typeof rotation === "number" && Number.isFinite(rotation)))
-    return false;
+
+  if (rotation !== undefined && !(isNumber(rotation) && Number.isFinite(rotation))) return false;
+
   return drawableClip(clip, checked);
 }
 
@@ -42,15 +45,24 @@ export function imageVectors(image: Image): [u: Point, v: Point] {
   const cos = quarter ? Math.round(Math.cos(turn)) : Math.cos(turn);
   const sin = quarter ? Math.round(Math.sin(turn)) : Math.sin(turn);
   const [du, dv] = [image.width / image.pixels[0], image.height / image.pixels[1]];
+
   return [
     [du * cos + 0, du * sin + 0],
     [-dv * sin + 0, dv * cos + 0],
   ];
 }
 
+/** Where an image is: its lower-left corner as written, and the vectors of one pixel. */
+interface ImagePlace {
+  at: Point;
+  u: Point;
+  v: Point;
+}
+
 /** The lower-left corner as written, and the vectors of one pixel. */
-function placed(image: Image): { at: Point; u: Point; v: Point } {
+function placed(image: Image): ImagePlace {
   const [u, v] = imageVectors(image);
+
   return { at: [written(image.at[0]), written(image.at[1])], u, v };
 }
 
@@ -70,6 +82,7 @@ export function toImagePixels(
   const [dx, dy] = [x - at[0], y - at[1]];
   const s = (dx * v[1] - dy * v[0]) / det;
   const t = (u[0] * dy - u[1] * dx) / det;
+
   return [s - 0.5, pixels[1] - t - 0.5];
 }
 
@@ -82,6 +95,7 @@ export function fromImagePixels(
   [x, y]: Point,
 ): Point {
   const [s, t] = [x + 0.5, pixels[1] - y - 0.5];
+
   return [at[0] + s * u[0] + t * v[0], at[1] + s * u[1] + t * v[1]];
 }
 
@@ -98,6 +112,7 @@ export interface ImageClip {
  */
 export function imageClip(image: Image): ImageClip {
   const [w, h] = image.pixels;
+
   if (image.clip === undefined) {
     return {
       type: 1,
@@ -107,12 +122,17 @@ export function imageClip(image: Image): ImageClip {
       ],
     };
   }
+
   const { at, u, v } = placed(image);
+
   const points = image.clip.map(([x, y]) =>
     toImagePixels(at, u, v, image.pixels, [written(x), written(y)]),
   );
+
   if (points.length === 2) {
-    const [[x0, y0], [x1, y1]] = points as [Point, Point];
+    const [x0, y0] = points[0]!;
+    const [x1, y1] = points[1]!;
+
     return {
       type: 1,
       points: [
@@ -121,9 +141,11 @@ export function imageClip(image: Image): ImageClip {
       ],
     };
   }
+
   const [first] = points;
   const last = points.at(-1)!;
   const closed = first![0] === last[0] && first![1] === last[1];
+
   return { type: 2, points: closed ? points : [...points, first!] };
 }
 
@@ -138,9 +160,12 @@ export function wholeImageClip(
   [w, h]: readonly [number, number],
 ): boolean {
   if (type !== 1 || points.length !== 2) return false;
-  const [[x0, y0], [x1, y1]] = points as [Point, Point];
+  const [x0, y0] = points[0]!;
+  const [x1, y1] = points[1]!;
+
   const near = (value: number, edge: number, side: number) =>
     Math.abs(value - edge) <= 1e-9 * Math.max(1, side);
+
   return (
     near(Math.min(x0, x1), -0.5, w) &&
     near(Math.min(y0, y1), -0.5, h) &&
@@ -155,6 +180,7 @@ export function imageCorners(image: Image): [Point, Point, Point, Point] {
   const [w, h] = image.pixels;
   const along: Point = [u[0] * w, u[1] * w];
   const up: Point = [v[0] * h, v[1] * h];
+
   return [
     at,
     [at[0] + along[0], at[1] + along[1]],
@@ -173,10 +199,15 @@ export function imageFrame(image: Image): Point[] {
   const clip = imageClip(image);
   const { at, u, v } = placed(image);
   const back = (p: Point) => fromImagePixels(at, u, v, image.pixels, p);
+
   if (clip.type === 1) {
-    const [[x0, y0], [x1, y1]] = clip.points as [Point, Point];
+    // A clip of type 1 is a rectangle, by its two corners.
+    const [x0, y0] = clip.points[0]!;
+    const [x1, y1] = clip.points[1]!;
+
     return [back([x0, y1]), back([x1, y1]), back([x1, y0]), back([x0, y0])];
   }
+
   return clip.points.slice(0, -1).map(back);
 }
 
@@ -242,22 +273,27 @@ export function imageDefinitions(images: Iterable<Image>): ImageDefinition[] {
   // The next number to try after each name taken, so that many files of one name are named in
   // time in proportion to their count.
   const next = new Map<string, number>();
+
   for (const image of images) {
     const path = imagePathKey(image.path);
     const key = exactKey(path);
+
     if (byPath.has(key)) continue;
     const file = path.slice(path.lastIndexOf("/") + 1);
     const dot = file.lastIndexOf(".");
     const base = (dot > 0 ? file.slice(0, dot) : file) || "image";
     const baseKey = exactKey(layerKey(base));
     let name = base;
+
     if (taken.has(baseKey)) {
       // Every number below the one kept was taken, and stays taken.
       let n = next.get(baseKey) ?? 2;
+
       while (taken.has(exactKey(layerKey(`${base}${n}`)))) n++;
       name = `${base}${n}`;
       next.set(baseKey, n + 1);
     }
+
     taken.add(exactKey(layerKey(name)));
     byPath.set(key, {
       name,
@@ -266,6 +302,7 @@ export function imageDefinitions(images: Iterable<Image>): ImageDefinition[] {
       handle: imageDefinitionHandle(image.path),
     });
   }
+
   return [...byPath.values()];
 }
 
@@ -279,6 +316,7 @@ export function* drawingImages(drawing: Drawing): Generator<Image> {
     ...filled(drawing.layouts ?? []).map((layout) => layout.entities),
     ...filled(drawing.blocks ?? []).map((block) => block.entities),
   ];
+
   for (const list of lists) {
     for (const e of filled(list ?? [])) if (e.kind === "image") yield e;
   }

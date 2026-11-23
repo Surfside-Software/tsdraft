@@ -2,8 +2,19 @@ import assert from "node:assert/strict";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { fromJSON, lint, toJSON, type Drawing } from "../src/index.ts";
-import { errors, full, HOLE, kinds, r12, replaced, SHARES, type Path } from "./shape-sweep.ts";
+import { fromJSON, lint, toJSON } from "../src/index.ts";
+import {
+  errors,
+  full,
+  HOLE,
+  kinds,
+  r12,
+  replaced,
+  SHARES,
+  type Path,
+  type Swept,
+} from "./shape-sweep.ts";
+import { dataOf, wrong } from "./values.ts";
 
 test("the drawings the sweep replaces the values of have nothing for lint to report", () => {
   for (const drawing of [full, r12]) assert.deepEqual(lint(fromJSON(toJSON(drawing))), []);
@@ -17,7 +28,7 @@ test("each share of the sweep has its test file", () => {
 });
 
 test("a value of the wrong shape is reported in these words, once", () => {
-  const cases: [path: Path, value: unknown, expected: string[]][] = [
+  const cases: [path: Path, value: Swept, expected: string[]][] = [
     [["units"], 1n, ["units: Unknown units: a value of type bigint"]],
     [
       ["xrefs", 0, "name"],
@@ -109,7 +120,7 @@ test("a value of the wrong shape is reported in these words, once", () => {
     // A viewport has no scale and no point named `at`, which other objects have: no hint.
     [
       ["layouts", 0, "viewports", 0],
-      { ...full.layouts[0].viewports[0], scale: 2, at: [0, 0], centre: [0, 0], widht: 2 },
+      { ...dataOf(full.layouts[0].viewports[0]), scale: 2, at: [0, 0], centre: [0, 0], widht: 2 },
       [
         'viewport: layouts[0].viewports[0]: unknown field "scale"',
         'viewport: layouts[0].viewports[0]: unknown field "at"',
@@ -119,7 +130,13 @@ test("a value of the wrong shape is reported in these words, once", () => {
     ],
     [
       ["layouts", 1],
-      { ...full.layouts[1], papr: "ANSI B", plotstyle: "acad.ctb", viewport: [], units: "in" },
+      {
+        ...dataOf(full.layouts[1]),
+        papr: "ANSI B",
+        plotstyle: "acad.ctb",
+        viewport: [],
+        units: "in",
+      },
       [
         'layout: layouts[1]: unknown field "papr". Did you mean "paper"?',
         'layout: layouts[1]: unknown field "plotstyle". Did you mean "plotStyle"?',
@@ -128,8 +145,10 @@ test("a value of the wrong shape is reported in these words, once", () => {
       ],
     ],
   ];
+
   for (const [path, value, expected] of cases) {
-    const found = errors(replaced(full, path, value) as Drawing);
+    const found = errors(wrong(replaced(full, path, value)));
+
     assert.deepEqual(
       found.map((d) => `${d.rule}: ${d.message}`),
       expected,

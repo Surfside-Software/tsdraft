@@ -19,6 +19,7 @@ import {
   arrowheadInfo,
   ARROWHEADS,
   DEFAULT_ARROWHEAD,
+  isArrowhead,
   JOG_ANGLE,
   MAX_ANGLE_PRECISION,
   MAX_PRECISION,
@@ -132,7 +133,9 @@ export function validDimensionStyleHandle(name: string): string {
  */
 export function dimensionStyleHandle(name: string): string {
   const problem = dimensionStyleNameProblem(name);
+
   if (problem !== undefined) throw new RangeError(problem);
+
   return validDimensionStyleHandle(name);
 }
 
@@ -176,7 +179,9 @@ export function validDimensionPictureHandles(place: DimensionPlace): DimensionPi
     place.id !== undefined
       ? idKey(place.id)
       : `@${place.layout === undefined ? "" : dimensionStyleKey(place.layout)}/${place.index}`;
+
   const handle = (part: string): string => keyHandle(`dimension-picture:${who}/${part}`);
+
   return {
     record: handle("record"),
     begin: handle("begin"),
@@ -236,12 +241,16 @@ export function pictureHandleList(handles: DimensionPictureHandles): string[] {
  */
 export function dimensionPictureHandles(place: DimensionPlace): DimensionPictureHandles {
   const { id, layout, index } = place;
+
   const problem =
     id !== undefined ? idProblem(id) : layout !== undefined ? layoutNameProblem(layout) : undefined;
+
   if (problem !== undefined) throw new RangeError(problem);
+
   if (id === undefined && !(Number.isSafeInteger(index) && index >= 0)) {
     throw new RangeError("The index of a dimension is a whole number from 0 up");
   }
+
   return validDimensionPictureHandles(place);
 }
 
@@ -254,6 +263,7 @@ export function findDimensionStyle(
   name: string,
 ): DimensionStyle | undefined {
   const key = layerKey(name);
+
   return drawing.dimensionStyles?.find((style) => layerKey(style.name) === key);
 }
 
@@ -276,10 +286,13 @@ export function arrowheadHandles(
   arrowhead: Arrowhead,
 ): { readonly record: string; readonly stroke: string } | undefined {
   const info = arrowheadInfo(arrowhead);
+
   if (info === undefined) {
     throw new RangeError(`An arrowhead must be one of ${Object.keys(ARROWHEADS).join(", ")}`);
   }
+
   if (info.block === undefined) return undefined;
+
   return { record: blockHandles(info.block).record, stroke: arrowheadEntityHandle(info.block) };
 }
 
@@ -288,11 +301,15 @@ export function arrowheadsWithBlocks(
   styles: readonly DimensionStyle[] | undefined,
 ): { readonly arrowhead: Arrowhead; readonly block: string }[] {
   const used = new Map<string, Arrowhead>();
+
   for (const style of styles ?? []) {
     const arrowhead = style.arrowhead ?? DEFAULT_ARROWHEAD;
     const block = arrowheadInfo(arrowhead)?.block;
-    if (block !== undefined && !used.has(block)) used.set(block, arrowhead as Arrowhead);
+
+    if (block !== undefined && isArrowhead(arrowhead) && !used.has(block))
+      used.set(block, arrowhead);
   }
+
   return [...used].map(([block, arrowhead]) => ({ arrowhead, block }));
 }
 
@@ -333,12 +350,15 @@ export function measurementNumber(length: number, format: MeasurementFormat): st
   if (format.units === "architectural") return feetAndInches(length, format);
   let text = roundedMeasurement(length, format);
   const suppress = format.suppressZeros;
+
   if ((suppress === "trailing" || suppress === "both") && text.includes(".")) {
     text = text.replace(/0+$/, "").replace(/\.$/, "");
   }
+
   if ((suppress === "leading" || suppress === "both") && text.startsWith("0.")) {
     text = text.slice(1);
   }
+
   return text;
 }
 
@@ -349,10 +369,13 @@ export function measurementNumber(length: number, format: MeasurementFormat): st
  */
 export function roundedMeasurement(length: number, format: MeasurementFormat): string {
   const value = Math.abs(length) * written(format.measurementScale ?? 1);
+
   if (format.units === "architectural") {
     const [steps, per] = fractionSteps(value, format.precision);
+
     return String(Math.floor(steps / per));
   }
+
   return (value + belowHalf(value)).toFixed(precisionOf(format.precision));
 }
 
@@ -369,6 +392,7 @@ function precisionOf(precision: number): number {
 function fractionSteps(inches: number, precision: number): readonly [steps: number, per: number] {
   const per = 2 ** precisionOf(precision);
   const value = inches * per;
+
   return [Math.floor(value + 0.5 + belowHalf(value + 0.5)), per];
 }
 
@@ -394,14 +418,17 @@ export function feetAndInches(length: number, format: MeasurementFormat): string
   const inches = Math.floor(rest / per);
   let numerator = rest - inches * per;
   let denominator = per;
+
   while (numerator > 0 && numerator % 2 === 0) {
     numerator /= 2;
     denominator /= 2;
   }
+
   const zeros = format.feetInchZeros ?? "inches";
   const zeroFeet = zeros === "feet" || zeros === "both";
   const zeroInches = zeros === "inches" || zeros === "both";
   const stacked = format.fraction === "stacked" || format.fraction === "diagonal";
+
   // A stack is written at the style's share of the height, and follows the inches with no space.
   const fraction =
     numerator === 0
@@ -409,15 +436,19 @@ export function feetAndInches(length: number, format: MeasurementFormat): string
       : stacked
         ? `{\\H${written(format.fractionScale ?? 1)}x;\\S${numerator}${format.fraction === "stacked" ? "/" : "#"}${denominator};}`
         : `${numerator}/${denominator}`;
+
   const showFeet = feet > 0 || zeroFeet;
   const showInches = rest > 0 || zeroInches || !showFeet;
+
   const inchText =
     fraction === ""
       ? String(inches)
       : inches > 0 || showFeet
         ? `${inches}${stacked ? "" : " "}${fraction}`
         : fraction;
+
   if (!showFeet) return `${inchText}"`;
+
   return showInches ? `${feet}'-${inchText}"` : `${feet}'`;
 }
 
@@ -430,8 +461,10 @@ export function feetAndInches(length: number, format: MeasurementFormat): string
  */
 export function measurementText(length: number, format: MeasurementFormat, text?: string): string {
   const measured = `${format.prefix ?? ""}${measurementNumber(length, format)}${format.suffix ?? ""}`;
+
   if (text === undefined) return measured;
   const at = text.indexOf("<>");
+
   return at < 0 ? text : `${text.slice(0, at)}${measured}${text.slice(at + 2)}`;
 }
 
@@ -443,6 +476,7 @@ export function dimensionFileText(
   dimension: Pick<LinearDimension, "text" | "textBelow">,
 ): string | undefined {
   if (dimension.textBelow === undefined) return dimension.text;
+
   return `${dimension.text ?? "<>"}\\X${dimension.textBelow}`;
 }
 
@@ -457,6 +491,7 @@ export function dimensionTexts(
 ): readonly [above: string, below: string | undefined] {
   const drawn = measurementText(length, format, dimensionFileText(dimension));
   const at = drawn.indexOf("\\X");
+
   return at < 0 ? [drawn, undefined] : [drawn.slice(0, at), drawn.slice(at + 2)];
 }
 
@@ -565,18 +600,22 @@ export interface DimensionArc {
 export function dimensionArcPoints(arc: DimensionArc): Point[] {
   const sweep = (((arc.end - arc.start) % 360) + 360) % 360;
   const out: Point[] = [];
+
   for (const degrees of [arc.start, arc.end, 0, 90, 180, 270]) {
     const past = (((degrees - arc.start) % 360) + 360) % 360;
+
     if (degrees !== arc.start && degrees !== arc.end && past > sweep) continue;
     const [x, y] = direction(degrees);
     out.push([arc.center[0] + x * arc.radius, arc.center[1] + y * arc.radius]);
   }
+
   return out;
 }
 
 /** A style's lineweight as group 370 holds it: ByBlock where it gives none. */
 function lineweightCode(weight: number | undefined): number {
   if (weight === undefined) return -2;
+
   return Math.round(weight * 100);
 }
 
@@ -602,7 +641,9 @@ export function pictureTexts(
     align: "center",
     valign: "middle",
   });
+
   const below = picture.below;
+
   return [
     one(picture.label, picture.textMiddle, mtextOfLabel(picture.label.value)),
     ...(below === undefined
@@ -622,28 +663,40 @@ const RADIANS = Math.PI / 180;
 /** A direction in degrees turned into the one of the two along its line that reads upright. */
 function readable(degrees: number): number {
   let angle = degrees % 360;
+
   if (angle > 180) angle -= 360;
+
   if (angle <= -180) angle += 360;
+
   if (angle > 90) return angle - 180;
+
   if (angle <= -90) return angle + 180;
+
   return angle;
 }
 
-/** The sizes of a dimension style in the units of the dimension's space: each times the scale. */
-export function dimensionSizes(style: DimensionStyle): {
+/** The sizes of a dimension style in the units of the dimension's space. */
+export interface DimensionSizes {
   readonly textHeight: number;
   readonly arrowSize: number;
   readonly extensionOffset: number;
   readonly extensionBeyond: number;
   readonly textGap: number;
-} {
+  /** How far a tick's dimension line runs past an extension line, `DIMDLE`. */
+  readonly lineExtension: number;
+}
+
+/** The sizes of a dimension style in the units of the dimension's space: each times the scale. */
+export function dimensionSizes(style: DimensionStyle): DimensionSizes {
   const scale = written(style.scale ?? 1);
+
   return {
     textHeight: written(style.textHeight) * scale,
     arrowSize: written(style.arrowSize) * scale,
     extensionOffset: written(style.extensionOffset) * scale,
     extensionBeyond: written(style.extensionBeyond) * scale,
     textGap: written(style.textGap) * scale,
+    lineExtension: written(style.lineExtension ?? style.arrowSize) * scale,
   };
 }
 
@@ -654,7 +707,14 @@ export function dimensionSizes(style: DimensionStyle): {
  */
 export function dimensionAngle(dimension: Pick<LinearDimension, "angle">): number {
   const turned = ((written(dimension.angle ?? 0) % 360) + 360) % 360;
+
   return written(turned) === 360 ? 0 : written(turned);
+}
+
+/** What a dimension measures, and the angle it measures along. */
+export interface DimensionMeasure {
+  readonly angle: number;
+  readonly measurement: number;
 }
 
 /**
@@ -663,45 +723,53 @@ export function dimensionAngle(dimension: Pick<LinearDimension, "angle">): numbe
  * distance between them; for an ordinate one its axis, 0 for X and 90 for Y, and the distance
  * along it from its origin, without its sign. Every number is taken as the writers write it.
  */
-export function dimensionMeasure(dimension: Dimension): {
-  readonly angle: number;
-  readonly measurement: number;
-} {
+export function dimensionMeasure(dimension: Dimension): DimensionMeasure {
   if (dimension.kind === "angular-dimension") {
     const { start, sweep } = angularArc(dimension);
+
     return { angle: start + sweep / 2, measurement: sweep * RADIANS };
   }
+
   if (dimension.kind === "arc-length-dimension") {
     const { start, sweep, radius } = arcLengthArc(dimension);
+
     return { angle: start + sweep / 2, measurement: radius * sweep * RADIANS };
   }
+
   if (dimension.kind === "ordinate-dimension") {
     // Along its axis, and the distance along it from the origin, without its sign.
     const i = dimension.axis === "x" ? 0 : 1;
+
     return {
       angle: i === 0 ? 0 : 90,
       measurement: Math.abs(written(dimension.feature[i]) - written(dimension.origin[i])),
     };
   }
+
   if (isRadial(dimension)) {
     const [x1, y1] = [written(dimension.center[0]), written(dimension.center[1])];
     const [x2, y2] = [written(dimension.point[0]), written(dimension.point[1])];
     const radius = Math.hypot(x2 - x1, y2 - y1);
+
     return {
       angle: Math.atan2(y2 - y1, x2 - x1) / RADIANS,
       measurement: dimension.kind === "diameter-dimension" ? 2 * radius : radius,
     };
   }
+
   const [x1, y1] = [written(dimension.from[0]), written(dimension.from[1])];
   const [x2, y2] = [written(dimension.to[0]), written(dimension.to[1])];
+
   if (dimension.kind === "aligned-dimension") {
     return {
       angle: Math.atan2(y2 - y1, x2 - x1) / RADIANS,
       measurement: Math.hypot(x2 - x1, y2 - y1),
     };
   }
+
   const angle = dimensionAngle(dimension);
   const [cos, sin] = direction(angle);
+
   return { angle, measurement: Math.abs((x2 - x1) * cos + (y2 - y1) * sin) };
 }
 
@@ -719,13 +787,19 @@ export function dimensionMeasure(dimension: Dimension): {
  */
 export function dimensionPicture(
   dimension: Dimension,
-  style: DimensionStyle,
+  given: DimensionStyle,
   textStyle?: DimensionFont,
 ): DimensionPicture {
+  // A dimension's own scale is its override of its style's.
+  const style = dimension.scale === undefined ? given : { ...given, scale: dimension.scale };
+
   if (isRadial(dimension)) return radialPicture(dimension, style, textStyle);
+
   if (dimension.kind === "angular-dimension") return angularPicture(dimension, style, textStyle);
+
   if (dimension.kind === "arc-length-dimension")
     return arcLengthPicture(dimension, style, textStyle);
+
   if (dimension.kind === "ordinate-dimension") return ordinatePicture(dimension, style, textStyle);
   const from: Point = [written(dimension.from[0]), written(dimension.from[1])];
   const to: Point = [written(dimension.to[0]), written(dimension.to[1])];
@@ -733,29 +807,38 @@ export function dimensionPicture(
   const aligned = dimension.kind === "aligned-dimension";
   // Along the direction measured, and across it to the left.
   const length = Math.hypot(to[0] - from[0], to[1] - from[1]);
+
   const along: Point =
     aligned && length > 0
       ? [(to[0] - from[0]) / length, (to[1] - from[1]) / length]
       : direction(aligned ? 0 : angle);
+
   const across: Point = [-along[1], along[0]];
+
   const offsetTo = (point: Point, through: Point): number =>
     (through[0] - point[0]) * across[0] + (through[1] - point[1]) * across[1];
+
   const move = (point: Point, by: Point, distance: number): Point => [
     point[0] + by[0] * distance,
     point[1] + by[1] * distance,
   ];
+
   // The file holds the foot of the second point on the dimension line, with 6 decimals.
   const through: Point = aligned
     ? move(to, across, written(dimension.offset))
     : [written(dimension.line[0]), written(dimension.line[1])];
+
   const foot = move(to, across, offsetTo(to, through));
   const definitionPoint: Point = [written(foot[0]), written(foot[1])];
 
   const sizes = dimensionSizes(style);
   const feet = [from, to].map((point) => move(point, across, offsetTo(point, definitionPoint)));
-  const [first, second] = feet as [Point, Point];
+  const first = feet[0]!;
+  const second = feet[1]!;
+
   const extensionLines = [from, to].map((point, i): [Point, Point] => {
     const side = offsetTo(point, definitionPoint) >= 0 ? 1 : -1;
+
     return [
       move(point, across, side * sizes.extensionOffset),
       move(feet[i]!, across, side * sizes.extensionBeyond),
@@ -765,8 +848,10 @@ export function dimensionPicture(
   // From the first foot to the second, which is against `along` when the points are given
   // from the far end.
   const span = Math.hypot(second[0] - first[0], second[1] - first[1]);
+
   const run: Point =
     span > 0 ? [(second[0] - first[0]) / span, (second[1] - first[1]) / span] : along;
+
   const side: Point = [-run[1], run[0]];
   const size = sizes.arrowSize;
   const info = arrowheadInfo(style.arrowhead ?? DEFAULT_ARROWHEAD);
@@ -781,6 +866,7 @@ export function dimensionPicture(
   const [aboveText, belowText] = dimensionTexts(dimension, measurement, style);
   // Each text is laid out as the paragraph the picture holds, centered on the middle of its box.
   const font = textStyle?.font ?? STANDARD_FONT;
+
   const lay = (value: string): ParagraphLayout =>
     layoutDimensionText({
       value,
@@ -791,24 +877,32 @@ export function dimensionPicture(
       align: "center",
       valign: "middle",
     });
+
   const boxHeight = (layout: ParagraphLayout): number => layout.frame[3] - layout.frame[1];
+
   const widest = (layout: ParagraphLayout): number =>
     layout.lines.reduce((most, line) => Math.max(most, line.end - line.start), 0);
+
   const topLayout = lay(mtextOfLabel(aboveText));
+
   const belowLayout =
     belowText === undefined ? undefined : lay(belowText === "" ? "" : mtextOfLabel(belowText));
+
   const centered = style.textPlacement === "centered";
   const textWidth = Math.max(widest(topLayout), belowLayout ? widest(belowLayout) : 0);
+
   // The arrowheads stay between the extension lines while they and the text fit there: a text in
   // the line takes its room from theirs, and one above it needs only its own, beside arrows that
   // need theirs and ticks that need none.
   const fits = centered
     ? span >= textWidth + 2 * size
     : (tick || span > 2 * size + 2 * sizes.textGap) && textWidth <= span - 2 * sizes.textGap;
+
   // With a leader, a text that has no room of its own between the extension lines moves out, and
   // the ticks then turn outward only where the line is shorter than two gaps.
   const leaderFit = style.textFit === "leader";
   const textOut = leaderFit && textWidth + 2 * sizes.textGap > span;
+
   // Ticks that do not fit turn outward, and the dimension line breaks at each of them. Where a
   // text may move out, one that stays turns them only in the line, where they and it need room.
   const outward =
@@ -824,6 +918,7 @@ export function dimensionPicture(
   const arrowheadEntities: ArrowheadEntity[] = [];
   // The direction of the dimension line, from the first foot to the second.
   const runAngle = Math.atan2(run[1], run[0]) / RADIANS;
+
   if (size > 0) {
     for (const [tip, inward] of [
       [first, 1],
@@ -861,8 +956,9 @@ export function dimensionPicture(
       }
     }
   }
+
   // A tick's dimension line runs past the extension lines, and an arrow's stops at its base.
-  const reach = tick ? size : -size;
+  const reach = tick ? sizes.lineExtension : -size;
   const dimensionLine: [Point, Point] = [move(first, run, -reach), move(second, run, reach)];
 
   // A text centered in the line sits on it, unless words below take the other side: then each
@@ -871,23 +967,29 @@ export function dimensionPicture(
     centered && belowLayout === undefined
       ? middle
       : move(middle, above, sizes.textGap + boxHeight(topLayout) / 2);
+
   let textPoint = belowLayout === undefined ? textMiddle : middle;
+
   const belowMiddle =
     belowLayout && move(middle, above, -(sizes.textGap + boxHeight(belowLayout) / 2));
+
   // The inner part of the line: between the ticks that turned outward, or the whole line.
   const inner: readonly [Point, Point] = outward ? [first, second] : dimensionLine;
+
   const dimensionLines: (readonly [Point, Point])[] = outward
     ? [
         [first, dimensionLine[0]],
         [second, dimensionLine[1]],
       ]
     : [];
+
   const leader: (readonly [Point, Point])[] = [];
+
   if (textOut) {
     // The leader leaves the middle of the dimension line away from the points, leaning a tenth
     // of three toward where the text reads, to an elbow past the extension lines' reach and a
     // gap and a half, and the box of the text, more where the text reads from the other side.
-    const away = offsetTo(to, definitionPoint) >= 0 ? across : ([-across[0], -across[1]] as Point);
+    const away: Point = offsetTo(to, definitionPoint) >= 0 ? across : [-across[0], -across[1]];
     const half = boxHeight(topLayout) / 2;
     const facing = above[0] * away[0] + above[1] * away[1] > 0;
     const rise = sizes.extensionBeyond + 1.5 * sizes.textGap + (facing ? half : 3 * half);
@@ -907,14 +1009,19 @@ export function dimensionPicture(
     dimensionLines.push([inner[0], move(middle, run, -half)], [inner[1], move(middle, run, half)]);
   } else dimensionLines.push(inner);
   const textStyleName = style.textStyle;
-  const label = (value: string, at: Point, layout: ParagraphLayout): DimensionLabel => ({
-    value,
-    at: move(at, above, layout.lines[0]?.baseline ?? 0),
-    height: sizes.textHeight,
-    rotation,
-    direction: quarter,
-    ...(textStyleName === undefined ? {} : { style: textStyleName }),
-  });
+
+  const label = (value: string, at: Point, layout: ParagraphLayout): DimensionLabel =>
+    styledLabel(
+      {
+        value,
+        at: move(at, above, layout.lines[0]?.baseline ?? 0),
+        height: sizes.textHeight,
+        rotation,
+        direction: quarter,
+      },
+      textStyleName,
+    );
+
   return {
     measurement,
     definitionPoint,
@@ -940,6 +1047,16 @@ export function dimensionPicture(
   };
 }
 
+/** The leader of an ordinate dimension, as the writers write it. */
+export interface OrdinateLeader {
+  readonly feature: Point;
+  readonly end: Point;
+  readonly length: number;
+  readonly along: Point;
+  readonly across: number;
+  readonly jogged: boolean;
+}
+
 /**
  * Where an ordinate dimension's feature and leader end are, how far along its leader the end is
  * from the feature, the direction from one to the other along it, how far across the end is, and
@@ -950,14 +1067,7 @@ export function dimensionPicture(
  * decimals the difference falls a hair to either side: 0.00001 at 100000 jogs, and 0.0001 at
  * 1000000 and 0.000003 at 30000 are straight.
  */
-export function ordinateLeader(dimension: OrdinateDimension): {
-  readonly feature: Point;
-  readonly end: Point;
-  readonly length: number;
-  readonly along: Point;
-  readonly across: number;
-  readonly jogged: boolean;
-} {
+export function ordinateLeader(dimension: OrdinateDimension): OrdinateLeader {
   // The leader is laid out in the numbers that app holds, so each point it places is one that
   // app would place, and each choice is made from the numbers the point is placed from.
   const feature: Point = [heldNumber(dimension.feature[0]), heldNumber(dimension.feature[1])];
@@ -967,6 +1077,7 @@ export function ordinateLeader(dimension: OrdinateDimension): {
   const across = x ? end[0] - feature[0] : end[1] - feature[1];
   // A leader's end level with its feature runs the leader back: down, or to the left.
   const way = run > 0 ? 1 : -1;
+
   return {
     feature,
     end,
@@ -995,20 +1106,24 @@ function ordinatePicture(
   const sizes = dimensionSizes(style);
   const { feature, end, length, along, jogged } = ordinateLeader(dimension);
   const x = dimension.axis === "x";
+
   // A point `t` along the leader from the feature and `off` across it.
   const at = (t: number, off: number): Point =>
     x
       ? [feature[0] + off, feature[1] + along[1] * t]
       : [feature[0] + along[0] * t, feature[1] + off];
+
   const move = (point: Point, by: Point, distance: number): Point => [
     point[0] + by[0] * distance,
     point[1] + by[1] * distance,
   ];
+
   const rotation = x ? 90 : 0;
   const direction: Point = x ? [0, 1] : [1, 0];
   const above: Point = x ? [-1, 0] : [0, 1];
   const [aboveText, belowText] = dimensionTexts(dimension, measurement, style);
   const font = textStyle?.font ?? STANDARD_FONT;
+
   const lay = (value: string): ParagraphLayout =>
     layoutDimensionText({
       value,
@@ -1019,12 +1134,17 @@ function ordinatePicture(
       align: "center",
       valign: "middle",
     });
+
   const boxHeight = (layout: ParagraphLayout): number => layout.frame[3] - layout.frame[1];
+
   const widest = (layout: ParagraphLayout): number =>
     layout.lines.reduce((most, line) => Math.max(most, line.end - line.start), 0);
+
   const topLayout = lay(mtextOfLabel(aboveText));
+
   const belowLayout =
     belowText === undefined ? undefined : lay(belowText === "" ? "" : mtextOfLabel(belowText));
+
   const textWidth = Math.max(widest(topLayout), belowLayout ? widest(belowLayout) : 0);
   const centered = style.textPlacement === "centered";
   const gap = sizes.textGap;
@@ -1036,10 +1156,12 @@ function ordinatePicture(
   // line from where the end stands across from it, which a far feature's arithmetic could lose.
   const past = move(end, along, centered ? 0 : gap + textWidth);
   const jogEnd = move(end, along, -2 * size);
+
   const jogStart =
     length - 4 * size >= 2 * size
       ? move(x ? [feature[0], end[1]] : [end[0], feature[1]], along, -4 * size)
       : at(2 * size, 0);
+
   const extensionLines: (readonly [Point, Point])[] = !jogged
     ? [[at(offset, 0), past]]
     : [
@@ -1047,21 +1169,29 @@ function ordinatePicture(
         [jogStart, jogEnd],
         [jogEnd, past],
       ];
+
   const textMiddle =
     centered && belowLayout === undefined
       ? point
       : move(point, above, gap + boxHeight(topLayout) / 2);
+
   const belowMiddle = belowLayout && move(point, above, -(gap + boxHeight(belowLayout) / 2));
   const textStyleName = style.textStyle;
-  const label = (value: string, middle: Point, layout: ParagraphLayout): DimensionLabel => ({
-    value,
-    at: move(middle, above, layout.lines[0]?.baseline ?? 0),
-    height: sizes.textHeight,
-    rotation,
-    direction,
-    ...(textStyleName === undefined ? {} : { style: textStyleName }),
-  });
+
+  const label = (value: string, middle: Point, layout: ParagraphLayout): DimensionLabel =>
+    styledLabel(
+      {
+        value,
+        at: move(middle, above, layout.lines[0]?.baseline ?? 0),
+        height: sizes.textHeight,
+        rotation,
+        direction,
+      },
+      textStyleName,
+    );
+
   const last = extensionLines[extensionLines.length - 1]!;
+
   return {
     measurement,
     definitionPoint: [written(dimension.origin[0]), written(dimension.origin[1])],
@@ -1102,6 +1232,9 @@ export function radialFormat(
   // The fields a measurement's writing reads, and no others: a style may hold any number.
   const { units, precision, suffix, suppressZeros, feetInchZeros, measurementScale } = style;
   const { fraction, fractionScale } = style;
+
+  // SAFETY: each field is the style's, and one the style leaves out is undefined, which the
+  // writing reads as left out.
   return {
     units,
     precision,
@@ -1132,13 +1265,17 @@ function radialPicture(
   const point: Point = [written(dimension.point[0]), written(dimension.point[1])];
   const { angle, measurement } = dimensionMeasure(dimension);
   const radius = Math.hypot(point[0] - center[0], point[1] - center[1]);
+
   const u: Point =
     radius > 0 ? [(point[0] - center[0]) / radius, (point[1] - center[1]) / radius] : [1, 0];
+
   const left: Point = [-u[1], u[0]];
+
   const move = (from: Point, by: Point, distance: number): Point => [
     from[0] + by[0] * distance,
     from[1] + by[1] * distance,
   ];
+
   const at = (distance: number): Point => move(center, u, distance);
   const sizes = dimensionSizes(style);
   const size = sizes.arrowSize;
@@ -1152,7 +1289,9 @@ function radialPicture(
     measurement,
     radialFormat(dimension, style),
   );
+
   const font = textStyle?.font ?? STANDARD_FONT;
+
   const lay = (value: string): ParagraphLayout =>
     layoutDimensionText({
       value,
@@ -1163,22 +1302,29 @@ function radialPicture(
       align: "center",
       valign: "middle",
     });
+
   const boxHeight = (layout: ParagraphLayout): number => layout.frame[3] - layout.frame[1];
+
   const widest = (layout: ParagraphLayout): number =>
     layout.lines.reduce((most, line) => Math.max(most, line.end - line.start), 0);
+
   const topLayout = lay(mtextOfLabel(aboveText));
+
   const belowLayout =
     belowText === undefined ? undefined : lay(belowText === "" ? "" : mtextOfLabel(belowText));
+
   const textWidth = Math.max(widest(topLayout), belowLayout ? widest(belowLayout) : 0);
   const centered = style.textPlacement === "centered";
 
   const lines: (readonly [Point, Point])[] = [];
   const arrowheads: Point[][] = [];
   const arrowheadEntities: ArrowheadEntity[] = [];
+
   /** An arrowhead with its tip on `tip`, pointing `inward` toward the center or away from it. */
   const arrow = (tip: Point, inward: boolean): void => {
     if (!(size > 0)) return;
     const way: Point = inward ? [-u[0], -u[1]] : u;
+
     if (tick) {
       const rotation = (((angle + (inward ? 180 : 0)) % 360) + 360) % 360;
       arrowheadEntities.push({
@@ -1188,11 +1334,13 @@ function radialPicture(
         rotation,
         scale: size,
       });
+
       const half = move(
         move([0, 0], way, stroke.to[0] * size),
         [-way[1], way[0]],
         stroke.to[1] * size,
       );
+
       const wide = (stroke.width * size) / 2 / Math.SQRT2;
       const edge: Point = [(way[0] + way[1]) * wide, (way[1] - way[0]) * wide];
       arrowheads.push([
@@ -1201,8 +1349,10 @@ function radialPicture(
         [tip[0] + half[0] - edge[0], tip[1] + half[1] - edge[1]],
         [tip[0] - half[0] - edge[0], tip[1] - half[1] - edge[1]],
       ]);
+
       return;
     }
+
     const base = move(tip, way, -size);
     arrowheads.push([tip, move(base, left, size / 6), move(base, left, -size / 6)]);
     // The leading CAD app gives the corner to the left of the way out from the center first.
@@ -1225,9 +1375,12 @@ function radialPicture(
   let lineMiddle: Point;
   const half = boxHeight(topLayout) / 2;
   const reach = tick ? 0 : size;
+
   const placed =
     dimension.kind === "jogged-radius-dimension" ? undefined : dimension.textFromCenter;
+
   const inside = placed !== undefined && written(placed) < radius;
+
   if (dimension.kind === "jogged-radius-dimension") {
     const start: Point = [written(dimension.start[0]), written(dimension.start[1])];
     const jog: Point = [written(dimension.jog[0]), written(dimension.jog[1])];
@@ -1236,19 +1389,22 @@ function radialPicture(
     const jogAngle = written(style.jogAngle ?? JOG_ANGLE.default);
     const across = direction(angle + 180 - jogAngle);
     const denominator = across[0] * u[1] - across[1] * u[0];
+
     const t =
       denominator === 0
         ? 0
         : ((center[0] - jog[0]) * u[1] - (center[1] - jog[1]) * u[0]) / denominator;
+
     const near = move(jog, across, t);
     const far = move(jog, across, -t);
     const end = at(radius - reach);
-    // A tick's line runs on past the arc by the style's DIMDLE, one arrow size as tsdraft writes
-    // it, and a level text's break widens by as much toward the center. The text keeps its place.
-    const beyond = tick ? size : 0;
+    // A tick's line runs on past the arc by the style's DIMDLE, one arrow size unless the style
+    // says otherwise, and a level text's break widens by as much toward the center. The text keeps its place.
+    const beyond = tick ? dimensionSizes(style).lineExtension : 0;
     lines.push([start, far], [far, near]);
     arrow(point, false);
     lineMiddle = [(near[0] + end[0]) / 2, (near[1] + end[1]) / 2];
+
     if (horizontal) {
       // A level text sits on the last stretch, which breaks where it meets the text's box and a
       // gap round it.
@@ -1282,6 +1438,7 @@ function radialPicture(
     // Outside: the arrowhead points in at the circle, and the line runs out past the text.
     const out = placed === undefined ? radius + 2 * size + gap + textWidth / 2 : written(placed);
     const opposite = at(-radius);
+
     // A level line takes its text along it, as if it were not level.
     if (horizontal && u[1] !== 0) {
       // Above a line that runs down, the elbow stands a box further out.
@@ -1304,6 +1461,7 @@ function radialPicture(
       lineMiddle = at(out);
       textMiddle = move(lineMiddle, above, gap + half);
     }
+
     // A diameter's line runs across, with a tail past an arrowhead at the far point, and none
     // past a tick.
     if (dimension.kind === "diameter-dimension") {
@@ -1313,21 +1471,29 @@ function radialPicture(
       );
     } else lines.push([center, point]);
     arrow(point, true);
+
     if (dimension.kind === "diameter-dimension") arrow(opposite, false);
   }
+
   const belowMiddle = belowLayout && move(lineMiddle, above, -(gap + boxHeight(belowLayout) / 2));
   // A placed text, and one with words below, is held by its point on the line.
   const textPoint = belowLayout === undefined && placed === undefined ? textMiddle : lineMiddle;
   const textStyleName = style.textStyle;
-  const label = (value: string, middle: Point, layout: ParagraphLayout): DimensionLabel => ({
-    value,
-    at: move(middle, above, layout.lines[0]?.baseline ?? 0),
-    height: sizes.textHeight,
-    rotation,
-    direction: quarter,
-    ...(textStyleName === undefined ? {} : { style: textStyleName }),
-  });
+
+  const label = (value: string, middle: Point, layout: ParagraphLayout): DimensionLabel =>
+    styledLabel(
+      {
+        value,
+        at: move(middle, above, layout.lines[0]?.baseline ?? 0),
+        height: sizes.textHeight,
+        rotation,
+        direction: quarter,
+      },
+      textStyleName,
+    );
+
   const definition = dimension.kind === "diameter-dimension" ? at(-radius) : center;
+
   return {
     measurement,
     definitionPoint: [written(definition[0]), written(definition[1])],
@@ -1353,35 +1519,43 @@ function radialPicture(
   };
 }
 
-/**
- * An angular dimension's arc as the writers write its points: its vertex, its radius, and the
- * degrees, from 0 up to 360, its arc runs counterclockwise between, from `start` through `sweep`.
- * The angle between the two lines from `from` round to `to` holds the arc's point, or else the
- * rest of the turn does, and the arc spans that one. `first` is the point at its start.
- */
-export function angularArc(dimension: AngularDimension): {
+/** An angular dimension's arc as the writers write its points. */
+export interface AngularArc {
   readonly vertex: Point;
   readonly radius: number;
   readonly start: number;
   readonly sweep: number;
   readonly first: Point;
   readonly second: Point;
-} {
+}
+
+/**
+ * An angular dimension's arc as the writers write its points: its vertex, its radius, and the
+ * degrees, from 0 up to 360, its arc runs counterclockwise between, from `start` through `sweep`.
+ * The angle between the two lines from `from` round to `to` holds the arc's point, or else the
+ * rest of the turn does, and the arc spans that one. `first` is the point at its start.
+ */
+export function angularArc(dimension: AngularDimension): AngularArc {
   const p = (q: Point): Point => [written(q[0]), written(q[1])];
+
   const [vertex, from, to, at] = [
     p(dimension.vertex),
     p(dimension.from),
     p(dimension.to),
     p(dimension.at),
   ];
+
   const angleOf = (q: Point): number => {
     const a = Math.atan2(q[1] - vertex[1], q[0] - vertex[0]) / RADIANS;
+
     return a < 0 ? a + 360 : a;
   };
+
   const turn = (a: number, b: number): number => (((b - a) % 360) + 360) % 360;
   const [a, b, c] = [angleOf(from), angleOf(to), angleOf(at)];
   const inside = turn(a, c) <= turn(a, b);
   const [start, end, first, second] = inside ? [a, b, from, to] : [b, a, to, from];
+
   return {
     vertex,
     radius: Math.hypot(at[0] - vertex[0], at[1] - vertex[1]),
@@ -1406,35 +1580,50 @@ export function angleNumber(
   style: Pick<DimensionStyle, "angleUnits" | "anglePrecision" | "suppressAngleZeros">,
 ): string {
   const units = style.angleUnits ?? "degrees";
+
   const places = Math.min(
     MAX_ANGLE_PRECISION,
     Math.max(0, Math.trunc(style.anglePrecision ?? 0) || 0),
   );
+
   const degrees = radians / RADIANS;
+
   const round = (value: number, decimals: number): string =>
     (value + belowHalf(value)).toFixed(decimals);
+
   if (units === "degrees-minutes-seconds") {
     if (places === 0) return `${round(degrees, 0)}°`;
+
     if (places <= 2) {
       const minutes = Number(round(degrees * 60, 0));
+
       return `${Math.floor(minutes / 60)}°${minutes % 60}'`;
     }
+
     const decimals = Math.max(0, places - 4);
     const tenths = 10 ** decimals;
     const seconds = Number(round(degrees * 3600 * tenths, 0));
     const whole = Math.floor(seconds / tenths);
     const part = (seconds % tenths) / tenths;
+
     return `${Math.floor(whole / 3600)}°${Math.floor(whole / 60) % 60}'${((whole % 60) + part).toFixed(decimals)}"`;
   }
-  const value = units === "grads" ? (degrees * 400) / 360 : units === "radians" ? radians : degrees;
+
+  let value = degrees;
+
+  if (units === "grads") value = (degrees * 400) / 360;
+  else if (units === "radians") value = radians;
   let text = round(value, places);
   const suppress = style.suppressAngleZeros;
+
   if ((suppress === "trailing" || suppress === "both") && text.includes(".")) {
     text = text.replace(/0+$/, "").replace(/\.$/, "");
   }
+
   if ((suppress === "leading" || suppress === "both") && text.startsWith("0."))
     text = text.slice(1);
-  return `${text}${units === "degrees" ? "°" : units === "grads" ? "g" : "r"}`;
+
+  return `${text}${angleMark(units)}`;
 }
 
 /** What an angular dimension draws above its arc and below it, as `dimensionTexts` for a length. */
@@ -1446,13 +1635,16 @@ export function angularTexts(
   const measured = `${style.prefix ?? ""}${angleNumber(radians, style)}${style.suffix ?? ""}`;
   const text = dimensionFileText(dimension);
   const at = text === undefined ? -1 : text.indexOf("<>");
+
   const drawn =
     text === undefined
       ? measured
       : at < 0
         ? text
         : `${text.slice(0, at)}${measured}${text.slice(at + 2)}`;
+
   const cut = drawn.indexOf("\\X");
+
   return cut < 0 ? [drawn, undefined] : [drawn.slice(0, cut), drawn.slice(cut + 2)];
 }
 
@@ -1471,14 +1663,18 @@ function angularPicture(
   const { vertex, radius, start, sweep, first, second } = angularArc(dimension);
   const end = start + sweep;
   const measurement = sweep * RADIANS;
+
   const polar = (degrees: number, distance: number): Point => {
     const [x, y] = direction(degrees);
+
     return [vertex[0] + x * distance, vertex[1] + y * distance];
   };
+
   const move = (from: Point, by: Point, distance: number): Point => [
     from[0] + by[0] * distance,
     from[1] + by[1] * distance,
   ];
+
   const sizes = dimensionSizes(style);
   const size = sizes.arrowSize;
   const gap = sizes.textGap;
@@ -1490,15 +1686,18 @@ function angularPicture(
   const extension = (degrees: number, side: Point): readonly [Point, Point] => {
     const r = Math.hypot(side[0] - vertex[0], side[1] - vertex[1]);
     const out = radius > r ? 1 : -1;
+
     return [
       polar(degrees, r + out * sizes.extensionOffset),
       polar(degrees, radius + out * sizes.extensionBeyond),
     ];
   };
+
   const extensionLines = [extension(start, first), extension(end, second)];
 
   const [aboveText, belowText] = angularTexts(dimension, measurement, style);
   const font = textStyle?.font ?? STANDARD_FONT;
+
   const lay = (value: string): ParagraphLayout =>
     layoutDimensionText({
       value,
@@ -1509,9 +1708,12 @@ function angularPicture(
       align: "center",
       valign: "middle",
     });
+
   const boxHeight = (layout: ParagraphLayout): number => layout.frame[3] - layout.frame[1];
+
   const widest = (layout: ParagraphLayout): number =>
     layout.lines.reduce((most, line) => Math.max(most, line.end - line.start), 0);
+
   // Words below the arc are a second line of the one text, which stands on the arc.
   const value = belowText === undefined ? aboveText : `${aboveText}\\P${belowText}`;
   const layout = lay(mtextOfLabel(value));
@@ -1527,24 +1729,30 @@ function angularPicture(
   // Where a centered text, or a text that would move out, leaves the marks no room on the arc,
   // they turn outward, each with a tail past it, and the arc runs whole between them.
   const room = angularRoom(radius, sweep, textWidth, style);
+
   // An arrow size of 0 draws no marks, which have nothing to turn.
   const flipped =
     size > 0 && (closed ? centered || style.textFit === "leader" : centered) && !room.marks;
+
   const arc = (from: number, to: number): DimensionArc => ({
     center: vertex,
     radius,
     start: ((from % 360) + 360) % 360,
     end: ((to % 360) + 360) % 360,
   });
+
   const lineMiddle = polar(middle, radius);
   const rotation = readable(middle - 90);
   const quarter = direction(rotation);
+
   const above: Point =
     rotation % 90 === 0
       ? [-quarter[1], quarter[0]]
       : [-Math.sin(rotation * RADIANS), Math.cos(rotation * RADIANS)];
+
   let textMiddle: Point;
   const dimensionArcs: DimensionArc[] = [];
+
   if (flipped) {
     dimensionArcs.push(
       arc(start - chord - sizeChord, start - chord),
@@ -1557,15 +1765,18 @@ function angularPicture(
   } else {
     dimensionArcs.push(arc(start + chord, end - chord));
   }
+
   textMiddle =
     centered || belowText !== undefined ? lineMiddle : move(lineMiddle, above, gap + half);
 
   const arrowheads: Point[][] = [];
   const arrowheadEntities: ArrowheadEntity[] = [];
+
   /** An arrowhead at the arc's end at `degrees`, pointing on round the circle the way `turn` says. */
   const arrow = (degrees: number, turn: 1 | -1): void => {
     if (!(size > 0)) return;
     const tip = polar(degrees, radius);
+
     if (tick) {
       const pointing = (((degrees + turn * 90) % 360) + 360) % 360;
       const way = direction(pointing);
@@ -1576,11 +1787,13 @@ function angularPicture(
         rotation: pointing,
         scale: size,
       });
+
       const halfStroke = move(
         move([0, 0], way, stroke.to[0] * size),
         [-way[1], way[0]],
         stroke.to[1] * size,
       );
+
       const wide = (stroke.width * size) / 2 / Math.SQRT2;
       const edge: Point = [(way[0] + way[1]) * wide, (way[1] - way[0]) * wide];
       arrowheads.push([
@@ -1589,8 +1802,10 @@ function angularPicture(
         [tip[0] + halfStroke[0] - edge[0], tip[1] + halfStroke[1] - edge[1]],
         [tip[0] - halfStroke[0] - edge[0], tip[1] - halfStroke[1] - edge[1]],
       ]);
+
       return;
     }
+
     const base = polar(degrees - turn * chord, radius);
     const length = Math.hypot(tip[0] - base[0], tip[1] - base[1]);
     const way: Point = [(tip[0] - base[0]) / length, (tip[1] - base[1]) / length];
@@ -1601,19 +1816,26 @@ function angularPicture(
       corners: [move(base, left, size / 6), move(base, left, -size / 6), tip],
     });
   };
+
   arrow(start, flipped ? 1 : -1);
   arrow(end, flipped ? -1 : 1);
 
   const textStyleName = style.textStyle;
-  const label = (value: string, at: Point, layout: ParagraphLayout): DimensionLabel => ({
-    value,
-    at: move(at, above, layout.lines[0]?.baseline ?? 0),
-    height: sizes.textHeight,
-    rotation,
-    direction: quarter,
-    ...(textStyleName === undefined ? {} : { style: textStyleName }),
-  });
+
+  const label = (value: string, at: Point, layout: ParagraphLayout): DimensionLabel =>
+    styledLabel(
+      {
+        value,
+        at: move(at, above, layout.lines[0]?.baseline ?? 0),
+        height: sizes.textHeight,
+        rotation,
+        direction: quarter,
+      },
+      textStyleName,
+    );
+
   const at: Point = [written(dimension.at[0]), written(dimension.at[1])];
+
   return {
     measurement,
     definitionPoint: at,
@@ -1644,54 +1866,78 @@ function angularDrawnProblem(
   const p = (q: Point): Point => [written(q[0]), written(q[1])];
   const vertex = p(dimension.vertex);
   const off = (q: Point): number => Math.hypot(p(q)[0] - vertex[0], p(q)[1] - vertex[1]);
+
   if (off(dimension.from) === 0 || off(dimension.to) === 0) return ANGULAR_NO_SIDE;
+
   if (off(dimension.at) === 0) return ANGULAR_NO_ARC;
   const { radius, sweep, first, second } = angularArc(dimension);
+
   if (!(sweep > 0) || sweep >= 360) return ANGULAR_NO_ANGLE;
   // Where the arc's point lies on one of the lines, a rounding picks the angle or the rest of the
   // turn.
   const at = p(dimension.at);
+
   for (const side of [first, second]) {
     const [ux, uy] = [side[0] - vertex[0], side[1] - vertex[1]];
     const [vx, vy] = [at[0] - vertex[0], at[1] - vertex[1]];
     const cross = ux * vy - uy * vx;
+
     if (ux * vx + uy * vy > 0 && Math.abs(cross) <= 1e-12 * Math.hypot(ux, uy) * Math.hypot(vx, vy))
       return ANGULAR_ARC_ON_LINE;
   }
+
   // The leading CAD app runs an extension line one way or the other by a rounding where the arc
   // passes through its point.
   for (const side of [first, second]) {
     const r = Math.hypot(side[0] - vertex[0], side[1] - vertex[1]);
+
     if (Math.abs(r - radius) <= 1e-9 * Math.max(1, radius)) return ANGULAR_ARC_ON_POINT;
   }
+
   // A closed arrowhead is a chord of the arc as long as the arrow size.
   const size = dimensionSizes(style).arrowSize;
   const closed = arrowheadInfo(style.arrowhead ?? DEFAULT_ARROWHEAD)?.stroke === undefined;
+
   if (closed && size >= 2 * radius) return ANGULAR_ARROWS_LONG;
   const picture = angularPicture(dimension, style, textStyle);
+
   // An arc of all but a whole turn is written with one angle at both ends, which draws nothing.
   for (const piece of picture.dimensionArcs) {
     if (arcProblem(piece.start, piece.end)) return ANGULAR_ARC_LOST;
   }
+
   const room = angularRoom(radius, sweep, picture.textWidth, style);
+
   if (style.textFit === "leader" && !room.text) return ANGULAR_TEXT_OUT;
+
   // A centered text breaks the arc, and each piece must run on from its mark to the text: one
   // that would run back past its mark, the long way round, is not laid out. Each half of the
   // arc holds a closed arrowhead's chord and half the text's opening.
   // Turned outward, the marks and their tails must stay clear of each other round the back.
   if (picture.dimensionArcs.length === 3) {
     const tail = (2 * Math.asin(Math.min(1, size / (2 * radius)))) / RADIANS;
+
     if (sweep + 2 * ((closed ? tail : 0) + tail) >= 360) return ANGULAR_TAILS_MEET;
   }
+
   if (style.textPlacement === "centered" && picture.dimensionArcs.length === 2) {
     const chord = closed && size > 0 ? (2 * Math.asin(size / (2 * radius))) / RADIANS : 0;
     const half = dimensionSizes(style).textGap + picture.textWidth / 2;
     const opening = Math.asin(Math.min(1, half / radius)) / RADIANS;
+
     if (opening + chord > sweep / 2 + 1e-9) return ANGULAR_CENTERED_SHORT;
   }
+
   if (style.textPlacement === "centered" && dimension.textBelow !== undefined)
     return ANGULAR_CENTERED_BELOW;
+
   return pictureNumbersProblem(picture);
+}
+
+/** Whether an angular dimension's arc holds its text, and its marks too. */
+interface AngularRoom {
+  readonly text: boolean;
+  readonly marks: boolean;
 }
 
 /**
@@ -1703,21 +1949,18 @@ function angularRoom(
   sweep: number,
   textWidth: number,
   style: DimensionStyle,
-): { readonly text: boolean; readonly marks: boolean } {
+): AngularRoom {
   const sizes = dimensionSizes(style);
   const length = radius * sweep * RADIANS;
   const needs = textWidth + 2 * sizes.textGap;
   const tick = arrowheadInfo(style.arrowhead ?? DEFAULT_ARROWHEAD)?.stroke !== undefined;
   const arrows = !tick && sizes.arrowSize > 0 ? 2 * sizes.arrowSize : 0;
+
   return { text: length > needs, marks: length > needs + arrows };
 }
 
-/**
- * An arc length dimension's arc as the writers write it: its center, its two ends with the 6
- * decimals tsdraft writes, the radius to the first, and the degrees, from 0 up to 360, it runs
- * counterclockwise from `start` through `sweep`; and how far its own arc's point is from the center.
- */
-export function arcLengthArc(dimension: ArcLengthDimension): {
+/** An arc length dimension's arc as the writers write it. */
+export interface ArcLengthArc {
   readonly center: Point;
   readonly radius: number;
   readonly start: number;
@@ -1725,20 +1968,34 @@ export function arcLengthArc(dimension: ArcLengthDimension): {
   readonly first: Point;
   readonly second: Point;
   readonly reach: number;
-} {
+}
+
+/**
+ * An arc length dimension's arc as the writers write it: its center, its two ends with the 6
+ * decimals tsdraft writes, the radius to the first, and the degrees, from 0 up to 360, it runs
+ * counterclockwise from `start` through `sweep`; and how far its own arc's point is from the center.
+ */
+export function arcLengthArc(dimension: ArcLengthDimension): ArcLengthArc {
   const center: Point = [written(dimension.center[0]), written(dimension.center[1])];
+
   const end = (degrees: number): Point => {
     const [x, y] = direction(written(degrees));
     const r = written(dimension.radius);
+
     return [written(center[0] + x * r), written(center[1] + y * r)];
   };
+
   const [first, second] = [end(dimension.startAngle), end(dimension.endAngle)];
+
   const angleOf = (q: Point): number => {
     const a = Math.atan2(q[1] - center[1], q[0] - center[0]) / RADIANS;
+
     return a < 0 ? a + 360 : a;
   };
+
   const start = angleOf(first);
   const at: Point = [written(dimension.at[0]), written(dimension.at[1])];
+
   return {
     center,
     radius: Math.hypot(first[0] - center[0], first[1] - center[1]),
@@ -1753,6 +2010,16 @@ export function arcLengthArc(dimension: ArcLengthDimension): {
 /** The least sweep, in degrees, the leading CAD app takes as a right angle: a millionth of a radian under. */
 const RIGHT_ANGLE_UNDER = 90 - 1e-6 / RADIANS;
 
+/** An arc length dimension's own arc, with its extension lines' feet. */
+interface ArcLengthOwnArc {
+  readonly arcCenter: Point;
+  readonly arcRadius: number;
+  readonly arcStart: number;
+  readonly arcSweep: number;
+  readonly footStart: Point;
+  readonly footEnd: Point;
+}
+
 /**
  * An arc length dimension's own arc: its center and radius, and the degrees it runs between where
  * the extension lines meet it, from `arcStart` through `arcSweep`. From a right angle up, as the
@@ -1760,43 +2027,47 @@ const RIGHT_ANGLE_UNDER = 90 - 1e-6 / RADIANS;
  * dimension's point; under one, it runs there too outside the arc, between the extension lines
  * parallel to the bisector, and inside the arc it is the arc moved along the bisector.
  */
-function arcLengthOwnArc(dimension: ArcLengthDimension): {
-  readonly arcCenter: Point;
-  readonly arcRadius: number;
-  readonly arcStart: number;
-  readonly arcSweep: number;
-  readonly footStart: Point;
-  readonly footEnd: Point;
-} {
+function arcLengthOwnArc(dimension: ArcLengthDimension): ArcLengthOwnArc {
   const { center, radius, start, sweep, first, second, reach } = arcLengthArc(dimension);
+
   const move = (from: Point, by: Point, distance: number): Point => [
     from[0] + by[0] * distance,
     from[1] + by[1] * distance,
   ];
+
   const bisector = direction(start + sweep / 2);
   const out = reach > radius ? 1 : -1;
   // The leading CAD app takes a sweep within a millionth of a radian of a right angle as one.
   const parallel = sweep < RIGHT_ANGLE_UNDER;
+
   const [arcCenter, arcRadius]: [Point, number] =
     parallel && out < 0 ? [move(center, bisector, reach - radius), radius] : [center, reach];
+
   const angleAbout = (q: Point): number => {
     const a = Math.atan2(q[1] - arcCenter[1], q[0] - arcCenter[0]) / RADIANS;
+
     return a < 0 ? a + 360 : a;
   };
+
   /** Where an extension line from an end of the arc meets the dimension's own arc. */
   const foot = (p: Point, degrees: number): Point => {
     if (!parallel) {
       const [x, y] = direction(degrees);
+
       return [center[0] + x * reach, center[1] + y * reach];
     }
+
     if (out < 0) return move(p, bisector, reach - radius);
     // Along the bisector from the end to the circle about the center through the point.
     const along = (p[0] - center[0]) * bisector[0] + (p[1] - center[1]) * bisector[1];
     const square = (p[0] - center[0]) ** 2 + (p[1] - center[1]) ** 2;
+
     return move(p, bisector, -along + Math.sqrt(along * along - square + reach * reach));
   };
+
   const [footStart, footEnd] = [foot(first, start), foot(second, start + sweep)];
   const arcStart = angleAbout(footStart);
+
   return {
     arcCenter,
     arcRadius,
@@ -1821,13 +2092,17 @@ function arcLengthPicture(
   textStyle: DimensionFont | undefined,
 ): DimensionPicture {
   const { radius, start, sweep, first, second } = arcLengthArc(dimension);
+
   const { arcCenter, arcRadius, arcStart, arcSweep, footStart, footEnd } =
     arcLengthOwnArc(dimension);
+
   const measurement = radius * sweep * RADIANS;
+
   const move = (from: Point, by: Point, distance: number): Point => [
     from[0] + by[0] * distance,
     from[1] + by[1] * distance,
   ];
+
   const sizes = dimensionSizes(style);
   const size = sizes.arrowSize;
   const gap = sizes.textGap;
@@ -1835,22 +2110,29 @@ function arcLengthPicture(
   const stroke = info?.stroke;
   const tick = stroke !== undefined;
   const middle = start + sweep / 2;
+
   const extension = (p: Point, q: Point): readonly [Point, Point] => {
     const length = Math.hypot(q[0] - p[0], q[1] - p[1]);
+
     const way: Point =
       length > 0 ? [(q[0] - p[0]) / length, (q[1] - p[1]) / length] : direction(start);
+
     return [move(p, way, sizes.extensionOffset), move(q, way, sizes.extensionBeyond)];
   };
+
   const extensionLines = [extension(first, footStart), extension(second, footEnd)];
   const arcEnd = arcStart + arcSweep;
+
   const polar = (degrees: number, distance: number): Point => {
     const [x, y] = direction(degrees);
+
     return [arcCenter[0] + x * distance, arcCenter[1] + y * distance];
   };
 
   const [aboveText, belowText] = arcLengthTexts(dimension, measurement, style);
   const font = textStyle?.font ?? STANDARD_FONT;
   const value = belowText === undefined ? aboveText : `${aboveText}\\P${belowText}`;
+
   const layout = layoutDimensionText({
     value: mtextOfLabel(value),
     height: sizes.textHeight,
@@ -1860,6 +2142,7 @@ function arcLengthPicture(
     align: "center",
     valign: "middle",
   });
+
   const textWidth = layout.lines.reduce((most, line) => Math.max(most, line.end - line.start), 0);
   const half = (layout.frame[3] - layout.frame[1]) / 2;
   const centered = style.textPlacement === "centered";
@@ -1873,24 +2156,30 @@ function arcLengthPicture(
   const lineMiddle = polar(arcMiddle, arcRadius);
   const rotation = readable(arcMiddle - 90);
   const quarter = direction(rotation);
+
   const above: Point =
     rotation % 90 === 0
       ? [-quarter[1], quarter[0]]
       : [-Math.sin(rotation * RADIANS), Math.cos(rotation * RADIANS)];
+
   // Along the text, the angle about its own arc grows when the text reads against the arc's way.
   const against = Math.abs(((((rotation - (arcMiddle - 90)) % 360) + 540) % 360) - 180) > 90;
   // A centered text and its symbol before it need the arc's room together.
   const symbolWidth = (style.arcSymbol ?? "before") === "before" ? 3.6 * half : 0;
   const room = angularRoom(arcRadius, arcSweep, textWidth + 2 * symbolWidth, style);
+
   const flipped =
     size > 0 && (closed ? centered || style.textFit === "leader" : centered) && !room.marks;
+
   const arc = (from: number, to: number): DimensionArc => ({
     center: arcCenter,
     radius: arcRadius,
     start: ((from % 360) + 360) % 360,
     end: ((to % 360) + 360) % 360,
   });
+
   const dimensionArcs: DimensionArc[] = [];
+
   if (flipped) {
     dimensionArcs.push(
       arc(arcStart - chord - sizeChord, arcStart - chord),
@@ -1912,10 +2201,13 @@ function arcLengthPicture(
   } else {
     dimensionArcs.push(arc(arcStart + chord, arcEnd - chord));
   }
+
   const textMiddle =
     centered || belowText !== undefined ? lineMiddle : move(lineMiddle, above, gap + half);
+
   // The arc symbol, in the text's own frame: x along it from its middle, y up it.
   const inText = (x: number, y: number): Point => move(move(textMiddle, quarter, x), above, y);
+
   if (symbol === "before") {
     dimensionArcs.push({
       center: inText(-textWidth / 2 - 2 * half, -0.8 * half),
@@ -1936,9 +2228,11 @@ function arcLengthPicture(
 
   const arrowheads: Point[][] = [];
   const arrowheadEntities: ArrowheadEntity[] = [];
+
   const arrow = (degrees: number, turn: 1 | -1): void => {
     if (!(size > 0)) return;
     const tip = polar(degrees, arcRadius);
+
     if (tick) {
       const pointing = (((degrees + turn * 90) % 360) + 360) % 360;
       const way = direction(pointing);
@@ -1949,11 +2243,13 @@ function arcLengthPicture(
         rotation: pointing,
         scale: size,
       });
+
       const halfStroke = move(
         move([0, 0], way, stroke.to[0] * size),
         [-way[1], way[0]],
         stroke.to[1] * size,
       );
+
       const wide = (stroke.width * size) / 2 / Math.SQRT2;
       const edge: Point = [(way[0] + way[1]) * wide, (way[1] - way[0]) * wide];
       arrowheads.push([
@@ -1962,8 +2258,10 @@ function arcLengthPicture(
         [tip[0] + halfStroke[0] - edge[0], tip[1] + halfStroke[1] - edge[1]],
         [tip[0] - halfStroke[0] - edge[0], tip[1] - halfStroke[1] - edge[1]],
       ]);
+
       return;
     }
+
     const base = polar(degrees - turn * chord, arcRadius);
     const length = Math.hypot(tip[0] - base[0], tip[1] - base[1]);
     const way: Point = [(tip[0] - base[0]) / length, (tip[1] - base[1]) / length];
@@ -1974,11 +2272,13 @@ function arcLengthPicture(
       corners: [move(base, left, size / 6), move(base, left, -size / 6), tip],
     });
   };
+
   arrow(arcStart, flipped ? 1 : -1);
   arrow(arcEnd, flipped ? -1 : 1);
 
   const textStyleName = style.textStyle;
   const at: Point = [written(dimension.at[0]), written(dimension.at[1])];
+
   return {
     measurement,
     definitionPoint: at,
@@ -1989,14 +2289,16 @@ function arcLengthPicture(
     dimensionArcs,
     arrowheads,
     arrowheadEntities,
-    label: {
-      value,
-      at: move(textMiddle, above, layout.lines[0]?.baseline ?? 0),
-      height: sizes.textHeight,
-      rotation,
-      direction: quarter,
-      ...(textStyleName === undefined ? {} : { style: textStyleName }),
-    },
+    label: styledLabel(
+      {
+        value,
+        at: move(textMiddle, above, layout.lines[0]?.baseline ?? 0),
+        height: sizes.textHeight,
+        rotation,
+        direction: quarter,
+      },
+      textStyleName,
+    ),
     textMiddle,
     textPoint: textMiddle,
     textWidth,
@@ -2014,28 +2316,38 @@ function arcLengthDrawnProblem(
   textStyle: TextStyle | undefined,
 ): string | undefined {
   const { radius, sweep, reach } = arcLengthArc(dimension);
+
   if (!(written(dimension.radius) > 0) || !(radius > 0) || !(sweep > 0) || sweep >= 360)
     return ARC_LENGTH_NO_ARC;
+
   if (!(reach > 0)) return ARC_LENGTH_NO_REACH;
+
   // The arc's ends are written with 6 decimals, which moves the radius by as much.
   if (Math.abs(reach - radius) <= 1e-6 * Math.max(1, radius)) return ARC_LENGTH_ON_ARC;
+
   // Inside an arc under a right angle, the leading CAD app's own arc stops short of an extension
   // line by an amount not laid out.
   if (sweep < RIGHT_ANGLE_UNDER && reach < radius) return ARC_LENGTH_INSIDE_SHORT;
+
   if (dimension.textBelow !== undefined && (style.arcSymbol ?? "before") !== "none")
     return ARC_LENGTH_SYMBOL_BELOW;
+
   if (style.textPlacement === "centered" && dimension.textBelow !== undefined)
     return ANGULAR_CENTERED_BELOW;
   const size = dimensionSizes(style).arrowSize;
   const closed = arrowheadInfo(style.arrowhead ?? DEFAULT_ARROWHEAD)?.stroke === undefined;
   const picture = arcLengthPicture(dimension, style, textStyle);
   const own = picture.dimensionArcs[0]!;
+
   if (closed && size >= 2 * own.radius) return ANGULAR_ARROWS_LONG;
+
   for (const piece of picture.dimensionArcs) {
     if (arcProblem(piece.start, piece.end)) return ANGULAR_ARC_LOST;
   }
+
   // The room on its own arc, with a symbol before the text counted on both sides of it.
   const { arcRadius, arcSweep } = arcLengthOwnArc(dimension);
+
   const layout = layoutDimensionText({
     value: mtextOfLabel(picture.label.value),
     height: dimensionSizes(style).textHeight,
@@ -2045,28 +2357,38 @@ function arcLengthDrawnProblem(
     align: "center",
     valign: "middle",
   });
+
   const half = (layout.frame[3] - layout.frame[1]) / 2;
   const symbolWidth = (style.arcSymbol ?? "before") === "before" ? 3.6 * half : 0;
   const room = angularRoom(arcRadius, arcSweep, picture.textWidth + 2 * symbolWidth, style);
+
   if (style.textFit === "leader" && !room.text) return ANGULAR_TEXT_OUT;
+
   const chord =
     closed && size > 0 ? (2 * Math.asin(Math.min(1, size / (2 * arcRadius)))) / RADIANS : 0;
+
   // A centered text breaks the arc, and each piece must run on from its mark to the text.
   // The pieces of its own arc: all its arcs but the symbol, which comes last.
   const pieces = picture.dimensionArcs.length - ((style.arcSymbol ?? "before") === "none" ? 0 : 1);
+
   if (style.textPlacement === "centered" && pieces === 2) {
     const gap = dimensionSizes(style).textGap;
     const opening = (along: number): number => Math.asin(Math.min(1, along / arcRadius)) / RADIANS;
     const widest = opening(gap + picture.textWidth / 2 + symbolWidth);
+
     if (widest + chord > arcSweep / 2 + 1e-9) return ANGULAR_CENTERED_SHORT;
   }
+
   // Turned outward, the marks and their tails must stay clear of each other round the back.
   if (pieces === 3) {
     const tail = (2 * Math.asin(Math.min(1, size / (2 * arcRadius)))) / RADIANS;
+
     if (arcSweep + 2 * ((closed ? tail : 0) + tail) >= 360) return ANGULAR_TAILS_MEET;
   }
+
   // What it reads is held to the digits a length's writing holds.
   const scaled = picture.measurement * written(style.measurementScale ?? 1);
+
   const digits = dimensionMeasureProblem(
     picture.measurement,
     scaled,
@@ -2075,7 +2397,9 @@ function arcLengthDrawnProblem(
     picture.label.value,
     undefined,
   );
+
   if (digits) return digits;
+
   return pictureNumbersProblem(picture);
 }
 
@@ -2090,13 +2414,16 @@ function ordinateDrawnProblem(
   textStyle: TextStyle | undefined,
 ): string | undefined {
   const { length, across } = ordinateLeader(dimension);
+
   if (length === 0 && across === 0) return ORDINATE_NO_LEADER;
   const picture = dimensionPicture(dimension, style, textStyle);
   const measurement = picture.measurement;
   const scaled = measurement * written(style.measurementScale ?? 1);
+
   if (!Number.isFinite(measurement) || !Number.isFinite(scaled)) {
     return "it measures no finite length";
   }
+
   if (written(measurement) !== 0) {
     const digits = dimensionMeasureProblem(
       measurement,
@@ -2106,8 +2433,10 @@ function ordinateDrawnProblem(
       picture.label.value,
       undefined,
     );
+
     if (digits) return digits;
   }
+
   return pictureNumbersProblem(picture);
 }
 
@@ -2126,7 +2455,12 @@ function arcLengthTexts(
  * app lays out in any of them, and for every other character 2, which no character of Latin-1
  * reaches in any of them.
  */
-export const WIDEST_CHARACTERS: Readonly<Record<string, number>> = {
+/** How wide a character may be drawn, as a share of a text's height, by the character. */
+export interface CharacterWidths {
+  readonly [character: string]: number;
+}
+
+export const WIDEST_CHARACTERS: CharacterWidths = {
   "0": 1.1,
   "1": 1.1,
   "2": 1.1,
@@ -2144,6 +2478,7 @@ export const WIDEST_CHARACTERS: Readonly<Record<string, number>> = {
   '"': 1.1,
   " ": 1.1,
 };
+
 const WIDEST_CHARACTER = 2;
 
 /**
@@ -2165,11 +2500,15 @@ export function arrowRoom(
 ): number | undefined {
   if ((style.arrowhead ?? DEFAULT_ARROWHEAD) !== "closed-filled") return undefined;
   const sizes = dimensionSizes(style);
+
   if (!(sizes.arrowSize > 0)) return undefined;
   let widths = 0;
+
   for (const character of text) widths += WIDEST_CHARACTERS[character] ?? WIDEST_CHARACTER;
+
   const lean =
     sizes.textHeight * Math.abs(Math.tan((written(textStyle?.obliqueAngle ?? 0) * Math.PI) / 180));
+
   return roomBeside(style, widths * sizes.textHeight * written(textStyle?.widthFactor ?? 1) + lean);
 }
 
@@ -2178,6 +2517,7 @@ function roomBeside(style: DimensionStyle, width: number): number {
   const sizes = dimensionSizes(style);
   const arrows = 2 * sizes.arrowSize;
   const room = style.textPlacement === "centered" ? width + arrows : Math.max(arrows, width);
+
   return room + 2 * sizes.textGap;
 }
 
@@ -2212,25 +2552,34 @@ function inlineFractions(text: string): string {
  */
 export function dimensionDrawnProblem(
   dimension: Dimension,
-  style: DimensionStyle,
+  given: DimensionStyle,
   textStyle: TextStyle | undefined,
 ): string | undefined {
   const { measurement } = dimensionMeasure(dimension);
+  // Its own scale sizes its text and arrowheads, as its picture draws them.
+  const style = dimension.scale === undefined ? given : { ...given, scale: dimension.scale };
+
   if (isRadial(dimension)) return radialDrawnProblem(dimension, measurement, style, textStyle);
+
   if (dimension.kind === "angular-dimension")
     return angularDrawnProblem(dimension, style, textStyle);
+
   if (dimension.kind === "arc-length-dimension")
     return arcLengthDrawnProblem(dimension, style, textStyle);
+
   if (dimension.kind === "ordinate-dimension")
     return ordinateDrawnProblem(dimension, style, textStyle);
   // The arrowheads need room for the wider of the texts above and below the line.
   const [above, below] = dimensionTexts(dimension, measurement, style);
   let drawn = above;
   let room = arrowRoom(style, stackWidths(above), textStyle);
+
   if (below !== undefined) {
     const needs = arrowRoom(style, stackWidths(below), textStyle);
+
     if (needs !== undefined && needs > (room ?? 0)) [drawn, room] = [below, needs];
   }
+
   const problem = dimensionMeasureProblem(
     measurement,
     measurement * written(style.measurementScale ?? 1),
@@ -2239,18 +2588,24 @@ export function dimensionDrawnProblem(
     inlineFractions(drawn),
     room,
   );
+
   if (problem) return problem;
   const picture = dimensionPicture(dimension, style, textStyle);
   // The text as laid out may be wider still: a narrow font does not narrow a stack's gap.
   const laid = room === undefined ? undefined : roomBeside(style, picture.textWidth);
+
   if (laid !== undefined && measurement <= laid) {
     return arrowRoomProblem(measurement, inlineFractions(drawn), laid);
   }
+
   const sizes = dimensionSizes(style);
+
   if (picture.leader.length > 0 && dimension.textBelow !== undefined) return DIMENSION_LEADER_BELOW;
+
   if (style.textFit === "leader" && sizes.arrowSize >= 2 * sizes.textHeight) {
     return DIMENSION_LEADER_ARROWS;
   }
+
   if (
     picture.leader.length === 0 &&
     style.textPlacement === "centered" &&
@@ -2259,6 +2614,7 @@ export function dimensionDrawnProblem(
   ) {
     return DIMENSION_CENTERED_WIDE;
   }
+
   return pictureNumbersProblem(picture);
 }
 
@@ -2270,19 +2626,23 @@ function radialDrawnProblem(
   textStyle: TextStyle | undefined,
 ): string | undefined {
   if (written(measurement) === 0) return RADIAL_NO_RADIUS;
+
   if ((style.prefix ?? "") !== "") return RADIAL_PREFIX;
+
   if (
     style.radialText === "horizontal" &&
     dimension.kind !== "jogged-radius-dimension" &&
     dimension.textFromCenter !== undefined
   )
     return RADIAL_PLACED_LEVEL;
+
   if (
     style.textPlacement === "centered" &&
     (dimension.kind === "jogged-radius-dimension" || dimension.textFromCenter !== undefined)
   )
     return RADIAL_CENTERED;
   const format = radialFormat(dimension, style);
+
   const problem = dimensionMeasureProblem(
     measurement,
     measurement * written(style.measurementScale ?? 1),
@@ -2291,14 +2651,17 @@ function radialDrawnProblem(
     measurementText(measurement, format, dimension.text),
     undefined,
   );
+
   if (problem) return problem;
   const picture = dimensionPicture(dimension, style, textStyle);
+
   if (
     dimension.kind === "jogged-radius-dimension" &&
     !joggedStretchFits(dimension, style, picture)
   ) {
     return RADIAL_JOG_SHORT;
   }
+
   return pictureNumbersProblem(picture);
 }
 
@@ -2318,14 +2681,17 @@ function joggedStretchFits(
   const along = (p: Point): number => (p[0] - center[0]) * u[0] + (p[1] - center[1]) * u[1];
   const lines = picture.dimensionLines;
   const near = along(lines[1]![1]);
+
   if (lines.length > 3) {
     // A level text: the stretch is broken on each side of it, from the jog and from the arrowhead.
     return along(lines[2]![0]) >= near && along(lines[3]![1]) <= along(lines[3]![0]);
   }
+
   // The text is centered short of a tick's line past the arc.
   const sizes = dimensionSizes(style);
   const tick = arrowheadInfo(style.arrowhead ?? DEFAULT_ARROWHEAD)?.stroke !== undefined;
-  const end = along(lines[2]![1]) - (tick ? sizes.arrowSize : 0);
+  const end = along(lines[2]![1]) - (tick ? sizes.lineExtension : 0);
+
   return end - near >= picture.textWidth + 2 * sizes.textGap;
 }
 
@@ -2348,9 +2714,32 @@ function pictureNumbersProblem(picture: DimensionPicture): string | undefined {
       a.kind === "solid" ? a.corners.flat() : [...a.at, a.scale],
     ),
   ];
+
   for (const value of numbers) {
     const tooLarge = pictureNumberProblem(value);
+
     if (tooLarge) return tooLarge;
   }
+
   return undefined;
+}
+
+/** A dimension's label, in the text style its style names when it names one. */
+function styledLabel(
+  label: Omit<DimensionLabel, "style">,
+  style: string | undefined,
+): DimensionLabel {
+  return style === undefined ? label : { ...label, style };
+}
+
+/** The mark after an angle in its units: the degree sign, `g` for grads, and `r` for radians. */
+function angleMark(units: string): string {
+  switch (units) {
+    case "degrees":
+      return "°";
+    case "grads":
+      return "g";
+    default:
+      return "r";
+  }
 }

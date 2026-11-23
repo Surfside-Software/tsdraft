@@ -268,11 +268,11 @@ A line feed starts a new paragraph. `list` writes numbered or lettered notes in 
 hanging under its mark as CAD programs set a list, and `paragraphFormat` a paragraph's indents,
 tab stops, justification and spacing. `columns: { count: 2, height: 6 }` flows the notes into
 columns side by side, each `width` wide. `measureParagraph` gives its lines and its box, from the
-widths `measureText` uses, and `inspectText` checks each line as a text. `underline`, `bold`,
-`stack`, `superscript` and `subscript` write the codes for what they name, and `plain(text)`
-escapes text from elsewhere. The codes `\H`, `\W`, `\Q`, `\A` and `\C` change the height, width,
-slant, place and color of the characters after them, and `lint` refuses a code tsdraft does not
-lay out, such as `\T`, and names it.
+widths `measureText` uses, and the box's `corners` give its height and its bottom. `inspectText`
+checks each line as a text. `underline`, `bold`, `stack`, `superscript` and `subscript` write the
+codes for what they name, and `plain(text)` escapes text from elsewhere. The codes `\H`, `\W`,
+`\Q`, `\A` and `\C` change the height, width, slant, place and color of the characters after them,
+and `lint` refuses a code tsdraft does not lay out, such as `\T`, and names it.
 [docs/paragraphs.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/paragraphs.md)
 has the codes.
 
@@ -337,6 +337,13 @@ draws to be read in it names the view: `d.text(at, "LOT 27", { role: "label", vi
 gap on paper into drawing units. On the sheet and in a block, a text with a role is at the role's
 height and names no view. Under a standard every text names a role: a `height`, a `style` and
 `textStyle()` are refused. `sitePlan("1in-20ft")` draws the sheet at 1" = 20'.
+
+Each drawing on a sheet is a view of its own, with a viewport of its own, even two at one scale,
+such as a south and an east elevation. A viewport shows everything model space draws inside its
+window, so draw each view in a part of model space of its own, far enough from the others that no
+viewport takes in another's drawing. The command warns `viewport-shows-other-view` of a note, a
+symbol, a dimension or a leader that a viewport of another view shows at the same scale; at
+another scale, the checks of scale report it as an error.
 
 Its layout is on a sheet format of the standard, `d.layout("C-101", { sheetFormat: "arch-d" },
 (sheet) => …)`, which gives the paper, the title block and the zones the sheet is laid out by:
@@ -555,7 +562,7 @@ d.layout("C-101", { paper: "ARCH D" }, (sheet) => {
   runs between bends still get their letters. The letters' text style must be one of the drawing's.
 - A fence's circles or batt insulation's loops are shapes of the firm's shape file. Copy the file
   beside the drawing: the command reads it there, and `toSVG`, `toPDF` and `lint` take its bytes
-  as `shapes`. Without it the plot leaves a gap where each shape goes, and `lint` warns
+  as `shx`. Without it the plot leaves a gap where each shape goes, and `lint` warns
   `linetype-shape`.
 - The sheet plots in black with `monochrome.ctb`. Pass `plotStyle: "acad.ctb"` to plot each
   layer in its color, or `"Grayscale.ctb"` in grays. `PLOT_STYLE_TABLES` lists them.
@@ -661,6 +668,17 @@ Use only TypeScript that can be erased: no enums, namespaces or parameter proper
 your own files with their `.ts` extension. The rules are listed in
 [docs/rules.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/rules.md).
 
+A point is a pair, `readonly [x, y]`. Written straight into a call, `[0, 0]` is one, but held in
+a variable first it becomes `number[]`, which the compiler refuses as a point. Hold the options
+with `satisfies` and the type they go to, or a lone point with `as const`, rather than casting:
+
+```ts
+const schedule = { style: "SCHEDULE", at: [1, 20], columns: [2, 4], rows } satisfies TableOptions;
+d.table(schedule);
+const center = [10, 5] as const;
+d.circle(center, 2);
+```
+
 ## Writing the DXF
 
 The drawing file only exports the drawing. Write the DXF from a second file, and run it with
@@ -675,6 +693,25 @@ writeFileSync("plan.dxf", toDXF(drawing));
 ```
 
 `toDXF` throws a `DrawingError` that lists the problems when the drawing has lint errors.
+
+## What a firm's sheet shows
+
+To find what to change in a firm's sheet, ask before you look through its files by hand.
+`tsdraft shows` reads the sheet, and each xref you give it, and prints what the sheet shows: its
+paper, and what each viewport that is on shows of the model, with the layers the sheet freezes,
+turns off or does not plot left out, and the viewport's and the xref's clips applied. Each entity
+comes with its handle, the inserts it was reached through, its layer as the sheet names it, its
+box on the paper and its text.
+
+```sh
+tsdraft shows A-102.dwg --sheet A-102 --xref "FLOOR PLAN=../1_Model/FLOOR PLAN.dwg"
+tsdraft shows A-102.dwg --sheet A-102 --near 12.5,8 --within 0.25 --xref "FLOOR PLAN=../1_Model/FLOOR PLAN.dwg"
+```
+
+A file is read once for each hash of its bytes, and the read is kept, so the second question is
+fast. In code, `sheetShows`, `nearPoint` and `xrefAreas` answer the same from a read, as
+[docs/reading.md](docs/reading.md#what-a-sheet-shows) says. A DWG needs a reader package
+installed beside tsdraft.
 
 ## What tsdraft cannot draw yet
 
@@ -694,7 +731,9 @@ writeFileSync("plan.dxf", toDXF(drawing));
 - An existing drawing as a background or a base to edit. `readDXF` reads a DXF's tables, blocks,
   layouts and a census of what it draws, and with `geometry` what each space draws, as
   [docs/reading.md](docs/reading.md) says, but tsdraft draws nothing from a read and does not read
-  DWG.
+  DWG. An edit of a firm's file changes nothing yet: `npx tsdraft write rev-1.edit.ts` makes its
+  edited copy and the checks of every job, as [docs/editing.md](docs/editing.md) says, and the
+  copy is the file as it was.
 
 When a drawing needs one of these, say so. Do not imitate it with something that will mislead
 whoever opens the file.

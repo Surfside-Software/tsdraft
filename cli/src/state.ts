@@ -1,8 +1,11 @@
 // The JSON that `tsdraft render` prints and `tsdraft dev` serves as /state.json. Agents program
 // against it, so a change here is a change to the interface.
 import type {
+  CallSite,
   Diagnostic,
   DxfVersion,
+  EditRule,
+  EditStatement,
   Entity,
   IntentWarning,
   PaperUnit,
@@ -96,15 +99,92 @@ export interface BuildState {
     readonly view: ViewOutput | null;
     readonly pdf: string | null;
     readonly pdfError: string | null;
+    /** For an edit file, the pictures of what its edit changes; `null` for any other. */
+    readonly changes: ChangesOutput | null;
   };
+  /**
+   * For an edit file, whose default export is `editDrawing(...)`: the file it edits and each of
+   * its statements, with where it is. Missing for any other drawing file.
+   */
+  readonly edit?: EditSummary;
   /** What the drawing file printed to stdout and stderr, cut to its last 8,000 characters. */
   readonly log: string;
 }
 
+/**
+ * What an edit file edits, and where. Its pictures are the file as it will plot after the edit,
+ * drawn from the read the file will hold, and `outputs.changes` draws what the edit changes.
+ */
+export interface EditSummary {
+  /** The file the edit names, by its absolute path. */
+  readonly source: string;
+  /** The name that scopes the edit's marks. */
+  readonly name: string;
+  /** The SHA-256 of the bytes the edit was planned on. */
+  readonly sha256: string;
+  /** The SHA-256 of the file's bytes as they are now. */
+  readonly read: string;
+  /**
+   * False when the two differ: the pictures then draw the file as it is, without the edit, and
+   * an `edit-hash` error says so.
+   */
+  readonly applied: boolean;
+  /** How many entities at the top of a space the pictures draw erased, and how many moved. */
+  readonly erased: number;
+  readonly moved: number;
+  /** Each statement, in the order the edit file made them. */
+  readonly statements: readonly EditStatementSummary[];
+}
+
+/** One statement of an edit. */
+export interface EditStatementSummary {
+  readonly kind: EditStatement["kind"];
+  /** The call in the edit file that made it, its `file` an absolute path, or `null`. */
+  readonly call: CallSite | null;
+  /** The handles it names, as the edit file gives them. */
+  readonly handles: readonly string[];
+  /**
+   * The box of what it reaches in model space, where it was and, for a move, where it goes, in
+   * drawing units: pass it to `render --view`. `null` when it reaches nothing that model space
+   * draws.
+   */
+  readonly box: Box | null;
+  /**
+   * Its box on each sheet that shows it, in paper units, by the layout's name: of the layout's
+   * paper, and of model space through each viewport that shows it. Pass it to `render --view`
+   * with `--layout`.
+   */
+  readonly layouts: readonly { readonly name: string; readonly box: Box }[];
+}
+
+/**
+ * The pictures of what an edit changes: every entity it does not reach faint, each it erases
+ * dashed in red where it was, and each it moves or stretches dashed in amber where it was and at full
+ * strength where it goes. Model space, and each layout's sheet in the order of
+ * `outputs.layouts`.
+ */
+export interface ChangesOutput {
+  readonly svg: string | null;
+  readonly png: string | null;
+  readonly pngError: string | null;
+  readonly layouts: readonly {
+    readonly name: string;
+    readonly svg: string;
+    readonly png: string | null;
+    readonly pngError: string | null;
+  }[];
+}
+
 /** The pictures of one layout: its sheet as it plots, in paper units. */
 export interface LayoutOutput {
-  /** The layout's name, as `drawing.layouts` has it. */
+  /**
+   * The layout's name, as `drawing.layouts` has it. A sheet an edit names, drawn with the edited
+   * file in place of its xref, is `<sheet file's name>/<layout>`, or the sheet's path as the edit
+   * gives it in place of its name where two of its sheets share one.
+   */
   readonly name: string;
+  /** For a sheet an edit names, the sheet's file, by its absolute path. */
+  readonly file?: string;
   readonly svg: string;
   /** `null` when there is no PNG, for the reason `pngError` gives. */
   readonly png: string | null;
@@ -210,6 +290,15 @@ export interface PngFont {
  * `footprint-off-property` the footprint's box. `footprint-in-setback` also gives `side`,
  * `required` and `provided`.
  *
+ * `read-picture` is a warning of the command's own about a drawing file a reader reads, a DXF or
+ * a DWG: a text style whose font tsdraft does not have and the font its text is drawn in, or what
+ * the pictures draw as nothing, or only nearly, counted by kind.
+ *
+ * A diagnostic whose rule starts with `edit-` is `lintEdit`'s, about an edit file's edit: its
+ * `statement` and the `call` that made it, the `handle` it is about, and `bounds` in model space,
+ * or on the sheet of `layout`, where the handle's entity draws. An error is a statement
+ * `tsdraft write` refuses, and the pictures leave it out.
+ *
  * `standard-unchecked` is a warning of the command's own, among lint's: the file exports a
  * standard, and the copy of tsdraft the drawing loaded is from before standards, so `lint` held
  * the drawing to none of it.
@@ -219,7 +308,13 @@ export interface BuildDiagnostic extends Omit<Diagnostic, "rule"> {
     | Diagnostic["rule"]
     | TextWarning["rule"]
     | IntentWarning["rule"]
-    | "standard-unchecked";
+    | "standard-unchecked"
+    | "read-picture"
+    | EditRule;
+  /** For a diagnostic of `lintEdit`, the place of its statement in the edit, counted from 0. */
+  readonly statement?: number;
+  /** For a diagnostic of `lintEdit`, the handle it is about. */
+  readonly handle?: string;
   readonly kind?: Entity["kind"];
   /** The box around the entity, in drawing units, worked out as `extents` is. */
   readonly bounds?: Box;

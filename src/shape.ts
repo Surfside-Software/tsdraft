@@ -35,7 +35,7 @@ import type {
   ArcLengthDimension,
   OrdinateDimension,
   Linetype,
-  LinetypeShape,
+  LinetypeGlyph,
   LinetypeText,
   Paragraph,
   PatternLine,
@@ -49,6 +49,7 @@ import type {
   Xref,
 } from "./drawing.ts";
 import { shown, XREF_REFUSED_FIELDS, xrefFieldProblem } from "./rules.ts";
+import { isBoolean, isNumber, isPlainRecord, isRecord, isString } from "./guards.ts";
 
 /**
  * Adds what is wrong with `value`, which is at the path `at` in the drawing, to `problems`. A
@@ -59,13 +60,19 @@ export type Check = (value: unknown, at: string, problems: string[], extra?: str
 
 /** Adds what is wrong with the fields of a plain object, which is at the path `at`. */
 type FieldsCheck = (
-  value: Record<string, unknown>,
+  value: Readonly<Record<string, unknown>>,
   at: string,
   problems: string[],
   extra?: string[],
 ) => void;
 
+/** The check of each field of an object, by the field's name. */
+interface CheckTable {
+  readonly [field: string]: Check;
+}
+
 type OptionalKeys<T> = { [K in keyof T]-?: object extends Pick<T, K> ? K : never }[keyof T];
+
 type Checks<T, K extends keyof T> = { readonly [F in K]-?: Check };
 
 export const PLAIN_OBJECT = "must be a plain object, with no getter, setter or hidden field";
@@ -98,26 +105,6 @@ function unknownKindProblem(kind: unknown): string {
 }
 
 /**
- * True for a plain object whose fields are all its own data: no class or other object behind it
- * to inherit a field from, no symbol or hidden key, which `toJSON` would not write, and no
- * getter or setter, which could give another value each time it is read. No field is read.
- */
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  if (!isObject(value)) return false;
-  const proto: unknown = Object.getPrototypeOf(value);
-  if (proto !== Object.prototype && proto !== null) return false;
-  for (const key of Reflect.ownKeys(value)) {
-    const field = Object.getOwnPropertyDescriptor(value, key);
-    if (typeof key !== "string" || !field?.enumerable || !("value" in field)) return false;
-  }
-  return true;
-}
-
-export function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
  * What is wrong with `value` as an array of plain data, or undefined: it must be an array with
  * the methods of `Array`, each index its own plain value, and no key but its indexes. Stopping
  * at the first empty slot keeps an array that is all slots, such as `new Array(1e9)`, cheap to
@@ -125,11 +112,15 @@ export function isObject(value: unknown): value is Record<string, unknown> {
  */
 function plainArrayProblem(value: unknown, at: string): string | undefined {
   if (!Array.isArray(value) || !(value instanceof Array)) return `${at} must be an array`;
+
   for (let i = 0; i < value.length; i++) {
     const item = Object.getOwnPropertyDescriptor(value, i);
+
     if (!item) return slotProblem(at, i);
+
     if (!("value" in item)) return `${at}[${i}] must be a plain value, not a getter or setter`;
   }
+
   // Its indexes and `length` are all the keys a plain array has.
   return Reflect.ownKeys(value).length === value.length + 1
     ? undefined
@@ -145,10 +136,13 @@ export function arrayProblem(value: unknown, at: string): string | undefined {
 export function isFinitePoint(value: unknown): value is Point {
   if (!Array.isArray(value) || value.length !== 2 || Reflect.ownKeys(value).length !== 3)
     return false;
+
   for (let i = 0; i < 2; i++) {
     const item = Object.getOwnPropertyDescriptor(value, i);
+
     if (!item || !("value" in item) || !Number.isFinite(item.value)) return false;
   }
+
   return true;
 }
 
@@ -159,15 +153,20 @@ export function isFinitePoint(value: unknown): value is Point {
  */
 export function drawableClip(clip: unknown, checked?: WeakMap<object, boolean>): boolean {
   if (clip === undefined) return true;
+
   if (!Array.isArray(clip) || clip.length < 2) return false;
   const known = checked?.get(clip);
+
   if (known !== undefined) return known;
   let sound = Reflect.ownKeys(clip).length === clip.length + 1;
+
   for (let i = 0; sound && i < clip.length; i++) {
     const item = Object.getOwnPropertyDescriptor(clip, i);
     sound = item !== undefined && "value" in item && isFinitePoint(item.value);
   }
+
   checked?.set(clip, sound);
+
   return sound;
 }
 
@@ -191,6 +190,7 @@ export class Strings<T> {
   get(key: string): T | undefined {
     if (key.length <= KEYED) return this.#short.get(key);
     const kept = this.#long.get(sampled(key));
+
     return kept !== undefined && kept[0] === key ? kept[1] : undefined;
   }
 
@@ -203,6 +203,7 @@ export class Strings<T> {
   clashes(key: string): boolean {
     if (key.length <= KEYED) return false;
     const kept = this.#long.get(sampled(key));
+
     return kept !== undefined && kept[0] !== key;
   }
 }
@@ -210,6 +211,7 @@ export class Strings<T> {
 /** A short key for a long string: its length and 80 of its characters. */
 function sampled(key: string): string {
   const middle = Math.floor(key.length / 2);
+
   return `${key.length}:${key.slice(0, 24)}${key.slice(middle - 16, middle + 16)}${key.slice(-24)}`;
 }
 
@@ -226,10 +228,13 @@ export function filled<T>(list: readonly T[] | undefined): readonly T[];
 export function filled(list: unknown): readonly unknown[];
 export function filled(list: unknown): readonly unknown[] {
   if (arrayProblem(list, "") !== undefined) return [];
+  // SAFETY: arrayProblem found it an Array.
   const items = list as readonly unknown[];
+
   for (let i = 0; i < items.length; i++) {
     if (items[i] === undefined && !(i in items)) return items.slice(0, i);
   }
+
   return items;
 }
 
@@ -240,21 +245,26 @@ export function filled(list: unknown): readonly unknown[] {
 function distance(a: string, b: string): number {
   let before: number[] = [];
   let row = Array.from({ length: b.length + 1 }, (_, j) => j);
+
   for (let i = 1; i <= a.length; i++) {
     const next = [i];
+
     for (let j = 1; j <= b.length; j++) {
       next[j] = Math.min(
         next[j - 1]! + 1,
         row[j]! + 1,
         row[j - 1]! + Number(a[i - 1] !== b[j - 1]),
       );
+
       if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
         next[j] = Math.min(next[j]!, before[j - 2]! + 1);
       }
     }
+
     before = row;
     row = next;
   }
+
   return row[b.length]!;
 }
 
@@ -269,7 +279,9 @@ const EVERY_FIELD = new Set<string>();
 function shortens(short: string, long: string): boolean {
   if (short.length < 4 || (short[0] !== long[0] && !long.endsWith(short))) return false;
   let at = 0;
+
   for (const letter of long) if (letter === short[at]) at++;
+
   return at === short.length;
 }
 
@@ -287,27 +299,38 @@ const only = (found: readonly string[]): string | undefined =>
 function meant(key: string, known: readonly string[]): string | undefined {
   const typed = key.toLowerCase();
   const named = known.map((name): [string, string] => [name, name.toLowerCase()]);
+
   const same = named.find(
     ([, name]) => name === typed || name === `${typed}s` || `${name}s` === typed,
   );
+
   if (same) return same[0];
+
   if (EVERY_FIELD.has(typed)) return undefined;
+
   // Two words whose lengths differ by more than `letters` are further apart, which spares a long
   // key the comparison with each field.
   const away = (letters: number): string | undefined =>
     only(
-      named
-        .filter(
-          ([, name]) =>
-            Math.abs(typed.length - name.length) <= letters && distance(typed, name) === letters,
-        )
-        .map(([name]) => name),
+      named.flatMap(([name, lower]) =>
+        Math.abs(typed.length - lower.length) <= letters && distance(typed, lower) === letters
+          ? [name]
+          : [],
+      ),
     );
+
   const one = away(1);
-  const short = only(named.filter(([, name]) => shortens(typed, name)).map(([name]) => name));
+  // Of fields it shortens, one that begins each of the others is the one meant: `linetype` of
+  // `linetype` and `linetypeScale`.
+  const shortened = named.flatMap(([name, lower]) => (shortens(typed, lower) ? [name] : []));
+  const root = shortened.find((n) => shortened.every((m) => m.startsWith(n)));
+  const short = root ?? only(shortened);
+
   if (one !== undefined && short !== undefined && one !== short) return undefined;
+
   if (one ?? short) return one ?? short;
   const two = away(2);
+
   return two !== undefined && Math.min(typed.length, two.length) > 4 ? two : undefined;
 }
 
@@ -315,6 +338,7 @@ function meant(key: string, known: readonly string[]): string | undefined {
 function unknownFieldProblem(at: string, key: string, known: readonly string[]): string {
   const name = meant(key, known);
   const hint = name === undefined ? "" : `. Did you mean ${shown(name)}?`;
+
   return `${at || "The drawing"}: unknown field ${JSON.stringify(key)}${hint}`;
 }
 
@@ -330,14 +354,18 @@ const unasked: string[] = [];
  */
 export function isSound(check: Check, value: unknown, unknownFields = true): boolean {
   asking = true;
+
   try {
     check(value, "", asked, unknownFields ? asked : unasked);
   } finally {
     asking = false;
   }
+
   if (unasked.length > 0) unasked.length = 0;
+
   if (asked.length === 0) return true;
   asked.length = 0;
+
   return false;
 }
 
@@ -346,7 +374,7 @@ const inside = (at: string, key: string): string => (asking ? "" : at ? `${at}.$
 /** A check that `ruled` left to a rule of `lint`. */
 const LEFT: Check = () => {};
 
-export interface Shapes {
+export interface FormChecks {
   readonly drawing: FieldsCheck;
   readonly point: Check;
   readonly layer: Check;
@@ -366,11 +394,11 @@ export interface Shapes {
 }
 
 /** An attribute definition, every field of each kind at once, as its shape is checked. */
-type AttributeShape = Omit<TextAttributeDefinition, "kind"> &
+type AttributeForm = Omit<TextAttributeDefinition, "kind"> &
   Omit<ParagraphAttributeDefinition, "kind" | "align" | "valign"> & { readonly kind?: string };
 
 /** A paragraph's columns, every field of each kind at once, as their shape is checked. */
-interface ColumnsShape {
+interface ColumnsForm {
   readonly height?: number;
   readonly heights?: readonly number[];
   readonly count?: number;
@@ -387,67 +415,84 @@ interface ColumnsShape {
  * because a rule reports it with a message of its own. With `typed`, a field under `ruled` is
  * checked all the same. Either way a field nobody knows is refused.
  */
-function shapes(all: boolean, typed = all): Shapes {
-  const object = all ? isRecord : isObject;
+function formChecks(all: boolean, typed = all): FormChecks {
+  const object = all ? isPlainRecord : isRecord;
   const array = all ? plainArrayProblem : arrayProblem;
-  const isNumber = all
-    ? (value: unknown): boolean => typeof value === "number" && Number.isFinite(value)
-    : (value: unknown): boolean => typeof value === "number";
+
+  const isNumeric = all
+    ? (value: unknown): boolean => isNumber(value) && Number.isFinite(value)
+    : (value: unknown): boolean => isNumber(value);
+
   const ruled = (check: Check): Check => (typed ? check : LEFT);
 
   const string: Check = (value, at, problems) => {
-    if (typeof value !== "string") problems.push(`${at} must be a string`);
+    if (!isString(value)) problems.push(`${at} must be a string`);
   };
+
   const number: Check = (value, at, problems) => {
-    if (!isNumber(value)) problems.push(`${at} must be a number`);
+    if (!isNumeric(value)) problems.push(`${at} must be a number`);
   };
+
   const boolean: Check = (value, at, problems) => {
-    if (typeof value !== "boolean") problems.push(`${at} must be true or false`);
+    if (!isBoolean(value)) problems.push(`${at} must be true or false`);
   };
+
   const numberOrName: Check = (value, at, problems) => {
-    if (typeof value !== "string") number(value, at, problems);
+    if (!isString(value)) number(value, at, problems);
   };
+
   const pair =
     (what: string): Check =>
     (value, at, problems) => {
+      // SAFETY: read only once `array` has found it an Array.
       const items = value as readonly unknown[];
-      if (array(value, at) || items.length !== 2 || !isNumber(items[0]) || !isNumber(items[1])) {
+
+      if (array(value, at) || items.length !== 2 || !isNumeric(items[0]) || !isNumeric(items[1])) {
         problems.push(`${at} must be ${what}`);
       }
     };
+
   const point = pair("a point, [x, y]");
   const scale = pair("a scale along each axis, [x, y]");
   const sideWidths = pair("the widths at a side's start and end, [start, end]");
+
   const oneOf =
     (...values: readonly string[]): Check =>
     (value, at, problems) => {
-      if (!values.includes(value as string)) {
+      if (!(isString(value) && values.includes(value))) {
         problems.push(`${at} must be ${values.map(shown).join(" or ")}`);
       }
     };
+
   // `plainArrayProblem` has refused an empty slot already. Otherwise the first one ends the list.
   const list =
     (item: Check): Check =>
     (value, at, problems) => {
       const problem = array(value, at);
+
       if (problem) problems.push(problem);
       else {
+        // SAFETY: `array` has found it an Array.
         const items = value as readonly unknown[];
+
         for (let i = 0; i < items.length; i++) {
           if (items[i] === undefined && !(i in items)) {
             problems.push(slotProblem(at, i));
             break;
           }
+
           item(items[i], asking ? "" : `${at}[${i}]`, problems);
         }
       }
     };
+
   /** A list of objects. `lint` checks each as its rules come to it, so only that it is a list. */
   const table = (item: Check): Check =>
     all
       ? list(item)
       : (value, at, problems) => {
           const problem = array(value, at);
+
           if (problem) problems.push(problem);
         };
 
@@ -460,40 +505,53 @@ function shapes(all: boolean, typed = all): Shapes {
     optional: Checks<T, OptionalKeys<T>>,
   ): FieldsCheck {
     const needed: Readonly<Record<string, Check>> = required;
-    const known: Readonly<Record<string, Check>> = { ...required, ...optional };
+    const known: CheckTable = { ...required, ...optional };
     const names = Object.keys(known);
+
     for (const name of names) EVERY_FIELD.add(name.toLowerCase());
+
     const missing = (at: string, key: string) =>
       `${at || "The drawing"}: the field "${key}" is missing`;
+
     if (!all) {
       // One pass over the object's own keys finds a field nobody knows and checks the others.
       const checks: Record<string, Check> = Object.assign(Object.create(null), known);
       const musts = Object.keys(needed).filter((key) => needed[key] !== LEFT);
       const isMust: Record<string, true> = Object.create(null);
+
       for (const key of musts) isMust[key] = true;
+
       return (value, at, problems, extra = problems) => {
         let found = 0;
+
         for (const key in value) {
           const check = checks[key];
+
           // `isSound` reads no message, and the hint compares the key with every field's name.
           if (check === undefined) extra.push(asking ? "" : unknownFieldProblem(at, key, names));
           else if (check !== LEFT) {
             const field = value[key];
+
             if (field === undefined) continue;
+
             if (isMust[key]) found++;
             check(field, inside(at, key), problems);
           }
         }
+
         if (found === musts.length) return;
+
         for (const key of musts) if (value[key] === undefined) problems.push(missing(at, key));
       };
     }
+
     return (value, at, problems) => {
       for (const key of Object.keys(needed)) {
         if (!Object.hasOwn(value, key) || value[key] === undefined) {
           problems.push(missing(at, key));
         }
       }
+
       for (const [key, field] of Object.entries(value)) {
         if (!Object.hasOwn(known, key)) {
           problems.push(asking ? "" : unknownFieldProblem(at, key, names));
@@ -523,22 +581,28 @@ function shapes(all: boolean, typed = all): Shapes {
     };
 
   const kind: Check = LEFT;
+
   // An index or a name, or a true color's three numbers, which the rule of an entity's color reads.
   const entityColor: Check = (value, at, problems) => {
-    if (typeof value === "number" || typeof value === "string") return;
+    if (isNumber(value) || isString(value)) return;
+
     // Only a list of three is read, so a long list costs no more than three.
     if (!Array.isArray(value) || value.length !== 3) {
       problems.push(`${at} must be a number, a string or a list of three numbers`);
     } else list(number)(value, at, problems);
   };
+
   const loop = fields<HatchLoop>({ points: list(point) }, { bulges: list(number) });
+
   const shared = {
     id: ruled(string),
     color: ruled(entityColor),
     transparency: ruled(numberOrName),
     linetype: ruled(string),
     lineweight: ruled(numberOrName),
+    linetypeScale: ruled(number),
   } as const;
+
   const justified = { style: ruled(string), align: ruled(string), valign: ruled(string) } as const;
 
   const fitSpline = fields<FitSpline>(
@@ -550,10 +614,12 @@ function shapes(all: boolean, typed = all): Shapes {
       closed: boolean,
     },
   );
+
   const controlSpline = fields<ControlSpline>(
     { kind, layer: string, controlPoints: list(point), degree: number, knots: list(number) },
     { ...shared, weights: list(number), closed: boolean },
   );
+
   /** A spline is through fit points when it has them, and by its control points otherwise. */
   const splineFields: FieldsCheck = (value, at, problems, extra) =>
     (value.fitPoints === undefined ? controlSpline : fitSpline)(value, at, problems, extra);
@@ -583,19 +649,20 @@ function shapes(all: boolean, typed = all): Shapes {
     spline: splineFields,
     text: fields<Text>(
       { kind, layer: string, at: point, height: number, value: string, rotation: number },
-      { ...shared, ...justified },
+      { ...shared, ...justified, view: string },
     ),
     paragraph: fields<Paragraph>(
       { kind, layer: string, at: point, height: number, value: string, rotation: number },
       {
         ...shared,
         ...justified,
+        view: string,
         width: number,
         lineSpacing: number,
         lineSpacingStyle: ruled(string),
         columns: ruled(
           record(
-            fields<ColumnsShape>(
+            fields<ColumnsForm>(
               {},
               { height: number, heights: list(number), count: number, gutter: number },
             ),
@@ -614,6 +681,7 @@ function shapes(all: boolean, typed = all): Shapes {
         scale: ruled(scale),
         rotation: number,
         attributes: ruled(map(string)),
+        view: string,
       },
     ),
     "linear-dimension": fields<LinearDimension>(
@@ -622,6 +690,8 @@ function shapes(all: boolean, typed = all): Shapes {
         id: ruled(string),
         color: ruled(entityColor),
         transparency: ruled(numberOrName),
+        view: string,
+        scale: number,
         angle: number,
         text: ruled(string),
         textBelow: ruled(string),
@@ -633,6 +703,8 @@ function shapes(all: boolean, typed = all): Shapes {
         id: ruled(string),
         color: ruled(entityColor),
         transparency: ruled(numberOrName),
+        view: string,
+        scale: number,
         text: ruled(string),
         textBelow: ruled(string),
       },
@@ -643,6 +715,8 @@ function shapes(all: boolean, typed = all): Shapes {
         id: ruled(string),
         color: ruled(entityColor),
         transparency: ruled(numberOrName),
+        view: string,
+        scale: number,
         text: ruled(string),
         textBelow: ruled(string),
         textFromCenter: number,
@@ -654,6 +728,8 @@ function shapes(all: boolean, typed = all): Shapes {
         id: ruled(string),
         color: ruled(entityColor),
         transparency: ruled(numberOrName),
+        view: string,
+        scale: number,
         text: ruled(string),
         textBelow: ruled(string),
         textFromCenter: number,
@@ -665,6 +741,8 @@ function shapes(all: boolean, typed = all): Shapes {
         id: ruled(string),
         color: ruled(entityColor),
         transparency: ruled(numberOrName),
+        view: string,
+        scale: number,
         text: ruled(string),
         textBelow: ruled(string),
       },
@@ -684,6 +762,8 @@ function shapes(all: boolean, typed = all): Shapes {
         id: ruled(string),
         color: ruled(entityColor),
         transparency: ruled(numberOrName),
+        view: string,
+        scale: number,
         text: ruled(string),
         textBelow: ruled(string),
       },
@@ -702,6 +782,8 @@ function shapes(all: boolean, typed = all): Shapes {
         id: ruled(string),
         color: ruled(entityColor),
         transparency: ruled(numberOrName),
+        view: string,
+        scale: number,
         text: ruled(string),
         textBelow: ruled(string),
       },
@@ -720,6 +802,8 @@ function shapes(all: boolean, typed = all): Shapes {
         id: ruled(string),
         color: ruled(entityColor),
         transparency: ruled(numberOrName),
+        view: string,
+        scale: number,
         text: ruled(string),
         textBelow: ruled(string),
       },
@@ -737,6 +821,7 @@ function shapes(all: boolean, typed = all): Shapes {
         id: ruled(string),
         color: ruled(entityColor),
         transparency: ruled(numberOrName),
+        view: string,
         text: ruled(list(string)),
         block: ruled(string),
         attributes: ruled(map(string)),
@@ -821,14 +906,20 @@ function shapes(all: boolean, typed = all): Shapes {
     ),
   } satisfies Record<Entity["kind"], FieldsCheck>;
 
+  const isKind = (named: unknown): named is Entity["kind"] =>
+    isString(named) && Object.hasOwn(ENTITIES, named);
+
   const entity: Check = (value, at, problems, extra) => {
     if (!object(value)) {
       problems.push(`${at} ${PLAIN_OBJECT}`);
+
       return;
     }
+
     const named: unknown = !all || Object.hasOwn(value, "kind") ? value.kind : undefined;
-    if (typeof named === "string" && Object.hasOwn(ENTITIES, named)) {
-      ENTITIES[named as Entity["kind"]](value, at, problems, extra);
+
+    if (isKind(named)) {
+      ENTITIES[named](value, at, problems, extra);
     } else {
       problems.push(asking ? "" : `${at}: ${unknownKindProblem(named)}`);
     }
@@ -842,15 +933,17 @@ function shapes(all: boolean, typed = all): Shapes {
    */
   const xref: FieldsCheck = all
     ? (value, at, problems) => {
-        const known: Record<string, unknown> = { ...value };
+        const known = { ...value };
+
         for (const field of XREF_REFUSED_FIELDS) {
           if (!Object.hasOwn(value, field)) continue;
           problems.push(`${at}: ${xrefFieldProblem(field)}`);
           delete known[field];
         }
+
         xrefFields(known, at, problems);
       }
-    : fields<Xref & { [F in (typeof XREF_REFUSED_FIELDS)[number]]?: unknown }>(
+    : fields<Xref & Partial<Pick<Block, (typeof XREF_REFUSED_FIELDS)[number]>>>(
         { name: ruled(string), path: ruled(string) },
         { attach: boolean, entities: LEFT, base: LEFT, attributes: LEFT },
       );
@@ -868,6 +961,7 @@ function shapes(all: boolean, typed = all): Shapes {
       },
     ),
   );
+
   // A rule of `lint` reports every field of a hatch pattern and of its lines, whatever its type,
   // and reads at most as many lines and dashes as a file holds.
   const patternLine = record(
@@ -876,42 +970,54 @@ function shapes(all: boolean, typed = all): Shapes {
       { dashes: ruled(list(number)) },
     ),
   );
+
   const pattern = record(
     fields<HatchPattern>(
       { name: ruled(string), lines: ruled(list(patternLine)) },
       { description: ruled(string) },
     ),
   );
+
   const markFields = {
     rotation: ruled(number),
     orient: ruled(string),
     offset: ruled(point),
   } as const;
+
   const textMark = fields<LinetypeText>(
     { after: ruled(number), text: ruled(string), height: ruled(number) },
     { ...markFields, style: ruled(string) },
   );
-  const shapeMark = fields<LinetypeShape>(
-    { after: ruled(number), shape: ruled(numberOrName), file: ruled(string), scale: ruled(number) },
+
+  const glyphMark = fields<LinetypeGlyph>(
+    { after: ruled(number), glyph: ruled(numberOrName), file: ruled(string), scale: ruled(number) },
     markFields,
   );
-  // A mark with a shape is a shape, and any other a text.
+
+  // A mark with a glyph is a glyph, and any other a text. Read from JSON, a mark that names a
+  // `shape` and neither a glyph nor a text is told the field's name in one message.
   const mark: Check = (value, at, problems, extra) => {
     if (!object(value)) problems.push(`${at} ${PLAIN_OBJECT}`);
-    else ("shape" in value ? shapeMark : textMark)(value, at, problems, extra);
+    else if ("glyph" in value) glyphMark(value, at, problems, extra);
+    else if (all && Object.hasOwn(value, "shape") && !Object.hasOwn(value, "text"))
+      problems.push(`${at}: "shape" is now "glyph"`);
+    else textMark(value, at, problems, extra);
   };
+
   const linetype = record(
     fields<Linetype>(
       { name: ruled(string), description: ruled(string), pattern: ruled(list(number)) },
       { marks: ruled(list(mark)) },
     ),
   );
+
   const textStyle = record(
     fields<TextStyle>(
       { name: ruled(string), font: ruled(string) },
       { widthFactor: ruled(number), obliqueAngle: ruled(number) },
     ),
   );
+
   // A rule of `lint` reports every field of a dimension style, whatever its type.
   const dimensionStyle = record(
     fields<DimensionStyle>(
@@ -928,6 +1034,7 @@ function shapes(all: boolean, typed = all): Shapes {
         textStyle: ruled(string),
         arrowhead: ruled(string),
         scale: ruled(number),
+        lineExtension: ruled(number),
         prefix: ruled(string),
         suffix: ruled(string),
         units: ruled(string),
@@ -951,6 +1058,7 @@ function shapes(all: boolean, typed = all): Shapes {
       },
     ),
   );
+
   // A rule of `lint` reports every field of a leader style, whatever its type.
   const leaderStyle = record(
     fields<LeaderStyle>(
@@ -976,6 +1084,7 @@ function shapes(all: boolean, typed = all): Shapes {
       },
     ),
   );
+
   // A rule of `lint` reports each cell style, whatever its type.
   const tableStyle = record(
     fields<TableStyle>(
@@ -990,8 +1099,9 @@ function shapes(all: boolean, typed = all): Shapes {
       },
     ),
   );
+
   const attribute = record(
-    fields<AttributeShape>(
+    fields<AttributeForm>(
       {
         tag: ruled(string),
         value: ruled(string),
@@ -1010,12 +1120,14 @@ function shapes(all: boolean, typed = all): Shapes {
       },
     ),
   );
+
   const block = record(
     fields<Block>(
       { name: ruled(string), entities: table(entity) },
       { base: point, attributes: table(attribute) },
     ),
   );
+
   // A rule of `lint` reports every field of a viewport, whatever its type.
   const viewport = record(
     fields<Viewport>(
@@ -1030,6 +1142,7 @@ function shapes(all: boolean, typed = all): Shapes {
       { id: ruled(string), frozenLayers: ruled(list(string)), twist: ruled(number) },
     ),
   );
+
   const layout = record(
     fields<Layout>(
       {
@@ -1041,6 +1154,7 @@ function shapes(all: boolean, typed = all): Shapes {
       { plotStyle: ruled(string) },
     ),
   );
+
   const drawing = fields<Drawing>(
     {
       format: LEFT,
@@ -1067,6 +1181,7 @@ function shapes(all: boolean, typed = all): Shapes {
       pointStyle: LEFT,
     },
   );
+
   return {
     drawing,
     point,
@@ -1088,10 +1203,10 @@ function shapes(all: boolean, typed = all): Shapes {
 }
 
 /** Everything `fromJSON` holds a drawing to. */
-export const readDrawing = shapes(true).drawing;
+export const readDrawing = formChecks(true).drawing;
 
 /** What `lint` needs of each object before its rules read it. */
-export const WALKABLE = shapes(false);
+export const WALKABLE = formChecks(false);
 
 /** The type of every field of each object, for `lint` to tell a wrong type from another error. */
-export const TYPED = shapes(false, true);
+export const TYPED = formChecks(false, true);

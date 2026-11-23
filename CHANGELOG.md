@@ -1,6 +1,198 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
+
+tsdraft edits a firm's own drawings, with no CAD program: an edit file erases, moves, stretches,
+changes and adds by handle, in the file's own layers and styles, and `tsdraft write` writes an
+edited copy only once the five checks of every job pass. The copy reads back, its structure holds
+as the leading CAD app's `AUDIT` would find it, every record the edit does not reach is the
+source's byte for byte, `lint` passes on what it adds, and each sheet it changes is drawn as it
+plots. A DXF is edited by the library itself, and a file of another format by a package that edits
+it. tsdraft also draws a read file, reads a file as its layouts show it, and answers what a sheet
+shows. It has breaking changes, each listed below: the names of shape files and their shapes, the
+read format, and `FileEditor.read`.
+
+- `tsdraft write` runs its fifth check, the changed sheets. Once every copy of a job has passed
+  the other four, it draws each layout of each file the job edits, and of each sheet the edits
+  name, as it plots from the project and again with those copies in place of their sources, and
+  each layout whose picture differs is written as a PNG and a PDF beside the copies,
+  `<name>.layout-<layout>.png` and `.pdf`, listed in the check's `sheets` with its `file`,
+  `layout`, `png` and `pdf`. A sheet's references are found in the project, and a file the job
+  edits is read from its copy; an xref of a sheet's model space is read by the areas its layouts
+  show. A layout the copies cannot draw fails the check and its copy is not written. The out
+  folder's record keeps the pictures too, and a picture no written copy lists, or of a layout that
+  no longer changes, is taken away. A machine with no PNG renderer writes nothing.
+- The preview of a model file's edit draws through each sheet its `sheets` names, with the edited
+  read in place of the sheet's xref, as `outputs.layouts` entries named
+  `<sheet's file name>/<layout>` that give the sheet's `file`.
+- `ReadOptions.blocks` names blocks by handle that a read keeps in a room of their own, a second
+  `BLOCK_ITEMS`, while every other block is kept as without it, and the read gives them back as
+  `blocksAsked`. `MOST_OWN_BLOCKS` is the most it takes, and `ownBlocks` checks a list. The checks
+  of an edit read the copy with the blocks it adds named, `addedBlocks`, so a file read in part
+  compares them whole and `notCompared` stays empty. `FileEditor.read` takes the blocks as its third
+  argument. `layerKey` is exported.
+- The picture of a read file draws a multileader with no leader, such as the notes under a
+  schedule, as its note where the file places it. It was left out and counted as not drawn.
+- In the preview's JSON, a `change` statement gives the handle it names and the box of its entity,
+  so `--view` goes to it.
+- A dimension's own `scale` sizes the room its closed filled arrowheads and text need. The check
+  took its style's scale, so a dimension drawn at a smaller scale than its style was refused.
+- The job's before-and-after check holds a block the copy's read counts past its limit, such as
+  a new dimension's picture in a file read in part by `only`, to the edit's count of its entities,
+  and lists it in the check's `notCompared`: its geometry is not compared. Such a file wrote the
+  addition correctly and failed the check.
+- A row added to a schedule. `readSchedule(read, { window })` reads a schedule drawn as text in
+  boxes, lines or a polyline for each cell, as a grid of columns, rows and cells, a merged cell
+  once, with the texts of each. `e.row(schedule, { after, cells })` adds a row below another: what
+  lies below moves down, what crosses the row's bottom edge stretches, and the row's boxes, lines,
+  circles and texts are drawn again in the new row in their own layers, styles and pens, each text
+  with the value given. Its cases are held to the leading CAD app's own move, stretch and copy of
+  the same rows, in both formats.
+- An edit adds. `e.model(draw)` and `e.layout(name, draw)` give the drawing builder over the file's
+  own layers, styles and blocks, in the file's or the layout's units: a name the file holds is the
+  file's, used as the file defines it, and another definition of it is refused with the new rule
+  `file-definition`. `editDXF`, and an editor of another format, writes each addition with a handle
+  counted from the file's `$HANDSEED` and a mark, extended data under `TSDRAFT` that holds the
+  edit's name, the addition's id, its handle and `markHash` of what it held, and keeps a record of
+  the edit's additions in the dictionary `TSDRAFT`. A later edit of the same name writes an
+  unchanged addition over itself, in place and with its handle, erases one it drops, all of them
+  when it adds none, and is refused
+  where a person changed or erased one, `edit-mark-changed` and `edit-mark-erased`.
+  `markUnchanged`, `replacement` and `withReplacement` say what a later edit sees. `lintEdit`
+  refuses what the writers cannot add, an image or an underlay among them for now, and warns, `edit-addition-layer`, of an addition on a layer
+  that hides it or does not plot it. The preview draws what an edit adds.
+- An entity's own `linetypeScale`, group 48, a dimension's own `scale`, `DIMSCALE`, written as its
+  override of its style's, and a dimension style's `lineExtension`, `DIMDLE`, which defaults to
+  the arrow size as before.
+- Under a standard, a text role and a leader style take `styleName`, the name of the firm's style
+  it stands for, which an edit of a file that holds it draws in.
+- The read holds more of what an edit needs: each entity's `mark`, the file's `edits`, the
+  header's `handseed`, the multileader styles, `leaderStyles`, a layout's `plotScale`, and of a
+  dimension style its `extensionOffset`, `extensionBeyond`, `textGap`, `lineExtension`, `zeros`,
+  `textLevelInside`, `textLevelOutside` and `lineInside`.
+- An edit changes texts and properties in place: `e.change(handle, changes)` gives a text, a
+  paragraph or an insert's attributes by tag a whole value or one replacement, keeping every
+  format it does not replace, a text a height and paragraph text a width, and any entity its own
+  layer, color, true color, linetype, lineweight and linetype scale. A whole value takes a text's
+  field out. `e.layer(name, changes)` changes a layer's state, an xref's layer in its host among
+  them, and `e.viewport(handle, changes)` re-aims a viewport, turns it on or off and freezes and
+  thaws layers in it. Both writers make each in place, `lintEdit` refuses what the read tells is
+  wrong, `editedRead` and the preview hold the changes, and `changedEntity`, `changedLayer`,
+  `changedViewport`, `changedParagraph`, `placedText`, `paragraphReads`, `layerNamed`,
+  `linetypeNamed` and `matchedIndex` are exported.
+- A read's `header` gives `clayer`, the current layer, which an edit never freezes.
+- Breaking: the names of shape files and their shapes are SHX names. Rename these in your code;
+  what they do is unchanged:
+  - `ShapeFile` is `ShxFile`, and its `shapes` is `glyphs`.
+  - `ShapeFiles` is `ShxFiles`.
+  - `ShapeDefinition` is `ShxGlyph`.
+  - `ShapeOutline` is `ShxOutline`.
+  - `parseShapes` is `parseShx`.
+  - `shapeFileKey` is `shxFileKey`.
+  - `SHAPE_FILE_LENGTH`, `SHAPE_POINTS` and `SHAPE_STEPS` are `SHX_FILE_LENGTH`, `SHX_POINTS`
+    and `SHX_STEPS`.
+  - `LinetypeShape` is `LinetypeGlyph`, and its `shape` is `glyph`: a mark is
+    `{ after, glyph, file, scale }`. A drawing saved with `toJSON` before this release names
+    `shape` in such a mark, and `fromJSON` refuses it until the mark says `glyph`, with the
+    message `linetypes[0].marks[0]: "shape" is now "glyph"`. A text mark with a stray `shape`
+    is refused as any unknown field.
+  - The `shapes` option of `toSVG`, `toPDF`, `lint` and `parseLinetypes` is `shx`.
+  - In a read drawing, a linetype mark's `shape` is `glyph`, and a text style's `shapes` is
+    `glyphFile`.
+  - An error about a mark's shape names the field `glyph`, as in "its mark 0: glyph must be a whole
+    number from 1 to 65535", where it said `shape`.
+- Breaking for readers of other formats: `READ_FORMAT` is 1, the read format with the names above.
+  A reader built for this release gives `format: 1`, a mark's `glyph` and a style's `glyphFile`,
+  and `checkDrawingRead` passes only format 1. The `tsdraft` command still takes an answer in
+  format 0 from a reader built for an older tsdraft, and renames its `shape` and `shapes` before
+  it checks the answer. It skips an answer in any other format, and says which format it gave.
+- `Json`, the type of a value JSON can hold, is exported.
+- `StandardOptions.files` is typed by default as a record of `StandardFile`, a `Standard`, a
+  `Drawing` or a `Json` value, where it took any value; `StandardFile` is exported. What
+  `defineStandard` accepts at run time is unchanged.
+- `leaderArrowheadInfo` takes a `string`, `gradientWritten` a `HatchGradient` or `undefined`, and
+  `maskOf` a `TextMask` or `undefined`, where each took `unknown`. What each does with a value of
+  another type at run time is unchanged.
+- When code that the builder or the checks of an edited copy run throws a value that is not an
+  `Error`, the message names the value, where it said `undefined`.
+- Under a standard, `lint` warns `viewport-shows-other-view` of a text, an insert, a dimension or
+  a leader drawn for one view that a viewport of another view shows at the same scale, such as two
+  elevations at one scale drawn too close in model space. The builder keeps the view an annotation
+  was drawn for in its new `view` field, which the writers leave out.
+- `readDXF` takes the file's bytes as one `Uint8Array`, such as a `Buffer` from `fs.readFileSync`,
+  as `readDWG` does.
+- The picture of a read file. `toSVG` draws a `DrawingRead` read with `geometry` as the leading
+  CAD app shows the file: model space, or a layout as it plots, with every kind the readers keep.
+  A dimension and a table draw from the block of their picture, a multileader from its own
+  points, a text from where that app starts it, in the nearest font of `FONTS` where tsdraft lacks
+  its own. `readPicture` gives the picture with notes of what it could not draw as the file holds
+  it, and in fragments, one for each entity at the top of a space, which `joinPicture` joins.
+  `pictureDrawing` gives the `Drawing` it draws.
+- `tsdraft render` and `tsdraft dev` draw a DXF, and a DWG through a reader the project installs
+  or `--reader` names, as they draw a drawing file.
+- `sheetShows`, `spaceShows` and `nearPoint` answer what a sheet of a read file shows, what a space
+  draws and what is near a point: through inserts and the xrefs whose reads are given, with each
+  layer's state as the sheet holds it, `XREF|LAYER` among them, each viewport's frozen layers,
+  its outline or the entity that clips it, and an insert's clip. `xrefAreas` gives the parts of
+  an xref's model a host's layout shows.
+- Both `ReadViewport.clipBy`, the handle of the entity that clips a viewport, and
+  `ReadInsert.clip`, the outline of an insert's spatial filter in its block's coordinates, are
+  read from a DXF.
+- `tsdraft shows` prints what a sheet of a drawing file shows, or what is near a point, as JSON.
+- The command keeps each read of a drawing file, one for each hash of the file's bytes, its
+  reader and what is read, in memory and in the project's `node_modules/.cache/tsdraft`.
+- `eachDrawn` can give each placement the inserts the walk came through.
+- `ReadOptions.only` reads a file as named layouts show it: each layout's paper whole, and of
+  model space what its viewports' windows meet, or areas of model space given as two corners. A
+  detail file whose model space holds far more than `GEOMETRY_ITEMS` reads whole one sheet at a
+  time. What model space leaves out is counted under `outside what was read`, a layout not named
+  keeps no `entities`, and `DrawingRead.only` gives back what the read kept. `viewportWindow` gives
+  the corners in model space of what a viewport shows, and `partFilter` is how a reader of another
+  format reads `only` as `readDXF` does.
+
+- Editing a firm's drawing begins with the copy and its checks. An edit file's default export is
+  `editDrawing({ file, sha256, name })`, which names the file by its path and the SHA-256 of the
+  bytes it was planned on, and gives an `Edit`, a value that goes through JSON and that `checkEdit`
+  checks. `editDXF` makes the edited copy of a DXF of the 2018 format, each record the edit does
+  not change copied as the file holds it, and throws only an `EditError`: for other bytes than the
+  edit's, another format, or a statement or an addition, none of which this release makes.
+  `dxfStructure` is the structure check of a DXF, as the leading CAD app's `AUDIT` would find a
+  fault, and `checkEditedCopy` runs the checks of every job on a copy against its source.
+  `tsdraft write <edit file>...` writes each edited copy under `out/`, at the source's path from
+  the job's root, only once those checks pass, refuses a stale hash, warns of a lock, and never
+  writes the source's path. A package edits another format as it reads one, named under
+  `"tsdraft": { "editors" }`. [Editing a firm's drawing](docs/editing.md) has the rest.
+- An edit erases and moves. `e.erase(...handles)` erases each entity with what it owns, and takes
+  every reference to it out of groups, sort tables, reactors and a block's list of its inserts;
+  `e.move(handles, { by, about, rotate, scale })` moves, turns and scales each entity of every
+  kind the readers read, an insert with its attributes and a dimension, moved only, with its
+  picture among them, the way the leading CAD app's own `SCALE`, `ROTATE` and `MOVE` leave it. `editDXF` makes
+  both, writing again only the values that change. `lintEdit(edit, read)` gives the refusals the
+  read can tell, each with the call of its statement, and `editedRead(read, edit)` the read of the
+  file after the edit. The checks of every job hold a copy to it, and `FileEditor` gains `links`.
+- An edit stretches and sets a polyline's vertices. `e.stretch(handles, { window, by })` moves
+  each point of a named entity inside the window, its edge among it, by `by`, as the leading CAD
+  app's `STRETCH` does by a crossing window: a side of a polyline or an arc whose one end moves
+  keeps its arc's height, an insert, a text, paragraph text, a circle and a point move whole by the
+  point they are placed by, an associative hatch is stretched with its boundary, and an entity
+  wholly inside moves as `e.move` moves it, a dimension with its picture. What it would leave as it
+  is gets the warning `edit-stretch-unchanged`, and what it cannot stretch, such as a dimension
+  with only some of its points inside, the error `edit-stretch`.
+  `e.vertices(handle, { points, bulges })` sets a light or a 2D polyline's points, each side
+  keeping its bulge and its widths unless `bulges` gives them; a light polyline may take another
+  number of points. Its refusals are `edit-vertices`. Both writers make both, and `editedRead`
+  reads them; `stretchedEntity` and `stretchPlan` say what a stretch makes of each entity.
+- The entity that clips a viewport moves only with its viewport: a move of it alone, a stretch or
+  vertices of it is refused with `edit-part`. A handle an earlier statement reaches takes nothing
+  with it again, so an edit that names one insert or dimension in many statements lints in time
+  of its names, before `edit-twice` refuses it.
+- `tsdraft render` and `tsdraft dev` take an edit file: they draw the file as it will plot after
+  the edit, and a second picture of what it changes, and `tsdraft write` refuses an edit
+  `lintEdit` gives an error for.
+- With `geometry`, each space and layout of a read lists in `unread` each entity of a kind the
+  reader does not read, by its handle, kind and layer, such as an `OLE2FRAME` with its corners, so
+  an edit can name it. A 2D polyline, whose vertices are records of their own, reads with
+  `heavy: true`.
 
 ## 0.5.4
 

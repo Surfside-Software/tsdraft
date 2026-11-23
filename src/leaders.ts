@@ -3,6 +3,7 @@
 // shafts, arrowheads, landing and lines of its note that the leading CAD app draws.
 import {
   DEFAULT_LEADER_ARROWHEAD,
+  isLeaderArrowhead,
   leaderArrowheadInfo,
   LEADER_ARROWHEADS,
   STANDARD_LEADER_STYLE,
@@ -41,6 +42,7 @@ import {
 } from "./rules.ts";
 import { filled, Strings } from "./shape.ts";
 import { ellipsePoint, splinePolyline, unturned } from "./curves.ts";
+import { isNumber, isObjectOrArray, isRecord, isString } from "./guards.ts";
 
 /** The shortest line of a note that `leaderRepeats` tells apart by its value. */
 const LONG = 256;
@@ -55,58 +57,76 @@ export function leaderRepeats(): (leader: Leader) => number {
   const lists = new WeakMap<object, { readonly cost: number; readonly shares: boolean }>();
   const shafts = new WeakSet<object>();
   const lines = new Strings<true>();
+
   /** What a list costs, worked out once, and whether it was read before or shares an item. */
   const read = (list: unknown, item: (value: unknown) => [number, boolean]): [number, boolean] => {
-    if (typeof list !== "object" || list === null) return [0, false];
+    if (!isObjectOrArray(list)) return [0, false];
     const known = lists.get(list);
+
     if (known) return [known.cost, true];
     let cost = 0;
     let shares = false;
+
     for (const value of filled(list)) {
       const [more, again] = item(value);
       cost += more;
       shares ||= again;
     }
+
     lists.set(list, { cost, shares });
+
     return [cost, shares];
   };
+
   const shaft = (value: unknown): [number, boolean] => {
-    if (typeof value !== "object" || value === null) return [1, false];
+    if (!isObjectOrArray(value)) return [1, false];
     const again = shafts.has(value);
     shafts.add(value);
+
     return [1 + (Array.isArray(value) ? value.length : 0), again];
   };
+
   const line = (value: unknown): [number, boolean] => {
-    if (typeof value !== "string") return [1, false];
+    if (!isString(value)) return [1, false];
     // A line that took the place of another of its length counts as read before.
     const long = value.length >= LONG;
     const again = long && (lines.get(value) !== undefined || lines.clashes(value));
+
     if (long) lines.set(value, true);
+
     return [1 + Math.floor(value.length / 32), again];
   };
+
   // The values of a block in place of the note, by their tags, read once for each object: each
   // tag and value costs as a line does.
   const sets = new WeakMap<object, { readonly cost: number; readonly shares: boolean }>();
+
   const valuesOf = (set: unknown): [number, boolean] => {
-    if (typeof set !== "object" || set === null) return [0, false];
+    if (!isObjectOrArray(set)) return [0, false];
     const known = sets.get(set);
+
     if (known) return [known.cost, true];
     let cost = 0;
     let shares = false;
+
     for (const [tag, value] of Object.entries(set)) {
       const [ofTag, sharedTag] = line(tag);
       const [ofValue, sharedValue] = line(value);
       cost += ofTag + ofValue;
       shares ||= sharedTag || sharedValue;
     }
+
     sets.set(set, { cost, shares });
+
     return [cost, shares];
   };
+
   return (leader) => {
     const [ofShafts, sharedShafts] = read(leader.shafts, shaft);
     const [ofFar, sharedFar] = read(leader.farShafts, shaft);
     const [ofText, sharedText] = read(leader.text, line);
     const [ofValues, sharedValues] = valuesOf(leader.attributes);
+
     return sharedShafts || sharedFar || sharedText || sharedValues
       ? ofShafts + ofFar + ofText + ofValues
       : 0;
@@ -136,7 +156,9 @@ export function validLeaderStyleHandle(name: string): string {
  */
 export function leaderStyleHandle(name: string): string {
   const problem = leaderStyleNameProblem(name);
+
   if (problem !== undefined) throw new RangeError(problem);
+
   return validLeaderStyleHandle(name);
 }
 
@@ -169,13 +191,16 @@ export function leaderArrowheadHandles(arrowhead: LeaderArrowhead):
     }
   | undefined {
   const info = leaderArrowheadInfo(arrowhead);
+
   if (info === undefined) {
     throw new RangeError(
       `A leader's arrowhead must be one of ${Object.keys(LEADER_ARROWHEADS).join(", ")}`,
     );
   }
+
   if (info.block === undefined) return undefined;
   const block = info.block;
+
   return {
     ...blockHandles(block),
     strokes: (info.strokes ?? []).map((_, i) =>
@@ -191,11 +216,16 @@ export function leaderArrowheadsWithBlocks(styles: readonly LeaderStyle[] | unde
   readonly strokes: readonly LeaderArrowheadStroke[];
 }[] {
   const used = new Map<string, LeaderArrowhead>();
+
   for (const style of styles ?? []) {
-    const arrowhead = (style.arrowhead ?? DEFAULT_LEADER_ARROWHEAD) as LeaderArrowhead;
+    const arrowhead = style.arrowhead ?? DEFAULT_LEADER_ARROWHEAD;
     const block = leaderArrowheadInfo(arrowhead)?.block;
-    if (block !== undefined && !used.has(block)) used.set(block, arrowhead);
+
+    if (block !== undefined && isLeaderArrowhead(arrowhead) && !used.has(block)) {
+      used.set(block, arrowhead);
+    }
   }
+
   return [...used].map(([block, arrowhead]) => ({
     arrowhead,
     block,
@@ -212,15 +242,18 @@ export function findLeaderStyle(
   name: string,
 ): LeaderStyle | undefined {
   const key = layerKey(name);
+
   return drawing.leaderStyles?.find((style) => layerKey(style.name) === key);
 }
 
 /** How many leaders a drawing has: those of model space and of every layout. A block holds none. */
 export function leaderCount(drawing: Pick<Drawing, "entities" | "layouts">): number {
   let count = 0;
+
   for (const entities of [drawing.entities, ...(drawing.layouts ?? []).map((l) => l.entities)]) {
     for (const e of entities) if (e.kind === "leader") count++;
   }
+
   return count;
 }
 
@@ -255,8 +288,10 @@ export function leaderSizes(
   style: LeaderStyle,
 ): LeaderSizes {
   const scale = written(style.scale ?? 1);
+
   const size = (own: number | undefined, styles: number): number =>
     written(written(own ?? styles) * scale);
+
   return {
     textHeight: size(leader.textHeight, style.textHeight),
     arrowSize: size(leader.arrowSize, style.arrowSize),
@@ -297,6 +332,7 @@ const OWN = {
 
 /** The bits every multileader the writers write holds: its content, its text's alignment, and its text. */
 const LEADER_OWN_ALWAYS = (1 << 10) | (1 << 14) | (1 << 18);
+
 /** The bits every multileader whose content is a block holds: its content, the block, its scale and its rotation. */
 const BLOCK_OWN_ALWAYS = (1 << 10) | (1 << 19) | (1 << 21) | (1 << 22);
 
@@ -325,31 +361,44 @@ export function leaderOwnFlags(
   style?: Pick<LeaderStyle, "direction" | "block">,
 ): number {
   let flags = leaderBlock(leader, style) === undefined ? LEADER_OWN_ALWAYS : BLOCK_OWN_ALWAYS;
+
   if (leader.gap !== undefined) flags |= OWN.gap;
+
   if (leader.landing !== undefined) flags |= OWN.landing;
+
   if (leader.arrowSize !== undefined) flags |= OWN.arrowSize;
+
   if (leader.textStyle !== undefined) flags |= OWN.textStyle;
+
   if (leader.textHeight !== undefined) flags |= OWN.textHeight;
+
   if (leader.attachment !== undefined) flags |= OWN.leftAttachment | OWN.rightAttachment;
+
   if (leader.frame !== undefined) flags |= OWN.frame;
+
   if (leader.shaft !== undefined) flags |= OWN.shaft;
+
   if (leader.verticalAttachment !== undefined) flags |= OWN.topAttachment | OWN.bottomAttachment;
   const vertical = leader.side === "above" || leader.side === "below";
+
   if (leader.side !== undefined && vertical !== (style?.direction === "vertical")) {
     flags |= OWN.direction;
   }
+
   if (
     leader.width === undefined &&
     (vertical || (leader.side === undefined && style?.direction === "vertical"))
   ) {
     flags |= OWN.vertical;
   }
+
   return flags;
 }
 
 /** How a multileader and its style number where the landing meets the side of the note. */
 export function attachmentCode(attachment: LeaderAttachment): number {
   const code = LEADER_ATTACHMENTS.indexOf(attachment);
+
   return code < 0 ? 1 : code;
 }
 
@@ -366,7 +415,17 @@ export function verticalAttachmentCode(attachment: LeaderVerticalAttachment): 9 
 export function noteAttachmentPoint(side: LeaderSide, wraps: boolean): 1 | 2 | 3 | 8 {
   // A note that wraps holds it as the leading CAD app holds one whose box was drawn.
   if (wraps) return 1;
-  return side === "right" ? 1 : side === "left" ? 3 : side === "above" ? 8 : 2;
+
+  switch (side) {
+    case "right":
+      return 1;
+    case "left":
+      return 3;
+    case "above":
+      return 8;
+    default:
+      return 2;
+  }
 }
 
 /** One line of a leader's note, as the leading CAD app draws it. */
@@ -453,8 +512,10 @@ export interface LeaderPicture {
 }
 
 const RADIANS = Math.PI / 180;
+
 /** How far below a line's baseline an attachment's underline runs, in text heights. */
 const UNDERLINE = 0.2;
+
 /** How far below the top of the note the first line's underline runs, in text heights. */
 const FIRST_UNDERLINE = 1.2;
 
@@ -481,7 +542,7 @@ const compose = (m: Affine, n: Affine): Affine => [
 ];
 
 /** A number of a block's data, or NaN for any other value, which the outline leaves out. */
-const num = (value: unknown): number => (typeof value === "number" ? value : Number.NaN);
+const num = (value: unknown): number => (isNumber(value) ? value : Number.NaN);
 
 /** How many blocks deep the outline follows the inserts a block holds. */
 const OUTLINE_DEPTH = 8;
@@ -493,26 +554,30 @@ const OUTLINE_DEPTH = 8;
  * `OUTLINE_ITEMS` read at any depth.
  */
 function outlineOf(block: Block, findBlock?: (name: string) => Block | undefined): Outline {
-  const entities = block.entities as unknown;
-  if (typeof entities !== "object" || entities === null)
-    return { box: undefined, crossing: undefined };
+  // A block made by hand may give entities of any type.
+  if (!isObjectOrArray(block.entities)) return { box: undefined, crossing: undefined };
   const known = outlines.get(block);
+
   if (known) return known;
   let box: [number, number, number, number] | undefined;
   let crossing: [number, number] | undefined;
+
   const add = (x: number, y: number): void => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     box = box
       ? [Math.min(box[0], x), Math.min(box[1], y), Math.max(box[2], x), Math.max(box[3], y)]
       : [x, y, x, y];
   };
+
   const cross = (x: number): void => {
     if (!Number.isFinite(x)) return;
     crossing = crossing ? [Math.min(crossing[0], x), Math.max(crossing[1], x)] : [x, x];
   };
+
   const segment = (a: Point, b: Point): void => {
     add(a[0], a[1]);
     add(b[0], b[1]);
+
     if ((a[1] <= 0 && b[1] >= 0) || (a[1] >= 0 && b[1] <= 0)) {
       if (a[1] === b[1]) {
         cross(a[0]);
@@ -520,26 +585,32 @@ function outlineOf(block: Block, findBlock?: (name: string) => Block | undefined
       } else cross(a[0] + ((b[0] - a[0]) * -a[1]) / (b[1] - a[1]));
     }
   };
+
   let read = 0;
   const open = new Set<Block>();
+
   const walk = (inner: Block, m: Affine, depth: number): void => {
     const map = (p: unknown): Point =>
       Array.isArray(p)
         ? [m[0] * num(p[0]) + m[2] * num(p[1]) + m[4], m[1] * num(p[0]) + m[3] * num(p[1]) + m[5]]
         : [Number.NaN, Number.NaN];
+
     // An arc as short chords, close enough to place a block by.
     const round = (center: unknown, r: number, from = 0, to = 360): void => {
       if (!Array.isArray(center)) return;
       const sweep = (((to - from) % 360) + 360) % 360 || 360;
       const steps = 64;
       let last: Point | undefined;
+
       for (let i = 0; i <= steps; i++) {
         const t = ((from + (sweep * i) / steps) * Math.PI) / 180;
         const p = map([num(center[0]) + r * Math.cos(t), num(center[1]) + r * Math.sin(t)]);
+
         if (last) segment(last, p);
         last = p;
       }
     };
+
     // A side with a bulge as the arc it is: a quarter of its turn's tangent, counterclockwise when above 0.
     const bulged = (a: unknown, b: unknown, bulge: number): void => {
       if (!Array.isArray(a) || !Array.isArray(b)) return;
@@ -547,6 +618,7 @@ function outlineOf(block: Block, findBlock?: (name: string) => Block | undefined
       const turn = 4 * Math.atan(bulge);
       const [dx, dy] = [bx - ax, by - ay];
       const chord = Math.hypot(dx, dy);
+
       if (!(chord > 0)) return;
       // The center is off the chord's middle, to its left, by half the chord times cot(turn / 2).
       const off = ((1 - bulge * bulge) / (2 * bulge)) * (chord / 2);
@@ -555,6 +627,7 @@ function outlineOf(block: Block, findBlock?: (name: string) => Block | undefined
       const from = Math.atan2(ay - cy, ax - cx);
       const steps = 32;
       let last = map([ax, ay]);
+
       for (let i = 1; i <= steps; i++) {
         const t = from + (turn * i) / steps;
         const p = map([cx + r * Math.cos(t), cy + r * Math.sin(t)]);
@@ -562,19 +635,25 @@ function outlineOf(block: Block, findBlock?: (name: string) => Block | undefined
         last = p;
       }
     };
+
     open.add(inner);
-    for (const e of filled(inner.entities as readonly Entity[])) {
+
+    for (const e of filled(inner.entities)) {
       if (++read > OUTLINE_ITEMS) break;
-      if (typeof e !== "object" || e === null) continue;
+
+      if (!isObjectOrArray(e)) continue;
+
       if (e.kind === "line") segment(map(e.from), map(e.to));
       else if (e.kind === "polyline") {
         const points = filled(e.points).slice(0, OUTLINE_ITEMS);
         const bulges = filled(e.bulges);
         read += points.length;
         const sides = e.closed && points.length > 2 ? points.length : points.length - 1;
+
         for (let i = 0; i < sides; i++) {
           const [a, b] = [points[i]!, points[(i + 1) % points.length]!];
           const bulge = num(bulges[i] ?? 0);
+
           if (!bulge || !Number.isFinite(bulge)) segment(map(a), map(b));
           else bulged(a, b, bulge);
         }
@@ -582,35 +661,46 @@ function outlineOf(block: Block, findBlock?: (name: string) => Block | undefined
       else if (e.kind === "arc") round(e.center, num(e.radius), num(e.startAngle), num(e.endAngle));
       else if (e.kind === "ellipse" || e.kind === "spline") {
         // A curve as the points of 32 steps a turn of an ellipse, or 8 a piece of a spline.
-        const fields = e as unknown as Readonly<Record<string, unknown>>;
+        // An array, which no spline is, holds no field that reads, so it reads as none.
+        const fields = isRecord(e) ? e : NO_FIELDS;
         const lists = [fields.fitPoints, fields.controlPoints, fields.knots, fields.weights];
         read += lists.reduce((n: number, l) => n + (Array.isArray(l) ? l.length : 0), 0);
+
         if (read > OUTLINE_ITEMS) break;
         let points: Point[] = [];
+
         if (e.kind === "ellipse") {
           const d = drawnEllipse(e);
+
           if (d) {
             const from = d.start ?? 0;
+
             const turn =
               d.start === undefined ? 2 * Math.PI : unturned(d.end! - from) || 2 * Math.PI;
+
             points = Array.from({ length: 33 }, (_, k) =>
               ellipsePoint(d.center, d.majorAxis, d.ratio, from + (turn * k) / 32),
             );
           }
         } else {
-          const d = drawnSpline(fields);
+          const d = drawnSpline(isRecord(e) ? e : NO_FIELDS);
+
           if (d) points = splinePolyline(d.degree, d.knots, d.controlPoints, d.weights, 8);
         }
+
         read += points.length;
+
         for (let i = 1; i < points.length; i++) segment(map(points[i - 1]!), map(points[i]!));
-      } else if (e.kind === "insert" && depth < OUTLINE_DEPTH && typeof e.block === "string") {
+      } else if (e.kind === "insert" && depth < OUTLINE_DEPTH && isString(e.block)) {
         const nested = findBlock?.(e.block);
+
         if (nested === undefined || open.has(nested)) continue;
         const [sx, sy] = Array.isArray(e.scale) ? e.scale : [1, 1];
         const turn = ((num(e.rotation ?? 0) || 0) * Math.PI) / 180;
         const [cos, sin] = [Math.cos(turn), Math.sin(turn)];
         const [bx, by] = Array.isArray(nested.base) ? nested.base : [0, 0];
         const [ax, ay] = Array.isArray(e.at) ? e.at : [0, 0];
+
         // Its block's base point to its point, scaled and turned.
         const placed: Affine = [
           cos * num(sx),
@@ -620,15 +710,19 @@ function outlineOf(block: Block, findBlock?: (name: string) => Block | undefined
           num(ax) - (cos * num(sx) * num(bx) - sin * num(sy) * num(by)),
           num(ay) - (sin * num(sx) * num(bx) + cos * num(sy) * num(by)),
         ];
+
         walk(nested, compose(m, placed), depth + 1);
       }
     }
+
     open.delete(inner);
   };
+
   const [bx, by] = Array.isArray(block.base) ? block.base : [0, 0];
   walk(block, [1, 0, 0, 1, -num(bx), -num(by)], 0);
   const outline = { box, crossing };
   outlines.set(block, outline);
+
   return outline;
 }
 
@@ -646,13 +740,17 @@ const CURVE_PIECES = 32;
  */
 export function curveThrough(fit: readonly Point[], start: Point, end: Point): Point[] {
   const q: Point[] = [];
+
   for (const p of fit) {
     const last = q[q.length - 1];
+
     if (last === undefined || Math.hypot(p[0] - last[0], p[1] - last[1]) > 0) q.push(p);
   }
+
   if (q.length < 2) return [...q];
   const n = q.length - 1;
   const u = [0];
+
   for (let k = 1; k <= n; k++)
     u.push(u[k - 1]! + Math.hypot(q[k]![0] - q[k - 1]![0], q[k]![1] - q[k - 1]![1]));
   const total = u[n]!;
@@ -668,9 +766,11 @@ export function curveThrough(fit: readonly Point[], start: Point, end: Point): P
     q[n]![0] - ((total - knots[n + 2]!) / 3) * end[0],
     q[n]![1] - ((total - knots[n + 2]!) / 3) * end[1],
   ];
+
   if (n > 1) {
     // Row k, for the inner point k, holds the weights of control points k, k + 1 and k + 2.
     const rows = [];
+
     for (let k = 1; k < n; k++) rows.push(basisAt(knots, k + 3, u[k]!));
     const unknown = n - 1;
     const a = rows.map((r) => r[0]);
@@ -683,30 +783,39 @@ export function curveThrough(fit: readonly Point[], start: Point, end: Point): P
     dy[0]! -= a[0]! * p[1]![1];
     dx[unknown - 1]! -= c[unknown - 1]! * p[n + 1]![0];
     dy[unknown - 1]! -= c[unknown - 1]! * p[n + 1]![1];
+
     for (let i = 1; i < unknown; i++) {
       const m = a[i]! / b[i - 1]!;
       b[i]! -= m * c[i - 1]!;
       dx[i]! -= m * dx[i - 1]!;
       dy[i]! -= m * dy[i - 1]!;
     }
+
     const xs: number[] = Array.from({ length: unknown }, () => 0);
     const ys: number[] = Array.from({ length: unknown }, () => 0);
     xs[unknown - 1] = dx[unknown - 1]! / b[unknown - 1]!;
     ys[unknown - 1] = dy[unknown - 1]! / b[unknown - 1]!;
+
     for (let i = unknown - 2; i >= 0; i--) {
       xs[i] = (dx[i]! - c[i]! * xs[i + 1]!) / b[i]!;
       ys[i] = (dy[i]! - c[i]! * ys[i + 1]!) / b[i]!;
     }
+
     for (let i = 0; i < unknown; i++) p[i + 2] = [xs[i]!, ys[i]!];
   }
+
   // Each span cut into pieces, by de Boor's evaluation.
   const out: Point[] = [q[0]!];
+
   for (let span = 3; span < n + 3; span++) {
     const [from, to] = [knots[span]!, knots[span + 1]!];
+
     if (!(to > from)) continue;
+
     for (let i = 1; i <= CURVE_PIECES; i++) {
       const t = from + ((to - from) * i) / CURVE_PIECES;
       const d: Point[] = [p[span - 3]!, p[span - 2]!, p[span - 1]!, p[span]!];
+
       for (let r = 1; r <= 3; r++) {
         for (let j = 3; j >= r; j--) {
           const left = knots[span - 3 + j]!;
@@ -718,9 +827,11 @@ export function curveThrough(fit: readonly Point[], start: Point, end: Point): P
           ];
         }
       }
+
       out.push(i === CURVE_PIECES && span === n + 2 ? q[n]! : d[3]!);
     }
   }
+
   return out;
 }
 
@@ -732,18 +843,22 @@ function basisAt(knots: readonly number[], span: number, t: number): [number, nu
   const left = [0, 0, 0, 0];
   const right = [0, 0, 0, 0];
   const n = [1, 0, 0, 0];
+
   for (let j = 1; j <= 3; j++) {
     left[j] = t - knots[span + 1 - j]!;
     right[j] = knots[span + j]! - t;
     let saved = 0;
+
     for (let r = 0; r < j; r++) {
       const denominator = right[r + 1]! + left[j - r]!;
       const temp = denominator === 0 ? 0 : n[r]! / denominator;
       n[r] = saved + right[r + 1]! * temp;
       saved = left[j - r]! * temp;
     }
+
     n[j] = saved;
   }
+
   // At a knot, the weight of control point span is 0.
   return [n[0]!, n[1]!, n[2]!];
 }
@@ -761,9 +876,11 @@ export function leaderSide(
   if (leader.side !== undefined) return leader.side;
   const shaft = filled(filled(leader.shafts)[0]);
   const before = shaft[shaft.length - 1];
+
   if (style?.direction === "vertical") {
     return before === undefined || written(leader.at[1]) >= written(before[1]) ? "above" : "below";
   }
+
   return before === undefined || written(leader.at[0]) >= written(before[0]) ? "right" : "left";
 }
 
@@ -782,7 +899,8 @@ export function leaderVerticalAttachment(
 export function leaderBlock(
   leader: Pick<Leader, "block" | "text">,
   style: Pick<LeaderStyle, "block"> | undefined,
-): unknown {
+): string | undefined {
+  // A leader made by hand may name a block of any type, which `lint` refuses.
   return leader.block ?? (leader.text === undefined ? style?.block : undefined);
 }
 
@@ -798,43 +916,57 @@ const BLOCK_NAME_MOST = 255;
  */
 export function leaderPlacesBlock(drawing: unknown): (block: string) => boolean {
   const placed = leaderBlockKeys(drawing);
+
   return (block) =>
     placed.size > 0 && block.length <= BLOCK_NAME_MOST && placed.has(layerKey(block));
 }
 
 /** The `layerKey` of each block a leader of the drawing places, as `leaderPlacesBlock` finds them. */
 export function leaderBlockKeys(drawing: unknown): ReadonlySet<string> {
-  const d = drawing as { entities?: unknown; layouts?: unknown; leaderStyles?: unknown } | null;
-  const each = (list: unknown, at: (item: Record<string, unknown>) => void): void => {
+  const d: Walked | undefined = isRecord(drawing) ? drawing : undefined;
+
+  const each = (list: unknown, at: (item: Walked) => void): void => {
     if (!Array.isArray(list)) return;
+
     for (let i = 0; i < list.length; i++) {
       const item: unknown = list[i];
+
       if (item === undefined) break;
-      if (typeof item === "object" && item !== null) at(item as Record<string, unknown>);
+
+      // A list holds no field this walk reads, so one in place of an item reads as nothing.
+      if (isRecord(item)) at(item);
     }
   };
+
   const named = (name: unknown): string | undefined =>
-    typeof name === "string" && name.length <= BLOCK_NAME_MOST ? layerKey(name) : undefined;
-  const styles = new Map<string, Pick<LeaderStyle, "block">>();
+    isString(name) && name.length <= BLOCK_NAME_MOST ? layerKey(name) : undefined;
+
+  const styles = new Map<string, Walked>();
   each(d?.leaderStyles, (style) => {
     const key = named(style.name);
+
     if (key !== undefined && !styles.has(key)) styles.set(key, style);
   });
   const placed = new Set<string>();
   // A list many layouts share is read once.
   const seen = new Set<unknown>();
+
   const read = (entities: unknown): void => {
     if (seen.has(entities)) return;
     seen.add(entities);
     each(entities, (e) => {
       if (e.kind !== "leader") return;
       const style = styles.get(named(e.style) ?? "");
-      const key = named(leaderBlock(e as Pick<Leader, "block" | "text">, style));
+      // The block that `leaderBlock` finds, of fields of any type.
+      const key = named(e.block ?? (e.text === undefined ? style?.block : undefined));
+
       if (key !== undefined) placed.add(key);
     });
   };
+
   read(d?.entities);
   each(d?.layouts, (layout) => read(layout.entities));
+
   return placed;
 }
 
@@ -854,15 +986,18 @@ export function leaderNote(
   const width = leader.width === undefined ? undefined : written(written(leader.width) * scale);
   // A note underlined line by line holds the code that underlines it, as the leading CAD app's does.
   const underlined = attachment === "underline-all" ? "\\L" : "";
-  return {
+
+  const note: Omit<Paragraph, "at" | "align"> = {
     kind: "paragraph",
     layer: leader.layer,
     value: underlined + filled(leader.text).join("\\P"),
     height: sizes.textHeight,
     rotation: 0,
-    ...(width === undefined ? {} : { width }),
-    ...(textStyleName === undefined ? {} : { style: textStyleName }),
   };
+
+  const wide = width === undefined ? note : { ...note, width };
+
+  return textStyleName === undefined ? wide : { ...wide, style: textStyleName };
 }
 
 /**
@@ -892,47 +1027,54 @@ export function leaderPicture(
   const direction = side === "right" || side === "above" ? 1 : -1;
   const point = (p: Point): Point => [written(p[0]), written(p[1])];
   const connection = point(leader.at);
+
   // An arrowhead the rules refuse is drawn as the default.
   const info: LeaderArrowheadInfo =
     leaderArrowheadInfo(style.arrowhead ?? DEFAULT_LEADER_ARROWHEAD) ??
     LEADER_ARROWHEADS[DEFAULT_LEADER_ARROWHEAD];
+
   const size = sizes.arrowSize;
 
   const shafts: Point[][] = [];
   const arrowheads: LeaderArrowheadDrawn[] = [];
   const curved = (leader.shaft ?? style.shaft) === "curved";
+
   /**
    * Draws each shaft of a root from its tip to `end`: straight through its bends, or as a curve
    * through them that meets `end` level, along `level`.
    */
-  const draw = (list: unknown, end: Point, level: number): void => {
+  const draw = (list: Leader["shafts"] | undefined, end: Point, level: number): void => {
     for (const shaft of filled(list)) {
       const listed = filled(shaft);
+
       // A shaft with no tip, which the rules refuse, draws nothing.
       if (listed.length === 0) continue;
-      const points = [...(listed as readonly Point[]).map(point), end];
+      const points = [...listed.map(point), end];
       const [tip, next] = [points[0]!, points[1]!];
       const length = Math.hypot(tip[0] - next[0], tip[1] - next[1]);
+
       // The way the arrowhead points: from the shaft's next point to its tip.
       const along: Point =
         length > 0 ? [(tip[0] - next[0]) / length, (tip[1] - next[1]) / length] : [1, 0];
+
       const across: Point = [-along[1], along[0]];
+
       const place = ([x, y]: readonly [number, number]): Point => [
         tip[0] + (along[0] * x + across[0] * y) * size,
         tip[1] + (along[1] * x + across[1] * y) * size,
       ];
+
       // A curve whose first stretch is shorter than the arrowhead has no room for one, and runs to
       // its tip. A straight shaft keeps its arrowhead, as no case has shown otherwise.
       const room = size > 0 && (!curved || length >= size);
+
       if (room) {
-        const drawn: {
-          filled: Point[];
-          lines: [Point, Point][];
-          disks: { center: Point; radius: number }[];
-        } = { filled: [], lines: [], disks: [] };
+        const drawn: ArrowheadParts = { filled: [], lines: [], disks: [] };
+
         if (info.block === undefined) {
           drawn.filled.push(tip, place([-1, 1 / 6]), place([-1, -1 / 6]));
         }
+
         for (const stroke of info.strokes ?? []) {
           if (stroke.kind === "line") drawn.lines.push([place(stroke.from), place(stroke.to)]);
           else {
@@ -945,14 +1087,15 @@ export function leaderPicture(
             });
           }
         }
+
         const turned = (((Math.atan2(along[1], along[0]) / RADIANS) % 360) + 360) % 360;
-        arrowheads.push({
-          ...drawn,
-          ...(info.block === undefined
-            ? {}
-            : { insert: { at: tip, rotation: turned, scale: size } }),
-        });
+        arrowheads.push(
+          info.block === undefined
+            ? { ...drawn }
+            : { ...drawn, insert: { at: tip, rotation: turned, scale: size } },
+        );
       }
+
       const start: Point = info.toTip || !room ? tip : place([-1, 0]);
       shafts.push(
         curved
@@ -961,12 +1104,14 @@ export function leaderPicture(
       );
     }
   };
+
   const h = sizes.textHeight;
   // A vertical note that wraps is held by its top left, as the leading CAD app holds one whose
   // box was drawn.
   const wraps = leader.width !== undefined;
   const noteAttachment = vertical ? (wraps ? 1 : 2) : side === "right" ? 1 : 3;
-  const align = noteAttachment === 1 ? "left" : noteAttachment === 2 ? "center" : "right";
+  const align = NOTE_ALIGNS[noteAttachment];
+
   const unplaced = leaderNote(
     leader,
     sizes,
@@ -974,14 +1119,17 @@ export function leaderPicture(
     leader.textStyle ?? style.textStyle,
     vertical ? undefined : attachment,
   );
+
   // A style whose font or width the rules refuse is laid out as `Standard`'s.
   const layout = layoutParagraph(
     paragraphInStyle({ ...unplaced, at: [0, 0], align }, textStyle ?? {}),
   );
+
   const lines = layout.lines;
   const [, bottom, , top0] = layout.frame;
   // How far the note reaches across: its widest line's ink.
   let wide = 0;
+
   for (const line of lines) wide = Math.max(wide, line.end - line.start);
   const lastBaseline = lines[lines.length - 1]?.baseline ?? -h;
   // The height the leading CAD app takes a line of the note to have: its capitals, and how far
@@ -990,7 +1138,8 @@ export function leaderPicture(
 
   // A block in place of the note: its outline meets the landing's end, level with `at`.
   const content = leaderBlock(leader, style);
-  const found = typeof content === "string" ? findBlock?.(content) : undefined;
+  const found = isString(content) ? findBlock?.(content) : undefined;
+
   let held:
     | {
         readonly insert: Insert;
@@ -999,6 +1148,7 @@ export function leaderPicture(
         readonly start: number;
       }
     | undefined;
+
   if (found !== undefined) {
     const outline = outlineOf(found, findBlock);
     const s = written(style.blockScale ?? 1) * written(style.scale ?? 1);
@@ -1009,28 +1159,35 @@ export function leaderPicture(
     const x = end - (side === "left" ? far : near) * s;
     const y = byInsertion ? connection[1] : connection[1] - ((ext[1] + ext[3]) / 2) * s;
     const attributes = leader.attributes;
+
+    const placed: Insert = {
+      kind: "insert",
+      layer: leader.layer,
+      block: found.name,
+      at: point([x, y]),
+    };
+
+    const scaled: Insert = s === 1 ? placed : { ...placed, scale: [s, s] };
+
     held = {
-      insert: {
-        kind: "insert",
-        layer: leader.layer,
-        block: found.name,
-        at: point([x, y]),
-        ...(s === 1 ? {} : { scale: [s, s] as const }),
-        ...(attributes === undefined ? {} : { attributes }),
-      },
+      insert: attributes === undefined ? scaled : { ...scaled, attributes },
       box: [x + ext[0] * s, y + ext[1] * s, x + ext[2] * s, y + ext[3] * s],
       start: x + near * s,
     };
   }
+
   let location: Point;
   let contentBase: Point;
   const underlines: [Point, Point][] = [];
+
   const landing: readonly [Point, Point] | undefined =
     !vertical && !curved && sizes.landing > 0
       ? [connection, [connection[0] + direction * sizes.landing, connection[1]]]
       : undefined;
+
   if (vertical) {
     const x = connection[0] - (noteAttachment === 1 ? wide / 2 : 0);
+
     if (side === "above") {
       location = [x, connection[1] + sizes.gap - bottom];
       contentBase = connection;
@@ -1038,6 +1195,7 @@ export function leaderPicture(
       location = [x, connection[1] - sizes.gap];
       contentBase = [connection[0], location[1] + bottom - sizes.gap];
     }
+
     if (verticalAttachment === "line") {
       underlines.push([
         [connection[0] - wide / 2, connection[1]],
@@ -1046,6 +1204,7 @@ export function leaderPicture(
     }
   } else {
     const x = connection[0] + direction * (sizes.landing + sizes.gap);
+
     // How far the top of the note is above `at`, for each attachment.
     const above: Record<LeaderAttachment, number> = {
       "top-of-first": 0,
@@ -1058,6 +1217,7 @@ export function leaderPicture(
       "bottom-of-first": line,
       "underline-all": FIRST_UNDERLINE * h,
     };
+
     location = [x, connection[1] + above[attachment]];
     contentBase =
       side === "right"
@@ -1065,11 +1225,13 @@ export function leaderPicture(
         : [x - wide - sizes.gap, connection[1]];
     const from = connection[0] + direction * sizes.landing;
     const far = x + direction * wide;
+
     // The landing runs on under the line it meets, but not into a frame: to the note's far side,
     // or to the end of the far root's landing.
     if (attachment.startsWith("underline") && !(leader.frame ?? style.frame ?? false)) {
       const reach =
         filled(leader.farShafts).length > 0 ? far + direction * (sizes.gap + sizes.landing) : far;
+
       underlines.push([
         [from, connection[1]],
         [reach, connection[1]],
@@ -1082,12 +1244,14 @@ export function leaderPicture(
     contentBase = [held.start, connection[1]];
     underlines.length = 0;
   }
+
   // Every point the file holds, as the writers write it.
   location = point(location);
   contentBase = point(contentBase);
   // A second root on the note's far side: past its far edge on the side, or above or below it.
   const farListed = filled(leader.farShafts);
   let far: { connection: Point; direction: 1 | -1 } | undefined;
+
   if (farListed.length > 0) {
     if (vertical) {
       const top = location[1] + top0;
@@ -1113,10 +1277,13 @@ export function leaderPicture(
       };
     }
   }
+
   // A curved shaft ends where the landing would, and meets it level; no landing is drawn.
   const landingEnd = (from: Point, way: 1 | -1): Point =>
     vertical ? from : [from[0] + way * sizes.landing, from[1]];
+
   draw(leader.shafts, curved ? landingEnd(connection, direction) : connection, direction);
+
   if (far) {
     draw(
       farListed,
@@ -1124,60 +1291,87 @@ export function leaderPicture(
       far.direction,
     );
   }
+
   const farLanding: readonly [Point, Point] | undefined =
     far && !vertical && !curved && sizes.landing > 0
       ? [far.connection, [far.connection[0] + far.direction * sizes.landing, far.connection[1]]]
       : undefined;
-  const note: Paragraph = { ...unplaced, ...(held ? { value: "" } : {}), at: location, align };
+
+  const note: Paragraph = held
+    ? { ...unplaced, value: "", at: location, align }
+    : { ...unplaced, at: location, align };
+
   const place = placer(note);
-  const left = noteAttachment === 1 ? 0 : noteAttachment === 2 ? -wide / 2 : -wide;
+  let left = -wide;
+
+  if (noteAttachment === 1) left = 0;
+  else if (noteAttachment === 2) left = -wide / 2;
+
   const box: [number, number, number, number] = held
     ? [...held.box]
     : [location[0] + left, location[1] + bottom, location[0] + left + wide, location[1] + top0];
+
   const grown = (by: number): [Point, Point, Point, Point] => [
     [box[0] - by, box[1] - by],
     [box[2] + by, box[1] - by],
     [box[2] + by, box[3] + by],
     [box[0] - by, box[3] + by],
   ];
+
   // A block in place of the note has no frame.
   const framed = held === undefined && (leader.frame ?? style.frame) === true;
   const mask = maskOf(leader.mask);
-  const masked = (m: { readonly color?: number; readonly offsetFactor: number }) => ({
-    corners: grown((m.offsetFactor - 1) * h),
-    ...(m.color === undefined ? {} : { color: m.color }),
-    factor: m.offsetFactor,
-  });
-  return {
-    sizes,
-    side,
-    attachment,
-    verticalAttachment,
-    vertical,
-    connection,
-    direction,
-    shafts,
-    arrowheads,
-    ...(landing === undefined ? {} : { landing }),
-    ...(far === undefined ? {} : { farConnection: far.connection, farDirection: far.direction }),
-    ...(farLanding === undefined ? {} : { farLanding }),
-    curved,
-    note,
-    noteAttachment,
-    location,
-    contentBase,
-    box,
-    underlines,
-    ...(framed ? { frame: grown(sizes.gap) } : {}),
-    ...(mask === undefined ? {} : { mask: masked(mask) }),
-    ...(held ? { block: held.insert } : {}),
-    lines: (held ? [] : lines).map((line) => ({
-      value: line.value,
-      at: place(line.runs[0]?.x ?? line.start, line.baseline),
-      align: "left" as const,
-      height: h,
-    })),
+
+  const masked = (m: { readonly color?: number; readonly offsetFactor: number }) => {
+    const corners = grown((m.offsetFactor - 1) * h);
+    const factor = m.offsetFactor;
+
+    return m.color === undefined ? { corners, factor } : { corners, color: m.color, factor };
   };
+
+  // Its fields in the order a reader of the picture finds them, each optional one where it is.
+  const picture: Partial<Mutable<LeaderPicture>> = {};
+  picture.sizes = sizes;
+  picture.side = side;
+  picture.attachment = attachment;
+  picture.verticalAttachment = verticalAttachment;
+  picture.vertical = vertical;
+  picture.connection = connection;
+  picture.direction = direction;
+  picture.shafts = shafts;
+  picture.arrowheads = arrowheads;
+
+  if (landing !== undefined) picture.landing = landing;
+
+  if (far !== undefined) {
+    picture.farConnection = far.connection;
+    picture.farDirection = far.direction;
+  }
+
+  if (farLanding !== undefined) picture.farLanding = farLanding;
+  picture.curved = curved;
+  picture.note = note;
+  picture.noteAttachment = noteAttachment;
+  picture.location = location;
+  picture.contentBase = contentBase;
+  picture.box = box;
+  picture.underlines = underlines;
+
+  if (framed) picture.frame = grown(sizes.gap);
+
+  if (mask !== undefined) picture.mask = masked(mask);
+
+  if (held) picture.block = held.insert;
+
+  picture.lines = (held ? [] : lines).map((line) => ({
+    value: line.value,
+    at: place(line.runs[0]?.x ?? line.start, line.baseline),
+    align: "left" as const,
+    height: h,
+  }));
+
+  // SAFETY: every field a LeaderPicture must have is set above.
+  return picture as LeaderPicture;
 }
 
 /**
@@ -1194,10 +1388,12 @@ export function leaderDrawnProblem(
 ): string | undefined {
   const picture = leaderPicture(leader, style, textStyle, findBlock);
   const far = picture.farConnection;
+
   if (far !== undefined) {
     for (const shaft of filled(leader.farShafts)) {
-      const listed = filled(shaft) as readonly Point[];
+      const listed = filled(shaft);
       const [tip, next = far] = listed;
+
       if (
         tip !== undefined &&
         written(tip[0]) === written(next[0]) &&
@@ -1207,6 +1403,7 @@ export function leaderDrawnProblem(
       }
     }
   }
+
   const numbers = [
     ...picture.shafts.flat(2),
     ...picture.arrowheads.flatMap((a) => [
@@ -1223,9 +1420,44 @@ export function leaderDrawnProblem(
     ...picture.underlines.flat(2),
     ...picture.lines.flatMap((line) => line.at),
   ];
+
   for (const value of numbers) {
     const tooLarge = pictureNumberProblem(value);
+
     if (tooLarge) return tooLarge;
   }
+
   return undefined;
 }
+
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+
+/** What an arrowhead draws: its filled triangle, its lines and its disks. */
+interface ArrowheadParts {
+  filled: Point[];
+  lines: [Point, Point][];
+  disks: { center: Point; radius: number }[];
+}
+
+/** How a note is justified by its attachment: 1 its left, 2 its middle, 3 its right. */
+const NOTE_ALIGNS = { 1: "left", 2: "center", 3: "right" } as const;
+
+/** The fields of a drawing, a layout, a leader or a leader style that the walk for blocks reads. */
+interface Walked {
+  readonly entities?: unknown;
+  readonly layouts?: unknown;
+  readonly leaderStyles?: unknown;
+  readonly name?: unknown;
+  readonly kind?: unknown;
+  readonly style?: unknown;
+  readonly block?: unknown;
+  readonly text?: unknown;
+}
+
+/** The fields of a value that has none to read, among them the lists a curve may hold. */
+const NO_FIELDS: {
+  readonly fitPoints?: never;
+  readonly controlPoints?: never;
+  readonly knots?: never;
+  readonly weights?: never;
+} = Object.freeze({});

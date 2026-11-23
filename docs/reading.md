@@ -1,9 +1,10 @@
 # Reading drawing files
 
 `readDXF(input, options)` reads an ASCII DXF of any version and gives a `DrawingRead`, the read
-model. It takes the file as a string or as its bytes in an `AsyncIterable<Uint8Array>`, such as a
-stream from `fs.createReadStream`, and reads them as they arrive: it never holds the whole file,
-so a DXF of several hundred megabytes reads in seconds.
+model. It takes the file as a string, as its bytes in a `Uint8Array`, such as a `Buffer` from
+`fs.readFileSync`, or as its bytes in an `AsyncIterable<Uint8Array>`, such as a stream from
+`fs.createReadStream`. A stream it reads as the bytes arrive: it never holds the whole file, so a
+DXF of several hundred megabytes reads in seconds.
 
 ```ts
 import { createReadStream } from "node:fs";
@@ -43,7 +44,7 @@ the drawing has it.
 
 ## The read model
 
-The model is format 0, `READ_FORMAT`, and is not settled. Until it is, a release may change its
+The model is format 1, `READ_FORMAT`, and is not settled. Until it is, a release may change its
 fields and what a reader of another format gives, below.
 
 A `DrawingRead` is not a `Drawing`, and nothing writes it back to a file. It holds what a file
@@ -54,7 +55,7 @@ states and keeps each object's handle, and it keeps going past what it does not 
   styles. `pointStyleOf` gives the point style the last two plot as.
 - The tables: `layers` with their state, `linetypes`, each with the `marks` it draws as a
   `Linetype` holds them, a text's `style` by name and its `height` times its style's fixed height,
-  a shape by its number and its `file`, `textStyles` and `dimensionStyles`, each
+  a shape by its `glyph` number and its `file`, `textStyles` and `dimensionStyles`, each
   style with whether it is annotative, and a dimension style with the units it writes lengths
   in, where its text goes, how it writes a fraction, its lineweights and its arrowheads' block. Two entries of one name are both kept, in the order of the file.
 - `tableStyles`: each table style the file's dictionary of them, `ACAD_TABLESTYLE`, names, in the
@@ -105,6 +106,8 @@ states and keeps each object's handle, and it keeps going past what it does not 
   layout keeps.
 - `unread`: entities and objects of a kind the reader has no reading of, such as `OLE2FRAME`,
   a proxy or an object of a vertical product, counted by kind, and records it could not place.
+  With `geometry`, model space and each layout also list their unread entities under `unread`,
+  each by its handle, kind and layer, with the box an `OLE2FRAME` gives, so an edit can name one.
 
 A read without `geometry` keeps no text of model space or of a layout and no attribute's value.
 The texts of a block's definition are kept, since a title block's labels belong to it.
@@ -118,7 +121,8 @@ leader:
   closed, with `bulges`, one for each side, when a side is an arc, and `width`, one width for
   every side, or `widths`, each side's width at its start and its end, when a side is wide, as
   a `Polyline` holds them, and `linetypeGeneration` when its pattern runs on past its vertices.
-  A 2D polyline's vertex with no width of its own has the polyline's.
+  A 2D polyline's vertex with no width of its own has the polyline's, and `heavy` says the
+  file holds it as a 2D polyline with its vertices.
 - `text`: a text of one line, with its `value`.
 - `insert`: its block, by name and by the handle of its record in `blockHandle`, its point,
   scale and rotation, `tags`, and with `geometry` its `attributes`: each a text with its `tag`
@@ -328,10 +332,152 @@ the layout `Layout1`, as the leading CAD app opens it. Every object keyed by nam
 such as a census's `layers`, has no prototype, so a layer named `constructor` is a key like any
 other.
 
+### Reading what a layout shows
+
+A detail file can hold far more than `GEOMETRY_ITEMS` in model space, where each sheet shows one
+detail. `only` reads it as the sheets show it:
+
+```ts
+const read = await readDXF(file, { geometry: true, only: { layouts: ["S-7"] } });
+read.model.other["outside what was read"]; // what model space holds that S-7 does not show
+```
+
+`only.layouts` names layouts of the file, compared as the leading CAD app compares a layout's name,
+without regard to case. Each keeps its paper
+whole, and model space keeps each entity whose box meets the window of one of its viewports: the
+viewport's rectangle taken to model space at its ratio about its view's center and turned by its
+twist, which `viewportWindow` gives. `only.areas` gives parts of model space as two corners each,
+such as what a sheet of another file shows of this one through an xref, and model space keeps what
+they meet as well. A layout's own view of its paper is no window. The boxes are never smaller than
+what the entity draws, with a text's slant and width from its style and an arrowhead's size, and
+each window is widened by a fiftieth of its size, so a read by layout
+keeps all a layout shows, and some it does not: a viewport's clip and its frozen layers are not
+applied, and a viewport that is off counts. An entity whose box the read cannot tell, such as an
+insert of an xref, is kept.
+
+A layout `only` does not name keeps its census, its viewports and its inserts, and no
+`entities`. Model space counts what it left out under `outside what was read`, the constant
+`OUTSIDE_THE_READ`, and `read.only` gives the layouts as the file spells them and each area with
+its lower corner first. The census and the blocks stay whole. A DXF lists its layouts after its
+entities, so a read with `only` reads the file twice: a stream once as it arrives, holding a copy
+of its bytes for the second pass. A name the file has no layout of, `Model`, an `only` that names nothing, an area that is not
+two finite corners, or more than `MOST_WINDOWS`, 1,024, windows and areas in all is a `ReadError`.
+Without `geometry`, `only` changes nothing.
+
+### Blocks read apart
+
+The blocks of a file spend one running total of `BLOCK_ITEMS` in file order, so in a large detail
+file a block late in the file, such as a dimension's picture, may be past the limit. `blocks` names
+blocks by handle, as `ReadBlock.handle` gives it, that are kept in a room of their own, a second
+`BLOCK_ITEMS` the blocks named share:
+
+```ts
+const read = await readDXF(file, { geometry: true, blocks: ["11A033C", "11A0346"] });
+read.blocksAsked; // ["11A033C", "11A0346"]
+```
+
+A block named still spends the running total as it would without the option, so every other block
+is kept as it would be. A handle that names no block is passed over. It works with or without
+`geometry` and `only`, and the read gives the handles in capitals as `blocksAsked`. A value that is
+not a list of at most `MOST_OWN_BLOCKS`, 6,000, handles is a `ReadError`. The checks of an edit
+read a copy with the blocks the edit adds named, and the changed sheets read a file again with the
+blocks its kept entities draw that came past the limit.
+
 `readDXF` throws a `ReadError` for a file it cannot read at all: a binary DXF, a group code
 that is not an integer, or a file that ends between a code and its value. A record whose kind,
 layer, block name or tag is longer than the 2,049 characters a DXF value holds is counted under
 `unread.malformed`.
+
+## The picture of a read file
+
+`toSVG(read, options)` draws a `DrawingRead` read with `geometry` as the leading CAD app shows the
+file: model space, or with `layout` the sheet as it plots, with its viewports, their scale, twist
+and frozen layers, at the layout's plot style table where tsdraft has it and at `acad.ctb` where
+the layout names none. It takes the options a drawing's picture takes, and two more: `xrefs`, the
+read each xref stands for, by its name, drawn with the states of its layers the host holds as
+`XREF|LAYER`; and `pageSizes`, the size in inches of each page the underlays show, by path and
+page, as `pdfPageSize` reads it.
+
+Each kind the readers keep is drawn by the code that draws a drawing's:
+
+- A dimension and a table are drawn from the block of their picture, which is what the leading CAD
+  app shows and plots. One with no such block draws nothing.
+- A multileader is drawn from its own points, its landing and sizes, with the arrowheads of
+  `leaderPicture`; one with no leader, its note alone where the file places it; an old leader
+  from its points, with its dimension style's arrow size.
+- A text starts where that app starts it, `at`. A text justified to `fit` or `aligned` is fitted
+  between its two points. A text in a font tsdraft does not have is measured and drawn in the
+  nearest font of `FONTS`, as `nearestFont` picks it.
+- An insert draws its block and each attribute that shows, where the file places it. A constant
+  attribute draws in every insert of its block.
+- A solid draws as a filled outline, a hatch with the lines of its pattern as the file holds
+  them, and a 3D solid, region or body as `edgesInPlan` gives its edges.
+- An entity's own linetype scale, a layer's true color and a paper tsdraft does not list are
+  drawn as the file holds them.
+
+`readPicture(read, options)` draws the same picture and gives, beside `svg`:
+
+- `notes`: each text style whose font tsdraft does not have, with the font drawn in its place;
+  what draws nothing, counted by kind, which holds what the read counts under a space's or a
+  block's `other` and under `unread.entities`; and what draws only nearly, counted by what, such
+  as a mirrored text or an image a file slants.
+- `pieces` and `defs`: the picture in pieces, which `joinPicture(pieces, defs)` joins into `svg`.
+  Each space it draws, a layout's paper and model space through each of its viewports or alone,
+  is a `PictureRun` of fragments, one for each entity at the top of the space that shows, in the
+  order the leading CAD app draws them: the `drawOrder` the file holds, then the rest in the
+  file's order. A fragment has its entity's `index` among the space's `entities`, its `handle`,
+  its `svg` and the ids of the definitions it uses, such as an image's picture or a gradient.
+  Each id a fragment makes starts from its viewport and its entity's handle, and an image's
+  comes from its file, so a fragment kept from one picture joins with fragments of another.
+
+`pictureDrawing(read)` gives the `Drawing` the picture draws, where each of its entities came
+from, the handle of each and the notes. It holds what a `Drawing` cannot, such as a paper tsdraft
+does not list, where `toSVG` alone reads it, and it is for pictures and for the checks of text:
+`toDXF` of it is not the file.
+
+## What a sheet shows
+
+Three questions are answered from a read with `geometry`, so code can find what to change in a
+firm's sheet without a CAD program:
+
+```ts
+import { nearPoint, sheetShows, xrefAreas } from "tsdraft";
+
+const sheet = await readDXF(createReadStream("A-102.dxf"), { geometry: true });
+const model = await readDXF(createReadStream("FLOOR PLAN.dxf"), { geometry: true });
+const xrefs = { "FLOOR PLAN": model };
+
+// The sheet's paper, and what each viewport that is on shows of model space.
+sheetShows(sheet, "A-102", { xrefs })?.entities.filter((e) => e.text?.startsWith("NOTE"));
+// What is within a quarter inch of a point on the paper, nearest first.
+nearPoint(sheet, [12.5, 8], { sheet: "A-102", within: 0.25, xrefs })?.entities[0]?.handle;
+// The parts of the model the sheet shows, in the model's coordinates.
+xrefAreas(sheet, "A-102", "FLOOR PLAN");
+```
+
+`sheetShows(read, layout, { xrefs })` gives the entities of the layout's paper, then for each
+viewport that is on the entities of model space it shows. Inserts are followed through their
+blocks, and through each xref whose read `xrefs` gives by the xref's name, or as
+`{ read, xrefs }` with the reads of its own attachments. What lies on a layer that is off, frozen,
+frozen in that viewport or set not to plot is left out, and an xref's layer is in the state the
+host holds for it as `XREF|LAYER`, as CAD programs show it. So is what lies outside the
+viewport's rectangle, or outside the outline that clips it, `clipBy`, and what lies outside an
+insert's clip, `clip`. Each entity comes with its handle in the file that holds it, the handles of
+the inserts it was reached through, the xrefs, its kind, its layer as the sheet names it, its
+color after ByLayer and ByBlock, the viewport, its box on the paper, and for a text its value.
+`spaceShows(read, { layout?, xrefs })` gives what model space or a layout's paper draws, each box
+in the space's own coordinates.
+
+`nearPoint(read, at, { sheet | layout, within, xrefs })` gives the entities whose box comes
+within `within` of a point, nearest first, and of two at one distance the smaller box first. What
+the sheet or space shows is worked out and filed in a grid once for each read, so each question
+after the first costs about what it finds. `xrefAreas(read, layout, xref)` gives, for each
+viewport that is on and each insert of the xref at the top of model space, the box of what the
+viewport shows in the xref's own coordinates, cut to the insert's clip.
+
+Each walk stops at `QUESTION_LIMITS`, 100,000 entities and 4,000,000 steps through inserts, and
+then says `capped`. A box is the box the core's extents give, from `measureText` for a text, so
+it is the box the picture draws.
 
 ## Readers of other formats
 
@@ -344,7 +490,12 @@ A package that reads another format names its reader in its `package.json`:
 The module exports `readDrawingFile(chunks, name, options)`, of the type `ReadDrawingFile`. It
 takes the file's bytes as an `AsyncIterable<Uint8Array>`, its name without folders and the
 `ReadOptions` `readDXF` takes, and gives a promise of a `DrawingRead` with the same fields
-`readDXF` fills. `checkDrawingRead(value)` lists what is wrong with an answer as plain data, with
-the path of each field, and is empty for a sound one. The library imports no reader. The
+`readDXF` fills. A reader of another format reads `only` as `readDXF` does with `partFilter`,
+which takes a read of the file without geometry and the `only` it was given, and says which
+layouts to keep and which entities of model space. `checkDrawingRead(value)` lists what is wrong with an answer as plain data, with
+the path of each field, and is empty for a sound one. A reader gives the `format` it was built
+for. The command still takes format 0, which a reader built for an older tsdraft gives, and
+renames a mark's `shape` to `glyph` and a text style's `shapes` to `glyphFile` before it checks
+the answer; it skips an answer in any other format. The library imports no reader. The
 `tsdraft` command finds readers and runs each read within limits, as
 [the command's page](command.md#reading-drawing-files) says.

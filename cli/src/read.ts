@@ -10,7 +10,15 @@ import { stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { pipeline, type Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { checkDrawingRead, type DrawingRead } from "tsdraft";
+import { checkDrawingRead, READ_FORMAT, type DrawingRead, type ReadOptions } from "tsdraft";
+import {
+  isJsonObject,
+  isNumber,
+  isObject,
+  isString,
+  type Json,
+  type JsonObject,
+} from "./guards.ts";
 import { lookup, OWN_FOLDER, type ReaderPackage } from "./readers.ts";
 
 const childPath = realpathSync.native(
@@ -55,6 +63,7 @@ const waiting: (() => void)[] = [];
 async function inTurn<T>(work: () => Promise<T>): Promise<T> {
   while (running >= AT_ONCE) await new Promise<void>((go) => waiting.push(go));
   running++;
+
   try {
     return await work();
   } finally {
@@ -78,6 +87,7 @@ function endLive(): void {
 function onSignal(signal: NodeJS.Signals): void {
   endLive();
   process.off("SIGINT", onSignal).off("SIGTERM", onSignal);
+
   // Another listener, such as `tsdraft dev`'s, decides what the signal does.
   if (process.listenerCount(signal) === 0) process.kill(process.pid, signal);
 }
@@ -93,6 +103,7 @@ function untrack(child: ChildProcess): void {
   }
 }
 
+// SAFETY: the command's own package.json, which gives its name and its version as strings.
 const own = JSON.parse(readFileSync(join(OWN_FOLDER, "package.json"), "utf8")) as ReadBy;
 const core: ReadBy = { name: own.name, version: own.version };
 
@@ -106,15 +117,19 @@ let prlimit: boolean | undefined;
 function permission(reader: ReaderPackage | null): string[] {
   const flags = process.allowedNodeEnvironmentFlags;
   const on = ["--permission", "--experimental-permission"].find((flag) => flags.has(flag));
+
   if (!on || !flags.has("--allow-fs-read")) return [];
   const folders = [OWN_FOLDER];
+
   if (reader) {
     folders.push(reader.folder);
     // A reader that imports tsdraft reaches it through a link where pnpm installed it, and
     // Node's resolver reads the link before it follows it.
     const link = lookup(reader.folder, "tsdraft");
+
     if (link !== null && realpathSync.native(link) === OWN_FOLDER) folders.push(link);
   }
+
   return [on, ...folders.map((folder) => `--allow-fs-read=${folder}`)];
 }
 
@@ -131,37 +146,48 @@ export function readDrawingFile(
   file: string,
   reader: ReaderPackage | null,
   limits: ReadLimits = {},
+  options: ReadOptions = {},
 ): Promise<FileRead> {
   const by: ReadBy = reader ? { name: reader.name, version: reader.version } : core;
   const skip = (skipped: string): FileRead => ({ file, reader: by, skipped });
+
   const {
     maxFileBytes = 1024 * MB,
     maxMemoryMb = 2048,
     timeoutMs = 120_000,
     maxAnswerBytes = 128 * MB,
   } = limits;
+
   return inTurn(async () => {
     try {
       const found = await stat(file);
       const bytes = found.size;
+
       if (!found.isFile()) return skip("it is not a file");
+
       if (bytes > maxFileBytes) {
         return skip(`the file is ${size(bytes)}, over the limit of ${size(maxFileBytes)}`);
       }
     } catch (error) {
+      // SAFETY: `stat` rejects with an Error of the file system.
       return skip(`the file cannot be read: ${(error as Error).message}`);
     }
+
     const module = reader?.modules[extension(file)];
+
     if (reader && !module) return skip(`${reader.name} does not read ${basename(file)}`);
+
     if (!reader && extension(file) !== ".dxf") {
       return skip(`no installed reader reads ${basename(file)}`);
     }
-    const outcome = await run(file, module, permission(reader), {
+
+    const outcome = await run(file, module, permission(reader), options, {
       maxFileBytes,
       maxMemoryMb,
       timeoutMs,
       maxAnswerBytes,
     });
+
     return "read" in outcome ? { file, reader: by, read: outcome.read } : skip(outcome.skipped);
   });
 }
@@ -170,8 +196,11 @@ export function readDrawingFile(
 export function readDrawingFiles(
   files: readonly { readonly file: string; readonly reader: ReaderPackage | null }[],
   limits: ReadLimits = {},
+  options: ReadOptions = {},
 ): Promise<FileRead[]> {
-  return Promise.all(files.map(({ file, reader }) => readDrawingFile(file, reader, limits)));
+  return Promise.all(
+    files.map(({ file, reader }) => readDrawingFile(file, reader, limits, options)),
+  );
 }
 
 const extension = (file: string): string => /\.[^./\\]*$/.exec(file)?.[0].toLowerCase() ?? "";
@@ -180,17 +209,25 @@ function run(
   file: string,
   module: string | undefined,
   allow: readonly string[],
+  options: ReadOptions,
   limits: Required<ReadLimits>,
 ): Promise<{ read: DrawingRead } | { skipped: string }> {
   const { maxFileBytes, maxMemoryMb, timeoutMs, maxAnswerBytes } = limits;
   prlimit ??= spawnSync("prlimit", ["--core=1:1", "true"], { stdio: "ignore" }).status === 0;
+
   const node = [
     `--max-old-space-size=${maxMemoryMb}`,
     ...allow,
     childPath,
     basename(file),
+    JSON.stringify({
+      geometry: options.geometry === true,
+      ...(options.geometry === true && options.only !== undefined && { only: options.only }),
+      ...(options.blocks !== undefined && { blocks: options.blocks }),
+    }),
     ...(module ? [module] : []),
   ];
+
   const command = prlimit ? "prlimit" : process.execPath;
   // The kernel ends a process the command has lost at its CPU limit, as a busy reader never runs
   // the process's own check on its parent.
@@ -201,6 +238,7 @@ function run(
   // NODE_OPTIONS would add its own flags to the process's, and could allow what is denied.
   const env = { ...process.env };
   delete env["NODE_OPTIONS"];
+
   if (!watching) {
     watching = true;
     process.once("exit", endLive);
@@ -209,9 +247,11 @@ function run(
   return new Promise((settle) => {
     const source = createReadStream(file);
     const child = spawn(command, args, { stdio: ["pipe", "ignore", "pipe", "pipe"], env });
+    // SAFETY: the fourth of `stdio` is a pipe, which the parent reads.
     const [stdin, stderr, answers] = [child.stdin!, child.stderr!, child.stdio[3] as Readable];
     track(child);
     let settled = false;
+
     const done = (outcome: { read: DrawingRead } | { skipped: string }): void => {
       if (settled) return;
       settled = true;
@@ -221,6 +261,7 @@ function run(
       source.destroy();
       settle(outcome);
     };
+
     const timer = setTimeout(
       () => done({ skipped: `the read took longer than ${timeoutMs / 1000} s, and was ended` }),
       timeoutMs,
@@ -233,6 +274,7 @@ function run(
     source.on("data", (chunk) => {
       sent += chunk.length;
       hash.update(chunk);
+
       if (sent > maxFileBytes) {
         done({ skipped: `the file grew over the limit of ${size(maxFileBytes)} as it was read` });
       }
@@ -251,6 +293,7 @@ function run(
     answers.on("data", (chunk: Buffer) => {
       if (settled) return;
       answered += chunk.length;
+
       if (answered > maxAnswerBytes) {
         chunks.length = 0;
         done({ skipped: `the reader's answer is over the limit of ${size(maxAnswerBytes)}` });
@@ -263,64 +306,161 @@ function run(
     );
     child.once("close", (code, signal) => {
       if (settled) return;
+
       const malformed = (why: string) =>
         done({ skipped: `the reader's answer is malformed: ${why}` });
+
       if (answered === 0) return done({ skipped: ended(code, signal, tail, maxMemoryMb) });
-      let answer: Partial<Record<"read" | "error" | "loading" | "malformed", unknown>>;
+      let answer: Json;
+
       try {
         // Nothing from here to the end of the check awaits, so answers are joined and parsed one
         // at a time across reads, and the chunks are let go once joined.
         // Every object comes back with no prototype, as `readDXF` gives its maps, so a layer
         // named `constructor` is a key like any other here too.
-        answer = bare(
-          JSON.parse(Buffer.concat(chunks.splice(0), answered).toString("utf8")),
-        ) as typeof answer;
+        answer = JSON.parse(Buffer.concat(chunks.splice(0), answered).toString("utf8"));
+        bare(answer);
       } catch {
         // A process that was ended while it wrote its answer left half of it.
         return code === 0
           ? malformed("it is not JSON")
           : done({ skipped: ended(code, signal, tail, maxMemoryMb) });
       }
-      if (typeof answer !== "object" || answer === null) return malformed("it is not an object");
-      if (typeof answer.error === "string") {
+
+      if (!isObject(answer)) return malformed("it is not an object");
+      const error = "error" in answer ? answer.error : undefined;
+
+      if (isString(error)) {
+        const loading = "loading" in answer ? answer.loading : undefined;
+
         return done({
-          skipped: answer.loading
-            ? `the reader could not be loaded: ${answer.error}`
-            : `the reader threw: ${answer.error}`,
+          skipped: loading
+            ? `the reader could not be loaded: ${error}`
+            : `the reader threw: ${error}`,
         });
       }
-      if (typeof answer.malformed === "string") return malformed(answer.malformed);
-      const problems = checkDrawingRead(answer.read);
+
+      const why = "malformed" in answer ? answer.malformed : undefined;
+
+      if (isString(why)) return malformed(why);
+      const offered = "read" in answer ? answer.read : undefined;
+      const format = isJsonObject(offered) ? offered.format : undefined;
+
+      if (isNumber(format) && format !== 0 && format !== READ_FORMAT) {
+        return done({
+          skipped: `the reader gives read format ${format}, and this tsdraft reads format ${READ_FORMAT}, and format 0 from older readers`,
+        });
+      }
+
+      const older = isJsonObject(offered) && format === 0 ? offered : undefined;
+      const mixed = older === undefined ? undefined : format1Field(older);
+
+      if (mixed !== undefined) {
+        return malformed(`it gives read format 0 and names ${mixed}, which is read format 1's`);
+      }
+
+      const given = older === undefined ? offered : fromFormat0(older);
+      const problems = checkDrawingRead(given);
+
       if (problems.length > 0) return malformed(problems.slice(0, 3).join("; "));
-      const read = answer.read as DrawingRead;
+      // SAFETY: checkDrawingRead found the fields of a DrawingRead in it, each of its type.
+      const read: DrawingRead = given as JsonObject & DrawingRead;
+
       if (!whole) return malformed("it was given before the whole file was read");
+
       if (read.bytes !== sent || read.sha256 !== hash.digest("hex")) {
         return malformed("its size or SHA-256 is not the file's");
       }
+
       done({ read });
     });
   });
 }
 
 /**
+ * A read in format 0, which readers built for an older tsdraft give, in the current format: a
+ * linetype mark's `shape` is its `glyph`, and a text style's `shapes` is its `glyphFile`.
+ */
+export function fromFormat0(read: JsonObject): JsonObject {
+  const { linetypes, textStyles } = read;
+
+  return bareCopy({
+    ...read,
+    format: READ_FORMAT,
+    ...(Array.isArray(linetypes) && {
+      linetypes: linetypes.map((linetype) =>
+        isJsonObject(linetype) && Array.isArray(linetype.marks)
+          ? bareCopy({
+              ...linetype,
+              marks: linetype.marks.map((mark) => renamed(mark, "shape", "glyph")),
+            })
+          : linetype,
+      ),
+    }),
+    ...(Array.isArray(textStyles) && {
+      textStyles: textStyles.map((style) => renamed(style, "shapes", "glyphFile")),
+    }),
+  });
+}
+
+/**
+ * The first field of read format 1 that a read which says format 0 holds: a linetype mark's
+ * `glyph` or a text style's `glyphFile`. Undefined for a read that holds neither.
+ */
+function format1Field(read: JsonObject): string | undefined {
+  const { linetypes, textStyles } = read;
+
+  for (const linetype of Array.isArray(linetypes) ? linetypes : []) {
+    const marks = isJsonObject(linetype) ? linetype.marks : undefined;
+
+    for (const mark of Array.isArray(marks) ? marks : []) {
+      if (isJsonObject(mark) && Object.hasOwn(mark, "glyph")) return "a linetype mark's glyph";
+    }
+  }
+
+  for (const style of Array.isArray(textStyles) ? textStyles : []) {
+    if (isJsonObject(style) && Object.hasOwn(style, "glyphFile")) {
+      return "a text style's glyphFile";
+    }
+  }
+
+  return undefined;
+}
+
+/** An object with its field `from` named `to`, or the value as it is when it has no `from`. */
+function renamed(value: Json, from: string, to: string): Json {
+  if (!isJsonObject(value) || !Object.hasOwn(value, from)) return value;
+  const { [from]: field, ...rest } = value;
+
+  return bareCopy(field === undefined ? rest : { ...rest, [to]: field });
+}
+
+/** A copy of an object with no prototype, as `bare` leaves each object of an answer. */
+function bareCopy(fields: JsonObject): JsonObject {
+  const copy: JsonObject = Object.create(null);
+
+  return Object.assign(copy, fields);
+}
+
+/**
  * Takes the prototype from each object of a parsed answer, in place. A reviver that made new
  * objects would put each in V8's slow mode, and parse about ten times slower.
  */
-function bare(value: unknown): unknown {
-  const stack = [value];
-  while (stack.length > 0) {
-    const item = stack.pop();
-    if (typeof item !== "object" || item === null) continue;
+export function bare(value: Json): void {
+  const stack: object[] = isObject(value) ? [value] : [];
+
+  for (let item = stack.pop(); item !== undefined; item = stack.pop()) {
     if (Array.isArray(item)) {
-      for (const each of item) if (typeof each === "object" && each !== null) stack.push(each);
+      for (const each of item) if (isObject(each)) stack.push(each);
       continue;
     }
+
     Object.setPrototypeOf(item, null);
+
     for (const each of Object.values(item)) {
-      if (typeof each === "object" && each !== null) stack.push(each);
+      if (isObject(each)) stack.push(each);
     }
   }
-  return value;
 }
 
 /** Why a process ended with no answer. */
@@ -333,10 +473,13 @@ function ended(
   if (/heap out of memory/.test(stderr)) {
     return `the reading process ran out of memory, over its heap of ${maxMemoryMb} MB`;
   }
+
   if (signal === "SIGXCPU") {
     return `the reading process used its limit of CPU time, the timeout and 30 seconds, before it answered`;
   }
+
   const last = stderr.trim().split("\n").at(-1)?.slice(0, 300);
+
   return (
     `the reading process ended ${signal ? `with ${signal}` : `with exit code ${code}`} ` +
     `before it answered${last ? `: ${last}` : ""}`

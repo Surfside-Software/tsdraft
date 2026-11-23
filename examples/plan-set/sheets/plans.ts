@@ -36,12 +36,13 @@ import {
 import { ARCH_LAYERS, drawPlan, planDims, planTags } from "../lib/plan.ts";
 import { CUT_X } from "./elevations-section.ts";
 
-export const ORIGIN = { L1: [20000, 0] as Point, L2: [40000, 0] as Point };
+export const ORIGIN = { L1: [20000, 0] satisfies Point, L2: [40000, 0] satisfies Point };
 
 /** The middle of the part of model space a plan sheet shows: the house with its dimensions. */
 const center = (origin: Point): Point => [origin[0] + 312, origin[1] + 300];
 
 const riser = (HEIGHTS.l2 / STAIR.risers).toFixed(2);
+
 const PLAN_NOTES = [
   "DIMENSIONS ARE TO THE FACE OF MASONRY OR THE FACE OF STUD UNLESS NOTED. DO NOT SCALE THE DRAWINGS.",
   'EXTERIOR WALLS OF THE FIRST FLOOR ARE 8" CMU WITH A REINFORCED TIE BEAM. SEE S-101 AND S-501.',
@@ -107,6 +108,7 @@ function planSheet(
         `AT ${LANAI_SLAB.deck.toFixed(2)}' NAVD`,
       ]);
       leaderNote(d, v, o([0, 100]), o([-110, 70]), ["FLOOD VENT, TYP. OF 4,", "SEE S-101"]);
+
       for (const fv of FLOOD_VENTS)
         d.insert("FLOOD VENT", o(fv.at), { scale: v.p(1), rotation: fv.wall === "W" ? 90 : 0 });
       // Powder room: the water closet's clearances, dimensioned.
@@ -120,6 +122,7 @@ function planSheet(
           origin[0] + 62,
         );
       });
+
       // Revision 1's changes, clouded: the stair, the garage steps, the entry stair and porch
       // guards, the powder room, the lanai guards and steps.
       const cloud = (r: [number, number, number, number]) =>
@@ -129,6 +132,7 @@ function planSheet(
           [o([r[0], r[1]])[0], o([r[0], r[1]])[1], o([r[2], r[3]])[0], o([r[2], r[3]])[1]],
           "1",
         );
+
       cloud([268, 84, 320, 292]);
       cloud([10, 214, 66, 290]);
       cloud([266, -58, 382, 6]);
@@ -216,11 +220,13 @@ function legend(d: D, at: Point, w: number, which: "L1" | "L2"): number {
     d.line([at[0], y], [at[0] + w, y], { lineweight: 0.35 });
     y -= 0.3;
   });
+
   const row = (label: string, draw: (c: Point) => void) => {
     draw([at[0] + 0.3, y + 0.03]);
     d.layer(LAYERS.text, {}, () => put(d, [at[0] + 0.7, y], label, H.note, { valign: "middle" }));
     y -= 0.38;
   };
+
   row("DOOR NUMBER, SEE A-601", (c) =>
     d.layer(LAYERS.tags, {}, () => d.insert("DOOR TAG", c, { attributes: { DOOR: "101" } })),
   );
@@ -232,6 +238,7 @@ function legend(d: D, at: Point, w: number, which: "L1" | "L2"): number {
       put(d, c, "1-01", H.small, { align: "center", valign: "middle" }),
     ),
   );
+
   if (which === "L1")
     row('8" CMU WALL', (c) =>
       d.layer(LAYERS.wall, {}, () => d.rect([c[0] - 0.25, c[1] - 0.04], 0.5, 0.08)),
@@ -254,12 +261,14 @@ function legend(d: D, at: Point, w: number, which: "L1" | "L2"): number {
       d.insert("SECTION BUBBLE", c, { attributes: { SECT: "1", SHEET: "A-301" } }),
     ),
   );
+
   if (which === "L1")
     row("FLOOD VENT", (c) => d.layer(LAYERS.anno, {}, () => d.insert("FLOOD VENT", c)));
+
   return y;
 }
 
-export const SHEETS: Record<string, SheetDraw> = {
+export const SHEETS = {
   "A-101": (d) => planSheet(d, "A-101", L1, "L1", PLAN_NOTES),
   "A-102": (d) => planSheet(d, "A-102", L2, "L2", L2_NOTES),
-};
+} satisfies Record<string, SheetDraw>;

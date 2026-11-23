@@ -19,7 +19,10 @@ import {
   viewportView,
   type Drawing,
   type Entity,
-  type Insert,
+  type HatchGradient,
+  type HatchOptions,
+  type HatchPattern,
+  type HatchPatternOf,
   type Point,
   type Text,
 } from "../src/index.ts";
@@ -27,6 +30,8 @@ import sheet, { sitePlan, type Box } from "../examples/site-plan.ts";
 import { blocksByKey, eachDrawn, mapPoint } from "../src/blocks.ts";
 import { extents } from "../src/extents.ts";
 import { leaderBlockKeys } from "../src/leaders.ts";
+import { isString } from "../src/guards.ts";
+import { dataOf, hasKey, ofKind, wrong, type Data, type Field } from "./values.ts";
 
 // Each `@ts-expect-error` below proves the compiler rejects the literal. The
 // `assert.throws` around it proves the same mistake is caught when the code runs.
@@ -199,6 +204,7 @@ test("lint checks a drawing that was not made with the builder", () => {
       { kind: "text", layer: "0", at: [0, 0], height: 1, rotation: 0, value: "😀" },
     ],
   };
+
   const found = lint(d).map((p) => `${p.severity} ${p.rule} ${p.entity ?? p.layer}`);
   assert.deepEqual(found, [
     "error layer-color WALL",
@@ -285,6 +291,7 @@ test("sizes, lines and arcs that rounding would collapse", () => {
       { kind: "text", layer: "0", at: [0, 0], height: Number.NaN, rotation: 0, value: "x" },
     ],
   };
+
   assert.deepEqual(
     lint(byHand).map((p) => `${p.severity} ${p.rule} ${p.entity}`),
     [
@@ -308,6 +315,7 @@ test("layer names are compared the way the leading CAD app compares them", () =>
     layers: [{ name: "0", color: 7 }, ...layers.map((name) => ({ name, color: 1 }))],
     entities: used.map((layer) => ({ kind: "line", layer, from: [0, 0], to: [1, 1] })),
   });
+
   const found = (d: Drawing) => lint(d).map((p) => `${p.rule} ${p.entity ?? p.layer}`);
 
   // The leading CAD app puts each of these lines on the declared layer.
@@ -381,6 +389,7 @@ test("lint handles text the leading CAD app would change or draw differently", (
       { kind: "text", layer: "0", at: [0, 0], height: 1, rotation: 0, value: "a\ue800b" },
     ],
   };
+
   assert.deepEqual(
     lint(d).map((p) => `${p.severity} ${p.rule} ${p.entity}`),
     ["warning text 1", "error text 3"],
@@ -390,6 +399,7 @@ test("lint handles text the leading CAD app would change or draw differently", (
 
 test("lint takes a polyline too long to pass as arguments", () => {
   const points = Array.from({ length: 250_000 }, (_, i): [number, number] => [i, i % 7]);
+
   const d: Drawing = {
     format: 0,
     units: "in",
@@ -397,16 +407,19 @@ test("lint takes a polyline too long to pass as arguments", () => {
     layers: [{ name: "0", color: 7 }],
     entities: [{ kind: "polyline", layer: "0", points, closed: false }],
   };
+
   assert.deepEqual(lint(d), []);
   assert.equal(toDXF(d).match(/VERTEX/g)?.length, points.length);
   assert.match(toDXF(d, { version: "R2018" }), /\r\n90\r\n250000\r\n/);
   assert.match(toSVG(d), /<polyline points="0,0 1,1 /);
+
   const broken: Drawing = {
     ...d,
     entities: [
       { kind: "polyline", layer: "0", points: [...points, [0, Number.NaN]], closed: false },
     ],
   };
+
   assert.deepEqual(
     lint(broken).map((p) => p.message),
     ["polyline #0: its points must be finite numbers"],
@@ -417,6 +430,7 @@ test("a DrawingError names no file format", () => {
   const one = new DrawingError([{ rule: "text", severity: "error", message: "text #0: bad" }]);
   assert.equal(one.message, "The drawing has 1 problem:\n- text #0: bad");
   assert.equal(one.name, "DrawingError");
+
   const many = new DrawingError(
     Array.from({ length: 12 }, (_, i) => ({
       rule: "geometry" as const,
@@ -424,6 +438,7 @@ test("a DrawingError names no file format", () => {
       message: `circle #${i}: bad`,
     })),
   );
+
   assert.match(many.message, /^The drawing has 12 problems:\n- circle #0: bad\n/);
   assert.match(many.message, /\n- and 2 more$/);
   assert.equal(many.diagnostics.length, 12);
@@ -457,6 +472,7 @@ test("lint refuses a number the leading CAD app would misread", () => {
       { kind: "circle", layer: "0", center: [9.999999e99, 0], radius: 9.999999999999998e99 },
     ],
   };
+
   assert.deepEqual(
     lint(d).map((p) => `${p.severity} ${p.entity} ${p.message.replace(/, because.*/, "")}`),
     [
@@ -482,8 +498,10 @@ test("lint refuses layer names that AUDIT would report as duplicates", () => {
     layers: [{ name: "0", color: 7 }, ...layers.map((name) => ({ name, color: 1 }))],
     entities: used.map((layer) => ({ kind: "line", layer, from: [0, 0], to: [1, 1] })),
   });
+
   const duplicates = (layers: string[]) =>
     lint(drawing(layers)).map((p) => `${p.severity} ${p.rule} ${p.layer}`);
+
   const softHyphen = "\u00ad";
 
   // A letter and the letters it stands for, in either letter case and inside longer names.
@@ -517,6 +535,7 @@ test("lint refuses layer names that AUDIT would report as duplicates", () => {
     assert.deepEqual(duplicates([name, other]), [`error duplicate-layer ${other}`], name);
     assert.deepEqual(duplicates([other, name]), [`error duplicate-layer ${name}`], other);
   }
+
   const [problem] = lint(drawing(["straße", "STRASSE"]));
   assert.equal(
     problem?.message,
@@ -691,24 +710,32 @@ test("an entity's transparency is a whole percent from 0 to 90, ByLayer or ByBlo
     [undefined, 0, 90, undefined, "ByBlock", 50],
   );
   assert.deepEqual(lint(built), []);
-  const faded = { ...built, entities: [{ ...built.entities[1]!, transparency: 0.5 }] };
+
+  const faded = {
+    ...built,
+    entities: [wrong<Entity>({ ...dataOf(built.entities[1]!), transparency: 0.5 })],
+  };
+
   assert.deepEqual(
-    lint(faded as Drawing).map((p) => p.rule),
+    lint(faded).map((p) => p.rule),
     ["entity-transparency"],
   );
 });
 
 test("the blocks leaders place are found reading a list many layouts share once", () => {
   let reads = 0;
+
   const lines = new Proxy(
     Array.from({ length: 1000 }, () => ({ kind: "line", layer: "0", from: [0, 0], to: [1, 1] })),
     {
-      get: (target, key, receiver) => {
-        if (typeof key === "string" && /^\d+$/.test(key)) reads++;
-        return Reflect.get(target, key, receiver);
+      get: (target, key) => {
+        if (isString(key) && /^\d+$/.test(key)) reads++;
+
+        return hasKey(target, key) ? target[key] : undefined;
       },
     },
   );
+
   const layouts = Array.from({ length: 1000 }, (_, i) => ({ name: `S${i}`, entities: lines }));
   assert.equal(leaderBlockKeys({ entities: [], layouts }).size, 0);
   assert.equal(reads, 1000);
@@ -736,18 +763,23 @@ test("a block a leader places takes no percent of its own, which CAD programs dr
   assert.deepEqual(lint(built), []);
   // Its file holds all it draws ByBlock, and its attribute definition, as CAD programs read it.
   const dxf = toDXF(built);
+
   const block = (name: string): string => {
     const at = dxf.indexOf(`AcDbBlockBegin\r\n2\r\n${name}\r\n`);
+
     return dxf.slice(at, dxf.indexOf("ENDBLK", at));
   };
+
   assert.equal(block("TAG").match(/\r\n440\r\n16777216\r\n/g)?.length, 4);
   assert.match(block("FADED"), /\r\n440\r\n33554687\r\n/);
-  const placed = {
+
+  const placed: Drawing = {
     ...built,
-    entities: [...built.entities, { ...built.entities[0]!, block: "FADED" }],
+    entities: [...built.entities, { ...ofKind(built.entities[0], "leader"), block: "FADED" }],
   };
+
   assert.deepEqual(
-    lint(placed as Drawing).map((p) => [p.rule, p.block]),
+    lint(placed).map((p) => [p.rule, p.block]),
     [["entity-transparency", "FADED"]],
   );
 });
@@ -780,17 +812,20 @@ test("entity color mistakes are compile errors and runtime errors", () => {
   // @ts-expect-error: an R12 entity takes its layer's color.
   assert.throws(() => r12.line([0, 0], [1, 1], { color: 1 }), /R12 entities take no color/);
   r12.line([0, 0], [1, 1], { color: "ByLayer" });
+
   const fit: Point[] = [
     [0, 0],
     [1, 1],
     [2, 0],
   ];
+
   const control: Point[] = [
     [0, 0],
     [1, 1],
     [2, 0],
     [3, 1],
   ];
+
   // @ts-expect-error: a curve's color is checked as any entity's.
   assert.throws(() => d.ellipse([0, 0], [2, 0], 0.5, { color: 0 }), /An entity's color is/);
   // @ts-expect-error: a spline's too.
@@ -882,6 +917,7 @@ test("lint checks the linetypes, lineweights and layer states of a drawing", () 
       { kind: "line", layer: "A", from: [0, 0], to: [1, 1], linetype: "dashed", lineweight: 2.11 },
     ],
   };
+
   assert.deepEqual(
     lint(drawing).map((p) => `${p.rule} ${p.linetype ?? p.layer ?? p.entity ?? ""}`),
     [
@@ -907,6 +943,7 @@ test("lint checks the linetypes, lineweights and layer states of a drawing", () 
     layers: [{ name: "0", color: 7, off: true, lineweight: "Default", linetype: "Continuous" }],
     entities: [{ kind: "line", layer: "0", from: [0, 0], to: [1, 1], lineweight: 0.5 }],
   };
+
   assert.deepEqual(
     lint(r12).map((p) => `${p.rule} ${p.message.replace(/\. Use.*/, "")}`),
     [
@@ -917,7 +954,7 @@ test("lint checks the linetypes, lineweights and layer states of a drawing", () 
   );
 
   // lint reports the new rules, and fields of the wrong type in a drawing built by hand.
-  const odd = {
+  const odd = wrong<Drawing>({
     format: 0,
     units: "in",
     dxf: "R2018",
@@ -933,7 +970,8 @@ test("lint checks the linetypes, lineweights and layer states of a drawing", () 
     entities: [
       { kind: "line", layer: "0", from: [0, 0], to: [1, 1], linetype: 3, lineweight: null },
     ],
-  } as unknown as Drawing;
+  });
+
   assert.deepEqual(
     lint(odd).map((p) => p.message),
     [
@@ -1020,7 +1058,7 @@ test("text style and justification mistakes are compile errors and runtime error
   const missing: string = "MISSING";
   assert.throws(
     () => d.text([0, 0], "x", { style: missing, id: "t" }),
-    (thrown: unknown) => {
+    (thrown) => {
       assert.ok(thrown instanceof DrawingError);
       const [found] = thrown.diagnostics;
       assert.equal(found?.rule, "undefined-text-style");
@@ -1029,6 +1067,7 @@ test("text style and justification mistakes are compile errors and runtime error
         thrown.message,
         /"MISSING" is not defined\. The leading CAD app puts .* in Standard.* Define it with textStyle\(\) first/,
       );
+
       return true;
     },
   );
@@ -1092,7 +1131,8 @@ test("lint checks the text styles and justification of a drawing", () => {
     height: 1,
     rotation: 0,
   } as const;
-  const drawing = {
+
+  const byHand = {
     format: 0,
     units: "in",
     dxf: "R2018",
@@ -1113,7 +1153,10 @@ test("lint checks the text styles and justification of a drawing", () => {
       { ...text, align: "fit" },
       { ...text, valign: "center" },
     ],
-  } as unknown as Drawing;
+  };
+
+  const drawing = wrong<Drawing>(byHand);
+
   assert.deepEqual(
     lint(drawing).map((p) => `${p.rule} ${p.textStyle ?? p.entity}`),
     [
@@ -1128,16 +1171,18 @@ test("lint checks the text styles and justification of a drawing", () => {
       "text-align 3",
     ],
   );
+
   // An R12 drawing takes none of it but the defaults.
-  const r12 = {
-    ...drawing,
+  const r12 = wrong<Drawing>({
+    ...byHand,
     textStyles: [{ name: "NOTES", font: "Arial" }],
     entities: [
       { ...text, style: "STANDARD", align: "left", valign: "baseline" },
       { ...text, style: "NOTES" },
       { ...text, align: "center" },
     ],
-  } as unknown as Drawing;
+  });
+
   assert.deepEqual(
     lint(r12, { version: "R12" }).map((p) => `${p.rule} ${p.textStyle ?? p.entity}`),
     ["text-style NOTES", "text-style 1", "text-align 2"],
@@ -1182,6 +1227,7 @@ test("the example sheet builds with no lint diagnostics and no warning about its
 function textBox(e: Text): [left: number, bottom: number, right: number, top: number] {
   const corners = measureText({ ...e, font: "Arial" }).corners;
   const [xs, ys] = [corners.map((c) => c[0]), corners.map((c) => c[1])];
+
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 }
 
@@ -1192,6 +1238,7 @@ for (const [scale, ratio] of [
   test(`the example sheet at ${scale} is laid out in its two spaces`, () => {
     const { drawing, layout, drawingArea, titleBlock, fields, viewport, view, keyPlan } =
       sitePlan(scale);
+
     const [page] = drawing.layouts!;
     assert.equal(page!.name, layout);
     const sides = (box: Box) => [box.left, box.bottom, box.right, box.top];
@@ -1210,11 +1257,13 @@ for (const [scale, ratio] of [
 
     const slack = 1e-9;
     const { blocks, textStyles } = drawing;
+
     const inside = (box: readonly number[], outer: Box) =>
       box[0]! >= outer.left - slack &&
       box[2]! <= outer.right + slack &&
       box[1]! >= outer.bottom - slack &&
       box[3]! <= outer.top + slack;
+
     const overlap = (a: readonly number[], b: readonly number[]) =>
       a[2]! > b[0]! + slack &&
       a[0]! < b[2]! - slack &&
@@ -1224,6 +1273,7 @@ for (const [scale, ratio] of [
     // Model space is the site at its true size, and all of it shows in the viewport.
     const lot = drawing.entities.find((e) => e.layer === "C-PROP");
     assert.deepEqual(lot?.kind === "polyline" && lot.points[2], [100, 140]);
+
     const boxOf = (entities: readonly Entity[]) =>
       extents(
         entities,
@@ -1234,6 +1284,7 @@ for (const [scale, ratio] of [
         undefined,
         drawing.dimensionStyles,
       );
+
     assert.ok(inside(boxOf(drawing.entities), view));
 
     // The sheet is in inches, inside the border. Only the title block is in its own space, and
@@ -1241,6 +1292,7 @@ for (const [scale, ratio] of [
     assert.ok(inside(boxOf(page!.entities), drawingArea));
     const [border, ...rest] = page!.entities;
     assert.ok(border?.kind === "insert" && border.block === "TITLE BLOCK");
+
     for (const entity of rest) {
       const box = boxOf([entity]);
       const what = `${entity.kind} on ${entity.layer}`;
@@ -1253,6 +1305,7 @@ for (const [scale, ratio] of [
     // example's inserts scale both ways alike and are not turned.
     const textsOf = (entities: readonly Entity[]): Text[] => {
       const texts: Text[] = [];
+
       for (const entity of entities) {
         eachDrawn(
           entity,
@@ -1264,8 +1317,10 @@ for (const [scale, ratio] of [
               const style = findDimensionStyle(drawing, drawn.style)!;
               const { label } = dimensionPicture(drawn, style);
               texts.push({ ...label, kind: "text", layer: drawn.layer, align: "center" });
+
               return;
             }
+
             if (drawn.kind !== "text") return;
             const scale = matrix ? matrix[0] : 1;
             const at = matrix ? mapPoint(matrix, drawn.at) : drawn.at;
@@ -1273,15 +1328,20 @@ for (const [scale, ratio] of [
           },
         );
       }
+
       return texts;
     };
+
     const onPaper = textsOf(page!.entities);
+
     // A text is the size it plots at in both spaces: 3/32 inch for a note of the plan, which
     // is `ratio` times that in model space, and for a number of the graphic scale.
     const height = (texts: readonly Text[], value: string) =>
       texts.find((t) => t.value === value)!.height;
+
     assert.equal(height(textsOf(drawing.entities), "EDGE OF PAVEMENT"), (3 / 32) * (ratio / 12));
     assert.equal(height(onPaper, "FEET"), 3 / 32);
+
     for (const texts of [textsOf(drawing.entities), onPaper]) {
       texts.forEach((a, i) => {
         for (const b of texts.slice(i + 1)) {
@@ -1291,11 +1351,12 @@ for (const [scale, ratio] of [
     }
 
     // Each field of the title block has a value of its own, inside its box.
-    const values = (border as Insert).attributes!;
+    const values = ofKind(border, "insert").attributes!;
     assert.deepEqual(Object.keys(values).sort(), Object.keys(fields).sort());
     assert.equal(values.SHEET, layout);
     // The sheet shows the plan and the key plan at two scales.
     assert.equal(values.SCALE, "AS NOTED");
+
     for (const [tag, box] of Object.entries(fields)) {
       const text = onPaper.find((t) => t.value === values[tag]);
       assert.ok(text && inside(textBox(text), box), `the field ${tag} is outside its box`);
@@ -1306,6 +1367,7 @@ for (const [scale, ratio] of [
 test("entity ids are checked as literals, when the code runs, and by lint", () => {
   const d = createDrawing();
   d.line([0, 0], [1, 0], { id: "Door-1" });
+
   // An id that is not a literal passes the compiler and is checked when the code runs.
   for (const n of [1, 2]) d.rect([0, 0], 1, 1, { id: `${"a".repeat(59)}.${n}_9` });
   // @ts-expect-error: an id cannot be empty.
@@ -1320,7 +1382,7 @@ test("entity ids are checked as literals, when the code runs, and by lint", () =
   // Whether the drawing has the id already is known only when the code runs.
   assert.throws(
     () => d.line([0, 0], [1, 0], { id: "door-1" }),
-    (thrown: unknown) =>
+    (thrown) =>
       thrown instanceof DrawingError &&
       thrown.diagnostics[0]?.rule === "duplicate-id" &&
       /"door-1" is already used, as "Door-1"/.test(thrown.message),
@@ -1328,10 +1390,12 @@ test("entity ids are checked as literals, when the code runs, and by lint", () =
   assert.equal(d.build().entities.length, 3);
 
   const [first, second] = d.build().entities;
+
   const byHand: Drawing = {
     ...d.build(),
     entities: [first!, second!, { ...first!, id: "DOOR-1" }, { ...first!, id: "é" }],
   };
+
   assert.deepEqual(
     lint(byHand).map((x) => [x.rule, x.entity, x.id]),
     [
@@ -1342,9 +1406,10 @@ test("entity ids are checked as literals, when the code runs, and by lint", () =
   assert.throws(() => toDXF(byHand), DrawingError);
   // A drawing with no format version, or another one, is refused too.
   const { format: _, ...unversioned } = d.build();
-  for (const other of [unversioned, { ...unversioned, format: 1 }]) {
+
+  for (const other of [dataOf(unversioned), { ...dataOf(unversioned), format: 1 }]) {
     assert.deepEqual(
-      lint(other as Drawing).map((x) => x.rule),
+      lint(wrong(other)).map((x) => x.rule),
       ["format"],
     );
   }
@@ -1356,7 +1421,7 @@ test("two ids that give one handle are refused by the builder and by lint", () =
   // Which ids share a handle is known only when the code runs.
   assert.throws(
     () => d.line([0, 1], [1, 1], { id: "Wall-121406389" }),
-    (thrown: unknown) =>
+    (thrown) =>
       thrown instanceof DrawingError &&
       thrown.diagnostics[0]?.rule === "id-handle" &&
       thrown.diagnostics[0].id === "Wall-121406389" &&
@@ -1365,10 +1430,12 @@ test("two ids that give one handle are refused by the builder and by lint", () =
       ),
   );
   const [first] = d.build().entities;
+
   const byHand: Drawing = {
     ...d.build(),
     entities: [first!, { ...first!, id: "wall-121406389" }, { ...first!, id: "wall-1" }],
   };
+
   assert.deepEqual(
     lint(byHand).map((x) => [x.rule, x.entity, x.id]),
     [["id-handle", 1, "wall-121406389"]],
@@ -1383,8 +1450,10 @@ test("the extents hold a slanted text's lean, which its width factor does not wi
     d.textStyle({ name: "S", font: "txt.shx", widthFactor: 2, obliqueAngle });
     d.text([10, 20], "H", { height: 1, style: "S" });
     const drawing = d.build();
+
     return extents(drawing.entities, drawing.textStyles).map((n) => Number(n.toFixed(9)));
   };
+
   // The text is two thirds of its height long, twice over. What it draws below its baseline,
   // a third of its height, leans back.
   assert.deepEqual(box(45), [9.666666667, 19.666666667, 12.333333333, 21]);
@@ -1405,11 +1474,13 @@ test("the extents of a turned text reach its far corner", () => {
 test("a polyline's width, radius and arcs, a cloud's arc and a donut's hole are checked twice", () => {
   const d = createDrawing();
   const r12 = createDrawing({ dxf: "R12" });
+
   const corner: Point[] = [
     [0, 0],
     [1, 0],
     [1, 1],
   ];
+
   // @ts-expect-error: a width cannot be less than 0.
   assert.throws(() => d.polyline(corner, false, { width: -1 }), /width cannot be less than 0/);
   // @ts-expect-error: a radius must be greater than 0.
@@ -1527,9 +1598,11 @@ test("a paragraph's height, width, line spacing and codes are checked twice", ()
   // @ts-expect-error: a backslash before a line feed would escape the paragraph break.
   assert.throws(() => d.paragraph("A\\\nB", { at }), /code \\\n is not one tsdraft knows/);
   d.paragraph("A\\\\\nB", { at, style: "NOTES" });
+
   // A line feed is a paragraph break, and the codes tsdraft lays out pass.
   const laid =
     "{\\fArial|b1;NOTES}\n1. {\\LALL} WORK\\~%%d %%c %%% 100%% \\S1/2; \\S+0.01^-0.02; \\S2^ ; \\S^2; \\U+00B0 \\\\";
+
   d.paragraph(laid, { at, width: 2, style: "NOTES" });
   // @ts-expect-error: R12 holds no paragraph.
   assert.throws(() => r12.paragraph("NOTE", { at }), /no paragraphs to R12/);
@@ -1537,12 +1610,14 @@ test("a paragraph's height, width, line spacing and codes are checked twice", ()
 
 test("hatch patterns and a hatch's pattern are checked by the builder and by lint", () => {
   const file = "*STRIPES, Dashed stripes\n45, 0,0, 0,0.25, 0.5,-0.25\n*STRIPES\n0, 0,0, 0,1\n";
+
   const box: Point[] = [
     [0, 0],
     [8, 0],
     [8, 4],
     [0, 4],
   ];
+
   const d = createDrawing({ units: "in" }).patterns(file);
   d.hatch(box, { pattern: { name: "stripes", scale: 2, angle: 30, origin: [1, 1] } });
   d.hatch(box, { pattern: { spacing: 0.5, crossed: true } });
@@ -1571,18 +1646,22 @@ test("hatch patterns and a hatch's pattern are checked by the builder and by lin
   ]);
 
   // The builder refuses what lint refuses, in its words.
-  const hatched = (pattern: unknown, patterns = built.patterns): Drawing => ({
-    ...built,
-    ...(patterns ? { patterns } : {}),
-    entities: [{ kind: "hatch", layer: "0", loops: [{ points: box }], pattern: pattern as never }],
-  });
-  const both = (pattern: unknown, expected: RegExp) => {
-    assert.throws(() => d.hatch(box, { pattern: pattern as never }), expected);
+  const hatched = (pattern: Field, patterns = built.patterns): Drawing => {
+    const entities = [
+      wrong<Entity>({ kind: "hatch", layer: "0", loops: [{ points: box }], pattern }),
+    ];
+
+    return patterns ? { ...built, patterns, entities } : { ...built, entities };
+  };
+
+  const both = (pattern: Field, expected: RegExp) => {
+    assert.throws(() => d.hatch(box, { pattern: wrong<HatchPatternOf>(pattern) }), expected);
     const found = lint(hatched(pattern)).map((x) => `${x.rule}: ${x.message}`);
     assert.equal(found.length, 1, found.join("\n"));
     assert.match(found[0]!, /^hatch-pattern: hatch #0: /);
     assert.match(found[0]!, expected);
   };
+
   both({ name: "BRICK" }, /"BRICK" is not defined\. tsdraft has no patterns of its own/);
   both({ spacing: 0 }, /spacing must be a finite number greater than 0/);
   both({ name: "STRIPES", scale: 1e-7 }, /scale: This value is written as 0/);
@@ -1601,10 +1680,15 @@ test("hatch patterns and a hatch's pattern are checked by the builder and by lin
   // @ts-expect-error: crossed goes with a spacing, and a scale with a name.
   assert.throws(() => d.hatch(box, { pattern: { spacing: 1, scale: 2 } }), /scale is for/);
   both({ spacing: 1e-6 }, /draws 4,000,001 lines .*more than the 1,000,000 tsdraft draws/);
+
   // A line's base point at 10, scaled by 1e99, is placed at 1e100.
   const big = [
-    { name: "BIG", lines: [{ angle: 0, base: [10, 0] as Point, offset: [0, 1] as Point }] },
+    {
+      name: "BIG",
+      lines: [{ angle: 0, base: [10, 0] satisfies Point, offset: [0, 1] satisfies Point }],
+    },
   ];
+
   const placed = { name: "BIG", scale: 1e99 };
   assert.throws(
     () => createDrawing().patterns(big).hatch(box, { pattern: placed }),
@@ -1616,9 +1700,11 @@ test("hatch patterns and a hatch's pattern are checked by the builder and by lin
   assert.throws(() => d.hatch(box, { pattern: { name: "BRICK" } }), /with patterns\(\) first/);
 
   // A definition of the drawing's patterns, by the builder and by lint.
-  const defined = (patterns: unknown[]) =>
-    lint(hatched({ name: "STRIPES" }, patterns as never)).map((x) => `${x.rule}: ${x.message}`);
+  const defined = (patterns: Field[]) =>
+    lint(hatched({ name: "STRIPES" }, wrong(patterns))).map((x) => `${x.rule}: ${x.message}`);
+
   const line = { angle: 0, base: [0, 0], offset: [0, 1] };
+
   for (const [pattern, expected] of [
     [{ name: "", lines: [line] }, /Hatch pattern names cannot be empty/],
     [{ name: "A*", lines: [line] }, /Hatch pattern names cannot contain/],
@@ -1628,7 +1714,7 @@ test("hatch patterns and a hatch's pattern are checked by the builder and by lin
     [{ name: "STRIPES", lines: [{ ...line, angle: Infinity }] }, /line 0: its angle must be/],
     [{ name: "STRIPES", lines: [{ ...line, base: [1e100, 0] }] }, /line 0: its base: .*1e100/],
   ] as const) {
-    assert.throws(() => d.patterns([pattern as never]), expected);
+    assert.throws(() => d.patterns([wrong<HatchPattern>(pattern)]), expected);
     const found = defined([pattern]);
     assert.ok(
       found.length >= 1 && found.every((x) => x.startsWith("hatch-pattern: ")),
@@ -1636,6 +1722,7 @@ test("hatch patterns and a hatch's pattern are checked by the builder and by lin
     );
     assert.match(found[0]!, expected);
   }
+
   // Of two of a name, a hatch takes the first.
   assert.deepEqual(defined([built.patterns![0], { ...built.patterns![0], name: "stripes" }]), [
     'duplicate-hatch-pattern: Hatch pattern "stripes" is defined twice. A hatch finds its pattern by name whatever the case of its letters, as CAD programs do, and takes the first',
@@ -1719,14 +1806,21 @@ test("an attribute of paragraph text and each insert's value of it are checked a
   const drawing = d.build();
   const block = drawing.blocks![0]!;
   const definition = block.attributes![0]!;
-  const broken = (changed: Record<string, unknown>, values?: Record<string, string>) =>
+
+  const insert = dataOf(drawing.entities[0]!);
+
+  const broken = (changed: Data, values?: Record<string, string>) =>
     lint({
       ...drawing,
       blocks: [
-        { ...block, attributes: [{ ...definition, ...changed } as never, block.attributes![1]!] },
+        {
+          ...block,
+          attributes: [wrong({ ...dataOf(definition), ...changed }), block.attributes![1]!],
+        },
       ],
-      entities: [{ ...drawing.entities[0]!, ...(values ? { attributes: values } : {}) } as never],
+      entities: [wrong(values ? { ...insert, attributes: values } : insert)],
     }).map((diagnostic) => diagnostic.message);
+
   assert.deepEqual(broken({}), []);
   assert.match(broken({ value: "\\Zx" }).join(), /code \\Z is not one tsdraft knows/);
   assert.match(broken({ width: -1 }).join(), /width: .*greater than 0/);
@@ -1754,6 +1848,7 @@ test("a hatch's gradient is checked by the builder and by lint", () => {
     [8, 4],
     [0, 4],
   ];
+
   const d = createDrawing({ units: "in" });
   d.hatch(box, {
     gradient: {
@@ -1778,25 +1873,22 @@ test("a hatch's gradient is checked by the builder and by lint", () => {
   assert.deepEqual(lint(built), []);
   assert.deepEqual(fromJSON(toJSON(built)), built);
 
-  const shaded = (gradient: unknown, pattern?: unknown): Drawing => ({
-    ...built,
-    entities: [
-      {
-        kind: "hatch",
-        layer: "0",
-        loops: [{ points: box }],
-        gradient: gradient as never,
-        ...(pattern ? { pattern: pattern as never } : {}),
-      },
-    ],
-  });
-  const both = (gradient: unknown, expected: RegExp) => {
-    assert.throws(() => d.hatch(box, { gradient: gradient as never }), expected);
+  const shaded = (gradient: Field, pattern?: Field): Drawing => {
+    const hatch: Data = { kind: "hatch", layer: "0", loops: [{ points: box }], gradient };
+
+    if (pattern) hatch.pattern = pattern;
+
+    return { ...built, entities: [wrong(hatch)] };
+  };
+
+  const both = (gradient: Field, expected: RegExp) => {
+    assert.throws(() => d.hatch(box, { gradient: wrong<HatchGradient>(gradient) }), expected);
     const found = lint(shaded(gradient)).map((x) => `${x.rule}: ${x.message}`);
     assert.equal(found.length, 1, found.join("\n"));
     assert.match(found[0]!, /^hatch-gradient: hatch #0: /);
     assert.match(found[0]!, expected);
   };
+
   both(
     {
       name: "radial",
@@ -1907,19 +1999,21 @@ test("a hatch's gradient is checked by the builder and by lint", () => {
     /angle: .*1e100/,
   );
   // A member of a union is checked as a literal is.
-  const large = (huge: boolean) => (huge ? 1e100 : 0);
+  const large = (huge: boolean): 0 | 1e100 => (huge ? 1e100 : 0);
   assert.throws(
     () =>
       d.hatch(box, {
         // @ts-expect-error: one member's angle is 1e100.
-        gradient: { name: "linear", angle: large(true) as 0 | 1e100, color: [0, 0, 0], tint: 1 },
+        gradient: { name: "linear", angle: large(true), color: [0, 0, 0], tint: 1 },
       }),
     /angle: .*1e100/,
   );
+
   const either = (odd: boolean) =>
     odd
       ? ({ name: "linear", color: [0, 0, 0], tint: 1, tnit: 0 } as const)
       : ({ name: "linear", color: [0, 0, 0], tint: 1 } as const);
+
   assert.throws(
     () =>
       d.hatch(box, {
@@ -1930,31 +2024,36 @@ test("a hatch's gradient is checked by the builder and by lint", () => {
   );
   assert.throws(
     () =>
-      createDrawing({ dxf: "R12" }).hatch(box, {
-        gradient: { name: "linear", color: [0, 0, 0], tint: 0 },
-      } as never),
+      createDrawing({ dxf: "R12" }).hatch(
+        box,
+        wrong<HatchOptions<"R12">>({ gradient: { name: "linear", color: [0, 0, 0], tint: 0 } }),
+      ),
     /R2018/,
   );
 });
 
 test("ellipses and splines are checked by the builder and by lint", () => {
   const d = createDrawing();
+
   const zigzag: Point[] = [
     [0, 0],
     [1, 2],
     [2, 0],
   ];
+
   // Literals the compiler reads.
   const three = [
     [0, 0],
     [1, 2],
     [2, 0],
   ] as const;
+
   const twice = [
     [0, 0],
     [1, 1],
     [1, 1],
   ] as const;
+
   // @ts-expect-error: a ratio is above 0.
   assert.throws(() => d.ellipse([0, 0], [2, 0], 0), /ratio/);
   // @ts-expect-error: a ratio is at most 1.
@@ -2014,10 +2113,11 @@ test("ellipses and splines are checked by the builder and by lint", () => {
   assert.equal(closed.controlPoints.length, 5);
 
   // lint holds a drawing made another way to the same rules, and R12 to none of them.
-  const one = (entity: object, dxf: "R12" | "R2018" = "R2018") =>
-    lint({ ...createDrawing().build(), dxf, entities: [{ layer: "0", ...entity } as Entity] }).map(
+  const one = (entity: Data, dxf: "R12" | "R2018" = "R2018") =>
+    lint({ ...createDrawing().build(), dxf, entities: [wrong({ layer: "0", ...entity })] }).map(
       (x) => `${x.rule}: ${x.message}`,
     );
+
   assert.deepEqual(one({ kind: "ellipse", center: [0, 0], majorAxis: [1, 0], ratio: 2 }), [
     "geometry: ellipse #0: an ellipse's ratio, its minor radius over its major, must be above 0 and at most 1 once rounded to the 6 decimals tsdraft writes",
   ]);

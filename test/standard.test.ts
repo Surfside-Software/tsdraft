@@ -13,8 +13,10 @@ import {
   type DrawingBuilder,
   type Standard,
   type StandardDocument,
+  type StandardOptions,
   type Units,
 } from "../src/index.ts";
+import { isNumber, isString } from "../src/guards.ts";
 import { dimensionPrefixProblem, plainDimensionText, xrefPathProblem } from "../src/rules.ts";
 import { sha256, sha256Text } from "../src/sha256.ts";
 import { BUILT_IN_DOCUMENT } from "../src/standard/default.ts";
@@ -26,27 +28,49 @@ import {
   versionSource,
 } from "../scripts/standard-files.ts";
 import { standardSchema } from "../src/standard/shape.ts";
+import { fieldOf, isData, type Data, type Field } from "./values.ts";
 
 const base = { id: "t", version: "1", extends: BUILT_IN_STANDARD } as const;
 const alone = { id: "t", version: "1", paperUnits: "in", minTextHeight: 0.0625 } as const;
 const shared = { ...base, sheetFiles: "sheet-per-file" } as const;
 
+/** A document as a test gives it: of the library's type, or data of any shape. */
+type Given = StandardDocument | Field | GivenData;
+
+/** Data of any shape, which may hold the library's values. */
+interface GivenData {
+  readonly [key: string]: Field | Standard | Drawing | GivenData | readonly GivenData[];
+}
+
 /** The problems `defineStandard` finds in a document, as `item: message`. */
-function problems(document: unknown, files?: Record<string, unknown>): string[] {
+function problems(document: Given, files?: StandardOptions["files"]): string[] {
   try {
-    defineStandard(document as never, files ? { files } : {});
+    defined(document, files ? { files } : {});
   } catch (thrown) {
     assert.ok(thrown instanceof DrawingError);
+
     for (const d of thrown.diagnostics) assert.equal(d.rule, "standard");
+
     return thrown.diagnostics.map((d) => (d.item ? `${d.item}: ${d.message}` : d.message));
   }
+
   return [];
+}
+
+/**
+ * The standard `defineStandard` makes of a document its types cannot check: one of the wrong shape,
+ * or one built as data.
+ */
+function defined(document: Given, options?: StandardOptions): Standard {
+  // SAFETY: the document is checked when the code runs, which is what the test reads.
+  return defineStandard(document as never, options);
 }
 
 /** A title block's drawing, drawn by `draw`. */
 function fragment(draw: (d: DrawingBuilder) => void, units: Units = "in"): Drawing {
   const d = createDrawing({ units });
   draw(d);
+
   return d.build();
 }
 
@@ -59,6 +83,7 @@ test("literal mistakes in a standard are compile errors and runtime errors", () 
     extensionBeyond: 0.1,
     textGap: 0.1,
   } as const;
+
   const block = { paper: "ARCH D", layer: "G-ANNO-TTLB", drawingArea: [1, 1, 2, 2] } as const;
   const xref = { name: "BORDER", path: "border.dwg" } as const;
   const sheet = { paper: "ARCH D", titleBlock: "plain" } as const;
@@ -316,7 +341,8 @@ test("values the compiler cannot see are checked when the code runs, and names f
   );
   // The compiler compares names exactly; the leading CAD app takes "HEAVY" for "heavy" and "c-prop"
   // for "C-PROP", and so does the runtime, which keeps the name as the standard spells it.
-  const folded = defineStandard({ ...base, layers: { A: { color: 1, pen: "HEAVY" as string } } });
+  const heavy: string = "HEAVY";
+  const folded = defineStandard({ ...base, layers: { A: { color: 1, pen: heavy } } });
   assert.equal(folded.layers.A.pen, "heavy");
   // @ts-expect-error: the compiler holds a literal to the standard's spelling.
   defineStandard({ ...base, layers: { A: { color: 1, pen: "HEAVY" } } });
@@ -336,6 +362,7 @@ test("a child replaces an entry whole under its parent's spelling, and null remo
       "c-prop": { color: 3 },
     },
   });
+
   assert.deepEqual(child.layers["C-PROP"], { color: 3, linetype: "Continuous", plot: true });
   assert.ok(!("c-prop" in child.layers) && !("C-ROAD-CNTR" in child.layers));
   // @ts-expect-error: the removed layer is not in the child's type.
@@ -355,9 +382,11 @@ test("a child replaces an entry whole under its parent's spelling, and null remo
   assert.deepEqual(problems({ ...base, pens: { thin: null } }), [
     `pens["thin"]: null removes the parent's entry of this name, and the parent has no pen of this name`,
   ]);
+
   // An inherited entry that names a removed one is an error, which says the parent wrote it.
   const fine = (layer: string) =>
     `layers["${layer}"].pen: Pen "fine", which the parent's layer names, is not a pen of the standard. Add it to pens, or name one of its pens`;
+
   assert.deepEqual(problems({ ...base, pens: { fine: null } }).toSorted(), [
     fine("C-ANNO-DIMS"),
     fine("C-PROP-ADJC"),
@@ -416,28 +445,36 @@ test("a standard's type names only entries it has, and names that are not litera
   void child.layers["ΟΣ"];
   // The type takes ÿ for Ÿ, which the leading CAD app keeps apart, so it names neither.
   const upper = defineStandard({ ...alone, layers: { Ÿ: { color: 1 } } });
+
   const lower = defineStandard({
     id: "c",
     version: "1",
     extends: upper,
     layers: { Ÿ: null, ÿ: { color: 2 } },
   });
+
   assert.deepEqual(Object.keys(lower.layers), ["ÿ"]);
   // @ts-expect-error: the child removed Ÿ.
   void lower.layers.Ÿ;
 
   // An entry that may be null or left out may be gone, so the type leaves its name out.
-  const entry = { color: 3 } as NonNullable<StandardDocument["layers"]>[string];
+  const entryOf = (): NonNullable<StandardDocument["layers"]>[string] => ({ color: 3 });
+  const entry = entryOf();
+
   const maybe = defineStandard({ ...base, layers: { B: entry } });
   // @ts-expect-error: B may be gone.
   void maybe.layers.B;
-  const optional: { A?: { color: 1 }; C: { color: 1 } } = { C: { color: 1 } };
+
+  type Optional = { A?: { color: 1 }; C: { color: 1 } };
+
+  const optional: Optional = { C: { color: 1 } };
   const left = defineStandard({ ...base, layers: optional });
   assert.equal(left.layers.C.color, 1);
   // @ts-expect-error: A may be left out.
   void left.layers.A;
   // A section that is one of two literals names only what each of them leaves in place.
   const parent = defineStandard({ ...alone, layers: { A: { color: 1 }, Q: { color: 1 } } });
+
   const either = (removes: boolean) =>
     defineStandard({
       id: "c",
@@ -445,12 +482,19 @@ test("a standard's type names only entries it has, and names that are not litera
       extends: parent,
       layers: removes ? { A: null } : { B: { color: 1 } },
     });
+
   assert.deepEqual(Object.keys(either(true).layers), ["Q"]);
   assert.equal(either(false).layers.Q.color, 1);
   // @ts-expect-error: B is gone when the first literal is taken.
   void either(false).layers.B;
-  const removal: { readonly A: null } = { A: null };
-  const addition: { readonly B: { readonly color: 1 } } = { B: { color: 1 } };
+
+  type Removal = { readonly A: null };
+
+  type Addition = { readonly B: { readonly color: 1 } };
+
+  const removal: Removal = { A: null };
+  const addition: Addition = { B: { color: 1 } };
+
   const one = (removes: boolean) =>
     defineStandard({
       id: "c",
@@ -458,6 +502,7 @@ test("a standard's type names only entries it has, and names that are not litera
       extends: parent,
       layers: removes ? removal : addition,
     });
+
   assert.equal(one(false).layers.Q.color, 1);
   // @ts-expect-error: the first section removes A.
   void one(false).layers.A;
@@ -476,15 +521,18 @@ test("a standard reads only its own fields, and drops what is for people", () =>
   assert.deepEqual(problems(later), [
     `layers["A"].hue: "hue" is not a field of a layer in tsdraft ${VERSION}. This standard was written for tsdraft 99.0.0: update tsdraft`,
   ]);
+
   const commented = defineStandard({
     ...base,
     $comment: "Question 1",
     layers: { A: { color: 1, $comment: "x" } },
   });
+
   assert.deepEqual(commented.layers.A, { color: 1, linetype: "Continuous", plot: true });
   assert.ok(!("$comment" in commented));
   // A title block's drawing takes only the fields of a Drawing.
   const drawing = { ...fragment(() => {}), $comment: "x" };
+
   const tb = {
     paper: "ARCH D",
     layer: "G-ANNO-TTLB",
@@ -492,6 +540,7 @@ test("a standard reads only its own fields, and drops what is for people", () =>
     block: drawing,
     blockName: "B",
   };
+
   assert.match(
     problems({ ...base, titleBlocks: { t: tb } }).join("\n"),
     /titleBlocks\["t"\]\.block: The drawing: unknown field "\$comment"/,
@@ -500,10 +549,12 @@ test("a standard reads only its own fields, and drops what is for people", () =>
 
 test("a string names a standard or a drawing in files, and the library reads no file", () => {
   const acme = defineStandard({ ...base, id: "acme", layers: { "A-WALL": { color: 2 } } });
+
   const child = defineStandard(
     { id: "job", version: "1", extends: "./acme.json" },
     { files: { "./acme.json": acme } },
   );
+
   assert.equal(child.layers["A-WALL"].color, 2);
   const builtIn = defineStandard({ id: "job", version: "1", extends: "tsdraft/standard.json" });
   assert.equal(builtIn.chain[0]?.hash, BUILT_IN_STANDARD.hash);
@@ -511,7 +562,7 @@ test("a string names a standard or a drawing in files, and the library reads no 
     `extends: "./acme.json" is not in options.files. The library reads no file: pass the standard it names as files["./acme.json"]`,
   ]);
   // A standard from another copy of tsdraft is plain data, and its hash must be its content's.
-  const copied = JSON.parse(JSON.stringify(acme)) as Standard;
+  const copied: Standard = JSON.parse(JSON.stringify(acme));
   assert.equal(
     defineStandard({ id: "job", version: "1", extends: copied }).chain[0]?.hash,
     acme.hash,
@@ -523,6 +574,7 @@ test("a string names a standard or a drawing in files, and the library reads no 
   );
 
   const border = fragment((d) => d.block("B", {}, () => d.line([0, 0], [1, 1])));
+
   const tb = {
     paper: "ARCH D",
     layer: "G-ANNO-TTLB",
@@ -530,15 +582,18 @@ test("a string names a standard or a drawing in files, and the library reads no 
     block: "./b.json",
     blockName: "B",
   };
+
   const named = defineStandard(
     { ...base, titleBlocks: { t: tb } },
     { files: { "./b.json": JSON.parse(JSON.stringify(border)) } },
   );
+
   assert.deepEqual(named.titleBlocks.t.block, border);
   assert.match(
     problems({ ...base, titleBlocks: { t: tb } })[0]!,
     /^titleBlocks\["t"\]\.block: "\.\/b\.json" is not in options\.files/,
   );
+
   const plain = defineStandard({
     ...base,
     titleBlocks: {
@@ -550,6 +605,7 @@ test("a string names a standard or a drawing in files, and the library reads no 
       },
     },
   });
+
   assert.equal(plain.titleBlocks.p.block, BUILT_IN_STANDARD.titleBlocks.plain.block);
 });
 
@@ -559,11 +615,14 @@ test("how a firm keeps its sheets decides where a title block's fields come from
     layer: "G-ANNO-TTLB",
     drawingArea: [0.5, 0.5, 35.5, 23.5],
   } as const;
+
   const xref = { name: "BORDER", path: "xref/border.dwg" } as const;
+
   const named = {
     NUMBER: { fills: "number", source: "fileName" },
     TITLE: { fills: "title", source: "layoutName" },
   } as const;
+
   assert.deepEqual(
     problems({ ...shared, titleBlocks: { firm: { ...area, xref, fields: named } } }),
     [],
@@ -642,6 +701,7 @@ test("a title block's names are one definition each in a drawing", () => {
     layer: "G-ANNO-TTLB",
     drawingArea: [0.5, 0.5, 35.5, 23.5],
   } as const;
+
   const plain = BUILT_IN_STANDARD.titleBlocks.plain;
   // The same block and text style in two title blocks are one copy in a drawing.
   assert.deepEqual(
@@ -651,22 +711,27 @@ test("a title block's names are one definition each in a drawing", () => {
     }),
     [],
   );
+
   const other = fragment((d) => {
     d.textStyle({ name: "TITLE BLOCK", font: "Times New Roman" });
     d.block("TITLE BLOCK", {}, () => d.text([1, 1], "X", { height: 0.1, style: "TITLE BLOCK" }));
   });
+
   const clash = problems({
     ...base,
     titleBlocks: { other: { ...area, block: other, blockName: "title block" } },
   });
+
   assert.deepEqual(clash, [
     `titleBlocks["other"].block: The title blocks "plain" and "other" both hold a block "TITLE BLOCK", with different definitions. A drawing holds one block of a name: give one of them another name`,
     `titleBlocks["other"].block: The title blocks "plain" and "other" both hold a text style "TITLE BLOCK", with different definitions. A drawing holds one text style of a name: give one of them another name`,
   ]);
+
   const titled = fragment((d) => {
     d.textStyle({ name: "Title", font: "Arial" });
     d.block("SHEET", {}, () => d.text([1, 1], "X", { height: 0.1, style: "Title" }));
   });
+
   assert.match(
     problems({ ...base, titleBlocks: { t: { ...area, block: titled, blockName: "SHEET" } } })[0]!,
     /text style "Title" has the name of the text style of the role "title"/,
@@ -690,25 +755,31 @@ test("a title block's names are one definition each in a drawing", () => {
     fragment((d) =>
       d.block("B", {}, () => d.layer(layer, { color: 1 }, () => d.line([0, 0], [1, 1]))),
     );
-  const tb = (block: object) => ({
+
+  const tb = (block: Drawing) => ({
     ...base,
     titleBlocks: { t: { ...area, block, blockName: "B" } },
   });
+
   assert.deepEqual(problems(tb(on("G-ANNO-TTLB"))), []);
   assert.match(
     problems(tb(on("X-RED")))[0]!,
     /draws on the layer "X-RED", which is not a layer of the standard/,
   );
+
   const dashed = fragment((d) =>
     d.linetype({ name: "DASHED", pattern: [1, -1] }).block("B", {}, () => d.line([0, 0], [1, 1])),
   );
+
   assert.match(
     problems(tb(dashed))[0]!,
     /defines the linetype "DASHED" otherwise than the standard does/,
   );
+
   const sheet = fragment((d) =>
     d.block("B", {}, () => d.line([0, 0], [1, 1])).layout("L", { paper: "ARCH D" }, () => {}),
   );
+
   assert.match(problems(tb(sheet))[0]!, /cannot hold a layout/);
   const feet = fragment((d) => d.block("B", {}, () => d.line([0, 0], [1, 1])), "ft");
   assert.match(
@@ -728,6 +799,7 @@ test("boxes lie inside the boxes that hold them, and the leading CAD app's names
     layer: "G-ANNO-TTLB",
     xref: { name: "B", path: "b.dwg" },
   } as const;
+
   assert.match(
     problems({ ...base, titleBlocks: { t: { ...area, drawingArea: [0, 0, 40, 24] } } })[0]!,
     /drawingArea: The box reaches past the paper, \[0, 0, 36, 24\]/,
@@ -752,6 +824,7 @@ test("boxes lie inside the boxes that hold them, and the leading CAD app's names
     problems({ ...base, sheetFormats: { s: { ...format, paper: "ARCH C" } } })[0]!,
     /The sheet format's paper, "ARCH C", is not its title block's, "ARCH D"/,
   );
+
   const style = {
     role: "note",
     arrowSize: 0.1,
@@ -759,12 +832,14 @@ test("boxes lie inside the boxes that hold them, and the leading CAD app's names
     extensionBeyond: 0.1,
     textGap: 0.1,
   };
+
   const twins = {
     ...alone,
     textRoles: { note: { font: "Arial", height: 0.1 } },
     scales: { "b-c": { label: "1", ratio: 1 }, c: { label: "2", ratio: 2 } },
     dimensionStyles: { a: style, "a-b": style },
   };
+
   assert.match(
     problems(twins)[0]!,
     /The dimension style "a-b" at the scale "c" and the dimension style "a" at the scale "b-c" have names that the leading CAD app takes for one dimension style/,
@@ -775,10 +850,11 @@ test("the hash is what the merged document states for a check", () => {
   const child = defineStandard({ ...base, id: "acme", layers: { "A-WALL": { color: 2 } } });
   // Flattened into one document, a standard keeps its hash.
   const { hash, chain: _, ...flat } = child;
-  assert.equal(defineStandard(flat as never).hash, hash);
-  const again = (fields: object) =>
-    defineStandard({ ...base, id: "acme", layers: { "A-WALL": { color: 2, ...fields } } } as never)
-      .hash;
+  assert.equal(defined(flat).hash, hash);
+
+  const again = (fields: Data) =>
+    defined({ ...base, id: "acme", layers: { "A-WALL": { color: 2, ...fields } } }).hash;
+
   // Text for people, provenance and a default given or not leave it as it is.
   assert.equal(again({ description: "Walls", $comment: "x" }), hash);
   assert.equal(again({ plot: true, linetype: "CONTINUOUS" }), hash);
@@ -795,16 +871,20 @@ test("the hash is what the merged document states for a check", () => {
   // A rule, a discipline and a linetype's description change it.
   assert.notEqual(again({ color: 3 }), hash);
   assert.notEqual(again({ discipline: "G" }), hash);
+
   const described = (description: string) =>
     defineStandard({ ...base, linetypes: { DASHED: { description, pattern: [0.5, -0.25] } } }).hash;
+
   assert.notEqual(described("Dashes"), described("Dashed __ __ __"));
   assert.equal(described(BUILT_IN_STANDARD.linetypes.DASHED.description), BUILT_IN_STANDARD.hash);
   // So does anything in a title block's drawing.
   const plain = BUILT_IN_STANDARD.titleBlocks.plain;
+
   const moved = {
     ...plain.block!,
     blocks: plain.block!.blocks!.map((b) => ({ ...b, base: [0, 1] as const })),
   };
+
   assert.notEqual(
     defineStandard({ ...base, titleBlocks: { plain: { ...plain, block: moved } } }).hash,
     BUILT_IN_STANDARD.hash,
@@ -816,7 +896,7 @@ test("the hash is what the merged document states for a check", () => {
   // The library makes the built-in standard without the checks, which its document passes, and
   // with the hash it has. A change to what it states needs a new version, which the CHANGELOG
   // gives, and then the hash in src/standard/define.ts.
-  const checked = defineStandard(BUILT_IN_DOCUMENT as never);
+  const checked = defined(BUILT_IN_DOCUMENT);
   assert.equal(JSON.stringify(checked), JSON.stringify(BUILT_IN_STANDARD));
   assert.deepEqual(lint(BUILT_IN_STANDARD.titleBlocks.plain.block!), []);
   assert.equal(BUILT_IN_STANDARD.version, "3");
@@ -828,23 +908,39 @@ test("SHA-256 gives the digests of FIPS 180-4 and of node:crypto", () => {
     sha256Text("abc"),
     "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
   );
+
   for (const length of [55, 56, 63, 64, 65, 1000]) {
     const bytes = Uint8Array.from({ length }, (_, i) => (i * 37 + 11) % 256);
     assert.equal(sha256(bytes), createHash("sha256").update(bytes).digest("hex"));
   }
+
   const text = "ÉΣ日本\u{1F600}\ud800";
   assert.equal(sha256Text(text), createHash("sha256").update(text).digest("hex"));
 });
 
 test("the schema refuses the prefixes, suffixes and xref paths the runtime refuses", () => {
   type Rule = { readonly pattern: string; readonly maxLength?: number };
-  const defs = standardSchema(VERSION).$defs as Record<
-    string,
-    { readonly properties: Record<string, Rule> }
-  >;
+
+  const schema: Field = JSON.parse(JSON.stringify(standardSchema(VERSION)));
+
+  /** The rule the schema gives a property of a definition. */
+  const ruleOf = (definition: string, property: string): Rule => {
+    const at = fieldOf(
+      fieldOf(fieldOf(fieldOf(schema, "$defs"), definition), "properties"),
+      property,
+    );
+
+    assert.ok(isData(at) && isString(at.pattern), `${definition}.${property} has a pattern`);
+
+    return isNumber(at.maxLength)
+      ? { pattern: at.pattern, maxLength: at.maxLength }
+      : { pattern: at.pattern };
+  };
+
   const agree = (rule: Rule, problem: (value: string) => string | undefined, values: string[]) => {
     for (const flags of ["", "u"]) {
       const pattern = new RegExp(rule.pattern, flags);
+
       for (const value of values) {
         const schema = pattern.test(value) && [...value].length <= (rule.maxLength ?? Infinity);
         assert.equal(
@@ -855,14 +951,15 @@ test("the schema refuses the prefixes, suffixes and xref paths the runtime refus
       }
     }
   };
+
   const text = ["", "Ø", "a\u0007", "\ue800", "\ud800", "😀", "\\P", "{", "}", "a\u007f"];
   const prefixes = [...text, "R=", "<>", "a<>b", "<"];
-  agree(defs.writing!.properties.prefix!, dimensionPrefixProblem, prefixes);
-  agree(defs.writing!.properties.suffix!, plainDimensionText, [...text, "'", "<>"]);
+  agree(ruleOf("writing", "prefix"), dimensionPrefixProblem, prefixes);
+  agree(ruleOf("writing", "suffix"), plainDimensionText, [...text, "'", "<>"]);
   const paths = ["b.dwg", "dir/b.dwg", "dir\\b.dwg", "b.dwg.", "B.DWG.", "Ø.dwg", "", "b.dxf"];
   paths.push("B.DXF", "b.", "b..", "/b.dwg", "\\b.dwg", "c:b.dwg", "a*b", 'a"b', "x\\M+12345");
   paths.push("x\\m+62345", "a\u0001", "\ue800", "😀", "x".repeat(32000), "x".repeat(32001));
-  agree(defs.xref!.properties.path!, xrefPathProblem, paths);
+  agree(ruleOf("xref", "path"), xrefPathProblem, paths);
 });
 
 test("the files the package ships are the ones the script writes", () => {

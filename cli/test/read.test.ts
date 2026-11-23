@@ -29,7 +29,9 @@ const readerA = join(fixtures, "reader-a");
 const readerB = join(fixtures, "reader-b");
 
 const temp = realpathSync(mkdtempSync(join(tmpdir(), "tsdraft-read-")));
+
 after(() => rmSync(temp, { recursive: true, force: true }));
+
 const tempDir = (): string => mkdtempSync(join(temp, "case-"));
 
 /** A folder whose package.json lists tsdraft and each package, linked in its node_modules. */
@@ -38,9 +40,11 @@ function project(dir: string, packages: Record<string, string>, tsdraft = OWN_FO
   const dependencies = Object.fromEntries(names.map((name) => [name, "*"]));
   mkdirSync(join(dir, "node_modules"), { recursive: true });
   writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "a-project", dependencies }));
+
   for (const [name, folder] of Object.entries({ ...packages, tsdraft })) {
     symlinkSync(folder, join(dir, "node_modules", name), "dir");
   }
+
   return dir;
 }
 
@@ -48,6 +52,7 @@ function project(dir: string, packages: Record<string, string>, tsdraft = OWN_FO
 function file(name: string, bytes = 100): string {
   const path = join(tempDir(), name);
   writeFileSync(path, Buffer.alloc(bytes, 7));
+
   return path;
 }
 
@@ -59,6 +64,7 @@ test("the readers are the dependencies of the project whose tsdraft is the one r
     "reader-a": readerA,
     escapes: join(fixtures, "escapes"),
   });
+
   const cwd = join(dir, "drawings/sheets");
   mkdirSync(cwd, { recursive: true });
   const readers = findReaders({ cwd, inputs: [] });
@@ -76,6 +82,7 @@ test("the readers are the dependencies of the project whose tsdraft is the one r
       ".dwg": realpathSync(join(readerA, "read.js")),
       ".dwt": realpathSync(join(readerA, "read.js")),
     },
+    editors: {},
   });
   assert.equal(readerFor(readers, ".pdf"), null);
   assert.equal(readerFor(readers, ".dxf"), null);
@@ -92,12 +99,22 @@ test("two readers of one extension are refused, and --reader picks one", () => {
         "2 packages read .dwg files: reader-a, reader-b. Pick one with --reader <package>",
   );
   assert.equal(readerFor(readers, ".dwt")?.name, "reader-a");
+
   const picked = (reader: string) =>
     findReaders({ cwd: dir, inputs: [], reader }).packages.map(({ name }) => name);
+
   assert.deepEqual(picked("reader-b"), ["reader-b"]);
   assert.deepEqual(picked("./node_modules/reader-a"), ["reader-a"]);
   assert.throws(() => picked("reader-c"), /^ReaderRefusal: --reader reader-c: no such package$/);
   assert.throws(() => picked("./node_modules/tsdraft"), /names no reader/);
+  // A manifest whose field is not an object names no reader either.
+  const nulled = join(tempDir(), "nulled");
+  mkdirSync(nulled);
+  writeFileSync(join(nulled, "package.json"), JSON.stringify({ name: "nulled", tsdraft: null }));
+  assert.throws(
+    () => picked(nulled),
+    (e: Error) => e instanceof ReaderRefusal && /names no reader/.test(e.message),
+  );
 });
 
 test("a folder that lists tsdraft and resolves another copy stops the walk", () => {
@@ -122,9 +139,11 @@ test("a folder that lists tsdraft and resolves another copy stops the walk", () 
 test("a project inside an input path is not used", () => {
   const dir = project(tempDir(), { "reader-a": readerA });
   mkdirSync(join(dir, "drawings"));
+
   for (const inputs of [[dir], [dirname(dir)], ["."]]) {
     assert.deepEqual(findReaders({ cwd: dir, inputs }), { project: null, packages: [] });
   }
+
   assert.equal(findReaders({ cwd: dir, inputs: ["drawings"] }).project, dir);
 });
 
@@ -144,6 +163,38 @@ test("a read comes back checked, with the reader that read it", async () => {
   assert.ok("read" in (await readDrawingFile(file("prints.dwg"), a!)));
 });
 
+test("a read in format 0 comes back in the current format, and one with format 1's fields or a later format is refused", async () => {
+  const old = await readDrawingFile(file("old-names.dwg"), a!);
+  assert.ok("read" in old, JSON.stringify(old));
+  assert.equal(old.read.format, 1);
+  // Each object it renames keeps no prototype, as every object of an answer.
+  assert.deepEqual(old.read.linetypes[0]?.marks, [
+    Object.assign(Object.create(null), { after: 0, glyph: 132, file: "ltypeshp.shx", scale: 0.1 }),
+  ]);
+  assert.equal(old.read.textStyles[0]?.glyphFile, true);
+  assert.ok(!("shapes" in old.read.textStyles[0]!));
+  assert.ok("read" in (await readDrawingFile(file("current.dwg"), a!)));
+
+  // A field of format 1 in a read that says format 0 is refused, beside its old name or alone.
+  for (const [name, field] of [
+    ["both-mark.dwg", "a linetype mark's glyph"],
+    ["glyph-mark.dwg", "a linetype mark's glyph"],
+    ["glyph-style.dwg", "a text style's glyphFile"],
+  ] as const) {
+    const mixed = await readDrawingFile(file(name), a!);
+    assert.equal(
+      "skipped" in mixed && mixed.skipped,
+      `the reader's answer is malformed: it gives read format 0 and names ${field}, which is read format 1's`,
+    );
+  }
+
+  const later = await readDrawingFile(file("later.dwg"), a!);
+  assert.equal(
+    "skipped" in later && later.skipped,
+    "the reader gives read format 99, and this tsdraft reads format 1, and format 0 from older readers",
+  );
+});
+
 test("a read that fails is skipped with the reason, and the next file is read", async () => {
   const files = [
     "throws.dwg",
@@ -156,6 +207,7 @@ test("a read that fails is skipped with the reason, and the next file is read", 
     "good.dwg",
     "a.pdf",
   ];
+
   const results = await readDrawingFiles(
     [
       ...files.map((name) => ({ file: file(name, name === "big.dwg" ? 2000 : 100), reader: a! })),
@@ -163,6 +215,7 @@ test("a read that fails is skipped with the reason, and the next file is read", 
     ],
     { timeoutMs: 2000, maxFileBytes: 1000 },
   );
+
   const outcomes = results.map((result) => ("read" in result ? "read" : result.skipped));
   assert.deepEqual(outcomes, [
     // The reader gets the file's name, never its path.
@@ -189,19 +242,24 @@ test("a read that fails is skipped with the reason, and the next file is read", 
 test("at most two reads run at once, across callers", async () => {
   const held = (names: string[]) =>
     readDrawingFiles(names.map((name) => ({ file: file(name), reader: a! })));
+
   const results = await Promise.all([held(["held-1.dwg", "held-2.dwg"]), held(["held-3.dwg"])]);
+
   const steps = results.flat().flatMap((result) => {
     const times = /^the reader threw: (\d+) (\d+)$/.exec("skipped" in result ? result.skipped : "");
     assert.ok(times, JSON.stringify(result));
+
     return [
       [Number(times[1]), 1],
       [Number(times[2]), -1],
     ];
   });
+
   // A read that ends as another starts is not counted with it.
   steps.sort(([t, step], [u, other]) => t! - u! || step! - other!);
   let now = 0;
   let most = 0;
+
   for (const [, step] of steps) most = Math.max(most, (now += step!));
   assert.equal(most, 2);
 });
@@ -252,6 +310,7 @@ test(
   async () => {
     const outside = `reads-outside-${process.pid}.dwg`;
     writeFileSync(join(tmpdir(), `${outside}.txt`), "outside");
+
     try {
       const results = await readDrawingFiles(
         ["spawns.dwg", "starts-worker.dwg", outside].map((name) => ({
@@ -259,6 +318,7 @@ test(
           reader: a!,
         })),
       );
+
       assert.deepEqual(
         results.map((result) =>
           "skipped" in result
@@ -292,27 +352,33 @@ test(
       `const [reader] = findReaders({ cwd: process.cwd(), inputs: [], reader: process.argv[1] }).packages;`,
       `await readDrawingFile(process.argv[2], reader, { timeoutMs: 60_000 });`,
     ].join("\n");
+
     const command = spawn(
       process.execPath,
       ["--input-type=module", "-e", script, readerA, file("busy.dwg")],
       { cwd: temp, stdio: "ignore" },
     );
+
     const exited = once(command, "exit");
     const children = `/proc/${command.pid}/task/${command.pid}/children`;
     let child = 0;
+
     try {
       while (!child) {
         await delay(20);
         child = Number(readFileSync(children, "utf8").trim().split(" ")[0]);
       }
+
       // A busy reader never runs its process's own check on its parent.
       await delay(500);
       command.kill("SIGTERM");
       assert.deepEqual(await exited, [null, "SIGTERM"]);
+
       for (let tries = 0; running(child) && tries < 100; tries++) await delay(20);
       assert.equal(running(child), false);
     } finally {
       command.kill("SIGKILL");
+
       if (child && running(child)) process.kill(child, "SIGKILL");
     }
   },

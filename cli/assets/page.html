@@ -479,6 +479,10 @@
       // the layout shown, or null for model space, and stays undefined until one is chosen.
       let pictures = { model: null, layouts: [] };
       let tab;
+      // For an edit file, whether the picture of what the edit changes is on screen.
+      let showChanges = false;
+      /** Counts the pictures of changes asked for, so only the last one asked is shown. */
+      let changesAsked = 0;
       let entities = [];
       let indexed = false;
       let fitBox = null;
@@ -595,6 +599,7 @@
         else if (event.key === "+" || event.key === "=") zoom(1 / 1.5);
         else if (event.key === "-") zoom(1.5);
         else if (event.key === "Escape") select(null);
+        else if (event.key === "c" || event.key === "C") toggleChanges();
       });
 
       /** Shows the picture of the chosen tab: a layout's sheet, or model space. */
@@ -603,7 +608,8 @@
         // A drawing with a layout opens on its first, as CAD does.
         if (tab === undefined || (tab !== null && !names.includes(tab))) tab = names[0] ?? null;
         const bar = $("tabs");
-        bar.hidden = names.length === 0;
+        const changes = lastGood?.outputs?.changes ?? null;
+        bar.hidden = names.length === 0 && !changes;
         // The plot of the sheet on screen, and of the set, as the server makes them.
         const plots = lastGood?.outputs;
         const sheetPdf = plots?.layouts?.find((sheet) => sheet.name === tab)?.pdf;
@@ -634,10 +640,41 @@
             return button;
           }),
           ...links,
+          ...(changes ? [changesButton()] : []),
         );
+        if (showChanges && changes) {
+          // The server draws the picture of changes when first asked for.
+          const url = tab === null ? changes.svg : changes.layouts.find((s) => s.name === tab)?.svg;
+          if (!url) return;
+          const asked = ++changesAsked;
+          fetch(url)
+            .then((res) => (res.ok ? res.text() : null))
+            .then((source) => {
+              if (source && asked === changesAsked && showChanges) showDrawing(source);
+            });
+          return;
+        }
         const source =
           tab === null ? pictures.model : pictures.layouts.find((s) => s.name === tab)?.svg;
         if (source) showDrawing(source);
+      }
+
+      /** The toggle between the edited drawing and the picture of what the edit changes (C). */
+      function changesButton() {
+        const button = document.createElement("button");
+        button.textContent = "Changes";
+        button.title = "What the edit erases, in red, and moves, in amber (C)";
+        button.classList.toggle("on", showChanges);
+        button.addEventListener("click", toggleChanges);
+        return button;
+      }
+
+      function toggleChanges() {
+        if (!lastGood?.outputs?.changes) return;
+        showChanges = !showChanges;
+        moved = true;
+        showTab();
+        paintHidden();
       }
 
       function showDrawing(source) {
@@ -973,6 +1010,7 @@
         holder.classList.remove("stale");
         svg = null;
         pictures = { model: null, layouts: [] };
+        showChanges = false;
         tab = undefined;
         $("tabs").hidden = true;
         entities = [];

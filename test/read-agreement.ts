@@ -4,6 +4,7 @@
 // written. The other reader's read is of a DXF that the leading CAD app wrote of the same drawing,
 // held to the doubles that app holds, within the rounding of 6 decimals for what it works out
 // again, and each text to what its DXF reader makes of the text it wrote.
+import assert from "node:assert/strict";
 import { attributeTextStart, placeAttribute } from "../src/blocks.ts";
 import {
   dimensionAngle,
@@ -46,6 +47,7 @@ import {
 import type {
   DrawingRead,
   ReadAttribute,
+  ReadAttributeDefinition,
   ReadAttributeParagraph,
   ReadEntity,
   ReadTableCellStyle,
@@ -57,10 +59,12 @@ export type ReadBy = "tsdraft" | "cad";
 /** A text as the leading CAD app's DXF export writes what it holds: a caret as `^ `, a control character as `^` and a letter. */
 function exported(text: string): string {
   let out = "";
+
   for (const c of text) {
     const code = c.charCodeAt(0);
     out += c === "^" ? "^ " : code < 0x20 ? `^${String.fromCharCode(code + 64)}` : c;
   }
+
   return out;
 }
 
@@ -77,9 +81,11 @@ export function readProblems(
   most = 20,
 ): string[] {
   const problems: string[] = [];
+
   const say = (problem: string): void => {
     if (problems.length < most) problems.push(problem);
   };
+
   // tsdraft's own file holds each number as written. The leading CAD app's holds the double it
   // read, and a multileader and a dimension as that app works them out again, within the rounding
   // of 6 decimals.
@@ -87,35 +93,47 @@ export function readProblems(
     by === "tsdraft" && !loose
       ? a === b
       : Math.abs(a - b) <= (loose ? 2e-6 : 0) + 1e-9 * Math.max(1, Math.abs(b));
+
   const nearPoint = (a: Point | undefined, b: Point, loose = false): boolean =>
     a !== undefined && near(a[0], b[0], loose) && near(a[1], b[1], loose);
+
   const nearAngle = (a: number, b: number): boolean => {
     const turned = (((a - b) % 360) + 360) % 360;
+
     return Math.min(turned, 360 - turned) <= (by === "tsdraft" ? 0 : 1e-9);
   };
+
   const point = (p: Point): Point => [written(p[0]), written(p[1])];
   const twice = (value: string): string => (by === "tsdraft" ? value : textTwice(exported(value)));
   const once = (value: string): string => (by === "tsdraft" ? value : textOnce(exported(value)));
+
   // A dimension's text as a read holds it, which leaves out `<>` alone above words below.
   const dimensionText = (want: { readonly text?: string; readonly textBelow?: string }) =>
     want.text === undefined || (want.text === "<>" && want.textBelow !== undefined)
       ? undefined
       : once(want.text);
+
   const sameName = (a: string | undefined, b: string): boolean =>
     a !== undefined && layerKey(a) === layerKey(b);
 
   const styles = new Map((drawing.textStyles ?? []).map((s) => [layerKey(s.name), s]));
+
   const styleOf = (name: string | undefined): TextStyle | undefined =>
     name === undefined ? undefined : styles.get(layerKey(name));
+
   const blocks = new Map((drawing.blocks ?? []).map((b) => [layerKey(b.name), b]));
+
   const dimensionStyles = new Map(
     (drawing.dimensionStyles ?? []).map((s) => [layerKey(s.name), s]),
   );
+
   const tableStyles = new Map((drawing.tableStyles ?? []).map((s) => [layerKey(s.name), s]));
   let measures: ReturnType<typeof tableMeasures> | undefined;
+
   /** The measures the writer lays a table out by: each block's box, and each text's. */
   const tableMeasuresOf = (): ReturnType<typeof tableMeasures> => {
     if (measures) return measures;
+
     const boxOf = boxer(
       drawing.textStyles,
       drawing.blocks,
@@ -125,12 +143,15 @@ export function readProblems(
       drawing.dimensionStyles,
       drawing.leaderStyles,
     );
+
     measures = tableMeasures(styleOf, (name) => {
       const block = blocks.get(layerKey(name));
+
       return block === undefined
         ? undefined
         : boxOf([{ kind: "insert", layer: "0", block: block.name, at: [0, 0] }]);
     });
+
     return measures;
   };
 
@@ -155,48 +176,71 @@ export function readProblems(
     const align = want.align ?? "left";
     const valign = want.valign ?? "baseline";
     const justified = align !== "left" || valign !== "baseline";
+
     if ((got.align ?? "left") !== align)
       say(`${label}: aligned ${got.align ?? "left"}, expected ${align}`);
+
     if ((got.valign ?? "baseline") !== valign) {
       say(`${label}: aligned ${got.valign ?? "baseline"} up and down, expected ${valign}`);
     }
+
     const at = justified ? got.alignAt : got.at;
+
     if (!nearPoint(at, want.at)) say(`${label}: placed at ${at}, expected ${want.at}`);
+
     if (!justified && got.startFrom !== "file") say(`${label}: starts from ${got.startFrom}`);
+
     if (justified && by === "tsdraft" && got.startFrom === "file" && !want.start) {
       say(`${label}: starts from the file, which holds its alignment point there`);
     }
+
     if (want.start && !nearPoint(got.stored, want.start)) {
       say(`${label}: starts at ${got.stored}, expected ${want.start}`);
     }
+
     if (!near(got.height, want.height))
       say(`${label}: height ${got.height}, expected ${want.height}`);
+
     if (!nearAngle(got.rotation, want.rotation)) {
       say(`${label}: turned ${got.rotation}, expected ${want.rotation}`);
     }
+
     if (!sameName(got.style, want.style ?? "Standard")) {
       say(`${label}: style ${got.style}, expected ${want.style ?? "Standard"}`);
     }
+
     if (!near(got.widthFactor ?? 1, want.widthFactor)) {
       say(`${label}: width factor ${got.widthFactor ?? 1}, expected ${want.widthFactor}`);
     }
+
     if (!nearAngle(got.oblique ?? 0, want.obliqueAngle)) {
       say(`${label}: oblique ${got.oblique ?? 0}, expected ${want.obliqueAngle}`);
     }
+
     if ((got.backward ?? false) !== want.mirrored)
       say(`${label}: backward ${got.backward ?? false}`);
+
     if (got.upsideDown) say(`${label}: upside down`);
   };
 
   /** A text of tsdraft's own read, worked out from the widths, against the leading CAD app's start. */
-  const start = (got: ReadTextPlacement, mine: unknown, value: string, label: string): void => {
-    const ownText = mine as ReadTextPlacement | undefined;
+  const start = (
+    got: ReadTextPlacement,
+    mine: ReadEntity | ReadAttribute | ReadAttributeDefinition | undefined,
+    value: string,
+    label: string,
+  ): void => {
+    const ownText = mine !== undefined && "startFrom" in mine ? mine : undefined;
+
     if (by !== "cad" || ownText?.startFrom !== "widths") return;
+
     // The widths are measured to 11 decimals: 1e-9 of the height for each character.
     const slack =
       1e-9 * got.height * Math.max(1, [...value].length) +
       1e-12 * Math.max(1, Math.abs(got.at[0]), Math.abs(got.at[1]));
+
     const [dx, dy] = [got.at[0] - ownText.at[0], got.at[1] - ownText.at[1]];
+
     if (Math.hypot(dx, dy) > slack) {
       say(`${label}: the leading CAD app starts it at ${got.at}, and the widths at ${ownText.at}`);
     }
@@ -212,14 +256,19 @@ export function readProblems(
   ): void => {
     if (!got) {
       say(`${label}: missing`);
+
       return;
     }
+
     const style = styleOf(definition.style);
     const placed = placeAttribute(definition, style, insert, block.base);
+
     if (got.tag !== twice(definition.tag)) say(`${label}: tag ${got.tag}`);
     const value = placed.paragraph?.value;
+
     if (value === undefined ? got.value !== twice(placed.value) : !paragraphValue(got.value, value))
       say(`${label}: reads ${JSON.stringify(got.value)}`);
+
     if (!sameName(got.layer, definition.layer)) say(`${label}: on layer ${got.layer}`);
     // The file holds a mirrored insert's attribute seen from below, which mirrors X.
     const at = mirroredBack(placed.at, placed.mirrored);
@@ -240,9 +289,11 @@ export function readProblems(
       },
       label,
     );
+
     if (placed.paragraph) {
       const [cos, sin] = paragraphDirection(placed.rotation);
-      paragraphOf(got.paragraph, definition as ParagraphAttributeDefinition, {
+      assert.ok(definition.kind === "paragraph", "a paragraph placed from a definition of one");
+      paragraphOf(got.paragraph, definition, {
         at: point(at),
         height: written(placed.height),
         width: placed.paragraph.width ?? 0,
@@ -250,8 +301,10 @@ export function readProblems(
         mirrored: placed.mirrored,
         label,
       });
+
       return;
     }
+
     start(got, mine, got.value, label);
   };
 
@@ -285,9 +338,13 @@ export function readProblems(
     },
   ): void => {
     const { label } = want;
+
     if (!got) return say(`${label}: holds no paragraph`);
+
     if (!sameName(got.style, definition.style ?? "Standard")) say(`${label}: style ${got.style}`);
+
     if (!nearPoint(got.at, want.at)) say(`${label}: paragraph at ${got.at}, expected ${want.at}`);
+
     for (const [what, a, b] of [
       ["height", got.height, want.height],
       ["width", got.width, want.width],
@@ -296,12 +353,16 @@ export function readProblems(
     ] as const) {
       if (!near(a, b)) say(`${label}: paragraph ${what} ${a}, expected ${b}`);
     }
+
     if (got.lineSpacingStyle !== (definition.lineSpacingStyle ?? "at-least")) {
       say(`${label}: line spacing ${got.lineSpacingStyle}`);
     }
+
     // Its direction is written with 15 digits, which give its turn back within their rounding.
     const turned = (((got.rotation - want.turn) % 360) + 360) % 360;
+
     if (Math.min(turned, 360 - turned) > 1e-9) say(`${label}: paragraph turned ${got.rotation}`);
+
     if ((got.mirrored ?? false) !== want.mirrored) say(`${label}: mirrored ${got.mirrored}`);
   };
 
@@ -313,21 +374,29 @@ export function readProblems(
   ): void => {
     if (!got) {
       say(`${label}: missing`);
+
       return;
     }
+
     if (!sameName(got.layer, want.layer))
       say(`${label}: on layer ${got.layer}, expected ${want.layer}`);
+
     if (want.id !== undefined && got.handle !== idHandle(want.id)) {
       say(`${label}: handle ${got.handle}, expected ${idHandle(want.id)}`);
     }
+
     const stored = storedColor(want.color);
+
     if (got.color !== stored?.index || got.trueColor !== stored?.rgb) {
       say(
         `${label}: color ${got.color} and ${got.trueColor}, expected ${stored?.index} and ${stored?.rgb}`,
       );
     }
+
     const alpha = readAlpha(storedTransparency(want.transparency));
+
     if (got.alpha !== alpha) say(`${label}: alpha ${got.alpha}, expected ${alpha}`);
+
     if (
       want.kind !== "insert" &&
       want.kind !== "leader" &&
@@ -335,42 +404,55 @@ export function readProblems(
       !isDimension(want)
     ) {
       const linetype = entityLinetype(want);
+
       if (linetype === undefined ? got.linetype !== undefined : !sameName(got.linetype, linetype)) {
         say(`${label}: linetype ${got.linetype}, expected ${linetype}`);
       }
+
       const weight = lineweightCode(want.lineweight ?? "ByLayer");
+
       if ((got.lineweight ?? -1) !== weight)
         say(`${label}: lineweight ${got.lineweight}, expected ${weight}`);
     }
+
     const kind = (k: ReadEntity["kind"]): boolean => {
       if (got.kind === k) return true;
       say(`${label}: read as ${got.kind}, expected ${k}`);
+
       return false;
     };
+
     switch (want.kind) {
       case "line":
         if (!kind("line") || got.kind !== "line") return;
+
         if (!nearPoint(got.from, point(want.from)) || !nearPoint(got.to, point(want.to))) {
           say(`${label}: from ${got.from} to ${got.to}`);
         }
+
         return;
       case "polyline":
         if (!kind("polyline") || got.kind !== "polyline") return;
+
         if (got.closed !== want.closed) say(`${label}: closed ${got.closed}`);
+
         if (
           got.points.length !== want.points.length ||
           got.points.some((p, i) => !nearPoint(p, point(want.points[i]!)))
         ) {
           say(`${label}: points ${JSON.stringify(got.points).slice(0, 200)}`);
         }
+
         {
           // Each side's bulge and widths as written, where a list left out is all 0.
           const sides = want.closed ? want.points.length : want.points.length - 1;
+
           for (let i = 0; i < sides; i++) {
             const bulge = [got.bulges?.[i] ?? 0, written(want.bulges?.[i] ?? 0)];
             const constant = [got.width ?? 0, written(want.width ?? 0)] as const;
             const read = got.widths?.[i] ?? [constant[0], constant[0]];
             const drawn = want.widths?.[i] ?? [constant[1], constant[1]];
+
             if (
               !near(bulge[0]!, bulge[1]!) ||
               !near(read[0], written(drawn[0])) ||
@@ -381,15 +463,19 @@ export function readProblems(
             }
           }
         }
+
         return;
       case "circle":
         if (!kind("circle") || got.kind !== "circle") return;
+
         if (!nearPoint(got.center, point(want.center)) || !near(got.radius, written(want.radius))) {
           say(`${label}: center ${got.center}, radius ${got.radius}`);
         }
+
         return;
       case "point":
         if (!kind("point") || got.kind !== "point") return;
+
         if (
           !nearPoint(got.at, point(want.at)) ||
           // The file holds the turn the other way, as 360 less it, which comes back within bits.
@@ -399,9 +485,11 @@ export function readProblems(
         ) {
           say(`${label}: at ${got.at}, turned ${got.rotation ?? 0}`);
         }
+
         return;
       case "arc":
         if (!kind("arc") || got.kind !== "arc") return;
+
         if (
           !nearPoint(got.center, point(want.center)) ||
           !near(got.radius, written(want.radius)) ||
@@ -412,15 +500,19 @@ export function readProblems(
             `${label}: center ${got.center}, radius ${got.radius}, from ${got.start} to ${got.end}`,
           );
         }
+
         return;
       case "ellipse": {
         if (!kind("ellipse") || got.kind !== "ellipse") return;
+
         // Its parameters are written in radians, and come back within rounding of the degrees.
         const angle = (a: number | undefined, b: number | undefined): boolean => {
           if (a === undefined || b === undefined) return a === b;
           const turned = (((a - b) % 360) + 360) % 360;
+
           return Math.min(turned, 360 - turned) <= 1e-9;
         };
+
         if (
           !nearPoint(got.center, point(want.center)) ||
           !nearPoint(got.majorAxis, point(want.majorAxis)) ||
@@ -436,11 +528,15 @@ export function readProblems(
         ) {
           say(`${label}: ${JSON.stringify({ ...got, handle: undefined })}`);
         }
+
         return;
       }
+
       case "spline": {
         if (!kind("spline") || got.kind !== "spline") return;
+
         if ((got.closed ?? false) !== (want.closed ?? false)) say(`${label}: closed ${got.closed}`);
+
         if (isFitSpline(want)) {
           // The leading CAD app fits its own control points: the fit points are what agree.
           if (
@@ -449,16 +545,21 @@ export function readProblems(
           ) {
             say(`${label}: fit points ${JSON.stringify(got.fitPoints).slice(0, 200)}`);
           }
+
           return;
         }
+
         // A spline by its control points is written clamped, as that app saves it.
         const held = clamped(want);
+
         // Knots and points the clamp worked out are written with 16 digits, not as given.
         const worked =
           held.knots.length !== want.knots.length || held.knots.some((k, i) => k !== want.knots[i]);
+
         const as = (v: number) => (worked ? v : written(v));
         const at = (p: Point) => (worked ? p : point(p));
         const loose = by !== "tsdraft" || worked;
+
         if (
           got.degree !== want.degree ||
           got.knots.length !== held.knots.length ||
@@ -470,11 +571,14 @@ export function readProblems(
         ) {
           say(`${label}: ${JSON.stringify({ ...got, handle: undefined }).slice(0, 300)}`);
         }
+
         return;
       }
+
       case "text": {
         if (!kind("text") || got.kind !== "text") return;
         const style = styleOf(want.style);
+
         if (got.value !== twice(want.value)) say(`${label}: reads ${JSON.stringify(got.value)}`);
         placement(
           got,
@@ -491,19 +595,25 @@ export function readProblems(
           label,
         );
         start(got, mine, got.value, label);
+
         return;
       }
+
       case "paragraph": {
         if (!kind("mtext") || got.kind !== "mtext") return;
         const style = styleOf(want.style);
+
         // A DWG keeps a `\U+XXXX` as written, where a DXF's reader decodes it.
         if (got.value !== once(want.value) && got.value !== want.value) {
           say(`${label}: reads ${JSON.stringify(got.value)}`);
         }
+
         if (!sameName(got.style, style?.name ?? want.style ?? "Standard")) {
           say(`${label}: style ${got.style}`);
         }
+
         if (!nearPoint(got.at, point(want.at))) say(`${label}: at ${got.at}`);
+
         for (const [what, a, b] of [
           ["height", got.height, written(want.height)],
           ["width", got.width, written(want.width ?? 0)],
@@ -512,19 +622,26 @@ export function readProblems(
         ] as const) {
           if (!near(a, b)) say(`${label}: ${what} ${a}, expected ${b}`);
         }
+
         if (got.lineSpacingStyle !== (want.lineSpacingStyle ?? "at-least")) {
           say(`${label}: line spacing ${got.lineSpacingStyle}`);
         }
+
         // Its direction is written with 15 digits, which give its turn back within their rounding.
         const turned = (((got.rotation - paragraphTurn(want.rotation)) % 360) + 360) % 360;
+
         if (Math.min(turned, 360 - turned) > 1e-9) say(`${label}: turned ${got.rotation}`);
+
         return;
       }
+
       case "insert": {
         if (!kind("insert") || got.kind !== "insert") return;
         const block = blocks.get(layerKey(want.block));
+
         if (!sameName(got.block, want.block)) say(`${label}: inserts ${got.block}`);
         const [sx, sy] = want.scale ?? [1, 1];
+
         if (
           !nearPoint(got.at, point(want.at)) ||
           !near(got.scale[0], written(sx)) ||
@@ -533,12 +650,15 @@ export function readProblems(
         ) {
           say(`${label}: at ${got.at}, scale ${got.scale}, turned ${got.rotation}`);
         }
+
         if (block && !got.blockHandle) say(`${label}: names no block record`);
         const definitions = block?.attributes ?? [];
         const attributes = got.attributes ?? [];
+
         if (attributes.length !== definitions.length) {
           say(`${label}: ${attributes.length} attributes, expected ${definitions.length}`);
         }
+
         const myAttributes = mine?.kind === "insert" ? mine.attributes : undefined;
         definitions.forEach((definition, i) =>
           attribute(
@@ -550,31 +670,43 @@ export function readProblems(
             `${label} attribute ${definition.tag}`,
           ),
         );
+
         return;
       }
+
       case "linear-dimension":
       case "aligned-dimension": {
         if (!kind("dimension") || got.kind !== "dimension") return;
         const style = dimensionStyles.get(layerKey(want.style));
         const type = want.kind === "linear-dimension" ? "linear" : "aligned";
+
         if (got.type !== type) say(`${label}: ${got.type}, expected ${type}`);
+
         if (!sameName(got.style, want.style)) say(`${label}: style ${got.style}`);
+
         if (!nearPoint(got.from, point(want.from)) || !nearPoint(got.to, point(want.to))) {
           say(`${label}: from ${got.from} to ${got.to}`);
         }
+
         const angle = want.kind === "linear-dimension" ? written(dimensionAngle(want)) : 0;
+
         if (!nearAngle(got.angle ?? 0, angle))
           say(`${label}: along ${got.angle}, expected ${angle}`);
+
         if ((got.text ?? undefined) !== dimensionText(want)) {
           say(`${label}: text ${JSON.stringify(got.text)}`);
         }
+
         const below = want.textBelow === undefined ? undefined : once(want.textBelow);
+
         if ((got.textBelow ?? undefined) !== below) {
           say(`${label}: text below ${JSON.stringify(got.textBelow)}`);
         }
+
         if (!style) return;
         const font = drawing.textStyles?.find((t) => sameName(t.name, style.textStyle ?? ""));
         const picture = dimensionPicture(want, style, font);
+
         // The leading CAD app works the point of the dimension line out again as it draws the
         // picture, and places the text by its letters, so a read by that
         // app is held to where the line is.
@@ -583,71 +715,98 @@ export function readProblems(
             `${label}: its line meets the second extension line at ${got.line}, expected ${picture.definitionPoint}`,
           );
         }
+
         if (by === "tsdraft" && !nearPoint(got.textAt, point(picture.textPoint))) {
           say(`${label}: its text at ${got.textAt}, expected ${picture.textPoint}`);
         }
+
         const measurement =
           dimensionMeasure(want).measurement * written(style.measurementScale ?? 1);
+
         if (
           got.measurement === undefined ||
           Math.abs(got.measurement - measurement) > 1e-9 * Math.max(1, Math.abs(measurement))
         ) {
           say(`${label}: measures ${got.measurement}, expected ${measurement}`);
         }
+
         if (by === "tsdraft" && !got.block?.startsWith("*D"))
           say(`${label}: drawn by ${got.block}`);
+
         if (got.block !== undefined && !got.blockHandle) say(`${label}: names no block record`);
+
         return;
       }
+
       case "radius-dimension":
       case "diameter-dimension":
       case "jogged-radius-dimension": {
         if (!kind("radial-dimension") || got.kind !== "radial-dimension") return;
-        const type =
-          { "radius-dimension": "radius", "diameter-dimension": "diameter" }[
-            want.kind as "radius-dimension"
-          ] ?? "jogged-radius";
+
+        const types = {
+          "radius-dimension": "radius",
+          "diameter-dimension": "diameter",
+          "jogged-radius-dimension": "jogged-radius",
+        } as const;
+
+        const type = types[want.kind];
+
         if (got.type !== type) say(`${label}: ${got.type}, expected ${type}`);
+
         if (!sameName(got.style, want.style)) say(`${label}: style ${got.style}`);
+
         if (
           !nearPoint(got.center, point(want.center)) ||
           !nearPoint(got.point, point(want.point))
         ) {
           say(`${label}: center ${got.center}, point ${got.point}`);
         }
+
         if (
           want.kind === "jogged-radius-dimension" &&
           (!nearPoint(got.start ?? [NaN, NaN], point(want.start)) ||
             !nearPoint(got.jog ?? [NaN, NaN], point(want.jog)))
         )
           say(`${label}: starts at ${got.start}, jogs at ${got.jog}`);
+
         if ((got.text ?? undefined) !== dimensionText(want)) {
           say(`${label}: text ${JSON.stringify(got.text)}`);
         }
+
         const below = want.textBelow === undefined ? undefined : once(want.textBelow);
+
         if ((got.textBelow ?? undefined) !== below) {
           say(`${label}: text below ${JSON.stringify(got.textBelow)}`);
         }
+
         const style = dimensionStyles.get(layerKey(want.style));
+
         if (!style) return;
         const font = drawing.textStyles?.find((t) => sameName(t.name, style.textStyle ?? ""));
         const picture = dimensionPicture(want, style, font);
+
         if (by === "tsdraft" && !nearPoint(got.textAt, point(picture.textPoint))) {
           say(`${label}: its text at ${got.textAt}, expected ${picture.textPoint}`);
         }
+
         const measurement =
           dimensionMeasure(want).measurement * written(style.measurementScale ?? 1);
+
         if (
           got.measurement === undefined ||
           Math.abs(got.measurement - measurement) > 1e-9 * Math.max(1, Math.abs(measurement))
         ) {
           say(`${label}: measures ${got.measurement}, expected ${measurement}`);
         }
+
         return;
       }
+
       case "ordinate-dimension": {
         if (!kind("ordinate-dimension") || got.kind !== "ordinate-dimension") return;
+
         if (!sameName(got.style, want.style)) say(`${label}: style ${got.style}`);
+
         if (
           got.axis !== want.axis ||
           !nearPoint(got.origin, point(want.origin)) ||
@@ -656,36 +815,49 @@ export function readProblems(
         ) {
           say(`${label}: ${got.axis} of ${got.feature} from ${got.origin}, to ${got.leaderEnd}`);
         }
+
         if ((got.text ?? undefined) !== dimensionText(want)) {
           say(`${label}: text ${JSON.stringify(got.text)}`);
         }
+
         const below = want.textBelow === undefined ? undefined : once(want.textBelow);
+
         if ((got.textBelow ?? undefined) !== below) {
           say(`${label}: text below ${JSON.stringify(got.textBelow)}`);
         }
+
         const style = dimensionStyles.get(layerKey(want.style));
+
         if (!style) return;
         const font = drawing.textStyles?.find((t) => sameName(t.name, style.textStyle ?? ""));
         const picture = dimensionPicture(want, style, font);
+
         if (by === "tsdraft" && !nearPoint(got.textAt, point(picture.textPoint))) {
           say(`${label}: its text at ${got.textAt}, expected ${picture.textPoint}`);
         }
+
         const measurement =
           dimensionMeasure(want).measurement * written(style.measurementScale ?? 1);
+
         if (
           got.measurement === undefined ||
           Math.abs(got.measurement - measurement) > 1e-9 * Math.max(1, Math.abs(measurement))
         ) {
           say(`${label}: measures ${got.measurement}, expected ${measurement}`);
         }
+
         return;
       }
+
       case "arc-length-dimension": {
         if (!kind("arc-length-dimension") || got.kind !== "arc-length-dimension") return;
+
         if (!sameName(got.style, want.style)) say(`${label}: style ${got.style}`);
         const arc = arcLengthArc(want);
+
         const turn = (a: number, b: number): number =>
           Math.abs(((((a - b) % 360) + 540) % 360) - 180);
+
         if (
           !nearPoint(got.center, arc.center) ||
           Math.abs(got.radius - arc.radius) > 1e-6 ||
@@ -696,25 +868,35 @@ export function readProblems(
             `${label}: about ${got.center} of ${got.radius}, ${got.startAngle} to ${got.endAngle}`,
           );
         }
+
         if ((got.text ?? undefined) !== dimensionText(want)) {
           say(`${label}: text ${JSON.stringify(got.text)}`);
         }
+
         const style = dimensionStyles.get(layerKey(want.style));
+
         if (!style) return;
+
         const measurement =
           dimensionMeasure(want).measurement * written(style.measurementScale ?? 1);
+
         if (
           got.measurement === undefined ||
           Math.abs(got.measurement - measurement) > 1e-9 * Math.max(1, Math.abs(measurement))
         ) {
           say(`${label}: measures ${got.measurement}, expected ${measurement}`);
         }
+
         return;
       }
+
       case "angular-dimension": {
         if (!kind("angular-dimension") || got.kind !== "angular-dimension") return;
+
         if (got.type !== "three-point") say(`${label}: ${got.type}, expected three-point`);
+
         if (!sameName(got.style, want.style)) say(`${label}: style ${got.style}`);
+
         if (
           !nearPoint(got.vertex ?? [NaN, NaN], point(want.vertex)) ||
           !nearPoint(got.from ?? [NaN, NaN], point(want.from)) ||
@@ -722,45 +904,62 @@ export function readProblems(
         ) {
           say(`${label}: vertex ${got.vertex}, from ${got.from}, to ${got.to}`);
         }
+
         // The leading CAD app keeps a point of the arc of its own choosing.
         if (by === "tsdraft" && !nearPoint(got.at, point(want.at)))
           say(`${label}: arc at ${got.at}`);
+
         if ((got.text ?? undefined) !== dimensionText(want)) {
           say(`${label}: text ${JSON.stringify(got.text)}`);
         }
+
         const below = want.textBelow === undefined ? undefined : once(want.textBelow);
+
         if ((got.textBelow ?? undefined) !== below) {
           say(`${label}: text below ${JSON.stringify(got.textBelow)}`);
         }
+
         const style = dimensionStyles.get(layerKey(want.style));
+
         if (!style) return;
         const font = drawing.textStyles?.find((t) => sameName(t.name, style.textStyle ?? ""));
         const picture = dimensionPicture(want, style, font);
+
         if (by === "tsdraft" && !nearPoint(got.textAt, point(picture.textPoint))) {
           say(`${label}: its text at ${got.textAt}, expected ${picture.textPoint}`);
         }
+
         const degrees = (dimensionMeasure(want).measurement * 180) / Math.PI;
+
         if (got.measurement === undefined || Math.abs(got.measurement - degrees) > 1e-9 * degrees) {
           say(`${label}: measures ${got.measurement}, expected ${degrees}`);
         }
+
         return;
       }
+
       case "leader": {
         if (!kind("multileader") || got.kind !== "multileader") return;
         const style = findLeaderStyle(drawing, want.style);
+
         if (!style) return;
         const named = want.textStyle ?? style.textStyle;
+
         const picture = leaderPicture(want, style, styleOf(named), (name) =>
           blocks.get(layerKey(name)),
         );
+
         if (!sameName(got.style, style.name)) say(`${label}: style ${got.style}`);
+
         if (!sameName(got.textStyle, styleOf(named)?.name ?? named ?? "Standard")) {
           say(`${label}: note in ${got.textStyle}`);
         }
+
         // The note as written, with the code an underline of every line puts before it.
         if (got.text !== once(picture.note.value))
           say(`${label}: note ${JSON.stringify(got.text)}`);
         const loose = by === "cad";
+
         for (const [what, a, b] of [
           ["text height", got.textHeight, picture.sizes.textHeight],
           ["arrow size", got.arrowSize, picture.sizes.arrowSize],
@@ -769,10 +968,13 @@ export function readProblems(
         ] as const) {
           if (!near(a, b, loose)) say(`${label}: ${what} ${a}, expected ${b}`);
         }
+
         if (!nearPoint(got.at, picture.connection, loose)) say(`${label}: at ${got.at}`);
         // A block in place of the note is held at the block's point.
         const noteAt = picture.block === undefined ? picture.location : point(picture.block.at);
+
         if (!nearPoint(got.textAt, noteAt, loose)) say(`${label}: note at ${got.textAt}`);
+
         if (
           got.shafts.length !== want.shafts.length ||
           got.shafts.some(
@@ -783,22 +985,31 @@ export function readProblems(
         ) {
           say(`${label}: shafts ${JSON.stringify(got.shafts).slice(0, 200)}`);
         }
+
         return;
       }
+
       case "table": {
         if (!kind("table") || got.kind !== "table") return;
         const style = tableStyles.get(layerKey(want.style));
+
         if (!sameName(got.style, want.style)) say(`${label}: style ${got.style}`);
+
         if (!style) return;
+
         if (!nearPoint(got.at, point(want.at))) say(`${label}: at ${got.at}`);
         // Its direction is written with 15 digits.
         const [cos, sin] = paragraphDirection(want.rotation);
+
         if (Math.abs(got.direction[0] - cos) > 1e-12 || Math.abs(got.direction[1] - sin) > 1e-12)
           say(`${label}: runs along ${got.direction}`);
+
         if (got.title !== (want.title !== undefined)) say(`${label}: title ${got.title}`);
+
         if (got.header !== (want.header !== undefined)) say(`${label}: header ${got.header}`);
         // The leading CAD app lays the table out again, within the rounding of 6 decimals.
         const picture = tablePicture(want, style, tableMeasuresOf());
+
         for (const [what, a, b] of [
           ["rows", got.rows, picture.rows],
           ["columns", got.columns, picture.columns],
@@ -806,16 +1017,21 @@ export function readProblems(
           if (a.length !== b.length || a.some((n, i) => !near(n, written(b[i]!), by === "cad")))
             say(`${label}: ${what} ${a.join(", ")}, expected ${b.map(written).join(", ")}`);
         }
+
         const rows = tableRows(want);
         const cells = gridCells(want);
+
         if (got.cells.length !== cells.length) {
           say(`${label}: ${got.cells.length} cells, expected ${cells.length}`);
         }
+
         cells.forEach((cell, i) => {
           const read = got.cells[i];
           const at = `${label} cell ${cell.row}/${cell.column}`;
+
           if (!read) return say(`${at}: missing`);
           const { content } = cell;
+
           if (
             read.row !== cell.row ||
             read.column !== cell.column ||
@@ -823,20 +1039,26 @@ export function readProblems(
             read.columnSpan !== cell.columns
           )
             say(`${at}: at ${read.row}/${read.column} over ${read.rowSpan} by ${read.columnSpan}`);
+
           const block =
             content.block === undefined ? undefined : blocks.get(layerKey(content.block));
+
           const text = block === undefined && content.text !== "" ? content.text : undefined;
+
           if (read.text !== (text === undefined ? undefined : once(text)))
             say(`${at}: reads ${JSON.stringify(read.text)}`);
+
           if (block ? !sameName(read.block, block.name) : read.block !== undefined)
             say(`${at}: holds the block ${read.block}`);
           const scale = block === undefined ? undefined : content.blockScale;
+
           if (
             (read.blockScale === undefined) !== (scale === undefined) ||
             (scale !== undefined && !near(read.blockScale!, written(scale)))
           )
             say(`${at}: block scale ${read.blockScale}`);
           const own = cellStyleOf(style, rows[cell.row]!.kind);
+
           const alignment =
             content.align === undefined && content.valign === undefined
               ? undefined
@@ -844,6 +1066,7 @@ export function readProblems(
                   align: content.align ?? own.align,
                   valign: content.valign ?? own.valign,
                 });
+
           for (const [what, a, b] of [
             ["alignment", read.alignment, alignment],
             [
@@ -858,12 +1081,16 @@ export function readProblems(
               say(`${at}: ${what} ${a}, expected ${b}`);
           }
         });
+
         if (got.block === undefined || !got.blockHandle) {
           say(`${label}: names no block of its picture`);
+
           return;
         }
+
         if (by === "tsdraft" && !/^\*T\d+$/.test(got.block)) say(`${label}: drawn by ${got.block}`);
         const drawn = read.blocks.find((b) => b.handle === got.blockHandle);
+
         if (!drawn || !sameName(drawn.name, got.block)) say(`${label}: its block is not read`);
         else if (by === "tsdraft") {
           const count =
@@ -871,32 +1098,42 @@ export function readProblems(
             picture.lines.length +
             picture.texts.length +
             picture.blocks.filter((b) => blocks.has(layerKey(b.block))).length;
+
           if (drawn.entities.length !== count)
             say(`${label}: its block draws ${drawn.entities.length}, expected ${count}`);
         }
+
         return;
       }
+
       case "image": {
         if (!kind("image") || got.kind !== "image") return;
+
         if (got.path !== writtenImagePath(want.path))
           say(`${label}: path ${JSON.stringify(got.path)}`);
+
         if (got.pixels[0] !== want.pixels[0] || got.pixels[1] !== want.pixels[1]) {
           say(`${label}: pixels ${got.pixels.join(" by ")}`);
         }
+
         const [u, v] = imageVectors(want);
+
         if (!nearPoint(got.at, point(want.at)) || !nearPoint(got.u, u) || !nearPoint(got.v, v)) {
           say(`${label}: at ${got.at}, u ${got.u}, v ${got.v}`);
         }
+
         // The clip as both readers give it: in the world, a rectangle by its lower and upper
         // corners in the image's pixels, a polygon without its first point again.
         const clip = imageClip(want);
         const at = point(want.at);
+
         const world =
           want.clip === undefined
             ? undefined
             : (clip.type === 2 ? clip.points.slice(0, -1) : clip.points).map((p) =>
                 fromImagePixels(at, u, v, want.pixels, p),
               );
+
         if (
           (world === undefined) !== (got.clip === undefined) ||
           (world !== undefined &&
@@ -905,12 +1142,16 @@ export function readProblems(
         ) {
           say(`${label}: clip ${JSON.stringify(got.clip)}`);
         }
+
         if ((got.invertClip ?? false) !== (want.invertClip ?? false)) say(`${label}: invertClip`);
+
         if ((got.transparent ?? false) !== (want.transparent ?? false))
           say(`${label}: transparent`);
+
         for (const flag of ["hidden", "unclipped"] as const) {
           if (got[flag]) say(`${label}: ${flag}`);
         }
+
         return;
       }
     }
@@ -925,10 +1166,13 @@ export function readProblems(
   ): void => {
     if (!got) {
       say(`${where}: no entities read`);
+
       return;
     }
+
     if (got.length !== want.length)
       say(`${where}: ${got.length} entities, expected ${want.length}`);
+
     if (Object.keys(other ?? {}).length > 0) say(`${where}: left out ${JSON.stringify(other)}`);
     want.forEach((e, i) => entity(got[i], mine?.[i], e, `${where} ${e.kind} #${i}`));
   };
@@ -942,10 +1186,13 @@ export function readProblems(
   );
   (drawing.layouts ?? []).forEach((layout, i) => {
     const got = read.layouts.find((l) => l.name === layout.name);
+
     if (!got) {
       say(`layout ${layout.name}: missing`);
+
       return;
     }
+
     const mine = own?.layouts.find((l) => l.name === layout.name);
     entities(
       got.entities,
@@ -957,34 +1204,44 @@ export function readProblems(
   });
   // A block a leader places is written with every entity ByBlock, as CAD programs hold it.
   const placedByLeader = leaderPlacesBlock(drawing);
+
   for (const block of drawing.blocks ?? []) {
     const got = read.blocks.find((b) => sameName(b.name, block.name));
+
     if (!got) {
       say(`block ${block.name}: missing`);
       continue;
     }
+
     const mine = own?.blocks.find((b) => sameName(b.name, block.name));
     const held = placedByLeader(block.name) ? heldByBlock(block.entities) : block.entities;
     entities(got.entities, mine?.entities, got.other, held, `block ${block.name}`);
     const definitions = block.attributes ?? [];
+
     if (got.attributeDefinitions.length !== definitions.length) {
       say(`block ${block.name}: ${got.attributeDefinitions.length} attribute definitions`);
     }
+
     definitions.forEach((definition, i) => {
       const read = got.attributeDefinitions[i];
       const label = `block ${block.name} attribute definition ${definition.tag}`;
+
       if (!read) return say(`${label}: missing`);
       const style = styleOf(definition.style);
+
       if (read.tag !== twice(definition.tag)) say(`${label}: tag ${read.tag}`);
       const paragraph = definition.kind === "paragraph";
+
       if (
         paragraph
           ? !paragraphValue(read.default ?? "", definition.value)
           : read.default !== twice(definition.value)
       )
         say(`${label}: reads ${JSON.stringify(read.default)}`);
+
       if (read.prompt !== twice(definition.prompt ?? definition.tag))
         say(`${label}: asks ${read.prompt}`);
+
       if (!sameName(read.layer, definition.layer)) say(`${label}: on layer ${read.layer}`);
       placement(
         read,
@@ -1002,6 +1259,7 @@ export function readProblems(
         },
         label,
       );
+
       if (definition.kind === "paragraph") {
         paragraphOf(read.paragraph, definition, {
           at: point(definition.at),
@@ -1014,6 +1272,7 @@ export function readProblems(
       } else start(read, mine?.attributeDefinitions[i], read.default ?? "", label);
     });
   }
+
   /** A cell style as the read holds it, against the style's of that kind of row. */
   const cellStyle = (
     got: ReadTableCellStyle,
@@ -1023,6 +1282,7 @@ export function readProblems(
     if (!sameName(got.textStyle, want.textStyle ?? "Standard"))
       say(`${label}: text style ${got.textStyle}`);
     const weight = want.lineweight === undefined ? -2 : lineweightCode(want.lineweight);
+
     for (const [what, a, b] of [
       ["text height", got.textHeight, written(want.textHeight)],
       ["alignment", got.alignment, paragraphAttachment(want)],
@@ -1031,26 +1291,34 @@ export function readProblems(
     ] as const) {
       if (!near(a, b)) say(`${label}: ${what} ${a}, expected ${b}`);
     }
+
     if (got.fill !== want.fill) say(`${label}: fill ${got.fill}, expected ${want.fill}`);
   };
+
   for (const style of drawing.tableStyles ?? []) {
     const label = `table style ${style.name}`;
     const got = read.tableStyles.find((s) => sameName(s.name, style.name));
+
     if (!got) {
       say(`${label}: missing`);
       continue;
     }
+
     const [horizontal, vertical] = tableMargins(style);
+
     if (
       !near(got.horizontalMargin, written(horizontal)) ||
       !near(got.verticalMargin, written(vertical))
     )
       say(`${label}: margins ${got.horizontalMargin} and ${got.verticalMargin}`);
+
     for (const kind of TABLE_ROW_KINDS)
       cellStyle(got[kind], cellStyleOf(style, kind), `${label} ${kind}`);
   }
+
   if (Object.keys(read.unread.malformed).length > 0) {
     say(`malformed: ${JSON.stringify(read.unread.malformed)}`);
   }
+
   return problems;
 }

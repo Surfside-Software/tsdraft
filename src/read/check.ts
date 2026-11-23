@@ -1,7 +1,7 @@
 // `checkDrawingRead`: whether a value is a `DrawingRead` as plain data. A reader is code of its
 // own, so what it answers is checked before anything reads it.
-import { isRecord } from "../shape.ts";
 import { shown } from "../rules.ts";
+import { isBoolean, isNumber, isPlainRecord, isString } from "../guards.ts";
 import { READ_FORMAT } from "./model.ts";
 
 /** A field's type: a name below, an object's fields, a list of one type, or a map of one. */
@@ -24,7 +24,9 @@ type Type =
   | { readonly either: readonly Fields[]; readonly named: string };
 
 /** Each field and its type. A field whose name ends in `?` may be left out. */
-type Fields = Readonly<Record<string, Type>>;
+interface Fields {
+  readonly [name: string]: Type;
+}
 
 const counts: Type = { map: "count" };
 
@@ -35,6 +37,7 @@ const MARK: Fields = {
   "orient?": { oneOf: ["absolute", "upright"] },
   "offset?": "point",
 };
+
 const strings: Type = { list: "string" };
 
 const LAYER_CENSUS: Fields = {
@@ -96,6 +99,9 @@ const BASE = {
   "linetype?": "string",
   "lineweight?": "number",
   "linetypeScale?": "number",
+  "mark?": {
+    fields: { format: "string", name: "string", id: "string", handle: "string", hash: "string" },
+  },
 } as const;
 
 const PLACEMENT: Fields = {
@@ -147,6 +153,7 @@ const INSERT: Fields = {
   rotation: "number",
   tags: { map: "boolean" },
   "attributes?": { list: { fields: ATTRIBUTE } },
+  "clip?": { fields: { outline: { list: "point" }, "inverted?": "boolean" } },
 };
 
 /** An edge of a solid, a region or a body. */
@@ -182,7 +189,12 @@ const MODELER = (kind: string): Fields => ({
   "dataUnread?": "boolean",
 });
 
-const ENTITY: Readonly<Record<string, Fields>> = {
+/** The fields of each kind of entity, by its kind. */
+interface EntityFields {
+  readonly [kind: string]: Fields;
+}
+
+const ENTITY: EntityFields = {
   "3dsolid": MODELER("3dsolid"),
   region: MODELER("region"),
   body: MODELER("body"),
@@ -196,6 +208,7 @@ const ENTITY: Readonly<Record<string, Fields>> = {
     "width?": "number",
     "widths?": { list: "point" },
     "linetypeGeneration?": "boolean",
+    "heavy?": "boolean",
   },
   circle: { ...BASE, kind: { oneOf: ["circle"] }, center: "point", radius: "number" },
   point: { ...BASE, kind: { oneOf: ["point"] }, at: "point", "rotation?": "number" },
@@ -507,6 +520,11 @@ const SPACE: Fields = {
   "entities?": { list: "entity" },
   "other?": counts,
   "drawOrder?": strings,
+  "unread?": {
+    list: {
+      fields: { handle: "string", kind: "string", layer: "string", "box?": { list: "point" } },
+    },
+  },
 };
 
 const DRAWING_READ: Fields = {
@@ -528,6 +546,8 @@ const DRAWING_READ: Fields = {
       "pdsize?": "number",
       "dimstyle?": "string",
       "textstyle?": "string",
+      "handseed?": "string",
+      "clayer?": "string",
       "wipeoutFrame?": "number",
     },
   },
@@ -560,7 +580,7 @@ const DRAWING_READ: Fields = {
           list: {
             either: [
               { ...MARK, text: "string", style: "string", height: "number" },
-              { ...MARK, shape: "number", file: "string", scale: "number" },
+              { ...MARK, glyph: "number", file: "string", scale: "number" },
             ],
             named: "a linetype's mark",
           },
@@ -580,7 +600,7 @@ const DRAWING_READ: Fields = {
         "widthFactor?": "number",
         "oblique?": "number",
         annotative: "boolean",
-        shapes: "boolean",
+        glyphFile: "boolean",
       },
     },
   },
@@ -608,6 +628,32 @@ const DRAWING_READ: Fields = {
         "arrowheadBlock?": "string",
         "textFill?": "number",
         "textFillColor?": "number",
+        "extensionOffset?": "number",
+        "extensionBeyond?": "number",
+        "textGap?": "number",
+        "lineExtension?": "number",
+        "zeros?": "number",
+        "textLevelInside?": "number",
+        "textLevelOutside?": "number",
+        "lineInside?": "number",
+      },
+    },
+  },
+  "leaderStyles?": {
+    list: {
+      fields: {
+        "handle?": "string",
+        name: "string",
+        "textStyle?": "string",
+        textHeight: "number",
+        arrowSize: "number",
+        "arrowheadBlock?": "string",
+        landing: "number",
+        gap: "number",
+        scale: "number",
+        attachment: "number",
+        frame: "boolean",
+        direction: "number",
       },
     },
   },
@@ -690,6 +736,7 @@ const DRAWING_READ: Fields = {
         "plotter?": "string",
         "paperSize?": "point",
         "paperUnits?": "number",
+        "plotScale?": "number",
         "plotStyleTable?": "string",
         plotRotation: "number",
         viewports: {
@@ -707,6 +754,7 @@ const DRAWING_READ: Fields = {
               on: "boolean",
               frozenLayers: strings,
               turnedView: "boolean",
+              "clipBy?": "string",
             },
           },
         },
@@ -736,9 +784,20 @@ const DRAWING_READ: Fields = {
   },
   otherFields: counts,
   unread: { fields: { entities: counts, objects: counts, malformed: counts } },
+  "edits?": {
+    list: {
+      fields: {
+        name: "string",
+        "handle?": "string",
+        additions: { list: { fields: { id: "string", handle: "string" } } },
+      },
+    },
+  },
   "opensAt?": {
     fields: { "layout?": "string", center: "point", height: "number", width: "number" },
   },
+  "only?": { fields: { "layouts?": strings, "areas?": { list: { list: "point" } } } },
+  "blocksAsked?": strings,
 };
 
 /**
@@ -747,6 +806,7 @@ const DRAWING_READ: Fields = {
  */
 function onlyItems(v: unknown[]): boolean {
   const keys = Reflect.ownKeys(v);
+
   return (
     keys.length <= v.length + 1 &&
     keys.every((k) => k === "length" || /^(0|[1-9]\d*)$/.test(String(k)))
@@ -766,12 +826,16 @@ function plainList(v: unknown, most = 2): unknown[] | undefined {
   ) {
     return undefined;
   }
+
   const items: unknown[] = [];
+
   for (let i = 0; i < v.length; i++) {
     const slot = Object.getOwnPropertyDescriptor(v, i);
+
     if (!slot || !("value" in slot)) return undefined;
     items.push(slot.value);
   }
+
   return items;
 }
 
@@ -781,85 +845,108 @@ const MAX_PROBLEMS = 20;
 /**
  * What is wrong with `value` as a `DrawingRead`: each problem with the path of the field it is
  * about. Empty when it is one. It reads the value once, never throws, and stops after 20
- * problems.
+ * problems. It takes any value, as a reader in plain JavaScript may answer one.
  */
 export function checkDrawingRead(value: unknown): string[] {
   const problems: string[] = [];
+
   const say = (at: string, problem: string): void => {
     if (problems.length < MAX_PROBLEMS) problems.push(`${at || "the read"} ${problem}`);
   };
 
   const check = (v: unknown, type: Type, at: string): void => {
     if (problems.length >= MAX_PROBLEMS) return;
+
     if (type === "entity") {
-      const kind = isRecord(v) ? v.kind : undefined;
-      const fields = typeof kind === "string" ? ENTITY[kind] : undefined;
+      const kind = isPlainRecord(v) ? v.kind : undefined;
+      const fields = isString(kind) ? ENTITY[kind] : undefined;
+
       if (!fields) say(at, `has kind ${shown(kind)}, which is not an entity's kind`);
       else checkFields(v, fields, at);
+
       return;
     }
+
     switch (type) {
       case "string":
-        if (typeof v !== "string") say(at, "must be a string");
+        if (!isString(v)) say(at, "must be a string");
+
         return;
       case "boolean":
-        if (typeof v !== "boolean") say(at, "must be true or false");
+        if (!isBoolean(v)) say(at, "must be true or false");
+
         return;
       case "number":
-        if (typeof v !== "number" || !Number.isFinite(v)) say(at, "must be a finite number");
+        if (!isNumber(v) || !Number.isFinite(v)) say(at, "must be a finite number");
+
         return;
       case "count":
-        if (typeof v !== "number" || !Number.isSafeInteger(v) || v < 0) {
+        if (!isNumber(v) || !Number.isSafeInteger(v) || v < 0) {
           say(at, "must be a whole number, 0 or more");
         }
+
         return;
       case "alpha":
-        if (v !== "ByBlock" && (!Number.isInteger(v) || (v as number) < 0 || (v as number) > 255)) {
+        if (v !== "ByBlock" && (!isNumber(v) || !Number.isInteger(v) || v < 0 || v > 255)) {
           say(at, 'must be a whole number from 0 to 255, or "ByBlock"');
         }
+
         return;
       case "point3": {
         const xyz = plainList(v, 3);
+
         if (
           xyz === undefined ||
           xyz.length !== 3 ||
-          !xyz.every((n) => typeof n === "number" && Number.isFinite(n))
+          !xyz.every((n) => isNumber(n) && Number.isFinite(n))
         ) {
           say(at, "must be three finite numbers");
         }
+
         return;
       }
+
       case "point": {
         const xy = plainList(v);
+
         if (
           xy === undefined ||
           xy.length !== 2 ||
-          !xy.every((n) => typeof n === "number" && Number.isFinite(n))
+          !xy.every((n) => isNumber(n) && Number.isFinite(n))
         ) {
           say(at, "must be two finite numbers");
         }
+
         return;
       }
     }
+
     if ("oneOf" in type) {
-      if ((typeof v !== "string" && v !== false) || !type.oneOf.includes(v)) {
+      const given: unknown = v;
+
+      if ((!isString(given) && given !== false) || !type.oneOf.includes(given)) {
         say(at, `must be ${type.oneOf.map(shown).join(" or ")}`);
       }
     } else if ("list" in type) {
       if (!Array.isArray(v) || Object.getPrototypeOf(v) !== Array.prototype || !onlyItems(v)) {
         say(at, "must be a plain list, with no field but its items");
+
         return;
       }
+
       for (let i = 0; i < v.length && problems.length < MAX_PROBLEMS; i++) {
         const slot = Object.getOwnPropertyDescriptor(v, i);
+
         if (!slot || !("value" in slot)) say(`${at}[${i}]`, "is an empty slot or a getter");
         else check(slot.value, type.list, `${at}[${i}]`);
       }
     } else if ("map" in type) {
-      if (!isRecord(v)) {
+      if (!isPlainRecord(v)) {
         say(at, "must be a plain object");
+
         return;
       }
+
       for (const key of Object.keys(v)) {
         if (problems.length >= MAX_PROBLEMS) return;
         check(v[key], type.map, `${at}[${JSON.stringify(key).slice(0, 80)}]`);
@@ -867,32 +954,41 @@ export function checkDrawingRead(value: unknown): string[] {
     } else if ("either" in type) {
       // The first of them it holds to, with what that one finds wrong taken back from the others.
       const before = problems.length;
+
       for (const fields of type.either) {
         checkFields(v, fields, at);
+
         if (problems.length === before) return;
         problems.length = before;
       }
+
       say(at, `must be ${type.named}`);
     } else checkFields(v, type.fields, at);
   };
 
   const checkFields = (v: unknown, fields: Fields, at: string): void => {
-    if (!isRecord(v)) {
+    if (!isPlainRecord(v)) {
       say(at, "must be a plain object");
+
       return;
     }
+
     const known = new Set<string>();
+
     for (const [key, type] of Object.entries(fields)) {
       const optional = key.endsWith("?");
       const field = optional ? key.slice(0, -1) : key;
       known.add(field);
       const path = at ? `${at}.${field}` : field;
+
       if (!Object.hasOwn(v, field) || v[field] === undefined) {
         if (!optional) say(path, "is missing");
         continue;
       }
+
       check(v[field], type, path);
     }
+
     for (const key of Object.keys(v)) {
       if (!known.has(key))
         say(`${at ? `${at}.` : ""}${JSON.stringify(key).slice(0, 80)}`, "is not a field");
@@ -900,16 +996,22 @@ export function checkDrawingRead(value: unknown): string[] {
   };
 
   checkFields(value, DRAWING_READ, "");
+
   if (problems.length === 0) {
+    // SAFETY: checkFields found it a plain object of the fields of a DrawingRead, whose `format`
+    // is a number and `sha256` a string.
     const read = value as { format: number; sha256: string };
+
     if (read.format !== READ_FORMAT) {
       say(
         "format",
         `is ${shown(read.format)}, and this version of tsdraft reads format ${READ_FORMAT}`,
       );
     }
+
     if (!/^[0-9a-f]{64}$/.test(read.sha256))
       say("sha256", "must be 64 lower-case hexadecimal digits");
   }
+
   return problems;
 }

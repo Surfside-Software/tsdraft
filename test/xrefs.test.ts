@@ -1,3 +1,4 @@
+import type { Json } from "../src/guards.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -15,8 +16,10 @@ import {
   toSVG,
   type Drawing,
   type Entity,
-  type Xref,
+  type Layer,
 } from "../src/index.ts";
+import type { XrefDrawing, XrefDrawings } from "../src/blocks.ts";
+import { dataOf, recordsIn, wrong, type Data, type Field } from "./values.ts";
 
 /** A sheet that references a base drawing twice, once scaled and turned under an id. */
 function host(): Drawing {
@@ -27,6 +30,7 @@ function host(): Drawing {
     d.insert("base", [0, 0]);
     d.insert("BASE", [50, 5], { scale: [2, 3], rotation: 30, id: "second" });
   });
+
   return d.build();
 }
 
@@ -38,21 +42,26 @@ function base(): Drawing {
   d.line([0, 0], [10, 0]);
   d.layer("WALL", {}, () => d.line([0, 0], [0, 10]).insert("POST", [10, 10]));
   d.layer("NOTE", {}, () => d.text([1, 1], "hidden", { height: 1 }));
+
   return d.build();
 }
 
-const rule = (name: string) => (thrown: unknown) =>
-  thrown instanceof DrawingError && thrown.diagnostics[0]?.rule === name;
+const rule =
+  (name: string) =>
+  (thrown: unknown): thrown is DrawingError =>
+    thrown instanceof DrawingError && thrown.diagnostics[0]?.rule === name;
 
-const withXrefs = (xrefs: readonly unknown[], entities: readonly Entity[] = []): Drawing => ({
+const withXrefs = (xrefs: Field, entities: readonly Entity[] = []): Drawing => ({
   format: 0,
   units: "in",
   dxf: "R2018",
   layers: [{ name: "0", color: 7 }],
   entities,
-  xrefs: xrefs as readonly Xref[],
+  xrefs: wrong(xrefs),
 });
+
 const placed: Entity = { kind: "insert", layer: "0", block: "BASE", at: [0, 0] };
+
 const messages = (drawing: Drawing): string[] =>
   lint(drawing).map((d) => `${d.severity} ${d.rule}: ${d.message}`);
 
@@ -78,15 +87,17 @@ test("an xref's name and path are checked as literals and when the code runs", (
   assert.throws(() => d.xref("A", "sub/base."), /looks for base\.\.dwg/);
   // @ts-expect-error a quote, which tsdraft refuses in a pair around the path too
   assert.throws(() => d.xref("A", '"base.dwg"'), /written without them/);
+
   for (const character of '?<>|:"') {
     assert.throws(() => d.xref("A", `ba${character}se.dwg`), /finds no file whose name holds/);
   }
+
   // @ts-expect-error a multibyte escape
   assert.throws(() => d.xref("A", "sub\\m+1005Cx\\base.dwg"), /Write \/ there/);
   // @ts-expect-error a control character
   assert.throws(() => d.xref("A", "ba\tse.dwg"), rule("xref"));
   assert.throws(() => d.xref("A", `${"a/".repeat(16000)}b.dwg`), /32,000 characters/);
-  assert.throws(() => d.xref("A", 5 as unknown as string), /must be a string/);
+  assert.throws(() => d.xref("A", wrong<string>(5)), /must be a string/);
   // What the leading CAD app loads: folders either way, spaces, other letters, no extension, a
   // `\U+`, a dot after `.dwg`.
   d.xref("OK 1", "./a b/é 図.dwg").xref("OK 2", "..\\..\\base");
@@ -103,12 +114,14 @@ test("the builder refuses what an xref cannot be or have, at the call", () => {
   assert.throws(() => d.xref("tree", "tree.dwg"), /already has a block of this name, as "TREE"/);
   assert.throws(() => d.xref("base", "other.dwg"), /already has an xref of this name, as "BASE"/);
   assert.throws(() => d.block("Base", {}, () => {}), rule("duplicate-block"));
+
   // A block whose draw throws leaves nothing behind: its name, its handles and its ids.
   const failing = () => {
     d.line([0, 0], [1, 0], { id: "kept" }).attribute("TAG", [0, 0]);
     d.xref("STAYS", "stays.dwg");
     throw new Error("stop");
   };
+
   assert.throws(() => d.block("AGAIN", {}, failing), /stop/);
   d.block("AGAIN", {}, () => d.line([0, 0], [1, 0], { id: "kept" }).attribute("TAG", [0, 0]));
   // An xref that draw defined before it threw belongs to the drawing, and stays.
@@ -123,7 +136,7 @@ test("the builder refuses what an xref cannot be or have, at the call", () => {
     /cannot set attributes/,
   );
   assert.throws(
-    () => d.insert("BASE", [0, 0], { attributes: null as unknown as Record<string, string> }),
+    () => d.insert("BASE", [0, 0], { attributes: wrong(null) }),
     rule("undefined-attribute"),
   );
   assert.throws(() => d.insert("SURVEY", [0, 0]), /Define it with block\(\) or xref\(\) first/);
@@ -133,20 +146,25 @@ test("the builder refuses what an xref cannot be or have, at the call", () => {
 
 test("lint reports each xref rule in a drawing built another way", () => {
   assert.deepEqual(lint(withXrefs([{ name: "BASE", path: "base.dwg" }], [placed])), []);
+
   const twin = {
     ...withXrefs([{ name: "tree", path: "t.dwg" }]),
     blocks: [{ name: "TREE", entities: [] }],
   };
+
   assert.match(
     messages(twin)[0]!,
     /^error duplicate-block: Xref "tree": .* a block of this name, as "TREE"/,
   );
+
   for (const xrefs of [5, {}, null]) {
-    assert.deepEqual(messages(withXrefs(xrefs as never)), ["error xref: xrefs must be an array"]);
+    assert.deepEqual(messages(withXrefs(xrefs)), ["error xref: xrefs must be an array"]);
   }
-  assert.deepEqual(messages({ ...withXrefs([]), blocks: 5 as never }), [
+
+  assert.deepEqual(messages({ ...withXrefs([]), blocks: wrong(5) }), [
     "error block: blocks must be an array",
   ]);
+
   const found = messages(
     withXrefs(
       [
@@ -160,10 +178,11 @@ test("lint reports each xref rule in a drawing built another way", () => {
       ],
       [
         { ...placed, attributes: { TAG: "1" } },
-        { ...placed, block: "A", attributes: null as never },
+        wrong({ ...dataOf(placed), block: "A", attributes: null }),
       ],
     ),
   );
+
   for (const expected of [
     /^error xref: Xref undefined: an xref must be an object/,
     /^error xref: Xref 5: A block's name must be a string/,
@@ -182,6 +201,7 @@ test("lint reports each xref rule in a drawing built another way", () => {
       `${expected} in\n${found.join("\n")}`,
     );
   }
+
   const r12 = lint({ ...host(), dxf: "R12" }).map((d) => d.rule);
   assert.ok(r12.includes("xref") && r12.includes("block"));
 });
@@ -190,10 +210,12 @@ test("R2018 DXF holds an xref as a block with a path, and its inserts", () => {
   const drawing = host();
   const groups = toDXF(drawing).split("\r\n");
   const records: string[][] = [];
+
   for (let i = 0; i + 1 < groups.length; i += 2) {
     if (groups[i] === "0") records.push([]);
     records.at(-1)?.push(`${groups[i]}=${groups[i + 1]}`);
   }
+
   const of = (type: string) => records.filter((r) => r[0] === `0=${type}` && r.includes("2=BASE"));
   const record = blockHandle("BASE");
   assert.deepEqual(of("BLOCK_RECORD")[0]?.slice(1, 2), [`5=${record}`]);
@@ -219,13 +241,14 @@ test("a drawing with xrefs goes to JSON and back, and the parser says why an xre
   const drawing = host();
   assert.deepEqual(fromJSON(toJSON(drawing)), drawing);
   assert.deepEqual(findXref(drawing, "base"), { name: "BASE", path: "..\\base\\base.dwg" });
-  const broken = JSON.parse(toJSON(drawing)) as { xrefs: Record<string, unknown>[] };
-  broken.xrefs[0]!.entities = [];
-  broken.xrefs[0]!.overlay = true;
-  broken.xrefs[0]!.attach = "yes";
+  const broken: Data = JSON.parse(toJSON(drawing));
+  const [xref] = recordsIn(broken.xrefs);
+  xref!.entities = [];
+  xref!.overlay = true;
+  xref!.attach = "yes";
   assert.throws(
-    () => fromJSON(broken),
-    (thrown: unknown) =>
+    () => fromJSON(wrong<Json>(broken)),
+    (thrown) =>
       thrown instanceof DrawingError &&
       /xrefs\[0\]: An xref cannot have entities of its own/.test(thrown.message) &&
       /xrefs\[0\]: unknown field "overlay"/.test(thrown.message) &&
@@ -242,7 +265,7 @@ test("SVG draws the drawing given for an xref where each insert puts it, as the 
   assert.equal(toSVG(drawing, { xrefs: { OTHER: base() } }), alone);
 
   const svg = toSVG(drawing, { xrefs: { base: base() }, margin: 0 });
-  const [first, second] = svg.split("<g data-layer").slice(1) as [string, string];
+  const [first = "", second = ""] = svg.split("<g data-layer").slice(1);
   // Layer 0 of the referenced drawing draws as the insert's layer, in its red.
   assert.match(
     first,
@@ -264,7 +287,7 @@ test("SVG draws the drawing given for an xref where each insert puts it, as the 
   assert.match(svg, /viewBox="0 -44\.578838 67\.320508 44\.578838"/);
 
   // A frozen layer hides the whole of an insert on it, and an off layer only what is on layer 0.
-  const state = (layer: object) =>
+  const state = (layer: Partial<Layer>) =>
     toSVG(
       {
         ...drawing,
@@ -272,6 +295,7 @@ test("SVG draws the drawing given for an xref where each insert puts it, as the 
       },
       { xrefs: { BASE: base() } },
     );
+
   assert.doesNotMatch(state({ frozen: true }), /<line|<circle/);
   assert.doesNotMatch(state({ plot: false }), /<line|<circle/);
   assert.doesNotMatch(state({ off: true }), /data-layer="X-BASE"\/>/);
@@ -291,6 +315,31 @@ test("SVG draws the drawing given for an xref where each insert puts it, as the 
   assert.equal(toSVG(drawing, { xrefs: { BASE: loop.build() } }).match(/<line/g)?.length, 2);
 });
 
+test("the drawings given for xrefs are read by plain property reads, and an overlong name's never", () => {
+  const drawing = host();
+  const drawn = toSVG(drawing, { xrefs: { base: base() } });
+  const asked: string[] = [];
+
+  // A proxy that says which keys are asked of it with `in`, and answers each read.
+  const traced = <T extends object>(target: T): T =>
+    new Proxy(target, {
+      get: (from, key) => Object.getOwnPropertyDescriptor(from, key)?.value,
+      has: (from, key) => (asked.push(String(key)), key in from),
+    });
+
+  assert.equal(toSVG(drawing, { xrefs: { base: traced(base()) } }), drawn);
+  assert.equal(toSVG(drawing, { xrefs: { base: traced({ drawing: base() }) } }), drawn);
+  // Only whether a value holds a drawing is asked; each field is read as it is.
+  assert.deepEqual([...new Set(asked)], ["drawing"]);
+
+  const overlong = Object.defineProperty({ base: base() }, "x".repeat(300), {
+    enumerable: true,
+    get: () => assert.fail("the value of a name no xref can have is read"),
+  });
+
+  assert.equal(toSVG(drawing, { xrefs: overlong }), drawn);
+});
+
 test("a drawing given with its own xrefs draws its attachments and none of its overlays, as the leading CAD app does", () => {
   const detail = createDrawing({ units: "ft" });
   detail.layer("D", { color: 3 }, () => detail.circle([0, 0], 1));
@@ -306,6 +355,7 @@ test("a drawing given with its own xrefs draws its attachments and none of its o
   const sheet = createDrawing({ units: "ft" }).xref("MODEL", "model.dwg");
   sheet.insert("MODEL", [100, 0]);
   const drawn = sheet.build();
+
   const xrefs = {
     MODEL: {
       drawing: model.build(),
@@ -315,6 +365,7 @@ test("a drawing given with its own xrefs draws its attachments and none of its o
       },
     },
   };
+
   const svg = toSVG(drawn, { xrefs });
   // A layer of an attached drawing is named by the attachment's name, wherever it is attached.
   assert.match(svg, /<line x1="110" y1="0" x2="115" y2="0" [^>]*data-layer="BASE\|B"\/>/);
@@ -335,44 +386,50 @@ test("a drawing given with its own xrefs draws its attachments and none of its o
   // inside itself, and the base inside the model is drawn once.
   const back = createDrawing({ units: "ft" }).xref("MODEL", "model.dwg", { attach: true });
   back.layer("B", {}, () => back.line([0, 0], [1, 0]).insert("MODEL", [0, 0]));
-  const ring: { drawing: Drawing; xrefs: Record<string, unknown> } = {
-    drawing: xrefs.MODEL.drawing,
-    xrefs: {},
-  };
-  ring.xrefs["BASE"] = { drawing: back.build(), xrefs: { MODEL: ring } };
-  const circled = toSVG(drawn, { xrefs: { MODEL: ring as never } });
+
+  type Ring = { BASE?: XrefDrawing };
+
+  const inRing: Ring = {};
+  const ring: XrefDrawing = { drawing: xrefs.MODEL.drawing, xrefs: inRing };
+  inRing.BASE = { drawing: back.build(), xrefs: { MODEL: ring } };
+  const circled = toSVG(drawn, { xrefs: { MODEL: ring } });
   assert.equal(circled.match(/data-layer="MODEL\|M"/g)?.length, 1);
   assert.equal(circled.match(/data-layer="BASE\|B"/g)?.length, 1);
   assert.match(
-    lint(drawn, { xrefs: { MODEL: ring as never } })[0]?.message ?? "",
+    lint(drawn, { xrefs: { MODEL: ring } })[0]?.message ?? "",
     /^Xref "MODEL" > "BASE" > "MODEL": a circular reference/,
   );
   // The sheet given for its own xref is a circle too.
   assert.doesNotMatch(toSVG(drawn, { xrefs: { MODEL: drawn } }), /data-layer="MODEL\|/);
 
   // A chain is followed 16 drawings down, and no further.
-  let deepest: { drawing: Drawing } | Drawing = createDrawing().line([0, 0], [1, 0]).build();
+  let deepest: XrefDrawing | Drawing = createDrawing().line([0, 0], [1, 0]).build();
+
   for (let i = 0; i < 20; i++) {
     const link = createDrawing().xref("NEXT", "next.dwg", { attach: true });
     link.line([0, 0], [1, 0]).insert("NEXT", [1, 0]);
-    deepest = { drawing: link.build(), xrefs: { NEXT: deepest } } as never;
+    deepest = { drawing: link.build(), xrefs: { NEXT: deepest } };
   }
+
   const top = createDrawing().xref("NEXT", "next.dwg").insert("NEXT", [0, 0]).build();
-  assert.equal(toSVG(top, { xrefs: { NEXT: deepest as never } }).match(/<line/g)?.length, 16);
-  const [deep] = lint(top, { xrefs: { NEXT: deepest as never } });
+  assert.equal(toSVG(top, { xrefs: { NEXT: deepest } }).match(/<line/g)?.length, 16);
+  const [deep] = lint(top, { xrefs: { NEXT: deepest } });
   assert.equal(deep?.severity, "warning");
   assert.match(deep?.message ?? "", /drawn 16 drawings down and no further/);
 
   // Past 4,096 names given inside referenced drawings, none of them is drawn.
   const wide = createDrawing({ units: "ft" });
   const names = Array.from({ length: 4097 }, (_, i) => `N${i}`);
+
   for (const name of names) wide.xref(name, `${name}.dwg`, { attach: true }).insert(name, [0, 0]);
+
   const many = {
     MODEL: {
       drawing: wide.build(),
       xrefs: Object.fromEntries(names.map((name) => [name, detail.build()])),
     },
   };
+
   assert.doesNotMatch(toSVG(drawn, { xrefs: many }), /\|D"/);
   assert.deepEqual(
     lint(drawn, { xrefs: many }).map((d) => [d.severity, d.xref, d.message.slice(0, 50)]),
@@ -382,17 +439,23 @@ test("a drawing given with its own xrefs draws its attachments and none of its o
   // What a picture draws of what is given, which draws the same when given again.
   const kept = drawnXrefs(drawn, xrefs);
   assert.deepEqual(Object.keys(kept), ["MODEL"]);
-  assert.deepEqual(Object.keys((kept["MODEL"] as { xrefs: object }).xrefs), ["BASE"]);
+  const keptModel = kept["MODEL"];
+  assert.ok(keptModel !== undefined && "drawing" in keptModel);
+  assert.deepEqual(Object.keys(keptModel.xrefs ?? {}), ["BASE"]);
   assert.equal(toSVG(drawn, { xrefs: kept }), svg);
+
   // A value that is no drawing is an error, and draws nothing.
-  const odd = { MODEL: { drawing: xrefs.MODEL.drawing, xrefs: { BASE: { blocks: [{}] } } } };
-  const [shape] = lint(drawn, { xrefs: odd as never });
-  assert.deepEqual([shape?.severity, shape?.xref], ["error", "MODEL"]);
+  const odd = wrong<XrefDrawings>({
+    MODEL: { drawing: dataOf(xrefs.MODEL.drawing), xrefs: { BASE: { blocks: [{}] } } },
+  });
+
+  const [diagnostic] = lint(drawn, { xrefs: odd });
+  assert.deepEqual([diagnostic?.severity, diagnostic?.xref], ["error", "MODEL"]);
   assert.match(
-    shape?.message ?? "",
+    diagnostic?.message ?? "",
     /^Xref "MODEL" > "BASE": the value given for "BASE" is neither/,
   );
-  assert.doesNotMatch(toSVG(drawn, { xrefs: odd as never }), /BASE\|/);
+  assert.doesNotMatch(toSVG(drawn, { xrefs: odd }), /BASE\|/);
 });
 
 test("inspectText walks no insert of an attachment given no drawing", () => {
@@ -400,11 +463,13 @@ test("inspectText walks no insert of an attachment given no drawing", () => {
   // the two labels of the sheet that overlap are still found.
   const model = createDrawing({ units: "ft" }).xref("DEEP", "deep.dwg", { attach: true });
   model.block("B0", {}, () => model.insert("DEEP", [0, 0]));
+
   for (let i = 1; i <= 11; i++) {
     model.block(`B${i}`, {}, () => {
       for (let j = 0; j < 4; j++) model.insert(`B${i - 1}`, [j, 0]);
     });
   }
+
   model.insert("B11", [0, 0]);
   const sheet = createDrawing({ units: "ft" }).xref("MODEL", "model.dwg").insert("MODEL", [0, 0]);
   sheet.text([0, 0], "LABEL ONE", { height: 1 }).text([0.2, 0], "LABEL TWO", { height: 1 });
@@ -419,18 +484,23 @@ test("one drawing given at two places draws what each place gives for its attach
   const model = createDrawing({ units: "ft" }).xref("DETAIL", "detail.dwg", { attach: true });
   model.block("HOLDER", {}, () => model.insert("DETAIL", [0, 0]));
   model.insert("HOLDER", [0, 0]);
+
   const at = (x: number) => {
     const d = createDrawing({ units: "ft" });
     d.layer("D", { color: 3 }, () => d.line([x, 0], [x + 1, 0]));
+
     return d.build();
   };
+
   const sheet = createDrawing({ units: "ft" }).xref("A", "a.dwg").xref("B", "b.dwg");
   sheet.insert("A", [0, 0]).insert("B", [0, 0]);
   const shared = model.build();
+
   const xrefs = {
     A: { drawing: shared, xrefs: { DETAIL: at(0) } },
     B: { drawing: shared, xrefs: { DETAIL: at(1000) } },
   };
+
   const svg = toSVG(sheet.build(), { xrefs, margin: 0 });
   assert.match(svg, /viewBox="0 0 1001 0"/);
   assert.match(svg, /<line x1="1000" y1="0" x2="1001" y2="0" /);

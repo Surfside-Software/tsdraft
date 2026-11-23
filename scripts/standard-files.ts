@@ -7,6 +7,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { isObjectOrArray, isString, type Json } from "../src/guards.ts";
 import { BUILT_IN_STANDARD } from "../src/index.ts";
 import { standardSchema } from "../src/standard/shape.ts";
 
@@ -14,8 +15,13 @@ const root = join(import.meta.dirname, "..");
 
 /** The package's version, as package.json gives it. */
 export function packageVersion(): string {
-  return (JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { version: string })
-    .version;
+  const pkg: Json = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+
+  if (!isObjectOrArray(pkg) || !("version" in pkg) || !isString(pkg.version)) {
+    throw new Error("package.json gives no version");
+  }
+
+  return pkg.version;
 }
 
 /** The URL of the schema of the tsdraft of `version`, which a document's `$schema` names. */
@@ -23,8 +29,9 @@ export const schemaUrl = (version: string): string =>
   `https://cdn.jsdelivr.net/npm/tsdraft@${version}/standard.schema.json`;
 
 /** standard.json: the built-in standard as a document, without its hash and chain. */
-export function builtInDocument(version: string): Record<string, unknown> {
+export function builtInDocument(version: string) {
   const { hash: _, chain: __, ...document } = BUILT_IN_STANDARD;
+
   return { $schema: schemaUrl(version), ...document };
 }
 
@@ -42,13 +49,16 @@ export function versionSource(version: string): string {
 
 if (import.meta.main) {
   const version = packageVersion();
+
   const json = {
     "standard.json": builtInDocument(version),
     "standard.schema.json": standardSchema(version),
   };
+
   for (const [name, value] of Object.entries(json)) {
     writeFileSync(join(root, name), `${JSON.stringify(value, null, 2)}\n`);
   }
+
   writeFileSync(join(root, "src", "version.ts"), versionSource(version));
   // The formatter lays the JSON out, so `pnpm fmt:check` passes on the files as written.
   execFileSync(join(root, "node_modules", ".bin", "oxfmt"), Object.keys(json), {

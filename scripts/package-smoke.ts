@@ -22,30 +22,64 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { BuildState } from "../cli/src/state.ts";
+import { isObjectOrArray, isString, type Json } from "../src/guards.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const tmp = realpathSync(mkdtempSync(join(tmpdir(), "tsdraft-smoke-")));
+
 const run = (cmd: string, args: string[], cwd: string) =>
   execFileSync(cmd, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
+
+/** What `npm pack --json` says of the tarball: its file's name and the paths of the files in it. */
+interface Pack {
+  readonly filename: string;
+  readonly files: readonly string[];
+}
+
+function packOf(output: string): Pack {
+  const [pack]: Json[] = JSON.parse(output);
+  assert.ok(
+    isObjectOrArray(pack) && "filename" in pack && isString(pack.filename),
+    "npm pack produced a tarball",
+  );
+  assert.ok("files" in pack && Array.isArray(pack.files), "npm pack lists the tarball's files");
+  const listed: readonly Json[] = pack.files;
+
+  const files = listed.map((file) => {
+    assert.ok(
+      isObjectOrArray(file) && "path" in file && isString(file.path),
+      "npm pack gives each file's path",
+    );
+
+    return file.path;
+  });
+
+  return { filename: pack.filename, files };
+}
+
+/** An empty project with the tarball installed by npm, and the `tsdraft` npm installed there. */
+interface Project {
+  readonly dir: string;
+  readonly bin: string;
+}
 
 /** `promise`, or a failure when it has not settled in `ms`. */
 function within<T>(ms: number, what: string, promise: Promise<T>): Promise<T> {
   let timer: NodeJS.Timeout;
+
   const late = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`${what} took longer than ${ms} ms`)), ms);
   });
+
   return Promise.race([promise, late]).finally(() => clearTimeout(timer));
 }
 
 try {
   // npm pack runs `prepack`, which builds dist/ and cli/dist/ first.
-  const [pack] = JSON.parse(run("npm", ["pack", "--json", "--pack-destination", tmp], root)) as {
-    filename: string;
-    files: { path: string }[];
-  }[];
-  assert.ok(pack, "npm pack produced a tarball");
+  const pack = packOf(run("npm", ["pack", "--json", "--pack-destination", tmp], root));
   const tarball = join(tmp, pack.filename);
-  const files = pack.files.map((f) => f.path).sort();
+  const files = [...pack.files].sort();
+
   for (const required of [
     "CHANGELOG.md",
     "GUIDE.md",
@@ -66,12 +100,14 @@ try {
   ]) {
     assert.ok(files.includes(required), `tarball contains ${required}`);
   }
+
   const stray = files.filter(
     (f) =>
-      !/^(LICENSE|README\.md|GUIDE\.md|CHANGELOG\.md|package\.json|standard(\.schema)?\.json|dist\/((standard|read)\/)?[\w-]+\.(js|d\.ts)|cli\/dist\/[\w-]+\.js|cli\/assets\/.+)$/.test(
+      !/^(LICENSE|README\.md|GUIDE\.md|CHANGELOG\.md|package\.json|standard(\.schema)?\.json|dist\/((standard|read|edit)\/)?[\w-]+\.(js|d\.ts)|cli\/dist\/[\w-]+\.js|cli\/assets\/.+)$/.test(
         f,
       ),
   );
+
   assert.deepEqual(
     stray,
     [],
@@ -142,6 +178,7 @@ try {
 
   // Type-check the consumer with both module resolution modes that consumers use.
   const tsc = join(root, "node_modules", "typescript", "bin", "tsc");
+
   for (const [mode, options] of [
     ["nodenext", { module: "nodenext", moduleResolution: "nodenext" }],
     ["bundler", { module: "preserve", moduleResolution: "bundler" }],
@@ -173,10 +210,11 @@ try {
     ["--input-type=module", "-e", `console.log(import.meta.resolve("tsdraft/package.json"))`],
     consumer,
   );
+
   assert.match(resolved.trim(), /node_modules\/tsdraft\/package\.json$/);
 
   /** An empty project with the tarball installed by npm, and a drawing that has one warning. */
-  const project = (name: string, ...flags: string[]): { dir: string; bin: string } => {
+  const project = (name: string, ...flags: string[]): Project => {
     const dir = join(tmp, name);
     mkdirSync(dir);
     writeFileSync(join(dir, "package.json"), JSON.stringify({ private: true, type: "module" }));
@@ -198,16 +236,19 @@ try {
         ``,
       ].join("\n"),
     );
+
     return { dir, bin: join(dir, "node_modules", ".bin", "tsdraft") };
   };
 
   /** Runs the installed `tsdraft render` on the project's drawing. */
-  const render = (at: { dir: string; bin: string }) => {
+  const render = (at: Project) => {
     const done = spawnSync(at.bin, ["render", "plan.ts", "--width", "800"], {
       cwd: at.dir,
       encoding: "utf8",
     });
+
     assert.equal(done.status, 0, done.stderr);
+    // SAFETY: the command's own state, which it writes as a BuildState.
     const state = JSON.parse(done.stdout) as BuildState;
     assert.equal(state.ok, true);
     assert.deepEqual(state.drawing?.counts, {
@@ -224,31 +265,34 @@ try {
     assert.deepEqual(warning?.call, { file: join(at.dir, "plan.ts"), line: 4, column: 3 });
     assert.equal(state.outputs.svg, join(at.dir, "out", "plan.svg"));
     assert.match(readFileSync(state.outputs.svg, "utf8"), /^<svg /);
+
     return { state, stderr: done.stderr };
   };
 
   /** Runs the installed `tsdraft dev` for the length of `use`, then stops it. */
-  const withDev = async (
-    at: { dir: string; bin: string },
-    use: (base: string, state: BuildState) => Promise<void>,
-  ) => {
+  const withDev = async (at: Project, use: (base: string, state: BuildState) => Promise<void>) => {
     const server = spawn(at.bin, ["dev", "plan.ts"], {
       cwd: at.dir,
       stdio: ["ignore", "pipe", "pipe"],
     });
+
     const exited = new Promise<void>((resolve) => server.once("exit", () => resolve()));
     let out = "";
     let failure: unknown;
+
     try {
       const listening = new Promise<string>((resolve, reject) => {
         server.stdout.on("data", (chunk: Buffer) => {
           const url = /http:\/\/[\d.]+:\d+/.exec((out += chunk.toString()))?.[0];
+
           if (url) resolve(url);
         });
         server.stderr.on("data", (chunk: Buffer) => (out += chunk.toString()));
         void exited.then(() => reject(new Error(`tsdraft dev ended before it listened: ${out}`)));
       });
+
       const base = await within(15_000, "tsdraft dev starting", listening);
+      // SAFETY: the command's own state, which it serves as a BuildState.
       const state = (await (await fetch(`${base}/state.json?after=0`)).json()) as BuildState;
       assert.equal(state.ok, true);
       assert.equal(state.diagnostics[0]?.id, "walk");
@@ -261,11 +305,14 @@ try {
     } catch (error) {
       failure = error;
     }
+
     server.kill();
+
     const stopped = await within(5_000, "tsdraft dev stopping", exited).then(
       () => true,
       () => server.kill("SIGKILL") && false,
     );
+
     if (failure) throw failure;
     assert.ok(stopped, "tsdraft dev stopped within 5 s of being asked to");
   };

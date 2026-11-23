@@ -16,13 +16,17 @@ export interface DxfOptions {
  */
 export function toDXF(drawing: Drawing, options: DxfOptions = {}): string {
   const asked = options.version;
+
   if (asked !== undefined && asked !== "R12" && asked !== "R2018") {
     throw new Error(`Unsupported DXF version: ${JSON.stringify(asked)}`);
   }
+
   const errors = lint(drawing, options).filter(
     (d) => d.severity === "error" || d.rule === "check-capped",
   );
+
   if (errors.length > 0) throw new DrawingError(errors);
   const version = asked ?? drawing.dxf;
+
   return version === "R12" ? toDXFR12(drawing) : toDXFR2018(drawing);
 }

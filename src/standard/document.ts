@@ -24,6 +24,7 @@ import type {
   Units,
 } from "../drawing.ts";
 import type { Font } from "../fonts.ts";
+import type { Json } from "../guards.ts";
 import type { PaperUnit } from "../paper.ts";
 import type { Paper, PlotStyleTable } from "../papers.ts";
 
@@ -162,6 +163,8 @@ export interface TextRoleFieldsDocument extends Commented {
 export interface TextRoleDocument extends TextRoleFieldsDocument {
   readonly font: string;
   readonly height: number;
+  /** The name of the role's text style in a firm's files. */
+  readonly styleName?: string;
   readonly discipline?: string;
   readonly byDiscipline?: { readonly [discipline: string]: TextRoleFieldsDocument };
 }
@@ -241,6 +244,8 @@ export interface LeaderStyleFieldsDocument extends Commented {
 
 export interface LeaderStyleDocument extends LeaderStyleFieldsDocument {
   readonly role: string;
+  /** The name of the multileader style in a firm's files. */
+  readonly styleName?: string;
   readonly arrowSize: number;
   readonly landing: number;
   readonly gap: number;
@@ -346,6 +351,8 @@ export interface StandardTextRoleFields {
 }
 
 export interface StandardTextRole {
+  /** The name of the role's text style in a firm's files, `Standard` among them. */
+  readonly styleName?: string;
   readonly font: Font;
   readonly height: number;
   readonly widthFactor: number;
@@ -439,6 +446,8 @@ export interface StandardLeaderStyleFields {
 }
 
 export interface StandardLeaderStyle {
+  /** The name of the multileader style in a firm's files, `Standard` among them. */
+  readonly styleName?: string;
   readonly role: string;
   readonly arrowhead: LeaderArrowhead;
   readonly arrowSize: number;
@@ -527,7 +536,13 @@ export type Standard<
   readonly chain: readonly StandardLink[];
 };
 
-export interface StandardOptions<F = Readonly<Record<string, unknown>>> {
+/**
+ * What `options.files` gives for a string a document names: a standard, a drawing, or a `Json`
+ * value, such as a file parsed from JSON.
+ */
+export type StandardFile = Standard | Drawing | Json;
+
+export interface StandardOptions<F = Readonly<Record<string, StandardFile>>> {
   /**
    * What a string in the document names, by the string exactly as the document writes it: a
    * `Standard` for `extends`, and the value `JSON.parse` gives for a title block's `block` or

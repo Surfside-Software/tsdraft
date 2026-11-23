@@ -17,10 +17,12 @@ import { join, posix } from "node:path";
 import vm from "node:vm";
 
 const dist = process.argv[2]!;
+
 // Every built file, in its folders, by its path from `dist` with `/` between folders.
 const names = readdirSync(dist, { recursive: true, encoding: "utf8" })
   .map((name) => name.split("\\").join("/"))
   .filter((name) => name.endsWith(".js"));
+
 assert.ok(names.includes("index.js"), `${dist} has no index.js`);
 
 // The context is a browser's, not Node's: what the language itself defines, and the two globals
@@ -28,27 +30,34 @@ assert.ok(names.includes("index.js"), `${dist} has no index.js`);
 // from a string would be a way back to Node, through the function constructor, so the context
 // refuses it, and the flag this runs with refuses it for the objects handed in from outside.
 assert.throws(() => new Function("return 1"), "run with --disallow-code-generation-from-strings");
+
 const context = vm.createContext(Object.assign(Object.create(null), { TextEncoder, URL }), {
   codeGeneration: { strings: false, wasm: false },
 });
+
 for (const way of ["globalThis.constructor", "URL", "(() => {})"]) {
   assert.throws(
     () => vm.runInContext(`${way}.constructor("return this")()`, context),
     `${way} can make code from a string`,
   );
 }
+
 const refuse = (specifier: string): never => {
   throw new Error(`the library imported ${specifier} while it ran`);
 };
+
 const modules = new Map<string, vm.SourceTextModule>();
+
 for (const name of names) {
   const source = readFileSync(join(dist, name), "utf8");
   const other = /\bimport\b(?!\s+[\w$*{"'])/.exec(source);
   assert.equal(other, null, `${name} has an import that is not a static one, at ${other?.index}`);
+
   const reached =
     /\b(require|process|Buffer|__dirname|__filename|setImmediate|clearImmediate)\b|\bglobal\./.exec(
       source,
     );
+
   assert.equal(reached, null, `${name} names ${reached?.[0]}`);
   modules.set(
     `./${name}`,
@@ -64,8 +73,10 @@ const link = (specifier: string, from: vm.Module): vm.Module => {
   const path = `./${posix.join(posix.dirname(from.identifier), specifier)}`;
   const found = specifier.startsWith(".") ? modules.get(path) : undefined;
   assert.ok(found, `${from.identifier} imports ${specifier}, which is not a file of the library`);
+
   return found;
 };
+
 // Every file, also one that index.js does not reach. Linking one links what it imports.
 for (const module of modules.values()) {
   if (module.status === "unlinked") await module.link(link);
@@ -88,8 +99,15 @@ const use = new vm.SourceTextModule(
    export default [lint(drawing).length, toSVG(again).slice(0, 4), toDXF(again).slice(-5), again.entities.length, standard.chain[0].hash === BUILT_IN_STANDARD.hash];`,
   { identifier: "use.js", context, importModuleDynamically: refuse },
 );
+
 await use.link(link);
+
 await use.evaluate();
-const result = (use.namespace as { default: unknown[] }).default;
-assert.deepEqual([...result], [0, "<svg", "EOF\r\n", 5, true]);
+
+const { namespace } = use;
+
+assert.ok("default" in namespace && Array.isArray(namespace.default));
+
+assert.deepEqual([...namespace.default], [0, "<svg", "EOF\r\n", 5, true]);
+
 console.log(`the library stands alone: ${names.length} files, no Node module and no package`);

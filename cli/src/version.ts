@@ -9,6 +9,7 @@ import { realpathSync, statSync } from "node:fs";
 export function fileVersion(path: string): string | null {
   try {
     const s = statSync(path, { bigint: true });
+
     return `${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}:${realpathSync.native(path)}`;
   } catch {
     return null;

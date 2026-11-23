@@ -43,17 +43,23 @@ const RF: Point = [220000, 0];
 
 /** The bearing line of the floor trusses: the garage wall and the stair wall, then FB-1. */
 const BEAR_Y = 290;
+
 /** The roof trusses that flank the attic access, in place of the 24" layout's trusses there. */
 const ATTIC_TRUSSES = [ATTIC_ACCESS[0] - 2, ATTIC_ACCESS[2] + 4];
 
 /** The lintel over each masonry opening of the first floor, by its width. */
 function lintelMark(o: Opening): string {
   const w = openingWidth(o);
+
   if (w <= 48) return "L-1";
+
   if (w <= 80) return "L-2";
+
   if (w <= 144) return "L-3";
+
   return "L-4";
 }
+
 const inMasonry = (o: Opening) =>
   L1.exterior.some(
     (r) =>
@@ -62,6 +68,7 @@ const inMasonry = (o: Opening) =>
       o.cut[1] >= r[1] - 0.1 &&
       o.cut[3] <= r[3] + 0.1,
   );
+
 const MASONRY_OPENINGS = L1.openings.filter(inMasonry);
 
 function floorFraming(d: D, v: View): void {
@@ -79,12 +86,15 @@ function floorFraming(d: D, v: View): void {
   d.layer(LAYERS.fram, {}, () => {
     for (let x = 32; x < 616; x += 24) {
       const inStair = x > STAIR.x0 && x < STAIR.x1;
+
       if (inStair) {
         d.line(o([x, 8]), o([x, STAIR.y0]));
+
         if (BEAR_Y - STAIR.y1 > 6) d.line(o([x, STAIR.y1]), o([x, BEAR_Y]));
       } else d.line(o([x, 8]), o([x, BEAR_Y]));
       d.line(o([x, BEAR_Y + 4]), o([x, 520]));
     }
+
     // Doubled trimmer trusses each side of the stair opening, the girder truss FG-1 at its south
     // end, and a rim at its north end, which stops at the bearing wall below.
     for (const [x, s] of [
@@ -94,6 +104,7 @@ function floorFraming(d: D, v: View): void {
       d.line(o([x + s * 0.75, 8]), o([x + s * 0.75, BEAR_Y]));
       d.line(o([x + s * 2.25, 8]), o([x + s * 2.25, BEAR_Y]));
     }
+
     for (const dy of [-0.75, -2.25])
       d.line(o([STAIR.x0, STAIR.y0 + dy]), o([STAIR.x1, STAIR.y0 + dy]), { lineweight: 0.5 });
     d.line(o([STAIR.x0, STAIR.y1 + 0.75]), o([STAIR.x1, STAIR.y1 + 0.75]));
@@ -105,19 +116,23 @@ function floorFraming(d: D, v: View): void {
   d.layer(LAYERS.beam, {}, () => {
     d.line(o([382, BEAR_Y]), o([616, BEAR_Y]));
     d.line(o([382, BEAR_Y + 4]), o([616, BEAR_Y + 4]));
+
     for (const op of MASONRY_OPENINGS) {
       const ax = alongX(op);
       const c = ax ? (op.cut[1] + op.cut[3]) / 2 : (op.cut[0] + op.cut[2]) / 2;
       const [a0, a1] = ax ? [op.cut[0] - 8, op.cut[2] + 8] : [op.cut[1] - 8, op.cut[3] + 8];
       d.line(o(ax ? [a0, c] : [c, a0]), o(ax ? [a1, c] : [c, a1]));
     }
+
     d.line(o([264, 4]), o([384, 4]));
+
     for (const r of [
       [379.5, 92, 384, 168],
       [379.5, 208, 384, 272],
       [316, 288, 380, 292.5],
-    ] as Rect[]) {
+    ] satisfies Rect[]) {
       const c = (r[0] + r[2]) / 2;
+
       if (r[3] - r[1] > r[2] - r[0]) d.line(o([c, r[1]]), o([c, r[3]]));
       else d.line(o([r[0], (r[1] + r[3]) / 2]), o([r[2], (r[1] + r[3]) / 2]));
     }
@@ -134,6 +149,7 @@ function floorFraming(d: D, v: View): void {
       const at: Point = ax ? [cx, cy + inward] : [cx + inward, cy];
       put(d, o(at), lintelMark(op), v.p(H.small * 1.2), { align: "center", valign: "middle" });
     }
+
     spanArrow(d, v, o([150, 20]), o([150, BEAR_Y - 12]), ["FT-1", '16" FLR. TRUSSES @ 24" O.C.']);
     spanArrow(d, v, o([500, 20]), o([500, BEAR_Y - 12]), ["FT-1", '16" FLR. TRUSSES @ 24" O.C.']);
     spanArrow(d, v, o([150, BEAR_Y + 16]), o([150, 508]), ["FT-1", '16" FLR. TRUSSES @ 24" O.C.']);
@@ -233,27 +249,33 @@ function roofFraming(d: D, v: View): void {
     for (const x of gx)
       for (const dx of [-2.25, 2.25])
         d.line(o([x + dx, 0]), o([x + dx, DEPTH]), { lineweight: 0.5 });
+
     // Step-down hip trusses and commons, full span with their tails.
     // The two at the attic access replace the 24" layout's trusses over the opening.
     for (let x = g + 24; x < W - g - 1; x += 24)
       if (x < ATTIC_TRUSSES[0]! - 6 || x > ATTIC_TRUSSES[1]! + 6) d.line(o([x, ey0]), o([x, ey1]));
+
     for (const x of ATTIC_TRUSSES) d.line(o([x, ey0]), o([x, ey1]));
     // The attic access in the ceiling, and its headers between the trusses.
     const [ax0, ay0, ax1, ay1] = ATTIC_ACCESS;
     d.rect(o([ax0, ay0]), ax1 - ax0, ay1 - ay0, { linetype: "HIDDEN" });
+
     for (const y of [ay0 - 1.5, ay1 + 1.5])
       d.line(o([ATTIC_TRUSSES[0]!, y]), o([ATTIC_TRUSSES[1]!, y]), { lineweight: 0.5 });
+
     // End jacks, from the eave to the girder.
     for (let y = 108; y <= 420; y += 24) {
       d.line(o([ex0, y]), o([g - 2.25, y]));
       d.line(o([W - g + 2.25, y]), o([ex1, y]));
     }
+
     // Corner jacks, to the hips, in both directions at each corner.
     for (const k of [12, 36, 60, 84]) {
       d.line(o([ex0, k]), o([k, k]));
       d.line(o([ex0, DEPTH - k]), o([k, DEPTH - k]));
       d.line(o([W - k, k]), o([ex1, k]));
       d.line(o([W - k, DEPTH - k]), o([ex1, DEPTH - k]));
+
       if (k < g) {
         d.line(o([k, ey0]), o([k, k]));
         d.line(o([k, DEPTH - k]), o([k, ey1]));
@@ -261,9 +283,11 @@ function roofFraming(d: D, v: View): void {
         d.line(o([W - k, DEPTH - k]), o([W - k, ey1]));
       }
     }
+
     // The lanai's shed: mono trusses from the ledger to the eave, on beam LB-1.
     const [lx0, ly0, lx1, ly1] = ROOF.lanai.rect;
     d.polyline([o([lx0, ly0]), o([lx0, ly1]), o([lx1, ly1]), o([lx1, ly0])]);
+
     for (let x = LANAI[0] + 4; x < LANAI[2]; x += 24) d.line(o([x, ey1]), o([x, ly1]));
   });
   d.layer(LAYERS.beam, {}, () => {
@@ -314,14 +338,17 @@ function roofFraming(d: D, v: View): void {
       'THRU-BOLTS @ 16" O.C.',
     ]);
     put(d, o([284, ROOF.ridgeY + v.p(0.08)]), "RIDGE", h, { align: "center" });
+
     const tag = (at: Point, c: string) =>
       d.layer(SL.conn, {}, () =>
         d.insert("S-CONN TAG", o(at), { scale: v.p(1), attributes: { CONN: c } }),
       );
+
     const small = v.p(H.small * 1.2);
     const uplift = (c: string) => `${CONNECTORS.find((r) => r[0] === c)![2]} LB`;
     gx.forEach((x, k) => {
       const side = k === 0 ? 1 : -1;
+
       for (const y of [22, DEPTH - 22]) {
         tag([x + side * 16, y], "C3");
         put(d, o([x + side * 28, y]), uplift("C3"), small, {
@@ -362,7 +389,7 @@ function roofFraming(d: D, v: View): void {
         o([W - g, ey0]),
         o([W, ey0]),
         o([ex1, ey0]),
-      ].map((p) => [p[0], RF[1] + ey0] as Point),
+      ].map((p) => [p[0], RF[1] + ey0] satisfies Point),
       "x",
       RF[1] + ey0 - first,
     );
@@ -456,17 +483,21 @@ function openingElevation(d: D, v: View): void {
   d.layer(LAYERS.patt, {}, () => {
     for (let y = grade + 6, k = 0; y < tb - 16 - 0.1; y += 8, k++) {
       const inOpening = y > op.sill - 0.1 && y < op.head + 8 + 0.1;
+
       if (y > grade + 6.1) {
         if (inOpening) {
           d.line(p(0, y), p(op.x0 - (y > op.head ? 8 : 0), y));
           d.line(p(op.x1 + (y > op.head ? 8 : 0), y), p(L, y));
         } else d.line(p(0, y), p(L, y));
       }
+
       for (let x = k % 2 === 0 ? 16 : 8; x < L; x += 16) {
         const yTop = Math.min(y + 8, tb - 16);
+
         const blocked =
           (x > op.x0 - 8 && x < op.x1 + 8 && y + 8 > op.head - 0.1 && y < op.head + 8) ||
           (x > op.x0 && x < op.x1 && y + 8 > op.sill && y < op.head);
+
         if (!blocked && y >= grade + 6) d.line(p(x, y), p(x, yTop));
       }
     }
@@ -550,20 +581,25 @@ const CONNECTORS: string[][] = [
 
 const LINTELS: string[][] = (() => {
   const by = new Map<string, Set<string>>();
+
   for (const op of MASONRY_OPENINGS) {
     const m = lintelMark(op);
+
     if (!by.has(m)) by.set(m, new Set());
+
     if (op.tag) by.get(m)!.add(op.tag);
   }
-  const spec: Record<string, [string, string, string]> = {
-    "L-1": ["TO 4'-0\"", "PRECAST 8F8-1B", "TB-1 ABOVE"],
-    "L-2": ["TO 6'-8\"", "PRECAST 8F16-1B/1T", "TB-1 ABOVE"],
-    "L-3": ["TO 12'-0\"", "PRECAST 8F24-2B/1T", "TB-1 ABOVE"],
-    "L-4": ["16'-0\"", "TB-2, CAST IN PLACE", "SEE BEAMS"],
-  };
+
+  const spec = new Map<string, [string, string, string]>([
+    ["L-1", ["TO 4'-0\"", "PRECAST 8F8-1B", "TB-1 ABOVE"]],
+    ["L-2", ["TO 6'-8\"", "PRECAST 8F16-1B/1T", "TB-1 ABOVE"]],
+    ["L-3", ["TO 12'-0\"", "PRECAST 8F24-2B/1T", "TB-1 ABOVE"]],
+    ["L-4", ["16'-0\"", "TB-2, CAST IN PLACE", "SEE BEAMS"]],
+  ]);
+
   return [...by.keys()]
     .sort()
-    .map((m) => [m, spec[m]![0], spec[m]![1], [...by.get(m)!].sort().join(", ")]);
+    .map((m) => [m, spec.get(m)![0], spec.get(m)![1], [...by.get(m)!].sort().join(", ")]);
 })();
 
 const BEAMS: string[][] = [
@@ -699,11 +735,13 @@ function legend(d: D, at: Point, w: number): number {
     d.line([at[0], y], [at[0] + w, y], { lineweight: 0.35 });
     y -= 0.3;
   });
+
   const row = (label: string, draw: (c: Point) => void) => {
     draw([at[0] + 0.3, y + 0.03]);
     d.layer(LAYERS.text, {}, () => put(d, [at[0] + 0.7, y], label, H.note, { valign: "middle" }));
     y -= 0.36;
   };
+
   row("TRUSS OR JOIST", (c) =>
     d.layer(LAYERS.fram, {}, () => d.line([c[0] - 0.25, c[1]], [c[0] + 0.25, c[1]])),
   );
@@ -730,5 +768,6 @@ function legend(d: D, at: Point, w: number): number {
       }),
     ),
   );
+
   return y;
 }

@@ -32,7 +32,9 @@ export function modelLength(length: number, unit: PaperUnit, ratio: number, unit
   const from = SIZES[unit];
   const to = SIZES[units];
   const model = length * ratio * from[1];
+
   const converted =
     from[0] === to[0] ? model : from[0] === "imperial" ? model * MM_PER_INCH : model / MM_PER_INCH;
+
   return converted / to[1];
 }

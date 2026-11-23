@@ -2,16 +2,22 @@
 // how it is written and plotted.
 import type { EntityTransparency } from "./drawing.ts";
 import { ENTITY_TRANSPARENCY } from "./rules.ts";
+import { isNumber } from "./guards.ts";
 
 /** The most a transparency may be, in percent, as CAD programs allow. */
 export const TRANSPARENCY_MOST = 90;
 
-/** What is wrong with an entity's transparency, or undefined when it is one. */
+/**
+ * What is wrong with an entity's transparency, or undefined when it is one. It takes any value,
+ * as a caller in plain JavaScript may give one.
+ */
 export function entityTransparencyProblem(transparency: unknown): string | undefined {
   if (transparency === "ByLayer" || transparency === "ByBlock") return undefined;
-  return Number.isInteger(transparency) &&
-    (transparency as number) >= 0 &&
-    (transparency as number) <= TRANSPARENCY_MOST
+
+  return isNumber(transparency) &&
+    Number.isInteger(transparency) &&
+    transparency >= 0 &&
+    transparency <= TRANSPARENCY_MOST
     ? undefined
     : ENTITY_TRANSPARENCY;
 }
@@ -28,7 +34,9 @@ export function storedTransparency(
   transparency: EntityTransparency | undefined,
 ): number | undefined {
   if (transparency === undefined || transparency === "ByLayer") return undefined;
+
   if (transparency === "ByBlock") return 0x01000000;
+
   return 0x02000000 | alphaOf(transparency);
 }
 
@@ -40,6 +48,8 @@ export function storedTransparency(
 export function readAlpha(value: number | undefined): number | "ByBlock" | undefined {
   if (value === undefined) return undefined;
   const kind = value >>> 24;
+
   if (kind === 1) return "ByBlock";
+
   return kind === 2 ? value & 0xff : undefined;
 }

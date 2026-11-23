@@ -104,7 +104,7 @@ it is given its own. `DASHED`, `HIDDEN`, `CENTER`, `PHANTOM`, `DASHDOT` and `DOT
 are the leading CAD app's own definitions; `d.linetype({ name, pattern })` defines another,
 with dashes as positive lengths, gaps as negative ones and dots as 0. Its `marks` draw texts
 along the line, such as a water main's letters, and shapes of a firm's shape file, such as a
-fence's circles, which `parseShapes` reads and the plot takes as `shapes`. `parseLinetypes` reads
+fence's circles, which `parseShx` reads and the plot takes as `shx`. `parseLinetypes` reads
 a firm's linetype file. A polyline's `linetypeGeneration` runs the pattern on past its vertices. A
 lineweight is in millimetres.
 
@@ -474,7 +474,9 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   footprint that crosses a setback, and the `intent` a drawing file exports.
 - [Reading drawing files](docs/reading.md) covers `readDXF`, the read model it gives of a
   firm's DXF, and the readers a package adds for other formats.
-- [The `tsdraft` command](docs/command.md) covers `render`, `dev`, the JSON they
+- [Editing a firm's drawing](docs/editing.md) covers the edit file, the edited copy of a DXF, the
+  checks of every job and `tsdraft write`.
+- [The `tsdraft` command](docs/command.md) covers `render`, `dev`, `write`, the JSON they
   give, and what happens without the PNG renderer.
 
 ## Development

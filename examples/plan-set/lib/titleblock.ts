@@ -29,13 +29,13 @@ const MID = (L + R) / 2;
 const PAD = 0.07;
 
 /** The boxes of the four rows of small fields: two per row. */
-export const FIELD_BOXES: Record<string, { at: Point; label: string }> = {
+export const FIELD_BOXES = {
   DATE: { at: [L + PAD, TB.fieldRows[1]], label: "DATE" },
   JOB: { at: [MID + PAD, TB.fieldRows[1]], label: "JOB NO." },
   DRAWN: { at: [L + PAD, TB.fieldRows[2]], label: "DRAWN BY" },
   CHECKED: { at: [MID + PAD, TB.fieldRows[2]], label: "CHECKED BY" },
   SCALE: { at: [L + PAD, TB.fieldRows[3]], label: "SCALE" },
-};
+} satisfies Record<string, { at: Point; label: string }>;
 
 /** The border drawing, which is written to its own DWG and attached by every sheet. */
 export function borderDrawing(): Drawing {
@@ -46,6 +46,7 @@ export function borderDrawing(): Drawing {
   b.layer("G-TTLB", { color: 7, lineweight: 0.35 });
   b.layer("G-TTLB-FINE", { color: 7, lineweight: 0.13 });
   b.layer("G-TTLB-TEXT", { color: 7, lineweight: 0.25 });
+
   const t = (
     at: Point,
     value: string,
@@ -56,6 +57,7 @@ export function borderDrawing(): Drawing {
       style?: string;
     } = {},
   ) => b.text(at, value, { height, ...o, style: o.style ?? "TB" });
+
   const { border } = TB;
   b.layer("G-TTLB-HEVY", {}, () => {
     b.rect([border.left, border.bottom], border.right - border.left, border.top - border.bottom);
@@ -103,12 +105,15 @@ export function borderDrawing(): Drawing {
     label(TB.sealBottom - PAD, "ENGINEER OF RECORD");
     t([MID, 10.45], "J. R. HALYARD, P.E. (FICTIONAL)", H.note, { align: "center" });
     t([MID, 10.15], "FLORIDA P.E. NO. 00000", H.small, { align: "center" });
+
     for (const [, box] of Object.entries(FIELD_BOXES)) {
       t([box.at[0], box.at[1] + 0.6 - PAD], box.label, H.small, { valign: "top" });
     }
+
     label(TB.fieldRows[3] - PAD, "SHEET TITLE");
     label(TB.titleBottom - PAD, "SHEET NUMBER");
   });
+
   return b.build();
 }
 
@@ -123,6 +128,7 @@ export function defineSheetFields(d: D): void {
         prompt: box.label,
       });
     }
+
     d.attribute("TITLE1", [MID, 7.3], {
       value: "-",
       height: 0.21,
@@ -172,6 +178,7 @@ export function revisionTable(
   const cols = [L, L + 0.35, L + 1.15, R];
   d.layer("Rev_Text", {}, () => {
     for (let r = 0; r <= 9; r++) d.line([L, top - r * rowH], [R, top - r * rowH]);
+
     for (const x of cols.slice(1, -1)) d.line([x, top], [x, top - 9 * rowH]);
     ["NO.", "DATE", "DESCRIPTION"].forEach((name, k) =>
       d.text([cols[k]! + 0.05, top - rowH / 2], name, {

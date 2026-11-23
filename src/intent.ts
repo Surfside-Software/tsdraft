@@ -1,7 +1,8 @@
 // What a drawing is meant to hold to, which no rule of a file states: a building that keeps out
 // of its setbacks. `lint` holds the rules a file must meet. These are warnings about the design.
+import { isNumber, isRecord, isString } from "./guards.ts";
 import { callOf, type CallSite } from "./callsite.ts";
-import type { Drawing, Point } from "./drawing.ts";
+import type { Drawing, Entity, Point } from "./drawing.ts";
 import { written } from "./format.ts";
 import { grid, side, type Box } from "./inspect.ts";
 import { idKey, shown } from "./rules.ts";
@@ -155,137 +156,169 @@ interface Unchecked {
  */
 export function checkIntent(drawing: Drawing, intent: Intent): IntentWarning[] {
   const out: IntentWarning[] = [];
-  const given: unknown = intent;
-  const entities: readonly unknown[] = Array.isArray(drawing?.entities) ? drawing.entities : [];
+  const entities: readonly Entity[] = Array.isArray(drawing?.entities) ? drawing.entities : [];
   let stopped = false;
+
   const warn = (warning: IntentWarning): void => {
     if (out.length < MAX_WARNINGS) out.push(warning);
     else stopped = true;
   };
-  const unchecked = (message: string, item?: string, about: Partial<IntentWarning> = {}): void =>
-    warn({
-      rule: "intent-unchecked",
-      severity: "warning",
-      message,
-      ...(item === undefined ? {} : { item }),
-      ...about,
-    });
+
+  const unchecked = (message: string, item?: string, about: Partial<IntentWarning> = {}): void => {
+    const warning: IntentWarning = { rule: "intent-unchecked", severity: "warning", message };
+    warn({ ...(item === undefined ? warning : { ...warning, item }), ...about });
+  };
+
   let work = 0;
   /** The work each part of the intent took, by what it is, such as the outline of a lot. */
   const spentOn = new Map<string, number>();
+
   /** Counts the cost of a step for `job`, and says whether there is room left to take it. */
   const spend = (cost: number, job: string): boolean => {
     if (work + cost > MAX_WORK) return false;
     work += cost;
     spentOn.set(job, (spentOn.get(job) ?? 0) + cost);
+
     return true;
   };
+
   /** What took the most of the work, and how much of it. */
   const heaviest = (): string => {
     let most: [string, number] = ["nothing", 0];
+
     for (const entry of spentOn) if (entry[1] > most[1]) most = entry;
+
     return `${most[0]} took ${Math.round((100 * most[1]) / MAX_WORK)}% of them`;
   };
 
   let ids: Map<string, number> | undefined;
+
   /** The index of the first entity of model space with the id. */
   const find = (id: string): number | undefined => {
     if (!ids) {
       ids = new Map();
+
       for (let i = 0; i < entities.length; i++) {
-        const own = (entities[i] as { id?: unknown } | null)?.id;
-        if (typeof own === "string" && !ids.has(idKey(own))) ids.set(idKey(own), i);
+        const own: unknown = entities[i]?.id;
+
+        if (isString(own) && !ids.has(idKey(own))) ids.set(idKey(own), i);
       }
     }
+
     return ids.get(idKey(id));
   };
+
   /** What names an entity, with its layer and the call that drew it. */
   const about = (index: number): Partial<IntentWarning> => {
-    const entity = entities[index] as { id?: unknown; layer?: unknown };
-    const call = callOf(entities as object[], index);
-    return {
-      entity: index,
-      ...(typeof entity.id === "string" ? { id: entity.id } : {}),
-      ...(typeof entity.layer === "string" ? { layer: entity.layer } : {}),
-      ...(call === undefined ? {} : { call }),
-    };
+    // An index the checks name is of an entity they have read.
+    const entity = entities[index]!;
+    const call = callOf(entities, index);
+    let named: Partial<IntentWarning> = { entity: index };
+
+    if (isString(entity.id)) named = { ...named, id: entity.id };
+
+    if (isString(entity.layer)) named = { ...named, layer: entity.layer };
+
+    if (call !== undefined) named = { ...named, call };
+
+    return named;
   };
+
   const reads = new Map<number, Read>();
+
   /** The entity at an index as an outline, read once however often the intent names it. */
   const read = (index: number, job: string): Read => {
     let found = reads.get(index);
+
     if (found === undefined) {
       const pay = (cost: number) => spend(cost, job);
-      found = outlineOf(entities[index] as Record<string, unknown>, index, pay);
+      found = outlineOf(entities[index]!, index, pay);
       reads.set(index, found);
     }
+
     return found;
   };
 
   /** Checks one setback, the `n`th, with one warning for all of it that is more than it checks. */
-  const check = (setback: unknown, n: number): void => {
+  const check = (setback: Setback, n: number): void => {
     const item = `setbacks[${n}]`;
     const at = `Setback ${n}`;
+
     if (!isRecord(setback)) {
       unchecked(`${at} must be an object with property, footprints and distance`, item);
+
       return;
     }
+
     for (const key in setback) {
       if (stopped) return;
+
       if (!Object.hasOwn(setback, key) || SETBACK_FIELDS.includes(key)) continue;
       const message = `${at} has no field ${shown(key)}. Its fields are property, footprints and distance`;
       unchecked(message, item);
     }
+
     const left: Unchecked[] = [];
     measure(setback, item, at, left);
     const [first, ...more] = left;
+
     if (!first) return;
+
     const what =
       more.length === 0 ? `${first.what} was` : `${first.what} and ${more.length} more were`;
+
     const why = first.alone
       ? `By itself it is more than the ${STEPS} steps of work checkIntent does in one call`
       : `checkIntent does ${STEPS} steps of work in one call, and ${heaviest()}`;
+
     const named = first.index === undefined ? {} : about(first.index);
     unchecked(`${at}: ${what} not checked. ${why}`, item, named);
   };
 
   /** Checks what one setback names, keeping in `left` what the work of the call could not take. */
-  const measure = (
-    setback: Record<string, unknown>,
-    item: string,
-    at: string,
-    left: Unchecked[],
-  ): void => {
+  const measure = (setback: Setback, item: string, at: string, left: Unchecked[]): void => {
     /** The closed polyline an id names, or undefined with a warning that says why not. */
     const outline = (id: string, what: string): Outline | undefined => {
       const index = find(id);
+
       if (index === undefined) {
         unchecked(
           `${at} names ${what} ${shown(id)}, and no entity of model space has that id`,
           item,
         );
+
         return undefined;
       }
+
       const job = `the outline of ${what} ${shown(id)}`;
       const found = read(index, job);
+
       if (found === "alone" || found === "short") {
         left.push({ what: job, index, alone: found === "alone" });
+
         return undefined;
       }
+
       if ("why" in found) {
         unchecked(`${at} names ${what} ${shown(id)}${found.why}`, item, about(index));
+
         return undefined;
       }
+
       return found;
     };
 
-    const { property, footprints, distance } = setback;
+    const { property, footprints } = setback;
+    const distance = setback.distance;
     let lot: Outline | undefined;
-    if (typeof property === "string") lot = outline(property, "property line");
+
+    if (isString(property)) lot = outline(property, "property line");
     else unchecked(`${at}'s property must be the id of a closed polyline`, item);
-    const allowed = (d: unknown): d is number =>
-      typeof d === "number" && Number.isFinite(d) && d >= 0;
+
+    const allowed = (d: unknown): d is number => isNumber(d) && Number.isFinite(d) && d >= 0;
+
     let distances: number | readonly number[] | undefined;
+
     if (allowed(distance)) {
       distances = distance;
     } else if (Array.isArray(distance) && !spend(distance.length, `the distances of ${at}`)) {
@@ -307,53 +340,70 @@ export function checkIntent(drawing: Drawing, intent: Intent): IntentWarning[] {
         item,
       );
     }
+
     const listed = `${at}'s footprints must be an array of one or more ids of closed polylines`;
+
     if (!Array.isArray(footprints) || footprints.length === 0) {
       unchecked(listed, item);
+
       return;
     }
+
     if (!spend(footprints.length, `the footprints of ${at}`)) {
       const alone = footprints.length > MAX_WORK;
       left.push({ what: "its list of footprints", index: undefined, alone });
+
       return;
     }
-    if (!each(footprints, (id): id is string => typeof id === "string")) {
+
+    if (!each(footprints, (id): id is string => isString(id))) {
       unchecked(listed, item);
+
       return;
     }
+
     // An id named twice is checked once.
     const named = new Set<string>();
     const buildings: Outline[] = [];
+
     for (let j = 0; j < footprints.length && !stopped; j++) {
       const key = idKey(footprints[j]!);
+
       if (named.has(key)) continue;
       named.add(key);
       const building = outline(footprints[j]!, "footprint");
+
       if (building) buildings.push(building);
     }
+
     if (!lot || distances === undefined) return;
 
     const sides = lot.points.length;
     const origin = lot.points[0]!;
     const stated = distances;
-    const requiredAt = (i: number): number => (typeof stated === "number" ? stated : stated[i]!);
+    const requiredAt = (i: number): number => (isNumber(stated) ? stated : stated[i]!);
+
     for (const building of buildings) {
       if (stopped) return;
       const job = `footprint ${shown(building.id)} held against property line ${shown(lot.id)}`;
       const cost = 9 * sides * building.points.length;
+
       if (!spend(cost, job)) {
         left.push({ what: job, index: building.entity, alone: cost > MAX_WORK });
         continue;
       }
+
       const tolerance = toleranceOf(lot.points, building.points);
       const footprint = building.points.map(([x, y]): Point => [x - origin[0], y - origin[1]]);
       const found = { item, ...about(building.entity) };
       const other = { entity: lot.entity, id: lot.id };
       const inside = contained(footprint, lot.local, tolerance, (more) => spend(more, job));
+
       if (inside === undefined) {
         left.push({ what: job, index: building.entity, alone: false });
         continue;
       }
+
       if (!inside) {
         warn({
           rule: "footprint-off-property",
@@ -365,10 +415,12 @@ export function checkIntent(drawing: Drawing, intent: Intent): IntentWarning[] {
         });
         continue;
       }
+
       for (let i = 0; i < sides && !stopped; i++) {
         const required = requiredAt(i);
         const near = nearest(lot.local[i]!, lot.local[(i + 1) % sides]!, footprint);
         const provided = near.distance;
+
         if (provided >= required - tolerance) continue;
         const how = provided <= tolerance ? "touches" : `is ${shownShort(provided, required)} from`;
         const a = lot.points[i]!;
@@ -389,24 +441,34 @@ export function checkIntent(drawing: Drawing, intent: Intent): IntentWarning[] {
   };
 
   const run = (): void => {
-    if (!isRecord(given)) {
+    if (!isRecord(intent)) {
       unchecked("The intent must be an object, such as { setbacks: [...] }");
+
       return;
     }
-    for (const key in given) {
+
+    for (const key in intent) {
       if (stopped) return;
-      if (!Object.hasOwn(given, key) || key === "setbacks") continue;
+
+      if (!Object.hasOwn(intent, key) || key === "setbacks") continue;
       unchecked(`The intent has no field ${shown(key)}. Its one field is setbacks`);
     }
-    const setbacks = given.setbacks;
+
+    const setbacks = intent.setbacks;
+
     if (setbacks === undefined) return;
+
     if (!Array.isArray(setbacks)) {
       unchecked("The intent's setbacks must be an array", "setbacks");
+
       return;
     }
-    for (let n = 0; n < setbacks.length && !stopped; n++) check(setbacks[n], n);
+
+    for (let n = 0; n < setbacks.length && !stopped; n++) check(setbacks[n]!, n);
   };
+
   run();
+
   if (stopped) {
     out.push({
       rule: "intent-unchecked",
@@ -414,17 +476,15 @@ export function checkIntent(drawing: Drawing, intent: Intent): IntentWarning[] {
       message: `checkIntent stopped after ${MAX_WARNINGS} warnings, so the rest of the intent was not checked. Act on these and check again`,
     });
   }
+
   return out;
 }
 
 /** Whether every item of an array passes, an empty slot included, which `every` skips. */
 function each<T>(list: readonly unknown[], test: (item: unknown) => item is T): list is T[] {
   for (let i = 0; i < list.length; i++) if (!test(list[i])) return false;
-  return true;
-}
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return true;
 }
 
 /**
@@ -433,65 +493,82 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * point that repeats the first, are the same corner. Its points are paid for before they are
  * read.
  */
-function outlineOf(
-  entity: Record<string, unknown>,
-  index: number,
-  spend: (cost: number) => boolean,
-): Read {
+function outlineOf(entity: Entity, index: number, spend: (cost: number) => boolean): Read {
   if (entity.kind !== "polyline") {
     return { why: `, which is an entity of kind ${shown(entity.kind)}, not a closed polyline` };
   }
+
   if (entity.closed !== true) return { why: ", which is an open polyline, not a closed polyline" };
   const points = entity.points;
+
   if (!Array.isArray(points)) return { why: ", which is a polyline with no points" };
+
   if (READ_COST * points.length > MAX_WORK) return "alone";
+
   if (!spend(READ_COST * points.length)) return "short";
+
   for (let i = 0; i < points.length; i++) {
     const p: unknown = points[i];
+
     if (!Array.isArray(p) || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) {
       return { why: ", which has a point that is not two numbers" };
     }
   }
+
   // An arc's side is no straight line between its points, which the checks measure.
-  const bulges: unknown = entity.bulges;
+  const bulges = entity.bulges;
+
   if (Array.isArray(bulges)) {
     if (!spend(READ_COST * bulges.length)) return "short";
+
     if (bulges.some((bulge) => bulge !== 0)) {
       return {
         why: ", which has a side that is an arc. checkIntent takes an outline of straight sides",
       };
     }
   }
+
   const same = (p: Point, q: Point): boolean => p[0] === q[0] && p[1] === q[1];
   const corners: Point[] = [];
+
   for (let i = 0; i < points.length; i++) {
-    const p = points[i] as Point;
+    const p = points[i]!;
     const last = corners.at(-1);
+
     if (!last || !same(p, last)) corners.push(p);
   }
+
   while (corners.length > 1 && same(corners[0]!, corners.at(-1)!)) corners.pop();
   const first = corners[0];
+
   if (!first || corners.length < 3) return { why: ", which has no area" };
   const local = corners.map(([x, y]): Point => [x - first[0], y - first[1]]);
+
   if (twiceArea(local) === 0) return { why: ", which has no area" };
   const simple = isSimple(corners, spend);
+
   if (simple === undefined) return "short";
+
   if (!simple) {
     return {
       why: ", whose outline crosses or touches itself. checkIntent takes an outline whose sides meet only where one ends and the next starts, so it takes no lot with a hole",
     };
   }
-  return { entity: index, id: entity.id as string, points: corners, local };
+
+  // `find` gives the index of an entity whose id is a string.
+  return { entity: index, id: entity.id!, points: corners, local };
 }
 
 /** Twice the area of a polygon whose first point is the origin, positive counterclockwise. */
 function twiceArea(points: readonly Point[]): number {
   let sum = 0;
+
   for (let i = 1; i + 1 < points.length; i++) {
     const a = points[i]!;
     const b = points[i + 1]!;
     sum += a[0] * b[1] - b[0] * a[1];
   }
+
   return Number.isFinite(sum) ? sum : 0;
 }
 
@@ -505,8 +582,10 @@ function isSimple(points: readonly Point[], spend: (cost: number) => boolean): b
   const n = points.length;
   const ends = (i: number): [Point, Point] => [points[i]!, points[(i + 1) % n]!];
   const boxes: Box[] = [];
+
   for (let i = 0; i < n; i++) {
     const [a, b] = ends(i);
+
     if (a[0] === b[0] && a[1] === b[1]) return false;
     boxes.push([
       Math.min(a[0], b[0]),
@@ -515,15 +594,20 @@ function isSimple(points: readonly Point[], spend: (cost: number) => boolean): b
       Math.max(a[1], b[1]),
     ]);
   }
+
   let short = false;
+
   const pay = (cost: number): boolean => {
     if (!short && spend(cost)) return true;
     short = true;
+
     return false;
   };
+
   const near = grid(boxes, pay);
   const exact = (): boolean => pay(EXACT_COST);
   let simple = true;
+
   for (let i = 1; i < n && simple && !short; i++) {
     const [a, b] = ends(i);
     near(
@@ -531,6 +615,7 @@ function isSimple(points: readonly Point[], spend: (cost: number) => boolean): b
       (j) => {
         if (!simple || !pay(1)) return;
         const [c, d] = ends(j);
+
         // Two sides in a row share a corner, and meet wrongly only where one turns back.
         if (j === i - 1) simple = !folds(c, a, b, exact);
         else if (i === n - 1 && j === 0) simple = !folds(a, b, d, exact);
@@ -539,6 +624,7 @@ function isSimple(points: readonly Point[], spend: (cost: number) => boolean): b
       i,
     );
   }
+
   return short ? undefined : simple;
 }
 
@@ -558,7 +644,9 @@ function touch(a: Point, b: Point, c: Point, d: Point, exact: () => boolean): bo
   const d2 = turn(c, d, b, exact);
   const d3 = turn(a, b, c, exact);
   const d4 = turn(a, b, d, exact);
+
   if (d1 * d2 < 0 && d3 * d4 < 0) return true;
+
   return (
     (d1 === 0 && spans(c, d, a)) ||
     (d2 === 0 && spans(c, d, b)) ||
@@ -591,17 +679,23 @@ function turn(a: Point, b: Point, c: Point, exact: () => boolean): number {
   // product with a factor of 0 is truly 0, and two products of other signs decide the turn.
   const leftSign = Math.sign(ux) * Math.sign(vy);
   const rightSign = Math.sign(uy) * Math.sign(vx);
+
   if (leftSign === 0 || rightSign === 0 || leftSign !== rightSign) {
     return Math.sign(leftSign - rightSign);
   }
+
   const left = ux * vy;
   const right = uy * vx;
   const size = Math.abs(left) + Math.abs(right);
+
   if (size > TURN_SMALLEST && size < Infinity) {
     const turned = left - right;
+
     if (turned > TURN_ERROR * size) return 1;
+
     if (turned < -TURN_ERROR * size) return -1;
   }
+
   return exact() ? exactTurn(a, b, c) : 0;
 }
 
@@ -610,14 +704,35 @@ function turn(a: Point, b: Point, c: Point, exact: () => boolean): number {
  * power of two.
  */
 function exactTurn(a: Point, b: Point, c: Point): number {
-  const parts = [a[0], a[1], b[0], b[1], c[0], c[1]].map(binary);
+  const parts = [
+    binary(a[0]),
+    binary(a[1]),
+    binary(b[0]),
+    binary(b[1]),
+    binary(c[0]),
+    binary(c[1]),
+  ] as const;
+
   let low = Infinity;
+
   for (const [mantissa, exponent] of parts) if (mantissa !== 0n && exponent < low) low = exponent;
+
   if (low === Infinity) return 0;
-  const [ax, ay, bx, by, cx, cy] = parts.map(([mantissa, exponent]) =>
-    mantissa === 0n ? 0n : mantissa << BigInt(exponent - low),
-  ) as [bigint, bigint, bigint, bigint, bigint, bigint];
+
+  const scaled = ([mantissa, exponent]: readonly [bigint, number]): bigint =>
+    mantissa === 0n ? 0n : mantissa << BigInt(exponent - low);
+
+  const [ax, ay, bx, by, cx, cy] = [
+    scaled(parts[0]),
+    scaled(parts[1]),
+    scaled(parts[2]),
+    scaled(parts[3]),
+    scaled(parts[4]),
+    scaled(parts[5]),
+  ];
+
   const turned = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+
   return turned > 0n ? 1 : turned < 0n ? -1 : 0;
 }
 
@@ -631,6 +746,7 @@ function binary(x: number): [bigint, number] {
   const exponent = Number((all >> 52n) & 0x7ffn);
   const fraction = all & 0xfffffffffffffn;
   const mantissa = exponent === 0 ? fraction : fraction | 0x10000000000000n;
+
   return [all >> 63n ? -mantissa : mantissa, exponent === 0 ? -1074 : exponent - 1075];
 }
 
@@ -647,9 +763,11 @@ function spans(a: Point, b: Point, p: Point): boolean {
 /** The tolerance for two outlines, from the largest of their coordinates. */
 function toleranceOf(a: readonly Point[], b: readonly Point[]): number {
   let largest = 1;
+
   for (const points of [a, b]) {
     for (const [x, y] of points) largest = Math.max(largest, Math.abs(x), Math.abs(y));
   }
+
   return Math.min(MOST_TOLERANCE, largest * RELATIVE_TOLERANCE);
 }
 
@@ -659,6 +777,7 @@ function toleranceOf(a: readonly Point[], b: readonly Point[]): number {
  */
 function shownShort(provided: number, required: number): string {
   const rounded = written(provided);
+
   return String(rounded < required ? rounded : provided);
 }
 
@@ -667,17 +786,28 @@ function shownPoint(p: Point): string {
 }
 
 /** The box around points taken from `origin`, larger on every side by `grow`, as written. */
-function boxOf(points: readonly Point[], origin: Point, grow: number): { min: Point; max: Point } {
+/** A box by its corners. */
+interface Bounds {
+  readonly min: Point;
+  readonly max: Point;
+}
+
+function boxOf(points: readonly Point[], origin: Point, grow: number): Bounds {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
+
   for (const [x, y] of points) {
     if (x < minX) minX = x;
+
     if (x > maxX) maxX = x;
+
     if (y < minY) minY = y;
+
     if (y > maxY) maxY = y;
   }
+
   return {
     min: [written(origin[0] + minX - grow), written(origin[1] + minY - grow)],
     max: [written(origin[0] + maxX + grow), written(origin[1] + maxY + grow)],
@@ -700,30 +830,40 @@ function contained(
   spend: (cost: number) => boolean,
 ): boolean | undefined {
   for (const p of inner) if (!inOrOn(p, outer, tolerance)) return false;
+
   for (const p of outer) if (insideBy(p, inner, tolerance)) return false;
+
   for (let j = 0; j < inner.length; j++) {
     const c = inner[j]!;
     const d = inner[(j + 1) % inner.length]!;
     const cuts = [0, 1];
+
     for (let i = 0; i < outer.length; i++) {
       const p = outer[i]!;
       const t = crossing(c, d, p, outer[(i + 1) % outer.length]!);
+
       if (t !== undefined) cuts.push(t);
+
       if (toSegment(p, c, d) <= tolerance) {
         const at = along(p, c, d);
+
         if (at > 0 && at < 1) cuts.push(at);
       }
     }
+
     // The first piece of each side is paid for with the outlines.
     if (cuts.length > 2 && !spend(2 * (cuts.length - 2) * outer.length)) return undefined;
     cuts.sort((x, y) => x - y);
+
     for (let k = 1; k < cuts.length; k++) {
       if (!(cuts[k]! > cuts[k - 1]!)) continue;
       const t = (cuts[k - 1]! + cuts[k]!) / 2;
       const middle: Point = [c[0] + t * (d[0] - c[0]), c[1] + t * (d[1] - c[1])];
+
       if (!inOrOn(middle, outer, tolerance)) return false;
     }
   }
+
   return true;
 }
 
@@ -737,11 +877,13 @@ function crossing(c: Point, d: Point, a: Point, b: Point): number | undefined {
   const sx = b[0] - a[0];
   const sy = b[1] - a[1];
   const across = rx * sy - ry * sx;
+
   if (across === 0) return undefined;
   const qx = a[0] - c[0];
   const qy = a[1] - c[1];
   const t = (qx * sy - qy * sx) / across;
   const u = (qx * ry - qy * rx) / across;
+
   return t > 0 && t < 1 && u >= 0 && u <= 1 ? t : undefined;
 }
 
@@ -759,13 +901,16 @@ function insideBy(p: Point, polygon: readonly Point[], tolerance: number): boole
 function enclosed(p: Point, polygon: readonly Point[]): boolean {
   const [x, y] = p;
   let odd = false;
+
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
     const a = polygon[i]!;
     const b = polygon[j]!;
+
     if (a[1] > y !== b[1] > y && x < a[0] + ((y - a[1]) * (b[0] - a[0])) / (b[1] - a[1])) {
       odd = !odd;
     }
   }
+
   return odd;
 }
 
@@ -774,6 +919,7 @@ function nearOutline(p: Point, polygon: readonly Point[], tolerance: number): bo
   for (let i = 0; i < polygon.length; i++) {
     if (toSegment(p, polygon[i]!, polygon[(i + 1) % polygon.length]!) <= tolerance) return true;
   }
+
   return false;
 }
 
@@ -781,19 +927,30 @@ function nearOutline(p: Point, polygon: readonly Point[], tolerance: number): bo
  * The least distance from the side `a` to `b` to a closed outline, with the point of the side
  * and the point of the outline that are that far apart.
  */
-function nearest(
-  a: Point,
-  b: Point,
-  outline: readonly Point[],
-): { distance: number; onSide: Point; onOutline: Point } {
+/** The points of a side and of an outline nearest each other, and how far apart they are. */
+interface Nearest extends Closest {
+  readonly distance: number;
+}
+
+/** The point of each of two segments nearest the other. */
+interface Closest {
+  readonly onSide: Point;
+  readonly onOutline: Point;
+}
+
+function nearest(a: Point, b: Point, outline: readonly Point[]): Nearest {
   let distance = Infinity;
   let edge = 0;
+
   for (let j = 0; j < outline.length && distance > 0; j++) {
     const found = apart(a, b, outline[j]!, outline[(j + 1) % outline.length]!);
+
     if (found < distance) [distance, edge] = [found, j];
   }
+
   const c = outline[edge]!;
   const d = outline[(edge + 1) % outline.length]!;
+
   return { distance, ...closest(a, b, c, d) };
 }
 
@@ -805,36 +962,43 @@ function cross(a: Point, b: Point, c: Point, d: Point): boolean {
 /** The least distance between the segment `a` to `b` and the segment `c` to `d`. */
 function apart(a: Point, b: Point, c: Point, d: Point): number {
   if (cross(a, b, c, d)) return 0;
+
   return Math.min(toSegment(c, a, b), toSegment(d, a, b), toSegment(a, c, d), toSegment(b, c, d));
 }
 
 /** The point of each segment nearest the other. */
-function closest(a: Point, b: Point, c: Point, d: Point): { onSide: Point; onOutline: Point } {
+function closest(a: Point, b: Point, c: Point, d: Point): Closest {
   if (cross(a, b, c, d)) {
     const [s, t] = [side(c, d, a), side(c, d, b)];
     const at: Point = [a[0] + (s / (s - t)) * (b[0] - a[0]), a[1] + (s / (s - t)) * (b[1] - a[1])];
+
     return { onSide: at, onOutline: at };
   }
+
   const pairs: [Point, Point][] = [
     [nearestOn(c, a, b), c],
     [nearestOn(d, a, b), d],
     [a, nearestOn(a, c, d)],
     [b, nearestOn(b, c, d)],
   ];
+
   const length = ([p, q]: [Point, Point]) => Math.hypot(p[0] - q[0], p[1] - q[1]);
   const [onSide, onOutline] = pairs.reduce((x, y) => (length(y) < length(x) ? y : x));
+
   return { onSide, onOutline };
 }
 
 /** The distance from `p` to the segment `a` to `b`. */
 function toSegment(p: Point, a: Point, b: Point): number {
   const t = along(p, a, b);
+
   return Math.hypot(a[0] + t * (b[0] - a[0]) - p[0], a[1] + t * (b[1] - a[1]) - p[1]);
 }
 
 /** The point of the segment `a` to `b` nearest `p`. */
 function nearestOn(p: Point, a: Point, b: Point): Point {
   const t = along(p, a, b);
+
   return [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])];
 }
 
@@ -843,6 +1007,7 @@ function along(p: Point, a: Point, b: Point): number {
   const dx = b[0] - a[0];
   const dy = b[1] - a[1];
   const length = dx * dx + dy * dy;
+
   return length > 0
     ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / length))
     : 0;

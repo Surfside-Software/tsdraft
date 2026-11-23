@@ -35,48 +35,58 @@ import { grow, shift, SL, structureSetup } from "./structure-kit.ts";
 import { framingSheet } from "./structure-framing.ts";
 import { detailsSheet } from "./structure-details.ts";
 
-export const ORIGIN = { fnd: [200500, 0] as Point };
+export const ORIGIN = { fnd: [200500, 0] satisfies Point };
 
 /** Walls under which the foundation runs: every masonry wall of the first floor, the porch's
  * open south edge, and the raised lanai's three sides. */
 const PORCH_EDGE: Rect = [272, 0, 376, 8];
+
 const LANAI_STEM: Rect[] = [
   [LANAI[0], LANAI[1], LANAI[0] + 8, LANAI[3]],
   [LANAI[2] - 8, LANAI[1], LANAI[2], LANAI[3]],
   [LANAI[0], LANAI[3] - 8, LANAI[2], LANAI[3]],
 ];
+
 const STEM: Rect[] = [...L1.exterior, PORCH_EDGE, ...LANAI_STEM];
+
 /** Interior bearing walls of the first floor, on thickened slab. */
 const BEARING: Rect[] = [
   [272, 288, 384, 292.5],
   [379.5, 80, 384, 292.5],
 ];
+
 /** The lanai's two columns, 12" square, and their pads, 3'-0" square. */
 const COLUMNS: Point[] = [
   [LANAI[0] + 6, LANAI[3] - 6],
   [LANAI[2] - 6, LANAI[3] - 6],
 ];
+
 /** The garage's flood vents, from the model, and whether the wall each sits in runs north-south. */
 const alongY = (wall: string) => wall !== "S" && wall !== "N";
+
 const VENTS = FLOOD_VENTS.map((x) => ({
   at: x.at,
   ns: alongY(x.wall),
   rot: alongY(x.wall) ? 90 : 0,
 }));
+
 /** Half a vent's width plus half a cell: a bar closer than this to a vent moves past it. */
 const VENT_CLEAR = 12;
 
 /** Vertical bars: at 48" o.c. along each masonry wall, and at each side of every opening. */
 function vertBars(walls: readonly Rect[], openings: readonly Opening[]): Point[] {
   const out: Point[] = [];
+
   const add = (p: Point) => {
     if (!out.some((q) => Math.hypot(q[0] - p[0], q[1] - p[1]) < 10)) out.push(p);
   };
+
   for (const r of walls) {
     const ax = r[2] - r[0] > r[3] - r[1];
     const [a0, a1] = ax ? [r[0], r[2]] : [r[1], r[3]];
     const c = ax ? (r[1] + r[3]) / 2 : (r[0] + r[2]) / 2;
     const at = (a: number): Point => (ax ? [a, c] : [c, a]);
+
     const inWall = openings.filter(
       (o) =>
         alongX(o) === ax &&
@@ -87,43 +97,59 @@ function vertBars(walls: readonly Rect[], openings: readonly Opening[]): Point[]
             o.cut[1] >= r[1] &&
             o.cut[3] <= r[3]),
     );
+
     const holes = inWall.map(
-      (o) => (ax ? [o.cut[0], o.cut[2]] : [o.cut[1], o.cut[3]]) as [number, number],
+      (o) => (ax ? [o.cut[0], o.cut[2]] : [o.cut[1], o.cut[3]]) satisfies [number, number],
     );
+
     for (const [h0, h1] of holes) {
       add(at(h0 - 4));
       add(at(h1 + 4));
     }
+
     add(at(a0 + 4));
     add(at(a1 - 4));
+
     for (let a = a0 + 4 + 48; a < a1 - 4; a += 48) {
       if (holes.some(([h0, h1]) => a > h0 - 8 && a < h1 + 8)) continue;
       add(at(a));
     }
   }
+
   // No bar cell under a flood vent: a vent needs an open cell, so the bar moves one cell past
   // it, or goes where a jamb bar already stands within a cell of that spot.
   const near = (p: Point, q: Point) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 10;
   const kept: Point[] = [];
+
   for (const p of out) {
     const k = (x: (typeof VENTS)[number]) => (x.ns ? 1 : 0); // the axis the wall runs along
+
     const v = VENTS.find(
       (x) =>
         Math.abs(p[1 - k(x)]! - x.at[1 - k(x)]!) < 6 &&
         Math.abs(p[k(x)]! - x.at[k(x)]!) < VENT_CLEAR,
     );
+
     if (!v) {
       kept.push(p);
       continue;
     }
+
     const along = v.at[k(v)]! + (p[k(v)]! < v.at[k(v)]! ? -VENT_CLEAR : VENT_CLEAR);
     const moved: Point = v.ns ? [p[0], along] : [along, p[1]];
+
     if (!out.some((q) => q !== p && near(q, moved))) kept.push(moved);
   }
+
   return kept;
 }
 
-const WALL_NAME: Record<string, string> = { W: "WEST", E: "EAST", S: "SOUTH", N: "NORTH" };
+const WALL_NAME = new Map<string, string>([
+  ["W", "WEST"],
+  ["E", "EAST"],
+  ["S", "SOUTH"],
+  ["N", "NORTH"],
+]);
 
 const FND_NOTES = [
   `ALLOWABLE SOIL BEARING PRESSURE ${CRITERIA.soil.toLocaleString("en-US")} PSF, TO BE VERIFIED BY A GEOTECHNICAL ENGINEER BEFORE FOOTINGS ARE PLACED. REMOVE ORGANICS AND DEBRIS; PROOF-ROLL THE BUILDING PAD.`,
@@ -133,7 +159,7 @@ const FND_NOTES = [
   'SLAB ON GRADE: 4" CONCRETE, 3000 PSI, WITH 6X6-W1.4XW1.4 WWF ON A 10 MIL VAPOR RETARDER, LAPPED 6" AND TAPED. SAW-CUT CONTROL JOINTS WITHIN 12 HOURS, 15\'-0" O.C. MAX.',
   'THICKENED SLAB UNDER INTERIOR BEARING WALLS: 12" WIDE X 8" BELOW THE SLAB WITH (2) #5 CONTINUOUS.',
   'LANAI COLUMN PADS: 3\'-0" X 3\'-0" X 16" WITH (4) #5 EACH WAY, (4) #5 DOWELS INTO THE COLUMN.',
-  `FLOOD VENTS: ${FLOOD_VENTS.length} ENGINEERED VENTS, EACH CERTIFIED (ICC-ES) TO COVER ${FLOOD_VENT_RATING} SQ. FT. OF ENCLOSED AREA (${FLOOD_VENTS.length * FLOOD_VENT_RATING} SQ. FT.), IN THE ${[...new Set(FLOOD_VENTS.map((x) => WALL_NAME[x.wall as string]))].join(" AND ")} GARAGE WALLS, IN UNGROUTED CELLS, BOTTOM WITHIN 12" OF FINISHED GRADE (FBC-R R322.2.2). THEY COVER THE GROSS GARAGE AREA, ${areas().garage} SQ. FT. TO THE OUTSIDE FACES.`,
+  `FLOOD VENTS: ${FLOOD_VENTS.length} ENGINEERED VENTS, EACH CERTIFIED (ICC-ES) TO COVER ${FLOOD_VENT_RATING} SQ. FT. OF ENCLOSED AREA (${FLOOD_VENTS.length * FLOOD_VENT_RATING} SQ. FT.), IN THE ${[...new Set(FLOOD_VENTS.map((x) => WALL_NAME.get(x.wall)))].join(" AND ")} GARAGE WALLS, IN UNGROUTED CELLS, BOTTOM WITHIN 12" OF FINISHED GRADE (FBC-R R322.2.2). THEY COVER THE GROSS GARAGE AREA, ${areas().garage} SQ. FT. TO THE OUTSIDE FACES.`,
   "SOIL UNDER THE BUILDING TREATED FOR TERMITES BEFORE THE VAPOR RETARDER IS LAID (FBC-R R318).",
   `ALL ELEVATIONS ARE NAVD 88. FINISHED GRADE AT THE FOUNDATION ${CRITERIA.flood.finishGrade.toFixed(2)}'; DESIGN FLOOD ELEVATION ${CRITERIA.flood.dfe.toFixed(2)}'; FIRST FLOOR ${CRITERIA.flood.ffe.toFixed(2)}'.`,
   `STEPS: CONC. ON COMPACTED FILL, 4" MIN. THICK, DOWELED TO THE STEM WALL WITH #4 AT 16" O.C. HANDRAILS, GUARDS AND RISER AND TREAD SIZES PER A-101.`,
@@ -166,8 +192,10 @@ function foundationPlan(d: D): void {
     const edge = g.top - g.landing;
     const foot = edge - (g.risers - 1) * g.tread;
     d.rect(o([g.x0, foot]), g.x1 - g.x0, g.top - foot);
+
     for (let k = 0; k < g.risers; k++)
       d.line(o([g.x0, edge - k * g.tread]), o([g.x1, edge - k * g.tread]));
+
     for (const st of [
       { x0: ENTRY.x0, x1: ENTRY.x1, y: 0, dir: -1, n: ENTRY.risers - 1, t: ENTRY.tread },
       {
@@ -181,6 +209,7 @@ function foundationPlan(d: D): void {
     ]) {
       for (let k = 0; k <= st.n; k++)
         d.line(o([st.x0, st.y + st.dir * k * st.t]), o([st.x1, st.y + st.dir * k * st.t]));
+
       for (const x of [st.x0, st.x1]) d.line(o([x, st.y]), o([x, st.y + st.dir * st.n * st.t]));
     }
   });
@@ -229,8 +258,10 @@ function foundationPlan(d: D): void {
         [LANAI[2] - 8, 600],
       ],
     ];
+
     for (const [a, b] of joints) d.line(o(a), o(b), { linetype: "CENTER" });
   });
+
   // Vertical bars.
   const masonry = L1.openings.filter((x) =>
     STEM.some(
@@ -241,6 +272,7 @@ function foundationPlan(d: D): void {
         x.cut[3] <= r[3] + 0.1,
     ),
   );
+
   d.layer(SL.rebar, {}, () => {
     for (const p of vertBars(STEM, masonry)) d.insert("S-VERT BAR", o(p), { scale: v.p(1) });
   });
@@ -254,6 +286,7 @@ function foundationPlan(d: D): void {
     // Slab notes and elevations.
     const slab = (at: Point, lines: string[]) =>
       lines.forEach((t, k) => put(d, o([at[0], at[1] - k * h * 1.6]), t, h, { align: "center" }));
+
     slab(
       [442, 420],
       [
@@ -350,6 +383,7 @@ function foundationPlan(d: D): void {
     ]);
     leaderNote(d, v, o([500, 470]), o([444, 492]), ["SAW-CUT CONTROL", "JOINT, TYP., NOTE 5"]);
   });
+
   // Section marks to the details on S-501, each with its cut line.
   const mark = (at: Point, cut: [Point, Point], no: string) => {
     d.layer(LAYERS.strAnno, {}, () => {
@@ -357,6 +391,7 @@ function foundationPlan(d: D): void {
       d.insert("SECTION MARK", o(at), { scale: v.p(1), attributes: { SECT: no, SHEET: "S-501" } });
     });
   };
+
   mark(
     [100, 568],
     [
@@ -427,11 +462,13 @@ function legend(d: D, at: Point, w: number): number {
     d.line([at[0], y], [at[0] + w, y], { lineweight: 0.35 });
     y -= 0.3;
   });
+
   const row = (label: string, draw: (c: Point) => void) => {
     draw([at[0] + 0.3, y + 0.03]);
     d.layer(LAYERS.text, {}, () => put(d, [at[0] + 0.7, y], label, H.note, { valign: "middle" }));
     y -= 0.36;
   };
+
   row('8" CMU STEM WALL', (c) =>
     d.layer(LAYERS.fndn, {}, () => d.rect([c[0] - 0.25, c[1] - 0.04], 0.5, 0.08)),
   );
@@ -450,14 +487,16 @@ function legend(d: D, at: Point, w: number): number {
       }),
     ),
   );
+
   return y;
 }
 
-export const SHEETS: Record<string, SheetDraw> = {
+export const SHEETS = {
   "S-101": (d) => foundationPlan(d),
   "S-102": (d) => framingSheet(d),
   "S-501": (d) => detailsSheet(d),
-};
+} satisfies Record<string, SheetDraw>;
 
 export type { View };
+
 void width;

@@ -52,12 +52,16 @@ const LONGEST_ARROWHEAD = Math.max(...Object.keys(ARROWHEADS).map((name) => name
  * What tsdraft knows of an arrowhead, or undefined for a name that is not in `ARROWHEADS`. A name
  * longer than any arrowhead's is not looked up, since that can take time in proportion to it.
  */
-export function arrowheadInfo(name: unknown): ArrowheadInfo | undefined {
-  return typeof name === "string" &&
-    name.length <= LONGEST_ARROWHEAD &&
-    Object.hasOwn(ARROWHEADS, name)
-    ? ARROWHEADS[name as Arrowhead]
-    : undefined;
+export function arrowheadInfo(name: string): ArrowheadInfo | undefined {
+  return isArrowheadName(name) ? ARROWHEADS[name] : undefined;
+}
+
+export function isArrowhead(name: unknown): name is Arrowhead {
+  return typeof name === "string" && isArrowheadName(name);
+}
+
+function isArrowheadName(name: string): name is Arrowhead {
+  return name.length <= LONGEST_ARROWHEAD && Object.hasOwn(ARROWHEADS, name);
 }
 
 /**
@@ -145,12 +149,17 @@ const LONGEST_LEADER_ARROWHEAD = Math.max(
  * What tsdraft knows of a leader's arrowhead, or undefined for a name not in
  * `LEADER_ARROWHEADS`. A name longer than any arrowhead's is not looked up.
  */
-export function leaderArrowheadInfo(name: unknown): LeaderArrowheadInfo | undefined {
-  return typeof name === "string" &&
+export function leaderArrowheadInfo(name: string): LeaderArrowheadInfo | undefined {
+  return isLeaderArrowhead(name) ? LEADER_ARROWHEADS[name] : undefined;
+}
+
+/** Whether a name is an arrowhead's of `LEADER_ARROWHEADS`, as plain JavaScript may give any value. */
+export function isLeaderArrowhead(name: string): name is LeaderArrowhead {
+  return (
+    typeof name === "string" &&
     name.length <= LONGEST_LEADER_ARROWHEAD &&
     Object.hasOwn(LEADER_ARROWHEADS, name)
-    ? LEADER_ARROWHEADS[name as LeaderArrowhead]
-    : undefined;
+  );
 }
 
 /** The blocks of every arrowhead that has one, of dimensions and of leaders. */
