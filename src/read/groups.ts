@@ -314,3 +314,6 @@ export function textTwice(value: string): string {
   const plain = carets(value);
   return escaped(plain) ? pass(pass(plain, false), true) : plain;
 }
+
+/** How a binary DXF starts. */
+export { BINARY };

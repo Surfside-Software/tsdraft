@@ -33,6 +33,19 @@
   the corners in model space of what a viewport shows, and `partFilter` is how a reader of another
   format reads `only` as `readDXF` does.
 
+- Editing a firm's drawing begins with the copy and its checks. An edit file's default export is
+  `editDrawing({ file, sha256, name })`, which names the file by its path and the SHA-256 of the
+  bytes it was planned on, and gives an `Edit`, a value that goes through JSON and that `checkEdit`
+  checks. `editDXF` makes the edited copy of a DXF of the 2018 format, each record the edit does
+  not change copied as the file holds it, and throws only an `EditError`: for other bytes than the
+  edit's, another format, or a statement or an addition, none of which this release makes.
+  `dxfStructure` is the structure check of a DXF, as the leading CAD app's `AUDIT` would find a
+  fault, and `checkEditedCopy` runs the checks of every job on a copy against its source.
+  `tsdraft write <edit file>...` writes each edited copy under `out/`, at the source's path from
+  the job's root, only once those checks pass, refuses a stale hash, warns of a lock, and never
+  writes the source's path. A package edits another format as it reads one, named under
+  `"tsdraft": { "editors" }`. [Editing a firm's drawing](docs/editing.md) has the rest.
+
 ## 0.5.4
 
 This release has breaking changes, though its number is a patch's. A project that depends on

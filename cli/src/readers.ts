@@ -16,6 +16,8 @@ export interface ReaderPackage {
   readonly folder: string;
   /** The module that reads each extension, such as `.dwg`, by its real path. */
   readonly modules: Readonly<Record<string, string>>;
+  /** The module that edits each extension, by its real path, where the package names one. */
+  readonly editors?: Readonly<Record<string, string>>;
 }
 
 export interface Readers {
@@ -106,20 +108,28 @@ export function findProject(cwd: string, inputs: readonly string[]): string | nu
   }
 }
 
-/** The package in a folder, when its package.json names a reader whose module is inside it. */
-function readerPackage(folder: string): ReaderPackage | null {
-  const found = manifest(folder);
-  const readers = (found?.["tsdraft"] as { readers?: unknown } | undefined)?.readers;
-  if (!found || typeof readers !== "object" || readers === null) return null;
+/** The modules a package.json names under one field of `"tsdraft"`, each inside its folder. */
+function modulesOf(folder: string, entries: unknown): Record<string, string> {
   const modules: Record<string, string> = {};
-  for (const [extension, path] of Object.entries(readers)) {
+  if (typeof entries !== "object" || entries === null) return modules;
+  for (const [extension, path] of Object.entries(entries)) {
     if (!extension.startsWith(".") || typeof path !== "string" || isAbsolute(path)) continue;
     const module = real(resolve(folder, path));
     if (module !== folder && inside(module, folder)) modules[extension.toLowerCase()] = module;
   }
+  return modules;
+}
+
+/** The package in a folder, when its package.json names a reader whose module is inside it. */
+function readerPackage(folder: string): ReaderPackage | null {
+  const found = manifest(folder);
+  const own = found?.["tsdraft"];
+  if (!found || typeof own !== "object" || own === null) return null;
+  const modules = modulesOf(folder, (own as { readers?: unknown }).readers);
   if (Object.keys(modules).length === 0) return null;
+  const editors = modulesOf(folder, (own as { editors?: unknown }).editors);
   const text = (value: unknown) => (typeof value === "string" ? value : "");
-  return { name: text(found["name"]), version: text(found["version"]), folder, modules };
+  return { name: text(found["name"]), version: text(found["version"]), folder, modules, editors };
 }
 
 /**
@@ -190,4 +200,13 @@ export function readerFor(readers: Readers, extension: string): ReaderPackage | 
     );
   }
   return found[0] ?? null;
+}
+
+/**
+ * The package that edits files of an extension, such as `.dwg`, or `null` when none does. The
+ * reader of the extension is the one package asked, so the edit and its read come from one place.
+ */
+export function editorFor(readers: Readers, extension: string): ReaderPackage | null {
+  const reader = readerFor(readers, extension);
+  return reader?.editors !== undefined && extension.toLowerCase() in reader.editors ? reader : null;
 }

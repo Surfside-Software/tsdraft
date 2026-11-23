@@ -497,6 +497,34 @@ export {
   type ShownEntity,
 } from "./read/questions.ts";
 export { readDXF } from "./read/dxf.ts";
+export { editDXF } from "./edit/dxf.ts";
+export {
+  checkEditedCopy,
+  dxfEditor,
+  type EditCheck,
+  type EditCheckName,
+  type EditorModule,
+  type FileEditor,
+} from "./edit/checks.ts";
+export {
+  checkEdit,
+  EDIT_FORMAT,
+  editDrawing,
+  EditError,
+  type Edit,
+  type EditAdditions,
+  type EditBuilder,
+  type EditDefinitions,
+  type EditFile,
+  type EditSource,
+  type EditStatement,
+  type EntityChanges,
+  type LayerChanges,
+  type TextChange,
+  type Transform,
+  type ViewportChanges,
+} from "./edit/model.ts";
+export { dxfStructure, type StructureDefect, type StructureReport } from "./edit/structure.ts";
 export { ReadError } from "./read/groups.ts";
 export { layoutMtext, measureMtext } from "./read/mtext.ts";
 export { decipherSat, sabEdges, satEdges, type ModelerEdges } from "./read/modeler.ts";

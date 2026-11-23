@@ -76,6 +76,7 @@ test("the readers are the dependencies of the project whose tsdraft is the one r
       ".dwg": realpathSync(join(readerA, "read.js")),
       ".dwt": realpathSync(join(readerA, "read.js")),
     },
+    editors: {},
   });
   assert.equal(readerFor(readers, ".pdf"), null);
   assert.equal(readerFor(readers, ".dxf"), null);
@@ -98,6 +99,14 @@ test("two readers of one extension are refused, and --reader picks one", () => {
   assert.deepEqual(picked("./node_modules/reader-a"), ["reader-a"]);
   assert.throws(() => picked("reader-c"), /^ReaderRefusal: --reader reader-c: no such package$/);
   assert.throws(() => picked("./node_modules/tsdraft"), /names no reader/);
+  // A manifest whose field is not an object names no reader either.
+  const nulled = join(tempDir(), "nulled");
+  mkdirSync(nulled);
+  writeFileSync(join(nulled, "package.json"), JSON.stringify({ name: "nulled", tsdraft: null }));
+  assert.throws(
+    () => picked(nulled),
+    (e: Error) => e instanceof ReaderRefusal && /names no reader/.test(e.message),
+  );
 });
 
 test("a folder that lists tsdraft and resolves another copy stops the walk", () => {

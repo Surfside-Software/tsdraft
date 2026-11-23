@@ -456,9 +456,17 @@ takes, in order:
 3. the first copy the build loaded, when it loaded several and the project has none;
 4. the library the command was installed with.
 
+## Writing an edited copy
+
+`tsdraft write <edit file>... [--out <dir>] [--root <dir>] [--reader <package>]` makes the edited
+copy of the file each edit file names, runs the checks of every job on it, and writes it only
+when they pass. [Editing a firm's drawing](editing.md#tsdraft-write) says how, and gives its
+limits. It finds the editor of a file of another format in the package that reads it, by the
+rules below, where that package names an editor too.
+
 ## Reading drawing files
 
-`tsdraft shows` reads drawing files. It reads a DXF with the library's `readDXF`, and a file of
+`tsdraft shows` and `tsdraft write` read drawing files. It reads a DXF with the library's `readDXF`, and a file of
 another format, such as a DWG, with a reader: a package that names one in its `package.json`, as
 [Reading drawing files](reading.md#readers-of-other-formats) says. The rules below hold for every
 command that reads one.

@@ -724,7 +724,9 @@ installed beside tsdraft.
 - An existing drawing as a background or a base to edit. `readDXF` reads a DXF's tables, blocks,
   layouts and a census of what it draws, and with `geometry` what each space draws, as
   [docs/reading.md](docs/reading.md) says, but tsdraft draws nothing from a read and does not read
-  DWG.
+  DWG. An edit of a firm's file changes nothing yet: `npx tsdraft write rev-1.edit.ts` makes its
+  edited copy and the checks of every job, as [docs/editing.md](docs/editing.md) says, and the
+  copy is the file as it was.
 
 When a drawing needs one of these, say so. Do not imitate it with something that will mislead
 whoever opens the file.

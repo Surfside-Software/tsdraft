@@ -26,6 +26,7 @@ const HELP = `Usage:
   For a DXF or a DWG, either takes [--reader <package or folder>]
   tsdraft shows <drawing file> [--sheet <layout> | --layout <layout>]
                 [--near <x,y> [--within <d>]] [--xref <name>=<file>]... [--reader <package>]
+  tsdraft write <edit file>... [--out <dir>] [--root <dir>] [--reader <package>]
 
 A drawing file is a TypeScript module whose default export is a Drawing, or a
 function that returns one. It may also be a DXF, or a DWG that a reader the
@@ -60,6 +61,19 @@ dev     Serves a live preview on localhost that rebuilds on every save of the
         ?after=<build> waits for a newer build, /drawing.svg, /drawing.png?width=,
         /drawing.pdf, the set, and /events. Add layout=<name> to a picture's URL
         for a layout's sheet.
+
+write   Makes the edited copy of the file each edit file names, and prints the
+        job as JSON. An edit file is a TypeScript module whose default export is
+        editDrawing({ file, sha256, name }, ...). A copy goes to the source's
+        path from the job's root under --out (default: an out folder beside the
+        edit files), only once the checks of every job pass on it: read back,
+        structure, before and after, lint and the changed sheets. The root is
+        --root, or the deepest folder that holds every source and every sheet
+        the edits name. A source whose SHA-256 is not the edit's is refused; a
+        lock beside it is a warning. It never writes a source's own path. Exits
+        0 when every copy was written, and 2 when any was not, with the reason
+        in files[].reason. A .dwg needs an installed package that edits it, or
+        --reader.
 
 --width    PNG width in pixels. Default 1600.
 --view     With render, draws one rectangle and nothing else, as <name>.view.svg
@@ -122,6 +136,7 @@ try {
       near: { type: "string" },
       within: { type: "string" },
       xref: { type: "string", multiple: true },
+      root: { type: "string" },
       reader: { type: "string" },
       help: { type: "boolean", short: "h" },
     },
@@ -136,9 +151,35 @@ if (values.help) {
   process.stdout.write(HELP);
   process.exit(0);
 }
-if (!command || !["render", "dev", "shows"].includes(command)) {
-  usage("Give a command: render, dev or shows.");
+if (!command || !["render", "dev", "shows", "write"].includes(command)) {
+  usage("Give a command: render, dev, shows or write.");
 }
+if (command === "write") {
+  const edits = positionals.slice(1);
+  if (edits.length === 0) usage("Give an edit file.");
+  const { findReaders, ReaderRefusal } = await import("./readers.ts");
+  const { writeEdits } = await import("./write.ts");
+  let readers;
+  try {
+    readers = findReaders({ cwd: process.cwd(), inputs: edits, reader: values.reader });
+  } catch (error) {
+    if (!(error instanceof ReaderRefusal)) throw error;
+    usage(error.message);
+  }
+  const timeout = number(values.timeout, "--timeout");
+  const job = await writeEdits(
+    edits.map((edit) => realpath(resolve(edit))),
+    {
+      readers,
+      out: values.out,
+      root: values.root,
+      ...(timeout !== undefined && { limits: { timeoutMs: timeout } }),
+    },
+  );
+  process.stdout.write(`${JSON.stringify(job, null, 2)}\n`);
+  process.exit(job.files.every((f) => f.written) ? 0 : 2);
+}
+if (values.root !== undefined) usage("--root goes with write.");
 if (!target) usage("Give a drawing file.");
 if (command === "shows") {
   if (values.sheet !== undefined && values.layout !== undefined) {

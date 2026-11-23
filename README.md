@@ -474,7 +474,9 @@ lint(drawing, { version: "R12" }); // check a drawing against another version
   footprint that crosses a setback, and the `intent` a drawing file exports.
 - [Reading drawing files](docs/reading.md) covers `readDXF`, the read model it gives of a
   firm's DXF, and the readers a package adds for other formats.
-- [The `tsdraft` command](docs/command.md) covers `render`, `dev`, the JSON they
+- [Editing a firm's drawing](docs/editing.md) covers the edit file, the edited copy of a DXF, the
+  checks of every job and `tsdraft write`.
+- [The `tsdraft` command](docs/command.md) covers `render`, `dev`, `write`, the JSON they
   give, and what happens without the PNG renderer.
 
 ## Development
