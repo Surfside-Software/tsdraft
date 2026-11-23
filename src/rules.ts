@@ -4806,6 +4806,12 @@ export function dimensionStyleProblem(style: unknown): string | undefined {
     if (problem) return `${field}: ${problem}`;
   }
 
+  if (s.lineExtension !== undefined) {
+    const problem = notNegativeProblem(s.lineExtension);
+
+    if (problem) return `lineExtension: ${problem}`;
+  }
+
   const gap = textGapProblem(s.textGap);
 
   if (gap) return `textGap: ${gap}`;

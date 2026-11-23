@@ -5,7 +5,9 @@ import type { CallSite } from "../callsite.ts";
 import { layerKey } from "../layers.ts";
 import { OUTSIDE_THE_READ, partFilter, type PartFilter } from "../read/part.ts";
 import type { DrawingRead, ReadEntity } from "../read/model.ts";
+import { addedOf, readAdditionsFile, type Added } from "./added.ts";
 import { canonicalHandle, checkEdit, MADE_KINDS, statementCall, type Edit } from "./model.ts";
+import { replacement, writesAdditions } from "./replaced.ts";
 import { movedEntity, NOT_MOVED, NOT_SCALED } from "./moved.ts";
 import { editReach, indexRead, type Located, type ReadIndex } from "./reach.ts";
 import { planKey, stretchPlan } from "./stretch.ts";
@@ -97,6 +99,15 @@ export type EditRule =
   /** Vertices a polyline cannot take. */
   | "edit-vertices"
   | "edit-locked-layer"
+  /** An addition the writers cannot make, or a file with no seed to number its handles from. */
+  | "edit-addition"
+  /** An addition on a layer that hides it or does not plot it, which is a warning. */
+  | "edit-addition-layer"
+  /** An earlier addition of the edit's name that a person changed, or erased. */
+  | "edit-mark-changed"
+  | "edit-mark-erased"
+  /** An addition of an earlier one's id in another kind, which takes a new handle: a warning. */
+  | "edit-id-kind-changed"
   /** A change of an entity it cannot make: a text not found once, a width of columns, a name the file lacks. */
   | "edit-change"
   /** A layer's change it cannot make: a layer the file holds no record of. */
@@ -567,6 +578,8 @@ export function lintEdit(
           message: `${h} is on the locked layer ${JSON.stringify(at.entity.layer)}: the edit changes it, and the layer stays locked`,
         });
     });
+
+    if (writesAdditions(read, edit)) lintAdditions(edit, read, report);
   } catch (error) {
     report({
       rule: "edit-malformed",
@@ -583,4 +596,125 @@ export function lintEdit(
     });
 
   return out;
+}
+
+/**
+ * The refusals and warnings of an edit's additions: an earlier addition of its name a person
+ * changed or erased, a file with no seed, an addition the writers cannot make, and one on a layer
+ * that is off, frozen, set not to plot, `Defpoints` or `0`, or frozen in a viewport of the file.
+ */
+function lintAdditions(edit: Edit, read: DrawingRead, report: (d: EditDiagnostic) => void): void {
+  if (read.header.handseed === undefined) {
+    report({
+      rule: "edit-addition",
+      severity: "error",
+      message: "The file states no $HANDSEED, which an addition's handle is counted from",
+    });
+
+    return;
+  }
+
+  const replaced = replacement(read, edit);
+
+  for (const p of replaced.problems)
+    report({ rule: p.rule, severity: "error", handle: p.handle, message: p.message });
+
+  for (const id of replaced.kindChanged)
+    report({
+      rule: "edit-id-kind-changed",
+      severity: "warning",
+      message: `The addition ${id} is of another kind than the one of its id the edit wrote before: the old one is erased, and the new one takes a new handle`,
+    });
+  let added: Added;
+
+  try {
+    added = addedOf(read, edit, readAdditionsFile(read));
+  } catch (error) {
+    report({
+      rule: "edit-addition",
+      severity: "error",
+      message: error instanceof Error ? error.message : String(error),
+    });
+
+    return;
+  }
+
+  const layers = new Map([...read.layers, ...added.layers].map((l) => [layerKey(l.name), l]));
+
+  const frozenIn = new Set(
+    read.layouts.flatMap((l) => l.viewports.flatMap((v) => v.frozenLayers.map(layerKey))),
+  );
+
+  const levelText = new Set(
+    read.dimensionStyles.filter((d) => (d.textLevelInside ?? 1) === 1).map((d) => layerKey(d.name)),
+  );
+
+  // The file's own Standard, whose font the builder does not take: it measures Standard in its
+  // own font, so a justified text there would start where the file's font does not put it.
+  const standard = read.textStyles.find((t) => layerKey(t.name) === "standard");
+
+  const otherStandard =
+    standard !== undefined && (standard.font ?? "").toLowerCase().replace(/\.shx$/, "") !== "txt";
+
+  for (const space of added.spaces)
+    for (const e of space.entities) {
+      if (
+        otherStandard &&
+        e.kind === "text" &&
+        e.alignAt !== undefined &&
+        layerKey(e.style) === "standard"
+      )
+        report({
+          rule: "edit-addition",
+          severity: "error",
+          ...(e.handle !== undefined && { handle: e.handle }),
+          message: `The addition ${e.mark?.id ?? e.handle ?? ""} is a justified text in the file's Standard, whose font tsdraft does not measure it in: justify it left, or name another of the file's styles`,
+        });
+
+      // tsdraft draws a dimension's text along its line, which a style that keeps it level
+      // draws otherwise wherever the line is not level.
+      if (e.kind === "dimension" && levelText.has(layerKey(e.style))) {
+        const along =
+          e.type === "aligned"
+            ? (Math.atan2(e.to[1] - e.from[1], e.to[0] - e.from[0]) * 180) / Math.PI
+            : (e.angle ?? 0);
+
+        const turned = Math.abs(((along % 180) + 180) % 180);
+
+        if (Math.min(turned, 180 - turned) > 1e-9)
+          report({
+            rule: "edit-addition",
+            severity: "error",
+            ...(e.handle !== undefined && { handle: e.handle }),
+            message: `The addition ${e.mark?.id ?? e.handle ?? ""} is a dimension at ${along} degrees in the style ${JSON.stringify(e.style)}, which keeps its text level, and tsdraft draws a dimension's text along its line: draw it level, or in a style that lays its text along the line`,
+          });
+      }
+
+      const l = layers.get(layerKey(e.layer));
+
+      const why =
+        layerKey(e.layer) === "0"
+          ? "the layer 0, which takes the layer of what inserts it"
+          : layerKey(e.layer) === "defpoints"
+            ? "Defpoints, which does not plot"
+            : l === undefined
+              ? undefined
+              : !l.on
+                ? "a layer that is off"
+                : l.frozen
+                  ? "a frozen layer"
+                  : !l.plot
+                    ? "a layer set not to plot"
+                    : space.layout === undefined && frozenIn.has(layerKey(e.layer))
+                      ? "a layer a viewport of the file freezes"
+                      : undefined;
+
+      if (why !== undefined)
+        report({
+          rule: "edit-addition-layer",
+          severity: "warning",
+          ...(e.handle !== undefined && { handle: e.handle }),
+          message: `The addition ${e.mark?.id ?? e.handle ?? ""} is on ${JSON.stringify(e.layer)}, ${why}`,
+        });
+    }
 }

@@ -1,11 +1,21 @@
 // The edit of a firm's drawing: the file it names by path and hash, and what it changes. An
 // `Edit` round-trips through JSON as a `Drawing` does, so a worker of its own, or a service,
 // can take one with the file's bytes.
+import { canonical } from "../json.ts";
 import { holdCall, readCall, type CallSite, type HeldCall } from "../callsite.ts";
-import type { Drawing, Entity, Point, Units } from "../drawing.ts";
+import {
+  createDrawingInFile,
+  type Drawing,
+  type DrawingBuilder,
+  type Entity,
+  type Point,
+  type Units,
+} from "../drawing.ts";
 import { isFunction, isRecord, isString } from "../guards.ts";
+import { layerKey } from "../layers.ts";
 import type { DrawingRead, ReadPart } from "../read/model.ts";
 import type { Standard } from "../standard/document.ts";
+import { fileTables, type FileTables } from "./file-tables.ts";
 import {
   copyTextChange,
   entityChangesProblem,
@@ -179,6 +189,14 @@ export interface EditBuilder {
    */
   move(handles: readonly string[], transform: Transform): void;
   /**
+   * Draws additions in model space, with the drawing builder over the file's own layers, styles
+   * and blocks, in the file's units. A name the file holds is the file's: an addition uses it as
+   * the file defines it, and a name it lacks is defined by the edit.
+   */
+  model(draw: (d: EditDrawing) => void): void;
+  /** Draws additions on the paper of the file's layout `name`, in the layout's own units. */
+  layout(name: string, draw: (sheet: EditDrawing) => void): void;
+  /**
    * Stretches each entity as the leading CAD app's STRETCH does by a crossing window: each of its
    * points inside `window`, its edge among it, moves by `by`, and a side whose one end moves keeps
    * its arc's height. An insert, a text, paragraph text, a circle and a point move whole when the
@@ -198,6 +216,9 @@ export interface EditBuilder {
   /** Re-aims a viewport, turns it on or off, and freezes or thaws layers in it alone. */
   viewport(handle: string, changes: ViewportChanges): void;
 }
+
+/** The drawing builder an edit's additions are drawn with, over the file's definitions. */
+export type EditDrawing = DrawingBuilder<"R2018", number, undefined>;
 
 /** What `editDrawing` returns, which the command recognizes as an edit file's default export. */
 export interface EditFile {
@@ -252,6 +273,47 @@ export function editDrawing(
         return out;
       };
 
+      let tables: FileTables | undefined;
+      let loaded: DrawingRead | undefined;
+      const spaces = new Map<string, { readonly name: string; readonly d: EditDrawing }>();
+
+      const loadedRead = (): DrawingRead => (loaded ??= isFunction(read) ? read() : read);
+
+      /** The builder of a space, model space by `undefined`, made when first drawn in. */
+      const drawing = (layout: string | undefined): EditDrawing => {
+        const key = layout === undefined ? "" : layoutKey(layout);
+        const held = spaces.get(key);
+
+        if (held) return held.d;
+        const r = loadedRead();
+        let units: Units;
+
+        if (layout === undefined) units = unitsOf(r, source.units, fail);
+        else {
+          const found = r.layouts.find((l) => layoutKey(l.name) === key);
+
+          if (found === undefined)
+            return fail(
+              `layout: the file has no layout ${JSON.stringify(layout)}, and an edit adds no layout`,
+            );
+          units = found.paperUnits === 1 ? "mm" : "in";
+        }
+
+        tables ??= fileTables(r);
+
+        const d = createDrawingInFile({ units, standard: source.standard }, tables);
+
+        spaces.set(key, {
+          name:
+            layout === undefined
+              ? ""
+              : (r.layouts.find((l) => layoutKey(l.name) === key)?.name ?? layout),
+          d,
+        });
+
+        return d;
+      };
+
       const builder: EditBuilder = {
         erase(...handles) {
           const list = handlesOf(handles, "erase");
@@ -265,6 +327,13 @@ export function editDrawing(
           if (problem !== undefined) fail(`move: ${problem}`);
           calls.push(holdCall(builder.move));
           statements.push({ kind: "move", handles: list, transform: copyTransform(transform) });
+        },
+        model(draw) {
+          draw(drawing(undefined));
+        },
+        layout(name, draw) {
+          if (!isString(name)) fail("layout takes the name of one of the file's layouts");
+          draw(drawing(name));
         },
         stretch(handles, stretch) {
           const list = handlesOf(handles, "stretch");
@@ -323,8 +392,9 @@ export function editDrawing(
         },
       };
 
-      edit(builder, isFunction(read) ? lazy(read) : read);
+      edit(builder, isFunction(read) ? lazy(loadedRead) : read);
       statementCalls.set(statements, calls);
+      const additions = spaces.size === 0 ? undefined : additionsOf(spaces, tables!);
 
       return {
         format: EDIT_FORMAT,
@@ -335,9 +405,119 @@ export function editDrawing(
         ...(source.sheets !== undefined && { sheets: [...source.sheets] }),
         ...(source.only !== undefined && { only: source.only }),
         statements,
+        ...(additions !== undefined && { additions }),
       };
     },
   };
+}
+
+/** How the leading CAD app compares layout names: as layer names, without regard to case. */
+const layoutKey = (name: string): string => layerKey(name);
+
+/** The units of model space, from `$INSUNITS`, or the edit's for a file of none. */
+function unitsOf(read: DrawingRead, given: Units | undefined, fail: (m: string) => never): Units {
+  const insunits = read.header.insunits ?? 0;
+  const file = INSUNITS.get(insunits);
+
+  if (insunits === 0) {
+    if (given === undefined)
+      return fail("model: the file states no units, $INSUNITS 0, so the edit gives its units");
+
+    return given;
+  }
+
+  if (given !== undefined)
+    return fail(`units: the file states its units, $INSUNITS ${insunits}, and an edit gives none`);
+
+  if (file === undefined)
+    return fail(`model: the file's units, $INSUNITS ${insunits}, are not ones tsdraft draws in`);
+
+  return file;
+}
+
+/** The units of `$INSUNITS` tsdraft draws in. */
+const INSUNITS = new Map<number, Units>([
+  [1, "in"],
+  [2, "ft"],
+  [4, "mm"],
+  [5, "cm"],
+  [6, "m"],
+]);
+
+/** The definition lists of `EditDefinitions`, and the table of the file each is held in. */
+const DEFINITIONS = [
+  "layers",
+  "linetypes",
+  "textStyles",
+  "blocks",
+  "dimensionStyles",
+  "leaderStyles",
+  "tableStyles",
+  "patterns",
+] as const;
+
+/**
+ * What the builders of the spaces drew: each space's entities, with the file's own `Standard`
+ * styles named as the file names them, and the definitions the file lacks.
+ */
+function additionsOf(
+  spaces: ReadonlyMap<string, { readonly name: string; readonly d: EditDrawing }>,
+  tables: FileTables,
+): EditAdditions {
+  const standIns = new Map<string, string>();
+
+  for (const [key, alias] of tables.aliases)
+    standIns.set(layerKey(alias), key.slice(key.indexOf(":") + 1));
+
+  const named = (e: Entity): Entity =>
+    "style" in e && isString(e.style) && standIns.has(layerKey(e.style))
+      ? { ...e, style: "Standard" }
+      : e;
+
+  const held: Readonly<Record<(typeof DEFINITIONS)[number], ReadonlySet<string>>> = {
+    layers: new Set(tables.layers.map((x) => layerKey(x.name))),
+    linetypes: new Set(tables.linetypes.map((x) => layerKey(x.name))),
+    textStyles: new Set(tables.textStyles.map((x) => layerKey(x.name))),
+    blocks: new Set(tables.blocks.map((x) => layerKey(x.name))),
+    dimensionStyles: new Set(tables.dimensionStyles.map((x) => layerKey(x.name))),
+    leaderStyles: new Set(tables.leaderStyles.map((x) => layerKey(x.name))),
+    tableStyles: new Set(tables.tableStyles.map((x) => layerKey(x.name))),
+    patterns: new Set(),
+  };
+
+  let model: readonly Entity[] = [];
+  const layouts: Record<string, readonly Entity[]> = {};
+  const definitions: Record<string, { readonly name: string }[]> = {};
+  // Each definition made, as JSON, by its table and name: the spaces share one of a name.
+  const defined = new Map<string, string>();
+
+  for (const [key, { name, d }] of spaces) {
+    const built: Drawing = d.build();
+
+    if (key === "") model = built.entities.map(named);
+    else layouts[name] = built.entities.map(named);
+
+    for (const table of DEFINITIONS)
+      for (const item of built[table] ?? []) {
+        const k = `${table}:${layerKey(item.name)}`;
+
+        if (held[table].has(layerKey(item.name))) continue;
+        const json = canonical(item);
+        const was = defined.get(k);
+
+        if (was !== undefined && was !== json)
+          throw new EditError(
+            `The spaces define ${JSON.stringify(item.name)} of ${table} otherwise: define it once, the same in each`,
+          );
+
+        if (was !== undefined) continue;
+        defined.set(k, json);
+        (definitions[table] ??= []).push(item);
+      }
+  }
+
+  // SAFETY: each list holds the builder's own definitions of its table.
+  return { model, layouts, definitions: definitions as EditDefinitions };
 }
 
 /** The calls that made each edit's statements, by its `statements` array. */
@@ -509,6 +689,8 @@ export const EDIT_LIMITS = {
   sheets: 1_000,
   /** The most layouts and kinds of definition additions name. */
   keys: 10_000,
+  /** The most entities and definitions additions hold in all. */
+  additions: 100_000,
 } as const;
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -691,6 +873,9 @@ export function checkEdit(value: unknown): string[] {
         { what: "the definitions'", fields: definitions, may: true },
       ];
 
+      // SAFETY: the guards above found `model` a list.
+      let held = (given!["model"] as unknown[]).length;
+
       for (const { what, fields, may } of kinds) {
         let n = 0;
 
@@ -704,8 +889,14 @@ export function checkEdit(value: unknown): string[] {
 
           if (!Array.isArray(list) && !(may && list === undefined))
             problems.push(`${what} ${JSON.stringify(key.slice(0, 64))} is not a list`);
+          else if (Array.isArray(list)) held += list.length;
         }
       }
+
+      if (held > EDIT_LIMITS.additions)
+        problems.push(
+          `additions hold ${held} items, past the most an edit takes, ${EDIT_LIMITS.additions}`,
+        );
     }
   }
 
@@ -781,8 +972,6 @@ export function editToMake(edit: unknown): Edit {
         `This version of tsdraft makes no ${statements[i]!.kind} statement yet`,
         i,
       );
-
-  if (!addsNothing(made)) throw new EditError("This version of tsdraft makes no addition yet");
 
   return made;
 }

@@ -99,6 +99,9 @@ const BASE = {
   "linetype?": "string",
   "lineweight?": "number",
   "linetypeScale?": "number",
+  "mark?": {
+    fields: { format: "string", name: "string", id: "string", handle: "string", hash: "string" },
+  },
 } as const;
 
 const PLACEMENT: Fields = {
@@ -543,6 +546,7 @@ const DRAWING_READ: Fields = {
       "pdsize?": "number",
       "dimstyle?": "string",
       "textstyle?": "string",
+      "handseed?": "string",
       "clayer?": "string",
       "wipeoutFrame?": "number",
     },
@@ -624,6 +628,32 @@ const DRAWING_READ: Fields = {
         "arrowheadBlock?": "string",
         "textFill?": "number",
         "textFillColor?": "number",
+        "extensionOffset?": "number",
+        "extensionBeyond?": "number",
+        "textGap?": "number",
+        "lineExtension?": "number",
+        "zeros?": "number",
+        "textLevelInside?": "number",
+        "textLevelOutside?": "number",
+        "lineInside?": "number",
+      },
+    },
+  },
+  "leaderStyles?": {
+    list: {
+      fields: {
+        "handle?": "string",
+        name: "string",
+        "textStyle?": "string",
+        textHeight: "number",
+        arrowSize: "number",
+        "arrowheadBlock?": "string",
+        landing: "number",
+        gap: "number",
+        scale: "number",
+        attachment: "number",
+        frame: "boolean",
+        direction: "number",
       },
     },
   },
@@ -706,6 +736,7 @@ const DRAWING_READ: Fields = {
         "plotter?": "string",
         "paperSize?": "point",
         "paperUnits?": "number",
+        "plotScale?": "number",
         "plotStyleTable?": "string",
         plotRotation: "number",
         viewports: {
@@ -753,6 +784,15 @@ const DRAWING_READ: Fields = {
   },
   otherFields: counts,
   unread: { fields: { entities: counts, objects: counts, malformed: counts } },
+  "edits?": {
+    list: {
+      fields: {
+        name: "string",
+        "handle?": "string",
+        additions: { list: { fields: { id: "string", handle: "string" } } },
+      },
+    },
+  },
   "opensAt?": {
     fields: { "layout?": "string", center: "point", height: "number", width: "number" },
   },

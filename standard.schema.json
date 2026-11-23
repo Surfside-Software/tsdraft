@@ -697,6 +697,11 @@
           "pattern": "^[\\u0020-\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]*$",
           "description": "For people and the specimen. No rule reads it"
         },
+        "styleName": {
+          "type": "string",
+          "pattern": "^(?! )(?![\\s\\S]* $)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$",
+          "description": "The name of the multileader style the style is in a firm's files. An edit of a firm's file that holds the style draws in it as the file defines it. Defaults to the style's id in capitals; Standard, which only an edit draws in"
+        },
         "discipline": {
           "type": "string",
           "description": "The discipline the entry belongs to, a discipline of the standard. An entry without one belongs to every discipline"
@@ -986,6 +991,11 @@
           "type": "string",
           "pattern": "^[\\u0020-\\u007e\\u0080-\\ud7ff\\ue000-\\ue7ff\\ue900-\\uffff]*$",
           "description": "For people and the specimen. No rule reads it"
+        },
+        "styleName": {
+          "type": "string",
+          "pattern": "^(?! )(?![\\s\\S]* $)[\\u0020-\\u0021\\u0023-\\u0029\\u002b\\u002d-\\u002e\\u0030-\\u0039\\u0040-\\u005b\\u005d\\u005f\\u0061-\\u007b\\u007d-\\u007e\\u00a0-\\u05ff\\u0604-\\u06dc\\u06de-\\u070e\\u0710-\\u17b3\\u17b6-\\u200a\\u2010-\\u2029\\u202f-\\u205f\\u2065-\\u2069\\u2070\\u2072-\\u207e\\u2080-\\u208f\\u2095-\\u2101\\u2103-\\u2106\\u2108-\\u2109\\u2114\\u2116-\\u2118\\u211e-\\u2123\\u2125\\u2127\\u2129\\u212e\\u213a-\\u213b\\u2140-\\u2144\\u214a-\\u214d\\u214f-\\u217f\\u2189-\\u2bff\\u2c2f\\u2c5f\\u2c70\\u2c7e-\\u2c7f\\u2ce5-\\u2cff\\u2d26-\\u2d2f\\u2d66-\\u2d6e\\u2d70-\\u2d7f\\u2d97-\\u2d9f\\u2da7\\u2daf\\u2db7\\u2dbf\\u2dc7\\u2dcf\\u2dd7\\u2ddf-\\ud7ff\\ue000-\\ue7ff\\ue900-\\ufefe\\uff00-\\ufff8\\ufffc-\\uffff]{1,255}$",
+          "description": "The name of the text style the role is in a firm's files. An edit of a firm's file that holds the style draws in it as the file defines it. Defaults to the role's id in capitals; Standard, which only an edit draws in"
         },
         "discipline": {
           "type": "string",

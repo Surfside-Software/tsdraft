@@ -6,6 +6,10 @@ import type { DrawingRead } from "../read/model.ts";
 import { sha256 } from "../sha256.ts";
 import { recordEdits } from "./dxf-records.ts";
 import { lintEdit } from "./lint.ts";
+import { addedOf, startsOf } from "./added.ts";
+import { planRecord } from "./additions.ts";
+import { replacement, withReplacement, writesAdditions } from "./replaced.ts";
+import { addedRecords, addRecord, dxfAdditionsFile, withHandseed } from "./dxf-additions.ts";
 import { EditError, editToMake, type Edit } from "./model.ts";
 import { indexRead } from "./reach.ts";
 
@@ -81,17 +85,76 @@ export function editDXF(bytes: Uint8Array, edit: Edit, read: DrawingRead): Uint8
     checkHash(bytes, made, read);
     const doc = editableDXF(bytes);
 
-    if (made.statements.length === 0) return bytes.slice();
+    const adds = writesAdditions(read, made);
+
+    if (made.statements.length === 0 && !adds) return bytes.slice();
     const refused = lintEdit(made, read).find((d) => d.severity === "error");
 
     if (refused !== undefined) throw new EditError(refused.message, refused.statement);
-    const { erased, patched } = recordEdits(bytes, doc, made, read);
+    // A later edit of the same name erases the earlier additions it replaces or drops.
+    const stated = adds ? withReplacement(made, replacement(read, made)) : made;
+
+    const { erased, patched } =
+      stated.statements.length > 0
+        ? recordEdits(bytes, doc, stated, read)
+        : { erased: new Set<number>(), patched: new Map<number, Uint8Array>() };
+
+    let before: ReadonlyMap<number, string> = new Map();
+    let texts: ReadonlyMap<number, string> = new Map();
+    let seed: ReturnType<typeof withHandseed>;
+
+    if (adds) {
+      const file = dxfAdditionsFile(bytes, doc);
+      const a = addedOf(read, made, file);
+      const record = planRecord(a.plan, file, made.name);
+
+      const added = addRecord(
+        bytes,
+        doc,
+        file,
+        addedRecords(bytes, doc, file, a.plan, a.marks, startsOf(a), patched),
+        record,
+        made.name,
+        a.record,
+        patched,
+      );
+
+      before = added.before;
+      texts = added.patched;
+      seed = withHandseed(bytes, doc, record.handseed);
+
+      if (seed === undefined) throw new EditError("The file's header holds no $HANDSEED");
+
+      // A record a statement changed, such as a block's list an erasure took an insert out of,
+      // takes the additions' changes on top of the statement's.
+      for (const i of texts.keys())
+        if (erased.has(i))
+          throw new EditError(
+            `The record ${doc.handle(i) ?? i} is erased by a statement and changed by the additions`,
+          );
+    }
+
+    const encoder = new TextEncoder();
     const parts: Uint8Array[] = [];
 
     for (let i = 0; i < doc.count; i++) {
+      const put = before.get(i);
+
+      if (put !== undefined) parts.push(encoder.encode(put));
+
       if (erased.has(i)) continue;
       const start = doc.starts[i]!;
-      parts.push(patched.get(i) ?? bytes.subarray(start, start + doc.length(i)));
+      const end = start + doc.length(i);
+      const text = texts.get(i);
+
+      if (text !== undefined) parts.push(encoder.encode(text));
+      else if (seed !== undefined && seed.start >= start && seed.end <= end && !patched.has(i))
+        parts.push(
+          bytes.subarray(start, seed.start),
+          encoder.encode(seed.text),
+          bytes.subarray(seed.end, end),
+        );
+      else parts.push(patched.get(i) ?? bytes.subarray(start, end));
     }
 
     const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));

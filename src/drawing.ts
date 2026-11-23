@@ -534,6 +534,11 @@ interface EntityBase extends Placed {
   readonly linetype?: string;
   /** In millimetres, one of `Lineweight`, or `"ByLayer"`, the default, `"ByBlock"` or `"Default"`. */
   readonly lineweight?: number | "ByLayer" | "ByBlock" | "Default";
+  /**
+   * The entity's own linetype scale, which multiplies its linetype's pattern after the drawing's
+   * `linetypeScale`. Defaults to 1. R2018 only.
+   */
+  readonly linetypeScale?: number;
 }
 
 export interface Line extends EntityBase {
@@ -778,6 +783,11 @@ export interface Insert extends Placed, Viewed {
 interface DimensionBase extends Placed, Viewed {
   /** A dimension style of the drawing. */
   readonly style: string;
+  /**
+   * Its own overall scale, `DIMSCALE`, in place of its style's, which multiplies every size the
+   * style gives it. A firm's style whose sizes do not fit the view takes one. R2018 only.
+   */
+  readonly scale?: number;
   /** The first point it measures from, which its first extension line starts at. */
   readonly from: Point;
   /** The second point, which its second extension line starts at. */
@@ -827,6 +837,11 @@ export interface AlignedDimension extends DimensionBase {
 interface RadialDimensionBase extends Placed, Viewed {
   /** A dimension style of the drawing. */
   readonly style: string;
+  /**
+   * Its own overall scale, `DIMSCALE`, in place of its style's, which multiplies every size the
+   * style gives it. A firm's style whose sizes do not fit the view takes one. R2018 only.
+   */
+  readonly scale?: number;
   /** The center of the circle or arc it measures. */
   readonly center: Point;
   /** The point of the circle or arc its line meets, which the radius reaches. */
@@ -887,6 +902,11 @@ export interface AngularDimension extends Placed, Viewed {
   readonly kind: "angular-dimension";
   /** A dimension style of the drawing. */
   readonly style: string;
+  /**
+   * Its own overall scale, `DIMSCALE`, in place of its style's, which multiplies every size the
+   * style gives it. A firm's style whose sizes do not fit the view takes one. R2018 only.
+   */
+  readonly scale?: number;
   /** Where the two lines meet. */
   readonly vertex: Point;
   /** A point of each line, which its extension line starts near. */
@@ -910,6 +930,11 @@ export interface ArcLengthDimension extends Placed, Viewed {
   readonly kind: "arc-length-dimension";
   /** A dimension style of the drawing. */
   readonly style: string;
+  /**
+   * Its own overall scale, `DIMSCALE`, in place of its style's, which multiplies every size the
+   * style gives it. A firm's style whose sizes do not fit the view takes one. R2018 only.
+   */
+  readonly scale?: number;
   readonly center: Point;
   readonly radius: number;
   readonly startAngle: number;
@@ -932,6 +957,11 @@ export interface OrdinateDimension extends Placed, Viewed {
   readonly kind: "ordinate-dimension";
   /** A dimension style of the drawing. */
   readonly style: string;
+  /**
+   * Its own overall scale, `DIMSCALE`, in place of its style's, which multiplies every size the
+   * style gives it. A firm's style whose sizes do not fit the view takes one. R2018 only.
+   */
+  readonly scale?: number;
   /** `"x"` gives the feature's X from the origin, with its leader along Y; `"y"` its Y. */
   readonly axis: "x" | "y";
   /** The point it measures from. */
@@ -1420,6 +1450,11 @@ export interface DimensionStyle {
   /** The gap between the dimension line and the text above it. */
   readonly textGap: number;
   /**
+   * How far a tick's dimension line runs past each extension line, `DIMDLE`, before the scale.
+   * Defaults to the arrow size. A closed arrow stops at its base, and has none.
+   */
+  readonly lineExtension?: number;
+  /**
    * What every size of the style is multiplied by: how many units of the dimension's space one
    * unit of the sizes is. Defaults to 1.
    */
@@ -1797,6 +1832,74 @@ export interface DrawingOptions<
   readonly pointStyle?: PointStyle;
 }
 
+/**
+ * What a firm's file holds that an edit's additions may name, as the builder holds a drawing's
+ * own: each layer, linetype, style and block, which the builder takes as the file's. `aliases`
+ * gives the stand-in each of the file's own `Standard` styles is held under, by its table and
+ * `layerKey`, such as `leaderStyles:standard`.
+ */
+export interface FileDefinitions {
+  readonly layers: readonly Layer[];
+  readonly linetypes: readonly Linetype[];
+  readonly textStyles: readonly TextStyle[];
+  readonly dimensionStyles: readonly DimensionStyle[];
+  readonly leaderStyles: readonly LeaderStyle[];
+  readonly tableStyles: readonly TableStyle[];
+  readonly blocks: readonly Block[];
+  readonly aliases: ReadonlyMap<string, string>;
+}
+
+interface FileKeys {
+  readonly layers: Set<string>;
+  readonly linetypes: Set<string>;
+  readonly textStyles: Set<string>;
+  readonly dimensionStyles: Set<string>;
+  readonly leaderStyles: Set<string>;
+  readonly tableStyles: Set<string>;
+  readonly blocks: Set<string>;
+  readonly aliases: Map<string, string>;
+}
+
+/**
+ * The file each builder of an edit's additions draws over, and the standard it is drawn to, by the
+ * options it was made with.
+ */
+const fileDefinitionsOf = new WeakMap<
+  object,
+  { readonly file: FileDefinitions; readonly standard: Standard | undefined }
+>();
+
+/**
+ * The builder of an edit's additions, over the definitions of the file it adds to. A standard's
+ * names are checked as a drawing file's are, at run time, so its type is the builder's of none.
+ */
+export function createDrawingInFile(
+  options: { readonly units: Units; readonly standard?: Standard | undefined },
+  file: FileDefinitions,
+): DrawingBuilder<"R2018", number, undefined> {
+  const own: DrawingOptions<"R2018", number, undefined> = { units: options.units };
+  fileDefinitionsOf.set(own, { file, standard: options.standard });
+
+  return new DrawingBuilder<"R2018", number, undefined>(own);
+}
+
+/** A standard's entry named `Standard`, which is a firm's file's own and no new drawing's. */
+const standardInEdit = (what: string, id: string): string =>
+  `The ${what} ${JSON.stringify(id)} is the style Standard, which is a firm's file's own: only an edit of a firm's file draws in it`;
+
+/** True when two layers hold the same properties. */
+function sameLayer(a: Layer, b: Layer): boolean {
+  return (
+    a.color === b.color &&
+    a.linetype === b.linetype &&
+    a.lineweight === b.lineweight &&
+    Boolean(a.off) === Boolean(b.off) &&
+    Boolean(a.frozen) === Boolean(b.frozen) &&
+    Boolean(a.locked) === Boolean(b.locked) &&
+    (a.plot ?? true) === (b.plot ?? true)
+  );
+}
+
 /** A linetype to define: a `Linetype`, whose description may be left out. */
 export interface LinetypeDefinition<
   N extends string = string,
@@ -1953,6 +2056,8 @@ export interface EntityOptions<
       : LineweightOf<W> | "ByLayer" | "ByBlock" | "Default";
   /** A pen of the drawing's standard, whose lineweight the entity takes. */
   readonly pen?: Z extends Standard ? PenOfStandard<P, Z> : PenWithoutStandard;
+  /** Its own linetype scale, a positive number. Defaults to 1. R2018 only. */
+  readonly linetypeScale?: V extends "R12" ? 1 : number;
 }
 
 /** Checks a hatch's gradient as `lint` does, and returns the copy it checked. */
@@ -2724,6 +2829,8 @@ interface DimensionOptions<
 > {
   /** A dimension style of the drawing. */
   readonly style: DimensionStyleName<S>;
+  /** Its own overall scale, `DIMSCALE`, in place of its style's. */
+  readonly scale?: number;
   /**
    * A text to draw in place of the measurement, in which `<>` stands for the measurement:
    * `"<> TYP"`, or `"VARIES"`.
@@ -3240,6 +3347,7 @@ interface EntityGiven {
   readonly transparency?: unknown;
   readonly linetype?: unknown;
   readonly lineweight?: unknown;
+  readonly linetypeScale?: unknown;
   readonly pen?: unknown;
   readonly role?: unknown;
   readonly view?: unknown;
@@ -3384,7 +3492,7 @@ interface Transparent {
 }
 
 /** The linetype and lineweight an entity is stored with: only what differs from ByLayer. */
-type EntityStyle = Pick<Line, "linetype" | "lineweight">;
+type EntityStyle = Pick<Line, "linetype" | "lineweight" | "linetypeScale">;
 
 /** A function whose call `holdCall` finds on the stack. */
 type Method = Parameters<typeof holdCall>[0];
@@ -3603,6 +3711,8 @@ export class DrawingBuilder<
   readonly #views = new Map<string, Shown>();
   /** The blocks that hold texts with roles, directly or in a block they insert, by `layerKey`. */
   readonly #roleBlocks = new Set<string>();
+  /** What the file an edit adds to holds, by table and `layerKey`: each is the file's as it is. */
+  readonly #file: FileKeys | undefined;
   #current = "0";
 
   constructor(options: DrawingOptions<V, S, Z, D> = {}) {
@@ -3616,9 +3726,13 @@ export class DrawingBuilder<
     }
 
     let standard: Drawn | undefined;
+    const inFile = fileDefinitionsOf.get(options);
 
     try {
-      standard = drawnTo(options, dxf);
+      standard = drawnTo(
+        inFile?.standard === undefined ? options : { ...options, standard: inFile.standard },
+        dxf,
+      );
     } catch (thrown) {
       // SAFETY: a call site is read from the stack, where the constructor is as a method is.
       const constructed = DrawingBuilder.prototype.constructor as Method;
@@ -3665,6 +3779,80 @@ export class DrawingBuilder<
     this.linetypeScale = standard?.standard.linetypeScale ?? (isNumber(scale) ? scale : 1);
     this.#standard = standard;
     this.#calls = (options.recordCalls ?? recordsCalls()) ? [] : undefined;
+    this.#file = inFile === undefined ? undefined : this.#seed(inFile.file);
+  }
+
+  /** Takes the file's definitions as the drawing's, each by its name as the file spells it. */
+  #seed(file: FileDefinitions): FileKeys {
+    const keys: FileKeys = {
+      layers: new Set(),
+      linetypes: new Set(),
+      textStyles: new Set(),
+      dimensionStyles: new Set(),
+      leaderStyles: new Set(),
+      tableStyles: new Set(),
+      blocks: new Set(),
+      aliases: new Map(file.aliases),
+    };
+
+    const take = <T extends { readonly name: string }>(
+      list: readonly T[],
+      into: Map<string, T>,
+      audited: Map<string, string> | undefined,
+      held: Set<string>,
+    ): void => {
+      for (const item of list) {
+        const key = layerKey(item.name);
+        into.set(key, item);
+        held.add(key);
+
+        if (audited && !audited.has(layerAuditKey(item.name)))
+          audited.set(layerAuditKey(item.name), item.name);
+      }
+    };
+
+    take(file.layers, this.#layers, this.#audited, keys.layers);
+    take(file.linetypes, this.#linetypes, this.#linetypesAudited, keys.linetypes);
+    take(file.textStyles, this.#textStyles, this.#textStylesAudited, keys.textStyles);
+    take(
+      file.dimensionStyles,
+      this.#dimensionStyles,
+      this.#dimensionStylesAudited,
+      keys.dimensionStyles,
+    );
+    take(file.leaderStyles, this.#leaderStyles, this.#leaderStylesAudited, keys.leaderStyles);
+    take(file.tableStyles, this.#tableStyles, this.#tableStylesAudited, keys.tableStyles);
+
+    for (const block of file.blocks) {
+      const key = layerKey(block.name);
+      this.#blocks.set(key, block);
+      keys.blocks.add(key);
+
+      if (!this.#blocksAudited.has(layerAuditKey(block.name)))
+        this.#blocksAudited.set(layerAuditKey(block.name), { name: block.name, xref: false });
+    }
+
+    return keys;
+  }
+
+  /** Refuses a definition of a name the file holds, which an addition uses as the file has it. */
+  #notTheFiles(
+    table: Exclude<keyof FileKeys, "aliases">,
+    what: string,
+    name: string | undefined,
+  ): void {
+    if (this.#file !== undefined && name !== undefined && this.#file[table].has(layerKey(name)))
+      refuse(
+        "file-definition",
+        `${what} ${JSON.stringify(name)} is the file's: an addition uses it as the file defines it, and the edit defines none of its name`,
+      );
+  }
+
+  /** The style a name stands for in the file: the stand-in of the file's own `Standard`. */
+  #aliased<T>(table: "dimensionStyles" | "leaderStyles" | "tableStyles", name: T): T | string {
+    if (this.#file === undefined || !isString(name)) return name;
+
+    return this.#file.aliases.get(`${table}:${layerKey(name)}`) ?? name;
   }
 
   /**
@@ -3936,6 +4124,12 @@ export class DrawingBuilder<
 
     // SAFETY: it has its name and its color, set above.
     const layer = fields as Layer;
+
+    if (this.#file?.layers.has(key) && existing && !sameLayer(existing, layer))
+      fail(
+        "file-definition",
+        "is the file's: an addition uses it as the file holds it. Give it no other properties",
+      );
     const stateProblem = layerStateProblem(layer.name, layer.frozen);
 
     if (stateProblem) fail("layer-state", stateProblem);
@@ -5229,6 +5423,7 @@ export class DrawingBuilder<
         refuse(rule, `Block ${JSON.stringify(requested)}: ${problem}`);
 
       if (this.dxf === "R12") fail("block", R12_ONLY.blocks);
+      this.#notTheFiles("blocks", "Block", requested);
       const nameProblem = blockNameProblem(requested);
 
       if (nameProblem) fail("block", nameProblem);
@@ -5746,6 +5941,7 @@ export class DrawingBuilder<
   /** Checks a dimension style and stores it. */
   #defineDimensionStyle(definition: DimensionStyle): void {
     const name: unknown = definition?.name;
+    this.#notTheFiles("dimensionStyles", "Dimension style", isString(name) ? name : undefined);
 
     const fail = (rule: LintRule, problem: string): never =>
       refuse(
@@ -6271,6 +6467,7 @@ export class DrawingBuilder<
           readonly textBelow?: unknown;
           readonly view?: unknown;
           readonly id?: unknown;
+          readonly scale?: unknown;
         }
       | undefined,
     make: (style: string, text: { readonly text?: string; readonly textBelow?: string }) => D,
@@ -6283,7 +6480,7 @@ export class DrawingBuilder<
     if (this.#standard) style = this.#standardDimensionStyle(options?.style, options?.view);
     else {
       if (options?.view !== undefined) refuse("dimension-style", DRAWN.viewWithoutStandard);
-      const named: unknown = options?.style;
+      const named: unknown = this.#aliased("dimensionStyles", options?.style);
       const nameProblem = dimensionStyleNameProblem(named);
 
       if (nameProblem) refuse("undefined-dimension-style", nameProblem);
@@ -6318,7 +6515,13 @@ export class DrawingBuilder<
     if (isString(text)) texts.text = text;
 
     if (isString(below)) texts.textBelow = below;
-    const made = make(style!.name, texts);
+    const scale: unknown = options?.scale;
+
+    if (scale !== undefined && (!isNumber(scale) || sizeProblem(scale) !== undefined))
+      refuse("dimension", `scale: ${isNumber(scale) ? sizeProblem(scale) : "is not a number"}`);
+    const drawn = make(style!.name, texts);
+    // SAFETY: the scale is a field of every kind of dimension.
+    const made = (isNumber(scale) ? { ...drawn, scale } : drawn) as D;
 
     const textStyle =
       style!.textStyle === undefined ? undefined : this.#textStyles.get(layerKey(style!.textStyle));
@@ -6506,6 +6709,7 @@ export class DrawingBuilder<
   /** Checks a leader style and stores it. */
   #defineLeaderStyle(definition: LeaderStyle): void {
     const name: unknown = definition?.name;
+    this.#notTheFiles("leaderStyles", "Leader style", isString(name) ? name : undefined);
 
     const fail = (rule: LintRule, problem: string): never =>
       refuse(
@@ -6635,6 +6839,7 @@ export class DrawingBuilder<
   /** Checks a table style and stores it. */
   #defineTableStyle(definition: TableStyle): void {
     const name: unknown = definition?.name;
+    this.#notTheFiles("tableStyles", "Table style", isString(name) ? name : undefined);
 
     const fail = (rule: LintRule, problem: string): never =>
       refuse(
@@ -6763,11 +6968,12 @@ export class DrawingBuilder<
 
     if (o.transparency !== undefined && o.transparency !== "ByLayer")
       refuse("entity-transparency", TABLE_TRANSPARENCY);
-    const nameProblem = tableStyleNameProblem(o.style);
+    const styleName = this.#aliased("tableStyles", o.style);
+    const nameProblem = tableStyleNameProblem(styleName);
 
     if (nameProblem) refuse("undefined-table-style", nameProblem);
     // SAFETY: `tableStyleNameProblem` has found the name to be a string.
-    const named = o.style as string;
+    const named = styleName as string;
     const standard = standardTableStyleProblem(named);
 
     if (standard) refuse("undefined-table-style", standard);
@@ -6959,10 +7165,11 @@ export class DrawingBuilder<
       if (o.view !== undefined) refuse("leader-style", DRAWN.viewWithoutStandard);
 
       if (o.role !== undefined) refuse("role", DRAWN.roleWithoutStandard);
-      const nameProblem = leaderStyleNameProblem(o.style);
+      // SAFETY: an alias is a style's name, and any other value is checked as given below.
+      const named = this.#aliased("leaderStyles", o.style) as typeof o.style;
+      const nameProblem = leaderStyleNameProblem(named);
 
       if (nameProblem) refuse("undefined-leader-style", nameProblem);
-      const named = o.style;
       const found = this.#leaderStyles.get(layerKey(named));
 
       if (!found) {
@@ -7078,7 +7285,19 @@ export class DrawingBuilder<
 
     const [styleId, entry] = found;
     const fields = this.#inDiscipline("Leader style", styleId, entry);
-    let name = capitals(styleId);
+
+    // The firm's own style of its name, in an edit of a file that holds it.
+    if (entry.styleName !== undefined) {
+      const firm = this.#aliased("leaderStyles", entry.styleName);
+
+      if (isString(firm) && this.#file?.leaderStyles.has(layerKey(firm)))
+        return this.#leaderStyles.get(layerKey(firm))!;
+
+      if (layerKey(entry.styleName) === "standard")
+        refuse("leader-style-outside-standard", standardInEdit("leader style", styleId));
+    }
+
+    let name = entry.styleName ?? capitals(styleId);
     let scale = 1;
 
     if (this.#sheet) {
@@ -8133,14 +8352,27 @@ export class DrawingBuilder<
     return this.#inDiscipline("Text role", id, role);
   }
 
-  /** The text style of a role, which enters the drawing when the role is first used. */
+  /**
+   * The text style of a role, which enters the drawing when the role is first used: the firm's
+   * style of its `styleName` in an edit of a file that holds it, and its own otherwise.
+   */
   #roleStyle(found: readonly [string, StandardTextRole]): string {
     const { font, widthFactor, obliqueAngle } = this.#roleFields(found);
+    const name = found[1].styleName ?? capitals(found[0]);
 
-    return this.#defineTextStyle(
-      { name: capitals(found[0]), font, widthFactor, obliqueAngle },
-      true,
-    );
+    if (layerKey(name) === layerKey(STANDARD_TEXT_STYLE)) {
+      if (this.#file === undefined) refuse("text-style", standardInEdit("text role", found[0]));
+
+      return STANDARD_TEXT_STYLE;
+    }
+
+    const own = this.#file?.textStyles.has(layerKey(name))
+      ? this.#textStyles.get(layerKey(name))
+      : undefined;
+
+    if (own !== undefined) return own.name;
+
+    return this.#defineTextStyle({ name, font, widthFactor, obliqueAngle }, true);
   }
 
   /**
@@ -8344,9 +8576,20 @@ export class DrawingBuilder<
     return { transparency: transparency as EntityTransparency };
   }
 
-  /** The linetype and lineweight an entity is stored with. */
+  /** The linetype, lineweight and linetype scale an entity is stored with. */
   #style(options: EntityGiven): EntityStyle {
     const style: { -readonly [K in keyof EntityStyle]: EntityStyle[K] } = {};
+    const scale: unknown = options.linetypeScale;
+
+    if (scale !== undefined && scale !== 1) {
+      if (!isNumber(scale)) refuse("linetype", "An entity's linetypeScale is a finite number");
+      const problem = linetypeScaleProblem(scale);
+
+      if (problem) refuse("linetype", `linetypeScale: ${problem}`);
+
+      if (this.dxf === "R12") refuse("linetype", `linetypeScale: ${R12_ONLY.entityStyle}`);
+      style.linetypeScale = scale;
+    }
 
     if (options.linetype !== undefined) {
       if (this.dxf === "R12" && !isBuiltIn(options.linetype, "ByLayer")) {
@@ -8450,6 +8693,11 @@ export class DrawingBuilder<
    */
   #define(definition: LinetypeGiven, inline = false): string {
     const label = `Linetype ${JSON.stringify(definition.name)}`;
+    this.#notTheFiles(
+      "linetypes",
+      "Linetype",
+      isString(definition.name) ? definition.name : undefined,
+    );
 
     // SAFETY: `marksProblem` checks marks of any shape, as from plain JavaScript, once
     // `linetypeProblem` has found the pattern to be numbers.
@@ -8542,6 +8790,11 @@ export class DrawingBuilder<
    */
   #defineTextStyle(definition: TextStyleGiven, inline = false): string {
     const label = `Text style ${JSON.stringify(definition.name)}`;
+    this.#notTheFiles(
+      "textStyles",
+      "Text style",
+      isString(definition.name) ? definition.name : undefined,
+    );
 
     const problem = textStyleProblem(
       definition.name,

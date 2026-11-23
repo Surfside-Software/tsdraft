@@ -541,6 +541,8 @@ export {
 
 export { readDXF } from "./read/dxf.ts";
 
+export { MARK_APP, markOf, recordAdditions } from "./read/mark.ts";
+
 export { editDXF } from "./edit/dxf.ts";
 
 export {
@@ -555,6 +557,7 @@ export {
 
 export {
   canonicalHandle,
+  addsNothing,
   checkEdit,
   EDIT_FORMAT,
   MADE_KINDS,
@@ -566,6 +569,7 @@ export {
   type EditAdditions,
   type EditBuilder,
   type EditDefinitions,
+  type EditDrawing,
   type EditFile,
   type EditSource,
   type EditStatement,
@@ -589,6 +593,34 @@ export {
 } from "./edit/stretch.ts";
 
 export { dxfStructure, type StructureDefect, type StructureReport } from "./edit/structure.ts";
+
+export {
+  drawnRecords,
+  planAdditions,
+  planRecord,
+  refersBy,
+  type AdditionsFile,
+  type AdditionsPlan,
+  type DrawnRecord,
+  type DrawnSpace,
+  type Patch,
+  type RecordPlan,
+  type Transplant,
+} from "./edit/additions.ts";
+
+export { addedOf, readAdditionsFile, type Added, type AddedSpace } from "./edit/added.ts";
+
+export {
+  additionIds,
+  placeId,
+  replacement,
+  writesAdditions,
+  withReplacement,
+  type Replacement,
+  type ReplacementProblem,
+} from "./edit/replaced.ts";
+
+export { MARK_FORMAT, markGroups, markHash, markUnchanged, type Marks } from "./edit/marks.ts";
 
 export { editedRead, fileKind } from "./edit/edited.ts";
 
@@ -691,6 +723,9 @@ export {
   type ReadArcLengthDimension,
   type ReadOrdinateDimension,
   type ReadDimensionStyle,
+  type ReadLeaderStyle,
+  type ReadMark,
+  type ReadEditRecord,
   type ReadDrawingFile,
   type ReadEdge,
   type ReadEdgeEllipse,

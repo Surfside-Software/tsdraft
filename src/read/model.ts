@@ -37,6 +37,11 @@ export interface DrawingRead {
   readonly linetypes: readonly ReadLinetype[];
   readonly textStyles: readonly ReadTextStyle[];
   readonly dimensionStyles: readonly ReadDimensionStyle[];
+  /**
+   * The multileader styles the file's dictionary of them names, in its order. A reader built for
+   * an earlier tsdraft gives none.
+   */
+  readonly leaderStyles?: readonly ReadLeaderStyle[];
   /** The table styles the file's dictionary of table styles names. */
   readonly tableStyles: readonly ReadTableStyle[];
   /**
@@ -74,6 +79,11 @@ export interface DrawingRead {
   readonly otherFields: Readonly<Record<string, number>>;
   /** What the reader did not understand, counted by kind. */
   readonly unread: ReadUnread;
+  /**
+   * The record each edit of tsdraft's keeps of its additions, from the dictionary `TSDRAFT`. A
+   * reader built for an earlier tsdraft gives none.
+   */
+  readonly edits?: readonly ReadEditRecord[];
   /** The tab the file opens on and the view it shows there, when the file states one. */
   readonly opensAt?: ReadView;
   /**
@@ -134,6 +144,8 @@ export interface ReadHeader {
   readonly dimstyle?: string;
   /** `$TEXTSTYLE`, the current text style. */
   readonly textstyle?: string;
+  /** `$HANDSEED`, past every handle the file holds, as hexadecimal digits in capitals. */
+  readonly handseed?: string;
   /** `$CLAYER`, the current layer, which is never frozen. */
   readonly clayer?: string;
   /**
@@ -242,6 +254,33 @@ export interface ReadTableStyle {
   readonly data: ReadTableCellStyle;
 }
 
+/** A multileader style of the file's dictionary of them, as its record holds its sizes. */
+export interface ReadLeaderStyle {
+  readonly handle?: string | undefined;
+  /** Its name in the dictionary of multileader styles. */
+  readonly name: string;
+  /** The text style of its note, by name. */
+  readonly textStyle?: string;
+  /** The height of its note's text, before `scale`. */
+  readonly textHeight: number;
+  /** The size of its arrowhead, before `scale`. */
+  readonly arrowSize: number;
+  /** The block it draws each arrowhead with, such as `_Open`. Missing for closed filled. */
+  readonly arrowheadBlock?: string;
+  /** The length of its landing, before `scale`. */
+  readonly landing: number;
+  /** The room between the landing and the note, before `scale`. */
+  readonly gap: number;
+  /** Its overall scale, which multiplies each size. */
+  readonly scale: number;
+  /** Where its landing meets a note on its left, 0 to 8, as the file holds it. */
+  readonly attachment: number;
+  /** True when it frames its note. */
+  readonly frame: boolean;
+  /** 1 when it attaches its note above or below the landing, 0 at its side. */
+  readonly direction: number;
+}
+
 export interface ReadDimensionStyle {
   readonly handle?: string | undefined;
   readonly name: string;
@@ -285,6 +324,22 @@ export interface ReadDimensionStyle {
   readonly textFill?: number;
   /** `DIMTFILLCLR`, the color index of the mask, for a `textFill` of 2. */
   readonly textFillColor?: number;
+  /** `DIMEXO`: how far from what it measures an extension line starts. */
+  readonly extensionOffset?: number;
+  /** `DIMEXE`: how far an extension line runs past the dimension line. */
+  readonly extensionBeyond?: number;
+  /** `DIMGAP`: the room between the text and the dimension line. */
+  readonly textGap?: number;
+  /** `DIMDLE`: how far the dimension line runs past an extension line, where it ends in a tick. */
+  readonly lineExtension?: number;
+  /** `DIMZIN`: which zeros a measurement leaves out. */
+  readonly zeros?: number;
+  /** `DIMTIH`: 1 keeps the text level between the extension lines, 0 lays it along the line. */
+  readonly textLevelInside?: number;
+  /** `DIMTOH`: the same, outside them. */
+  readonly textLevelOutside?: number;
+  /** `DIMTOFL`: 1 draws the dimension line between the extension lines whatever fits. */
+  readonly lineInside?: number;
 }
 
 /** An attribute definition of a block, placed as a text is. */
@@ -359,6 +414,30 @@ export interface ReadEntityBase {
   readonly lineweight?: number;
   /** Group 48: the entity's own linetype scale. Left out at 1. */
   readonly linetypeScale?: number;
+  /** The mark an edit of tsdraft's gave the entity when it added it. */
+  readonly mark?: ReadMark;
+}
+
+/**
+ * The mark tsdraft gives what an edit adds, in its extended data under `TSDRAFT`: the mark's
+ * format, the edit's name, the addition's id, the handle it was written with, and a hash of what it
+ * held then.
+ */
+export interface ReadMark {
+  readonly format: string;
+  readonly name: string;
+  readonly id: string;
+  readonly handle: string;
+  readonly hash: string;
+}
+
+/** The record of one edit's additions: each id and the handle it was written with. */
+export interface ReadEditRecord {
+  /** The edit's name. */
+  readonly name: string;
+  /** The handle of the record's `XRECORD`. */
+  readonly handle?: string | undefined;
+  readonly additions: readonly { readonly id: string; readonly handle: string }[];
 }
 
 /**
@@ -1232,6 +1311,8 @@ export interface ReadLayout {
   readonly paperSize?: readonly [width: number, height: number];
   /** 0 inches, 1 millimeters, 2 pixels. */
   readonly paperUnits?: number;
+  /** The paper units it plots for each unit of its paper space, as its plot scale gives it: 0.5 at 1:2. */
+  readonly plotScale?: number;
   /** The plot style table, such as `monochrome.ctb`. */
   readonly plotStyleTable?: string;
   /** Quarter turns of the plot: 0 to 3. */

@@ -3,6 +3,7 @@
 import type { ParagraphColumns } from "../paragraphs.ts";
 import type { Point } from "../drawing.ts";
 import { carets, textOnce, textTwice } from "./groups.ts";
+import { MARK_APP, markOf } from "./mark.ts";
 import { decipherSat, satEdges } from "./modeler.ts";
 import { readAlpha } from "../transparency.ts";
 import { wholeImageClip } from "../images.ts";
@@ -37,6 +38,7 @@ import {
   name,
   num,
   placed,
+  xdata,
   point,
   turned,
   type Facing,
@@ -87,6 +89,7 @@ export function baseOf(r: Rec, layer: string, handle: string | undefined): ReadE
   const linetype = name(r, 6);
   const lineweight = num(r, 370);
   const linetypeScale = num(r, 48);
+  const mark = markOf(xdata(r, MARK_APP).values);
 
   return {
     handle,
@@ -98,6 +101,7 @@ export function baseOf(r: Rec, layer: string, handle: string | undefined): ReadE
     ...(linetype !== undefined && !/^bylayer$/i.test(linetype.trim()) && { linetype }),
     ...(lineweight !== undefined && lineweight !== -1 && { lineweight }),
     ...(linetypeScale !== undefined && linetypeScale !== 1 && { linetypeScale }),
+    ...(mark !== undefined && { mark }),
   };
 }
 

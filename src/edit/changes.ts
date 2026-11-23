@@ -451,17 +451,45 @@ export function editPreview(read: DrawingRead, edit: Edit): EditPreview {
     return out;
   };
 
+  // What the edit adds to a space: each entity the source's space does not hold.
+  const held = new Map<string, Set<string>>();
+
+  const keep = (space: string, list: readonly ReadEntity[] | undefined): void => {
+    held.set(
+      space,
+      new Set((list ?? []).flatMap((e) => (e.handle === undefined ? [] : [e.handle]))),
+    );
+  };
+
+  keep("", read.model.entities);
+
+  for (const l of read.layouts) keep(l.name, l.entities);
+
+  const addedIn = (space: string, entities: readonly ReadEntity[]): ReadEntity[] =>
+    entities.filter((e) => e.handle !== undefined && !(held.get(space)?.has(e.handle) ?? false));
+
   // The picture reads no census, and a census in proportion to the file would cost its check.
   const drawn: DrawingRead = {
     ...edited,
     model:
       edited.model.entities === undefined
         ? edited.model
-        : { ...edited.model, census: NO_CENSUS, entities: movedIn("", edited.model.entities) },
+        : {
+            ...edited.model,
+            census: NO_CENSUS,
+            entities: [
+              ...movedIn("", edited.model.entities),
+              ...addedIn("", edited.model.entities),
+            ],
+          },
     layouts: edited.layouts.map((l) =>
       l.entities === undefined
         ? l
-        : { ...l, census: NO_CENSUS, entities: movedIn(l.name, l.entities) },
+        : {
+            ...l,
+            census: NO_CENSUS,
+            entities: [...movedIn(l.name, l.entities), ...addedIn(l.name, l.entities)],
+          },
     ),
   };
 

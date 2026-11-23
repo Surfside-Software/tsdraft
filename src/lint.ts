@@ -261,6 +261,7 @@ export type LintRule =
   | "format"
   | "units"
   | "layer-name"
+  | "file-definition"
   | "duplicate-layer"
   | "layer-color"
   | "undefined-layer"
@@ -3095,6 +3096,14 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
 
       if (isDimension(entity)) {
         lintDimension(entity, add, problems.length === 0, block !== undefined, here);
+        // Its own overall scale, its DIMSCALE override.
+        const scale: unknown = entity.scale;
+
+        if (scale !== undefined) {
+          const problem = isNumber(scale) ? sizeProblem(scale) : "it is not a finite number";
+
+          if (problem) add("dimension", "error", `scale: ${problem}`);
+        }
 
         // The block of its picture takes handles from its id, or else from its place.
         if (!r12 && !block && (id === undefined || named)) {
@@ -3129,6 +3138,17 @@ export function lintWithin(drawing: Drawing, options: LintOptions, most: number)
           : missing(name);
 
         if (problem) add(r12 ? "linetype" : "undefined-linetype", "error", problem);
+      }
+
+      const ownScale = "linetypeScale" in entity ? entity.linetypeScale : undefined;
+
+      if (ownScale !== undefined) {
+        const problem = !isNumber(ownScale)
+          ? "An entity's linetypeScale is a finite number"
+          : (linetypeScaleProblem(ownScale) ??
+            (r12 && ownScale !== 1 ? R12_ONLY.entityStyle : undefined));
+
+        if (problem) add("linetype", "error", `linetypeScale: ${problem}`);
       }
 
       if (entity.lineweight !== undefined) {

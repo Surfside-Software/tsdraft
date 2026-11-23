@@ -682,6 +682,8 @@ export interface DimensionSizes {
   readonly extensionOffset: number;
   readonly extensionBeyond: number;
   readonly textGap: number;
+  /** How far a tick's dimension line runs past an extension line, `DIMDLE`. */
+  readonly lineExtension: number;
 }
 
 /** The sizes of a dimension style in the units of the dimension's space: each times the scale. */
@@ -694,6 +696,7 @@ export function dimensionSizes(style: DimensionStyle): DimensionSizes {
     extensionOffset: written(style.extensionOffset) * scale,
     extensionBeyond: written(style.extensionBeyond) * scale,
     textGap: written(style.textGap) * scale,
+    lineExtension: written(style.lineExtension ?? style.arrowSize) * scale,
   };
 }
 
@@ -784,9 +787,12 @@ export function dimensionMeasure(dimension: Dimension): DimensionMeasure {
  */
 export function dimensionPicture(
   dimension: Dimension,
-  style: DimensionStyle,
+  given: DimensionStyle,
   textStyle?: DimensionFont,
 ): DimensionPicture {
+  // A dimension's own scale is its override of its style's.
+  const style = dimension.scale === undefined ? given : { ...given, scale: dimension.scale };
+
   if (isRadial(dimension)) return radialPicture(dimension, style, textStyle);
 
   if (dimension.kind === "angular-dimension") return angularPicture(dimension, style, textStyle);
@@ -952,7 +958,7 @@ export function dimensionPicture(
   }
 
   // A tick's dimension line runs past the extension lines, and an arrow's stops at its base.
-  const reach = tick ? size : -size;
+  const reach = tick ? sizes.lineExtension : -size;
   const dimensionLine: [Point, Point] = [move(first, run, -reach), move(second, run, reach)];
 
   // A text centered in the line sits on it, unless words below take the other side: then each
@@ -1392,9 +1398,9 @@ function radialPicture(
     const near = move(jog, across, t);
     const far = move(jog, across, -t);
     const end = at(radius - reach);
-    // A tick's line runs on past the arc by the style's DIMDLE, one arrow size as tsdraft writes
-    // it, and a level text's break widens by as much toward the center. The text keeps its place.
-    const beyond = tick ? size : 0;
+    // A tick's line runs on past the arc by the style's DIMDLE, one arrow size unless the style
+    // says otherwise, and a level text's break widens by as much toward the center. The text keeps its place.
+    const beyond = tick ? dimensionSizes(style).lineExtension : 0;
     lines.push([start, far], [far, near]);
     arrow(point, false);
     lineMiddle = [(near[0] + end[0]) / 2, (near[1] + end[1]) / 2];
@@ -2682,7 +2688,7 @@ function joggedStretchFits(
   // The text is centered short of a tick's line past the arc.
   const sizes = dimensionSizes(style);
   const tick = arrowheadInfo(style.arrowhead ?? DEFAULT_ARROWHEAD)?.stroke !== undefined;
-  const end = along(lines[2]![1]) - (tick ? sizes.arrowSize : 0);
+  const end = along(lines[2]![1]) - (tick ? sizes.lineExtension : 0);
 
   return end - near >= picture.textWidth + 2 * sizes.textGap;
 }

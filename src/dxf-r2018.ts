@@ -1770,6 +1770,9 @@ function writeEntity(
       g(370, lineweightCode(e.lineweight));
     }
 
+    const scale = "linetypeScale" in e && isNumber(e.linetypeScale) ? e.linetypeScale : 1;
+
+    if (scale !== 1) g(48, scale);
     g(100, subclass);
   };
 
@@ -2066,9 +2069,9 @@ function writeDimensionStyle(g: Group, style: DimensionStyle, textStyle: string)
   const arrowhead = style.arrowhead ?? DEFAULT_ARROWHEAD;
   const block = arrowheadInfo(arrowhead)?.block;
 
-  // DIMDLE: with a tick, the dimension line runs one arrow size past each extension line,
-  // as the leading CAD app draws it whenever it turns the ticks outward.
-  if (block !== undefined) g(46, style.arrowSize);
+  // DIMDLE: with a tick, the dimension line runs past each extension line, one arrow size unless
+  // the style says otherwise, as the leading CAD app draws it whenever it turns the ticks outward.
+  if (block !== undefined) g(46, style.lineExtension ?? style.arrowSize);
   const mask = dimensionMask(style);
 
   if (mask !== undefined) {
@@ -2207,6 +2210,7 @@ function writeDimension(
     g(71, 0);
     point(g, 16, ...first);
     point(g, 17, ...second);
+    writeOverrides(g, radialOverrides(e, style));
 
     return;
   }
@@ -2215,6 +2219,7 @@ function writeDimension(
     g(100, "AcDbOrdinateDimension");
     point(g, 13, ...e.feature);
     point(g, 14, ...e.leaderEnd);
+    writeOverrides(g, radialOverrides(e, style));
 
     return;
   }
@@ -2224,6 +2229,7 @@ function writeDimension(
     point(g, 13, ...e.from);
     point(g, 14, ...e.to);
     point(g, 15, ...e.vertex);
+    writeOverrides(g, radialOverrides(e, style));
 
     return;
   }
@@ -2239,24 +2245,7 @@ function writeDimension(
 
     point(g, 15, ...e.point);
     g(40, 0); // no leader length: the text's place is group 11
-    // What the style sets of a radial dimension alone is the dimension's override: a jog angle
-    // other than the leading CAD app's own, and a level text.
-    const overrides = radialOverrides(e, style);
-
-    if (overrides.length > 0) {
-      g(1001, "ACAD");
-      g(1000, "DSTYLE");
-      g(1002, "{");
-
-      for (const [code, value] of overrides) {
-        g(1070, code);
-
-        if (code === 50) g(1040, value);
-        else g(1070, value);
-      }
-
-      g(1002, "}");
-    }
+    writeOverrides(g, radialOverrides(e, style));
 
     return;
   }
@@ -2271,19 +2260,41 @@ function writeDimension(
     if (angle !== 0) g(50, angle);
     g(100, "AcDbRotatedDimension");
   }
+
+  writeOverrides(g, radialOverrides(e, style));
+}
+
+/** A dimension's overrides of its style, as the extended data `ACAD`, `DSTYLE`. */
+function writeOverrides(g: Group, overrides: readonly (readonly [number, number])[]): void {
+  if (overrides.length === 0) return;
+  g(1001, "ACAD");
+  g(1000, "DSTYLE");
+  g(1002, "{");
+
+  for (const [code, value] of overrides) {
+    g(1070, code);
+
+    if (code === 50 || code === 40) g(1040, value);
+    else g(1070, value);
+  }
+
+  g(1002, "}");
 }
 
 /**
  * The overrides a radial dimension holds of what its style sets of it alone, by the group each
  * has in a dimension style: DIMJOGANG (50) in radians, and DIMTIH (73) and DIMTOH (74) for a level
- * text. A linear or an aligned dimension holds none.
+ * text. Another kind holds only its own scale.
  */
 export function radialOverrides(
   e: Dimension,
   style: DimensionStyle | undefined,
 ): (readonly [code: number, value: number])[] {
-  if (!isRadial(e) || style === undefined) return [];
-  const out: [number, number][] = [];
+  // A dimension's own scale, DIMSCALE (40), whatever its kind.
+  const own: [number, number][] = e.scale === undefined ? [] : [[40, e.scale]];
+
+  if (!isRadial(e) || style === undefined) return own;
+  const out: [number, number][] = own;
   const jog = style.jogAngle;
 
   if (

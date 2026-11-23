@@ -478,8 +478,22 @@ const ROLE_FIELDS = {
   description,
 } as const satisfies FieldsOf<TextRoleFieldsDocument>;
 
+/**
+ * The name of a firm's own style a role or a leader style stands for, which an edit of the firm's
+ * file uses as the file defines it. `Standard` is the file's own there.
+ */
+const firmStyleName: Node = string(
+  lazy(() => patterns.name()),
+  (name) => dimensionStyleNameProblem(name),
+);
+
 const ROLE = record<TextRoleDocument>("textRole", "a text role", {
   ...ROLE_FIELDS,
+  styleName: {
+    node: firmStyleName,
+    description:
+      "The name of the text style the role is in a firm's files. An edit of a firm's file that holds the style draws in it as the file defines it. Defaults to the role's id in capitals; Standard, which only an edit draws in",
+  },
   discipline,
   byDiscipline: byDiscipline(
     record<TextRoleFieldsDocument>(
@@ -733,6 +747,11 @@ const LEADER_FIELDS = {
 
 const LEADER_STYLE = record<LeaderStyleDocument>("leaderStyle", "a leader style", {
   ...LEADER_FIELDS,
+  styleName: {
+    node: firmStyleName,
+    description:
+      "The name of the multileader style the style is in a firm's files. An edit of a firm's file that holds the style draws in it as the file defines it. Defaults to the style's id in capitals; Standard, which only an edit draws in",
+  },
   discipline,
   byDiscipline: byDiscipline(
     record<LeaderStyleFieldsDocument>(

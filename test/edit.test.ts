@@ -52,7 +52,7 @@ test("an edit with no statements writes a DXF of the 2018 format back byte for b
   }
 });
 
-test("an edit refuses a stale hash, another format, a binary DXF and an addition", () => {
+test("an edit refuses a stale hash, another format, a binary DXF and additions without a read", () => {
   const bytes = bytesOf(toDXF(sheet));
 
   const refused = (b: Uint8Array, edit: Edit, pattern: RegExp) =>
@@ -95,7 +95,8 @@ test("an edit refuses a stale hash, another format, a binary DXF and an addition
     },
   });
 
-  refused(bytes, added, /no addition/);
+  // An addition needs the read of the file with geometry, which this read is not.
+  refused(bytes, added, /could not be checked/);
 
   // A list the definitions inherit is walked, as `checkEdit` walks it.
   const inherited = editOf(bytes, {
@@ -106,7 +107,7 @@ test("an edit refuses a stale hash, another format, a binary DXF and an addition
     },
   });
 
-  refused(bytes, inherited, /no addition/);
+  refused(bytes, inherited, /could not be checked/);
   refused(bytes, { ...editOf(bytes), name: "" }, /malformed/);
   assert.throws(
     () => editDXF(bytes, editOf(bytes), wrong({ sha256: "1".repeat(64) })),

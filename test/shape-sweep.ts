@@ -45,6 +45,7 @@ import { dataOf, fieldOf, isData, recordsIn, wrong, type Data, type Field } from
 const styled = {
   linetype: "DD",
   lineweight: 0.25,
+  linetypeScale: 2,
   color: [10, 200, 30],
   transparency: 50,
 } as const;
@@ -145,6 +146,7 @@ export const kinds = {
   },
   "linear-dimension": {
     kind: "linear-dimension",
+    scale: 2,
     view: "plan",
     color: 1,
     transparency: 40,
@@ -160,6 +162,7 @@ export const kinds = {
   },
   "aligned-dimension": {
     kind: "aligned-dimension",
+    scale: 2,
     view: "plan",
     color: [200, 100, 50],
     transparency: "ByLayer",
@@ -300,6 +303,7 @@ export const kinds = {
   },
   "radius-dimension": {
     kind: "radius-dimension",
+    scale: 2,
     view: "plan",
     color: 7,
     transparency: 90,
@@ -314,6 +318,7 @@ export const kinds = {
   },
   "diameter-dimension": {
     kind: "diameter-dimension",
+    scale: 2,
     view: "plan",
     color: [0, 0, 0],
     transparency: 25,
@@ -328,6 +333,7 @@ export const kinds = {
   },
   "jogged-radius-dimension": {
     kind: "jogged-radius-dimension",
+    scale: 2,
     view: "plan",
     color: 8,
     transparency: "ByBlock",
@@ -343,6 +349,7 @@ export const kinds = {
   },
   "arc-length-dimension": {
     kind: "arc-length-dimension",
+    scale: 2,
     view: "plan",
     color: "ByLayer",
     transparency: 10,
@@ -359,6 +366,7 @@ export const kinds = {
   },
   "angular-dimension": {
     kind: "angular-dimension",
+    scale: 2,
     view: "plan",
     color: 250,
     transparency: 75,
@@ -397,6 +405,7 @@ export const kinds = {
   },
   "ordinate-dimension": {
     kind: "ordinate-dimension",
+    scale: 2,
     view: "plan",
     color: [40, 160, 220],
     transparency: 50,
@@ -600,6 +609,7 @@ export const full: Required<Drawing> & {
       extensionOffset: 0.05,
       extensionBeyond: 0.1,
       textGap: 0.05,
+      lineExtension: 0.1,
       scale: 10,
       precision: 2,
       prefix: "L ",
@@ -628,6 +638,7 @@ export const full: Required<Drawing> & {
       extensionOffset: 0.05,
       extensionBeyond: 0.1,
       textGap: 0.05,
+      lineExtension: 0.1,
       scale: 10,
       precision: 4,
       prefix: "",

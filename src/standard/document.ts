@@ -163,6 +163,8 @@ export interface TextRoleFieldsDocument extends Commented {
 export interface TextRoleDocument extends TextRoleFieldsDocument {
   readonly font: string;
   readonly height: number;
+  /** The name of the role's text style in a firm's files. */
+  readonly styleName?: string;
   readonly discipline?: string;
   readonly byDiscipline?: { readonly [discipline: string]: TextRoleFieldsDocument };
 }
@@ -242,6 +244,8 @@ export interface LeaderStyleFieldsDocument extends Commented {
 
 export interface LeaderStyleDocument extends LeaderStyleFieldsDocument {
   readonly role: string;
+  /** The name of the multileader style in a firm's files. */
+  readonly styleName?: string;
   readonly arrowSize: number;
   readonly landing: number;
   readonly gap: number;
@@ -347,6 +351,8 @@ export interface StandardTextRoleFields {
 }
 
 export interface StandardTextRole {
+  /** The name of the role's text style in a firm's files, `Standard` among them. */
+  readonly styleName?: string;
   readonly font: Font;
   readonly height: number;
   readonly widthFactor: number;
@@ -440,6 +446,8 @@ export interface StandardLeaderStyleFields {
 }
 
 export interface StandardLeaderStyle {
+  /** The name of the multileader style in a firm's files, `Standard` among them. */
+  readonly styleName?: string;
   readonly role: string;
   readonly arrowhead: LeaderArrowhead;
   readonly arrowSize: number;

@@ -7,6 +7,7 @@ import { DxfDocumentReader, type DxfDocument } from "../read/document.ts";
 import { readDXFDocument } from "../read/dxf.ts";
 import { editDXF } from "./dxf.ts";
 import type { Edit } from "./model.ts";
+import { replacement, withReplacement, writesAdditions } from "./replaced.ts";
 import { editedRead } from "./edited.ts";
 import { lintEdit } from "./lint.ts";
 import { canonicalHandle } from "./model.ts";
@@ -29,12 +30,19 @@ export interface FileEditor {
    * holds a record an erasure changed to the source's less what it took out.
    */
   links(bytes: Uint8Array): ReadonlyMap<string, RecordLinks>;
+  /**
+   * The file's header as text, with the handle seed left out, which additions alone change of it:
+   * the check holds a copy's header to the source's but for its seed.
+   */
+  headerWithoutSeed?(bytes: Uint8Array): string;
 }
 
 /** What a record names: its owner, and every handle it refers to, its owner's among them. */
 export interface RecordLinks {
   readonly owner?: string;
   readonly references: readonly string[];
+  /** Its kind, such as `TABLE` or `BLOCK_RECORD`, where the editor tells it. */
+  readonly kind?: string;
   /** A dictionary's entries, each name's handle, so the check finds a text's fields. */
   readonly entries?: Readonly<Record<string, string>>;
 }
@@ -55,6 +63,18 @@ export interface EditCheck {
   readonly own?: number;
 }
 
+/**
+ * The records the additions change without naming anything new: a table's count, and the header
+ * and the class list a seed and a class are written into, by their kind or key.
+ */
+const ADDED_TO: ReadonlySet<string> = new Set([
+  "TABLE",
+  "#0",
+  "section AcDb:Header",
+  "section AcDb:Classes",
+  "section AcDb:AuxHeader",
+]);
+
 /** The most problems one check lists. */
 const MOST_PROBLEMS = 50;
 
@@ -63,13 +83,25 @@ const MOST_PROBLEMS = 50;
  * holds a handle an earlier one holds too, the handle and which repeat it is, so an erasure of
  * other records moves no key.
  */
-function keysOf(document: DxfDocument): string[] {
+function keysOf(document: DxfDocument, bytes: Uint8Array): string[] {
   const keys: string[] = [];
   const seen = new Map<string, number>();
   let unhandled = 0;
 
   for (let i = 0; i < document.count; i++) {
     const handle = document.handle(i);
+
+    // A class by its name, so one an addition writes moves no other record's key.
+    if (handle === undefined && document.names[document.kinds[i]!] === "CLASS") {
+      const start = document.starts[i]!;
+
+      const text = new TextDecoder("latin1").decode(
+        bytes.subarray(start, start + Math.min(document.length(i), 4096)),
+      );
+
+      keys.push(`CLASS:${/\n\s*1\r?\n([^\r\n]*)/.exec(text)?.[1]?.trim() ?? i}`);
+      continue;
+    }
 
     if (handle === undefined) {
       keys.push(`#${unhandled++}`);
@@ -90,13 +122,31 @@ export const dxfEditor: FileEditor = {
     (await readDXFDocument(bytes, { geometry: true, ...(only !== undefined && { only }) })).read,
   edit: editDXF,
   structure: dxfStructure,
+  headerWithoutSeed(bytes) {
+    const reader = new DxfDocumentReader();
+    reader.push(bytes);
+    const document = reader.end();
+
+    for (let i = 0; i < document.count; i++) {
+      const start = document.starts[i]!;
+
+      const text = new TextDecoder("latin1").decode(
+        bytes.subarray(start, start + document.length(i)),
+      );
+
+      if (/^\s*0\r?\n\s*SECTION\r?\n\s*2\r?\n\s*HEADER\r?\n/.test(text))
+        return text.replace(/(\n\s*9\r?\n\$HANDSEED\r?\n\s*5\r?\n)[^\r\n]*/, "$1");
+    }
+
+    return "";
+  },
   records(bytes) {
     // A record keyed by its handle, or by its place among the records with none.
     const out = new Map<string, Uint8Array>();
     const reader = new DxfDocumentReader();
     reader.push(bytes);
     const document = reader.end();
-    const keys = keysOf(document);
+    const keys = keysOf(document, bytes);
 
     for (let i = 0; i < document.count; i++) {
       const start = document.starts[i]!;
@@ -110,7 +160,7 @@ export const dxfEditor: FileEditor = {
     const reader = new DxfDocumentReader();
     reader.push(bytes);
     const document = reader.end();
-    const keys = keysOf(document);
+    const keys = keysOf(document, bytes);
 
     const names = dictionaryNames(bytes, document);
 
@@ -120,6 +170,7 @@ export const dxfEditor: FileEditor = {
       out.set(keys[i]!, {
         ...(owner !== undefined && { owner }),
         references: document.references(i).map((r) => r.handle),
+        kind: document.names[document.kinds[i]!] ?? "",
         ...(entries !== undefined && { entries }),
       });
     }
@@ -289,8 +340,16 @@ export function firstDifferenceNear(
  */
 const content = (read: DrawingRead): CopyContent => {
   const { sha256: _sha, bytes: _bytes, unread, otherFields: _fields, ...rest } = read;
+  // The seed and the handle of an edit's record depend on records the read does not list, such as
+  // an application's; the structure check holds every handle below the seed.
+  const { handseed: _seed, ...header } = rest.header;
 
-  return { ...rest, unread: { ...unread, malformed: {}, objects: {} } };
+  return {
+    ...rest,
+    header,
+    edits: (rest.edits ?? []).map(({ handle: _h, ...e }) => e),
+    unread: { ...unread, malformed: {}, objects: {} },
+  };
 };
 
 /**
@@ -462,7 +521,15 @@ export async function checkEditedCopy(
   const now = editor.records(written);
   const wasLinks = editor.links(source);
   const nowLinks = editor.links(written);
-  const may = allowed(read, edit, wasLinks);
+  // A later edit of the same name erases the earlier additions it replaces or drops, and writes
+  // each it replaces again under its handle.
+  const replaced = writesAdditions(read, edit) ? replacement(read, edit) : undefined;
+  const may = allowed(read, replaced ? withReplacement(edit, replaced) : edit, wasLinks);
+  const rewritten = new Set([...(replaced?.reuse.values() ?? [])].map(canonicalHandle));
+  // The record of the edit's name, which a later edit writes again.
+  const record = read.edits?.find((e) => e.name === edit.name)?.handle;
+
+  if (replaced !== undefined && record !== undefined) rewritten.add(canonicalHandle(record));
 
   // A record a moved one owns moves with it, as a 2D polyline's vertices do, and so does each
   // record of a moved picture.
@@ -476,6 +543,13 @@ export async function checkEditedCopy(
     return may.moved.has(o) || may.pictures.has(o) || may.changed.has(o);
   };
 
+  const adds = writesAdditions(read, edit);
+  const seed = read.header.handseed === undefined ? undefined : BigInt(`0x${read.header.handseed}`);
+
+  // A handle the additions gave: from the source's seed on.
+  const fromSeed = (h: string): boolean =>
+    adds && seed !== undefined && /^[0-9A-F]{1,16}$/.test(h) && BigInt(`0x${h}`) >= seed;
+
   for (const [key, bytes] of was) {
     if (problems.length >= MOST_PROBLEMS) break;
     const copy = now.get(key);
@@ -484,27 +558,53 @@ export async function checkEditedCopy(
       if (!may.gone.has(key))
         problems.push(`the record ${key} is gone, and the edit does not erase it`);
     } else if (may.gone.has(key)) {
-      problems.push(`the record ${key} is kept, and the edit erases it`);
+      if (!rewritten.has(key)) problems.push(`the record ${key} is kept, and the edit erases it`);
     } else if (
       !sameBytes(bytes, copy) &&
       !moves(key) &&
       !(may.visretain && key.startsWith("#") && sameButVisretain(bytes, copy))
     ) {
-      // A record an erasure reaches holds the source's references less what the erasure took.
-      const from = wasLinks.get(key)?.references ?? [];
-      const to = nowLinks.get(key)?.references ?? [];
+      // A record an erasure reaches holds the source's references less what the erasure took,
+      // and one the additions name holds them with what they added.
+      // A record written again under its handle is named as it was.
+      const again = (h: string): boolean => rewritten.has(canonicalHandle(h));
+      const from = (wasLinks.get(key)?.references ?? []).filter((h) => !again(h));
+
+      const to = (nowLinks.get(key)?.references ?? []).filter(
+        (h) => !fromSeed(canonicalHandle(h)) && !again(h),
+      );
+
+      const gained = (nowLinks.get(key)?.references.length ?? 0) > to.length;
       const less = from.filter((h) => !may.gone.has(canonicalHandle(h)));
       const same = less.length === to.length && less.every((h, i) => h === to[i]);
 
-      if (!same || less.length === from.length)
+      const counted =
+        adds &&
+        (ADDED_TO.has(key) || ADDED_TO.has(wasLinks.get(key)?.kind ?? "") || rewritten.has(key));
+
+      if (!same || (less.length === from.length && !gained && !counted))
         problems.push(`the record ${key} changed, and the edit does not change it`);
     }
   }
 
+  // The header but for its seed, unless a change of an xref's layer sets its `$VISRETAIN` too.
+  if (
+    adds &&
+    !may.visretain &&
+    editor.headerWithoutSeed !== undefined &&
+    editor.headerWithoutSeed(source) !== editor.headerWithoutSeed(written)
+  )
+    problems.push("the header changed past its $HANDSEED, and the edit does not change it");
+
   for (const key of now.keys()) {
     if (problems.length >= MOST_PROBLEMS) break;
 
-    if (!was.has(key)) problems.push(`the record ${key} is new, and the edit adds nothing`);
+    if (!was.has(key) && !fromSeed(key) && !(adds && key.startsWith("CLASS:")))
+      problems.push(
+        adds
+          ? `the record ${key} is new, and its handle is not one the additions give`
+          : `the record ${key} is new, and the edit adds nothing`,
+      );
   }
 
   // The records both hold come in the same order: a record keeps its place.
@@ -516,8 +616,9 @@ export async function checkEditedCopy(
     return keys;
   };
 
-  const sourceOrder = order(was, now);
-  const copyOrder = order(now, was);
+  // A record written again under its handle may be written last, as a DWG's are.
+  const sourceOrder = order(was, now).filter((k) => !rewritten.has(k));
+  const copyOrder = order(now, was).filter((k) => !rewritten.has(k));
   const moved = sourceOrder.findIndex((key, i) => copyOrder[i] !== key);
 
   if (moved >= 0 && problems.length < MOST_PROBLEMS)

@@ -1,6 +1,7 @@
 // `editedRead`: the read a file holds after an edit, as its readers would read the edited copy:
 // what the edit erases left out of its space, its census and its lists, and what it moves moved.
 // It is total and bounded: a statement it cannot make, which `lintEdit` refuses, changes nothing.
+import { CENSUS_LIMIT } from "../read/model.ts";
 import type {
   DrawingRead,
   ReadBlock,
@@ -21,11 +22,14 @@ import { changedEntity, changedLayer, changedViewport } from "./changed.ts";
 import {
   checkEdit,
   canonicalHandle,
+  EditError,
   type Edit,
   type EntityChanges,
   type LayerChanges,
   type ViewportChanges,
 } from "./model.ts";
+import { addedOf, readAdditionsFile, type Added, type AddedSpace } from "./added.ts";
+import { withReplacement, writesAdditions } from "./replaced.ts";
 import { handleProblem } from "./lint.ts";
 import {
   entityChangeProblems,
@@ -454,7 +458,216 @@ function blocks(
  * `lintEdit` refuses, is left out: so is an edit that is not one.
  */
 export function editedRead(read: DrawingRead, edit: Edit): DrawingRead {
-  if (checkEdit(edit).length > 0 || edit.statements.length === 0) return read;
+  if (checkEdit(edit).length > 0) return read;
+
+  if (!writesAdditions(read, edit)) return statementsRead(read, edit);
+  let added: Added;
+
+  try {
+    added = addedOf(read, edit, readAdditionsFile(read));
+  } catch (error) {
+    // An addition the writers refuse, which `lintEdit` reports, is left out.
+    if (error instanceof EditError) return statementsRead(read, edit);
+    throw error;
+  }
+
+  const stated = statementsRead(read, withReplacement(edit, added.replaced));
+
+  return withAdditions(stated, edit, added, read);
+}
+
+/**
+ * A list of what `was` holds, after an edit made `now` of it: each item `now` keeps where it was,
+ * each of `placed` in the place of the one of its handle, and each other of `added` last.
+ */
+function inPlace<T>(
+  was: readonly T[],
+  now: readonly T[],
+  added: readonly T[],
+  handleOf: (item: T) => string | undefined,
+  placed: ReadonlySet<string>,
+): T[] {
+  const key = (item: T): string | undefined => {
+    const h = handleOf(item);
+
+    return h === undefined ? undefined : canonicalHandle(h);
+  };
+
+  const kept = new Map<string, T>();
+  const unkeyed: T[] = [];
+
+  for (const item of now) {
+    const k = key(item);
+
+    if (k === undefined) unkeyed.push(item);
+    else kept.set(k, item);
+  }
+
+  const replacing = new Map<string, T>();
+  const last: T[] = [];
+
+  for (const item of added) {
+    const k = key(item);
+
+    if (k !== undefined && placed.has(k)) replacing.set(k, item);
+    else last.push(item);
+  }
+
+  if (replacing.size === 0) return [...now, ...last];
+  const out: T[] = [];
+
+  for (const item of was) {
+    const k = key(item);
+
+    if (k === undefined) continue;
+    const put = replacing.get(k) ?? kept.get(k);
+
+    if (put !== undefined) out.push(put);
+    kept.delete(k);
+  }
+
+  // What the edit kept that the source did not hold where this walk sees it, in its order.
+  return [...out, ...kept.values(), ...unkeyed, ...last];
+}
+
+/** The counts of a census and of another added to it, and the lists of both, the first first. */
+function censusPlus(a: ReadCensus, b: ReadCensus): ReadCensus {
+  const layers = new Map<string, ReadLayerCensus>(Object.entries(a.layers));
+
+  for (const [name, row] of Object.entries(b.layers)) {
+    const was = layers.get(name);
+
+    if (was === undefined) {
+      layers.set(name, row);
+      continue;
+    }
+
+    const kinds = { ...was.kinds };
+
+    for (const [k, n] of Object.entries(row.kinds)) kinds[k] = (kinds[k] ?? 0) + n;
+    const lineweights = { ...was.lineweights };
+
+    for (const [k, n] of Object.entries(row.lineweights))
+      lineweights[k] = (lineweights[k] ?? 0) + n;
+    layers.set(name, {
+      kinds,
+      ownColor: was.ownColor + row.ownColor,
+      ownLinetype: was.ownLinetype + row.ownLinetype,
+      ownLineweight: was.ownLineweight + row.ownLineweight,
+      lineweights,
+    });
+  }
+
+  const room = (list: readonly unknown[]): number => Math.max(0, CENSUS_LIMIT - list.length);
+
+  return {
+    layers: Object.fromEntries(layers),
+    texts: [...a.texts, ...b.texts.slice(0, room(a.texts))],
+    dimensions: [...a.dimensions, ...b.dimensions.slice(0, room(a.dimensions))],
+    inserts: [...a.inserts, ...b.inserts.slice(0, room(a.inserts))],
+    counts: {
+      texts: a.counts.texts + b.counts.texts,
+      dimensions: a.counts.dimensions + b.counts.dimensions,
+      inserts: a.counts.inserts + b.counts.inserts,
+    },
+    capped:
+      a.capped ||
+      b.capped ||
+      a.texts.length + b.texts.length > CENSUS_LIMIT ||
+      a.dimensions.length + b.dimensions.length > CENSUS_LIMIT ||
+      a.inserts.length + b.inserts.length > CENSUS_LIMIT,
+  };
+}
+
+/**
+ * A space with an edit's additions drawn last in it, but for each that replaces an earlier one,
+ * which takes its place. `was` is the space as the source held it.
+ */
+function spacePlus<S extends ReadSpace>(
+  s: S,
+  was: S,
+  added: AddedSpace | undefined,
+  placed: ReadonlySet<string>,
+): S {
+  if (added === undefined) return s;
+  const handles = added.entities.flatMap((e) => (e.handle === undefined ? [] : [e.handle]));
+  const census = censusPlus(s.census, added.census);
+
+  const byHandle = <T extends { readonly handle?: string | undefined }>(
+    from: readonly T[],
+    now: readonly T[],
+    more: readonly T[],
+  ): T[] => inPlace(from, now, more, (x) => x.handle, placed);
+
+  return {
+    ...s,
+    census: {
+      ...census,
+      texts: byHandle(was.census.texts, s.census.texts, added.census.texts),
+      dimensions: byHandle(was.census.dimensions, s.census.dimensions, added.census.dimensions),
+      inserts: byHandle(was.census.inserts, s.census.inserts, added.census.inserts),
+    },
+    ...(s.entities !== undefined && {
+      entities: byHandle(was.entities ?? [], s.entities, added.entities),
+    }),
+    ...(s.drawOrder !== undefined && {
+      drawOrder: inPlace(was.drawOrder ?? [], s.drawOrder, handles, (h) => h, placed),
+    }),
+  };
+}
+
+/** The read with an edit's additions: in their spaces, their definitions and the edit's record. */
+function withAdditions(
+  read: DrawingRead,
+  edit: Edit,
+  added: Added,
+  source: DrawingRead,
+): DrawingRead {
+  const placed = new Set([...added.replaced.reuse.values()].map(canonicalHandle));
+
+  const of = (layout: string | undefined): AddedSpace | undefined =>
+    added.spaces.find(
+      (s) =>
+        (s.layout === undefined) === (layout === undefined) &&
+        (layout === undefined || layerKey(s.layout!) === layerKey(layout)),
+    );
+
+  const record = { name: edit.name, additions: added.record };
+  const kept = (read.edits ?? []).filter((e) => e.name !== edit.name);
+  const old = read.edits?.find((e) => e.name === edit.name);
+
+  return {
+    ...read,
+    header: { ...read.header, handseed: added.plan.handseed.toString(16).toUpperCase() },
+    layers: [...read.layers, ...added.layers],
+    linetypes: [...read.linetypes, ...added.linetypes],
+    textStyles: [...read.textStyles, ...added.textStyles],
+    dimensionStyles: [...read.dimensionStyles, ...added.dimensionStyles],
+    ...((read.leaderStyles !== undefined || added.leaderStyles.length > 0) && {
+      leaderStyles: [...(read.leaderStyles ?? []), ...added.leaderStyles],
+    }),
+    tableStyles: [...read.tableStyles, ...added.tableStyles],
+    blocks: [...read.blocks, ...added.blocks],
+    model: spacePlus(read.model, source.model, of(undefined), placed),
+    layouts: read.layouts.map((l, i) => {
+      const a = of(l.name);
+
+      if (a === undefined) return l;
+      const plus = spacePlus(l, source.layouts[i] ?? l, a, placed);
+
+      const inserts = a.entities.flatMap((e) =>
+        e.kind === "insert" ? [(({ attributes: _, ...rest }) => rest)(e)] : [],
+      );
+
+      return { ...plus, inserts: [...l.inserts, ...inserts] };
+    }),
+    edits: [...kept, old?.handle === undefined ? record : { ...record, handle: old.handle }],
+  };
+}
+
+/** The read with the edit's statements made: what it erases left out and what it moves moved. */
+function statementsRead(read: DrawingRead, edit: Edit): DrawingRead {
+  if (edit.statements.length === 0) return read;
   const index = indexRead(read);
   const reach = editReach(edit, index);
   const erased = new Set<string>();

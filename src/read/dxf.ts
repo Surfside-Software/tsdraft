@@ -27,6 +27,7 @@ import {
   type PendingStart,
 } from "./entities.ts";
 import { GroupReader, textTwice, unescaped } from "./groups.ts";
+import { MARK_APP, recordAdditions } from "./mark.ts";
 import { TableGroups, tableStyleOf, type TableStyleHeld } from "./table.ts";
 import { OUTSIDE_THE_READ, partFilter, type PartFilter } from "./part.ts";
 import {
@@ -72,6 +73,7 @@ import {
   type ReadLayer,
   type ReadLayerCensus,
   type ReadLayout,
+  type ReadLeaderStyle,
   type ReadLinetype,
   type ReadLinetypeMark,
   type ReadMultileader,
@@ -97,6 +99,11 @@ export function readDXF(
   options: ReadOptions = {},
 ): Promise<DrawingRead> {
   return readDXFWithin(input, options, READ_LIMITS);
+}
+
+/** The read of a DXF held whole, in the caller's turn: what an edit reads of its additions. */
+export function readDXFNow(input: string | Uint8Array, options: ReadOptions = {}): DrawingRead {
+  return once(input, options, READ_LIMITS, undefined).read;
 }
 
 /** The most a read keeps of each list, which `readDXFWithin` takes so a test can reach each. */
@@ -465,6 +472,18 @@ type DimensionStyleDraft = Mutable<ReadDimensionStyle> & {
   arrowheadHandle?: string;
 };
 
+/** Fields of a dimension style a DXF leaves out at their default, with their group and default. */
+const DIMENSION_DEFAULTS: readonly (readonly [DimensionNumber, number, number])[] = [
+  ["extensionOffset", 42, 0.0625],
+  ["extensionBeyond", 44, 0.18],
+  ["textGap", 147, 0.09],
+  ["lineExtension", 46, 0],
+  ["zeros", 78, 0],
+  ["textLevelInside", 73, 1],
+  ["textLevelOutside", 74, 1],
+  ["lineInside", 172, 0],
+];
+
 /** The fields of a dimension style that hold a number. */
 type DimensionNumber = {
   [K in keyof ReadDimensionStyle]-?: NonNullable<ReadDimensionStyle[K]> extends number ? K : never;
@@ -585,6 +604,7 @@ interface LayoutDraft {
   plotter?: string;
   paperSize?: readonly [number, number];
   paperUnits?: number;
+  plotScale?: number;
   plotStyleTable?: string;
   plotRotation: number;
 }
@@ -606,6 +626,7 @@ const HEADER = new Set([
   "$CLAYER",
   "$TILEMODE",
   "$ACADVER",
+  "$HANDSEED",
 ]);
 
 /** An insert whose attributes follow it, up to its `SEQEND`. */
@@ -721,6 +742,20 @@ class DxfReader {
   #leaderStyleDictionary: string | undefined;
   /** Each leader style's name, by its handle. */
   readonly leaderStyles = new Map<string, string>();
+  /** The dictionary `TSDRAFT` of the named object dictionary, its entries, and their records. */
+  #editDictionary: string | undefined;
+  #rootDictionary: string | undefined;
+  readonly #editEntries: (readonly [name: string, handle: string])[] = [];
+  readonly #editRecords = new Map<string, ReturnType<typeof recordAdditions>>();
+  /** Each multileader style's sizes, by its handle, and the handles of what it names. */
+  readonly #leaderStyleObjects = new Map<
+    string,
+    {
+      readonly textStyleHandle: string | undefined;
+      readonly arrowheadHandle: string | undefined;
+      readonly style: Omit<ReadLeaderStyle, "handle" | "name" | "textStyle" | "arrowheadBlock">;
+    }
+  >();
   /** The dictionary of table styles, which the root dictionary names, and its entries in its order. */
   #tableStyleDictionary: string | undefined;
   readonly #tableStyleEntries: (readonly [name: string, handle: string])[] = [];
@@ -921,6 +956,8 @@ class DxfReader {
           type === "DICTIONARYVAR" ||
           type === "SORTENTSTABLE" ||
           type === "TABLESTYLE" ||
+          type === "MLEADERSTYLE" ||
+          type === "XRECORD" ||
           type === "SPATIAL_FILTER"
           ? ALL
           : NOTHING;
@@ -1104,6 +1141,10 @@ class DxfReader {
 
           if (n !== undefined) style[field] = n;
         }
+
+        // A DXF leaves out each of these at the value its record takes by default, which the
+        // DWG holds.
+        for (const [field, code, plain] of DIMENSION_DEFAULTS) style[field] = num(r, code) ?? plain;
 
         const suffix = name(r, 3);
 
@@ -1848,6 +1889,8 @@ class DxfReader {
         const handle = handleAt(r, 5);
 
         if (handle === undefined) return;
+        // The first dictionary of the section is the named object dictionary.
+        this.#rootDictionary ??= handle;
         let entries: Record<string, string> | undefined;
         // The dictionary of leader styles names each by its name.
         const styles = handle === this.#leaderStyleDictionary;
@@ -1875,7 +1918,12 @@ class DxfReader {
           ) {
             entries ??= {};
             entries[key] = value;
-          } else if (key === "ACAD_MLEADERSTYLE") this.#leaderStyleDictionary ??= value;
+          } else if (handle === this.#editDictionary) {
+            if (this.#editEntries.length < this.#limits.census)
+              this.#editEntries.push([unescaped(key), value.toUpperCase()]);
+          } else if (key === MARK_APP && handle === this.#rootDictionary)
+            this.#editDictionary ??= value.toUpperCase();
+          else if (key === "ACAD_MLEADERSTYLE") this.#leaderStyleDictionary ??= value;
           else if (key === "ACAD_TABLESTYLE") this.#tableStyleDictionary ??= value;
           else if (key === "ACAD_IMAGE_DICT") this.#imageDictionary ??= value;
           else if (key === "ACAD_PDFDEFINITIONS") this.#underlayDictionary ??= value;
@@ -1957,6 +2005,47 @@ class DxfReader {
         return;
       }
 
+      case "XRECORD": {
+        const handle = handleAt(r, 5)?.toUpperCase();
+        const owner = ownerOf(r)?.toUpperCase();
+
+        if (handle === undefined || owner === undefined || owner !== this.#editDictionary) return;
+
+        if (this.#editRecords.size < this.#limits.census)
+          this.#editRecords.set(
+            handle,
+            recordAdditions(r.codes.map((code, i) => ({ code, value: r.values[i] }))),
+          );
+
+        return;
+      }
+
+      case "MLEADERSTYLE": {
+        const handle = handleAt(r, 5);
+
+        if (handle === undefined || this.#leaderStyleObjects.size >= this.#limits.census) return;
+        const key = handle.toUpperCase();
+        const at = (code: number, plain: number): number => num(r, code) ?? plain;
+
+        if (!this.#leaderStyleObjects.has(key))
+          this.#leaderStyleObjects.set(key, {
+            textStyleHandle: handleAt(r, 342),
+            arrowheadHandle: handleAt(r, 341),
+            style: {
+              textHeight: at(45, 0.18),
+              arrowSize: at(44, 0.18),
+              landing: at(43, 0.36),
+              gap: at(42, 0.09),
+              scale: at(142, 1),
+              attachment: at(174, 1),
+              frame: at(292, 0) !== 0,
+              direction: at(271, 0),
+            },
+          });
+
+        return;
+      }
+
       case "TABLESTYLE": {
         const handle = handleAt(r, 5);
 
@@ -2033,6 +2122,13 @@ class DxfReader {
         const layout = inSubclass(r, "AcDbLayout");
         const width = num(plot, 44);
         const height = num(plot, 45);
+        const [paperUnits, drawingUnits] = [num(plot, 142), num(plot, 143)];
+
+        const plotScale =
+          paperUnits !== undefined && drawingUnits !== undefined && drawingUnits > 0
+            ? paperUnits / drawingUnits
+            : undefined;
+
         this.layouts.push({
           handle: handleAt(r, 5),
           name: name(layout, 1) ?? "",
@@ -2042,6 +2138,7 @@ class DxfReader {
           ...(first(plot, 2) !== undefined && { plotter: name(plot, 2)! }),
           ...(width !== undefined && height !== undefined && { paperSize: [width, height] }),
           ...(num(plot, 72) !== undefined && { paperUnits: num(plot, 72)! }),
+          ...(plotScale !== undefined && Number.isFinite(plotScale) && { plotScale }),
           ...(Boolean(first(plot, 7)) && { plotStyleTable: name(plot, 7)! }),
           plotRotation: num(plot, 73) ?? 0,
         });
@@ -2086,6 +2183,10 @@ class DxfReader {
     if (h.$DIMSTYLE !== undefined) header.dimstyle = unescaped(h.$DIMSTYLE);
 
     if (h.$TEXTSTYLE !== undefined) header.textstyle = unescaped(h.$TEXTSTYLE);
+    const seed = h.$HANDSEED?.trim();
+
+    if (seed !== undefined && /^[0-9A-Fa-f]{1,16}$/.test(seed))
+      header.handseed = seed.replace(/^0+(?=.)/, "").toUpperCase();
 
     if (h.$CLAYER !== undefined) header.clayer = unescaped(h.$CLAYER);
 
@@ -2409,6 +2510,12 @@ class DxfReader {
       linetypes: withMarks(this.linetypes, this.#marked, this.#stylesByHandle),
       textStyles: this.textStyles,
       dimensionStyles,
+      leaderStyles: this.#leaderStylesRead(styleNames),
+      edits: this.#editEntries.flatMap(([name, handle]) => {
+        const additions = this.#editRecords.get(handle);
+
+        return additions === undefined ? [] : [{ name, handle, additions }];
+      }),
       blocks: this.blocks.map((draft): ReadBlock => {
         const { block: _, ...block } = draft;
         const sorted = order(block.entities, block.name);
@@ -2563,6 +2670,35 @@ class DxfReader {
     }
 
     for (const target of targets) target.entities = target.entities.filter((e) => !left.has(e));
+  }
+
+  /** The multileader styles the dictionary of them names, in its order, with their sizes. */
+  #leaderStylesRead(styleNames: ReadonlyMap<string, string>): ReadLeaderStyle[] {
+    const out: ReadLeaderStyle[] = [];
+
+    for (const [handle, name] of this.leaderStyles) {
+      const held = this.#leaderStyleObjects.get(handle.toUpperCase());
+
+      if (held === undefined) continue;
+
+      const textStyle =
+        held.textStyleHandle === undefined ? undefined : styleNames.get(held.textStyleHandle);
+
+      const arrowhead =
+        held.arrowheadHandle === undefined
+          ? undefined
+          : this.blockRecords.get(held.arrowheadHandle);
+
+      out.push({
+        handle,
+        name,
+        ...(textStyle !== undefined && { textStyle }),
+        ...(arrowhead !== undefined && { arrowheadBlock: arrowhead }),
+        ...held.style,
+      });
+    }
+
+    return out;
   }
 
   /**

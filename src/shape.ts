@@ -320,7 +320,11 @@ function meant(key: string, known: readonly string[]): string | undefined {
     );
 
   const one = away(1);
-  const short = only(named.flatMap(([name, lower]) => (shortens(typed, lower) ? [name] : [])));
+  // Of fields it shortens, one that begins each of the others is the one meant: `linetype` of
+  // `linetype` and `linetypeScale`.
+  const shortened = named.flatMap(([name, lower]) => (shortens(typed, lower) ? [name] : []));
+  const root = shortened.find((n) => shortened.every((m) => m.startsWith(n)));
+  const short = root ?? only(shortened);
 
   if (one !== undefined && short !== undefined && one !== short) return undefined;
 
@@ -596,6 +600,7 @@ function formChecks(all: boolean, typed = all): FormChecks {
     transparency: ruled(numberOrName),
     linetype: ruled(string),
     lineweight: ruled(numberOrName),
+    linetypeScale: ruled(number),
   } as const;
 
   const justified = { style: ruled(string), align: ruled(string), valign: ruled(string) } as const;
@@ -686,6 +691,7 @@ function formChecks(all: boolean, typed = all): FormChecks {
         color: ruled(entityColor),
         transparency: ruled(numberOrName),
         view: string,
+        scale: number,
         angle: number,
         text: ruled(string),
         textBelow: ruled(string),
@@ -698,6 +704,7 @@ function formChecks(all: boolean, typed = all): FormChecks {
         color: ruled(entityColor),
         transparency: ruled(numberOrName),
         view: string,
+        scale: number,
         text: ruled(string),
         textBelow: ruled(string),
       },
@@ -709,6 +716,7 @@ function formChecks(all: boolean, typed = all): FormChecks {
         color: ruled(entityColor),
         transparency: ruled(numberOrName),
         view: string,
+        scale: number,
         text: ruled(string),
         textBelow: ruled(string),
         textFromCenter: number,
@@ -721,6 +729,7 @@ function formChecks(all: boolean, typed = all): FormChecks {
         color: ruled(entityColor),
         transparency: ruled(numberOrName),
         view: string,
+        scale: number,
         text: ruled(string),
         textBelow: ruled(string),
         textFromCenter: number,
@@ -733,6 +742,7 @@ function formChecks(all: boolean, typed = all): FormChecks {
         color: ruled(entityColor),
         transparency: ruled(numberOrName),
         view: string,
+        scale: number,
         text: ruled(string),
         textBelow: ruled(string),
       },
@@ -753,6 +763,7 @@ function formChecks(all: boolean, typed = all): FormChecks {
         color: ruled(entityColor),
         transparency: ruled(numberOrName),
         view: string,
+        scale: number,
         text: ruled(string),
         textBelow: ruled(string),
       },
@@ -772,6 +783,7 @@ function formChecks(all: boolean, typed = all): FormChecks {
         color: ruled(entityColor),
         transparency: ruled(numberOrName),
         view: string,
+        scale: number,
         text: ruled(string),
         textBelow: ruled(string),
       },
@@ -791,6 +803,7 @@ function formChecks(all: boolean, typed = all): FormChecks {
         color: ruled(entityColor),
         transparency: ruled(numberOrName),
         view: string,
+        scale: number,
         text: ruled(string),
         textBelow: ruled(string),
       },
@@ -1020,6 +1033,7 @@ function formChecks(all: boolean, typed = all): FormChecks {
         textStyle: ruled(string),
         arrowhead: ruled(string),
         scale: ruled(number),
+        lineExtension: ruled(number),
         prefix: ruled(string),
         suffix: ruled(string),
         units: ruled(string),

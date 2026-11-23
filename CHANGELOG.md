@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- An edit adds. `e.model(draw)` and `e.layout(name, draw)` give the drawing builder over the file's
+  own layers, styles and blocks, in the file's or the layout's units: a name the file holds is the
+  file's, used as the file defines it, and another definition of it is refused with the new rule
+  `file-definition`. `editDXF`, and an editor of another format, writes each addition with a handle
+  counted from the file's `$HANDSEED` and a mark, extended data under `TSDRAFT` that holds the
+  edit's name, the addition's id, its handle and `markHash` of what it held, and keeps a record of
+  the edit's additions in the dictionary `TSDRAFT`. A later edit of the same name writes an
+  unchanged addition over itself, in place and with its handle, erases one it drops, all of them
+  when it adds none, and is refused
+  where a person changed or erased one, `edit-mark-changed` and `edit-mark-erased`.
+  `markUnchanged`, `replacement` and `withReplacement` say what a later edit sees. `lintEdit`
+  refuses what the writers cannot add, an image or an underlay among them for now, and warns, `edit-addition-layer`, of an addition on a layer
+  that hides it or does not plot it. The preview draws what an edit adds.
+- An entity's own `linetypeScale`, group 48, a dimension's own `scale`, `DIMSCALE`, written as its
+  override of its style's, and a dimension style's `lineExtension`, `DIMDLE`, which defaults to
+  the arrow size as before.
+- Under a standard, a text role and a leader style take `styleName`, the name of the firm's style
+  it stands for, which an edit of a file that holds it draws in.
+- The read holds more of what an edit needs: each entity's `mark`, the file's `edits`, the
+  header's `handseed`, the multileader styles, `leaderStyles`, a layout's `plotScale`, and of a
+  dimension style its `extensionOffset`, `extensionBeyond`, `textGap`, `lineExtension`, `zeros`,
+  `textLevelInside`, `textLevelOutside` and `lineInside`.
 - An edit changes texts and properties in place: `e.change(handle, changes)` gives a text, a
   paragraph or an insert's attributes by tag a whole value or one replacement, keeping every
   format it does not replace, a text a height and paragraph text a width, and any entity its own
