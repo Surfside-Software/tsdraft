@@ -338,6 +338,13 @@ gap on paper into drawing units. On the sheet and in a block, a text with a role
 height and names no view. Under a standard every text names a role: a `height`, a `style` and
 `textStyle()` are refused. `sitePlan("1in-20ft")` draws the sheet at 1" = 20'.
 
+Each drawing on a sheet is a view of its own, with a viewport of its own, even two at one scale,
+such as a south and an east elevation. A viewport shows everything model space draws inside its
+window, so draw each view in a part of model space of its own, far enough from the others that no
+viewport takes in another's drawing. The command warns `viewport-shows-other-view` of a note, a
+symbol, a dimension or a leader that a viewport of another view shows at the same scale; at
+another scale, the checks of scale report it as an error.
+
 Its layout is on a sheet format of the standard, `d.layout("C-101", { sheetFormat: "arch-d" },
 (sheet) => …)`, which gives the paper, the title block and the zones the sheet is laid out by:
 `sheet.zone("views")` is the box the viewport fills, as `{ left, bottom, right, top, width,

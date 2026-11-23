@@ -254,7 +254,11 @@ the standard's, and `fields` holds the values of title block fields the drawing'
 - **Views.** `const plan = d.view("plan", { scale: "1in-10ft" })` declares a view at a scale of
   the standard. `plan.paper(length)` turns a length on paper into drawing units at its scale. One
   viewport shows it, `sheet.viewport(corner, width, height, { view: plan, center })`, and takes
-  its id and ratio.
+  its id and ratio. Two drawings on one sheet at one scale, such as two elevations, are two views,
+  each in a part of model space of its own: a viewport shows all that model space draws inside
+  its window. A text, an insert, a dimension or a leader drawn for a view keeps the view's id in
+  its `view`, which the writers leave out, and `lint` warns `viewport-shows-other-view` of one that
+  a viewport of another view shows at the same scale.
 - **Inserts.** An insert in model space of a block drawn in paper units, such as a symbol whose
   texts have roles, names the view, `d.insert(name, at, { view: plan })`, and is scaled to plot
   at its size. An insert of any other block takes `scale`.

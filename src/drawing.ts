@@ -515,6 +515,19 @@ interface Placed {
   readonly transparency?: EntityTransparency;
 }
 
+/**
+ * What an annotation of model space holds of the view it was drawn for: a text, a paragraph, an
+ * insert, a dimension or a leader that names a view under a standard.
+ */
+interface Viewed {
+  /**
+   * The id of the view the builder drew it for, which `view()` declared and the viewport that
+   * shows the view takes. The writers write nothing for it. Under a standard, `lint` warns of a
+   * viewport of another view that shows it at the same scale.
+   */
+  readonly view?: string;
+}
+
 interface EntityBase extends Placed {
   /** A linetype of the drawing, `"Continuous"`, `"ByBlock"` or `"ByLayer"`, the default. */
   readonly linetype?: string;
@@ -671,7 +684,7 @@ export type TextAlign = (typeof TEXT_ALIGNS)[number];
  */
 export type TextVerticalAlign = (typeof TEXT_VERTICAL_ALIGNS)[number];
 
-export interface Text extends EntityBase {
+export interface Text extends EntityBase, Viewed {
   readonly kind: "text";
   /**
    * The point `align` and `valign` justify the text to: with their defaults, the left end of
@@ -708,7 +721,7 @@ export type LineSpacingStyle = (typeof LINE_SPACING_STYLES)[number];
  * app's inline codes, such as `\L` for an underline and `\S1/2;` for a stacked fraction, which
  * `parseParagraph` reads. R2018 only.
  */
-export interface Paragraph extends EntityBase {
+export interface Paragraph extends EntityBase, Viewed {
   readonly kind: "paragraph";
   /** The point of its box `align` and `valign` name: with their defaults, its upper left corner. */
   readonly at: Point;
@@ -741,7 +754,7 @@ export interface Paragraph extends EntityBase {
  * block's base point, and carries a value for each of the block's attribute definitions. An
  * insert of an xref places the file the xref names the same way, and sets no attributes.
  */
-export interface Insert extends Placed {
+export interface Insert extends Placed, Viewed {
   readonly kind: "insert";
   /** A block or an xref of the drawing. */
   readonly block: string;
@@ -759,7 +772,7 @@ export interface Insert extends Placed {
 }
 
 /** What a linear and an aligned dimension share. */
-interface DimensionBase extends Placed {
+interface DimensionBase extends Placed, Viewed {
   /** A dimension style of the drawing. */
   readonly style: string;
   /** The first point it measures from, which its first extension line starts at. */
@@ -808,7 +821,7 @@ export interface AlignedDimension extends DimensionBase {
 }
 
 /** What a radius, a diameter and a jogged radius dimension have. */
-interface RadialDimensionBase extends Placed {
+interface RadialDimensionBase extends Placed, Viewed {
   /** A dimension style of the drawing. */
   readonly style: string;
   /** The center of the circle or arc it measures. */
@@ -867,7 +880,7 @@ export interface JoggedRadiusDimension extends RadialDimensionBase {
  * means nothing. Its extension lines run from near `from` and `to` along their lines to past the
  * arc, and its text stands at the middle of the arc.
  */
-export interface AngularDimension extends Placed {
+export interface AngularDimension extends Placed, Viewed {
   readonly kind: "angular-dimension";
   /** A dimension style of the drawing. */
   readonly style: string;
@@ -890,7 +903,7 @@ export interface AngularDimension extends Placed {
  * right angle its extension lines run parallel to the arc's bisector; from one up they run along
  * radii. The arc symbol stands before its text, above it or nowhere, as its style says.
  */
-export interface ArcLengthDimension extends Placed {
+export interface ArcLengthDimension extends Placed, Viewed {
   readonly kind: "arc-length-dimension";
   /** A dimension style of the drawing. */
   readonly style: string;
@@ -912,7 +925,7 @@ export interface ArcLengthDimension extends Placed {
  * Y for `"x"` and along X for `"y"`, and jogs where `leaderEnd` is off that line. The distance has
  * no sign, so features either side of the origin read alike.
  */
-export interface OrdinateDimension extends Placed {
+export interface OrdinateDimension extends Placed, Viewed {
   readonly kind: "ordinate-dimension";
   /** A dimension style of the drawing. */
   readonly style: string;
@@ -962,7 +975,7 @@ export type TextMask = boolean | { readonly color?: number; readonly offsetFacto
  * ends a gap short of the note. A note on the right is justified left, one on the left justified
  * right, and the landing meets the middle of its first line's capitals, or of its last line's.
  */
-export interface Leader extends Placed {
+export interface Leader extends Placed, Viewed {
   readonly kind: "leader";
   /** A leader style of the drawing. */
   readonly style: string;
@@ -7029,6 +7042,19 @@ export class DrawingBuilder<
     return { ...entry, ...entry.byDiscipline[discipline!] };
   }
 
+  /**
+   * The id of the view an annotation of model space was drawn for, under a standard, which the
+   * entity keeps. `make` has refused a view that this drawing did not declare, or that names a
+   * block or a layout.
+   */
+  #viewOf(options: EntityOptions): { readonly view?: string } {
+    const view: unknown = (options as { readonly view?: unknown }).view;
+    if (view === undefined || !this.#standard || this.#open || this.#sheet) return {};
+    const id: unknown = (view as { readonly id?: unknown } | null)?.id;
+    const shown = typeof id === "string" ? this.#views.get(idKey(id)) : undefined;
+    return shown?.view === view ? { view: shown.view.id } : {};
+  }
+
   /** The view `view()` of this drawing returned, or a refusal under `rule`. */
   #declared(view: unknown, rule: LintRule): Shown {
     const id: unknown = (view as { readonly id?: unknown } | null | undefined)?.id;
@@ -7052,7 +7078,14 @@ export class DrawingBuilder<
       // Before `make`, which takes a dimension's handles.
       const color = this.#color(o);
       const transparency = this.#transparency(o);
-      const made = { ...make(), ...named, ...this.#style(o), ...color, ...transparency } as Entity;
+      const made = {
+        ...make(),
+        ...named,
+        ...this.#viewOf(o),
+        ...this.#style(o),
+        ...color,
+        ...transparency,
+      } as Entity;
       (this.#open ?? this.#sheet ?? { entities: this.#entities }).entities.push(made);
       if (this.#open && this.#drawsRoles(made, o)) this.#open.roles = true;
       if (key !== undefined) {
@@ -7506,21 +7539,27 @@ function titleBlockValues(
   return values;
 }
 
-/** The id and the color among the options of a dimension, which have no linetype or lineweight to take. */
+/**
+ * The id, the color, the transparency and the view among the options of a dimension or a leader,
+ * which have no linetype or lineweight to take.
+ */
 function idOf(options: unknown): {
   readonly id?: unknown;
   readonly color?: unknown;
   readonly transparency?: unknown;
+  readonly view?: unknown;
 } {
-  const { id, color, transparency } = (options ?? {}) as {
+  const { id, color, transparency, view } = (options ?? {}) as {
     id?: unknown;
     color?: unknown;
     transparency?: unknown;
+    view?: unknown;
   };
   return {
     ...(id === undefined ? {} : { id }),
     ...(color === undefined ? {} : { color }),
     ...(transparency === undefined ? {} : { transparency }),
+    ...(view === undefined ? {} : { view }),
   };
 }
 

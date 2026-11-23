@@ -419,6 +419,13 @@ Warnings:
   does not set, so it shows its attribute's default.
 - `title-block-field-overflow`: a field's value that runs past the field's box, as `measureText`
   measures it.
+- `viewport-shows-other-view`: a text, an insert, a dimension or a leader drawn for one view
+  that a viewport of another view shows at the same scale, once for each viewport. It plots at its
+  size there, so no check of scale finds it: two elevations at one scale whose drawings are too
+  close in model space, or a plan's notes in a furniture plan's viewport. The builder keeps the
+  view an annotation was drawn for in its `view`, and an entity without one is not checked. Keep
+  each view's drawing in its own part of model space, out of the other's viewport, or freeze the
+  layer in that viewport where it is meant to show there.
 - `discipline-unknown`: the entries with fields by discipline that `lint` checked in none of
   their forms, since it was not given the drawing's discipline.
 - `standard-check-capped`: where the checks of text heights and dimension scales, or of a list

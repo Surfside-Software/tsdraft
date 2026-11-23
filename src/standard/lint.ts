@@ -1053,6 +1053,7 @@ export function lintStandard(
         ...(call ? { call } : {}),
       };
       const label = `${entity.kind} #${i}${of}`;
+      const view = viewOf(entity);
       /**
        * Keeps a text the entity draws, itself or through an insert at `placement`. It costs one
        * more for each 32 characters of its value and its tag, which it is measured and named by.
@@ -1083,6 +1084,7 @@ export function lintStandard(
           ...measured,
           ...(role ? { role } : {}),
           ...(note ? { scale: note.scale } : {}),
+          ...(view !== undefined && !note ? { view } : {}),
           about,
           label,
           what,
@@ -1105,6 +1107,7 @@ export function lintStandard(
               style: style.shown,
               scale: style.scale,
               kind: "dimension",
+              ...(view !== undefined ? { view } : {}),
             });
           }
           return;
@@ -1130,6 +1133,7 @@ export function lintStandard(
               style: style.shown,
               scale: style.scale,
               kind: "leader",
+              ...(view !== undefined ? { view } : {}),
             });
           }
           // Each line of its note is a text in its text style, at the height the leader draws it.
@@ -1249,6 +1253,19 @@ export function lintStandard(
       if (!inView) return;
       const { space, nearText, nearDimension } = inView;
       const shownIn = `in ${typeof v.id === "string" ? `viewport ${shown(v.id)}` : `viewport #${i} of ${name}`} at ${scaleLabel(v.ratio)}`;
+      // An annotation drawn for another view at this viewport's scale plots at its size here, so
+      // no check of scale finds it: one warning for each entity, an insert's texts together.
+      const own = typeof v.id === "string" && v.id.length <= 64 ? idKey(v.id) : undefined;
+      const warned = new Set<unknown>();
+      const otherView = (item: Lettered | Measured) => {
+        if (own === undefined || item.view === undefined || idKey(item.view) === own) return;
+        if (warned.has(item.about.entity)) return;
+        warned.add(item.about.entity);
+        const message = `${item.label}: It is drawn for the view ${shown(item.view)}, and is shown ${shownIn}, which shows another view at its scale. Keep each view's drawing in its own part of model space, out of the other's viewport, or freeze its layer in this viewport`;
+        if (spend(Math.floor(message.length / 32))) {
+          warn("viewport-shows-other-view", message, item.about);
+        } else capped ??= `at ${item.label}`;
+      };
       const found: number[] = [];
       nearText(view.box, (t) => found.push(t));
       for (const t of found.sort((a, b) => a - b)) {
@@ -1257,6 +1274,8 @@ export function lintStandard(
         if (!viewReaches(view, text.box)) continue;
         if (text.scale === undefined) {
           checkHeight(text, text.height * view.scale, shownIn, IN_VIEWPORT);
+          const { role } = text;
+          if (role && written(text.height * view.scale) === written(role.height)) otherView(text);
         } else if (text.scale && written(text.scale.ratio) === written(v.ratio)) {
           checkHeight(text, text.height * view.scale, shownIn, LEADER_NOTE);
         }
@@ -1267,7 +1286,10 @@ export function lintStandard(
         if (!spend(1)) break;
         const dimension = space.dimensions[d]!;
         if (!viewReaches(view, dimension.box)) continue;
-        if (dimension.scale && written(dimension.scale.ratio) === written(v.ratio)) continue;
+        if (dimension.scale && written(dimension.scale.ratio) === written(v.ratio)) {
+          otherView(dimension);
+          continue;
+        }
         const style = dimension.scale
           ? `the ${dimension.kind} style ${dimension.style}, for ${dimension.scale.label}`
           : `the ${dimension.kind} style ${dimension.style}, which is for a layout`;
@@ -1329,6 +1351,8 @@ interface Lettered {
    * height is checked only where it plots at that scale: elsewhere `leader-off-scale` reports it.
    */
   readonly scale?: StandardScale | null;
+  /** The view the text, or the insert that draws it, was drawn for: see `viewOf`. */
+  readonly view?: string;
   readonly about: Partial<Diagnostic>;
   /** The entity, as a message names it: `text #3 of layout "C-101"`. */
   readonly label: string;
@@ -1348,6 +1372,17 @@ interface Measured {
   readonly style: string;
   readonly scale: StandardScale | null;
   readonly kind: "dimension" | "leader";
+  /** The view it was drawn for: see `viewOf`. */
+  readonly view?: string;
+}
+
+/**
+ * The view an entity was drawn for, when it names one that could be a viewport's id: at most 64
+ * characters, so comparing it costs no more than an id does.
+ */
+function viewOf(entity: object): string | undefined {
+  const view: unknown = (entity as { readonly view?: unknown }).view;
+  return typeof view === "string" && view.length <= 64 ? view : undefined;
 }
 
 /**

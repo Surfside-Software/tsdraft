@@ -334,6 +334,7 @@ export type LintRule =
   | "height-off-role"
   | "dimension-off-scale"
   | "leader-off-scale"
+  | "viewport-shows-other-view"
   | "viewport-outside-drawing-area"
   | "title-block-missing"
   | "title-block-differs-from-standard"

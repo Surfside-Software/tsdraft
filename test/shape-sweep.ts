@@ -94,6 +94,7 @@ export const kinds: {
   },
   text: {
     kind: "text",
+    view: "plan",
     layer: "0",
     at: [0, 4],
     height: 1,
@@ -105,6 +106,7 @@ export const kinds: {
   },
   paragraph: {
     kind: "paragraph",
+    view: "plan",
     layer: "0",
     at: [0, 8],
     height: 0.5,
@@ -124,6 +126,7 @@ export const kinds: {
   },
   insert: {
     kind: "insert",
+    view: "plan",
     color: "ByBlock",
     transparency: "ByBlock",
     layer: "0",
@@ -136,6 +139,7 @@ export const kinds: {
   },
   "linear-dimension": {
     kind: "linear-dimension",
+    view: "plan",
     color: 1,
     transparency: 40,
     layer: "0",
@@ -150,6 +154,7 @@ export const kinds: {
   },
   "aligned-dimension": {
     kind: "aligned-dimension",
+    view: "plan",
     color: [200, 100, 50],
     transparency: "ByLayer",
     layer: "0",
@@ -163,6 +168,7 @@ export const kinds: {
   },
   leader: {
     kind: "leader",
+    view: "plan",
     color: 255,
     transparency: 0,
     layer: "0",
@@ -288,6 +294,7 @@ export const kinds: {
   },
   "radius-dimension": {
     kind: "radius-dimension",
+    view: "plan",
     color: 7,
     transparency: 90,
     layer: "0",
@@ -301,6 +308,7 @@ export const kinds: {
   },
   "diameter-dimension": {
     kind: "diameter-dimension",
+    view: "plan",
     color: [0, 0, 0],
     transparency: 25,
     layer: "0",
@@ -314,6 +322,7 @@ export const kinds: {
   },
   "jogged-radius-dimension": {
     kind: "jogged-radius-dimension",
+    view: "plan",
     color: 8,
     transparency: "ByBlock",
     layer: "0",
@@ -328,6 +337,7 @@ export const kinds: {
   },
   "arc-length-dimension": {
     kind: "arc-length-dimension",
+    view: "plan",
     color: "ByLayer",
     transparency: 10,
     layer: "0",
@@ -343,6 +353,7 @@ export const kinds: {
   },
   "angular-dimension": {
     kind: "angular-dimension",
+    view: "plan",
     color: 250,
     transparency: 75,
     layer: "0",
@@ -380,6 +391,7 @@ export const kinds: {
   },
   "ordinate-dimension": {
     kind: "ordinate-dimension",
+    view: "plan",
     color: [40, 160, 220],
     transparency: 50,
     layer: "0",
@@ -471,6 +483,7 @@ const keyed: Required<
   >
 > = {
   kind: "leader",
+  view: "plan",
   color: "ByBlock",
   transparency: 20,
   layer: "0",

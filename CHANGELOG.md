@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Under a standard, `lint` warns `viewport-shows-other-view` of a text, an insert, a dimension or
+  a leader drawn for one view that a viewport of another view shows at the same scale, such as two
+  elevations at one scale drawn too close in model space. The builder keeps the view an annotation
+  was drawn for in its new `view` field, which the writers leave out.
 - `readDXF` takes the file's bytes as one `Uint8Array`, such as a `Buffer` from `fs.readFileSync`,
   as `readDWG` does.
 - The picture of a read file. `toSVG` draws a `DrawingRead` read with `geometry` as the leading

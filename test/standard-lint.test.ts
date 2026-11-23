@@ -763,3 +763,95 @@ test("the checks of a standard stay bounded on any data, and never throw", () =>
     assert.ok(out.every((d) => typeof d.rule === "string" && typeof d.message === "string"));
   }
 });
+
+test("a viewport that shows what another view of its scale draws is warned of, once an entity", () => {
+  /** Two elevations at 1/8" = 1'-0", the east one `apart` feet below the south one. */
+  const elevations = (apart: number, frozenLayers?: string[]) => {
+    const d = createDrawing({ units: "ft", standard: BUILT_IN_STANDARD });
+    const south = d.view("south", { scale: "1-8in-1ft" });
+    const east = d.view("east", { scale: "1-8in-1ft" });
+    const plan = d.view("plan", { scale: "1-4in-1ft" });
+    d.block("TAG", {}, () => {
+      d.circle([0, 0], 0.125);
+      d.text([0, 0], "1", { role: "note", align: "center", valign: "middle" });
+      d.text([0, -0.2], "A", { role: "note", align: "center", valign: "top" });
+    });
+    d.layer("C-BLDG", () => {
+      d.rect([0, 0], 40, 10);
+      d.rect([0, -apart], 25, 14);
+    });
+    d.layer("C-ANNO-TEXT", () => {
+      d.text([2, 2], "SOUTH", { role: "note", view: south, id: "south-text" });
+      d.leader("STEEL PANELS", { view: south, at: [30, 14], to: [28, 8] });
+      d.text([2, 2 - apart], "EAST", { role: "note", view: east });
+      // Drawn for a view at another scale: the checks of scale report it, and this check does not.
+      d.text([20, 4], "PLAN NOTE", { role: "note", view: plan });
+    });
+    d.layer("C-ANNO-SYMB", () => d.insert("TAG", [10, 5], { view: south }));
+    d.layer("C-ANNO-DIMS", () => d.linearDimension([0, 0], [40, 0], [0, -3], { view: south }));
+    d.layout("A-1", (sheet) => {
+      d.layer("G-ANNO-NPLT", () => {
+        sheet.viewport([1, 15], 8, 3, { view: south, center: [20, 5] });
+        sheet.viewport([1, 8], 8, 6, {
+          view: east,
+          center: [20, 7 - apart],
+          ...(frozenLayers ? { frozenLayers } : {}),
+        });
+      });
+    });
+    return d.build();
+  };
+  const near = elevations(20);
+  assert.deepEqual(
+    only(lint(near, { standard: BUILT_IN_STANDARD }), "viewport-shows-other-view").map((x) => [
+      x.severity,
+      x.message.split(":")[0],
+      x.id,
+    ]),
+    [
+      ["warning", "text #2", "south-text"],
+      ["warning", "insert #6", undefined],
+      ["warning", "leader #3", undefined],
+      ["warning", "linear-dimension #7", undefined],
+    ],
+  );
+  const found = lint(near, { standard: BUILT_IN_STANDARD });
+  assert.match(
+    only(found, "viewport-shows-other-view")[0]!.message,
+    /^text #2: It is drawn for the view "south", and is shown in viewport "east" at 1\/8" = 1'-0", which shows another view at its scale\./,
+  );
+  assert.ok(found.some((x) => x.rule === "height-off-role" && x.message.startsWith("text #5")));
+  // The elevations apart, or the layers of the south one's annotation frozen in the east viewport.
+  for (const drawing of [
+    elevations(60),
+    elevations(20, ["C-ANNO-TEXT", "C-ANNO-SYMB", "C-ANNO-DIMS"]),
+  ]) {
+    assert.deepEqual(
+      only(lint(drawing, { standard: BUILT_IN_STANDARD }), "viewport-shows-other-view"),
+      [],
+    );
+  }
+  // The builder keeps the view on the annotation it draws for one, and a reader of JSON keeps it.
+  const kept = near.entities.flatMap((e) => ("view" in e && e.view ? [`${e.kind}:${e.view}`] : []));
+  assert.deepEqual(kept, [
+    "text:south",
+    "leader:south",
+    "text:east",
+    "text:plan",
+    "insert:south",
+    "linear-dimension:south",
+  ]);
+  assert.deepEqual(fromJSON(toJSON(near)).entities, near.entities);
+  // Without the field, as a drawing built before it or by other code, nothing is warned of.
+  const bare = {
+    ...near,
+    entities: near.entities.map((e) => {
+      const { view: _, ...rest } = e as Entity & { view?: string };
+      return rest as Entity;
+    }),
+  };
+  assert.deepEqual(
+    only(lint(bare, { standard: BUILT_IN_STANDARD }), "viewport-shows-other-view"),
+    [],
+  );
+});

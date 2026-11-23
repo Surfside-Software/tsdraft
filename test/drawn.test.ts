@@ -422,9 +422,10 @@ test("a role and a view size a text, a symbol and a dimension where each is draw
       rotation: 0,
       style: "LABEL",
       id: "lot",
+      view: "plan",
     },
-    { kind: "insert", layer: "0", block: "CORNER", at: [0, 0], scale: [10, 10] },
-    { kind: "insert", layer: "0", block: "TAGGED", at: [0, 0], scale: [10, 10] },
+    { kind: "insert", layer: "0", block: "CORNER", at: [0, 0], scale: [10, 10], view: "plan" },
+    { kind: "insert", layer: "0", block: "TAGGED", at: [0, 0], scale: [10, 10], view: "detail" },
   ]);
   assert.deepEqual(drawing.blocks?.[1]?.attributes?.[0]?.height, 0.125);
   const [page] = drawing.layouts!;
