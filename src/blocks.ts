@@ -786,6 +786,11 @@ export interface Placement {
   /** For the text of an insert's attribute, the attribute's tag. */
   readonly attribute?: string;
   /**
+   * The inserts the walk came through, the outermost first, each with the matrix of its
+   * block's coordinates: given when `eachDrawn` is asked for them.
+   */
+  readonly inserts?: readonly { readonly insert: Insert; readonly matrix: Matrix }[];
+  /**
    * True for an attribute of paragraph text an insert scales unevenly, whose value, with the code
    * before it, is no string the drawing holds: whatever lays it out pays as `made` says.
    */
@@ -849,6 +854,7 @@ function holds(list: readonly unknown[], index: number): boolean {
  *   any insert of that drawing is.
  * @param top - Told the index of each entity of the insert's own block or drawing as the walk
  *   reaches it, before what it draws.
+ * @param withInserts - Gives each placement the inserts the walk came through, as `inserts`.
  * @returns False when `spend` ended the walk.
  */
 export function eachDrawn(
@@ -862,6 +868,7 @@ export function eachDrawn(
   holding?: (entity: Exclude<Entity, Insert>, placement: Placement) => readonly Insert[],
   heldByBlock?: (from: Referenced | undefined) => ReadonlySet<string>,
   top?: (index: number) => void,
+  withInserts = false,
 ): boolean {
   if (entity.kind !== "insert") {
     draw(entity, {
@@ -920,6 +927,18 @@ export function eachDrawn(
   if (!enter(entity, blocks, undefined, undefined, { name: entity.layer }, undefined, undefined)) {
     return false;
   }
+  // The inserts the walk is in, kept for the placements only when asked for.
+  type Chain = readonly { readonly insert: Insert; readonly matrix: Matrix }[];
+  let chain: Chain = [];
+  let chainOf: Entered | undefined;
+  const through = (at: Entered): { inserts?: Chain } => {
+    if (!withInserts) return {};
+    if (chainOf !== at) {
+      chainOf = at;
+      chain = stack.map(({ insert, matrix }) => ({ insert, matrix }));
+    }
+    return { inserts: chain };
+  };
   while (stack.length > 0) {
     const at = stack.at(-1)!;
     const { inside } = at;
@@ -959,6 +978,7 @@ export function eachDrawn(
           byBlock: at.byBlock,
           byBlockAlpha: at.byBlockAlpha,
           ...(at.byBlockHeld ? { byBlockHeld: true } : {}),
+          ...through(at),
         };
         draw(item, placement);
         if (inside !== undefined && holding !== undefined) {
@@ -1005,6 +1025,7 @@ export function eachDrawn(
           byBlockAlpha: at.byBlockAlpha,
           attribute: definition.tag,
           made: placed.paragraph!.uneven,
+          ...through(at),
         });
         continue;
       }
@@ -1016,6 +1037,7 @@ export function eachDrawn(
         byBlock: at.byBlock,
         byBlockAlpha: at.byBlockAlpha,
         attribute: definition.tag,
+        ...through(at),
       });
       continue;
     }

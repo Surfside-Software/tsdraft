@@ -453,6 +453,12 @@ export interface ReadInsert extends ReadEntityBase {
   readonly tags: Readonly<Record<string, boolean>>;
   /** Each attribute, in the order of the file, when the read asked for geometry. */
   readonly attributes?: readonly ReadAttribute[];
+  /**
+   * The clip of the block it places, as an xref's or a block's clip holds it: a polygon of three
+   * or more points in the block's coordinates. It shows only what lies inside, or with
+   * `inverted` only what lies outside.
+   */
+  readonly clip?: { readonly outline: readonly Point[]; readonly inverted?: boolean };
 }
 
 /**
@@ -1180,6 +1186,11 @@ export interface ReadViewport {
   readonly frozenLayers: readonly string[];
   /** True when the view looks along another direction than straight down. */
   readonly turnedView: boolean;
+  /**
+   * The handle of the entity of the layout whose outline clips it, when one does: a closed
+   * polyline or a circle. The viewport shows only what lies inside it.
+   */
+  readonly clipBy?: string;
 }
 
 export interface ReadLayout {

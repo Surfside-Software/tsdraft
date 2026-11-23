@@ -60,6 +60,7 @@
     "readme:drawing": "node scripts/readme-drawing.ts",
     "bench": "pnpm build:lib && node cli/scripts/bench.ts",
     "bench:io": "node scripts/bench-io.ts",
+    "bench:read": "pnpm build:lib && node cli/scripts/bench-read.ts",
     "standard:files": "node scripts/standard-files.ts",
     "verify": "pnpm fmt:check && pnpm lint && pnpm check && pnpm test && pnpm test:package"
   },

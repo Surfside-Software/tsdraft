@@ -147,6 +147,7 @@ const INSERT: Fields = {
   rotation: "number",
   tags: { map: "boolean" },
   "attributes?": { list: { fields: ATTRIBUTE } },
+  "clip?": { fields: { outline: { list: "point" }, "inverted?": "boolean" } },
 };
 
 /** An edge of a solid, a region or a body. */
@@ -707,6 +708,7 @@ const DRAWING_READ: Fields = {
               on: "boolean",
               frozenLayers: strings,
               turnedView: "boolean",
+              "clipBy?": "string",
             },
           },
         },

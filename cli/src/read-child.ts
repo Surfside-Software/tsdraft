@@ -1,5 +1,5 @@
 // The process that reads one drawing file for the command. `read.ts` starts it with the file's
-// name, never its path, and the reader's module, or none for the core's `readDXF`, and streams
+// name, never its path, what to read, and the reader's module, or none for the core's `readDXF`, and streams
 // the file's bytes to its stdin. It answers once, as JSON on file descriptor 3, which a reader
 // that prints cannot reach, and ends.
 import { writeSync } from "node:fs";
@@ -14,9 +14,8 @@ export type ReadAnswer =
 
 const ANSWER = 3;
 
-const [name = "", module] = process.argv.slice(2);
-/** What to read, as `ReadOptions`: the command sets it when it draws the file. */
-const options: ReadOptions = process.env["TSDRAFT_READ_GEOMETRY"] === "1" ? { geometry: true } : {};
+const [name = "", what = "{}", module] = process.argv.slice(2);
+const options: ReadOptions = { geometry: (JSON.parse(what) as ReadOptions).geometry === true };
 
 const message = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).slice(0, 2_000);

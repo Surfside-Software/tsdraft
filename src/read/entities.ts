@@ -364,6 +364,13 @@ function image(r: Rec, base: ReadEntityBase): Reading {
   ) {
     points.pop();
   }
+  // `imageInWorld` takes the clip into the world's coordinates, which must hold every point.
+  const [at, u, v, height] = [point(s, 10), point(s, 11), point(s, 12), num(s, 23) ?? 0];
+  for (const [x, y] of points) {
+    const [ps, pt] = [x + 0.5, height - y - 0.5];
+    const world = [at[0] + ps * u[0] + pt * v[0], at[1] + ps * u[1] + pt * v[1]];
+    if (!world.every(Number.isFinite)) return { malformed: "IMAGE whose clip is past the doubles" };
+  }
   const definition = handleAt(s, 340);
   const brightness = num(s, 281) ?? 50;
   const contrast = num(s, 282) ?? 50;

@@ -24,6 +24,8 @@ const HELP = `Usage:
                         [--draw-no-plot] [--view <x0,y0,x1,y1> [--layout <name>]]
   tsdraft dev <file> [--port <n>] [--timeout <ms>] [--draw-no-plot]
   For a DXF or a DWG, either takes [--reader <package or folder>]
+  tsdraft shows <drawing file> [--sheet <layout> | --layout <layout>]
+                [--near <x,y> [--within <d>]] [--xref <name>=<file>]... [--reader <package>]
 
 A drawing file is a TypeScript module whose default export is a Drawing, or a
 function that returns one. It may also be a DXF, or a DWG that a reader the
@@ -44,6 +46,15 @@ render  Builds the file once, writes <name>.svg and <name>.png to --out (default
         With --pdf it also plots the sheets: <name>.pdf, the set, a page for each
         layout in order, as outputs.pdf, and <name>.layout-<layout>.pdf for each
         sheet alone, as outputs.layouts[].pdf.
+shows   Reads a DXF, or a file of another format through its reader, and prints
+        as JSON what it shows: with --sheet, the layout's paper and what each
+        viewport that is on shows of model space, through inserts and xrefs, with
+        each box on the paper; with --layout, the layout's paper alone; else model
+        space. With --near, only what comes within --within of the point, nearest
+        first. Each entity comes with its handle, the inserts it was reached
+        through, its kind, layer, color, box and text. An xref is followed only
+        where --xref gives its file. A file is read once for each hash of its bytes,
+        and the read is kept in the project's node_modules/.cache/tsdraft.
 dev     Serves a live preview on localhost that rebuilds on every save of the
         file or a file it imports. Also serves /state.json, which with
         ?after=<build> waits for a newer build, /drawing.svg, /drawing.png?width=,
@@ -79,15 +90,17 @@ function usage(problem: string): never {
   process.exit(USAGE);
 }
 
-// A rectangle often starts with a negative number, which parseArgs takes for an option unless it
-// is written --view=-1,...: join --view and a value that starts with a number into one argument.
+// A rectangle or a point often starts with a negative number, which parseArgs takes for an option
+// unless it is written --view=-1,...: join --view or --near and a value that starts with a number
+// into one argument.
+const JOINED = new Set(["--view", "--near"]);
 const args = process.argv
   .slice(2)
   .flatMap((arg, i, all) =>
-    arg === "--view" && /^-?[\d.]/.test(all[i + 1] ?? "")
+    JOINED.has(arg) && /^-?[\d.]/.test(all[i + 1] ?? "")
       ? []
-      : all[i - 1] === "--view" && /^-?[\d.]/.test(arg)
-        ? [`--view=${arg}`]
+      : JOINED.has(all[i - 1] ?? "") && /^-?[\d.]/.test(arg)
+        ? [`${all[i - 1]}=${arg}`]
         : [arg],
   );
 
@@ -105,6 +118,10 @@ try {
       pdf: { type: "boolean" },
       view: { type: "string" },
       layout: { type: "string" },
+      sheet: { type: "string" },
+      near: { type: "string" },
+      within: { type: "string" },
+      xref: { type: "string", multiple: true },
       reader: { type: "string" },
       help: { type: "boolean", short: "h" },
     },
@@ -119,8 +136,42 @@ if (values.help) {
   process.stdout.write(HELP);
   process.exit(0);
 }
-if (!command || !["render", "dev"].includes(command)) usage("Give a command: render or dev.");
+if (!command || !["render", "dev", "shows"].includes(command)) {
+  usage("Give a command: render, dev or shows.");
+}
 if (!target) usage("Give a drawing file.");
+if (command === "shows") {
+  if (values.sheet !== undefined && values.layout !== undefined) {
+    usage("--sheet asks about a whole sheet, and --layout about its paper alone: give one.");
+  }
+  if (values.within !== undefined && values.near === undefined) usage("--within goes with --near.");
+  const xrefs: Record<string, string> = {};
+  for (const given of values.xref ?? []) {
+    const at = given.indexOf("=");
+    if (at <= 0 || at === given.length - 1) usage(`--xref ${given}: give <name>=<file>.`);
+    xrefs[given.slice(0, at)] = resolve(given.slice(at + 1));
+  }
+  const near = values.near === undefined ? undefined : point(values.near);
+  const { shows } = await import("./shows.ts");
+  const { ReaderRefusal } = await import("./readers.ts");
+  const answered = await shows({
+    file: resolve(target),
+    xrefs,
+    ...(values.sheet === undefined ? {} : { sheet: values.sheet }),
+    ...(values.layout === undefined ? {} : { layout: values.layout }),
+    ...(near === undefined ? {} : { near }),
+    ...(values.within === undefined ? {} : { within: distance(values.within) }),
+    ...(values.reader === undefined ? {} : { reader: values.reader }),
+  }).catch((error: unknown) => {
+    if (error instanceof ReaderRefusal) usage(error.message);
+    throw error;
+  });
+  process.stdout.write(`${JSON.stringify(answered.json, null, 2)}\n`);
+  process.exit(answered.code);
+}
+for (const flag of ["sheet", "near", "within", "xref"] as const) {
+  if (values[flag] !== undefined) usage(`--${flag} goes with shows.`);
+}
 
 // Node reports real paths in stacks and to the import hooks, so the build works with the real
 // path of the file, and so of its project, to place errors and watch imports through a symlink.
@@ -386,6 +437,22 @@ function rectangle(value: string): [number, number, number, number] {
     );
   }
   return [x0, y0, x1, y1];
+}
+
+/** The point `--near` names: two numbers with a comma between. */
+function point(value: string): [number, number] {
+  const parts = value.split(",").map((part) => (part.trim() === "" ? NaN : Number(part)));
+  if (parts.length !== 2 || !parts.every(Number.isFinite)) {
+    usage(`--near must be x,y, not ${JSON.stringify(value)}`);
+  }
+  return [parts[0]!, parts[1]!];
+}
+
+function distance(value: string): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0)
+    usage(`--within must be a distance of 0 or more, not ${JSON.stringify(value)}`);
+  return n;
 }
 
 function number(value: string | undefined, flag: string): number | undefined {

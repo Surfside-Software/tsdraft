@@ -458,6 +458,8 @@ interface InsertOwner {
   over: boolean;
   /** The starts its attributes leave to work out, once it is kept. */
   readonly starts: PendingStart[];
+  /** Its extension dictionary, which may hold its clip. */
+  readonly dictionary: string | undefined;
 }
 
 /** A multileader whose styles and block are named by handle, until the file is read. */
@@ -526,8 +528,16 @@ class DxfReader {
   readonly spaces = new Map<string, Space>();
   readonly layouts: LayoutDraft[] = [];
   readonly mtexts: PendingMtext[] = [];
-  /** The entries `ACAD_FIELD` and `TEXT` of each dictionary that has one, by its handle. */
+  /**
+   * The entries `ACAD_FIELD`, `TEXT`, `ACAD_FILTER` and `SPATIAL` of each dictionary that has one,
+   * by its handle.
+   */
   readonly dictionaries = new Map<string, Record<string, string>>();
+  /** Each insert with an extension dictionary, which may hold its clip. */
+  readonly #clipped: { insert: { clip?: ReadInsert["clip"] }; dictionary: string }[] = [];
+  /** The outline of each spatial filter, in its block's coordinates, by its handle. */
+  readonly #spatialFilters = new Map<string, Point[]>();
+
   readonly fieldObjects = new Map<
     string,
     { evaluator: string; code: string; children: string[] }
@@ -713,7 +723,8 @@ class DxfReader {
           type === "PDFDEFINITION" ||
           type === "DICTIONARYVAR" ||
           type === "SORTENTSTABLE" ||
-          type === "TABLESTYLE"
+          type === "TABLESTYLE" ||
+          type === "SPATIAL_FILTER"
           ? ALL
           : NOTHING;
       case "BLOCKS":
@@ -1098,6 +1109,7 @@ class DxfReader {
           keep,
           tags: 0,
           attributes: keep && this.#geometry ? [] : undefined,
+          dictionary: inGroup(r, "{ACAD_XDICTIONARY", 360),
           cost: costOf(insert),
           over: false,
           starts: [],
@@ -1379,8 +1391,13 @@ class DxfReader {
       if (owner.over) add(target.other, "past the limit");
       else {
         const kept = owner.attributes ? { ...insert, attributes: owner.attributes } : insert;
-        if (this.#kept(target, kept))
+        if (this.#kept(target, kept)) {
           for (const pending of owner.starts) this.#starts.push(pending);
+          const { dictionary } = owner;
+          if (dictionary !== undefined && this.#clipped.length < this.#limits.census) {
+            this.#clipped.push({ insert: kept, dictionary });
+          }
+        }
       }
     }
     const space = this.#space;
@@ -1449,7 +1466,12 @@ class DxfReader {
           if (handle === this.#tableStyleDictionary) {
             if (key.length <= LONGEST_NAME && this.#tableStyleEntries.length < this.#limits.census)
               this.#tableStyleEntries.push([unescaped(key), value]);
-          } else if (key === "ACAD_FIELD" || key === "TEXT") {
+          } else if (
+            key === "ACAD_FIELD" ||
+            key === "TEXT" ||
+            key === "ACAD_FILTER" ||
+            key === "SPATIAL"
+          ) {
             entries ??= {};
             entries[key] = value;
           } else if (key === "ACAD_MLEADERSTYLE") this.#leaderStyleDictionary ??= value;
@@ -1544,6 +1566,14 @@ class DxfReader {
           path: name(definition, 1) ?? "",
           page: name(definition, 2) ?? "",
         });
+        return;
+      }
+      case "SPATIAL_FILTER": {
+        const handle = handleAt(r, 5);
+        const outline = spatialOutline(inSubclass(r, "AcDbSpatialFilter"));
+        if (handle !== undefined && outline && this.#spatialFilters.size < this.#limits.census) {
+          this.#spatialFilters.set(handle, outline);
+        }
         return;
       }
       case "FIELD": {
@@ -1642,6 +1672,13 @@ class DxfReader {
     this.#leaderStyles(styleNames);
     const tableStyles = this.#tableStyles();
     this.#blockHandles();
+    // Each insert's clip, through its extension dictionary's `ACAD_FILTER` and `SPATIAL`.
+    for (const { insert, dictionary } of this.#clipped) {
+      const filters = this.dictionaries.get(dictionary)?.ACAD_FILTER;
+      const spatial = filters === undefined ? undefined : this.dictionaries.get(filters)?.SPATIAL;
+      const outline = spatial === undefined ? undefined : this.#spatialFilters.get(spatial);
+      if (outline) insert.clip = { outline };
+    }
 
     // A file before the R2000 format (AC1015) has one paper space and no LAYOUT: the leading CAD
     // app opens it as the layout `Layout1`.
@@ -2134,7 +2171,51 @@ function viewport(
     on: status === undefined ? (num(r, 68) ?? 1) !== 0 : (status & 0x20000) === 0,
     frozenLayers,
     turnedView: direction[0] !== 0 || direction[1] !== 0 || direction[2]! <= 0,
+    // Bit 16 of group 90 clips the viewport by the entity group 340 names.
+    ...(status !== undefined && (status & 0x10000) !== 0 && handleAt(r, 340) !== undefined
+      ? { clipBy: handleAt(r, 340)! }
+      : {}),
   };
+}
+
+/** The most points of a clip's outline kept. A longer one clips nothing. */
+const CLIP_POINTS = 4096;
+
+/**
+ * The outline of a spatial filter in the coordinates of the block its insert places: its
+ * points, two for a rectangle's corners, on the plane its normal and origin give, taken through
+ * the inverse of the insert's matrix the filter holds. Undefined for a filter in another plane, or
+ * one whose numbers do not read.
+ */
+function spatialOutline(r: Rec): Point[] | undefined {
+  // Group 71 is 0 for a clip turned off, which clips nothing.
+  if (num(r, 71) === 0) return undefined;
+  const count = num(r, 70) ?? 0;
+  const normal = [num(r, 210) ?? 0, num(r, 220) ?? 0, num(r, 230) ?? 1];
+  if (normal[0] !== 0 || normal[1] !== 0 || !(normal[2]! > 0)) return undefined;
+  const [ox, oy] = point(r, 11);
+  const points: Point[] = [];
+  const numbers: number[] = [];
+  for (let i = 0; i < r.codes.length; i++) {
+    if (r.codes[i] === 10 && points.length < CLIP_POINTS) {
+      points.push([
+        Number(r.values[i]) + ox,
+        (r.codes[i + 1] === 20 ? Number(r.values[i + 1]) : 0) + oy,
+      ]);
+    } else if (r.codes[i] === 40) numbers.push(Number(r.values[i]));
+  }
+  if (points.length !== count || count < 2) return undefined;
+  // The front clip's distance comes before the two matrices when group 72 is 1.
+  const at = num(r, 72) === 1 ? 1 : 0;
+  const m = numbers.slice(at, at + 12);
+  const toBlock = (p: Point): Point =>
+    m.length === 12
+      ? [m[0]! * p[0] + m[1]! * p[1] + m[3]!, m[4]! * p[0] + m[5]! * p[1] + m[7]!]
+      : p;
+  const [a, b] = points;
+  const corners: Point[] = count === 2 ? [a!, [b![0], a![1]], b!, [a![0], b![1]]] : points;
+  const outline = corners.map(toBlock);
+  return outline.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y)) ? outline : undefined;
 }
 
 /** The view of a `*Active` record of the viewport table, from its center, target and twist. */

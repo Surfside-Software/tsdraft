@@ -79,3 +79,16 @@ test("readDXF reads a header's value once, however many entities follow", async 
   const read = await within(2_000, () => readDXFWithin(bytes, { geometry: true }, READ_LIMITS));
   assert.equal(read.model.entities!.length, 50_000);
 });
+
+test("an image whose clip the world's coordinates cannot hold is malformed", async () => {
+  // Found by the long pass from seed 2212: a clip point of 1e308 pixels, scaled into the world.
+  const lines = ["  0", "SECTION", "  2", "ENTITIES", "  0", "IMAGE", "  8", "0"];
+  lines.push("100", "AcDbRasterImage", " 10", "0", " 20", "0", " 11", "2", " 21", "0");
+  lines.push(" 12", "0", " 22", "2", " 13", "10", " 23", "10", " 71", "2", " 91", "3");
+  lines.push(" 14", "6", " 24", "1e308", " 14", "8", " 24", "-1e308", " 14", "7", " 24", "5");
+  lines.push("280", "1", "  0", "ENDSEC", "  0", "EOF", "");
+  const read = await readDXFWithin(lines.join("\n"), { geometry: true }, READ_LIMITS);
+  assert.deepEqual(JSON.parse(JSON.stringify(read.unread.malformed)), {
+    "IMAGE whose clip is past the doubles": 1,
+  });
+});

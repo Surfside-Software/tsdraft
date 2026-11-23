@@ -379,6 +379,50 @@ from, the handle of each and the notes. It holds what a `Drawing` cannot, such a
 does not list, where `toSVG` alone reads it, and it is for pictures and for the checks of text:
 `toDXF` of it is not the file.
 
+## What a sheet shows
+
+Three questions are answered from a read with `geometry`, so code can find what to change in a
+firm's sheet without a CAD program:
+
+```ts
+import { nearPoint, sheetShows, xrefAreas } from "tsdraft";
+
+const sheet = await readDXF(createReadStream("A-102.dxf"), { geometry: true });
+const model = await readDXF(createReadStream("FLOOR PLAN.dxf"), { geometry: true });
+const xrefs = { "FLOOR PLAN": model };
+
+// The sheet's paper, and what each viewport that is on shows of model space.
+sheetShows(sheet, "A-102", { xrefs })?.entities.filter((e) => e.text?.startsWith("NOTE"));
+// What is within a quarter inch of a point on the paper, nearest first.
+nearPoint(sheet, [12.5, 8], { sheet: "A-102", within: 0.25, xrefs })?.entities[0]?.handle;
+// The parts of the model the sheet shows, in the model's coordinates.
+xrefAreas(sheet, "A-102", "FLOOR PLAN");
+```
+
+`sheetShows(read, layout, { xrefs })` gives the entities of the layout's paper, then for each
+viewport that is on the entities of model space it shows. Inserts are followed through their
+blocks, and through each xref whose read `xrefs` gives by the xref's name, or as
+`{ read, xrefs }` with the reads of its own attachments. What lies on a layer that is off, frozen,
+frozen in that viewport or set not to plot is left out, and an xref's layer is in the state the
+host holds for it as `XREF|LAYER`, as CAD programs show it. So is what lies outside the
+viewport's rectangle, or outside the outline that clips it, `clipBy`, and what lies outside an
+insert's clip, `clip`. Each entity comes with its handle in the file that holds it, the handles of
+the inserts it was reached through, the xrefs, its kind, its layer as the sheet names it, its
+color after ByLayer and ByBlock, the viewport, its box on the paper, and for a text its value.
+`spaceShows(read, { layout?, xrefs })` gives what model space or a layout's paper draws, each box
+in the space's own coordinates.
+
+`nearPoint(read, at, { sheet | layout, within, xrefs })` gives the entities whose box comes
+within `within` of a point, nearest first, and of two at one distance the smaller box first. What
+the sheet or space shows is worked out and filed in a grid once for each read, so each question
+after the first costs about what it finds. `xrefAreas(read, layout, xref)` gives, for each
+viewport that is on and each insert of the xref at the top of model space, the box of what the
+viewport shows in the xref's own coordinates, cut to the insert's clip.
+
+Each walk stops at `QUESTION_LIMITS`, 100,000 entities and 4,000,000 steps through inserts, and
+then says `capped`. A box is the box the core's extents give, from `measureText` for a text, so
+it is the box the picture draws.
+
 ## Readers of other formats
 
 A package that reads another format names its reader in its `package.json`:

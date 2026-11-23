@@ -676,6 +676,25 @@ writeFileSync("plan.dxf", toDXF(drawing));
 
 `toDXF` throws a `DrawingError` that lists the problems when the drawing has lint errors.
 
+## What a firm's sheet shows
+
+To find what to change in a firm's sheet, ask before you look through its files by hand.
+`tsdraft shows` reads the sheet, and each xref you give it, and prints what the sheet shows: its
+paper, and what each viewport that is on shows of the model, with the layers the sheet freezes,
+turns off or does not plot left out, and the viewport's and the xref's clips applied. Each entity
+comes with its handle, the inserts it was reached through, its layer as the sheet names it, its
+box on the paper and its text.
+
+```sh
+tsdraft shows A-102.dwg --sheet A-102 --xref "FLOOR PLAN=../1_Model/FLOOR PLAN.dwg"
+tsdraft shows A-102.dwg --sheet A-102 --near 12.5,8 --within 0.25 --xref "FLOOR PLAN=../1_Model/FLOOR PLAN.dwg"
+```
+
+A file is read once for each hash of its bytes, and the read is kept, so the second question is
+fast. In code, `sheetShows`, `nearPoint` and `xrefAreas` answer the same from a read, as
+[docs/reading.md](docs/reading.md#what-a-sheet-shows) says. A DWG needs a reader package
+installed beside tsdraft.
+
 ## What tsdraft cannot draw yet
 
 - A block read from another file. A block is drawn in the drawing that inserts it. An xref

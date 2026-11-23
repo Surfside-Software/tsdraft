@@ -107,6 +107,25 @@ header that gives the build it came from. The page links the PDF of the sheet on
 the set, and `/state.json` gives their URLs in `outputs.pdf` and `outputs.layouts[].pdf`. A PNG is at most
 16 million pixels; a wider request is narrowed, and `x-tsdraft-width` gives the width used.
 
+`tsdraft shows <drawing file> [--sheet <layout> | --layout <layout>] [--near <x,y> [--within <d>]]
+[--xref <name>=<file>]... [--reader <package>]` reads a DXF, or a file of another format through
+its reader, and prints as JSON what it shows, as
+[What a sheet shows](reading.md#what-a-sheet-shows) says: with `--sheet`, the layout's paper and
+what each viewport that is on shows of model space, each box on the paper; with `--layout`, the
+layout's paper alone; with neither, model space. With `--near`, only what comes within `--within`
+of the point, nearest first, with its `distance`. An xref is followed only where `--xref` gives
+its file, at any depth by the xref's name, and inside an xref only its attachments, as CAD
+programs load no overlay of a referenced drawing. At most 64 reads of xrefs are given, counting
+each place a file is attached at, and past them the JSON says `xrefsCapped`. The JSON gives the file, its reader, `from`, which is
+`memory`, `disk` or `file` for where its read came from, the xrefs followed, `skipped` for an
+xref's file that could not be read, the `entities` and `capped`. It exits 0 with an answer, 1 for
+a file that could not be read or a layout the file does not have, and 64 for wrong usage.
+
+```sh
+tsdraft shows A-102.dwg --sheet A-102 --xref "FLOOR PLAN=../1_Model/FLOOR PLAN.dwg"
+tsdraft shows A-102.dwg --sheet A-102 --near 12.5,8 --within 0.25 --xref "FLOOR PLAN=../1_Model/FLOOR PLAN.dwg"
+```
+
 ## A closer look
 
 A whole sheet in one picture leaves its text too small to read: on an ARCH D sheet 1600 px
@@ -439,10 +458,10 @@ takes, in order:
 
 ## Reading drawing files
 
-No command reads a drawing file yet. One that does reads a DXF with the library's `readDXF`, and
-a file of another format, such as a DWG, with a reader: a package that names one in its
-`package.json`, as [Reading drawing files](reading.md#readers-of-other-formats) says. The rules
-below hold for every such command.
+`tsdraft shows` reads drawing files. It reads a DXF with the library's `readDXF`, and a file of
+another format, such as a DWG, with a reader: a package that names one in its `package.json`, as
+[Reading drawing files](reading.md#readers-of-other-formats) says. The rules below hold for every
+command that reads one.
 
 ### Which reader
 
@@ -485,6 +504,19 @@ hand. A command ended by SIGINT or SIGTERM ends its reading processes first. The
 back with no prototype on any of its objects, as `readDXF` gives its maps. Its answer is checked as plain data with `checkDrawingRead`, and its `bytes` and `sha256`
 must be the file's. A file that breaks a limit, makes the reader throw, ends the process or
 gives a malformed answer is skipped with the reason, and the next file is read.
+
+### The read cache
+
+A file is read once for each SHA-256 of its bytes, the reader and its version, tsdraft's version,
+and what is read.
+The read is kept in memory for as long as the command runs, and on disk in the project's
+`node_modules/.cache/tsdraft/reads`, or the user's cache folder where there is no project, so a
+second command reads none of it again. A file is watched by its size, its time and its inode,
+and hashed again only when one of them changes, or when it was saved within two seconds of being
+read, which a clock's tick may hide. A reader, or tsdraft, outside a `node_modules` folder, as in
+a checkout, is told apart by its files' sizes and times as well as its version. A kept read is checked as a
+reader's answer is, `checkDrawingRead` and the file's size and hash, and one that fails is
+removed and the file read again. The folder keeps the 64 reads used last, within 2 GB.
 
 ### What the limits do not enforce
 

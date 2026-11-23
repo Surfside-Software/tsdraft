@@ -578,8 +578,10 @@ async function buildRead({
   let t = now();
   track(file, fileVersion(file));
   const library = (await import("tsdraft")) as typeof import("tsdraft") & Library;
-  const { findReaders, readerFor, ReaderRefusal } = await import("./readers.ts");
-  const { readDrawingFile } = await import("./read.ts");
+  const { findProject, findReaders, readerFor, ReaderRefusal } = await import("./readers.ts");
+  const { cacheFolder, ReadCache } = await import("./read-cache.ts");
+  // Each build runs in a process of its own, so a read is found again in the project's cache.
+  const cache = new ReadCache(cacheFolder(findProject(cwd ?? process.cwd(), [file])));
   /** The reader of a file of an extension: `--reader`'s, the project's, or the file's folder's. */
   const readerOf = (extension: string) => {
     const at = cwd ?? process.cwd();
@@ -597,7 +599,7 @@ async function buildRead({
     if (error instanceof ReaderRefusal) return failed(error.message);
     throw error;
   }
-  const outcome = await readDrawingFile(file, reader, {}, { geometry: true });
+  const outcome = await cache.read(file, reader, {}, { geometry: true });
   timings.load = now() - t;
   if ("skipped" in outcome) return failed(`${file} was not read: ${outcome.skipped}`);
   const read = outcome.read;
@@ -667,7 +669,7 @@ async function buildRead({
             continue;
           }
           reads++;
-          const got = await readDrawingFile(found, xrefReader, {}, { geometry: true });
+          const got = await cache.read(found, xrefReader, {}, { geometry: true });
           if (!("read" in got)) continue;
           // Its images, from its own folder.
           const rasters = rasterFiles(

@@ -483,6 +483,19 @@ export type {
   TitleBlockFill,
 } from "./standard/document.ts";
 export { checkDrawingRead } from "./read/check.ts";
+export { editedPicture, type PictureChange, type PictureInPieces } from "./read/kept.ts";
+export {
+  nearPoint,
+  sheetShows,
+  spaceShows,
+  xrefAreas,
+  QUESTION_LIMITS,
+  type Near,
+  type QuestionLimits,
+  type QuestionOptions,
+  type Shown,
+  type ShownEntity,
+} from "./read/questions.ts";
 export { readDXF } from "./read/dxf.ts";
 export { ReadError } from "./read/groups.ts";
 export { layoutMtext, measureMtext } from "./read/mtext.ts";

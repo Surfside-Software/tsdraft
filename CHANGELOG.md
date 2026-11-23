@@ -11,6 +11,18 @@
   `pictureDrawing` gives the `Drawing` it draws.
 - `tsdraft render` and `tsdraft dev` draw a DXF, and a DWG through a reader the project installs
   or `--reader` names, as they draw a drawing file.
+- `sheetShows`, `spaceShows` and `nearPoint` answer what a sheet of a read file shows, what a space
+  draws and what is near a point: through inserts and the xrefs whose reads are given, with each
+  layer's state as the sheet holds it, `XREF|LAYER` among them, each viewport's frozen layers,
+  its outline or the entity that clips it, and an insert's clip. `xrefAreas` gives the parts of
+  an xref's model a host's layout shows.
+- Both `ReadViewport.clipBy`, the handle of the entity that clips a viewport, and
+  `ReadInsert.clip`, the outline of an insert's spatial filter in its block's coordinates, are
+  read from a DXF.
+- `tsdraft shows` prints what a sheet of a drawing file shows, or what is near a point, as JSON.
+- The command keeps each read of a drawing file, one for each hash of the file's bytes, its
+  reader and what is read, in memory and in the project's `node_modules/.cache/tsdraft`.
+- `eachDrawn` can give each placement the inserts the walk came through.
 
 ## 0.5.4
 

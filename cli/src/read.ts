@@ -157,13 +157,12 @@ export function readDrawingFile(
     if (!reader && extension(file) !== ".dxf") {
       return skip(`no installed reader reads ${basename(file)}`);
     }
-    const outcome = await run(
-      file,
-      module,
-      permission(reader),
-      { maxFileBytes, maxMemoryMb, timeoutMs, maxAnswerBytes },
-      options,
-    );
+    const outcome = await run(file, module, permission(reader), options, {
+      maxFileBytes,
+      maxMemoryMb,
+      timeoutMs,
+      maxAnswerBytes,
+    });
     return "read" in outcome ? { file, reader: by, read: outcome.read } : skip(outcome.skipped);
   });
 }
@@ -172,8 +171,11 @@ export function readDrawingFile(
 export function readDrawingFiles(
   files: readonly { readonly file: string; readonly reader: ReaderPackage | null }[],
   limits: ReadLimits = {},
+  options: ReadOptions = {},
 ): Promise<FileRead[]> {
-  return Promise.all(files.map(({ file, reader }) => readDrawingFile(file, reader, limits)));
+  return Promise.all(
+    files.map(({ file, reader }) => readDrawingFile(file, reader, limits, options)),
+  );
 }
 
 const extension = (file: string): string => /\.[^./\\]*$/.exec(file)?.[0].toLowerCase() ?? "";
@@ -182,8 +184,8 @@ function run(
   file: string,
   module: string | undefined,
   allow: readonly string[],
-  limits: Required<ReadLimits>,
   options: ReadOptions,
+  limits: Required<ReadLimits>,
 ): Promise<{ read: DrawingRead } | { skipped: string }> {
   const { maxFileBytes, maxMemoryMb, timeoutMs, maxAnswerBytes } = limits;
   prlimit ??= spawnSync("prlimit", ["--core=1:1", "true"], { stdio: "ignore" }).status === 0;
@@ -192,6 +194,7 @@ function run(
     ...allow,
     childPath,
     basename(file),
+    JSON.stringify({ geometry: options.geometry === true }),
     ...(module ? [module] : []),
   ];
   const command = prlimit ? "prlimit" : process.execPath;
@@ -204,8 +207,6 @@ function run(
   // NODE_OPTIONS would add its own flags to the process's, and could allow what is denied.
   const env = { ...process.env };
   delete env["NODE_OPTIONS"];
-  if (options.geometry === true) env["TSDRAFT_READ_GEOMETRY"] = "1";
-  else delete env["TSDRAFT_READ_GEOMETRY"];
   if (!watching) {
     watching = true;
     process.once("exit", endLive);
@@ -311,7 +312,7 @@ function run(
  * Takes the prototype from each object of a parsed answer, in place. A reviver that made new
  * objects would put each in V8's slow mode, and parse about ten times slower.
  */
-function bare(value: unknown): unknown {
+export function bare(value: unknown): unknown {
   const stack = [value];
   while (stack.length > 0) {
     const item = stack.pop();
