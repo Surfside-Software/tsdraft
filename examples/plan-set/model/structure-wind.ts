@@ -14,6 +14,7 @@ export const roofAngle = (): number => (Math.atan(HEIGHTS.pitch / 12) * 180) / M
  * record checks it.
  */
 const ROOF_GCP = { 1: -1.4, 2: -2.0, 3: -2.0, pos: 0.6 } as const;
+
 /** The wall's positive GCp at 10 sq. ft., figure 30.3-1, which section 30.7 adds under an overhang. */
 const WALL_POS = 1.0;
 
@@ -31,6 +32,7 @@ export interface RoofZonePressure {
 export function roofPressures(): RoofZonePressure[] {
   const q = 0.6 * qh();
   const gcpi = 0.18;
+
   const roof = (zone: 1 | 2 | 3, where: string): RoofZonePressure => ({
     zone: String(zone),
     where,
@@ -39,6 +41,7 @@ export function roofPressures(): RoofZonePressure[] {
     neg: q * (ROOF_GCP[zone] - gcpi),
     pos: q * (ROOF_GCP.pos + gcpi),
   });
+
   const overhang = (zone: string, gcp: number, where: string): RoofZonePressure => ({
     zone,
     where,
@@ -47,6 +50,7 @@ export function roofPressures(): RoofZonePressure[] {
     neg: q * (gcp - WALL_POS),
     pos: null,
   });
+
   return [
     roof(1, "FIELD"),
     roof(2, "WITHIN a OF RIDGE AND HIPS"),

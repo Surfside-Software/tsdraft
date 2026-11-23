@@ -29,14 +29,14 @@ export interface CircuitDef {
   readonly calc?: "sabc" | "laundry" | "appliance" | "hvac" | "general";
 }
 
-export const WIRE: Record<number, string> = {
-  15: "#14",
-  20: "#12",
-  30: "#10",
-  40: "#8",
-  50: "#6",
-  60: "#6",
-};
+export const WIRE = new Map<number, string>([
+  [15, "#14"],
+  [20, "#12"],
+  [30, "#10"],
+  [40, "#8"],
+  [50, "#6"],
+  [60, "#6"],
+]);
 
 /** The circuits, in the order they go into the panel. */
 export const CIRCUIT_DEFS: readonly CircuitDef[] = [
@@ -133,21 +133,27 @@ export interface Circuit extends CircuitDef {
 /** Places each circuit in the panel: each goes in the column whose next space is lower. */
 function placeCircuits(defs: readonly CircuitDef[]): Circuit[] {
   const next = { odd: 1, even: 2 };
+
   return defs.map((c) => {
     const side = next.odd <= next.even - 1 ? "odd" : "even";
     const first = next[side];
     const positions = c.poles === 2 ? [first, first + 2] : [first];
     next[side] = first + 2 * c.poles;
+
     if (positions.at(-1)! > PANEL.spaces)
       throw new Error(`Panel ${PANEL.name} is full at ${c.key}`);
+
     return { ...c, positions, label: `${PANEL.name}-${positions.join(",")}` };
   });
 }
 
 export const CIRCUITS = placeCircuits(CIRCUIT_DEFS);
+
 export const circuit = (key: string): Circuit => {
   const c = CIRCUITS.find((x) => x.key === key);
+
   if (!c) throw new Error(`No circuit ${key}`);
+
   return c;
 };
 
@@ -195,6 +201,7 @@ export const DEVICE_VA: Partial<Record<Block, number>> = {
 
 export const isReceptacle = (b: Block) => b === "E-DUPLEX" || b === "E-GFCI";
 export const isSwitch = (b: Block) => b === "E-SWITCH" || b === "E-SWITCH3";
+
 export const isLight = (b: Block) =>
   b === "E-CEILING" ||
   b === "E-RECESSED" ||
@@ -203,8 +210,10 @@ export const isLight = (b: Block) =>
   b === "E-EXHAUST";
 
 const devices: Device[] = [];
+
 /** The circuit key of a device on no branch circuit: the panel itself. */
 export const NO_CIRCUIT = "PANEL";
+
 const add = (
   floor: Floor,
   block: Block,
@@ -220,6 +229,13 @@ const add = (
 
 const inRect = (r: Rect, p: Point, grow = 0) =>
   p[0] >= r[0] - grow && p[0] <= r[2] + grow && p[1] >= r[1] - grow && p[1] <= r[3] + grow;
+
+/** A point on a room's wall, its outward normal and the wall's rotation. */
+interface OnWall {
+  readonly p: Point;
+  readonly n: Point;
+  readonly rot: number;
+}
 
 /**
  * The places along a room's wall line for receptacles, at most 12 ft apart and 6 ft from each
@@ -237,69 +253,96 @@ export function wallReceptacles(
   const w = x1 - x0;
   const h = y1 - y0;
   const perim = 2 * (w + h);
+
   // A point on the perimeter at s, its outward normal and its wall's rotation.
-  const along = (s: number): { p: Point; n: Point; rot: number } => {
+  const along = (s: number): OnWall => {
     if (s < w) return { p: [x0 + s, y0], n: [0, -1], rot: 0 };
+
     if (s < w + h) return { p: [x1, y0 + (s - w)], n: [1, 0], rot: 90 };
+
     if (s < 2 * w + h) return { p: [x1 - (s - w - h), y1], n: [0, 1], rot: 0 };
+
     return { p: [x0, y1 - (s - 2 * w - h)], n: [-1, 0], rot: 90 };
   };
+
   const breaks = level.openings.filter((o) => o.kind !== "window").map((o) => o.cut);
+
   const isWall = (s: number) => {
     const { p, n } = along(s);
     const out: Point = [p[0] + n[0] * 2, p[1] + n[1] * 2];
+
     if (!level.walls.some((r) => inRect(r, out, 0.5))) return false;
+
     if (breaks.some((r) => inRect(r, out, 1))) return false;
+
     if (skip.some((r) => inRect(r, p, 1))) return false;
+
     return true;
   };
+
   const step = 1;
   const flags: boolean[] = [];
+
   for (let s = 0; s < perim; s += step) flags.push(isWall(s + step / 2));
   // Runs of wall, joined across the start of the perimeter.
   const runs: [number, number][] = [];
   let start: number | undefined;
   flags.forEach((f, k) => {
     if (f && start === undefined) start = k;
+
     if (!f && start !== undefined) {
       runs.push([start, k]);
       start = undefined;
     }
   });
+
   if (start !== undefined) {
     if (runs.length && runs[0]![0] === 0) runs[0] = [start - flags.length, runs[0]![1]];
     else runs.push([start, flags.length]);
   }
+
   const corners = [0, w, w + h, 2 * w + h, perim];
   const out: { at: Point; rot: number }[] = [];
+
   for (const [a, b] of runs) {
     const len = (b - a) * step;
+
     if (len < 24) continue; // NEC 210.52(A)(2)(1): wall space is 2 ft or more.
+
     // Spread n receptacles along the run, kept 12" off the corners, and add one until no point
     // of the run is more than 6 ft from one: NEC 210.52(A)(1).
     const place = (n: number): number[] =>
       Array.from({ length: n }, (_, i) => {
         let s = a * step + ((i + 0.5) * len) / n;
+
         for (const c of corners) {
           const cs = c + Math.floor((a * step) / perim) * perim;
+
           for (const cc of [cs, cs + perim, cs - perim])
             if (Math.abs(s - cc) < 12) s = s < cc ? cc - 12 : cc + 12;
         }
+
         return Math.min(Math.max(s, a * step), b * step);
       });
+
     const covered = (ss: number[]) => {
       for (let t = a * step; t <= b * step; t += 2)
         if (Math.min(...ss.map((x) => Math.abs(x - t))) > 72) return false;
+
       return true;
     };
+
     let n = Math.max(1, Math.ceil(len / 144));
+
     while (!covered(place(n))) n++;
+
     for (const s0 of place(n)) {
       const s = ((s0 % perim) + perim) % perim;
       const { p, n: nn, rot } = along(s);
       out.push({ at: [p[0] - nn[0] * inset, p[1] - nn[1] * inset], rot });
     }
   }
+
   return out;
 }
 
@@ -313,9 +356,11 @@ function counterReceptacles(
   k0 = 0,
 ): number {
   const len = Math.hypot(to[0] - from[0], to[1] - from[1]);
+
   if (len < 12) return k0;
   const n = Math.max(1, Math.ceil(len / 48));
   let k = k0;
+
   for (let i = 0; i < n; i++) {
     const t = (i + 0.5) / n;
     add(
@@ -327,18 +372,23 @@ function counterReceptacles(
     );
     k++;
   }
+
   return k;
 }
 
 const room = (level: Level, name: string, nth = 0): Rect => {
   const r = level.rooms.filter((x) => x.name === name)[nth];
+
   if (!r) throw new Error(`No room ${name}`);
+
   return r.rect;
 };
 
 const INSET = 5; // inches from a wall's face to a receptacle's middle
+
 /** Panel A, on the garage's west wall north of door 109. */
 export const PANEL_AT: Point = [12, 192];
+
 const walls = (
   floor: Floor,
   level: Level,
@@ -366,6 +416,7 @@ const sw = (
       group,
       tag: group.length <= 2 ? group : undefined,
     });
+
   for (const [block, at, rot] of fixtures) add(floor, block, at, ckt, { group, rot: rot ?? 0 });
 };
 
@@ -445,6 +496,7 @@ const sw = (
   // The island: 108" x 42" is 31.5 sq ft, one for the first 9 and one per 18 more (210.52(C)(2)).
   const islandSf = (108 * 42) / 144;
   const islandN = 1 + Math.ceil((islandSf - 9) / 18);
+
   for (let i = 0; i < islandN; i++)
     add(F, "E-GFCI", [204 + ((i + 0.5) * 108) / islandN, 389], "SABC3");
   walls(F, lv, "KITCHEN", "SABC3", "E-DUPLEX", [
@@ -671,6 +723,7 @@ export function circuitLoads() {
     const ds = DEVICES.filter((x) => x.ckt === c.key);
     const counted = ds.filter((x) => DEVICE_VA[x.block] !== undefined);
     const va = c.va ?? counted.reduce((s, x) => s + DEVICE_VA[x.block]!, 0);
+
     return { ...c, devices: ds, count: counted.length, va, fixed: c.va !== undefined };
   });
 }
@@ -688,5 +741,6 @@ export function loadCalc() {
   const hvac = loads.filter((c) => c.calc === "hvac").reduce((s, c) => s + c.va, 0);
   const total = generalDemand + hvac;
   const amps = total / 240;
+
   return { living, lighting, sabc, laundry, appliances, general, generalDemand, hvac, total, amps };
 }

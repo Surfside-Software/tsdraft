@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+- Breaking: the names of shape files and their shapes are SHX names. Rename these in your code;
+  what they do is unchanged:
+  - `ShapeFile` is `ShxFile`, and its `shapes` is `glyphs`.
+  - `ShapeFiles` is `ShxFiles`.
+  - `ShapeDefinition` is `ShxGlyph`.
+  - `ShapeOutline` is `ShxOutline`.
+  - `parseShapes` is `parseShx`.
+  - `shapeFileKey` is `shxFileKey`.
+  - `SHAPE_FILE_LENGTH`, `SHAPE_POINTS` and `SHAPE_STEPS` are `SHX_FILE_LENGTH`, `SHX_POINTS`
+    and `SHX_STEPS`.
+  - `LinetypeShape` is `LinetypeGlyph`, and its `shape` is `glyph`: a mark is
+    `{ after, glyph, file, scale }`. A drawing saved with `toJSON` before this release names
+    `shape` in such a mark, and `fromJSON` refuses it until the mark says `glyph`, with the
+    message `linetypes[0].marks[0]: "shape" is now "glyph"`.
+  - The `shapes` option of `toSVG`, `toPDF`, `lint` and `parseLinetypes` is `shx`.
+  - In a read drawing, a linetype mark's `shape` is `glyph`, and a text style's `shapes` is
+    `glyphFile`.
+  - An error about a mark's shape names the field `glyph`, as in "its mark 0: glyph must be a whole
+    number from 1 to 65535", where it said `shape`.
+- Breaking for readers of other formats: `READ_FORMAT` is 1, the read format with the names above.
+  A reader built for this release gives `format: 1`, a mark's `glyph` and a style's `glyphFile`,
+  and `checkDrawingRead` passes only format 1. The `tsdraft` command still takes an answer in
+  format 0 from a reader built for an older tsdraft, and renames its `shape` and `shapes` before
+  it checks the answer. It skips an answer in any other format, and says which format it gave.
+- `Json`, the type of a value JSON can hold, is exported.
+- `StandardOptions.files` is typed by default as a record of `StandardFile`, a `Standard`, a
+  `Drawing` or a `Json` value, where it took any value; `StandardFile` is exported. What
+  `defineStandard` accepts at run time is unchanged.
+- `leaderArrowheadInfo` takes a `string`, `gradientWritten` a `HatchGradient` or `undefined`, and
+  `maskOf` a `TextMask` or `undefined`, where each took `unknown`. What each does with a value of
+  another type at run time is unchanged.
+- When code that the builder or the checks of an edited copy run throws a value that is not an
+  `Error`, the message names the value, where it said `undefined`.
 - Under a standard, `lint` warns `viewport-shows-other-view` of a text, an insert, a dimension or
   a leader drawn for one view that a viewport of another view shows at the same scale, such as two
   elevations at one scale drawn too close in model space. The builder keeps the view an annotation

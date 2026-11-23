@@ -11,18 +11,22 @@ import {
   viewportWindow,
   type DrawingRead,
   type ReadEntity,
+  type ReadPart,
 } from "../src/index.ts";
 import { PART_AREA, partDrawing } from "./part-drawing.ts";
+import { wrong } from "./values.ts";
 
 const layers = (read: DrawingRead): string[] => read.model.entities!.map((e) => e.layer);
 
 test("a read by layout keeps of model space what the layouts' windows and the areas meet", async () => {
   const dxf = toDXF(partDrawing());
   const whole = await readDXF(dxf, { geometry: true });
+
   const read = await readDXF(dxf, {
     geometry: true,
     only: { layouts: ["a", "B"], areas: [PART_AREA] },
   });
+
   assert.deepEqual(checkDrawingRead(JSON.parse(JSON.stringify(read))), []);
   const inside = layers(whole).filter((l) => l.startsWith("IN-"));
   assert.deepEqual(layers(read), inside);
@@ -41,6 +45,7 @@ test("a read by layout keeps of model space what the layouts' windows and the ar
   const c = read.layouts.find((l) => l.name === "C")!;
   assert.equal(c.entities, undefined);
   assert.equal(Object.keys(c.census.layers).length > 0, true);
+
   for (const name of ["A", "B"])
     assert.equal(read.layouts.find((l) => l.name === name)!.entities!.length, 1);
   // The census and the blocks stay whole.
@@ -53,12 +58,14 @@ test("a read by areas alone keeps no layout's paper", async () => {
     geometry: true,
     only: { areas: [PART_AREA] },
   });
+
   assert.deepEqual(layers(read), ["IN-AREA"]);
   assert.ok(read.layouts.every((l) => l.entities === undefined));
 });
 
 test("a read by layout refuses a name the file lacks, Model, an empty part, an area not of two finite corners and too many", async () => {
   const dxf = toDXF(partDrawing());
+
   for (const [only, message] of [
     [{ layouts: ["D"] }, /no layout named "D"; it has "A", "B", "C"/],
     [{ layouts: ["model"] }, /names `Model`/],
@@ -80,8 +87,8 @@ test("a read by layout refuses a name the file lacks, Model, an empty part, an a
     [{ areas: Array.from({ length: 1025 }, () => PART_AREA) }, /more than 1024/],
   ] as const)
     await assert.rejects(
-      readDXF(dxf, { geometry: true, only: only as never }),
-      (e: unknown) => e instanceof ReadError && message.test(e.message),
+      readDXF(dxf, { geometry: true, only: wrong<ReadPart>(only) }),
+      (e) => e instanceof ReadError && message.test(e.message),
     );
   // Without geometry `only` changes nothing.
   const plain = await readDXF(dxf, { only: { layouts: ["D"] } });
@@ -97,6 +104,7 @@ test("a viewport's window is its rectangle at its ratio, turned by its twist", (
     frozenLayers: [],
     turnedView: false,
   };
+
   assert.deepEqual(
     viewportWindow({ ...base, width: 4, height: 2, viewHeight: 4, ratio: 0.5, twist: 0 }),
     [
@@ -106,6 +114,7 @@ test("a viewport's window is its rectangle at its ratio, turned by its twist", (
       [6, 22],
     ],
   );
+
   // A quarter turn counterclockwise of the view turns the window clockwise in model space.
   const turned = viewportWindow({
     ...base,
@@ -115,8 +124,10 @@ test("a viewport's window is its rectangle at its ratio, turned by its twist", (
     ratio: 1,
     twist: 90,
   })!;
+
   const near = (p: readonly number[], q: readonly number[]) =>
     assert.ok(Math.hypot(p[0]! - q[0]!, p[1]! - q[1]!) < 1e-12, `${p} is not ${q}`);
+
   near(turned[0], [9, 22]);
   near(turned[1], [9, 18]);
   assert.equal(
@@ -128,6 +139,7 @@ test("a viewport's window is its rectangle at its ratio, turned by its twist", (
 test("paragraph text that its codes enlarge reaches as far as they make it", async () => {
   const read = await readDXF(toDXF(partDrawing()), {});
   const { keeps } = partFilter(read, { layouts: ["A"] });
+
   const mtext = (value: string): ReadEntity => ({
     kind: "mtext",
     layer: "0",
@@ -141,6 +153,7 @@ test("paragraph text that its codes enlarge reaches as far as they make it", asy
     lineSpacing: 1,
     lineSpacingStyle: "at-least",
   });
+
   // Twenty characters at a height of 0.5 start 25 left of the window, and reach it only when ten
   // times taller.
   assert.equal(keeps(mtext("TWENTY CHARACTERS AB")), false);
@@ -151,6 +164,7 @@ test("paragraph text that its codes enlarge reaches as far as they make it", asy
 
 test("a read by layout keeps what it cannot box: an insert of a block that counts a kind, and a spline by fit points alone", async () => {
   const read = await readDXF(toDXF(partDrawing()), {});
+
   const counting = {
     ...read,
     blocks: [
@@ -161,12 +175,14 @@ test("a read by layout keeps what it cannot box: an insert of a block that count
         base: [0, 0] as const,
         anonymous: false,
         attributeDefinitions: [],
-        entities: [{ kind: "line", layer: "0", from: [0, 0], to: [0.5, 0] } as ReadEntity],
+        entities: [{ kind: "line", layer: "0", from: [0, 0], to: [0.5, 0] } satisfies ReadEntity],
         other: { "3DFACE": 1 },
       },
     ],
   };
+
   const { keeps } = partFilter(counting, { layouts: ["A"] });
+
   const insert = (block: string): ReadEntity => ({
     kind: "insert",
     layer: "0",
@@ -176,8 +192,10 @@ test("a read by layout keeps what it cannot box: an insert of a block that count
     rotation: 0,
     tags: {},
   });
+
   assert.equal(keeps(insert("COUNTS")), true);
   assert.equal(keeps(insert("BOX")), false);
+
   const spline = (controlPoints: [number, number][]): ReadEntity => ({
     kind: "spline",
     layer: "0",
@@ -190,6 +208,7 @@ test("a read by layout keeps what it cannot box: an insert of a block that count
       [56, 45],
     ],
   });
+
   assert.equal(keeps(spline([])), true);
   assert.equal(
     keeps(
@@ -227,6 +246,7 @@ test("a read by layout keeps what it cannot box: an insert of a block that count
 test("a read by layout takes no window from a layout's own view of its paper, numbered 0 as the CAD app's DXF numbers it off the layout it opens on", async () => {
   const d = createDrawing({ units: "in" });
   d.line([4, 5], [6, 5]);
+
   for (const name of ["A", "B"])
     d.layout(name, { paper: "ARCH D" }, (page) =>
       page.viewport([1, 1], 2, 2, { center: [100, 100], ratio: 1 }),
@@ -234,8 +254,10 @@ test("a read by layout takes no window from a layout's own view of its paper, nu
   const dxf = toDXF(d.build());
   // B's paper space is in BLOCKS: its viewports' group 69 made 0.
   const at = dxf.indexOf("*Paper_Space0");
+
   const renumbered =
     dxf.slice(0, at) + dxf.slice(at).replaceAll(/\n69\r\n[12]\r\n/g, "\n69\r\n0\r\n");
+
   assert.notEqual(renumbered, dxf);
   const read = await readDXF(renumbered, { geometry: true, only: { layouts: ["B"] } });
   assert.deepEqual(read.model.entities, []);
@@ -273,6 +295,7 @@ test("a read by layout of a stream holds a copy of each piece, and refuses a bad
   const text = toDXF(partDrawing());
   const bytes = new TextEncoder().encode(text);
   const only = { layouts: ["A"] };
+
   // One buffer handed over again and again, as a reader of a socket may.
   // A Buffer too, whose `slice` shares its memory.
   for (const buffer of [new Uint8Array(4096), new Uint8Array(64), Buffer.alloc(4096)])
@@ -280,6 +303,7 @@ test("a read by layout of a stream holds a copy of each piece, and refuses a bad
       await readDXF(reused(buffer), { geometry: true, only }),
       await readDXF(text, { geometry: true, only }),
     );
+
   async function* reused(buffer: Uint8Array): AsyncGenerator<Uint8Array> {
     for (let i = 0; i < bytes.length; i += buffer.length) {
       const piece = bytes.subarray(i, i + buffer.length);
@@ -287,6 +311,7 @@ test("a read by layout of a stream holds a copy of each piece, and refuses a bad
       yield buffer.subarray(0, piece.length);
     }
   }
+
   // A group code that is not a number, refused before the stream is pulled again.
   async function* broken(): AsyncGenerator<Uint8Array> {
     yield new TextEncoder().encode(
@@ -294,16 +319,19 @@ test("a read by layout of a stream holds a copy of each piece, and refuses a bad
     );
     throw new Error("pulled again");
   }
+
   await assert.rejects(readDXF(broken(), { geometry: true, only }), ReadError);
-  await assert.rejects(readDXF(text, { geometry: true, only: null as never }), ReadError);
+  await assert.rejects(readDXF(text, { geometry: true, only: wrong<ReadPart>(null) }), ReadError);
 });
 
 test("a read by layout keeps an old leader of an annotative style, which draws at a scale the read does not hold", async () => {
   const read = await readDXF(toDXF(partDrawing()), {});
+
   const styled = (annotative: boolean): DrawingRead => ({
     ...read,
     dimensionStyles: [{ name: "NOTES", annotative, scale: 1, arrowSize: 0.125 }],
   });
+
   const leader: ReadEntity = {
     kind: "leader",
     layer: "0",
@@ -315,6 +343,7 @@ test("a read by layout keeps an old leader of an annotative style, which draws a
     shaft: "straight",
     arrowhead: true,
   };
+
   const area = {
     areas: [
       [
@@ -323,6 +352,7 @@ test("a read by layout keeps an old leader of an annotative style, which draws a
       ],
     ] as const,
   };
+
   assert.equal(partFilter(styled(true), area).keeps(leader), true);
   assert.equal(partFilter(styled(false), area).keeps(leader), false);
 });
@@ -330,6 +360,7 @@ test("a read by layout keeps an old leader of an annotative style, which draws a
 test("paragraph text that its tracking spreads reaches as far as it makes it", async () => {
   const read = await readDXF(toDXF(partDrawing()), {});
   const { keeps } = partFilter(read, { layouts: ["A"] });
+
   const mtext = (value: string): ReadEntity => ({
     kind: "mtext",
     layer: "0",
@@ -343,6 +374,7 @@ test("paragraph text that its tracking spreads reaches as far as it makes it", a
     lineSpacing: 1,
     lineSpacingStyle: "at-least",
   });
+
   // A line of wide letters that does not wrap, spread four times, starts 25 left of the window.
   assert.equal(keeps(mtext("WWWWWWWWWWWWWWWWWWWW")), false);
   assert.equal(keeps(mtext("\\T4;WWWWWWWWWWWWWWWW")), true);

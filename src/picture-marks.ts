@@ -1,5 +1,6 @@
 // What the picture of a read file gives `toSVG` beside the `Drawing` it draws, under keys no
 // `Drawing` holds, so that a drawing made in code draws as it always has.
+import { isString } from "./guards.ts";
 import type { PaperInfo } from "./papers.ts";
 
 /** On a layout: the paper of a read layout, which need not be one of `PAPERS`. */
@@ -98,6 +99,7 @@ export function joinPicture(
 ): string {
   const used: string[] = [];
   const seen = new Set<string>();
+
   const use = (run: PictureRun): void => {
     for (const fragment of run.fragments) {
       for (const id of fragment.defs) {
@@ -106,12 +108,15 @@ export function joinPicture(
           used.push(defs[id]!);
         }
       }
+
       if (fragment.run !== undefined) use(fragment.run);
     }
   };
+
   for (const piece of pieces) {
-    if (typeof piece !== "string" && piece.kind === "fragments") use(piece);
+    if (!isString(piece) && piece.kind === "fragments") use(piece);
   }
+
   const joined = (run: PictureRun): string =>
     run.fragments.length === 0
       ? run.empty
@@ -120,12 +125,15 @@ export function joinPicture(
           .map((f) => (f.run !== undefined ? joined(f.run) : (f.svg ?? "")))
           .join(run.between) +
         run.close;
+
   let out = "";
+
   for (const piece of pieces) {
-    if (typeof piece === "string") out += piece;
+    if (isString(piece)) out += piece;
     else if (piece.kind === "defs")
       out += used.length > 0 ? `\n  <defs>${used.join("")}</defs>` : "";
     else out += joined(piece);
   }
+
   return out;
 }

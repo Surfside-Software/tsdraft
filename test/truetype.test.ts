@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { isString } from "../src/guards.ts";
 import { readTrueType, type TrueType } from "../src/truetype.ts";
 
 /** The command's own font, under the OFL, with composite glyphs. */
@@ -12,6 +13,7 @@ const shipped = new Uint8Array(
 function layout(bytes: Uint8Array) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const tables = new Map<string, { entry: number; at: number; length: number }>();
+
   for (let i = 0; i < view.getUint16(4); i++) {
     const entry = 12 + 16 * i;
     tables.set(String.fromCharCode(...bytes.subarray(entry, entry + 4)), {
@@ -20,17 +22,30 @@ function layout(bytes: Uint8Array) {
       length: view.getUint32(entry + 12),
     });
   }
+
   const [head, loca, glyf] = ["head", "loca", "glyf"].map((tag) => tables.get(tag)!);
   const long = view.getInt16(head!.at + 50) === 1;
+
   const glyph = (g: number): number =>
     glyf!.at + (long ? view.getUint32(loca!.at + 4 * g) : 2 * view.getUint16(loca!.at + 2 * g));
+
   return { view, tables, glyph };
 }
 
 const read = (bytes: Uint8Array): TrueType => {
   const font = readTrueType(bytes);
-  assert.ok(typeof font !== "string", font as string);
+
+  if (isString(font)) assert.fail(font);
+
   return font;
+};
+
+/** Why `bytes` are no font that can be read. */
+const reason = (bytes: Uint8Array): string => {
+  const found = readTrueType(bytes);
+  assert.ok(isString(found), "the bytes were read as a font");
+
+  return found;
 };
 
 test("a subset holds the glyphs asked for and each composite's parts, renumbered", () => {
@@ -38,6 +53,7 @@ test("a subset holds the glyphs asked for and each composite's parts, renumbered
   const file = readFileSync(
     new URL("../cli/assets/fonts/JetBrainsMono-Regular.ttf", import.meta.url),
   );
+
   const font = read(file);
   const asked = [0, ...new Set([..."AÉ°±½"].map((c) => font.glyph(c.codePointAt(0)!)))];
   assert.ok(!asked.slice(1).includes(0));
@@ -53,6 +69,7 @@ test("a subset holds the glyphs asked for and each composite's parts, renumbered
   const hmtx = tables.get("hmtx")!.at;
   asked.forEach((g, i) => assert.equal(view.getUint16(hmtx + 4 * i), font.advance(g)));
   let sum = 0;
+
   for (let i = 0; i < subset.length; i += 4) sum = (sum + view.getUint32(i)) >>> 0;
   assert.equal(sum, 0xb1b0afba);
   assert.ok(subset.length < shipped.length / 20);
@@ -74,39 +91,48 @@ test("a font file is refused, never thrown on: cut short, counts past its tables
   const cycled = new DataView(cycle.buffer);
   cycled.setUint16(glyph(a) + 12, b);
   cycled.setUint16(glyph(b) + 12, a);
-  assert.match(readTrueType(cycle) as string, /is built of itself/);
+  assert.match(reason(cycle), /is built of itself/);
   // A chain of composites, each built of the next, deeper than a reader follows.
   const composites: number[] = [];
+
   for (let g = 0; composites.length < 20; g++) {
     if (glyph(g + 1) > glyph(g) && view.getInt16(glyph(g)) < 0) composites.push(g);
   }
+
   const deep = shipped.slice();
   composites.slice(0, -1).forEach((g, i) => {
     new DataView(deep.buffer).setUint16(glyph(g) + 12, composites[i + 1]!);
   });
-  assert.match(readTrueType(deep) as string, /deeper than 16/);
+  assert.match(reason(deep), /deeper than 16/);
   // A glyph whose first contour ends after its second, which a reader cannot draw.
   const capital = glyph(font.glyph(0x41));
   assert.ok(view.getInt16(capital) === 2);
   const disordered = shipped.slice();
   new DataView(disordered.buffer).setUint16(capital + 10, view.getUint16(capital + 12) + 1);
-  assert.match(readTrueType(disordered) as string, /contours that end out of order/);
+  assert.match(reason(disordered), /contours that end out of order/);
   // Cut short, and with bytes changed at random: a reason or a font, which cuts without a throw.
   let seed = 7;
+
   const random = (n: number): number => {
     seed = (seed * 1103515245 + 12345) >>> 0;
+
     return Math.floor((seed / 2 ** 32) * n);
   };
+
   for (let i = 0; i < 400; i++) {
     const bytes = i < 100 ? shipped.slice(0, random(shipped.length)) : shipped.slice();
     const changed = new DataView(bytes.buffer);
+
     for (let k = 0; i >= 100 && k < 4; k++) {
       const at = random(bytes.length - 4);
+
       if (k % 2) changed.setUint32(at, random(2 ** 32));
       else changed.setUint16(at, 0xffff);
     }
+
     const found = readTrueType(bytes);
-    if (typeof found !== "string") {
+
+    if (!isString(found)) {
       const glyphs = [0, ...new Set([..."AÉ°"].map((c) => found.glyph(c.codePointAt(0)!)))];
       assert.ok(found.subset(glyphs.filter((g, j) => j === 0 || g !== 0)) instanceof Uint8Array);
     }

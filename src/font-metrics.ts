@@ -69,7 +69,12 @@ export const FONT_METRICS_RANGES: readonly (readonly [number, number])[] = [
   [0x2205, 0x2205],
 ];
 
-export const FONT_METRICS: Readonly<Record<string, FontMetrics>> = {
+/** The metrics of each font tsdraft measures text in, by the font's name. */
+export interface FontMetricsTable {
+  readonly [font: string]: FontMetrics;
+}
+
+export const FONT_METRICS: FontMetricsTable = {
   "txt.shx": {
     below: 0.33333333333,
     advances: [

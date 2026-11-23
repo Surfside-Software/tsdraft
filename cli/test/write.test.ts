@@ -27,6 +27,7 @@ function write(cwd: string, ...args: string[]) {
     encoding: "utf8",
     timeout: 120_000,
   });
+
   return {
     status: run.status,
     stderr: run.stderr,
@@ -80,15 +81,18 @@ test("write makes the edited copy of a DXF under out, at its path from the root,
     assert.equal(readFileSync(file.copy, "utf8"), "a person's change");
     mkdirSync(join(dir, "elsewhere"));
     writeFileSync(join(dir, "elsewhere/PLAN.dxf"), "a firm's other drawing");
+
     const foreign = write(
       join(dir, "project/edits"),
       "rev-1.edit.ts",
       "--out",
       join(dir, "elsewhere"),
     );
+
     assert.equal(foreign.status, 2);
     assert.match(foreign.job.files[0].reason, /a write did not make/);
     assert.equal(readFileSync(join(dir, "elsewhere/PLAN.dxf"), "utf8"), "a firm's other drawing");
+
     // With --root and --out, the copy keeps the source's folders under the root.
     const again = write(
       join(dir, "project/edits"),
@@ -98,6 +102,7 @@ test("write makes the edited copy of a DXF under out, at its path from the root,
       "--out",
       join(dir, "copies"),
     );
+
     assert.equal(again.status, 0);
     assert.equal(again.job.files[0].copy, join(dir, "copies/1_Model/PLAN.dxf"));
   });
@@ -133,6 +138,7 @@ test("write refuses an edit file that is not one, a second edit of a file, and a
     writeFileSync(join(dir, "b.edit.ts"), editFile("PLAN.dxf", sha, "b"));
     writeFileSync(join(dir, "c.edit.ts"), editFile("PLAN.dwg", sha, "c"));
     writeFileSync(join(dir, "d.edit.ts"), "export default 42;\n");
+
     const { status, job } = write(
       dir,
       "a.edit.ts",
@@ -142,6 +148,7 @@ test("write refuses an edit file that is not one, a second edit of a file, and a
       "--out",
       join(dir, "copies"),
     );
+
     assert.equal(status, 2);
     const [a, b, c, d] = job.files;
     assert.equal(a.written, true);
@@ -176,6 +183,7 @@ test("write never replaces the source through a link to its folder, and edits ma
       join(dir, "job/edits/s.edit.ts"),
       editFile("../1_Model/staging/PLAN.dxf", sha, "s"),
     );
+
     const staged = write(
       join(dir, "job/edits"),
       "e.edit.ts",
@@ -183,11 +191,13 @@ test("write never replaces the source through a link to its folder, and edits ma
       "--out",
       join(dir, "job/1_Model/staging"),
     );
+
     assert.equal(staged.status, 2);
     assert.match(staged.job.files[0].reason, /a file of the job, which a write never replaces/);
     assert.equal(statSync(other).ino, otherBefore);
     // Twelve edit files of twelve sources, each written.
     const edits: string[] = [];
+
     for (let i = 0; i < 12; i++) {
       writeFileSync(join(dir, `job/1_Model/P${i}.dxf`), bytes);
       writeFileSync(
@@ -196,6 +206,7 @@ test("write never replaces the source through a link to its folder, and edits ma
       );
       edits.push(`p${i}.edit.ts`);
     }
+
     const many = write(join(dir, "job/edits"), ...edits, "--out", join(dir, "many"));
     assert.equal(many.status, 0);
     assert.equal(many.job.files.filter((f: { written: boolean }) => f.written).length, 12);
@@ -246,12 +257,15 @@ test("write needs an edit file, and its options go with it", () => {
   const run = spawnSync(process.execPath, [join(root, "src/cli.ts"), "write"], {
     encoding: "utf8",
   });
+
   assert.equal(run.status, 64);
   assert.match(run.stderr, /Give an edit file/);
+
   const misuse = spawnSync(
     process.execPath,
     [join(root, "src/cli.ts"), "render", "x.ts", "--root", "."],
     { encoding: "utf8" },
   );
+
   assert.equal(misuse.status, 64);
 });

@@ -1,11 +1,12 @@
 // How long a text plots, where its box lies and how far apart the lines of a text of several
 // lines are. This is the one measure of a text: the extents, `toSVG` and `inspectText` all take
 // it from here.
-import type { Point, TextAlign, TextVerticalAlign } from "./drawing.ts";
+import type { Point, TextAlign, TextStyle, TextVerticalAlign } from "./drawing.ts";
 import { FONT_METRICS, FONT_METRICS_RANGES, type FontMetrics } from "./font-metrics.ts";
 import { fontInfo, STANDARD_FONT } from "./fonts.ts";
 import { written } from "./format.ts";
 import { Strings } from "./shape.ts";
+import { isObjectOrArray } from "./guards.ts";
 
 /** A text to measure. A `Text` and its `TextStyle` spread into one object are one. */
 export interface TextToMeasure {
@@ -52,38 +53,48 @@ export interface TextMeasure {
 }
 
 /** What the leading CAD app draws for a control code, each as one character. */
-const CODES: Readonly<Record<string, string>> = { d: "°", p: "±", c: "Ø" };
+const CODES: ReadonlyMap<string, string> = new Map([
+  ["d", "°"],
+  ["p", "±"],
+  ["c", "Ø"],
+]);
 
 /** A text's value with the degree, plus-or-minus and diameter codes as the characters they draw. */
 export function drawnValue(value: string): string {
   return value.includes("%%")
-    ? value.replace(/%%([dpc])/gi, (_, c: string) => CODES[c.toLowerCase()]!)
+    ? value.replace(/%%([dpc])/gi, (_, c: string) => CODES.get(c.toLowerCase())!)
     : value;
 }
 
 /** Where a character's numbers are in a font's tables, or -1 for one they do not hold. */
 export function tableIndex(code: number): number {
   let before = 0;
+
   for (const [first, last] of FONT_METRICS_RANGES) {
     if (code >= first && code <= last) return before + code - first;
     before += last - first + 1;
   }
+
   return -1;
 }
 
 /** Where the numbers of "?" are, which stand for a character the tables do not hold. */
 export const UNKNOWN = tableIndex("?".charCodeAt(0));
 
+/** The numbers a font is measured with, and whether they are the font's own. */
+export interface MeasuredFont {
+  readonly metrics: FontMetrics;
+  readonly known: boolean;
+}
+
 /**
  * The numbers of a font, and whether they are its own: a font that is not one of `FONTS` is
  * measured in `txt.shx`.
  */
-export function fontMetrics(font: string | undefined): {
-  readonly metrics: FontMetrics;
-  readonly known: boolean;
-} {
+export function fontMetrics(font: string | undefined): MeasuredFont {
   const name = font ?? STANDARD_FONT;
   const known = fontInfo(name) !== undefined && Object.hasOwn(FONT_METRICS, name);
+
   return { metrics: known ? FONT_METRICS[name]! : FONT_METRICS[STANDARD_FONT]!, known };
 }
 
@@ -130,17 +141,21 @@ function read(value: string, metrics: FontMetrics): Read {
   let width = 0;
   let head: number | undefined;
   let tail = 0;
+
   // By character, so that one outside the Basic Multilingual Plane counts once.
   for (const character of drawn) {
     let index = tableIndex(character.codePointAt(0)!);
+
     if (index < 0) {
       index = UNKNOWN;
       odd = true;
     }
+
     head ??= metrics.heads[index]!;
     width += metrics.advances[index]!;
     tail = metrics.tails[index]!;
   }
+
   return {
     head,
     width: width + tail,
@@ -167,28 +182,27 @@ function layOut(
 ): TextLayout {
   const { metrics, known } = fontMetrics(text.font);
   const { head, width, advances, odd, spaced } = reading(text.value, metrics);
+
   // A centered or right-justified text placed by a space at either end may plot elsewhere.
   const approximate =
     !known || odd || ((text.align === "center" || text.align === "right") && spaced);
+
   const along = text.height * (text.widthFactor ?? 1);
   const [from, to] = [(head ?? 0) * along, width * along];
   // The text's first point, which its first character is drawn from.
-  const first = text.align === "center" ? -(from + to) / 2 : text.align === "right" ? -to : 0;
+  let first = 0;
+
+  if (text.align === "center") first = -(from + to) / 2;
+  else if (text.align === "right") first = -to;
   // A text is slanted after it is widened, so the width factor does not widen the lean.
   const lean = Math.tan(((text.obliqueAngle ?? 0) * Math.PI) / 180) * text.height;
+
   return {
     start: first + from,
     end: first + to,
     advance: to,
     advances: advances * along,
-    baseline:
-      text.valign === "top"
-        ? -text.height
-        : text.valign === "middle"
-          ? -text.height / 2
-          : text.valign === "bottom"
-            ? metrics.below * text.height
-            : 0,
+    baseline: baselineOf(text.valign, text.height, metrics.below),
     lean: Number.isFinite(lean) ? lean : 0,
     descent: metrics.below * text.height,
     approximate,
@@ -216,15 +230,21 @@ export interface Measurer {
  */
 export function measurer(): Measurer {
   const reads = new Strings<Map<FontMetrics, Read>>();
+
   const reading = (value: string, metrics: FontMetrics): Read => {
     if (value.length < LONG) return read(value, metrics);
     let fonts = reads.get(value);
+
     if (!fonts) reads.set(value, (fonts = new Map()));
     let found = fonts.get(metrics);
+
     if (!found) fonts.set(metrics, (found = read(value, metrics)));
+
     return found;
   };
+
   const layout = (text: TextToMeasure): TextLayout => layOut(text, reading);
+
   return {
     layout,
     measure: (text) => placed(text, layout(text)),
@@ -232,11 +252,25 @@ export function measurer(): Measurer {
   };
 }
 
-/** The fields of a text `measureText` reads that a `TextStyle` holds. */
-const STYLED = ["font", "widthFactor", "obliqueAngle"] as const;
+/** The fields of a text style `inStyle` reads. */
+type StyleToMeasure = Partial<Pick<TextStyle, "font" | "widthFactor" | "obliqueAngle">>;
 
-/** The fields of a text `measureText` reads that only the text holds. */
-const OWN = ["value", "height", "at", "rotation", "align", "valign"] as const;
+/**
+ * A text in its style, with every field `measureText` reads, so that each such text has one
+ * shape: the font, the width factor and the oblique angle, which a style holds, and the rest,
+ * which only the text holds. Each is undefined where neither gives it.
+ */
+interface Styled {
+  readonly value: string;
+  readonly height: number;
+  readonly at: Point | undefined;
+  readonly rotation: number | undefined;
+  readonly align: TextAlign | undefined;
+  readonly valign: TextVerticalAlign | undefined;
+  readonly font: string | undefined;
+  readonly widthFactor: number | undefined;
+  readonly obliqueAngle: number | undefined;
+}
 
 /**
  * A text in its style, as `measureText` takes it: the font, the width factor and the oblique
@@ -244,17 +278,25 @@ const OWN = ["value", "height", "at", "rotation", "align", "valign"] as const;
  * from the text, since a style holds no value, height, place or justification. Only those fields
  * are read, so a text placed many times costs the same whatever else the two hold.
  */
-export function inStyle(text: TextToMeasure, style: object | undefined): TextToMeasure {
-  if (typeof style !== "object" || style === null) return text;
-  const out: Record<string, unknown> = {};
-  const from = text as unknown as Record<string, unknown>;
-  for (const field of OWN) out[field] = from[field];
-  for (const field of STYLED) {
-    out[field] = Object.hasOwn(style, field)
-      ? (style as Record<string, unknown>)[field]
-      : from[field];
-  }
-  return out as unknown as TextToMeasure;
+export function inStyle(text: TextToMeasure, style: StyleToMeasure | undefined): TextToMeasure {
+  // A caller in plain JavaScript may give a style that is no object.
+  if (!isObjectOrArray(style)) return text;
+
+  const styled: Styled = {
+    value: text.value,
+    height: text.height,
+    at: text.at,
+    rotation: text.rotation,
+    align: text.align,
+    valign: text.valign,
+    font: Object.hasOwn(style, "font") ? style.font : text.font,
+    widthFactor: Object.hasOwn(style, "widthFactor") ? style.widthFactor : text.widthFactor,
+    obliqueAngle: Object.hasOwn(style, "obliqueAngle") ? style.obliqueAngle : text.obliqueAngle,
+  };
+
+  // SAFETY: each field is the text's, or the style's own, and one that neither gives is
+  // undefined, which `measureText` reads as left out.
+  return styled as TextToMeasure;
 }
 
 /**
@@ -297,11 +339,14 @@ function placed(text: TextToMeasure, layout: TextLayout): TextMeasure {
   const turn = ((Number.isInteger(rotation) ? rotation : written(rotation)) * Math.PI) / 180;
   const [cos, sin] = [Math.cos(turn), Math.sin(turn)];
   const [x, y] = text.at ?? [0, 0];
+
   const place = (along: number, up: number): Point => [
     x + along * cos - up * sin,
     y + along * sin + up * cos,
   ];
+
   const top = baseline + text.height;
+
   return {
     length: end - start,
     corners: [
@@ -313,4 +358,18 @@ function placed(text: TextToMeasure, layout: TextLayout): TextMeasure {
     descent,
     approximate,
   };
+}
+
+/** How far below a text's point its baseline is, for its vertical justification. */
+function baselineOf(valign: TextVerticalAlign | undefined, height: number, below: number): number {
+  switch (valign) {
+    case "top":
+      return -height;
+    case "middle":
+      return -height / 2;
+    case "bottom":
+      return below * height;
+    default:
+      return 0;
+  }
 }

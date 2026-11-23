@@ -26,31 +26,39 @@ const RECORDS = [
   "intcurve-curve $-1 -1 $-1 forward { exact_int_cur 22800 full nubs 1 open 2 0 1 1 1 0 0 0 0 1 0 } I I #",
   "edge $-1 -1 $-1 $5 0 $5 1 $-1 $11 forward @7 unknown #",
 ];
+
 const SAT = `21500 ${RECORDS.length} 1 0\n4 test 0 \n1 1e-06 1e-10\n${RECORDS.join("\n")}\nEnd-of-ACIS-data\n`;
 
 /** The same records in the binary form, each token after the byte that says its kind. */
 function sab(): Uint8Array {
   const out: number[] = [...new TextEncoder().encode("ACIS BinaryFile")];
+
   const int = (v: number) => {
     const b = new DataView(new ArrayBuffer(4));
     b.setInt32(0, v, true);
     out.push(...new Uint8Array(b.buffer));
   };
+
   const double = (v: number) => {
     const b = new DataView(new ArrayBuffer(8));
     b.setFloat64(0, v, true);
     out.push(...new Uint8Array(b.buffer));
   };
+
   const word = (tag: number, w: string) => out.push(tag, w.length, ...new TextEncoder().encode(w));
   [21500, 0, 1, 0].forEach(int);
+
   for (const record of RECORDS) {
     const tokens = record.split(" ");
     const [name, ...rest] = tokens;
     const parts = name!.split("-");
+
     for (const part of parts.slice(0, -1)) word(0x0e, part);
     word(0x0d, parts.at(-1)!);
+
     for (let i = 0; i < rest.length; i++) {
       const t = rest[i]!;
+
       if (t === "#") out.push(0x11);
       else if (t === "{") out.push(0x0f);
       else if (t === "}") out.push(0x10);
@@ -62,10 +70,12 @@ function sab(): Uint8Array {
       else word(0x0d, t);
     }
   }
+
   word(0x0e, "End");
   word(0x0e, "of");
   word(0x0e, "ACIS");
   word(0x0d, "data");
+
   return Uint8Array.from(out);
 }
 
@@ -97,29 +107,37 @@ test("a file's cipher of the text form is its own inverse", () => {
 test("hostile modeler data reads as edges or as data not read, in bounded time", () => {
   const next = random(13);
   const bytes = sab();
+
   for (let run = 0; run < 2000; run++) {
     const text = [...SAT];
     const b = Uint8Array.from(bytes);
+
     for (let k = 0; k < 1 + Math.floor(next() * 6); k++) {
       const at = Math.floor(next() * text.length);
       text[at] = String.fromCharCode(32 + Math.floor(next() * 95));
       b[Math.floor(next() * b.length)] = Math.floor(next() * 256);
     }
+
     for (const read of [satEdges(text.join("")), sabEdges(b)]) {
       assert.ok(read.unread >= -1);
+
       for (const e of read.edges) assert.ok(["line", "ellipse", "spline"].includes(e.kind));
     }
   }
+
   // Braces nested deep, and many edges on one long curve, read in time in proportion to the data.
   const deep = SAT.replace(
     "exact_int_cur",
     `${"{ ".repeat(100_000)}${"} ".repeat(100_000)}exact_int_cur`,
   );
+
   const long = `nubs 3 open 2000 ${Array.from({ length: 2000 }, (_, i) => `${i} ${i === 0 || i === 1999 ? 3 : 1}`).join(" ")} ${"1 2 3 ".repeat(2002)}`;
+
   const many = SAT.replace("nubs 1 open 2 0 1 1 1 0 0 0 0 1 0", long).replace(
     "End-of-ACIS-data",
     `${"edge $-1 -1 $-1 $5 10 $5 1500 $-1 $11 forward @7 unknown #\n".repeat(20_000)}End-of-ACIS-data`,
   );
+
   const started = performance.now();
   satEdges(deep);
   assert.ok(satEdges(many).unread > 0);
@@ -128,10 +146,12 @@ test("hostile modeler data reads as edges or as data not read, in bounded time",
   const k = 1000;
   const spaced = Array.from({ length: k }, (_, i) => `${i} ${i === 0 || i === k - 1 ? 3 : 1}`);
   let profile = SAT.replace("End-of-ACIS-data\n", "");
+
   for (let c = 0; c < 120; c++) {
     profile += `intcurve-curve $-1 -1 $-1 forward { exact_int_cur 22800 full nubs 3 open ${k} ${spaced.join(" ")} ${"1 2 3 ".repeat(k + 2)}0 } I I #\n`;
     profile += `edge $-1 -1 $-1 $5 1.5 $5 997.5 $-1 $${RECORDS.length + 2 * c} forward @7 unknown #\n`;
   }
+
   assert.equal(satEdges(`${profile}End-of-ACIS-data\n`).unread, 0);
   // A B-spline that says it holds far more knots than the data does.
   const huge = SAT.replace("nubs 1 open 2", "nubs 1 open 999999999");
@@ -147,6 +167,7 @@ const solid = (edges: ReadEdge[]): ReadModelerGeometry => ({
 
 test("edgesInPlan draws each edge as it shows from above", () => {
   const tilt = Math.PI / 3;
+
   const drawn = edgesInPlan(
     solid([
       { kind: "line", from: [0, 0, 0], to: [0, 0, 5] },
@@ -163,14 +184,17 @@ test("edgesInPlan draws each edge as it shows from above", () => {
       { kind: "ellipse", center: [5, 0, 0], normal: [0, 1, 0], majorAxis: [2, 0, 0], ratio: 1 },
     ]),
   );
+
   assert.equal(drawn.length, 3);
   assert.deepEqual(drawn[0], { layer: "SOLID", color: 3, kind: "line", from: [0, 0], to: [3, 4] });
   const ellipse = drawn[1]!;
   assert.equal(ellipse.kind, "ellipse");
+
   if (ellipse.kind === "ellipse") {
     assert.ok(Math.abs(Math.hypot(...ellipse.majorAxis) - 2) < 1e-12);
     assert.ok(Math.abs(ellipse.ratio - 0.5) < 1e-12);
   }
+
   // Nearly edge on, at a ratio the writers would write as 0: a line too.
   const nearly = edgesInPlan(
     solid([
@@ -183,9 +207,11 @@ test("edgesInPlan draws each edge as it shows from above", () => {
       },
     ]),
   );
+
   assert.equal(nearly[0]?.kind, "line");
   // A short arc at the tip of such a circle: a line across the axis, between its own ends.
   const d = (4e-7 * 180) / Math.PI;
+
   const tip = edgesInPlan(
     solid([
       {
@@ -199,9 +225,11 @@ test("edgesInPlan draws each edge as it shows from above", () => {
       },
     ]),
   );
+
   assert.equal(tip[0]?.kind, "line");
   const line = drawn[2]!;
   assert.equal(line.kind, "line");
+
   if (line.kind === "line") {
     assert.ok(Math.abs(Math.abs(line.to[0] - line.from[0]) - 4) < 1e-12);
   }

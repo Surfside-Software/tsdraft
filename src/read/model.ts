@@ -7,7 +7,7 @@ import type { Point } from "../drawing.ts";
 import type { KnotSpacing } from "../curves.ts";
 
 /** The format of a `DrawingRead`. A reader gives the format it was built for. */
-export const READ_FORMAT = 0;
+export const READ_FORMAT = 1;
 
 /**
  * What a reader read from one drawing file. Its size grows with the file's tables, and with
@@ -192,7 +192,7 @@ export type ReadLinetypeMark =
       readonly rotation?: number;
       readonly orient?: "absolute" | "upright";
       readonly offset?: Point;
-      readonly shape: number;
+      readonly glyph: number;
       readonly file: string;
       readonly scale: number;
     };
@@ -212,7 +212,7 @@ export interface ReadTextStyle {
   readonly oblique?: number;
   readonly annotative: boolean;
   /** True for a style that holds a shape file and no font. */
-  readonly shapes: boolean;
+  readonly glyphFile: boolean;
 }
 
 /** A cell style of a table style, as its file holds it. */
@@ -525,17 +525,22 @@ export interface ReadMask {
   readonly offsetFactor: number;
 }
 
+/** What a dimension's text draws over its line and below it, each when it draws one. */
+export interface DimensionTextParts {
+  readonly text?: string;
+  readonly textBelow?: string;
+}
+
 /**
  * A dimension's text as a file holds it, cut at its first `\\X` into what it draws over its line
  * and below it. A text of `<>` alone over the line is the measurement, and is left out.
  */
-export function dimensionTextParts(held: string): {
-  readonly text?: string;
-  readonly textBelow?: string;
-} {
+export function dimensionTextParts(held: string): DimensionTextParts {
   const at = held.indexOf("\\X");
+
   if (at < 0) return held === "" ? {} : { text: held };
   const text = held.slice(0, at);
+
   return { ...(text !== "<>" && { text }), textBelow: held.slice(at + 2) };
 }
 

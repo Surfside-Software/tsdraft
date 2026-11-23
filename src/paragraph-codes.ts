@@ -1,7 +1,8 @@
 // The inline codes of a paragraph's value, as the DXF Reference gives them for MTEXT: what each
 // one draws, read in one pass, and what tsdraft refuses to write. The layout and the writers read
 // a value through `parseParagraph`.
-import { fontInfo, FONTS, type Font } from "./fonts.ts";
+import { FONTS, isFont, type Font } from "./fonts.ts";
+import { isString } from "./guards.ts";
 
 /** How deep a paragraph's braces may nest. */
 export const PARAGRAPH_NESTING = 16;
@@ -11,22 +12,31 @@ const QUOTED = 64;
 
 export const PARAGRAPH_CONTROL =
   "A paragraph's value holds no control characters but a tab, written as itself. paragraph() takes a line feed as a paragraph break and holds it as \\P";
+
 export const PARAGRAPH_ASTRAL =
   "A paragraph cannot hold emoji or other characters above U+FFFF, because the leading CAD app cannot read them from DXF";
+
 export const PARAGRAPH_PRIVATE_USE =
   "A paragraph cannot hold the private-use characters U+E800 to U+E8FF, because the leading CAD app replaces them when it reads DXF";
+
 export const PARAGRAPH_NEVER_CLOSED =
   "A { in the paragraph is never closed by a }. Write \\{ for a brace";
+
 export const PARAGRAPH_NEVER_OPENED = "A } in the paragraph closes no {. Write \\} for a brace";
 export const PARAGRAPH_TOO_DEEP = `The paragraph's braces nest more than ${PARAGRAPH_NESTING} deep`;
+
 export const PARAGRAPH_TRAILING =
   "The paragraph ends with a \\, which starts a code. Write \\\\ for a backslash";
+
 export const PARAGRAPH_STACK_SEPARATOR =
   "The paragraph code \\S stacks two parts, and needs a /, # or ^ between them";
+
 export const PARAGRAPH_STACK_LINED =
   "A stack in underlined or struck-through characters is not laid out yet, so tsdraft refuses it";
+
 export const PARAGRAPH_SHX_DIAMETER =
   "A paragraph's %%c in an SHX font draws a diameter sign of its own, narrower than Ø, which is not laid out yet, so tsdraft refuses it. Set it in a TrueType font, or write Ø";
+
 export const PARAGRAPH_STACK_PART =
   "A stacked part of a paragraph holds digits or capitals, with . , + or - beside them, or only spaces, or nothing: where the tops of other characters stack is not laid out yet, so tsdraft refuses it";
 
@@ -50,6 +60,8 @@ export function paragraphNotLaidOut<C extends NotLaidOutCode>(
 export function paragraphPropertyUnknown<O extends string>(
   option: O,
 ): `The paragraph code \\p has the option "${O}", which tsdraft does not know: it takes i, l, r, b and a with a number, t with numbers or z, q with l, c, r, j or d, and s with m or e and a number` {
+  // SAFETY: the message's type holds the text as given, and `quoted` gives it back but for one
+  // so long that it is cut, which the type cannot say.
   return `The paragraph code \\p has the option "${quoted(option) as O}", which tsdraft does not know: it takes i, l, r, b and a with a number, t with numbers or z, q with l, c, r, j or d, and s with m or e and a number`;
 }
 
@@ -75,6 +87,8 @@ export function paragraphUnknownFont<C extends string, N extends string>(
   code: C,
   name: N,
 ): `The paragraph code \\${C} names the font "${N}", which is not one of FONTS` {
+  // SAFETY: the message's type holds the text as given, and `quoted` gives it back but for one
+  // so long that it is cut, which the type cannot say.
   return `The paragraph code \\${code} names the font "${quoted(name) as N}", which is not one of FONTS`;
 }
 
@@ -88,6 +102,8 @@ export function paragraphShxBold<C extends string, N extends string>(
   code: C,
   name: N,
 ): `The paragraph code \\${C} sets bold in "${N}", an SHX font, which has no bold` {
+  // SAFETY: the message's type holds the text as given, and `quoted` gives it back but for one
+  // so long that it is cut, which the type cannot say.
   return `The paragraph code \\${code} sets bold in "${quoted(name) as N}", an SHX font, which has no bold`;
 }
 
@@ -95,6 +111,8 @@ export function paragraphFontOption<C extends string, O extends string>(
   code: C,
   option: O,
 ): `The paragraph code \\${C} has the option "${O}", which tsdraft does not know: a font takes b0 or b1 for bold, i0, and c and p with a number` {
+  // SAFETY: the message's type holds the text as given, and `quoted` gives it back but for one
+  // so long that it is cut, which the type cannot say.
   return `The paragraph code \\${code} has the option "${quoted(option) as O}", which tsdraft does not know: a font takes b0 or b1 for bold, i0, and c and p with a number`;
 }
 
@@ -227,24 +245,24 @@ const PLAIN: RunFormat = {
  * What `%%` and the letter after it draw. A paragraph has no other: `%%` before any other
  * character is drawn as it is, and so is `%%%`.
  */
-const PERCENT_CODES: Readonly<Record<string, string>> = {
-  d: "°",
-  D: "°",
-  p: "±",
-  P: "±",
-  c: "Ø",
-  C: "Ø",
-};
+const PERCENT_CODES: ReadonlyMap<string, string> = new Map([
+  ["d", "°"],
+  ["D", "°"],
+  ["p", "±"],
+  ["P", "±"],
+  ["c", "Ø"],
+  ["C", "Ø"],
+]);
 
 /** The codes that switch a line on or off: `\L` underline, `\O` overline, `\K` strike-through. */
-const TOGGLES: Readonly<Record<string, readonly [keyof RunFormat, boolean]>> = {
-  L: ["underline", true],
-  l: ["underline", false],
-  O: ["overline", true],
-  o: ["overline", false],
-  K: ["strikeThrough", true],
-  k: ["strikeThrough", false],
-};
+const TOGGLES: ReadonlyMap<string, readonly [keyof RunFormat, boolean]> = new Map([
+  ["L", ["underline", true]],
+  ["l", ["underline", false]],
+  ["O", ["overline", true]],
+  ["o", ["overline", false]],
+  ["K", ["strikeThrough", true]],
+  ["k", ["strikeThrough", false]],
+]);
 
 /** The codes tsdraft does not lay out that end with a `;`. */
 const ENDED = new Set(["H", "W", "Q", "T", "A", "C", "c"]);
@@ -254,27 +272,33 @@ const ENDED = new Set(["H", "W", "Q", "T", "A", "C", "c"]);
  * at most 15 digits before its point and 64 after it, above 0, for `\H`, which may end in `x`,
  * and `\W`; an angle from -85 to 85 for `\Q`; 0, 1 or 2 for `\A`; and 0 to 257 for `\C`.
  */
-const ARGUMENTS: Readonly<Record<string, RegExp>> = {
-  H: /^\d{1,15}(?:\.\d{1,64})?x?$/,
-  W: /^\d{1,15}(?:\.\d{1,64})?$/,
-  Q: /^-?(?:(?:\d|[1-7]\d|8[0-4])(?:\.\d{1,64})?|85(?:\.0{1,64})?)$/,
-  A: /^[012]$/,
-  C: /^(?:\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-7])$/,
-  c: /^\d{1,8}$/,
-};
+const ARGUMENTS: ReadonlyMap<string, RegExp> = new Map([
+  ["H", /^\d{1,15}(?:\.\d{1,64})?x?$/],
+  ["W", /^\d{1,15}(?:\.\d{1,64})?$/],
+  ["Q", /^-?(?:(?:\d|[1-7]\d|8[0-4])(?:\.\d{1,64})?|85(?:\.0{1,64})?)$/],
+  ["A", /^[012]$/],
+  ["C", /^(?:\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-7])$/],
+  ["c", /^\d{1,8}$/],
+]);
 
 /**
  * What each code before a `;` sets of the characters after it, from an argument it takes. `\C`
  * sets a color, which moves nothing but starts a run. A height or width factor of 0 is no argument.
  */
-const CODE_SETS: Readonly<
-  Record<string, (argument: string, format: RunFormat) => RunFormat | undefined>
-> = {
+/** What a code before a `;` sets of a run's format from its argument, or undefined for none. */
+interface CodeSets {
+  readonly [code: string]: (argument: string, format: RunFormat) => RunFormat | undefined;
+}
+
+const CODE_SETS: CodeSets = {
   H: (argument, format) => {
     const times = argument.endsWith("x");
     const n = Number(times ? argument.slice(0, -1) : argument);
+
     if (!(n > 0)) return undefined;
+
     if (!times) return { ...format, height: n, size: 1 };
+
     return format.height === undefined
       ? { ...format, size: format.size * n }
       : { ...format, height: format.height * n };
@@ -282,13 +306,16 @@ const CODE_SETS: Readonly<
   W: (argument, format) =>
     Number(argument) > 0 ? { ...format, widthFactor: Number(argument) } : undefined,
   Q: (argument, format) => ({ ...format, obliqueAngle: Number(argument) }),
+  // SAFETY: ARGUMENTS takes only 0, 1 or 2 for `\A`.
   A: (argument, format) => ({ ...format, align: Number(argument) as 0 | 1 | 2 }),
   C: (argument, format) => ({ ...format, color: Number(argument) }),
   // A true color, with its blue first: 255 is red.
   c: (argument, format) => {
     const bgr = Number(argument);
+
     if (bgr > 0xffffff) return undefined;
     const rgb = ((bgr & 0xff) << 16) | (bgr & 0xff00) | ((bgr >> 16) & 0xff);
+
     return { ...format, color: TRUE_COLOR + rgb };
   },
 };
@@ -321,7 +348,9 @@ function isHex(code: number): boolean {
 /** The value of four hex digits at `at`, or -1 when they are not four hex digits. */
 function hexAt(value: string, at: number): number {
   if (at + 4 > value.length) return -1;
+
   for (let k = at; k < at + 4; k++) if (!isHex(value.charCodeAt(k))) return -1;
+
   return parseInt(value.slice(at, at + 4), 16);
 }
 
@@ -331,8 +360,11 @@ const TAB = 9;
 /** What is wrong with a character a paragraph holds, or undefined. */
 function characterProblem(code: number, tab = false): string | undefined {
   if ((code < 0x20 && !(tab && code === TAB)) || code === 0x7f) return PARAGRAPH_CONTROL;
+
   if (code >= 0xd800 && code <= 0xdfff) return PARAGRAPH_ASTRAL;
+
   if (code >= 0xe800 && code <= 0xe8ff) return PARAGRAPH_PRIVATE_USE;
+
   return undefined;
 }
 
@@ -361,9 +393,11 @@ function sameFormat(a: RunFormat, b: RunFormat): boolean {
 export function parseParagraph(value: string): ParsedParagraph {
   const pieces: ParagraphPiece[] = [];
   let problem: string | undefined;
+
   const fail = (message: string): void => {
     problem ??= message;
   };
+
   const saved: RunFormat[] = [];
   let deeper = 0;
   let format = PLAIN;
@@ -371,38 +405,47 @@ export function parseParagraph(value: string): ParsedParagraph {
   let diameter = false;
   let ownDiameter = false;
   let columnBreak = false;
+
   const flush = (): void => {
     if (diameter) {
       if (format.font === undefined) ownDiameter = true;
       else if (FONTS[format.font].file.endsWith(".shx")) fail(PARAGRAPH_SHX_DIAMETER);
     }
+
     if (run.length > 0) pieces.push({ kind: "characters", value: run, format, diameter });
     run = "";
     diameter = false;
   };
+
   const set = (next: RunFormat): void => {
     if (sameFormat(next, format)) return;
     flush();
     format = next;
   };
+
   const n = value.length;
   let i = 0;
+
   while (i < n) {
     const c = value.charCodeAt(i);
     const character = value[i]!;
+
     if (character === "\\") {
       i = code(i + 1);
       continue;
     }
+
     if (character === "{") {
       if (saved.length < PARAGRAPH_NESTING) saved.push(format);
       else {
         deeper++;
         fail(PARAGRAPH_TOO_DEEP);
       }
+
       i++;
       continue;
     }
+
     if (character === "}") {
       if (deeper > 0) deeper--;
       else if (saved.length > 0) set(saved.pop()!);
@@ -410,152 +453,210 @@ export function parseParagraph(value: string): ParsedParagraph {
       i++;
       continue;
     }
+
     if (character === "%" && value[i + 1] === "%") {
-      const drawn = PERCENT_CODES[value[i + 2] ?? ""];
+      const drawn = PERCENT_CODES.get(value[i + 2] ?? "");
+
       if (drawn !== undefined) {
         run += drawn;
+
         if (drawn === "Ø") diameter = true;
         i += 3;
         continue;
       }
     }
+
     const wrong = characterProblem(c, true);
+
     if (wrong) fail(wrong);
+
     // A pair of surrogates is one character above U+FFFF.
     const pair =
       c >= 0xd800 &&
       c <= 0xdbff &&
       value.charCodeAt(i + 1) >= 0xdc00 &&
       value.charCodeAt(i + 1) <= 0xdfff;
+
     // A control character but a tab draws nothing.
     if (!((c < 0x20 && c !== TAB) || c === 0x7f)) run += pair ? value.slice(i, i + 2) : character;
     i += pair ? 2 : 1;
   }
+
   flush();
+
   if (saved.length > 0 || deeper > 0) fail(PARAGRAPH_NEVER_CLOSED);
+
   return { pieces, problem, ownDiameter, columnBreak };
 
   /** Reads the code after a backslash at `at`, and gives where the value goes on after it. */
   function code(at: number): number {
     if (at >= n) {
       fail(PARAGRAPH_TRAILING);
+
       return n;
     }
+
     const letter = value[at]!;
+
     switch (letter) {
       case "P":
         flush();
         pieces.push({ kind: "break" });
+
         return at + 1;
       case "~":
         run += "\u00a0";
+
         return at + 1;
       case "\\":
       case "{":
       case "}":
         run += letter;
+
         return at + 1;
       case "N":
         flush();
         columnBreak = true;
         pieces.push({ kind: "break", column: true });
+
         return at + 1;
       case "X":
         fail(paragraphNotLaidOut(letter));
         flush();
         pieces.push({ kind: "break" });
+
         return at + 1;
       case "f":
       case "F":
         return font(letter, at + 1);
       case "p": {
         const end = value.indexOf(";", at + 1);
+
         if (end < 0) {
           fail(paragraphNoSemicolon(letter));
+
           return n;
         }
+
         const read = readProperties(value.slice(at + 1, end));
+
         if (read.problem) fail(read.problem);
         flush();
         pieces.push({ kind: "properties", properties: read.properties });
+
         return end + 1;
       }
+
       case "S":
         return stack(at + 1);
       case "U":
       case "u": {
         const unicode = value[at + 1] === "+" ? hexAt(value, at + 2) : -1;
+
         if (unicode < 0) break;
         const wrong = characterProblem(unicode);
+
         if (wrong) fail(wrong);
         else run += String.fromCharCode(unicode);
+
         return at + 6;
       }
+
       case "M":
       case "m": {
         const digit = value.charCodeAt(at + 2);
+
         if (value[at + 1] !== "+" || digit < 49 || digit > 53 || hexAt(value, at + 3) < 0) break;
         fail(paragraphNotLaidOut(letter));
+
         return at + 7;
       }
     }
-    const toggle = TOGGLES[letter];
+
+    const toggle = TOGGLES.get(letter);
+
     if (toggle) {
       if (letter === "O") fail(paragraphNotLaidOut(letter));
       set({ ...format, [toggle[0]]: toggle[1] });
+
       return at + 1;
     }
+
     if (ENDED.has(letter)) {
       const end = value.indexOf(";", at + 1);
+
       if (end < 0) {
         fail(paragraphNoSemicolon(letter));
+
         return n;
       }
+
       if (letter === "T") {
         fail(paragraphNotLaidOut(letter));
+
         return end + 1;
       }
+
       const argument = value.slice(at + 1, end);
-      const set1 = ARGUMENTS[letter]!.test(argument)
+
+      const set1 = ARGUMENTS.get(letter)!.test(argument)
         ? CODE_SETS[letter]!(argument, format)
         : undefined;
-      if (set1 === undefined) fail(paragraphCodeArgument(letter as ArgumentCode));
-      else set(set1);
+
+      if (set1 === undefined) {
+        // SAFETY: each code of ENDED but `\T`, which ends above, is one of PARAGRAPH_CODE_ARGUMENTS.
+        fail(paragraphCodeArgument(letter as ArgumentCode));
+      } else set(set1);
+
       return end + 1;
     }
+
     fail(paragraphUnknownCode(letter));
+
     return at + 1;
   }
 
   /** Reads a `\f` or `\F` code from after its letter, up to its `;`. */
   function font(letter: "f" | "F", at: number): number {
     const end = value.indexOf(";", at);
+
     if (end < 0) {
       fail(paragraphNoSemicolon(letter));
+
       return n;
     }
+
     const parts = value.slice(at, end).split("|");
     const name = parts[0]!;
-    const known = fontInfo(name) ? (name as Font) : undefined;
+    const known = isFont(name) ? name : undefined;
+
     if (!known) fail(paragraphUnknownFont(letter, name));
     let bold = false;
     /** The letters of the options given so far, a bit each. */
     let given = 0;
+
     for (let k = 1; k < parts.length; k++) {
       const option = parts[k]!;
+
       if (option === "b1") {
         bold = true;
+
         if (known && FONTS[known].file.endsWith(".shx")) fail(paragraphShxBold(letter, name));
       } else if (option === "i1") fail(paragraphItalic(letter));
       else if (option !== "b0" && option !== "i0" && !isNumbered(option)) {
         fail(paragraphFontOption(letter, option));
         continue;
       }
+
+      // SAFETY: an option that comes here is b0, b1, i0 or i1, or c or p and a number.
       const bit = OPTION_BITS[option[0] as "b" | "i" | "c" | "p"];
+
       if (given & bit) fail(paragraphFontOptionTwice(letter, option[0]!));
       given |= bit;
     }
+
     set({ ...format, font: known ?? format.font, bold });
+
     return end + 1;
   }
 
@@ -569,10 +670,13 @@ export function parseParagraph(value: string): ParsedParagraph {
     let bottom = "";
     let separator: "/" | "#" | "^" | undefined;
     let k = at;
+
     while (k < n) {
       const character = value[k]!;
+
       if (character === ";") break;
       let taken = character;
+
       if (character === "\\" && k + 1 < n) {
         taken = value[k + 1]!;
         k += 2;
@@ -583,44 +687,62 @@ export function parseParagraph(value: string): ParsedParagraph {
         separator = character;
         k++;
         continue;
-      } else if (character === "%" && value[k + 1] === "%" && PERCENT_CODES[value[k + 2] ?? ""]) {
-        taken = PERCENT_CODES[value[k + 2]!]!;
+      } else if (
+        character === "%" &&
+        value[k + 1] === "%" &&
+        PERCENT_CODES.get(value[k + 2] ?? "")
+      ) {
+        taken = PERCENT_CODES.get(value[k + 2]!)!;
         k += 3;
       } else k++;
       // A tab is a character a stacked part may not hold, which `stackable` refuses.
       const wrong = characterProblem(taken.charCodeAt(0), true);
+
       if (wrong) fail(wrong);
+
       if (separator === undefined) top += taken;
       else bottom += taken;
     }
+
     if (k >= n) {
       fail(paragraphNoSemicolon("S"));
+
       return n;
     }
+
     if (separator === undefined) {
       fail(PARAGRAPH_STACK_SEPARATOR);
       run += top;
+
       return k + 1;
     }
+
     if (format.underline || format.strikeThrough) fail(PARAGRAPH_STACK_LINED);
     else if (!stackable(top) || !stackable(bottom)) fail(PARAGRAPH_STACK_PART);
     flush();
     pieces.push({ kind: "stack", top, bottom, separator, format });
+
     return k + 1;
   }
 }
 
 /** The justification each letter of a `\pq` code names. */
-const JUSTIFICATIONS: Readonly<Record<string, ParagraphJustification>> = {
-  l: "left",
-  c: "center",
-  r: "right",
-  j: "justified",
-  d: "distributed",
-};
+const JUSTIFICATIONS: ReadonlyMap<string, ParagraphJustification> = new Map([
+  ["l", "left"],
+  ["c", "center"],
+  ["r", "right"],
+  ["j", "justified"],
+  ["d", "distributed"],
+]);
 
 /** A number of a `\p` code: a sign, then digits with a point among them or before them. */
 const PROPERTY_NUMBER = /-?(?:\d+(?:\.\d*)?|\.\d+)/y;
+
+/** The properties a `\p` code sets, and what is wrong with it, or undefined. */
+export interface PropertiesRead {
+  readonly properties: ParagraphProperties;
+  readonly problem: string | undefined;
+}
 
 /**
  * Reads what a `\p` code sets, from the text between `\p` and its `;`: an `x` first, then
@@ -629,31 +751,35 @@ const PROPERTY_NUMBER = /-?(?:\d+(?:\.\d*)?|\.\d+)/y;
  * `m`, `e` and `a` and a number, and `t` `z` or numbers with a comma between each. It reads in
  * one pass and never throws.
  */
-export function readProperties(body: string): {
-  readonly properties: ParagraphProperties;
-  readonly problem: string | undefined;
-} {
+export function readProperties(body: string): PropertiesRead {
   const out: { -readonly [K in keyof ParagraphProperties]: ParagraphProperties[K] } = {};
   let problem: string | undefined;
   const n = body.length;
   let k = 0;
+
   if (body.startsWith("x")) {
     out.heights = true;
     k = 1;
   }
+
   const number = (): number | undefined => {
     PROPERTY_NUMBER.lastIndex = k;
     const found = PROPERTY_NUMBER.exec(body);
+
     if (!found) return undefined;
     k += found[0].length;
     const read = Number(found[0]);
+
     return Number.isFinite(read) ? read : undefined;
   };
+
   while (k < n && problem === undefined) {
     const from = k;
     const letter = body[k++]!;
+
     if (letter === ",") continue;
     let ok = true;
+
     switch (letter) {
       case "i":
       case "l":
@@ -661,81 +787,106 @@ export function readProperties(body: string): {
       case "b":
       case "a": {
         const read = number();
+
         if (read === undefined) ok = false;
         else {
           const field = ({ i: "indent", l: "left", r: "right", b: "before", a: "after" } as const)[
             letter
           ];
+
           out[field] = read;
         }
+
         break;
       }
+
       case "q": {
-        const justification = JUSTIFICATIONS[body[k] ?? ""];
+        const justification = JUSTIFICATIONS.get(body[k] ?? "");
+
         if (justification === undefined) ok = false;
         else {
           out.justification = justification;
           k++;
         }
+
         break;
       }
+
       case "s": {
         const style = body[k];
+
         if (style === "a") {
           problem = PARAGRAPH_SPACING_AT_LEAST;
           break;
         }
+
         if (style !== "m" && style !== "e") {
           ok = false;
           break;
         }
+
         k++;
         const read = number();
+
         if (read === undefined) ok = false;
         else out.spacing = { style, value: read };
         break;
       }
+
       case "t": {
         if (body[k] === "z") {
           k++;
           out.tabs = [];
           break;
         }
+
         if (body[k] === "r" || body[k] === "c" || body[k] === "d") {
           problem = PARAGRAPH_TAB_KIND;
           break;
         }
+
         const tabs: number[] = [];
         let read = number();
+
         if (read === undefined) {
           ok = false;
           break;
         }
+
         tabs.push(read);
+
         // A comma before a number gives another stop; before a letter, another option.
         while (body[k] === ",") {
           const next = body[k + 1] ?? "";
+
           if (next === "r" || next === "c" || next === "d") {
             problem = PARAGRAPH_TAB_KIND;
             break;
           }
+
           if (!/[-.0-9]/.test(next)) break;
           k++;
           read = number();
+
           if (read === undefined) {
             ok = false;
             break;
           }
+
           tabs.push(read);
         }
+
         out.tabs = tabs;
         break;
       }
+
       default:
         ok = false;
     }
+
     if (!ok) problem = paragraphPropertyUnknown(body.slice(from, from + 2));
   }
+
   return { properties: out, problem };
 }
 
@@ -747,12 +898,15 @@ export function readProperties(body: string): {
 function stackable(part: string): boolean {
   let spaces = 0;
   let tall = false;
+
   for (let k = 0; k < part.length; k++) {
     const code = part.charCodeAt(k);
+
     if (code === 32) spaces++;
     else if ((code >= 48 && code <= 57) || (code >= 65 && code <= 90)) tall = true;
     else if (code !== 46 && code !== 44 && code !== 43 && code !== 45) return false;
   }
+
   return spaces === part.length || (tall && spaces === 0);
 }
 
@@ -765,10 +919,13 @@ const OPTION_BITS = { b: 1, i: 2, c: 4, p: 8 } as const;
  */
 function isNumbered(option: string): boolean {
   if (option.length < 2 || (option[0] !== "c" && option[0] !== "p")) return false;
+
   for (let k = 1; k < option.length; k++) {
     const digit = option.charCodeAt(k);
+
     if (digit < 48 || digit > 57) return false;
   }
+
   return true;
 }
 
@@ -783,6 +940,7 @@ function isNumbered(option: string): boolean {
  */
 export function plain(text: string): string {
   const escaped = text.replace(/[\\{}]/g, (character) => `\\${character}`);
+
   return escaped.replace(/%%(?=[dDpPcC])/g, "%\\U+0025");
 }
 
@@ -837,7 +995,9 @@ function propertyNumber(value: number): string {
   if (!Number.isFinite(value) || Math.abs(value) >= 1e15) {
     throw new RangeError(`A paragraph's format takes numbers below 1e15, not ${value}`);
   }
+
   const rounded = Math.round(value * 1e6) / 1e6;
+
   return rounded === 0 ? "0" : String(rounded);
 }
 
@@ -860,21 +1020,27 @@ const JUSTIFICATION_LETTERS: Readonly<Record<ParagraphJustification, string>> = 
  */
 export function paragraphFormat(properties: Omit<ParagraphProperties, "heights">): string {
   const options: string[] = [];
+
   const add = (letter: string, value: number | undefined): void => {
     if (value !== undefined) options.push(`${letter}${propertyNumber(value)}`);
   };
+
   add("i", properties.indent);
   add("l", properties.left);
   add("r", properties.right);
+
   if (properties.tabs) {
     options.push(
       properties.tabs.length === 0 ? "tz" : `t${properties.tabs.map(propertyNumber).join(",")}`,
     );
   }
+
   if (properties.justification) options.push(`q${JUSTIFICATION_LETTERS[properties.justification]}`);
   add("b", properties.before);
   add("a", properties.after);
+
   if (properties.spacing) add(`s${properties.spacing.style}`, properties.spacing.value);
+
   return `\\px${options.join(",")};`;
 }
 
@@ -891,9 +1057,11 @@ export interface ListItem {
 function mark(marks: ListMarks, n: number): string {
   if (marks === "1." || marks === "1)") return `${n}${marks[1]}`;
   let letters = "";
+
   for (let k = n; k > 0; k = Math.floor((k - 1) / 26)) {
     letters = String.fromCharCode(65 + ((k - 1) % 26)) + letters;
   }
+
   return `${marks === "a." ? letters.toLowerCase() : letters}.`;
 }
 
@@ -920,13 +1088,16 @@ export function list(
   } = {},
 ): string {
   const { marks = "1.", subMarks = "A.", indent = 3 } = options;
+
   const level = (depth: number): string =>
     paragraphFormat({ indent: -indent, left: indent * depth, tabs: [indent * depth] });
+
   const out: string[] = [];
   items.forEach((item, i) => {
-    const { text, items: under = [] } = typeof item === "string" ? { text: item } : item;
+    const { text, items: under = [] } = isString(item) ? { text: item } : item;
     out.push(`${level(1)}${mark(marks, i + 1)}\t${text}`);
     under.forEach((sub, k) => out.push(`${level(2)}${mark(subMarks, k + 1)}\t${sub}`));
   });
+
   return out.join("\\P");
 }

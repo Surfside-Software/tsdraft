@@ -10,12 +10,14 @@ import {
   toDXF,
   toSVG,
   type Drawing,
+  type Table,
 } from "../src/index.ts";
 import { referencedByKey } from "../src/blocks.ts";
 import { extents } from "../src/extents.ts";
 import { TABLE_COLOR } from "../src/rules.ts";
 import { tableCost, tableRepeats } from "../src/tables.ts";
 import { within } from "./time-limit.ts";
+import { dataOf, wrong } from "./values.ts";
 
 const boxOf = (d: Drawing, xrefs?: Parameters<typeof referencedByKey>[1]) =>
   extents(
@@ -37,6 +39,7 @@ function tagged(): Drawing {
   d.block("TAG", {}, () => d.circle([0, 0], 10));
   d.tableStyle({ name: "S", textHeight: 1 });
   d.table({ style: "S", at: [0, 0], columns: [4], rows: [[{ block: "TAG", blockScale: 1 }]] });
+
   return d.build();
 }
 
@@ -91,10 +94,12 @@ test("a table's box holds what a cell's block draws through an xref", () => {
   const host = createDrawing({ units: "in" });
   host.xref("BASE", "base.dwg");
   host.insert("BASE", [100, 0]);
+
   const svg = toSVG(host.build(), {
     xrefs: { BASE: { drawing: schedule, xrefs: given } },
     view: [1095, -10, 1110, 10],
   });
+
   assert.equal(svg.match(/<(circle|ellipse)\b/g)?.length ?? 0, 1);
 });
 
@@ -127,14 +132,15 @@ test("lint refuses a cell's block that its fit would write at a scale of 0", () 
 });
 
 test("a table of no columns costs nothing to read, however many rows it has", () => {
-  const table = {
+  const table: Table = {
     kind: "table",
     layer: "0",
     style: "S",
     at: [0, 0],
     columns: [],
     rows: Array(2_000_000).fill([]),
-  } as never;
+  };
+
   within(1000, () => {
     assert.equal(tableCost(table), 0);
     assert.equal(tableRepeats()(table), 0);
@@ -215,13 +221,14 @@ test("the builder holds a cell's text to its row's font", () => {
 });
 
 test("a table whose style the drawing lacks draws nothing and throws nothing", () => {
-  const drawing = {
+  const drawing = wrong<Drawing>({
     format: 0,
     units: "in",
     dxf: "R2018",
     layers: [{ name: "0", color: 7 }],
     entities: [{ kind: "table", layer: "0", at: [0, 0], columns: [1], rows: [["A"]] }],
-  } as never;
+  });
+
   assert.doesNotThrow(() => toSVG(drawing));
   assert.doesNotThrow(() => inspectText(drawing));
 });
@@ -234,7 +241,12 @@ test("a table takes no color of its own, from the builder or from lint", () => {
   assert.throws(() => d.table({ ...table, color: 1 }), /A table has no color of its own/);
   d.table({ ...table, color: "ByLayer" });
   const built = d.build();
-  const colored = { ...built, entities: [{ ...built.entities[0]!, color: 3 }] } as Drawing;
+
+  const colored: Drawing = {
+    ...built,
+    entities: [wrong({ ...dataOf(built.entities[0]!), color: 3 })],
+  };
+
   assert.deepEqual(
     lint(colored).map((p) => [p.rule, p.message]),
     [["entity-color", `table #0: ${TABLE_COLOR}`]],

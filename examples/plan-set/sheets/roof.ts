@@ -49,6 +49,7 @@ function roof(d: D): void {
       true,
     );
     d.line(o([lx0 + 6, ly1 - 6]), o([lx1 - 6, ly1 - 6]));
+
     // Downspouts, 3x4, at the corners and at the lanai.
     for (const p of [
       [x0 + 6, y0 + 6],
@@ -57,7 +58,7 @@ function roof(d: D): void {
       [lx0 + 6, ly1 - 6],
       [lx1 - 6, ly1 - 6],
       [x1 - 6, y1 - 6],
-    ] as Point[]) {
+    ] satisfies Point[]) {
       d.rect(o([p[0] - 3, p[1] - 3]), 6, 6);
     }
   });
@@ -74,9 +75,10 @@ function roof(d: D): void {
       [338, 284],
       [280, 314],
       [344, 314],
-    ] as Point[]) {
+    ] satisfies Point[]) {
       d.rect(o([cx - 24, cy - 4]), 48, 8);
     }
+
     revisionCloud(
       d,
       v.p,
@@ -178,6 +180,7 @@ function sheet(d: D): void {
     );
     const x = AREA.left + vpW + 0.5;
     const w = AREA.right - x;
+
     let y = noteColumn(dd, [x, AREA.top - 0.1], w, "ROOF NOTES", [
       "ROOF COVERING, UNDERLAYMENT AND FASTENING SHALL HAVE FLORIDA PRODUCT APPROVAL FOR THE ROOF ZONE PRESSURES ON S-501, HVHZ NOT REQUIRED.",
       "UNDERLAYMENT: SELF-ADHERED POLYMER-MODIFIED BITUMEN OVER THE WHOLE DECK (FBC-R R905.1.1, HIGH-WIND).",
@@ -186,8 +189,10 @@ function sheet(d: D): void {
       "FLASH ALL VALLEYS, WALLS, PENETRATIONS AND THE LANAI LEDGER WITH 26 GA. GALVANIZED STEEL.",
       "DOWNSPOUTS DISCHARGE TO SPLASH BLOCKS DIRECTED TO THE SIDE SWALES. SEE C-101.",
     ]);
+
     y -= 0.3;
     const right = { 1: "right" } as const;
+
     const vents: TableOptions = {
       style: SCHEDULE,
       at: [x, y],
@@ -211,6 +216,7 @@ function sheet(d: D): void {
         ["TOTAL PROVIDED", (upper + soffitVent).toFixed(2)],
       ].map((row) => aligned(row, right)),
     };
+
     dd.layer(LAYERS.text, {}, () => dd.table(vents));
     y = tableBottom(vents);
     noteColumn(
@@ -226,4 +232,4 @@ function sheet(d: D): void {
   });
 }
 
-export const SHEETS: Record<string, SheetDraw> = { "A-103": sheet };
+export const SHEETS = { "A-103": sheet } satisfies Record<string, SheetDraw>;

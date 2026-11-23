@@ -1,3 +1,4 @@
+import { isBoolean, isFunction, isKeyed, isNumber, isObjectOrArray, isString } from "./guards.ts";
 import { entityColorProblem } from "./colors.ts";
 import { entityTransparencyProblem } from "./transparency.ts";
 import type { ParagraphColumns } from "./paragraphs.ts";
@@ -14,7 +15,6 @@ import {
   DEFAULT_LEADER_ARROWHEAD,
   JOG_ANGLE,
   STANDARD_LEADER_STYLE,
-  type Arrowhead,
   type DIMENSION_UNITS,
   type DIMENSION_FRACTIONS,
   type DIMENSION_TEXT_PLACEMENTS,
@@ -80,11 +80,11 @@ import { parsePatterns } from "./patterns.ts";
 import { imageVectors } from "./images.ts";
 import { underlayVectors } from "./underlays.ts";
 import { canonical } from "./json.ts";
-import { DrawingError, type Diagnostic, type LintRule } from "./lint.ts";
+import { aboutWith, DrawingError, type Diagnostic, type LintRule } from "./lint.ts";
 import {
   arcProblem,
   ATTRIBUTE_KIND,
-  ATTRIBUTES_SHAPE,
+  ATTRIBUTES_TYPE,
   PARAGRAPH_ONLY,
   paragraphOnlyProblem,
   attributeTagProblem,
@@ -251,8 +251,8 @@ import {
   type R12Layouts,
   type Ratio,
   type MARK_ORIENTS,
-  type TEXT_ALIGNS,
-  type TEXT_VERTICAL_ALIGNS,
+  TEXT_ALIGNS,
+  TEXT_VERTICAL_ALIGNS,
   type LINE_SPACING_STYLES,
   type PARAGRAPH_ALIGNS,
   type PARAGRAPH_VERTICAL_ALIGNS,
@@ -281,6 +281,7 @@ import {
   hatchPatternChoiceProblem,
   hatchPatternProblem,
   type GradientOf,
+  isOneOf,
   shown,
   undefinedHatchPatternProblem,
   textMaskProblem,
@@ -440,11 +441,11 @@ export interface LinetypeText extends MarkBase {
 
 /**
  * A shape of a shape file a linetype draws, by its number in the file. tsdraft's plot draws it
- * from the file given as `shapes`, which `parseShapes` reads, and leaves a gap without it.
+ * from the file given as `shx`, which `parseShx` reads, and leaves a gap without it.
  */
-export interface LinetypeShape extends MarkBase {
+export interface LinetypeGlyph extends MarkBase {
   /** Its number in its shape file. A name, as a linetype file gives it, is not written. */
-  readonly shape: number | string;
+  readonly glyph: number | string;
   /** The shape file, as the drawing names it, such as `"shapes.shx"`. */
   readonly file: string;
   /**
@@ -454,7 +455,7 @@ export interface LinetypeShape extends MarkBase {
   readonly scale: number;
 }
 
-export type LinetypeMark = LinetypeText | LinetypeShape;
+export type LinetypeMark = LinetypeText | LinetypeGlyph;
 
 /**
  * The lineweights the leading CAD app offers, in millimetres. A lineweight is how wide a line
@@ -658,7 +659,9 @@ export type Spline = FitSpline | ControlSpline;
 
 /** True for a spline through fit points. */
 export function isFitSpline(spline: Spline): spline is FitSpline {
-  return (spline as { readonly fitPoints?: unknown }).fitPoints !== undefined;
+  const fields: { readonly kind: "spline"; readonly fitPoints?: unknown } = spline;
+
+  return fields.fitPoints !== undefined;
 }
 
 /**
@@ -1955,7 +1958,9 @@ export interface EntityOptions<
 /** Checks a hatch's gradient as `lint` does, and returns the copy it checked. */
 function hatchGradientCopy(given: unknown): HatchGradient {
   const read = readGradient(given);
+
   if ("problem" in read) return refuse("hatch-gradient", capitalized(read.problem));
+
   return read.gradient;
 }
 
@@ -2324,6 +2329,7 @@ type CheckedTextStyle<D> = D extends TextStyleDefinition
   : never;
 
 type WidthFactorOf<D> = D extends { readonly widthFactor: infer W extends number } ? W : number;
+
 type ObliqueAngleOf<D> = D extends { readonly obliqueAngle: infer O extends number } ? O : number;
 
 /**
@@ -3222,10 +3228,166 @@ export interface TitleBlockFields {
   readonly [tag: string]: string | undefined;
 }
 
+/** The fields every entity's options may give, each as given, which the builder checks. */
+/** The view an annotation of model space was drawn for, as the entity keeps it. */
+interface EntityView {
+  readonly view?: string;
+}
+
+interface EntityGiven {
+  readonly id?: unknown;
+  readonly color?: unknown;
+  readonly transparency?: unknown;
+  readonly linetype?: unknown;
+  readonly lineweight?: unknown;
+  readonly pen?: unknown;
+  readonly role?: unknown;
+  readonly view?: unknown;
+}
+
+/** True for a hatch's boundary given as one outline's points, which an empty list is too. */
+function isOutline(
+  boundary: readonly Point[] | readonly HatchLoop[],
+): boundary is readonly Point[] {
+  const first: unknown = boundary[0];
+
+  return Array.isArray(first) || first === undefined;
+}
+
+/** `T` with fields that can be set, for an object built a field at a time. */
+type Writable<T> = { -readonly [K in keyof T]: T[K] };
+
+/** A block in place of a leader's note, each field as given. */
+interface LeaderContentGiven {
+  readonly block?: unknown;
+  readonly attributes?: unknown;
+}
+
+/** What a leader under a standard takes besides a leader's options, each as given. */
+interface StandardLeaderGiven {
+  readonly role?: unknown;
+  readonly view?: unknown;
+  readonly to?: unknown;
+  readonly toFarSide?: unknown;
+}
+
+/** A dimension's own texts, each where it is given. */
+interface DimensionTexts {
+  text?: string;
+  textBelow?: string;
+}
+
+/** The text style and height a leader's role gives it. */
+type LeaderRoleFields = Partial<Pick<Leader, "textStyle" | "textHeight">>;
+
+/** What a layout takes, each as given. */
+interface LayoutGiven {
+  readonly paper?: unknown;
+  readonly plotStyle?: unknown;
+  readonly sheetFormat?: unknown;
+}
+
+/** A viewport's options, and the viewport made from them, each field as given. */
+interface ViewportGiven {
+  readonly id?: unknown;
+  readonly layer?: unknown;
+  readonly corner?: unknown;
+  readonly width?: unknown;
+  readonly height?: unknown;
+  readonly center?: Point | undefined;
+  readonly ratio?: unknown;
+  readonly frozenLayers?: unknown;
+  readonly twist?: unknown;
+  readonly view?: unknown;
+}
+
+/** A linetype's definition, each field as given. */
+interface LinetypeGiven {
+  readonly name?: unknown;
+  readonly description?: unknown;
+  readonly pattern?: unknown;
+  readonly marks?: unknown;
+}
+
+/** A text style's definition, each field as given. */
+interface TextStyleGiven {
+  readonly name?: unknown;
+  readonly font?: unknown;
+  readonly widthFactor?: unknown;
+  readonly obliqueAngle?: unknown;
+}
+
+/** What a table takes, each as given. */
+interface TableGiven {
+  readonly color?: unknown;
+  readonly transparency?: unknown;
+  readonly style?: unknown;
+  readonly at?: unknown;
+  readonly rotation?: unknown;
+  readonly columns?: unknown;
+  readonly rows?: unknown;
+  readonly title?: unknown;
+  readonly header?: unknown;
+  readonly titleHeight?: unknown;
+  readonly headerHeight?: unknown;
+  readonly rowHeights?: unknown;
+}
+
+/** What a layer takes, each as given. */
+interface LayerGiven {
+  readonly color?: unknown;
+  readonly linetype?: unknown;
+  readonly lineweight?: unknown;
+  readonly off?: unknown;
+  readonly frozen?: unknown;
+  readonly locked?: unknown;
+  readonly plot?: unknown;
+}
+
+/** What an underlay takes, each as given. */
+interface UnderlayGiven extends EntityGiven {
+  readonly page?: unknown;
+  readonly pageSize?: unknown;
+  readonly scale?: unknown;
+  readonly rotation?: unknown;
+  readonly clip?: unknown;
+  readonly invertClip?: unknown;
+  readonly fade?: unknown;
+  readonly contrast?: unknown;
+  readonly monochrome?: unknown;
+  readonly on?: unknown;
+}
+
+/** What a spline by its control points takes, each as given. */
+interface ControlSplineGiven extends EntityGiven {
+  readonly degree?: unknown;
+  readonly knots?: unknown;
+  readonly weights?: unknown;
+  readonly closed?: unknown;
+}
+
+/** What a spline through fit points takes, each as given. */
+interface SplineGiven extends EntityGiven {
+  readonly startTangent?: unknown;
+  readonly endTangent?: unknown;
+  readonly closed?: unknown;
+}
+
+/** The color an entity is stored with: none for ByLayer. */
+interface Colored {
+  readonly color?: EntityColor;
+}
+
+/** The transparency an entity is stored with: none for ByLayer. */
+interface Transparent {
+  readonly transparency?: EntityTransparency;
+}
+
 /** The linetype and lineweight an entity is stored with: only what differs from ByLayer. */
 type EntityStyle = Pick<Line, "linetype" | "lineweight">;
 
-type Method = (...args: never[]) => unknown;
+/** A function whose call `holdCall` finds on the stack. */
+type Method = Parameters<typeof holdCall>[0];
 
 /** A block while its `draw` runs. */
 interface OpenBlock {
@@ -3304,7 +3466,7 @@ function refuse(rule: LintRule, message: string): never {
  * whose one diagnostic names the caller's call of `method` and what the call was `about`.
  */
 function located(
-  thrown: unknown,
+  cause: unknown,
   method: Method | readonly Method[],
   about: Pick<
     Diagnostic,
@@ -3320,26 +3482,32 @@ function located(
     | "xref"
     | "layout"
   >,
-): unknown {
-  if (!(thrown instanceof Problem)) return thrown;
+) {
+  if (!(cause instanceof Problem)) return cause;
   // The first of the methods that is on the stack is the one the caller called.
   let call: CallSite | undefined;
-  for (const each of Array.isArray(method) ? method : [method]) {
-    call ??= readCall(holdCall(each as Method));
-  }
+
+  for (const each of isMethods(method) ? method : [method]) call ??= readCall(holdCall(each));
+
   const diagnostic: Diagnostic = {
-    rule: thrown.rule,
+    rule: cause.rule,
     severity: "error",
-    message: thrown.message,
+    message: cause.message,
     ...about,
-    ...(call ? { call } : {}),
   };
-  return new DrawingError([diagnostic], thrown.message);
+
+  return new DrawingError([aboutWith(diagnostic, undefined, call)], cause.message);
+}
+
+function isMethods(method: Method | readonly Method[]): method is readonly Method[] {
+  return Array.isArray(method);
 }
 
 /** Whether a tool that runs drawing files has asked every builder to record calls. */
 function recordsCalls(): boolean {
-  return (globalThis as { TSDRAFT_RECORD_CALLS?: unknown }).TSDRAFT_RECORD_CALLS === true;
+  const tools: object = globalThis;
+
+  return "TSDRAFT_RECORD_CALLS" in tools && tools.TSDRAFT_RECORD_CALLS === true;
 }
 
 /**
@@ -3439,43 +3607,62 @@ export class DrawingBuilder<
 
   constructor(options: DrawingOptions<V, S, Z, D> = {}) {
     const units = options.units ?? "in";
+
     if (!UNITS.includes(units)) throw new Error(`Unknown units: ${JSON.stringify(units)}`);
     const dxf: string = options.dxf ?? "R2018";
+
     if (!DXF_VERSIONS.includes(dxf)) {
       throw new Error(`Unsupported DXF version: ${JSON.stringify(dxf)}`);
     }
+
     let standard: Drawn | undefined;
+
     try {
-      standard = drawnTo(options as DrawingOptions<DxfVersion, number, Standard>, dxf);
+      standard = drawnTo(options, dxf);
     } catch (thrown) {
-      throw located(thrown, [createDrawing, DrawingBuilder as unknown as Method], {});
+      // SAFETY: a call site is read from the stack, where the constructor is as a method is.
+      const constructed = DrawingBuilder.prototype.constructor as Method;
+      throw located(thrown, [createDrawing, constructed], {});
     }
-    const scale = options.linetypeScale as unknown;
+
+    const scale: unknown = options.linetypeScale;
+
     if (scale !== undefined) {
-      if (typeof scale !== "number") throw new Error("linetypeScale must be a finite number");
+      if (!isNumber(scale)) throw new Error("linetypeScale must be a finite number");
+
       if (dxf === "R12" && scale !== 1) throw new Error(`linetypeScale: ${R12_ONLY.linetypes}`);
       const problem = linetypeScaleProblem(scale);
+
       if (problem) throw new Error(`linetypeScale: ${problem}`);
     }
-    const pointStyle: unknown = options.pointStyle;
+
+    const pointStyle = options.pointStyle;
+
     if (pointStyle !== undefined) {
       if (dxf === "R12") throw new Error(`pointStyle: ${R12_ONLY.points}`);
       const [problem] = pointStyleProblems(pointStyle);
+
       if (problem) throw new Error(capitalized(problem));
       // Only the fields a style has, so that what the writers hash is plain data.
-      const { figure, circle, square, size } = pointStyle as PointStyle;
-      this.#pointStyle = {
-        figure,
-        ...(circle === undefined ? {} : { circle }),
-        ...(square === undefined ? {} : { square }),
-        ...(size === undefined
-          ? {}
-          : { size: typeof size === "number" ? size : { percent: size.percent } }),
-      };
+      const { figure, circle, square, size } = pointStyle;
+      let style: PointStyle = { figure };
+
+      if (circle !== undefined) style = { ...style, circle };
+
+      if (square !== undefined) style = { ...style, square };
+
+      if (size !== undefined) {
+        style = { ...style, size: isNumber(size) ? size : { percent: size.percent } };
+      }
+
+      this.#pointStyle = style;
     }
+
     this.units = units;
+    // SAFETY: the version is one of DXF_VERSIONS, the one the options give V, or V's default.
     this.dxf = dxf as V;
-    this.linetypeScale = standard?.standard.linetypeScale ?? (scale as number | undefined) ?? 1;
+    // The checks above have found a scale given to be a number.
+    this.linetypeScale = standard?.standard.linetypeScale ?? (isNumber(scale) ? scale : 1);
     this.#standard = standard;
     this.#calls = (options.recordCalls ?? recordsCalls()) ? [] : undefined;
   }
@@ -3492,17 +3679,23 @@ export class DrawingBuilder<
       : V extends "R12"
         ? R12Linetypes
         : LinetypeDefinition<N, P, D>,
-  ): this {
-    const definition = linetype as unknown as LinetypeDefinition;
+  ): this;
+  linetype(given: LinetypeDefinition | LinetypeDefined | R12Linetypes): this {
+    // SAFETY: the other types are messages that make a literal a compile error, which no value
+    // is given for; a value of any other shape is refused by the checks of a definition.
+    const definition = given as LinetypeDefinition;
+
     try {
       if (this.dxf === "R12") refuse("linetype", R12_ONLY.linetypes);
+
       if (this.#standard) refuse("linetype-outside-standard", DRAWN.linetypeDefined);
       this.#define(definition);
     } catch (thrown) {
       const name: unknown = definition?.name;
-      const about = typeof name === "string" ? { linetype: name } : {};
+      const about = isString(name) ? { linetype: name } : {};
       throw located(thrown, DrawingBuilder.prototype.linetype, about);
     }
+
     return this;
   }
 
@@ -3523,42 +3716,63 @@ export class DrawingBuilder<
     try {
       if (this.dxf === "R12") refuse("hatch-pattern", R12_ONLY.hatches);
       let given: unknown = file;
-      if (typeof file === "string") {
+
+      if (isString(file)) {
         try {
           given = parsePatterns(file);
         } catch (thrown) {
           refuse("hatch-pattern", thrown instanceof Error ? thrown.message : String(thrown));
         }
       }
+
       if (!Array.isArray(given)) {
         refuse(
           "hatch-pattern",
           "patterns() takes a pattern file's text or a list of hatch patterns",
         );
       }
+
       const added = new Map<string, readonly [HatchPattern, PatternSizes]>();
-      for (const definition of given as readonly unknown[]) {
+
+      const definitions: readonly unknown[] = given;
+
+      for (const definition of definitions) {
         const problem = hatchPatternProblem(definition);
-        const { name, description, lines } = (definition ?? {}) as HatchPattern;
-        if (problem) refuse("hatch-pattern", `Hatch pattern ${shown(name)}: ${problem}`);
+
+        if (problem) {
+          // Its name, read as `(definition ?? {}).name` reads it.
+          const name = isKeyed(definition) || isFunction(definition) ? definition.name : undefined;
+          refuse("hatch-pattern", `Hatch pattern ${shown(name)}: ${problem}`);
+        }
+
+        // SAFETY: `hatchPatternProblem` has found it to be a hatch pattern.
+        const { name, description, lines } = definition as HatchPattern;
         const key = layerKey(name);
+
         if (added.has(key)) continue;
+        const head = { name: this.#patterns.get(key)?.[0].name ?? name };
+
         const copy: HatchPattern = {
-          name: this.#patterns.get(key)?.[0].name ?? name,
-          ...(description === undefined ? {} : { description }),
-          lines: lines.map(({ angle, base, offset, dashes }) => ({
-            angle,
-            base: [base[0], base[1]],
-            offset: [offset[0], offset[1]],
-            ...(dashes === undefined ? {} : { dashes: [...dashes] }),
-          })),
+          ...(description === undefined ? head : { ...head, description }),
+          lines: lines.map(({ angle, base, offset, dashes }) => {
+            const line: PatternLine = {
+              angle,
+              base: [base[0], base[1]],
+              offset: [offset[0], offset[1]],
+            };
+
+            return dashes === undefined ? line : { ...line, dashes: [...dashes] };
+          }),
         };
+
         added.set(key, [copy, patternSizes(copy.lines, new WeakMap())!]);
       }
+
       for (const [key, pattern] of added) this.#patterns.set(key, pattern);
     } catch (thrown) {
       throw located(thrown, DrawingBuilder.prototype.patterns, {});
     }
+
     return this;
   }
 
@@ -3578,17 +3792,23 @@ export class DrawingBuilder<
       : V extends "R12"
         ? R12Text
         : TextStyleDefinition<N, F, W, O>,
-  ): this {
-    const definition = style as unknown as TextStyleDefinition;
+  ): this;
+  textStyle(style: TextStyleDefinition | TextStyleDefined | R12Text): this {
+    // SAFETY: the other types are messages that make a literal a compile error; a value of any
+    // shape is checked field by field below, as one from plain JavaScript is.
+    const definition = style as TextStyleDefinition;
     const name: unknown = definition?.name;
+
     try {
       if (this.dxf === "R12") refuse("text-style", R12_ONLY.text);
+
       if (this.#standard) refuse("text-style-outside-standard", DRAWN.textStyleDefined);
       this.#defineTextStyle(definition);
     } catch (thrown) {
-      const about = typeof name === "string" ? { textStyle: name } : {};
+      const about = isString(name) ? { textStyle: name } : {};
       throw located(thrown, DrawingBuilder.prototype.textStyle, about);
     }
+
     return this;
   }
 
@@ -3614,92 +3834,130 @@ export class DrawingBuilder<
       | (() => void) = {},
     draw?: () => void,
   ): this {
-    // The parameter type is the error message when a literal name is wrong, so read it as a string.
-    const requested = name as string;
-    const given = typeof options === "function" ? {} : options;
-    if (typeof options === "function") draw = options;
+    // The parameter type is the error message when a literal name is wrong, which is a string.
+    const requested: string = name;
+    const given: LayerGiven = isFunction(options) ? {} : options;
+
+    if (isFunction(options)) draw = options;
     let layer: Layer;
+
     try {
       layer = this.#standard
-        ? this.#standardLayer(requested, given as unknown as LayerOptions)
-        : this.#layer(requested, given as unknown as LayerOptions);
+        ? this.#standardLayer(requested, given)
+        : this.#layer(requested, given);
     } catch (thrown) {
       throw located(thrown, DrawingBuilder.prototype.layer, { layer: requested });
     }
+
     if (draw) {
       const previous = this.#current;
       this.#current = layer.name;
+
       try {
         draw();
       } finally {
         this.#current = previous;
       }
     }
+
     return this;
   }
 
   /** Checks a layer and stores it. */
-  #layer(requested: string, o: LayerOptions): Layer {
+  #layer(requested: string, o: LayerGiven): Layer {
     const fail = (rule: LintRule, problem: string): never =>
       refuse(rule, `Layer ${JSON.stringify(requested)}: ${problem}`);
+
     const nameProblem = layerNameProblem(requested, this.dxf);
+
     if (nameProblem) fail("layer-name", nameProblem);
     const key = layerKey(requested);
     const existing = this.#layers.get(key);
     const auditKey = layerAuditKey(requested);
     const twinProblem = layerTwinProblem(requested, this.#audited.get(auditKey) ?? requested);
+
     if (twinProblem) fail("duplicate-layer", twinProblem);
+    // SAFETY: `layerColorProblem` refuses a value of any type that is not a color index.
     const color = (o.color as number | undefined) ?? existing?.color ?? 7;
     const colorProblem = layerColorProblem(color);
+
     if (colorProblem) fail("layer-color", colorProblem);
-    const layer: Layer = { name: existing?.name ?? requested, color };
+    const fields: Writable<Partial<Layer>> = {};
+    fields.name = existing?.name ?? requested;
+    fields.color = color;
+
     const set = <K extends keyof Layer>(field: K, value: Layer[K] | undefined, plain: Layer[K]) => {
       const kept = value === undefined ? existing?.[field] : value;
-      if (kept !== undefined && kept !== plain) (layer as { [F in K]?: Layer[K] })[field] = kept;
+
+      if (kept !== undefined && kept !== plain) fields[field] = kept;
     };
+
     const r12 = this.dxf === "R12";
     let linetype: string | undefined;
+
     if (o.linetype !== undefined) {
       if (r12 && !isBuiltIn(o.linetype, "Continuous")) fail("linetype", R12_ONLY.linetypes);
       linetype = this.#linetypeName(o.linetype, fail);
       const problem = layerLinetypeProblem(linetype);
+
       if (problem) fail("linetype", problem);
     }
+
     set(
       "linetype",
       linetype === undefined ? undefined : (builtInLinetype(linetype) ?? linetype),
       "Continuous",
     );
+
     if (o.lineweight !== undefined) {
       const problem = lineweightProblem(o.lineweight, "layer");
+
       if (problem) fail("lineweight", problem);
+
       if (r12 && o.lineweight !== "Default") fail("lineweight", R12_ONLY.lineweights);
     }
-    set("lineweight", o.lineweight, "Default");
+
+    // SAFETY: `lineweightProblem` has found a lineweight given to be a layer's.
+    set("lineweight", o.lineweight as Layer["lineweight"], "Default");
+
     for (const state of ["off", "frozen", "locked", "plot"] as const) {
       const value: unknown = o[state];
       const flagProblem = layerFlagProblem(state, value);
+
       if (flagProblem) fail("layer-state", flagProblem);
+
       if (r12 && value !== undefined && value !== (state === "plot")) {
         fail("layer-state", R12_ONLY.layerStates);
       }
+
+      // SAFETY: `layerFlagProblem` has found it to be true, false or left out.
       set(state, value as boolean | undefined, state === "plot");
     }
+
+    // SAFETY: it has its name and its color, set above.
+    const layer = fields as Layer;
     const stateProblem = layerStateProblem(layer.name, layer.frozen);
+
     if (stateProblem) fail("layer-state", stateProblem);
     this.#layers.set(key, layer);
+
     if (!this.#audited.has(auditKey)) this.#audited.set(auditKey, layer.name);
+
     return layer;
   }
 
   /** Checks a layer of the standard and stores it with the standard's properties. */
-  #standardLayer(requested: string, o: LayerOptions): Layer {
+  #standardLayer(requested: string, o: LayerGiven): Layer {
     const drawn = this.#standard!;
     const nameProblem = layerNameProblem(requested, "R2018");
+
     if (nameProblem) refuse("layer-name", `Layer ${JSON.stringify(requested)}: ${nameProblem}`);
+
     if (requested === "0") refuse("layer-outside-standard", DRAWN.layerZero);
     const found = drawn.layers.get(layerKey(requested));
+
     if (!found) return refuse("layer-outside-standard", layerLacks(requested, drawn.standard));
+
     for (const field of ["color", "linetype", "lineweight", "plot"] as const) {
       if (o[field] !== undefined) {
         refuse(
@@ -3708,18 +3966,20 @@ export class DrawingBuilder<
         );
       }
     }
+
     const [name, entry] = found;
     const fields: StandardLayer = this.#inDiscipline("Layer", name, entry);
     const pen = fields.pen === undefined ? undefined : drawn.standard.pens[fields.pen];
+
     return this.#layer(name, {
-      color: fields.color as LayerColor<number>,
+      color: fields.color,
       linetype: fields.linetype,
-      lineweight: (pen?.lineweight ?? "Default") as LineweightOf<number>,
+      lineweight: pen?.lineweight ?? "Default",
       plot: fields.plot,
       off: o.off,
       frozen: o.frozen,
       locked: o.locked,
-    } as LayerOptions);
+    });
   }
 
   /**
@@ -3737,36 +3997,45 @@ export class DrawingBuilder<
       readonly scale: Z extends Standard ? ScaleOfStandard<C, Z> : ScaleWithoutStandard;
     },
   ): View<I, C> {
-    const requested: unknown = id;
+    // The parameter type is the error message when a literal id is wrong, which is a string.
+    const requested: string = id;
+
     try {
       const drawn = this.#standard;
+
       if (!drawn) return refuse("scale-outside-standard", DRAWN.scaleWithoutStandard);
       const key = this.#idKey(requested);
-      this.#freeIdHandle(requested as string);
-      const scale: unknown = (options as { readonly scale?: unknown } | undefined)?.scale;
-      const found = typeof scale === "string" ? drawn.scales.get(idKey(scale)) : undefined;
+      this.#freeIdHandle(requested);
+      const scale: unknown = options?.scale;
+      const found = isString(scale) ? drawn.scales.get(idKey(scale)) : undefined;
+
       if (found === undefined) {
         return refuse(
           "scale-outside-standard",
-          typeof scale === "string"
+          isString(scale)
             ? scaleLacks(scale, drawn.standard)
             : "A view's scale is named by a string",
         );
       }
+
       const [scaleId, { label, ratio }] = found;
       const { units } = this;
       const { paperUnits } = drawn.standard;
+
       const paper = <L extends number>(length: PaperLength<L>): number => {
         try {
           try {
             return fromPaper(length, paperUnits, { ratio, units });
           } catch (thrown) {
-            return refuse("geometry", (thrown as Error).message);
+            return refuse("geometry", thrown instanceof Error ? thrown.message : String(thrown));
           }
         } catch (thrown) {
-          throw located(thrown, paper, { id: requested as string });
+          throw located(thrown, paper, { id: requested });
         }
       };
+
+      // SAFETY: the id has passed its check, which is the I the type checked, and the scale is
+      // the one C names, as the standard spells it: ids are compared without regard to case.
       const view: View<I, C> = Object.freeze({
         id: requested as I,
         scale: scaleId as C,
@@ -3774,21 +4043,18 @@ export class DrawingBuilder<
         ratio,
         paper,
       });
+
       // The view belongs to the drawing, also when it is declared while a block or a layout is drawn.
-      this.#claim(
-        validIdHandle(requested as string),
-        `the id ${JSON.stringify(requested)}`,
-        requested as string,
-        [],
-      );
-      this.#ids.set(key, requested as string);
+      this.#claim(validIdHandle(requested), `the id ${JSON.stringify(requested)}`, requested, []);
+      this.#ids.set(key, requested);
       this.#views.set(key, { view, shown: false });
+
       return view;
     } catch (thrown) {
       throw located(
         thrown,
         DrawingBuilder.prototype.view,
-        typeof requested === "string" ? { id: requested } : {},
+        isString(requested) ? { id: requested } : {},
       );
     }
   }
@@ -3830,6 +4096,7 @@ export class DrawingBuilder<
   ): this {
     return this.#add(DrawingBuilder.prototype.polyline, options, () => {
       if (points.length < 2) refuse("geometry", "A polyline needs at least 2 points");
+
       return this.#polyline(points.map(pt), closed, options);
     });
   }
@@ -3858,17 +4125,20 @@ export class DrawingBuilder<
       const [x, y] = pt(corner);
       const w = positive(width, "width");
       const h = positive(height, "height");
+
       // A side can still vanish in the file: a corner and the one across from it may round together.
       if (written(x + w) === written(x)) refuse("geometry", lostSide("width", "x", x));
+
       if (written(y + h) === written(y)) refuse("geometry", lostSide("height", "y", y));
+
       const corners: Point[] = [
         [x, y],
         [x + w, y],
         [x + w, y + h],
         [x, y + h],
       ];
-      const { radius } = options as { readonly radius?: unknown };
-      return this.#polyline(corners.map(pt), true, radius === undefined ? {} : { radius });
+
+      return this.#polyline(corners.map(pt), true, { radius: options.radius });
     });
   }
 
@@ -3891,26 +4161,32 @@ export class DrawingBuilder<
   >(
     outline: readonly Point[],
     options: V extends "R12" ? R12Polylines : CloudOptions<A, T, W, L, I, Z, P, N, C>,
-  ): this {
-    const o = options as unknown as CloudOptions;
+  ): this;
+  cloud(outline: readonly Point[], options: CloudOptions | R12Polylines): this {
+    // SAFETY: the other types are messages that make a literal a compile error; a value of any
+    // shape is checked field by field below, as one from plain JavaScript is.
+    const o = options as CloudOptions;
+
     return this.#add(DrawingBuilder.prototype.cloud, o, () => {
       if (this.dxf === "R12") refuse("geometry", R12_ONLY.polylines);
+
       if (outline.length < 3) refuse("geometry", "A cloud's outline needs at least 3 points");
       const corners = outline.map(pt);
       const arc = positive(o.arc, "arc");
       const count = arcsAlong(corners, arc);
+
       if (count > MAX_CLOUD_ARCS) {
         refuse(
           "geometry",
           `arc: the cloud would have ${count} arcs, and has at most ${MAX_CLOUD_ARCS}. Give a longer arc`,
         );
       }
+
       const made = cloud(corners, arc);
-      if (typeof made === "string") refuse("geometry", capitalized(made));
-      return this.#polyline(made.points, true, {
-        bulges: made.bulges,
-        ...(o.width === undefined ? {} : { width: o.width }),
-      });
+
+      if (isString(made)) refuse("geometry", capitalized(made));
+
+      return this.#polyline(made.points, true, { bulges: made.bulges, width: o.width });
     });
   }
 
@@ -3932,29 +4208,44 @@ export class DrawingBuilder<
     center: Point,
     outside: V extends "R12" ? R12Polylines : Positive<D>,
     options?: V extends "R12" ? R12Polylines : DonutOptions<H, T, W, L, I, Z, P, C>,
+  ): this;
+  donut(
+    center: Point,
+    outside: number | R12Polylines,
+    options?: DonutOptions | R12Polylines,
   ): this {
-    const o = (options ?? {}) as unknown as DonutOptions;
+    // SAFETY: the other types are messages that make a literal a compile error; a value of any
+    // shape is checked field by field below, as one from plain JavaScript is.
+    const o = (options ?? {}) as DonutOptions;
+
     return this.#add(DrawingBuilder.prototype.donut, o, () => {
       if (this.dxf === "R12") refuse("geometry", R12_ONLY.polylines);
       const [x, y] = pt(center);
       const across = positive(outside, "outside");
       const inside: unknown = o.inside ?? 0;
       const problem = donutHoleProblem(inside);
+
       if (problem) refuse("geometry", `inside: ${problem}`);
-      if (!((inside as number) < across)) {
+      // SAFETY: `donutHoleProblem` has found the hole to be a number.
+      const hole = inside as number;
+
+      if (!(hole < across)) {
         refuse("geometry", "inside: A donut's hole must be less across than the donut");
       }
-      const made = donut([x, y], across, inside as number);
+
+      const made = donut([x, y], across, hole);
       // Its middle, between its two points, and its ring are written within 1% of what they are.
-      const middle = (across + (inside as number)) / 2;
+      const middle = (across + hole) / 2;
       const chord = written(made.points[1]![0]) - written(made.points[0]![0]);
       const off = (wrote: number, is: number): boolean => !(Math.abs(wrote - is) <= is / 100);
+
       if (off(chord, middle) || off(written(made.width), made.width)) {
         refuse(
           "geometry",
           "outside: The donut is too small for the 6 decimals tsdraft writes: its ring or its middle would be written more than 1% off. Give a larger donut, or a hole further from its size",
         );
       }
+
       return this.#polyline(made.points.map(pt), true, {
         bulges: made.bulges,
         width: made.width,
@@ -4008,38 +4299,46 @@ export class DrawingBuilder<
   ): this {
     return this.#add(DrawingBuilder.prototype.hatch, options, () => {
       if (this.dxf === "R12") refuse("hatch", R12_ONLY.hatches);
+
       if (!Array.isArray(boundary))
         refuse("geometry", "A hatch's boundary is a list of points or of loops");
-      const first: unknown = boundary[0];
-      const outline = Array.isArray(first) || first === undefined;
-      const given = (outline ? [{ points: boundary }] : boundary) as readonly HatchLoop[];
+      const outline = isOutline(boundary);
+      const given: readonly HatchLoop[] = isOutline(boundary) ? [{ points: boundary }] : boundary;
+
       if (given.length === 0 || (outline && boundary.length === 0))
         refuse("geometry", capitalized(HATCH_NO_LOOPS));
+
       const loops = given.map((loop, k): HatchLoop => {
-        if (typeof loop !== "object" || loop === null || !Array.isArray(loop.points))
+        if (!isObjectOrArray(loop) || !Array.isArray(loop.points))
           return refuse("geometry", `Loop ${k} must be { points, bulges? }`);
         const points = loop.points.map(pt);
         const bulges = loop.bulges;
+
         const problem =
           polylineSidesProblems(points.length, bulges, undefined, undefined)[0] ??
           (points.length < 2 ||
           (points.length === 2 && !(bulges ?? []).some((b) => written(b) !== 0))
             ? HATCH_LOOP_POINTS
             : undefined);
+
         if (problem) refuse("geometry", `Loop ${k}: ${problem}`);
-        return { points, ...(bulges === undefined ? {} : { bulges: [...bulges] }) };
+
+        return bulges === undefined ? { points } : { points, bulges: [...bulges] };
       });
+
       const choice: unknown = options.pattern;
       const shade: unknown = options.gradient;
+
       if (choice !== undefined && shade !== undefined)
         refuse("hatch-gradient", capitalized(GRADIENT_WITH_PATTERN));
-      return {
-        kind: "hatch",
-        layer: this.#current,
-        loops,
-        ...(choice === undefined ? {} : { pattern: this.#hatchPattern(choice, loops) }),
-        ...(shade === undefined ? {} : { gradient: hatchGradientCopy(shade) }),
-      };
+
+      let hatch: Hatch = { kind: "hatch", layer: this.#current, loops };
+
+      if (choice !== undefined) hatch = { ...hatch, pattern: this.#hatchPattern(choice, loops) };
+
+      if (shade !== undefined) hatch = { ...hatch, gradient: hatchGradientCopy(shade) };
+
+      return hatch;
     });
   }
 
@@ -4049,30 +4348,48 @@ export class DrawingBuilder<
    */
   #hatchPattern(choice: unknown, loops: readonly HatchLoop[]): HatchPatternChoice {
     const problem = hatchPatternChoiceProblem(choice);
+
     if (problem) refuse("hatch-pattern", capitalized(problem));
-    const c = choice as Record<string, unknown>;
-    const angle = c.angle === undefined ? {} : { angle: c.angle as number };
-    const at = c.origin as Point | undefined;
-    const origin = at === undefined ? {} : { origin: [at[0], at[1]] as Point };
+    // SAFETY: `hatchPatternChoiceProblem` has found it to be a pattern by name or by spacing.
+    const c = choice as HatchPatternChoice;
+    const angle = c.angle === undefined ? {} : { angle: c.angle };
+    const at = c.origin;
+    const origin = at === undefined ? {} : { origin: [at[0], at[1]] satisfies Point };
     let found: readonly [HatchPattern, PatternSizes] | undefined;
     let copy: HatchPatternChoice;
-    if (typeof c.name === "string") {
-      found = this.#patterns.get(layerKey(c.name));
-      if (found === undefined) refuse("hatch-pattern", undefinedHatchPatternProblem(c.name, true));
-      const scale = c.scale === undefined ? {} : { scale: c.scale as number };
+
+    const given: { readonly name?: unknown; readonly angle?: unknown } = c;
+
+    if (isString(given.name)) {
+      // SAFETY: a choice the check passed with a name is one by name.
+      const named = c as Extract<HatchPatternChoice, { readonly name: string }>;
+      found = this.#patterns.get(layerKey(named.name));
+
+      if (found === undefined) {
+        refuse("hatch-pattern", undefinedHatchPatternProblem(named.name, true));
+      }
+
+      const scale = named.scale === undefined ? {} : { scale: named.scale };
       copy = { name: found![0].name, ...scale, ...angle, ...origin };
     } else {
-      const crossed = c.crossed === undefined ? {} : { crossed: c.crossed as boolean };
-      copy = { spacing: c.spacing as number, ...angle, ...crossed, ...origin };
+      // SAFETY: a choice the check passed with no name is one by spacing.
+      const spaced = c as Extract<HatchPatternChoice, { readonly spacing: number }>;
+      const crossed = spaced.crossed === undefined ? {} : { crossed: spaced.crossed };
+      copy = { spacing: spaced.spacing, ...angle, ...crossed, ...origin };
     }
+
     const box = loopsBox(loops);
+
     const spread = hatchSpread(
       { pattern: copy },
       () => found?.[0],
       () => found?.[1],
     );
+
     const drawn = box && spread ? patternDrawnProblem(box, spread) : undefined;
+
     if (drawn) refuse("hatch-pattern", capitalized(drawn));
+
     return copy;
   }
 
@@ -4094,12 +4411,16 @@ export class DrawingBuilder<
   >(points: readonly Point[], options: EntityOptions<V, T, W, L, I, Z, P, C> = {}): this {
     return this.#add(DrawingBuilder.prototype.wipeout, options, () => {
       if (this.dxf === "R12") refuse("wipeout", R12_ONLY.hatches);
+
       if (!Array.isArray(points) || points.length < 3)
         refuse("geometry", capitalized(WIPEOUT_POINTS));
       const corners = points.map(pt);
+
       if (onOneLine(corners)) refuse("geometry", capitalized(WIPEOUT_FLAT));
+
       if (corners.length <= 4096 && polygonCrosses(corners))
         refuse("wipeout", capitalized(WIPEOUT_CROSSES));
+
       return { kind: "wipeout", layer: this.#current, points: corners };
     });
   }
@@ -4129,51 +4450,66 @@ export class DrawingBuilder<
     path: V extends "R12" ? R12Images : ImagePath<F>,
     at: Point,
     options: V extends "R12" ? R12Images : ImageOptions<IW, IH, T, W, L, I, Z, P, C>,
-  ): this {
-    const o = options as unknown as ImageOptions;
+  ): this;
+  image(path: string, at: Point, options: ImageOptions | R12Images): this {
+    // SAFETY: the other types are messages that make a literal a compile error; a value of any
+    // shape is checked field by field below, as one from plain JavaScript is.
+    const o = options as ImageOptions;
+
     return this.#add(DrawingBuilder.prototype.image, o, () => {
       if (this.dxf === "R12") refuse("image", R12_ONLY.images);
       const pathProblem = imagePathProblem(path);
+
       if (pathProblem) refuse("image", pathProblem);
       const pixelsProblem = imagePixelsProblem(o.pixels);
+
       if (pixelsProblem) refuse("image", `pixels: ${pixelsProblem}`);
       const [w, h] = o.pixels;
       const width = positive(o.width, "width");
       const height = o.height === undefined ? width * (h / w) : positive(o.height, "height");
+
       if (o.height === undefined && sizeProblem(height)) {
         refuse("geometry", `height: ${sizeProblem(height)}`);
       }
+
       const rotation =
         o.rotation === undefined ? undefined : kept(num(o.rotation, "rotation"), "rotation");
-      const image: Image = {
+
+      let image: Image = {
         kind: "image",
         layer: this.#current,
-        path: path as string,
+        path,
         pixels: [w, h],
         at: pt(at),
         width,
         height,
-        ...(rotation === undefined ? {} : { rotation }),
       };
+
+      if (rotation !== undefined) image = { ...image, rotation };
+
       if (o.clip !== undefined) {
         const [u, v] = imageVectors(image);
         const clipProblem = imageClipProblem(o.clip, image.at, u, v);
+
         if (clipProblem) refuse("image", `clip: ${clipProblem}`);
       } else if (o.invertClip === true) refuse("image", IMAGE_INVERT_WITHOUT_CLIP);
+
       for (const [field, value] of [
         ["invertClip", o.invertClip],
         ["transparent", o.transparent],
       ] as const) {
-        if (value !== undefined && typeof value !== "boolean") {
+        if (value !== undefined && !isBoolean(value)) {
           refuse("image", `${field} must be true or false`);
         }
       }
-      return {
-        ...image,
-        ...(o.clip === undefined ? {} : { clip: o.clip.map(pt) }),
-        ...(o.invertClip === true ? { invertClip: true } : {}),
-        ...(o.transparent === true ? { transparent: true } : {}),
-      };
+
+      if (o.clip !== undefined) image = { ...image, clip: o.clip.map(pt) };
+
+      if (o.invertClip === true) image = { ...image, invertClip: true };
+
+      if (o.transparent === true) image = { ...image, transparent: true };
+
+      return image;
     });
   }
 
@@ -4198,63 +4534,87 @@ export class DrawingBuilder<
     path: V extends "R12" ? R12Underlays : UnderlayPath<F>,
     at: Point,
     options: V extends "R12" ? R12Underlays : UnderlayOptions<T, W, L, I, Z, P>,
-  ): this {
-    const o = options as unknown as UnderlayOptions;
+  ): this;
+  underlay(path: string, at: Point, options: UnderlayGiven | R12Underlays): this {
+    // SAFETY: the other types are messages that make a literal a compile error; a value of any
+    // shape is checked field by field below, as one from plain JavaScript is.
+    const o = options as UnderlayOptions;
+
     return this.#add(DrawingBuilder.prototype.underlay, o, () => {
       if (this.dxf === "R12") refuse("underlay", R12_ONLY.underlays);
       const pathProblem = underlayPathProblem(path);
+
       if (pathProblem) refuse("underlay", pathProblem);
+
       if (o.page !== undefined) {
         const pageProblem = underlayPageProblem(o.page);
+
         if (pageProblem) refuse("underlay", pageProblem);
       }
+
       const sizeProblem = underlayPageSizeProblem(o.pageSize);
+
       if (sizeProblem) refuse("underlay", sizeProblem);
+
       if (o.scale !== undefined) {
         const scaleProblem = underlayScaleProblem(o.scale);
+
         if (scaleProblem) refuse("underlay", scaleProblem);
       }
+
       const placed = underlayPlacedProblem(o.pageSize, o.scale ?? 1, pt(at));
+
       if (placed) refuse("underlay", placed);
+
       if (o.fade !== undefined && underlayFadeProblem(o.fade))
         refuse("underlay", underlayFadeProblem(o.fade)!);
+
       if (o.contrast !== undefined && underlayContrastProblem(o.contrast))
         refuse("underlay", underlayContrastProblem(o.contrast)!);
+
       const rotation =
         o.rotation === undefined ? undefined : kept(num(o.rotation, "rotation"), "rotation");
+
       for (const [field, value] of [
         ["invertClip", o.invertClip],
         ["monochrome", o.monochrome],
         ["on", o.on],
       ] as const) {
-        if (value !== undefined && typeof value !== "boolean") {
+        if (value !== undefined && !isBoolean(value)) {
           refuse("underlay", `${field} must be true or false`);
         }
       }
-      const underlay: Underlay = {
-        kind: "underlay",
-        layer: this.#current,
-        path: path as string,
-        ...(o.page === undefined ? {} : { page: o.page }),
-        pageSize: [o.pageSize[0], o.pageSize[1]],
-        at: pt(at),
-        ...(o.scale === undefined ? {} : { scale: o.scale }),
-        ...(rotation === undefined ? {} : { rotation }),
-      };
+
+      const named = { kind: "underlay" as const, layer: this.#current, path };
+      const paged = o.page === undefined ? named : { ...named, page: o.page };
+      let underlay: Underlay = { ...paged, pageSize: [o.pageSize[0], o.pageSize[1]], at: pt(at) };
+
+      if (o.scale !== undefined) underlay = { ...underlay, scale: o.scale };
+
+      if (rotation !== undefined) underlay = { ...underlay, rotation };
+
       if (o.clip !== undefined) {
         const [u, v] = underlayVectors(underlay);
         const clipProblem = underlayClipProblem(o.clip, underlay.at, u, v);
+
         if (clipProblem) refuse("underlay", `clip: ${clipProblem}`);
       } else if (o.invertClip === true) refuse("underlay", UNDERLAY_INVERT_WITHOUT_CLIP);
-      return {
-        ...underlay,
-        ...(o.clip === undefined ? {} : { clip: o.clip.map(pt) }),
-        ...(o.invertClip === true ? { invertClip: true } : {}),
-        ...(o.fade === undefined || o.fade === 0 ? {} : { fade: o.fade }),
-        ...(o.contrast === undefined || o.contrast === 100 ? {} : { contrast: o.contrast }),
-        ...(o.monochrome === true ? { monochrome: true } : {}),
-        ...(o.on === false ? { on: false } : {}),
-      };
+
+      if (o.clip !== undefined) underlay = { ...underlay, clip: o.clip.map(pt) };
+
+      if (o.invertClip === true) underlay = { ...underlay, invertClip: true };
+
+      if (o.fade !== undefined && o.fade !== 0) underlay = { ...underlay, fade: o.fade };
+
+      if (o.contrast !== undefined && o.contrast !== 100) {
+        underlay = { ...underlay, contrast: o.contrast };
+      }
+
+      if (o.monochrome === true) underlay = { ...underlay, monochrome: true };
+
+      if (o.on === false) underlay = { ...underlay, on: false };
+
+      return underlay;
     });
   }
 
@@ -4274,19 +4634,25 @@ export class DrawingBuilder<
     },
   ): Polyline {
     const { width, widths, radius, linetypeGeneration } = given;
+
     if (linetypeGeneration !== undefined) {
       if (this.dxf === "R12") refuse("geometry", R12_ONLY.polylines);
-      if (typeof linetypeGeneration !== "boolean")
+
+      if (!isBoolean(linetypeGeneration))
         refuse("geometry", "linetypeGeneration must be true or false");
     }
+
     let { bulges } = given;
+
     if (
       this.dxf === "R12" &&
       (bulges !== undefined || width !== undefined || widths !== undefined || radius !== undefined)
     ) {
       refuse("geometry", R12_ONLY.polylines);
     }
-    let shape = points;
+
+    let vertices = points;
+
     if (radius !== undefined) {
       if (bulges !== undefined || widths !== undefined) {
         refuse(
@@ -4294,30 +4660,35 @@ export class DrawingBuilder<
           "radius: A polyline whose corners a radius rounds takes no bulges or widths of its own, since its sides are made anew. Give it width alone",
         );
       }
+
       const made = rounded(points, closed, positive(radius, "radius"));
-      if (typeof made === "string") refuse("geometry", `radius: ${capitalized(made)}`);
-      shape = made.points.map(pt);
+
+      if (isString(made)) refuse("geometry", `radius: ${capitalized(made)}`);
+      vertices = made.points.map(pt);
+
       if (made.bulges.some((bulge) => bulge !== 0)) bulges = made.bulges;
     }
-    const sides = closed ? shape.length : shape.length - 1;
+
+    const sides = closed ? vertices.length : vertices.length - 1;
     const [problem] = polylineSidesProblems(sides, bulges, width, widths);
+
     if (problem) refuse("geometry", capitalized(problem));
-    return {
-      kind: "polyline",
-      layer: this.#current,
-      points: shape,
-      closed,
-      ...(bulges === undefined ? {} : { bulges: [...(bulges as readonly number[])] }),
-      ...(width === undefined ? {} : { width: width as number }),
-      ...(widths === undefined
-        ? {}
-        : {
-            widths: (widths as readonly (readonly [number, number])[]).map(
-              ([start, end]) => [start, end] as const,
-            ),
-          }),
-      ...(linetypeGeneration === true ? { linetypeGeneration } : {}),
-    };
+
+    let polyline: Polyline = { kind: "polyline", layer: this.#current, points: vertices, closed };
+
+    // `polylineSidesProblems` has found bulges and widths given to be lists, and a width a number.
+    if (Array.isArray(bulges)) polyline = { ...polyline, bulges: [...bulges] };
+
+    if (isNumber(width)) polyline = { ...polyline, width };
+
+    if (Array.isArray(widths)) {
+      const pairs: readonly (readonly [number, number])[] = widths;
+      polyline = { ...polyline, widths: pairs.map(([start, end]) => [start, end] as const) };
+    }
+
+    if (linetypeGeneration === true) polyline = { ...polyline, linetypeGeneration };
+
+    return polyline;
   }
 
   circle<
@@ -4357,12 +4728,10 @@ export class DrawingBuilder<
     return this.#add(DrawingBuilder.prototype.point, options, () => {
       if (this.dxf === "R12") refuse("geometry", R12_ONLY.points);
       const rotation = options.rotation === undefined ? 0 : turn(num(options.rotation, "rotation"));
-      return {
-        kind: "point",
-        layer: this.#current,
-        at: pt(at),
-        ...(rotation === 0 ? {} : { rotation }),
-      };
+
+      const point = { kind: "point" as const, layer: this.#current, at: pt(at) };
+
+      return rotation === 0 ? point : { ...point, rotation };
     });
   }
 
@@ -4393,9 +4762,12 @@ export class DrawingBuilder<
     return this.#add(DrawingBuilder.prototype.arc, options, () => {
       const start = turn(num(startAngle, "startAngle"));
       const end = turn(num(endAngle, "endAngle"));
+
       if (start === end) refuse("geometry", "An arc's start and end angles must differ");
       const problem = arcProblem(start, end);
+
       if (problem) refuse("geometry", problem);
+
       return {
         kind: "arc",
         layer: this.#current,
@@ -4440,15 +4812,19 @@ export class DrawingBuilder<
       const start = arc ? turn(num(startParameter, "startParameter")) : startParameter;
       const end = arc ? turn(num(endParameter, "endParameter")) : endParameter;
       const [problem] = ellipseProblems(axis, ratio, start, end);
+
       if (problem) refuse("geometry", capitalized(problem));
-      return {
-        kind: "ellipse",
+
+      // SAFETY: `ellipseProblems` has found the ratio to be a number.
+      const ellipse = {
+        kind: "ellipse" as const,
         layer: this.#current,
         center: pt(center),
         majorAxis: axis,
         ratio: ratio as number,
-        ...(arc ? { startParameter: start!, endParameter: end! } : {}),
       };
+
+      return arc ? { ...ellipse, startParameter: start!, endParameter: end! } : ellipse;
     });
   }
 
@@ -4473,31 +4849,39 @@ export class DrawingBuilder<
     const E extends Point = Point,
     C extends boolean = false,
     const O extends EntityColorGiven = EntityColor,
-  >(fitPoints: FitPoints<F>, options: SplineOptions<V, T, W, L, I, Z, P, S, E, C, O> = {}): this {
+  >(fitPoints: FitPoints<F>, options?: SplineOptions<V, T, W, L, I, Z, P, S, E, C, O>): this;
+  spline(fitPoints: FitPoints<readonly Point[]>, options: SplineGiven = {}): this {
     return this.#add(DrawingBuilder.prototype.spline, options, () => {
       if (this.dxf === "R12") refuse("geometry", R12_ONLY.curves);
+
       if (!Array.isArray(fitPoints))
         refuse("geometry", "A spline's fit points are a list of points");
-      const o = options as unknown as SplineOptions;
-      const points = (fitPoints as readonly Point[]).map(pt);
-      const startTangent = o.startTangent === undefined ? undefined : pt(o.startTangent as Point);
-      const endTangent = o.endTangent === undefined ? undefined : pt(o.endTangent as Point);
+      const o = options;
+      const points = fitPoints.map(pt);
+      // SAFETY: `pt` checks each coordinate of a tangent, as of a point from plain JavaScript.
+      const [start, end] = [o.startTangent as Point | undefined, o.endTangent as Point | undefined];
+      const startTangent = start === undefined ? undefined : pt(start);
+      const endTangent = end === undefined ? undefined : pt(end);
       const closed = o.closed === true;
+
       const [problem] = fitSplineProblems({
         fitPoints: points,
         startTangent,
         endTangent,
         closed,
       });
+
       if (problem) refuse("geometry", capitalized(problem));
-      return {
-        kind: "spline",
-        layer: this.#current,
-        fitPoints: points,
-        ...(startTangent ? { startTangent } : {}),
-        ...(endTangent ? { endTangent } : {}),
-        ...(closed ? { closed } : {}),
-      };
+
+      let spline: FitSpline = { kind: "spline", layer: this.#current, fitPoints: points };
+
+      if (startTangent) spline = { ...spline, startTangent };
+
+      if (endTangent) spline = { ...spline, endTangent };
+
+      if (closed) spline = { ...spline, closed };
+
+      return spline;
     });
   }
 
@@ -4525,17 +4909,22 @@ export class DrawingBuilder<
     const O extends EntityColorGiven = EntityColor,
   >(
     controlPoints: ControlPoints<C, D>,
-    options: ControlSplineOptions<V, T, W, L, I, Z, P, D, K, C, H, O> = {},
-  ): this {
+    options?: ControlSplineOptions<V, T, W, L, I, Z, P, D, K, C, H, O>,
+  ): this;
+  controlSpline(controlPoints: readonly Point[], options: ControlSplineGiven = {}): this {
     return this.#add(DrawingBuilder.prototype.controlSpline, options, () => {
       if (this.dxf === "R12") refuse("geometry", R12_ONLY.curves);
+
       if (!Array.isArray(controlPoints))
         refuse("geometry", "A spline's control points are a list of points");
-      const o = options as unknown as ControlSplineOptions;
+      // SAFETY: the other types are messages that make a literal a compile error; a value of any
+      // shape is checked field by field below, as one from plain JavaScript is.
+      const o = options as ControlSplineOptions;
       const degree: unknown = o.degree ?? 3;
-      const given = (controlPoints as readonly Point[]).map(pt);
+      const given = controlPoints.map(pt);
       const closed = o.closed === true;
-      const p = typeof degree === "number" ? degree : 0;
+      const p = isNumber(degree) ? degree : 0;
+
       if (Number.isInteger(p) && p >= 1 && given.length < p + 1)
         refuse(
           "geometry",
@@ -4543,20 +4932,29 @@ export class DrawingBuilder<
         );
       const wrapped = closed && o.knots === undefined;
       const points = wrapped ? [...given, ...given.slice(0, p)] : given;
+
+      // SAFETY: `controlSplineProblems` below refuses knots and weights of another type before
+      // the spline is made.
+      const [givenKnots, givenWeights] = [
+        o.knots as readonly number[] | undefined,
+        o.weights as readonly number[] | undefined,
+      ];
+
       const knots: readonly number[] =
-        (o.knots as readonly number[] | undefined) ??
+        givenKnots ??
         (wrapped
           ? Array.from({ length: points.length + p + 1 }, (_, i) => i)
           : Array.from({ length: points.length + p + 1 }, (_, i) =>
               Math.min(Math.max(i - p, 0), points.length - p),
             ));
-      const givenWeights = o.weights as readonly number[] | undefined;
+
       const weights =
         givenWeights === undefined
           ? undefined
           : wrapped
             ? [...givenWeights, ...givenWeights.slice(0, p)]
             : givenWeights;
+
       const [problem] = controlSplineProblems({
         controlPoints: points,
         degree,
@@ -4564,16 +4962,23 @@ export class DrawingBuilder<
         weights,
         closed,
       });
+
       if (problem) refuse("geometry", capitalized(problem));
-      return {
+
+      // SAFETY: `controlSplineProblems` has found the degree to be a number.
+      let spline: ControlSpline = {
         kind: "spline",
         layer: this.#current,
         controlPoints: points,
         degree: degree as number,
         knots: [...knots],
-        ...(weights === undefined ? {} : { weights: [...weights] }),
-        ...(closed ? { closed } : {}),
       };
+
+      if (weights !== undefined) spline = { ...spline, weights: [...weights] };
+
+      if (closed) spline = { ...spline, closed };
+
+      return spline;
     });
   }
 
@@ -4588,11 +4993,28 @@ export class DrawingBuilder<
     P extends string = string,
     R extends string = string,
     const C extends EntityColorGiven = EntityColor,
-  >(at: Point, value: string, options: TextOptions<H, V, T, W, L, I, S, D, Z, P, R, C> = {}): this {
+  >(at: Point, value: string, options?: TextOptions<H, V, T, W, L, I, S, D, Z, P, R, C>): this;
+  text(
+    at: Point,
+    value: string,
+    options: TextOptions<
+      number,
+      DxfVersion,
+      string,
+      number,
+      LinetypeValue,
+      string,
+      string,
+      TextStyleValue,
+      Standard | undefined
+    > = {},
+  ): this {
     return this.#add(DrawingBuilder.prototype.text, options, () => ({
       kind: "text",
       layer: this.#current,
-      ...this.#textFields(at, value, options as unknown as TextOptions),
+      // SAFETY: the other types are messages that make a literal a compile error; a value of any
+      // shape is checked field by field below, as one from plain JavaScript is.
+      ...this.#textFields(at, value, options as TextOptions),
     }));
   }
 
@@ -4630,105 +5052,161 @@ export class DrawingBuilder<
     options: V extends "R12"
       ? R12Paragraphs
       : ParagraphOptions<H, T, W, L, I, S, D, Z, P, R, N, F, C>,
+  ): this;
+  paragraph(
+    value: string,
+    options:
+      | ParagraphOptions<
+          number,
+          string,
+          number,
+          LinetypeValue,
+          string,
+          string,
+          TextStyleValue,
+          Standard | undefined
+        >
+      | R12Paragraphs,
   ): this {
-    const o = options as unknown as ParagraphOptions;
+    // SAFETY: the other types are messages that make a literal a compile error; a value of any
+    // shape is checked field by field below, as one from plain JavaScript is.
+    const o = options as ParagraphOptions;
+
     return this.#add(DrawingBuilder.prototype.paragraph, o, () => {
       if (this.dxf === "R12") refuse("paragraph", R12_ONLY.paragraphs);
+
       return this.#paragraph(value, o);
     });
   }
 
   /** Checks a paragraph and returns it on the current layer. */
   #paragraph(given: unknown, o: ParagraphOptions): Paragraph {
-    if (typeof given !== "string")
-      return refuse("paragraph", "A paragraph's value must be a string");
+    if (!isString(given)) return refuse("paragraph", "A paragraph's value must be a string");
     // A backslash would escape the `\` of the `\P` a line feed becomes, as the type refuses it.
     let backslashes = 0;
+
     for (let i = 0; i < given.length; i++) {
       const code = given.charCodeAt(i);
+
       if (code === 92) backslashes++;
       else {
         if (code === 10 && backslashes % 2 === 1) {
           return refuse("paragraph", paragraphUnknownCode("\n"));
         }
+
         backslashes = 0;
       }
     }
+
     const value = given.replaceAll("\n", "\\P");
     const parsed = parseParagraph(value);
+
     if (parsed.problem) refuse("paragraph", parsed.problem);
-    const at: unknown = o?.at;
+    const at = o?.at;
+
     if (!Array.isArray(at) || at.length !== 2) {
       return refuse("geometry", "at must be a point, [x, y], of the paragraph's box");
     }
-    const role = this.#role(o as unknown as TextOptions);
+
+    const role = this.#role(o);
+
     const paragraph: { -readonly [K in keyof Paragraph]?: Paragraph[K] } & Pick<
       Paragraph,
       "kind" | "layer" | "at" | "value" | "height" | "rotation"
     > = {
       kind: "paragraph",
       layer: this.#current,
-      at: pt(at as unknown as Point),
+      at: pt(at),
       value,
       height: positive(role ? role.height : (o.height ?? 0.125), "height"),
       rotation: kept(o.rotation ?? 0, "rotation"),
     };
+
     if (o.width !== undefined) paragraph.width = positive(o.width, "width");
+
     if (role) paragraph.style = role.style;
     else if (o.style !== undefined) {
       const style = this.#textStyleName(o.style);
+
       if (style !== STANDARD_TEXT_STYLE) paragraph.style = style;
     }
+
     // A value is checked in its style's font, which decides what `%%c` draws.
     const font =
       paragraph.style === undefined
         ? STANDARD_FONT
         : (this.#textStyles.get(layerKey(paragraph.style))?.font ?? STANDARD_FONT);
+
     const problem = paragraphProblemIn(parsed, font);
+
     if (problem) refuse("paragraph", problem);
-    const { align, valign, lineSpacing, lineSpacingStyle } = o as unknown as Record<
-      string,
-      unknown
-    >;
-    for (const [field, chosen, plain] of [
-      ["align", align, "left"],
-      ["valign", valign, "top"],
-      ["lineSpacingStyle", lineSpacingStyle, "at-least"],
-    ] as const) {
-      if (chosen === undefined) continue;
+
+    const { align, valign, lineSpacing, lineSpacingStyle } = o;
+
+    const choose = <F extends "align" | "valign" | "lineSpacingStyle">(
+      field: F,
+      chosen: Paragraph[F],
+      plain: Paragraph[F],
+    ): void => {
+      if (chosen === undefined) return;
       const choiceProblem = paragraphChoiceProblem(field, chosen);
+
       if (choiceProblem)
         refuse(field === "lineSpacingStyle" ? "paragraph" : "text-align", choiceProblem);
-      if (chosen !== plain) (paragraph as Record<string, unknown>)[field] = chosen;
-    }
+
+      if (chosen !== plain) paragraph[field] = chosen;
+    };
+
+    choose("align", align, "left");
+    choose("valign", valign, "top");
+    choose("lineSpacingStyle", lineSpacingStyle, "at-least");
+
     if (lineSpacing !== undefined) {
       const spacingProblem = lineSpacingProblem(lineSpacing);
+
       if (spacingProblem) refuse("paragraph", spacingProblem);
-      if (lineSpacing !== 1) paragraph.lineSpacing = lineSpacing as number;
+
+      if (lineSpacing !== 1) paragraph.lineSpacing = lineSpacing;
     }
-    const columns: unknown = (o as { columns?: unknown }).columns;
+
+    const columns = o.columns;
+
     if (columns !== undefined) {
       const columnsProblem = paragraphColumnsProblem(columns, paragraph.width, paragraph.height);
+
       if (columnsProblem) refuse("paragraph", columnsProblem);
-      const c = columns as ParagraphColumns;
-      const heights = c.heights;
-      paragraph.columns = {
-        ...(heights
-          ? { heights: Array.from({ length: heights.length }, (_, i) => heights[i]!) }
-          : { height: c.height! }),
-        ...(c.count !== undefined && { count: c.count }),
-        ...(c.gutter !== undefined && { gutter: c.gutter }),
-      } as ParagraphColumns;
+      const heights = columns.heights;
+
+      if (heights) {
+        const copy = { heights: Array.from({ length: heights.length }, (_, i) => heights[i]!) };
+        paragraph.columns =
+          columns.gutter === undefined ? copy : { ...copy, gutter: columns.gutter };
+      } else {
+        let copy: Extract<ParagraphColumns, { readonly height: number }> = {
+          height: columns.height!,
+        };
+
+        if (columns.count !== undefined) copy = { ...copy, count: columns.count };
+
+        if (columns.gutter !== undefined) copy = { ...copy, gutter: columns.gutter };
+        paragraph.columns = copy;
+      }
     }
-    const mask: unknown = (o as { mask?: unknown }).mask;
+
+    const mask = o.mask;
+
     if (mask !== undefined) {
       const maskProblem = textMaskProblem(mask);
+
       if (maskProblem) refuse("paragraph", maskProblem);
+
       if (mask !== false && paragraph.columns !== undefined)
         refuse("paragraph", capitalized(PARAGRAPH_MASK_COLUMNS));
-      if (mask !== false) paragraph.mask = mask === true ? true : { ...(mask as object) };
+
+      if (mask !== false) paragraph.mask = mask === true ? true : { ...mask };
     }
-    return paragraph as Paragraph;
+
+    return paragraph;
   }
 
   /**
@@ -4742,28 +5220,35 @@ export class DrawingBuilder<
     options: BlockOptions,
     draw: () => void,
   ): this {
-    // The parameter type is the error message when a literal name is wrong, so read it as a string.
-    const requested = name as string;
+    // The parameter type is the error message when a literal name is wrong, which is a string.
+    const requested: string = name;
     let open: OpenBlock;
+
     try {
       const fail = (rule: LintRule, problem: string): never =>
         refuse(rule, `Block ${JSON.stringify(requested)}: ${problem}`);
+
       if (this.dxf === "R12") fail("block", R12_ONLY.blocks);
       const nameProblem = blockNameProblem(requested);
+
       if (nameProblem) fail("block", nameProblem);
+
       if (this.#open) {
         fail(
           "block",
           `a block cannot be defined inside another, and block ${JSON.stringify(this.#open.name)} is being drawn. Define this one first, and insert it`,
         );
       }
+
       if (this.#sheet) {
         fail(
           "block",
           `a block belongs to the drawing and cannot be defined on a layout, and layout ${JSON.stringify(this.#sheet.name)} is being drawn. Define this one first, and insert it`,
         );
       }
+
       const first = this.#blocksAudited.get(layerAuditKey(requested));
+
       if (first !== undefined) {
         fail(
           "duplicate-block",
@@ -4772,16 +5257,20 @@ export class DrawingBuilder<
             : blockTwinProblem(requested, first.name)!,
         );
       }
+
       const base = options?.base === undefined ? undefined : pt(options.base);
       const handles = blockHandles(requested);
       const what = `the block ${JSON.stringify(requested)}`;
       const taken: string[] = [];
+
       for (const handle of [handles.record, handles.begin, handles.end]) {
         this.#claim(handle, what, undefined, taken);
       }
+
+      const named = { name: requested };
+
       open = {
-        name: requested,
-        ...(base && (base[0] !== 0 || base[1] !== 0) ? { base } : {}),
+        ...(base && (base[0] !== 0 || base[1] !== 0) ? { ...named, base } : named),
         entities: [],
         attributes: [],
         calls: this.#calls ? [] : undefined,
@@ -4793,35 +5282,43 @@ export class DrawingBuilder<
     } catch (thrown) {
       throw located(thrown, DrawingBuilder.prototype.block, { block: requested });
     }
+
     // The name is taken while the block is drawn, so nothing inside can take it too.
     const auditKey = layerAuditKey(requested);
     this.#blocksAudited.set(auditKey, { name: requested, xref: false });
     const previous = this.#current;
     this.#current = "0";
     this.#open = open;
+
     try {
       draw();
     } catch (thrown) {
       // Nothing of a block that was not finished stays, so the call can be made again.
       this.#blocksAudited.delete(auditKey);
+
       for (const handle of open.handles) this.#handles.delete(handle);
+
       for (const key of open.ids) this.#ids.delete(key);
       throw thrown;
     } finally {
       this.#current = previous;
       this.#open = undefined;
     }
+
     if (open.calls) {
       recordCalls(open.entities, open.calls);
       recordCalls(open.attributes, open.attributeCalls);
     }
+
     if (open.roles) this.#roleBlocks.add(layerKey(requested));
-    this.#blocks.set(layerKey(requested), {
-      name: open.name,
-      ...(open.base ? { base: open.base } : {}),
-      entities: open.entities,
-      ...(open.attributes.length > 0 ? { attributes: open.attributes } : {}),
-    });
+
+    let block: Block = open.base
+      ? { name: open.name, base: open.base, entities: open.entities }
+      : { name: open.name, entities: open.entities };
+
+    if (open.attributes.length > 0) block = { ...block, attributes: open.attributes };
+    this.#blocks.set(layerKey(requested), block);
+
     return this;
   }
 
@@ -4838,13 +5335,15 @@ export class DrawingBuilder<
     path: V extends "R12" ? R12Xrefs : XrefPath<P>,
     options: { readonly attach?: boolean } = {},
   ): this {
-    // The parameter type is the error message when a literal is wrong, so read it as a string.
-    const requested = name as string;
+    // The parameter type is the error message when a literal is wrong, which is a string.
+    const requested: string = name;
+
     try {
       this.#defineXref(requested, path, false, options?.attach);
     } catch (thrown) {
       throw located(thrown, DrawingBuilder.prototype.xref, { xref: requested });
     }
+
     return this;
   }
 
@@ -4855,33 +5354,40 @@ export class DrawingBuilder<
   #defineXref(requested: string, path: unknown, shared = false, attach?: unknown): void {
     const fail = (rule: LintRule, problem: string): never =>
       refuse(rule, `Xref ${JSON.stringify(requested)}: ${problem}`);
+
     if (this.dxf === "R12") fail("xref", R12_ONLY.xrefs);
     const nameProblem = blockNameProblem(requested);
+
     if (nameProblem) fail("xref", nameProblem);
-    if (attach !== undefined && typeof attach !== "boolean") {
+
+    if (attach !== undefined && !isBoolean(attach)) {
       fail("xref", "attach must be true or false");
     }
+
     if (shared && this.#xrefs.get(layerKey(requested))?.path === path) return;
     const first = this.#blocksAudited.get(layerAuditKey(requested));
+
     if (first !== undefined) {
       fail(
         "duplicate-block",
         xrefTwinProblem(requested, first.name, first.xref ? "xref" : "block"),
       );
     }
+
     const pathProblem = xrefPathProblem(path);
+
     if (pathProblem) fail("xref", pathProblem);
     const handles = blockHandles(requested);
     const what = `the xref ${JSON.stringify(requested)}`;
+
     // An xref belongs to the drawing, also when it is referenced while a block or a layout is drawn.
     for (const handle of [handles.record, handles.begin, handles.end]) {
       this.#claim(handle, what, undefined, []);
     }
-    this.#xrefs.set(layerKey(requested), {
-      name: requested,
-      path: path as string,
-      ...(attach === true ? { attach: true } : {}),
-    });
+
+    // SAFETY: `xrefPathProblem` has found the path to be a string.
+    const xref: Xref = { name: requested, path: path as string };
+    this.#xrefs.set(layerKey(requested), attach === true ? { ...xref, attach: true } : xref);
     this.#blocksAudited.set(layerAuditKey(requested), { name: requested, xref: true });
   }
 
@@ -4903,65 +5409,96 @@ export class DrawingBuilder<
   >(
     tag: V extends "R12" ? R12Blocks : AttributeTag<T>,
     at: Point,
-    options: AttributeOptions<H, S, D, Z, R, Q, N, F> = {},
+    options?: AttributeOptions<H, S, D, Z, R, Q, N, F>,
+  ): this;
+  attribute(
+    tag: string,
+    at: Point,
+    options: AttributeOptions<
+      number,
+      string,
+      TextStyleValue,
+      Standard | undefined,
+      string,
+      string,
+      number,
+      number
+    > = {},
   ): this {
-    const requested: unknown = tag;
+    const requested = tag;
     const open = this.#open;
+
     try {
       if (this.dxf === "R12") refuse("attribute", R12_ONLY.blocks);
+
       if (!open) {
         return refuse(
           "attribute",
           "An attribute definition belongs to a block. Call attribute() inside the draw of block()",
         );
       }
+
       const tagProblem = attributeTagProblem(requested);
+
       if (tagProblem) refuse("attribute", tagProblem);
-      const named = requested as string;
+      const named = requested;
+
       if (open.attributes.some((definition) => definition.tag === named)) {
         refuse("duplicate-attribute", duplicateAttributeProblem(named));
       }
+
       const prompt: unknown = options.prompt;
+
       if (prompt !== undefined) {
-        const problem = typeof prompt === "string" ? textProblem(prompt) : "must be a string";
+        const problem = isString(prompt) ? textProblem(prompt) : "must be a string";
+
         if (problem) refuse("text", `prompt: ${problem}`);
       }
+
       const kind: unknown = options.kind;
+
       if (kind !== undefined && kind !== "text" && kind !== "paragraph") {
         refuse("attribute", ATTRIBUTE_KIND);
       }
+
       if (kind !== "paragraph") {
-        const given = options as unknown as Readonly<Record<string, unknown>>;
         for (const field of PARAGRAPH_ONLY) {
-          if (given[field] !== undefined) refuse("attribute", paragraphOnlyProblem(field));
+          if (options[field] !== undefined) refuse("attribute", paragraphOnlyProblem(field));
         }
       }
+
+      // SAFETY: the options of a definition of either kind are a text's or a paragraph's, which
+      // the fields of each check as from plain JavaScript.
       const fields =
         kind === "paragraph"
           ? this.#paragraphFields(
               at,
-              options as unknown as ParagraphAttributeFields<string, number, number> & TextOptions,
+              options as ParagraphAttributeFields<string, number, number> & TextOptions,
             )
-          : this.#textFields(at, options.value ?? "", options as unknown as TextOptions);
+          : this.#textFields(at, options.value ?? "", options as TextOptions);
+
       this.#claim(
         definitionHandle(open.name, named),
         `the attribute ${JSON.stringify(named)} of the block ${JSON.stringify(open.name)}`,
       );
-      open.attributes.push({
-        tag: named,
-        ...(prompt === undefined ? {} : { prompt: prompt as string }),
-        layer: this.#current,
-        ...fields,
-      } as AttributeDefinition);
+      const head = { tag: named };
+      // SAFETY: a prompt given has passed `textProblem` as a string.
+      const prompted = prompt === undefined ? head : { ...head, prompt: prompt as string };
+      // SAFETY: the fields are a text's or a paragraph's, as `kind` says.
+      open.attributes.push({ ...prompted, layer: this.#current, ...fields } as AttributeDefinition);
+
       if (options.role !== undefined) open.roles = true;
     } catch (thrown) {
-      const about = typeof requested === "string" ? { attribute: requested } : {};
-      throw located(thrown, DrawingBuilder.prototype.attribute, {
-        ...(open ? { block: open.name } : {}),
-        ...about,
-      });
+      const about = isString(requested) ? { attribute: requested } : {};
+      throw located(
+        thrown,
+        DrawingBuilder.prototype.attribute,
+        open ? { block: open.name, ...about } : about,
+      );
     }
+
     if (open.calls) open.attributeCalls.push(holdCall(DrawingBuilder.prototype.attribute));
+
     return this;
   }
 
@@ -5000,99 +5537,139 @@ export class DrawingBuilder<
   ): Insert {
     if (this.dxf === "R12") refuse("block", R12_ONLY.blocks);
     const requested: unknown = block;
-    if (typeof requested !== "string")
-      return refuse("undefined-block", "A block is named by a string");
+
+    if (!isString(requested)) return refuse("undefined-block", "A block is named by a string");
     const nameProblem = blockNameProblem(requested);
+
     if (nameProblem)
       refuse("undefined-block", `Block ${JSON.stringify(requested)}: ${nameProblem}`);
+
     if (this.#open && layerAuditKey(this.#open.name) === layerAuditKey(requested)) {
       refuse("block-cycle", blockCycleProblem([this.#open.name, this.#open.name]));
     }
+
     const xref = this.#xrefs.get(layerKey(requested));
     const placed = this.#blocks.get(layerKey(requested));
+
     if (!placed && !xref) {
       refuse(
         "undefined-block",
         `${undefinedBlockProblem(requested)}. Define it with block() or xref() first`,
       );
     }
-    const insert: { -readonly [K in keyof Insert]: Insert[K] } = {
+
+    let insert: Insert = {
       kind: "insert",
       layer: this.#current,
       block: (placed ?? xref)!.name,
       at: pt(at),
     };
+
     let scale: unknown = options.scale;
-    const view: unknown = options.view;
+    const view = options.view;
     const inModel = !this.#open && !this.#sheet;
+
     if (view !== undefined) {
       if (!this.#standard) refuse("role", DRAWN.viewWithoutStandard);
+
       if (!inModel) refuse("role", DRAWN.insertViewOnPaper);
+
       if (scale !== undefined) refuse("role", DRAWN.insertViewAndScale);
       scale = onPaper(this.#declared(view, "role").view, 1, "scale");
     } else if (inModel && placed && this.#roleBlocks.has(layerKey(placed.name))) {
       refuse("role", roleBlockWithoutView(placed.name));
     }
+
     if (scale !== undefined) {
-      const pair = (typeof scale === "number" ? [scale, scale] : scale) as readonly unknown[];
+      const pair: unknown = isNumber(scale) ? [scale, scale] : scale;
+
       if (!Array.isArray(pair) || pair.length !== 2) {
-        refuse("geometry", "scale must be a number or [x, y]");
+        return refuse("geometry", "scale must be a number or [x, y]");
       }
-      const problem = scaleProblem(pair[0]) ?? scaleProblem(pair[1]);
+
+      const [x, y]: readonly unknown[] = [pair[0], pair[1]];
+      const problem = scaleProblem(x) ?? scaleProblem(y);
+
       if (problem) refuse("geometry", `scale: ${problem}`);
-      if (pair[0] !== 1 || pair[1] !== 1) insert.scale = [pair[0] as number, pair[1] as number];
+
+      // A scale of no problem is a number.
+      if (isNumber(x) && isNumber(y) && (x !== 1 || y !== 1)) insert = { ...insert, scale: [x, y] };
     }
+
     const rotation = kept(options.rotation ?? 0, "rotation");
-    if (rotation !== 0) insert.rotation = rotation;
+
+    if (rotation !== 0) insert = { ...insert, rotation };
     const set: unknown = options.attributes;
-    if (set !== undefined && (typeof set !== "object" || set === null || Array.isArray(set))) {
-      return refuse("undefined-attribute", ATTRIBUTES_SHAPE);
+
+    if (set !== undefined && (!isObjectOrArray(set) || Array.isArray(set))) {
+      return refuse("undefined-attribute", ATTRIBUTES_TYPE);
     }
+
     if (!placed) {
       if (set !== undefined && Object.keys(set).length > 0) {
         refuse("undefined-attribute", XREF_ATTRIBUTES);
       }
+
       return insert;
     }
+
     const definitions = placed.attributes ?? [];
+
     if (set !== undefined) {
       const values: Record<string, string> = {};
-      for (const [tag, value] of Object.entries(set as Record<string, unknown>)) {
+
+      const entries: readonly (readonly [string, unknown])[] = Object.entries(set);
+
+      for (const [tag, value] of entries) {
         const definition = definitions.find((d) => d.tag === tag);
+
         if (!definition) refuse("undefined-attribute", undefinedAttributeProblem(tag, placed.name));
+
         if (definition!.kind === "paragraph") {
           const about = `attribute ${JSON.stringify(tag)}: `;
           values[tag] = this.#paragraphValue(value, definition!.style, "paragraph", about);
           continue;
         }
-        const problem = typeof value === "string" ? textProblem(value) : "must be a string";
-        if (problem) refuse("text", `attribute ${JSON.stringify(tag)}: ${problem}`);
-        values[tag] = value as string;
+
+        const problem = isString(value) ? textProblem(value) : "must be a string";
+
+        if (problem || !isString(value))
+          refuse("text", `attribute ${JSON.stringify(tag)}: ${problem}`);
+        values[tag] = value;
       }
-      if (Object.keys(values).length > 0) insert.attributes = values;
+
+      if (Object.keys(values).length > 0) insert = { ...insert, attributes: values };
     }
+
     for (const definition of definitions) {
       const style =
         definition.style === undefined
           ? undefined
           : this.#textStyles.get(layerKey(definition.style));
+
       const problem = placedAttributeProblem(
         definition.tag,
         placeAttribute(definition, style, insert, placed.base),
       );
+
       if (problem) refuse("geometry", problem);
     }
+
     const id: unknown = options.id;
-    if (typeof id === "string" && definitions.length > 0) {
+
+    if (isString(id) && definitions.length > 0) {
       const what = `the insert ${JSON.stringify(id)}`;
+
       for (const { tag } of definitions) {
         this.#claim(
           insertAttributeHandle(id, tag),
           `the attribute ${JSON.stringify(tag)} of ${what}`,
         );
       }
+
       this.#claim(insertEndHandle(id), `the end of the attributes of ${what}`);
     }
+
     return insert;
   }
 
@@ -5126,39 +5703,72 @@ export class DrawingBuilder<
       : V extends "R12"
         ? R12Dimensions
         : DimensionStyleDefinition<N, S, H, A, AS, EO, EB, G, SC, P, PRE, SUF, MS, U>,
+  ): this;
+  dimensionStyle(
+    style:
+      | DimensionStyleDefinition<
+          string,
+          string,
+          number,
+          string,
+          number,
+          number,
+          number,
+          number,
+          number,
+          number,
+          string,
+          string,
+          number,
+          (typeof DIMENSION_UNITS)[number]
+        >
+      | DimensionStyleDefined
+      | R12Dimensions,
   ): this {
-    const definition = style as unknown as DimensionStyle;
+    // SAFETY: the other types are messages that make a literal a compile error; a value of any
+    // shape is checked field by field below, as one from plain JavaScript is.
+    const definition = style as DimensionStyle;
+
     try {
       if (this.dxf === "R12") refuse("dimension-style", R12_ONLY.dimensions);
+
       if (this.#standard) refuse("dimension-style-outside-standard", DRAWN.dimensionStyleDefined);
       this.#defineDimensionStyle(definition);
     } catch (thrown) {
-      const name: unknown = (definition as { name?: unknown } | null)?.name;
-      const about = typeof name === "string" ? { dimensionStyle: name } : {};
+      const name: unknown = definition?.name;
+      const about = isString(name) ? { dimensionStyle: name } : {};
       throw located(thrown, DrawingBuilder.prototype.dimensionStyle, about);
     }
+
     return this;
   }
 
   /** Checks a dimension style and stores it. */
   #defineDimensionStyle(definition: DimensionStyle): void {
-    const name: unknown = (definition as { name?: unknown } | null)?.name;
+    const name: unknown = definition?.name;
+
     const fail = (rule: LintRule, problem: string): never =>
       refuse(
         rule,
-        `Dimension style ${typeof name === "string" ? JSON.stringify(name) : "with no name"}: ${problem}`,
+        `Dimension style ${isString(name) ? JSON.stringify(name) : "with no name"}: ${problem}`,
       );
+
     const problem = dimensionStyleProblem(definition);
+
     if (problem) fail("dimension-style", problem);
-    // dimensionStyleProblem has checked the types.
+    // SAFETY: `dimensionStyleProblem` has found the name to be a string.
     const named = name as string;
     const first = this.#dimensionStylesAudited.get(layerAuditKey(named));
+
     if (first !== undefined) {
       fail("duplicate-dimension-style", dimensionStyleTwinProblem(named, first)!);
     }
+
     let textStyle: string | undefined;
+
     if (definition.textStyle !== undefined && !isStandardTextStyle(definition.textStyle)) {
       textStyle = this.#textStyles.get(layerKey(definition.textStyle))?.name;
+
       if (textStyle === undefined) {
         fail(
           "undefined-text-style",
@@ -5166,16 +5776,20 @@ export class DrawingBuilder<
         );
       }
     }
-    const arrowhead = (definition.arrowhead ?? DEFAULT_ARROWHEAD) as Arrowhead;
+
+    const arrowhead = definition.arrowhead ?? DEFAULT_ARROWHEAD;
     const block = arrowheadInfo(arrowhead)?.block;
     // A handle taken before another was refused is given back.
     const taken: string[] = [];
+
     try {
       const what = `the dimension style ${JSON.stringify(named)}`;
       this.#claim(validDimensionStyleHandle(named), what, undefined, taken);
+
       if (block !== undefined && !this.#arrowheadBlocks.has(block)) {
         const handles = blockHandles(block);
         const head = `the arrowhead ${JSON.stringify(arrowhead)}`;
+
         for (const handle of [
           handles.record,
           handles.begin,
@@ -5189,6 +5803,7 @@ export class DrawingBuilder<
       for (const handle of taken) this.#handles.delete(handle);
       throw thrown;
     }
+
     if (block !== undefined) this.#arrowheadBlocks.add(block);
     const { prefix, suffix, suppressZeros, feetInchZeros } = definition;
     const { fraction, fractionScale, textPlacement, textFit } = definition;
@@ -5197,39 +5812,66 @@ export class DrawingBuilder<
     const units = definition.units ?? "decimal";
     const scale = definition.scale ?? 1;
     const measurementScale = definition.measurementScale ?? 1;
-    this.#dimensionStyles.set(layerKey(named), {
-      name: named,
-      ...(textStyle === undefined ? {} : { textStyle }),
-      textHeight: definition.textHeight,
-      ...(arrowhead === DEFAULT_ARROWHEAD ? {} : { arrowhead }),
-      arrowSize: definition.arrowSize,
-      extensionOffset: definition.extensionOffset,
-      extensionBeyond: definition.extensionBeyond,
-      textGap: definition.textGap,
-      ...(scale === 1 ? {} : { scale }),
-      ...(units === "decimal" ? {} : { units }),
-      precision: definition.precision,
-      ...(prefix === undefined || prefix === "" ? {} : { prefix }),
-      ...(suffix === undefined || suffix === "" ? {} : { suffix }),
-      ...(suppressZeros === undefined ? {} : { suppressZeros }),
-      ...(feetInchZeros === undefined ? {} : { feetInchZeros }),
-      ...(measurementScale === 1 ? {} : { measurementScale }),
-      ...(fraction === undefined || fraction === "inline" ? {} : { fraction }),
-      ...(fractionScale === undefined || fractionScale === 1 ? {} : { fractionScale }),
-      ...(textPlacement === undefined || textPlacement === "above" ? {} : { textPlacement }),
-      ...(textFit === undefined || textFit === "inside" ? {} : { textFit }),
-      ...(dimensionLineweight === undefined ? {} : { dimensionLineweight }),
-      ...(extensionLineweight === undefined ? {} : { extensionLineweight }),
-      ...(radialText === undefined || radialText === "aligned" ? {} : { radialText }),
-      ...(jogAngle === undefined || written(jogAngle) === JOG_ANGLE.default ? {} : { jogAngle }),
-      ...(angleUnits === undefined || angleUnits === "degrees" ? {} : { angleUnits }),
-      ...(anglePrecision === undefined || anglePrecision === 0 ? {} : { anglePrecision }),
-      ...(suppressAngleZeros === undefined ? {} : { suppressAngleZeros }),
-      ...(textMask === undefined || textMask === false
-        ? {}
-        : { textMask: textMask === true ? true : { color: textMask.color } }),
-      ...(arcSymbol === undefined || arcSymbol === "before" ? {} : { arcSymbol }),
-    });
+    // Each field in order, and each optional one only where it is not the default.
+    const stored: Writable<Partial<DimensionStyle>> = {};
+    stored.name = named;
+
+    if (textStyle !== undefined) stored.textStyle = textStyle;
+    stored.textHeight = definition.textHeight;
+
+    if (arrowhead !== DEFAULT_ARROWHEAD) stored.arrowhead = arrowhead;
+    stored.arrowSize = definition.arrowSize;
+    stored.extensionOffset = definition.extensionOffset;
+    stored.extensionBeyond = definition.extensionBeyond;
+    stored.textGap = definition.textGap;
+
+    if (scale !== 1) stored.scale = scale;
+
+    if (units !== "decimal") stored.units = units;
+    stored.precision = definition.precision;
+
+    if (prefix !== undefined && prefix !== "") stored.prefix = prefix;
+
+    if (suffix !== undefined && suffix !== "") stored.suffix = suffix;
+
+    if (suppressZeros !== undefined) stored.suppressZeros = suppressZeros;
+
+    if (feetInchZeros !== undefined) stored.feetInchZeros = feetInchZeros;
+
+    if (measurementScale !== 1) stored.measurementScale = measurementScale;
+
+    if (fraction !== undefined && fraction !== "inline") stored.fraction = fraction;
+
+    if (fractionScale !== undefined && fractionScale !== 1) stored.fractionScale = fractionScale;
+
+    if (textPlacement !== undefined && textPlacement !== "above")
+      stored.textPlacement = textPlacement;
+
+    if (textFit !== undefined && textFit !== "inside") stored.textFit = textFit;
+
+    if (dimensionLineweight !== undefined) stored.dimensionLineweight = dimensionLineweight;
+
+    if (extensionLineweight !== undefined) stored.extensionLineweight = extensionLineweight;
+
+    if (radialText !== undefined && radialText !== "aligned") stored.radialText = radialText;
+
+    if (jogAngle !== undefined && written(jogAngle) !== JOG_ANGLE.default)
+      stored.jogAngle = jogAngle;
+
+    if (angleUnits !== undefined && angleUnits !== "degrees") stored.angleUnits = angleUnits;
+
+    if (anglePrecision !== undefined && anglePrecision !== 0)
+      stored.anglePrecision = anglePrecision;
+
+    if (suppressAngleZeros !== undefined) stored.suppressAngleZeros = suppressAngleZeros;
+
+    if (textMask !== undefined && textMask !== false) {
+      stored.textMask = textMask === true ? true : { color: textMask.color };
+    }
+
+    if (arcSymbol !== undefined && arcSymbol !== "before") stored.arcSymbol = arcSymbol;
+    // SAFETY: it holds each field a dimension style must have, set above.
+    this.#dimensionStyles.set(layerKey(named), stored as DimensionStyle);
     this.#dimensionStylesAudited.set(layerAuditKey(named), named);
   }
 
@@ -5252,26 +5894,47 @@ export class DrawingBuilder<
       : V extends "R12"
         ? R12Dimensions
         : LinearDimensionOptions<S, T, I, C>,
+  ): this;
+  linearDimension(
+    from: Point,
+    to: Point,
+    line: Point,
+    options:
+      | StandardLinearDimensionOptions<string, string, string, Standard, EntityColorGiven>
+      | R12Dimensions
+      | LinearDimensionOptions<string, string, string, EntityColorGiven>
+      | undefined,
   ): this {
     return this.#add(DrawingBuilder.prototype.linearDimension, idOf(options), () => {
-      const o = options as unknown as LinearDimensionOptions | undefined;
+      // SAFETY: the other types are messages that make a literal a compile error; a value of any
+      // shape is checked field by field below, as one from plain JavaScript is.
+      const o = options as LinearDimensionOptions | undefined;
       const along: unknown = o?.along ?? "x";
+
       const angle =
         along === "x"
           ? 0
           : along === "y"
             ? 90
-            : typeof along === "number"
+            : isNumber(along)
               ? turned(along)
               : refuse("dimension", 'along must be "x", "y" or an angle in degrees');
+
+      const linear = (style: string) => {
+        const dimension = {
+          kind: "linear-dimension" as const,
+          layer: this.#current,
+          style,
+          from: pt(from),
+          to: pt(to),
+          line: pt(line),
+        };
+
+        return angle === 0 ? dimension : { ...dimension, angle };
+      };
+
       return this.#dimension(o, (style, text) => ({
-        kind: "linear-dimension",
-        layer: this.#current,
-        style,
-        from: pt(from),
-        to: pt(to),
-        line: pt(line),
-        ...(angle === 0 ? {} : { angle }),
+        ...linear(style),
         ...text,
       }));
     });
@@ -5296,9 +5959,21 @@ export class DrawingBuilder<
       : V extends "R12"
         ? R12Dimensions
         : AlignedDimensionOptions<S, T, I, C>,
+  ): this;
+  alignedDimension(
+    from: Point,
+    to: Point,
+    offset: number,
+    options:
+      | StandardAlignedDimensionOptions<string, string, string, Standard, EntityColorGiven>
+      | R12Dimensions
+      | AlignedDimensionOptions<string, string, string, EntityColorGiven>
+      | undefined,
   ): this {
     return this.#add(DrawingBuilder.prototype.alignedDimension, idOf(options), () =>
-      this.#dimension(options as unknown as AlignedDimensionOptions | undefined, (style, text) => ({
+      // SAFETY: the other types are messages that make a literal a compile error; a value of any
+      // shape is checked field by field below, as one from plain JavaScript is.
+      this.#dimension(options as AlignedDimensionOptions | undefined, (style, text) => ({
         kind: "aligned-dimension",
         layer: this.#current,
         style,
@@ -5379,10 +6054,23 @@ export class DrawingBuilder<
       : V extends "R12"
         ? R12Dimensions
         : JoggedRadiusDimensionOptions<S, T, I, C>,
+  ): this;
+  joggedRadiusDimension(
+    center: Point,
+    point: Point,
+    start: Point,
+    jog: Point,
+    options:
+      | StandardAlignedDimensionOptions<string, string, string, Standard, EntityColorGiven>
+      | R12Dimensions
+      | JoggedRadiusDimensionOptions<string, string, string, EntityColorGiven>
+      | undefined,
   ): this {
     return this.#add(DrawingBuilder.prototype.joggedRadiusDimension, idOf(options), () =>
       this.#dimension(
-        options as unknown as JoggedRadiusDimensionOptions | undefined,
+        // SAFETY: the other types are messages that make a literal a compile error; a value of any
+        // shape is checked field by field below, as one from plain JavaScript is.
+        options as JoggedRadiusDimensionOptions | undefined,
         (style, text) => ({
           kind: "jogged-radius-dimension",
           layer: this.#current,
@@ -5417,9 +6105,22 @@ export class DrawingBuilder<
       : V extends "R12"
         ? R12Dimensions
         : AngularDimensionOptions<S, T, I, C>,
+  ): this;
+  angularDimension(
+    vertex: Point,
+    from: Point,
+    to: Point,
+    at: Point,
+    options:
+      | StandardAlignedDimensionOptions<string, string, string, Standard, EntityColorGiven>
+      | R12Dimensions
+      | AngularDimensionOptions<string, string, string, EntityColorGiven>
+      | undefined,
   ): this {
     return this.#add(DrawingBuilder.prototype.angularDimension, idOf(options), () =>
-      this.#dimension(options as unknown as AngularDimensionOptions | undefined, (style, text) => ({
+      // SAFETY: the other types are messages that make a literal a compile error; a value of any
+      // shape is checked field by field below, as one from plain JavaScript is.
+      this.#dimension(options as AngularDimensionOptions | undefined, (style, text) => ({
         kind: "angular-dimension",
         layer: this.#current,
         style,
@@ -5453,10 +6154,24 @@ export class DrawingBuilder<
       : V extends "R12"
         ? R12Dimensions
         : ArcLengthDimensionOptions<S, T, I, C>,
+  ): this;
+  arcLengthDimension(
+    center: Point,
+    radius: number,
+    startAngle: number,
+    endAngle: number,
+    at: Point,
+    options:
+      | StandardAlignedDimensionOptions<string, string, string, Standard, EntityColorGiven>
+      | R12Dimensions
+      | ArcLengthDimensionOptions<string, string, string, EntityColorGiven>
+      | undefined,
   ): this {
     return this.#add(DrawingBuilder.prototype.arcLengthDimension, idOf(options), () =>
       this.#dimension(
-        options as unknown as ArcLengthDimensionOptions | undefined,
+        // SAFETY: the other types are messages that make a literal a compile error; a value of any
+        // shape is checked field by field below, as one from plain JavaScript is.
+        options as ArcLengthDimensionOptions | undefined,
         (style, text) => ({
           kind: "arc-length-dimension",
           layer: this.#current,
@@ -5489,18 +6204,31 @@ export class DrawingBuilder<
       : V extends "R12"
         ? R12Dimensions
         : OrdinateDimensionOptions<S, T, I, C>,
+  ): this;
+  ordinateDimension(
+    feature: Point,
+    leaderEnd: Point,
+    options:
+      | StandardOrdinateDimensionOptions<string, string, string, Standard, EntityColorGiven>
+      | R12Dimensions
+      | OrdinateDimensionOptions<string, string, string, EntityColorGiven>
+      | undefined,
   ): this {
     return this.#add(DrawingBuilder.prototype.ordinateDimension, idOf(options), () => {
-      const o = options as unknown as OrdinateDimensionOptions | undefined;
+      // SAFETY: the other types are messages that make a literal a compile error; a value of any
+      // shape is checked field by field below, as one from plain JavaScript is.
+      const o = options as OrdinateDimensionOptions | undefined;
       const axis: unknown = o?.axis;
+
       if (axis !== "x" && axis !== "y") refuse("dimension", ORDINATE_AXIS);
-      const origin: unknown = o?.origin ?? [0, 0];
+      const origin = o?.origin ?? [0, 0];
+
       return this.#dimension(o, (style, text) => ({
         kind: "ordinate-dimension",
         layer: this.#current,
         style,
         axis,
-        origin: pt(origin as Point),
+        origin: pt(origin),
         feature: pt(feature),
         leaderEnd: pt(leaderEnd),
         ...text,
@@ -5515,23 +6243,23 @@ export class DrawingBuilder<
     point: Point,
     options: unknown,
   ): RadiusDimension | DiameterDimension {
+    // SAFETY: the other types of the options are messages that make a literal a compile error; a
+    // value of any shape is checked field by field, as one from plain JavaScript is.
     const o = options as RadiusDimensionOptions | undefined;
-    const along: unknown = o?.textFromCenter;
-    return this.#dimension(
-      o,
-      (style, text) =>
-        ({
-          kind,
-          layer: this.#current,
-          style,
-          center: pt(center),
-          point: pt(point),
-          ...(along === undefined
-            ? {}
-            : { textFromCenter: kept(along as number, "textFromCenter") }),
-          ...text,
-        }) as RadiusDimension | DiameterDimension,
-    );
+    // SAFETY: `kept` refuses a value that is not a finite number.
+    const along = o?.textFromCenter as number | undefined;
+
+    return this.#dimension(o, (style, text) => {
+      const dimension = { kind, layer: this.#current, style, center: pt(center), point: pt(point) };
+
+      const placed =
+        along === undefined
+          ? dimension
+          : { ...dimension, textFromCenter: kept(along, "textFromCenter") };
+
+      // SAFETY: `kind` is one of the two, whose dimensions have the same fields.
+      return { ...placed, ...text } as RadiusDimension | DiameterDimension;
+    });
   }
 
   /** Checks what a dimension names and what it measures, and returns the dimension `make` gives. */
@@ -5542,62 +6270,84 @@ export class DrawingBuilder<
           readonly text?: unknown;
           readonly textBelow?: unknown;
           readonly view?: unknown;
+          readonly id?: unknown;
         }
       | undefined,
     make: (style: string, text: { readonly text?: string; readonly textBelow?: string }) => D,
   ): D {
     if (this.dxf === "R12") refuse("dimension", R12_ONLY.dimensions);
+
     if (this.#open) refuse("dimension", DIMENSION_IN_BLOCK);
     let style: DimensionStyle | undefined;
+
     if (this.#standard) style = this.#standardDimensionStyle(options?.style, options?.view);
     else {
       if (options?.view !== undefined) refuse("dimension-style", DRAWN.viewWithoutStandard);
       const named: unknown = options?.style;
       const nameProblem = dimensionStyleNameProblem(named);
+
       if (nameProblem) refuse("undefined-dimension-style", nameProblem);
-      style = this.#dimensionStyles.get(layerKey(named as string));
+      // SAFETY: `dimensionStyleNameProblem` has found the name to be a string.
+      const name = named as string;
+      style = this.#dimensionStyles.get(layerKey(name));
+
       if (!style) {
-        const absent = undefinedDimensionStyleProblem(named as string);
+        const absent = undefinedDimensionStyleProblem(name);
         refuse(
           "undefined-dimension-style",
-          isStandardDimensionStyle(named as string)
+          isStandardDimensionStyle(name)
             ? absent
             : `${absent}. Define it with dimensionStyle() first`,
         );
       }
     }
+
     const text: unknown = options?.text;
     const below: unknown = options?.textBelow;
+
     for (const words of [text, below]) {
       if (words === undefined) continue;
       const problem = dimensionTextProblem(words);
+
       if (problem) refuse("dimension", problem);
     }
-    const made = make(style!.name, {
-      ...(text === undefined ? {} : { text: text as string }),
-      ...(below === undefined ? {} : { textBelow: below as string }),
-    });
+
+    // A text of no problem is a string.
+    const texts: DimensionTexts = {};
+
+    if (isString(text)) texts.text = text;
+
+    if (isString(below)) texts.textBelow = below;
+    const made = make(style!.name, texts);
+
     const textStyle =
       style!.textStyle === undefined ? undefined : this.#textStyles.get(layerKey(style!.textStyle));
+
     const problem = dimensionDrawnProblem(made, style!, textStyle);
+
     if (problem) refuse("dimension", problem);
     // The block of the dimension's picture takes handles from its id, or else from its place.
-    const id: unknown = (options as { readonly id?: unknown } | undefined)?.id;
+    const id: unknown = options?.id;
     const sheet = this.#sheet;
-    const place: DimensionPlace = {
-      index: (sheet ?? { entities: this.#entities }).entities.length,
-      ...(typeof id === "string" ? { id } : {}),
-      ...(sheet ? { layout: sheet.name } : {}),
-    };
+    let place: DimensionPlace = { index: (sheet ?? { entities: this.#entities }).entities.length };
+
+    if (isString(id)) place = { ...place, id };
+
+    if (sheet) place = { ...place, layout: sheet.name };
+
     const what = pictureOwner(place, JSON.stringify);
-    const own = typeof id === "string" ? validIdHandle(id) : undefined;
+    const own = isString(id) ? validIdHandle(id) : undefined;
     const handles = pictureHandleList(validDimensionPictureHandles(place));
+
     for (const handle of handles) {
       const other =
         handle === own ? { what: `the id ${JSON.stringify(id)}` } : this.#handles.get(handle);
+
       if (other !== undefined) refuse("id-handle", handleProblem(what, other.what, handle));
     }
+
     for (const handle of handles) this.#claim(handle, what);
+
     return made;
   }
 
@@ -5610,24 +6360,29 @@ export class DrawingBuilder<
   #standardDimensionStyle(named: unknown, view: unknown): DimensionStyle {
     const drawn = this.#standard!;
     const id = named === undefined ? drawn.standard.defaultDimensionStyle : named;
+
     if (id === undefined) {
       return refuse("dimension-style-outside-standard", noDefaultDimensionStyle(drawn.standard));
     }
-    const found = typeof id === "string" ? drawn.dimensionStyles.get(idKey(id)) : undefined;
+
+    const found = isString(id) ? drawn.dimensionStyles.get(idKey(id)) : undefined;
+
     if (found === undefined) {
       return refuse(
         "dimension-style-outside-standard",
-        typeof id === "string"
+        isString(id)
           ? (dimensionStyleReserved(id) ?? dimensionStyleLacks(id, drawn.standard))
           : "A dimension style is named by a string",
       );
     }
+
     const [styleId, entry] = found;
     const fields = this.#inDiscipline("Dimension style", styleId, entry);
     const sheet = this.#sheet;
     let name: string;
     let scale = 1;
     let units: string = this.units;
+
     if (sheet) {
       if (view !== undefined) refuse("dimension-style", DRAWN.dimensionViewOnPaper);
       units = sheet.info.units;
@@ -5638,47 +6393,69 @@ export class DrawingBuilder<
       name = styleNameAt(styleId, entry, shown.scale);
       scale = onPaper(shown, 1, "scale");
     }
+
+    // SAFETY: the units are the drawing's or its sheet's paper's, which are both Units.
     const writing = fields.writing[units as Units];
+
     if (writing === undefined)
       refuse("dimension-style", writingLacks(styleId, units, drawn.standard));
     const existing = this.#dimensionStyles.get(layerKey(name));
+
     if (existing !== undefined) return existing;
     const role = drawn.textRoles.get(idKey(fields.role))!;
     const { units: writes, precision, prefix, suffix, suppressZeros, feetInchZeros } = writing!;
     const { fraction, fractionScale } = writing!;
     const { dimensionLineweight, extensionLineweight } = fields;
-    this.#defineDimensionStyle({
-      name,
-      textStyle: this.#roleStyle(role),
-      textHeight: this.#roleFields(role).height,
-      arrowhead: fields.arrowhead,
-      arrowSize: fields.arrowSize,
-      extensionOffset: fields.extensionOffset,
-      extensionBeyond: fields.extensionBeyond,
-      textGap: fields.textGap,
-      scale,
-      ...(writes === "decimal" ? {} : { units: writes }),
-      precision,
-      ...(prefix === undefined ? {} : { prefix }),
-      ...(suffix === undefined ? {} : { suffix }),
-      ...(suppressZeros === undefined ? {} : { suppressZeros }),
-      ...(feetInchZeros === undefined ? {} : { feetInchZeros }),
-      measurementScale: writing!.measurementScale,
-      ...(fraction === "inline" ? {} : { fraction }),
-      ...(fractionScale === 1 ? {} : { fractionScale }),
-      ...(fields.textPlacement === "above" ? {} : { textPlacement: fields.textPlacement }),
-      ...(fields.textFit === "inside" ? {} : { textFit: fields.textFit }),
-      ...(dimensionLineweight === undefined ? {} : { dimensionLineweight }),
-      ...(extensionLineweight === undefined ? {} : { extensionLineweight }),
-      ...(fields.radialText === "aligned" ? {} : { radialText: fields.radialText }),
-      ...(fields.jogAngle === JOG_ANGLE.default ? {} : { jogAngle: fields.jogAngle }),
-      ...(fields.angleUnits === "degrees" ? {} : { angleUnits: fields.angleUnits }),
-      ...(fields.anglePrecision === 0 ? {} : { anglePrecision: fields.anglePrecision }),
-      ...(fields.suppressAngleZeros === undefined
-        ? {}
-        : { suppressAngleZeros: fields.suppressAngleZeros }),
-      ...(fields.arcSymbol === "before" ? {} : { arcSymbol: fields.arcSymbol }),
-    });
+    const given: Writable<Partial<DimensionStyle>> = {};
+    given.name = name;
+    given.textStyle = this.#roleStyle(role);
+    given.textHeight = this.#roleFields(role).height;
+    given.arrowhead = fields.arrowhead;
+    given.arrowSize = fields.arrowSize;
+    given.extensionOffset = fields.extensionOffset;
+    given.extensionBeyond = fields.extensionBeyond;
+    given.textGap = fields.textGap;
+    given.scale = scale;
+
+    if (writes !== "decimal") given.units = writes;
+    given.precision = precision;
+
+    if (prefix !== undefined) given.prefix = prefix;
+
+    if (suffix !== undefined) given.suffix = suffix;
+
+    if (suppressZeros !== undefined) given.suppressZeros = suppressZeros;
+
+    if (feetInchZeros !== undefined) given.feetInchZeros = feetInchZeros;
+    given.measurementScale = writing!.measurementScale;
+
+    if (fraction !== "inline") given.fraction = fraction;
+
+    if (fractionScale !== 1) given.fractionScale = fractionScale;
+
+    if (fields.textPlacement !== "above") given.textPlacement = fields.textPlacement;
+
+    if (fields.textFit !== "inside") given.textFit = fields.textFit;
+
+    if (dimensionLineweight !== undefined) given.dimensionLineweight = dimensionLineweight;
+
+    if (extensionLineweight !== undefined) given.extensionLineweight = extensionLineweight;
+
+    if (fields.radialText !== "aligned") given.radialText = fields.radialText;
+
+    if (fields.jogAngle !== JOG_ANGLE.default) given.jogAngle = fields.jogAngle;
+
+    if (fields.angleUnits !== "degrees") given.angleUnits = fields.angleUnits;
+
+    if (fields.anglePrecision !== 0) given.anglePrecision = fields.anglePrecision;
+
+    if (fields.suppressAngleZeros !== undefined)
+      given.suppressAngleZeros = fields.suppressAngleZeros;
+
+    if (fields.arcSymbol !== "before") given.arcSymbol = fields.arcSymbol;
+    // SAFETY: it holds each field a dimension style must have, set above.
+    this.#defineDimensionStyle(given as DimensionStyle);
+
     return this.#dimensionStyles.get(layerKey(name))!;
   }
 
@@ -5706,37 +6483,49 @@ export class DrawingBuilder<
       : V extends "R12"
         ? R12Leaders
         : LeaderStyleDefinition<N, S, H, A, AS, L, G, SC>,
-  ): this {
-    const definition = style as unknown as LeaderStyle;
+  ): this;
+  leaderStyle(style: LeaderStyleDefinition | LeaderStyleDefined | R12Leaders): this {
+    // SAFETY: the other types are messages that make a literal a compile error; a value of any
+    // shape is checked field by field below, as one from plain JavaScript is.
+    const definition = style as LeaderStyle;
+
     try {
       if (this.dxf === "R12") refuse("leader-style", R12_ONLY.leaders);
+
       if (this.#standard) refuse("leader-style-outside-standard", DRAWN.leaderStyleDefined);
       this.#defineLeaderStyle(definition);
     } catch (thrown) {
-      const name: unknown = (definition as { name?: unknown } | null)?.name;
-      const about = typeof name === "string" ? { leaderStyle: name } : {};
+      const name: unknown = definition?.name;
+      const about = isString(name) ? { leaderStyle: name } : {};
       throw located(thrown, DrawingBuilder.prototype.leaderStyle, about);
     }
+
     return this;
   }
 
   /** Checks a leader style and stores it. */
   #defineLeaderStyle(definition: LeaderStyle): void {
-    const name: unknown = (definition as { name?: unknown } | null)?.name;
+    const name: unknown = definition?.name;
+
     const fail = (rule: LintRule, problem: string): never =>
       refuse(
         rule,
-        `Leader style ${typeof name === "string" ? JSON.stringify(name) : "with no name"}: ${problem}`,
+        `Leader style ${isString(name) ? JSON.stringify(name) : "with no name"}: ${problem}`,
       );
+
     const problem = leaderStyleProblem(definition);
+
     if (problem) fail("leader-style", problem);
-    // leaderStyleProblem has checked the types.
+    // SAFETY: `leaderStyleProblem` has found the name to be a string.
     const named = name as string;
     const first = this.#leaderStylesAudited.get(layerAuditKey(named));
+
     if (first !== undefined) fail("duplicate-leader-style", leaderStyleTwinProblem(named, first)!);
     let textStyle: string | undefined;
+
     if (definition.textStyle !== undefined && !isStandardTextStyle(definition.textStyle)) {
       textStyle = this.#textStyles.get(layerKey(definition.textStyle))?.name;
+
       if (textStyle === undefined) {
         fail(
           "undefined-text-style",
@@ -5744,13 +6533,17 @@ export class DrawingBuilder<
         );
       }
     }
+
+    // SAFETY: `leaderStyleProblem` has found an arrowhead given to be one of LEADER_ARROWHEADS.
     const arrowhead = (definition.arrowhead ?? DEFAULT_LEADER_ARROWHEAD) as LeaderArrowhead;
     const block = leaderArrowheadHandles(arrowhead);
     // A handle taken before another was refused is given back.
     const taken: string[] = [];
+
     try {
       const what = `the leader style ${JSON.stringify(named)}`;
       this.#claim(validLeaderStyleHandle(named), what, undefined, taken);
+
       // The first style brings the leading CAD app's own and the dictionary that holds them.
       if (this.#leaderStyles.size === 0) {
         const standard = `the leader style ${JSON.stringify(STANDARD_LEADER_STYLE)}`;
@@ -5762,8 +6555,10 @@ export class DrawingBuilder<
           taken,
         );
       }
+
       if (block !== undefined && !this.#leaderArrowheadBlocks.has(arrowhead)) {
         const head = `the arrowhead ${JSON.stringify(arrowhead)}`;
+
         for (const handle of [block.record, block.begin, block.end, ...block.strokes]) {
           this.#claim(handle, head, undefined, taken);
         }
@@ -5772,37 +6567,45 @@ export class DrawingBuilder<
       for (const handle of taken) this.#handles.delete(handle);
       throw thrown;
     }
+
     if (block !== undefined) this.#leaderArrowheadBlocks.add(arrowhead);
     const scale = definition.scale ?? 1;
     const attachment = definition.attachment ?? "first-line";
-    this.#leaderStyles.set(layerKey(named), {
-      name: named,
-      ...(textStyle === undefined ? {} : { textStyle }),
-      textHeight: definition.textHeight,
-      ...(arrowhead === DEFAULT_LEADER_ARROWHEAD ? {} : { arrowhead }),
-      arrowSize: definition.arrowSize,
-      landing: definition.landing,
-      gap: definition.gap,
-      ...(attachment === "first-line" ? {} : { attachment }),
-      ...(definition.direction === undefined || definition.direction === "horizontal"
-        ? {}
-        : { direction: definition.direction }),
-      ...(definition.verticalAttachment === undefined || definition.verticalAttachment === "center"
-        ? {}
-        : { verticalAttachment: definition.verticalAttachment }),
-      ...(definition.frame === true ? { frame: true } : {}),
-      ...(definition.shaft === undefined || definition.shaft === "straight"
-        ? {}
-        : { shaft: definition.shaft }),
-      ...(definition.block === undefined ? {} : { block: definition.block }),
-      ...(definition.blockConnection === undefined || definition.blockConnection === "extents"
-        ? {}
-        : { blockConnection: definition.blockConnection }),
-      ...(definition.blockScale === undefined || definition.blockScale === 1
-        ? {}
-        : { blockScale: definition.blockScale }),
-      ...(scale === 1 ? {} : { scale }),
-    });
+    const stored: Writable<Partial<LeaderStyle>> = {};
+    stored.name = named;
+
+    if (textStyle !== undefined) stored.textStyle = textStyle;
+    stored.textHeight = definition.textHeight;
+
+    if (arrowhead !== DEFAULT_LEADER_ARROWHEAD) stored.arrowhead = arrowhead;
+    stored.arrowSize = definition.arrowSize;
+    stored.landing = definition.landing;
+    stored.gap = definition.gap;
+
+    if (attachment !== "first-line") stored.attachment = attachment;
+
+    if (definition.direction !== undefined && definition.direction !== "horizontal")
+      stored.direction = definition.direction;
+
+    if (definition.verticalAttachment !== undefined && definition.verticalAttachment !== "center")
+      stored.verticalAttachment = definition.verticalAttachment;
+
+    if (definition.frame === true) stored.frame = true;
+
+    if (definition.shaft !== undefined && definition.shaft !== "straight")
+      stored.shaft = definition.shaft;
+
+    if (definition.block !== undefined) stored.block = definition.block;
+
+    if (definition.blockConnection !== undefined && definition.blockConnection !== "extents")
+      stored.blockConnection = definition.blockConnection;
+
+    if (definition.blockScale !== undefined && definition.blockScale !== 1)
+      stored.blockScale = definition.blockScale;
+
+    if (scale !== 1) stored.scale = scale;
+    // SAFETY: it holds each field a leader style must have, set above.
+    this.#leaderStyles.set(layerKey(named), stored as LeaderStyle);
     this.#leaderStylesAudited.set(layerAuditKey(named), named);
   }
 
@@ -5815,57 +6618,74 @@ export class DrawingBuilder<
    * ```
    */
   tableStyle(style: TableStyle): this {
-    const definition = style as unknown as TableStyle;
+    const definition = style;
+
     try {
       if (this.dxf === "R12") refuse("table-style", R12_ONLY.tables);
       this.#defineTableStyle(definition);
     } catch (thrown) {
-      const name: unknown = (definition as { name?: unknown } | null)?.name;
-      const about = typeof name === "string" ? { tableStyle: name } : {};
+      const name: unknown = definition?.name;
+      const about = isString(name) ? { tableStyle: name } : {};
       throw located(thrown, DrawingBuilder.prototype.tableStyle, about);
     }
+
     return this;
   }
 
   /** Checks a table style and stores it. */
   #defineTableStyle(definition: TableStyle): void {
-    const name: unknown = (definition as { name?: unknown } | null)?.name;
+    const name: unknown = definition?.name;
+
     const fail = (rule: LintRule, problem: string): never =>
       refuse(
         rule,
-        `Table style ${typeof name === "string" ? JSON.stringify(name) : "with no name"}: ${problem}`,
+        `Table style ${isString(name) ? JSON.stringify(name) : "with no name"}: ${problem}`,
       );
+
     const problem = tableStyleProblem(definition);
+
     if (problem) fail("table-style", problem);
+    // SAFETY: `tableStyleProblem` has found the name to be a string.
     const named = name as string;
     const first = this.#tableStylesAudited.get(layerAuditKey(named));
+
     if (first !== undefined) fail("duplicate-table-style", tableStyleTwinProblem(named, first)!);
+
     // Each text style it names is the drawing's, under the name the drawing has it by.
     const textStyleOf = (given: string | undefined, field: string): string | undefined => {
       if (given === undefined || isStandardTextStyle(given)) return undefined;
       const found = this.#textStyles.get(layerKey(given))?.name;
+
       if (found === undefined) {
         fail(
           "undefined-text-style",
           `${field}: text style ${JSON.stringify(given)} is not defined. Define it with textStyle() first`,
         );
       }
+
       return found;
     };
+
     const textStyle = textStyleOf(definition.textStyle, "textStyle");
     const cells: Partial<Record<"title" | "header" | "data", TableCellStyle>> = {};
+
     for (const kind of ["title", "header", "data"] as const) {
       const own = definition[kind];
+
       if (own === undefined) continue;
+
       // A row's own `Standard` stays, since it differs from a style's other text style.
       const ownText =
         own.textStyle !== undefined && isStandardTextStyle(own.textStyle)
           ? STANDARD_TEXT_STYLE
           : textStyleOf(own.textStyle, `${kind}.textStyle`);
+
       const { textStyle: _given, ...rest } = own;
-      cells[kind] = { ...(ownText === undefined ? {} : { textStyle: ownText }), ...rest };
+      cells[kind] = ownText === undefined ? { ...rest } : { textStyle: ownText, ...rest };
     }
+
     const taken: string[] = [];
+
     try {
       this.#claim(
         validTableStyleHandle(named),
@@ -5873,6 +6693,7 @@ export class DrawingBuilder<
         undefined,
         taken,
       );
+
       // The first style brings the leading CAD app's own and the dictionary that holds them.
       if (this.#tableStyles.size === 0) {
         this.#claim(
@@ -5892,18 +6713,20 @@ export class DrawingBuilder<
       for (const handle of taken) this.#handles.delete(handle);
       throw thrown;
     }
-    this.#tableStyles.set(layerKey(named), {
-      name: named,
-      ...(textStyle === undefined ? {} : { textStyle }),
-      textHeight: definition.textHeight,
-      ...(definition.horizontalMargin === undefined
-        ? {}
-        : { horizontalMargin: definition.horizontalMargin }),
-      ...(definition.verticalMargin === undefined
-        ? {}
-        : { verticalMargin: definition.verticalMargin }),
-      ...cells,
-    });
+
+    const stored: Writable<Partial<TableStyle>> = {};
+    stored.name = named;
+
+    if (textStyle !== undefined) stored.textStyle = textStyle;
+    stored.textHeight = definition.textHeight;
+
+    if (definition.horizontalMargin !== undefined)
+      stored.horizontalMargin = definition.horizontalMargin;
+
+    if (definition.verticalMargin !== undefined) stored.verticalMargin = definition.verticalMargin;
+    Object.assign(stored, cells);
+    // SAFETY: it holds each field a table style must have, set above.
+    this.#tableStyles.set(layerKey(named), stored as TableStyle);
     this.#tableStylesAudited.set(layerAuditKey(named), named);
   }
 
@@ -5925,64 +6748,89 @@ export class DrawingBuilder<
    * ```
    */
   table(options: TableOptions): this {
-    return this.#add(DrawingBuilder.prototype.table, options as object, () =>
-      this.#table(options as unknown),
-    );
+    return this.#add(DrawingBuilder.prototype.table, options, () => this.#table(options));
   }
 
   /** Checks a table and what it names, and returns it. */
-  #table(given: unknown): Table {
+  #table(given: TableOptions): Table {
     if (this.dxf === "R12") refuse("table", R12_ONLY.tables);
+
     if (this.#open) refuse("table", TABLE_IN_BLOCK);
-    const o = (typeof given === "object" && given !== null ? given : {}) as Record<string, unknown>;
+    // A value that is no object, as from plain JavaScript, is read as one with no fields.
+    const o: TableGiven = isObjectOrArray(given) ? given : {};
+
     if (o.color !== undefined && o.color !== "ByLayer") refuse("entity-color", TABLE_COLOR);
+
     if (o.transparency !== undefined && o.transparency !== "ByLayer")
       refuse("entity-transparency", TABLE_TRANSPARENCY);
-    const named = o.style;
-    const nameProblem = tableStyleNameProblem(named);
+    const nameProblem = tableStyleNameProblem(o.style);
+
     if (nameProblem) refuse("undefined-table-style", nameProblem);
-    const standard = standardTableStyleProblem(named as string);
+    // SAFETY: `tableStyleNameProblem` has found the name to be a string.
+    const named = o.style as string;
+    const standard = standardTableStyleProblem(named);
+
     if (standard) refuse("undefined-table-style", standard);
-    const style = this.#tableStyles.get(layerKey(named as string));
+    const style = this.#tableStyles.get(layerKey(named));
+
     if (style === undefined) {
       refuse(
         "undefined-table-style",
         `Table style ${JSON.stringify(named)} is not defined. Define it with tableStyle() first`,
       );
     }
+
     const problem = tableProblem(o, (name) => this.#blocks.has(layerKey(name)));
+
     if (problem) refuse("table", problem);
-    const narrow = tableColumnsProblem(o.columns as number[], tableMargins(style!)[0]);
+    // The table has passed `tableProblem`, so it is the object given, with every field of a table.
+    const narrow = tableColumnsProblem(given.columns, tableMargins(style!)[0]);
+
     if (narrow) refuse("table", narrow);
+
     const fontOf = (name: string | undefined) =>
       name === undefined || isStandardTextStyle(name)
         ? STANDARD_FONT
         : this.#textStyles.get(layerKey(name))?.font;
-    const lettered = tableTextsProblem(tableTexts(o as unknown as Table, style!), fontOf);
+
+    const texts = tableTexts({ kind: "table", layer: this.#current, ...given }, style!);
+    const lettered = tableTextsProblem(texts, fontOf);
+
     if (lettered) refuse("table", lettered);
-    const blockName = (cell: unknown): unknown => {
-      if (typeof cell !== "object" || cell === null) return cell;
-      const content = cell as TableCellContent;
-      if (content.block === undefined) return { ...content };
-      return { ...content, block: this.#blocks.get(layerKey(content.block))!.name };
+
+    const blockName = (cell: TableCell): TableCell => {
+      if (!isObjectOrArray(cell)) return cell;
+
+      if (cell.block === undefined) return { ...cell };
+
+      return { ...cell, block: this.#blocks.get(layerKey(cell.block))!.name };
     };
-    const row = (cells: readonly unknown[]) => cells.map(blockName) as (TableCell | null)[];
-    return {
-      kind: "table",
-      layer: this.#current,
-      style: style!.name,
-      at: pt(o.at as Point),
-      ...(o.rotation === undefined || o.rotation === 0 ? {} : { rotation: o.rotation as number }),
-      columns: [...(o.columns as number[])],
-      ...(o.title === undefined ? {} : { title: blockName(o.title) as TableCell }),
-      ...(o.titleHeight === undefined ? {} : { titleHeight: o.titleHeight as number }),
-      ...(o.header === undefined ? {} : { header: row(o.header as unknown[]) }),
-      ...(o.headerHeight === undefined ? {} : { headerHeight: o.headerHeight as number }),
-      rows: (o.rows as unknown[][]).map(row),
-      ...(o.rowHeights === undefined
-        ? {}
-        : { rowHeights: [...(o.rowHeights as (number | null)[])] }),
-    };
+
+    const row = (cells: readonly (TableCell | null)[]) =>
+      cells.map((cell) => (cell === null ? null : blockName(cell)));
+
+    const table: Writable<Partial<Table>> = {};
+    table.kind = "table";
+    table.layer = this.#current;
+    table.style = style!.name;
+    table.at = pt(given.at);
+
+    if (given.rotation !== undefined && given.rotation !== 0) table.rotation = given.rotation;
+    table.columns = [...given.columns];
+
+    if (given.title !== undefined) table.title = blockName(given.title);
+
+    if (given.titleHeight !== undefined) table.titleHeight = given.titleHeight;
+
+    if (given.header !== undefined) table.header = row(given.header);
+
+    if (given.headerHeight !== undefined) table.headerHeight = given.headerHeight;
+    table.rows = given.rows.map(row);
+
+    if (given.rowHeights !== undefined) table.rowHeights = [...given.rowHeights];
+
+    // SAFETY: it holds each field a table must have, set above.
+    return table as Table;
   }
 
   /**
@@ -6018,139 +6866,188 @@ export class DrawingBuilder<
         : LeaderOptions<S, I, TS, H, AS, L, G, TO, W, C>,
   ): this {
     return this.#add(DrawingBuilder.prototype.leader, idOf(options), () =>
-      this.#leader(text as unknown, options as unknown),
+      this.#leader(text, options),
     );
   }
 
   /** Checks what a leader names, its note and its shafts, and returns it. */
   #leader(text: unknown, given: unknown): Leader {
     if (this.dxf === "R12") refuse("leader", R12_ONLY.leaders);
+
     if (this.#open) refuse("leader", LEADER_IN_BLOCK);
-    const o = (typeof given === "object" && given !== null ? given : {}) as Record<string, unknown>;
-    // A block in place of the note: `{ block, attributes }`.
-    const content =
-      typeof text === "object" && text !== null && !Array.isArray(text)
-        ? (text as { readonly block?: unknown; readonly attributes?: unknown })
-        : undefined;
-    const lines: unknown = typeof text === "string" ? [text] : text;
+    // SAFETY: a value that is no object, as from plain JavaScript, is read as one with no fields;
+    // each field is checked below, or by `leaderOwnProblem` once the leader is made.
+    const o = (isObjectOrArray(given) ? given : {}) as LeaderOptions & StandardLeaderGiven;
+
+    // A block in place of the note: `{ block, attributes }`, each checked below.
+    const content: LeaderContentGiven | undefined =
+      isObjectOrArray(text) && !Array.isArray(text) ? text : undefined;
+
+    const lines: unknown = isString(text) ? [text] : text;
+    let placedName: string | undefined;
+
     if (content === undefined) {
       const textProblem = leaderTextProblem(lines);
+
       if (textProblem) refuse("leader", textProblem);
     } else {
-      if (typeof content.block !== "string")
-        refuse("undefined-block", "a block is named by a string");
-      const placed = this.#blocks.get(layerKey(content.block as string));
+      if (!isString(content.block)) refuse("undefined-block", "a block is named by a string");
+      const placed = this.#blocks.get(layerKey(content.block));
+      placedName = placed?.name;
+
       if (placed === undefined) {
         refuse(
           "undefined-block",
-          `${undefinedBlockProblem(content.block as string)}. Define it with block() first`,
+          `${undefinedBlockProblem(content.block)}. Define it with block() first`,
         );
       }
+
       const problem = leaderBlockContentProblem({ ...o, attributes: content.attributes });
+
       if (problem) refuse("leader", problem);
       // Each block is looked through once, however many leaders place it.
       let percent = this.#leaderPlaced.get(placed!);
+
       if (percent === undefined) {
-        percent = placed!.entities.some((e) => typeof e.transparency === "number");
+        percent = placed!.entities.some((e) => isNumber(e.transparency));
         this.#leaderPlaced.set(placed!, percent);
       }
+
       if (percent) refuse("entity-transparency", LEADER_BLOCK_TRANSPARENCY);
       // Each value names an attribute of the block, as an insert's does.
       const tags = new Set((placed!.attributes ?? []).map((d) => d.tag));
-      for (const tag of Object.keys((content.attributes as object | undefined) ?? {})) {
+
+      // `leaderBlockContentProblem` has found attributes given to be an object.
+      const values = isObjectOrArray(content.attributes) ? content.attributes : {};
+
+      for (const tag of Object.keys(values)) {
         if (!tags.has(tag))
           refuse("undefined-attribute", undefinedAttributeProblem(tag, placed!.name));
       }
     }
+
     // Its point and its shafts first: under a standard, finding its style defines the style.
     const at = o.at;
+
     if (
       !Array.isArray(at) ||
       at.length !== 2 ||
-      !at.every((n) => typeof n === "number" && Number.isFinite(n))
+      !at.every((n) => isNumber(n) && Number.isFinite(n))
     ) {
       return refuse("leader", "at must be a point, [x, y], where the shafts meet");
     }
-    const point = pt(at as unknown as Point);
+
+    const point = pt(at);
     const shafts = shaftsOf(o.to);
     const shaftProblem = leaderShaftsProblem(shafts, point);
+
     if (shaftProblem) refuse("leader", shaftProblem);
     // The far root's point is the note's, so its shafts are checked as a leader's once it is made.
     const far = o.toFarSide === undefined ? undefined : shaftsOf(o.toFarSide);
     let style: LeaderStyle;
     let own: Partial<Pick<Leader, "textStyle" | "textHeight">> = {};
+
     if (this.#standard) {
       style = this.#standardLeaderStyle(o.style, o.view);
+
       if (o.textStyle !== undefined || o.textHeight !== undefined) {
         refuse("role", DRAWN.leaderRoleAndText);
       }
+
       if (o.role !== undefined) own = this.#leaderRole(o.role, o.style);
     } else {
       if (o.view !== undefined) refuse("leader-style", DRAWN.viewWithoutStandard);
+
       if (o.role !== undefined) refuse("role", DRAWN.roleWithoutStandard);
-      const named = o.style;
-      const nameProblem = leaderStyleNameProblem(named);
+      const nameProblem = leaderStyleNameProblem(o.style);
+
       if (nameProblem) refuse("undefined-leader-style", nameProblem);
-      const found = this.#leaderStyles.get(layerKey(named as string));
+      const named = o.style;
+      const found = this.#leaderStyles.get(layerKey(named));
+
       if (!found) {
-        const absent = undefinedLeaderStyleProblem(named as string);
+        const absent = undefinedLeaderStyleProblem(named);
         refuse(
           "undefined-leader-style",
-          isStandardLeaderStyle(named as string)
-            ? absent
-            : `${absent}. Define it with leaderStyle() first`,
+          isStandardLeaderStyle(named) ? absent : `${absent}. Define it with leaderStyle() first`,
         );
       }
+
       style = found!;
+
       if (o.textStyle !== undefined) {
-        if (typeof o.textStyle !== "string") {
+        if (!isString(o.textStyle)) {
           refuse("undefined-text-style", "a text style is named by a string");
         }
-        const name = this.#textStyleName(o.textStyle as string);
+
+        const name = this.#textStyleName(o.textStyle);
         own = { textStyle: name };
       }
-      if (o.textHeight !== undefined) own = { ...own, textHeight: o.textHeight as number };
+
+      if (o.textHeight !== undefined) own = { ...own, textHeight: o.textHeight };
     }
-    const made: Leader = {
-      kind: "leader",
-      layer: this.#current,
-      style: style.name,
-      ...(content === undefined
-        ? { text: [...(lines as readonly string[])] }
-        : {
-            block: this.#blocks.get(layerKey(content.block as string))!.name,
-            ...(content.attributes === undefined
-              ? {}
-              : { attributes: { ...(content.attributes as Record<string, string>) } }),
-          }),
-      at: point,
-      shafts: (shafts as readonly (readonly Point[])[]).map((shaft) => shaft.map(pt)),
-      ...(o.side === undefined ? {} : { side: o.side as LeaderSide }),
-      ...(o.attachment === undefined ? {} : { attachment: o.attachment as LeaderAttachment }),
-      ...(o.verticalAttachment === undefined
-        ? {}
-        : { verticalAttachment: o.verticalAttachment as LeaderVerticalAttachment }),
-      ...own,
-      ...(o.arrowSize === undefined ? {} : { arrowSize: o.arrowSize as number }),
-      ...(o.landing === undefined ? {} : { landing: o.landing as number }),
-      ...(o.gap === undefined ? {} : { gap: o.gap as number }),
-      ...(o.width === undefined ? {} : { width: o.width as number }),
-      ...(o.frame === undefined ? {} : { frame: o.frame as boolean }),
-      ...(o.mask === undefined ? {} : { mask: o.mask as TextMask }),
-      ...(o.shaft === undefined ? {} : { shaft: o.shaft as LeaderShaftKind }),
-      ...(far === undefined
-        ? {}
-        : { farShafts: (far as readonly (readonly Point[])[]).map((shaft) => shaft.map(pt)) }),
-    };
+
+    // `leaderShaftsProblem` has found the shafts to be lists of points.
+    const copied = (list: unknown): Point[][] =>
+      Array.isArray(list) ? list.map((shaft: readonly Point[]) => shaft.map(pt)) : [];
+
+    const leader: Writable<Partial<Leader>> = {};
+    leader.kind = "leader";
+    leader.layer = this.#current;
+    leader.style = style.name;
+
+    if (content === undefined) {
+      // SAFETY: `leaderTextProblem` has found the lines to be a list of strings.
+      leader.text = [...(lines as readonly string[])];
+    } else {
+      // The block was found above, or the leader refused.
+      leader.block = placedName!;
+
+      if (isObjectOrArray(content.attributes)) leader.attributes = { ...content.attributes };
+    }
+
+    leader.at = point;
+    leader.shafts = copied(shafts);
+
+    if (o.side !== undefined) leader.side = o.side;
+
+    if (o.attachment !== undefined) leader.attachment = o.attachment;
+
+    if (o.verticalAttachment !== undefined) leader.verticalAttachment = o.verticalAttachment;
+    Object.assign(leader, own);
+
+    if (o.arrowSize !== undefined) leader.arrowSize = o.arrowSize;
+
+    if (o.landing !== undefined) leader.landing = o.landing;
+
+    if (o.gap !== undefined) leader.gap = o.gap;
+
+    if (o.width !== undefined) leader.width = o.width;
+
+    if (o.frame !== undefined) leader.frame = o.frame;
+
+    if (o.mask !== undefined) leader.mask = o.mask;
+
+    if (o.shaft !== undefined) leader.shaft = o.shaft;
+
+    if (far !== undefined) leader.farShafts = copied(far);
+    // SAFETY: it holds each field a leader must have, set above.
+    const made = leader as Leader;
+
     const ownProblem = leaderOwnProblem(made, written(style.scale ?? 1));
+
     if (ownProblem) refuse("leader", ownProblem);
     const styleName = made.textStyle ?? style.textStyle;
+
     const textStyle =
       styleName === undefined ? undefined : this.#textStyles.get(layerKey(styleName));
+
     const drawn = leaderDrawnProblem(made, style, textStyle, (name) =>
       this.#blocks.get(layerKey(name)),
     );
+
     if (drawn) refuse("leader", drawn);
+
     return made;
   }
 
@@ -6163,22 +7060,27 @@ export class DrawingBuilder<
   #standardLeaderStyle(named: unknown, view: unknown): LeaderStyle {
     const drawn = this.#standard!;
     const id = named === undefined ? drawn.standard.defaultLeaderStyle : named;
+
     if (id === undefined) {
       return refuse("leader-style-outside-standard", noDefaultLeaderStyle(drawn.standard));
     }
-    const found = typeof id === "string" ? drawn.leaderStyles.get(idKey(id)) : undefined;
+
+    const found = isString(id) ? drawn.leaderStyles.get(idKey(id)) : undefined;
+
     if (found === undefined) {
       return refuse(
         "leader-style-outside-standard",
-        typeof id === "string"
+        isString(id)
           ? (leaderStyleReserved(id) ?? leaderStyleLacks(id, drawn.standard))
           : "A leader style is named by a string",
       );
     }
+
     const [styleId, entry] = found;
     const fields = this.#inDiscipline("Leader style", styleId, entry);
     let name = capitals(styleId);
     let scale = 1;
+
     if (this.#sheet) {
       if (view !== undefined) refuse("leader-style", DRAWN.leaderViewOnPaper);
     } else {
@@ -6187,7 +7089,9 @@ export class DrawingBuilder<
       name = `${name}-${shown.scale}`;
       scale = onPaper(shown, 1, "scale");
     }
+
     const existing = this.#leaderStyles.get(layerKey(name));
+
     if (existing !== undefined) return existing;
     const role = drawn.textRoles.get(idKey(fields.role))!;
     this.#defineLeaderStyle({
@@ -6205,6 +7109,7 @@ export class DrawingBuilder<
       shaft: fields.shaft,
       scale,
     });
+
     return this.#leaderStyles.get(layerKey(name))!;
   }
 
@@ -6212,20 +7117,25 @@ export class DrawingBuilder<
    * The text style and height a leader's note takes from a role of the standard, where its own
    * style's role is another: none when the role is the style's.
    */
-  #leaderRole(role: unknown, styleId: unknown): Partial<Pick<Leader, "textStyle" | "textHeight">> {
+  #leaderRole(role: unknown, styleId: unknown): LeaderRoleFields {
     const drawn = this.#standard!;
-    const found = typeof role === "string" ? drawn.textRoles.get(idKey(role)) : undefined;
+    const found = isString(role) ? drawn.textRoles.get(idKey(role)) : undefined;
+
     if (found === undefined) {
       return refuse(
         "role",
-        typeof role === "string" ? roleLacks(role, drawn.standard) : "A role is named by a string",
+        isString(role) ? roleLacks(role, drawn.standard) : "A role is named by a string",
       );
     }
+
     const id = styleId === undefined ? drawn.standard.defaultLeaderStyle : styleId;
-    const entry = typeof id === "string" ? drawn.leaderStyles.get(idKey(id)) : undefined;
+    const entry = isString(id) ? drawn.leaderStyles.get(idKey(id)) : undefined;
+
     const styleRole =
       entry === undefined ? undefined : this.#inDiscipline("Leader style", ...entry).role;
+
     if (styleRole !== undefined && idKey(styleRole) === idKey(found[0])) return {};
+
     return { textStyle: this.#roleStyle(found), textHeight: this.#roleFields(found).height };
   }
 
@@ -6255,69 +7165,82 @@ export class DrawingBuilder<
         ]
       | [draw: (sheet: Sheet<Z>) => void]
   ): this {
-    // The parameter type is the error message when a literal name is wrong, so read it as a string.
-    const requested = name as string;
+    // The parameter type is the error message when a literal name is wrong, which is a string.
+    const requested: string = name;
     // `draw` is last: the second argument, or the third after the options.
-    const [first, second] = args as readonly unknown[];
-    const drawFirst = typeof first === "function";
+    const [first, second]: readonly unknown[] = args;
+    const drawFirst = isFunction(first);
     const given = drawFirst ? undefined : first;
+    // SAFETY: it is found to be a function below, before it is called.
     const draw = (drawFirst ? first : second) as (sheet: Sheet<Z>) => void;
     let open: OpenLayout;
     const taken: string[] = [];
+
     try {
       const fail = (rule: LintRule, problem: string): never =>
         refuse(rule, `Layout ${JSON.stringify(requested)}: ${problem}`);
-      if (typeof draw !== "function" || args.length !== (drawFirst ? 1 : 2)) {
+
+      if (!isFunction(draw) || args.length !== (drawFirst ? 1 : 2)) {
         fail("layout", DRAWN.layoutDraw);
       }
+
       if (this.dxf === "R12") fail("layout", R12_ONLY.layouts);
       const nameProblem = layoutNameProblem(requested);
+
       if (nameProblem) fail("layout", nameProblem);
+
       const within = this.#open
         ? `block ${JSON.stringify(this.#open.name)}`
         : this.#sheet
           ? `layout ${JSON.stringify(this.#sheet.name)}`
           : undefined;
+
       if (within !== undefined) {
         fail(
           "layout",
           `a layout belongs to the drawing and cannot be defined inside a block or another layout, and ${within} is being drawn`,
         );
       }
+
       for (const [key, other] of this.#layouts) {
         // A layout that is being drawn holds its name too.
         if (key === layoutNameKey(requested)) {
           fail("duplicate-layout", layoutTwinProblem(requested, other?.name ?? requested)!);
         }
       }
+
       const drawn = this.#standard;
-      const o = (given ?? {}) as {
-        readonly paper?: unknown;
-        readonly plotStyle?: unknown;
-        readonly sheetFormat?: unknown;
-      };
+
+      // Options that are no object, as from plain JavaScript, are read as ones with no fields.
+      const o: LayoutGiven = isObjectOrArray(given) ? given : {};
+
       let paper: unknown = o.paper;
       let plotStyle: unknown = o.plotStyle;
       let format: OpenLayout["format"];
+
       if (drawn) {
         const { standard } = drawn;
+
         if (paper !== undefined || plotStyle !== undefined) {
           fail("sheet-format-outside-standard", DRAWN.layoutPaper);
         }
+
         const id = o.sheetFormat === undefined ? standard.defaultSheetFormat : o.sheetFormat;
+
         if (id === undefined) fail("sheet-format-outside-standard", noDefaultSheetFormat(standard));
-        format = typeof id === "string" ? drawn.sheetFormats.get(idKey(id)) : undefined;
+        format = isString(id) ? drawn.sheetFormats.get(idKey(id)) : undefined;
+
         if (format === undefined) {
           fail(
             "sheet-format-outside-standard",
-            typeof id === "string"
-              ? sheetFormatLacks(id, standard)
-              : "A sheet format is named by a string",
+            isString(id) ? sheetFormatLacks(id, standard) : "A sheet format is named by a string",
           );
         }
+
         if (standard.sheetFiles === "sheet-per-file" && this.#layouts.size > 0) {
           fail("sheet-per-file", DRAWN.secondLayout);
         }
+
         // The leading CAD app keeps two layouts apart whose names only its AUDIT takes for one, and
         // the record of each one's sheet format would have one key for the two.
         for (const other of this.#layouts.values()) {
@@ -6325,33 +7248,47 @@ export class DrawingBuilder<
             fail("duplicate-layout", layoutAuditTwin(other.name));
           }
         }
+
         paper = format![1].paper;
         const table = format![1].plotStyle ?? standard.plotStyle;
         plotStyle = table === DEFAULT_PLOT_STYLE_TABLE ? undefined : table;
       } else {
         if (given === undefined) fail("layout", DRAWN.layoutWithoutPaper);
+
         if (o.sheetFormat !== undefined) {
           fail("sheet-format-outside-standard", DRAWN.sheetFormatWithoutStandard);
         }
       }
+
       const problem = paperProblem(paper);
+
       if (problem) fail("layout", problem);
-      const info = paperInfo(paper as Paper)!;
+      // SAFETY: `paperProblem` has found the paper to be one of PAPERS.
+      const sheetPaper = paper as Paper;
+      const info = paperInfo(sheetPaper)!;
+
       if (drawn && info.units !== drawn.standard.paperUnits) {
-        fail("layout", layoutPaperUnitsProblem(paper as string, info.units, drawn.standard));
+        fail("layout", layoutPaperUnitsProblem(sheetPaper, info.units, drawn.standard));
       }
+
       if (plotStyle !== undefined) {
         const styleProblem = plotStyleProblem(plotStyle);
+
         if (styleProblem) fail("layout", styleProblem);
       }
+
+      // SAFETY: `plotStyleProblem` has found a table given to be one of PLOT_STYLE_TABLES.
+      const table = plotStyle as PlotStyleTable | undefined;
+
       const handles = validLayoutHandles(requested);
       const what = `the layout ${JSON.stringify(requested)}`;
+
       for (const handle of Object.values(handles)) this.#claim(handle, what, undefined, taken);
       open = {
         name: requested,
-        paper: paper as Paper,
+        paper: sheetPaper,
         info,
-        plotStyle: plotStyle as PlotStyleTable | undefined,
+        plotStyle: table,
         viewports: [],
         entities: [],
         calls: this.#calls ? [] : undefined,
@@ -6368,6 +7305,7 @@ export class DrawingBuilder<
       for (const handle of taken) this.#handles.delete(handle);
       throw located(thrown, DrawingBuilder.prototype.layout, { layout: requested });
     }
+
     // The name is taken while the layout is drawn, and its place among the tabs is kept.
     const key = layoutNameKey(requested);
     this.#layouts.set(key, undefined);
@@ -6375,6 +7313,9 @@ export class DrawingBuilder<
     this.#current = "0";
     this.#sheet = open;
     const area = open.format && this.#sheetTitleBlock(open.format)[1].drawingArea;
+
+    // SAFETY: a sheet of a standard has its title block's drawing area, and one without has none,
+    // and each method returns the sheet, so that calls chain.
     const sheet: Sheet<Z> = {
       name: open.name,
       paper: open.paper,
@@ -6391,21 +7332,29 @@ export class DrawingBuilder<
       },
       titleBlock: (...fields) => {
         this.#titleBlock(sheet.titleBlock, open, fields[0]);
+
+        // SAFETY: the method returns the sheet, so that calls chain.
         return sheet as never;
       },
       viewport: (corner, width, height, view) => {
         this.#viewport(sheet.viewport, open, corner, width, height, view);
+
+        // SAFETY: the method returns the sheet, so that calls chain.
         return sheet as never;
       },
     };
+
     try {
       draw(sheet);
       this.#finishSheet(open);
     } catch (thrown) {
       // Nothing of a layout that was not finished stays, so the call can be made again.
       this.#layouts.delete(key);
+
       for (const handle of open.handles) this.#handles.delete(handle);
+
       for (const id of open.ids) this.#ids.delete(id);
+
       for (const shown of open.views) shown.shown = false;
       throw located(thrown, DrawingBuilder.prototype.layout, { layout: requested });
     } finally {
@@ -6413,17 +7362,21 @@ export class DrawingBuilder<
       this.#sheet = undefined;
       open.closed = true;
     }
+
     if (open.calls) {
       recordCalls(open.entities, open.calls);
       recordCalls(open.viewports, open.viewportCalls);
     }
-    this.#layouts.set(key, {
-      name: open.name,
-      paper: open.paper,
-      ...(open.plotStyle === undefined ? {} : { plotStyle: open.plotStyle }),
-      viewports: open.viewports,
-      entities: open.entities,
-    });
+
+    const { name: named, paper, plotStyle, viewports, entities } = open;
+
+    this.#layouts.set(
+      key,
+      plotStyle === undefined
+        ? { name: named, paper, viewports, entities }
+        : { name: named, paper, plotStyle, viewports, entities },
+    );
+
     return this;
   }
 
@@ -6439,18 +7392,20 @@ export class DrawingBuilder<
   #zone(open: OpenLayout, name: unknown): Zone {
     if (!open.format) return refuse("layout", DRAWN.zoneWithoutStandard);
     const [id, format] = open.format;
-    const found =
-      typeof name === "string"
-        ? Object.entries(format.zones).find(([zone]) => idKey(zone) === idKey(name))
-        : undefined;
+
+    const found = isString(name)
+      ? Object.entries(format.zones).find(([zone]) => idKey(zone) === idKey(name))
+      : undefined;
+
     if (!found) {
       return refuse(
         "layout",
-        typeof name === "string"
+        isString(name)
           ? zoneLacks(name, id, Object.keys(format.zones))
           : "A zone is named by a string",
       );
     }
+
     return zoneOf(found[1]);
   }
 
@@ -6461,34 +7416,46 @@ export class DrawingBuilder<
   #titleBlock(method: Method, open: OpenLayout, given: unknown): void {
     try {
       const drawn = this.#standard;
+
       if (!drawn) refuse("layout", DRAWN.titleBlockWithoutStandard);
+
       if (open.closed) refuse("layout", DRAWN.titleBlockClosed);
+
       if (open.titleBlock) refuse("layout", DRAWN.titleBlockTwice);
       const [id, block] = this.#sheetTitleBlock(open.format!);
       const { standard } = drawn!;
       const oneDrawing = standard.sheetFiles === "one-drawing";
       const fields = Object.entries(block.fields);
+
       if (
         oneDrawing &&
         fields.some(([, f]) => f.source === "fileName" || f.source === "layoutName")
       ) {
         refuse("standard", READS_A_NAME);
       }
+
       const own = titleBlockValues(given, id, fields);
+
       if (own.number !== undefined) {
         if (oneDrawing && own.number !== open.name) {
           refuse("layout", numberNotLayoutName(own.number, open.name));
         }
+
         const problem = oneDrawing ? undefined : sheetNumberProblem(own.number);
+
         if (problem) refuse("sheet-per-file", sheetNumberOfFile(problem));
       }
-      const values: Record<string, string | undefined> = { ...drawn!.fields, ...own };
+
+      const values = { ...drawn!.fields, ...own };
+
       if (oneDrawing) values.number = open.name;
       const attributes: Record<string, string> = {};
       const tags: string[] = [];
       const scaleTags: string[] = [];
+
       for (const [tag, field] of fields) {
         const key = field.fills ?? tag;
+
         if (field.source === "layoutName") {
           // Such a field is in a file of one sheet, so the drawing's own value is this sheet's.
           if (values[key] !== undefined && values[key] !== open.name) {
@@ -6496,6 +7463,7 @@ export class DrawingBuilder<
           }
         } else if (field.source === "currentDate") {
           const taken = fields.some(([, f]) => f.source === "attribute" && (f.fills ?? "") === key);
+
           if (own[key] !== undefined && !taken) {
             refuse(
               "layout",
@@ -6505,17 +7473,20 @@ export class DrawingBuilder<
         } else if (field.source === "attribute") {
           tags.push(tag);
           const value = values[key];
+
           if (value !== undefined) attributes[tag] = value;
           else if (key === "scale") scaleTags.push(tag);
         }
       }
+
       const [layer, copied] = this.#layersOrNone(
         () =>
           [
-            this.#standardLayer(block.layer, {} as LayerOptions),
+            this.#standardLayer(block.layer, {}),
             block.block && this.#copyTitleBlock(id, block),
           ] as const,
       );
+
       const target = open.entities;
       const entities = target.length;
       const calls = open.calls?.length ?? 0;
@@ -6524,6 +7495,7 @@ export class DrawingBuilder<
       const previous = this.#current;
       this.#current = layer.name;
       let index: number | undefined;
+
       try {
         if (block.xref) {
           const { name, path, at } = block.xref;
@@ -6531,6 +7503,7 @@ export class DrawingBuilder<
           const border = idWith(`${open.name}.border`);
           this.#add(method, border, () => this.#placed(name, at, border));
         }
+
         if (copied !== undefined) {
           index = target.length;
           const fields = idWith(`${open.name}.title-block`);
@@ -6540,12 +7513,15 @@ export class DrawingBuilder<
         // A refused insert leaves nothing on the layout.
         target.length = entities;
         open.calls?.splice(calls);
+
         for (const key of open.ids.splice(ids)) this.#ids.delete(key);
+
         for (const handle of open.handles.splice(handles)) this.#handles.delete(handle);
         throw thrown;
       } finally {
         this.#current = previous;
       }
+
       open.titleBlock = { index, tags, scaleTags, number: oneDrawing ? undefined : own.number };
     } catch (thrown) {
       throw located(thrown, method, { layout: open.name });
@@ -6558,33 +7534,45 @@ export class DrawingBuilder<
    */
   #finishSheet(open: OpenLayout): void {
     const drawn = this.#standard;
+
     if (!drawn) return;
     const block = open.titleBlock;
     const labels = [...new Set(open.views.map((shown) => shown.view.label))];
+
     if (block?.index !== undefined && block.scaleTags.length > 0 && labels.length > 0) {
       const scale = labels.length === 1 ? labels[0]! : "AS NOTED";
+      // SAFETY: the entity at the title block's index is the insert of its fields.
       const insert = open.entities[block.index] as Insert;
       const set: Record<string, string> = {};
+
       for (const tag of block.tags) {
         const value = block.scaleTags.includes(tag) ? scale : insert.attributes?.[tag];
+
         if (value !== undefined) set[tag] = value;
       }
+
       const placed = this.#blocks.get(layerKey(insert.block))!;
       const filled: Insert = { ...insert, attributes: set };
+
       for (const definition of placed.attributes ?? []) {
         if (!block.scaleTags.includes(definition.tag)) continue;
+
         const style =
           definition.style === undefined
             ? undefined
             : this.#textStyles.get(layerKey(definition.style));
+
         const problem = placedAttributeProblem(
           definition.tag,
           placeAttribute(definition, style, filled, placed.base),
         );
+
         if (problem) refuse("geometry", problem);
       }
+
       open.entities[block.index] = filled;
     }
+
     if (drawn.standard.sheetFiles === "sheet-per-file") {
       if ((block?.number ?? drawn.fields.number) === undefined) {
         refuse("sheet-per-file", DRAWN.sheetWithoutNumber);
@@ -6606,29 +7594,40 @@ export class DrawingBuilder<
     // Each block comes after the blocks it inserts.
     const closure: Block[] = [];
     const seen = new Set<Block>();
+
     const visit = (block: Block): void => {
       if (seen.has(block)) return;
       seen.add(block);
+
       for (const e of block.entities) {
         const inner = e.kind === "insert" ? byName.get(layerKey(e.block)) : undefined;
+
         if (inner) visit(inner);
       }
+
       closure.push(block);
     };
+
     visit(start);
     const styles = new Set<string>();
+
     for (const block of closure) {
       for (const e of block.entities)
         if ((e.kind === "text" || e.kind === "paragraph") && e.style) styles.add(layerKey(e.style));
+
       for (const a of block.attributes ?? []) if (a.style) styles.add(layerKey(a.style));
     }
+
     // Every refusal comes before the drawing takes a text style, block, id or handle, and
     // #titleBlock gives back the layers and linetypes, so a refused copy leaves nothing.
     const added: TextStyle[] = [];
+
     for (const style of drawing.textStyles ?? []) {
       const key = layerKey(style.name);
+
       if (!styles.has(key)) continue;
       const existing = this.#textStyles.get(key);
+
       if (existing) {
         if (canonical(existing) !== canonical(style)) {
           refuse(
@@ -6636,85 +7635,112 @@ export class DrawingBuilder<
             `${what} holds the text style ${JSON.stringify(style.name)}, and the drawing has a text style of this name with another font, width factor or oblique angle. A drawing holds one text style of a name`,
           );
         }
+
         continue;
       }
+
       const twin = this.#textStylesAudited.get(layerAuditKey(style.name));
+
       if (twin !== undefined) {
         refuse(
           "duplicate-block",
           `${what} holds the text style ${JSON.stringify(style.name)}, which the leading CAD app takes for the drawing's text style ${JSON.stringify(twin)}. A drawing holds one text style of a name`,
         );
       }
+
       added.push(style);
     }
+
     const copied: Block[] = [];
     const ids = new Map<string, string>();
     const claims = new Map<string, { readonly id?: string; readonly what: string }>();
+
     const claim = (handle: string, what: string, id?: string): void => {
       this.#free(handle, what, id, claims);
       claims.set(handle, id === undefined ? { what } : { id, what });
     };
+
     for (const block of closure) {
       const first = this.#blocksAudited.get(layerAuditKey(block.name));
+
       if (first !== undefined) {
         const existing = first.xref ? undefined : this.#blocks.get(layerKey(block.name));
+
         if (existing && canonical(existing) === canonical(block)) continue;
         refuse(
           "duplicate-block",
           `${what} holds the block ${JSON.stringify(block.name)}, and the drawing has ${first.xref ? "an xref" : "a block"} ${JSON.stringify(first.name)} that the leading CAD app takes for it, with another definition. A block's handles come from its name, so the builder renames neither: give one of them another name`,
         );
       }
+
       copied.push(block);
       const handles = blockHandles(block.name);
       const named = `the block ${JSON.stringify(block.name)}`;
+
       for (const handle of [handles.record, handles.begin, handles.end]) claim(handle, named);
+
       for (const { tag } of block.attributes ?? []) {
         claim(
           definitionHandle(block.name, tag),
           `the attribute ${JSON.stringify(tag)} of ${named}`,
         );
       }
+
       for (const e of block.entities) {
         if (e.id === undefined) continue;
         const key = this.#idKey(e.id);
         const first = ids.get(key);
+
         if (first !== undefined) refuse("duplicate-id", duplicateIdProblem(e.id, first));
         ids.set(key, e.id);
         claim(validIdHandle(e.id), `the id ${JSON.stringify(e.id)}`, e.id);
         // The handles #placed takes for an insert with an id.
         const tags = e.kind === "insert" ? (byName.get(layerKey(e.block))?.attributes ?? []) : [];
+
         if (tags.length === 0) continue;
         const insert = `the insert ${JSON.stringify(e.id)}`;
+
         for (const { tag } of tags) {
           claim(
             insertAttributeHandle(e.id, tag),
             `the attribute ${JSON.stringify(tag)} of ${insert}`,
           );
         }
+
         claim(insertEndHandle(e.id), `the end of the attributes of ${insert}`);
       }
     }
+
     for (const block of copied) {
       const layers = [...block.entities, ...(block.attributes ?? [])].map((e) => e.layer);
+
       for (const layer of new Set(layers)) {
-        if (layer !== "0") this.#standardLayer(layer, {} as LayerOptions);
+        if (layer !== "0") this.#standardLayer(layer, {});
       }
+
       for (const e of block.entities) {
-        const linetype: unknown = (e as { readonly linetype?: unknown }).linetype;
+        const styled: { readonly layer: string; readonly linetype?: unknown } = e;
+        const linetype = styled.linetype;
+
         if (linetype !== undefined) this.#linetypeName(linetype, refuse);
       }
     }
+
     for (const style of added) {
       this.#textStyles.set(layerKey(style.name), style);
       this.#textStylesAudited.set(layerAuditKey(style.name), style.name);
     }
+
     // The blocks belong to the drawing, also when a layout that is not finished copies them.
     for (const [handle, holder] of claims) this.#claim(handle, holder.what, holder.id, []);
+
     for (const [key, id] of ids) this.#ids.set(key, id);
+
     for (const block of copied) {
       this.#blocks.set(layerKey(block.name), block);
       this.#blocksAudited.set(layerAuditKey(block.name), { name: block.name, xref: false });
     }
+
     return start.name;
   }
 
@@ -6726,12 +7752,15 @@ export class DrawingBuilder<
       this.#linetypes,
       this.#linetypesAudited,
     ];
+
     const kept = tables.map((table) => [...table]);
+
     try {
       return take();
     } catch (thrown) {
       tables.forEach((table, i) => {
         table.clear();
+
         for (const [key, value] of kept[i]!) table.set(key, value);
       });
       throw thrown;
@@ -6747,17 +7776,12 @@ export class DrawingBuilder<
     height: unknown,
     options: unknown,
   ): void {
-    const view = options as
-      | {
-          readonly center?: Point;
-          readonly ratio?: unknown;
-          readonly id?: unknown;
-          readonly frozenLayers?: unknown;
-          readonly twist?: unknown;
-        }
-      | undefined;
-    const shows: unknown = (options as { readonly view?: unknown } | undefined)?.view;
+    // SAFETY: the sheet's type gives the options as an object or none; `viewportProblem` checks
+    // each field of the viewport made from them.
+    const view = options as ViewportGiven | undefined;
+    const shows: unknown = view?.view;
     let id: unknown = view?.id;
+
     try {
       if (open.closed) {
         refuse(
@@ -6765,68 +7789,95 @@ export class DrawingBuilder<
           "A viewport is added while its layout is drawn. Call viewport() inside the draw of layout()",
         );
       }
+
       let shown: Shown | undefined;
+
       if (this.#standard) {
         if (view?.ratio !== undefined || shows === undefined)
           refuse("viewport", DRAWN.viewportRatio);
+
         if (id !== undefined) refuse("viewport", DRAWN.viewportId);
         shown = this.#declared(shows, "viewport");
         id = shown.view.id;
+
         if (shown.shown) refuse("duplicate-id", duplicateIdProblem(shown.view.id, shown.view.id));
       } else if (shows !== undefined) {
         refuse("viewport", DRAWN.viewWithoutStandard);
       }
+
       // A view's id was taken when view() declared it.
       const key = id === undefined || shown ? undefined : this.#idKey(id);
-      if (key !== undefined) this.#freeIdHandle(id as string);
-      const made = {
-        ...(id === undefined ? {} : { id: id as string }),
+
+      // An id `#idKey` takes, or a view's, is a string.
+      if (key !== undefined && isString(id)) this.#freeIdHandle(id);
+
+      const placed = {
         layer: this.#current,
         corner,
         width,
         height,
         center: view?.center,
         ratio: shown ? shown.view.ratio : view?.ratio,
-        ...(view?.frozenLayers === undefined ? {} : { frozenLayers: view.frozenLayers }),
-        ...(view?.twist === undefined ? {} : { twist: view.twist }),
       };
+
+      let made: ViewportGiven = isString(id) ? { id, ...placed } : placed;
+
+      if (view?.frozenLayers !== undefined) made = { ...made, frozenLayers: view.frozenLayers };
+
+      if (view?.twist !== undefined) made = { ...made, twist: view.twist };
+
       const problem = viewportProblem(made, open.info.units, this.units);
+
       if (problem) refuse("viewport", problem);
       // Each frozen layer by the drawing's own spelling of its name, once.
       const frozenLayers = new Map<string, string>();
-      for (const name of (made.frozenLayers ?? []) as readonly string[]) {
+
+      // SAFETY: `viewportProblem` has found it to be a viewport.
+      const viewport = made as Viewport;
+
+      for (const name of viewport.frozenLayers ?? []) {
         const layer = this.#layers.get(layerKey(name));
+
         if (!layer) refuse("undefined-layer", frozenLayerAbsent(name));
+
         if (!frozenLayers.has(layerKey(name))) frozenLayers.set(layerKey(name), layer!.name);
       }
-      open.viewports.push({
-        ...(made as Viewport),
-        corner: pt(corner),
-        center: pt(view!.center!),
-        ...(made.frozenLayers === undefined ? {} : { frozenLayers: [...frozenLayers.values()] }),
-      });
+
+      let pushed: Viewport = { ...viewport, corner: pt(corner), center: pt(viewport.center) };
+
+      if (viewport.frozenLayers !== undefined) {
+        pushed = { ...pushed, frozenLayers: [...frozenLayers.values()] };
+      }
+
+      open.viewports.push(pushed);
+
       if (shown) {
         shown.shown = true;
         open.views.push(shown);
       }
-      if (key !== undefined) {
-        this.#ids.set(key, id as string);
+
+      if (key !== undefined && isString(id)) {
+        this.#ids.set(key, id);
         open.ids.push(key);
-        this.#claim(validIdHandle(id as string), `the id ${JSON.stringify(id)}`, id as string);
+        this.#claim(validIdHandle(id), `the id ${JSON.stringify(id)}`, id);
       }
     } catch (thrown) {
-      throw located(thrown, method, {
-        layout: open.name,
-        ...(typeof id === "string" ? { id } : {}),
-      });
+      throw located(
+        thrown,
+        method,
+        isString(id) ? { layout: open.name, id } : { layout: open.name },
+      );
     }
+
     if (open.calls) open.viewportCalls.push(holdCall(method));
   }
 
   build(): Drawing {
     const entities = [...this.#entities];
+
     if (this.#calls) recordCalls(entities, [...this.#calls]);
-    return {
+
+    let drawing: Drawing = {
       format: 0,
       units: this.units,
       dxf: this.dxf,
@@ -6834,22 +7885,39 @@ export class DrawingBuilder<
       entities,
       linetypes: [...this.#linetypes.values()],
       linetypeScale: this.linetypeScale,
-      ...(this.#textStyles.size > 0 ? { textStyles: [...this.#textStyles.values()] } : {}),
-      ...(this.#blocks.size > 0 ? { blocks: [...this.#blocks.values()] } : {}),
-      ...(this.#xrefs.size > 0 ? { xrefs: [...this.#xrefs.values()] } : {}),
-      ...(this.#layouts.size > 0
-        ? { layouts: [...this.#layouts.values()].filter((layout) => layout !== undefined) }
-        : {}),
-      ...(this.#dimensionStyles.size > 0
-        ? { dimensionStyles: [...this.#dimensionStyles.values()] }
-        : {}),
-      ...(this.#leaderStyles.size > 0 ? { leaderStyles: [...this.#leaderStyles.values()] } : {}),
-      ...(this.#tableStyles.size > 0 ? { tableStyles: [...this.#tableStyles.values()] } : {}),
-      ...(this.#patterns.size > 0
-        ? { patterns: [...this.#patterns.values()].map(([pattern]) => pattern) }
-        : {}),
-      ...(this.#pointStyle ? { pointStyle: this.#pointStyle } : {}),
     };
+
+    if (this.#textStyles.size > 0)
+      drawing = { ...drawing, textStyles: [...this.#textStyles.values()] };
+
+    if (this.#blocks.size > 0) drawing = { ...drawing, blocks: [...this.#blocks.values()] };
+
+    if (this.#xrefs.size > 0) drawing = { ...drawing, xrefs: [...this.#xrefs.values()] };
+
+    if (this.#layouts.size > 0) {
+      const layouts = [...this.#layouts.values()].filter((layout) => layout !== undefined);
+      drawing = { ...drawing, layouts };
+    }
+
+    if (this.#dimensionStyles.size > 0) {
+      drawing = { ...drawing, dimensionStyles: [...this.#dimensionStyles.values()] };
+    }
+
+    if (this.#leaderStyles.size > 0) {
+      drawing = { ...drawing, leaderStyles: [...this.#leaderStyles.values()] };
+    }
+
+    if (this.#tableStyles.size > 0) {
+      drawing = { ...drawing, tableStyles: [...this.#tableStyles.values()] };
+    }
+
+    if (this.#patterns.size > 0) {
+      drawing = { ...drawing, patterns: [...this.#patterns.values()].map(([pattern]) => pattern) };
+    }
+
+    if (this.#pointStyle) drawing = { ...drawing, pointStyle: this.#pointStyle };
+
+    return drawing;
   }
 
   /**
@@ -6861,9 +7929,11 @@ export class DrawingBuilder<
     value: string,
     options: TextOptions,
   ): Pick<Text, "at" | "value" | "height" | "rotation" | "style" | "align" | "valign"> {
-    const problem = typeof value === "string" ? textProblem(value) : "Text must be a string";
+    const problem = isString(value) ? textProblem(value) : "Text must be a string";
+
     if (problem) refuse("text", problem);
     const role = this.#role(options);
+
     const text: { -readonly [K in keyof Text]?: Text[K] } & Pick<
       Text,
       "at" | "value" | "height" | "rotation"
@@ -6873,35 +7943,52 @@ export class DrawingBuilder<
       height: positive(role ? role.height : (options.height ?? 0.125), "height"),
       rotation: kept(options.rotation ?? 0, "rotation"),
     };
+
     const r12 = this.dxf === "R12";
+
     if (role) {
       text.style = role.style;
     } else if (options.style !== undefined) {
       const named: unknown = options.style;
+
       // An R12 drawing has no style to look up but Standard.
-      if (r12 && !(typeof named === "string" && isStandardTextStyle(named))) {
+      if (r12 && !(isString(named) && isStandardTextStyle(named))) {
         refuse("text-style", R12_ONLY.text);
       }
+
       const style = this.#textStyleName(options.style);
+
       if (style !== STANDARD_TEXT_STYLE) text.style = style;
     }
+
     const { align, valign }: { align?: unknown; valign?: unknown } = options;
+
     if (align !== undefined) {
       const alignProblem = textAlignProblem("align", align);
+
       if (alignProblem) refuse("text-align", alignProblem);
+
       if (align !== "left") {
         if (r12) refuse("text-align", R12_ONLY.text);
-        text.align = align as TextAlign;
+
+        // A value of no problem is one of TEXT_ALIGNS.
+        if (isOneOf(TEXT_ALIGNS, align)) text.align = align;
       }
     }
+
     if (valign !== undefined) {
       const alignProblem = textAlignProblem("valign", valign);
+
       if (alignProblem) refuse("text-align", alignProblem);
+
       if (valign !== "baseline") {
         if (r12) refuse("text-align", R12_ONLY.text);
-        text.valign = valign as TextVerticalAlign;
+
+        // A value of no problem is one of TEXT_VERTICAL_ALIGNS.
+        if (isOneOf(TEXT_VERTICAL_ALIGNS, valign)) text.valign = valign;
       }
     }
+
     return text;
   }
 
@@ -6914,35 +8001,49 @@ export class DrawingBuilder<
     at: Point,
     options: ParagraphAttributeFields<string, number, number> & TextOptions,
   ): Omit<ParagraphAttributeDefinition, "tag" | "prompt" | "layer"> {
-    const { align, valign, ...rest } = options as unknown as Record<string, unknown>;
-    const placed = this.#textFields(at, "", rest as unknown as TextOptions);
-    const definition: Record<string, unknown> = {
-      kind: "paragraph",
-      at: placed.at,
-      height: placed.height,
-      rotation: placed.rotation,
-      ...(placed.style === undefined ? {} : { style: placed.style }),
-      value: this.#paragraphValue(options.value ?? "", placed.style, "attribute"),
-    };
-    if (options.width !== undefined) definition["width"] = positive(options.width, "width");
-    const { lineSpacing, lineSpacingStyle } = options as unknown as Record<string, unknown>;
-    for (const [field, chosen, plain] of [
-      ["align", align, "left"],
-      ["valign", valign, "top"],
-      ["lineSpacingStyle", lineSpacingStyle, "at-least"],
-    ] as const) {
-      if (chosen === undefined) continue;
+    const { align, valign, ...rest } = options;
+    const placed = this.#textFields(at, "", rest);
+    const definition: Writable<Partial<ParagraphAttributeDefinition>> = {};
+    definition.kind = "paragraph";
+    definition.at = placed.at;
+    definition.height = placed.height;
+    definition.rotation = placed.rotation;
+
+    if (placed.style !== undefined) definition.style = placed.style;
+    definition.value = this.#paragraphValue(options.value ?? "", placed.style, "attribute");
+
+    if (options.width !== undefined) definition.width = positive(options.width, "width");
+    const { lineSpacing, lineSpacingStyle } = options;
+
+    const choose = <F extends "align" | "valign" | "lineSpacingStyle">(
+      field: F,
+      chosen: ParagraphAttributeDefinition[F],
+      plain: ParagraphAttributeDefinition[F],
+    ): void => {
+      if (chosen === undefined) return;
       const choiceProblem = paragraphChoiceProblem(field, chosen);
+
       if (choiceProblem)
         refuse(field === "lineSpacingStyle" ? "paragraph" : "text-align", choiceProblem);
+
       if (chosen !== plain) definition[field] = chosen;
-    }
+    };
+
+    choose("align", align, "left");
+    choose("valign", valign, "top");
+    choose("lineSpacingStyle", lineSpacingStyle, "at-least");
+
     if (lineSpacing !== undefined) {
       const spacingProblem = lineSpacingProblem(lineSpacing);
+
       if (spacingProblem) refuse("paragraph", spacingProblem);
-      if (lineSpacing !== 1) definition["lineSpacing"] = lineSpacing;
+
+      if (lineSpacing !== 1) definition.lineSpacing = lineSpacing;
     }
-    return definition as unknown as Omit<ParagraphAttributeDefinition, "tag" | "prompt" | "layer">;
+
+    // SAFETY: it holds each field of a definition of paragraph text but its tag, its prompt and
+    // its layer, set above.
+    return definition as Omit<ParagraphAttributeDefinition, "tag" | "prompt" | "layer">;
   }
 
   /**
@@ -6950,27 +8051,34 @@ export class DrawingBuilder<
    * paragraph's in the font of `style`, or refused under `rule`.
    */
   #paragraphValue(given: unknown, style: string | undefined, rule: LintRule, about = ""): string {
-    if (typeof given !== "string")
-      return refuse(rule, `${about}A paragraph's value must be a string`);
+    if (!isString(given)) return refuse(rule, `${about}A paragraph's value must be a string`);
     // A backslash would escape the `\` of the `\P` a line feed becomes, as the type refuses it.
     let backslashes = 0;
+
     for (let i = 0; i < given.length; i++) {
       const code = given.charCodeAt(i);
+
       if (code === 92) backslashes++;
       else {
         if (code === 10 && backslashes % 2 === 1) {
           return refuse(rule, `${about}${paragraphUnknownCode("\n")}`);
         }
+
         backslashes = 0;
       }
     }
+
     const value = given.replaceAll("\n", "\\P");
+
     const font =
       style === undefined
         ? STANDARD_FONT
         : (this.#textStyles.get(layerKey(style))?.font ?? STANDARD_FONT);
+
     const problem = paragraphProblemIn(parseParagraph(value), font);
+
     if (problem) refuse(rule, `${about}${problem}`);
+
     return value;
   }
 
@@ -6983,32 +8091,40 @@ export class DrawingBuilder<
     const role: unknown = options.role;
     const view: unknown = options.view;
     const drawn = this.#standard;
+
     if (role === undefined && view === undefined) {
       return drawn ? refuse("text-style-outside-standard", DRAWN.textWithoutRole) : undefined;
     }
+
     if (!drawn) {
       return refuse(
         "role",
         role === undefined ? DRAWN.viewWithoutStandard : DRAWN.roleWithoutStandard,
       );
     }
+
     if (role === undefined) return refuse("role", DRAWN.viewWithoutRole);
-    const found = typeof role === "string" ? drawn.textRoles.get(idKey(role)) : undefined;
+    const found = isString(role) ? drawn.textRoles.get(idKey(role)) : undefined;
+
     if (found === undefined) {
       return refuse(
         "role",
-        typeof role === "string" ? roleLacks(role, drawn.standard) : "A role is named by a string",
+        isString(role) ? roleLacks(role, drawn.standard) : "A role is named by a string",
       );
     }
+
     if (options.height !== undefined) refuse("role", DRAWN.roleAndHeight);
+
     if (options.style !== undefined) refuse("role", DRAWN.roleAndStyle);
     let height = this.#roleFields(found).height;
+
     if (this.#open || this.#sheet) {
       if (view !== undefined) refuse("role", DRAWN.roleViewOnPaper);
     } else {
       if (view === undefined) refuse("role", DRAWN.roleWithoutView);
       height = onPaper(this.#declared(view, "role").view, height, "height");
     }
+
     return { height, style: this.#roleStyle(found) };
   }
 
@@ -7020,8 +8136,9 @@ export class DrawingBuilder<
   /** The text style of a role, which enters the drawing when the role is first used. */
   #roleStyle(found: readonly [string, StandardTextRole]): string {
     const { font, widthFactor, obliqueAngle } = this.#roleFields(found);
+
     return this.#defineTextStyle(
-      { name: capitals(found[0]), font, widthFactor, obliqueAngle } as TextStyleDefinition,
+      { name: capitals(found[0]), font, widthFactor, obliqueAngle },
       true,
     );
   }
@@ -7038,7 +8155,9 @@ export class DrawingBuilder<
   ): E {
     if (!entry.byDiscipline) return entry;
     const discipline = this.#standard!.discipline;
+
     if (discipline === undefined) refuse("standard", unnamedDisciplineProblem(what, name, entry));
+
     return { ...entry, ...entry.byDiscipline[discipline!] };
   }
 
@@ -7047,19 +8166,25 @@ export class DrawingBuilder<
    * entity keeps. `make` has refused a view that this drawing did not declare, or that names a
    * block or a layout.
    */
-  #viewOf(options: EntityOptions): { readonly view?: string } {
-    const view: unknown = (options as { readonly view?: unknown }).view;
+  #viewOf(options: EntityGiven): EntityView {
+    const { view } = options;
+
     if (view === undefined || !this.#standard || this.#open || this.#sheet) return {};
-    const id: unknown = (view as { readonly id?: unknown } | null)?.id;
-    const shown = typeof id === "string" ? this.#views.get(idKey(id)) : undefined;
+    const id = isKeyed(view) ? view.id : undefined;
+    const shown = isString(id) ? this.#views.get(idKey(id)) : undefined;
+
     return shown?.view === view ? { view: shown.view.id } : {};
   }
 
   /** The view `view()` of this drawing returned, or a refusal under `rule`. */
   #declared(view: unknown, rule: LintRule): Shown {
-    const id: unknown = (view as { readonly id?: unknown } | null | undefined)?.id;
-    const shown = typeof id === "string" ? this.#views.get(idKey(id)) : undefined;
-    if (shown === undefined || shown.view !== view) return refuse(rule, viewNotDeclared(view));
+    const id = isKeyed(view) ? view.id : undefined;
+    const shown = isString(id) ? this.#views.get(idKey(id)) : undefined;
+
+    if (shown === undefined || shown.view !== view) {
+      return refuse(rule, viewNotDeclared(isString(id) ? id : undefined));
+    }
+
     return shown;
   }
 
@@ -7068,16 +8193,22 @@ export class DrawingBuilder<
    * parameters differ from method to method, and stores it. `method` is the builder method the
    * caller called, which a diagnostic names the call of.
    */
-  #add(method: Method, options: object, make: () => Entity): this {
-    const o = options as EntityOptions;
+  #add(method: Method, options: EntityGiven, make: () => Entity): this {
+    const o = options;
     const id: unknown = o.id;
+
     try {
       const key = id === undefined ? undefined : this.#idKey(id);
-      if (key !== undefined) this.#freeIdHandle(id as string);
-      const named = id === undefined ? {} : { id: id as string };
+
+      // An id `#idKey` takes is a string.
+      if (key !== undefined && isString(id)) this.#freeIdHandle(id);
+      const named = isString(id) ? { id } : {};
       // Before `make`, which takes a dimension's handles.
       const color = this.#color(o);
       const transparency = this.#transparency(o);
+
+      // SAFETY: an entity with an id, a view, a linetype, a lineweight, a color and a transparency
+      // its checks passed is an entity of its kind.
       const made = {
         ...make(),
         ...named,
@@ -7086,12 +8217,15 @@ export class DrawingBuilder<
         ...color,
         ...transparency,
       } as Entity;
+
       (this.#open ?? this.#sheet ?? { entities: this.#entities }).entities.push(made);
+
       if (this.#open && this.#drawsRoles(made, o)) this.#open.roles = true;
-      if (key !== undefined) {
-        this.#ids.set(key, id as string);
+
+      if (key !== undefined && isString(id)) {
+        this.#ids.set(key, id);
         (this.#open ?? this.#sheet)?.ids.push(key);
-        this.#claim(validIdHandle(id as string), `the id ${JSON.stringify(id)}`, id as string);
+        this.#claim(validIdHandle(id), `the id ${JSON.stringify(id)}`, id);
       }
     } catch (thrown) {
       const within = this.#open
@@ -7099,27 +8233,34 @@ export class DrawingBuilder<
         : this.#sheet
           ? { layout: this.#sheet.name }
           : {};
-      throw located(thrown, method, { ...within, ...(typeof id === "string" ? { id } : {}) });
+
+      throw located(thrown, method, isString(id) ? { ...within, id } : within);
     }
+
     (this.#open ?? this.#sheet ?? { calls: this.#calls }).calls?.push(holdCall(method));
+
     return this;
   }
 
   /** True for a text with a role, and for an insert of a block that holds one. */
-  #drawsRoles(made: Entity, options: object): boolean {
-    if (made.kind === "text" || made.kind === "paragraph") {
-      return (options as { readonly role?: unknown }).role !== undefined;
-    }
+  #drawsRoles(made: Entity, options: EntityGiven): boolean {
+    if (made.kind === "text" || made.kind === "paragraph") return options.role !== undefined;
+
     return made.kind === "insert" && this.#roleBlocks.has(layerKey(made.block));
   }
 
   /** Checks an id the drawing does not have yet, and returns the key it is kept by. */
   #idKey(id: unknown): string {
     const problem = idProblem(id);
+
     if (problem) refuse("id", problem);
-    const key = idKey(id as string);
+    // SAFETY: an id of no problem is a string.
+    const name = id as string;
+    const key = idKey(name);
     const first = this.#ids.get(key);
-    if (first !== undefined) refuse("duplicate-id", duplicateIdProblem(id as string, first));
+
+    if (first !== undefined) refuse("duplicate-id", duplicateIdProblem(name, first));
+
     return key;
   }
 
@@ -7127,6 +8268,7 @@ export class DrawingBuilder<
   #freeIdHandle(id: string): void {
     const handle = validIdHandle(id);
     const other = this.#handles.get(handle);
+
     if (other === undefined) return;
     refuse(
       "id-handle",
@@ -7156,6 +8298,7 @@ export class DrawingBuilder<
     pending?: ReadonlyMap<string, { readonly id?: string; readonly what: string }>,
   ): void {
     const other = this.#handles.get(handle) ?? pending?.get(handle);
+
     if (other === undefined) return;
     refuse(
       "id-handle",
@@ -7166,67 +8309,93 @@ export class DrawingBuilder<
   }
 
   /** The color an entity is stored with: none for ByLayer, and a true color as a copy. */
-  #color(options: object): { readonly color?: EntityColor } {
-    const color: unknown = (options as { readonly color?: unknown }).color;
+  #color(options: EntityGiven): Colored {
+    const color = options.color;
+
     if (color === undefined) return {};
     const problem = entityColorProblem(color);
+
     if (problem) refuse("entity-color", problem);
+
     if (color === "ByLayer") return {};
+
     if (this.dxf === "R12") refuse("entity-color", R12_ONLY.entityColor);
+
+    // SAFETY: `entityColorProblem` has found the color to be a color index or a true color.
     return {
-      color: Array.isArray(color)
-        ? ([color[0], color[1], color[2]] as const)
-        : (color as EntityColor),
+      color: Array.isArray(color) ? [color[0], color[1], color[2]] : (color as EntityColor),
     };
   }
 
   /** The transparency an entity is stored with: none for ByLayer. */
-  #transparency(options: object): { readonly transparency?: EntityTransparency } {
-    const transparency: unknown = (options as { readonly transparency?: unknown }).transparency;
+  #transparency(options: EntityGiven): Transparent {
+    const transparency = options.transparency;
+
     if (transparency === undefined) return {};
     const problem = entityTransparencyProblem(transparency);
+
     if (problem) refuse("entity-transparency", problem);
+
     if (transparency === "ByLayer") return {};
+
     if (this.dxf === "R12") refuse("entity-transparency", R12_ONLY.entityTransparency);
+
+    // SAFETY: `entityTransparencyProblem` has found it to be a transparency.
     return { transparency: transparency as EntityTransparency };
   }
 
   /** The linetype and lineweight an entity is stored with. */
-  #style(options: EntityOptions): EntityStyle {
+  #style(options: EntityGiven): EntityStyle {
     const style: { -readonly [K in keyof EntityStyle]: EntityStyle[K] } = {};
+
     if (options.linetype !== undefined) {
       if (this.dxf === "R12" && !isBuiltIn(options.linetype, "ByLayer")) {
         refuse("linetype", R12_ONLY.entityStyle);
       }
+
       const name = this.#linetypeName(options.linetype, refuse);
       const builtIn = builtInLinetype(name);
+
       if (builtIn !== "ByLayer") style.linetype = builtIn ?? name;
     }
+
     const weight: unknown = options.lineweight;
     const pen: unknown = options.pen;
     const drawn = this.#standard;
+
     if (!drawn) {
       if (pen !== undefined) refuse("pen-outside-standard", DRAWN.penWithoutStandard);
     } else if (pen !== undefined) {
       if (weight !== undefined) refuse("pen-outside-standard", DRAWN.penAndLineweight);
-      const found = typeof pen === "string" ? drawn.pens.get(idKey(pen)) : undefined;
+      const found = isString(pen) ? drawn.pens.get(idKey(pen)) : undefined;
+
       if (found === undefined) {
         return refuse(
           "pen-outside-standard",
-          typeof pen === "string" ? penLacks(pen, drawn.standard) : "A pen is named by a string",
+          isString(pen) ? penLacks(pen, drawn.standard) : "A pen is named by a string",
         );
       }
+
       style.lineweight = found;
+
       return style;
     } else if (weight !== undefined && weight !== "ByLayer" && weight !== "ByBlock") {
       refuse("pen-outside-standard", penLineweightProblem(drawn.standard));
     }
+
     if (weight !== undefined) {
       const problem = lineweightProblem(weight, "entity");
+
       if (problem) refuse("lineweight", problem);
+
       if (this.dxf === "R12" && weight !== "ByLayer") refuse("lineweight", R12_ONLY.entityStyle);
-      if (weight !== "ByLayer") style.lineweight = weight as NonNullable<EntityStyle["lineweight"]>;
+
+      if (weight !== "ByLayer") {
+        // SAFETY: `lineweightProblem` has found it to be an entity's lineweight.
+        style.lineweight = weight as NonNullable<EntityStyle["lineweight"]>;
+      }
     }
+
     return style;
   }
 
@@ -7236,30 +8405,42 @@ export class DrawingBuilder<
    */
   #linetypeName(choice: unknown, fail: (rule: LintRule, problem: string) => never): string {
     const drawn = this.#standard;
-    if (typeof choice === "object" && choice !== null) {
+
+    if (isObjectOrArray(choice)) {
       if (drawn) fail("linetype-outside-standard", DRAWN.linetypeDefined);
-      return this.#define(choice as LinetypeDefinition, true);
+
+      return this.#define(choice, true);
     }
-    if (typeof choice !== "string") {
+
+    if (!isString(choice)) {
       return fail("undefined-linetype", "A linetype is a name or a LinetypeDefinition");
     }
+
     const problem = linetypeNameProblem(choice);
+
     if (problem) fail("undefined-linetype", `Linetype ${JSON.stringify(choice)}: ${problem}`);
+
     if (drawn && !builtInLinetype(choice)) {
       // The standard's linetype enters the drawing when a layer or an entity first names it.
       const found = drawn.linetypes.get(layerKey(choice));
+
       if (!found) fail("linetype-outside-standard", linetypeLacks(choice, drawn.standard));
       const [name, { description, pattern }] = found!;
+
       return (
         this.#linetypes.get(layerKey(name))?.name ?? this.#define({ name, description, pattern })
       );
     }
+
     const known = builtInLinetype(choice) ?? this.#linetypes.get(layerKey(choice))?.name;
+
     if (known === undefined) {
       const absent = `${undefinedLinetypeProblem(choice)}. Define it with linetype() first`;
-      fail("undefined-linetype", absent);
+
+      return fail("undefined-linetype", absent);
     }
-    return known as string;
+
+    return known;
   }
 
   /**
@@ -7267,44 +8448,61 @@ export class DrawingBuilder<
    * definition given to a layer or an entity must match the one the drawing has of its name,
    * where `linetype()` replaces it.
    */
-  #define(definition: LinetypeDefinition, inline = false): string {
+  #define(definition: LinetypeGiven, inline = false): string {
     const label = `Linetype ${JSON.stringify(definition.name)}`;
+
+    // SAFETY: `marksProblem` checks marks of any shape, as from plain JavaScript, once
+    // `linetypeProblem` has found the pattern to be numbers.
     const problem =
       linetypeProblem(definition.name, definition.description ?? "", definition.pattern) ??
-      marksProblem(definition.marks, definition.pattern as readonly number[]);
+      marksProblem(
+        definition.marks as readonly LinetypeMark[] | undefined,
+        definition.pattern as readonly number[],
+      );
+
     if (problem) refuse("linetype", `${label}: ${problem}`);
-    const marks = definition.marks?.map((m) => ({ ...m })) ?? [];
-    // linetypeProblem has checked the types.
-    const name = definition.name as string;
-    const description = (definition.description ?? "") as string;
-    const lengths = definition.pattern as readonly number[];
+    // SAFETY: `marksProblem` has found marks given to be a list of marks.
+    const given = definition.marks as readonly LinetypeMark[] | undefined;
+    const marks = given?.map((m) => ({ ...m })) ?? [];
+
+    // SAFETY: `linetypeProblem` has found the name and the description to be strings, and the
+    // pattern numbers.
+    const [name, description, lengths] = [
+      definition.name as string,
+      (definition.description ?? "") as string,
+      definition.pattern as readonly number[],
+    ];
+
     const key = layerKey(name);
     const auditKey = layerAuditKey(name);
     const twin = layerTwinProblem(name, this.#linetypesAudited.get(auditKey) ?? name, "linetype");
+
     if (twin) refuse("duplicate-linetype", `${label}: ${twin}`);
     const existing = this.#linetypes.get(key);
+
     if (inline && existing) {
       const same =
         existing.description === description &&
         existing.pattern.length === lengths.length &&
         existing.pattern.every((length, i) => length === lengths[i]) &&
         JSON.stringify(existing.marks ?? []) === JSON.stringify(marks);
+
       if (!same) {
         refuse(
           "linetype",
           `${label}: the drawing has a linetype of this name with another pattern or description. Pass its name, or change it with linetype()`,
         );
       }
+
       return existing.name;
     }
+
     const stored = existing?.name ?? name;
-    this.#linetypes.set(key, {
-      name: stored,
-      description,
-      pattern: [...lengths],
-      ...(marks.length === 0 ? {} : { marks }),
-    });
+    const linetype: Linetype = { name: stored, description, pattern: [...lengths] };
+    this.#linetypes.set(key, marks.length === 0 ? linetype : { ...linetype, marks });
+
     if (!this.#linetypesAudited.has(auditKey)) this.#linetypesAudited.set(auditKey, name);
+
     return stored;
   }
 
@@ -7313,23 +8511,28 @@ export class DrawingBuilder<
    * definition is defined first if the drawing does not have it.
    */
   #textStyleName(choice: unknown): string {
-    if (typeof choice === "object" && choice !== null) {
-      return this.#defineTextStyle(choice as TextStyleDefinition, true);
-    }
-    if (typeof choice !== "string") {
+    if (isObjectOrArray(choice)) return this.#defineTextStyle(choice, true);
+
+    if (!isString(choice)) {
       return refuse("undefined-text-style", "A text style is a name or a TextStyleDefinition");
     }
+
     const problem = textStyleNameProblem(choice);
+
     if (problem) {
       refuse("undefined-text-style", `Text style ${JSON.stringify(choice)}: ${problem}`);
     }
+
     if (isStandardTextStyle(choice)) return STANDARD_TEXT_STYLE;
     const known = this.#textStyles.get(layerKey(choice))?.name;
+
     if (known === undefined) {
       const absent = `${undefinedTextStyleProblem(choice)}. Define it with textStyle() first`;
-      refuse("undefined-text-style", absent);
+
+      return refuse("undefined-text-style", absent);
     }
-    return known as string;
+
+    return known;
   }
 
   /**
@@ -7337,47 +8540,61 @@ export class DrawingBuilder<
    * given to a text must match the one the drawing has of its name, where `textStyle()`
    * replaces it.
    */
-  #defineTextStyle(definition: TextStyleDefinition, inline = false): string {
+  #defineTextStyle(definition: TextStyleGiven, inline = false): string {
     const label = `Text style ${JSON.stringify(definition.name)}`;
+
     const problem = textStyleProblem(
       definition.name,
       definition.font,
       definition.widthFactor ?? 1,
       definition.obliqueAngle ?? 0,
     );
+
     if (problem) refuse("text-style", `${label}: ${problem}`);
-    // textStyleProblem has checked the types.
-    const name = definition.name as string;
-    const font = definition.font as string;
-    const widthFactor = (definition.widthFactor ?? 1) as number;
-    const obliqueAngle = (definition.obliqueAngle ?? 0) as number;
+
+    // SAFETY: `textStyleProblem` has found the name and the font to be strings, and the factor
+    // and the angle numbers.
+    const [name, font, widthFactor, obliqueAngle] = [
+      definition.name as string,
+      definition.font as string,
+      (definition.widthFactor ?? 1) as number,
+      (definition.obliqueAngle ?? 0) as number,
+    ];
+
     const key = layerKey(name);
     const auditKey = layerAuditKey(name);
     const first = this.#textStylesAudited.get(auditKey) ?? name;
     const twin = layerTwinProblem(name, first, "text style");
+
     if (twin) refuse("duplicate-text-style", `${label}: ${twin}`);
     const existing = this.#textStyles.get(key);
+
     if (inline && existing) {
       const same =
         existing.font === font &&
         (existing.widthFactor ?? 1) === widthFactor &&
         (existing.obliqueAngle ?? 0) === obliqueAngle;
+
       if (!same) {
         refuse(
           "text-style",
           `${label}: the drawing has a text style of this name with another font, width factor or oblique angle. Pass its name, or change it with textStyle()`,
         );
       }
+
       return existing.name;
     }
+
     const stored = existing?.name ?? name;
-    this.#textStyles.set(key, {
-      name: stored,
-      font,
-      ...(widthFactor === 1 ? {} : { widthFactor }),
-      ...(obliqueAngle === 0 ? {} : { obliqueAngle }),
-    });
+    let style: TextStyle = { name: stored, font };
+
+    if (widthFactor !== 1) style = { ...style, widthFactor };
+
+    if (obliqueAngle !== 0) style = { ...style, obliqueAngle };
+    this.#textStyles.set(key, style);
+
     if (!this.#textStylesAudited.has(auditKey)) this.#textStylesAudited.set(auditKey, name);
+
     return stored;
   }
 }
@@ -7391,6 +8608,7 @@ export function createDrawing<
   Z extends Standard | undefined = undefined,
   D extends string = string,
 >(options?: DrawingOptions<V, S, Z, D>): DrawingBuilder<V, number, Z> {
+  // SAFETY: the type of the scale checks a literal; the builder takes a scale of any number.
   return new DrawingBuilder(options as DrawingOptions<V, number, Z>);
 }
 
@@ -7424,25 +8642,39 @@ interface Drawn {
 const drawnStandards = new WeakMap<Standard, Drawn>();
 
 /** The standard `options` draws the drawing to, checked with the options it rules out. */
-function drawnTo(
-  options: DrawingOptions<DxfVersion, number, Standard | undefined>,
-  dxf: string,
-): Drawn | undefined {
+/** The options of a drawing that say what standard it is drawn to, each as given. */
+interface StandardGiven {
+  readonly standard?: unknown;
+  readonly discipline?: unknown;
+  readonly fields?: unknown;
+  readonly linetypeScale?: unknown;
+}
+
+function drawnTo(options: StandardGiven, dxf: string): Drawn | undefined {
   const given: unknown = options.standard;
   const discipline: unknown = options.discipline;
+
   if (given === undefined) {
     if (discipline !== undefined) refuse("standard", DRAWN.disciplineWithoutStandard);
+
     if (options.fields !== undefined) refuse("standard", DRAWN.fieldsWithoutStandard);
+
     return undefined;
   }
+
   const standard = adopted(given);
+
   if (!standard) return refuse("standard", DRAWN.notAStandard);
+
   if (dxf === "R12") refuse("standard", DRAWN.r12);
+
   if (options.linetypeScale !== undefined) refuse("standard", DRAWN.linetypeScale);
   let drawn = drawnStandards.get(standard);
+
   if (!drawn) {
     const byKey = <T>(entries: Readonly<Record<string, T>>, key: (name: string) => string) =>
       new Map(Object.entries(entries).map(([name, entry]) => [key(name), [name, entry] as const]));
+
     drawn = {
       standard,
       layers: byKey(standard.layers, layerKey),
@@ -7458,13 +8690,18 @@ function drawnTo(
     };
     drawnStandards.set(standard, drawn);
   }
+
   const fields = drawingFields(options.fields, standard);
+
   if (discipline === undefined) return { ...drawn, fields };
-  if (typeof discipline !== "string")
-    return refuse("standard", "A discipline is named by a string");
+
+  if (!isString(discipline)) return refuse("standard", "A discipline is named by a string");
   const named = Object.keys(standard.disciplines).find((id) => idKey(id) === idKey(discipline));
+
   if (named === undefined) refuse("standard", disciplineLacks(discipline, standard));
+
   if (standard.sheetFiles === "one-drawing") refuse("standard", DRAWN.disciplineOneDrawing);
+
   return { ...drawn, discipline: named, fields };
 }
 
@@ -7474,33 +8711,47 @@ function drawnTo(
  * value a text a field can hold. Under `one-drawing` it gives no number, and under
  * `sheet-per-file` a number that names a file.
  */
-function drawingFields(given: unknown, standard: Standard): Readonly<Record<string, string>> {
+function drawingFields(given: unknown, standard: Standard) {
   if (given === undefined) return {};
-  if (typeof given !== "object" || given === null || Array.isArray(given)) {
+
+  if (!isObjectOrArray(given) || Array.isArray(given)) {
     return refuse("standard", "fields is an object of the values of title block fields, by key");
   }
+
   const tags = new Set<string>();
+
   for (const block of Object.values<StandardTitleBlock>(standard.titleBlocks)) {
     for (const [tag, field] of Object.entries(block.fields)) {
       if (field.fills === undefined) tags.add(tag);
     }
   }
+
   const values: Record<string, string> = {};
-  for (const [key, value] of Object.entries(given as Record<string, unknown>)) {
+
+  const entries: readonly (readonly [string, unknown])[] = Object.entries(given);
+
+  for (const [key, value] of entries) {
     if (value === undefined) continue;
-    if (!(FILL_KEYS as readonly string[]).includes(key) && !tags.has(key)) {
+
+    if (!isOneOf(FILL_KEYS, key) && !tags.has(key)) {
       refuse("standard", fieldLacks(key, "fields"));
     }
-    const problem = typeof value === "string" ? textProblem(value) : "must be a string";
-    if (problem) refuse("standard", `fields.${key}: ${problem}`);
-    values[key] = value as string;
+
+    const problem = isString(value) ? textProblem(value) : "must be a string";
+
+    if (problem || !isString(value)) refuse("standard", `fields.${key}: ${problem}`);
+    values[key] = value;
   }
+
   const number = values.number;
+
   if (number !== undefined) {
     if (standard.sheetFiles === "one-drawing") refuse("layout", DRAWN.numberOneDrawing);
     const problem = sheetNumberProblem(number);
+
     if (problem) refuse("sheet-per-file", sheetNumberOfFile(problem));
   }
+
   return values;
 }
 
@@ -7522,20 +8773,29 @@ function titleBlockValues(
   given: unknown,
   id: string,
   fields: readonly (readonly [string, { readonly fills?: string }])[],
-): Readonly<Record<string, string | undefined>> {
-  if (given === undefined) return {};
-  if (typeof given !== "object" || given === null || Array.isArray(given)) {
+) {
+  const values: Record<string, string | undefined> = {};
+
+  if (given === undefined) return values;
+
+  if (!isObjectOrArray(given) || Array.isArray(given)) {
     return refuse("layout", "titleBlock() takes an object of the values of its fields, by key");
   }
+
   const keys = new Set(fields.map(([tag, field]) => field.fills ?? tag));
-  const values: Record<string, string> = {};
-  for (const [key, value] of Object.entries(given as Record<string, unknown>)) {
+
+  const entries: readonly (readonly [string, unknown])[] = Object.entries(given);
+
+  for (const [key, value] of entries) {
     if (value === undefined) continue;
+
     if (!keys.has(key)) refuse("layout", fieldLacks(key, `The title block ${JSON.stringify(id)}`));
-    const problem = typeof value === "string" ? textProblem(value) : "must be a string";
-    if (problem) refuse("text", `${key}: ${problem}`);
-    values[key] = value as string;
+    const problem = isString(value) ? textProblem(value) : "must be a string";
+
+    if (problem || !isString(value)) refuse("text", `${key}: ${problem}`);
+    values[key] = value;
   }
+
   return values;
 }
 
@@ -7543,24 +8803,20 @@ function titleBlockValues(
  * The id, the color, the transparency and the view among the options of a dimension or a leader,
  * which have no linetype or lineweight to take.
  */
-function idOf(options: unknown): {
-  readonly id?: unknown;
-  readonly color?: unknown;
-  readonly transparency?: unknown;
-  readonly view?: unknown;
-} {
-  const { id, color, transparency, view } = (options ?? {}) as {
-    id?: unknown;
-    color?: unknown;
-    transparency?: unknown;
-    view?: unknown;
-  };
-  return {
-    ...(id === undefined ? {} : { id }),
-    ...(color === undefined ? {} : { color }),
-    ...(transparency === undefined ? {} : { transparency }),
-    ...(view === undefined ? {} : { view }),
-  };
+function idOf(options: unknown): EntityGiven {
+  // SAFETY: the options of a dimension are an object or none; each field is checked as given.
+  const { id, color, transparency, view } = (options ?? {}) as EntityGiven;
+  const given: Writable<EntityGiven> = {};
+
+  if (id !== undefined) given.id = id;
+
+  if (color !== undefined) given.color = color;
+
+  if (transparency !== undefined) given.transparency = transparency;
+
+  if (view !== undefined) given.view = view;
+
+  return given;
 }
 
 /**
@@ -7568,17 +8824,17 @@ function idOf(options: unknown): {
  * tip, and a list holds a shaft for each item, a point or a list of points. Anything else is no
  * shaft, which `leaderShaftsProblem` refuses.
  */
-function shaftsOf(to: unknown): unknown {
+function shaftsOf(to: unknown) {
   if (!Array.isArray(to)) return undefined;
-  if (typeof to[0] === "number") return [[to]];
-  return to.map((shaft: unknown) =>
-    Array.isArray(shaft) && typeof shaft[0] === "number" ? [shaft] : shaft,
-  );
+
+  if (isNumber(to[0])) return [[to]];
+
+  return to.map((shaft) => (Array.isArray(shaft) && isNumber(shaft[0]) ? [shaft] : shaft));
 }
 
 /** True when `choice` names the built-in linetype `name`, in any case. */
 function isBuiltIn(choice: unknown, name: "ByLayer" | "Continuous"): boolean {
-  return typeof choice === "string" && builtInLinetype(choice) === name;
+  return isString(choice) && builtInLinetype(choice) === name;
 }
 
 /** Counterclockwise sweep from start to end, in degrees, within [0, 360). */
@@ -7589,22 +8845,27 @@ export function sweep(startAngle: number, endAngle: number): number {
 /** Brings an angle in degrees into [0, 360). */
 function turn(degrees: number): number {
   const wrapped = ((degrees % 360) + 360) % 360;
+
   // A tiny negative angle rounds up to exactly 360.
   return wrapped === 360 ? 0 : wrapped;
 }
 
 function num(value: number, label: string): number {
   if (!Number.isFinite(value)) refuse("geometry", `${label} must be a finite number`);
+
   return value;
 }
 
-/** Takes `unknown` because a `Positive<N>` parameter is a message string when the literal is wrong. */
+/** Takes a value of any type, because a `Positive<N>` parameter is a message string when the literal is wrong. */
 function positive(value: unknown, label: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
+  if (!isNumber(value) || !Number.isFinite(value)) {
     return refuse("geometry", `${label} must be a finite number`);
   }
+
   const problem = sizeProblem(value);
+
   if (problem) refuse("geometry", `${label}: ${problem}`);
+
   return value;
 }
 
@@ -7622,21 +8883,28 @@ function onPaper(view: View, length: number, label: string): number {
   try {
     return view.paper(length);
   } catch (thrown) {
-    return refuse("geometry", `${label}: ${(thrown as Error).message}`);
+    return refuse(
+      "geometry",
+      `${label}: ${thrown instanceof Error ? thrown.message : String(thrown)}`,
+    );
   }
 }
 
 /** An angle a dimension measures along, refused beyond a turn, and turned to less than one. */
 function turned(angle: number): number {
   const problem = dimensionAngleProblem(angle);
+
   if (problem) refuse("dimension", problem);
+
   return dimensionAngle({ angle });
 }
 
 /** A number the drawing keeps and the writers print, which the leading CAD app must be able to read. */
 function kept(value: number, label: string): number {
   const problem = magnitudeProblem(num(value, label));
+
   if (problem) refuse("geometry", `${label}: ${problem}`);
+
   return value;
 }
 

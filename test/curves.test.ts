@@ -82,6 +82,7 @@ test("toDXF writes an ellipse and a spline as the leading CAD app saves them", (
       },
     ]),
   );
+
   assert.deepEqual(recordFields(dxf, "ELLIPSE", "AcDbEllipse"), [
     ...["10=1", "20=2", "30=0", "11=3", "21=0", "31=0", "210=0", "220=0", "230=1", "40=0.5"],
     ...["41=0", "42=6.28318530717959"],
@@ -128,8 +129,10 @@ test("toDXF writes an ellipse and a spline as the leading CAD app saves them", (
   // Closed: its first fit point again at the end, and one tangent at both ends.
   const ring = recordFields(dxf, "SPLINE", "AcDbSpline", 3);
   assert.deepEqual(ring.slice(3, 8), ["70=1067", "71=3", "72=10", "73=6", "74=4"]);
+
   const tangent = (codes: readonly number[]) =>
     codes.map((code) => ring.find((g) => g.startsWith(`${code}=`))!.split("=")[1]);
+
   assert.deepEqual(tangent([12, 22, 32]), tangent([13, 23, 33]));
   assert.deepEqual(ring.filter((g) => /^[12]1=/.test(g)).slice(-2), ["11=0", "21=0"]);
 });
@@ -142,21 +145,26 @@ test("clamped gives the same curve, starting and ending on its control points", 
     [4, 2],
     [5, 0],
   ];
+
   const spline = {
     degree: 3,
     knots: [0, 1, 2, 3, 4, 5, 6, 7, 8],
     controlPoints: points,
     weights: [1, 2, 1, 0.5, 1],
   };
+
   const held = clamped(spline);
   assert.deepEqual(held.knots, [3, 3, 3, 3, 4, 5, 5, 5, 5]);
+
   for (const u of [3, 3.4, 4, 4.9, 5]) {
     const [a, b] = [
       splinePoint(3, spline.knots, points, spline.weights, u),
       splinePoint(3, held.knots, held.controlPoints, held.weights, u),
     ];
+
     assert.ok(Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-12, `${u}`);
   }
+
   assert.deepEqual(clamped(held), held);
 });
 
@@ -206,6 +214,7 @@ test("readDXF gives back each curve as it was drawn, and one seen from below as 
     "230\r\n1\r\n40\r\n0.4\r\n41\r\n0.523598775598299\r\n42\r\n1.5707963267949",
     "230\r\n-1\r\n40\r\n0.4\r\n41\r\n4.71238898038469\r\n42\r\n5.759586531581287",
   );
+
   assert.ok(below !== text);
   const [arc] = (await readDXF(below, { geometry: true })).model.entities!;
   assert.ok(arc?.kind === "ellipse");
@@ -215,6 +224,7 @@ test("readDXF gives back each curve as it was drawn, and one seen from below as 
     text.replace("40\r\n0.4\r\n", "40\r\n1.5\r\n").replace("72\r\n9\r\n", "72\r\n8\r\n"),
     { geometry: true },
   );
+
   assert.deepEqual(Object.keys(broken.unread.malformed).sort(), [
     "ELLIPSE with a ratio outside 0 to 1 or an axis of no length",
     "SPLINE whose counts disagree with its groups or its degree",
@@ -242,23 +252,29 @@ test("the extents of a spline and of an arc of an ellipse are the curve's, not t
     [3, -2],
     [4, 1],
   ];
+
   const d = createDrawing();
   d.controlSpline(points);
   d.ellipse([0, 0], [2, 0], 0.5, { startParameter: 45, endParameter: 135 });
   const box = extents(d.build().entities);
+
   const curve = Array.from({ length: 10001 }, (_, k) =>
     splinePoint(3, [0, 0, 0, 0, 1, 1, 1, 1], points, undefined, k / 10000),
   );
+
   const arc = Array.from({ length: 10001 }, (_, k) =>
     ellipsePoint([0, 0], [2, 0], 0.5, Math.PI / 4 + (Math.PI / 2) * (k / 10000)),
   );
+
   const all = [...curve, ...arc];
+
   const sampled = [
     Math.min(...all.map((p) => p[0])),
     Math.min(...all.map((p) => p[1])),
     Math.max(...all.map((p) => p[0])),
     Math.max(...all.map((p) => p[1])),
   ];
+
   for (const [i, got] of box.entries()) {
     const want = sampled[i]!;
     assert.ok(Math.abs(got - want) < 1e-6, `${i}: ${got} against ${want}`);
@@ -270,9 +286,11 @@ test("a curve's dashes run along its whole length, as a line's or a circle's do"
   const dashed = (e: Entity): string => {
     const d = createDrawing().linetype(HIDDEN);
     d.layer("D", { linetype: "HIDDEN" });
-    const svg = toSVG({ ...d.build(), entities: [{ ...e, layer: "D" } as Entity] });
+    const svg = toSVG({ ...d.build(), entities: [{ ...e, layer: "D" }] });
+
     return /<path d="([^"]*)"/.exec(svg)![1]!;
   };
+
   const moves = (path: string) => path.split("M").length - 1;
   // A whole ellipse of ratio 1 dashes as the circle it is, from its parameter 0.
   const round = dashed({ kind: "circle", layer: "D", center: [0, 0], radius: 3 });
@@ -282,6 +300,7 @@ test("a curve's dashes run along its whole length, as a line's or a circle's do"
   // A spline that is a straight line dashes as the line: half of the first dash and of what is
   // left over at each end.
   const line = dashed({ kind: "line", layer: "D", from: [0, 0], to: [10, 0] });
+
   const straight = dashed({
     kind: "spline",
     layer: "D",
@@ -292,6 +311,7 @@ test("a curve's dashes run along its whole length, as a line's or a circle's do"
     degree: 1,
     knots: [0, 0, 1, 1],
   });
+
   const ends = (path: string) =>
     path
       .split("M")
@@ -301,8 +321,10 @@ test("a curve's dashes run along its whole length, as a line's or a circle's do"
           .trim()
           .split(/ L /)
           .map((p) => Number(p.split(" ")[0]));
+
         return [xs[0], xs.at(-1)];
       });
+
   assert.deepEqual(ends(straight), ends(line));
 });
 

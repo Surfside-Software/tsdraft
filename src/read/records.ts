@@ -12,13 +12,16 @@ export interface Rec {
 
 export const first = (r: Rec, code: number): string | undefined => {
   const i = r.codes.indexOf(code);
+
   return i < 0 ? undefined : r.values[i];
 };
 
 export const num = (r: Rec, code: number): number | undefined => {
   const value = first(r, code);
+
   if (value === undefined) return undefined;
   const n = Number(value);
+
   return value.trim() !== "" && Number.isFinite(n) ? n : undefined;
 };
 
@@ -35,7 +38,9 @@ export function facing(r: Rec): Facing {
   const x = num(r, 210) ?? 0;
   const y = num(r, 220) ?? 0;
   const z = num(r, 230) ?? 1;
+
   if (Math.abs(x) > 1e-9 || Math.abs(y) > 1e-9 || z === 0) return 0;
+
   return z > 0 ? 1 : -1;
 }
 
@@ -48,6 +53,7 @@ export const turned = (angle: number, face: Facing): number =>
 
 export const name = (r: Rec, code: number): string | undefined => {
   const value = first(r, code);
+
   return value === undefined ? undefined : unescaped(value);
 };
 
@@ -55,6 +61,7 @@ export const name = (r: Rec, code: number): string | undefined => {
 export function inSubclass(r: Rec, subclass: string): Rec {
   const out: Rec = { type: r.type, codes: [], values: [] };
   let inside = false;
+
   for (let i = 0; i < r.codes.length; i++) {
     if (r.codes[i] === 100) inside = r.values[i] === subclass;
     else if (inside) {
@@ -62,6 +69,7 @@ export function inSubclass(r: Rec, subclass: string): Rec {
       out.values.push(r.values[i]!);
     }
   }
+
   return out;
 }
 
@@ -69,6 +77,7 @@ export function inSubclass(r: Rec, subclass: string): Rec {
 export function xdata(r: Rec, app: string): Rec {
   const out: Rec = { type: r.type, codes: [], values: [] };
   let inside = false;
+
   for (let i = 0; i < r.codes.length; i++) {
     if (r.codes[i] === 1001) inside = r.values[i]!.toUpperCase() === app.toUpperCase();
     else if (inside) {
@@ -76,6 +85,7 @@ export function xdata(r: Rec, app: string): Rec {
       out.values.push(r.values[i]!);
     }
   }
+
   return out;
 }
 
@@ -85,20 +95,24 @@ export function xdata(r: Rec, app: string): Rec {
  */
 export function ownerOf(r: Rec): string | undefined {
   let inside = false;
+
   for (let i = 0; i < r.codes.length; i++) {
     if (r.codes[i] === 102) inside = r.values[i]!.startsWith("{");
     else if (!inside && r.codes[i] === 330) return r.values[i];
   }
+
   return undefined;
 }
 
 /** The handle a 102 group `{NAME` opens, through its 360 or 330 group. */
 export function inGroup(r: Rec, group: string, code: number): string | undefined {
   let inside = false;
+
   for (let i = 0; i < r.codes.length; i++) {
     if (r.codes[i] === 102) inside = r.values[i] === group;
     else if (inside && r.codes[i] === code) return r.values[i];
   }
+
   return undefined;
 }
 
@@ -106,7 +120,7 @@ export function inGroup(r: Rec, group: string, code: number): string | undefined
  * An object keyed by names from the file. It has no prototype, so a name such as `constructor`
  * or `__proto__` is a key like any other.
  */
-export const map = <T>(): Record<string, T> => Object.create(null) as Record<string, T>;
+export const map = <T>(): Record<string, T> => Object.create(null);
 
 export const add = (counts: Record<string, number>, key: string, n = 1): void => {
   counts[key] = (counts[key] ?? 0) + n;

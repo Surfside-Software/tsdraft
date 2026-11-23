@@ -1,0 +1,38 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "extends": ["./.oxlintrc.shared.json"],
+  "ignorePatterns": ["tools/oxlint/**", "node_modules/**", "dist/**", "cli/dist/**"],
+  "overrides": [
+    {
+      "files": ["src/guards.ts", "src/json.ts", "src/shape.ts"],
+      "rules": {
+        "anti-slop/no-unsafe-dictionary-type": "off"
+      }
+    },
+    {
+      "files": [
+        "cli/src/worker.ts",
+        "src/colors.ts",
+        "src/drawing.ts",
+        "src/edit/model.ts",
+        "src/json.ts",
+        "src/leaders.ts",
+        "src/lint.ts",
+        "src/points.ts",
+        "src/read/check.ts",
+        "src/rules.ts",
+        "src/shape.ts",
+        "src/shapes.ts",
+        "src/standard/define.ts",
+        "src/standard/made.ts",
+        "src/standard/lint.ts",
+        "src/standard/shape.ts",
+        "src/tables.ts",
+        "src/transparency.ts"
+      ],
+      "rules": {
+        "anti-slop/no-unknown-parameters": "off"
+      }
+    }
+  ]
+}

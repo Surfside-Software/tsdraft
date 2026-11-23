@@ -7,26 +7,38 @@ import type { Section } from "./document.ts";
 
 const PAPER_UNITS = 'paperUnits must be "in" or "mm"';
 const SHEET_FILES = 'sheetFiles must be "one-drawing" or "sheet-per-file"';
+
 const FILLS =
   'fills must be "number", "title", "project", "date", "scale", "drawnBy" or "checkedBy"';
+
 const SOURCE = 'source must be "attribute", "fileName", "layoutName" or "currentDate"';
+
 const WRITING_UNITS =
   'units must be "decimal" or "architectural", which writes feet and inches with a fraction';
+
 const STYLE_NAME_STANDARD =
   'A dimension style of a standard cannot be named "Standard" in the leading CAD app, in any case: every drawing has that app\'s own style of that name';
+
 const LAYER_ZERO =
   'Layer "0" is in every drawing and in no standard. The leading CAD app makes it in every drawing, and an entity of a block on it draws on its insert\'s layer';
+
 const ROLE_STANDARD =
   "A text role cannot be named standard, in any case of its letters. Its text style would be STANDARD, which the leading CAD app takes for the text style Standard that every drawing has";
+
 const DIMENSION_STYLE_STANDARD =
   "A dimension style cannot be named standard, in any case of its letters. Its name in the leading CAD app would be STANDARD, which that app takes for the dimension style Standard that every drawing has";
+
 const LEADER_STYLE_STANDARD =
   "A leader style cannot be named standard, in any case of its letters. Its name in the leading CAD app would be STANDARD, which is that app's own leader style";
+
 const LEADER_ATTACHMENT_OF = 'attachment must be "first-line" or "last-line"';
+
 const STANDARD_ID =
   "A standard's id has 1 to 128 characters, each a letter A to Z or a to z, a digit, ., -, _, @ or /";
+
 const STANDARD_VERSION =
   "A standard's version has 1 to 64 characters, none of them a control character or a character above U+FFFF";
+
 const SCALE_LABEL =
   "A scale's label has 1 to 64 characters, none of them a control character or a character above U+FFFF";
 
@@ -72,6 +84,7 @@ export type NameIn<V, Names extends string, S extends Section> = V extends strin
 export function referenceProblem(section: Section, name: string, owner?: Section): string {
   const [what, a, plural] = REFERENCES[section];
   const parents = owner ? `, which the parent's ${REFERENCES[owner][0].toLowerCase()} names,` : "";
+
   return `${what} ${JSON.stringify(name)}${parents} is not ${a} of the standard. Add it to ${section}, or name one of its ${plural}`;
 }
 
@@ -81,6 +94,7 @@ export function referenceProblem(section: Section, name: string, owner?: Section
  */
 export function inheritedDefaultProblem(field: string, section: Section, name: string): string {
   const [what, a, plural] = REFERENCES[section];
+
   return `${what} ${JSON.stringify(name)}, the parent's ${field}, is not ${a} of the standard. Set ${field} to one of its ${plural}`;
 }
 
@@ -95,13 +109,15 @@ type OneOf<V, Allowed extends string, Message extends string> = V extends string
 
 const oneOf =
   (allowed: readonly string[], message: string) =>
-  (value: unknown): string | undefined =>
-    allowed.includes(value as string) ? undefined : message;
+  (value: string): string | undefined =>
+    allowed.includes(value) ? undefined : message;
 
 export type PaperUnitsOf<V> = OneOf<V, "in" | "mm", typeof PAPER_UNITS>;
+
 export const paperUnitsProblem = oneOf(["in", "mm"], PAPER_UNITS);
 
 export type SheetFilesOf<V> = OneOf<V, "one-drawing" | "sheet-per-file", typeof SHEET_FILES>;
+
 export const sheetFilesProblem = oneOf(["one-drawing", "sheet-per-file"], SHEET_FILES);
 
 export const FILL_KEYS = [
@@ -113,7 +129,9 @@ export const FILL_KEYS = [
   "drawnBy",
   "checkedBy",
 ] as const;
+
 export type FillOf<V> = OneOf<V, (typeof FILL_KEYS)[number], typeof FILLS>;
+
 export const fillProblem = oneOf(FILL_KEYS, FILLS);
 
 /** What is wrong with a field that reads a name, under `one-drawing`. */
@@ -121,14 +139,18 @@ export const READS_A_NAME =
   "Under sheetFiles \"one-drawing\" no field reads the file's name or the layout's name: the builder writes each field a sheet fills as an attribute. One drawing has one file name, and its layouts' names are its sheets' numbers, which the builder writes as attributes, so a field that read the layout's name in the title's place would plot the number there. Make the field an attribute";
 
 export const SOURCES = ["attribute", "fileName", "layoutName", "currentDate"] as const;
+
 export type SourceOf<V> = OneOf<V, (typeof SOURCES)[number], typeof SOURCE>;
+
 export const sourceProblem = oneOf(SOURCES, SOURCE);
 
 export type WritingUnitsOf<V> = OneOf<V, "decimal" | "architectural", typeof WRITING_UNITS>;
+
 export const writingUnitsProblem = oneOf(["decimal", "architectural"], WRITING_UNITS);
 
 /** Resolves to the message when `N` is layer `0`, and to `never` otherwise. */
 export type LayerZero<N extends string> = N extends "0" ? typeof LAYER_ZERO : never;
+
 export function layerZeroProblem(name: string): string | undefined {
   return name === "0" ? LAYER_ZERO : undefined;
 }
@@ -141,6 +163,7 @@ export function capitals(id: string): string {
 /** Resolves to the message when the role `I` would have the text style `STANDARD`. */
 export type RoleStandard<I extends string> =
   Uppercase<I> extends "STANDARD" ? typeof ROLE_STANDARD : never;
+
 export function roleNameProblem(id: string): string | undefined {
   return capitals(id) === "STANDARD" ? ROLE_STANDARD : undefined;
 }
@@ -148,6 +171,7 @@ export function roleNameProblem(id: string): string | undefined {
 /** Resolves to the message when the dimension style `I` would be named `STANDARD`. */
 export type DimensionStyleStandard<I extends string> =
   Uppercase<I> extends "STANDARD" ? typeof DIMENSION_STYLE_STANDARD : never;
+
 export function dimensionStyleIdProblem(id: string): string | undefined {
   return capitals(id) === "STANDARD" ? DIMENSION_STYLE_STANDARD : undefined;
 }
@@ -155,6 +179,7 @@ export function dimensionStyleIdProblem(id: string): string | undefined {
 /** Resolves to the message when the leader style `I` would be named `STANDARD`. */
 export type LeaderStyleStandard<I extends string> =
   Uppercase<I> extends "STANDARD" ? typeof LEADER_STYLE_STANDARD : never;
+
 export function leaderStyleIdProblem(id: string): string | undefined {
   return capitals(id) === "STANDARD" ? LEADER_STYLE_STANDARD : undefined;
 }
@@ -172,6 +197,7 @@ export type LeaderAttachmentOf<V> = OneOf<
  */
 export type StyleNameStandard<N extends string> =
   Lowercase<N> extends "standard" ? typeof STYLE_NAME_STANDARD : never;
+
 export function styleNameStandardProblem(name: string): string | undefined {
   return isStandardDimensionStyle(name) ? STYLE_NAME_STANDARD : undefined;
 }
@@ -191,9 +217,11 @@ export function styleNameAt(
 ): string {
   if (scale === undefined) return style.layoutName ?? capitals(id);
   const key = idKey(scale);
+
   for (const [at, name] of Object.entries(style.scaleNames ?? {})) {
     if (idKey(at) === key) return name;
   }
+
   return `${capitals(id)}-${scale}`;
 }
 
@@ -208,10 +236,13 @@ export function standardIdProblem(id: string): string | undefined {
  */
 function propertyValue(value: string, most: number): boolean {
   if (value.length < 1 || value.length > most) return false;
+
   for (let i = 0; i < value.length; i++) {
     const code = value.charCodeAt(i);
+
     if (code < 0x20 || code === 0x7f || (code >= 0xd800 && code <= 0xdfff)) return false;
   }
+
   return true;
 }
 

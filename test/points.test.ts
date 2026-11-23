@@ -11,6 +11,7 @@ import {
   type PointStyle,
 } from "../src/index.ts";
 import { extents } from "../src/extents.ts";
+import { dataOf, wrong } from "./values.ts";
 import { readProblems } from "./read-agreement.ts";
 
 import { recordFields } from "./dxf-groups.ts";
@@ -18,6 +19,7 @@ import { recordFields } from "./dxf-groups.ts";
 const header = (dxf: string, name: string): string | undefined => {
   const lines = dxf.split("\r\n");
   const at = lines.indexOf(name);
+
   return at < 0 ? undefined : lines[at + 2];
 };
 
@@ -34,6 +36,7 @@ function figure(svg: string): number[][] {
 const sheet = (style: PointStyle, draw: (d: ReturnType<typeof createDrawing>) => void): Drawing => {
   const d = createDrawing({ pointStyle: style });
   d.layout("A", { paper: "ANSI B" }, () => draw(d));
+
   return d.build();
 };
 
@@ -69,10 +72,16 @@ test("pointStyleOf reads PDMODE and PDSIZE as the leading CAD app plots them", (
 });
 
 test("the builder and lint refuse a point style and a point the file cannot hold", () => {
-  assert.throws(() => createDrawing({ pointStyle: { figure: "star" as "dot" } }), /figure must be/);
-  assert.throws(() => createDrawing({ pointStyle: { figure: "plus", size: -1 as 1 } }), /size/);
   assert.throws(
-    () => createDrawing({ pointStyle: { figure: "plus", size: { percent: 0 as 1 } } }),
+    () => createDrawing({ pointStyle: { figure: wrong<"dot">("star") } }),
+    /figure must be/,
+  );
+  assert.throws(
+    () => createDrawing({ pointStyle: { figure: "plus", size: wrong<1>(-1) } }),
+    /size/,
+  );
+  assert.throws(
+    () => createDrawing({ pointStyle: { figure: "plus", size: { percent: wrong<1>(0) } } }),
     /percent/,
   );
   assert.throws(() => createDrawing({ dxf: "R12", pointStyle: { figure: "plus" } }), /R12/);
@@ -87,7 +96,7 @@ test("the builder and lint refuse a point style and a point the file cannot hold
 
   const built = createDrawing().point([1, 1]).build();
   const messages = (drawing: Drawing) => lint(drawing).map((d) => d.message);
-  assert.deepEqual(messages({ ...built, pointStyle: { figure: "plus", size: 1e100 as 1 } }), [
+  assert.deepEqual(messages({ ...built, pointStyle: { figure: "plus", size: wrong<1>(1e100) } }), [
     "pointStyle's size: This value must be under 1e100, because the leading CAD app reads only two exponent digits from DXF and would take 1e+100 for 1e+10",
   ]);
   assert.ok(
@@ -127,10 +136,12 @@ test("a point's figure is its style's size, or a share of half the view it is se
       [2, 2.75, 2, 3.25],
     ],
   );
+
   // 10% of half the 11-inch sheet, and turned 90 degrees.
   const relative = sheet({ figure: "tick", size: { percent: 10 } }, (d) =>
     d.point([2, 3], { rotation: 90 }),
   );
+
   const [x0, y0, x1, y1] = figure(toSVG(relative, { layout: "A" }))[0]!;
   assert.deepEqual([x0, y0], [2, 3]);
   assert.ok(Math.abs(x1! - (2 - 0.275)) < 1e-6 && Math.abs(y1! - 3) < 1e-6);
@@ -141,8 +152,10 @@ test("under an insert a sized figure scales with it and a relative one does not"
     const d = createDrawing({ pointStyle: style });
     d.block("MARK", {}, () => d.point([0, 0]));
     d.layout("A", { paper: "ANSI B" }, () => d.insert("MARK", [2, 3], { scale: 2 }));
+
     return figure(toSVG(d.build(), { layout: "A" }));
   };
+
   // The tick runs from the point up half the size, in the block's units, scaled by 2.
   assert.deepEqual(draw({ figure: "tick", size: 0.25 }), [[2, 3, 2, 3.25]]);
   const [, , , top] = draw({ figure: "tick", size: { percent: 10 } })[0]!;
@@ -194,9 +207,14 @@ test("a figure that reaches into a view is drawn, from an insert and in a croppe
 
 test("a point or a point style lint refuses is no throw for the writers", () => {
   const built = createDrawing().build();
-  const broken = { ...built, entities: [{ kind: "point", layer: "0", at: null }] } as never;
+
+  const broken = wrong<Drawing>({
+    ...dataOf(built),
+    entities: [{ kind: "point", layer: "0", at: null }],
+  });
+
   assert.doesNotThrow(() => toSVG(broken));
-  const odd = { figure: "plus", metadata: 0n } as unknown as PointStyle;
+  const odd = wrong<PointStyle>({ figure: "plus", metadata: 0n });
   assert.deepEqual(
     lint({ ...built, pointStyle: odd }).map((d) => d.message),
     ['pointStyle has a field it does not know, "metadata"'],
@@ -210,19 +228,28 @@ test("a point or a point style lint refuses is no throw for the writers", () => 
 
 test("hostile points, styles and block chains are no throw and no runaway work", () => {
   const built = createDrawing().build();
+
   for (const at of [
     [0n, 0],
     [{}, 0],
   ]) {
-    const svg = toSVG({ ...built, entities: [{ kind: "point", layer: "0", at }] } as never);
+    const svg = toSVG(
+      wrong<Drawing>({ ...dataOf(built), entities: [{ kind: "point", layer: "0", at }] }),
+    );
+
     assert.ok(!svg.includes("NaN"));
   }
+
   const listed = { figure: "plus", size: Object.assign(Array(1), { percent: 5 }) };
-  assert.equal(lint({ ...built, pointStyle: listed } as never).length, 1);
-  const [long] = lint({
-    ...built,
-    pointStyle: { figure: "plus", ["\0".repeat(100_000)]: 1 },
-  } as never);
+  assert.equal(lint(wrong<Drawing>({ ...dataOf(built), pointStyle: listed })).length, 1);
+
+  const [long] = lint(
+    wrong<Drawing>({
+      ...dataOf(built),
+      pointStyle: { figure: "plus", ["\0".repeat(100_000)]: 1 },
+    }),
+  );
+
   assert.ok(long!.message.length < 400, long!.message.slice(0, 200));
 
   // A chain of blocks deeper than the call stack, and a frozen insert whose scale is no number.
@@ -235,6 +262,7 @@ test("hostile points, styles and block chains are no throw and no runaway work",
         : { kind: "insert", layer: "0", block: `B${i + 1}`, at: [0, 0] },
     ],
   }));
+
   const odd = {
     kind: "insert",
     layer: "OFF",
@@ -242,22 +270,25 @@ test("hostile points, styles and block chains are no throw and no runaway work",
     at: [0, 0],
     scale: [Object.create(null), 1],
   };
-  const deep = {
-    ...built,
-    layers: [...built.layers, { name: "OFF", frozen: true }],
+
+  const deep = wrong<Drawing>({
+    ...dataOf(built),
+    layers: [...built.layers.map(dataOf), { name: "OFF", frozen: true }],
     blocks,
     entities: [
       { kind: "line", layer: "0", from: [0, 0], to: [1, 1] },
       odd,
       { kind: "insert", layer: "0", block: "B0", at: [50, 50] },
     ],
-  } as never;
+  });
+
   assert.doesNotThrow(() => toSVG(deep, { view: [0, 0, 1, 1] }));
 
   // Many inserts of one long name work out its key once.
   const name = "N".repeat(100_000);
-  const many = {
-    ...built,
+
+  const many = wrong<Drawing>({
+    ...dataOf(built),
     blocks: [{ name, base: [0, 0], entities: [{ kind: "point", layer: "0", at: [0, 0] }] }],
     entities: Array.from({ length: 2_000 }, () => ({
       kind: "insert",
@@ -265,7 +296,8 @@ test("hostile points, styles and block chains are no throw and no runaway work",
       block: name,
       at: [50, 50],
     })),
-  } as never;
+  });
+
   const start = performance.now();
   toSVG(many, { view: [0, 0, 1, 1] });
   assert.ok(performance.now() - start < 3_000);

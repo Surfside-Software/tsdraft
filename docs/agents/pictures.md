@@ -63,8 +63,8 @@ fonts or dashes. [AGENTS.md](../../AGENTS.md) has the rules that hold for every 
   stretch, and `letterAt` sets each text in the frame of the side it lands on, the line's
   direction in its own coordinates deciding `upright`; on an arc that frame is the straight piece
   the leading CAD app cuts the arc into, `arcFrame`, 1/1200 inch from it on the paper, which
-  `Look.chord` holds. `shapeAt` draws a shape the same way, from the outlines `parseShapes` reads
-  of its file, found by `shapeFinder`, which `lint` shares. A pattern that ends with a dash runs
+  `Look.chord` holds. `glyphAt` draws a shape the same way, from the outlines `parseShx` reads
+  of its file, found by `glyphFinder`, which `lint` shares. A pattern that ends with a dash runs
   it into its first, `Dashes.trail`, and is fitted to its own first dash, `Dashes.lead`. A polyline's `linetypeGeneration` cuts its sides as one course, `courseOf`,
   from its second point when it is closed. `toSVG` draws a layout with `elements`, the
   walk it draws model space with, under a `Look` that says how wide and what color a pen is.

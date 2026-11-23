@@ -94,7 +94,8 @@ test("a paragraph's mask counts in its box, and a paragraph in columns takes non
   const [left, bottom] = extents(d.build().entities);
   // The mask reaches 4 heights past the letter's box.
   assert.ok(left < -3 && bottom < -3, `${left} ${bottom}`);
-  const columns = {
+
+  const columns: Drawing = {
     ...d.build(),
     entities: [
       {
@@ -109,6 +110,7 @@ test("a paragraph's mask counts in its box, and a paragraph in columns takes non
         mask: true,
       },
     ],
-  } as unknown as Drawing;
+  };
+
   assert.ok(lint(columns).some((found) => /in columns takes no mask/.test(found.message)));
 });

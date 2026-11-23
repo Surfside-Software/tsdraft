@@ -24,14 +24,35 @@ import {
   type DimensionStyle,
   type Drawing,
   type Entity,
+  type OrdinateDimension,
 } from "../src/index.ts";
-import { angleNumber, arrowRoom, measurementText, WIDEST_CHARACTERS } from "../src/dimensions.ts";
+import {
+  angleNumber,
+  arrowRoom,
+  isDimension,
+  measurementText,
+  WIDEST_CHARACTERS,
+  type Dimension,
+} from "../src/dimensions.ts";
 import { toDXFR2018 } from "../src/dxf-r2018.ts";
 import { heldNumber } from "../src/format.ts";
 import { extents } from "../src/extents.ts";
+import { dataOf, ofKind, wrong, type Data, type Field } from "./values.ts";
 
-const rule = (name: string) => (thrown: unknown) =>
-  thrown instanceof DrawingError && thrown.diagnostics[0]?.rule === name;
+const rule =
+  (name: string) =>
+  (thrown: unknown): thrown is DrawingError =>
+    thrown instanceof DrawingError && thrown.diagnostics[0]?.rule === name;
+
+/** `entity`, which must be a dimension. */
+const dimension = (entity: Entity | undefined): Dimension => {
+  assert.ok(
+    entity !== undefined && isDimension(entity),
+    `expected a dimension, got ${entity?.kind}`,
+  );
+
+  return entity;
+};
 
 /** Sizes in drawing units, so that a picture's numbers are easy to read. */
 const sizes = {
@@ -42,6 +63,7 @@ const sizes = {
   textGap: 0.5,
   precision: 2,
 } as const;
+
 const arrows: DimensionStyle = { name: "ARROWS", ...sizes };
 const ticks: DimensionStyle = { name: "TICKS", ...sizes, arrowhead: "architectural-tick" };
 
@@ -52,6 +74,7 @@ function drawing(draw?: (d: ReturnType<typeof createDrawing>) => void): Drawing 
   d.dimensionStyle({ ...sizes, name: "ARROWS" });
   d.dimensionStyle({ ...sizes, name: "TICKS", arrowhead: "architectural-tick" });
   draw?.(d);
+
   return d.build();
 }
 
@@ -61,20 +84,25 @@ const rules = (value: Drawing): string[] => lint(value).map((d) => d.rule);
 function records(dxf: string, type: string): string[][] {
   const lines = dxf.split("\r\n");
   const found: string[][] = [];
+
   for (let i = 1; i < lines.length; i += 2) {
     if (lines[i - 1]!.trim() !== "0" || lines[i] !== type) continue;
     let end = i + 1;
+
     while (end < lines.length && lines[end]!.trim() !== "0") end += 2;
     found.push(lines.slice(i + 1, end));
   }
+
   return found;
 }
 
 /** The first value of a group in a record `records` gave. */
 function value(record: string[], code: number): string | undefined {
   const at = record.findIndex((line, i) => i % 2 === 0 && Number(line) === code);
+
   return at < 0 ? undefined : record[at + 1];
 }
+
 const near = (got: readonly number[], want: readonly number[]): void => {
   assert.equal(got.length, want.length);
   got.forEach((value, i) => assert.ok(Math.abs(value - want[i]!) < 5e-7, `${got} is not ${want}`));
@@ -82,8 +110,10 @@ const near = (got: readonly number[], want: readonly number[]): void => {
 
 test("a measurement is written as the leading CAD app writes it: half up, with a little given to a length just under the half", () => {
   const at = (precision: number, more: Partial<DimensionStyle> = {}) => ({ precision, ...more });
+
   const feet = (precision: number, more: Partial<DimensionStyle> = {}) =>
     at(precision, { units: "architectural", ...more });
+
   // The length times the measurement scale, rounded half up to the precision, with the zeros
   // the style leaves out, between its prefix and its suffix.
   const strings: [length: number, style: ReturnType<typeof at>, text: string][] = [
@@ -151,15 +181,18 @@ test("a measurement is written as the leading CAD app writes it: half up, with a
     [6, feet(4, { feetInchZeros: "neither" }), `6"`],
     [42, feet(4, { prefix: "(", suffix: ")" }), `(3'-6")`],
   ];
+
   for (const [length, style, text] of strings) {
     assert.equal(measurementText(length, style), text, `${length} at ${JSON.stringify(style)}`);
   }
+
   // The style the leading CAD app measures with: architectural units, the fraction on the line, and
   // the zeros of feet and inches. The dimension holds no text of its own.
   const architectural = createDrawing({ units: "in" })
     .dimensionStyle({ name: "ARCH", ...sizes, units: "architectural", precision: 4 })
     .linearDimension([0, 0], [49.4375, 0], [0, 5], { style: "ARCH" })
     .build();
+
   const dxf = toDXF(architectural);
   const arch = records(dxf, "DIMSTYLE").find((r) => value(r, 2) === "ARCH")!;
   assert.deepEqual(
@@ -194,6 +227,7 @@ test("a dimension is drawn where the leading CAD app draws it", () => {
     },
     arrows,
   );
+
   assert.equal(along.measurement, 10);
   assert.deepEqual(along.definitionPoint, [10, 4]);
   assert.deepEqual(along.extensionLines, [
@@ -244,6 +278,7 @@ test("a dimension is drawn where the leading CAD app draws it", () => {
     },
     ticks,
   );
+
   assert.deepEqual(ticked.dimensionLine, [
     [-1, 4],
     [11, 4],
@@ -278,6 +313,7 @@ test("a dimension is drawn where the leading CAD app draws it", () => {
       suffix: "'",
     },
   );
+
   near(turned.definitionPoint, [24.330127, 49.820508]);
   near(
     turned.extensionLines.flat(2),
@@ -302,6 +338,7 @@ test("the text of a dimension reads from below or from the right, above its line
       },
       arrows,
     ).label;
+
   // The angle the leading CAD app turned the text by, for each angle a dimension measured along.
   for (const [angle, reads] of [
     [0, 0],
@@ -316,8 +353,10 @@ test("the text of a dimension reads from below or from the right, above its line
   ] as const) {
     assert.equal(picture(angle).rotation, reads, `along ${angle}`);
   }
+
   near(picture(90).at, [-0.5, 5]);
   near(picture(270).at, [-0.5, -5]);
+
   // An aligned dimension stands off to the left of the way from its first point to its second.
   const aligned = dimensionPicture(
     {
@@ -330,6 +369,7 @@ test("the text of a dimension reads from below or from the right, above its line
     },
     arrows,
   );
+
   near(aligned.definitionPoint, [16.4, 50.2]);
   assert.equal(aligned.measurement, 50);
 });
@@ -416,8 +456,10 @@ test("a dimension style is checked as literals and when the code runs", () => {
 test("a dimension is checked when it is drawn, and lint finds the same in a drawing built by hand", () => {
   const made = drawing((d) => {
     const from = [0, 0] as const;
-    const draw = (options: object) =>
-      d.linearDimension(from, [20, 0], [0, 5], options as { style: "TICKS" });
+
+    const draw = (options: Data) =>
+      d.linearDimension(from, [20, 0], [0, 5], wrong<{ style: "TICKS" }>(options));
+
     assert.throws(() => draw({ style: "NOPE" }), rule("undefined-dimension-style"));
     // @ts-expect-error: tsdraft draws no dimension in the leading CAD app's own style.
     assert.throws(() => d.linearDimension(from, [20, 0], [0, 5], { style: "Standard" }), /own/);
@@ -479,21 +521,31 @@ test("a dimension is checked when it is drawn, and lint finds the same in a draw
     // @ts-expect-error: the leading CAD app draws the architectural tick with the block of this name.
     assert.throws(() => d.block("_archtick", {}, () => {}), /ticks of a dimension/);
   });
+
   assert.deepEqual(lint(made), []);
   assert.deepEqual(lint(fromJSON(toJSON(made))), []);
 
-  const fits = made.entities.find((e) => e.id === "fits") as Entity & { kind: "linear-dimension" };
-  const withEntities = (...entities: unknown[]): Drawing =>
-    ({ ...made, entities }) as unknown as Drawing;
-  assert.deepEqual(rules(withEntities({ ...fits, style: "NOPE" })), ["undefined-dimension-style"]);
-  assert.deepEqual(rules(withEntities({ ...fits, style: null })), ["undefined-dimension-style"]);
-  assert.deepEqual(rules(withEntities({ ...fits, to: [5.4, 0] })), ["dimension"]);
-  assert.deepEqual(rules(withEntities({ ...fits, angle: 400 })), ["dimension"]);
-  assert.deepEqual(rules(withEntities({ ...fits, to: [0, 0] })), ["dimension"]);
-  assert.deepEqual(rules(withEntities({ ...fits, text: "  " })), ["dimension"]);
-  assert.deepEqual(rules(withEntities({ ...fits, text: 5 })), ["dimension"]);
-  assert.deepEqual(rules(withEntities({ ...fits, angle: Infinity })), ["geometry"]);
-  assert.deepEqual(rules(withEntities({ ...fits, style: "TICKS", text: "%%c<>" })), ["text"]);
+  const fits = ofKind(
+    made.entities.find((e) => e.id === "fits"),
+    "linear-dimension",
+  );
+
+  const fitsData = dataOf(fits);
+  const withEntities = (...entities: Field[]): Drawing => ({ ...made, entities: wrong(entities) });
+
+  assert.deepEqual(rules(withEntities({ ...fitsData, style: "NOPE" })), [
+    "undefined-dimension-style",
+  ]);
+  assert.deepEqual(rules(withEntities({ ...fitsData, style: null })), [
+    "undefined-dimension-style",
+  ]);
+  assert.deepEqual(rules(withEntities({ ...fitsData, to: [5.4, 0] })), ["dimension"]);
+  assert.deepEqual(rules(withEntities({ ...fitsData, angle: 400 })), ["dimension"]);
+  assert.deepEqual(rules(withEntities({ ...fitsData, to: [0, 0] })), ["dimension"]);
+  assert.deepEqual(rules(withEntities({ ...fitsData, text: "  " })), ["dimension"]);
+  assert.deepEqual(rules(withEntities({ ...fitsData, text: 5 })), ["dimension"]);
+  assert.deepEqual(rules(withEntities({ ...fitsData, angle: Infinity })), ["geometry"]);
+  assert.deepEqual(rules(withEntities({ ...fitsData, style: "TICKS", text: "%%c<>" })), ["text"]);
   assert.deepEqual(
     rules({ ...made, blocks: [{ name: "B", entities: [{ ...fits, id: "in-block" }] }] }),
     ["dimension"],
@@ -507,12 +559,17 @@ test("a dimension is checked when it is drawn, and lint finds the same in a draw
     "dimension",
     "dimension",
   ]);
-  const withStyles = (...dimensionStyles: unknown[]): Drawing =>
-    ({ ...made, entities: [], dimensionStyles }) as unknown as Drawing;
+
+  const withStyles = (...dimensionStyles: Field[]): Drawing => ({
+    ...made,
+    entities: [],
+    dimensionStyles: wrong(dimensionStyles),
+  });
+
   assert.deepEqual(rules(withStyles({ ...arrows, textHeight: -1 })), ["dimension-style"]);
   assert.deepEqual(rules(withStyles({ ...arrows, precision: null })), ["dimension-style"]);
   assert.deepEqual(rules(withStyles({ ...arrows, textStyle: "NOPE" })), ["undefined-text-style"]);
-  assert.deepEqual(rules(withStyles(arrows, { ...arrows, name: "arrows" })), [
+  assert.deepEqual(rules(withStyles(dataOf(arrows), { ...arrows, name: "arrows" })), [
     "duplicate-dimension-style",
   ]);
   assert.deepEqual(rules(withStyles({ ...arrows, suffix: "%%d" })), ["text"]);
@@ -523,6 +580,7 @@ test("closed arrowheads need room for the widest the text can be, and for the le
   const d = createDrawing({ units: "ft" });
   d.textStyle({ name: "NOTES", font: "Arial" });
   d.textStyle({ name: "LEANING", font: "Arial", obliqueAngle: 85 });
+
   const plan = {
     textHeight: 3 / 32,
     arrowSize: 1 / 8,
@@ -531,6 +589,7 @@ test("closed arrowheads need room for the widest the text can be, and for the le
     textGap: 1 / 16,
     scale: fromPaper(1, "in", view),
   };
+
   d.dimensionStyle({ ...plan, name: "PLAN", textStyle: "NOTES", precision: 1, suffix: "'" });
   d.dimensionStyle({ ...plan, name: "LEAN", textStyle: "LEANING", precision: 0 });
   // "6.0'" at 1" = 10': four characters of a measurement, 1.1 of the height each at most.
@@ -552,6 +611,7 @@ test("closed arrowheads need room for the widest the text can be, and for the le
 
 test("closed arrowheads need room for the wider text, and a stacked fraction for its longer part", () => {
   const d = createDrawing({ units: "in" });
+
   const stacked = {
     textHeight: 3 / 32,
     arrowSize: 1 / 8,
@@ -563,6 +623,7 @@ test("closed arrowheads need room for the wider text, and a stacked fraction for
     precision: 4,
     fraction: "stacked",
   } as const;
+
   d.dimensionStyle({ ...stacked, name: "STACKED" });
   d.linearDimension([0, 0], [7.4375, 0], [0, 5], { style: "STACKED" });
   assert.throws(
@@ -607,8 +668,10 @@ test("a dimension's stack is lowered until its bar or its slash's middle is half
     const { lines, strokes } = layoutDimensionText({ value, height: 1, font, at: [0, 0] });
     const { from, to } = strokes[0]!;
     const { baseline, runs } = lines[0]!;
+
     return { middle: (from[1] + to[1]) / 2 - baseline, below: runs.at(-1)!.baseline - baseline };
   };
+
   assert.ok(Math.abs(laid("1/2", 1).middle - 0.5) < 1e-9);
   assert.ok(Math.abs(laid("1#2", 1).middle - 0.5) < 1e-9);
   // A small one whose slash's middle is lower stays on the line (case STACK-100.03125-1-0.5-TR).
@@ -638,7 +701,7 @@ test("every number a dimension draws is under 1e100, and its angle is less than 
   // Two angles a turn apart are one angle, kept as the one less than a turn.
   d.linearDimension([0, 0], [3, 4], [0, 9], { style: "TICKS", along: -90, id: "down" });
   d.linearDimension([0, 0], [3, 4], [0, 9], { style: "TICKS", along: 270, id: "around" });
-  const [down, around] = d.build().entities as (Entity & { kind: "linear-dimension" })[];
+  const [down, around] = d.build().entities.map((e) => ofKind(e, "linear-dimension"));
   assert.deepEqual([down!.angle, around!.angle], [270, 270]);
   const ticksStyle = d.build().dimensionStyles![0]!;
   const picture = (angle: number) => dimensionPicture({ ...down!, angle }, ticksStyle);
@@ -668,10 +731,12 @@ test("the limits on digits look at the number as it is written", () => {
   );
   d.alignedDimension([0, 0], [9999999.99999, 0], 5, { style: "EIGHT" });
   const built = d.build();
+
   const by = (style: string, to: readonly [number, number]): Drawing => ({
     ...built,
     entities: [{ kind: "aligned-dimension", layer: "0", style, from: [0, 0], to, offset: 5 }],
   });
+
   assert.deepEqual(rules(by("EIGHT", [9999999.999999, 4.468136])), ["dimension"]);
   assert.deepEqual(rules(by("MILLI", [99999999999.99998, 0])), ["dimension"]);
 });
@@ -702,10 +767,12 @@ test("an id with the handle of a picture is refused, by the builder and by lint"
   const handle = dimensionPictureHandles({ id: "p10162956", index: 0 }).arrowheads[1];
   assert.equal(handle, "1D1C0933FD693E");
   assert.equal(idHandle("q28229819"), handle);
+
   const picture = drawing((d) => {
     d.linearDimension([0, 0], [10, 0], [0, 5], { style: "TICKS", id: "p10162956" });
     assert.throws(() => d.line([0, 0], [1, 0], { id: "q28229819" }), rule("id-handle"));
   });
+
   drawing((d) => {
     d.line([0, 0], [1, 0], { id: "q28229819" });
     assert.throws(
@@ -713,13 +780,15 @@ test("an id with the handle of a picture is refused, by the builder and by lint"
       /the picture of the dimension "p10162956" .*the id "q28229819"/,
     );
   });
-  const both = {
+
+  const both: Drawing = {
     ...picture,
     entities: [
       { kind: "line", layer: "0", from: [0, 0], to: [1, 0], id: "q28229819" },
       ...picture.entities,
     ],
-  } as Drawing;
+  };
+
   assert.deepEqual(rules(both), ["id-handle"]);
   assert.match(lint(both)[0]!.message, /picture of the dimension "p10162956"/);
 });
@@ -728,14 +797,17 @@ test("the room for a closed arrow's text holds the text as measureText measures 
   const codes = FONT_METRICS_RANGES.flatMap(([from, to]) =>
     Array.from({ length: to - from + 1 }, (_, i) => from + i),
   );
+
   /** The widest a character is laid out in any font: its advance, and what its ink adds. */
   const widest = (code: number): number =>
     Math.max(
       ...Object.values(FONT_METRICS).map((m) => {
         const i = codes.indexOf(code);
+
         return m.advances[i]! + Math.max(0, m.tails[i]!) + Math.max(0, -m.heads[i]!);
       }),
     );
+
   for (const [character, width] of Object.entries(WIDEST_CHARACTERS)) {
     const measured = widest(character.charCodeAt(0));
     assert.ok(
@@ -743,10 +815,12 @@ test("the room for a closed arrow's text holds the text as measureText measures 
       `${character}: ${width} for ${measured}`,
     );
   }
+
   // Every other character is given 2, which no character of any font reaches.
   assert.ok(codes.every((code) => widest(code) < 2));
   // So a text the room holds never measures longer than it, upright or leaned.
   const style: DimensionStyle = { ...arrows, arrowSize: 0.000001, textGap: 0 };
+
   for (const font of Object.keys(FONTS)) {
     for (const obliqueAngle of [0, 30, -85]) {
       for (const value of ["0.5", "123.4'", '-9.9"', "10 000.25"]) {
@@ -766,6 +840,7 @@ test("inspectText takes a dimension's text for a text, where its picture puts it
     // A note over the text of the dimension, which is centered above its line at 26, -9.5.
     d.text([26, -9], "OVER", { height: 1, align: "center" });
   });
+
   const warnings = inspectText(made);
   assert.deepEqual(
     warnings.map((w) => [w.rule, w.entity, w.other?.entity]),
@@ -786,6 +861,7 @@ test("a dimension is written with its style, its points and the block of its pic
       d.alignedDimension([0, 0], [30, 40], 17, { style: "ARROWS", text: "<> TYP" });
     });
   });
+
   const dxf = toDXF(made);
   // The handles come from the names: these are the ones the names give in every drawing.
   assert.equal(dimensionStyleHandle("TICK-10"), "110BB0D17D57F0");
@@ -833,12 +909,14 @@ test("a dimension is written with its style, its points and the block of its pic
       [dimensionPictureHandles({ index: 1 }).begin, "1"],
     ],
   );
+
   const held = (owner: string): string[][] =>
     ["LINE", "INSERT", "SOLID", "MTEXT"].flatMap((type) =>
       records(dxf, type)
         .filter((r) => value(r, 330) === owner)
         .map((r) => [type, ...r]),
     );
+
   const tickPicture = held(width.record);
   assert.deepEqual(
     tickPicture.map((r) => [r[0], value(r.slice(1), 5), value(r.slice(1), 8)]),
@@ -872,12 +950,14 @@ test("a dimension is written with its style, its points and the block of its pic
   const plain = toDXF({ ...made, dimensionStyles: [arrows], entities: [] });
   assert.ok(!plain.includes("_ArchTick"));
   assert.ok(!plain.includes("*D"));
+
   // A text longer than a group holds goes in groups of 250 characters, the last in group 1.
   const long = toDXF(
     drawing((d) =>
       d.linearDimension([0, 0], [9, 0], [0, -1], { style: "TICKS", text: "A".repeat(600) }),
     ),
   );
+
   const mtext = long.slice(long.indexOf("\r\nMTEXT\r\n"));
   assert.deepEqual(
     [...mtext.matchAll(/\r\n([13])\r\n(A*|\\A1;A*)(?=\r\n)/g)]
@@ -897,11 +977,14 @@ test("toSVG draws a dimension's lines, arrowheads and text, and the extents take
       d.linearDimension([0, 0], [52, 0], [0, -10], { style: "TICKS", id: "width" });
     });
   });
+
   const svg = toSVG(made);
+
   const group =
     /<g data-layer="DIMS" data-entity="0" data-id="width" data-dimension="52.00">([\s\S]*?)<\/g>/.exec(
       svg,
     );
+
   assert.ok(group);
   assert.equal(group[1]!.match(/data-part="extension-line"/g)?.length, 2);
   assert.equal(group[1]!.match(/data-part="dimension-line"/g)?.length, 1);
@@ -914,6 +997,7 @@ test("toSVG draws a dimension's lines, arrowheads and text, and the extents take
     /<text transform="translate\(24\.166667 -9\.5\) [^"]*" [^>]*textLength="3\.666667"[^>]*data-part="text">52\.00<\/text>/,
   );
   assert.match(group[1]!, /x1="-1" y1="-10" x2="53" y2="-10"/);
+
   // From the end of the dimension line past the first extension line to the top of the text.
   const box = extents(
     made.entities,
@@ -924,6 +1008,7 @@ test("toSVG draws a dimension's lines, arrowheads and text, and the extents take
     undefined,
     made.dimensionStyles,
   );
+
   near([box[0], box[1], box[2]], [-1, -11, 53]);
   assert.ok(box[3] >= -8.5);
   // A dimension in a style the drawing does not have draws nothing, and hangs nothing.
@@ -963,6 +1048,7 @@ test("two text styles lint refuses for their names are still written with a hand
     ],
     entities: [],
   });
+
   const lines = dxf.split(/\r?\n/);
   const handles = lines.filter((_, i) => i % 2 === 1 && lines[i - 1]!.trim() === "5");
   assert.ok(handles.length > 10);
@@ -1027,9 +1113,11 @@ test("a stacked fraction, words below the line and a text moved out are drawn an
   d.linearDimension([0, 0], [10, 0], [0, 2], { style: "S", textBelow: "WINDOW HEAD HT." });
   d.linearDimension([0, 5], [0.1, 5], [0, 7], { style: "S", id: "short" });
   const drawing = d.build();
+
   const [below, short] = drawing.entities.map((e) =>
-    dimensionPicture(e as never, drawing.dimensionStyles![0]!, drawing.textStyles![0]),
+    dimensionPicture(dimension(e), drawing.dimensionStyles![0]!, drawing.textStyles![0]),
   );
+
   // The words stand a gap under the line, and the file holds the line's middle for the text.
   assert.equal(below!.below?.label.value, "WINDOW HEAD HT.");
   assert.ok(below!.below!.middle[1] < 2 && below!.textMiddle[1] > 2);
@@ -1040,11 +1128,10 @@ test("a stacked fraction, words below the line and a text moved out are drawn an
   const dxf = toDXF(drawing);
   assert.ok(dxf.includes("\r\n1\r\n<>\\XWINDOW HEAD HT.\r\n"));
   const read = await readDXF(dxf, { geometry: true });
-  const [first] = read.model.entities as readonly {
-    readonly text?: string;
-    readonly textBelow?: string;
-  }[];
-  assert.deepEqual([first!.text, first!.textBelow], [undefined, "WINDOW HEAD HT."]);
+
+  const first = ofKind(read.model.entities?.[0], "dimension");
+
+  assert.deepEqual([first.text, first.textBelow], [undefined, "WINDOW HEAD HT."]);
   assert.equal(read.dimensionStyles.find((s) => s.name === "S")?.textMove, 1);
   assert.equal(read.dimensionStyles.find((s) => s.name === "S")?.arrowheadBlock, "_Oblique");
 });
@@ -1080,7 +1167,7 @@ test("a radius, a diameter and a jogged radius dimension are built, written and 
   );
   // The leading CAD app writes R and the diameter sign before the measurement itself.
   const style = drawing.dimensionStyles![0]!;
-  assert.equal(dimensionPicture(drawing.entities[0] as never, style).label.value, "R5.00");
+  assert.equal(dimensionPicture(dimension(drawing.entities[0]), style).label.value, "R5.00");
 });
 
 test("a radial dimension is refused where the leading CAD app would draw what tsdraft does not", () => {
@@ -1119,7 +1206,7 @@ test("an angular dimension is built, written and read back, its arc's point pick
   assert.deepEqual(fromJSON(toJSON(drawing)), drawing);
   const style = drawing.dimensionStyles![0]!;
   assert.deepEqual(
-    drawing.entities.map((e) => dimensionPicture(e as never, style).label.value),
+    drawing.entities.map((e) => dimensionPicture(dimension(e), style).label.value),
     ["90°", "270° TYP."],
   );
   const read = await readDXF(toDXF(drawing), { geometry: true });
@@ -1134,12 +1221,13 @@ test("an angular dimension is built, written and read back, its arc's point pick
   // An angle too large for degrees reads as no angle.
   const huge = toDXF(drawing).replace("42\r\n1.5707963267949\r\n", "42\r\n1e308\r\n");
   const hugeRead = await readDXF(huge, { geometry: true });
-  assert.equal((hugeRead.model.entities![0] as { measurement?: number }).measurement, undefined);
+  assert.equal(ofKind(hugeRead.model.entities?.[0], "angular-dimension").measurement, undefined);
 });
 
 test("an angle is written in each unit and precision as the leading CAD app writes it", () => {
   const at = (degrees: number, style: Parameters<typeof angleNumber>[1]): string =>
     angleNumber((degrees * Math.PI) / 180, style);
+
   const dms = { angleUnits: "degrees-minutes-seconds" } as const;
   // Each from a case the app drew, of the angle its points make.
   assert.deepEqual(
@@ -1242,16 +1330,23 @@ test("a style's text mask is kept by the builder, written, plotted and boxed", (
   const masked = (textMask?: boolean | { color: number }) => {
     const d = createDrawing({ units: "ft" });
     d.textStyle({ name: "NOTES", font: "Arial" });
-    d.dimensionStyle({ ...sizes, name: "MASKED", ...(textMask === undefined ? {} : { textMask }) });
+    d.dimensionStyle(
+      textMask === undefined
+        ? { ...sizes, name: "MASKED" }
+        : { ...sizes, name: "MASKED", textMask },
+    );
     d.linearDimension([0, 0], [100, 0], [50, 20], { style: "MASKED" });
+
     return d.build();
   };
+
   assert.deepEqual(masked(true).dimensionStyles?.[0]?.textMask, true);
   assert.deepEqual(masked({ color: 3 }).dimensionStyles?.[0]?.textMask, { color: 3 });
   assert.equal(masked(false).dimensionStyles?.[0]?.textMask, undefined);
   assert.match(toDXF(masked(true)), /\r\n *69\r\n *1\r\n/);
   assert.match(toSVG(masked(true)), /data-part="mask"/);
   assert.doesNotMatch(toSVG(masked()), /data-part="mask"/);
+
   // The mask grows the text's box by a quarter of its height each side, past the dimension's top.
   const top = (drawing: Drawing) =>
     extents(
@@ -1263,6 +1358,7 @@ test("a style's text mask is kept by the builder, written, plotted and boxed", (
       undefined,
       drawing.dimensionStyles,
     )[3];
+
   assert.ok(top(masked(true)) > top(masked()), `${top(masked(true))} ${top(masked())}`);
 });
 
@@ -1286,7 +1382,7 @@ test("an arc length dimension is built, written and read back, with the arc symb
   assert.deepEqual(lint(drawing), []);
   assert.deepEqual(fromJSON(toJSON(drawing)), drawing);
   const style = drawing.dimensionStyles![0]!;
-  const picture = dimensionPicture(drawing.entities[0] as never, style);
+  const picture = dimensionPicture(dimension(drawing.entities[0]), style);
   assert.equal(picture.label.value, "15.71");
   // The symbol is a half circle before the text, the last of its arcs.
   assert.equal(picture.dimensionArcs.length, 2);
@@ -1311,7 +1407,7 @@ test("an arc length dimension is built, written and read back, with the arc symb
   far.dimensionStyle({ ...sizes, name: "S" });
   far.arcLengthDimension([1000, 2000], 10, 2, 92, [1000, 2013], { style: "S" });
   const farDrawing = far.build();
-  const [from, to] = dimensionPicture(farDrawing.entities[0] as never, style).extensionLines[0]!;
+  const [from, to] = dimensionPicture(dimension(farDrawing.entities[0]), style).extensionLines[0]!;
   const [cx, cy] = [1000, 2000];
   assert.ok(
     Math.abs((from[0] - cx) * (to[1] - from[1]) - (from[1] - cy) * (to[0] - from[0])) < 1e-6,
@@ -1393,7 +1489,7 @@ test("an arc length dimension is refused where the leading CAD app would draw wh
     /16 digits/,
   );
   assert.throws(
-    () => d.dimensionStyle({ ...sizes, name: "BAD", arcSymbol: "after" as never }),
+    () => d.dimensionStyle({ ...sizes, name: "BAD", arcSymbol: wrong("after") }),
     /arcSymbol must be "before", "above" or "none"/,
   );
 });
@@ -1417,9 +1513,11 @@ test("an ordinate dimension is built, written and read back, its leader jogged o
   assert.deepEqual(lint(drawing), []);
   assert.deepEqual(fromJSON(toJSON(drawing)), drawing);
   const style = drawing.dimensionStyles![0]!;
+
   const [up, left, straight, jogged, ...edges] = drawing.entities.map((e) =>
-    dimensionPicture(e as never, style),
+    dimensionPicture(dimension(e), style),
   );
+
   assert.equal(up!.label.value, "3.00");
   assert.deepEqual(up!.extensionLines, [
     [
@@ -1458,25 +1556,41 @@ test("an ordinate dimension is built, written and read back, its leader jogged o
   );
   // Two numbers written a ten-thousandth apart at 1e12 are one as the leading CAD app reads them,
   // so the leader is level with its feature and runs back, down.
-  const level = { ...drawing.entities[0]!, feature: [3, 1e12], leaderEnd: [3.0001, 1e12 + 0.0001] };
-  const [start, stop] = dimensionPicture(level as never, style).extensionLines[0]!;
+  const ordinate = ofKind(drawing.entities[0], "ordinate-dimension");
+
+  const level: OrdinateDimension = {
+    ...ordinate,
+    feature: [3, 1e12],
+    leaderEnd: [3.0001, 1e12 + 0.0001],
+  };
+
+  const [start, stop] = dimensionPicture(level, style).extensionLines[0]!;
   assert.ok(start[1] < 1e12 && stop[1] < start[1], `${start} to ${stop}`);
   // Each point is placed in the numbers the leading CAD app holds, so no line of a leader comes
   // out of no length as that app reads it back, even where an arrow size is a hair at 1e12.
   const hair = { ...style, arrowSize: 0.00014, extensionOffset: 0 };
-  const thin = { ...drawing.entities[0]!, feature: [3, 1e12], leaderEnd: [4, 1e12 + 0.0007] };
-  const lines = dimensionPicture(thin as never, hair).extensionLines;
+
+  const thin: OrdinateDimension = {
+    ...ordinate,
+    feature: [3, 1e12],
+    leaderEnd: [4, 1e12 + 0.0007],
+  };
+
+  const lines = dimensionPicture(thin, hair).extensionLines;
   assert.equal(lines.length, 3);
+
   for (const [from, to] of lines) {
     assert.notDeepEqual(from.map(heldNumber), to.map(heldNumber), `${from} to ${to}`);
   }
+
   // The end's side of the leader is placed from the end, however far out the feature is.
-  const far = { ...drawing.entities[0]!, feature: [3, 1e16], leaderEnd: [3, 1] };
+  const far: OrdinateDimension = { ...ordinate, feature: [3, 1e16], leaderEnd: [3, 1] };
   const centered = { ...style, textPlacement: "centered" } as const;
-  assert.deepEqual(dimensionPicture(far as never, centered).extensionLines.at(-1)![1], [3, 1]);
-  const above = dimensionPicture(far as never, style);
+  assert.deepEqual(dimensionPicture(far, centered).extensionLines.at(-1)![1], [3, 1]);
+  const above = dimensionPicture(far, style);
   assert.deepEqual(above.extensionLines.at(-1)![1], [3, 1 - 0.5 - above.textWidth]);
-  const farJog = dimensionPicture({ ...far, leaderEnd: [4, 1] } as never, style);
+  const farJog = dimensionPicture({ ...far, leaderEnd: [4, 1] }, style);
+
   assert.deepEqual(
     farJog.extensionLines.slice(1).map(([from, to]) => [from, to]),
     [

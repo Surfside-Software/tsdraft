@@ -3,7 +3,9 @@ import { test } from "node:test";
 import { runInNewContext } from "node:vm";
 import { deflateSync } from "node:zlib";
 import { createDrawing, pdfPageSize, toPDF } from "../src/index.ts";
+import { isString } from "../src/guards.ts";
 import { timeLimit } from "./time-limit.ts";
+import { wrong } from "./values.ts";
 
 const latin1 = (text: string): Uint8Array => Uint8Array.from(text, (c) => c.charCodeAt(0) & 255);
 const text = (bytes: Uint8Array): string => String.fromCharCode(...bytes);
@@ -17,6 +19,7 @@ interface Part {
 
 function objectBytes({ n, body, stream }: Part): string {
   if (stream === undefined) return `${n} 0 obj\n${body}\nendobj\n`;
+
   return `${n} 0 obj\n${body}\nstream\n${text(stream)}\nendstream\nendobj\n`;
 }
 
@@ -24,18 +27,24 @@ function objectBytes({ n, body, stream }: Part): string {
 function classic(parts: readonly Part[], trailer = "/Root 1 0 R", prefix = ""): string {
   let pdf = prefix || "%PDF-1.4\n%\xe2\xe3\xcf\xd3\n";
   const at = new Map<number, number>();
+
   for (const part of parts) {
     at.set(part.n, pdf.length);
     pdf += objectBytes(part);
   }
+
   const numbers = [...at.keys()].sort((a, b) => a - b);
   const xref = pdf.length;
   pdf += "xref\n";
+
   if (prefix === "") pdf += "0 1\n0000000000 65535 f \n";
+
   for (const n of numbers) {
     pdf += `${n} 1\n${String(at.get(n)).padStart(10, "0")} 00000 n \n`;
   }
+
   const size = Math.max(0, ...numbers) + 1;
+
   return `${pdf}trailer\n<< /Size ${size} ${trailer} >>\nstartxref\n${xref}\n%%EOF\n`;
 }
 
@@ -49,6 +58,7 @@ function predicted(rows: number[][]): Uint8Array {
   rows.forEach((row, r) => {
     out.push(2, ...row.map((b, i) => (b - (r > 0 ? rows[r - 1]![i]! : 0)) & 255));
   });
+
   return new Uint8Array(out);
 }
 
@@ -59,12 +69,15 @@ function predicted(rows: number[][]): Uint8Array {
 function modern(loose: readonly Part[], packed: readonly Part[], trailer = "/Root 1 0 R"): string {
   let pdf = "%PDF-1.5\n";
   const rows = new Map<number, number[]>();
+
   for (const part of loose) {
     rows.set(part.n, [1, ...be(pdf.length, 3), 0]);
     pdf += objectBytes(part);
   }
+
   const all = [...loose.map((p) => p.n), ...packed.map((p) => p.n)];
   const top = Math.max(0, ...all) + 1;
+
   if (packed.length > 0) {
     const stm = top;
     let header = "";
@@ -82,9 +95,11 @@ function modern(loose: readonly Part[], packed: readonly Part[], trailer = "/Roo
       stream: data,
     });
   }
+
   const xrefN = top + 1;
   rows.set(xrefN, [1, ...be(pdf.length, 3), 0]);
   const table: number[][] = [];
+
   for (let n = 0; n <= xrefN; n++) table.push(rows.get(n) ?? [0, 0, 0, 0, 0]);
   const data = deflateSync(predicted(table));
   const xref = pdf.length;
@@ -93,6 +108,7 @@ function modern(loose: readonly Part[], packed: readonly Part[], trailer = "/Roo
     body: `<< /Type /XRef /Size ${xrefN + 1} /W [1 3 1] ${trailer} /Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 5 >> /Length ${data.length} >>`,
     stream: data,
   });
+
   return `${pdf}startxref\n${xref}\n%%EOF\n`;
 }
 
@@ -104,7 +120,7 @@ const onePage = (page: string, tree = ""): Part[] => [
 ];
 
 const size = (pdf: string | Uint8Array, page: string | number = 1) =>
-  pdfPageSize(typeof pdf === "string" ? latin1(pdf) : pdf, page);
+  pdfPageSize(isString(pdf) ? latin1(pdf) : pdf, page);
 
 test("a page's MediaBox, in inches", () => {
   assert.deepEqual(size(classic(onePage("/MediaBox [0 0 612 792]"))), [8.5, 11]);
@@ -132,6 +148,7 @@ test("boxes and the turn are inherited from the page tree", () => {
   assert.deepEqual(size(classic(onePage("", "/MediaBox [0 0 2592 1728] /Rotate 90"))), [24, 36]);
   // The page's own box and turn win over the tree's.
   assert.deepEqual(size(classic(onePage("/MediaBox [0 0 612 792] /Rotate 0", tree))), [8.5, 11]);
+
   // Through two levels of the tree.
   const deep: Part[] = [
     { n: 1, body: "<< /Type /Catalog /Pages 2 0 R >>" },
@@ -139,12 +156,14 @@ test("boxes and the turn are inherited from the page tree", () => {
     { n: 4, body: "<< /Type /Pages /Kids [3 0 R] /Count 1 /Parent 2 0 R /Rotate 270 >>" },
     { n: 3, body: "<< /Type /Page /Parent 4 0 R >>" },
   ];
+
   assert.deepEqual(size(classic(deep)), [11, 17]);
 });
 
 test("a turn of 90 or 270 swaps width and height", () => {
   const turned = (rotate: string) =>
     size(classic(onePage(`/MediaBox [0 0 1224 792] /Rotate ${rotate}`)));
+
   assert.deepEqual(turned("0"), [17, 11]);
   assert.deepEqual(turned("90"), [11, 17]);
   assert.deepEqual(turned("180"), [17, 11]);
@@ -176,6 +195,7 @@ test("numbers, boxes, counts, kids and turns given by reference", () => {
     { n: 9, body: "-270" },
     { n: 10, body: "2" },
   ];
+
   assert.deepEqual(size(classic(parts)), [22, 34]);
 });
 
@@ -189,16 +209,19 @@ test("pages are numbered from 1, as a string or a number", () => {
     { n: 6, body: "<< /Type /Page /Parent 4 0 R /MediaBox [0 0 1224 792] >>" },
     { n: 7, body: "<< /Type /Page /Parent 4 0 R /MediaBox [0 0 1728 1224] >>" },
   ];
+
   const pdf = classic(parts);
   assert.deepEqual(size(pdf, 1), [8.5, 11]);
   assert.deepEqual(size(pdf, "1"), [8.5, 11]);
   assert.deepEqual(size(pdf, 2), [17, 11]);
   assert.deepEqual(size(pdf, "3"), [24, 17]);
   assert.deepEqual(size(pdf, 4), [36, 24]);
+
   for (const page of [0, 5, -1, 1.5, NaN, Infinity, "0", "01", " 1", "1 ", "+1", "1.0", "", "a"]) {
     assert.equal(size(pdf, page), undefined, String(page));
   }
-  assert.equal(size(pdf, null as unknown as number), undefined);
+
+  assert.equal(size(pdf, wrong<number>(null)), undefined);
 });
 
 test("a cross-reference stream with a predictor, and objects in an object stream", () => {
@@ -223,21 +246,25 @@ test("an incremental update changes a box, the newest winning", () => {
   const update = classic([page], `/Root 1 0 R /Prev ${prev}`, first);
   assert.deepEqual(size(update), [17, 11]);
   assert.deepEqual(size(first), [8.5, 11]);
+
   // A /Prev that points at itself ends.
   const looped = update.replace(
     `/Prev ${prev}`,
     `/Prev ${Number(/startxref\n(\d+)\n%%EOF\n$/.exec(update)![1])}`,
   );
+
   assert.deepEqual(size(looped), [17, 11]);
 });
 
 test("a broken cross-reference is read by scanning for the objects", () => {
   const pdf = classic(onePage("/MediaBox [0 0 612 792]"));
+
   // Every offset off by 3.
   const moved = pdf.replace(
     /^(\d{10}) 00000 n $/gm,
     (_, at) => `${String(Number(at) + 3).padStart(10, "0")} 00000 n `,
   );
+
   assert.deepEqual(size(moved), [8.5, 11]);
   assert.deepEqual(size(pdf.replace(/startxref\n\d+/, "startxref\n999999")), [8.5, 11]);
   assert.deepEqual(size(pdf.slice(0, pdf.indexOf("xref\n"))), [8.5, 11]);
@@ -249,10 +276,12 @@ test("a broken cross-reference is read by scanning for the objects", () => {
 
 test("an encrypted file reads where its pages are outside object streams", () => {
   const encrypt = "/Root 1 0 R /Encrypt 9 0 R";
+
   const parts = [
     ...onePage("/MediaBox [0 0 612 792]"),
     { n: 9, body: "<< /Filter /Standard /V 2 >>" },
   ];
+
   assert.deepEqual(size(classic(parts, encrypt)), [8.5, 11]);
   const [catalog, tree, page] = onePage("/MediaBox [0 0 612 792]");
   assert.equal(size(modern([catalog!, parts[3]!], [tree!, page!], encrypt)), undefined);
@@ -264,16 +293,21 @@ test("a page tree that loops, or is too deep, gives undefined", () => {
     { n: 2, body: "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 612 792] >>" },
     { n: 4, body: "<< /Type /Pages /Kids [2 0 R] /Count 1 /Parent 4 0 R >>" },
   ];
+
   assert.equal(size(classic(cycle)), undefined);
+
   const self: Part[] = [
     { n: 1, body: "<< /Type /Catalog /Pages 2 0 R >>" },
     { n: 2, body: "<< /Type /Pages /Kids [2 0 R] /Count 1 >>" },
   ];
+
   assert.equal(size(classic(self)), undefined);
   const chain: Part[] = [{ n: 1, body: "<< /Type /Catalog /Pages 2 0 R >>" }];
+
   for (let n = 2; n < 400; n++) {
     chain.push({ n, body: `<< /Type /Pages /Kids [${n + 1} 0 R] /Count 1 >>` });
   }
+
   chain.push({ n: 400, body: "<< /Type /Page /MediaBox [0 0 612 792] >>" });
   assert.equal(size(classic(chain)), undefined);
   assert.deepEqual(
@@ -302,13 +336,16 @@ test("garbage and truncated files give undefined", () => {
   ]) {
     assert.equal(size(bytes), undefined, bytes);
   }
+
   const pdf = classic(onePage("/MediaBox [0 0 612 792]"));
   assert.equal(size(pdf.replace("%PDF-", "%XYZ-")), undefined);
+
   for (let cut = 0; cut < pdf.length; cut += 7) {
     const found = size(pdf.slice(0, cut));
     assert.ok(found === undefined || (found[0] === 8.5 && found[1] === 11), String(cut));
   }
-  assert.equal(pdfPageSize("%PDF-1.4" as unknown as Uint8Array, 1), undefined);
+
+  assert.equal(pdfPageSize(wrong<Uint8Array>("%PDF-1.4"), 1), undefined);
 });
 
 test("the size of each page of a PDF toPDF writes", () => {
@@ -317,6 +354,7 @@ test("the size of each page of a PDF toPDF writes", () => {
   d.layout("B", { paper: "ARCH E" }, () => {});
   d.layout("C", { paper: "ARCH D" }, () => {});
   const drawing = d.build();
+
   for (const pdf of [toPDF(drawing), toPDF(drawing, { deflate: (b) => deflateSync(b) })]) {
     assert.deepEqual(pdfPageSize(pdf, 1), [17, 11]);
     assert.deepEqual(pdfPageSize(pdf, "2"), [48, 36]);
@@ -329,6 +367,7 @@ test("the size of each page of a PDF toPDF writes", () => {
 function seeded(seed: number): (n: number) => number {
   return (n) => {
     seed = (seed * 1103515245 + 12345) >>> 0;
+
     return Math.floor((seed / 2 ** 32) * n);
   };
 }
@@ -337,9 +376,11 @@ test("mutated PDFs give a size or undefined, never a throw, within the time limi
   const d = createDrawing({ units: "ft" });
   d.layout("A", { paper: "ANSI B" }, () => {});
   d.layout("B", { paper: "ARCH E" }, () => {});
+
   const [catalog, tree, page] = onePage(
     "/MediaBox [0 0 1224 792] /CropBox [0 0 600 700] /Rotate 90",
   );
+
   const seeds = [
     toPDF(d.build()),
     latin1(
@@ -352,6 +393,7 @@ test("mutated PDFs give a size or undefined, never a throw, within the time limi
     ),
     latin1(modern([catalog!], [tree!, page!])),
   ];
+
   const big = [
     "99999999999",
     "-1",
@@ -362,13 +404,18 @@ test("mutated PDFs give a size or undefined, never a throw, within the time limi
     "(",
     "1 0 R ".repeat(50),
   ];
+
   const random = seeded(12);
+
   const checked = (bytes: Uint8Array, page: number): void => {
     const found = pdfPageSize(bytes, page);
+
     if (found === undefined) return;
     assert.equal(found.length, 2);
+
     for (const x of found) assert.ok(Number.isFinite(x) && x > 0, String(found));
   };
+
   runInNewContext(
     `for (let i = 0; i < 4000; i++) run(i);`,
     {
@@ -376,9 +423,11 @@ test("mutated PDFs give a size or undefined, never a throw, within the time limi
         const seed = seeds[i % seeds.length]!;
         let bytes: Uint8Array;
         const kind = random(4);
+
         if (kind === 0) bytes = seed.slice(0, random(seed.length));
         else if (kind === 1) {
           bytes = seed.slice();
+
           for (let k = 0; k < 1 + random(6); k++) bytes[random(bytes.length)] = random(256);
         } else if (kind === 2) {
           // A number or a token replaced by a huge one, a deep nesting or an open string.
@@ -393,6 +442,7 @@ test("mutated PDFs give a size or undefined, never a throw, within the time limi
           const from = random(bytes.length);
           bytes.copyWithin(random(bytes.length), from, from + random(64));
         }
+
         checked(bytes, 1 + random(3));
       },
     },
@@ -403,10 +453,12 @@ test("mutated PDFs give a size or undefined, never a throw, within the time limi
 test("a large file of many pages is read in time", () => {
   const parts: Part[] = [{ n: 1, body: "<< /Type /Catalog /Pages 2 0 R >>" }];
   const kids: string[] = [];
+
   for (let n = 3; n < 10_003; n++) {
     kids.push(`${n} 0 R`);
     parts.push({ n, body: `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${n} 72] >>` });
   }
+
   parts.push({ n: 2, body: `<< /Type /Pages /Kids [${kids.join(" ")}] /Count ${kids.length} >>` });
   const pdf = classic(parts);
   const broken = latin1(pdf.replace(/startxref\n\d+/, "startxref\n1"));
@@ -430,12 +482,15 @@ test("a page whose entry is off is found by the scan, never taken for the next p
     { n: 4, body: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 2592 1728] /Rotate 90 >>" },
     { n: 5, body: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>" },
   ];
+
   const pdf = classic(parts);
   const at = pdf.indexOf("4 0 obj");
+
   const off = pdf.replace(
     `${String(at).padStart(10, "0")} 00000 n `,
     `${String(at + 7).padStart(10, "0")} 00000 n `,
   );
+
   assert.deepEqual(size(off, 2), [24, 36]);
   assert.deepEqual(size(off, 3), [8.5, 11]);
 });
@@ -449,6 +504,7 @@ test("pages are counted in order, whatever a stale /Count says", () => {
     { n: 5, body: "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 1224 792] >>" },
     { n: 6, body: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 2592 1728] >>" },
   ];
+
   assert.deepEqual(size(classic(parts), 2), [17, 11]);
   assert.deepEqual(size(classic(parts), 3), [36, 24]);
 });
@@ -476,6 +532,7 @@ test("object streams whose counts lead through other object streams stop, withou
   const depth = 3000;
   let pdf = "%PDF-1.5\n";
   const offsets: number[] = [];
+
   const put = (n: number, body: string, stream?: string) => {
     offsets[n] = pdf.length;
     pdf +=
@@ -483,6 +540,7 @@ test("object streams whose counts lead through other object streams stop, withou
         ? `${n} 0 obj\n${body}\nendobj\n`
         : `${n} 0 obj\n${body}\nstream\n${stream}\nendstream\nendobj\n`;
   };
+
   // Objects 10 + k (k < depth) are object streams; object 10000 + k is packed in stream 10 + k + 1.
   for (let k = 0; k < depth; k++) {
     const data = `${10000 + k} 0 1\n`;
@@ -492,8 +550,10 @@ test("object streams whose counts lead through other object streams stop, withou
       data,
     );
   }
+
   const xref = pdf.length;
   let table = "xref\n0 1\n0000000000 65535 f \n";
+
   for (let k = 0; k < depth; k++)
     table += `${10 + k} 1\n${String(offsets[10 + k]).padStart(10, "0")} 00000 n \n`;
   pdf += `${table}trailer\n<< /Size 20000 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
@@ -514,10 +574,12 @@ test("a table off by a row, or of other generations than its objects, is read by
 test("a hybrid file's objects in object streams, which its table marks free, are read", () => {
   let pdf = "%PDF-1.5\n";
   const at: number[] = [];
+
   const put = (part: Part): void => {
     at[part.n] = pdf.length;
     pdf += objectBytes(part);
   };
+
   onePage("/MediaBox [0 0 432 720] /CropBox 4 0 R").forEach(put);
   const packed = "4 0 [0 0 216 144]";
   put({
@@ -542,17 +604,21 @@ test("an offset past the end of the file charges the budget, never refunds it", 
   // The tree's root names an object whose row points past the file; each of its nodes names an
   // object that opens a string and never closes it, so each read runs to the end of the file.
   const nodes = 1000;
+
   const parts: Part[] = [
     { n: 1, body: "<< /Type /Catalog /Pages 2 0 R >>" },
     { n: 9, body: "0" },
   ];
+
   const kids: string[] = [];
+
   for (let i = 0; i < nodes; i++) {
     const n = 10 + 2 * i;
     kids.push(`${n} 0 R`);
     parts.push({ n, body: `<< /Type /Pages /Kids [] /Rotate ${n + 1} 0 R >>` });
     parts.push({ n: n + 1, body: "(" });
   }
+
   parts.push({ n: 2, body: `<< /Type /Pages /Kids [${kids.join(" ")}] /Rotate 9 0 R >>` });
   parts.push({ n: 8, body: `<< /Pad <${"0".repeat(4_000_000)}> >>` });
   const pdf = classic(parts).replace(/^\d{10}( 00000 n \n)(?=10 1\n)/m, "9999999999$1");

@@ -104,7 +104,7 @@ it is given its own. `DASHED`, `HIDDEN`, `CENTER`, `PHANTOM`, `DASHDOT` and `DOT
 are the leading CAD app's own definitions; `d.linetype({ name, pattern })` defines another,
 with dashes as positive lengths, gaps as negative ones and dots as 0. Its `marks` draw texts
 along the line, such as a water main's letters, and shapes of a firm's shape file, such as a
-fence's circles, which `parseShapes` reads and the plot takes as `shapes`. `parseLinetypes` reads
+fence's circles, which `parseShx` reads and the plot takes as `shx`. `parseLinetypes` reads
 a firm's linetype file. A polyline's `linetypeGeneration` runs the pattern on past its vertices. A
 lineweight is in millimetres.
 

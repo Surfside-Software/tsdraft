@@ -17,6 +17,7 @@ import {
   type EditorModule,
   type FileEditor,
 } from "tsdraft";
+import { isFunction, isObject, isString } from "./guards.ts";
 
 /** What the process says, in order: the source, then the result. */
 export type WriteMessage =
@@ -45,12 +46,17 @@ function send(message: WriteMessage, bytes?: Uint8Array): void {
   const json = Buffer.from(JSON.stringify(message));
   const head = Buffer.alloc(4);
   head.writeUInt32BE(json.length);
+
   for (const part of [head, json, ...(bytes ? [bytes] : [])])
     for (let at = 0; at < part.length;) at += writeSync(ANSWER, part, at);
 }
 
-const message = (error: unknown): string =>
-  (error instanceof Error ? error.message : String(error)).slice(0, 2_000);
+const message = (cause: unknown): string =>
+  (cause instanceof Error ? cause.message : String(cause)).slice(0, 2_000);
+
+/** Whether `cause` is an error named `name`, from whichever copy of tsdraft threw it. */
+const isNamed = (cause: unknown, name: string): boolean =>
+  isObject(cause) && "name" in cause && cause.name === name;
 
 function fail(error: string): never {
   send({ kind: "error", error });
@@ -59,20 +65,33 @@ function fail(error: string): never {
 
 // Ends with the command, as a reading process does.
 const parent = process.ppid;
+
 setInterval(() => process.ppid !== parent && process.exit(1), 1_000).unref();
 
-const isEditFile = (value: unknown): value is EditFile =>
-  typeof value === "object" &&
-  value !== null &&
-  typeof (value as EditFile).build === "function" &&
-  typeof (value as EditFile).source === "object" &&
-  (value as EditFile).source !== null &&
-  typeof (value as EditFile).source.file === "string" &&
-  typeof (value as EditFile).source.sha256 === "string";
+function isEditFile(value: unknown): value is EditFile {
+  if (!isObject(value) || !("build" in value) || !("source" in value)) return false;
+  const { build, source } = value;
+
+  return (
+    isFunction(build) &&
+    isObject(source) &&
+    "file" in source &&
+    isString(source.file) &&
+    "sha256" in source &&
+    isString(source.sha256)
+  );
+}
+
+/** What an edit file's module exports: its default is checked to be an edit file. */
+interface EditFileModule {
+  readonly default?: unknown;
+}
 
 let file: EditFile;
+
 try {
-  const module = (await import(pathToFileURL(editPath).href)) as { default?: unknown };
+  const module: EditFileModule = await import(pathToFileURL(editPath).href);
+
   if (!isEditFile(module.default))
     fail(
       "The default export must be an edit file: `export default editDrawing({ file, sha256, name }, ...)`",
@@ -81,8 +100,10 @@ try {
 } catch (error) {
   fail(`The edit file could not be loaded: ${message(error)}`);
 }
+
 const folder = dirname(editPath);
 const source = resolve(folder, file.source.file);
+
 send({
   kind: "source",
   source,
@@ -102,12 +123,15 @@ const go = await new Promise<{ editor: string | undefined } | undefined>((settle
   });
   lines.once("close", () => settle(undefined));
 });
+
 if (!go) process.exit(0);
+
 const editorModule = go.editor;
 
 /** A lock beside the source: its name with `.dwl` or `.dwl2` for its extension, in any case. */
 function locks(path: string): string[] {
   const stem = basename(path, extname(path)).toLowerCase();
+
   try {
     return readdirSync(dirname(path)).filter((name) =>
       [`${stem}.dwl`, `${stem}.dwl2`].includes(name.toLowerCase()),
@@ -121,19 +145,23 @@ const warnings = locks(source).map(
   (lock) =>
     `${lock} beside the file says a CAD program has it open. The edited copy is written; the firm's file would not be`,
 );
+
 function refuse(reason: string): never {
   send({ kind: "refused", warnings, reason });
   process.exit(0);
 }
 
 let bytes: Uint8Array;
+
 try {
   if (!statSync(source).isFile()) refuse(`${file.source.file} is not a file`);
   bytes = new Uint8Array(readFileSync(source));
 } catch (error) {
   refuse(`${file.source.file} cannot be read: ${message(error)}`);
 }
+
 const hash = createHash("sha256").update(bytes).digest("hex");
+
 if (hash !== file.source.sha256.toLowerCase())
   refuse(
     `${file.source.file} has the SHA-256 ${hash}, not the ${file.source.sha256} the edit was planned on: it changed after the edit was planned`,
@@ -141,12 +169,15 @@ if (hash !== file.source.sha256.toLowerCase())
 
 let editor: FileEditor;
 const extension = extname(source).toLowerCase();
+
 if (extension === ".dxf") editor = dxfEditor;
 else if (editorModule === undefined) refuse(`No installed package edits ${extension} files`);
 else {
   try {
-    editor = ((await import(pathToFileURL(editorModule).href)) as EditorModule).editor;
-    if (typeof editor?.edit !== "function") throw new Error(`${editorModule} exports no editor`);
+    const loaded: EditorModule = await import(pathToFileURL(editorModule).href);
+    editor = loaded.editor;
+
+    if (!isFunction(editor?.edit)) throw new Error(`${editorModule} exports no editor`);
   } catch (error) {
     fail(`The editor could not be loaded: ${message(error)}`);
   }
@@ -168,8 +199,10 @@ try {
     written,
   );
 } catch (error) {
-  if (error instanceof EditError || (error as Error).name === "EditError") refuse(message(error));
-  if ((error as Error).name === "ReadError") refuse(`The file does not read: ${message(error)}`);
+  if (error instanceof EditError || isNamed(error, "EditError")) refuse(message(error));
+
+  if (isNamed(error, "ReadError")) refuse(`The file does not read: ${message(error)}`);
   fail(`The edit failed: ${message(error)}`);
 }
+
 process.exit(0);

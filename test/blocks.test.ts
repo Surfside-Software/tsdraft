@@ -16,13 +16,16 @@ import {
   toDXF,
   toJSON,
   toSVG,
+  type AttributeOptions,
   type Block,
   type Drawing,
   type Entity,
   type Insert,
+  type Layer,
 } from "../src/index.ts";
 import { boxer, extents } from "../src/extents.ts";
 import { inspectWithin } from "../src/inspect.ts";
+import { dataOf, ofKind, wrong, type Data } from "./values.ts";
 
 /** A tree with a tag, inserted three ways, and a block that holds an insert of it. */
 function sample(): Drawing {
@@ -47,13 +50,17 @@ function sample(): Drawing {
     d.insert("tree", [30, 10], { scale: [2, 0.5], rotation: 30 });
     d.insert("GROVE", [10, 40], { scale: 1.5, rotation: 90 });
   });
+
   return d.build();
 }
 
-const rule = (name: string) => (thrown: unknown) =>
-  thrown instanceof DrawingError && thrown.diagnostics[0]?.rule === name;
+const rule =
+  (name: string) =>
+  (thrown: unknown): thrown is DrawingError =>
+    thrown instanceof DrawingError && thrown.diagnostics[0]?.rule === name;
 
 const line: Entity = { kind: "line", layer: "0", from: [0, 0], to: [1, 0] };
+
 const insert = (block: string, more: Partial<Insert> = {}): Insert => ({
   kind: "insert",
   layer: "0",
@@ -61,6 +68,7 @@ const insert = (block: string, more: Partial<Insert> = {}): Insert => ({
   at: [0, 0],
   ...more,
 });
+
 const withBlocks = (blocks: readonly Block[], entities: readonly Entity[] = []): Drawing => ({
   format: 0,
   units: "in",
@@ -69,6 +77,7 @@ const withBlocks = (blocks: readonly Block[], entities: readonly Entity[] = []):
   entities,
   blocks,
 });
+
 const rules = (drawing: Drawing): string[] => lint(drawing).map((d) => d.rule);
 
 // Each `@ts-expect-error` proves the compiler rejects the literal, and the `assert.throws`
@@ -155,8 +164,10 @@ test("the builder refuses what a drawing's blocks cannot be, at the call", () =>
 
 test("lint reports each block rule in a drawing built another way", () => {
   const tag = { tag: "A", value: "v", layer: "0", at: [0, 0], height: 1, rotation: 0 } as const;
+
   const one = (block: Partial<Block>, entities: readonly Entity[] = []) =>
     rules(withBlocks([{ name: "T", entities: [line], ...block }], entities));
+
   assert.deepEqual(one({ name: "A*B" }), ["block"]);
   assert.deepEqual(one({ base: [Number.NaN, 0] }), ["block"]);
   assert.deepEqual(one({ attributes: [{ ...tag, tag: "" }] }), ["attribute"]);
@@ -168,9 +179,9 @@ test("lint reports each block rule in a drawing built another way", () => {
   assert.deepEqual(one({}, [insert("NOPE")]), ["undefined-block"]);
   assert.deepEqual(one({}, [insert("T", { scale: [0, 1] })]), ["geometry"]);
   assert.deepEqual(one({}, [insert("T", { attributes: { A: "set" } })]), ["undefined-attribute"]);
-  const notAnObject = insert("T", { attributes: "AB" as unknown as Record<string, string> });
+  const notAnObject = insert("T", { attributes: wrong("AB") });
   assert.deepEqual(one({}, [notAnObject]), ["undefined-attribute"]);
-  const nothing = insert("T", { attributes: null as unknown as Record<string, string> });
+  const nothing = insert("T", { attributes: wrong(null) });
   assert.deepEqual(one({ attributes: [tag] }, [nothing]), ["undefined-attribute"]);
   assert.deepEqual(one({ attributes: [tag] }, [insert("T", { scale: [1, 0.001] })]), ["geometry"]);
   assert.deepEqual(
@@ -184,6 +195,7 @@ test("lint reports each block rule in a drawing built another way", () => {
     ),
     ["duplicate-block", "duplicate-block"],
   );
+
   // A block that holds itself, and two that hold each other.
   const cycles = lint(
     withBlocks([
@@ -193,6 +205,7 @@ test("lint reports each block rule in a drawing built another way", () => {
       { name: "USER", entities: [insert("A")] },
     ]),
   );
+
   assert.deepEqual(
     cycles.map((d) => [d.rule, d.block]),
     [
@@ -202,10 +215,12 @@ test("lint reports each block rule in a drawing built another way", () => {
     ],
   );
   assert.match(cycles[1]!.message, /"A" holds an insert of itself, through "B"/);
+
   // An entity in a block is named by its block and its place in it.
   const [inside] = lint(
     withBlocks([{ name: "T", entities: [line, { ...line, layer: "NOPE", id: "x" }] }]),
   );
+
   assert.deepEqual(
     [inside?.rule, inside?.block, inside?.entity, inside?.id],
     ["undefined-layer", "T", 1, "x"],
@@ -216,6 +231,7 @@ test("lint reports each block rule in a drawing built another way", () => {
 test("R2018 DXF holds blocks, inserts and attributes with handles that resolve", () => {
   const drawing = sample();
   const dxf = toDXF(drawing);
+
   const p = dxf
     .trimEnd()
     .split("\r\n")
@@ -223,18 +239,22 @@ test("R2018 DXF holds blocks, inserts and attributes with handles that resolve",
       (out, value, i, all) => (i % 2 === 0 ? [...out, [Number(value), all[i + 1]!]] : out),
       [],
     );
+
   const handles = p.filter(([c]) => c === 5 || c === 105).map(([, v]) => v);
   assert.equal(new Set(handles).size, handles.length, "handles are unique");
+
   for (const [code, value] of p.slice(p.findIndex(([c, v]) => c === 0 && v === "ENDSEC"))) {
     if (code === 330 || code === 340 || code === 350 || code === 390) {
       assert.ok(value === "0" || handles.includes(value), `${code} ${value} resolves`);
     }
   }
+
   const of = (type: string) => p.filter(([c, v]) => c === 0 && v === type);
   assert.deepEqual(
     [of("BLOCK"), of("INSERT"), of("ATTDEF"), of("ATTRIB"), of("SEQEND")].map((r) => r.length),
     [4, 4, 2, 6, 3],
   );
+
   // A block's objects and an insert with an id take handles from their names.
   for (const handle of [
     blockHandle("TREE"),
@@ -246,6 +266,7 @@ test("R2018 DXF holds blocks, inserts and attributes with handles that resolve",
   ]) {
     assert.ok(handles.includes(handle), handle);
   }
+
   // A handle's key has A to Z in lower case and nothing else changed.
   assert.equal(blockHandle("Tree"), blockHandle("TREE"));
   assert.notEqual(blockHandle("É"), blockHandle("é"));
@@ -261,14 +282,17 @@ test("R2018 DXF holds blocks, inserts and attributes with handles that resolve",
   const more = createDrawing({ units: "ft" });
   more.layer("NEW", { color: 2 }, () => more.line([0, 0], [1, 1]));
   more.block("FIRST", {}, () => more.line([0, 0], [1, 1]));
+
   const later = toDXF({
     ...drawing,
     layers: [...more.build().layers, ...drawing.layers.slice(1)],
     blocks: [...more.build().blocks!, ...drawing.blocks!],
     entities: [...more.build().entities, ...drawing.entities.toReversed()],
   });
+
   const named = (text: string) =>
     [...text.matchAll(/\r\n5\r\n(1[0-9A-F]{13})\r\n/g)].map((m) => m[1]).sort();
+
   assert.equal(named(dxf).length, 13);
   assert.deepEqual(
     named(later).filter((h) => named(dxf).includes(h!)),
@@ -283,8 +307,10 @@ test("an insert gives an attribute the text the leading CAD app holds for it", (
   const [tree] = sample().blocks!;
   const [, species] = tree!.attributes!;
   const style = sample().textStyles![0];
+
   const near = (actual: number, expected: number) =>
     assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} is not ${expected}`);
+
   // What the leading CAD app made of this definition in an insert scaled 2 by 0.5 and turned 30 degrees.
   const uneven = placeAttribute(
     species!,
@@ -292,11 +318,13 @@ test("an insert gives an attribute the text the leading CAD app holds for it", (
     insert("TREE", { at: [30, 10], scale: [2, 0.5], rotation: 30 }),
     undefined,
   );
+
   near(uneven.height, 0.2582402930448833);
   near(uneven.rotation, 33.83236398596441);
   near(uneven.widthFactor, 2.999038105676658);
   near(uneven.obliqueAngle, 344.5446323905713 - 360);
   assert.deepEqual([uneven.at, uneven.mirrored, uneven.value], [[30, 10], false, "OAK"]);
+
   // A mirrored insert: X runs the other way, and the text keeps its own shape.
   const mirrored = placeAttribute(
     species!,
@@ -304,6 +332,7 @@ test("an insert gives an attribute the text the leading CAD app holds for it", (
     insert("TREE", { at: [50, 10], scale: [-1, 1], attributes: { SPECIES: "ELM" } }),
     [0, 0],
   );
+
   near(mirrored.rotation, 15);
   near(mirrored.widthFactor, 0.8);
   near(mirrored.obliqueAngle, 10);
@@ -312,6 +341,7 @@ test("an insert gives an attribute the text the leading CAD app holds for it", (
 
 test("an insert gives an attribute of paragraph text the paragraph the leading CAD app holds for it", () => {
   const style = { name: "SLANT", font: "Arial", widthFactor: 0.8, obliqueAngle: 10 };
+
   const definition = {
     kind: "paragraph",
     tag: "NB",
@@ -327,8 +357,10 @@ test("an insert gives an attribute of paragraph text the paragraph the leading C
     lineSpacing: 1.5,
     lineSpacingStyle: "exactly",
   } as const;
+
   const near = (actual: number, expected: number) =>
     assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} is not ${expected}`);
+
   // What the leading CAD app's -INSERT made of this definition: scaled 2 and turned 30, its
   // height and width twice the definition's, turned with it, and its value as it is.
   const even = placeAttribute(
@@ -337,12 +369,14 @@ test("an insert gives an attribute of paragraph text the paragraph the leading C
     insert("B", { at: [20, 20], scale: [2, 2], rotation: 30 }),
     undefined,
   );
+
   near(even.at[0], 20.73205080756888);
   near(even.at[1], 22.73205080756888);
   near(even.height, 0.4);
   near(even.rotation, 45);
   near(even.paragraph!.width!, 5);
   assert.equal(even.paragraph!.value, definition.value);
+
   // Scaled 2 by 0.5: its height as a text's, its width the same share of the definition's, and
   // its characters at the text's own width factor, to four decimals, without the style's.
   const uneven = placeAttribute(
@@ -351,12 +385,14 @@ test("an insert gives an attribute of paragraph text the paragraph the leading C
     insert("B", { at: [40, 20], scale: [2, 0.5] }),
     [0, 0],
   );
+
   near(uneven.height, 0.1032961172179533);
   near(uneven.rotation, 3.832363985964412);
   near(uneven.widthFactor, 3.748797632095823);
   near(uneven.obliqueAngle, 316.8476102659945 - 360);
   near(uneven.paragraph!.width!, 1.291201465224416);
   assert.equal(uneven.paragraph!.value, `\\W3.7488;${definition.value}`);
+
   // Mirrored: placed where X runs the other way, as a text of one line is.
   const mirrored = placeAttribute(
     definition,
@@ -364,6 +400,7 @@ test("an insert gives an attribute of paragraph text the paragraph the leading C
     insert("B", { at: [60, 20], scale: [-1, 1] }),
     [0, 0],
   );
+
   assert.deepEqual([mirrored.at, mirrored.mirrored], [[-59, 21], true]);
   near(mirrored.rotation, 15);
   const paragraph = attributeParagraph(mirrored)!;
@@ -394,7 +431,9 @@ test("an insert gives an attribute of paragraph text the paragraph the leading C
   // its narrower width into more lines, and the mirrored one reads backward.
   const d = createDrawing({ units: "in" });
   d.textStyle(style);
-  d.block("B", {}, () => d.attribute("NB", [1, 1], { ...definition, tag: undefined } as never));
+  d.block("B", {}, () =>
+    d.attribute("NB", [1, 1], wrong<AttributeOptions>({ ...dataOf(definition), tag: undefined })),
+  );
   d.insert("B", [0, 0])
     .insert("B", [10, 0], { scale: [2, 0.5] })
     .insert("B", [20, 0], { scale: [-1, 1] });
@@ -403,9 +442,11 @@ test("an insert gives an attribute of paragraph text the paragraph the leading C
   const svg = toSVG(drawing);
   assert.match(svg, /scale\(3\.7488 1\)/);
   assert.match(svg, /matrix\(-1 0 0 1 0 0\)/);
+
   const [plain, narrow, backward] = drawing.entities.map((e) =>
     extents([e], drawing.textStyles, drawing.blocks)!,
   );
+
   // Each is centered on its point, the definition's (1, 1) where the insert puts it.
   for (const [box, x] of [
     [plain!, 1],
@@ -414,6 +455,7 @@ test("an insert gives an attribute of paragraph text the paragraph the leading C
   ] as const) {
     assert.ok(Math.abs((box[0] + box[2]) / 2 - x) < 0.1, `${box} about ${x}`);
   }
+
   assert.ok(narrow![3] - narrow![1] > plain![3] - plain![1]);
 });
 
@@ -422,16 +464,22 @@ test("a drawing with blocks goes to JSON and back, and the parser knows each new
   const json = toJSON(drawing);
   assert.deepEqual(fromJSON(json), drawing);
   assert.equal(toDXF(fromJSON(json)), toDXF(drawing));
+
   const refused = (change: (value: Drawing & { blocks: Block[] }) => void): string => {
     const value = JSON.parse(json);
     change(value);
+
     try {
       fromJSON(value);
     } catch (thrown) {
-      return (thrown as DrawingError).message;
+      assert.ok(thrown instanceof DrawingError);
+
+      return thrown.message;
     }
+
     return "taken";
   };
+
   assert.match(
     refused((v) => Object.assign(v.blocks[0]!, { color: 1 })),
     /blocks\[0\]: unknown field "color"/,
@@ -478,19 +526,22 @@ test("SVG draws an insert's block where the insert puts it, on the layers the le
 
   // An insert on a layer that is off hides what it holds on layer 0, and on a frozen layer
   // all of it.
-  const states = (layer: object): string =>
+  const states = (layer: Partial<Layer>): string =>
     toSVG({
       ...drawing,
       layers: drawing.layers.map((l) => (l.name === "PLNT" ? { ...l, ...layer } : l)),
     });
+
   assert.ok(!states({ off: true }).includes("<line") && states({ off: true }).includes("<circle"));
   assert.ok(!states({ frozen: true }).includes("<circle"));
   // An insert on a layer that does not plot draws nothing, whatever layers its block uses.
   assert.ok(!states({ plot: false }).includes("<circle"));
+
   const all = toSVG(
     { ...drawing, layers: drawing.layers.map((l) => ({ ...l, plot: l.name !== "PLNT" })) },
     { drawNoPlot: true },
   );
+
   assert.ok(all.includes("<circle"));
   // A block that holds itself draws nothing, and does not hang.
   const cyclic = toSVG(withBlocks([{ name: "A", entities: [insert("A")] }], [insert("A")]));
@@ -506,7 +557,7 @@ test("an attribute of one line has no paragraph, and a \\N in one of paragraph t
   d.insert("B", [0, 0], { attributes: { NOTE: "C\\ND" } });
   const drawing = d.build();
   const one = drawing.blocks![0]!.attributes![0]!;
-  const insert = drawing.entities[0] as Insert;
+  const insert = ofKind(drawing.entities[0], "insert");
   assert.equal(attributeParagraph(placeAttribute(one, undefined, insert, undefined)), undefined);
   const breaks = lint(drawing).filter((w) => w.message.includes("\\N starts the next column"));
   assert.deepEqual(
@@ -522,19 +573,25 @@ test("an attribute of paragraph text of the wrong shape is drawn as none, and un
   const built = d.build();
   const block = built.blocks![0]!;
   const definition = block.attributes![0]!;
-  const withDefinition = (changed: object, insert: object = {}): Drawing => ({
+
+  const placed = ofKind(built.entities[0], "insert");
+
+  const withDefinition = (changed: Data, insert: Data = {}): Drawing => ({
     ...built,
-    blocks: [{ ...block, attributes: [{ ...definition, ...changed } as typeof definition] }],
-    entities: [{ ...(built.entities[0] as Insert), ...insert }],
+    blocks: [{ ...block, attributes: [wrong({ ...dataOf(definition), ...changed })] }],
+    entities: [wrong({ ...dataOf(placed), ...insert })],
   });
+
   // A value that is no string, of the definition or of an insert, is an error and no throw.
   const odd = { toString: null };
+
   for (const drawing of [
     withDefinition({ value: odd }),
     withDefinition({}, { attributes: { A: odd } }),
   ]) {
     assert.ok(lint(drawing).some((w) => w.severity === "error"));
   }
+
   // A width that is no number is laid out as none by the preview and the checks.
   const wide = withDefinition({ width: "12" });
   assert.ok(lint(wide).some((w) => w.severity === "error"));
@@ -545,22 +602,30 @@ test("an attribute of paragraph text of the wrong shape is drawn as none, and un
   // one scale share it, and a box kept is mapped alone.
   // Codes alone but a character, so that what it costs is its layout and no check of its lines.
   const shared = { A: "\\L\\l".repeat(5000) + "X" };
+
   const inserts = (scale: (i: number) => [number, number]) =>
     Array.from({ length: 20 }, (_, i): Insert => ({
-      ...(built.entities[0] as Insert),
+      ...placed,
+
       at: [i * 100, 0],
       scale: scale(i),
       attributes: shared,
     }));
+
   const scales = inserts((i) => [2 + i / 10, 1]);
   const one = inserts(() => [2, 1]);
+
   const capped = (entities: Insert[]) => {
     const box = boxer([], [block], undefined, undefined, undefined, [], [], 100_000);
     box(entities);
+
     return box.capped !== undefined;
   };
+
   assert.deepEqual([capped(scales), capped(one)], [true, false]);
+
   const checked = (entities: Insert[]) =>
     inspectWithin({ ...built, entities }, {}, 400_000).some((w) => w.rule === "text-check-capped");
+
   assert.deepEqual([checked(scales), checked(one)], [true, false]);
 });

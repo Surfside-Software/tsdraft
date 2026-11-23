@@ -1,6 +1,7 @@
 import type { Drawing, Entity } from "./drawing.ts";
 import { dxfText, fmt, writtenAngle } from "./format.ts";
 import { layerZeroFirst } from "./layers.ts";
+import { isNumber } from "./guards.ts";
 
 /**
  * Writes an ASCII DXF (AC1009, R12). R12 is the most widely readable DXF:
@@ -13,8 +14,9 @@ import { layerZeroFirst } from "./layers.ts";
  */
 export function toDXFR12(drawing: Drawing): string {
   const out: string[] = [];
+
   const g = (code: number, value: string | number) => {
-    out.push(String(code), typeof value === "number" ? fmt(value) : value);
+    out.push(String(code), isNumber(value) ? fmt(value) : value);
   };
 
   g(0, "SECTION");
@@ -39,6 +41,7 @@ export function toDXFR12(drawing: Drawing): string {
   g(0, "TABLE");
   g(2, "LAYER");
   g(70, String(drawing.layers.length));
+
   for (const layer of layerZeroFirst(drawing.layers)) {
     g(0, "LAYER");
     g(2, layer.name);
@@ -46,11 +49,13 @@ export function toDXFR12(drawing: Drawing): string {
     g(62, String(layer.color));
     g(6, "CONTINUOUS");
   }
+
   g(0, "ENDTAB");
   g(0, "ENDSEC");
 
   g(0, "SECTION");
   g(2, "ENTITIES");
+
   for (const entity of drawing.entities) writeEntity(entity, g);
   g(0, "ENDSEC");
   g(0, "EOF");
@@ -69,6 +74,7 @@ function writeEntity(e: Entity, g: (code: number, value: string | number) => voi
       g(11, e.to[0]);
       g(21, e.to[1]);
       g(31, 0);
+
       return;
     case "polyline":
       g(0, "POLYLINE");
@@ -78,6 +84,7 @@ function writeEntity(e: Entity, g: (code: number, value: string | number) => voi
       g(20, 0);
       g(30, 0);
       g(70, e.closed ? "1" : "0");
+
       for (const [x, y] of e.points) {
         g(0, "VERTEX");
         g(8, e.layer);
@@ -85,8 +92,10 @@ function writeEntity(e: Entity, g: (code: number, value: string | number) => voi
         g(20, y);
         g(30, 0);
       }
+
       g(0, "SEQEND");
       g(8, e.layer);
+
       return;
     case "circle":
       g(0, "CIRCLE");
@@ -95,6 +104,7 @@ function writeEntity(e: Entity, g: (code: number, value: string | number) => voi
       g(20, e.center[1]);
       g(30, 0);
       g(40, e.radius);
+
       return;
     case "arc":
       g(0, "ARC");
@@ -105,6 +115,7 @@ function writeEntity(e: Entity, g: (code: number, value: string | number) => voi
       g(40, e.radius);
       g(50, writtenAngle(e.startAngle));
       g(51, writtenAngle(e.endAngle));
+
       return;
     case "text":
       g(0, "TEXT");
@@ -114,7 +125,9 @@ function writeEntity(e: Entity, g: (code: number, value: string | number) => voi
       g(30, 0);
       g(40, e.height);
       g(1, dxfText(e.value, true));
+
       if (e.rotation !== 0) g(50, e.rotation);
+
       return;
   }
 }

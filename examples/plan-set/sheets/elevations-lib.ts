@@ -10,6 +10,7 @@ import { arrowhead, lineOutside, type Box } from "../../lib/drafting.ts";
 /** Elevation in NAVD 88 of a height above the first floor, in inches. */
 export const navd = (z: number): number => CRITERIA.flood.ffe + z / 12;
 export const el = (z: number): string => `EL. ${navd(z).toFixed(2)}' NAVD`;
+
 /** A height in NAVD as a height above the first floor, in inches. */
 export const zOf = (elevation: number): number => (elevation - CRITERIA.flood.ffe) * 12;
 
@@ -20,6 +21,7 @@ export const Z = (() => {
   /** Finished grade at the foundation, after fill: the grade the elevations and sections draw. */
   const grade = zOf(CRITERIA.flood.finishGrade);
   const fascia = 6;
+
   return {
     grade,
     existing: zOf(CRITERIA.flood.grade),
@@ -68,10 +70,12 @@ export function guardElev(
     L.rect(h0, z + height - 2, h1, z + height);
     L.rect(h0, z + 2, h1, z + 3.5);
     const n = Math.max(1, Math.round((h1 - h0) / 4));
+
     for (let k = 1; k < n; k++) {
       const h = h0 + ((h1 - h0) * k) / n;
       L.line(h, z + 3.5, h, z + height - 2);
     }
+
     L.line(h0, z, h0, z + height);
     L.line(h1, z, h1, z + height);
   });
@@ -94,7 +98,9 @@ export function stairFront(
   L.d.layer(LAYERS.elevFine, {}, () => {
     L.line(h0, bottom, h0, top);
     L.line(h1, bottom, h1, top);
+
     for (let k = 1; k < risers; k++) L.line(h0, top - k * r, h1, top - k * r);
+
     if (rail) {
       L.rect(h0, bottom, h0 + 2, top + 36);
       L.rect(h1 - 2, bottom, h1, top + 36);
@@ -117,11 +123,14 @@ export function stairProfile(
 ): void {
   const r = riser(top, bottom, risers);
   const pts: [number, number][] = [[h, top]];
+
   for (let k = 0; k < risers; k++) {
     const at = h + dir * k * tread;
     pts.push([at, top - (k + 1) * r]);
+
     if (k < risers - 1) pts.push([at + dir * tread, top - (k + 1) * r]);
   }
+
   const last = h + dir * (risers - 1) * tread;
   L.d.layer(LAYERS.elevFine, {}, () => {
     L.poly(pts);
@@ -150,10 +159,12 @@ export interface Local {
 
 export function local(d: D, o: Point, holes: readonly Box[] = []): Local {
   const P = (h: number, z: number): Point => [o[0] + h, o[1] + z];
+
   const line = (h0: number, z0: number, h1: number, z1: number) => {
     if (holes.length && (h0 === h1 || z0 === z1)) lineOutside(d, P(h0, z0), P(h1, z1), holes);
     else d.line(P(h0, z0), P(h1, z1));
   };
+
   const rect = (h0: number, z0: number, h1: number, z1: number) => {
     if (holes.length) {
       line(h0, z0, h1, z0);
@@ -162,15 +173,19 @@ export function local(d: D, o: Point, holes: readonly Box[] = []): Local {
       line(h0, z1, h0, z0);
     } else d.polyline([P(h0, z0), P(h1, z0), P(h1, z1), P(h0, z1)], true);
   };
+
   const poly = (pts: readonly (readonly [number, number])[], closed = false) =>
     d.polyline(
       pts.map(([h, z]) => P(h, z)),
       closed,
     );
+
   const box = (h0: number, z0: number, h1: number, z1: number): Box => {
     const [a, b] = [P(Math.min(h0, h1), Math.min(z0, z1)), P(Math.max(h0, h1), Math.max(z0, z1))];
+
     return [a[0], a[1], b[0] - a[0], b[1] - a[1]];
   };
+
   return { d, o, P, line, rect, poly, box };
 }
 
@@ -262,17 +277,21 @@ export function noteStack(
         sideNote(L.d, v, L.P(n.at[0], n.at[1]), L.P(n.elbow[0], n.elbow[1]), n.lines, n.side);
         continue;
       }
+
       if (n.elbow) {
         leaderNote(L.d, v, L.P(n.at[0], n.at[1]), L.P(n.elbow[0], n.elbow[1]), n.lines);
         continue;
       }
+
       let z = Math.min(n.at[1], floor);
+
       // Keep the elbow out of the bands given, such as the text of level markers.
       for (const [lo, hi] of [...avoid].sort((a, b) => b[0] - a[0])) if (z > lo && z < hi) z = lo;
       leaderNote(L.d, v, L.P(n.at[0], n.at[1]), L.P(h, z), n.lines);
       floor = z - n.lines.length * lead - gap;
     }
   });
+
   return floor;
 }
 
@@ -285,8 +304,10 @@ export const noteWidth = (lines: readonly string[]): number =>
 
 function seeded(seed: number): () => number {
   let s = seed;
+
   return () => {
     s = (s * 1664525 + 1013904223) % 4294967296;
+
     return s / 4294967296;
   };
 }
@@ -301,28 +322,34 @@ export function concrete(d: D, area: Box, size: number, seed = 7): void {
   const rnd = seeded(seed);
   const [x0, y0, w, h] = area;
   const m = size * 0.25;
+
   for (let y = y0; y < y0 + h - 1e-6; y += size) {
     for (let x = x0; x < x0 + w - 1e-6; x += size) {
       const c: Point = [x + m + rnd() * (size - 2 * m), y + m + rnd() * (size - 2 * m)];
+
       const inArea = (p: Point) =>
         p[0] > x0 + m * 0.5 &&
         p[0] < x0 + w - m * 0.5 &&
         p[1] > y0 + m * 0.5 &&
         p[1] < y0 + h - m * 0.5;
+
       if (rnd() < 0.45) {
         const s = size * (0.18 + 0.12 * rnd());
         const a = rnd() * Math.PI * 2;
+
         const pts = [0, 1, 2].map((k): Point =>
           r2([
             c[0] + s * Math.cos(a + (k * 2 * Math.PI) / 3),
             c[1] + s * Math.sin(a + (k * 2 * Math.PI) / 3),
           ]),
         );
+
         if (pts.every(inArea)) d.polyline(pts, true);
       } else {
         const s = size * 0.04;
         const p0 = r2([c[0] - s, c[1]]);
         const p1 = r2([c[0] + s, c[1]]);
+
         if (inArea(p0) && inArea(p1)) d.line(p0, p1);
       }
     }
@@ -333,6 +360,7 @@ export function concrete(d: D, area: Box, size: number, seed = 7): void {
 export function dots(d: D, area: Box, size: number, seed = 3): void {
   const rnd = seeded(seed);
   const [x0, y0, w, h] = area;
+
   for (let y = y0; y < y0 + h - 1e-6; y += size) {
     for (let x = x0; x < x0 + w - 1e-6; x += size) {
       const c: Point = r2([x + size * (0.15 + 0.7 * rnd()), y + size * (0.15 + 0.7 * rnd())]);
@@ -351,11 +379,13 @@ export function battUp(d: D, area: Box): void {
   const loops = Math.max(1, Math.floor((h - across * 2) / advance));
   const start = y0 + (h - loops * advance) / 2;
   const pts: Point[] = [];
+
   for (let i = 0; i <= loops * 24; i++) {
     const t = (i / 24) * 2 * Math.PI;
     const y = start + (advance * t) / (2 * Math.PI) - across * Math.sin(t);
     pts.push(r2([x0 + radius - radius * Math.cos(t), y]));
   }
+
   d.polyline(pts);
 }
 

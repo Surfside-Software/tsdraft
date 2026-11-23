@@ -11,6 +11,7 @@ import {
   toDXF,
   xrefAreas,
   type Drawing,
+  type Point,
 } from "../src/index.ts";
 
 const PLANS = 8;
@@ -19,12 +20,14 @@ const PLANS = 8;
 function model(): Drawing {
   const d = createDrawing({ units: "ft" });
   d.layer("A-WALL", { color: 1 }).layer("A-ANNO", { color: 3 }).layer("A-NOTE", { color: 4 });
+
   for (let i = 1; i <= PLANS; i++) {
     const y = 200 * (i - 1);
     d.layer("A-WALL", {}, () => d.rect([0, y], 100, 60));
     d.layer("A-ANNO", {}, () => d.text([5, y + 50], `PLAN ${i}`, { height: 2 }));
     d.layer("A-NOTE", {}, () => d.text([80, y + 5], `NOTE ${i}`, { height: 2 }));
   }
+
   return d.build();
 }
 
@@ -39,9 +42,10 @@ function sheet(i: number, frozen?: string): Drawing {
     s.viewport([2, 2], 10, 8, {
       center: [50, 200 * (i - 1) + 30],
       ratio: 120,
-      ...(frozen ? { frozenLayers: [frozen] } : {}),
+      ...(frozen && { frozenLayers: [frozen] }),
     });
   });
+
   return d.build();
 }
 
@@ -50,6 +54,7 @@ const texts = (shown: { entities: readonly { text?: string }[] }) =>
 
 test("each sheet shows its own plan of eight stacked ones, through the xref", async () => {
   const modelRead = await readDXF(toDXF(model()), { geometry: true });
+
   for (let i = 1; i <= PLANS; i++) {
     const read = await readDXF(toDXF(sheet(i)), { geometry: true });
     const shown = sheetShows(read, `Sheet ${i}`, { xrefs: { MODEL: modelRead } })!;
@@ -72,6 +77,7 @@ test("each sheet shows its own plan of eight stacked ones, through the xref", as
       [0, y - 40, 100, y + 40],
     );
   }
+
   // Without the model's read, a sheet shows its paper alone.
   const alone = sheetShows(await readDXF(toDXF(sheet(3)), { geometry: true }), "Sheet 3")!;
   assert.deepEqual(texts(alone), ["SHEET 3"]);
@@ -80,11 +86,13 @@ test("each sheet shows its own plan of eight stacked ones, through the xref", as
 test("near a point of a sheet finds what it shows there, nearest first", async () => {
   const modelRead = await readDXF(toDXF(model()), { geometry: true });
   const read = await readDXF(toDXF(sheet(5)), { geometry: true });
+
   const near = nearPoint(read, [2.6, 8.1], {
     sheet: "Sheet 5",
     within: 0.5,
     xrefs: { MODEL: modelRead },
   })!;
+
   assert.equal(near.entities[0]?.text, "PLAN 5");
   assert.ok(near.entities.every((e) => e.distance <= 0.5));
   assert.ok(!near.entities.some((e) => e.text === "NOTE 5"));
@@ -100,14 +108,16 @@ test("an insert's clip is its own file's, though another file has an insert of i
   const read = await readDXF(toDXF(sheet(1)), { geometry: true });
   const host = read.model.entities!.find((e) => e.kind === "insert")!;
   const tag = base.model.entities!.find((e) => e.kind === "insert")!;
+
   const clip = {
     outline: [
       [500, 500],
       [501, 500],
       [501, 501],
       [500, 501],
-    ] as [number, number][],
+    ] satisfies Point[],
   };
+
   const clipped = {
     ...base,
     model: {
@@ -117,6 +127,7 @@ test("an insert's clip is its own file's, though another file has an insert of i
       ),
     },
   };
+
   const shown = sheetShows(read, "Sheet 1", { xrefs: { MODEL: clipped } })!;
   assert.deepEqual(texts(shown), ["PLAN 1", "SHEET 1"]);
 });
@@ -155,14 +166,16 @@ test("a walk that stops while it maps a clip shows nothing the clip hides", asyn
   });
   d.insert("TAG", [0, 0]);
   const base = await readDXF(toDXF(d.build()), { geometry: true });
+
   const clip = {
     outline: [
       [-1, -1],
       [5, -1],
       [5, 5],
       [-1, 5],
-    ] as [number, number][],
+    ] satisfies Point[],
   };
+
   const read = {
     ...base,
     model: {
@@ -170,7 +183,9 @@ test("a walk that stops while it maps a clip shows nothing the clip hides", asyn
       entities: base.model.entities!.map((e) => (e.kind === "insert" ? { ...e, clip } : e)),
     },
   };
+
   assert.deepEqual(texts(spaceShows(read)!), ["INSIDE"]);
+
   for (const work of [3, 4, 5, 6]) {
     const shown = spaceShows(read, { limits: { work } })!;
     assert.ok(!texts(shown).includes("OUTSIDE"), String(work));
@@ -208,14 +223,16 @@ test("xrefAreas takes a turned view back through a turned insert, and cuts it to
     area?.flat().map((n) => Math.round(n)),
     [-5, -1, 5, 1],
   );
+
   const clip = {
     outline: [
       [0, 3],
       [1, 3],
       [1, 4],
       [0, 4],
-    ] as [number, number][],
+    ] satisfies Point[],
   };
+
   const clipped = {
     ...read,
     model: {
@@ -223,5 +240,6 @@ test("xrefAreas takes a turned view back through a turned insert, and cuts it to
       entities: read.model.entities!.map((e) => (e.kind === "insert" ? { ...e, clip } : e)),
     },
   };
+
   assert.deepEqual(xrefAreas(clipped, "Sheet", "MODEL"), []);
 });

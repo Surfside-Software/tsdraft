@@ -28,19 +28,27 @@ import {
   underline,
   type Drawing,
   type Entity,
-  type Paragraph,
   type ParagraphLayout,
   type Point,
 } from "../src/index.ts";
+import { isNumber } from "../src/guards.ts";
 import { paragraphMeasurer } from "../src/paragraphs.ts";
 import { readProblems } from "./read-agreement.ts";
 import { within } from "./time-limit.ts";
+import { dataOf, fieldOf, ofKind, recordsIn, wrong, type Data } from "./values.ts";
 
 /** What a value draws, a piece at a time: characters, `[top, divider, bottom]` and `|` for a break. */
 const drawn = (value: string) =>
-  parseParagraph(value).pieces.map((p) =>
-    p.kind === "characters" ? p.value : p.kind === "stack" ? [p.top, p.separator, p.bottom] : "|",
-  );
+  parseParagraph(value).pieces.map((p) => {
+    switch (p.kind) {
+      case "characters":
+        return p.value;
+      case "stack":
+        return [p.top, p.separator, p.bottom];
+      default:
+        return "|";
+    }
+  });
 
 test("a paragraph's codes draw what the DXF Reference gives them", () => {
   assert.deepEqual(drawn("ONE\\PTWO"), ["ONE", "|", "TWO"]);
@@ -56,9 +64,11 @@ test("a paragraph's codes draw what the DXF Reference gives them", () => {
   ]);
   // A backslash takes the character after it as it is, in a stack's parts.
   assert.deepEqual(drawn("\\S1\\/2/3\\;;"), [["1/2", "/", "3;"]]);
+
   const formats = parseParagraph("{\\LU}\\OO\\o\\KK\\k{\\fArial|b1|i0|c0|p34;B}R").pieces.map((p) =>
     p.kind === "characters" ? [p.value, p.format] : p.kind,
   );
+
   const plainFormat = {
     underline: false,
     overline: false,
@@ -72,6 +82,7 @@ test("a paragraph's codes draw what the DXF Reference gives them", () => {
     align: 0,
     color: undefined,
   };
+
   assert.deepEqual(formats, [
     ["U", { ...plainFormat, underline: true }],
     ["O", { ...plainFormat, overline: true }],
@@ -123,6 +134,7 @@ test("what tsdraft does not lay out is refused, and named", () => {
     ["\ue801", /private-use/],
     [`${"{".repeat(17)}A${"}".repeat(17)}`, /nest more than 16 deep/],
   ];
+
   for (const [value, problem] of refused) {
     assert.match(parseParagraph(value).problem ?? "", problem, JSON.stringify(value));
   }
@@ -141,14 +153,18 @@ test("a paragraph is read in time in proportion to its value, however it is made
     "\\S1\\/2/3;".repeat(400_000),
     "\\La\\l".repeat(800_000),
   ];
+
   for (const value of values) within(2000, () => parseParagraph(value));
+
   // And laid out, at a width that breaks every word, at none, and with a word longer than any line.
   for (const width of [1e-6, 0, -1, Number.NaN, 1e300]) {
     within(3000, () => layoutParagraph({ value: "A BC ".repeat(400_000), height: 1, width }));
   }
+
   const long = within(2000, () =>
     layoutParagraph({ value: "W".repeat(2_000_000), height: 1, width: 1 }),
   );
+
   assert.equal(long.lines.length, 1);
 });
 
@@ -161,18 +177,25 @@ const runs = (paragraph: Omit<Parameters<typeof layoutParagraph>[0], "height">) 
 /** True when `a` and `b` agree to `within`, each number of them. */
 const near = (a: readonly unknown[], b: readonly unknown[], within = 1e-4): boolean =>
   a.length === b.length &&
-  a.every((value, i) =>
-    Array.isArray(value)
-      ? near(value, b[i] as unknown[], within)
-      : typeof value === "number"
-        ? Math.abs(value - (b[i] as number)) <= within
-        : value === b[i],
-  );
+  a.every((value, i) => {
+    const other = b[i];
+
+    if (Array.isArray(value)) return Array.isArray(other) && near(value, other, within);
+
+    if (isNumber(value)) return isNumber(other) && Math.abs(value - other) <= within;
+
+    return value === other;
+  });
+
+/** Fields of a paragraph to lay out. */
+type MoreFields = Partial<Parameters<typeof layoutParagraph>[0]>;
 
 test("a paragraph is laid out where the leading CAD app sets its lines and runs", () => {
   const arial = { font: "Arial" } as const;
+
   const lines = (value: string, width: number, font = "Arial") =>
     layoutParagraph({ value, height: 1, width, font }).lines.map((line) => line.value);
+
   // A line starts at its first character's ink and ends at its last one's, and keeps the spaces
   // it starts with. The width moves no line.
   for (const width of [0, 24]) {
@@ -184,6 +207,7 @@ test("a paragraph is laid out where the leading CAD app sets its lines and runs"
       ]),
     );
   }
+
   assert.ok(near(runs({ value: "  HHH  ", align: "right", ...arial }), [["  HHH", -3.69031, -1]]));
   // The next run starts where the last one's ink ends, past its advances.
   assert.ok(
@@ -206,6 +230,7 @@ test("a paragraph is laid out where the leading CAD app sets its lines and runs"
   assert.deepEqual(lines("HHHH HHHH HHHH", over, "romans.shx"), ["HHHH HHHH", "HHHH"]);
   assert.deepEqual(lines("HHHH\\~HHHH HHHH", 1), ["HHHH HHHH", "HHHH"]);
   assert.deepEqual(lines("WATER-PROOFING", 1), ["WATER-PROOFING"]);
+
   // At least: each line's slot is the factor times its A, D and a third, from its top.
   const baselines = (
     value: string,
@@ -215,9 +240,11 @@ test("a paragraph is laid out where the leading CAD app sets its lines and runs"
     layoutParagraph({ value, height: 1, ...arial, lineSpacing, lineSpacingStyle }).lines.map(
       (line) => line.baseline,
     );
+
   for (const factor of [0.5, 1, 1.5, 2]) {
     assert.ok(near(baselines("HHH\\PHHH", factor), [-1, -1 - (5 / 3) * factor]));
   }
+
   assert.ok(near(baselines("HHH\\P\u00c5\u00c9\u00ce\\PHHH", 1), [-1, -2.9191, -4.5858]));
   assert.ok(near(baselines("1\\S1/2;\\PHHH", 1), [-2.3415, -2.6748 - 1]));
   // Exactly: 5/3 of the height times the factor apart, the first a height below the top.
@@ -262,6 +289,7 @@ test("a paragraph is laid out where the leading CAD app sets its lines and runs"
   );
   const [from, to] = [slash.strokes[0]!.from, slash.strokes[0]!.to];
   assert.ok(near([(from[1] + to[1]) / 2], [-1.00409]));
+
   // An underline lies at the descent of a TrueType font and a fifth of a height in an SHX font.
   for (const [font, below] of [
     ["Arial", -0.29604],
@@ -274,8 +302,10 @@ test("a paragraph is laid out where the leading CAD app sets its lines and runs"
 
 test("a list hangs its items under their marks, and its tabs and indents fall where the leading CAD app puts them", () => {
   const arial = { font: "Arial" } as const;
+
   const lines = (value: string, width: number) =>
     layoutParagraph({ value, height: 1, width, ...arial }).lines.map((line) => line.value);
+
   assert.equal(
     list(["ONE", { text: "TWO", items: ["UNDER"] }]),
     "\\pxi-3,l3,t3;1.\tONE\\P\\pxi-3,l3,t3;2.\tTWO\\P\\pxi-3,l6,t6;A.\tUNDER",
@@ -318,6 +348,7 @@ test("a list hangs its items under their marks, and its tabs and indents fall wh
       ["H", 6.49591, -1],
     ]),
   );
+
   // A right indent holds every line short of it, and the lines after the first start at the left
   // indent.
   const starts = layoutParagraph({
@@ -326,6 +357,7 @@ test("a list hangs its items under their marks, and its tabs and indents fall wh
     width: 32,
     ...arial,
   }).lines.map((line) => [line.value.split(" ").length, Math.round(line.start)]);
+
   assert.deepEqual(starts, [
     [6, 3],
     [2, 2],
@@ -345,9 +377,11 @@ test("a list hangs its items under their marks, and its tabs and indents fall wh
       0.003,
     ),
   );
+
   // The paragraph's own spacing, by a factor and exactly, and room before and after it.
   const baselines = (value: string, height = 1) =>
     layoutParagraph({ value, height, ...arial }).lines.map((line) => +line.baseline.toFixed(4));
+
   assert.deepEqual(baselines("\\psm1.5;HHH\\P1\\S1/2;\\PHHH"), [-1, -4.8415, -7.8903]);
   assert.deepEqual(baselines("\\pse0.6;HHH\\PHHH"), [-0.6, -1.6]);
   assert.deepEqual(baselines("\\pb1;HHH\\P\\pa2;HHH\\PHHH"), [-2, -4.6667, -9.3333]);
@@ -367,13 +401,17 @@ test("columns take a paragraph's lines in turn, where the leading CAD app sets t
   const arial = { font: "Arial", height: 0.2, width: 2 } as const;
   const twelve = Array.from({ length: 12 }, (_, k) => `L${k + 1} HHHH`).join("\\P");
   const ten = Array.from({ length: 10 }, (_, k) => `L${k + 1} HHHH`).join("\\P");
-  const lay = (value: string, more: object) => layoutParagraph({ value, ...arial, ...more });
+  const lay = (value: string, more: MoreFields) => layoutParagraph({ value, ...arial, ...more });
+
   const columnsOf = (layout: ParagraphLayout) =>
     layout.lines.map((line) => `${line.column}:${line.value.split(" ")[0]}`).join(" ");
+
   const first = (layout: ParagraphLayout, value: string) =>
     layout.lines.flatMap((line) => line.runs).find((run) => run.value === value)!;
+
   const near = (got: number, want: number) =>
     assert.ok(Math.abs(got - want) < 2e-4, `${got} ${want}`);
+
   // A line whose box reaches below the column's height starts the next, the gutter past it; the
   // last static column takes what is left.
   const two = lay(twelve, { columns: { count: 2, height: 1, gutter: 0.5 } });
@@ -401,14 +439,17 @@ test("columns take a paragraph's lines in turn, where the leading CAD app sets t
   const bottom = lay(twelve, { valign: "bottom", columns: { count: 2, height: 1.2, gutter: 0.5 } });
   near(first(bottom, "L3 HHHH").baseline, 0.0035);
   near(first(bottom, "L12 HHHH").baseline, 0.0001);
+
   const right = lay("L1 HHHH\\PL2 HHHH", {
     align: "right",
     columns: { count: 3, height: 1, gutter: 0.5 },
   });
+
   near(first(right, "L1 HHHH").x, -6.173);
   assert.deepEqual([right.frame[0], right.frame[2]], [-7, 0]);
   // Past the heights given one column takes the rest, a \\N there too.
   assert.equal(columnsOf(lay("A\\NB\\NC", { columns: { heights: [1] } })), "0:A 1:B 1:C");
+
   // What a file holds adds up as written.
   const held = {
     value: "A",
@@ -416,19 +457,22 @@ test("columns take a paragraph's lines in turn, where the leading CAD app sets t
     width: 1.2345674,
     columns: { count: 3, height: 1, gutter: 0.2345674 },
   };
+
   const kept = paragraphColumnsHeld(held, layoutParagraph(held))!;
   assert.deepEqual([kept.width, kept.gutter, kept.total], [1.234567, 0.234567, 4.172835]);
   // One measurer keeps a long value's layout for each height of its columns.
   const notes = `${"VERIFY ALL DIMENSIONS IN FIELD\\P".repeat(10)}END`;
   const measurer = paragraphMeasurer();
+
   const counts = [0.2, 10].map(
     (height) =>
       measurer.layout({ value: notes, ...arial, height: 0.125, width: 8, columns: { height } })
         .columns.length,
   );
+
   assert.deepEqual(counts, [11, 1]);
   // Columns that are not an object, as data may hold them, are none.
-  assert.equal(lay(twelve, { columns: null }).columns.length, 1);
+  assert.equal(lay(twelve, { columns: wrong(null) }).columns.length, 1);
   // A distributed line wider than its room is left whole, and centered.
   const wide = lay("\\pxqd;CONSTRUCTION.", {});
   assert.deepEqual(
@@ -439,12 +483,14 @@ test("columns take a paragraph's lines in turn, where the leading CAD app sets t
 });
 
 test("the codes that change the characters after them set them where the leading CAD app does", () => {
-  const lay = (value: string, more: object = {}) =>
+  const lay = (value: string, more: MoreFields = {}) =>
     layoutParagraph({ value, height: 0.25, font: "Arial", ...more });
-  const runs = (value: string, more: object = {}) =>
+
+  const runs = (value: string, more: MoreFields = {}) =>
     lay(value, more).lines.flatMap((line) =>
       line.runs.map((run) => [run.value, +run.x.toFixed(4), +run.baseline.toFixed(4), run.height]),
     );
+
   // A height drawn in drawing units or as a factor, the line set by its tallest run.
   assert.deepEqual(runs("HH\\H2x;HH"), [
     ["HH", -0.028, -0.5, 0.25],
@@ -481,9 +527,11 @@ test("the codes that change the characters after them set them where the leading
   // The preview draws a run in the color its code sets.
   const colored = createDrawing({ units: "in" });
   colored.paragraph("{\\C1;RED} BLACK", { at: [0, 0] });
+
   const fills = toSVG(colored.build())
     .match(/<text[^>]*>/g)!
     .map((t) => /fill="([^"]*)"/.exec(t)![1]);
+
   assert.deepEqual(fills, ["#ff0000", "currentColor"]);
   assert.equal(runs("HH {\\H3x; } HH")[0]![1], 0);
   // A stack under a width factor or a lean of its own is laid out and drawn in them, unmeasured.
@@ -495,13 +543,16 @@ test("the codes that change the characters after them set them where the leading
   leaned.rect([0, 0], 1.1, 1.1);
   leaned.paragraph("\\Q45;H", { at: [0.05, 1], height: 1, style: { name: "A", font: "Arial" } });
   assert.ok(inspectText(leaned.build()).some((d) => d.rule === "text-leaves-boundary"));
+
   // Each run leans the box by its own angle, up to its own top.
   const leaves = (value: string, width: number, high = 1.4, at: Point = [0.2, 1.3]) => {
     const d = createDrawing({ units: "in" });
     d.rect([0, 0], width, high);
     d.paragraph(value, { at, height: 1, style: { name: "A", font: "Arial" } });
+
     return inspectText(d.build()).some((w) => w.rule === "text-leaves-boundary");
   };
+
   assert.equal(leaves("I{\\Q-40;H}I", 4), true);
   assert.equal(leaves("H{\\H0.25x;\\Q45;H}", 1.7), false);
   assert.equal(leaves("{\\Q85;T}{\\H9x;.}", 40, 40, [10, 30]), false);
@@ -532,6 +583,7 @@ test("the codes that change the characters after them set them where the leading
 test("what the tables cannot lay out exactly is approximate, or refused", () => {
   const approximate = (value: string, font: string, obliqueAngle = 0) =>
     layoutParagraph({ value, height: 1, font, obliqueAngle }).approximate;
+
   assert.equal(approximate("H%%cH", "Arial"), false);
   assert.equal(approximate("H%%cH", "romans.shx"), true);
   assert.equal(approximate("H\u00d8H", "romans.shx"), false);
@@ -539,19 +591,22 @@ test("what the tables cannot lay out exactly is approximate, or refused", () => 
   assert.equal(approximate("ONE", "Arial", 15), false);
   assert.equal(approximate("1\\S1/2;", "Arial"), false);
   assert.equal(approximate("1\\S1/2;", "Times New Roman"), true);
+
   for (const value of ["\\Sx/y;", "\\S1/2a;", "\\S+/1;", "\\S 1/2;", "\\S1/2/3;"]) {
     assert.match(parseParagraph(value).problem ?? "", /stacked part/, value);
   }
+
   for (const value of ["\\S1/2;", "\\S+0.01^-0.02;", "\\S2^ ;", "\\S^2;", "\\SAB#CD;"]) {
     assert.equal(parseParagraph(value).problem, undefined, value);
   }
+
   assert.match(parseParagraph("\\OOVER").problem ?? "", /code \\O, which draws a line over/);
   assert.match(parseParagraph("\\L1\\S1/2;").problem ?? "", /stack in underlined/);
   assert.equal(parseParagraph("{\\L1}\\S1/2;").problem, undefined);
 });
 
 /** A drawing with one paragraph of these fields, as data. */
-function holding(fields: Record<string, unknown>, dxf: "R12" | "R2018" = "R2018"): Drawing {
+function holding(fields: Data, dxf: "R12" | "R2018" = "R2018"): Drawing {
   const paragraph = {
     kind: "paragraph",
     layer: "0",
@@ -561,7 +616,8 @@ function holding(fields: Record<string, unknown>, dxf: "R12" | "R2018" = "R2018"
     value: "NOTE",
     ...fields,
   };
-  return { ...createDrawing({ dxf }).build(), entities: [paragraph as unknown as Entity] };
+
+  return { ...createDrawing({ dxf }).build(), entities: [wrong(paragraph)] };
 }
 
 test("lint refuses a paragraph built as data that the leading CAD app would not take as written", () => {
@@ -569,11 +625,13 @@ test("lint refuses a paragraph built as data that the leading CAD app would not 
     lint(drawing)
       .filter((d) => d.severity === "error")
       .map((d) => `${d.rule}: ${d.message}`);
+
   assert.deepEqual(errors(holding({})), []);
   assert.deepEqual(errors(holding({}, "R12")), [
     'paragraph: paragraph #0: tsdraft writes no paragraphs to R12 drawings. Use DXF version "R2018" for a paragraph',
   ]);
-  const refused: [Record<string, unknown>, RegExp][] = [
+
+  const refused: [Data, RegExp][] = [
     [{ value: "A\nB" }, /^paragraph: .*control characters/],
     [{ value: "\\H0;A" }, /^paragraph: .*code \\H takes/],
     [{ lineSpacing: 5 }, /^paragraph: .*from 0.25 to 4/],
@@ -601,6 +659,7 @@ test("lint refuses a paragraph built as data that the leading CAD app would not 
       /^paragraph: .*too wide to write/,
     ],
   ];
+
   for (const [fields, problem] of refused) {
     const found = errors(holding(fields));
     assert.ok(
@@ -608,15 +667,18 @@ test("lint refuses a paragraph built as data that the leading CAD app would not 
       `${JSON.stringify(fields)}: ${found.join("; ")}`,
     );
   }
+
   // A TrueType font keeps it.
   const arial = { textStyles: [{ name: "NOTES", font: "Arial" }] };
   assert.deepEqual(errors({ ...holding({ value: "%%c6", style: "NOTES" }), ...arial }), []);
   assert.deepEqual(errors(holding({ value: "\\fArial;%%c6" })), []);
+
   // A \N without columns only breaks the line, which lint warns of.
   const warnings = (drawing: Drawing) =>
     lint(drawing)
       .filter((d) => d.severity === "warning")
       .map((d) => d.message);
+
   assert.deepEqual(warnings(holding({ value: "A\\NB" })), [
     "paragraph #0: The paragraph code \\N starts the next column, and this paragraph has no columns: it breaks the line, as \\P does",
   ]);
@@ -668,17 +730,19 @@ test("readDXF gives back each paragraph as toDXF wrote it, in model space, a blo
   const mtexts = read.model.entities!.filter((e) => e.kind === "mtext");
   assert.equal(mtexts.length, 7);
   assert.equal(mtexts[1]!.kind === "mtext" && mtexts[1]!.value, long);
+
   // The embedded object's direction wins over group 50.
   const turned = await readDXF(
     dxf.replace(/\r\n11\r\n0\.866025403784439\r\n21\r\n0\.5\r\n31\r\n0\r\n/, "\r\n50\r\n90\r\n"),
     { geometry: true },
   );
+
   const thirty = turned.model.entities!.filter((e) => e.kind === "mtext")[4]!;
   assert.equal(thirty.kind === "mtext" && thirty.rotation, 30);
-  const both = structuredClone(read) as unknown as {
-    model: { entities: Record<string, unknown>[] };
-  };
-  both.model.entities.find((e) => e.columns !== undefined)!.columns = { height: 1, heights: [2] };
+
+  const both = dataOf(structuredClone(read));
+  const entities = recordsIn(fieldOf(both.model, "entities"));
+  entities.find((e) => e.columns !== undefined)!.columns = { height: 1, heights: [2] };
   assert.match(
     checkDrawingRead(both).join("; "),
     /columns must be \{ height, count\?, gutter\? \}/,
@@ -709,7 +773,7 @@ test("a paragraph is laid out from its numbers as written, as a read of the file
     [2, 1],
   );
   drawing.entities.forEach((e, i) => {
-    const laid = layoutParagraph(paragraphInStyle(e as Paragraph, drawing.textStyles![0]));
+    const laid = layoutParagraph(paragraphInStyle(ofKind(e, "paragraph"), drawing.textStyles![0]));
     assert.deepEqual(laid.lines, layoutMtext(mtexts[i]!, style).lines);
   });
 });
@@ -718,15 +782,20 @@ test("a paragraph is placed in the direction the DXF holds: its rotation within 
   const d = createDrawing({ units: "in" });
   d.textStyle({ name: "NOTES", font: "Arial" });
   const rotations = [8571234567891230000, 400.5, -30, 4e-7, 359.9999996];
+
   for (const [i, rotation] of rotations.entries()) {
     d.paragraph("HHHH", { at: [0, 10 * i], height: 1e9, rotation, style: "NOTES" });
   }
+
   const drawing = d.build();
   const read = await readDXF(toDXF(drawing), { geometry: true });
   const style = read.textStyles.find((s) => s.name === "NOTES");
   const mtexts = read.model.entities!.filter((e) => e.kind === "mtext");
   drawing.entities.forEach((e, i) => {
-    const placed = measureParagraph(paragraphInStyle(e as Paragraph, drawing.textStyles![0]));
+    const placed = measureParagraph(
+      paragraphInStyle(ofKind(e, "paragraph"), drawing.textStyles![0]),
+    );
+
     assert.deepEqual(placed.lines, measureMtext(mtexts[i]!, style).lines, String(rotations[i]));
   });
   assert.deepEqual(readProblems(drawing, read, "tsdraft"), []);
@@ -843,9 +912,11 @@ test("a bold run is drawn bold, and plotted in a bold face or the bold file give
   const text = (bytes: Uint8Array) => new TextDecoder("latin1").decode(bytes);
   const faces = text(svgToPDF([picture]));
   assert.ok(faces.includes("/BaseFont /Helvetica-Bold") && faces.includes("/BaseFont /Helvetica "));
+
   const font = new Uint8Array(
     readFileSync(new URL("../cli/assets/fonts/JetBrainsMono-Regular.ttf", import.meta.url)),
   );
+
   const embedded = text(svgToPDF([picture], { fonts: { "Arial Bold": font } }));
   assert.ok(!embedded.includes("/BaseFont /Helvetica-Bold") && embedded.includes("/FontFile2"));
 });
@@ -858,19 +929,24 @@ test("under a standard a paragraph is held to its role's text style and height, 
   );
   const [layout] = sheet.layouts!;
   const at = layout!.entities.findIndex((e) => e.kind === "paragraph");
-  const changed = (fields: Record<string, unknown>): Drawing => ({
+
+  const changed = (fields: Data): Drawing => ({
     ...sheet,
     layouts: [
       {
         ...layout!,
-        entities: layout!.entities.map((e, i) => (i === at ? ({ ...e, ...fields } as Entity) : e)),
+        entities: layout!.entities.map((e, i) =>
+          i === at ? wrong<Entity>({ ...dataOf(e), ...fields }) : e,
+        ),
       },
     ],
   });
+
   const rules = (drawing: Drawing) =>
     lint(drawing, { standard })
       .filter((d) => d.severity === "error" && d.entity === at)
       .map((d) => d.rule);
+
   assert.deepEqual(rules(changed({ height: 0.2 })), ["height-off-role"]);
   assert.deepEqual(rules(changed({ style: undefined })), ["text-style-outside-standard"]);
 });
@@ -879,8 +955,10 @@ test("a leaned word wraps as if its ink reached twice its last character's lean 
   // The least width that holds two words on one line, in Arial capitals of height 1.
   const least = (obliqueAngle: number, widthFactor = 1) => {
     let [lo, hi] = [0, 20];
+
     for (let i = 0; i < 50; i++) {
       const width = (lo + hi) / 2;
+
       const { lines } = layoutParagraph({
         value: "HHH HHH",
         height: 1,
@@ -889,10 +967,13 @@ test("a leaned word wraps as if its ink reached twice its last character's lean 
         obliqueAngle,
         widthFactor,
       });
+
       [lo, hi] = lines.length === 1 ? [lo, width] : [width, hi];
     }
+
     return hi;
   };
+
   for (const [angle, factor] of [
     [15, 1],
     [30, 1],
@@ -905,6 +986,7 @@ test("a leaned word wraps as if its ink reached twice its last character's lean 
       `${angle}, ${factor}`,
     );
   }
+
   // A left lean wraps as an upright word does.
   assert.equal(least(-15), least(0));
 });

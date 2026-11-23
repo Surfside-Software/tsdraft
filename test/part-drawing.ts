@@ -62,6 +62,7 @@ export function partDrawing(): Drawing {
     d.circle([2, 2], 1);
   });
   d.layout("C", { paper: "ARCH D" }, () => d.line([5, 5], [6, 6]));
+
   return d.build();
 }
 
@@ -82,6 +83,7 @@ export function detailsDrawing(rows: number, columns: number): Drawing {
     for (let r = 0; r < rows; r++)
       for (let c = 0; c < columns; c++) {
         const [x, y] = [c * 100, r * 100];
+
         for (let k = 0; k < 120; k++) d.line([x + 10 + k / 2, y + 10], [x + 10 + k / 2, y + 70]);
         d.circle([x + 50, y + 50], 20);
         d.polyline(
@@ -95,12 +97,14 @@ export function detailsDrawing(rows: number, columns: number): Drawing {
         d.text([x + 10, y + 80], `DETAIL ${r * columns + c + 1}`, { height: 2 });
       }
   });
+
   const sheets: [name: string, row: number, column: number, twist: number][] = [
     ["D-1", 0, 0, 0],
     ["D-2", Math.floor(rows / 2), Math.floor(columns / 2), 0],
     ["D-3", rows - 1, columns - 1, 0],
     ["D-4", 1, 2, 15],
   ];
+
   for (const [name, row, column, twist] of sheets)
     d.layout(name, { paper: "ARCH D" }, (page) => {
       page.viewport([1, 1], 20, 20, {
@@ -110,5 +114,6 @@ export function detailsDrawing(rows: number, columns: number): Drawing {
       });
       d.text([22, 2], name, { height: 0.25 });
     });
+
   return d.build();
 }

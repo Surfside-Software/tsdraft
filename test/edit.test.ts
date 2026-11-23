@@ -21,9 +21,11 @@ import {
 import { BINARY } from "../src/read/groups.ts";
 import { sha256 } from "../src/sha256.ts";
 import { within } from "./time-limit.ts";
+import { dataOf, wrong } from "./values.ts";
 
 const encoder = new TextEncoder();
 const bytesOf = (text: string): Uint8Array => encoder.encode(text);
+
 const editOf = (bytes: Uint8Array, more: Partial<Edit> = {}): Edit => ({
   format: 0,
   file: "plan.dxf",
@@ -32,7 +34,9 @@ const editOf = (bytes: Uint8Array, more: Partial<Edit> = {}): Edit => ({
   statements: [],
   ...more,
 });
-const readOf = (bytes: Uint8Array) => ({ sha256: sha256(bytes) }) as DrawingRead;
+
+/** A read that holds only the hash of its bytes, which is all an edit reads of it. */
+const readOf = (bytes: Uint8Array): DrawingRead => wrong({ sha256: sha256(bytes) });
 
 test("an edit with no statements writes a DXF of the 2018 format back byte for byte", async () => {
   for (const drawing of [sheet, kitchen]) {
@@ -44,11 +48,13 @@ test("an edit with no statements writes a DXF of the 2018 format back byte for b
 
 test("an edit refuses a stale hash, another format, a binary DXF and a statement it does not make", () => {
   const bytes = bytesOf(toDXF(sheet));
+
   const refused = (b: Uint8Array, edit: Edit, pattern: RegExp) =>
     assert.throws(
       () => editDXF(b, edit, readOf(b)),
       (e: Error) => e instanceof EditError && pattern.test(e.message),
     );
+
   refused(
     bytes,
     { ...editOf(bytes), sha256: "0".repeat(64) },
@@ -58,6 +64,7 @@ test("an edit refuses a stale hash, another format, a binary DXF and a statement
   r12.line([0, 0], [1, 1]);
   const old = bytesOf(toDXF(r12.build(), { version: "R12" }));
   refused(old, editOf(old), /format AC1009/);
+
   // A comment between `$ACADVER` and its value is no value.
   const commented = (version: string, comment: string) =>
     bytesOf(
@@ -66,6 +73,7 @@ test("an edit refuses a stale hash, another format, a binary DXF and a statement
         `$1999\r\n${comment}\r\n$2${version}`,
       ),
     );
+
   const note = commented("AC1032", "project note");
   assert.deepEqual(editDXF(note, editOf(note), readOf(note)), note);
   const older = commented("AC1015", "AC1032");
@@ -77,17 +85,30 @@ test("an edit refuses a stale hash, another format, a binary DXF and a statement
     editOf(bytes, { statements: [{ kind: "erase", handles: ["1F"] }] }),
     /no erase statement/,
   );
+
   const added = editOf(bytes, {
     additions: {
-      model: [{ kind: "line", from: [0, 0], to: [1, 1], layer: "0" }] as never,
+      model: [{ kind: "line", from: [0, 0], to: [1, 1], layer: "0" }],
       layouts: {},
       definitions: {},
     },
   });
+
   refused(bytes, added, /no addition/);
+
+  // A list the definitions inherit is walked, as `checkEdit` walks it.
+  const inherited = editOf(bytes, {
+    additions: {
+      model: [],
+      layouts: {},
+      definitions: Object.create({ textStyles: [{ name: "NOTE", font: "Arial" }] }),
+    },
+  });
+
+  refused(bytes, inherited, /no addition/);
   refused(bytes, { ...editOf(bytes), name: "" }, /malformed/);
   assert.throws(
-    () => editDXF(bytes, editOf(bytes), { sha256: "1".repeat(64) } as DrawingRead),
+    () => editDXF(bytes, editOf(bytes), wrong({ sha256: "1".repeat(64) })),
     /read given is of other bytes/,
   );
 });
@@ -95,39 +116,50 @@ test("an edit refuses a stale hash, another format, a binary DXF and a statement
 test("checkEdit names what is wrong with a value meant as an edit, and an Edit goes through JSON", () => {
   const bytes = bytesOf("x");
   const good = editOf(bytes, { sheets: ["../A-101.dwg"] });
+  const data = dataOf(good);
   assert.deepEqual(checkEdit(JSON.parse(JSON.stringify(good))), []);
   assert.deepEqual(checkEdit(null), ["the edit is not an object"]);
-  assert.match(checkEdit({ ...good, format: 1 }).join(), /format is not 0/);
-  assert.match(checkEdit({ ...good, sha256: "ABC" }).join(), /sha256/);
-  assert.match(checkEdit({ ...good, name: "a b" }).join(), /name/);
-  assert.match(checkEdit({ ...good, units: "yd" }).join(), /units/);
-  assert.match(checkEdit({ ...good, statements: [{ kind: "explode" }] }).join(), /statement 0/);
+  assert.match(checkEdit(wrong({ ...data, format: 1 })).join(), /format is not 0/);
+  assert.match(checkEdit(wrong({ ...data, sha256: "ABC" })).join(), /sha256/);
+  assert.match(checkEdit(wrong({ ...data, name: "a b" })).join(), /name/);
+  assert.match(checkEdit(wrong({ ...data, units: "yd" })).join(), /units/);
   assert.match(
-    checkEdit({ ...good, statements: [{ kind: "erase", handles: ["XYZ"] }] }).join(),
+    checkEdit(wrong({ ...data, statements: [{ kind: "explode" }] })).join(),
+    /statement 0/,
+  );
+  assert.match(
+    checkEdit(wrong({ ...data, statements: [{ kind: "erase", handles: ["XYZ"] }] })).join(),
     /hexadecimal/,
   );
   assert.match(
-    checkEdit({ ...good, additions: { model: [], layouts: { A: null }, definitions: {} } }).join(),
+    checkEdit(
+      wrong({ ...data, additions: { model: [], layouts: { A: null }, definitions: {} } }),
+    ).join(),
     /layout "A" is not a list/,
   );
   // A list's own properties are data, never called.
   assert.match(
-    checkEdit({ ...good, sheets: Object.assign(["a"], { every: 0 }), statements: [] }).join(),
+    checkEdit(
+      wrong({ ...data, sheets: Object.assign(["a"], { every: 0 }), statements: [] }),
+    ).join(),
     /^$/,
   );
   // A list past the edit's limits is refused before it is walked.
   assert.match(
-    checkEdit({ ...good, statements: { length: 1e9 } }).join(),
+    checkEdit(wrong({ ...data, statements: { length: 1e9 } })).join(),
     /statements is not a list/,
   );
 });
 
 test("editDrawing builds the edit, and reads the file only when its function asks", () => {
   let loaded = 0;
+
   const load = () => {
     loaded++;
-    return { sha256: "a".repeat(64), model: { census: {} } } as unknown as DrawingRead;
+
+    return wrong<DrawingRead>({ sha256: "a".repeat(64), model: { census: {} } });
   };
+
   const quiet = editDrawing({ file: "../plan.dxf", sha256: "A".repeat(64), name: "rev-1" });
   assert.deepEqual(quiet.build(load), {
     format: 0,
@@ -137,12 +169,14 @@ test("editDrawing builds the edit, and reads the file only when its function ask
     statements: [],
   });
   assert.equal(loaded, 0);
+
   const reading = editDrawing(
     { file: "plan.dxf", sha256: "a".repeat(64), name: "r" },
     (_e, read) => {
       assert.equal(read.sha256, "a".repeat(64));
     },
   );
+
   reading.build(load);
   reading.build(load);
   assert.equal(loaded, 2);
@@ -152,20 +186,25 @@ test("editDrawing builds the edit, and reads the file only when its function ask
 function withoutGroup(text: string, kind: string, code: number): Uint8Array {
   const lines = text.split("\r\n");
   let inKind = false;
+
   for (let i = 0; i + 1 < lines.length; i += 2) {
     const c = Number(lines[i]);
+
     if (c === 0) inKind = lines[i + 1] === kind;
     else if (inKind && c === code) {
       lines.splice(i, 2);
+
       return bytesOf(lines.join("\r\n"));
     }
   }
+
   throw new Error(`no group ${code} in a ${kind}`);
 }
 
 /** A DXF with one group's value made another, by the groups' text. */
 function bent(text: string, from: RegExp, to: string): Uint8Array {
   assert.match(text, from);
+
   return bytesOf(text.replace(from, to));
 }
 
@@ -206,11 +245,13 @@ test("the structure check finds no defect in what toDXF writes, and finds each r
 test("the structure check stays linear on many long names that differ only at their ends", () => {
   // 2,000 lines, each on a layer of its own of 17,000 characters, past what V8 hashes whole.
   const base = "N".repeat(17_000 - 8);
+
   const lines = Array.from(
     { length: 2000 },
     (_, i) =>
       `  0\r\nLINE\r\n  5\r\n${(0x100 + i).toString(16).toUpperCase()}\r\n  8\r\n${base}${String(i).padStart(8, "0")}\r\n`,
   );
+
   const text = `  0\r\nSECTION\r\n  2\r\nHEADER\r\n  9\r\n$HANDSEED\r\n  5\r\nFFFF\r\n  0\r\nENDSEC\r\n  0\r\nSECTION\r\n  2\r\nENTITIES\r\n${lines.join("")}  0\r\nENDSEC\r\n  0\r\nEOF\r\n`;
   const report = within(3000, () => dxfStructure(bytesOf(text)));
   assert.equal(report.count, 2000);

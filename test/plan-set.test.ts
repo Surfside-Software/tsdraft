@@ -24,11 +24,13 @@ test("the permit set example draws its 15 sheets, lints clean and keeps its setb
       "P-101",
     ],
   );
+
   for (const drawing of [set, ...Object.values(xrefs)]) {
     assert.deepEqual(
       lint(drawing).filter((d) => d.severity === "error"),
       [],
     );
   }
+
   assert.deepEqual(checkIntent(set, intent), []);
 });

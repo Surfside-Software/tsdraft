@@ -6,4 +6,4 @@ import { SHEETS_E } from "./mep-e101.ts";
 import { SHEETS_M } from "./mep-m101.ts";
 import { SHEETS_P } from "./mep-p101.ts";
 
-export const SHEETS: Record<string, SheetDraw> = { ...SHEETS_M, ...SHEETS_E, ...SHEETS_P };
+export const SHEETS = { ...SHEETS_M, ...SHEETS_E, ...SHEETS_P } satisfies Record<string, SheetDraw>;

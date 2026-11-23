@@ -24,6 +24,7 @@ import type {
   Units,
 } from "../drawing.ts";
 import type { Font } from "../fonts.ts";
+import type { Json } from "../guards.ts";
 import type { PaperUnit } from "../paper.ts";
 import type { Paper, PlotStyleTable } from "../papers.ts";
 
@@ -527,7 +528,13 @@ export type Standard<
   readonly chain: readonly StandardLink[];
 };
 
-export interface StandardOptions<F = Readonly<Record<string, unknown>>> {
+/**
+ * What `options.files` gives for a string a document names: a standard, a drawing, or a `Json`
+ * value, such as a file parsed from JSON.
+ */
+export type StandardFile = Standard | Drawing | Json;
+
+export interface StandardOptions<F = Readonly<Record<string, StandardFile>>> {
   /**
    * What a string in the document names, by the string exactly as the document writes it: a
    * `Standard` for `extends`, and the value `JSON.parse` gives for a title block's `block` or

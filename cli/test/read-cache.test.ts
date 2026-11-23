@@ -18,11 +18,13 @@ import { createDrawing, toDXF } from "tsdraft";
 import { type CachedRead, ReadCache } from "../src/read-cache.ts";
 
 const temp = realpathSync(mkdtempSync(join(tmpdir(), "tsdraft-read-cache-")));
+
 after(() => rmSync(temp, { recursive: true, force: true }));
 
 function dxf(text: string): string {
   const d = createDrawing({ units: "ft" });
   d.text([0, 0], text, { height: 1 });
+
   return toDXF(d.build());
 }
 
@@ -33,8 +35,10 @@ function dxf(text: string): string {
  */
 async function readFrom(from: "memory" | "disk", read: () => Promise<CachedRead>) {
   let done = await read();
+
   for (let tries = 1; tries < 3 && !("read" in done && done.from === from); tries++)
     done = await read();
+
   return done;
 }
 
@@ -87,9 +91,11 @@ test("a read by layout reaches the reading process and is kept apart from the wh
   assert.equal(whole.read.model.entities?.length, 2);
   assert.equal(part.read.model.entities?.length, 1);
   assert.equal(JSON.stringify(part.read.only), JSON.stringify({ layouts: ["A"] }));
+
   const again = await readFrom("memory", () =>
     cache.read(file, null, {}, { geometry: true, only: { layouts: ["A"] } }),
   );
+
   assert.ok("read" in again && again.from === "memory");
 });
 
@@ -99,6 +105,7 @@ test("a kept read that is not the file's is thrown away and the file read again"
   save(file, dxf("KEPT"));
   const first = await new ReadCache(folder).read(file, null);
   assert.ok("read" in first);
+
   for (const tampered of [
     '{"format":0}',
     "not json",
@@ -136,6 +143,7 @@ test("a rewrite that keeps the size and puts the time back is read again", async
   const { mtime } = statSync(file);
   writeFileSync(file, dxf("DOG"));
   utimesSync(file, mtime, mtime);
+
   for (const again of [cache, new ReadCache(folder)]) {
     const read = await again.read(file, null, {}, { geometry: true });
     assert.ok("read" in read && read.from !== "memory");
@@ -190,12 +198,14 @@ export async function readDrawingFile(chunks) {
 }
 `,
   );
+
   const reader = {
     name: "label-reader",
     version: "1.0.0",
     folder: realpathSync(folder),
     modules: { ".dwg": realpathSync(join(folder, "read.js")) },
   };
+
   const file = join(temp, "f.dwg");
   save(file, "a drawing");
   const cache = join(temp, "cache-f");

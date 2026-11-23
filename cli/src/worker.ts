@@ -49,7 +49,8 @@ import type {
 } from "./state.ts";
 import { LEFT_OUT, without } from "./omit.ts";
 import { fileVersion } from "./version.ts";
-import { formatSteps, librarySteps, stripSteps } from "./warmup.ts";
+import { isFunction, isNumber, isObject, isString } from "./guards.ts";
+import { formatSteps, librarySteps, stripSteps, type Library as OwnLibrary } from "./warmup.ts";
 
 export interface BuildRequest {
   readonly type: "build";
@@ -107,13 +108,7 @@ export interface WorkerResult {
    * folder in node_modules that a bare import went through.
    */
   readonly files: readonly FileVersion[];
-  readonly timings: {
-    readonly load?: number;
-    readonly lint?: number;
-    readonly inspect?: number;
-    readonly intent?: number;
-    readonly svg?: number;
-  };
+  readonly timings: Readonly<Timings>;
   readonly drawing: DrawingSummary | null;
   readonly diagnostics: readonly BuildDiagnostic[];
   readonly svg: string | null;
@@ -132,7 +127,7 @@ export interface WorkerResult {
     readonly fonts: readonly string[];
   } | null;
   /** The color `toSVG` draws each layer in, by layer name. */
-  readonly swatches: Readonly<Record<string, string>>;
+  readonly swatches: Readonly<Swatches>;
   readonly error: BuildError | null;
   /** True for a build that failed after `lint` reported errors, which `diagnostics` holds. */
   readonly linted?: boolean;
@@ -145,36 +140,124 @@ export interface WorkerResult {
   readonly modules: { readonly read: number; readonly ahead: number };
 }
 
-/** What the `xrefs` export gives: a drawing, or `{ drawing, xrefs }`, by an xref's name. */
-type GivenXrefs = Readonly<Record<string, unknown>>;
+/** How long each step of a build took, in milliseconds. */
+interface Timings {
+  load?: number;
+  lint?: number;
+  inspect?: number;
+  intent?: number;
+  svg?: number;
+}
 
-interface Library {
-  readonly lint: (
-    drawing: Drawing,
-    options?: {
-      standard?: unknown;
-      xrefs?: GivenXrefs;
-      shapes?: Readonly<Record<string, Uint8Array>>;
-      underlays?: Readonly<Record<string, Readonly<Record<string, Uint8Array>>>>;
-    },
-  ) => Diagnostic[];
+/** The fields of a value given as a drawing that the worker reads first, as the file gives each. */
+interface DrawingFields {
+  readonly layers?: unknown;
+  readonly entities?: unknown;
+  readonly units?: unknown;
+  readonly build?: unknown;
+}
+
+/** A value of the `xrefs` export that holds `drawing`, with each field as the file gives it. */
+interface XrefFields {
+  readonly drawing: unknown;
+  readonly xrefs?: unknown;
+}
+
+/** The fields of a thrown value that the worker reads, as the file gives each. */
+interface ThrownFields {
+  readonly name?: unknown;
+  readonly code?: unknown;
+  readonly url?: unknown;
+  readonly diagnostics?: unknown;
+}
+
+/** The fields of a linetype and of its marks that the worker reads, as the drawing gives each. */
+interface LinetypeFields {
+  readonly marks?: unknown;
+}
+
+interface MarkFields {
+  readonly file?: unknown;
+}
+
+/** The fields of an image or underlay that the worker reads, as the drawing gives each. */
+interface PictureEntityFields {
+  readonly kind?: unknown;
+  readonly path?: unknown;
+  readonly pixels?: unknown;
+  readonly page?: unknown;
+  readonly pageSize?: unknown;
+}
+
+/** The exports of a drawing file that a build reads, each as the file gives it. */
+interface DrawingModule {
+  readonly default?: unknown;
+  readonly xrefs?: unknown;
+  readonly intent?: unknown;
+  readonly standard?: unknown;
+}
+
+/** What the `xrefs` export gives for one xref: a drawing, or `{ drawing, xrefs }`. */
+type GivenXref = Drawing | GivenDrawing;
+
+interface GivenDrawing {
+  readonly drawing: Drawing;
+  /** What is given for the xrefs of `drawing`. */
+  readonly xrefs?: GivenXrefs;
+  /** The files of the drawing's images, which the worker reads for the pictures. */
+  readonly images?: Readonly<Record<string, Uint8Array>>;
+}
+
+/** What the `xrefs` export gives: a drawing, or `{ drawing, xrefs }`, by an xref's name. */
+type GivenXrefs = Readonly<Record<string, GivenXref>>;
+
+/** The files of a drawing's images and of its underlays' pages, for the pictures. */
+interface PictureFiles {
+  images?: Readonly<Record<string, Uint8Array>>;
+  underlays?: Readonly<Record<string, Readonly<Record<string, Uint8Array>>>>;
+}
+
+/**
+ * The shape files a drawing's linetypes name, for `lint` and the pictures: as `shx`, or as
+ * `shapes` to a copy of tsdraft from before the SHX names.
+ */
+interface ShxFiles extends OlderShxFiles {
+  shx?: Readonly<Record<string, Uint8Array>>;
+}
+
+/** The names a copy of tsdraft from before the SHX names gives what `ShxNames` names. */
+const OLDER_SHX = { key: "shapeFileKey", glyph: "shape", option: "shapes" } as const;
+
+/** The option of shape files of a copy of tsdraft from before the SHX names. */
+type OlderShxFiles = { [K in typeof OLDER_SHX.option]?: Readonly<Record<string, Uint8Array>> };
+
+/** The key of a shape file in a copy of tsdraft from before the SHX names. */
+type OlderShxKey = { readonly [K in typeof OLDER_SHX.key]?: (file: string) => string };
+
+interface LintOptions extends ShxFiles {
+  standard?: unknown;
+  xrefs?: GivenXrefs;
+  underlays?: Readonly<Record<string, Readonly<Record<string, Uint8Array>>>>;
+}
+
+interface PictureOptions extends PictureFiles, ShxFiles {
+  margin?: number;
+  drawNoPlot?: boolean;
+  xrefs?: GivenXrefs;
+  layout?: string;
+  view?: readonly [number, number, number, number];
+}
+
+interface Library extends OlderShxKey {
+  readonly lint: (drawing: Drawing, options?: LintOptions) => Diagnostic[];
   /** A copy of tsdraft from before standards has none, and its `lint` takes no standard. */
   readonly defineStandard?: unknown;
-  readonly toSVG: (
-    drawing: Drawing,
-    options?: {
-      margin?: number;
-      drawNoPlot?: boolean;
-      xrefs?: GivenXrefs;
-      layout?: string;
-      view?: readonly [number, number, number, number];
-      images?: Readonly<Record<string, Uint8Array>>;
-      shapes?: Readonly<Record<string, Uint8Array>>;
-      underlays?: Readonly<Record<string, Readonly<Record<string, Uint8Array>>>>;
-    },
-  ) => string;
-  /** The key a shape file is found by. A copy of tsdraft from before shapes has none. */
-  readonly shapeFileKey?: (file: string) => string;
+  readonly toSVG: (drawing: Drawing, options?: PictureOptions) => string;
+  /**
+   * The key a shape file is found by. A copy of tsdraft from before the SHX names has
+   * `OLDER_SHX.key` in its place, and one from before shapes has neither.
+   */
+  readonly shxFileKey?: (file: string) => string;
   /** Where an underlay's page goes. A copy of tsdraft from before underlays has none. */
   readonly underlayCorners?: unknown;
   /** A PDF page's size in inches. A copy of tsdraft from before it has none. */
@@ -208,22 +291,22 @@ interface Library {
   /** A dimension's style and what it draws. A copy of tsdraft from before dimensions has neither. */
   readonly findDimensionStyle?: (drawing: Drawing, name: string) => DimensionStyle | undefined;
   /** An older copy throws for a kind of dimension it does not know, which the caller catches. */
-  readonly dimensionPicture?: (
-    dimension: Extract<Entity, { readonly kind: `${string}-dimension` }>,
-    style: DimensionStyle,
-  ) => DimensionPicture;
+  readonly dimensionPicture?: (dimension: Dimension, style: DimensionStyle) => DimensionPicture;
 }
 
 // The streams' own `write`, which a drawing file may replace on `process.stdout` and
 // `process.stderr`: the process writes through these to know its output has left it.
 const [writeOut, writeErr] = [process.stdout.write, process.stderr.write];
+
 /** The streams themselves, which a drawing may replace, end or cork. */
 const [stdout, stderr] = [process.stdout, process.stderr];
 
 // Deep enough that a drawing calling helpers several levels down still has its own frame.
 Error.stackTraceLimit = 100;
+
 // Every builder the drawing file makes records the call that draws each entity, for `call`.
-(globalThis as { TSDRAFT_RECORD_CALLS?: boolean }).TSDRAFT_RECORD_CALLS = true;
+Object.assign(globalThis, { TSDRAFT_RECORD_CALLS: true });
+
 /**
  * This command's own code and the library beside it, built and as source, which are never the
  * user's code.
@@ -242,8 +325,10 @@ const ownEntries = ["dist/index.js", "src/index.ts"].map((entry) =>
 
 /** Each module URL the build loaded. */
 const loaded = new Set<string>();
+
 /** The files each file imported, by the importer's path. */
 const imported = new Map<string, string[]>();
+
 /** Each tracked path the build read, with every version it was read at. */
 const read = new Map<string, Set<string | null>>();
 
@@ -253,25 +338,31 @@ interface AheadImport {
   readonly path: string;
   readonly link: FileVersion | undefined;
 }
+
 /** Each module loaded ahead of the build, by its URL, with its version from before it was read. */
 const ahead = new Map<
   string,
   { readonly path: string; readonly version: string | null; readonly imports: AheadImport[] }
 >();
+
 /**
  * Each path an import of a module loaded ahead named, with its version from before it was
  * followed. A version names the file the path leads to, so it covers every link on the way.
  */
 const links = new Map<string, string | null>();
+
 /** Each package.json Node may have read for a module loaded ahead, with its version before. */
 const scopes = new Map<string, string | null>();
+
 /**
  * False once something loaded ahead was reached other than by a path, such as a package or a
  * part of Node, or failed to load. What this process holds can then not be told from its files.
  */
 let closed = true;
+
 /** True from the moment a build is asked for. Before it, every load is one ahead. */
 let building = false;
+
 /**
  * The folder of the library being loaded ahead, with a separator at its end. An import that
  * leads outside it, or to a part of Node, is refused before anything of it runs.
@@ -282,7 +373,9 @@ const modules = { read: 0, ahead: 0 };
 /** Notes a version of a path the build depends on, and tells the parent at once. */
 function track(path: string, version: string | null): void {
   let versions = read.get(path);
+
   if (!versions) read.set(path, (versions = new Set()));
+
   if (versions.has(version)) return;
   versions.add(version);
   process.send!({ type: "file", file: [path, version] } satisfies WorkerMessage);
@@ -291,19 +384,24 @@ function track(path: string, version: string | null): void {
 /** Notes every package.json above a path, and above the file it leads to, before Node reads one. */
 function scope(path: string): void {
   let real = path;
+
   try {
     real = realpathSync.native(path);
   } catch {
     // Missing: Node will say so.
   }
+
   for (const start of new Set([path, real])) {
     for (let dir = dirname(start); ; dir = dirname(dir)) {
       const manifest = join(dir, "package.json");
+
       if (!scopes.has(manifest)) scopes.set(manifest, fileVersion(manifest));
+
       if (dir === dirname(dir)) break;
     }
   }
 }
+
 // This file's own, which Node has just read.
 scope(fileURLToPath(import.meta.url));
 
@@ -313,13 +411,17 @@ scope(fileURLToPath(import.meta.url));
  */
 function claim(url: string): void {
   const module = ahead.get(url);
+
   if (!module || loaded.has(url)) return;
   loaded.add(url);
   modules.ahead++;
+
   if (tracked(module.path)) track(module.path, module.version);
+
   for (const { url: to, path, link } of module.imports) {
     if (link) track(...link);
     const list = imported.get(module.path);
+
     if (list) list.push(path);
     else imported.set(module.path, [path]);
     claim(to);
@@ -332,10 +434,15 @@ function claim(url: string): void {
  */
 function stale(): boolean {
   if (!closed) return true;
+
   for (const { path, version } of ahead.values()) if (fileVersion(path) !== version) return true;
+
   for (const [path, version] of links) if (fileVersion(path) !== version) return true;
+
   if (ahead.size === 0) return false;
+
   for (const [path, version] of scopes) if (fileVersion(path) !== version) return true;
+
   return false;
 }
 
@@ -345,39 +452,52 @@ registerHooks({
     // A bare import goes through the package's folder in node_modules, often a workspace link.
     const parent = context.parentURL?.startsWith("file:") ? context.parentURL : undefined;
     const byPath = /^(\.{0,2}\/|file:)/.test(specifier);
+
     const asked = !parent
       ? undefined
       : byPath
         ? fileURLToPath(new URL(specifier, parent))
         : packageFolder(specifier, fileURLToPath(parent));
+
     const version = asked === undefined ? null : fileVersion(asked);
+
     if (!building) {
       if (parent && byPath) {
         scope(asked!);
+
         if (!links.has(asked!)) links.set(asked!, version);
       } else closed = false;
     }
+
     const result = nextResolve(specifier, context);
+
     if (!building && aheadFolder !== undefined && !inside(result.url, aheadFolder)) {
       closed = false;
       throw new Error(`The library imports ${specifier}, which is not one of its own files`);
     }
+
     if (parent && result.url.startsWith("file:")) {
       const path = fileURLToPath(result.url);
+
       const link: FileVersion | undefined =
         asked !== undefined && path !== asked && tracked(path) ? [asked, version] : undefined;
+
       if (!building) {
         ahead.get(parent)?.imports.push({ url: result.url, path, link });
+
         return result;
       }
+
       if (link) track(...link);
       // Every file a file imports, also through an alias that names no folder to watch.
       const importer = fileURLToPath(parent);
       const list = imported.get(importer);
+
       if (list) list.push(path);
       else imported.set(importer, [path]);
       claim(result.url);
     }
+
     return result;
   },
   load(url, context, nextLoad) {
@@ -391,8 +511,10 @@ registerHooks({
       loaded.add(url);
       modules.read++;
       const path = fileURLToPath(url);
+
       if (tracked(path)) track(path, fileVersion(path));
     }
+
     return nextLoad(url, context);
   },
 });
@@ -400,6 +522,7 @@ registerHooks({
 /** Whether a module's URL is a file in a folder, by its real path. */
 function inside(url: string, folder: string): boolean {
   if (!url.startsWith("file:")) return false;
+
   try {
     return realpathSync.native(fileURLToPath(url)).startsWith(folder);
   } catch {
@@ -410,10 +533,14 @@ function inside(url: string, folder: string): boolean {
 /** Where Node looks for a bare import's package: the nearest `node_modules/<name>` that exists. */
 function packageFolder(specifier: string, parent: string): string | undefined {
   const name = /^((?:@[^/:]+\/)?[^/:#.][^/:]*)(?:\/|$)/.exec(specifier)?.[1];
+
   if (!name || isBuiltin(specifier)) return undefined;
+
   for (let dir = dirname(parent); ; dir = dirname(dir)) {
     const folder = join(dir, "node_modules", name);
+
     if (existsSync(folder)) return folder;
+
     if (dir === dirname(dir)) return undefined;
   }
 }
@@ -422,25 +549,34 @@ const now = () => performance.timeOrigin + performance.now();
 
 let request: BuildRequest | undefined;
 let warming: Promise<void> | undefined;
+
 process.on("message", (message: BuildRequest | WarmRequest) => {
   if (request) return;
+
   if (message.type === "warm") {
     warming ??= warm(message.library, message.deadline);
+
     return;
   }
+
   request = message;
   void (warming ?? Promise.resolve()).then(() => {
     building = true;
+
     if (stale()) {
       process.send!({ type: "stale" } satisfies WorkerMessage, leave);
+
       return;
     }
+
     void build(message).then((result) => {
       process.send!({ type: "done", result } satisfies WorkerMessage, leave);
     });
   });
 });
+
 process.once("disconnect", () => process.exit(0));
+
 process.send!({ type: "ready", at: now() } satisfies WorkerMessage);
 
 /**
@@ -451,14 +587,17 @@ process.send!({ type: "ready", at: now() } satisfies WorkerMessage);
 function leave(): void {
   const end = () => process.kill(process.pid, "SIGKILL");
   setTimeout(end, 1_000);
+
   const flush = (stream: NodeJS.WriteStream, write: typeof writeOut, then: () => void): void => {
     if (stream.writableEnded || stream.destroyed || stream.writableCorked > 0) return then();
+
     try {
       write.call(stream, "", "utf8", () => then());
     } catch {
       then();
     }
   };
+
   flush(stdout, writeOut, () => flush(stderr, writeErr, end));
 }
 
@@ -479,6 +618,7 @@ function watch(deadline: number): () => void {
   const flag = new Int32Array(new SharedArrayBuffer(4));
   const workerData = { flag, deadline, ppid: process.ppid };
   new Worker(WATCHDOG, { eval: true, workerData, stdout: true, stderr: true }).unref();
+
   return () => {
     Atomics.store(flag, 0, 1);
     Atomics.notify(flag, 0);
@@ -492,41 +632,53 @@ function watch(deadline: number): () => void {
  */
 async function warm(library: string | null, deadline: number): Promise<void> {
   const done = watch(deadline);
-  const unwritten = (...given: unknown[]): boolean => {
+
+  const unwritten: typeof writeOut = (...given: unknown[]): boolean => {
     const written = given.at(-1);
-    if (typeof written === "function") written();
+
+    if (isFunction(written)) written();
+
     return true;
   };
-  process.stdout.write = process.stderr.write = unwritten as typeof writeOut;
+
+  process.stdout.write = process.stderr.write = unwritten;
   const steps = [...stripSteps];
+
   try {
     if (library !== null && ownEntries.includes(library)) {
       // The library is its folder: a file from elsewhere is one this process cannot answer for.
       aheadFolder = dirname(library) + sep;
-      const loadedAhead = (await import(pathToFileURL(library).href)) as Record<string, unknown>;
+      const loadedAhead: OwnLibrary = await import(pathToFileURL(library).href);
       steps.push(...librarySteps(loadedAhead));
     }
   } catch {
     closed = false;
   }
+
   aheadFolder = undefined;
+
   for (const step of [...steps, ...formatSteps]) {
     if (request) break;
+
     try {
       step();
     } catch {
       // A step that fails leaves the build less warm.
     }
+
     // Lets a request that has come be seen.
     await new Promise((resolve) => setImmediate(resolve));
   }
+
   [process.stdout.write, process.stderr.write] = [writeOut, writeErr];
   done();
+
   const held: FileVersion[] = [
     ...[...ahead.values()].map(({ path, version }): FileVersion => [path, version]),
     ...links,
     ...(ahead.size === 0 ? [] : scopes),
   ];
+
   process.send!({ type: "warmed", kept: closed, held } satisfies WorkerMessage);
 }
 
@@ -551,7 +703,8 @@ async function buildRead({
   reader: named,
   cwd,
 }: BuildRequest): Promise<WorkerResult> {
-  const timings: { load?: number; svg?: number } = {};
+  const timings: Timings = {};
+
   const failed = (message: string, name = "ReadError"): WorkerResult => ({
     ok: false,
     files: readFiles(file),
@@ -575,64 +728,85 @@ async function buildRead({
     library: null,
     modules,
   });
+
   let t = now();
   track(file, fileVersion(file));
+  // SAFETY: the command's own copy of tsdraft reads the file and draws it, and it has each
+  // function Library names.
   const library = (await import("tsdraft")) as typeof import("tsdraft") & Library;
   const { findProject, findReaders, readerFor, ReaderRefusal } = await import("./readers.ts");
   const { cacheFolder, ReadCache } = await import("./read-cache.ts");
   // Each build runs in a process of its own, so a read is found again in the project's cache.
   const cache = new ReadCache(cacheFolder(findProject(cwd ?? process.cwd(), [file])));
+
   /** The reader of a file of an extension: `--reader`'s, the project's, or the file's folder's. */
   const readerOf = (extension: string) => {
     const at = cwd ?? process.cwd();
+
     const found = readerFor(
-      findReaders({ cwd: at, inputs: [file], ...(named === undefined ? {} : { reader: named }) }),
+      findReaders({ cwd: at, inputs: [file], ...(named !== undefined && { reader: named }) }),
       extension,
     );
+
     if (found !== null || named !== undefined || extension.toLowerCase() === ".dxf") return found;
+
     return readerFor(findReaders({ cwd: dirname(file), inputs: [file] }), extension);
   };
+
   let reader;
+
   try {
     reader = readerOf(/\.[^.]*$/.exec(file)![0]);
   } catch (error) {
     if (error instanceof ReaderRefusal) return failed(error.message);
     throw error;
   }
+
   const outcome = await cache.read(file, reader, {}, { geometry: true });
   timings.load = now() - t;
+
   if ("skipped" in outcome) return failed(`${file} was not read: ${outcome.skipped}`);
   const read = outcome.read;
   t = now();
+
   try {
     // The size of each page the underlays show, read from its PDF beside the file.
     const pageSizes: Record<string, Record<string, readonly [number, number]>> = Object.create(
       null,
     );
+
     const pdfs = new Map<string, Uint8Array | null>();
+
     const spaces = [
       read.model.entities,
       ...read.layouts.map((l) => l.entities),
       ...read.blocks.map((b) => b.entities),
     ];
+
     for (const list of spaces) {
       for (const e of list ?? []) {
         if (e.kind !== "underlay" || isAbsolute(e.path) || /^[A-Za-z]:/.test(e.path)) continue;
         const at = join(dirname(file), e.path.replaceAll("\\", "/"));
         let pdf = pdfs.get(at);
+
         if (pdf === undefined) {
           track(at, fileVersion(at));
+
           try {
             pdf = new Uint8Array(readFileSync(at));
           } catch {
             pdf = null;
           }
+
           pdfs.set(at, pdf);
         }
+
         const size = pdf === null ? undefined : library.pdfPageSize(pdf, e.page);
+
         if (size !== undefined) (pageSizes[e.path] ??= Object.create(null))[e.page] = size;
       }
     }
+
     // Each xref's drawing, read from the path the file holds, from the folder of the file that
     // holds it, or else by its name in that folder, where CAD programs look next: the file's own
     // xrefs, and theirs. Each is given with all of them, so an xref finds its own attachments.
@@ -641,36 +815,47 @@ async function buildRead({
       xrefs: typeof xrefs;
       images?: Record<string, Uint8Array>;
     };
+
     // The bytes of the images of every drawing, the host's and its xrefs', count against one budget.
     const budget = { total: 0 };
     const diagnostics: BuildDiagnostic[] = [];
     const xrefs: Record<string, Given> = Object.create(null);
+
     let level: { readonly list: DrawingRead["xrefs"]; readonly from: string }[] = [
       { list: read.xrefs, from: file },
     ];
+
     let reads = 0;
+
     for (let depth = 0; depth < 2 && level.length > 0; depth++) {
       const next: typeof level = [];
+
       for (const { list, from } of level) {
         for (const xref of list) {
           if (Object.hasOwn(xrefs, xref.name) || reads >= XREFS_READ) continue;
           const path = xref.path.replaceAll("\\", "/");
           const name = path.slice(path.lastIndexOf("/") + 1);
+
           const found = [
             ...(isAbsolute(path) || /^[A-Za-z]:/.test(path) ? [] : [join(dirname(from), path)]),
             join(dirname(from), name),
           ].find((at) => existsSync(at) && statSync(at).isFile());
+
           if (found === undefined || !/\.(dxf|dwg)$/i.test(found) || found === file) continue;
           track(found, fileVersion(found));
           let xrefReader;
+
           try {
             xrefReader = readerOf(/\.[^.]*$/.exec(found)![0]);
           } catch {
             continue;
           }
+
           reads++;
           const got = await cache.read(found, xrefReader, {}, { geometry: true });
+
           if (!("read" in got)) continue;
+
           // Its images, from its own folder.
           const rasters = rasterFiles(
             library,
@@ -679,6 +864,7 @@ async function buildRead({
             budget,
             xref.name,
           );
+
           diagnostics.push(...rasters.diagnostics);
           xrefs[xref.name] = {
             read: got.read,
@@ -688,24 +874,29 @@ async function buildRead({
           next.push({ list: got.read.xrefs, from: found });
         }
       }
+
       level = next;
     }
+
     const made = library.pictureDrawing(read, { pageSizes, xrefs });
     const shown = made.drawing;
     const rasters = rasterFiles(library, shown, file, budget);
     diagnostics.push(...rasters.diagnostics);
     const pages = pageFiles(library, shown, file, budget);
     diagnostics.push(...pages.diagnostics);
-    const shaped = shapeFiles(library, shown, file);
+    const shx = shxFilesOf(library, shown, file);
+
     const options = {
       drawNoPlot: drawNoPlot === true,
       pageSizes,
       xrefs,
-      ...(rasters.images === undefined ? {} : { images: rasters.images }),
-      ...(pages.underlays === undefined ? {} : { underlays: pages.underlays }),
-      ...shaped,
+      ...(rasters.images !== undefined && { images: rasters.images }),
+      ...(pages.underlays !== undefined && { underlays: pages.underlays }),
+      ...shx,
     };
+
     const { notes } = made;
+
     for (const { style, font, drawnIn } of notes.fonts) {
       diagnostics.push({
         rule: "read-picture",
@@ -713,6 +904,7 @@ async function buildRead({
         message: `The text style ${JSON.stringify(style)} sets its text in ${JSON.stringify(font)}, which tsdraft does not have, so the pictures measure and draw it in ${drawnIn}`,
       });
     }
+
     for (const [kind, n] of Object.entries(notes.notDrawn)) {
       diagnostics.push({
         rule: "read-picture",
@@ -720,6 +912,7 @@ async function buildRead({
         message: `The pictures draw nothing for ${n} of ${JSON.stringify(kind)}, which the read does not keep or the picture cannot draw`,
       });
     }
+
     for (const [what, n] of Object.entries(notes.approximate)) {
       diagnostics.push({
         rule: "read-picture",
@@ -727,22 +920,26 @@ async function buildRead({
         message: `The pictures draw ${n} of ${JSON.stringify(what)} only nearly as the file holds it`,
       });
     }
+
     const fontsOf = fontsIn(library, [shown]);
     let viewed: WorkerResult["view"] = null;
     let svg: string | null = null;
     let min: [number, number] = [0, 0];
     let max: [number, number] = [0, 0];
     const sheets: { name: string; svg: string; fonts: string[] }[] = [];
+
     if (view) {
       const one = library.readPicture(read, {
         ...options,
         view: view.box,
-        ...(view.layout === undefined ? {} : { layout: view.layout }),
+        ...(view.layout !== undefined && { layout: view.layout }),
       }).svg;
+
       viewed = { layout: view.layout ?? null, svg: one, fonts: fontsOf(one) };
     } else {
       ({ svg, min, max } = framed(library.readPicture(read, { ...options, margin: 0 }).svg));
       const names = new Set<string>();
+
       for (const layout of read.layouts) {
         // A layout the read did not read has no picture: it is not empty.
         if (names.has(layout.name) || layout.entities === undefined) continue;
@@ -751,8 +948,10 @@ async function buildRead({
         sheets.push({ name: layout.name, svg: sheet, fonts: fontsOf(sheet) });
       }
     }
+
     timings.svg = now() - t;
     const units = shown.units;
+
     return {
       ok: true,
       files: readFiles(file),
@@ -790,26 +989,21 @@ async function buildRead({
     };
   } catch (thrown) {
     return failed(
-      `${file} was read, and its pictures could not be drawn: ${(thrown as Error).message}`,
+      `${file} was read, and its pictures could not be drawn: ${thrown instanceof Error ? thrown.message : String(thrown)}`,
       "PictureError",
     );
   }
 }
 
 async function buildCode({ file, root, drawNoPlot, view }: BuildRequest): Promise<WorkerResult> {
-  const timings: {
-    load?: number;
-    lint?: number;
-    inspect?: number;
-    intent?: number;
-    svg?: number;
-  } = {};
-  const fail = (error: BuildError, thrown?: unknown): WorkerResult => ({
+  const timings: Timings = {};
+
+  const fail = (error: BuildError, cause?: unknown): WorkerResult => ({
     ok: false,
-    files: [...readFiles(file), ...missingFile(thrown)],
+    files: [...readFiles(file), ...missingFile(cause)],
     timings,
     drawing: null,
-    diagnostics: drawingErrorDiagnostics(thrown),
+    diagnostics: drawingErrorDiagnostics(cause),
     svg: null,
     fonts: [],
     layouts: [],
@@ -825,44 +1019,58 @@ async function buildCode({ file, root, drawNoPlot, view }: BuildRequest): Promis
   let referenced: GivenXrefs;
   let intent: unknown;
   let standard: unknown;
+
   try {
-    const module = (await import(pathToFileURL(file).href)) as {
-      default?: unknown;
-      xrefs?: unknown;
-      intent?: unknown;
-      standard?: unknown;
-    };
+    const module: DrawingModule = await import(pathToFileURL(file).href);
     let value = module.default;
-    if (typeof value === "function") value = await (value as () => unknown)();
-    const problem = notADrawing(value, "default" in module) ?? notXrefs(module.xrefs);
-    if (problem) return fail(atExport(file, problem));
-    drawing = value as Drawing;
+
+    if (isFunction(value)) value = await value();
+
+    if (!("default" in module)) {
+      return fail(
+        atExport(file, "The file has no default export. End it with `export default d.build()`"),
+      );
+    }
+
+    const given = drawingOf(value);
+
+    if (isString(given)) return fail(atExport(file, given));
+    const problem = notXrefs(module);
+
+    if (problem !== undefined) return fail(atExport(file, problem));
+    drawing = given;
+    // SAFETY: notXrefs found the export absent, or an object that gives a Drawing, or
+    // `{ drawing, xrefs }` with the same of that drawing's own xrefs, for each name.
     referenced = (module.xrefs ?? {}) as GivenXrefs;
     intent = module.intent;
     standard = module.standard;
   } catch (thrown) {
     timings.load = now() - t;
+
     return fail(describe(thrown, root), thrown);
   }
+
   timings.load = now() - t;
 
   try {
     const { library, entry } = await findLibrary(file);
     t = now();
     // A copy of tsdraft from before standards would take the export and check nothing of it.
-    const checked = standard !== undefined && typeof library.defineStandard === "function";
+    const checked = standard !== undefined && isFunction(library.defineStandard);
     // A copy that draws attachments says why a drawing the export gives is not drawn.
     // The export with one name for each xref, the first, which the pictures and lint both take.
     const exported = exportedXrefs(library, drawing, referenced);
     // A copy that draws attachments says why a drawing the export gives is not drawn.
-    const chains = typeof library.drawnXrefs === "function" ? { xrefs: exported } : {};
+    const chains: LintOptions = isFunction(library.drawnXrefs) ? { xrefs: exported } : {};
     // The shape files the linetypes name, read from the drawing file's folder, which lint and the
     // pictures both take.
-    const shaped = shapeFiles(library, drawing, file);
+    const shxGiven = shxFilesOf(library, drawing, file);
+
     const found = library.lint(
       drawing,
-      checked ? { standard, ...chains, ...shaped } : { ...chains, ...shaped },
+      checked ? { standard, ...chains, ...shxGiven } : { ...chains, ...shxGiven },
     );
+
     const unchecked: BuildDiagnostic[] =
       standard !== undefined && !checked
         ? [
@@ -874,33 +1082,46 @@ async function buildCode({ file, root, drawNoPlot, view }: BuildRequest): Promis
             },
           ]
         : [];
+
     // lint's check of a standard refuses a getter anywhere in it, so a preview is taken only
     // from a standard it checked and accepted.
     const refused = found.some((d) => d.rule === "standard" && d.severity === "error");
     const previews = checked && !refused ? titleBlockPreviews(standard) : [];
-    const size = (list: unknown): number => (Array.isArray(list) ? list.length : 0);
+
+    const size = (list: readonly unknown[] | undefined): number =>
+      Array.isArray(list) ? list.length : 0;
+
     const errorsFirst = (a: Diagnostic, b: Diagnostic) =>
       Number(a.severity === "warning") - Number(b.severity === "warning");
+
     /** The build's answer, with `shown` drawn in place of the drawing when items are left out. */
     const report = (shown: Drawing, omitted: readonly string[]): WorkerResult => {
       const given = givenDrawings(library, shown, exported, previews);
       const drawn = drawnOf(given);
+
       const linted = [...found, ...givenErrors(given, [])]
         .sort(errorsFirst)
         .map((d) => aboutEntity(library, shown, drawn, d));
+
       timings.lint ??= now() - t;
       t = now();
+
       const diagnostics = [
         ...linted,
         ...unchecked,
         ...textWarnings(library, shown, drawn, drawNoPlot === true),
       ];
+
       timings.inspect = now() - t;
+
       if (intent !== undefined) {
         t = now();
-        diagnostics.push(...intentWarnings(library, shown, intent));
+        // SAFETY: checkIntent checks the export as it checks a caller's in plain JavaScript, and
+        // intentWarnings catches what it throws.
+        diagnostics.push(...intentWarnings(library, shown, intent as Intent));
         timings.intent = now() - t;
       }
+
       t = now();
       // The files of the drawing's images, read once from the drawing file's folder, and of each
       // xref's from the folder of its file.
@@ -909,93 +1130,120 @@ async function buildCode({ file, root, drawNoPlot, view }: BuildRequest): Promis
       diagnostics.push(...rasters.diagnostics);
       const pages = pageFiles(library, shown, file, budget);
       diagnostics.push(...pages.diagnostics);
-      const images = {
-        ...(rasters.images === undefined ? {} : { images: rasters.images }),
-        ...(pages.underlays === undefined ? {} : { underlays: pages.underlays }),
-      };
+
+      const images: PictureFiles = {};
+
+      if (rasters.images !== undefined) images.images = rasters.images;
+
+      if (pages.underlays !== undefined) images.underlays = pages.underlays;
+
       const pictured =
         rasters.images === undefined
           ? drawn
           : drawnOf(given, dirname(file), (referenced, at, xref) => {
               const read = rasterFiles(library, referenced, at, budget, xref);
               diagnostics.push(...read.diagnostics);
+
               return read.images;
             });
+
       const fontsOf = fontsIn(library, [shown, ...drawingsOf(given)]);
+
       const { svg, min, max } = framed(
         library.toSVG(shown, {
           margin: 0,
           drawNoPlot: drawNoPlot === true,
           xrefs: pictured,
           ...images,
-          ...shaped,
+          ...shxGiven,
         }),
       );
+
       // Each layout's sheet. A copy of tsdraft from before layouts would draw model space for
       // each, so it draws none. Two layouts of one name are one picture, the first's.
       const drawnNames = new Set<string>();
+
       const sheets =
         library.viewportView === undefined || view
           ? []
           : (shown.layouts ?? []).flatMap((layout) => {
               if (drawnNames.has(layout.name)) return [];
               drawnNames.add(layout.name);
+
               const options = {
                 layout: layout.name,
                 drawNoPlot: drawNoPlot === true,
                 xrefs: pictured,
                 ...images,
-                ...shaped,
+                ...shxGiven,
               };
+
               const sheet = library.toSVG(shown, options);
+
               return [{ name: layout.name, svg: sheet, fonts: fontsOf(sheet) }];
             });
+
       // The one rectangle asked for, drawn with no margin around it.
       let viewed: WorkerResult["view"] = null;
+
       if (view) {
         if (library.inspectText === undefined) {
           throw new Error(
             "The copy of tsdraft this drawing imports is older than --view and draws no view. Update it",
           );
         }
+
+        const asked: PictureOptions = { view: view.box };
+
+        if (view.layout !== undefined) asked.layout = view.layout;
+
         const one = library.toSVG(shown, {
-          view: view.box,
-          ...(view.layout === undefined ? {} : { layout: view.layout }),
+          ...asked,
           drawNoPlot: drawNoPlot === true,
           xrefs: pictured,
           ...images,
-          ...shaped,
+          ...shxGiven,
         });
+
         viewed = { layout: view.layout ?? null, svg: one, fonts: fontsOf(one) };
       }
+
       timings.svg = now() - t;
       const errors = diagnostics.filter((d) => d.severity === "error").length;
+
+      const files = readFiles(file);
+
+      const counted = {
+        units: drawing.units,
+        dxf: drawing.dxf,
+        standard: standardSummary(standard, checked),
+        extents: { min, max },
+        counts: {
+          layers: size(drawing.layers),
+          entities: size(drawing.entities),
+          blocks: size(drawing.blocks),
+          xrefs: size(drawing.xrefs),
+          layouts: size(drawing.layouts),
+          errors,
+          warnings: diagnostics.length - errors,
+        },
+      };
+
+      const listed = {
+        layers: layerSummaries(shown),
+        blocks: blockSummaries(library, shown),
+        inserts: insertSummaries(library, shown),
+        dimensions: dimensionSummaries(library, shown),
+        xrefs: xrefSummaries(library, shown, given),
+        layouts: layoutSummaries(library, shown),
+      };
+
       return {
         ok: true,
-        files: readFiles(file),
+        files,
         timings,
-        drawing: {
-          units: drawing.units,
-          dxf: drawing.dxf,
-          standard: standardSummary(standard, checked),
-          extents: { min, max },
-          counts: {
-            layers: size(drawing.layers),
-            entities: size(drawing.entities),
-            blocks: size(drawing.blocks),
-            xrefs: size(drawing.xrefs),
-            layouts: size(drawing.layouts),
-            errors,
-            warnings: diagnostics.length - errors,
-          },
-          ...(omitted.length > 0 ? { omitted } : {}),
-          layers: layerSummaries(shown),
-          blocks: blockSummaries(library, shown),
-          inserts: insertSummaries(library, shown),
-          dimensions: dimensionSummaries(library, shown),
-          xrefs: xrefSummaries(library, shown, given),
-          layouts: layoutSummaries(library, shown),
-        },
+        drawing:
+          omitted.length > 0 ? { ...counted, omitted, ...listed } : { ...counted, ...listed },
         diagnostics,
         svg,
         fonts: fontsOf(svg),
@@ -1007,6 +1255,7 @@ async function buildCode({ file, root, drawNoPlot, view }: BuildRequest): Promis
         modules,
       };
     };
+
     try {
       return report(drawing, []);
     } catch (thrown) {
@@ -1015,12 +1264,16 @@ async function buildCode({ file, root, drawNoPlot, view }: BuildRequest): Promis
       const items = new Set(
         found.flatMap((d) => (d.severity === "error" && d.item ? [d.item] : [])),
       );
+
       if (!found.some((d) => d.severity === "error")) throw thrown;
+
       try {
         if (items.size === 0) throw thrown;
+
         return report(without(drawing, items), [...items].sort());
       } catch {
         const diagnostics = [...[...found].sort(errorsFirst).map(withPath), ...unchecked];
+
         return { ...fail(describe(thrown, root)), diagnostics, linted: true };
       }
     }
@@ -1038,13 +1291,17 @@ function aboutEntity(
   found: Diagnostic,
 ): BuildDiagnostic {
   const d = withPath(found);
+
   const layout =
     d.layout === undefined ? undefined : drawing.layouts?.find((l) => l.name === d.layout);
+
   if (d.viewport !== undefined) {
     // A viewport's box is its rectangle on the sheet.
     const rectangle = layout && viewportBox(library, drawing, layout, d.viewport)?.rectangle;
+
     return rectangle ? { ...d, bounds: rectangle } : d;
   }
+
   // An entity of a block is counted in its block, and its box is in the block's coordinates.
   // One of a layout is counted on its layout, and its box is on the sheet.
   const entities =
@@ -1053,13 +1310,16 @@ function aboutEntity(
       : d.layout !== undefined
         ? (layout?.entities ?? [])
         : drawing.entities;
+
   const entity = d.entity === undefined ? undefined : entities[d.entity];
+
   if (!entity || entity === LEFT_OUT) return d;
   // toSVG works out the box, so it agrees with the drawing's extents and the picture. An entity
   // on a layer that is off, frozen or not plotted still has a box.
   const one = { ...drawing, layers: shownLayers(drawing), entities: [entity] };
   const { min, max } = framed(library.toSVG(one, { margin: 0, xrefs: referenced }));
   const bounds: Box = { min, max };
+
   return { ...d, kind: entity.kind, layer: entity.layer, bounds };
 }
 
@@ -1076,12 +1336,15 @@ function textWarnings(
 ): BuildDiagnostic[] {
   try {
     const found = library.inspectText?.(drawing, { drawNoPlot, xrefs: referenced }) ?? [];
+
     return found.map((warning) => {
       const entities =
         warning.layout === undefined
           ? drawing.entities
           : drawing.layouts?.find((l) => l.name === warning.layout)?.entities;
+
       const kind = warning.entity === undefined ? undefined : entities?.[warning.entity]?.kind;
+
       return withPath(kind === undefined ? warning : { ...warning, kind });
     });
   } catch {
@@ -1095,7 +1358,7 @@ function textWarnings(
  * reason a build fails. A copy of tsdraft from before `checkIntent`, or a throw from it, gives
  * one warning that the intent was not checked.
  */
-function intentWarnings(library: Library, drawing: Drawing, intent: unknown): BuildDiagnostic[] {
+function intentWarnings(library: Library, drawing: Drawing, intent: Intent): BuildDiagnostic[] {
   if (library.checkIntent === undefined) {
     return [
       {
@@ -1106,14 +1369,17 @@ function intentWarnings(library: Library, drawing: Drawing, intent: unknown): Bu
       },
     ];
   }
+
   try {
-    return library.checkIntent(drawing, intent as Intent).map((warning) => {
+    return library.checkIntent(drawing, intent).map((warning) => {
       const kind =
         warning.entity === undefined ? undefined : drawing.entities?.[warning.entity]?.kind;
+
       return withPath(kind === undefined ? warning : { ...warning, kind });
     });
   } catch (thrown) {
     const reason = thrown instanceof Error ? thrown.message : String(thrown);
+
     return [
       {
         rule: "intent-unchecked",
@@ -1133,27 +1399,27 @@ function withPath<D extends Pick<Diagnostic, "call">>(d: D): D {
  * The diagnostics of a `DrawingError`, as `toDXF` and the builder throw. Matched by shape:
  * tsdraft may be another copy.
  */
-function drawingErrorDiagnostics(thrown: unknown): Diagnostic[] {
-  const diagnostics = (thrown as { diagnostics?: unknown } | null)?.diagnostics;
-  return thrown instanceof Error && thrown.name === "DrawingError" && Array.isArray(diagnostics)
-    ? (diagnostics as Diagnostic[]).map(withPath)
+function drawingErrorDiagnostics(cause: unknown): Diagnostic[] {
+  const thrown: ThrownFields | undefined = isObject(cause) ? cause : undefined;
+  const diagnostics = thrown?.diagnostics;
+
+  return cause instanceof Error && cause.name === "DrawingError" && Array.isArray(diagnostics)
+    ? diagnostics.map(withPath)
     : [];
 }
 
 /** The file an import named that does not exist, so its creation can be watched. */
-function missingFile(thrown: unknown): FileVersion[] {
-  if (
-    !(thrown instanceof Error) ||
-    (thrown as { code?: unknown }).code !== "ERR_MODULE_NOT_FOUND"
-  ) {
-    return [];
-  }
-  const url = (thrown as { url?: unknown }).url;
-  const named = /^Cannot find module '([^']+)'/.exec(thrown.message)?.[1];
+function missingFile(cause: unknown): FileVersion[] {
+  if (!(cause instanceof Error)) return [];
+  const thrown: ThrownFields = cause;
+
+  if (thrown.code !== "ERR_MODULE_NOT_FOUND") return [];
+  const { url } = thrown;
+  const named = /^Cannot find module '([^']+)'/.exec(cause.message)?.[1];
+
   const path =
-    typeof url === "string" && url.startsWith("file:")
-      ? fileURLToPath(url)
-      : named && toPath(named);
+    isString(url) && url.startsWith("file:") ? fileURLToPath(url) : named && toPath(named);
+
   return path && isAbsolute(path) && tracked(path) ? [[path, null]] : [];
 }
 
@@ -1162,53 +1428,81 @@ function missingFile(thrown: unknown): FileVersion[] {
  * a drawing for each xref the pictures are to draw, by the xref's name, as a Drawing or as
  * `{ drawing, xrefs }` with the drawings that drawing's own xrefs stand for.
  */
-function notXrefs(value: unknown): string | undefined {
-  if (value === undefined) return undefined;
-  const shape =
+function notXrefs(module: DrawingModule): string | undefined {
+  if (module.xrefs === undefined) return undefined;
+
+  const expected =
     "The export `xrefs` must be an object that gives a Drawing, or { drawing, xrefs } with the drawings of that drawing's own xrefs, for an xref's name, such as `export const xrefs = { BASE: base }`";
+
   // Each object given is checked once, so a circle of them ends.
   const seen = new Set<object>();
-  const open: [xrefs: unknown, at: string][] = [[value, ""]];
+  const open: [xrefs: unknown, at: string][] = [[module.xrefs, ""]];
+
   for (let next = open.pop(); next !== undefined; next = open.pop()) {
     const [xrefs, at] = next;
-    if (typeof xrefs !== "object" || xrefs === null || Array.isArray(xrefs)) {
-      return at === "" ? shape : `${shape}. Its ${at} is not an object`;
+
+    if (!isObject(xrefs) || Array.isArray(xrefs)) {
+      return at === "" ? expected : `${expected}. Its ${at} is not an object`;
     }
+
     if (seen.has(xrefs)) continue;
     seen.add(xrefs);
+
     for (const [name, given] of Object.entries(xrefs)) {
       const here = `${at}${at === "" ? "" : " > "}${JSON.stringify(name)}`;
-      const { drawing, xrefs: inner } = givenOf(given);
-      if (notADrawing(drawing, true)) return `${shape}. Its ${here} is not a Drawing`;
+      const nested: unknown = given;
+      const pair: XrefFields | undefined = isPair(nested) ? nested : undefined;
+      const drawing = pair === undefined ? nested : pair.drawing;
+      const inner = pair?.xrefs;
+
+      if (isString(drawingOf(drawing))) return `${expected}. Its ${here} is not a Drawing`;
+
       if (inner !== undefined) open.push([inner, `xrefs of ${here}`]);
     }
   }
+
   return undefined;
 }
 
-/** The drawing a value of the `xrefs` export gives, and what it gives for that drawing's xrefs. */
-function givenOf(value: unknown): { readonly drawing: unknown; readonly xrefs: unknown } {
-  if (typeof value === "object" && value !== null && "drawing" in value) {
-    const nested = value as { readonly drawing: unknown; readonly xrefs?: unknown };
-    return { drawing: nested.drawing, xrefs: nested.xrefs };
-  }
-  return { drawing: value, xrefs: undefined };
+/** Whether a value of the `xrefs` export is `{ drawing, xrefs }` rather than a drawing. */
+function isPair(value: unknown): value is XrefFields {
+  return isObject(value) && "drawing" in value;
 }
 
-function notADrawing(value: unknown, hasDefault: boolean): string | undefined {
-  if (!hasDefault) {
-    return "The file has no default export. End it with `export default d.build()`";
-  }
-  if (typeof value === "object" && value !== null) {
-    const v = value as Record<string, unknown>;
-    if (Array.isArray(v.layers) && Array.isArray(v.entities) && typeof v.units === "string") {
-      return undefined;
-    }
-    if (typeof v.build === "function") {
-      return "The default export is the builder, not the drawing. Export `d.build()` instead";
-    }
-  }
-  return "The default export must be a Drawing, or a function that returns one";
+/** The drawing a value of the `xrefs` export gives, and what it gives for that drawing's xrefs. */
+function givenOf(value: GivenXref): {
+  readonly drawing: Drawing;
+  readonly xrefs: GivenXrefs | undefined;
+} {
+  // An export made by hand may give a value that is no object, which holds no `drawing`.
+  return isObject(value) && "drawing" in value
+    ? { drawing: value.drawing, xrefs: value.xrefs }
+    : { drawing: value, xrefs: undefined };
+}
+
+/** Whether a value is a Drawing as far as the worker reads one first: its two lists and units. */
+function isDrawing(value: unknown): value is Drawing {
+  if (!isObject(value)) return false;
+  const fields: DrawingFields = value;
+
+  return Array.isArray(fields.layers) && Array.isArray(fields.entities) && isString(fields.units);
+}
+
+/** A value given as a drawing, when it is a Drawing, or else what is wrong with it. */
+function drawingOf(value: unknown): Drawing | string {
+  if (isDrawing(value)) return value;
+
+  return isBuilder(value)
+    ? "The default export is the builder, not the drawing. Export `d.build()` instead"
+    : "The default export must be a Drawing, or a function that returns one";
+}
+
+/** Whether a default export is the builder, exported in place of what it builds. */
+function isBuilder(value: unknown): value is { readonly build: () => Drawing } {
+  if (!isObject(value)) return false;
+  const fields: DrawingFields = value;
+
+  return isFunction(fields.build);
 }
 
 /**
@@ -1229,37 +1523,66 @@ function notADrawing(value: unknown, hasDefault: boolean): string | undefined {
 async function findLibrary(file: string): Promise<{ library: Library; entry: string | null }> {
   const isLibrary = (path: string) =>
     /[\\/]index\.[jt]s$/.test(path) && packageName(path) === "tsdraft";
-  const load = async (path: string) =>
-    (await import(pathToFileURL(path).href)) as Record<string, unknown>;
-  const has = (module: Record<string, unknown>, ...names: string[]) =>
-    names.every((name) => typeof module[name] === "function");
-  const found = (module: unknown, path: string) => ({
-    library: module as Library,
+
+  const load = async (path: string): Promise<object> => await import(pathToFileURL(path).href);
+
+  const found = (library: Library, path: string) => ({
+    library,
     entry: ownEntries.includes(path) ? path : null,
   });
 
   const own = imported.get(file) ?? [];
+
   for (const path of own.filter(isLibrary)) {
     const library = await load(path);
-    if (has(library, "lint", "toSVG")) return found(library, path);
-  }
-  for (const path of own.filter((path) => /\.m?[jt]s$/.test(path))) {
-    const library = await load(path);
-    if (has(library, "createDrawing", "lint", "toSVG", "toDXF")) return found(library, path);
+
+    if (exportsFunctions(library, "lint", "toSVG")) return found(library, path);
   }
 
-  const all = [...loaded].map((url) => fileURLToPath(url)).filter(isLibrary);
+  for (const path of own.filter((path) => /\.m?[jt]s$/.test(path))) {
+    const library = await load(path);
+
+    if (exportsFunctions(library, "createDrawing", "lint", "toSVG", "toDXF")) {
+      return found(library, path);
+    }
+  }
+
+  const all = [...loaded].flatMap((url) => {
+    const path = fileURLToPath(url);
+
+    return isLibrary(path) ? [path] : [];
+  });
+
   const named: string[] = [];
+
   try {
     named.push(createRequire(file).resolve("tsdraft"));
   } catch {
     // The drawing's folder has no tsdraft of its own.
   }
+
   for (const path of [...(all.length === 1 ? all : []), ...named, ...all]) {
     const library = await load(path);
-    if (has(library, "lint", "toSVG")) return found(library, path);
+
+    if (exportsFunctions(library, "lint", "toSVG")) return found(library, path);
   }
-  return found(await import("tsdraft"), fileURLToPath(import.meta.resolve("tsdraft")));
+
+  // SAFETY: the command's own copy of tsdraft has each function Library names, and the worker
+  // gives it only what it takes, as it does any copy.
+  const installed = (await import("tsdraft")) as Library;
+
+  return found(installed, fileURLToPath(import.meta.resolve("tsdraft")));
+}
+
+/**
+ * Whether a module exports a function by each name, as a copy of tsdraft does. The rest of
+ * `Library` is each optional, and each use checks it.
+ */
+function exportsFunctions(module: unknown, ...names: string[]): module is Library {
+  return (
+    isObject(module) &&
+    names.every((name) => isFunction(Object.getOwnPropertyDescriptor(module, name)?.value))
+  );
 }
 
 const packageNames = new Map<string, string | undefined>();
@@ -1267,27 +1590,43 @@ const packageNames = new Map<string, string | undefined>();
 /** The name in the nearest package.json above a file. */
 function packageName(path: string): string | undefined {
   const dir = dirname(path);
+
   if (packageNames.has(dir)) return packageNames.get(dir);
   let name: string | undefined;
+
   try {
-    name = (JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as { name?: string }).name;
+    const parsed: unknown = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+
+    // A package.json of `null` has no name to read, as one that cannot be read.
+    if (parsed === null) throw new TypeError("The package.json is null");
+    name = isObject(parsed) && "name" in parsed && isString(parsed.name) ? parsed.name : undefined;
   } catch {
     name = dir === dirname(dir) ? undefined : packageName(dir);
   }
+
   packageNames.set(dir, name);
+
   return name;
+}
+
+/** An SVG with the margin `toSVG` gives by default, and the extents of what it draws. */
+interface Framed {
+  readonly svg: string;
+  readonly min: [number, number];
+  readonly max: [number, number];
 }
 
 /**
  * Reads the extents from an SVG drawn with no margin, then gives it the margin `toSVG` uses by
  * default, 2% of the larger side, so one render serves both.
  */
-function framed(svg: string): { svg: string; min: [number, number]; max: [number, number] } {
+function framed(svg: string): Framed {
   const box = /viewBox="([^"]+)"/.exec(svg);
   const [x = 0, y = 0, w = 1, h = 1] = (box?.[1] ?? "").split(" ").map(Number);
   const m = Math.max(w, h, 1) * 0.02;
   const round = (n: number) => Number(n.toFixed(6));
   const viewBox = [x - m, y - m, w + m * 2, h + m * 2].map(round).join(" ");
+
   return {
     svg: svg.replace(/viewBox="[^"]+"/, `viewBox="${viewBox}"`),
     // The SVG flips Y, so its top edge is the drawing's highest point.
@@ -1305,10 +1644,13 @@ function viewportBox(
 ): { rectangle: Box; shows: Box } | undefined {
   const paper = library.PAPERS?.[layout.paper];
   const viewport = layout.viewports[index];
+
   if (!paper || !viewport || !library.viewportView) return undefined;
+
   try {
     const view = library.viewportView(viewport, paper.units, drawing.units);
     const [x, y] = view.paperCenter;
+
     return {
       rectangle: {
         min: [x - view.width / 2, y - view.height / 2],
@@ -1328,20 +1670,26 @@ function viewportBox(
  */
 function fontsIn(library: Library, drawings: readonly Drawing[]): (svg: string) => string[] {
   const fonts = new Set(["txt.shx"]);
+
   for (const drawing of drawings) {
     for (const style of Array.isArray(drawing.textStyles) ? drawing.textStyles : []) {
-      if (typeof style?.font === "string") fonts.add(style.font);
+      if (isString(style?.font)) fonts.add(style.font);
     }
   }
+
   const families = [...fonts].flatMap((font) => {
     const family = library.FONTS?.[font]?.family;
+
     return family === undefined ? [] : [[font, family] as const];
   });
+
   return (svg) => {
     const drawn = new Set<string>();
+
     for (const [, family] of svg.matchAll(/ font-family="([^"]*)"/g)) {
       drawn.add(family!.replaceAll("&quot;", '"').replaceAll("&amp;", "&"));
     }
+
     return families.flatMap(([font, family]) => (drawn.has(family) ? [font] : [])).sort();
   };
 }
@@ -1350,17 +1698,20 @@ function fontsIn(library: Library, drawings: readonly Drawing[]): (svg: string) 
 function layoutSummaries(library: Library, drawing: Drawing): LayoutSummary[] {
   return (drawing.layouts ?? []).flatMap((layout) => {
     const paper = library.PAPERS?.[layout.paper];
+
     if (!paper || !Array.isArray(layout.viewports) || !Array.isArray(layout.entities)) return [];
     // toSVG finds a viewport's layer as CAD does, whatever the case of its name, and draws
     // the border when that layer plots. So the sheet is drawn once more with nothing on it but
     // its viewports, and each border it has is one that plots.
     let borders = "";
+
     try {
       const bare = { ...drawing, entities: [], layouts: [{ ...layout, entities: [] }] };
       borders = library.toSVG(bare, { layout: layout.name });
     } catch {
       // A viewport breaks a rule, which the diagnostics say.
     }
+
     return [
       {
         name: layout.name,
@@ -1374,7 +1725,9 @@ function layoutSummaries(library: Library, drawing: Drawing): LayoutSummary[] {
         dimensions: dimensionSummaries(library, drawing, layout.entities),
         viewports: layout.viewports.flatMap((viewport, index) => {
           const box = viewportBox(library, drawing, layout, index);
+
           if (!box) return [];
+
           return [
             {
               id: viewport.id ?? null,
@@ -1394,7 +1747,9 @@ function layoutSummaries(library: Library, drawing: Drawing): LayoutSummary[] {
 
 function layerSummaries(drawing: Drawing): LayerSummary[] {
   const counts = new Map<string, number>();
+
   for (const e of drawing.entities) counts.set(e.layer, (counts.get(e.layer) ?? 0) + 1);
+
   return drawing.layers.map((l) => ({
     name: l.name,
     color: l.color,
@@ -1410,18 +1765,20 @@ function layerSummaries(drawing: Drawing): LayerSummary[] {
 /** The entities of each layout whose list of them can be read. */
 function sheetEntities(drawing: Drawing): (readonly Entity[])[] {
   return (drawing.layouts ?? []).flatMap((layout) =>
-    Array.isArray(layout?.entities) ? [layout.entities as readonly Entity[]] : [],
+    Array.isArray(layout?.entities) ? [layout.entities] : [],
   );
 }
 
 /** The block an insert places, found as the library that checks the drawing finds it. */
 function blockNamed(library: Library, drawing: Drawing, name: unknown): Block | undefined {
-  return typeof name === "string" ? library.findBlock?.(drawing, name) : undefined;
+  // A drawing made by hand may give an insert a name of another type.
+  return isString(name) ? library.findBlock?.(drawing, name) : undefined;
 }
 
 function blockSummaries(library: Library, drawing: Drawing): BlockSummary[] {
   const blocks = drawing.blocks ?? [];
   const placed = new Map<unknown, number>();
+
   for (const entities of [
     drawing.entities,
     ...blocks.map((b) => b.entities),
@@ -1433,6 +1790,7 @@ function blockSummaries(library: Library, drawing: Drawing): BlockSummary[] {
       placed.set(block, (placed.get(block) ?? 0) + 1);
     }
   }
+
   return blocks.map((b) => ({
     name: b.name,
     entities: b.entities.length,
@@ -1443,7 +1801,8 @@ function blockSummaries(library: Library, drawing: Drawing): BlockSummary[] {
 
 /** The xref an insert places, found as the library that checks the drawing finds it. */
 function xrefNamed(library: Library, drawing: Drawing, name: unknown): Xref | undefined {
-  if (typeof name !== "string" || blockNamed(library, drawing, name)) return undefined;
+  if (!isString(name) || blockNamed(library, drawing, name)) return undefined;
+
   return library.findXref?.(drawing, name);
 }
 
@@ -1473,59 +1832,77 @@ function givenDrawings(
   previews: readonly (readonly [name: string, preview: Drawing])[],
 ): Map<Xref, Given> {
   const linted = new Map<Drawing, readonly Diagnostic[]>();
+
   const errorsOf = (other: Drawing): readonly Diagnostic[] => {
     let found = linted.get(other);
+
     if (!found) {
       found = library.lint(other).filter((d) => d.severity === "error");
       linted.set(other, found);
     }
+
     return found;
   };
+
   // The file's own drawings for the xrefs come first, and a preview stands for one it does not
   // give.
   const exported = new Set<Xref>();
   const taken = new Set<Xref>();
   // An xref may be named `__proto__`, which an object with a prototype would not keep.
-  const offered: Record<string, unknown> = Object.create(null);
+  const offered: Record<string, GivenXref> = Object.create(null);
+
   for (const [name, value, own] of [
     ...Object.entries(referenced).map(([name, value]) => [name, value, true] as const),
     ...previews.map(([name, preview]) => [name, preview, false] as const),
   ]) {
     const xref = xrefNamed(library, drawing, name);
+
     if (!xref || taken.has(xref)) continue;
     taken.add(xref);
+
     if (own) exported.add(xref);
     offered[name] = value;
   }
+
   /** What is given for the xrefs of `of`, as the library draws it. */
   const read = (of: Drawing, tree: GivenXrefs, top: boolean): Map<Xref, Given> => {
     const out = new Map<Xref, Given>();
+
     for (const [name, value] of Object.entries(tree)) {
       const xref = xrefNamed(library, of, name);
+
       if (!xref || out.has(xref)) continue;
-      const { drawing: other, xrefs } = givenOf(value) as { drawing: Drawing; xrefs?: GivenXrefs };
+      const { drawing: other, xrefs } = givenOf(value);
       const errors = errorsOf(other);
+
       const below =
         errors.length > 0 || xrefs === undefined ? new Map() : read(other, xrefs, false);
+
       const preview = top && !exported.has(xref);
       out.set(xref, { name, drawing: other, preview, errors, nested: below });
     }
+
     return out;
   };
+
   const drawn = library.drawnXrefs?.(drawing, offered) ?? flatOf(library, drawing, offered);
+
   return read(drawing, drawn, true);
 }
 
 /** The export `xrefs` with the first of its names for each xref of the drawing, and no other. */
 function exportedXrefs(library: Library, drawing: Drawing, referenced: GivenXrefs): GivenXrefs {
   const taken = new Set<Xref>();
-  const out: Record<string, unknown> = Object.create(null);
+  const out: Record<string, GivenXref> = Object.create(null);
+
   for (const [name, value] of Object.entries(referenced)) {
     const xref = xrefNamed(library, drawing, name);
+
     if (!xref || taken.has(xref)) continue;
     taken.add(xref);
     out[name] = value;
   }
+
   return out;
 }
 
@@ -1534,69 +1911,102 @@ function flatOf(library: Library, drawing: Drawing, offered: GivenXrefs): GivenX
   return Object.fromEntries(
     Object.entries(offered).flatMap(([name, value]) => {
       const { drawing: other } = givenOf(value);
+
       return xrefNamed(library, drawing, name) && other !== drawing ? [[name, other]] : [];
     }),
   );
 }
 
 /** The most bytes a shape file is read to, and the shape files of a drawing all told. */
-const SHAPE_FILE_BYTES = 4_000_000;
-const SHAPE_BYTES = 64 << 20;
+const SHX_FILE_BYTES = 4_000_000;
+const SHX_BYTES = 64 << 20;
+
+/**
+ * How a copy of tsdraft names shape files: the key it finds a file by, the field of a mark that
+ * holds its shape's number, and whether it takes the files as `OLDER_SHX.option`, as a copy from
+ * before the SHX names does.
+ */
+interface ShxNames {
+  readonly key: (file: string) => string;
+  readonly glyph: string;
+  readonly older: boolean;
+}
+
+/** How the library names shape files, or undefined for a copy of tsdraft from before shapes. */
+function shxNamesOf(library: Library): ShxNames | undefined {
+  const key = library.shxFileKey;
+
+  if (isFunction(key)) return { key, glyph: "glyph", older: false };
+  const older = library[OLDER_SHX.key];
+
+  return isFunction(older) ? { key: older, glyph: OLDER_SHX.glyph, older: true } : undefined;
+}
 
 /**
  * The shape files a drawing's linetypes name, by the name a mark gives, each read once from the
- * folder of the drawing's file, where its name is found as the library's `shapeFileKey` finds it.
- * Each is tracked where it is or would be, so `tsdraft dev` builds again when one is copied
- * there or changes. A file not there, or too long, is left out, and `lint` warns of its shapes.
- * Empty for a copy of tsdraft from before shapes.
+ * folder of the drawing's file, where its name is found as the library's key of a shape file
+ * finds it. Each is tracked where it is or would be, so `tsdraft dev` builds again when one is
+ * copied there or changes. A file not there, or too long, is left out, and `lint` warns of its
+ * shapes. Empty for a copy of tsdraft from before shapes.
  */
-function shapeFiles(
-  library: Library,
-  drawing: Drawing,
-  file: string,
-): { shapes?: Record<string, Uint8Array> } {
-  const key = library.shapeFileKey;
-  if (typeof key !== "function") return {};
+function shxFilesOf(library: Library, drawing: Drawing, file: string): ShxFiles {
+  const named = shxNamesOf(library);
+
+  if (named === undefined) return {};
+  const { key, glyph } = named;
   const names: string[] = [];
+
   for (const linetype of Array.isArray(drawing.linetypes) ? drawing.linetypes : []) {
-    const marks: unknown = (linetype as { marks?: unknown } | undefined)?.marks;
+    // A drawing made by hand may hold anything in its lists.
+    const given: LinetypeFields | null | undefined = linetype;
+    const marks = given?.marks;
+
     for (const m of Array.isArray(marks) ? marks : []) {
-      const named = (m as { file?: unknown } | undefined)?.file;
-      if (typeof m === "object" && m !== null && "shape" in m && typeof named === "string")
-        names.push(named);
+      const mark: MarkFields | null | undefined = m;
+      const named = mark?.file;
+
+      if (isObject(mark) && glyph in mark && isString(named)) names.push(named);
     }
   }
+
   if (names.length === 0) return {};
   const folder = dirname(file);
   // The folder's shape files, each by its key, folded once.
   const found = new Map<string, string>();
+
   try {
     for (const entry of readdirSync(folder))
       if (/\.shx$/i.test(entry) && !found.has(key(entry))) found.set(key(entry), entry);
   } catch {
     // A folder that cannot be read has no shape files.
   }
+
   // A record of no prototype, so a file named `__proto__` is a name like any other.
-  const shapes: Record<string, Uint8Array> = Object.create(null);
+  const files: Record<string, Uint8Array> = Object.create(null);
   // Each spelling a mark gives has an entry, and each file is read once.
   const bytesOf = new Map<string, Uint8Array | undefined>();
   const given = new Set<string>();
   let total = 0;
+
   for (const name of names) {
     if (given.has(key(name))) continue;
     given.add(key(name));
     const base = name.replaceAll("\\", "/").split("/").at(-1) ?? "";
     const k = key(base);
+
     if (base === "") continue;
+
     if (!bytesOf.has(k)) {
       const entry = found.get(k);
       const at = join(folder, entry ?? (/\.shx$/i.test(base) ? base : `${base}.shx`));
       track(at, fileVersion(at));
       let bytes: Uint8Array | undefined;
+
       if (entry !== undefined) {
         try {
           const size = statSync(at).size;
-          if (size <= SHAPE_FILE_BYTES && total + size <= SHAPE_BYTES) {
+
+          if (size <= SHX_FILE_BYTES && total + size <= SHX_BYTES) {
             total += size;
             bytes = new Uint8Array(readFileSync(at));
           }
@@ -1604,12 +2014,22 @@ function shapeFiles(
           // A file that cannot be read is left out.
         }
       }
+
       bytesOf.set(k, bytes);
     }
+
     const bytes = bytesOf.get(k);
-    if (bytes !== undefined) shapes[name] = bytes;
+
+    if (bytes !== undefined) files[name] = bytes;
   }
-  return { shapes };
+
+  return named.older ? { [OLDER_SHX.option]: files } : { shx: files };
+}
+
+/** The files of a drawing's images, by path, and what is wrong with them. */
+interface RasterFiles {
+  readonly images: Record<string, Uint8Array> | undefined;
+  readonly diagnostics: BuildDiagnostic[];
 }
 
 /** The most bytes the files of a drawing's images are read to, all told. */
@@ -1630,42 +2050,52 @@ function rasterFiles(
   file: string,
   budget: { total: number },
   xref?: string,
-): { images: Record<string, Uint8Array> | undefined; diagnostics: BuildDiagnostic[] } {
-  if (typeof library.rasterSize !== "function") return { images: undefined, diagnostics: [] };
+): RasterFiles {
+  if (!isFunction(library.rasterSize)) return { images: undefined, diagnostics: [] };
+
   if (budget.total > RASTER_BYTES) return { images: {}, diagnostics: [] };
   const of = xref === undefined ? "" : ` of the xref ${JSON.stringify(xref)}`;
   const images: Record<string, Uint8Array> = {};
   const diagnostics: BuildDiagnostic[] = [];
   const seen = new Set<string>();
+
   const lists: unknown[] = [
     drawing.entities,
     ...(Array.isArray(drawing.layouts) ? drawing.layouts.map((l) => l?.entities) : []),
     ...(Array.isArray(drawing.blocks) ? drawing.blocks.map((b) => b?.entities) : []),
   ];
+
   for (const list of lists) {
     if (!Array.isArray(list)) continue;
+
     for (const e of list) {
-      if (typeof e !== "object" || e === null || e.kind !== "image") continue;
-      const { path, pixels } = e as { path?: unknown; pixels?: unknown };
-      if (
-        typeof path !== "string" ||
-        seen.has(path) ||
-        isAbsolute(path) ||
-        /^[A-Za-z]:/.test(path)
-      ) {
+      const entity: unknown = e;
+
+      if (!isObject(entity)) continue;
+      const fields: PictureEntityFields = entity;
+
+      if (fields.kind !== "image") continue;
+      const { path, pixels } = fields;
+
+      if (!isString(path) || seen.has(path) || isAbsolute(path) || /^[A-Za-z]:/.test(path)) {
         continue;
       }
+
       seen.add(path);
       const at = join(dirname(file), path.replaceAll("\\", "/"));
       // A link is watched beside the file it leads to, whose change it does not see.
       track(at, fileVersion(at));
+
       try {
         const real = realpathSync(at);
+
         if (real !== at) track(real, fileVersion(real));
       } catch {
         // A missing file has no file behind it.
       }
+
       let bytes: Uint8Array;
+
       try {
         bytes = new Uint8Array(readFileSync(at));
       } catch {
@@ -1676,16 +2106,21 @@ function rasterFiles(
         });
         continue;
       }
+
       budget.total += bytes.length;
+
       if (budget.total > RASTER_BYTES) {
         diagnostics.push({
           rule: "image",
           severity: "warning",
           message: `The files of the drawing's images come to more than ${RASTER_BYTES} bytes, so the pictures draw the image ${JSON.stringify(path)}${of} and those after it as frames`,
         });
+
         return { images, diagnostics };
       }
+
       const size = library.rasterSize(bytes);
+
       if (size === undefined) {
         diagnostics.push({
           rule: "image",
@@ -1694,6 +2129,7 @@ function rasterFiles(
         });
         continue;
       }
+
       if (!Array.isArray(pixels) || pixels[0] !== size[0] || pixels[1] !== size[1]) {
         diagnostics.push({
           rule: "image",
@@ -1702,10 +2138,18 @@ function rasterFiles(
         });
         continue;
       }
+
       images[path] = bytes;
     }
   }
+
   return { images, diagnostics };
+}
+
+/** The pictures of a drawing's underlays' pages, by path and then page, and what is wrong. */
+interface PageFiles {
+  readonly underlays: Record<string, Record<string, Uint8Array>> | undefined;
+  readonly diagnostics: BuildDiagnostic[];
 }
 
 /**
@@ -1722,35 +2166,38 @@ function pageFiles(
   drawing: Drawing,
   file: string,
   budget: { total: number },
-): {
-  underlays: Record<string, Record<string, Uint8Array>> | undefined;
-  diagnostics: BuildDiagnostic[];
-} {
-  if (library.underlayCorners === undefined || typeof library.rasterSize !== "function")
+): PageFiles {
+  if (library.underlayCorners === undefined || !isFunction(library.rasterSize))
     return { underlays: undefined, diagnostics: [] };
   // Objects of no prototype, so a path or page such as `__proto__` is a key like any other.
   const underlays: Record<string, Record<string, Uint8Array>> = Object.create(null);
   const diagnostics: BuildDiagnostic[] = [];
   const pdfs = new Map<string, Uint8Array | null>();
+
   const lists: unknown[] = [
     drawing.entities,
     ...(Array.isArray(drawing.layouts) ? drawing.layouts.map((l) => l?.entities) : []),
     ...(Array.isArray(drawing.blocks) ? drawing.blocks.map((b) => b?.entities) : []),
   ];
+
   const read = (at: string): Uint8Array | null => {
     track(at, fileVersion(at));
+
     try {
       const real = realpathSync(at);
+
       if (real !== at) track(real, fileVersion(real));
     } catch {
       // A missing file has no file behind it.
     }
+
     try {
       return new Uint8Array(readFileSync(at));
     } catch {
       return null;
     }
   };
+
   /** Each page's files, read once: its PDF's size of it, and its picture's pixels. */
   const pagesRead = new Map<
     string,
@@ -1765,56 +2212,68 @@ function pageFiles(
       command: string;
     }
   >();
+
   /** The pages a placement was refused for: the pictures draw none of their placements. */
   const refused: [path: string, page: string][] = [];
   /** Whether pdfPageSize reads each PDF's first page: if so, a page it cannot read is absent. */
   const firstPages = new Map<Uint8Array, boolean>();
   const said = new Set<string>();
+
   const say = (severity: "warning" | "error", message: string): void => {
     if (said.has(message)) return;
     said.add(message);
     diagnostics.push({ rule: "underlay", severity, message });
   };
+
   for (const list of lists) {
     if (!Array.isArray(list)) continue;
+
     for (const e of list) {
-      if (typeof e !== "object" || e === null || e.kind !== "underlay") continue;
-      const {
-        path,
-        page: given,
-        pageSize,
-      } = e as {
-        path?: unknown;
-        page?: unknown;
-        pageSize?: unknown;
-      };
+      const entity: unknown = e;
+
+      if (!isObject(entity)) continue;
+      const fields: PictureEntityFields = entity;
+
+      if (fields.kind !== "underlay") continue;
+      const { path, page: given, pageSize } = fields;
       const page = given === undefined ? "1" : given;
-      if (typeof path !== "string" || typeof page !== "string") continue;
+
+      if (!isString(path) || !isString(page)) continue;
+
       if (isAbsolute(path) || /^[A-Za-z]:/.test(path)) continue;
       const key = `${page}|${path}`;
       let files = pagesRead.get(key);
+
       if (files === undefined) {
         if (budget.total > RASTER_BYTES) continue;
         const pdfAt = join(dirname(file), path.replaceAll("\\", "/"));
         let pdf = pdfs.get(pdfAt);
+
         if (pdf === undefined) pdfs.set(pdfAt, (pdf = read(pdfAt)));
-        const sizeOf = typeof library.pdfPageSize === "function" ? library.pdfPageSize : undefined;
+        const sizeOf = isFunction(library.pdfPageSize) ? library.pdfPageSize : undefined;
         const size = pdf === null ? null : sizeOf?.(pdf, page);
         let readable = pdf === null ? undefined : firstPages.get(pdf);
+
         if (pdf !== null && readable === undefined) {
           firstPages.set(pdf, (readable = sizeOf?.(pdf, 1) !== undefined));
         }
+
         const absent = size === undefined && readable === true;
         const pictureAt = `${pdfAt}.page${page}.png`;
         const picture = pdf === null || absent ? null : read(pictureAt);
+
         if (picture !== null) budget.total += picture.length;
+
         const pixels =
           picture === null || picture[0] !== 0x89 ? undefined : library.rasterSize(picture);
+
         const command = `pdftocairo -png -transp -cropbox -r 150 -f ${page} -l ${page} -singlefile ${JSON.stringify(pdfAt)} ${JSON.stringify(`${pdfAt}.page${page}`)}`;
         pagesRead.set(key, (files = { pdfAt, size, absent, picture, pixels, command }));
       }
+
       const { pdfAt, size, absent, picture, pixels, command } = files;
       const pictureAt = `${pdfAt}.page${page}.png`;
+
       if (size === null) {
         say(
           "warning",
@@ -1822,6 +2281,7 @@ function pageFiles(
         );
         continue;
       }
+
       if (absent) {
         say(
           "warning",
@@ -1829,16 +2289,18 @@ function pageFiles(
         );
         continue;
       }
-      const [w, h] = Array.isArray(pageSize) ? (pageSize as unknown[]) : [];
-      if (size === undefined && typeof library.pdfPageSize === "function") {
+
+      const [w, h]: readonly unknown[] = Array.isArray(pageSize) ? pageSize : [];
+
+      if (size === undefined && isFunction(library.pdfPageSize)) {
         say(
           "warning",
           `The file of the underlay ${JSON.stringify(path)} has no page ${page} that pdfPageSize can read, so its size is not checked`,
         );
       } else if (
         size !== undefined &&
-        (typeof w !== "number" ||
-          typeof h !== "number" ||
+        (!isNumber(w) ||
+          !isNumber(h) ||
           !(Math.abs(w - size[0]) <= 1e-6 * Math.max(1, size[0])) ||
           !(Math.abs(h - size[1]) <= 1e-6 * Math.max(1, size[1])))
       ) {
@@ -1849,6 +2311,7 @@ function pageFiles(
         refused.push([path, page]);
         continue;
       }
+
       if (picture === null) {
         say(
           "warning",
@@ -1856,6 +2319,7 @@ function pageFiles(
         );
         continue;
       }
+
       if (pixels === undefined) {
         say(
           "warning",
@@ -1863,11 +2327,13 @@ function pageFiles(
         );
         continue;
       }
+
       // Some one resolution draws both sides of the page within a pixel of the picture's.
       const [px, py] = pixels;
+
       if (
-        typeof w === "number" &&
-        typeof h === "number" &&
+        isNumber(w) &&
+        isNumber(h) &&
         w > 0 &&
         h > 0 &&
         !(Math.max((px - 1) / w, (py - 1) / h) <= Math.min((px + 1) / w, (py + 1) / h))
@@ -1879,10 +2345,14 @@ function pageFiles(
         refused.push([path, page]);
         continue;
       }
-      (underlays[path] ??= Object.create(null) as Record<string, Uint8Array>)[page] = picture;
+
+      const byPage: Record<string, Uint8Array> = (underlays[path] ??= Object.create(null));
+      byPage[page] = picture;
     }
   }
+
   for (const [path, page] of refused) delete underlays[path]?.[page];
+
   return { underlays, diagnostics };
 }
 
@@ -1895,28 +2365,30 @@ function drawnOf(
   given: ReadonlyMap<Xref, Given>,
   folder = "",
   files?: (drawing: Drawing, file: string, xref: string) => Record<string, Uint8Array> | undefined,
-): Record<string, unknown> {
+): GivenXrefs {
   return Object.fromEntries(
-    [...given]
-      .filter(([, g]) => g.errors.length === 0)
-      .map(([xref, g]) => {
-        const path = typeof xref.path === "string" ? xref.path.replaceAll("\\", "/") : "";
-        const at = isAbsolute(path) ? path : join(folder, path);
-        // A path with a drive, which lint refuses, names no folder here.
-        const found = path !== "" && !/^[A-Za-z]:/.test(path);
-        const images = files && !g.preview && found ? files(g.drawing, at, g.name) : undefined;
-        const nested = g.nested.size > 0 ? drawnOf(g.nested, dirname(at), files) : undefined;
-        return [
+    [...given].flatMap(([xref, g]): [string, GivenXref][] => {
+      if (g.errors.length > 0) return [];
+      const path = isString(xref.path) ? xref.path.replaceAll("\\", "/") : "";
+      const at = isAbsolute(path) ? path : join(folder, path);
+      // A path with a drive, which lint refuses, names no folder here.
+      const found = path !== "" && !/^[A-Za-z]:/.test(path);
+      const images = files && !g.preview && found ? files(g.drawing, at, g.name) : undefined;
+      const nested = g.nested.size > 0 ? drawnOf(g.nested, dirname(at), files) : undefined;
+
+      if (images === undefined) {
+        return [[g.name, nested === undefined ? g.drawing : { drawing: g.drawing, xrefs: nested }]];
+      }
+
+      return [
+        [
           g.name,
-          nested === undefined && images === undefined
-            ? g.drawing
-            : {
-                drawing: g.drawing,
-                ...(nested === undefined ? {} : { xrefs: nested }),
-                ...(images === undefined ? {} : { images }),
-              },
-        ];
-      }),
+          nested === undefined
+            ? { drawing: g.drawing, images }
+            : { drawing: g.drawing, xrefs: nested, images },
+        ],
+      ];
+    }),
   );
 }
 
@@ -1931,18 +2403,23 @@ function drawingsOf(given: ReadonlyMap<Xref, Given>): Drawing[] {
 function givenErrors(given: ReadonlyMap<Xref, Given>, chain: readonly string[]): Diagnostic[] {
   return [...given].flatMap(([xref, g]) => {
     const here = [...chain, xref.name];
+
     return [...g.errors.map((d) => inGiven(here, g, d)), ...givenErrors(g.nested, here)];
   });
 }
 
 /**
- * The field `key` of `value` when it is `value`'s own data. A getter is never run and a proxy
- * never asked, since the export `standard` may be anything.
+ * The field `key` of `of` when it is own data that `is` accepts. A getter is never run and a
+ * proxy never asked, since the export `standard` may be anything.
  */
-function ownData(value: unknown, key: string): unknown {
-  if (typeof value !== "object" || value === null || types.isProxy(value)) return undefined;
-  const field = Object.getOwnPropertyDescriptor(value, key);
-  return field !== undefined && "value" in field ? field.value : undefined;
+function ownField<T>(of: unknown, key: string, is: (field: unknown) => field is T): T | undefined {
+  if (!isObject(of) || types.isProxy(of)) return undefined;
+  const field = Object.getOwnPropertyDescriptor(of, key);
+
+  if (field === undefined || !("value" in field)) return undefined;
+  const value: unknown = field.value;
+
+  return is(value) ? value : undefined;
 }
 
 /**
@@ -1951,18 +2428,28 @@ function ownData(value: unknown, key: string): unknown {
  */
 function titleBlockPreviews(standard: unknown): [name: string, preview: Drawing][] {
   try {
-    const blocks = ownData(standard, "titleBlocks");
-    if (typeof blocks !== "object" || blocks === null) return [];
-    return Object.keys(blocks).flatMap((key) => {
-      const block = ownData(blocks, key);
-      const name = ownData(ownData(block, "xref"), "name");
-      const preview = ownData(block, "preview");
-      return typeof name === "string" &&
-        Array.isArray(ownData(preview, "layers")) &&
-        Array.isArray(ownData(preview, "entities")) &&
-        typeof ownData(preview, "units") === "string"
-        ? [[name, preview as Drawing]]
-        : [];
+    const blocks = ownField(standard, "titleBlocks", isObject);
+
+    if (blocks === undefined) return [];
+
+    return Object.keys(blocks).flatMap((key): [name: string, preview: Drawing][] => {
+      const block = ownField(blocks, key, isObject);
+      const name = ownField(ownField(block, "xref", isObject), "name", isString);
+      const preview = ownField(block, "preview", isObject);
+
+      if (
+        name === undefined ||
+        preview === undefined ||
+        ownField(preview, "layers", Array.isArray) === undefined ||
+        ownField(preview, "entities", Array.isArray) === undefined ||
+        ownField(preview, "units", isString) === undefined
+      ) {
+        return [];
+      }
+
+      // SAFETY: the preview's layers and entities are own arrays and its units an own string,
+      // which is what the worker reads first of a drawing, as of the default export.
+      return [[name, preview as Drawing]];
     });
   } catch {
     return [];
@@ -1972,8 +2459,11 @@ function titleBlockPreviews(standard: unknown): [name: string, preview: Drawing]
 /** The id, version and hash of the file's export `standard`, when it holds all three. */
 function standardSummary(standard: unknown, checked: boolean): StandardSummary | null {
   try {
-    const [id, version, hash] = ["id", "version", "hash"].map((key) => ownData(standard, key));
-    return typeof id === "string" && typeof version === "string" && typeof hash === "string"
+    const [id, version, hash] = ["id", "version", "hash"].map((key) =>
+      ownField(standard, key, isString),
+    );
+
+    return id !== undefined && version !== undefined && hash !== undefined
       ? { id, version, hash, checked }
       : null;
   } catch {
@@ -1988,14 +2478,17 @@ function standardSummary(standard: unknown, checked: boolean): StandardSummary |
  */
 function inGiven(chain: readonly string[], given: Given, found: Diagnostic): Diagnostic {
   const what = given.preview ? "its title block's preview" : "the drawing given for it";
-  return {
+
+  const problem: Diagnostic = {
     rule: found.rule,
     severity: found.severity,
     message: `Xref ${chain.map((name) => JSON.stringify(name)).join(" > ")}: ${what} has an error, so it is not drawn. ${found.message}`,
     xref: chain[0]!,
-    ...(found.id === undefined ? {} : { id: found.id }),
-    ...(found.call === undefined ? {} : { call: found.call }),
   };
+
+  const withId = found.id === undefined ? problem : { ...problem, id: found.id };
+
+  return found.call === undefined ? withId : { ...withId, call: found.call };
 }
 
 /**
@@ -2012,14 +2505,19 @@ function xrefSummaries(
   // A drawing given at many places is counted once, and each name in it looked up once: one
   // drawn inside another has passed lint, so its names are short.
   let placed = referenced ? counts.get(drawing) : undefined;
+
   if (!placed) {
     placed = new Map<unknown, number>();
     const named = new Map<string, Xref | undefined>();
+
     const xrefOf = (name: string): Xref | undefined => {
       if (!referenced) return xrefNamed(library, drawing, name);
+
       if (!named.has(name)) named.set(name, xrefNamed(library, drawing, name));
+
       return named.get(name);
     };
+
     const lists = referenced
       ? reached(library, drawing)
       : [
@@ -2027,6 +2525,7 @@ function xrefSummaries(
           ...(drawing.blocks ?? []).map((b) => b.entities),
           ...sheetEntities(drawing),
         ];
+
     for (const entities of lists) {
       for (const e of entities) {
         if (e.kind !== "insert") continue;
@@ -2034,12 +2533,15 @@ function xrefSummaries(
         placed.set(xref, (placed.get(xref) ?? 0) + 1);
       }
     }
+
     if (referenced) counts.set(drawing, placed);
   }
+
   return (drawing.xrefs ?? []).map((x) => {
     const found = given.get(x);
     const inserts = placed.get(x) ?? 0;
     const shown = found?.errors.length === 0;
+
     return {
       name: x.name,
       path: x.path,
@@ -2058,16 +2560,20 @@ function reached(library: Library, drawing: Drawing): (readonly Entity[])[] {
   const seen = new Set<Block>();
   // Each name is looked up once: the drawing has passed lint, so its names are short.
   const named = new Map<string, Block | undefined>();
+
   for (let at = 0; at < lists.length; at++) {
     for (const e of lists[at]!) {
       if (e.kind !== "insert") continue;
+
       if (!named.has(e.block)) named.set(e.block, blockNamed(library, drawing, e.block));
       const block = named.get(e.block);
+
       if (!block || seen.has(block)) continue;
       seen.add(block);
       lists.push(block.entities);
     }
   }
+
   return lists;
 }
 
@@ -2079,6 +2585,7 @@ function insertSummaries(
   return entities.flatMap((e, entity): InsertSummary[] => {
     if (e.kind !== "insert") return [];
     const definitions = blockNamed(library, drawing, e.block)?.attributes ?? [];
+
     return [
       {
         entity,
@@ -2109,6 +2616,13 @@ const SUMMARY_KINDS = {
   "ordinate-dimension": "ordinate",
 } as const;
 
+type Dimension = Extract<Entity, { readonly kind: `${string}-dimension` }>;
+
+/** Whether an entity is a dimension of a kind a summary names. */
+function isSummarized(e: Entity): e is Dimension {
+  return Object.hasOwn(SUMMARY_KINDS, e.kind);
+}
+
 /** Each dimension among some entities, with what the library the drawing loaded says it reads. */
 function dimensionSummaries(
   library: Library,
@@ -2116,15 +2630,17 @@ function dimensionSummaries(
   entities: readonly Entity[] = drawing.entities,
 ): DimensionSummary[] {
   return entities.flatMap((e, entity): DimensionSummary[] => {
-    if (!Object.hasOwn(SUMMARY_KINDS, e.kind)) return [];
-    const dimension = e as Extract<Entity, { readonly kind: `${string}-dimension` }>;
+    if (!isSummarized(e)) return [];
+    const dimension = e;
     let read: { measurement: number; text: string } | undefined;
+
     try {
-      const style =
-        typeof dimension.style === "string"
-          ? library.findDimensionStyle?.(drawing, dimension.style)
-          : undefined;
+      const style = isString(dimension.style)
+        ? library.findDimensionStyle?.(drawing, dimension.style)
+        : undefined;
+
       const picture = style && library.dimensionPicture?.(dimension, style);
+
       if (picture && Number.isFinite(picture.measurement)) {
         // An angle in degrees, as every angle of a drawing is.
         const degrees = dimension.kind === "angular-dimension";
@@ -2134,6 +2650,7 @@ function dimensionSummaries(
     } catch {
       // A dimension or a style that breaks a rule, which the diagnostics say.
     }
+
     return [
       {
         entity,
@@ -2153,8 +2670,13 @@ function shownLayers(drawing: Drawing): Drawing["layers"] {
   return drawing.layers.map((l) => ({ ...l, off: false, frozen: false, plot: true }));
 }
 
+/** The color `toSVG` draws each layer in, by layer name. */
+interface Swatches {
+  [layer: string]: string;
+}
+
 /** Asks `toSVG` for each layer's color by drawing one short line on every layer. */
-function swatches(library: Library, drawing: Drawing): Record<string, string> {
+function swatches(library: Library, drawing: Drawing): Swatches {
   const probe: Drawing = {
     ...drawing,
     layers: shownLayers(drawing),
@@ -2165,10 +2687,13 @@ function swatches(library: Library, drawing: Drawing): Record<string, string> {
       to: [1, 0],
     })),
   };
-  const out: Record<string, string> = {};
+
+  const out: Swatches = {};
+
   for (const match of library.toSVG(probe).matchAll(/stroke="([^"]+)"[^>]*data-layer="([^"]*)"/g)) {
     out[unescape(match[2]!)] = match[1]!;
   }
+
   return out;
 }
 
@@ -2184,6 +2709,7 @@ function unescape(value: string): string {
 function readFiles(file: string): FileVersion[] {
   const first: FileVersion[] = [...(read.get(file) ?? [null])].map((v) => [file, v]);
   const rest = [...read].filter(([path]) => path !== file);
+
   return [
     ...first,
     ...rest.flatMap(([path, versions]) => [...versions].map((v): FileVersion => [path, v])),
@@ -2206,41 +2732,48 @@ function inProject(path: string, root: string): boolean {
 /** An error about the default export, placed at the `export default` line when there is one. */
 function atExport(file: string, message: string): BuildError {
   let line: number | null = null;
+
   try {
     const index = readFileSync(file, "utf8")
       .split("\n")
       .findIndex((l) => /\bexport\s+default\b/.test(l));
+
     if (index >= 0) line = index + 1;
   } catch {
     // Unreadable now; the message still says what to fix.
   }
+
   return { name: "Error", message, code: null, file, line, column: null, stack: "" };
 }
 
 /** Turns whatever the file threw into a `BuildError` that points at the user's code. */
-function describe(thrown: unknown, root: string): BuildError {
-  if (!(thrown instanceof Error)) {
+function describe(cause: unknown, root: string): BuildError {
+  if (!(cause instanceof Error)) {
     return {
       name: "Error",
-      message: `The file threw ${typeof thrown === "string" ? thrown : JSON.stringify(thrown)}`,
+      message: `The file threw ${isString(cause) ? cause : JSON.stringify(cause)}`,
       code: null,
       ...nowhere,
       stack: "",
     };
   }
-  const stack = thrown.stack ?? "";
-  const code = (thrown as { code?: unknown }).code;
+
+  const stack = cause.stack ?? "";
+  const thrown: ThrownFields = cause;
+  const { code } = thrown;
+
   // Node reads a .ts file as CommonJS when the project's package.json says so, as `npm init`'s does.
   const commonjs =
-    thrown instanceof SyntaxError &&
-    thrown.message.startsWith("Cannot use import statement outside a module");
+    cause instanceof SyntaxError &&
+    cause.message.startsWith("Cannot use import statement outside a module");
+
   return {
-    name: thrown.name,
+    name: cause.name,
     message: commonjs
-      ? `${thrown.message}. Set "type": "module" in the project's package.json, or name the file .mts`
-      : thrown.message,
-    code: typeof code === "string" ? code : null,
-    ...locate(thrown, stack, root),
+      ? `${cause.message}. Set "type": "module" in the project's package.json, or name the file .mts`
+      : cause.message,
+    code: isString(code) ? code : null,
+    ...locate(cause, stack, root),
     stack,
   };
 }
@@ -2255,27 +2788,35 @@ function locate(
   const lines = stack.split("\n");
   // A syntax error starts its stack with "path:line", the source around it and a caret line.
   const head = /^((?:file:\/\/)?[^\s]+):(\d+)$/.exec(lines[0] ?? "");
+
   if (head) {
     const caret = lines.findIndex((l) => /^\s*\^+\s*$/.test(l));
+
     return {
       file: toPath(head[1]!),
       line: Number(head[2]),
       column: caret > 0 ? lines[caret]!.indexOf("^") + 1 : null,
     };
   }
+
   const frames = lines.flatMap((l) => {
     const m = /^\s+at .*?\(?((?:file:\/\/)?\/[^\s()]+):(\d+):(\d+)\)?$/.exec(l);
+
     return m ? [{ file: toPath(m[1]!), line: Number(m[2]), column: Number(m[3]) }] : [];
   });
+
   // The innermost frame of the user's code. tsdraft's frames lie outside the project or in
   // `ownCode`, as this worker's do, so a throw inside either lands on the call that led to it.
   const frame = frames.find(
     (f) => !ownCode.some((dir) => f.file.startsWith(dir)) && inProject(f.file, root),
   );
+
   if (frame) return frame;
   // "Cannot find module '/x/y.ts' imported from /x/drawing.ts" names the importer.
   const importer = / imported from (\S+)$/.exec(error.message);
+
   if (importer) return { file: toPath(importer[1]!), line: null, column: null };
+
   return nowhere;
 }
 

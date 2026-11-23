@@ -13,10 +13,10 @@ import {
   toDXF,
   toJSON,
   type Drawing,
-  type Insert,
   type LintRule,
   type Standard,
 } from "../src/index.ts";
+import { ofKind, wrong, type Data } from "./values.ts";
 
 const standard = defineStandard({
   id: "acme",
@@ -37,11 +37,12 @@ const DIMENSION_STYLE = {
 } as const;
 
 /** Asserts that `draw` throws a `DrawingError` of `rule` whose message matches `message`. */
-function refused(draw: () => unknown, rule: LintRule, message: RegExp): void {
+function refused(draw: () => void, rule: LintRule, message: RegExp): void {
   assert.throws(draw, (thrown) => {
     assert.ok(thrown instanceof DrawingError);
     assert.equal(thrown.diagnostics[0]?.rule, rule);
     assert.match(thrown.message, message);
+
     return true;
   });
 }
@@ -195,10 +196,12 @@ test("a layer with fields by discipline takes the drawing's discipline", () => {
     sheetFiles: "sheet-per-file",
     layers: { TEXT: { color: 7, pen: "light", byDiscipline: { C: { color: 3, pen: "fine" } } } },
   });
+
   const layer = (discipline?: "C" | "V") =>
-    createDrawing({ standard: shared, ...(discipline ? { discipline } : {}) })
+    createDrawing(discipline ? { standard: shared, discipline } : { standard: shared })
       .layer("TEXT")
       .build().layers[1];
+
   assert.deepEqual(layer("C"), { name: "TEXT", color: 3, lineweight: 0.18 });
   assert.deepEqual(layer("V"), { name: "TEXT", color: 7, lineweight: 0.25 });
   refused(
@@ -291,6 +294,7 @@ test("under a standard the builder refuses a role, a view or a dimension style i
       assert.equal(thrown.diagnostics[0]?.rule, "geometry");
       assert.equal(thrown.message, "The paper length must be greater than 0");
       assert.match(thrown.diagnostics[0]?.call?.file ?? "", /test\/drawn\.test\.ts$/);
+
       return true;
     },
   );
@@ -323,7 +327,7 @@ test("under a standard the builder refuses a role, a view or a dimension style i
     /^Under a standard a text's style comes from its role, and a drawing defines no text style of its own/,
   );
   refused(
-    () => d.linearDimension([0, 0], [10, 0], [0, 5], { style: null as never, view: plan }),
+    () => d.linearDimension([0, 0], [10, 0], [0, 5], { style: wrong<string>(null), view: plan }),
     "dimension-style-outside-standard",
     /named by a string/,
   );
@@ -355,24 +359,28 @@ test("under a standard the builder refuses a role, a view or a dimension style i
     "dimension-style",
     /^The dimension style "dims" of the standard "acme" version 2026.1 has no writing for "m"/,
   );
+
   const tiny = defineStandard({
     id: "tiny",
     version: "1",
     extends: BUILT_IN_STANDARD,
     scales: { tiny: { label: "tiny", ratio: 1e-9 } },
   });
+
   const small = createDrawing({ units: "ft", standard: tiny });
   refused(
     () => small.text([0, 0], "A", { role: "note", view: small.view("v", { scale: "tiny" }) }),
     "geometry",
     /^height: .*written as 0/,
   );
+
   const millimetres = defineStandard({
     id: "mm",
     version: "1",
     paperUnits: "mm",
     minTextHeight: 2,
   });
+
   // Every paper is in inches, so a standard in millimetres has no sheet format yet.
   refused(
     () => createDrawing({ standard: millimetres }).layout("A", () => {}),
@@ -453,6 +461,7 @@ test("a role and a view size a text, a symbol and a dimension where each is draw
     { name: "DIMENSION", font: "Arial" },
     { name: "TITLE", font: "Arial" },
   ]);
+
   // Two views at one scale share a style. On a layout the style has no scale, and writes inches.
   const style = {
     textStyle: "DIMENSION",
@@ -463,6 +472,7 @@ test("a role and a view size a text, a symbol and a dimension where each is draw
     extensionBeyond: 0.125,
     textGap: 0.0625,
   };
+
   assert.deepEqual(drawing.dimensionStyles, [
     { name: "DIMS-1in-10ft", ...style, scale: 10, precision: 1, suffix: "'" },
     { name: "DIMS", ...style, precision: 0, suffix: '"' },
@@ -494,6 +504,7 @@ test("a dimension style takes the names a firm's drawings give it, and writes fe
       },
     },
   });
+
   const d = createDrawing({ units: "in", standard: firm });
   const quarter = d.view("quarter", { scale: "1-4in-1ft" });
   const eighth = d.view("eighth", { scale: "1-8in-1ft" });
@@ -513,6 +524,7 @@ test("a dimension style takes the names a firm's drawings give it, and writes fe
     lint(drawing, { standard: firm }).filter((d) => d.rule.startsWith("dimension")),
     [],
   );
+
   // A style renamed on layouts frees its id's name there, which another style's name at a
   // scale may be: lint finds the second.
   const sizes = {
@@ -524,6 +536,7 @@ test("a dimension style takes the names a firm's drawings give it, and writes fe
     textGap: 0.03125,
     writing: { in: { units: "architectural", precision: 4 } },
   } as const;
+
   const freed = defineStandard({
     id: "freed",
     version: "1",
@@ -531,6 +544,7 @@ test("a dimension style takes the names a firm's drawings give it, and writes fe
     scales: { b: { label: "B", ratio: 24 } },
     dimensionStyles: { a: sizes, "a-b": { ...sizes, layoutName: "Renamed" } },
   });
+
   const f = createDrawing({ units: "in", standard: freed });
   f.linearDimension([0, 0], [12, 0], [0, 6], { view: f.view("b", { scale: "b" }), style: "a" });
   const freedDrawing = f.build();
@@ -542,6 +556,7 @@ test("a dimension style takes the names a firm's drawings give it, and writes fe
     lint(freedDrawing, { standard: freed }).filter((d) => d.rule.startsWith("dimension")),
     [],
   );
+
   // The name the id gives is no name of the standard where the standard gives another.
   const renamed: Drawing = {
     ...drawing,
@@ -555,6 +570,7 @@ test("a dimension style takes the names a firm's drawings give it, and writes fe
       ),
     })),
   };
+
   assert.deepEqual(
     lint(renamed, { standard: firm })
       .filter((d) => d.rule.startsWith("dimension"))
@@ -579,8 +595,10 @@ test("a standard refuses a name the leading CAD app would take for another of it
     textGap: 0.1,
     writing: { in: { precision: 0 } },
   };
-  const problems = (dimensionStyles: object, more: object = {}): string[] => {
+
+  const problems = (dimensionStyles: Data, more?: Data): string[] => {
     try {
+      // SAFETY: dimension styles of the wrong shape on purpose, whose problems the test reads.
       defineStandard({
         id: "x",
         version: "1",
@@ -588,12 +606,15 @@ test("a standard refuses a name the leading CAD app would take for another of it
         dimensionStyles,
         ...more,
       } as never);
+
       return [];
     } catch (thrown) {
       assert.ok(thrown instanceof DrawingError);
+
       return thrown.diagnostics.map((d) => `${d.item}: ${d.message}`);
     }
   };
+
   assert.match(
     problems({ a: { ...style, layoutName: "SAME" }, b: { ...style, layoutName: "same" } })[0]!,
     /^dimensionStyles\["b"\]\.layoutName: The dimension style "b" and the dimension style "a" have names that the leading CAD app takes for one dimension style, "same"/,
@@ -688,6 +709,7 @@ test("each branch of a conditional is checked as written", () => {
   const d = createDrawing({ units: "ft", standard });
   const plan = d.view("plan", { scale: "1in-10ft" });
   d.block("CORNER", {}, () => d.circle([0, 0], 1 / 16));
+
   for (const viewed of [true, false]) {
     d.block(viewed ? "A" : "B", {}, () =>
       d.attribute("T", [0, 0], viewed ? { role: "label" } : { role: "note" }),
@@ -695,6 +717,7 @@ test("each branch of a conditional is checked as written", () => {
     d.insert("CORNER", [0, 0], viewed ? { view: plan } : { scale: 2 });
     d.text([0, 0], "A", viewed ? { role: "label", view: plan } : { role: "note", view: plan });
   }
+
   const drawing = d.build();
   assert.deepEqual(
     drawing.entities.map((e) => (e.kind === "insert" ? e.scale : e.kind === "text" && e.height)),
@@ -736,17 +759,21 @@ test("a role and a dimension style with fields by discipline take the drawing's 
       },
     },
   });
+
   const drawn = (discipline?: "C" | "V") => {
-    const d = createDrawing({
-      units: "ft",
-      standard: shared,
-      ...(discipline ? { discipline } : {}),
-    });
+    const d = createDrawing(
+      discipline
+        ? { units: "ft", standard: shared, discipline }
+        : { units: "ft", standard: shared },
+    );
+
     d.block("B", {}, () => d.text([0, 0], "A", { role: "note" }));
     const plan = d.view("plan", { scale: "1in-10ft" });
     d.alignedDimension([0, 0], [10, 0], 5, { view: plan });
+
     return d.build();
   };
+
   const civil = drawn("C");
   assert.deepEqual(civil.textStyles?.[0], { name: "NOTE", font: "romans.shx" });
   assert.equal(civil.dimensionStyles?.[0]?.arrowSize, 0.25);
@@ -768,6 +795,7 @@ function fieldsOverBorder(): Drawing {
     d.attribute("NUMBER", [33, 1], { value: "-", height: 0.25, style: "FIELDS" });
     d.attribute("TITLE", [29.5, 2], { value: "-", height: 0.1875, style: "FIELDS" });
   });
+
   return d.build();
 }
 
@@ -857,6 +885,7 @@ test("a layout is on a sheet format of the standard, laid out by its zones", () 
   // Without a standard a layout names its paper, and no sheet format.
   const plain = createDrawing({ units: "ft" });
   refused(
+    // SAFETY: a layout given no options, which a drawing without a standard must give.
     () => plain.layout("A", (() => {}) as never),
     "layout",
     /^Layout "A": A layout of a drawing without a standard names its paper/,
@@ -875,6 +904,7 @@ test("a layout is on a sheet format of the standard, laid out by its zones", () 
       "layout",
       /^A zone is a part of the layout's sheet format/,
     );
+
     for (const place of [
       // @ts-expect-error: a title block is a standard's.
       () => sheet.titleBlock({ title: "A" }),
@@ -890,6 +920,7 @@ test("a layout is on a sheet format of the standard, laid out by its zones", () 
   });
   // draw is the last argument, and a function.
   const draw = (): void => {};
+
   for (const call of [
     // @ts-expect-error: a layout has its draw.
     () => plain.layout("B", { paper: "ARCH D" }),
@@ -906,6 +937,7 @@ test("a layout is on a sheet format of the standard, laid out by its zones", () 
       /^Layout "(B|C-104)": layout\(\) takes the function that draws the sheet last, and nothing after it/,
     );
   }
+
   // Options of undefined are none.
   d.layout("C-104", undefined, (sheet) => assert.equal(sheet.paper, "ARCH D"));
   // A layout whose name only AUDIT takes for another's is refused under a standard.
@@ -925,6 +957,7 @@ test("the title block is the standard's, filled from the sheet, the drawing and 
     standard,
     fields: { project: "LOT 12", date: "2026-11-13", drawnBy: "AB", checkedBy: "CD" },
   });
+
   const plan = d.view("plan", { scale: "1in-10ft" });
   const detail = d.view("detail", { scale: "1in-20ft" });
   const lot = d.view("lot", { scale: "1in-10ft" });
@@ -966,8 +999,8 @@ test("the title block is the standard's, filled from the sheet, the drawing and 
       SHEET: "C-101",
     },
   });
-  assert.equal((inserts[1] as Insert).attributes?.SCALE, "AS SHOWN");
-  assert.equal((inserts[2] as Insert).attributes?.SCALE, "AS NOTED");
+  assert.equal(ofKind(inserts[1], "insert").attributes?.SCALE, "AS SHOWN");
+  assert.equal(ofKind(inserts[2], "insert").attributes?.SCALE, "AS NOTED");
   // The title block's definitions enter the drawing once, under their own names.
   assert.deepEqual(
     drawing.blocks?.map((b) => b.name),
@@ -1067,6 +1100,7 @@ const nested = defineStandard({
           d.insert("SCALE BOX", [0, 0], { id: "S6980407.title-block" });
           d.layer("TB-CIVIL", () => d.line([0.5, 0.5], [35.5, 0.5]));
         });
+
         return d.build();
       })(),
       blockName: "FIELDS",
@@ -1080,8 +1114,10 @@ const nested = defineStandard({
 
 test("an insert with an id in a title block's block holds the handles of its attributes", () => {
   assert.equal(insertAttributeHandle("S6980407.title-block", "SCALE"), idHandle("t74230822"));
+
   const sheet = () =>
     createDrawing({ units: "ft", standard: nested, discipline: "C", fields: { number: "A-1" } });
+
   const after = sheet();
   after.layout("A-1", (s) => s.titleBlock());
   refused(
@@ -1114,6 +1150,7 @@ test("a title block refused for a layer it draws on takes no layer or linetype",
 
 test("a firm's border is an xref under the block of the fields, shared by every layout", () => {
   const d = createDrawing({ units: "ft", standard: firm });
+
   for (const [name, title] of [
     ["A-101", "FIRST FLOOR"],
     ["A-102", "SECOND FLOOR"],
@@ -1123,11 +1160,16 @@ test("a firm's border is an xref under the block of the fields, shared by every 
       assert.deepEqual(sheet.zone("views").width, 34);
     });
   }
+
   const drawing = d.build();
   assert.deepEqual(drawing.xrefs, [{ name: "BORDER", path: "border.dwg" }]);
   assert.deepEqual(
     drawing.layouts!.map((layout) =>
-      layout.entities.map((e) => [e.id, (e as Insert).block, (e as Insert).attributes]),
+      layout.entities.map((e) => {
+        const insert = ofKind(e, "insert");
+
+        return [e.id, insert.block, insert.attributes];
+      }),
     ),
     [
       [
@@ -1163,13 +1205,15 @@ test("a firm's border is an xref under the block of the fields, shared by every 
 
 test("under sheet-per-file a drawing is one sheet, with a number that names its file", () => {
   const sheet = (number?: string) => {
-    const d = createDrawing({
-      units: "ft",
-      standard: perFile,
-      ...(number ? { fields: { number } } : {}),
-    });
+    const d = createDrawing(
+      number
+        ? { units: "ft", standard: perFile, fields: { number } }
+        : { units: "ft", standard: perFile },
+    );
+
     return d;
   };
+
   const d = sheet("C-101");
   d.layout("SITE PLAN", { sheetFormat: "named" }, (page) =>
     page.titleBlock({ title: "SITE PLAN" }),
@@ -1177,7 +1221,8 @@ test("under sheet-per-file a drawing is one sheet, with a number that names its 
   const drawing = d.build();
   // The leading CAD app fills every field from the names: the builder writes the xref alone.
   assert.deepEqual(
-    drawing.layouts![0]!.entities.map((e) => [e.id, (e as Insert).block]),
+    drawing.layouts![0]!.entities.map((e) => [e.id, ofKind(e, "insert").block]),
+
     [[undefined, "TITLE"]],
   );
   refused(
@@ -1193,6 +1238,7 @@ test("under sheet-per-file a drawing is one sheet, with a number that names its 
   sheet()
     .layout("SITE PLAN", { sheetFormat: "named" }, (page) => page.titleBlock({ number: "C-102" }))
     .build();
+
   for (const [number, problem] of [
     ["CON", /Windows keeps for a device/],
     ["lpt1.dwg", /Windows keeps for a device/],
@@ -1202,6 +1248,7 @@ test("under sheet-per-file a drawing is one sheet, with a number that names its 
   ] as const) {
     refused(() => sheet(number), "sheet-per-file", problem);
   }
+
   sheet().layout("SITE PLAN", { sheetFormat: "named" }, (page) => {
     refused(
       () => page.titleBlock({ number: "C-1", title: "SITE" }),

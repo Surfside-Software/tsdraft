@@ -14,12 +14,15 @@ import {
   toSVG,
   viewportView,
   type Drawing,
-  type Layout,
+  type Sheet,
+  type LayoutOptions,
   type PlotStyleTable,
+  type ViewportOptions,
 } from "../src/index.ts";
 import { layoutNameKey } from "../src/layers.ts";
 import { findLayout } from "../src/layouts.ts";
 import { pairs, records } from "./dxf-groups.ts";
+import { dataOf, wrong, type Data, type Field } from "./values.ts";
 
 /** A plan in feet with one sheet: a border and a note on the paper, and a view at 1" = 10'. */
 function sheet(): Drawing {
@@ -35,6 +38,7 @@ function sheet(): Drawing {
     );
     d.insert("TAG", [30, 2], { id: "tag", attributes: { NO: "A-101" } });
   });
+
   return d.build();
 }
 
@@ -102,8 +106,8 @@ test("a viewport's ratio gives the view the leading CAD app holds, in every pair
   assert.equal(viewportView({ ...viewport, ratio: 100 }, "mm", "m").viewHeight, 2.2);
   assert.throws(() => viewportView({ ...viewport, ratio: 0 }, "in", "ft"), RangeError);
   assert.throws(() => viewportView({ ...viewport, height: Number.NaN }, "in", "ft"), RangeError);
-  assert.throws(() => viewportView(viewport, "ft" as "in", "ft"), RangeError);
-  assert.throws(() => viewportView(null as never, "in", "ft"), RangeError);
+  assert.throws(() => viewportView(viewport, wrong("ft"), "ft"), RangeError);
+  assert.throws(() => viewportView(wrong(null), "in", "ft"), RangeError);
 });
 
 test("the R2018 DXF holds the layout, its page setup, its block and its viewports", () => {
@@ -111,8 +115,10 @@ test("the R2018 DXF holds the layout, its page setup, its block and its viewport
   const dxf = toDXF(drawing);
   const all = records(dxf);
   const handles = layoutHandles("A-101");
+
   const value = (record: [number, string][], code: number, nth = 0): string | undefined =>
     record.filter(([c]) => c === code)[nth]?.[1];
+
   const layout = all.find((r) => r[0]![1] === "LAYOUT" && value(r, 5) === handles.layout)!;
   // The page setup: the plotter, the paper as the plotter names it, in millimetres, the
   // layout at 1:1, with plot styles and lineweights, and the plot style table.
@@ -176,11 +182,13 @@ test("the R2018 DXF holds the layout, its page setup, its block and its viewport
   assert.ok(paper.slice(0, 4).every((r) => value(r, 330) === handles.record));
   // The drawing opens on the sheet, and every pointer leads to an object.
   assert.ok(dxf.includes("$TILEMODE\r\n70\r\n0\r\n"));
+
   const owned = new Set(
     pairs(dxf)
       .filter(([c]) => c === 5 || c === 105)
       .map(([, v]) => v),
   );
+
   const pointers = pairs(dxf).filter(([c]) => [330, 331, 340, 350].includes(c));
   assert.deepEqual(
     pointers.filter(([, v]) => v !== "0" && !owned.has(v)),
@@ -245,13 +253,16 @@ test("an ARCH E layout is 48 by 36, with its plot turned onto the upright medium
 
 test("a layout's name is held to the leading CAD app's rules, at compile time and when the code runs", () => {
   const d = createDrawing();
-  const refused = (run: () => unknown, pattern: RegExp): void => {
-    assert.throws(run, (error: unknown) => {
+
+  const refused = (run: () => void, pattern: RegExp): void => {
+    assert.throws(run, (error) => {
       assert.ok(error instanceof DrawingError);
       assert.match(error.message, pattern);
+
       return true;
     });
   };
+
   // @ts-expect-error an empty name
   refused(() => d.layout("", { paper: "ARCH D" }, () => {}), /cannot be empty/);
   // @ts-expect-error the model tab's name
@@ -267,8 +278,8 @@ test("a layout's name is held to the leading CAD app's rules, at compile time an
   refused(() => d.layout("x".repeat(256), { paper: "ARCH D" }, () => {}), /255 characters/);
   // @ts-expect-error a control character
   refused(() => d.layout("A\tB", { paper: "ARCH D" }, () => {}), /control characters/);
-  refused(() => d.layout(5 as never, { paper: "ARCH D" }, () => {}), /must be a string/);
-  refused(() => d.layout("A", null as never, () => {}), /must be one of PAPERS/);
+  refused(() => d.layout(wrong<string>(5), { paper: "ARCH D" }, () => {}), /must be a string/);
+  refused(() => d.layout("A", wrong<LayoutOptions>(null), () => {}), /must be one of PAPERS/);
   // A caret and a space inside are names the leading CAD app's own command takes.
   d.layout("A^1 plan", { paper: "ANSI A" }, () => {});
   // The leading CAD app takes these for the same name, and a layout that is being drawn has its name.
@@ -298,6 +309,7 @@ test("the leading CAD app's table of letters decides which two layout names are 
   ]) {
     assert.equal(layoutNameKey(a!), layoutNameKey(b!), `${a} and ${b}`);
   }
+
   // It keeps these apart: the sharp s and two of them, the two small sigmas, the title-case
   // digraph, a composed letter and a decomposed one, and Cherokee's two cases.
   for (const [a, b] of [
@@ -309,15 +321,16 @@ test("the leading CAD app's table of letters decides which two layout names are 
   ]) {
     assert.notEqual(layoutNameKey(a!), layoutNameKey(b!), `${a} and ${b}`);
   }
+
   assert.equal(findLayout(sheet(), "a-101")?.name, "A-101");
 });
 
 test("a viewport is checked as it is added, and belongs to the layout being drawn", () => {
   const d = createDrawing({ units: "ft" });
   d.line([0, 0], [1, 0], { id: "taken" });
-  let kept: { viewport: (...args: never[]) => unknown } | undefined;
+  let kept: Sheet | undefined;
   d.layout("A", { paper: "ARCH D" }, (page) => {
-    kept = page as never;
+    kept = page;
     const view = { center: [0, 0], ratio: 120 } as const;
     const zero = { center: [0, 0], ratio: 0 } as const;
     // @ts-expect-error a ratio of 0
@@ -327,7 +340,10 @@ test("a viewport is checked as it is added, and belongs to the layout being draw
     assert.throws(() => page.viewport([0, 0], 1, 1, { ...view, ratio: 1e-9 }), /written as 0/);
     assert.throws(() => page.viewport([0, 0], 1, 1, { ...view, ratio: 1e200 }), /1e100/);
     assert.throws(() => page.viewport([0, Number.NaN], 1, 1, view), /corner must be a point/);
-    assert.throws(() => page.viewport([0, 0], 1, 1, null as never), /center must be a point/);
+    assert.throws(
+      () => page.viewport([0, 0], 1, 1, wrong<ViewportOptions>(null)),
+      /center must be a point/,
+    );
     // An id is one of the drawing's, whatever space it is in.
     assert.throws(() => page.viewport([0, 0], 1, 1, { ...view, id: "TAKEN" }), /already used/);
     assert.throws(() => d.block("B", {}, () => {}), /cannot be defined on a layout/);
@@ -336,7 +352,7 @@ test("a viewport is checked as it is added, and belongs to the layout being draw
   });
   assert.throws(() => d.line([0, 0], [1, 1], { id: "V" }), /already used/);
   assert.throws(
-    () => kept!.viewport([0, 0] as never, 1 as never, 1 as never, {} as never),
+    () => kept!.viewport([0, 0], 1, 1, wrong<ViewportOptions>({})),
     /while its layout is drawn/,
   );
   assert.throws(
@@ -346,13 +362,17 @@ test("a viewport is checked as it is added, and belongs to the layout being draw
   assert.equal(d.build().layouts![0]!.viewports.length, 1);
   // The error names the layout and the call.
   const recorded = createDrawing({ recordCalls: true });
+
+  const negative: number = -1;
+
   try {
     recorded.layout("A", { paper: "ARCH D" }, (page) =>
-      page.viewport([0, 0], 1, 1, { center: [0, 0], ratio: -1 as number, id: "bad" }),
+      page.viewport([0, 0], 1, 1, { center: [0, 0], ratio: negative, id: "bad" }),
     );
     assert.fail("no error");
   } catch (error) {
-    const [found] = (error as DrawingError).diagnostics;
+    assert.ok(error instanceof DrawingError);
+    const [found] = error.diagnostics;
     assert.deepEqual([found?.rule, found?.layout, found?.id], ["viewport", "A", "bad"]);
     assert.match(found?.call?.file ?? "", /layouts\.test\.ts$/);
   }
@@ -394,9 +414,11 @@ test("a viewport freezes layers of its own and turns its view, in the file and i
 
   // The file holds the twist in degrees and each frozen layer by its handle, which readDXF reads.
   const dxf = toDXF(drawing);
+
   const [, record] = records(dxf).filter(
     (r) => r[0]![1] === "VIEWPORT" && r.some(([c, v]) => c === 8 && v === "VIEW"),
   );
+
   assert.deepEqual(
     record!.filter(([c]) => c === 51 || c === 331).map(([c]) => c),
     [51, 331],
@@ -412,8 +434,10 @@ test("a viewport freezes layers of its own and turns its view, in the file and i
 
   // The plot leaves the frozen layer out of that viewport alone, and turns its view.
   const svg = toSVG(drawing, { layout: "A" });
+
   const group = (index: number) =>
     svg.split(`data-viewport="${index}"`)[1]!.split("</g>\n    </g>")[0]!;
+
   assert.match(group(0), /data-layer="NOTE"/);
   assert.match(group(0), /data-id="on-note"/);
   assert.doesNotMatch(group(1), /data-layer="NOTE"/);
@@ -429,11 +453,13 @@ test("a viewport freezes layers of its own and turns its view, in the file and i
   assert.equal(viewportView(plain!, "in", "ft").twist, 0);
 
   // lint holds a hand-built drawing to the same rules.
-  const layouts = (over: object) => [
-    { ...drawing.layouts![0]!, viewports: [{ ...turned!, ...over }] },
+  const layouts = (over: Data) => [
+    { ...dataOf(drawing.layouts![0]!), viewports: [{ ...dataOf(turned!), ...over }] },
   ];
-  const found = (over: object) =>
-    lint({ ...drawing, layouts: layouts(over) } as Drawing).map((x) => `${x.rule}: ${x.message}`);
+
+  const found = (over: Data) =>
+    lint({ ...drawing, layouts: wrong(layouts(over)) }).map((x) => `${x.rule}: ${x.message}`);
+
   assert.deepEqual(found({ frozenLayers: ["NOTE", "GONE"] }), [
     `undefined-layer: viewport #0 of layout "A": its frozenLayers[1]: layer "GONE" is not defined`,
   ]);
@@ -478,35 +504,44 @@ test("a layout whose draw throws leaves the builder as it was", () => {
 
 test("lint repeats every layout rule for a drawing built another way", () => {
   const base = sheet();
-  const [good] = base.layouts as [Layout];
-  const rules = (layouts: unknown, over: Partial<Drawing> = {}): string[] =>
-    lint({ ...base, ...over, layouts } as Drawing).map(
+  const good = base.layouts![0]!;
+  const goodData = dataOf(good);
+
+  const rules = (layouts: Field, over: Partial<Drawing> = {}): string[] =>
+    lint({ ...base, ...over, layouts: wrong(layouts) }).map(
       (d) => `${d.severity} ${d.rule}: ${d.message}`,
     );
-  const one = (layouts: unknown, over?: Partial<Drawing>): string => {
+
+  const one = (layouts: Field, over?: Partial<Drawing>): string => {
     const found = rules(layouts, over);
     assert.equal(found.length, 1, found.join("\n"));
+
     return found[0]!;
   };
+
   assert.match(one(5), /error layout: layouts must be an array/);
   assert.match(one([null]), /error layout: layouts\[0\] must be a plain object/);
   assert.match(
-    one([{ ...good, name: 7 }]),
+    one([{ ...goodData, name: 7 }]),
     /error layout: Layout 7: A layout's name must be a string/,
   );
-  assert.match(one([{ ...good, name: "model" }]), /cannot be named Model/);
-  assert.match(one([{ ...good, paper: "A0" }]), /error layout: .*must be one of PAPERS/);
-  assert.match(one([{ ...good, paper: null }]), /must be one of PAPERS/);
-  assert.match(one([{ ...good, plotStyle: "x.ctb" }]), /error layout: .*plot style table/);
-  assert.match(one([{ ...good, plotStyle: null }]), /plot style table/);
-  assert.match(one([{ ...good, viewports: null }]), /layouts\[0\].viewports must be an array/);
-  assert.match(one([{ ...good, entities: {} }]), /layouts\[0\].entities must be an array/);
+  assert.match(one([{ ...goodData, name: "model" }]), /cannot be named Model/);
+  assert.match(one([{ ...goodData, paper: "A0" }]), /error layout: .*must be one of PAPERS/);
+  assert.match(one([{ ...goodData, paper: null }]), /must be one of PAPERS/);
+  assert.match(one([{ ...goodData, plotStyle: "x.ctb" }]), /error layout: .*plot style table/);
+  assert.match(one([{ ...goodData, plotStyle: null }]), /plot style table/);
+  assert.match(one([{ ...goodData, viewports: null }]), /layouts\[0\].viewports must be an array/);
+  assert.match(one([{ ...goodData, entities: {} }]), /layouts\[0\].entities must be an array/);
   assert.match(
-    one([{ ...good, viewports: [null] }]),
+    one([{ ...goodData, viewports: [null] }]),
     /error viewport: layouts\[0\]\.viewports\[0\] must be a plain object/,
   );
   const [view] = good.viewports;
-  const withView = (over: object): unknown => [{ ...good, viewports: [{ ...view, ...over }] }];
+
+  const withView = (over: Data): Field => [
+    { ...goodData, viewports: [{ ...dataOf(view!), ...over }] },
+  ];
+
   assert.match(one(withView({ ratio: 0 })), /error viewport: .*ratio must be greater than 0/);
   assert.match(one(withView({ ratio: "120" })), /ratio must be a finite number/);
   assert.match(one(withView({ width: 0 })), /width: This value must be greater than 0/);
@@ -517,15 +552,15 @@ test("lint repeats every layout rule for a drawing built another way", () => {
   assert.match(one(withView({ id: 5 })), /error id: /);
   // Two layouts the leading CAD app takes for one, and an entity of a layout that breaks an entity's rule.
   assert.match(
-    one([good, { ...good, name: "a-101", viewports: [], entities: [] }]),
+    one([goodData, { ...goodData, name: "a-101", viewports: [], entities: [] }]),
     /error duplicate-layout: Layout "a-101": .*as "A-101"/,
   );
   assert.match(
-    one([{ ...good, entities: [{ kind: "circle", layer: "0", center: [0, 0], radius: -1 }] }]),
+    one([{ ...goodData, entities: [{ kind: "circle", layer: "0", center: [0, 0], radius: -1 }] }]),
     /error geometry: circle #0 of layout "A-101": radius/,
   );
   assert.match(
-    one([good], {
+    one([goodData], {
       dxf: "R12",
       blocks: [],
       linetypes: [],
@@ -544,7 +579,7 @@ test("lint repeats every layout rule for a drawing built another way", () => {
     one(withView({ center: [9000, 0] })),
     /warning viewport: .*shows none of the drawing/,
   );
-  assert.match(one([good], { entities: [] }), /shows none of the drawing/);
+  assert.match(one([goodData], { entities: [] }), /shows none of the drawing/);
 });
 
 test("toSVG draws a layout as it plots: the sheet, each view clipped at its scale, pens on paper", () => {
@@ -571,12 +606,14 @@ test("toSVG draws a layout as it plots: the sheet, each view clipped at its scal
     svg,
     /<g transform="translate\(18 12\) scale\(0.1\) translate\(-170 -110\)" stroke-width="0.0984251968504">/,
   );
+
   // Inside it a 0.5 mm line is 0.5 mm on the paper, black under monochrome.ctb, and its
   // dashes are as long on the paper as the pattern: 0.5 of an inch is 5 feet of model space.
   // The wall, 100 feet long, holds 13 patterns of 7.5 feet, and starts and ends with half of
   // its first dash and of the 2.5 feet left over.
   const wall =
     /<path d="M 100 100 L 103.75 100 M 106.25 100 L 111.25 100[^"]*" stroke="#000000" stroke-width="0.196850393701" [^>]*data-id="wall"\/>/;
+
   assert.match(svg, wall);
   // The border of the viewport is on a layer that does not plot, so it is not drawn.
   assert.doesNotMatch(svg, /data-viewport-border/);
@@ -591,17 +628,21 @@ test("toSVG draws a layout as it plots: the sheet, each view clipped at its scal
   );
   assert.match(svg, /data-block="TAG">\n      <text [^>]*>A-101<\/text>/);
   assert.ok(svg.indexOf("data-viewport=") < svg.indexOf('data-id="border"'));
+
   // acad.ctb plots each pen in its color, and index 7 black.
   const colored = toSVG(
     { ...drawing, layouts: [{ ...drawing.layouts![0]!, plotStyle: "acad.ctb" }] },
     { layout: "A-101" },
   );
+
   assert.match(colored, /stroke="#ff0000" stroke-width="0.196850393701" [^>]*data-id="wall"/);
   assert.match(colored, /stroke="#000000" data-layer="0" data-entity="0" data-id="border"/);
+
   // Grayscale.ctb plots red in a gray of its own, and DWF Virtual Pens.ctb plots every pen
   // 0.254 mm wide.
   const plotted = (plotStyle: PlotStyleTable): string =>
     toSVG({ ...drawing, layouts: [{ ...drawing.layouts![0]!, plotStyle }] }, { layout: "A-101" });
+
   assert.match(
     plotted("Grayscale.ctb"),
     /stroke="#4c4c4c" stroke-width="0.196850393701" [^>]*data-id="wall"/,
@@ -622,23 +663,29 @@ test("a view keeps its scale and its place when the scale is small or the model 
   /** Where the picture of a sheet puts a point of model space, from the viewport's transform. */
   const placed = (drawing: Drawing, point: readonly [number, number]): [number, number] => {
     const svg = toSVG(drawing, { layout: "S" });
+
     const [, cx, cy, scale, tx, ty] =
       /transform="translate\((\S+) (\S+)\) scale\((\S+)\) translate\((\S+) (\S+)\)"/
         .exec(svg)!
         .map(Number);
+
     return [cx! + scale! * (point[0] + tx!), cy! + scale! * (point[1] + ty!)];
   };
+
   const close = (got: readonly number[], want: readonly number[]): void => {
     got.forEach((value, i) =>
       assert.ok(Math.abs(value - want[i]!) < 1e-9, `${got} is not ${want}`),
     );
   };
+
   const one = (units: "mm" | "ft", center: [number, number], ratio: number): Drawing => {
     const d = createDrawing({ units });
     d.line(center, [center[0] + 1, center[1] + 1]);
     d.layout("S", { paper: "ARCH D" }, (page) => page.viewport([0, 0], 10, 10, { center, ratio }));
+
     return d.build();
   };
+
   // Millimetres at 1:500 on paper in inches: 12,700 mm of the model take one inch.
   close(placed(one("mm", [0, 0], 500), [127000, 0]), [15, 5]);
   close(placed(one("mm", [0, 0], 1000), [254000, -127000]), [15, 0]);
@@ -663,19 +710,24 @@ test("a view draws all that may show in it, and a clipped group always holds its
     d.layout("S", { paper: "ARCH D" }, (page) =>
       page.viewport(corner, size, size, { center, ratio: 12 / size }),
     );
+
     return toSVG(d.build(), { layout: "S" });
   };
+
   const clipped = /<g data-viewport="0" clip-path="url\(#tsdraft-viewport-0\)">\n/.source;
+
   const keeper = (x: number, y: number, width: number, height: number): RegExp =>
     new RegExp(
       `${clipped}      <rect x="${x}" y="${y}" width="${width}" height="${height}" visibility="hidden" stroke="#000000"/>\n`,
     );
+
   // An arc and a circle whose boxes reach the view and whose lines do not: both are drawn,
   // and the hidden rectangle keeps the group on the picture.
   const far = view((d) => {
     d.arc([0, 0], 80, 10, 20, { id: "arc" });
     d.circle([0, 0], 1e6, { id: "circle" });
   });
+
   assert.match(far, keeper(0, 0, 10, 10));
   assert.match(far, /data-id="arc"/);
   assert.match(far, /data-id="circle"/);
@@ -684,6 +736,7 @@ test("a view draws all that may show in it, and a clipped group always holds its
     view((d) => d.line([2, -4], [3, -3]), [-4, 20]),
     keeper(0, 20, 6, 4),
   );
+
   // A view with nothing in it, and one wholly off the paper, have no clipped group.
   for (const empty of [
     view(() => {}),
@@ -693,6 +746,7 @@ test("a view draws all that may show in it, and a clipped group always holds its
     assert.match(empty, /<g data-viewport="0"\/>/);
     assert.doesNotMatch(empty, /clip/);
   }
+
   // A wide pen whose line is just outside the view reaches into it.
   assert.match(
     view(
@@ -717,6 +771,7 @@ test("a viewport lint refuses is drawn as its border, with no view", () => {
     page.viewport([1, 1], 4, 4, { center: [0, 0], ratio: 1 }),
   );
   const drawing = d.build();
+
   for (const ratio of [0, -1]) {
     const layout = drawing.layouts![0]!;
     const refused = { ...layout, viewports: [{ ...layout.viewports[0]!, ratio }] };
@@ -729,11 +784,14 @@ test("a viewport lint refuses is drawn as its border, with no view", () => {
 
 test("a sheet of many entities and many blocks is drawn without a pass over the blocks for each", () => {
   const d = createDrawing();
+
   for (let b = 0; b < 1000; b++) d.block(`B${b}`, {}, () => d.line([0, 0], [1, 1]));
+
   for (let i = 0; i < 40_000; i++) {
     const [x, y] = [i % 200, Math.floor(i / 200)];
     d.line([x, y], [x + 0.5, y + 0.5]);
   }
+
   d.layout("S", { paper: "ARCH D" }, (page) => {
     for (let v = 0; v < 4; v++) {
       page.viewport([1 + v * 8, 1], 7, 7, { center: [v * 50, 50], ratio: 12 });
@@ -760,12 +818,15 @@ test("a view is drawn only where it can be seen: on the paper and in the picture
     d.layout("S", { paper: "ARCH D" }, (page) =>
       page.viewport(corner, width, height, { center: [0, 0], ratio }),
     );
+
     return toSVG(d.build(), { layout: "S", margin });
   };
+
   const empty = (svg: string): void => {
     assert.match(svg, /<g data-viewport="0"\/>/);
     assert.doesNotMatch(svg, /clip|data-id="line"/);
   };
+
   // The part on the paper is narrower than the last decimal written, so it has no width.
   empty(one([-200.000149, 0], 200.000149, 10, 1, [0, 0]));
   // A margin below 0 leaves the viewport outside the picture.

@@ -9,41 +9,84 @@ import { Worker } from "node:worker_threads";
 export async function readDrawingFile(chunks, name) {
   const hash = createHash("sha256");
   let bytes = 0;
+
   for await (const chunk of chunks) {
     hash.update(chunk);
     bytes += chunk.length;
   }
+
   if (name.startsWith("throws")) throw new Error(`cannot read ${name}`);
+
   if (name.startsWith("silent")) return new Promise(() => setInterval(() => {}, 1_000));
+
   if (name.startsWith("busy")) for (;;) bytes++;
+
   // Holds its process for half a second, and throws the times it held it from and to.
   if (name.startsWith("held")) {
     const from = Date.now();
     await new Promise((go) => setTimeout(go, 500));
     throw new Error(`${from} ${Date.now()}`);
   }
+
   if (name.startsWith("greedy")) {
     const held = [];
+
     for (;;) held.push(Array.from({ length: 1_000 }, (_, i) => i + bytes));
   }
+
   if (name.startsWith("malformed")) return { format: 0, sha256: "nope" };
+
   if (name.startsWith("writes")) writeFileSync(join(tmpdir(), `${name}.written`), "written");
+
   if (name.startsWith("spawns")) spawn("true");
+
   if (name.startsWith("starts-worker")) new Worker("", { eval: true });
+
   if (name.startsWith("reads-outside")) readFileSync(join(tmpdir(), `${name}.txt`));
+
   if (name.startsWith("prints"))
     for (let i = 0; i < 10_000; i++) console.log("a reader that prints");
+
   // Where pnpm installed this package, tsdraft is a link beside it.
   if (name.startsWith("imports")) await import("tsdraft");
+
+  // A read in a later format, which this tsdraft cannot know.
+  if (name.startsWith("later")) return { format: 99, sha256: hash.digest("hex"), bytes };
+
+  // A read in format 0 with a mark of a shape and a style of shapes, under their old names, or
+  // with a field of format 1 in its place or beside it.
+  const old = /^(old-names|both-mark|glyph-mark|glyph-style)/.test(name);
+  const glyphs = name.startsWith("both-mark") ? ["shape", "glyph"] : ["shape"];
+  const markFields = name.startsWith("glyph-mark") ? ["glyph"] : glyphs;
+  const styleField = name.startsWith("glyph-style") ? "glyphFile" : "shapes";
+
   return {
-    format: 0,
+    format: name.startsWith("current") ? 1 : 0,
     sha256: name.startsWith("wrong-sha256") ? "0".repeat(64) : hash.digest("hex"),
     bytes: name.startsWith("wrong-bytes") ? bytes + 1 : bytes,
     encoding: "utf-8",
     header: {},
     layers: [],
-    linetypes: [],
-    textStyles: [],
+    linetypes: old
+      ? [
+          {
+            name: "FENCE",
+            pattern: [0.5, -0.25],
+            complex: true,
+            marks: [
+              {
+                after: 0,
+                ...Object.fromEntries(markFields.map((field) => [field, 132])),
+                file: "ltypeshp.shx",
+                scale: 0.1,
+              },
+            ],
+          },
+        ]
+      : [],
+    textStyles: old
+      ? [{ name: "LTYPESHP", font: "ltypeshp.shx", annotative: false, [styleField]: true }]
+      : [],
     dimensionStyles: [],
     tableStyles: [],
     blocks: [],

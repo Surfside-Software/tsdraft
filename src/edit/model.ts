@@ -2,6 +2,7 @@
 // `Edit` round-trips through JSON as a `Drawing` does, so a process of its own, or a service,
 // can take one with the file's bytes.
 import type { Drawing, Entity, Point, Units } from "../drawing.ts";
+import { isFunction, isRecord, isString } from "../guards.ts";
 import type { DrawingRead } from "../read/model.ts";
 import type { Standard } from "../standard/document.ts";
 
@@ -150,7 +151,8 @@ export function editDrawing(
     source,
     build(read) {
       const statements: EditStatement[] = [];
-      edit({}, typeof read === "function" ? lazy(read) : read);
+      edit({}, isFunction(read) ? lazy(read) : read);
+
       return {
         format: EDIT_FORMAT,
         file: source.file,
@@ -167,13 +169,18 @@ export function editDrawing(
 /** A read that is loaded when one of its fields is first asked for. */
 function lazy(load: () => DrawingRead): DrawingRead {
   let read: DrawingRead | undefined;
-  const loaded = (): object => (read ??= load());
+  const loaded = (): DrawingRead => (read ??= load());
+
+  // SAFETY: the proxy has no field of its own; each it is asked for comes from the loaded read.
   return new Proxy({} as DrawingRead, {
-    get: (_, key) => Reflect.get(loaded(), key),
+    // SAFETY: a proxy is asked for any key; indexing reads it from the read as `Reflect.get`
+    // would, and gives undefined for a key the read lacks.
+    get: (_, key) => loaded()[key as keyof DrawingRead],
     has: (_, key) => Reflect.has(loaded(), key),
     ownKeys: () => Reflect.ownKeys(loaded()),
     getOwnPropertyDescriptor: (_, key) => {
       const d = Reflect.getOwnPropertyDescriptor(loaded(), key);
+
       return d && { ...d, configurable: true };
     },
   });
@@ -194,14 +201,22 @@ const HANDLE = /^[0-9A-Fa-f]{1,16}$/;
 const UNITS: ReadonlySet<string> = new Set(["in", "ft", "mm", "cm", "m"]);
 const KINDS: ReadonlySet<string> = new Set(["erase", "move", "change", "layer", "viewport"]);
 
-/** True when `test` holds for each item of a list, read by index and never by its methods. */
+/** True when each item of a list passes `test`, read by index and never by its methods. */
 function everyOf(list: readonly unknown[], test: (item: unknown) => boolean): boolean {
   for (let i = 0; i < list.length; i++) if (!test(list[i])) return false;
+
   return true;
 }
 
-const plain = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+/** A path an edit names: 1 to 4096 characters. */
+function isPath(value: unknown): value is string {
+  return isString(value) && value !== "" && value.length <= 4096;
+}
+
+/** A handle an edit names: 1 to 16 hexadecimal digits. */
+function isHandle(value: unknown): value is string {
+  return isString(value) && HANDLE.test(value);
+}
 
 /**
  * What is wrong with a value meant as an `Edit`, as plain data from JSON: empty when nothing is.
@@ -210,83 +225,121 @@ const plain = (value: unknown): value is Record<string, unknown> =>
  */
 export function checkEdit(value: unknown): string[] {
   const problems: string[] = [];
-  if (!plain(value)) return ["the edit is not an object"];
+
+  if (!isRecord(value)) return ["the edit is not an object"];
+
   if (value["format"] !== EDIT_FORMAT) problems.push(`format is not ${EDIT_FORMAT}`);
-  if (typeof value["file"] !== "string" || value["file"] === "" || value["file"].length > 4096)
-    problems.push("file is not a path");
-  if (typeof value["sha256"] !== "string" || !SHA.test(value["sha256"]))
+
+  if (!isPath(value["file"])) problems.push("file is not a path");
+  const sha = value["sha256"];
+
+  if (!isString(sha) || !SHA.test(sha))
     problems.push("sha256 is not 64 lower-case hexadecimal digits");
-  if (typeof value["name"] !== "string" || !ID.test(value["name"]))
+  const name = value["name"];
+
+  if (!isString(name) || !ID.test(name))
     problems.push("name is not 1 to 64 letters, digits, - and _");
-  if (value["units"] !== undefined && !UNITS.has(value["units"] as string))
+  const units = value["units"];
+
+  if (units !== undefined && !(isString(units) && UNITS.has(units)))
     problems.push("units is not in, ft, mm, cm or m");
   const sheets = value["sheets"];
+
   if (sheets !== undefined) {
     if (!Array.isArray(sheets) || sheets.length > EDIT_LIMITS.sheets)
       problems.push(`sheets is not a list of at most ${EDIT_LIMITS.sheets} paths`);
-    else if (!everyOf(sheets, (s) => typeof s === "string" && s !== "" && s.length <= 4096))
-      problems.push("a sheet is not a path");
+    else if (!everyOf(sheets, isPath)) problems.push("a sheet is not a path");
   }
+
   const statements = value["statements"];
+
   if (!Array.isArray(statements) || statements.length > EDIT_LIMITS.statements) {
     problems.push(`statements is not a list of at most ${EDIT_LIMITS.statements}`);
   } else {
     let handles = 0;
+
     for (let i = 0; i < statements.length && problems.length < 100; i++) {
       const s: unknown = statements[i];
-      if (!plain(s) || typeof s["kind"] !== "string" || !KINDS.has(s["kind"])) {
+
+      const kind = isRecord(s) ? s["kind"] : undefined;
+
+      if (!isRecord(s) || !isString(kind) || !KINDS.has(kind)) {
         problems.push(`statement ${i} is not of a kind an edit states`);
         continue;
       }
+
       const list = s["handles"];
-      if (s["kind"] === "erase" || s["kind"] === "move") {
+
+      if (kind === "erase" || kind === "move") {
         if (!Array.isArray(list) || (handles += list.length) > EDIT_LIMITS.handles) {
           problems.push(`statement ${i}'s handles are not a list within the edit's limit`);
           continue;
         }
-        if (!everyOf(list, (h) => typeof h === "string" && HANDLE.test(h)))
+
+        if (!everyOf(list, isHandle))
           problems.push(`statement ${i} names a handle that is not 1 to 16 hexadecimal digits`);
-      } else if (s["kind"] === "layer") {
-        if (typeof s["name"] !== "string" || s["name"] === "")
-          problems.push(`statement ${i} names no layer`);
-      } else if (typeof s["handle"] !== "string" || !HANDLE.test(s["handle"])) {
+      } else if (kind === "layer") {
+        const layer = s["name"];
+
+        if (!isString(layer) || layer === "") problems.push(`statement ${i} names no layer`);
+      } else if (!isHandle(s["handle"])) {
         problems.push(`statement ${i} names a handle that is not 1 to 16 hexadecimal digits`);
       }
     }
   }
+
   const additions = value["additions"];
+
   if (additions !== undefined) {
-    if (!plain(additions) || !Array.isArray(additions["model"]) || !plain(additions["layouts"]))
-      problems.push("additions is not { model, layouts, definitions }");
-    else if (!plain(additions["definitions"])) problems.push("additions has no definitions");
+    // Each field is read once, in order, and none after the first that is wrong.
+    const given = isRecord(additions) ? additions : undefined;
+    const layouts = given && Array.isArray(given["model"]) ? given["layouts"] : undefined;
+    const definitions = given && isRecord(layouts) ? given["definitions"] : undefined;
+
+    if (!isRecord(layouts)) problems.push("additions is not { model, layouts, definitions }");
+    else if (!isRecord(definitions)) problems.push("additions has no definitions");
     else {
-      const lists = (value: Record<string, unknown>, what: string, may: boolean): void => {
+      const kinds = [
+        { what: "the additions of the layout", fields: layouts, may: false },
+        { what: "the definitions'", fields: definitions, may: true },
+      ];
+
+      for (const { what, fields, may } of kinds) {
         let n = 0;
-        for (const key in value) {
+
+        for (const key in fields) {
           if (++n > EDIT_LIMITS.keys) {
             problems.push(`${what} holds more than ${EDIT_LIMITS.keys} keys`);
-            return;
+            break;
           }
-          const list = value[key];
+
+          const list = fields[key];
+
           if (!Array.isArray(list) && !(may && list === undefined))
             problems.push(`${what} ${JSON.stringify(key.slice(0, 64))} is not a list`);
         }
-      };
-      lists(additions["layouts"] as Record<string, unknown>, "the additions of the layout", false);
-      lists(additions["definitions"] as Record<string, unknown>, "the definitions'", true);
+      }
     }
   }
+
   return problems;
 }
 
 /** True when an edit adds nothing. */
 export function addsNothing(edit: Edit): boolean {
   const a = edit.additions;
+
   if (a === undefined) return true;
+
   if (a.model.length > 0) return false;
+
   for (const key in a.layouts) if ((a.layouts[key]?.length ?? 0) > 0) return false;
-  for (const key in a.definitions)
-    if (((a.definitions as Record<string, unknown[]>)[key]?.length ?? 0) > 0) return false;
+
+  // Every enumerable list, inherited ones too, as `checkEdit` walks them.
+  const definitions: Readonly<Record<string, readonly object[] | undefined>> = a.definitions;
+
+  for (const key in definitions) if ((definitions[key]?.length ?? 0) > 0) return false;
+
   return true;
 }
 
@@ -296,13 +349,18 @@ export function addsNothing(edit: Edit): boolean {
  */
 export function editToMake(edit: unknown): Edit {
   const problems = checkEdit(edit);
+
   if (problems.length > 0) throw new EditError(`The edit is malformed: ${problems.join("; ")}`);
+  // SAFETY: `checkEdit` found nothing wrong, so the value holds each field of an `Edit`.
   const made = edit as Edit;
+
   if (made.statements.length > 0)
     throw new EditError(
       `This version of tsdraft makes no ${made.statements[0]!.kind} statement yet`,
       0,
     );
+
   if (!addsNothing(made)) throw new EditError("This version of tsdraft makes no addition yet");
+
   return made;
 }

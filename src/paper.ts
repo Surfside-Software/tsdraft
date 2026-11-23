@@ -1,6 +1,7 @@
 import type { Units } from "./drawing.ts";
 import { paperLengthProblem, type PaperLength, type Ratio } from "./rules.ts";
 import { isPaperUnit, isUnits, modelLength } from "./units.ts";
+import { isNumber } from "./guards.ts";
 
 /** A unit paper lengths are given in. */
 export type PaperUnit = "in" | "mm";
@@ -42,18 +43,25 @@ export function fromPaper<L extends number, R extends number>(
   // The arguments are read as unknown, because a parameter that failed its type is a message.
   const paper: unknown = length;
   const { ratio, units }: { ratio: unknown; units: unknown } = view;
+
   if (!isPaperUnit(unit)) {
     throw new Error(`The paper unit must be "in" or "mm", not ${JSON.stringify(unit)}`);
   }
+
   if (!isUnits(units)) throw new Error(`Unknown units: ${JSON.stringify(units)}`);
-  if (typeof paper !== "number" || !Number.isFinite(paper)) {
+
+  if (!isNumber(paper) || !Number.isFinite(paper)) {
     throw new Error("The paper length must be a finite number");
   }
-  if (typeof ratio !== "number" || !Number.isFinite(ratio)) {
+
+  if (!isNumber(ratio) || !Number.isFinite(ratio)) {
     throw new Error("The ratio must be a finite number");
   }
+
   const result = modelLength(paper, unit, ratio, units);
   const problem = paperLengthProblem(paper, ratio, result);
+
   if (problem) throw new Error(problem);
+
   return result;
 }

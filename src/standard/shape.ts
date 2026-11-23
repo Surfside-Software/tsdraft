@@ -3,6 +3,15 @@
 // `defineStandard` fills the defaults from it and the hash leaves out what it marks, and
 // `standardSchema` writes the JSON Schema from it, so the three cannot drift apart.
 import {
+  isBoolean,
+  isNumber,
+  isObjectOrArray,
+  isPlainRecord,
+  isString,
+  type Json,
+} from "../guards.ts";
+import type { Drawing } from "../drawing.ts";
+import {
   ARROWHEAD_BLOCKS,
   ARROWHEADS,
   DEFAULT_ARROWHEAD,
@@ -78,7 +87,7 @@ import {
   zerosOfUnitsProblem,
 } from "../rules.ts";
 import { canonical } from "../json.ts";
-import { isRecord, PLAIN_OBJECT } from "../shape.ts";
+import { PLAIN_OBJECT } from "../shape.ts";
 import { VERSION } from "../version.ts";
 import type {
   DimensionStyleDocument,
@@ -118,8 +127,43 @@ import {
   writingUnitsProblem,
 } from "./rules.ts";
 
-/** A JSON Schema, or a part of one. */
-export type Json = { readonly [key: string]: unknown };
+/** A JSON Schema, or a part of one: the keywords the standard's schema writes. */
+export interface Schema {
+  readonly $schema?: string;
+  readonly $id?: string;
+  readonly $ref?: string;
+  readonly $comment?: Schema;
+  readonly $defs?: { readonly [name: string]: Schema };
+  readonly title?: string;
+  readonly description?: string;
+  readonly type?: "string" | "number" | "integer" | "boolean" | "array" | "object" | "null";
+  readonly enum?: readonly (string | number)[];
+  readonly pattern?: string;
+  readonly minimum?: number;
+  readonly maximum?: number;
+  readonly exclusiveMinimum?: number;
+  readonly minItems?: number;
+  readonly maxItems?: number;
+  readonly maxLength?: number;
+  readonly items?: Schema;
+  readonly not?: Schema;
+  readonly anyOf?: readonly Schema[];
+  readonly properties?: { readonly [name: string]: Schema };
+  readonly propertyNames?: Schema;
+  readonly additionalProperties?: Schema | boolean;
+  readonly required?: readonly string[];
+  readonly default?: Json;
+}
+
+/**
+ * A value of a standard: a value of its document with each default filled in and each drawing
+ * read, which `drawingOf` leaves out when it cannot read it.
+ */
+export type StandardValue =
+  | Json
+  | Drawing
+  | readonly StandardValue[]
+  | { readonly [key: string]: StandardValue | undefined };
 
 /** A field of an object of the document. */
 export interface Field {
@@ -130,7 +174,7 @@ export interface Field {
   /** Required in a document that extends nothing. */
   readonly root?: true;
   /** What a document that leaves the field out has. A default, once released, never changes. */
-  readonly default?: unknown;
+  readonly default?: Json;
   /** Left out of the hash: provenance, and text for people that no rule reads. */
   readonly unhashed?: true;
   /** Left out of the `Standard`. */
@@ -140,10 +184,10 @@ export interface Field {
 type Check<T> = (value: T) => string | undefined;
 
 export type Node =
-  | { readonly kind: "string"; readonly schema: Json; readonly check?: Check<string> }
-  | { readonly kind: "number"; readonly schema: Json; readonly check?: Check<number> }
+  | { readonly kind: "string"; readonly schema: Schema; readonly check?: Check<string> }
+  | { readonly kind: "number"; readonly schema: Schema; readonly check?: Check<number> }
   | { readonly kind: "boolean" }
-  | { readonly kind: "numbers"; readonly schema: Json; readonly check?: Check<readonly number[]> }
+  | { readonly kind: "numbers"; readonly schema: Schema; readonly check?: Check<readonly number[]> }
   | RecordNode
   | MapNode
   | { readonly kind: "drawing"; readonly description: string }
@@ -156,14 +200,17 @@ export interface RecordNode {
   /** What it is, for a message, such as "a layer". */
   readonly what: string;
   readonly fields: Readonly<Record<string, Field>>;
-  /** A rule of the whole object, given the key it has in its map, reported at the object. */
-  readonly check?: (value: Readonly<Record<string, unknown>>, key: string) => string | undefined;
+  /**
+   * A rule of the whole object, given the key it has in its map, reported at the object. It
+   * takes the object as the document type `record` was given it for.
+   */
+  readonly check?: (value: never, key: string) => string | undefined;
 }
 
 export interface MapNode {
   readonly kind: "map";
   /** The schema of its keys. */
-  readonly keys: Json;
+  readonly keys: Schema;
   readonly key: Check<string>;
   /** For keys that are names: the form two are compared in, and the problem of a second. */
   readonly fold?: Fold;
@@ -178,7 +225,7 @@ export interface Fold {
   readonly twin: (first: string) => string;
 }
 
-type Keys = { readonly keys: Json; readonly key: Check<string>; readonly fold?: Fold };
+type Keys = { readonly keys: Schema; readonly key: Check<string>; readonly fold?: Fold };
 
 /** The fields of the document type `T`, each in the table, so a new field is a compile error here. */
 type FieldsOf<T> = { readonly [K in Exclude<keyof T, "$comment">]-?: Field };
@@ -187,7 +234,7 @@ function record<T>(
   name: string,
   what: string,
   fields: FieldsOf<T>,
-  check?: RecordNode["check"],
+  check?: (value: T, key: string) => string | undefined,
 ): RecordNode {
   return check
     ? { kind: "record", name, what, fields, check }
@@ -195,33 +242,43 @@ function record<T>(
 }
 
 /** The same fields, none required and none with a default: the fields `byDiscipline` replaces. */
-function replacing(fields: Readonly<Record<string, Field>>): Readonly<Record<string, Field>> {
+function replacing<F extends Readonly<Record<string, Field>>>(fields: F): F {
   const out: Record<string, Field> = {};
+
   for (const [key, field] of Object.entries(fields)) {
     const { required: _, default: __, root: ___, ...rest } = field;
     out[key] = rest;
   }
-  return out;
+
+  // SAFETY: `out` has each key of `fields`, and a field of each.
+  return out as F;
 }
 
 // The characters of each kind of text, as a class of a regular expression that reads the same
 // with and without the `u` flag: it names only characters up to U+FFFF, so a character above
 // U+FFFF matches it in neither reading.
 const hex = (code: number): string => `\\u${code.toString(16).padStart(4, "0")}`;
+
 function characterClass(allowed: (code: number) => boolean): string {
   let out = "";
+
   for (let code = 0; code <= 0xffff; code++) {
     if (!allowed(code)) continue;
     let end = code;
+
     while (end < 0xffff && allowed(end + 1)) end++;
     out += end === code ? hex(code) : `${hex(code)}-${hex(end)}`;
     code = end;
   }
+
   return `[${out}]`;
 }
+
 const surrogate = (code: number): boolean => code >= 0xd800 && code <= 0xdfff;
+
 const isText = (code: number): boolean =>
   code >= 0x20 && code !== 0x7f && !surrogate(code) && !(code >= 0xe800 && code <= 0xe8ff);
+
 const isNameCharacter = (code: number): boolean =>
   code >= 0x20 &&
   code !== 0x7f &&
@@ -261,26 +318,31 @@ const patterns = {
 };
 
 // Each pattern is worked out when a schema is written, not when the library loads.
-const lazy = (pattern: () => string, extra: Json = {}): Json =>
+const lazy = (pattern: () => string, extra: Schema = {}): Schema =>
   Object.defineProperty({ ...extra }, "pattern", { get: pattern, enumerable: true });
 
-const string = (schema: Json = {}, check?: Check<string>): Node =>
+const string = (schema: Schema = {}, check?: Check<string>): Node =>
   check ? { kind: "string", schema, check } : { kind: "string", schema };
-const number = (schema: Json = {}, check?: Check<number>): Node =>
+
+const number = (schema: Schema = {}, check?: Check<number>): Node =>
   check ? { kind: "number", schema, check } : { kind: "number", schema };
+
 const boolean: Node = { kind: "boolean" };
 const text: Node = string(lazy(patterns.text), textProblem);
+
 const box: Node = {
   kind: "numbers",
   schema: { minItems: 4, maxItems: 4, description: "[left, bottom, right, top] on the paper" },
   check: (value) =>
     value.length === 4 ? undefined : "A box is four numbers: [left, bottom, right, top]",
 };
+
 const point: Node = {
   kind: "numbers",
   schema: { minItems: 2, maxItems: 2 },
   check: (value) => (value.length === 2 ? undefined : "A point is two numbers: [x, y]"),
 };
+
 /** Two keys that are one: by `idKey`, or by `layerKey` for `names`, among `owner`'s `what`s. */
 const twins = (owner: string, what: string, names?: true): Fold => ({
   key: names ? layerKey : idKey,
@@ -289,6 +351,7 @@ const twins = (owner: string, what: string, names?: true): Fold => ({
       ? `${owner} already has a ${what} of this name, as ${shown(first)}. The leading CAD app takes the two names for one`
       : `${owner} already has a ${what} of this id, as ${shown(first)}. Ids are compared without regard to case`,
 });
+
 /** Keys that are ids of `owner`'s `what`s. */
 const ids = (
   owner: string,
@@ -300,13 +363,16 @@ const ids = (
   key: (key: string) => idProblem(key) ?? check(key),
   fold: twins(owner, what),
 });
+
 const map = (keys: Keys, value: Node, nullable?: true): Node =>
   nullable ? { kind: "map", ...keys, value, nullable } : { kind: "map", ...keys, value };
+
 const discipline: Field = {
   node: string(),
   description:
     "The discipline the entry belongs to, a discipline of the standard. An entry without one belongs to every discipline",
 };
+
 const description: Field = {
   node: text,
   description: "For people and the specimen. No rule reads it",
@@ -373,7 +439,7 @@ const LAYER_FIELDS = {
 const LAYER_REPLACED = record<LayerFieldsDocument>(
   "layerFields",
   "a layer's fields for a discipline",
-  replacing(LAYER_FIELDS) as FieldsOf<LayerFieldsDocument>,
+  replacing(LAYER_FIELDS),
 );
 
 const byDiscipline = (fields: RecordNode): Field => ({
@@ -419,7 +485,7 @@ const ROLE = record<TextRoleDocument>("textRole", "a text role", {
     record<TextRoleFieldsDocument>(
       "textRoleFields",
       "a text role's fields for a discipline",
-      replacing(ROLE_FIELDS) as FieldsOf<TextRoleFieldsDocument>,
+      replacing(ROLE_FIELDS),
     ),
   ),
 });
@@ -616,7 +682,7 @@ const DIMENSION_STYLE = record<DimensionStyleDocument>("dimensionStyle", "a dime
     record<DimensionStyleFieldsDocument>(
       "dimensionStyleFields",
       "a dimension style's fields for a discipline",
-      replacing(STYLE_FIELDS) as FieldsOf<DimensionStyleFieldsDocument>,
+      replacing(STYLE_FIELDS),
     ),
   ),
 });
@@ -672,7 +738,7 @@ const LEADER_STYLE = record<LeaderStyleDocument>("leaderStyle", "a leader style"
     record<LeaderStyleFieldsDocument>(
       "leaderStyleFields",
       "a leader style's fields for a discipline",
-      replacing(LEADER_FIELDS) as FieldsOf<LeaderStyleFieldsDocument>,
+      replacing(LEADER_FIELDS),
     ),
   ),
 });
@@ -901,10 +967,9 @@ export const DOCUMENT = record<StandardDocument>("standard", "a standard", {
  * An object of these entries, as `Object.fromEntries` makes it, which is several times slower
  * for an object of many keys. A key `__proto__` is a field like any other.
  */
-export function entriesObject(
-  entries: Iterable<readonly [string, unknown]>,
-): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
+export function entriesObject<T>(entries: Iterable<readonly [string, T]>) {
+  const out: Record<string, T> = {};
+
   for (const [key, value] of entries) {
     if (key !== "__proto__") out[key] = value;
     else
@@ -915,14 +980,18 @@ export function entriesObject(
         configurable: true,
       });
   }
+
   return out;
 }
 
 const FIELDS = new WeakMap<RecordNode, readonly (readonly [string, Field])[]>();
+
 /** The fields of a record, in the table's order, listed once. */
 function fieldsOf(node: RecordNode): readonly (readonly [string, Field])[] {
   let fields = FIELDS.get(node);
+
   if (!fields) FIELDS.set(node, (fields = Object.entries(node.fields)));
+
   return fields;
 }
 
@@ -948,14 +1017,18 @@ const entry = (path: string, key: string): string => `${path}[${JSON.stringify(k
  * as `https://cdn.jsdelivr.net/npm/tsdraft@0.5.6/standard.schema.json`.
  */
 function laterVersion(schema: unknown): string | undefined {
-  if (typeof schema !== "string") return undefined;
+  if (!isString(schema)) return undefined;
   const named = /tsdraft@((\d+)\.(\d+)\.(\d+)[^/]*)\/standard\.schema\.json$/.exec(schema);
+
   if (!named) return undefined;
   const ours = VERSION.split(".").map(Number);
+
   for (let i = 0; i < 3; i++) {
     const theirs = Number(named[i + 2]);
+
     if (theirs !== ours[i]) return theirs > ours[i]! ? named[1] : undefined;
   }
+
   return undefined;
 }
 
@@ -965,7 +1038,7 @@ function laterVersion(schema: unknown): string | undefined {
  */
 export function readDocument(document: unknown, problems: Problem[]): boolean {
   const before = problems.length;
-  const later = isRecord(document) ? laterVersion(document.$schema) : undefined;
+  const later = isPlainRecord(document) ? laterVersion(document.$schema) : undefined;
   const update = later ? `. This standard was written for tsdraft ${later}: update tsdraft` : "";
   const add = (item: string, message: string) => problems.push({ item, message });
 
@@ -975,80 +1048,98 @@ export function readDocument(document: unknown, problems: Problem[]): boolean {
    */
   const read = (node: Node, value: unknown, path: string, name: string, key: string): void => {
     const label = (): string => (key ? name : shown(name));
+
     switch (node.kind) {
       case "string":
-        if (typeof value !== "string") add(path, `${label()} must be a string`);
+        if (!isString(value)) add(path, `${label()} must be a string`);
         else {
           const problem = node.check?.(value);
+
           if (problem) add(path, problem);
         }
+
         return;
       case "number":
-        if (typeof value !== "number" || !Number.isFinite(value)) {
+        if (!isNumber(value) || !Number.isFinite(value)) {
           add(path, `${label()} must be a finite number`);
         } else {
           const problem = node.check?.(value);
+
           if (problem) add(path, problem);
         }
+
         return;
       case "boolean":
-        if (typeof value !== "boolean") add(path, `${label()} must be true or false`);
+        if (!isBoolean(value)) add(path, `${label()} must be true or false`);
+
         return;
       case "numbers": {
-        const items = value as readonly unknown[];
-        let plain = Array.isArray(value);
-        for (let i = 0; plain && i < items.length; i++) {
-          plain = i in items && typeof items[i] === "number" && Number.isFinite(items[i]);
-        }
-        if (!plain) add(path, `${label()} must be an array of finite numbers`);
+        if (!isFiniteNumbers(value)) add(path, `${label()} must be an array of finite numbers`);
         else {
-          const problem = node.check?.(items as readonly number[]);
+          const problem = node.check?.(value);
+
           if (problem) add(path, problem);
         }
+
         return;
       }
+
       case "drawing":
-        if (typeof value !== "string" && !isRecord(value)) {
+        if (!isString(value) && !isPlainRecord(value)) {
           add(path, `${label()} must be a drawing as JSON, or a string that names one`);
         }
+
         return;
       case "extends":
-        if (typeof value !== "string" && (typeof value !== "object" || value === null)) {
+        if (!isString(value) && !isObjectOrArray(value)) {
           add(path, `${label()} must be a standard, or a string that names one`);
         }
+
         return;
       case "map":
-        if (!isRecord(value)) {
+        if (!isPlainRecord(value)) {
           add(path, `${label()} ${PLAIN_OBJECT}`);
+
           return;
         }
+
         const seen = node.fold && new Map<string, string>();
+
         for (const [name, item] of Object.entries(value)) {
           const where = entry(path, name);
           const keyProblem = node.key(name);
+
           if (keyProblem) add(where, keyProblem);
           else if (seen) {
             const key = node.fold!.key(name);
             const first = seen.get(key);
+
             if (first === undefined) seen.set(key, name);
             else add(where, node.fold!.twin(first));
           }
+
           if (item === null && node.nullable) continue;
           read(node.value, item, where, name, "");
         }
+
         return;
       case "record": {
-        if (!isRecord(value)) {
+        if (!isPlainRecord(value)) {
           add(path, `${label()} ${PLAIN_OBJECT}`);
+
           return;
         }
+
         const start = problems.length;
+
         for (const [name, field] of Object.entries(value)) {
           if (name === "$comment") {
-            if (typeof field !== "string") add(at(path, name), "$comment must be a string");
+            if (!isString(field)) add(at(path, name), "$comment must be a string");
             continue;
           }
+
           const known = Object.hasOwn(node.fields, name) ? node.fields[name] : undefined;
+
           if (!known) {
             add(
               at(path, name),
@@ -1058,9 +1149,12 @@ export function readDocument(document: unknown, problems: Problem[]): boolean {
             read(known.node, field, at(path, name), name, name);
           }
         }
+
         const alone = node === DOCUMENT && value.extends === undefined;
+
         for (const [name, field] of fieldsOf(node)) {
           if (value[name] !== undefined) continue;
+
           if (field.required) {
             add(
               at(path, name),
@@ -1073,19 +1167,40 @@ export function readDocument(document: unknown, problems: Problem[]): boolean {
             );
           }
         }
+
         if (problems.length === start && node.check) {
-          const problem = node.check(value, key || name);
+          // SAFETY: each field of the object has passed the node the table gives it, which is the
+          // field's type in the document type the check was given for.
+          const problem = node.check(value as never, key || name);
+
           if (problem) add(path, problem);
         }
+
         return;
       }
     }
   };
+
   read(DOCUMENT, document, "", "The standard", "standard");
+
   return problems.length === before;
 }
 
+/** True for an array of finite numbers with no empty slot. */
+function isFiniteNumbers(value: unknown): value is readonly number[] {
+  if (!Array.isArray(value)) return false;
+
+  for (let i = 0; i < value.length; i++) {
+    if (!(i in value) || typeof value[i] !== "number" || !Number.isFinite(value[i])) return false;
+  }
+
+  return true;
+}
+
 const capital = (what: string): string => what.charAt(0).toUpperCase() + what.slice(1);
+
+/** A plain object of a document, or of a standard, by its fields. */
+export type Fields = { readonly [key: string]: StandardValue | undefined };
 
 /**
  * Fills each default the table gives, for an object of the document whose fields have passed
@@ -1095,57 +1210,70 @@ const capital = (what: string): string => what.charAt(0).toUpperCase() + what.sl
 export function withDefaults(
   node: Node,
   value: unknown,
-  drawingOf: (value: unknown, path: string) => unknown,
+  drawingOf: (value: unknown, path: string) => Drawing | undefined,
   path: string,
-): unknown {
+): StandardValue | undefined {
   // Only a drawing's path is ever shown, so no other path is worked out.
   if (!DRAWN.has(node)) path = "";
+
   switch (node.kind) {
     case "numbers":
+      // SAFETY: `readDocument` has read the value as an array of finite numbers.
       return Object.freeze([...(value as readonly number[])]);
     case "drawing":
       return drawingOf(value, path);
     case "map":
       return Object.freeze(
         entriesObject(
-          Object.entries(value as Record<string, unknown>).map(([name, item]) => [
+          // SAFETY: `readDocument` has read the value as a plain object.
+          Object.entries(value as Fields).map(([name, item]) => [
             name,
             withDefaults(node.value, item, drawingOf, path && entry(path, name)),
           ]),
         ),
       );
     case "record": {
-      const given = value as Record<string, unknown>;
-      const out: Record<string, unknown> = {};
+      // SAFETY: `readDocument` has read the value as a plain object.
+      const given = value as Fields;
+      const out: Record<string, StandardValue | undefined> = {};
+
       for (const [name, field] of fieldsOf(node)) {
         if (field.dropped) continue;
         const own = given[name];
+
         if (own !== undefined) out[name] = withDefaults(field.node, own, drawingOf, at(path, name));
         else if (field.default !== undefined) {
           out[name] = withDefaults(field.node, field.default, drawingOf, at(path, name));
         }
       }
+
       return Object.freeze(out);
     }
+
     default:
-      return value;
+      // SAFETY: `readDocument` has read the value as a string, a number, true or false, or the
+      // standard a document extends.
+      return value as StandardValue;
   }
 }
 
 const SORTED = new WeakMap<RecordNode, readonly (readonly [string, Field])[]>();
+
 /** The fields of a record by name in code-unit order, as `canonical` writes keys. */
 function sortedFieldsOf(node: RecordNode): readonly (readonly [string, Field])[] {
   let fields = SORTED.get(node);
+
   if (!fields) {
     fields = fieldsOf(node).toSorted(([a], [b]) => (a < b ? -1 : 1));
     SORTED.set(node, fields);
   }
+
   return fields;
 }
 
 /** True when two values are one value, as their canonical JSON says. */
-export const same = (a: unknown, b: unknown): boolean =>
-  a === b || (typeof a === "object" && typeof b === "object" && canonical(a) === canonical(b));
+export const same = (a: StandardValue | undefined, b: StandardValue | undefined): boolean =>
+  a === b || (isObjectOrArray(a) && isObjectOrArray(b) && canonical(a) === canonical(b));
 
 /**
  * The canonical JSON of what the hash reads of a resolved standard: every field but those the
@@ -1154,41 +1282,51 @@ export const same = (a: unknown, b: unknown): boolean =>
  */
 export function hashedJson(
   standard: unknown,
-  written: (value: object) => string | undefined,
+  written: (value: WeakKey) => string | undefined,
 ): string {
   let out = "";
+
   const write = (node: Node, value: unknown): void => {
     if (node.kind === "record" || node.kind === "map") {
-      const given = value as Readonly<Record<string, unknown>>;
+      // SAFETY: a record or a map of a standard is a plain object, by its fields.
+      const given = value as Fields;
       let first = true;
-      const field = (name: string, item: Node, own: unknown): void => {
+
+      const field = (name: string, item: Node, own: StandardValue | undefined): void => {
         out += `${first ? "{" : ","}${JSON.stringify(name)}:`;
         first = false;
         write(item, own);
       };
+
       if (node.kind === "map") {
         for (const key of Object.keys(given).sort()) field(key, node.value, given[key]);
       } else {
         for (const [name, known] of sortedFieldsOf(node)) {
           const own = given[name];
+
           if (own === undefined || known.unhashed) continue;
+
           if (known.default !== undefined && same(own, known.default)) continue;
           field(name, known.node, own);
         }
       }
+
       out += first ? "{}" : "}";
     } else {
       out += canonical(value, "A standard", written);
     }
   };
+
   write(DOCUMENT, standard);
+
   return out;
 }
 
 /** The JSON Schema of a standard's document, for the tsdraft of `version`. */
-export function standardSchema(version: string): Json {
-  const definitions: Record<string, Json> = {};
-  const schemaOf = (node: Node): Json => {
+export function standardSchema(version: string): Schema {
+  const definitions: Record<string, Schema> = {};
+
+  const schemaOf = (node: Node): Schema => {
     switch (node.kind) {
       case "string":
         return { type: "string", ...plain(node.schema) };
@@ -1204,50 +1342,60 @@ export function standardSchema(version: string): Json {
         return { type: "string" };
       case "map": {
         const value = schemaOf(node.value);
+
         return {
           type: "object",
           propertyNames: plain(node.keys),
           additionalProperties: node.nullable ? { anyOf: [value, { type: "null" }] } : value,
         };
       }
+
       case "record": {
         if (node !== DOCUMENT && !definitions[node.name]) {
           definitions[node.name] = {};
           definitions[node.name] = objectOf(node);
         }
+
         return node === DOCUMENT ? objectOf(node) : { $ref: `#/$defs/${node.name}` };
       }
     }
   };
-  const objectOf = (node: RecordNode): Json => {
-    const properties: Record<string, Json> = {
-      $comment: { type: "string", description: "For people. No rule reads it" },
-    };
+
+  const objectOf = (node: RecordNode): Schema => {
+    const properties: Record<string, Schema> = {};
+    properties.$comment = { type: "string", description: "For people. No rule reads it" };
+
     for (const [name, field] of fieldsOf(node)) {
-      const schema = schemaOf(field.node);
-      properties[name] = {
-        ...schema,
-        ...(schema.description === undefined ? { description: field.description } : {}),
-        ...(field.default === undefined ? {} : { default: field.default }),
-      };
+      let property = schemaOf(field.node);
+
+      if (property.description === undefined) {
+        property = { ...property, description: field.description };
+      }
+
+      if (field.default !== undefined) property = { ...property, default: field.default };
+      properties[name] = property;
     }
+
     const required = fieldsOf(node)
       .filter(([, field]) => field.required)
       .map(([name]) => name);
+
     const root = fieldsOf(node)
       .filter(([, field]) => field.root)
       .map(([name]) => name);
-    return {
-      type: "object",
-      description: capital(node.what),
-      properties,
-      ...(required.length ? { required } : {}),
-      // A document that extends nothing has the root fields.
-      ...(root.length ? { anyOf: [{ required: ["extends"] }, { required: root }] } : {}),
-      additionalProperties: false,
-    };
+
+    let schema: Schema = { type: "object", description: capital(node.what), properties };
+
+    if (required.length) schema = { ...schema, required };
+
+    // A document that extends nothing has the root fields.
+    if (root.length) schema = { ...schema, anyOf: [{ required: ["extends"] }, { required: root }] };
+
+    return { ...schema, additionalProperties: false };
   };
+
   const top = schemaOf(DOCUMENT);
+
   return {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     $id: `https://cdn.jsdelivr.net/npm/tsdraft@${version}/standard.schema.json`,
@@ -1259,9 +1407,7 @@ export function standardSchema(version: string): Json {
   };
 }
 
-/** A schema fragment as plain data: its patterns worked out, and no check. */
-function plain(schema: Json): Json {
-  const out: Record<string, unknown> = {};
-  for (const key of Object.keys(schema)) if (key !== "check") out[key] = schema[key];
-  return out;
+/** A schema fragment as plain data: its patterns worked out. */
+function plain(schema: Schema): Schema {
+  return { ...schema };
 }

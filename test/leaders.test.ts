@@ -6,25 +6,30 @@ import {
   defineStandard,
   findLeaderStyle,
   leaderPicture,
-  lineSpacing,
   lint,
   readDXF,
   toDXF,
   toSVG,
   type Drawing,
+  type Entity,
   type Leader,
   type LeaderStyle,
 } from "../src/index.ts";
 import { referencedByKey } from "../src/blocks.ts";
 import { extents } from "../src/extents.ts";
+import { dataOf, ofKind, wrong } from "./values.ts";
 
 const STYLE = { textHeight: 0.1, arrowSize: 0.12, landing: 0.2, gap: 0.05 } as const;
 
 /** A drawing with the style `NOTES` and whatever `draw` adds. */
-function noted(draw: (d: ReturnType<typeof createDrawing>) => void, change: object = {}) {
+function noted(
+  draw: (d: ReturnType<typeof createDrawing>) => void,
+  change: Partial<LeaderStyle> = {},
+) {
   const d = createDrawing();
   d.leaderStyle({ name: "NOTES", ...STYLE, ...change });
   draw(d);
+
   return d.build();
 }
 
@@ -144,13 +149,15 @@ test("a leader style and a leader are checked as literals and when the code runs
 test("lint finds what the builder refuses, in a drawing built by hand", () => {
   const drawing = noted((d) => d.leader("A", { style: "NOTES", at: [1, 1], to: [0, 0] }));
   assert.deepEqual(lint(drawing), []);
-  const leader = drawing.entities[0] as Leader;
+  const leader = ofKind(drawing.entities[0], "leader");
+
   const rules = (entities: readonly Leader[], change: Partial<Drawing> = {}) =>
     lint({ ...drawing, ...change, entities }).map((found) => found.rule);
+
   assert.deepEqual(rules([{ ...leader, style: "OTHER" }]), ["undefined-leader-style"]);
   assert.deepEqual(rules([{ ...leader, text: ["A{B}"] }]), ["leader"]);
   assert.deepEqual(rules([{ ...leader, shafts: [[[1, 1]]] }]), ["leader"]);
-  assert.deepEqual(rules([{ ...leader, side: "up" as never }]), ["leader"]);
+  assert.deepEqual(rules([wrong<Leader>({ ...dataOf(leader), side: "up" })]), ["leader"]);
   assert.deepEqual(rules([{ ...leader, textStyle: "NONE" }]), ["undefined-text-style"]);
   assert.deepEqual(rules([leader], { dxf: "R12" }), ["leader-style", "leader"]);
   const style = drawing.leaderStyles![0]!;
@@ -167,7 +174,7 @@ test("lint finds what the builder refuses, in a drawing built by hand", () => {
     "undefined-leader-style",
   ]);
   // A block in place of the note whose polyline has a side with no point is reported, not read.
-  const side = { kind: "polyline", layer: "0", points: [null, [2, 0]], bulges: [1] } as never;
+  const side = wrong<Entity>({ kind: "polyline", layer: "0", points: [null, [2, 0]], bulges: [1] });
   assert.deepEqual(
     rules(
       [{ kind: "leader", layer: "0", style: "NOTES", block: "B", at: [1, 1], shafts: [[[0, 0]]] }],
@@ -195,6 +202,7 @@ test("a block's label comes back from a DXF as an attribute's value does", async
 
 test("a leader is drawn where the leading CAD app draws it", () => {
   const style: LeaderStyle = { name: "S", ...STYLE, scale: 2 };
+
   const leader: Leader = {
     kind: "leader",
     layer: "0",
@@ -209,6 +217,7 @@ test("a leader is drawn where the leading CAD app draws it", () => {
       ],
     ],
   };
+
   const right = leaderPicture(leader, style);
   // Each size is the style's times its scale.
   assert.deepEqual(right.sizes, { textHeight: 0.2, arrowSize: 0.24, landing: 0.4, gap: 0.1 });
@@ -265,9 +274,11 @@ test("a dot through an insert that scales unevenly is drawn as an ellipse", () =
     arrowhead: "dot",
     arrowSize: 2,
   });
+
   const host = createDrawing()
     .xref("BASE", "base.dwg")
     .insert("BASE", [0, 0], { scale: [2, 1] });
+
   assert.match(
     toSVG(host.build(), { xrefs: { BASE: base } }),
     /<ellipse [^>]*rx="2" ry="1" fill="[^"]+" stroke="none" data-part="arrowhead"\/>/,
@@ -279,10 +290,12 @@ test("the extents hold a dot that an insert turns and stretches into an ellipse"
     arrowhead: "dot",
     arrowSize: 4,
   });
+
   const host = createDrawing()
     .xref("BASE", "base.dwg")
     .insert("BASE", [0, 0], { scale: [3, 1], rotation: 45 })
     .build();
+
   const xrefs = referencedByKey(host, { BASE: base });
   const [minX, minY] = extents(host.entities, [], host.blocks, undefined, undefined, xrefs);
   // A dot of radius 2 becomes an ellipse 6 by 2, turned 45 degrees, which reaches √20 past its center on every side.
@@ -304,10 +317,13 @@ test("a leader's sizes of its own are written as its own, not as a style", () =>
       attachment: "last-line",
     });
   });
+
   const dxf = toDXF(drawing);
+
   const flags = [
     ...dxf.matchAll(/\r\nAcDbMLeader[\s\S]*?\r\n301\r\n\}\r\n340\r\n[0-9A-F]+\r\n90\r\n(\d+)\r\n/g),
   ].map(([, value]) => Number(value));
+
   // Content, text alignment and text always, and then each size and attachment set.
   const always = (1 << 10) | (1 << 14) | (1 << 18);
   assert.deepEqual(flags, [
@@ -360,7 +376,7 @@ test("under a standard a leader names its style by id, and model space has one f
   assert.equal(style!.name, "NOTES-1in-10ft");
   assert.equal(style!.textStyle, "NOTE");
   assert.ok(Math.abs(style!.scale! - 10) < 1e-12);
-  const [, smaller, same] = drawing.entities as Leader[];
+  const [, smaller, same] = drawing.entities.map((e) => ofKind(e, "leader"));
   assert.equal(smaller!.textStyle, "SMALL");
   assert.equal(smaller!.textHeight, 0.0625);
   assert.equal(smaller!.arrowSize, 0.05);
@@ -378,6 +394,7 @@ test("under a standard a leader names its style by id, and model space has one f
       { ...style!, name: "OWN" },
     ],
   };
+
   const rules = lint(changed, { standard }).map((found) => found.rule);
   assert.ok(rules.includes("leader-style-differs-from-standard"));
   assert.ok(rules.includes("leader-style-outside-standard"));
@@ -408,8 +425,10 @@ test("under a standard a leader's note is held to its role and to the least heig
     d.layer("C-ANNO-TEXT", () => d.leader("ON PAPER", { at: [14, 4], to: [13, 3] }));
   });
   const drawing = d.build();
+
   const errors = (change: Partial<Leader>, layout = false) => {
     const sheet = drawing.layouts![0]!;
+
     const changed: Drawing = layout
       ? {
           ...drawing,
@@ -418,19 +437,21 @@ test("under a standard a leader's note is held to its role and to the least heig
               ...sheet,
               entities: [
                 ...sheet.entities.slice(0, -1),
-                { ...sheet.entities.at(-1)!, ...change } as Leader,
+                { ...ofKind(sheet.entities.at(-1), "leader"), ...change },
               ],
             },
           ],
         }
       : {
           ...drawing,
-          entities: [{ ...(drawing.entities[0] as Leader), ...change }, drawing.entities[1]!],
+          entities: [{ ...ofKind(drawing.entities[0], "leader"), ...change }, drawing.entities[1]!],
         };
+
     return lint(changed, { standard })
       .filter((found) => found.severity === "error")
       .map((found) => found.rule);
   };
+
   assert.deepEqual(errors({}), []);
   // A text height of its own, in the viewport and on the sheet: each line of the note.
   const below = ["height-off-role", "height-below-standard"];
@@ -455,10 +476,12 @@ test("a leader style at a height other than its role's is reported once, not for
     sheet.viewport([2, 2], 10, 10, { view: plan, center: [10, 10] });
   });
   const drawing = d.build();
+
   const taller = {
     ...drawing,
     leaderStyles: [{ ...drawing.leaderStyles![0]!, textHeight: 0.125 }],
   };
+
   // A leader with a height of its own is still held to its role.
   assert.deepEqual(
     lint(taller, { standard })
@@ -466,11 +489,13 @@ test("a leader style at a height other than its role's is reported once, not for
       .map((found) => found.rule),
     ["leader-style-differs-from-standard"],
   );
+
   // The same holds for a style in another role's text style.
   const restyled = {
     ...drawing,
     leaderStyles: [{ ...drawing.leaderStyles![0]!, textStyle: "SMALL" }],
   };
+
   assert.deepEqual(
     lint(restyled, { standard })
       .filter((found) => found.severity === "error")

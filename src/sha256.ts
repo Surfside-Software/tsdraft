@@ -31,19 +31,24 @@ export class Sha256 {
   update(bytes: Uint8Array): this {
     this.#length += bytes.length;
     let i = 0;
+
     if (this.#filled > 0) {
       const take = Math.min(64 - this.#filled, bytes.length);
       this.#block.set(bytes.subarray(0, take), this.#filled);
       this.#filled += take;
       i = take;
+
       if (this.#filled < 64) return this;
       this.#compress(this.#view, 0);
       this.#filled = 0;
     }
+
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
     for (; i + 64 <= bytes.length; i += 64) this.#compress(view, i);
     this.#block.set(bytes.subarray(i));
     this.#filled = bytes.length - i;
+
     return this;
   }
 
@@ -56,16 +61,21 @@ export class Sha256 {
     const view = new DataView(tail.buffer);
     view.setUint32(tail.length - 8, Math.floor(bits / 2 ** 32));
     view.setUint32(tail.length - 4, bits >>> 0);
+
     for (let offset = 0; offset < tail.length; offset += 64) this.#compress(view, offset);
     let hex = "";
+
     for (const word of this.#hash) hex += word.toString(16).padStart(8, "0");
+
     return hex;
   }
 
   #compress(view: DataView, offset: number): void {
     const hash = this.#hash;
     const w = this.#w;
+
     for (let i = 0; i < 16; i++) w[i] = view.getUint32(offset + i * 4);
+
     for (let i = 16; i < 64; i++) {
       const a = w[i - 15]!;
       const b = w[i - 2]!;
@@ -73,6 +83,7 @@ export class Sha256 {
       const s1 = rotate(b, 17) ^ rotate(b, 19) ^ (b >>> 10);
       w[i] = w[i - 16]! + s0 + w[i - 7]! + s1;
     }
+
     let a = hash[0]!;
     let b = hash[1]!;
     let c = hash[2]!;
@@ -81,6 +92,7 @@ export class Sha256 {
     let f = hash[5]!;
     let g = hash[6]!;
     let h = hash[7]!;
+
     for (let i = 0; i < 64; i++) {
       const s1 = rotate(e, 6) ^ rotate(e, 11) ^ rotate(e, 25);
       const choice = (e & f) ^ (~e & g);
@@ -97,6 +109,7 @@ export class Sha256 {
       b = a;
       a = (t1 + t2) | 0;
     }
+
     hash[0]! += a;
     hash[1]! += b;
     hash[2]! += c;
@@ -120,20 +133,26 @@ export function sha256(bytes: Uint8Array): string {
 export function sha256Text(text: string): string {
   const bytes = new Uint8Array(text.length * 3);
   let n = 0;
+
   for (let i = 0; i < text.length; i++) {
     let code = text.charCodeAt(i);
+
     if (code < 0x80) {
       bytes[n++] = code;
       continue;
     }
+
     if (code >= 0xd800 && code <= 0xdbff) {
       const low = text.charCodeAt(i + 1);
+
       if (low >= 0xdc00 && low <= 0xdfff) {
         code = 0x10000 + ((code - 0xd800) << 10) + (low - 0xdc00);
         i++;
       }
     }
+
     if (code >= 0xd800 && code <= 0xdfff) code = 0xfffd;
+
     if (code < 0x800) {
       bytes[n++] = 0xc0 | (code >> 6);
       bytes[n++] = 0x80 | (code & 0x3f);
@@ -148,5 +167,6 @@ export function sha256Text(text: string): string {
       bytes[n++] = 0x80 | (code & 0x3f);
     }
   }
+
   return sha256(bytes.subarray(0, n));
 }

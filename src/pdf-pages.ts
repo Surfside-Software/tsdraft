@@ -2,15 +2,20 @@
 // and count is held to the bytes before it is read, the work is held to a budget in proportion to
 // them, and nothing here recurses.
 import { inflateCounted } from "./raster.ts";
+import { isNumber, isString } from "./guards.ts";
 
 /** The most bytes the streams of one file inflate to, all together. */
 const INFLATE_LIMIT = 64 * 2 ** 20;
+
 /** The most objects one call reads. */
 const OBJECTS = 1_000_000;
+
 /** The deepest page tree, and the deepest nesting of arrays and dictionaries, read. */
 const DEPTH = 256;
+
 /** The most objects the scan for `N G obj` finds when the cross-reference is broken. */
 const SCANNED = 2 ** 18;
+
 /** How far a chain of references to references, or of streams' lengths, is followed. */
 const HOPS = 8;
 
@@ -38,27 +43,34 @@ export function pdfPageSize(
   bytes: Uint8Array,
   page: string | number,
 ): readonly [width: number, height: number] | undefined {
-  const wanted =
-    typeof page === "number"
-      ? page
-      : typeof page === "string" && /^[1-9][0-9]{0,14}$/.test(page)
-        ? Number(page)
-        : NaN;
+  // A caller in plain JavaScript may give a page of another type.
+  const wanted = isNumber(page)
+    ? page
+    : isString(page) && /^[1-9][0-9]{0,14}$/.test(page)
+      ? Number(page)
+      : NaN;
+
   if (!Number.isSafeInteger(wanted) || wanted < 1 || !(bytes instanceof Uint8Array)) {
     return undefined;
   }
+
   if (indexOf(bytes, PDF_HEADER, 0, Math.min(bytes.length, 1024)) < 0) return undefined;
   const fromTable = attempt(bytes, wanted, false);
+
   if (fromTable.size !== undefined || !fromTable.broken) return fromTable.size;
+
   return attempt(bytes, wanted, true).size;
 }
 
-function attempt(
-  bytes: Uint8Array,
-  wanted: number,
-  scan: boolean,
-): { size: readonly [number, number] | undefined; broken: boolean } {
+/** A page's size, when one read found it, and whether the file was found broken. */
+interface Attempt {
+  size: readonly [number, number] | undefined;
+  broken: boolean;
+}
+
+function attempt(bytes: Uint8Array, wanted: number, scan: boolean): Attempt {
   const file = new PdfFile(bytes);
+
   try {
     if (scan ? file.scan() : file.readTable()) {
       return { size: pageSize(file, wanted), broken: file.broken };
@@ -66,6 +78,7 @@ function attempt(
   } catch (stop) {
     if (stop !== STOP) throw stop;
   }
+
   return { size: undefined, broken: file.broken };
 }
 
@@ -76,14 +89,18 @@ const STOP: unique symbol = Symbol("stop");
 interface Name {
   readonly name: string;
 }
+
 interface Ref {
   readonly ref: number;
   readonly gen: number;
 }
+
 interface Dict {
   readonly dict: Partial<Record<Key, Value>>;
 }
+
 const TEXT = { text: true } as const;
+
 type Value = number | boolean | null | Name | Ref | Dict | typeof TEXT | Value[];
 
 /** The keys this reader reads. A dictionary keeps no other, so no key of the file is hashed. */
@@ -113,13 +130,21 @@ const KEYS = [
   "W",
   "XRefStm",
 ] as const;
+
 type Key = (typeof KEYS)[number];
+
+const KEY_NAMES: ReadonlySet<string> = new Set(KEYS);
+
+const isKey = (name: string): name is Key => KEY_NAMES.has(name);
 
 const isName = (v: Value | undefined): v is Name =>
   typeof v === "object" && v !== null && "name" in v;
+
 const isRef = (v: Value | undefined): v is Ref => typeof v === "object" && v !== null && "ref" in v;
+
 const isDict = (v: Value | undefined): v is Dict =>
   typeof v === "object" && v !== null && "dict" in v;
+
 const isInt = (v: Value | undefined): v is number =>
   typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
 
@@ -155,13 +180,16 @@ function bytesOf(text: string): Uint8Array {
 function indexOf(bytes: Uint8Array, word: Uint8Array, from: number, to: number): number {
   outer: for (let i = from; i + word.length <= to; i++) {
     for (let k = 0; k < word.length; k++) if (bytes[i + k] !== word[k]) continue outer;
+
     return i;
   }
+
   return -1;
 }
 
 const WHITE = (c: number): boolean =>
   c === 32 || c === 10 || c === 13 || c === 9 || c === 12 || c === 0;
+
 const DELIMITER = (c: number): boolean =>
   c === 0x28 ||
   c === 0x29 ||
@@ -173,6 +201,7 @@ const DELIMITER = (c: number): boolean =>
   c === 0x7d ||
   c === 0x2f ||
   c === 0x25;
+
 const REGULAR = (c: number): boolean => !WHITE(c) && !DELIMITER(c);
 const DIGIT = (c: number): boolean => c >= 0x30 && c <= 0x39;
 
@@ -199,6 +228,7 @@ class Budget {
   }
   spend(n: number): void {
     this.spent += n;
+
     if (this.spent > 4 * (this.#base + this.inflated) + 2 ** 20) throw STOP;
   }
 }
@@ -221,17 +251,23 @@ class Lexer {
     const { data } = this;
     const from = Math.min(this.at, data.length);
     let at = from;
+
     for (;;) {
       while (at < data.length && WHITE(data[at]!)) at++;
+
       if (data[at] !== 0x25) break;
+
       while (at < data.length && data[at] !== 10 && data[at] !== 13) at++;
     }
+
     this.start = at;
     const c = data[at];
     let kind: number;
+
     if (c === undefined) kind = TOKEN.end;
     else if (c === 0x2f) {
       at++;
+
       while (at < data.length && REGULAR(data[at]!)) at++;
       kind = TOKEN.name;
     } else if (c === 0x5b || c === 0x5d) {
@@ -246,12 +282,15 @@ class Lexer {
       at++;
     } else if (c === 0x28) {
       let depth = 0;
+
       for (; at < data.length; at++) {
         const b = data[at];
+
         if (b === 0x5c) at++;
         else if (b === 0x28) depth++;
         else if (b === 0x29 && --depth === 0) break;
       }
+
       kind = at < data.length ? TOKEN.text : TOKEN.end;
       at++;
     } else if (DIGIT(c) || c === 0x2b || c === 0x2d || c === 0x2e) {
@@ -260,36 +299,45 @@ class Lexer {
       kind = Number.isFinite(this.number) ? TOKEN.number : TOKEN.word;
     } else {
       at++;
+
       while (at < data.length && REGULAR(data[at]!)) at++;
       kind = TOKEN.word;
     }
+
     this.at = Math.min(at, data.length);
     this.budget.spend(this.at - from + 1);
     this.kind = kind;
+
     return kind;
   }
 
   /** Whether the token just read is the keyword `word`. */
   is(word: string): boolean {
     if (this.kind !== TOKEN.word || this.at - this.start !== word.length) return false;
+
     for (let i = 0; i < word.length; i++) {
       if (this.data[this.start + i] !== word.charCodeAt(i)) return false;
     }
+
     return true;
   }
 
   /** The name just read, with its `#xx` codes, or "" for one longer than a PDF name may be. */
   name(): string {
     const { data } = this;
+
     if (this.at - this.start > 128) return "";
     let name = "";
+
     for (let i = this.start + 1; i < this.at; i++) {
       const hex = data[i] === 0x23 ? Number.parseInt(latin1(data, i + 1, i + 3), 16) : NaN;
+
       if (Number.isInteger(hex) && i + 2 < this.at) {
         name += String.fromCharCode(hex);
         i += 2;
       } else name += String.fromCharCode(data[i]!);
     }
+
     return name;
   }
 
@@ -299,14 +347,18 @@ class Lexer {
    */
   value(): Value | undefined {
     const stack: { items: Value[]; dict: boolean }[] = [];
+
     for (;;) {
       let value: Value;
       const kind = this.next();
+
       if (kind === TOKEN.number) {
         value = this.number;
+
         if (stack.length === 0 && isInt(value)) {
           const back = this.at;
           const gen = this.next() === TOKEN.number ? this.number : -1;
+
           if (isInt(gen) && this.next() === TOKEN.word && this.is("R")) {
             value = { ref: value, gen };
           } else this.at = back;
@@ -319,21 +371,27 @@ class Lexer {
         continue;
       } else if (kind === TOKEN.close || kind === TOKEN.undict) {
         const top = stack.pop();
+
         if (top === undefined || top.dict !== (kind === TOKEN.undict)) return undefined;
+
         if (top.dict) {
           if (top.items.length % 2 !== 0) return undefined;
           const dict: Partial<Record<Key, Value>> = {};
+
           for (let i = 0; i < top.items.length; i += 2) {
             const key = top.items[i];
+
             if (!isName(key)) return undefined;
-            if ((KEYS as readonly string[]).includes(key.name))
-              dict[key.name as Key] = top.items[i + 1]!;
+
+            if (isKey(key.name)) dict[key.name] = top.items[i + 1]!;
           }
+
           value = { dict };
         } else value = top.items;
       } else if (kind === TOKEN.word && this.is("R") && stack.length > 0) {
         const items = stack[stack.length - 1]!.items;
         const [n, g] = items.slice(-2);
+
         if (items.length < 2 || !isInt(n) || !isInt(g)) return undefined;
         items.length -= 2;
         value = { ref: n, gen: g };
@@ -341,6 +399,7 @@ class Lexer {
       else if (kind === TOKEN.word && this.is("false")) value = false;
       else if (kind === TOKEN.word && this.is("null")) value = null;
       else return undefined;
+
       if (stack.length === 0) return value;
       stack[stack.length - 1]!.items.push(value);
     }
@@ -349,7 +408,9 @@ class Lexer {
 
 function latin1(data: Uint8Array, from: number, to: number): string {
   let text = "";
+
   for (let i = from; i < to && i < data.length; i++) text += String.fromCharCode(data[i]!);
+
   return text;
 }
 
@@ -400,29 +461,41 @@ class PdfFile {
     const from = Math.max(0, bytes.length - 4096);
     this.budget.spend(bytes.length - from);
     let found = -1;
+
     for (let i = bytes.length - STARTXREF.length; i >= from && found < 0; i--) {
       if (indexOf(bytes, STARTXREF, i, i + STARTXREF.length) === i) found = i;
     }
+
     const lexer = this.lexer(found + STARTXREF.length);
+
     if (found < 0 || lexer.next() !== TOKEN.number || !isInt(lexer.number)) {
       this.broken = true;
+
       return false;
     }
+
     const seen: number[] = [];
     let at: number | undefined = lexer.number;
+
     while (at !== undefined) {
       if (seen.includes(at) || seen.length >= 1024) break;
       seen.push(at);
       const trailer = this.#section(at);
+
       if (trailer === undefined) {
         this.broken = true;
+
         return false;
       }
+
       this.root ??= trailer.Root;
+
       if (trailer.Encrypt !== undefined) this.encrypted = true;
       const hybrid = trailer.XRefStm;
+
       if (isInt(hybrid) && !seen.includes(hybrid)) {
         seen.push(hybrid);
+
         if (this.#section(hybrid) === undefined) this.broken = true;
         else {
           // A hybrid table marks free what its stream puts in object streams, so the stream
@@ -431,9 +504,12 @@ class PdfFile {
           this.#sections.splice(this.#sections.length - 1, 0, { ...stream, hybrid: true });
         }
       }
+
       at = isInt(trailer.Prev) ? trailer.Prev : undefined;
     }
+
     if (this.root === undefined) this.broken = true;
+
     return this.root !== undefined;
   }
 
@@ -442,23 +518,31 @@ class PdfFile {
     if (at >= this.bytes.length) return undefined;
     const lexer = this.lexer(at);
     lexer.next();
+
     if (lexer.is("xref")) {
       const runs: number[] = [];
+
       for (;;) {
         const kind = lexer.next();
+
         if (kind === TOKEN.word && lexer.is("trailer")) break;
         const start = lexer.number;
+
         if (kind !== TOKEN.number || !isInt(start) || lexer.next() !== TOKEN.number)
           return undefined;
         const count = lexer.number;
+
         if (!isInt(count)) return undefined;
         let row = lexer.at;
+
         while (row < this.bytes.length && WHITE(this.bytes[row]!)) row++;
         runs.push(start, count, row);
         this.budget.spend(3);
         lexer.at = row + 20 * count;
       }
+
       const trailer = lexer.value();
+
       if (!isDict(trailer)) return undefined;
       this.#sections.push({
         runs: this.#sorted(runs),
@@ -466,12 +550,16 @@ class PdfFile {
         widths: [0, 0, 0],
         streamsOnly: false,
       });
+
       return trailer.dict;
     }
+
     const obj = this.#parse(at, undefined);
     const section = obj === undefined ? undefined : this.#streamSection(obj, false);
+
     if (section === undefined || !isDict(obj?.value)) return undefined;
     this.#sections.push(section);
+
     return obj.value.dict;
   }
 
@@ -479,28 +567,37 @@ class PdfFile {
   #streamSection(obj: Obj, streamsOnly: boolean): Section | undefined {
     if (!isDict(obj.value) || obj.stream === undefined) return undefined;
     const d = obj.value.dict;
+
     if (!isName(d.Type) || d.Type.name !== "XRef" || !Array.isArray(d.W) || d.W.length !== 3) {
       return undefined;
     }
+
     const widths = d.W.map((w) => (isInt(w) && w <= 8 ? w : -1));
+
     if (widths.includes(-1) || widths[0]! + widths[1]! + widths[2]! === 0) return undefined;
     const index = d.Index ?? (isInt(d.Size) ? [0, d.Size] : undefined);
+
     if (!Array.isArray(index) || index.length % 2 !== 0) return undefined;
     const rows = this.streamBytes(obj, true);
+
     if (rows === undefined) return undefined;
     const runs: number[] = [];
     let row = 0;
+
     for (let i = 0; i < index.length; i += 2) {
       const [start, count] = [index[i], index[i + 1]];
+
       if (!isInt(start) || !isInt(count)) return undefined;
       runs.push(start, count, row);
       row += count;
     }
+
     this.budget.spend(index.length);
+
     return {
       runs: this.#sorted(runs),
       rows,
-      widths: widths as [number, number, number],
+      widths: [widths[0]!, widths[1]!, widths[2]!],
       streamsOnly,
     };
   }
@@ -510,6 +607,7 @@ class PdfFile {
     const order = Array.from({ length: runs.length / 3 }, (_, i) => i);
     this.budget.spend(order.length * (1 + Math.log2(1 + order.length)));
     order.sort((a, b) => runs[3 * a]! - runs[3 * b]!);
+
     return order.flatMap((i) => [runs[3 * i]!, runs[3 * i + 1]!, runs[3 * i + 2]!]);
   }
 
@@ -526,12 +624,16 @@ class PdfFile {
     const xrefs: number[] = [];
     const catalogs: number[] = [];
     let header = -1;
+
     for (let i = 0; i < bytes.length; i++) {
       const c = bytes[i]!;
+
       if (c === 0x6f && this.#word(i, "obj") && i > 0 && WHITE(bytes[i - 1]!)) {
         const at = headerAt(bytes, i);
+
         if (at === undefined) continue;
         header = at.start;
+
         if (this.#scanned.has(at.number) || this.#scanned.size < SCANNED) {
           this.#scanned.set(at.number, at.start);
         }
@@ -540,78 +642,108 @@ class PdfFile {
       else if (c === 0x2f && this.#word(i + 1, "Catalog")) once(catalogs, header);
       else if (c === 0x2f && this.#word(i + 1, "Encrypt")) this.encrypted = true;
     }
+
     for (const at of xrefs.reverse()) {
       const obj = this.#parse(at, undefined);
       const section = obj === undefined ? undefined : this.#streamSection(obj, true);
+
       if (section === undefined || !isDict(obj?.value)) continue;
       this.#sections.push(section);
       this.root ??= obj.value.dict.Root;
     }
+
     for (const at of trailers.reverse()) {
       if (this.root !== undefined) break;
       const trailer = this.lexer(at).value();
+
       if (isDict(trailer) && trailer.dict.Root !== undefined) this.root = trailer.dict.Root;
     }
+
     for (const at of catalogs.reverse()) {
       if (this.root !== undefined) break;
       const obj = this.#parse(at, undefined);
+
       if (isDict(obj?.value) && obj.value.dict.Pages !== undefined) this.root = obj.value;
     }
+
     return this.root !== undefined;
   }
 
   /** Whether the bytes at `i` are `word`, with no regular character after it. */
   #word(i: number, word: string): boolean {
     const { bytes } = this;
+
     for (let k = 0; k < word.length; k++) if (bytes[i + k] !== word.charCodeAt(k)) return false;
     const after = bytes[i + word.length];
+
     return after === undefined || !REGULAR(after);
   }
 
   /** Where object `n` is, from the newest section that has it. */
   #entry(n: number): Entry | undefined {
     const scanned = this.#scanned.get(n);
+
     if (scanned !== undefined) return { at: scanned, gen: -1 };
+
     for (const section of this.#sections) {
       const { runs, rows, widths } = section;
       let [lo, hi] = [0, runs.length / 3];
+
       while (lo < hi) {
         const mid = (lo + hi) >>> 1;
+
         if (runs[3 * mid]! <= n) lo = mid + 1;
         else hi = mid;
       }
+
       this.budget.spend(1 + Math.log2(1 + lo));
+
       for (let i = 3 * (lo - 1); i >= 0; i = -1) {
         const [start, count, first] = [runs[i]!, runs[i + 1]!, runs[i + 2]!];
+
         if (n >= start + count) break;
+
         if (rows === undefined) {
           const lexer = this.lexer(first + 20 * (n - start));
           const at = lexer.next() === TOKEN.number ? lexer.number : -1;
           const gen = lexer.next() === TOKEN.number ? lexer.number : -1;
           const ok = isInt(gen) && lexer.next() === TOKEN.word;
+
           if (!ok || !isInt(at) || !(lexer.is("n") || lexer.is("f"))) {
             this.broken = true;
+
             return undefined;
           }
+
           // A free entry hides what older sections held of the number.
           return lexer.is("n") ? { at, gen } : { free: true };
         }
+
         const width = widths[0] + widths[1] + widths[2];
         const row = (first + n - start) * width;
+
         if (row + width > rows.length) break;
+
         const field = (from: number, w: number): number => {
           let v = 0;
+
           for (let k = 0; k < w; k++) v = v * 256 + rows[row + from + k]!;
+
           return v;
         };
+
         const type = widths[0] === 0 ? 1 : field(0, widths[0]);
         const [a, b] = [field(widths[0], widths[1]), field(widths[0] + widths[1], widths[2])];
+
         if (type === 0 && !section.streamsOnly && !section.hybrid) return { free: true };
+
         if (type === 1 && !section.streamsOnly) return { at: a, gen: b };
+
         if (type === 2) return { within: a, index: b, gen: 0 };
         break;
       }
     }
+
     return undefined;
   }
 
@@ -622,25 +754,31 @@ class PdfFile {
    */
   object(n: number, gen = 0): Obj | undefined {
     let cached = this.#objects.get(n);
+
     if (cached === undefined) {
       if (++this.#read > OBJECTS) throw STOP;
       this.#objects.set(n, null);
       const entry = this.#entry(n);
       let obj: Obj | undefined;
+
       if (entry === undefined) this.broken = true;
       // A free entry or one of another generation is null, and a sign of a table off by a row,
       // which the scan reads past if the page is not found.
       else if ("free" in entry) this.broken = true;
       else if ("at" in entry) {
         obj = this.#parse(entry.at, n);
+
         if (obj !== undefined && entry.gen >= 0) obj = { ...obj, gen: entry.gen };
       } else if (!this.encrypted) obj = this.#fromStream(n, entry.within, entry.index);
       cached = obj ?? null;
       this.#objects.set(n, cached);
     }
+
     if (cached === null) return undefined;
+
     if (cached.gen === undefined || cached.gen === gen) return cached;
     this.broken = true;
+
     return undefined;
   }
 
@@ -648,6 +786,7 @@ class PdfFile {
   #parse(at: number, n: number | undefined): Obj | undefined {
     const lexer = this.lexer(at);
     const number = lexer.next() === TOKEN.number ? lexer.number : -1;
+
     if (
       at >= this.bytes.length ||
       !isInt(number) ||
@@ -657,71 +796,96 @@ class PdfFile {
       !lexer.is("obj")
     ) {
       this.broken = true;
+
       return undefined;
     }
+
     const value = lexer.value();
+
     if (value === undefined) {
       this.broken = true;
+
       return undefined;
     }
+
     const after = lexer.at;
+
     if (!isDict(value) || lexer.next() !== TOKEN.word || !lexer.is("stream")) {
       lexer.at = after;
+
       return { value };
     }
+
     let start = lexer.at;
+
     if (this.bytes[start] === 13) start++;
+
     if (this.bytes[start] === 10) start++;
+
     return { value, stream: { data: this.bytes, at: start } };
   }
 
   /** Object `n` at `index` of the object stream `within`. */
   #fromStream(n: number, within: number, index: number): Obj | undefined {
     let stream = this.#streams.get(within);
+
     if (stream === undefined) {
       this.#streams.set(within, null);
       const entry = this.#entry(within);
       const obj = entry !== undefined && "at" in entry ? this.#parse(entry.at, within) : undefined;
+
       const d: Partial<Record<Key, Value>> =
         obj !== undefined && isDict(obj.value) ? obj.value.dict : {};
+
       // Each stream's numbers may be references into other streams: a chain is followed as far
       // as a chain of references is.
       if (this.#depth >= HOPS) return undefined;
       this.#depth++;
       let count: Value | undefined;
       let first: Value | undefined;
+
       try {
         [count, first] = [this.resolve(d.N), this.resolve(d.First)];
       } finally {
         this.#depth--;
       }
+
       const type = d.Type;
       const isStream = isName(type) && type.name === "ObjStm";
       const data = obj !== undefined && isStream ? this.streamBytes(obj) : undefined;
+
       if (data === undefined || !isInt(count) || !isInt(first) || first > data.length) {
         return undefined;
       }
+
       const lexer = this.lexer(0, data.subarray(0, first));
       const numbers: number[] = [];
       const offsets: number[] = [];
+
       while (numbers.length < count) {
         if (lexer.next() !== TOKEN.number || !isInt(lexer.number)) break;
         const number = lexer.number;
+
         if (lexer.next() !== TOKEN.number || !isInt(lexer.number)) break;
         numbers.push(number);
         offsets.push(lexer.number);
       }
+
       stream = { data, first, numbers, offsets };
       this.#streams.set(within, stream);
     }
+
     if (stream === null || stream === undefined) return undefined;
     let i = stream.numbers[index] === n ? index : -1;
+
     if (i < 0) {
       this.budget.spend(stream.numbers.length);
       i = stream.numbers.indexOf(n);
     }
+
     if (i < 0) return undefined;
     const value = this.lexer(stream.first + stream.offsets[i]!, stream.data).value();
+
     return value === undefined ? undefined : { value };
   }
 
@@ -735,6 +899,7 @@ class PdfFile {
     const d = obj.value.dict;
     const { data, at } = obj.stream;
     this.#depth++;
+
     try {
       return this.#decode(d, data, at, direct);
     } finally {
@@ -750,42 +915,57 @@ class PdfFile {
   ): Uint8Array | undefined {
     const get = (v: Value | undefined): Value | undefined =>
       direct ? (isRef(v) ? undefined : v) : this.resolve(v);
+
     const length = get(d.Length);
     let end = isInt(length) ? at + length : -1;
+
     if (end < 0 || end > data.length || !this.#endsStream(end)) {
       end = this.#endstream(at);
+
       if (end < 0) return undefined;
+
       if (data[end - 1] === 10) end--;
+
       if (data[end - 1] === 13) end--;
     }
+
     const raw = data.subarray(at, Math.max(at, end));
     const filters = single(get(d.Filter));
+
     if (filters === null) return raw;
     const filter = get(filters);
+
     if (!isName(filter) || filter.name !== "FlateDecode") return undefined;
     const limit = INFLATE_LIMIT - this.budget.inflated;
+
     if (limit <= 0) return undefined;
     // Inflating reads its input, which streams that overlap would read again for nothing.
     this.budget.spend(raw.length);
     const { bytes: out, written } = inflateCounted(raw, limit);
     this.budget.inflated += written;
+
     if (out === undefined) return undefined;
     const parms = get(single(get(d.DecodeParms)) ?? undefined);
     const p = isDict(parms) ? parms.dict : {};
     const predictor = get(p.Predictor) ?? 1;
+
     if (predictor === 1) return out;
-    if (typeof predictor !== "number" || predictor < 10 || predictor > 15) return undefined;
+
+    if (!isNumber(predictor) || predictor < 10 || predictor > 15) return undefined;
+
     const [colors, bits, columns] = [
       get(p.Colors) ?? 1,
       get(p.BitsPerComponent) ?? 8,
       get(p.Columns) ?? 1,
     ];
+
     return unpredict(out, colors, bits, columns);
   }
 
   /** Whether `endstream` follows `at`, after the line's end. */
   #endsStream(at: number): boolean {
     const lexer = this.lexer(at);
+
     return lexer.next() === TOKEN.word && lexer.is("endstream");
   }
 
@@ -794,18 +974,23 @@ class PdfFile {
     if (this.#ends === undefined) {
       this.budget.spend(this.bytes.length);
       this.#ends = [];
+
       for (let i = indexOf(this.bytes, ENDSTREAM, 0, this.bytes.length); i >= 0;) {
         this.#ends.push(i);
         i = indexOf(this.bytes, ENDSTREAM, i + 1, this.bytes.length);
       }
     }
+
     const ends = this.#ends;
     let [lo, hi] = [0, ends.length];
+
     while (lo < hi) {
       const mid = (lo + hi) >>> 1;
+
       if (ends[mid]! < at) lo = mid + 1;
       else hi = mid;
     }
+
     return ends[lo] ?? -1;
   }
 
@@ -815,6 +1000,7 @@ class PdfFile {
       if (hops >= HOPS) return undefined;
       v = this.object(v.ref, v.gen)?.value;
     }
+
     return v;
   }
 }
@@ -827,22 +1013,32 @@ function once(list: number[], at: number): void {
 /** The one element of a one-element array, the value itself, or null for none. */
 function single(v: Value | undefined): Value | undefined {
   if (v === undefined || v === null) return null;
+
   if (!Array.isArray(v)) return v;
-  return v.length === 0 ? null : v.length === 1 ? v[0] : undefined;
+
+  if (v.length === 0) return null;
+
+  return v.length === 1 ? v[0] : undefined;
 }
 
 /** The header `N G obj` whose `obj` is at `i`: the object's number and where the header starts. */
 function headerAt(bytes: Uint8Array, i: number): { number: number; start: number } | undefined {
   let j = i - 1;
+
   const skip = (test: (c: number) => boolean, most: number): number => {
     const from = j;
+
     while (j >= 0 && from - j < most && test(bytes[j]!)) j--;
+
     return from - j;
   };
+
   if (skip(WHITE, 8) === 0 || skip(DIGIT, 6) === 0 || skip(WHITE, 8) === 0) return undefined;
   const end = j + 1;
+
   if (skip(DIGIT, 11) === 0 || (j >= 0 && REGULAR(bytes[j]!))) return undefined;
   const number = Number(latin1(bytes, j + 1, end));
+
   return Number.isSafeInteger(number) ? { number, start: j + 1 } : undefined;
 }
 
@@ -855,22 +1051,27 @@ function unpredict(
 ): Uint8Array | undefined {
   if (!isInt(colors) || colors < 1 || colors > 32 || !isInt(columns) || columns < 1)
     return undefined;
+
   if (bits !== 1 && bits !== 2 && bits !== 4 && bits !== 8 && bits !== 16) return undefined;
   const pixel = Math.max(1, Math.ceil((colors * bits) / 8));
   const width = Math.ceil((colors * bits * columns) / 8);
+
   if (width + 1 > data.length) return new Uint8Array(0);
   const rows = Math.floor(data.length / (width + 1));
   const out = new Uint8Array(rows * width);
+
   for (let r = 0; r < rows; r++) {
     const filter = data[r * (width + 1)]!;
     const from = r * (width + 1) + 1;
     const at = r * width;
+
     for (let x = 0; x < width; x++) {
       const raw = data[from + x]!;
       const left = x >= pixel ? out[at + x - pixel]! : 0;
       const up = r > 0 ? out[at - width + x]! : 0;
       const corner = r > 0 && x >= pixel ? out[at - width + x - pixel]! : 0;
       let v: number;
+
       if (filter === 0) v = raw;
       else if (filter === 1) v = raw + left;
       else if (filter === 2) v = raw + up;
@@ -883,16 +1084,20 @@ function unpredict(
       out[at + x] = v & 255;
     }
   }
+
   return out;
 }
 
 /** A box `[x0 y0 x1 y1]` in points, put in order, or undefined where it is not four numbers. */
 function boxOf(file: PdfFile, v: Value | undefined): [number, number, number, number] | undefined {
   const box = file.resolve(v);
+
   if (!Array.isArray(box) || box.length !== 4) return undefined;
   const [a, b, c, d] = box.map((x) => file.resolve(x));
   const finite = (x: Value | undefined): x is number => typeof x === "number" && Number.isFinite(x);
+
   if (!finite(a) || !finite(b) || !finite(c) || !finite(d)) return undefined;
+
   return [Math.min(a, c), Math.min(b, d), Math.max(a, c), Math.max(b, d)];
 }
 
@@ -904,11 +1109,19 @@ function boxOf(file: PdfFile, v: Value | undefined): [number, number, number, nu
  */
 function pageSize(file: PdfFile, wanted: number): readonly [number, number] | undefined {
   const catalog = file.resolve(file.root);
+
   if (!isDict(catalog)) return undefined;
-  type Inherited = { media?: Value; crop?: Value; rotate?: Value };
-  const given = (v: Value | undefined): boolean => v !== undefined && file.resolve(v) != null;
+
+  interface Inherited {
+    media?: Value;
+    crop?: Value;
+    rotate?: Value;
+  }
+
+  const given = (v: Value | undefined): v is Value => v !== undefined && file.resolve(v) != null;
   const entered = new Set<number>();
   const rootRef = catalog.dict.Pages;
+
   if (isRef(rootRef)) entered.add(rootRef.ref);
   // A frame for each node on the way down: its kids and the next to enter, so the walk holds no
   // more than the depth of the tree and reads a kid only when it comes to it.
@@ -916,51 +1129,71 @@ function pageSize(file: PdfFile, wanted: number): readonly [number, number] | un
   let left = wanted;
   let node: Value | undefined = file.resolve(rootRef);
   let above: Inherited = {};
+
   for (;;) {
     if (node !== undefined) {
       if (!isDict(node)) {
         file.broken = true;
+
         return undefined;
       }
+
       const d: Partial<Record<Key, Value>> = node.dict;
-      const inherited: Inherited = {
-        ...above,
-        ...(given(d.MediaBox) ? { media: d.MediaBox } : {}),
-        ...(given(d.CropBox) ? { crop: d.CropBox } : {}),
-        ...(given(d.Rotate) ? { rotate: d.Rotate } : {}),
-      };
+
+      const inherited: Inherited = { ...above };
+
+      if (given(d.MediaBox)) inherited.media = d.MediaBox;
+
+      if (given(d.CropBox)) inherited.crop = d.CropBox;
+
+      if (given(d.Rotate)) inherited.rotate = d.Rotate;
+
       const kind = file.resolve(d.Type);
       const isNode = isName(kind) ? kind.name === "Pages" : d.Kids !== undefined;
+
       if (!isNode) {
         if (--left === 0) return sizeOf(file, d, inherited);
       } else {
         const kids = file.resolve(d.Kids);
+
         if (!Array.isArray(kids)) {
           file.broken = true;
+
           return undefined;
         }
+
         if (frames.length >= DEPTH) return undefined;
         file.budget.spend(kids.length);
         frames.push({ kids, next: 0, inherited });
       }
+
       node = undefined;
     }
+
     const top = frames[frames.length - 1];
+
     if (top === undefined) return undefined;
+
     if (top.next >= top.kids.length) {
       frames.pop();
       continue;
     }
+
     const kid = top.kids[top.next++];
+
     if (isRef(kid)) {
       if (entered.has(kid.ref)) return undefined;
       entered.add(kid.ref);
     }
+
     node = file.resolve(kid);
+
     if (node === undefined || node === null) {
       file.broken = true;
+
       return undefined;
     }
+
     above = top.inherited;
   }
 }
@@ -971,25 +1204,30 @@ function sizeOf(
   inherited: { media?: Value; crop?: Value; rotate?: Value },
 ): readonly [number, number] | undefined {
   const media = boxOf(file, inherited.media);
+
   if (media === undefined) return undefined;
   const crop = boxOf(file, inherited.crop);
   let [x0, y0, x1, y1] = media;
+
   if (crop !== undefined) {
-    const cut = [
+    const cut: [number, number, number, number] = [
       Math.max(x0, crop[0]),
       Math.max(y0, crop[1]),
       Math.min(x1, crop[2]),
       Math.min(y1, crop[3]),
     ];
-    if (cut[2]! > cut[0]! && cut[3]! > cut[1]!)
-      [x0, y0, x1, y1] = cut as [number, number, number, number];
+
+    if (cut[2] > cut[0] && cut[3] > cut[1]) [x0, y0, x1, y1] = cut;
   }
+
   const unit = file.resolve(page.UserUnit);
-  const scale = typeof unit === "number" && Number.isFinite(unit) && unit > 0 ? unit : 1;
+  const scale = isNumber(unit) && Number.isFinite(unit) && unit > 0 ? unit : 1;
   const rotate = file.resolve(inherited.rotate);
-  const turn =
-    typeof rotate === "number" && Number.isInteger(rotate) && rotate % 90 === 0 ? rotate : 0;
+
+  const turn = isNumber(rotate) && Number.isInteger(rotate) && rotate % 90 === 0 ? rotate : 0;
+
   const [w, h] = [((x1 - x0) / 72) * scale, ((y1 - y0) / 72) * scale];
   const size: [number, number] = Math.abs(turn % 180) === 90 ? [h, w] : [w, h];
+
   return size.every((x) => Number.isFinite(x) && x > 0) ? size : undefined;
 }

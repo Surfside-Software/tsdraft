@@ -1,3 +1,5 @@
+import { isNumber } from "./guards.ts";
+
 /** The number of decimals the writers keep. */
 const DECIMALS = 6;
 const SCALE = 10 ** DECIMALS;
@@ -7,14 +9,17 @@ const SCALE = 10 ** DECIMALS;
  * equal here are the same number in the file, whatever they were in the drawing.
  */
 export function written(value: number): number {
-  if (typeof value === "number" && Math.abs(value) < 2 ** 52 / SCALE) {
+  if (isNumber(value) && Math.abs(value) < 2 ** 52 / SCALE) {
     const scaled = value * SCALE;
     const nearest = Math.round(scaled);
+
     // Every half-integer in this range is representable. Multiplication can land on a
     // half from either side, but cannot cross one, so leave those ties to toFixed.
     if (Math.abs(scaled - nearest) !== 0.5) return nearest === 0 ? 0 : nearest / SCALE;
   }
+
   const rounded = Number(value.toFixed(DECIMALS));
+
   return Object.is(rounded, -0) ? 0 : rounded;
 }
 
@@ -30,16 +35,20 @@ const PRINTED = /^(-?)(\d+)(?:\.(\d+))?(?:e\+(\d+))?$/;
  */
 export function heldNumber(value: number): number {
   const match = PRINTED.exec(fmt(value));
+
   if (!match) return written(value);
   const [, sign, whole = "", fraction = "", exponent = ""] = match;
   let held = 0;
+
   for (const digit of whole + fraction) held = held * 10 + (digit.charCodeAt(0) - 48);
   const power = Number(exponent.slice(0, 2)) - fraction.length;
   let step = 10;
+
   for (let bits = Math.abs(power); bits > 0; bits >>= 1) {
     if (bits & 1) held = power < 0 ? held / step : held * step;
     step *= step;
   }
+
   return sign ? -held : held;
 }
 
@@ -51,6 +60,7 @@ export function heldNumber(value: number): number {
  */
 export function fifteenDigits(value: number): string {
   const kept = Number(value.toPrecision(15));
+
   return Math.abs(kept) < 1e-6 ? kept.toFixed(20) : String(kept);
 }
 
@@ -64,6 +74,7 @@ export function fifteenDigits(value: number): string {
  */
 export function sixteenDigits(value: number): string {
   const kept = Number(value.toPrecision(16));
+
   return Math.abs(kept) < 1e-6
     ? kept.toFixed(20).replace(/0+$/, "").replace(/\.$/, "")
     : String(kept);
@@ -71,6 +82,7 @@ export function sixteenDigits(value: number): string {
 
 export function writtenAngle(degrees: number): number {
   const rounded = written(degrees);
+
   return rounded >= 360 ? rounded - 360 : rounded;
 }
 
@@ -142,12 +154,15 @@ const ESCAPE_START = /\\(?=[Uu]\+[0-9A-Fa-f]{4}|[Mm]\+[1-5][0-9A-Fa-f]{4})/g;
  */
 export function dxfText(value: string, ascii = false): string {
   const escaped = value.replace(ESCAPE_START, "\\U+005CU+005C").replaceAll("^", "^ ");
+
   if (!ascii) return escaped;
   let out = "";
+
   for (let i = 0; i < escaped.length; i++) {
     const code = escaped.charCodeAt(i);
     out += code < 0x80 ? escaped[i] : `\\U+${code.toString(16).toUpperCase().padStart(4, "0")}`;
   }
+
   return out;
 }
 

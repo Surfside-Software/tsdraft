@@ -30,6 +30,7 @@ import {
   XREF_LOOKS,
 } from "./rules.ts";
 import { filled } from "./shape.ts";
+import { isKeyed, isNumber, isObjectOrArray, isString } from "./guards.ts";
 
 /** A map of the plane: `x' = a x + c y + e` and `y' = b x + d y + f`. */
 export type Matrix = readonly [a: number, b: number, c: number, d: number, e: number, f: number];
@@ -44,12 +45,20 @@ function blockKey(name: string): string {
   return name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 }
 
+/** The handles of a block's record and of the two objects that open and close its definition. */
+export interface BlockHandles {
+  record: string;
+  begin: string;
+  end: string;
+}
+
 /**
  * The handles of a block's record and of the two objects that open and close its definition
  * in a DXF, for a name the block rules have passed.
  */
-export function blockHandles(name: string): { record: string; begin: string; end: string } {
+export function blockHandles(name: string): BlockHandles {
   const key = blockKey(name);
+
   return {
     record: keyHandle(`block:${key}`),
     begin: keyHandle(`block-begin:${key}`),
@@ -78,6 +87,7 @@ export function insertEndHandle(insertId: string): string {
 
 function valid(...problems: (string | undefined)[]): void {
   const problem = problems.find((p) => p !== undefined);
+
   if (problem !== undefined) throw new RangeError(problem);
 }
 
@@ -89,6 +99,7 @@ function valid(...problems: (string | undefined)[]): void {
  */
 export function blockHandle(name: string): string {
   valid(blockNameProblem(name));
+
   return blockHandles(name).record;
 }
 
@@ -99,6 +110,7 @@ export function blockHandle(name: string): string {
  */
 export function attributeDefinitionHandle(block: string, tag: string): string {
   valid(blockNameProblem(block), attributeTagProblem(tag));
+
   return definitionHandle(block, tag);
 }
 
@@ -109,6 +121,7 @@ export function attributeDefinitionHandle(block: string, tag: string): string {
  */
 export function attributeHandle(insertId: string, tag: string): string {
   valid(idProblem(insertId), attributeTagProblem(tag));
+
   return insertAttributeHandle(insertId, tag);
 }
 
@@ -119,6 +132,7 @@ export function attributeHandle(insertId: string, tag: string): string {
  */
 export function attributesEndHandle(insertId: string): string {
   valid(idProblem(insertId));
+
   return insertEndHandle(insertId);
 }
 
@@ -128,6 +142,7 @@ export function attributesEndHandle(insertId: string): string {
  */
 export function findBlock(drawing: Pick<Drawing, "blocks">, name: string): Block | undefined {
   const key = layerKey(name);
+
   return filled(drawing.blocks).find((block) => layerKey(block.name) === key);
 }
 
@@ -137,6 +152,7 @@ export function findBlock(drawing: Pick<Drawing, "blocks">, name: string): Block
  */
 export function findXref(drawing: Pick<Drawing, "xrefs">, name: string): Xref | undefined {
   const key = layerKey(name);
+
   return filled(drawing.xrefs).find((xref) => layerKey(xref.name) === key);
 }
 
@@ -150,6 +166,7 @@ export function insertMatrix(
   const cos = Math.cos(turn);
   const sin = Math.sin(turn);
   const [a, b, c, d] = [sx * cos, sx * sin, -sy * sin, sy * cos];
+
   return [
     a,
     b,
@@ -163,6 +180,7 @@ export function insertMatrix(
 /** The matrix that applies `inner` and then `outer`. */
 export function compose(outer: Matrix, inner: Matrix): Matrix {
   const [a, b, c, d, e, f] = outer;
+
   return [
     a * inner[0] + c * inner[1],
     b * inner[0] + d * inner[1],
@@ -239,6 +257,7 @@ export function placeAttribute(
 ): PlacedAttribute {
   const value = attributeValue(insert, definition);
   const [sx, sy] = insert.scale ?? [1, 1];
+
   // Only the numbers that place it are read, however many fields the insert has.
   const matrix = insertMatrix(
     {
@@ -248,11 +267,14 @@ export function placeAttribute(
     },
     base && [written(base[0]), written(base[1])],
   );
+
   const [x, y] = [written(definition.at[0]), written(definition.at[1])];
   const mirrored = matrix[0] * matrix[3] - matrix[1] * matrix[2] < 0;
+
   const [a, b, c, d, e, f] = mirrored
     ? [-matrix[0], matrix[1], -matrix[2], matrix[3], -matrix[4], matrix[5]]
     : matrix;
+
   const at: Point = [a * x + c * y + e, b * x + d * y + f];
   // A definition of paragraph text holds a text of no width factor or slant of its own: its
   // paragraph is drawn in its style's.
@@ -265,13 +287,16 @@ export function placeAttribute(
   const [cos, sin] = [Math.cos(turn), Math.sin(turn)];
   // The text's baseline, one unit long, and its slanted upright, one height tall.
   const along: Point = [a * cos + c * sin, b * cos + d * sin];
+
   const up: Point = [
     a * (slant * cos - sin) + c * (slant * sin + cos),
     b * (slant * cos - sin) + d * (slant * sin + cos),
   ];
+
   const length = Math.hypot(along[0], along[1]);
   const rise = (along[0] * up[1] - along[1] * up[0]) / length;
   const run = (along[0] * up[0] + along[1] * up[1]) / length;
+
   const placed = {
     tag: definition.tag,
     value,
@@ -284,12 +309,14 @@ export function placeAttribute(
     widthFactor: (widthFactor * length) / rise,
     obliqueAngle: (Math.atan2(run, rise) * 180) / Math.PI,
   };
+
   if (definition.kind !== "paragraph") return placed;
   const uneven = Math.abs(written(sx)) !== Math.abs(written(sy));
   // A value or a width of the wrong type, which `lint` reports, is laid out as none.
   const given: unknown = definition.width;
-  const width = typeof given === "number" ? written(given) * rise : undefined;
-  const text = typeof value === "string" ? value : "";
+  const width = isNumber(given) ? written(given) * rise : undefined;
+  const text = isString(value) ? value : "";
+
   return {
     ...placed,
     paragraph: {
@@ -305,18 +332,17 @@ export function placeAttribute(
  * A walk draws nothing of any other, which `lint` reports.
  */
 export function placeable(definition: AttributeDefinition, insert: Insert): boolean {
-  const number = (value: unknown): boolean => typeof value === "number";
-  const point = (value: unknown): boolean =>
-    Array.isArray(value) && number(value[0]) && number(value[1]);
-  const d = definition as unknown as Readonly<Record<string, unknown>>;
-  const i = insert as unknown as Readonly<Record<string, unknown>>;
+  // A definition or an insert made by hand may hold a value of any type in any field.
+  const point = (value: unknown): value is readonly [number, number] =>
+    Array.isArray(value) && isNumber(value[0]) && isNumber(value[1]);
+
   return (
-    point(d["at"]) &&
-    number(d["height"]) &&
-    number(d["rotation"]) &&
-    point(i["at"]) &&
-    (i["scale"] === undefined || point(i["scale"])) &&
-    (i["rotation"] === undefined || number(i["rotation"]))
+    point(definition.at) &&
+    isNumber(definition.height) &&
+    isNumber(definition.rotation) &&
+    point(insert.at) &&
+    (insert.scale === undefined || point(insert.scale)) &&
+    (insert.rotation === undefined || isNumber(insert.rotation))
   );
 }
 
@@ -328,19 +354,31 @@ export function placeable(definition: AttributeDefinition, insert: Insert): bool
  */
 export function attributeParagraph(placed: PlacedAttribute): Paragraph | undefined {
   if (!placed.paragraph) return undefined;
-  const definition = placed.definition as ParagraphAttributeDefinition;
-  const paragraph: Record<string, unknown> = { kind: "paragraph" };
-  const given = definition as unknown as Readonly<Record<string, unknown>>;
-  for (const field of PARAGRAPH_FIELDS) {
-    if (Object.hasOwn(given, field)) paragraph[field] = given[field];
-  }
-  paragraph["at"] = placed.at;
-  paragraph["height"] = placed.height;
-  paragraph["rotation"] = placed.rotation;
-  paragraph["value"] = placed.paragraph.value;
-  if (placed.paragraph.width === undefined) delete paragraph["width"];
-  else paragraph["width"] = placed.paragraph.width;
-  return paragraph as unknown as Paragraph;
+  // A definition made by hand may hold any of these fields, which the paragraph keeps as it is.
+  const from: GivenFields = placed.definition;
+  const own = (field: (typeof PARAGRAPH_FIELDS)[number]) => Object.hasOwn(from, field);
+  const { width } = placed.paragraph;
+
+  const paragraph = {
+    kind: "paragraph",
+    ...(own("layer") && { layer: from.layer }),
+    ...(own("style") && { style: from.style }),
+    // A width the definition holds keeps its place, and the placed one's value.
+    ...(own("width") && width !== undefined && { width }),
+    ...(own("align") && { align: from.align }),
+    ...(own("valign") && { valign: from.valign }),
+    ...(own("lineSpacing") && { lineSpacing: from.lineSpacing }),
+    ...(own("lineSpacingStyle") && { lineSpacingStyle: from.lineSpacingStyle }),
+    at: placed.at,
+    height: placed.height,
+    rotation: placed.rotation,
+    value: placed.paragraph.value,
+    ...(!own("width") && width !== undefined && { width }),
+  };
+
+  // SAFETY: only a definition of paragraph text is placed with `paragraph`, and each field is
+  // its own, as the paragraph it draws holds it.
+  return paragraph as Paragraph;
 }
 
 /**
@@ -365,6 +403,7 @@ export function attributeTextStart(
   const up = layoutText({ value: "", height, font: style?.font ?? STANDARD_FONT, valign }).baseline;
   // Each part of the sum is under 1e100, but the sum need not be.
   const held = (n: number): number => Number(readableFifteenDigits(n));
+
   return [held(written(at[0]) - up * Math.sin(turn)), held(written(at[1]) + up * Math.cos(turn))];
 }
 
@@ -385,6 +424,7 @@ export const MIRRORED: Matrix = [-1, 0, 0, 1, 0, 0];
 /** The value an insert gives an attribute: its own for the tag, or the definition's default. */
 export function attributeValue(insert: Insert, definition: AttributeDefinition): string {
   const set = insert.attributes;
+
   return set !== undefined && Object.hasOwn(set, definition.tag)
     ? set[definition.tag]!
     : definition.value;
@@ -396,19 +436,21 @@ export function attributeValue(insert: Insert, definition: AttributeDefinition):
  */
 export function lookupCost(insert: Insert, definition: AttributeDefinition): number {
   const tag: unknown = definition.tag;
-  return insert.attributes !== undefined && typeof tag === "string"
-    ? Math.floor(tag.length / 256)
-    : 0;
+
+  return insert.attributes !== undefined && isString(tag) ? Math.floor(tag.length / 256) : 0;
 }
 
 /** The blocks of a drawing by name, as the leading CAD app looks a block up. */
 export function blocksByKey(blocks: readonly Block[] | undefined): Map<string, Block> {
   const out = new Map<string, Block>();
+
   // The first of a name is the block, as it is for a layer.
   for (const block of filled(blocks)) {
     const key = layerKey(block.name);
+
     if (!out.has(key)) out.set(key, block);
   }
+
   return out;
 }
 
@@ -440,13 +482,47 @@ const DRAWN_FIELDS = [
  * holds.
  */
 export function attributeText(insert: Insert, definition: AttributeDefinition): Text {
-  const text: Record<string, unknown> = { kind: "text" };
-  const given = definition as unknown as Readonly<Record<string, unknown>>;
-  for (const field of DRAWN_FIELDS) {
-    if (Object.hasOwn(given, field)) text[field] = given[field];
-  }
-  text["value"] = attributeValue(insert, definition);
-  return text as unknown as Text;
+  // A definition made by hand may hold a text's own fields too, which the text keeps as it is.
+  const from: GivenFields = definition;
+  const own = (field: (typeof DRAWN_FIELDS)[number]) => Object.hasOwn(from, field);
+
+  const text = {
+    kind: "text",
+    ...(own("id") && { id: from.id }),
+    ...(own("layer") && { layer: from.layer }),
+    ...(own("linetype") && { linetype: from.linetype }),
+    ...(own("lineweight") && { lineweight: from.lineweight }),
+    ...(own("at") && { at: from.at }),
+    ...(own("height") && { height: from.height }),
+    ...(own("rotation") && { rotation: from.rotation }),
+    ...(own("style") && { style: from.style }),
+    ...(own("align") && { align: from.align }),
+    ...(own("valign") && { valign: from.valign }),
+    value: attributeValue(insert, definition),
+  };
+
+  // SAFETY: each field is the definition's own, as the text it draws holds it.
+  return text as Text;
+}
+
+/**
+ * The fields of a text or a paragraph that an attribute definition made by hand may hold, each
+ * as it gives it.
+ */
+interface GivenFields {
+  readonly id?: unknown;
+  readonly layer?: unknown;
+  readonly linetype?: unknown;
+  readonly lineweight?: unknown;
+  readonly at?: unknown;
+  readonly height?: unknown;
+  readonly rotation?: unknown;
+  readonly style?: unknown;
+  readonly width?: unknown;
+  readonly align?: unknown;
+  readonly valign?: unknown;
+  readonly lineSpacing?: unknown;
+  readonly lineSpacingStyle?: unknown;
 }
 
 /**
@@ -515,11 +591,26 @@ const NO_BLOCKS: ReadonlyMap<string, Block> = new Map();
  */
 const LONGEST_NAME = 255;
 
+/** The fields every drawing has, as a value given for an xref holds them before they are checked. */
+interface DrawingFields {
+  readonly layers?: unknown;
+  readonly entities?: unknown;
+  readonly units?: unknown;
+}
+
+/** The fields of an `XrefDrawing`, as a value given for an xref holds them before they are checked. */
+interface XrefFields {
+  readonly drawing?: unknown;
+  readonly xrefs?: unknown;
+  readonly images?: unknown;
+}
+
 /** True for a value with what every drawing has: a list of layers and of entities, and units. */
 function drawingLike(value: unknown): value is Drawing {
-  if (typeof value !== "object" || value === null) return false;
-  const { layers, entities, units } = value as Partial<Drawing>;
-  return Array.isArray(layers) && Array.isArray(entities) && typeof units === "string";
+  if (!isObjectOrArray(value)) return false;
+  const { layers, entities, units }: DrawingFields = value;
+
+  return Array.isArray(layers) && Array.isArray(entities) && isString(units);
 }
 
 /**
@@ -533,17 +624,21 @@ export function drawnXrefs(drawing: Drawing, xrefs: XrefDrawings | undefined): X
     Object.fromEntries(
       [...tree.values()].map((r) => [
         r.name,
-        r.xrefs.size > 0 || r.images !== undefined
-          ? {
-              drawing: r.drawing,
-              ...(r.xrefs.size > 0 ? { xrefs: out(r.xrefs) } : {}),
-              ...(r.images === undefined
-                ? {}
-                : { images: r.images as Readonly<Record<string, Uint8Array>> }),
-            }
-          : r.drawing,
+        r.xrefs.size > 0 || r.images !== undefined ? given(r) : r.drawing,
       ]),
     );
+
+  const given = (r: Referenced): XrefDrawing => {
+    const held: XrefDrawing =
+      r.xrefs.size > 0 ? { drawing: r.drawing, xrefs: out(r.xrefs) } : { drawing: r.drawing };
+
+    // SAFETY: the images given for a drawing are an object, which the pictures read each value
+    // of as a file's bytes or as none.
+    return r.images === undefined
+      ? held
+      : { ...held, images: r.images as Readonly<Record<string, Uint8Array>> };
+  };
+
   return out(referencedTree(drawing, xrefs, () => NO_BLOCKS).xrefs);
 }
 
@@ -556,6 +651,17 @@ export function referencedByKey(
   given: XrefDrawings | undefined,
 ): Map<string, Referenced> {
   return referencedTree(drawing, given).xrefs;
+}
+
+/** The drawings to draw for a drawing's xrefs, and why any drawing given is not drawn. */
+export interface ReferencedTree {
+  readonly xrefs: Map<string, Referenced>;
+  /** The first `XREF_PROBLEMS` problems. */
+  readonly problems: XrefProblem[];
+  /** How many more there were. */
+  readonly unreported: number;
+  /** How many of those were values that are no drawing. */
+  readonly unreportedNonDrawings: number;
 }
 
 /**
@@ -572,72 +678,89 @@ export function referencedByKey(
  */
 export function referencedTree(
   drawing: Pick<Drawing, "xrefs">,
-  given: unknown,
+  given: XrefDrawings | undefined,
   blocksOf: (drawing: Drawing) => ReadonlyMap<string, Block> = (d) => blocksByKey(d.blocks),
-): {
-  readonly xrefs: Map<string, Referenced>;
-  /** The first `XREF_PROBLEMS` problems. */
-  readonly problems: XrefProblem[];
-  /** How many more there were. */
-  readonly unreported: number;
-  /** How many of those were values that are no drawing. */
-  readonly unreportedShapes: number;
-} {
+): ReferencedTree {
   const top = new Map<string, Referenced>();
   const problems: XrefProblem[] = [];
   let unreported = 0;
   /** How many of those past the first `XREF_PROBLEMS` are of the drawing's own xrefs. */
   let outside = 0;
   /** How many of those are values that are no drawing, of any xref and of the drawing's own. */
-  let shapes = 0;
-  let outsideShapes = 0;
+  let nonDrawings = 0;
+  let outsideNonDrawings = 0;
+
   const note = (kind: XrefProblem["kind"], chain: readonly string[]): void => {
     if (problems.length < XREF_PROBLEMS) problems.push({ kind, chain });
     else {
       unreported++;
-      if (kind === "shape") shapes++;
+
+      if (kind === "shape") nonDrawings++;
+
       if (chain.length === 1) outside++;
-      if (chain.length === 1 && kind === "shape") outsideShapes++;
+
+      if (chain.length === 1 && kind === "shape") outsideNonDrawings++;
     }
   };
-  if (given === undefined) return { xrefs: top, problems, unreported, unreportedShapes: 0 };
+
+  if (given === undefined) return { xrefs: top, problems, unreported, unreportedNonDrawings: 0 };
   /** The values of an object given, by the key of each name, the last of a key kept. */
   const values = new WeakMap<object, ReadonlyMap<string, readonly [string, unknown]>>();
-  const valuesOf = (from: unknown): ReadonlyMap<string, readonly [string, unknown]> => {
-    if (typeof from !== "object" || from === null) return NO_VALUES;
+
+  const valuesOf = (open: Open): ReadonlyMap<string, readonly [string, unknown]> => {
+    const from = open.given;
+
+    if (!isKeyed(from)) return NO_VALUES;
     let found = values.get(from);
+
     if (!found) {
       const read = new Map<string, readonly [string, unknown]>();
+
+      // A name too long to be an xref's is passed over before its value is read.
       for (const name of Object.keys(from)) {
         if (name.length > LONGEST_NAME) continue;
-        read.set(layerKey(name), [name, (from as Record<string, unknown>)[name]]);
+        read.set(layerKey(name), [name, from[name]]);
       }
+
       values.set(from, (found = read));
     }
+
     return found;
   };
+
   /**
    * The xrefs of a drawing, by key, the first of a key kept, as `findXref` finds them, read once
    * for each list, which copies of a drawing may share.
    */
   const xrefLists = new WeakMap<object, ReadonlyMap<string, Xref>>();
+
   const xrefsOf = (of: Pick<Drawing, "xrefs">): ReadonlyMap<string, Xref> => {
-    const list: unknown = of.xrefs;
-    if (typeof list !== "object" || list === null) return new Map();
+    // A drawing made by hand may give xrefs of any type, and any item in its list.
+    const list = of.xrefs;
+
+    if (!isObjectOrArray(list)) return new Map();
     let found = xrefLists.get(list);
+
     if (!found) {
       const read = new Map<string, Xref>();
+
       for (const xref of filled(list)) {
-        const name: unknown = (xref as Xref | null)?.name;
-        if (typeof name !== "string" || name.length > LONGEST_NAME) continue;
+        const name: unknown = xref?.name;
+
+        if (!isString(name) || name.length > LONGEST_NAME) continue;
         const key = layerKey(name);
-        if (!read.has(key)) read.set(key, xref as Xref);
+
+        if (!read.has(key)) read.set(key, xref);
       }
+
       xrefLists.set(list, (found = read));
     }
+
     return found;
   };
+
   const blocks = new WeakMap<object, ReadonlyMap<string, Block>>();
+
   /** A drawing given, and the drawings its xrefs stand for, still to look through. */
   interface Open {
     readonly drawing: Pick<Drawing, "xrefs">;
@@ -647,67 +770,86 @@ export function referencedTree(
     /** The drawings above it, from `drawing` itself down. */
     readonly above: readonly object[];
   }
+
   const queue: Open[] = [{ drawing, given, into: top, chain: [], above: [drawing] }];
   let looks = 0;
+
   for (let at = 0; at < queue.length; at++) {
     const open = queue[at]!;
     const inside = open.chain.length > 0;
-    const given = valuesOf(open.given);
+    const given = valuesOf(open);
+
     if (given.size === 0) continue;
     const listed = xrefsOf(open.drawing);
+
     for (const [key, [, value]] of given) {
       // The drawing's own xrefs are read once. What a referenced drawing is given may be shared
       // by many, so each name looked for there counts, and past the limit none is drawn.
       if (inside && ++looks > XREF_LOOKS) {
         for (const [name, referenced] of top) top.set(name, { ...referenced, xrefs: NO_XREFS });
         const outer = problems.filter((problem) => problem.chain.length === 1);
+
         return {
           xrefs: top,
           problems: [...outer, { kind: "many", chain: [] }],
           unreported: outside,
-          unreportedShapes: outsideShapes,
+          unreportedNonDrawings: outsideNonDrawings,
         };
       }
+
       const xref = listed.get(key);
+
       if (xref === undefined || value === undefined) continue;
       const chain = [...open.chain, xref.name];
+
       // An xref of the drawing itself is drawn whatever it is, and one inside another only
       // when it is attached.
       if (inside && xref.attach !== true) {
         note("overlay", chain);
         continue;
       }
-      const nested = typeof value === "object" && value !== null && "drawing" in value;
-      const found: unknown = nested ? (value as XrefDrawing).drawing : value;
-      const inner: unknown = nested ? (value as XrefDrawing).xrefs : undefined;
-      const files: unknown = nested ? (value as XrefDrawing).images : undefined;
+
+      const nested: XrefFields | undefined =
+        isObjectOrArray(value) && "drawing" in value ? value : undefined;
+
+      const found = nested ? nested.drawing : value;
+      const inner = nested?.xrefs;
+      const files = nested?.images;
+
       if (
         !drawingLike(found) ||
-        (inner !== undefined && (typeof inner !== "object" || inner === null)) ||
-        (files !== undefined && (typeof files !== "object" || files === null))
+        (inner !== undefined && !isObjectOrArray(inner)) ||
+        (files !== undefined && !isObjectOrArray(files))
       ) {
         note("shape", chain);
         continue;
       }
+
       if (open.above.includes(found)) {
         note("cycle", chain);
         continue;
       }
+
       if (chain.length > XREF_DEPTH) {
         note("deep", chain);
         continue;
       }
-      const referenced = found as Drawing;
+
+      const referenced = found;
       let held = blocks.get(referenced);
+
       if (!held) blocks.set(referenced, (held = blocksOf(referenced)));
       const into = inner === undefined ? undefined : new Map<string, Referenced>();
-      open.into.set(key, {
+
+      const placed: Referenced = {
         name: xref.name,
         drawing: referenced,
         blocks: held,
         xrefs: into ?? NO_XREFS,
-        ...(files === undefined ? {} : { images: files }),
-      });
+      };
+
+      open.into.set(key, files === undefined ? placed : { ...placed, images: files });
+
       if (into) {
         queue.push({
           drawing: referenced,
@@ -719,7 +861,8 @@ export function referencedTree(
       }
     }
   }
-  return { xrefs: top, problems, unreported, unreportedShapes: shapes };
+
+  return { xrefs: top, problems, unreported, unreportedNonDrawings: nonDrawings };
 }
 
 /** The color of an insert that its entities set ByBlock take: its own, or its layer's. */
@@ -735,8 +878,11 @@ function insertColor(
   outer: BlockColor | undefined,
 ): BlockColor | undefined {
   const color: unknown = insert.color;
+
   if (color === "ByBlock") return outer;
-  if (typeof color === "number" || isRgb(color)) return { color };
+
+  if (isNumber(color) || isRgb(color)) return { color };
+
   return { layer };
 }
 
@@ -746,10 +892,10 @@ function insertColor(
  */
 function insertAlpha(insert: Insert, outer: number | undefined): number | undefined {
   const own: unknown = insert.transparency;
+
   if (own === "ByBlock") return outer;
-  return entityTransparencyProblem(own) === undefined && typeof own === "number"
-    ? alphaOf(own)
-    : undefined;
+
+  return entityTransparencyProblem(own) === undefined && isNumber(own) ? alphaOf(own) : undefined;
 }
 
 /** Where one entity is drawn. */
@@ -877,10 +1023,13 @@ export function eachDrawn(
       insertLayer: undefined,
       from: undefined,
     });
+
     return true;
   }
+
   const open = new Set<Block | Referenced>();
   const stack: Entered[] = [];
+
   /** Enters the block of an insert, when it draws anything. False when `spend` says no. */
   const enter = (
     insert: Insert,
@@ -897,7 +1046,9 @@ export function eachDrawn(
     const block = within.get(name);
     const referenced = block ? undefined : (from ? from.xrefs : xrefs)?.get(name);
     const held = block ?? referenced;
+
     if (!held || open.has(held)) return true;
+
     if (!spend(1)) return false;
     open.add(held);
     const own = insertMatrix(insert, block?.base);
@@ -922,31 +1073,42 @@ export function eachDrawn(
       next: 0,
       entities: true,
     });
+
     return true;
   };
+
   if (!enter(entity, blocks, undefined, undefined, { name: entity.layer }, undefined, undefined)) {
     return false;
   }
+
   // The inserts the walk is in, kept for the placements only when asked for.
   type Chain = readonly { readonly insert: Insert; readonly matrix: Matrix }[];
+
   let chain: Chain = [];
   let chainOf: Entered | undefined;
-  const through = (at: Entered): { inserts?: Chain } => {
+
+  const through = (at: Entered): Pick<Placement, "inserts"> => {
     if (!withInserts) return {};
+
     if (chainOf !== at) {
       chainOf = at;
       chain = stack.map(({ insert, matrix }) => ({ insert, matrix }));
     }
+
     return { inserts: chain };
   };
+
   while (stack.length > 0) {
     const at = stack.at(-1)!;
     const { inside } = at;
+
     const layerOf = (name: string): LayerRef =>
       name === "0" ? at.layer : inside ? { name, of: inside } : { name };
+
     // One at a time, so two that place one block do not find it open.
     if (at.queued !== undefined && at.queued.next < at.queued.inserts.length) {
       const insert = at.queued.inserts[at.queued.next++]!;
+
       if (
         !enter(
           insert,
@@ -961,26 +1123,39 @@ export function eachDrawn(
       ) {
         return false;
       }
+
       continue;
     }
+
     if (at.entities && !holds(at.items, at.next)) [at.entities, at.next] = [false, 0];
+
     if (at.entities) {
       const item = at.items[at.next++]!;
+
       if (!spend(1)) return false;
+
       // Each entity the insert's own block or drawing holds starts with its index.
       if (stack.length === 1) top?.(at.next - 1);
+
       if (item.kind !== "insert") {
-        const placement: Placement = {
-          matrix: at.matrix,
-          layer: layerOf(item.layer),
+        const matrix = at.matrix;
+        const layer = layerOf(item.layer);
+        const { byBlock, byBlockAlpha } = at;
+
+        const plain: Placement = {
+          matrix,
+          layer,
           insertLayer: at.layer,
           from: inside,
-          byBlock: at.byBlock,
-          byBlockAlpha: at.byBlockAlpha,
-          ...(at.byBlockHeld ? { byBlockHeld: true } : {}),
+          byBlock,
+          byBlockAlpha,
           ...through(at),
         };
+
+        const placement: Placement = at.byBlockHeld ? { ...plain, byBlockHeld: true } : plain;
+
         draw(item, placement);
+
         if (inside !== undefined && holding !== undefined) {
           const inserts = holding(item, placement);
           at.queued = inserts.length > 0 ? { inserts, next: 0 } : undefined;
@@ -999,23 +1174,30 @@ export function eachDrawn(
       ) {
         return false;
       }
+
       continue;
     }
+
     if (holds(at.definitions, at.next)) {
       const definition: unknown = at.definitions[at.next++];
+
       if (!isDefinition(definition)) {
         if (!spend(1)) return false;
         continue;
       }
+
       if (!spend(1 + lookupCost(at.insert, definition))) return false;
+
       if (definition.kind === "paragraph") {
         if (!placeable(definition, at.insert)) continue;
         const placed = placeAttribute(definition, undefined, at.insert, at.base);
+
         const flip = placed.mirrored
           ? at.outer
             ? compose(at.outer, MIRRORED)
             : MIRRORED
           : undefined;
+
         draw(attributeParagraph(placed)!, {
           matrix: flip ?? at.outer,
           layer: layerOf(definition.layer),
@@ -1029,6 +1211,7 @@ export function eachDrawn(
         });
         continue;
       }
+
       draw(attributeText(at.insert, definition), {
         matrix: at.matrix,
         layer: layerOf(definition.layer),
@@ -1041,8 +1224,10 @@ export function eachDrawn(
       });
       continue;
     }
+
     open.delete(at.held);
     stack.pop();
   }
+
   return true;
 }

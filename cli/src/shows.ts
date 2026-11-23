@@ -36,71 +36,87 @@ export async function shows(request: ShowsRequest): Promise<{ json: unknown; cod
   const files = [request.file, ...Object.values(request.xrefs)].map((f) => resolve(f));
   const readers = findReaders({ cwd, inputs: files, reader: request.reader });
   const cache = new ReadCache(cacheFolder(readers.project));
+
   const read = async (file: string): Promise<CachedRead> =>
     cache.read(file, readerFor(readers, extname(file)), {}, { geometry: true });
+
   const host = await read(resolve(request.file));
+
   if (!("read" in host)) return { json: { file: host.file, skipped: host.skipped }, code: 1 };
   const skipped: { xref: string; file: string; skipped: string }[] = [];
   // A block name's letters A to Z are one in either case, as the leading CAD app compares them.
   const key = (name: string) => name.replace(/[a-z]/g, (c) => c.toUpperCase());
   const given = new Map(Object.entries(request.xrefs).map(([name, f]) => [key(name), f]));
+  // Past XREF_NODES, the walk stops reading xrefs, and the answer says so.
   let nodes = 0;
-  let xrefsCapped = false;
+
   /**
    * The reads of the xrefs a read names that were given, and of theirs below. Inside an xref only
    * its attachments are followed, as CAD programs load no overlay of a referenced drawing.
    */
   const xrefsOf = async (of: DrawingRead, depth: number, chain: Set<string>) => {
     const out: ReadXrefs = {};
+
     if (depth >= XREF_DEPTH) return out;
+
     for (const xref of of.xrefs) {
       if (depth > 0 && xref.overlay) continue;
       const file = given.get(key(xref.name));
+
       if (file === undefined) continue;
       const path = resolve(file);
+
       if (chain.has(path)) continue;
-      if (++nodes > XREF_NODES) {
-        xrefsCapped = true;
-        continue;
-      }
+
+      if (++nodes > XREF_NODES) continue;
+
       const found = await read(path);
+
       if (!("read" in found)) {
         skipped.push({ xref: xref.name, file: path, skipped: found.skipped });
         continue;
       }
+
       const below = await xrefsOf(found.read, depth + 1, new Set([...chain, path]));
       out[xref.name] =
         Object.keys(below).length > 0 ? { read: found.read, xrefs: below } : found.read;
     }
+
     return out;
   };
+
   const xrefs = await xrefsOf(host.read, 0, new Set([resolve(request.file)]));
+
   const where =
     request.sheet !== undefined
       ? { sheet: request.sheet }
       : request.layout !== undefined
         ? { layout: request.layout }
         : {};
+
   const answer =
     request.near !== undefined
       ? nearPoint(host.read, request.near, { xrefs, within: request.within ?? 0, ...where })
       : request.sheet !== undefined
         ? sheetShows(host.read, request.sheet, { xrefs })
         : spaceShows(host.read, { xrefs, ...where });
+
   const base = {
     file: host.file,
     reader: host.reader,
     from: host.from,
     ...where,
     xrefs: Object.keys(xrefs),
-    ...(xrefsCapped ? { xrefsCapped: true } : {}),
-    ...(skipped.length > 0 ? { skipped } : {}),
+    ...(nodes > XREF_NODES && { xrefsCapped: true }),
+    ...(skipped.length > 0 && { skipped }),
   };
+
   if (answer === undefined) {
     return {
       json: { ...base, error: `the file has no layout ${request.sheet ?? request.layout}` },
       code: 1,
     };
   }
+
   return { json: { ...base, ...answer }, code: 0 };
 }

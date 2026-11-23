@@ -2,6 +2,7 @@
 // refuses under a standard, for a drawing made by other code or read from JSON, under the same
 // rules, and what only the whole drawing shows, such as the height a text plots at in each
 // viewport that shows it. The leading CAD app opens a drawing that breaks them: they are the firm's.
+import { isKeyed, isNumber, isObjectOrArray, isString } from "../guards.ts";
 import { JOG_ANGLE } from "../arrowheads.ts";
 import { isDimension } from "../dimensions.ts";
 import { DEFAULT_ARROWHEAD, DEFAULT_LEADER_ARROWHEAD } from "../arrowheads.ts";
@@ -28,6 +29,7 @@ import type {
   Linetype,
   Point,
   Paragraph,
+  ParagraphAttributeDefinition,
   Text,
   TextStyle,
   Viewport,
@@ -41,8 +43,8 @@ import { canonical } from "../json.ts";
 import { layerKey } from "../layers.ts";
 import { leaderPicture } from "../leaders.ts";
 import { validViewportView, viewReaches } from "../layouts.ts";
-import type { Diagnostic, LintRule } from "../lint.ts";
-import { inStyle, measureText } from "../measure.ts";
+import { aboutWith, type Diagnostic, type LintRule } from "../lint.ts";
+import { inStyle, measureText, type TextToMeasure } from "../measure.ts";
 import { measureParagraph, paragraphInStyle } from "../paragraphs.ts";
 import { DEFAULT_PLOT_STYLE_TABLE, paperInfo } from "../papers.ts";
 import {
@@ -95,8 +97,10 @@ const MAX_WORK = 1_000_000;
 
 const IN_VIEWPORT =
   "it was sized for another scale. Draw it in the view of the viewport that shows it";
+
 const ON_LAYOUT =
   "a text on a layout plots at its height. Draw it in its role, and insert its block at a scale of 1";
+
 const LEADER_NOTE =
   "a leader's note takes its text style and height from a role. Give the leader role, in place of textStyle and textHeight";
 
@@ -121,60 +125,81 @@ export function lintStandard(
 ): void {
   const problems: Problem[] = [];
   let standard: Standard | undefined;
+
   try {
     standard = adopted(given, problems);
   } catch (thrown) {
     // lint never throws, whatever it is given as a standard.
-    problems.push({ item: "", message: String((thrown as Error)?.message ?? thrown) });
+    problems.push({
+      item: "",
+      message: String(isKeyed(thrown) ? (thrown.message ?? thrown) : thrown),
+    });
   }
+
   if (!standard) {
     out.push({ rule: "standard", severity: "error", message: notChecked(problems) });
+
     return;
   }
+
   const index = indexOf(standard);
+
   const error = (rule: LintRule, message: string, about: Partial<Diagnostic> = {}): void => {
     out.push({ rule, severity: "error", message, ...about });
   };
+
   const warn = (rule: LintRule, message: string, about: Partial<Diagnostic> = {}): void => {
     out.push({ rule, severity: "warning", message, ...about });
   };
+
   if (version === "R12") error("standard", DRAWN.r12);
 
   // The drawing's discipline, which resolves the entries with fields by discipline.
   let known: string | undefined;
+
   if (discipline !== undefined) {
-    if (typeof discipline !== "string") error("standard", "A discipline is named by a string");
+    if (!isString(discipline)) error("standard", "A discipline is named by a string");
     else if (standard.sheetFiles === "one-drawing") error("standard", DRAWN.disciplineOneDrawing);
     else {
       known = Object.keys(standard.disciplines).find((id) => idKey(id) === idKey(discipline));
+
       if (known === undefined) error("standard", disciplineLacks(discipline, standard));
     }
   }
+
   /** The entries with fields by discipline that went unchecked, for lack of a discipline. */
   const skipped = new Set<string>();
+
   /** An entry as the drawing's discipline resolves it, or undefined when that is not known. */
   const resolved = <E extends { readonly byDiscipline?: { readonly [d: string]: object } }>(
     entry: E,
     what: string,
   ): E | undefined => {
     if (!entry.byDiscipline) return entry;
+
     if (known === undefined) {
       skipped.add(what);
+
       return undefined;
     }
+
     return { ...entry, ...entry.byDiscipline[known] };
   };
 
   const units = isUnits(drawing.units) ? drawing.units : undefined;
-  const sound = <T>(check: Check, list: readonly unknown[]): T[] =>
-    list.filter((item) => isSound(check, item, false)) as T[];
+
+  const sound = <T>(check: Check, list: readonly T[]): T[] =>
+    list.filter((item) => isSound(check, item, false));
+
   const layers = sound<Layer>(TYPED.layer, filled(drawing.layers));
   const linetypes = sound<Linetype>(TYPED.linetype, filled(drawing.linetypes));
   const textStyles = sound<TextStyle>(TYPED.textStyle, filled(drawing.textStyles));
+
   const dimensionStyles = sound<DimensionStyle>(
     TYPED.dimensionStyle,
     filled(drawing.dimensionStyles),
   );
+
   const leaderStyles = sound<LeaderStyle>(TYPED.leaderStyle, filled(drawing.leaderStyles));
   const blocks = sound<Block>(TYPED.block, filled(drawing.blocks));
   const xrefs = sound<Xref>(TYPED.xref, filled(drawing.xrefs));
@@ -182,11 +207,15 @@ export function lintStandard(
   const layouts = sound<Layout>(TYPED.layout, layoutList);
   const isEntity = (e: unknown): e is Entity => isSound(TYPED.entity, e, false);
   const isDefinition = (a: unknown): a is AttributeDefinition => isSound(TYPED.attribute, a, false);
+
   const first = <T extends { readonly name: string }>(list: readonly T[]): Map<string, T> => {
     const map = new Map<string, T>();
+
     for (const item of list) if (!map.has(layerKey(item.name))) map.set(layerKey(item.name), item);
+
     return map;
   };
+
   const stylesByKey = first(textStyles);
   const blocksByName = first(blocks);
   const xrefsByName = first(xrefs);
@@ -196,14 +225,18 @@ export function lintStandard(
     if (layerKey(layer.name) === "0") continue;
     const found = index.layers.get(layerKey(layer.name));
     const about = { layer: layer.name };
+
     if (!found) {
       error("layer-outside-standard", layerLacks(layer.name, standard), about);
       continue;
     }
+
     const [name, entry] = found;
     const fields = resolved(entry, `the layer ${shown(name)}`);
+
     if (!fields) continue;
     const pen = fields.pen === undefined ? undefined : standard.pens[fields.pen];
+
     /** Reports a field of the layer, each value as a message shows it. */
     const differs = (field: string, value: string, own: string): void => {
       error(
@@ -212,16 +245,23 @@ export function lintStandard(
         about,
       );
     };
+
     if (layer.color !== fields.color) differs("color", shown(layer.color), shown(fields.color));
     const linetype = layer.linetype ?? "Continuous";
+
     if (layerKey(linetype) !== layerKey(fields.linetype)) {
       differs("linetype", shown(linetype), shown(fields.linetype));
     }
+
     const lineweight = layer.lineweight ?? "Default";
     const own = pen?.lineweight ?? "Default";
-    const mm = (weight: unknown) => (typeof weight === "number" ? `${weight} mm` : shown(weight));
+
+    const mm = (weight: typeof lineweight | typeof own) =>
+      isNumber(weight) ? `${weight} mm` : shown(weight);
+
     if (lineweight !== own) differs("lineweight", mm(lineweight), mm(own));
     const plot = layer.plot ?? true;
+
     if (plot !== fields.plot) differs("plot", shown(plot), shown(fields.plot));
   }
 
@@ -229,12 +269,15 @@ export function lintStandard(
   for (const linetype of first(linetypes).values()) {
     const found = index.linetypes.get(layerKey(linetype.name));
     const about = { linetype: linetype.name };
+
     if (!found) {
       error("linetype-outside-standard", linetypeLacks(linetype.name, standard), about);
       continue;
     }
+
     const [, own] = found;
     const label = `Linetype ${shown(linetype.name)}`;
+
     if (!samePattern(linetype.pattern, own.pattern)) {
       error(
         "linetype-differs-from-standard",
@@ -242,6 +285,7 @@ export function lintStandard(
         about,
       );
     }
+
     // A standard's linetype draws no text or shape, so one with marks is not the standard's.
     if (Array.isArray(linetype.marks) && linetype.marks.length > 0) {
       error(
@@ -250,6 +294,7 @@ export function lintStandard(
         about,
       );
     }
+
     if (linetype.description !== own.description) {
       error(
         "linetype-differs-from-standard",
@@ -258,8 +303,10 @@ export function lintStandard(
       );
     }
   }
+
   const scale: unknown = drawing.linetypeScale ?? 1;
-  if (typeof scale === "number" && written(scale) !== written(standard.linetypeScale)) {
+
+  if (isNumber(scale) && written(scale) !== written(standard.linetypeScale)) {
     error(
       "linetype-differs-from-standard",
       `The drawing's linetypeScale is ${shown(scale)}, and the standard's is ${standard.linetypeScale}. Leave linetypeScale to the standard`,
@@ -269,10 +316,12 @@ export function lintStandard(
   // The text styles: a role's, or a title block's.
   const roleOf = (style: string | undefined) =>
     style === undefined ? undefined : index.roleStyles.get(layerKey(style));
+
   for (const style of first(textStyles).values()) {
     if (isStandardTextStyle(style.name)) continue;
     const about = { textStyle: style.name };
     const role = roleOf(style.name);
+
     if (!role) {
       if (!index.titleBlockStyles.has(layerKey(style.name))) {
         error(
@@ -281,24 +330,32 @@ export function lintStandard(
           about,
         );
       }
+
       continue;
     }
+
     const [id, entry] = role;
     const fields = resolved(entry, `the text role ${shown(id)}`);
+
     if (!fields) continue;
-    const differs = (field: string, value: unknown, own: unknown): void => {
+
+    const differs = (field: string, value: string | number, own: string | number): void => {
       error(
         "text-style-differs-from-standard",
         `Text style ${shown(style.name)} has ${field} ${shown(value)}, and the role ${shown(id)} gives it ${field} ${shown(own)}`,
         about,
       );
     };
+
     if (style.font !== fields.font) differs("font", style.font, fields.font);
     const widthFactor = style.widthFactor ?? 1;
+
     if (written(widthFactor) !== written(fields.widthFactor)) {
       differs("widthFactor", widthFactor, fields.widthFactor);
     }
+
     const obliqueAngle = style.obliqueAngle ?? 0;
+
     if (written(obliqueAngle) !== written(fields.obliqueAngle)) {
       differs("obliqueAngle", obliqueAngle, fields.obliqueAngle);
     }
@@ -314,19 +371,25 @@ export function lintStandard(
     string,
     { readonly shown: string; readonly scale: StandardScale | null; readonly reads: number }
   >();
+
   const shownStyles = first(dimensionStyles);
+
   for (const style of shownStyles.values()) {
     if (isStandardDimensionStyle(style.name)) continue;
     const about = { dimensionStyle: style.name };
     const label = `Dimension style ${shown(style.name)}`;
     const found = index.dimensionStyle(layerKey(style.name));
+
     if (!found) {
       error("dimension-style-outside-standard", `${label}: ${DRAWN.dimensionStyleDefined}`, about);
       continue;
     }
+
     const { id, entry, scale: at } = found;
+
     const reads =
       (style.prefix?.length ?? 0) + (style.suffix?.length ?? 0) + (style.textStyle?.length ?? 0);
+
     styleRatio.set(layerKey(style.name), {
       shown: shown(style.name),
       scale: at?.[1] ?? null,
@@ -335,14 +398,18 @@ export function lintStandard(
     const fields = resolved(entry, `the dimension style ${shown(id)}`);
     const roleFound = fields && index.roles.get(idKey(fields.role));
     const role = roleFound && resolved(roleFound[1], `the text role ${shown(roleFound[0])}`);
+
     if (!fields || !roleFound || !role) continue;
     const writingUnits = at ? units : standard.paperUnits;
+
     if (writingUnits === undefined) continue;
     const writing = fields.writing[writingUnits];
+
     if (!writing) {
       error("dimension-style", `${label}: ${writingLacks(id, writingUnits, standard)}`, about);
       continue;
     }
+
     const expected: readonly (readonly [string, unknown, unknown])[] = [
       ["textStyle", style.textStyle ?? "Standard", capitals(roleFound[0])],
       ["textHeight", style.textHeight, role.height],
@@ -384,13 +451,15 @@ export function lintStandard(
       ["dimensionLineweight", style.dimensionLineweight, fields.dimensionLineweight],
       ["extensionLineweight", style.extensionLineweight, fields.extensionLineweight],
     ];
+
     for (const [field, value, own] of expected) {
       const same =
-        field === "textStyle"
-          ? layerKey(value as string) === layerKey(own as string)
-          : typeof value === "number" && typeof own === "number"
+        field === "textStyle" && isString(value) && isString(own)
+          ? layerKey(value) === layerKey(own)
+          : isNumber(value) && isNumber(own)
             ? written(value) === written(own)
             : value === own;
+
       if (same) continue;
       error(
         "dimension-style-differs-from-standard",
@@ -415,17 +484,22 @@ export function lintStandard(
       offStyle: boolean;
     }
   >();
+
   const shownLeaderStyles = first(leaderStyles);
+
   for (const style of shownLeaderStyles.values()) {
     if (isStandardLeaderStyle(style.name)) continue;
     const about = { leaderStyle: style.name };
     const label = `Leader style ${shown(style.name)}`;
     const found = index.leaderStyle(layerKey(style.name));
+
     if (!found) {
       error("leader-style-outside-standard", `${label}: ${DRAWN.leaderStyleDefined}`, about);
       continue;
     }
+
     const { id, entry, scale: at } = found;
+
     const ratio = {
       shown: shown(style.name),
       scale: at?.[1] ?? null,
@@ -434,12 +508,16 @@ export function lintStandard(
       offHeight: false,
       offStyle: false,
     };
+
     leaderRatio.set(layerKey(style.name), ratio);
     const fields = resolved(entry, `the leader style ${shown(id)}`);
     const roleFound = fields && index.roles.get(idKey(fields.role));
     const role = roleFound && resolved(roleFound[1], `the text role ${shown(roleFound[0])}`);
+
     if (!fields || !roleFound || !role) continue;
+
     if (at && !units) continue;
+
     const expected: readonly (readonly [string, unknown, unknown])[] = [
       ["textStyle", style.textStyle ?? "Standard", capitals(roleFound[0])],
       ["textHeight", style.textHeight, role.height],
@@ -458,15 +536,19 @@ export function lintStandard(
         at && units ? modelLength(1, standard.paperUnits, at[1].ratio, units) : 1,
       ],
     ];
+
     for (const [field, value, own] of expected) {
       const same =
-        field === "textStyle"
-          ? layerKey(value as string) === layerKey(own as string)
-          : typeof value === "number" && typeof own === "number"
+        field === "textStyle" && isString(value) && isString(own)
+          ? layerKey(value) === layerKey(own)
+          : isNumber(value) && isNumber(own)
             ? written(value) === written(own)
             : value === own;
+
       if (same) continue;
+
       if (field === "textHeight") ratio.offHeight = true;
+
       if (field === "textStyle") ratio.offStyle = true;
       error(
         "leader-style-differs-from-standard",
@@ -486,60 +568,77 @@ export function lintStandard(
    * of the standard's, which it then cannot be.
    */
   const drawnJson = new Map<Check, Map<object, { json: string | undefined; length: number }>>();
-  const jsonOfDrawn = (check: Check, found: object, length: number): string | undefined => {
+
+  const jsonOfDrawn = (check: Check, found: Drawable, length: number): string | undefined => {
     let ofKind = drawnJson.get(check);
+
     if (!ofKind) drawnJson.set(check, (ofKind = new Map()));
     const known = ofKind.get(found);
+
     if (known && known.length >= length) return known.json;
     let json: string | undefined;
     // Only JSON cut short at `length` is written again, for a longer definition of the standard.
     let upTo = Infinity;
+
     if (isSound(check, found)) {
       json = guarded(() => canonical(found, "A definition", undefined, length));
+
       if (json === undefined) upTo = length;
     }
+
     ofKind.set(found, { json, length: upTo });
+
     return json;
   };
+
   for (const block of index.titleBlocks) {
     const placed =
       (block.blockName !== undefined && blocksByName.has(layerKey(block.blockName))) ||
       (block.xref !== undefined && xrefsByName.has(layerKey(block.xref.name)));
+
     if (!placed) continue;
     const differ: string[] = [];
     const missing: string[] = [];
+
     const compare = (
       kind: string,
       check: Check,
       own: ReadonlyMap<string, { readonly name: string; readonly json: string }>,
-      drawn: ReadonlyMap<string, object>,
+      drawn: ReadonlyMap<string, Drawable>,
     ): void => {
       for (const [key, { name, json }] of own) {
         const found = drawn.get(key);
+
         if (!found) missing.push(`${kind} ${shown(name)}`);
         else if (jsonOfDrawn(check, found, json.length) !== json) {
           differ.push(`${kind} ${shown(name)}`);
         }
       }
     };
+
     compare("block", TYPED.block, block.blocks, blocksByName);
     compare("text style", TYPED.textStyle, block.textStyles, stylesByKey);
     compare("linetype", TYPED.linetype, block.linetypes, linetypesByKey);
+
     if (block.xref) {
       const found = xrefsByName.get(layerKey(block.xref.name));
+
       if (!found) missing.push(`xref ${shown(block.xref.name)}`);
       else if (found.path !== block.xref.path) differ.push(`xref ${shown(block.xref.name)}`);
     }
+
     if (differ.length === 0 && missing.length === 0) {
       for (const key of block.blocks.keys()) standardBlocks.add(key);
       continue;
     }
+
     const parts = [
       ...(differ.length > 0
         ? [`its ${listed(differ)} ${differ.length === 1 ? "is" : "are"} not the standard's`]
         : []),
       ...(missing.length > 0 ? [`the drawing has no ${listed(missing)} of it`] : []),
     ];
+
     error(
       "title-block-differs-from-standard",
       `The title block ${shown(block.id)} of the standard: ${parts.join(", and ")}. Place it with sheet.titleBlock(), which copies it from the standard`,
@@ -553,54 +652,76 @@ export function lintStandard(
   // texts plot at and the scales dimensions are shown at. Past the limit, no more is checked.
   let work = 0;
   let capped: string | undefined;
+
   const spend = (cost: number): boolean => {
     if (capped !== undefined) return false;
     work += cost;
+
     return work <= most;
   };
+
   /** The lists of entities and definitions read, so that one many blocks share is paid again. */
   const read = new WeakSet<object>();
   /** True when the checks stopped at a list or a long string that many places share. */
   let shared = false;
   /** The strings of 256 characters or more the checks have read. */
   const long = new Strings<true>();
+
   /**
    * Whether an object may be read: free, unless a field these checks read or quote holds a long
    * string another place holds, which is read and quoted again, and paid for by its length.
    */
-  const fresh = (object: object, at: string): boolean => {
+  const fresh = (object: Entity | AttributeDefinition, at: string): boolean => {
     let cost = 0;
-    const fields = object as Readonly<Record<string, unknown>>;
+
+    const fields: FreshFields = object;
+
     for (const field of ["layer", "style", "textStyle", "lineweight", "tag"] as const) {
       const value = fields[field];
-      if (typeof value !== "string" || value.length < 256) continue;
+
+      if (!isString(value) || value.length < 256) continue;
+
       // Past the limit a long string is not looked up, which compares it with another.
       if (capped !== undefined) return false;
+
       // One that took the place of another of its length counts as read before.
       if (long.get(value) !== undefined || long.clashes(value)) {
         cost += Math.floor(value.length / 32);
       }
+
       long.set(value, true);
     }
+
     if (cost === 0 || spend(cost)) return true;
+
     if (capped === undefined) {
       capped = `at ${at}`;
       shared = true;
     }
+
     return false;
   };
+
   /** Whether a list may be read: once free, and again for another block when paid for. */
-  const affordable = (list: unknown, of: string): boolean => {
+  const affordable = (
+    list: readonly (Entity | AttributeDefinition | string)[] | undefined,
+    of: string,
+  ): boolean => {
     if (!Array.isArray(list)) return true;
+
     if (!read.has(list)) {
       read.add(list);
+
       return true;
     }
+
     if (spend(list.length)) return true;
+
     if (capped === undefined) {
       capped = `at the list${of || " of model space"}`;
       shared = true;
     }
+
     return false;
   };
 
@@ -620,7 +741,7 @@ export function lintStandard(
 
   // Each entity and attribute definition: its layer, its text style and its pen.
   const lintEntities = (
-    entities: unknown,
+    entities: readonly Entity[] | undefined,
     where: { readonly block?: string; readonly layout?: string },
   ): void => {
     const of =
@@ -629,28 +750,35 @@ export function lintStandard(
         : where.layout !== undefined
           ? ` of layout ${shown(where.layout)}`
           : "";
+
     const again = Array.isArray(entities) && read.has(entities);
+
     if (!affordable(entities, of)) return;
     const say = again ? paid(`the list${of || " of model space"}`) : error;
     filled(entities).forEach((entity, i) => {
       if (!isEntity(entity) || !fresh(entity, `${entity.kind} #${i}${of}`)) return;
-      const call = callOf(entities as object[], i);
-      const about = {
-        ...where,
-        entity: i,
-        ...(typeof entity.id === "string" ? { id: entity.id } : {}),
-        ...(call ? { call } : {}),
-      };
+      const call = callOf(entities!, i);
+
+      const about = aboutWith(
+        { ...where, entity: i },
+        isString(entity.id) ? entity.id : undefined,
+        call,
+      );
+
       const label = `${entity.kind} #${i}${of}`;
+
       if (where.block === undefined && layerKey(entity.layer) === "0") {
         say("layer-outside-standard", `${label}: ${DRAWN.layerZero}`, about);
       }
+
       if ((entity.kind === "text" || entity.kind === "paragraph") && !roleOf(entity.style)) {
         say("text-style-outside-standard", `${label}: ${DRAWN.textWithoutRole}`, about);
       }
+
       if (entity.kind === "leader" && entity.textStyle !== undefined && !roleOf(entity.textStyle)) {
         say("text-style-outside-standard", `${label}: ${DRAWN.leaderRoleAndText}`, about);
       }
+
       if (
         entity.kind === "insert" ||
         entity.kind.endsWith("-dimension") ||
@@ -658,31 +786,40 @@ export function lintStandard(
       ) {
         return;
       }
-      const weight = (entity as { readonly lineweight?: unknown }).lineweight;
+
+      const styled: FreshFields = entity;
+      const weight = styled.lineweight;
+
       if (weight === undefined || weight === "ByLayer" || weight === "ByBlock") return;
-      if (typeof weight === "number" && index.pens.has(written(weight))) return;
+
+      if (isNumber(weight) && index.pens.has(written(weight))) return;
       say("pen-outside-standard", `${label}: ${penProblem(weight, index)}`, about);
     });
   };
+
   lintEntities(drawing.entities, {});
+
   for (const block of blocksByName.values()) {
     if (standardBlocks.has(layerKey(block.name))) continue;
     lintEntities(block.entities, { block: block.name });
     const of = ` of block ${shown(block.name)}`;
     const again = Array.isArray(block.attributes) && read.has(block.attributes);
+
     if (!affordable(block.attributes, of)) continue;
     const say = again ? paid(`the list${of}`) : error;
     filled(block.attributes).forEach((definition, i) => {
       if (!isDefinition(definition) || roleOf(definition.style)) return;
+
       if (!fresh(definition, `an attribute${of}`)) return;
       const call = callOf(block.attributes!, i);
       say(
         "text-style-outside-standard",
         `Block ${shown(block.name)}, attribute ${shown(definition.tag)}: ${DRAWN.textWithoutRole}`,
-        { block: block.name, attribute: definition.tag, ...(call ? { call } : {}) },
+        aboutWith({ block: block.name, attribute: definition.tag }, undefined, call),
       );
     });
   }
+
   for (const layout of layouts) lintEntities(layout.entities, { layout: layout.name });
 
   // The sheets.
@@ -693,22 +830,29 @@ export function lintStandard(
       });
     }
   }
+
   /** The first sound attribute definition of each tag a block has, worked out once a block. */
   const definitions = new Map<object, Map<string, AttributeDefinition>>();
+
   const definitionsOf = (block: Block): ReadonlyMap<string, AttributeDefinition> => {
     // Read once for each list, however many blocks share it.
     const list: unknown = block.attributes;
-    const key = typeof list === "object" && list !== null ? list : block;
+    const key = isObjectOrArray(list) ? list : block;
     let found = definitions.get(key);
+
     if (!found) {
       found = new Map();
+
       for (const a of filled(block.attributes)) {
         if (isDefinition(a) && !found.has(a.tag)) found.set(a.tag, a);
       }
+
       definitions.set(key, found);
     }
+
     return found;
   };
+
   /**
    * Each viewport as the checks read it, worked out once for each: nothing when it is not sound,
    * and otherwise its fields without its list of frozen layers, and that list apart. Only this
@@ -719,90 +863,96 @@ export function lintStandard(
     object,
     { readonly viewport: Viewport; readonly frozen: readonly string[] } | null
   >();
-  const checkedViewport = (viewport: unknown, where: string) => {
-    if (typeof viewport !== "object" || viewport === null) return undefined;
+
+  const checkedViewport = (viewport: Viewport, where: string) => {
+    if (!isObjectOrArray(viewport)) return undefined;
     let checked = checkedViewports.get(viewport);
+
     if (checked === undefined) {
-      const list: unknown = (viewport as { readonly frozenLayers?: unknown }).frozenLayers;
+      const list = viewport.frozenLayers;
       checked = null;
+
       if (
         affordable(list, ` of frozen layers of ${where}`) &&
         isSound(TYPED.viewport, viewport, false)
       ) {
         // Each field is read by name, as the shape check reads it, so one it inherits counts.
-        const { layer, corner, width, height, center, ratio, id, twist } = viewport as Viewport;
-        const fields: Viewport = {
-          layer,
-          corner,
-          width,
-          height,
-          center,
-          ratio,
-          ...(id === undefined ? {} : { id }),
-          ...(twist === undefined ? {} : { twist }),
-        };
-        checked = { viewport: fields, frozen: Array.isArray(list) ? (list as string[]) : NONE };
+        const { layer, corner, width, height, center, ratio, id, twist } = viewport;
+        let fields: Viewport = { layer, corner, width, height, center, ratio };
+
+        if (id !== undefined) fields = { ...fields, id };
+
+        if (twist !== undefined) fields = { ...fields, twist };
+        checked = { viewport: fields, frozen: Array.isArray(list) ? list : NONE };
       }
+
       checkedViewports.set(viewport, checked);
     }
+
     return checked ?? undefined;
   };
+
   /** Each sound viewport of a layout, with its index and what a diagnostic about it carries. */
   const viewportsOf = (layout: Layout) =>
     filled(layout.viewports).flatMap((viewport, i) => {
       const checked = checkedViewport(viewport, `viewport #${i} of layout ${shown(layout.name)}`);
+
       if (!checked) return [];
       const v = checked.viewport;
       const call = callOf(layout.viewports, i);
-      const about = {
-        layout: layout.name,
-        viewport: i,
-        ...(typeof v.id === "string" ? { id: v.id } : {}),
-        ...(call ? { call } : {}),
-      };
+
+      const about = aboutWith(
+        { layout: layout.name, viewport: i },
+        isString(v.id) ? v.id : undefined,
+        call,
+      );
+
       return [{ viewport: v, i, about, name: `viewport #${i} of layout ${shown(layout.name)}` }];
     });
+
   for (const layout of layouts) {
     for (const { viewport, about, name } of viewportsOf(layout)) {
-      if (typeof viewport.ratio !== "number" || index.scalesByRatio.has(written(viewport.ratio))) {
+      if (!isNumber(viewport.ratio) || index.scalesByRatio.has(written(viewport.ratio))) {
         continue;
       }
+
       error(
         "scale-outside-standard",
         `${name}: its ratio, ${viewport.ratio}, is no scale of the standard ${shown(standard.id)} version ${standard.version}. Show a view at one of its scales, as sheet.viewport(corner, width, height, { view, center })`,
         about,
       );
     }
+
     const paper = paperInfo(layout.paper);
+
     if (!paper) continue;
     const label = `Layout ${shown(layout.name)}`;
     const about = { layout: layout.name };
+
     const inserts = filled(layout.entities).flatMap((e, i) =>
       isEntity(e) && e.kind === "insert" ? [[i, e] as const] : [],
     );
+
     /** What a diagnostic about the layout's entity `i` carries. */
-    const entityAbout = (i: number, id: string | undefined) => {
-      const call = callOf(layout.entities, i);
-      return {
-        layout: layout.name,
-        entity: i,
-        ...(id === undefined ? {} : { id }),
-        ...(call ? { call } : {}),
-      };
-    };
+    const entityAbout = (i: number, id: string | undefined) =>
+      aboutWith({ layout: layout.name, entity: i }, id, callOf(layout.entities, i));
+
     /** The blocks and xrefs the layout's inserts name, whether or not another rule can read them. */
     const named = new Set<string>();
+
     for (const e of filled(layout.entities)) {
-      const insert = (e as { readonly kind?: unknown; readonly block?: unknown } | null) ?? {};
-      if (insert.kind === "insert" && typeof insert.block === "string") {
-        named.add(layerKey(insert.block));
-      }
+      if (isObjectOrArray(e) && e.kind === "insert" && isString(e.block))
+        named.add(layerKey(e.block));
     }
+
     const placed = (name: string | undefined): boolean =>
       name !== undefined && named.has(layerKey(name));
+
     const insertsOf = (name: string | undefined) =>
       name === undefined ? [] : inserts.filter(([, e]) => layerKey(e.block) === layerKey(name));
+
     const onPaper = index.formatsByPaper.get(layout.paper);
+
     if (!onPaper) {
       error(
         "sheet-format-outside-standard",
@@ -811,31 +961,39 @@ export function lintStandard(
       );
       continue;
     }
+
     // Among several on its paper, the layout's sheet formats are those whose title block it
     // inserts, and of those, the ones whose plot style table it has. Each step reads only the
     // title blocks the layout inserts.
     let blocks: readonly TitleBlockIndex[];
+
     if (onPaper.formats.length === 1) blocks = [onPaper.formats[0]!.block];
     else {
       const found = new Set<TitleBlockIndex>();
+
       for (const key of named) for (const b of onPaper.byPart.get(key) ?? []) found.add(b);
       blocks = [...found].sort(
         (a, b) => onPaper.byBlock.get(a)!.order - onPaper.byBlock.get(b)!.order,
       );
     }
-    const table = layout.plotStyle ?? DEFAULT_PLOT_STYLE_TABLE;
-    const hasTable = (b: TitleBlockIndex) => onPaper.byBlock.get(b)!.byTable.has(table as string);
-    const held = blocks.length > 0 ? blocks.some(hasTable) : onPaper.tables.has(table as string);
+
+    const table: string = layout.plotStyle ?? DEFAULT_PLOT_STYLE_TABLE;
+    const hasTable = (b: TitleBlockIndex) => onPaper.byBlock.get(b)!.byTable.has(table);
+    const held = blocks.length > 0 ? blocks.some(hasTable) : onPaper.tables.has(table);
+
     if (!held) {
       const first =
         blocks.length > 0 ? onPaper.byBlock.get(blocks[0]!)!.all[0]! : onPaper.formats[0]!;
+
       error(
         "sheet-format-outside-standard",
         `${label}: its plot style table is ${shown(table)}, and its sheet format gives it ${shown(first.table)}. Leave the plot style table to the sheet format`,
         about,
       );
     }
+
     const narrowed = held ? blocks.filter(hasTable) : blocks;
+
     // Sheet formats that share a title block are checked alike.
     if (narrowed.length !== 1) {
       warn(
@@ -845,19 +1003,22 @@ export function lintStandard(
       );
       continue;
     }
+
     const block = narrowed[0]!;
     const ofBlock = onPaper.byBlock.get(block)!;
-    const formats = held ? ofBlock.byTable.get(table as string)! : ofBlock.all;
+    const formats = held ? ofBlock.byTable.get(table)! : ofBlock.all;
     const format = formatLabel(formats);
 
     // The viewports keep inside the drawing area and out of the title block's box.
     const [left, bottom, right, top] = block.titleBlock.drawingArea.map(written);
     const box = block.titleBlock.box?.map(written);
+
     for (const { viewport: v, about: where, name } of viewportsOf(layout)) {
       const x0 = written(v.corner[0]);
       const y0 = written(v.corner[1]);
       const x1 = written(x0 + written(v.width));
       const y1 = written(y0 + written(v.height));
+
       if (x0 < left! || y0 < bottom! || x1 > right! || y1 > top!) {
         error(
           "viewport-outside-drawing-area",
@@ -865,6 +1026,7 @@ export function lintStandard(
           where,
         );
       }
+
       if (box && x0 < box[2]! && x1 > box[0]! && y0 < box[3]! && y1 > box[1]!) {
         error(
           "viewport-outside-drawing-area",
@@ -880,8 +1042,10 @@ export function lintStandard(
         name === undefined ? [] : [layerKey(name)],
       ),
     );
+
     for (const [i, insert] of inserts) {
       const other = index.titleBlockParts.get(layerKey(insert.block));
+
       if (!other || own.has(layerKey(insert.block))) continue;
       error(
         "title-block-differs-from-standard",
@@ -889,6 +1053,7 @@ export function lintStandard(
         entityAbout(i, insert.id),
       );
     }
+
     const absent = [
       ...(block.blockName !== undefined && !placed(block.blockName)
         ? [`its block ${shown(block.blockName)}`]
@@ -897,6 +1062,7 @@ export function lintStandard(
         ? [`its xref ${shown(block.xref.name)}`]
         : []),
     ];
+
     if (absent.length > 0) {
       warn(
         "title-block-missing",
@@ -907,16 +1073,20 @@ export function lintStandard(
 
     // The fields its insert fills.
     const [fieldIndex, fieldInsert] = insertsOf(block.blockName)[0] ?? [];
+
     const definitionBlock =
       block.blockName === undefined ? undefined : blocksByName.get(layerKey(block.blockName));
+
     if (fieldInsert === undefined || !definitionBlock) continue;
     const set = fieldInsert.attributes ?? {};
     const insertAbout = entityAbout(fieldIndex!, fieldInsert.id);
+
     for (const [tag, field] of Object.entries(block.titleBlock.fields)) {
       if (field.source !== "attribute") continue;
       const key = field.fills ?? tag;
       const value = Object.hasOwn(set, tag) ? set[tag] : undefined;
-      if (typeof value !== "string") {
+
+      if (!isString(value)) {
         warn(
           "title-block-field-unset",
           `${label}: the title block's field ${shown(tag)} is not set, so it shows its attribute's default. Give ${key} in createDrawing's fields or in titleBlock()`,
@@ -924,23 +1094,32 @@ export function lintStandard(
         );
         continue;
       }
+
       if (key === "number") {
         if (standard.sheetFiles === "one-drawing" && value !== layout.name) {
           error("layout", numberNotLayoutName(value, layout.name), insertAbout);
         }
+
         const problem =
           standard.sheetFiles === "sheet-per-file" ? sheetNumberProblem(value) : undefined;
+
         if (problem) error("sheet-per-file", sheetNumberOfFile(problem), insertAbout);
       }
+
       if (!field.box) continue;
       const definition = definitionsOf(definitionBlock).get(tag);
+
       if (!definition) continue;
+
       const style =
         definition.style === undefined ? undefined : stylesByKey.get(layerKey(definition.style));
+
       const corners = guarded(() => {
         const attribute = placeAttribute(definition, style, fieldInsert, definitionBlock.base);
+
         if (attribute.mirrored) return undefined;
-        return measureText({
+
+        let text: TextToMeasure = {
           value,
           height: attribute.height,
           font: style?.font ?? STANDARD_FONT,
@@ -948,12 +1127,18 @@ export function lintStandard(
           obliqueAngle: attribute.obliqueAngle,
           at: attribute.at,
           rotation: attribute.rotation,
-          ...(definition.align === undefined ? {} : { align: definition.align }),
-          ...(definition.valign === undefined ? {} : { valign: definition.valign }),
-        }).corners;
+        };
+
+        if (definition.align !== undefined) text = { ...text, align: definition.align };
+
+        if (definition.valign !== undefined) text = { ...text, valign: definition.valign };
+
+        return measureText(text).corners;
       });
+
       if (!corners) continue;
       const [l, b, r, t] = field.box.map(written);
+
       if (
         corners.every(
           ([x, y]) => written(x) >= l! && written(x) <= r! && written(y) >= b! && written(y) <= t!,
@@ -961,6 +1146,7 @@ export function lintStandard(
       ) {
         continue;
       }
+
       warn(
         "title-block-field-overflow",
         `${label}: the value ${shown(value)} of the title block's field ${shown(tag)} runs past its box, [${field.box.join(", ")}]. Make it shorter`,
@@ -974,21 +1160,27 @@ export function lintStandard(
     { ...drawing, layers, linetypes: [], textStyles: [], dimensionStyles: [], leaderStyles: [] },
     false,
   );
+
   const walk = lettering(blocksByName, shownLayers, stylesByKey, index.roleStyles, spend);
   /** The role of a text style as the drawing's discipline resolves it, worked out once a style. */
   const roles = new Map<Styled, { readonly id: string; readonly height: number } | null>();
+
   const roleIn = (styled: Styled | undefined) => {
     if (!styled?.role) return undefined;
     let role = roles.get(styled);
+
     if (role === undefined) {
       const [id, entry] = styled.role;
       const fields = resolved(entry, `the text role ${shown(id)}`);
       roles.set(styled, (role = fields ? { id, height: fields.height } : null));
     }
+
     return role ?? undefined;
   };
+
   const minHeight = written(standard.minTextHeight);
   const paperUnits = standard.paperUnits;
+
   /**
    * Adds an error of these checks about the entity `where` names, paid for by the length of its
    * message: one text or viewport may give many errors, each showing a value of the drawing.
@@ -997,11 +1189,13 @@ export function lintStandard(
     if (spend(Math.floor(message.length / 32))) error(rule, message, about);
     else capped ??= `at ${where}`;
   };
+
   /** Checks the height a text plots at, `plotted`, `at` a viewport or on a layout. */
   const checkHeight = (text: Lettered, plotted: number, at: string, advice: string): void => {
     const height = written(plotted);
     const label = `${text.label}: ${text.what}`;
     const { role } = text;
+
     if (role && height !== written(role.height)) {
       report(
         "height-off-role",
@@ -1010,6 +1204,7 @@ export function lintStandard(
         text.label,
       );
     }
+
     if (height < minHeight) {
       report(
         "height-below-standard",
@@ -1019,6 +1214,7 @@ export function lintStandard(
       );
     }
   };
+
   // The first style of each name, as `styleRatio` measured it.
   const dimensionBox = boxer(
     [...stylesByKey.values()],
@@ -1029,15 +1225,16 @@ export function lintStandard(
     [...shownStyles.values()],
     [...shownLeaderStyles.values()],
   );
+
   /**
    * The texts and the dimensions a space draws, with what a diagnostic says of each, leaving out
    * what is on the layers `frozenHere` holds the tokens of, as a viewport that freezes them does.
    */
   const lettered = (
-    entities: unknown,
+    entities: readonly Entity[] | undefined,
     where: { readonly layout?: string },
     frozenHere?: ReadonlySet<string>,
-  ): { readonly texts: Lettered[]; readonly dimensions: Measured[] } => {
+  ): Letters => {
     const hidden = (ref: LayerRef) => walk.hidden(ref) || frozenHere?.has(ref.name) === true;
     const frozen = (ref: LayerRef) => walk.frozen(ref) || frozenHere?.has(ref.name) === true;
     const texts: Lettered[] = [];
@@ -1045,15 +1242,18 @@ export function lintStandard(
     const of = where.layout !== undefined ? ` of layout ${shown(where.layout)}` : "";
     filled(entities).forEach((entity, i) => {
       if (!isEntity(entity) || capped !== undefined) return;
-      const call = callOf(entities as object[], i);
-      const about = {
-        ...where,
-        entity: i,
-        ...(typeof entity.id === "string" ? { id: entity.id } : {}),
-        ...(call ? { call } : {}),
-      };
+      const call = callOf(entities!, i);
+
+      const about = aboutWith(
+        { ...where, entity: i },
+        isString(entity.id) ? entity.id : undefined,
+        call,
+      );
+
       const label = `${entity.kind} #${i}${of}`;
+
       const view = viewOf(entity);
+
       /**
        * Keeps a text the entity draws, itself or through an insert at `placement`. It costs one
        * more for each 32 characters of its value and its tag, which it is measured and named by.
@@ -1066,11 +1266,14 @@ export function lintStandard(
         note?: { readonly scale: StandardScale | null; readonly roleless?: boolean },
       ) => {
         const tag = placement?.attribute;
-        const size = (typeof text.value === "string" ? text.value.length : 0) + (tag?.length ?? 0);
+        const size = (isString(text.value) ? text.value.length : 0) + (tag?.length ?? 0);
+
         if (!spend(1 + Math.floor(size / 32))) throw CAPPED;
         const measured = guarded(() => placedText(text, styled?.style, placement?.matrix));
+
         if (!measured) return;
         const role = titleBlock || note?.roleless ? undefined : roleIn(styled);
+
         const what = note
           ? `The line ${shown(text.value)} of its note`
           : placement === undefined
@@ -1080,25 +1283,30 @@ export function lintStandard(
             : tag === undefined
               ? `The text ${shown(text.value)} of its block`
               : `The attribute ${shown(tag)} of its block`;
-        texts.push({
-          ...measured,
-          ...(role ? { role } : {}),
-          ...(note ? { scale: note.scale } : {}),
-          ...(view !== undefined && !note ? { view } : {}),
-          about,
-          label,
-          what,
-        });
+
+        let found: Measures = measured;
+
+        if (role) found = { ...found, role };
+
+        if (note) found = { ...found, scale: note.scale };
+
+        if (view !== undefined && !note) found = { ...found, view };
+        texts.push({ ...found, about, label, what });
       };
+
       try {
         if (isDimension(entity)) {
           const style = styleRatio.get(walk.key(entity.style));
+
           if (!style || hidden({ name: walk.layer(entity.layer) })) return;
           // Its box reads its style's name, its own text and what its style gives every label.
           const reads = entity.style.length + (entity.text?.length ?? 0) + style.reads;
+
           if (!spend(1 + Math.floor(reads / 32))) throw CAPPED;
           const box = guarded(() => dimensionBox([entity]));
+
           if (dimensionBox.capped) throw CAPPED;
+
           if (box) {
             dimensions.push({
               about,
@@ -1107,24 +1315,32 @@ export function lintStandard(
               style: style.shown,
               scale: style.scale,
               kind: "dimension",
-              ...(view !== undefined ? { view } : {}),
+              ...(view !== undefined && { view }),
             });
           }
+
           return;
         }
+
         if (entity.kind === "leader") {
           const style = leaderRatio.get(walk.key(entity.style));
+
           if (!style || hidden({ name: walk.layer(entity.layer) })) return;
           // Its box reads its style's name, each line of its note, its shafts and its text style.
           let reads = entity.style.length + style.reads + (entity.textStyle?.length ?? 0);
+
           for (const line of filled(entity.text)) {
-            reads += (typeof line === "string" ? line.length : 0) + 1;
+            reads += (isString(line) ? line.length : 0) + 1;
           }
+
           for (const shaft of filled(entity.shafts))
             reads += 32 * Math.max(1, filled(shaft).length);
+
           if (!spend(1 + Math.floor(reads / 32))) throw CAPPED;
           const box = guarded(() => dimensionBox([entity]));
+
           if (dimensionBox.capped) throw CAPPED;
+
           if (box) {
             dimensions.push({
               about,
@@ -1133,13 +1349,15 @@ export function lintStandard(
               style: style.shown,
               scale: style.scale,
               kind: "leader",
-              ...(view !== undefined ? { view } : {}),
+              ...(view !== undefined && { view }),
             });
           }
+
           // Each line of its note is a text in its text style, at the height the leader draws it.
           if (!spend(1 + Math.floor(reads / 32))) throw CAPPED;
           const styled = walk.styled(walk.style(entity.textStyle ?? style.style.textStyle));
           const lines = guarded(() => leaderPicture(entity, style.style, styled?.style).lines);
+
           for (const line of lines ?? []) {
             const text: Text = {
               kind: "text",
@@ -1150,28 +1368,36 @@ export function lintStandard(
               rotation: 0,
               align: line.align,
             };
+
             // A note at its style's height, where that or the style's text style is not its
             // role's, is reported with the style. A height of its own is still held to a role.
             const roleless =
               entity.textHeight === undefined &&
               (style.offHeight || (entity.textStyle === undefined && style.offStyle));
+
             keep(text, styled, undefined, false, { scale: style.scale, roleless });
           }
+
           return;
         }
+
         if (entity.kind === "text" || entity.kind === "paragraph") {
           if (hidden({ name: walk.layer(entity.layer) })) return;
           keep(entity, walk.styled(walk.style(entity.style)), undefined, false);
+
           return;
         }
+
         if (entity.kind !== "insert") return;
         const placed = walk.insert(entity);
+
         if (placed === undefined || frozen({ name: placed.layer })) return;
         const titleBlock = standardBlocks.has(walk.key(entity.block));
         eachDrawn(placed, walk.blocks(), frozen, (drawn, placement) => {
           if ((drawn.kind !== "text" && drawn.kind !== "paragraph") || hidden(placement.layer)) {
             return;
           }
+
           keep(drawn, walk.styled(drawn.style), placement, titleBlock);
         });
       } catch (thrown) {
@@ -1179,21 +1405,25 @@ export function lintStandard(
         capped ??= `at ${label}`;
       }
     });
+
     return { texts, dimensions };
   };
 
   const scaleLabel = (ratio: number): string =>
     index.scalesByRatio.get(written(ratio))?.label ?? `a ratio of ${ratio}`;
+
   /**
    * What model space draws, and the grids that find it, for each set of layers a viewport
    * freezes, keyed by their tokens: model space is walked again for each set, and paid for again.
    */
   const spaces = new Map<string, ReturnType<typeof modelSpace>>();
+
   const modelSpace = (frozenHere?: ReadonlySet<string>) => {
     const space = guarded(() => lettered(drawing.entities, {}, frozenHere)) ?? {
       texts: [],
       dimensions: [],
     };
+
     return {
       space,
       nearText: grid(
@@ -1206,93 +1436,124 @@ export function lintStandard(
       ),
     };
   };
+
   spaces.set("", modelSpace());
   /** The set of layers each list of frozen layers names, with its key, read once a list. */
   const frozenSets = new WeakMap<object, { key: string; tokens: Set<string> }>();
+
   /**
    * What model space draws in a viewport, or undefined when reading its layers or walking model
    * space again for them reached the limit. A walk for a new set pays for each entity first.
    */
   const spaceFor = (list: readonly string[], where: string) => {
     let set = frozenSets.get(list);
+
     if (set === undefined) {
       const tokens = new Set<string>();
+
       try {
-        for (const name of filled(list)) if (typeof name === "string") tokens.add(walk.layer(name));
+        for (const name of filled(list)) if (isString(name)) tokens.add(walk.layer(name));
       } catch (thrown) {
         if (thrown !== CAPPED) throw thrown;
         capped ??= `at ${where}`;
+
         return undefined;
       }
+
       frozenSets.set(list, (set = { key: [...tokens].sort().join(" "), tokens }));
     }
+
     const { key, tokens } = set;
     let found = spaces.get(key);
+
     if (!found) {
       const entities = Array.isArray(drawing.entities) ? filled(drawing.entities).length : 0;
+
       if (!spend(entities)) {
         capped ??= `at ${where}`;
+
         return undefined;
       }
+
       spaces.set(key, (found = modelSpace(tokens)));
     }
+
     return found;
   };
+
   for (const layout of layouts) {
     const paper = paperInfo(layout.paper);
+
     if (!paper || paper.units !== paperUnits) continue;
     const name = `layout ${shown(layout.name)}`;
-    (filled(layout.viewports) as unknown[]).forEach((viewport, i) => {
+    filled(layout.viewports).forEach((viewport, i) => {
       if (capped !== undefined || !units) return;
       const checked = checkedViewport(viewport, `viewport #${i} of ${name}`);
+
       if (!checked) return;
       const v = checked.viewport;
+
       if (viewportProblem(v, paper.units, units)) return;
       const view = validViewportView(v, paper.units, units);
       const inView = spaceFor(checked.frozen, `viewport #${i} of ${name}`);
+
       if (!inView) return;
       const { space, nearText, nearDimension } = inView;
-      const shownIn = `in ${typeof v.id === "string" ? `viewport ${shown(v.id)}` : `viewport #${i} of ${name}`} at ${scaleLabel(v.ratio)}`;
+      const shownIn = `in ${isString(v.id) ? `viewport ${shown(v.id)}` : `viewport #${i} of ${name}`} at ${scaleLabel(v.ratio)}`;
       // An annotation drawn for another view at this viewport's scale plots at its size here, so
       // no check of scale finds it: one warning for each entity, an insert's texts together.
-      const own = typeof v.id === "string" && v.id.length <= 64 ? idKey(v.id) : undefined;
+      const own = isString(v.id) && v.id.length <= 64 ? idKey(v.id) : undefined;
       const warned = new Set<unknown>();
+
       const otherView = (item: Lettered | Measured) => {
         if (own === undefined || item.view === undefined || idKey(item.view) === own) return;
+
         if (warned.has(item.about.entity)) return;
         warned.add(item.about.entity);
         const message = `${item.label}: It is drawn for the view ${shown(item.view)}, and is shown ${shownIn}, which shows another view at its scale. Keep each view's drawing in its own part of model space, out of the other's viewport, or freeze its layer in this viewport`;
+
         if (spend(Math.floor(message.length / 32))) {
           warn("viewport-shows-other-view", message, item.about);
         } else capped ??= `at ${item.label}`;
       };
+
       const found: number[] = [];
       nearText(view.box, (t) => found.push(t));
+
       for (const t of found.sort((a, b) => a - b)) {
         if (!spend(1)) break;
         const text = space.texts[t]!;
+
         if (!viewReaches(view, text.box)) continue;
+
         if (text.scale === undefined) {
           checkHeight(text, text.height * view.scale, shownIn, IN_VIEWPORT);
           const { role } = text;
+
           if (role && written(text.height * view.scale) === written(role.height)) otherView(text);
         } else if (text.scale && written(text.scale.ratio) === written(v.ratio)) {
           checkHeight(text, text.height * view.scale, shownIn, LEADER_NOTE);
         }
       }
+
       const dimensions: number[] = [];
       nearDimension(view.box, (d) => dimensions.push(d));
+
       for (const d of dimensions.sort((a, b) => a - b)) {
         if (!spend(1)) break;
         const dimension = space.dimensions[d]!;
+
         if (!viewReaches(view, dimension.box)) continue;
+
         if (dimension.scale && written(dimension.scale.ratio) === written(v.ratio)) {
           otherView(dimension);
           continue;
         }
+
         const style = dimension.scale
           ? `the ${dimension.kind} style ${dimension.style}, for ${dimension.scale.label}`
           : `the ${dimension.kind} style ${dimension.style}, which is for a layout`;
+
         report(
           `${dimension.kind}-off-scale`,
           `${dimension.label}: It is in ${style}, and is shown ${shownIn}. Draw it in the view of the viewport that shows it`,
@@ -1300,14 +1561,18 @@ export function lintStandard(
           dimension.label,
         );
       }
+
       if (capped === undefined && work > most) capped = `at viewport #${i} of ${name}`;
     });
+
     if (capped !== undefined) break;
     const sheet = guarded(() => lettered(layout.entities, { layout: layout.name }));
+
     for (const text of sheet?.texts ?? []) {
       if (text.scale === undefined) checkHeight(text, text.height, `on ${name}`, ON_LAYOUT);
       else if (text.scale === null) checkHeight(text, text.height, `on ${name}`, LEADER_NOTE);
     }
+
     for (const dimension of sheet?.dimensions ?? []) {
       if (!dimension.scale) continue;
       report(
@@ -1317,8 +1582,10 @@ export function lintStandard(
         dimension.label,
       );
     }
+
     if (capped !== undefined) break;
   }
+
   if (capped !== undefined || work > most) {
     warn(
       "standard-check-capped",
@@ -1337,6 +1604,27 @@ export function lintStandard(
 }
 
 /** A text as a space draws it: its height and its box there, and what names it. */
+/** The texts and the dimensions a walk letters. */
+interface Letters {
+  readonly texts: Lettered[];
+  readonly dimensions: Measured[];
+}
+
+/** The fields of an entity or a definition that the checks read or quote, each as given. */
+interface FreshFields {
+  readonly layer?: unknown;
+  readonly style?: unknown;
+  readonly textStyle?: unknown;
+  readonly lineweight?: unknown;
+  readonly tag?: unknown;
+}
+
+/** What a text's measure gives a lettered text. */
+type Measures = Omit<Lettered, "about" | "label" | "what">;
+
+/** A definition a title block's closure names, which the drawing must hold the same. */
+type Drawable = Block | TextStyle | Linetype;
+
 interface Lettered {
   readonly height: number;
   readonly box: Box;
@@ -1380,9 +1668,16 @@ interface Measured {
  * The view an entity was drawn for, when it names one that could be a viewport's id: at most 64
  * characters, so comparing it costs no more than an id does.
  */
-function viewOf(entity: object): string | undefined {
-  const view: unknown = (entity as { readonly view?: unknown }).view;
-  return typeof view === "string" && view.length <= 64 ? view : undefined;
+function viewOf(entity: unknown): string | undefined {
+  const view = isKeyed(entity) ? entity.view : undefined;
+
+  return isString(view) && view.length <= 64 ? view : undefined;
+}
+
+/** The height a text is drawn at, and its box. */
+interface PlacedText {
+  readonly height: number;
+  readonly box: Box;
 }
 
 /**
@@ -1393,8 +1688,9 @@ function placedText(
   text: Text | Paragraph,
   style: TextStyle | undefined,
   matrix: Matrix | undefined,
-): { readonly height: number; readonly box: Box } {
+): PlacedText {
   let points: Point[];
+
   if (text.kind === "paragraph") {
     const { corners, frame } = measureParagraph(paragraphInStyle(text, style));
     points = [...(corners ?? frame)];
@@ -1408,20 +1704,25 @@ function placedText(
       [c1[0] - (c2[0] - c1[0]) * below, c1[1] - (c2[1] - c1[1]) * below],
     ];
   }
+
   const placed = matrix ? points.map((p) => mapPoint(matrix, p)) : points;
   const xs = placed.map((p) => p[0]);
   const ys = placed.map((p) => p[1]);
   let height = text.height;
+
   if (matrix) {
     // The text's height across its baseline, which the matrix turns and stretches.
     const [a, b, c, d] = matrix;
     const turn = (text.rotation * Math.PI) / 180;
+
     const along = Math.hypot(
       a * Math.cos(turn) + c * Math.sin(turn),
       b * Math.cos(turn) + d * Math.sin(turn),
     );
+
     height = (text.height * Math.abs(a * d - b * c)) / along;
   }
+
   return { height, box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] };
 }
 
@@ -1440,9 +1741,11 @@ class Entered extends Map<string, Block> {
 
   override get(key: string): Block | undefined {
     const block = super.get(key);
+
     if (block && !this.#spend(1 + block.entities.length + (block.attributes?.length ?? 0))) {
       throw CAPPED;
     }
+
     return block;
   }
 }
@@ -1469,166 +1772,228 @@ function lettering(
   spend: (cost: number) => boolean,
 ) {
   const keys = new Map<string, string>();
+
   const key = (name: string): string => {
     let found = keys.get(name);
+
     if (found === undefined) {
       if (!spend(1 + Math.floor(name.length / 32))) throw CAPPED;
       keys.set(name, (found = layerKey(name)));
     }
+
     return found;
   };
+
   /** The token of each layer by key, and the state of each by token. */
   const layerTokens = new Map<string, string>();
   const layerStates = new Map<string, { readonly hidden: boolean; readonly frozen: boolean }>();
+
   // Layer `0`'s token is "0", by which an entity of a block takes its insert's layer.
   const layer = (name: string): string => {
     const k = key(name);
     let token = layerTokens.get(k);
+
     if (token === undefined) {
       token = k === "0" ? "0" : `#${layerTokens.size}`;
       layerTokens.set(k, token);
       const ref = { name: k };
       layerStates.set(token, { hidden: shownLayers.hidden(ref), frozen: shownLayers.frozen(ref) });
     }
+
     return token;
   };
+
   const styleTokens = new Map<string, string>();
   const styled = new Map<string, Styled>();
+
   const style = (name: string | undefined): string | undefined => {
     if (name === undefined) return undefined;
     const k = key(name);
     let token = styleTokens.get(k);
+
     if (token === undefined) {
       styleTokens.set(k, (token = `#${styleTokens.size}`));
       styled.set(token, { style: styles.get(k), role: roleStyles.get(k) });
     }
+
     return token;
   };
-  const placed = (insert: Insert, block: string): Insert => ({
-    kind: "insert",
-    layer: layer(insert.layer),
-    block,
-    at: insert.at,
-    ...(insert.scale === undefined ? {} : { scale: insert.scale }),
-    ...(insert.rotation === undefined ? {} : { rotation: insert.rotation }),
-    ...(insert.attributes === undefined ? {} : { attributes: insert.attributes }),
-  });
-  const justified = (text: Text | AttributeDefinition) => ({
-    ...(text.style === undefined ? {} : { style: style(text.style)! }),
-    ...(text.align === undefined ? {} : { align: text.align }),
-    ...(text.valign === undefined ? {} : { valign: text.valign }),
-  });
-  const textOf = (text: Text | Paragraph): Text | Paragraph =>
-    text.kind === "paragraph"
-      ? {
-          kind: "paragraph",
-          layer: layer(text.layer),
-          at: text.at,
-          height: text.height,
-          value: text.value,
-          rotation: text.rotation,
-          ...(text.style === undefined ? {} : { style: style(text.style)! }),
-          ...(text.width === undefined ? {} : { width: text.width }),
-          ...(text.align === undefined ? {} : { align: text.align }),
-          ...(text.valign === undefined ? {} : { valign: text.valign }),
-          ...(text.lineSpacing === undefined ? {} : { lineSpacing: text.lineSpacing }),
-          ...(text.lineSpacingStyle === undefined
-            ? {}
-            : { lineSpacingStyle: text.lineSpacingStyle }),
-        }
-      : {
-          kind: "text",
-          layer: layer(text.layer),
-          at: text.at,
-          height: text.height,
-          value: text.value,
-          rotation: text.rotation,
-          ...justified(text),
-        };
-  const definitionOf = (definition: AttributeDefinition): AttributeDefinition =>
-    ({
-      tag: definition.tag,
-      value: definition.value,
-      layer: layer(definition.layer),
-      at: definition.at,
-      height: definition.height,
-      rotation: definition.rotation,
-      ...justified(definition),
-      // One of paragraph text is drawn as the paragraph each insert lays out again.
-      ...(definition.kind === "paragraph"
-        ? {
-            kind: "paragraph",
-            ...(definition.width === undefined ? {} : { width: definition.width }),
-            ...(definition.lineSpacing === undefined
-              ? {}
-              : { lineSpacing: definition.lineSpacing }),
-            ...(definition.lineSpacingStyle === undefined
-              ? {}
-              : { lineSpacingStyle: definition.lineSpacingStyle }),
-          }
-        : {}),
-    }) as AttributeDefinition;
+
+  const placed = (insert: Insert, block: string): Insert => {
+    let out: Insert = { kind: "insert", layer: layer(insert.layer), block, at: insert.at };
+
+    if (insert.scale !== undefined) out = { ...out, scale: insert.scale };
+
+    if (insert.rotation !== undefined) out = { ...out, rotation: insert.rotation };
+
+    if (insert.attributes !== undefined) out = { ...out, attributes: insert.attributes };
+
+    return out;
+  };
+
+  /** `text` with the style, the align and the valign of `from`, each that it has. */
+  const justified = <T extends Text | AttributeDefinition>(
+    text: T,
+    from: Text | AttributeDefinition,
+  ): T => {
+    let out = text;
+
+    if (from.style !== undefined) out = { ...out, style: style(from.style)! };
+
+    if (from.align !== undefined) out = { ...out, align: from.align };
+
+    if (from.valign !== undefined) out = { ...out, valign: from.valign };
+
+    return out;
+  };
+
+  const textOf = (text: Text | Paragraph): Text | Paragraph => {
+    const at = text.at;
+
+    if (text.kind !== "paragraph") {
+      const { height, value, rotation } = text;
+
+      return justified(
+        { kind: "text", layer: layer(text.layer), at, height, value, rotation },
+        text,
+      );
+    }
+
+    const { height, value, rotation } = text;
+
+    let out: Paragraph = {
+      kind: "paragraph",
+      layer: layer(text.layer),
+      at,
+      height,
+      value,
+      rotation,
+    };
+
+    if (text.style !== undefined) out = { ...out, style: style(text.style)! };
+
+    if (text.width !== undefined) out = { ...out, width: text.width };
+
+    if (text.align !== undefined) out = { ...out, align: text.align };
+
+    if (text.valign !== undefined) out = { ...out, valign: text.valign };
+
+    if (text.lineSpacing !== undefined) out = { ...out, lineSpacing: text.lineSpacing };
+
+    if (text.lineSpacingStyle !== undefined) {
+      out = { ...out, lineSpacingStyle: text.lineSpacingStyle };
+    }
+
+    return out;
+  };
+
+  const definitionOf = (definition: AttributeDefinition): AttributeDefinition => {
+    const { tag, value, at, height, rotation } = definition;
+
+    const out = justified(
+      { tag, value, layer: layer(definition.layer), at, height, rotation },
+      definition,
+    );
+
+    // One of paragraph text is drawn as the paragraph each insert lays out again.
+    if (definition.kind !== "paragraph") return out;
+    let paragraph: ParagraphAttributeDefinition = { ...out, kind: "paragraph" };
+
+    if (definition.width !== undefined) paragraph = { ...paragraph, width: definition.width };
+
+    if (definition.lineSpacing !== undefined) {
+      paragraph = { ...paragraph, lineSpacing: definition.lineSpacing };
+    }
+
+    if (definition.lineSpacingStyle !== undefined) {
+      paragraph = { ...paragraph, lineSpacingStyle: definition.lineSpacingStyle };
+    }
+
+    return paragraph;
+  };
 
   const tokens = new Map<Block, string>();
   let entered: Entered | undefined;
+
   const enter = (): Entered => {
     if (entered) return entered;
+
     // What each block holds that can draw a text, and the blocks that insert each.
     type Item =
       | { readonly text: Text | Paragraph }
       | { readonly insert: Insert; readonly block: Block };
+
     const held = new Map<Block, { items: Item[]; definitions: AttributeDefinition[] }>();
     const insertedBy = new Map<Block, Block[]>();
     const lettered: Block[] = [];
+
     // A list that many blocks share is read once, and what it inserts is paid for again.
     type Read = { items: Item[]; texts: boolean; inners: Block[] };
+
     const reads = new Map<unknown, Read>();
     const definitionLists = new Map<unknown, AttributeDefinition[]>();
+
     for (const block of blocks.values()) {
       let found = reads.get(block.entities);
+
       if (found) {
         if (found.inners.length > 0 && !spend(found.inners.length)) throw CAPPED;
       } else {
         const items: Item[] = [];
         const inners = new Set<Block>();
         let texts = false;
+
         for (const e of filled(block.entities)) {
-          const kind = (e as { readonly kind?: unknown } | null | undefined)?.kind;
+          const kind: unknown = isObjectOrArray(e) ? e.kind : undefined;
+
           if (
             (kind !== "text" && kind !== "paragraph" && kind !== "insert") ||
             !isSound(TYPED.entity, e, false)
           ) {
             continue;
           }
-          const entity = e as Text | Paragraph | Insert;
+
+          const entity = e;
+
           if (entity.kind === "text" || entity.kind === "paragraph") {
             items.push({ text: entity });
             texts = true;
             continue;
           }
+
+          if (entity.kind !== "insert") continue;
+
           const inner = blocks.get(key(entity.block));
+
           if (inner === undefined) continue;
           items.push({ insert: entity, block: inner });
           inners.add(inner);
         }
+
         reads.set(block.entities, (found = { items, texts, inners: [...inners] }));
       }
+
       for (const inner of found.inners) {
         const by = insertedBy.get(inner);
+
         if (by) by.push(block);
         else insertedBy.set(inner, [block]);
       }
+
       let definitions = definitionLists.get(block.attributes);
+
       if (!definitions) {
-        definitions = filled(block.attributes).filter((a) =>
-          isSound(TYPED.attribute, a, false),
-        ) as AttributeDefinition[];
+        definitions = filled(block.attributes).filter((a) => isSound(TYPED.attribute, a, false));
         definitionLists.set(block.attributes, definitions);
       }
+
       held.set(block, { items: found.items, definitions });
+
       if (found.texts || definitions.length > 0) lettered.push(block);
     }
+
     const drawsText = new Set(lettered);
+
     for (let i = 0; i < lettered.length; i++) {
       for (const by of insertedBy.get(lettered[i]!) ?? []) {
         if (drawsText.has(by)) continue;
@@ -1636,38 +2001,44 @@ function lettering(
         lettered.push(by);
       }
     }
+
     for (const block of drawsText) tokens.set(block, `#${tokens.size}`);
     const walked: [string, Block][] = [];
     const built = new Map<Item[], Entity[]>();
     const copies = new Map<AttributeDefinition[], AttributeDefinition[]>();
+
     const copied = (list: AttributeDefinition[]): AttributeDefinition[] => {
       let found = copies.get(list);
+
       if (!found) copies.set(list, (found = list.map(definitionOf)));
+
       return found;
     };
+
     for (const block of drawsText) {
       const { items, definitions } = held.get(block)!;
       let entities = built.get(items);
+
       if (!entities) {
         entities = [];
+
         for (const item of items) {
           if ("text" in item) entities.push(textOf(item.text));
           else if (drawsText.has(item.block))
             entities.push(placed(item.insert, tokens.get(item.block)!));
         }
+
         built.set(items, entities);
       }
+
       const token = tokens.get(block)!;
-      walked.push([
-        token,
-        {
-          name: token,
-          ...(block.base === undefined ? {} : { base: block.base }),
-          entities,
-          attributes: copied(definitions),
-        },
-      ]);
+
+      const named: Pick<Block, "name" | "base"> =
+        block.base === undefined ? { name: token } : { name: token, base: block.base };
+
+      walked.push([token, { ...named, entities, attributes: copied(definitions) }]);
     }
+
     return (entered = new Entered(walked, spend));
   };
 
@@ -1687,6 +2058,7 @@ function lettering(
       enter();
       const block = blocks.get(key(insert.block));
       const token = block && tokens.get(block);
+
       return token === undefined ? undefined : placed(insert, token);
     },
   };
@@ -1712,7 +2084,8 @@ const listed = (items: readonly string[]): string =>
 
 /** What is wrong with an entity's lineweight that is no pen of the standard. */
 function penProblem(weight: unknown, index: Index): string {
-  const lineweight = typeof weight === "number" ? `${weight} mm` : shown(weight);
+  const lineweight = isNumber(weight) ? `${weight} mm` : shown(weight);
+
   return index.pensListed === undefined
     ? `A lineweight of ${lineweight} is no pen of the standard, which has none. Give the entity the lineweight ByLayer`
     : `A lineweight of ${lineweight} is no pen of the standard. Its pens are ${index.pensListed} mm. Give the entity a pen`;
@@ -1721,13 +2094,16 @@ function penProblem(weight: unknown, index: Index): string {
 /** The one error for a standard that does not check: its first problem, and how many more. */
 function notChecked(problems: readonly Problem[]): string {
   const [problem] = problems;
+
   const what = problem
     ? `${problem.item ? `${problem.item}: ` : ""}${problem.message}`
     : DRAWN.notAStandard;
+
   const more =
     problems.length > 1
       ? `, and ${problems.length - 1} more ${problems.length === 2 ? "problem" : "problems"}`
       : "";
+
   return `The standard given to lint does not check, so lint held the drawing to none of its rules: ${what}${more}`;
 }
 
@@ -1810,11 +2186,13 @@ const labels = new WeakMap<readonly Format[], string>();
 /** Sheet formats as a message names them: `sheet formats "arch-d" and "arch-d-color"`. */
 function formatLabel(formats: readonly Format[]): string {
   let label = labels.get(formats);
+
   if (label === undefined) {
     const ids = formats.map((format) => shown(format.id));
     label = `sheet format${ids.length === 1 ? "" : "s"} ${listed(ids)}`;
     labels.set(formats, label);
   }
+
   return label;
 }
 
@@ -1822,9 +2200,12 @@ const indexes = new WeakMap<Standard, Index>();
 
 function indexOf(standard: Standard): Index {
   const found = indexes.get(standard);
+
   if (found) return found;
+
   const byKey = <T>(entries: Readonly<Record<string, T>>, key: (name: string) => string) =>
     new Map(Object.entries(entries).map(([name, entry]) => [key(name), [name, entry] as const]));
+
   const roles = byKey(standard.textRoles, idKey);
   const scales = Object.entries<StandardScale>(standard.scales);
   const pens = Object.entries(standard.pens).map(([id, pen]) => `${id} ${pen.lineweight}`);
@@ -1834,45 +2215,63 @@ function indexOf(standard: Standard): Index {
   // defineStandard refuses two names the leading CAD app takes for one. A leader style's name is
   // made from its id the same way, and the standard gives it no other.
   const styles = Object.entries<StandardDimensionStyle>(standard.dimensionStyles);
+
   const styleKeys = new Map(
     styles.map(([id, entry]) => [layerKey(capitals(id)), { id, entry, scale: undefined }] as const),
   );
+
   const scaleKeys = new Map(scales.map((scale) => [layerKey(scale[0]), scale]));
+
   type Found = ReturnType<Index["dimensionStyle"]>;
+
   const givenNames = new Map<string, Found>();
   // Each place a style is given a name, as its id and its scale's key, or its id alone.
   const renamedAt = new Set<string>();
+
   const place = (id: string, scale: string | undefined) =>
     scale === undefined ? id : `${id}\u0000${layerKey(scale)}`;
+
   for (const [id, entry] of styles) {
     if (entry.layoutName !== undefined) {
       givenNames.set(layerKey(entry.layoutName), { id, entry, scale: undefined });
       renamedAt.add(place(id, undefined));
     }
+
     for (const [at, name] of Object.entries(entry.scaleNames ?? {})) {
       const scale = scaleKeys.get(layerKey(at));
+
       if (!scale) continue;
       givenNames.set(layerKey(name), { id, entry, scale });
       renamedAt.add(place(id, scale[0]));
     }
   }
+
   /** True when the standard gives the style another name than its id gives it there. */
   const renamed = (found: NonNullable<Found>): boolean =>
     renamedAt.has(place(found.id, found.scale?.[0]));
+
   const longest = (keys: Iterable<string>) => {
     let most = 0;
+
     for (const key of keys) most = Math.max(most, key.length);
+
     return most;
   };
+
   const longestStyle = longest(styleKeys.keys());
   const longestScale = longest(scaleKeys.keys());
+
   // A name the standard gives, or else the first name an id gives at a place it does not rename.
   const dimensionStyle: Index["dimensionStyle"] = (key) => {
     const given = givenNames.get(key);
+
     if (given) return given;
     const own = styleKeys.get(key);
+
     if (own && !renamed(own)) return own;
+
     if (key.length > longestStyle + 1 + longestScale) return undefined;
+
     for (
       let at = key.indexOf("-", 1);
       at > 0 && at <= longestStyle;
@@ -1880,19 +2279,26 @@ function indexOf(standard: Standard): Index {
     ) {
       const style = styleKeys.get(key.slice(0, at));
       const scale = style && scaleKeys.get(key.slice(at + 1));
+
       if (scale && !renamed({ ...style, scale })) return { ...style, scale };
     }
+
     return undefined;
   };
+
   const leaderStyleKeys = new Map(
     Object.entries<StandardLeaderStyle>(standard.leaderStyles).map(
       ([id, entry]) => [layerKey(capitals(id)), { id, entry, scale: undefined }] as const,
     ),
   );
+
   const longestLeaderStyle = longest(leaderStyleKeys.keys());
+
   const leaderStyle: Index["leaderStyle"] = (key) => {
     const own = leaderStyleKeys.get(key);
+
     if (own || key.length > longestLeaderStyle + 1 + longestScale) return own;
+
     for (
       let at = key.indexOf("-", 1);
       at > 0 && at <= longestLeaderStyle;
@@ -1900,15 +2306,20 @@ function indexOf(standard: Standard): Index {
     ) {
       const style = leaderStyleKeys.get(key.slice(0, at));
       const scale = style && scaleKeys.get(key.slice(at + 1));
+
       if (scale) return { ...style, scale };
     }
+
     return undefined;
   };
+
   const titleBlocks = Object.entries<StandardTitleBlock>(standard.titleBlocks).map(
     ([id, titleBlock]) => closureOf(id, titleBlock),
   );
+
   const titleBlocksById = new Map(titleBlocks.map((block) => [block.id, block]));
   const titleBlockParts = new Map<string, string>();
+
   for (const block of titleBlocks) {
     for (const name of [block.blockName, block.xref?.name]) {
       if (name !== undefined && !titleBlockParts.has(layerKey(name))) {
@@ -1916,30 +2327,38 @@ function indexOf(standard: Standard): Index {
       }
     }
   }
+
   const byPaper = new Map<string, Format[]>();
+
   for (const [id, format] of Object.entries<StandardSheetFormat>(standard.sheetFormats)) {
     const block = titleBlocksById.get(format.titleBlock)!;
     const list = byPaper.get(format.paper) ?? [];
     list.push({ id, block, table: format.plotStyle ?? standard.plotStyle });
     byPaper.set(format.paper, list);
   }
+
   const formatsByPaper = new Map<string, OnPaper>();
+
   for (const [paper, formats] of byPaper) {
     const byBlock = new Map<
       TitleBlockIndex,
       { order: number; all: Format[]; byTable: Map<string, Format[]> }
     >();
+
     const byPart = new Map<string, Set<TitleBlockIndex>>();
     formats.forEach((format, order) => {
       let own = byBlock.get(format.block);
+
       if (!own) {
         byBlock.set(format.block, (own = { order, all: [], byTable: new Map() }));
+
         for (const name of [format.block.blockName, format.block.xref?.name]) {
           if (name === undefined) continue;
           const placing = byPart.get(layerKey(name)) ?? new Set();
           byPart.set(layerKey(name), placing.add(format.block));
         }
       }
+
       own.all.push(format);
       const same = own.byTable.get(format.table) ?? [];
       same.push(format);
@@ -1953,6 +2372,7 @@ function indexOf(standard: Standard): Index {
       byPart,
     });
   }
+
   const index: Index = {
     layers: byKey(standard.layers, layerKey),
     linetypes: byKey(standard.linetypes, layerKey),
@@ -1968,7 +2388,9 @@ function indexOf(standard: Standard): Index {
     titleBlockStyles: new Set(titleBlocks.flatMap((block) => [...block.textStyles.keys()])),
     formatsByPaper,
   };
+
   indexes.set(standard, index);
+
   return index;
 }
 
@@ -1981,39 +2403,52 @@ function closureOf(id: string, titleBlock: StandardTitleBlock): TitleBlockIndex 
   const textStyles = new Map<string, { name: string; json: string }>();
   const linetypes = new Map<string, { name: string; json: string }>();
   const drawing = titleBlock.block;
+
   if (drawing && titleBlock.blockName !== undefined) {
     const byName = blocksByKey(drawing.blocks);
     const queue = [byName.get(layerKey(titleBlock.blockName))].filter((b) => b !== undefined);
     const queued = new Set(queue);
     const styles = new Set<string>();
     const lines = new Set<string>();
+
     for (let i = 0; i < queue.length; i++) {
       const block = queue[i]!;
       blocks.set(layerKey(block.name), { name: block.name, json: canonical(block) });
+
       for (const e of block.entities) {
         if ((e.kind === "text" || e.kind === "paragraph") && e.style !== undefined) {
           styles.add(layerKey(e.style));
         }
-        const linetype = (e as { readonly linetype?: string }).linetype;
+
+        const styled: { readonly layer: string; readonly linetype?: string } = e;
+        const linetype = styled.linetype;
+
         if (linetype !== undefined) lines.add(layerKey(linetype));
         const inner = e.kind === "insert" ? byName.get(layerKey(e.block)) : undefined;
+
         if (inner && !queued.has(inner)) {
           queued.add(inner);
           queue.push(inner);
         }
       }
+
       for (const a of block.attributes ?? [])
         if (a.style !== undefined) styles.add(layerKey(a.style));
     }
+
     for (const style of drawing.textStyles ?? []) {
       const key = layerKey(style.name);
+
       if (styles.has(key)) textStyles.set(key, { name: style.name, json: canonical(style) });
     }
+
     for (const linetype of drawing.linetypes ?? []) {
       const key = layerKey(linetype.name);
+
       if (lines.has(key)) linetypes.set(key, { name: linetype.name, json: canonical(linetype) });
     }
   }
+
   return {
     id,
     titleBlock,

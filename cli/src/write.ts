@@ -17,6 +17,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } 
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import type { EditCheck } from "tsdraft";
+import { isJsonObject, isString, type Json } from "./guards.ts";
 import { editorFor, ReaderRefusal, type Readers } from "./readers.ts";
 import type { WriteMessage } from "./write-child.ts";
 
@@ -30,6 +31,14 @@ const childPath = realpathSync.native(
 );
 
 const MB = 1024 * 1024;
+
+/** What `writeEdits` is given: where the readers come from, and where and how it writes. */
+export interface WriteOptions {
+  readonly readers: Readers;
+  readonly out?: string | undefined;
+  readonly root?: string | undefined;
+  limits?: WriteLimits;
+}
 
 /** The limits of one edit's process. Each has its default. */
 export interface WriteLimits {
@@ -88,12 +97,15 @@ class EditProcess {
     const seconds = Math.ceil(limits.timeoutMs / 1000) + 30;
     const node = [`--max-old-space-size=${limits.maxMemoryMb}`, childPath, edit];
     const command = hasPrlimit() ? "prlimit" : process.execPath;
+
     const args = hasPrlimit()
       ? ["--core=1:1", `--cpu=${seconds}:${seconds + 5}`, "--", process.execPath, ...node]
       : node;
+
     const env = { ...process.env };
     delete env["NODE_OPTIONS"];
     this.child = spawn(command, args, { stdio: ["pipe", "ignore", "pipe", "pipe"], env });
+    // SAFETY: the fourth of `stdio` is a pipe, which the parent reads.
     const answers = this.child.stdio[3] as Readable;
     answers.on("data", (chunk: Buffer) => this.#take(chunk));
     answers.on("error", () => {});
@@ -126,48 +138,62 @@ class EditProcess {
   /** Reads a chunk of the answers: each byte is copied once, into a message or into the file. */
   #take(chunk: Buffer): void {
     let at = 0;
+
     while (at < chunk.length && this.ended === undefined) {
       const file = this.#file;
+
       if (file) {
         const n = Math.min(chunk.length - at, file.bytes.length - file.filled);
         file.bytes.set(chunk.subarray(at, at + n), file.filled);
         file.filled += n;
         at += n;
+
         if (file.filled === file.bytes.length) {
           this.#file = undefined;
           this.#push({ message: file.message, bytes: file.bytes });
         }
+
         continue;
       }
+
       // A message: its length in 4 bytes, then its JSON.
       const want = this.#length < 0 ? 4 : 4 + this.#length;
       const n = Math.min(chunk.length - at, want - this.#headLength);
       this.#head.push(chunk.subarray(at, at + n));
       this.#headLength += n;
       at += n;
+
       if (this.#length < 0 && this.#headLength === 4) {
         this.#length = Buffer.concat(this.#head, 4).readUInt32BE(0);
+
         if (this.#length > MOST_MESSAGE) {
           this.#stop("its answer holds a message past its limit");
+
           return;
         }
       }
+
       if (this.#length < 0 || this.#headLength < 4 + this.#length) continue;
       const whole = Buffer.concat(this.#head, this.#headLength);
       this.#head = [];
       this.#headLength = 0;
       this.#length = -1;
       let message: WriteMessage;
+
       try {
+        // SAFETY: the process is the command's own write-child.ts, which sends only a WriteMessage.
         message = JSON.parse(whole.subarray(4).toString("utf8")) as WriteMessage;
       } catch {
         this.#stop("its answer is not JSON");
+
         return;
       }
+
       if (message.kind !== "done") {
         this.#push({ message });
         continue;
       }
+
       if (
         !(
           Number.isInteger(message.bytes) &&
@@ -176,9 +202,12 @@ class EditProcess {
         )
       ) {
         this.#stop(`the file it wrote is over the limit of ${this.#limits.maxFileBytes / MB} MB`);
+
         return;
       }
+
       this.#file = { message, bytes: new Uint8Array(message.bytes), filled: 0 };
+
       if (message.bytes === 0) {
         this.#file = undefined;
         this.#push({ message, bytes: new Uint8Array(0) });
@@ -199,10 +228,12 @@ class EditProcess {
   /** The next message, or undefined once the process has ended without one or its time ran out. */
   async next(): Promise<{ message: WriteMessage; bytes?: Uint8Array } | undefined> {
     const ms = this.#limits.timeoutMs;
+
     const timer = setTimeout(
       () => this.#stop(`it took longer than ${ms / 1000} s, and was ended`),
       Math.max(0, this.#started + ms - Date.now()),
     );
+
     try {
       while (this.#messages.length === 0 && this.ended === undefined)
         await new Promise<void>((go) => (this.#waiting = go));
@@ -210,6 +241,7 @@ class EditProcess {
       clearTimeout(timer);
       this.#waiting = undefined;
     }
+
     return this.#messages.shift();
   }
 
@@ -231,19 +263,23 @@ class EditProcess {
 }
 
 let prlimit: boolean | undefined;
+
 const hasPrlimit = (): boolean =>
   (prlimit ??= spawnSync("prlimit", ["--core=1:1", "true"], { stdio: "ignore" }).status === 0);
 
 const inside = (path: string, folder: string): boolean => {
   const rest = relative(folder, path);
+
   return rest === "" || (rest !== ".." && !rest.startsWith(`..${sep}`) && !isAbsolute(rest));
 };
 
 /** The deepest folder that holds every path. */
 function commonFolder(paths: readonly string[]): string {
   let folder = dirname(paths[0]!);
+
   while (!paths.every((path) => inside(path, folder)) && dirname(folder) !== folder)
     folder = dirname(folder);
+
   return folder;
 }
 
@@ -257,6 +293,7 @@ interface Kept {
 function keptFiles(paths: readonly string[]): Kept {
   const reals = new Map<string, string>();
   const files = new Map<string, string>();
+
   for (const path of new Set(paths)) {
     try {
       const real = realpathSync.native(path);
@@ -267,6 +304,7 @@ function keptFiles(paths: readonly string[]): Kept {
       // A file that is not there cannot be replaced.
     }
   }
+
   return { reals, files };
 }
 
@@ -278,9 +316,12 @@ function keptFiles(paths: readonly string[]): Kept {
 function reaches(copy: string, kept: Kept): string | undefined {
   const target = join(realpathSync.native(dirname(copy)), basename(copy));
   const byPath = kept.reals.get(target);
+
   if (byPath !== undefined) return byPath;
+
   try {
     const { dev, ino } = statSync(target);
+
     return kept.files.get(`${dev}:${ino}`);
   } catch {
     return undefined;
@@ -293,23 +334,29 @@ function reaches(copy: string, kept: Kept): string | undefined {
  * with the bytes it holds, so it never replaces a firm's file, or a copy a person changed.
  */
 const RECORD = ".tsdraft-write.json";
+
 /** The most copies the record lists, past which it is read as no record. */
 const MOST_RECORDED = 1_000_000;
 
 function readRecord(out: string): Map<string, string> {
   const record = new Map<string, string>();
+
   try {
-    const value: unknown = JSON.parse(readFileSync(join(out, RECORD), "utf8"));
-    const copies = (value as { copies?: unknown } | null)?.copies;
-    if (typeof copies !== "object" || copies === null || Array.isArray(copies)) return record;
+    const value: Json = JSON.parse(readFileSync(join(out, RECORD), "utf8"));
+    const copies = isJsonObject(value) ? value["copies"] : undefined;
+
+    if (!isJsonObject(copies)) return record;
     let n = 0;
+
     for (const [path, sha] of Object.entries(copies)) {
       if (++n > MOST_RECORDED) return new Map();
-      if (typeof sha === "string" && /^[0-9a-f]{64}$/.test(sha)) record.set(path, sha);
+
+      if (isString(sha) && /^[0-9a-f]{64}$/.test(sha)) record.set(path, sha);
     }
   } catch {
     // No record, or one that does not read: no file there is the write's to replace.
   }
+
   return record;
 }
 
@@ -327,17 +374,22 @@ function notOurs(
   record: ReadonlyMap<string, string>,
 ): string | undefined {
   let held: Uint8Array;
+
   try {
     if (!statSync(copy).isFile()) return `${copy} is there and is no file`;
     held = readFileSync(copy);
   } catch {
     return undefined;
   }
+
   const written = record.get(relative(out, copy));
+
   if (written === undefined)
     return `${copy} is a file a write did not make, which a write never replaces`;
+
   if (createHash("sha256").update(held).digest("hex") !== written)
     return `${copy} changed since a write made it, and a write never replaces a change`;
+
   return undefined;
 }
 
@@ -359,28 +411,28 @@ interface Named {
  */
 export async function writeEdits(
   edits: readonly string[],
-  options: {
-    readonly readers: Readers;
-    readonly out?: string | undefined;
-    readonly root?: string | undefined;
-    readonly limits?: WriteLimits;
-  },
+  options: WriteOptions,
 ): Promise<WriteJob> {
   const limits: Required<WriteLimits> = {
     maxMemoryMb: options.limits?.maxMemoryMb ?? 4096,
     timeoutMs: options.limits?.timeoutMs ?? 300_000,
     maxFileBytes: options.limits?.maxFileBytes ?? 1024 * MB,
   };
+
   const started = Date.now();
   const results: WriteResult[] = [];
   const live = new Set<EditProcess>();
+
   const endAll = (): void => {
     for (const p of live) p.child.kill("SIGKILL");
   };
+
   process.once("exit", endAll);
+
   const run = async <T>(edit: string, use: (p: EditProcess) => Promise<T>): Promise<T> => {
     const p = new EditProcess(edit, limits);
     live.add(p);
+
     try {
       return await use(p);
     } finally {
@@ -388,6 +440,7 @@ export async function writeEdits(
       live.delete(p);
     }
   };
+
   try {
     // What each edit file names, a few at a time.
     const named: Named[] = [];
@@ -399,6 +452,7 @@ export async function writeEdits(
           await run(edit, async (p) => {
             const first = await p.next();
             p.say("stop");
+
             if (first?.message.kind === "source")
               named.push({ edit, source: first.message.source, sheets: first.message.sheets });
             else
@@ -418,36 +472,46 @@ export async function writeEdits(
     );
     const order = new Map(edits.map((e, i) => [e, i]));
     named.sort((a, b) => order.get(a.edit)! - order.get(b.edit)!);
+
     const root =
       options.root !== undefined
         ? resolve(options.root)
         : named.length > 0
           ? commonFolder(named.flatMap((p) => [p.source, ...p.sheets]))
           : process.cwd();
+
     const out = resolve(options.out ?? join(commonFolder(edits.map((e) => resolve(e))), "out"));
     const seen = new Map<string, string>();
     // Every source and sheet of the job, which no copy may replace.
     const kept = keptFiles(named.flatMap((n) => [n.source, ...n.sheets]));
     const record = readRecord(out);
+
     for (const { edit, source, sheets } of named) {
       const result = (fields: Omit<WriteResult, "edit" | "source" | "ms">): void => {
         results.push({ edit, source, ...fields, ms: Date.now() - started });
       };
+
       const refused = (reason: string, copy?: string): void =>
         result({ ...(copy !== undefined && { copy }), written: false, warnings: [], reason });
+
       const rest = relative(root, source);
+
       if (!inside(source, root) || rest === "") {
         refused(`${source} is not inside the root ${root}`);
         continue;
       }
+
       const copy = join(out, rest);
+
       if (seen.has(source)) {
         refused(`${seen.get(source)} edits the same file: one job makes one edit of a file`, copy);
         continue;
       }
+
       seen.set(source, edit);
       const extension = extname(source).toLowerCase();
       let editor: string | undefined;
+
       if (extension !== ".dxf") {
         try {
           editor = editorFor(options.readers, extension)?.editors?.[extension];
@@ -456,18 +520,22 @@ export async function writeEdits(
           refused(error.message, copy);
           continue;
         }
+
         if (editor === undefined) {
           refused(`No installed package edits ${extension} files`, copy);
           continue;
         }
       }
+
       await run(edit, async (p) => {
         const first = await p.next();
+
         const same =
           first?.message.kind === "source" &&
           first.message.source === source &&
           first.message.sheets.length === sheets.length &&
           first.message.sheets.every((sheet, i) => sheet === sheets[i]);
+
         if (!same) {
           p.say("stop");
           refused(
@@ -476,19 +544,27 @@ export async function writeEdits(
               : `The edit's process ${p.ended ?? "said nothing"}`,
             copy,
           );
+
           return;
         }
+
         p.say({ editor });
         const answer = await p.next();
+
         if (!answer || answer.message.kind === "source") {
           refused(`The edit's process ${p.ended ?? "gave no answer"}`, copy);
+
           return;
         }
+
         const m = answer.message;
+
         if (m.kind === "error") return refused(m.error, copy);
+
         if (m.kind === "refused")
           return result({ copy, written: false, warnings: m.warnings, reason: m.reason });
         const failed = m.checks.filter((c) => !c.passed);
+
         if (failed.length > 0)
           return result({
             copy,
@@ -501,20 +577,26 @@ export async function writeEdits(
         // and is renamed into place only if those are the bytes the checks passed, and the place
         // is not the source's by any path.
         const temporary = join(dirname(copy), `.${randomUUID()}.tsdraft-write`);
+
         try {
           mkdirSync(dirname(copy), { recursive: true });
+
           const guard = (): void => {
             const reached = reaches(copy, kept);
+
             if (reached !== undefined)
               throw new Error(
                 `${copy} is ${reached === source ? "the source itself" : `${reached}, a file of the job`}, which a write never replaces`,
               );
             const why = notOurs(copy, out, record);
+
             if (why !== undefined) throw new Error(why);
           };
+
           guard();
           writeFileSync(temporary, answer.bytes!);
           const onDisk = createHash("sha256").update(readFileSync(temporary)).digest("hex");
+
           if (onDisk !== m.sha256)
             throw new Error("the file on the disk is not the one the checks passed");
           guard();
@@ -529,12 +611,14 @@ export async function writeEdits(
             written: false,
             warnings: m.warnings,
             checks: m.checks,
-            reason: `The copy could not be written: ${(error as Error).message}`,
+            reason: `The copy could not be written: ${error instanceof Error ? error.message : String(error)}`,
           });
         }
       });
     }
+
     results.sort((a, b) => order.get(a.edit)! - order.get(b.edit)!);
+
     return { root, out, files: results };
   } finally {
     endAll();

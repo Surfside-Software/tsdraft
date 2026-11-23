@@ -2,6 +2,7 @@
 // and how each is written and plotted.
 import type { EntityColor, Rgb } from "./drawing.ts";
 import { ENTITY_COLOR } from "./rules.ts";
+import { isNumber } from "./guards.ts";
 
 /** The values of the five shades of each hue of the index, from the brightest. */
 const SHADES = [255, 204, 153, 127, 76] as const;
@@ -25,6 +26,7 @@ const MATCHED: readonly Rgb[] = (() => {
     [128, 128, 128],
     [192, 192, 192],
   ];
+
   for (let index = 10; index < 250; index++) {
     const hue = Math.floor(index / 10) - 1;
     const value = SHADES[Math.floor((index % 10) / 2)]!;
@@ -49,10 +51,12 @@ const MATCHED: readonly Rgb[] = (() => {
       )[sector]!,
     );
   }
+
   for (let k = 0; k < 6; k++) {
     const gray = Math.floor((255 * (5 + 4 * k)) / 25);
     out.push([gray, gray, gray]);
   }
+
   return out;
 })();
 
@@ -64,11 +68,14 @@ export function matchedIndex(rgb: Rgb): number {
   const [red, green, blue] = [rgb[0], rgb[1], rgb[2]];
   let best = 1;
   let nearest = Infinity;
+
   for (let index = 1; index <= 255; index++) {
     const [r, g, b] = MATCHED[index]!;
     const distance = (red - r) ** 2 + (green - g) ** 2 + (blue - b) ** 2;
+
     if (distance < nearest) [best, nearest] = [index, distance];
   }
+
   return best;
 }
 
@@ -78,20 +85,28 @@ export const rgbValue = (rgb: Rgb): number => (rgb[0] << 16) | (rgb[1] << 8) | r
 /** True for a true color: three whole numbers from 0 to 255. */
 export function isRgb(value: unknown): value is Rgb {
   if (!Array.isArray(value) || value.length !== 3) return false;
+
   // Read by index, so an empty slot is no channel.
   for (let k = 0; k < 3; k++) {
     const v: unknown = value[k];
-    if (!Number.isInteger(v) || (v as number) < 0 || (v as number) > 255) return false;
+
+    if (!isNumber(v) || !Number.isInteger(v) || v < 0 || v > 255) return false;
   }
+
   return true;
 }
 
-/** What is wrong with an entity's color, or undefined when it is one. */
+/**
+ * What is wrong with an entity's color, or undefined when it is one. It takes any value, as a
+ * caller in plain JavaScript may give one.
+ */
 export function entityColorProblem(color: unknown): string | undefined {
   if (color === "ByLayer" || color === "ByBlock") return undefined;
-  if (typeof color === "number") {
+
+  if (isNumber(color)) {
     return Number.isInteger(color) && color >= 1 && color <= 255 ? undefined : ENTITY_COLOR;
   }
+
   return isRgb(color) ? undefined : ENTITY_COLOR;
 }
 
@@ -104,8 +119,11 @@ export function storedColor(
   color: EntityColor | undefined,
 ): { readonly index: number; readonly rgb?: number } | undefined {
   if (color === undefined || color === "ByLayer") return undefined;
+
   if (color === "ByBlock") return { index: 0 };
-  if (typeof color === "number") return { index: color };
+
+  if (isNumber(color)) return { index: color };
+
   return { index: matchedIndex(color), rgb: rgbValue(color) };
 }
 
@@ -116,7 +134,10 @@ export function storedColor(
  */
 export function heldColor(color: EntityColor | undefined): number {
   const stored = storedColor(color);
+
   if (stored === undefined) return 0xc0000000 | 0;
+
   if (stored.rgb !== undefined) return 0xc2000000 | stored.rgb | 0;
+
   return stored.index === 0 ? 0xc1000000 | 0 : 0xc3000000 | stored.index | 0;
 }

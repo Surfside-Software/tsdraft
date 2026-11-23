@@ -1,6 +1,7 @@
 // The picture of a read file after an edit, from the fragments of its picture kept from before:
 // those of the entities the edit does not reach as they were, those it changes drawn again, and
 // those it adds after the rest, joined in one pass over the fragments.
+import { isString } from "../guards.ts";
 import {
   joinPicture,
   type PictureFragment,
@@ -44,16 +45,21 @@ const runKey = (run: PictureRun): string => `${run.space}:${run.viewport ?? "-"}
  */
 function runsOf(pieces: readonly PicturePiece[]): Map<string, PictureRun> {
   const runs = new Map<string, PictureRun>();
+
   for (const piece of pieces) {
-    if (typeof piece === "string" || piece.kind !== "fragments") continue;
+    if (isString(piece) || piece.kind !== "fragments") continue;
     const key = runKey(piece);
+
     if (!runs.has(key)) runs.set(key, piece);
+
     for (const fragment of piece.fragments) {
       const inner = fragment.run;
       const at = `${key}|${inner?.xref}|${fragment.handle ?? `#${fragment.index}`}`;
+
       if (inner?.xref !== undefined && !runs.has(at)) runs.set(at, inner);
     }
   }
+
   return runs;
 }
 
@@ -66,23 +72,30 @@ function edited(
 ): PictureRun {
   if (!erased?.size && !changed?.size && drawn === undefined) return run;
   const again = new Map<string, PictureFragment>();
+
   for (const fragment of drawn?.fragments ?? []) {
     if (fragment.handle !== undefined) again.set(fragment.handle, fragment);
   }
+
   const fragments: PictureFragment[] = [];
+
   for (const fragment of run.fragments) {
     const handle = fragment.handle;
+
     if (handle !== undefined && erased?.has(handle)) continue;
     const redrawn = handle === undefined ? undefined : again.get(handle);
+
     if (redrawn) again.delete(handle!);
     else if (handle !== undefined && changed?.has(handle)) continue;
     fragments.push(redrawn ?? fragment);
   }
+
   for (const fragment of drawn?.fragments ?? []) {
     if (fragment.handle === undefined || again.get(fragment.handle) === fragment) {
       fragments.push(fragment);
     }
   }
+
   return { ...run, fragments };
 }
 
@@ -99,14 +112,18 @@ export function editedPicture(kept: PictureInPieces, change: PictureChange): str
   const drawnRuns = change.drawn ? runsOf(change.drawn.pieces) : new Map<string, PictureRun>();
   const defs = change.drawn ? { ...kept.defs, ...change.drawn.defs } : kept.defs;
   const { xref, erased, changed } = change;
+
   const pieces = kept.pieces.map((piece): PicturePiece => {
-    if (typeof piece === "string" || piece.kind !== "fragments") return piece;
+    if (isString(piece) || piece.kind !== "fragments") return piece;
     const key = runKey(piece);
+
     if (xref === undefined) return edited(piece, erased, changed, drawnRuns.get(key));
     let touched = false;
+
     const fragments = piece.fragments.map((fragment) => {
       if (fragment.run?.xref !== xref) return fragment;
       touched = true;
+
       return {
         ...fragment,
         run: edited(
@@ -117,7 +134,9 @@ export function editedPicture(kept: PictureInPieces, change: PictureChange): str
         ),
       };
     });
+
     return touched ? { ...piece, fragments } : piece;
   });
+
   return joinPicture(pieces, defs);
 }

@@ -6,6 +6,7 @@ export async function inScratch(use: (dir: string) => void | Promise<void>): Pro
   const out = join(import.meta.dirname, "../examples/out");
   mkdirSync(out, { recursive: true });
   const dir = mkdtempSync(join(out, "test-"));
+
   try {
     await use(dir);
   } finally {

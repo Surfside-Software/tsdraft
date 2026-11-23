@@ -70,6 +70,7 @@ export type ParentOf<D, F> = "extends" extends keyof D
     ? Standard
     : Named<D["extends" & keyof D], F>
   : undefined;
+
 type Named<E, F> = E extends string
   ? string extends E
     ? Standard
@@ -83,27 +84,34 @@ type Named<E, F> = E extends string
   : E;
 
 type Own<D, S extends Section> = S extends keyof D ? D[S] : {};
+
 /** True when the names of a section are not known: `D` may leave it out, or its keys are `string`. */
 type Unknown<E> = undefined extends E ? true : string extends keyof E ? true : false;
+
 /**
  * The names of the entries that are there. An entry that may be `null` or left out may be gone,
  * and so may one that a member of a union of sections lacks.
  */
 type Live<E> = Exclude<Keys<E>, Gone<E, Keys<E>>> & string;
+
 type Keys<E> = E extends unknown ? keyof E : never;
+
 type Gone<E, All> = E extends unknown
   ?
       | Exclude<All, keyof E>
       | { [K in keyof E]-?: null extends E[K] ? K : {} extends Pick<E, K> ? K : never }[keyof E]
   : never;
+
 /** The names an entry may remove: each that is, or may be, `null` in any member of `E`. */
 type Removed<E> = (E extends unknown
   ? { [K in keyof E]-?: null extends E[K] ? K : never }[keyof E]
   : never) &
   string;
+
 type Inherited<P, S extends Section> = P extends { readonly [K in S]: infer E }
   ? keyof E & string
   : never;
+
 /**
  * A name as the type compares it: in lower case, after Σ is written σ, since `Lowercase` makes Σ
  * at the end of a word ς, where `layerKey` makes it σ. Two names `layerKey` or `idKey` takes for
@@ -112,14 +120,18 @@ type Inherited<P, S extends Section> = P extends { readonly [K in S]: infer E }
  * left out even when a live entry folds to it.
  */
 type Fold<N extends string> = Lowercase<Sigma<N>>;
+
 type Sigma<N extends string> = N extends `${infer A}Σ${infer B}` ? `${A}σ${Sigma<B>}` : N;
+
 /** The parent's names by their fold, which a child's entry keeps. */
 type Folds<Names extends string> = { readonly [N in Names as Fold<N>]: N };
+
 type Spelled<K extends string, Names extends string> = K extends unknown
   ? Fold<K> extends keyof Folds<Names>
     ? Folds<Names>[Fold<K>] & string
     : K
   : never;
+
 type SectionNames<D, P, S extends Section> =
   Unknown<Own<D, S>> extends true
     ? string
@@ -132,12 +144,15 @@ type SectionNames<D, P, S extends Section> =
 export type NamesOf<D, P> = { readonly [S in Section]: SectionNames<D, P, S> };
 
 type Str<V, R> = V extends string ? R : unknown;
+
 /** A value of a list, or the list where it is another: a string as wide as JSON gives passes. */
 type OneOf<V extends string, U extends string> = string extends V ? V : V extends U ? V : U;
+
 type Num<V, R> = V extends number ? R : unknown;
 
 /** `Problem` when a name breaks a rule, and `never` when it is valid. */
 type Valid<K extends string, Checked> = [Checked] extends [K] ? never : Checked;
+
 type IdProblem<K extends string> = Valid<K, EntityId<K>>;
 
 /**

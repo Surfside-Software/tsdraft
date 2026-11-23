@@ -23,12 +23,16 @@ test("a gradient is written as CAD programs hold it, black as 0,0,1, and read ba
   });
   d.hatch(triangle, { gradient: { name: "cylinder", color: [255, 0, 0], tint: 0.25 } });
   const dxf = toDXF(d.build());
+
   const groups = (n: number) => {
     let at = -1;
+
     for (let k = 0; k <= n; k++) at = dxf.indexOf("\r\n450\r\n", at + 1);
     const end = dxf.indexOf("\r\n", dxf.indexOf("\r\n470\r\n", at) + 7);
+
     return dxf.slice(at + 2, end).split("\r\n");
   };
+
   // After the seed point: whether a gradient, its angle in radians, its shift, one color or two,
   // the tint, then each color's index and true color, then its name.
   assert.deepEqual(

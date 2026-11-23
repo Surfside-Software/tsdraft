@@ -46,9 +46,9 @@ import { elevSymbols, levelLeft } from "./elevations-symbols.ts";
 
 /** Model-space origins of the views, inside this module's range (x 80000 to 199999). */
 export const ORIGIN = {
-  building: [92000, 0] as Point,
-  wall: [97000, 0] as Point,
-  key: [103000, 0] as Point,
+  building: [92000, 0] satisfies Point,
+  wall: [97000, 0] satisfies Point,
+  key: [103000, 0] satisfies Point,
 };
 
 /** Where the building section cuts, in building x. */
@@ -57,8 +57,10 @@ export const CUT_X = 450;
 const ov = HEIGHTS.overhang;
 const slope = HEIGHTS.pitch / 12;
 const TB = Z.tieBeam - Z.tieBeamDepth; // the bottom of the tie beam
+
 /** The continuous footing of S-101 note 3 and 1/S-501: 20" x 12", centered on the 8" wall. */
 const FOOT = { top: Z.footingTop, bottom: Z.footingTop - Z.footingDepth, w: Z.footingWidth };
+
 /** LB-1, the lanai beam of S-102: 8" x 20", its top at the lanai plate height (4/S-501). */
 const LB = { top: HEIGHTS.lanaiPlate, depth: 20, width: 8 };
 const SLAB = 4;
@@ -89,9 +91,11 @@ function buildingSection(d: D, v: View): Extent {
   // The cut parts, heavy.
   const cmuS: [number, number] = [0, 8];
   const cmuN: [number, number] = [N - 8, N];
+
   const winS = L1.openings.find(
     (op) => op.kind === "window" && op.cut[1] === 0 && op.cut[0] <= x && op.cut[2] >= x,
   );
+
   const slider = L1.openings.find((op) => op.cut[3] === DEPTH && op.cut[0] <= x && op.cut[2] >= x);
   const sill = winS ? (winS.head ?? 96) - (winS.height ?? 60) : 0;
   const head = winS ? (winS.head ?? 96) : 0;
@@ -104,6 +108,7 @@ function buildingSection(d: D, v: View): Extent {
       L.rect(c - FOOT.w / 2, FOOT.bottom, c + FOOT.w / 2, FOOT.top);
       L.rect(a, FOOT.top, b, Z.ff - SLAB);
     }
+
     L.rect(cmuS[0], Z.ff - SLAB, cmuN[1], Z.ff);
     // The thickened slab under the bearing wall between the study and the great room.
     L.poly([
@@ -112,11 +117,13 @@ function buildingSection(d: D, v: View): Extent {
       [203, Z.ff - 16],
       [209, Z.ff - SLAB],
     ]);
+
     // First floor CMU, the window in the south wall and the slider in the north wall.
     if (winS) {
       L.rect(cmuS[0], Z.ff, cmuS[1], sill);
       L.rect(cmuS[0], head, cmuS[1], TB);
     } else L.rect(cmuS[0], Z.ff, cmuS[1], TB);
+
     if (slider) L.rect(cmuN[0], sliderHead, cmuN[1], TB);
     else L.rect(cmuN[0], Z.ff, cmuN[1], TB);
     // Tie beams.
@@ -127,10 +134,12 @@ function buildingSection(d: D, v: View): Extent {
     // Second floor walls: 2x6 outside, 2x4 inside.
     L.rect(0, Z.l2, 6, Z.plate);
     L.rect(N - 6, Z.l2, N, Z.plate);
+
     for (const w of L2.walls) {
       if (w[0] <= x && w[2] >= x && w[3] - w[1] < 10 && w[1] > 10 && w[3] < N - 10)
         L.rect(w[1], Z.l2, w[3], CLG2);
     }
+
     // The floor: the rim at each end, the sheathing over the trusses.
     L.rect(0.5, Z.tieBeam, 2, Z.l2 - 0.75);
     L.rect(N - 2, Z.tieBeam, N - 0.5, Z.l2 - 0.75);
@@ -138,6 +147,7 @@ function buildingSection(d: D, v: View): Extent {
     L.line(0, Z.l2 - 0.75, N, Z.l2 - 0.75);
     // The roof, cut through the east hip plane: up from the south eave, flat, down to the north.
     const prof: [number, number][] = [];
+
     for (const y of [
       ROOF.eave[1],
       ROOF.eave[1] + (ROOF.eave[2] - x),
@@ -181,12 +191,15 @@ function buildingSection(d: D, v: View): Extent {
       [yB, roofTop(x, yB)],
     ]);
     L.rect(lan.y1 - 12, Z.lanai, lan.y1, LB.top - LB.depth); // the 12" column beyond
+
     for (const z of [LB.top - 3, LB.top - LB.depth + 3])
       for (const dy of [2.3, 5.7]) bar(L, lan.y1 - 2 - LB.width + dy, z);
+
     if (winS) {
       L.rect(cmuS[0] + 2, sill, cmuS[1] - 2, head);
       L.line(cmuS[0] - 2, sill, cmuS[1], sill);
     }
+
     if (slider) L.rect(cmuN[0] + 2, Z.ff, cmuN[1] - 2, sliderHead);
     // Floor trusses, open web, at 24" o.c.: their chords and webs as they are seen.
     const t0 = cmuS[1] + 1;
@@ -194,20 +207,26 @@ function buildingSection(d: D, v: View): Extent {
     L.line(t0, Z.tieBeam + 3.5, t1, Z.tieBeam + 3.5);
     L.line(t0, Z.l2 - 0.75 - 3.5, t1, Z.l2 - 0.75 - 3.5);
     const panel = 30;
+
     for (let y = t0, k = 0; y + panel <= t1; y += panel, k++) {
       if (k % 2 === 0) L.line(y, Z.tieBeam + 3.5, y + panel, Z.l2 - 4.25);
       else L.line(y, Z.l2 - 4.25, y + panel, Z.tieBeam + 3.5);
     }
+
     // Roof trusses: the bottom chord and webs of the step-down hip truss at the cut.
     L.line(0, Z.plate + 3.5, N, Z.plate + 3.5);
     L.line(0, Z.plate, N, Z.plate);
     const webs = [60, 120, 174, 264, 354, 408, 468];
+
     for (const y of webs) L.line(y, Z.plate + 3.5, y, roofTop(x, y) - 5);
+
     for (let k = 0; k + 1 < webs.length; k++) {
       const [a, b] = [webs[k]!, webs[k + 1]!];
+
       if (k < 3) L.line(a, Z.plate + 3.5, b, roofTop(x, b) - 5);
       else L.line(a, roofTop(x, a) - 5, b, Z.plate + 3.5);
     }
+
     // Ceilings: gypsum under the floor trusses and the roof trusses; the owner's tray.
     L.line(cmuS[1], Z.tieBeam - 0.5, cmuN[0], Z.tieBeam - 0.5);
     L.line(6, CLG2 - 0.625, 300, CLG2 - 0.625);
@@ -223,6 +242,7 @@ function buildingSection(d: D, v: View): Extent {
   // Patterns, as lines (tsdraft has no hatch).
   d.layer(LAYERS.patt, {}, () => {
     const p = v.p(0.045);
+
     for (const [a, b] of [cmuS, cmuN]) {
       hatch(d, L.box(a, FOOT.top, b, Z.ff - SLAB), p);
       concrete(
@@ -233,10 +253,12 @@ function buildingSection(d: D, v: View): Extent {
       );
       concrete(d, L.box(a, TB, b, Z.tieBeam), v.p(0.05), 5);
     }
+
     if (winS) {
       hatch(d, L.box(cmuS[0], Z.ff, cmuS[1], sill), p);
       hatch(d, L.box(cmuS[0], head, cmuS[1], TB), p);
     }
+
     hatch(d, L.box(cmuN[0], slider ? sliderHead : Z.ff, cmuN[1], TB), p);
     hatch(d, L.box(lan.y1 - 8, FOOT.top, lan.y1, Z.lanai - SLAB), p);
     concrete(
@@ -246,12 +268,14 @@ function buildingSection(d: D, v: View): Extent {
       29,
     );
     concrete(d, L.box(lan.y1 - 2 - LB.width, LB.top - LB.depth, lan.y1 - 2, LB.top), v.p(0.05), 31);
+
     // Earth below grade, and compacted fill under the slabs.
     const holes = [
       L.box(-FOOT.w / 2 + 4, FOOT.bottom, FOOT.w / 2 + 4, Z.grade),
       L.box(N - 4 - FOOT.w / 2, FOOT.bottom, N - 4 + FOOT.w / 2, Z.grade),
       L.box(lan.y1 - 4 - FOOT.w / 2, FOOT.bottom, lan.y1 - 4 + FOOT.w / 2, Z.grade),
     ];
+
     earth(d, L.box(-80, Z.grade - 48, lan.y1 + 70, Z.grade), holes, v.p(0.16));
     dots(d, L.box(cmuS[1] + 2, Z.grade + 2, cmuN[0] - 2, Z.ff - SLAB - 2), v.p(0.09), 5);
     dots(d, L.box(N + 2, Z.grade + 2, lan.y1 - 10, Z.lanai - SLAB - 2), v.p(0.09), 9);
@@ -279,13 +303,16 @@ function buildingSection(d: D, v: View): Extent {
           align: "center",
         }),
       );
+
     const room = (r: { name: string; rect: readonly number[]; ceiling?: string }, z: number) =>
       name((Math.max(r.rect[1]!, 8) + Math.min(r.rect[3]!, N - 8)) / 2, z, [
         r.name,
         ...(r.ceiling ? [r.ceiling] : []),
       ]);
+
     for (const r of L1.rooms)
       if (r.rect[0] <= x && r.rect[2] >= x && r.name !== "COVERED LANAI") room(r, 70);
+
     for (const r of L2.rooms) if (r.rect[0] <= x && r.rect[2] >= x) room(r, Z.l2 + 70);
     name((N + lan.y1) / 2, 50, ["COVERED", "LANAI"]);
     name(264, Z.plate + 50, ["ATTIC"]);
@@ -293,6 +320,7 @@ function buildingSection(d: D, v: View): Extent {
 
   // Levels and dimensions, on the left.
   const colA = -ov - v.p(1.1);
+
   const levels: [number, string][] = [
     [Z.ridge, "RIDGE (BEYOND)"],
     [Z.plate, "TOP OF PLATE"],
@@ -301,6 +329,7 @@ function buildingSection(d: D, v: View): Extent {
     [Z.ff, "FIRST FLOOR (F.F.E.)"],
     [Z.grade, "FINISH GRADE"],
   ];
+
   for (const [z, nm] of levels)
     levelLeft(
       L,
@@ -347,6 +376,7 @@ function buildingSection(d: D, v: View): Extent {
       ],
     },
   ];
+
   noteStack(L, v, 0, notes);
   // The wall section's callout: a phantom box around the south wall and a bubble.
   d.layer(LAYERS.symb, {}, () => {
@@ -362,6 +392,7 @@ function buildingSection(d: D, v: View): Extent {
     });
     put(d, L.P(v.p(0.5), boxTop + v.p(0.45) - v.p(0.3)), "SIM.", v.p(H.note));
   });
+
   return {
     left: colA - v.p(0.15) - v.p(Math.max(...levels.map(([, n]) => width(n, H.note)))),
     right: lan.y1 + 90,
@@ -486,8 +517,10 @@ function wallSection(d: D, v: View): Extent {
       [4, FOOT.bottom + 3],
       [4, Z.tieBeam - 2.5],
     ]);
+
     for (const h of [4 - FOOT.w / 2 + 3.31, 4, 4 + FOOT.w / 2 - 3.31])
       bar(L, h, FOOT.bottom + 3.31);
+
     for (const h of [2.3, 5.7]) bar(L, h, Z.tieBeam - 3);
     // A slab dowel and the welded wire.
     L.d.line(L.P(10, Z.ff - 2), L.P(R, Z.ff - 2), { linetype: "DASHED" });
@@ -537,12 +570,14 @@ function wallSection(d: D, v: View): Extent {
 
   // Levels, on the right.
   const right = R + v.p(0.4);
+
   const levels: [number, string][] = [
     [Z.plate, "TOP OF PLATE"],
     [Z.l2, "SECOND FLOOR"],
     [Z.tieBeam, "TOP OF TIE BEAM"],
     [Z.ff, "F.F.E."],
   ];
+
   d.layer(LAYERS.symb, {}, () => {
     for (const [z, nm] of levels) {
       L.d.line(L.P(R, z), L.P(right - v.p(0.08), z));
@@ -596,6 +631,7 @@ function wallSection(d: D, v: View): Extent {
       lines: [`${FOOT.w}"X${Z.footingDepth}" CONT. FOOTING, (3) #5`, 'CONT., 3" CLR., SEE 1/S-501'],
     },
   ];
+
   const inside: Note[] = [
     {
       at: [36, roofZ(36) - deck - chord],
@@ -637,11 +673,13 @@ function wallSection(d: D, v: View): Extent {
     { at: [30, -20], lines: ["CLEAN FILL COMPACTED TO 95%", '(ASTM D1557) IN 12" LIFTS'] },
     { at: [5, FOOT.bottom + 3], lines: ["#5 STD. HOOK INTO FOOTING"] },
   ];
+
   const leftH = -ov - v.p(0.5);
   const rightH = right + v.p(1.5);
   const lowL = noteStack(L, v, leftH, outside);
   const bands = levels.map(([z]): [number, number] => [z - v.p(0.55), z + v.p(0.2)]);
   const lowR = noteStack(L, v, rightH, inside, Infinity, bands);
+
   return {
     left: leftH - v.p(0.3) - v.p(Math.max(...outside.map((n) => noteWidth(n.lines)))),
     right: rightH + v.p(0.3) + v.p(Math.max(...inside.map((n) => noteWidth(n.lines)))),
@@ -669,6 +707,7 @@ function keyPlan(d: D, v: View): Extent {
   d.layer(LAYERS.anno, {}, () => {
     put(d, P(312, -v.p(0.9)), "KEY PLAN, FIRST FLOOR", v.p(H.note), { align: "center" });
   });
+
   return { left: -v.p(0.4), right: 624 + v.p(0.4), bottom: -v.p(1.05), top: LANAI[3] + v.p(0.8) };
 }
 
@@ -682,6 +721,7 @@ const VENTILATION = (() => {
   const soffit = (((2 * (W + DEPTH + 4 * HEIGHTS.overhang)) / 12) * 9) / 144; // 9 sq. in. per foot
   const offRidge = { count: 8, each: 54 }; // as A-103 has them, sq. in. of net free area each
   const off = (offRidge.count * offRidge.each) / 144;
+
   return {
     attic,
     required: attic / 150,
@@ -711,8 +751,10 @@ function envelopeTable(d: D, at: Point, w: number): number {
     ["SLAB ON GRADE", "R-0", "NOT REQUIRED (CZ 2)"],
     ["WINDOWS", "U-0.40", "SHGC 0.25, IMPACT"],
   ];
+
   const c2 = 0.8;
   const center = { 1: "center" } as const;
+
   const envelope: TableOptions = {
     style: SCHEDULE,
     at,
@@ -721,7 +763,9 @@ function envelopeTable(d: D, at: Point, w: number): number {
     header: aligned(["ASSEMBLY", "R / U", "MATERIAL"], center),
     rows: rows.map((row) => aligned(row, center)),
   };
+
   d.layer(LAYERS.text, {}, () => d.table(envelope));
+
   return tableBottom(envelope);
 }
 
@@ -738,9 +782,11 @@ function strapTable(d: D, at: Point, w: number): number {
     ["LANAI MONO TRUSS TO LB-1", "C5", "4/S-501"],
     ["LANAI COLUMN TO LB-1 AND PAD", "C7", "S-101"],
   ];
+
   const c2 = 0.95;
   const c3 = 0.85;
   const center = { 1: "center", 2: "center" } as const;
+
   const loadPath: TableOptions = {
     style: SCHEDULE,
     at,
@@ -749,7 +795,9 @@ function strapTable(d: D, at: Point, w: number): number {
     header: aligned(["CONNECTION", "TAG", "SEE"], center),
     rows: rows.map((row) => aligned(row, center)),
   };
+
   d.layer(LAYERS.text, {}, () => d.table(loadPath));
+
   return tableBottom(loadPath);
 }
 
@@ -824,6 +872,6 @@ function sectionSheet(d: D): void {
   });
 }
 
-export const SECTION_SHEETS: Record<string, SheetDraw> = {
+export const SECTION_SHEETS = {
   "A-301": sectionSheet,
-};
+} satisfies Record<string, SheetDraw>;

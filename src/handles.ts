@@ -44,7 +44,9 @@ export const ID_HANDLE_SEED = "20000000000000";
  */
 export function idHandle(id: string): string {
   const problem = idProblem(id);
+
   if (problem) throw new RangeError(problem);
+
   return validIdHandle(id);
 }
 
@@ -63,6 +65,7 @@ export function keyHandle(key: string): string {
   // of plain numbers, which every JavaScript engine works out alike.
   let high = 0xcbf29ce4;
   let low = 0x84222325;
+
   const byte = (value: number): void => {
     low = (low ^ value) >>> 0;
     // Times the FNV prime, 2^40 + 0x1b3, keeping 64 bits.
@@ -70,9 +73,11 @@ export function keyHandle(key: string): string {
     high = (Math.imul(high, 0x1b3) + Math.floor(product / 2 ** 32) + (low << 8)) >>> 0;
     low = product >>> 0;
   };
+
   for (let i = 0; i < key.length; i++) {
     // A name holds no character above U+FFFF, so UTF-8 takes one to three bytes for each.
     const code = key.charCodeAt(i);
+
     if (code < 0x80) byte(code);
     else if (code < 0x800) {
       byte(0xc0 | (code >> 6));
@@ -83,9 +88,11 @@ export function keyHandle(key: string): string {
       byte(0x80 | (code & 0x3f));
     }
   }
+
   // The top 12 bits are folded into the low 52, and 2^52 is bit 20 of the high half.
   low ^= high >>> 20;
   high = 0x100000 | (high & 0xfffff);
+
   // The digits come from numbers under 2^31, which print far faster than a larger one.
   return (
     high.toString(16) +

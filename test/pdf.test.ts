@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { deflateSync, inflateSync } from "node:zlib";
-import { createDrawing, pdfFace, svgToPDF, toPDF, toSVG } from "../src/index.ts";
+import { createDrawing, pdfFace, svgToPDF, toPDF, toSVG, type PdfSheet } from "../src/index.ts";
 import { GRADIENT_STOPS } from "../src/fills.ts";
-import { readTrueType, type TrueType } from "../src/truetype.ts";
+import { isString } from "../src/guards.ts";
+import { readTrueType } from "../src/truetype.ts";
+import { wrong } from "./values.ts";
 import exampleSheet from "../examples/site-plan.ts";
 import set, { xrefs } from "../examples/plan-set/set.ts";
 
@@ -49,10 +51,12 @@ test("the example sheet and the permit set plot every element of their pictures"
   const plotted = toPDF(set, { xrefs, deflate: (bytes) => deflateSync(bytes) });
   const text = latin1(plotted);
   holdsTogether(text);
+
   // The pages are the sheets in order, each with its label.
   const labels = [...text.matchAll(/\d+ << \/P <FEFF([0-9A-F]+)> >>/g)].map(([, hex]) =>
     String.fromCharCode(...hex!.match(/.{4}/g)!.map((code) => Number.parseInt(code, 16))),
   );
+
   assert.deepEqual(
     labels,
     set.layouts!.map((layout) => layout.name),
@@ -71,6 +75,7 @@ test("svgToPDF refuses what toSVG does not draw of a layout", () => {
   );
   assert.throws(() => svgToPDF([]), RangeError);
   const sheet = toSVG(exampleSheet, { layout: exampleSheet.layouts![0]!.name });
+
   for (const changed of [
     sheet.replace("<line ", "<image "),
     sheet.replace("<line ", '<line opacity="0.5" '),
@@ -115,13 +120,16 @@ test("a gradient is a shading painted inside its loops, and a gradient toSVG doe
   assert.match(pdf, /h\nW\* n\n[-\d. ]+ cm\n\/Sh1 sh\nQ/);
   const sheet = toSVG(drawing, { layout: "G" });
   const path = /<path [^>]*data-gradient=""\/>/.exec(sheet)![0];
+
   // Stops from 0 to 1, as many as toSVG writes at most, and one more.
   const stops = (n: number) =>
     sheet.replace(
       /(<radialGradient [^>]*>).*?(<\/radialGradient>)/,
       `$1${Array.from({ length: n }, (_, k) => `<stop offset="${k / (n - 1)}" stop-color="#000000"/>`).join("")}$2`,
     );
+
   svgToPDF([stops(GRADIENT_STOPS)]);
+
   for (const changed of [
     sheet.replace('spreadMethod="pad"', 'spreadMethod="reflect"'),
     sheet.replace('<stop offset="0"', '<stop offset="0.1"'),
@@ -136,6 +144,7 @@ test("a gradient is a shading painted inside its loops, and a gradient toSVG doe
   ]) {
     assert.throws(() => svgToPDF([changed]), RangeError);
   }
+
   // A gradient that many paths fill with is one shading.
   const many = latin1(svgToPDF([sheet.replace(path, path.repeat(50))]));
   assert.equal(many.match(/\/ShadingType/g)?.length, 1);
@@ -161,6 +170,7 @@ test("a page sets the thinnest pen 0 wide, turns ARCH E as the plotter holds it,
   assert.deepEqual(missing, [["E", "≥", 0]]);
   assert.match(pdf, /\/Title <FEFF0045>/);
   assert.match(pdf, /\/ID \[<[0-9A-F]{32}> <[0-9A-F]{32}>\]/);
+
   // A list of sheets of drawings of their own plots each in turn.
   const two = latin1(
     toPDF([
@@ -168,10 +178,11 @@ test("a page sets the thinnest pen 0 wide, turns ARCH E as the plotter holds it,
       { drawing: d.build(), layout: "E" },
     ]),
   );
+
   assert.equal(two.match(/\/Type \/Page /g)?.length, 2);
   assert.throws(() => toPDF([]), RangeError);
-  assert.throws(() => toPDF([null as never]), RangeError);
-  assert.throws(() => toPDF([{ layout: "E" } as never]), RangeError);
+  assert.throws(() => toPDF([wrong<PdfSheet>(null)]), RangeError);
+  assert.throws(() => toPDF([wrong<PdfSheet>({ layout: "E" })]), RangeError);
 });
 
 test("a curve strays from its arc by at most a thousandth of an inch on the paper", () => {
@@ -187,19 +198,25 @@ test("a curve strays from its arc by at most a thousandth of an inch on the pape
   const path = /^([-\d.]+) ([-\d.]+) m\n((?:[-\d. ]+ c\n)+)h$/m.exec(content)!;
   let at = [Number(path[1]), Number(path[2])];
   let curves = 0;
+
   for (const line of path[3]!.trim().split("\n")) {
-    const [x1, y1, x2, y2, x, y] = line.split(" ").map(Number) as number[];
+    const [x1, y1, x2, y2, x, y] = line.split(" ").map(Number);
+
     // A curve meets its arc at its ends and its middle, and strays most a fifth of the way in.
     for (const t of [0.1, 0.2, 0.3, 0.7, 0.8, 0.9]) {
       const u = 1 - t;
+
       const along = (p0: number, p1: number, p2: number, p3: number) =>
         u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3;
+
       const point = [along(at[0]!, x1!, x2!, x!), along(at[1]!, y1!, y2!, y!)] as const;
       assert.ok(Math.abs(Math.hypot(point[0] - cx, point[1] - cy) - r) <= 0.072);
     }
+
     at = [x!, y!];
     curves++;
   }
+
   assert.ok(curves > 4);
 });
 
@@ -219,6 +236,7 @@ test("a text seen through a view at any scale keeps its size on the page", () =>
 function stream(pdf: string, object: string): Uint8Array {
   const head = new RegExp(`\\n${object} 0 obj\\n<< /Length (\\d+)[^\\n]*>>\\nstream\\n`).exec(pdf)!;
   const at = head.index + head[0].length;
+
   return new Uint8Array(Buffer.from(pdf.slice(at, at + Number(head[1])), "latin1"));
 }
 
@@ -226,15 +244,20 @@ function stream(pdf: string, object: string): Uint8Array {
 function program(bytes: Uint8Array) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const tables = new Map<string, number>();
+
   for (let i = 0; i < view.getUint16(4); i++) {
     const entry = 12 + 16 * i;
     tables.set(String.fromCharCode(...bytes.subarray(entry, entry + 4)), view.getUint32(entry + 8));
   }
+
   const long = view.getInt16(tables.get("head")! + 50) === 1;
   const loca = tables.get("loca")!;
+
   const start = (g: number) =>
     long ? view.getUint32(loca + 4 * g) : 2 * view.getUint16(loca + 2 * g);
+
   const glyf = tables.get("glyf")!;
+
   return {
     advance: (g: number) => view.getUint16(tables.get("hmtx")! + 4 * g),
     glyph: (g: number) => bytes.subarray(glyf + start(g), glyf + start(g + 1)),
@@ -252,18 +275,24 @@ function sameGlyph(
   b: number,
 ): boolean {
   const [x, y] = [one.glyph(a), other.glyph(b)];
+
   if (x.length < 10 || new DataView(x.buffer, x.byteOffset).getInt16(0) >= 0) {
     return Buffer.from(x).equals(Buffer.from(y.subarray(0, x.length)));
   }
+
   const [vx, vy] = [x, y].map((g) => new DataView(g.buffer, g.byteOffset, g.byteLength));
   let p = 10;
   let flags: number;
+
   do {
     flags = vx!.getUint16(p);
+
     if (!sameGlyph(one, vx!.getUint16(p + 2), other, vy!.getUint16(p + 2))) return false;
+
     if (vx!.getUint16(p) !== vy!.getUint16(p)) return false;
     p += 4 + (flags & 1 ? 4 : 2) + (flags & 8 ? 2 : flags & 0x40 ? 4 : flags & 0x80 ? 8 : 0);
   } while (flags & 0x20);
+
   return true;
 }
 
@@ -272,6 +301,7 @@ test("a TrueType font given a file is embedded, cut to the characters set, each 
   const file = readFileSync(
     new URL("../cli/assets/fonts/JetBrainsMono-Regular.ttf", import.meta.url),
   );
+
   const before = Buffer.from(file);
   const d = createDrawing({ units: "in" });
   d.textStyle({ name: "NOTE", font: "Arial" });
@@ -281,16 +311,20 @@ test("a TrueType font given a file is embedded, cut to the characters set, each 
     d.text([1, 1], "TXT", { height: 0.25 });
   });
   const missing: [string, string, number][] = [];
+
   const plot = () =>
     latin1(toPDF(d.build(), { fonts: { Arial: file }, missing: (...said) => missing.push(said) }));
+
   const pdf = plot();
   holdsTogether(pdf);
   assert.equal(pdfFace("Arial", file), "JetBrainsMono-Regular");
   assert.equal(pdfFace("Arial"), "Helvetica");
   assert.equal(pdfFace("txt.shx", file), "Courier");
+
   const name = /\/BaseFont \/([A-Z]{6}\+JetBrainsMono-Regular) \/Encoding \/Identity-H/.exec(
     pdf,
   )?.[1];
+
   assert.ok(name, "the font is embedded under the name of a subset");
   // Each character has a code of its own, from 1; the one the font lacks is set as `?` and said.
   // The size makes the file's capitals, 0.73 of its em, as tall as the text.
@@ -301,26 +335,33 @@ test("a TrueType font given a file is embedded, cut to the characters set, each 
   assert.deepEqual(missing, [["A", "℄", 0]]);
   // Each code leads, through the map of glyphs, to the glyph of its character in the file, and
   // as wide: a composite's parts too.
-  const font = readTrueType(new Uint8Array(file)) as TrueType;
+  const font = readTrueType(new Uint8Array(file));
+
+  if (isString(font)) assert.fail(font);
+
   const [original, subset] = [
     program(new Uint8Array(file)),
     program(stream(pdf, /\/FontFile2 (\d+)/.exec(pdf)![1]!)),
   ];
+
   const glyphs = stream(pdf, /\/CIDToGIDMap (\d+)/.exec(pdf)![1]!);
   const unicode = Buffer.from(stream(pdf, /\/ToUnicode (\d+)/.exec(pdf)![1]!)).toString("latin1");
   let composites = 0;
+
   for (const [, code, character] of unicode.matchAll(/<([0-9A-F]{4})> <([0-9A-F]{4})>/g)) {
     const at = Number.parseInt(code!, 16);
     const to = (glyphs[2 * at]! << 8) | glyphs[2 * at + 1]!;
     const from = font.glyph(Number.parseInt(character!, 16));
     assert.ok(sameGlyph(original, from, subset, to), `the glyph of U+${character}`);
     assert.equal(subset.advance(to), original.advance(from));
+
     if (
       new DataView(original.glyph(from).buffer, original.glyph(from).byteOffset).getInt16(0) < 0
     ) {
       composites++;
     }
   }
+
   assert.ok(composites >= 5);
   // The program holds those glyphs alone, an SHX font keeps its standard face, the same files
   // give the same bytes, and the file given is as it was.
@@ -351,6 +392,7 @@ test("with plotTransparency an entity plots in a transparency group at its opaci
   // Each form's box is what it paints, not the sheet, so a reader composes no more than that.
   const boxes = [...pdf.matchAll(/\/BBox \[([^\]]*)\]/g)].map(([, b]) => b!.split(" ").map(Number));
   assert.equal(boxes.length, 2);
+
   for (const [x0, y0, x1, y1] of boxes) assert.ok((x1! - x0!) * (y1! - y0!) < 1224 * 792 * 0.05);
   const svg = toSVG(drawing, { layout: "A-1", plotTransparency: true });
   assert.match(svg, /<g opacity="0\.49804"><line /);
@@ -381,10 +423,12 @@ test("with plotTransparency an entity plots in a transparency group at its opaci
   );
   const host = createDrawing({ units: "in" }).xref("BASE", "base.dwg");
   host.insert("BASE", [0, 0]);
+
   const through = toSVG(host.build(), {
     xrefs: { BASE: { drawing: base.build() } },
     plotTransparency: true,
   });
+
   assert.match(through, /<g opacity="0\.49804"><circle /);
   // A form sets its own pen, even one the page has just set, since some readers carry none in.
   const pens = createDrawing({ units: "in" });
@@ -392,9 +436,11 @@ test("with plotTransparency an entity plots in a transparency group at its opaci
     pens.line([1, 1], [5, 1], { lineweight: 2.11 });
     pens.line([1, 2], [5, 2], { lineweight: 2.11, transparency: 50 });
   });
+
   const form = /\/Subtype \/Form [^]*?stream\n([^]*?)endstream/.exec(
     latin1(toPDF(pens.build(), { plotTransparency: true })),
   )![1]!;
+
   for (const set of [/^1 J$/m, /^1 j$/m, / RG$/m, / w$/m]) assert.match(form, set);
   // A faded text's box holds its letters at the size it is set, whatever its font-size says.
   const lettered = createDrawing({ units: "in" });
@@ -402,22 +448,26 @@ test("with plotTransparency an entity plots in a transparency group at its opaci
     lettered.text([1, 1], "WWWW", { height: 0.5, transparency: 50 }),
   );
   const letters = toSVG(lettered.build(), { layout: "A-1", plotTransparency: true });
+
   for (const picture of [letters, letters.replace(/ font-size="[^"]*"/, "")]) {
     const [x0, y0, x1, y1] = latin1(svgToPDF([picture]))
       .match(/\/BBox \[([^\]]*)\]/)![1]!
       .split(" ")
       .map(Number);
+
     // From the text's start at an inch to past four capitals of half an inch, cap to baseline.
     assert.ok(
       x0! <= 72 && x1! >= 72 + 4 * 36 && y0! <= 72 && y1! >= 72 + 36,
       `${[x0, y0, x1, y1]}`,
     );
   }
+
   // In a font given a file and stretched to the length the text plots, the box holds the
   // font's box around every glyph, stretched alike, past each end.
   const file = readFileSync(
     new URL("../cli/assets/fonts/JetBrainsMono-Regular.ttf", import.meta.url),
   );
+
   const styled = createDrawing({ units: "in" });
   styled.textStyle({ name: "NOTE", font: "Arial" });
   styled.layout("A-1", { paper: "ANSI B" }, () =>

@@ -4,6 +4,7 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isJsonObject, isObject, isString, type Json } from "./guards.ts";
 
 /** The folder of the package this command belongs to, by its real path. */
 export const OWN_FOLDER = realpathSync.native(fileURLToPath(new URL("../..", import.meta.url)));
@@ -35,22 +36,37 @@ export class ReaderRefusal extends Error {
   }
 }
 
-type Manifest = Record<string, unknown>;
+/** The fields of a package.json the command reads, each as the file gives it. */
+interface Manifest {
+  readonly name?: unknown;
+  readonly version?: unknown;
+  readonly dependencies?: unknown;
+  readonly devDependencies?: unknown;
+  readonly tsdraft?: Json | undefined;
+}
 
 function manifest(folder: string): Manifest | null {
   try {
-    const value: unknown = JSON.parse(readFileSync(join(folder, "package.json"), "utf8"));
-    return typeof value === "object" && value !== null && !Array.isArray(value)
-      ? (value as Manifest)
-      : null;
+    const value: Json = JSON.parse(readFileSync(join(folder, "package.json"), "utf8"));
+
+    if (!isObject(value) || Array.isArray(value)) return null;
+
+    return {
+      name: "name" in value ? value.name : undefined,
+      version: "version" in value ? value.version : undefined,
+      dependencies: "dependencies" in value ? value.dependencies : undefined,
+      devDependencies: "devDependencies" in value ? value.devDependencies : undefined,
+      tsdraft: "tsdraft" in value ? value.tsdraft : undefined,
+    };
   } catch {
     return null;
   }
 }
 
-const names = (manifest: Manifest, field: string): string[] => {
+const names = (manifest: Manifest, field: "dependencies" | "devDependencies"): string[] => {
   const value = manifest[field];
-  return typeof value === "object" && value !== null ? Object.keys(value) : [];
+
+  return isObject(value) ? Object.keys(value) : [];
 };
 
 const dependencies = (manifest: Manifest): string[] => [
@@ -66,11 +82,14 @@ const PACKAGE_NAME = /^(?:@[\w~-][\w.~-]*\/)?[\w~-][\w.~-]*$/;
  */
 export function lookup(from: string, name: string): string | null {
   if (!PACKAGE_NAME.test(name)) return null;
+
   for (let dir = from; ; dir = dirname(dir)) {
     if (basename(dir) !== "node_modules") {
       const found = join(dir, "node_modules", name);
+
       if (existsSync(found)) return found;
     }
+
     if (dirname(dir) === dir) return null;
   }
 }
@@ -85,6 +104,7 @@ const real = (path: string): string => {
 
 const inside = (path: string, folder: string): boolean => {
   const rest = relative(folder, path);
+
   return rest === "" || (rest !== ".." && !rest.startsWith(`..${sep}`) && !isAbsolute(rest));
 };
 
@@ -96,40 +116,56 @@ const inside = (path: string, folder: string): boolean => {
  */
 export function findProject(cwd: string, inputs: readonly string[]): string | null {
   const within = inputs.map((input) => real(resolve(cwd, input)));
+
   for (let dir = real(cwd); ; dir = dirname(dir)) {
     const listed =
       !within.some((input) => inside(dir, input)) &&
       dependencies(manifest(dir) ?? {}).includes("tsdraft");
+
     if (listed) {
       const found = lookup(dir, "tsdraft");
+
       return found !== null && real(found) === OWN_FOLDER ? dir : null;
     }
+
     if (dirname(dir) === dir) return null;
   }
 }
 
 /** The modules a package.json names under one field of `"tsdraft"`, each inside its folder. */
-function modulesOf(folder: string, entries: unknown): Record<string, string> {
+function modulesOf(folder: string, entries: Json | undefined): ReaderPackage["modules"] {
   const modules: Record<string, string> = {};
-  if (typeof entries !== "object" || entries === null) return modules;
+
+  if (!isJsonObject(entries)) return modules;
+
   for (const [extension, path] of Object.entries(entries)) {
-    if (!extension.startsWith(".") || typeof path !== "string" || isAbsolute(path)) continue;
+    if (!extension.startsWith(".") || !isString(path) || isAbsolute(path)) continue;
     const module = real(resolve(folder, path));
+
     if (module !== folder && inside(module, folder)) modules[extension.toLowerCase()] = module;
   }
+
   return modules;
 }
 
 /** The package in a folder, when its package.json names a reader whose module is inside it. */
 function readerPackage(folder: string): ReaderPackage | null {
   const found = manifest(folder);
-  const own = found?.["tsdraft"];
-  if (!found || typeof own !== "object" || own === null) return null;
-  const modules = modulesOf(folder, (own as { readers?: unknown }).readers);
+  const own = found?.tsdraft;
+
+  if (!found || !isJsonObject(own)) return null;
+  const modules = modulesOf(folder, own["readers"]);
+
   if (Object.keys(modules).length === 0) return null;
-  const editors = modulesOf(folder, (own as { editors?: unknown }).editors);
-  const text = (value: unknown) => (typeof value === "string" ? value : "");
-  return { name: text(found["name"]), version: text(found["version"]), folder, modules, editors };
+  const { name, version } = found;
+
+  return {
+    name: isString(name) ? name : "",
+    version: isString(version) ? version : "",
+    folder,
+    modules,
+    editors: modulesOf(folder, own["editors"]),
+  };
 }
 
 /**
@@ -145,42 +181,54 @@ export function findReaders(options: {
 }): Readers {
   const { cwd, inputs, reader } = options;
   const project = findProject(cwd, inputs);
+
   if (reader !== undefined) {
     const path = reader.startsWith(".") || isAbsolute(reader);
+
     const folder = path
       ? resolve(cwd, reader)
       : project === null
         ? undefined
         : lookup(project, reader);
+
     if (folder === undefined) {
       throw new ReaderRefusal(
         `--reader ${reader}: a package name is looked up in the project, and no project here ` +
           `has this tsdraft installed. Give the path to the reader's folder instead`,
       );
     }
+
     if (folder === null || !existsSync(folder)) {
       throw new ReaderRefusal(`--reader ${reader}: no such package`);
     }
+
     const found = readerPackage(real(folder));
+
     if (!found) {
       throw new ReaderRefusal(
         `--reader ${reader}: its package.json names no reader, as ` +
           `"tsdraft": { "readers": { ".dwg": "./dist/read.js" } }`,
       );
     }
+
     return { project, packages: [found] };
   }
+
   if (project === null) return { project, packages: [] };
   // A dependency that resolves among the input paths is a file of the run, not a reader.
   const within = inputs.map((input) => real(resolve(cwd, input)));
   const packages: ReaderPackage[] = [];
+
   for (const name of dependencies(manifest(project) ?? {})) {
     const found = name === "tsdraft" ? null : lookup(project, name);
     const folder = found === null ? null : real(found);
+
     if (folder === null || within.some((input) => inside(folder, input))) continue;
     const reader = readerPackage(folder);
+
     if (reader) packages.push(reader);
   }
+
   return { project, packages };
 }
 
@@ -191,14 +239,17 @@ export function findReaders(options: {
  */
 export function readerFor(readers: Readers, extension: string): ReaderPackage | null {
   const key = extension.toLowerCase();
+
   if (key === ".dxf") return null;
   const found = readers.packages.filter((reader) => key in reader.modules);
+
   if (found.length > 1) {
     throw new ReaderRefusal(
       `${found.length} packages read ${key} files: ${found.map((p) => p.name).join(", ")}. ` +
         `Pick one with --reader <package>`,
     );
   }
+
   return found[0] ?? null;
 }
 
@@ -208,5 +259,6 @@ export function readerFor(readers: Readers, extension: string): ReaderPackage | 
  */
 export function editorFor(readers: Readers, extension: string): ReaderPackage | null {
   const reader = readerFor(readers, extension);
+
   return reader?.editors !== undefined && extension.toLowerCase() in reader.editors ? reader : null;
 }

@@ -106,6 +106,7 @@ const REJECTED: ReadonlySet<string> = new Set(
  */
 export function rejectedNameCharacter(name: string): string | undefined {
   for (const character of name) if (REJECTED.has(character)) return character;
+
   return undefined;
 }
 
@@ -134,9 +135,11 @@ function codeSet(ranges: string): ReadonlySet<number> {
       const [span = "", step = "1"] = range.split("/");
       const [first = "", last = first] = span.split("-");
       const codes: number[] = [];
+
       for (let code = parseInt(first, 16); code <= parseInt(last, 16); code += Number(step)) {
         codes.push(code);
       }
+
       return codes;
     }),
   );
@@ -172,10 +175,12 @@ const LAYOUT_FOLDED = codeSet(LAYOUT_FOLDED_RANGES);
  */
 export function layoutNameKey(name: string): string {
   let key = "";
+
   for (let i = 0; i < name.length; i++) {
     const character = name.charAt(i);
     key += LAYOUT_FOLDED.has(name.charCodeAt(i)) ? character.toLowerCase() : character;
   }
+
   return key;
 }
 
@@ -192,6 +197,7 @@ const AUDIT_SAME_PAIRS =
 const AUDIT_SAME: ReadonlyMap<string, string> = new Map(
   AUDIT_SAME_PAIRS.split(" ").map((pair): [string, string] => {
     const [from = "", to = ""] = pair.split(">");
+
     return [String.fromCharCode(parseInt(from, 16)), String.fromCharCode(parseInt(to, 16))];
   }),
 );
@@ -270,19 +276,24 @@ const IGNORED_SOFT_HYPHENS = /\u00ad+(?![\u00ad\p{M}\u1100-\u11ff\ua960-\ua97f\u
  */
 export function layerKey(name: string): string {
   let key = "";
+
   for (let i = 0; i < name.length; i++) {
     const character = name.charAt(i);
     key += FOLDED.has(name.charCodeAt(i)) ? character.toLowerCase() : character;
   }
+
   return key;
 }
 
 /** `layerKey`, worked out once for each name, for a walk that reads one name many times. */
 export function layerKeys(): (name: string) => string {
   const keys = new Map<string, string>();
+
   return (name) => {
     let key = keys.get(name);
+
     if (key === undefined) keys.set(name, (key = layerKey(name)));
+
     return key;
   };
 }
@@ -313,9 +324,11 @@ export function layerKeys(): (name: string) => string {
  */
 export function layerAuditKey(name: string): string {
   let key = "";
+
   for (const character of layerKey(decomposed(name.replace(IGNORED_SOFT_HYPHENS, "")))) {
     key += AUDIT_SPELLED_OUT.get(character) ?? AUDIT_SAME.get(character) ?? character;
   }
+
   // AUDIT does not report `coop` and `coop` with a soft hyphen after it as duplicates, though it
   // does report some other pairs that differ by a soft hyphen at the end. A mark for one at the
   // end keeps a name that ends with a soft hyphen apart from every name that does not. Two names

@@ -50,8 +50,10 @@ class Defects {
   count = 0;
   add(rule: string, detail: string): void {
     const key = `${rule}\n${detail}`;
+
     if (this.seen.has(key)) return;
     this.count++;
+
     if (this.list.length < MOST_DEFECTS) {
       this.seen.add(key);
       this.list.push({ rule, detail });
@@ -100,15 +102,18 @@ export function dxfStructure(bytes: Uint8Array): StructureReport {
   /** Each handle's kind, and how many records hold it. */
   const kinds = new Map<string, string>();
   const twice = new Set<string>();
+
   // Names come from the file, so they are keyed as `Strings` keys them (docs/agents/bounded.md).
-  const names: { [table: string]: Strings<true> } = {
-    LAYER: new Strings(),
-    LTYPE: new Strings(),
-    STYLE: new Strings(),
-    DIMSTYLE: new Strings(),
-  };
+  const names = new Map([
+    ["LAYER", new Strings<true>()],
+    ["LTYPE", new Strings<true>()],
+    ["STYLE", new Strings<true>()],
+    ["DIMSTYLE", new Strings<true>()],
+  ]);
+
   const has = (table: string, name: string): boolean =>
-    names[table]!.get(layerKey(name)) !== undefined;
+    names.get(table)!.get(layerKey(name)) !== undefined;
+
   /** References whose record is not yet known: from, code, to. */
   const pending: string[] = [];
   /** The handle of each record that names an entity by group 331 in `{BLKREFS`, by block name. */
@@ -126,40 +131,45 @@ export function dxfStructure(bytes: Uint8Array): StructureReport {
 
   const close = (): void => {
     const r = record;
+
     if (r.handle !== undefined) {
       if (kinds.has(r.handle)) twice.add(r.handle);
       else kinds.set(r.handle, r.kind);
     }
-    if (
-      r.section === "TABLES" &&
-      r.kind === table &&
-      Object.hasOwn(names, table) &&
-      r.name !== undefined
-    )
-      names[table]!.set(layerKey(r.name), true);
+
+    if (r.section === "TABLES" && r.kind === table && names.has(table) && r.name !== undefined)
+      names.get(table)!.set(layerKey(r.name), true);
+
     if (r.kind === "LAYER" && r.section === "TABLES" && !r.plotStyle)
       defects.add(
         "layer-plot-style",
         `the layer ${quoted(r.name ?? "?")} (${r.handle ?? "?"}) names no plot style`,
       );
+
     if (r.kind === "BLOCK_RECORD" && r.name !== undefined && r.handle !== undefined)
       blockHandles.set(layerKey(r.name), r.handle);
+
     if (r.kind === "INSERT" && r.name !== undefined && r.handle !== undefined) {
       const key = layerKey(r.name);
       let list = inserts.get(key);
+
       if (list === undefined) {
         inserts.set(key, (list = []));
         insertNames.push(key);
       }
+
       list.push(r.handle);
     }
+
     if (r.section === "ENTITIES" || r.section === "BLOCKS") {
       const at = `the ${quoted(r.kind)} ${r.handle ?? "?"}`;
+
       if (r.layer !== undefined && !has("LAYER", r.layer))
         defects.add(
           "entity-layer",
           `${at} is on the layer ${quoted(r.layer)}, which the file lacks`,
         );
+
       if (
         r.linetype !== undefined &&
         !/^by(layer|block)$/i.test(r.linetype) &&
@@ -169,11 +179,13 @@ export function dxfStructure(bytes: Uint8Array): StructureReport {
           "entity-linetype",
           `${at} names the linetype ${quoted(r.linetype)}, which the file lacks`,
         );
+
       if (r.style !== undefined && TEXT_KINDS.has(r.kind) && !has("STYLE", r.style))
         defects.add(
           "entity-style",
           `${at} names the text style ${quoted(r.style)}, which the file lacks`,
         );
+
       if (
         r.dimensionStyle !== undefined &&
         r.kind === "DIMENSION" &&
@@ -188,49 +200,71 @@ export function dxfStructure(bytes: Uint8Array): StructureReport {
 
   const group = (code: number, value: string): void => {
     const trimmed = value.trim();
+
     if (code === 0) {
       close();
       record = fresh(trimmed, section);
+
       if (trimmed === "SECTION") sectionNext = true;
       else if (trimmed === "ENDSEC") section = "";
       else if (trimmed === "ENDTAB") table = "";
+
       return;
     }
+
     if (sectionNext && code === 2) {
       sectionNext = false;
       section = trimmed.toUpperCase();
+
       return;
     }
+
     if (section === "HEADER") {
       if (code === 9) headerName = trimmed;
       else if (headerName === "$HANDSEED" && code === 5 && HANDLE.test(trimmed))
         seed = canonical(trimmed);
       else if (mustResolve(code) && HANDLE.test(trimmed) && canonical(trimmed) !== "0")
         pending.push(`the header's ${quoted(headerName)}`, String(code), canonical(trimmed));
+
       return;
     }
+
     const r = record;
+
     if (r.kind === "TABLE" && code === 2) {
       table = trimmed.toUpperCase();
+
       return;
     }
+
     if (code === 102) {
       r.group = trimmed.startsWith("{") ? trimmed.toUpperCase() : undefined;
+
       return;
     }
+
     if (code === 101) r.embedded = true;
+
     if (code === 1001) r.xdata = true;
     const own = r.kind === "DIMSTYLE" ? code === 105 : code === 5;
+
     if (own && r.handle === undefined && !r.xdata) {
       if (HANDLE.test(trimmed)) r.handle = canonical(trimmed);
+
       return;
     }
+
     if (r.xdata || r.embedded) return;
+
     if (mustResolve(code) && HANDLE.test(trimmed)) {
       const to = canonical(trimmed);
+
       if (to === "0") return;
+
       if (code === 330 && r.group === undefined && r.owner === undefined) r.owner = to;
+
       if (code === 390 && r.kind === "LAYER") r.plotStyle = true;
+
       // A block's list of its inserts, which a pointer of its own names too.
       if (code === 331 && r.group === "{BLKREFS" && r.kind === "BLOCK_RECORD") {
         const key = r.handle ?? "";
@@ -238,13 +272,17 @@ export function dxfStructure(bytes: Uint8Array): StructureReport {
         set.add(to);
         blockRefs.set(key, set);
       }
+
       // The table of dimension styles lists its records by soft pointers, group 340, and the
       // leading CAD app's own save keeps one to a style it dropped, which its `AUDIT` passes.
       if (code === 340 && r.kind === "TABLE" && table === "DIMSTYLE") return;
       pending.push(`the ${quoted(r.kind)} ${r.handle ?? "?"}`, String(code), to);
+
       return;
     }
+
     if (r.group !== undefined) return;
+
     switch (code) {
       case 2:
         r.name ??= value;
@@ -270,16 +308,22 @@ export function dxfStructure(bytes: Uint8Array): StructureReport {
     reader.end();
     close();
   } catch (error) {
-    defects.add("unreadable", `the file's groups do not read: ${(error as Error).message}`);
+    defects.add(
+      "unreadable",
+      `the file's groups do not read: ${error instanceof Error ? error.message : String(error)}`,
+    );
+
     return { defects: defects.list, count: defects.count };
   }
 
   for (const handle of twice) defects.add("handle-twice", `the handle ${handle} is held twice`);
+
   if (seed === undefined) defects.add("handle-seed", "the header has no $HANDSEED");
   else
     for (const handle of kinds.keys())
       if (!below(handle, seed))
         defects.add("handle-past-seed", `the handle ${handle} is not below $HANDSEED ${seed}`);
+
   for (let i = 0; i < pending.length; i += 3) {
     if (!kinds.has(pending[i + 2]!))
       defects.add(
@@ -287,14 +331,18 @@ export function dxfStructure(bytes: Uint8Array): StructureReport {
         `${pending[i]!}'s group ${pending[i + 1]!} names ${pending[i + 2]!}, which no record holds`,
       );
   }
+
   // A block's record that keeps a list of the inserts of it keeps every one.
   for (const block of insertNames) {
     // A long name another took the place of in `inserts` has no list there.
     const list = inserts.get(block);
+
     if (list === undefined) continue;
     const record = blockHandles.get(block);
     const refs = record === undefined ? undefined : blockRefs.get(record);
+
     if (refs === undefined) continue;
+
     for (const insert of list)
       if (!refs.has(insert))
         defects.add(
@@ -302,6 +350,7 @@ export function dxfStructure(bytes: Uint8Array): StructureReport {
           `the block ${record}'s list of its inserts leaves out ${insert}`,
         );
   }
+
   for (const [record, refs] of blockRefs)
     for (const insert of refs)
       if (kinds.has(insert) && !["INSERT", "ACAD_TABLE"].includes(kinds.get(insert)!))
@@ -309,11 +358,13 @@ export function dxfStructure(bytes: Uint8Array): StructureReport {
           "insert-list",
           `the block ${record}'s list of its inserts names the ${quoted(kinds.get(insert)!)} ${insert}`,
         );
+
   return { defects: defects.list, count: defects.count };
 }
 
 /** The defects of `after` that `before` does not hold. */
 export function newDefects(before: StructureReport, after: StructureReport): StructureDefect[] {
   const held = new Set(before.defects.map((d) => `${d.rule}\n${d.detail}`));
+
   return after.defects.filter((d) => !held.has(`${d.rule}\n${d.detail}`));
 }

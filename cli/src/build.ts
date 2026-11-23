@@ -8,6 +8,7 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { isObject } from "./guards.ts";
 import type { BuildState, Timings } from "./state.ts";
 import { fileVersion } from "./version.ts";
 import type {
@@ -23,10 +24,13 @@ const workerPath = new URL(
   import.meta.url.endsWith(".ts") ? "./worker.ts" : "./worker.js",
   import.meta.url,
 );
+
 const LOG_LIMIT = 8_000;
+
 /** How long the build of a DXF or a DWG may take at least: the read's own limit, and its pictures. */
 const READ_TIMEOUT = 150_000;
 const SPARES = 2;
+
 /** A warm-up takes a fraction of a second. One that takes this long will not end. */
 const WARM_DEADLINE = 2_000;
 
@@ -113,12 +117,15 @@ export class Builder {
     // again itself, since the parent's look and its own start are a moment apart.
     const first = this.#spares[0];
     let plain = first?.held.some(([path, version]) => fileVersion(path) !== version) === true;
+
     if (plain) this.#drop(first!);
+
     for (let retried = false; ;) {
       const at = plain ? this.#spares.findIndex((spare) => spare.holds === undefined) : 0;
       const child = (at < 0 ? undefined : this.#spares.splice(at, 1)[0]) ?? spawn();
       this.#running = child;
       let outcome: Awaited<ReturnType<typeof run>>;
+
       try {
         const running = run(
           child,
@@ -128,33 +135,39 @@ export class Builder {
             root,
             drawNoPlot: this.#drawNoPlot,
             view: this.#view,
-            ...(this.#reader === undefined ? {} : { reader: this.#reader, cwd: process.cwd() }),
+            ...(this.#reader !== undefined && { reader: this.#reader, cwd: process.cwd() }),
           },
           started,
           // A read has its own time limit, as the read of any drawing file has.
           /\.(dxf|dwg)$/i.test(file) ? Math.max(this.#timeout, READ_TIMEOUT) : this.#timeout,
         );
+
         // Starting the next child takes time, so a child that is ready is sent the file first.
         if (child.isReady) await null;
+
         // While a warmed spare builds, the next warms up with the same library, so that a save
         // that follows at once finds it warm. Not when the library has just changed: the
         // spare that holds nothing is then the one that builds.
         if (!plain && this.#library !== null) this.#settle();
         else this.#refill();
         outcome = await running;
+
         if (outcome === "stale") {
           plain = true;
           continue;
         }
+
         if (outcome !== "unreached" || retried) {
           return outcome === "unreached" ? unreached(file, started, child.log) : outcome;
         }
+
         retried = true;
       } finally {
         if (this.#running === child) this.#running = undefined;
         this.#refill();
+
         // A build that was stopped is followed by another at once, which takes a spare as it is.
-        if (typeof outcome! === "object") {
+        if (isObject(outcome!)) {
           if (outcome.ok) this.#library = outcome.library;
           this.#settle(true);
         }
@@ -169,6 +182,7 @@ export class Builder {
   #settle(afterBuild = false): void {
     let library = this.#library;
     const mark = library === null ? undefined : this.#unkept.get(library);
+
     if (mark?.files.some(([path, version]) => fileVersion(path) !== version)) {
       this.#unkept.delete(library!);
     } else if (mark) {
@@ -176,13 +190,17 @@ export class Builder {
         mark.retries--;
         mark.trying = true;
       }
+
       if (!mark.trying) library = null;
     }
+
     for (const spare of [...this.#spares]) {
       if (spare.holds !== undefined && spare.holds !== library) this.#drop(spare);
     }
+
     this.#refill();
     const first = this.#spares[0];
+
     if (first && first.holds === undefined) this.#warmUp(first, library);
   }
 
@@ -191,6 +209,7 @@ export class Builder {
     spare.dropped = true;
     spare.process.kill("SIGKILL");
     const at = this.#spares.indexOf(spare);
+
     if (at >= 0) this.#spares.splice(at, 1);
   }
 
@@ -206,20 +225,27 @@ export class Builder {
           const retries = late && !this.#unkept.has(library) ? 1 : 0;
           this.#unkept.set(library, { files, retries, trying: false });
         }
+
         this.#drop(spare);
+
         if (!this.#running) this.#settle();
         resolve(this.warmed());
       };
+
       let deadline: NodeJS.Timeout | undefined;
+
       const done = (m?: WorkerMessage) => {
         if (m && m.type !== "warmed") return;
         clearTimeout(deadline);
         spare.process.off("message", done);
+
         if (m?.kept === false) return refuse(false);
+
         if (m && library !== null) this.#unkept.delete(library);
         spare.held = m?.held ?? [];
         resolve();
       };
+
       spare.process.on("message", done);
       spare.process.once("exit", () => done());
       // The deadline counts from the request, not from the child's start. The child ends itself
@@ -245,6 +271,7 @@ export class Builder {
       const child = spawn();
       child.process.once("exit", () => {
         const at = this.#spares.indexOf(child);
+
         if (at >= 0) this.#spares.splice(at, 1);
       });
       this.#spares.push(child);
@@ -261,6 +288,7 @@ export class Builder {
 
   close(): void {
     this.cancel();
+
     for (const spare of this.#spares.splice(0)) spare.process.kill("SIGKILL");
   }
 }
@@ -271,6 +299,7 @@ export class Builder {
  */
 function folderVersions(folder: string): FileVersion[] {
   const versions: FileVersion[] = [[folder, fileVersion(folder)]];
+
   try {
     for (const entry of readdirSync(folder, { recursive: true, withFileTypes: true })) {
       const path = join(entry.parentPath, entry.name);
@@ -279,6 +308,7 @@ function folderVersions(folder: string): FileVersion[] {
   } catch {
     // Missing: its version, null, says so.
   }
+
   return versions;
 }
 
@@ -288,11 +318,13 @@ function now(): number {
 
 function spawn(): Child {
   const spawnedAt = now();
+
   const proc = fork(workerPath, [], {
     stdio: ["ignore", "pipe", "pipe", "ipc"],
     // The child takes no flags from the command's own invocation, such as --test.
     execArgv: ["--disable-warning=ExperimentalWarning"],
   });
+
   const child: Child = {
     process: proc,
     spawnedAt,
@@ -312,15 +344,19 @@ function spawn(): Child {
       proc.once("exit", () => reject(new Error("The build process ended before it was ready")));
     }),
   };
+
   child.ready.catch(() => {});
   // A failed send or kill is reported through its callback or return value; this keeps the
   // event from ending the command.
   proc.on("error", () => {});
+
   const keep = (chunk: Buffer) => {
     child.log = (child.log + chunk.toString()).slice(-LOG_LIMIT);
   };
+
   proc.stdout!.on("data", keep);
   proc.stderr!.on("data", keep);
+
   return child;
 }
 
@@ -336,10 +372,12 @@ function run(
   timeout: number,
 ): Promise<Outcome | undefined | "unreached" | "stale"> {
   const proc = child.process;
+
   return new Promise((resolve) => {
     if (proc.exitCode !== null || proc.signalCode !== null || !proc.connected) {
       return resolve("unreached");
     }
+
     let start: number | undefined;
     let result: WorkerResult | undefined;
     /** The files the child said it loaded, for when it dies before it answers. */
@@ -347,10 +385,12 @@ function run(
     let doneAt: number | undefined;
     let timedOut = false;
     let sent = false;
+
     const timer = setTimeout(() => {
       timedOut = true;
       proc.kill("SIGKILL");
     }, timeout);
+
     proc.on("message", (m: WorkerMessage) => {
       if (m.type === "file") files.push(m.file);
       else if (m.type === "stale") {
@@ -365,9 +405,13 @@ function run(
     // "close" comes after the process has ended and its output has all been read.
     proc.once("close", (code, signal) => {
       clearTimeout(timer);
+
       if (child.cancelled) return resolve(undefined);
+
       if (child.dropped && !result) return resolve("stale");
+
       if (!sent && !timedOut) return resolve("unreached");
+
       const ending = timedOut
         ? failure(
             request.file,
@@ -382,9 +426,10 @@ function run(
             `The drawing file's process ended before it gave a drawing (${signal ?? `exit code ${code}`})`,
             files,
           ));
+
       resolve({
         ...ending,
-        timings: { ...(start === undefined ? {} : { start }), ...ending.timings },
+        timings: start === undefined ? { ...ending.timings } : { start, ...ending.timings },
         ms: (doneAt ?? now()) - started,
         log: child.log.trim(),
       });
@@ -429,6 +474,7 @@ function failure(
 /** The outcome when no child could be given the build, which only a broken setup causes. */
 function unreached(file: string, started: number, log: string): Outcome {
   const ending = failure(file, "Exit", "The build process ended before it could be given the file");
+
   return { ...ending, ms: now() - started, log: log.trim() };
 }
 
@@ -436,6 +482,7 @@ function unreached(file: string, started: number, log: string): Outcome {
 export function projectRoot(file: string): string {
   for (let dir = dirname(file); ; dir = dirname(dir)) {
     if (existsSync(join(dir, "package.json"))) return dir;
+
     if (dir === dirname(dir)) return dirname(file);
   }
 }

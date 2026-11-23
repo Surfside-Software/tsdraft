@@ -65,9 +65,10 @@
     "verify": "pnpm fmt:check && pnpm lint && pnpm check && pnpm test && pnpm test:package"
   },
   "devDependencies": {
+    "@oxlint/plugins": "1.93.0",
     "@types/node": "^24.0.0",
     "oxfmt": "0.77.0",
-    "oxlint": "1.92.0",
+    "oxlint": "1.93.0",
     "tsrs": "0.23.0-ts7.1.0-beta",
     "typescript": "7.0.2"
   },

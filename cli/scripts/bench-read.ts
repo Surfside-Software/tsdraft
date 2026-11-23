@@ -17,16 +17,21 @@ const { positionals, values } = parseArgs({
   allowPositionals: true,
   options: { layout: { type: "string" }, reader: { type: "string" } },
 });
+
 const sheet = resolve(positionals[0] ?? "");
+
 if (!positionals[0])
   throw new Error("usage: bench-read.ts <sheet> [--layout <name>] [--reader <pkg>]");
 
 const median = (xs: number[]) => xs.toSorted((a, b) => a - b)[Math.floor(xs.length / 2)]!;
+
 const time = async <T>(work: () => T | Promise<T>): Promise<[T, number]> => {
   const t = performance.now();
   const out = await work();
+
   return [out, performance.now() - t];
 };
+
 const ms = (n: number) => Math.round(n * 10) / 10;
 
 const readers = findReaders({ cwd: process.cwd(), inputs: [sheet], reader: values.reader });
@@ -39,24 +44,31 @@ async function readThrice(file: string): Promise<{ read: DrawingRead; times: num
   const reader = readerFor(readers, extname(file));
   const cache = new ReadCache(folder);
   const [first, fromFile] = await time(() => cache.read(file, reader, limits, options));
+
   if (!("read" in first)) return null;
   const [, fromDisk] = await time(() => new ReadCache(folder).read(file, reader, limits, options));
   const [, fromMemory] = await time(() => cache.read(file, reader, limits, options));
+
   return { read: first.read, times: [fromFile, fromDisk, fromMemory] };
 }
 
 try {
   const host = await readThrice(sheet);
+
   if (!host) throw new Error("the sheet could not be read");
   const xrefs: Record<string, DrawingRead> = {};
   const readTimes = [host.times];
+
   for (const xref of host.read.xrefs) {
     const found = await readThrice(resolve(dirname(sheet), xref.path.replaceAll("\\", "/")));
+
     if (!found) continue;
     xrefs[xref.name] = found.read;
     readTimes.push(found.times);
   }
+
   const layout = values.layout ?? host.read.layouts[0]?.name;
+
   if (layout === undefined) throw new Error("the sheet has no layout");
   const sum = (i: number) => ms(readTimes.reduce((n, t) => n + t[i]!, 0));
 
@@ -64,6 +76,7 @@ try {
   const [kept, keptMs] = await time(() => readPicture(host.read, pictureOptions));
   const [shown, showsMs] = await time(() => sheetShows(host.read, layout, { xrefs }));
   const showsAgain: number[] = [];
+
   for (let i = 0; i < 5; i++)
     showsAgain.push((await time(() => sheetShows(host.read, layout, { xrefs })))[1]);
 
@@ -72,21 +85,25 @@ try {
   const [name, base] = Object.entries(xrefs).toSorted(
     ([, a], [, b]) => (b.model.entities?.length ?? 0) - (a.model.entities?.length ?? 0),
   )[0] ?? [undefined, undefined];
+
   let buildMs: number | undefined;
   let editable = 0;
+
   if (name !== undefined && base !== undefined) {
     const entities = base.model.entities ?? [];
     editable = entities.length;
     const erased = entities[0];
     const line = entities.find((e) => e.kind === "line" && e !== erased);
-    const moved =
+
+    const moved: ReadEntity | undefined =
       line?.kind === "line"
-        ? ({
+        ? {
             ...line,
             from: [line.from[0] + 1, line.from[1]],
             to: [line.to[0] + 1, line.to[1]],
-          } as ReadEntity)
+          }
         : undefined;
+
     const added: ReadEntity = {
       kind: "line",
       layer: "0",
@@ -94,10 +111,12 @@ try {
       from: [0, 0],
       to: [10, 10],
     };
+
     const only: DrawingRead = {
       ...base,
       model: { ...base.model, entities: [...(moved ? [moved] : []), added] },
     };
+
     // A build draws the edit's own entities through the sheet, with the sheet's paper left out.
     const shell: DrawingRead = {
       ...host.read,
@@ -109,8 +128,10 @@ try {
         ),
       },
     };
+
     const erasedSet = new Set(erased?.handle === undefined ? [] : [erased.handle]);
     const builds: number[] = [];
+
     for (let i = 0; i < 21; i++) {
       builds.push(
         (
@@ -124,8 +145,10 @@ try {
         )[1],
       );
     }
+
     buildMs = ms(median(builds));
   }
+
   const [load] = loadavg();
   console.log(
     JSON.stringify(

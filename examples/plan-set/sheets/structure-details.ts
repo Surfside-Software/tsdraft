@@ -23,6 +23,7 @@ import {
 
 /** The first floor above finished grade at the foundation, inches. */
 export const FFE_ABOVE_GRADE = (CRITERIA.flood.ffe - CRITERIA.flood.finishGrade) * 12;
+
 import {
   barDot,
   box,
@@ -36,16 +37,18 @@ import {
 } from "./structure-kit.ts";
 
 const O = {
-  d1: [230000, 0] as Point,
-  d2: [232000, 0] as Point,
-  d3: [234000, 0] as Point,
-  d4: [236000, 0] as Point,
+  d1: [230000, 0] satisfies Point,
+  d2: [232000, 0] satisfies Point,
+  d3: [234000, 0] satisfies Point,
+  d4: [236000, 0] satisfies Point,
 };
 
 type Tx = (x: number, y: number) => Point;
+
 const at =
   (o: Point): Tx =>
   (x, y) => [o[0] + x, o[1] + y];
+
 const bx = (o: Point) => (x0: number, y0: number, x1: number, y1: number) =>
   box(o[0] + x0, o[1] + y0, o[0] + x1, o[1] + y1);
 
@@ -69,11 +72,8 @@ export function dim(
   suffix = "",
 ): void {
   d.layer(LAYERS.strDims, {}, () => {
-    d.linearDimension(a, b, line, {
-      style: v.dim,
-      ...(along === "y" ? { along: "y" as const } : {}),
-      ...(suffix === "" ? {} : { text: `<>${suffix}` }),
-    });
+    const options = suffix === "" ? { style: v.dim } : { style: v.dim, text: `<>${suffix}` };
+    d.linearDimension(a, b, line, along === "y" ? { ...options, along } : options);
   });
 }
 
@@ -99,6 +99,7 @@ function stemWallDetail(d: D): void {
     d.line(p(-0.75, 1), p(-0.75, ff + 24));
   });
   d.layer(LAYERS.grade, {}, () => d.line(p(-30, 0), p(0, 0)));
+
   for (const x of [-2.69, 4, 10.69]) barDot(d, p(x, -14.69));
   d.layer(SL.rebar, {}, () => d.polyline([p(4, ff + 22), p(4, -13.2), p(11, -13.2)]));
   level(d, v, p(62, ff), "F.F.E.", `EL. ${CRITERIA.flood.ffe.toFixed(2)}' NAVD`);
@@ -173,6 +174,7 @@ function garageStepDetail(d: D): void {
     d.rect(p(8, g - 4), 0.5, 4);
     d.line(p(8.6, g + 1), p(8.6, top + 24));
   });
+
   for (const x of [-2.69, 4, 10.69]) barDot(d, p(x, -14.69));
   d.layer(SL.rebar, {}, () => d.polyline([p(4, top + 22), p(4, -13.2), p(11, -13.2)]));
   dim(d, v, p(-6, -18), p(14, -18), p(0, -24), "x");
@@ -240,16 +242,19 @@ function tieBeamDetail(d: D): void {
     d.line(p(x0, bc + 1.5), p(xEnd, bc + 1.5));
     d.line(p(x0, tc - 1.5), p(xEnd, tc - 1.5));
     d.line(p(x0 + 1.5, bc + 1.5), p(x0 + 1.5, tc - 1.5));
+
     // Webs: a zigzag of 2x4s, each drawn as its two edges.
     const webs: [number, number, number, number][] = [
       [3.1, bc + 1.5, 14, tc - 1.5],
       [14, tc - 1.5, 26, bc + 1.5],
       [26, bc + 1.5, 38, tc - 1.5],
     ];
+
     for (const [x1, y1, x2, y2] of webs) {
       d.line(p(x1, y1), p(x2, y2));
       d.line(p(x1 + 2, y1), p(x2 + 2, y2));
     }
+
     breakLine(d, p(xEnd, bc - 2), p(xEnd, fl + 2), v.p(0.1));
     d.rect(p(0.5, tc), xEnd - 0.5, 0.75);
     // The ceiling under the truss.
@@ -317,6 +322,7 @@ function trussAnchorDetail(d: D): void {
   const pitch = 3 / 12;
   // LB-1, 8" x 20", cut between its columns, so open below.
   concrete(d, b(0, -8, 8, 12), 31, v);
+
   for (const y of [9, -5]) for (const x of [2.3, 5.7]) barDot(d, p(x, y));
   d.layer(LAYERS.sectFine, {}, () => {
     // The stirrup, with 1 1/2" cover.
@@ -401,6 +407,7 @@ export const ROOF_TCDL = 10;
 
 /** The roof components-and-cladding table, ASD, for roofing and sheathing (EWA 10 sq. ft.). */
 const sgn = (p: number) => `${p > 0 ? "+" : ""}${p.toFixed(1)}`;
+
 const ROOF_CC_ROWS: string[][] = roofPressures().map((r) => [
   r.zone,
   r.where,
@@ -460,27 +467,34 @@ export function detailsSheet(d: D): void {
     const h = 9.9;
     const xs = [AREA.left, AREA.left + w + 0.2];
     const ys = [AREA.top - h, AREA.top - 2 * h - 1.0];
+
     const views = [
       {
         no: "1",
         title: "TYPICAL STEM WALL FOOTING",
         v: v16,
-        c: [O.d1[0] + 28, O.d1[1] + 22] as Point,
+        c: [O.d1[0] + 28, O.d1[1] + 22] satisfies Point,
       },
-      { no: "2", title: "GARAGE SLAB STEP", v: v16, c: [O.d2[0] + 4, O.d2[1] + 20] as Point },
+      {
+        no: "2",
+        title: "GARAGE SLAB STEP",
+        v: v16,
+        c: [O.d2[0] + 4, O.d2[1] + 20] satisfies Point,
+      },
       {
         no: "3",
         title: "TIE BEAM, LINTEL AND FLOOR TRUSS STRAP",
         v: v12,
-        c: [O.d3[0] + 12, O.d3[1] + 26] as Point,
+        c: [O.d3[0] + 12, O.d3[1] + 26] satisfies Point,
       },
       {
         no: "4",
         title: "TRUSS TO TIE BEAM UPLIFT CONNECTION",
         v: v12,
-        c: [O.d4[0] + 20, O.d4[1] + 10] as Point,
+        c: [O.d4[0] + 20, O.d4[1] + 10] satisfies Point,
       },
     ];
+
     views.forEach((x, k) => {
       const corner: Point = [xs[k % 2]!, ys[Math.floor(k / 2)]!];
       viewport(dd, sheet, {
@@ -498,6 +512,7 @@ export function detailsSheet(d: D): void {
     const x = AREA.left + 2 * w + 0.6;
     const cw = AREA.right - x;
     let y = AREA.top - 0.1;
+
     const criteria: TableOptions = {
       style: SCHEDULE,
       at: [x, y],
@@ -506,12 +521,14 @@ export function detailsSheet(d: D): void {
       header: ["ITEM", "VALUE"],
       rows: CRITERIA_ROWS,
     };
+
     dd.layer(LAYERS.text, {}, () => dd.table(criteria));
     y = tableBottom(criteria);
     y -= 0.35;
     y = noteColumn(dd, [x, y], cw, "STRUCTURAL GENERAL NOTES", GENERAL);
     y -= 0.25;
     const center = { 0: "center", 2: "center", 3: "center" } as const;
+
     const pressures: TableOptions = {
       style: SCHEDULE,
       at: [x, y],
@@ -520,6 +537,7 @@ export function detailsSheet(d: D): void {
       header: aligned(["ZONE", "LOCATION", "GCP (+ / -)", "PSF (+ / -)"], center),
       rows: ROOF_CC_ROWS.map((row) => aligned(row, center)),
     };
+
     dd.layer(LAYERS.text, {}, () => dd.table(pressures));
     y = tableBottom(pressures);
     y -= 0.25;

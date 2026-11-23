@@ -11,14 +11,17 @@ import {
   type DrawingRead,
   type ReadEntity,
 } from "../src/index.ts";
+import { ofKind } from "./values.ts";
 
 async function model(): Promise<DrawingRead> {
   const d = createDrawing({ units: "ft" });
   d.layer("A-WALL", { color: 1 }).layer("A-ANNO", { color: 3 });
+
   for (let i = 0; i < 4; i++) {
     d.layer("A-WALL", {}, () => d.rect([0, 200 * i], 100, 60));
     d.layer("A-ANNO", {}, () => d.text([5, 200 * i + 50], `PLAN ${i + 1}`, { height: 2 }));
   }
+
   return readDXF(toDXF(d.build()), { geometry: true });
 }
 
@@ -30,6 +33,7 @@ async function sheet(): Promise<DrawingRead> {
     d.text([1, 1], "SHEET", { height: 0.25 });
     s.viewport([2, 2], 20, 16, { center: [50, 330], ratio: 120 });
   });
+
   return readDXF(toDXF(d.build()), { geometry: true });
 }
 
@@ -46,9 +50,9 @@ const withModel = (
 function edit(read: DrawingRead) {
   const entities = read.model.entities ?? [];
   const erased = entities[1]!;
-  const moved = entities[3]!;
-  assert.equal(moved.kind, "text");
-  const changed = { ...moved, at: [moved.at[0] + 20, moved.at[1]] } as ReadEntity;
+  const moved = ofKind(entities[3], "text");
+  const changed: ReadEntity = { ...moved, at: [moved.at[0] + 20, moved.at[1]] };
+
   const added: ReadEntity = {
     kind: "circle",
     layer: "A-WALL",
@@ -56,11 +60,14 @@ function edit(read: DrawingRead) {
     center: [50, 30],
     radius: 5,
   };
+
   const after = withModel(read, (es) => [
     ...es.filter((e) => e !== erased).map((e) => (e === moved ? changed : e)),
     added,
   ]);
+
   const only = withModel(read, () => [changed, added]);
+
   return { erased: new Set([erased.handle!]), changed: new Set([moved.handle!]), after, only };
 }
 
@@ -100,14 +107,20 @@ test("an entity moved out of a viewport's view leaves it", async () => {
   const read = await readDXF(toDXF(d.build()), { geometry: true });
   const options = { layout: "Sheet" };
   const kept = readPicture(read, options);
-  const text = (read.model.entities ?? []).find((e) => e.kind === "text")!;
-  assert.equal(text.kind, "text");
-  const away = { ...text, at: [text.at[0] + 5000, text.at[1]] } as ReadEntity;
+
+  const text = ofKind(
+    (read.model.entities ?? []).find((e) => e.kind === "text"),
+    "text",
+  );
+
+  const away: ReadEntity = { ...text, at: [text.at[0] + 5000, text.at[1]] };
   const after = withModel(read, (es) => es.map((e) => (e === text ? away : e)));
+
   const drawn = readPicture(
     withModel(read, () => [away]),
     options,
   );
+
   const joined = editedPicture(kept, { changed: new Set([text.handle!]), drawn });
   assert.equal(joined, readPicture(after, options).svg);
 });

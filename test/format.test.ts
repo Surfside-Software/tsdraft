@@ -1,7 +1,9 @@
+import type { Json } from "../src/guards.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { callerInStack, parseStack } from "../src/callsite.ts";
 import { written } from "../src/format.ts";
+import { canonical } from "../src/json.ts";
 import {
   createDrawing,
   DASHED,
@@ -14,6 +16,7 @@ import {
   type Diagnostic,
   type Drawing,
 } from "../src/index.ts";
+import { recordsIn, wrong, type Data, type Field } from "./values.ts";
 
 test("coordinates round to six decimal places on both sides of a half-millionth", () => {
   // 1.2345678 is rounded by arithmetic, not as a tie. 6846209353.3203125 and 22673844301.198742
@@ -46,17 +49,20 @@ function sample(): Drawing {
   });
   d.textStyle({ name: "NOTES", font: "Arial", widthFactor: 0.9, obliqueAngle: 10 });
   d.text([2, 2], "NOTE", { style: "NOTES", align: "right", valign: "top" });
+
   return d.build();
 }
 
 /** What `fromJSON` refuses the value for. */
-function refusal(value: unknown): readonly Diagnostic[] {
+function refusal(value: Field): readonly Diagnostic[] {
   try {
-    fromJSON(value);
+    fromJSON(wrong<Json>(value));
   } catch (thrown) {
     assert.ok(thrown instanceof DrawingError);
+
     return thrown.diagnostics;
   }
+
   return assert.fail("fromJSON took the value");
 }
 
@@ -68,12 +74,30 @@ test("a drawing goes to JSON and back unchanged", () => {
   assert.deepEqual(read, drawing);
   assert.equal(toDXF(read), toDXF(drawing));
   // An already parsed value is checked the same, and is itself the drawing.
-  const value: unknown = JSON.parse(toJSON(drawing));
+  const value: Json = JSON.parse(toJSON(drawing));
   assert.equal(fromJSON(value), value);
+});
+
+test("canonical JSON counts an object's keys against its budget before it reads a value", () => {
+  const read: string[] = [];
+
+  const fields = Object.defineProperties(
+    {},
+    Object.fromEntries(
+      ["b", "a", "c"].map((key) => [key, { enumerable: true, get: () => (read.push(key), key) }]),
+    ),
+  );
+
+  assert.throws(() => canonical(fields, "A value", undefined, 2), RangeError);
+  assert.deepEqual(read, []);
+  assert.equal(canonical(fields), '{"a":"a","b":"b","c":"c"}');
+  // Each value is read in the order of its key.
+  assert.deepEqual([...new Set(read)], ["a", "b", "c"]);
 });
 
 test("the JSON is canonical: sorted keys, whole numbers, negative zero and no white space", () => {
   const line = { kind: "line", layer: "0", from: [0, -0], to: [1e21, 0.1 + 0.2] } as const;
+
   const drawing: Drawing = {
     units: "mm",
     layers: [{ name: "0", color: 7 }],
@@ -81,11 +105,13 @@ test("the JSON is canonical: sorted keys, whole numbers, negative zero and no wh
     format: 0,
     dxf: "R2018",
   };
+
   assert.equal(
     toJSON(drawing),
     '{"dxf":"R2018","entities":[{"from":[0,-0],"kind":"line","layer":"0","to":[1e+21,0.30000000000000004]}],' +
       '"format":0,"layers":[{"color":7,"name":"0"}],"units":"mm"}',
   );
+
   const reordered: Drawing = {
     format: 0,
     dxf: "R2018",
@@ -93,12 +119,13 @@ test("the JSON is canonical: sorted keys, whole numbers, negative zero and no wh
     layers: [{ color: 7, name: "0" }],
     units: "mm",
   };
+
   assert.equal(toJSON(reordered), toJSON(drawing));
   assert.throws(() => toJSON({ ...drawing, linetypeScale: NaN }), /NaN cannot be written/);
 });
 
 test("fromJSON names what it does not know, and runs lint", () => {
-  const base = JSON.parse(toJSON(sample())) as Record<string, unknown[]>;
+  const base: Data = JSON.parse(toJSON(sample()));
   assert.deepEqual(refusal({ ...base, format: 1 }), [
     {
       rule: "format",
@@ -106,15 +133,16 @@ test("fromJSON names what it does not know, and runs lint", () => {
       message: "Unknown Drawing format 1. This version of tsdraft reads format 0",
     },
   ]);
-  const messages = (value: unknown): string[] =>
-    refusal(value).map((d) => `${d.rule}: ${d.message}`);
+
+  const messages = (value: Field): string[] => refusal(value).map((d) => `${d.rule}: ${d.message}`);
+
   assert.deepEqual(
     messages({
       ...base,
       title: "Plan",
       layers: [{ name: "0", color: 7, colour: 1 }],
       entities: [
-        { ...(base.entities![0] as object), layer: "0", thickness: 2 },
+        { ...recordsIn(base.entities)[0], layer: "0", thickness: 2 },
         { kind: "xline", layer: "0" },
         { kind: "circle", layer: "0", center: [0, 0, 0] },
       ],
@@ -137,18 +165,22 @@ test("fromJSON names what it does not know, and runs lint", () => {
   // What only a value that did not come from JSON text can hold is refused the same way.
   const line = { kind: "line", layer: "0", from: [0, 0], to: [1, 0] };
   const polyline = { kind: "polyline", layer: "0", closed: false };
-  const withEntity = (entity: object): object => ({ ...base, layers: [], entities: [entity] });
+  const withEntity = (entity: Field): Data => ({ ...base, layers: [], entities: [entity] });
+
   const unknownFormat = (shown: string): string =>
     `format: Unknown Drawing format ${shown}. This version of tsdraft reads format 0`;
+
   const gapped: number[][] = [[0, 0]];
   gapped[2] = [1, 1];
   const plain = "must be a plain object, with no getter, setter or hidden field";
   const noKeys = (at: string): string => `format: ${at} must have no key but its indexes`;
+
   const getter = {
     enumerable: true,
     get: (): never => assert.fail("fromJSON read a getter"),
   };
-  const refusals: [value: unknown, first: string][] = [
+
+  const refusals: [value: Field, first: string][] = [
     [
       // oxlint-disable-next-line unicorn/no-new-array
       { ...base, entities: new Array(1e9) },
@@ -186,6 +218,7 @@ test("fromJSON names what it does not know, and runs lint", () => {
     ],
     [{ ...base, format: -0 }, unknownFormat("-0")],
   ];
+
   for (const [value, first] of refusals) assert.equal(messages(value)[0], first);
 });
 
@@ -208,19 +241,20 @@ test("a diagnostic carries the entity's id and the call that drew it", () => {
   const radius: number = -1;
   assert.throws(
     () => createDrawing().circle([0, 0], radius, { id: "hole" }),
-    (thrown: unknown) => {
+    (thrown) => {
       assert.ok(thrown instanceof DrawingError);
       assert.equal(thrown.message, "radius: This value must be greater than 0");
       const [problem] = thrown.diagnostics;
       assert.deepEqual([problem?.rule, problem?.id], ["geometry", "hole"]);
       assert.match(problem?.call?.file ?? "", /test\/format\.test\.ts$/);
+
       return true;
     },
   );
   const color: number = 300;
   assert.throws(
     () => createDrawing().layer("A", { color }),
-    (thrown: unknown) =>
+    (thrown) =>
       thrown instanceof DrawingError &&
       thrown.diagnostics[0]?.layer === "A" &&
       thrown.diagnostics[0]?.call !== undefined,
@@ -230,29 +264,36 @@ test("a diagnostic carries the entity's id and the call that drew it", () => {
   // stack, for an entity drawn, an entity refused and a layer refused.
   const calls = () => {
     const b = createDrawing({ recordCalls: true });
-    const thrown = (draw: () => unknown) => {
+
+    const thrown = (draw: () => void) => {
       try {
         draw();
       } catch (error) {
-        return (error as DrawingError).diagnostics[0]?.call;
+        assert.ok(error instanceof DrawingError);
+
+        return error.diagnostics[0]?.call;
       }
+
       return assert.fail("the call was taken");
     };
+
     return [
       lint(b.line([1, 1], [1, 1]).build())[0]?.call,
       thrown(() => b.circle([0, 0], radius)),
       thrown(() => b.layer("A", { color })),
     ];
   };
+
   const withCapture = calls();
-  const errors = Error as { captureStackTrace?: unknown };
-  const capture = errors.captureStackTrace;
-  errors.captureStackTrace = undefined;
+  const capture = Error.captureStackTrace;
+  Reflect.set(Error, "captureStackTrace", undefined);
+
   try {
     assert.deepEqual(calls(), withCapture);
   } finally {
-    errors.captureStackTrace = capture;
+    Reflect.set(Error, "captureStackTrace", capture);
   }
+
   assert.ok(withCapture.every((call) => call?.file.endsWith("test/format.test.ts")));
 
   // Each engine's way of writing a stack frame is read.
@@ -266,6 +307,7 @@ test("a diagnostic carries the entity's id and the call that drew it", () => {
   // was made in a layer() callback: the caller is found by file. In a bundle, where every frame
   // is in one file, there is no location.
   const lib = "http://localhost:5173/node_modules/tsdraft/dist";
+
   const stack = (callsite: string, builder: string): string =>
     [
       `holdCall@${callsite}:40:30`,
@@ -274,6 +316,7 @@ test("a diagnostic carries the entity's id and the call that drew it", () => {
       `layer@${builder}:470:9`,
       `module code@${at.file}:11:3`,
     ].join("\n");
+
   assert.deepEqual(callerInStack(stack(`${lib}/callsite.js`, `${lib}/drawing.js`)), at);
   assert.equal(callerInStack(stack(at.file, at.file)), undefined);
 });

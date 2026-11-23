@@ -1,9 +1,10 @@
 // The `Drawing` format as JSON: one canonical string for a drawing, and the parser that turns
 // JSON back into a drawing and refuses what it does not know.
+import { isBoolean, isNumber, isPlainRecord, isRecord, isString, type Json } from "./guards.ts";
 import type { Drawing } from "./drawing.ts";
 import { DrawingError, lint } from "./lint.ts";
-import { formatProblem } from "./rules.ts";
-import { isRecord, PLAIN_OBJECT, readDrawing } from "./shape.ts";
+import { formatProblem, typeName } from "./rules.ts";
+import { PLAIN_OBJECT, readDrawing } from "./shape.ts";
 
 /**
  * Writes the drawing as canonical JSON: no white space, the keys of every object in code-unit
@@ -29,72 +30,92 @@ export function toJSON(drawing: Drawing): string {
 export function canonical(
   value: unknown,
   what = "A value",
-  written?: (value: object) => string | undefined,
+  written?: (value: WeakKey) => string | undefined,
   most = Infinity,
 ): string {
   let out = "";
   // Every key read, those whose value is `undefined` among them, which are left out: so it counts
   // the work, and is only an upper bound of the keys written.
   let keys = 0;
+
   const past = (more: number): void => {
     if (out.length + more > most || keys > most) {
       throw new RangeError(`${what} runs past ${most} characters of JSON`);
     }
   };
+
+  /** Writes the JSON `written` gives for an object, when it gives one. */
+  const writtenBefore = (value: WeakKey): boolean => {
+    const known = written?.(value);
+
+    if (known === undefined) return false;
+    out += known;
+
+    return true;
+  };
+
   const write = (value: unknown): void => {
     past(0);
-    switch (typeof value) {
-      case "number":
-        if (!Number.isFinite(value)) break;
+
+    if (isNumber(value)) {
+      if (Number.isFinite(value)) {
         out += Object.is(value, -0) ? "-0" : value;
-        return;
-      case "string":
-        past(value.length + 2);
-        out += JSON.stringify(value);
-        return;
-      case "boolean":
-        out += value;
-        return;
-      case "object": {
-        if (value === null) {
-          out += "null";
-          return;
-        }
-        const known = written?.(value);
-        if (known !== undefined) {
-          out += known;
-          return;
-        }
-        if (Array.isArray(value)) {
-          // Its brackets and commas.
-          past(value.length + 1);
-          out += "[";
-          for (let i = 0; i < value.length; i++) {
-            if (i > 0) out += ",";
-            write(value[i]);
-          }
-          out += "]";
-          return;
-        }
-        const fields = value as Record<string, unknown>;
-        const names = Object.keys(fields);
-        keys += names.length;
-        past(0);
-        let first = true;
-        for (const key of names.sort()) {
-          if (fields[key] === undefined) continue;
-          out += `${first ? "{" : ","}${JSON.stringify(key)}:`;
-          first = false;
-          write(fields[key]);
-        }
-        out += first ? "{}" : "}";
+
         return;
       }
+    } else if (isString(value)) {
+      past(value.length + 2);
+      out += JSON.stringify(value);
+
+      return;
+    } else if (isBoolean(value)) {
+      out += value;
+
+      return;
+    } else if (value === null) {
+      out += "null";
+
+      return;
+    } else if (Array.isArray(value)) {
+      if (writtenBefore(value)) return;
+      // Its brackets and commas.
+      past(value.length + 1);
+      out += "[";
+
+      for (let i = 0; i < value.length; i++) {
+        if (i > 0) out += ",";
+        write(value[i]);
+      }
+
+      out += "]";
+
+      return;
+    } else if (isRecord(value)) {
+      if (writtenBefore(value)) return;
+      // The keys are counted, and the budget checked, before any value is read.
+      const names = Object.keys(value);
+      keys += names.length;
+      past(0);
+      let first = true;
+
+      for (const key of names.sort()) {
+        if (value[key] === undefined) continue;
+        out += `${first ? "{" : ","}${JSON.stringify(key)}:`;
+        first = false;
+        write(value[key]);
+      }
+
+      out += first ? "{}" : "}";
+
+      return;
     }
-    const shown = typeof value === "number" ? String(value) : typeof value;
+
+    const shown = isNumber(value) ? String(value) : typeName(value);
     throw new Error(`${what} with a value of ${shown} cannot be written as JSON`);
   };
+
   write(value);
+
   return out;
 }
 
@@ -110,27 +131,48 @@ export function canonical(
  */
 export function fromJSON(json: unknown): Drawing {
   let value = json;
-  if (typeof json === "string") {
+
+  if (isString(json)) {
     try {
-      value = JSON.parse(json);
+      value = parseJson(json);
     } catch (thrown) {
-      refuse([`The JSON cannot be parsed: ${(thrown as Error).message}`]);
+      refuse([
+        `The JSON cannot be parsed: ${thrown instanceof Error ? thrown.message : String(thrown)}`,
+      ]);
     }
   }
-  if (!isRecord(value)) refuse([`The drawing ${PLAIN_OBJECT}`]);
+
+  if (!isPlainRecord(value)) refuse([`The drawing ${PLAIN_OBJECT}`]);
   // The fields of another format version cannot be judged, so its version is all that is said.
   const format = formatProblem(Object.hasOwn(value, "format") ? value.format : undefined);
+
   if (format) refuse([format]);
   const problems: string[] = [];
-  readDrawing(value, "", problems);
-  if (problems.length > 0) refuse(problems);
+
+  if (!isDrawing(value, problems)) refuse(problems);
+
   // A drawing too repetitive for `lint` to check to its end may hide an error past where it
   // stopped, so it is refused as `toDXF` refuses it.
-  const errors = lint(value as unknown as Drawing).filter(
-    (d) => d.severity === "error" || d.rule === "check-capped",
-  );
+  const errors = lint(value).filter((d) => d.severity === "error" || d.rule === "check-capped");
+
   if (errors.length > 0) throw new DrawingError(errors);
-  return value as unknown as Drawing;
+
+  return value;
+}
+
+/** The value `JSON.parse` gives for a string, which is JSON. */
+function parseJson(text: string): Json {
+  return JSON.parse(text);
+}
+
+/** True for a plain object in which `readDrawing` finds no problem, so it holds a drawing's fields. */
+function isDrawing(
+  value: Record<string, unknown>,
+  problems: string[],
+): value is Record<string, unknown> & Drawing {
+  readDrawing(value, "", problems);
+
+  return problems.length === 0;
 }
 
 function refuse(problems: readonly string[]): never {

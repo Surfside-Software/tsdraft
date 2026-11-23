@@ -15,32 +15,34 @@ import {
   underlayVectors,
   type Drawing,
   type Entity,
-  type ReadUnderlay,
+  type Layout,
   type Underlay,
 } from "../src/index.ts";
 import { storedPng } from "../src/raster.ts";
 import { pictureFits } from "../src/underlays.ts";
+import { dataOf, ofKind, wrong, type Data } from "./values.ts";
 
 /** A page's picture: `w` by `h` pixels, a black square on a clear ground in its lower-left quarter. */
 function page(w: number, h: number): Uint8Array {
   const samples = new Uint8Array(w * h * 4);
+
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       if (x < w / 2 && y >= h / 2) samples[(y * w + x) * 4 + 3] = 255;
     }
   }
+
   return storedPng(w, h, 4, samples);
 }
 
-const base = (entities: Entity[], more: Partial<Drawing> = {}): Drawing =>
-  ({
-    format: 0,
-    units: "in",
-    dxf: "R2018",
-    layers: [{ name: "0", color: 7 }],
-    entities,
-    ...more,
-  }) as Drawing;
+const base = (entities: Entity[], more: Partial<Drawing> = {}): Drawing => ({
+  format: 0,
+  units: "in",
+  dxf: "R2018",
+  layers: [{ name: "0", color: 7 }],
+  entities,
+  ...more,
+});
 
 const underlay = (more: Partial<Underlay> = {}): Underlay => ({
   kind: "underlay",
@@ -80,9 +82,11 @@ test("an underlay's rules are compile errors and runtime errors", () => {
   const r12 = createDrawing({ units: "in", dxf: "R12" });
   // @ts-expect-error tsdraft writes no underlays to R12
   assert.throws(() => r12.underlay("arch.pdf", [0, 0], { pageSize: [11, 8.5] }), /R12/);
+
   const errors = lint(base([underlay({ fade: 90, page: "x" })])).filter(
     (e) => e.severity === "error",
   );
+
   assert.deepEqual(
     errors.map((e) => e.rule),
     ["underlay", "underlay"],
@@ -106,7 +110,9 @@ test("toDXF writes an underlay as the leading CAD app saves one, and readDXF rea
     })
     .underlay("refs\\arch.pdf", [10, 2], { page: "2", pageSize: [17, 11] })
     .build();
-  const dxf = toDXF({ ...d, underlayFrame: "screen" } as Drawing);
+
+  const framed: Drawing = { ...d, underlayFrame: "screen" };
+  const dxf = toDXF(framed);
   assert.match(dxf, /\r\nPDFUNDERLAY\r\n/);
   // One definition for both paths of one page.
   assert.equal(dxf.match(/\r\nPDFDEFINITION\r\n/g)?.length, 2);
@@ -114,7 +120,7 @@ test("toDXF writes an underlay as the leading CAD app saves one, and readDXF rea
   assert.match(dxf, /\r\n1\r\nrefs\\arch\.pdf\r\n2\r\n2\r\n/);
   assert.match(dxf, /\r\n3\r\nPDFFRAME\r\n/);
   const read = await readDXF(dxf, { geometry: true });
-  const found = (read.model.entities ?? []).filter((e) => e.kind === "underlay") as ReadUnderlay[];
+  const found = (read.model.entities ?? []).flatMap((e) => (e.kind === "underlay" ? [e] : []));
   assert.equal(found.length, 2);
   const [first] = found;
   assert.equal(first!.path, "refs\\arch.pdf");
@@ -125,13 +131,15 @@ test("toDXF writes an underlay as the leading CAD app saves one, and readDXF rea
   assert.equal(first!.contrast, 60);
   assert.equal(first!.monochrome, true);
   // A rectangle comes back as its top-left and bottom-right corners along the page.
-  const made = d.entities[0] as Underlay;
+  const made = ofKind(d.entities[0], "underlay");
   const [u, v] = underlayVectors(made);
   const [p, q] = made.clip!.map((point) => toPage(made.at, u, v, point));
+
   const want = [
     fromPage(made.at, u, v, [Math.min(p![0], q![0]), Math.max(p![1], q![1])]),
     fromPage(made.at, u, v, [Math.max(p![0], q![0]), Math.min(p![1], q![1])]),
   ];
+
   first!.clip!.forEach((point, i) => {
     assert.ok(Math.abs(point[0] - want[i]![0]) < 1e-6 && Math.abs(point[1] - want[i]![1]) < 1e-6);
   });
@@ -147,6 +155,7 @@ test("pages are named by their file and page, and a file of another folder takes
     underlay({ path: "a/arch.pdf", page: "2" }),
     underlay({ path: "b/arch.pdf" }),
   ]).map((d) => d.name);
+
   assert.deepEqual(names, ["arch - 1", "arch - 2", "arch (2) - 1"]);
 });
 
@@ -169,11 +178,13 @@ test("the plot draws a page given, its frame by the drawing's setting, and a pag
     () => toSVG(base([underlay()]), { underlays: { "arch.pdf": { "1": page(100, 100) } } }),
     RangeError,
   );
-  const sheet = { name: "S", paper: "ANSI A", viewports: [], entities: [underlay()] };
-  const pdf = toPDF(base([], { layouts: [sheet] } as Partial<Drawing>), {
+  const sheet: Layout = { name: "S", paper: "ANSI A", viewports: [], entities: [underlay()] };
+
+  const pdf = toPDF(base([], { layouts: [sheet] }), {
     underlays: pictures,
     deflate: (b) => new Uint8Array(deflateSync(b)),
-  } as Parameters<typeof toPDF>[1]);
+  });
+
   assert.ok(pdf.length > 0);
 });
 
@@ -192,7 +203,7 @@ test("fade, contrast and monochrome give the colors the leading CAD app plots", 
 });
 
 test("lint and the plot stay whole on underlays of hostile fields", () => {
-  const hostile: unknown[] = [
+  const hostile: Data[] = [
     { pageSize: [1e99, 1e99], scale: 1e99 },
     { pageSize: [1e-7, 1e-7] },
     { pageSize: "big" },
@@ -204,14 +215,16 @@ test("lint and the plot stay whole on underlays of hostile fields", () => {
     { pageSize: [11, 8.5], scale: 0 },
     { pageSize: [11, 8.5], fade: { toString: 1, valueOf: 2 }, contrast: [] },
   ];
+
   for (const fields of hostile) {
-    const drawing = base([{ ...underlay(), ...(fields as object) } as Entity]);
+    const drawing = base([wrong({ ...dataOf(underlay()), ...fields })]);
     const found = lint(drawing);
     assert.ok(
       found.some((d) => d.severity === "error"),
       JSON.stringify(fields).slice(0, 80),
     );
     assert.throws(() => toDXF(drawing));
+
     // The plot draws what it can and leaves out what it cannot, never throwing but a RangeError.
     try {
       toSVG(drawing, { underlays: { "arch.pdf": { "1": page(11, 9) } } });
@@ -219,13 +232,16 @@ test("lint and the plot stay whole on underlays of hostile fields", () => {
       assert.ok(error instanceof RangeError, String(error));
     }
   }
+
   // A picture that is no PNG, and pages given in the wrong shape of option, draw as missing.
   for (const underlays of [
     { "arch.pdf": { "1": new Uint8Array([1, 2, 3]) } },
     { "arch.pdf": 5 },
     7,
   ]) {
-    const svg = toSVG(base([underlay()]), { underlays } as unknown as Parameters<typeof toSVG>[1]);
+    // SAFETY: pages given in the wrong shape of option on purpose, which the plot draws as missing.
+    const svg = toSVG(base([underlay()]), { underlays } as never);
+
     assert.match(svg, /Missing or invalid reference/);
   }
 });
@@ -256,11 +272,14 @@ test("readDXF refuses a clip the scale puts past the doubles", async () => {
       ],
     })
     .build();
+
   const written = toDXF(d);
   const at = written.indexOf("\r\nAcDbUnderlayReference\r\n");
+
   const dxf =
     written.slice(0, at) +
     written.slice(at).replace("\r\n280\r\n", "\r\n41\r\n1e308\r\n42\r\n1e308\r\n280\r\n");
+
   const read = await readDXF(dxf, { geometry: true });
   assert.equal((read.model.entities ?? []).filter((e) => e.kind === "underlay").length, 0);
   assert.ok(JSON.stringify(read.unread).includes("PDFUNDERLAY whose clip is past the doubles"));

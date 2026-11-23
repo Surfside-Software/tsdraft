@@ -33,6 +33,7 @@ function roomOf(level: Level, o: Opening): Room | undefined {
   const [x0, y0, x1, y1] = o.cut;
   const cx = (x0 + x1) / 2;
   const cy = (y0 + y1) / 2;
+
   const probes: Point[] = alongXOf(o)
     ? [
         [cx, y1 + 12],
@@ -42,34 +43,44 @@ function roomOf(level: Level, o: Opening): Room | undefined {
         [x1 + 12, cy],
         [x0 - 12, cy],
       ];
+
   for (const [px, py] of probes) {
     const room = level.rooms.find(
       (r) => px > r.rect[0] && px < r.rect[2] && py > r.rect[1] && py < r.rect[3],
     );
+
     if (room) return room;
   }
+
   return undefined;
 }
 
-const DOOR_TYPES: Record<string, { type: string; material: string; remarks: string }> = {
-  door: { type: "A", material: "SOLID CORE WOOD", remarks: "PASSAGE SET" },
-  double: { type: "B", material: "SOLID CORE WOOD", remarks: "PAIR, FLUSH BOLTS" },
-  slider: { type: "C", material: "ALUM. / IMPACT GLASS", remarks: "4-PANEL SLIDER, FL APPROVAL" },
-  overhead: {
-    type: "D",
-    material: "INSULATED STEEL",
-    remarks: "IMPACT RATED, OPENER, FL APPROVAL",
-  },
-  bifold: { type: "E", material: "HOLLOW CORE WOOD", remarks: "BI-FOLD" },
-};
+const DOOR_TYPES = new Map<string, { type: string; material: string; remarks: string }>([
+  ["door", { type: "A", material: "SOLID CORE WOOD", remarks: "PASSAGE SET" }],
+  ["double", { type: "B", material: "SOLID CORE WOOD", remarks: "PAIR, FLUSH BOLTS" }],
+  [
+    "slider",
+    { type: "C", material: "ALUM. / IMPACT GLASS", remarks: "4-PANEL SLIDER, FL APPROVAL" },
+  ],
+  [
+    "overhead",
+    {
+      type: "D",
+      material: "INSULATED STEEL",
+      remarks: "IMPACT RATED, OPENER, FL APPROVAL",
+    },
+  ],
+  ["bifold", { type: "E", material: "HOLLOW CORE WOOD", remarks: "BI-FOLD" }],
+]);
 
 /** Net clear opening of a single hung window, from its frame: sash 2" all round, meeting rail 2". */
-function egress(tag: string): { area: number; w: number; h: number; ok: boolean } {
-  const t = WINDOW_TYPES[tag]!;
+function egress(tag: string) {
+  const t = WINDOW_TYPES.get(tag)!;
   // A twin unit opens one sash at a time, so its clear opening is one sash's.
   const w = (t.kind.includes("TWIN") ? t.width / 2 : t.width) - 4;
   const h = t.kind.includes("CASEMENT") ? t.height - 4 : t.height / 2 - 3;
   const area = (w * h) / 144;
+
   return { area, w, h, ok: area >= 5.7 && h >= 24 && w >= 20 };
 }
 
@@ -78,17 +89,20 @@ function sheet(d: D): void {
     const x0 = AREA.left + 0.2;
     // The door schedule.
     const doors: string[][] = [];
+
     for (const level of [L1, L2]) {
       for (const o of level.openings) {
         if (o.kind === "window" || o.kind === "cased" || !o.tag) continue;
-        const t = DOOR_TYPES[o.kind]!;
+        const t = DOOR_TYPES.get(o.kind)!;
         const room = roomOf(level, o);
+
         const fire =
           o.tag === "103"
             ? "20 MIN., SELF-CLOSING (R302.5.1)"
             : o.exterior
               ? t.remarks.replace("PASSAGE SET", "IMPACT RATED, DEADBOLT")
               : t.remarks;
+
         doors.push([
           o.tag,
           room?.name ?? "-",
@@ -102,7 +116,9 @@ function sheet(d: D): void {
         ]);
       }
     }
+
     const draw = (t: TableOptions) => dd.layer(LAYERS.text, {}, () => dd.table(t));
+
     const doorAligns = {
       0: "center",
       2: "center",
@@ -111,6 +127,7 @@ function sheet(d: D): void {
       5: "center",
       7: "center",
     } as const;
+
     const doorSchedule: TableOptions = {
       style: SCHEDULE,
       at: [x0, AREA.top - 0.1],
@@ -123,6 +140,7 @@ function sheet(d: D): void {
       rows: doors.map((row) => aligned(row, doorAligns)),
       rowHeights: doors.map(() => 0.24),
     };
+
     draw(doorSchedule);
     let y = tableBottom(doorSchedule);
 
@@ -133,6 +151,7 @@ function sheet(d: D): void {
       put(dd, [x0 + 12.5, y], `SCALE: 1/4" = 1'-0"`, H.note, { valign: "top", align: "right" });
     });
     const ds = 0.25 / 12;
+
     const types: [string, number, number, string][] = [
       ["A", 36, 80, "FLUSH, SINGLE"],
       ["B", 60, 96, "FLUSH, PAIR"],
@@ -140,23 +159,29 @@ function sheet(d: D): void {
       ["D", 192, 96, "OVERHEAD, 4 X 8 PANELS"],
       ["E", 60, 80, "BI-FOLD, 4 LEAVES"],
     ];
+
     let dx = x0 + 0.2;
     const dbase = y - 2.55;
+
     for (const [tag, w0, h0, kind] of types) {
       const w = w0 * ds;
       const h = h0 * ds;
       dd.layer(LAYERS.elev, {}, () => dd.rect([dx, dbase], w, h));
       dd.layer(LAYERS.elevFine, {}, () => {
         if (tag === "B") dd.line([dx + w / 2, dbase], [dx + w / 2, dbase + h]);
+
         if (tag === "C")
           for (let k = 1; k < 4; k++)
             dd.line([dx + (w * k) / 4, dbase], [dx + (w * k) / 4, dbase + h]);
+
         if (tag === "D")
           for (let k = 1; k < 4; k++)
             dd.line([dx, dbase + (h * k) / 4], [dx + w, dbase + (h * k) / 4]);
+
         if (tag === "E")
           for (let k = 1; k < 4; k++)
             dd.line([dx + (w * k) / 4, dbase], [dx + (w * k) / 4, dbase + h]);
+
         if (tag === "A" || tag === "B") dd.circle([dx + w - 0.06, dbase + h * 0.45], 0.02);
       });
       dd.layer(LAYERS.text, {}, () => {
@@ -168,11 +193,13 @@ function sheet(d: D): void {
       });
       dx += Math.max(w, 1.2) + 0.5;
     }
+
     y = dbase - 0.6;
 
     // The window list: every window, with its room, zone and pressure.
     const windows: string[][] = [];
     const count: Record<string, number> = {};
+
     for (const level of [L1, L2]) {
       for (const o of level.openings) {
         if (o.kind !== "window" || !o.tag) continue;
@@ -191,6 +218,7 @@ function sheet(d: D): void {
         ]);
       }
     }
+
     y -= 0.35;
     const listTop = y;
     const listAligns = { 0: "center", 1: "center", 3: "center", 4: "center", 5: "center" } as const;
@@ -210,8 +238,10 @@ function sheet(d: D): void {
     // The window types, with an elevation of each at 1/2" = 1'-0".
     const x2 = x0 + 8.4;
     const typeAligns = { 0: "center", 1: "center", 2: "center", 4: "center", 5: "center" } as const;
-    const typeRows = Object.entries(WINDOW_TYPES).map(([tag, t]) => {
+
+    const typeRows = [...WINDOW_TYPES].map(([tag, t]) => {
       const e = egress(tag);
+
       return aligned(
         [
           tag,
@@ -225,6 +255,7 @@ function sheet(d: D): void {
         typeAligns,
       );
     });
+
     const windowTypes: TableOptions = {
       style: SCHEDULE,
       at: [x2, listTop],
@@ -237,6 +268,7 @@ function sheet(d: D): void {
       rows: typeRows,
       rowHeights: typeRows.map(() => 0.24),
     };
+
     draw(windowTypes);
     y = tableBottom(windowTypes);
     y -= 0.5;
@@ -246,15 +278,18 @@ function sheet(d: D): void {
     });
     let ex = x2 + 0.2;
     const base = y - 3.4;
-    for (const [tag, t] of Object.entries(WINDOW_TYPES)) {
+
+    for (const [tag, t] of WINDOW_TYPES) {
       const s = 0.5 / 12; // paper inches per inch at 1/2" = 1'-0"
       const w = t.width * s;
       const h = t.height * s;
       dd.layer(LAYERS.elev, {}, () => dd.rect([ex, base], w, h));
       dd.layer(LAYERS.elevFine, {}, () => {
         dd.rect([ex + 0.06, base + 0.06], w - 0.12, h - 0.12);
+
         if (t.kind.includes("HUNG")) {
           const twin = t.kind.includes("TWIN");
+
           if (twin) dd.line([ex + w / 2, base], [ex + w / 2, base + h]);
           dd.line([ex, base + h / 2], [ex + w, base + h / 2]);
         } else if (t.kind === "CASEMENT") {
@@ -285,6 +320,7 @@ function sheet(d: D): void {
       );
       ex += w + 0.45;
     }
+
     y = base - 1.1;
     const q = qh();
     noteColumn(dd, [x2, y], 8.3, "SCHEDULE NOTES", [
@@ -298,4 +334,4 @@ function sheet(d: D): void {
   });
 }
 
-export const SHEETS: Record<string, SheetDraw> = { "A-601": sheet };
+export const SHEETS = { "A-601": sheet } satisfies Record<string, SheetDraw>;

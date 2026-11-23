@@ -68,8 +68,10 @@ test("a note of a cover sheet that runs past the border it starts in is warned a
     d.rect([1.5, 0.5], 34, 23, { id: "border" });
     d.line([32.5, 0.5], [32.5, 23.5]);
     lines.forEach((line, i) => d.text([17.5, 21.55 - i * 0.32], line, { height: 3 / 16 }));
+
     return d.build();
   };
+
   // The notes were broken for 0.6 of the height per character, 127 to a line.
   const long = "1. " + "ALL WORK SHALL CONFORM TO THE CODE. ".repeat(4).slice(0, 122);
   assert.equal(long.length, 125);
@@ -86,12 +88,15 @@ test("a note of a cover sheet that runs past the border it starts in is warned a
 
   // Broken by the length the text plots at, the notes stay inside.
   const lines: string[] = [];
+
   for (const word of long.split(" ")) {
     const longer = lines.length > 0 ? `${lines.at(-1)} ${word}` : word;
+
     if (lines.length > 0 && measureText({ value: longer, height: 3 / 16 }).length <= 32 - 17.5) {
       lines[lines.length - 1] = longer;
     } else lines.push(word);
   }
+
   assert.ok(lines.length > 1);
   assert.deepEqual(found(cover(lines)), []);
 });
@@ -210,11 +215,13 @@ test("a text off the paper of a layout is warned about, and each space is checke
 const timed = (drawing: Drawing) => {
   const started = performance.now();
   const rules = inspectText(drawing).map((w) => w.rule);
+
   return { rules, ms: performance.now() - started };
 };
 
 test("texts piled on one spot are checked up to a limit, and it says so once", () => {
   const d = createDrawing();
+
   for (let i = 0; i < 20_000; i++) d.text([0, 0], "SAME PLACE", { height: 1 });
   const { rules, ms } = timed(d.build());
   assert.ok(ms < 1000, `${ms} ms`);
@@ -224,14 +231,19 @@ test("texts piled on one spot are checked up to a limit, and it says so once", (
 
 test("a contour of a few hundred points with thousands of texts in it is checked in full", () => {
   const d = createDrawing();
+
   const contour = Array.from({ length: 300 }, (_, i): [number, number] => {
     const turn = (i / 300) * 2 * Math.PI;
+
     return [1000 * Math.cos(turn), 1000 * Math.sin(turn)];
   });
+
   d.polyline(contour, true);
+
   for (let i = 0; i < 3000; i++) {
     d.text([(i % 60) * 20 - 600, Math.floor(i / 60) * 2 - 50], "IN", { height: 1 });
   }
+
   const { rules, ms } = timed(d.build());
   assert.ok(ms < 1000, `${ms} ms`);
   assert.deepEqual(rules, []);
@@ -239,14 +251,19 @@ test("a contour of a few hundred points with thousands of texts in it is checked
 
 test("texts in one outline of many points are checked up to a limit, and it says so", () => {
   const d = createDrawing();
+
   const circle = Array.from({ length: 20_000 }, (_, i): [number, number] => {
     const turn = (i / 20_000) * 2 * Math.PI;
+
     return [1000 * Math.cos(turn), 1000 * Math.sin(turn)];
   });
+
   d.polyline(circle, true);
+
   for (let i = 0; i < 5000; i++) {
     d.text([(i % 70) * 20 - 700, Math.floor(i / 70) * 2 - 70], "IN", { height: 1 });
   }
+
   const { rules, ms } = timed(d.build());
   assert.ok(ms < 1000, `${ms} ms`);
   assert.deepEqual(rules, ["text-check-capped"]);

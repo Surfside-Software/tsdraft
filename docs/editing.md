@@ -55,7 +55,10 @@ changes nothing gives the file back byte for byte. It throws only an `EditError`
 An editor of another format, such as DWG, is a package, as a reader is: it names its module in
 its `package.json` under `"tsdraft": { "editors": { ".dwg": "./dist/edit.js" } }`, beside its
 reader, and the module exports `editor`, a `FileEditor`: its read with geometry, its edit, its
-structure check and its records by key. `dxfEditor` is the core's own.
+structure check and its records by key. `dxfEditor` is the core's own. Its `read` gives a
+`DrawingRead` in the read format of the tsdraft it runs with, `READ_FORMAT`, which is 1: the
+command takes a read in format 0 from a reader built for an older tsdraft, but uses an editor's
+read as it is.
 
 ## The checks of every job
 

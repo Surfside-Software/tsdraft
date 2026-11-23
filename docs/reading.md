@@ -44,7 +44,7 @@ the drawing has it.
 
 ## The read model
 
-The model is format 0, `READ_FORMAT`, and is not settled. Until it is, a release may change its
+The model is format 1, `READ_FORMAT`, and is not settled. Until it is, a release may change its
 fields and what a reader of another format gives, below.
 
 A `DrawingRead` is not a `Drawing`, and nothing writes it back to a file. It holds what a file
@@ -55,7 +55,7 @@ states and keeps each object's handle, and it keeps going past what it does not 
   styles. `pointStyleOf` gives the point style the last two plot as.
 - The tables: `layers` with their state, `linetypes`, each with the `marks` it draws as a
   `Linetype` holds them, a text's `style` by name and its `height` times its style's fixed height,
-  a shape by its number and its `file`, `textStyles` and `dimensionStyles`, each
+  a shape by its `glyph` number and its `file`, `textStyles` and `dimensionStyles`, each
   style with whether it is annotative, and a dimension style with the units it writes lengths
   in, where its text goes, how it writes a fraction, its lineweights and its arrowheads' block. Two entries of one name are both kept, in the order of the file.
 - `tableStyles`: each table style the file's dictionary of them, `ACAD_TABLESTYLE`, names, in the
@@ -470,6 +470,9 @@ takes the file's bytes as an `AsyncIterable<Uint8Array>`, its name without folde
 `readDXF` fills. A reader of another format reads `only` as `readDXF` does with `partFilter`,
 which takes a read of the file without geometry and the `only` it was given, and says which
 layouts to keep and which entities of model space. `checkDrawingRead(value)` lists what is wrong with an answer as plain data, with
-the path of each field, and is empty for a sound one. The library imports no reader. The
+the path of each field, and is empty for a sound one. A reader gives the `format` it was built
+for. The command still takes format 0, which a reader built for an older tsdraft gives, and
+renames a mark's `shape` to `glyph` and a text style's `shapes` to `glyphFile` before it checks
+the answer; it skips an answer in any other format. The library imports no reader. The
 `tsdraft` command finds readers and runs each read within limits, as
 [the command's page](command.md#reading-drawing-files) says.

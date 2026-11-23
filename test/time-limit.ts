@@ -8,6 +8,7 @@ import { Script } from "node:vm";
  */
 export function timeLimit(ms: number): number {
   const scale = Number(process.env.TSDRAFT_TIME_LIMIT_SCALE ?? 1);
+
   return Number.isFinite(scale) && scale >= 1 ? ms * scale : ms;
 }
 
@@ -15,6 +16,9 @@ const running = new Script("running()");
 
 /** Run a callback with the test's scaled VM timeout. */
 export function within<T>(ms: number, fn: () => T): T {
-  Object.assign(globalThis, { running: fn });
-  return running.runInThisContext({ timeout: timeLimit(ms) }) as T;
+  const given: { value: T }[] = [];
+  Object.assign(globalThis, { running: () => given.push({ value: fn() }) });
+  running.runInThisContext({ timeout: timeLimit(ms) });
+
+  return given[0]!.value;
 }

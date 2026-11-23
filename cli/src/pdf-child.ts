@@ -28,25 +28,32 @@ try {
 
 // The command ends this process once it has the answer; it ends itself if the command goes.
 process.once("disconnect", () => process.exit(0));
+
 process.once("message", ({ pictures, fonts }: PdfRequest) => {
   let answer: PdfAnswer;
+
   try {
     const missing: string[] = pictures.map(() => "");
     // A file that cannot be read now is not embedded, and its font is set in a standard face.
     const files: Record<string, Uint8Array> = {};
+
     for (const [font, path] of Object.entries(fonts)) {
       try {
         files[font] = readFileSync(path);
       } catch {}
     }
+
     const pdf = svgToPDF(pictures, {
       fonts: files,
       deflate: (bytes) => deflateSync(bytes),
       missing: (_layout, characters, page) => (missing[page] = characters),
     });
+
     answer = { pdf, missing };
   } catch (error) {
+    // SAFETY: svgToPDF refuses a picture with an Error that says why.
     answer = { error: (error as Error).message };
   }
+
   process.send!(answer);
 });

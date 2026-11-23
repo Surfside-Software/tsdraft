@@ -18,12 +18,14 @@ const TAU = 2 * Math.PI;
 /** The parameter `t` of an ellipse turned into [0, 2π). */
 export function unturned(t: number): number {
   const r = t % TAU;
+
   return r < 0 ? r + TAU : r;
 }
 
 /** A point of an ellipse about `center`, with `major` from the center and the minor `ratio`. */
 export function ellipsePoint(center: Xy, major: Xy, ratio: number, t: number): [number, number] {
   const [c, s] = [Math.cos(t), Math.sin(t)];
+
   return [
     center[0] + major[0] * c - major[1] * ratio * s,
     center[1] + major[1] * c + major[0] * ratio * s,
@@ -33,17 +35,24 @@ export function ellipsePoint(center: Xy, major: Xy, ratio: number, t: number): [
 /** The span of a B-spline's knots that holds `u`, among those the curve runs over. */
 function spanOf(degree: number, knots: readonly number[], count: number, u: number): number {
   const last = count - 1;
+
   if (u >= knots[last + 1]!) {
     let k = last;
+
     while (k > degree && knots[k]! >= knots[last + 1]!) k--;
+
     return k;
   }
+
   let [lo, hi] = [degree, last + 1];
+
   while (hi - lo > 1) {
     const mid = (lo + hi) >> 1;
+
     if (u < knots[mid]!) hi = mid;
     else lo = mid;
   }
+
   return lo;
 }
 
@@ -60,11 +69,13 @@ export function splinePoint(
 ): [number, number] {
   const k = spanOf(degree, knots, points.length, u);
   const d: [number, number, number][] = [];
+
   for (let j = 0; j <= degree; j++) {
     const p = points[k - degree + j]!;
     const w = weights?.[k - degree + j] ?? 1;
     d.push([p[0] * w, p[1] * w, w]);
   }
+
   for (let r = 1; r <= degree; r++) {
     for (let j = degree; j >= r; j--) {
       const i = k - degree + j;
@@ -74,17 +85,22 @@ export function splinePoint(
       d[j] = [(1 - a) * p[0] + a * q[0], (1 - a) * p[1] + a * q[1], (1 - a) * p[2] + a * q[2]];
     }
   }
+
   const [x, y, w] = d[degree]!;
+
   return [x / w, y / w];
 }
 
 /** The knots of a B-spline that bound the pieces it draws: from `knots[degree]` to `knots[count]`. */
 export function splineBreaks(degree: number, knots: readonly number[], count: number): number[] {
   const out: number[] = [];
+
   for (let i = degree; i <= count; i++) {
     const u = knots[i]!;
+
     if (out.length === 0 || u > out[out.length - 1]!) out.push(u);
   }
+
   return out;
 }
 
@@ -101,23 +117,39 @@ export function splinePolyline(
 ): [number, number][] {
   const breaks = splineBreaks(degree, knots, points.length);
   const out: [number, number][] = [];
+
   for (let b = 0; b + 1 < breaks.length; b++) {
     const [u0, u1] = [breaks[b]!, breaks[b + 1]!];
+
     for (let s = b === 0 ? 0 : 1; s <= steps; s++)
       out.push(splinePoint(degree, knots, points, weights, u0 + ((u1 - u0) * s) / steps));
   }
+
   return out;
 }
 
 /** The parameter of each fit point, from 0, spaced as `spacing` says. */
+/** How far a fit point's parameter is from the last one's, for a chord of that length. */
+function stepOf(spacing: KnotSpacing, chord: number): number {
+  switch (spacing) {
+    case "chord":
+      return chord;
+    case "square-root":
+      return Math.sqrt(chord);
+    default:
+      return 1;
+  }
+}
+
 export function fitParameters(points: readonly Xy[], spacing: KnotSpacing): number[] {
   const out = [0];
+
   for (let i = 1; i < points.length; i++) {
     const [a, b] = [points[i - 1]!, points[i]!];
     const chord = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    const step = spacing === "chord" ? chord : spacing === "square-root" ? Math.sqrt(chord) : 1;
-    out.push(out[i - 1]! + step);
+    out.push(out[i - 1]! + stepOf(spacing, chord));
   }
+
   return out;
 }
 
@@ -137,17 +169,21 @@ function basisAt(degree: number, knots: readonly number[], span: number, u: numb
   const out = [1];
   const left: number[] = [];
   const right: number[] = [];
+
   for (let j = 1; j <= degree; j++) {
     left[j] = u - knots[span + 1 - j]!;
     right[j] = knots[span + j]! - u;
     let saved = 0;
+
     for (let r = 0; r < j; r++) {
       const term = out[r]! / (right[r + 1]! + left[j - r]!);
       out[r] = saved + right[r + 1]! * term;
       saved = left[j - r]! * term;
     }
+
     out[j] = saved;
   }
+
   return out;
 }
 
@@ -164,18 +200,22 @@ function threeDiagonals(rows: readonly Row[]): [number, number][] {
   const m = rows.length;
   const own = rows.map((r) => r.own);
   const value = rows.map((r): [number, number] => [r.value[0], r.value[1]]);
+
   for (let i = 1; i < m; i++) {
     const w = rows[i]!.before / own[i - 1]!;
     own[i] = own[i]! - w * rows[i - 1]!.next;
     value[i] = [value[i]![0] - w * value[i - 1]![0], value[i]![1] - w * value[i - 1]![1]];
   }
+
   const out: [number, number][] = new Array(m);
   out[m - 1] = [value[m - 1]![0] / own[m - 1]!, value[m - 1]![1] / own[m - 1]!];
+
   for (let i = m - 2; i >= 0; i--)
     out[i] = [
       (value[i]![0] - rows[i]!.next * out[i + 1]![0]) / own[i]!,
       (value[i]![1] - rows[i]!.next * out[i + 1]![1]) / own[i]!,
     ];
+
   return out;
 }
 
@@ -196,6 +236,7 @@ function throughPoints(
   const t = (i: number) => knots[i]!;
   // The unknowns are control points 1 to count - 2.
   const rows: Row[] = [];
+
   if (startDerivative) {
     const f = (t(4) - t(1)) / 3;
     rows.push({
@@ -214,10 +255,12 @@ function throughPoints(
       value: [-first[0] / a, -first[1] / a],
     });
   }
+
   for (let k = 1; k <= n - 1; k++) {
     const [a, b, c] = basisAt(3, knots, k + 3, t(k + 3));
     rows.push({ before: a!, own: b!, next: c!, value: points[k]! });
   }
+
   if (endDerivative) {
     const f = (t(count) - t(count - 1)) / 3;
     rows.push({
@@ -235,6 +278,7 @@ function throughPoints(
       value: [-last[0] / a, -last[1] / a],
     });
   }
+
   return [[first[0], first[1]], ...threeDiagonals(rows), [last[0], last[1]]];
 }
 
@@ -254,8 +298,10 @@ export function fitSpline(
   if (closed) {
     const ring = [...points, points[0]!];
     const tangent = joinTangent(ring, spacing);
+
     return { ...fitSpline(ring, spacing, tangent, tangent), tangent };
   }
+
   const u = fitParameters(points, spacing);
   const n = points.length - 1;
   const [u0, un] = [u[0]!, u[n]!];
@@ -263,14 +309,18 @@ export function fitSpline(
   // A tangent is a direction: the curve leaves along it at the pace of its parameter, a unit of
   // chord for each unit of parameter.
   let chords = 0;
+
   for (let i = 1; i <= n; i++)
     chords += Math.hypot(points[i]![0] - points[i - 1]![0], points[i]![1] - points[i - 1]![1]);
   const pace = un - u0 > 0 ? chords / (un - u0) : 1;
+
   const derivative = (v: Xy | undefined): Xy | undefined => {
     if (v === undefined) return undefined;
     const l = Math.hypot(v[0], v[1]);
+
     return [(v[0] / l) * pace, (v[1] / l) * pace];
   };
+
   return {
     knots,
     controlPoints: throughPoints(points, knots, derivative(startTangent), derivative(endTangent)),
@@ -293,16 +343,21 @@ export function splinePieces(
   weights: readonly number[] | undefined,
 ): Weighted[][] {
   const out: Weighted[][] = [];
+
   const [dx, dy, dw] = [
     new Float64Array(degree + 1),
     new Float64Array(degree + 1),
     new Float64Array(degree + 1),
   ];
+
   const count = points.length;
+
   for (let i = degree; i < count; i++) {
     const [a, b] = [knots[i]!, knots[i + 1]!];
+
     if (!(b > a)) continue;
     const piece: Weighted[] = [];
+
     for (let j = 0; j <= degree; j++) {
       // The blossom at `a` taken degree - j times and `b` taken j times.
       for (let k = 0; k <= degree; k++) {
@@ -310,8 +365,10 @@ export function splinePieces(
         const w = weights?.[i - degree + k] ?? 1;
         [dx[k], dy[k], dw[k]] = [p[0] * w, p[1] * w, w];
       }
+
       for (let r = 1; r <= degree; r++) {
         const t = r <= degree - j ? a : b;
+
         for (let k = degree; k >= r; k--) {
           const at = i - degree + k;
           const span = knots[at + degree - r + 1]! - knots[at]!;
@@ -321,10 +378,13 @@ export function splinePieces(
           dw[k] = (1 - f) * dw[k - 1]! + f * dw[k]!;
         }
       }
+
       piece.push([dx[degree]!, dy[degree]!, dw[degree]!]);
     }
+
     out.push(piece);
   }
+
   return out;
 }
 
@@ -336,16 +396,20 @@ function halves(part: readonly Weighted[]): [Weighted[], Weighted[]] {
   let row: Weighted[] = [...part];
   const left: Weighted[] = [row[0]!];
   const right: Weighted[] = [row[row.length - 1]!];
+
   while (row.length > 1) {
     const next: Weighted[] = [];
+
     for (let k = 0; k + 1 < row.length; k++) {
       const [p, q] = [row[k]!, row[k + 1]!];
       next.push([(p[0] + q[0]) / 2, (p[1] + q[1]) / 2, (p[2] + q[2]) / 2]);
     }
+
     left.push(next[0]!);
     right.push(next[next.length - 1]!);
     row = next;
   }
+
   return [left, right.reverse()];
 }
 
@@ -365,8 +429,10 @@ export function splineBox(
   tolerance: number,
 ): CurveBox | undefined {
   const pieces = splinePieces(degree, knots, points, weights);
+
   if (pieces.length === 0) return undefined;
   const box: CurveBox = [Infinity, Infinity, -Infinity, -Infinity];
+
   for (const piece of pieces) {
     for (const p of [piece[0]!, piece[degree]!]) {
       const [x, y] = [p[0] / p[2], p[1] / p[2]];
@@ -376,35 +442,47 @@ export function splineBox(
       box[3] = Math.max(box[3], y);
     }
   }
+
   // Each of the four sides: the axis and whether it is the greatest.
   for (let side = 0; side < 4; side++) {
     const [axis, sign] = [side % 2, side >= 2 ? 1 : -1];
     const value = (p: Weighted): number => (sign * p[axis]!) / p[2];
+
     const reachOf = (part: readonly Weighted[]): number => {
       let most = -Infinity;
+
       for (const p of part) most = Math.max(most, value(p));
+
       return most;
     };
+
     let best = sign * box[side]!;
+
     for (const piece of pieces) {
       if (reachOf(piece) <= best) continue;
       let cuts = 0;
       const stack: Weighted[][] = [piece];
+
       while (stack.length > 0) {
         const part = stack.pop()!;
         const reach = reachOf(part);
+
         if (reach <= best) continue;
         best = Math.max(best, value(part[0]!), value(part[part.length - 1]!));
+
         if (reach - best <= tolerance || cuts >= 64) {
           best = reach;
           continue;
         }
+
         cuts++;
         stack.push(...halves(part));
       }
     }
+
     box[side] = sign * best;
   }
+
   return box;
 }
 
@@ -422,8 +500,10 @@ export function ellipseBox(
   const whole = start === undefined || end === undefined;
   const from = whole ? 0 : unturned(start);
   let sweep = whole ? TAU : unturned(end) - from;
+
   if (sweep <= 0) sweep += TAU;
   const ts: number[] = whole ? [] : [from, from + sweep];
+
   // x is greatest where its derivative, -major.x sin t - major.y ratio cos t, is 0, and least
   // half a turn on; y likewise.
   for (const t0 of [
@@ -432,9 +512,12 @@ export function ellipseBox(
   ])
     for (const t of [t0, t0 + Math.PI]) {
       const on = unturned(t - from);
+
       if (whole || on <= sweep) ts.push(from + on);
     }
+
   const box: CurveBox = [Infinity, Infinity, -Infinity, -Infinity];
+
   for (const t of ts) {
     const [x, y] = ellipsePoint(center, major, ratio, t);
     box[0] = Math.min(box[0], x);
@@ -442,6 +525,7 @@ export function ellipseBox(
     box[2] = Math.max(box[2], x);
     box[3] = Math.max(box[3], y);
   }
+
   return box;
 }
 
@@ -460,13 +544,18 @@ function joinTangent(ring: readonly Xy[], spacing: KnotSpacing): Point {
   const h = (i: number) => u[(((i % m) + m) % m) + 1]! - u[((i % m) + m) % m]!;
   const P = (i: number) => ring[((i % m) + m) % m]!;
   const rows: Row[] = [];
+
   for (let i = 0; i < m; i++) {
     const [a, b] = [h(i - 1), h(i)];
-    const value: Xy = [0, 1].map(
-      (k) => 3 * ((b / a) * (P(i)[k]! - P(i - 1)[k]!) + (a / b) * (P(i + 1)[k]! - P(i)[k]!)),
-    ) as unknown as Xy;
+
+    const along = (k: 0 | 1): number =>
+      3 * ((b / a) * (P(i)[k] - P(i - 1)[k]) + (a / b) * (P(i + 1)[k] - P(i)[k]));
+
+    const value: Xy = [along(0), along(1)];
+
     rows.push({ before: b, own: 2 * (a + b), next: a, value });
   }
+
   return cyclicFirst(rows);
 }
 
@@ -478,6 +567,7 @@ function cyclicFirst(rows: readonly Row[]): Point {
   const m = rows.length;
   const [corner, last] = [rows[0]!.before, rows[m - 1]!.next];
   const gamma = -rows[0]!.own;
+
   // The system less the corners, and `u` (gamma at the first, the last corner at the end).
   const plain = rows.map((r, i): Row => ({
     before: i === 0 ? 0 : r.before,
@@ -485,12 +575,16 @@ function cyclicFirst(rows: readonly Row[]): Point {
     next: i === m - 1 ? 0 : r.next,
     value: r.value,
   }));
+
   const x = threeDiagonals(plain);
+
   const z = threeDiagonals(
     plain.map((r, i): Row => ({ ...r, value: [i === 0 ? gamma : i === m - 1 ? last : 0, 0] })),
   );
+
   const shared = 1 + z[0]![0] + (corner * z[m - 1]![0]) / gamma;
   const factor = (k: 0 | 1) => (x[0]![k] + (corner * x[m - 1]![k]) / gamma) / shared;
+
   return [x[0]![0] - factor(0) * z[0]![0], x[0]![1] - factor(1) * z[0]![0]];
 }
 
@@ -512,14 +606,19 @@ export interface BSpline {
 export function clamped(spline: BSpline): BSpline {
   const { degree: p } = spline;
   let knots = [...spline.knots];
+
   let points: Weighted[] = spline.controlPoints.map((q, i) => {
     const w = spline.weights?.[i] ?? 1;
+
     return [q[0] * w, q[1] * w, w];
   });
+
   const [a, b] = [knots[p]!, knots[spline.controlPoints.length]!];
+
   /** Inserts `u` once in the span from knot `k`, which holds it. */
   const insert = (u: number, k: number): void => {
     const next: Weighted[] = [];
+
     for (let i = 0; i <= points.length; i++) {
       if (i <= k - p) next.push(points[i]!);
       else if (i > k) next.push(points[i - 1]!);
@@ -533,23 +632,27 @@ export function clamped(spline: BSpline): BSpline {
         ]);
       }
     }
+
     knots.splice(k + 1, 0, u);
     points = next;
   };
+
   const count = (u: number) => knots.filter((t) => t === u).length;
+
   // At the start, in the span that ends after `a`; at the end, in the span that ends at `b`.
   for (let s = count(a); s < p + 1; s++) insert(a, knots.lastIndexOf(a));
   const first = knots.lastIndexOf(a) - p;
   knots = knots.slice(first);
   points = points.slice(first);
+
   for (let s = count(b); s < p + 1; s++) insert(b, knots.indexOf(b) - 1);
   const last = knots.indexOf(b);
   knots = knots.slice(0, last + p + 1);
   points = points.slice(0, last);
-  return {
-    degree: p,
-    knots,
-    controlPoints: points.map(([x, y, w]): Point => [x / w, y / w]),
-    ...(spline.weights === undefined ? {} : { weights: points.map(([, , w]) => w) }),
-  };
+
+  const controlPoints = points.map(([x, y, w]): Point => [x / w, y / w]);
+
+  return spline.weights === undefined
+    ? { degree: p, knots, controlPoints }
+    : { degree: p, knots, controlPoints, weights: points.map(([, , w]) => w) };
 }

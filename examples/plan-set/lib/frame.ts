@@ -6,6 +6,7 @@ import { LAYERS, type D } from "./kit.ts";
 import { revisionTable } from "./titleblock.ts";
 
 export const BORDER = "TB-ARCHD";
+
 /** The border's path from the set's file, as the firm keeps it: in a `Set up` folder. */
 export const BORDER_PATH = "Set up/TB-ARCHD.dwg";
 

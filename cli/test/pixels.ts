@@ -12,19 +12,25 @@ export interface Pixels {
 export function decode(png: Uint8Array): Pixels {
   const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
   const [width, height] = [view.getUint32(16), view.getUint32(20)];
+
   if (png[24] !== 8 || png[25] !== 6) throw new Error("The PNG is not 8-bit RGBA");
   const data: Uint8Array[] = [];
+
   for (let offset = 8; offset < png.length;) {
     const length = view.getUint32(offset);
     const type = String.fromCharCode(...png.subarray(offset + 4, offset + 8));
+
     if (type === "IDAT") data.push(png.subarray(offset + 8, offset + 8 + length));
     offset += 12 + length;
   }
+
   const raw = inflateSync(Buffer.concat(data));
   const stride = width * 4;
   const out = new Uint8Array(height * stride);
+
   for (let y = 0; y < height; y++) {
     const filter = raw[y * (stride + 1)]!;
+
     for (let i = 0; i < stride; i++) {
       const a = i >= 4 ? out[y * stride + i - 4]! : 0;
       const b = y > 0 ? out[(y - 1) * stride + i]! : 0;
@@ -35,12 +41,14 @@ export function decode(png: Uint8Array): Pixels {
       out[y * stride + i] = (raw[y * (stride + 1) + 1 + i]! + predicted) & 255;
     }
   }
+
   return { width, height, at: (x, y) => out[y * stride + x * 4]! };
 }
 
 /** The box of the pixels brighter than half way, as `[left, top, right, bottom]` in pixels. */
 export function ink({ width, height, at }: Pixels): [number, number, number, number] {
   let [left, top, right, bottom] = [Infinity, Infinity, -Infinity, -Infinity];
+
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       if (at(x, y) < 128) continue;
@@ -50,5 +58,6 @@ export function ink({ width, height, at }: Pixels): [number, number, number, num
       bottom = Math.max(bottom, y + 1);
     }
   }
+
   return [left, top, right, bottom];
 }

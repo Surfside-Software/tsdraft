@@ -33,6 +33,7 @@ import {
   validDimensionStyleHandle,
   mtextOfLabel,
   type DimensionLabel,
+  type DimensionPlace,
   type DimensionPicture,
   type DimensionPictureHandles,
   type Dimension,
@@ -123,6 +124,7 @@ import {
 /** The key of a page's definition: its page, and its path with \ and / as one. */
 const underlayKey = (path: string, page: string): string =>
   exactKey(`${page}|${underlayPathKey(path)}`);
+
 import {
   cellStyleOf,
   gridCells,
@@ -198,7 +200,8 @@ import {
 import { entityLinetype, layerLinetype, lineweightCode, patternLength } from "./linetypes.ts";
 import { idKey, isStandardTextStyle, shown, TEXT_ALIGNS, TEXT_VERTICAL_ALIGNS } from "./rules.ts";
 import { pointMode, pointSize } from "./points.ts";
-import { shapeFileKey } from "./shapes.ts";
+import { shxFileKey } from "./shapes.ts";
+import { isNumber } from "./guards.ts";
 
 /** `$INSUNITS` codes from the DXF Reference. */
 const INSUNITS: Record<Units, number> = { in: 1, ft: 2, mm: 4, cm: 5, m: 6 };
@@ -251,6 +254,7 @@ export function toDXFR2018(
   const sheets = layouts.map((layout, index) => sheetOf(layout, index));
   const layoutDictionary = sheets.length > 0 ? handle() : "";
   const modelLayout = sheets.length > 0 ? handle() : "";
+
   // The extents are worked out here, so they are brought into the range the leading CAD app reads.
   // Each block's outline is worked out once for the drawing, within the limit `lint` boxes it in.
   const boxOf = boxer(
@@ -265,9 +269,11 @@ export function toDXFR2018(
     undefined,
     drawing.tableStyles,
   );
+
   const [left, bottom, right, top] = extentsOf(drawing.entities, boxOf, "model space");
   // Each layout is boxed once, after model space, as `lint` boxes them.
   const sheetBoxes = sheets.map((sheet) => sheetExtents(sheet, drawing, boxOf));
+
   const [minX, minY, maxX, maxY] = [
     readable(left),
     readable(bottom),
@@ -285,6 +291,7 @@ export function toDXFR2018(
   const definitions = imageDefinitions(images);
   // Keyed exactly, since a path may be long.
   const definitionOf = new Map<string, ImageDefinition>();
+
   for (const definition of definitions)
     definitionOf.set(exactKey(imagePathKey(definition.path)), definition);
   const reactors: { readonly image: string; readonly reactor: string; readonly of: string }[] = [];
@@ -292,6 +299,7 @@ export function toDXFR2018(
   const underlays = [...drawingUnderlays(drawing)];
   const pageDefinitions = underlayDefinitions(underlays);
   const pageDefinitionOf = new Map<string, UnderlayDefinition>();
+
   for (const definition of pageDefinitions)
     pageDefinitionOf.set(underlayKey(definition.path, definition.page), definition);
   const underlayUsers = new Map<string, string[]>();
@@ -299,26 +307,31 @@ export function toDXFR2018(
 
   g(0, "SECTION");
   g(2, "CLASSES");
+
   // A jogged radius dimension is an entity of a class, which a drawing that has one lists.
   const jogged = [drawing.entities, ...sheets.map((sheet) => sheet.layout.entities)]
     .flat()
     .filter((e) => e.kind === "jogged-radius-dimension").length;
+
   if (jogged > 0) {
     writeClass(g, "LARGE_RADIAL_DIMENSION", "AcDbRadialDimensionLarge", "ObjectDBX Classes", 1025, {
       count: jogged,
       entity: true,
     });
   }
+
   // So is an arc length dimension.
   const arcLengths = [drawing.entities, ...sheets.map((sheet) => sheet.layout.entities)]
     .flat()
     .filter((e) => e.kind === "arc-length-dimension").length;
+
   if (arcLengths > 0) {
     writeClass(g, "ARC_DIMENSION", "AcDbArcDimension", "ObjectDBX Classes", 1025, {
       count: arcLengths,
       entity: true,
     });
   }
+
   // A multileader and its style are objects of classes, which a drawing that has them lists.
   if (leaderStyles.length > 0) {
     writeClass(g, "MLEADERSTYLE", "AcDbMLeaderStyle", "ACDB_MLEADERSTYLE_CLASS", 4095, {
@@ -330,9 +343,11 @@ export function toDXFR2018(
       entity: true,
     });
   }
+
   const tableCount = [drawing.entities, ...sheets.map((sheet) => sheet.layout.entities)]
     .flat()
     .filter((e) => e.kind === "table").length;
+
   // A table and its style are objects of classes too.
   if (tableStyles.length > 0) {
     writeClass(g, "TABLESTYLE", "AcDbTableStyle", "ObjectDBX Classes", 4095, {
@@ -344,7 +359,9 @@ export function toDXFR2018(
       entity: true,
     });
   }
+
   const wipeouts = wipeoutCount(drawing);
+
   if (wipeouts > 0) {
     writeClass(g, "WIPEOUT", "AcDbWipeout", WIPEOUT_APPLICATION, 2175, {
       count: wipeouts,
@@ -359,6 +376,7 @@ export function toDXFR2018(
       entity: false,
     });
   }
+
   if (underlays.length > 0) {
     writeClass(g, "PDFDEFINITION", "AcDbPdfDefinition", "ObjectDBX Classes", 1153, {
       count: pageDefinitions.length,
@@ -368,6 +386,7 @@ export function toDXFR2018(
       count: underlays.length,
       entity: true,
     });
+
     if (wipeouts === 0 && pdfFrame !== 1) {
       writeClass(g, "DICTIONARYVAR", "AcDbDictionaryVar", "ObjectDBX Classes", 0, {
         count: 1,
@@ -375,6 +394,7 @@ export function toDXFR2018(
       });
     }
   }
+
   // The leading CAD app draws nothing of an image whose class it holds no count of.
   if (images.length > 0) {
     const count = (n: number, entity = false) => ({ count: n, entity });
@@ -383,6 +403,7 @@ export function toDXFR2018(
     writeClass(g, "IMAGEDEF_REACTOR", "AcDbRasterImageDefReactor", "ISM", 1, count(images.length));
     writeClass(g, "IMAGE", "AcDbRasterImage", "ISM", 2175, count(images.length, true));
   }
+
   g(0, "ENDSEC");
 
   g(0, "SECTION");
@@ -396,40 +417,49 @@ export function toDXFR2018(
       fields: (g) => writeActiveViewport(g, minX, minY, maxX, maxY),
     },
   ]);
+
   const linetypes: Linetype[] = [
     { name: "ByBlock", description: "", pattern: [] },
     { name: "ByLayer", description: "", pattern: [] },
     { name: "Continuous", description: "Solid line", pattern: [] },
     ...(drawing.linetypes ?? []),
   ];
+
   const linetypeHandles = linetypes.map(() => handle());
   // A leader style draws its shafts in the linetype ByBlock, which it holds by its handle.
   const linetypeByBlock = linetypeHandles[0]!;
   const textStyles = drawing.textStyles ?? [];
   // A linetype's mark holds its text style, or its shape file's, by its handle. The shape files
   // are styles of their own after the text styles, one for each file, in the order first named.
-  const shapeKeys = new Map<string, string>();
+  const shxKeys = new Map<string, string>();
+
   for (const t of linetypes)
     for (const m of t.marks ?? [])
-      if ("shape" in m && !shapeKeys.has(shapeFileKey(m.file)))
-        shapeKeys.set(shapeFileKey(m.file), m.file);
-  const shapeFiles = [...shapeKeys.values()];
-  let styleHandles: { standard: string; list: string[]; shapes: string[] } | undefined;
+      if ("glyph" in m && !shxKeys.has(shxFileKey(m.file))) shxKeys.set(shxFileKey(m.file), m.file);
+  const shxFiles = [...shxKeys.values()];
+  let styleHandles: { standard: string; list: string[]; shx: string[] } | undefined;
+
   const allocateStyles = () => ({
     standard: handle(),
     list: textStyles.map(() => handle()),
-    shapes: shapeFiles.map(() => handle()),
+    shx: shxFiles.map(() => handle()),
   });
+
   // A drawing whose linetypes have no marks numbers its styles after its linetypes' table.
   if (linetypes.some((t) => (t.marks?.length ?? 0) > 0)) styleHandles = allocateStyles();
+
   const markStyle = (m: LinetypeMark): string => {
     const handles = styleHandles!;
-    if ("shape" in m) return handles.shapes[[...shapeKeys.keys()].indexOf(shapeFileKey(m.file))]!;
+
+    if ("glyph" in m) return handles.shx[[...shxKeys.keys()].indexOf(shxFileKey(m.file))]!;
     const name = m.style ?? STANDARD_TEXT_STYLE;
+
     if (isStandardTextStyle(name)) return handles.standard;
     const key = layerKey(name);
+
     return handles.list[textStyles.findIndex((t) => layerKey(t.name) === key)] ?? handles.standard;
   };
+
   writeTable(
     g,
     handle,
@@ -448,19 +478,24 @@ export function toDXFR2018(
         linetype.pattern.forEach((length, i) => {
           g(49, length);
           const m = marks.find((mark) => mark.after === i);
+
           if (m === undefined) {
             g(74, 0); // a plain dash, gap or dot
+
             return;
           }
+
           const text = "text" in m;
           const orient = m.orient ?? "relative";
           g(74, (text ? 2 : 4) | (orient === "absolute" ? 1 : 0) | (orient === "upright" ? 8 : 0));
-          g(75, text ? 0 : (m.shape as number));
+          // SAFETY: toDXF writes only what lint passes, which refuses a glyph that is no number.
+          g(75, text ? 0 : (m.glyph as number));
           g(340, markStyle(m));
           g(46, text ? m.height : m.scale);
           g(50, m.rotation ?? 0);
           g(44, m.offset?.[0] ?? 0);
           g(45, m.offset?.[1] ?? 0);
+
           if (text) g(9, dxfOnce(m.text));
         });
       },
@@ -483,6 +518,7 @@ export function toDXFR2018(
         // A layer that is off has its color negated.
         g(62, layer.off ? -layer.color : layer.color);
         g(6, layerLinetype(layer));
+
         if (layer.plot === false) g(290, 0);
         g(370, lineweightCode(layer.lineweight ?? "Default"));
         g(390, normalPlotStyle); // the leading CAD app rejects a layer without a plot style
@@ -493,12 +529,13 @@ export function toDXFR2018(
   const standardStyle = styleHandles.standard;
   // Each text style has a handle of its own. A dimension style holds the first of a name.
   const textStyleHandleList = styleHandles.list;
+
   const textStyleHandles = new Map(
-    textStyles.map((style, i) => [layerKey(style.name), textStyleHandleList[i]!]).reverse() as [
-      string,
-      string,
-    ][],
+    textStyles
+      .map((style, i): [string, string] => [layerKey(style.name), textStyleHandleList[i]!])
+      .reverse(),
   );
+
   writeTable(g, handle, "STYLE", [
     {
       type: "STYLE",
@@ -529,6 +566,7 @@ export function toDXFR2018(
         g(42, 0.2); // last height used
         g(3, font?.file ?? style.font);
         g(4, "");
+
         // A TrueType font is named by its typeface in the record's extended data, with its
         // pitch and family.
         if (font?.pitchAndFamily !== undefined) {
@@ -540,11 +578,11 @@ export function toDXFR2018(
     })),
     // A shape file is a style with no name and flag 1, which the leading CAD app makes for a
     // linetype's shapes.
-    ...shapeFiles.map((file, i) => ({
+    ...shxFiles.map((file, i) => ({
       type: "STYLE",
       subclass: "AcDbTextStyleTableRecord",
       name: "",
-      handle: styleHandles!.shapes[i]!,
+      handle: styleHandles!.shx[i]!,
       flags: 1,
       fields: (g: Group) => {
         g(40, 0);
@@ -560,18 +598,22 @@ export function toDXFR2018(
   // Keyed as style names are compared, so a text that names `notes` takes the style `NOTES`.
   const stylesByKey = new Map(textStyles.map((style) => [layerKey(style.name), style]));
   const patternOf = patternFinder(drawing.patterns);
+
   const styleOf = (name: string | undefined): TextStyle | undefined =>
     name === undefined ? undefined : stylesByKey.get(layerKey(name));
+
   writeTable(g, handle, "VIEW", []);
   writeTable(g, handle, "UCS", []);
   writeTable(g, handle, "APPID", [
     { type: "APPID", subclass: "AcDbRegAppTableRecord", name: "ACAD", handle: handle() },
   ]);
   const dimensionStyles = drawing.dimensionStyles ?? [];
+
   // Keyed as style names are compared, so a dimension that names `dim` takes the style `DIM`.
   const dimensionStylesByKey = new Map(
     dimensionStyles.map((style) => [layerKey(style.name), style]),
   );
+
   const arrowheads = arrowheadsWithBlocks(dimensionStyles);
   writeTable(g, handle, "DIMSTYLE", [
     {
@@ -604,16 +646,13 @@ export function toDXFR2018(
     entities.forEach((entity, index) => {
       if (!isDimension(entity)) return;
       const style = dimensionStylesByKey.get(layerKey(entity.style));
+
       if (style === undefined) return;
       const layout = space === 0 ? undefined : sheets[space - 1]!.layout.name;
       pictures.set(`${space}/${index}`, {
         name: `*D${pictures.size + 1}`,
         picture: dimensionPicture(entity, style, styleOf(style.textStyle)),
-        handles: validDimensionPictureHandles({
-          index,
-          ...(entity.id === undefined ? {} : { id: entity.id }),
-          ...(layout === undefined ? {} : { layout }),
-        }),
+        handles: validDimensionPictureHandles(dimensionPlace(index, entity.id, layout)),
         layer: entity.layer,
         textStyle: styleOf(style.textStyle)?.name ?? STANDARD_TEXT_STYLE,
         mask: dimensionMask(style),
@@ -624,6 +663,7 @@ export function toDXFR2018(
   const tableBlocks = new Map<string, TableBlockHeld>();
   /** The handles of the tables that name each style, which the style lists as its reactors. */
   const tablesOfStyle = new Map<string, string[]>();
+
   for (const drawn of drawingTables(drawing, boxOf)) {
     tableBlocks.set(`${drawn.space}/${drawn.index}`, {
       name: drawn.name,
@@ -634,15 +674,18 @@ export function toDXFR2018(
       rotation: drawn.table.rotation,
     });
   }
+
   const blockRecordFields = (g: Group) => {
     g(280, 1); // explodable
     g(281, 0); // scale uniformly: no
   };
+
   /** The record of a block that a layout shows: model space, or a layout's paper space. */
   const layoutRecordFields = (layout: string) => (g: Group) => {
     g(340, layout);
     blockRecordFields(g);
   };
+
   writeTable(g, handle, "BLOCK_RECORD", [
     {
       type: "BLOCK_RECORD",
@@ -714,6 +757,7 @@ export function toDXFR2018(
   const blocksByName = blocksByKey(blocks);
   /** The handle each table was written with. */
   const tableHandles = new Map<TableBlockHeld, string>();
+
   /** Writes a table entity, which a style the drawing does not have leaves out. */
   const writeTableEntity = (
     table: Table,
@@ -724,13 +768,16 @@ export function toDXFR2018(
     index: number,
   ): void => {
     const held = space === undefined ? undefined : tableBlocks.get(`${space}/${index}`);
+
     if (held === undefined) return;
     tableHandles.set(held, handle);
     writeTableGroups(g, table, held, { handle, owner, paper }, (name) => {
       const block = blocksByName.get(layerKey(name));
+
       return block === undefined ? undefined : blockHandles(block.name).record;
     });
   };
+
   /**
    * Writes the entities of model space, of a block or of a layout, each owned by `owner`.
    * `paper` marks the entities of a layout as being in paper space.
@@ -743,6 +790,7 @@ export function toDXFR2018(
   ): void => {
     entities.forEach((entity, index) => {
       const own = entity.id === undefined ? handle() : handleOf(entity.id);
+
       if (entity.kind === "image") {
         const definition = definitionOf.get(exactKey(imagePathKey(entity.path)))!;
         const reactor = entity.id === undefined ? handle() : imageReactorHandle(idKey(entity.id));
@@ -754,18 +802,24 @@ export function toDXFR2018(
           definition: definition.handle,
           reactor,
         });
+
         return;
       }
+
       if (entity.kind === "underlay") {
         const definition = pageDefinitionOf.get(underlayKey(entity.path, pageOf(entity)))!;
         const users = underlayUsers.get(definition.handle);
+
         if (users) users.push(own);
         else underlayUsers.set(definition.handle, [own]);
         writeUnderlay(g, entity, { handle: own, owner, paper, definition: definition.handle });
+
         return;
       }
+
       if (entity.kind === "leader") {
         const style = leaderStylesByKey.get(layerKey(entity.style));
+
         if (style === undefined) return;
         const named = entity.textStyle ?? style.textStyle;
         writeLeader(g, entity, style, {
@@ -778,12 +832,16 @@ export function toDXFR2018(
             textStyleHandles.get(layerKey(named ?? STANDARD_TEXT_STYLE)) ?? standardStyle,
           linetype: linetypeByBlock,
         });
+
         return;
       }
+
       if (entity.kind === "table") {
         writeTableEntity(entity, own, owner, paper, space, index);
+
         return;
       }
+
       if (isDimension(entity)) {
         const picture = space === undefined ? undefined : pictures.get(`${space}/${index}`);
         writeDimension(
@@ -796,8 +854,10 @@ export function toDXFR2018(
           picture?.name,
           picture?.picture,
         );
+
         return;
       }
+
       if (entity.kind !== "insert") {
         writeEntity(
           g,
@@ -808,38 +868,48 @@ export function toDXFR2018(
           paper,
           patternOf,
         );
+
         return;
       }
+
       const block = blocksByName.get(layerKey(entity.block));
       const definitions = block?.attributes ?? [];
       writeInsert(g, entity, own, owner, definitions.length > 0, paper);
+
       if (definitions.length === 0) return;
       const { id } = entity;
+
       for (const definition of definitions) {
         const placed = placeAttribute(definition, styleOf(definition.style), entity, block?.base);
         g(0, "ATTRIB");
         g(5, id === undefined ? handle() : insertAttributeHandle(id, definition.tag));
         g(330, own);
         g(100, "AcDbEntity");
+
         if (paper) g(67, 1);
         g(8, definition.layer);
         g(100, "AcDbText");
+
         if (definition.kind === "paragraph") {
           writeParagraphAttribute(g, definition, styleOf(definition.style), placed, undefined);
           continue;
         }
+
         writeTextFields(g, { ...definition, ...placed }, styleOf(definition.style), placed);
         g(100, "AcDbAttribute");
         writeAttributeFields(g, definition, undefined);
       }
+
       g(0, "SEQEND");
       g(5, id === undefined ? handle() : insertEndHandle(id));
       g(330, own);
       g(100, "AcDbEntity");
+
       if (paper) g(67, 1);
       g(8, entity.layer);
     });
   };
+
   /** Writes what a layout holds: the viewport of the sheet, its viewports, then its entities. */
   const writeSheet = (sheet: Sheet, space: number): void => {
     const owner = sheet.handles.record;
@@ -858,17 +928,24 @@ export function toDXFR2018(
   writeBlock(g, handle(), handle(), "*Model_Space", modelSpace, { paper: false });
   // The counter passes the two handles of the empty paper space whether it is written or not.
   const [paperBegin, paperEnd] = [handle(), handle()];
+
   if (sheets.length === 0) {
     writeBlock(g, paperBegin, paperEnd, "*Paper_Space", paperSpace, { paper: true });
   }
+
   // The block of the first layout is empty here: what it holds is written with the entities.
   sheets.forEach((sheet, index) => {
-    writeBlock(g, sheet.handles.begin, sheet.handles.end, sheet.block, sheet.handles.record, {
-      paper: true,
-      ...(index === 0 ? {} : { contents: () => writeSheet(sheet, index + 1) }),
-    });
+    writeBlock(
+      g,
+      sheet.handles.begin,
+      sheet.handles.end,
+      sheet.block,
+      sheet.handles.record,
+      index === 0 ? { paper: true } : { paper: true, contents: () => writeSheet(sheet, index + 1) },
+    );
   });
   const placedByLeader = leaderPlacesBlock(drawing);
+
   for (const block of blocks) {
     const handles = blockHandles(block.name);
     // A block a leader places holds all it draws ByBlock, as the leading CAD app reads it.
@@ -879,19 +956,23 @@ export function toDXFR2018(
       hasAttributes: (block.attributes ?? []).length > 0,
       contents: () => {
         writeEntities(byBlock ? heldByBlock(block.entities) : block.entities, handles.record);
+
         for (const definition of block.attributes ?? []) {
           g(0, "ATTDEF");
           g(5, definitionHandle(block.name, definition.tag));
           g(330, handles.record);
           g(100, "AcDbEntity");
           g(8, definition.layer);
+
           if (byBlock) writeColor(g, undefined, "ByBlock");
           g(100, "AcDbText");
+
           if (definition.kind === "paragraph") {
             const prompt = definition.prompt ?? definition.tag;
             writeParagraphAttribute(g, definition, styleOf(definition.style), undefined, prompt);
             continue;
           }
+
           writeTextFields(g, definition, styleOf(definition.style), undefined);
           g(100, "AcDbAttributeDefinition");
           writeAttributeFields(g, definition, definition.prompt ?? definition.tag);
@@ -899,6 +980,7 @@ export function toDXFR2018(
       },
     });
   }
+
   for (const xref of xrefs) {
     const handles = blockHandles(xref.name);
     writeBlock(g, handles.begin, handles.end, xref.name, handles.record, {
@@ -907,6 +989,7 @@ export function toDXFR2018(
       attach: xref.attach === true,
     });
   }
+
   for (const { arrowhead, block } of arrowheads) {
     const handles = blockHandles(block);
     const stroke = arrowheadInfo(arrowhead)!.stroke!;
@@ -923,8 +1006,10 @@ export function toDXFR2018(
             arrowheadEntityHandle(block),
             handles.record,
           );
+
           return;
         }
+
         g(0, "LWPOLYLINE");
         g(5, arrowheadEntityHandle(block));
         g(330, handles.record);
@@ -936,6 +1021,7 @@ export function toDXFR2018(
         g(90, 2);
         g(70, 0);
         g(43, stroke.width);
+
         for (const [x, y] of [stroke.from, stroke.to]) {
           g(10, x);
           g(20, y);
@@ -943,6 +1029,7 @@ export function toDXFR2018(
       },
     });
   }
+
   for (const { arrowhead, block, strokes } of leaderArrowheads) {
     const handles = blockHandles(block);
     const own = leaderArrowheadHandles(arrowhead)!.strokes;
@@ -952,15 +1039,19 @@ export function toDXFR2018(
         strokes.forEach((stroke, i) => writeArrowheadStroke(g, stroke, own[i]!, handles.record)),
     });
   }
+
   for (const picture of pictures.values()) writePicture(g, picture);
+
   for (const held of tableBlocks.values()) {
     writeTablePicture(g, held, styleOf, (name) => blocksByName.get(layerKey(name))?.name);
   }
+
   g(0, "ENDSEC");
 
   g(0, "SECTION");
   g(2, "ENTITIES");
   writeEntities(drawing.entities, modelSpace, false, 0);
+
   if (sheets[0] !== undefined) writeSheet(sheets[0], 1);
   g(0, "ENDSEC");
 
@@ -973,41 +1064,52 @@ export function toDXFR2018(
   g(281, 1); // duplicate records: keep existing
   g(3, "ACAD_GROUP");
   g(350, groupDictionary);
+
   if (images.length > 0) {
     g(3, IMAGE_DICTIONARY);
     g(350, imageDictionaryHandle());
     g(3, IMAGE_VARIABLES);
     g(350, rasterVariablesHandle());
   }
+
   if (sheets.length > 0) {
     g(3, "ACAD_LAYOUT");
     g(350, layoutDictionary);
   }
+
   const leaderDictionary = leaderStyleDictionaryHandle();
+
   if (leaderStyles.length > 0) {
     g(3, LEADER_STYLE_DICTIONARY);
     g(350, leaderDictionary);
   }
+
   g(3, "ACAD_PLOTSTYLENAME");
   g(350, plotStyleDictionary);
   const tableDictionary = tableStyleDictionaryHandle();
+
   if (tableStyles.length > 0) {
     g(3, TABLE_STYLE_DICTIONARY);
     g(350, tableDictionary);
   }
+
   if (underlays.length > 0) {
     g(3, UNDERLAY_DICTIONARY);
     g(350, underlayDictionaryHandle());
   }
+
   if (wipeouts > 0) {
     g(3, "ACAD_WIPEOUT_VARS");
     g(350, wipeoutVariablesHandle());
   }
+
   const pdfFrameWritten = underlays.length > 0 && pdfFrame !== 1;
+
   if (wipeouts > 0 || pdfFrameWritten) {
     g(3, "AcDbVariableDictionary");
     g(350, variableDictionaryHandle());
   }
+
   g(0, "DICTIONARY");
   ownedBy(g, groupDictionary, rootDictionary);
   g(100, "AcDbDictionary");
@@ -1023,6 +1125,7 @@ export function toDXFR2018(
   g(340, normalPlotStyle);
   g(0, "ACDBPLACEHOLDER");
   ownedBy(g, normalPlotStyle, plotStyleDictionary);
+
   if (leaderStyles.length > 0) {
     // The leading CAD app's own style, then the drawing's, which the dictionary lists by name.
     const styles: [LeaderStyle, string][] = [
@@ -1032,20 +1135,25 @@ export function toDXFR2018(
         textStyleHandles.get(layerKey(style.textStyle ?? STANDARD_TEXT_STYLE)) ?? standardStyle,
       ]),
     ];
+
     g(0, "DICTIONARY");
     ownedBy(g, leaderDictionary, rootDictionary);
     g(100, "AcDbDictionary");
     g(281, 1);
+
     for (const [style] of styles) {
       g(3, dxfOnce(style.name));
       g(350, validLeaderStyleHandle(style.name));
     }
+
     for (const [style, textStyle] of styles) {
       const content =
         style.block === undefined ? undefined : blocksByName.get(layerKey(style.block))?.name;
+
       writeLeaderStyle(g, style, leaderDictionary, textStyle, linetypeByBlock, content);
     }
   }
+
   if (tableStyles.length > 0) {
     // Each table names its style's handle, and the style lists the tables that name it, through
     // which the leading CAD app draws each table again when the style changes.
@@ -1053,18 +1161,22 @@ export function toDXFR2018(
       const key = layerKey(held.style.name);
       const list = tablesOfStyle.get(key) ?? [];
       const written = tableHandles.get(held);
+
       if (written !== undefined) list.push(written);
       tablesOfStyle.set(key, list);
     }
+
     const styles = [STANDARD_TABLE_STYLE_SIZES, ...tableStyles];
     g(0, "DICTIONARY");
     ownedBy(g, tableDictionary, rootDictionary);
     g(100, "AcDbDictionary");
     g(281, 1);
+
     for (const style of styles) {
       g(3, dxfOnce(style.name));
       g(350, validTableStyleHandle(style.name));
     }
+
     for (const style of styles) {
       writeTableStyle(
         g,
@@ -1075,17 +1187,24 @@ export function toDXFR2018(
       );
     }
   }
+
   if (images.length > 0) {
     writeImageObjects(g, definitions, reactors, rootDictionary, drawing);
   }
+
   if (underlays.length > 0) writeUnderlayObjects(g, pageDefinitions, underlayUsers, rootDictionary);
+
   if (wipeouts > 0) writeWipeoutObjects(g, rootDictionary, drawing);
+
   if (wipeouts > 0 || pdfFrameWritten) {
-    writeVariables(g, rootDictionary, {
-      ...(pdfFrameWritten ? { PDFFRAME: pdfFrame } : {}),
-      ...(wipeouts > 0 ? { WIPEOUTFRAME: drawing.wipeoutFrame === false ? 0 : 1 } : {}),
-    });
+    const values: Record<string, number> = {};
+
+    if (pdfFrameWritten) values.PDFFRAME = pdfFrame;
+
+    if (wipeouts > 0) values.WIPEOUTFRAME = drawing.wipeoutFrame === false ? 0 : 1;
+    writeVariables(g, rootDictionary, values);
   }
+
   if (sheets.length > 0) {
     g(0, "DICTIONARY");
     ownedBy(g, layoutDictionary, rootDictionary);
@@ -1093,15 +1212,18 @@ export function toDXFR2018(
     g(281, 1);
     g(3, "Model");
     g(350, modelLayout);
+
     for (const sheet of sheets) {
       g(3, dxfOnce(sheet.layout.name));
       g(350, sheet.handles.layout);
     }
+
     writeModelLayout(g, modelLayout, layoutDictionary, modelSpace, [minX, minY, maxX, maxY]);
     sheets.forEach((sheet, index) => {
       writeLayout(g, sheet, layoutDictionary, index + 1, sheetBoxes[index]!);
     });
   }
+
   g(0, "ENDSEC");
   g(0, "EOF");
 
@@ -1124,22 +1246,26 @@ export function toDXFR2018(
   h(70, INSUNITS[drawing.units]);
   h(9, "$MEASUREMENT");
   h(70, drawing.units === "in" || drawing.units === "ft" ? 0 : 1);
+
   if (drawing.linetypeScale !== undefined && drawing.linetypeScale !== 1) {
     h(9, "$LTSCALE");
     h(40, drawing.linetypeScale);
   }
+
   if (drawing.pointStyle !== undefined) {
     h(9, "$PDMODE");
     h(70, pointMode(drawing.pointStyle));
     h(9, "$PDSIZE");
     h(40, pointSize(drawing.pointStyle));
   }
+
   // A drawing saved from this file then refuses in-place editing through a reference to it.
   h(9, "$XEDIT");
   h(290, 0);
   h(9, "$CLAYER");
   h(8, "0");
   const [first] = sheets;
+
   if (first !== undefined) {
     // The leading CAD app takes the extents and the limits of the layout it opens on from the header.
     const [pMinX, pMinY, pMaxX, pMaxY] = sheetBoxes[0]!;
@@ -1158,7 +1284,9 @@ export function toDXFR2018(
     h(9, "$TILEMODE");
     h(70, 0);
   }
+
   h(9, "$HANDSEED");
+
   // The leading CAD app numbers the objects it adds from the seed up, so it is above every handle here.
   const named =
     blocks.length > 0 ||
@@ -1170,6 +1298,7 @@ export function toDXFR2018(
     underlays.length > 0 ||
     wipeoutCount(drawing) > 0 ||
     drawing.entities.some((entity) => entity.id !== undefined);
+
   h(5, named ? ID_HANDLE_SEED : handle());
   h(0, "ENDSEC");
 
@@ -1178,7 +1307,7 @@ export function toDXFR2018(
 
 function groupWriter(out: string[]): Group {
   return (code, value) => {
-    out.push(String(code), typeof value === "number" ? fmt(value) : value);
+    out.push(String(code), isNumber(value) ? fmt(value) : value);
   };
 }
 
@@ -1214,11 +1343,14 @@ function writeTable(
   g(330, "0");
   g(100, "AcDbSymbolTable");
   g(70, records.length);
+
   if (name === "DIMSTYLE") {
     g(100, "AcDbDimStyleTable");
     g(71, records.length);
+
     for (const r of records) g(340, r.handle);
   }
+
   for (const r of records) {
     g(0, r.type);
     // DIMSTYLE records use 105 for their handle, because 5 is DIMBLK's code there.
@@ -1230,6 +1362,7 @@ function writeTable(
     g(70, r.flags ?? 0);
     r.fields?.(g);
   }
+
   g(0, "ENDTAB");
 }
 
@@ -1303,6 +1436,7 @@ function writeBlock(
   g(5, begin);
   g(330, owner);
   g(100, "AcDbEntity");
+
   if (block.paper) g(67, 1);
   g(8, "0");
   g(100, "AcDbBlockBegin");
@@ -1320,6 +1454,7 @@ function writeBlock(
   g(5, end);
   g(330, owner);
   g(100, "AcDbEntity");
+
   if (block.paper) g(67, 1);
   g(8, "0");
   g(100, "AcDbBlockEnd");
@@ -1337,16 +1472,21 @@ function writeInsert(
   g(5, handle);
   g(330, owner);
   g(100, "AcDbEntity");
+
   if (paper) g(67, 1);
   g(8, e.layer);
   writeColor(g, e.color, e.transparency);
   g(100, "AcDbBlockReference");
+
   if (hasAttributes) g(66, 1); // attributes follow
   g(2, e.block);
   point(g, 10, ...e.at);
   const [x, y] = e.scale ?? [1, 1];
+
   if (x !== 1) g(41, x);
+
   if (y !== 1) g(42, y);
+
   if (e.rotation !== undefined && e.rotation !== 0) g(50, e.rotation);
 }
 
@@ -1371,19 +1511,25 @@ function writeTextFields(
   } else point(g, 10, ...e.at);
   g(40, e.height);
   g(1, dxfText(e.value));
+
   if (e.rotation !== 0) g(50, e.rotation);
   // A text holds its own width factor and oblique angle. It starts with its style's.
   const widthFactor = placed?.widthFactor ?? style?.widthFactor ?? 1;
   const obliqueAngle = placed?.obliqueAngle ?? style?.obliqueAngle ?? 0;
+
   if (widthFactor !== 1) g(41, widthFactor);
+
   if (obliqueAngle !== 0) g(51, obliqueAngle);
   g(7, style?.name ?? STANDARD_TEXT_STYLE);
   const align = TEXT_ALIGNS.indexOf(e.align ?? "left");
   const valign = TEXT_VERTICAL_ALIGNS.indexOf(e.valign ?? "baseline");
+
   if (align > 0) g(72, align);
+
   // A justified text is placed by its alignment point, and its first point is written as
   // the same point.
   if (align > 0 || valign > 0) point(g, 11, ...e.at);
+
   if (placed?.mirrored) point3(g, 210, 0, 0, -1);
 }
 
@@ -1394,10 +1540,12 @@ function writeAttributeFields(
   prompt: string | undefined,
 ): void {
   g(280, 0); // version
+
   if (prompt !== undefined) g(3, dxfText(prompt));
   g(2, dxfText(definition.tag));
   g(70, 0); // visible, and asked for on insertion
   const valign = TEXT_VERTICAL_ALIGNS.indexOf(definition.valign ?? "baseline");
+
   if (valign > 0) g(74, valign);
   g(280, 1); // the attribute keeps its place in the block
 }
@@ -1436,6 +1584,7 @@ function writeParagraphAttribute(
   );
   g(100, prompt === undefined ? "AcDbAttribute" : "AcDbAttributeDefinition");
   g(280, 0); // version
+
   if (prompt !== undefined) g(3, dxfText(prompt));
   g(2, dxfText(definition.tag));
   g(70, 0); // visible, and asked for on insertion
@@ -1454,14 +1603,17 @@ function writeParagraphAttribute(
   g(72, 1); // left to right
   writeMtextValue(g, placed?.paragraph?.value ?? definition.value);
   g(7, style?.name ?? STANDARD_TEXT_STYLE);
+
   if (mirrored) point3(g, 210, 0, 0, -1);
   const [cos, sin] = paragraphDirection(rotation);
   const across = mirrored ? -cos : cos;
+
   if (across !== 1 || sin !== 0) {
     g(11, fifteenDigits(across));
     g(21, fifteenDigits(sin));
     g(31, 0);
   }
+
   g(73, lineSpacingStyleCode(definition));
   g(44, definition.lineSpacing ?? 1);
 }
@@ -1475,13 +1627,17 @@ function writeParagraphAttribute(
 function writeSpline(g: Group, e: Spline, begin: () => void): void {
   begin();
   point3(g, 210, 0, 0, 1);
+
   const tolerances = (fit: boolean) => {
     g(42, "0.000000001");
     g(43, "0.0000000001");
+
     if (fit) g(44, "0.0000000001");
   };
+
   const unit = (code: number, [x, y]: Point) => {
     const length = Math.hypot(x, y);
+
     for (const [at, value] of [
       [code, x / length],
       [code + 10, y / length],
@@ -1489,12 +1645,14 @@ function writeSpline(g: Group, e: Spline, begin: () => void): void {
       g(at, value === 0 ? "0" : fifteenDigits(value));
     g(code + 20, 0);
   };
+
   // Numbers the writer works out, as the leading CAD app saves them, with 16 digits.
   const exactPoint = (code: number, x: number, y: number) => {
     g(code, sixteenDigits(x));
     g(code + 10, sixteenDigits(y));
     g(code + 20, 0);
   };
+
   if (isFitSpline(e)) {
     const closed = e.closed === true;
     // Fitted through the points as written, which a reader of the file fits through again.
@@ -1513,33 +1671,46 @@ function writeSpline(g: Group, e: Spline, begin: () => void): void {
     g(73, fitted.controlPoints.length);
     g(74, fit.length);
     tolerances(true);
+
     if (startTangent) unit(12, startTangent);
+
     if (endTangent) unit(13, endTangent);
+
     for (const knot of fitted.knots) g(40, sixteenDigits(knot));
+
     for (const [x, y] of fitted.controlPoints) exactPoint(10, x, y);
+
     for (const [x, y] of fit) point(g, 11, x, y);
+
     return;
   }
+
   // Knots are written with 16 digits, as a span may be smaller than 6 decimals hold; the control
   // points and weights as written, or with 16 digits where the clamp worked them out.
-  const held = clamped({
-    degree: e.degree,
-    knots: e.knots,
-    controlPoints: e.controlPoints.map(([x, y]): Point => [written(x), written(y)]),
-    ...(e.weights === undefined ? {} : { weights: e.weights.map(written) }),
-  });
+  const { degree, knots } = e;
+  const controlPoints = e.controlPoints.map(([x, y]): Point => [written(x), written(y)]);
+
+  const held = clamped(
+    e.weights === undefined
+      ? { degree, knots, controlPoints }
+      : { degree, knots, controlPoints, weights: e.weights.map(written) },
+  );
+
   const worked =
     held.knots.length !== e.knots.length || held.knots.some((k, i) => k !== e.knots[i]);
+
   g(70, 8 + (held.weights ? 4 : 0) + (e.closed ? 3 : 0));
   g(71, held.degree);
   g(72, held.knots.length);
   g(73, held.controlPoints.length);
   g(74, 0);
   tolerances(false);
+
   for (const knot of held.knots) g(40, sixteenDigits(knot));
   held.controlPoints.forEach(([x, y], i) => {
     if (worked) exactPoint(10, x, y);
     else point(g, 10, x, y);
+
     if (held.weights) g(41, worked ? sixteenDigits(held.weights[i]!) : held.weights[i]!);
   });
 }
@@ -1557,11 +1728,15 @@ function writeColor(
   transparency: EntityTransparency | undefined,
 ): void {
   const stored = storedColor(color);
+
   if (stored !== undefined) {
     g(62, stored.index);
+
     if (stored.rgb !== undefined) g(420, stored.rgb);
   }
+
   const value = storedTransparency(transparency);
+
   if (value !== undefined) g(440, value);
 }
 
@@ -1583,55 +1758,71 @@ function writeEntity(
     g(5, handle);
     g(330, owner);
     g(100, "AcDbEntity");
+
     if (paper) g(67, 1);
     g(8, e.layer);
     const linetype = entityLinetype(e);
+
     if (linetype !== undefined) g(6, linetype);
     writeColor(g, e.color, e.transparency);
+
     if (e.lineweight !== undefined && e.lineweight !== "ByLayer") {
       g(370, lineweightCode(e.lineweight));
     }
+
     g(100, subclass);
   };
+
   switch (e.kind) {
     case "line":
       begin("LINE", "AcDbLine");
       point(g, 10, ...e.from);
       point(g, 11, ...e.to);
+
       return;
     case "polyline": {
       begin("LWPOLYLINE", "AcDbPolyline");
       g(90, e.points.length);
       // Flag 128 runs the linetype's pattern on past each vertex.
       g(70, (e.closed ? 1 : 0) | (e.linetypeGeneration ? 128 : 0));
+
       // A width for each side is written at each point, and a constant width once.
       if (e.widths === undefined) g(43, e.width ?? 0);
       e.points.forEach(([x, y], i) => {
         g(10, x);
         g(20, y);
         const pair = e.widths?.[i];
+
         if (e.widths) {
           g(40, pair?.[0] ?? 0);
           g(41, pair?.[1] ?? 0);
         }
+
         const bulge = e.bulges?.[i] ?? 0;
+
         if (written(bulge) !== 0) g(42, bulge);
       });
+
       return;
     }
+
     case "circle":
       begin("CIRCLE", "AcDbCircle");
       point(g, 10, ...e.center);
       g(40, e.radius);
+
       return;
     case "point": {
       begin("POINT", "AcDbPoint");
       point(g, 10, ...e.at);
       // The file holds the angle the figure is turned clockwise by.
       const turned = written(e.rotation ?? 0) % 360;
+
       if (turned !== 0) g(50, 360 - turned);
+
       return;
     }
+
     case "arc":
       begin("ARC", "AcDbCircle");
       point(g, 10, ...e.center);
@@ -1639,6 +1830,7 @@ function writeEntity(
       g(100, "AcDbArc");
       g(50, writtenAngle(e.startAngle));
       g(51, writtenAngle(e.endAngle));
+
       return;
     case "ellipse": {
       begin("ELLIPSE", "AcDbEllipse");
@@ -1650,21 +1842,27 @@ function writeEntity(
       const radians = (t: number) => (writtenAngle(t) * Math.PI) / 180;
       const start = e.startParameter === undefined ? 0 : radians(e.startParameter);
       let end = e.endParameter === undefined ? 2 * Math.PI : radians(e.endParameter);
+
       if (end <= start) end += 2 * Math.PI;
       // With 15 digits, which the app reads back as written: from 16 it keeps one a bit off.
       g(41, start === 0 ? 0 : fifteenDigits(start));
       g(42, fifteenDigits(end));
+
       return;
     }
+
     case "spline":
       writeSpline(g, e, () => begin("SPLINE", "AcDbSpline"));
+
       return;
     case "paragraph": {
       begin("MTEXT", "AcDbMText");
+
       // Columns: the width of them all and their height, then an embedded object after group 44,
       // as the leading CAD app saves them.
       const columns =
         e.columns && paragraphColumnsHeld(e, layoutParagraph(paragraphInStyle(e, style)));
+
       point(g, 10, ...e.at);
       g(40, e.height);
       g(41, columns ? columns.total : (e.width ?? 0)); // the width its lines wrap at, or 0 for none
@@ -1675,23 +1873,28 @@ function writeEntity(
       writeMtextValue(g, e.value);
       g(7, style?.name ?? STANDARD_TEXT_STYLE);
       const [cos, sin] = paragraphDirection(e.rotation);
+
       if (cos !== 1 || sin !== 0) {
         g(11, fifteenDigits(cos));
         g(21, fifteenDigits(sin));
         g(31, 0);
       }
+
       g(73, lineSpacingStyleCode(e));
       g(44, e.lineSpacing ?? 1);
       writeMask(g, maskOf(e.mask));
+
       if (columns) {
         g(101, "Embedded Object");
         g(70, attachment);
+
         if (cos === 1 && sin === 0) point(g, 10, 1, 0);
         else {
           g(10, fifteenDigits(cos));
           g(20, fifteenDigits(sin));
           g(30, 0);
         }
+
         point(g, 11, ...e.at);
         g(40, columns.total);
         g(41, columns.height);
@@ -1703,10 +1906,13 @@ function writeEntity(
         g(45, columns.gutter);
         g(73, columns.auto ? 1 : 0);
         g(74, 0); // left to right
+
         for (const tall of columns.heights) g(46, tall);
       }
+
       return;
     }
+
     case "hatch": {
       begin("HATCH", "AcDbHatch");
       point(g, 10, 0, 0);
@@ -1717,6 +1923,7 @@ function writeEntity(
       g(71, 0); // no boundary objects
       const loops = e.loops;
       g(91, loops.length);
+
       for (const loop of loops) {
         const points = loop.points;
         const bulged = loopBulged(loop);
@@ -1727,11 +1934,14 @@ function writeEntity(
         points.forEach(([x, y], i) => {
           g(10, x);
           g(20, y);
+
           if (bulged) g(42, loop.bulges?.[i] ?? 0);
         });
         g(97, 0);
       }
+
       g(75, 0); // normal: the parity of the loops around a point
+
       if (pattern === undefined) g(76, 1); // predefined
       else {
         g(76, pattern.type);
@@ -1739,6 +1949,7 @@ function writeEntity(
         g(41, pattern.scale);
         g(77, pattern.crossed ? 1 : 0);
         g(78, pattern.lines.length);
+
         for (const line of pattern.lines) {
           g(53, fifteenDigits(line.angle));
           g(43, fifteenDigits(line.base[0]));
@@ -1746,13 +1957,16 @@ function writeEntity(
           g(45, fifteenDigits(line.offset[0]));
           g(46, fifteenDigits(line.offset[1]));
           g(79, line.dashes.length);
+
           for (const dash of line.dashes) g(49, fifteenDigits(dash));
         }
       }
+
       g(98, 1);
       g(10, 0);
       g(20, 0);
       const gradient = gradientWritten(e.gradient);
+
       if (gradient !== undefined) {
         g(450, 1);
         g(451, 0);
@@ -1768,8 +1982,10 @@ function writeEntity(
         });
         g(470, GRADIENT_NAMES[gradient.name]);
       }
+
       return;
     }
+
     case "wipeout": {
       begin("WIPEOUT", "AcDbWipeout");
       g(90, 0); // the class's version
@@ -1790,12 +2006,15 @@ function writeEntity(
       g(71, 2); // a polygon
       const clip = wipeoutClip(e.points);
       g(91, clip.length);
+
       for (const [x, y] of clip) {
         g(14, fifteenDigits(x));
         g(24, fifteenDigits(y));
       }
+
       return;
     }
+
     case "text":
       begin("TEXT", "AcDbText");
       writeTextFields(g, e, style, undefined);
@@ -1803,8 +2022,10 @@ function writeEntity(
       g(100, "AcDbText");
       {
         const valign = TEXT_VERTICAL_ALIGNS.indexOf(e.valign ?? "baseline");
+
         if (valign > 0) g(73, valign);
       }
+
       return;
   }
 }
@@ -1835,6 +2056,7 @@ const ZERO_SUPPRESSION_CODES = { leading: 4, trailing: 8, both: 12 } as const;
 function writeDimensionStyle(g: Group, style: DimensionStyle, textStyle: string): void {
   const prefix = style.prefix ?? "";
   const suffix = style.suffix ?? "";
+
   // The leading CAD app decodes this string once, as it does a linetype's description.
   if (prefix !== "" || suffix !== "") g(3, dxfOnce(`${prefix}<>${suffix}`));
   g(40, style.scale ?? 1); // DIMSCALE
@@ -1843,14 +2065,18 @@ function writeDimensionStyle(g: Group, style: DimensionStyle, textStyle: string)
   g(44, style.extensionBeyond); // DIMEXE
   const arrowhead = style.arrowhead ?? DEFAULT_ARROWHEAD;
   const block = arrowheadInfo(arrowhead)?.block;
+
   // DIMDLE: with a tick, the dimension line runs one arrow size past each extension line,
   // as the leading CAD app draws it whenever it turns the ticks outward.
   if (block !== undefined) g(46, style.arrowSize);
   const mask = dimensionMask(style);
+
   if (mask !== undefined) {
     g(69, mask.color === undefined ? 1 : 2); // DIMTFILL: the background, or DIMTFILLCLR
+
     if (mask.color !== undefined) g(70, mask.color); // DIMTFILLCLR
   }
+
   g(73, 0); // DIMTIH: the text is along the dimension line
   g(74, 0); // DIMTOH
   g(77, style.textPlacement === "centered" ? 0 : 1); // DIMTAD: above the line, or in it
@@ -1864,29 +2090,39 @@ function writeDimensionStyle(g: Group, style: DimensionStyle, textStyle: string)
         : ZERO_SUPPRESSION_CODES[style.suppressZeros],
   ); // DIMZIN
   const angleZeros = style.suppressAngleZeros;
+
   if (angleZeros !== undefined) g(79, ANGLE_ZERO_CODES[angleZeros]); // DIMAZIN
   const arcSymbol = style.arcSymbol ?? "before";
+
   if (arcSymbol !== "before") g(90, DIMENSION_ARC_SYMBOLS.indexOf(arcSymbol)); // DIMARCSYM
   g(140, style.textHeight); // DIMTXT
   g(144, style.measurementScale ?? 1); // DIMLFAC
+
   if (style.fractionScale !== undefined) g(146, style.fractionScale); // DIMTFAC
   g(147, style.textGap); // DIMGAP
   g(172, 1); // DIMTOFL: a dimension line between the extension lines, whatever fits
   const leader = style.textFit === "leader";
   // DIMTIX: the text between the extension lines whatever fits, or moved out where it does not.
   g(174, leader ? 0 : 1);
+
   if ((style.anglePrecision ?? 0) !== 0) g(179, style.anglePrecision!); // DIMADEC
   g(271, style.precision); // DIMDEC
   const angleUnits = style.angleUnits ?? "degrees";
+
   if (angleUnits !== "degrees") g(275, DIMENSION_ANGLE_UNITS.indexOf(angleUnits)); // DIMAUNIT
+
   // DIMFRAC: stacked across, stacked diagonally, or on the line, as 1 7/16.
   if (architectural) g(276, FRACTION_CODES[style.fraction ?? "inline"]);
   g(277, architectural ? 4 : 2); // DIMLUNIT: architectural or decimal
   g(278, 46); // DIMDSEP: a point
+
   if (leader) g(279, 1); // DIMTMOVE: a text moved out hangs on a leader
   g(340, textStyle); // DIMTXSTY
+
   if (block !== undefined) g(342, blockHandles(block).record); // DIMBLK
+
   if (style.dimensionLineweight !== undefined) g(371, Math.round(style.dimensionLineweight * 100)); // DIMLWD
+
   if (style.extensionLineweight !== undefined) g(372, Math.round(style.extensionLineweight * 100)); // DIMLWE
 }
 
@@ -1920,6 +2156,7 @@ function writeDimension(
         : e.kind === "ordinate-dimension"
           ? e.origin
           : e.to;
+
   const picture = drawn ?? { definitionPoint: at, textPoint: at };
   const jogged = e.kind === "jogged-radius-dimension";
   g(
@@ -1933,10 +2170,12 @@ function writeDimension(
   g(5, handle);
   g(330, owner);
   g(100, "AcDbEntity");
+
   if (paper) g(67, 1);
   g(8, e.layer);
   writeColor(g, e.color, e.transparency);
   g(100, "AcDbDimension");
+
   if (block !== undefined) g(2, block);
   point(g, 10, ...picture.definitionPoint);
   point(g, 11, ...picture.textPoint);
@@ -1946,12 +2185,15 @@ function writeDimension(
   const alongX = e.kind === "ordinate-dimension" && e.axis === "x" ? 64 : 0;
   g(70, DIMENSION_TYPES[e.kind] + 32 + alongX + placed);
   const text = dimensionFileText(e);
+
   if (text !== undefined) g(1, dxfOnce(text));
   g(71, 5); // the text is placed by its middle
+
   // What it reads, with 15 digits: the leading CAD app works it out only when it draws the picture
   // itself, and keeps the picture the file holds.
   if (style) g(42, measurementValue(e, style));
   g(3, style?.name ?? e.style);
+
   if (e.kind === "arc-length-dimension") {
     // The arc's ends, its center, no part of it alone, its angles in radians, and no leader.
     const { center, first, second, start, sweep } = arcLengthArc(e);
@@ -1965,21 +2207,27 @@ function writeDimension(
     g(71, 0);
     point(g, 16, ...first);
     point(g, 17, ...second);
+
     return;
   }
+
   if (e.kind === "ordinate-dimension") {
     g(100, "AcDbOrdinateDimension");
     point(g, 13, ...e.feature);
     point(g, 14, ...e.leaderEnd);
+
     return;
   }
+
   if (e.kind === "angular-dimension") {
     g(100, "AcDb3PointAngularDimension");
     point(g, 13, ...e.from);
     point(g, 14, ...e.to);
     point(g, 15, ...e.vertex);
+
     return;
   }
+
   if (isRadial(e)) {
     if (e.kind === "jogged-radius-dimension") {
       g(100, "AcDbRadialDimensionLarge");
@@ -1988,29 +2236,38 @@ function writeDimension(
     } else {
       g(100, e.kind === "radius-dimension" ? "AcDbRadialDimension" : "AcDbDiametricDimension");
     }
+
     point(g, 15, ...e.point);
     g(40, 0); // no leader length: the text's place is group 11
     // What the style sets of a radial dimension alone is the dimension's override: a jog angle
     // other than the leading CAD app's own, and a level text.
     const overrides = radialOverrides(e, style);
+
     if (overrides.length > 0) {
       g(1001, "ACAD");
       g(1000, "DSTYLE");
       g(1002, "{");
+
       for (const [code, value] of overrides) {
         g(1070, code);
+
         if (code === 50) g(1040, value);
         else g(1070, value);
       }
+
       g(1002, "}");
     }
+
     return;
   }
+
   g(100, "AcDbAlignedDimension");
   point(g, 13, ...e.from);
   point(g, 14, ...e.to);
+
   if (e.kind === "linear-dimension") {
     const angle = dimensionAngle(e);
+
     if (angle !== 0) g(50, angle);
     g(100, "AcDbRotatedDimension");
   }
@@ -2028,6 +2285,7 @@ export function radialOverrides(
   if (!isRadial(e) || style === undefined) return [];
   const out: [number, number][] = [];
   const jog = style.jogAngle;
+
   if (
     e.kind === "jogged-radius-dimension" &&
     jog !== undefined &&
@@ -2035,7 +2293,9 @@ export function radialOverrides(
   ) {
     out.push([50, (written(jog) * Math.PI) / 180]);
   }
+
   if (style.radialText === "horizontal") out.push([73, 1], [74, 1]);
+
   return out;
 }
 
@@ -2080,6 +2340,7 @@ function writePicture(g: Group, { name, picture, handles, layer, textStyle, mask
     anonymous: true,
     contents: () => {
       const weights = picture.lineweights;
+
       const begin = (type: string, handle: string, subclass: string, lineweight?: number) => {
         g(0, type);
         g(5, handle);
@@ -2088,9 +2349,11 @@ function writePicture(g: Group, { name, picture, handles, layer, textStyle, mask
         g(8, layer);
         g(62, 0); // by block
         g(440, 0x01000000); // transparent by block, as the leading CAD app saves a picture
+
         if (lineweight !== undefined) g(370, lineweight);
         g(100, subclass);
       };
+
       const lines: (readonly [
         readonly [number, number],
         readonly [number, number],
@@ -2115,11 +2378,13 @@ function writePicture(g: Group, { name, picture, handles, layer, textStyle, mask
           ([from, to], i) => [from, to, handles.leader[i]!, weights.dimension] as const,
         ),
       ];
+
       for (const [from, to, handle, lineweight] of lines) {
         begin("LINE", handle, "AcDbLine", lineweight);
         point(g, 10, ...from);
         point(g, 11, ...to);
       }
+
       picture.dimensionArcs.forEach((arc, i) => {
         begin("ARC", handles.dimensionArcs[i]!, "AcDbCircle", weights.dimension);
         point(g, 10, ...arc.center);
@@ -2130,9 +2395,11 @@ function writePicture(g: Group, { name, picture, handles, layer, textStyle, mask
       });
       picture.arrowheadEntities.forEach((arrowhead, i) => {
         const handle = handles.arrowheads[i]!;
+
         if (arrowhead.kind === "solid") {
           begin("SOLID", handle, "AcDbTrace");
           const [left, right, tip] = arrowhead.corners;
+
           for (const [code, corner] of [
             [10, left],
             [11, right],
@@ -2141,14 +2408,19 @@ function writePicture(g: Group, { name, picture, handles, layer, textStyle, mask
           ] as const) {
             point(g, code, ...corner);
           }
+
           return;
         }
+
         begin("INSERT", handle, "AcDbBlockReference", weights.dimension);
         g(2, arrowhead.block);
         point(g, 10, ...arrowhead.at);
+
         for (const code of [41, 42, 43]) g(code, arrowhead.scale);
+
         if (written(arrowhead.rotation) !== 0) g(50, arrowhead.rotation);
       });
+
       const text = (label: DimensionLabel, middle: Point, handle: string, value: string) => {
         begin("MTEXT", handle, "AcDbMText");
         point(g, 10, ...middle);
@@ -2159,17 +2431,21 @@ function writePicture(g: Group, { name, picture, handles, layer, textStyle, mask
         g(72, 1); // left to right
         writeMtextValue(g, value);
         g(7, textStyle);
+
         if (written(label.rotation) !== 0) {
           // 15 digits of the direction: 6 decimals would turn the text off the leading CAD app's own.
           g(11, fifteenDigits(label.direction[0]));
           g(21, fifteenDigits(label.direction[1]));
           g(31, 0);
         }
+
         g(73, 1); // line spacing at least as set
         g(44, 1);
         writeMask(g, mask);
       };
+
       text(picture.label, picture.textMiddle, handles.text, mtextOfLabel(picture.label.value));
+
       if (picture.below) {
         const { label, middle } = picture.below;
         text(label, middle, handles.belowText, label.value === "" ? "" : mtextOfLabel(label.value));
@@ -2185,12 +2461,14 @@ function writePicture(g: Group, { name, picture, handles, layer, textStyle, mask
 function writeMtextValue(g: Group, value: string): void {
   const text = dxfOnce(value).replaceAll("\t", "^I");
   let at = 0;
+
   while (text.length - at > TEXT_CHUNK) {
     // A caret and what it escapes stay in one group.
     const end = text[at + TEXT_CHUNK - 1] === "^" ? at + TEXT_CHUNK - 1 : at + TEXT_CHUNK;
     g(3, text.slice(at, end));
     at = end;
   }
+
   g(1, text.slice(at));
 }
 
@@ -2198,6 +2476,7 @@ function writeMtextValue(g: Group, value: string): void {
 function measurementValue(dimension: Dimension, style: DimensionStyle): string {
   // An angle, in radians, takes no measurement scale.
   const scale = dimension.kind === "angular-dimension" ? 1 : written(style.measurementScale ?? 1);
+
   return fifteenDigits(dimensionMeasure(dimension).measurement * scale);
 }
 
@@ -2212,7 +2491,9 @@ interface Sheet {
 
 function sheetOf(layout: Layout, index: number): Sheet {
   const paper = paperInfo(layout.paper);
+
   if (paper === undefined) throw new RangeError(`paper ${layout.paper} is not one of PAPERS`);
+
   return { layout, handles: validLayoutHandles(layout.name), block: layoutBlockName(index), paper };
 }
 
@@ -2228,6 +2509,7 @@ function sheetLimits(paper: PaperInfo): [number, number, number, number] {
   const [left, bottom, right, top] = paper.printable;
   const mm = (length: number): number => paperMillimetres(length, paper.units);
   const back = (length: number): number => readable(fromMillimetres(length, paper.units));
+
   return [
     back(mm(left)),
     back(mm(bottom)),
@@ -2246,13 +2528,16 @@ function sheetExtents(
   boxOf: Boxer,
 ): [number, number, number, number] {
   const { layout, paper } = sheet;
+
   if (layout.entities.length === 0 && layout.viewports.length === 0) {
     return [EMPTY_EXTENT, EMPTY_EXTENT, -EMPTY_EXTENT, -EMPTY_EXTENT];
   }
+
   const box =
     layout.entities.length > 0
       ? extentsOf(layout.entities, boxOf, `layout ${shown(layout.name)}`)
       : [Infinity, Infinity, -Infinity, -Infinity];
+
   for (const viewport of layout.viewports) {
     const view = validViewportView(viewport, paper.units, drawing.units);
     box[0] = Math.min(box[0]!, view.paperCenter[0] - view.width / 2);
@@ -2260,7 +2545,8 @@ function sheetExtents(
     box[2] = Math.max(box[2]!, view.paperCenter[0] + view.width / 2);
     box[3] = Math.max(box[3]!, view.paperCenter[1] + view.height / 2);
   }
-  return box.map(readable) as [number, number, number, number];
+
+  return [readable(box[0]!), readable(box[1]!), readable(box[2]!), readable(box[3]!)];
 }
 
 /**
@@ -2276,6 +2562,7 @@ function extentsOf(
 ): [number, number, number, number] {
   const box = boxOf(entities);
   const at = boxOf.capped;
+
   if (at) {
     const where = `${at.kind} #${entities.indexOf(at)} of ${space}`;
     throw new DrawingError([
@@ -2286,19 +2573,23 @@ function extentsOf(
       },
     ]);
   }
+
   return box ?? [0, 0, 1, 1];
 }
 
 /** Keeps the handle of a layer by its key, the first of a key, and gives it back. */
 function layerHandleOf(handles: Map<string, string>, name: string, given: string): string {
   if (!handles.has(layerKey(name))) handles.set(layerKey(name), given);
+
   return given;
 }
 
 /** The handle of each layer a viewport freezes, once each, in the order it names them. */
 function frozenHandles(viewport: Viewport, layerHandles: ReadonlyMap<string, string>): string[] {
   const frozen = new Set<string>();
+
   for (const name of viewport.frozenLayers ?? []) frozen.add(layerHandles.get(layerKey(name))!);
+
   return [...frozen];
 }
 
@@ -2327,6 +2618,7 @@ function writeViewFields(
   g(50, 0); // snap angle
   g(51, twist); // view twist, in degrees counterclockwise
   g(72, 1000); // circle zoom percent
+
   for (const layer of frozen) g(331, layer);
   g(90, status);
   g(1, ""); // plot style sheet
@@ -2344,6 +2636,7 @@ function writeViewFields(
 
 /** In a viewport's status, group 90: the view is locked against zooming. */
 const VIEW_LOCKED = 0x4000;
+
 /** In group 90: a bit the leading CAD app sets on every viewport, with the UCS icon's two bits. */
 const VIEW_STATUS = 0x8000 | 0x40 | 0x20;
 
@@ -2429,6 +2722,7 @@ function writeModelLayout(
   g(2, "none_device");
   g(4, ""); // paper size
   g(6, ""); // plot view
+
   for (const code of [40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 140, 141]) g(code, 0);
   g(142, 1);
   g(143, 1);
@@ -2579,18 +2873,23 @@ function writeImage(g: Group, e: Image, place: ImagePlace): void {
   g(5, place.handle);
   g(330, place.owner);
   g(100, "AcDbEntity");
+
   if (place.paper) g(67, 1);
   g(8, e.layer);
   const linetype = entityLinetype(e);
+
   if (linetype !== undefined) g(6, linetype);
   writeColor(g, e.color, e.transparency);
+
   if (e.lineweight !== undefined && e.lineweight !== "ByLayer") {
     g(370, lineweightCode(e.lineweight));
   }
+
   g(100, "AcDbRasterImage");
   g(90, 0); // the class's version
   point(g, 10, ...e.at);
   const [u, v] = imageVectors(e);
+
   for (const [code, [x, y]] of [
     [11, u],
     [12, v],
@@ -2599,6 +2898,7 @@ function writeImage(g: Group, e: Image, place: ImagePlace): void {
     g(code + 10, fifteenDigits(y));
     g(code + 20, 0);
   }
+
   g(13, e.pixels[0]);
   g(23, e.pixels[1]);
   g(340, place.definition);
@@ -2613,6 +2913,7 @@ function writeImage(g: Group, e: Image, place: ImagePlace): void {
   const clip = imageClip(e);
   g(71, clip.type);
   g(91, clip.points.length);
+
   for (const [x, y] of clip.points) {
     g(14, fifteenDigits(x));
     g(24, fifteenDigits(y));
@@ -2636,28 +2937,35 @@ function writeImageObjects(
   ownedBy(g, dictionary, root);
   g(100, "AcDbDictionary");
   g(281, 1);
+
   // In the order the leading CAD app saves them: by the name folded to lower case as it folds
   // names, a character's code at a time.
   const sorted = definitions
     .map((definition) => ({ definition, key: layerKey(definition.name) }))
     .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
     .map(({ definition }) => definition);
+
   // Each definition's reactors, by its handle, which is short.
   const reactorsOf = new Map<string, string[]>();
+
   for (const { reactor, of } of reactors) {
     const list = reactorsOf.get(of);
+
     if (list) list.push(reactor);
     else reactorsOf.set(of, [reactor]);
   }
+
   for (const definition of sorted) {
     g(3, dxfOnce(definition.name));
     g(350, definition.handle);
   }
+
   for (const definition of definitions) {
     g(0, "IMAGEDEF");
     g(5, definition.handle);
     g(102, "{ACAD_REACTORS");
     g(330, dictionary);
+
     for (const reactor of reactorsOf.get(definition.handle) ?? []) g(330, reactor);
     g(102, "}");
     g(330, dictionary);
@@ -2673,6 +2981,7 @@ function writeImageObjects(
     g(280, 1); // loaded
     g(281, 0); // no unit of resolution
   }
+
   for (const { image, reactor } of reactors) {
     g(0, "IMAGEDEF_REACTOR");
     g(5, reactor);
@@ -2681,6 +2990,7 @@ function writeImageObjects(
     g(90, 2);
     g(330, image);
   }
+
   g(0, "RASTERVARIABLES");
   ownedBy(g, rasterVariablesHandle(), root);
   g(100, "AcDbRasterVariables");
@@ -2709,22 +3019,26 @@ function writeWipeoutObjects(g: Group, root: string, drawing: Drawing): void {
  */
 function writeVariables(g: Group, root: string, values: Readonly<Record<string, number>>): void {
   const variables = variableDictionaryHandle();
-  const handles: Record<string, string> = {
-    PDFFRAME: underlayFrameVariableHandle(),
-    WIPEOUTFRAME: wipeoutFrameVariableHandle(),
-  };
+
+  const handles = new Map([
+    ["PDFFRAME", underlayFrameVariableHandle()],
+    ["WIPEOUTFRAME", wipeoutFrameVariableHandle()],
+  ]);
+
   const names = Object.keys(values).sort();
   g(0, "DICTIONARY");
   ownedBy(g, variables, root);
   g(100, "AcDbDictionary");
   g(281, 1);
+
   for (const name of names) {
     g(3, name);
-    g(350, handles[name]!);
+    g(350, handles.get(name)!);
   }
+
   for (const name of names) {
     g(0, "DICTIONARYVAR");
-    ownedBy(g, handles[name]!, variables);
+    ownedBy(g, handles.get(name)!, variables);
     g(100, "DictionaryVariables");
     g(280, 0);
     g(1, String(values[name]));
@@ -2748,29 +3062,37 @@ function writeUnderlay(g: Group, e: Underlay, place: UnderlayPlace): void {
   g(5, place.handle);
   g(330, place.owner);
   g(100, "AcDbEntity");
+
   if (place.paper) g(67, 1);
   g(8, e.layer);
   const linetype = entityLinetype(e);
+
   if (linetype !== undefined) g(6, linetype);
+
   if (e.lineweight !== undefined && e.lineweight !== "ByLayer") {
     g(370, lineweightCode(e.lineweight));
   }
+
   g(100, "AcDbUnderlayReference");
   g(340, place.definition);
   point(g, 10, ...e.at);
   // The leading CAD app leaves out a scale of 1 and no turn.
   const scale = written(e.scale ?? 1);
+
   if (scale !== 1) {
     g(41, scale);
     g(42, scale);
   }
+
   const turn = writtenAngle((((e.rotation ?? 0) % 360) + 360) % 360);
+
   if (turn !== 0) g(50, turn);
   g(280, underlayFlags(e));
   // Written whatever their values: the leading CAD app saves no contrast of 75 and no fade of 25,
   // but reads a file without them as other values.
   g(281, e.contrast ?? 100);
   g(282, e.fade ?? 0);
+
   for (const [x, y] of underlayClip(e)) {
     g(11, fifteenDigits(x));
     g(21, fifteenDigits(y));
@@ -2792,19 +3114,23 @@ function writeUnderlayObjects(
   ownedBy(g, dictionary, root);
   g(100, "AcDbDictionary");
   g(281, 1);
+
   const sorted = definitions
     .map((definition) => ({ definition, key: layerKey(definition.name) }))
     .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
     .map(({ definition }) => definition);
+
   for (const definition of sorted) {
     g(3, dxfOnce(definition.name));
     g(350, definition.handle);
   }
+
   for (const definition of definitions) {
     g(0, "PDFDEFINITION");
     g(5, definition.handle);
     g(102, "{ACAD_REACTORS");
     g(330, dictionary);
+
     for (const user of users.get(definition.handle) ?? []) g(330, user);
     g(102, "}");
     g(330, dictionary);
@@ -2817,6 +3143,7 @@ function writeUnderlayObjects(
 /** A color the leading CAD app holds as ByLayer and as ByBlock, as a multileader and its style write one. */
 const COLOR_BY_LAYER = -1073741824;
 const COLOR_BY_BLOCK = -1056964608;
+
 /** The lineweight ByBlock, as a multileader and its style write it. */
 const LINEWEIGHT_BY_BLOCK = -2;
 
@@ -2862,6 +3189,7 @@ function writeLeaderStyle(
   g(291, 1); // of a set length
   g(43, sizes.landing);
   g(3, ""); // description
+
   // The closed filled arrowhead is the leading CAD app's default, which the style names by no block.
   if (block !== undefined) g(341, blockHandles(block).record);
   g(44, sizes.arrowSize);
@@ -2876,6 +3204,7 @@ function writeLeaderStyle(
   g(292, style.frame === true ? 1 : 0);
   g(297, 0); // a note on the left is justified right
   g(46, 0.18 * scale); // the spacing MLEADERALIGN offers, as the leading CAD app's Standard style has it
+
   // The block as the drawing names it, whose record's handle comes from that name.
   if (content !== undefined) g(343, blockHandles(content).record);
   g(94, COLOR_BY_BLOCK);
@@ -2936,6 +3265,7 @@ function writeLeader(
   g(5, where.handle);
   g(330, where.owner);
   g(100, "AcDbEntity");
+
   if (where.paper) g(67, 1);
   g(8, e.layer);
   writeColor(g, e.color, e.transparency);
@@ -2951,6 +3281,7 @@ function writeLeader(
   g(175, attachment);
   g(176, align); // justified left, centered or right
   g(177, content === undefined ? 0 : byInsertion);
+
   if (content !== undefined) {
     // A block in place of the note, where it is placed, and the matrix that places it.
     const scale = content.scale?.[0] ?? 1;
@@ -2962,6 +3293,7 @@ function writeLeader(
     point3(g, 16, scale, scale, scale);
     g(46, 0);
     g(93, COLOR_BY_LAYER);
+
     for (const value of [
       scale,
       0,
@@ -2983,6 +3315,7 @@ function writeLeader(
       g(47, value);
     }
   }
+
   if (content === undefined) {
     g(290, 1); // the content is a text
     g(304, dxfOnce(picture.note.value));
@@ -3012,6 +3345,7 @@ function writeLeader(
     g(295, 0);
     g(296, 0); // no block
   }
+
   // The plane the leader is drawn in, from the first tip, as the leading CAD app's MLEADER sets it.
   const tip = e.shafts[0]![0]!;
   point3(g, 110, tip[0], tip[1], 0);
@@ -3027,12 +3361,14 @@ function writeLeader(
   g(40, sizes.landing);
   e.shafts.forEach((shaft, i) => {
     g(304, "LEADER_LINE{");
+
     for (const [x, y] of shaft) point3(g, 10, x, y, 0);
     g(91, i);
     g(305, "}");
   });
   g(271, picture.vertical ? 1 : 0); // the landing meets the note at its side, or its top or bottom
   g(303, "}");
+
   // A second root on the note's far side, its lines numbered on from the first root's.
   if (picture.farConnection !== undefined) {
     g(302, "LEADER{");
@@ -3044,6 +3380,7 @@ function writeLeader(
     g(40, sizes.landing);
     (e.farShafts ?? []).forEach((shaft, j) => {
       g(304, "LEADER_LINE{");
+
       for (const [x, y] of shaft) point3(g, 10, x, y, 0);
       g(91, e.shafts.length + j);
       g(305, "}");
@@ -3051,6 +3388,7 @@ function writeLeader(
     g(271, picture.vertical ? 1 : 0);
     g(303, "}");
   }
+
   g(272, vertical);
   g(273, vertical);
   g(301, "}");
@@ -3063,6 +3401,7 @@ function writeLeader(
   g(290, 1);
   g(291, 1);
   g(41, sizes.landing);
+
   if (block !== undefined) g(342, blockHandles(block).record);
   g(42, sizes.arrowSize);
   g(172, content === undefined ? 2 : 1); // content: a text, or a block
@@ -3073,12 +3412,14 @@ function writeLeader(
   g(175, content === undefined && left ? 2 : 0);
   g(92, COLOR_BY_BLOCK);
   g(292, picture.frame === undefined ? 0 : 1);
+
   if (content !== undefined) g(344, blockHandles(content.block).record);
   g(93, COLOR_BY_BLOCK);
   point3(g, 10, 1, 1, 1); // the block's scale
   g(43, 0);
   g(176, content === undefined ? 0 : byInsertion);
   g(293, 0); // not annotative
+
   // Each attribute of a block in place of the note, by its definition, and its value.
   if (content !== undefined) {
     const block = where.findBlock(content.block);
@@ -3089,6 +3430,7 @@ function writeLeader(
       g(302, dxfText(content.attributes?.[definition.tag] ?? definition.value));
     });
   }
+
   g(294, 0);
   g(178, 0);
   g(179, content === undefined ? noteAttachmentPoint(picture.side, e.width !== undefined) : 1);
@@ -3118,13 +3460,16 @@ function writeArrowheadStroke(
   g(8, "0");
   g(6, "ByBlock");
   g(62, 0);
+
   if (stroke.kind === "line") {
     g(370, LINEWEIGHT_BY_BLOCK);
     g(100, "AcDbLine");
     point(g, 10, ...stroke.from);
     point(g, 11, ...stroke.to);
+
     return;
   }
+
   g(100, "AcDbPolyline");
   g(90, stroke.points.length);
   g(70, 1); // closed
@@ -3153,6 +3498,7 @@ function writeTableStyle(
   g(5, handle);
   g(102, "{ACAD_REACTORS");
   g(330, owner);
+
   for (const table of tables) g(330, table);
   g(102, "}");
   g(330, owner);
@@ -3166,6 +3512,7 @@ function writeTableStyle(
   g(41, vertical);
   g(280, 0); // its title is shown
   g(281, 0); // its header is shown
+
   for (const kind of TABLE_ROW_KINDS) {
     const cell = cellStyleOf(style, kind);
     g(7, dxfOnce(cell.textStyle ?? STANDARD_TEXT_STYLE));
@@ -3178,6 +3525,7 @@ function writeTableStyle(
     g(91, 0);
     g(1, "");
     const weight = cell.lineweight === undefined ? -2 : lineweightCode(cell.lineweight);
+
     // Each of its six borders: its lineweight, whether it shows and its color.
     for (let border = 0; border < 6; border++) {
       g(274 + border, weight);
@@ -3230,14 +3578,19 @@ function writeTablePicture(
           g(8, layer);
           g(6, "ByBlock");
           g(62, o.color ?? 0);
+
           if (o.lineweight !== undefined) g(370, o.lineweight);
           g(100, subclass);
         };
+
         // The block holds the picture turned as the table is, and its insert is not turned.
         const [cos, sin] = paragraphDirection(rotation);
+
         const turned = (x: number, y: number): [number, number] =>
           cos === 1 && sin === 0 ? [x, y] : [x * cos - y * sin, x * sin + y * cos];
+
         const at = (code: number, x: number, y: number) => point(g, code, ...turned(x, y));
+
         for (const fill of picture.fills) {
           const [x0, y0, x1, y1] = fill.box;
           begin("SOLID", `fill-${fill.row}-${fill.column}`, "AcDbTrace", { color: fill.color });
@@ -3247,6 +3600,7 @@ function writeTablePicture(
           at(12, x1, y1);
           at(13, x1, y0);
         }
+
         picture.lines.forEach((line, i) => {
           begin("LINE", `line-${i}`, "AcDbLine", {
             lineweight: line.lineweight === undefined ? -2 : lineweightCode(line.lineweight),
@@ -3254,6 +3608,7 @@ function writeTablePicture(
           at(10, ...line.from);
           at(11, ...line.to);
         });
+
         for (const text of picture.texts) {
           begin("MTEXT", `text-${text.row}-${text.column}`, "AcDbMText", { color: text.color });
           at(10, ...text.at);
@@ -3264,16 +3619,20 @@ function writeTablePicture(
           g(72, 1);
           writeMtextValue(g, text.value);
           g(7, styleOf(text.textStyle)?.name ?? STANDARD_TEXT_STYLE);
+
           if (cos !== 1 || sin !== 0) {
             g(11, fifteenDigits(cos));
             g(21, fifteenDigits(sin));
             g(31, 0);
           }
+
           g(73, 1);
           g(44, 1);
         }
+
         for (const block of picture.blocks) {
           const named = blockName(block.block);
+
           if (named === undefined) continue;
           begin("INSERT", `block-${block.row}-${block.column}`, "AcDbBlockReference");
           g(2, named);
@@ -3281,6 +3640,7 @@ function writeTablePicture(
           g(41, block.scale);
           g(42, block.scale);
           g(43, block.scale);
+
           if (rotation !== undefined && rotation !== 0) g(50, writtenAngle(rotation));
         }
       },
@@ -3300,6 +3660,7 @@ function writeTableGroups(
   g(5, own.handle);
   g(330, own.owner);
   g(100, "AcDbEntity");
+
   if (own.paper) g(67, 1);
   g(8, table.layer);
   g(100, "AcDbBlockReference");
@@ -3321,13 +3682,18 @@ function writeTableGroups(
   g(94, 0);
   g(95, 0);
   g(96, 0);
+
   // Without a title or a header, the table says so, since its style shows both.
   if (table.title === undefined) g(280, 1);
+
   if (table.header === undefined) g(281, 1);
+
   for (const height of picture.rows) g(141, height);
+
   for (const width of picture.columns) g(142, width);
   const rows = tableRows(table);
   const starts = new Map<string, GridCell>();
+
   for (const cell of gridCells(table)) starts.set(`${cell.row}/${cell.column}`, cell);
   rows.forEach(({ cells }, r) => {
     cells.forEach((_, c) => {
@@ -3342,6 +3708,7 @@ function writeTableGroups(
       g(176, cell?.rows ?? 1);
       let flags = 0;
       const overrides: [number, number | string][] = [];
+
       if (content.align !== undefined || content.valign !== undefined) {
         const own = cellStyleOf(held.style, rows[r]!.kind);
         flags |= CELL_ALIGNMENT;
@@ -3350,31 +3717,38 @@ function writeTableGroups(
           cellAlignment(content.align ?? own.align, content.valign ?? own.valign),
         ]);
       }
+
       if (content.fill !== undefined) {
         flags |= CELL_FILL;
         // A cell's 283 says it has no fill, where a cell style's says it has one.
         overrides.push([63, content.fill], [283, 0]);
       }
+
       if (content.color !== undefined) {
         flags |= CELL_COLOR;
         overrides.push([64, content.color]);
       }
+
       if (content.textHeight !== undefined) {
         flags |= CELL_TEXT_HEIGHT;
         overrides.push([140, content.textHeight]);
       }
+
       g(91, flags);
       g(178, 0);
       g(145, 0);
+
       if (block !== undefined) {
         g(340, block);
         g(144, content.blockScale ?? 1);
         g(179, 0);
       }
+
       for (const [code, value] of overrides) g(code, value);
       g(92, 0);
       g(301, "CELL_VALUE");
       const text = block === undefined ? content.text : undefined;
+
       if (text === undefined || text === "") {
         g(93, block === undefined ? 3 : 1);
         g(90, block === undefined ? 0 : 4);
@@ -3389,6 +3763,7 @@ function writeTableGroups(
         g(300, "");
         writeCellText(g, 302, 303, text);
       }
+
       g(304, "ACVALUE_END");
     });
   });
@@ -3396,6 +3771,7 @@ function writeTableGroups(
 
 /** The bits of a cell's group 91 that say which of its style's fields it changes. */
 const CELL_ALIGNMENT = 0x1;
+
 /** A fill of its own: its color, 0x4, and whether it has one, 0x2. */
 const CELL_FILL = 0x6;
 const CELL_COLOR = 0x8;
@@ -3409,10 +3785,23 @@ const CELL_TEXT_HEIGHT = 0x20;
 function writeCellText(g: Group, last: number, more: number, value: string): void {
   const text = dxfOnce(value).replaceAll("\t", "^I");
   let at = 0;
+
   while (text.length - at > TEXT_CHUNK) {
     const end = text[at + TEXT_CHUNK - 1] === "^" ? at + TEXT_CHUNK - 1 : at + TEXT_CHUNK;
     g(more, text.slice(at, end));
     at = end;
   }
+
   g(last, text.slice(at));
+}
+
+/** Where a dimension is, with its id and its layout when it has them. */
+function dimensionPlace(
+  index: number,
+  id: string | undefined,
+  layout: string | undefined,
+): DimensionPlace {
+  const place: DimensionPlace = id === undefined ? { index } : { index, id };
+
+  return layout === undefined ? place : { ...place, layout };
 }

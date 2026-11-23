@@ -21,6 +21,7 @@ import { TABLE_CELLS, tableProblem, tableStyleProblem } from "./rules.ts";
 import { filled, Strings } from "./shape.ts";
 import { keyHandle } from "./handles.ts";
 import { layoutCellText, paragraphDirection, paragraphInStyle, placer } from "./paragraphs.ts";
+import { isObjectOrArray, isString } from "./guards.ts";
 
 /** The leading CAD app's own table style, which the writers add with a drawing's first. */
 export const STANDARD_TABLE_STYLE = "Standard";
@@ -39,6 +40,7 @@ export const TABLE_STYLE_DICTIONARY = "ACAD_TABLESTYLE";
 
 /** The kinds of row, in the order a table style holds their cell styles in a file. */
 export const TABLE_ROW_KINDS = ["data", "title", "header"] as const;
+
 export type TableRowKind = (typeof TABLE_ROW_KINDS)[number];
 
 /** A name with A to Z in lower case, as the keys of the handles hold it. */
@@ -73,6 +75,7 @@ export function tablePictureKey(place: TablePlace, part: string): string {
     place.id !== undefined
       ? lower(place.id)
       : `@${place.layout === undefined ? "" : lower(place.layout)}/${place.index}`;
+
   return `table-picture:${who}/${part}`;
 }
 
@@ -102,6 +105,7 @@ const PLACE: Record<TableRowKind, readonly [ParagraphAlign, ParagraphVerticalAli
 /** The cell style of one kind of row of a table style. */
 export function cellStyleOf(style: TableStyle, kind: TableRowKind): CellStyleHeld {
   const own: TableCellStyle = style[kind] ?? {};
+
   return {
     textStyle: own.textStyle ?? style.textStyle,
     textHeight: own.textHeight ?? style.textHeight,
@@ -133,7 +137,7 @@ export interface GridCell {
 
 /** The content of a cell given as a string or an object. */
 export function cellContent(cell: TableCell): TableCellContent {
-  return typeof cell === "string" ? { text: cell } : cell;
+  return isString(cell) ? { text: cell } : cell;
 }
 
 /**
@@ -150,23 +154,29 @@ export function tableRows(table: Table): {
     cells: readonly (TableCell | null)[];
     height: number | undefined;
   }[] = [];
+
   const count = table.columns.length;
+
   if (table.title !== undefined) {
     const cells: (TableCell | null)[] = [
-      typeof table.title === "string"
+      isString(table.title)
         ? { text: table.title, columnSpan: count }
         : { ...table.title, columnSpan: count },
     ];
+
     for (let c = 1; c < count; c++) cells.push(null);
     out.push({ kind: "title", cells, height: table.titleHeight });
   }
+
   if (table.header !== undefined) {
     out.push({ kind: "header", cells: table.header, height: table.headerHeight });
   }
+
   table.rows.forEach((cells, r) => {
     const height = table.rowHeights?.[r];
     out.push({ kind: "data", cells, height: height === null ? undefined : height });
   });
+
   return out;
 }
 
@@ -191,6 +201,7 @@ export function gridCells(table: Table): GridCell[] {
       });
     });
   });
+
   return out;
 }
 
@@ -286,24 +297,33 @@ export function tablePicture(
   const rows = tableRows(table);
   const cells = gridCells(table);
   const columns = table.columns;
+
   const styles = {
     title: cellStyleOf(style, "title"),
     header: cellStyleOf(style, "header"),
     data: cellStyleOf(style, "data"),
   };
+
   // Where each column starts, added up once from the left, in the order a sum from 0 takes.
   const lefts = [0];
+
   for (let c = 0; c < columns.length; c++) lefts.push(lefts[c]! + columns[c]!);
   const left = (column: number): number => lefts[column]!;
+
   const widthOf = (cell: GridCell): number => {
     let w = 0;
+
     for (let c = cell.column; c < cell.column + cell.columns; c++) w += columns[c]!;
+
     return w;
   };
+
   const textOf = (cell: GridCell): TableText | undefined => {
     const own = styles[cell.kind];
     const value = cell.content.text;
+
     if (value === undefined || value === "" || cell.content.block !== undefined) return undefined;
+
     return {
       row: cell.row,
       column: cell.column,
@@ -317,6 +337,7 @@ export function tablePicture(
       color: cell.content.color ?? own.color,
     };
   };
+
   /** A block's box in its own coordinates and the scale it is drawn at in a cell of this size. */
   const blockFit = (
     cell: GridCell,
@@ -329,28 +350,35 @@ export function tablePicture(
       }
     | undefined => {
     const name = cell.content.block;
+
     if (name === undefined) return undefined;
     const drawn = measures.blockBox(name);
     const box = drawn ?? [0, 0, 0, 0];
     const size = [box[2] - box[0], box[3] - box[1]] as const;
     // Fitted by each side that has a size, so a line fits along its length; a point keeps 1.
-    const fits = [0, 1].filter((i) => size[i]! > 0).map((i) => room[i]! / size[i]!);
+    const fits = [0, 1].flatMap((i) => (size[i]! > 0 ? [room[i]! / size[i]!] : []));
     const scale = cell.content.blockScale ?? (fits.length > 0 ? Math.min(...fits) : 1);
+
     return { box, drawn, scale };
   };
+
   /** The height a cell's content needs: its text's, or its block's at its scale. */
   const contentHeight = (cell: GridCell, roomAcross: number): number | undefined => {
     if (cell.content.block !== undefined) {
       if (cell.content.blockScale === undefined) return undefined;
       const fit = blockFit(cell, [roomAcross, 0]);
+
       return fit === undefined ? undefined : (fit.box[3] - fit.box[1]) * fit.scale;
     }
+
     const text = textOf(cell);
+
     // A text takes at least a line of its own height.
     return text === undefined
       ? undefined
       : Math.max(measures.textHeight(text), ROW_LINE * text.height);
   };
+
   /** Where a cell's block goes: its box placed in the cell, less the margins, as its text would be. */
   const blockOf = (
     cell: GridCell,
@@ -358,96 +386,115 @@ export function tablePicture(
   ): TableBlock | undefined => {
     const room: readonly [number, number] = [box[2] - box[0] - 2 * hm, box[3] - box[1] - 2 * vm];
     const fit = blockFit(cell, room);
+
     if (fit === undefined) return undefined;
     const own = styles[cell.kind];
     const align = cell.content.align ?? own.align;
     const valign = cell.content.valign ?? own.valign;
-    const [b0, b1, b2, b3] = fit.box.map((v) => v * fit.scale) as unknown as [
-      number,
-      number,
-      number,
-      number,
+
+    const [b0, b1, b2, b3] = [
+      fit.box[0] * fit.scale,
+      fit.box[1] * fit.scale,
+      fit.box[2] * fit.scale,
+      fit.box[3] * fit.scale,
     ];
-    const x =
-      align === "left"
-        ? box[0] + hm - b0
-        : align === "right"
-          ? box[2] - hm - b2
-          : (box[0] + box[2]) / 2 - (b0 + b2) / 2;
-    const y =
-      valign === "top"
-        ? box[3] - vm - b3
-        : valign === "bottom"
-          ? box[1] + vm - b1
-          : (box[1] + box[3]) / 2 - (b1 + b3) / 2;
-    return {
+
+    let x = (box[0] + box[2]) / 2 - (b0 + b2) / 2;
+
+    if (align === "left") x = box[0] + hm - b0;
+    else if (align === "right") x = box[2] - hm - b2;
+    let y = (box[1] + box[3]) / 2 - (b1 + b3) / 2;
+
+    if (valign === "top") y = box[3] - vm - b3;
+    else if (valign === "bottom") y = box[1] + vm - b1;
+
+    const placed: TableBlock = {
       row: cell.row,
       column: cell.column,
       block: cell.content.block!,
       at: [x, y],
       scale: fit.scale,
-      ...(fit.drawn === undefined ? {} : { box: fit.drawn }),
     };
+
+    return fit.drawn === undefined ? placed : { ...placed, box: fit.drawn };
   };
+
   // Each row at least as tall as a line of its text, then as its own cells need.
   const heights = rows.map(({ kind, height }) => {
     const least = ROW_LINE * styles[kind].textHeight + 2 * vm;
+
     return Math.max(height ?? 0, least);
   });
+
   for (const cell of cells) {
     if (cell.rows !== 1) continue;
     const content = contentHeight(cell, widthOf(cell) - 2 * hm);
+
     if (content === undefined) continue;
     const need = content + 2 * vm;
+
     if (need > heights[cell.row]!) heights[cell.row] = need;
   }
+
   // A cell over several rows grows the last of them.
   for (const cell of cells) {
     if (cell.rows === 1) continue;
     const content = contentHeight(cell, widthOf(cell) - 2 * hm);
+
     if (content === undefined) continue;
     const need = content + 2 * vm;
     let have = 0;
+
     for (let r = cell.row; r < cell.row + cell.rows; r++) have += heights[r]!;
+
     if (need > have) heights[cell.row + cell.rows - 1]! += need - have;
   }
+
   // Where each row starts, added up once from the top.
   const tops = [0];
+
   for (let r = 0; r < heights.length; r++) tops.push(tops[r]! - heights[r]!);
   const top = (row: number): number => tops[row]!;
+
   const boxOf = (cell: GridCell): readonly [number, number, number, number] => {
     const x0 = left(cell.column);
     const y1 = top(cell.row);
     let h = 0;
+
     for (let r = cell.row; r < cell.row + cell.rows; r++) h += heights[r]!;
+
     return [x0, y1 - h, x0 + widthOf(cell), y1];
   };
+
   const fills: TableFill[] = [];
   const texts: TableText[] = [];
   const blocks: TableBlock[] = [];
+
   for (const cell of cells) {
     const box = boxOf(cell);
     const fill = cell.content.fill ?? styles[cell.kind].fill;
+
     if (fill !== undefined) fills.push({ row: cell.row, column: cell.column, box, color: fill });
     const text = textOf(cell);
+
     if (text !== undefined) {
-      const x =
-        text.align === "left"
-          ? box[0] + hm
-          : text.align === "right"
-            ? box[2] - hm
-            : (box[0] + box[2]) / 2;
-      const y =
-        text.valign === "top"
-          ? box[3] - vm
-          : text.valign === "bottom"
-            ? box[1] + vm
-            : (box[1] + box[3]) / 2;
+      let x = (box[0] + box[2]) / 2;
+
+      if (text.align === "left") x = box[0] + hm;
+      else if (text.align === "right") x = box[2] - hm;
+      let y = (box[1] + box[3]) / 2;
+
+      if (text.valign === "top") y = box[3] - vm;
+      else if (text.valign === "bottom") y = box[1] + vm;
+
       texts.push({ ...text, at: [x, y] });
     }
+
     const placed = blockOf(cell, box);
+
     if (placed !== undefined) blocks.push(placed);
   }
+
   // Which cell holds each place of the grid, by its index in `cells`.
   const owner = new Int32Array(rows.length * columns.length).fill(-1);
   cells.forEach((cell, i) => {
@@ -459,6 +506,7 @@ export function tablePicture(
   const ownerAt = (row: number, column: number): number => owner[row * columns.length + column]!;
   const weightOf = (row: number): number | undefined => styles[rows[row]!.kind].lineweight;
   const lines: TableLine[] = [];
+
   /**
    * Joins the pieces of one line of the grid: each piece that is drawn, with its lineweight, runs
    * on from the one before while the two share a lineweight, as the leading CAD app joins them.
@@ -472,19 +520,23 @@ export function tablePicture(
   ): void => {
     let start: number | undefined;
     let held: number | undefined;
+
     for (let i = 0; i <= count; i++) {
       const open = i < count && drawn(i);
       const w = open ? weight(i) : undefined;
+
       if (start !== undefined && (!open || w !== held)) {
         lines.push(make(start, at(i), held));
         start = undefined;
       }
+
       if (open && start === undefined) {
         start = at(i);
         held = w;
       }
     }
   };
+
   for (let r = 0; r <= rows.length; r++) {
     const y = top(r);
     // A row's top is drawn where the cell above it is not the cell below it.
@@ -496,6 +548,7 @@ export function tablePicture(
       (from, to, lineweight) => ({ from: [from, y], to: [to, y], lineweight }),
     );
   }
+
   for (let c = 0; c <= columns.length; c++) {
     const x = left(c);
     join(
@@ -506,6 +559,7 @@ export function tablePicture(
       (from, to, lineweight) => ({ from: [x, from], to: [x, to], lineweight }),
     );
   }
+
   return { rows: heights, columns, fills, lines, texts, blocks };
 }
 
@@ -525,6 +579,7 @@ export function tableMeasures(
           styleOf(text.textStyle),
         ),
       );
+
       return layout.frame[3] - layout.frame[1];
     },
     blockBox,
@@ -534,6 +589,7 @@ export function tableMeasures(
 /** Where a table's picture puts a point of its own coordinates: turned by its rotation, at `at`. */
 export function tableMatrix(table: Table): Matrix {
   const [cos, sin] = paragraphDirection(table.rotation);
+
   return [cos, sin, -sin, cos, table.at[0], table.at[1]];
 }
 
@@ -552,6 +608,7 @@ export function tableBox(
 ): [number, number, number, number] | undefined {
   const box: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
   const [a, b, c, d, x0, y0] = tableMatrix(table);
+
   const add = (x: number, y: number): void => {
     const px = a * x + c * y + x0;
     const py = b * x + d * y + y0;
@@ -560,22 +617,29 @@ export function tableBox(
     box[2] = Math.max(box[2], px);
     box[3] = Math.max(box[3], py);
   };
+
   let width = 0;
+
   for (const w of picture.columns) width += w;
   let height = 0;
+
   for (const h of picture.rows) height += h;
+
   if (picture.columns.length > 0) {
     add(0, 0);
     add(width, 0);
     add(width, -height);
     add(0, -height);
   }
+
   for (const text of picture.texts) {
     const paragraph = tableParagraph(table, text);
     const layout = layoutCellText(paragraphInStyle(paragraph, styleOf(text.textStyle)));
+
     if (!layout.ink) continue;
     const place = placer(paragraph);
     const [i0, j0, i1, j1] = layout.ink;
+
     // Already in the drawing's coordinates, so each goes in as it is.
     for (const [x, y] of [place(i0, j0), place(i1, j0), place(i1, j1), place(i0, j1)]) {
       box[0] = Math.min(box[0], x);
@@ -584,8 +648,10 @@ export function tableBox(
       box[3] = Math.max(box[3], y);
     }
   }
+
   for (const block of picture.blocks) {
     const drawn = blockBox ? blockBox(block.block) : block.box;
+
     if (drawn === undefined) continue;
     const [x, y] = block.at;
     const s = block.scale;
@@ -595,6 +661,7 @@ export function tableBox(
     add(x + s * b2, y + s * b3);
     add(x + s * b0, y + s * b3);
   }
+
   return box[0] === Infinity ? undefined : box;
 }
 
@@ -602,33 +669,46 @@ export function tableBox(
 export function tableParagraph(table: Table, text: TableText): Paragraph {
   const [a, b, c, d, e, f] = tableMatrix(table);
   const [x, y] = text.at;
-  return {
-    kind: "paragraph",
-    layer: table.layer,
-    at: [a * x + c * y + e, b * x + d * y + f],
-    height: text.height,
-    value: text.value,
-    rotation: table.rotation ?? 0,
-    width: text.width,
-    ...(text.textStyle === undefined ? {} : { style: text.textStyle }),
-    align: text.align,
-    valign: text.valign,
-  };
+
+  const at: Point = [a * x + c * y + e, b * x + d * y + f];
+  const { height, value, width, align, valign, textStyle } = text;
+  const { layer } = table;
+  const rotation = table.rotation ?? 0;
+
+  return textStyle === undefined
+    ? { kind: "paragraph", layer, at, height, value, rotation, width, align, valign }
+    : {
+        kind: "paragraph",
+        layer,
+        at,
+        height,
+        value,
+        rotation,
+        width,
+        style: textStyle,
+        align,
+        valign,
+      };
 }
 
 /** The insert of each block a table's cells hold, where the picture places it, on the table's layer. */
 export function tableInserts(table: Table, picture: TablePicture): Insert[] {
   const [a, b, c, d, e, f] = tableMatrix(table);
+
   return picture.blocks.map((block) => {
     const [x, y] = block.at;
-    return {
+
+    const placed: Insert = {
       kind: "insert",
       layer: table.layer,
       block: block.block,
       at: [a * x + c * y + e, b * x + d * y + f],
       scale: [block.scale, block.scale],
-      ...(table.rotation === undefined || table.rotation === 0 ? {} : { rotation: table.rotation }),
     };
+
+    return table.rotation === undefined || table.rotation === 0
+      ? placed
+      : { ...placed, rotation: table.rotation };
   });
 }
 
@@ -660,19 +740,24 @@ export function measureTable(
 ): TableMeasure {
   const named = (name: string | undefined) =>
     name === undefined ? undefined : textStyles.find((t) => layerKey(t.name) === layerKey(name));
+
   // One boxer for the call, which keeps the box of each block it reads.
   const box = boxer(textStyles, blocks);
   const known = new Map<string, readonly [number, number, number, number] | undefined>();
+
   const picture = tablePicture(
     { ...table, kind: "table", layer: "0" },
     style,
     tableMeasures(named, (name) => {
       const k = layerKey(name);
+
       if (!known.has(k))
         known.set(k, box([{ kind: "insert", layer: "0", block: name, at: [0, 0] }]));
+
       return known.get(k);
     }),
   );
+
   return {
     width: picture.columns.reduce((sum, w) => sum + w, 0),
     height: picture.rows.reduce((sum, h) => sum + h, 0),
@@ -695,51 +780,68 @@ export function tableRepeats(): (table: unknown) => number {
   const lists = new WeakMap<object, { readonly cost: number; readonly shares: boolean }>();
   const cells = new WeakSet<object>();
   const texts = new Strings<true>();
+
   const text = (value: unknown): [number, boolean] => {
-    if (typeof value !== "string") return [1, false];
+    if (!isString(value)) return [1, false];
     const long = value.length >= LONG;
     const again = long && (texts.get(value) !== undefined || texts.clashes(value));
+
     if (long) texts.set(value, true);
+
     return [1 + Math.floor(value.length / 32), again];
   };
+
   const cell = (value: unknown): [number, boolean] => {
-    if (typeof value === "string") return text(value);
-    if (typeof value !== "object" || value === null) return [1, false];
+    if (isString(value)) return text(value);
+
+    if (!isObjectOrArray(value)) return [1, false];
     const again = cells.has(value);
     cells.add(value);
-    const [cost, shared] = text((value as { text?: unknown }).text);
+    const [cost, shared] = text("text" in value ? value.text : undefined);
+
     return [cost, again || shared];
   };
+
   const read = (list: unknown, item: (value: unknown) => [number, boolean]): [number, boolean] => {
     if (!Array.isArray(list)) return [0, false];
     const known = lists.get(list);
+
     if (known) return [known.cost, true];
     let cost = 0;
     let shares = false;
+
     for (const value of filled(list)) {
       const [more, again] = item(value);
       cost += more;
       shares ||= again;
     }
+
     lists.set(list, { cost, shares });
+
     return [cost, shares];
   };
+
   const row = (value: unknown): [number, boolean] => {
     const [cost, shares] = read(value, cell);
+
     return [1 + cost, shares];
   };
+
   return (table) => {
-    if (typeof table !== "object" || table === null) return 0;
-    const t = table as { rows?: unknown; header?: unknown; columns?: unknown; title?: unknown };
-    const width = Array.isArray(t.columns) ? t.columns.length : 0;
+    if (!isObjectOrArray(table)) return 0;
+    const { columns, rows, header, title } = fieldsOf(table);
+    const width = Array.isArray(columns) ? columns.length : 0;
+
     const height =
-      (Array.isArray(t.rows) ? t.rows.length : 0) +
-      (t.header === undefined ? 0 : 1) +
-      (t.title === undefined ? 0 : 1);
+      (Array.isArray(rows) ? rows.length : 0) +
+      (header === undefined ? 0 : 1) +
+      (title === undefined ? 0 : 1);
+
     if (width === 0 || width * height > TABLE_CELLS) return 0;
-    const [ofRows, sharedRows] = read(t.rows, row);
-    const [ofHeader, sharedHeader] = row(t.header);
-    const [ofTitle, sharedTitle] = cell(t.title);
+    const [ofRows, sharedRows] = read(rows, row);
+    const [ofHeader, sharedHeader] = row(header);
+    const [ofTitle, sharedTitle] = cell(title);
+
     return sharedRows || sharedHeader || sharedTitle ? ofRows + ofHeader + ofTitle : 0;
   };
 }
@@ -750,25 +852,39 @@ export function tableRepeats(): (table: unknown) => number {
  * than `TABLE_CELLS` cells, or with no list of columns or rows.
  */
 export function tableCost(table: unknown): number {
-  if (typeof table !== "object" || table === null) return 0;
-  const t = table as { columns?: unknown; rows?: unknown; header?: unknown; title?: unknown };
-  if (!Array.isArray(t.columns) || !Array.isArray(t.rows)) return 0;
-  const width = t.columns.length;
-  const height = t.rows.length + (t.header === undefined ? 0 : 1) + (t.title === undefined ? 0 : 1);
+  if (!isObjectOrArray(table)) return 0;
+  const { columns, rows, header, title } = fieldsOf(table);
+
+  if (!Array.isArray(columns) || !Array.isArray(rows)) return 0;
+  const width = columns.length;
+  const height = rows.length + (header === undefined ? 0 : 1) + (title === undefined ? 0 : 1);
+
   // No column, or more cells than the rules allow: no row is read.
   if (width === 0 || width * height > TABLE_CELLS) return 0;
+
   const of = (cell: unknown): number => {
-    const text = typeof cell === "string" ? cell : (cell as { text?: unknown } | null)?.text;
-    return 1 + (typeof text === "string" ? Math.floor(text.length / 32) : 0);
+    const text = isString(cell)
+      ? cell
+      : isObjectOrArray(cell) && "text" in cell
+        ? cell.text
+        : undefined;
+
+    return 1 + (isString(text) ? Math.floor(text.length / 32) : 0);
   };
+
   const row = (list: unknown): number => {
     if (!Array.isArray(list)) return 0;
     let cost = 0;
+
     for (let c = 0; c < list.length && c < width; c++) cost += of(list[c]);
+
     return cost;
   };
-  let cost = of(t.title) + row(t.header);
-  for (let r = 0; r < t.rows.length; r++) cost += row(t.rows[r]);
+
+  let cost = of(title) + row(header);
+
+  for (let r = 0; r < rows.length; r++) cost += row(rows[r]);
+
   return cost;
 }
 
@@ -779,16 +895,36 @@ export function tableTexts(
 ): { readonly text: string; readonly textStyle: string | undefined; readonly at: string }[] {
   const out: { text: string; textStyle: string | undefined; at: string }[] = [];
   const first = (table.title === undefined ? 0 : 1) + (table.header === undefined ? 0 : 1);
+
   for (const cell of gridCells(table)) {
     const text = cell.content.text;
+
     if (text === undefined || text === "") continue;
-    const at =
-      cell.kind === "title"
-        ? "title"
-        : cell.kind === "header"
-          ? `header[${cell.column}]`
-          : `rows[${cell.row - first}][${cell.column}]`;
+
+    let at = `rows[${cell.row - first}][${cell.column}]`;
+
+    if (cell.kind === "title") at = "title";
+    else if (cell.kind === "header") at = `header[${cell.column}]`;
+
     out.push({ text, textStyle: cellStyleOf(style, cell.kind).textStyle, at });
   }
+
   return out;
+}
+
+/** The fields of a table the walks count before they read it, each as a caller gives it. */
+interface TableFields {
+  readonly columns: unknown;
+  readonly rows: unknown;
+  readonly header: unknown;
+  readonly title: unknown;
+}
+
+function fieldsOf<Given extends object>(table: Given): TableFields {
+  return {
+    columns: "columns" in table ? table.columns : undefined,
+    rows: "rows" in table ? table.rows : undefined,
+    header: "header" in table ? table.header : undefined,
+    title: "title" in table ? table.title : undefined,
+  };
 }

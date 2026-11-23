@@ -30,6 +30,7 @@ const counter = { height: 36, depth: 30, thickness: 1.5, overhang: 1.5 };
 const toeKick = { height: 4, depth: 3 };
 const backsplash = { height: 12, tile: 4 };
 const shelves = { above: [26, 40], thickness: 1.75 };
+
 const hood = {
   clearance: 36,
   depth: 24,
@@ -39,9 +40,11 @@ const hood = {
   chimneyDepth: 10,
   duct: 8,
 };
+
 const windowSize = { width: 22, height: 36 };
 
 type Kind = "refrigerator" | "filler" | "grill" | "sink";
+
 const run: { kind: Kind; width: number }[] = [
   { kind: "refrigerator", width: 24 },
   { kind: "filler", width: 3 },
@@ -62,16 +65,22 @@ const runWidth = run.reduce((sum, item) => sum + item.width, 0);
 const runLeft = (wall.width - runWidth) / 2;
 const runRight = runLeft + runWidth;
 let nextX = runLeft;
+
 const cabinets = run.map((item) => {
   const placed = { ...item, x: nextX };
   nextX += item.width;
+
   return placed;
 });
+
 function only(kind: Kind) {
   const found = cabinets.find((c) => c.kind === kind);
+
   if (!found) throw new Error(`The run needs a ${kind}`);
+
   return found;
 }
+
 const fridge = only("refrigerator");
 const grill = only("grill");
 const sink = only("sink");
@@ -91,11 +100,14 @@ const reveal = 0.5;
 const doorBottom = toeKick.height + reveal;
 const grillDoorWidth = (grill.width - reveal * 3) / 2;
 const grillDoorHeight = panel.bottom - reveal - doorBottom;
+
 const grillDoors: [Box, Box] = [
   [grill.x + reveal, doorBottom, grillDoorWidth, grillDoorHeight],
   [grillCenter + reveal / 2, doorBottom, grillDoorWidth, grillDoorHeight],
 ];
+
 const sinkPanel: Box = [sink.x + reveal, under - 7.75, sink.width - reveal * 2, 7.25];
+
 const sinkDoor: Box = [
   sink.x + reveal,
   doorBottom,
@@ -111,6 +123,7 @@ const canopyTop = canopyBottom + hood.canopy;
 
 const sinkCenter = sink.x + sink.width / 2;
 const faucet = { column: sinkCenter - 3.5, bend: top + 11 };
+
 // The faucet's outline as boxes, to stop the tile joints and stucco behind it.
 const faucetBoxes: Box[] = [
   [faucet.column - 1.5, top, 3, 11],
@@ -118,6 +131,7 @@ const faucetBoxes: Box[] = [
   [sinkCenter + 2.5, faucet.bend - 3.5, 2, 3],
   [faucet.column - 4.5, top + 3.5, 4, 4],
 ];
+
 const inFrontOfBacksplash = [lidBox, ...faucetBoxes];
 const windowLeft = sinkCenter - windowSize.width / 2;
 const sillBottom = top + 17;
@@ -126,12 +140,14 @@ const windowTop = windowBottom + windowSize.height;
 
 const shelfLeft = runLeft - 3;
 const shelfWidth = hoodLeft - 5 - shelfLeft;
+
 const shelfBoxes: Box[] = shelves.above.map((h) => [
   shelfLeft,
   top + h,
   shelfWidth,
   shelves.thickness,
 ]);
+
 // Jars on each shelf, placed from the shelf's left end.
 const jarsOnShelves = [
   [
@@ -144,24 +160,37 @@ const jarsOnShelves = [
     { at: 15, width: 5.5, height: 4.5 },
   ],
 ];
+
 const jars: Box[] = shelfBoxes.flatMap(([x, y, , h], i) =>
   (jarsOnShelves[i] ?? []).map((jar): Box => [x + jar.at, y + h, jar.width, jar.height]),
 );
 
 const d = createDrawing({ units: "in" });
+
 // Lineweights in millimetres: heavy for cut and profile lines, medium for casework and
 // equipment, fine for annotation and the finest for patterns.
 d.layer("A-WALL", { color: 7, lineweight: 0.7 });
+
 d.layer("A-WALL-PATT", { color: 8, lineweight: 0.18 });
+
 d.layer("A-FLOR-CASE", { color: 3, lineweight: 0.35 });
+
 d.layer("A-EQPM", { color: 6, lineweight: 0.35 });
+
 d.layer("A-GLAZ", { color: 5, lineweight: 0.25 });
+
 d.layer("A-FURN", { color: 30, lineweight: 0.25 });
+
 d.layer("A-DETL", { color: 7, lineweight: 0.25 });
+
 d.layer("A-DETL-HIDN", { color: 8, lineweight: 0.25 });
+
 d.layer("A-ANNO-DIMS", { color: 1, lineweight: 0.25 });
+
 d.layer("A-ANNO-NOTE", { color: 2, lineweight: 0.25 });
+
 d.layer("A-ANNO-SYMB", { color: 4, lineweight: 0.25 });
+
 d.layer("A-ANNO-TITL", { color: 7, lineweight: 0.35 });
 
 // The styles' sizes are on paper, and their scale makes them the size the sheet plots them at.
@@ -177,6 +206,7 @@ d.dimensionStyle({
   units: "architectural",
   precision: 4,
 });
+
 d.leaderStyle({
   name: "NOTES",
   textHeight: notePaper,
@@ -187,6 +217,7 @@ d.leaderStyle({
 });
 
 const rect = ([x, y, w, h]: Box) => d.rect([x, y], w, h);
+
 /** A string of dimensions from each point to the next, with its dimension line through `line`. */
 const dimensionChain = (points: readonly Point[], line: Point, along: "x" | "y") => {
   points.slice(1).forEach((to, i) => {
@@ -207,6 +238,7 @@ d.layer("A-WALL", {}, () => {
 // The base cabinets, the countertop, the backsplash and the shelves.
 d.layer("A-FLOR-CASE", {}, () => {
   d.rect([runLeft, 0], runWidth, toeKick.height);
+
   for (const c of cabinets) {
     const faceTop = c.kind === "grill" ? panel.bottom : under;
     d.rect([c.x, toeKick.height], c.width, faceTop - toeKick.height);
@@ -252,6 +284,7 @@ d.layer("A-DETL-HIDN", {}, () => {
     dashedLine(d, [opens, y + h], middle, 1.5, 1);
     dashedLine(d, [opens, y], middle, 1.5, 1);
   };
+
   swing(grillDoors[0], "left");
   swing(grillDoors[1], "right");
   swing(sinkDoor, "right");
@@ -269,6 +302,7 @@ d.layer("A-EQPM", {}, () => {
   rect([door[0] + 1.5, door[1] + 1.5, door[2] - 3, door[3] - 6]);
   d.rect([fridge.x + 3, under - 3.25], fridge.width - 6, 0.9);
   d.rect([fridge.x + 1, 0.75], fridge.width - 2, toeKick.height - 1.5);
+
   for (let x = fridge.x + 2.25; x < fridge.x + fridge.width - 1.5; x += 1.25) {
     d.line([x, 1.25], [x, toeKick.height - 1.25]);
   }
@@ -277,9 +311,11 @@ d.layer("A-EQPM", {}, () => {
   d.rect([grill.x, panel.bottom], grill.width, panel.top - panel.bottom);
   const knobs = Math.round((grill.width - 8) / 7);
   const spacing = (grill.width - 8) / knobs;
+
   for (let i = 0; i < knobs; i++) {
     d.circle([grill.x + 4 + spacing * (i + 0.5), (panel.bottom + top) / 2], 1.3);
   }
+
   const lidRight = lid.left + lid.width;
   d.polyline(
     [
@@ -363,14 +399,17 @@ d.layer("A-WALL-PATT", {}, () => {
     [hoodLeft, hoodBottom, hoodWidth, hood.lip],
     [grillCenter - hood.chimney / 2, canopyTop, hood.chimney, wall.height - canopyTop],
   ];
+
   // The canopy tapers, so it is kept clear as a stack of bands, each as wide as the canopy at
   // its bottom.
   const bands = 8;
+
   for (let i = 0; i < bands; i++) {
     const y = canopyBottom + (hood.canopy * i) / bands;
     const widthHere = hoodWidth - 2 - ((hoodWidth - hood.chimney - 4) * i) / bands;
     holes.push([grillCenter - widthHere / 2, y, widthHere, hood.canopy / bands]);
   }
+
   stipple(d, [0, 0, wall.width, wall.height], holes, {
     spacing: 1.5,
     stroke: 1,
@@ -385,6 +424,7 @@ d.layer("A-ANNO-DIMS", {}, () => {
   for (const c of cabinets.filter((c) => c.kind !== "filler")) {
     d.linearDimension([c.x, 0], [c.x + c.width, 0], [0, -9], { style: "DIMS" });
   }
+
   d.linearDimension([runLeft, 0], [runRight, 0], [0, -23], { style: "DIMS" });
   dimensionChain(
     [
@@ -431,6 +471,7 @@ d.layer("A-ANNO-NOTE", {}, () => {
   });
   d.leader(["UNDERMOUNT", "SINK"], { style, at: [right, 30], to: [sinkCenter + 11, under - 4] });
   const filler = cabinets.find((c) => c.kind === "filler");
+
   if (filler) {
     d.leader([`${filler.width}" FILLER,`, "TYP."], {
       style,
@@ -442,6 +483,7 @@ d.layer("A-ANNO-NOTE", {}, () => {
 
 // The cut for view 2, through the grill and looking toward the sink.
 const cutX = grill.x + 8;
+
 d.layer("A-ANNO-SYMB", {}, () => {
   sectionMark(d, [cutX, wall.height + 12], [cutX, wall.height + 2], "2", 1, noteHeight);
 });
@@ -657,10 +699,12 @@ d.layer("A-ANNO-DIMS", {}, () => {
 d.layer("A-ANNO-NOTE", {}, () => {
   const style = "NOTES";
   const x = right + 2;
+
   const canopyMiddle: Point = [
     face + (hood.depth + hood.chimneyDepth) / 2,
     (canopyBottom + canopyTop) / 2,
   ];
+
   const insulationTop = chordTop + ceiling.insulation;
   d.leader(["R-30 BATT", "INSULATION"], {
     style,
@@ -702,6 +746,7 @@ d.layer("A-ANNO-TITL", {}, () => {
 });
 
 const drawing = d.build();
+
 export default drawing;
 
 // Run as a script, the example writes its files. Imported, it only hands over the drawing.

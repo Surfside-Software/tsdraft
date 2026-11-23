@@ -22,24 +22,31 @@ export function buildSet() {
   defineSymbols(d);
   defineSheetFields(d);
   d.xref(BORDER, BORDER_PATH);
+
   // Each module gives the sheets it draws, by number. A sheet draws its model space at an
   // origin of its own, so no viewport shows another sheet's views.
-  const sheets: Record<string, SheetDraw> = {
-    ...COVER,
-    ...SITE,
-    ...PLANS,
-    ...ROOF,
-    ...ELEVATIONS,
-    ...SCHEDULES,
-    ...STRUCTURE,
-    ...MEP,
-  };
-  for (const s of SHEETS) sheets[s.number]?.(d);
+  const sheets = new Map<string, SheetDraw>(
+    Object.entries({
+      ...COVER,
+      ...SITE,
+      ...PLANS,
+      ...ROOF,
+      ...ELEVATIONS,
+      ...SCHEDULES,
+      ...STRUCTURE,
+      ...MEP,
+    }),
+  );
+
+  for (const s of SHEETS) sheets.get(s.number)?.(d);
+
   return d.build();
 }
 
 const drawing = buildSet();
+
 export default drawing;
+
 export const xrefs = { [BORDER]: borderDrawing() };
 export const intent: Intent = INTENT;
 
@@ -53,9 +60,11 @@ if (import.meta.main) {
   writeFileSync(new URL("plan-set.dxf", outDir), toDXF(drawing));
   writeFileSync(borderFile, toDXF(xrefs[BORDER]));
   const layouts = drawing.layouts ?? [];
+
   for (const { name } of layouts) {
     writeFileSync(new URL(`${name}.svg`, outDir), toSVG(drawing, { layout: name, xrefs }));
   }
+
   const onSheets = layouts.reduce((sum, layout) => sum + layout.entities.length, 0);
   console.log(
     `Wrote ${drawing.entities.length} entities in model space and ${onSheets} on ` +

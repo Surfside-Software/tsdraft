@@ -35,6 +35,7 @@ export interface LayoutHandles {
 /** `layoutHandles` for a name the layout rules have passed. */
 export function validLayoutHandles(name: string): LayoutHandles {
   const key = layoutKey(name);
+
   return {
     layout: keyHandle(`layout:${key}`),
     record: keyHandle(`layout-block:${key}`),
@@ -52,7 +53,9 @@ export function validLayoutHandles(name: string): LayoutHandles {
  */
 export function layoutHandles(name: string): LayoutHandles {
   const problem = layoutNameProblem(name);
+
   if (problem !== undefined) throw new RangeError(problem);
+
   return validLayoutHandles(name);
 }
 
@@ -107,6 +110,7 @@ export function validViewportView(
   // The file holds the middle turned by the twist, which the leading CAD app turns back.
   const displayCenter = twistedCenter(viewport.center, twist);
   const [cos, sin] = turning(twist);
+
   const center: Point =
     twist === 0
       ? displayCenter
@@ -114,13 +118,16 @@ export function validViewportView(
           displayCenter[0] * cos + displayCenter[1] * sin,
           displayCenter[1] * cos - displayCenter[0] * sin,
         ];
+
   const viewHeight = written(modelLength(height, paperUnits, viewport.ratio, units));
   const scale = height / viewHeight;
   const [halfWidth, halfHeight] = [width / scale / 2, viewHeight / 2];
+
   const [spanX, spanY] = [
     Math.abs(cos) * halfWidth + Math.abs(sin) * halfHeight,
     Math.abs(sin) * halfWidth + Math.abs(cos) * halfHeight,
   ];
+
   return {
     paperCenter: [written(x + width / 2), written(y + height / 2)],
     width,
@@ -145,6 +152,7 @@ export function viewReaches(view: ViewportView, box: readonly number[]): boolean
   const [rx, ry] = [(box[2]! - box[0]!) / 2, (box[3]! - box[1]!) / 2];
   const dx = (box[0]! + box[2]!) / 2 - view.center[0];
   const dy = (box[1]! + box[3]!) / 2 - view.center[1];
+
   // In model space the rectangle's sides run along (cos, -sin) and (sin, cos).
   return (
     Math.abs(dx * cos - dy * sin) <= halfWidth + Math.abs(cos) * rx + Math.abs(sin) * ry &&
@@ -169,7 +177,9 @@ export function viewportView(
   units: Units,
 ): ViewportView {
   const problem = viewportProblem(viewport, paperUnits, units);
+
   if (problem !== undefined) throw new RangeError(problem);
+
   return validViewportView(viewport, paperUnits, units);
 }
 
@@ -179,5 +189,6 @@ export function viewportView(
  */
 export function findLayout(drawing: Pick<Drawing, "layouts">, name: string): Layout | undefined {
   const key = layoutNameKey(name);
+
   return filled(drawing.layouts).find((layout) => layoutNameKey(layout.name) === key);
 }

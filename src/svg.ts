@@ -22,6 +22,7 @@ import {
   type Entity,
   type Hatch,
   type HatchPattern,
+  type EntityTransparency,
   type Image,
   type Underlay,
   type Insert,
@@ -33,7 +34,6 @@ import {
   type Line,
   type Linetype,
   type LinetypeMark,
-  type LinetypeShape,
   type Rgb,
   type Paragraph,
   type Point,
@@ -43,7 +43,6 @@ import {
   type Spline,
   type Text,
   type TextStyle,
-  type Viewport,
   type Wipeout,
 } from "./drawing.ts";
 import {
@@ -63,6 +62,7 @@ import {
   patternSizes,
   type PatternSizes,
   writtenPoint,
+  type Mask,
 } from "./fills.ts";
 import { patternPieces } from "./patterns.ts";
 import { pointFigure, pointReach, pointStyleProblems } from "./points.ts";
@@ -126,6 +126,7 @@ const markedOpaque = (info: RasterInfo): boolean =>
   info.kind === "png" &&
   (info.color === 4 || info.color === 6) &&
   info.width * info.height > OPAQUE_PIXELS;
+
 import { fontInfo, STANDARD_FONT, capHeightOf } from "./fonts.ts";
 import { fifteenDigits, fmt, written } from "./format.ts";
 import { layerKey, layerKeys } from "./layers.ts";
@@ -166,8 +167,9 @@ import {
 } from "./rules.ts";
 import { ellipsePoint, splinePieces, splinePolyline, unturned } from "./curves.ts";
 import { filled, KEYED } from "./shape.ts";
-import { shapeFinder, type ShapeDefinition, type ShapeFiles } from "./shapes.ts";
+import { glyphFinder, type ShxGlyph, type ShxFiles } from "./shapes.ts";
 import { isUnits } from "./units.ts";
+import { isNumber, isObjectOrArray, isRecord, isString } from "./guards.ts";
 import {
   CELL_TEXT,
   IMAGE_FADE,
@@ -228,6 +230,7 @@ const ACI: readonly string[] = [
 /** The color of an ACI index. An index outside 1 to 255 draws like 7, in currentColor. */
 function aciColor(index: number): string {
   const rgb = index === 7 ? undefined : ACI[index - 1];
+
   return rgb === undefined ? "currentColor" : `#${rgb}`;
 }
 
@@ -291,8 +294,11 @@ const VIRTUAL_PENS: readonly string[] = [
  */
 function plottedColor(table: string, index: number): string {
   if (table === "monochrome.ctb" || index === 7) return "#000000";
+
   if (table === "Grayscale.ctb") return `#${GRAYSCALE[index - 1]?.repeat(3) ?? "000000"}`;
+
   if (table === "DWF Virtual Pens.ctb") return `#${VIRTUAL_PENS[index - 1] ?? "000000"}`;
+
   return aciColor(index);
 }
 
@@ -393,11 +399,11 @@ export interface SvgOptions {
   readonly view?: readonly [x0: number, y0: number, x1: number, y1: number];
   /**
    * The bytes of each shape file the drawing's linetypes name, by the file's name, found without
-   * regard to case and with or without `.shx`, as `shapeFileKey` finds it. A linetype's shape
+   * regard to case and with or without `.shx`, as `shxFileKey` finds it. A linetype's shape
    * whose file is not here, does not read, or lacks the shape, leaves its gap, as `lint` warns.
    * The drawing's xrefs find their shapes here too.
    */
-  readonly shapes?: ShapeFiles;
+  readonly shx?: ShxFiles;
   /**
    * Draws each entity's transparency, as CAD programs plot it when told to plot transparency
    * always. Left out, every entity draws opaque, as they plot the page setups tsdraft writes.
@@ -419,10 +425,13 @@ interface Run {
  */
 function scopeName(source: ReadSource, scoped: Set<string>): string {
   const { handle } = source;
+
   if (handle === undefined || !/^[0-9A-Fa-f]{1,16}$/.test(handle)) return `e${source.index}`;
   const key = handle.toUpperCase();
+
   if (scoped.has(key)) return `e${source.index}`;
   scoped.add(key);
+
   return `h${handle}`;
 }
 
@@ -512,7 +521,7 @@ interface ScaledMark {
   /** A text's style, as the drawing has it. */
   readonly style: TextStyle | undefined;
   /** A shape's outlines, as its file holds them. */
-  readonly shape?: ShapeDefinition;
+  readonly glyph?: ShxGlyph;
   /** What its offset and its height are multiplied by, in the units of the space it is drawn in. */
   readonly size: number;
 }
@@ -603,24 +612,34 @@ const SPLINE_STEPS = 32;
 function curveOf(e: Ellipse | Spline, known: Known): Curve | undefined {
   let key: object = e;
   let spline: DrawnSpline | undefined;
+
   if (e.kind === "spline") {
-    const fields = e as unknown as Readonly<Record<string, unknown>>;
+    // An array, which no spline is, holds no field that reads, so it reads as none.
+    const fields = isRecord(e) ? e : NO_FIELDS;
     spline = known.splines.get(fields, (lists) => {
       known.readAgain(lists);
+
       return true;
     });
+
     if (!spline) return undefined;
     key = spline;
   }
+
   const found = known.curves.get(key);
+
   if (found !== undefined) return found ?? undefined;
   let made: Curve | null = null;
+
   if (spline) made = { spline };
-  else {
-    const ellipse = drawnEllipse(e as Ellipse);
+  else if (e.kind === "ellipse") {
+    const ellipse = drawnEllipse(e);
+
     if (ellipse) made = { ellipse };
   }
+
   known.curves.set(key, made);
+
   return made ?? undefined;
 }
 
@@ -629,6 +648,7 @@ function flatOf(curve: Curve): Flat {
   if (curve.flat) return curve.flat;
   let points: Point[];
   let closed: boolean;
+
   if (curve.ellipse) {
     const { center, majorAxis, ratio, start, end } = curve.ellipse;
     const from = start ?? 0;
@@ -643,11 +663,14 @@ function flatOf(curve: Curve): Flat {
     points = splinePolyline(degree, knots, controlPoints, weights, SPLINE_STEPS);
     closed = curve.spline!.closed;
   }
+
   const lengths = [0];
+
   for (let i = 1; i < points.length; i++) {
     const [a, b] = [points[i - 1]!, points[i]!];
     lengths.push(lengths[i - 1]! + Math.hypot(b[0] - a[0], b[1] - a[1]));
   }
+
   return (curve.flat = { points, lengths, closed });
 }
 
@@ -658,20 +681,27 @@ function flatOf(curve: Curve): Flat {
 function ellipseToSvg(d: DrawnEllipse, matrix: Matrix | undefined, s: string): string {
   const [mx, my] = d.majorAxis;
   const minor: Point = [-my * d.ratio, mx * d.ratio];
+
   const linear = (v: Point): Point =>
     matrix ? [matrix[0] * v[0] + matrix[2] * v[1], matrix[1] * v[0] + matrix[3] * v[1]] : v;
+
   const [a, b] = [linear(d.majorAxis), linear(minor)];
   const round = rounded(1, [a[0], a[1], b[0], b[1], 0, 0]);
   const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
+
   if (d.start === undefined) return roundToSvg(at(d.center), round, s);
   const turn = unturned(d.end! - d.start);
   const large = turn > Math.PI ? 1 : 0;
+
   const [start, end] = [d.start, d.end!].map((t) => {
     const [x, y] = at(ellipsePoint(d.center, d.majorAxis, d.ratio, t));
+
     return `${fmt(x)} ${fmt(y)}`;
   });
+
   // SVG draws nothing for an arc that ends where it starts.
   if (start === end && large === 1) return roundToSvg(at(d.center), round, s);
+
   return `<path d="M ${start} A ${fmt(round.rx)} ${fmt(round.ry)} ${fmt(round.turn)} ${large} ${round.sweep} ${end}" ${s}/>`;
 }
 
@@ -682,32 +712,43 @@ function ellipseToSvg(d: DrawnEllipse, matrix: Matrix | undefined, s: string): s
  */
 function splinePath(curve: Curve, matrix: Matrix | undefined): string {
   const spline = curve.spline!;
+
   const place = ([x, y]: Point): string => {
     const [px, py] = matrix ? mapPoint(matrix, [x, y]) : [x, y];
+
     return `${fmt(px)} ${fmt(py)}`;
   };
+
   const parts: string[] = [];
+
   if (spline.weights !== undefined || spline.degree > 3) {
     flatOf(curve).points.forEach((p, i) => parts.push(`${i === 0 ? "M" : "L"} ${place(p)}`));
+
     return parts.join(" ");
   }
+
   const { degree, knots, controlPoints } = spline;
   let last = "";
+
   for (const piece of splinePieces(degree, knots, controlPoints, undefined)) {
     const q = piece.map(([x, y]): Point => [x, y]);
     const first = place(q[0]!);
+
     if (first !== last) parts.push(`M ${first}`);
     const end = place(q[degree]!);
+
     if (degree === 1) parts.push(`L ${end}`);
     else if (degree === 2) {
       const raised = (p: Point): Point => [
         p[0] + ((q[1]![0] - p[0]) * 2) / 3,
         p[1] + ((q[1]![1] - p[1]) * 2) / 3,
       ];
+
       parts.push(`C ${place(raised(q[0]!))} ${place(raised(q[2]!))} ${end}`);
     } else parts.push(`C ${place(q[1]!)} ${place(q[2]!)} ${end}`);
     last = end;
   }
+
   return parts.join(" ");
 }
 
@@ -718,13 +759,17 @@ function splinePath(curve: Curve, matrix: Matrix | undefined): string {
 function planOf(e: Polyline, known: Known): Plan | undefined {
   if (!mayCurve(e)) return undefined;
   const found = known.plans.get(e);
+
   if (found !== undefined) return found ?? undefined;
   // Telling whether it has an arc or a width reads its bulges and widths, and its plan its points.
   known.readAgain([e.bulges, e.widths]);
+
   if (!hasArcsOrWidths(e)) {
     known.plans.set(e, null);
+
     return undefined;
   }
+
   known.readAgain([e.points]);
   const sides = polylineSides(e);
   const bands = polylineBands(sides, e.closed);
@@ -733,16 +778,20 @@ function planOf(e: Polyline, known: Known): Plan | undefined {
   sides.forEach((side, i) => {
     const arc = sideArc(side.from, side.to, side.bulge);
     const length = sideLength(side, arc);
+
     if (!(length > 0)) return;
+
     const fit =
       arc && isWide(side)
         ? (arc.radius + Math.max(side.startWidth, side.endWidth) / 2) * Math.abs(arc.sweep)
         : length;
+
     if (fit > longest) longest = fit;
     parts.push({ side, arc, fit, band: bands[i] });
   });
   const plan = { parts, longest };
   known.plans.set(e, plan);
+
   return plan;
 }
 
@@ -817,7 +866,12 @@ export function toSVG(
   drawing: Drawing | DrawingRead,
   options: SvgOptions | ReadSvgOptions = {},
 ): string {
-  if (isDrawingRead(drawing)) return readPicture(drawing, options as ReadSvgOptions).svg;
+  if (isDrawingRead(drawing)) {
+    // SAFETY: the overloads give a read the options of a read, and a drawing a drawing's.
+    return readPicture(drawing, options as ReadSvgOptions).svg;
+  }
+
+  // SAFETY: as above: what is not a read is a drawing, given a drawing's options.
   return svgWithin(drawing, options as SvgOptions, MAX_WALKED);
 }
 
@@ -834,8 +888,9 @@ export function drawnPicture(
 /** True for a read, which a `Drawing` is not: it holds the SHA-256 of its file, and no `entities`. */
 function isDrawingRead(value: Drawing | DrawingRead): value is DrawingRead {
   return (
-    typeof (value as Partial<DrawingRead>).sha256 === "string" &&
-    !Array.isArray((value as Partial<Drawing>).entities)
+    "sha256" in value &&
+    isString(value.sha256) &&
+    !("entities" in value && Array.isArray(value.entities))
   );
 }
 
@@ -847,20 +902,27 @@ export function svgWithin(
   collected?: PictureParts,
 ): string {
   const xrefs = referencedByKey(drawing, options.xrefs);
+
   const { tablesOf, layerOf, hidden, frozen, styleOf, key } = visibility(
     drawing,
     options.drawNoPlot,
   );
+
   // The first xref of each name, as `findXref` finds it.
   const xrefPaths = new Map<string, string>();
+
   for (const xref of filled(drawing.xrefs)) {
     if (!xrefPaths.has(key(xref.name))) xrefPaths.set(key(xref.name), xref.path);
   }
+
   const builtIns = new Map<string, ReturnType<typeof builtInLinetype>>();
+
   const builtIn = (name: string) => {
     if (!builtIns.has(name)) builtIns.set(name, builtInLinetype(name));
+
     return builtIns.get(name);
   };
+
   const blocks = blocksByKey(drawing.blocks);
   const view = viewOf(options.view);
   let work = 0;
@@ -870,6 +932,7 @@ export function svgWithin(
   const longest = most * CHARACTERS;
   /** Counts characters the picture writes, and says whether it has room for them. */
   const write = (characters: number): boolean => (length += characters) <= longest;
+
   const refuse = (where: string, boxing = false): never => {
     throw new RangeError(
       boxing
@@ -879,11 +942,14 @@ export function svgWithin(
           : `The picture walks more than toSVG does for one, ${most} blocks and entities that inserts reach and that draw nothing, or that viewports look through 64 at a time: it stopped at ${where}. Draw a part of it with view, or nest fewer inserts`,
     );
   };
+
   /** Where an entity of a space is, as a message names it. */
   const entityAt = (index: number, e: Entity, space: string): string =>
     `${e.kind === "insert" ? "insert" : "entity"} #${index} of ${space}`;
+
   /** The boxes of model space, made once for the picture, which reads each block once. */
   let boxes: Boxer | undefined;
+
   const boxesOf = (): Boxer =>
     (boxes ??= boxer(
       drawing.textStyles,
@@ -897,12 +963,16 @@ export function svgWithin(
       most,
       drawing.tableStyles,
     ));
+
   const boxOf = (entities: readonly Entity[], at: (e: Entity) => string) => {
     const boxes = boxesOf();
     const box = boxes(entities);
+
     if (boxes.capped) refuse(at(boxes.capped), true);
+
     return box;
   };
+
   /**
    * The picture of each leader, worked out once for the picture, so that a leader an xref holds
    * costs what it writes each time an insert places it, and its shafts' sides are found once.
@@ -911,17 +981,21 @@ export function svgWithin(
     Leader,
     { style: LeaderStyle; textStyle: TextStyle | undefined; picture: LeaderPicture }
   >();
+
   const pictureOf = (
     e: Leader,
     style: LeaderStyle,
     textStyle: TextStyle | undefined,
   ): LeaderPicture => {
     const known = pictures.get(e);
+
     if (known?.style === style && known.textStyle === textStyle) return known.picture;
     const picture = leaderPicture(e, style, textStyle, (name) => blocks.get(key(name)));
     pictures.set(e, { style, textStyle, picture });
+
     return picture;
   };
+
   /** The picture of each table, worked out once for the picture. */
   /**
    * The box of each block a table's cell holds, by its drawing: of every entity of the block,
@@ -934,8 +1008,10 @@ export function svgWithin(
       readonly known: Map<string, readonly [number, number, number, number] | undefined>;
     }
   >();
+
   const plainBoxOf = (of: Drawing, name: string) => {
     let held = blockBoxes.get(of);
+
     if (!held) {
       held = {
         box: boxer(
@@ -954,28 +1030,40 @@ export function svgWithin(
       };
       blockBoxes.set(of, held);
     }
+
     const k = key(name);
+
     if (!held.known.has(k)) {
       const found = held.box([{ kind: "insert", layer: "0", block: name, at: [0, 0] }]);
+
       if (held.box.capped) refuse(drawingAt?.() ?? "a table", true);
       held.known.set(k, found);
     }
+
     return held.known.get(k);
   };
+
   /** The picture of each table, worked out once for each drawing it is drawn from. */
   const tablePictures = new WeakMap<Table, Map<Referenced | undefined, TablePicture | undefined>>();
+
   const tablePictureOf = (e: Table, from?: Referenced): TablePicture | undefined => {
     let byFrom = tablePictures.get(e);
+
     if (!byFrom) tablePictures.set(e, (byFrom = new Map()));
+
     if (byFrom.has(from)) return byFrom.get(from);
     byFrom.set(from, undefined);
+
     // A table or a style the rules refuse draws nothing. Its cells are paid for before they are
     // read, as the picture's other work is.
-    if (typeof e.style !== "string") return undefined;
+    if (!isString(e.style)) return undefined;
+
     if (!spend(tableCost(e))) refuse(drawingAt?.() ?? "a table");
     const tables = tablesOf(from);
     const style = tables.tableStyles.get(key(e.style));
+
     if (style === undefined || tableProblem(e) !== undefined) return undefined;
+
     const picture = tablePicture(
       e,
       style,
@@ -984,11 +1072,15 @@ export function svgWithin(
         (name) => plainBoxOf(from?.drawing ?? drawing, name),
       ),
     );
+
     byFrom.set(from, picture);
+
     return picture;
   };
+
   /** The layout of each paragraph, a long value laid out once for the picture. */
   const paragraphs = paragraphMeasurer();
+
   /**
    * Each raster file the picture holds, by the files it was given in and the path it was given
    * by: the drawing's own, or a referenced drawing's, whose paths start from its own folder.
@@ -1005,6 +1097,7 @@ export function svgWithin(
     shown?: string | null;
     opaque?: string | null;
   }
+
   // Keyed exactly, since a path may be long.
   const rasters = new WeakMap<object, Map<string, Raster | null>>();
   let rastersHeld = 0;
@@ -1015,27 +1108,37 @@ export function svgWithin(
   const defIds: string[] = [];
   let clips = 0;
   let gradients = 0;
+
   // A read file's picture is kept as one fragment for each entity at the top of a space, so the
   // ids an entity makes start from where it is, and an image's from its file, and stay the same
   // whatever is drawn around it.
+  // SAFETY: only the picture of a read gives its options `READ_SOURCES`, and gives it as
+  // `ReadSources`; no other caller can name the key.
   const reading: ReadSources | undefined = (options as { [READ_SOURCES]?: ReadSources })[
     READ_SOURCES
   ];
+
   let scope = "";
   /** The ids of the definitions the fragment being drawn uses. */
   let using: Set<string> | undefined;
+
   const define = (id: string, def: string): void => {
     defs.push(def);
     defIds.push(id);
   };
+
   /** The id of a file's picture, from what it is and the files it was given in. */
-  const givenIndex = new WeakMap<object, number>();
+  const givenIndex = new WeakMap<WeakKey, number>();
   let givens = 0;
-  const fileId = (given: object, what: string): string => {
+
+  const fileId = (given: WeakKey, what: string): string => {
     let at = givenIndex.get(given);
+
     if (at === undefined) givenIndex.set(given, (at = givens++));
+
     return sha256Text(`${at}\u0000${what}`).slice(0, 16);
   };
+
   /**
    * The id of a gradient's picture where `matrix` puts it, held in the definitions, or undefined
    * when the picture has no room for it.
@@ -1043,50 +1146,65 @@ export function svgWithin(
   const shade = (picture: GradientPicture, matrix: Matrix | undefined): string | undefined => {
     const id = `tsdraft-gradient-${scope}${gradients++}`;
     const frame = (matrix ? compose(matrix, picture.frame) : picture.frame).map(precise).join(" ");
+
     const stops = picture.stops
       .map(({ offset, color }) => `<stop offset="${precise(offset)}" stop-color="${hex(color)}"/>`)
       .join("");
-    const shape =
+
+    const opening =
       picture.kind === "linear"
         ? `linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="1" y2="0"`
         : `radialGradient id="${id}" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1"`;
-    const def = `<${shape} spreadMethod="pad" gradientTransform="matrix(${frame})">${stops}</${picture.kind}Gradient>`;
+
+    const def = `<${opening} spreadMethod="pad" gradientTransform="matrix(${frame})">${stops}</${picture.kind}Gradient>`;
+
     if (!write(def.length)) return undefined;
     define(id, def);
     using?.add(id);
+
     return id;
   };
+
   /**
    * The raster file of an image's path, read once for the picture, or null for none it draws. An
    * image of a referenced drawing, `from`, takes its file from that drawing's files alone.
    */
   const rasterOf = (e: Image, from: Referenced | undefined): Raster | null => {
     const given: unknown = from === undefined ? options.images : from.images;
-    if (typeof given !== "object" || given === null) return null;
+
+    if (!isObjectOrArray(given)) return null;
     let held = rasters.get(given);
+
     if (!held) rasters.set(given, (held = new Map()));
     const key = exactKey(e.path);
     let found = held.get(key);
+
     if (found === undefined) {
       const item = Object.getOwnPropertyDescriptor(given, e.path);
       const bytes = item && item.value instanceof Uint8Array ? item.value : undefined;
       const info = bytes === undefined ? undefined : rasterInfo(bytes);
+
       // A PNG the plot must decode and cannot, past `RASTER_PIXELS`, is drawn by neither.
       const plotted =
         info !== undefined &&
         (info.kind !== "png" || !plotDecodes(info) || info.width * info.height <= RASTER_PIXELS);
+
       found = info === undefined ? null : { bytes: bytes!, info, plotted, given };
       held.set(key, found);
     }
+
     // Every image of a file is held to its pixels, whichever drawing it is in.
     const info = found?.info;
+
     if (info !== undefined && (info.width !== e.pixels[0] || info.height !== e.pixels[1])) {
       throw new RangeError(
         `The file of the image ${quoted(e.path)} is ${info.width} by ${info.height} pixels, and the drawing gives it ${e.pixels[0]} by ${e.pixels[1]}: the leading CAD app would plot it at the wrong size. Give it the file's pixels, which rasterSize reads`,
       );
     }
+
     return found;
   };
+
   /**
    * The id of the picture's image of a file, written the first time an image shows it: as it is,
    * or for an image not marked transparent, with its transparency left out, as the leading CAD
@@ -1098,14 +1216,19 @@ export function svgWithin(
     const { info } = raster;
     const copy = opaque && hasAlpha(info) && !markedOpaque(info);
     const known = copy ? raster.opaque : raster.shown;
+
     if (known !== undefined) {
       if (known !== null) using?.add(known);
+
       return known;
     }
+
     let bytes: Uint8Array | undefined = raster.bytes;
+
     if (info.kind === "jpeg") bytes = withoutExif(bytes);
     else if (copy && info.kind === "png") bytes = opaquePng(info, bytes);
     let id: string | null = null;
+
     if (bytes !== undefined) {
       id =
         reading === undefined
@@ -1113,16 +1236,20 @@ export function svgWithin(
           : `tsdraft-image-${fileId(raster.given, `${copy ? "opaque" : "shown"}\u0000${path}`)}`;
       const kind = info.kind === "png" ? "image/png" : "image/jpeg";
       const head = `<image id="${id}" width="1" height="1" preserveAspectRatio="none" data-pixels="${info.width} ${info.height}" href="data:${kind};base64,`;
+
       // Charged before it is encoded, so a file too long for the picture is refused unread.
       if (!write(head.length + base64Length(bytes.length) + 11))
         refuse(`the image ${quoted(path)}`);
       define(id, `${head}${base64(bytes)}"/>`);
       using?.add(id);
     }
+
     if (copy) raster.opaque = id;
     else raster.shown = id;
+
     return id;
   };
+
   /**
    * An image: its file mapped onto its corners and cut to its clip, then its frame in its pen.
    * One whose file is not given, or is not one the picture can hold, is its frame with its path
@@ -1139,32 +1266,40 @@ export function svgWithin(
   ): string => {
     const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
     const raster = rasterOf(e, from);
+
     const shown =
       raster === null || !raster.plotted ? null : rasterId(raster, e.transparent !== true, e.path);
+
     const parts: string[] = [];
+
     // A closed outline, back to its first point, as a path of moves and lines.
     const ring = (points: readonly Point[]) =>
       [...points, points[0]!]
         .map(at)
         .map(([x, y], i) => `${i === 0 ? "M" : "L"} ${precise(x)} ${precise(y)}`)
         .join(" ");
+
     if (shown !== null) {
-      const [p0, p1, , p3] = imageCorners(e).map(at) as [Point, Point, Point, Point];
+      const [c0, c1, , c3] = imageCorners(e);
+      const [p0, p1, p3] = [at(c0), at(c1), at(c3)];
+
       // The unit square of the picture's image, its top row first, onto the image's corners.
       const place = [p1[0] - p0[0], p1[1] - p0[1], p0[0] - p3[0], p0[1] - p3[1], p3[0], p3[1]]
         .map(precise)
         .join(" ");
+
       // A file too large to hold again is the file, which the plot shows opaque.
       const marked = e.transparent !== true && markedOpaque(raster!.info);
       // A read file's image fades toward the background as the leading CAD app fades it.
+      // SAFETY: only the picture of a read sets `IMAGE_FADE`, as a number; no caller can name it.
       const fade = (e as { readonly [IMAGE_FADE]?: number })[IMAGE_FADE];
       const use = `<use href="#${shown}" transform="matrix(${place})"${marked ? ` data-opaque=""` : ""}/>`;
+
       // Faded in a group of its own, outside any clip, as an entity's transparency is, which the
       // plot draws too.
       const alpha =
-        typeof fade === "number" && fade > 0 && fade <= 100
-          ? Math.round(255 * (1 - fade / 100))
-          : 255;
+        isNumber(fade) && fade > 0 && fade <= 100 ? Math.round(255 * (1 - fade / 100)) : 255;
+
       if (e.clip === undefined) parts.push(fadedGroup(use, alpha));
       else {
         const id = `tsdraft-image-clip-${scope}${clips++}`;
@@ -1180,10 +1315,12 @@ export function svgWithin(
       // The path as the file holds it, centered, as high as the image is wide over its letters.
       const value = writtenImagePath(e.path);
       const corners = imageCorners(e);
+
       const middle: Point = [
         (corners[0][0] + corners[2][0]) / 2,
         (corners[0][1] + corners[2][1]) / 2,
       ];
+
       const text: Text = {
         kind: "text",
         layer: e.layer,
@@ -1194,15 +1331,19 @@ export function svgWithin(
         align: "center",
         valign: "middle",
       };
+
       parts.push(entityToSvg(text, "", pen, look, undefined, matrix, room));
     }
+
     if (drawing.imageFrame !== false) {
       parts.push(
         `<path d="${ring(imageFrame(e))}" stroke="${pen.color}"${look.stroke(pen.lineweight)}/>`,
       );
     }
+
     return `<g ${mark} data-image="">${parts.join("")}</g>`;
   };
+
   /**
    * What each page's picture given is, read once, and the id of its image the picture holds in
    * each set of colors.
@@ -1211,23 +1352,29 @@ export function svgWithin(
     object,
     { info: ReturnType<typeof rasterInfo>; ids: Map<string, string | null> }
   >();
+
   /**
    * The id of the picture's image of an underlay's page, in the colors it plots in, written the
    * first time an underlay shows it, or null for a page not given or not a PNG it can draw.
    */
   const pageId = (e: Underlay, from: Referenced | undefined): string | null => {
     const given: unknown = from === undefined ? options.underlays : undefined;
-    if (typeof given !== "object" || given === null) return null;
-    const pagesOf = Object.getOwnPropertyDescriptor(given, e.path)?.value as unknown;
-    if (typeof pagesOf !== "object" || pagesOf === null) return null;
+
+    if (!isObjectOrArray(given)) return null;
+    const pagesOf: unknown = Object.getOwnPropertyDescriptor(given, e.path)?.value;
+
+    if (!isObjectOrArray(pagesOf)) return null;
     const item = Object.getOwnPropertyDescriptor(pagesOf, pageOf(e));
     const bytes = item && item.value instanceof Uint8Array ? item.value : undefined;
+
     if (bytes === undefined) return null;
     let read = pages.get(bytes);
+
     if (!read) pages.set(bytes, (read = { info: rasterInfo(bytes), ids: new Map() }));
     const { info, ids: held } = read;
     const adjust = underlayLook(e);
     const key = underlayAdjusted(e) ? `${adjust.fade},${adjust.contrast},${adjust.monochrome}` : "";
+
     // The page's picture is held to the page's shape, to a pixel.
     if (
       info !== undefined &&
@@ -1239,56 +1386,74 @@ export function svgWithin(
         `The picture of page ${pageOf(e)} of ${quoted(e.path)} is ${info.width} by ${info.height} pixels, and the page is ${w} by ${h} inches: the picture must have the page's shape. Draw it from the page's crop box`,
       );
     }
+
     const known = held.get(key);
+
     if (known !== undefined) {
       if (known !== null) using?.add(known);
+
       return known;
     }
+
     let id: string | null = null;
+
     if (info !== undefined && info.kind === "png" && info.width * info.height <= RASTER_PIXELS) {
       let png: Uint8Array | undefined = bytes;
+
       if (key !== "") {
         // The colored picture is stored, four bytes a pixel: refused before it is drawn.
         const stored = base64Length(info.width * info.height * 4);
+
         if (length + stored > longest) {
           length += stored;
           refuse(`the picture of ${quoted(e.path)}`);
         }
+
         const pixels = pngPixels(info);
         png = undefined;
+
         if (pixels !== undefined) {
           const { width, height, channels, samples } = pixels;
           const out = new Uint8Array(width * height * 4);
+
           for (let i = 0; i < width * height; i++) {
             const gray = channels <= 2;
             const at = i * channels;
+
             const rgb = underlayColor(
               gray
                 ? [samples[at]!, samples[at]!, samples[at]!]
                 : [samples[at]!, samples[at + 1]!, samples[at + 2]!],
               adjust,
             );
+
             out.set(rgb, i * 4);
             out[i * 4 + 3] = channels === 2 || channels === 4 ? samples[at + channels - 1]! : 255;
           }
+
           png = storedPng(width, height, 4, out);
         }
       }
+
       if (png !== undefined) {
         id =
           reading === undefined
             ? `tsdraft-image-${rastersHeld++}`
             : `tsdraft-image-${fileId(given, `page\u0000${pageOf(e)}\u0000${key}\u0000${e.path}`)}`;
         const head = `<image id="${id}" width="1" height="1" preserveAspectRatio="none" data-pixels="${info.width} ${info.height}" href="data:image/png;base64,`;
+
         if (!write(head.length + base64Length(png.length) + 11))
           refuse(`the picture of ${quoted(e.path)}`);
         define(id, `${head}${base64(png)}"/>`);
         using?.add(id);
       }
     }
+
     held.set(key, id);
+
     return id;
   };
+
   /**
    * An underlay: its page's picture mapped onto its corners and cut to its clip, then its frame in
    * its pen. One turned off is its frame alone. One whose page is not given is three lines at its
@@ -1305,20 +1470,27 @@ export function svgWithin(
     room: number,
   ): string => {
     const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
+
     const ring = (points: readonly Point[]) =>
       [...points, points[0]!]
         .map(at)
         .map(([x, y], i) => `${i === 0 ? "M" : "L"} ${precise(x)} ${precise(y)}`)
         .join(" ");
+
     const parts: string[] = [];
     const on = e.on !== false;
     const shown = on ? pageId(e, from) : null;
+
     if (shown !== null) {
-      const [p0, p1, , p3] = underlayCorners(e).map(at) as [Point, Point, Point, Point];
+      const [c0, c1, , c3] = underlayCorners(e);
+      const [p0, p1, p3] = [at(c0), at(c1), at(c3)];
+
       const place = [p1[0] - p0[0], p1[1] - p0[1], p0[0] - p3[0], p0[1] - p3[1], p3[0], p3[1]]
         .map(precise)
         .join(" ");
+
       const use = `<use href="#${shown}" transform="matrix(${place})"/>`;
+
       if (e.clip === undefined) parts.push(use);
       else {
         const id = `tsdraft-image-clip-${scope}${clips++}`;
@@ -1333,6 +1505,7 @@ export function svgWithin(
     } else if (on) {
       const { at: corner, u, v } = underlayPlacement(e);
       const scale = Math.hypot(u[0], u[1]);
+
       for (const line of missingLines(e)) {
         const text: Text = {
           kind: "text",
@@ -1342,16 +1515,20 @@ export function svgWithin(
           value: line.value,
           rotation: e.rotation ?? 0,
         };
+
         parts.push(entityToSvg(text, "", pen, look, undefined, matrix, room));
       }
     }
+
     if ((shown !== null || !on) && (drawing.underlayFrame ?? true) === true) {
       parts.push(
         `<path d="${ring(underlayFrame(e))}" stroke="${pen.color}"${look.stroke(pen.lineweight)}/>`,
       );
     }
+
     return `<g ${mark} data-image="">${parts.join("")}</g>`;
   };
+
   /**
    * The element of an entity that draws something of its own, where `matrix` puts it. Its
    * dashes stop once they pass the room left in the picture, and `write` then refuses it.
@@ -1365,14 +1542,19 @@ export function svgWithin(
     matrix?: Matrix,
   ): string => {
     const room = longest - length;
+
     if (e.kind === "paragraph") {
       const style = styleOf(e, from);
+
       // A table's cell in a read file's picture breaks a word wider than its width.
+      // SAFETY: only the picture of a read sets `CELL_TEXT`, as true; no caller can name it.
       const layout = (e as { readonly [CELL_TEXT]?: true })[CELL_TEXT]
         ? () => layoutCellText(paragraphInStyle(e, style))
         : () => paragraphs.layout(paragraphInStyle(e, style));
+
       return paragraphToSvg(e, layout, mark, drawnPen, look, matrix, room);
     }
+
     if (e.kind === "leader") {
       const tables = tablesOf(from);
       const style = tables.leaderStyles.get(key(e.style));
@@ -1380,12 +1562,16 @@ export function svgWithin(
       const textStyle = named === undefined ? undefined : tables.textStyles.get(key(named));
       const picture = style === undefined ? undefined : pictureOf(e, style, textStyle);
       const layOut = () => paragraphs.layout(paragraphInStyle(picture!.note, textStyle));
+
       return leaderToSvg(e, picture, layOut, mark, drawnPen, look, matrix, room, sides);
     }
+
     if (e.kind === "table") {
       const tables = tablesOf(from);
+
       const styleOf = (name: string | undefined) =>
         name === undefined ? undefined : tables.textStyles.get(key(name));
+
       return tableToSvg(
         e,
         tablePictureOf(e, from),
@@ -1398,116 +1584,155 @@ export function svgWithin(
         sides,
       );
     }
+
     if (e.kind === "image") {
       // One whose fields cannot be drawn, which `lint` refuses, draws nothing.
       return imageDrawable(e, clipsChecked)
         ? imageElement(e, mark, drawnPen, look, from, matrix, room)
         : "";
     }
+
     if (e.kind === "underlay") {
       return underlayDrawable(e, clipsChecked)
         ? underlayElement(e, mark, drawnPen, look, from, matrix, room)
         : "";
     }
+
     if (e.kind === "hatch") {
       const found = tablesOf(from).hatchPatterns;
+
       // A pattern whose lines cannot be placed, which `lint` refuses, is one the drawing lacks.
       const patternOf = (name: string) => {
         const pattern = name.length > KEYED ? undefined : found.get(layerKey(name));
+
         return pattern !== undefined && sizesOf(pattern) !== undefined ? pattern : undefined;
       };
+
       // The walk of a pattern's lines is paid for as the picture's other work is, and placing
       // them by their number and their dashes'.
       const step = (cost: number) => spend(cost) || refuse(drawingAt?.() ?? "a hatch");
+
       const placing = (pattern: HatchPattern) => {
         const sizes = sizesOf(pattern);
+
         if (sizes !== undefined) step(Math.floor(sizes.items / 16));
+
         return sizes;
       };
+
       return hatchToSvg(e, mark, drawnPen, look, matrix, room, patternOf, placing, step, (p) =>
         shade(p, matrix),
       );
     }
+
     if (e.kind === "wipeout") {
       const frame = (from?.drawing ?? drawing).wipeoutFrame !== false;
+
       return wipeoutToSvg(e, mark, drawnPen, look, matrix, frame);
     }
+
     if (!isDimension(e)) {
       return entityToSvg(e, mark, drawnPen, look, styleOf(e, from), matrix, room, sides);
     }
+
     const tables = tablesOf(from);
     const style = tables.dimensionStyles.get(key(e.style));
+
     const textStyle =
       style?.textStyle === undefined ? undefined : tables.textStyles.get(key(style.textStyle));
+
     return dimensionToSvg(e, style, textStyle, mark, drawnPen, look, matrix, room);
   };
 
   /** The sizes of each list of a hatch pattern's lines, read once for the picture. */
   const linesRead = new WeakMap<object, PatternSizes | undefined>();
   const dashesRead = new WeakMap<object, number | undefined>();
+
   const sizesOf = (pattern: HatchPattern): PatternSizes | undefined => {
-    const lines: unknown = pattern.lines;
-    if (typeof lines !== "object" || lines === null) return undefined;
+    // A pattern made by hand may give its lines as a value of any type.
+    const lines = pattern.lines;
+
+    if (!isObjectOrArray(lines)) return undefined;
+
     if (!linesRead.has(lines)) linesRead.set(lines, patternSizes(lines, dashesRead));
+
     return linesRead.get(lines);
   };
+
   /** The sides of each list of points a pattern cuts, read once for the picture. */
   // A long list that one polyline's plan read and another's reads again is paid for, as `lint`
   // pays for it, by the entity drawn at the time.
   let drawingAt: (() => string) | undefined;
   const planned = new WeakSet<object>();
+
   const sides = knowing((lists) => {
     let cost = 0;
+
     for (const list of lists) {
       if (!Array.isArray(list) || list.length < PLANNED) continue;
+
       if (planned.has(list)) cost += Math.floor(list.length / 8);
       else planned.add(list);
     }
+
     if (cost > 0 && !spend(cost)) refuse(drawingAt?.() ?? "a polyline");
   });
 
   /** Each pattern scaled for each space, worked out when first drawn with. */
   const scaled = new Map<LinePattern, Map<number, Dashes>>();
-  const findShape = shapeFinder(options.shapes);
+  const findGlyph = glyphFinder(options.shx);
   const fading = options.plotTransparency === true;
   /**
    * The blocks a leader places, of the drawing and of each it references, worked out once each:
    * they hold all they draw ByBlock, as CAD programs read them.
    */
   const leaderKeys = new Map<Drawing, ReadonlySet<string>>();
+
   const leaderHeld = fading
     ? (from: Referenced | undefined): ReadonlySet<string> => {
         const of = from?.drawing ?? drawing;
         let keys = leaderKeys.get(of);
+
         if (keys === undefined) leaderKeys.set(of, (keys = leaderBlockKeys(of)));
+
         return keys;
       }
     : undefined;
+
   /**
    * The opacity an entity draws at, from 0 to 255: its own, the insert's that holds it for
    * ByBlock, and opaque for ByLayer, since a layer has no transparency. Opaque unless asked.
    */
-  const alphaFor = (own: unknown, byBlock: number | undefined, kind?: string): number => {
+  const alphaFor = (
+    own: EntityTransparency | undefined,
+    byBlock: number | undefined,
+    kind?: string,
+  ): number => {
     // CAD programs plot a table's grid opaque, and the writers write it none.
     if (!fading || kind === "table") return 255;
+
     if (own === "ByBlock") return byBlock ?? 255;
-    return typeof own === "number" && entityTransparencyProblem(own) === undefined
-      ? alphaOf(own)
-      : 255;
+
+    return isNumber(own) && entityTransparencyProblem(own) === undefined ? alphaOf(own) : 255;
   };
+
   /**
    * An entity's element at its opacity: in a group, so that where its parts overlap it is no
    * darker, as CAD programs compose a transparent entity before they fade it.
    */
   const faded = (element: string, alpha: number): string => fadedGroup(element, alpha);
+
   /** The pen of an entity at `alpha`: a dimension and a leader fade their own pictures. */
   const fadedPen = (e: Entity, pen: Pen, alpha: number): Pen =>
     alpha < 255 && (isDimension(e) || e.kind === "leader") ? { ...pen, alpha } : pen;
+
   /** The opacity of the group around an entity: none for one that fades its own picture. */
   const groupAlpha = (e: Entity, alpha: number): number =>
     isDimension(e) || e.kind === "leader" ? 255 : alpha;
+
   /** Each pattern's marks scaled for a space, by its scale and size. */
   const marked = new Map<LinePattern, Map<string, Dashes>>();
+
   const dashesOf = (
     pattern: LinePattern,
     scale: number,
@@ -1516,8 +1741,10 @@ export function svgWithin(
     styles: ReadonlyMap<string, TextStyle>,
   ): Dashes => {
     let byScale = scaled.get(pattern);
+
     if (!byScale) scaled.set(pattern, (byScale = new Map()));
     let found = byScale.get(scale);
+
     if (!found) {
       // A pattern the leading CAD app takes has at most 12 lengths, but one given as data may hold any number.
       if (!spend(Math.floor((pattern.runs.length + pattern.marks.length) / 32))) refuse(where());
@@ -1532,36 +1759,42 @@ export function svgWithin(
       };
       byScale.set(scale, found);
     }
+
     if (pattern.marks.length === 0) return found;
     let bySpace = marked.get(pattern);
+
     if (!bySpace) marked.set(pattern, (bySpace = new Map()));
     const space = `${scale} ${size}`;
     const known = bySpace.get(space);
+
     if (known) return known;
+
     if (!spend(Math.floor(pattern.marks.length / 32))) refuse(where());
+
     const made: Dashes = {
       ...found,
       // A shape its file does not give leaves its gap.
       marks: pattern.marks.flatMap(({ at, end, mark }): ScaledMark[] => {
-        const found = "shape" in mark ? findShape(mark.file, mark.shape as number) : undefined;
-        if (found !== undefined && !("shape" in found)) return [];
+        // SAFETY: a shape still named, which lint refuses, is found in no file, as a number
+        // its file lacks is not.
+        const found = "glyph" in mark ? findGlyph(mark.file, mark.glyph as number) : undefined;
+
+        if (found !== undefined && !("glyph" in found)) return [];
+
+        const style = fontOnly(
+          "text" in mark && isString(mark.style) ? styles.get(key(mark.style)) : undefined,
+        );
+
         return [
-          {
-            at: at * scale,
-            end,
-            mark,
-            style: fontOnly(
-              "text" in mark && typeof mark.style === "string"
-                ? styles.get(key(mark.style))
-                : undefined,
-            ),
-            ...(found === undefined ? {} : { shape: found.shape }),
-            size,
-          },
+          found === undefined
+            ? { at: at * scale, end, mark, style, size }
+            : { at: at * scale, end, mark, style, glyph: found.glyph, size },
         ];
       }),
     };
+
     bySpace.set(space, made);
+
     return made;
   };
 
@@ -1583,15 +1816,18 @@ export function svgWithin(
   ): Pen => {
     const layer: Layer | undefined = layerOf(on);
     const byLayer = layerShade(layer);
+
     const blockShade =
       byBlock === undefined
         ? 7
         : "color" in byBlock
           ? byBlock.color
           : layerShade(layerOf(byBlock.layer));
+
     const own: unknown = e.color;
-    const shade =
-      own === "ByBlock" ? blockShade : typeof own === "number" || isRgb(own) ? own : byLayer;
+
+    const shade = own === "ByBlock" ? blockShade : isNumber(own) || isRgb(own) ? own : byLayer;
+
     /**
      * The layer a linetype or a lineweight comes from, with the drawing whose layer it is, or
      * `"own"` for the entity's own.
@@ -1599,30 +1835,41 @@ export function svgWithin(
     const source = (
       value: string | number | undefined,
     ): { readonly layer: Layer | undefined; readonly of: Referenced | undefined } | "own" => {
-      const name = typeof value === "string" ? builtIn(value) : undefined;
+      const name = isString(value) ? builtIn(value) : undefined;
+
       if (value === undefined || name === "ByLayer") return { layer, of: on.of };
+
       // An insert draws ByLayer, so ByBlock is the insert's layer.
       if (name === "ByBlock" && insertLayer !== undefined) {
         return { layer: layerOf(insertLayer), of: insertLayer.of };
       }
+
       return "own";
     };
+
     const linetypeFrom = source(e.linetype);
     const linetype = linetypeFrom === "own" ? e.linetype : linetypeFrom.layer?.linetype;
     // A layer's linetype is one of the layer's drawing, and an entity's one of the entity's.
     const named = linetypeFrom === "own" ? from : linetypeFrom.of;
+
     const pattern =
       linetype === undefined ? undefined : tablesOf(named).patterns.get(key(linetype));
+
     const weightFrom = source(e.lineweight);
+
     const weight =
       weightFrom === "own"
         ? (e.lineweight ?? "Default")
         : (weightFrom.layer?.lineweight ?? "Default");
+
     const code = lineweightCode(weight);
+
     // A read entity's own linetype scale, which a `Drawing` does not hold.
+    // SAFETY: only the picture of a read sets `OWN_LINETYPE_SCALE`; no caller can name it.
     const scaled = (e as OwnLinetypeScale)[OWN_LINETYPE_SCALE];
-    const ownScale =
-      typeof scaled === "number" && scaled > 0 && Number.isFinite(scaled) ? scaled : 1;
+
+    const ownScale = isNumber(scaled) && scaled > 0 && Number.isFinite(scaled) ? scaled : 1;
+
     return {
       color: drawnColor(look, shade),
       byLayer: drawnColor(look, byLayer),
@@ -1656,14 +1903,18 @@ export function svgWithin(
         // A table draws the block of each of its cells as an insert of it, after itself.
         if (e.kind === "table") {
           const picture = tablePictureOf(e);
+
           // Each insert a placement makes is paid for before it is made.
           if (picture !== undefined && !spend(picture.blocks.length))
             refuse(drawingAt?.() ?? "a table");
           const inserts = picture === undefined ? [] : tableInserts(e, picture);
+
           return [[i, e], ...inserts.map((insert): [number, Entity] => [i, insert])];
         }
+
         // A leader whose content is a block draws the block as an insert of it, after itself.
         const content = e.kind === "leader" ? contentOf(e) : undefined;
+
         return content === undefined
           ? [[i, e]]
           : [
@@ -1671,17 +1922,21 @@ export function svgWithin(
               [i, content],
             ];
       });
+
   /** The insert of the block in place of a leader's note, where its picture places it. */
   const contentOf = (e: Leader): Insert | undefined => {
     const tables = tablesOf(undefined);
     const style = tables.leaderStyles.get(key(e.style));
+
     if (style === undefined || leaderBlock(e, style) === undefined) return undefined;
     const named = e.textStyle ?? style.textStyle;
     const textStyle = named === undefined ? undefined : tables.textStyles.get(key(named));
     const block = pictureOf(e, style, textStyle).block;
+
     // The multileader holds its block ByBlock, so what the block sets ByBlock takes the leader's
     // color. CAD programs draw the block opaque whatever the leader's transparency.
     if (block === undefined) return block;
+
     return e.color === undefined ? block : { ...block, color: e.color };
   };
 
@@ -1698,17 +1953,23 @@ export function svgWithin(
   ): string[] => {
     // A layer frozen in a viewport is frozen there for the walk of an insert too.
     const isFrozen = frozenHere ? (ref: LayerRef) => frozen(ref) || frozenHere(ref) : frozen;
+
     const marks = (e: Entity, index: number): string =>
       `data-layer="${esc(e.layer)}" data-entity="${index}"${e.id === undefined ? "" : ` data-id="${esc(e.id)}"`}`;
+
     const line = look.indent.length + 1;
+
     /** The run of the xref the last insert drawn places, for a read's picture. */
     let nested: PictureRun | undefined;
+
     if (run === undefined) return shown.map(draw);
     // The elements made from one entity of the read are one fragment, its ids its own.
     const out: string[] = [];
+
     let open:
       | { source: ReadSource; parts: string[]; uses: Set<string>; nested?: PictureRun }
       | undefined;
+
     const close = (): void => {
       if (open === undefined) return;
       const { source, parts, uses, nested: within } = open;
@@ -1721,9 +1982,12 @@ export function svgWithin(
         defs: [...uses],
       });
     };
+
     const scoped = new Set<string>();
+
     for (const item of shown) {
       const source = run.sources[item[0]] ?? { index: item[0] };
+
       if (open?.source !== source) {
         close();
         open = { source, parts: [], uses: new Set() };
@@ -1731,59 +1995,78 @@ export function svgWithin(
         scope = `${run.viewport === undefined ? "" : `v${run.viewport}-`}${name}-`;
         [gradients, clips, using] = [0, 0, open.uses];
       }
+
       const element = draw(item);
       open!.parts.push(element);
+
       if (nested !== undefined) [open!.nested, nested] = [nested, undefined];
       out.push(element);
     }
+
     close();
     [scope, using] = ["", undefined];
+
     return out;
 
     function draw([i, e]: readonly [number, Entity]): string {
       const where = () => entityAt(i, e, space);
       drawingAt = where;
+
       if (e.kind !== "insert") {
         // A dimension's texts are joined before it is drawn, so their length is paid for first.
         if (isDimension(e)) {
           if (!write((e.text?.length ?? 0) + (e.textBelow?.length ?? 0))) refuse(where());
         }
+
         const alpha = alphaFor(e.transparency, undefined, e.kind);
         const own = fadedPen(e, pen(look, styled(e), { name: e.layer }, where), alpha);
         const element = faded(drawn(e, marks(e, i), own, look), groupAlpha(e, alpha));
+
         if (!write(element.length + line)) refuse(where());
+
         return element;
       }
+
       // A walk that would spend more than is left is refused before it is taken.
       const boxes = boxesOf();
+
       if (work + boxes.walkCost(e) > most) refuse(where());
+
       if (boxes.capped) refuse(where(), true);
       const between = `\n${look.indent}  `;
       // An element is made of many small strings, so every `JOINED` of them are joined into one,
       // which holds no more than its characters, with what joins them as the group joins them.
       const joined: string[] = [];
       let parts: string[] = [];
+
       // An xref of a read's picture is a run of its own: a fragment for each entity of its model
       // space, each with its ids, so an edit of the xref's file draws only what it changes.
       const referenced =
         run === undefined || blocks.has(key(e.block)) ? undefined : xrefs.get(key(e.block));
+
+      // SAFETY: only the picture of a read gives an xref's drawing `READ_SOURCES`, as
+      // `ReadSources`; no caller can name the key.
       const xrefSources = (referenced?.drawing as { readonly [READ_SOURCES]?: ReadSources })?.[
         READ_SOURCES
       ]?.model;
+
       const subs: { source: ReadSource; parts: string[]; uses: Set<string> }[] = [];
       const xrefScoped = new Set<string>();
       const outer = { scope, using, gradients, clips };
+
       const top =
         xrefSources === undefined
           ? undefined
           : (index: number): void => {
               const source = xrefSources[index] ?? { index };
+
               if (subs.at(-1)?.source === source) return;
               const name = scopeName(source, xrefScoped);
               scope = `${outer.scope}x${name}-`;
               [gradients, clips, using] = [0, 0, new Set()];
               subs.push({ source, parts: [], uses: using });
             };
+
       const walked = eachDrawn(
         e,
         blocks,
@@ -1794,6 +2077,7 @@ export function svgWithin(
           const { name, of } = at.layer;
           const mark = `data-layer="${esc(of ? `${of.name}|${name}` : name)}"`;
           const m = at.matrix;
+
           const heldPen = pen(
             look,
             styled(held),
@@ -1804,22 +2088,27 @@ export function svgWithin(
             m ? Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) : 1,
             at.byBlock,
           );
+
           const alpha = alphaFor(
             at.byBlockHeld ? "ByBlock" : held.transparency,
             at.byBlockAlpha,
             held.kind,
           );
+
           const part = faded(
             drawn(held, mark, fadedPen(held, heldPen, alpha), look, at.from, at.matrix),
             groupAlpha(held, alpha),
           );
+
           if (!write(part.length + line + 2)) return;
           parts.push(part);
+
           if (top !== undefined) subs.at(-1)?.parts.push(part);
           else if (parts.length === JOINED) {
             joined.push(parts.join(between));
             parts = [];
           }
+
           // What is drawn counts against the characters, so it gives back its step of the walk.
           work--;
         },
@@ -1831,24 +2120,32 @@ export function svgWithin(
         (held, at) => {
           if (held.kind !== "table" || hidden(at.layer) || frozenHere?.(at.layer)) return [];
           const picture = tablePictureOf(held, at.from);
+
           if (picture === undefined || picture.blocks.length === 0) return [];
+
           if (!spend(picture.blocks.length)) refuse(where());
+
           return tableInserts(held, picture);
         },
         leaderHeld,
         top,
       );
+
       if (top !== undefined) ({ scope, using, gradients, clips } = outer);
+
       if (!walked || length > longest) refuse(where());
       const xref = blocks.has(key(e.block)) ? undefined : xrefPaths.get(key(e.block));
       // Its names are read for each insert, so they are paid for before they are written.
       const names = e.block.length + e.layer.length + (e.id?.length ?? 0) + (xref?.length ?? 0);
+
       if (!write(names)) refuse(where());
       const path = xref === undefined ? "" : ` data-xref="${esc(xref)}"`;
       const open = `<g ${marks(e, i)} data-block="${esc(e.block)}"${path}>`;
       const all = parts.length > 0 ? [...joined, parts.join(between)] : joined;
+
       if (!write(open.length - names + 4 + line + (all.length > 0 ? line : 0))) refuse(where());
       const inside = all.length > 0 ? `${between}${all.join(between)}\n${look.indent}` : "";
+
       if (top !== undefined) {
         nested = {
           kind: "fragments",
@@ -1859,16 +2156,21 @@ export function svgWithin(
           between,
           close: `\n${look.indent}</g>`,
           empty: `${open}</g>`,
-          fragments: subs
-            .filter((sub) => sub.parts.length > 0)
-            .map((sub) => ({
-              index: sub.source.index,
-              ...(sub.source.handle !== undefined && { handle: sub.source.handle }),
-              svg: sub.parts.join(between),
-              defs: [...sub.uses],
-            })),
+          fragments: subs.flatMap((sub) =>
+            sub.parts.length > 0
+              ? [
+                  {
+                    index: sub.source.index,
+                    ...(sub.source.handle !== undefined && { handle: sub.source.handle }),
+                    svg: sub.parts.join(between),
+                    defs: [...sub.uses],
+                  },
+                ]
+              : [],
+          ),
         };
       }
+
       return `${open}${inside}</g>`;
     }
   };
@@ -1887,9 +2189,11 @@ export function svgWithin(
         figure: FigureReach;
       }[]
     | undefined;
+
   const figures = figureReaches(drawing);
   /** How many times model space has been looked through. */
   let views = 0;
+
   /**
    * The entities of model space that may reach into a rectangle of it, `[x0, y0, x1, y1]`, with
    * a pen that reaches `pen` past an entity's box. The test errs on the side of drawing.
@@ -1903,29 +2207,36 @@ export function svgWithin(
     if (!boxed) {
       boxed = shownOf(drawing.entities).flatMap((shown) => {
         const box = boxOf([shown[1]], (e) => entityAt(shown[0], e, "model space"));
+
         if (!box) return [];
+
         const lettered =
           shown[1].kind === "text" ||
           shown[1].kind === "paragraph" ||
           shown[1].kind === "insert" ||
           isDimension(shown[1]) ||
           shown[1].kind === "leader";
+
         const slack = lettered
           ? Math.max(box[2] - box[0], box[3] - box[1])
           : // The lines of a missing file reach from the page's corner past its box.
             shown[1].kind === "underlay"
             ? missingReach(shown[1])
             : 0;
+
         return [{ shown, box, slack, figure: figures(shown[1]) }];
       });
     }
+
     if (++views > FREE_VIEWS && !spend(Math.floor(boxed.length / 64))) refuse(where);
     // A point's figure reaches past its point, by a share of the view for a relative size.
     const reach = pointReach(pointStyle, height) ?? 0;
-    const relative = typeof pointStyle.size !== "number";
+    const relative = !isNumber(pointStyle.size);
+
     return boxed
       .filter(({ box: b, slack, figure }) => {
         const by = pen + slack + reach * (relative ? figure.relative : figure.absolute);
+
         return (
           b[0] - by <= rect[2]! &&
           b[2] + by >= rect[0]! &&
@@ -1941,13 +2252,16 @@ export function svgWithin(
   // That app reads a scale of 0 or less as 1, and so is one that is not a finite number here.
   const stated = drawing.linetypeScale ?? 1;
   const linetypeScale = stated > 0 && Number.isFinite(stated) ? stated : 1;
+
   // A style `lint` refuses plots each point as a dot.
   const pointStyle: PointStyle =
     drawing.pointStyle !== undefined && pointStyleProblems(drawing.pointStyle).length === 0
       ? drawing.pointStyle
       : { figure: "dot" };
+
   /** The runs of fragments of a read's picture, in the order they are drawn. */
   const runs: MutableRun[] = [];
+
   const newRun = (space: "paper" | "model", sources: readonly ReadSource[], viewport?: number) => {
     const run: MutableRun = {
       kind: "fragments",
@@ -1960,11 +2274,15 @@ export function svgWithin(
       empty: "",
       fragments: [],
     };
+
     runs.push(run);
+
     return run;
   };
+
   const modelRun = (viewport: number): MutableRun | undefined =>
     reading === undefined ? undefined : newRun("model", reading.model, viewport);
+
   /** Where the definitions go: written out, or for a read, worked out from its fragments. */
   const defsPiece = (): PicturePiece =>
     reading !== undefined
@@ -1972,26 +2290,38 @@ export function svgWithin(
       : defs.length > 0
         ? `\n  <defs>${defs.join("")}</defs>`
         : "";
+
   const finish = (pieces: PicturePiece[]): string => {
-    const shaped = pieces.map((piece): PicturePiece => {
-      if (typeof piece === "string" || piece.kind !== "fragments") return piece;
+    const plain = pieces.map((piece): PicturePiece => {
+      if (isString(piece) || piece.kind !== "fragments") return piece;
+      // SAFETY: each run among the pieces is one of `runs`, which `newRun` made with its sources.
       const { sources: _sources, ...rest } = piece as MutableRun;
+
       return rest;
     });
-    const held: Record<string, string> = Object.create(null) as Record<string, string>;
+
+    // An object of no prototype, so a definition's id is a key like any other.
+    const held: Record<string, string> = Object.create(null);
     defIds.forEach((id, i) => (held[id] = defs[i]!));
+
     if (collected !== undefined) {
-      collected.pieces = shaped;
+      collected.pieces = plain;
       collected.defs = held;
     }
-    return joinPicture(shaped, held);
+
+    return joinPicture(plain, held);
   };
+
   if (options.layout !== undefined) {
     const layout = findLayout(drawing, options.layout);
+    // SAFETY: only the picture of a read sets `READ_PAPER`, as the layout's paper; no caller can
+    // name it.
     const paper = layout && ((layout as ReadPaperLayout)[READ_PAPER] ?? paperInfo(layout.paper));
+
     if (!layout || !paper) {
       throw new RangeError(`The drawing has no layout named ${JSON.stringify(options.layout)}`);
     }
+
     // A sheet is paper: a pen plots in the color its plot style table gives it, and in its own
     // lineweight unless the table gives every pen one.
     const table = layout.plotStyle ?? DEFAULT_PLOT_STYLE_TABLE;
@@ -2000,9 +2330,12 @@ export function svgWithin(
     const base = pen ?? DEFAULT_LINEWEIGHT;
     // Hundredths of a millimetre in paper units.
     const perHundredth = paper.units === "in" ? 1 / 2540 : 1 / 100;
+
     /** A look whose lines are as wide as they plot, in a space `scale` paper units to one. */
     // A read file whose $PSLTSCALE is 0 sizes a viewport's dashes in model units.
+    // SAFETY: only the picture of a read sets `MODEL_DASHES`, as true; no caller can name it.
     const modelDashes = (drawing as { readonly [MODEL_DASHES]?: true })[MODEL_DASHES] === true;
+
     const plotted = (scale: number, indent: string, points: PointLook): Look => ({
       color,
       dashScale: modelDashes ? linetypeScale : linetypeScale / scale,
@@ -2014,6 +2347,7 @@ export function svgWithin(
           ? ""
           : ` stroke-width="${precise((Math.max(lineweight, 5) * perHundredth) / scale)}"${lineweight === 0 ? THINNEST : ""}`,
     });
+
     const onPaper = plotted(1, "    ", { style: pointStyle, height: paper.height, up: [0, 1] });
     // A viewport's border plots as the thinnest line, or as the one pen a table gives every line.
     const thin = fmt((pen ?? 5) * perHundredth);
@@ -2024,42 +2358,52 @@ export function svgWithin(
     // and as written.
     const margin = options.margin ?? 0;
     const [left, bottom, right, top] = view ?? [0, 0, paper.width, paper.height];
+
     const frame = [
       written(left - margin),
       written(-top - margin),
       written(right - left + margin * 2),
       written(top - bottom + margin * 2),
     ] as const;
+
     const picture = [frame[0], -(frame[1] + frame[3]), frame[0] + frame[2], -frame[1]] as const;
     const parts: (string | PictureRun)[] = [];
     const space = `layout ${quoted(layout.name)}`;
+
     const layoutSources = reading?.layouts[filled(drawing.layouts).indexOf(layout)];
+
     /** Keeps a part of the sheet, each on a line of its own set in by four spaces. */
     const keep = (where: string, part: string): void => {
       if (!write(part.length + 5)) refuse(where);
       parts.push(part);
     };
+
     /** The lists of frozen layers the viewports have read. */
     const frozenLists = new WeakSet<object>();
     filled(layout.viewports).forEach((viewport, index) => {
       const at = `viewport #${index} of ${space}`;
       // A list of frozen layers another viewport holds too is read again, and paid for.
-      const frozenList: unknown = (viewport as Partial<Viewport>).frozenLayers;
+      // A viewport made by hand may give frozen layers of any type.
+      const frozenList: unknown = viewport.frozenLayers;
+
       if (Array.isArray(frozenList)) {
         if (!frozenLists.has(frozenList)) frozenLists.add(frozenList);
         else if (!spend(Math.ceil(frozenList.length / 64))) refuse(at);
       }
+
       const id = viewport.id === undefined ? "" : ` data-id="${esc(viewport.id)}"`;
       // A viewport `lint` refuses has no view to draw: a ratio of 0 or less, or no size.
       const sound = viewportProblem(viewport, paper.units, units) === undefined;
+
       if (!sound) {
         keep(at, `<g data-viewport="${index}"${id}/>`);
         // Its border is still drawn where its rectangle can be read.
-        const { corner, width, height, layer } = viewport as Partial<Viewport>;
+        const { corner, width, height, layer } = viewport;
         const sizes = [corner?.[0], corner?.[1], width, height];
+
         if (
-          typeof layer === "string" &&
-          sizes.every((size) => typeof size === "number" && Number.isFinite(size)) &&
+          isString(layer) &&
+          sizes.every((size) => isNumber(size) && Number.isFinite(size)) &&
           width! > 0 &&
           height! > 0 &&
           !hidden({ name: layer })
@@ -2070,8 +2414,10 @@ export function svgWithin(
             `<rect x="${fmt(corner![0])}" y="${fmt(corner![1])}" width="${fmt(width!)}" height="${fmt(height!)}" stroke="${stroke}" stroke-width="${thin}"${thinnest} data-layer="${esc(layer)}" data-viewport-border="${index}"${id}/>`,
           );
         }
+
         return;
       }
+
       const view = validViewportView(viewport, paper.units, units);
       const [x, y] = [view.paperCenter[0] - view.width / 2, view.paperCenter[1] - view.height / 2];
       const box = `x="${fmt(x)}" y="${fmt(y)}" width="${fmt(view.width)}" height="${fmt(view.height)}"`;
@@ -2085,11 +2431,13 @@ export function svgWithin(
       // The layers frozen in this viewport alone: the drawing's own, and an xref's by the name the
       // drawing holds it by, the xref's name, a bar and the layer's.
       const frozenKeys = new Set(filled(viewport.frozenLayers ?? []).map(key));
+
       const frozenHere =
         frozenKeys.size === 0
           ? undefined
           : (ref: LayerRef) =>
               frozenKeys.has(key(ref.of === undefined ? ref.name : `${ref.of.name}|${ref.name}`));
+
       // A view is drawn only where it can be seen: the viewport, cut to the paper, cut to
       // the picture, with every number as it is written. The clip, the hidden rectangle and
       // the choice of what to draw all use this one rectangle.
@@ -2099,7 +2447,9 @@ export function svgWithin(
         written(Math.min(x + view.width, paper.width, picture[2])),
         written(Math.min(y + view.height, paper.height, picture[3])),
       ] as const;
+
       const [seenWidth, seenHeight] = [written(seen[2] - seen[0]), written(seen[3] - seen[1])];
+
       // It has a width and a height as written, and as a renderer that keeps numbers in
       // single precision reads its corners.
       const visible =
@@ -2107,26 +2457,32 @@ export function svgWithin(
         seenHeight > 0 &&
         Math.fround(seen[0]) < Math.fround(seen[2]) &&
         Math.fround(seen[1]) < Math.fround(seen[3]);
+
       // The box of the same rectangle in model space, turned back by the twist.
       const [cos, sin] = turning(view.twist);
+
       const corners = [0, 2].flatMap((i) =>
         [1, 3].map((j) => {
           const u = cx + (seen[i]! - view.paperCenter[0]) / view.scale;
           const v = cy + (seen[j]! - view.paperCenter[1]) / view.scale;
+
           return [u * cos + v * sin, v * cos - u * sin] as const;
         }),
       );
+
       const shows = [
         Math.min(...corners.map((c) => c[0])),
         Math.min(...corners.map((c) => c[1])),
         Math.max(...corners.map((c) => c[0])),
         Math.max(...corners.map((c) => c[1])),
       ];
+
       // Only what may reach into it is drawn: an entity's box, which for an arc is its
       // circle's, with the widest pen there is and the slack of its letters around it.
       const widest = (LINEWEIGHTS.at(-1)! * 100 * perHundredth) / view.scale;
       const reached = visible ? reaching(shows, widest, at, view.height / view.scale) : [];
       const near = frozenHere ? reached.filter(([, e]) => !frozenHere({ name: e.layer })) : reached;
+
       const inside = elements(
         near,
         plotted(view.scale, "        ", {
@@ -2140,7 +2496,9 @@ export function svgWithin(
         frozenHere,
         modelRun(index),
       );
+
       const shownRun = runs.at(-1);
+
       if (inside.length === 0 && (shownRun === undefined || !visible)) {
         // Nothing of the view can be seen, so there is nothing to clip.
         keep(at, `<g data-viewport="${index}"${id}/>`);
@@ -2152,15 +2510,20 @@ export function svgWithin(
         // two widths of the picture to its left or right, or two heights above or below it.
         const rect = `x="${seen[0]}" y="${seen[1]}" width="${seenWidth}" height="${seenHeight}"`;
         const clip = `<clipPath id="tsdraft-viewport-${index}"><rect ${rect}/></clipPath>`;
+
         if (!write(clip.length + 5)) refuse(at);
+
         // Its elements were counted as they were made.
         const head = [
           `<g data-viewport="${index}"${id} clip-path="url(#tsdraft-viewport-${index})">`,
           `      <rect ${rect} visibility="hidden" stroke="#000000"/>`,
           `      <g transform="${place}" stroke-width="${precise((base * perHundredth) / view.scale)}">`,
         ];
+
         const tail = [`      </g>`, `    </g>`];
+
         if (!write([...head, ...tail].join("\n").length + 6)) refuse(at);
+
         if (shownRun === undefined) {
           parts.push(clip);
           parts.push(
@@ -2174,6 +2537,7 @@ export function svgWithin(
           parts.push(shownRun);
         }
       }
+
       // The leading CAD app plots a viewport's border as its thinnest line, and only when its layer plots.
       if (!hidden({ name: viewport.layer })) {
         const stroke = color(layerOf({ name: viewport.layer })?.color ?? 7);
@@ -2183,40 +2547,49 @@ export function svgWithin(
         );
       }
     });
+
     // A sheet may hold more entities than a call takes arguments.
     const paperRun = layoutSources === undefined ? undefined : newRun("paper", layoutSources);
     const onSheet = elements(shownOf(layout.entities), onPaper, space, undefined, paperRun);
+
     if (paperRun === undefined) for (const element of onSheet) parts.push(element);
     else parts.push({ ...paperRun, open: "\n    ", between: "\n    " });
+
     const head = [
       `<svg xmlns="http://www.w3.org/2000/svg" data-picture="${SHEET_PICTURE}" viewBox="${frame.join(" ")}" data-layout="${esc(layout.name)}" data-paper="${esc(layout.paper)}">`,
       `  <rect x="0" y="${fmt(-paper.height)}" width="${fmt(paper.width)}" height="${fmt(paper.height)}" fill="#ffffff" data-paper-sheet=""/>`,
       `  <g transform="scale(1 -1)" fill="none" stroke-width="${fmt(base * perHundredth)}" stroke-linecap="round" stroke-linejoin="round">`,
     ];
+
     const tail = [`  </g>`, `</svg>`, ``];
+
     if (!write([...head, ...tail].join("\n").length + 1)) refuse(space);
+
     return finish([
       head[0]!,
       defsPiece(),
       `\n${head.slice(1).join("\n")}`,
-      ...parts.map((part) => (typeof part === "string" ? `\n    ${part}` : part)),
+      ...parts.map((part) => (isString(part) ? `\n    ${part}` : part)),
       `\n${tail.join("\n")}`,
     ]);
   }
 
   // Each entity keeps its index in `drawing.entities`, for its element's data-entity.
   const all = shownOf(drawing.entities);
+
   const [minX, minY, maxX, maxY] = view ??
     boxOf(
       all.map(([, e]) => e),
       (e) => entityAt(all.find(([, shown]) => shown === e)![0], e, "model space"),
     ) ?? [0, 0, 1, 1];
+
   const margin = options.margin ?? (view ? 0 : Math.max(maxX - minX, maxY - minY, 1) * 0.02);
   const x = minX - margin;
   const y = -(maxY + margin);
   const w = maxX - minX + margin * 2;
   const h = maxY - minY + margin * 2;
   const stroke = options.strokeWidth ?? 1;
+
   // A view draws only what may reach into the picture. A pen is as wide in pixels at any size,
   // so it is taken to reach the picture's larger side past an entity's box, times the stroke
   // width when that is over 1: in a picture at least 5 pixels across no pen reaches further.
@@ -2228,6 +2601,7 @@ export function svgWithin(
         h,
       )
     : all;
+
   // On a screen each layer draws in its own color, and every line keeps its width in pixels
   // however far the picture is zoomed.
   const onScreen: Look = {
@@ -2243,14 +2617,19 @@ export function svgWithin(
           : ` stroke-width="${fmt((stroke * Math.max(lineweight, 5)) / DEFAULT_LINEWEIGHT)}"`
       } vector-effect="non-scaling-stroke"`,
   };
+
   const run = reading === undefined ? undefined : newRun("model", reading.model);
   const body = elements(shown, onScreen, "model space", undefined, run).join("\n    ");
+
   const head = [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${fmt(x)} ${fmt(y)} ${fmt(w)} ${fmt(h)}">`,
     `  <g transform="scale(1 -1)" fill="none" stroke-width="${fmt(stroke)}" vector-effect="non-scaling-stroke">`,
   ];
+
   const tail = [`  </g>`, `</svg>`, ``];
+
   if (!write([...head, ...tail].join("\n").length + 1)) refuse("model space");
+
   return finish([
     head[0]!,
     defsPiece(),
@@ -2272,8 +2651,11 @@ function precise(value: number): string {
 
 /** The color a layer gives what draws ByLayer: its index, or the true color a read layer holds. */
 function layerShade(layer: Layer | undefined): number | Rgb {
+  // SAFETY: only the picture of a read sets `LAYER_TRUE_COLOR`, as 0xRRGGBB; no caller can name it.
   const rgb = (layer as { readonly [LAYER_TRUE_COLOR]?: number } | undefined)?.[LAYER_TRUE_COLOR];
-  if (typeof rgb === "number") return [(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255];
+
+  if (isNumber(rgb)) return [(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255];
+
   return layer?.color ?? 7;
 }
 
@@ -2282,7 +2664,8 @@ function layerShade(layer: Layer | undefined): number | Rgb {
  * is, which CAD programs plot under every plot style table.
  */
 function drawnColor(look: Look, shade: number | Rgb): string {
-  if (typeof shade === "number") return look.color(shade);
+  if (isNumber(shade)) return look.color(shade);
+
   return `#${[shade[0], shade[1], shade[2]].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 }
 
@@ -2293,10 +2676,14 @@ function drawnColor(look: Look, shade: number | Rgb): string {
 function runColor(color: number, pen: Pen, look: Look): string {
   if (color >= TRUE_COLOR) {
     const rgb = color - TRUE_COLOR;
+
     return drawnColor(look, [(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255]);
   }
+
   if (color === 0) return pen.byBlock;
+
   if (color === 256) return pen.byLayer;
+
   return color >= 1 && color <= 255 ? look.color(color) : pen.color;
 }
 
@@ -2350,11 +2737,14 @@ interface Tables {
 
 function tablesFor(drawing: Drawing): Tables {
   const hatchPatterns = new Map<string, HatchPattern>();
+
   for (const pattern of filled(drawing.patterns)) {
-    if (typeof pattern?.name !== "string") continue;
+    if (!isString(pattern?.name)) continue;
     const key = layerKey(pattern.name);
+
     if (!hatchPatterns.has(key)) hatchPatterns.set(key, pattern);
   }
+
   return {
     layers: new Map(filled(drawing.layers).map((l) => [layerKey(l.name), l])),
     patterns: new Map(filled(drawing.linetypes).map((t) => [layerKey(t.name), linePattern(t)])),
@@ -2363,9 +2753,9 @@ function tablesFor(drawing: Drawing): Tables {
     leaderStyles: new Map(filled(drawing.leaderStyles).map((t) => [layerKey(t.name), t])),
     // A style that is no object with a name, which `lint` refuses, is one the drawing lacks.
     tableStyles: new Map(
-      filled(drawing.tableStyles)
-        .filter((t) => typeof (t as { name?: unknown } | null)?.name === "string")
-        .map((t) => [layerKey(t.name), t]),
+      filled(drawing.tableStyles).flatMap((t) =>
+        isString(t?.name) ? [[layerKey(t.name), t] as const] : [],
+      ),
     ),
     hatchPatterns,
   };
@@ -2380,30 +2770,41 @@ function tablesFor(drawing: Drawing): Tables {
 export function visibility(drawing: Drawing, drawNoPlot: boolean | undefined) {
   // The tables of the drawing and of each drawing it references, made when first asked for.
   const tables = new Map<Drawing, Tables>();
+
   const tablesOf = (from: Referenced | undefined): Tables => {
     const source = from?.drawing ?? drawing;
     let found = tables.get(source);
+
     if (!found) tables.set(source, (found = tablesFor(source)));
+
     return found;
   };
+
   // A walk of inserts reads one name many times.
   const key = layerKeys();
   const layerOf = (ref: LayerRef): Layer | undefined => tablesOf(ref.of).layers.get(key(ref.name));
+
   const hidden = (ref: LayerRef): boolean => {
     const layer = layerOf(ref);
+
     if (layer?.off || layer?.frozen) return true;
+
     return drawNoPlot !== true && layer?.plot === false;
   };
+
   // An insert on a frozen layer draws nothing, and in a plot neither does one on a layer that
   // does not plot, whatever layers its block's entities are on.
   const frozen = (ref: LayerRef): boolean => {
     const layer = layerOf(ref);
+
     return layer?.frozen === true || (drawNoPlot !== true && layer?.plot === false);
   };
+
   const styleOf = (e: Entity, from?: Referenced): TextStyle | undefined =>
     (e.kind === "text" || e.kind === "paragraph") && e.style !== undefined
       ? tablesOf(from).textStyles.get(key(e.style))
       : undefined;
+
   return { tablesOf, layerOf, hidden, frozen, styleOf, key };
 }
 
@@ -2411,14 +2812,17 @@ export function visibility(drawing: Drawing, drawNoPlot: boolean | undefined) {
 function viewOf(view: SvgOptions["view"]): [number, number, number, number] | undefined {
   if (view === undefined) return undefined;
   const box = Array.isArray(view) && view.length === 4 ? view.map(Number) : [];
+
   const [x0 = NaN, y0 = NaN, x1 = NaN, y1 = NaN] = box.every(Number.isFinite)
     ? box.map(written)
     : [];
+
   if (!(x1 > x0 && y1 > y0)) {
     throw new RangeError(
       "A view is [x0, y0, x1, y1], four finite numbers from its lower-left corner to its upper-right, with x1 above x0 and y1 above y0",
     );
   }
+
   return [x0, y0, x1, y1];
 }
 
@@ -2426,7 +2830,7 @@ function viewOf(view: SvgOptions["view"]): [number, number, number, number] | un
 type Drawn = Exclude<Entity, Insert>;
 
 /** An entity that is one shape, with a linetype and a lineweight it may have of its own. */
-type Shape = Exclude<
+type Figure = Exclude<
   Drawn,
   Dimension | Leader | Paragraph | Image | Underlay | Hatch | Wipeout | Table
 >;
@@ -2434,6 +2838,7 @@ type Shape = Exclude<
 /** The linetype and the lineweight an entity has of its own. A dimension and a leader draw ByLayer. */
 function styled(e: Drawn): Pick<Line, "linetype" | "lineweight" | "color"> {
   if (!isDimension(e) && e.kind !== "leader" && e.kind !== "table") return e;
+
   return e.color === undefined ? {} : { color: e.color };
 }
 
@@ -2461,21 +2866,25 @@ function leaderToSvg(
   // The parts share the picture's room: one that passes what is left ends the leader there,
   // longer than the room, which `write` then refuses.
   let left = room;
+
   const add = (part: (left: number) => string): void => {
     if (left < 0) return;
     const drawn = part(left);
     parts.push(drawn);
     left -= drawn.length;
   };
-  const shape = (part: string, shaped: Shape): void =>
+
+  const drawPart = (part: string, figure: Figure): void =>
     add((left) =>
-      entityToSvg(shaped, `data-part="${part}"`, pen, look, undefined, matrix, left, sides),
+      entityToSvg(figure, `data-part="${part}"`, pen, look, undefined, matrix, left, sides),
     );
+
   const points = (corners: readonly Point[]): string =>
     corners
       .map(at)
       .map(([x, y]) => `${fmt(x)},${fmt(y)}`)
       .join(" ");
+
   // A mask hides what is drawn before the leader, and none of the leader's own parts.
   if (picture.mask) {
     const color = picture.mask.color;
@@ -2487,13 +2896,16 @@ function leaderToSvg(
         `<polygon points="${points(picture.mask!.corners)}" fill="${fill}" stroke="none"${background} data-part="mask"/>`,
     );
   }
+
   for (const shaft of picture.shafts) {
-    shape("shaft", { kind: "polyline", layer: e.layer, points: shaft, closed: false });
+    drawPart("shaft", { kind: "polyline", layer: e.layer, points: shaft, closed: false });
   }
+
   for (const landing of [picture.landing, picture.farLanding]) {
     if (landing)
-      shape("landing", { kind: "line", layer: e.layer, from: landing[0], to: landing[1] });
+      drawPart("landing", { kind: "line", layer: e.layer, from: landing[0], to: landing[1] });
   }
+
   for (const arrowhead of picture.arrowheads) {
     if (arrowhead.filled.length > 0) {
       add(
@@ -2501,12 +2913,16 @@ function leaderToSvg(
           `<polygon points="${points(arrowhead.filled)}" fill="${pen.color}" stroke="none" data-part="arrowhead"/>`,
       );
     }
+
     // An open or a dot arrowhead is a block's, which CAD programs plot opaque.
     const fading = parts;
+
     if (pen.alpha !== undefined) parts = solid;
+
     for (const [from, to] of arrowhead.lines) {
-      shape("arrowhead", { kind: "line", layer: e.layer, from, to });
+      drawPart("arrowhead", { kind: "line", layer: e.layer, from, to });
     }
+
     for (const { center, radius } of arrowhead.disks) {
       add(() =>
         roundToSvg(
@@ -2516,20 +2932,26 @@ function leaderToSvg(
         ),
       );
     }
+
     parts = fading;
   }
+
   for (const [from, to] of picture.underlines) {
-    shape("underline", { kind: "line", layer: e.layer, from, to });
+    drawPart("underline", { kind: "line", layer: e.layer, from, to });
   }
+
   if (picture.frame) {
-    shape("frame", { kind: "polyline", layer: e.layer, points: picture.frame, closed: true });
+    drawPart("frame", { kind: "polyline", layer: e.layer, points: picture.frame, closed: true });
   }
+
   add((left) => paragraphToSvg(picture.note, layOut, `data-part="text"`, pen, look, matrix, left));
   const between = `\n${look.indent}  `;
+
   const drawnParts =
     pen.alpha === undefined
       ? [...parts, ...solid]
       : [fadedGroup(parts.join(between), pen.alpha), ...solid];
+
   return `<g ${mark} data-leader="${filled(e.text).map(esc).join("&#10;")}">${between}${drawnParts.join(between)}\n${look.indent}</g>`;
 }
 
@@ -2563,14 +2985,17 @@ function tableToSvg(
   const inSpace = (p: Point): Point => mapPoint(own, p);
   const parts: string[] = [];
   let left = room;
+
   const add = (part: (left: number) => string): void => {
     if (left < 0) return;
     const drawn = part(left);
     parts.push(drawn);
     left -= drawn.length;
   };
+
   for (const fill of picture.fills) {
     const [x0, y0, x1, y1] = fill.box;
+
     const corners = (
       [
         [x0, y0],
@@ -2579,14 +3004,17 @@ function tableToSvg(
         [x0, y1],
       ] as const
     ).map(at);
+
     add(
       () =>
         `<polygon points="${corners.map(([x, y]) => `${fmt(x)},${fmt(y)}`).join(" ")}" fill="${look.color(fill.color)}" stroke="none" data-part="fill"/>`,
     );
   }
+
   for (const line of picture.lines) {
     const weighed =
       line.lineweight === undefined ? pen : { ...pen, lineweight: lineweightCode(line.lineweight) };
+
     add((left) =>
       entityToSvg(
         { kind: "line", layer: e.layer, from: inSpace(line.from), to: inSpace(line.to) },
@@ -2600,6 +3028,7 @@ function tableToSvg(
       ),
     );
   }
+
   for (const text of picture.texts) {
     const paragraph = tableParagraph(e, text);
     const lettered = text.color === undefined ? pen : { ...pen, color: look.color(text.color) };
@@ -2615,6 +3044,7 @@ function tableToSvg(
       ),
     );
   }
+
   return `<g ${mark} data-table="">\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
 }
 
@@ -2631,23 +3061,30 @@ function paragraphToSvg(
   const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
   const parts: string[] = [];
   let left = room - e.value.length;
+
   const add = (part: string): void => {
     parts.push(part);
     left -= part.length;
   };
+
   const layout = left < 0 ? undefined : layOut();
   const mask = maskOf(e.mask);
+
   if (mask && layout) {
     const corners = paragraphMaskCorners(e, layout, mask).map(at);
     add(maskToSvg(corners, mask.color, pen, look));
   }
+
   for (const line of layout?.lines ?? []) {
     if (left < 0) break;
+
     for (const run of line.runs) {
       if (left < 0) break;
+
       // A run too small to write, which a `\H` factor can make of a small paragraph, draws
       // nothing, and its layout says it is approximate.
       if (!(written(run.height) > 0)) continue;
+
       const text: Text = {
         kind: "text",
         layer: e.layer,
@@ -2656,6 +3093,7 @@ function paragraphToSvg(
         value: run.value,
         rotation: paragraphTurn(e.rotation),
       };
+
       // Each run in its own width factor and oblique angle, the style's or a code's.
       const style: TextStyle = {
         name: "",
@@ -2663,6 +3101,7 @@ function paragraphToSvg(
         widthFactor: run.widthFactor,
         obliqueAngle: run.obliqueAngle,
       };
+
       // The run is drawn in its own face, from its first point.
       const drawn = {
         start: run.start - run.x,
@@ -2670,11 +3109,14 @@ function paragraphToSvg(
         advance: run.advance,
         bold: run.bold,
       };
+
       const runPen =
         run.color === undefined ? pen : { ...pen, color: runColor(run.color, pen, look) };
+
       add(textToSvg(text, style, runPen, `data-part="text"`, matrix, false, drawn));
     }
   }
+
   for (const { kind, from, to } of layout?.strokes ?? []) {
     if (left < 0) break;
     const [a, b] = [at(place(...from)), at(place(...to))];
@@ -2682,9 +3124,12 @@ function paragraphToSvg(
       `<line x1="${fmt(a[0])}" y1="${fmt(a[1])}" x2="${fmt(b[0])}" y2="${fmt(b[1])}" stroke="${pen.color}"${look.stroke(pen.lineweight)} data-part="${kind}"/>`,
     );
   }
+
   // A tab as `&#9;`, which an XML reader would read in an attribute as a space.
   const open = `<g ${mark} data-paragraph="${esc(e.value).replaceAll("\t", "&#9;")}"`;
+
   if (parts.length === 0) return `${open}/>`;
+
   return `${open}>\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
 }
 
@@ -2702,6 +3147,7 @@ function maskToSvg(
   // One in the drawing's background is marked, for a viewer whose background is not white.
   const background = color === undefined ? ` data-mask="background"` : "";
   const points = corners.map(([x, y]) => `${fmt(x)},${fmt(y)}`).join(" ");
+
   return `<polygon points="${points}" fill="${fill}" stroke="none"${background} data-part="mask"/>`;
 }
 
@@ -2725,18 +3171,25 @@ function hatchToSvg(
   shade: (picture: GradientPicture) => string | undefined,
 ): string {
   const spread = hatchSpread(e, patternOf, sizesOf);
+
   if (spread !== undefined) {
     // One whose loops or lines `lint` refuses draws none of its lines.
     const box = loopsBox(e.loops);
+
     if (box === undefined || patternDrawnProblem(box, spread) !== undefined) return `<g ${mark}/>`;
     const pattern = hatchLines(e, patternOf)!;
+
     return patternToSvg(e, pattern, mark, pen, look, matrix, room, step);
   }
+
   const place = (x: number, y: number): string => {
     const [px, py] = matrix ? mapPoint(matrix, [x, y]) : [x, y];
+
     return `${fmt(px)} ${fmt(py)}`;
   };
+
   const gradient = e.gradient === undefined ? undefined : gradientWritten(e.gradient);
+
   if (e.gradient !== undefined && gradient === undefined) return `<g ${mark}/>`;
   const boxer = gradient && gradientBoxer(gradient);
   // Each loop is one string once made, and each side is paid for from the room, so that what the
@@ -2749,47 +3202,61 @@ function hatchToSvg(
   let d = "";
   let left = room;
   let walked = 0;
+
   for (const loop of drawnLoops(loops)) {
     if (left < 0) break;
     const sides = loopSides(loop);
     walked += sides.length;
+
     if (sides.length === 0) continue;
     const parts = [`M ${place(...sides[0]!.from)}`];
     let used = parts[0]!.length;
+
     for (const side of sides) {
       if (used > left) break;
       boxer?.side(writtenPoint(side.from), writtenPoint(side.to), written(side.bulge));
       const arc = sideArc(side.from, side.to, side.bulge);
+
       if (!arc) parts.push(`L ${place(...side.to)}`);
       else {
         const round = rounded(arc.radius, matrix);
         const flag = arc.sweep > 0 ? round.sweep : 1 - round.sweep;
         const a = `A ${fmt(round.rx)} ${fmt(round.ry)} ${fmt(round.turn)} 0 ${flag}`;
+
         // An arc of more than half a turn is drawn as two halves, so that no arc of the path ends
         // where it starts, which SVG would draw as nothing.
         if (Math.abs(arc.sweep) > Math.PI) {
           parts.push(`${a} ${place(...arcPoint(arc, 0.5))}`);
           used += parts.at(-1)!.length + 1;
         }
+
         parts.push(`${a} ${place(...side.to)}`);
       }
+
       used += parts.at(-1)!.length + 1;
     }
+
     parts.push("Z");
     const path = parts.join(" ");
     d = d === "" ? path : d + " " + path;
     left -= path.length + 1;
   }
+
   if (d === "") return `<g ${mark}/>`;
+
   if (boxer) {
     const picture = boxer.picture();
     const id = picture && shade(picture);
+
     if (id === undefined) {
       step(walked);
+
       return `<g ${mark}/>`;
     }
+
     return `<path d="${d}" fill="url(#${id})" fill-rule="evenodd" stroke="none" ${mark} data-hatch="" data-gradient=""/>`;
   }
+
   return `<path d="${d}" fill="${pen.color}" fill-rule="evenodd" stroke="none" ${mark} data-hatch=""/>`;
 }
 
@@ -2815,27 +3282,34 @@ function patternToSvg(
 ): string {
   const place = ([x, y]: Point): string => {
     const [px, py] = matrix ? mapPoint(matrix, [x, y]) : [x, y];
+
     return `${fmt(px)} ${fmt(py)}`;
   };
+
   // The loops and the lines as the file holds them: points with 6 decimals, lines with 15 digits.
   const rings = drawnLoops(e.loops).map(loopSides);
   const digits = (value: number) => Number(fifteenDigits(value));
-  const lines = pattern.lines.map((line) => ({
-    angle: digits(line.angle),
-    base: [digits(line.base[0]), digits(line.base[1])] as Point,
-    offset: [digits(line.offset[0]), digits(line.offset[1])] as Point,
-    dashes: line.dashes.map(digits),
-  }));
+
+  const lines = pattern.lines.map((line) => {
+    const base: Point = [digits(line.base[0]), digits(line.base[1])];
+    const offset: Point = [digits(line.offset[0]), digits(line.offset[1])];
+
+    return { angle: digits(line.angle), base, offset, dashes: line.dashes.map(digits) };
+  });
+
   // The pieces are paid for from the room, and the one that passes it ends the path there.
   const parts: string[] = [];
   let left = room;
   patternPieces(rings, lines, step, (from, to) => {
     const part = `M ${place(from)} L ${place(to)}`;
     parts.push(part);
+
     return (left -= part.length + 1) >= 0;
   });
+
   if (parts.length === 0) return `<g ${mark}/>`;
   const d = parts.join(" ");
+
   return `<path d="${d}" stroke="${pen.color}"${look.stroke(pen.lineweight)} stroke-linecap="round" ${mark} data-hatch=""/>`;
 }
 
@@ -2852,16 +3326,20 @@ function wipeoutToSvg(
   frame: boolean,
 ): string {
   const corners = filled(e.points).map((p) => (matrix ? mapPoint(matrix, p) : p));
+
   if (corners.length < 3) return `<g ${mark}/>`;
   const points = corners.map(([x, y]) => `${fmt(x)},${fmt(y)}`).join(" ");
+
   const parts = [
     `<polygon points="${points}" fill="#ffffff" stroke="none" data-mask="background" data-part="mask"/>`,
   ];
+
   if (frame) {
     parts.push(
       `<polygon points="${points}" stroke="${pen.color}"${look.stroke(pen.lineweight)} data-part="frame"/>`,
     );
   }
+
   return `<g ${mark} data-wipeout="">${parts.join("")}</g>`;
 }
 
@@ -2886,6 +3364,7 @@ function dimensionToSvg(
   const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
   // A style's lineweight, as group 370 holds it, over the dimension's own.
   const weighed = (code: number): Pen => (code < 0 ? pen : { ...pen, lineweight: code });
+
   const line = (part: string, [from, to]: readonly [Point, Point], drawn: Pen): string =>
     entityToSvg(
       { kind: "line", layer: e.layer, from, to },
@@ -2896,18 +3375,20 @@ function dimensionToSvg(
       matrix,
       room,
     );
+
   const extension = weighed(picture.lineweights.extension);
   const dimension = weighed(picture.lineweights.dimension);
   const thin = arrowheadInfo(style.arrowhead ?? DEFAULT_ARROWHEAD)?.stroke?.width === 0;
   // A style's mask is drawn behind each text, as its picture's paragraph holds it.
   const masked = dimensionMask(style);
-  const mask =
-    masked === undefined
-      ? undefined
-      : {
-          ...(masked.color === undefined ? {} : { color: masked.color }),
-          offsetFactor: masked.offsetFactor,
-        };
+
+  let mask: Mask | undefined;
+
+  if (masked !== undefined) {
+    const { color, offsetFactor } = masked;
+    mask = color === undefined ? { offsetFactor } : { color, offsetFactor };
+  }
+
   const parts = [
     ...picture.extensionLines.map((ends) => line("extension-line", ends, extension)),
     ...picture.dimensionLines.map((ends) => line("dimension-line", ends, dimension)),
@@ -2931,67 +3412,82 @@ function dimensionToSvg(
     ),
     ...picture.leader.map((ends) => line("leader", ends, dimension)),
   ];
+
   // A tick or an oblique stroke is a block's, which CAD programs plot opaque.
   const blocked = arrowheadInfo(style.arrowhead ?? DEFAULT_ARROWHEAD)?.block !== undefined;
+
   const heads = picture.arrowheads.map((corners) => {
     if (thin) return line("arrowhead", [corners[0]!, corners[1]!], dimension);
+
     const points = corners
       .map(at)
       .map(([x, y]) => `${fmt(x)},${fmt(y)}`)
       .join(" ");
+
     return `<polygon points="${points}" fill="${pen.color}" stroke="none" data-part="arrowhead"/>`;
   });
+
   // Moved out of the faded group only when the dimension fades, so an opaque one is as it was.
   const apart = blocked && pen.alpha !== undefined;
   parts.push(
     ...(apart ? [] : heads),
-    ...pictureTexts(picture, textStyle).map((text) =>
-      paragraphToSvg(
-        {
-          kind: "paragraph",
-          layer: e.layer,
-          at: text.at!,
-          height: text.height,
-          value: text.value,
-          rotation: text.rotation ?? 0,
-          align: "center",
-          valign: "middle",
-          ...(mask === undefined ? {} : { mask }),
-        },
+    ...pictureTexts(picture, textStyle).map((text) => {
+      const drawn: Paragraph = {
+        kind: "paragraph",
+        layer: e.layer,
+        at: text.at!,
+        height: text.height,
+        value: text.value,
+        rotation: text.rotation ?? 0,
+        align: "center",
+        valign: "middle",
+      };
+
+      return paragraphToSvg(
+        mask === undefined ? drawn : { ...drawn, mask },
         () => layoutDimensionText(text),
         `data-part="text"`,
         pen,
         look,
         matrix,
         room,
-      ),
-    ),
+      );
+    }),
   );
   const between = `\n${look.indent}  `;
   const solid = apart ? heads : [];
+
   const drawnParts =
     pen.alpha === undefined
       ? [...parts, ...solid]
       : [fadedGroup(parts.join(between), pen.alpha), ...solid];
+
   return `<g ${mark} data-dimension="${esc(picture.label.value)}">${between}${drawnParts.join(between)}\n${look.indent}</g>`;
+}
+
+/** What a matrix makes of a circle: two radii, the turn of the first, and the way it is drawn. */
+interface Rounded {
+  rx: number;
+  ry: number;
+  turn: number;
+  sweep: 0 | 1;
 }
 
 /**
  * What a matrix makes of a circle: an ellipse with these two radii, the first turned by `turn`
  * degrees, drawn counterclockwise when `sweep` is 1. With no matrix it is the circle.
  */
-function rounded(
-  radius: number,
-  m: Matrix | undefined,
-): { rx: number; ry: number; turn: number; sweep: 0 | 1 } {
+function rounded(radius: number, m: Matrix | undefined): Rounded {
   if (!m) return { rx: radius, ry: radius, turn: 0, sweep: 1 };
   // The two stretches of the matrix, and the turn it gives the first.
   const [e, f, g, h] = [(m[0] + m[3]) / 2, (m[0] - m[3]) / 2, (m[1] + m[2]) / 2, (m[1] - m[2]) / 2];
   const [q, r] = [Math.hypot(e, h), Math.hypot(f, g)];
   const sweep = m[0] * m[3] - m[1] * m[2] < 0 ? 0 : 1;
   const [rx, ry] = [radius * (q + r), radius * Math.abs(q - r)];
+
   // A matrix that scales both ways alike leaves a circle, which has no turn to give.
   if (fmt(rx) === fmt(ry)) return { rx, ry, turn: 0, sweep };
+
   return { rx, ry, turn: ((Math.atan2(g, f) + Math.atan2(h, e)) * 90) / Math.PI, sweep };
 }
 
@@ -3012,15 +3508,20 @@ function figureReaches(drawing: Drawing): (e: Entity) => FigureReach {
   const key = layerKeys();
   // By each block's list of entities, so that blocks sharing one walk it once.
   const known = new Map<unknown, FigureReach>();
+
   /** The larger scale of an insert and the larger over the smaller, or undefined for none. */
   const scaleOf = (e: Insert): readonly [number, number] | undefined => {
     const scale: unknown = e.scale ?? [1, 1];
+
     if (!Array.isArray(scale)) return undefined;
     const [x, y]: unknown[] = [scale[0], scale[1]];
-    if (typeof x !== "number" || typeof y !== "number") return undefined;
+
+    if (!isNumber(x) || !isNumber(y)) return undefined;
     const [most, least] = [Math.max(Math.abs(x), Math.abs(y)), Math.min(Math.abs(x), Math.abs(y))];
+
     return least > 0 && Number.isFinite(most) ? [most, most / least] : undefined;
   };
+
   interface Walk {
     readonly list: unknown;
     readonly items: readonly unknown[];
@@ -3029,6 +3530,7 @@ function figureReaches(drawing: Drawing): (e: Entity) => FigureReach {
     absolute: number;
     relative: number;
   }
+
   const into = (
     to: { absolute: number; relative: number },
     r: FigureReach,
@@ -3037,19 +3539,23 @@ function figureReaches(drawing: Drawing): (e: Entity) => FigureReach {
     to.absolute = Math.max(to.absolute, r.absolute * by[0]!);
     to.relative = Math.max(to.relative, r.relative * by[1]!);
   };
+
   // A stack of its own, so that blocks nested however deep do not run out of the call stack.
   const ofInsert = (e: Insert): FigureReach => {
-    const out = { absolute: 0, relative: 0 };
+    const out: Reaching = { absolute: 0, relative: 0 };
     const stack: Walk[] = [];
-    let at: { absolute: number; relative: number } = out;
+    let at: Reaching = out;
     let insert: Insert | undefined = e;
+
     for (;;) {
       if (insert !== undefined) {
         const scale = scaleOf(insert);
         const name = insert.block;
-        const list =
-          scale && typeof name === "string" ? blocks.get(key(name))?.entities : undefined;
+
+        const list = scale && isString(name) ? blocks.get(key(name))?.entities : undefined;
+
         const had = list === undefined ? NONE : known.get(list);
+
         if (had) into(at, had, scale ?? [0, 0]);
         else {
           // A block inside itself reaches nothing more.
@@ -3058,10 +3564,14 @@ function figureReaches(drawing: Drawing): (e: Entity) => FigureReach {
           stack.push(walk);
           at = walk;
         }
+
         insert = undefined;
       }
+
       const top = stack.at(-1);
+
       if (!top) return out;
+
       if (top.i >= top.items.length) {
         const found = { absolute: top.absolute, relative: top.relative };
         known.set(top.list, found);
@@ -3070,21 +3580,30 @@ function figureReaches(drawing: Drawing): (e: Entity) => FigureReach {
         into(at, found, top.scale);
         continue;
       }
+
       const item = top.items[top.i++];
-      if (typeof item !== "object" || item === null) continue;
-      const kind = (item as Entity).kind;
+
+      if (!isObjectOrArray(item)) continue;
+      const kind = "kind" in item ? item.kind : undefined;
+
       if (kind === "point") into(top, { absolute: 1, relative: 1 }, [1, 1]);
-      else if (kind === "insert") insert = item as Insert;
+      else if (kind === "insert") {
+        // SAFETY: an insert of a block is walked as an insert, whose block and scale `scaleOf`
+        // reads as values of any type.
+        insert = item as Insert;
+      }
     }
   };
+
   const of = (e: Entity): FigureReach =>
-    typeof e !== "object" || e === null
+    !isObjectOrArray(e)
       ? NONE
       : e.kind === "point"
         ? { absolute: 1, relative: 1 }
         : e.kind === "insert"
           ? ofInsert(e)
           : NONE;
+
   return of;
 }
 
@@ -3105,40 +3624,52 @@ function pointToSvg(
   // A point `lint` refuses draws nothing.
   const [x0, y0] = Array.isArray(e.at) ? e.at : [NaN, NaN];
   const turn = e.rotation ?? 0;
-  if (![x0, y0, turn].every((n) => typeof n === "number" && Number.isFinite(n)))
-    return `<g ${mark}/>`;
+
+  if (![x0, y0, turn].every((n) => isNumber(n) && Number.isFinite(n))) return `<g ${mark}/>`;
   let reach = pointReach(style, height);
-  if (reach !== undefined && typeof style.size !== "number" && matrix) {
+
+  if (reach !== undefined && !isNumber(style.size) && matrix) {
     const [a, b, c, d] = matrix;
     const det = a * d - b * c;
     const back = Math.hypot(d * up[0] - c * up[1], a * up[1] - b * up[0]) / Math.abs(det);
     reach = Number.isFinite(back) && back > 0 ? reach * back : undefined;
   }
+
   const parts = pointFigure(style, reach);
+
   if (parts.length === 0) return `<g ${mark}/>`;
   const turned = rad(e.rotation ?? 0);
   const [cos, sin] = [Math.cos(turned), Math.sin(turned)];
+
   const at = ([x, y]: Point): string => {
     const local: Point = [e.at[0] + x * cos - y * sin, e.at[1] + x * sin + y * cos];
     const [px, py] = matrix ? mapPoint(matrix, local) : local;
+
     return `${fmt(px)} ${fmt(py)}`;
   };
+
   const alone = style.figure === "dot" && !style.circle && !style.square;
   const s = `stroke="${pen.color}"${(alone && look.points.dot) || look.stroke(0)} data-part="figure"`;
+
   const paths = parts.map((part) => {
     if ("radius" in part) {
       // Two halves, from the point the figure's turn puts at 0 degrees, as the circle plots.
       const r = part.radius;
       const round = rounded(r, matrix);
       const arc = `A ${fmt(round.rx)} ${fmt(round.ry)} ${fmt(round.turn)} 0 ${round.sweep}`;
+
       return `<path d="M ${at([r, 0])} ${arc} ${at([-r, 0])} ${arc} ${at([r, 0])}" ${s}/>`;
     }
+
     const [first, ...rest] = part.points;
+
     // A dot is a path of no length, which a round cap draws.
     if (rest.length === 0)
       return `<path d="M ${at(first!)} L ${at(first!)}" stroke-linecap="round" ${s}/>`;
+
     return `<path d="M ${at(first!)} ${rest.map((p) => `L ${at(p)}`).join(" ")}" ${s}/>`;
   });
+
   return `<g ${mark} data-point="">\n${look.indent}  ${paths.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
 }
 
@@ -3149,7 +3680,7 @@ function pointToSvg(
  * @param sides - The sides of each polyline's points, kept for the picture.
  */
 function entityToSvg(
-  e: Shape,
+  e: Figure,
   mark: string,
   pen: Pen,
   look: Look,
@@ -3161,37 +3692,48 @@ function entityToSvg(
   // A lineweight of 0 draws as the thinnest line, as in the leading CAD app.
   const s = `stroke="${pen.color}"${look.stroke(pen.lineweight)} ${mark}`;
   const at = (p: Point): Point => (matrix ? mapPoint(matrix, p) : p);
+
   if (e.kind === "point") return pointToSvg(e, mark, pen, look, matrix);
   const plan = e.kind === "polyline" ? planOf(e, sides) : undefined;
+
   if (e.kind === "polyline" && plan) {
     return polylineToSvg(e, plan, mark, pen, look, matrix, room, sides);
   }
+
   if (e.kind !== "text" && pen.dashes) {
     const letters = lettersOf(pen, look);
     const d = dashedPath(e, pen.dashes, matrix, room, sides, undefined, letters, look.chord);
     // A pattern with a dot draws it as a round cap on a path of no length.
     const cap = pen.dashes.dot ? ` stroke-linecap="round"` : "";
+
     if (d !== undefined) {
       if (!letters?.out.length) return `<path d="${d}"${cap} ${s}/>`;
       // The texts of its linetype are drawn after its dashes, in a group with them.
       const stroked = `stroke="${pen.color}"${look.stroke(pen.lineweight)}`;
       const parts = [`<path d="${d}"${cap} ${stroked}/>`, ...letters.out];
+
       return `<g ${mark}>\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
     }
   }
+
   switch (e.kind) {
     case "line": {
       const [from, to] = [at(e.from), at(e.to)];
+
       return `<line x1="${fmt(from[0])}" y1="${fmt(from[1])}" x2="${fmt(to[0])}" y2="${fmt(to[1])}" ${s}/>`;
     }
+
     case "polyline": {
       const tag = e.closed ? "polygon" : "polyline";
+
       const points = filled(e.points)
         .map(at)
         .map(([px, py]) => `${fmt(px)},${fmt(py)}`)
         .join(" ");
+
       return `<${tag} points="${points}" ${s}/>`;
     }
+
     case "circle":
       return roundToSvg(at(e.center), rounded(e.radius, matrix), s);
     case "arc": {
@@ -3199,25 +3741,33 @@ function entityToSvg(
       const a0 = rad(e.startAngle);
       const a1 = rad(e.endAngle);
       const large = sweep(e.startAngle, e.endAngle) > 180 ? 1 : 0;
+
       const ends = [a0, a1].map((a) =>
         at([cx + e.radius * Math.cos(a), cy + e.radius * Math.sin(a)]),
       );
+
       const [start, end] = ends.map(([px, py]) => `${fmt(px)} ${fmt(py)}`);
       const round = rounded(e.radius, matrix);
+
       // SVG draws nothing for an arc that ends where it starts, which is where rounding can
       // put the ends of an arc that is all but a full turn.
       if (start === end && large === 1) return roundToSvg(at(e.center), round, s);
+
       // sweep-flag 1 is the positive-angle direction in local (Y-up) coordinates: counterclockwise.
       return `<path d="M ${start} A ${fmt(round.rx)} ${fmt(round.ry)} ${fmt(round.turn)} ${large} ${round.sweep} ${end}" ${s}/>`;
     }
+
     case "text":
       return textToSvg(e, style, pen, mark, matrix, true);
     case "ellipse": {
       const curve = curveOf(e, sides);
+
       return curve ? ellipseToSvg(curve.ellipse!, matrix, s) : `<g ${mark}/>`;
     }
+
     case "spline": {
       const curve = curveOf(e, sides);
+
       return curve ? `<path d="${splinePath(curve, matrix)}" ${s}/>` : `<g ${mark}/>`;
     }
   }
@@ -3245,6 +3795,7 @@ function textToSvg(
 ): string {
   // Undo the group's Y flip so the text reads upright, then apply CAD rotation.
   let t = `translate(${fmt(e.at[0])} ${fmt(e.at[1])}) scale(1 -1)${e.rotation ? ` rotate(${fmt(-e.rotation)})` : ""}`;
+
   // An insert's matrix is applied last, so it comes first.
   if (matrix) t = `matrix(${matrix.map(fmt).join(" ")}) ${t}`;
   const named = style?.font ?? STANDARD_FONT;
@@ -3259,6 +3810,7 @@ function textToSvg(
   let start: number;
   let end: number;
   let baseline = 0;
+
   if (run) [start, end] = trueType ? [0, run.advance] : [run.start, run.end];
   else {
     const laid = layoutText(inStyle(e, style));
@@ -3266,12 +3818,15 @@ function textToSvg(
     [start, end] = trueType ? [first, first + laid.advances] : [laid.start, laid.end];
     baseline = laid.baseline;
   }
+
   if (written(start) !== 0 || written(baseline) !== 0) {
     t += ` translate(${fmt(start)} ${fmt(-baseline)})`;
   }
+
   // The leading CAD app slants a text after it widens it, so the width factor does not widen
   // the lean. The transform applied last comes first.
   if (oblique !== 0) t += ` skewX(${fmt(-oblique)})`;
+
   if (width !== 1) t += ` scale(${fmt(width)} 1)`;
   // A text's height is the height of its capitals, which a font draws smaller than its size.
   const size = e.height / (capHeightOf(named, run?.bold) ?? SCREEN_CAP_HEIGHT);
@@ -3281,15 +3836,18 @@ function textToSvg(
   const value = decode ? drawnValue(e.value) : e.value;
   // The font by its name in `FONTS`, and empty for a font that is not one of them.
   const weight = run?.bold ? ` font-weight="bold"` : "";
+
   return `<text transform="${t}"${weight} font-size="${fmt(size)}" font-family="${esc(family)}" data-height="${fmt(e.height)}"${held} xml:space="preserve" fill="${pen.color}" stroke="none" data-font="${esc(font ? named : "")}" ${mark}>${esc(value)}</text>`;
 }
 
 /** A circle, or the ellipse an insert that scales unevenly makes of one. */
 function roundToSvg(center: Point, round: ReturnType<typeof rounded>, s: string): string {
   const [cx, cy] = [fmt(center[0]), fmt(center[1])];
+
   if (fmt(round.rx) === fmt(round.ry))
     return `<circle cx="${cx}" cy="${cy}" r="${fmt(round.rx)}" ${s}/>`;
   const turn = round.turn === 0 ? "" : ` transform="rotate(${fmt(round.turn)} ${cx} ${cy})"`;
+
   return `<ellipse cx="${cx}" cy="${cy}" rx="${fmt(round.rx)}" ry="${fmt(round.ry)}"${turn} ${s}/>`;
 }
 
@@ -3301,24 +3859,29 @@ function roundToSvg(center: Point, round: ReturnType<typeof rounded>, s: string)
  */
 /** True for a mark whose fields a text or a shape can be drawn from, as `lint` holds them. */
 function drawable(mark: unknown): mark is LinetypeMark {
-  if (typeof mark !== "object" || mark === null) return false;
-  const m = mark as Record<string, unknown>;
-  const finite = (v: unknown) => typeof v === "number" && Number.isFinite(v);
+  if (!isObjectOrArray(mark)) return false;
+  // An array is a mark of no field, which neither of the two kinds below is.
+  const m: unknown = mark;
+
+  if (!isRecord(m)) return false;
+  const finite = (v: unknown): v is number => isNumber(v) && Number.isFinite(v);
   const offset = m.offset;
+
   const what =
     "text" in m
-      ? typeof m.text === "string" && finite(m.height) && (m.height as number) > 0
-      : "shape" in m &&
-        Number.isInteger(m.shape) &&
-        typeof m.file === "string" &&
+      ? isString(m.text) && finite(m.height) && m.height > 0
+      : "glyph" in m &&
+        Number.isInteger(m.glyph) &&
+        isString(m.file) &&
         finite(m.scale) &&
         m.scale !== 0;
+
   return (
     what &&
     Number.isInteger(m.after) &&
     (m.rotation === undefined || finite(m.rotation)) &&
-    (m.orient === undefined || (MARK_ORIENTS as readonly unknown[]).includes(m.orient)) &&
-    (m.style === undefined || typeof m.style === "string") &&
+    (m.orient === undefined || MARK_ORIENTS.some((orient) => orient === m.orient)) &&
+    (m.style === undefined || isString(m.style)) &&
     (offset === undefined ||
       (Array.isArray(offset) && offset.length === 2 && finite(offset[0]) && finite(offset[1])))
   );
@@ -3334,18 +3897,22 @@ function linePattern(t: Linetype): LinePattern | undefined {
   // A pattern of dashes alone with marks draws them along a solid line, as one of no gap.
   const solid = pattern.length > 0 && pattern.every((length) => length >= 0);
   const whole = pattern.reduce((a, b) => a + Math.abs(b), 0);
+
   const alternated =
     solid && marks.length > 0 && whole > 0 ? { runs: [whole, 0], trail: 0 } : alternating(pattern);
+
   if (alternated === undefined) return undefined;
   const { runs, trail } = alternated;
   const total = runs.reduce((a, b) => a + b, 0);
   const first = pattern.findIndex((length) => length >= 0);
   const ends: number[] = [];
   let sum = 0;
+
   for (const length of pattern) ends.push((sum += Math.abs(length)));
   const shift = first > 0 ? ends[first - 1]! : 0;
   // Of two marks at one length only the first is drawn, so a pattern has no more marks than lengths.
   const seen = new Set<number>();
+
   return {
     runs,
     trail,
@@ -3353,12 +3920,14 @@ function linePattern(t: Linetype): LinePattern | undefined {
     marks: marks.flatMap((mark) => {
       if (!drawable(mark)) return [];
       const end = ends[mark.after];
+
       if (end === undefined || seen.has(mark.after)) return [];
       seen.add(mark.after);
       // A mark on the length the pattern ends with, which a pattern that starts with a gap ends
       // where its runs start, is at the end of the pattern, whatever its lengths add up to.
       const last = mark.after === (first > 0 ? first - 1 : pattern.length - 1) && end > 0;
       const at = last ? 0 : (((end - shift) % total) + total) % total;
+
       return [{ at, end: last, mark }];
     }),
   };
@@ -3366,17 +3935,21 @@ function linePattern(t: Linetype): LinePattern | undefined {
 
 function alternating(pattern: readonly number[]): { runs: number[]; trail: number } | undefined {
   const first = pattern.findIndex((length) => length >= 0);
+
   if (first < 0) return undefined;
   const runs: number[] = [];
+
   // A dot is a dash of no length. Runs alternate dash, gap, so an odd index is a gap.
   for (const length of [...pattern.slice(first), ...pattern.slice(0, first)]) {
     if (runs.length % 2 === (length < 0 ? 0 : 1)) runs[runs.length - 1]! += Math.abs(length);
     else runs.push(Math.abs(length));
   }
+
   if (runs.length < 2) return undefined;
   // A pattern that ends with a dash runs it into its first.
   const trail = runs.length % 2 === 1 ? runs.pop()! : 0;
   runs[0]! += trail;
+
   return runs.reduce((a, b) => a + b, 0) > 0 ? { runs, trail } : undefined;
 }
 
@@ -3391,7 +3964,7 @@ function alternating(pattern: readonly number[]): { runs: number[]; trail: numbe
  * for the sides it draws: one with no length draws nothing.
  */
 function dashedPath(
-  e: Exclude<Shape, { kind: "text" }>,
+  e: Exclude<Figure, { kind: "text" }>,
   pattern: Dashes,
   matrix: Matrix | undefined,
   room: number,
@@ -3401,20 +3974,26 @@ function dashedPath(
   spaceChord = 0,
 ): string | undefined {
   const { lengths: dashes, total } = pattern;
+
   // Dashes that add up to no length would never reach the end of a stretch.
   if (!(total > 0)) return undefined;
+
   const place = (px: number, py: number): string => {
     const [mx, my] = matrix ? mapPoint(matrix, [px, py]) : [px, py];
+
     return `${fmt(mx)} ${fmt(my)}`;
   };
+
   let out: string[] = [];
   let size = 0;
+
   /** Draws a dash from `from` to `to` along a stretch, and counts its characters. */
   const dash = (draw: (from: number, to: number) => string, from: number, to: number): void => {
     const drawn = draw(from, to);
     size += drawn.length + 1;
     out.push(drawn);
   };
+
   /**
    * Cuts a stretch of the given length, and draws each dash from `from` to `to` along it. A
    * line, a side of a polyline and an arc are `fitted`, a pattern that starts with a dot too, whose
@@ -3429,6 +4008,7 @@ function dashedPath(
     stretch = 1,
   ): boolean => {
     if (size > room) return true;
+
     if (length / total > MAX_DASHES) return false;
     const first = dashes[0]! * stretch;
     // The first run starts with the pattern's last dash when it ends with one, and runs on into
@@ -3439,31 +4019,40 @@ function dashedPath(
     let i = 0;
     let at = -pattern.trail * stretch;
     let last = length;
+
     // A stretch shorter than its pattern is solid, whatever the pattern starts with.
     if (fitted && length < total * (1 - 1e-9)) {
       dash(draw, 0, length);
+
       return true;
     }
+
     // A dot stays a dot: a stretch of a pattern that starts with one has a dot at each end, and
     // what is left over lengthens the gap after the first and before the last.
     const dotted = first === 0;
+
     if (fitted) {
       const k = Math.floor(length / total + 1e-9);
       const end = (length + lead - k * total) / 2;
       dash(draw, 0, dotted ? 0 : end + after);
       [i, at, last] = [1, end + after, length - end];
     }
+
     // The pattern ends where the last dash starts, or where the stretch ends, to within what
     // rounding moves a number.
     const stop = last - total * stretch * 1e-9;
+
     for (; at < stop && size <= room; i = (i + 1) % dashes.length) {
       if (i % 2 === 0) dash(draw, Math.max(at, 0), Math.min(at + dashes[i]! * stretch, last));
       at += dashes[i]! * stretch;
     }
+
     // A fitted stretch ends with its last dash, or a dot at its end.
     if (fitted && size <= room) dash(draw, dotted ? length : last, length);
+
     return true;
   };
+
   /** Draws the marks of a stretch, each where `frame` puts its point and its direction. */
   const markAlong = (
     length: number,
@@ -3472,40 +4061,51 @@ function dashedPath(
     stretch = 1,
   ): void => {
     if (letters === undefined || pattern.marks === undefined) return;
+
     for (const { s, mark } of markSpots(length, pattern, fitted, stretch)) {
       if (size > room) return;
       const [p, t] = frame(s);
       const drawn = letterAt(mark, p, t, matrix, letters);
+
       if (drawn === undefined) continue;
       size += drawn.length + 1;
       letters.out.push(drawn);
     }
   };
+
   // An insert that scales one way more than the other draws a straight side longer or shorter
   // than the pattern's shrink allows for, and the pattern is fitted to it as it is drawn.
   const shrink = matrix ? Math.sqrt(Math.abs(matrix[0] * matrix[3] - matrix[1] * matrix[2])) : 1;
   // `Look.chord` in the entity's own units.
   const chord = shrink > 0 && Number.isFinite(spaceChord / shrink) ? spaceChord / shrink : 0;
+
   const gauge = (a: Point, b: Point, length: number): number => {
     if (!matrix || !(shrink > 0)) return 1;
     const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
     const drawn = Math.hypot(matrix[0] * dx + matrix[2] * dy, matrix[1] * dx + matrix[3] * dy);
     const g = drawn / (length * shrink);
+
     return Number.isFinite(g) && g > 0 && Math.abs(g - 1) > 1e-9 ? g : 1;
   };
+
   /** Cuts a straight stretch; a side of a polyline too fine for its pattern as drawn is drawn solid. */
   const straight = (a: Point, b: Point, side = false): boolean => {
     const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+
     if (length === 0) return true;
     const g = gauge(a, b, length);
+
     const along = (t: number) =>
       place(a[0] + ((b[0] - a[0]) * t) / g / length, a[1] + ((b[1] - a[1]) * t) / g / length);
+
     const draw = (from: number, to: number) => `M ${along(from)} L ${along(to)}`;
     const done = cut(length * g, draw, true) || (side && (dash(draw, 0, length * g), true));
     const frame = sideFrame({ from: a, to: b }, undefined, length);
     markAlong(length * g, (at) => frame(at / g), true);
+
     return done;
   };
+
   const round = (
     center: Point,
     radius: number,
@@ -3517,39 +4117,51 @@ function dashedPath(
   ): boolean => {
     // A negative turn runs clockwise, and its pattern runs that way from `start`.
     const way = turn < 0 ? -1 : 1;
+
     const along = (t: number) => {
       const angle = rad(start) + (way * t) / radius;
+
       return place(center[0] + radius * Math.cos(angle), center[1] + radius * Math.sin(angle));
     };
+
     // The pattern is fitted to the straight pieces the arc is cut into, and drawn along the arc.
     const length = radius * rad(Math.abs(turn));
     const pieces = piecesLength(radius, rad(Math.abs(turn)), chord);
     const k = pieces > 0 ? length / pieces : 1;
+
     if (marked) {
       const frame = arcFrame(center, radius, rad(start), rad(turn), length, chord);
       markAlong(pieces, (at) => frame(at * k), fitted, stretch);
     }
-    const shape = rounded(radius, matrix);
-    const sweep = way > 0 ? shape.sweep : 1 - shape.sweep;
+
+    const arcForm = rounded(radius, matrix);
+    const sweep = way > 0 ? arcForm.sweep : 1 - arcForm.sweep;
+
     return cut(
       pieces,
       (a, b) => {
         const [from, to] = [a * k, b * k];
+
         // SVG draws no arc between two equal points, so a dot is a line of no length.
         if (to === from) return `M ${along(from)} L ${along(to)}`;
-        const arc = `A ${fmt(shape.rx)} ${fmt(shape.ry)} ${fmt(shape.turn)}`;
+        const arc = `A ${fmt(arcForm.rx)} ${fmt(arcForm.ry)} ${fmt(arcForm.turn)}`;
+
         // A dash of a full turn ends where it starts, so it is drawn as two halves.
         if ((to - from) / radius > Math.PI && along(from) === along(to)) {
           return `M ${along(from)} ${arc} 0 ${sweep} ${along((from + to) / 2)} ${arc} 0 ${sweep} ${along(to)}`;
         }
+
         const large = (to - from) / radius > Math.PI ? 1 : 0;
+
         return `M ${along(from)} ${arc} ${large} ${sweep} ${along(to)}`;
       },
       fitted,
       stretch,
     );
   };
+
   let ok: boolean;
+
   switch (e.kind) {
     case "line":
       ok = straight(e.from, e.to);
@@ -3559,43 +4171,59 @@ function dashedPath(
       // A polyline with a side whose width changes along it starts the pattern again at each
       // vertex whatever its flag says, as the leading CAD app does.
       const tapered = plan?.parts.some(({ side }) => side.startWidth !== side.endWidth) ?? false;
+
       if (e.linetypeGeneration === true && !tapered) {
         const course = courseOf(e, plan, known).map((piece) => {
           const { arc } = piece;
           const local = arc ? piecesLength(arc.radius, Math.abs(arc.sweep), chord) : piece.length;
           const g = arc ? 1 : gauge(piece.side.from, piece.side.to, piece.length);
+
           return { ...piece, local, length: local * g, gauge: g };
         });
+
         if (course.length === 0) return undefined;
         const ends: number[] = [];
         let length = 0;
+
         for (const piece of course) ends.push((length += piece.length));
+
         if (length / total > MAX_DASHES) return undefined;
         // Around a closed polyline the pattern goes a whole number of times, stretched alike,
         // and the course starts at its second point.
         const patterns = Math.round(length / total);
+
         if (e.closed && patterns < 1) return undefined;
         const stretch = e.closed ? length / (patterns * total) : 1;
+
         /** The piece that holds `at` along the course, and how far into it. */
         const locate = (at: number): readonly [number, number] => {
           // The first piece that ends at or past `at`, found by halving.
           let [lo, hi] = [0, course.length - 1];
+
           while (lo < hi) {
             const mid = (lo + hi) >> 1;
+
             if (at > ends[mid]!) lo = mid + 1;
             else hi = mid;
           }
+
           return [lo, at - (ends[lo]! - course[lo]!.length)];
         };
+
         const strokes = out;
+
         const piece = (i: number, from: number, to: number): string => {
           const { side, arc, length: l } = course[i]!;
+
           if (isWide(side)) {
             wide?.fills.push(bandPiece(side, arc, from / l, to / l, place, matrix));
+
             return "";
           }
+
           return pieceTrace(side, arc, from / l, to / l, place, matrix);
         };
+
         cut(
           length,
           (from, to) => {
@@ -3604,17 +4232,20 @@ function dashedPath(
             const drawn: string[] = [];
             // Whether the last piece drawn was a line, which the next runs on from.
             let joined = false;
+
             for (let k = i; k <= j; k++) {
               const start = ends[k]! - course[k]!.length;
               const a = Math.max(from, start) - start;
               const b = Math.min(to, ends[k]!) - start;
               const traced = piece(k, a, Math.max(a, b));
+
               if (traced === "") joined = false;
               else {
                 drawn.push(joined ? traced.replace(/^M \S+ \S+ /, "") : traced);
                 joined = true;
               }
             }
+
             return drawn.join(" ");
           },
           !e.closed,
@@ -3623,17 +4254,20 @@ function dashedPath(
         out = strokes.filter((d) => d !== "");
         // An open course that ends on a wide straight side ends in the thinnest line across it.
         const end = course.at(-1)!;
+
         if (!e.closed && isWide(end.side) && !end.arc && length >= total * (1 - 1e-9)) {
           const ended = bandPiece(end.side, undefined, 1, 1, place, matrix).split(" L ");
           const across = `${ended[0]!} L ${ended[2]!}`;
           size += across.length + 1;
           wide?.ends.push(across);
         }
+
         markAlong(
           length,
           (at) => {
             const [i, into] = locate(at);
             const { side, arc, local, gauge: g } = course[i]!;
+
             return sideFrame(side, arc, local, chord)(into / g);
           },
           !e.closed,
@@ -3642,12 +4276,15 @@ function dashedPath(
         ok = true;
         break;
       }
+
       if (plan) {
         // A side the pattern is too fine for draws the whole polyline solid.
         if (plan.longest / total > MAX_DASHES) return undefined;
         const strokes = out;
+
         for (const { side, arc, fit } of plan.parts) {
           if (size > room) break;
+
           if (!isWide(side)) {
             if (!arc) straight(side.from, side.to, true);
             else {
@@ -3656,51 +4293,66 @@ function dashedPath(
               const pieces = piecesLength(arc.radius, Math.abs(arc.sweep), chord);
               markAlong(pieces, sideFrame(side, arc, pieces, chord), true);
             }
+
             continue;
           }
+
           // Each dash of a wide side is filled, square at both ends, fitted to the side as drawn.
           out = [];
           const g = arc ? 1 : gauge(side.from, side.to, fit);
           const drawn = fit * g;
+
           const band = (from: number, to: number) =>
             bandPiece(side, arc, from / drawn, to / drawn, place, matrix);
+
           // A side too fine for its pattern as it is drawn is filled whole.
           if (!cut(drawn, band, true)) dash(band, 0, drawn);
           const frame = sideFrame(side, arc, fit, chord);
           markAlong(drawn, (at) => frame(at / g), true);
+
           if (out.length > 0) wide?.fills.push(out.join(" "));
           out = strokes;
           // A straight side cut into dashes ends in the thinnest line across its end, and so does
           // an arc whose width changes, at the end it reaches counterclockwise.
           const tapered = side.startWidth !== side.endWidth;
+
           if ((!arc || tapered) && fit >= total * (1 - 1e-9)) {
             const t = !arc || arc.sweep > 0 ? 1 : 0;
             const ended = bandPiece(side, arc, t, t, place, matrix).split(" L ");
+
             const across = arc
               ? `${ended[0]!} L ${ended[ended.length / 2]!}`
               : `${ended[0]!} L ${ended[2]!}`;
+
             size += across.length + 1;
             wide?.ends.push(across);
           }
         }
+
         ok = true;
         break;
       }
+
       const { points, ends, longest } = sidesOf(e.points, known);
       const [first, last] = [points[0], points.at(-1)];
+
       // The side that closes it, NaN when there is none.
       const closing =
         e.closed && first && last ? Math.hypot(first[0] - last[0], first[1] - last[1]) : NaN;
+
       // A side the pattern is too fine for draws the whole polyline solid.
       if ((closing > longest ? closing : longest) / total > MAX_DASHES) return undefined;
+
       for (const end of ends) {
         if (size > room) break;
         straight(points[end - 1]!, points[end]!, true);
       }
+
       if (closing > 0) straight(last!, first!, true);
       ok = true;
       break;
     }
+
     case "point":
       return undefined;
     case "circle": {
@@ -3708,10 +4360,12 @@ function dashedPath(
       // shrunk alike to go round it exactly, from a dash at its angle 0. One shorter than its
       // pattern is solid.
       const around = piecesLength(e.radius, 2 * Math.PI, chord);
+
       if (!(around >= total)) return undefined;
       ok = round(e.center, e.radius, 0, 360, false, around / (Math.round(around / total) * total));
       break;
     }
+
     case "arc":
       ok = round(e.center, e.radius, e.startAngle, sweep(e.startAngle, e.endAngle), true);
       break;
@@ -3720,6 +4374,7 @@ function dashedPath(
       // A curve's pattern runs along its whole length: fitted as a line's is, or, for one that
       // closes, as a circle's is, from its start.
       const curve = curveOf(e, known);
+
       if (!curve) return undefined;
       const flat = flatOf(curve);
       const closed = flat.closed;
@@ -3734,53 +4389,72 @@ function dashedPath(
       const similar = (alike(a, d) && alike(b, -c)) || (alike(a, -d) && alike(b, c));
       let points: readonly Point[] = flat.points;
       let lengths: readonly number[] = flat.lengths;
+
       if (matrix && !similar) {
         known.readAgain([flat.points]);
         const placed = flat.points.map((p) => mapPoint(matrix, p));
         const measured = [0];
+
         for (let i = 1; i < placed.length; i++) {
           const [p, q] = [placed[i - 1]!, placed[i]!];
           measured.push(measured[i - 1]! + Math.hypot(q[0] - p[0], q[1] - p[1]) / grown);
         }
+
         [points, lengths] = [placed, measured];
       }
+
       const put = (p: Point): string => {
         const [x, y] = matrix && similar ? mapPoint(matrix, p) : p;
+
         return `${fmt(x)} ${fmt(y)}`;
       };
+
       const length = lengths[lengths.length - 1]!;
+
       const along = (from: number, to: number): string => {
         const at = (t: number, i: number): Point => {
           const [a, b] = [points[i]!, points[i + 1] ?? points[i]!];
           const span = lengths[i + 1]! - lengths[i]!;
           const f = span > 0 ? (t - lengths[i]!) / span : 0;
+
           return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
         };
+
         // The step that holds `t`: the last whose length is at most `t`.
         const step = (t: number): number => {
           let [lo, hi] = [0, lengths.length - 2];
+
           while (lo < hi) {
             const mid = (lo + hi + 1) >> 1;
+
             if (lengths[mid]! <= t) lo = mid;
             else hi = mid - 1;
           }
+
           return lo;
         };
+
         const [i, j] = [step(from), step(to)];
         const drawn = [`M ${put(at(from, i))}`];
+
         for (let k = i + 1; k <= j; k++) drawn.push(`L ${put(points[k]!)}`);
         drawn.push(`L ${put(at(to, j))}`);
+
         return drawn.join(" ");
       };
+
       if (!(length > 0) || !(grown > 0)) return undefined;
+
       if (!closed) ok = cut(length, along, true);
       else {
         if (!(length >= total)) return undefined;
         ok = cut(length, along, false, length / (Math.round(length / total) * total));
       }
+
       break;
     }
   }
+
   return ok && (out.length > 0 || (wide?.fills.length ?? 0) > 0) ? out.join(" ") : undefined;
 }
 
@@ -3793,10 +4467,11 @@ function fontOnly(style: TextStyle | undefined): TextStyle | undefined {
 function lettersOf(pen: Pen, look: Look): Letters | undefined {
   if (!pen.dashes?.marks?.length) return undefined;
   const stroked = `stroke="${pen.color}"${look.stroke(pen.lineweight)}`;
+
   return {
     out: [],
     text: (t, style) => textToSvg(t, style, pen, "", undefined, false),
-    shape: (d) => `<path d="${d}" ${stroked}/>`,
+    glyph: (d) => `<path d="${d}" ${stroked}/>`,
   };
 }
 
@@ -3807,7 +4482,7 @@ function lettersOf(pen: Pen, look: Look): Letters | undefined {
 interface Letters {
   readonly out: string[];
   readonly text: (t: Text, style: TextStyle | undefined) => string;
-  readonly shape: (d: string) => string;
+  readonly glyph: (d: string) => string;
 }
 
 /**
@@ -3823,21 +4498,28 @@ function* markSpots(
   fitted: boolean,
   stretch: number,
 ): Generator<{ readonly s: number; readonly mark: ScaledMark }> {
-  const { marks, total, lengths } = dashes;
+  const { marks, total } = dashes;
+
   if (marks === undefined || !(total > 0) || length / total > MAX_DASHES) return;
+
   if (fitted) {
     if (length < total * (1 - 1e-9)) return;
     // Each pattern starts with its own first dash, after the last dash the first run starts with.
     const lead = dashes.lead;
     const count = Math.floor(length / total + 1e-9);
     const start = (length + lead - count * total) / 2 - lead;
+
     for (let k = 0; k < count; k++)
       for (const mark of marks) yield { s: start + k * total + (mark.end ? total : mark.at), mark };
+
     // A mark at the end of the pattern comes once more at the end of the stretch.
     for (const mark of marks) if (mark.end) yield { s: length, mark };
+
     return;
   }
+
   const count = Math.round(length / (total * stretch));
+
   // Round a closed course, a mark at the end of the pattern comes at the end of each but the last,
   // where the course closes.
   for (let k = 0; k < count; k++) {
@@ -3860,11 +4542,13 @@ function sideFrame(
 ): (s: number) => readonly [Point, Point] {
   if (!arc) {
     const [dx, dy] = [(side.to[0] - side.from[0]) / length, (side.to[1] - side.from[1]) / length];
+
     return (s) => [
       [side.from[0] + dx * s, side.from[1] + dy * s],
       [dx, dy],
     ];
   }
+
   return arcFrame(arc.center, arc.radius, arc.start, arc.sweep, length, chord);
 }
 
@@ -3873,6 +4557,7 @@ function pieceCount(radius: number, sweep: number, chord: number): number {
   const most = chord > 0 && chord < radius ? 2 * Math.acos(1 - chord / radius) : Math.PI;
   const step = Math.min(most, (2 * Math.PI) / 32);
   const count = Math.ceil(sweep / step - 1e-9);
+
   return Number.isFinite(count) ? Math.max(1, Math.min(MAX_DASHES, count)) : 1;
 }
 
@@ -3880,6 +4565,7 @@ function pieceCount(radius: number, sweep: number, chord: number): number {
 function piecesLength(radius: number, sweep: number, chord: number): number {
   if (!(chord > 0)) return radius * sweep;
   const count = pieceCount(radius, sweep, chord);
+
   return 2 * radius * count * Math.sin(sweep / (2 * count));
 }
 
@@ -3897,10 +4583,13 @@ function arcFrame(
   chord: number,
 ): (s: number) => readonly [Point, Point] {
   const pieces = pieceCount(radius, Math.abs(sweep), chord);
+
   const at = (k: number): Point => {
     const angle = start + (sweep * k) / pieces;
+
     return [center[0] + radius * Math.cos(angle), center[1] + radius * Math.sin(angle)];
   };
+
   return (s) => {
     const t = Math.min(Math.max((s / length) * pieces, 0), pieces);
     const k = Math.min(pieces - 1, Math.floor(t));
@@ -3908,6 +4597,7 @@ function arcFrame(
     const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
     const l = Math.hypot(dx, dy);
     const u = t - k;
+
     return [
       [a[0] + dx * u, a[1] + dy * u],
       l > 0 ? [dx / l, dy / l] : [-Math.sin(start), Math.cos(start)],
@@ -3926,23 +4616,30 @@ function courseOf(
   known: Known,
 ): { readonly side: PolylineSide; readonly arc: SideArc | undefined; readonly length: number }[] {
   let course: { side: PolylineSide; arc: SideArc | undefined; length: number }[];
+
   if (plan) {
     course = plan.parts.map(({ side, arc }) => ({ side, arc, length: sideLength(side, arc) }));
   } else {
     const { points, ends } = sidesOf(e.points, known);
+
     const straight = (from: Point, to: Point) => ({
       side: { from, to, bulge: 0, startWidth: 0, endWidth: 0 },
       arc: undefined,
       length: Math.hypot(to[0] - from[0], to[1] - from[1]),
     });
+
     course = ends.map((end) => straight(points[end - 1]!, points[end]!));
     const [first, last] = [points[0], points.at(-1)];
+
     if (e.closed && first && last) {
       const closing = straight(last, first);
+
       if (closing.length > 0) course.push(closing);
     }
   }
+
   if (e.closed && course.length > 1) course = [...course.slice(1), course[0]!];
+
   return course.filter((piece) => piece.length > 0);
 }
 
@@ -3961,20 +4658,26 @@ function pieceTrace(
         side.from[0] + (side.to[0] - side.from[0]) * t,
         side.from[1] + (side.to[1] - side.from[1]) * t,
       );
+
     return `M ${at(t0)} L ${at(t1)}`;
   }
+
   const at = (t: number) => {
     const [x, y] = arcPoint(arc, t);
+
     return place(x, y);
   };
+
   if (t1 === t0) return `M ${at(t0)} L ${at(t1)}`;
   const round = rounded(arc.radius, matrix);
   const flag = arc.sweep > 0 ? round.sweep : 1 - round.sweep;
   const a = `A ${fmt(round.rx)} ${fmt(round.ry)} ${fmt(round.turn)} 0 ${flag}`;
+
   // An arc of more than half a turn is drawn as two halves.
   if (Math.abs(arc.sweep * (t1 - t0)) > Math.PI) {
     return `M ${at(t0)} ${a} ${at((t0 + t1) / 2)} ${a} ${at(t1)}`;
   }
+
   return `M ${at(t0)} ${a} ${at(t1)}`;
 }
 
@@ -3993,13 +4696,18 @@ function letterAt(
   letters: Letters,
 ): string | undefined {
   const mark = m.mark;
-  if (m.shape !== undefined && "shape" in mark) return shapeAt(m, m.shape, p, t, matrix, letters);
-  if (!("text" in mark) || typeof mark.text !== "string") return undefined;
+
+  if (m.glyph !== undefined && "glyph" in mark) return glyphAt(m, m.glyph, p, t, matrix, letters);
+
+  if (!("text" in mark) || !isString(mark.text)) return undefined;
   const [px, py] = matrix ? mapPoint(matrix, p) : p;
+
   let [tx, ty] = matrix
     ? [matrix[0] * t[0] + matrix[2] * t[1], matrix[1] * t[0] + matrix[3] * t[1]]
     : t;
+
   const along = Math.hypot(tx, ty);
+
   if (!(along > 0)) return undefined;
   [tx, ty] = [tx / along, ty / along];
   const offset = mark.offset;
@@ -4011,8 +4719,10 @@ function letterAt(
   const orient = mark.orient ?? "relative";
   let rotation = (orient === "absolute" ? 0 : degrees(Math.atan2(ty, tx))) + (mark.rotation ?? 0);
   const text: Text = { kind: "text", layer: "0", at: [x, y], height, value: mark.text, rotation };
+
   if (orient === "upright") {
     const local = ((degrees(Math.atan2(t[1], t[0])) % 360) + 360) % 360;
+
     if (local > 90 + 1e-9 && local < 270 - 1e-9) {
       const laid = layoutText(inStyle(text, m.style));
       const trueType = fontInfo(m.style?.font ?? STANDARD_FONT)?.pitchAndFamily !== undefined;
@@ -4023,25 +4733,33 @@ function letterAt(
       rotation += 180;
     }
   }
+
   return letters.text({ ...text, at: [x, y], rotation }, m.style);
 }
 
 /** A linetype's shape at a point of its line, as `letterAt` places a text, as one path. */
-function shapeAt(
+function glyphAt(
   m: ScaledMark,
-  shape: ShapeDefinition,
+  glyph: ShxGlyph,
   p: Point,
   t: Point,
   matrix: Matrix | undefined,
   letters: Letters,
 ): string | undefined {
-  const mark = m.mark as LinetypeShape;
-  if (shape.outlines.length === 0) return undefined;
+  const mark = m.mark;
+
+  // Only a shape's mark is drawn here.
+  if (!("glyph" in mark)) return undefined;
+
+  if (glyph.outlines.length === 0) return undefined;
   const [px, py] = matrix ? mapPoint(matrix, p) : p;
+
   let [tx, ty] = matrix
     ? [matrix[0] * t[0] + matrix[2] * t[1], matrix[1] * t[0] + matrix[3] * t[1]]
     : t;
+
   const along = Math.hypot(tx, ty);
+
   if (!(along > 0)) return undefined;
   [tx, ty] = [tx / along, ty / along];
   const [ox, oy] = mark.offset === undefined ? [0, 0] : [mark.offset[0], mark.offset[1]];
@@ -4050,31 +4768,41 @@ function shapeAt(
   const y = py + (ox * ty + oy * tx) * k;
   const orient = mark.orient ?? "relative";
   let rotation = (orient === "absolute" ? 0 : Math.atan2(ty, tx)) + rad(mark.rotation ?? 0);
+
   if (orient === "upright") {
     const local = ((degrees(Math.atan2(t[1], t[0])) % 360) + 360) % 360;
+
     if (local > 90 + 1e-9 && local < 270 - 1e-9) rotation += Math.PI;
   }
+
   const size = mark.scale * k;
   const [c, s] = [Math.cos(rotation) * size, Math.sin(rotation) * size];
   const place = ([u, v]: Point): string => `${fmt(x + u * c - v * s)} ${fmt(y + u * s + v * c)}`;
   const parts: string[] = [];
-  for (const { points, bulges } of shape.outlines) {
+
+  for (const { points, bulges } of glyph.outlines) {
     parts.push(`M ${place(points[0]!)}`);
+
     for (let i = 1; i < points.length; i++) {
       const bulge = bulges?.[i - 1] ?? 0;
+
       if (bulge === 0) {
         parts.push(`L ${place(points[i]!)}`);
         continue;
       }
+
       const [a, b] = [points[i - 1]!, points[i]!];
       const turn = 4 * Math.atan(Math.abs(bulge));
+
       const radius =
         (Math.hypot(b[0] - a[0], b[1] - a[1]) * Math.abs(size)) / (2 * Math.sin(turn / 2));
+
       const large = turn > Math.PI ? 1 : 0;
       parts.push(`A ${fmt(radius)} ${fmt(radius)} 0 ${large} ${bulge > 0 ? 1 : 0} ${place(b)}`);
     }
   }
-  return letters.shape(parts.join(" "));
+
+  return letters.glyph(parts.join(" "));
 }
 
 /**
@@ -4091,22 +4819,30 @@ function bandPiece(
   matrix: Matrix | undefined,
 ): string {
   const half = (t: number): number => (side.startWidth + (side.endWidth - side.startWidth) * t) / 2;
+
   if (!arc) {
     const [dx, dy] = [side.to[0] - side.from[0], side.to[1] - side.from[1]];
     const length = Math.hypot(dx, dy);
     const [nx, ny] = [-dy / length, dx / length];
+
     const edge = (t: number, h: number): string =>
       place(side.from[0] + dx * t + nx * h, side.from[1] + dy * t + ny * h);
+
     return `M ${edge(t0, half(t0))} L ${edge(t1, half(t1))} L ${edge(t1, -half(t1))} L ${edge(t0, -half(t0))}`;
   }
+
   // The left of an arc that turns counterclockwise is toward its center.
   const inward = arc.sweep > 0 ? 1 : -1;
+
   const point = (t: number, h: number): string => {
     const [x, y] = arcPoint(arc, t, arc.radius + h);
+
     return place(x, y);
   };
+
   if (side.startWidth === side.endWidth) {
     const h = side.startWidth / 2;
+
     /** The edge `offset` off the middle from `from` to `to` of the way along, in arcs of at most half a turn. */
     const edge = (offset: number, from: number, to: number): string => {
       const round = rounded(Math.abs(arc.radius + offset), matrix);
@@ -4114,22 +4850,30 @@ function bandPiece(
       const ccw = arc.sweep > 0 === to > from;
       const flag = ccw ? round.sweep : 1 - round.sweep;
       const a = `A ${fmt(round.rx)} ${fmt(round.ry)} ${fmt(round.turn)} 0 ${flag}`;
+
       return Math.abs(arc.sweep * (to - from)) > Math.PI
         ? `${a} ${point((from + to) / 2, offset)} ${a} ${point(to, offset)}`
         : `${a} ${point(to, offset)}`;
     };
+
     const [left, right] = [-inward * h, inward * h];
+
     return `M ${point(t0, left)} ${edge(left, t0, t1)} L ${point(t1, right)} ${edge(right, t1, t0)}`;
   }
+
   // An edge whose width changes along the arc is drawn in chords of at most 5 degrees.
   const count = Math.max(2, Math.ceil((Math.abs(arc.sweep) * (t1 - t0)) / (Math.PI / 36)));
+
   const along = (h: (t: number) => number, from: number, to: number): string[] =>
     Array.from({ length: count + 1 }, (_, k) => {
       const t = from + ((to - from) * k) / count;
+
       return point(t, h(t));
     });
+
   const left = along((t) => -inward * half(t), t0, t1);
   const right = along((t) => inward * half(t), t1, t0);
+
   return `M ${[...left, ...right].join(" L ")}`;
 }
 
@@ -4150,60 +4894,81 @@ function polylineToSvg(
 ): string {
   const place = (px: number, py: number): string => {
     const [mx, my] = matrix ? mapPoint(matrix, [px, py]) : [px, py];
+
     return `${fmt(mx)} ${fmt(my)}`;
   };
+
   const stroked = `stroke="${pen.color}"${look.stroke(pen.lineweight)}`;
   const fill = `fill="${pen.color}" stroke="none"`;
   const parts: string[] = [];
-  const dashed = pen.dashes
-    ? { fills: [] as string[], ends: [] as string[], d: undefined as string | undefined }
-    : undefined;
+
+  const dashed: Dashed | undefined = pen.dashes ? { fills: [], ends: [], d: undefined } : undefined;
+
   const letters = lettersOf(pen, look);
+
   if (pen.dashes && dashed)
     dashed.d = dashedPath(e, pen.dashes, matrix, room, known, dashed, letters, look.chord);
+
   if (dashed && (dashed.d !== undefined || dashed.fills.length > 0)) {
     const cap = pen.dashes?.dot ? ` stroke-linecap="round"` : "";
+
     if (dashed.d) parts.push(`<path d="${dashed.d}"${cap} ${stroked}/>`);
+
     for (const d of dashed.fills) parts.push(`<path d="${d}" ${fill}/>`);
+
     if (dashed.ends.length > 0) {
       parts.push(`<path d="${dashed.ends.join(" ")}" stroke="${pen.color}"${look.stroke(0)}/>`);
     }
+
     parts.push(...(letters?.out ?? []));
   } else {
     let run: string[] = [];
     let used = 0;
+
     const flush = (): void => {
       if (run.length > 0) parts.push(`<path d="${run.join(" ")}" ${stroked}/>`);
       run = [];
     };
+
     for (const { side, arc, band } of plan.parts) {
       if (used > room) break;
+
       if (band) {
         flush();
+
         const d = band.arc
           ? bandPiece(side, band.arc, 0, 1, place, matrix)
           : `M ${[band.startLeft, band.endLeft, band.endRight, band.startRight].map(([x, y]) => place(x, y)).join(" L ")}`;
+
         parts.push(`<path d="${d}" ${fill}/>`);
         used += d.length;
         continue;
       }
+
       if (run.length === 0) run.push(`M ${place(...side.from)}`);
+
       if (!arc) run.push(`L ${place(...side.to)}`);
       else {
         const round = rounded(arc.radius, matrix);
         const flag = arc.sweep > 0 ? round.sweep : 1 - round.sweep;
         const a = `A ${fmt(round.rx)} ${fmt(round.ry)} ${fmt(round.turn)} 0 ${flag}`;
+
         // An arc of more than half a turn is drawn as two halves, so that no arc of the path
         // ends where it starts, which SVG would draw as nothing.
         if (Math.abs(arc.sweep) > Math.PI) run.push(`${a} ${place(...arcPoint(arc, 0.5))}`);
         run.push(`${a} ${place(...side.to)}`);
       }
+
       used += run.at(-1)!.length;
     }
+
     flush();
   }
+
   if (parts.length === 0) return `<g ${mark}/>`;
+
   if (parts.length === 1) return parts[0]!.replace(/\/>$/, ` ${mark}/>`);
+
   return `<g ${mark}>\n${look.indent}  ${parts.join(`\n${look.indent}  `)}\n${look.indent}</g>`;
 }
 
@@ -4215,21 +4980,29 @@ function degrees(radians: number): number {
  * The sides of a list of points that have a length, read once into `known`. A side whose length
  * is 0, or not a number, draws no dash.
  */
-function sidesOf(list: unknown, known: Known): Sides {
-  const found = typeof list === "object" && list !== null ? known.sides.get(list) : undefined;
+function sidesOf(list: readonly Point[], known: Known): Sides {
+  // A list made by hand may be of any type.
+  const found = isObjectOrArray(list) ? known.sides.get(list) : undefined;
+
   if (found) return found;
-  const points = filled(list) as readonly Point[];
+  const points = filled(list);
   const ends: number[] = [];
   let longest = 0;
+
   for (let i = 1; i < points.length; i++) {
     const [a, b] = [points[i - 1]!, points[i]!];
     const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+
     if (!(length > 0)) continue;
     ends.push(i);
+
     if (length > longest) longest = length;
   }
+
   const sides = { points, ends, longest };
-  if (typeof list === "object" && list !== null) known.sides.set(list, sides);
+
+  if (isObjectOrArray(list)) known.sides.set(list, sides);
+
   return sides;
 }
 
@@ -4248,3 +5021,19 @@ function esc(value: string): string {
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? "\ufffd",
   );
 }
+
+/** How far points' figures reach, summed as a walk of a block goes. */
+interface Reaching {
+  absolute: number;
+  relative: number;
+}
+
+/** The parts of a dashed line drawn so far: its filled dashes, the ends of its dots, its path. */
+interface Dashed {
+  fills: string[];
+  ends: string[];
+  d: string | undefined;
+}
+
+/** The fields of a value that has none to read. */
+const NO_FIELDS = Object.freeze({});

@@ -135,9 +135,12 @@ const LONGEST_FONT = Math.max(...Object.keys(FONTS).map((name) => name.length));
  * any font's is not looked up, since looking up a long name can take time in proportion to it.
  */
 export function fontInfo(name: string): FontInfo | undefined {
-  return typeof name === "string" && name.length <= LONGEST_FONT && Object.hasOwn(FONTS, name)
-    ? FONTS[name as Font]
-    : undefined;
+  return isFont(name) ? FONTS[name] : undefined;
+}
+
+/** Whether a name is a font's of `FONTS`, as a caller in plain JavaScript may give any value. */
+export function isFont(name: string): name is Font {
+  return typeof name === "string" && name.length <= LONGEST_FONT && Object.hasOwn(FONTS, name);
 }
 
 /**
@@ -146,11 +149,13 @@ export function fontInfo(name: string): FontInfo | undefined {
  */
 export function capHeightOf(font: string, bold = false): number | undefined {
   const info = fontInfo(font);
+
   return (bold ? info?.bold?.capHeight : undefined) ?? info?.capHeight;
 }
 
 /** Each font of `FONTS` by its name, its file and its file without the extension, in lower case. */
 const FONT_NAMES: ReadonlyMap<string, Font> = new Map(
+  // SAFETY: FONTS is a literal whose own keys are the fonts and whose values their FontInfo.
   (Object.entries(FONTS) as [Font, FontInfo][]).flatMap(([font, info]) => [
     [font.toLowerCase(), font],
     [info.file.toLowerCase(), font],
@@ -166,6 +171,12 @@ const FONT_STEMS: readonly (readonly [string, Font])[] = [...FONT_NAMES]
   .map(([key, font]) => [key.replace(/\.(shx|ttf)$/, "").split(" ")[0]!, font] as const)
   .sort((a, b) => b[0].length - a[0].length);
 
+/** The font of `FONTS` a text measures in, and whether it is the font the text names. */
+export interface NearestFont {
+  readonly font: Font;
+  readonly exact: boolean;
+}
+
 /**
  * The font of `FONTS` a text set in `named` measures in: the font itself when `named` is one,
  * by its name or its file, in any case and with or without its folder and extension. A font
@@ -173,14 +184,17 @@ const FONT_STEMS: readonly (readonly [string, Font])[] = [...FONT_NAMES]
  * font of `FONTS` whose name it starts with, such as `romans.shx` for `romans2.shx` or `Arial` for
  * `Arial Narrow`, or else in `Arial`. `exact` is false for those.
  */
-export function nearestFont(named: string): { readonly font: Font; readonly exact: boolean } {
+export function nearestFont(named: string): NearestFont {
   const key = named
     .trim()
     .replace(/^.*[\\/]/, "")
     .toLowerCase();
+
   const font = key.length <= LONGEST_FONT_NAME ? FONT_NAMES.get(key) : undefined;
+
   if (font !== undefined) return { font, exact: true };
   const bare = key.replace(/\.[a-z0-9]{3}$/, "");
   const stem = FONT_STEMS.find(([start]) => bare.startsWith(start));
+
   return { font: stem?.[1] ?? "Arial", exact: false };
 }

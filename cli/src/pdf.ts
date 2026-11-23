@@ -36,6 +36,7 @@ let running: Promise<unknown> = Promise.resolve();
 export function plot(pictures: readonly string[]): Promise<Plotted> {
   const next = running.then(() => plotNow(pictures));
   running = next;
+
   return next;
 }
 
@@ -45,8 +46,10 @@ function plotNow(pictures: readonly string[]): Promise<Plotted> {
     missing: null,
     error: `The sheets could not be plotted: ${why}`,
   });
+
   return new Promise((resolve) => {
     let child: ReturnType<typeof fork>;
+
     try {
       child = fork(childPath, [], {
         serialization: "advanced",
@@ -54,22 +57,29 @@ function plotNow(pictures: readonly string[]): Promise<Plotted> {
         execArgv: [`--max-old-space-size=${HEAP_MB}`],
       });
     } catch (error) {
+      // SAFETY: `fork` fails with an Error of the system.
       resolve(failed((error as Error).message));
+
       return;
     }
+
     let settled = false;
+
     // The process waits once it has answered, so its end before an answer is always a failure.
     const settle = (plotted: Plotted): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+
       if (child.exitCode === null) child.kill();
       resolve(plotted);
     };
+
     const timer = setTimeout(
       () => settle(failed(`it took longer than ${DEADLINE_MS / 1000} seconds`)),
       DEADLINE_MS,
     );
+
     child.once("message", (answer: PdfAnswer) =>
       settle(
         "pdf" in answer
