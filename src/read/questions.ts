@@ -17,6 +17,7 @@ import { boxer, type Boxer } from "../extents.ts";
 import { grid, type Box } from "../inspect.ts";
 import { layerKeys, layoutNameKey } from "../layers.ts";
 import type { DrawingRead, ReadEntity, ReadLayer, ReadViewport } from "./model.ts";
+import { viewportWindow } from "./part.ts";
 import { pictureDrawing, type PictureDrawing, type XrefReads } from "./picture.ts";
 
 /** One entity a sheet or a space shows. */
@@ -309,14 +310,12 @@ function viewOf(
   if ((!viewport.on && !evenOff) || viewport.turnedView || !(viewport.ratio > 0)) return undefined;
   const toPaper = viewportToPaper(viewport);
   const fromPaper = invert(toPaper);
-  if (!fromPaper) return undefined;
-  const [px, py] = viewport.center;
-  const [hw, hh] = [viewport.width / 2, viewport.height / 2];
+  const window = viewportWindow(viewport);
+  if (!fromPaper || !window) return undefined;
+  // The outline that clips it is on the paper; its rectangle is the window a read by layout keeps.
   const by = viewport.clipBy === undefined ? undefined : clipOf(viewport.clipBy);
   const clip = by === undefined ? undefined : outlineOf(by);
-  const outline = (clip ?? cornersOf([px - hw, py - hh, px + hw, py + hh])).map((p) =>
-    mapPoint(fromPaper, p),
-  );
+  const outline = clip ? clip.map((p) => mapPoint(fromPaper, p)) : [...window];
   return {
     index,
     toPaper,
