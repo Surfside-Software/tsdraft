@@ -995,11 +995,12 @@ function formChecks(all: boolean, typed = all): FormChecks {
   );
 
   // A mark with a glyph is a glyph, and any other a text. Read from JSON, a mark that names a
-  // `shape` and no glyph is told the field's name in one message.
+  // `shape` and neither a glyph nor a text is told the field's name in one message.
   const mark: Check = (value, at, problems, extra) => {
     if (!object(value)) problems.push(`${at} ${PLAIN_OBJECT}`);
     else if ("glyph" in value) glyphMark(value, at, problems, extra);
-    else if (all && Object.hasOwn(value, "shape")) problems.push(`${at}: "shape" is now "glyph"`);
+    else if (all && Object.hasOwn(value, "shape") && !Object.hasOwn(value, "text"))
+      problems.push(`${at}: "shape" is now "glyph"`);
     else textMark(value, at, problems, extra);
   };
 

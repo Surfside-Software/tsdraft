@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
+
+tsdraft edits a firm's own drawings, with no CAD program: an edit file erases, moves, stretches,
+changes and adds by handle, in the file's own layers and styles, and `tsdraft write` writes an
+edited copy only once the five checks of every job pass. The copy reads back, its structure holds
+as the leading CAD app's `AUDIT` would find it, every record the edit does not reach is the
+source's byte for byte, `lint` passes on what it adds, and each sheet it changes is drawn as it
+plots. A DXF is edited by the library itself, and a file of another format by a package that edits
+it. tsdraft also draws a read file, reads a file as its layouts show it, and answers what a sheet
+shows. It has breaking changes, each listed below: the names of shape files and their shapes, the
+read format, and `FileEditor.read`.
 
 - `tsdraft write` runs its fifth check, the changed sheets. Once every copy of a job has passed
   the other four, it draws each layout of each file the job edits, and of each sheet the edits
@@ -84,7 +94,8 @@
   - `LinetypeShape` is `LinetypeGlyph`, and its `shape` is `glyph`: a mark is
     `{ after, glyph, file, scale }`. A drawing saved with `toJSON` before this release names
     `shape` in such a mark, and `fromJSON` refuses it until the mark says `glyph`, with the
-    message `linetypes[0].marks[0]: "shape" is now "glyph"`.
+    message `linetypes[0].marks[0]: "shape" is now "glyph"`. A text mark with a stray `shape`
+    is refused as any unknown field.
   - The `shapes` option of `toSVG`, `toPDF`, `lint` and `parseLinetypes` is `shx`.
   - In a read drawing, a linetype mark's `shape` is `glyph`, and a text style's `shapes` is
     `glyphFile`.

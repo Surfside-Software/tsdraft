@@ -1,5 +1,5 @@
 {
-  "$schema": "https://cdn.jsdelivr.net/npm/tsdraft@0.5.4/standard.schema.json",
+  "$schema": "https://cdn.jsdelivr.net/npm/tsdraft@0.6.0/standard.schema.json",
   "id": "tsdraft",
   "version": "3",
   "title": "tsdraft",

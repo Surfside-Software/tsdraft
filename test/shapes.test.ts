@@ -180,6 +180,10 @@ test("fromJSON refuses a drawing saved before the SHX names, and says the mark's
   // A mark that gives both is refused as any field nobody knows.
   const both = saved.replace('"glyph":133', '"glyph":133,"shape":133');
   assert.match(refused(both)[0] ?? "", /linetypes\[0\]\.marks\[0\]: unknown field "shape"/);
+  // So is a text mark with a stray shape.
+  const text = JSON.parse(saved);
+  text.linetypes[0].marks[0] = JSON.parse('{"after":0.1,"text":"W","height":0.1,"shape":1}');
+  assert.match(refused(text)[0] ?? "", /linetypes\[0\]\.marks\[0\]: unknown field "shape"/);
 });
 
 test("fromJSON refuses an empty slot or a getter in linetypes or marks where its walk meets it", () => {
