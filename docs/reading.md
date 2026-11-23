@@ -384,7 +384,8 @@ Each kind the readers keep is drawn by the code that draws a drawing's:
 - A dimension and a table are drawn from the block of their picture, which is what the leading CAD
   app shows and plots. One with no such block draws nothing.
 - A multileader is drawn from its own points, its landing and sizes, with the arrowheads of
-  `leaderPicture`; an old leader from its points, with its dimension style's arrow size.
+  `leaderPicture`; one with no leader, its note alone where the file places it; an old leader
+  from its points, with its dimension style's arrow size.
 - A text starts where that app starts it, `at`. A text justified to `fit` or `aligned` is fitted
   between its two points. A text in a font tsdraft does not have is measured and drawn in the
   nearest font of `FONTS`, as `nearestFont` picks it.

@@ -201,6 +201,40 @@ test("an old leader's arrowhead is closed and filled, whatever its style's DIMBL
   assert.match(svg, /data-part="arrowhead"/);
 });
 
+test("a multileader with no root draws its note where the file places it", () => {
+  // A schedule's notes, held as a multileader of no leader, as in a firm's floor plan.
+  const note = {
+    kind: "multileader",
+    handle: "F02",
+    layer: "0",
+    style: "Standard",
+    shafts: [],
+    at: [0, 0],
+    direction: [1, 0],
+    landing: 0,
+    roots: [],
+    shaft: "straight",
+    text: "NOTES:\\P1.\tFIELD VERIFY",
+    textAt: [10, 20],
+    textAttachment: 1,
+    width: 50,
+    textHeight: 2,
+    textStyle: "Standard",
+    arrowSize: 2,
+    attachments: { left: 1, right: 1, top: 9, bottom: 9 },
+  } as const;
+
+  const noted: DrawingRead = {
+    ...read,
+    model: { ...read.model, entities: [note], drawOrder: [] },
+  };
+
+  const picture = readPicture(noted);
+  assert.match(picture.svg, /NOTES:/);
+  assert.match(picture.svg, /FIELD VERIFY/);
+  assert.equal(picture.notes.notDrawn["a multileader with no root"], undefined);
+});
+
 test("a handle the readers do not make keys nothing and scopes no id", () => {
   // Hatches whose handles are long and of one length, which V8 hashes by their length alone, and
   // one whose handle holds markup.

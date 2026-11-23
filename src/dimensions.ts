@@ -2552,10 +2552,12 @@ function inlineFractions(text: string): string {
  */
 export function dimensionDrawnProblem(
   dimension: Dimension,
-  style: DimensionStyle,
+  given: DimensionStyle,
   textStyle: TextStyle | undefined,
 ): string | undefined {
   const { measurement } = dimensionMeasure(dimension);
+  // Its own scale sizes its text and arrowheads, as its picture draws them.
+  const style = dimension.scale === undefined ? given : { ...given, scale: dimension.scale };
 
   if (isRadial(dimension)) return radialDrawnProblem(dimension, measurement, style, textStyle);
 

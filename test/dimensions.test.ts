@@ -506,6 +506,12 @@ test("a dimension is checked when it is drawn, and lint finds the same in a draw
       /may not fit between its extension lines: it measures 5.4.*may need 5.4/,
     );
     d.linearDimension(from, [5.5, 0], [0, 5], { style: "ARROWS", id: "fits" });
+    // A dimension's own scale sizes the room: half the style's fits in half the length.
+    d.linearDimension(from, [2.8, 0], [0, 5], { style: "ARROWS", scale: 0.5 });
+    assert.throws(
+      () => d.linearDimension(from, [5.5, 0], [0, 5], { style: "ARROWS", scale: 2 }),
+      /may not fit between its extension lines: it measures 5.5.*may need 10.8/,
+    );
     d.linearDimension(from, [0.5, 0], [0, 5], { style: "ticks" });
     assert.throws(
       () => d.block("B", {}, () => d.linearDimension(from, [20, 0], [0, 5], { style: "TICKS" })),
@@ -540,6 +546,7 @@ test("a dimension is checked when it is drawn, and lint finds the same in a draw
     "undefined-dimension-style",
   ]);
   assert.deepEqual(rules(withEntities({ ...fitsData, to: [5.4, 0] })), ["dimension"]);
+  assert.deepEqual(rules(withEntities({ ...fitsData, scale: 2 })), ["dimension"]);
   assert.deepEqual(rules(withEntities({ ...fitsData, angle: 400 })), ["dimension"]);
   assert.deepEqual(rules(withEntities({ ...fitsData, to: [0, 0] })), ["dimension"]);
   assert.deepEqual(rules(withEntities({ ...fitsData, text: "  " })), ["dimension"]);
@@ -554,6 +561,7 @@ test("a dimension is checked when it is drawn, and lint finds the same in a draw
     "dimension-style",
     "dimension-style",
     "dimension-style",
+    "dimension",
     "dimension",
     "dimension",
     "dimension",

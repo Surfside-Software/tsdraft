@@ -272,24 +272,19 @@ function sizesOf(read: DrawingRead): Map<string, number> {
  * Where a statement of an edit of the read's file is: the box of the entities it names, in model
  * space and on each sheet that shows them, with an insert's whole picture, and for a move where
  * they were and where they go, its turn and scale taken by the corners of the box. What draws
- * nothing, on a layer that is off, frozen or does not plot, has no box, and a statement of
- * another kind has none. The boxes of the read are worked out once, as `sheetShows` gives them.
+ * nothing, on a layer that is off, frozen or does not plot, has no box. A change's box is its
+ * entity's before the change; a layer's or a viewport's statement has none. The boxes of the
+ * read are worked out once, as `sheetShows` gives them.
  */
 export function statementPlace(read: DrawingRead, statement: EditStatement): EditPlace {
-  if (
-    statement.kind !== "erase" &&
-    statement.kind !== "move" &&
-    statement.kind !== "stretch" &&
-    statement.kind !== "vertices"
-  )
-    return { layouts: [] };
+  if (statement.kind === "layer" || statement.kind === "viewport") return { layouts: [] };
   const p = placesOf(read);
 
   // A stretch's box is where its entities were and where they would go moved whole.
   const t = transformOf(statement);
 
   const handles =
-    statement.kind === "vertices"
+    statement.kind === "vertices" || statement.kind === "change"
       ? [canonicalHandle(statement.handle)]
       : statement.handles.map(canonicalHandle);
 

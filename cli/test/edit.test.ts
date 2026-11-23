@@ -59,11 +59,16 @@ const render = (file: string, out: string) => {
 
 test("render draws an edit file's source after the edit, and a picture of what it changes", () =>
   inScratch(async (dir) => {
-    const { sha, tag, circle } = await plan(dir);
+    const { sha, wall, tag, circle } = await plan(dir);
     const file = join(dir, "rev-1.edit.ts");
     writeFileSync(
       file,
-      editFile(sha, `e.erase(${JSON.stringify(tag)});`, `e.move(["${circle}"], { by: [20, 0] });`),
+      editFile(
+        sha,
+        `e.erase(${JSON.stringify(tag)});`,
+        `e.move(["${circle}"], { by: [20, 0] });`,
+        `e.change("${wall}", { color: 5 });`,
+      ),
     );
     const { status, state } = render(file, dir);
     assert.equal(status, 0, JSON.stringify(state.error ?? state.diagnostics));
@@ -83,20 +88,24 @@ test("render draws an edit file's source after the edit, and a picture of what i
     );
     assert.match(readFileSync(changes.layouts[0]!.svg, "utf8"), /data-change="moved"/);
     const { edit } = state;
+    // The changed wall is drawn again, as the moved circle is.
     assert.deepEqual(
       [edit?.source, edit?.applied, edit?.erased, edit?.moved],
-      [join(dir, "plan.dxf"), true, 1, 1],
+      [join(dir, "plan.dxf"), true, 1, 2],
     );
     assert.deepEqual(
       edit?.statements.map((s) => [s.kind, s.handles, s.call?.file, s.call?.line]),
       [
         ["erase", [tag], file, 3],
         ["move", [circle], file, 4],
+        ["change", [wall], file, 5],
       ],
     );
     // The move's box holds the circle where it was and where it goes, and so does its sheet's.
     assert.deepEqual(edit?.statements[1]!.box, { min: [45, 25], max: [75, 35] });
     assert.equal(edit?.statements[1]!.layouts[0]?.name, "Sheet");
+    // A change's box is its entity's, so `--view` goes to it.
+    assert.deepEqual(edit?.statements[2]!.box, { min: [0, 0], max: [100, 60] });
   }));
 
 test("an edit planned on other bytes is an error, and the pictures draw the file as it is", () =>

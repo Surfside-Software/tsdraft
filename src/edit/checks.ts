@@ -61,6 +61,12 @@ export interface EditCheck {
   readonly problems: readonly string[];
   /** How many defects the source holds, which the copy keeps as the file's own. */
   readonly own?: number;
+  /**
+   * Before and after: each block the copy's read counts past its limit, such as one an edit adds to
+   * a file read in part, by handle with its count of entities. The count is held to the edit's;
+   * the geometry is not compared.
+   */
+  readonly notCompared?: readonly string[];
 }
 
 /**
@@ -352,6 +358,44 @@ const content = (read: DrawingRead): CopyContent => {
   };
 };
 
+/** The edited read held to the copy's limit, and the blocks it holds to a count alone. */
+interface WithinLimit {
+  readonly read: DrawingRead;
+  readonly notCompared: readonly string[];
+}
+
+/**
+ * The edited read as the copy's read gives it where that read stopped at its limit of items: a
+ * block the copy's read counts past the limit, with none of its entities, holds none when it counts
+ * as many as the edit gives it, and is named in `notCompared`. A file that reads only in part
+ * spends the limit on the blocks the source holds, so a block an addition makes, a dimension's
+ * picture, comes after it.
+ */
+function withinLimit(after: DrawingRead, back: DrawingRead): WithinLimit {
+  const counted = new Map<string, number>();
+
+  for (const b of back.blocks) {
+    const past = b.other["past the limit"];
+
+    if (past !== undefined && b.entities.length === 0 && isString(b.handle))
+      counted.set(canonicalHandle(b.handle), past);
+  }
+
+  const notCompared: string[] = [];
+
+  if (counted.size === 0) return { read: after, notCompared };
+
+  const blocks = after.blocks.map((b) => {
+    if (!isString(b.handle) || counted.get(canonicalHandle(b.handle)) !== b.entities.length)
+      return b;
+    notCompared.push(`${b.handle}, ${b.entities.length} entities`);
+
+    return { ...b, entities: [], other: { ...b.other, "past the limit": b.entities.length } };
+  });
+
+  return { read: { ...after, blocks }, notCompared };
+}
+
 /**
  * What an edit may change in a file's records: the records it erases with what goes with them, by
  * ownership or as an erased dimension's or table's picture, and the records it moves.
@@ -485,12 +529,18 @@ export async function checkEditedCopy(
 ): Promise<EditCheck[]> {
   const checks: EditCheck[] = [];
 
-  const add = (check: EditCheckName, problems: string[], own?: number): void => {
+  const add = (
+    check: EditCheckName,
+    problems: string[],
+    own?: number,
+    notCompared?: readonly string[],
+  ): void => {
     checks.push({
       check,
       passed: problems.length === 0,
       problems: problems.slice(0, MOST_PROBLEMS),
       ...(own !== undefined && { own }),
+      ...(notCompared !== undefined && notCompared.length > 0 && { notCompared }),
     });
   };
 
@@ -624,8 +674,12 @@ export async function checkEditedCopy(
   if (moved >= 0 && problems.length < MOST_PROBLEMS)
     problems.push(`the record ${sourceOrder[moved]} is not in its place`);
 
+  const notCompared: string[] = [];
+
   if (back !== undefined) {
-    const difference = firstDifferenceNear(content(editedRead(read, edit)), content(back));
+    const limited = withinLimit(editedRead(read, edit), back);
+    notCompared.push(...limited.notCompared);
+    const difference = firstDifferenceNear(content(limited.read), content(back));
 
     if (difference !== undefined)
       problems.push(`the written file reads otherwise than the edit says: ${difference}`);
@@ -633,7 +687,7 @@ export async function checkEditedCopy(
     problems.push(...countsAbove("field", read.otherFields, back.otherFields));
   }
 
-  add("before-after", problems);
+  add("before-after", problems, undefined, notCompared);
   add(
     "lint",
     lintEdit(edit, read)

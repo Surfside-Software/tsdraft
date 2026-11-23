@@ -653,6 +653,28 @@ function drawingOf(
   const multileaderOf = (e: ReadMultileader, id: string | undefined): Entity | undefined => {
     const first = e.roots[0];
 
+    // A note with no leader, such as the notes under a schedule, is its paragraph alone.
+    if (first === undefined && e.block === undefined && e.text !== "") {
+      if (e.frame) count(approximate, "a multileader's frame with no root");
+
+      return paragraphOf(
+        {
+          at: e.textAt,
+          height: e.textHeight,
+          width: e.width,
+          attachment: e.textAttachment,
+          rotation: 0,
+          style: e.textStyle,
+          lineSpacing: 1,
+          lineSpacingStyle: "at-least",
+        },
+        e,
+        e.text,
+        id,
+        { ...(e.mask !== undefined && { mask: e.mask }) },
+      );
+    }
+
     if (first === undefined) {
       count(notDrawn, "a multileader with no root");
 

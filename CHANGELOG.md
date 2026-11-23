@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- The picture of a read file draws a multileader with no leader, such as the notes under a
+  schedule, as its note where the file places it. It was left out and counted as not drawn.
+- In the preview's JSON, a `change` statement gives the handle it names and the box of its entity,
+  so `--view` goes to it.
+- A dimension's own `scale` sizes the room its closed filled arrowheads and text need. The check
+  took its style's scale, so a dimension drawn at a smaller scale than its style was refused.
+- The job's before-and-after check holds a block the copy's read counts past its limit, such as
+  a new dimension's picture in a file read in part by `only`, to the edit's count of its entities,
+  and lists it in the check's `notCompared`: its geometry is not compared. Such a file wrote the
+  addition correctly and failed the check.
 - A row added to a schedule. `readSchedule(read, { window })` reads a schedule drawn as text in
   boxes, lines or a polyline for each cell, as a grid of columns, rows and cells, a merged cell
   once, with the texts of each. `e.row(schedule, { after, cells })` adds a row below another: what

@@ -1773,7 +1773,11 @@ async function preview({
         kind: statement.kind,
         call: calls[i] ?? null,
         handles:
-          statement.kind === "erase" || statement.kind === "move" ? [...statement.handles] : [],
+          statement.kind === "layer"
+            ? []
+            : "handles" in statement
+              ? [...statement.handles]
+              : [statement.handle],
         box: box === undefined ? null : { min: [box[0], box[1]], max: [box[2], box[3]] },
         layouts: place.layouts.map(({ layout, box: [x0, y0, x1, y1] }) => ({
           name: layout,

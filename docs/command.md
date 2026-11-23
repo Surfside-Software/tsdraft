@@ -343,8 +343,9 @@ which is inside a helper function or a package when one of those drew the entity
 For an edit file, `edit` gives the `source` it edits, the edit's `name` and `sha256`, `read`, the
 SHA-256 of the file as it is, `applied`, false when the two differ, how many entities the
 pictures draw `erased` and `moved`, and each of its `statements`: its `kind`, the `call` that made
-it, its `handles`, and its `box` in model space and on each sheet in `layouts`, where it was and,
-for a move, where it goes, which `--view` takes. `lintEdit`'s diagnostics have a rule that starts
+it, the `handles` it names, and its `box` in model space and on each sheet in `layouts`, where it
+was and, for a move, where it goes, which `--view` takes. A change's box is its entity's before
+the change. `lintEdit`'s diagnostics have a rule that starts
 with `edit-`, the `statement` and the `call` that made it, the `handle`, and `bounds` where the
 handle's entity draws. Any other drawing file has no `edit`, and `outputs.changes` is `null`.
 
