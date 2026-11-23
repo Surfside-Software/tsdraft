@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { basename } from "node:path";
 import { test } from "node:test";
-import { inspect } from "node:util";
+import { inspect, isDeepStrictEqual } from "node:util";
 import { Script } from "node:vm";
 import { without } from "../cli/src/omit.ts";
 import {
@@ -31,6 +31,7 @@ import {
   type PatternLine,
   type Leader,
   type Polyline,
+  type Standard,
   type TextStyle,
   type Viewport,
   type Xref,
@@ -889,21 +890,32 @@ const hung = (thrown: unknown): boolean =>
   (thrown as { code?: unknown } | null)?.code === "ERR_SCRIPT_EXECUTION_TIMEOUT";
 
 /**
- * Says what `lint` does wrong with a value: it must return, `toSVG` must return or throw in a
- * second, a value `lint` reports no error for must be one the writers, `toSVG` and `fromJSON`
- * take, and a drawing it reports an error for must be one `toSVG` draws, at least once the
- * items the errors name are left out.
+ * Says what `lint` does wrong with a value: it must return, for every version and standard, and
+ * agree with itself, `toSVG` must return or throw in a second, a value `lint` reports no error
+ * for must be one the writers, `toSVG` and `fromJSON` take, and a drawing it reports an error for
+ * must be one `toSVG` draws, at least once the items the errors name are left out.
  */
 function failure(value: unknown): string | undefined {
   const drawing = value as Drawing;
   let found: Diagnostic[];
+  let others: [how: string, refused: Diagnostic[]][];
   try {
-    for (const version of ["R12", "R2018"] as const) errors(drawing, version);
-    lint(drawing, { standard: BUILT_IN_STANDARD });
-    lint(drawing, { standard: treeStandard });
+    const under = (standard: Standard) =>
+      lint(drawing, { standard }).filter((d) => d.severity === "error");
+    others = [
+      ["R12", errors(drawing, "R12")],
+      ["R2018", errors(drawing, "R2018")],
+      ["the built-in standard", under(BUILT_IN_STANDARD)],
+      ["a standard", under(treeStandard)],
+    ];
     found = errors(drawing);
   } catch (thrown) {
     return `lint threw ${String(thrown)}`;
+  }
+  // `lint` for the drawing's own version is the plain one.
+  for (const [how, more] of others) {
+    if (how === (drawing as { dxf?: unknown } | null)?.dxf && !isDeepStrictEqual(more, found))
+      return `lint for ${how}, the drawing's own version, reports other errors`;
   }
   const refused = drawn(drawing);
   if (hung(refused)) return "toSVG does not finish";
@@ -942,15 +954,197 @@ function failure(value: unknown): string | undefined {
  */
 export const SHARES = 7;
 
-type Case = { drawing: Drawing; path: Path; value: unknown; count: number };
+const TABLES = [
+  "layers",
+  "linetypes",
+  "patterns",
+  "textStyles",
+  "dimensionStyles",
+  "leaderStyles",
+  "tableStyles",
+  "blocks",
+  "xrefs",
+] as const;
 
-/** Every case of the sweep: each value put in place of each value of both drawings, counted. */
+/** Every string in a value, at any depth: a drawing names a layer, style or block by a string. */
+function strings(value: unknown, found = new Set<string>()): Set<string> {
+  if (typeof value === "string") found.add(value);
+  else if (typeof value === "object" && value !== null) {
+    for (const field of Object.values(value)) strings(field, found);
+  }
+  return found;
+}
+
+const holds = (value: unknown, object: object): boolean =>
+  value === object ||
+  (typeof value === "object" &&
+    value !== null &&
+    Object.values(value).some((field) => holds(field, object)));
+
+const names = (item: unknown, among: Set<string>): boolean =>
+  [...strings(item)].some((name) => among.has(name));
+
+/** The name of a table item, by which the rest of a drawing refers to it. */
+const nameOf = ({ item, table }: { item: unknown; table?: string }): string[] =>
+  table ? [(item as { name: string }).name] : [];
+
+/**
+ * The smallest part of `full` in which a value at `path` breaks what it breaks in `full`, and the
+ * path to the same place there. A value under an entity or a table item keeps every item that
+ * holds the object it changes, since the drawing shares objects among them, every item that names
+ * a changed table item, and every table item that any of those names. Each layout keeps its
+ * viewports, which draw the model space. Anything else changes the drawing as a whole.
+ */
+function smallest(path: Path): { drawing: Drawing; path: Path } {
+  const items: { at: Path; item: unknown; table?: (typeof TABLES)[number] }[] = [
+    ...full.entities.map((item, index) => ({ at: ["entities", index], item })),
+    ...full.layouts.flatMap((layout, number) =>
+      layout.entities.map((item, index) => ({ at: ["layouts", number, "entities", index], item })),
+    ),
+    ...TABLES.flatMap((table) =>
+      (full[table] as readonly unknown[]).map((item, index) => ({
+        at: [table, index],
+        item,
+        table,
+      })),
+    ),
+  ];
+  const own = items.find(({ at }) => at.every((step, index) => path[index] === step));
+  if (!own) return { drawing: full, path };
+  const parent = at(full, path.slice(0, -1)) as object;
+  const changed = new Set(
+    path.length === own.at.length ? [own] : items.filter(({ item }) => holds(item, parent)),
+  );
+  // A table item's name may be in any other item, and a name it holds brings that one in too.
+  const named = new Set([...changed].flatMap(nameOf));
+  for (let size = -1; size !== named.size;) {
+    size = named.size;
+    for (const each of items) {
+      if (each.table && names(each.item, named)) for (const name of nameOf(each)) named.add(name);
+    }
+  }
+  for (const each of items) if (names(each.item, named)) changed.add(each);
+  // Layer 0 is in every drawing.
+  const used = new Set(["0", ...named]);
+  strings(
+    full.layouts.map(({ entities: _entities, ...layout }) => layout),
+    used,
+  );
+  for (const { item } of changed) strings(item, used);
+  for (let size = -1; size !== used.size;) {
+    size = used.size;
+    for (const each of items)
+      if (nameOf(each).some((name) => used.has(name))) strings(each.item, used);
+  }
+  const kept = items.filter(
+    (each) => changed.has(each) || nameOf(each).some((name) => used.has(name)),
+  );
+  const within = (prefix: Path) =>
+    kept.filter(
+      ({ at }) =>
+        at.length === prefix.length + 1 && prefix.every((step, index) => at[index] === step),
+    );
+  const drawing = {
+    ...full,
+    entities: within(["entities"]).map(({ item }) => item),
+    layouts: full.layouts.map((layout, number) => ({
+      ...layout,
+      entities: within(["layouts", number, "entities"]).map(({ item }) => item),
+    })),
+    ...Object.fromEntries(TABLES.map((table) => [table, within([table]).map(({ item }) => item)])),
+  } as Drawing;
+  const index = within(own.at.slice(0, -1)).indexOf(own);
+  return { drawing, path: [...own.at.slice(0, -1), index, ...path.slice(own.at.length)] };
+}
+
+/** A replacement's kind, the same for each path: a copy with a field nobody knows is one kind. */
+const kindOf = (value: unknown): string =>
+  value !== null && typeof value === "object" && Object.hasOwn(value, "zz") && !Array.isArray(value)
+    ? "unknown field"
+    : inspect(value, { depth: 0, breakLength: Infinity });
+
+type Case = {
+  drawing: Drawing;
+  path: Path;
+  value: unknown;
+  count: number;
+  smallest: { drawing: Drawing; path: Path };
+  /** Whether the case runs in the whole drawing too, where it is smaller. */
+  whole: boolean;
+};
+
+/**
+ * Every case of the sweep: each value put in place of each value of both drawings, counted, and
+ * the smallest drawing to put it in. A value equal to the one it replaces leaves the drawing as it
+ * was, so only the first such case of each drawing runs.
+ *
+ * A fault may show only in a drawing as big as `full`: past a limit on the work of `lint` or
+ * `toSVG`, or on the length of a list. So one value of each path also runs in the whole drawing:
+ * a kind of value no path of the same field name, such as each `rotation`, has run there yet
+ * before one that has, and among those the kind fewest of those paths offer.
+ */
 export function* cases(): Generator<Case> {
+  const all = [full, r12].flatMap((drawing) => {
+    let unchanged = false;
+    return [[], ...paths(drawing)].map((path) => {
+      const original = at(drawing, path);
+      const values = replacements(drawing, path).filter((value) => {
+        if (!Object.is(value, original)) return true;
+        if (unchanged) return false;
+        unchanged = true;
+        return true;
+      });
+      const name = String(path.findLast((step) => typeof step === "string"));
+      return {
+        drawing,
+        path,
+        values,
+        name,
+        part: drawing === full ? smallest(path) : { drawing, path },
+      };
+    });
+  });
+  // How many paths of each field name offer each kind of value, so the rarest kind runs first.
+  const offered = new Map<string, number>();
+  for (const { drawing, values, name, part } of all) {
+    if (part.drawing === drawing) continue;
+    for (const kind of new Set(values.map(kindOf)))
+      offered.set(`${name} ${kind}`, (offered.get(`${name} ${kind}`) ?? 0) + 1);
+  }
+  const ranWhole = new Map<string, Set<string>>();
   let count = 0;
-  for (const drawing of [full, r12]) {
-    for (const path of [[], ...paths(drawing)]) {
-      for (const value of replacements(drawing, path))
-        yield { drawing, path, value, count: count++ };
+  for (const { drawing, path, values, name, part } of all) {
+    // A hole in a list the smallest drawing shortens may leave out items after it, so it runs in
+    // the whole drawing, and the path's whole-drawing run takes another value.
+    const shortened =
+      part.drawing !== drawing &&
+      (at(part.drawing, part.path.slice(0, -1)) as unknown[]).length <
+        (at(drawing, path.slice(0, -1)) as unknown[]).length;
+    let wholeAt = -1;
+    if (part.drawing !== drawing) {
+      const ran = ranWhole.get(name) ?? new Set<string>();
+      ranWhole.set(name, ran);
+      const fresh = (value: unknown) => !ran.has(kindOf(value));
+      const rarity = (value: unknown) => offered.get(`${name} ${kindOf(value)}`)!;
+      // A kind not yet run there first, then the one fewest of the field's paths offer.
+      const before = (value: unknown, other: unknown) =>
+        fresh(value) !== fresh(other) ? fresh(value) : rarity(value) < rarity(other);
+      for (const [index, value] of values.entries()) {
+        if (shortened && value === HOLE) continue;
+        if (wholeAt < 0 || before(value, values[wholeAt])) wholeAt = index;
+      }
+      ran.add(kindOf(values[wholeAt]));
+    }
+    for (const [index, value] of values.entries()) {
+      const hole = value === HOLE && shortened;
+      yield {
+        drawing,
+        path,
+        value,
+        count: count++,
+        smallest: hole ? { drawing, path } : part,
+        whole: !hole && index === wholeAt,
+      };
     }
   }
 }
@@ -966,12 +1160,20 @@ export function sweep(file: string): void {
   test(`${name}: share ${share} of ${SHARES}`, () => {
     assert.ok(share >= 1 && share <= SHARES, `${file} is no share of the sweep`);
     const failures: string[] = [];
-    for (const { drawing, path, value, count } of cases()) {
+    for (const { drawing, path, value, count, smallest, whole } of cases()) {
       if (count % SHARES !== share - 1) continue;
-      const found = failure(replaced(drawing, path, value));
+      let found = failure(replaced(smallest.drawing, smallest.path, value));
+      if (!found && whole) {
+        const big = failure(replaced(drawing, path, value));
+        if (big) found = `in the whole drawing, ${big}`;
+      }
       if (found) {
         const shown = inspect(value, { depth: 0, breakLength: Infinity });
-        failures.push(`${drawing.dxf} ${path.join(".")} = ${shown}: ${found}`);
+        const where =
+          smallest.drawing === drawing
+            ? ""
+            : ` (in its smallest drawing at ${smallest.path.join(".")})`;
+        failures.push(`${drawing.dxf} ${path.join(".")}${where} = ${shown}: ${found}`);
       }
     }
     assert.deepEqual(failures, []);
