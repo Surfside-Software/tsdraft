@@ -193,7 +193,14 @@ if (command === "write") {
   }
 
   const timeout = number(values.timeout, "--timeout");
-  const options: WriteOptions = { readers, out: values.out, root: values.root };
+
+  const options: WriteOptions = {
+    readers,
+    out: values.out,
+    root: values.root,
+    reader: values.reader,
+    cwd: process.cwd(),
+  };
 
   if (timeout !== undefined) options.limits = { timeoutMs: timeout };
 
@@ -401,6 +408,7 @@ if (command === "dev") {
 
         const made: Mutable<LayoutOutput> = {
           name: sheet.name,
+          ...(sheet.file !== undefined && { file: sheet.file }),
           svg: path,
           png: null,
           pngError: unavailable,

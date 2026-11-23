@@ -13,6 +13,7 @@ import {
   readDXF,
   ReadError,
   toDXF,
+  type DrawingRead,
   type ReadEntity,
 } from "../src/index.ts";
 import { costOf } from "../src/read/entities.ts";
@@ -1486,4 +1487,75 @@ test("a gradient whose angle or tint is past the doubles once read is counted, n
   assert.deepEqual(plain(JSON.stringify(read.unread.malformed)), {
     "HATCH with a number past the doubles": 2,
   });
+});
+
+test("blocks named apart are read in a room of their own, and every other block as before", async () => {
+  const d = createDrawing({ units: "in" });
+
+  for (const name of ["A", "B", "C"])
+    d.block(name, {}, () => {
+      d.line([0, 0], [1, 0]);
+      d.line([0, 1], [1, 1]);
+    });
+
+  const dxf = toDXF(d.build());
+  const limits = { ...READ_LIMITS, blockItems: 7 };
+
+  const lines = (read: DrawingRead, name: string) =>
+    read.blocks.find((b) => b.name === name)!.entities.length;
+
+  const plain = await readDXFWithin(dxf, {}, limits);
+  assert.deepEqual(
+    ["A", "B", "C"].map((n) => lines(plain, n)),
+    [2, 0, 0],
+  );
+  const b = plain.blocks.find((x) => x.name === "B")!.handle!;
+  const apart = await readDXFWithin(dxf, { blocks: [`00${b.toLowerCase()}`] }, limits);
+  assert.deepEqual(
+    ["A", "B", "C"].map((n) => lines(apart, n)),
+    [2, 2, 0],
+  );
+  assert.deepEqual(apart.blocksAsked, [b.toUpperCase()]);
+  assert.equal(plain.blocksAsked, undefined);
+  // A handle that names no block is passed over, and a value that is no handle refused.
+  const none = await readDXFWithin(dxf, { blocks: ["FFFFF"] }, limits);
+  assert.deepEqual(
+    ["A", "B", "C"].map((n) => lines(none, n)),
+    [2, 0, 0],
+  );
+  await assert.rejects(readDXFWithin(dxf, { blocks: ["XYZ"] }, limits), ReadError);
+  await assert.rejects(
+    readDXFWithin(dxf, { blocks: Array.from({ length: 6_001 }, () => "1") }, limits),
+    ReadError,
+  );
+});
+
+test("a block named apart leaves every other block as it is, whatever room is left", async () => {
+  const d = createDrawing({ units: "in" });
+  const sizes = [2, 9, 7, 2, 5, 3];
+
+  for (const [i, n] of sizes.entries())
+    d.block(`B${i}`, {}, () =>
+      d.polyline(Array.from({ length: n }, (_, k) => [k, k % 2] as const)),
+    );
+
+  const bytes = toDXF(d.build());
+
+  const counts = (read: DrawingRead) =>
+    sizes.map((_, i) => read.blocks.find((b) => b.name === `B${i}`)!.entities.length);
+
+  for (const blockItems of [6, 12, 15, 20, 28]) {
+    const limits = { ...READ_LIMITS, blockItems };
+    const plain = counts(await readDXFWithin(bytes, {}, limits));
+    const handles = (await readDXFWithin(bytes, {}, limits)).blocks;
+
+    for (const named of [[1], [2], [1, 2], [0, 4], [1, 2, 4]]) {
+      const blocks = named.map((i) => handles.find((b) => b.name === `B${i}`)!.handle!);
+      const apart = counts(await readDXFWithin(bytes, { blocks }, limits));
+
+      for (const i of sizes.keys())
+        if (!named.includes(i))
+          assert.equal(apart[i], plain[i], `B${i} at ${blockItems}, ${named}`);
+    }
+  }
 });

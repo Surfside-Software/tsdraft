@@ -268,8 +268,9 @@ export async function dev(
             pngFonts: outcome.ok
               ? pngFonts(outcome.fonts, outcome.svg ?? "")
               : pngFonts(shown?.fonts ?? [], shown?.svg ?? ""),
-            layouts: sheets.map(({ name, fonts, svg }) => ({
+            layouts: sheets.map(({ name, fonts, svg, file }) => ({
               name,
+              ...(file !== undefined && { file }),
               svg: picture("svg", name),
               png: noPng ? null : picture("png", name),
               pngError: noPng,
@@ -287,12 +288,15 @@ export async function dev(
                   svg: picture("svg", undefined, true),
                   png: noPng ? null : picture("png", undefined, true),
                   pngError: noPng,
-                  layouts: sheets.map(({ name }) => ({
-                    name,
-                    svg: picture("svg", name, true),
-                    png: noPng ? null : picture("png", name, true),
-                    pngError: noPng,
-                  })),
+                  // A sheet the edit names has no picture of changes.
+                  layouts: sheets
+                    .filter(({ file }) => file === undefined)
+                    .map(({ name }) => ({
+                      name,
+                      svg: picture("svg", name, true),
+                      png: noPng ? null : picture("png", name, true),
+                      pngError: noPng,
+                    })),
                 }
               : null,
           };

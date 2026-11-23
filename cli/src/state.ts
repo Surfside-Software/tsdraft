@@ -177,8 +177,14 @@ export interface ChangesOutput {
 
 /** The pictures of one layout: its sheet as it plots, in paper units. */
 export interface LayoutOutput {
-  /** The layout's name, as `drawing.layouts` has it. */
+  /**
+   * The layout's name, as `drawing.layouts` has it. A sheet an edit names, drawn with the edited
+   * file in place of its xref, is `<sheet file's name>/<layout>`, or the sheet's path as the edit
+   * gives it in place of its name where two of its sheets share one.
+   */
   readonly name: string;
+  /** For a sheet an edit names, the sheet's file, by its absolute path. */
+  readonly file?: string;
   readonly svg: string;
   /** `null` when there is no PNG, for the reason `pngError` gives. */
   readonly png: string | null;

@@ -223,6 +223,7 @@ function run(
     JSON.stringify({
       geometry: options.geometry === true,
       ...(options.geometry === true && options.only !== undefined && { only: options.only }),
+      ...(options.blocks !== undefined && { blocks: options.blocks }),
     }),
     ...(module ? [module] : []),
   ];

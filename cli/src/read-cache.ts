@@ -249,6 +249,8 @@ export class ReadCache {
     if (!stamp) return undefined;
     // A read by layout is a read of its own: its part joins the key.
     const part = geometry ? options.only : undefined;
+    // So is a read that keeps blocks apart.
+    const apart = options.blocks === undefined ? undefined : [...options.blocks].sort();
 
     const keyOf = (sha256: string) =>
       sha(
@@ -259,6 +261,7 @@ export class ReadCache {
           print ?? by.name,
           geometry,
           ...(part === undefined ? [] : [part]),
+          ...(apart === undefined ? [] : [{ blocks: apart }]),
         ]),
       );
 

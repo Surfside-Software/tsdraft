@@ -797,6 +797,7 @@ const DRAWING_READ: Fields = {
     fields: { "layout?": "string", center: "point", height: "number", width: "number" },
   },
   "only?": { fields: { "layouts?": strings, "areas?": { list: { list: "point" } } } },
+  "blocksAsked?": strings,
 };
 
 /**

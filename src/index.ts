@@ -15,6 +15,8 @@ export {
   type XrefDrawings,
 } from "./blocks.ts";
 
+export { layerKey } from "./layers.ts";
+
 export {
   ARROWHEADS,
   DEFAULT_LEADER_ARROWHEAD,
@@ -546,10 +548,12 @@ export { MARK_APP, markOf, recordAdditions } from "./read/mark.ts";
 export { editDXF } from "./edit/dxf.ts";
 
 export {
+  addedBlocks,
   checkEditedCopy,
   dxfEditor,
   type EditCheck,
   type EditCheckName,
+  type EditSheet,
   type EditorModule,
   type FileEditor,
   type RecordLinks,
@@ -698,8 +702,10 @@ export {
 } from "./picture-marks.ts";
 
 export {
+  MOST_OWN_BLOCKS,
   MOST_WINDOWS,
   OUTSIDE_THE_READ,
+  ownBlocks,
   partFilter,
   viewportWindow,
   type PartFilter,

@@ -11,7 +11,7 @@
 // `stale` and the parent builds in one that loaded nothing.
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createRequire, isBuiltin, registerHooks } from "node:module";
-import { dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { types } from "node:util";
 import { Worker } from "node:worker_threads";
@@ -31,6 +31,9 @@ import type {
   Layout,
   PaperInfo,
   PaperUnit,
+  Point,
+  ReadEntity,
+  ReadOptions,
   TextWarning,
   Units,
   Viewport,
@@ -79,6 +82,8 @@ export interface BuildRequest {
 export interface EditPlan {
   /** The file the edit names, by its absolute path. */
   readonly source: string;
+  /** The sheets the edit names, which show the file through an xref, by their absolute paths. */
+  readonly sheets: readonly string[];
   readonly edit: Edit;
   /** The call in the edit file that made each statement, its `file` an absolute path. */
   readonly calls: readonly (CallSite | null)[];
@@ -99,6 +104,40 @@ export interface PreviewRequest {
   readonly reader?: string;
   readonly cwd?: string;
 }
+
+/**
+ * Asks for the changed sheets of a job of `tsdraft write`: each layout of each file named, drawn as
+ * it plots from the project, and again with each copy in place of its source, and the pictures of
+ * those whose picture differs, or that the project could not draw.
+ */
+export interface SheetsRequest {
+  readonly type: "sheets";
+  readonly id: number;
+  /** The files whose layouts are drawn, by their paths in the project. */
+  readonly files: readonly string[];
+  /**
+   * Each source of the job whose copy is in place, by its path in the project: the copy's path,
+   * and the blocks its edit adds, which a read of the copy keeps apart.
+   */
+  readonly copies: Readonly<
+    Record<string, { readonly copy: string; readonly blocks: readonly string[] }>
+  >;
+  /** Each sheet an edit names, by its path, with the sources of the edits that name it. */
+  readonly shows: Readonly<Record<string, readonly string[]>>;
+  readonly reader?: string;
+  readonly cwd?: string;
+}
+
+/** A sheet `SheetsRequest` drew, or could not draw. */
+export type DrawnSheet =
+  | { readonly file: string; readonly layout: string; readonly svg: string }
+  | {
+      readonly file: string;
+      readonly layout: string | null;
+      readonly problem: string;
+      /** The source of the edits it is a problem of, where it is of those alone. */
+      readonly source?: string;
+    };
 
 /** Asks the process that keeps the reads for the pictures of changes of the preview `id`. */
 export interface ChangesRequest {
@@ -131,6 +170,7 @@ export type WorkerMessage =
   | { readonly type: "file"; readonly file: FileVersion }
   | { readonly type: "done"; readonly result: WorkerResult }
   | { readonly type: "previewed"; readonly id: number; readonly result: WorkerResult }
+  | { readonly type: "sheeted"; readonly id: number; readonly sheets: readonly DrawnSheet[] }
   | {
       readonly type: "changed";
       readonly id: number;
@@ -161,6 +201,8 @@ export interface WorkerResult {
     readonly name: string;
     readonly svg: string;
     readonly fonts: readonly string[];
+    /** For a sheet an edit names, its file: its name is then `<file's name>/<layout>`. */
+    readonly file?: string;
   }[];
   /** The picture of the rectangle the request asked for, with its fonts, or `null`. */
   readonly view: {
@@ -620,65 +662,85 @@ let warming: Promise<void> | undefined;
  */
 let previews: Promise<void> | undefined;
 
-process.on("message", (message: BuildRequest | WarmRequest | PreviewRequest | ChangesRequest) => {
-  if (message.type === "changes") {
-    if (request || warming) return;
-    previews = (previews ?? Promise.resolve()).then(() => {
-      let changes: WorkerResult["changes"] | null = null;
+process.on(
+  "message",
+  (message: BuildRequest | WarmRequest | PreviewRequest | ChangesRequest | SheetsRequest) => {
+    if (message.type === "sheets") {
+      if (request || warming) return;
+      previews = (previews ?? Promise.resolve()).then(async () => {
+        const sheets = await drawSheets(message).catch((cause: unknown): DrawnSheet[] =>
+          message.files.map((file) => ({
+            file,
+            layout: null,
+            problem: `The sheets could not be drawn: ${cause instanceof Error ? cause.message : String(cause)}`,
+          })),
+        );
 
-      try {
-        changes = lastChanges?.id === message.id ? lastChanges.draw() : null;
-      } catch {
-        // Drawn as the edited pictures were, which did not throw: none is given.
-      }
-
-      process.send!({ type: "changed", id: message.id, changes } satisfies WorkerMessage);
-    });
-
-    return;
-  }
-
-  if (message.type === "preview") {
-    if (request || warming) return;
-    previews = (previews ?? Promise.resolve()).then(async () => {
-      const result = await preview(message).catch((cause: unknown) =>
-        readFailed(
-          message.plan.source,
-          {},
-          `The pictures of the edit could not be drawn: ${cause instanceof Error ? cause.message : String(cause)}`,
-          "PictureError",
-        ),
-      );
-
-      process.send!({ type: "previewed", id: message.id, result } satisfies WorkerMessage);
-    });
-
-    return;
-  }
-
-  if (request || previews) return;
-
-  if (message.type === "warm") {
-    warming ??= warm(message.library, message.deadline);
-
-    return;
-  }
-
-  request = message;
-  void (warming ?? Promise.resolve()).then(() => {
-    building = true;
-
-    if (stale()) {
-      process.send!({ type: "stale" } satisfies WorkerMessage, leave);
+        process.send!({ type: "sheeted", id: message.id, sheets } satisfies WorkerMessage);
+      });
 
       return;
     }
 
-    void build(message).then((result) => {
-      process.send!({ type: "done", result } satisfies WorkerMessage, leave);
+    if (message.type === "changes") {
+      if (request || warming) return;
+      previews = (previews ?? Promise.resolve()).then(() => {
+        let changes: WorkerResult["changes"] | null = null;
+
+        try {
+          changes = lastChanges?.id === message.id ? lastChanges.draw() : null;
+        } catch {
+          // Drawn as the edited pictures were, which did not throw: none is given.
+        }
+
+        process.send!({ type: "changed", id: message.id, changes } satisfies WorkerMessage);
+      });
+
+      return;
+    }
+
+    if (message.type === "preview") {
+      if (request || warming) return;
+      previews = (previews ?? Promise.resolve()).then(async () => {
+        const result = await preview(message).catch((cause: unknown) =>
+          readFailed(
+            message.plan.source,
+            {},
+            `The pictures of the edit could not be drawn: ${cause instanceof Error ? cause.message : String(cause)}`,
+            "PictureError",
+          ),
+        );
+
+        process.send!({ type: "previewed", id: message.id, result } satisfies WorkerMessage);
+      });
+
+      return;
+    }
+
+    if (request || previews) return;
+
+    if (message.type === "warm") {
+      warming ??= warm(message.library, message.deadline);
+
+      return;
+    }
+
+    request = message;
+    void (warming ?? Promise.resolve()).then(() => {
+      building = true;
+
+      if (stale()) {
+        process.send!({ type: "stale" } satisfies WorkerMessage, leave);
+
+        return;
+      }
+
+      void build(message).then((result) => {
+        process.send!({ type: "done", result } satisfies WorkerMessage, leave);
+      });
     });
-  });
-});
+  },
+);
 
 process.once("disconnect", () => process.exit(0));
 
@@ -840,6 +902,26 @@ interface ReadContext {
   /** The warnings of the picture, and of the files it could not read. */
   readonly diagnostics: readonly BuildDiagnostic[];
   readonly fontsOf: (svg: string) => string[];
+  /** Each xref of the file read, by its name, with the file it was found as, by its path. */
+  readonly found: ReadonlyMap<string, string>;
+}
+
+/**
+ * How a read file's xrefs are read. Each is found in the project, from the path the host holds;
+ * these then say what is read for it.
+ */
+interface XrefReads {
+  /** The file read for a file of the project, such as its edited copy. */
+  readonly fileFor?: (path: string) => string;
+  /** A read given for a file of the project, such as an edit's edited read, in place of its own. */
+  readonly readFor?: (path: string) => DrawingRead | undefined;
+  /** The blocks a file's read keeps apart (`ReadOptions.blocks`). */
+  readonly blocksFor?: (path: string) => readonly string[] | undefined;
+  /**
+   * Reads each xref of the host's model space by the areas the host's layouts show of it, and
+   * leaves out one that no layout shows. An xref a layout's paper or a block inserts is read whole.
+   */
+  readonly byArea?: boolean;
 }
 
 /**
@@ -855,6 +937,7 @@ async function readContext(
   file: string,
   read: DrawingRead,
   drawNoPlot: boolean,
+  how: XrefReads = {},
 ): Promise<ReadContext> {
   const pageSizes: Record<string, Record<string, readonly [number, number]>> = Object.create(null);
   const pdfs = new Map<string, Uint8Array | null>();
@@ -899,6 +982,8 @@ async function readContext(
   const budget = { total: 0 };
   const diagnostics: BuildDiagnostic[] = [];
   const xrefs: Record<string, Given> = Object.create(null);
+  const foundAs = new Map<string, string>();
+  const parts = how.byArea ? xrefParts(library, read) : undefined;
 
   let level: { readonly list: DrawingRead["xrefs"]; readonly from: string }[] = [
     { list: read.xrefs, from: file },
@@ -921,19 +1006,44 @@ async function readContext(
         ].find((at) => existsSync(at) && statSync(at).isFile());
 
         if (found === undefined || !/\.(dxf|dwg)$/i.test(found) || found === file) continue;
-        track(found, fileVersion(found));
-        let xrefReader;
+        // Of the host's own xrefs, by area: what its layouts show, or nothing when none does.
+        const part = depth === 0 ? parts?.(xref.name) : undefined;
 
-        try {
-          xrefReader = readerOf(/\.[^.]*$/.exec(found)![0]);
-        } catch {
+        // Attached, and shown by no layout: found, and nothing of it is drawn.
+        if (part === null) {
+          foundAs.set(xref.name, found);
           continue;
         }
 
-        reads++;
-        const got = await cache.read(found, xrefReader, {}, { geometry: true });
+        const given = how.readFor?.(found);
+        const actual = how.fileFor?.(found) ?? found;
+        track(actual, fileVersion(actual));
+        let got: { read: DrawingRead } | { skipped: string };
+
+        if (given !== undefined) got = { read: given };
+        else {
+          let xrefReader;
+
+          try {
+            xrefReader = readerOf(/\.[^.]*$/.exec(actual)![0]);
+          } catch {
+            continue;
+          }
+
+          reads++;
+          got = await readShown(
+            library,
+            (options) => cache.read(actual, xrefReader, {}, options),
+            {
+              geometry: true,
+              ...(part !== undefined && { only: { areas: part } }),
+            },
+            how.blocksFor?.(found),
+          );
+        }
 
         if (!("read" in got)) continue;
+        foundAs.set(xref.name, found);
 
         // Its images, from its own folder.
         const rasters = rasterFiles(
@@ -1000,7 +1110,76 @@ async function readContext(
     });
   }
 
-  return { options, shown, diagnostics, fontsOf: fontsIn(library, [shown]) };
+  return { options, shown, diagnostics, fontsOf: fontsIn(library, [shown]), found: foundAs };
+}
+
+/**
+ * What a read file's layouts show of each xref of its model space, as areas of the xref's model
+ * space: `undefined` for one a layout's paper or a block inserts, which is read whole, and `null`
+ * for one no layout shows.
+ */
+function xrefParts(
+  library: CoreLibrary,
+  read: DrawingRead,
+): (xref: string) => (readonly [Point, Point])[] | null | undefined {
+  // What the layouts' paper inserts, and what every block the drawing draws inserts.
+  const byName = new Map(read.blocks.map((b) => [library.layerKey(b.name), b]));
+  const whole = new Set<string>();
+  const drawn = new Set<string>();
+  const queue: string[] = [];
+
+  const reach = (list: readonly ReadEntity[] | undefined, paper: boolean) => {
+    for (const e of list ?? []) {
+      if (e.kind !== "insert") continue;
+      const key = library.layerKey(e.block);
+
+      if (paper) whole.add(key);
+
+      if (!drawn.has(key)) {
+        drawn.add(key);
+        queue.push(key);
+      }
+    }
+  };
+
+  reach(read.model.entities, false);
+
+  for (const layout of read.layouts) reach(layout.entities, true);
+
+  for (let q = 0; q < queue.length; q++) {
+    const block = byName.get(queue[q]!);
+
+    if (!block) continue;
+
+    for (const e of block.entities) if (e.kind === "insert") whole.add(library.layerKey(e.block));
+    reach(block.entities, false);
+  }
+
+  return (xref) => {
+    if (whole.has(library.layerKey(xref))) return undefined;
+    const areas = read.layouts.flatMap((l) => library.xrefAreas(read, l.name, xref));
+
+    if (areas.length === 0) return null;
+
+    if (areas.length <= library.MOST_WINDOWS) return areas;
+    // Past what a read takes, one box that holds them all: more than is shown, never less.
+    const box = [Infinity, Infinity, -Infinity, -Infinity];
+
+    for (const corners of areas)
+      for (const [x, y] of corners) {
+        box[0] = Math.min(box[0]!, x);
+        box[1] = Math.min(box[1]!, y);
+        box[2] = Math.max(box[2]!, x);
+        box[3] = Math.max(box[3]!, y);
+      }
+
+    return [
+      [
+        [box[0]!, box[1]!],
+        [box[2]!, box[3]!],
+      ],
+    ];
+  };
 }
 
 /** The summary of a read file's drawing, as the picture of its read makes it. */
@@ -1532,7 +1711,12 @@ async function buildEdit(
     error: null,
     library: entry,
     // SAFETY: an Edit is plain data, so its copy through JSON is the same Edit.
-    plan: { source, edit: JSON.parse(JSON.stringify(edit)) as Edit, calls },
+    plan: {
+      source,
+      sheets: (editFile.source.sheets ?? []).map((sheet) => resolve(dirname(file), sheet)),
+      edit: JSON.parse(JSON.stringify(edit)) as Edit,
+      calls,
+    },
   };
 }
 
@@ -1551,6 +1735,19 @@ interface KeptPreview {
   readonly fonts: ReadonlyMap<string, string[]>;
   /** Each file the context read, with its version: one changed since makes it again. */
   readonly files: readonly FileVersion[];
+  /** The sheets the edit names, joined, and what each is drawn with, or why it is not. */
+  readonly sheetsKey: string;
+  readonly sheets: readonly KeptSheet[];
+}
+
+/** A sheet an edit names, kept for the next edit: its read, and the xrefs that are the source. */
+interface KeptSheet {
+  readonly file: string;
+  /** What the preview names its layouts by: the file's name, or its path where two share it. */
+  readonly label: string;
+  readonly drawn:
+    | { readonly read: DrawingRead; readonly context: ReadContext; readonly names: string[] }
+    | string;
 }
 
 let keptPreview: KeptPreview | undefined;
@@ -1574,6 +1771,7 @@ async function preview({
   cwd,
 }: PreviewRequest): Promise<WorkerResult> {
   const { source, edit, calls } = plan;
+  const sheetPaths = plan.sheets ?? [];
   const timings: Timings = {};
   const files: FileVersion[] = [];
   collecting = files;
@@ -1613,6 +1811,7 @@ async function preview({
       kept !== undefined &&
       kept.read === read &&
       kept.drawNoPlot === drawNoPlot &&
+      kept.sheetsKey === sheetPaths.join("\n") &&
       kept.files.every(([path, version]) => fileVersion(path) === version);
 
     if (!current) {
@@ -1629,14 +1828,25 @@ async function preview({
         ]),
       );
 
+      const sheets = await keptSheets(library, readers, source, read, sheetPaths, drawNoPlot, edit);
       collecting = files;
       files.push(...own);
       const fonts = new Map([["", context.fontsOf(model.svg)]]);
 
       for (const [name, picture] of layouts) fonts.set(name, context.fontsOf(picture.svg));
-      kept = keptPreview = { read, drawNoPlot, context, model, layouts, fonts, files: own };
+      kept = keptPreview = {
+        read,
+        drawNoPlot,
+        context,
+        model,
+        layouts,
+        fonts,
+        files: own,
+        sheetsKey: sheetPaths.join("\n"),
+        sheets,
+      };
     } else files.push(...kept!.files);
-    const { context, model, layouts, fonts } = kept!;
+    const { context, model, layouts, fonts, sheets: namedSheets } = kept!;
     const { options } = context;
     timings.load = now() - t;
 
@@ -1698,7 +1908,7 @@ async function preview({
     let min: [number, number] = [0, 0];
     let max: [number, number] = [0, 0];
     let viewed: WorkerResult["view"] = null;
-    const sheets: { name: string; svg: string; fonts: string[] }[] = [];
+    const sheets: { name: string; svg: string; fonts: string[]; file?: string }[] = [];
 
     /** What draws the pictures of changes, from the pictures before the edit and of what it moves. */
     type Picture = typeof model;
@@ -1744,6 +1954,50 @@ async function preview({
 
         sheets.push({ name, svg: sheet, fonts: fonts.get(name) ?? fontsOf(sheet) });
         toDraw.push({ name, before, drawn });
+      }
+
+      // Each sheet the edit names, with the edited read in place of each xref that is the file.
+      for (const named of namedSheets) {
+        if (isString(named.drawn)) {
+          diagnostics.push({ rule: "read-picture", severity: "warning", message: named.drawn });
+          continue;
+        }
+
+        const { read: sheetRead, context: sheetContext, names } = named.drawn;
+        const xrefs = { ...sheetContext.options.xrefs };
+
+        for (const n of names) {
+          const given = xrefs[n];
+          const shown = given !== undefined && "read" in given ? given.read : given;
+
+          const edited =
+            shown === undefined || shown === read ? after : laidOver(shown, read, after);
+
+          xrefs[n] = given !== undefined && "read" in given ? { ...given, read: edited } : edited;
+        }
+
+        for (const layout of pictured(sheetRead)) {
+          try {
+            const svg = library.readPicture(sheetRead, {
+              ...sheetContext.options,
+              xrefs,
+              layout,
+            }).svg;
+
+            sheets.push({
+              name: `${named.label}/${layout}`,
+              svg,
+              fonts: sheetContext.fontsOf(svg),
+              file: named.file,
+            });
+          } catch (thrown) {
+            diagnostics.push({
+              rule: "read-picture",
+              severity: "warning",
+              message: `The sheet ${named.file}, layout ${JSON.stringify(layout)}, could not be drawn: ${thrown instanceof Error ? thrown.message : String(thrown)}`,
+            });
+          }
+        }
       }
     }
 
@@ -1822,6 +2076,341 @@ async function preview({
   } finally {
     collecting = undefined;
   }
+}
+
+/** A read of a file with the options given, from the cache. */
+type CachedRead = (
+  options: ReadOptions,
+) => Promise<{ readonly read: DrawingRead } | { readonly skipped: string }>;
+
+/**
+ * A read with `blocks` kept apart, read again with the blocks its kept entities draw that came past
+ * the limit kept apart too, as a dimension's picture in a large detail file, so its pictures draw
+ * what it keeps. At most `MOST_OWN_BLOCKS` in all.
+ */
+async function readShown(
+  library: CoreLibrary,
+  read: CachedRead,
+  options: ReadOptions,
+  blocks: readonly string[] = [],
+): Promise<{ readonly read: DrawingRead } | { readonly skipped: string }> {
+  const first = await read(blocks.length > 0 ? { ...options, blocks } : options);
+
+  if (!("read" in first)) return first;
+  const more = pastBlocks(first.read).filter((h) => !blocks.includes(h));
+
+  if (more.length === 0) return first;
+
+  return read({ ...options, blocks: [...blocks, ...more].slice(0, library.MOST_OWN_BLOCKS) });
+}
+
+/** The handles of the blocks the read's spaces draw that the read left past its limit. */
+function pastBlocks(read: DrawingRead): string[] {
+  const past = new Map<string, string>();
+  const byName = new Map<string, string>();
+
+  for (const b of read.blocks) {
+    if (!isString(b.handle) || (b.other["past the limit"] ?? 0) === 0) continue;
+    past.set(b.handle, b.handle);
+    byName.set(b.name, b.handle);
+  }
+
+  if (past.size === 0) return [];
+  const out = new Set<string>();
+
+  for (const list of [read.model.entities, ...read.layouts.map((l) => l.entities)])
+    for (const e of list ?? []) {
+      const h =
+        e.kind === "insert"
+          ? byName.get(e.block)
+          : "blockHandle" in e && isString(e.blockHandle)
+            ? past.get(e.blockHandle)
+            : undefined;
+
+      if (h !== undefined) out.add(h);
+    }
+
+  return [...out];
+}
+
+/** A file's real path, or the path as given when it is not there. */
+function realPath(path: string): string {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return path;
+  }
+}
+
+/** True when a read left something of model space out past its limit. */
+const pastTheLimit = (read: DrawingRead): boolean =>
+  (read.model.other?.["past the limit"] ?? 0) > 0;
+
+/**
+ * The changed sheets of a job: each layout of each file, drawn from the project and again with the
+ * copies in place, both read alike but for the blocks each copy's edit adds, which its read keeps
+ * apart. Each xref of a host's model space is read by the areas its layouts show of it, and a file
+ * that does not read whole is read by its layouts. A layout is given when its two pictures differ,
+ * or when only the copies' could be drawn; one the copies cannot draw is a problem.
+ */
+async function drawSheets({
+  files,
+  copies: given,
+  shows,
+  reader: named,
+  cwd,
+}: SheetsRequest): Promise<DrawnSheet[]> {
+  // SAFETY: the command's own copy of tsdraft has each function Library names.
+  const library = (await import("tsdraft")) as CoreLibrary;
+  // A file is known by its real path, so a reference in another case or through a link finds it.
+  const copies = new Map(Object.entries(given).map(([path, copy]) => [realPath(path), copy]));
+  const fileFor = (path: string): string => copies.get(realPath(path))?.copy ?? path;
+
+  const blocksFor = (path: string): readonly string[] | undefined =>
+    copies.get(realPath(path))?.blocks;
+
+  type Pictures = Map<string, { svg: string } | string>;
+
+  /** The sheets of one file: its pictures from the project and with the copies, drawn at once. */
+  const ofFile = async (file: string): Promise<DrawnSheet[]> => {
+    const out: DrawnSheet[] = [];
+    const readers = await readersOf(file, named, cwd);
+
+    /**
+     * The picture of each layout of the file, from the project or with the copies, and with the
+     * copies what keeps them from showing every change; or why there are none.
+     */
+    const draw = async (
+      withCopies: boolean,
+    ): Promise<
+      { pictures: Pictures; problems: { problem: string; source?: string }[] } | string
+    > => {
+      const actual = withCopies ? fileFor(file) : file;
+      let reader;
+
+      try {
+        reader = readers.readerOf(extname(actual));
+      } catch (error) {
+        if (error instanceof readers.ReaderRefusal) return error.message;
+        throw error;
+      }
+
+      const blocks = withCopies ? blocksFor(file) : undefined;
+      const cached: CachedRead = (options) => readers.cache.read(actual, reader, {}, options);
+      let got = await readShown(library, cached, { geometry: true }, blocks);
+
+      if ("read" in got && pastTheLimit(got.read)) {
+        const layouts = pictured(got.read);
+
+        if (layouts.length > 0)
+          got = await readShown(library, cached, { geometry: true, only: { layouts } }, blocks);
+      }
+
+      if ("skipped" in got) return `${file} was not read: ${got.skipped}`;
+      const read = got.read;
+
+      const context = await readContext(library, readers, file, read, false, {
+        byArea: true,
+        ...(withCopies && { fileFor, blocksFor }),
+      });
+
+      const pictures: Pictures = new Map();
+      const problems: { problem: string; source?: string }[] = [];
+
+      if (withCopies) {
+        const past = `holds more of model space where the sheet shows it than a read keeps, so its pictures cannot show every change`;
+
+        if (copies.has(realPath(file)) && pictured(read).length > 0 && pastTheLimit(read))
+          problems.push({ problem: `${file} ${past}` });
+        const seen = new Set<string>();
+
+        for (const [name, path] of context.found) {
+          const real = realPath(path);
+          seen.add(real);
+          const xref = context.options.xrefs?.[name];
+          const xrefRead = xref !== undefined && "read" in xref ? xref.read : xref;
+
+          if (copies.has(real) && xrefRead !== undefined && pastTheLimit(xrefRead))
+            problems.push({ problem: `${path}, as the xref ${JSON.stringify(name)}, ${past}` });
+        }
+
+        for (const source of shows[file] ?? [])
+          if (!seen.has(realPath(source)))
+            problems.push({
+              problem: `${file} attaches no xref found as ${source}, so its pictures cannot show the edit`,
+              source,
+            });
+      }
+
+      for (const layout of pictured(read)) {
+        try {
+          const svg = library.readPicture(read, { ...context.options, layout }).svg;
+          pictures.set(layout, { svg });
+        } catch (thrown) {
+          pictures.set(
+            layout,
+            `its picture could not be drawn: ${thrown instanceof Error ? thrown.message : String(thrown)}`,
+          );
+        }
+      }
+
+      return { pictures, problems };
+    };
+
+    const [drawn, was] = await Promise.all([draw(true), draw(false)]);
+
+    if (isString(drawn)) return [{ file, layout: null, problem: drawn }];
+    const after = drawn.pictures;
+    const before = isString(was) ? was : was.pictures;
+
+    for (const problem of drawn.problems) out.push({ file, layout: null, ...problem });
+
+    for (const [layout, picture] of after) {
+      if (isString(picture)) {
+        out.push({ file, layout, problem: picture });
+        continue;
+      }
+
+      const was = isString(before) ? undefined : before.get(layout);
+
+      if (was !== undefined && !isString(was) && was.svg === picture.svg) continue;
+      out.push({ file, layout, svg: picture.svg });
+    }
+
+    return out;
+  };
+
+  // A few files at a time, each read in a process of its own, and given in the order asked.
+  const found: DrawnSheet[][] = [];
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(SHEETS_AT_ONCE, files.length) }, async () => {
+      while (next < files.length) {
+        const i = next++;
+        found[i] = await ofFile(files[i]!);
+      }
+    }),
+  );
+
+  return found.flat();
+}
+
+/** How many files the changed sheets' check draws at once. */
+const SHEETS_AT_ONCE = 3;
+
+/**
+ * The sheets an edit names, each read whole, or by its layouts where it does not read whole, with
+ * its xrefs by the areas its layouts show, and the source's read in place of each xref that is the
+ * source, which a build replaces with the edited read.
+ */
+async function keptSheets(
+  library: CoreLibrary,
+  readers: Readers,
+  source: string,
+  read: DrawingRead,
+  paths: readonly string[],
+  drawNoPlot: boolean,
+  edit: Edit,
+): Promise<KeptSheet[]> {
+  const names = new Map<string, number>();
+
+  for (const path of paths) names.set(basename(path), (names.get(basename(path)) ?? 0) + 1);
+  const out: KeptSheet[] = [];
+
+  for (const [i, file] of paths.entries()) {
+    const label =
+      names.get(basename(file))! > 1
+        ? (edit.sheets?.[i] ?? file).replaceAll("\\", "/")
+        : basename(file);
+
+    const drawn = await (async (): Promise<KeptSheet["drawn"]> => {
+      track(file, fileVersion(file));
+      let reader;
+
+      try {
+        reader = readers.readerOf(extname(file));
+      } catch (error) {
+        if (error instanceof readers.ReaderRefusal)
+          return `The sheet ${file} is not read: ${error.message}`;
+        throw error;
+      }
+
+      const cached: CachedRead = (options) => readers.cache.read(file, reader, {}, options);
+      let got = await readShown(library, cached, { geometry: true });
+
+      if ("read" in got && pastTheLimit(got.read) && pictured(got.read).length > 0)
+        got = await readShown(library, cached, {
+          geometry: true,
+          only: { layouts: pictured(got.read) },
+        });
+
+      if ("skipped" in got) return `The sheet ${file} was not read: ${got.skipped}`;
+
+      // A file the edit reads in part is read as the sheet shows it, and the edit laid over it.
+      const context = await readContext(library, readers, file, got.read, drawNoPlot, {
+        byArea: true,
+        ...(edit.only === undefined && {
+          readFor: (path: string) => (realPath(path) === realPath(source) ? read : undefined),
+        }),
+      });
+
+      const real = realPath(source);
+      const shows = [...context.found].flatMap(([n, path]) => (realPath(path) === real ? [n] : []));
+
+      if (shows.length === 0) return `The sheet ${file} attaches no xref of ${source}`;
+
+      return { read: got.read, context, names: shows };
+    })();
+
+    out.push({ file, label, drawn });
+  }
+
+  return out;
+}
+
+/**
+ * What a sheet shows of a file an edit reads in part, after the edit: the sheet's own read of the
+ * file, with what the edit's read holds of model space as the edited read gives it, what it adds
+ * after, and each block the edit changes or adds as the edited read gives it.
+ */
+function laidOver(shown: DrawingRead, read: DrawingRead, after: DrawingRead): DrawingRead {
+  if (after === read) return shown;
+  const inRead = new Set<string>();
+
+  for (const e of read.model.entities ?? []) if (e.handle !== undefined) inRead.add(e.handle);
+  const edited = new Map<string, ReadEntity>();
+
+  for (const e of after.model.entities ?? []) if (e.handle !== undefined) edited.set(e.handle, e);
+  const shownHandles = new Set<string>();
+
+  for (const e of shown.model.entities ?? [])
+    if (e.handle !== undefined) shownHandles.add(e.handle);
+
+  const placed = new Set<string>();
+
+  const entities = [
+    ...(shown.model.entities ?? []).flatMap((e) => {
+      if (e.handle === undefined || !inRead.has(e.handle)) return [e];
+      const now = edited.get(e.handle);
+
+      if (now === undefined) return [];
+      placed.add(e.handle);
+
+      return [now];
+    }),
+    // What the edit adds, and what it moves into the sheet's view from outside it.
+    ...(after.model.entities ?? []).filter(
+      (e) => e.handle === undefined || (!placed.has(e.handle) && !shownHandles.has(e.handle)),
+    ),
+  ];
+
+  // A block the edit leaves as it was is the sheet's read of it, which may hold more of it.
+  const unchanged = new Set(read.blocks);
+  const shownBlocks = new Map(shown.blocks.map((b) => [b.handle, b]));
+
+  const blocks = after.blocks.map((b) => (unchanged.has(b) ? (shownBlocks.get(b.handle) ?? b) : b));
+
+  return { ...after, model: { ...shown.model, entities }, blocks };
 }
 
 /** Errors before warnings, each in the order found. */

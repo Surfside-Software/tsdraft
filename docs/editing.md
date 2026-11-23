@@ -361,10 +361,15 @@ around it at most 10,000,000 points.
 
 `tsdraft render` and `tsdraft dev` take an edit file as they take a drawing file, and draw the file
 it edits as it will plot after the edit, from `editedRead(read, edit)`: model space and each
-layout, at the sheet's own pens, with the xrefs found beside the file. A second picture, the
+layout, at the sheet's own pens, with the xrefs found beside the file. The edit of a model file
+draws through each sheet its `sheets` names too, with the edited read in place of each of the
+sheet's xrefs that is the file, as `<sheet's file name>/<layout>` in `outputs.layouts` with the
+sheet's `file`; where two of its sheets share a file name, each is named by its path as the edit
+gives it. A sheet's xrefs of model space are read by the areas its layouts show of them. A second picture, the
 picture of changes, draws every entity the edit does not reach faint, each it erases dashed in red
 where it was, each it moves, stretches or changes dashed in amber where it was and at full strength
-where it goes, and each it adds at full strength. A change of a layer draws every picture again.
+where it goes, and each it adds at full strength, of the file's own model space and layouts. A
+change of a layer draws every picture again.
 `dev` toggles between the two with the Changes button or the C key, and serves the second at
 `/drawing.svg?changes=1`. The JSON's `edit` gives each statement with its call, its handles and
 its box in model space and on each sheet, and `lintEdit`'s diagnostics come with the others, each
@@ -411,15 +416,16 @@ an older tsdraft, but uses an editor's read as it is.
 
 `checkEditedCopy(editor, source, read, edit, written)` runs the checks a copy passes before a write
 leaves it, each against the source as it was, so a defect the firm's file already had is told from
-a new one:
+a new one. The fifth, the changed sheets, draws the job's sheets with every copy in place, so
+`tsdraft write` runs it once every copy of the job is made:
 
-| Check          | What it holds                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `read-back`    | The written file reads, with no more of `unread.malformed` than the source                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `structure`    | The structure check finds no defect the source does not hold. `own` counts the source's                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `before-after` | Every record the edit does not reach is the source's, byte for byte, in its place. A record is gone only where the edit erases it or what owns it, and changes only where the edit moves it or what owns it, takes references to what it erases out of it, or gains references to what it adds. A new record takes a handle from the source's `$HANDSEED` on, and the header changes in its seed alone. The written file reads as `editedRead` says, to nine digits. A block the copy's read counts past its limit, as one an edit adds to a file read in part may be, is held to the edit's count of entities and listed in `notCompared`; its geometry is not compared |
-| `lint`         | `lintEdit`'s errors, those of the additions among them                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `sheets`       | The sheets whose picture the edit changes, drawn as they plot. None yet                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Check          | What it holds                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `read-back`    | The written file reads, with no more of `unread.malformed` than the source                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `structure`    | The structure check finds no defect the source does not hold. `own` counts the source's                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `before-after` | Every record the edit does not reach is the source's, byte for byte, in its place. A record is gone only where the edit erases it or what owns it, and changes only where the edit moves it or what owns it, takes references to what it erases out of it, or gains references to what it adds. A new record takes a handle from the source's `$HANDSEED` on, and the header changes in its seed alone. The written file reads as `editedRead` says, to nine digits. The copy is read with the blocks the edit adds, `addedBlocks`, kept apart (`ReadOptions.blocks`), so a file read in part reads them whole; one still past its limit is held to the edit's count of entities and listed in `notCompared` |
+| `lint`         | `lintEdit`'s errors, those of the additions among them                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `sheets`       | Each layout of the file, and of each sheet the edit names, whose picture the copies change, drawn as it plots with every copy of the job that passed the other checks in place of its source, as a PNG and a PDF, listed in `sheets`. A sheet it cannot draw fails it                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 `dxfStructure(bytes)` is the structure check of a DXF, as the leading CAD app's `AUDIT` would find a
 fault: every handle once and below `$HANDSEED`, every owner and pointer, groups 330 to 369, 390 to
@@ -441,20 +447,38 @@ edit files name, as one job, and prints the job as JSON. For each edit file:
    the edit was planned.
 4. It reads the file and makes the edit. An edit `lintEdit` gives an error for is refused, and
    its JSON gives each error with the call of its statement in `diagnostics`.
-5. It makes the copy and runs the checks of every job on what it made, in a
+5. It makes the copy and runs the first four checks of every job on what it made, in a
    process of its own, under the limits below.
-6. It writes the copy to a temporary file in the folder it goes to, checks that the bytes on the
-   disk are the ones the checks passed, and renames it to the source's path from the job's root,
-   under `--out`, `out/` beside the edit files by default. The root is `--root`, or else the
-   deepest folder that holds every source of the job and every sheet the edits name, so an edited
-   sheet's relative path to an edited model holds among the copies.
+6. It writes the copy to a temporary file in the folder it goes to and checks that the bytes on
+   the disk are the ones the checks passed.
+7. Once every edit file has been through those steps, it runs the fifth check, the changed sheets:
+   each layout of each file the job edits and each sheet the edits name, drawn as it plots from the
+   project and again with every copy that passed in place of its source. Each reference is found
+   in the project from the path its file holds, and a file the job edits is read from its copy. An
+   xref of a sheet's model space is read by the areas its layouts show of it, a file that does not
+   read whole by its layouts, and the blocks an edit adds, and those the kept entities draw that
+   came past the limit, kept apart. A layout whose two pictures differ is drawn as a PNG, 1600
+   pixels wide, and plotted to a PDF, `<name>.layout-<layout>.png` and `.pdf` at its file's path
+   from the root under the out folder, and listed in the check of each edit whose file or sheet it
+   is, with its `file`, `layout`, `png` and `pdf`. A layout the copies cannot draw fails the check,
+   and so does a sheet an edit names that attaches no xref found as its file, and a copy that holds
+   more of model space where a sheet shows it than a read keeps, whose pictures could miss the
+   edit.
+8. It renames each copy that passed all five to the source's path from the job's root, under
+   `--out`, `out/` beside the edit files by default. The root is `--root`, or else the deepest
+   folder that holds every source of the job and every sheet the edits name, so an edited sheet's
+   relative path to an edited model holds among the copies.
 
-A copy that fails a check is not written, and its JSON says which check and why. It never writes a
-source's own path or a sheet's, by any path to it, and refuses two edits of one file in one job. It
-keeps a record, `.tsdraft-write.json` in the out folder, of each copy it wrote and its SHA-256, and
-replaces a file at a copy's path only when the record names it with the bytes it holds: so a second
-run replaces its own copies, and never a file it did not make or a copy a person changed. It exits 0 when every copy was
-written and 2 when any was not. A `.dwg` needs an installed package that edits it, found as a
+A copy that fails a check is not written, and its JSON says which check and why; one that fails
+one of the first four has its source drawn in its place, and its `sheets` check says it was not
+run. It never writes a source's own path or a sheet's, by any path to it, and refuses two edits of
+one file in one job. It keeps a record, `.tsdraft-write.json` in the out folder, of each copy and
+picture it wrote and its SHA-256, a picture with the sheet it is of, and replaces a file at a copy's or a picture's path only when the
+record names it with the bytes it holds: so a second run replaces its own copies, and never a file
+it did not make or a copy a person changed. A picture no written copy lists is taken away, and so
+is a recorded picture of a layout of the job's files that no longer changes. A machine with no PNG
+renderer writes nothing, and says so at once. It exits 0 when every copy was written and 2 when
+any was not. A `.dwg` needs an installed package that edits it, found as a
 reader is ([Which reader](command.md#which-reader)), or `--reader`.
 
 | Limit of one edit's process                   | Default |
@@ -465,3 +489,5 @@ reader is ([Which reader](command.md#which-reader)), or `--reader`.
 
 The process runs under `prlimit --core=1:1 --cpu=<seconds> --` where there is one, as a read's
 does.
+The changed sheets are drawn in one more process, with the same heap and the time of one edit for
+each file it draws, and each of its reads under the limits of a read.

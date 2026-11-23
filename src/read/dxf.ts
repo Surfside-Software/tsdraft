@@ -29,7 +29,7 @@ import {
 import { GroupReader, textTwice, unescaped } from "./groups.ts";
 import { MARK_APP, recordAdditions } from "./mark.ts";
 import { TableGroups, tableStyleOf, type TableStyleHeld } from "./table.ts";
-import { OUTSIDE_THE_READ, partFilter, type PartFilter } from "./part.ts";
+import { OUTSIDE_THE_READ, ownBlocks, partFilter, type PartFilter } from "./part.ts";
 import {
   add,
   facing,
@@ -174,7 +174,7 @@ async function reading(
 
   // The first pass reads the stream as it arrives, and a copy of each piece is held for the
   // second, since a stream may hand the same buffer over again.
-  const fed = feeder({ geometry: false }, limits, undefined);
+  const fed = feeder(firstPass(options), limits, undefined);
   const chunks: Uint8Array[] = [];
 
   for await (const chunk of input) {
@@ -199,13 +199,19 @@ function byPart(
   document: DxfDocumentReader | undefined,
 ): DrawingRead {
   return second(
-    once(input, { geometry: false }, limits, undefined),
+    once(input, firstPass(options), limits, undefined),
     input,
     options,
     limits,
     document,
   );
 }
+
+/** The options of the first pass of a read with `only`: no geometry, and the blocks named. */
+const firstPass = (options: ReadOptions): ReadOptions => ({
+  geometry: false,
+  ...(options.blocks !== undefined && { blocks: options.blocks }),
+});
 
 /** The second pass of a read with `only`, from the first's read and reader. */
 function second(
@@ -561,6 +567,8 @@ interface Target {
   other: Record<string, number>;
   /** True for a block, whose items count against `blockItems`. */
   block: boolean;
+  /** True for a block `ReadOptions.blocks` names, which keeps its items in a room of its own. */
+  ownRoom?: boolean;
 }
 
 /** What a space holds while the reader is in it. */
@@ -786,6 +794,9 @@ class DxfReader {
   #r12 = false;
   #blockItems = 0;
   #geometryItems = 0;
+  /** The blocks `ReadOptions.blocks` names, and the items they keep in their own room. */
+  readonly #ownBlocks: ReadonlySet<string>;
+  #ownItems = 0;
   /** MTEXTs with a dictionary, and fields, past the limit of either list. */
   #fieldsPast = 0;
   #overflow = false;
@@ -865,6 +876,7 @@ class DxfReader {
     this.#geometry = options.geometry === true;
     this.#part = this.#geometry ? part : undefined;
     this.#limits = limits;
+    this.#ownBlocks = ownBlocks(options.blocks);
   }
 
   group(code: number, value: string): void {
@@ -1217,8 +1229,10 @@ class DxfReader {
       } else if (!this.#geometry && /^\*[DT]\d*$/i.test(blockName)) {
         this.#inDimensionPicture = true;
       } else {
+        const handle = ownerOf(r);
+
         this.#block = {
-          handle: ownerOf(r),
+          handle,
           name: blockName,
           base: point(r, 10),
           anonymous: (flags & 1) !== 0 || blockName.startsWith("*"),
@@ -1226,6 +1240,8 @@ class DxfReader {
           entities: [],
           other: map(),
           block: true,
+          ...(handle !== undefined &&
+            this.#ownBlocks.has(handle.replace(/^0+(?=.)/, "").toUpperCase()) && { ownRoom: true }),
         };
         this.blocks.push(this.#block);
       }
@@ -1329,9 +1345,39 @@ class DxfReader {
 
   /** How many more items a target may keep. */
   #room(target: Target): number {
-    return target.block
-      ? this.#limits.blockItems - this.#blockItems
-      : this.#limits.geometryItems - this.#geometryItems;
+    if (!target.block) return this.#limits.geometryItems - this.#geometryItems;
+    const running = this.#limits.blockItems - this.#blockItems;
+
+    // A block named apart may take what either room has left, until its entity's cost is known.
+    return target.ownRoom ? Math.max(running, this.#limits.blockItems - this.#ownItems) : running;
+  }
+
+  /**
+   * Whether an entity of `cost` fits the room its target keeps it in. One of a block named apart
+   * that its own room cannot take still spends the running total where it would without the
+   * option, so every other block is kept as it would be.
+   */
+  #fits(target: Target, cost: number): boolean {
+    if (!target.ownRoom) return cost <= this.#room(target);
+
+    if (cost <= this.#limits.blockItems - this.#ownItems) return true;
+
+    if (cost <= this.#limits.blockItems - this.#blockItems) this.#blockItems += cost;
+
+    return false;
+  }
+
+  /** Spends `cost` items of the room `target` keeps them in. */
+  #spend(target: Target, cost: number): void {
+    if (!target.block) this.#geometryItems += cost;
+    else {
+      // A block named apart spends the running total as it would without the option, so every
+      // other block is kept as it would be.
+      if (target.ownRoom) this.#ownItems += cost;
+
+      if (!target.ownRoom || cost <= this.#limits.blockItems - this.#blockItems)
+        this.#blockItems += cost;
+    }
   }
 
   /**
@@ -1345,14 +1391,13 @@ class DxfReader {
       return false;
     }
 
-    if (cost > this.#room(target)) {
+    if (!this.#fits(target, cost)) {
       add(target.other, "past the limit");
 
       return false;
     }
 
-    if (target.block) this.#blockItems += cost;
-    else this.#geometryItems += cost;
+    this.#spend(target, cost);
     target.entities.push(entity);
 
     return true;
@@ -1489,13 +1534,13 @@ class DxfReader {
           (paragraph ? 2 + nameCost(paragraph.paragraph.style) : 0) +
           Math.floor((tag.length + value.length + (prompt?.length ?? 0)) / 32);
 
-        if (cost > this.#room(block)) {
+        if (!this.#fits(block, cost)) {
           add(block.other, "past the limit");
 
           return;
         }
 
-        this.#blockItems += cost;
+        this.#spend(block, cost);
         const { placement, pending } = placementOf(text, face, value, 74);
 
         const definition = {
@@ -2517,7 +2562,7 @@ class DxfReader {
         return additions === undefined ? [] : [{ name, handle, additions }];
       }),
       blocks: this.blocks.map((draft): ReadBlock => {
-        const { block: _, ...block } = draft;
+        const { block: _, ownRoom: _own, ...block } = draft;
         const sorted = order(block.entities, block.name);
 
         return sorted === undefined ? block : { ...block, drawOrder: sorted };
@@ -2538,6 +2583,7 @@ class DxfReader {
       unread: this.unread,
       ...(opensAt !== undefined && { opensAt }),
       ...(this.#part && { only: this.#part.filter.part }),
+      ...(this.#ownBlocks.size > 0 && { blocksAsked: [...this.#ownBlocks] }),
     };
   }
 
@@ -2648,15 +2694,14 @@ class DxfReader {
         }
       }
 
-      if (target && cost > this.#room(target)) {
+      if (target && !this.#fits(target, cost)) {
         add(target.other, "past the limit");
         left.add(entity);
         targets.add(target);
         continue;
       }
 
-      if (target?.block) this.#blockItems += cost;
-      else if (target) this.#geometryItems += cost;
+      if (target) this.#spend(target, cost);
       // SAFETY: the reader made the entity, and finishes it here before the read is given out.
       const mutable = entity as { style?: string; textStyle: string; block?: object };
 
@@ -2727,15 +2772,14 @@ class DxfReader {
       const found = style === undefined ? undefined : named.get(style.toUpperCase());
       const cost = nameCost(found?.name);
 
-      if (cost > this.#room(target)) {
+      if (!this.#fits(target, cost)) {
         add(target.other, "past the limit");
         left.add(entity);
         targets.add(target);
         continue;
       }
 
-      if (target.block) this.#blockItems += cost;
-      else this.#geometryItems += cost;
+      this.#spend(target, cost);
       const rows = entity.rows.length;
       const title = !(noTitle ?? found?.held.noTitle ?? false) && rows > 0;
       const header = !(noHeader ?? found?.held.noHeader ?? false) && rows > (title ? 1 : 0);

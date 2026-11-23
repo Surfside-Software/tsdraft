@@ -10,8 +10,10 @@ import { basename, dirname, extname, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
+  addedBlocks,
   checkEditedCopy,
   dxfEditor,
+  editedRead,
   EditError,
   lintEdit,
   type EditDiagnostic,
@@ -36,6 +38,8 @@ export type WriteMessage =
       readonly checks: Awaited<ReturnType<typeof checkEditedCopy>>;
       readonly sha256: string;
       readonly bytes: number;
+      /** The blocks the edit adds, by handle, which a read of the copy keeps apart. */
+      readonly blocks: readonly string[];
     }
   | {
       readonly kind: "refused";
@@ -220,6 +224,7 @@ try {
       checks,
       sha256: createHash("sha256").update(written).digest("hex"),
       bytes: written.length,
+      blocks: addedBlocks(read, editedRead(read, edit)),
     },
     written,
   );

@@ -364,6 +364,25 @@ of its bytes for the second pass. A name the file has no layout of, `Model`, an 
 two finite corners, or more than `MOST_WINDOWS`, 1,024, windows and areas in all is a `ReadError`.
 Without `geometry`, `only` changes nothing.
 
+### Blocks read apart
+
+The blocks of a file spend one running total of `BLOCK_ITEMS` in file order, so in a large detail
+file a block late in the file, such as a dimension's picture, may be past the limit. `blocks` names
+blocks by handle, as `ReadBlock.handle` gives it, that are kept in a room of their own, a second
+`BLOCK_ITEMS` the blocks named share:
+
+```ts
+const read = await readDXF(file, { geometry: true, blocks: ["11A033C", "11A0346"] });
+read.blocksAsked; // ["11A033C", "11A0346"]
+```
+
+A block named still spends the running total as it would without the option, so every other block
+is kept as it would be. A handle that names no block is passed over. It works with or without
+`geometry` and `only`, and the read gives the handles in capitals as `blocksAsked`. A value that is
+not a list of at most `MOST_OWN_BLOCKS`, 6,000, handles is a `ReadError`. The checks of an edit
+read a copy with the blocks the edit adds named, and the changed sheets read a file again with the
+blocks its kept entities draw that came past the limit.
+
 `readDXF` throws a `ReadError` for a file it cannot read at all: a binary DXF, a group code
 that is not an integer, or a file that ends between a code and its value. A record whose kind,
 layer, block name or tag is longer than the 2,049 characters a DXF value holds is counted under

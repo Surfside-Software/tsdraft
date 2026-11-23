@@ -1,10 +1,13 @@
 // The checks of every job, which an edited file passes before a write leaves it: read back,
-// structure, before and after, lint and the changed sheets. Each compares with the source as it
-// was, so a defect the firm's file already had is told from a new one.
+// structure, before and after and lint, each of one file. The fifth, the changed sheets, draws the
+// job's sheets with every copy in place, so the command runs it once the copies are made. Each
+// compares with the source as it was, so a defect the firm's file already had is told from a new
+// one.
 import { isKeyed, isNumber, isString, type Json } from "../guards.ts";
 import type { DrawingRead, ReadPart } from "../read/model.ts";
 import { DxfDocumentReader, type DxfDocument } from "../read/document.ts";
 import { readDXFDocument } from "../read/dxf.ts";
+import { MOST_OWN_BLOCKS } from "../read/part.ts";
 import { editDXF } from "./dxf.ts";
 import type { Edit } from "./model.ts";
 import { replacement, withReplacement, writesAdditions } from "./replaced.ts";
@@ -20,8 +23,11 @@ import { dxfStructure, newDefects, type StructureReport } from "./structure.ts";
  * and its records by key, a handle or a place, so a copy's records are held to the source's.
  */
 export interface FileEditor {
-  /** The file's read with geometry, of the part `only` names. */
-  read(bytes: Uint8Array, only?: ReadPart): Promise<DrawingRead>;
+  /**
+   * The file's read with geometry, of the part `only` names, with the blocks `blocks` names kept
+   * apart, as `ReadOptions` takes both.
+   */
+  read(bytes: Uint8Array, only?: ReadPart, blocks?: readonly string[]): Promise<DrawingRead>;
   edit(bytes: Uint8Array, edit: Edit, read: DrawingRead): Uint8Array;
   structure(bytes: Uint8Array): StructureReport;
   records(bytes: Uint8Array): ReadonlyMap<string, Uint8Array>;
@@ -67,6 +73,18 @@ export interface EditCheck {
    * the geometry is not compared.
    */
   readonly notCompared?: readonly string[];
+  /** The changed sheets: each layout drawn as it plots after the edit, as a PNG and a PDF. */
+  readonly sheets?: readonly EditSheet[];
+}
+
+/** A sheet the changed sheets' check drew. */
+export interface EditSheet {
+  /** The sheet's file, by its path in the project. */
+  readonly file: string;
+  readonly layout: string;
+  /** The pictures written, by their paths. */
+  readonly png: string;
+  readonly pdf: string;
 }
 
 /**
@@ -124,8 +142,14 @@ function keysOf(document: DxfDocument, bytes: Uint8Array): string[] {
 
 /** The editor of the 2018 format's DXF, in the core. */
 export const dxfEditor: FileEditor = {
-  read: async (bytes, only) =>
-    (await readDXFDocument(bytes, { geometry: true, ...(only !== undefined && { only }) })).read,
+  read: async (bytes, only, blocks) =>
+    (
+      await readDXFDocument(bytes, {
+        geometry: true,
+        ...(only !== undefined && { only }),
+        ...(blocks !== undefined && { blocks }),
+      })
+    ).read,
   edit: editDXF,
   structure: dxfStructure,
   headerWithoutSeed(bytes) {
@@ -345,7 +369,15 @@ export function firstDifferenceNear(
  * owns of a kind the reader does not read, which the read cannot name.
  */
 const content = (read: DrawingRead): CopyContent => {
-  const { sha256: _sha, bytes: _bytes, unread, otherFields: _fields, ...rest } = read;
+  const {
+    sha256: _sha,
+    bytes: _bytes,
+    unread,
+    otherFields: _fields,
+    blocksAsked: _asked,
+    ...rest
+  } = read;
+
   // The seed and the handle of an edit's record depend on records the read does not list, such as
   // an application's; the structure check holds every handle below the seed.
   const { handseed: _seed, ...header } = rest.header;
@@ -545,9 +577,11 @@ export async function checkEditedCopy(
   };
 
   let back: DrawingRead | undefined;
+  const edited = editedRead(read, edit);
+  const apart = addedBlocks(read, edited);
 
   try {
-    back = await editor.read(written, edit.only);
+    back = await editor.read(written, edit.only, apart.length > 0 ? apart : undefined);
     add(
       "read-back",
       moreOf(read.unread.malformed, back.unread.malformed).map((p) => `malformed ${p}`),
@@ -677,7 +711,7 @@ export async function checkEditedCopy(
   const notCompared: string[] = [];
 
   if (back !== undefined) {
-    const limited = withinLimit(editedRead(read, edit), back);
+    const limited = withinLimit(edited, back);
     notCompared.push(...limited.notCompared);
     const difference = firstDifferenceNear(content(limited.read), content(back));
 
@@ -694,9 +728,29 @@ export async function checkEditedCopy(
       .filter((d) => d.severity === "error")
       .map((d) => d.message),
   );
-  add("sheets", []);
 
   return checks;
+}
+
+/**
+ * The handles of the blocks an edited read holds and its source's does not, the blocks an edit
+ * adds, which a read of the copy keeps apart (`ReadOptions.blocks`): at most `MOST_OWN_BLOCKS`.
+ */
+export function addedBlocks(read: DrawingRead, edited: DrawingRead): string[] {
+  if (edited === read) return [];
+  const had = new Set<string>();
+
+  for (const b of read.blocks) if (isString(b.handle)) had.add(canonicalHandle(b.handle));
+  const out: string[] = [];
+
+  for (const b of edited.blocks) {
+    if (out.length >= MOST_OWN_BLOCKS) break;
+
+    if (isString(b.handle) && !had.has(canonicalHandle(b.handle)))
+      out.push(canonicalHandle(b.handle));
+  }
+
+  return out;
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {

@@ -273,7 +273,6 @@ test("the checks of every job pass on the copy, and a changed record fails befor
       ["structure", true],
       ["before-after", true],
       ["lint", true],
-      ["sheets", true],
     ],
   );
   const text = new TextDecoder().decode(bytes);

@@ -12,6 +12,7 @@ import type {
   ReadEntity,
   ReadLayout,
   ReadMtext,
+  ReadOptions,
   ReadPart,
   ReadViewport,
 } from "./model.ts";
@@ -27,6 +28,31 @@ const LISTED = 50;
  * work stays in proportion to the file. A sheet holds a few viewports.
  */
 export const MOST_WINDOWS = 1024;
+
+/** The most blocks `ReadOptions.blocks` names: few enough that their list passes on a command line. */
+export const MOST_OWN_BLOCKS = 6_000;
+
+/**
+ * The handles of `ReadOptions.blocks`, in capitals without leading zeros, as a set.
+ *
+ * @throws ReadError for a value that is not a list of at most `MOST_OWN_BLOCKS` handles.
+ */
+export function ownBlocks(blocks: ReadOptions["blocks"]): ReadonlySet<string> {
+  if (blocks === undefined) return new Set();
+
+  if (!Array.isArray(blocks) || blocks.length > MOST_OWN_BLOCKS)
+    throw new ReadError(`\`blocks\` is a list of at most ${MOST_OWN_BLOCKS} handles`);
+  const out = new Set<string>();
+  const list: readonly unknown[] = blocks;
+
+  for (const h of list) {
+    if (!isString(h) || !/^[0-9A-Fa-f]{1,16}$/.test(h))
+      throw new ReadError("`blocks` names a block by a value that is not a handle");
+    out.add(h.replace(/^0+(?=.)/, "").toUpperCase());
+  }
+
+  return out;
+}
 
 /** How deep inserts of blocks in blocks are followed for a box. Deeper, the box is not known. */
 const DEPTH = 64;

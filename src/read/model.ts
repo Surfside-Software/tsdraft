@@ -91,6 +91,8 @@ export interface DrawingRead {
    * with its lower corner first. Model space counts what it left out under `outside what was read`.
    */
   readonly only?: ReadPart;
+  /** The blocks `ReadOptions.blocks` named, each handle in capitals without leading zeros. */
+  readonly blocksAsked?: readonly string[];
 }
 
 /** What a reader reads. */
@@ -105,6 +107,13 @@ export interface ReadOptions {
    * and of model space what its viewports' windows meet, and of model space what each area meets.
    */
   readonly only?: ReadPart;
+  /**
+   * Blocks by handle, as `ReadBlock.handle` gives it, each kept in a room of its own, a second
+   * `BLOCK_ITEMS` apart from the one the other blocks spend in file order, so every other block is
+   * kept as it would be without them: the blocks an edit adds, which come after the file's own.
+   * At most `MOST_OWN_BLOCKS`.
+   */
+  readonly blocks?: readonly string[];
 }
 
 /** A part of a file a read keeps: layouts by name, and areas of model space. */

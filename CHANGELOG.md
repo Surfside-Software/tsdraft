@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- `tsdraft write` runs its fifth check, the changed sheets. Once every copy of a job has passed
+  the other four, it draws each layout of each file the job edits, and of each sheet the edits
+  name, as it plots from the project and again with those copies in place of their sources, and
+  each layout whose picture differs is written as a PNG and a PDF beside the copies,
+  `<name>.layout-<layout>.png` and `.pdf`, listed in the check's `sheets` with its `file`,
+  `layout`, `png` and `pdf`. A sheet's references are found in the project, and a file the job
+  edits is read from its copy; an xref of a sheet's model space is read by the areas its layouts
+  show. A layout the copies cannot draw fails the check and its copy is not written. The out
+  folder's record keeps the pictures too, and a picture no written copy lists, or of a layout that
+  no longer changes, is taken away. A machine with no PNG renderer writes nothing.
+- The preview of a model file's edit draws through each sheet its `sheets` names, with the edited
+  read in place of the sheet's xref, as `outputs.layouts` entries named
+  `<sheet's file name>/<layout>` that give the sheet's `file`.
+- `ReadOptions.blocks` names blocks by handle that a read keeps in a room of their own, a second
+  `BLOCK_ITEMS`, while every other block is kept as without it, and the read gives them back as
+  `blocksAsked`. `MOST_OWN_BLOCKS` is the most it takes, and `ownBlocks` checks a list. The checks
+  of an edit read the copy with the blocks it adds named, `addedBlocks`, so a file read in part
+  compares them whole and `notCompared` stays empty. `FileEditor.read` takes the blocks as its third
+  argument. `layerKey` is exported.
 - The picture of a read file draws a multileader with no leader, such as the notes under a
   schedule, as its note where the file places it. It was left out and counted as not drawn.
 - In the preview's JSON, a `change` statement gives the handle it names and the box of its entity,

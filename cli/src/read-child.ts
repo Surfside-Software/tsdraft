@@ -17,14 +17,15 @@ const ANSWER = 3;
 
 const [name = "", what = "{}", module] = process.argv.slice(2);
 
-// SAFETY: read.ts passes the read's options as JSON, and only the two read here are taken, each
+// SAFETY: read.ts passes the read's options as JSON, and only the three read here are taken, each
 // held to its type below or by the reader.
 const asked = JSON.parse(what) as ReadOptions;
 
-// The reader holds `only` to its rules, and refuses one that breaks them with a `ReadError`.
+// The reader holds `only` and `blocks` to their rules, and refuses one that breaks them with a `ReadError`.
 const options: ReadOptions = {
   geometry: asked.geometry === true,
   ...(asked.only !== undefined && { only: asked.only }),
+  ...(asked.blocks !== undefined && { blocks: asked.blocks }),
 };
 
 const message = (cause: unknown): string =>

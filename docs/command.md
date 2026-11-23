@@ -71,10 +71,13 @@ drawing file: they draw the file it edits as it will plot after the edit, model 
 layout, as they draw a DXF, from the read the file will hold, `editedRead`'s. The file is read
 through [the read cache](#the-read-cache), with the edit's `only`, and drawn at its own pens, with
 the xrefs, images and pages found beside it. A file of another format needs its reader, not its
-editor. A second picture of each, the picture of changes, draws every entity the edit does not
+editor. The edit of a model file draws through each sheet its `sheets` names as well, with the
+edited read in place of the sheet's xref of the file: each such entry of `outputs.layouts` is named
+`<sheet's file name>/<layout>` and gives the sheet's `file`. A second picture of each, the picture of changes, draws every entity the edit does not
 reach faint, each it erases dashed in red where it was, and each it moves or stretches dashed in
 amber where it was and at full strength where it goes. `render` writes it as `<name>.changes.svg` and `.png`, and
-`<name>.layout-<layout>.changes.svg` and `.png` for each sheet, in `outputs.changes`. `lintEdit`'s
+`<name>.layout-<layout>.changes.svg` and `.png` for each of the file's own sheets, in
+`outputs.changes`. `lintEdit`'s
 diagnostics come first in `diagnostics`, and its errors give exit code 2. A file whose SHA-256 is
 not the edit's is drawn as it is, without the edit, with an `edit-hash` error that says so. See
 [Editing a firm's drawing](editing.md#the-preview).
@@ -483,7 +486,8 @@ takes, in order:
 
 `tsdraft write <edit file>... [--out <dir>] [--root <dir>] [--reader <package>]` makes the edited
 copy of the file each edit file names, runs the checks of every job on it, and writes it only
-when they pass. [Editing a firm's drawing](editing.md#tsdraft-write) says how, and gives its
+when they pass. The last check draws each sheet whose picture the job changes as a PNG and a PDF
+beside the copies, and lists them in the check's `sheets`. [Editing a firm's drawing](editing.md#tsdraft-write) says how, and gives its
 limits. It finds the editor of a file of another format in the package that reads it, by the
 rules below, where that package names an editor too.
 
