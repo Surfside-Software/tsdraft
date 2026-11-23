@@ -521,6 +521,13 @@ export {
   type ReadSources,
 } from "./picture-marks.ts";
 export {
+  MOST_WINDOWS,
+  OUTSIDE_THE_READ,
+  partFilter,
+  viewportWindow,
+  type PartFilter,
+} from "./read/part.ts";
+export {
   BLOCK_ITEMS,
   CENSUS_LIMIT,
   dimensionTextParts,
@@ -577,6 +584,7 @@ export {
   type ReadPatternLine,
   type ReadMultileader,
   type ReadOptions,
+  type ReadPart,
   type Point3,
   type ReadPolyline,
   type ReadSolid,

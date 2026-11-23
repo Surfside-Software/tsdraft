@@ -27,6 +27,7 @@ import {
 } from "./entities.ts";
 import { GroupReader, textTwice, unescaped } from "./groups.ts";
 import { TableGroups, tableStyleOf, type TableStyleHeld } from "./table.ts";
+import { OUTSIDE_THE_READ, partFilter, type PartFilter } from "./part.ts";
 import {
   add,
   facing,
@@ -83,9 +84,11 @@ import {
 
 /**
  * Reads an ASCII DXF of any version: from a string, or from its bytes as they arrive. It never
- * holds the whole file. It throws a `ReadError` for a file it cannot read at all, such as a
- * binary DXF or one whose groups are out of step, and reads everything else, counting what it
- * did not understand. With `geometry`, it keeps what model space and each layout draws too.
+ * holds the whole file, but for a read with `only`, which reads the file twice and holds a copy of
+ * a stream's bytes for the second pass. It throws a `ReadError` for a file it cannot read at all,
+ * such as a binary DXF or one whose groups are out of step, and reads everything else, counting
+ * what it did not understand. With `geometry`, it keeps what model space and each layout draws
+ * too, and with `only` what the layouts and areas it names show.
  */
 export function readDXF(
   input: string | AsyncIterable<Uint8Array>,
@@ -141,13 +144,86 @@ async function reading(
   limits: ReadLimits,
   document: DxfDocumentReader | undefined,
 ): Promise<{ read: DrawingRead }> {
-  const reader = new DxfReader(options, limits);
-  const text = typeof input === "string";
-  const groups = new GroupReader((code, value) => reader.group(code, value), text);
-  const push = (chunk: Uint8Array): void => {
-    document?.push(chunk);
-    groups.push(chunk);
+  const part = options.geometry === true && options.only !== undefined;
+  // Bytes or a string are read in the caller's turn, with no wait between the passes.
+  if (typeof input === "string" || input instanceof Uint8Array)
+    return {
+      read: part
+        ? byPart(input, options, limits, document)
+        : once(input, options, limits, document).read,
+    };
+  if (!part) {
+    const fed = feeder(options, limits, document);
+    for await (const chunk of input) fed.push(chunk);
+    return { read: fed.end().read };
+  }
+  // The first pass reads the stream as it arrives, and a copy of each piece is held for the
+  // second, since a stream may hand the same buffer over again.
+  const fed = feeder({ geometry: false }, limits, undefined);
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of input) {
+    // A copy of its own, since a Node buffer's `slice` shares its memory, and the first pass may
+    // hold a piece until the next arrives.
+    const copy = new Uint8Array(chunk);
+    fed.push(copy);
+    chunks.push(copy);
+  }
+  return { read: second(fed.end(), chunks, options, limits, document) };
+}
+
+/**
+ * A read with `only`. A DXF lists its layouts after the entities of model space, so the file is
+ * read once for its layouts and blocks, and then again keeping what they show.
+ */
+function byPart(
+  input: string | Uint8Array,
+  options: ReadOptions,
+  limits: ReadLimits,
+  document: DxfDocumentReader | undefined,
+): DrawingRead {
+  return second(
+    once(input, { geometry: false }, limits, undefined),
+    input,
+    options,
+    limits,
+    document,
+  );
+}
+
+/** The second pass of a read with `only`, from the first's read and reader. */
+function second(
+  first: { read: DrawingRead; reader: DxfReader },
+  input: string | Uint8Array | readonly Uint8Array[],
+  options: ReadOptions,
+  limits: ReadLimits,
+  document: DxfDocumentReader | undefined,
+): DrawingRead {
+  // The leading CAD app's DXF numbers a layout's own view of its paper 1 only on the layout it
+  // opens on, so the first viewport of each other paper space, its own, is no window.
+  const own = first.reader.ownViewports;
+  const read = {
+    ...first.read,
+    layouts: first.read.layouts.map((l) => ({
+      ...l,
+      viewports: l.viewports.filter((v) => v.handle === undefined || !own.has(v.handle)),
+    })),
   };
+  const filter = partFilter(read, options.only!);
+  const papers = new Set<string>();
+  for (const [name, space] of first.reader.layoutSpaces)
+    if (filter.keepsLayout(name)) papers.add(space);
+  return once(input, options, limits, document, { filter, papers }).read;
+}
+
+/** One reading of a file held whole, from start to end. */
+function once(
+  input: string | Uint8Array | readonly Uint8Array[],
+  options: ReadOptions,
+  limits: ReadLimits,
+  document: DxfDocumentReader | undefined,
+  part?: PartKept,
+): { read: DrawingRead; reader: DxfReader } {
+  const fed = feeder(options, limits, document, part, typeof input === "string");
   if (typeof input === "string") {
     // A string is text already: its UTF-8 bytes are read, whatever its header says.
     const encoder = new TextEncoder();
@@ -156,16 +232,34 @@ async function reading(
       // A piece never ends between the two halves of a surrogate pair.
       const last = input.charCodeAt(end - 1);
       if (end < input.length && last >= 0xd800 && last <= 0xdbff) end--;
-      push(encoder.encode(input.slice(i, end)));
+      fed.push(encoder.encode(input.slice(i, end)));
       i = end;
     }
-  } else if (input instanceof Uint8Array) {
-    push(input);
-  } else {
-    for await (const chunk of input) push(chunk);
-  }
-  const { sha256, bytes } = groups.end();
-  return { read: reader.finish(sha256, bytes, groups) };
+  } else if (input instanceof Uint8Array) fed.push(input);
+  else for (const chunk of input) fed.push(chunk);
+  return fed.end();
+}
+
+/** A reader fed the bytes of a file a piece at a time, and the read once they end. */
+function feeder(
+  options: ReadOptions,
+  limits: ReadLimits,
+  document: DxfDocumentReader | undefined,
+  part?: PartKept,
+  text = false,
+): { push(chunk: Uint8Array): void; end(): { read: DrawingRead; reader: DxfReader } } {
+  const reader = new DxfReader(options, limits, part);
+  const groups = new GroupReader((code, value) => reader.group(code, value), text);
+  return {
+    push(chunk) {
+      document?.push(chunk);
+      groups.push(chunk);
+    },
+    end() {
+      const { sha256, bytes } = groups.end();
+      return { read: reader.finish(sha256, bytes, groups), reader };
+    },
+  };
 }
 
 /** Groups no reading needs and that can be long: binary data, and long xdata strings. */
@@ -375,6 +469,12 @@ class Census {
   }
 }
 
+/** What a read with `only` keeps: the filter of model space, and the paper spaces, by their blocks in capitals. */
+interface PartKept {
+  readonly filter: PartFilter;
+  readonly papers: ReadonlySet<string>;
+}
+
 /** Where the entities a reading keeps go: a block's definition, or a space read with geometry. */
 interface Target {
   entities: ReadEntity[];
@@ -508,6 +608,12 @@ class DxfReader {
   #rec: Rec | undefined;
   readonly #geometry: boolean;
   readonly #limits: ReadLimits;
+  /** With `only`: what model space keeps, and the paper spaces kept, by their blocks in capitals. */
+  readonly #part: PartKept | undefined;
+  /** Each layout's space, by its block in capitals, keyed by the layout's name. */
+  readonly layoutSpaces = new Map<string, string>();
+  /** The handle of each paper space's first viewport where the file does not number it 1. */
+  readonly ownViewports = new Set<string>();
 
   readonly header: Record<string, string> = map();
   readonly layers: ReadLayer[] = [];
@@ -648,8 +754,9 @@ class DxfReader {
     return [];
   }
 
-  constructor(options: ReadOptions, limits: ReadLimits) {
+  constructor(options: ReadOptions, limits: ReadLimits, part?: PartKept) {
     this.#geometry = options.geometry === true;
+    this.#part = this.#geometry ? part : undefined;
     this.#limits = limits;
   }
 
@@ -1017,7 +1124,21 @@ class DxfReader {
 
   /** Where the entity read now is kept: its block, or its space when the read keeps geometry. */
   #target(): Target | undefined {
-    return this.#block ?? (this.#geometry ? this.#space : undefined);
+    return this.#block ?? (this.#geometry && this.#keepsSpace() ? this.#space : undefined);
+  }
+
+  /** False for a paper space a read with `only` does not keep. */
+  #keepsSpace(name = this.#spaceName): boolean {
+    return !this.#part || name === MODEL || this.#part.papers.has(name ?? "");
+  }
+
+  /** True when a read with `only` leaves an entity of model space out. */
+  #outside(target: Target, entity: ReadEntity): boolean {
+    return (
+      this.#part !== undefined &&
+      target === this.spaces.get(MODEL) &&
+      !this.#part.filter.keeps(entity)
+    );
   }
 
   /** How many more items a target may keep. */
@@ -1032,6 +1153,10 @@ class DxfReader {
    * True when it is kept.
    */
   #kept(target: Target, entity: ReadEntity, cost = costOf(entity)): boolean {
+    if (this.#outside(target, entity)) {
+      add(target.other, OUTSIDE_THE_READ);
+      return false;
+    }
     if (cost > this.#room(target)) {
       add(target.other, "past the limit");
       return false;
@@ -1388,7 +1513,8 @@ class DxfReader {
     const target = this.#target();
     const { insert } = owner;
     if (owner.keep && target) {
-      if (owner.over) add(target.other, "past the limit");
+      if (owner.over)
+        add(target.other, this.#outside(target, insert) ? OUTSIDE_THE_READ : "past the limit");
       else {
         const kept = owner.attributes ? { ...insert, attributes: owner.attributes } : insert;
         if (this.#kept(target, kept)) {
@@ -1729,6 +1855,11 @@ class DxfReader {
       if (recordName === MODEL || draft.name.toUpperCase() === "MODEL") continue;
       const space = this.spaces.get(recordName);
       const { handle, name: layoutName, tab, blockRecord: _, space: _space, ...rest } = draft;
+      if (!this.layoutSpaces.has(layoutName)) this.layoutSpaces.set(layoutName, recordName);
+      const first = space?.viewports[0];
+      if (first?.handle !== undefined && (first.id === undefined || first.id === 0))
+        this.ownViewports.add(first.handle);
+      const drawn = this.#geometry && this.#keepsSpace(recordName);
       layouts.push({
         handle,
         name: layoutName,
@@ -1742,11 +1873,11 @@ class DxfReader {
           })),
         inserts: space?.inserts ?? [],
         census: (space?.census ?? new Census(0)).done(),
-        ...(this.#geometry && {
+        ...(drawn && {
           entities: space?.entities ?? [],
           other: space?.other ?? map<number>(),
         }),
-        ...ordered(space?.entities, recordName),
+        ...(drawn && ordered(space?.entities, recordName)),
       });
     }
     // The first layout of each space, by the space's block in capitals.
@@ -1917,6 +2048,7 @@ class DxfReader {
       otherFields,
       unread: this.unread,
       ...(opensAt !== undefined && { opensAt }),
+      ...(this.#part && { only: this.#part.filter.part }),
     };
   }
 

@@ -194,7 +194,10 @@ function run(
     ...allow,
     childPath,
     basename(file),
-    JSON.stringify({ geometry: options.geometry === true }),
+    JSON.stringify({
+      geometry: options.geometry === true,
+      ...(options.geometry === true && options.only !== undefined && { only: options.only }),
+    }),
     ...(module ? [module] : []),
   ];
   const command = prlimit ? "prlimit" : process.execPath;

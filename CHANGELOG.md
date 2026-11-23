@@ -23,6 +23,13 @@
 - The command keeps each read of a drawing file, one for each hash of the file's bytes, its
   reader and what is read, in memory and in the project's `node_modules/.cache/tsdraft`.
 - `eachDrawn` can give each placement the inserts the walk came through.
+- `ReadOptions.only` reads a file as named layouts show it: each layout's paper whole, and of
+  model space what its viewports' windows meet, or areas of model space given as two corners. A
+  detail file whose model space holds far more than `GEOMETRY_ITEMS` reads whole one sheet at a
+  time. What model space leaves out is counted under `outside what was read`, a layout not named
+  keeps no `entities`, and `DrawingRead.only` gives back what the read kept. `viewportWindow` gives
+  the corners in model space of what a viewport shows, and `partFilter` is how a reader of another
+  format reads `only` as `readDXF` does.
 
 ## 0.5.4
 

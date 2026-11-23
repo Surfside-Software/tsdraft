@@ -76,6 +76,11 @@ export interface DrawingRead {
   readonly unread: ReadUnread;
   /** The tab the file opens on and the view it shows there, when the file states one. */
   readonly opensAt?: ReadView;
+  /**
+   * The part of the file a read with `only` kept: each layout as the file spells it, and each area
+   * with its lower corner first. Model space counts what it left out under `outside what was read`.
+   */
+  readonly only?: ReadPart;
 }
 
 /** What a reader reads. */
@@ -85,6 +90,19 @@ export interface ReadOptions {
    * attributes of each insert. Without it a space holds its census alone.
    */
   readonly geometry?: boolean;
+  /**
+   * With `geometry`, keep of the spaces only what these show: each layout named, its paper whole
+   * and of model space what its viewports' windows meet, and of model space what each area meets.
+   */
+  readonly only?: ReadPart;
+}
+
+/** A part of a file a read keeps: layouts by name, and areas of model space. */
+export interface ReadPart {
+  /** Layouts of the file, by name, compared without regard to case. */
+  readonly layouts?: readonly string[];
+  /** Parts of model space, each two corners, such as what a sheet of another file shows of it. */
+  readonly areas?: readonly (readonly [Point, Point])[];
 }
 
 /** The view a file opens at: a piece of model space, or of a layout's paper. */

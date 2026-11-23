@@ -741,6 +741,7 @@ const DRAWING_READ: Fields = {
   "opensAt?": {
     fields: { "layout?": "string", center: "point", height: "number", width: "number" },
   },
+  "only?": { fields: { "layouts?": strings, "areas?": { list: { list: "point" } } } },
 };
 
 /**

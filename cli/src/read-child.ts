@@ -15,7 +15,12 @@ export type ReadAnswer =
 const ANSWER = 3;
 
 const [name = "", what = "{}", module] = process.argv.slice(2);
-const options: ReadOptions = { geometry: (JSON.parse(what) as ReadOptions).geometry === true };
+const asked = JSON.parse(what) as ReadOptions;
+// The reader holds `only` to its rules, and refuses one that breaks them with a `ReadError`.
+const options: ReadOptions = {
+  geometry: asked.geometry === true,
+  ...(asked.only !== undefined && { only: asked.only }),
+};
 
 const message = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).slice(0, 2_000);

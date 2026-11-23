@@ -188,8 +188,19 @@ export class ReadCache {
       stamp = await this.#stampNow(path, limits.maxFileBytes ?? 1024 * MB);
     }
     if (!stamp) return uncached(file, reader, limits, options);
+    // A read by layout is a read of its own: its part joins the key.
+    const part = geometry ? options.only : undefined;
     const keyOf = (sha256: string) =>
-      sha(JSON.stringify([CACHE_FORMAT, READ_FORMAT, sha256, print ?? by.name, geometry]));
+      sha(
+        JSON.stringify([
+          CACHE_FORMAT,
+          READ_FORMAT,
+          sha256,
+          print ?? by.name,
+          geometry,
+          ...(part === undefined ? [] : [part]),
+        ]),
+      );
     const key = keyOf(stamp.sha256);
     const kept = this.#memory.get(key);
     if (kept) {

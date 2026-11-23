@@ -328,6 +328,38 @@ the layout `Layout1`, as the leading CAD app opens it. Every object keyed by nam
 such as a census's `layers`, has no prototype, so a layer named `constructor` is a key like any
 other.
 
+### Reading what a layout shows
+
+A detail file can hold far more than `GEOMETRY_ITEMS` in model space, where each sheet shows one
+detail. `only` reads it as the sheets show it:
+
+```ts
+const read = await readDXF(file, { geometry: true, only: { layouts: ["S-7"] } });
+read.model.other["outside what was read"]; // what model space holds that S-7 does not show
+```
+
+`only.layouts` names layouts of the file, compared as the leading CAD app compares a layout's name,
+without regard to case. Each keeps its paper
+whole, and model space keeps each entity whose box meets the window of one of its viewports: the
+viewport's rectangle taken to model space at its ratio about its view's center and turned by its
+twist, which `viewportWindow` gives. `only.areas` gives parts of model space as two corners each,
+such as what a sheet of another file shows of this one through an xref, and model space keeps what
+they meet as well. A layout's own view of its paper is no window. The boxes are never smaller than
+what the entity draws, with a text's slant and width from its style and an arrowhead's size, and
+each window is widened by a fiftieth of its size, so a read by layout
+keeps all a layout shows, and some it does not: a viewport's clip and its frozen layers are not
+applied, and a viewport that is off counts. An entity whose box the read cannot tell, such as an
+insert of an xref, is kept.
+
+A layout `only` does not name keeps its census, its viewports and its inserts, and no
+`entities`. Model space counts what it left out under `outside what was read`, the constant
+`OUTSIDE_THE_READ`, and `read.only` gives the layouts as the file spells them and each area with
+its lower corner first. The census and the blocks stay whole. A DXF lists its layouts after its
+entities, so a read with `only` reads the file twice: a stream once as it arrives, holding a copy
+of its bytes for the second pass. A name the file has no layout of, `Model`, an `only` that names nothing, an area that is not
+two finite corners, or more than `MOST_WINDOWS`, 1,024, windows and areas in all is a `ReadError`.
+Without `geometry`, `only` changes nothing.
+
 `readDXF` throws a `ReadError` for a file it cannot read at all: a binary DXF, a group code
 that is not an integer, or a file that ends between a code and its value. A record whose kind,
 layer, block name or tag is longer than the 2,049 characters a DXF value holds is counted under
@@ -434,7 +466,9 @@ A package that reads another format names its reader in its `package.json`:
 The module exports `readDrawingFile(chunks, name, options)`, of the type `ReadDrawingFile`. It
 takes the file's bytes as an `AsyncIterable<Uint8Array>`, its name without folders and the
 `ReadOptions` `readDXF` takes, and gives a promise of a `DrawingRead` with the same fields
-`readDXF` fills. `checkDrawingRead(value)` lists what is wrong with an answer as plain data, with
+`readDXF` fills. A reader of another format reads `only` as `readDXF` does with `partFilter`,
+which takes a read of the file without geometry and the `only` it was given, and says which
+layouts to keep and which entities of model space. `checkDrawingRead(value)` lists what is wrong with an answer as plain data, with
 the path of each field, and is empty for a sound one. The library imports no reader. The
 `tsdraft` command finds readers and runs each read within limits, as
 [the command's page](command.md#reading-drawing-files) says.

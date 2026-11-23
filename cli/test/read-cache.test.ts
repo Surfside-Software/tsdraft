@@ -59,19 +59,41 @@ test("a file is read once, kept in memory and on disk, and read again when it ch
   assert.notEqual(changed.read.sha256, first.read.sha256);
 });
 
+test("a read by layout reaches the reading process and is kept apart from the whole read", async () => {
+  const d = createDrawing({ units: "in" });
+  d.line([0, 0], [1, 0]);
+  d.line([100, 0], [101, 0]);
+  d.layout("A", { paper: "ARCH D" }, (page) =>
+    page.viewport([1, 1], 4, 4, { center: [0, 0], ratio: 1 }),
+  );
+  const file = join(temp, "part.dxf");
+  save(file, toDXF(d.build()));
+  const cache = new ReadCache(join(temp, "cache-part"));
+  const whole = await cache.read(file, null, {}, { geometry: true });
+  const part = await cache.read(file, null, {}, { geometry: true, only: { layouts: ["A"] } });
+  assert.ok("read" in whole && "read" in part && part.from === "file");
+  assert.equal(whole.read.model.entities?.length, 2);
+  assert.equal(part.read.model.entities?.length, 1);
+  assert.equal(JSON.stringify(part.read.only), JSON.stringify({ layouts: ["A"] }));
+  const again = await cache.read(file, null, {}, { geometry: true, only: { layouts: ["A"] } });
+  assert.ok("read" in again && again.from === "memory");
+});
+
 test("a kept read that is not the file's is thrown away and the file read again", async () => {
   const folder = join(temp, "cache-b");
   const file = join(temp, "b.dxf");
   save(file, dxf("KEPT"));
   const first = await new ReadCache(folder).read(file, null);
   assert.ok("read" in first);
-  const [kept] = readdirSync(folder).filter((name) => name.endsWith(".json"));
   for (const tampered of [
     '{"format":0}',
     "not json",
     JSON.stringify({ ...first.read, bytes: 1 }),
   ]) {
-    writeFileSync(join(folder, kept!), tampered);
+    // Every kept read, since the key holds the core's build, whose files another test may touch
+    // while this one runs, and a read again may be kept under a new key.
+    for (const kept of readdirSync(folder).filter((name) => name.endsWith(".json")))
+      writeFileSync(join(folder, kept), tampered);
     const read = await new ReadCache(folder).read(file, null);
     assert.ok("read" in read && read.from === "file", tampered.slice(0, 20));
     assert.equal(JSON.stringify(read.read), JSON.stringify(first.read));

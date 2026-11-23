@@ -17,6 +17,7 @@ import {
   ReadError,
   toDXF,
   type DrawingRead,
+  type ReadPart,
 } from "../src/index.ts";
 import type { DxfDocument } from "../src/read/document.ts";
 import { READ_LIMITS, readDXFDocument, readDXFWithin } from "../src/read/dxf.ts";
@@ -574,14 +575,19 @@ const PICTURE_WALK = 50_000;
 const ANSWER = 128 * 1024 * 1024;
 
 /** What is wrong with one read of `bytes`, or undefined when nothing is. */
-export async function problemOf(bytes: Uint8Array, geometry: boolean): Promise<string | undefined> {
+export async function problemOf(
+  bytes: Uint8Array,
+  geometry: boolean,
+  only?: ReadPart,
+): Promise<string | undefined> {
   // Each read is in proportion to its file: a second, and a second more for each 20 MB.
   const ms = Math.ceil(timeLimit(1000 + bytes.length / 20_000));
   let read: Promise<DrawingRead>;
   let both: Promise<{ read: DrawingRead; document: DxfDocument }>;
   try {
-    read = within(ms, () => readDXFWithin(bytes, { geometry }, READ_LIMITS));
-    both = within(ms, () => readDXFDocument(bytes, { geometry }));
+    const options = { geometry, ...(only && { only }) };
+    read = within(ms, () => readDXFWithin(bytes, options, READ_LIMITS));
+    both = within(ms, () => readDXFDocument(bytes, options));
     // The document's read fails where the read does, and is waited for only when it does not.
     both.catch(() => undefined);
   } catch (error) {
@@ -621,6 +627,27 @@ export async function problemOf(bytes: Uint8Array, geometry: boolean): Promise<s
   return undefined;
 }
 
+/** A layout of a file, when a read of it gives one, and an area of model space about the origin. */
+async function partOf(bytes: Uint8Array, next: () => number): Promise<ReadPart> {
+  let names: string[] = [];
+  try {
+    names = (await readDXFWithin(bytes, {}, READ_LIMITS)).layouts.map((l) => l.name);
+  } catch {
+    // A file the reader refuses is read by an area alone.
+  }
+  const r = (): number => (next() - 0.5) * 1e4;
+  const name = names[Math.floor(next() * names.length)];
+  return {
+    ...(name !== undefined && { layouts: [name] }),
+    areas: [
+      [
+        [r(), r()],
+        [r(), r()],
+      ],
+    ],
+  };
+}
+
 /** Runs `runs` bent files from `seed`, and gives each one that fails with its problem. */
 export async function fuzz(
   files: readonly Uint8Array[],
@@ -632,7 +659,10 @@ export async function fuzz(
   for (let run = 0; run < runs; run++) {
     let bytes = files[Math.floor(next() * files.length)]!;
     for (let k = 0; k < 1 + Math.floor(next() * 3); k++) bytes = mutate(bytes, next);
-    const problem = await problemOf(bytes, next() < 0.6);
+    const geometry = next() < 0.6;
+    // A fifth of the reads with geometry keep what one of the file's layouts shows and an area.
+    const only = geometry && next() < 0.2 ? await partOf(bytes, next) : undefined;
+    const problem = await problemOf(bytes, geometry, only);
     if (problem !== undefined) found.push({ seed, run, problem, bytes });
   }
   return found;
