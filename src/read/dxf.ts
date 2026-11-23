@@ -59,6 +59,7 @@ import {
   type ReadCensusInsert,
   type ReadCensusText,
   type ReadDimensionStyle,
+  type ReadUnreadEntity,
   type ReadEntity,
   type ReadEntityBase,
   type ReadField,
@@ -546,9 +547,13 @@ interface Target {
 /** What a space holds while the reader is in it. */
 interface Space extends Target {
   census: Census;
+  unread: ReadUnreadEntity[];
   viewports: (ReadViewport & { id: number | undefined })[];
   inserts: ReadInsert[];
 }
+
+/** A space's target, as a block's is not. */
+const isSpace = (target: Target): target is Space => !target.block;
 
 interface BlockDraft extends Target {
   handle: string | undefined;
@@ -1237,6 +1242,7 @@ class DxfReader {
         inserts: [],
         entities: [],
         other: map(),
+        unread: [],
         block: false,
       };
       this.spaces.set(spaceName, space);
@@ -1520,9 +1526,32 @@ class DxfReader {
 
     for (const pending of this.#settle(kept, target)) this.#starts.push(pending);
 
-    if (reading === undefined) add(target.other, r.type);
-    else if ("other" in reading) add(target.other, reading.other);
+    if (reading === undefined) {
+      if (isSpace(target) && !READ_ENTITIES.has(r.type) && handle !== undefined)
+        this.#unreadEntity(target, r, handle, layer);
+      else add(target.other, r.type);
+    } else if ("other" in reading) add(target.other, reading.other);
     else if ("malformed" in reading) add(this.unread.malformed, reading.malformed);
+  }
+
+  /** An entity of a kind the reader does not read, listed in its space within the limit. */
+  #unreadEntity(space: Space, r: Rec, handle: string, layer: string): void {
+    const kind = r.type;
+    const cost = 3 + nameCost(kind) + nameCost(layer);
+
+    if (cost > this.#room(space)) {
+      add(space.other, "past the limit");
+
+      return;
+    }
+
+    this.#geometryItems += cost;
+    add(space.other, kind);
+    // An OLE frame's corners, upper left and lower right, in the world's coordinates.
+    const a = kind === "OLE2FRAME" ? point(r, 10) : undefined;
+    const b = kind === "OLE2FRAME" ? point(r, 11) : undefined;
+    const box = a && b && [...a, ...b].every(Number.isFinite) ? ([a, b] as const) : undefined;
+    space.unread.push({ handle, kind, layer, ...(box && { box }) });
   }
 
   /** A table, whose style and rows of title and header are named once the file is read. */
@@ -1807,6 +1836,7 @@ class DxfReader {
         closed,
         ...sidesOf(owner.points.length, closed, owner.bulges, owner.widths, 0, owner.face),
         ...((flags & 128) !== 0 && { linetypeGeneration: true }),
+        heavy: true,
       });
     }
   }
@@ -2187,6 +2217,7 @@ class DxfReader {
         ...(drawn && {
           entities: space?.entities ?? [],
           other: space?.other ?? map<number>(),
+          ...(space && space.unread.length > 0 && { unread: space.unread }),
         }),
         ...(drawn && ordered(space?.entities, recordName)),
       });
@@ -2387,6 +2418,7 @@ class DxfReader {
         ...(this.#geometry && {
           entities: model?.entities ?? [],
           other: model?.other ?? map<number>(),
+          ...(model && model.unread.length > 0 && { unread: model.unread }),
         }),
         ...ordered(model?.entities, MODEL),
       },

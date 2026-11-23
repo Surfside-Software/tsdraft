@@ -4,6 +4,8 @@ import { DxfDocumentReader, type DxfDocument } from "../read/document.ts";
 import { BINARY } from "../read/groups.ts";
 import type { DrawingRead } from "../read/model.ts";
 import { sha256 } from "../sha256.ts";
+import { recordEdits } from "./dxf-records.ts";
+import { lintEdit } from "./lint.ts";
 import { EditError, editToMake, type Edit } from "./model.ts";
 
 /** The one format an edit writes: the 2018 format's. */
@@ -77,11 +79,26 @@ export function editDXF(bytes: Uint8Array, edit: Edit, read: DrawingRead): Uint8
     const made = editToMake(edit);
     checkHash(bytes, made, read);
     const doc = editableDXF(bytes);
-    const out = new Uint8Array(doc.bytes);
+
+    if (made.statements.length === 0) return bytes.slice();
+    const refused = lintEdit(made, read).find((d) => d.severity === "error");
+
+    if (refused !== undefined) throw new EditError(refused.message, refused.statement);
+    const { erased, patched } = recordEdits(bytes, doc, made);
+    const parts: Uint8Array[] = [];
 
     for (let i = 0; i < doc.count; i++) {
+      if (erased.has(i)) continue;
       const start = doc.starts[i]!;
-      out.set(bytes.subarray(start, start + doc.length(i)), start);
+      parts.push(patched.get(i) ?? bytes.subarray(start, start + doc.length(i)));
+    }
+
+    const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+    let at = 0;
+
+    for (const p of parts) {
+      out.set(p, at);
+      at += p.length;
     }
 
     return out;

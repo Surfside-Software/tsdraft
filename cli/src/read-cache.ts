@@ -4,7 +4,14 @@
 // kept in memory for the life of the command and on disk in the project's
 // `node_modules/.cache/tsdraft`, and a read from disk is checked as a reader's answer is.
 import { createHash, randomBytes } from "node:crypto";
-import { createReadStream, readdirSync, realpathSync, statSync, type Stats } from "node:fs";
+import {
+  createReadStream,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  type Stats,
+} from "node:fs";
 import { mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -71,6 +78,17 @@ interface Stamp {
   readonly ctimeMs: number;
   readonly ino: number;
   readonly sha256: string;
+}
+
+/** Where a read is kept, by the file's stamp and the reader's fingerprint. */
+interface Located {
+  readonly path: string;
+  readonly by: { readonly name: string; readonly version: string };
+  /** The fingerprint of the readers, or null when nothing they read is kept on disk. */
+  readonly print: string | null;
+  readonly stamp: Stamp;
+  readonly key: string;
+  readonly keyOf: (sha256: string) => string;
 }
 
 /** Whether a stamp read back from disk is a whole one, and the stamp of the file at `path`. */
@@ -197,13 +215,13 @@ export class ReadCache {
     this.folder = folder ?? "";
   }
 
-  /** Reads `file` with `reader`, or the core's `readDXF` for `null`, through the cache. */
-  async read(
+  /** Where a read of `file` is kept: its key, its stamp and its reader, or nothing to keep. */
+  async #locate(
     file: string,
     reader: ReaderPackage | null,
-    limits: ReadLimits = {},
-    options: ReadOptions = {},
-  ): Promise<CachedRead> {
+    limits: ReadLimits,
+    options: ReadOptions,
+  ): Promise<Located | undefined> {
     const by = reader ? { name: reader.name, version: reader.version } : core;
     let path: string;
     let found: Stats;
@@ -212,14 +230,11 @@ export class ReadCache {
       path = realpathSync.native(file);
       found = await stat(path);
     } catch {
-      return uncached(file, reader, limits, options);
+      return undefined;
     }
 
     // A file over the limit is refused as `readDrawingFile` refuses it, before it is hashed.
-    if (found.size > (limits.maxFileBytes ?? 1024 * MB)) {
-      return uncached(file, reader, limits, options);
-    }
-
+    if (found.size > (limits.maxFileBytes ?? 1024 * MB)) return undefined;
     const geometry = options.geometry === true;
     // A reader reads with the core's code too, so the core's own build is part of every key.
     const own = fingerprint(core, OWN_FOLDER);
@@ -231,7 +246,7 @@ export class ReadCache {
       stamp = await this.#stampNow(path, limits.maxFileBytes ?? 1024 * MB);
     }
 
-    if (!stamp) return uncached(file, reader, limits, options);
+    if (!stamp) return undefined;
     // A read by layout is a read of its own: its part joins the key.
     const part = geometry ? options.only : undefined;
 
@@ -247,7 +262,20 @@ export class ReadCache {
         ]),
       );
 
-    const key = keyOf(stamp.sha256);
+    return { path, by, print, stamp, key: keyOf(stamp.sha256), keyOf };
+  }
+
+  /** Reads `file` with `reader`, or the core's `readDXF` for `null`, through the cache. */
+  async read(
+    file: string,
+    reader: ReaderPackage | null,
+    limits: ReadLimits = {},
+    options: ReadOptions = {},
+  ): Promise<CachedRead> {
+    const at = await this.#locate(file, reader, limits, options);
+
+    if (at === undefined) return uncached(file, reader, limits, options);
+    const { path, by, print, stamp, key, keyOf } = at;
     const kept = this.#memory.get(key);
 
     if (kept) {
@@ -294,6 +322,47 @@ export class ReadCache {
     } finally {
       this.#reading.delete(key);
     }
+  }
+
+  /**
+   * Keeps the read of `file`, reading it now when neither memory nor disk holds it, and gives a
+   * function that gives it at once, for code that asks for the read when it first uses it: from
+   * memory, or from disk only when called. Its SHA-256 is the bytes' when the read was kept.
+   */
+  async keep(
+    file: string,
+    reader: ReaderPackage | null,
+    limits: ReadLimits = {},
+    options: ReadOptions = {},
+  ): Promise<
+    { readonly sha256: string; read(): DrawingRead } | Extract<FileRead, { skipped: string }>
+  > {
+    const at = await this.#locate(file, reader, limits, options);
+    const most = limits.maxAnswerBytes ?? 128 * MB;
+
+    if (at !== undefined && at.print !== null && !this.#memory.has(at.key)) {
+      const onDisk = await stat(join(this.folder, `${at.key}.json`)).catch(() => undefined);
+
+      if (this.folder !== "" && onDisk?.isFile() && onDisk.size <= most) {
+        let held: DrawingRead | undefined;
+
+        return {
+          sha256: at.stamp.sha256,
+          read: () => {
+            held ??= this.#fromDiskNow(at.key, at.stamp, most);
+
+            if (held !== undefined) return held;
+            throw new Error(`The kept read of ${file} could not be loaded: read it again`);
+          },
+        };
+      }
+    }
+
+    const done = await this.read(file, reader, limits, options);
+
+    if (!("read" in done)) return done;
+
+    return { sha256: done.read.sha256, read: () => done.read };
   }
 
   #remember(key: string, read: DrawingRead, bytes: number): void {
@@ -395,6 +464,29 @@ export class ReadCache {
         await rm(path, { force: true, recursive: true }).catch(() => {});
       }
 
+      return undefined;
+    }
+  }
+
+  /** `#fromDisk` at once, for a read asked for synchronously. */
+  #fromDiskNow(key: string, stamp: Stamp, maxBytes: number): DrawingRead | undefined {
+    try {
+      const path = join(this.folder, `${key}.json`);
+
+      if (statSync(path).size > maxBytes) return undefined;
+      const text = readFileSync(path, "utf8");
+      const parsed: Json = JSON.parse(text);
+      bare(parsed);
+
+      if (checkDrawingRead(parsed).length > 0) return undefined;
+      // SAFETY: checkDrawingRead found the fields of a DrawingRead in it, each of its type.
+      const read: DrawingRead = parsed as JsonObject & DrawingRead;
+
+      if (read.sha256 !== stamp.sha256 || read.bytes !== stamp.size) return undefined;
+      this.#remember(key, read, text.length);
+
+      return read;
+    } catch {
       return undefined;
     }
   }

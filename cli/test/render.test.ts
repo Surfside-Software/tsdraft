@@ -119,6 +119,7 @@ test("a file that throws gives the error, its file and line, and a non-zero exit
     view: null,
     pdf: null,
     pdfError: null,
+    changes: null,
   });
   assert.match(thrown.state.error!.message, /^radius: /);
   assert.equal(thrown.state.error!.file, thrower);
@@ -180,6 +181,7 @@ test("a build that fails leaves no picture from an earlier run in the default fo
     view: null,
     pdf: null,
     pdfError: null,
+    changes: null,
   });
   assert.deepEqual(
     stale.map((path) => existsSync(path)),
@@ -1571,6 +1573,7 @@ test("render --view draws one rectangle of model space or of a layout, and nothi
     layouts: [],
     pdf: null,
     pdfError: null,
+    changes: null,
   });
   assert.deepEqual(view, {
     layout: null,

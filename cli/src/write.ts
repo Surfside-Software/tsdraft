@@ -16,7 +16,7 @@ import {
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import type { EditCheck } from "tsdraft";
+import type { EditCheck, EditDiagnostic } from "tsdraft";
 import { isJsonObject, isString, type Json } from "./guards.ts";
 import { editorFor, ReaderRefusal, type Readers } from "./readers.ts";
 import type { WriteMessage } from "./write-child.ts";
@@ -62,6 +62,8 @@ export interface WriteResult {
   readonly checks?: readonly EditCheck[];
   /** Why no copy was written: a refusal, a failed check, or an error. */
   readonly reason?: string;
+  /** The errors `lintEdit` gives for the edit, with the call of each, when they are the reason. */
+  readonly diagnostics?: readonly EditDiagnostic[];
   readonly ms: number;
 }
 
@@ -562,7 +564,13 @@ export async function writeEdits(
         if (m.kind === "error") return refused(m.error, copy);
 
         if (m.kind === "refused")
-          return result({ copy, written: false, warnings: m.warnings, reason: m.reason });
+          return result({
+            copy,
+            written: false,
+            warnings: m.warnings,
+            reason: m.reason,
+            ...(m.diagnostics && { diagnostics: m.diagnostics }),
+          });
         const failed = m.checks.filter((c) => !c.passed);
 
         if (failed.length > 0)

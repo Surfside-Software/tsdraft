@@ -82,6 +82,21 @@
   the job's root, only once those checks pass, refuses a stale hash, warns of a lock, and never
   writes the source's path. A package edits another format as it reads one, named under
   `"tsdraft": { "editors" }`. [Editing a firm's drawing](docs/editing.md) has the rest.
+- An edit erases and moves. `e.erase(...handles)` erases each entity with what it owns, and takes
+  every reference to it out of groups, sort tables, reactors and a block's list of its inserts;
+  `e.move(handles, { by, about, rotate, scale })` moves, turns and scales each entity of every
+  kind the readers read, an insert with its attributes and a dimension, moved only, with its
+  picture among them, the way the leading CAD app's own `SCALE`, `ROTATE` and `MOVE` leave it. `editDXF` makes
+  both, writing again only the values that change. `lintEdit(edit, read)` gives the refusals the
+  read can tell, each with the call of its statement, and `editedRead(read, edit)` the read of the
+  file after the edit. The checks of every job hold a copy to it, and `FileEditor` gains `links`.
+- `tsdraft render` and `tsdraft dev` take an edit file: they draw the file as it will plot after
+  the edit, and a second picture of what it changes, and `tsdraft write` refuses an edit
+  `lintEdit` gives an error for.
+- With `geometry`, each space and layout of a read lists in `unread` each entity of a kind the
+  reader does not read, by its handle, kind and layer, such as an `OLE2FRAME` with its corners, so
+  an edit can name it. A 2D polyline, whose vertices are records of their own, reads with
+  `heavy: true`.
 
 ## 0.5.4
 

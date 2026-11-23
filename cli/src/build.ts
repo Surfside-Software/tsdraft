@@ -8,12 +8,15 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { isObject } from "./guards.ts";
+import { isObject, isString } from "./guards.ts";
 import type { BuildState, Timings } from "./state.ts";
 import { fileVersion } from "./version.ts";
 import type {
   BuildRequest,
+  ChangesRequest,
+  EditPlan,
   FileVersion,
+  PreviewRequest,
   WarmRequest,
   WorkerMessage,
   WorkerResult,
@@ -74,7 +77,17 @@ export class Builder {
   readonly #view: BuildRequest["view"];
   /** The package that reads a DWG, as `--reader` names it. */
   readonly #reader: string | undefined;
+  /** Whether an edit's pictures of changes are drawn with each build, or when asked for. */
+  readonly #changesLater: boolean;
   #running: Child | undefined;
+  /**
+   * The process that keeps the reads and the pictures of an edit's source, for the life of the
+   * builder. It is given each edit as data and never loads a drawing file.
+   */
+  #previewer: Child | undefined;
+  #previews = 0;
+  /** Counts the calls of `cancel`, so a preview it stopped is not reported. */
+  #cancels = 0;
   /** The library the last good build used, when a spare may load it ahead. */
   #library: string | null = null;
   /**
@@ -98,8 +111,11 @@ export class Builder {
     view?: BuildRequest["view"];
     /** The package that reads a DWG, by its name in the project or its folder. */
     reader?: string;
+    /** Draws an edit's pictures of changes only when `changes` asks for them. */
+    changesLater?: boolean;
   }) {
     this.#reader = options.reader;
+    this.#changesLater = options.changesLater === true;
     this.#drawNoPlot = options.drawNoPlot === true;
     this.#view = options.view;
     this.#timeout = options.timeout;
@@ -143,7 +159,7 @@ export class Builder {
         );
 
         // Starting the next child takes time, so a child that is ready is sent the file first.
-        if (child.isReady) await null;
+        if (child.isReady) null;
 
         // While a warmed spare builds, the next warms up with the same library, so that a save
         // that follows at once finds it warm. Not when the library has just changed: the
@@ -151,6 +167,14 @@ export class Builder {
         if (!plain && this.#library !== null) this.#settle();
         else this.#refill();
         outcome = await running;
+
+        if (isObject(outcome) && outcome.plan) {
+          const cancels = this.#cancels;
+          const drawn = await this.#preview(outcome, outcome.plan, started);
+
+          if (cancels !== this.#cancels) return undefined;
+          outcome = drawn;
+        }
 
         if (outcome === "stale") {
           plain = true;
@@ -278,8 +302,111 @@ export class Builder {
     }
   }
 
+  /**
+   * Draws the pictures of an edit in the process that keeps the reads, and gives the build's
+   * outcome with them. The files both read are watched.
+   */
+  async #preview(built: Outcome, plan: EditPlan, started: number): Promise<Outcome> {
+    let child = this.#previewer;
+
+    if (!child || child.process.exitCode !== null || child.process.signalCode !== null) {
+      // Its pictures are large strings, which a structured clone copies faster than JSON.
+      child = this.#previewer = spawn("advanced");
+    }
+
+    const id = ++this.#previews;
+
+    const request: PreviewRequest = {
+      type: "preview",
+      id,
+      plan,
+      drawNoPlot: this.#drawNoPlot,
+      view: this.#view,
+      changes: !this.#changesLater,
+      ...(this.#reader !== undefined && { reader: this.#reader, cwd: process.cwd() }),
+    };
+
+    const proc = child.process;
+
+    const result = await new Promise<WorkerResult | string>((settle) => {
+      const timer = setTimeout(() => {
+        proc.kill("SIGKILL");
+        settle(`The pictures of the edit took longer than ${READ_TIMEOUT} ms to draw`);
+      }, READ_TIMEOUT);
+
+      const done = (m: WorkerMessage) => {
+        if (m.type !== "previewed" || m.id !== id) return;
+        clearTimeout(timer);
+        proc.off("message", done);
+        proc.off("exit", gone);
+        settle(m.result);
+      };
+
+      const gone = (code: number | null, signal: NodeJS.Signals | null) => {
+        clearTimeout(timer);
+        proc.off("message", done);
+        settle(
+          `The process that draws the edit ended before it answered (${signal ?? `exit code ${code}`})`,
+        );
+      };
+
+      proc.on("message", done);
+      proc.once("exit", gone);
+      void child.ready.then(
+        () => proc.send(request, (error) => error && settle(`${error.message}`)),
+        () => settle("The process that draws the edit could not start"),
+      );
+    });
+
+    const drawn = isString(result) ? failure(plan.source, "PictureError", result, []) : result;
+
+    const timings = { ...built.timings, ...drawn.timings };
+
+    return {
+      ...drawn,
+      files: [...built.files, ...drawn.files],
+      timings: { ...timings, load: (built.timings.load ?? 0) + (drawn.timings.load ?? 0) },
+      library: built.library,
+      modules: built.modules,
+      ms: now() - started,
+      log: built.log,
+    };
+  }
+
+  /**
+   * The pictures of changes of the edit an outcome's `changesLater` names, or `undefined` when
+   * that preview is no longer the last.
+   */
+  async changes(id: number): Promise<WorkerResult["changes"]> {
+    const child = this.#previewer;
+
+    if (!child || child.process.exitCode !== null || child.process.signalCode !== null) return;
+    const proc = child.process;
+
+    return new Promise((settle) => {
+      const done = (m: WorkerMessage) => {
+        if (m.type !== "changed" || m.id !== id) return;
+        proc.off("message", done);
+        proc.off("exit", gone);
+        settle(m.changes ?? undefined);
+      };
+
+      const gone = () => {
+        proc.off("message", done);
+        settle(undefined);
+      };
+
+      proc.on("message", done);
+      proc.once("exit", gone);
+      const request: ChangesRequest = { type: "changes", id };
+      proc.send(request, (error) => error && gone());
+    });
+  }
+
   /** Stops the build in progress, if any. */
   cancel(): void {
+    this.#cancels++;
+
     if (!this.#running) return;
     this.#running.cancelled = true;
     this.#running.process.kill("SIGKILL");
@@ -288,6 +415,8 @@ export class Builder {
 
   close(): void {
     this.cancel();
+    this.#previewer?.process.kill("SIGKILL");
+    this.#previewer = undefined;
 
     for (const spare of this.#spares.splice(0)) spare.process.kill("SIGKILL");
   }
@@ -316,11 +445,12 @@ function now(): number {
   return performance.timeOrigin + performance.now();
 }
 
-function spawn(): Child {
+function spawn(serialization: "json" | "advanced" = "json"): Child {
   const spawnedAt = now();
 
   const proc = fork(workerPath, [], {
     stdio: ["ignore", "pipe", "pipe", "ipc"],
+    serialization,
     // The child takes no flags from the command's own invocation, such as --test.
     execArgv: ["--disable-warning=ExperimentalWarning"],
   });
@@ -513,6 +643,7 @@ export function toState(
     diagnostics: outcome.diagnostics,
     error: outcome.error,
     outputs,
+    ...(outcome.edit && { edit: outcome.edit }),
     log: outcome.log,
   };
 }

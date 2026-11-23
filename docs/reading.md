@@ -106,6 +106,8 @@ states and keeps each object's handle, and it keeps going past what it does not 
   layout keeps.
 - `unread`: entities and objects of a kind the reader has no reading of, such as `OLE2FRAME`,
   a proxy or an object of a vertical product, counted by kind, and records it could not place.
+  With `geometry`, model space and each layout also list their unread entities under `unread`,
+  each by its handle, kind and layer, with the box an `OLE2FRAME` gives, so an edit can name one.
 
 A read without `geometry` keeps no text of model space or of a layout and no attribute's value.
 The texts of a block's definition are kept, since a title block's labels belong to it.
@@ -119,7 +121,8 @@ leader:
   closed, with `bulges`, one for each side, when a side is an arc, and `width`, one width for
   every side, or `widths`, each side's width at its start and its end, when a side is wide, as
   a `Polyline` holds them, and `linetypeGeneration` when its pattern runs on past its vertices.
-  A 2D polyline's vertex with no width of its own has the polyline's.
+  A 2D polyline's vertex with no width of its own has the polyline's, and `heavy` says the
+  file holds it as a 2D polyline with its vertices.
 - `text`: a text of one line, with its `value`.
 - `insert`: its block, by name and by the handle of its record in `blockHandle`, its point,
   scale and rotation, `tags`, and with `geometry` its `attributes`: each a text with its `tag`

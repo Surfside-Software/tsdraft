@@ -37,13 +37,14 @@ export interface PictureChange {
   readonly drawn?: PictureInPieces;
 }
 
-const runKey = (run: PictureRun): string => `${run.space}:${run.viewport ?? "-"}`;
+/** A run's place in its picture: its space, and its viewport for model space through one. */
+export const runKey = (run: PictureRun): string => `${run.space}:${run.viewport ?? "-"}`;
 
 /**
  * The runs of a picture by space and viewport, and of each xref in them by its name and the
  * handle of the insert that places it, since one space may place an xref more than once.
  */
-function runsOf(pieces: readonly PicturePiece[]): Map<string, PictureRun> {
+export function runsOf(pieces: readonly PicturePiece[]): Map<string, PictureRun> {
   const runs = new Map<string, PictureRun>();
 
   for (const piece of pieces) {

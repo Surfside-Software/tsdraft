@@ -8,11 +8,13 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync, writeSync } from "node:fs";
 import { basename, dirname, extname, resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   checkEditedCopy,
   dxfEditor,
   EditError,
+  lintEdit,
+  type EditDiagnostic,
   type EditFile,
   type EditorModule,
   type FileEditor,
@@ -35,7 +37,13 @@ export type WriteMessage =
       readonly sha256: string;
       readonly bytes: number;
     }
-  | { readonly kind: "refused"; readonly warnings: readonly string[]; readonly reason: string }
+  | {
+      readonly kind: "refused";
+      readonly warnings: readonly string[];
+      readonly reason: string;
+      /** The errors `lintEdit` gives for the edit, when they are why it is refused. */
+      readonly diagnostics?: readonly EditDiagnostic[];
+    }
   | { readonly kind: "error"; readonly error: string };
 
 const ANSWER = 3;
@@ -50,6 +58,9 @@ function send(message: WriteMessage, bytes?: Uint8Array): void {
   for (const part of [head, json, ...(bytes ? [bytes] : [])])
     for (let at = 0; at < part.length;) at += writeSync(ANSWER, part, at);
 }
+
+/** A call's file as a path, as a build gives it, from the URL an ES module's stack has. */
+const toPath = (file: string): string => (file.startsWith("file:") ? fileURLToPath(file) : file);
 
 const message = (cause: unknown): string =>
   (cause instanceof Error ? cause.message : String(cause)).slice(0, 2_000);
@@ -146,8 +157,8 @@ const warnings = locks(source).map(
     `${lock} beside the file says a CAD program has it open. The edited copy is written; the firm's file would not be`,
 );
 
-function refuse(reason: string): never {
-  send({ kind: "refused", warnings, reason });
+function refuse(reason: string, diagnostics?: readonly EditDiagnostic[]): never {
+  send({ kind: "refused", warnings, reason, ...(diagnostics && { diagnostics }) });
   process.exit(0);
 }
 
@@ -184,8 +195,22 @@ else {
 }
 
 try {
-  const read = await editor.read(bytes);
+  const read = await editor.read(bytes, file.source.only);
   const edit = file.build(read);
+
+  const errors = lintEdit(edit, read)
+    .filter((d) => d.severity === "error")
+    .map((d) => (d.call ? { ...d, call: { ...d.call, file: toPath(d.call.file) } } : d));
+
+  if (errors.length > 0) {
+    const [first] = errors;
+    const at = first!.call ? ` (${first!.call.file}:${first!.call.line})` : "";
+    refuse(
+      `lintEdit gives ${errors.length === 1 ? "an error" : `${errors.length} errors`} for the edit, the first ${first!.rule}${at}: ${first!.message}`,
+      errors,
+    );
+  }
+
   const written = editor.edit(bytes, edit, read);
   const checks = await checkEditedCopy(editor, bytes, read, edit, written);
   send(

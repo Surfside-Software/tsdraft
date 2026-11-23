@@ -424,6 +424,8 @@ export interface ReadPolyline extends ReadEntityBase {
   readonly widths?: readonly (readonly [start: number, end: number])[];
   /** True when the linetype's pattern runs on past each vertex, group 70's 128. Left out when not. */
   readonly linetypeGeneration?: true;
+  /** True for a 2D polyline, whose vertices are records of their own. Left out for a light one. */
+  readonly heavy?: true;
 }
 
 export interface ReadCircle extends ReadEntityBase {
@@ -1245,6 +1247,20 @@ export interface ReadLayout {
   /** With `geometry`, the order the leading CAD app draws them in, as `ReadSpace.drawOrder` says. */
   readonly drawOrder?: readonly string[];
   readonly other?: Readonly<Record<string, number>>;
+  /** With `geometry`, what it draws of a kind the reader does not read, as model space's are. */
+  readonly unread?: readonly ReadUnreadEntity[];
+}
+
+/**
+ * An entity of a kind the reader does not read, such as an `OLE2FRAME`, so an edit can name it.
+ * Its kind is the one `unread.entities` counts it under.
+ */
+export interface ReadUnreadEntity {
+  readonly handle: string;
+  readonly kind: string;
+  readonly layer: string;
+  /** Two corners, where the reader has them. */
+  readonly box?: readonly [Point, Point];
 }
 
 /** Model space. */
@@ -1264,6 +1280,11 @@ export interface ReadSpace {
    * limit` what came past `GEOMETRY_ITEMS`.
    */
   readonly other?: Readonly<Record<string, number>>;
+  /**
+   * With `geometry`, each entity it draws of a kind the reader does not read, in the order of the
+   * file, within `GEOMETRY_ITEMS`; one past it is counted under `other` as past the limit.
+   */
+  readonly unread?: readonly ReadUnreadEntity[];
 }
 
 /** A field of an `MTEXT`, with the code the learner maps. */

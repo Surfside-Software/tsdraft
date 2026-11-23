@@ -69,6 +69,7 @@ export async function dev(
     timeout: options.timeout,
     warm: true,
     drawNoPlot: options.drawNoPlot === true,
+    changesLater: true,
     ...(options.reader !== undefined && { reader: options.reader }),
   });
 
@@ -80,10 +81,14 @@ export async function dev(
   /** Calls each waiting `?after=` request when a build is published. */
   const waiters = new Set<() => void>();
 
-  /** Each PNG made of the build on screen, by its width and its layout, `null` for model space. */
+  /**
+   * Each PNG made of the build on screen, by its width, its layout, `null` for model space, and
+   * whether it is the picture of what an edit changes.
+   */
   let pngs: {
     width: number;
     layout: string | null;
+    changes: boolean;
     png: Promise<{ png: Buffer; width: number }>;
   }[] = [];
 
@@ -102,6 +107,10 @@ export async function dev(
         svg: string;
         fonts: readonly string[];
         layouts: Outcome["layouts"];
+        /** The pictures of changes of an edit, once drawn. */
+        changes: Outcome["changes"];
+        /** The preview whose pictures of changes are drawn when first asked for. */
+        changesLater: number | undefined;
         swatches: Readonly<Record<string, string>>;
         state: BuildState;
       }
@@ -220,11 +229,13 @@ export async function dev(
 
     const shownBuild = outcome.ok ? number : (shown?.build ?? null);
 
-    const picture = (kind: "svg" | "png" | "pdf", layout?: string): string =>
+    const picture = (kind: "svg" | "png" | "pdf", layout?: string, changes = false): string =>
       `${base}/drawing.${kind}?session=${session}&build=${shownBuild}${
         layout === undefined ? "" : `&layout=${encodeURIComponent(layout)}`
-      }`;
+      }${changes ? "&changes=1" : ""}`;
 
+    // An edit's pictures of changes, one for each of its pictures, drawn when first asked for.
+    const edited = outcome.ok ? outcome.edit !== undefined : shown?.state.edit !== undefined;
     // After a failed build the pictures are still those of the build on screen.
     const sheets = outcome.ok ? outcome.layouts : (shown?.layouts ?? []);
     // Pictures that draw the layers a plot leaves out, or that leave out what lint refused, are
@@ -248,6 +259,7 @@ export async function dev(
             view: null,
             pdf: null,
             pdfError: null,
+            changes: null,
           }
         : {
             svg: picture("svg"),
@@ -270,6 +282,19 @@ export async function dev(
             view: null,
             pdf: sheets.length > 0 && !noPdf ? picture("pdf") : null,
             pdfError: sheets.length > 0 ? noPdf : null,
+            changes: edited
+              ? {
+                  svg: picture("svg", undefined, true),
+                  png: noPng ? null : picture("png", undefined, true),
+                  pngError: noPng,
+                  layouts: sheets.map(({ name }) => ({
+                    name,
+                    svg: picture("svg", name, true),
+                    png: noPng ? null : picture("png", name, true),
+                    pngError: noPng,
+                  })),
+                }
+              : null,
           };
 
     state = toState(outcome, session, number, file, shownBuild, outputs);
@@ -282,6 +307,8 @@ export async function dev(
         svg: outcome.svg,
         fonts: outcome.fonts,
         layouts: outcome.layouts,
+        changes: outcome.changes,
+        changesLater: outcome.changesLater,
         swatches: outcome.swatches,
         state,
       };
@@ -489,50 +516,83 @@ export async function dev(
           return;
         }
 
-        const source =
-          layout === null ? shown.svg : shown.layouts.find((sheet) => sheet.name === layout)?.svg;
+        // With `changes=1`, the picture of what an edit changes, drawn when first asked for.
+        const changes = url.searchParams.get("changes") === "1";
+        const on = shown;
 
-        if (source === undefined) {
+        if (changes && !on.changes && on.changesLater === undefined) {
           res
             .writeHead(404, { ...stamp, "content-type": "text/plain" })
-            .end(`Build ${shown.build} has no picture of a layout named ${layout}.\n`);
+            .end(`Build ${on.build} is not of an edit file, so it has no picture of changes.\n`);
 
           return;
         }
 
-        if (url.pathname === "/drawing.svg") {
-          res.writeHead(200, { ...stamp, "content-type": "image/svg+xml" }).end(source);
+        void (async () => {
+          if (changes && !on.changes) {
+            on.changes ??= await builder.changes(on.changesLater!);
 
-          return;
-        }
+            if (!on.changes) {
+              res
+                .writeHead(409, { ...stamp, "content-type": "text/plain" })
+                .end(`Build ${on.build} is not on screen. Fetch /state.json.\n`);
 
-        if (noPng) {
-          res.writeHead(501, { ...plain, "content-type": "text/plain" }).end(`${noPng}.\n`);
+              return;
+            }
+          }
 
-          return;
-        }
+          const pictures = changes ? on.changes! : on;
 
-        const width = Math.min(Math.max(Number(url.searchParams.get("width")) || 1600, 16), 8000);
-        let entry = pngs.find((p) => p.width === width && p.layout === layout);
+          const source =
+            layout === null
+              ? (pictures.svg ?? undefined)
+              : pictures.layouts.find((sheet) => sheet.name === layout)?.svg;
 
-        if (!entry) {
-          const made = { width, layout, png: toPNG(source, width) };
-          made.png.catch(() => (pngs = pngs.filter((p) => p !== made)));
-          entry = made;
-        }
-
-        pngs = [entry, ...pngs.filter((p) => p !== entry)].slice(0, PNG_CACHE);
-        entry.png.then(
-          ({ png, width: used }) =>
+          if (source === undefined) {
             res
-              .writeHead(200, {
-                ...stamp,
-                "content-type": "image/png",
-                "x-tsdraft-width": String(used),
-              })
-              .end(png),
-          (cause: unknown) => res.writeHead(500, plain).end(String(cause)),
-        );
+              .writeHead(404, { ...stamp, "content-type": "text/plain" })
+              .end(`Build ${on.build} has no picture of a layout named ${layout}.\n`);
+
+            return;
+          }
+
+          if (url.pathname === "/drawing.svg") {
+            res.writeHead(200, { ...stamp, "content-type": "image/svg+xml" }).end(source);
+
+            return;
+          }
+
+          if (noPng) {
+            res.writeHead(501, { ...plain, "content-type": "text/plain" }).end(`${noPng}.\n`);
+
+            return;
+          }
+
+          const width = Math.min(Math.max(Number(url.searchParams.get("width")) || 1600, 16), 8000);
+
+          let entry = pngs.find(
+            (p) => p.width === width && p.layout === layout && p.changes === changes,
+          );
+
+          if (!entry) {
+            const made = { width, layout, changes, png: toPNG(source, width) };
+            made.png.catch(() => (pngs = pngs.filter((p) => p !== made)));
+            entry = made;
+          }
+
+          pngs = [entry, ...pngs.filter((p) => p !== entry)].slice(0, PNG_CACHE);
+          entry.png.then(
+            ({ png, width: used }) =>
+              res
+                .writeHead(200, {
+                  ...stamp,
+                  "content-type": "image/png",
+                  "x-tsdraft-width": String(used),
+                })
+                .end(png),
+            (cause: unknown) => res.writeHead(500, plain).end(String(cause)),
+          );
+        })().catch((cause: unknown) => res.writeHead(500, plain).end(String(cause)));
 
         return;
       }

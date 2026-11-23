@@ -205,6 +205,7 @@ const ENTITY: EntityFields = {
     "width?": "number",
     "widths?": { list: "point" },
     "linetypeGeneration?": "boolean",
+    "heavy?": "boolean",
   },
   circle: { ...BASE, kind: { oneOf: ["circle"] }, center: "point", radius: "number" },
   point: { ...BASE, kind: { oneOf: ["point"] }, at: "point", "rotation?": "number" },
@@ -516,6 +517,11 @@ const SPACE: Fields = {
   "entities?": { list: "entity" },
   "other?": counts,
   "drawOrder?": strings,
+  "unread?": {
+    list: {
+      fields: { handle: "string", kind: "string", layer: "string", "box?": { list: "point" } },
+    },
+  },
 };
 
 const DRAWING_READ: Fields = {

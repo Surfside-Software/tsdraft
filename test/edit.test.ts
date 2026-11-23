@@ -13,10 +13,16 @@ import {
   editDrawing,
   editDXF,
   EditError,
+  lintEdit,
   readDXF,
+  statementCall,
   toDXF,
   type DrawingRead,
   type Edit,
+  type EditBuilder,
+  type EditStatement,
+  type ReadPart,
+  type Transform,
 } from "../src/index.ts";
 import { BINARY } from "../src/read/groups.ts";
 import { sha256 } from "../src/sha256.ts";
@@ -82,8 +88,8 @@ test("an edit refuses a stale hash, another format, a binary DXF and a statement
   refused(binary, editOf(binary), /binary DXF/);
   refused(
     bytes,
-    editOf(bytes, { statements: [{ kind: "erase", handles: ["1F"] }] }),
-    /no erase statement/,
+    editOf(bytes, { statements: [{ kind: "layer", name: "0", changes: { on: false } }] }),
+    /no layer statement/,
   );
 
   const added = editOf(bytes, {
@@ -290,4 +296,203 @@ test("the checks of every job pass on the copy, and a changed record fails befor
     swapped.find((c) => c.check === "before-after")!.problems.join("\n"),
     /is not in its place/,
   );
+});
+
+test("the builder's erase and move make statements with their calls, and refuse what is not one", () => {
+  // SAFETY: the edits below never read the read, so a stand-in with only its hash does.
+  const read = { sha256: "a".repeat(64) } as DrawingRead;
+
+  const file = editDrawing({ file: "plan.dxf", sha256: "a".repeat(64), name: "r" }, (e) => {
+    e.erase("436d8", "00436D9");
+    e.move(["4360A"], { by: [0, -14.25] });
+  });
+
+  const edit = file.build(read);
+  assert.deepEqual(edit.statements, [
+    { kind: "erase", handles: ["436D8", "436D9"] },
+    { kind: "move", handles: ["4360A"], transform: { by: [0, -14.25] } },
+  ]);
+  assert.match(statementCall(edit, 1)?.file ?? "", /edit\.test\.ts$/);
+  assert.deepEqual(checkEdit(JSON.parse(JSON.stringify(edit))), []);
+
+  const refused = (body: (e: EditBuilder) => void, pattern: RegExp) =>
+    assert.throws(
+      () => editDrawing({ file: "p.dxf", sha256: "a".repeat(64), name: "r" }, body).build(read),
+      (e: Error) => e instanceof EditError && pattern.test(e.message),
+    );
+
+  refused((e) => e.erase("XYZ"), /not a handle/);
+  // A turn or a scale about the origin would throw a firm's entity off its sheet.
+  refused((e) => e.move(["1F"], { rotate: 90 }), /give it about/);
+  refused((e) => e.move(["1F"], { scale: 0 }), /scale/);
+  refused((e) => e.move(["1F"], { by: [Number.NaN, 0] }), /by/);
+});
+
+test("each entity of a drawing erased, moved, turned and scaled reads back as editedRead says", async () => {
+  const transforms: Transform[] = [
+    { by: [1234.5678901234567, -98.76543210987654] },
+    { about: [3.25, -7.5], rotate: 37.5 },
+    { about: [3.25, -7.5], rotate: 90, scale: 2.5, by: [1, 2] },
+  ];
+
+  let made = 0;
+
+  for (const drawing of [sheet, kitchen]) {
+    const bytes = bytesOf(toDXF(drawing));
+    const read = await dxfEditor.read(bytes);
+    // One entity of each kind, in each space.
+    const seen = new Set<string>();
+    const handles: string[] = [];
+
+    for (const [space, list] of [
+      read.model.entities!,
+      ...read.layouts.map((l) => l.entities ?? []),
+    ].entries())
+      for (const e of list)
+        if (e.handle !== undefined && !seen.has(`${space}:${e.kind}`)) {
+          seen.add(`${space}:${e.kind}`);
+          handles.push(e.handle);
+        }
+
+    for (const h of handles) {
+      const statements: EditStatement[] = [
+        { kind: "erase", handles: [h] },
+        ...transforms.map((transform) => ({ kind: "move" as const, handles: [h], transform })),
+      ];
+
+      for (const statement of statements) {
+        const edit = editOf(bytes, { statements: [statement] });
+
+        if (lintEdit(edit, read).some((d) => d.severity === "error")) continue;
+        const copy = editDXF(bytes, edit, read);
+
+        const failed = (await checkEditedCopy(dxfEditor, bytes, read, edit, copy)).filter(
+          (c) => !c.passed,
+        );
+
+        assert.deepEqual(failed, [], `${h} ${JSON.stringify(statement)}`);
+        made++;
+      }
+    }
+  }
+
+  assert.ok(made > 40);
+});
+
+test("lintEdit refuses what the read tells it cannot make, and warns of a locked layer and a block", async () => {
+  const d = createDrawing({ units: "ft" });
+  d.layer("LOCKED", { locked: true }, () => d.line([0, 0], [1, 0]));
+  d.block("ONCE", {}, () => d.circle([0, 0], 1));
+  d.block("TWICE", {}, () => d.line([0, 0], [1, 1]));
+  d.insert("ONCE", [5, 5]);
+  d.insert("TWICE", [10, 5]);
+  d.insert("TWICE", [15, 5]);
+  d.dimensionStyle({
+    name: "D",
+    textHeight: 0.1,
+    arrowSize: 0.1,
+    extensionOffset: 0,
+    extensionBeyond: 0,
+    textGap: 0,
+    precision: 0,
+  });
+  d.linearDimension([0, 0], [10, 0], [0, 2], { style: "D" });
+  const bytes = bytesOf(toDXF(d.build()));
+  const read = await dxfEditor.read(bytes);
+  const of = (kind: string) => read.model.entities!.find((e) => e.kind === kind)!.handle!;
+
+  const blockEntity = (name: string) =>
+    read.blocks.find((b) => b.name === name)!.entities[0]!.handle!;
+
+  const rules = (...statements: EditStatement[]) =>
+    lintEdit(editOf(bytes, { statements }), read).map((x) => `${x.severity} ${x.rule}`);
+
+  assert.deepEqual(rules({ kind: "erase", handles: [of("line")] }), ["warning edit-locked-layer"]);
+  assert.deepEqual(rules({ kind: "erase", handles: ["FFFFF"] }), ["error edit-missing"]);
+  assert.deepEqual(
+    rules(
+      { kind: "erase", handles: [of("line")] },
+      { kind: "move", handles: [of("line")], transform: { by: [1, 0] } },
+    ),
+    ["error edit-twice", "warning edit-locked-layer", "warning edit-locked-layer"],
+  );
+  assert.deepEqual(rules({ kind: "erase", handles: [blockEntity("ONCE")] }), [
+    "warning edit-block-definition",
+  ]);
+  assert.deepEqual(rules({ kind: "erase", handles: [blockEntity("TWICE")] }), ["error edit-block"]);
+  assert.deepEqual(
+    rules({ kind: "move", handles: [of("dimension")], transform: { about: [0, 0], scale: 2 } }),
+    ["error edit-transform"],
+  );
+  const picture = read.blocks.find((b) => b.name.startsWith("*D"))!.entities[0]!.handle!;
+  assert.deepEqual(rules({ kind: "erase", handles: [picture] }), ["error edit-part"]);
+});
+
+test("a move out of a read's area, a comment between a point's numbers and a scale of a height of its own", async () => {
+  const d = createDrawing({ units: "ft" });
+  d.line([0, 0], [1, 0]);
+  d.paragraph("{\\H3;LARGE} small", { at: [5, 5], height: 1 });
+  d.paragraph("Literal: \\\\H3;", { at: [5, 8], height: 1 });
+  // A comment between the line's start X and its Y, which a reader skips.
+  const text = toDXF(d.build()).replace("AcDbLine\r\n10\r\n0\r\n", "$&999\r\nnote\r\n");
+  assert.ok(text.includes("999\r\nnote"));
+  const bytes = bytesOf(text);
+
+  const only: ReadPart = {
+    areas: [
+      [
+        [-10, -10],
+        [10, 10],
+      ],
+    ],
+  };
+
+  const read = await dxfEditor.read(bytes, only);
+  const line = read.model.entities!.find((e) => e.kind === "line")!.handle!;
+  const mtext = read.model.entities!.find((e) => e.kind === "mtext")!.handle!;
+
+  const moved = editOf(bytes, {
+    only,
+    statements: [{ kind: "move", handles: [line], transform: { by: [2, 3] } }],
+  });
+
+  const checks = await checkEditedCopy(dxfEditor, bytes, read, moved, editDXF(bytes, moved, read));
+  assert.deepEqual(
+    checks.filter((c) => !c.passed).map((c) => c.problems[0]),
+    [],
+  );
+
+  // Out of the read's area, where the checks would not see it, the move is refused.
+  const out = editOf(bytes, {
+    only,
+    statements: [{ kind: "move", handles: [line], transform: { by: [100, 0] } }],
+  });
+
+  assert.deepEqual(
+    lintEdit(out, read).map((x) => x.rule),
+    ["edit-only"],
+  );
+  assert.throws(() => editDXF(bytes, out, read), EditError);
+
+  const scaled = editOf(bytes, {
+    only,
+    statements: [{ kind: "move", handles: [mtext], transform: { scale: 2, about: [0, 0] } }],
+  });
+
+  assert.deepEqual(
+    lintEdit(scaled, read).map((x) => x.rule),
+    ["edit-transform"],
+  );
+
+  // `\\` is a backslash, so `\\H3;` is text, and a scale of it is made.
+  const literal = read.model.entities!.find(
+    (e) => e.kind === "mtext" && e.value.startsWith("Literal"),
+  )!.handle!;
+
+  const escaped = editOf(bytes, {
+    only,
+    statements: [{ kind: "move", handles: [literal], transform: { scale: 2, about: [5, 8] } }],
+  });
+
+  assert.deepEqual(lintEdit(escaped, read), []);
 });

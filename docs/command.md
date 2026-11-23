@@ -66,6 +66,19 @@ its own folder. `--reader <package or folder>` names the reader of a DWG where t
 none or more than one. Their `read-picture` warnings say what the pictures could not draw as the
 file holds it. A build of such a file may take as long as its read, at least 150 s.
 
+`render` and `dev` take an edit file, whose default export is `editDrawing(...)`, as they take a
+drawing file: they draw the file it edits as it will plot after the edit, model space and each
+layout, as they draw a DXF, from the read the file will hold, `editedRead`'s. The file is read
+through [the read cache](#the-read-cache), with the edit's `only`, and drawn at its own pens, with
+the xrefs, images and pages found beside it. A file of another format needs its reader, not its
+editor. A second picture of each, the picture of changes, draws every entity the edit does not
+reach faint, each it erases dashed in red where it was, and each it moves dashed in amber where it
+was and at full strength where it goes. `render` writes it as `<name>.changes.svg` and `.png`, and
+`<name>.layout-<layout>.changes.svg` and `.png` for each sheet, in `outputs.changes`. `lintEdit`'s
+diagnostics come first in `diagnostics`, and its errors give exit code 2. A file whose SHA-256 is
+not the edit's is drawn as it is, without the edit, with an `edit-hash` error that says so. See
+[Editing a firm's drawing](editing.md#the-preview).
+
 With `--pdf`, `render` also plots the sheets of a drawing with layouts: `<name>.layout-<layout>.pdf`,
 each sheet alone, in `outputs.layouts[].pdf`, and `<name>.pdf`, the set, with a page for each
 layout in order, in `outputs.pdf`. Each is made from the picture of its sheet, as
@@ -100,6 +113,7 @@ entities are not drawn. Each diagnostic shows the call that drew its entity. Cli
 | `/drawing.svg?layout=<name>`         | The sheet of a layout as it plots. The PNG takes `layout` too             |
 | `/drawing.pdf`                       | The set: a page for each layout, in order, made when asked for            |
 | `/drawing.pdf?layout=<name>`         | The sheet of that layout alone, as a PDF                                  |
+| `/drawing.svg?changes=1`             | For an edit file, the picture of changes, drawn when asked for            |
 | `/events`                            | Server-Sent Events: `hello`, then `start` and `build` per build           |
 
 Each response has an `x-tsdraft-session` header, and each state or picture an `x-tsdraft-build`
@@ -325,6 +339,14 @@ with its `rule` and the `call` that threw.
 the line of a helper when the helper threw, and your call when tsdraft threw. A diagnostic's
 `call` does not skip to your project's code. It is the line that called the builder method,
 which is inside a helper function or a package when one of those drew the entity.
+
+For an edit file, `edit` gives the `source` it edits, the edit's `name` and `sha256`, `read`, the
+SHA-256 of the file as it is, `applied`, false when the two differ, how many entities the
+pictures draw `erased` and `moved`, and each of its `statements`: its `kind`, the `call` that made
+it, its `handles`, and its `box` in model space and on each sheet in `layouts`, where it was and,
+for a move, where it goes, which `--view` takes. `lintEdit`'s diagnostics have a rule that starts
+with `edit-`, the `statement` and the `call` that made it, the `handle`, and `bounds` where the
+handle's entity draws. Any other drawing file has no `edit`, and `outputs.changes` is `null`.
 
 In `tsdraft dev`, `session` changes each time the server starts, and `pending` is the number of
 the build that is queued or running, or `null` when the state is the latest.

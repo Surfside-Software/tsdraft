@@ -550,11 +550,16 @@ export {
   type EditCheckName,
   type EditorModule,
   type FileEditor,
+  type RecordLinks,
 } from "./edit/checks.ts";
 
 export {
+  canonicalHandle,
   checkEdit,
   EDIT_FORMAT,
+  MADE_KINDS,
+  statementCall,
+  transformProblem,
   editDrawing,
   EditError,
   type Edit,
@@ -572,6 +577,33 @@ export {
 } from "./edit/model.ts";
 
 export { dxfStructure, type StructureDefect, type StructureReport } from "./edit/structure.ts";
+
+export { editedRead, fileKind } from "./edit/edited.ts";
+
+export {
+  changesPicture,
+  editPreview,
+  statementPlace,
+  type EditPlace,
+  type EditPreview,
+  type PictureChanges,
+} from "./edit/changes.ts";
+
+export { lintEdit, type EditDiagnostic, type EditRule, type LintEditOptions } from "./edit/lint.ts";
+
+export { movedEntity } from "./edit/moved.ts";
+
+export {
+  editReach,
+  indexRead,
+  reachOf,
+  type EditReach,
+  type EditSpace,
+  type Located,
+  type ReadIndex,
+} from "./edit/reach.ts";
+
+export { applied, type Applied } from "./edit/transform.ts";
 
 export { ReadError } from "./read/groups.ts";
 
@@ -672,6 +704,7 @@ export {
   type ReadPolyline,
   type ReadSolid,
   type ReadSpace,
+  type ReadUnreadEntity,
   type ReadTable,
   type ReadTableCell,
   type ReadTableCellStyle,

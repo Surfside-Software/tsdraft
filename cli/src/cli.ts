@@ -9,7 +9,7 @@ import { Builder, projectRoot, round, toState } from "./build.ts";
 import { faces, pdfFonts, pngFonts } from "./fonts.ts";
 import { isString } from "./guards.ts";
 import { pngUnavailable, RendererCrashed, startRenderer, toPNG } from "./png.ts";
-import type { BuildError, BuildState, LayoutOutput, ViewOutput } from "./state.ts";
+import type { BuildError, BuildState, ChangesOutput, LayoutOutput, ViewOutput } from "./state.ts";
 import type { WriteOptions } from "./write.ts";
 
 // A drawing file is TypeScript, which Node runs by stripping its types: from 22.18, or 23.6.
@@ -26,7 +26,7 @@ const HELP = `Usage:
   tsdraft render <file> [--out <dir>] [--width <px>] [--timeout <ms>] [--pdf]
                         [--draw-no-plot] [--view <x0,y0,x1,y1> [--layout <name>]]
   tsdraft dev <file> [--port <n>] [--timeout <ms>] [--draw-no-plot]
-  For a DXF or a DWG, either takes [--reader <package or folder>]
+  For a DXF, a DWG or an edit file, either takes [--reader <package or folder>]
   tsdraft shows <drawing file> [--sheet <layout> | --layout <layout>]
                 [--near <x,y> [--within <d>]] [--xref <name>=<file>]... [--reader <package>]
   tsdraft write <edit file>... [--out <dir>] [--root <dir>] [--reader <package>]
@@ -37,6 +37,13 @@ project installs reads: its pictures are the file as the leading CAD app shows
 it, model space and each layout as it plots, read with geometry, and the JSON's
 read-picture warnings say what they could not draw as the file holds it.
 
+An edit file, whose default export is editDrawing(...), is drawn as the file it
+edits will plot after the edit, with a second picture of what the edit changes:
+what it does not reach faint, what it erases dashed in red, and what it moves
+dashed in amber where it was and drawn where it goes. The JSON's edit gives each
+statement with its call and its box, and lintEdit's errors exit 2. A file whose
+SHA-256 is not the edit's is drawn as it is, with an edit-hash error.
+
 render  Builds the file once, writes <name>.svg and <name>.png to --out (default:
         an out folder beside the file), and prints the result as JSON. Exits 0
         when it built with no lint errors, 2 when lint reported errors, and 1
@@ -46,7 +53,9 @@ render  Builds the file once, writes <name>.svg and <name>.png to --out (default
         Read the pictures at the paths in outputs. A picture this run did not
         write is removed from the default out folder, and left alone in --out.
         A drawing with layouts also gets <name>.layout-<layout>.svg and .png for
-        each, the sheet as it plots, listed in outputs.layouts.
+        each, the sheet as it plots, listed in outputs.layouts. An edit file also
+        gets <name>.changes.svg and .png, and <name>.layout-<layout>.changes.svg
+        and .png, listed in outputs.changes.
         With --pdf it also plots the sheets: <name>.pdf, the set, a page for each
         layout in order, as outputs.pdf, and <name>.layout-<layout>.pdf for each
         sheet alone, as outputs.layouts[].pdf.
@@ -63,7 +72,8 @@ dev     Serves a live preview on localhost that rebuilds on every save of the
         file or a file it imports. Also serves /state.json, which with
         ?after=<build> waits for a newer build, /drawing.svg, /drawing.png?width=,
         /drawing.pdf, the set, and /events. Add layout=<name> to a picture's URL
-        for a layout's sheet.
+        for a layout's sheet, and for an edit file changes=1 for the picture of
+        what it changes.
 
 write   Makes the edited copy of the file each edit file names, and prints the
         job as JSON. An edit file is a TypeScript module whose default export is
@@ -73,7 +83,9 @@ write   Makes the edited copy of the file each edit file names, and prints the
         structure, before and after, lint and the changed sheets. The root is
         --root, or the deepest folder that holds every source and every sheet
         the edits name. A source whose SHA-256 is not the edit's is refused; a
-        lock beside it is a warning. It never writes a source's own path. Exits
+        lock beside it is a warning, and an edit lintEdit gives an error for is
+        refused, with each error in files[].diagnostics. It never writes a
+        source's own path. Exits
         0 when every copy was written, and 2 when any was not, with the reason
         in files[].reason. A .dwg needs an installed package that edits it, or
         --reader.
@@ -87,8 +99,9 @@ write   Makes the edited copy of the file each edit file names, and prints the
 --pdf      With render, plots the sheets to PDF as well, as listed above.
 --draw-no-plot  Draws the layers that do not plot too. The pictures leave them
            out by default, as a plot does.
---reader   The package that reads a DWG, by its name in the project or the path
-           to its folder, when the project names none or more than one.
+--reader   The package that reads a DWG, an edit file's among them, by its name in
+           the project or the path to its folder, when the project names none or
+           more than one.
 --port     Default 4610. When it is taken and no port was given, a free one.
 --timeout  How long a build may run. Default 10000. The build of a DXF or a
            DWG takes at least 150000, as long as its read may take.
@@ -248,10 +261,6 @@ if (values.layout !== undefined && values.view === undefined) usage("--layout go
 
 if (values.pdf && command !== "render") usage("--pdf goes with render.");
 
-if (values.reader !== undefined && !/\.(dxf|dwg)$/i.test(file)) {
-  usage("--reader goes with a DXF or a DWG.");
-}
-
 if (values.pdf && values.view !== undefined)
   usage("--pdf plots whole sheets, and --view draws one rectangle.");
 
@@ -291,6 +300,7 @@ if (command === "dev") {
   // The machine's fonts are looked for while the drawing is built.
   faces();
   const outcome = (await building)!;
+  builder.close();
 
   type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
@@ -327,6 +337,7 @@ if (command === "dev") {
     view: null,
     pdf: null,
     pdfError: null,
+    changes: null,
   };
 
   let failed: BuildError | null = null;
@@ -411,6 +422,46 @@ if (command === "dev") {
         sheets.push({ stem, svg: sheet.svg });
       }
 
+      // An edit's pictures of what it changes, each beside the picture it marks.
+      if (outcome.changes) {
+        const write = async (svg: string, stem: string) => {
+          path = join(dir, `${stem}.svg`);
+          writeFileSync(path, svg);
+          const svgPath = path;
+          let pngError = unavailable;
+          let png: string | null = null;
+
+          if (unavailable === null) {
+            path = join(dir, `${stem}.png`);
+            pngError = await drawPng(svg, path);
+
+            if (pngError === null) png = path;
+          }
+
+          return { svg: svgPath, png, pngError };
+        };
+
+        const model =
+          outcome.changes.svg === null ? null : await write(outcome.changes.svg, `${name}.changes`);
+
+        const changed: Mutable<ChangesOutput> = {
+          svg: model?.svg ?? null,
+          png: model?.png ?? null,
+          pngError: model?.pngError ?? null,
+          layouts: [],
+        };
+
+        for (const [i, sheet] of outcome.changes.layouts.entries()) {
+          const stem = sheets[i]?.stem ?? layoutFile(name, sheet.name, taken);
+          changed.layouts = [
+            ...changed.layouts,
+            { name: sheet.name, ...(await write(sheet.svg, `${stem}.changes`)) },
+          ];
+        }
+
+        outputs.changes = changed;
+      }
+
       // Each sheet, then the set: a page for each sheet, in the order of the layouts.
       if (values.pdf && sheets.length > 0) {
         const { plot } = pdf!;
@@ -471,13 +522,18 @@ if (command === "dev") {
       png: outputs.png,
       "view.svg": outputs.view?.svg ?? null,
       "view.png": outputs.view?.png ?? null,
+      "changes.svg": outputs.changes?.svg ?? null,
+      "changes.png": outputs.changes?.png ?? null,
       pdf: outputs.pdf,
     })) {
       if (written === null) removeOld(join(dir, `${name}.${kind}`));
     }
 
     if (existsSync(dir)) {
-      const kept = new Set(layouts.flatMap((made) => [made.svg, made.png, made.pdf]));
+      const kept = new Set([
+        ...layouts.flatMap((made) => [made.svg, made.png, made.pdf]),
+        ...(outputs.changes?.layouts ?? []).flatMap((made) => [made.svg, made.png]),
+      ]);
 
       for (const entry of readdirSync(dir)) {
         if (!entry.startsWith(`${name}.layout-`) || !/\.(svg|png|pdf)$/.test(entry)) continue;
