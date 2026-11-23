@@ -12,7 +12,13 @@ import type {
 } from "../drawing.ts";
 import { written } from "../format.ts";
 import { SPLINE_DEGREE_MOST } from "../rules.ts";
-import type { Point3, ReadEdge, ReadEdgeEllipse, ReadModelerGeometry } from "./model.ts";
+import type {
+  Point3,
+  ReadEdge,
+  ReadEdgeEllipse,
+  ReadEntityBase,
+  ReadModelerGeometry,
+} from "./model.ts";
 
 /** What `edgesInPlan` gives for an edge. */
 export type PlanEdge = Line | Circle | Arc | Ellipse | ControlSpline;
@@ -29,8 +35,8 @@ const toDegrees = (r: number): number => {
   return turned >= 360 ? 0 : turned;
 };
 
-/** The pen the solid sets for itself, as a drawing's entity holds it. */
-function penOf(s: ReadModelerGeometry): {
+/** The pen a read entity sets for itself, as a drawing's entity holds it. */
+export function penOf(s: ReadEntityBase): {
   layer: string;
   color?: EntityColor;
   transparency?: EntityTransparency;

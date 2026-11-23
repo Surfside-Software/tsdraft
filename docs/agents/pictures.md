@@ -75,3 +75,13 @@ fonts or dashes. [AGENTS.md](../../AGENTS.md) has the rules that hold for every 
   that app makes that `A` as tall as the text's height. It is not the cap height the font
   states. Add a font only when the 2025 release of that app
   or Windows installs it.
+- A read file's picture is `src/read/picture.ts`: `pictureDrawing` turns a `DrawingRead` into the
+  `Drawing` `toSVG` draws, and what a `Drawing` cannot hold, a paper tsdraft does not list, an
+  entity's own linetype scale and a layer's true color, rides on the symbols of
+  `src/picture-marks.ts`, which only `toSVG` reads. Draw a new kind of `ReadEntity` there, from the
+  kinds a `Drawing` has, never with code of its own in `src/svg.ts`. With `READ_SOURCES` given,
+  `svgWithin` groups the elements of each top-level read entity into one fragment, starts each id
+  it makes from the fragment's viewport and handle, and names an image's picture by its file, so
+  a fragment kept from one picture joins with another's. Without it, the picture of a `Drawing` is
+  byte for byte what it was: change the pieces in `finish` so that `joinPicture` gives the same
+  text either way.

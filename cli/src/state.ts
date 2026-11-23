@@ -210,6 +210,10 @@ export interface PngFont {
  * `footprint-off-property` the footprint's box. `footprint-in-setback` also gives `side`,
  * `required` and `provided`.
  *
+ * `read-picture` is a warning of the command's own about a drawing file a reader reads, a DXF or
+ * a DWG: a text style whose font tsdraft does not have and the font its text is drawn in, or what
+ * the pictures draw as nothing, or only nearly, counted by kind.
+ *
  * `standard-unchecked` is a warning of the command's own, among lint's: the file exports a
  * standard, and the copy of tsdraft the drawing loaded is from before standards, so `lint` held
  * the drawing to none of it.
@@ -219,7 +223,8 @@ export interface BuildDiagnostic extends Omit<Diagnostic, "rule"> {
     | Diagnostic["rule"]
     | TextWarning["rule"]
     | IntentWarning["rule"]
-    | "standard-unchecked";
+    | "standard-unchecked"
+    | "read-picture";
   readonly kind?: Entity["kind"];
   /** The box around the entity, in drawing units, worked out as `extents` is. */
   readonly bounds?: Box;

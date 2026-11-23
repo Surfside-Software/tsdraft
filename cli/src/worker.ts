@@ -21,6 +21,7 @@ import type {
   DimensionPicture,
   DimensionStyle,
   Drawing,
+  DrawingRead,
   Entity,
   Intent,
   IntentWarning,
@@ -57,6 +58,9 @@ export interface BuildRequest {
   readonly root: string;
   /** Draws the layers that do not plot too. */
   readonly drawNoPlot?: boolean;
+  /** For a DXF or a DWG: the package that reads it, as `--reader` names it, from `cwd`. */
+  readonly reader?: string;
+  readonly cwd?: string;
   /**
    * Draws this one rectangle, of model space or of the layout named, in place of the pictures
    * of every space.
@@ -526,7 +530,271 @@ async function warm(library: string | null, deadline: number): Promise<void> {
   process.send!({ type: "warmed", kept: closed, held } satisfies WorkerMessage);
 }
 
-async function build({ file, root, drawNoPlot, view }: BuildRequest): Promise<WorkerResult> {
+/** The most xrefs of a read file whose drawings a build reads. */
+const XREFS_READ = 32;
+
+/** A file a reader reads, which the command draws as the leading CAD app shows it. */
+export const READ_FILE = /\.(dxf|dwg)$/i;
+
+async function build(request: BuildRequest): Promise<WorkerResult> {
+  return READ_FILE.test(request.file) ? buildRead(request) : buildCode(request);
+}
+
+/**
+ * The pictures of a drawing file a reader reads: model space and each layout, drawn from the read
+ * with geometry by `readPicture`, with what it could not draw as warnings.
+ */
+async function buildRead({
+  file,
+  drawNoPlot,
+  view,
+  reader: named,
+  cwd,
+}: BuildRequest): Promise<WorkerResult> {
+  const timings: { load?: number; svg?: number } = {};
+  const failed = (message: string, name = "ReadError"): WorkerResult => ({
+    ok: false,
+    files: readFiles(file),
+    timings,
+    drawing: null,
+    diagnostics: [],
+    svg: null,
+    fonts: [],
+    layouts: [],
+    view: null,
+    swatches: {},
+    error: {
+      name,
+      message,
+      code: null,
+      file,
+      line: null,
+      column: null,
+      stack: "",
+    },
+    library: null,
+    modules,
+  });
+  let t = now();
+  track(file, fileVersion(file));
+  const library = (await import("tsdraft")) as typeof import("tsdraft") & Library;
+  const { findReaders, readerFor, ReaderRefusal } = await import("./readers.ts");
+  const { readDrawingFile } = await import("./read.ts");
+  /** The reader of a file of an extension: `--reader`'s, the project's, or the file's folder's. */
+  const readerOf = (extension: string) => {
+    const at = cwd ?? process.cwd();
+    const found = readerFor(
+      findReaders({ cwd: at, inputs: [file], ...(named === undefined ? {} : { reader: named }) }),
+      extension,
+    );
+    if (found !== null || named !== undefined || extension.toLowerCase() === ".dxf") return found;
+    return readerFor(findReaders({ cwd: dirname(file), inputs: [file] }), extension);
+  };
+  let reader;
+  try {
+    reader = readerOf(/\.[^.]*$/.exec(file)![0]);
+  } catch (error) {
+    if (error instanceof ReaderRefusal) return failed(error.message);
+    throw error;
+  }
+  const outcome = await readDrawingFile(file, reader, {}, { geometry: true });
+  timings.load = now() - t;
+  if ("skipped" in outcome) return failed(`${file} was not read: ${outcome.skipped}`);
+  const read = outcome.read;
+  t = now();
+  try {
+    // The size of each page the underlays show, read from its PDF beside the file.
+    const pageSizes: Record<string, Record<string, readonly [number, number]>> = Object.create(
+      null,
+    );
+    const pdfs = new Map<string, Uint8Array | null>();
+    const spaces = [
+      read.model.entities,
+      ...read.layouts.map((l) => l.entities),
+      ...read.blocks.map((b) => b.entities),
+    ];
+    for (const list of spaces) {
+      for (const e of list ?? []) {
+        if (e.kind !== "underlay" || isAbsolute(e.path) || /^[A-Za-z]:/.test(e.path)) continue;
+        const at = join(dirname(file), e.path.replaceAll("\\", "/"));
+        let pdf = pdfs.get(at);
+        if (pdf === undefined) {
+          track(at, fileVersion(at));
+          try {
+            pdf = new Uint8Array(readFileSync(at));
+          } catch {
+            pdf = null;
+          }
+          pdfs.set(at, pdf);
+        }
+        const size = pdf === null ? undefined : library.pdfPageSize(pdf, e.page);
+        if (size !== undefined) (pageSizes[e.path] ??= Object.create(null))[e.page] = size;
+      }
+    }
+    // Each xref's drawing, read from the path the file holds, from the folder of the file that
+    // holds it, or else by its name in that folder, where CAD programs look next: the file's own
+    // xrefs, and theirs. Each is given with all of them, so an xref finds its own attachments.
+    type Given = {
+      read: DrawingRead;
+      xrefs: typeof xrefs;
+      images?: Record<string, Uint8Array>;
+    };
+    // The bytes of the images of every drawing, the host's and its xrefs', count against one budget.
+    const budget = { total: 0 };
+    const diagnostics: BuildDiagnostic[] = [];
+    const xrefs: Record<string, Given> = Object.create(null);
+    let level: { readonly list: DrawingRead["xrefs"]; readonly from: string }[] = [
+      { list: read.xrefs, from: file },
+    ];
+    let reads = 0;
+    for (let depth = 0; depth < 2 && level.length > 0; depth++) {
+      const next: typeof level = [];
+      for (const { list, from } of level) {
+        for (const xref of list) {
+          if (Object.hasOwn(xrefs, xref.name) || reads >= XREFS_READ) continue;
+          const path = xref.path.replaceAll("\\", "/");
+          const name = path.slice(path.lastIndexOf("/") + 1);
+          const found = [
+            ...(isAbsolute(path) || /^[A-Za-z]:/.test(path) ? [] : [join(dirname(from), path)]),
+            join(dirname(from), name),
+          ].find((at) => existsSync(at) && statSync(at).isFile());
+          if (found === undefined || !/\.(dxf|dwg)$/i.test(found) || found === file) continue;
+          track(found, fileVersion(found));
+          let xrefReader;
+          try {
+            xrefReader = readerOf(/\.[^.]*$/.exec(found)![0]);
+          } catch {
+            continue;
+          }
+          reads++;
+          const got = await readDrawingFile(found, xrefReader, {}, { geometry: true });
+          if (!("read" in got)) continue;
+          // Its images, from its own folder.
+          const rasters = rasterFiles(
+            library,
+            library.pictureDrawing(got.read).drawing,
+            found,
+            budget,
+            xref.name,
+          );
+          diagnostics.push(...rasters.diagnostics);
+          xrefs[xref.name] = {
+            read: got.read,
+            xrefs,
+            ...(rasters.images !== undefined && { images: rasters.images }),
+          };
+          next.push({ list: got.read.xrefs, from: found });
+        }
+      }
+      level = next;
+    }
+    const made = library.pictureDrawing(read, { pageSizes, xrefs });
+    const shown = made.drawing;
+    const rasters = rasterFiles(library, shown, file, budget);
+    diagnostics.push(...rasters.diagnostics);
+    const pages = pageFiles(library, shown, file, budget);
+    diagnostics.push(...pages.diagnostics);
+    const shaped = shapeFiles(library, shown, file);
+    const options = {
+      drawNoPlot: drawNoPlot === true,
+      pageSizes,
+      xrefs,
+      ...(rasters.images === undefined ? {} : { images: rasters.images }),
+      ...(pages.underlays === undefined ? {} : { underlays: pages.underlays }),
+      ...shaped,
+    };
+    const { notes } = made;
+    for (const { style, font, drawnIn } of notes.fonts) {
+      diagnostics.push({
+        rule: "read-picture",
+        severity: "warning",
+        message: `The text style ${JSON.stringify(style)} sets its text in ${JSON.stringify(font)}, which tsdraft does not have, so the pictures measure and draw it in ${drawnIn}`,
+      });
+    }
+    for (const [kind, n] of Object.entries(notes.notDrawn)) {
+      diagnostics.push({
+        rule: "read-picture",
+        severity: "warning",
+        message: `The pictures draw nothing for ${n} of ${JSON.stringify(kind)}, which the read does not keep or the picture cannot draw`,
+      });
+    }
+    for (const [what, n] of Object.entries(notes.approximate)) {
+      diagnostics.push({
+        rule: "read-picture",
+        severity: "warning",
+        message: `The pictures draw ${n} of ${JSON.stringify(what)} only nearly as the file holds it`,
+      });
+    }
+    const fontsOf = fontsIn(library, [shown]);
+    let viewed: WorkerResult["view"] = null;
+    let svg: string | null = null;
+    let min: [number, number] = [0, 0];
+    let max: [number, number] = [0, 0];
+    const sheets: { name: string; svg: string; fonts: string[] }[] = [];
+    if (view) {
+      const one = library.readPicture(read, {
+        ...options,
+        view: view.box,
+        ...(view.layout === undefined ? {} : { layout: view.layout }),
+      }).svg;
+      viewed = { layout: view.layout ?? null, svg: one, fonts: fontsOf(one) };
+    } else {
+      ({ svg, min, max } = framed(library.readPicture(read, { ...options, margin: 0 }).svg));
+      const names = new Set<string>();
+      for (const layout of read.layouts) {
+        // A layout the read did not read has no picture: it is not empty.
+        if (names.has(layout.name) || layout.entities === undefined) continue;
+        names.add(layout.name);
+        const sheet = library.readPicture(read, { ...options, layout: layout.name }).svg;
+        sheets.push({ name: layout.name, svg: sheet, fonts: fontsOf(sheet) });
+      }
+    }
+    timings.svg = now() - t;
+    const units = shown.units;
+    return {
+      ok: true,
+      files: readFiles(file),
+      timings,
+      drawing: {
+        units,
+        dxf: shown.dxf,
+        standard: null,
+        extents: { min, max },
+        counts: {
+          layers: read.layers.length,
+          entities: read.model.entities?.length ?? 0,
+          blocks: read.blocks.length,
+          xrefs: read.xrefs.length,
+          layouts: read.layouts.length,
+          errors: 0,
+          warnings: diagnostics.length,
+        },
+        layers: layerSummaries(shown),
+        blocks: [],
+        inserts: [],
+        dimensions: [],
+        xrefs: [],
+        layouts: layoutSummaries(library, shown),
+      },
+      diagnostics,
+      svg,
+      fonts: svg === null ? [] : fontsOf(svg),
+      layouts: sheets,
+      view: viewed,
+      swatches: {},
+      error: null,
+      library: null,
+      modules,
+    };
+  } catch (thrown) {
+    return failed(
+      `${file} was read, and its pictures could not be drawn: ${(thrown as Error).message}`,
+      "PictureError",
+    );
+  }
+}
+
+async function buildCode({ file, root, drawNoPlot, view }: BuildRequest): Promise<WorkerResult> {
   const timings: {
     load?: number;
     lint?: number;

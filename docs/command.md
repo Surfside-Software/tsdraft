@@ -58,6 +58,14 @@ as it plots: a layer that does not plot is left out, as one that is off or froze
 `--draw-no-plot` draws those layers too. `tsdraft dev` takes the same flag. The colors are the
 ones a plot gives each pen, so the darkest pens are faint on the dark preview.
 
+`render` and `dev` take a DXF, or a DWG a reader reads, as they take a drawing file: they read it
+with geometry, within the limits of [Reading drawing files](#reading-drawing-files), and draw
+model space and each layout as [the picture of a read file](reading.md#the-picture-of-a-read-file)
+draws them, with the images, the pages of the underlays and the shape files the file names from
+its own folder. `--reader <package or folder>` names the reader of a DWG where the project names
+none or more than one. Their `read-picture` warnings say what the pictures could not draw as the
+file holds it. A build of such a file may take as long as its read, at least 150 s.
+
 With `--pdf`, `render` also plots the sheets of a drawing with layouts: `<name>.layout-<layout>.pdf`,
 each sheet alone, in `outputs.layouts[].pdf`, and `<name>.pdf`, the set, with a page for each
 layout in order, in `outputs.pdf`. Each is made from the picture of its sheet, as

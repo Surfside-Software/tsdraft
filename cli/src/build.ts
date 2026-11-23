@@ -24,6 +24,8 @@ const workerPath = new URL(
   import.meta.url,
 );
 const LOG_LIMIT = 8_000;
+/** How long the build of a DXF or a DWG may take at least: the read's own limit, and its pictures. */
+const READ_TIMEOUT = 150_000;
 const SPARES = 2;
 /** A warm-up takes a fraction of a second. One that takes this long will not end. */
 const WARM_DEADLINE = 2_000;
@@ -66,6 +68,8 @@ export class Builder {
    */
   readonly #spares: Child[] = [];
   readonly #view: BuildRequest["view"];
+  /** The package that reads a DWG, as `--reader` names it. */
+  readonly #reader: string | undefined;
   #running: Child | undefined;
   /** The library the last good build used, when a spare may load it ahead. */
   #library: string | null = null;
@@ -88,7 +92,10 @@ export class Builder {
     warmDeadline?: number;
     /** The one picture to draw, in place of the pictures of every space. */
     view?: BuildRequest["view"];
+    /** The package that reads a DWG, by its name in the project or its folder. */
+    reader?: string;
   }) {
+    this.#reader = options.reader;
     this.#drawNoPlot = options.drawNoPlot === true;
     this.#view = options.view;
     this.#timeout = options.timeout;
@@ -115,9 +122,17 @@ export class Builder {
       try {
         const running = run(
           child,
-          { type: "build", file, root, drawNoPlot: this.#drawNoPlot, view: this.#view },
+          {
+            type: "build",
+            file,
+            root,
+            drawNoPlot: this.#drawNoPlot,
+            view: this.#view,
+            ...(this.#reader === undefined ? {} : { reader: this.#reader, cwd: process.cwd() }),
+          },
           started,
-          this.#timeout,
+          // A read has its own time limit, as the read of any drawing file has.
+          /\.(dxf|dwg)$/i.test(file) ? Math.max(this.#timeout, READ_TIMEOUT) : this.#timeout,
         );
         // Starting the next child takes time, so a child that is ready is sent the file first.
         if (child.isReady) await null;

@@ -489,6 +489,25 @@ export { layoutMtext, measureMtext } from "./read/mtext.ts";
 export { decipherSat, sabEdges, satEdges, type ModelerEdges } from "./read/modeler.ts";
 export { edgesInPlan, type PlanEdge } from "./read/plan.ts";
 export {
+  pictureDrawing,
+  readPicture,
+  type PictureDrawing,
+  type PictureDrawingOptions,
+  type ReadPicture,
+  type ReadPictureNotes,
+  type ReadSvgOptions,
+  type XrefReads,
+  type UnderlayPageSizes,
+} from "./read/picture.ts";
+export {
+  joinPicture,
+  type PictureFragment,
+  type PicturePiece,
+  type PictureRun,
+  type ReadSource,
+  type ReadSources,
+} from "./picture-marks.ts";
+export {
   BLOCK_ITEMS,
   CENSUS_LIMIT,
   dimensionTextParts,

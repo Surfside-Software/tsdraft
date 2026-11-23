@@ -1,7 +1,8 @@
 // The DXF reader's fuzz: files bent group by group and byte by byte, each read under a time
 // limit. Each read gives a `DrawingRead` that `checkDrawingRead` passes, or a `ReadError`, and
 // nothing else; its answer stays within the command's size; and its document gives the file
-// back byte for byte. test/read-fuzz.test.ts runs a fixed set of seeds.
+// back byte for byte; and the picture of each space of a read with geometry is drawn, or refused
+// with a RangeError, within its time. test/read-fuzz.test.ts runs a fixed set of seeds.
 //
 // The long pass, from new seeds and with any DXF files beside the core's own, under a memory
 // cap and with no core dump:
@@ -19,6 +20,7 @@ import {
 } from "../src/index.ts";
 import type { DxfDocument } from "../src/read/document.ts";
 import { READ_LIMITS, readDXFDocument, readDXFWithin } from "../src/read/dxf.ts";
+import { readPictureWithin } from "../src/read/picture.ts";
 import { timeLimit } from "./time-limit.ts";
 
 /** A random number from 0 up to 1, the same for a seed. */
@@ -565,6 +567,9 @@ function within<T>(ms: number, fn: () => T): T {
   return running.runInThisContext({ timeout: ms }) as T;
 }
 
+/** The entities a fuzzed read's picture walks, of the 2,000,000 `toSVG` walks. */
+const PICTURE_WALK = 50_000;
+
 /** The command's largest answer. */
 const ANSWER = 128 * 1024 * 1024;
 
@@ -590,8 +595,22 @@ export async function problemOf(bytes: Uint8Array, geometry: boolean): Promise<s
   }
   const json = JSON.stringify(answer);
   if (json.length > ANSWER) return `its answer is ${json.length} characters`;
-  const problems = checkDrawingRead(JSON.parse(json));
+  const parsed = JSON.parse(json) as DrawingRead;
+  const problems = checkDrawingRead(parsed);
   if (problems.length > 0) return problems.slice(0, 3).join("; ");
+  // Its picture: each space drawn, or refused with a RangeError, within its time.
+  if (geometry) {
+    for (const layout of [undefined, ...parsed.layouts.slice(0, 4).map((l) => l.name)]) {
+      const options = layout === undefined ? {} : { layout };
+      try {
+        within(timeLimit(4000), () => readPictureWithin(parsed, options, PICTURE_WALK));
+      } catch (error) {
+        if (!(error instanceof RangeError)) {
+          return `its picture of ${layout ?? "model space"} threw ${(error as Error).stack}`;
+        }
+      }
+    }
+  }
   const { document } = await both;
   let at = 0;
   for (let i = 0; i < document.count; i++) {

@@ -40,7 +40,7 @@ interface BuildEvent {
 
 export async function dev(
   file: string,
-  options: { port: number | undefined; timeout: number; drawNoPlot?: boolean },
+  options: { port: number | undefined; timeout: number; drawNoPlot?: boolean; reader?: string },
 ): Promise<void> {
   const root = projectRoot(file);
   const session = randomUUID().slice(0, 8);
@@ -48,6 +48,7 @@ export async function dev(
     timeout: options.timeout,
     warm: true,
     drawNoPlot: options.drawNoPlot === true,
+    ...(options.reader === undefined ? {} : { reader: options.reader }),
   });
   /** Why this server makes no PNG, when the optional renderer is absent. */
   const noPng = pngUnavailable();

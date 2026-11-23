@@ -18,7 +18,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { deflateSync } from "node:zlib";
 import { after, test } from "node:test";
 import { inScratch } from "./scratch.ts";
-import { BUILT_IN_STANDARD, pdfFace } from "tsdraft";
+import { BUILT_IN_STANDARD, pdfFace, toDXF } from "tsdraft";
 import { faces } from "../src/fonts.ts";
 import type { BuildState } from "../src/state.ts";
 
@@ -1701,4 +1701,27 @@ test("render checks each underlay's page size against its PDF, and draws no page
   assert.match(said[1]!, /^warning: The file of the underlay "arch.pdf" has no page 9,/);
   // The page is drawn as missing at each placement, since one of them is refused.
   assert.doesNotMatch(readFileSync(state.outputs.svg!, "utf8"), /<use/);
+});
+
+test("render draws a DXF as the file holds it: model space and each layout as it plots", async () => {
+  const out = tempDir();
+  const { default: sheet } = await import(
+    pathToFileURL(join(root, "../examples/site-plan.ts")).href
+  );
+  const file = join(out, "sheet.dxf");
+  writeFileSync(file, toDXF(sheet));
+  const { state, status } = render(file, "--out", out, "--width", "600");
+  assert.equal(status, 0, JSON.stringify(state.error));
+  assert.equal(state.ok, true);
+  assert.equal(state.outputs.svg, join(out, "sheet.svg"));
+  assert.deepEqual(
+    state.outputs.layouts.map((l) => [l.name, l.svg]),
+    [["C-101", join(out, "sheet.layout-C-101.svg")]],
+  );
+  assert.match(readFileSync(state.outputs.layouts[0]!.svg, "utf8"), /data-picture=/);
+  assert.equal(state.drawing?.counts.layouts, 1);
+  assert.ok(
+    state.diagnostics.every((d) => d.rule !== "read-picture"),
+    JSON.stringify(state.diagnostics),
+  );
 });

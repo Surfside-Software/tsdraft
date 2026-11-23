@@ -333,6 +333,52 @@ that is not an integer, or a file that ends between a code and its value. A reco
 layer, block name or tag is longer than the 2,049 characters a DXF value holds is counted under
 `unread.malformed`.
 
+## The picture of a read file
+
+`toSVG(read, options)` draws a `DrawingRead` read with `geometry` as the leading CAD app shows the
+file: model space, or with `layout` the sheet as it plots, with its viewports, their scale, twist
+and frozen layers, at the layout's plot style table where tsdraft has it and at `acad.ctb` where
+the layout names none. It takes the options a drawing's picture takes, and two more: `xrefs`, the
+read each xref stands for, by its name, drawn with the states of its layers the host holds as
+`XREF|LAYER`; and `pageSizes`, the size in inches of each page the underlays show, by path and
+page, as `pdfPageSize` reads it.
+
+Each kind the readers keep is drawn by the code that draws a drawing's:
+
+- A dimension and a table are drawn from the block of their picture, which is what the leading CAD
+  app shows and plots. One with no such block draws nothing.
+- A multileader is drawn from its own points, its landing and sizes, with the arrowheads of
+  `leaderPicture`; an old leader from its points, with its dimension style's arrow size.
+- A text starts where that app starts it, `at`. A text justified to `fit` or `aligned` is fitted
+  between its two points. A text in a font tsdraft does not have is measured and drawn in the
+  nearest font of `FONTS`, as `nearestFont` picks it.
+- An insert draws its block and each attribute that shows, where the file places it. A constant
+  attribute draws in every insert of its block.
+- A solid draws as a filled outline, a hatch with the lines of its pattern as the file holds
+  them, and a 3D solid, region or body as `edgesInPlan` gives its edges.
+- An entity's own linetype scale, a layer's true color and a paper tsdraft does not list are
+  drawn as the file holds them.
+
+`readPicture(read, options)` draws the same picture and gives, beside `svg`:
+
+- `notes`: each text style whose font tsdraft does not have, with the font drawn in its place;
+  what draws nothing, counted by kind, which holds what the read counts under a space's or a
+  block's `other` and under `unread.entities`; and what draws only nearly, counted by what, such
+  as a mirrored text or an image a file slants.
+- `pieces` and `defs`: the picture in pieces, which `joinPicture(pieces, defs)` joins into `svg`.
+  Each space it draws, a layout's paper and model space through each of its viewports or alone,
+  is a `PictureRun` of fragments, one for each entity at the top of the space that shows, in the
+  order the leading CAD app draws them: the `drawOrder` the file holds, then the rest in the
+  file's order. A fragment has its entity's `index` among the space's `entities`, its `handle`,
+  its `svg` and the ids of the definitions it uses, such as an image's picture or a gradient.
+  Each id a fragment makes starts from its viewport and its entity's handle, and an image's
+  comes from its file, so a fragment kept from one picture joins with fragments of another.
+
+`pictureDrawing(read)` gives the `Drawing` the picture draws, where each of its entities came
+from, the handle of each and the notes. It holds what a `Drawing` cannot, such as a paper tsdraft
+does not list, where `toSVG` alone reads it, and it is for pictures and for the checks of text:
+`toDXF` of it is not the file.
+
 ## Readers of other formats
 
 A package that reads another format names its reader in its `package.json`:

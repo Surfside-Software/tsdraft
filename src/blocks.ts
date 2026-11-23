@@ -847,6 +847,8 @@ function holds(list: readonly unknown[], index: number): boolean {
  * @param holding - The inserts an entity a referenced drawing holds draws after itself, in that
  *   drawing's coordinates, as a table draws the block of each of its cells. Each is entered as
  *   any insert of that drawing is.
+ * @param top - Told the index of each entity of the insert's own block or drawing as the walk
+ *   reaches it, before what it draws.
  * @returns False when `spend` ended the walk.
  */
 export function eachDrawn(
@@ -859,6 +861,7 @@ export function eachDrawn(
   key: (name: string) => string = layerKey,
   holding?: (entity: Exclude<Entity, Insert>, placement: Placement) => readonly Insert[],
   heldByBlock?: (from: Referenced | undefined) => ReadonlySet<string>,
+  top?: (index: number) => void,
 ): boolean {
   if (entity.kind !== "insert") {
     draw(entity, {
@@ -945,6 +948,8 @@ export function eachDrawn(
     if (at.entities) {
       const item = at.items[at.next++]!;
       if (!spend(1)) return false;
+      // Each entity the insert's own block or drawing holds starts with its index.
+      if (stack.length === 1) top?.(at.next - 1);
       if (item.kind !== "insert") {
         const placement: Placement = {
           matrix: at.matrix,

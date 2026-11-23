@@ -168,6 +168,26 @@ import { ellipsePoint, splinePieces, splinePolyline, unturned } from "./curves.t
 import { filled, KEYED } from "./shape.ts";
 import { shapeFinder, type ShapeDefinition, type ShapeFiles } from "./shapes.ts";
 import { isUnits } from "./units.ts";
+import {
+  CELL_TEXT,
+  IMAGE_FADE,
+  MODEL_DASHES,
+  LAYER_TRUE_COLOR,
+  OWN_LINETYPE_SCALE,
+  READ_PAPER,
+  READ_SOURCES,
+  type OwnLinetypeScale,
+  type PictureFragment,
+  type PicturePiece,
+  type PictureRun,
+  joinPicture,
+  type ReadPaperLayout,
+  type ReadSource,
+  type ReadSources,
+} from "./picture-marks.ts";
+import { sha256Text } from "./sha256.ts";
+import type { DrawingRead } from "./read/model.ts";
+import { readPicture, type ReadSvgOptions } from "./read/picture.ts";
 
 /**
  * ACI, the color index CAD programs share: the color the leading CAD app plots each index in, from
@@ -383,6 +403,43 @@ export interface SvgOptions {
    * always. Left out, every entity draws opaque, as they plot the page setups tsdraft writes.
    */
   readonly plotTransparency?: boolean;
+}
+
+/** Where the fragments of a space of a read file's picture go, and where each entity came from. */
+interface Run {
+  readonly sources: readonly ReadSource[];
+  readonly viewport?: number;
+  readonly fragments: PictureFragment[];
+}
+
+/**
+ * What the ids a fragment makes start from: its entity's handle, where it is one the readers make
+ * and the first of the space to have it, and else its index, so no two fragments share one and no
+ * id holds a character markup would read.
+ */
+function scopeName(source: ReadSource, scoped: Set<string>): string {
+  const { handle } = source;
+  if (handle === undefined || !/^[0-9A-Fa-f]{1,16}$/.test(handle)) return `e${source.index}`;
+  const key = handle.toUpperCase();
+  if (scoped.has(key)) return `e${source.index}`;
+  scoped.add(key);
+  return `h${handle}`;
+}
+
+/** A run of fragments as it is filled. */
+interface MutableRun extends Run {
+  readonly kind: "fragments";
+  readonly space: "paper" | "model";
+  open: string;
+  between: string;
+  close: string;
+  empty: string;
+}
+
+/** The pieces of a read file's picture, and its definitions by id, as `svgWithin` made them. */
+export interface PictureParts {
+  pieces?: readonly PicturePiece[];
+  defs?: Readonly<Record<string, string>>;
 }
 
 /** How an entity is drawn. */
@@ -690,6 +747,13 @@ function planOf(e: Polyline, known: Known): Plan | undefined {
 }
 
 /**
+ * The picture of a read file, as `readPicture` draws it: the sheet as it plots, or model space,
+ * as the leading CAD app shows the file.
+ *
+ * @throws RangeError as for a drawing, and when `read` is not a `DrawingRead`.
+ */
+export function toSVG(read: DrawingRead, options?: ReadSvgOptions): string;
+/**
  * Renders a preview SVG of the drawing as it plots. Model Y points up, so the drawing group
  * flips Y. Entities on layers that are off, frozen or set not to plot are left out, and each
  * layer draws in the color the leading CAD app plots its index in. Dashed lines are cut into their
@@ -748,12 +812,40 @@ function planOf(e: Polyline, known: Known): Plan | undefined {
  *   Its message names the entity or the viewport it stopped at. Draw a part of such a drawing
  *   with `options.view`.
  */
-export function toSVG(drawing: Drawing, options: SvgOptions = {}): string {
-  return svgWithin(drawing, options, MAX_WALKED);
+export function toSVG(drawing: Drawing, options?: SvgOptions): string;
+export function toSVG(
+  drawing: Drawing | DrawingRead,
+  options: SvgOptions | ReadSvgOptions = {},
+): string {
+  if (isDrawingRead(drawing)) return readPicture(drawing, options as ReadSvgOptions).svg;
+  return svgWithin(drawing, options as SvgOptions, MAX_WALKED);
+}
+
+/** A picture of a drawing `toSVG` draws in full, with its pieces kept in `parts`. */
+export function drawnPicture(
+  drawing: Drawing,
+  options: SvgOptions,
+  parts: PictureParts,
+  most = MAX_WALKED,
+): string {
+  return svgWithin(drawing, options, most, parts);
+}
+
+/** True for a read, which a `Drawing` is not: it holds the SHA-256 of its file, and no `entities`. */
+function isDrawingRead(value: Drawing | DrawingRead): value is DrawingRead {
+  return (
+    typeof (value as Partial<DrawingRead>).sha256 === "string" &&
+    !Array.isArray((value as Partial<Drawing>).entities)
+  );
 }
 
 /** `toSVG` with `most` entities walked, and `most` times `CHARACTERS` characters written. */
-export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): string {
+export function svgWithin(
+  drawing: Drawing,
+  options: SvgOptions,
+  most: number,
+  collected?: PictureParts,
+): string {
   const xrefs = referencedByKey(drawing, options.xrefs);
   const { tablesOf, layerOf, hidden, frozen, styleOf, key } = visibility(
     drawing,
@@ -907,6 +999,8 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     readonly info: RasterInfo;
     /** False for a file the plot cannot draw, which the picture draws as a file not given. */
     readonly plotted: boolean;
+    /** The files it was given in. */
+    readonly given: object;
     /** Its pixels as they are, and with any transparency left out; null for one not read. */
     shown?: string | null;
     opaque?: string | null;
@@ -917,14 +1011,37 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
   /** Whether each clip an image gives can be drawn, read once however many images share it. */
   const clipsChecked = new WeakMap<object, boolean>();
   const defs: string[] = [];
+  /** The id of each of `defs`. */
+  const defIds: string[] = [];
   let clips = 0;
   let gradients = 0;
+  // A read file's picture is kept as one fragment for each entity at the top of a space, so the
+  // ids an entity makes start from where it is, and an image's from its file, and stay the same
+  // whatever is drawn around it.
+  const reading: ReadSources | undefined = (options as { [READ_SOURCES]?: ReadSources })[
+    READ_SOURCES
+  ];
+  let scope = "";
+  /** The ids of the definitions the fragment being drawn uses. */
+  let using: Set<string> | undefined;
+  const define = (id: string, def: string): void => {
+    defs.push(def);
+    defIds.push(id);
+  };
+  /** The id of a file's picture, from what it is and the files it was given in. */
+  const givenIndex = new WeakMap<object, number>();
+  let givens = 0;
+  const fileId = (given: object, what: string): string => {
+    let at = givenIndex.get(given);
+    if (at === undefined) givenIndex.set(given, (at = givens++));
+    return sha256Text(`${at}\u0000${what}`).slice(0, 16);
+  };
   /**
    * The id of a gradient's picture where `matrix` puts it, held in the definitions, or undefined
    * when the picture has no room for it.
    */
   const shade = (picture: GradientPicture, matrix: Matrix | undefined): string | undefined => {
-    const id = `tsdraft-gradient-${gradients++}`;
+    const id = `tsdraft-gradient-${scope}${gradients++}`;
     const frame = (matrix ? compose(matrix, picture.frame) : picture.frame).map(precise).join(" ");
     const stops = picture.stops
       .map(({ offset, color }) => `<stop offset="${precise(offset)}" stop-color="${hex(color)}"/>`)
@@ -935,7 +1052,8 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         : `radialGradient id="${id}" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1"`;
     const def = `<${shape} spreadMethod="pad" gradientTransform="matrix(${frame})">${stops}</${picture.kind}Gradient>`;
     if (!write(def.length)) return undefined;
-    defs.push(def);
+    define(id, def);
+    using?.add(id);
     return id;
   };
   /**
@@ -957,7 +1075,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       const plotted =
         info !== undefined &&
         (info.kind !== "png" || !plotDecodes(info) || info.width * info.height <= RASTER_PIXELS);
-      found = info === undefined ? null : { bytes: bytes!, info, plotted };
+      found = info === undefined ? null : { bytes: bytes!, info, plotted, given };
       held.set(key, found);
     }
     // Every image of a file is held to its pixels, whichever drawing it is in.
@@ -980,19 +1098,26 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     const { info } = raster;
     const copy = opaque && hasAlpha(info) && !markedOpaque(info);
     const known = copy ? raster.opaque : raster.shown;
-    if (known !== undefined) return known;
+    if (known !== undefined) {
+      if (known !== null) using?.add(known);
+      return known;
+    }
     let bytes: Uint8Array | undefined = raster.bytes;
     if (info.kind === "jpeg") bytes = withoutExif(bytes);
     else if (copy && info.kind === "png") bytes = opaquePng(info, bytes);
     let id: string | null = null;
     if (bytes !== undefined) {
-      id = `tsdraft-image-${rastersHeld++}`;
+      id =
+        reading === undefined
+          ? `tsdraft-image-${rastersHeld++}`
+          : `tsdraft-image-${fileId(raster.given, `${copy ? "opaque" : "shown"}\u0000${path}`)}`;
       const kind = info.kind === "png" ? "image/png" : "image/jpeg";
       const head = `<image id="${id}" width="1" height="1" preserveAspectRatio="none" data-pixels="${info.width} ${info.height}" href="data:${kind};base64,`;
       // Charged before it is encoded, so a file too long for the picture is refused unread.
       if (!write(head.length + base64Length(bytes.length) + 11))
         refuse(`the image ${quoted(path)}`);
-      defs.push(`${head}${base64(bytes)}"/>`);
+      define(id, `${head}${base64(bytes)}"/>`);
+      using?.add(id);
     }
     if (copy) raster.opaque = id;
     else raster.shown = id;
@@ -1031,16 +1156,24 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         .join(" ");
       // A file too large to hold again is the file, which the plot shows opaque.
       const marked = e.transparent !== true && markedOpaque(raster!.info);
+      // A read file's image fades toward the background as the leading CAD app fades it.
+      const fade = (e as { readonly [IMAGE_FADE]?: number })[IMAGE_FADE];
       const use = `<use href="#${shown}" transform="matrix(${place})"${marked ? ` data-opaque=""` : ""}/>`;
-      if (e.clip === undefined) parts.push(use);
+      // Faded in a group of its own, outside any clip, as an entity's transparency is, which the
+      // plot draws too.
+      const alpha =
+        typeof fade === "number" && fade > 0 && fade <= 100
+          ? Math.round(255 * (1 - fade / 100))
+          : 255;
+      if (e.clip === undefined) parts.push(fadedGroup(use, alpha));
       else {
-        const id = `tsdraft-image-clip-${clips++}`;
+        const id = `tsdraft-image-clip-${scope}${clips++}`;
         const outline = ring(imageFrame(e));
         const d = e.invertClip ? `${ring(imageCorners(e))} ${outline}` : outline;
         const rule = e.invertClip ? ` clip-rule="evenodd"` : "";
         parts.push(
           `<clipPath id="${id}"><path d="${d}"${rule}/></clipPath>`,
-          `<g clip-path="url(#${id})">${use}</g>`,
+          fadedGroup(`<g clip-path="url(#${id})">${use}</g>`, alpha),
         );
       }
     } else {
@@ -1107,7 +1240,10 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       );
     }
     const known = held.get(key);
-    if (known !== undefined) return known;
+    if (known !== undefined) {
+      if (known !== null) using?.add(known);
+      return known;
+    }
     let id: string | null = null;
     if (info !== undefined && info.kind === "png" && info.width * info.height <= RASTER_PIXELS) {
       let png: Uint8Array | undefined = bytes;
@@ -1139,11 +1275,15 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         }
       }
       if (png !== undefined) {
-        id = `tsdraft-image-${rastersHeld++}`;
+        id =
+          reading === undefined
+            ? `tsdraft-image-${rastersHeld++}`
+            : `tsdraft-image-${fileId(given, `page\u0000${pageOf(e)}\u0000${key}\u0000${e.path}`)}`;
         const head = `<image id="${id}" width="1" height="1" preserveAspectRatio="none" data-pixels="${info.width} ${info.height}" href="data:image/png;base64,`;
         if (!write(head.length + base64Length(png.length) + 11))
           refuse(`the picture of ${quoted(e.path)}`);
-        defs.push(`${head}${base64(png)}"/>`);
+        define(id, `${head}${base64(png)}"/>`);
+        using?.add(id);
       }
     }
     held.set(key, id);
@@ -1181,7 +1321,7 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       const use = `<use href="#${shown}" transform="matrix(${place})"/>`;
       if (e.clip === undefined) parts.push(use);
       else {
-        const id = `tsdraft-image-clip-${clips++}`;
+        const id = `tsdraft-image-clip-${scope}${clips++}`;
         const outline = ring(underlayFrame(e));
         const d = e.invertClip ? `${ring(underlayCorners(e))} ${outline}` : outline;
         const rule = e.invertClip ? ` clip-rule="evenodd"` : "";
@@ -1227,7 +1367,10 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     const room = longest - length;
     if (e.kind === "paragraph") {
       const style = styleOf(e, from);
-      const layout = () => paragraphs.layout(paragraphInStyle(e, style));
+      // A table's cell in a read file's picture breaks a word wider than its width.
+      const layout = (e as { readonly [CELL_TEXT]?: true })[CELL_TEXT]
+        ? () => layoutCellText(paragraphInStyle(e, style))
+        : () => paragraphs.layout(paragraphInStyle(e, style));
       return paragraphToSvg(e, layout, mark, drawnPen, look, matrix, room);
     }
     if (e.kind === "leader") {
@@ -1439,13 +1582,13 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     byBlock?: BlockColor,
   ): Pen => {
     const layer: Layer | undefined = layerOf(on);
-    const byLayer = layer?.color ?? 7;
+    const byLayer = layerShade(layer);
     const blockShade =
       byBlock === undefined
         ? 7
         : "color" in byBlock
           ? byBlock.color
-          : (layerOf(byBlock.layer)?.color ?? 7);
+          : layerShade(layerOf(byBlock.layer));
     const own: unknown = e.color;
     const shade =
       own === "ByBlock" ? blockShade : typeof own === "number" || isRgb(own) ? own : byLayer;
@@ -1476,6 +1619,10 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         ? (e.lineweight ?? "Default")
         : (weightFrom.layer?.lineweight ?? "Default");
     const code = lineweightCode(weight);
+    // A read entity's own linetype scale, which a `Drawing` does not hold.
+    const scaled = (e as OwnLinetypeScale)[OWN_LINETYPE_SCALE];
+    const ownScale =
+      typeof scaled === "number" && scaled > 0 && Number.isFinite(scaled) ? scaled : 1;
     return {
       color: drawnColor(look, shade),
       byLayer: drawnColor(look, byLayer),
@@ -1483,12 +1630,12 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       // A pattern keeps its length whatever size an insert draws its entity at, so it is cut in
       // the block's own units shrunk by the insert's scale.
       dashes:
-        pattern && Number.isFinite(look.dashScale / placed) && placed > 0
+        pattern && Number.isFinite((look.dashScale * ownScale) / placed) && placed > 0
           ? dashesOf(
               pattern,
-              look.dashScale / placed,
+              (look.dashScale * ownScale) / placed,
               where,
-              look.dashScale,
+              look.dashScale * ownScale,
               tablesOf(named).textStyles,
             )
           : undefined,
@@ -1547,13 +1694,53 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     look: Look,
     space: string,
     frozenHere?: (layer: LayerRef) => boolean,
+    run?: Run,
   ): string[] => {
     // A layer frozen in a viewport is frozen there for the walk of an insert too.
     const isFrozen = frozenHere ? (ref: LayerRef) => frozen(ref) || frozenHere(ref) : frozen;
     const marks = (e: Entity, index: number): string =>
       `data-layer="${esc(e.layer)}" data-entity="${index}"${e.id === undefined ? "" : ` data-id="${esc(e.id)}"`}`;
     const line = look.indent.length + 1;
-    return shown.map(([i, e]) => {
+    /** The run of the xref the last insert drawn places, for a read's picture. */
+    let nested: PictureRun | undefined;
+    if (run === undefined) return shown.map(draw);
+    // The elements made from one entity of the read are one fragment, its ids its own.
+    const out: string[] = [];
+    let open:
+      | { source: ReadSource; parts: string[]; uses: Set<string>; nested?: PictureRun }
+      | undefined;
+    const close = (): void => {
+      if (open === undefined) return;
+      const { source, parts, uses, nested: within } = open;
+      run.fragments.push({
+        index: source.index,
+        ...(source.handle !== undefined && { handle: source.handle }),
+        ...(within !== undefined && parts.length === 1
+          ? { run: within }
+          : { svg: parts.join(`\n${look.indent}`) }),
+        defs: [...uses],
+      });
+    };
+    const scoped = new Set<string>();
+    for (const item of shown) {
+      const source = run.sources[item[0]] ?? { index: item[0] };
+      if (open?.source !== source) {
+        close();
+        open = { source, parts: [], uses: new Set() };
+        const name = scopeName(source, scoped);
+        scope = `${run.viewport === undefined ? "" : `v${run.viewport}-`}${name}-`;
+        [gradients, clips, using] = [0, 0, open.uses];
+      }
+      const element = draw(item);
+      open!.parts.push(element);
+      if (nested !== undefined) [open!.nested, nested] = [nested, undefined];
+      out.push(element);
+    }
+    close();
+    [scope, using] = ["", undefined];
+    return out;
+
+    function draw([i, e]: readonly [number, Entity]): string {
       const where = () => entityAt(i, e, space);
       drawingAt = where;
       if (e.kind !== "insert") {
@@ -1576,6 +1763,27 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       // which holds no more than its characters, with what joins them as the group joins them.
       const joined: string[] = [];
       let parts: string[] = [];
+      // An xref of a read's picture is a run of its own: a fragment for each entity of its model
+      // space, each with its ids, so an edit of the xref's file draws only what it changes.
+      const referenced =
+        run === undefined || blocks.has(key(e.block)) ? undefined : xrefs.get(key(e.block));
+      const xrefSources = (referenced?.drawing as { readonly [READ_SOURCES]?: ReadSources })?.[
+        READ_SOURCES
+      ]?.model;
+      const subs: { source: ReadSource; parts: string[]; uses: Set<string> }[] = [];
+      const xrefScoped = new Set<string>();
+      const outer = { scope, using, gradients, clips };
+      const top =
+        xrefSources === undefined
+          ? undefined
+          : (index: number): void => {
+              const source = xrefSources[index] ?? { index };
+              if (subs.at(-1)?.source === source) return;
+              const name = scopeName(source, xrefScoped);
+              scope = `${outer.scope}x${name}-`;
+              [gradients, clips, using] = [0, 0, new Set()];
+              subs.push({ source, parts: [], uses: using });
+            };
       const walked = eachDrawn(
         e,
         blocks,
@@ -1607,7 +1815,8 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
           );
           if (!write(part.length + line + 2)) return;
           parts.push(part);
-          if (parts.length === JOINED) {
+          if (top !== undefined) subs.at(-1)?.parts.push(part);
+          else if (parts.length === JOINED) {
             joined.push(parts.join(between));
             parts = [];
           }
@@ -1627,7 +1836,9 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
           return tableInserts(held, picture);
         },
         leaderHeld,
+        top,
       );
+      if (top !== undefined) ({ scope, using, gradients, clips } = outer);
       if (!walked || length > longest) refuse(where());
       const xref = blocks.has(key(e.block)) ? undefined : xrefPaths.get(key(e.block));
       // Its names are read for each insert, so they are paid for before they are written.
@@ -1638,8 +1849,28 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       const all = parts.length > 0 ? [...joined, parts.join(between)] : joined;
       if (!write(open.length - names + 4 + line + (all.length > 0 ? line : 0))) refuse(where());
       const inside = all.length > 0 ? `${between}${all.join(between)}\n${look.indent}` : "";
+      if (top !== undefined) {
+        nested = {
+          kind: "fragments",
+          space: "model",
+          ...(run!.viewport !== undefined && { viewport: run!.viewport }),
+          xref: e.block,
+          open: `${open}${between}`,
+          between,
+          close: `\n${look.indent}</g>`,
+          empty: `${open}</g>`,
+          fragments: subs
+            .filter((sub) => sub.parts.length > 0)
+            .map((sub) => ({
+              index: sub.source.index,
+              ...(sub.source.handle !== undefined && { handle: sub.source.handle }),
+              svg: sub.parts.join(between),
+              defs: [...sub.uses],
+            })),
+        };
+      }
       return `${open}${inside}</g>`;
-    });
+    }
   };
 
   /**
@@ -1715,9 +1946,49 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     drawing.pointStyle !== undefined && pointStyleProblems(drawing.pointStyle).length === 0
       ? drawing.pointStyle
       : { figure: "dot" };
+  /** The runs of fragments of a read's picture, in the order they are drawn. */
+  const runs: MutableRun[] = [];
+  const newRun = (space: "paper" | "model", sources: readonly ReadSource[], viewport?: number) => {
+    const run: MutableRun = {
+      kind: "fragments",
+      space,
+      ...(viewport !== undefined && { viewport }),
+      sources,
+      open: "",
+      between: "\n        ",
+      close: "",
+      empty: "",
+      fragments: [],
+    };
+    runs.push(run);
+    return run;
+  };
+  const modelRun = (viewport: number): MutableRun | undefined =>
+    reading === undefined ? undefined : newRun("model", reading.model, viewport);
+  /** Where the definitions go: written out, or for a read, worked out from its fragments. */
+  const defsPiece = (): PicturePiece =>
+    reading !== undefined
+      ? { kind: "defs" }
+      : defs.length > 0
+        ? `\n  <defs>${defs.join("")}</defs>`
+        : "";
+  const finish = (pieces: PicturePiece[]): string => {
+    const shaped = pieces.map((piece): PicturePiece => {
+      if (typeof piece === "string" || piece.kind !== "fragments") return piece;
+      const { sources: _sources, ...rest } = piece as MutableRun;
+      return rest;
+    });
+    const held: Record<string, string> = Object.create(null) as Record<string, string>;
+    defIds.forEach((id, i) => (held[id] = defs[i]!));
+    if (collected !== undefined) {
+      collected.pieces = shaped;
+      collected.defs = held;
+    }
+    return joinPicture(shaped, held);
+  };
   if (options.layout !== undefined) {
     const layout = findLayout(drawing, options.layout);
-    const paper = layout && paperInfo(layout.paper);
+    const paper = layout && ((layout as ReadPaperLayout)[READ_PAPER] ?? paperInfo(layout.paper));
     if (!layout || !paper) {
       throw new RangeError(`The drawing has no layout named ${JSON.stringify(options.layout)}`);
     }
@@ -1730,9 +2001,11 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     // Hundredths of a millimetre in paper units.
     const perHundredth = paper.units === "in" ? 1 / 2540 : 1 / 100;
     /** A look whose lines are as wide as they plot, in a space `scale` paper units to one. */
+    // A read file whose $PSLTSCALE is 0 sizes a viewport's dashes in model units.
+    const modelDashes = (drawing as { readonly [MODEL_DASHES]?: true })[MODEL_DASHES] === true;
     const plotted = (scale: number, indent: string, points: PointLook): Look => ({
       color,
-      dashScale: linetypeScale / scale,
+      dashScale: modelDashes ? linetypeScale : linetypeScale / scale,
       chord: (paper.units === "in" ? 1 : 25.4) / 1200 / scale,
       indent,
       points,
@@ -1758,8 +2031,9 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       written(top - bottom + margin * 2),
     ] as const;
     const picture = [frame[0], -(frame[1] + frame[3]), frame[0] + frame[2], -frame[1]] as const;
-    const parts: string[] = [];
+    const parts: (string | PictureRun)[] = [];
     const space = `layout ${quoted(layout.name)}`;
+    const layoutSources = reading?.layouts[filled(drawing.layouts).indexOf(layout)];
     /** Keeps a part of the sheet, each on a line of its own set in by four spaces. */
     const keep = (where: string, part: string): void => {
       if (!write(part.length + 5)) refuse(where);
@@ -1808,12 +2082,14 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       const [cx, cy] = view.displayCenter;
       const turn = view.twist === 0 ? "" : ` rotate(${fmt(view.twist)})`;
       const place = `translate(${fmt(view.paperCenter[0])} ${fmt(view.paperCenter[1])}) scale(${precise(view.scale)}) translate(${fmt(-cx)} ${fmt(-cy)})${turn}`;
-      // The layers frozen in this viewport alone, which an entity of the drawing's own is on.
+      // The layers frozen in this viewport alone: the drawing's own, and an xref's by the name the
+      // drawing holds it by, the xref's name, a bar and the layer's.
       const frozenKeys = new Set(filled(viewport.frozenLayers ?? []).map(key));
       const frozenHere =
         frozenKeys.size === 0
           ? undefined
-          : (ref: LayerRef) => ref.of === undefined && frozenKeys.has(key(ref.name));
+          : (ref: LayerRef) =>
+              frozenKeys.has(key(ref.of === undefined ? ref.name : `${ref.of.name}|${ref.name}`));
       // A view is drawn only where it can be seen: the viewport, cut to the paper, cut to
       // the picture, with every number as it is written. The clip, the hidden rectangle and
       // the choice of what to draw all use this one rectangle.
@@ -1862,8 +2138,10 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         }),
         `model space in ${at}`,
         frozenHere,
+        modelRun(index),
       );
-      if (inside.length === 0) {
+      const shownRun = runs.at(-1);
+      if (inside.length === 0 && (shownRun === undefined || !visible)) {
         // Nothing of the view can be seen, so there is nothing to clip.
         keep(at, `<g data-viewport="${index}"${id}/>`);
       } else {
@@ -1873,7 +2151,8 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         // clips them, and stops the program that runs it when that box lies wholly more than
         // two widths of the picture to its left or right, or two heights above or below it.
         const rect = `x="${seen[0]}" y="${seen[1]}" width="${seenWidth}" height="${seenHeight}"`;
-        keep(at, `<clipPath id="tsdraft-viewport-${index}"><rect ${rect}/></clipPath>`);
+        const clip = `<clipPath id="tsdraft-viewport-${index}"><rect ${rect}/></clipPath>`;
+        if (!write(clip.length + 5)) refuse(at);
         // Its elements were counted as they were made.
         const head = [
           `<g data-viewport="${index}"${id} clip-path="url(#tsdraft-viewport-${index})">`,
@@ -1882,7 +2161,18 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
         ];
         const tail = [`      </g>`, `    </g>`];
         if (!write([...head, ...tail].join("\n").length + 6)) refuse(at);
-        parts.push([...head, ...inside.map((element) => `        ${element}`), ...tail].join("\n"));
+        if (shownRun === undefined) {
+          parts.push(clip);
+          parts.push(
+            [...head, ...inside.map((element) => `        ${element}`), ...tail].join("\n"),
+          );
+        } else {
+          // A view nothing of a read shows in is a group of its own, which an edit can fill.
+          shownRun.open = `\n    ${clip}\n    ${head.join("\n")}\n        `;
+          shownRun.close = `\n${tail.join("\n")}`;
+          shownRun.empty = `\n    <g data-viewport="${index}"${id}/>`;
+          parts.push(shownRun);
+        }
       }
       // The leading CAD app plots a viewport's border as its thinnest line, and only when its layer plots.
       if (!hidden({ name: viewport.layer })) {
@@ -1894,7 +2184,10 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
       }
     });
     // A sheet may hold more entities than a call takes arguments.
-    for (const element of elements(shownOf(layout.entities), onPaper, space)) parts.push(element);
+    const paperRun = layoutSources === undefined ? undefined : newRun("paper", layoutSources);
+    const onSheet = elements(shownOf(layout.entities), onPaper, space, undefined, paperRun);
+    if (paperRun === undefined) for (const element of onSheet) parts.push(element);
+    else parts.push({ ...paperRun, open: "\n    ", between: "\n    " });
     const head = [
       `<svg xmlns="http://www.w3.org/2000/svg" data-picture="${SHEET_PICTURE}" viewBox="${frame.join(" ")}" data-layout="${esc(layout.name)}" data-paper="${esc(layout.paper)}">`,
       `  <rect x="0" y="${fmt(-paper.height)}" width="${fmt(paper.width)}" height="${fmt(paper.height)}" fill="#ffffff" data-paper-sheet=""/>`,
@@ -1902,14 +2195,13 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
     ];
     const tail = [`  </g>`, `</svg>`, ``];
     if (!write([...head, ...tail].join("\n").length + 1)) refuse(space);
-    const held = defs.length > 0 ? [`  <defs>${defs.join("")}</defs>`] : [];
-    return [
-      head[0],
-      ...held,
-      ...head.slice(1),
-      ...parts.map((part) => `    ${part}`),
-      ...tail,
-    ].join("\n");
+    return finish([
+      head[0]!,
+      defsPiece(),
+      `\n${head.slice(1).join("\n")}`,
+      ...parts.map((part) => (typeof part === "string" ? `\n    ${part}` : part)),
+      `\n${tail.join("\n")}`,
+    ]);
   }
 
   // Each entity keeps its index in `drawing.entities`, for its element's data-entity.
@@ -1951,15 +2243,23 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
           : ` stroke-width="${fmt((stroke * Math.max(lineweight, 5)) / DEFAULT_LINEWEIGHT)}"`
       } vector-effect="non-scaling-stroke"`,
   };
-  const body = elements(shown, onScreen, "model space").join("\n    ");
+  const run = reading === undefined ? undefined : newRun("model", reading.model);
+  const body = elements(shown, onScreen, "model space", undefined, run).join("\n    ");
   const head = [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${fmt(x)} ${fmt(y)} ${fmt(w)} ${fmt(h)}">`,
     `  <g transform="scale(1 -1)" fill="none" stroke-width="${fmt(stroke)}" vector-effect="non-scaling-stroke">`,
   ];
   const tail = [`  </g>`, `</svg>`, ``];
   if (!write([...head, ...tail].join("\n").length + 1)) refuse("model space");
-  const held = defs.length > 0 ? [`  <defs>${defs.join("")}</defs>`] : [];
-  return [head[0], ...held, ...head.slice(1), `    ${body}`, ...tail].join("\n");
+  return finish([
+    head[0]!,
+    defsPiece(),
+    `\n${head.slice(1).join("\n")}`,
+    run === undefined
+      ? `\n    ${body}`
+      : { ...run, open: "\n    ", between: "\n    ", empty: "\n    " },
+    `\n${tail.join("\n")}`,
+  ]);
 }
 
 /**
@@ -1968,6 +2268,13 @@ export function svgWithin(drawing: Drawing, options: SvgOptions, most: number): 
  */
 function precise(value: number): string {
   return String(Number(value.toPrecision(12)));
+}
+
+/** The color a layer gives what draws ByLayer: its index, or the true color a read layer holds. */
+function layerShade(layer: Layer | undefined): number | Rgb {
+  const rgb = (layer as { readonly [LAYER_TRUE_COLOR]?: number } | undefined)?.[LAYER_TRUE_COLOR];
+  if (typeof rgb === "number") return [(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255];
+  return layer?.color ?? 7;
 }
 
 /**
@@ -3930,9 +4237,14 @@ function rad(degrees: number): number {
   return (degrees * Math.PI) / 180;
 }
 
+/**
+ * A value as XML holds it: its markup escaped, and each character XML cannot hold, a control
+ * character other than a tab or a line break, or a lone surrogate, which a file's text may hold, as
+ * U+FFFD.
+ */
 function esc(value: string): string {
   return value.replace(
-    /[&<>"]/g,
-    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c,
+    /[&<>"\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? "\ufffd",
   );
 }

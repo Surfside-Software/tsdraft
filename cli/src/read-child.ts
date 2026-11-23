@@ -4,7 +4,7 @@
 // that prints cannot reach, and ends.
 import { writeSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import type { ReadDrawingFile } from "tsdraft";
+import type { ReadDrawingFile, ReadOptions } from "tsdraft";
 
 /** What the process answers: the reader's result, or why there is none. */
 export type ReadAnswer =
@@ -15,6 +15,8 @@ export type ReadAnswer =
 const ANSWER = 3;
 
 const [name = "", module] = process.argv.slice(2);
+/** What to read, as `ReadOptions`: the command sets it when it draws the file. */
+const options: ReadOptions = process.env["TSDRAFT_READ_GEOMETRY"] === "1" ? { geometry: true } : {};
 
 const message = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).slice(0, 2_000);
@@ -51,7 +53,7 @@ try {
   answer({ error: message(error), loading: true });
 }
 try {
-  answer({ read: await read(process.stdin, name) });
+  answer({ read: await read(process.stdin, name, options) });
 } catch (error) {
   answer({ error: message(error), loading: false });
 }

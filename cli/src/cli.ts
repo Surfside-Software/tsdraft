@@ -23,9 +23,13 @@ const HELP = `Usage:
   tsdraft render <file> [--out <dir>] [--width <px>] [--timeout <ms>] [--pdf]
                         [--draw-no-plot] [--view <x0,y0,x1,y1> [--layout <name>]]
   tsdraft dev <file> [--port <n>] [--timeout <ms>] [--draw-no-plot]
+  For a DXF or a DWG, either takes [--reader <package or folder>]
 
 A drawing file is a TypeScript module whose default export is a Drawing, or a
-function that returns one.
+function that returns one. It may also be a DXF, or a DWG that a reader the
+project installs reads: its pictures are the file as the leading CAD app shows
+it, model space and each layout as it plots, read with geometry, and the JSON's
+read-picture warnings say what they could not draw as the file holds it.
 
 render  Builds the file once, writes <name>.svg and <name>.png to --out (default:
         an out folder beside the file), and prints the result as JSON. Exits 0
@@ -55,8 +59,11 @@ dev     Serves a live preview on localhost that rebuilds on every save of the
 --pdf      With render, plots the sheets to PDF as well, as listed above.
 --draw-no-plot  Draws the layers that do not plot too. The pictures leave them
            out by default, as a plot does.
+--reader   The package that reads a DWG, by its name in the project or the path
+           to its folder, when the project names none or more than one.
 --port     Default 4610. When it is taken and no port was given, a free one.
---timeout  How long a build may run. Default 10000.
+--timeout  How long a build may run. Default 10000. The build of a DXF or a
+           DWG takes at least 150000, as long as its read may take.
 
 Misuse prints this to stderr and exits 64, so stdout holds only JSON.
 
@@ -98,6 +105,7 @@ try {
       pdf: { type: "boolean" },
       view: { type: "string" },
       layout: { type: "string" },
+      reader: { type: "string" },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -121,6 +129,9 @@ const timeout = number(values.timeout, "--timeout") ?? 10_000;
 if (values.view !== undefined && command !== "render") usage("--view goes with render.");
 if (values.layout !== undefined && values.view === undefined) usage("--layout goes with --view.");
 if (values.pdf && command !== "render") usage("--pdf goes with render.");
+if (values.reader !== undefined && !/\.(dxf|dwg)$/i.test(file)) {
+  usage("--reader goes with a DXF or a DWG.");
+}
 if (values.pdf && values.view !== undefined)
   usage("--pdf plots whole sheets, and --view draws one rectangle.");
 if (values.pdf && values["draw-no-plot"]) {
@@ -133,6 +144,7 @@ if (command === "dev") {
     port: number(values.port, "--port"),
     timeout,
     drawNoPlot: values["draw-no-plot"] === true,
+    ...(values.reader === undefined ? {} : { reader: values.reader }),
   });
 } else {
   const width = number(values.width, "--width") ?? 1600;
@@ -141,6 +153,7 @@ if (command === "dev") {
     timeout,
     warm: false,
     drawNoPlot: values["draw-no-plot"] === true,
+    ...(values.reader === undefined ? {} : { reader: values.reader }),
     view: view && { box: view, ...(values.layout === undefined ? {} : { layout: values.layout }) },
   });
   // The plotter loads only for --pdf, and before anything is built or written, as a static

@@ -10,7 +10,7 @@ import { stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { pipeline, type Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import { checkDrawingRead, type DrawingRead } from "tsdraft";
+import { checkDrawingRead, type DrawingRead, type ReadOptions } from "tsdraft";
 import { lookup, OWN_FOLDER, type ReaderPackage } from "./readers.ts";
 
 const childPath = realpathSync.native(
@@ -131,6 +131,7 @@ export function readDrawingFile(
   file: string,
   reader: ReaderPackage | null,
   limits: ReadLimits = {},
+  options: ReadOptions = {},
 ): Promise<FileRead> {
   const by: ReadBy = reader ? { name: reader.name, version: reader.version } : core;
   const skip = (skipped: string): FileRead => ({ file, reader: by, skipped });
@@ -156,12 +157,13 @@ export function readDrawingFile(
     if (!reader && extension(file) !== ".dxf") {
       return skip(`no installed reader reads ${basename(file)}`);
     }
-    const outcome = await run(file, module, permission(reader), {
-      maxFileBytes,
-      maxMemoryMb,
-      timeoutMs,
-      maxAnswerBytes,
-    });
+    const outcome = await run(
+      file,
+      module,
+      permission(reader),
+      { maxFileBytes, maxMemoryMb, timeoutMs, maxAnswerBytes },
+      options,
+    );
     return "read" in outcome ? { file, reader: by, read: outcome.read } : skip(outcome.skipped);
   });
 }
@@ -181,6 +183,7 @@ function run(
   module: string | undefined,
   allow: readonly string[],
   limits: Required<ReadLimits>,
+  options: ReadOptions,
 ): Promise<{ read: DrawingRead } | { skipped: string }> {
   const { maxFileBytes, maxMemoryMb, timeoutMs, maxAnswerBytes } = limits;
   prlimit ??= spawnSync("prlimit", ["--core=1:1", "true"], { stdio: "ignore" }).status === 0;
@@ -201,6 +204,8 @@ function run(
   // NODE_OPTIONS would add its own flags to the process's, and could allow what is denied.
   const env = { ...process.env };
   delete env["NODE_OPTIONS"];
+  if (options.geometry === true) env["TSDRAFT_READ_GEOMETRY"] = "1";
+  else delete env["TSDRAFT_READ_GEOMETRY"];
   if (!watching) {
     watching = true;
     process.once("exit", endLive);

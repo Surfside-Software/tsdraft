@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- The picture of a read file. `toSVG` draws a `DrawingRead` read with `geometry` as the leading
+  CAD app shows the file: model space, or a layout as it plots, with every kind the readers keep.
+  A dimension and a table draw from the block of their picture, a multileader from its own
+  points, a text from where that app starts it, in the nearest font of `FONTS` where tsdraft lacks
+  its own. `readPicture` gives the picture with notes of what it could not draw as the file holds
+  it, and in fragments, one for each entity at the top of a space, which `joinPicture` joins.
+  `pictureDrawing` gives the `Drawing` it draws.
+- `tsdraft render` and `tsdraft dev` draw a DXF, and a DWG through a reader the project installs
+  or `--reader` names, as they draw a drawing file.
+
 ## 0.5.4
 
 This release has breaking changes, though its number is a patch's. A project that depends on
