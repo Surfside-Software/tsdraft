@@ -8,6 +8,7 @@ import type { DrawingRead, ReadEntity } from "../read/model.ts";
 import { canonicalHandle, checkEdit, MADE_KINDS, statementCall, type Edit } from "./model.ts";
 import { movedEntity, NOT_MOVED, NOT_SCALED } from "./moved.ts";
 import { editReach, indexRead, type Located, type ReadIndex } from "./reach.ts";
+import { planKey, stretchPlan } from "./stretch.ts";
 import { applied } from "./transform.ts";
 import {
   entityChangeProblems,
@@ -41,8 +42,21 @@ function ownHeight(e: ReadEntity): boolean {
 }
 
 /** What each statement that names a handle does to it, and to an entity of a block's definition. */
-const VERBS = { erase: "erases", move: "moves", change: "changes" } as const;
-const INSIDE = { erase: "erases it from", move: "moves it in", change: "changes it in" } as const;
+const VERBS = {
+  erase: "erases",
+  move: "moves",
+  change: "changes",
+  stretch: "stretches",
+  vertices: "sets the vertices of",
+} as const;
+
+const INSIDE = {
+  erase: "erases it from",
+  move: "moves it in",
+  change: "changes it in",
+  stretch: "stretches it in",
+  vertices: "sets its vertices in",
+} as const;
 
 const DIMENSIONS: ReadonlySet<string> = new Set([
   "dimension",
@@ -77,6 +91,11 @@ export type EditRule =
   | "edit-transform"
   /** An old leader and its note, moved or erased apart. */
   | "edit-leader-note"
+  /** A stretch of what it cannot stretch, or one that leaves an entity it names as it is, a warning. */
+  | "edit-stretch"
+  | "edit-stretch-unchanged"
+  /** Vertices a polyline cannot take. */
+  | "edit-vertices"
   | "edit-locked-layer"
   /** A change of an entity it cannot make: a text not found once, a width of columns, a name the file lacks. */
   | "edit-change"
@@ -127,6 +146,28 @@ function missingWhy(read: DrawingRead): string {
   return "";
 }
 
+/** The entity a move, a stretch or a vertices statement leaves, or undefined where it is as it was. */
+function entityAfter(
+  edit: Edit,
+  index: ReadIndex,
+  statement: number,
+  h: string,
+  e: ReadEntity,
+): ReadEntity | undefined {
+  const s = edit.statements[statement]!;
+
+  if (s.kind === "move") return movedEntity(e, applied(s.transform));
+  const plan = stretchPlan(edit, index);
+  const repointedAt = plan.repointed.get(h);
+
+  if (repointedAt?.statement === statement) return repointedAt.entity;
+
+  if (s.kind === "stretch" && plan.moved.get(h) === statement)
+    return movedEntity(e, applied({ by: s.by }));
+
+  return undefined;
+}
+
 /**
  * Why a statement cannot reach a handle it names, as an error, or a warning it makes, or
  * undefined.
@@ -140,7 +181,14 @@ export function handleProblem(
 ): { rule: EditRule; severity: "error" | "warning"; message: string } | undefined {
   const s = edit.statements[statement]!;
 
-  if (s.kind !== "erase" && s.kind !== "move" && s.kind !== "change") return undefined;
+  if (
+    s.kind !== "erase" &&
+    s.kind !== "move" &&
+    s.kind !== "change" &&
+    s.kind !== "stretch" &&
+    s.kind !== "vertices"
+  )
+    return undefined;
   const h = canonicalHandle(handle);
   const at: Located | undefined = index.byHandle.get(h);
   const verb = VERBS[s.kind];
@@ -181,6 +229,12 @@ export function handleProblem(
   }
 
   if (at.kind === "viewport") {
+    if (s.kind === "stretch" || s.kind === "vertices")
+      return error(
+        s.kind === "stretch" ? "edit-stretch" : "edit-vertices",
+        `${h} is a viewport, which is only moved on its paper`,
+      );
+
     if (s.kind === "change")
       return error("edit-viewport", `${h} is a viewport, which a viewport statement changes`);
 
@@ -200,6 +254,20 @@ export function handleProblem(
   }
 
   const e = at.entity;
+  const clipped = index.clips.get(h);
+
+  // A viewport's clip holds the viewport's box: it moves with the viewport, by a move alone. A
+  // change of its pen leaves its points.
+  if (
+    clipped !== undefined &&
+    s.kind !== "erase" &&
+    s.kind !== "change" &&
+    !(s.kind === "move" && s.handles.some((n) => canonicalHandle(n) === clipped))
+  )
+    return error(
+      "edit-part",
+      `${h} clips the viewport ${clipped}, whose box it holds: it moves with the viewport, in a move of both`,
+    );
 
   if (NOT_MOVED.has(e.kind))
     return error(
@@ -250,12 +318,22 @@ export function handleProblem(
       );
   }
 
+  if (s.kind === "stretch" || s.kind === "vertices") {
+    const refused = stretchPlan(edit, index).refused.get(planKey(statement, h));
+
+    if (refused !== undefined)
+      return error(
+        s.kind === "stretch" ? "edit-stretch" : "edit-vertices",
+        `The edit ${verb} ${h}, but ${refused}`,
+      );
+  }
+
   // What a read with `only` keeps is all the checks see of model space: a move out of it is
   // planned on a read that keeps where it goes.
-  if (s.kind === "move" && at.space.kind === "model" && read.only !== undefined) {
-    const moved = movedEntity(e, applied(s.transform));
+  const after = s.kind === "erase" ? undefined : entityAfter(edit, index, statement, h, e);
 
-    if (!partOf(read).keeps(moved))
+  if (after !== undefined && at.space.kind === "model" && read.only !== undefined) {
+    if (!partOf(read).keeps(after))
       return error(
         "edit-only",
         `${h} would move out of what the edit's read keeps: name in the edit's only an area or a layout that shows where it goes`,
@@ -284,7 +362,7 @@ export function handleProblem(
     return {
       rule: "edit-block-definition",
       severity: "warning",
-      message: `${h} is of the block ${JSON.stringify(name)}, which ${read.only === undefined ? "the file" : "the read"} shows inserted ${uses === 1 ? "once" : "nowhere"}: the edit ${INSIDE[s.kind]} the block's definition${s.kind === "move" ? ", in the block's own coordinates" : ""}`,
+      message: `${h} is of the block ${JSON.stringify(name)}, which ${read.only === undefined ? "the file" : "the read"} shows inserted ${uses === 1 ? "once" : "nowhere"}: the edit ${INSIDE[s.kind]} the block's definition${s.kind === "erase" || s.kind === "change" ? "" : ", in the block's own coordinates"}`,
     };
   }
 
@@ -381,14 +459,32 @@ export function lintEdit(
     const statementOf = (h: string): number | undefined =>
       reach.erased.get(h) ?? reach.moved.get(h);
 
+    const kept = stretchPlan(edit, index).kept;
+
     edit.statements.forEach((s, i) => {
-      if (s.kind !== "erase" && s.kind !== "move") return;
+      if (s.kind !== "erase" && s.kind !== "move" && s.kind !== "stretch" && s.kind !== "vertices")
+        return;
 
       // A handle named twice in one statement is named once.
-      for (const h of new Set(s.handles.map(canonicalHandle))) {
+      for (const h of new Set(
+        (s.kind === "vertices" ? [s.handle] : s.handles).map(canonicalHandle),
+      )) {
         const problem = handleProblem(read, index, edit, i, h);
 
         if (problem !== undefined) report({ ...problem, statement: i, handle: h });
+        else {
+          const why = kept.get(planKey(i, h));
+
+          if (why !== undefined)
+            report({
+              rule: "edit-stretch-unchanged",
+              severity: "warning",
+              statement: i,
+              handle: h,
+              message: `The edit stretches ${h}, but leaves it as it is: ${why}`,
+            });
+        }
+
         const at = index.byHandle.get(h);
 
         if (at?.kind !== "entity") continue;
@@ -399,7 +495,7 @@ export function lintEdit(
             severity: "warning",
             statement: i,
             handle: h,
-            message: `${h} is on the locked layer ${JSON.stringify(at.entity.layer)}: the edit ${s.kind === "erase" ? "erases" : "moves"} it, and the layer stays locked`,
+            message: `${h} is on the locked layer ${JSON.stringify(at.entity.layer)}: the edit ${VERBS[s.kind]} it, and the layer stays locked`,
           });
 
         // An old leader and its note go together: a note erased or moved alone, or a leader moved alone.

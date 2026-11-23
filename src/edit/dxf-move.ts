@@ -359,7 +359,7 @@ function apply(m: Mover, groups: readonly HeldGroup[], i: number, role: Role): n
 }
 
 /** The groups that carry a record's own data: not in a group 102 opens, nor its extended data. */
-function* own(groups: readonly HeldGroup[]): Generator<[number, string]> {
+export function* own(groups: readonly HeldGroup[]): Generator<[number, string]> {
   let inBraces = false;
 
   for (let i = 0; i < groups.length; i++) {

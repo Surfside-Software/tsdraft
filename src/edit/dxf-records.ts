@@ -7,9 +7,12 @@ import type { DxfDocument } from "../read/document.ts";
 import type { DrawingRead } from "../read/model.ts";
 import { changeSplices, type ChangeRecords } from "./dxf-changes.ts";
 import { groupsOf, leftOut, numberAs, spliced, type HeldGroup, type Splice } from "./dxf-groups.ts";
-import { moveRecord } from "./dxf-move.ts";
+import { facingOf, moveRecord } from "./dxf-move.ts";
+import { arcPoints, hatchLoopPoints, lwpolylinePoints, vertexRecordPoints } from "./dxf-points.ts";
 import { canonicalHandle, EditError, type Edit } from "./model.ts";
-import { applied, type Applied } from "./transform.ts";
+import { indexRead, type ReadIndex } from "./reach.ts";
+import { sameRun, stretchApplied, stretchPlan, transformOf } from "./stretch.ts";
+import type { Applied } from "./transform.ts";
 
 /** What the edit made of each record: left out, or its bytes made again. */
 export interface RecordEdits {
@@ -221,6 +224,11 @@ export function recordEdits(
   read: DrawingRead,
 ): RecordEdits {
   const r = recordsOf(bytes, doc);
+  const index = indexRead(read);
+  const plan = stretchPlan(edit, index);
+  /** Each record given new points, by its statement, and the records that follow it. */
+  const repointed = new Map<number, number>();
+  const following = new Set<number>();
   let blocks: Map<string, number> | undefined;
   const blocksOf = (): Map<string, number> => (blocks ??= blockRecords(r));
   let inserts: Map<string, number> | undefined;
@@ -269,9 +277,11 @@ export function recordEdits(
   };
 
   edit.statements.forEach((s, statement) => {
-    if (s.kind !== "erase" && s.kind !== "move") return;
+    if (s.kind !== "erase" && s.kind !== "move" && s.kind !== "stretch" && s.kind !== "vertices")
+      return;
     const into = s.kind === "erase" ? erased : moved;
-    transforms[statement] = s.kind === "move" ? applied(s.transform) : undefined;
+
+    transforms[statement] = transformOf(s);
 
     const take = (i: number): void => {
       const own = doc.handle(i);
@@ -291,11 +301,29 @@ export function recordEdits(
       into.set(i, statement);
     };
 
-    for (const h of new Set(s.handles.map(canonicalHandle))) {
+    for (const h of new Set(
+      (s.kind === "vertices" ? [s.handle] : s.handles).map(canonicalHandle),
+    )) {
+      // A stretch changes what it moves whole or gives new points; `lintEdit` refuses the rest.
+      const repointedAt = plan.repointed.get(h)?.statement === statement;
+
+      if (s.kind === "vertices" && !repointedAt) continue;
+
+      if (s.kind === "stretch" && !repointedAt && plan.moved.get(h) !== statement) continue;
       const i = named(h, statement);
       take(i);
 
-      for (const f of followers(r, i)) take(f);
+      for (const f of followers(r, i)) {
+        take(f);
+
+        if (repointedAt) following.add(f);
+      }
+
+      if (repointedAt) {
+        repointed.set(i, statement);
+        continue;
+      }
+
       const picture = pictureOf(r, i, blocksOf);
 
       if (s.kind === "erase") {
@@ -400,8 +428,17 @@ export function recordEdits(
       add(j, referencesOut(r, j, gone, erased));
     }
 
+  // Each record given new points, and what follows it: a 2D polyline's vertices.
+  for (const [i, statement] of repointed) {
+    const made = repointedAt(r, i, statement, edit, plan.repointed, index);
+
+    for (const [j, list] of made) add(j, list);
+    associations(r, i, statement, moved, erased, repointed);
+  }
+
   // Each moved record's points, angles and sizes.
   for (const [i, statement] of moved) {
+    if (repointed.has(i) || following.has(i)) continue;
     // A vertex is in its polyline's coordinates.
     const owner = r.kind(i) === "VERTEX" ? doc.owner(i) : undefined;
     const polyline = owner === undefined ? undefined : r.byHandle.get(canonicalHandle(owner));
@@ -422,7 +459,7 @@ export function recordEdits(
 
     if (isString(made)) throw new EditError(`${handleOf(r, i)}: ${made}`, statement);
     add(i, made);
-    associations(r, i, statement, moved, erased);
+    associations(r, i, statement, moved, erased, repointed);
   }
 
   const patched = new Map<number, Uint8Array>();
@@ -538,7 +575,9 @@ function referencesOut(
 
 /**
  * Refuses a move that would part an associative dimension or hatch from what it names: each
- * moves only with the other, in the same statement, or with the other erased.
+ * moves only with the other, in the same statement, or with the other erased. One a stretch gives
+ * new points goes with another given new points by it, and an associative dimension lets it go
+ * only when the dimension is erased.
  */
 function associations(
   r: Records,
@@ -546,13 +585,18 @@ function associations(
   statement: number,
   moved: ReadonlyMap<number, number>,
   erased: ReadonlyMap<number, number>,
+  repointed: ReadonlyMap<number, number>,
 ): void {
   const groups = r.groups(i);
+  const partial = repointed.has(i);
 
   const together = (h: string): boolean => {
     const j = r.byHandle.get(canonicalHandle(h));
 
-    return j !== undefined && (moved.get(j) === statement || erased.has(j));
+    return (
+      j !== undefined &&
+      (erased.has(j) || (moved.get(j) === statement && repointed.has(j) === partial))
+    );
   };
 
   let braces: string | undefined;
@@ -578,7 +622,10 @@ function associations(
       const d = dictionary === undefined ? undefined : r.byHandle.get(canonicalHandle(dictionary));
       const dimension = d === undefined ? undefined : r.doc.owner(d);
 
-      if (dimension === undefined || !together(dimension))
+      const gone =
+        dimension !== undefined && erased.has(r.byHandle.get(canonicalHandle(dimension)) ?? -1);
+
+      if (dimension === undefined || (partial ? !gone : !together(dimension)))
         throw new EditError(
           `${handleOf(r, i)} is named by the associative dimension ${dimension ?? "?"}: move both in one statement, by a move alone, or erase the dimension`,
           statement,
@@ -593,7 +640,8 @@ function associations(
 
   const kind = r.kind(i);
 
-  if (kind === "HATCH" && Number(firstOf(groups, 71) ?? 0) === 1) {
+  // A hatch given new points has had each loop's boundary held to it by `repointedAt`.
+  if (kind === "HATCH" && !partial && Number(firstOf(groups, 71) ?? 0) === 1) {
     let inHatch = false;
 
     for (const g of groups) {
@@ -631,4 +679,105 @@ function associations(
           );
     }
   }
+}
+
+/**
+ * The splices that give a record its new points, by the place of each record they change, or an
+ * `EditError` for one no writer plan.
+ */
+function repointedAt(
+  r: Records,
+  i: number,
+  statement: number,
+  edit: Edit,
+  repointed: ReturnType<typeof stretchPlan>["repointed"],
+  index: ReadIndex,
+): Map<number, Splice[]> {
+  const handle = canonicalHandle(r.doc.handle(i) ?? "");
+  const entity = repointed.get(handle)!.entity;
+  const s = edit.statements[statement]!;
+  const groups = r.groups(i);
+  const kind = r.kind(i);
+
+  const fail = (why: string): never => {
+    throw new EditError(`${handleOf(r, i)}: ${why}`, statement);
+  };
+
+  const one = (made: Splice[] | string): Map<number, Splice[]> =>
+    isString(made) ? fail(made) : new Map([[i, made]]);
+
+  if (kind === "SOLID" && s.kind === "stretch" && facingOf(groups) !== 1)
+    return fail("the SOLID is not seen from above, +Z");
+
+  if ((kind === "LINE" || kind === "SOLID") && s.kind === "stretch")
+    return one(moveRecord(kind, groups, stretchApplied(s.window, s.by)));
+
+  if (kind === "LWPOLYLINE" && entity.kind === "polyline")
+    return one(lwpolylinePoints(groups, entity));
+
+  if (kind === "ARC" && entity.kind === "arc") return one(arcPoints(groups, entity));
+
+  if (kind === "POLYLINE" && entity.kind === "polyline") {
+    const vertices = followers(r, i).filter((j) => r.kind(j) === "VERTEX");
+
+    const made = vertexRecordPoints(
+      groups,
+      vertices.map((j) => r.groups(j)),
+      entity,
+    );
+
+    if (isString(made)) return fail(made);
+
+    return new Map(vertices.map((j, k) => [j, made[k]!]));
+  }
+
+  if (kind === "HATCH" && entity.kind === "hatch") {
+    // Each loop is the copy of its one boundary, a polyline the same statement stretches, or one
+    // it leaves as it is with the loop.
+    const before = index.byHandle.get(handle);
+
+    const loops =
+      before?.kind === "entity" && before.entity.kind === "hatch" ? before.entity.loops : [];
+
+    const boundaries = hatchBoundaries(groups);
+
+    if (boundaries.length !== loops.length)
+      fail("an associative hatch is stretched only where each loop has one boundary");
+    boundaries.forEach((b, k) => {
+      const at = index.byHandle.get(b);
+      const given = repointed.get(b);
+      const loop = entity.loops[k];
+      const left = loop !== undefined && sameRun(loop, { ...loops[k]!, closed: true });
+
+      if (
+        at?.kind !== "entity" ||
+        at.entity.kind !== "polyline" ||
+        (given?.statement !== statement && !(left && given === undefined)) ||
+        !sameRun(loops[k]!, at.entity)
+      )
+        fail(
+          `an associative hatch is stretched only with each boundary, a polyline its loop copies, stretched by the same statement: ${b} is not`,
+        );
+    });
+
+    return one(hatchLoopPoints(groups, entity));
+  }
+
+  return fail(`a ${kind} is not given new points by this version of tsdraft`);
+}
+
+/** The boundary of each loop of a hatch, groups 330 of its subclass, in order. */
+function hatchBoundaries(groups: readonly HeldGroup[]): string[] {
+  const out: string[] = [];
+  let inHatch = false;
+
+  for (const g of groups) {
+    if (g.code === 1001) break;
+
+    if (g.code === 100) inHatch = g.value.trim() === "AcDbHatch";
+
+    if (inHatch && g.code === 330) out.push(canonicalHandle(g.value.trim()));
+  }
+
+  return out;
 }

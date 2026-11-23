@@ -7,6 +7,7 @@ import { sha256 } from "../sha256.ts";
 import { recordEdits } from "./dxf-records.ts";
 import { lintEdit } from "./lint.ts";
 import { EditError, editToMake, type Edit } from "./model.ts";
+import { indexRead } from "./reach.ts";
 
 /** The one format an edit writes: the 2018 format's. */
 export const EDIT_VERSION = "AC1032";

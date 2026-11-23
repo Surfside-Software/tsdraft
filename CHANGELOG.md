@@ -101,6 +101,22 @@
   both, writing again only the values that change. `lintEdit(edit, read)` gives the refusals the
   read can tell, each with the call of its statement, and `editedRead(read, edit)` the read of the
   file after the edit. The checks of every job hold a copy to it, and `FileEditor` gains `links`.
+- An edit stretches and sets a polyline's vertices. `e.stretch(handles, { window, by })` moves
+  each point of a named entity inside the window, its edge among it, by `by`, as the leading CAD
+  app's `STRETCH` does by a crossing window: a side of a polyline or an arc whose one end moves
+  keeps its arc's height, an insert, a text, paragraph text, a circle and a point move whole by the
+  point they are placed by, an associative hatch is stretched with its boundary, and an entity
+  wholly inside moves as `e.move` moves it, a dimension with its picture. What it would leave as it
+  is gets the warning `edit-stretch-unchanged`, and what it cannot stretch, such as a dimension
+  with only some of its points inside, the error `edit-stretch`.
+  `e.vertices(handle, { points, bulges })` sets a light or a 2D polyline's points, each side
+  keeping its bulge and its widths unless `bulges` gives them; a light polyline may take another
+  number of points. Its refusals are `edit-vertices`. Both writers make both, and `editedRead`
+  reads them; `stretchedEntity` and `stretchPlan` say what a stretch makes of each entity.
+- The entity that clips a viewport moves only with its viewport: a move of it alone, a stretch or
+  vertices of it is refused with `edit-part`. A handle an earlier statement reaches takes nothing
+  with it again, so an edit that names one insert or dimension in many statements lints in time
+  of its names, before `edit-twice` refuses it.
 - `tsdraft render` and `tsdraft dev` take an edit file: they draw the file as it will plot after
   the edit, and a second picture of what it changes, and `tsdraft write` refuses an edit
   `lintEdit` gives an error for.

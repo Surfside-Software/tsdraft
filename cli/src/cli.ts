@@ -39,10 +39,10 @@ read-picture warnings say what they could not draw as the file holds it.
 
 An edit file, whose default export is editDrawing(...), is drawn as the file it
 edits will plot after the edit, with a second picture of what the edit changes:
-what it does not reach faint, what it erases dashed in red, and what it moves
-dashed in amber where it was and drawn where it goes. The JSON's edit gives each
-statement with its call and its box, and lintEdit's errors exit 2. A file whose
-SHA-256 is not the edit's is drawn as it is, with an edit-hash error.
+what it does not reach faint, what it erases dashed in red, and what it moves or
+stretches dashed in amber where it was and drawn where it goes. The JSON's edit
+gives each statement with its call and its box, and lintEdit's errors exit 2. A
+file whose SHA-256 is not the edit's is drawn as it is, with an edit-hash error.
 
 render  Builds the file once, writes <name>.svg and <name>.png to --out (default:
         an out folder beside the file), and prints the result as JSON. Exits 0

@@ -4,9 +4,11 @@ An edit changes a drawing file a firm already has, and keeps the rest of it as t
 It names the file by its path and by the SHA-256 of the bytes it was planned on, so it is never
 made on other bytes, and it is written to an edited copy, never over the firm's file.
 
-This version erases, moves and changes: `e.erase(...handles)`, `e.move(handles, transform)`,
-`e.change(handle, changes)`, `e.layer(name, changes)` and `e.viewport(handle, changes)`. The
-statements that add come in later versions, on this footing.
+This version erases, moves, changes, stretches and sets a polyline's vertices:
+`e.erase(...handles)`, `e.move(handles, transform)`, `e.change(handle, changes)`,
+`e.layer(name, changes)`, `e.viewport(handle, changes)`, `e.stretch(handles, { window, by })` and
+`e.vertices(handle, { points, bulges })`. The statements that add come in later versions, on this
+footing.
 
 ## The edit file
 
@@ -83,8 +85,69 @@ of what an associative dimension or hatch names, or of the dimension or hatch, a
 other; an erasure of what an associative dimension names, the dimension kept; a reference to what
 goes that no rule takes out; a dynamic block's definition; and a handle the file holds twice.
 
+## Stretch and vertices
+
+```ts
+e.stretch(["4361F", "4360A"], {
+  window: [
+    [82960, 156080],
+    [83660, 156100],
+  ],
+  by: [0, -14.25],
+});
+e.vertices("1035F0F", {
+  points: [
+    [24297, 98179.4],
+    [24297, 97720.5],
+    [23658.2, 97720.5],
+  ],
+});
+```
+
+`e.stretch(handles, { window, by })` stretches each entity it names as the leading CAD app's
+`STRETCH` does by a crossing window. `window` is two opposite corners, and a point on its edge is
+inside. What the window holds of an entity it does not name stays as it is.
+
+- A line, a light or a 2D polyline and a 2D solid: each point inside moves by `by`. A side of a
+  polyline whose one end moves keeps its arc's height, so its bulge is worked out again. Widths
+  stay.
+- An arc whose one end is inside: that end moves, and the arc keeps its height. Its ends are
+  worked out from its angles, so an end within the rounding of its sine and cosine of the edge is
+  on it.
+- An insert with its attributes, paragraph text, a circle and a point move whole when the point
+  they are placed by is inside. A justified text moves by its alignment point, a text on the left
+  by its start, and an aligned or fitted one by either of its two points.
+- A hatch tied to its boundary, a polyline its loop copies: both are stretched by the same
+  statement, point by point. A loop the window leaves as it is keeps its boundary as it is, so the
+  outer edge of a hatch with a hole stretches and the hole stays. A hatch with no boundary is left as it is unless the window holds
+  it whole, as the leading CAD app leaves it, with the warning `edit-stretch-unchanged`.
+- An entity whose points are all inside moves as `e.move` moves it, a dimension with its picture.
+  One with no point inside is left as it is, with the warning `edit-stretch-unchanged`.
+
+A stretch refuses, with `edit-stretch`: a dimension with some of its points inside, whose picture
+would be drawn again; an arc whose middle is inside and one end is not; an ellipse, a spline, a
+multileader, an old leader, a table, an image, a wipeout and an underlay; a viewport; and a side
+of a polyline, a hatch's loop or a 2D solid that would come to nothing. The entity that clips a
+viewport moves only with its viewport, so a stretch or vertices of it is refused with
+`edit-part`. The writers refuse a stretch in part of what an associative dimension names, unless
+the edit erases the dimension, and in part of an arc, a hatch or a 2D solid not seen from above.
+
+`e.vertices(handle, { points, bulges })` sets a light or a 2D polyline's points, in the world's
+coordinates. `bulges` gives one for each side, as the read gives them: an open polyline's one
+fewer than its points. Without it each side keeps its bulge, and its widths stay. A light
+polyline may take another number of points: then a polyline with arcs needs `bulges`, and one
+with widths of each side is refused. It refuses, with `edit-vertices`: another number of points
+for a 2D polyline, whose vertex records would be added or erased; a closed polyline's last point
+that repeats its first; bulges of another number than its sides; and anything that is not a
+polyline. The writers refuse a fitted 2D polyline, and the boundary of an associative hatch or what
+an associative dimension names, unless the edit erases the hatch or the dimension.
+
+A stretch and a vertices statement reach what they name, and what a move would take with it, so
+one handle in two statements is refused, as for every other statement.
+
 `editedRead(read, edit)` is the read of the file after the edit: what it erases left out of its
-space, its census and its lists, what it moves moved, and what it changes changed, with the census
+space, its census and its lists, what it moves moved, what it gives new points as the edit leaves
+it, and what it changes changed, with the census
 of each layer and the fields a whole value takes out. The objects an erased entity owns that
 the read counts and does not list, and the fields it counts by their code, it leaves as the
 source's.
@@ -161,7 +224,7 @@ one of a block inserted once with `edit-block-definition`.
 it edits as it will plot after the edit, from `editedRead(read, edit)`: model space and each
 layout, at the sheet's own pens, with the xrefs found beside the file. A second picture, the
 picture of changes, draws every entity the edit does not reach faint, each it erases dashed in red
-where it was, and each it moves or changes dashed in amber where it was and at full strength where
+where it was, and each it moves, stretches or changes dashed in amber where it was and at full strength where
 it goes. A change of a layer draws every picture again.
 `dev` toggles between the two with the Changes button or the C key, and serves the second at
 `/drawing.svg?changes=1`. The JSON's `edit` gives each statement with its call, its handles and

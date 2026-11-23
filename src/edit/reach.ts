@@ -149,9 +149,14 @@ export function indexRead(read: DrawingRead): ReadIndex {
 /**
  * The handles a statement names and what each takes with it, in the order it names them: a
  * change reaches its entity and the attributes it names, a viewport's change the viewport, and a
- * layer's change its layer, as `layer:` and its name's key.
+ * layer's change its layer, as `layer:` and its name's key. A handle `reached` holds takes nothing
+ * with it, for it is reached twice already.
  */
-export function reachOf(index: ReadIndex, statement: EditStatement): string[] {
+export function reachOf(
+  index: ReadIndex,
+  statement: EditStatement,
+  reached: (handle: string) => boolean = () => false,
+): string[] {
   if (statement.kind === "layer") return [`layer:${layerKey(statement.name)}`];
 
   if (statement.kind === "viewport") return [canonicalHandle(statement.handle)];
@@ -173,11 +178,13 @@ export function reachOf(index: ReadIndex, statement: EditStatement): string[] {
   }
 
   const out: string[] = [];
-  const names = statement.handles;
+  const names = statement.kind === "vertices" ? [statement.handle] : statement.handles;
 
   // A handle named twice is reached once, and what it takes with it once.
   for (const handle of new Set(names.map(canonicalHandle))) {
     out.push(handle);
+
+    if (reached(handle)) continue;
     const at = index.byHandle.get(handle);
 
     if (at?.kind === "entity") {
@@ -187,7 +194,7 @@ export function reachOf(index: ReadIndex, statement: EditStatement): string[] {
         for (const a of e.attributes ?? []) if (a.handle) out.push(canonicalHandle(a.handle));
       // A table's picture is in the table's own coordinates, and moves with it as it stands; a
       // dimension's is in the world's.
-      const picture = statement.kind === "move" && e.kind === "table" ? undefined : pictureOf(e);
+      const picture = statement.kind !== "erase" && e.kind === "table" ? undefined : pictureOf(e);
 
       const block =
         picture === undefined ? undefined : index.blocksByHandle.get(canonicalHandle(picture));
@@ -205,7 +212,7 @@ export function reachOf(index: ReadIndex, statement: EditStatement): string[] {
 export interface EditReach {
   /** Each erased handle, what an erasure takes with it among them, by its statement. */
   readonly erased: ReadonlyMap<string, number>;
-  /** Each moved handle, what moves with it among them, by its statement. */
+  /** Each handle moved or given new points, what moves with it among them, by its statement. */
   readonly moved: ReadonlyMap<string, number>;
   /**
    * Each handle a change or a viewport's change reaches, the attributes it names among them, and
@@ -221,13 +228,20 @@ export function editReach(edit: Edit, index: ReadIndex): EditReach {
   const moved = new Map<string, number>();
   const changed = new Map<string, number>();
   const twice: [string, number, number][] = [];
+  const reached = (h: string): boolean => erased.has(h) || moved.has(h) || changed.has(h);
+
   edit.statements.forEach((statement, i) => {
     let into = changed;
 
     if (statement.kind === "erase") into = erased;
-    else if (statement.kind === "move") into = moved;
+    else if (
+      statement.kind === "move" ||
+      statement.kind === "stretch" ||
+      statement.kind === "vertices"
+    )
+      into = moved;
 
-    for (const h of new Set(reachOf(index, statement))) {
+    for (const h of new Set(reachOf(index, statement, reached))) {
       const first = erased.get(h) ?? moved.get(h) ?? changed.get(h);
 
       if (first !== undefined) twice.push([h, first, i]);

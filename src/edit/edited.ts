@@ -34,7 +34,8 @@ import {
 } from "./lint-change.ts";
 import { movedEntity, movedViewport } from "./moved.ts";
 import { editReach, indexRead, type ReadIndex } from "./reach.ts";
-import { applied, type Applied } from "./transform.ts";
+import { stretchPlan, transformOf } from "./stretch.ts";
+import type { Applied } from "./transform.ts";
 
 /** The kind a census counts an entity of the read under, as its file names it. */
 export function fileKind(e: ReadEntity): string {
@@ -67,6 +68,8 @@ const key = (h: string | undefined): string | undefined =>
 interface Plan {
   readonly erased: ReadonlySet<string>;
   readonly moved: ReadonlyMap<string, Applied>;
+  /** Each entity given new points, as it is after the edit. */
+  readonly repointed: ReadonlyMap<string, ReadEntity>;
   readonly changed: ReadonlyMap<string, EntityChanges>;
   readonly viewports: ReadonlyMap<string, ViewportChanges>;
   readonly read: DrawingRead;
@@ -92,6 +95,17 @@ const takes = (plan: Plan, h: string | undefined): "erased" | Applied | undefine
 
   return plan.moved.get(k);
 };
+
+/** The entity as the edit leaves it, or undefined where the edit does not change it. */
+function placedOf(plan: Plan, e: ReadEntity): ReadEntity | undefined {
+  const k = key(e.handle);
+  const repointed = k === undefined ? undefined : plan.repointed.get(k);
+
+  if (repointed !== undefined) return repointed;
+  const what = takes(plan, e.handle);
+
+  return what === undefined || what === "erased" ? undefined : movedEntity(e, what);
+}
 
 /** A layer's counts less one entity of it. */
 function lessOne(row: ReadLayerCensus, e: ReadEntity): ReadLayerCensus {
@@ -285,11 +299,11 @@ function space(s: ReadSpace, plan: Plan): ReadSpace {
   let changed = false;
 
   for (const e of entities) {
-    const what = takes(plan, e.handle);
+    const now = takes(plan, e.handle) === "erased" ? undefined : placedOf(plan, e);
 
-    if (what === "erased") changed = true;
-    else if (what !== undefined) {
-      kept.push(movedEntity(e, what));
+    if (takes(plan, e.handle) === "erased") changed = true;
+    else if (now !== undefined) {
+      kept.push(now);
       changed = true;
     } else {
       const after = changedOf(plan, e);
@@ -409,11 +423,11 @@ function blocks(
     const entities: ReadEntity[] = [];
 
     for (const e of b.entities) {
-      const what = takes(plan, e.handle);
+      const now = takes(plan, e.handle) === "erased" ? undefined : placedOf(plan, e);
 
-      if (what === "erased") changed = true;
-      else if (what !== undefined) {
-        entities.push(movedEntity(e, what));
+      if (takes(plan, e.handle) === "erased") changed = true;
+      else if (now !== undefined) {
+        entities.push(now);
         changed = true;
       } else {
         const after = changedOf(plan, e);
@@ -446,17 +460,26 @@ export function editedRead(read: DrawingRead, edit: Edit): DrawingRead {
   const erased = new Set<string>();
   const moved = new Map<string, Applied>();
 
-  const transforms = edit.statements.map((s) =>
-    s.kind === "move" ? applied(s.transform) : undefined,
-  );
+  const transforms = edit.statements.map(transformOf);
+
+  const points = stretchPlan(edit, index);
+  const repointed = new Map<string, ReadEntity>();
 
   // The handles a statement names that it reaches, with what they take: an error leaves one out.
+  // A stretch reaches what it moves whole; what it gives new points is repointed alone.
   const named = new Set<string>();
   edit.statements.forEach((s, i) => {
-    if (s.kind !== "erase" && s.kind !== "move") return;
+    if (s.kind !== "erase" && s.kind !== "move" && s.kind !== "stretch" && s.kind !== "vertices")
+      return;
 
-    for (const k of new Set(s.handles.map(canonicalHandle))) {
-      if (handleProblem(read, index, edit, i, k)?.severity !== "error") named.add(`${i}:${k}`);
+    for (const k of new Set(
+      (s.kind === "vertices" ? [s.handle] : s.handles).map(canonicalHandle),
+    )) {
+      if (handleProblem(read, index, edit, i, k)?.severity === "error") continue;
+      const repointedAt = points.repointed.get(k);
+
+      if (repointedAt?.statement === i) repointed.set(k, repointedAt.entity);
+      else if (s.kind !== "stretch" || points.moved.get(k) === i) named.add(`${i}:${k}`);
     }
   });
 
@@ -477,7 +500,9 @@ export function editedRead(read: DrawingRead, edit: Edit): DrawingRead {
   for (const [h, i] of reach.erased) if (!twice.has(h) && applies(h, i)) erased.add(h);
 
   for (const [h, i] of reach.moved)
-    if (!twice.has(h) && applies(h, i)) moved.set(h, transforms[i]!);
+    if (!twice.has(h) && applies(h, i) && transforms[i] !== undefined) moved.set(h, transforms[i]!);
+
+  for (const h of twice) repointed.delete(h);
 
   // The changes `lintEdit` finds nothing wrong with.
   const changed = new Map<string, EntityChanges>();
@@ -516,12 +541,13 @@ export function editedRead(read: DrawingRead, edit: Edit): DrawingRead {
   if (
     erased.size === 0 &&
     moved.size === 0 &&
+    repointed.size === 0 &&
     changed.size === 0 &&
     viewports.size === 0 &&
     layers.size === 0
   )
     return read;
-  const plan: Plan = { erased, moved, changed, viewports, read, index };
+  const plan: Plan = { erased, moved, repointed, changed, viewports, read, index };
 
   // The picture of an erased dimension or table goes with it.
   const gonePictures = new Set<string>();

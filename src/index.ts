@@ -571,10 +571,22 @@ export {
   type EditStatement,
   type EntityChanges,
   type LayerChanges,
+  type StretchBy,
   type TextChange,
   type Transform,
+  type Vertices,
   type ViewportChanges,
 } from "./edit/model.ts";
+
+export {
+  sameRun,
+  stretchPlan,
+  stretchApplied,
+  stretchedEntity,
+  transformOf,
+  type StretchPlan,
+  type Stretched,
+} from "./edit/stretch.ts";
 
 export { dxfStructure, type StructureDefect, type StructureReport } from "./edit/structure.ts";
 

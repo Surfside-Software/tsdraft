@@ -39,7 +39,34 @@ export type EditStatement =
   | { readonly kind: "move"; readonly handles: readonly string[]; readonly transform: Transform }
   | { readonly kind: "change"; readonly handle: string; readonly changes: EntityChanges }
   | { readonly kind: "layer"; readonly name: string; readonly changes: LayerChanges }
-  | { readonly kind: "viewport"; readonly handle: string; readonly changes: ViewportChanges };
+  | { readonly kind: "viewport"; readonly handle: string; readonly changes: ViewportChanges }
+  | {
+      readonly kind: "stretch";
+      readonly handles: readonly string[];
+      readonly window: readonly [Point, Point];
+      readonly by: Point;
+    }
+  | {
+      readonly kind: "vertices";
+      readonly handle: string;
+      readonly points: readonly Point[];
+      readonly bulges?: readonly number[];
+    };
+
+/** What a stretch takes: the window, by two opposite corners, and how far its points move. */
+export interface StretchBy {
+  readonly window: readonly [Point, Point];
+  readonly by: Point;
+}
+
+/**
+ * A polyline's vertices: its points, and the bulge of each side, one for each as the read gives
+ * them, an open polyline's one fewer than its points. Without them each side keeps its own.
+ */
+export interface Vertices {
+  readonly points: readonly Point[];
+  readonly bulges?: readonly number[];
+}
 
 /** Scale and turn about `about`, then move by `by`. */
 export interface Transform {
@@ -152,6 +179,16 @@ export interface EditBuilder {
    */
   move(handles: readonly string[], transform: Transform): void;
   /**
+   * Stretches each entity as the leading CAD app's STRETCH does by a crossing window: each of its
+   * points inside `window`, its edge among it, moves by `by`, and a side whose one end moves keeps
+   * its arc's height. An insert, a text, paragraph text, a circle and a point move whole when the
+   * point they are placed by is inside, and an entity whose points are all inside moves as `move`
+   * moves it.
+   */
+  stretch(handles: readonly string[], stretch: StretchBy): void;
+  /** Sets a light or a 2D polyline's points, and its bulges where they are given. */
+  vertices(handle: string, vertices: Vertices): void;
+  /**
    * Changes an entity in place: its text, an insert's attributes by tag, its height and width,
    * and its pen. A text keeps its record, its style and its formats.
    */
@@ -228,6 +265,36 @@ export function editDrawing(
           if (problem !== undefined) fail(`move: ${problem}`);
           calls.push(holdCall(builder.move));
           statements.push({ kind: "move", handles: list, transform: copyTransform(transform) });
+        },
+        stretch(handles, stretch) {
+          const list = handlesOf(handles, "stretch");
+          const problem = stretchProblem(stretch);
+
+          if (problem !== undefined) fail(`stretch: ${problem}`);
+          calls.push(holdCall(builder.stretch));
+          const [a, b] = stretch.window;
+          statements.push({
+            kind: "stretch",
+            handles: list,
+            window: [
+              [a[0], a[1]],
+              [b[0], b[1]],
+            ],
+            by: [stretch.by[0], stretch.by[1]],
+          });
+        },
+        vertices(handle, vertices) {
+          const [h] = handlesOf([handle], "vertices");
+          const problem = verticesProblem(vertices);
+
+          if (problem !== undefined) fail(`vertices: ${problem}`);
+          calls.push(holdCall(builder.vertices));
+          statements.push({
+            kind: "vertices",
+            handle: h!,
+            points: vertices.points.map((p): Point => [p[0], p[1]]),
+            ...(vertices.bulges !== undefined && { bulges: [...vertices.bulges] }),
+          });
         },
         change(handle, changes) {
           const [h] = handlesOf([handle], "change");
@@ -328,6 +395,66 @@ export function transformProblem(value: Transform): string | undefined {
   return undefined;
 }
 
+const withinTransform = (p: unknown): p is Point =>
+  pointLike(p) && Math.abs(p[0]) <= MOST_TRANSFORM && Math.abs(p[1]) <= MOST_TRANSFORM;
+
+/** What is wrong with a value meant as a `StretchBy`, or undefined when nothing is. */
+export function stretchProblem(value: StretchBy): string | undefined {
+  if (!isRecord(value)) return "the stretch is not { window, by }";
+
+  for (const key in value)
+    if (key !== "window" && key !== "by")
+      return `the stretch holds ${JSON.stringify(key.slice(0, 40))}, which is not window or by`;
+  const w: unknown = value["window"];
+
+  if (!Array.isArray(w) || w.length !== 2 || !withinTransform(w[0]) || !withinTransform(w[1]))
+    return `the window is not two points of finite numbers within ${MOST_TRANSFORM}`;
+  // SAFETY: both items were just checked to be points.
+  const [a, b] = w as [Point, Point];
+
+  if (a[0] === b[0] || a[1] === b[1]) return "the window has no area";
+
+  if (!withinTransform(value["by"]))
+    return `by is not a point of two finite numbers within ${MOST_TRANSFORM}`;
+
+  if (value.by[0] === 0 && value.by[1] === 0) return "by moves nothing";
+
+  return undefined;
+}
+
+/** The most points a vertices statement gives a polyline. */
+export const MOST_VERTICES = 100_000;
+
+/** What is wrong with a value meant as `Vertices`, or undefined when nothing is. */
+export function verticesProblem(value: Vertices): string | undefined {
+  if (!isRecord(value)) return "the vertices are not { points, bulges }";
+
+  for (const key in value)
+    if (key !== "points" && key !== "bulges")
+      return `the vertices hold ${JSON.stringify(key.slice(0, 40))}, which is not points or bulges`;
+  const points: unknown = value["points"];
+
+  if (!Array.isArray(points) || points.length < 2 || points.length > MOST_VERTICES)
+    return `points is not a list of 2 to ${MOST_VERTICES} points`;
+
+  if (!everyOf(points, withinTransform))
+    return `a point is not two finite numbers within ${MOST_TRANSFORM}`;
+  const bulges: unknown = value["bulges"];
+
+  if (bulges !== undefined) {
+    if (!Array.isArray(bulges) || bulges.length > points.length)
+      return "bulges is not a list of one number for each side";
+
+    if (!everyOf(bulges, (b) => finite(b) && Math.abs(b) <= MOST_BULGE))
+      return `a bulge is not a finite number within ${MOST_BULGE}`;
+  }
+
+  return undefined;
+}
+
+/** The most a bulge may be: past it a side is a whole circle to the last digit. */
+export const MOST_BULGE = 1e6;
+
 const copyTransform = (t: Transform): Transform => ({
   ...(t.by !== undefined && { by: [t.by[0], t.by[1]] satisfies Point }),
   ...(t.about !== undefined && { about: [t.about[0], t.about[1]] satisfies Point }),
@@ -388,7 +515,16 @@ const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const SHA = /^[0-9a-f]{64}$/;
 const HANDLE = /^[0-9A-Fa-f]{1,16}$/;
 const UNITS: ReadonlySet<string> = new Set(["in", "ft", "mm", "cm", "m"]);
-const KINDS: ReadonlySet<string> = new Set(["erase", "move", "change", "layer", "viewport"]);
+
+const KINDS: ReadonlySet<string> = new Set([
+  "erase",
+  "move",
+  "change",
+  "layer",
+  "viewport",
+  "stretch",
+  "vertices",
+]);
 
 /** The kinds of statement this version makes. */
 export const MADE_KINDS: ReadonlySet<string> = new Set([
@@ -397,6 +533,8 @@ export const MADE_KINDS: ReadonlySet<string> = new Set([
   "change",
   "layer",
   "viewport",
+  "stretch",
+  "vertices",
 ]);
 
 /** True when each item of a list passes `test`, read by index and never by its methods. */
@@ -477,7 +615,7 @@ export function checkEdit(value: unknown): string[] {
 
       const list = s["handles"];
 
-      if (kind === "erase" || kind === "move") {
+      if (kind === "erase" || kind === "move" || kind === "stretch") {
         if (!Array.isArray(list) || (handles += list.length) > EDIT_LIMITS.handles) {
           problems.push(`statement ${i}'s handles are not a list within the edit's limit`);
           continue;
@@ -489,6 +627,27 @@ export function checkEdit(value: unknown): string[] {
         if (s["kind"] === "move") {
           // SAFETY: transformProblem checks each field at run time, whatever the value given.
           const problem = transformProblem(s["transform"] as Transform);
+
+          if (problem !== undefined) problems.push(`statement ${i}: ${problem}`);
+        }
+
+        if (kind === "stretch") {
+          // SAFETY: stretchProblem checks each field at run time, whatever the value given.
+          const problem = stretchProblem({ window: s["window"], by: s["by"] } as StretchBy);
+
+          if (problem !== undefined) problems.push(`statement ${i}: ${problem}`);
+        }
+      } else if (kind === "vertices") {
+        const points = s["points"];
+
+        if (!isHandle(s["handle"]))
+          problems.push(`statement ${i} names a handle that is not 1 to 16 hexadecimal digits`);
+        else if (Array.isArray(points) && (handles += points.length) > EDIT_LIMITS.handles)
+          problems.push(`statement ${i}'s points are past the edit's limit`);
+        else {
+          const given = s["bulges"] === undefined ? { points } : { points, bulges: s["bulges"] };
+          // SAFETY: verticesProblem checks each field at run time, whatever the value given.
+          const problem = verticesProblem(given as Vertices);
 
           if (problem !== undefined) problems.push(`statement ${i}: ${problem}`);
         }

@@ -18,7 +18,7 @@ import { sheetShows, spaceShows, viewportToPaper } from "../read/questions.ts";
 import { editedRead } from "./edited.ts";
 import { canonicalHandle, type Edit, type EditStatement } from "./model.ts";
 import { editReach, indexRead } from "./reach.ts";
-import { applied } from "./transform.ts";
+import { transformOf } from "./stretch.ts";
 
 /** What an edit changes in a picture, for `changesPicture`. */
 export interface PictureChanges {
@@ -276,10 +276,23 @@ function sizesOf(read: DrawingRead): Map<string, number> {
  * another kind has none. The boxes of the read are worked out once, as `sheetShows` gives them.
  */
 export function statementPlace(read: DrawingRead, statement: EditStatement): EditPlace {
-  if (statement.kind !== "erase" && statement.kind !== "move") return { layouts: [] };
+  if (
+    statement.kind !== "erase" &&
+    statement.kind !== "move" &&
+    statement.kind !== "stretch" &&
+    statement.kind !== "vertices"
+  )
+    return { layouts: [] };
   const p = placesOf(read);
-  const t = statement.kind === "move" ? applied(statement.transform) : undefined;
-  const handles = statement.handles.map(canonicalHandle);
+
+  // A stretch's box is where its entities were and where they would go moved whole.
+  const t = transformOf(statement);
+
+  const handles =
+    statement.kind === "vertices"
+      ? [canonicalHandle(statement.handle)]
+      : statement.handles.map(canonicalHandle);
+
   const both = (box: Box): Box => (t === undefined ? box : union(box, mapped(t.point, box)));
   let model: Box | undefined;
 
@@ -288,6 +301,9 @@ export function statementPlace(read: DrawingRead, statement: EditStatement): Edi
 
     if (box) model = union(model, both(box));
   }
+
+  if (statement.kind === "vertices" && model !== undefined)
+    for (const [x, y] of statement.points) model = union(model, [x, y, x, y]);
 
   const layouts: { layout: string; box: Box }[] = [];
 

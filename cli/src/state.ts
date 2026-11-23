@@ -159,7 +159,7 @@ export interface EditStatementSummary {
 
 /**
  * The pictures of what an edit changes: every entity it does not reach faint, each it erases
- * dashed in red where it was, and each it moves dashed in amber where it was and at full
+ * dashed in red where it was, and each it moves or stretches dashed in amber where it was and at full
  * strength where it goes. Model space, and each layout's sheet in the order of
  * `outputs.layouts`.
  */
