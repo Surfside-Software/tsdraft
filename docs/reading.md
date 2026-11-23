@@ -1,9 +1,10 @@
 # Reading drawing files
 
 `readDXF(input, options)` reads an ASCII DXF of any version and gives a `DrawingRead`, the read
-model. It takes the file as a string or as its bytes in an `AsyncIterable<Uint8Array>`, such as a
-stream from `fs.createReadStream`, and reads them as they arrive: it never holds the whole file,
-so a DXF of several hundred megabytes reads in seconds.
+model. It takes the file as a string, as its bytes in a `Uint8Array`, such as a `Buffer` from
+`fs.readFileSync`, or as its bytes in an `AsyncIterable<Uint8Array>`, such as a stream from
+`fs.createReadStream`. A stream it reads as the bytes arrive: it never holds the whole file, so a
+DXF of several hundred megabytes reads in seconds.
 
 ```ts
 import { createReadStream } from "node:fs";

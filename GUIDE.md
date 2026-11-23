@@ -268,11 +268,11 @@ A line feed starts a new paragraph. `list` writes numbered or lettered notes in 
 hanging under its mark as CAD programs set a list, and `paragraphFormat` a paragraph's indents,
 tab stops, justification and spacing. `columns: { count: 2, height: 6 }` flows the notes into
 columns side by side, each `width` wide. `measureParagraph` gives its lines and its box, from the
-widths `measureText` uses, and `inspectText` checks each line as a text. `underline`, `bold`,
-`stack`, `superscript` and `subscript` write the codes for what they name, and `plain(text)`
-escapes text from elsewhere. The codes `\H`, `\W`, `\Q`, `\A` and `\C` change the height, width,
-slant, place and color of the characters after them, and `lint` refuses a code tsdraft does not
-lay out, such as `\T`, and names it.
+widths `measureText` uses, and the box's `corners` give its height and its bottom. `inspectText`
+checks each line as a text. `underline`, `bold`, `stack`, `superscript` and `subscript` write the
+codes for what they name, and `plain(text)` escapes text from elsewhere. The codes `\H`, `\W`,
+`\Q`, `\A` and `\C` change the height, width, slant, place and color of the characters after them,
+and `lint` refuses a code tsdraft does not lay out, such as `\T`, and names it.
 [docs/paragraphs.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/paragraphs.md)
 has the codes.
 
@@ -660,6 +660,17 @@ run `npx tsc`:
 Use only TypeScript that can be erased: no enums, namespaces or parameter properties. Import
 your own files with their `.ts` extension. The rules are listed in
 [docs/rules.md](https://github.com/Surfside-Software/tsdraft/blob/main/docs/rules.md).
+
+A point is a pair, `readonly [x, y]`. Written straight into a call, `[0, 0]` is one, but held in
+a variable first it becomes `number[]`, which the compiler refuses as a point. Hold the options
+with `satisfies` and the type they go to, or a lone point with `as const`, rather than casting:
+
+```ts
+const schedule = { style: "SCHEDULE", at: [1, 20], columns: [2, 4], rows } satisfies TableOptions;
+d.table(schedule);
+const center = [10, 5] as const;
+d.circle(center, 2);
+```
 
 ## Writing the DXF
 

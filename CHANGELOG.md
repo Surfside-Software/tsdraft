@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `readDXF` takes the file's bytes as one `Uint8Array`, such as a `Buffer` from `fs.readFileSync`,
+  as `readDWG` does.
 - The picture of a read file. `toSVG` draws a `DrawingRead` read with `geometry` as the leading
   CAD app shows the file: model space, or a layout as it plots, with every kind the readers keep.
   A dimension and a table draw from the block of their picture, a multileader from its own

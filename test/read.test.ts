@@ -54,6 +54,7 @@ test("readDXF reads what toDXF writes of the example sheet", async () => {
   assert.equal(read.version, "AC1032");
   assert.equal(read.encoding, "utf-8");
   assert.equal(read.header.insunits, 2);
+  assert.deepEqual(await readDXF(bytes), read);
 
   for (const layer of sheet.layers) {
     const got = read.layers.find((l) => l.name === layer.name);

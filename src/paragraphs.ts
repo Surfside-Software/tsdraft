@@ -346,7 +346,9 @@ export interface ParagraphLayout {
 export interface ParagraphMeasure {
   /**
    * The box of all it draws, turned as it is: its lower left, lower right, upper right and upper
-   * left corners. Undefined when it draws nothing.
+   * left corners. Undefined when it draws nothing. Its bottom edge runs from the first corner to
+   * the second, and its height is the distance from the first to the fourth; unturned, the
+   * bottom is `corners[0][1]` and the height `corners[3][1] - corners[0][1]`.
    */
   readonly corners: readonly [Point, Point, Point, Point] | undefined;
   /** The box `align` and `valign` place it by, turned, in the same order. */

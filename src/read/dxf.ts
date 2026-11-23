@@ -83,15 +83,15 @@ import {
 } from "./model.ts";
 
 /**
- * Reads an ASCII DXF of any version: from a string, or from its bytes as they arrive. It never
- * holds the whole file, but for a read with `only`, which reads the file twice and holds a copy of
+ * Reads an ASCII DXF of any version: from a string, from its bytes, or from its bytes as they
+ * arrive. Given a stream, it never holds the whole file, but for a read with `only`, which reads the file twice and holds a copy of
  * a stream's bytes for the second pass. It throws a `ReadError` for a file it cannot read at all,
  * such as a binary DXF or one whose groups are out of step, and reads everything else, counting
  * what it did not understand. With `geometry`, it keeps what model space and each layout draws
  * too, and with `only` what the layouts and areas it names show.
  */
 export function readDXF(
-  input: string | AsyncIterable<Uint8Array>,
+  input: string | Uint8Array | AsyncIterable<Uint8Array>,
   options: ReadOptions = {},
 ): Promise<DrawingRead> {
   return readDXFWithin(input, options, READ_LIMITS);
