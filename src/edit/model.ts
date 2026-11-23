@@ -16,6 +16,7 @@ import { layerKey } from "../layers.ts";
 import type { DrawingRead, ReadPart } from "../read/model.ts";
 import type { Standard } from "../standard/document.ts";
 import { fileTables, type FileTables } from "./file-tables.ts";
+import { drawCopy, rowPlan, type ScheduleRow, type ScheduleWhere } from "./schedule.ts";
 import {
   copyTextChange,
   entityChangesProblem,
@@ -215,6 +216,14 @@ export interface EditBuilder {
   layer(name: string, changes: LayerChanges): void;
   /** Re-aims a viewport, turns it on or off, and freezes or thaws layers in it alone. */
   viewport(handle: string, changes: ViewportChanges): void;
+  /**
+   * Adds a row to the schedule `readSchedule` read, below the row `row.after`: what lies below
+   * moves down by that row's height, what spans the row's bottom edge, such as a frame or a
+   * merged cell, stretches to it, and the row's own lines, polylines, circles and texts are drawn
+   * again in the new row in their own layers, styles and pens, each text with the new row's value.
+   * It makes a move, a stretch and additions, read again from the file by the schedule's window.
+   */
+  row(schedule: ScheduleWhere, row: ScheduleRow): void;
 }
 
 /** The drawing builder an edit's additions are drawn with, over the file's definitions. */
@@ -381,6 +390,53 @@ export function editDrawing(
           if (problem !== undefined) fail(`layer: ${problem}`);
           calls.push(holdCall(builder.layer));
           statements.push({ kind: "layer", name, changes: { ...changes } });
+        },
+        row(schedule, row) {
+          let plan: ReturnType<typeof rowPlan>;
+
+          try {
+            plan = rowPlan(loadedRead(), schedule, row);
+          } catch (error) {
+            return fail(error instanceof Error ? `row: ${error.message}` : "row: refused");
+          }
+
+          const call = holdCall(builder.row);
+
+          const move = (handles: readonly string[], by: Point): void => {
+            calls.push(call);
+            statements.push({ kind: "move", handles: [...handles], transform: { by } });
+          };
+
+          if (plan.below.length > 0) move(plan.below, plan.by);
+
+          if (plan.spanning.length > 0) {
+            calls.push(call);
+            statements.push({
+              kind: "stretch",
+              handles: [...plan.spanning],
+              window: [
+                [plan.window[0][0], plan.window[0][1]],
+                [plan.window[1][0], plan.window[1][1]],
+              ],
+              by: plan.by,
+            });
+          }
+
+          for (const w of plan.within) move(w.handles, w.by);
+
+          if (plan.copies.length > 0) {
+            const d = drawing(plan.space);
+            const styles = loadedRead().textStyles;
+
+            for (const c of plan.copies)
+              try {
+                drawCopy(d, c.entity, c.by ?? plan.by[1], c.value, styles);
+              } catch (error) {
+                fail(
+                  `row: ${c.entity.handle} is not copied: ${error instanceof Error ? error.message : "refused"}`,
+                );
+              }
+          }
         },
         viewport(handle, changes) {
           const [h] = handlesOf([handle], "viewport");

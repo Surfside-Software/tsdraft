@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A row added to a schedule. `readSchedule(read, { window })` reads a schedule drawn as text in
+  boxes, lines or a polyline for each cell, as a grid of columns, rows and cells, a merged cell
+  once, with the texts of each. `e.row(schedule, { after, cells })` adds a row below another: what
+  lies below moves down, what crosses the row's bottom edge stretches, and the row's boxes, lines,
+  circles and texts are drawn again in the new row in their own layers, styles and pens, each text
+  with the value given. Its cases are held to the leading CAD app's own move, stretch and copy of
+  the same rows, in both formats.
 - An edit adds. `e.model(draw)` and `e.layout(name, draw)` give the drawing builder over the file's
   own layers, styles and blocks, in the file's or the layout's units: a name the file holds is the
   file's, used as the file defines it, and another definition of it is refused with the new rule

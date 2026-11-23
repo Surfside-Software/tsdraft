@@ -595,6 +595,15 @@ export {
 export { dxfStructure, type StructureDefect, type StructureReport } from "./edit/structure.ts";
 
 export {
+  readSchedule,
+  SCHEDULE_LIMITS,
+  type ReadSchedule,
+  type ScheduleCell,
+  type ScheduleRow,
+  type ScheduleWhere,
+} from "./edit/schedule.ts";
+
+export {
   drawnRecords,
   planAdditions,
   planRecord,

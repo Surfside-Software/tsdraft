@@ -4,11 +4,11 @@ An edit changes a drawing file a firm already has, and keeps the rest of it as t
 It names the file by its path and by the SHA-256 of the bytes it was planned on, so it is never
 made on other bytes, and it is written to an edited copy, never over the firm's file.
 
-This version erases, moves, changes, stretches, sets a polyline's vertices and adds:
-`e.erase(...handles)`, `e.move(handles, transform)`, `e.change(handle, changes)`,
+This version erases, moves, changes, stretches, sets a polyline's vertices, adds, and adds a row to
+a schedule: `e.erase(...handles)`, `e.move(handles, transform)`, `e.change(handle, changes)`,
 `e.layer(name, changes)`, `e.viewport(handle, changes)`, `e.stretch(handles, { window, by })`,
-`e.vertices(handle, { points, bulges })`, `e.model(draw)` and `e.layout(name, draw)`. Later
-versions build on this footing.
+`e.vertices(handle, { points, bulges })`, `e.model(draw)`, `e.layout(name, draw)` and
+`e.row(schedule, row)`. Later versions build on this footing.
 
 ## The edit file
 
@@ -298,6 +298,64 @@ a justified text in the file's `Standard` when its font is not the one tsdraft m
 `Standard` in, an id used twice across the spaces, a definition of a name the file holds other than
 the file's, and an image or an underlay, which an edit does not add yet. It warns of an addition on a layer that is off, frozen, set not to plot, `Defpoints`
 or `0`, or that a viewport of the file freezes.
+
+## A row added to a schedule
+
+A schedule a firm draws as text in boxes, lines or a polyline for each cell, reads as a grid:
+
+```ts
+export default editDrawing(
+  { file: "../1_Model/FLOOR PLAN.dwg", sha256: "6d6f…", name: "rev-1" },
+  (e, read) => {
+    const window = [
+      [1200, 860],
+      [1900, 1110],
+    ] as const;
+    const f = readSchedule(read, { window }).cells.find((c) => c.text === "F")!;
+
+    e.row(
+      { window },
+      {
+        after: f.row,
+        cells: ["G", "SINGLE HUNG", `3'-0"`, `2'-4"`, "NO", "YES", "ALUMINUM"],
+      },
+    );
+  },
+);
+```
+
+`readSchedule(read, { window, layout })` reads the schedule a window holds whole, in model space or
+on a layout's paper: `columns` and `rows`, the edges its lines and the straight sides of its
+polylines draw across and up and down, and `cells`, each with the row and column it starts at, how
+many it spans, its box, its texts without their codes, top to bottom, and the handles of what it
+holds. A merged cell, one no edge divides, is listed once. Two edges closer than a twentieth of the
+smallest text are one, and an edge closes at least one cell and is joined, through the edges it
+meets, to the schedule's outside: a tag, a rule or a dash inside a cell is what the cell holds. Each text belongs to the cell its middle is in, as its font measures it and as it is turned, and an
+arc to the cell its middle is in.
+
+`e.row(schedule, { after, cells })` adds a row below the row `after`, as a person does with the
+leading CAD app's own commands: what lies below moves down by that row's height, what crosses the
+row's bottom edge, such as the frame or a merged cell, stretches to it, and what the row draws, its
+boxes, lines, circles, texts and paragraph text, is drawn again in the new row on the same layers,
+in the same styles, heights, justifications and pens. Where nothing would draw a part of the row's
+bottom edge or the new row's, a line in the pen of what drew that part does. `cells` holds a value for each of the row's
+cells, left to right: a string, written as it reads with the codes the cell's text opens with kept,
+such as its color, `""` for a cell left empty, or `undefined` for the cell's texts as they are. A
+merged cell that spans more than the row grows by the new row and takes `undefined`; what it holds
+moves together, keeping its place: at the top when its middle is in the cell's top third, in the
+middle in its middle third and at the foot in its bottom third. A row at the foot of a merged cell
+that spans more than one row is refused, since whether the new row joins the cell is not clear. The row is a move, a stretch and additions, so every check of an edit holds them.
+
+It refuses, with an `EditError`: a window that holds no grid, lines inside a schedule that make two
+cells or more apart from its outside, as inside a frame drawn clear of it, a text beside the
+columns in the rows' height, which no line up and down closes, a row that is not one, values that do
+not match the row's cells, a value for a cell that holds no text or more than one, an entity that
+ends inside the row, a kind it does not copy, and a text it cannot write where the leading CAD app
+starts it: aligned, fitted or justified middle, mirrored, or justified in the file's own `Standard`
+when its font is not the one tsdraft measures `Standard` in; a paragraph with a mask of a true color,
+and part of an ellipse. A single-line text given a value keeps its underline and overline. A
+schedule's window holds at most 20,000 entities, 200,000 sides and 250,000 cells, and the space
+around it at most 10,000,000 points.
 
 ## The preview
 
